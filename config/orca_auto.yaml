@@ -1,0 +1,25 @@
+runtime:
+  allowed_root: "/home/daehyupsohn/orca_runs"
+  organized_root: "/home/daehyupsohn/orca_outputs"
+  default_max_retries: 5
+
+paths:
+  orca_executable: "/home/daehyupsohn/opt/orca/orca"
+
+monitoring:
+  enabled: true
+  telegram:
+    bot_token_env: "ORCA_AUTO_TELEGRAM_BOT_TOKEN"
+    chat_id_env: "ORCA_AUTO_TELEGRAM_CHAT_ID"
+    timeout_sec: 5
+    retry_count: 2
+    retry_backoff_sec: 1.0
+    retry_jitter_sec: 0.3
+  delivery:
+    async_enabled: true
+    queue_size: 1000
+    worker_flush_timeout_sec: 3
+    dedup_ttl_sec: 86400
+  heartbeat:
+    enabled: true
+    interval_sec: 1800

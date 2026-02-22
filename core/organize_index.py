@@ -1,0 +1,382 @@
+from __future__ import annotations
+
+import json
+import logging
+import os
+import time
+from contextlib import contextmanager
+from pathlib import Path
+from typing import Any, Dict, Iterator, List, Optional
+
+from .state_store import atomic_write_text, load_state, now_utc_iso
+
+logger = logging.getLogger(__name__)
+
+INDEX_DIR_NAME = "index"
+RECORDS_FILE_NAME = "records.jsonl"
+LOCK_FILE_NAME = "index.lock"
+FAILED_ROLLBACKS_FILE_NAME = "failed_rollbacks.jsonl"
+
+
+def index_dir(organized_root: Path) -> Path:
+    return organized_root / INDEX_DIR_NAME
+
+
+def records_path(organized_root: Path) -> Path:
+    return index_dir(organized_root) / RECORDS_FILE_NAME
+
+
+def load_index(organized_root: Path) -> Dict[str, Dict[str, Any]]:
+    rp = records_path(organized_root)
+    if not rp.exists():
+        return {}
+
+    result: Dict[str, Dict[str, Any]] = {}
+    try:
+        text = rp.read_text(encoding="utf-8")
+    except OSError:
+        return result
+
+    for line_number, line in enumerate(text.splitlines(), start=1):
+        stripped = line.strip()
+        if not stripped:
+            continue
+        try:
+            record = json.loads(stripped)
+        except json.JSONDecodeError:
+            logger.warning("Malformed JSONL at line %d in %s", line_number, rp)
+            continue
+        if not isinstance(record, dict):
+            continue
+        run_id = record.get("run_id")
+        if isinstance(run_id, str) and run_id.strip():
+            result[run_id] = record
+
+    return result
+
+
+def find_by_run_id(organized_root: Path, run_id: str) -> Optional[Dict[str, Any]]:
+    idx = load_index(organized_root)
+    return idx.get(run_id)
+
+
+def find_by_job_type(
+    organized_root: Path,
+    job_type: str,
+    limit: int = 0,
+) -> List[Dict[str, Any]]:
+    idx = load_index(organized_root)
+    matches = [r for r in idx.values() if r.get("job_type") == job_type]
+    if limit > 0:
+        matches = matches[:limit]
+    return matches
+
+
+def to_reaction_relative_path(path_value: Any, reaction_dir: Path) -> str:
+    if not isinstance(path_value, str):
+        return ""
+    raw = path_value.strip()
+    if not raw:
+        return ""
+
+    p = Path(raw)
+    if p.is_absolute():
+        try:
+            return str(p.relative_to(reaction_dir))
+        except ValueError:
+            # Legacy states can point to pre-move absolute paths.
+            return p.name
+
+    normalized = p
+    if normalized.parts and normalized.parts[0] == ".":
+        normalized = Path(*normalized.parts[1:])
+    return str(normalized)
+
+
+def resolve_state_path(path_value: Any, reaction_dir: Path) -> Optional[Path]:
+    if not isinstance(path_value, str):
+        return None
+    raw = path_value.strip()
+    if not raw:
+        return None
+
+    p = Path(raw)
+    candidates: List[Path] = []
+    if p.is_absolute():
+        candidates.append(p)
+        candidates.append(reaction_dir / p.name)
+    else:
+        candidates.append(reaction_dir / p)
+        candidates.append(reaction_dir / p.name)
+
+    seen: set[Path] = set()
+    for candidate in candidates:
+        try:
+            resolved = candidate.resolve()
+        except OSError:
+            continue
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def rebuild_index(organized_root: Path) -> int:
+    idir = index_dir(organized_root)
+    idir.mkdir(parents=True, exist_ok=True)
+
+    records: List[Dict[str, Any]] = []
+    if not organized_root.exists():
+        atomic_write_text(records_path(organized_root), "")
+        return 0
+
+    for state_file in sorted(organized_root.rglob("run_state.json")):
+        if INDEX_DIR_NAME in state_file.parts:
+            continue
+        reaction_dir = state_file.parent
+        state = load_state(reaction_dir)
+        if state is None:
+            continue
+        if state.get("status") != "completed":
+            continue
+        final_result = state.get("final_result")
+        if not isinstance(final_result, dict):
+            continue
+
+        run_id = state.get("run_id", "")
+        if not run_id:
+            continue
+
+        try:
+            rel = reaction_dir.relative_to(organized_root)
+        except ValueError:
+            rel = reaction_dir
+        organized_path = str(rel)
+
+        from .result_organizer import detect_job_type
+        from .molecule_key import extract_molecule_key
+
+        selected_inp = state.get("selected_inp", "")
+        inp_path = resolve_state_path(selected_inp, reaction_dir)
+        if inp_path is None:
+            inps = sorted(reaction_dir.glob("*.inp"))
+            if inps:
+                inp_path = inps[0]
+
+        job_type = detect_job_type(inp_path) if inp_path and inp_path.exists() else "other"
+        molecule_key = extract_molecule_key(inp_path) if inp_path and inp_path.exists() else "unknown"
+
+        attempts = state.get("attempts")
+        attempt_count = len(attempts) if isinstance(attempts, list) else 0
+
+        selected_inp_rel = to_reaction_relative_path(selected_inp, reaction_dir)
+        if not selected_inp_rel and inp_path is not None:
+            selected_inp_rel = str(inp_path.relative_to(reaction_dir))
+        last_out_rel = to_reaction_relative_path(final_result.get("last_out_path", ""), reaction_dir)
+
+        record = {
+            "run_id": run_id,
+            "reaction_dir": str(reaction_dir),
+            "status": "completed",
+            "analyzer_status": final_result.get("analyzer_status", ""),
+            "reason": final_result.get("reason", ""),
+            "job_type": job_type,
+            "molecule_key": molecule_key,
+            "selected_inp": selected_inp_rel,
+            "last_out_path": last_out_rel,
+            "attempt_count": attempt_count,
+            "completed_at": final_result.get("completed_at", ""),
+            "organized_at": now_utc_iso(),
+            "organized_path": organized_path,
+        }
+        records.append(record)
+
+    lines = [json.dumps(r, ensure_ascii=True) for r in records]
+    content = "\n".join(lines) + "\n" if lines else ""
+    atomic_write_text(records_path(organized_root), content)
+    logger.info("Index rebuilt: %d records in %s", len(records), records_path(organized_root))
+    return len(records)
+
+
+def append_record(organized_root: Path, record: Dict[str, Any]) -> None:
+    idir = index_dir(organized_root)
+    idir.mkdir(parents=True, exist_ok=True)
+    rp = records_path(organized_root)
+    line = json.dumps(record, ensure_ascii=True) + "\n"
+    with rp.open("a", encoding="utf-8") as handle:
+        handle.write(line)
+        handle.flush()
+        os.fsync(handle.fileno())
+
+
+def append_failed_rollback(organized_root: Path, entry: Dict[str, Any]) -> None:
+    idir = index_dir(organized_root)
+    idir.mkdir(parents=True, exist_ok=True)
+    fp = idir / FAILED_ROLLBACKS_FILE_NAME
+    line = json.dumps(entry, ensure_ascii=True) + "\n"
+    with fp.open("a", encoding="utf-8") as handle:
+        handle.write(line)
+        handle.flush()
+        os.fsync(handle.fileno())
+
+
+def _parse_index_lock_info(lock_path: Path) -> Dict[str, Any]:
+    pid: Optional[int] = None
+    started_at: Optional[str] = None
+    process_start_ticks: Optional[int] = None
+    try:
+        raw = lock_path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return {"pid": None, "started_at": None, "process_start_ticks": None}
+    if not raw:
+        return {"pid": None, "started_at": None, "process_start_ticks": None}
+
+    try:
+        parsed = json.loads(raw)
+    except Exception:
+        parsed = None
+
+    if isinstance(parsed, dict):
+        raw_pid = parsed.get("pid")
+        if isinstance(raw_pid, int) and raw_pid > 0:
+            pid = raw_pid
+        elif isinstance(raw_pid, str):
+            try:
+                parsed_pid = int(raw_pid.strip())
+                if parsed_pid > 0:
+                    pid = parsed_pid
+            except ValueError:
+                pid = None
+        raw_started_at = parsed.get("started_at")
+        if isinstance(raw_started_at, str) and raw_started_at.strip():
+            started_at = raw_started_at
+        raw_ticks = parsed.get("process_start_ticks")
+        if isinstance(raw_ticks, int) and raw_ticks > 0:
+            process_start_ticks = raw_ticks
+        elif isinstance(raw_ticks, str):
+            try:
+                parsed_ticks = int(raw_ticks.strip())
+                if parsed_ticks > 0:
+                    process_start_ticks = parsed_ticks
+            except ValueError:
+                process_start_ticks = None
+        return {"pid": pid, "started_at": started_at, "process_start_ticks": process_start_ticks}
+
+    # Backward-compatible fallback: legacy lock file could contain only pid.
+    first_line = raw.splitlines()[0].strip()
+    try:
+        parsed_pid = int(first_line)
+        if parsed_pid > 0:
+            pid = parsed_pid
+    except ValueError:
+        pid = None
+    return {"pid": pid, "started_at": None, "process_start_ticks": None}
+
+
+def _is_process_alive(pid: int) -> bool:
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+    return True
+
+
+def _process_start_ticks(pid: int) -> Optional[int]:
+    if pid <= 0:
+        return None
+    stat_path = Path(f"/proc/{pid}/stat")
+    try:
+        raw = stat_path.read_text(encoding="utf-8", errors="ignore").strip()
+    except OSError:
+        return None
+    if not raw:
+        return None
+
+    right_paren = raw.rfind(")")
+    if right_paren < 0:
+        return None
+    fields_after_comm = raw[right_paren + 2 :].split()
+    # /proc/<pid>/stat field 22 is starttime. After dropping pid+comm, index is 19.
+    if len(fields_after_comm) <= 19:
+        return None
+    try:
+        value = int(fields_after_comm[19])
+    except ValueError:
+        return None
+    return value if value > 0 else None
+
+
+def _current_process_start_ticks() -> Optional[int]:
+    return _process_start_ticks(os.getpid())
+
+
+@contextmanager
+def acquire_index_lock(organized_root: Path, timeout_seconds: int = 30) -> Iterator[None]:
+    idir = index_dir(organized_root)
+    idir.mkdir(parents=True, exist_ok=True)
+    lock_path = idir / LOCK_FILE_NAME
+    lock_payload_obj: Dict[str, Any] = {"pid": os.getpid(), "started_at": now_utc_iso()}
+    current_start_ticks = _current_process_start_ticks()
+    if current_start_ticks is not None:
+        lock_payload_obj["process_start_ticks"] = current_start_ticks
+    lock_payload = json.dumps(lock_payload_obj, ensure_ascii=True)
+
+    deadline = time.monotonic() + timeout_seconds
+    while True:
+        try:
+            fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                handle.write(lock_payload + "\n")
+                handle.flush()
+                os.fsync(handle.fileno())
+            logger.debug("Index lock acquired: %s", lock_path)
+            break
+        except FileExistsError:
+            lock_info = _parse_index_lock_info(lock_path)
+            lock_pid = lock_info.get("pid")
+            lock_start_ticks = lock_info.get("process_start_ticks")
+
+            if isinstance(lock_pid, int):
+                alive = _is_process_alive(lock_pid)
+                if alive and isinstance(lock_start_ticks, int):
+                    observed_ticks = _process_start_ticks(lock_pid)
+                    if observed_ticks is not None and observed_ticks != lock_start_ticks:
+                        alive = False
+                        logger.info(
+                            "Stale index lock detected due PID reuse (pid=%d, expected_ticks=%d, observed_ticks=%d): %s",
+                            lock_pid,
+                            lock_start_ticks,
+                            observed_ticks,
+                            lock_path,
+                        )
+                if not alive:
+                    logger.info("Stale index lock (pid=%d), removing", lock_pid)
+                    try:
+                        lock_path.unlink()
+                    except FileNotFoundError:
+                        pass
+                    continue
+
+            if time.monotonic() >= deadline:
+                raise RuntimeError(
+                    f"Index lock acquisition timed out after {timeout_seconds}s. "
+                    f"Lock file: {lock_path}"
+                )
+            time.sleep(0.5)
+
+    try:
+        yield
+    finally:
+        try:
+            lock_path.unlink()
+            logger.debug("Index lock released: %s", lock_path)
+        except OSError:
+            pass
