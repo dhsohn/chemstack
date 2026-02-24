@@ -25,7 +25,24 @@
 ~/orca_auto
   config/orca_auto.yaml
   bin/orca_auto
-  core/*.py
+  core/
+    commands/              # CLI 커맨드 핸들러
+      _helpers.py          # 공유 유틸 (검증, 포맷, 설정 경로)
+      run_inp.py           # run-inp, status 커맨드
+      organize.py          # organize 커맨드
+      cleanup.py           # cleanup 커맨드
+    config.py              # 설정 로딩 및 데이터클래스
+    config_validation.py   # 설정 검증/정규화 함수
+    lock_utils.py          # 락 파일 파싱/프로세스 생존 확인 (공유)
+    notifier.py            # Telegram 알림 퍼사드/팩토리 (호환 API)
+    notifier_events.py     # 이벤트 페이로드/메시지 렌더링
+    notifier_state.py      # dedup 상태 로드/저장/정리
+    notifier_runtime.py    # 큐 오버플로우/워커/하트비트 루프
+    state_store.py         # 상태 저장/원자 쓰기/실행 락
+    organize_index.py      # JSONL 인덱스 관리/인덱스 락
+    attempt_engine.py      # 재시도 루프 오케스트레이션
+    orchestrator.py        # 하위 호환 re-export 심
+    ...                    # 기타 도메인 모듈
   scripts/*.sh / *.py
   tests/*.py
 ```
@@ -310,7 +327,7 @@ Linux 전환 시 사용할 수 있는 스크립트:
 
 ```bash
 cd ~/orca_auto
-PYTHONPATH=~/orca_auto ~/orca_auto/.venv/bin/python -m unittest discover -s tests -v
+pytest -q
 ```
 
 ## 15) 권장 워크플로우

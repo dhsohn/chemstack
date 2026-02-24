@@ -217,7 +217,7 @@ class TestOrganizeApply(unittest.TestCase):
             _make_completed_reaction(rxn)
 
             config = _write_config(root, allowed, organized)
-            with patch("core.orchestrator.append_record", side_effect=RuntimeError("index write failed")):
+            with patch("core.commands.organize.append_record", side_effect=RuntimeError("index write failed")):
                 rc = main([
                     "--config", str(config),
                     "organize",
@@ -238,6 +238,31 @@ class TestOrganizeApply(unittest.TestCase):
             self.assertEqual(state["reaction_dir"], str(rxn))
             self.assertEqual(state["selected_inp"], str(rxn / "rxn.inp"))
             self.assertEqual(state["final_result"]["last_out_path"], str(rxn / "rxn.out"))
+
+    @patch("core.commands._helpers._send_batch_summary")
+    def test_apply_sends_summary_notification(self, mock_send_summary) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            allowed = root / "runs"
+            organized = root / "outputs"
+            allowed.mkdir()
+            organized.mkdir()
+
+            rxn = allowed / "rxn_notify"
+            _make_completed_reaction(rxn)
+
+            config = _write_config(root, allowed, organized)
+            rc = main([
+                "--config", str(config),
+                "organize",
+                "--reaction-dir", str(rxn),
+                "--apply",
+            ])
+            self.assertEqual(rc, 0)
+            mock_send_summary.assert_called_once()
+            summary_text = mock_send_summary.call_args[0][1]
+            self.assertIn("[orca_auto] organize | action=apply", summary_text)
+            self.assertIn("organized=1", summary_text)
 
 
 class TestOrganizeRootScan(unittest.TestCase):

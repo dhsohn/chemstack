@@ -24,6 +24,7 @@ from core.notifier import (
     compact_dedup_state,
     _overflow_drop,
     create_notifier,
+    send_batch_summary,
     EVT_RUN_STARTED,
     EVT_ATTEMPT_COMPLETED,
     EVT_RUN_COMPLETED,
@@ -352,6 +353,31 @@ class TestCreateNotifier(unittest.TestCase):
             notifier.shutdown()
             self.assertIsNotNone(notifier._worker_thread)
             self.assertFalse(notifier._worker_thread.is_alive())
+
+
+class TestBatchSummary(unittest.TestCase):
+    @patch.dict(os.environ, {
+        "ORCA_AUTO_TELEGRAM_BOT_TOKEN": "tok",
+        "ORCA_AUTO_TELEGRAM_CHAT_ID": "123456",
+    })
+    @patch("core.notifier.send_with_retry")
+    @patch("core.notifier.logger")
+    def test_logs_warning_when_batch_summary_delivery_fails(self, mock_logger, mock_send):
+        mock_send.return_value = SendResult(success=False, status_code=503, error="upstream down")
+        mon = MonitoringConfig(enabled=True)
+        send_batch_summary(mon, "[orca_auto] organize summary")
+        mock_logger.warning.assert_called_with(
+            "Telegram send failed for batch summary: status=%d error=%s",
+            503,
+            "upstream down",
+        )
+
+    @patch.dict(os.environ, {}, clear=True)
+    @patch("core.notifier.send_with_retry")
+    def test_skip_when_credentials_missing(self, mock_send):
+        mon = MonitoringConfig(enabled=True)
+        send_batch_summary(mon, "[orca_auto] cleanup summary")
+        mock_send.assert_not_called()
 
 
 class TestMonitoringConfigValidation(unittest.TestCase):

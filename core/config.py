@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
@@ -9,7 +9,17 @@ import yaml
 
 logger = logging.getLogger(__name__)
 
-from .pathing import is_subpath, is_windows_style_path, to_local_path
+from .config_validation import (
+    _as_float,
+    _as_int,
+    _as_str,
+    _normalize_extensions,
+    _normalize_string_list,
+    _validate_cleanup_config,
+    _validate_config,
+    _validate_monitoring_config,
+)
+from .pathing import to_local_path
 
 
 @dataclass
@@ -77,114 +87,6 @@ class AppConfig:
     cleanup: CleanupConfig = field(default_factory=CleanupConfig)
 
 
-def _as_int(value: Any, default: int) -> int:
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return default
-
-
-def _as_str(value: Any, default: str) -> str:
-    if isinstance(value, str) and value.strip():
-        return value
-    return default
-
-
-def _as_float(value: Any, default: float) -> float:
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return default
-
-
-def _validate_config(cfg: AppConfig) -> None:
-    for label, path_val in [
-        ("allowed_root", cfg.runtime.allowed_root),
-        ("organized_root", cfg.runtime.organized_root),
-        ("orca_executable", cfg.paths.orca_executable),
-    ]:
-        if is_windows_style_path(path_val):
-            raise ValueError(
-                f"{label} must be a Linux path (Windows legacy paths are no longer supported): {path_val!r}"
-            )
-        if not Path(path_val).is_absolute():
-            raise ValueError(
-                f"{label} must be an absolute Linux path: {path_val!r}"
-            )
-    if cfg.paths.orca_executable.lower().endswith(".exe"):
-        raise ValueError(
-            f"orca_executable must point to Linux ORCA binary, not Windows executable: {cfg.paths.orca_executable!r}"
-        )
-    ar = Path(cfg.runtime.allowed_root).resolve()
-    org = Path(cfg.runtime.organized_root).resolve()
-    if is_subpath(org, ar) or is_subpath(ar, org):
-        raise ValueError(
-            f"organized_root and allowed_root must not contain each other: "
-            f"allowed_root={ar}, organized_root={org}"
-        )
-
-
-def _normalize_extensions(raw: Any) -> List[str]:
-    if not isinstance(raw, list):
-        return list(_DEFAULT_KEEP_EXTENSIONS)
-    seen: set[str] = set()
-    result: list[str] = []
-    for item in raw:
-        if not isinstance(item, str):
-            continue
-        ext = item.strip().lower()
-        if not ext:
-            continue
-        if not ext.startswith("."):
-            ext = "." + ext
-        if ext not in seen:
-            seen.add(ext)
-            result.append(ext)
-    return result
-
-
-def _normalize_string_list(raw: Any, defaults: List[str]) -> List[str]:
-    if not isinstance(raw, list):
-        return list(defaults)
-    seen: set[str] = set()
-    result: list[str] = []
-    for item in raw:
-        if not isinstance(item, str):
-            continue
-        val = item.strip()
-        if not val:
-            continue
-        if val not in seen:
-            seen.add(val)
-            result.append(val)
-    return result
-
-
-def _validate_cleanup_config(cleanup: CleanupConfig) -> None:
-    if not cleanup.keep_extensions:
-        raise ValueError(
-            "cleanup.keep_extensions must not be empty (data loss risk)"
-        )
-    if not cleanup.keep_filenames:
-        raise ValueError(
-            "cleanup.keep_filenames must not be empty (data loss risk)"
-        )
-
-
-def _validate_monitoring_config(mon: MonitoringConfig) -> None:
-    t = mon.telegram
-    if not (1 <= t.timeout_sec <= 30):
-        raise ValueError(f"monitoring.telegram.timeout_sec must be 1-30, got {t.timeout_sec}")
-    if not (0 <= t.retry_count <= 5):
-        raise ValueError(f"monitoring.telegram.retry_count must be 0-5, got {t.retry_count}")
-    d = mon.delivery
-    if not (100 <= d.queue_size <= 10000):
-        raise ValueError(f"monitoring.delivery.queue_size must be 100-10000, got {d.queue_size}")
-    h = mon.heartbeat
-    if h.enabled and h.interval_sec < 60:
-        raise ValueError(f"monitoring.heartbeat.interval_sec must be >= 60, got {h.interval_sec}")
-
-
 def load_config(config_path: str) -> AppConfig:
     path = Path(to_local_path(config_path))
     raw: Dict[str, Any] = {}
@@ -250,7 +152,7 @@ def load_config(config_path: str) -> AppConfig:
     )
 
     cleanup_cfg = CleanupConfig(
-        keep_extensions=_normalize_extensions(cleanup_raw.get("keep_extensions")),
+        keep_extensions=_normalize_extensions(cleanup_raw.get("keep_extensions"), _DEFAULT_KEEP_EXTENSIONS),
         keep_filenames=_normalize_string_list(
             cleanup_raw.get("keep_filenames"), _DEFAULT_KEEP_FILENAMES,
         ),

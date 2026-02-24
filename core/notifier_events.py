@@ -1,0 +1,133 @@
+from __future__ import annotations
+
+import time
+from pathlib import Path
+from typing import Any, Dict
+
+from .state_store import now_utc_iso
+
+EVT_RUN_STARTED = "run_started"
+EVT_ATTEMPT_COMPLETED = "attempt_completed"
+EVT_RUN_COMPLETED = "run_completed"
+EVT_RUN_FAILED = "run_failed"
+EVT_RUN_INTERRUPTED = "run_interrupted"
+EVT_HEARTBEAT = "heartbeat"
+
+
+def _make_common(
+    event_type: str,
+    run_id: str,
+    reaction_dir: str,
+    selected_inp: str,
+) -> Dict[str, Any]:
+    return {
+        "event_type": event_type,
+        "run_id": run_id,
+        "reaction_dir": reaction_dir,
+        "selected_inp": selected_inp,
+        "timestamp": now_utc_iso(),
+    }
+
+
+def make_event_id(run_id: str, event_type: str, suffix: str = "") -> str:
+    if suffix:
+        return f"{run_id}:{event_type}:{suffix}"
+    return f"{run_id}:{event_type}"
+
+
+def event_run_started(
+    run_id: str,
+    reaction_dir: str,
+    selected_inp: str,
+) -> Dict[str, Any]:
+    evt = _make_common(EVT_RUN_STARTED, run_id, reaction_dir, selected_inp)
+    evt["event_id"] = make_event_id(run_id, EVT_RUN_STARTED)
+    return evt
+
+
+def event_attempt_completed(
+    run_id: str,
+    reaction_dir: str,
+    selected_inp: str,
+    *,
+    attempt_index: int,
+    analyzer_status: str,
+    analyzer_reason: str,
+) -> Dict[str, Any]:
+    evt = _make_common(EVT_ATTEMPT_COMPLETED, run_id, reaction_dir, selected_inp)
+    evt["event_id"] = make_event_id(run_id, EVT_ATTEMPT_COMPLETED, str(attempt_index))
+    evt["attempt_index"] = attempt_index
+    evt["analyzer_status"] = analyzer_status
+    evt["analyzer_reason"] = analyzer_reason
+    return evt
+
+
+def event_run_terminal(
+    event_type: str,
+    run_id: str,
+    reaction_dir: str,
+    selected_inp: str,
+    *,
+    status: str,
+    reason: str,
+    attempt_count: int,
+) -> Dict[str, Any]:
+    evt = _make_common(event_type, run_id, reaction_dir, selected_inp)
+    evt["event_id"] = make_event_id(run_id, event_type)
+    evt["status"] = status
+    evt["reason"] = reason
+    evt["attempt_count"] = attempt_count
+    return evt
+
+
+def event_heartbeat(
+    run_id: str,
+    reaction_dir: str,
+    selected_inp: str,
+    *,
+    status: str,
+    attempt_count: int,
+    elapsed_sec: float,
+) -> Dict[str, Any]:
+    bucket_ts = str(int(time.time()))
+    evt = _make_common(EVT_HEARTBEAT, run_id, reaction_dir, selected_inp)
+    evt["event_id"] = make_event_id(run_id, EVT_HEARTBEAT, bucket_ts)
+    evt["status"] = status
+    evt["attempt_count"] = attempt_count
+    evt["elapsed_sec"] = round(elapsed_sec, 1)
+    return evt
+
+
+def render_message(event: Dict[str, Any], *, mask_paths: bool = False) -> str:
+    etype = event.get("event_type", "unknown")
+    run_id = event.get("run_id", "?")
+    reaction_dir = event.get("reaction_dir", "?")
+    if mask_paths:
+        reaction_dir = Path(reaction_dir).name if reaction_dir != "?" else "?"
+
+    if etype == EVT_RUN_STARTED:
+        return f"[orca_auto] started | run_id={run_id} | dir={reaction_dir}"
+
+    if etype == EVT_ATTEMPT_COMPLETED:
+        idx = event.get("attempt_index", "?")
+        astatus = event.get("analyzer_status", "?")
+        return f"[orca_auto] attempt {idx} done | run_id={run_id} | status={astatus}"
+
+    if etype == EVT_RUN_COMPLETED:
+        count = event.get("attempt_count", "?")
+        reason = event.get("reason", "?")
+        return f"[orca_auto] completed | run_id={run_id} | attempts={count} | reason={reason}"
+
+    if etype in (EVT_RUN_FAILED, EVT_RUN_INTERRUPTED):
+        status = event.get("status", "?")
+        reason = event.get("reason", "?")
+        label = "failed" if etype == EVT_RUN_FAILED else "interrupted"
+        return f"[orca_auto] {label} | run_id={run_id} | status={status} | reason={reason}"
+
+    if etype == EVT_HEARTBEAT:
+        status = event.get("status", "?")
+        count = event.get("attempt_count", "?")
+        elapsed = event.get("elapsed_sec", "?")
+        return f"[orca_auto] heartbeat | run_id={run_id} | status={status} | attempts={count} | elapsed_sec={elapsed}"
+
+    return f"[orca_auto] {etype} | run_id={run_id}"
