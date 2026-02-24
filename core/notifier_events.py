@@ -12,6 +12,8 @@ EVT_RUN_COMPLETED = "run_completed"
 EVT_RUN_FAILED = "run_failed"
 EVT_RUN_INTERRUPTED = "run_interrupted"
 EVT_HEARTBEAT = "heartbeat"
+EVT_DISK_THRESHOLD = "disk_threshold"
+EVT_DISK_RECOVERED = "disk_recovered"
 
 
 def _make_common(
@@ -98,6 +100,42 @@ def event_heartbeat(
     return evt
 
 
+def event_disk_threshold(
+    *,
+    combined_gb: float,
+    threshold_gb: float,
+    allowed_root: str,
+    organized_root: str,
+) -> Dict[str, Any]:
+    return {
+        "event_type": EVT_DISK_THRESHOLD,
+        "event_id": f"disk:{EVT_DISK_THRESHOLD}",
+        "combined_gb": round(combined_gb, 2),
+        "threshold_gb": threshold_gb,
+        "allowed_root": allowed_root,
+        "organized_root": organized_root,
+        "timestamp": now_utc_iso(),
+    }
+
+
+def event_disk_recovered(
+    *,
+    combined_gb: float,
+    threshold_gb: float,
+    allowed_root: str,
+    organized_root: str,
+) -> Dict[str, Any]:
+    return {
+        "event_type": EVT_DISK_RECOVERED,
+        "event_id": f"disk:{EVT_DISK_RECOVERED}",
+        "combined_gb": round(combined_gb, 2),
+        "threshold_gb": threshold_gb,
+        "allowed_root": allowed_root,
+        "organized_root": organized_root,
+        "timestamp": now_utc_iso(),
+    }
+
+
 def render_message(event: Dict[str, Any], *, mask_paths: bool = False) -> str:
     etype = event.get("event_type", "unknown")
     run_id = event.get("run_id", "?")
@@ -129,5 +167,15 @@ def render_message(event: Dict[str, Any], *, mask_paths: bool = False) -> str:
         count = event.get("attempt_count", "?")
         elapsed = event.get("elapsed_sec", "?")
         return f"[orca_auto] heartbeat | run_id={run_id} | status={status} | attempts={count} | elapsed_sec={elapsed}"
+
+    if etype == EVT_DISK_THRESHOLD:
+        combined = event.get("combined_gb", "?")
+        threshold = event.get("threshold_gb", "?")
+        return f"[orca_auto] disk threshold exceeded | combined={combined} GB >= {threshold} GB"
+
+    if etype == EVT_DISK_RECOVERED:
+        combined = event.get("combined_gb", "?")
+        threshold = event.get("threshold_gb", "?")
+        return f"[orca_auto] disk recovered | combined={combined} GB < {threshold} GB"
 
     return f"[orca_auto] {etype} | run_id={run_id}"

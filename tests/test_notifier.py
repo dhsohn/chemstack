@@ -32,6 +32,12 @@ from core.notifier import (
     EVT_RUN_INTERRUPTED,
     EVT_HEARTBEAT,
 )
+from core.notifier_events import (
+    EVT_DISK_THRESHOLD,
+    EVT_DISK_RECOVERED,
+    event_disk_threshold,
+    event_disk_recovered,
+)
 from core.config import MonitoringConfig
 from core.telegram_client import SendResult
 
@@ -416,6 +422,46 @@ class TestMonitoringConfigValidation(unittest.TestCase):
             cfg = load_config(f.name)
         self.assertFalse(cfg.monitoring.enabled)
         os.unlink(f.name)
+
+
+class TestDiskEvents(unittest.TestCase):
+    def test_disk_threshold_event(self):
+        evt = event_disk_threshold(
+            combined_gb=60.5, threshold_gb=50.0,
+            allowed_root="/tmp/a", organized_root="/tmp/b",
+        )
+        self.assertEqual(evt["event_type"], EVT_DISK_THRESHOLD)
+        self.assertEqual(evt["combined_gb"], 60.5)
+        self.assertEqual(evt["threshold_gb"], 50.0)
+        self.assertIn("timestamp", evt)
+        self.assertIn("event_id", evt)
+
+    def test_disk_recovered_event(self):
+        evt = event_disk_recovered(
+            combined_gb=40.0, threshold_gb=50.0,
+            allowed_root="/tmp/a", organized_root="/tmp/b",
+        )
+        self.assertEqual(evt["event_type"], EVT_DISK_RECOVERED)
+        self.assertEqual(evt["combined_gb"], 40.0)
+
+    def test_render_disk_threshold(self):
+        evt = event_disk_threshold(
+            combined_gb=60.5, threshold_gb=50.0,
+            allowed_root="/tmp/a", organized_root="/tmp/b",
+        )
+        msg = render_message(evt)
+        self.assertIn("disk threshold exceeded", msg)
+        self.assertIn("60.5", msg)
+        self.assertIn("50.0", msg)
+
+    def test_render_disk_recovered(self):
+        evt = event_disk_recovered(
+            combined_gb=40.0, threshold_gb=50.0,
+            allowed_root="/tmp/a", organized_root="/tmp/b",
+        )
+        msg = render_message(evt)
+        self.assertIn("disk recovered", msg)
+        self.assertIn("40.0", msg)
 
 
 if __name__ == "__main__":

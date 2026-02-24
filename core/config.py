@@ -17,6 +17,7 @@ from .config_validation import (
     _normalize_string_list,
     _validate_cleanup_config,
     _validate_config,
+    _validate_disk_monitor_config,
     _validate_monitoring_config,
 )
 from .pathing import to_local_path
@@ -73,6 +74,13 @@ _DEFAULT_REMOVE_PATTERNS = ["*.retry*.inp", "*.retry*.out", "*_trj.xyz"]
 
 
 @dataclass
+class DiskMonitorConfig:
+    threshold_gb: float = 50.0
+    interval_sec: int = 300
+    top_n: int = 10
+
+
+@dataclass
 class CleanupConfig:
     keep_extensions: List[str] = field(default_factory=lambda: list(_DEFAULT_KEEP_EXTENSIONS))
     keep_filenames: List[str] = field(default_factory=lambda: list(_DEFAULT_KEEP_FILENAMES))
@@ -85,6 +93,7 @@ class AppConfig:
     paths: PathsConfig = field(default_factory=PathsConfig)
     monitoring: MonitoringConfig = field(default_factory=MonitoringConfig)
     cleanup: CleanupConfig = field(default_factory=CleanupConfig)
+    disk_monitor: DiskMonitorConfig = field(default_factory=DiskMonitorConfig)
 
 
 def load_config(config_path: str) -> AppConfig:
@@ -105,6 +114,7 @@ def load_config(config_path: str) -> AppConfig:
     delivery_raw = monitoring_raw.get("delivery", {}) if isinstance(monitoring_raw.get("delivery", {}), dict) else {}
     heartbeat_raw = monitoring_raw.get("heartbeat", {}) if isinstance(monitoring_raw.get("heartbeat", {}), dict) else {}
     cleanup_raw = raw.get("cleanup", {}) if isinstance(raw.get("cleanup", {}), dict) else {}
+    disk_monitor_raw = raw.get("disk_monitor", {}) if isinstance(raw.get("disk_monitor", {}), dict) else {}
 
     if "platform_mode" in runtime_raw:
         raise ValueError(
@@ -161,6 +171,12 @@ def load_config(config_path: str) -> AppConfig:
         ),
     )
 
+    disk_monitor_cfg = DiskMonitorConfig(
+        threshold_gb=_as_float(disk_monitor_raw.get("threshold_gb"), DiskMonitorConfig.threshold_gb),
+        interval_sec=_as_int(disk_monitor_raw.get("interval_sec"), DiskMonitorConfig.interval_sec),
+        top_n=_as_int(disk_monitor_raw.get("top_n"), DiskMonitorConfig.top_n),
+    )
+
     cfg = AppConfig(
         runtime=RuntimeConfig(
             allowed_root=allowed_root,
@@ -172,9 +188,11 @@ def load_config(config_path: str) -> AppConfig:
         ),
         monitoring=monitoring_cfg,
         cleanup=cleanup_cfg,
+        disk_monitor=disk_monitor_cfg,
     )
     _validate_config(cfg)
     _validate_cleanup_config(cfg.cleanup)
+    _validate_disk_monitor_config(cfg.disk_monitor)
 
     if cfg.monitoring.enabled:
         try:
@@ -186,6 +204,7 @@ def load_config(config_path: str) -> AppConfig:
                 paths=cfg.paths,
                 monitoring=MonitoringConfig(enabled=False),
                 cleanup=cfg.cleanup,
+                disk_monitor=cfg.disk_monitor,
             )
 
     logger.info(

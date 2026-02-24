@@ -24,6 +24,11 @@ monitoring:
     enabled: true
     interval_sec: 1800
 
+disk_monitor:
+  threshold_gb: 50.0
+  interval_sec: 300
+  top_n: 10
+
 cleanup:
   keep_extensions: [".inp", ".out", ".xyz", ".gbw", ".hess"]
   keep_filenames: ["run_state.json", "run_report.json", "run_report.md"]

@@ -110,6 +110,15 @@ def _validate_cleanup_config(cleanup: Any) -> None:
         )
 
 
+def _validate_disk_monitor_config(dm: Any) -> None:
+    if dm.threshold_gb <= 0:
+        raise ValueError(f"disk_monitor.threshold_gb must be > 0, got {dm.threshold_gb}")
+    if dm.interval_sec < 10:
+        raise ValueError(f"disk_monitor.interval_sec must be >= 10, got {dm.interval_sec}")
+    if not (1 <= dm.top_n <= 100):
+        raise ValueError(f"disk_monitor.top_n must be 1-100, got {dm.top_n}")
+
+
 def _validate_monitoring_config(mon: Any) -> None:
     t = mon.telegram
     if not (1 <= t.timeout_sec <= 30):

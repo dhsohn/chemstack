@@ -203,13 +203,19 @@ def plan_root_scan(
     skips: List[SkipReason] = []
 
     try:
-        entries = sorted(root.iterdir(), key=lambda p: p.name)
+        state_files = sorted(root.rglob("run_state.json"))
     except OSError as exc:
         logger.error("Cannot scan root: %s (%s)", root, exc)
         return plans, skips
 
-    for entry in entries:
-        if not entry.is_dir() or entry.is_symlink():
+    seen_dirs: set[Path] = set()
+    for state_file in state_files:
+        entry = state_file.parent
+        if entry in seen_dirs:
+            continue
+        seen_dirs.add(entry)
+
+        if entry.is_symlink():
             continue
         if is_subpath(entry, organized_root):
             continue

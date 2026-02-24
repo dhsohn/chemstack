@@ -102,6 +102,25 @@ class TestCli(unittest.TestCase):
         self.assertEqual(state["final_result"]["reason"], "existing_out_completed")
         self.assertEqual(state["final_result"]["last_out_path"], str(reaction / "rxn.retry01.out"))
 
+    def test_skip_existing_completed_out_still_respects_run_lock(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            reaction = root / "orca_runs" / "rxn1_locked"
+            reaction.mkdir(parents=True)
+            inp = reaction / "rxn.inp"
+            inp.write_text("! Opt\n* xyz 0 1\nH 0 0 0\nH 0 0 0.74\n*\n", encoding="utf-8")
+            (reaction / "rxn.out").write_text("****ORCA TERMINATED NORMALLY****\n", encoding="utf-8")
+            (reaction / "run.lock").write_text(
+                json.dumps({"pid": os.getpid(), "started_at": "2026-02-24T00:00:00+00:00"}) + "\n",
+                encoding="utf-8",
+            )
+            config = self._write_config(root, root / "orca_runs")
+
+            rc = main(["--config", str(config), "run-inp", "--reaction-dir", str(reaction)])
+
+        self.assertEqual(rc, 1)
+        self.assertFalse((reaction / "run_state.json").exists())
+
     def test_retries_and_completes(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

@@ -106,6 +106,11 @@ monitoring:
     enabled: true
     interval_sec: 1800
 
+disk_monitor:
+  threshold_gb: 50.0
+  interval_sec: 300
+  top_n: 10
+
 cleanup:
   keep_extensions: [".inp", ".out", ".xyz", ".gbw", ".hess"]
   keep_filenames: ["run_state.json", "run_report.json", "run_report.md"]
@@ -123,6 +128,9 @@ cleanup:
 - `monitoring.telegram.chat_id_env`: chat_id를 담은 환경변수 이름
 - `monitoring.delivery.async_enabled`: `false`면 동기 전송 모드
 - `monitoring.heartbeat.interval_sec`: heartbeat 주기(초)
+- `disk_monitor.threshold_gb`: 디스크 사용량 임계치 (GB, 기본 50.0)
+- `disk_monitor.interval_sec`: watch 모드 스캔 주기 (초, 기본 300)
+- `disk_monitor.top_n`: 상위 디렉터리 표시 개수 (기본 10)
 - `cleanup.keep_extensions`: 기본 보존 확장자
 - `cleanup.keep_filenames`: 기본 보존 파일명
 - `cleanup.remove_patterns`: 우선 삭제 패턴
@@ -172,11 +180,62 @@ cd ~/orca_auto
 
 - `--reaction-dir`: 단일 반응 디렉터리 정리
 - `--root`: 루트 스캔 정리 (`allowed_root`와 정확히 같아야 함)
+- `--root` 스캔은 하위 디렉터리를 재귀 탐색하며 `run_state.json`이 있는 완료 run을 모두 수집
 - `--apply`: 실제 이동 수행 (기본은 dry-run)
 - `--rebuild-index`: 인덱스 재생성
 - `--find --run-id <id>` / `--find --job-type <type>`: 인덱스 검색
 
-### 7.4 불필요 파일 정리
+### 7.4 계산 결과 품질 점검
+
+```bash
+./bin/orca_auto check --reaction-dir '/home/daehyupsohn/orca_outputs/opt/H2/run_001' --json
+./bin/orca_auto check --root '/home/daehyupsohn/orca_outputs' --json
+./bin/orca_auto check --json
+```
+
+옵션:
+
+- `--reaction-dir`: 단일 반응 디렉터리 점검 (`allowed_root` 또는 `organized_root` 하위)
+- `--root`: 루트 스캔 점검 (`allowed_root` 또는 `organized_root`와 정확히 같아야 함)
+- `--json` (선택): JSON 출력
+- 둘 다 없으면 `organized_root` 기본 스캔
+
+리턴코드: `0` = fail 없음, `1` = fail 존재
+
+점검 항목:
+
+- `imaginary_frequencies_opt`: opt 계산에서 허수 진동수 존재 여부 (warning)
+- `ts_frequency_count`: TS 계산에서 허수 진동수 개수가 1인지 확인 (error)
+- `scf_convergence`: SCF 에너지 변화량 확인 (warning/error)
+- `short_contacts`: 원자쌍 거리 < 0.5 A 확인 (error)
+- `fragmentation_hint`: 최근접 이웃 거리 기반 분자 분리 경고 (warning)
+- `spin_contamination`: `<S**2>` 기대값 비교 (warning)
+
+### 7.5 디스크 사용량 모니터링
+
+```bash
+./bin/orca_auto monitor --json
+./bin/orca_auto monitor --threshold-gb 10 --top-n 5 --json
+./bin/orca_auto monitor --watch --interval-sec 60 --threshold-gb 50 --top-n 10
+```
+
+옵션:
+
+- `--watch`: 주기적 감시 모드 (Ctrl+C로 종료)
+- `--interval-sec`: 스캔 주기 (초, 기본 300)
+- `--threshold-gb`: 임계치 (GB, 기본 50.0)
+- `--top-n`: 상위 디렉터리 표시 수 (기본 10)
+- `--json` (선택): JSON 출력
+
+리턴코드 (one-shot): `0` = 임계치 미만, `1` = 임계치 초과
+리턴코드 (watch): `0` = 정상 종료 (KeyboardInterrupt)
+
+임계치 기준: `allowed_root + organized_root` 합산 용량 >= `threshold_gb`
+
+one-shot 모드: 콘솔/JSON 출력 + 리턴코드만 반환 (Telegram 전송 없음)
+watch 모드 알림: 임계치 진입/해제 상태 전이 시에만 Telegram 전송 (스팸 방지)
+
+### 7.6 불필요 파일 정리
 
 ```bash
 ./bin/orca_auto cleanup --root '/home/daehyupsohn/orca_outputs' --json

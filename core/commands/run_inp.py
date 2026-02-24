@@ -116,37 +116,37 @@ def cmd_run_inp(args: Any, *, runner_cls: Type[OrcaRunner] = OrcaRunner) -> int:
     max_retries = int(args.max_retries if args.max_retries is not None else cfg.runtime.default_max_retries)
     max_retries = max(0, max_retries)
 
-    if not args.force:
-        done = _existing_completed_out(selected_inp)
-        if done:
-            state = new_state(reaction_dir, selected_inp, max_retries=max_retries)
-            notifier = create_notifier(
-                cfg.monitoring, reaction_dir,
-                state["run_id"], str(selected_inp), state,
-            )
-            notify = make_notify_callback(notifier)
-            if notify:
-                notify(event_run_terminal(
-                    EVT_RUN_COMPLETED,
-                    state["run_id"], str(reaction_dir), str(selected_inp),
-                    status="completed",
-                    reason="existing_out_completed",
-                    attempt_count=0,
-                ))
-            if notifier:
-                notifier.shutdown()
-            return _exit_with_result(
-                reaction_dir, state, selected_inp,
-                status=RunStatus.COMPLETED,
-                analyzer_status=AnalyzerStatus.COMPLETED,
-                reason="existing_out_completed",
-                last_out_path=done["out_path"],
-                resumed=None, as_json=args.json, exit_code=0, emit=_emit,
-                extra={"skipped_execution": True},
-            )
-
     try:
         with acquire_run_lock(reaction_dir):
+            if not args.force:
+                done = _existing_completed_out(selected_inp)
+                if done:
+                    state = new_state(reaction_dir, selected_inp, max_retries=max_retries)
+                    notifier = create_notifier(
+                        cfg.monitoring, reaction_dir,
+                        state["run_id"], str(selected_inp), state,
+                    )
+                    notify = make_notify_callback(notifier)
+                    if notify:
+                        notify(event_run_terminal(
+                            EVT_RUN_COMPLETED,
+                            state["run_id"], str(reaction_dir), str(selected_inp),
+                            status="completed",
+                            reason="existing_out_completed",
+                            attempt_count=0,
+                        ))
+                    if notifier:
+                        notifier.shutdown()
+                    return _exit_with_result(
+                        reaction_dir, state, selected_inp,
+                        status=RunStatus.COMPLETED,
+                        analyzer_status=AnalyzerStatus.COMPLETED,
+                        reason="existing_out_completed",
+                        last_out_path=done["out_path"],
+                        resumed=None, as_json=args.json, exit_code=0, emit=_emit,
+                        extra={"skipped_execution": True},
+                    )
+
             state, resumed = load_or_create_state(
                 reaction_dir,
                 selected_inp,

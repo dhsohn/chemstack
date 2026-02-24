@@ -268,6 +268,20 @@ class TestPlanRootScan(unittest.TestCase):
             self.assertEqual(len(skips), 1)
             self.assertEqual(skips[0].reason, "not_completed")
 
+    def test_scans_nested_dirs_recursively(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "runs"
+            root.mkdir()
+            organized = Path(td) / "outputs"
+            organized.mkdir()
+
+            _make_completed_dir(root / "batch1", "rxn_nested_a")
+            _make_completed_dir(root / "batch2", "rxn_nested_b")
+
+            plans, skips = plan_root_scan(root, organized)
+            self.assertEqual(len(plans), 2)
+            self.assertEqual(len(skips), 0)
+
 
 class TestCheckConflict(unittest.TestCase):
 

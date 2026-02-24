@@ -287,6 +287,39 @@ class TestOrganizeRootScan(unittest.TestCase):
             ])
             self.assertEqual(rc, 0)
 
+    def test_root_scan_apply_includes_nested_dirs(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            allowed = root / "runs"
+            organized = root / "outputs"
+            allowed.mkdir()
+            organized.mkdir()
+
+            nested_a = allowed / "batch1" / "nested_a1"
+            nested_b = allowed / "batch2" / "nested_b2"
+            _make_completed_reaction(nested_a)
+            _make_completed_reaction(nested_b)
+
+            config = _write_config(root, allowed, organized)
+            rc = main([
+                "--config", str(config),
+                "organize",
+                "--root", str(allowed),
+                "--apply",
+            ])
+            self.assertEqual(rc, 0)
+            self.assertFalse(nested_a.exists())
+            self.assertFalse(nested_b.exists())
+
+            rp = records_path(organized)
+            self.assertTrue(rp.exists())
+            records = [
+                json.loads(line)
+                for line in rp.read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
+            self.assertEqual(len(records), 2)
+
     def test_root_scan_rejects_subdir_even_under_allowed_root(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

@@ -76,6 +76,36 @@ def _validate_organized_root_dir(cfg: AppConfig, root_raw: str) -> Path:
     return root
 
 
+def _validate_check_reaction_dir(cfg: AppConfig, reaction_dir_raw: str) -> Path:
+    reaction_dir = _to_resolved_local(reaction_dir_raw)
+    if not reaction_dir.exists() or not reaction_dir.is_dir():
+        raise ValueError(f"Reaction directory not found: {reaction_dir}")
+
+    allowed_root = _to_resolved_local(cfg.runtime.allowed_root)
+    organized_root = _to_resolved_local(cfg.runtime.organized_root)
+    if not is_subpath(reaction_dir, allowed_root) and not is_subpath(reaction_dir, organized_root):
+        raise ValueError(
+            f"Reaction directory must be under allowed_root ({allowed_root}) "
+            f"or organized_root ({organized_root}). got={reaction_dir}"
+        )
+    return reaction_dir
+
+
+def _validate_check_root_dir(cfg: AppConfig, root_raw: str) -> Path:
+    root = _to_resolved_local(root_raw)
+    if not root.exists() or not root.is_dir():
+        raise ValueError(f"Root directory not found: {root}")
+
+    allowed_root = _to_resolved_local(cfg.runtime.allowed_root)
+    organized_root = _to_resolved_local(cfg.runtime.organized_root)
+    if root != allowed_root and root != organized_root:
+        raise ValueError(
+            f"--root must exactly match allowed_root ({allowed_root}) "
+            f"or organized_root ({organized_root}). got={root}"
+        )
+    return root
+
+
 def _validate_cleanup_reaction_dir(cfg: AppConfig, reaction_dir_raw: str) -> Path:
     reaction_dir = _to_resolved_local(reaction_dir_raw)
     if not reaction_dir.exists() or not reaction_dir.is_dir():
