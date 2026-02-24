@@ -9,6 +9,7 @@ from .orchestrator import (
     CONFIG_ENV_VAR,
     _retry_inp_path,
     _select_latest_inp,
+    cmd_cleanup as _orchestrator_cmd_cleanup,
     cmd_organize as _orchestrator_cmd_organize,
     cmd_run_inp as _orchestrator_cmd_run_inp,
     cmd_status as _orchestrator_cmd_status,
@@ -26,6 +27,10 @@ def cmd_run_inp(args: argparse.Namespace) -> int:
 
 def cmd_organize(args: argparse.Namespace) -> int:
     return int(_orchestrator_cmd_organize(args))
+
+
+def cmd_cleanup(args: argparse.Namespace) -> int:
+    return int(_orchestrator_cmd_cleanup(args))
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -55,6 +60,15 @@ def build_parser() -> argparse.ArgumentParser:
     organize.add_argument("--limit", type=int, default=0, help="Limit results (with --find)")
     organize.add_argument("--json", action="store_true")
 
+    cleanup = sub.add_parser("cleanup")
+    cleanup.add_argument("--reaction-dir", default=None,
+                         help="Single reaction directory under organized_root to clean")
+    cleanup.add_argument("--root", default=None,
+                         help="Root directory to scan (must match organized_root)")
+    cleanup.add_argument("--apply", action="store_true", default=False,
+                         help="Actually delete files (default is dry-run)")
+    cleanup.add_argument("--json", action="store_true")
+
     return parser
 
 
@@ -73,6 +87,7 @@ def main(argv: list[str] | None = None) -> int:
         "run-inp": cmd_run_inp,
         "status": cmd_status,
         "organize": cmd_organize,
+        "cleanup": cmd_cleanup,
     }
     handler = command_map[args.command]
     return int(handler(args))

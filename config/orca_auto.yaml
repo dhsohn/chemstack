@@ -23,3 +23,8 @@ monitoring:
   heartbeat:
     enabled: true
     interval_sec: 1800
+
+cleanup:
+  keep_extensions: [".inp", ".out", ".xyz", ".gbw", ".hess"]
+  keep_filenames: ["run_state.json", "run_report.json", "run_report.md"]
+  remove_patterns: ["*.retry*.inp", "*.retry*.out", "*_trj.xyz"]

@@ -3,7 +3,7 @@
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 import yaml
 
@@ -57,11 +57,24 @@ class MonitoringConfig:
     heartbeat: HeartbeatConfig = field(default_factory=HeartbeatConfig)
 
 
+_DEFAULT_KEEP_EXTENSIONS = [".inp", ".out", ".xyz", ".gbw", ".hess"]
+_DEFAULT_KEEP_FILENAMES = ["run_state.json", "run_report.json", "run_report.md"]
+_DEFAULT_REMOVE_PATTERNS = ["*.retry*.inp", "*.retry*.out", "*_trj.xyz"]
+
+
+@dataclass
+class CleanupConfig:
+    keep_extensions: List[str] = field(default_factory=lambda: list(_DEFAULT_KEEP_EXTENSIONS))
+    keep_filenames: List[str] = field(default_factory=lambda: list(_DEFAULT_KEEP_FILENAMES))
+    remove_patterns: List[str] = field(default_factory=lambda: list(_DEFAULT_REMOVE_PATTERNS))
+
+
 @dataclass
 class AppConfig:
     runtime: RuntimeConfig = field(default_factory=RuntimeConfig)
     paths: PathsConfig = field(default_factory=PathsConfig)
     monitoring: MonitoringConfig = field(default_factory=MonitoringConfig)
+    cleanup: CleanupConfig = field(default_factory=CleanupConfig)
 
 
 def _as_int(value: Any, default: int) -> int:
@@ -111,6 +124,53 @@ def _validate_config(cfg: AppConfig) -> None:
         )
 
 
+def _normalize_extensions(raw: Any) -> List[str]:
+    if not isinstance(raw, list):
+        return list(_DEFAULT_KEEP_EXTENSIONS)
+    seen: set[str] = set()
+    result: list[str] = []
+    for item in raw:
+        if not isinstance(item, str):
+            continue
+        ext = item.strip().lower()
+        if not ext:
+            continue
+        if not ext.startswith("."):
+            ext = "." + ext
+        if ext not in seen:
+            seen.add(ext)
+            result.append(ext)
+    return result
+
+
+def _normalize_string_list(raw: Any, defaults: List[str]) -> List[str]:
+    if not isinstance(raw, list):
+        return list(defaults)
+    seen: set[str] = set()
+    result: list[str] = []
+    for item in raw:
+        if not isinstance(item, str):
+            continue
+        val = item.strip()
+        if not val:
+            continue
+        if val not in seen:
+            seen.add(val)
+            result.append(val)
+    return result
+
+
+def _validate_cleanup_config(cleanup: CleanupConfig) -> None:
+    if not cleanup.keep_extensions:
+        raise ValueError(
+            "cleanup.keep_extensions must not be empty (data loss risk)"
+        )
+    if not cleanup.keep_filenames:
+        raise ValueError(
+            "cleanup.keep_filenames must not be empty (data loss risk)"
+        )
+
+
 def _validate_monitoring_config(mon: MonitoringConfig) -> None:
     t = mon.telegram
     if not (1 <= t.timeout_sec <= 30):
@@ -142,6 +202,7 @@ def load_config(config_path: str) -> AppConfig:
     telegram_raw = monitoring_raw.get("telegram", {}) if isinstance(monitoring_raw.get("telegram", {}), dict) else {}
     delivery_raw = monitoring_raw.get("delivery", {}) if isinstance(monitoring_raw.get("delivery", {}), dict) else {}
     heartbeat_raw = monitoring_raw.get("heartbeat", {}) if isinstance(monitoring_raw.get("heartbeat", {}), dict) else {}
+    cleanup_raw = raw.get("cleanup", {}) if isinstance(raw.get("cleanup", {}), dict) else {}
 
     if "platform_mode" in runtime_raw:
         raise ValueError(
@@ -188,6 +249,16 @@ def load_config(config_path: str) -> AppConfig:
         ),
     )
 
+    cleanup_cfg = CleanupConfig(
+        keep_extensions=_normalize_extensions(cleanup_raw.get("keep_extensions")),
+        keep_filenames=_normalize_string_list(
+            cleanup_raw.get("keep_filenames"), _DEFAULT_KEEP_FILENAMES,
+        ),
+        remove_patterns=_normalize_string_list(
+            cleanup_raw.get("remove_patterns"), _DEFAULT_REMOVE_PATTERNS,
+        ),
+    )
+
     cfg = AppConfig(
         runtime=RuntimeConfig(
             allowed_root=allowed_root,
@@ -198,8 +269,10 @@ def load_config(config_path: str) -> AppConfig:
             orca_executable=_as_str(paths_raw.get("orca_executable"), PathsConfig.orca_executable),
         ),
         monitoring=monitoring_cfg,
+        cleanup=cleanup_cfg,
     )
     _validate_config(cfg)
+    _validate_cleanup_config(cfg.cleanup)
 
     if cfg.monitoring.enabled:
         try:
@@ -210,6 +283,7 @@ def load_config(config_path: str) -> AppConfig:
                 runtime=cfg.runtime,
                 paths=cfg.paths,
                 monitoring=MonitoringConfig(enabled=False),
+                cleanup=cfg.cleanup,
             )
 
     logger.info(

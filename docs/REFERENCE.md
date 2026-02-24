@@ -65,6 +65,7 @@ bash scripts/bootstrap_wsl.sh
 ```yaml
 runtime:
   allowed_root: "/home/daehyupsohn/orca_runs"
+  organized_root: "/home/daehyupsohn/orca_outputs"
   default_max_retries: 5
 
 paths:
@@ -87,11 +88,17 @@ monitoring:
   heartbeat:
     enabled: true
     interval_sec: 1800
+
+cleanup:
+  keep_extensions: [".inp", ".out", ".xyz", ".gbw", ".hess"]
+  keep_filenames: ["run_state.json", "run_report.json", "run_report.md"]
+  remove_patterns: ["*.retry*.inp", "*.retry*.out", "*_trj.xyz"]
 ```
 
 필드 설명:
 
 - `runtime.allowed_root`: 실행 허용 디렉터리 루트
+- `runtime.organized_root`: organize/cleanup 대상 루트
 - `runtime.default_max_retries`: 최대 재시도 횟수
 - `paths.orca_executable`: ORCA 실행 파일 경로
 - `monitoring.enabled`: Telegram 모니터링 on/off
@@ -99,6 +106,9 @@ monitoring:
 - `monitoring.telegram.chat_id_env`: chat_id를 담은 환경변수 이름
 - `monitoring.delivery.async_enabled`: `false`면 동기 전송 모드
 - `monitoring.heartbeat.interval_sec`: heartbeat 주기(초)
+- `cleanup.keep_extensions`: 기본 보존 확장자
+- `cleanup.keep_filenames`: 기본 보존 파일명
+- `cleanup.remove_patterns`: 우선 삭제 패턴
 
 주의:
 
@@ -133,6 +143,40 @@ cd ~/orca_auto
 
 - `--reaction-dir` (필수)
 - `--json` (선택)
+
+### 7.3 결과 정리
+
+```bash
+./bin/orca_auto organize --root '/home/daehyupsohn/orca_runs' --json
+./bin/orca_auto organize --root '/home/daehyupsohn/orca_runs' --apply
+```
+
+옵션:
+
+- `--reaction-dir`: 단일 반응 디렉터리 정리
+- `--root`: 루트 스캔 정리 (`allowed_root`와 정확히 같아야 함)
+- `--apply`: 실제 이동 수행 (기본은 dry-run)
+- `--rebuild-index`: 인덱스 재생성
+- `--find --run-id <id>` / `--find --job-type <type>`: 인덱스 검색
+
+### 7.4 불필요 파일 정리
+
+```bash
+./bin/orca_auto cleanup --root '/home/daehyupsohn/orca_outputs' --json
+./bin/orca_auto cleanup --root '/home/daehyupsohn/orca_outputs' --apply
+```
+
+옵션:
+
+- `--reaction-dir`: 단일 organized 디렉터리 정리
+- `--root`: 루트 스캔 정리 (`organized_root`와 정확히 같아야 함)
+- `--apply`: 실제 삭제 수행 (기본은 dry-run)
+
+정리 정책:
+
+- 기본 보존: `.inp`, `.out`, `.xyz`, `.gbw`, `.hess`, `run_state.json`, `run_report.json`, `run_report.md`
+- 기본 삭제: `*.retry*.inp`, `*.retry*.out`, `*_trj.xyz` 및 미보존 파일
+- 단, `run_state.json`에서 참조 중인 `selected_inp`, `attempts[*].inp_path/out_path`, `final_result.last_out_path`는 보존
 
 ## 8) 완료 판정 규칙
 

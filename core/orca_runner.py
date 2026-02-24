@@ -6,6 +6,7 @@ import signal
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
+from types import FrameType
 from typing import List
 
 logger = logging.getLogger(__name__)
@@ -62,6 +63,19 @@ class OrcaRunner:
                 text=True,
                 start_new_session=True,
             )
+            prev_sigterm_handler = None
+            sigterm_handler_installed = False
+
+            def _sigterm_to_keyboard_interrupt(_signum: int, _frame: FrameType | None) -> None:
+                raise KeyboardInterrupt
+
+            try:
+                prev_sigterm_handler = signal.getsignal(signal.SIGTERM)
+                signal.signal(signal.SIGTERM, _sigterm_to_keyboard_interrupt)
+                sigterm_handler_installed = True
+            except ValueError:
+                # signal handlers can only be installed in the main thread
+                sigterm_handler_installed = False
             try:
                 return_code = proc.wait()
             except KeyboardInterrupt:
@@ -69,4 +83,10 @@ class OrcaRunner:
                 handle.flush()
                 self._terminate_subprocess_tree(proc)
                 raise
+            finally:
+                if sigterm_handler_installed:
+                    try:
+                        signal.signal(signal.SIGTERM, prev_sigterm_handler)
+                    except ValueError:
+                        pass
         return RunResult(out_path=str(out), return_code=return_code)

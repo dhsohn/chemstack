@@ -35,6 +35,43 @@ bash scripts/bootstrap_wsl.sh
 cat ~/orca_runs/내_반응_폴더/run_report.md
 ```
 
+### 4단계: 결과 정리 (선택)
+
+여러 계산 결과를 한 번에 정리하려면 `organize`를 사용하세요.
+
+```bash
+# 기본값은 dry-run (이동하지 않고 계획만 출력)
+./bin/orca_auto organize --root ~/orca_runs
+
+# 실제로 파일/디렉터리 정리 적용
+./bin/orca_auto organize --root ~/orca_runs --apply
+```
+
+주의:
+- `--root`는 설정 파일의 `runtime.allowed_root`와 동일한 루트여야 합니다.
+- `--apply`를 붙여야 실제 변경이 발생합니다. (`--apply` 없으면 미리보기만 수행)
+- 정리 대상은 `runtime.organized_root`(기본값: `~/orca_outputs`) 아래로 이동/인덱싱됩니다.
+
+### 5단계: 불필요한 파일 정리 (선택)
+
+정리된 계산 결과(`~/orca_outputs`)에서 불필요한 파일을 삭제하여 디스크 공간을 확보합니다.
+
+```bash
+# 기본값은 dry-run (삭제하지 않고 계획만 출력)
+./bin/orca_auto cleanup --root ~/orca_outputs
+
+# 실제로 파일 삭제 적용
+./bin/orca_auto cleanup --root ~/orca_outputs --apply
+
+# 특정 디렉터리만 대상
+./bin/orca_auto cleanup --reaction-dir ~/orca_outputs/opt/H2/run_001 --apply
+```
+
+보존 파일: `.inp`, `.out`, `.xyz`, `.gbw`, `.hess`, `run_state.json`, `run_report.json`, `run_report.md`
+삭제 대상: `.densities`, `.engrad`, `.tmp`, `.prop`, `.scfp`, `.opt`, `retry*.inp`, `retry*.out`, `*_trj.xyz` 등
+
+> 보존/삭제 기준은 `config/orca_auto.yaml`의 `cleanup` 섹션에서 변경할 수 있습니다.
+
 ### 자주 쓰는 옵션
 
 | 옵션 | 설명 | 예시 |
@@ -51,6 +88,25 @@ cat ~/orca_runs/내_반응_폴더/run_report.md
 export ORCA_AUTO_TELEGRAM_BOT_TOKEN='봇_토큰'
 export ORCA_AUTO_TELEGRAM_CHAT_ID='채팅_ID'
 ./bin/orca_auto run-inp --reaction-dir '~/orca_runs/내_반응_폴더'
+```
+
+### 자동 스케줄링 (Crontab)
+
+매주 자동으로 정리 작업을 실행하려면:
+
+```bash
+bash scripts/install_cron.sh
+```
+
+스케줄:
+- **토요일 자정**: `organize --apply` (완료된 계산을 `~/orca_outputs`로 이동)
+- **일요일 자정**: `cleanup --apply` (불필요한 파일 삭제)
+
+각 작업 완료 후 Telegram으로 요약을 받으려면 `~/.orca_auto_env` 파일을 생성하세요:
+
+```bash
+export ORCA_AUTO_TELEGRAM_BOT_TOKEN='봇_토큰'
+export ORCA_AUTO_TELEGRAM_CHAT_ID='채팅_ID'
 ```
 
 ### 작동 원리 한눈에 보기

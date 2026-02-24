@@ -54,6 +54,39 @@ class TestOrcaRunnerTermination(unittest.TestCase):
             ],
         )
 
+    @patch("core.orca_runner.signal.signal")
+    @patch("core.orca_runner.signal.getsignal", return_value=signal.SIG_DFL)
+    @patch("core.orca_runner.subprocess.Popen")
+    def test_run_sigterm_terminates_orca_tree(
+        self,
+        mock_popen: MagicMock,
+        _mock_getsignal: MagicMock,
+        mock_signal: MagicMock,
+    ) -> None:
+        mock_proc = MagicMock()
+        mock_proc.poll.return_value = None
+        mock_proc.pid = 99999
+
+        def _wait() -> int:
+            installed_handler = mock_signal.call_args_list[0].args[1]
+            installed_handler(signal.SIGTERM, None)
+            return 0
+
+        mock_proc.wait.side_effect = _wait
+        mock_popen.return_value = mock_proc
+
+        runner = OrcaRunner("/opt/orca/orca")
+        with patch.object(runner, "_terminate_subprocess_tree") as terminate:
+            with tempfile.TemporaryDirectory() as td:
+                inp = Path(td) / "test.inp"
+                inp.write_text("! Opt\n", encoding="utf-8")
+                with self.assertRaises(KeyboardInterrupt):
+                    runner.run(inp)
+
+        terminate.assert_called_once_with(mock_proc)
+        self.assertEqual(mock_signal.call_args_list[0].args[0], signal.SIGTERM)
+        self.assertEqual(mock_signal.call_args_list[-1], call(signal.SIGTERM, signal.SIG_DFL))
+
 
 if __name__ == "__main__":
     unittest.main()

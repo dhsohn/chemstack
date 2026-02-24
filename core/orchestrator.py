@@ -46,10 +46,19 @@ from .result_organizer import (
     sync_state_after_rollback,
     sync_state_after_move,
 )
+from .result_cleaner import (
+    CleanupPlan,
+    CleanupSkipReason,
+    execute_cleanup,
+    plan_cleanup_root_scan,
+    plan_cleanup_single,
+)
+from .telegram_client import TelegramConfig, send_with_retry
 
 
 RETRY_INP_RE = re.compile(r"\.retry\d+$", re.IGNORECASE)
 CONFIG_ENV_VAR = "ORCA_AUTO_CONFIG"
+_MAX_SAMPLE_FILES = 10
 
 
 def default_config_path() -> str:
@@ -96,6 +105,64 @@ def _validate_root_scan_dir(cfg: AppConfig, root_raw: str) -> Path:
             f"--root must exactly match allowed_root: {allowed_root}. got={root}"
         )
     return root
+
+
+def _validate_organized_root_dir(cfg: AppConfig, root_raw: str) -> Path:
+    root = _to_resolved_local(root_raw)
+    if not root.exists() or not root.is_dir():
+        raise ValueError(f"Root directory not found: {root}")
+    organized_root = _to_resolved_local(cfg.runtime.organized_root)
+    if root != organized_root:
+        raise ValueError(
+            f"--root must exactly match organized_root: {organized_root}. got={root}"
+        )
+    return root
+
+
+def _validate_cleanup_reaction_dir(cfg: AppConfig, reaction_dir_raw: str) -> Path:
+    reaction_dir = _to_resolved_local(reaction_dir_raw)
+    if not reaction_dir.exists() or not reaction_dir.is_dir():
+        raise ValueError(f"Reaction directory not found: {reaction_dir}")
+    organized_root = _to_resolved_local(cfg.runtime.organized_root)
+    if not is_subpath(reaction_dir, organized_root):
+        raise ValueError(
+            f"Reaction directory must be under organized_root: {organized_root}. got={reaction_dir}"
+        )
+    return reaction_dir
+
+
+def _human_bytes(n: int) -> str:
+    value = float(n)
+    for unit in ("B", "KB", "MB", "GB"):
+        if abs(value) < 1024.0:
+            return f"{value:.1f} {unit}"
+        value /= 1024.0
+    return f"{value:.1f} TB"
+
+
+def _send_summary_telegram(cfg: AppConfig, text: str) -> None:
+    if not cfg.monitoring.enabled:
+        return
+    tg = cfg.monitoring.telegram
+    bot_token = os.environ.get(tg.bot_token_env, "").strip()
+    chat_id = os.environ.get(tg.chat_id_env, "").strip()
+    if not bot_token or not chat_id:
+        return
+    chat_id_stripped = chat_id.lstrip("-")
+    if not chat_id_stripped.isdigit():
+        return
+    tg_config = TelegramConfig(
+        bot_token=bot_token,
+        chat_id=chat_id,
+        timeout_sec=tg.timeout_sec,
+        retry_count=tg.retry_count,
+        retry_backoff_sec=tg.retry_backoff_sec,
+        retry_jitter_sec=tg.retry_jitter_sec,
+    )
+    try:
+        send_with_retry(tg_config, text)
+    except Exception as exc:
+        logger.warning("Telegram send failed (non-fatal): %s", exc)
 
 
 def _select_latest_inp(reaction_dir: Path) -> Path:
@@ -368,6 +435,7 @@ def _cmd_organize_apply(
     plans: list[OrganizePlan],
     skips: list[SkipReason],
     organized_root: Path,
+    cfg: AppConfig,
     as_json: bool,
 ) -> int:
     from .organize_index import append_failed_rollback
@@ -424,6 +492,13 @@ def _cmd_organize_apply(
         "failures": failures,
     }
     _emit_organize(summary, as_json=as_json)
+    _send_summary_telegram(
+        cfg,
+        f"[orca_auto] organize | action=apply"
+        f" | organized={organized_count}"
+        f" | skipped={skipped_count}"
+        f" | failed={len(failures)}",
+    )
     return 1 if failures else 0
 
 
@@ -480,4 +555,144 @@ def cmd_organize(args: Any) -> int:
         _emit_organize(summary, as_json=args.json)
         return 0
 
-    return _cmd_organize_apply(plans, skips_list, organized_root, as_json=args.json)
+    return _cmd_organize_apply(plans, skips_list, organized_root, cfg, as_json=args.json)
+
+
+# ---------------------------------------------------------------------------
+# cleanup command
+# ---------------------------------------------------------------------------
+
+
+def _emit_cleanup(payload: Dict[str, Any], as_json: bool) -> None:
+    if as_json:
+        print(json.dumps(payload, ensure_ascii=True, indent=2))
+        return
+    for key in ["action", "to_clean", "skipped", "cleaned", "failed",
+                 "total_files_removed", "total_bytes_freed_human"]:
+        if key in payload:
+            print(f"{key}: {payload[key]}")
+    for p in payload.get("plans", []):
+        print(f"  {p['reaction_dir']}: {p['remove_count']} files, {p['bytes_human']}")
+    for s in payload.get("skip_reasons", []):
+        print(f"  SKIP {s['reaction_dir']}: {s['reason']}")
+    for f in payload.get("failures", []):
+        print(f"  FAIL {f['run_id']}: {f['errors']}")
+
+
+def _cleanup_plan_to_dict(plan: CleanupPlan) -> Dict[str, Any]:
+    all_names = [e.path.name for e in plan.files_to_remove]
+    return {
+        "run_id": plan.run_id,
+        "reaction_dir": str(plan.reaction_dir),
+        "remove_count": len(plan.files_to_remove),
+        "keep_count": plan.keep_count,
+        "total_remove_bytes": plan.total_remove_bytes,
+        "bytes_human": _human_bytes(plan.total_remove_bytes),
+        "sample_files": all_names[:_MAX_SAMPLE_FILES],
+    }
+
+
+def _cmd_cleanup_apply(
+    plans: list[CleanupPlan],
+    skips: list[CleanupSkipReason],
+    cfg: AppConfig,
+    as_json: bool,
+) -> int:
+    from .result_cleaner import CleanupResult
+
+    results: list[CleanupResult] = []
+    failures: list[Dict[str, Any]] = []
+
+    for plan in plans:
+        try:
+            result = execute_cleanup(plan)
+            results.append(result)
+            if result.errors:
+                failures.append({"run_id": result.run_id, "errors": result.errors})
+        except Exception as exc:
+            logger.error("Cleanup failed for %s: %s", plan.run_id, exc)
+            failures.append({"run_id": plan.run_id, "errors": [str(exc)]})
+
+    total_files = sum(r.files_removed for r in results)
+    total_bytes = sum(r.bytes_freed for r in results)
+
+    summary: Dict[str, Any] = {
+        "action": "apply",
+        "cleaned": len([r for r in results if not r.errors]),
+        "skipped": len(skips),
+        "failed": len(failures),
+        "total_files_removed": total_files,
+        "total_bytes_freed": total_bytes,
+        "total_bytes_freed_human": _human_bytes(total_bytes),
+        "failures": failures,
+    }
+    _emit_cleanup(summary, as_json=as_json)
+    _send_summary_telegram(
+        cfg,
+        f"[orca_auto] cleanup | action=apply"
+        f" | cleaned={summary['cleaned']}"
+        f" | files_removed={total_files}"
+        f" | space_freed={_human_bytes(total_bytes)}"
+        f" | failed={len(failures)}",
+    )
+    return 1 if failures else 0
+
+
+def cmd_cleanup(args: Any) -> int:
+    cfg = load_config(args.config)
+    organized_root = Path(cfg.runtime.organized_root).resolve()
+
+    reaction_dir_raw = getattr(args, "reaction_dir", None)
+    root_raw = getattr(args, "root", None)
+
+    if reaction_dir_raw and root_raw:
+        logger.error("--reaction-dir and --root are mutually exclusive")
+        return 1
+
+    if not reaction_dir_raw and not root_raw:
+        root_raw = cfg.runtime.organized_root
+
+    apply_mode = getattr(args, "apply", False)
+    keep_extensions = set(cfg.cleanup.keep_extensions)
+    keep_filenames = set(cfg.cleanup.keep_filenames)
+    remove_patterns = cfg.cleanup.remove_patterns
+
+    if reaction_dir_raw:
+        try:
+            reaction_dir = _validate_cleanup_reaction_dir(cfg, reaction_dir_raw)
+        except ValueError as exc:
+            logger.error("%s", exc)
+            return 1
+        plan, skip = plan_cleanup_single(
+            reaction_dir, keep_extensions, keep_filenames, remove_patterns,
+        )
+        plans = [plan] if plan else []
+        skips_list = [skip] if skip else []
+    else:
+        try:
+            root = _validate_organized_root_dir(cfg, root_raw)
+        except ValueError as exc:
+            logger.error("%s", exc)
+            return 1
+        plans, skips_list = plan_cleanup_root_scan(
+            root, keep_extensions, keep_filenames, remove_patterns,
+        )
+
+    if not apply_mode:
+        total_bytes = sum(p.total_remove_bytes for p in plans)
+        summary = {
+            "action": "dry_run",
+            "to_clean": len(plans),
+            "skipped": len(skips_list),
+            "total_bytes_freed": total_bytes,
+            "total_bytes_freed_human": _human_bytes(total_bytes),
+            "plans": [_cleanup_plan_to_dict(p) for p in plans],
+            "skip_reasons": [
+                {"reaction_dir": s.reaction_dir, "reason": s.reason}
+                for s in skips_list
+            ],
+        }
+        _emit_cleanup(summary, as_json=args.json)
+        return 0
+
+    return _cmd_cleanup_apply(plans, skips_list, cfg, as_json=args.json)
