@@ -1,5 +1,7 @@
 # ORCA Single-Input Recovery Runner
 
+[![CI](https://github.com/dhsohn/orca_auto/actions/workflows/ci.yml/badge.svg)](https://github.com/dhsohn/orca_auto/actions/workflows/ci.yml)
+
 > ORCA 계산이 실패해도 자동으로 입력을 수정하고 다시 돌려주는 도구입니다.
 > 밤새 돌린 계산이 SCF 수렴 실패로 멈춰있는 일, 이제 걱정하지 마세요.
 
@@ -155,6 +157,8 @@ export ORCA_AUTO_TELEGRAM_CHAT_ID='채팅_ID'
 ```bash
 pytest -q
 ```
+
+GitHub Actions CI에서도 `push`/`pull_request` 시 동일한 `pytest -q`가 자동 실행됩니다.
 
 ### 프로젝트 구조
 
