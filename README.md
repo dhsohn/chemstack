@@ -103,7 +103,9 @@ cat ~/orca_runs/내_반응_폴더/run_report.md
 ```
 
 보존 파일: `.inp`, `.out`, `.xyz`, `.gbw`, `.hess`, `run_state.json`, `run_report.json`, `run_report.md`
-삭제 대상: `.densities`, `.engrad`, `.tmp`, `.prop`, `.scfp`, `.opt`, `retry*.inp`, `retry*.out`, `*_trj.xyz` 등
+기본 삭제 대상: `.densities`, `.engrad`, `.tmp`, `.prop`, `.scfp`, `.opt` 등
+
+`retry*.inp`, `retry*.out`, `*_trj.xyz`까지 삭제하려면 `cleanup.remove_overrides_keep: true`를 설정하세요.
 
 > 보존/삭제 기준은 `config/orca_auto.yaml`의 `cleanup` 섹션에서 변경할 수 있습니다.
 
@@ -112,7 +114,7 @@ cat ~/orca_runs/내_반응_폴더/run_report.md
 | 옵션 | 설명 | 예시 |
 |------|------|------|
 | `--force` | 이미 완료된 계산도 강제 재실행 | `./bin/orca_auto run-inp --reaction-dir '...' --force` |
-| `--max-retries N` | 재시도 횟수 변경 (기본 5회) | `./bin/orca_auto run-inp --reaction-dir '...' --max-retries 8` |
+| `--max-retries N` | 재시도 횟수 변경 (기본 2회) | `./bin/orca_auto run-inp --reaction-dir '...' --max-retries 8` |
 | `--json` | 결과를 JSON으로 출력 | `./bin/orca_auto run-inp --reaction-dir '...' --json` |
 
 ### Telegram 알림 받기 (선택사항)

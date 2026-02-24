@@ -9,7 +9,7 @@ from .statuses import AnalyzerStatus, RunStatus
 from .types import RunState
 
 
-MAX_RETRY_RECIPES = 5
+MAX_RETRY_RECIPES = 2
 RESUMABLE_RUN_STATUSES = {RunStatus.RUNNING.value, RunStatus.RETRYING.value}
 
 
@@ -20,16 +20,18 @@ class AttemptDecision:
     exit_code: int
 
 
-def parse_analyzer_status(status_text: str) -> AnalyzerStatus | None:
+def parse_analyzer_status(status_text: AnalyzerStatus | str) -> AnalyzerStatus | None:
+    if isinstance(status_text, AnalyzerStatus):
+        return status_text
     try:
-        return AnalyzerStatus(status_text)
+        return AnalyzerStatus(str(status_text))
     except ValueError:
         return None
 
 
 def decide_attempt_outcome(
     *,
-    analyzer_status: str,
+    analyzer_status: AnalyzerStatus | str,
     analyzer_reason: str,
     retries_used: int,
     max_retries: int,

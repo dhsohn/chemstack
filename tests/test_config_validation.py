@@ -186,7 +186,7 @@ class TestConfigValidation(unittest.TestCase):
             cfg = load_config(str(cfg_path))
             self.assertEqual(cfg.runtime.allowed_root, "/home/daehyupsohn/orca_runs")
             self.assertEqual(cfg.runtime.organized_root, "/home/daehyupsohn/orca_outputs")
-            self.assertEqual(cfg.runtime.default_max_retries, 5)
+            self.assertEqual(cfg.runtime.default_max_retries, 2)
             self.assertEqual(cfg.paths.orca_executable, "/home/daehyupsohn/opt/orca/orca")
 
     def test_windows_organized_root_raises(self) -> None:
@@ -348,6 +348,7 @@ class TestCleanupConfigLoading(unittest.TestCase):
             self.assertEqual(cfg.cleanup.keep_extensions, list(_DEFAULT_KEEP_EXTENSIONS))
             self.assertEqual(cfg.cleanup.keep_filenames, list(_DEFAULT_KEEP_FILENAMES))
             self.assertEqual(cfg.cleanup.remove_patterns, list(_DEFAULT_REMOVE_PATTERNS))
+            self.assertFalse(cfg.cleanup.remove_overrides_keep)
 
     def test_custom_keep_extensions(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -419,6 +420,26 @@ class TestCleanupConfigLoading(unittest.TestCase):
             cfg = load_config(str(cfg_path))
             self.assertFalse(cfg.monitoring.enabled)
             self.assertEqual(cfg.cleanup.keep_extensions, [".inp", ".out"])
+
+    def test_remove_overrides_keep_true(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            cfg_path = Path(td) / "orca_auto.yaml"
+            cfg_path.write_text(
+                json.dumps({"cleanup": {"remove_overrides_keep": True}}),
+                encoding="utf-8",
+            )
+            cfg = load_config(str(cfg_path))
+            self.assertTrue(cfg.cleanup.remove_overrides_keep)
+
+    def test_remove_overrides_keep_invalid_type_falls_back_to_default(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            cfg_path = Path(td) / "orca_auto.yaml"
+            cfg_path.write_text(
+                json.dumps({"cleanup": {"remove_overrides_keep": "true"}}),
+                encoding="utf-8",
+            )
+            cfg = load_config(str(cfg_path))
+            self.assertFalse(cfg.cleanup.remove_overrides_keep)
 
 
 class TestDiskMonitorConfigValidation(unittest.TestCase):

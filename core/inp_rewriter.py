@@ -27,18 +27,6 @@ def rewrite_for_retry(source_inp: Path, target_inp: Path, reaction_dir: Path, st
             actions.append("geom_hessian_and_maxiter")
     elif step == 3:
         pass
-    elif step == 4:
-        current = _read_nprocs(lines) or 8
-        new_nprocs = max(2, current // 2)
-        if _set_nprocs(lines, new_nprocs):
-            actions.append(f"nprocs_reduced_to_{new_nprocs}")
-        if _ensure_route_keywords(lines, ["TightSCF", "SlowConv"]):
-            actions.append("route_add_tightscf_slowconv")
-        if _set_block_key_value(lines, "scf", "MaxIter", "300"):
-            actions.append("scf_maxiter_300")
-    elif step == 5:
-        if _set_nprocs(lines, 1):
-            actions.append("nprocs_set_to_1")
     else:
         actions.append("no_recipe_applied")
 

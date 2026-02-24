@@ -65,7 +65,7 @@ def _existing_completed_out(selected_inp: Path) -> Dict[str, Any] | None:
             mode_inp = selected_inp
         mode = detect_completion_mode(mode_inp)
         analysis = analyze_output(out_path, mode)
-        if analysis.status != AnalyzerStatus.COMPLETED.value:
+        if analysis.status != AnalyzerStatus.COMPLETED:
             continue
         return {
             "out_path": str(out_path),

@@ -21,7 +21,7 @@ class TestCli(unittest.TestCase):
                 {
                     "runtime": {
                         "allowed_root": str(allowed_root),
-                        "default_max_retries": 5,
+                        "default_max_retries": 2,
                     },
                     "paths": {"orca_executable": "/home/daehyupsohn/opt/orca/orca"},
                 }

@@ -82,10 +82,39 @@ class TestShouldKeep(unittest.TestCase):
         self.assertTrue(_should_keep(Path("run_report.json"), KEEP_EXT, KEEP_FN, REMOVE_PAT))
         self.assertTrue(_should_keep(Path("run_report.md"), KEEP_EXT, KEEP_FN, REMOVE_PAT))
 
-    def test_remove_patterns_override_keep(self) -> None:
-        self.assertFalse(_should_keep(Path("rxn.retry01.inp"), KEEP_EXT, KEEP_FN, REMOVE_PAT))
-        self.assertFalse(_should_keep(Path("rxn.retry01.out"), KEEP_EXT, KEEP_FN, REMOVE_PAT))
-        self.assertFalse(_should_keep(Path("rxn_trj.xyz"), KEEP_EXT, KEEP_FN, REMOVE_PAT))
+    def test_keep_overrides_remove_patterns_by_default(self) -> None:
+        self.assertTrue(_should_keep(Path("rxn.retry01.inp"), KEEP_EXT, KEEP_FN, REMOVE_PAT))
+        self.assertTrue(_should_keep(Path("rxn.retry01.out"), KEEP_EXT, KEEP_FN, REMOVE_PAT))
+        self.assertTrue(_should_keep(Path("rxn_trj.xyz"), KEEP_EXT, KEEP_FN, REMOVE_PAT))
+
+    def test_remove_patterns_override_keep_when_enabled(self) -> None:
+        self.assertFalse(
+            _should_keep(
+                Path("rxn.retry01.inp"),
+                KEEP_EXT,
+                KEEP_FN,
+                REMOVE_PAT,
+                remove_overrides_keep=True,
+            )
+        )
+        self.assertFalse(
+            _should_keep(
+                Path("rxn.retry01.out"),
+                KEEP_EXT,
+                KEEP_FN,
+                REMOVE_PAT,
+                remove_overrides_keep=True,
+            )
+        )
+        self.assertFalse(
+            _should_keep(
+                Path("rxn_trj.xyz"),
+                KEEP_EXT,
+                KEEP_FN,
+                REMOVE_PAT,
+                remove_overrides_keep=True,
+            )
+        )
 
     def test_junk_removed(self) -> None:
         self.assertFalse(_should_keep(Path("rxn.densities"), KEEP_EXT, KEEP_FN, REMOVE_PAT))
@@ -148,6 +177,23 @@ class TestComputeCleanupPlan(unittest.TestCase):
             self.assertIn("rxn.prop", removed_names)
             self.assertIn("rxn.scfp", removed_names)
             self.assertIn("rxn.opt", removed_names)
+            self.assertNotIn("rxn.retry01.inp", removed_names)
+            self.assertNotIn("rxn.retry01.out", removed_names)
+            self.assertNotIn("rxn_trj.xyz", removed_names)
+
+    def test_remove_patterns_apply_when_override_enabled(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            d = _make_completed_dir(Path(td), "rxn1")
+            state = json.loads((d / "run_state.json").read_text())
+            plan = compute_cleanup_plan(
+                d,
+                state,
+                KEEP_EXT,
+                KEEP_FN,
+                REMOVE_PAT,
+                remove_overrides_keep=True,
+            )
+            removed_names = {e.path.name for e in plan.files_to_remove}
             self.assertIn("rxn.retry01.inp", removed_names)
             self.assertIn("rxn.retry01.out", removed_names)
             self.assertIn("rxn_trj.xyz", removed_names)
@@ -191,7 +237,7 @@ class TestComputeCleanupPlan(unittest.TestCase):
             d = _make_completed_dir(Path(td), "rxn1")
             state = json.loads((d / "run_state.json").read_text())
             plan = compute_cleanup_plan(d, state, KEEP_EXT, KEEP_FN, REMOVE_PAT)
-            self.assertEqual(plan.keep_count, 8)
+            self.assertEqual(plan.keep_count, 11)
 
     def test_total_remove_bytes(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -248,8 +294,9 @@ class TestExecuteCleanup(unittest.TestCase):
             self.assertTrue((d / "run_state.json").exists())
             self.assertFalse((d / "rxn.densities").exists())
             self.assertFalse((d / "rxn.engrad").exists())
-            self.assertFalse((d / "rxn.retry01.inp").exists())
-            self.assertFalse((d / "rxn_trj.xyz").exists())
+            self.assertTrue((d / "rxn.retry01.inp").exists())
+            self.assertTrue((d / "rxn.retry01.out").exists())
+            self.assertTrue((d / "rxn_trj.xyz").exists())
 
 
 class TestPlanCleanupRootScan(unittest.TestCase):

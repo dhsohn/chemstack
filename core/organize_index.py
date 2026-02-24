@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-import time
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional
@@ -224,11 +223,19 @@ def append_failed_rollback(organized_root: Path, entry: Dict[str, Any]) -> None:
 
 # Lock utilities — re-imported from lock_utils to preserve existing usage.
 from .lock_utils import (  # noqa: F401
+    acquire_file_lock as _acquire_file_lock,
     current_process_start_ticks as _current_process_start_ticks,
     is_process_alive as _is_process_alive,
     parse_lock_info as _parse_index_lock_info,
     process_start_ticks as _process_start_ticks,
 )
+
+
+def _index_lock_timeout_error(lock_path: Path, timeout_seconds: int) -> RuntimeError:
+    return RuntimeError(
+        f"Index lock acquisition timed out after {timeout_seconds}s. "
+        f"Lock file: {lock_path}"
+    )
 
 
 @contextmanager
@@ -240,56 +247,21 @@ def acquire_index_lock(organized_root: Path, timeout_seconds: int = 30) -> Itera
     current_start_ticks = _current_process_start_ticks()
     if current_start_ticks is not None:
         lock_payload_obj["process_start_ticks"] = current_start_ticks
-    lock_payload = json.dumps(lock_payload_obj, ensure_ascii=True)
 
-    deadline = time.monotonic() + timeout_seconds
-    while True:
-        try:
-            fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-            with os.fdopen(fd, "w", encoding="utf-8") as handle:
-                handle.write(lock_payload + "\n")
-                handle.flush()
-                os.fsync(handle.fileno())
-            logger.debug("Index lock acquired: %s", lock_path)
-            break
-        except FileExistsError:
-            lock_info = _parse_index_lock_info(lock_path)
-            lock_pid = lock_info.get("pid")
-            lock_start_ticks = lock_info.get("process_start_ticks")
-
-            if isinstance(lock_pid, int):
-                alive = _is_process_alive(lock_pid)
-                if alive and isinstance(lock_start_ticks, int):
-                    observed_ticks = _process_start_ticks(lock_pid)
-                    if observed_ticks is not None and observed_ticks != lock_start_ticks:
-                        alive = False
-                        logger.info(
-                            "Stale index lock detected due PID reuse (pid=%d, expected_ticks=%d, observed_ticks=%d): %s",
-                            lock_pid,
-                            lock_start_ticks,
-                            observed_ticks,
-                            lock_path,
-                        )
-                if not alive:
-                    logger.info("Stale index lock (pid=%d), removing", lock_pid)
-                    try:
-                        lock_path.unlink()
-                    except FileNotFoundError:
-                        pass
-                    continue
-
-            if time.monotonic() >= deadline:
-                raise RuntimeError(
-                    f"Index lock acquisition timed out after {timeout_seconds}s. "
-                    f"Lock file: {lock_path}"
-                )
-            time.sleep(0.5)
-
-    try:
+    with _acquire_file_lock(
+        lock_path=lock_path,
+        lock_payload_obj=lock_payload_obj,
+        parse_lock_info_fn=_parse_index_lock_info,
+        is_process_alive_fn=_is_process_alive,
+        process_start_ticks_fn=_process_start_ticks,
+        logger=logger,
+        acquired_log_template="Index lock acquired: %s",
+        released_log_template="Index lock released: %s",
+        stale_pid_reuse_log_template=(
+            "Stale index lock detected due PID reuse (pid=%d, expected_ticks=%d, observed_ticks=%d): %s"
+        ),
+        stale_lock_log_template="Stale index lock (pid=%d), removing: %s",
+        timeout_seconds=timeout_seconds,
+        timeout_error_builder=_index_lock_timeout_error,
+    ):
         yield
-    finally:
-        try:
-            lock_path.unlink()
-            logger.debug("Index lock released: %s", lock_path)
-        except OSError:
-            pass

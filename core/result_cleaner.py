@@ -48,15 +48,25 @@ def _should_keep(
     keep_extensions: Set[str],
     keep_filenames: Set[str],
     remove_patterns: List[str],
+    *,
+    remove_overrides_keep: bool = False,
 ) -> bool:
     name = file_path.name
-    for pattern in remove_patterns:
-        if fnmatch.fnmatch(name, pattern):
-            return False
+
+    if remove_overrides_keep:
+        for pattern in remove_patterns:
+            if fnmatch.fnmatch(name, pattern):
+                return False
+
     if name in keep_filenames:
         return True
     if file_path.suffix.lower() in keep_extensions:
         return True
+
+    if not remove_overrides_keep:
+        for pattern in remove_patterns:
+            if fnmatch.fnmatch(name, pattern):
+                return False
     return False
 
 
@@ -146,6 +156,8 @@ def compute_cleanup_plan(
     keep_extensions: Set[str],
     keep_filenames: Set[str],
     remove_patterns: List[str],
+    *,
+    remove_overrides_keep: bool = False,
 ) -> CleanupPlan:
     run_id = state.get("run_id", "unknown")
     plan = CleanupPlan(reaction_dir=reaction_dir, run_id=run_id)
@@ -161,7 +173,13 @@ def compute_cleanup_plan(
         if resolved_file in protected_paths or file_path.name in protected_names:
             plan.keep_count += 1
             continue
-        if _should_keep(file_path, keep_extensions, keep_filenames, remove_patterns):
+        if _should_keep(
+            file_path,
+            keep_extensions,
+            keep_filenames,
+            remove_patterns,
+            remove_overrides_keep=remove_overrides_keep,
+        ):
             plan.keep_count += 1
         else:
             try:
@@ -181,6 +199,8 @@ def plan_cleanup_single(
     keep_extensions: Set[str],
     keep_filenames: Set[str],
     remove_patterns: List[str],
+    *,
+    remove_overrides_keep: bool = False,
 ) -> Tuple[Optional[CleanupPlan], Optional[CleanupSkipReason]]:
     state, skip = check_cleanup_eligibility(reaction_dir)
     if skip is not None:
@@ -188,6 +208,7 @@ def plan_cleanup_single(
     assert state is not None
     plan = compute_cleanup_plan(
         reaction_dir, state, keep_extensions, keep_filenames, remove_patterns,
+        remove_overrides_keep=remove_overrides_keep,
     )
     if not plan.files_to_remove:
         return None, CleanupSkipReason(str(reaction_dir), "nothing_to_clean")
@@ -199,6 +220,8 @@ def plan_cleanup_root_scan(
     keep_extensions: Set[str],
     keep_filenames: Set[str],
     remove_patterns: List[str],
+    *,
+    remove_overrides_keep: bool = False,
 ) -> Tuple[List[CleanupPlan], List[CleanupSkipReason]]:
     plans: List[CleanupPlan] = []
     skips: List[CleanupSkipReason] = []
@@ -212,7 +235,11 @@ def plan_cleanup_root_scan(
             continue
         reaction_dir = state_file.parent
         plan, skip = plan_cleanup_single(
-            reaction_dir, keep_extensions, keep_filenames, remove_patterns,
+            reaction_dir,
+            keep_extensions,
+            keep_filenames,
+            remove_patterns,
+            remove_overrides_keep=remove_overrides_keep,
         )
         if plan is not None:
             plans.append(plan)

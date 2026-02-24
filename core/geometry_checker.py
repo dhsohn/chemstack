@@ -15,6 +15,7 @@ from .out_analyzer import (
     analyze_output,
 )
 from .state_store import load_state
+from .statuses import AnalyzerStatus
 
 logger = logging.getLogger(__name__)
 
@@ -124,24 +125,17 @@ def _parse_xyz_atoms(xyz_path: Path) -> List[Tuple[str, float, float, float]]:
 def _compute_pair_distances(
     atoms: List[Tuple[str, float, float, float]],
 ) -> List[Tuple[int, int, float]]:
-    pairs: List[Tuple[int, int, float]] = []
-    n = len(atoms)
-    for i in range(n):
-        for j in range(i + 1, n):
-            dx = atoms[i][1] - atoms[j][1]
-            dy = atoms[i][2] - atoms[j][2]
-            dz = atoms[i][3] - atoms[j][3]
-            d = math.sqrt(dx * dx + dy * dy + dz * dz)
-            pairs.append((i, j, d))
+    pairs, _nn_dists = _compute_pair_and_nn_distances(atoms)
     return pairs
 
 
-def _nearest_neighbor_distances(
+def _compute_pair_and_nn_distances(
     atoms: List[Tuple[str, float, float, float]],
-) -> List[float]:
+) -> Tuple[List[Tuple[int, int, float]], List[float]]:
+    pairs: List[Tuple[int, int, float]] = []
     n = len(atoms)
     if n < 2:
-        return [0.0] * n
+        return pairs, [0.0] * n
     nn: List[float] = [float("inf")] * n
     for i in range(n):
         for j in range(i + 1, n):
@@ -149,10 +143,18 @@ def _nearest_neighbor_distances(
             dy = atoms[i][2] - atoms[j][2]
             dz = atoms[i][3] - atoms[j][3]
             d = math.sqrt(dx * dx + dy * dy + dz * dz)
+            pairs.append((i, j, d))
             if d < nn[i]:
                 nn[i] = d
             if d < nn[j]:
                 nn[j] = d
+    return pairs, nn
+
+
+def _nearest_neighbor_distances(
+    atoms: List[Tuple[str, float, float, float]],
+) -> List[float]:
+    _pairs, nn = _compute_pair_and_nn_distances(atoms)
     return nn
 
 
@@ -192,8 +194,23 @@ def _check_ts_frequency_count(imaginary_count: int) -> CheckItem:
     )
 
 
-def _check_scf_convergence(out_text: str, analyzer_status: str) -> CheckItem:
-    if analyzer_status == "error_scf":
+def _as_analyzer_status(value: Any) -> AnalyzerStatus | None:
+    if isinstance(value, AnalyzerStatus):
+        return value
+    if isinstance(value, str):
+        raw = value.strip()
+        if not raw:
+            return None
+        try:
+            return AnalyzerStatus(raw)
+        except ValueError:
+            return None
+    return None
+
+
+def _check_scf_convergence(out_text: str, analyzer_status: AnalyzerStatus | str) -> CheckItem:
+    parsed_status = _as_analyzer_status(analyzer_status)
+    if parsed_status == AnalyzerStatus.ERROR_SCF:
         return CheckItem(
             check_name="scf_convergence",
             severity="error",
@@ -224,8 +241,11 @@ def _check_scf_convergence(out_text: str, analyzer_status: str) -> CheckItem:
 
 def _check_short_contacts(
     atoms: List[Tuple[str, float, float, float]],
+    *,
+    pairs: List[Tuple[int, int, float]] | None = None,
 ) -> CheckItem:
-    pairs = _compute_pair_distances(atoms)
+    if pairs is None:
+        pairs = _compute_pair_distances(atoms)
     short = [(i, j, d) for i, j, d in pairs if d < _SHORT_CONTACT_THRESHOLD]
     if short:
         details_list = [
@@ -247,6 +267,8 @@ def _check_short_contacts(
 
 def _check_fragmentation_hint(
     atoms: List[Tuple[str, float, float, float]],
+    *,
+    nn_dists: List[float] | None = None,
 ) -> CheckItem:
     if len(atoms) < 2:
         return CheckItem(
@@ -254,7 +276,8 @@ def _check_fragmentation_hint(
             severity="ok",
             message="Too few atoms to check fragmentation",
         )
-    nn_dists = _nearest_neighbor_distances(atoms)
+    if nn_dists is None:
+        nn_dists = _nearest_neighbor_distances(atoms)
     max_nn = max(nn_dists)
     max_idx = nn_dists.index(max_nn)
     if max_nn > _FRAGMENTATION_NN_THRESHOLD:
@@ -372,11 +395,11 @@ def check_single(
 
     # Analyzer status from state
     final_result = state.get("final_result")
-    analyzer_status = ""
+    analyzer_status: AnalyzerStatus | str = analysis.status
     if isinstance(final_result, dict):
-        analyzer_status = str(final_result.get("analyzer_status", "") or "")
-    if not analyzer_status:
-        analyzer_status = analysis.status
+        parsed_state_status = _as_analyzer_status(final_result.get("analyzer_status"))
+        if parsed_state_status is not None:
+            analyzer_status = parsed_state_status
 
     checks: List[CheckItem] = []
 
@@ -391,8 +414,9 @@ def check_single(
     checks.append(_check_scf_convergence(out_text, analyzer_status))
 
     # Geometry checks
-    checks.append(_check_short_contacts(atoms))
-    checks.append(_check_fragmentation_hint(atoms))
+    pairs, nn_dists = _compute_pair_and_nn_distances(atoms)
+    checks.append(_check_short_contacts(atoms, pairs=pairs))
+    checks.append(_check_fragmentation_hint(atoms, nn_dists=nn_dists))
 
     # Spin contamination
     multiplicity = _parse_multiplicity_from_inp(inp_path)

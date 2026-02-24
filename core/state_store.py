@@ -184,11 +184,34 @@ def write_report_files(reaction_dir: Path, state: RunState) -> Dict[str, str]:
 # Lock utilities — re-imported from lock_utils to preserve test patch targets
 # (e.g. ``patch("core.state_store._is_process_alive", ...)``).
 from .lock_utils import (  # noqa: F401
+    acquire_file_lock as _acquire_file_lock,
     current_process_start_ticks as _current_process_start_ticks,
     is_process_alive as _is_process_alive,
     parse_lock_info as _parse_lock_info,
     process_start_ticks as _process_start_ticks,
 )
+
+
+def _run_lock_active_error(lock_pid: int, lock_info: Dict[str, Any], lock_path: Path) -> RuntimeError:
+    started_at = lock_info.get("started_at")
+    started = started_at if isinstance(started_at, str) and started_at else "unknown"
+    return RuntimeError(
+        "Another orca_auto instance is already running in this directory "
+        f"(pid={lock_pid}, started_at={started}). Lock file: {lock_path}"
+    )
+
+
+def _run_lock_unreadable_error(lock_path: Path) -> RuntimeError:
+    return RuntimeError(
+        f"Lock file exists but owner PID is unreadable. Remove manually: {lock_path}"
+    )
+
+
+def _run_lock_stale_remove_error(lock_pid: int, lock_path: Path, exc: OSError) -> RuntimeError:
+    return RuntimeError(
+        f"Detected stale lock but failed to remove it (pid={lock_pid}). "
+        f"Lock file: {lock_path}. error={exc}"
+    )
 
 
 @contextmanager
@@ -199,61 +222,21 @@ def acquire_run_lock(reaction_dir: Path) -> Iterator[None]:
     if current_start_ticks is not None:
         lock_payload["process_start_ticks"] = current_start_ticks
 
-    while True:
-        try:
-            fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-            with os.fdopen(fd, "w", encoding="utf-8") as handle:
-                handle.write(json.dumps(lock_payload, ensure_ascii=True) + "\n")
-                handle.flush()
-                os.fsync(handle.fileno())
-            logger.debug("Lock acquired: %s (pid=%d)", lock_path, os.getpid())
-            break
-        except FileExistsError:
-            lock_info = _parse_lock_info(lock_path)
-            lock_pid = lock_info.get("pid")
-            started_at = lock_info.get("started_at")
-            lock_start_ticks = lock_info.get("process_start_ticks")
-
-            if isinstance(lock_pid, int):
-                alive = _is_process_alive(lock_pid)
-                if alive and isinstance(lock_start_ticks, int):
-                    observed_ticks = _process_start_ticks(lock_pid)
-                    if observed_ticks is not None and observed_ticks != lock_start_ticks:
-                        alive = False
-                        logger.info(
-                            "Stale lock detected due PID reuse (pid=%d, expected_ticks=%d, observed_ticks=%d): %s",
-                            lock_pid,
-                            lock_start_ticks,
-                            observed_ticks,
-                            lock_path,
-                        )
-
-                if alive:
-                    started = started_at if isinstance(started_at, str) and started_at else "unknown"
-                    raise RuntimeError(
-                        "Another orca_auto instance is already running in this directory "
-                        f"(pid={lock_pid}, started_at={started}). Lock file: {lock_path}"
-                    )
-                logger.info("Stale lock detected (pid=%d), removing: %s", lock_pid, lock_path)
-                try:
-                    lock_path.unlink()
-                except FileNotFoundError:
-                    continue
-                except OSError as exc:
-                    raise RuntimeError(
-                        f"Detected stale lock but failed to remove it (pid={lock_pid}). "
-                        f"Lock file: {lock_path}. error={exc}"
-                    )
-                continue
-
-            raise RuntimeError(
-                f"Lock file exists but owner PID is unreadable. Remove manually: {lock_path}"
-            )
-    try:
+    with _acquire_file_lock(
+        lock_path=lock_path,
+        lock_payload_obj=lock_payload,
+        parse_lock_info_fn=_parse_lock_info,
+        is_process_alive_fn=_is_process_alive,
+        process_start_ticks_fn=_process_start_ticks,
+        logger=logger,
+        acquired_log_template="Lock acquired: %s",
+        released_log_template="Lock released: %s",
+        stale_pid_reuse_log_template=(
+            "Stale lock detected due PID reuse (pid=%d, expected_ticks=%d, observed_ticks=%d): %s"
+        ),
+        stale_lock_log_template="Stale lock detected (pid=%d), removing: %s",
+        active_lock_error_builder=_run_lock_active_error,
+        unreadable_lock_error_builder=_run_lock_unreadable_error,
+        stale_remove_error_builder=_run_lock_stale_remove_error,
+    ):
         yield
-    finally:
-        try:
-            lock_path.unlink()
-            logger.debug("Lock released: %s", lock_path)
-        except OSError:
-            pass

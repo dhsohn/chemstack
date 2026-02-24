@@ -37,7 +37,7 @@ class TestInpRewriter(unittest.TestCase):
         self.assertIn("geometry_restart_from_rxn.xyz", actions)
         self.assertIn("* xyzfile 0 1 rxn.xyz", out)
 
-    def test_step3_replaces_geometry_with_previous_attempt_xyz(self) -> None:
+    def test_step3_reserved_still_replaces_geometry_with_previous_attempt_xyz(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             src = root / "rxn.retry02.inp"
@@ -50,30 +50,23 @@ class TestInpRewriter(unittest.TestCase):
             out = dst.read_text(encoding="utf-8")
         self.assertIn("geometry_restart_from_rxn.retry02.xyz", actions)
         self.assertIn("* xyzfile 0 1 rxn.retry02.xyz", out)
+        self.assertNotIn("nprocs_set_to_1", actions)
+        self.assertNotIn("nprocs_reduced_to_4", actions)
 
-    def test_step4_and_step5_change_nprocs_with_previous_xyz(self) -> None:
+    def test_step_above_supported_recipes_marks_no_recipe(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             src = root / "rxn.retry03.inp"
-            mid = root / "rxn.retry04.inp"
-            end = root / "rxn.retry05.inp"
+            dst = root / "rxn.retry04.inp"
             src.write_text(BASE_INP, encoding="utf-8")
             (root / "rxn.retry03.xyz").write_text("2\n\nH 0 0 0\nH 0 0 0.85\n", encoding="utf-8")
 
-            actions4 = rewrite_for_retry(src, mid, root, step=4)
-            text4 = mid.read_text(encoding="utf-8")
-            (root / "rxn.retry04.xyz").write_text("2\n\nH 0 0 0\nH 0 0 0.9\n", encoding="utf-8")
-            actions5 = rewrite_for_retry(mid, end, root, step=5)
-            text5 = end.read_text(encoding="utf-8")
+            actions = rewrite_for_retry(src, dst, root, step=4)
+            text = dst.read_text(encoding="utf-8")
 
-        self.assertIn("nprocs_reduced_to_4", actions4)
-        self.assertIn("nprocs 4", text4)
-        self.assertIn("geometry_restart_from_rxn.retry03.xyz", actions4)
-        self.assertIn("* xyzfile 0 1 rxn.retry03.xyz", text4)
-        self.assertIn("nprocs_set_to_1", actions5)
-        self.assertIn("nprocs 1", text5)
-        self.assertIn("geometry_restart_from_rxn.retry04.xyz", actions5)
-        self.assertIn("* xyzfile 0 1 rxn.retry04.xyz", text5)
+        self.assertIn("no_recipe_applied", actions)
+        self.assertIn("geometry_restart_from_rxn.retry03.xyz", actions)
+        self.assertIn("* xyzfile 0 1 rxn.retry03.xyz", text)
 
     def test_fallbacks_to_latest_geometry_when_previous_xyz_missing(self) -> None:
         with tempfile.TemporaryDirectory() as td:

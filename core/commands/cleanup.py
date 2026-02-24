@@ -117,6 +117,7 @@ def cmd_cleanup(args: Any) -> int:
     keep_extensions = set(cfg.cleanup.keep_extensions)
     keep_filenames = set(cfg.cleanup.keep_filenames)
     remove_patterns = cfg.cleanup.remove_patterns
+    remove_overrides_keep = cfg.cleanup.remove_overrides_keep
 
     if reaction_dir_raw:
         try:
@@ -125,7 +126,11 @@ def cmd_cleanup(args: Any) -> int:
             logger.error("%s", exc)
             return 1
         plan, skip = plan_cleanup_single(
-            reaction_dir, keep_extensions, keep_filenames, remove_patterns,
+            reaction_dir,
+            keep_extensions,
+            keep_filenames,
+            remove_patterns,
+            remove_overrides_keep=remove_overrides_keep,
         )
         plans = [plan] if plan else []
         skips_list = [skip] if skip else []
@@ -136,7 +141,11 @@ def cmd_cleanup(args: Any) -> int:
             logger.error("%s", exc)
             return 1
         plans, skips_list = plan_cleanup_root_scan(
-            root, keep_extensions, keep_filenames, remove_patterns,
+            root,
+            keep_extensions,
+            keep_filenames,
+            remove_patterns,
+            remove_overrides_keep=remove_overrides_keep,
         )
 
     if not apply_mode:

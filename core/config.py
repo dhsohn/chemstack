@@ -28,7 +28,7 @@ class RuntimeConfig:
     allowed_root: str = "/home/daehyupsohn/orca_runs"
     organized_root: str = "/home/daehyupsohn/orca_outputs"
     # max retry count, not total execution count
-    default_max_retries: int = 5
+    default_max_retries: int = 2
 
 
 @dataclass
@@ -85,6 +85,7 @@ class CleanupConfig:
     keep_extensions: List[str] = field(default_factory=lambda: list(_DEFAULT_KEEP_EXTENSIONS))
     keep_filenames: List[str] = field(default_factory=lambda: list(_DEFAULT_KEEP_FILENAMES))
     remove_patterns: List[str] = field(default_factory=lambda: list(_DEFAULT_REMOVE_PATTERNS))
+    remove_overrides_keep: bool = False
 
 
 @dataclass
@@ -168,6 +169,11 @@ def load_config(config_path: str) -> AppConfig:
         ),
         remove_patterns=_normalize_string_list(
             cleanup_raw.get("remove_patterns"), _DEFAULT_REMOVE_PATTERNS,
+        ),
+        remove_overrides_keep=(
+            cleanup_raw.get("remove_overrides_keep")
+            if isinstance(cleanup_raw.get("remove_overrides_keep"), bool)
+            else CleanupConfig.remove_overrides_keep
         ),
     )
 

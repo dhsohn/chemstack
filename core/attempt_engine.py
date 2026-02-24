@@ -66,6 +66,15 @@ def _run_status_text(status: RunStatus | str) -> str:
     return status.value if isinstance(status, RunStatus) else str(status)
 
 
+def _retry_recipe_step(retry_number: int) -> int:
+    """Map retry number to available recipe steps.
+
+    With two recipes, retries beyond step 2 re-use step 2.
+    """
+    retry_number = max(1, int(retry_number))
+    return min(retry_number, MAX_RETRY_RECIPES)
+
+
 def _build_run_payload(
     reaction_dir: Path,
     selected_inp: Path,
@@ -121,7 +130,7 @@ def finalize_and_emit(
                 attempt_count=attempt_count,
             ))
         except Exception:
-            pass
+            logger.warning("Failed to emit terminal run event", exc_info=True)
 
     reports = write_report_files(reaction_dir, state)
     payload = _build_run_payload(
@@ -214,7 +223,7 @@ def _recover_missing_retry_input(
         if not source_inp.exists():
             return False, "resume_fallback_source_missing"
 
-    patch_step = min(retries_used, MAX_RETRY_RECIPES)
+    patch_step = _retry_recipe_step(retries_used)
     patch_actions = rewrite_for_retry(
         source_inp=source_inp,
         target_inp=current_inp,
@@ -341,6 +350,11 @@ def run_attempts(
                         to_resolved_local=to_resolved_local,
                     )
                 except Exception:
+                    logger.warning(
+                        "Failed while recovering missing retry input for attempt %d",
+                        execution_index,
+                        exc_info=True,
+                    )
                     recovered = False
                     recovery_reason = "resume_recovery_exception"
                 if recovered and not current_inp.exists():
@@ -419,7 +433,7 @@ def run_attempts(
                     analyzer_reason=analysis.reason,
                 ))
             except Exception:
-                pass
+                logger.warning("Failed to emit attempt-completed event", exc_info=True)
 
         logger.info("Attempt %d finished: return_code=%d, status=%s", execution_index, run_result.return_code, analysis.status)
         decision = decide_attempt_outcome(
@@ -442,7 +456,7 @@ def run_attempts(
 
         next_retry_number = retries_used + 1
         next_inp = retry_inp_path(selected_inp, next_retry_number)
-        patch_step = min(next_retry_number, MAX_RETRY_RECIPES)
+        patch_step = _retry_recipe_step(next_retry_number)
         try:
             patch_actions = rewrite_for_retry(
                 source_inp=current_inp,

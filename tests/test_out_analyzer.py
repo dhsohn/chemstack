@@ -1,12 +1,23 @@
 ﻿import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from core.completion_rules import CompletionMode
 from core.out_analyzer import analyze_output
+from core.statuses import AnalyzerStatus
 
 
 class TestOutAnalyzer(unittest.TestCase):
+    def test_status_is_analyzer_status_enum(self) -> None:
+        payload = "****ORCA TERMINATED NORMALLY****\n"
+        with tempfile.TemporaryDirectory() as td:
+            out = Path(td) / "a.out"
+            out.write_text(payload, encoding="utf-8")
+            result = analyze_output(out, CompletionMode(kind="opt", require_irc=False, route_line="! Opt"))
+        self.assertIsInstance(result.status, AnalyzerStatus)
+        self.assertEqual(result.status, AnalyzerStatus.COMPLETED)
+
     def test_completed_ts(self) -> None:
         payload = "\n".join(
             [
@@ -20,6 +31,22 @@ class TestOutAnalyzer(unittest.TestCase):
             out.write_text(payload, encoding="utf-8")
             result = analyze_output(out, CompletionMode(kind="ts", require_irc=True, route_line="! OptTS IRC"))
         self.assertEqual(result.status, "completed")
+
+    def test_ts_small_file_avoids_full_rescan(self) -> None:
+        payload = "\n".join(
+            [
+                "VIBRATIONAL FREQUENCIES",
+                "  -120.00 cm**-1",
+                "  140.00 cm**-1",
+                "****ORCA TERMINATED NORMALLY****",
+            ]
+        )
+        with tempfile.TemporaryDirectory() as td:
+            out = Path(td) / "a.out"
+            out.write_text(payload, encoding="utf-8")
+            with patch("core.out_analyzer._scan_ts_full_for_imag_count", side_effect=AssertionError("full scan called")):
+                result = analyze_output(out, CompletionMode(kind="ts", require_irc=False, route_line="! OptTS"))
+        self.assertEqual(result.status, AnalyzerStatus.COMPLETED)
 
     def test_completed_ts_with_irc_marker_outside_tail_window(self) -> None:
         filler = ("X" * 120 + "\n") * 4000

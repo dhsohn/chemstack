@@ -23,6 +23,7 @@ from core.geometry_checker import (
     check_root_scan,
     check_single,
 )
+from core.statuses import AnalyzerStatus
 
 
 class TestParseXyzAtoms(unittest.TestCase):
@@ -97,6 +98,10 @@ class TestCheckTsFrequencyCount(unittest.TestCase):
 class TestCheckScfConvergence(unittest.TestCase):
     def test_error_scf_status(self) -> None:
         result = _check_scf_convergence("", "error_scf")
+        self.assertEqual(result.severity, "error")
+
+    def test_error_scf_status_enum(self) -> None:
+        result = _check_scf_convergence("", AnalyzerStatus.ERROR_SCF)
         self.assertEqual(result.severity, "error")
 
     def test_parse_failure(self) -> None:

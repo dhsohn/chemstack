@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from core.attempt_engine import run_attempts
+from core.attempt_engine import _retry_recipe_step, run_attempts
 from core.notifier import EVT_RUN_INTERRUPTED
 from core.state_store import new_state, state_path
 
@@ -53,6 +53,15 @@ class TestAttemptEngineNotify(unittest.TestCase):
         self.assertEqual(saved["final_result"]["reason"], "interrupted_by_user")
         self.assertEqual(saved["status"], "failed")
         self.assertEqual(len(emitted_payloads), 1)
+
+
+class TestRetryRecipeStep(unittest.TestCase):
+    def test_retry_recipe_step_caps_to_two_recipes(self) -> None:
+        self.assertEqual(_retry_recipe_step(1), 1)
+        self.assertEqual(_retry_recipe_step(2), 2)
+        self.assertEqual(_retry_recipe_step(3), 2)
+        self.assertEqual(_retry_recipe_step(4), 2)
+        self.assertEqual(_retry_recipe_step(8), 2)
 
 
 if __name__ == "__main__":

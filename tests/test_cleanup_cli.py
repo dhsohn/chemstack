@@ -9,13 +9,22 @@ from unittest.mock import patch
 from core.cli import main
 
 
-def _write_config(root: Path, allowed_root: Path, organized_root: Path) -> Path:
+def _write_config(
+    root: Path,
+    allowed_root: Path,
+    organized_root: Path,
+    *,
+    remove_overrides_keep: bool = False,
+) -> Path:
     config_path = root / "orca_auto.yaml"
     config_path.write_text(
         json.dumps({
             "runtime": {
                 "allowed_root": str(allowed_root),
                 "organized_root": str(organized_root),
+            },
+            "cleanup": {
+                "remove_overrides_keep": remove_overrides_keep,
             },
             "paths": {"orca_executable": "/usr/bin/true"},
         }),
@@ -125,7 +134,7 @@ class TestCleanupDryRun(unittest.TestCase):
 
 class TestCleanupApply(unittest.TestCase):
 
-    def test_apply_removes_junk_files(self) -> None:
+    def test_apply_removes_junk_files_but_keeps_retry_patterns_by_default(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             allowed = root / "runs"
@@ -148,9 +157,9 @@ class TestCleanupApply(unittest.TestCase):
             self.assertFalse((rxn / "rxn.densities").exists())
             self.assertFalse((rxn / "rxn.tmp").exists())
             self.assertFalse((rxn / "rxn.engrad").exists())
-            self.assertFalse((rxn / "rxn.retry01.inp").exists())
-            self.assertFalse((rxn / "rxn.retry01.out").exists())
-            self.assertFalse((rxn / "rxn_trj.xyz").exists())
+            self.assertTrue((rxn / "rxn.retry01.inp").exists())
+            self.assertTrue((rxn / "rxn.retry01.out").exists())
+            self.assertTrue((rxn / "rxn_trj.xyz").exists())
             # essential kept
             self.assertTrue((rxn / "rxn.inp").exists())
             self.assertTrue((rxn / "rxn.out").exists())
@@ -160,6 +169,29 @@ class TestCleanupApply(unittest.TestCase):
             self.assertTrue((rxn / "run_state.json").exists())
             self.assertTrue((rxn / "run_report.json").exists())
             self.assertTrue((rxn / "run_report.md").exists())
+
+    def test_apply_removes_retry_patterns_when_override_enabled(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            allowed = root / "runs"
+            organized = root / "outputs"
+            allowed.mkdir()
+            organized.mkdir()
+
+            rxn = organized / "opt" / "H2" / "run_001"
+            _make_organized_reaction(rxn)
+
+            config = _write_config(root, allowed, organized, remove_overrides_keep=True)
+            rc = main([
+                "--config", str(config),
+                "cleanup",
+                "--reaction-dir", str(rxn),
+                "--apply",
+            ])
+            self.assertEqual(rc, 0)
+            self.assertFalse((rxn / "rxn.retry01.inp").exists())
+            self.assertFalse((rxn / "rxn.retry01.out").exists())
+            self.assertFalse((rxn / "rxn_trj.xyz").exists())
 
     def test_apply_preserves_state_referenced_retry_files(self) -> None:
         with tempfile.TemporaryDirectory() as td:
