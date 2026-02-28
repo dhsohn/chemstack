@@ -25,3 +25,7 @@ htmlcov/
 # Logs
 *.log
 logs/
+
+# Runtime artifacts
+.cron_*.lock
+.dft_progress_eta_state.json
