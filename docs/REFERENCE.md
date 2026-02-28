@@ -153,12 +153,20 @@ cd ~/orca_auto
 ./bin/orca_auto run-inp --reaction-dir '/home/daehyupsohn/orca_runs/Int1_DMSO' --json
 ```
 
+기본 동작:
+
+- `run-inp`는 기본적으로 백그라운드 실행됩니다.
+- 실행 직후 `status`, `pid`, `log` 경로를 출력하고 종료합니다.
+- 포그라운드 실행이 필요하면 `--foreground`를 추가하세요.
+- 전체 기본값을 포그라운드로 바꾸려면 `ORCA_AUTO_RUN_INP_BACKGROUND=0` 환경변수를 사용하세요.
+
 옵션:
 
 - `--reaction-dir` (필수): 반응 디렉터리
 - `--max-retries` (선택): 최대 재시도 횟수
 - `--force` (선택): 기존 완료 `*.out`가 있어도 강제 재실행
 - `--json` (선택): JSON 출력
+- `--foreground` (선택): `run-inp`를 포그라운드로 실행
 
 ### 7.2 상태 확인
 

@@ -22,6 +22,10 @@ bash scripts/bootstrap_wsl.sh
 ./bin/orca_auto run-inp --reaction-dir '~/orca_runs/내_반응_폴더'
 ```
 
+`run-inp`는 기본적으로 백그라운드로 시작됩니다. 실행하면 `pid`와 `log` 경로가 출력됩니다.
+터미널을 점유한 포그라운드 실행이 필요하면 `--foreground`를 추가하세요.
+항상 포그라운드로 동작시키려면 `export ORCA_AUTO_RUN_INP_BACKGROUND=0`을 설정하세요.
+
 이것만 하면 됩니다! 나머지는 orca_auto가 알아서 처리합니다:
 - 폴더에서 가장 최근 `.inp` 파일을 자동으로 찾아 실행
 - 계산이 실패하면 입력을 보수적으로 수정하여 최대 5회 자동 재시도
@@ -116,6 +120,7 @@ cat ~/orca_runs/내_반응_폴더/run_report.md
 | `--force` | 이미 완료된 계산도 강제 재실행 | `./bin/orca_auto run-inp --reaction-dir '...' --force` |
 | `--max-retries N` | 재시도 횟수 변경 (기본 2회) | `./bin/orca_auto run-inp --reaction-dir '...' --max-retries 8` |
 | `--json` | 결과를 JSON으로 출력 | `./bin/orca_auto run-inp --reaction-dir '...' --json` |
+| `--foreground` | `run-inp`를 터미널 점유 모드로 실행 | `./bin/orca_auto run-inp --reaction-dir '...' --foreground` |
 
 ### Telegram 알림 받기 (선택사항)
 
