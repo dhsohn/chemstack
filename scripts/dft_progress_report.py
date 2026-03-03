@@ -413,6 +413,18 @@ def _count_active_processes(case_name: str, selected_inp_name: str, cmdlines: li
     return count
 
 
+def _categorize_case(status: str, active_proc_count: int, terminated_normally: bool) -> str:
+    if status in FAILED_STATUSES:
+        return "failed"
+    if status == "completed" or terminated_normally:
+        return "completed"
+    if active_proc_count > 0:
+        return "running"
+    if status == "running":
+        return "running"
+    return "other"
+
+
 def _eta_state_path() -> Path:
     return Path(__file__).resolve().parents[1] / ETA_STATE_FILE
 
@@ -559,16 +571,7 @@ def _collect_case_reports(cfg: AppConfig) -> tuple[list[CaseReport], int]:
         active_proc_count = _count_active_processes(case_dir.name, selected_inp_name, cmdlines)
         has_run_lock = (case_dir / "run.lock").exists()
 
-        if active_proc_count > 0:
-            category = "running"
-        elif status == "running" and not terminated_normally:
-            category = "running"
-        elif status in FAILED_STATUSES:
-            category = "failed"
-        elif status == "completed" or terminated_normally:
-            category = "completed"
-        else:
-            category = "other"
+        category = _categorize_case(status, active_proc_count, terminated_normally)
 
         reports.append(
             CaseReport(
@@ -666,7 +669,10 @@ def _build_message(
     if running:
         lines.append("")
         lines.append(f"[running details] showing {min(len(running), max_running)} / {len(running)}")
-        for case in running[: max(0, max_running)]:
+        shown_running = running[: max(0, max_running)]
+        for idx, case in enumerate(shown_running):
+            if idx > 0:
+                lines.append("")
             lines.extend(_format_running_case(case, now))
         hidden = len(running) - max(0, max_running)
         if hidden > 0:
