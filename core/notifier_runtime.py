@@ -3,13 +3,10 @@ from __future__ import annotations
 import logging
 import queue
 import threading
-import time
-from typing import Any, Callable, Dict, List, Set
+from typing import Any, Dict, List, Set
 
 from .notifier_events import (
     EVT_ATTEMPT_COMPLETED,
-    EVT_HEARTBEAT,
-    event_heartbeat,
     render_message,
 )
 from .notifier_state import (
@@ -24,14 +21,11 @@ from .telegram_client import TelegramConfig, send_with_retry
 logger = logging.getLogger(__name__)
 
 _PRIORITY_PRESERVE: Set[str] = {"run_started", "run_completed", "run_failed", "run_interrupted"}
-_PRIORITY_DROP_FIRST: Set[str] = {EVT_HEARTBEAT}
 _SENTINEL = None
 
 
 def _overflow_drop(q: queue.Queue, new_event: Dict[str, Any]) -> bool:
     new_type = new_event.get("event_type", "")
-    if new_type in _PRIORITY_DROP_FIRST:
-        return False
 
     items: List[Dict[str, Any]] = []
     try:
@@ -41,11 +35,7 @@ def _overflow_drop(q: queue.Queue, new_event: Dict[str, Any]) -> bool:
         pass
 
     drop_idx: int | None = None
-    for i, item in enumerate(items):
-        if item.get("event_type", "") in _PRIORITY_DROP_FIRST:
-            drop_idx = i
-            break
-    if drop_idx is None and new_type in _PRIORITY_PRESERVE:
+    if new_type in _PRIORITY_PRESERVE:
         for i, item in enumerate(items):
             if item.get("event_type") == EVT_ATTEMPT_COMPLETED:
                 drop_idx = i
@@ -130,30 +120,3 @@ def _worker_loop(
         pass
 
     alive_flag.clear()
-
-
-def _heartbeat_loop(
-    notify_fn: Callable[[Dict[str, Any]], None],
-    run_id: str,
-    reaction_dir: str,
-    selected_inp: str,
-    state_getter: Callable[[], Dict[str, Any]],
-    interval_sec: int,
-    stop_event: threading.Event,
-    start_time: float,
-) -> None:
-    while not stop_event.wait(timeout=interval_sec):
-        try:
-            state = state_getter()
-            elapsed = time.time() - start_time
-            evt = event_heartbeat(
-                run_id,
-                reaction_dir,
-                selected_inp,
-                status=state.get("status", "unknown"),
-                attempt_count=len(state.get("attempts", [])),
-                elapsed_sec=elapsed,
-            )
-            notify_fn(evt)
-        except Exception as exc:
-            logger.debug("Heartbeat emission error: %s", exc)

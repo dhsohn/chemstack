@@ -121,6 +121,60 @@ class TestCli(unittest.TestCase):
         self.assertEqual(rc, 1)
         self.assertFalse((reaction / "run_state.json").exists())
 
+    def test_skip_existing_completed_out_reuses_interrupted_run_id(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            reaction = root / "orca_runs" / "rxn1_resume_skip"
+            reaction.mkdir(parents=True)
+            inp = reaction / "rxn.inp"
+            out = reaction / "rxn.out"
+            inp.write_text("! Opt\n* xyz 0 1\nH 0 0 0\nH 0 0 0.74\n*\n", encoding="utf-8")
+            out.write_text("****ORCA TERMINATED NORMALLY****\n", encoding="utf-8")
+            config = self._write_config(root, root / "orca_runs")
+            state = {
+                "run_id": "run_resume_skip_existing_out",
+                "reaction_dir": str(reaction),
+                "selected_inp": str(inp),
+                "max_retries": 5,
+                "status": "failed",
+                "started_at": "2026-01-01T00:00:00+00:00",
+                "updated_at": "2026-01-01T00:00:00+00:00",
+                "attempts": [
+                    {
+                        "index": 1,
+                        "inp_path": str(inp),
+                        "out_path": str(out),
+                        "return_code": 1,
+                        "analyzer_status": "incomplete",
+                        "analyzer_reason": "run_incomplete",
+                        "markers": {},
+                        "patch_actions": [],
+                        "started_at": "2026-01-01T00:00:00+00:00",
+                        "ended_at": "2026-01-01T00:00:01+00:00",
+                    }
+                ],
+                "final_result": {
+                    "status": "failed",
+                    "analyzer_status": "incomplete",
+                    "reason": "interrupted_by_user",
+                    "completed_at": "2026-01-01T00:00:02+00:00",
+                    "last_out_path": str(out),
+                },
+            }
+            (reaction / "run_state.json").write_text(json.dumps(state), encoding="utf-8")
+
+            with patch("core.cli.OrcaRunner.run") as run_mock:
+                rc = main(["--config", str(config), "run-inp", "--reaction-dir", str(reaction)])
+            self.assertFalse(run_mock.called)
+            saved = json.loads((reaction / "run_state.json").read_text(encoding="utf-8"))
+
+        self.assertEqual(rc, 0)
+        self.assertEqual(saved["run_id"], "run_resume_skip_existing_out")
+        self.assertEqual(saved["status"], "completed")
+        self.assertEqual(saved["final_result"]["reason"], "existing_out_completed")
+        self.assertTrue(saved["final_result"]["resumed"])
+        self.assertEqual(len(saved["attempts"]), 1)
+
     def test_retries_and_completes(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -402,6 +456,74 @@ class TestCli(unittest.TestCase):
         self.assertEqual(len(saved["attempts"]), 2)
         actions = saved["attempts"][0].get("patch_actions", [])
         self.assertTrue(any("resume_recreated_missing_input:rxn.retry01.inp" in action for action in actions))
+
+    def test_resume_interrupted_failure_keeps_run_id_and_continues(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            reaction = root / "orca_runs" / "rxn_resume_interrupt"
+            reaction.mkdir(parents=True)
+            inp = reaction / "rxn.inp"
+            inp.write_text("! Opt\n* xyz 0 1\nH 0 0 0\nH 0 0 0.74\n*\n", encoding="utf-8")
+            config = self._write_config(root, root / "orca_runs")
+            state = {
+                "run_id": "run_resume_interrupted",
+                "reaction_dir": str(reaction),
+                "selected_inp": str(inp),
+                "max_retries": 5,
+                "status": "failed",
+                "started_at": "2026-01-01T00:00:00+00:00",
+                "updated_at": "2026-01-01T00:00:00+00:00",
+                "attempts": [
+                    {
+                        "index": 1,
+                        "inp_path": str(inp),
+                        "out_path": str(reaction / "rxn.out"),
+                        "return_code": 1,
+                        "analyzer_status": "incomplete",
+                        "analyzer_reason": "run_incomplete",
+                        "markers": {},
+                        "patch_actions": [],
+                        "started_at": "2026-01-01T00:00:00+00:00",
+                        "ended_at": "2026-01-01T00:00:01+00:00",
+                    }
+                ],
+                "final_result": {
+                    "status": "failed",
+                    "analyzer_status": "incomplete",
+                    "reason": "interrupted_by_user",
+                    "completed_at": "2026-01-01T00:00:02+00:00",
+                    "last_out_path": str(reaction / "rxn.out"),
+                },
+            }
+            (reaction / "run_state.json").write_text(json.dumps(state), encoding="utf-8")
+            seen = {"inp_name": ""}
+
+            def _fake_run(_self, inp_path: Path) -> RunResult:
+                seen["inp_name"] = inp_path.name
+                out = inp_path.with_suffix(".out")
+                out.write_text("****ORCA TERMINATED NORMALLY****\n", encoding="utf-8")
+                return RunResult(out_path=str(out), return_code=0)
+
+            with patch("core.cli.OrcaRunner.run", new=_fake_run):
+                rc = main(
+                    [
+                        "--config",
+                        str(config),
+                        "run-inp",
+                        "--reaction-dir",
+                        str(reaction),
+                    ]
+                )
+            saved = json.loads((reaction / "run_state.json").read_text(encoding="utf-8"))
+            retry_exists = (reaction / "rxn.retry01.inp").exists()
+
+        self.assertEqual(rc, 0)
+        self.assertEqual(saved["run_id"], "run_resume_interrupted")
+        self.assertEqual(seen["inp_name"], "rxn.retry01.inp")
+        self.assertTrue(retry_exists)
+        self.assertEqual(saved["status"], "completed")
+        self.assertEqual(len(saved["attempts"]), 2)
+        self.assertTrue(saved["final_result"]["resumed"])
 
     def test_resume_completed_attempt_finalizes_without_extra_run(self) -> None:
         with tempfile.TemporaryDirectory() as td:

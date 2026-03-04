@@ -18,7 +18,7 @@ from ..notifier import (
 from ..orca_runner import OrcaRunner
 from ..out_analyzer import analyze_output
 from ..state_machine import load_or_create_state
-from ..state_store import acquire_run_lock, load_state, new_state, state_path
+from ..state_store import acquire_run_lock, load_state, state_path
 from ..statuses import AnalyzerStatus, RunStatus
 from ._helpers import RETRY_INP_RE, _emit, _to_resolved_local, _validate_reaction_dir
 
@@ -121,7 +121,14 @@ def cmd_run_inp(args: Any, *, runner_cls: Type[OrcaRunner] = OrcaRunner) -> int:
             if not args.force:
                 done = _existing_completed_out(selected_inp)
                 if done:
-                    state = new_state(reaction_dir, selected_inp, max_retries=max_retries)
+                    state, resumed = load_or_create_state(
+                        reaction_dir,
+                        selected_inp,
+                        max_retries=max_retries,
+                        to_resolved_local=_to_resolved_local,
+                    )
+                    attempts = state.get("attempts")
+                    attempt_count = len(attempts) if isinstance(attempts, list) else 0
                     notifier = create_notifier(
                         cfg.monitoring, reaction_dir,
                         state["run_id"], str(selected_inp), state,
@@ -133,7 +140,7 @@ def cmd_run_inp(args: Any, *, runner_cls: Type[OrcaRunner] = OrcaRunner) -> int:
                             state["run_id"], str(reaction_dir), str(selected_inp),
                             status="completed",
                             reason="existing_out_completed",
-                            attempt_count=0,
+                            attempt_count=attempt_count,
                         ))
                     if notifier:
                         notifier.shutdown()
@@ -143,7 +150,7 @@ def cmd_run_inp(args: Any, *, runner_cls: Type[OrcaRunner] = OrcaRunner) -> int:
                         analyzer_status=AnalyzerStatus.COMPLETED,
                         reason="existing_out_completed",
                         last_out_path=done["out_path"],
-                        resumed=None, as_json=args.json, exit_code=0, emit=_emit,
+                        resumed=True if resumed else None, as_json=args.json, exit_code=0, emit=_emit,
                         extra={"skipped_execution": True},
                     )
 

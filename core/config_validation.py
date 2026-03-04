@@ -128,6 +128,3 @@ def _validate_monitoring_config(mon: Any) -> None:
     d = mon.delivery
     if not (100 <= d.queue_size <= 10000):
         raise ValueError(f"monitoring.delivery.queue_size must be 100-10000, got {d.queue_size}")
-    h = mon.heartbeat
-    if h.enabled and h.interval_sec < 60:
-        raise ValueError(f"monitoring.heartbeat.interval_sec must be >= 60, got {h.interval_sec}")

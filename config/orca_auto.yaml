@@ -20,9 +20,6 @@ monitoring:
     queue_size: 1000
     worker_flush_timeout_sec: 3
     dedup_ttl_sec: 86400
-  heartbeat:
-    enabled: true
-    interval_sec: 1800
 
 disk_monitor:
   threshold_gb: 50.0

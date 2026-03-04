@@ -16,7 +16,6 @@ from core.notifier import (
     event_run_started,
     event_attempt_completed,
     event_run_terminal,
-    event_heartbeat,
     load_dedup_state,
     save_dedup_state,
     is_duplicate,
@@ -30,7 +29,6 @@ from core.notifier import (
     EVT_RUN_COMPLETED,
     EVT_RUN_FAILED,
     EVT_RUN_INTERRUPTED,
-    EVT_HEARTBEAT,
 )
 from core.notifier_events import (
     EVT_DISK_THRESHOLD,
@@ -92,14 +90,6 @@ class TestEventPayloads(unittest.TestCase):
         )
         self.assertEqual(evt["event_id"], "run_001:run_interrupted")
 
-    def test_heartbeat(self):
-        evt = event_heartbeat(
-            "run_001", "/dir", "input.inp",
-            status="running", attempt_count=1, elapsed_sec=120.5,
-        )
-        self.assertTrue(evt["event_id"].startswith("run_001:heartbeat:"))
-        self.assertEqual(evt["elapsed_sec"], 120.5)
-
 
 class TestRenderMessage(unittest.TestCase):
     def test_started(self):
@@ -143,15 +133,6 @@ class TestRenderMessage(unittest.TestCase):
         )
         msg = render_message(evt)
         self.assertIn("[orca_auto] interrupted", msg)
-
-    def test_heartbeat(self):
-        evt = event_heartbeat(
-            "run_001", "/dir", "inp",
-            status="running", attempt_count=1, elapsed_sec=120.5,
-        )
-        msg = render_message(evt)
-        self.assertIn("[orca_auto] heartbeat", msg)
-        self.assertIn("elapsed_sec=120.5", msg)
 
     def test_path_masking(self):
         evt = event_run_started("run_001", "/home/user/secret/rxn", "rxn.inp")
@@ -226,16 +207,6 @@ class TestDedupState(unittest.TestCase):
 
 
 class TestQueueOverflow(unittest.TestCase):
-    def test_heartbeat_dropped_first(self):
-        q = queue.Queue(maxsize=2)
-        q.put({"event_type": EVT_HEARTBEAT, "event_id": "hb1"})
-        q.put({"event_type": EVT_ATTEMPT_COMPLETED, "event_id": "ac1"})
-        new_evt = {"event_type": EVT_RUN_COMPLETED, "event_id": "rc1"}
-        result = _overflow_drop(q, new_evt)
-        self.assertTrue(result)
-        # Queue should now have ac1 only (heartbeat dropped)
-        self.assertEqual(q.qsize(), 1)
-
     def test_attempt_completed_dropped_for_preserve_event(self):
         q = queue.Queue(maxsize=2)
         q.put({"event_type": EVT_ATTEMPT_COMPLETED, "event_id": "ac1"})
@@ -244,14 +215,6 @@ class TestQueueOverflow(unittest.TestCase):
         result = _overflow_drop(q, new_evt)
         self.assertTrue(result)
         self.assertEqual(q.qsize(), 1)
-
-    def test_new_heartbeat_dropped_if_queue_full(self):
-        q = queue.Queue(maxsize=2)
-        q.put({"event_type": EVT_RUN_STARTED, "event_id": "rs1"})
-        q.put({"event_type": EVT_RUN_COMPLETED, "event_id": "rc1"})
-        new_evt = {"event_type": EVT_HEARTBEAT, "event_id": "hb1"}
-        result = _overflow_drop(q, new_evt)
-        self.assertFalse(result)
 
     def test_no_drop_when_only_preserve_events(self):
         q = queue.Queue(maxsize=2)
@@ -316,7 +279,6 @@ class TestCreateNotifier(unittest.TestCase):
         mock_send.return_value = SendResult(success=True, status_code=200)
         mon = MonitoringConfig(enabled=True)
         mon.delivery.async_enabled = False
-        mon.heartbeat.enabled = False
         with tempfile.TemporaryDirectory() as td:
             notifier = create_notifier(mon, Path(td), "run_001", "inp", {})
             self.assertIsNotNone(notifier)
@@ -347,7 +309,6 @@ class TestCreateNotifier(unittest.TestCase):
         mock_worker_loop.side_effect = _slow_worker
 
         mon = MonitoringConfig(enabled=True)
-        mon.heartbeat.enabled = False
         mon.delivery.queue_size = 1
         mon.delivery.worker_flush_timeout_sec = 1.0
 

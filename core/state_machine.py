@@ -11,6 +11,7 @@ from .types import RunState
 
 MAX_RETRY_RECIPES = 2
 RESUMABLE_RUN_STATUSES = {RunStatus.RUNNING.value, RunStatus.RETRYING.value}
+RESUMABLE_FAILED_REASONS = {"interrupted_by_user"}
 
 
 @dataclass(frozen=True)
@@ -61,6 +62,25 @@ def state_matches_selected(
         return False
 
 
+def _final_reason(state: RunState) -> str:
+    final_result = state.get("final_result")
+    if not isinstance(final_result, dict):
+        return ""
+    reason = final_result.get("reason")
+    if not isinstance(reason, str):
+        return ""
+    return reason.strip()
+
+
+def is_resumable_state(state: RunState) -> bool:
+    status = str(state.get("status", "")).strip()
+    if status in RESUMABLE_RUN_STATUSES:
+        return True
+    if status == RunStatus.FAILED.value:
+        return _final_reason(state) in RESUMABLE_FAILED_REASONS
+    return False
+
+
 def load_or_create_state(
     reaction_dir: Path,
     selected_inp: Path,
@@ -72,8 +92,10 @@ def load_or_create_state(
     resumed = False
     if not state or not state_matches_selected(state, selected_inp, to_resolved_local=to_resolved_local):
         state = new_state(reaction_dir, selected_inp, max_retries=max_retries)
-    elif str(state.get("status")) in RESUMABLE_RUN_STATUSES:
+    elif is_resumable_state(state):
         resumed = True
+        if state.get("final_result") is not None:
+            state["final_result"] = None
     else:
         state = new_state(reaction_dir, selected_inp, max_retries=max_retries)
 

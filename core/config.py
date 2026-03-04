@@ -55,17 +55,10 @@ class DeliveryConfig:
 
 
 @dataclass
-class HeartbeatConfig:
-    enabled: bool = True
-    interval_sec: int = 1800
-
-
-@dataclass
 class MonitoringConfig:
     enabled: bool = False
     telegram: TelegramTransportConfig = field(default_factory=TelegramTransportConfig)
     delivery: DeliveryConfig = field(default_factory=DeliveryConfig)
-    heartbeat: HeartbeatConfig = field(default_factory=HeartbeatConfig)
 
 
 _DEFAULT_KEEP_EXTENSIONS = [".inp", ".out", ".xyz", ".gbw", ".hess"]
@@ -113,7 +106,6 @@ def load_config(config_path: str) -> AppConfig:
     monitoring_raw = raw.get("monitoring", {}) if isinstance(raw.get("monitoring", {}), dict) else {}
     telegram_raw = monitoring_raw.get("telegram", {}) if isinstance(monitoring_raw.get("telegram", {}), dict) else {}
     delivery_raw = monitoring_raw.get("delivery", {}) if isinstance(monitoring_raw.get("delivery", {}), dict) else {}
-    heartbeat_raw = monitoring_raw.get("heartbeat", {}) if isinstance(monitoring_raw.get("heartbeat", {}), dict) else {}
     cleanup_raw = raw.get("cleanup", {}) if isinstance(raw.get("cleanup", {}), dict) else {}
     disk_monitor_raw = raw.get("disk_monitor", {}) if isinstance(raw.get("disk_monitor", {}), dict) else {}
 
@@ -155,10 +147,6 @@ def load_config(config_path: str) -> AppConfig:
                 delivery_raw.get("worker_flush_timeout_sec"), DeliveryConfig.worker_flush_timeout_sec,
             ),
             dedup_ttl_sec=_as_int(delivery_raw.get("dedup_ttl_sec"), DeliveryConfig.dedup_ttl_sec),
-        ),
-        heartbeat=HeartbeatConfig(
-            enabled=bool(heartbeat_raw.get("enabled", HeartbeatConfig.enabled)),
-            interval_sec=_as_int(heartbeat_raw.get("interval_sec"), HeartbeatConfig.interval_sec),
         ),
     )
 

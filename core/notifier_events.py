@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import time
 from pathlib import Path
 from typing import Any, Dict
 
@@ -11,7 +10,6 @@ EVT_ATTEMPT_COMPLETED = "attempt_completed"
 EVT_RUN_COMPLETED = "run_completed"
 EVT_RUN_FAILED = "run_failed"
 EVT_RUN_INTERRUPTED = "run_interrupted"
-EVT_HEARTBEAT = "heartbeat"
 EVT_DISK_THRESHOLD = "disk_threshold"
 EVT_DISK_RECOVERED = "disk_recovered"
 
@@ -82,24 +80,6 @@ def event_run_terminal(
     return evt
 
 
-def event_heartbeat(
-    run_id: str,
-    reaction_dir: str,
-    selected_inp: str,
-    *,
-    status: str,
-    attempt_count: int,
-    elapsed_sec: float,
-) -> Dict[str, Any]:
-    bucket_ts = str(int(time.time()))
-    evt = _make_common(EVT_HEARTBEAT, run_id, reaction_dir, selected_inp)
-    evt["event_id"] = make_event_id(run_id, EVT_HEARTBEAT, bucket_ts)
-    evt["status"] = status
-    evt["attempt_count"] = attempt_count
-    evt["elapsed_sec"] = round(elapsed_sec, 1)
-    return evt
-
-
 def event_disk_threshold(
     *,
     combined_gb: float,
@@ -161,12 +141,6 @@ def render_message(event: Dict[str, Any], *, mask_paths: bool = False) -> str:
         reason = event.get("reason", "?")
         label = "failed" if etype == EVT_RUN_FAILED else "interrupted"
         return f"[orca_auto] {label} | run_id={run_id} | status={status} | reason={reason}"
-
-    if etype == EVT_HEARTBEAT:
-        status = event.get("status", "?")
-        count = event.get("attempt_count", "?")
-        elapsed = event.get("elapsed_sec", "?")
-        return f"[orca_auto] heartbeat | run_id={run_id} | status={status} | attempts={count} | elapsed_sec={elapsed}"
 
     if etype == EVT_DISK_THRESHOLD:
         combined = event.get("combined_gb", "?")

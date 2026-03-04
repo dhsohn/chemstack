@@ -12,19 +12,17 @@ from typing import Any, Callable, Dict, Optional
 from .config import MonitoringConfig
 from .notifier_events import (
     EVT_ATTEMPT_COMPLETED,
-    EVT_HEARTBEAT,
     EVT_RUN_COMPLETED,
     EVT_RUN_FAILED,
     EVT_RUN_INTERRUPTED,
     EVT_RUN_STARTED,
     event_attempt_completed,
-    event_heartbeat,
     event_run_started,
     event_run_terminal,
     make_event_id,
     render_message,
 )
-from .notifier_runtime import _SENTINEL, _heartbeat_loop, _overflow_drop, _worker_loop
+from .notifier_runtime import _SENTINEL, _overflow_drop, _worker_loop
 from .notifier_state import (
     compact_dedup_state,
     is_duplicate,
@@ -48,11 +46,10 @@ class Notifier:
         selected_inp_str: str,
         state_ref: Dict[str, Any],
     ) -> None:
+        _ = (run_id, reaction_dir_str, selected_inp_str, state_ref)
         self._tg_config = tg_config
         self._mon_config = mon_config
         self._reaction_dir = reaction_dir
-        self._run_id = run_id
-        self._state_ref = state_ref
         self._async_enabled = mon_config.delivery.async_enabled
         self._disabled = False
         self._shutdown_called = False
@@ -63,8 +60,6 @@ class Notifier:
         self._queue: queue.Queue | None = None
         self._worker_thread: Optional[threading.Thread] = None
         self._worker_alive = threading.Event()
-        self._heartbeat_stop = threading.Event()
-        self._start_time = time.time()
 
         if self._async_enabled:
             self._queue = queue.Queue(maxsize=mon_config.delivery.queue_size)
@@ -84,25 +79,6 @@ class Notifier:
             self._worker_thread.start()
         else:
             self._sync_dedup_state = load_dedup_state(reaction_dir)
-
-        self._heartbeat_thread: Optional[threading.Thread] = None
-        if mon_config.heartbeat.enabled:
-            self._heartbeat_thread = threading.Thread(
-                target=_heartbeat_loop,
-                args=(
-                    self.notify,
-                    run_id,
-                    reaction_dir_str,
-                    selected_inp_str,
-                    lambda: self._state_ref,
-                    mon_config.heartbeat.interval_sec,
-                    self._heartbeat_stop,
-                    self._start_time,
-                ),
-                daemon=True,
-                name="orca_auto_heartbeat",
-            )
-            self._heartbeat_thread.start()
 
         atexit.register(self.shutdown)
 
@@ -166,10 +142,6 @@ class Notifier:
             return
         self._shutdown_called = True
         self._disabled = True
-
-        self._heartbeat_stop.set()
-        if self._heartbeat_thread and self._heartbeat_thread.is_alive():
-            self._heartbeat_thread.join(timeout=2.0)
 
         if not self._async_enabled:
             return

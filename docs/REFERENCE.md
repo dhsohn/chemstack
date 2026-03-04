@@ -102,9 +102,6 @@ monitoring:
     queue_size: 1000
     worker_flush_timeout_sec: 3
     dedup_ttl_sec: 86400
-  heartbeat:
-    enabled: true
-    interval_sec: 1800
 
 disk_monitor:
   threshold_gb: 50.0
@@ -128,7 +125,6 @@ cleanup:
 - `monitoring.telegram.bot_token_env`: bot token을 담은 환경변수 이름
 - `monitoring.telegram.chat_id_env`: chat_id를 담은 환경변수 이름
 - `monitoring.delivery.async_enabled`: `false`면 동기 전송 모드
-- `monitoring.heartbeat.interval_sec`: heartbeat 주기(초)
 - `disk_monitor.threshold_gb`: 디스크 사용량 임계치 (GB, 기본 50.0)
 - `disk_monitor.interval_sec`: watch 모드 스캔 주기 (초, 기본 300)
 - `disk_monitor.top_n`: 상위 디렉터리 표시 개수 (기본 10)
