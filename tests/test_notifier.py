@@ -257,8 +257,8 @@ class TestCreateNotifier(unittest.TestCase):
         mon = MonitoringConfig(enabled=True)
         with tempfile.TemporaryDirectory() as td:
             notifier = create_notifier(mon, Path(td), "run_001", "inp", {})
-        self.assertIsNotNone(notifier)
-        notifier.shutdown()
+            self.assertIsNotNone(notifier)
+            notifier.shutdown()
 
     @patch.dict(os.environ, {
         "ORCA_AUTO_TELEGRAM_BOT_TOKEN": "  ",
