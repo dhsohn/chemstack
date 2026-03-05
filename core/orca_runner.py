@@ -45,8 +45,17 @@ class OrcaRunner:
                 except Exception:
                     pass
 
+    @staticmethod
+    def _ensure_trailing_newline(path: Path) -> None:
+        """ORCA Fortran 파서가 마지막 줄을 올바르게 읽도록 trailing newline을 보장한다."""
+        data = path.read_bytes()
+        if data and not data.endswith(b"\n"):
+            with path.open("ab") as fh:
+                fh.write(b"\n")
+
     def run(self, inp_path: Path) -> RunResult:
         inp = inp_path.resolve()
+        self._ensure_trailing_newline(inp)
         out = inp.with_suffix(".out")
         cwd = str(inp.parent)
 
