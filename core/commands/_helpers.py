@@ -13,6 +13,12 @@ from ..pathing import is_subpath, to_local_path
 logger = logging.getLogger(__name__)
 
 RETRY_INP_RE = re.compile(r"\.retry\d+$", re.IGNORECASE)
+# ORCA가 자동 생성하는 중간 inp 파일 패턴 (사용자 작성 inp가 아님)
+ORCA_GENERATED_INP_RE = re.compile(
+    r"\.(scfgrad|scfhess|cis|autoci|cipsi|mrci|mdci|eprnmr|loc|nbo|compound|hess)"
+    r"(\.retry\d+)?$",
+    re.IGNORECASE,
+)
 CONFIG_ENV_VAR = "ORCA_AUTO_CONFIG"
 _MAX_SAMPLE_FILES = 10
 

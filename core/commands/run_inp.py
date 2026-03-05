@@ -13,7 +13,7 @@ from ..out_analyzer import analyze_output
 from ..state_machine import load_or_create_state
 from ..state_store import acquire_run_lock, load_state, state_path
 from ..statuses import AnalyzerStatus, RunStatus
-from ._helpers import RETRY_INP_RE, _emit, _to_resolved_local, _validate_reaction_dir
+from ._helpers import ORCA_GENERATED_INP_RE, RETRY_INP_RE, _emit, _to_resolved_local, _validate_reaction_dir
 
 logger = logging.getLogger(__name__)
 
@@ -22,8 +22,12 @@ def _select_latest_inp(reaction_dir: Path) -> Path:
     all_candidates = list(reaction_dir.glob("*.inp"))
     if not all_candidates:
         raise ValueError(f"No .inp file found in: {reaction_dir}")
-    # Prefer user-authored base inputs over generated retry files.
-    candidates = [p for p in all_candidates if not RETRY_INP_RE.search(p.stem)]
+    # Prefer user-authored base inputs over generated retry/intermediate files.
+    candidates = [
+        p for p in all_candidates
+        if not RETRY_INP_RE.search(p.stem)
+        and not ORCA_GENERATED_INP_RE.search(p.stem)
+    ]
     if not candidates:
         candidates = all_candidates
     candidates.sort(key=lambda p: (p.stat().st_mtime_ns, p.name.lower()), reverse=True)
