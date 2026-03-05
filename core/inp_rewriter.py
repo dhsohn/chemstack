@@ -25,8 +25,6 @@ def rewrite_for_retry(source_inp: Path, target_inp: Path, reaction_dir: Path, st
         changed |= _set_block_key_value(lines, "geom", "MaxIter", "300")
         if changed:
             actions.append("geom_hessian_and_maxiter")
-    elif step == 3:
-        pass
     else:
         actions.append("no_recipe_applied")
 

@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List
 
 from ..config import AppConfig
-from ..pathing import is_subpath, to_local_path
+from ..pathing import is_subpath
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +40,7 @@ def default_config_path() -> str:
 
 
 def _to_resolved_local(path_text: str) -> Path:
-    return Path(to_local_path(path_text)).expanduser().resolve()
+    return Path(path_text).expanduser().resolve()
 
 
 def _validate_reaction_dir(cfg: AppConfig, reaction_dir_raw: str) -> Path:

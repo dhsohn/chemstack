@@ -35,7 +35,11 @@ class OutAnalysis:
 
 
 def _detect_encoding(out_path: Path) -> str:
-    """Detect if the file uses UTF-16 encoding (common for legacy Windows .out files)."""
+    """Detect if the file uses UTF-16 encoding.
+
+    Kept for backward compatibility with pre-migration .out files that were
+    produced on Windows.  New Linux-only runs always produce UTF-8.
+    """
     try:
         raw = out_path.read_bytes()[:4]
     except OSError:

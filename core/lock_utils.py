@@ -186,10 +186,21 @@ def acquire_file_lock(
                     if active_lock_error_builder is not None:
                         raise active_lock_error_builder(lock_pid, lock_info, lock_path)
                     raise RuntimeError(f"Lock is held by active pid={lock_pid}. Lock file: {lock_path}")
-            elif deadline is None:
-                if unreadable_lock_error_builder is not None:
-                    raise unreadable_lock_error_builder(lock_path)
-                raise RuntimeError(f"Lock file owner is unreadable. Lock file: {lock_path}")
+            else:
+                # Lock owner PID is unreadable
+                if deadline is None:
+                    if unreadable_lock_error_builder is not None:
+                        raise unreadable_lock_error_builder(lock_path)
+                    raise RuntimeError(f"Lock file owner is unreadable. Lock file: {lock_path}")
+                # With timeout: treat unreadable lock as stale and try to remove it
+                logger.warning("Lock file has unreadable owner, treating as stale: %s", lock_path)
+                try:
+                    lock_path.unlink()
+                except FileNotFoundError:
+                    continue
+                except OSError:
+                    pass  # Will retry until timeout
+                continue
 
             if deadline is None:
                 continue

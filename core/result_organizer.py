@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from .completion_rules import TS_ROUTE_RE
 from .molecule_key import extract_molecule_key
-from .pathing import is_subpath
+from .pathing import is_subpath, resolve_artifact_path
 from .state_store import load_state, save_state, write_report_files
 from .statuses import RunStatus
 
@@ -49,28 +49,7 @@ class OrganizePlan:
 
 
 def _resolve_existing_artifact(path_text: str, reaction_dir: Path) -> Optional[Path]:
-    raw = path_text.strip()
-    if not raw:
-        return None
-
-    p = Path(raw)
-    candidates: List[Path] = []
-    if p.is_absolute():
-        candidates.append(p)
-        candidates.append(reaction_dir / p.name)
-    else:
-        candidates.append(reaction_dir / p)
-        candidates.append(reaction_dir / p.name)
-
-    seen: set[Path] = set()
-    for candidate in candidates:
-        resolved = candidate.resolve()
-        if resolved in seen:
-            continue
-        seen.add(resolved)
-        if candidate.exists():
-            return resolved
-    return None
+    return resolve_artifact_path(path_text, reaction_dir)
 
 
 def check_eligibility(reaction_dir: Path) -> Tuple[Optional[Dict[str, Any]], Optional[SkipReason]]:

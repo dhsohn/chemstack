@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "orca-auto"
+version = "0.1.0"
+description = "ORCA single-input recovery runner with automatic retry"
+requires-python = ">=3.10"
+dependencies = [
+    "PyYAML>=6.0.1",
+]
+
+[project.scripts]
+orca_auto = "core.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["core*"]

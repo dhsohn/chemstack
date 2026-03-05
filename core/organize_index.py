@@ -7,6 +7,8 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional
 
+from .molecule_key import extract_molecule_key
+from .pathing import resolve_artifact_path
 from .state_store import atomic_write_text, load_state, now_utc_iso
 
 logger = logging.getLogger(__name__)
@@ -93,33 +95,9 @@ def to_reaction_relative_path(path_value: Any, reaction_dir: Path) -> str:
 
 
 def resolve_state_path(path_value: Any, reaction_dir: Path) -> Optional[Path]:
-    if not isinstance(path_value, str):
+    if not isinstance(path_value, str) or not path_value.strip():
         return None
-    raw = path_value.strip()
-    if not raw:
-        return None
-
-    p = Path(raw)
-    candidates: List[Path] = []
-    if p.is_absolute():
-        candidates.append(p)
-        candidates.append(reaction_dir / p.name)
-    else:
-        candidates.append(reaction_dir / p)
-        candidates.append(reaction_dir / p.name)
-
-    seen: set[Path] = set()
-    for candidate in candidates:
-        try:
-            resolved = candidate.resolve()
-        except OSError:
-            continue
-        if resolved in seen:
-            continue
-        seen.add(resolved)
-        if candidate.exists():
-            return candidate
-    return None
+    return resolve_artifact_path(path_value, reaction_dir)
 
 
 def rebuild_index(organized_root: Path) -> int:
@@ -155,7 +133,6 @@ def rebuild_index(organized_root: Path) -> int:
         organized_path = str(rel)
 
         from .result_organizer import detect_job_type
-        from .molecule_key import extract_molecule_key
 
         selected_inp = state.get("selected_inp", "")
         inp_path = resolve_state_path(selected_inp, reaction_dir)

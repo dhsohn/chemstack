@@ -77,9 +77,7 @@ def _resolve_inp_path(
         return same_stem_inp
 
     inps = sorted(reaction_dir.glob("*.inp"), key=lambda x: x.stat().st_mtime, reverse=True)
-    for inp in inps:
-        return inp
-    return None
+    return inps[0] if inps else None
 
 
 def _find_out_file(
@@ -94,9 +92,7 @@ def _find_out_file(
                 return p
 
     outs = sorted(reaction_dir.glob("*.out"), key=lambda x: x.stat().st_mtime, reverse=True)
-    for out in outs:
-        return out
-    return None
+    return outs[0] if outs else None
 
 
 def _find_xyz_file(reaction_dir: Path, out_path: Path) -> Optional[Path]:
@@ -105,11 +101,11 @@ def _find_xyz_file(reaction_dir: Path, out_path: Path) -> Optional[Path]:
     if same_stem.exists():
         return same_stem
 
-    xyzs = sorted(reaction_dir.glob("*.xyz"), key=lambda x: x.stat().st_mtime, reverse=True)
-    for xyz in xyzs:
-        if not xyz.name.endswith("_trj.xyz"):
-            return xyz
-    return None
+    xyzs = [
+        p for p in sorted(reaction_dir.glob("*.xyz"), key=lambda x: x.stat().st_mtime, reverse=True)
+        if not p.name.endswith("_trj.xyz")
+    ]
+    return xyzs[0] if xyzs else None
 
 
 def _parse_xyz_atoms(xyz_path: Path) -> List[Tuple[str, float, float, float]]:

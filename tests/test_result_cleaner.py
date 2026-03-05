@@ -18,7 +18,13 @@ from core.result_cleaner import (
 
 KEEP_EXT = {".inp", ".out", ".xyz", ".gbw", ".hess"}
 KEEP_FN = {"run_state.json", "run_report.json", "run_report.md"}
-REMOVE_PAT = ["*.retry*.inp", "*.retry*.out", "*_trj.xyz"]
+REMOVE_PAT = [
+    "*.retry*.inp", "*.retry*.out", "*_trj.xyz",
+    "*.densities", "*.engrad", "*.tmp", "*.prop", "*.scfp", "*.opt",
+    "*.cis", "*.mdci", "*.mrci", "*.autoci", "*.cipsi",
+    "*.loc", "*.nbo", "*.eprnmr", "*.compound",
+    "*.bas", "*.one", "*.two",
+]
 
 
 def _write_state(d: Path, state: dict) -> None:

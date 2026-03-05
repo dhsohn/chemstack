@@ -9,7 +9,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from core.cli import CONFIG_ENV_VAR, _retry_inp_path, _select_latest_inp, default_config_path, main
-from core.orchestrator import _emit
+from core.commands._helpers import _emit
 from core.orca_runner import RunResult
 
 

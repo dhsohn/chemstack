@@ -143,7 +143,7 @@ class TestConfigValidation(unittest.TestCase):
             self.assertEqual(cfg.runtime.allowed_root, "/home/user/orca_runs")
             self.assertEqual(cfg.paths.orca_executable, "/opt/orca/orca")
 
-    def test_deprecated_max_attempts_key_still_works(self) -> None:
+    def test_deprecated_max_attempts_key_is_ignored(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             cfg_path = Path(td) / "orca_auto.yaml"
             cfg_path.write_text(
@@ -159,7 +159,8 @@ class TestConfigValidation(unittest.TestCase):
                 encoding="utf-8",
             )
             cfg = load_config(str(cfg_path))
-            self.assertEqual(cfg.runtime.default_max_retries, 3)
+            # deprecated key is now ignored; default_max_retries uses its default value
+            self.assertEqual(cfg.runtime.default_max_retries, 2)
 
     def test_default_max_retries_can_exceed_five(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -184,10 +185,11 @@ class TestConfigValidation(unittest.TestCase):
             cfg_path = Path(td) / "orca_auto.yaml"
             cfg_path.write_text("{}", encoding="utf-8")
             cfg = load_config(str(cfg_path))
-            self.assertEqual(cfg.runtime.allowed_root, "/home/daehyupsohn/orca_runs")
-            self.assertEqual(cfg.runtime.organized_root, "/home/daehyupsohn/orca_outputs")
+            home = str(Path.home())
+            self.assertEqual(cfg.runtime.allowed_root, f"{home}/orca_runs")
+            self.assertEqual(cfg.runtime.organized_root, f"{home}/orca_outputs")
             self.assertEqual(cfg.runtime.default_max_retries, 2)
-            self.assertEqual(cfg.paths.orca_executable, "/home/daehyupsohn/opt/orca/orca")
+            self.assertEqual(cfg.paths.orca_executable, f"{home}/opt/orca/orca")
 
     def test_windows_organized_root_raises(self) -> None:
         with tempfile.TemporaryDirectory() as td:

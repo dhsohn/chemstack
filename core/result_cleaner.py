@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
-from .pathing import is_subpath
+from .pathing import artifact_candidates, is_subpath
 from .state_store import load_state
 from .statuses import RunStatus
 
@@ -67,7 +67,8 @@ def _should_keep(
         for pattern in remove_patterns:
             if fnmatch.fnmatch(name, pattern):
                 return False
-    return False
+    # Unknown files (matching no rules) are kept by default to prevent data loss
+    return True
 
 
 def _state_artifact_path_texts(state: Dict[str, Any]) -> Iterable[str]:
@@ -94,17 +95,6 @@ def _state_artifact_path_texts(state: Dict[str, Any]) -> Iterable[str]:
             yield last_out_path
 
 
-def _artifact_candidates(path_text: str, reaction_dir: Path) -> list[Path]:
-    raw = path_text.strip()
-    if not raw:
-        return []
-
-    p = Path(raw)
-    if p.is_absolute():
-        return [p, reaction_dir / p.name]
-    return [reaction_dir / p, reaction_dir / p.name]
-
-
 def _collect_protected_artifacts(
     state: Dict[str, Any],
     reaction_dir: Path,
@@ -118,7 +108,7 @@ def _collect_protected_artifacts(
         if name:
             protected_names.add(name)
 
-        for candidate in _artifact_candidates(raw, reaction_dir):
+        for candidate in artifact_candidates(raw, reaction_dir):
             if not candidate.exists() or not candidate.is_file():
                 continue
             try:

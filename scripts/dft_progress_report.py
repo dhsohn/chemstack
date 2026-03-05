@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
-from core.commands._helpers import default_config_path
+from core.commands._helpers import _human_bytes, default_config_path
 from core.config import AppConfig, load_config
 
 logger = logging.getLogger("dft_progress_report")
@@ -78,15 +78,6 @@ def _parse_iso(value: Any) -> Optional[datetime]:
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=timezone.utc)
     return parsed
-
-
-def _human_bytes(num_bytes: int) -> str:
-    value = float(max(0, num_bytes))
-    for unit in ("B", "KB", "MB", "GB"):
-        if value < 1024.0:
-            return f"{value:.1f} {unit}"
-        value /= 1024.0
-    return f"{value:.1f} TB"
 
 
 def _human_age(now: datetime, ts: Optional[datetime]) -> str:
@@ -267,15 +258,15 @@ def _extract_progress(tail_text: str) -> tuple[Optional[int], str, bool]:
 
 
 def _safe_sorted_out_files(case_dir: Path) -> list[Path]:
-    out_files: list[Path] = []
+    entries: list[tuple[int, str, Path]] = []
     for path in case_dir.glob("*.out"):
         try:
-            _ = path.stat().st_mtime_ns
+            mtime_ns = path.stat().st_mtime_ns
         except OSError:
             continue
-        out_files.append(path)
-    out_files.sort(key=lambda p: (p.stat().st_mtime_ns, p.name.lower()), reverse=True)
-    return out_files
+        entries.append((mtime_ns, path.name.lower(), path))
+    entries.sort(key=lambda e: (e[0], e[1]), reverse=True)
+    return [e[2] for e in entries]
 
 
 def _resolve_selected_inp_path(case_dir: Path, state: dict[str, Any]) -> Optional[Path]:
@@ -360,8 +351,13 @@ def _guess_out_path(case_dir: Path, state: dict[str, Any]) -> Optional[Path]:
     return outs[0] if outs else None
 
 
-def _scan_orca_process_cmdlines() -> list[str]:
-    pattern = r"[/]home/daehyupsohn/opt/orca/orca|\borca\b"
+def _scan_orca_process_cmdlines(orca_executable: str = "") -> list[str]:
+    # Build pattern from configured orca_executable path if available
+    if orca_executable:
+        escaped = re.escape(orca_executable)
+        pattern = rf"{escaped}|\borca\b"
+    else:
+        pattern = r"\borca\b"
     try:
         proc = subprocess.run(
             ["pgrep", "-af", pattern],
@@ -528,7 +524,7 @@ def _collect_case_reports(cfg: AppConfig) -> tuple[list[CaseReport], int]:
     if not root.exists() or not root.is_dir():
         raise ValueError(f"allowed_root is not a directory: {root}")
 
-    cmdlines = _scan_orca_process_cmdlines()
+    cmdlines = _scan_orca_process_cmdlines(cfg.paths.orca_executable)
     reports: list[CaseReport] = []
 
     for case_dir in sorted((p for p in root.iterdir() if p.is_dir()), key=lambda p: p.name.lower()):

@@ -20,8 +20,8 @@ from pathlib import Path
 # Add project root to path so we can import core modules
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from core.commands._helpers import default_config_path
 from core.config import load_config
-from core.orchestrator import default_config_path
 
 
 def main() -> int:

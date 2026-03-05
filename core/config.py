@@ -19,25 +19,52 @@ from .config_validation import (
     _validate_config,
     _validate_disk_monitor_config,
 )
-from .pathing import to_local_path
+
+
+def _default_allowed_root() -> str:
+    return str(Path.home() / "orca_runs")
+
+
+def _default_organized_root() -> str:
+    return str(Path.home() / "orca_outputs")
+
+
+def _default_orca_executable() -> str:
+    return str(Path.home() / "opt" / "orca" / "orca")
 
 
 @dataclass
 class RuntimeConfig:
-    allowed_root: str = "/home/daehyupsohn/orca_runs"
-    organized_root: str = "/home/daehyupsohn/orca_outputs"
+    allowed_root: str = ""
+    organized_root: str = ""
     # max retry count, not total execution count
     default_max_retries: int = 2
+
+    def __post_init__(self) -> None:
+        if not self.allowed_root:
+            self.allowed_root = _default_allowed_root()
+        if not self.organized_root:
+            self.organized_root = _default_organized_root()
 
 
 @dataclass
 class PathsConfig:
-    orca_executable: str = "/home/daehyupsohn/opt/orca/orca"
+    orca_executable: str = ""
+
+    def __post_init__(self) -> None:
+        if not self.orca_executable:
+            self.orca_executable = _default_orca_executable()
 
 
 _DEFAULT_KEEP_EXTENSIONS = [".inp", ".out", ".xyz", ".gbw", ".hess"]
 _DEFAULT_KEEP_FILENAMES = ["run_state.json", "run_report.json", "run_report.md"]
-_DEFAULT_REMOVE_PATTERNS = ["*.retry*.inp", "*.retry*.out", "*_trj.xyz"]
+_DEFAULT_REMOVE_PATTERNS = [
+    "*.retry*.inp", "*.retry*.out", "*_trj.xyz",
+    "*.densities", "*.engrad", "*.tmp", "*.prop", "*.scfp", "*.opt",
+    "*.cis", "*.mdci", "*.mrci", "*.autoci", "*.cipsi",
+    "*.loc", "*.nbo", "*.eprnmr", "*.compound",
+    "*.bas", "*.one", "*.two",
+]
 
 
 @dataclass
@@ -64,7 +91,7 @@ class AppConfig:
 
 
 def load_config(config_path: str) -> AppConfig:
-    path = Path(to_local_path(config_path))
+    path = Path(config_path).expanduser().resolve()
     raw: Dict[str, Any] = {}
     if path.exists():
         with path.open("r", encoding="utf-8") as handle:
@@ -86,19 +113,16 @@ def load_config(config_path: str) -> AppConfig:
 
     allowed_root = _as_str(
         runtime_raw.get("allowed_root"),
-        RuntimeConfig.allowed_root,
+        _default_allowed_root(),
     )
     organized_root = _as_str(
         runtime_raw.get("organized_root"),
-        RuntimeConfig.organized_root,
+        _default_organized_root(),
     )
-    raw_max_retries = runtime_raw.get("default_max_retries")
-    if raw_max_retries is None and "default_max_attempts" in runtime_raw:
-        logger.warning(
-            "Config key 'default_max_attempts' is deprecated; use 'default_max_retries' instead."
-        )
-        raw_max_retries = runtime_raw["default_max_attempts"]
-    default_max_retries = _as_int(raw_max_retries, RuntimeConfig.default_max_retries)
+    default_max_retries = _as_int(
+        runtime_raw.get("default_max_retries"),
+        RuntimeConfig.default_max_retries,
+    )
 
     cleanup_cfg = CleanupConfig(
         keep_extensions=_normalize_extensions(cleanup_raw.get("keep_extensions"), _DEFAULT_KEEP_EXTENSIONS),
@@ -128,7 +152,7 @@ def load_config(config_path: str) -> AppConfig:
             default_max_retries=max(0, default_max_retries),
         ),
         paths=PathsConfig(
-            orca_executable=_as_str(paths_raw.get("orca_executable"), PathsConfig.orca_executable),
+            orca_executable=_as_str(paths_raw.get("orca_executable"), _default_orca_executable()),
         ),
         cleanup=cleanup_cfg,
         disk_monitor=disk_monitor_cfg,

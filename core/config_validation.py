@@ -8,7 +8,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, List
 
-from .pathing import is_subpath, is_windows_style_path
+from .pathing import is_subpath, is_windows_style_path  # noqa: F401
 
 _FALLBACK_KEEP_EXTENSIONS = [".inp", ".out", ".xyz", ".gbw", ".hess"]
 
