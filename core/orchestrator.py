@@ -12,7 +12,6 @@ from .commands._helpers import (  # noqa: F401
     _MAX_SAMPLE_FILES,
     _emit,
     _human_bytes,
-    _send_summary_telegram,
     _to_resolved_local,
     _validate_cleanup_reaction_dir,
     _validate_organized_root_dir,

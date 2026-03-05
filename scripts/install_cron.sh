@@ -30,7 +30,3 @@ echo ""
 echo "Current crontab:"
 crontab -l
 
-echo ""
-echo "Telegram 알림을 받으려면 ~/.orca_auto_env 파일을 생성하세요:"
-echo "  export ORCA_AUTO_TELEGRAM_BOT_TOKEN='봇_토큰'"
-echo "  export ORCA_AUTO_TELEGRAM_CHAT_ID='채팅_ID'"

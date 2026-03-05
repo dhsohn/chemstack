@@ -8,13 +8,6 @@ from typing import Any, Dict, Type
 from ..attempt_engine import _exit_with_result, run_attempts
 from ..completion_rules import detect_completion_mode
 from ..config import load_config
-from ..notifier import (
-    EVT_RUN_COMPLETED,
-    create_notifier,
-    event_run_started,
-    event_run_terminal,
-    make_notify_callback,
-)
 from ..orca_runner import OrcaRunner
 from ..out_analyzer import analyze_output
 from ..state_machine import load_or_create_state
@@ -127,23 +120,6 @@ def cmd_run_inp(args: Any, *, runner_cls: Type[OrcaRunner] = OrcaRunner) -> int:
                         max_retries=max_retries,
                         to_resolved_local=_to_resolved_local,
                     )
-                    attempts = state.get("attempts")
-                    attempt_count = len(attempts) if isinstance(attempts, list) else 0
-                    notifier = create_notifier(
-                        cfg.monitoring, reaction_dir,
-                        state["run_id"], str(selected_inp), state,
-                    )
-                    notify = make_notify_callback(notifier)
-                    if notify:
-                        notify(event_run_terminal(
-                            EVT_RUN_COMPLETED,
-                            state["run_id"], str(reaction_dir), str(selected_inp),
-                            status="completed",
-                            reason="existing_out_completed",
-                            attempt_count=attempt_count,
-                        ))
-                    if notifier:
-                        notifier.shutdown()
                     return _exit_with_result(
                         reaction_dir, state, selected_inp,
                         status=RunStatus.COMPLETED,
@@ -160,35 +136,20 @@ def cmd_run_inp(args: Any, *, runner_cls: Type[OrcaRunner] = OrcaRunner) -> int:
                 max_retries=max_retries,
                 to_resolved_local=_to_resolved_local,
             )
-            notifier = create_notifier(
-                cfg.monitoring, reaction_dir,
-                state["run_id"], str(selected_inp), state,
-            )
-            notify = make_notify_callback(notifier)
-
-            if notify:
-                notify(event_run_started(
-                    state["run_id"], str(reaction_dir), str(selected_inp),
-                ))
 
             runner = runner_cls(cfg.paths.orca_executable)
-            try:
-                return run_attempts(
-                    reaction_dir,
-                    selected_inp,
-                    state,
-                    resumed=resumed,
-                    runner=runner,
-                    max_retries=max_retries,
-                    as_json=args.json,
-                    retry_inp_path=_retry_inp_path,
-                    to_resolved_local=_to_resolved_local,
-                    emit=_emit,
-                    notify=notify,
-                )
-            finally:
-                if notifier:
-                    notifier.shutdown()
+            return run_attempts(
+                reaction_dir,
+                selected_inp,
+                state,
+                resumed=resumed,
+                runner=runner,
+                max_retries=max_retries,
+                as_json=args.json,
+                retry_inp_path=_retry_inp_path,
+                to_resolved_local=_to_resolved_local,
+                emit=_emit,
+            )
     except RuntimeError as exc:
         logger.error("%s", exc)
         return 1

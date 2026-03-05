@@ -7,14 +7,6 @@ from typing import Any, Dict
 
 from ..config import load_config
 from ..disk_monitor import DiskReport, scan_disk_usage
-from ..notifier import resolve_telegram_config, send_batch_summary
-from ..notifier_events import (
-    EVT_DISK_RECOVERED,
-    EVT_DISK_THRESHOLD,
-    event_disk_recovered,
-    event_disk_threshold,
-    render_message,
-)
 from ._helpers import _human_bytes
 
 logger = logging.getLogger(__name__)
@@ -63,14 +55,6 @@ def _emit_monitor(payload: Dict[str, Any], as_json: bool) -> None:
         print(f"filesystem: total={_human_bytes(fs['total_bytes'])}, used={_human_bytes(fs['used_bytes'])}, free={_human_bytes(fs['free_bytes'])}, usage={fs['usage_percent']}%")
 
 
-def _send_disk_event(cfg: Any, evt: Dict[str, Any]) -> None:
-    try:
-        text = render_message(evt)
-        send_batch_summary(cfg.monitoring, text)
-    except Exception as exc:
-        logger.warning("Failed to send disk event notification: %s", exc)
-
-
 def cmd_monitor(args: Any) -> int:
     cfg = load_config(args.config)
     as_json = getattr(args, "json", False)
@@ -107,33 +91,10 @@ def cmd_monitor(args: Any) -> int:
         return 1 if report.threshold_exceeded else 0
 
     # Watch mode
-    prev_exceeded = False
     try:
         while True:
             report = scan_disk_usage(allowed_root, organized_root, threshold_gb, top_n)
             _emit_monitor(_report_to_dict(report), as_json)
-
-            exceeded = report.threshold_exceeded
-            combined_gb = report.combined_bytes / (1024 ** 3)
-
-            if exceeded and not prev_exceeded:
-                evt = event_disk_threshold(
-                    combined_gb=combined_gb,
-                    threshold_gb=threshold_gb,
-                    allowed_root=allowed_root,
-                    organized_root=organized_root,
-                )
-                _send_disk_event(cfg, evt)
-            elif not exceeded and prev_exceeded:
-                evt = event_disk_recovered(
-                    combined_gb=combined_gb,
-                    threshold_gb=threshold_gb,
-                    allowed_root=allowed_root,
-                    organized_root=organized_root,
-                )
-                _send_disk_event(cfg, evt)
-
-            prev_exceeded = exceeded
             time.sleep(interval_sec)
     except KeyboardInterrupt:
         logger.info("Monitor watch stopped by user")

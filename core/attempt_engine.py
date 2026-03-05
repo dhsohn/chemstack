@@ -14,13 +14,6 @@ from .state_machine import MAX_RETRY_RECIPES, decide_attempt_outcome
 from .state_store import finalize_state, now_utc_iso, save_state, state_path, write_report_files
 from .statuses import AnalyzerStatus, RunStatus
 from .types import RunFinalResult, RunState
-from .notifier import (
-    event_attempt_completed,
-    event_run_terminal,
-    EVT_RUN_COMPLETED,
-    EVT_RUN_FAILED,
-    EVT_RUN_INTERRUPTED,
-)
 
 
 def _last_out_path_from_state(state: RunState) -> str | None:
@@ -109,28 +102,9 @@ def finalize_and_emit(
     as_json: bool,
     exit_code: int,
     emit: Callable[[Dict[str, Any], bool], None],
-    notify: Callable[[Dict[str, Any]], None] | None = None,
-    terminal_event_type: str | None = None,
 ) -> int:
     status_text = _run_status_text(status)
     finalize_state(reaction_dir, state, status=status_text, final_result=final_result)
-
-    if notify:
-        attempts = state.get("attempts")
-        attempt_count = len(attempts) if isinstance(attempts, list) else 0
-        evt_type = terminal_event_type or (EVT_RUN_COMPLETED if status_text == "completed" else EVT_RUN_FAILED)
-        try:
-            notify(event_run_terminal(
-                evt_type,
-                state.get("run_id", ""),
-                str(reaction_dir),
-                str(selected_inp),
-                status=status_text,
-                reason=reason,
-                attempt_count=attempt_count,
-            ))
-        except Exception:
-            logger.warning("Failed to emit terminal run event", exc_info=True)
 
     reports = write_report_files(reaction_dir, state)
     payload = _build_run_payload(
@@ -159,8 +133,6 @@ def _exit_with_result(
     exit_code: int,
     emit: Callable[[Dict[str, Any], bool], None],
     extra: Dict[str, Any] | None = None,
-    notify: Callable[[Dict[str, Any]], None] | None = None,
-    terminal_event_type: str | None = None,
 ) -> int:
     final = build_final_result(
         status=status,
@@ -180,8 +152,6 @@ def _exit_with_result(
         as_json=as_json,
         exit_code=exit_code,
         emit=emit,
-        notify=notify,
-        terminal_event_type=terminal_event_type,
     )
 
 
@@ -255,7 +225,6 @@ def _resume_terminal_decision(
     max_retries: int,
     as_json: bool,
     emit: Callable[[Dict[str, Any], bool], None],
-    notify: Callable[[Dict[str, Any]], None] | None = None,
 ) -> int | None:
     if not resumed:
         return None
@@ -291,7 +260,6 @@ def _resume_terminal_decision(
         reason=decision.reason,
         last_out_path=last_out_path,
         resumed=resumed, as_json=as_json, exit_code=decision.exit_code, emit=emit,
-        notify=notify,
     )
 
 
@@ -307,7 +275,6 @@ def run_attempts(
     retry_inp_path: Callable[[Path, int], Path],
     to_resolved_local: Callable[[str], Path],
     emit: Callable[[Dict[str, Any], bool], None],
-    notify: Callable[[Dict[str, Any]], None] | None = None,
 ) -> int:
     resumed_exit = _resume_terminal_decision(
         reaction_dir,
@@ -317,7 +284,6 @@ def run_attempts(
         max_retries=max_retries,
         as_json=as_json,
         emit=emit,
-        notify=notify,
     )
     if resumed_exit is not None:
         return resumed_exit
@@ -333,7 +299,6 @@ def run_attempts(
                 reason="retry_limit_reached",
                 last_out_path=_last_out_path_from_state(state),
                 resumed=resumed, as_json=as_json, exit_code=1, emit=emit,
-                notify=notify,
             )
 
         current_inp = selected_inp if execution_index == 1 else retry_inp_path(selected_inp, retries_used)
@@ -369,7 +334,6 @@ def run_attempts(
                     analyzer_status=AnalyzerStatus.INCOMPLETE,
                     reason=reason, last_out_path=None,
                     resumed=resumed, as_json=as_json, exit_code=1, emit=emit,
-                    notify=notify,
                 )
 
         state["status"] = RunStatus.RUNNING.value if retries_used == 0 else RunStatus.RETRYING.value
@@ -388,8 +352,6 @@ def run_attempts(
                 reason="interrupted_by_user",
                 last_out_path=str(current_inp.with_suffix(".out")),
                 resumed=resumed, as_json=as_json, exit_code=130, emit=emit,
-                notify=notify,
-                terminal_event_type=EVT_RUN_INTERRUPTED,
             )
         except Exception as exc:
             logger.exception("ORCA runner crashed during attempt %d: %s", execution_index, exc)
@@ -401,7 +363,6 @@ def run_attempts(
                 last_out_path=str(current_inp.with_suffix(".out")),
                 resumed=resumed, as_json=as_json, exit_code=1, emit=emit,
                 extra={"runner_error": str(exc)},
-                notify=notify,
             )
         out_path = Path(run_result.out_path)
 
@@ -422,19 +383,6 @@ def run_attempts(
         state["attempts"].append(attempt)
         save_state(reaction_dir, state)
 
-        if notify:
-            try:
-                notify(event_attempt_completed(
-                    state.get("run_id", ""),
-                    str(reaction_dir),
-                    str(selected_inp),
-                    attempt_index=execution_index,
-                    analyzer_status=analysis.status,
-                    analyzer_reason=analysis.reason,
-                ))
-            except Exception:
-                logger.warning("Failed to emit attempt-completed event", exc_info=True)
-
         logger.info("Attempt %d finished: return_code=%d, status=%s", execution_index, run_result.return_code, analysis.status)
         decision = decide_attempt_outcome(
             analyzer_status=analysis.status,
@@ -451,7 +399,6 @@ def run_attempts(
                 last_out_path=str(out_path),
                 resumed=resumed, as_json=as_json,
                 exit_code=decision.exit_code, emit=emit,
-                notify=notify,
             )
 
         next_retry_number = retries_used + 1
@@ -473,7 +420,6 @@ def run_attempts(
                 reason="rewrite_failed",
                 last_out_path=str(out_path),
                 resumed=resumed, as_json=as_json, exit_code=1, emit=emit,
-                notify=notify,
             )
 
         state["attempts"][-1]["patch_actions"] = patch_actions

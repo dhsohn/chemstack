@@ -117,14 +117,3 @@ def _validate_disk_monitor_config(dm: Any) -> None:
         raise ValueError(f"disk_monitor.interval_sec must be >= 10, got {dm.interval_sec}")
     if not (1 <= dm.top_n <= 100):
         raise ValueError(f"disk_monitor.top_n must be 1-100, got {dm.top_n}")
-
-
-def _validate_monitoring_config(mon: Any) -> None:
-    t = mon.telegram
-    if not (1 <= t.timeout_sec <= 30):
-        raise ValueError(f"monitoring.telegram.timeout_sec must be 1-30, got {t.timeout_sec}")
-    if not (0 <= t.retry_count <= 5):
-        raise ValueError(f"monitoring.telegram.retry_count must be 0-5, got {t.retry_count}")
-    d = mon.delivery
-    if not (100 <= d.queue_size <= 10000):
-        raise ValueError(f"monitoring.delivery.queue_size must be 100-10000, got {d.queue_size}")

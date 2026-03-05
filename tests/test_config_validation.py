@@ -402,25 +402,6 @@ class TestCleanupConfigLoading(unittest.TestCase):
             cfg = load_config(str(cfg_path))
             self.assertEqual(cfg.cleanup.remove_patterns, [])
 
-    def test_monitoring_fallback_preserves_cleanup(self) -> None:
-        with tempfile.TemporaryDirectory() as td:
-            cfg_path = Path(td) / "orca_auto.yaml"
-            cfg_path.write_text(
-                json.dumps({
-                    "monitoring": {
-                        "enabled": True,
-                        "telegram": {"timeout_sec": 999},
-                    },
-                    "cleanup": {
-                        "keep_extensions": [".inp", ".out"],
-                    },
-                }),
-                encoding="utf-8",
-            )
-            cfg = load_config(str(cfg_path))
-            self.assertFalse(cfg.monitoring.enabled)
-            self.assertEqual(cfg.cleanup.keep_extensions, [".inp", ".out"])
-
     def test_remove_overrides_keep_true(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             cfg_path = Path(td) / "orca_auto.yaml"
@@ -503,24 +484,6 @@ class TestDiskMonitorConfigValidation(unittest.TestCase):
             self.assertEqual(cfg.disk_monitor.interval_sec, 60)
             self.assertEqual(cfg.disk_monitor.top_n, 20)
 
-    def test_monitoring_fallback_preserves_disk_monitor(self) -> None:
-        with tempfile.TemporaryDirectory() as td:
-            cfg_path = Path(td) / "orca_auto.yaml"
-            cfg_path.write_text(
-                json.dumps({
-                    "monitoring": {
-                        "enabled": True,
-                        "telegram": {"timeout_sec": 999},
-                    },
-                    "disk_monitor": {
-                        "threshold_gb": 75,
-                    },
-                }),
-                encoding="utf-8",
-            )
-            cfg = load_config(str(cfg_path))
-            self.assertFalse(cfg.monitoring.enabled)
-            self.assertEqual(cfg.disk_monitor.threshold_gb, 75.0)
 
 
 if __name__ == "__main__":

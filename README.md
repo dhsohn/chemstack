@@ -78,7 +78,7 @@ cat ~/orca_runs/내_반응_폴더/run_report.md
 
 ### 6단계: 디스크 사용량 모니터링 (선택)
 
-디스크 사용량을 점검합니다. Telegram 알림은 `--watch` 모드에서 임계치 진입/해제 전이 시에만 전송됩니다.
+디스크 사용량을 점검합니다.
 
 ```bash
 # 1회 스캔
@@ -122,16 +122,6 @@ cat ~/orca_runs/내_반응_폴더/run_report.md
 | `--json` | 결과를 JSON으로 출력 | `./bin/orca_auto run-inp --reaction-dir '...' --json` |
 | `--foreground` | `run-inp`를 터미널 점유 모드로 실행 | `./bin/orca_auto run-inp --reaction-dir '...' --foreground` |
 
-### Telegram 알림 받기 (선택사항)
-
-계산 시작/완료/실패 시 Telegram으로 알림을 받을 수 있습니다.
-
-```bash
-export ORCA_AUTO_TELEGRAM_BOT_TOKEN='봇_토큰'
-export ORCA_AUTO_TELEGRAM_CHAT_ID='채팅_ID'
-./bin/orca_auto run-inp --reaction-dir '~/orca_runs/내_반응_폴더'
-```
-
 ### 자동 스케줄링 (Crontab)
 
 매주 자동으로 정리 작업을 실행하려면:
@@ -143,13 +133,6 @@ bash scripts/install_cron.sh
 스케줄:
 - **토요일 자정**: `organize --apply` (완료된 계산을 `~/orca_outputs`로 이동)
 - **일요일 자정**: `cleanup --apply` (불필요한 파일 삭제)
-
-각 작업 완료 후 Telegram으로 요약을 받으려면 `~/.orca_auto_env` 파일을 생성하세요:
-
-```bash
-export ORCA_AUTO_TELEGRAM_BOT_TOKEN='봇_토큰'
-export ORCA_AUTO_TELEGRAM_CHAT_ID='채팅_ID'
-```
 
 ### 작동 원리 한눈에 보기
 
@@ -183,10 +166,6 @@ core/
 ├── config.py             # 설정 로딩 및 데이터클래스
 ├── config_validation.py  # 설정 검증/정규화
 ├── lock_utils.py         # 락 파일 파싱/프로세스 생존 확인 (공유)
-├── notifier.py           # Telegram 알림 퍼사드/팩토리 (호환 API)
-├── notifier_events.py    # 이벤트 페이로드/메시지 렌더링
-├── notifier_state.py     # dedup 상태 로드/저장/정리
-├── notifier_runtime.py   # 큐 오버플로우/워커/하트비트 루프
 ├── state_store.py        # 상태 저장/원자 쓰기/실행 락
 ├── organize_index.py     # JSONL 인덱스 관리/인덱스 락
 ├── attempt_engine.py     # 재시도 루프 오케스트레이션

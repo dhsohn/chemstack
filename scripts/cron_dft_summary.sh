@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Cron script: send ORCA DFT progress summary from allowed_root
+# Cron script: print ORCA DFT progress summary from allowed_root
 # Schedule example: 0 9,21 * * *
 set -euo pipefail
 
@@ -10,8 +10,7 @@ LOG_DIR="$ROOT/logs"
 LOG_FILE="$LOG_DIR/cron_dft_summary_$(date +%Y%m%d_%H%M%S).log"
 CONFIG_PATH="${ORCA_AUTO_CONFIG:-$ROOT/config/orca_auto.yaml}"
 
-# Load Telegram env vars if available.
-[[ -f "$HOME/.orca_auto_telegram_env" ]] && source "$HOME/.orca_auto_telegram_env"
+# Load user env vars if available.
 [[ -f "$HOME/.orca_auto_env" ]] && source "$HOME/.orca_auto_env"
 
 # Prevent concurrent execution via flock.

@@ -10,7 +10,7 @@ LOG_DIR="$ROOT/logs"
 LOG_FILE="$LOG_DIR/cron_organize_$(date +%Y%m%d_%H%M%S).log"
 CONFIG_PATH="${ORCA_AUTO_CONFIG:-$ROOT/config/orca_auto.yaml}"
 
-# Load Telegram env vars if available
+# Load user env vars if available
 [[ -f "$HOME/.orca_auto_env" ]] && source "$HOME/.orca_auto_env"
 
 # Prevent concurrent execution via flock

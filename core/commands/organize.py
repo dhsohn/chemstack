@@ -175,12 +175,7 @@ def _cmd_organize_apply(
         "failures": failures,
     }
     return finalize_batch_apply(
-        summary, cfg,
-        f"[orca_auto] organize | action=apply"
-        f" | organized={organized_count}"
-        f" | skipped={skipped_count}"
-        f" | failed={len(failures)}",
-        _emit_organize, as_json, failures,
+        summary, _emit_organize, as_json, failures,
     )
 
 

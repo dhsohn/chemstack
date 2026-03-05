@@ -34,10 +34,6 @@
     config.py              # 설정 로딩 및 데이터클래스
     config_validation.py   # 설정 검증/정규화 함수
     lock_utils.py          # 락 파일 파싱/프로세스 생존 확인 (공유)
-    notifier.py            # Telegram 알림 퍼사드/팩토리 (호환 API)
-    notifier_events.py     # 이벤트 페이로드/메시지 렌더링
-    notifier_state.py      # dedup 상태 로드/저장/정리
-    notifier_runtime.py    # 큐 오버플로우/워커/하트비트 루프
     state_store.py         # 상태 저장/원자 쓰기/실행 락
     organize_index.py      # JSONL 인덱스 관리/인덱스 락
     attempt_engine.py      # 재시도 루프 오케스트레이션
@@ -88,21 +84,6 @@ runtime:
 paths:
   orca_executable: "/home/daehyupsohn/opt/orca/orca"
 
-monitoring:
-  enabled: true
-  telegram:
-    bot_token_env: "ORCA_AUTO_TELEGRAM_BOT_TOKEN"
-    chat_id_env: "ORCA_AUTO_TELEGRAM_CHAT_ID"
-    timeout_sec: 5
-    retry_count: 2
-    retry_backoff_sec: 1.0
-    retry_jitter_sec: 0.3
-  delivery:
-    async_enabled: true
-    queue_size: 1000
-    worker_flush_timeout_sec: 3
-    dedup_ttl_sec: 86400
-
 disk_monitor:
   threshold_gb: 50.0
   interval_sec: 300
@@ -121,10 +102,6 @@ cleanup:
 - `runtime.organized_root`: organize/cleanup 대상 루트
 - `runtime.default_max_retries`: 최대 재시도 횟수
 - `paths.orca_executable`: ORCA 실행 파일 경로
-- `monitoring.enabled`: Telegram 모니터링 on/off
-- `monitoring.telegram.bot_token_env`: bot token을 담은 환경변수 이름
-- `monitoring.telegram.chat_id_env`: chat_id를 담은 환경변수 이름
-- `monitoring.delivery.async_enabled`: `false`면 동기 전송 모드
 - `disk_monitor.threshold_gb`: 디스크 사용량 임계치 (GB, 기본 50.0)
 - `disk_monitor.interval_sec`: watch 모드 스캔 주기 (초, 기본 300)
 - `disk_monitor.top_n`: 상위 디렉터리 표시 개수 (기본 10)
@@ -138,8 +115,6 @@ cleanup:
 - `default_max_retries=2`는 재시도 횟수입니다.
 - 총 실행 횟수는 `초기 1회 + 재시도 2회 = 최대 3회`입니다.
 - Windows 레거시 경로(`C:\...`, `/mnt/c/...`)는 설정에서 지원하지 않습니다.
-- Telegram token/chat_id 실제 값은 `config/orca_auto.yaml`에 직접 넣지 말고 환경변수로만 설정하세요.
-
 ## 7) CLI 사용법
 
 ### 7.1 실행
@@ -238,8 +213,8 @@ cd ~/orca_auto
 
 임계치 기준: `allowed_root + organized_root` 합산 용량 >= `threshold_gb`
 
-one-shot 모드: 콘솔/JSON 출력 + 리턴코드만 반환 (Telegram 전송 없음)
-watch 모드 알림: 임계치 진입/해제 상태 전이 시에만 Telegram 전송 (스팸 방지)
+one-shot 모드: 콘솔/JSON 출력 + 리턴코드만 반환
+watch 모드: 임계치 진입/해제 상태 전이 시 콘솔에 출력
 
 ### 7.6 불필요 파일 정리
 
@@ -348,13 +323,6 @@ Opt 모드 완료 조건:
 - 강제 재시작이 필요하면 `--force`를 사용하세요.
 - 긴 계산은 `--json` 출력으로 상태를 기록/파싱하는 운영을 권장합니다.
 - `Ctrl+C`로 중단하면 실행 중 ORCA 프로세스 트리도 함께 종료를 시도하고, 상태는 `interrupted_by_user`로 기록됩니다.
-- Telegram 모니터링 사용 시 실행 전에 환경변수를 먼저 설정하세요.
-
-```bash
-export ORCA_AUTO_TELEGRAM_BOT_TOKEN='YOUR_BOT_TOKEN'
-export ORCA_AUTO_TELEGRAM_CHAT_ID='YOUR_CHAT_ID'
-```
-
 ## 12) 자주 발생하는 문제
 
 1. `Reaction directory must be under allowed root`

@@ -15,8 +15,6 @@ from typing import Any, Optional
 
 from core.commands._helpers import default_config_path
 from core.config import AppConfig, load_config
-from core.notifier import resolve_telegram_config
-from core.telegram_client import send_with_retry
 
 logger = logging.getLogger("dft_progress_report")
 
@@ -62,9 +60,8 @@ class CaseReport:
 
 
 def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Build and send ORCA DFT progress summary report.")
+    parser = argparse.ArgumentParser(description="Build ORCA DFT progress summary report.")
     parser.add_argument("--config", default=default_config_path(), help="Path to orca_auto.yaml")
-    parser.add_argument("--print-only", action="store_true", help="Print report without sending to Telegram")
     parser.add_argument("--max-running", type=int, default=8, help="Maximum running cases to include")
     parser.add_argument("--max-completed", type=int, default=3, help="Maximum completed cases to include")
     parser.add_argument("--verbose", action="store_true", help="Enable debug logging")
@@ -726,25 +723,6 @@ def main() -> int:
         max_completed=max(0, args.max_completed),
     )
     print(text)
-
-    if args.print_only:
-        return 0
-
-    tg_config = resolve_telegram_config(cfg.monitoring)
-    if tg_config is None:
-        logger.error(
-            "Telegram config is unavailable. Check monitoring.enabled and env vars "
-            "(%s, %s).",
-            cfg.monitoring.telegram.bot_token_env,
-            cfg.monitoring.telegram.chat_id_env,
-        )
-        return 1
-
-    result = send_with_retry(tg_config, text)
-    if not result.success:
-        logger.error("Telegram send failed: status=%s error=%s", result.status_code, result.error)
-        return 1
-    logger.info("Telegram send succeeded: status=%s", result.status_code)
     return 0
 
 

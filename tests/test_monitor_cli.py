@@ -105,8 +105,7 @@ class TestMonitorCli(unittest.TestCase):
 
 class TestMonitorWatchMode(unittest.TestCase):
     @patch("core.commands.monitor.time.sleep", side_effect=KeyboardInterrupt)
-    @patch("core.commands.monitor.send_batch_summary")
-    def test_watch_exits_on_keyboard_interrupt(self, mock_send, mock_sleep) -> None:
+    def test_watch_exits_on_keyboard_interrupt(self, mock_sleep) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             allowed = root / "allowed"
@@ -119,23 +118,17 @@ class TestMonitorWatchMode(unittest.TestCase):
             self.assertEqual(rc, 0)
 
     @patch("core.commands.monitor.time.sleep", side_effect=[None, KeyboardInterrupt])
-    @patch("core.commands.monitor.send_batch_summary")
-    def test_watch_threshold_transition_sends_once(self, mock_send, mock_sleep) -> None:
+    def test_watch_runs_multiple_iterations(self, mock_sleep) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             allowed = root / "allowed"
             organized = root / "organized"
             allowed.mkdir()
             organized.mkdir()
-            (allowed / "data.txt").write_bytes(b"x" * 1000)
             cfg_path = _make_config(td, allowed, organized)
 
-            # Very low threshold => exceeded on first scan
-            rc = main(["--config", cfg_path, "monitor", "--watch",
-                        "--threshold-gb", "0.0000001", "--json"])
+            rc = main(["--config", cfg_path, "monitor", "--watch", "--json"])
             self.assertEqual(rc, 0)
-            # Should have sent exactly 1 threshold notification
-            self.assertEqual(mock_send.call_count, 1)
 
 
 if __name__ == "__main__":

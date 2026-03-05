@@ -3,7 +3,6 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
 
 from core.commands._helpers import (
     _validate_check_reaction_dir,
@@ -183,8 +182,7 @@ class TestCheckValidators(unittest.TestCase):
 
 
 class TestFinalizeBatchApply(unittest.TestCase):
-    @patch("core.commands._helpers._send_summary_telegram")
-    def test_returns_zero_when_no_failures(self, mock_send) -> None:
+    def test_returns_zero_when_no_failures(self) -> None:
         emitted = []
 
         def _emit(payload, as_json):
@@ -192,28 +190,21 @@ class TestFinalizeBatchApply(unittest.TestCase):
 
         rc = finalize_batch_apply(
             {"action": "apply", "failed": 0},
-            AppConfig(),
-            "summary-text",
             _emit,
             False,
             [],
         )
         self.assertEqual(rc, 0)
         self.assertEqual(emitted, [({"action": "apply", "failed": 0}, False)])
-        mock_send.assert_called_once()
 
-    @patch("core.commands._helpers._send_summary_telegram")
-    def test_returns_one_when_failures_exist(self, mock_send) -> None:
+    def test_returns_one_when_failures_exist(self) -> None:
         rc = finalize_batch_apply(
             {"action": "apply", "failed": 1},
-            AppConfig(),
-            "summary-text",
             lambda *_args: None,
             True,
             [{"run_id": "run_001", "reason": "apply_failed"}],
         )
         self.assertEqual(rc, 1)
-        mock_send.assert_called_once()
 
 
 if __name__ == "__main__":

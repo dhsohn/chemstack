@@ -89,13 +89,7 @@ def _cmd_cleanup_apply(
         "failures": failures,
     }
     return finalize_batch_apply(
-        summary, cfg,
-        f"[orca_auto] cleanup | action=apply"
-        f" | cleaned={cleaned_count}"
-        f" | files_removed={total_files}"
-        f" | space_freed={_human_bytes(total_bytes)}"
-        f" | failed={len(failures)}",
-        _emit_cleanup, as_json, failures,
+        summary, _emit_cleanup, as_json, failures,
     )
 
 

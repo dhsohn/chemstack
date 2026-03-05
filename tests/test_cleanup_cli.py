@@ -4,8 +4,6 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
-
 from core.cli import main
 
 
@@ -256,30 +254,6 @@ class TestCleanupApply(unittest.TestCase):
             self.assertFalse((organized / "opt" / "H2" / "run_001" / "rxn.densities").exists())
             self.assertFalse((organized / "ts" / "H2O" / "run_002" / "rxn.densities").exists())
 
-    @patch("core.commands._helpers._send_batch_summary")
-    def test_apply_sends_summary_notification(self, mock_send_summary) -> None:
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            allowed = root / "runs"
-            organized = root / "outputs"
-            allowed.mkdir()
-            organized.mkdir()
-
-            rxn = organized / "opt" / "H2" / "run_001"
-            _make_organized_reaction(rxn)
-
-            config = _write_config(root, allowed, organized)
-            rc = main([
-                "--config", str(config),
-                "cleanup",
-                "--reaction-dir", str(rxn),
-                "--apply",
-            ])
-            self.assertEqual(rc, 0)
-            mock_send_summary.assert_called_once()
-            summary_text = mock_send_summary.call_args[0][1]
-            self.assertIn("[orca_auto] cleanup | action=apply", summary_text)
-            self.assertIn("cleaned=1", summary_text)
 
 
 class TestCleanupMutualExclusion(unittest.TestCase):

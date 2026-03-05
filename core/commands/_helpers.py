@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List
 
 from ..config import AppConfig
-from ..notifier import send_batch_summary as _send_batch_summary
 from ..pathing import is_subpath, to_local_path
 
 logger = logging.getLogger(__name__)
@@ -127,21 +126,13 @@ def _human_bytes(n: int) -> str:
     return f"{value:.1f} TB"
 
 
-def _send_summary_telegram(cfg: AppConfig, text: str) -> None:
-    """Backward-compatible wrapper; delegates to notifier.send_batch_summary."""
-    _send_batch_summary(cfg.monitoring, text)
-
-
 def finalize_batch_apply(
     summary: Dict[str, Any],
-    cfg: AppConfig,
-    telegram_text: str,
     emit_fn: Callable[[Dict[str, Any], bool], None],
     as_json: bool,
     failures: List[Dict[str, Any]],
 ) -> int:
     emit_fn(summary, as_json)
-    _send_summary_telegram(cfg, telegram_text)
     return 1 if failures else 0
 
 
