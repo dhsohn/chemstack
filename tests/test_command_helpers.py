@@ -5,8 +5,6 @@ import unittest
 from pathlib import Path
 
 from core.commands._helpers import (
-    _validate_check_reaction_dir,
-    _validate_check_root_dir,
     _validate_cleanup_reaction_dir,
     _validate_organized_root_dir,
     _validate_reaction_dir,
@@ -95,90 +93,6 @@ class TestCommandPathValidators(unittest.TestCase):
             )
             with self.assertRaises(ValueError):
                 _validate_cleanup_reaction_dir(cfg, str(outside))
-
-
-class TestCheckValidators(unittest.TestCase):
-    def test_check_reaction_dir_under_allowed(self) -> None:
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            allowed = root / "allowed"
-            organized = root / "organized"
-            reaction = allowed / "r1"
-            allowed.mkdir()
-            organized.mkdir()
-            reaction.mkdir()
-            cfg = _cfg(allowed, organized)
-            self.assertEqual(
-                _validate_check_reaction_dir(cfg, str(reaction)),
-                reaction.resolve(),
-            )
-
-    def test_check_reaction_dir_under_organized(self) -> None:
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            allowed = root / "allowed"
-            organized = root / "organized"
-            reaction = organized / "opt" / "H2"
-            allowed.mkdir()
-            organized.mkdir()
-            reaction.mkdir(parents=True)
-            cfg = _cfg(allowed, organized)
-            self.assertEqual(
-                _validate_check_reaction_dir(cfg, str(reaction)),
-                reaction.resolve(),
-            )
-
-    def test_check_reaction_dir_rejects_outside(self) -> None:
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            allowed = root / "allowed"
-            organized = root / "organized"
-            outside = root / "outside"
-            allowed.mkdir()
-            organized.mkdir()
-            outside.mkdir()
-            cfg = _cfg(allowed, organized)
-            with self.assertRaises(ValueError):
-                _validate_check_reaction_dir(cfg, str(outside))
-
-    def test_check_root_matches_allowed(self) -> None:
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            allowed = root / "allowed"
-            organized = root / "organized"
-            allowed.mkdir()
-            organized.mkdir()
-            cfg = _cfg(allowed, organized)
-            self.assertEqual(
-                _validate_check_root_dir(cfg, str(allowed)),
-                allowed.resolve(),
-            )
-
-    def test_check_root_matches_organized(self) -> None:
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            allowed = root / "allowed"
-            organized = root / "organized"
-            allowed.mkdir()
-            organized.mkdir()
-            cfg = _cfg(allowed, organized)
-            self.assertEqual(
-                _validate_check_root_dir(cfg, str(organized)),
-                organized.resolve(),
-            )
-
-    def test_check_root_rejects_other(self) -> None:
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            allowed = root / "allowed"
-            organized = root / "organized"
-            other = root / "other"
-            allowed.mkdir()
-            organized.mkdir()
-            other.mkdir()
-            cfg = _cfg(allowed, organized)
-            with self.assertRaises(ValueError):
-                _validate_check_root_dir(cfg, str(other))
 
 
 class TestFinalizeBatchApply(unittest.TestCase):

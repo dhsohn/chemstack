@@ -26,13 +26,6 @@ def _as_str(value: Any, default: str) -> str:
     return default
 
 
-def _as_float(value: Any, default: float) -> float:
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return default
-
-
 def _validate_config(cfg: Any) -> None:
     """Validate core path constraints on an AppConfig instance."""
     for label, path_val in [
@@ -110,10 +103,3 @@ def _validate_cleanup_config(cleanup: Any) -> None:
         )
 
 
-def _validate_disk_monitor_config(dm: Any) -> None:
-    if dm.threshold_gb <= 0:
-        raise ValueError(f"disk_monitor.threshold_gb must be > 0, got {dm.threshold_gb}")
-    if dm.interval_sec < 10:
-        raise ValueError(f"disk_monitor.interval_sec must be >= 10, got {dm.interval_sec}")
-    if not (1 <= dm.top_n <= 100):
-        raise ValueError(f"disk_monitor.top_n must be 1-100, got {dm.top_n}")

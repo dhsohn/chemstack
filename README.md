@@ -59,39 +59,7 @@ cat ~/orca_runs/내_반응_폴더/run_report.md
 - `--apply`를 붙여야 실제 변경이 발생합니다. (`--apply` 없으면 미리보기만 수행)
 - 정리 대상은 `runtime.organized_root`(기본값: `~/orca_outputs`) 아래로 이동/인덱싱됩니다.
 
-### 5단계: 결과 품질 점검 (선택)
-
-완료된 계산 결과의 품질을 점검합니다 (허수 진동수, SCF 수렴, 결합 길이, 스핀 오염 등).
-
-```bash
-# 단일 디렉터리 점검
-./bin/orca_auto check --reaction-dir ~/orca_outputs/opt/H2/run_001 --json
-
-# organized_root 전체 스캔 (기본)
-./bin/orca_auto check --json
-
-# 특정 루트 스캔
-./bin/orca_auto check --root ~/orca_outputs --json
-```
-
-리턴코드: `0` = fail 없음, `1` = fail 존재
-
-### 6단계: 디스크 사용량 모니터링 (선택)
-
-디스크 사용량을 점검합니다.
-
-```bash
-# 1회 스캔
-./bin/orca_auto monitor --json
-
-# 커스텀 임계치
-./bin/orca_auto monitor --threshold-gb 10 --top-n 5 --json
-
-# 주기적 감시 (Ctrl+C로 종료)
-./bin/orca_auto monitor --watch --interval-sec 60 --threshold-gb 50 --top-n 10
-```
-
-### 7단계: 불필요한 파일 정리 (선택)
+### 5단계: 불필요한 파일 정리 (선택)
 
 정리된 계산 결과(`~/orca_outputs`)에서 불필요한 파일을 삭제하여 디스크 공간을 확보합니다.
 
@@ -158,11 +126,7 @@ core/
 │   ├── _helpers.py       # 공유 유틸 (검증, 포맷, 설정 경로)
 │   ├── run_inp.py        # run-inp, status 커맨드
 │   ├── organize.py       # organize 커맨드
-│   ├── check.py          # check 커맨드
-│   ├── monitor.py        # monitor 커맨드
 │   └── cleanup.py        # cleanup 커맨드
-├── geometry_checker.py   # 계산 결과 품질 점검 엔진
-├── disk_monitor.py       # 디스크 사용량 스캔
 ├── config.py             # 설정 로딩 및 데이터클래스
 ├── config_validation.py  # 설정 검증/정규화
 ├── lock_utils.py         # 락 파일 파싱/프로세스 생존 확인 (공유)

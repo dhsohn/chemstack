@@ -368,24 +368,5 @@ class TestOrganizeRebuildIndex(unittest.TestCase):
             self.assertEqual(rc, 0)
 
 
-class TestOrganizeFind(unittest.TestCase):
-
-    def test_find_requires_option(self) -> None:
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            allowed = root / "runs"
-            organized = root / "outputs"
-            allowed.mkdir()
-            organized.mkdir()
-
-            config = _write_config(root, allowed, organized)
-            rc = main([
-                "--config", str(config),
-                "organize",
-                "--find",
-            ])
-            self.assertEqual(rc, 1)
-
-
 if __name__ == "__main__":
     unittest.main()

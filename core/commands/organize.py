@@ -9,8 +9,6 @@ from ..config import load_config
 from ..organize_index import (
     acquire_index_lock,
     append_record,
-    find_by_job_type,
-    find_by_run_id,
     load_index,
     rebuild_index,
     to_reaction_relative_path,
@@ -92,28 +90,6 @@ def _build_index_record(plan: OrganizePlan, state: Dict[str, Any]) -> Dict[str, 
     }
 
 
-def _cmd_organize_find(args: Any, organized_root: Path, as_json: bool) -> int:
-    run_id = getattr(args, "run_id", None)
-    job_type = getattr(args, "job_type", None)
-
-    if run_id:
-        record = find_by_run_id(organized_root, run_id)
-        if record is None:
-            logger.error("run_id not found: %s", run_id)
-            return 1
-        _emit_organize(record, as_json=as_json)
-        return 0
-
-    if job_type:
-        limit = getattr(args, "limit", 0) or 0
-        records = find_by_job_type(organized_root, job_type, limit=limit)
-        _emit_organize({"results": records, "count": len(records)}, as_json=as_json)
-        return 0
-
-    logger.error("--find requires --run-id or --job-type")
-    return 1
-
-
 def _cmd_organize_apply(
     plans: list[OrganizePlan],
     skips: list[SkipReason],
@@ -187,9 +163,6 @@ def cmd_organize(args: Any) -> int:
         count = rebuild_index(organized_root)
         _emit_organize({"action": "rebuild_index", "records_count": count}, as_json=args.json)
         return 0
-
-    if getattr(args, "find", False):
-        return _cmd_organize_find(args, organized_root, as_json=args.json)
 
     reaction_dir_raw = getattr(args, "reaction_dir", None)
     root_raw = getattr(args, "root", None)

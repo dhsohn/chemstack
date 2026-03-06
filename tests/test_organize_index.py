@@ -6,8 +6,6 @@ import unittest
 from pathlib import Path
 
 from core.organize_index import (
-    find_by_job_type,
-    find_by_run_id,
     load_index,
     rebuild_index,
     records_path,
@@ -57,49 +55,6 @@ class TestLoadIndex(unittest.TestCase):
             )
             idx = load_index(org)
             self.assertEqual(len(idx), 2)
-
-
-class TestFindByRunId(unittest.TestCase):
-
-    def test_found(self) -> None:
-        with tempfile.TemporaryDirectory() as td:
-            org = Path(td)
-            _write_records(org, [{"run_id": "run_x", "job_type": "ts"}])
-            result = find_by_run_id(org, "run_x")
-            self.assertIsNotNone(result)
-            self.assertEqual(result["run_id"], "run_x")
-
-    def test_not_found(self) -> None:
-        with tempfile.TemporaryDirectory() as td:
-            org = Path(td)
-            _write_records(org, [{"run_id": "run_x"}])
-            result = find_by_run_id(org, "run_nonexistent")
-            self.assertIsNone(result)
-
-
-class TestFindByJobType(unittest.TestCase):
-
-    def test_filter(self) -> None:
-        with tempfile.TemporaryDirectory() as td:
-            org = Path(td)
-            _write_records(org, [
-                {"run_id": "run_1", "job_type": "ts"},
-                {"run_id": "run_2", "job_type": "opt"},
-                {"run_id": "run_3", "job_type": "ts"},
-            ])
-            results = find_by_job_type(org, "ts")
-            self.assertEqual(len(results), 2)
-            for r in results:
-                self.assertEqual(r["job_type"], "ts")
-
-    def test_limit(self) -> None:
-        with tempfile.TemporaryDirectory() as td:
-            org = Path(td)
-            _write_records(org, [
-                {"run_id": f"run_{i}", "job_type": "ts"} for i in range(5)
-            ])
-            results = find_by_job_type(org, "ts", limit=2)
-            self.assertEqual(len(results), 2)
 
 
 class TestAppendRecord(unittest.TestCase):

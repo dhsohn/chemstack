@@ -56,23 +56,6 @@ def load_index(organized_root: Path) -> Dict[str, Dict[str, Any]]:
     return result
 
 
-def find_by_run_id(organized_root: Path, run_id: str) -> Optional[Dict[str, Any]]:
-    idx = load_index(organized_root)
-    return idx.get(run_id)
-
-
-def find_by_job_type(
-    organized_root: Path,
-    job_type: str,
-    limit: int = 0,
-) -> List[Dict[str, Any]]:
-    idx = load_index(organized_root)
-    matches = [r for r in idx.values() if r.get("job_type") == job_type]
-    if limit > 0:
-        matches = matches[:limit]
-    return matches
-
-
 def to_reaction_relative_path(path_value: Any, reaction_dir: Path) -> str:
     if not isinstance(path_value, str):
         return ""
