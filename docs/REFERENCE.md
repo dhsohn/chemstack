@@ -24,8 +24,9 @@
 ```text
 ~/orca_auto
   config/orca_auto.yaml
-  bin/orca_auto
+  bin/orca_auto            # 로컬 .venv 우선 shim (설치형 orca_auto와 동일 UX)
   core/
+    launcher.py            # 공통 사용자 진입점 (background/foreground UX)
     commands/              # CLI 커맨드 핸들러
       _helpers.py          # 공유 유틸 (검증, 포맷, 설정 경로)
       run_inp.py           # run-inp, status 커맨드
@@ -37,7 +38,6 @@
     state_store.py         # 상태 저장/원자 쓰기/실행 락
     organize_index.py      # JSONL 인덱스 관리/인덱스 락
     attempt_engine.py      # 재시도 루프 오케스트레이션
-    orchestrator.py        # 하위 호환 re-export 심
     ...                    # 기타 도메인 모듈
   scripts/*.sh / *.py
   tests/*.py
@@ -48,7 +48,7 @@
 - Linux (WSL2 또는 네이티브 Linux)
 - ORCA Linux 바이너리 경로 접근 가능 (`~/opt/orca/orca`)
 - ORCA 의존성: OpenMPI, BLAS/LAPACK 등
-- Python 3.8+
+- Python 3.10+
 - 입력 데이터 루트: `~/orca_runs` (ext4 파일시스템 권장)
 
 ## 5) 설치 및 초기 준비
@@ -64,6 +64,12 @@ bash scripts/bootstrap_wsl.sh
 - Python venv 준비 (`.venv`)
 - 의존성 설치 (`requirements.txt`)
 - `orca_auto` 실행 준비
+
+참고:
+
+- 저장소 안에서는 `./bin/orca_auto`를 사용하면 됩니다.
+- 패키지 엔트리포인트로 설치된 `orca_auto` 명령도 동일한 `core.launcher`를 호출합니다.
+- 즉 `run-inp`의 기본 백그라운드 실행, `pid`/`log` 출력, `--foreground`/`--background` 처리 방식이 두 진입점에서 동일합니다.
 
 ## 6) 설정 파일
 
@@ -116,11 +122,18 @@ cd ~/orca_auto
 ./bin/orca_auto run-inp --reaction-dir '/home/daehyupsohn/orca_runs/Int1_DMSO' --json
 ```
 
+설치형 엔트리포인트를 사용할 경우:
+
+```bash
+orca_auto run-inp --reaction-dir '/home/daehyupsohn/orca_runs/Int1_DMSO' --json
+```
+
 기본 동작:
 
 - `run-inp`는 기본적으로 백그라운드 실행됩니다.
 - 실행 직후 `status`, `pid`, `log` 경로를 출력하고 종료합니다.
 - 포그라운드 실행이 필요하면 `--foreground`를 추가하세요.
+- 명시적으로 백그라운드 실행을 강제하려면 `--background`를 사용하세요.
 - 전체 기본값을 포그라운드로 바꾸려면 `ORCA_AUTO_RUN_INP_BACKGROUND=0` 환경변수를 사용하세요.
 
 옵션:
@@ -130,6 +143,7 @@ cd ~/orca_auto
 - `--force` (선택): 기존 완료 `*.out`가 있어도 강제 재실행
 - `--json` (선택): JSON 출력
 - `--foreground` (선택): `run-inp`를 포그라운드로 실행
+- `--background` (선택): `run-inp`를 백그라운드로 실행
 
 ### 7.2 상태 확인
 

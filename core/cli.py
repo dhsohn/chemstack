@@ -43,6 +43,8 @@ def build_parser() -> argparse.ArgumentParser:
     run_inp.add_argument("--max-retries", type=int, default=None)
     run_inp.add_argument("--force", action="store_true", help="Force re-run even if existing output is completed")
     run_inp.add_argument("--json", action="store_true")
+    run_inp.add_argument("--foreground", action="store_true", help="Run in the foreground")
+    run_inp.add_argument("--background", action="store_true", help="Run in the background (default launcher behavior)")
 
     status = sub.add_parser("status")
     status.add_argument("--reaction-dir", required=True, help="Directory under the configured allowed_root")

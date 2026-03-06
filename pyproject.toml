@@ -12,7 +12,7 @@ dependencies = [
 ]
 
 [project.scripts]
-orca_auto = "core.cli:main"
+orca_auto = "core.launcher:main"
 
 [tool.setuptools.packages.find]
 include = ["core*"]
