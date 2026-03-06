@@ -202,9 +202,6 @@ def acquire_file_lock(
                     pass  # Will retry until timeout
                 continue
 
-            if deadline is None:
-                continue
-
             if time.monotonic() >= deadline:
                 timeout_value = int(timeout_seconds) if timeout_seconds is not None else 0
                 if timeout_error_builder is not None:

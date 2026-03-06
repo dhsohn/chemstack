@@ -77,7 +77,6 @@ def _scan_line_for_markers(line: str, markers: Dict[str, Any]) -> None:
         markers["terminated_normally"] = True
     if "TOTAL RUN TIME" in upper:
         markers["total_run_time_seen"] = True
-    markers["imaginary_frequency_count"] += sum(1 for _ in NEG_FREQ_RE.finditer(line))
     if "IRC PATH SUMMARY" in upper or "IRC-DRV" in upper:
         markers["irc_marker_found"] = True
     if "THE OPTIMIZATION HAS CONVERGED" in upper or "OPTIMIZATION RUN DONE" in upper:

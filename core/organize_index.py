@@ -176,7 +176,18 @@ def rebuild_index(organized_root: Path) -> int:
     return len(records)
 
 
+def _assert_index_locked(organized_root: Path) -> None:
+    lock_path = index_dir(organized_root) / LOCK_FILE_NAME
+    if not lock_path.exists():
+        logger.warning(
+            "append_record/append_failed_rollback called without holding "
+            "the index lock — data corruption risk. Lock file: %s",
+            lock_path,
+        )
+
+
 def append_record(organized_root: Path, record: Dict[str, Any]) -> None:
+    _assert_index_locked(organized_root)
     idir = index_dir(organized_root)
     idir.mkdir(parents=True, exist_ok=True)
     rp = records_path(organized_root)
@@ -188,6 +199,7 @@ def append_record(organized_root: Path, record: Dict[str, Any]) -> None:
 
 
 def append_failed_rollback(organized_root: Path, entry: Dict[str, Any]) -> None:
+    _assert_index_locked(organized_root)
     idir = index_dir(organized_root)
     idir.mkdir(parents=True, exist_ok=True)
     fp = idir / FAILED_ROLLBACKS_FILE_NAME

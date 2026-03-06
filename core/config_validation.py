@@ -8,7 +8,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, List
 
-from .pathing import is_subpath, is_windows_style_path  # noqa: F401
+from .pathing import is_subpath, is_rejected_windows_path
 
 _FALLBACK_KEEP_EXTENSIONS = [".inp", ".out", ".xyz", ".gbw", ".hess"]
 
@@ -40,7 +40,7 @@ def _validate_config(cfg: Any) -> None:
         ("organized_root", cfg.runtime.organized_root),
         ("orca_executable", cfg.paths.orca_executable),
     ]:
-        if is_windows_style_path(path_val):
+        if is_rejected_windows_path(path_val):
             raise ValueError(
                 f"{label} must be a Linux path (Windows legacy paths are no longer supported): {path_val!r}"
             )

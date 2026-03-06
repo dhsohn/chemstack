@@ -5,12 +5,13 @@ from pathlib import Path
 from typing import List, Optional
 
 
-WINDOWS_DRIVE_RE = re.compile(r"^[A-Za-z]:\\")
-WSL_WINDOWS_MOUNT_RE = re.compile(r"^/mnt/[a-zA-Z](/|$)")
+_WINDOWS_DRIVE_RE = re.compile(r"^[A-Za-z]:\\")
+_WSL_WINDOWS_MOUNT_RE = re.compile(r"^/mnt/[a-zA-Z](/|$)")
 
 
-def is_windows_style_path(path: str) -> bool:
-    return bool(WINDOWS_DRIVE_RE.match(path) or WSL_WINDOWS_MOUNT_RE.match(path))
+def is_rejected_windows_path(path: str) -> bool:
+    """Return True if *path* looks like a Windows or WSL-mount path (unsupported)."""
+    return bool(_WINDOWS_DRIVE_RE.match(path) or _WSL_WINDOWS_MOUNT_RE.match(path))
 
 
 def is_subpath(path: Path, root: Path) -> bool:
