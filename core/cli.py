@@ -9,6 +9,7 @@ from .commands._helpers import (
     default_config_path as _default_config_path,
 )
 from .commands.list_runs import cmd_list as _cmd_list
+from .commands.monitor import cmd_monitor as _cmd_monitor
 from .commands.organize import cmd_organize as _cmd_organize
 from .commands.run_inp import (
     _retry_inp_path as _retry_inp_path_impl,
@@ -39,6 +40,10 @@ def cmd_list(args: argparse.Namespace) -> int:
 
 def cmd_organize(args: argparse.Namespace) -> int:
     return int(_cmd_organize(args))
+
+
+def cmd_monitor(args: argparse.Namespace) -> int:
+    return int(_cmd_monitor(args))
 
 
 def cmd_bot(args: argparse.Namespace) -> int:
@@ -72,6 +77,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("bot", help="텔레그램 봇 시작 (long polling)")
 
+    sub.add_parser("monitor", help="시뮬레이션 상태 스캔 후 텔레그램 알림 전송 (크론용)")
+
     organize = sub.add_parser("organize")
     organize.add_argument("--reaction-dir", default=None, help="Single reaction directory to organize")
     organize.add_argument("--root", default=None, help="Root directory to scan (mutually exclusive with --reaction-dir)")
@@ -98,6 +105,7 @@ def main(argv: list[str] | None = None) -> int:
         "status": cmd_status,
         "list": cmd_list,
         "bot": cmd_bot,
+        "monitor": cmd_monitor,
         "organize": cmd_organize,
     }
     handler = command_map[args.command]
