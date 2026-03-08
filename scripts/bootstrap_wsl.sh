@@ -39,5 +39,11 @@ source .venv/bin/activate
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 
+CONFIG="$ROOT/config/orca_auto.yaml"
+if [[ ! -f "$CONFIG" ]]; then
+  cp "$ROOT/config/orca_auto.yaml.example" "$CONFIG"
+  echo "[bootstrap] Created config/orca_auto.yaml from example template."
+fi
+
 echo "[bootstrap] Done."
 echo "[bootstrap] Example: ./bin/orca_auto run-inp --reaction-dir '/home/daehyupsohn/orca_runs/<dir>' --json"

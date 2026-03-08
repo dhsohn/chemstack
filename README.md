@@ -165,7 +165,12 @@ dft_query      ──→  자연어 질의 → 마크다운 테이블 응답
 
 #### 텔레그램 알림 설정
 
-`config/orca_auto.yaml`에 텔레그램 봇 정보를 추가하면 활성화됩니다:
+`config/orca_auto.yaml`에 텔레그램 봇 정보를 추가하면 활성화됩니다.
+설정 파일이 없으면 `config/orca_auto.yaml.example`을 복사하세요:
+
+```bash
+cp config/orca_auto.yaml.example config/orca_auto.yaml
+```
 
 ```yaml
 telegram:

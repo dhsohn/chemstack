@@ -26,6 +26,9 @@ htmlcov/
 *.log
 logs/
 
+# Config (실제 설정 — 템플릿은 orca_auto.yaml.example)
+config/orca_auto.yaml
+
 # Runtime artifacts
 .cron_*.lock
 .dft_progress_eta_state.json

@@ -1,10 +1,10 @@
 runtime:
-  allowed_root: "/home/daehyupsohn/orca_runs"
-  organized_root: "/home/daehyupsohn/orca_outputs"
+  allowed_root: "~/orca_runs"
+  organized_root: "~/orca_outputs"
   default_max_retries: 2
 
 paths:
-  orca_executable: "/home/daehyupsohn/opt/orca/orca"
+  orca_executable: "~/opt/orca/orca"
 
 cleanup:
   keep_extensions: [".inp", ".out", ".xyz", ".gbw", ".hess"]
