@@ -45,7 +45,13 @@ orca_auto run-inp --reaction-dir '~/orca_runs/내_반응_폴더'
 ### 3단계: 결과 확인
 
 ```bash
-# 실행 상태 확인
+# 전체 시뮬레이션 목록 한눈에 보기
+./bin/orca_auto list
+
+# 실행 중인 작업만 필터
+./bin/orca_auto list --filter running
+
+# 개별 실행 상태 확인
 ./bin/orca_auto status --reaction-dir '~/orca_runs/내_반응_폴더'
 
 # 또는 결과 요약 파일 직접 확인
@@ -79,6 +85,37 @@ cat ~/orca_runs/내_반응_폴더/run_report.md
 | `--json` | 결과를 JSON으로 출력 | `./bin/orca_auto run-inp --reaction-dir '...' --json` |
 | `--foreground` | `run-inp`를 터미널 점유 모드로 실행 | `./bin/orca_auto run-inp --reaction-dir '...' --foreground` |
 | `--background` | `run-inp`를 백그라운드 실행으로 강제 | `./bin/orca_auto run-inp --reaction-dir '...' --background` |
+| `--filter` | `list`에서 상태별 필터링 | `./bin/orca_auto list --filter completed` |
+
+### 텔레그램 봇
+
+텔레그램에서 직접 시뮬레이션 상태를 조회할 수 있습니다.
+
+```bash
+# 봇 시작 (포그라운드)
+./bin/orca_auto bot
+
+# 백그라운드로 실행
+bash scripts/start_bot.sh
+```
+
+WSL 부팅 시 자동 시작하려면 `~/.bashrc`에 추가:
+
+```bash
+~/orca_auto/scripts/start_bot.sh
+```
+
+`start_bot.sh`는 PID 파일로 중복 실행을 방지합니다.
+
+#### 봇 명령어
+
+| 명령어 | 설명 |
+|--------|------|
+| `/list` | 전체 시뮬레이션 목록 |
+| `/list running` | 실행 중인 작업만 |
+| `/list completed` | 완료된 작업만 |
+| `/list failed` | 실패한 작업만 |
+| `/help` | 도움말 |
 
 ### 자동 스케줄링 (Crontab)
 
@@ -164,12 +201,14 @@ core/
 ├── commands/             # CLI 커맨드 핸들러
 │   ├── _helpers.py       # 공유 유틸 (검증, 포맷, 설정 경로)
 │   ├── run_inp.py        # run-inp, status 커맨드
+│   ├── list_runs.py      # list 커맨드
 │   └── organize.py       # organize 커맨드
 ├── orca_parser.py        # ORCA 출력 파서
 ├── dft_discovery.py      # 완료 계산 탐색
 ├── dft_index.py          # SQLite 인덱스 관리
 ├── dft_monitor.py        # 변경 감지 및 자동 인덱싱
 ├── telegram_notifier.py  # 텔레그램 알림 전송
+├── telegram_bot.py       # 텔레그램 봇 (long polling, 명령어 수신)
 ├── config.py             # 설정 로딩 및 데이터클래스
 ├── config_validation.py  # 설정 검증/정규화
 ├── lock_utils.py         # 락 파일 파싱/프로세스 생존 확인 (공유)
