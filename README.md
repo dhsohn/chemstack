@@ -124,8 +124,6 @@ dft_index      ──→  SQLite(dft.db)에 구조화 저장
     ↓
 dft_monitor    ──→  주기적 스캔으로 신규/변경 감지 → 자동 인덱싱
     ↓
-dft_query      ──→  자연어 질의 → 마크다운 테이블 응답
-    ↓
 텔레그램 봇    ──→  새 계산 완료 알림 / 결과 조회
 ```
 
@@ -137,7 +135,6 @@ dft_query      ──→  자연어 질의 → 마크다운 테이블 응답
 | `dft_discovery.py` | `orca_runs`/`orca_outputs` 하위를 재귀 탐색하여 인덱싱 대상 `.out` 선별 |
 | `dft_index.py` | SQLite DB 관리 — 증분 인덱싱(해시 기반), 다차원 필터 쿼리, 통계 |
 | `dft_monitor.py` | 파일 mtime 추적으로 신규/변경 감지 → 자동 파싱·인덱싱, 상태 JSON 영속화 |
-| `dft_query.py` | 한/영 자연어 의도 분류(통계·실패·비교·최저에너지 등) → 포맷된 마크다운 반환 |
 | `telegram_notifier.py` | 텔레그램 봇 API로 스캔 결과 HTML 메시지 전송 (외부 의존성 없음) |
 
 #### 텔레그램 알림 설정
@@ -172,7 +169,6 @@ core/
 ├── dft_discovery.py      # 완료 계산 탐색
 ├── dft_index.py          # SQLite 인덱스 관리
 ├── dft_monitor.py        # 변경 감지 및 자동 인덱싱
-├── dft_query.py          # 자연어 쿼리 엔진
 ├── telegram_notifier.py  # 텔레그램 알림 전송
 ├── config.py             # 설정 로딩 및 데이터클래스
 ├── config_validation.py  # 설정 검증/정규화
