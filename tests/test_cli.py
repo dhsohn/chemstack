@@ -275,6 +275,9 @@ class TestCli(unittest.TestCase):
             reaction.mkdir(parents=True)
             inp = reaction / "rxn.inp"
             inp.write_text("! Opt\n* xyz 0 1\nH 0 0 0\nH 0 0 0.74\n*\n", encoding="utf-8")
+            fake_orca = root / "fake_orca"
+            fake_orca.touch()
+            fake_orca.chmod(0o755)
             config = root / "orca_auto.yaml"
             config.write_text(
                 json.dumps(
@@ -283,7 +286,7 @@ class TestCli(unittest.TestCase):
                             "allowed_root": str(root / "orca_runs"),
                             "default_max_retries": 6,
                         },
-                        "paths": {"orca_executable": "/home/daehyupsohn/opt/orca/orca"},
+                        "paths": {"orca_executable": str(fake_orca)},
                     }
                 ),
                 encoding="utf-8",
