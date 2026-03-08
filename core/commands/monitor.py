@@ -79,6 +79,26 @@ def _format_dft_section(report: ScanReport) -> str | None:
     return header + "\n\n" + "\n\n".join(lines)
 
 
+def _format_failure_section(report: ScanReport) -> str | None:
+    """Build HTML block for parse failures, if any."""
+    if not report.failures:
+        return None
+
+    lines: list[str] = []
+    for f in report.failures[:5]:  # cap at 5 to avoid message bloat
+        lines.append(
+            f"\u274c <code>{escape_html(f.path)}</code>\n"
+            f"   {escape_html(f.error_type)}: {escape_html(f.error)}"
+        )
+
+    count = len(report.failures)
+    header = f"\u26a0\ufe0f <b>Parse Failures</b>  ({count})"
+    body = "\n\n".join(lines)
+    if count > 5:
+        body += f"\n\n   ... and {count - 5} more"
+    return header + "\n\n" + body
+
+
 def _format_overall_summary(runs: list[RunInfo]) -> str:
     """Build a one-line summary of all simulation stats."""
     counts: dict[str, int] = {}
@@ -114,6 +134,10 @@ def _build_message(
     dft = _format_dft_section(report)
     if dft:
         sections.append(dft)
+
+    fail = _format_failure_section(report)
+    if fail:
+        sections.append(fail)
 
     sections.append(divider)
     sections.append(_format_overall_summary(runs))

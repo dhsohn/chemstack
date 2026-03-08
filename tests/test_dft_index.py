@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import threading
 from pathlib import Path
 
 from core.dft_index import DFTIndex
@@ -117,6 +118,47 @@ def test_get_stats(tmp_path: Path) -> None:
     assert "completed" in stats["by_status"]
     assert "B3LYP" in stats["by_method"]
 
+    index.close()
+
+
+def test_concurrent_read_write(tmp_path: Path) -> None:
+    """Verify that concurrent reads and writes don't raise errors."""
+    kb_dir = _setup_kb(tmp_path)
+    db_path = str(tmp_path / "dft.db")
+
+    index = DFTIndex()
+    index.initialize(db_path)
+    index.index_calculations([str(kb_dir)])
+
+    errors: list[Exception] = []
+
+    def reader() -> None:
+        try:
+            for _ in range(20):
+                index.query({"method": "B3LYP"})
+                index.get_stats()
+        except Exception as exc:
+            errors.append(exc)
+
+    def writer() -> None:
+        try:
+            out_path = str(kb_dir / "job1" / "calc.out")
+            for _ in range(10):
+                index.upsert_single(out_path)
+        except Exception as exc:
+            errors.append(exc)
+
+    threads = [
+        threading.Thread(target=reader),
+        threading.Thread(target=reader),
+        threading.Thread(target=writer),
+    ]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert errors == [], f"Concurrent access errors: {errors}"
     index.close()
 
 

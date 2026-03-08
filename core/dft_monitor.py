@@ -35,10 +35,20 @@ class MonitorResult:
 
 
 @dataclass
+class ParseFailure:
+    """Record of a file that failed to parse."""
+
+    path: str
+    error: str
+    error_type: str
+
+
+@dataclass
 class ScanReport:
     """Scan result summary."""
 
     new_results: list[MonitorResult] = field(default_factory=list)
+    failures: list[ParseFailure] = field(default_factory=list)
     scanned_files: int = 0
     baseline_seeded: bool = False
 
@@ -70,6 +80,7 @@ class DFTMonitor:
         """Detect new/changed ORCA files in kb_dirs and index them."""
         max_bytes = max_file_size_mb * 1024 * 1024
         new_results: list[MonitorResult] = []
+        failures: list[ParseFailure] = []
         scanned_mtimes: dict[str, float] = {}
         processed_this_scan: set[str] = set()
         state_dirty = False
@@ -155,6 +166,11 @@ class DFTMonitor:
                         spath, result.formula, result.method, effective_status,
                     )
                 except Exception as exc:
+                    failures.append(ParseFailure(
+                        path=_short_path(canonical),
+                        error=str(exc),
+                        error_type=type(exc).__name__,
+                    ))
                     logger.warning(
                         "dft_monitor_parse_error: path=%s error=%s", spath, exc,
                     )
@@ -168,6 +184,7 @@ class DFTMonitor:
                 _save_state(self._state_file, self._last_mtimes)
             logger.info("dft_monitor_baseline_seeded: file_count=%d", len(self._last_mtimes))
             return ScanReport(
+                failures=failures,
                 scanned_files=len(scanned_mtimes),
                 baseline_seeded=True,
             )
@@ -189,6 +206,7 @@ class DFTMonitor:
 
         return ScanReport(
             new_results=new_results,
+            failures=failures,
             scanned_files=len(scanned_mtimes),
         )
 

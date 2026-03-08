@@ -43,6 +43,29 @@ def _validate_config(cfg: Any) -> None:
         raise ValueError(
             f"orca_executable must point to Linux ORCA binary, not Windows executable: {cfg.paths.orca_executable!r}"
         )
+
+    orca_path = Path(cfg.paths.orca_executable)
+    if not orca_path.exists():
+        raise ValueError(
+            f"orca_executable not found: {cfg.paths.orca_executable!r}. "
+            "Verify the path points to an existing ORCA binary."
+        )
+    if not orca_path.is_file():
+        raise ValueError(
+            f"orca_executable is not a file: {cfg.paths.orca_executable!r}"
+        )
+
+    allowed_root = Path(cfg.runtime.allowed_root)
+    if not allowed_root.exists():
+        raise ValueError(
+            f"allowed_root directory not found: {cfg.runtime.allowed_root!r}. "
+            "Create the directory or update the config."
+        )
+    if not allowed_root.is_dir():
+        raise ValueError(
+            f"allowed_root is not a directory: {cfg.runtime.allowed_root!r}"
+        )
+
     ar = Path(cfg.runtime.allowed_root).resolve()
     org = Path(cfg.runtime.organized_root).resolve()
     if is_subpath(org, ar) or is_subpath(ar, org):

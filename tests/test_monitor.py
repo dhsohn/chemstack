@@ -10,11 +10,12 @@ from unittest.mock import MagicMock, patch
 from core.commands.monitor import (
     _build_message,
     _format_dft_section,
+    _format_failure_section,
     _format_overall_summary,
     _format_running_section,
 )
 from core.config import AppConfig, PathsConfig, RuntimeConfig, TelegramConfig
-from core.dft_monitor import MonitorResult, ScanReport
+from core.dft_monitor import MonitorResult, ParseFailure, ScanReport
 from core.types import RunInfo
 
 
@@ -106,6 +107,42 @@ class TestFormatDftSection:
         assert "OPT" in result
 
 
+class TestFormatFailureSection:
+    def test_no_failures_returns_none(self) -> None:
+        report = ScanReport(new_results=[], scanned_files=5)
+        assert _format_failure_section(report) is None
+
+    def test_failure_section_content(self) -> None:
+        report = ScanReport(
+            new_results=[],
+            failures=[
+                ParseFailure(
+                    path="orca_runs/job/calc.out",
+                    error="invalid literal for float()",
+                    error_type="ValueError",
+                ),
+            ],
+            scanned_files=5,
+        )
+        result = _format_failure_section(report)
+        assert result is not None
+        assert "Parse Failures" in result
+        assert "(1)" in result
+        assert "orca_runs/job/calc.out" in result
+        assert "ValueError" in result
+
+    def test_failure_section_caps_at_five(self) -> None:
+        failures = [
+            ParseFailure(path=f"job{i}/calc.out", error="err", error_type="E")
+            for i in range(8)
+        ]
+        report = ScanReport(new_results=[], failures=failures, scanned_files=10)
+        result = _format_failure_section(report)
+        assert result is not None
+        assert "(8)" in result
+        assert "and 3 more" in result
+
+
 class TestFormatOverallSummary:
     def test_empty_runs(self) -> None:
         result = _format_overall_summary([])
@@ -142,6 +179,22 @@ class TestBuildMessage:
         assert "Running" in message
         assert "New Calculations Detected" in message
         assert "Overview" in message
+
+    def test_includes_failure_section(self) -> None:
+        report = ScanReport(
+            new_results=[],
+            failures=[
+                ParseFailure(
+                    path="job/calc.out",
+                    error="bad encoding",
+                    error_type="UnicodeDecodeError",
+                ),
+            ],
+            scanned_files=1,
+        )
+        message = _build_message([], report)
+        assert "Parse Failures" in message
+        assert "UnicodeDecodeError" in message
 
 
 class TestRunMonitor:

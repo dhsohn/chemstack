@@ -58,13 +58,13 @@ class DFTIndex:
     def __init__(self) -> None:
         self._db: sqlite3.Connection | None = None
         self._db_path: str = ""
-        self._write_lock = threading.Lock()
+        self._lock = threading.Lock()
 
     def initialize(self, db_path: str) -> None:
         """Open the database and create the schema."""
         Path(db_path).parent.mkdir(parents=True, exist_ok=True)
         self._db_path = db_path
-        self._db = sqlite3.connect(db_path)
+        self._db = sqlite3.connect(db_path, check_same_thread=False)
         self._db.row_factory = sqlite3.Row
         self._db.execute("PRAGMA journal_mode=WAL")
         self._db.executescript(_SCHEMA_SQL)
@@ -102,14 +102,15 @@ class DFTIndex:
         db = self._require_db()
 
         # Load existing index
-        cursor = db.execute(
-            "SELECT source_path, file_hash FROM dft_calculations"
-        )
-        existing: dict[str, str] = {
-            row["source_path"]: row["file_hash"] for row in cursor
-        }
+        with self._lock:
+            cursor = db.execute(
+                "SELECT source_path, file_hash FROM dft_calculations"
+            )
+            existing: dict[str, str] = {
+                row["source_path"]: row["file_hash"] for row in cursor
+            }
 
-        # Discover files
+        # Discover files (I/O-heavy, done outside the lock)
         max_bytes = max_file_size_mb * 1024 * 1024
         discovered: dict[str, str] = {}  # path -> hash
 
@@ -138,7 +139,7 @@ class DFTIndex:
         failed = 0
         removed = 0
 
-        with self._write_lock:
+        with self._lock:
             # Remove deleted files
             for rpath in to_remove:
                 db.execute(
@@ -178,7 +179,7 @@ class DFTIndex:
         db = self._require_db()
         try:
             result = parse_orca_output(file_path)
-            with self._write_lock:
+            with self._lock:
                 self._upsert(db, result)
                 db.commit()
             return True
@@ -231,8 +232,9 @@ class DFTIndex:
 
     def _count(self) -> int:
         db = self._require_db()
-        cursor = db.execute("SELECT COUNT(*) FROM dft_calculations")
-        row = cursor.fetchone()
+        with self._lock:
+            cursor = db.execute("SELECT COUNT(*) FROM dft_calculations")
+            row = cursor.fetchone()
         return row[0] if row else 0
 
     # ------------------------------------------------------------------
@@ -294,41 +296,43 @@ class DFTIndex:
         sql = f"SELECT * FROM dft_calculations WHERE {where} ORDER BY {order} LIMIT ?"
         params.append(limit)
 
-        cursor = db.execute(sql, params)
-        rows = cursor.fetchall()
+        with self._lock:
+            cursor = db.execute(sql, params)
+            rows = cursor.fetchall()
         return [dict(row) for row in rows]
 
     def get_stats(self) -> dict[str, Any]:
         """Return overall index statistics."""
         db = self._require_db()
-        stats: dict[str, Any] = {}
+        with self._lock:
+            stats: dict[str, Any] = {}
 
-        cursor = db.execute("SELECT COUNT(*) FROM dft_calculations")
-        row = cursor.fetchone()
-        stats["total"] = row[0] if row else 0
+            cursor = db.execute("SELECT COUNT(*) FROM dft_calculations")
+            row = cursor.fetchone()
+            stats["total"] = row[0] if row else 0
 
-        cursor = db.execute(
-            "SELECT status, COUNT(*) as cnt FROM dft_calculations GROUP BY status"
-        )
-        stats["by_status"] = {row["status"]: row["cnt"] for row in cursor}
+            cursor = db.execute(
+                "SELECT status, COUNT(*) as cnt FROM dft_calculations GROUP BY status"
+            )
+            stats["by_status"] = {row["status"]: row["cnt"] for row in cursor}
 
-        cursor = db.execute(
-            "SELECT method, COUNT(*) as cnt FROM dft_calculations "
-            "GROUP BY method ORDER BY cnt DESC LIMIT 10"
-        )
-        stats["by_method"] = {row["method"]: row["cnt"] for row in cursor}
+            cursor = db.execute(
+                "SELECT method, COUNT(*) as cnt FROM dft_calculations "
+                "GROUP BY method ORDER BY cnt DESC LIMIT 10"
+            )
+            stats["by_method"] = {row["method"]: row["cnt"] for row in cursor}
 
-        cursor = db.execute(
-            "SELECT calc_type, COUNT(*) as cnt FROM dft_calculations "
-            "GROUP BY calc_type ORDER BY cnt DESC"
-        )
-        stats["by_calc_type"] = {row["calc_type"]: row["cnt"] for row in cursor}
+            cursor = db.execute(
+                "SELECT calc_type, COUNT(*) as cnt FROM dft_calculations "
+                "GROUP BY calc_type ORDER BY cnt DESC"
+            )
+            stats["by_calc_type"] = {row["calc_type"]: row["cnt"] for row in cursor}
 
-        cursor = db.execute(
-            "SELECT formula, COUNT(*) as cnt FROM dft_calculations "
-            "GROUP BY formula ORDER BY cnt DESC LIMIT 10"
-        )
-        stats["top_formulas"] = {row["formula"]: row["cnt"] for row in cursor}
+            cursor = db.execute(
+                "SELECT formula, COUNT(*) as cnt FROM dft_calculations "
+                "GROUP BY formula ORDER BY cnt DESC LIMIT 10"
+            )
+            stats["top_formulas"] = {row["formula"]: row["cnt"] for row in cursor}
 
         return stats
 
