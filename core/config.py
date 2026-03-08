@@ -6,14 +6,13 @@ from pathlib import Path
 from typing import Any, Dict
 
 import yaml
-
-logger = logging.getLogger(__name__)
-
 from .config_validation import (
     _as_int,
     _as_str,
     _validate_config,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _default_allowed_root() -> str:

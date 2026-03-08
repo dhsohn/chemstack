@@ -6,9 +6,47 @@ build-backend = "setuptools.build_meta"
 name = "orca-auto"
 version = "0.1.0"
 description = "ORCA single-input recovery runner with automatic retry"
+readme = "README.md"
 requires-python = ">=3.10"
+license = { file = "LICENSE" }
+authors = [
+    { name = "Daehyup Sohn" },
+]
+keywords = [
+    "orca",
+    "dft",
+    "computational-chemistry",
+    "workflow-automation",
+    "cli",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Chemistry",
+]
 dependencies = [
     "PyYAML>=6.0.1",
+]
+
+[project.urls]
+Homepage = "https://github.com/dhsohn/orca_auto"
+Repository = "https://github.com/dhsohn/orca_auto"
+Issues = "https://github.com/dhsohn/orca_auto/issues"
+
+[project.optional-dependencies]
+dev = [
+    "mypy>=1.19.1",
+    "pytest>=9.0",
+    "pytest-cov>=7.0.0",
+    "ruff>=0.15.5",
 ]
 
 [project.scripts]
@@ -16,3 +54,21 @@ orca_auto = "core.launcher:main"
 
 [tool.setuptools.packages.find]
 include = ["core*"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+
+[tool.mypy]
+python_version = "3.10"
+files = ["core"]
+pretty = true
+show_error_codes = true
+warn_unused_configs = true
+
+[tool.coverage.run]
+source = ["core"]
+
+[tool.coverage.report]
+fail_under = 80
+show_missing = true

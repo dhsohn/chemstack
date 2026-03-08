@@ -55,7 +55,7 @@ class TestParseFormulaFromInp(unittest.TestCase):
             xyz = Path(td) / "mol.xyz"
             xyz.write_text("4\ncomment\nC 0 0 0\nH 1 0 0\nH 2 0 0\nH 3 0 0\n")
             inp = Path(td) / "rxn.inp"
-            inp.write_text(f"! Opt\n* xyzfile 0 1 mol.xyz\n")
+            inp.write_text("! Opt\n* xyzfile 0 1 mol.xyz\n")
             self.assertEqual(_parse_formula_from_inp(inp), "CH3")
 
     def test_xyzfile_missing_returns_none(self) -> None:

@@ -25,6 +25,7 @@ from ..result_organizer import (
     sync_state_after_rollback,
 )
 from ..state_store import now_utc_iso
+from ..types import RunState
 from ._helpers import (
     _validate_reaction_dir,
     _validate_root_scan_dir,
@@ -65,7 +66,7 @@ def _plan_to_dict(plan: OrganizePlan) -> Dict[str, Any]:
     }
 
 
-def _build_index_record(plan: OrganizePlan, state: Dict[str, Any]) -> Dict[str, Any]:
+def _build_index_record(plan: OrganizePlan, state: RunState) -> Dict[str, Any]:
     final_result = state.get("final_result")
     if not isinstance(final_result, dict):
         final_result = {}
@@ -188,6 +189,7 @@ def cmd_organize(args: Any) -> int:
         skips_list = [skip] if skip else []
     else:
         try:
+            assert isinstance(root_raw, str)
             root = _validate_root_scan_dir(cfg, root_raw)
         except ValueError as exc:
             logger.error("%s", exc)

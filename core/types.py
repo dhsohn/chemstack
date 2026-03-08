@@ -24,6 +24,7 @@ class RunFinalResult(TypedDict, total=False):
     last_out_path: Optional[str]
     resumed: bool
     skipped_execution: bool
+    runner_error: str
 
 
 class RunState(TypedDict, total=False):

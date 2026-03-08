@@ -6,9 +6,16 @@ import os
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Iterator, Optional
+from typing import Any, Dict, Iterator, Optional, cast
 from uuid import uuid4
 
+from .lock_utils import (
+    acquire_file_lock as _acquire_file_lock,
+    current_process_start_ticks as _current_process_start_ticks,
+    is_process_alive as _is_process_alive,
+    parse_lock_info as _parse_lock_info,
+    process_start_ticks as _process_start_ticks,
+)
 from .types import RunFinalResult, RunState
 
 logger = logging.getLogger(__name__)
@@ -46,7 +53,7 @@ def load_state(reaction_dir: Path) -> Optional[RunState]:
         return None
     if not isinstance(raw, dict):
         return None
-    return raw
+    return cast(RunState, raw)
 
 
 def new_state(reaction_dir: Path, selected_inp: Path, max_retries: int) -> RunState:
@@ -179,18 +186,6 @@ def write_report_files(reaction_dir: Path, state: RunState) -> Dict[str, str]:
     _atomic_write_text(json_path, json.dumps(report_payload, ensure_ascii=True, indent=2))
     _atomic_write_text(md_path, _render_report_markdown(report_payload))
     return {"report_json": str(json_path), "report_md": str(md_path)}
-
-
-# Lock utilities — re-imported from lock_utils to preserve test patch targets
-# (e.g. ``patch("core.state_store._is_process_alive", ...)``).
-from .lock_utils import (  # noqa: F401
-    acquire_file_lock as _acquire_file_lock,
-    current_process_start_ticks as _current_process_start_ticks,
-    is_process_alive as _is_process_alive,
-    parse_lock_info as _parse_lock_info,
-    process_start_ticks as _process_start_ticks,
-)
-
 
 def _run_lock_active_error(lock_pid: int, lock_info: Dict[str, Any], lock_path: Path) -> RuntimeError:
     started_at = lock_info.get("started_at")

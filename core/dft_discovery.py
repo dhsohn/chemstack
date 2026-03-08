@@ -4,9 +4,8 @@ from __future__ import annotations
 
 import json
 import logging
-from contextlib import suppress
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -60,7 +59,7 @@ def _discover_orca_outputs_targets(
     recent_completed_window_minutes: int | None,
 ) -> list[DiscoveredTarget]:
     targets: dict[str, DiscoveredTarget] = {}
-    now_utc = datetime.now(UTC)
+    now_utc = datetime.now(timezone.utc)
 
     # run_state 전용 정책: run_report는 완전히 무시한다.
     for state_path in kb_path.rglob("run_state.json"):
@@ -160,7 +159,7 @@ def _is_recent_completed_output(
         return (-allowed_future_skew) <= age <= window
 
     try:
-        mtime_dt = datetime.fromtimestamp(output_path.stat().st_mtime, tz=UTC)
+        mtime_dt = datetime.fromtimestamp(output_path.stat().st_mtime, tz=timezone.utc)
     except OSError:
         return False
     age = now_utc - mtime_dt
@@ -178,8 +177,8 @@ def _parse_iso_datetime_utc(value: Any) -> datetime | None:
     except ValueError:
         return None
     if dt.tzinfo is None:
-        return dt.replace(tzinfo=UTC)
-    return dt.astimezone(UTC)
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
 
 
 def _add_if_valid_target(

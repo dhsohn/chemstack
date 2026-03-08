@@ -7,6 +7,13 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional
 
+from .lock_utils import (
+    acquire_file_lock as _acquire_file_lock,
+    current_process_start_ticks as _current_process_start_ticks,
+    is_process_alive as _is_process_alive,
+    parse_lock_info as _parse_index_lock_info,
+    process_start_ticks as _process_start_ticks,
+)
 from .molecule_key import extract_molecule_key
 from .pathing import resolve_artifact_path
 from .state_store import atomic_write_text, load_state, now_utc_iso
@@ -191,17 +198,6 @@ def append_failed_rollback(organized_root: Path, entry: Dict[str, Any]) -> None:
         handle.write(line)
         handle.flush()
         os.fsync(handle.fileno())
-
-
-# Lock utilities — re-imported from lock_utils to preserve existing usage.
-from .lock_utils import (  # noqa: F401
-    acquire_file_lock as _acquire_file_lock,
-    current_process_start_ticks as _current_process_start_ticks,
-    is_process_alive as _is_process_alive,
-    parse_lock_info as _parse_index_lock_info,
-    process_start_ticks as _process_start_ticks,
-)
-
 
 def _index_lock_timeout_error(lock_path: Path, timeout_seconds: int) -> RuntimeError:
     return RuntimeError(

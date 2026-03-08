@@ -14,6 +14,7 @@ from .molecule_key import extract_molecule_key
 from .pathing import is_subpath, resolve_artifact_path
 from .state_store import load_state, save_state, write_report_files
 from .statuses import RunStatus
+from .types import RunState
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +53,7 @@ def _resolve_existing_artifact(path_text: str, reaction_dir: Path) -> Optional[P
     return resolve_artifact_path(path_text, reaction_dir)
 
 
-def check_eligibility(reaction_dir: Path) -> Tuple[Optional[Dict[str, Any]], Optional[SkipReason]]:
+def check_eligibility(reaction_dir: Path) -> Tuple[RunState | None, Optional[SkipReason]]:
     state = load_state(reaction_dir)
     if state is None:
         return None, SkipReason(str(reaction_dir), "state_missing_or_invalid")
@@ -122,11 +123,15 @@ def _read_route_line(inp_path: Path) -> str:
 
 def compute_organize_plan(
     reaction_dir: Path,
-    state: Dict[str, Any],
+    state: RunState,
     organized_root: Path,
 ) -> OrganizePlan:
-    run_id = state["run_id"]
-    selected_inp = state.get("selected_inp", "")
+    run_id = state.get("run_id")
+    if not isinstance(run_id, str) or not run_id:
+        raise RuntimeError(f"Completed state missing run_id: {reaction_dir}")
+
+    selected_inp_value = state.get("selected_inp", "")
+    selected_inp = selected_inp_value if isinstance(selected_inp_value, str) else ""
     inp_path = Path(selected_inp) if selected_inp else None
 
     job_type = detect_job_type(inp_path) if inp_path and inp_path.exists() else "other"
@@ -152,7 +157,7 @@ def compute_organize_plan(
         selected_inp=selected_inp,
         last_out_path=last_out_path if isinstance(last_out_path, str) else "",
         attempt_count=attempt_count,
-        status=state.get("status", ""),
+        status=str(state.get("status", "")),
         analyzer_status=analyzer_status if isinstance(analyzer_status, str) else "",
         reason=reason if isinstance(reason, str) else "",
         completed_at=completed_at if isinstance(completed_at, str) else "",
@@ -279,7 +284,7 @@ def _sync_state_after_relocation(
     state_dir: Path,
     source_dir: Path,
     target_dir: Path,
-) -> Dict[str, Any]:
+) -> RunState:
     state = load_state(state_dir)
     if state is None:
         raise RuntimeError(f"Relocated directory has invalid state: {state_dir}")
@@ -329,7 +334,7 @@ def _sync_state_after_relocation(
     return state
 
 
-def sync_state_after_move(plan: OrganizePlan) -> Dict[str, Any]:
+def sync_state_after_move(plan: OrganizePlan) -> RunState:
     return _sync_state_after_relocation(
         state_dir=plan.target_abs_path,
         source_dir=plan.source_dir,
@@ -337,7 +342,7 @@ def sync_state_after_move(plan: OrganizePlan) -> Dict[str, Any]:
     )
 
 
-def sync_state_after_rollback(plan: OrganizePlan) -> Dict[str, Any]:
+def sync_state_after_rollback(plan: OrganizePlan) -> RunState:
     return _sync_state_after_relocation(
         state_dir=plan.source_dir,
         source_dir=plan.target_abs_path,

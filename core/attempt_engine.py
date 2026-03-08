@@ -2,18 +2,26 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any, Callable, Dict
+from typing import Any, Callable, Dict, Mapping, Protocol
 
 from .completion_rules import detect_completion_mode
-
-logger = logging.getLogger(__name__)
 from .inp_rewriter import rewrite_for_retry
-from .orca_runner import OrcaRunner
 from .out_analyzer import analyze_output
 from .state_machine import MAX_RETRY_RECIPES, decide_attempt_outcome
 from .state_store import finalize_state, now_utc_iso, save_state, state_path, write_report_files
 from .statuses import AnalyzerStatus, RunStatus
-from .types import RunFinalResult, RunState
+from .types import AttemptRecord, RunFinalResult, RunState
+
+logger = logging.getLogger(__name__)
+
+
+class RunResultLike(Protocol):
+    out_path: str
+    return_code: int
+
+
+class RunnerLike(Protocol):
+    def run(self, inp_path: Path) -> RunResultLike: ...
 
 
 def _last_out_path_from_state(state: RunState) -> str | None:
@@ -36,7 +44,7 @@ def build_final_result(
     reason: str,
     last_out_path: str | None,
     resumed: bool | None = None,
-    extra: Dict[str, Any] | None = None,
+    extra: Mapping[str, object] | None = None,
 ) -> RunFinalResult:
     status_text = status.value if isinstance(status, RunStatus) else str(status)
     analyzer_status_text = analyzer_status.value if isinstance(analyzer_status, AnalyzerStatus) else str(analyzer_status)
@@ -49,9 +57,13 @@ def build_final_result(
     }
     if resumed is not None:
         result["resumed"] = resumed
-    if isinstance(extra, dict):
-        protected_keys = {"status", "analyzer_status", "reason", "completed_at", "last_out_path"}
-        result.update({k: v for k, v in extra.items() if k not in protected_keys})
+    if extra is not None:
+        skipped_execution = extra.get("skipped_execution")
+        if isinstance(skipped_execution, bool):
+            result["skipped_execution"] = skipped_execution
+        runner_error = extra.get("runner_error")
+        if isinstance(runner_error, str) and runner_error:
+            result["runner_error"] = runner_error
     return result
 
 
@@ -132,7 +144,7 @@ def _exit_with_result(
     as_json: bool,
     exit_code: int,
     emit: Callable[[Dict[str, Any], bool], None],
-    extra: Dict[str, Any] | None = None,
+    extra: Mapping[str, object] | None = None,
 ) -> int:
     final = build_final_result(
         status=status,
@@ -155,7 +167,7 @@ def _exit_with_result(
     )
 
 
-def _ensure_patch_actions_list(attempt: Dict[str, Any]) -> list[str]:
+def _ensure_patch_actions_list(attempt: AttemptRecord) -> list[str]:
     existing = attempt.get("patch_actions")
     if isinstance(existing, list):
         return existing
@@ -269,7 +281,7 @@ def run_attempts(
     state: RunState,
     *,
     resumed: bool,
-    runner: OrcaRunner,
+    runner: RunnerLike,
     max_retries: int,
     as_json: bool,
     retry_inp_path: Callable[[Path, int], Path],
@@ -368,7 +380,7 @@ def run_attempts(
 
         mode = detect_completion_mode(current_inp)
         analysis = analyze_output(out_path, mode)
-        attempt = {
+        attempt: AttemptRecord = {
             "index": execution_index,
             "inp_path": str(current_inp),
             "out_path": str(out_path),

@@ -11,10 +11,8 @@ from __future__ import annotations
 import json
 import logging
 import os
-from contextlib import suppress
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
 
 from core.dft_discovery import discover_orca_targets
 from core.dft_index import DFTIndex

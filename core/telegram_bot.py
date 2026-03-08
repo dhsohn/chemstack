@@ -13,8 +13,8 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Callable
 
-from .commands.list_runs import _collect_runs, _elapsed_text
-from .config import AppConfig, TelegramConfig
+from .commands.list_runs import _collect_runs
+from .config import AppConfig
 from .telegram_notifier import _escape_html
 
 logger = logging.getLogger(__name__)
@@ -24,8 +24,13 @@ _POLL_TIMEOUT = 30  # long polling timeout (seconds)
 _MAX_MESSAGE_LENGTH = 4096
 
 
-def _api_call(token: str, method: str, payload: dict[str, Any] | None = None,
-              *, timeout: int = 35) -> dict[str, Any] | None:
+def _api_call(
+    token: str,
+    method: str,
+    payload: dict[str, Any] | None = None,
+    *,
+    timeout: int = 35,
+) -> Any | None:
     """Telegram Bot API 호출."""
     url = f"{_API_BASE.format(token=token)}/{method}"
     data = json.dumps(payload or {}).encode("utf-8")
@@ -143,24 +148,29 @@ def run_bot(cfg: AppConfig) -> int:
                 {"offset": offset, "timeout": _POLL_TIMEOUT, "allowed_updates": ["message"]},
                 timeout=_POLL_TIMEOUT + 5,
             )
-            if not updates:
+            if not isinstance(updates, list) or not updates:
                 continue
 
             for update in updates:
+                if not isinstance(update, dict):
+                    continue
                 update_id = update.get("update_id", 0)
                 offset = max(offset, update_id + 1)
 
                 message = update.get("message")
-                if not message:
+                if not isinstance(message, dict):
                     continue
 
                 # chat_id 검증 — 허용된 사용자만
-                msg_chat_id = str(message.get("chat", {}).get("id", ""))
+                chat = message.get("chat")
+                chat_dict = chat if isinstance(chat, dict) else {}
+                msg_chat_id = str(chat_dict.get("id", ""))
                 if msg_chat_id != tg.chat_id:
                     logger.debug("telegram_bot_ignored_chat: %s", msg_chat_id)
                     continue
 
-                text = (message.get("text") or "").strip()
+                text_value = message.get("text")
+                text = text_value.strip() if isinstance(text_value, str) else ""
                 if not text.startswith("/"):
                     continue
 

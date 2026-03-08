@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from core.config import TelegramConfig
-    from core.dft_monitor import MonitorResult, ScanReport
+    from core.dft_monitor import ScanReport
 
 logger = logging.getLogger(__name__)
 

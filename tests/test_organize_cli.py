@@ -5,8 +5,9 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+
 from core.cli import main
-from core.organize_index import index_dir, records_path
+from core.organize_index import records_path
 
 
 def _write_config(root: Path, allowed_root: Path, organized_root: Path) -> Path:

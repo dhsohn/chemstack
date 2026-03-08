@@ -4,17 +4,25 @@ import argparse
 import logging
 import sys
 
-from .commands._helpers import CONFIG_ENV_VAR, default_config_path
+from .commands._helpers import (
+    CONFIG_ENV_VAR as _CONFIG_ENV_VAR,
+    default_config_path as _default_config_path,
+)
 from .commands.list_runs import cmd_list as _cmd_list
 from .commands.organize import cmd_organize as _cmd_organize
 from .commands.run_inp import (
-    _retry_inp_path,
-    _select_latest_inp,
+    _retry_inp_path as _retry_inp_path_impl,
+    _select_latest_inp as _select_latest_inp_impl,
     cmd_run_inp as _cmd_run_inp,
     cmd_status as _cmd_status,
 )
 from .orca_runner import OrcaRunner
 from .telegram_bot import run_bot as _run_bot
+
+CONFIG_ENV_VAR = _CONFIG_ENV_VAR
+default_config_path = _default_config_path
+_retry_inp_path = _retry_inp_path_impl
+_select_latest_inp = _select_latest_inp_impl
 
 
 def cmd_status(args: argparse.Namespace) -> int:
