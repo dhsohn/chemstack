@@ -5,6 +5,7 @@ import logging
 import sys
 
 from .commands._helpers import CONFIG_ENV_VAR, default_config_path
+from .commands.list_runs import cmd_list as _cmd_list
 from .commands.organize import cmd_organize as _cmd_organize
 from .commands.run_inp import (
     _retry_inp_path,
@@ -13,6 +14,7 @@ from .commands.run_inp import (
     cmd_status as _cmd_status,
 )
 from .orca_runner import OrcaRunner
+from .telegram_bot import run_bot as _run_bot
 
 
 def cmd_status(args: argparse.Namespace) -> int:
@@ -23,8 +25,18 @@ def cmd_run_inp(args: argparse.Namespace) -> int:
     return int(_cmd_run_inp(args, runner_cls=OrcaRunner))
 
 
+def cmd_list(args: argparse.Namespace) -> int:
+    return int(_cmd_list(args))
+
+
 def cmd_organize(args: argparse.Namespace) -> int:
     return int(_cmd_organize(args))
+
+
+def cmd_bot(args: argparse.Namespace) -> int:
+    from .config import load_config
+    cfg = load_config(args.config)
+    return int(_run_bot(cfg))
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -44,6 +56,13 @@ def build_parser() -> argparse.ArgumentParser:
     status = sub.add_parser("status")
     status.add_argument("--reaction-dir", required=True, help="Directory under the configured allowed_root")
     status.add_argument("--json", action="store_true")
+
+    list_cmd = sub.add_parser("list", help="모든 시뮬레이션 상태를 한눈에 보기")
+    list_cmd.add_argument("--filter", default=None, choices=["created", "running", "retrying", "completed", "failed"],
+                          help="특정 상태만 필터링")
+    list_cmd.add_argument("--json", action="store_true")
+
+    sub.add_parser("bot", help="텔레그램 봇 시작 (long polling)")
 
     organize = sub.add_parser("organize")
     organize.add_argument("--reaction-dir", default=None, help="Single reaction directory to organize")
@@ -69,6 +88,8 @@ def main(argv: list[str] | None = None) -> int:
     command_map = {
         "run-inp": cmd_run_inp,
         "status": cmd_status,
+        "list": cmd_list,
+        "bot": cmd_bot,
         "organize": cmd_organize,
     }
     handler = command_map[args.command]
