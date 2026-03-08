@@ -1,4 +1,4 @@
-"""DFT 인덱스 테스트."""
+"""DFT index tests."""
 
 from __future__ import annotations
 
@@ -28,7 +28,7 @@ _COMPLETED_OUT = "\n".join([
 
 
 def _setup_kb(tmp_path: Path) -> Path:
-    """테스트용 KB 디렉토리에 ORCA 출력 + run_state.json을 생성한다."""
+    """Create ORCA output + run_state.json in a test KB directory."""
     kb_dir = tmp_path / "orca_runs" / "job1"
     kb_dir.mkdir(parents=True)
     (kb_dir / "calc.out").write_text(_COMPLETED_OUT, encoding="utf-8")
@@ -59,7 +59,7 @@ def test_index_calculations(tmp_path: Path) -> None:
     assert result["total"] == 1
     assert result["failed"] == 0
 
-    # 재인덱싱 — 변경 없으면 skip
+    # Re-indexing — skip if unchanged
     result2 = index.index_calculations([str(kb_dir)])
     assert result2["indexed"] == 0
     assert result2["skipped"] == 1
@@ -93,11 +93,11 @@ def test_query_filters(tmp_path: Path) -> None:
     index.initialize(db_path)
     index.index_calculations([str(kb_dir)])
 
-    # method 필터
+    # Method filter
     assert len(index.query({"method": "B3LYP"})) == 1
     assert len(index.query({"method": "PBE0"})) == 0
 
-    # formula 검색
+    # Formula search
     assert len(index.search_by_formula("CH")) == 1
     assert len(index.search_by_formula("XYZ")) == 0
 
@@ -129,7 +129,7 @@ def test_removed_file_is_cleaned_from_index(tmp_path: Path) -> None:
     index.index_calculations([str(kb_dir)])
     assert index._count() == 1
 
-    # 파일 삭제 후 재인덱싱
+    # Re-index after deleting file
     (kb_dir / "job1" / "calc.out").unlink()
     (kb_dir / "job1" / "run_state.json").unlink()
     result = index.index_calculations([str(kb_dir)])

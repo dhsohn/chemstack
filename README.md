@@ -2,79 +2,79 @@
 
 [![CI](https://github.com/dhsohn/orca_auto/actions/workflows/ci.yml/badge.svg)](https://github.com/dhsohn/orca_auto/actions/workflows/ci.yml)
 
-> ORCA 계산 실패를 사람이 새벽에 수습하지 않도록, 실패 분석, 입력 수정, 재시도, 상태 기록, 결과 리포팅까지 자동화한 Python CLI입니다.
+> A Python CLI that automates failure analysis, input modification, retry, state recording, and result reporting so that humans don't have to deal with ORCA calculation failures in the middle of the night.
 
-## 무엇을 해결하나
+## What problem does it solve
 
-ORCA 계산은 몇 시간에서 며칠씩 돌다가도 `SCF NOT CONVERGED`, geometry issue, TS criteria 미충족 같은 이유로 멈출 수 있습니다. 문제는 실패 자체보다 그 다음입니다.
+ORCA calculations can run for hours or days before stopping due to reasons like `SCF NOT CONVERGED`, geometry issues, or unmet TS criteria. The real problem is not the failure itself, but what comes after.
 
-- 어떤 입력으로 실행됐는지 추적해야 합니다.
-- 출력 파일을 읽고 실패 원인을 분류해야 합니다.
-- 원본 입력을 망가뜨리지 않고 보수적으로 수정해야 합니다.
-- 재시도 산출물과 최종 결과를 같은 디렉터리 안에서 일관되게 남겨야 합니다.
-- 긴 작업이라 중복 실행, 중간 중단, 재개 시나리오도 안전해야 합니다.
+- You need to track which input was used for the run.
+- You need to read the output file and classify the failure cause.
+- You need to conservatively modify the original input without breaking it.
+- You need to consistently keep retry artifacts and final results in the same directory.
+- Since jobs take a long time, duplicate runs, mid-run interruptions, and resume scenarios must also be safe.
 
-이 프로젝트는 그 운영 문제를 줄이기 위해 만들었습니다.
+This project was created to reduce those operational burdens.
 
-## 왜 어려운가
+## Why is it hard
 
-- ORCA 종료 코드는 충분한 신호가 아닙니다. 출력 텍스트를 읽어야 실제 실패 원인을 알 수 있습니다.
-- TS 계산은 `terminated normally`만으로 완료가 아닙니다. 허수 진동수 개수와 IRC 조건까지 확인해야 합니다.
-- 재시도 자동화는 단순 loop가 아니라, 원본 입력 보존, retry 입력 생성, geometry restart, 상태 저장이 함께 맞물려야 합니다.
-- 계산이 길기 때문에 락, 원자적 상태 저장, resume 정책, background 실행 UX가 없으면 운영 중 꼬이기 쉽습니다.
+- ORCA exit codes are not a sufficient signal. You need to read the output text to determine the actual failure cause.
+- For TS calculations, `terminated normally` alone does not mean completion. You must also verify the number of imaginary frequencies and IRC conditions.
+- Retry automation is not a simple loop — it requires preserving the original input, generating retry inputs, geometry restart, and state persistence to all work together.
+- Because calculations take a long time, without locks, atomic state persistence, resume policies, and background execution UX, operations easily get tangled.
 
-## 무엇을 만들었나
+## What was built
 
-- `allowed_root` 아래에서 최신 사용자 작성 `.inp`를 선택해 실행
-- `.out` 분석으로 실패 원인 분류
-- 보수적인 retry recipe로 `*.retryNN.inp` 생성 후 자동 재시도
-- `run_state.json`, `run_report.json`, `run_report.md` 생성
-- 기존 완료 `.out`가 있으면 스킵, `--force`면 재실행
-- `list`, `status`, `organize`, Telegram bot까지 포함한 운영형 CLI
+- Selects the latest user-authored `.inp` under `allowed_root` and runs it
+- Classifies failure causes by analyzing `.out` files
+- Generates `*.retryNN.inp` with conservative retry recipes and automatically retries
+- Produces `run_state.json`, `run_report.json`, `run_report.md`
+- Skips if a completed `.out` already exists; re-runs with `--force`
+- A production-ready CLI including `list`, `status`, `organize`, and a Telegram bot
 
-## 설계 판단
+## Design decisions
 
-- 설정은 명시적으로: 더 이상 `~/orca_runs`, `~/opt/orca/orca` 같은 개인 기본값을 조용히 가정하지 않습니다.
-- 책임 분리: runner, analyzer, retry engine, state store, organizer를 분리했습니다.
-- 운영 안전성 우선: 락 파일, 원자적 쓰기, stale lock 회수, resume 판정을 넣었습니다.
-- 복구는 보수적으로: 원본 `.inp`를 덮어쓰지 않고 retry 입력만 생성합니다.
+- Configuration is explicit: no longer silently assumes personal defaults like `~/orca_runs` or `~/opt/orca/orca`.
+- Separation of concerns: runner, analyzer, retry engine, state store, and organizer are separated.
+- Operational safety first: includes lock files, atomic writes, stale lock recovery, and resume determination.
+- Recovery is conservative: does not overwrite the original `.inp`; only generates retry inputs.
 
-## 복구 시나리오 예시
+## Recovery scenario example
 
 ```text
-rxn.inp 실행
-  -> rxn.out 에서 SCF 실패 감지
-  -> rxn.retry01.inp 생성
-     - route 에 TightSCF / SlowConv 추가
-     - %scf MaxIter 300 적용
-     - 직전 xyz 로 geometry restart
-  -> rxn.retry01.out 정상 종료
-  -> run_report.md / run_report.json 생성
-  -> list 에 completed, attempts=2 로 반영
+Run rxn.inp
+  -> Detect SCF failure in rxn.out
+  -> Generate rxn.retry01.inp
+     - Add TightSCF / SlowConv to route
+     - Apply %scf MaxIter 300
+     - Geometry restart with the latest xyz
+  -> rxn.retry01.out terminates normally
+  -> Generate run_report.md / run_report.json
+  -> Reflected in list as completed, attempts=2
 ```
 
-## 검증 근거
+## Verification basis
 
-- GitHub Actions에서 Python `3.11`, `3.12`, `3.13` 매트릭스로 검증
-- 품질 게이트: `ruff`, `mypy`, `pytest --cov`
-- coverage gate: `80%`
-- 단위 테스트: parser, retry rules, state/lock, organize/index, Telegram handlers
-- 통합 테스트: fake ORCA executable로 `run-inp -> retry -> report 생성 -> list 반영` 흐름 검증
+- Verified with Python `3.11`, `3.12`, `3.13` matrix on GitHub Actions
+- Quality gates: `ruff`, `mypy`, `pytest --cov`
+- Coverage gate: `80%`
+- Unit tests: parser, retry rules, state/lock, organize/index, Telegram handlers
+- Integration tests: verify the `run-inp -> retry -> report generation -> list reflection` flow with a fake ORCA executable
 
-## 빠른 시작
+## Quick start
 
-### 1) 설치
+### 1) Installation
 
 ```bash
 cd ~/orca_auto
 bash scripts/bootstrap_wsl.sh
 ```
 
-`bootstrap_wsl.sh`는 `.venv`를 준비하고, 템플릿 설정 파일을 복사합니다.
+`bootstrap_wsl.sh` prepares the `.venv` and copies template configuration files.
 
-### 2) 설정 파일 작성
+### 2) Write the configuration file
 
-`orca_auto`는 설정 파일이 없거나 템플릿 placeholder가 남아 있으면 친절한 오류와 함께 즉시 종료합니다.
+`orca_auto` will immediately exit with a friendly error if the configuration file is missing or template placeholders remain.
 
 ```bash
 cp config/orca_auto.yaml.example config/orca_auto.yaml
@@ -94,25 +94,25 @@ telegram:
   chat_id: ""
 ```
 
-메모:
+Notes:
 
-- `runtime.allowed_root`와 `paths.orca_executable`은 필수입니다.
-- `runtime.organized_root`를 생략하면 `allowed_root` 옆의 `orca_outputs`를 기본값으로 사용합니다.
-- Windows 레거시 경로(`C:\...`, `/mnt/c/...`)는 지원하지 않습니다.
+- `runtime.allowed_root` and `paths.orca_executable` are required.
+- If `runtime.organized_root` is omitted, the default is `orca_outputs` next to `allowed_root`.
+- Windows legacy paths (`C:\...`, `/mnt/c/...`) are not supported.
 
-### 3) 계산 실행
+### 3) Run a calculation
 
 ```bash
 ./bin/orca_auto run-inp --reaction-dir '/absolute/path/to/orca_runs/sample_rxn'
 ```
 
-기본은 background 실행입니다. foreground로 돌리려면:
+The default is background execution. To run in the foreground:
 
 ```bash
 ./bin/orca_auto run-inp --reaction-dir '/absolute/path/to/orca_runs/sample_rxn' --foreground
 ```
 
-### 4) 결과 확인
+### 4) Check results
 
 ```bash
 ./bin/orca_auto status --reaction-dir '/absolute/path/to/orca_runs/sample_rxn'
@@ -120,7 +120,7 @@ telegram:
 cat /absolute/path/to/orca_runs/sample_rxn/run_report.md
 ```
 
-## 데모 출력 예시
+## Demo output example
 
 ```text
 $ ./bin/orca_auto run-inp --reaction-dir '/absolute/path/to/orca_runs/sample_rxn' --foreground
@@ -144,86 +144,86 @@ $ ./bin/orca_auto list --json
 ]
 ```
 
-## 주요 명령
+## Main commands
 
-| 명령 | 설명 |
-|------|------|
-| `run-inp` | 최신 `.inp` 선택 후 실행/복구/재시도 |
-| `status` | 개별 반응 디렉터리 상태 확인 |
-| `list` | `allowed_root` 아래 모든 run 상태 조회 |
-| `organize` | 완료된 계산 결과를 `organized_root` 아래로 이동/인덱싱 |
-| `bot` | Telegram long-polling bot 실행 |
+| Command | Description |
+|---------|-------------|
+| `run-inp` | Select the latest `.inp`, then run/recover/retry |
+| `status` | Check the state of an individual reaction directory |
+| `list` | Query the status of all runs under `allowed_root` |
+| `organize` | Move completed calculation results under `organized_root` and index them |
+| `bot` | Run the Telegram long-polling bot |
 
-자주 쓰는 옵션:
+Frequently used options:
 
-| 옵션 | 설명 | 예시 |
-|------|------|------|
-| `--force` | 완료된 계산도 강제 재실행 | `run-inp --force` |
-| `--max-retries N` | 재시도 횟수 조정 | `run-inp --max-retries 8` |
-| `--foreground` | foreground 실행 | `run-inp --foreground` |
-| `--background` | background 실행 강제 | `run-inp --background` |
-| `--json` | JSON 출력 | `list --json` |
+| Option | Description | Example |
+|--------|-------------|---------|
+| `--force` | Force re-run even if the calculation is already completed | `run-inp --force` |
+| `--max-retries N` | Adjust the number of retries | `run-inp --max-retries 8` |
+| `--foreground` | Run in the foreground | `run-inp --foreground` |
+| `--background` | Force background execution | `run-inp --background` |
+| `--json` | JSON output | `list --json` |
 
-## 텔레그램 봇
+## Telegram bot
 
-텔레그램에서 상태를 조회할 수 있습니다.
+You can query the status from Telegram.
 
 ```bash
 ./bin/orca_auto bot
 bash scripts/start_bot.sh restart
 ```
 
-봇 명령어:
+Bot commands:
 
-| 명령어 | 설명 |
-|--------|------|
-| `/list` | 전체 시뮬레이션 목록 |
-| `/list running` | 실행 중인 작업만 |
-| `/list completed` | 완료된 작업만 |
-| `/list failed` | 실패한 작업만 |
-| `/help` | 도움말 |
+| Command | Description |
+|---------|-------------|
+| `/list` | Full simulation list |
+| `/list running` | Running jobs only |
+| `/list completed` | Completed jobs only |
+| `/list failed` | Failed jobs only |
+| `/help` | Help |
 
-## 결과 정리와 인덱싱
+## Result organization and indexing
 
-여러 계산 결과를 한 번에 정리하려면:
+To organize multiple calculation results at once:
 
 ```bash
 ./bin/orca_auto organize --root /absolute/path/to/orca_runs
 ./bin/orca_auto organize --root /absolute/path/to/orca_runs --apply
 ```
 
-주의:
+Notes:
 
-- `--root`는 설정 파일의 `runtime.allowed_root`와 정확히 같아야 합니다.
-- dry-run이 기본값이고, `--apply`를 붙여야 실제 이동이 일어납니다.
-- 정리 대상은 `runtime.organized_root` 아래로 이동하며 JSONL 인덱스를 함께 관리합니다.
+- `--root` must exactly match `runtime.allowed_root` in the configuration file.
+- Dry-run is the default; `--apply` must be specified for actual moves to occur.
+- Targets for organization are moved under `runtime.organized_root` and a JSONL index is maintained alongside them.
 
-## DFT 모니터링 계층
+## DFT monitoring layer
 
-이 저장소에는 단일 실행기 외에, ORCA 결과를 자동 감지하고 구조화하는 라이브러리 계층도 포함되어 있습니다.
+In addition to the single runner, this repository also includes a library layer that automatically detects and structures ORCA results.
 
 ```text
-파일 시스템(.out)
+File system (.out)
   -> dft_discovery
   -> orca_parser
-  -> dft_index(SQLite)
+  -> dft_index (SQLite)
   -> dft_monitor
   -> Telegram notifier / bot
 ```
 
-주요 모듈:
+Main modules:
 
-| 모듈 | 역할 |
-|------|------|
-| `orca_runner.py` | ORCA subprocess 실행과 종료 처리 |
-| `out_analyzer.py` | `.out`에서 완료/실패 사유 판정 |
-| `attempt_engine.py` | 재시도 루프와 최종 상태 결정 |
-| `state_store.py` | 상태 저장, 원자적 쓰기, 실행 락 |
-| `result_organizer.py` | 완료 run 이동과 상태 동기화 |
-| `dft_monitor.py` | 완료 결과 자동 감지 및 인덱싱 |
-| `telegram_bot.py` | long-polling 명령 수신 |
+| Module | Role |
+|--------|------|
+| `orca_runner.py` | ORCA subprocess execution and termination handling |
+| `out_analyzer.py` | Completion/failure reason determination from `.out` files |
+| `attempt_engine.py` | Retry loop and final state determination |
+| `state_store.py` | State persistence, atomic writes, execution locks |
+| `result_organizer.py` | Moving completed runs and synchronizing state |
+| `dft_monitor.py` | Automatic detection and indexing of completed results |
+| `telegram_bot.py` | Long-polling command reception |
 
-## 프로젝트 구조
+## Project structure
 
 ```text
 core/
@@ -246,9 +246,9 @@ config/
 docs/
 ```
 
-`./bin/orca_auto`는 로컬 `.venv`를 우선 사용하는 얇은 shim이고, 내부적으로는 설치형 `orca_auto`와 같은 `core.launcher`를 호출합니다.
+`./bin/orca_auto` is a thin shim that preferentially uses the local `.venv`, and internally calls the same `core.launcher` as the installed `orca_auto`.
 
-## 테스트 실행
+## Running tests
 
 ```bash
 ruff check .
@@ -256,4 +256,4 @@ mypy
 pytest --cov --cov-report=term-missing -q
 ```
 
-상세 동작 규칙과 완료 판정 로직은 [REFERENCE.md](docs/REFERENCE.md)에서 다룹니다.
+Detailed behavioral rules and completion determination logic are covered in [REFERENCE.md](docs/REFERENCE.md).

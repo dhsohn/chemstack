@@ -1,6 +1,6 @@
-"""텔레그램 봇 — long polling으로 명령어를 수신하고 응답한다.
+"""Telegram bot — receives commands via long polling and responds.
 
-외부 의존성 없이 urllib만 사용.
+Uses only urllib with no external dependencies.
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ from typing import Any, Callable
 
 from .commands.list_runs import _collect_runs
 from .config import AppConfig
-from .telegram_notifier import _escape_html
+from .telegram_notifier import escape_html
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +31,7 @@ def _api_call(
     *,
     timeout: int = 35,
 ) -> Any | None:
-    """Telegram Bot API 호출."""
+    """Call the Telegram Bot API."""
     url = f"{_API_BASE.format(token=token)}/{method}"
     data = json.dumps(payload or {}).encode("utf-8")
     req = urllib.request.Request(
@@ -62,7 +62,7 @@ def _send_message(token: str, chat_id: str, text: str, *, parse_mode: str | None
     return _api_call(token, "sendMessage", payload) is not None
 
 
-# ── 명령어 핸들러 ──────────────────────────────────────────────
+# -- Command handlers ------------------------------------------------
 
 
 def _status_icon(status: str) -> str:
@@ -71,10 +71,10 @@ def _status_icon(status: str) -> str:
 
 
 def _handle_list(cfg: AppConfig, args: str) -> str:
-    """``/list [filter]`` 명령어 처리."""
+    """Handle ``/list [filter]`` command."""
     allowed_root = Path(cfg.runtime.allowed_root).expanduser().resolve()
     if not allowed_root.is_dir():
-        return "allowed_root를 찾을 수 없습니다."
+        return "allowed_root not found."
 
     runs = _collect_runs(allowed_root)
 
@@ -83,18 +83,18 @@ def _handle_list(cfg: AppConfig, args: str) -> str:
         runs = [r for r in runs if r["status"] == filter_status]
 
     if not runs:
-        return "등록된 작업이 없습니다."
+        return "No registered runs found."
 
-    lines: list[str] = [f"<b>시뮬레이션 목록</b> ({len(runs)}건)\n"]
+    lines: list[str] = [f"<b>Simulation List</b> ({len(runs)})\n"]
     for r in runs:
         icon = _status_icon(r["status"])
         line = (
-            f"{icon} <b>{_escape_html(r['dir'])}</b>"
-            f"  {_escape_html(r['status'])}"
-            f"  {_escape_html(r['elapsed_text'])}"
+            f"{icon} <b>{escape_html(r['dir'])}</b>"
+            f"  {escape_html(r['status'])}"
+            f"  {escape_html(r['elapsed_text'])}"
         )
         if r["inp"]:
-            line += f"  <code>{_escape_html(r['inp'])}</code>"
+            line += f"  <code>{escape_html(r['inp'])}</code>"
         lines.append(line)
 
     return "\n".join(lines)
@@ -102,12 +102,12 @@ def _handle_list(cfg: AppConfig, args: str) -> str:
 
 def _handle_help(cfg: AppConfig, args: str) -> str:
     return (
-        "<b>orca_auto 봇 명령어</b>\n\n"
-        "/list — 전체 시뮬레이션 목록\n"
-        "/list running — 실행 중인 작업만\n"
-        "/list completed — 완료된 작업만\n"
-        "/list failed — 실패한 작업만\n"
-        "/help — 이 도움말"
+        "<b>orca_auto bot commands</b>\n\n"
+        "/list \u2014 Show all simulations\n"
+        "/list running \u2014 Running jobs only\n"
+        "/list completed \u2014 Completed jobs only\n"
+        "/list failed \u2014 Failed jobs only\n"
+        "/help \u2014 This help message"
     )
 
 
@@ -118,27 +118,27 @@ _HANDLERS: dict[str, Callable[[AppConfig, str], str]] = {
 }
 
 
-# ── 봇 메인 루프 ──────────────────────────────────────────────
+# -- Bot main loop ---------------------------------------------------
 
 
 def _set_bot_commands(token: str) -> None:
-    """봇 명령어 자동완성 등록."""
+    """Register bot command autocomplete."""
     commands = [
-        {"command": "list", "description": "시뮬레이션 목록 보기"},
-        {"command": "help", "description": "도움말"},
+        {"command": "list", "description": "Show simulation list"},
+        {"command": "help", "description": "Help"},
     ]
     _api_call(token, "setMyCommands", {"commands": commands})
 
 
 def run_bot(cfg: AppConfig) -> int:
-    """텔레그램 봇 long-polling 루프. Ctrl+C로 종료."""
+    """Run the Telegram bot long-polling loop. Exit with Ctrl+C."""
     tg = cfg.telegram
     if not tg.enabled:
-        logger.error("Telegram이 설정되지 않았습니다. bot_token/chat_id를 확인하세요.")
+        logger.error("Telegram is not configured. Check bot_token/chat_id.")
         return 1
 
     _set_bot_commands(tg.bot_token)
-    logger.info("텔레그램 봇 시작 (chat_id=%s)", tg.chat_id)
+    logger.info("Telegram bot started (chat_id=%s)", tg.chat_id)
 
     offset = 0
     while True:
@@ -161,7 +161,7 @@ def run_bot(cfg: AppConfig) -> int:
                 if not isinstance(message, dict):
                     continue
 
-                # chat_id 검증 — 허용된 사용자만
+                # Validate chat_id — only respond to authorized user
                 chat = message.get("chat")
                 chat_dict = chat if isinstance(chat, dict) else {}
                 msg_chat_id = str(chat_dict.get("id", ""))
@@ -184,14 +184,14 @@ def run_bot(cfg: AppConfig) -> int:
                         response = handler(cfg, cmd_args)
                     except Exception as exc:
                         logger.exception("telegram_bot_handler_error: cmd=%s", cmd_raw)
-                        response = f"오류 발생: {exc}"
+                        response = f"Error: {exc}"
                     _send_message(tg.bot_token, tg.chat_id, response)
                 else:
                     _send_message(tg.bot_token, tg.chat_id,
-                                  f"알 수 없는 명령어: /{_escape_html(cmd_raw)}\n/help 로 확인하세요.")
+                                  f"Unknown command: /{escape_html(cmd_raw)}\nType /help for available commands.")
 
         except KeyboardInterrupt:
-            logger.info("텔레그램 봇 종료")
+            logger.info("Telegram bot stopped")
             return 0
         except Exception as exc:
             logger.exception("telegram_bot_poll_error: %s", exc)

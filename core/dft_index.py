@@ -1,7 +1,7 @@
-"""DFT 계산 결과 인덱스 — 별도 SQLite DB(dft.db)로 구조화된 메타데이터 관리.
+"""DFT calculation result index — manages structured metadata in a separate SQLite DB (dft.db).
 
-ORCA 출력 파일을 파싱하여 dft_calculations 테이블에 저장하고,
-다양한 필터 조건으로 SQL 검색을 수행한다.
+Parses ORCA output files, stores them in the dft_calculations table,
+and performs SQL searches with various filter conditions.
 """
 
 from __future__ import annotations
@@ -53,7 +53,7 @@ CREATE INDEX IF NOT EXISTS idx_dft_mtime   ON dft_calculations(mtime);
 
 
 class DFTIndex:
-    """DFT 계산 결과의 구조화된 인덱스를 관리한다."""
+    """Manages a structured index of DFT calculation results."""
 
     def __init__(self) -> None:
         self._db: sqlite3.Connection | None = None
@@ -61,7 +61,7 @@ class DFTIndex:
         self._write_lock = threading.Lock()
 
     def initialize(self, db_path: str) -> None:
-        """데이터베이스를 열고 스키마를 생성한다."""
+        """Open the database and create the schema."""
         Path(db_path).parent.mkdir(parents=True, exist_ok=True)
         self._db_path = db_path
         self._db = sqlite3.connect(db_path)
@@ -72,18 +72,18 @@ class DFTIndex:
         logger.info("dft_index_initialized: db_path=%s", db_path)
 
     def close(self) -> None:
-        """데이터베이스 연결을 닫는다."""
+        """Close the database connection."""
         if self._db is not None:
             self._db.close()
             self._db = None
 
     def _require_db(self) -> sqlite3.Connection:
         if self._db is None:
-            raise RuntimeError("DFTIndex가 아직 초기화되지 않았습니다.")
+            raise RuntimeError("DFTIndex has not been initialized yet.")
         return self._db
 
     # ------------------------------------------------------------------
-    # 인덱싱
+    # Indexing
     # ------------------------------------------------------------------
 
     def index_calculations(
@@ -92,16 +92,16 @@ class DFTIndex:
         *,
         max_file_size_mb: int = 64,
     ) -> dict[str, Any]:
-        """kb_dirs에서 ORCA 출력 파일을 스캔하여 인덱싱한다.
+        """Scan and index ORCA output files from kb_dirs.
 
-        file_hash 기반 증분 인덱싱: 변경된 파일만 재파싱한다.
+        Incremental indexing based on file_hash: only re-parses changed files.
 
         Returns:
             {"indexed": int, "skipped": int, "removed": int, "failed": int, "total": int}
         """
         db = self._require_db()
 
-        # 기존 인덱스 로드
+        # Load existing index
         cursor = db.execute(
             "SELECT source_path, file_hash FROM dft_calculations"
         )
@@ -109,9 +109,9 @@ class DFTIndex:
             row["source_path"]: row["file_hash"] for row in cursor
         }
 
-        # 파일 탐색
+        # Discover files
         max_bytes = max_file_size_mb * 1024 * 1024
-        discovered: dict[str, str] = {}  # path → hash
+        discovered: dict[str, str] = {}  # path -> hash
 
         for kb_dir in kb_dirs:
             kb_path = Path(kb_dir)
@@ -127,7 +127,7 @@ class DFTIndex:
                         h.update(chunk)
                 discovered[spath] = h.hexdigest()[:16]
 
-        # 변경 감지
+        # Detect changes
         to_index = {
             p: h for p, h in discovered.items()
             if existing.get(p) != h
@@ -139,14 +139,14 @@ class DFTIndex:
         removed = 0
 
         with self._write_lock:
-            # 삭제된 파일 제거
+            # Remove deleted files
             for rpath in to_remove:
                 db.execute(
                     "DELETE FROM dft_calculations WHERE source_path = ?", (rpath,)
                 )
                 removed += 1
 
-            # 신규/변경 파일 인덱싱
+            # Index new/changed files
             for source_path in to_index:
                 try:
                     result = parse_orca_output(source_path)
@@ -174,7 +174,7 @@ class DFTIndex:
         }
 
     def upsert_single(self, file_path: str) -> bool:
-        """단일 파일을 파싱하여 upsert한다. 성공 시 True."""
+        """Parse and upsert a single file. Returns True on success."""
         db = self._require_db()
         try:
             result = parse_orca_output(file_path)
@@ -187,7 +187,7 @@ class DFTIndex:
             return False
 
     def _upsert(self, db: sqlite3.Connection, r: Any) -> None:
-        """OrcaResult를 dft_calculations에 upsert한다."""
+        """Upsert an OrcaResult into dft_calculations."""
         db.execute(
             """INSERT INTO dft_calculations (
                 source_path, file_hash, mtime, calc_type, method, basis_set,
@@ -236,13 +236,13 @@ class DFTIndex:
         return row[0] if row else 0
 
     # ------------------------------------------------------------------
-    # 쿼리 메서드
+    # Query methods
     # ------------------------------------------------------------------
 
     def query(self, filters: dict[str, Any]) -> list[dict[str, Any]]:
-        """동적 필터 조건으로 계산 결과를 검색한다.
+        """Search calculation results with dynamic filter conditions.
 
-        지원 필터:
+        Supported filters:
             method, basis_set, calc_type, status, formula,
             energy_min, energy_max, opt_converged, has_imaginary_freq
         """
@@ -282,7 +282,7 @@ class DFTIndex:
         limit = min(int(filters.get("limit", 50)), 200)
         order = filters.get("order_by", "mtime DESC")
 
-        # order_by 화이트리스트
+        # order_by whitelist
         allowed_orders = {
             "mtime DESC", "mtime ASC",
             "energy_hartree ASC", "energy_hartree DESC",
@@ -299,7 +299,7 @@ class DFTIndex:
         return [dict(row) for row in rows]
 
     def get_stats(self) -> dict[str, Any]:
-        """전체 인덱스 통계를 반환한다."""
+        """Return overall index statistics."""
         db = self._require_db()
         stats: dict[str, Any] = {}
 
@@ -333,7 +333,7 @@ class DFTIndex:
         return stats
 
     def get_recent(self, limit: int = 10) -> list[dict[str, Any]]:
-        """가장 최근에 수정된 계산 결과를 반환한다."""
+        """Return the most recently modified calculation results."""
         return self.query({"order_by": "mtime DESC", "limit": limit})
 
     def get_lowest_energy(
@@ -341,7 +341,7 @@ class DFTIndex:
         formula: str | None = None,
         limit: int = 5,
     ) -> list[dict[str, Any]]:
-        """에너지가 가장 낮은 계산 결과를 반환한다."""
+        """Return the calculation results with the lowest energy."""
         filters: dict[str, Any] = {
             "order_by": "energy_hartree ASC",
             "limit": limit,
@@ -351,7 +351,7 @@ class DFTIndex:
         return self.query(filters)
 
     def search_by_formula(self, formula: str) -> list[dict[str, Any]]:
-        """화학식으로 검색한다 (정확 일치 + LIKE)."""
+        """Search by chemical formula (exact match + LIKE)."""
         exact = self.query({"formula": formula})
         if exact:
             return exact
@@ -362,7 +362,7 @@ class DFTIndex:
         formula: str | None = None,
         method: str | None = None,
     ) -> list[dict[str, Any]]:
-        """비교 분석용 데이터를 반환한다. 에너지 기준 정렬."""
+        """Return data for comparative analysis, sorted by energy."""
         filters: dict[str, Any] = {
             "order_by": "energy_hartree ASC",
             "limit": 50,

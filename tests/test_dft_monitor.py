@@ -1,4 +1,4 @@
-"""DFT monitor 테스트."""
+"""DFT monitor tests."""
 
 from __future__ import annotations
 
@@ -66,18 +66,18 @@ def test_baseline_seed_prevents_restart_spam(tmp_path: Path) -> None:
 
     monitor = DFTMonitor(index, [str(kb_dir)], state_file=state_file)
 
-    # 첫 실행: baseline만 기록
+    # First run: only records baseline
     report1 = monitor.scan()
     assert report1.new_results == []
     assert report1.baseline_seeded is True
     assert Path(state_file).is_file()
 
-    # 재시작(새 인스턴스) 후 동일 파일 재알림 없음
+    # After restart (new instance), no re-notification for the same file
     monitor2 = DFTMonitor(index, [str(kb_dir)], state_file=state_file)
     report2 = monitor2.scan()
     assert report2.new_results == []
 
-    # 파일 변경 시 알림
+    # Notification when file changes
     out_file.write_text(_COMPLETED_OUT + "\n# changed\n", encoding="utf-8")
     mtime = os.path.getmtime(out_file)
     os.utime(out_file, (mtime + 5.0, mtime + 5.0))
@@ -109,7 +109,7 @@ def test_running_calc_not_indexed(tmp_path: Path) -> None:
     report = monitor.scan()
     assert len(report.new_results) == 1
     assert report.new_results[0].status == "running"
-    # running 계산은 인덱스에 저장되지 않아야 함
+    # Running calculations should not be stored in the index
     assert index._count() == 0
 
     index.close()
@@ -129,11 +129,11 @@ def test_symlink_dedup(tmp_path: Path) -> None:
     state_file = str(tmp_path / "automation" / "state.json")
     index = _make_index(tmp_path)
 
-    # alias 경로로 먼저 baseline
+    # Baseline with alias path first
     monitor1 = DFTMonitor(index, [str(alias_dir)], state_file=state_file)
     monitor1.scan()
 
-    # 실제 경로로 재시작 — 중복 알림 없어야 함
+    # Restart with real path — should not produce duplicate notifications
     monitor2 = DFTMonitor(index, [str(run_dir)], state_file=state_file)
     report = monitor2.scan()
     assert report.new_results == []

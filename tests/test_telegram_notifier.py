@@ -1,4 +1,4 @@
-"""텔레그램 알림 모듈 테스트."""
+"""Telegram notifier module tests."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 from core.config import TelegramConfig
 from core.dft_monitor import MonitorResult, ScanReport
 from core.telegram_notifier import (
-    _escape_html,
+    escape_html,
     _status_icon,
     format_scan_report,
     notify_scan_report,
@@ -52,10 +52,10 @@ def _sample_report() -> ScanReport:
 
 class TestEscapeHtml:
     def test_special_chars(self) -> None:
-        assert _escape_html("<b>&test</b>") == "&lt;b&gt;&amp;test&lt;/b&gt;"
+        assert escape_html("<b>&test</b>") == "&lt;b&gt;&amp;test&lt;/b&gt;"
 
     def test_plain_text(self) -> None:
-        assert _escape_html("hello") == "hello"
+        assert escape_html("hello") == "hello"
 
 
 class TestStatusIcon:
@@ -77,8 +77,8 @@ class TestFormatScanReport:
         report = _sample_report()
         text = format_scan_report(report)
         assert text is not None
-        assert "DFT 계산 알림" in text
-        assert "2건" in text
+        assert "DFT Calculation Alert" in text
+        assert "2 new" in text
         assert "CH4" in text
         assert "C6H6" in text
         assert "B3LYP/def2-SVP" in text
@@ -101,7 +101,7 @@ class TestSendMessage:
         assert result is True
         mock_urlopen.assert_called_once()
 
-        # 전송된 payload 검증
+        # Verify sent payload
         call_args = mock_urlopen.call_args
         req = call_args[0][0]
         body = json.loads(req.data.decode("utf-8"))

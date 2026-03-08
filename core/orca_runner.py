@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import logging
 import os
@@ -47,7 +47,7 @@ class OrcaRunner:
 
     @staticmethod
     def _ensure_trailing_newline(path: Path) -> None:
-        """ORCA Fortran 파서가 마지막 줄을 올바르게 읽도록 trailing newline을 보장한다."""
+        """Ensure a trailing newline so ORCA's Fortran parser reads the last line correctly."""
         data = path.read_bytes()
         if data and not data.endswith(b"\n"):
             with path.open("ab") as fh:

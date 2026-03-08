@@ -1,4 +1,4 @@
-"""list 커맨드 테스트."""
+"""list command tests."""
 
 import io
 import json
@@ -55,7 +55,7 @@ class TestListRuns(unittest.TestCase):
                 rc = main(["--config", str(config), "list"])
 
         self.assertEqual(rc, 0)
-        self.assertIn("등록된 작업이 없습니다", captured.getvalue())
+        self.assertIn("No registered runs found", captured.getvalue())
 
     def test_list_shows_runs(self) -> None:
         with tempfile.TemporaryDirectory() as td:

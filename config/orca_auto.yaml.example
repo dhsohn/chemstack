@@ -9,7 +9,7 @@ paths:
   # Required: absolute Linux path to the ORCA executable.
   orca_executable: "/path/to/orca/orca"
 
-# 텔레그램 알림 설정 (bot_token과 chat_id가 모두 있어야 활성화)
+# Telegram notification settings (both bot_token and chat_id are required to enable)
 telegram:
   bot_token: ""
   chat_id: ""

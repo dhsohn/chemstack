@@ -1,4 +1,4 @@
-"""DFT 인덱싱 대상 파일 탐색 유틸."""
+"""Utility for discovering files to be indexed for DFT."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ _ORCA_EXTENSIONS = {".out"}
 
 @dataclass
 class DiscoveredTarget:
-    """탐색된 ORCA 출력 파일과 run_state 메타데이터."""
+    """Discovered ORCA output file with run_state metadata."""
 
     path: Path
     run_state_status: str = ""
@@ -28,16 +28,16 @@ def discover_orca_targets(
     max_bytes: int,
     recent_completed_window_minutes: int | None = None,
 ) -> list[DiscoveredTarget]:
-    """인덱싱 대상 ORCA 출력 파일 목록을 반환한다.
+    """Return a list of ORCA output files to be indexed.
 
-    규칙:
-    1) 기본(`orca_runs` 포함): run_state.json 기준
-       - status는 run_state.status만 신뢰
-       - 출력 파일은 run_state.json 폴더의 최신 .out 추적
+    Rules:
+    1) Default (containing `orca_runs`): based on run_state.json
+       - Status is trusted only from run_state.status
+       - Output file tracks the latest .out in the run_state.json folder
     2) `orca_outputs`:
-       - run_state.json만 사용 (run_report는 무시)
-       - status는 run_state.status만 신뢰
-       - 출력 파일은 run_state.json 폴더의 최신 .out 추적
+       - Uses only run_state.json (run_report is ignored)
+       - Status is trusted only from run_state.status
+       - Output file tracks the latest .out in the run_state.json folder
     """
     parts = {part.lower() for part in kb_path.parts}
     if "orca_outputs" in parts:
@@ -61,7 +61,7 @@ def _discover_orca_outputs_targets(
     targets: dict[str, DiscoveredTarget] = {}
     now_utc = datetime.now(timezone.utc)
 
-    # run_state 전용 정책: run_report는 완전히 무시한다.
+    # run_state-only policy: run_report is completely ignored.
     for state_path in kb_path.rglob("run_state.json"):
         data = _load_report_json(state_path)
         if not isinstance(data, dict):
@@ -101,8 +101,9 @@ def _discover_orca_runs_targets(
 
         status = str(data.get("status", "")).strip().lower()
 
-        # 경로 정보(reaction_dir, last_out_path)는 실행 환경 차이로 오염될 수 있어
-        # run_state.json이 위치한 폴더의 최신 .out만 신뢰한다.
+        # Path info (reaction_dir, last_out_path) can be corrupted due to
+        # runtime environment differences, so we trust only the latest .out
+        # in the folder where run_state.json is located.
         resolved = _find_latest_out_in_dir(state_path.parent)
         if resolved is None:
             continue

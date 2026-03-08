@@ -1,11 +1,11 @@
-"""ORCA 양자화학 출력 파일(.out) 파서.
+"""ORCA quantum chemistry output file (.out) parser.
 
-ORCA 계산 결과에서 에너지, 메서드, 기저함수, 수렴 여부, 좌표 등
-핵심 메타데이터를 추출한다.
+Extracts key metadata such as energy, method, basis set, convergence status,
+and coordinates from ORCA calculation results.
 
-ollama_bot에서 이식됨 — out_analyzer.py(상태 판별)와 상호보완:
-  - orca_parser: 상세 데이터 추출 (에너지, 열역학, 화학식, 좌표 등)
-  - out_analyzer: 빠른 상태 판별 (성공/실패/재시도 여부)
+Ported from ollama_bot — complements out_analyzer.py (status determination):
+  - orca_parser: detailed data extraction (energy, thermodynamics, formula, coordinates, etc.)
+  - out_analyzer: quick status determination (success/failure/retry)
 """
 
 from __future__ import annotations
@@ -17,13 +17,13 @@ from collections import Counter
 from dataclasses import dataclass, field
 
 # ---------------------------------------------------------------------------
-# 상수
+# Constants
 # ---------------------------------------------------------------------------
 
 HARTREE_TO_EV = 27.211386245988
 HARTREE_TO_KCALMOL = 627.5094740631
 
-# 원소 기호 → 원자번호 순서 (화학식 정렬용)
+# Element symbol -> atomic number order (for chemical formula sorting)
 _ELEMENT_ORDER: dict[str, int] = {
     "H": 1, "He": 2, "Li": 3, "Be": 4, "B": 5, "C": 6, "N": 7, "O": 8,
     "F": 9, "Ne": 10, "Na": 11, "Mg": 12, "Al": 13, "Si": 14, "P": 15,
@@ -41,16 +41,16 @@ _ELEMENT_ORDER: dict[str, int] = {
 }
 
 # ---------------------------------------------------------------------------
-# 정규식 패턴
+# Regex patterns
 # ---------------------------------------------------------------------------
 
-# 입력 라인: "! B3LYP def2-TZVP Opt Freq ..." 또는 "|  1> ! B3LYP ..."
+# Input line: "! B3LYP def2-TZVP Opt Freq ..." or "|  1> ! B3LYP ..."
 _INPUT_LINE_RE = re.compile(r"^(?:\s*\|\s*\d+>\s*)?!\s*(.+)$", re.MULTILINE)
 
-# 에너지
+# Energy
 _ENERGY_RE = re.compile(r"FINAL SINGLE POINT ENERGY\s+([-\d.]+)")
 
-# 최적화 수렴
+# Optimization convergence
 _OPT_CONVERGED_RE = re.compile(r"THE OPTIMIZATION HAS CONVERGED")
 _OPT_NOT_CONVERGED_RE = re.compile(
     r"ORCA GEOMETRY OPTIMIZATION.*(?:DID NOT CONVERGE|NOT CONVERGED)|"
@@ -58,7 +58,7 @@ _OPT_NOT_CONVERGED_RE = re.compile(
     re.IGNORECASE,
 )
 
-# 좌표 섹션 (원소 + xyz)
+# Coordinate section (element + xyz)
 _COORD_SECTION_RE = re.compile(
     r"CARTESIAN COORDINATES \(ANGSTROEM\)\s*\n"
     r"-+\s*\n"
@@ -66,7 +66,7 @@ _COORD_SECTION_RE = re.compile(
 )
 _COORD_LINE_RE = re.compile(r"^\s*([A-Z][a-z]?)\s+[-\d.]+\s+[-\d.]+\s+[-\d.]+", re.MULTILINE)
 
-# 진동 주파수
+# Vibrational frequencies
 _FREQ_SECTION_RE = re.compile(
     r"VIBRATIONAL FREQUENCIES\s*\n"
     r"-+\s*\n"
@@ -74,30 +74,30 @@ _FREQ_SECTION_RE = re.compile(
 )
 _FREQ_VALUE_RE = re.compile(r"^\s*\d+:\s+([-\d.]+)\s+cm\*\*-1", re.MULTILINE)
 
-# 열역학
+# Thermodynamics
 _ENTHALPY_RE = re.compile(r"Total (?:E|e)nthalpy\s*\.{3,}\s*([-\d.]+)\s*Eh")
 _GIBBS_RE = re.compile(r"Final Gibbs free energy\s*\.{3,}\s*([-\d.]+)\s*Eh")
 
-# 실행 시간
+# Runtime
 _RUNTIME_RE = re.compile(
     r"TOTAL RUN TIME:\s*(\d+)\s*days?\s+(\d+)\s*hours?\s+"
     r"(\d+)\s*minutes?\s+(\d+)\s*seconds?",
 )
 
-# charge / multiplicity: "* xyz 0 1" 또는 "|  2> * xyz 0 1"
+# charge / multiplicity: "* xyz 0 1" or "|  2> * xyz 0 1"
 _CHARGE_MULT_RE = re.compile(r"(?:\|\s*\d+>\s*)?\*\s*xyz\s+([-\d]+)\s+(\d+)")
 
-# 최적화 사이클 헤더
+# Optimization cycle header
 _OPT_CYCLE_RE = re.compile(r"Geometry Optimization Cycle\s+(\d+)")
 
-# 수렴 테이블 항목 (Energy change, MAX gradient, RMS gradient, MAX step, RMS step)
+# Convergence table items (Energy change, MAX gradient, RMS gradient, MAX step, RMS step)
 _CONVERGENCE_ITEM_RE = re.compile(
     r"^\s*(Energy change|MAX gradient|RMS gradient|MAX step|RMS step)"
     r"\s+([-\d.eE+]+)\s+[-\d.eE+]+\s+(YES|NO)\s*$",
     re.MULTILINE,
 )
 
-# 정상 종료 마커
+# Normal termination marker
 _NORMAL_TERMINATION_RE = re.compile(r"ORCA TERMINATED NORMALLY")
 _ERROR_TERMINATION_RE = re.compile(
     r"ORCA\s+finished\s+by\s+error\s+termination|"
@@ -107,7 +107,7 @@ _ERROR_TERMINATION_RE = re.compile(
     re.IGNORECASE,
 )
 
-# 알려진 계산 유형 키워드 (입력 라인에서 검색)
+# Known calculation type keywords (searched in input line)
 _CALC_TYPE_KEYWORDS: dict[str, str] = {
     "OPTTS": "ts",
     "TS": "ts",
@@ -125,7 +125,7 @@ _CALC_TYPE_KEYWORDS: dict[str, str] = {
     "IRC": "irc",
 }
 
-# 알려진 메서드 키워드
+# Known method keywords
 _METHOD_KEYWORDS: list[str] = [
     "CCSD(T)", "CCSD", "MP2", "RI-MP2", "DLPNO-CCSD(T)",
     "B3LYP", "PBE0", "PBE", "BP86", "TPSS", "M06-2X", "M06",
@@ -138,7 +138,7 @@ _METHOD_KEYWORDS: list[str] = [
     "B97-3c", "r2SCAN-3c", "PBEh-3c",
 ]
 
-# 알려진 기저함수 키워드
+# Known basis set keywords
 _BASIS_KEYWORDS: list[str] = [
     "def2-QZVPP", "def2-QZVP", "def2-TZVPP", "def2-TZVP",
     "def2-SVP", "def2-SV(P)",
@@ -155,12 +155,12 @@ _BASIS_KEYWORDS: list[str] = [
 
 
 # ---------------------------------------------------------------------------
-# 결과 데이터 클래스
+# Result data class
 # ---------------------------------------------------------------------------
 
 @dataclass
 class OrcaResult:
-    """ORCA 출력 파일에서 추출한 계산 결과."""
+    """Calculation results extracted from an ORCA output file."""
 
     source_path: str
     calc_type: str = ""
@@ -188,7 +188,7 @@ class OrcaResult:
 
 @dataclass
 class OptStep:
-    """단일 최적화 사이클의 수렴 데이터."""
+    """Convergence data for a single optimization cycle."""
 
     cycle: int
     energy_hartree: float
@@ -202,7 +202,7 @@ class OptStep:
 
 @dataclass
 class OptProgress:
-    """최적화 진행 현황 요약."""
+    """Summary of optimization progress."""
 
     source_path: str
     formula: str = ""
@@ -215,16 +215,16 @@ class OptProgress:
 
 
 # ---------------------------------------------------------------------------
-# 파서 함수
+# Parser functions
 # ---------------------------------------------------------------------------
 
 def _build_formula(elements: list[str]) -> str:
-    """원소 기호 목록에서 Hill system 화학식을 생성한다."""
+    """Build a Hill system chemical formula from a list of element symbols."""
     counts = Counter(elements)
     if not counts:
         return ""
 
-    # Hill system: C 먼저, H 다음, 나머지 알파벳 순
+    # Hill system: C first, H next, then remaining in alphabetical order
     parts: list[str] = []
     for sym in ("C", "H"):
         if sym in counts:
@@ -238,7 +238,7 @@ def _build_formula(elements: list[str]) -> str:
 
 
 def _parse_input_line(text: str) -> tuple[str, str, str, list[str]]:
-    """입력 라인에서 calc_type, method, basis_set을 추출한다.
+    """Extract calc_type, method, and basis_set from the input line.
 
     Returns:
         (calc_type, method, basis_set, all_input_tokens)
@@ -247,14 +247,14 @@ def _parse_input_line(text: str) -> tuple[str, str, str, list[str]]:
     if not matches:
         return ("sp", "", "", [])
 
-    # 여러 입력 라인이 있을 수 있음 — 합치기
+    # There may be multiple input lines — merge them
     all_tokens: list[str] = []
     for line in matches:
         all_tokens.extend(line.strip().split())
 
     tokens_upper = [t.upper() for t in all_tokens]
 
-    # calc_type 결정
+    # Determine calc_type
     calc_types: list[str] = []
     for token_upper in tokens_upper:
         for kw, ct in _CALC_TYPE_KEYWORDS.items():
@@ -269,7 +269,7 @@ def _parse_input_line(text: str) -> tuple[str, str, str, list[str]]:
     else:
         calc_type = calc_types[0]
 
-    # method 결정 — 대소문자 보존
+    # Determine method — preserve case
     method = ""
     for mk in _METHOD_KEYWORDS:
         for token in all_tokens:
@@ -279,7 +279,7 @@ def _parse_input_line(text: str) -> tuple[str, str, str, list[str]]:
         if method:
             break
 
-    # basis_set 결정 — 대소문자 보존
+    # Determine basis_set — preserve case
     basis_set = ""
     for bk in _BASIS_KEYWORDS:
         for token in all_tokens:
@@ -293,12 +293,12 @@ def _parse_input_line(text: str) -> tuple[str, str, str, list[str]]:
 
 
 def _parse_coordinates(text: str) -> tuple[list[str], int]:
-    """좌표 섹션에서 원소 기호를 추출한다.
+    """Extract element symbols from the coordinate section.
 
     Returns:
         (elements, n_atoms)
     """
-    # 마지막 좌표 섹션 사용 (최적화 후 최종 좌표)
+    # Use the last coordinate section (final coordinates after optimization)
     sections = list(_COORD_SECTION_RE.finditer(text))
     if not sections:
         return ([], 0)
@@ -309,7 +309,7 @@ def _parse_coordinates(text: str) -> tuple[list[str], int]:
 
 
 def _parse_frequencies(text: str) -> tuple[bool | None, float | None]:
-    """진동 주파수 섹션에서 imaginary 여부와 최저 주파수를 추출한다.
+    """Extract imaginary frequency status and lowest frequency from the vibrational frequency section.
 
     Returns:
         (has_imaginary_freq, lowest_freq_cm1)
@@ -324,7 +324,7 @@ def _parse_frequencies(text: str) -> tuple[bool | None, float | None]:
     if not freq_values:
         return (None, None)
 
-    # 0.0 cm^-1 근처의 병진/회전 모드 제외 (< 10 cm^-1 절대값)
+    # Exclude translational/rotational modes near 0.0 cm^-1 (absolute value < 10 cm^-1)
     real_freqs = [f for f in freq_values if abs(f) > 10.0]
     if not real_freqs:
         return (False, None)
@@ -335,7 +335,7 @@ def _parse_frequencies(text: str) -> tuple[bool | None, float | None]:
 
 
 def _parse_wall_time(text: str) -> int | None:
-    """실행 시간을 초 단위로 변환한다."""
+    """Convert runtime to seconds."""
     m = _RUNTIME_RE.search(text)
     if m is None:
         return None
@@ -344,7 +344,7 @@ def _parse_wall_time(text: str) -> int | None:
 
 
 def _compute_file_hash(file_path: str) -> str:
-    """파일의 SHA-256 해시 앞 16자를 반환한다."""
+    """Return the first 16 characters of the file's SHA-256 hash."""
     h = hashlib.sha256()
     with open(file_path, "rb") as f:
         for chunk in iter(lambda: f.read(65536), b""):
@@ -353,20 +353,20 @@ def _compute_file_hash(file_path: str) -> str:
 
 
 def _read_orca_text(file_path: str) -> str:
-    """ORCA 출력 파일을 인코딩 자동 감지로 읽는다."""
+    """Read an ORCA output file with automatic encoding detection."""
     with open(file_path, "rb") as f:
         raw = f.read()
 
     if not raw:
         return ""
 
-    # BOM이 있으면 우선 사용
+    # Use BOM if present
     if raw.startswith((b"\xff\xfe", b"\xfe\xff")):
         return raw.decode("utf-16", errors="replace")
     if raw.startswith(b"\xef\xbb\xbf"):
         return raw.decode("utf-8-sig", errors="replace")
 
-    # UTF-16LE/BE (BOM 없음) 흔적: 널 바이트 비율이 높음
+    # UTF-16LE/BE (without BOM) heuristic: high null byte ratio
     nul_ratio = raw.count(0) / len(raw)
     if nul_ratio > 0.20:
         for enc in ("utf-16-le", "utf-16-be"):
@@ -375,7 +375,7 @@ def _read_orca_text(file_path: str) -> str:
             except UnicodeDecodeError:
                 continue
 
-    # 기본 UTF-8, 실패 시 대체
+    # Default UTF-8, fallback with replacement
     try:
         return raw.decode("utf-8")
     except UnicodeDecodeError:
@@ -383,17 +383,17 @@ def _read_orca_text(file_path: str) -> str:
 
 
 def parse_orca_output(file_path: str) -> OrcaResult:
-    """ORCA .out 파일을 파싱하여 OrcaResult를 반환한다.
+    """Parse an ORCA .out file and return an OrcaResult.
 
     Args:
-        file_path: ORCA 출력 파일 경로
+        file_path: Path to the ORCA output file
 
     Returns:
-        추출된 계산 결과
+        Extracted calculation results
 
     Raises:
-        FileNotFoundError: 파일이 존재하지 않을 때
-        UnicodeDecodeError: 파일 인코딩 문제
+        FileNotFoundError: If the file does not exist
+        UnicodeDecodeError: If there is a file encoding issue
     """
     text = _read_orca_text(file_path)
 
@@ -401,7 +401,7 @@ def parse_orca_output(file_path: str) -> OrcaResult:
     result.mtime = os.path.getmtime(file_path)
     result.file_hash = _compute_file_hash(file_path)
 
-    # 입력 라인 파싱
+    # Parse input line
     calc_type, method, basis_set, input_tokens = _parse_input_line(text)
     result.calc_type = calc_type
     result.method = method
@@ -414,13 +414,13 @@ def parse_orca_output(file_path: str) -> OrcaResult:
         result.charge = int(cm_match.group(1))
         result.multiplicity = int(cm_match.group(2))
 
-    # 좌표 → 원소 → 화학식
+    # Coordinates -> elements -> chemical formula
     elements, n_atoms = _parse_coordinates(text)
     result.elements = elements
     result.n_atoms = n_atoms
     result.formula = _build_formula(elements)
 
-    # 에너지 (마지막 값 사용 — 최적화 시 여러 번 출력됨)
+    # Energy (use last value — multiple values are printed during optimization)
     energy_matches = _ENERGY_RE.findall(text)
     if energy_matches:
         energy = float(energy_matches[-1])
@@ -428,18 +428,18 @@ def parse_orca_output(file_path: str) -> OrcaResult:
         result.energy_ev = energy * HARTREE_TO_EV
         result.energy_kcalmol = energy * HARTREE_TO_KCALMOL
 
-    # 최적화 수렴
+    # Optimization convergence
     if _OPT_CONVERGED_RE.search(text):
         result.opt_converged = True
     elif _OPT_NOT_CONVERGED_RE.search(text):
         result.opt_converged = False
 
-    # 진동 주파수
+    # Vibrational frequencies
     has_imag, lowest = _parse_frequencies(text)
     result.has_imaginary_freq = has_imag
     result.lowest_freq_cm1 = lowest
 
-    # 열역학
+    # Thermodynamics
     enthalpy_match = _ENTHALPY_RE.search(text)
     if enthalpy_match:
         result.enthalpy = float(enthalpy_match.group(1))
@@ -448,10 +448,10 @@ def parse_orca_output(file_path: str) -> OrcaResult:
     if gibbs_match:
         result.gibbs_energy = float(gibbs_match.group(1))
 
-    # 실행 시간
+    # Runtime
     result.wall_time_seconds = _parse_wall_time(text)
 
-    # 상태 판별
+    # Status determination
     if _NORMAL_TERMINATION_RE.search(text):
         if result.opt_converged is False:
             result.status = "failed"
@@ -460,7 +460,7 @@ def parse_orca_output(file_path: str) -> OrcaResult:
     elif _ERROR_TERMINATION_RE.search(text):
         result.status = "failed"
     elif result.wall_time_seconds is not None:
-        # TOTAL RUN TIME은 있지만 TERMINATED NORMALLY 없음
+        # TOTAL RUN TIME exists but TERMINATED NORMALLY is missing
         result.status = "failed"
     else:
         result.status = "running"
@@ -469,20 +469,20 @@ def parse_orca_output(file_path: str) -> OrcaResult:
 
 
 def parse_opt_progress(file_path: str) -> OptProgress:
-    """ORCA 최적화 출력에서 사이클별 에너지/수렴 데이터를 추출한다.
+    """Extract per-cycle energy/convergence data from an ORCA optimization output.
 
     Args:
-        file_path: ORCA 출력 파일 경로
+        file_path: Path to the ORCA output file
 
     Returns:
-        최적화 진행 현황
+        Optimization progress summary
 
     Raises:
-        FileNotFoundError: 파일이 존재하지 않을 때
+        FileNotFoundError: If the file does not exist
     """
     text = _read_orca_text(file_path)
 
-    # 기본 메타데이터 (기존 헬퍼 재활용)
+    # Basic metadata (reuse existing helpers)
     calc_type, method, basis_set, _ = _parse_input_line(text)
     elements, _ = _parse_coordinates(text)
     formula = _build_formula(elements)
@@ -495,7 +495,7 @@ def parse_opt_progress(file_path: str) -> OptProgress:
         calc_type=calc_type,
     )
 
-    # 사이클 위치 인덱싱
+    # Index cycle positions
     cycle_positions = [
         (m.start(), int(m.group(1)))
         for m in _OPT_CYCLE_RE.finditer(text)
@@ -503,14 +503,14 @@ def parse_opt_progress(file_path: str) -> OptProgress:
     if not cycle_positions:
         return progress
 
-    # 에너지 위치 인덱싱
+    # Index energy positions
     energy_positions = [
         (m.start(), float(m.group(1)))
         for m in _ENERGY_RE.finditer(text)
     ]
 
     for i, (cycle_start, cycle_num) in enumerate(cycle_positions):
-        # 이 사이클의 텍스트 범위 결정
+        # Determine text range for this cycle
         cycle_end = (
             cycle_positions[i + 1][0]
             if i + 1 < len(cycle_positions)
@@ -518,7 +518,7 @@ def parse_opt_progress(file_path: str) -> OptProgress:
         )
         cycle_text = text[cycle_start:cycle_end]
 
-        # 이 사이클 범위 내의 마지막 에너지 찾기
+        # Find the last energy within this cycle's range
         energy: float | None = None
         for epos, eval_ in energy_positions:
             if cycle_start <= epos < cycle_end:
@@ -529,7 +529,7 @@ def parse_opt_progress(file_path: str) -> OptProgress:
 
         step = OptStep(cycle=cycle_num, energy_hartree=energy)
 
-        # 수렴 테이블 파싱
+        # Parse convergence table
         for item_match in _CONVERGENCE_ITEM_RE.finditer(cycle_text):
             name = item_match.group(1)
             value = float(item_match.group(2))
@@ -550,7 +550,7 @@ def parse_opt_progress(file_path: str) -> OptProgress:
 
         progress.steps.append(step)
 
-    # 상태 판별
+    # Status determination
     progress.is_converged = bool(_OPT_CONVERGED_RE.search(text))
     progress.is_running = (
         not _NORMAL_TERMINATION_RE.search(text)

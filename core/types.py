@@ -37,3 +37,15 @@ class RunState(TypedDict, total=False):
     updated_at: str
     attempts: List[AttemptRecord]
     final_result: Optional[RunFinalResult]
+
+
+class RunInfo(TypedDict):
+    """Structured representation of a simulation run for display."""
+
+    dir: str
+    status: str
+    elapsed: float
+    elapsed_text: str
+    inp: str
+    attempts: int
+    started_at: str

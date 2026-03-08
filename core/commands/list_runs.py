@@ -1,4 +1,4 @@
-"""list 커맨드 — allowed_root 아래 모든 시뮬레이션 상태를 한눈에 보여준다."""
+"""list command — display status of all simulations under allowed_root."""
 
 from __future__ import annotations
 
@@ -6,17 +6,18 @@ import json
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any
 
 from ..config import load_config
 from ..state_store import STATE_FILE_NAME
+from ..types import RunInfo
 from ._helpers import _to_resolved_local
 
 logger = logging.getLogger(__name__)
 
 
 def _elapsed_text(seconds: float) -> str:
-    """경과 시간을 사람이 읽기 좋은 형태로 변환."""
+    """Convert elapsed seconds to human-readable text."""
     if seconds < 0:
         return "-"
     hours = int(seconds // 3600)
@@ -44,27 +45,27 @@ def _parse_iso(value: Any) -> datetime | None:
     return dt.astimezone(timezone.utc)
 
 
-def _compute_elapsed(state: Dict[str, Any]) -> float:
-    """run_state에서 경과 시간(초)을 계산."""
+def _compute_elapsed(state: dict[str, Any]) -> float:
+    """Compute elapsed time in seconds from run_state."""
     started = _parse_iso(state.get("started_at"))
     if started is None:
         return -1.0
 
     status = str(state.get("status", "")).lower()
     if status in ("completed", "failed"):
-        # 종료된 작업: updated_at 기준
+        # Finished run: use updated_at as end time
         ended = _parse_iso(state.get("updated_at"))
         if ended is not None:
             return (ended - started).total_seconds()
 
-    # 아직 진행 중이거나 시간 정보 부족: 현재 시각 기준
+    # Still running or missing end time: use current time
     now = datetime.now(timezone.utc)
     return (now - started).total_seconds()
 
 
-def _collect_runs(allowed_root: Path) -> List[Dict[str, Any]]:
-    """allowed_root 아래 모든 run_state.json을 수집."""
-    runs: List[Dict[str, Any]] = []
+def _collect_runs(allowed_root: Path) -> list[RunInfo]:
+    """Collect all run_state.json entries under allowed_root."""
+    runs: list[RunInfo] = []
 
     if not allowed_root.is_dir():
         return runs
@@ -87,34 +88,34 @@ def _collect_runs(allowed_root: Path) -> List[Dict[str, Any]]:
 
         attempt_count = len(raw.get("attempts", []))
 
-        runs.append({
-            "dir": rel_dir,
-            "status": status,
-            "elapsed": elapsed,
-            "elapsed_text": _elapsed_text(elapsed),
-            "inp": selected_inp,
-            "attempts": attempt_count,
-            "started_at": raw.get("started_at", ""),
-        })
+        runs.append(RunInfo(
+            dir=rel_dir,
+            status=status,
+            elapsed=elapsed,
+            elapsed_text=_elapsed_text(elapsed),
+            inp=selected_inp,
+            attempts=attempt_count,
+            started_at=raw.get("started_at", ""),
+        ))
 
-    # 최근 시작된 순으로 정렬
-    runs.sort(key=lambda r: r.get("started_at", ""), reverse=True)
+    # Sort by most recent first
+    runs.sort(key=lambda r: r["started_at"], reverse=True)
     return runs
 
 
-def _print_table(runs: List[Dict[str, Any]], *, filter_status: str | None) -> None:
-    """터미널 테이블 출력."""
+def _print_table(runs: list[RunInfo], *, filter_status: str | None) -> None:
+    """Print runs as a terminal table."""
     if filter_status:
         runs = [r for r in runs if r["status"] == filter_status]
 
     if not runs:
-        print("등록된 작업이 없습니다.")
+        print("No registered runs found.")
         return
 
-    # 컬럼 너비 계산
+    # Compute column widths
     headers = ["DIR", "STATUS", "ATTEMPTS", "ELAPSED", "INP"]
     keys = ["dir", "status", "attempts", "elapsed_text", "inp"]
-    rows = [[str(r[k]) for k in keys] for r in runs]
+    rows = [[str(r[k]) for k in keys] for r in runs]  # type: ignore[literal-required]
 
     widths = [len(h) for h in headers]
     for row in rows:
@@ -123,7 +124,7 @@ def _print_table(runs: List[Dict[str, Any]], *, filter_status: str | None) -> No
 
     fmt = "  ".join(f"{{:<{w}}}" for w in widths)
     print(fmt.format(*headers))
-    print("─" * (sum(widths) + 2 * (len(widths) - 1)))
+    print("\u2500" * (sum(widths) + 2 * (len(widths) - 1)))
     for row in rows:
         print(fmt.format(*row))
 

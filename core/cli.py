@@ -70,14 +70,14 @@ def build_parser() -> argparse.ArgumentParser:
     status.add_argument("--reaction-dir", required=True, help="Directory under the configured allowed_root")
     status.add_argument("--json", action="store_true")
 
-    list_cmd = sub.add_parser("list", help="모든 시뮬레이션 상태를 한눈에 보기")
+    list_cmd = sub.add_parser("list", help="Show status of all simulations")
     list_cmd.add_argument("--filter", default=None, choices=["created", "running", "retrying", "completed", "failed"],
-                          help="특정 상태만 필터링")
+                          help="Filter by status")
     list_cmd.add_argument("--json", action="store_true")
 
-    sub.add_parser("bot", help="텔레그램 봇 시작 (long polling)")
+    sub.add_parser("bot", help="Start Telegram bot (long polling)")
 
-    sub.add_parser("monitor", help="시뮬레이션 상태 스캔 후 텔레그램 알림 전송 (크론용)")
+    sub.add_parser("monitor", help="Scan simulation status and send Telegram notification (for cron)")
 
     organize = sub.add_parser("organize")
     organize.add_argument("--reaction-dir", default=None, help="Single reaction directory to organize")

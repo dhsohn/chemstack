@@ -1,20 +1,20 @@
-"""monitor 커맨드 — 시뮬레이션 상태를 스캔하고 텔레그램으로 요약 전송.
+"""monitor command — scan simulation status and send Telegram summary.
 
-매시간 크론으로 실행되어 현재 running 시뮬레이션과
-새로 감지된 DFT 계산 결과를 텔레그램 메시지로 보낸다.
+Runs hourly via cron to report currently running simulations
+and newly detected DFT calculation results via Telegram.
 """
 
 from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any
 
 from ..config import AppConfig, load_config
 from ..dft_index import DFTIndex
 from ..dft_monitor import DFTMonitor, ScanReport
-from ..telegram_notifier import _escape_html, send_message
+from ..telegram_notifier import escape_html, send_message
+from ..types import RunInfo
 from ._helpers import _to_resolved_local
 from .list_runs import _collect_runs
 
@@ -36,8 +36,8 @@ def _status_icon(status: str) -> str:
     return _ICON.get(status, "\u2753")
 
 
-def _format_running_section(runs: list[dict[str, Any]]) -> str | None:
-    """running/retrying 시뮬레이션 상세 블록."""
+def _format_running_section(runs: list[RunInfo]) -> str | None:
+    """Build HTML block for running/retrying simulations."""
     active = [r for r in runs if r["status"] in ("running", "retrying")]
     if not active:
         return None
@@ -46,19 +46,19 @@ def _format_running_section(runs: list[dict[str, Any]]) -> str | None:
     for r in active:
         icon = _status_icon(r["status"])
         inp_name = r["inp"] or "-"
-        attempt_info = f"(시도 #{r['attempts']})" if r["attempts"] > 1 else ""
+        attempt_info = f"(attempt #{r['attempts']})" if r["attempts"] > 1 else ""
         lines.append(
-            f"{icon} <b>{_escape_html(r['dir'])}</b> {attempt_info}\n"
-            f"   \U0001f4c4 {_escape_html(inp_name)}\n"
-            f"   \u23f1 경과: {_escape_html(r['elapsed_text'])}"
+            f"{icon} <b>{escape_html(r['dir'])}</b> {attempt_info}\n"
+            f"   \U0001f4c4 {escape_html(inp_name)}\n"
+            f"   \u23f1 Elapsed: {escape_html(r['elapsed_text'])}"
         )
 
-    header = f"\u23f3 <b>실행 중</b>  ({len(active)}건)"
+    header = f"\u23f3 <b>Running</b>  ({len(active)})"
     return header + "\n\n" + "\n\n".join(lines)
 
 
 def _format_dft_section(report: ScanReport) -> str | None:
-    """새로 감지된 DFT 계산 결과 블록."""
+    """Build HTML block for newly detected DFT calculation results."""
     if not report.new_results:
         return None
 
@@ -66,21 +66,21 @@ def _format_dft_section(report: ScanReport) -> str | None:
     for r in report.new_results:
         icon = _status_icon(r.status)
         calc_label = r.calc_type.upper() if r.calc_type else "-"
-        note = f"\n   \u26a0\ufe0f {_escape_html(r.note.strip('() '))}" if r.note else ""
+        note = f"\n   \u26a0\ufe0f {escape_html(r.note.strip('() '))}" if r.note else ""
         lines.append(
-            f"{icon} <b>{_escape_html(r.formula)}</b>  [{_escape_html(calc_label)}]\n"
-            f"   \U0001f9ec {_escape_html(r.method_basis)}\n"
-            f"   \u26a1 {_escape_html(r.energy)}\n"
-            f"   \U0001f4c2 <code>{_escape_html(r.path)}</code>"
+            f"{icon} <b>{escape_html(r.formula)}</b>  [{escape_html(calc_label)}]\n"
+            f"   \U0001f9ec {escape_html(r.method_basis)}\n"
+            f"   \u26a1 {escape_html(r.energy)}\n"
+            f"   \U0001f4c2 <code>{escape_html(r.path)}</code>"
             f"{note}"
         )
 
-    header = f"\U0001f9ea <b>새 계산 감지</b>  ({len(report.new_results)}건)"
+    header = f"\U0001f9ea <b>New Calculations Detected</b>  ({len(report.new_results)})"
     return header + "\n\n" + "\n\n".join(lines)
 
 
-def _format_overall_summary(runs: list[dict[str, Any]]) -> str:
-    """전체 시뮬레이션 통계 한 줄 요약."""
+def _format_overall_summary(runs: list[RunInfo]) -> str:
+    """Build a one-line summary of all simulation stats."""
     counts: dict[str, int] = {}
     for r in runs:
         counts[r["status"]] = counts.get(r["status"], 0) + 1
@@ -92,15 +92,15 @@ def _format_overall_summary(runs: list[dict[str, Any]]) -> str:
             parts.append(f"{_status_icon(status)} {status} {n}")
 
     total = len(runs)
-    summary = " | ".join(parts) if parts else "작업 없음"
-    return f"\U0001f4ca <b>전체 현황</b>  (총 {total}건)\n{summary}"
+    summary = " | ".join(parts) if parts else "No runs"
+    return f"\U0001f4ca <b>Overview</b>  (total {total})\n{summary}"
 
 
 def _build_message(
-    runs: list[dict[str, Any]],
+    runs: list[RunInfo],
     report: ScanReport,
 ) -> str:
-    """전체 텔레그램 메시지를 조합한다."""
+    """Compose the full Telegram message."""
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     header = f"\u2699\ufe0f <b>orca_auto monitor</b>  <code>{now}</code>"
     divider = "\u2500" * 28
@@ -122,10 +122,10 @@ def _build_message(
 
 
 def _run_monitor(cfg: AppConfig) -> int:
-    """단일 스캔 실행 및 텔레그램 전송."""
+    """Execute a single scan and send Telegram notification."""
     tg = cfg.telegram
     if not tg.enabled:
-        logger.error("Telegram이 설정되지 않았습니다.")
+        logger.error("Telegram is not configured.")
         return 1
 
     allowed_root = _to_resolved_local(cfg.runtime.allowed_root)
@@ -133,10 +133,10 @@ def _run_monitor(cfg: AppConfig) -> int:
         logger.error("allowed_root not found: %s", allowed_root)
         return 1
 
-    # 1) 현재 시뮬레이션 수집
+    # 1) Collect current simulations
     runs = _collect_runs(allowed_root)
 
-    # 2) DFT Monitor 스캔 (새로 변경된 계산 감지)
+    # 2) DFT Monitor scan (detect newly changed calculations)
     state_file = str(allowed_root / _STATE_FILE)
     db_path = str(allowed_root / _DFT_DB)
     dft_index = DFTIndex()
@@ -149,16 +149,16 @@ def _run_monitor(cfg: AppConfig) -> int:
     report = monitor.scan()
 
     if report.baseline_seeded:
-        logger.info("DFT Monitor baseline seeded (첫 실행). 다음 스캔부터 변경 감지.")
+        logger.info("DFT Monitor baseline seeded (first run). Changes will be detected from next scan.")
 
-    # 3) 메시지 조합 및 전송
+    # 3) Compose and send message
     message = _build_message(runs, report)
     success = send_message(tg, message)
 
     if success:
-        logger.info("텔레그램 알림 전송 완료")
+        logger.info("Telegram notification sent successfully")
     else:
-        logger.error("텔레그램 알림 전송 실패")
+        logger.error("Failed to send Telegram notification")
         return 1
 
     return 0

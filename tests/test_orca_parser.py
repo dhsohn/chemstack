@@ -1,4 +1,4 @@
-"""ORCA parser 회귀 테스트."""
+"""ORCA parser regression tests."""
 
 from __future__ import annotations
 
@@ -54,7 +54,7 @@ def test_utf16_completed_output_is_parsed(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# parse_opt_progress 테스트
+# parse_opt_progress tests
 # ---------------------------------------------------------------------------
 
 _OPT_RUNNING_OUT = "\n".join([
@@ -121,27 +121,27 @@ def test_parse_opt_progress_extracts_all_cycles(tmp_path: Path) -> None:
     assert progress.basis_set == "def2-SVP"
     assert progress.calc_type == "opt"
 
-    # 사이클 1: 에너지만, 수렴 테이블 없음
+    # Cycle 1: energy only, no convergence table
     assert progress.steps[0].cycle == 1
     assert progress.steps[0].energy_hartree == pytest.approx(-100.1)
     assert progress.steps[0].max_gradient is None
 
-    # 사이클 2: 에너지 + 수렴 테이블
+    # Cycle 2: energy + convergence table
     assert progress.steps[1].cycle == 2
     assert progress.steps[1].energy_hartree == pytest.approx(-100.12)
     assert progress.steps[1].energy_change == pytest.approx(-0.02)
     assert progress.steps[1].max_gradient == pytest.approx(0.005)
     assert progress.steps[1].converged_flags["MAX gradient"] is False
 
-    # 사이클 3: 일부 수렴
+    # Cycle 3: partially converged
     assert progress.steps[2].cycle == 3
     assert progress.steps[2].max_gradient == pytest.approx(0.0002)
     assert progress.steps[2].converged_flags["MAX gradient"] is True
-    assert sum(progress.steps[2].converged_flags.values()) == 4  # 5개 중 4개 YES
+    assert sum(progress.steps[2].converged_flags.values()) == 4  # 4 out of 5 YES
 
 
 def test_parse_opt_progress_running_detection(tmp_path: Path) -> None:
-    """ORCA TERMINATED NORMALLY 없으면 is_running == True."""
+    """If ORCA TERMINATED NORMALLY is absent, is_running == True."""
     out_file = tmp_path / "running.out"
     out_file.write_text(_OPT_RUNNING_OUT, encoding="utf-8")
 
@@ -151,7 +151,7 @@ def test_parse_opt_progress_running_detection(tmp_path: Path) -> None:
 
 
 def test_parse_opt_progress_converged_detection(tmp_path: Path) -> None:
-    """수렴 완료 + 정상 종료 시 is_converged == True, is_running == False."""
+    """When convergence is achieved and termination is normal, is_converged == True and is_running == False."""
     converged_out = _OPT_RUNNING_OUT + "\n".join([
         "",
         "THE OPTIMIZATION HAS CONVERGED",
@@ -167,7 +167,7 @@ def test_parse_opt_progress_converged_detection(tmp_path: Path) -> None:
 
 
 def test_parse_opt_progress_sp_returns_empty_steps(tmp_path: Path) -> None:
-    """Single-point 계산에는 최적화 사이클이 없으므로 steps가 빈 리스트."""
+    """Single-point calculations have no optimization cycles, so steps should be an empty list."""
     sp_out = "\n".join([
         "! B3LYP def2-SVP",
         "* xyz 0 1",

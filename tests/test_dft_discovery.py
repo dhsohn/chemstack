@@ -1,4 +1,4 @@
-"""DFT 대상 파일 탐색 테스트."""
+"""DFT target file discovery tests."""
 
 from __future__ import annotations
 

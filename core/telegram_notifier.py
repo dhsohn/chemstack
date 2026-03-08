@@ -1,9 +1,7 @@
-"""텔레그램 봇 알림 전송.
+"""Telegram notification sender.
 
-DFT 모니터 스캔 결과를 텔레그램 메시지로 전송한다.
-외부 의존성 없이 urllib만 사용.
-
-ollama_bot 텔레그램 알림 로직에서 이식됨.
+Sends DFT monitor scan results as Telegram messages.
+Uses only urllib with no external dependencies.
 """
 
 from __future__ import annotations
@@ -24,13 +22,22 @@ _API_BASE = "https://api.telegram.org/bot{token}"
 _MAX_MESSAGE_LENGTH = 4096
 
 
+def escape_html(text: str) -> str:
+    """Escape HTML special characters for Telegram HTML messages."""
+    return (
+        text.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+    )
+
+
 def send_message(
     config: TelegramConfig,
     text: str,
     *,
     parse_mode: str | None = "HTML",
 ) -> bool:
-    """텔레그램 메시지 전송. 성공 시 True 반환."""
+    """Send a Telegram message. Returns True on success."""
     if not config.enabled:
         logger.debug("telegram_notifier_disabled")
         return False
@@ -68,31 +75,31 @@ def send_message(
 
 
 def format_scan_report(report: ScanReport) -> str | None:
-    """ScanReport를 텔레그램 HTML 메시지로 포맷. 알릴 내용이 없으면 None."""
+    """Format a ScanReport as a Telegram HTML message. Returns None if nothing to report."""
     if not report.new_results:
         return None
 
-    lines: list[str] = [f"<b>DFT 계산 알림</b> ({len(report.new_results)}건)\n"]
+    lines: list[str] = [f"<b>DFT Calculation Alert</b> ({len(report.new_results)} new)\n"]
 
     for r in report.new_results:
         status_icon = _status_icon(r.status)
         line = (
-            f"{status_icon} <b>{_escape_html(r.formula)}</b>"
-            f" | {_escape_html(r.method_basis)}"
-            f" | {_escape_html(r.energy)}"
+            f"{status_icon} <b>{escape_html(r.formula)}</b>"
+            f" | {escape_html(r.method_basis)}"
+            f" | {escape_html(r.energy)}"
         )
         if r.calc_type:
-            line += f" | {_escape_html(r.calc_type)}"
+            line += f" | {escape_html(r.calc_type)}"
         if r.note:
-            line += f" {_escape_html(r.note)}"
-        line += f"\n<code>{_escape_html(r.path)}</code>"
+            line += f" {escape_html(r.note)}"
+        line += f"\n<code>{escape_html(r.path)}</code>"
         lines.append(line)
 
     return "\n\n".join(lines)
 
 
 def notify_scan_report(config: TelegramConfig, report: ScanReport) -> bool:
-    """ScanReport에 새 결과가 있으면 텔레그램으로 전송."""
+    """Send a Telegram notification if the ScanReport contains new results."""
     text = format_scan_report(report)
     if text is None:
         return False
@@ -107,11 +114,3 @@ def _status_icon(status: str) -> str:
         "error": "\u274c",
     }
     return icons.get(status, "\u2753")
-
-
-def _escape_html(text: str) -> str:
-    return (
-        text.replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-    )

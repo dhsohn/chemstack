@@ -1,9 +1,9 @@
-"""DFT 계산 파일 변경 감지 및 자동 인덱싱.
+"""DFT calculation file change detection and automatic indexing.
 
-kb_dirs를 주기적으로 스캔하여 새로 완료/변경된 ORCA 계산을 감지하고,
-DFT 인덱스에 등록한다.
+Periodically scans kb_dirs to detect newly completed/changed ORCA calculations
+and registers them in the DFT index.
 
-ollama_bot에서 이식됨 — Telegram/CREST 의존성 제거, 동기 전환.
+Ported from ollama_bot — removed Telegram/CREST dependencies, switched to synchronous.
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class MonitorResult:
-    """단일 스캔에서 감지된 계산 결과."""
+    """Calculation result detected in a single scan."""
 
     formula: str = ""
     method_basis: str = ""
@@ -36,7 +36,7 @@ class MonitorResult:
 
 @dataclass
 class ScanReport:
-    """스캔 결과 요약."""
+    """Scan result summary."""
 
     new_results: list[MonitorResult] = field(default_factory=list)
     scanned_files: int = 0
@@ -44,7 +44,7 @@ class ScanReport:
 
 
 class DFTMonitor:
-    """DFT 계산 파일 변경 감지 및 자동 인덱싱."""
+    """DFT calculation file change detection and automatic indexing."""
 
     def __init__(
         self,
@@ -67,7 +67,7 @@ class DFTMonitor:
         max_file_size_mb: int = 64,
         recent_completed_window_minutes: int = 60,
     ) -> ScanReport:
-        """kb_dirs에서 새로/변경된 ORCA 파일을 감지하여 인덱싱한다."""
+        """Detect new/changed ORCA files in kb_dirs and index them."""
         max_bytes = max_file_size_mb * 1024 * 1024
         new_results: list[MonitorResult] = []
         scanned_mtimes: dict[str, float] = {}
@@ -159,7 +159,7 @@ class DFTMonitor:
                         "dft_monitor_parse_error: path=%s error=%s", spath, exc,
                     )
 
-        # 첫 실행 baseline 저장
+        # Save baseline on first run
         if not self._baseline_seeded:
             self._last_mtimes.clear()
             self._last_mtimes.update(scanned_mtimes)
@@ -172,7 +172,7 @@ class DFTMonitor:
                 baseline_seeded=True,
             )
 
-        # 삭제된 파일 캐시 정리
+        # Clean up cache for deleted files
         stale_paths = set(self._last_mtimes) - set(scanned_mtimes)
         if stale_paths:
             for stale in stale_paths:
@@ -194,7 +194,7 @@ class DFTMonitor:
 
 
 def _short_path(path: str) -> str:
-    """긴 경로를 마지막 3개 세그먼트로 축약한다."""
+    """Abbreviate a long path to its last 3 segments."""
     parts = path.replace("\\", "/").split("/")
     if len(parts) <= 3:
         return path
@@ -202,7 +202,7 @@ def _short_path(path: str) -> str:
 
 
 def _canonical_path_key(path: str | Path) -> str:
-    """같은 파일의 경로 alias를 하나의 canonical key로 정규화한다."""
+    """Normalize path aliases for the same file into a single canonical key."""
     try:
         return str(Path(path).expanduser().resolve(strict=False))
     except (OSError, RuntimeError, TypeError, ValueError):
@@ -210,7 +210,7 @@ def _canonical_path_key(path: str | Path) -> str:
 
 
 def _load_state(state_file: str | None) -> dict[str, float]:
-    """디스크에 저장된 dft_monitor 상태를 로드한다."""
+    """Load dft_monitor state from disk."""
     if not state_file:
         return {}
     try:
@@ -238,7 +238,7 @@ def _load_state(state_file: str | None) -> dict[str, float]:
 
 
 def _save_state(state_file: str | None, mtimes: dict[str, float]) -> None:
-    """dft_monitor 상태를 원자적으로 저장한다."""
+    """Atomically save dft_monitor state."""
     if not state_file:
         return
     try:

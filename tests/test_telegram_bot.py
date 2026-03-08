@@ -1,4 +1,4 @@
-"""텔레그램 봇 핸들러 테스트."""
+"""Telegram bot handler tests."""
 
 import json
 import tempfile
@@ -38,7 +38,7 @@ class TestTelegramBotHandlers(unittest.TestCase):
             allowed.mkdir()
             cfg = self._make_cfg(str(allowed))
             result = _handle_list(cfg, "")
-        self.assertIn("등록된 작업이 없습니다", result)
+        self.assertIn("No registered runs found", result)
 
     def test_handle_list_with_runs(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -49,7 +49,7 @@ class TestTelegramBotHandlers(unittest.TestCase):
             result = _handle_list(cfg, "")
         self.assertIn("rxn1", result)
         self.assertIn("rxn2", result)
-        self.assertIn("2건", result)
+        self.assertIn("(2)", result)
 
     def test_handle_list_filter(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -60,7 +60,7 @@ class TestTelegramBotHandlers(unittest.TestCase):
             result = _handle_list(cfg, "running")
         self.assertIn("rxn2", result)
         self.assertNotIn("rxn1", result)
-        self.assertIn("1건", result)
+        self.assertIn("(1)", result)
 
     def test_handle_help(self) -> None:
         cfg = self._make_cfg("/tmp/nonexistent")
@@ -71,7 +71,7 @@ class TestTelegramBotHandlers(unittest.TestCase):
     def test_handle_list_missing_root(self) -> None:
         cfg = self._make_cfg("/tmp/nonexistent_root_xyz")
         result = _handle_list(cfg, "")
-        self.assertIn("찾을 수 없습니다", result)
+        self.assertIn("not found", result)
 
 
 if __name__ == "__main__":

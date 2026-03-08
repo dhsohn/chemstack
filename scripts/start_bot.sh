@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# 텔레그램 봇 관리 스크립트.
+# Telegram bot management script.
 #
-# 사용법:
-#   start_bot.sh            # 시작 (이미 실행 중이면 무시)
-#   start_bot.sh restart    # 기존 봇 종료 후 재시작
-#   start_bot.sh stop       # 봇 종료
+# Usage:
+#   start_bot.sh            # Start (ignored if already running)
+#   start_bot.sh restart    # Stop existing bot and restart
+#   start_bot.sh stop       # Stop bot
 #
-# ~/.bashrc 에 추가하면 WSL 부팅 시 자동 시작:
+# Add to ~/.bashrc for automatic start on WSL boot:
 #   ~/orca_auto/scripts/start_bot.sh
 set -euo pipefail
 
@@ -22,7 +22,7 @@ _stop_bot() {
     OLD_PID="$(cat "$PID_FILE" 2>/dev/null || true)"
     if [[ -n "$OLD_PID" ]] && kill -0 "$OLD_PID" 2>/dev/null; then
       kill "$OLD_PID" 2>/dev/null || true
-      # 종료 대기 (최대 3초)
+      # Wait for termination (up to 3 seconds)
       for _ in 1 2 3; do
         kill -0 "$OLD_PID" 2>/dev/null || break
         sleep 1
@@ -33,7 +33,7 @@ _stop_bot() {
 }
 
 _start_bot() {
-  # 이미 실행 중이면 무시
+  # Skip if already running
   if [[ -f "$PID_FILE" ]]; then
     OLD_PID="$(cat "$PID_FILE" 2>/dev/null || true)"
     if [[ -n "$OLD_PID" ]] && kill -0 "$OLD_PID" 2>/dev/null; then
