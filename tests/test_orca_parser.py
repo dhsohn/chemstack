@@ -1,0 +1,185 @@
+"""ORCA parser 회귀 테스트."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from core.orca_parser import parse_opt_progress, parse_orca_output
+
+
+def test_error_termination_is_classified_as_failed(tmp_path: Path) -> None:
+    out_file = tmp_path / "error_case.out"
+    out_file.write_text(
+        "\n".join([
+            "! B3LYP def2-SVP Opt",
+            "* xyz 0 1",
+            "C 0.0 0.0 0.0",
+            "H 0.0 0.0 1.0",
+            "*",
+            "",
+            "ORCA finished by error termination in SCF gradient",
+            "[file orca_tools/qcmsg.cpp, line 394]:",
+            "  .... aborting the run",
+        ]),
+        encoding="utf-8",
+    )
+
+    result = parse_orca_output(str(out_file))
+
+    assert result.status == "failed"
+
+
+def test_utf16_completed_output_is_parsed(tmp_path: Path) -> None:
+    out_file = tmp_path / "utf16_completed.out"
+    out_file.write_text(
+        "\n".join([
+            "! B3LYP def2-SVP Opt",
+            "* xyz 0 1",
+            "C 0.0 0.0 0.0",
+            "H 0.0 0.0 1.0",
+            "*",
+            "FINAL SINGLE POINT ENERGY      -100.123456",
+            "                             ****ORCA TERMINATED NORMALLY****",
+            "TOTAL RUN TIME: 0 days 0 hours 1 minutes 2 seconds 3 msec",
+        ]),
+        encoding="utf-16",
+    )
+
+    result = parse_orca_output(str(out_file))
+
+    assert result.status == "completed"
+    assert result.method == "B3LYP"
+
+
+# ---------------------------------------------------------------------------
+# parse_opt_progress 테스트
+# ---------------------------------------------------------------------------
+
+_OPT_RUNNING_OUT = "\n".join([
+    "! B3LYP def2-SVP Opt",
+    "* xyz 0 1",
+    "C 0.0 0.0 0.0",
+    "H 0.0 0.0 1.0",
+    "*",
+    "",
+    "CARTESIAN COORDINATES (ANGSTROEM)",
+    "----------------------------",
+    " C    0.000000    0.000000    0.000000",
+    " H    0.000000    0.000000    1.000000",
+    "",
+    "---------------------------------------------------",
+    "| Geometry Optimization Cycle   1                 |",
+    "---------------------------------------------------",
+    "",
+    "FINAL SINGLE POINT ENERGY      -100.100000000",
+    "",
+    "---------------------------------------------------",
+    "| Geometry Optimization Cycle   2                 |",
+    "---------------------------------------------------",
+    "",
+    "FINAL SINGLE POINT ENERGY      -100.120000000",
+    "",
+    "                         *************************************",
+    "                         *  GEOMETRY CONVERGENCE              *",
+    "                         *************************************",
+    "Item                Value     Tolerance   Converged",
+    "Energy change      -0.020000  5.0000e-06    NO",
+    "MAX gradient        0.005000  3.0000e-04    NO",
+    "RMS gradient        0.002000  1.0000e-04    NO",
+    "MAX step            0.010000  4.0000e-03    NO",
+    "RMS step            0.004000  2.0000e-03    NO",
+    "",
+    "---------------------------------------------------",
+    "| Geometry Optimization Cycle   3                 |",
+    "---------------------------------------------------",
+    "",
+    "FINAL SINGLE POINT ENERGY      -100.123000000",
+    "",
+    "                         *************************************",
+    "                         *  GEOMETRY CONVERGENCE              *",
+    "                         *************************************",
+    "Item                Value     Tolerance   Converged",
+    "Energy change      -0.003000  5.0000e-06    NO",
+    "MAX gradient        0.000200  3.0000e-04    YES",
+    "RMS gradient        0.000080  1.0000e-04    YES",
+    "MAX step            0.003000  4.0000e-03    YES",
+    "RMS step            0.001500  2.0000e-03    YES",
+])
+
+
+def test_parse_opt_progress_extracts_all_cycles(tmp_path: Path) -> None:
+    out_file = tmp_path / "opt_running.out"
+    out_file.write_text(_OPT_RUNNING_OUT, encoding="utf-8")
+
+    progress = parse_opt_progress(str(out_file))
+
+    assert len(progress.steps) == 3
+    assert progress.formula == "CH"
+    assert progress.method == "B3LYP"
+    assert progress.basis_set == "def2-SVP"
+    assert progress.calc_type == "opt"
+
+    # 사이클 1: 에너지만, 수렴 테이블 없음
+    assert progress.steps[0].cycle == 1
+    assert progress.steps[0].energy_hartree == pytest.approx(-100.1)
+    assert progress.steps[0].max_gradient is None
+
+    # 사이클 2: 에너지 + 수렴 테이블
+    assert progress.steps[1].cycle == 2
+    assert progress.steps[1].energy_hartree == pytest.approx(-100.12)
+    assert progress.steps[1].energy_change == pytest.approx(-0.02)
+    assert progress.steps[1].max_gradient == pytest.approx(0.005)
+    assert progress.steps[1].converged_flags["MAX gradient"] is False
+
+    # 사이클 3: 일부 수렴
+    assert progress.steps[2].cycle == 3
+    assert progress.steps[2].max_gradient == pytest.approx(0.0002)
+    assert progress.steps[2].converged_flags["MAX gradient"] is True
+    assert sum(progress.steps[2].converged_flags.values()) == 4  # 5개 중 4개 YES
+
+
+def test_parse_opt_progress_running_detection(tmp_path: Path) -> None:
+    """ORCA TERMINATED NORMALLY 없으면 is_running == True."""
+    out_file = tmp_path / "running.out"
+    out_file.write_text(_OPT_RUNNING_OUT, encoding="utf-8")
+
+    progress = parse_opt_progress(str(out_file))
+    assert progress.is_running is True
+    assert progress.is_converged is False
+
+
+def test_parse_opt_progress_converged_detection(tmp_path: Path) -> None:
+    """수렴 완료 + 정상 종료 시 is_converged == True, is_running == False."""
+    converged_out = _OPT_RUNNING_OUT + "\n".join([
+        "",
+        "THE OPTIMIZATION HAS CONVERGED",
+        "                             ****ORCA TERMINATED NORMALLY****",
+        "TOTAL RUN TIME: 0 days 0 hours 5 minutes 30 seconds 0 msec",
+    ])
+    out_file = tmp_path / "converged.out"
+    out_file.write_text(converged_out, encoding="utf-8")
+
+    progress = parse_opt_progress(str(out_file))
+    assert progress.is_converged is True
+    assert progress.is_running is False
+
+
+def test_parse_opt_progress_sp_returns_empty_steps(tmp_path: Path) -> None:
+    """Single-point 계산에는 최적화 사이클이 없으므로 steps가 빈 리스트."""
+    sp_out = "\n".join([
+        "! B3LYP def2-SVP",
+        "* xyz 0 1",
+        "C 0.0 0.0 0.0",
+        "*",
+        "FINAL SINGLE POINT ENERGY      -100.000000",
+        "                             ****ORCA TERMINATED NORMALLY****",
+        "TOTAL RUN TIME: 0 days 0 hours 0 minutes 10 seconds 0 msec",
+    ])
+    out_file = tmp_path / "sp.out"
+    out_file.write_text(sp_out, encoding="utf-8")
+
+    progress = parse_opt_progress(str(out_file))
+    assert progress.steps == []
+    assert progress.is_running is False

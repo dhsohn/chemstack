@@ -11,3 +11,8 @@ cleanup:
   keep_filenames: ["run_state.json", "run_report.json", "run_report.md"]
   remove_patterns: ["*.retry*.inp", "*.retry*.out", "*_trj.xyz"]
   remove_overrides_keep: false
+
+# 텔레그램 알림 설정 (bot_token과 chat_id가 모두 있어야 활성화)
+telegram:
+  bot_token: ""
+  chat_id: ""

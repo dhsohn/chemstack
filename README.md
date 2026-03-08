@@ -130,6 +130,53 @@ pytest -q
 
 GitHub Actions CI에서도 `push`/`pull_request` 시 동일한 `pytest -q`가 자동 실행됩니다.
 
+### DFT 계산 모니터링 및 자동 알림
+
+ORCA 계산 결과를 자동으로 감지·파싱·인덱싱하여 텔레그램 봇 등 외부 서비스에서 조회할 수 있는 라이브러리 계층입니다.
+
+#### 동작 흐름
+
+```
+파일 시스템 (ORCA .out)
+    ↓
+dft_discovery  ──→  완료된 .out 파일 탐색
+    ↓
+orca_parser    ──→  에너지·방법론·수렴 등 메타데이터 추출
+    ↓
+dft_index      ──→  SQLite(dft.db)에 구조화 저장
+    ↓
+dft_monitor    ──→  주기적 스캔으로 신규/변경 감지 → 자동 인덱싱
+    ↓
+dft_query      ──→  자연어 질의 → 마크다운 테이블 응답
+    ↓
+텔레그램 봇    ──→  새 계산 완료 알림 / 결과 조회
+```
+
+#### 주요 모듈
+
+| 모듈 | 역할 |
+|------|------|
+| `orca_parser.py` | `.out` 파일에서 계산 유형, 방법론, 에너지, 수렴 상태, 열역학 물성 등 추출 |
+| `dft_discovery.py` | `orca_runs`/`orca_outputs` 하위를 재귀 탐색하여 인덱싱 대상 `.out` 선별 |
+| `dft_index.py` | SQLite DB 관리 — 증분 인덱싱(해시 기반), 다차원 필터 쿼리, 통계 |
+| `dft_monitor.py` | 파일 mtime 추적으로 신규/변경 감지 → 자동 파싱·인덱싱, 상태 JSON 영속화 |
+| `dft_query.py` | 한/영 자연어 의도 분류(통계·실패·비교·최저에너지 등) → 포맷된 마크다운 반환 |
+| `telegram_notifier.py` | 텔레그램 봇 API로 스캔 결과 HTML 메시지 전송 (외부 의존성 없음) |
+
+#### 텔레그램 알림 설정
+
+`config/orca_auto.yaml`에 텔레그램 봇 정보를 추가하면 활성화됩니다:
+
+```yaml
+telegram:
+  bot_token: "123456:ABC-DEF..."
+  chat_id: "987654321"
+```
+
+- `bot_token`: [@BotFather](https://t.me/BotFather)에서 발급받은 봇 토큰
+- `chat_id`: 알림을 받을 채팅 ID (개인 또는 그룹)
+- 두 값이 모두 설정되어야 알림이 활성화됩니다
+
 ### 프로젝트 구조
 
 ```
@@ -140,6 +187,12 @@ core/
 │   ├── run_inp.py        # run-inp, status 커맨드
 │   ├── organize.py       # organize 커맨드
 │   └── cleanup.py        # cleanup 커맨드
+├── orca_parser.py        # ORCA 출력 파서
+├── dft_discovery.py      # 완료 계산 탐색
+├── dft_index.py          # SQLite 인덱스 관리
+├── dft_monitor.py        # 변경 감지 및 자동 인덱싱
+├── dft_query.py          # 자연어 쿼리 엔진
+├── telegram_notifier.py  # 텔레그램 알림 전송
 ├── config.py             # 설정 로딩 및 데이터클래스
 ├── config_validation.py  # 설정 검증/정규화
 ├── lock_utils.py         # 락 파일 파싱/프로세스 생존 확인 (공유)

@@ -74,10 +74,21 @@ class CleanupConfig:
 
 
 @dataclass
+class TelegramConfig:
+    bot_token: str = ""
+    chat_id: str = ""
+    enabled: bool = False
+
+    def __post_init__(self) -> None:
+        self.enabled = bool(self.bot_token and self.chat_id)
+
+
+@dataclass
 class AppConfig:
     runtime: RuntimeConfig = field(default_factory=RuntimeConfig)
     paths: PathsConfig = field(default_factory=PathsConfig)
     cleanup: CleanupConfig = field(default_factory=CleanupConfig)
+    telegram: TelegramConfig = field(default_factory=TelegramConfig)
 
 
 def load_config(config_path: str) -> AppConfig:
@@ -94,6 +105,7 @@ def load_config(config_path: str) -> AppConfig:
     runtime_raw = raw.get("runtime", {}) if isinstance(raw.get("runtime", {}), dict) else {}
     paths_raw = raw.get("paths", {}) if isinstance(raw.get("paths", {}), dict) else {}
     cleanup_raw = raw.get("cleanup", {}) if isinstance(raw.get("cleanup", {}), dict) else {}
+    telegram_raw = raw.get("telegram", {}) if isinstance(raw.get("telegram", {}), dict) else {}
 
     if "platform_mode" in runtime_raw:
         raise ValueError(
@@ -128,6 +140,11 @@ def load_config(config_path: str) -> AppConfig:
         ),
     )
 
+    telegram_cfg = TelegramConfig(
+        bot_token=_as_str(telegram_raw.get("bot_token"), ""),
+        chat_id=str(telegram_raw.get("chat_id", "")).strip(),
+    )
+
     cfg = AppConfig(
         runtime=RuntimeConfig(
             allowed_root=allowed_root,
@@ -138,6 +155,7 @@ def load_config(config_path: str) -> AppConfig:
             orca_executable=_as_str(paths_raw.get("orca_executable"), _default_orca_executable()),
         ),
         cleanup=cleanup_cfg,
+        telegram=telegram_cfg,
     )
     _validate_config(cfg)
     _validate_cleanup_config(cfg.cleanup)
