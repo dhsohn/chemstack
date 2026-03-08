@@ -14,6 +14,9 @@ from core.orca_runner import RunResult
 
 class TestCli(unittest.TestCase):
     def _write_config(self, root: Path, allowed_root: Path) -> Path:
+        fake_orca = root / "fake_orca"
+        fake_orca.touch()
+        fake_orca.chmod(0o755)
         config = root / "orca_auto.yaml"
         config.write_text(
             json.dumps(
@@ -22,7 +25,7 @@ class TestCli(unittest.TestCase):
                         "allowed_root": str(allowed_root),
                         "default_max_retries": 2,
                     },
-                    "paths": {"orca_executable": "/home/daehyupsohn/opt/orca/orca"},
+                    "paths": {"orca_executable": str(fake_orca)},
                 }
             ),
             encoding="utf-8",
