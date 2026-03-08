@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict
 
 import yaml
 
@@ -12,9 +12,6 @@ logger = logging.getLogger(__name__)
 from .config_validation import (
     _as_int,
     _as_str,
-    _normalize_extensions,
-    _normalize_string_list,
-    _validate_cleanup_config,
     _validate_config,
 )
 
@@ -54,25 +51,6 @@ class PathsConfig:
             self.orca_executable = _default_orca_executable()
 
 
-_DEFAULT_KEEP_EXTENSIONS = [".inp", ".out", ".xyz", ".gbw", ".hess"]
-_DEFAULT_KEEP_FILENAMES = ["run_state.json", "run_report.json", "run_report.md"]
-_DEFAULT_REMOVE_PATTERNS = [
-    "*.retry*.inp", "*.retry*.out", "*_trj.xyz",
-    "*.densities", "*.engrad", "*.tmp", "*.prop", "*.scfp", "*.opt",
-    "*.cis", "*.mdci", "*.mrci", "*.autoci", "*.cipsi",
-    "*.loc", "*.nbo", "*.eprnmr", "*.compound",
-    "*.bas", "*.one", "*.two",
-]
-
-
-@dataclass
-class CleanupConfig:
-    keep_extensions: List[str] = field(default_factory=lambda: list(_DEFAULT_KEEP_EXTENSIONS))
-    keep_filenames: List[str] = field(default_factory=lambda: list(_DEFAULT_KEEP_FILENAMES))
-    remove_patterns: List[str] = field(default_factory=lambda: list(_DEFAULT_REMOVE_PATTERNS))
-    remove_overrides_keep: bool = False
-
-
 @dataclass
 class TelegramConfig:
     bot_token: str = ""
@@ -87,7 +65,6 @@ class TelegramConfig:
 class AppConfig:
     runtime: RuntimeConfig = field(default_factory=RuntimeConfig)
     paths: PathsConfig = field(default_factory=PathsConfig)
-    cleanup: CleanupConfig = field(default_factory=CleanupConfig)
     telegram: TelegramConfig = field(default_factory=TelegramConfig)
 
 
@@ -104,7 +81,6 @@ def load_config(config_path: str) -> AppConfig:
 
     runtime_raw = raw.get("runtime", {}) if isinstance(raw.get("runtime", {}), dict) else {}
     paths_raw = raw.get("paths", {}) if isinstance(raw.get("paths", {}), dict) else {}
-    cleanup_raw = raw.get("cleanup", {}) if isinstance(raw.get("cleanup", {}), dict) else {}
     telegram_raw = raw.get("telegram", {}) if isinstance(raw.get("telegram", {}), dict) else {}
 
     if "platform_mode" in runtime_raw:
@@ -125,21 +101,6 @@ def load_config(config_path: str) -> AppConfig:
         RuntimeConfig.default_max_retries,
     )
 
-    cleanup_cfg = CleanupConfig(
-        keep_extensions=_normalize_extensions(cleanup_raw.get("keep_extensions"), _DEFAULT_KEEP_EXTENSIONS),
-        keep_filenames=_normalize_string_list(
-            cleanup_raw.get("keep_filenames"), _DEFAULT_KEEP_FILENAMES,
-        ),
-        remove_patterns=_normalize_string_list(
-            cleanup_raw.get("remove_patterns"), _DEFAULT_REMOVE_PATTERNS,
-        ),
-        remove_overrides_keep=(
-            cleanup_raw.get("remove_overrides_keep")
-            if isinstance(cleanup_raw.get("remove_overrides_keep"), bool)
-            else CleanupConfig.remove_overrides_keep
-        ),
-    )
-
     telegram_cfg = TelegramConfig(
         bot_token=_as_str(telegram_raw.get("bot_token"), ""),
         chat_id=str(telegram_raw.get("chat_id", "")).strip(),
@@ -154,11 +115,9 @@ def load_config(config_path: str) -> AppConfig:
         paths=PathsConfig(
             orca_executable=_as_str(paths_raw.get("orca_executable"), _default_orca_executable()),
         ),
-        cleanup=cleanup_cfg,
         telegram=telegram_cfg,
     )
     _validate_config(cfg)
-    _validate_cleanup_config(cfg.cleanup)
 
     logger.info(
         "Config loaded: allowed_root=%s, organized_root=%s, orca_executable=%s",

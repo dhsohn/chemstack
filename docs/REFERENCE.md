@@ -31,7 +31,6 @@
       _helpers.py          # 공유 유틸 (검증, 포맷, 설정 경로)
       run_inp.py           # run-inp, status 커맨드
       organize.py          # organize 커맨드
-      cleanup.py           # cleanup 커맨드
     config.py              # 설정 로딩 및 데이터클래스
     config_validation.py   # 설정 검증/정규화 함수
     lock_utils.py          # 락 파일 파싱/프로세스 생존 확인 (공유)
@@ -90,23 +89,14 @@ runtime:
 paths:
   orca_executable: "/home/daehyupsohn/opt/orca/orca"
 
-cleanup:
-  keep_extensions: [".inp", ".out", ".xyz", ".gbw", ".hess"]
-  keep_filenames: ["run_state.json", "run_report.json", "run_report.md"]
-  remove_patterns: ["*.retry*.inp", "*.retry*.out", "*_trj.xyz"]
-  remove_overrides_keep: false
 ```
 
 필드 설명:
 
 - `runtime.allowed_root`: 실행 허용 디렉터리 루트
-- `runtime.organized_root`: organize/cleanup 대상 루트
+- `runtime.organized_root`: organize 대상 루트
 - `runtime.default_max_retries`: 최대 재시도 횟수
 - `paths.orca_executable`: ORCA 실행 파일 경로
-- `cleanup.keep_extensions`: 기본 보존 확장자
-- `cleanup.keep_filenames`: 기본 보존 파일명
-- `cleanup.remove_patterns`: 삭제 패턴 (기본은 keep 규칙보다 낮은 우선순위)
-- `cleanup.remove_overrides_keep`: `true`면 remove 패턴이 keep 규칙보다 우선
 
 주의:
 
@@ -170,26 +160,6 @@ orca_auto run-inp --reaction-dir '/home/daehyupsohn/orca_runs/Int1_DMSO' --json
 - `--root` 스캔은 하위 디렉터리를 재귀 탐색하며 `run_state.json`이 있는 완료 run을 모두 수집
 - `--apply`: 실제 이동 수행 (기본은 dry-run)
 - `--rebuild-index`: 인덱스 재생성
-
-### 7.4 불필요 파일 정리
-
-```bash
-./bin/orca_auto cleanup --root '/home/daehyupsohn/orca_outputs' --json
-./bin/orca_auto cleanup --root '/home/daehyupsohn/orca_outputs' --apply
-```
-
-옵션:
-
-- `--reaction-dir`: 단일 organized 디렉터리 정리
-- `--root`: 루트 스캔 정리 (`organized_root`와 정확히 같아야 함)
-- `--apply`: 실제 삭제 수행 (기본은 dry-run)
-
-정리 정책:
-
-- 기본 보존: `.inp`, `.out`, `.xyz`, `.gbw`, `.hess`, `run_state.json`, `run_report.json`, `run_report.md`
-- 기본 삭제: 미보존 파일 (`.densities`, `.engrad`, `.tmp`, `.prop`, `.scfp`, `.opt` 등)
-- 선택 삭제: `cleanup.remove_overrides_keep: true`일 때 `*.retry*.inp`, `*.retry*.out`, `*_trj.xyz`
-- 단, `run_state.json`에서 참조 중인 `selected_inp`, `attempts[*].inp_path/out_path`, `final_result.last_out_path`는 보존
 
 ## 8) 완료 판정 규칙
 

@@ -70,28 +70,6 @@ cat ~/orca_runs/내_반응_폴더/run_report.md
 - `--apply`를 붙여야 실제 변경이 발생합니다. (`--apply` 없으면 미리보기만 수행)
 - 정리 대상은 `runtime.organized_root`(기본값: `~/orca_outputs`) 아래로 이동/인덱싱됩니다.
 
-### 5단계: 불필요한 파일 정리 (선택)
-
-정리된 계산 결과(`~/orca_outputs`)에서 불필요한 파일을 삭제하여 디스크 공간을 확보합니다.
-
-```bash
-# 기본값은 dry-run (삭제하지 않고 계획만 출력)
-./bin/orca_auto cleanup --root ~/orca_outputs
-
-# 실제로 파일 삭제 적용
-./bin/orca_auto cleanup --root ~/orca_outputs --apply
-
-# 특정 디렉터리만 대상
-./bin/orca_auto cleanup --reaction-dir ~/orca_outputs/opt/H2/run_001 --apply
-```
-
-보존 파일: `.inp`, `.out`, `.xyz`, `.gbw`, `.hess`, `run_state.json`, `run_report.json`, `run_report.md`
-기본 삭제 대상: `.densities`, `.engrad`, `.tmp`, `.prop`, `.scfp`, `.opt` 등
-
-`retry*.inp`, `retry*.out`, `*_trj.xyz`까지 삭제하려면 `cleanup.remove_overrides_keep: true`를 설정하세요.
-
-> 보존/삭제 기준은 `config/orca_auto.yaml`의 `cleanup` 섹션에서 변경할 수 있습니다.
-
 ### 자주 쓰는 옵션
 
 | 옵션 | 설명 | 예시 |
@@ -112,7 +90,6 @@ bash scripts/install_cron.sh
 
 스케줄:
 - **토요일 자정**: `organize --apply` (완료된 계산을 `~/orca_outputs`로 이동)
-- **일요일 자정**: `cleanup --apply` (불필요한 파일 삭제)
 
 ### 작동 원리 한눈에 보기
 
@@ -190,8 +167,7 @@ core/
 ├── commands/             # CLI 커맨드 핸들러
 │   ├── _helpers.py       # 공유 유틸 (검증, 포맷, 설정 경로)
 │   ├── run_inp.py        # run-inp, status 커맨드
-│   ├── organize.py       # organize 커맨드
-│   └── cleanup.py        # cleanup 커맨드
+│   └── organize.py       # organize 커맨드
 ├── orca_parser.py        # ORCA 출력 파서
 ├── dft_discovery.py      # 완료 계산 탐색
 ├── dft_index.py          # SQLite 인덱스 관리

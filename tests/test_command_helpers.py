@@ -5,8 +5,6 @@ import unittest
 from pathlib import Path
 
 from core.commands._helpers import (
-    _validate_cleanup_reaction_dir,
-    _validate_organized_root_dir,
     _validate_reaction_dir,
     _validate_root_scan_dir,
     finalize_batch_apply,
@@ -68,31 +66,6 @@ class TestCommandPathValidators(unittest.TestCase):
             with self.subTest("allowed_root_mismatch"):
                 with self.assertRaises(ValueError):
                     _validate_root_scan_dir(cfg, str(allowed / "nested"))
-            with self.subTest("organized_root_exact"):
-                self.assertEqual(_validate_organized_root_dir(cfg, str(organized)), organized.resolve())
-            with self.subTest("organized_root_mismatch"):
-                with self.assertRaises(ValueError):
-                    _validate_organized_root_dir(cfg, str(root / "other"))
-
-    def test_cleanup_reaction_dir_must_be_under_organized_root(self) -> None:
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            allowed = root / "allowed"
-            organized = root / "organized"
-            cleanup_dir = organized / "opt" / "H2" / "run_001"
-            outside = allowed / "run_001"
-            allowed.mkdir()
-            organized.mkdir()
-            cleanup_dir.mkdir(parents=True)
-            outside.mkdir()
-            cfg = _cfg(allowed, organized)
-
-            self.assertEqual(
-                _validate_cleanup_reaction_dir(cfg, str(cleanup_dir)),
-                cleanup_dir.resolve(),
-            )
-            with self.assertRaises(ValueError):
-                _validate_cleanup_reaction_dir(cfg, str(outside))
 
 
 class TestFinalizeBatchApply(unittest.TestCase):

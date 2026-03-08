@@ -6,11 +6,9 @@ and ``load_config()`` in the main module.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, List
+from typing import Any
 
 from .pathing import is_subpath, is_rejected_windows_path
-
-_FALLBACK_KEEP_EXTENSIONS = [".inp", ".out", ".xyz", ".gbw", ".hess"]
 
 
 def _as_int(value: Any, default: int) -> int:
@@ -52,54 +50,3 @@ def _validate_config(cfg: Any) -> None:
             f"organized_root and allowed_root must not contain each other: "
             f"allowed_root={ar}, organized_root={org}"
         )
-
-
-def _normalize_extensions(raw: Any, defaults: List[str] | None = None) -> List[str]:
-    if defaults is None:
-        defaults = _FALLBACK_KEEP_EXTENSIONS
-    if not isinstance(raw, list):
-        return list(defaults)
-    seen: set[str] = set()
-    result: list[str] = []
-    for item in raw:
-        if not isinstance(item, str):
-            continue
-        ext = item.strip().lower()
-        if not ext:
-            continue
-        if not ext.startswith("."):
-            ext = "." + ext
-        if ext not in seen:
-            seen.add(ext)
-            result.append(ext)
-    return result
-
-
-def _normalize_string_list(raw: Any, defaults: List[str]) -> List[str]:
-    if not isinstance(raw, list):
-        return list(defaults)
-    seen: set[str] = set()
-    result: list[str] = []
-    for item in raw:
-        if not isinstance(item, str):
-            continue
-        val = item.strip()
-        if not val:
-            continue
-        if val not in seen:
-            seen.add(val)
-            result.append(val)
-    return result
-
-
-def _validate_cleanup_config(cleanup: Any) -> None:
-    if not cleanup.keep_extensions:
-        raise ValueError(
-            "cleanup.keep_extensions must not be empty (data loss risk)"
-        )
-    if not cleanup.keep_filenames:
-        raise ValueError(
-            "cleanup.keep_filenames must not be empty (data loss risk)"
-        )
-
-

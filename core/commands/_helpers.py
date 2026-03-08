@@ -69,30 +69,6 @@ def _validate_root_scan_dir(cfg: AppConfig, root_raw: str) -> Path:
     return root
 
 
-def _validate_organized_root_dir(cfg: AppConfig, root_raw: str) -> Path:
-    root = _to_resolved_local(root_raw)
-    if not root.exists() or not root.is_dir():
-        raise ValueError(f"Root directory not found: {root}")
-    organized_root = _to_resolved_local(cfg.runtime.organized_root)
-    if root != organized_root:
-        raise ValueError(
-            f"--root must exactly match organized_root: {organized_root}. got={root}"
-        )
-    return root
-
-
-def _validate_cleanup_reaction_dir(cfg: AppConfig, reaction_dir_raw: str) -> Path:
-    reaction_dir = _to_resolved_local(reaction_dir_raw)
-    if not reaction_dir.exists() or not reaction_dir.is_dir():
-        raise ValueError(f"Reaction directory not found: {reaction_dir}")
-    organized_root = _to_resolved_local(cfg.runtime.organized_root)
-    if not is_subpath(reaction_dir, organized_root):
-        raise ValueError(
-            f"Reaction directory must be under organized_root: {organized_root}. got={reaction_dir}"
-        )
-    return reaction_dir
-
-
 def _human_bytes(n: int) -> str:
     value = float(n)
     for unit in ("B", "KB", "MB", "GB"):

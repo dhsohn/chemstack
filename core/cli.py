@@ -5,7 +5,6 @@ import logging
 import sys
 
 from .commands._helpers import CONFIG_ENV_VAR, default_config_path
-from .commands.cleanup import cmd_cleanup as _cmd_cleanup
 from .commands.organize import cmd_organize as _cmd_organize
 from .commands.run_inp import (
     _retry_inp_path,
@@ -26,10 +25,6 @@ def cmd_run_inp(args: argparse.Namespace) -> int:
 
 def cmd_organize(args: argparse.Namespace) -> int:
     return int(_cmd_organize(args))
-
-
-def cmd_cleanup(args: argparse.Namespace) -> int:
-    return int(_cmd_cleanup(args))
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -57,15 +52,6 @@ def build_parser() -> argparse.ArgumentParser:
     organize.add_argument("--rebuild-index", action="store_true", default=False, help="Rebuild JSONL index from organized directories")
     organize.add_argument("--json", action="store_true")
 
-    cleanup = sub.add_parser("cleanup")
-    cleanup.add_argument("--reaction-dir", default=None,
-                         help="Single reaction directory under organized_root to clean")
-    cleanup.add_argument("--root", default=None,
-                         help="Root directory to scan (must match organized_root)")
-    cleanup.add_argument("--apply", action="store_true", default=False,
-                         help="Actually delete files (default is dry-run)")
-    cleanup.add_argument("--json", action="store_true")
-
     return parser
 
 
@@ -84,7 +70,6 @@ def main(argv: list[str] | None = None) -> int:
         "run-inp": cmd_run_inp,
         "status": cmd_status,
         "organize": cmd_organize,
-        "cleanup": cmd_cleanup,
     }
     handler = command_map[args.command]
     return int(handler(args))
