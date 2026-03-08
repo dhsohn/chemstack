@@ -25,6 +25,24 @@ def rewrite_for_retry(source_inp: Path, target_inp: Path, reaction_dir: Path, st
         changed |= _set_block_key_value(lines, "geom", "MaxIter", "300")
         if changed:
             actions.append("geom_hessian_and_maxiter")
+    elif step == 3:
+        # Increase memory and relax convergence for memory/geometry issues
+        if _increase_maxcore(lines):
+            actions.append("maxcore_increased")
+        if _ensure_route_keywords(lines, ["LooseOpt"]):
+            actions.append("route_add_looseopt")
+    elif step == 4:
+        # Combine all strategies: hessian + more memory + relaxed convergence
+        changed = False
+        changed |= _set_block_key_value(lines, "geom", "Calc_Hess", "true")
+        changed |= _set_block_key_value(lines, "geom", "Recalc_Hess", "5")
+        changed |= _set_block_key_value(lines, "geom", "MaxIter", "500")
+        if changed:
+            actions.append("geom_hessian_and_maxiter_500")
+        if _increase_maxcore(lines):
+            actions.append("maxcore_increased")
+        if _ensure_route_keywords(lines, ["TightSCF", "SlowConv"]):
+            actions.append("route_add_tightscf_slowconv")
     else:
         actions.append("no_recipe_applied")
 
@@ -124,6 +142,54 @@ def _set_block_key_value(lines: List[str], block_name: str, key: str, value: str
         lines.insert(end, f"  {key} {value}")
         changed = True
     return changed
+
+
+_MAXCORE_RE = re.compile(r"^\s*%maxcore\s+(\d+)", re.IGNORECASE)
+_DEFAULT_MAXCORE_MB = 4000
+_MAXCORE_INCREASE_FACTOR = 1.5
+
+
+def _read_maxcore(lines: List[str]) -> Optional[int]:
+    """Read the %maxcore value (in MB) from the input file."""
+    for line in lines:
+        m = _MAXCORE_RE.match(line)
+        if m:
+            try:
+                return int(m.group(1))
+            except ValueError:
+                return None
+    return None
+
+
+def _set_maxcore(lines: List[str], value_mb: int) -> bool:
+    """Set or update the %maxcore directive."""
+    for i, line in enumerate(lines):
+        m = _MAXCORE_RE.match(line)
+        if m:
+            new_line = f"%maxcore {value_mb}"
+            if lines[i].strip() == new_line:
+                return False
+            lines[i] = new_line
+            return True
+    # Insert before geometry block or at top
+    insert_at = _find_route_idx(lines)
+    if insert_at is not None:
+        insert_at += 1
+    else:
+        insert_at = 0
+    lines.insert(insert_at, f"%maxcore {value_mb}")
+    return True
+
+
+def _increase_maxcore(lines: List[str]) -> bool:
+    """Increase %maxcore by 50%, or set a default if not present."""
+    current = _read_maxcore(lines)
+    if current is None:
+        return _set_maxcore(lines, _DEFAULT_MAXCORE_MB)
+    new_value = int(current * _MAXCORE_INCREASE_FACTOR)
+    if new_value <= current:
+        new_value = current + 1000
+    return _set_maxcore(lines, new_value)
 
 
 def _read_nprocs(lines: List[str]) -> Optional[int]:

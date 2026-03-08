@@ -8,10 +8,11 @@ from typing import Any, Dict, Type
 from ..attempt_engine import _exit_with_result, run_attempts
 from ..completion_rules import detect_completion_mode
 from ..config import load_config
+from ..lock_utils import is_process_alive, parse_lock_info
 from ..orca_runner import OrcaRunner
 from ..out_analyzer import analyze_output
-from ..state_machine import load_or_create_state
-from ..state_store import acquire_run_lock, load_state, state_path
+from ..state_machine import RESUMABLE_RUN_STATUSES, load_or_create_state
+from ..state_store import LOCK_FILE_NAME, acquire_run_lock, load_state, save_state, state_path
 from ..statuses import AnalyzerStatus, RunStatus
 from ._helpers import ORCA_GENERATED_INP_RE, RETRY_INP_RE, _emit, _to_resolved_local, _validate_reaction_dir
 
@@ -99,6 +100,47 @@ def cmd_status(args: Any) -> int:
     return 0
 
 
+def _recover_crashed_state(reaction_dir: Path) -> bool:
+    """Detect and recover from a crashed run (status=running/retrying but no active lock).
+
+    If the previous process crashed, we mark the state as failed with reason
+    'crashed_recovery' so that the next load_or_create_state treats it as
+    resumable and continues from where it left off.
+
+    Returns True if recovery was performed.
+    """
+    state = load_state(reaction_dir)
+    if not state:
+        return False
+
+    status = str(state.get("status", "")).strip()
+    if status not in RESUMABLE_RUN_STATUSES:
+        return False
+
+    # Check if the lock is held by an active process
+    lock_path = reaction_dir / LOCK_FILE_NAME
+    if lock_path.exists():
+        lock_info = parse_lock_info(lock_path)
+        lock_pid = lock_info.get("pid")
+        if isinstance(lock_pid, int) and is_process_alive(lock_pid):
+            return False  # Another process is actually running
+
+    # State says running/retrying but no active lock → crashed
+    logger.warning(
+        "Detected crashed run in %s (status=%s, no active lock). Recovering state.",
+        reaction_dir,
+        status,
+    )
+    state["status"] = RunStatus.FAILED.value
+    state["final_result"] = {
+        "status": RunStatus.FAILED.value,
+        "reason": "crashed_recovery",
+        "analyzer_status": AnalyzerStatus.INCOMPLETE.value,
+    }
+    save_state(reaction_dir, state)
+    return True
+
+
 def cmd_run_inp(args: Any, *, runner_cls: Type[OrcaRunner] = OrcaRunner) -> int:
     cfg = load_config(args.config)
     try:
@@ -112,6 +154,9 @@ def cmd_run_inp(args: Any, *, runner_cls: Type[OrcaRunner] = OrcaRunner) -> int:
 
     max_retries = int(args.max_retries if args.max_retries is not None else cfg.runtime.default_max_retries)
     max_retries = max(0, max_retries)
+
+    # Recover from crashes before attempting to acquire the lock
+    _recover_crashed_state(reaction_dir)
 
     try:
         with acquire_run_lock(reaction_dir):

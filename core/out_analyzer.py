@@ -67,6 +67,8 @@ def _default_markers(out_path: Path) -> Dict[str, Any]:
         "disk_io_error": False,
         "generic_error_termination": False,
         "ts_failure_marker": False,
+        "memory_error": False,
+        "geom_not_converged": False,
         "total_run_time_seen": False,
     }
 
@@ -93,6 +95,10 @@ def _scan_line_for_markers(line: str, markers: Dict[str, Any]) -> None:
         markers["generic_error_termination"] = True
     if "NO ACCEPTABLE TS" in upper or "FAILED TO FIND TS" in upper:
         markers["ts_failure_marker"] = True
+    if "OUT OF MEMORY" in upper or "INSUFFICIENT MEMORY" in upper or "CANNOT ALLOCATE MEMORY" in upper:
+        markers["memory_error"] = True
+    if "THE OPTIMIZATION DID NOT CONVERGE" in upper or "OPTIMIZATION HAS NOT YET CONVERGED" in upper:
+        markers["geom_not_converged"] = True
 
 
 def _scan_text_for_markers(text: str, markers: Dict[str, Any]) -> None:
@@ -109,10 +115,14 @@ def _interpret_markers(markers: Dict[str, Any], mode: CompletionMode) -> OutAnal
         )
     if markers["disk_io_error"]:
         return OutAnalysis(status=AnalyzerStatus.ERROR_DISK_IO, reason="disk_write_failed", markers=markers)
+    if markers["memory_error"]:
+        return OutAnalysis(status=AnalyzerStatus.ERROR_MEMORY, reason="out_of_memory", markers=markers)
     if markers["scfgrad_abort"]:
         return OutAnalysis(status=AnalyzerStatus.ERROR_SCFGRAD_ABORT, reason="scf_gradient_abort", markers=markers)
     if markers["scf_error"]:
         return OutAnalysis(status=AnalyzerStatus.ERROR_SCF, reason="scf_not_converged", markers=markers)
+    if markers["geom_not_converged"] and not markers["terminated_normally"]:
+        return OutAnalysis(status=AnalyzerStatus.GEOM_NOT_CONVERGED, reason="geometry_not_converged", markers=markers)
 
     if markers["terminated_normally"]:
         if mode.kind == "ts":

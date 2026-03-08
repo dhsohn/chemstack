@@ -1,0 +1,296 @@
+"""Tests for retry expansion, crash recovery, and structured logging."""
+
+from __future__ import annotations
+
+import json
+import logging
+import tempfile
+import unittest
+from pathlib import Path
+from unittest.mock import patch
+
+from core.cli import main
+from core.completion_rules import CompletionMode
+from core.inp_rewriter import rewrite_for_retry
+from core.json_logger import JSONFormatter
+from core.orca_runner import RunResult
+from core.out_analyzer import analyze_output
+from core.state_machine import (
+    RESUMABLE_FAILED_REASONS,
+    decide_attempt_outcome,
+    is_resumable_state,
+)
+from core.statuses import AnalyzerStatus
+
+
+# ── Retry Strategy Expansion ──
+
+
+class TestMemoryErrorDetection(unittest.TestCase):
+    def _analyze(self, text: str) -> AnalyzerStatus:
+        with tempfile.TemporaryDirectory() as td:
+            out = Path(td) / "calc.out"
+            out.write_text(text, encoding="utf-8")
+            result = analyze_output(out, CompletionMode(kind="opt", require_irc=False, route_line="! Opt"))
+        return result.status
+
+    def test_out_of_memory(self) -> None:
+        self.assertEqual(self._analyze("OUT OF MEMORY\n"), AnalyzerStatus.ERROR_MEMORY)
+
+    def test_insufficient_memory(self) -> None:
+        self.assertEqual(self._analyze("INSUFFICIENT MEMORY\n"), AnalyzerStatus.ERROR_MEMORY)
+
+    def test_cannot_allocate_memory(self) -> None:
+        self.assertEqual(self._analyze("CANNOT ALLOCATE MEMORY\n"), AnalyzerStatus.ERROR_MEMORY)
+
+    def test_memory_takes_priority_over_scf(self) -> None:
+        text = "OUT OF MEMORY\nSCF NOT CONVERGED\n"
+        self.assertEqual(self._analyze(text), AnalyzerStatus.ERROR_MEMORY)
+
+
+class TestGeomNotConvergedDetection(unittest.TestCase):
+    def _analyze(self, text: str) -> AnalyzerStatus:
+        with tempfile.TemporaryDirectory() as td:
+            out = Path(td) / "calc.out"
+            out.write_text(text, encoding="utf-8")
+            result = analyze_output(out, CompletionMode(kind="opt", require_irc=False, route_line="! Opt"))
+        return result.status
+
+    def test_optimization_did_not_converge(self) -> None:
+        self.assertEqual(
+            self._analyze("THE OPTIMIZATION DID NOT CONVERGE\n"),
+            AnalyzerStatus.GEOM_NOT_CONVERGED,
+        )
+
+    def test_optimization_not_yet_converged(self) -> None:
+        self.assertEqual(
+            self._analyze("OPTIMIZATION HAS NOT YET CONVERGED\n"),
+            AnalyzerStatus.GEOM_NOT_CONVERGED,
+        )
+
+    def test_geom_not_converged_if_terminated_normally_still_completed(self) -> None:
+        # If ORCA terminated normally despite geom warning, treat as completed
+        text = "OPTIMIZATION HAS NOT YET CONVERGED\n****ORCA TERMINATED NORMALLY****\n"
+        self.assertEqual(self._analyze(text), AnalyzerStatus.COMPLETED)
+
+
+class TestNewRecipeSteps(unittest.TestCase):
+    BASE_INP = "! Opt B3LYP def2-SVP\n\n* xyz 0 1\nH 0 0 0\nH 0 0 0.74\n*\n"
+
+    def test_step3_increases_maxcore_and_adds_looseopt(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            src = root / "rxn.inp"
+            dst = root / "rxn.retry03.inp"
+            src.write_text(self.BASE_INP, encoding="utf-8")
+            actions = rewrite_for_retry(src, dst, root, step=3)
+            out = dst.read_text(encoding="utf-8")
+        self.assertIn("maxcore_increased", actions)
+        self.assertIn("route_add_looseopt", actions)
+        self.assertIn("%maxcore", out)
+        self.assertIn("LooseOpt", out)
+
+    def test_step3_increases_existing_maxcore(self) -> None:
+        inp_text = "%maxcore 2000\n" + self.BASE_INP
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            src = root / "rxn.inp"
+            dst = root / "rxn.retry03.inp"
+            src.write_text(inp_text, encoding="utf-8")
+            actions = rewrite_for_retry(src, dst, root, step=3)
+            out = dst.read_text(encoding="utf-8")
+        self.assertIn("maxcore_increased", actions)
+        self.assertIn("%maxcore 3000", out)
+
+    def test_step4_combines_hessian_maxcore_scf(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            src = root / "rxn.inp"
+            dst = root / "rxn.retry04.inp"
+            src.write_text(self.BASE_INP, encoding="utf-8")
+            actions = rewrite_for_retry(src, dst, root, step=4)
+            out = dst.read_text(encoding="utf-8")
+        self.assertIn("geom_hessian_and_maxiter_500", actions)
+        self.assertIn("maxcore_increased", actions)
+        self.assertIn("Calc_Hess", out)
+        self.assertIn("MaxIter 500", out)
+        self.assertIn("%maxcore", out)
+
+    def test_step5_no_recipe(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            src = root / "rxn.inp"
+            dst = root / "rxn.retry05.inp"
+            src.write_text(self.BASE_INP, encoding="utf-8")
+            actions = rewrite_for_retry(src, dst, root, step=5)
+        self.assertIn("no_recipe_applied", actions)
+
+
+class TestDecideAttemptOutcomeExpanded(unittest.TestCase):
+    def test_memory_error_is_retryable(self) -> None:
+        result = decide_attempt_outcome(
+            analyzer_status=AnalyzerStatus.ERROR_MEMORY,
+            analyzer_reason="out_of_memory",
+            retries_used=0,
+            max_retries=4,
+        )
+        self.assertIsNone(result)  # None means "keep retrying"
+
+    def test_geom_not_converged_is_retryable(self) -> None:
+        result = decide_attempt_outcome(
+            analyzer_status=AnalyzerStatus.GEOM_NOT_CONVERGED,
+            analyzer_reason="geometry_not_converged",
+            retries_used=0,
+            max_retries=4,
+        )
+        self.assertIsNone(result)
+
+
+# ── Crash Recovery ──
+
+
+class TestCrashRecovery(unittest.TestCase):
+    def _write_config(self, root: Path, allowed_root: Path) -> Path:
+        fake_orca = root / "fake_orca"
+        fake_orca.touch()
+        fake_orca.chmod(0o755)
+        config = root / "orca_auto.yaml"
+        config.write_text(
+            json.dumps(
+                {
+                    "runtime": {
+                        "allowed_root": str(allowed_root),
+                        "default_max_retries": 4,
+                    },
+                    "paths": {"orca_executable": str(fake_orca)},
+                }
+            ),
+            encoding="utf-8",
+        )
+        return config
+
+    def test_crashed_recovery_is_resumable_reason(self) -> None:
+        self.assertIn("crashed_recovery", RESUMABLE_FAILED_REASONS)
+
+    def test_crashed_state_is_resumable(self) -> None:
+        state = {
+            "status": "failed",
+            "final_result": {"reason": "crashed_recovery"},
+        }
+        self.assertTrue(is_resumable_state(state))
+
+    def test_crash_recovery_resumes_and_completes(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            reaction = root / "orca_runs" / "rxn_crash"
+            reaction.mkdir(parents=True)
+            inp = reaction / "rxn.inp"
+            inp.write_text("! Opt\n* xyz 0 1\nH 0 0 0\nH 0 0 0.74\n*\n", encoding="utf-8")
+            config = self._write_config(root, root / "orca_runs")
+
+            # Simulate a crashed state: status=running, no lock file
+            state = {
+                "run_id": "run_crashed",
+                "reaction_dir": str(reaction),
+                "selected_inp": str(inp),
+                "max_retries": 4,
+                "status": "running",
+                "started_at": "2026-01-01T00:00:00+00:00",
+                "updated_at": "2026-01-01T00:00:00+00:00",
+                "attempts": [
+                    {
+                        "index": 1,
+                        "inp_path": str(inp),
+                        "out_path": str(reaction / "rxn.out"),
+                        "return_code": 1,
+                        "analyzer_status": "error_scf",
+                        "analyzer_reason": "scf_not_converged",
+                        "markers": {},
+                        "patch_actions": [],
+                        "started_at": "2026-01-01T00:00:00+00:00",
+                        "ended_at": "2026-01-01T00:00:01+00:00",
+                    }
+                ],
+                "final_result": None,
+            }
+            (reaction / "run_state.json").write_text(json.dumps(state), encoding="utf-8")
+            # No run.lock file → crashed
+
+            def _fake_run(_self, inp_path: Path) -> RunResult:
+                out = inp_path.with_suffix(".out")
+                out.write_text("****ORCA TERMINATED NORMALLY****\n", encoding="utf-8")
+                return RunResult(out_path=str(out), return_code=0)
+
+            with patch("core.cli.OrcaRunner.run", new=_fake_run):
+                rc = main(
+                    ["--config", str(config), "run-inp", "--reaction-dir", str(reaction)]
+                )
+            saved = json.loads((reaction / "run_state.json").read_text(encoding="utf-8"))
+
+        self.assertEqual(rc, 0)
+        self.assertEqual(saved["run_id"], "run_crashed")  # Preserved run_id
+        self.assertEqual(saved["status"], "completed")
+        self.assertTrue(saved["final_result"]["resumed"])
+
+
+# ── Structured JSON Logging ──
+
+
+class TestJSONFormatter(unittest.TestCase):
+    def test_format_produces_valid_json(self) -> None:
+        formatter = JSONFormatter()
+        record = logging.LogRecord(
+            name="test.logger",
+            level=logging.INFO,
+            pathname="test.py",
+            lineno=1,
+            msg="Hello %s",
+            args=("world",),
+            exc_info=None,
+        )
+        line = formatter.format(record)
+        parsed = json.loads(line)
+        self.assertEqual(parsed["level"], "INFO")
+        self.assertEqual(parsed["logger"], "test.logger")
+        self.assertEqual(parsed["message"], "Hello world")
+        self.assertIn("timestamp", parsed)
+
+    def test_format_includes_exception(self) -> None:
+        formatter = JSONFormatter()
+        try:
+            raise ValueError("test error")
+        except ValueError:
+            import sys
+            exc_info = sys.exc_info()
+
+        record = logging.LogRecord(
+            name="test",
+            level=logging.ERROR,
+            pathname="test.py",
+            lineno=1,
+            msg="boom",
+            args=(),
+            exc_info=exc_info,
+        )
+        line = formatter.format(record)
+        parsed = json.loads(line)
+        self.assertIn("exception", parsed)
+        self.assertTrue(any("ValueError" in e for e in parsed["exception"]))
+
+
+class TestCLIJsonLogFlag(unittest.TestCase):
+    def test_json_log_flag_is_accepted(self) -> None:
+        from core.cli import build_parser
+        parser = build_parser()
+        args = parser.parse_args(["--json-log", "list"])
+        self.assertTrue(args.json_log)
+
+    def test_log_file_flag_is_accepted(self) -> None:
+        from core.cli import build_parser
+        parser = build_parser()
+        args = parser.parse_args(["--log-file", "/tmp/test.log", "list"])
+        self.assertEqual(args.log_file, "/tmp/test.log")
+
+
+if __name__ == "__main__":
+    unittest.main()

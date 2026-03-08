@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import logging.handlers
 import sys
 
 from .commands._helpers import (
@@ -56,6 +57,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="orca_auto")
     parser.add_argument("--config", default=default_config_path(), help="Path to orca_auto.yaml")
     parser.add_argument("--verbose", "-v", action="store_true", help="Enable debug logging")
+    parser.add_argument("--json-log", action="store_true", help="Emit structured JSON log lines")
+    parser.add_argument("--log-file", default=None, help="Write logs to file (with rotation, max 10MB x 5)")
     sub = parser.add_subparsers(dest="command", required=True)
 
     run_inp = sub.add_parser("run-inp")
@@ -89,16 +92,40 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _configure_logging(args: argparse.Namespace) -> None:
+    """Set up logging based on CLI flags."""
+    log_level = logging.DEBUG if getattr(args, "verbose", False) else logging.INFO
+    use_json = getattr(args, "json_log", False)
+    log_file = getattr(args, "log_file", None)
+
+    root_logger = logging.getLogger()
+    root_logger.setLevel(log_level)
+
+    if use_json:
+        from .json_logger import JSONFormatter
+        formatter: logging.Formatter = JSONFormatter()
+    else:
+        formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+
+    if log_file:
+        handler: logging.Handler = logging.handlers.RotatingFileHandler(
+            log_file,
+            maxBytes=10 * 1024 * 1024,  # 10 MB
+            backupCount=5,
+            encoding="utf-8",
+        )
+    else:
+        handler = logging.StreamHandler(sys.stderr)
+
+    handler.setFormatter(formatter)
+    root_logger.addHandler(handler)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
 
-    log_level = logging.DEBUG if getattr(args, "verbose", False) else logging.INFO
-    logging.basicConfig(
-        level=log_level,
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-        stream=sys.stderr,
-    )
+    _configure_logging(args)
 
     command_map = {
         "run-inp": cmd_run_inp,

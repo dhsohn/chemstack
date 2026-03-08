@@ -50,12 +50,13 @@ class TestAttemptEngine(unittest.TestCase):
 
 
 class TestRetryRecipeStep(unittest.TestCase):
-    def test_retry_recipe_step_caps_to_two_recipes(self) -> None:
+    def test_retry_recipe_step_caps_to_max_recipes(self) -> None:
         self.assertEqual(_retry_recipe_step(1), 1)
         self.assertEqual(_retry_recipe_step(2), 2)
-        self.assertEqual(_retry_recipe_step(3), 2)
-        self.assertEqual(_retry_recipe_step(4), 2)
-        self.assertEqual(_retry_recipe_step(8), 2)
+        self.assertEqual(_retry_recipe_step(3), 3)
+        self.assertEqual(_retry_recipe_step(4), 4)
+        self.assertEqual(_retry_recipe_step(5), 4)
+        self.assertEqual(_retry_recipe_step(8), 4)
 
 
 if __name__ == "__main__":

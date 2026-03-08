@@ -9,9 +9,9 @@ from .statuses import AnalyzerStatus, RunStatus
 from .types import RunState
 
 
-MAX_RETRY_RECIPES = 2
+MAX_RETRY_RECIPES = 4
 RESUMABLE_RUN_STATUSES = {RunStatus.RUNNING.value, RunStatus.RETRYING.value}
-RESUMABLE_FAILED_REASONS = {"interrupted_by_user"}
+RESUMABLE_FAILED_REASONS = {"interrupted_by_user", "crashed_recovery"}
 
 
 @dataclass(frozen=True)

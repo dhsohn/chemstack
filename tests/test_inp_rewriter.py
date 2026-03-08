@@ -56,17 +56,17 @@ class TestInpRewriter(unittest.TestCase):
     def test_step_above_supported_recipes_marks_no_recipe(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
-            src = root / "rxn.retry03.inp"
-            dst = root / "rxn.retry04.inp"
+            src = root / "rxn.retry05.inp"
+            dst = root / "rxn.retry06.inp"
             src.write_text(BASE_INP, encoding="utf-8")
-            (root / "rxn.retry03.xyz").write_text("2\n\nH 0 0 0\nH 0 0 0.85\n", encoding="utf-8")
+            (root / "rxn.retry05.xyz").write_text("2\n\nH 0 0 0\nH 0 0 0.85\n", encoding="utf-8")
 
-            actions = rewrite_for_retry(src, dst, root, step=4)
+            actions = rewrite_for_retry(src, dst, root, step=5)
             text = dst.read_text(encoding="utf-8")
 
         self.assertIn("no_recipe_applied", actions)
-        self.assertIn("geometry_restart_from_rxn.retry03.xyz", actions)
-        self.assertIn("* xyzfile 0 1 rxn.retry03.xyz", text)
+        self.assertIn("geometry_restart_from_rxn.retry05.xyz", actions)
+        self.assertIn("* xyzfile 0 1 rxn.retry05.xyz", text)
 
     def test_fallbacks_to_latest_geometry_when_previous_xyz_missing(self) -> None:
         with tempfile.TemporaryDirectory() as td:
