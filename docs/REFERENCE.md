@@ -45,10 +45,10 @@
 ## 4) 요구 환경
 
 - Linux (WSL2 또는 네이티브 Linux)
-- ORCA Linux 바이너리 경로 접근 가능 (`~/opt/orca/orca`)
+- ORCA Linux 바이너리 경로 접근 가능 (예: `/opt/orca/orca`)
 - ORCA 의존성: OpenMPI, BLAS/LAPACK 등
 - Python 3.10+
-- 입력 데이터 루트: `~/orca_runs` (ext4 파일시스템 권장)
+- 입력 데이터 루트: 명시적 절대 경로 (ext4 파일시스템 권장)
 
 ## 5) 설치 및 초기 준비
 
@@ -72,7 +72,7 @@ bash scripts/bootstrap_wsl.sh
 
 ## 6) 설정 파일
 
-설정 파일: `~/orca_auto/config/orca_auto.yaml`
+설정 파일: `<project_root>/config/orca_auto.yaml`
 
 기본 설정 경로 탐색 순서:
 
@@ -82,19 +82,19 @@ bash scripts/bootstrap_wsl.sh
 
 ```yaml
 runtime:
-  allowed_root: "/home/daehyupsohn/orca_runs"
-  organized_root: "/home/daehyupsohn/orca_outputs"
+  allowed_root: "/path/to/orca_runs"
+  organized_root: "/path/to/orca_outputs"
   default_max_retries: 2
 
 paths:
-  orca_executable: "/home/daehyupsohn/opt/orca/orca"
+  orca_executable: "/path/to/orca/orca"
 
 ```
 
 필드 설명:
 
 - `runtime.allowed_root`: 실행 허용 디렉터리 루트
-- `runtime.organized_root`: organize 대상 루트
+- `runtime.organized_root`: organize 대상 루트 (생략 시 `allowed_root` 옆의 `orca_outputs`)
 - `runtime.default_max_retries`: 최대 재시도 횟수
 - `paths.orca_executable`: ORCA 실행 파일 경로
 
@@ -109,13 +109,13 @@ paths:
 
 ```bash
 cd ~/orca_auto
-./bin/orca_auto run-inp --reaction-dir '/home/daehyupsohn/orca_runs/Int1_DMSO' --json
+./bin/orca_auto run-inp --reaction-dir '/absolute/path/to/orca_runs/Int1_DMSO' --json
 ```
 
 설치형 엔트리포인트를 사용할 경우:
 
 ```bash
-orca_auto run-inp --reaction-dir '/home/daehyupsohn/orca_runs/Int1_DMSO' --json
+orca_auto run-inp --reaction-dir '/absolute/path/to/orca_runs/Int1_DMSO' --json
 ```
 
 기본 동작:
@@ -138,7 +138,7 @@ orca_auto run-inp --reaction-dir '/home/daehyupsohn/orca_runs/Int1_DMSO' --json
 ### 7.2 상태 확인
 
 ```bash
-./bin/orca_auto status --reaction-dir '/home/daehyupsohn/orca_runs/Int1_DMSO' --json
+./bin/orca_auto status --reaction-dir '/absolute/path/to/orca_runs/Int1_DMSO' --json
 ```
 
 옵션:
@@ -149,8 +149,8 @@ orca_auto run-inp --reaction-dir '/home/daehyupsohn/orca_runs/Int1_DMSO' --json
 ### 7.3 결과 정리
 
 ```bash
-./bin/orca_auto organize --root '/home/daehyupsohn/orca_runs' --json
-./bin/orca_auto organize --root '/home/daehyupsohn/orca_runs' --apply
+./bin/orca_auto organize --root '/absolute/path/to/orca_runs' --json
+./bin/orca_auto organize --root '/absolute/path/to/orca_runs' --apply
 ```
 
 옵션:
@@ -212,7 +212,7 @@ Opt 모드 완료 조건:
 
 ## 10) 출력 파일 설명
 
-실행 대상 디렉터리(`~/orca_runs/<reaction_dir>`)에 생성:
+실행 대상 디렉터리(`<allowed_root>/<reaction_dir>`)에 생성:
 
 - `<stem>.out`, `<stem>.retryNN.out`
 - `run_state.json`

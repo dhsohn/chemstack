@@ -170,16 +170,60 @@ class TestConfigValidation(unittest.TestCase):
             cfg = load_config(str(cfg_path))
             self.assertEqual(cfg.runtime.default_max_retries, 9)
 
-    def test_defaults_are_applied(self) -> None:
+    def test_missing_config_file_raises_with_setup_hint(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            cfg_path = Path(td) / "orca_auto.yaml"
+            with self.assertRaises(ValueError) as ctx:
+                load_config(str(cfg_path))
+            self.assertIn("Config file not found", str(ctx.exception))
+            self.assertIn("orca_auto.yaml.example", str(ctx.exception))
+
+    def test_missing_required_paths_raise_with_explicit_path_hint(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             cfg_path = Path(td) / "orca_auto.yaml"
             cfg_path.write_text("{}", encoding="utf-8")
+            with self.assertRaises(ValueError) as ctx:
+                load_config(str(cfg_path))
+            self.assertIn("runtime.allowed_root", str(ctx.exception))
+            self.assertIn("paths.orca_executable", str(ctx.exception))
+            self.assertIn("no longer assumes personal defaults", str(ctx.exception))
+
+    def test_organized_root_defaults_next_to_allowed_root(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            cfg_path = Path(td) / "orca_auto.yaml"
+            cfg_path.write_text(
+                json.dumps(
+                    {
+                        "runtime": {
+                            "allowed_root": "/data/orca_runs",
+                        },
+                        "paths": {"orca_executable": "/opt/orca/orca"},
+                    }
+                ),
+                encoding="utf-8",
+            )
             cfg = load_config(str(cfg_path))
-            home = str(Path.home())
-            self.assertEqual(cfg.runtime.allowed_root, f"{home}/orca_runs")
-            self.assertEqual(cfg.runtime.organized_root, f"{home}/orca_outputs")
+            self.assertEqual(cfg.runtime.organized_root, "/data/orca_outputs")
             self.assertEqual(cfg.runtime.default_max_retries, 2)
-            self.assertEqual(cfg.paths.orca_executable, f"{home}/opt/orca/orca")
+
+    def test_template_placeholder_paths_are_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            cfg_path = Path(td) / "orca_auto.yaml"
+            cfg_path.write_text(
+                json.dumps(
+                    {
+                        "runtime": {
+                            "allowed_root": "/path/to/orca_runs",
+                            "organized_root": "/path/to/orca_outputs",
+                        },
+                        "paths": {"orca_executable": "/path/to/orca/orca"},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with self.assertRaises(ValueError) as ctx:
+                load_config(str(cfg_path))
+            self.assertIn("template placeholder paths", str(ctx.exception))
 
     def test_windows_organized_root_raises(self) -> None:
         with tempfile.TemporaryDirectory() as td:

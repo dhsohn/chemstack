@@ -43,7 +43,8 @@ CONFIG="$ROOT/config/orca_auto.yaml"
 if [[ ! -f "$CONFIG" ]]; then
   cp "$ROOT/config/orca_auto.yaml.example" "$CONFIG"
   echo "[bootstrap] Created config/orca_auto.yaml from example template."
+  echo "[bootstrap] Edit config/orca_auto.yaml and replace /path/to/... placeholders before first run."
 fi
 
 echo "[bootstrap] Done."
-echo "[bootstrap] Example: ./bin/orca_auto run-inp --reaction-dir '/home/daehyupsohn/orca_runs/<dir>' --json"
+echo "[bootstrap] Example: ./bin/orca_auto run-inp --reaction-dir '/absolute/path/to/orca_runs/<dir>' --json"

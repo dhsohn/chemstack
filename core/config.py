@@ -14,17 +14,47 @@ from .config_validation import (
 
 logger = logging.getLogger(__name__)
 
-
-def _default_allowed_root() -> str:
-    return str(Path.home() / "orca_runs")
-
-
-def _default_organized_root() -> str:
-    return str(Path.home() / "orca_outputs")
+_CONFIG_TEMPLATE_RELATIVE_PATH = Path("config") / "orca_auto.yaml.example"
+_TEMPLATE_ALLOWED_ROOT = "/path/to/orca_runs"
+_TEMPLATE_ORGANIZED_ROOT = "/path/to/orca_outputs"
+_TEMPLATE_ORCA_EXECUTABLE = "/path/to/orca/orca"
 
 
-def _default_orca_executable() -> str:
-    return str(Path.home() / "opt" / "orca" / "orca")
+def _config_template_path() -> Path:
+    return Path(__file__).resolve().parents[1] / _CONFIG_TEMPLATE_RELATIVE_PATH
+
+
+def _default_organized_root(allowed_root: str) -> str:
+    allowed = Path(allowed_root).expanduser()
+    if not allowed.is_absolute():
+        return ""
+    return str(allowed.parent / "orca_outputs")
+
+
+def _missing_config_error(path: Path) -> ValueError:
+    template_path = _config_template_path()
+    return ValueError(
+        "Config file not found: "
+        f"{path}. Copy {template_path} to {path} and set explicit Linux paths for "
+        "runtime.allowed_root, runtime.organized_root, and paths.orca_executable."
+    )
+
+
+def _missing_required_settings_error(path: Path, missing_keys: list[str]) -> ValueError:
+    keys = ", ".join(missing_keys)
+    return ValueError(
+        "Config is missing required settings: "
+        f"{keys}. orca_auto no longer assumes personal defaults like ~/orca_runs or "
+        f"~/opt/orca/orca. Update {path} with explicit Linux paths."
+    )
+
+
+def _placeholder_settings_error(path: Path, placeholder_keys: list[str]) -> ValueError:
+    keys = ", ".join(placeholder_keys)
+    return ValueError(
+        "Config still contains template placeholder paths in "
+        f"{keys}. Edit {path} and replace /path/to/... values with your real Linux paths."
+    )
 
 
 @dataclass
@@ -35,19 +65,13 @@ class RuntimeConfig:
     default_max_retries: int = 2
 
     def __post_init__(self) -> None:
-        if not self.allowed_root:
-            self.allowed_root = _default_allowed_root()
-        if not self.organized_root:
-            self.organized_root = _default_organized_root()
+        if not self.organized_root and self.allowed_root:
+            self.organized_root = _default_organized_root(self.allowed_root)
 
 
 @dataclass
 class PathsConfig:
     orca_executable: str = ""
-
-    def __post_init__(self) -> None:
-        if not self.orca_executable:
-            self.orca_executable = _default_orca_executable()
 
 
 @dataclass
@@ -76,7 +100,7 @@ def load_config(config_path: str) -> AppConfig:
             if isinstance(parsed, dict):
                 raw = parsed
     else:
-        logger.warning("Config file not found, using defaults: %s", path)
+        raise _missing_config_error(path)
 
     runtime_raw = raw.get("runtime", {}) if isinstance(raw.get("runtime", {}), dict) else {}
     paths_raw = raw.get("paths", {}) if isinstance(raw.get("paths", {}), dict) else {}
@@ -87,13 +111,19 @@ def load_config(config_path: str) -> AppConfig:
             "runtime.platform_mode is removed. orca_auto is Linux-only; delete this legacy key from config."
         )
 
-    allowed_root = _as_str(
-        runtime_raw.get("allowed_root"),
-        _default_allowed_root(),
-    )
+    allowed_root = _as_str(runtime_raw.get("allowed_root"), "")
+    orca_executable = _as_str(paths_raw.get("orca_executable"), "")
+    missing_keys: list[str] = []
+    if not allowed_root:
+        missing_keys.append("runtime.allowed_root")
+    if not orca_executable:
+        missing_keys.append("paths.orca_executable")
+    if missing_keys:
+        raise _missing_required_settings_error(path, missing_keys)
+
     organized_root = _as_str(
         runtime_raw.get("organized_root"),
-        _default_organized_root(),
+        _default_organized_root(allowed_root),
     )
     default_max_retries = _as_int(
         runtime_raw.get("default_max_retries"),
@@ -112,10 +142,20 @@ def load_config(config_path: str) -> AppConfig:
             default_max_retries=max(0, default_max_retries),
         ),
         paths=PathsConfig(
-            orca_executable=_as_str(paths_raw.get("orca_executable"), _default_orca_executable()),
+            orca_executable=orca_executable,
         ),
         telegram=telegram_cfg,
     )
+    placeholder_keys: list[str] = []
+    if cfg.runtime.allowed_root == _TEMPLATE_ALLOWED_ROOT:
+        placeholder_keys.append("runtime.allowed_root")
+    if cfg.runtime.organized_root == _TEMPLATE_ORGANIZED_ROOT:
+        placeholder_keys.append("runtime.organized_root")
+    if cfg.paths.orca_executable == _TEMPLATE_ORCA_EXECUTABLE:
+        placeholder_keys.append("paths.orca_executable")
+    if placeholder_keys:
+        raise _placeholder_settings_error(path, placeholder_keys)
+
     _validate_config(cfg)
 
     logger.info(
