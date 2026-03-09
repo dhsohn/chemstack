@@ -5,13 +5,12 @@ from __future__ import annotations
 import subprocess
 import sys
 import tempfile
-import time
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from core.config import AppConfig, RuntimeConfig
-from core.queue_store import enqueue, dequeue_next, mark_completed
+from core.queue_store import enqueue, dequeue_next
 from core.queue_worker import (
     DEFAULT_MAX_CONCURRENT,
     QueueWorker,
@@ -21,7 +20,6 @@ from core.queue_worker import (
     _terminate_process,
     read_worker_pid,
 )
-from core.statuses import QueueStatus
 
 
 def _make_cfg(tmp: str) -> AppConfig:

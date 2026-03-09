@@ -7,7 +7,6 @@ import json
 import tempfile
 import unittest
 from contextlib import redirect_stdout
-from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
