@@ -39,6 +39,23 @@ class RunState(TypedDict, total=False):
     final_result: Optional[RunFinalResult]
 
 
+class QueueEntry(TypedDict, total=False):
+    """A single item in the task queue."""
+
+    queue_id: str
+    reaction_dir: str
+    status: str  # QueueStatus value
+    priority: int
+    enqueued_at: str
+    started_at: Optional[str]
+    finished_at: Optional[str]
+    cancel_requested: bool
+    run_id: Optional[str]
+    error: Optional[str]
+    force: bool
+    max_retries: Optional[int]
+
+
 class RunInfo(TypedDict):
     """Structured representation of a simulation run for display."""
 

@@ -13,6 +13,14 @@ from .commands.list_runs import cmd_list as _cmd_list
 from .commands.monitor import cmd_monitor as _cmd_monitor
 from .commands.organize import cmd_organize as _cmd_organize
 from .commands.summary import cmd_summary as _cmd_summary
+from .commands.queue import (
+    cmd_queue_add as _cmd_queue_add,
+    cmd_queue_cancel as _cmd_queue_cancel,
+    cmd_queue_clear as _cmd_queue_clear,
+    cmd_queue_list as _cmd_queue_list,
+    cmd_queue_stop as _cmd_queue_stop,
+    cmd_queue_worker as _cmd_queue_worker,
+)
 from .commands.run_inp import (
     _retry_inp_path as _retry_inp_path_impl,
     _select_latest_inp as _select_latest_inp_impl,
@@ -58,6 +66,22 @@ def cmd_bot(args: argparse.Namespace) -> int:
     return int(_run_bot(cfg))
 
 
+def cmd_queue(args: argparse.Namespace) -> int:
+    _queue_sub_map = {
+        "add": _cmd_queue_add,
+        "list": _cmd_queue_list,
+        "cancel": _cmd_queue_cancel,
+        "clear": _cmd_queue_clear,
+        "worker": _cmd_queue_worker,
+        "stop": _cmd_queue_stop,
+    }
+    handler = _queue_sub_map.get(args.queue_command)
+    if handler is None:
+        print("Usage: orca_auto queue {add|list|cancel|clear|worker|stop}")
+        return 1
+    return int(handler(args))
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="orca_auto")
     parser.add_argument("--config", default=default_config_path(), help="Path to orca_auto.yaml")
@@ -95,6 +119,33 @@ def build_parser() -> argparse.ArgumentParser:
     organize.add_argument("--apply", action="store_true", default=False, help="Actually move files (default is dry-run)")
     organize.add_argument("--rebuild-index", action="store_true", default=False, help="Rebuild JSONL index from organized directories")
     organize.add_argument("--json", action="store_true")
+
+    # -- queue subcommand with its own sub-subcommands --------------------
+    queue_parser = sub.add_parser("queue", help="Manage the task queue")
+    queue_sub = queue_parser.add_subparsers(dest="queue_command", required=True)
+
+    q_add = queue_sub.add_parser("add", help="Add a reaction directory to the queue")
+    q_add.add_argument("--reaction-dir", required=True, help="Directory under allowed_root")
+    q_add.add_argument("--priority", type=int, default=10, help="Priority (lower = higher, default 10)")
+    q_add.add_argument("--force", action="store_true", help="Allow re-enqueue of completed/failed jobs (intentional retry)")
+    q_add.add_argument("--max-retries", type=int, default=None, help="Override default_max_retries for this job")
+    q_add.add_argument("--json", action="store_true")
+
+    q_list = queue_sub.add_parser("list", help="Show queue entries")
+    q_list.add_argument("--filter", default=None, choices=["pending", "running", "completed", "failed", "cancelled"],
+                        help="Filter by status")
+    q_list.add_argument("--json", action="store_true")
+
+    q_cancel = queue_sub.add_parser("cancel", help="Cancel a queued or running job")
+    q_cancel.add_argument("target", help="queue_id to cancel, or 'all-pending'")
+
+    queue_sub.add_parser("clear", help="Remove completed/failed/cancelled entries from the queue")
+
+    q_worker = queue_sub.add_parser("worker", help="Start the queue worker")
+    q_worker.add_argument("--max-concurrent", type=int, default=4, help="Max concurrent jobs (default 4)")
+    q_worker.add_argument("--daemon", action="store_true", help="Run worker in background")
+
+    queue_sub.add_parser("stop", help="Stop the running worker daemon")
 
     return parser
 
@@ -142,6 +193,7 @@ def main(argv: list[str] | None = None) -> int:
         "monitor": cmd_monitor,
         "summary": cmd_summary,
         "organize": cmd_organize,
+        "queue": cmd_queue,
     }
     handler = command_map[args.command]
     return int(handler(args))

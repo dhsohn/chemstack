@@ -11,6 +11,14 @@ class RunStatus(str, Enum):
     FAILED = "failed"
 
 
+class QueueStatus(str, Enum):
+    PENDING = "pending"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
 class AnalyzerStatus(str, Enum):
     COMPLETED = "completed"
     ERROR_SCF = "error_scf"

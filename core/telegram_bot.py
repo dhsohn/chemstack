@@ -15,6 +15,8 @@ from typing import Any, Callable
 
 from .commands.list_runs import _collect_runs
 from .config import AppConfig
+from .queue_store import cancel as queue_cancel, list_queue
+from .statuses import QueueStatus
 from .telegram_notifier import escape_html
 
 logger = logging.getLogger(__name__)
@@ -100,6 +102,54 @@ def _handle_list(cfg: AppConfig, args: str) -> str:
     return "\n".join(lines)
 
 
+def _queue_status_icon(status: str) -> str:
+    return {
+        QueueStatus.PENDING.value: "\u23f3",
+        QueueStatus.RUNNING.value: "\u25b6",
+        QueueStatus.COMPLETED.value: "\u2705",
+        QueueStatus.FAILED.value: "\u274c",
+        QueueStatus.CANCELLED.value: "\u26d4",
+    }.get(status, "\u2753")
+
+
+def _handle_queue(cfg: AppConfig, args: str) -> str:
+    """Handle ``/queue [status]`` command."""
+    allowed_root = Path(cfg.runtime.allowed_root).expanduser().resolve()
+    status_filter = args.strip().lower() if args.strip() else None
+    entries = list_queue(allowed_root, status_filter=status_filter)
+
+    if not entries:
+        return "Queue is empty."
+
+    pending = sum(1 for e in entries if e.get("status") == QueueStatus.PENDING.value)
+    running = sum(1 for e in entries if e.get("status") == QueueStatus.RUNNING.value)
+
+    lines: list[str] = [f"<b>Queue</b> ({len(entries)} total, {pending} pending, {running} running)\n"]
+    for e in entries:
+        icon = _queue_status_icon(e.get("status", ""))
+        name = escape_html(Path(e.get("reaction_dir", "")).name)
+        qid = escape_html(e.get("queue_id", "?"))
+        lines.append(f"{icon} <code>{qid}</code>  {name}")
+    return "\n".join(lines)
+
+
+def _handle_cancel(cfg: AppConfig, args: str) -> str:
+    """Handle ``/cancel <queue_id>`` command."""
+    queue_id = args.strip()
+    if not queue_id:
+        return "Usage: /cancel &lt;queue_id&gt;"
+
+    allowed_root = Path(cfg.runtime.allowed_root).expanduser().resolve()
+    entry = queue_cancel(allowed_root, queue_id)
+    if entry is None:
+        return f"Cannot cancel: entry not found or already terminal: <code>{escape_html(queue_id)}</code>"
+
+    status = entry.get("status", "")
+    if status == QueueStatus.CANCELLED.value:
+        return f"\u26d4 Cancelled: <code>{escape_html(queue_id)}</code>"
+    return f"\u23f3 Cancel requested for running job: <code>{escape_html(queue_id)}</code>"
+
+
 def _handle_help(cfg: AppConfig, args: str) -> str:
     return (
         "<b>orca_auto bot commands</b>\n\n"
@@ -107,12 +157,17 @@ def _handle_help(cfg: AppConfig, args: str) -> str:
         "/list running \u2014 Running jobs only\n"
         "/list completed \u2014 Completed jobs only\n"
         "/list failed \u2014 Failed jobs only\n"
+        "/queue \u2014 Show task queue\n"
+        "/queue pending \u2014 Pending jobs only\n"
+        "/cancel &lt;queue_id&gt; \u2014 Cancel a queued/running job\n"
         "/help \u2014 This help message"
     )
 
 
 _HANDLERS: dict[str, Callable[[AppConfig, str], str]] = {
     "list": _handle_list,
+    "queue": _handle_queue,
+    "cancel": _handle_cancel,
     "help": _handle_help,
     "start": _handle_help,
 }
@@ -125,6 +180,8 @@ def _set_bot_commands(token: str) -> None:
     """Register bot command autocomplete."""
     commands = [
         {"command": "list", "description": "Show simulation list"},
+        {"command": "queue", "description": "Show task queue"},
+        {"command": "cancel", "description": "Cancel a queued/running job"},
         {"command": "help", "description": "Help"},
     ]
     _api_call(token, "setMyCommands", {"commands": commands})
