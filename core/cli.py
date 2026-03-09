@@ -12,6 +12,7 @@ from .commands._helpers import (
 from .commands.list_runs import cmd_list as _cmd_list
 from .commands.monitor import cmd_monitor as _cmd_monitor
 from .commands.organize import cmd_organize as _cmd_organize
+from .commands.summary import cmd_summary as _cmd_summary
 from .commands.run_inp import (
     _retry_inp_path as _retry_inp_path_impl,
     _select_latest_inp as _select_latest_inp_impl,
@@ -45,6 +46,10 @@ def cmd_organize(args: argparse.Namespace) -> int:
 
 def cmd_monitor(args: argparse.Namespace) -> int:
     return int(_cmd_monitor(args))
+
+
+def cmd_summary(args: argparse.Namespace) -> int:
+    return int(_cmd_summary(args))
 
 
 def cmd_bot(args: argparse.Namespace) -> int:
@@ -81,6 +86,8 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("bot", help="Start Telegram bot (long polling)")
 
     sub.add_parser("monitor", help="Scan simulation status and send Telegram notification (for cron)")
+    summary = sub.add_parser("summary", help="Send a DFT progress summary via Telegram (for cron)")
+    summary.add_argument("--no-send", action="store_true", default=False, help="Print summary without sending Telegram")
 
     organize = sub.add_parser("organize")
     organize.add_argument("--reaction-dir", default=None, help="Single reaction directory to organize")
@@ -133,6 +140,7 @@ def main(argv: list[str] | None = None) -> int:
         "list": cmd_list,
         "bot": cmd_bot,
         "monitor": cmd_monitor,
+        "summary": cmd_summary,
         "organize": cmd_organize,
     }
     handler = command_map[args.command]

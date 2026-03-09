@@ -88,7 +88,7 @@ _RUNTIME_RE = re.compile(
 _CHARGE_MULT_RE = re.compile(r"(?:\|\s*\d+>\s*)?\*\s*xyz\s+([-\d]+)\s+(\d+)")
 
 # Optimization cycle header
-_OPT_CYCLE_RE = re.compile(r"Geometry Optimization Cycle\s+(\d+)")
+_OPT_CYCLE_RE = re.compile(r"Geometry Optimization Cycle\s+(\d+)", re.IGNORECASE)
 
 # Convergence table items (Energy change, MAX gradient, RMS gradient, MAX step, RMS step)
 _CONVERGENCE_ITEM_RE = re.compile(

@@ -152,6 +152,7 @@ $ ./bin/orca_auto list --json
 | `status` | Check the state of an individual reaction directory |
 | `list` | Query the status of all runs under `allowed_root` |
 | `organize` | Move completed calculation results under `organized_root` and index them |
+| `summary` | Send a twice-daily plain-text progress summary to Telegram |
 | `bot` | Run the Telegram long-polling bot |
 
 Frequently used options:
@@ -182,6 +183,20 @@ Bot commands:
 | `/list completed` | Completed jobs only |
 | `/list failed` | Failed jobs only |
 | `/help` | Help |
+
+## Cron automation
+
+Install the bundled cron jobs:
+
+```bash
+bash scripts/install_cron.sh
+```
+
+Installed schedules:
+
+- `dft_summary`: `0 9,21 * * *`
+- `dft_monitor`: `0 * * * *`
+- `organize`: `0 0 * * 6`
 
 ## Result organization and indexing
 

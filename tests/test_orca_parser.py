@@ -140,6 +140,19 @@ def test_parse_opt_progress_extracts_all_cycles(tmp_path: Path) -> None:
     assert sum(progress.steps[2].converged_flags.values()) == 4  # 4 out of 5 YES
 
 
+def test_parse_opt_progress_accepts_uppercase_cycle_headers(tmp_path: Path) -> None:
+    out_file = tmp_path / "opt_uppercase.out"
+    out_file.write_text(
+        _OPT_RUNNING_OUT.replace("Geometry Optimization Cycle", "GEOMETRY OPTIMIZATION CYCLE"),
+        encoding="utf-8",
+    )
+
+    progress = parse_opt_progress(str(out_file))
+
+    assert len(progress.steps) == 3
+    assert progress.steps[-1].cycle == 3
+
+
 def test_parse_opt_progress_running_detection(tmp_path: Path) -> None:
     """If ORCA TERMINATED NORMALLY is absent, is_running == True."""
     out_file = tmp_path / "running.out"
