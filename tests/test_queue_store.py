@@ -189,7 +189,7 @@ class TestQueueStore(unittest.TestCase):
 
     def test_fifo_on_same_priority(self) -> None:
         e1 = enqueue(self.root, str(self.root / "first"))
-        e2 = enqueue(self.root, str(self.root / "second"))
+        enqueue(self.root, str(self.root / "second"))
         dequeued = dequeue_next(self.root)
         self.assertEqual(dequeued["queue_id"], e1["queue_id"])
 

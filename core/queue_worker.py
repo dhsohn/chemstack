@@ -24,12 +24,10 @@ from typing import Dict
 
 from .config import AppConfig
 from .queue_store import (
-    count_running,
     dequeue_next,
     get_cancel_requested,
     mark_completed,
     mark_failed,
-    cancel as cancel_entry,
 )
 from .state_store import load_state
 from .statuses import QueueStatus
