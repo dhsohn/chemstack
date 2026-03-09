@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
-from core.commands.summary import _build_summary_text, _run_summary
+from core.commands.summary import _build_summary_message, _run_summary
 from core.config import AppConfig, PathsConfig, RuntimeConfig, TelegramConfig
 
 
@@ -113,23 +113,24 @@ def test_build_summary_text_includes_running_failed_and_completed_sections(tmp_p
         "core.commands.summary._scan_cwd_process_counts",
         return_value={running.resolve(): 11},
     ):
-        text = _build_summary_text(_cfg(allowed))
+        text = _build_summary_message(_cfg(allowed))
 
-    assert "[ORCA DFT 중간결과 요약]" in text
-    assert "summary: running=1 completed=1 failed=1 other=0" in text
-    assert "active_orca_processes: 2" in text
-    assert "[running details] showing 1 / 1" in text
+    assert "<b>orca_auto summary</b>" in text
+    assert "running 1" in text
+    assert "completed 1" in text
+    assert "failed 1" in text
+    assert "Active ORCA processes: 2" in text
+    assert "<b>Running</b>" in text
     assert "cycle=12" in text
     assert "E=-123.456789 Eh" in text
-    assert "proc=11" in text
-    assert "ETA≈" in text
+    assert "ETA" in text
     assert "maxiter=174" in text
     assert "rate=" in text
-    assert "note: run.lock present" in text
-    assert "[failed suspects]" in text
-    assert "run_failed" in text
-    assert "[recent completed] showing 1 / 1" in text
-    assert "run_completed" in text
+    assert "run.lock present" in text
+    assert "<b>Failed</b>" in text
+    assert "rxn_failed" in text
+    assert "<b>Recent Completed</b>" in text
+    assert "rxn_completed" in text
 
 
 def test_run_summary_no_send_prints_and_returns_zero(tmp_path: Path, capsys) -> None:
@@ -155,4 +156,4 @@ def test_run_summary_no_send_prints_and_returns_zero(tmp_path: Path, capsys) -> 
 
     captured = capsys.readouterr()
     assert rc == 0
-    assert "[ORCA DFT 중간결과 요약]" in captured.out
+    assert "<b>orca_auto summary</b>" in captured.out

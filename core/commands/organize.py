@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict
 
-from ..config import load_config
+from ..config import AppConfig, load_config
 from ..organize_index import (
     acquire_index_lock,
     append_record,
@@ -25,6 +26,7 @@ from ..result_organizer import (
     sync_state_after_rollback,
 )
 from ..state_store import now_utc_iso
+from ..telegram_notifier import escape_html, send_message
 from ..types import RunState
 from ._helpers import (
     _validate_reaction_dir,
@@ -91,11 +93,95 @@ def _build_index_record(plan: OrganizePlan, state: RunState) -> Dict[str, Any]:
     }
 
 
+_ORGANIZE_RESULT_LIMIT = 10
+
+
+def _build_organize_message(
+    organized: list[Dict[str, Any]],
+    skipped: list[Dict[str, Any]],
+    failures: list[Dict[str, Any]],
+    skips: list[SkipReason],
+) -> str | None:
+    """Compose a Telegram HTML message for organize results.
+
+    Returns None if there is nothing to report.
+    """
+    organized_count = len(organized)
+    skipped_count = len(skipped) + len(skips)
+    failed_count = len(failures)
+
+    if organized_count == 0 and skipped_count == 0 and failed_count == 0:
+        return None
+
+    now = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M %Z")
+    header = f"\U0001f4c1 <b>orca_auto organize</b>  <code>{escape_html(now)}</code>"
+    divider = "\u2500" * 28
+
+    sections: list[str] = [header, divider]
+
+    # Summary line
+    summary_parts: list[str] = []
+    if organized_count > 0:
+        summary_parts.append(f"\u2705 Organized: {organized_count}")
+    if skipped_count > 0:
+        summary_parts.append(f"\u23ed Skipped: {skipped_count}")
+    if failed_count > 0:
+        summary_parts.append(f"\u274c Failed: {failed_count}")
+    sections.append(f"\U0001f4ca <b>Summary</b>\n{' | '.join(summary_parts)}")
+
+    # Organized details
+    if organized:
+        lines: list[str] = []
+        for item in organized[:_ORGANIZE_RESULT_LIMIT]:
+            plan = item.get("_plan")
+            if plan is not None:
+                job_label = plan.job_type.upper() if plan.job_type else "-"
+                mol_label = plan.molecule_key or "-"
+                lines.append(
+                    f"\u2705 <b>{escape_html(plan.run_id[:12])}</b>\n"
+                    f"   \U0001f4c2 {escape_html(str(plan.source_dir.name))} \u2192 {escape_html(plan.target_rel_path)}\n"
+                    f"   \U0001f3f7 {escape_html(job_label)} | {escape_html(mol_label)}"
+                )
+            else:
+                lines.append(f"\u2705 <b>{escape_html(item.get('run_id', '?'))}</b>")
+        detail_header = f"\u2705 <b>Organized</b>  ({organized_count})"
+        if organized_count > _ORGANIZE_RESULT_LIMIT:
+            detail_header += f"  showing {_ORGANIZE_RESULT_LIMIT}/{organized_count}"
+        sections.append(detail_header + "\n\n" + "\n\n".join(lines))
+
+    # Failed details
+    if failures:
+        lines = []
+        for item in failures[:5]:
+            run_id = escape_html(item.get("run_id", "?"))
+            reason = escape_html(item.get("reason", "unknown"))
+            lines.append(f"\u274c <b>{run_id}</b>\n   \U0001f4ac {reason}")
+        fail_header = f"\u274c <b>Failed</b>  ({failed_count})"
+        sections.append(fail_header + "\n\n" + "\n\n".join(lines))
+
+    # Skipped details (abbreviated)
+    if skips:
+        skip_lines: list[str] = []
+        for s in skips[:5]:
+            skip_lines.append(
+                f"\u23ed {escape_html(s.reaction_dir)}\n"
+                f"   \U0001f4ac {escape_html(s.reason)}"
+            )
+        skip_header = f"\u23ed <b>Skipped</b>  ({skipped_count})"
+        if skipped_count > 5:
+            skip_header += f"  showing 5/{skipped_count}"
+        sections.append(skip_header + "\n\n" + "\n\n".join(skip_lines))
+
+    sections.append(divider)
+
+    return "\n\n".join(sections)
+
+
 def _cmd_organize_apply(
     plans: list[OrganizePlan],
     skips: list[SkipReason],
     organized_root: Path,
-    cfg: Any,
+    cfg: AppConfig,
     as_json: bool,
 ) -> int:
     from ..organize_index import append_failed_rollback
@@ -121,7 +207,7 @@ def _cmd_organize_apply(
                 state_after_move = sync_state_after_move(plan)
                 record = _build_index_record(plan, state_after_move)
                 append_record(organized_root, record)
-                results.append({"run_id": plan.run_id, "action": "moved"})
+                results.append({"run_id": plan.run_id, "action": "moved", "_plan": plan})
         except Exception as exc:
             logger.error("Organize apply failed for %s: %s", plan.run_id, exc)
             failure_reason = f"apply_failed: {exc}"
@@ -141,8 +227,10 @@ def _cmd_organize_apply(
                     })
             failures.append({"run_id": plan.run_id, "reason": failure_reason})
 
-    organized_count = len([r for r in results if r.get("action") == "moved"])
-    skipped_count = len(skips) + len([r for r in results if r.get("action") == "skipped"])
+    organized = [r for r in results if r.get("action") == "moved"]
+    skipped_results = [r for r in results if r.get("action") == "skipped"]
+    organized_count = len(organized)
+    skipped_count = len(skips) + len(skipped_results)
 
     summary = {
         "action": "apply",
@@ -151,6 +239,16 @@ def _cmd_organize_apply(
         "failed": len(failures),
         "failures": failures,
     }
+
+    # Send Telegram notification
+    if cfg.telegram.enabled:
+        message = _build_organize_message(organized, skipped_results, failures, skips)
+        if message is not None:
+            if send_message(cfg.telegram, message):
+                logger.info("Telegram organize notification sent successfully")
+            else:
+                logger.warning("Failed to send Telegram organize notification")
+
     return finalize_batch_apply(
         summary, _emit_organize, as_json, failures,
     )

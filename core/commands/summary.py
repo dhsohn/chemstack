@@ -14,7 +14,7 @@ from ..dft_discovery import _find_latest_out_in_dir
 from ..orca_parser import parse_opt_progress
 from ..pathing import is_subpath, resolve_artifact_path
 from ..state_store import LOCK_FILE_NAME, load_state
-from ..telegram_notifier import send_message
+from ..telegram_notifier import escape_html, send_message
 
 logger = logging.getLogger(__name__)
 
@@ -328,11 +328,24 @@ def _build_progress_snapshot(
     )
 
 
+_ICON = {
+    "completed": "\u2705",
+    "running": "\u23f3",
+    "failed": "\u274c",
+    "retrying": "\U0001f504",
+    "created": "\U0001f195",
+}
+
+
+def _status_icon(status: str) -> str:
+    return _ICON.get(status, "\u2753")
+
+
 def _progress_line(snapshot: ProgressSnapshot) -> str:
     cycle_text = str(snapshot.cycle) if snapshot.cycle is not None else "n/a"
     energy_text = f"{snapshot.energy_hartree:.6f} Eh" if snapshot.energy_hartree is not None else "n/a"
     proc_text = str(snapshot.proc_count) if snapshot.proc_count is not None else "n/a"
-    eta_text = f"ETA≈{snapshot.eta_text}" if snapshot.eta_text != "n/a" else "ETA=n/a"
+    eta_text = f"ETA\u2248{snapshot.eta_text}" if snapshot.eta_text != "n/a" else "ETA=n/a"
     return (
         f"cycle={cycle_text}, "
         f"E={energy_text}, "
@@ -388,7 +401,121 @@ def _sorted_by_completed(runs: Iterable[SummaryRun]) -> list[SummaryRun]:
     return sorted(runs, key=key, reverse=True)
 
 
-def _build_summary_text(cfg: AppConfig) -> str:
+def _format_overview_section(
+    active: list[SummaryRun],
+    completed: list[SummaryRun],
+    failed: list[SummaryRun],
+    other: list[SummaryRun],
+    orca_proc_count: int,
+) -> str:
+    """Build HTML block for overall status overview."""
+    total = len(active) + len(completed) + len(failed) + len(other)
+
+    parts: list[str] = []
+    for status, count in [
+        ("running", len(active)),
+        ("completed", len(completed)),
+        ("failed", len(failed)),
+    ]:
+        if count > 0:
+            parts.append(f"{_status_icon(status)} {status} {count}")
+    if len(other) > 0:
+        parts.append(f"\u2753 other {len(other)}")
+
+    summary_line = " | ".join(parts) if parts else "No runs"
+    proc_line = f"\U0001f5a5 Active ORCA processes: {orca_proc_count}"
+    return f"\U0001f4ca <b>Overview</b>  (total {total})\n{summary_line}\n{proc_line}"
+
+
+def _format_running_section(
+    active: list[SummaryRun],
+    process_counts: dict[Path, int],
+) -> str | None:
+    """Build HTML block for running/retrying simulations with progress details."""
+    if not active:
+        return None
+
+    shown = active[:_RUNNING_SHOW_LIMIT]
+    lines: list[str] = []
+    for run in shown:
+        icon = _status_icon(run.status)
+        attempt_info = ""
+        snapshot = _build_progress_snapshot(run, process_counts)
+
+        # Check attempt count from snapshot proc info or run_id
+        elapsed = _elapsed_from_started(run.started_at)
+
+        detail_lines = [
+            f"   \U0001f4c4 {escape_html(run.selected_inp_name)}",
+            f"   \u23f1 Elapsed: {escape_html(elapsed)}",
+        ]
+
+        cycle_text = str(snapshot.cycle) if snapshot.cycle is not None else None
+        energy_text = f"{snapshot.energy_hartree:.6f} Eh" if snapshot.energy_hartree is not None else None
+        if cycle_text or energy_text:
+            progress_parts: list[str] = []
+            if cycle_text:
+                progress_parts.append(f"cycle={escape_html(cycle_text)}")
+            if energy_text:
+                progress_parts.append(f"E={escape_html(energy_text)}")
+            detail_lines.append(f"   \U0001f52c {', '.join(progress_parts)}")
+
+        if snapshot.eta_text != "n/a":
+            detail_lines.append(f"   \u23f3 ETA\u2248{escape_html(snapshot.eta_text)}")
+
+        if (run.reaction_dir / LOCK_FILE_NAME).exists():
+            detail_lines.append(f"   \u26a0\ufe0f run.lock present")
+
+        block = (
+            f"{icon} <b>{escape_html(run.name)}</b>{attempt_info}\n"
+            + "\n".join(detail_lines)
+        )
+        lines.append(block)
+
+    header = f"\u23f3 <b>Running</b>  ({len(active)})"
+    if len(active) > len(shown):
+        header += f"  showing {len(shown)}/{len(active)}"
+    return header + "\n\n" + "\n\n".join(lines)
+
+
+def _format_failed_section(failed: list[SummaryRun]) -> str | None:
+    """Build HTML block for failed simulations."""
+    if not failed:
+        return None
+
+    shown = failed[:_FAILED_SHOW_LIMIT]
+    lines: list[str] = []
+    for run in shown:
+        updated_value = run.updated_at or run.completed_at
+        lines.append(
+            f"\u274c <b>{escape_html(run.name)}</b>\n"
+            f"   \U0001f4c5 {escape_html(_format_local_datetime(updated_value))}"
+        )
+
+    header = f"\u274c <b>Failed</b>  ({len(failed)})"
+    return header + "\n\n" + "\n\n".join(lines)
+
+
+def _format_completed_section(completed: list[SummaryRun]) -> str | None:
+    """Build HTML block for recently completed simulations."""
+    if not completed:
+        return None
+
+    shown = completed[:_COMPLETED_SHOW_LIMIT]
+    lines: list[str] = []
+    for run in shown:
+        updated_value = run.completed_at or run.updated_at
+        lines.append(
+            f"\u2705 <b>{escape_html(run.name)}</b>\n"
+            f"   \U0001f4c5 {escape_html(_format_local_datetime(updated_value))}"
+        )
+
+    header = f"\u2705 <b>Recent Completed</b>  ({len(shown)}/{len(completed)})"
+    return header + "\n\n" + "\n\n".join(lines)
+
+
+def _build_summary_message(cfg: AppConfig) -> str:
+    """Compose the full Telegram HTML summary message."""
     allowed_root = Path(cfg.runtime.allowed_root).expanduser().resolve()
     runs = _load_runs(allowed_root)
     process_counts = _scan_cwd_process_counts(allowed_root)
@@ -398,60 +525,35 @@ def _build_summary_text(cfg: AppConfig) -> str:
     failed = _sorted_by_completed(r for r in runs if r.status == "failed")
     other = [r for r in runs if r.status not in {"running", "retrying", "completed", "failed"}]
 
-    lines = [
-        "[ORCA DFT 중간결과 요약]",
-        f"generated: {datetime.now().astimezone().strftime('%Y-%m-%d %H:%M:%S %Z')}",
-        f"root: {allowed_root}",
-        (
-            "summary: "
-            f"running={len(active)} completed={len(completed)} "
-            f"failed={len(failed)} other={len(other)}"
-        ),
-        f"active_orca_processes: {_count_active_orca_processes(cfg.paths.orca_executable)}",
-    ]
+    now = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M %Z")
+    header = f"\U0001f4ca <b>orca_auto summary</b>  <code>{escape_html(now)}</code>"
+    divider = "\u2500" * 28
 
-    if active:
-        shown_active = active[:_RUNNING_SHOW_LIMIT]
-        lines.extend(["", f"[running details] showing {len(shown_active)} / {len(active)}"])
-        for run in shown_active:
-            lines.append(
-                f"- {run.name} | run_id={run.run_id or '-'} | "
-                f"started={_format_local_datetime(run.started_at)} ({_elapsed_from_started(run.started_at)})"
-            )
-            snapshot = _build_progress_snapshot(run, process_counts)
-            lines.append(f"  progress: {_progress_line(snapshot)}")
-            lines.append(f"  tail: {snapshot.tail_text}")
-            if (run.reaction_dir / LOCK_FILE_NAME).exists():
-                lines.append("  note: run.lock present")
-            lines.append("")
-        if lines[-1] == "":
-            lines.pop()
+    orca_proc_count = _count_active_orca_processes(cfg.paths.orca_executable)
 
-    if failed:
-        lines.extend(["", "[failed suspects]"])
-        for run in failed[:_FAILED_SHOW_LIMIT]:
-            updated_value = run.updated_at or run.completed_at
-            lines.append(
-                f"- {run.name} | run_id={run.run_id} | status={run.status or '-'} | "
-                f"updated={_format_local_datetime(updated_value)}"
-            )
+    sections: list[str] = [header, divider]
+    sections.append(_format_overview_section(active, completed, failed, other, orca_proc_count))
 
-    if completed:
-        shown = completed[:_COMPLETED_SHOW_LIMIT]
-        lines.extend(["", f"[recent completed] showing {len(shown)} / {len(completed)}"])
-        for run in shown:
-            updated_value = run.completed_at or run.updated_at
-            lines.append(
-                f"- {run.name} | run_id={run.run_id} | status=completed | "
-                f"updated={_format_local_datetime(updated_value)}"
-            )
+    running = _format_running_section(active, process_counts)
+    if running:
+        sections.append(running)
 
-    return "\n".join(lines)
+    fail = _format_failed_section(failed)
+    if fail:
+        sections.append(fail)
+
+    comp = _format_completed_section(completed)
+    if comp:
+        sections.append(comp)
+
+    sections.append(divider)
+
+    return "\n\n".join(sections)
 
 
 def _run_summary(cfg: AppConfig, *, send: bool = True) -> int:
-    summary_text = _build_summary_text(cfg)
-    print(summary_text)
+    summary_message = _build_summary_message(cfg)
+    print(summary_message)
 
     if not send:
         return 0
@@ -460,7 +562,7 @@ def _run_summary(cfg: AppConfig, *, send: bool = True) -> int:
         logger.error("Telegram is not configured.")
         return 1
 
-    if send_message(cfg.telegram, summary_text, parse_mode=None):
+    if send_message(cfg.telegram, summary_message):
         logger.info("Telegram summary sent successfully")
         return 0
 
