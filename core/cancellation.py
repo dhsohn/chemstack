@@ -13,6 +13,7 @@ from .lock_utils import is_process_alive, parse_lock_info, process_start_ticks
 from .queue_store import cancel as queue_cancel, list_queue
 from .state_store import STATE_FILE_NAME, load_state
 from .statuses import QueueStatus
+from .types import QueueEntry
 
 logger = logging.getLogger(__name__)
 
@@ -189,12 +190,16 @@ def _run_id_for_reaction_dir(reaction_dir: str) -> str | None:
     return None
 
 
-def _queue_result(entry: dict[str, object] | None) -> CancelResult | None:
+def _queue_result(entry: QueueEntry | None) -> CancelResult | None:
     if entry is None:
         return None
     reaction_dir = str(entry.get("reaction_dir", ""))
     queue_id = entry.get("queue_id")
-    action = "cancelled" if entry.get("status") == QueueStatus.CANCELLED.value else "requested"
+    action: Literal["cancelled", "requested"]
+    if entry.get("status") == QueueStatus.CANCELLED.value:
+        action = "cancelled"
+    else:
+        action = "requested"
     run_id = _run_id_for_reaction_dir(reaction_dir)
     return CancelResult(
         source="queue",
