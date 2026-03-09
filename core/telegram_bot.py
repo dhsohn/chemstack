@@ -13,9 +13,10 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Callable
 
+from .cancellation import CancelTargetError, cancel_target
 from .commands.list_runs import _collect_runs
 from .config import AppConfig
-from .queue_store import cancel as queue_cancel, list_queue
+from .queue_store import list_queue
 from .statuses import QueueStatus
 from .telegram_notifier import escape_html
 
@@ -134,20 +135,26 @@ def _handle_queue(cfg: AppConfig, args: str) -> str:
 
 
 def _handle_cancel(cfg: AppConfig, args: str) -> str:
-    """Handle ``/cancel <queue_id>`` command."""
-    queue_id = args.strip()
-    if not queue_id:
-        return "Usage: /cancel &lt;queue_id&gt;"
+    """Handle ``/cancel <target>`` command."""
+    target = args.strip()
+    if not target:
+        return "Usage: /cancel &lt;target&gt;"
 
     allowed_root = Path(cfg.runtime.allowed_root).expanduser().resolve()
-    entry = queue_cancel(allowed_root, queue_id)
-    if entry is None:
-        return f"Cannot cancel: entry not found or already terminal: <code>{escape_html(queue_id)}</code>"
+    try:
+        result = cancel_target(allowed_root, target)
+    except CancelTargetError as exc:
+        return escape_html(str(exc))
+    if result is None:
+        return f"Cannot cancel: target not found or already terminal: <code>{escape_html(target)}</code>"
 
-    status = entry.get("status", "")
-    if status == QueueStatus.CANCELLED.value:
-        return f"\u26d4 Cancelled: <code>{escape_html(queue_id)}</code>"
-    return f"\u23f3 Cancel requested for running job: <code>{escape_html(queue_id)}</code>"
+    if result.action == "cancelled":
+        label = result.queue_id or target
+        return f"\u26d4 Cancelled: <code>{escape_html(label)}</code>"
+    if result.source == "queue":
+        return f"\u23f3 Cancel requested for running job: <code>{escape_html(result.queue_id or target)}</code>"
+    name = escape_html(Path(result.reaction_dir).name)
+    return f"\u23f3 Cancel requested for running simulation: <code>{name}</code>"
 
 
 def _handle_help(cfg: AppConfig, args: str) -> str:
@@ -159,7 +166,7 @@ def _handle_help(cfg: AppConfig, args: str) -> str:
         "/list failed \u2014 Failed jobs only\n"
         "/queue \u2014 Show task queue\n"
         "/queue pending \u2014 Pending jobs only\n"
-        "/cancel &lt;queue_id&gt; \u2014 Cancel a queued/running job\n"
+        "/cancel &lt;target&gt; \u2014 Cancel by queue_id, reaction_dir, or run_id\n"
         "/help \u2014 This help message"
     )
 

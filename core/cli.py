@@ -137,7 +137,7 @@ def build_parser() -> argparse.ArgumentParser:
     q_list.add_argument("--json", action="store_true")
 
     q_cancel = queue_sub.add_parser("cancel", help="Cancel a queued or running job")
-    q_cancel.add_argument("target", help="queue_id to cancel, or 'all-pending'")
+    q_cancel.add_argument("target", help="queue_id, reaction_dir, or run_id to cancel; or 'all-pending'")
 
     queue_sub.add_parser("clear", help="Remove completed/failed/cancelled entries from the queue")
 

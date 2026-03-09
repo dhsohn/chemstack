@@ -23,6 +23,7 @@ from core.commands.queue import (
     cmd_queue_worker,
 )
 from core.config import AppConfig, RuntimeConfig
+from core.state_store import STATE_FILE_NAME
 from core.statuses import QueueStatus
 
 
@@ -34,6 +35,22 @@ def _make_args(tmp: str, **overrides):
     defaults = {"config": str(Path(tmp) / "config.yaml"), "json": False}
     defaults.update(overrides)
     return SimpleNamespace(**defaults)
+
+
+def _write_running_state(reaction_dir: Path, *, run_id: str, pid: int) -> None:
+    state = {
+        "run_id": run_id,
+        "reaction_dir": str(reaction_dir),
+        "selected_inp": str(reaction_dir / "rxn.inp"),
+        "max_retries": 2,
+        "status": "running",
+        "started_at": "2026-03-01T00:00:00+00:00",
+        "updated_at": "2026-03-01T00:05:00+00:00",
+        "attempts": [{"index": 1}],
+        "final_result": None,
+    }
+    (reaction_dir / STATE_FILE_NAME).write_text(json.dumps(state), encoding="utf-8")
+    (reaction_dir / "run.lock").write_text(json.dumps({"pid": pid}), encoding="utf-8")
 
 
 class TestStatusIcon(unittest.TestCase):
@@ -255,6 +272,29 @@ class TestCmdQueueCancel(unittest.TestCase):
         args = _make_args(self._tmpdir.name, target="q_nonexistent")
         rc = cmd_queue_cancel(args)
         self.assertEqual(rc, 1)
+
+    @patch("core.cancellation.os.kill")
+    @patch("core.cancellation.is_process_alive", return_value=True)
+    @patch("core.commands.queue.load_config")
+    def test_cancel_direct_running_simulation(
+        self,
+        mock_load: MagicMock,
+        mock_alive: MagicMock,
+        mock_kill: MagicMock,
+    ) -> None:
+        mock_load.return_value = self.cfg
+        d = self.root / "mol_direct"
+        d.mkdir()
+        _write_running_state(d, run_id="run_direct_1", pid=4321)
+        args = _make_args(self._tmpdir.name, target="mol_direct")
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            rc = cmd_queue_cancel(args)
+        self.assertEqual(rc, 0)
+        self.assertIn("Cancel requested for running simulation", buf.getvalue())
+        self.assertIn("pid: 4321", buf.getvalue())
+        mock_alive.assert_called_once_with(4321)
+        mock_kill.assert_called_once()
 
 
 class TestCmdQueueClear(unittest.TestCase):

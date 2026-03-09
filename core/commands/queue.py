@@ -10,10 +10,10 @@ import time
 from pathlib import Path
 from typing import Any
 
+from ..cancellation import CancelTargetError, cancel_target
 from ..config import load_config
 from ..queue_store import (
     DuplicateEntryError,
-    cancel,
     cancel_all_pending,
     clear_terminal,
     enqueue,
@@ -115,17 +115,26 @@ def cmd_queue_cancel(args: Any) -> int:
         print(f"Cancelled {count} pending entries.")
         return 0
 
-    entry = cancel(allowed_root, target)
-    if entry is None:
-        logger.error("Cannot cancel: entry not found or already in terminal state: %s", target)
+    try:
+        result = cancel_target(allowed_root, target)
+    except CancelTargetError as exc:
+        logger.error("%s", exc)
+        return 1
+    if result is None:
+        logger.error("Cannot cancel: target not found or already in terminal state: %s", target)
         return 1
 
-    status = entry.get("status", "")
-    if status == QueueStatus.CANCELLED.value:
-        print(f"Cancelled: {target}")
+    if result.action == "cancelled":
+        label = result.queue_id or target
+        print(f"Cancelled: {label}")
     else:
-        print(f"Cancel requested for running job: {target}")
-        print("  The worker will terminate the ORCA process shortly.")
+        if result.source == "queue":
+            print(f"Cancel requested for running job: {result.queue_id or target}")
+            print("  The worker will terminate the ORCA process shortly.")
+        else:
+            print(f"Cancel requested for running simulation: {Path(result.reaction_dir).name}")
+            if result.pid is not None:
+                print(f"  pid: {result.pid}")
     return 0
 
 
