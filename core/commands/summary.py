@@ -464,7 +464,7 @@ def _format_running_section(
             detail_lines.append(f"   \u23f3 ETA\u2248{escape_html(snapshot.eta_text)}")
 
         if (run.reaction_dir / LOCK_FILE_NAME).exists():
-            detail_lines.append(f"   \u26a0\ufe0f run.lock present")
+            detail_lines.append("   \u26a0\ufe0f run.lock present")
 
         block = (
             f"{icon} <b>{escape_html(run.name)}</b>{attempt_info}\n"
