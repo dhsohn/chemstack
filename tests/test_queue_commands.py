@@ -98,7 +98,7 @@ class TestCmdQueueAdd(unittest.TestCase):
         mock_load.return_value = self.cfg
         rxn_dir = self.root / "mol_A"
         rxn_dir.mkdir()
-        args = _make_args(self._tmpdir.name, reaction_dir=str(rxn_dir), priority=5, force=False, max_retries=2)
+        args = _make_args(self._tmpdir.name, reaction_dir=str(rxn_dir), priority=5, force=False)
         buf = io.StringIO()
         with redirect_stdout(buf):
             rc = cmd_queue_add(args)
@@ -110,7 +110,7 @@ class TestCmdQueueAdd(unittest.TestCase):
         mock_load.return_value = self.cfg
         rxn_dir = self.root / "mol_B"
         rxn_dir.mkdir()
-        args = _make_args(self._tmpdir.name, reaction_dir=str(rxn_dir), priority=10, force=False, max_retries=2, json=True)
+        args = _make_args(self._tmpdir.name, reaction_dir=str(rxn_dir), priority=10, force=False, json=True)
         buf = io.StringIO()
         with redirect_stdout(buf):
             rc = cmd_queue_add(args)
@@ -123,7 +123,7 @@ class TestCmdQueueAdd(unittest.TestCase):
         mock_load.return_value = self.cfg
         rxn_dir = self.root / "mol_C"
         rxn_dir.mkdir()
-        args = _make_args(self._tmpdir.name, reaction_dir=str(rxn_dir), priority=10, force=True, max_retries=2)
+        args = _make_args(self._tmpdir.name, reaction_dir=str(rxn_dir), priority=10, force=True)
         buf = io.StringIO()
         with redirect_stdout(buf):
             rc = cmd_queue_add(args)
@@ -135,7 +135,7 @@ class TestCmdQueueAdd(unittest.TestCase):
         mock_load.return_value = self.cfg
         rxn_dir = self.root / "mol_D"
         rxn_dir.mkdir()
-        args = _make_args(self._tmpdir.name, reaction_dir=str(rxn_dir), priority=10, force=False, max_retries=2)
+        args = _make_args(self._tmpdir.name, reaction_dir=str(rxn_dir), priority=10, force=False)
         cmd_queue_add(args)
         rc = cmd_queue_add(args)
         self.assertEqual(rc, 1)
@@ -143,7 +143,7 @@ class TestCmdQueueAdd(unittest.TestCase):
     @patch("core.commands.queue.load_config")
     def test_add_invalid_dir_returns_1(self, mock_load: MagicMock) -> None:
         mock_load.return_value = self.cfg
-        args = _make_args(self._tmpdir.name, reaction_dir="/nonexistent/dir", priority=10, force=False, max_retries=2)
+        args = _make_args(self._tmpdir.name, reaction_dir="/nonexistent/dir", priority=10, force=False)
         rc = cmd_queue_add(args)
         self.assertEqual(rc, 1)
 

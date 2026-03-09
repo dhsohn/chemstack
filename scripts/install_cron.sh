@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Installs cron entries for summary, monitor, and organize.
+# Installs cron entries for summary digest, event monitor, and organize.
 # Uses marker-based block replacement for idempotent operation.
 set -euo pipefail
 
@@ -29,9 +29,9 @@ CLEANED=$(echo "$EXISTING" | sed "/${MARKER_START}/,/${MARKER_END}/d" | sed "/${
 printf '%s\n%s\n' "$CLEANED" "$BLOCK" | crontab -
 
 echo "[install_cron] Cron entries installed:"
-echo "  dft_summary: Twice daily (0 9,21 * * *)"
+echo "  dft_summary: Twice daily digest (0 9,21 * * *)"
 echo "  organize:    Saturday midnight (0 0 * * 6)"
-echo "  dft_monitor: Every hour (0 * * * *)"
+echo "  dft_monitor: Event alerts every hour (0 * * * *)"
 echo ""
 echo "Current crontab:"
 crontab -l

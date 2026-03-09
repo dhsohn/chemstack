@@ -7,14 +7,20 @@ import subprocess
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 from ..config import AppConfig, load_config
-from ..dft_discovery import _find_latest_out_in_dir
 from ..orca_parser import parse_opt_progress
-from ..pathing import is_subpath, resolve_artifact_path
-from ..state_store import LOCK_FILE_NAME, load_state
-from ..types import RunState
+from ..pathing import is_subpath
+from ..run_snapshot import (
+    RunSnapshot,
+    collect_run_snapshots,
+    parse_iso_utc,
+    sort_snapshots_by_completed,
+    sort_snapshots_by_started,
+    status_icon,
+)
+from ..state_store import LOCK_FILE_NAME
 from ..telegram_notifier import escape_html, send_message
 
 logger = logging.getLogger(__name__)
@@ -25,19 +31,6 @@ _MAX_PROGRESS_FILE_BYTES = 128 * 1024 * 1024
 _RUNNING_SHOW_LIMIT = 8
 _FAILED_SHOW_LIMIT = 8
 _COMPLETED_SHOW_LIMIT = 3
-
-
-@dataclass
-class SummaryRun:
-    name: str
-    reaction_dir: Path
-    run_id: str
-    status: str
-    started_at: str
-    updated_at: str
-    completed_at: str
-    selected_inp_name: str
-    latest_out_path: Path | None
 
 
 @dataclass
@@ -52,23 +45,8 @@ class ProgressSnapshot:
     tail_text: str
 
 
-def _parse_iso_utc(value: Any) -> datetime | None:
-    if not isinstance(value, str) or not value.strip():
-        return None
-    text = value.strip()
-    if text.endswith("Z"):
-        text = text[:-1] + "+00:00"
-    try:
-        dt = datetime.fromisoformat(text)
-    except ValueError:
-        return None
-    if dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc)
-    return dt.astimezone(timezone.utc)
-
-
 def _format_local_datetime(value: Any) -> str:
-    dt = _parse_iso_utc(value)
+    dt = parse_iso_utc(value)
     if dt is None:
         return "n/a"
     return dt.astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
@@ -87,7 +65,7 @@ def _human_duration(seconds: float) -> str:
 
 
 def _elapsed_from_started(value: Any) -> str:
-    started = _parse_iso_utc(value)
+    started = parse_iso_utc(value)
     if started is None:
         return "n/a"
     return _human_duration((datetime.now(timezone.utc) - started).total_seconds())
@@ -116,61 +94,6 @@ def _human_bytes(size_bytes: int) -> str:
             return f"{value:.1f} {unit}"
         value /= 1024.0
     return f"{size_bytes} B"
-
-
-def _latest_out_path(reaction_dir: Path, state: RunState) -> Path | None:
-    final_result = state.get("final_result")
-    if isinstance(final_result, dict):
-        last_out_path = final_result.get("last_out_path")
-        if isinstance(last_out_path, str) and last_out_path.strip():
-            resolved = resolve_artifact_path(last_out_path, reaction_dir)
-            if resolved is not None:
-                return resolved
-    attempts = state.get("attempts")
-    if isinstance(attempts, list):
-        for attempt in reversed(attempts):
-            if not isinstance(attempt, dict):
-                continue
-            out_path = attempt.get("out_path")
-            if isinstance(out_path, str) and out_path.strip():
-                resolved = resolve_artifact_path(out_path, reaction_dir)
-                if resolved is not None:
-                    return resolved
-    return _find_latest_out_in_dir(reaction_dir)
-
-
-def _load_runs(allowed_root: Path) -> list[SummaryRun]:
-    runs: list[SummaryRun] = []
-    if not allowed_root.is_dir():
-        return runs
-
-    for state_path in sorted(allowed_root.rglob("run_state.json")):
-        reaction_dir = state_path.parent
-        state = load_state(reaction_dir)
-        if state is None:
-            continue
-
-        final_result = state.get("final_result")
-        completed_at = ""
-        if isinstance(final_result, dict):
-            completed_at = str(final_result.get("completed_at", "")).strip()
-
-        selected_inp = state.get("selected_inp", "")
-        selected_inp_name = Path(selected_inp).name if isinstance(selected_inp, str) and selected_inp else "-"
-
-        runs.append(SummaryRun(
-            name=str(reaction_dir.relative_to(allowed_root)),
-            reaction_dir=reaction_dir,
-            run_id=str(state.get("run_id", "")),
-            status=str(state.get("status", "")).strip().lower(),
-            started_at=str(state.get("started_at", "")),
-            updated_at=str(state.get("updated_at", "")),
-            completed_at=completed_at,
-            selected_inp_name=selected_inp_name,
-            latest_out_path=_latest_out_path(reaction_dir, state),
-        ))
-
-    return runs
 
 
 def _scan_cwd_process_counts(allowed_root: Path) -> dict[Path, int]:
@@ -244,7 +167,7 @@ def _eta_summary(
     if cycle is None or cycle <= 0 or maxiter is None or maxiter <= cycle:
         return "n/a"
 
-    started = _parse_iso_utc(started_at)
+    started = parse_iso_utc(started_at)
     if started is None:
         return "n/a"
 
@@ -272,7 +195,7 @@ def _eta_summary(
 
 
 def _build_progress_snapshot(
-    run: SummaryRun,
+    run: RunSnapshot,
     process_counts: dict[Path, int],
 ) -> ProgressSnapshot:
     out_path = run.latest_out_path
@@ -329,34 +252,6 @@ def _build_progress_snapshot(
     )
 
 
-_ICON = {
-    "completed": "\u2705",
-    "running": "\u23f3",
-    "failed": "\u274c",
-    "retrying": "\U0001f504",
-    "created": "\U0001f195",
-}
-
-
-def _status_icon(status: str) -> str:
-    return _ICON.get(status, "\u2753")
-
-
-def _progress_line(snapshot: ProgressSnapshot) -> str:
-    cycle_text = str(snapshot.cycle) if snapshot.cycle is not None else "n/a"
-    energy_text = f"{snapshot.energy_hartree:.6f} Eh" if snapshot.energy_hartree is not None else "n/a"
-    proc_text = str(snapshot.proc_count) if snapshot.proc_count is not None else "n/a"
-    eta_text = f"ETA\u2248{snapshot.eta_text}" if snapshot.eta_text != "n/a" else "ETA=n/a"
-    return (
-        f"cycle={cycle_text}, "
-        f"E={energy_text}, "
-        f"out={snapshot.out_name} ({snapshot.out_size_text}), "
-        f"updated={snapshot.updated_text}, "
-        f"proc={proc_text}, "
-        f"{eta_text}"
-    )
-
-
 def _count_active_orca_processes(orca_executable: str) -> int:
     if not orca_executable.strip():
         return 0
@@ -384,34 +279,14 @@ def _count_active_orca_processes(orca_executable: str) -> int:
     return count
 
 
-def _sorted_by_started(runs: Iterable[SummaryRun]) -> list[SummaryRun]:
-    def key(run: SummaryRun) -> tuple[int, datetime]:
-        parsed = _parse_iso_utc(run.started_at)
-        if parsed is None:
-            return (1, datetime.min.replace(tzinfo=timezone.utc))
-        return (0, parsed)
-
-    return sorted(runs, key=key)
-
-
-def _sorted_by_completed(runs: Iterable[SummaryRun]) -> list[SummaryRun]:
-    def key(run: SummaryRun) -> datetime:
-        parsed = _parse_iso_utc(run.completed_at) or _parse_iso_utc(run.updated_at)
-        return parsed or datetime.min.replace(tzinfo=timezone.utc)
-
-    return sorted(runs, key=key, reverse=True)
-
-
 def _format_overview_section(
-    active: list[SummaryRun],
-    completed: list[SummaryRun],
-    failed: list[SummaryRun],
-    other: list[SummaryRun],
+    active: list[RunSnapshot],
+    completed: list[RunSnapshot],
+    failed: list[RunSnapshot],
+    other: list[RunSnapshot],
     orca_proc_count: int,
 ) -> str:
-    """Build HTML block for overall status overview."""
     total = len(active) + len(completed) + len(failed) + len(other)
-
     parts: list[str] = []
     for status, count in [
         ("running", len(active)),
@@ -419,8 +294,8 @@ def _format_overview_section(
         ("failed", len(failed)),
     ]:
         if count > 0:
-            parts.append(f"{_status_icon(status)} {status} {count}")
-    if len(other) > 0:
+            parts.append(f"{status_icon(status)} {status} {count}")
+    if other:
         parts.append(f"\u2753 other {len(other)}")
 
     summary_line = " | ".join(parts) if parts else "No runs"
@@ -429,21 +304,16 @@ def _format_overview_section(
 
 
 def _format_running_section(
-    active: list[SummaryRun],
+    active: list[RunSnapshot],
     process_counts: dict[Path, int],
 ) -> str | None:
-    """Build HTML block for running/retrying simulations with progress details."""
     if not active:
         return None
 
     shown = active[:_RUNNING_SHOW_LIMIT]
     lines: list[str] = []
     for run in shown:
-        icon = _status_icon(run.status)
-        attempt_info = ""
         snapshot = _build_progress_snapshot(run, process_counts)
-
-        # Check attempt count from snapshot proc info or run_id
         elapsed = _elapsed_from_started(run.started_at)
 
         detail_lines = [
@@ -467,11 +337,10 @@ def _format_running_section(
         if (run.reaction_dir / LOCK_FILE_NAME).exists():
             detail_lines.append("   \u26a0\ufe0f run.lock present")
 
-        block = (
-            f"{icon} <b>{escape_html(run.name)}</b>{attempt_info}\n"
+        lines.append(
+            f"{status_icon(run.status)} <b>{escape_html(run.name)}</b>\n"
             + "\n".join(detail_lines)
         )
-        lines.append(block)
 
     header = f"\u23f3 <b>Running</b>  ({len(active)})"
     if len(active) > len(shown):
@@ -479,8 +348,7 @@ def _format_running_section(
     return header + "\n\n" + "\n\n".join(lines)
 
 
-def _format_failed_section(failed: list[SummaryRun]) -> str | None:
-    """Build HTML block for failed simulations."""
+def _format_failed_section(failed: list[RunSnapshot]) -> str | None:
     if not failed:
         return None
 
@@ -488,17 +356,18 @@ def _format_failed_section(failed: list[SummaryRun]) -> str | None:
     lines: list[str] = []
     for run in shown:
         updated_value = run.updated_at or run.completed_at
+        reason = f"\n   \U0001f4cc {escape_html(run.final_reason)}" if run.final_reason else ""
         lines.append(
             f"\u274c <b>{escape_html(run.name)}</b>\n"
             f"   \U0001f4c5 {escape_html(_format_local_datetime(updated_value))}"
+            f"{reason}"
         )
 
     header = f"\u274c <b>Failed</b>  ({len(failed)})"
     return header + "\n\n" + "\n\n".join(lines)
 
 
-def _format_completed_section(completed: list[SummaryRun]) -> str | None:
-    """Build HTML block for recently completed simulations."""
+def _format_completed_section(completed: list[RunSnapshot]) -> str | None:
     if not completed:
         return None
 
@@ -516,15 +385,24 @@ def _format_completed_section(completed: list[SummaryRun]) -> str | None:
 
 
 def _build_summary_message(cfg: AppConfig) -> str:
-    """Compose the full Telegram HTML summary message."""
     allowed_root = Path(cfg.runtime.allowed_root).expanduser().resolve()
-    runs = _load_runs(allowed_root)
+    snapshots = collect_run_snapshots(allowed_root)
     process_counts = _scan_cwd_process_counts(allowed_root)
 
-    active = _sorted_by_started(r for r in runs if r.status in {"running", "retrying"})
-    completed = _sorted_by_completed(r for r in runs if r.status == "completed")
-    failed = _sorted_by_completed(r for r in runs if r.status == "failed")
-    other = [r for r in runs if r.status not in {"running", "retrying", "completed", "failed"}]
+    active = sort_snapshots_by_started(
+        snapshot for snapshot in snapshots if snapshot.status in {"running", "retrying"}
+    )
+    completed = sort_snapshots_by_completed(
+        snapshot for snapshot in snapshots if snapshot.status == "completed"
+    )
+    failed = sort_snapshots_by_completed(
+        snapshot for snapshot in snapshots if snapshot.status == "failed"
+    )
+    other = [
+        snapshot
+        for snapshot in snapshots
+        if snapshot.status not in {"running", "retrying", "completed", "failed"}
+    ]
 
     now = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M %Z")
     header = f"\U0001f4ca <b>orca_auto summary</b>  <code>{escape_html(now)}</code>"

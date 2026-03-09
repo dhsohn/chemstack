@@ -218,8 +218,6 @@ class TestCli(unittest.TestCase):
                         "run-inp",
                         "--reaction-dir",
                         str(reaction),
-                        "--max-retries",
-                        "5",
                     ]
                 )
 
@@ -297,8 +295,6 @@ class TestCli(unittest.TestCase):
                         "run-inp",
                         "--reaction-dir",
                         str(reaction),
-                        "--max-retries",
-                        "2",
                     ]
                 )
             state = json.loads((reaction / "run_state.json").read_text(encoding="utf-8"))
@@ -363,25 +359,6 @@ class TestCli(unittest.TestCase):
         self.assertEqual(state["final_result"]["reason"], "retry_limit_reached")
         self.assertEqual(state["final_result"]["analyzer_status"], "error_disk_io")
 
-    def test_status_command(self) -> None:
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            reaction = root / "orca_runs" / "rxn3"
-            reaction.mkdir(parents=True)
-            config = self._write_config(root, root / "orca_runs")
-            state = {
-                "run_id": "run_test",
-                "reaction_dir": str(reaction),
-                "selected_inp": str(reaction / "x.inp"),
-                "status": "completed",
-                "attempts": [],
-                "final_result": {"status": "completed"},
-            }
-            (reaction / "run_state.json").write_text(json.dumps(state), encoding="utf-8")
-
-            rc = main(["--config", str(config), "status", "--reaction-dir", str(reaction)])
-        self.assertEqual(rc, 0)
-
     def test_retry_limit_already_reached_finalizes_cleanly(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -389,7 +366,22 @@ class TestCli(unittest.TestCase):
             reaction.mkdir(parents=True)
             inp = reaction / "rxn.inp"
             inp.write_text("! Opt\n* xyz 0 1\nH 0 0 0\nH 0 0 0.74\n*\n", encoding="utf-8")
-            config = self._write_config(root, root / "orca_runs")
+            fake_orca = root / "fake_orca"
+            fake_orca.touch()
+            fake_orca.chmod(0o755)
+            config = root / "orca_auto.yaml"
+            config.write_text(
+                json.dumps(
+                    {
+                        "runtime": {
+                            "allowed_root": str(root / "orca_runs"),
+                            "default_max_retries": 0,
+                        },
+                        "paths": {"orca_executable": str(fake_orca)},
+                    }
+                ),
+                encoding="utf-8",
+            )
             state = {
                 "run_id": "run_test_resume",
                 "reaction_dir": str(reaction),
@@ -434,8 +426,6 @@ class TestCli(unittest.TestCase):
                         "run-inp",
                         "--reaction-dir",
                         str(reaction),
-                        "--max-retries",
-                        "0",
                     ]
                 )
             self.assertFalse(run_mock.called)

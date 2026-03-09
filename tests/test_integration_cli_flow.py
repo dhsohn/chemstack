@@ -95,8 +95,6 @@ class TestIntegrationCliFlow(unittest.TestCase):
                         "run-inp",
                         "--reaction-dir",
                         str(reaction),
-                        "--max-retries",
-                        "1",
                     ]
                 )
 

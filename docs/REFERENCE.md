@@ -29,7 +29,7 @@ An executor that automatically applies conservative modifications to input files
     launcher.py            # Common user entry point (background/foreground UX)
     commands/              # CLI command handlers
       _helpers.py          # Shared utilities (validation, formatting, config paths)
-      run_inp.py           # run-inp, status commands
+      run_inp.py           # run-inp command
       organize.py          # organize command
     config.py              # Configuration loading and dataclasses
     config_validation.py   # Configuration validation/normalization functions
@@ -68,7 +68,7 @@ Notes:
 
 - Within the repository, you can use `./bin/orca_auto`.
 - The `orca_auto` command installed via the package entry point also calls the same `core.launcher`.
-- This means the default background execution of `run-inp`, the `pid`/`log` output, and the `--foreground`/`--background` handling are identical across both entry points.
+- This means the default background execution of `run-inp`, the `pid`/`log` output, and the `--foreground` handling are identical across both entry points.
 
 ## 6) Configuration File
 
@@ -123,30 +123,17 @@ Default behavior:
 - `run-inp` runs in the background by default.
 - Immediately after execution, it prints `status`, `pid`, and `log` path, then exits.
 - If foreground execution is needed, add `--foreground`.
-- To explicitly force background execution, use `--background`.
 - To change the overall default to foreground, use the environment variable `ORCA_AUTO_RUN_INP_BACKGROUND=0`.
 
 Options:
 
 - `--reaction-dir` (required): Reaction directory
-- `--max-retries` (optional): Maximum number of retries
+- The retry count is configured only through `runtime.default_max_retries` in `orca_auto.yaml`
 - `--force` (optional): Force re-execution even if a completed `*.out` exists
 - `--json` (optional): JSON output
 - `--foreground` (optional): Run `run-inp` in the foreground
-- `--background` (optional): Run `run-inp` in the background
 
-### 7.2 Status Check
-
-```bash
-./bin/orca_auto status --reaction-dir '/absolute/path/to/orca_runs/Int1_DMSO' --json
-```
-
-Options:
-
-- `--reaction-dir` (required)
-- `--json` (optional)
-
-### 7.3 Result Organization
+### 7.2 Result Organization
 
 ```bash
 ./bin/orca_auto organize --root '/absolute/path/to/orca_runs' --json
@@ -280,6 +267,11 @@ Scripts available for Linux transition:
 - `scripts/audit_input_path_literals.py`: Detects Windows paths inside `.inp` files
 - `scripts/validate_runtime_config.py`: Configuration validity verification
 
+Notification commands:
+
+- `monitor`: Event-oriented Telegram alert. Reports newly detected completions, failures, retries, and new DFT results.
+- `summary`: Digest-oriented Telegram report. Shows current running jobs, recent failures/completions, and overall workstation activity.
+
 ## 14) Testing
 
 ```bash
@@ -291,6 +283,5 @@ pytest -q
 
 1. Prepare input directory (`~/orca_runs/<case>`)
 2. Run `run-inp`
-3. Check status with `status`
-4. Review final summary with `run_report.md`
-5. Re-execute with `--force` if needed
+3. Review final summary with `run_report.md`
+4. Re-execute with `--force` if needed

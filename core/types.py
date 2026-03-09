@@ -68,7 +68,6 @@ class QueueEntry(TypedDict, total=False):
     run_id: Optional[str]
     error: Optional[str]
     force: bool
-    max_retries: Optional[int]
 
 
 class RunInfo(TypedDict):

@@ -64,7 +64,6 @@ def cmd_queue_add(args: Any) -> int:
             str(reaction_dir),
             priority=args.priority,
             force=args.force,
-            max_retries=args.max_retries,
         )
     except DuplicateEntryError as exc:
         logger.error("%s", exc)

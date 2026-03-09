@@ -9,6 +9,7 @@ from .commands._helpers import (
     CONFIG_ENV_VAR as _CONFIG_ENV_VAR,
     default_config_path as _default_config_path,
 )
+from .commands.init import cmd_init as _cmd_init
 from .commands.list_runs import cmd_list as _cmd_list
 from .commands.monitor import cmd_monitor as _cmd_monitor
 from .commands.organize import cmd_organize as _cmd_organize
@@ -25,7 +26,6 @@ from .commands.run_inp import (
     _retry_inp_path as _retry_inp_path_impl,
     _select_latest_inp as _select_latest_inp_impl,
     cmd_run_inp as _cmd_run_inp,
-    cmd_status as _cmd_status,
 )
 from .orca_runner import OrcaRunner
 from .telegram_bot import run_bot as _run_bot
@@ -36,16 +36,16 @@ _retry_inp_path = _retry_inp_path_impl
 _select_latest_inp = _select_latest_inp_impl
 
 
-def cmd_status(args: argparse.Namespace) -> int:
-    return int(_cmd_status(args))
-
-
 def cmd_run_inp(args: argparse.Namespace) -> int:
     return int(_cmd_run_inp(args, runner_cls=OrcaRunner))
 
 
 def cmd_list(args: argparse.Namespace) -> int:
     return int(_cmd_list(args))
+
+
+def cmd_init(args: argparse.Namespace) -> int:
+    return int(_cmd_init(args))
 
 
 def cmd_organize(args: argparse.Namespace) -> int:
@@ -90,17 +90,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--log-file", default=None, help="Write logs to file (with rotation, max 10MB x 5)")
     sub = parser.add_subparsers(dest="command", required=True)
 
+    init = sub.add_parser("init", help="Interactively create or update the config file")
+    init.add_argument("--force", action="store_true", help="Overwrite existing config without confirmation")
+
     run_inp = sub.add_parser("run-inp")
     run_inp.add_argument("--reaction-dir", required=True, help="Directory under the configured allowed_root containing input files")
-    run_inp.add_argument("--max-retries", type=int, default=None)
     run_inp.add_argument("--force", action="store_true", help="Force re-run even if existing output is completed")
     run_inp.add_argument("--json", action="store_true")
     run_inp.add_argument("--foreground", action="store_true", help="Run in the foreground")
-    run_inp.add_argument("--background", action="store_true", help="Run in the background (default launcher behavior)")
-
-    status = sub.add_parser("status")
-    status.add_argument("--reaction-dir", required=True, help="Directory under the configured allowed_root")
-    status.add_argument("--json", action="store_true")
 
     list_cmd = sub.add_parser("list", help="Show status of all simulations")
     list_cmd.add_argument("--filter", default=None, choices=["created", "running", "retrying", "completed", "failed"],
@@ -109,8 +106,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("bot", help="Start Telegram bot (long polling)")
 
-    sub.add_parser("monitor", help="Scan simulation status and send Telegram notification (for cron)")
-    summary = sub.add_parser("summary", help="Send a DFT progress summary via Telegram (for cron)")
+    sub.add_parser("monitor", help="Send Telegram alerts for newly detected run/result events")
+    summary = sub.add_parser("summary", help="Send a periodic Telegram digest of current workstation activity")
     summary.add_argument("--no-send", action="store_true", default=False, help="Print summary without sending Telegram")
 
     organize = sub.add_parser("organize")
@@ -128,7 +125,6 @@ def build_parser() -> argparse.ArgumentParser:
     q_add.add_argument("--reaction-dir", required=True, help="Directory under allowed_root")
     q_add.add_argument("--priority", type=int, default=10, help="Priority (lower = higher, default 10)")
     q_add.add_argument("--force", action="store_true", help="Allow re-enqueue of completed/failed jobs (intentional retry)")
-    q_add.add_argument("--max-retries", type=int, default=None, help="Override default_max_retries for this job")
     q_add.add_argument("--json", action="store_true")
 
     q_list = queue_sub.add_parser("list", help="Show queue entries")
@@ -186,8 +182,8 @@ def main(argv: list[str] | None = None) -> int:
     _configure_logging(args)
 
     command_map = {
+        "init": cmd_init,
         "run-inp": cmd_run_inp,
-        "status": cmd_status,
         "list": cmd_list,
         "bot": cmd_bot,
         "monitor": cmd_monitor,

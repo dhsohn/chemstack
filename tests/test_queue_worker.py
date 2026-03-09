@@ -40,15 +40,9 @@ class TestBuildRunCommand(unittest.TestCase):
         cmd = _build_run_command("/tmp/rxn", "/tmp/config.yaml", force=True)
         self.assertIn("--force", cmd)
 
-    def test_with_max_retries(self) -> None:
-        cmd = _build_run_command("/tmp/rxn", "/tmp/config.yaml", max_retries=3)
-        self.assertIn("--max-retries", cmd)
-        self.assertIn("3", cmd)
-
-    def test_without_force_or_retries(self) -> None:
+    def test_without_force(self) -> None:
         cmd = _build_run_command("/tmp/rxn", "/tmp/config.yaml")
         self.assertNotIn("--force", cmd)
-        self.assertNotIn("--max-retries", cmd)
 
 
 class TestTerminateProcess(unittest.TestCase):
@@ -182,7 +176,6 @@ class TestQueueWorkerMethods(unittest.TestCase):
             "queue_id": "q_test",
             "reaction_dir": str(self.root / "mol_A"),
             "force": False,
-            "max_retries": None,
         }
         self.worker._start_job(entry)
         self.assertIn("q_test", self.worker._running)

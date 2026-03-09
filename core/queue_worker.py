@@ -58,7 +58,6 @@ def _build_run_command(
     config_path: str,
     *,
     force: bool = False,
-    max_retries: int | None = None,
 ) -> list[str]:
     cmd = [
         sys.executable, "-m", "core.cli",
@@ -69,8 +68,6 @@ def _build_run_command(
     ]
     if force:
         cmd.append("--force")
-    if max_retries is not None:
-        cmd.extend(["--max-retries", str(max_retries)])
     return cmd
 
 
@@ -160,13 +157,11 @@ class QueueWorker:
         queue_id = entry["queue_id"]
         reaction_dir = entry["reaction_dir"]
         force = bool(entry.get("force", False))
-        max_retries = entry.get("max_retries")
 
         cmd = _build_run_command(
             reaction_dir,
             self.config_path,
             force=force,
-            max_retries=max_retries,
         )
         logger.info("Starting job %s: %s", queue_id, reaction_dir)
         try:

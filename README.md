@@ -31,7 +31,7 @@ This project was created to reduce those operational burdens.
 - Produces `run_state.json`, `run_report.json`, `run_report.md`
 - Sends a Telegram alert when an automatic retry is scheduled, including failure reason and restart input
 - Skips if a completed `.out` already exists; re-runs with `--force`
-- A production-ready CLI including `list`, `status`, `organize`, and a Telegram bot
+- A production-ready CLI including `list`, `organize`, and a Telegram bot
 
 ## Design decisions
 
@@ -71,35 +71,34 @@ cd ~/orca_auto
 bash scripts/bootstrap_wsl.sh
 ```
 
-`bootstrap_wsl.sh` prepares the `.venv` and copies template configuration files.
+`bootstrap_wsl.sh` prepares the `.venv` and, if needed, seeds `config/orca_auto.yaml` from the example template.
 
-### 2) Write the configuration file
+### 2) Initialize the configuration interactively
 
-`orca_auto` will immediately exit with a friendly error if the configuration file is missing or template placeholders remain.
+Run the interactive setup:
 
 ```bash
-cp config/orca_auto.yaml.example config/orca_auto.yaml
+./bin/orca_auto init
 ```
 
-```yaml
-runtime:
-  allowed_root: "/absolute/path/to/orca_runs"
-  organized_root: "/absolute/path/to/orca_outputs"
-  default_max_retries: 2
+`init` asks for:
 
-paths:
-  orca_executable: "/absolute/path/to/orca/orca"
+- `paths.orca_executable`
+- `runtime.allowed_root`
+- `runtime.organized_root` (press Enter to accept the default sibling `orca_outputs`)
+- `runtime.default_max_retries`
+- optional Telegram settings
 
-telegram:
-  bot_token: ""
-  chat_id: ""
-```
+If `bootstrap_wsl.sh` already created a template config, `init` will ask before overwriting it.
 
 Notes:
 
 - `runtime.allowed_root` and `paths.orca_executable` are required.
+- `init` validates the ORCA binary and path format immediately.
+- Missing directories can be created during the prompt.
 - If `runtime.organized_root` is omitted, the default is `orca_outputs` next to `allowed_root`.
 - Windows legacy paths (`C:\...`, `/mnt/c/...`) are not supported.
+- You can edit the generated `config/orca_auto.yaml` manually afterward.
 
 ### 3) Run a calculation
 
@@ -116,7 +115,6 @@ The default is background execution. To run in the foreground:
 ### 4) Check results
 
 ```bash
-./bin/orca_auto status --reaction-dir '/absolute/path/to/orca_runs/sample_rxn'
 ./bin/orca_auto list
 cat /absolute/path/to/orca_runs/sample_rxn/run_report.md
 ```
@@ -149,11 +147,12 @@ $ ./bin/orca_auto list --json
 
 | Command | Description |
 |---------|-------------|
+| `init` | Interactively create or update `orca_auto.yaml` |
 | `run-inp` | Select the latest `.inp`, then run/recover/retry |
-| `status` | Check the state of an individual reaction directory |
 | `list` | Query the status of all runs under `allowed_root` |
 | `organize` | Move completed calculation results under `organized_root` and index them |
-| `summary` | Send a twice-daily plain-text progress summary to Telegram |
+| `monitor` | Send Telegram alerts only when new run/result events are detected |
+| `summary` | Send a periodic Telegram digest of the current workstation state |
 | `bot` | Run the Telegram long-polling bot |
 
 Frequently used options:
@@ -161,9 +160,7 @@ Frequently used options:
 | Option | Description | Example |
 |--------|-------------|---------|
 | `--force` | Force re-run even if the calculation is already completed | `run-inp --force` |
-| `--max-retries N` | Adjust the number of retries | `run-inp --max-retries 8` |
 | `--foreground` | Run in the foreground | `run-inp --foreground` |
-| `--background` | Force background execution | `run-inp --background` |
 | `--json` | JSON output | `list --json` |
 
 ## Telegram bot
@@ -195,8 +192,8 @@ bash scripts/install_cron.sh
 
 Installed schedules:
 
-- `dft_summary`: `0 9,21 * * *`
-- `dft_monitor`: `0 * * * *`
+- `dft_summary`: `0 9,21 * * *`  periodic digest of current runs
+- `dft_monitor`: `0 * * * *`  event alert when new results/failures/retries appear
 - `organize`: `0 0 * * 6`
 
 ## Result organization and indexing

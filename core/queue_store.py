@@ -169,7 +169,6 @@ def enqueue(
     *,
     priority: int = 10,
     force: bool = False,
-    max_retries: int | None = None,
 ) -> QueueEntry:
     """Add a reaction directory to the queue.
 
@@ -208,7 +207,6 @@ def enqueue(
             "run_id": None,
             "error": None,
             "force": force,
-            "max_retries": max_retries,
         }
         entries.append(entry)
         _save_entries(allowed_root, entries)

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import logging
 from pathlib import Path
 from typing import Any, Dict, Type
@@ -12,7 +11,7 @@ from ..lock_utils import is_process_alive, parse_lock_info
 from ..orca_runner import OrcaRunner
 from ..out_analyzer import analyze_output
 from ..state_machine import RESUMABLE_RUN_STATUSES, load_or_create_state
-from ..state_store import LOCK_FILE_NAME, acquire_run_lock, load_state, save_state, state_path
+from ..state_store import LOCK_FILE_NAME, acquire_run_lock, load_state, save_state
 from ..statuses import AnalyzerStatus, RunStatus
 from ..telegram_notifier import notify_retry_event
 from ..types import RetryNotification
@@ -74,34 +73,6 @@ def _existing_completed_out(selected_inp: Path) -> Dict[str, Any] | None:
     return None
 
 
-def cmd_status(args: Any) -> int:
-    cfg = load_config(args.config)
-    try:
-        reaction_dir = _validate_reaction_dir(cfg, args.reaction_dir)
-    except ValueError as exc:
-        logger.error("%s", exc)
-        return 1
-
-    state = load_state(reaction_dir)
-    if not state:
-        logger.error("State file not found: %s", state_path(reaction_dir))
-        return 1
-
-    payload = {
-        "status": state.get("status"),
-        "reaction_dir": str(reaction_dir),
-        "selected_inp": state.get("selected_inp"),
-        "attempt_count": len(state.get("attempts", [])),
-        "run_state": str(state_path(reaction_dir)),
-        "final_result": state.get("final_result"),
-    }
-    if args.json:
-        print(json.dumps(state, ensure_ascii=True, indent=2))
-    else:
-        _emit(payload, as_json=False)
-    return 0
-
-
 def _recover_crashed_state(reaction_dir: Path) -> bool:
     """Detect and recover from a crashed run (status=running/retrying but no active lock).
 
@@ -154,8 +125,7 @@ def cmd_run_inp(args: Any, *, runner_cls: Type[OrcaRunner] = OrcaRunner) -> int:
 
     logger.info("Selected input: %s", selected_inp)
 
-    max_retries = int(args.max_retries if args.max_retries is not None else cfg.runtime.default_max_retries)
-    max_retries = max(0, max_retries)
+    max_retries = max(0, int(cfg.runtime.default_max_retries))
 
     # Recover from crashes before attempting to acquire the lock
     _recover_crashed_state(reaction_dir)

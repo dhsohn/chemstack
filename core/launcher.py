@@ -69,8 +69,6 @@ def _wants_background(argv: Sequence[str]) -> bool:
             return False
         if token == "--foreground":
             want_background = False
-        elif token == "--background":
-            want_background = True
     return want_background
 
 
