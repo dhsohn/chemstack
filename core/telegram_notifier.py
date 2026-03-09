@@ -10,11 +10,13 @@ import json
 import logging
 import urllib.error
 import urllib.request
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from core.config import TelegramConfig
     from core.dft_monitor import ScanReport
+    from core.types import RetryNotification
 
 logger = logging.getLogger(__name__)
 
@@ -106,6 +108,56 @@ def notify_scan_report(config: TelegramConfig, report: ScanReport) -> bool:
     return send_message(config, text)
 
 
+def format_retry_event(event: RetryNotification) -> str:
+    """Format a retry event as a Telegram HTML message."""
+    reaction_dir = Path(event["reaction_dir"])
+    failed_inp = Path(event["failed_inp"])
+    next_inp = Path(event["next_inp"])
+    lines = [
+        "<b>ORCA Auto Retry</b>",
+        f"<b>Job</b>: {escape_html(reaction_dir.name or reaction_dir.as_posix())}",
+        (
+            f"<b>Attempt</b>: {event['attempt_index']} failed; "
+            f"retry {event['retry_number']}/{event['max_retries']} is starting"
+        ),
+        (
+            f"<b>Reason</b>: <code>{escape_html(event['analyzer_status'])}</code> "
+            f"({escape_html(event['analyzer_reason'])})"
+        ),
+        f"<b>Failed input</b>: <code>{escape_html(failed_inp.name)}</code>",
+        f"<b>Restart input</b>: <code>{escape_html(next_inp.name)}</code>",
+    ]
+    patch_summary = _format_patch_actions(event.get("patch_actions", []))
+    if patch_summary:
+        lines.append(f"<b>Applied patches</b>: {patch_summary}")
+    if event.get("resumed"):
+        lines.append("<b>Mode</b>: resumed run")
+    lines.append(f"<b>Directory</b>: <code>{escape_html(event['reaction_dir'])}</code>")
+    return "\n".join(lines)
+
+
+def notify_retry_event(config: TelegramConfig, event: RetryNotification) -> bool:
+    """Send a Telegram notification when an automatic retry is scheduled."""
+    if not config.enabled:
+        logger.debug("telegram_retry_notification_disabled")
+        return False
+
+    sent = send_message(config, format_retry_event(event))
+    if sent:
+        logger.info(
+            "telegram_retry_notification_sent: reaction_dir=%s retry=%d",
+            event["reaction_dir"],
+            event["retry_number"],
+        )
+    else:
+        logger.warning(
+            "telegram_retry_notification_failed: reaction_dir=%s retry=%d",
+            event["reaction_dir"],
+            event["retry_number"],
+        )
+    return sent
+
+
 def _status_icon(status: str) -> str:
     icons = {
         "completed": "\u2705",
@@ -114,3 +166,36 @@ def _status_icon(status: str) -> str:
         "error": "\u274c",
     }
     return icons.get(status, "\u2753")
+
+
+def _format_patch_actions(actions: list[str]) -> str | None:
+    rendered: list[str] = []
+    for action in actions[:4]:
+        text = action.strip()
+        if not text:
+            continue
+        rendered.append(escape_html(_humanize_patch_action(text)))
+    if not rendered:
+        return None
+    if len(actions) > len(rendered):
+        rendered.append("...")
+    return ", ".join(rendered)
+
+
+def _humanize_patch_action(action: str) -> str:
+    labels = {
+        "route_add_tightscf_slowconv": "TightSCF + SlowConv",
+        "scf_maxiter_300": "SCF MaxIter 300",
+        "geom_hessian_and_maxiter": "Geom Hessian + MaxIter 300",
+        "geom_hessian_and_maxiter_500": "Geom Hessian + MaxIter 500",
+        "maxcore_increased": "MaxCore increased",
+        "route_add_looseopt": "LooseOpt",
+        "geometry_restart_not_applied": "geometry restart not applied",
+        "no_previous_xyz_file_found": "no previous xyz file found",
+        "no_geometry_file_found": "no geometry file found",
+        "no_recipe_applied": "no retry recipe applied",
+    }
+    if action.startswith("geometry_restart_from_"):
+        source = action.removeprefix("geometry_restart_from_")
+        return f"geometry restart from {source}"
+    return labels.get(action, action.replace("_", " "))

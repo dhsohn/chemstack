@@ -7,11 +7,14 @@ from unittest.mock import MagicMock, patch
 
 from core.config import TelegramConfig
 from core.dft_monitor import MonitorResult, ScanReport
+from core.types import RetryNotification
 from core.telegram_notifier import (
     escape_html,
     _status_icon,
     format_scan_report,
+    format_retry_event,
     notify_scan_report,
+    notify_retry_event,
     send_message,
 )
 
@@ -50,6 +53,23 @@ def _sample_report() -> ScanReport:
     )
 
 
+def _sample_retry_event() -> RetryNotification:
+    return {
+        "reaction_dir": "/tmp/rxn<demo>",
+        "selected_inp": "/tmp/rxn<demo>/rxn.inp",
+        "failed_inp": "/tmp/rxn<demo>/rxn.inp",
+        "failed_out": "/tmp/rxn<demo>/rxn.out",
+        "next_inp": "/tmp/rxn<demo>/rxn.retry01.inp",
+        "attempt_index": 1,
+        "retry_number": 1,
+        "max_retries": 2,
+        "analyzer_status": "error_scf",
+        "analyzer_reason": "scf_not_converged",
+        "patch_actions": ["route_add_tightscf_slowconv", "geometry_restart_from_rxn.xyz"],
+        "resumed": False,
+    }
+
+
 class TestEscapeHtml:
     def test_special_chars(self) -> None:
         assert escape_html("<b>&test</b>") == "&lt;b&gt;&amp;test&lt;/b&gt;"
@@ -83,6 +103,20 @@ class TestFormatScanReport:
         assert "C6H6" in text
         assert "B3LYP/def2-SVP" in text
         assert "NOT CONVERGED" in text
+
+
+class TestFormatRetryEvent:
+    def test_format_contains_failure_and_restart_context(self) -> None:
+        text = format_retry_event(_sample_retry_event())
+        assert "ORCA Auto Retry" in text
+        assert "retry 1/2 is starting" in text
+        assert "error_scf" in text
+        assert "scf_not_converged" in text
+        assert "rxn.inp" in text
+        assert "rxn.retry01.inp" in text
+        assert "TightSCF + SlowConv" in text
+        assert "geometry restart from rxn.xyz" in text
+        assert "&lt;demo&gt;" in text
 
 
 class TestSendMessage:
@@ -132,5 +166,19 @@ class TestNotifyScanReport:
     def test_skips_empty_report(self, mock_send: MagicMock) -> None:
         report = ScanReport(new_results=[], scanned_files=5)
         result = notify_scan_report(_enabled_config(), report)
+        assert result is False
+        mock_send.assert_not_called()
+
+
+class TestNotifyRetryEvent:
+    @patch("core.telegram_notifier.send_message", return_value=True)
+    def test_sends_retry_message(self, mock_send: MagicMock) -> None:
+        result = notify_retry_event(_enabled_config(), _sample_retry_event())
+        assert result is True
+        mock_send.assert_called_once()
+
+    @patch("core.telegram_notifier.send_message")
+    def test_skips_when_disabled(self, mock_send: MagicMock) -> None:
+        result = notify_retry_event(_disabled_config(), _sample_retry_event())
         assert result is False
         mock_send.assert_not_called()

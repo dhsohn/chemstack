@@ -29,6 +29,7 @@ This project was created to reduce those operational burdens.
 - Classifies failure causes by analyzing `.out` files
 - Generates `*.retryNN.inp` with conservative retry recipes and automatically retries
 - Produces `run_state.json`, `run_report.json`, `run_report.md`
+- Sends a Telegram alert when an automatic retry is scheduled, including failure reason and restart input
 - Skips if a completed `.out` already exists; re-runs with `--force`
 - A production-ready CLI including `list`, `status`, `organize`, and a Telegram bot
 

@@ -39,6 +39,21 @@ class RunState(TypedDict, total=False):
     final_result: Optional[RunFinalResult]
 
 
+class RetryNotification(TypedDict):
+    reaction_dir: str
+    selected_inp: str
+    failed_inp: str
+    failed_out: str
+    next_inp: str
+    attempt_index: int
+    retry_number: int
+    max_retries: int
+    analyzer_status: str
+    analyzer_reason: str
+    patch_actions: List[str]
+    resumed: bool
+
+
 class QueueEntry(TypedDict, total=False):
     """A single item in the task queue."""
 

@@ -5,7 +5,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from core.cli import CONFIG_ENV_VAR, _retry_inp_path, _select_latest_inp, default_config_path, main
 from core.commands._helpers import _emit
@@ -13,21 +13,25 @@ from core.orca_runner import RunResult
 
 
 class TestCli(unittest.TestCase):
-    def _write_config(self, root: Path, allowed_root: Path) -> Path:
+    def _write_config(self, root: Path, allowed_root: Path, *, telegram_enabled: bool = False) -> Path:
         fake_orca = root / "fake_orca"
         fake_orca.touch()
         fake_orca.chmod(0o755)
+        payload = {
+            "runtime": {
+                "allowed_root": str(allowed_root),
+                "default_max_retries": 2,
+            },
+            "paths": {"orca_executable": str(fake_orca)},
+        }
+        if telegram_enabled:
+            payload["telegram"] = {
+                "bot_token": "123:ABC",
+                "chat_id": "999",
+            }
         config = root / "orca_auto.yaml"
         config.write_text(
-            json.dumps(
-                {
-                    "runtime": {
-                        "allowed_root": str(allowed_root),
-                        "default_max_retries": 2,
-                    },
-                    "paths": {"orca_executable": str(fake_orca)},
-                }
-            ),
+            json.dumps(payload),
             encoding="utf-8",
         )
         return config
@@ -226,6 +230,48 @@ class TestCli(unittest.TestCase):
         self.assertTrue(retry_exists)
         self.assertEqual(state["status"], "completed")
         self.assertEqual(len(state["attempts"]), 2)
+
+    @patch("core.commands.run_inp.notify_retry_event", return_value=True)
+    def test_retry_flow_sends_telegram_notification_when_configured(self, mock_notify: MagicMock) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            reaction = root / "orca_runs" / "rxn_notify"
+            reaction.mkdir(parents=True)
+            inp = reaction / "rxn.inp"
+            inp.write_text("! Opt\n* xyz 0 1\nH 0 0 0\nH 0 0 0.74\n*\n", encoding="utf-8")
+            config = self._write_config(root, root / "orca_runs", telegram_enabled=True)
+
+            calls = {"n": 0}
+
+            def _fake_run(_self, inp_path: Path) -> RunResult:
+                calls["n"] += 1
+                inp_path.with_suffix(".xyz").write_text(
+                    "2\nretry geometry\nH 0 0 0\nH 0 0 0.75\n",
+                    encoding="utf-8",
+                )
+                out = inp_path.with_suffix(".out")
+                if calls["n"] == 1:
+                    out.write_text("SCF NOT CONVERGED AFTER 300 CYCLES\n", encoding="utf-8")
+                    return RunResult(out_path=str(out), return_code=1)
+                out.write_text(
+                    "****ORCA TERMINATED NORMALLY****\nTOTAL RUN TIME: 0 days 0 hours 0 minutes 1 seconds 0 msec\n",
+                    encoding="utf-8",
+                )
+                return RunResult(out_path=str(out), return_code=0)
+
+            with patch("core.cli.OrcaRunner.run", new=_fake_run):
+                rc = main(["--config", str(config), "run-inp", "--reaction-dir", str(reaction)])
+
+        self.assertEqual(rc, 0)
+        self.assertEqual(calls["n"], 2)
+        mock_notify.assert_called_once()
+        notify_cfg = mock_notify.call_args.args[0]
+        event = mock_notify.call_args.args[1]
+        self.assertEqual(notify_cfg.chat_id, "999")
+        self.assertEqual(event["analyzer_status"], "error_scf")
+        self.assertEqual(event["analyzer_reason"], "scf_not_converged")
+        self.assertTrue(event["failed_inp"].endswith("rxn.inp"))
+        self.assertTrue(event["next_inp"].endswith("rxn.retry01.inp"))
 
     def test_disk_io_error_retries_until_limit(self) -> None:
         with tempfile.TemporaryDirectory() as td:

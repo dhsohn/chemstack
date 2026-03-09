@@ -4,6 +4,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 from core.attempt_engine import _retry_recipe_step, run_attempts
 from core.state_store import new_state, state_path
@@ -12,6 +13,27 @@ from core.state_store import new_state, state_path
 class _InterruptRunner:
     def run(self, _inp_path: Path):
         raise KeyboardInterrupt
+
+
+class _RetryThenSuccessRunner:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def run(self, inp_path: Path):
+        self.calls += 1
+        inp_path.with_suffix(".xyz").write_text(
+            "2\nretry geometry\nH 0 0 0\nH 0 0 0.75\n",
+            encoding="utf-8",
+        )
+        out_path = inp_path.with_suffix(".out")
+        if self.calls == 1:
+            out_path.write_text("SCF NOT CONVERGED AFTER 300 CYCLES\n", encoding="utf-8")
+            return SimpleNamespace(out_path=str(out_path), return_code=1)
+        out_path.write_text(
+            "****ORCA TERMINATED NORMALLY****\nTOTAL RUN TIME: 0 days 0 hours 0 minutes 1 seconds 0 msec\n",
+            encoding="utf-8",
+        )
+        return SimpleNamespace(out_path=str(out_path), return_code=0)
 
 
 def _retry_inp_path(selected_inp: Path, retry_number: int) -> Path:
@@ -47,6 +69,41 @@ class TestAttemptEngine(unittest.TestCase):
         self.assertEqual(saved["final_result"]["reason"], "interrupted_by_user")
         self.assertEqual(saved["status"], "failed")
         self.assertEqual(len(emitted_payloads), 1)
+
+    def test_retry_notification_callback_receives_retry_context(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            reaction_dir = Path(td)
+            selected_inp = reaction_dir / "rxn.inp"
+            selected_inp.write_text("! Opt\n* xyz 0 1\nH 0 0 0\nH 0 0 0.74\n*\n", encoding="utf-8")
+            state = new_state(reaction_dir, selected_inp, max_retries=2)
+            notifications = []
+
+            rc = run_attempts(
+                reaction_dir,
+                selected_inp,
+                state,
+                resumed=False,
+                runner=_RetryThenSuccessRunner(),
+                max_retries=2,
+                as_json=False,
+                retry_inp_path=_retry_inp_path,
+                to_resolved_local=lambda raw: Path(raw),
+                emit=lambda _payload, _as_json: None,
+                notify_retry=lambda payload: notifications.append(payload),
+            )
+
+        self.assertEqual(rc, 0)
+        self.assertEqual(len(notifications), 1)
+        event = notifications[0]
+        self.assertEqual(event["attempt_index"], 1)
+        self.assertEqual(event["retry_number"], 1)
+        self.assertEqual(event["max_retries"], 2)
+        self.assertEqual(event["analyzer_status"], "error_scf")
+        self.assertEqual(event["analyzer_reason"], "scf_not_converged")
+        self.assertTrue(event["failed_inp"].endswith("rxn.inp"))
+        self.assertTrue(event["next_inp"].endswith("rxn.retry01.inp"))
+        self.assertIn("route_add_tightscf_slowconv", event["patch_actions"])
+        self.assertIn("geometry_restart_from_rxn.xyz", event["patch_actions"])
 
 
 class TestRetryRecipeStep(unittest.TestCase):

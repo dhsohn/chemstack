@@ -10,7 +10,7 @@ from .out_analyzer import analyze_output
 from .state_machine import MAX_RETRY_RECIPES, decide_attempt_outcome
 from .state_store import finalize_state, now_utc_iso, save_state, state_path, write_report_files
 from .statuses import AnalyzerStatus, RunStatus
-from .types import AttemptRecord, RunFinalResult, RunState
+from .types import AttemptRecord, RetryNotification, RunFinalResult, RunState
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +71,10 @@ def _run_status_text(status: RunStatus | str) -> str:
     return status.value if isinstance(status, RunStatus) else str(status)
 
 
+def _analyzer_status_text(status: AnalyzerStatus | str) -> str:
+    return status.value if isinstance(status, AnalyzerStatus) else str(status)
+
+
 def _retry_recipe_step(retry_number: int) -> int:
     """Map retry number to available recipe steps.
 
@@ -100,6 +104,37 @@ def _build_run_payload(
         "attempt_count": attempt_count,
         "run_state": str(state_path(reaction_dir)),
         **reports,
+    }
+
+
+def _build_retry_notification(
+    *,
+    reaction_dir: Path,
+    selected_inp: Path,
+    current_inp: Path,
+    out_path: Path,
+    next_inp: Path,
+    execution_index: int,
+    next_retry_number: int,
+    max_retries: int,
+    analysis_status: AnalyzerStatus | str,
+    analysis_reason: str,
+    patch_actions: list[str],
+    resumed: bool,
+) -> RetryNotification:
+    return {
+        "reaction_dir": str(reaction_dir),
+        "selected_inp": str(selected_inp),
+        "failed_inp": str(current_inp),
+        "failed_out": str(out_path),
+        "next_inp": str(next_inp),
+        "attempt_index": execution_index,
+        "retry_number": next_retry_number,
+        "max_retries": max_retries,
+        "analyzer_status": _analyzer_status_text(analysis_status),
+        "analyzer_reason": analysis_reason,
+        "patch_actions": list(patch_actions),
+        "resumed": resumed,
     }
 
 
@@ -287,6 +322,7 @@ def run_attempts(
     retry_inp_path: Callable[[Path, int], Path],
     to_resolved_local: Callable[[str], Path],
     emit: Callable[[Dict[str, Any], bool], None],
+    notify_retry: Callable[[RetryNotification], None] | None = None,
 ) -> int:
     resumed_exit = _resume_terminal_decision(
         reaction_dir,
@@ -436,4 +472,27 @@ def run_attempts(
 
         state["attempts"][-1]["patch_actions"] = patch_actions
         save_state(reaction_dir, state)
+        if notify_retry is not None:
+            notification = _build_retry_notification(
+                reaction_dir=reaction_dir,
+                selected_inp=selected_inp,
+                current_inp=current_inp,
+                out_path=out_path,
+                next_inp=next_inp,
+                execution_index=execution_index,
+                next_retry_number=next_retry_number,
+                max_retries=max_retries,
+                analysis_status=analysis.status,
+                analysis_reason=analysis.reason,
+                patch_actions=patch_actions,
+                resumed=resumed,
+            )
+            try:
+                notify_retry(notification)
+            except Exception:
+                logger.warning(
+                    "Retry notification callback failed for attempt %d",
+                    execution_index,
+                    exc_info=True,
+                )
         execution_index += 1
