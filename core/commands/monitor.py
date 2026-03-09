@@ -87,6 +87,21 @@ def _event_sort_key(event: RunEvent) -> datetime:
     return parsed or datetime.min.replace(tzinfo=timezone.utc)
 
 
+def _coerce_int(value: object) -> int:
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        stripped = value.strip()
+        if stripped:
+            try:
+                return int(stripped)
+            except ValueError:
+                return 0
+    return 0
+
+
 def _detect_run_events(
     previous: dict[str, dict[str, object]],
     snapshots: list[RunSnapshot],
@@ -103,7 +118,7 @@ def _detect_run_events(
             continue
 
         prior_status = str(prior.get("status", "")).strip().lower()
-        prior_attempts = int(prior.get("attempts", 0) or 0)
+        prior_attempts = _coerce_int(prior.get("attempts", 0))
 
         if snapshot.status == "completed" and prior_status != "completed":
             events.append(RunEvent(kind="completed", snapshot=snapshot))
