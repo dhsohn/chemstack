@@ -347,7 +347,7 @@ def clear_terminal(allowed_root: Path, *, keep_last: int = 0) -> int:
 
         if keep_last > 0:
             # Sort terminal by finished_at descending, keep newest
-            terminal.sort(key=lambda e: e.get("finished_at", ""), reverse=True)
+            terminal.sort(key=lambda e: e.get("finished_at") or "", reverse=True)
             kept = terminal[:keep_last]
             removed_count = len(terminal) - len(kept)
             entries = active + kept

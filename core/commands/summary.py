@@ -14,6 +14,7 @@ from ..dft_discovery import _find_latest_out_in_dir
 from ..orca_parser import parse_opt_progress
 from ..pathing import is_subpath, resolve_artifact_path
 from ..state_store import LOCK_FILE_NAME, load_state
+from ..types import RunState
 from ..telegram_notifier import escape_html, send_message
 
 logger = logging.getLogger(__name__)
@@ -117,7 +118,7 @@ def _human_bytes(size_bytes: int) -> str:
     return f"{size_bytes} B"
 
 
-def _latest_out_path(reaction_dir: Path, state: dict[str, Any]) -> Path | None:
+def _latest_out_path(reaction_dir: Path, state: RunState) -> Path | None:
     final_result = state.get("final_result")
     if isinstance(final_result, dict):
         last_out_path = final_result.get("last_out_path")

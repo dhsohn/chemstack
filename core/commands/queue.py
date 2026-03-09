@@ -8,7 +8,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 from ..config import load_config
 from ..queue_store import (
@@ -21,6 +21,7 @@ from ..queue_store import (
 )
 from ..queue_worker import QueueWorker, read_worker_pid
 from ..statuses import QueueStatus
+from ..types import QueueEntry
 from ._helpers import _validate_reaction_dir
 
 logger = logging.getLogger(__name__)
@@ -36,7 +37,7 @@ def _status_icon(status: str) -> str:
     }.get(status, "?")
 
 
-def _emit_entry(entry: Dict[str, Any], as_json: bool) -> None:
+def _emit_entry(entry: QueueEntry, as_json: bool) -> None:
     if as_json:
         print(json.dumps(entry, ensure_ascii=True, indent=2))
         return

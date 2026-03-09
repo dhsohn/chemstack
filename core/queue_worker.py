@@ -31,6 +31,7 @@ from .queue_store import (
 )
 from .state_store import load_state
 from .statuses import QueueStatus
+from .types import QueueEntry
 
 logger = logging.getLogger(__name__)
 
@@ -155,7 +156,7 @@ class QueueWorker:
                 break
             self._start_job(entry)
 
-    def _start_job(self, entry: dict) -> None:
+    def _start_job(self, entry: QueueEntry) -> None:
         queue_id = entry["queue_id"]
         reaction_dir = entry["reaction_dir"]
         force = bool(entry.get("force", False))
