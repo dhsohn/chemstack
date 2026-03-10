@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from core.config import TelegramConfig
     from core.dft_monitor import ScanReport
-    from core.types import RetryNotification, RunFinishedNotification, RunStartedNotification
+    from core.types import QueueEnqueuedNotification, RetryNotification, RunFinishedNotification, RunStartedNotification
 
 logger = logging.getLogger(__name__)
 
@@ -291,3 +291,40 @@ def _humanize_patch_action(action: str) -> str:
         source = action.removeprefix("geometry_restart_from_")
         return f"geometry restart from {source}"
     return labels.get(action, action.replace("_", " "))
+
+
+def format_queue_enqueued_event(event: QueueEnqueuedNotification) -> str:
+    """Format a queue-enqueued notification as a Telegram HTML message."""
+    reaction_dir = Path(event["reaction_dir"])
+    lines = [
+        "<b>ORCA Auto Queued</b>",
+        f"<b>Job</b>: {escape_html(reaction_dir.name or reaction_dir.as_posix())}",
+        f"<b>Queue ID</b>: <code>{escape_html(event['queue_id'])}</code>",
+        f"<b>Priority</b>: {event['priority']}",
+    ]
+    if event.get("force"):
+        lines.append("<b>Mode</b>: force re-enqueue")
+    lines.append(f"<b>Directory</b>: <code>{escape_html(event['reaction_dir'])}</code>")
+    return "\n".join(lines)
+
+
+def notify_queue_enqueued_event(config: TelegramConfig, event: QueueEnqueuedNotification) -> bool:
+    """Send a Telegram notification when a job is added to the queue."""
+    if not config.enabled:
+        logger.debug("telegram_queue_enqueued_notification_disabled")
+        return False
+
+    sent = send_message(config, format_queue_enqueued_event(event))
+    if sent:
+        logger.info(
+            "telegram_queue_enqueued_notification_sent: queue_id=%s reaction_dir=%s",
+            event["queue_id"],
+            event["reaction_dir"],
+        )
+    else:
+        logger.warning(
+            "telegram_queue_enqueued_notification_failed: queue_id=%s reaction_dir=%s",
+            event["queue_id"],
+            event["reaction_dir"],
+        )
+    return sent

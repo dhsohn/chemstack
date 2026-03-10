@@ -13,6 +13,8 @@ from unittest.mock import MagicMock, patch
 
 from core.commands.queue import (
     _emit_entry,
+    _format_elapsed,
+    _print_queue_table,
     _start_daemon,
     _status_icon,
     cmd_queue_add,
@@ -82,6 +84,53 @@ class TestEmitEntry(unittest.TestCase):
         output = buf.getvalue()
         self.assertIn("q_1", output)
         self.assertIn("pri=10", output)
+
+
+class TestFormatElapsed(unittest.TestCase):
+    def test_seconds(self) -> None:
+        self.assertEqual(_format_elapsed("2026-03-10T00:00:00+00:00", "2026-03-10T00:00:30+00:00"), "30s")
+
+    def test_minutes(self) -> None:
+        self.assertEqual(_format_elapsed("2026-03-10T00:00:00+00:00", "2026-03-10T00:05:00+00:00"), "5m")
+
+    def test_hours(self) -> None:
+        self.assertEqual(_format_elapsed("2026-03-10T00:00:00+00:00", "2026-03-10T02:30:00+00:00"), "2h 30m")
+
+    def test_days(self) -> None:
+        self.assertEqual(_format_elapsed("2026-03-10T00:00:00+00:00", "2026-03-12T03:00:00+00:00"), "2d 3h")
+
+    def test_invalid_enqueued_at(self) -> None:
+        self.assertEqual(_format_elapsed("invalid", None), "-")
+
+    def test_invalid_finished_at_uses_now(self) -> None:
+        result = _format_elapsed("2026-03-10T00:00:00+00:00", "invalid")
+        self.assertNotEqual(result, "-")
+
+
+class TestPrintQueueTable(unittest.TestCase):
+    def test_table_output(self) -> None:
+        entries = [
+            {"queue_id": "q_001", "status": "pending", "priority": 1,
+             "reaction_dir": "/tmp/rxn_A", "enqueued_at": "2026-03-10T00:00:00+00:00",
+             "finished_at": None},
+            {"queue_id": "q_002", "status": "completed", "priority": 10,
+             "reaction_dir": "/tmp/rxn_B", "enqueued_at": "2026-03-10T00:00:00+00:00",
+             "finished_at": "2026-03-10T01:00:00+00:00"},
+        ]
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            _print_queue_table(entries)
+        output = buf.getvalue()
+        self.assertIn("QUEUE ID", output)
+        self.assertIn("STATUS", output)
+        self.assertIn("PRI", output)
+        self.assertIn("DIRECTORY", output)
+        self.assertIn("ELAPSED", output)
+        self.assertIn("\u2500", output)
+        self.assertIn("q_001", output)
+        self.assertIn("q_002", output)
+        self.assertIn("rxn_A", output)
+        self.assertIn("rxn_B", output)
 
 
 class TestCmdQueueAdd(unittest.TestCase):
@@ -179,8 +228,12 @@ class TestCmdQueueList(unittest.TestCase):
         with redirect_stdout(buf):
             rc = cmd_queue_list(args)
         self.assertEqual(rc, 0)
-        self.assertIn("Queue:", buf.getvalue())
-        self.assertIn("1 pending", buf.getvalue())
+        output = buf.getvalue()
+        self.assertIn("Queue:", output)
+        self.assertIn("1 pending", output)
+        self.assertIn("QUEUE ID", output)
+        self.assertIn("STATUS", output)
+        self.assertIn("mol_A", output)
 
     @patch("core.commands.queue.load_config")
     def test_list_json(self, mock_load: MagicMock) -> None:

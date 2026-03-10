@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 from core.config import TelegramConfig
 from core.dft_monitor import MonitorResult, ScanReport
-from core.types import RetryNotification, RunFinishedNotification, RunStartedNotification
+from core.types import QueueEnqueuedNotification, RetryNotification, RunFinishedNotification, RunStartedNotification
 from core.telegram_notifier import (
     escape_html,
     _status_icon,
@@ -15,10 +15,12 @@ from core.telegram_notifier import (
     format_run_finished_event,
     format_run_started_event,
     format_retry_event,
+    format_queue_enqueued_event,
     notify_scan_report,
     notify_retry_event,
     notify_run_finished_event,
     notify_run_started_event,
+    notify_queue_enqueued_event,
     send_message,
 )
 
@@ -264,5 +266,45 @@ class TestNotifyRunFinishedEvent:
     @patch("core.telegram_notifier.send_message")
     def test_skips_when_disabled(self, mock_send: MagicMock) -> None:
         result = notify_run_finished_event(_disabled_config(), _sample_finished_event())
+        assert result is False
+        mock_send.assert_not_called()
+
+
+def _sample_queue_enqueued_event() -> QueueEnqueuedNotification:
+    return {
+        "queue_id": "q_20260310_abc12345",
+        "reaction_dir": "/tmp/orca_runs/rxn<demo>",
+        "priority": 5,
+        "force": False,
+        "enqueued_at": "2026-03-10T00:00:00+00:00",
+    }
+
+
+class TestFormatQueueEnqueuedEvent:
+    def test_format_contains_queue_context(self) -> None:
+        text = format_queue_enqueued_event(_sample_queue_enqueued_event())
+        assert "ORCA Auto Queued" in text
+        assert "q_20260310_abc12345" in text
+        assert "Priority" in text
+        assert "5" in text
+        assert "&lt;demo&gt;" in text
+
+    def test_format_force_mode(self) -> None:
+        event = _sample_queue_enqueued_event()
+        event["force"] = True
+        text = format_queue_enqueued_event(event)
+        assert "force re-enqueue" in text
+
+
+class TestNotifyQueueEnqueuedEvent:
+    @patch("core.telegram_notifier.send_message", return_value=True)
+    def test_sends_enqueued_message(self, mock_send: MagicMock) -> None:
+        result = notify_queue_enqueued_event(_enabled_config(), _sample_queue_enqueued_event())
+        assert result is True
+        mock_send.assert_called_once()
+
+    @patch("core.telegram_notifier.send_message")
+    def test_skips_when_disabled(self, mock_send: MagicMock) -> None:
+        result = notify_queue_enqueued_event(_disabled_config(), _sample_queue_enqueued_event())
         assert result is False
         mock_send.assert_not_called()

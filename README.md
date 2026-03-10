@@ -1,46 +1,357 @@
-# ORCA Single-Input Recovery Runner
+# ORCA Auto — User Guide
 
 [![CI](https://github.com/dhsohn/orca_auto/actions/workflows/ci.yml/badge.svg)](https://github.com/dhsohn/orca_auto/actions/workflows/ci.yml)
 
-> A Python CLI that automates failure analysis, input modification, retry, state recording, and result reporting so that humans don't have to deal with ORCA calculation failures in the middle of the night.
+> A Python CLI that automates failure analysis, input modification, retry, state recording, and result reporting for ORCA quantum chemistry calculations.
 
-## What problem does it solve
+---
 
-ORCA calculations can run for hours or days before stopping due to reasons like `SCF NOT CONVERGED`, geometry issues, or unmet TS criteria. The real problem is not the failure itself, but what comes after.
+## Table of Contents
 
-- You need to track which input was used for the run.
-- You need to read the output file and classify the failure cause.
-- You need to conservatively modify the original input without breaking it.
-- You need to consistently keep retry artifacts and final results in the same directory.
-- Since jobs take a long time, duplicate runs, mid-run interruptions, and resume scenarios must also be safe.
+1. [Overview](#overview)
+2. [Installation](#installation)
+3. [Configuration](#configuration)
+4. [Basic Usage](#basic-usage)
+5. [Task Queue](#task-queue)
+6. [Failure Classification and Automatic Retry](#failure-classification-and-automatic-retry)
+7. [Result Organization](#result-organization)
+8. [DFT Monitoring](#dft-monitoring)
+9. [Telegram Integration](#telegram-integration)
+10. [Cron Automation](#cron-automation)
+11. [Command Reference](#command-reference)
+12. [Troubleshooting](#troubleshooting)
+13. [Project Structure](#project-structure)
+14. [Testing](#testing)
 
-This project was created to reduce those operational burdens.
+---
 
-## Why is it hard
+## Overview
 
-- ORCA exit codes are not a sufficient signal. You need to read the output text to determine the actual failure cause.
-- For TS calculations, `terminated normally` alone does not mean completion. You must also verify the number of imaginary frequencies and IRC conditions.
-- Retry automation is not a simple loop — it requires preserving the original input, generating retry inputs, geometry restart, and state persistence to all work together.
-- Because calculations take a long time, without locks, atomic state persistence, resume policies, and background execution UX, operations easily get tangled.
+ORCA calculations can run for hours or days before stopping due to `SCF NOT CONVERGED`, geometry non-convergence, unmet TS criteria, and more. When a failure occurs, the manual burden includes:
 
-## What was built
+- Tracking which input file was used for the run
+- Reading the output file and classifying the failure cause
+- Conservatively modifying the original input without breaking it
+- Consistently managing retry artifacts and final results
+- Handling duplicate runs, mid-run interruptions, and resume scenarios
 
-- Selects the latest user-authored `.inp` under `allowed_root` and runs it
-- Classifies failure causes by analyzing `.out` files
-- Generates `*.retryNN.inp` with conservative retry recipes and automatically retries
-- Produces `run_state.json`, `run_report.json`, `run_report.md`
-- Sends immediate Telegram alerts when a run starts, a retry is scheduled, and a run completes/fails
-- Skips if a completed `.out` already exists; re-runs with `--force`
-- A production-ready CLI including `list`, `organize`, and a Telegram bot
+**ORCA Auto** automates all of this — from single calculation execution to batch processing (queue), result organization, monitoring, and Telegram notifications.
 
-## Design decisions
+### Design Principles
 
-- Configuration is explicit: no longer silently assumes personal defaults like `~/orca_runs` or `~/opt/orca/orca`.
-- Separation of concerns: runner, analyzer, retry engine, state store, and organizer are separated.
-- Operational safety first: includes lock files, atomic writes, stale lock recovery, and resume determination.
-- Recovery is conservative: does not overwrite the original `.inp`; only generates retry inputs.
+- **Explicit configuration**: No silent personal defaults assumed
+- **Separation of concerns**: Runner, analyzer, retry engine, state store, and organizer are each independent
+- **Operational safety first**: Lock files, atomic writes, stale lock recovery, and resume detection
+- **Conservative recovery**: Never overwrites the original `.inp`; only generates retry inputs
 
-## Recovery scenario example
+---
+
+## Installation
+
+### Requirements
+
+- Python 3.10+ (tested with 3.11, 3.12, 3.13)
+- Linux (WSL2 or native Linux)
+- ORCA binary (absolute Linux path required)
+- ORCA dependencies: OpenMPI, BLAS/LAPACK, etc.
+
+### Setup
+
+```bash
+cd ~/orca_auto
+bash scripts/bootstrap_wsl.sh
+```
+
+`bootstrap_wsl.sh` performs the following:
+- Creates a Python virtual environment (`.venv`)
+- Installs dependencies (`requirements.txt`)
+- Seeds `config/orca_auto.yaml` from the example template if not present
+
+---
+
+## Configuration
+
+### Interactive Setup
+
+```bash
+./bin/orca_auto init
+```
+
+You will be prompted for the following:
+
+| Field | Description | Required |
+|-------|-------------|----------|
+| `paths.orca_executable` | Absolute path to the ORCA executable | Yes |
+| `runtime.allowed_root` | Root directory for calculation input directories | Yes |
+| `runtime.organized_root` | Directory for organized results (default: `orca_outputs` sibling to `allowed_root`) | No |
+| `runtime.default_max_retries` | Maximum number of retries (default: 2) | No |
+| `telegram.bot_token` | Telegram bot token | No |
+| `telegram.chat_id` | Telegram chat ID | No |
+
+### Configuration File Format
+
+Location: `config/orca_auto.yaml`
+
+```yaml
+runtime:
+  allowed_root: "/home/user/orca_runs"
+  organized_root: "/home/user/orca_outputs"
+  default_max_retries: 2
+
+paths:
+  orca_executable: "/opt/orca/orca"
+
+telegram:
+  bot_token: ""
+  chat_id: ""
+```
+
+Config file search order:
+1. Environment variable `ORCA_AUTO_CONFIG`
+2. `<project_root>/config/orca_auto.yaml`
+3. `~/orca_auto/config/orca_auto.yaml`
+
+> **Note**: `default_max_retries=2` refers to the number of retries. Total executions = `1 initial + 2 retries = 3 maximum`.
+
+> **Warning**: Windows paths (`C:\...`, `/mnt/c/...`) are not supported.
+
+---
+
+## Basic Usage
+
+### Running a Single Calculation
+
+```bash
+# Default execution (background)
+./bin/orca_auto run-inp --reaction-dir '/home/user/orca_runs/sample_rxn'
+
+# Foreground execution
+./bin/orca_auto run-inp --reaction-dir '/home/user/orca_runs/sample_rxn' --foreground
+
+# Force re-run of a completed calculation
+./bin/orca_auto run-inp --reaction-dir '/home/user/orca_runs/sample_rxn' --force
+```
+
+`run-inp` automatically selects the **most recently modified `.inp` file** in the directory.
+
+By default it runs in the background, printing `status`, `pid`, and `log` path before returning immediately.
+Set `ORCA_AUTO_RUN_INP_BACKGROUND=0` to change the default to foreground.
+
+### Checking Results
+
+```bash
+# View all simulation statuses
+./bin/orca_auto list
+
+# Filter by status
+./bin/orca_auto list --filter running
+./bin/orca_auto list --filter completed
+./bin/orca_auto list --filter failed
+
+# JSON output
+./bin/orca_auto list --json
+```
+
+### Generated Files
+
+The following files are created in each calculation directory:
+
+| File | Description |
+|------|-------------|
+| `run_state.json` | Execution state, attempt list, final result |
+| `run_report.json` | Structured result report |
+| `run_report.md` | Human-readable result summary |
+| `*.retryNN.inp` | Auto-generated retry input files |
+| `*.retryNN.out` | Output files from retry executions |
+
+### Example Output
+
+```text
+$ ./bin/orca_auto run-inp --reaction-dir '/home/user/orca_runs/sample_rxn' --foreground
+status: completed
+reaction_dir: /home/user/orca_runs/sample_rxn
+selected_inp: /home/user/orca_runs/sample_rxn/rxn.inp
+attempt_count: 2
+reason: normal_termination
+run_state: /home/user/orca_runs/sample_rxn/run_state.json
+report_json: /home/user/orca_runs/sample_rxn/run_report.json
+report_md: /home/user/orca_runs/sample_rxn/run_report.md
+```
+
+---
+
+## Task Queue
+
+The queue system provides **batch processing** for running multiple calculations sequentially or concurrently. It supports priority-based ordering, concurrency limits, cancellation, and daemon mode.
+
+### Adding Jobs to the Queue
+
+```bash
+# Add with default priority (10)
+./bin/orca_auto queue add --reaction-dir '/home/user/orca_runs/rxn_001'
+
+# Add with higher priority (lower number = higher priority)
+./bin/orca_auto queue add --reaction-dir '/home/user/orca_runs/rxn_002' --priority 1
+
+# Re-enqueue a completed/failed job intentionally
+./bin/orca_auto queue add --reaction-dir '/home/user/orca_runs/rxn_001' --force
+```
+
+- Priority: **lower number** = runs first (default: 10)
+- Duplicate entries for the same directory are rejected
+- Use `--force` to re-enqueue completed/failed jobs
+
+### Viewing Queue Status
+
+```bash
+# Full queue listing
+./bin/orca_auto queue list
+
+# Filter by status
+./bin/orca_auto queue list --filter pending
+./bin/orca_auto queue list --filter running
+./bin/orca_auto queue list --filter completed
+./bin/orca_auto queue list --filter failed
+./bin/orca_auto queue list --filter cancelled
+
+# JSON format
+./bin/orca_auto queue list --json
+```
+
+Example output:
+
+```text
+  ⏳ q-abc123  pending     pri=1   rxn_002
+  ⏳ q-def456  pending     pri=10  rxn_001
+  ✅ q-ghi789  completed   pri=10  rxn_003
+```
+
+### Starting the Queue Worker
+
+The worker is a process that picks up pending jobs from the queue and executes them.
+
+```bash
+# Run worker in foreground (default: 4 concurrent jobs)
+./bin/orca_auto queue worker
+
+# Specify concurrency limit
+./bin/orca_auto queue worker --max-concurrent 2
+
+# Run as a background daemon
+./bin/orca_auto queue worker --daemon
+```
+
+Worker behavior:
+- Periodically polls the queue for `pending` jobs
+- Limits concurrent executions via `--max-concurrent` (default: 4)
+- Each job runs as an `orca_auto run-inp --foreground` subprocess
+- Checks exit codes upon completion and updates job status
+- Supports graceful shutdown via `SIGTERM` / `SIGINT`
+
+### Stopping the Worker
+
+```bash
+./bin/orca_auto queue stop
+```
+
+### Cancelling Jobs
+
+```bash
+# Cancel by queue ID
+./bin/orca_auto queue cancel q-abc123
+
+# Cancel by reaction directory
+./bin/orca_auto queue cancel /home/user/orca_runs/rxn_001
+
+# Cancel all pending jobs
+./bin/orca_auto queue cancel all-pending
+```
+
+### Clearing Completed Entries
+
+```bash
+# Remove completed, failed, and cancelled entries
+./bin/orca_auto queue clear
+```
+
+### Queue Workflow Example
+
+```bash
+# 1. Add multiple calculations to the queue
+./bin/orca_auto queue add --reaction-dir '/home/user/orca_runs/rxn_A' --priority 1
+./bin/orca_auto queue add --reaction-dir '/home/user/orca_runs/rxn_B' --priority 5
+./bin/orca_auto queue add --reaction-dir '/home/user/orca_runs/rxn_C'
+
+# 2. Start the worker as a daemon
+./bin/orca_auto queue worker --daemon --max-concurrent 2
+
+# 3. Check progress
+./bin/orca_auto queue list
+
+# 4. Cancel a job if needed
+./bin/orca_auto queue cancel rxn_C
+
+# 5. Clean up after all jobs complete
+./bin/orca_auto queue clear
+
+# 6. Stop the worker
+./bin/orca_auto queue stop
+```
+
+Queue data is persisted in `{allowed_root}/queue.json` and protected by a `queue.lock` file for concurrent access safety.
+
+---
+
+## Failure Classification and Automatic Retry
+
+### Failure Classification
+
+Output files (`.out`) are analyzed and classified into the following statuses:
+
+| Status | Description |
+|--------|-------------|
+| `completed` | Successfully completed |
+| `error_scf` | SCF convergence failure |
+| `error_scfgrad_abort` | SCF gradient abort |
+| `error_multiplicity_impossible` | Electron count / multiplicity mismatch |
+| `error_disk_io` | Disk I/O error |
+| `error_memory` | Out of memory |
+| `geom_not_converged` | Geometry optimization did not converge |
+| `ts_not_found` | Transition state not found |
+| `incomplete` | Abnormal termination |
+
+### TS Mode Completion Rules
+
+When the input route line (`! ...`) contains `OptTS` or `NEB-TS`, TS mode is activated:
+
+- `****ORCA TERMINATED NORMALLY****` must be present
+- Exactly **1 imaginary frequency** required
+- If the route contains `IRC`, the IRC completion marker is also required
+
+### Automatic Retry Recipes
+
+Conservative modifications are applied progressively at each retry step:
+
+| Step | Modifications Applied |
+|------|----------------------|
+| Step 1 | Add `TightSCF SlowConv` to route + `%scf MaxIter 300` |
+| Step 2 | `%geom Calc_Hess true`, `Recalc_Hess 5`, `MaxIter 300` |
+| Step 3 | Increase memory + relax convergence (`LooseOpt`) |
+| Step 4 | Hessian + memory + relaxed convergence combined |
+
+### Geometry Restart
+
+At each retry:
+1. Finds the previous attempt's `.xyz` file and replaces the geometry block with `* xyzfile ...`
+2. Falls back to the most recent `*_trj.xyz` in the directory if the direct match is not found
+3. Keeps the original geometry block if no fallback candidates exist
+
+Principles:
+- Original `charge/multiplicity` is never changed
+- Original `.inp` file is preserved
+- Retry filenames follow the pattern `<name>.retry01.inp`, `<name>.retry02.inp`, ...
+
+### Recovery Scenario Example
 
 ```text
 Run rxn.inp
@@ -48,128 +359,89 @@ Run rxn.inp
   -> Generate rxn.retry01.inp
      - Add TightSCF / SlowConv to route
      - Apply %scf MaxIter 300
-     - Geometry restart with the latest xyz
+     - Geometry restart with latest xyz
   -> rxn.retry01.out terminates normally
   -> Generate run_report.md / run_report.json
   -> Reflected in list as completed, attempts=2
 ```
 
-## Verification basis
+---
 
-- Verified with Python `3.11`, `3.12`, `3.13` matrix on GitHub Actions
-- Quality gates: `ruff`, `mypy`, `pytest --cov`
-- Coverage gate: `80%`
-- Unit tests: parser, retry rules, state/lock, organize/index, Telegram handlers
-- Integration tests: verify the `run-inp -> retry -> report generation -> list reflection` flow with a fake ORCA executable
+## Result Organization
 
-## Quick start
-
-### 1) Installation
+Moves completed calculation results to `organized_root` and maintains an index.
 
 ```bash
-cd ~/orca_auto
-bash scripts/bootstrap_wsl.sh
+# Dry run (default — preview without moving)
+./bin/orca_auto organize --root /home/user/orca_runs
+
+# Apply actual moves
+./bin/orca_auto organize --root /home/user/orca_runs --apply
+
+# Organize a single directory
+./bin/orca_auto organize --reaction-dir /home/user/orca_runs/sample_rxn --apply
+
+# Rebuild the index
+./bin/orca_auto organize --root /home/user/orca_runs --rebuild-index
 ```
 
-`bootstrap_wsl.sh` prepares the `.venv` and, if needed, seeds `config/orca_auto.yaml` from the example template.
+- `--root` must exactly match `runtime.allowed_root` in the configuration
+- Default is dry-run; specify `--apply` for actual moves
+- Moved files are tracked in a JSONL index
 
-### 2) Initialize the configuration interactively
+---
 
-Run the interactive setup:
+## DFT Monitoring
 
-```bash
-./bin/orca_auto init
-```
-
-`init` asks for:
-
-- `paths.orca_executable`
-- `runtime.allowed_root`
-- `runtime.organized_root` (press Enter to accept the default sibling `orca_outputs`)
-- `runtime.default_max_retries`
-- optional Telegram settings
-
-If `bootstrap_wsl.sh` already created a template config, `init` will ask before overwriting it.
-
-Notes:
-
-- `runtime.allowed_root` and `paths.orca_executable` are required.
-- `init` validates the ORCA binary and path format immediately.
-- Missing directories can be created during the prompt.
-- If `runtime.organized_root` is omitted, the default is `orca_outputs` next to `allowed_root`.
-- Windows legacy paths (`C:\...`, `/mnt/c/...`) are not supported.
-- You can edit the generated `config/orca_auto.yaml` manually afterward.
-
-### 3) Run a calculation
-
-```bash
-./bin/orca_auto run-inp --reaction-dir '/absolute/path/to/orca_runs/sample_rxn'
-```
-
-The default is background execution. To run in the foreground:
-
-```bash
-./bin/orca_auto run-inp --reaction-dir '/absolute/path/to/orca_runs/sample_rxn' --foreground
-```
-
-### 4) Check results
-
-```bash
-./bin/orca_auto list
-cat /absolute/path/to/orca_runs/sample_rxn/run_report.md
-```
-
-## Demo output example
+Scans the filesystem to automatically detect and index newly discovered ORCA results.
 
 ```text
-$ ./bin/orca_auto run-inp --reaction-dir '/absolute/path/to/orca_runs/sample_rxn' --foreground
-status: completed
-reaction_dir: /absolute/path/to/orca_runs/sample_rxn
-selected_inp: /absolute/path/to/orca_runs/sample_rxn/rxn.inp
-attempt_count: 2
-reason: normal_termination
-run_state: /absolute/path/to/orca_runs/sample_rxn/run_state.json
-report_json: /absolute/path/to/orca_runs/sample_rxn/run_report.json
-report_md: /absolute/path/to/orca_runs/sample_rxn/run_report.md
-
-$ ./bin/orca_auto list --json
-[
-  {
-    "dir": "sample_rxn",
-    "status": "completed",
-    "attempts": 2,
-    "inp": "rxn.inp"
-  }
-]
+Filesystem (.out)
+  -> dft_discovery  (file discovery)
+  -> orca_parser    (result parsing)
+  -> dft_index      (SQLite storage)
+  -> dft_monitor    (change detection)
+  -> Telegram notification
 ```
 
-## Main commands
+```bash
+# Manual execution
+./bin/orca_auto monitor
+```
 
-| Command | Description |
-|---------|-------------|
-| `init` | Interactively create or update `orca_auto.yaml` |
-| `run-inp` | Select the latest `.inp`, then run/recover/retry |
-| `list` | Query the status of all runs under `allowed_root` |
-| `organize` | Move completed calculation results under `organized_root` and index them |
-| `monitor` | Send scan-based Telegram alerts only for newly discovered DFT results or parse failures |
-| `summary` | Send a periodic Telegram digest of active runs and current blockers |
-| `bot` | Run the Telegram long-polling bot |
+- Sends Telegram alerts only for newly discovered DFT results
+- Reports parse failures with error details
+- State is tracked in `.dft_monitor_state.json`
 
-Frequently used options:
+---
 
-| Option | Description | Example |
-|--------|-------------|---------|
-| `--force` | Force re-run even if the calculation is already completed | `run-inp --force` |
-| `--foreground` | Run in the foreground | `run-inp --foreground` |
-| `--json` | JSON output | `list --json` |
+## Telegram Integration
 
-## Telegram bot
+### Enabling Notifications
 
-You can query the status from Telegram.
+Set `bot_token` and `chat_id` in `config/orca_auto.yaml` to activate notifications automatically.
+
+### Notification Types
+
+| Event | Content |
+|-------|---------|
+| Run started | Reaction directory, selected input, attempt info |
+| Retry scheduled | Failure reason, patch actions, next input file |
+| Run completed/failed | Final status, attempt count, completion reason |
+| DFT discovery | Formula, method, energy of new results |
+| Parse failure | Error messages from monitor scans |
+| State summary | Active runs, blockers, progress |
+
+### Telegram Bot
 
 ```bash
+# Start the bot
 ./bin/orca_auto bot
+
+# Or manage via script
+bash scripts/start_bot.sh start
 bash scripts/start_bot.sh restart
+bash scripts/start_bot.sh stop
 ```
 
 Bot commands:
@@ -182,9 +454,21 @@ Bot commands:
 | `/list failed` | Failed jobs only |
 | `/help` | Help |
 
-## Cron automation
+### Periodic Summary Reports
 
-Install the bundled cron jobs:
+```bash
+# Send via Telegram
+./bin/orca_auto summary
+
+# Print without sending
+./bin/orca_auto summary --no-send
+```
+
+Shows active run status, progress info (cycle count, energy, elapsed time, ETA), and jobs needing attention.
+
+---
+
+## Cron Automation
 
 ```bash
 bash scripts/install_cron.sh
@@ -192,87 +476,152 @@ bash scripts/install_cron.sh
 
 Installed schedules:
 
-- `dft_summary`: `0 9,21 * * *`  periodic digest of active runs and current blockers
-- `dft_monitor`: `0 * * * *`  hourly filesystem scan alert for newly discovered DFT results or parse failures
-- `organize`: `0 0 * * 6`
+| Job | Schedule | Description |
+|-----|----------|-------------|
+| `dft_summary` | `0 9,21 * * *` | Twice daily — active runs and blocker digest |
+| `dft_monitor` | `0 * * * *` | Hourly — scan for new DFT results and send alerts |
+| `organize` | `0 0 * * 6` | Weekly (Saturday) — organize completed results |
 
-Role split:
+### Role Split
 
-- `run-inp`: immediate lifecycle alerts for start, retry scheduling, completion, and failure
-- `monitor`: scan/discovery alerts from periodic filesystem scans
-- `summary`: current-state digest for active jobs and attention-needed runs; completed history omitted
+| Command | Role |
+|---------|------|
+| `run-inp` | Immediate alerts — start, retry scheduling, completion, failure |
+| `monitor` | Discovery alerts — newly found results from filesystem scans |
+| `summary` | State digest — active jobs and attention-needed items (completed history excluded) |
 
-## Result organization and indexing
+---
 
-To organize multiple calculation results at once:
+## Command Reference
 
-```bash
-./bin/orca_auto organize --root /absolute/path/to/orca_runs
-./bin/orca_auto organize --root /absolute/path/to/orca_runs --apply
-```
+### Main Commands
 
-Notes:
+| Command | Description |
+|---------|-------------|
+| `init` | Interactively create or update the config file |
+| `run-inp` | Select the latest `.inp`, then run/recover/retry |
+| `list` | Query the status of all runs under `allowed_root` |
+| `organize` | Move completed results to `organized_root` and index them |
+| `monitor` | Send Telegram alerts for newly discovered DFT results |
+| `summary` | Send a Telegram digest of active run state |
+| `bot` | Start the Telegram long-polling bot |
+| `queue` | Manage the task queue (see subcommands below) |
 
-- `--root` must exactly match `runtime.allowed_root` in the configuration file.
-- Dry-run is the default; `--apply` must be specified for actual moves to occur.
-- Targets for organization are moved under `runtime.organized_root` and a JSONL index is maintained alongside them.
+### Queue Subcommands
 
-## DFT monitoring layer
+| Subcommand | Description |
+|------------|-------------|
+| `queue add` | Add a calculation directory to the queue |
+| `queue list` | View queue entries |
+| `queue cancel` | Cancel a pending or running job |
+| `queue clear` | Remove terminal-state entries |
+| `queue worker` | Start the queue worker |
+| `queue stop` | Stop the running worker |
 
-In addition to the single runner, this repository also includes a library layer that automatically detects and structures ORCA results.
+### Common Options
 
-```text
-File system (.out)
-  -> dft_discovery
-  -> orca_parser
-  -> dft_index (SQLite)
-  -> dft_monitor
-  -> Telegram notifier / bot
-```
+| Option | Description |
+|--------|-------------|
+| `--config <path>` | Use a non-default config file |
+| `--verbose`, `-v` | Enable debug logging |
+| `--json-log` | Structured JSON logging |
+| `--log-file <path>` | Write logs to file (10MB x 5 rotation) |
+| `--force` | Force re-run of completed calculations |
+| `--foreground` | Run in the foreground |
+| `--json` | JSON format output |
 
-Main modules:
+### Environment Variables
 
-| Module | Role |
-|--------|------|
-| `orca_runner.py` | ORCA subprocess execution and termination handling |
-| `out_analyzer.py` | Completion/failure reason determination from `.out` files |
-| `attempt_engine.py` | Retry loop and final state determination |
-| `state_store.py` | State persistence, atomic writes, execution locks |
-| `result_organizer.py` | Moving completed runs and synchronizing state |
-| `dft_monitor.py` | Automatic detection and indexing of completed results |
-| `telegram_bot.py` | Long-polling command reception |
+| Variable | Description |
+|----------|-------------|
+| `ORCA_AUTO_CONFIG` | Override config file path |
+| `ORCA_AUTO_RUN_INP_BACKGROUND` | Default run-inp execution mode (`1`=background, `0`=foreground) |
+| `ORCA_AUTO_LOG_DIR` | Override log directory |
 
-## Project structure
+---
 
-```text
-core/
-  launcher.py
-  cli.py
-  commands/
-  orca_runner.py
-  out_analyzer.py
-  attempt_engine.py
-  state_store.py
-  result_organizer.py
-  dft_discovery.py
-  dft_index.py
-  dft_monitor.py
-  telegram_bot.py
-  telegram_notifier.py
-tests/
-scripts/
-config/
-docs/
-```
+## Troubleshooting
 
-`./bin/orca_auto` is a thin shim that preferentially uses the local `.venv`, and internally calls the same `core.launcher` as the installed `orca_auto`.
+### `Reaction directory must be under allowed root`
 
-## Running tests
+The `--reaction-dir` path is not under `allowed_root`.
+Check `allowed_root` in `config/orca_auto.yaml`.
+
+### `Reaction directory not found`
+
+Path string or quoting issue. Wrap the path in single quotes:
 
 ```bash
+./bin/orca_auto run-inp --reaction-dir '/home/user/orca_runs/my_case'
+```
+
+### `State file not found`
+
+`run-inp` has not been executed in that directory yet. Run `run-inp` first.
+
+### `error_multiplicity_impossible`
+
+The electron count and multiplicity combination is invalid. This tool uses a conservative policy and does not automatically change charge/multiplicity — manually edit the input file and re-run.
+
+### Duplicate queue entry rejected
+
+The same `reaction_dir` already exists in the queue with an active status (pending/running). Use `--force` to re-enqueue after completion or failure.
+
+---
+
+## Project Structure
+
+```text
+orca_auto/
+├── bin/orca_auto              # Local .venv-first entry point shim
+├── core/                      # Main application logic
+│   ├── launcher.py            # Background/foreground execution handler
+│   ├── cli.py                 # CLI argument parsing and command routing
+│   ├── config.py              # YAML configuration loading
+│   ├── commands/              # CLI command implementations
+│   │   ├── run_inp.py         # run-inp command
+│   │   ├── list_runs.py       # list command
+│   │   ├── queue.py           # queue command
+│   │   ├── organize.py        # organize command
+│   │   ├── monitor.py         # monitor command
+│   │   └── summary.py         # summary command
+│   ├── orca_runner.py         # ORCA subprocess execution
+│   ├── out_analyzer.py        # Output file analysis
+│   ├── orca_parser.py         # ORCA output parsing (energies, frequencies, etc.)
+│   ├── attempt_engine.py      # Retry loop orchestration
+│   ├── inp_rewriter.py        # Retry input modification
+│   ├── state_store.py         # State persistence, atomic writes, locks
+│   ├── queue_store.py         # Persistent task queue
+│   ├── queue_worker.py        # Queue worker daemon
+│   ├── result_organizer.py    # Completed result relocation
+│   ├── dft_index.py           # SQLite DFT index
+│   ├── dft_discovery.py       # ORCA output file discovery
+│   ├── dft_monitor.py         # Auto-discovery monitoring
+│   ├── telegram_bot.py        # Telegram long-polling bot
+│   └── telegram_notifier.py   # Telegram notification sender
+├── config/                    # Configuration files
+├── scripts/                   # Installation and automation scripts
+├── tests/                     # Test code
+└── docs/REFERENCE.md          # Detailed behavioral reference
+```
+
+---
+
+## Testing
+
+```bash
+# Linting
 ruff check .
+
+# Type checking
 mypy
+
+# Run tests (80% coverage gate)
 pytest --cov --cov-report=term-missing -q
 ```
 
-Detailed behavioral rules and completion determination logic are covered in [REFERENCE.md](docs/REFERENCE.md).
+Verified on GitHub Actions with Python 3.11, 3.12, 3.13 matrix.
+
+---
+
+For detailed behavioral rules and completion determination logic, see [REFERENCE.md](docs/REFERENCE.md).

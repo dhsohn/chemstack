@@ -81,6 +81,14 @@ class RunFinishedNotification(TypedDict):
     skipped_execution: bool
 
 
+class QueueEnqueuedNotification(TypedDict):
+    queue_id: str
+    reaction_dir: str
+    priority: int
+    force: bool
+    enqueued_at: str
+
+
 class QueueEntry(TypedDict, total=False):
     """A single item in the task queue."""
 
