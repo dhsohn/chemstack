@@ -127,7 +127,12 @@ def _format_monitor_failure_section(report: ScanReport) -> str | None:
 
 
 def format_monitor_message(report: ScanReport, *, now: datetime | None = None) -> str:
-    current_time = now.astimezone() if now is not None else datetime.now().astimezone()
+    if now is None:
+        current_time = datetime.now().astimezone()
+    elif now.tzinfo is None:
+        current_time = now.astimezone()
+    else:
+        current_time = now
     header = f"\u2699\ufe0f <b>orca_auto monitor</b>  <code>{current_time.strftime('%Y-%m-%d %H:%M %Z')}</code>"
     divider = "\u2500" * 28
     scope = (
