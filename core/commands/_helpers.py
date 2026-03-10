@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import logging
 import os
 import re
@@ -80,18 +79,14 @@ def _human_bytes(n: int) -> str:
 
 def finalize_batch_apply(
     summary: Dict[str, Any],
-    emit_fn: Callable[[Dict[str, Any], bool], None],
-    as_json: bool,
+    emit_fn: Callable[[Dict[str, Any]], None],
     failures: List[Dict[str, Any]],
 ) -> int:
-    emit_fn(summary, as_json)
+    emit_fn(summary)
     return 1 if failures else 0
 
 
-def _emit(payload: Dict[str, Any], as_json: bool) -> None:
-    if as_json:
-        print(json.dumps(payload, ensure_ascii=True, indent=2))
-        return
+def _emit(payload: Dict[str, Any]) -> None:
     for key in [
         "status",
         "reaction_dir",

@@ -137,21 +137,6 @@ Config file search order:
 By default it runs in the background, printing `status`, `pid`, and `log` path before returning immediately.
 Set `ORCA_AUTO_RUN_INP_BACKGROUND=0` to change the default to foreground.
 
-### Checking Results
-
-```bash
-# View all simulation statuses
-./bin/orca_auto list
-
-# Filter by status
-./bin/orca_auto list --filter running
-./bin/orca_auto list --filter completed
-./bin/orca_auto list --filter failed
-
-# JSON output
-./bin/orca_auto list --json
-```
-
 ### Generated Files
 
 The following files are created in each calculation directory:
@@ -201,29 +186,30 @@ The queue system provides **batch processing** for running multiple calculations
 - Duplicate entries for the same directory are rejected
 - Use `--force` to re-enqueue completed/failed jobs
 
-### Viewing Queue Status
+### Viewing Simulation Status
+
+The `list` command shows a unified view of all simulations — both queue-managed and standalone runs.
 
 ```bash
-# Full queue listing
-./bin/orca_auto queue list
+# Full listing (queue + standalone)
+./bin/orca_auto list
 
 # Filter by status
-./bin/orca_auto queue list --filter pending
-./bin/orca_auto queue list --filter running
-./bin/orca_auto queue list --filter completed
-./bin/orca_auto queue list --filter failed
-./bin/orca_auto queue list --filter cancelled
-
-# JSON format
-./bin/orca_auto queue list --json
+./bin/orca_auto list --filter pending
+./bin/orca_auto list --filter running
+./bin/orca_auto list --filter completed
+./bin/orca_auto list --filter failed
+./bin/orca_auto list --filter cancelled
 ```
 
 Example output:
 
 ```text
-  ⏳ q-abc123  pending     pri=1   rxn_002
-  ⏳ q-def456  pending     pri=10  rxn_001
-  ✅ q-ghi789  completed   pri=10  rxn_003
+Simulations: 3 total (1 running, 1 pending, 1 completed)
+
+  ▶  q_20260310_120000_abc123  running    1   rxn_002  1h 23m  opt.inp  2
+  ⏳ q_20260310_120100_def456  pending    10  rxn_001  5m      -        -
+  ✅ run_rxn_003               completed  -   rxn_003  2h 10m  rxn.inp  1
 ```
 
 ### Starting the Queue Worker
@@ -270,9 +256,11 @@ Worker behavior:
 ### Clearing Completed Entries
 
 ```bash
-# Remove completed, failed, and cancelled entries
-./bin/orca_auto queue clear
+# Remove completed, failed, and cancelled entries from the list
+./bin/orca_auto list clear
 ```
+
+This removes terminal queue entries and run state files for completed/failed simulations.
 
 ### Queue Workflow Example
 
@@ -286,13 +274,13 @@ Worker behavior:
 ./bin/orca_auto queue worker --daemon --max-concurrent 2
 
 # 3. Check progress
-./bin/orca_auto queue list
+./bin/orca_auto list
 
 # 4. Cancel a job if needed
 ./bin/orca_auto queue cancel rxn_C
 
 # 5. Clean up after all jobs complete
-./bin/orca_auto queue clear
+./bin/orca_auto list clear
 
 # 6. Stop the worker
 ./bin/orca_auto queue stop
@@ -500,7 +488,8 @@ Installed schedules:
 |---------|-------------|
 | `init` | Interactively create or update the config file |
 | `run-inp` | Select the latest `.inp`, then run/recover/retry |
-| `list` | Query the status of all runs under `allowed_root` |
+| `list` | Unified view of all simulations (queue + standalone) |
+| `list clear` | Remove completed/failed/cancelled entries |
 | `organize` | Move completed results to `organized_root` and index them |
 | `monitor` | Send Telegram alerts for newly discovered DFT results |
 | `summary` | Send a Telegram digest of active run state |
@@ -512,9 +501,7 @@ Installed schedules:
 | Subcommand | Description |
 |------------|-------------|
 | `queue add` | Add a calculation directory to the queue |
-| `queue list` | View queue entries |
 | `queue cancel` | Cancel a pending or running job |
-| `queue clear` | Remove terminal-state entries |
 | `queue worker` | Start the queue worker |
 | `queue stop` | Stop the running worker |
 
@@ -524,11 +511,9 @@ Installed schedules:
 |--------|-------------|
 | `--config <path>` | Use a non-default config file |
 | `--verbose`, `-v` | Enable debug logging |
-| `--json-log` | Structured JSON logging |
 | `--log-file <path>` | Write logs to file (10MB x 5 rotation) |
 | `--force` | Force re-run of completed calculations |
 | `--foreground` | Run in the foreground |
-| `--json` | JSON format output |
 
 ### Environment Variables
 

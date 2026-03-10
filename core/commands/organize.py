@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import logging
 from datetime import datetime
 from pathlib import Path
@@ -37,10 +36,7 @@ from ._helpers import (
 logger = logging.getLogger(__name__)
 
 
-def _emit_organize(payload: Dict[str, Any], as_json: bool) -> None:
-    if as_json:
-        print(json.dumps(payload, ensure_ascii=True, indent=2))
-        return
+def _emit_organize(payload: Dict[str, Any]) -> None:
     for key in ["action", "to_organize", "skipped", "organized", "failed", "records_count"]:
         if key in payload:
             print(f"{key}: {payload[key]}")
@@ -182,7 +178,6 @@ def _cmd_organize_apply(
     skips: list[SkipReason],
     organized_root: Path,
     cfg: AppConfig,
-    as_json: bool,
 ) -> int:
     from ..organize_index import append_failed_rollback
 
@@ -250,7 +245,7 @@ def _cmd_organize_apply(
                 logger.warning("Failed to send Telegram organize notification")
 
     return finalize_batch_apply(
-        summary, _emit_organize, as_json, failures,
+        summary, _emit_organize, failures,
     )
 
 
@@ -260,7 +255,7 @@ def cmd_organize(args: Any) -> int:
 
     if getattr(args, "rebuild_index", False):
         count = rebuild_index(organized_root)
-        _emit_organize({"action": "rebuild_index", "records_count": count}, as_json=args.json)
+        _emit_organize({"action": "rebuild_index", "records_count": count})
         return 0
 
     reaction_dir_raw = getattr(args, "reaction_dir", None)
@@ -302,7 +297,7 @@ def cmd_organize(args: Any) -> int:
             "plans": [_plan_to_dict(p) for p in plans],
             "skip_reasons": [{"reaction_dir": s.reaction_dir, "reason": s.reason} for s in skips_list],
         }
-        _emit_organize(summary, as_json=args.json)
+        _emit_organize(summary)
         return 0
 
-    return _cmd_organize_apply(plans, skips_list, organized_root, cfg, as_json=args.json)
+    return _cmd_organize_apply(plans, skips_list, organized_root, cfg)

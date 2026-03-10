@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import subprocess
 import sys
@@ -15,93 +14,14 @@ from ..config import load_config
 from ..queue_store import (
     DuplicateEntryError,
     cancel_all_pending,
-    clear_terminal,
     enqueue,
-    list_queue,
 )
 from ..queue_worker import QueueWorker, read_worker_pid
-from ..statuses import QueueStatus
-from ..types import QueueEntry
 from ..telegram_notifier import notify_queue_enqueued_event
 from ..types import QueueEnqueuedNotification
 from ._helpers import _validate_reaction_dir
 
 logger = logging.getLogger(__name__)
-
-
-def _status_icon(status: str) -> str:
-    return {
-        QueueStatus.PENDING.value: "\u23f3",
-        QueueStatus.RUNNING.value: "\u25b6",
-        QueueStatus.COMPLETED.value: "\u2705",
-        QueueStatus.FAILED.value: "\u274c",
-        QueueStatus.CANCELLED.value: "\u26d4",
-    }.get(status, "?")
-
-
-def _format_elapsed(enqueued_at: str, finished_at: str | None) -> str:
-    """Return a human-readable elapsed string since enqueue time."""
-    from datetime import datetime, timezone
-    try:
-        start = datetime.fromisoformat(enqueued_at)
-    except (ValueError, TypeError):
-        return "-"
-    if finished_at:
-        try:
-            end = datetime.fromisoformat(finished_at)
-        except (ValueError, TypeError):
-            end = datetime.now(timezone.utc)
-    else:
-        end = datetime.now(timezone.utc)
-    secs = max(0, (end - start).total_seconds())
-    if secs < 60:
-        return f"{int(secs)}s"
-    if secs < 3600:
-        return f"{int(secs // 60)}m"
-    if secs < 86400:
-        return f"{int(secs // 3600)}h {int((secs % 3600) // 60)}m"
-    return f"{int(secs // 86400)}d {int((secs % 86400) // 3600)}h"
-
-
-def _print_queue_table(entries: list[QueueEntry]) -> None:
-    """Print queue entries as a formatted terminal table."""
-    headers = ["", "QUEUE ID", "STATUS", "PRI", "DIRECTORY", "ELAPSED"]
-    rows: list[list[str]] = []
-    for entry in entries:
-        status = entry.get("status", "?")
-        icon = _status_icon(status)
-        elapsed = _format_elapsed(
-            entry.get("enqueued_at", ""),
-            entry.get("finished_at"),
-        )
-        rows.append([
-            icon,
-            entry.get("queue_id", "?"),
-            status,
-            str(entry.get("priority", "?")),
-            Path(entry.get("reaction_dir", "")).name,
-            elapsed,
-        ])
-
-    widths = [len(h) for h in headers]
-    for row in rows:
-        for i, cell in enumerate(row):
-            widths[i] = max(widths[i], len(cell))
-
-    fmt = "  ".join(f"{{:<{w}}}" for w in widths)
-    print(fmt.format(*headers))
-    print("\u2500" * (sum(widths) + 2 * (len(widths) - 1)))
-    for row in rows:
-        print(fmt.format(*row))
-
-
-def _emit_entry(entry: QueueEntry, as_json: bool) -> None:
-    if as_json:
-        print(json.dumps(entry, ensure_ascii=True, indent=2))
-        return
-    icon = _status_icon(entry.get("status", ""))
-    print(f"  {icon} {entry.get('queue_id', '?')}  {entry.get('status', '?'):10s}  "
-          f"pri={entry.get('priority', '?')}  {Path(entry.get('reaction_dir', '')).name}")
 
 
 # -- Subcommands ----------------------------------------------------------
@@ -127,14 +47,11 @@ def cmd_queue_add(args: Any) -> int:
         logger.error("%s", exc)
         return 1
 
-    if getattr(args, "json", False):
-        print(json.dumps(entry, ensure_ascii=True, indent=2))
-    else:
-        print(f"Enqueued: {entry['queue_id']}")
-        print(f"  reaction_dir: {entry['reaction_dir']}")
-        print(f"  priority: {entry['priority']}")
-        if args.force:
-            print("  force: true (intentional re-run)")
+    print(f"Enqueued: {entry['queue_id']}")
+    print(f"  reaction_dir: {entry['reaction_dir']}")
+    print(f"  priority: {entry['priority']}")
+    if args.force:
+        print("  force: true (intentional re-run)")
 
     notification: QueueEnqueuedNotification = {
         "queue_id": entry["queue_id"],
@@ -145,32 +62,6 @@ def cmd_queue_add(args: Any) -> int:
     }
     notify_queue_enqueued_event(cfg.telegram, notification)
 
-    return 0
-
-
-def cmd_queue_list(args: Any) -> int:
-    cfg = load_config(args.config)
-    allowed_root = Path(cfg.runtime.allowed_root).expanduser().resolve()
-
-    status_filter = getattr(args, "filter", None)
-    entries = list_queue(allowed_root, status_filter=status_filter)
-
-    if getattr(args, "json", False):
-        print(json.dumps(entries, ensure_ascii=True, indent=2))
-        return 0
-
-    if not entries:
-        print("Queue is empty.")
-        return 0
-
-    counts: dict[str, int] = {}
-    for e in entries:
-        s = e.get("status", "?")
-        counts[s] = counts.get(s, 0) + 1
-    summary_parts = [f"{counts.get(s.value, 0)} {s.value}" for s in QueueStatus if counts.get(s.value)]
-    print(f"Queue: {len(entries)} total ({', '.join(summary_parts)})\n")
-
-    _print_queue_table(entries)
     return 0
 
 
@@ -204,14 +95,6 @@ def cmd_queue_cancel(args: Any) -> int:
             print(f"Cancel requested for running simulation: {Path(result.reaction_dir).name}")
             if result.pid is not None:
                 print(f"  pid: {result.pid}")
-    return 0
-
-
-def cmd_queue_clear(args: Any) -> int:
-    cfg = load_config(args.config)
-    allowed_root = Path(cfg.runtime.allowed_root).expanduser().resolve()
-    count = clear_terminal(allowed_root)
-    print(f"Cleared {count} completed/failed/cancelled entries.")
     return 0
 
 

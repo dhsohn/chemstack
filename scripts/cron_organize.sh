@@ -37,7 +37,7 @@ echo "[cron_organize] allowed_root=$ALLOWED_ROOT config=$CONFIG_PATH" | tee -a "
 
 PYTHONPATH="$ROOT:${PYTHONPATH:-}" "$PYTHON_BIN" -m core.cli \
   --config "$CONFIG_PATH" \
-  organize --root "$ALLOWED_ROOT" --apply --json \
+  organize --root "$ALLOWED_ROOT" --apply \
   2>&1 | tee -a "$LOG_FILE"
 
 EXIT_CODE=${PIPESTATUS[0]}

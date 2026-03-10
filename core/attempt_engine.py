@@ -209,9 +209,9 @@ def finalize_and_emit(
     status: RunStatus | str,
     reason: str,
     final_result: RunFinalResult,
-    as_json: bool,
+
     exit_code: int,
-    emit: Callable[[Dict[str, Any], bool], None],
+    emit: Callable[[Dict[str, Any]], None],
     notify_finished: Callable[[RunFinishedNotification], None] | None = None,
 ) -> int:
     status_text = _run_status_text(status)
@@ -242,7 +242,7 @@ def finalize_and_emit(
                 reaction_dir,
                 exc_info=True,
             )
-    emit(payload, as_json)
+    emit(payload)
     return exit_code
 
 
@@ -256,9 +256,9 @@ def _exit_with_result(
     reason: str,
     last_out_path: str | None,
     resumed: bool | None,
-    as_json: bool,
+
     exit_code: int,
-    emit: Callable[[Dict[str, Any], bool], None],
+    emit: Callable[[Dict[str, Any]], None],
     extra: Mapping[str, object] | None = None,
     notify_finished: Callable[[RunFinishedNotification], None] | None = None,
 ) -> int:
@@ -277,7 +277,7 @@ def _exit_with_result(
         status=status,
         reason=reason,
         final_result=final,
-        as_json=as_json,
+
         exit_code=exit_code,
         emit=emit,
         notify_finished=notify_finished,
@@ -352,8 +352,8 @@ def _resume_terminal_decision(
     *,
     resumed: bool,
     max_retries: int,
-    as_json: bool,
-    emit: Callable[[Dict[str, Any], bool], None],
+
+    emit: Callable[[Dict[str, Any]], None],
     notify_finished: Callable[[RunFinishedNotification], None] | None = None,
 ) -> int | None:
     if not resumed:
@@ -390,7 +390,7 @@ def _resume_terminal_decision(
         reason=decision.reason,
         last_out_path=last_out_path,
         resumed=resumed,
-        as_json=as_json,
+
         exit_code=decision.exit_code,
         emit=emit,
         notify_finished=notify_finished,
@@ -405,10 +405,10 @@ def run_attempts(
     resumed: bool,
     runner: RunnerLike,
     max_retries: int,
-    as_json: bool,
+
     retry_inp_path: Callable[[Path, int], Path],
     to_resolved_local: Callable[[str], Path],
-    emit: Callable[[Dict[str, Any], bool], None],
+    emit: Callable[[Dict[str, Any]], None],
     notify_started: Callable[[RunStartedNotification], None] | None = None,
     notify_finished: Callable[[RunFinishedNotification], None] | None = None,
     notify_retry: Callable[[RetryNotification], None] | None = None,
@@ -419,7 +419,7 @@ def run_attempts(
         state,
         resumed=resumed,
         max_retries=max_retries,
-        as_json=as_json,
+
         emit=emit,
         notify_finished=notify_finished,
     )
@@ -438,7 +438,7 @@ def run_attempts(
                 reason="retry_limit_reached",
                 last_out_path=_last_out_path_from_state(state),
                 resumed=resumed,
-                as_json=as_json,
+
                 exit_code=1,
                 emit=emit,
                 notify_finished=notify_finished,
@@ -477,7 +477,7 @@ def run_attempts(
                     analyzer_status=AnalyzerStatus.INCOMPLETE,
                     reason=reason, last_out_path=None,
                     resumed=resumed,
-                    as_json=as_json,
+    
                     exit_code=1,
                     emit=emit,
                     notify_finished=notify_finished,
@@ -522,7 +522,7 @@ def run_attempts(
                 reason="interrupted_by_user",
                 last_out_path=str(current_inp.with_suffix(".out")),
                 resumed=resumed,
-                as_json=as_json,
+
                 exit_code=130,
                 emit=emit,
                 notify_finished=notify_finished,
@@ -536,7 +536,7 @@ def run_attempts(
                 reason="runner_exception",
                 last_out_path=str(current_inp.with_suffix(".out")),
                 resumed=resumed,
-                as_json=as_json,
+
                 exit_code=1,
                 emit=emit,
                 extra={"runner_error": str(exc)},
@@ -576,7 +576,7 @@ def run_attempts(
                 reason=decision.reason,
                 last_out_path=str(out_path),
                 resumed=resumed,
-                as_json=as_json,
+
                 exit_code=decision.exit_code,
                 emit=emit,
                 notify_finished=notify_finished,
@@ -601,7 +601,7 @@ def run_attempts(
                 reason="rewrite_failed",
                 last_out_path=str(out_path),
                 resumed=resumed,
-                as_json=as_json,
+
                 exit_code=1,
                 emit=emit,
                 notify_finished=notify_finished,

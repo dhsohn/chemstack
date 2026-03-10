@@ -73,7 +73,6 @@ class TestOrganizeDryRun(unittest.TestCase):
                 "--config", str(config),
                 "organize",
                 "--reaction-dir", str(rxn),
-                "--json",
             ])
             self.assertEqual(rc, 0)
 
@@ -116,7 +115,6 @@ class TestOrganizeDryRun(unittest.TestCase):
                 "--config", str(config),
                 "organize",
                 "--reaction-dir", str(rxn),
-                "--json",
             ])
             self.assertEqual(rc, 0)
 
@@ -259,7 +257,6 @@ class TestOrganizeRootScan(unittest.TestCase):
                 "--config", str(config),
                 "organize",
                 "--root", str(allowed),
-                "--json",
             ])
             self.assertEqual(rc, 0)
 
@@ -364,7 +361,6 @@ class TestOrganizeRebuildIndex(unittest.TestCase):
                 "--config", str(config),
                 "organize",
                 "--rebuild-index",
-                "--json",
             ])
             self.assertEqual(rc, 0)
 

@@ -100,7 +100,7 @@ class TestIntegrationCliFlow(unittest.TestCase):
 
             list_stdout = io.StringIO()
             with patch("sys.stdout", list_stdout):
-                list_rc = main(["--config", str(config), "list", "--json"])
+                list_rc = main(["--config", str(config), "list"])
 
             self.assertEqual(rc, 0)
             self.assertEqual(list_rc, 0)
@@ -130,12 +130,11 @@ class TestIntegrationCliFlow(unittest.TestCase):
             self.assertIn("attempt_count: `2`", report_md)
             self.assertIn("normal_termination", report_md)
 
-            listed = json.loads(list_stdout.getvalue())
-            self.assertEqual(len(listed), 1)
-            self.assertEqual(listed[0]["dir"], "project_a/rxn_retry_demo")
-            self.assertEqual(listed[0]["status"], "completed")
-            self.assertEqual(listed[0]["attempts"], 2)
-            self.assertEqual(listed[0]["inp"], "rxn.inp")
+            list_output = list_stdout.getvalue()
+            self.assertIn("Simulations: 1 total", list_output)
+            self.assertIn("rxn_retry_demo", list_output)
+            self.assertIn("completed", list_output)
+            self.assertIn("rxn.inp", list_output)
 
     def test_force_reruns_even_when_completed_output_already_exists(self) -> None:
         with tempfile.TemporaryDirectory() as td:

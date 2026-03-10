@@ -57,10 +57,9 @@ class TestAttemptEngine(unittest.TestCase):
                 resumed=False,
                 runner=_InterruptRunner(),
                 max_retries=3,
-                as_json=False,
                 retry_inp_path=_retry_inp_path,
                 to_resolved_local=lambda raw: Path(raw),
-                emit=lambda payload, _as_json: emitted_payloads.append(payload),
+                emit=lambda payload: emitted_payloads.append(payload),
             )
 
             saved = json.loads(state_path(reaction_dir).read_text(encoding="utf-8"))
@@ -85,10 +84,9 @@ class TestAttemptEngine(unittest.TestCase):
                 resumed=False,
                 runner=_RetryThenSuccessRunner(),
                 max_retries=2,
-                as_json=False,
                 retry_inp_path=_retry_inp_path,
                 to_resolved_local=lambda raw: Path(raw),
-                emit=lambda _payload, _as_json: None,
+                emit=lambda _payload: None,
                 notify_retry=lambda payload: notifications.append(payload),
             )
 
@@ -122,10 +120,9 @@ class TestAttemptEngine(unittest.TestCase):
                 resumed=False,
                 runner=_RetryThenSuccessRunner(),
                 max_retries=2,
-                as_json=False,
                 retry_inp_path=_retry_inp_path,
                 to_resolved_local=lambda raw: Path(raw),
-                emit=lambda _payload, _as_json: None,
+                emit=lambda _payload: None,
                 notify_started=lambda payload: started_notifications.append(payload),
                 notify_finished=lambda payload: finished_notifications.append(payload),
                 notify_retry=lambda payload: retry_notifications.append(payload),

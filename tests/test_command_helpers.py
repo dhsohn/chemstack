@@ -72,23 +72,21 @@ class TestFinalizeBatchApply(unittest.TestCase):
     def test_returns_zero_when_no_failures(self) -> None:
         emitted = []
 
-        def _emit(payload, as_json):
-            emitted.append((payload, as_json))
+        def _emit(payload):
+            emitted.append(payload)
 
         rc = finalize_batch_apply(
             {"action": "apply", "failed": 0},
             _emit,
-            False,
             [],
         )
         self.assertEqual(rc, 0)
-        self.assertEqual(emitted, [({"action": "apply", "failed": 0}, False)])
+        self.assertEqual(emitted, [{"action": "apply", "failed": 0}])
 
     def test_returns_one_when_failures_exist(self) -> None:
         rc = finalize_batch_apply(
             {"action": "apply", "failed": 1},
-            lambda *_args: None,
-            True,
+            lambda _payload: None,
             [{"run_id": "run_001", "reason": "apply_failed"}],
         )
         self.assertEqual(rc, 1)

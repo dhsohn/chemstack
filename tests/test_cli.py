@@ -694,23 +694,11 @@ class TestCli(unittest.TestCase):
         }
         captured = io.StringIO()
         with patch("sys.stdout", captured):
-            _emit(payload, as_json=False)
+            _emit(payload)
         output = captured.getvalue()
         self.assertIn("status: completed", output)
         self.assertIn("attempt_count: 1", output)
         self.assertNotIn("extra_unknown_key", output)
-
-    def test_emit_json_includes_all_keys(self) -> None:
-        payload = {
-            "status": "completed",
-            "reaction_dir": "/tmp/rxn",
-            "extra_key": "included",
-        }
-        captured = io.StringIO()
-        with patch("sys.stdout", captured):
-            _emit(payload, as_json=True)
-        parsed = json.loads(captured.getvalue())
-        self.assertEqual(parsed["extra_key"], "included")
 
     def test_error_goes_to_stderr(self) -> None:
         with tempfile.TemporaryDirectory() as td:

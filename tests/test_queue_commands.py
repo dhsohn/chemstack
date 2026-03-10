@@ -12,21 +12,14 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from core.commands.queue import (
-    _emit_entry,
-    _format_elapsed,
-    _print_queue_table,
     _start_daemon,
-    _status_icon,
     cmd_queue_add,
     cmd_queue_cancel,
-    cmd_queue_clear,
-    cmd_queue_list,
     cmd_queue_stop,
     cmd_queue_worker,
 )
 from core.config import AppConfig, RuntimeConfig
 from core.state_store import STATE_FILE_NAME
-from core.statuses import QueueStatus
 
 
 def _make_cfg(tmp: str) -> AppConfig:
@@ -34,7 +27,7 @@ def _make_cfg(tmp: str) -> AppConfig:
 
 
 def _make_args(tmp: str, **overrides):
-    defaults = {"config": str(Path(tmp) / "config.yaml"), "json": False}
+    defaults = {"config": str(Path(tmp) / "config.yaml")}
     defaults.update(overrides)
     return SimpleNamespace(**defaults)
 
@@ -53,84 +46,6 @@ def _write_running_state(reaction_dir: Path, *, run_id: str, pid: int) -> None:
     }
     (reaction_dir / STATE_FILE_NAME).write_text(json.dumps(state), encoding="utf-8")
     (reaction_dir / "run.lock").write_text(json.dumps({"pid": pid}), encoding="utf-8")
-
-
-class TestStatusIcon(unittest.TestCase):
-    def test_known_statuses(self) -> None:
-        self.assertEqual(_status_icon(QueueStatus.PENDING.value), "\u23f3")
-        self.assertEqual(_status_icon(QueueStatus.RUNNING.value), "\u25b6")
-        self.assertEqual(_status_icon(QueueStatus.COMPLETED.value), "\u2705")
-        self.assertEqual(_status_icon(QueueStatus.FAILED.value), "\u274c")
-        self.assertEqual(_status_icon(QueueStatus.CANCELLED.value), "\u26d4")
-
-    def test_unknown_status(self) -> None:
-        self.assertEqual(_status_icon("mystery"), "?")
-
-
-class TestEmitEntry(unittest.TestCase):
-    def test_emit_json(self) -> None:
-        entry = {"queue_id": "q_1", "status": "pending", "priority": 10, "reaction_dir": "/tmp/mol_A"}
-        buf = io.StringIO()
-        with redirect_stdout(buf):
-            _emit_entry(entry, as_json=True)
-        parsed = json.loads(buf.getvalue())
-        self.assertEqual(parsed["queue_id"], "q_1")
-
-    def test_emit_text(self) -> None:
-        entry = {"queue_id": "q_1", "status": "pending", "priority": 10, "reaction_dir": "/tmp/mol_A"}
-        buf = io.StringIO()
-        with redirect_stdout(buf):
-            _emit_entry(entry, as_json=False)
-        output = buf.getvalue()
-        self.assertIn("q_1", output)
-        self.assertIn("pri=10", output)
-
-
-class TestFormatElapsed(unittest.TestCase):
-    def test_seconds(self) -> None:
-        self.assertEqual(_format_elapsed("2026-03-10T00:00:00+00:00", "2026-03-10T00:00:30+00:00"), "30s")
-
-    def test_minutes(self) -> None:
-        self.assertEqual(_format_elapsed("2026-03-10T00:00:00+00:00", "2026-03-10T00:05:00+00:00"), "5m")
-
-    def test_hours(self) -> None:
-        self.assertEqual(_format_elapsed("2026-03-10T00:00:00+00:00", "2026-03-10T02:30:00+00:00"), "2h 30m")
-
-    def test_days(self) -> None:
-        self.assertEqual(_format_elapsed("2026-03-10T00:00:00+00:00", "2026-03-12T03:00:00+00:00"), "2d 3h")
-
-    def test_invalid_enqueued_at(self) -> None:
-        self.assertEqual(_format_elapsed("invalid", None), "-")
-
-    def test_invalid_finished_at_uses_now(self) -> None:
-        result = _format_elapsed("2026-03-10T00:00:00+00:00", "invalid")
-        self.assertNotEqual(result, "-")
-
-
-class TestPrintQueueTable(unittest.TestCase):
-    def test_table_output(self) -> None:
-        entries = [
-            {"queue_id": "q_001", "status": "pending", "priority": 1,
-             "reaction_dir": "/tmp/rxn_A", "enqueued_at": "2026-03-10T00:00:00+00:00",
-             "finished_at": None},
-            {"queue_id": "q_002", "status": "completed", "priority": 10,
-             "reaction_dir": "/tmp/rxn_B", "enqueued_at": "2026-03-10T00:00:00+00:00",
-             "finished_at": "2026-03-10T01:00:00+00:00"},
-        ]
-        buf = io.StringIO()
-        with redirect_stdout(buf):
-            _print_queue_table(entries)
-        output = buf.getvalue()
-        self.assertIn("QUEUE ID", output)
-        self.assertIn("STATUS", output)
-        self.assertIn("PRI", output)
-        self.assertIn("DIRECTORY", output)
-        self.assertIn("ELAPSED", output)
-        self.assertIn("\u2500", output)
-        self.assertIn("q_001", output)
-        self.assertIn("q_002", output)
-        self.assertIn("rxn_A", output)
-        self.assertIn("rxn_B", output)
 
 
 class TestCmdQueueAdd(unittest.TestCase):
@@ -153,19 +68,6 @@ class TestCmdQueueAdd(unittest.TestCase):
             rc = cmd_queue_add(args)
         self.assertEqual(rc, 0)
         self.assertIn("Enqueued", buf.getvalue())
-
-    @patch("core.commands.queue.load_config")
-    def test_add_json_output(self, mock_load: MagicMock) -> None:
-        mock_load.return_value = self.cfg
-        rxn_dir = self.root / "mol_B"
-        rxn_dir.mkdir()
-        args = _make_args(self._tmpdir.name, reaction_dir=str(rxn_dir), priority=10, force=False, json=True)
-        buf = io.StringIO()
-        with redirect_stdout(buf):
-            rc = cmd_queue_add(args)
-        self.assertEqual(rc, 0)
-        parsed = json.loads(buf.getvalue())
-        self.assertIn("queue_id", parsed)
 
     @patch("core.commands.queue.load_config")
     def test_add_with_force(self, mock_load: MagicMock) -> None:
@@ -195,75 +97,6 @@ class TestCmdQueueAdd(unittest.TestCase):
         args = _make_args(self._tmpdir.name, reaction_dir="/nonexistent/dir", priority=10, force=False)
         rc = cmd_queue_add(args)
         self.assertEqual(rc, 1)
-
-
-class TestCmdQueueList(unittest.TestCase):
-    def setUp(self) -> None:
-        self._tmpdir = tempfile.TemporaryDirectory()
-        self.root = Path(self._tmpdir.name)
-        self.cfg = _make_cfg(self._tmpdir.name)
-
-    def tearDown(self) -> None:
-        self._tmpdir.cleanup()
-
-    @patch("core.commands.queue.load_config")
-    def test_list_empty(self, mock_load: MagicMock) -> None:
-        mock_load.return_value = self.cfg
-        args = _make_args(self._tmpdir.name, filter=None)
-        buf = io.StringIO()
-        with redirect_stdout(buf):
-            rc = cmd_queue_list(args)
-        self.assertEqual(rc, 0)
-        self.assertIn("Queue is empty", buf.getvalue())
-
-    @patch("core.commands.queue.load_config")
-    def test_list_with_entries(self, mock_load: MagicMock) -> None:
-        mock_load.return_value = self.cfg
-        from core.queue_store import enqueue
-        rxn_dir = self.root / "mol_A"
-        rxn_dir.mkdir()
-        enqueue(self.root, str(rxn_dir))
-        args = _make_args(self._tmpdir.name, filter=None)
-        buf = io.StringIO()
-        with redirect_stdout(buf):
-            rc = cmd_queue_list(args)
-        self.assertEqual(rc, 0)
-        output = buf.getvalue()
-        self.assertIn("Queue:", output)
-        self.assertIn("1 pending", output)
-        self.assertIn("QUEUE ID", output)
-        self.assertIn("STATUS", output)
-        self.assertIn("mol_A", output)
-
-    @patch("core.commands.queue.load_config")
-    def test_list_json(self, mock_load: MagicMock) -> None:
-        mock_load.return_value = self.cfg
-        from core.queue_store import enqueue
-        rxn_dir = self.root / "mol_A"
-        rxn_dir.mkdir()
-        enqueue(self.root, str(rxn_dir))
-        args = _make_args(self._tmpdir.name, filter=None, json=True)
-        buf = io.StringIO()
-        with redirect_stdout(buf):
-            rc = cmd_queue_list(args)
-        self.assertEqual(rc, 0)
-        parsed = json.loads(buf.getvalue())
-        self.assertIsInstance(parsed, list)
-        self.assertEqual(len(parsed), 1)
-
-    @patch("core.commands.queue.load_config")
-    def test_list_with_filter(self, mock_load: MagicMock) -> None:
-        mock_load.return_value = self.cfg
-        from core.queue_store import enqueue
-        rxn_dir = self.root / "mol_A"
-        rxn_dir.mkdir()
-        enqueue(self.root, str(rxn_dir))
-        args = _make_args(self._tmpdir.name, filter="running")
-        buf = io.StringIO()
-        with redirect_stdout(buf):
-            rc = cmd_queue_list(args)
-        self.assertEqual(rc, 0)
-        self.assertIn("Queue is empty", buf.getvalue())
 
 
 class TestCmdQueueCancel(unittest.TestCase):
@@ -348,26 +181,6 @@ class TestCmdQueueCancel(unittest.TestCase):
         self.assertIn("pid: 4321", buf.getvalue())
         mock_alive.assert_called_once_with(4321)
         mock_kill.assert_called_once()
-
-
-class TestCmdQueueClear(unittest.TestCase):
-    @patch("core.commands.queue.load_config")
-    def test_clear(self, mock_load: MagicMock) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            cfg = _make_cfg(tmp)
-            mock_load.return_value = cfg
-            from core.queue_store import enqueue, mark_completed
-            root = Path(tmp)
-            d = root / "mol_A"
-            d.mkdir()
-            entry = enqueue(root, str(d))
-            mark_completed(root, entry["queue_id"])
-            args = _make_args(tmp)
-            buf = io.StringIO()
-            with redirect_stdout(buf):
-                rc = cmd_queue_clear(args)
-            self.assertEqual(rc, 0)
-            self.assertIn("Cleared 1", buf.getvalue())
 
 
 class TestCmdQueueWorker(unittest.TestCase):

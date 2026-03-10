@@ -109,13 +109,13 @@ Caution:
 
 ```bash
 cd ~/orca_auto
-./bin/orca_auto run-inp --reaction-dir '/absolute/path/to/orca_runs/Int1_DMSO' --json
+./bin/orca_auto run-inp --reaction-dir '/absolute/path/to/orca_runs/Int1_DMSO'
 ```
 
 When using the installed entry point:
 
 ```bash
-orca_auto run-inp --reaction-dir '/absolute/path/to/orca_runs/Int1_DMSO' --json
+orca_auto run-inp --reaction-dir '/absolute/path/to/orca_runs/Int1_DMSO'
 ```
 
 Default behavior:
@@ -130,13 +130,12 @@ Options:
 - `--reaction-dir` (required): Reaction directory
 - The retry count is configured only through `runtime.default_max_retries` in `orca_auto.yaml`
 - `--force` (optional): Force re-execution even if a completed `*.out` exists
-- `--json` (optional): JSON output
 - `--foreground` (optional): Run `run-inp` in the foreground
 
 ### 7.2 Result Organization
 
 ```bash
-./bin/orca_auto organize --root '/absolute/path/to/orca_runs' --json
+./bin/orca_auto organize --root '/absolute/path/to/orca_runs'
 ./bin/orca_auto organize --root '/absolute/path/to/orca_runs' --apply
 ```
 
@@ -233,7 +232,6 @@ Generated in the execution target directory (`<allowed_root>/<reaction_dir>`):
 - It is recommended to clearly manage one input file per directory.
 - If multiple `*.inp` files exist, the most recently modified file is selected.
 - Use `--force` if a forced restart is needed.
-- For long-running calculations, it is recommended to use `--json` output for recording/parsing status.
 - Interrupting with `Ctrl+C` will also attempt to terminate the running ORCA process tree, and the status is recorded as `interrupted_by_user`.
 ## 12) Frequently Encountered Issues
 

@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .cancellation import CancelTargetError, cancel_target
-from .commands.list_runs import _collect_runs
+from .commands.list_runs import _collect_unified, _status_icon as _unified_status_icon
 from .config import AppConfig
 from .queue_store import list_queue
 from .statuses import QueueStatus
@@ -68,33 +68,28 @@ def _send_message(token: str, chat_id: str, text: str, *, parse_mode: str | None
 # -- Command handlers ------------------------------------------------
 
 
-def _status_icon(status: str) -> str:
-    return {"completed": "\u2705", "running": "\u23f3", "failed": "\u274c",
-            "retrying": "\U0001f504", "created": "\U0001f195"}.get(status, "\u2753")
-
-
 def _handle_list(cfg: AppConfig, args: str) -> str:
-    """Handle ``/list [filter]`` command."""
+    """Handle ``/list [filter]`` command — unified queue + standalone view."""
     allowed_root = Path(cfg.runtime.allowed_root).expanduser().resolve()
     if not allowed_root.is_dir():
         return "allowed_root not found."
 
-    runs = _collect_runs(allowed_root)
+    rows = _collect_unified(allowed_root)
 
     filter_status = args.strip().lower() if args.strip() else None
     if filter_status:
-        runs = [r for r in runs if r["status"] == filter_status]
+        rows = [r for r in rows if r["status"] == filter_status]
 
-    if not runs:
-        return "No registered runs found."
+    if not rows:
+        return "No simulations found."
 
-    lines: list[str] = [f"<b>Simulation List</b> ({len(runs)})\n"]
-    for r in runs:
-        icon = _status_icon(r["status"])
+    lines: list[str] = [f"<b>Simulations</b> ({len(rows)})\n"]
+    for r in rows:
+        icon = _unified_status_icon(r["status"])
         line = (
             f"{icon} <b>{escape_html(r['dir'])}</b>"
             f"  {escape_html(r['status'])}"
-            f"  {escape_html(r['elapsed_text'])}"
+            f"  {escape_html(r['elapsed'])}"
         )
         if r["inp"]:
             line += f"  <code>{escape_html(r['inp'])}</code>"

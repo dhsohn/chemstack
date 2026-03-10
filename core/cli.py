@@ -17,8 +17,6 @@ from .commands.summary import cmd_summary as _cmd_summary
 from .commands.queue import (
     cmd_queue_add as _cmd_queue_add,
     cmd_queue_cancel as _cmd_queue_cancel,
-    cmd_queue_clear as _cmd_queue_clear,
-    cmd_queue_list as _cmd_queue_list,
     cmd_queue_stop as _cmd_queue_stop,
     cmd_queue_worker as _cmd_queue_worker,
 )
@@ -69,15 +67,13 @@ def cmd_bot(args: argparse.Namespace) -> int:
 def cmd_queue(args: argparse.Namespace) -> int:
     _queue_sub_map = {
         "add": _cmd_queue_add,
-        "list": _cmd_queue_list,
         "cancel": _cmd_queue_cancel,
-        "clear": _cmd_queue_clear,
         "worker": _cmd_queue_worker,
         "stop": _cmd_queue_stop,
     }
     handler = _queue_sub_map.get(args.queue_command)
     if handler is None:
-        print("Usage: orca_auto queue {add|list|cancel|clear|worker|stop}")
+        print("Usage: orca_auto queue {add|cancel|worker|stop}")
         return 1
     return int(handler(args))
 
@@ -86,7 +82,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="orca_auto")
     parser.add_argument("--config", default=default_config_path(), help="Path to orca_auto.yaml")
     parser.add_argument("--verbose", "-v", action="store_true", help="Enable debug logging")
-    parser.add_argument("--json-log", action="store_true", help="Emit structured JSON log lines")
     parser.add_argument("--log-file", default=None, help="Write logs to file (with rotation, max 10MB x 5)")
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -96,13 +91,14 @@ def build_parser() -> argparse.ArgumentParser:
     run_inp = sub.add_parser("run-inp")
     run_inp.add_argument("--reaction-dir", required=True, help="Directory under the configured allowed_root containing input files")
     run_inp.add_argument("--force", action="store_true", help="Force re-run even if existing output is completed")
-    run_inp.add_argument("--json", action="store_true")
     run_inp.add_argument("--foreground", action="store_true", help="Run in the foreground")
 
-    list_cmd = sub.add_parser("list", help="Show status of all simulations")
-    list_cmd.add_argument("--filter", default=None, choices=["created", "running", "retrying", "completed", "failed"],
+    list_cmd = sub.add_parser("list", help="Show status of all simulations (queue + standalone)")
+    list_cmd.add_argument("action", nargs="?", default=None, choices=["clear"],
+                          help="Optional action: 'clear' removes completed/failed/cancelled entries")
+    list_cmd.add_argument("--filter", default=None,
+                          choices=["pending", "created", "running", "retrying", "completed", "failed", "cancelled"],
                           help="Filter by status")
-    list_cmd.add_argument("--json", action="store_true")
 
     sub.add_parser("bot", help="Start Telegram bot (long polling)")
 
@@ -115,7 +111,6 @@ def build_parser() -> argparse.ArgumentParser:
     organize.add_argument("--root", default=None, help="Root directory to scan (mutually exclusive with --reaction-dir)")
     organize.add_argument("--apply", action="store_true", default=False, help="Actually move files (default is dry-run)")
     organize.add_argument("--rebuild-index", action="store_true", default=False, help="Rebuild JSONL index from organized directories")
-    organize.add_argument("--json", action="store_true")
 
     # -- queue subcommand with its own sub-subcommands --------------------
     queue_parser = sub.add_parser("queue", help="Manage the task queue")
@@ -125,17 +120,9 @@ def build_parser() -> argparse.ArgumentParser:
     q_add.add_argument("--reaction-dir", required=True, help="Directory under allowed_root")
     q_add.add_argument("--priority", type=int, default=10, help="Priority (lower = higher, default 10)")
     q_add.add_argument("--force", action="store_true", help="Allow re-enqueue of completed/failed jobs (intentional retry)")
-    q_add.add_argument("--json", action="store_true")
-
-    q_list = queue_sub.add_parser("list", help="Show queue entries")
-    q_list.add_argument("--filter", default=None, choices=["pending", "running", "completed", "failed", "cancelled"],
-                        help="Filter by status")
-    q_list.add_argument("--json", action="store_true")
 
     q_cancel = queue_sub.add_parser("cancel", help="Cancel a queued or running job")
     q_cancel.add_argument("target", help="queue_id, reaction_dir, or run_id to cancel; or 'all-pending'")
-
-    queue_sub.add_parser("clear", help="Remove completed/failed/cancelled entries from the queue")
 
     q_worker = queue_sub.add_parser("worker", help="Start the queue worker")
     q_worker.add_argument("--max-concurrent", type=int, default=4, help="Max concurrent jobs (default 4)")
@@ -149,17 +136,12 @@ def build_parser() -> argparse.ArgumentParser:
 def _configure_logging(args: argparse.Namespace) -> None:
     """Set up logging based on CLI flags."""
     log_level = logging.DEBUG if getattr(args, "verbose", False) else logging.INFO
-    use_json = getattr(args, "json_log", False)
     log_file = getattr(args, "log_file", None)
 
     root_logger = logging.getLogger()
     root_logger.setLevel(log_level)
 
-    if use_json:
-        from .json_logger import JSONFormatter
-        formatter: logging.Formatter = JSONFormatter()
-    else:
-        formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+    formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 
     if log_file:
         handler: logging.Handler = logging.handlers.RotatingFileHandler(

@@ -151,7 +151,7 @@ def cmd_run_inp(args: Any, *, runner_cls: Type[OrcaRunner] = OrcaRunner) -> int:
                         analyzer_status=AnalyzerStatus.COMPLETED,
                         reason="existing_out_completed",
                         last_out_path=done["out_path"],
-                        resumed=True if resumed else None, as_json=args.json, exit_code=0, emit=_emit,
+                        resumed=True if resumed else None, exit_code=0, emit=_emit,
                         extra={"skipped_execution": True},
                     )
 
@@ -187,7 +187,6 @@ def cmd_run_inp(args: Any, *, runner_cls: Type[OrcaRunner] = OrcaRunner) -> int:
                 resumed=resumed,
                 runner=runner,
                 max_retries=max_retries,
-                as_json=args.json,
                 retry_inp_path=_retry_inp_path,
                 to_resolved_local=_to_resolved_local,
                 emit=_emit,

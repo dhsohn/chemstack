@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import logging
 import tempfile
 import unittest
 from pathlib import Path
@@ -12,7 +11,6 @@ from unittest.mock import patch
 from core.cli import main
 from core.completion_rules import CompletionMode
 from core.inp_rewriter import rewrite_for_retry
-from core.json_logger import JSONFormatter
 from core.orca_runner import RunResult
 from core.out_analyzer import analyze_output
 from core.state_machine import (
@@ -233,58 +231,7 @@ class TestCrashRecovery(unittest.TestCase):
         self.assertTrue(saved["final_result"]["resumed"])
 
 
-# ── Structured JSON Logging ──
-
-
-class TestJSONFormatter(unittest.TestCase):
-    def test_format_produces_valid_json(self) -> None:
-        formatter = JSONFormatter()
-        record = logging.LogRecord(
-            name="test.logger",
-            level=logging.INFO,
-            pathname="test.py",
-            lineno=1,
-            msg="Hello %s",
-            args=("world",),
-            exc_info=None,
-        )
-        line = formatter.format(record)
-        parsed = json.loads(line)
-        self.assertEqual(parsed["level"], "INFO")
-        self.assertEqual(parsed["logger"], "test.logger")
-        self.assertEqual(parsed["message"], "Hello world")
-        self.assertIn("timestamp", parsed)
-
-    def test_format_includes_exception(self) -> None:
-        formatter = JSONFormatter()
-        try:
-            raise ValueError("test error")
-        except ValueError:
-            import sys
-            exc_info = sys.exc_info()
-
-        record = logging.LogRecord(
-            name="test",
-            level=logging.ERROR,
-            pathname="test.py",
-            lineno=1,
-            msg="boom",
-            args=(),
-            exc_info=exc_info,
-        )
-        line = formatter.format(record)
-        parsed = json.loads(line)
-        self.assertIn("exception", parsed)
-        self.assertTrue(any("ValueError" in e for e in parsed["exception"]))
-
-
-class TestCLIJsonLogFlag(unittest.TestCase):
-    def test_json_log_flag_is_accepted(self) -> None:
-        from core.cli import build_parser
-        parser = build_parser()
-        args = parser.parse_args(["--json-log", "list"])
-        self.assertTrue(args.json_log)
-
+class TestCLILogFileFlag(unittest.TestCase):
     def test_log_file_flag_is_accepted(self) -> None:
         from core.cli import build_parser
         parser = build_parser()

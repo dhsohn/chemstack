@@ -57,7 +57,7 @@ class TestTelegramBotHandlers(unittest.TestCase):
             allowed.mkdir()
             cfg = self._make_cfg(str(allowed))
             result = _handle_list(cfg, "")
-        self.assertIn("No registered runs found", result)
+        self.assertIn("No simulations found", result)
 
     def test_handle_list_with_runs(self) -> None:
         with tempfile.TemporaryDirectory() as td:
