@@ -15,7 +15,7 @@ from typing import Any
 
 from ..config import AppConfig, load_config
 from ..dft_index import DFTIndex
-from ..dft_monitor import DFTMonitor, ScanReport
+from ..dft_monitor import DFTMonitor, MonitorResult, ScanReport
 from ..run_snapshot import RunSnapshot, collect_run_snapshots, parse_iso_utc, status_icon
 from ..telegram_notifier import escape_html, send_message
 from ._helpers import _to_resolved_local
@@ -161,12 +161,21 @@ def _format_run_event_section(events: list[RunEvent], kind: str, title: str) -> 
     return f"{title}  ({len(matched)})\n\n" + "\n\n".join(lines)
 
 
+def _notifiable_dft_results(report: ScanReport) -> list[MonitorResult]:
+    return [
+        result
+        for result in report.new_results
+        if str(result.status).strip().lower() != "running"
+    ]
+
+
 def _format_dft_section(report: ScanReport) -> str | None:
-    if not report.new_results:
+    results = _notifiable_dft_results(report)
+    if not results:
         return None
 
     lines: list[str] = []
-    for result in report.new_results:
+    for result in results:
         icon = status_icon(result.status)
         calc_label = result.calc_type.upper() if result.calc_type else "-"
         note = f"\n   \u26a0\ufe0f {escape_html(result.note.strip('() '))}" if result.note else ""
@@ -178,7 +187,7 @@ def _format_dft_section(report: ScanReport) -> str | None:
             f"{note}"
         )
 
-    header = f"\U0001f9ea <b>New Calculations Detected</b>  ({len(report.new_results)})"
+    header = f"\U0001f9ea <b>New Calculations Detected</b>  ({len(results)})"
     return header + "\n\n" + "\n\n".join(lines)
 
 
@@ -221,7 +230,7 @@ def _build_message(
     run_events: list[RunEvent],
     report: ScanReport,
 ) -> str:
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    now = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M %Z")
     header = f"\u2699\ufe0f <b>orca_auto monitor</b>  <code>{now}</code>"
     divider = "\u2500" * 28
 
@@ -275,8 +284,9 @@ def _run_monitor(cfg: AppConfig) -> int:
         state_file=state_file,
     )
     report = monitor.scan()
+    notifiable_dft_results = _notifiable_dft_results(report)
 
-    should_send = bool(run_events or report.new_results or report.failures)
+    should_send = bool(run_events or notifiable_dft_results or report.failures)
     if not should_send:
         _save_monitor_state(_monitor_state_path(allowed_root), current_state)
         logger.info("No new monitor events to send.")

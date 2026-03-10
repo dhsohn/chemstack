@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import os
 import tempfile
+import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -89,6 +91,23 @@ def _sample_report(n: int = 1) -> ScanReport:
     return ScanReport(new_results=results, scanned_files=5)
 
 
+def _sample_running_report() -> ScanReport:
+    return ScanReport(
+        new_results=[
+            MonitorResult(
+                formula="C6H6",
+                method_basis="B3LYP/6-31G(d)",
+                energy="E = -232.123456 Eh",
+                status="running",
+                calc_type="neb",
+                path="orca_runs/rxn/calc.out",
+                note="",
+            )
+        ],
+        scanned_files=5,
+    )
+
+
 class TestDetectRunEvents:
     def test_no_events_without_baseline(self) -> None:
         events = _detect_run_events({}, [_sample_snapshot(status="completed")], has_baseline=False)
@@ -147,6 +166,10 @@ class TestFormatDftSection:
         assert "C6H6" in result
         assert "B3LYP/6-31G(d)" in result
 
+    def test_running_only_results_are_suppressed(self) -> None:
+        report = _sample_running_report()
+        assert _format_dft_section(report) is None
+
 
 class TestFormatFailureSection:
     def test_no_failures_returns_none(self) -> None:
@@ -195,6 +218,22 @@ class TestBuildMessage:
         assert "orca_auto monitor" in message
         assert "\u2500" in message
         assert "Overview" in message
+
+    def test_header_uses_local_timezone_like_summary(self) -> None:
+        previous_tz = os.environ.get("TZ")
+        try:
+            os.environ["TZ"] = "Asia/Seoul"
+            time.tzset()
+            message = _build_message([], [], ScanReport(new_results=[], scanned_files=0))
+        finally:
+            if previous_tz is None:
+                os.environ.pop("TZ", None)
+            else:
+                os.environ["TZ"] = previous_tz
+            time.tzset()
+
+        assert "<code>" in message
+        assert "KST" in message
 
     def test_includes_event_and_dft_sections(self) -> None:
         snapshots = [_sample_snapshot(status="completed")]
@@ -298,6 +337,35 @@ class TestRunMonitor:
         sent_text = mock_send.call_args[0][1]
         assert "Completed" in sent_text
         assert "rxn1" in sent_text
+
+    @patch("core.commands.monitor.send_message", return_value=True)
+    @patch("core.commands.monitor.DFTMonitor")
+    @patch("core.commands.monitor.DFTIndex")
+    def test_does_not_send_when_only_running_dft_updates_exist(
+        self,
+        mock_index_cls: MagicMock,
+        mock_monitor_cls: MagicMock,
+        mock_send: MagicMock,
+    ) -> None:
+        mock_monitor = MagicMock()
+        mock_monitor.scan.return_value = _sample_running_report()
+        mock_monitor_cls.return_value = mock_monitor
+
+        with tempfile.TemporaryDirectory() as td:
+            allowed = Path(td) / "orca_runs"
+            _make_run(allowed / "rxn1", status="running")
+
+            from core.commands.monitor import _run_monitor
+
+            cfg = AppConfig(
+                runtime=RuntimeConfig(allowed_root=str(allowed)),
+                paths=PathsConfig(orca_executable="/usr/bin/orca"),
+                telegram=TelegramConfig(bot_token="fake", chat_id="123"),
+            )
+            result = _run_monitor(cfg)
+
+        assert result == 0
+        mock_send.assert_not_called()
 
     def test_returns_1_when_telegram_disabled(self) -> None:
         from core.commands.monitor import _run_monitor
