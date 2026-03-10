@@ -490,7 +490,7 @@ def run_attempts(
 
         should_notify_started = execution_index == first_execution_index and (execution_index == 1 or resumed)
         if should_notify_started and notify_started is not None:
-            notification = _build_run_started_notification(
+            started_notification = _build_run_started_notification(
                 reaction_dir=reaction_dir,
                 selected_inp=selected_inp,
                 current_inp=current_inp,
@@ -502,7 +502,7 @@ def run_attempts(
                 resumed=resumed,
             )
             try:
-                notify_started(notification)
+                notify_started(started_notification)
             except Exception:
                 logger.warning(
                     "Started notification callback failed for attempt %d",
@@ -610,7 +610,7 @@ def run_attempts(
         state["attempts"][-1]["patch_actions"] = patch_actions
         save_state(reaction_dir, state)
         if notify_retry is not None:
-            notification = _build_retry_notification(
+            retry_notification = _build_retry_notification(
                 reaction_dir=reaction_dir,
                 selected_inp=selected_inp,
                 current_inp=current_inp,
@@ -625,7 +625,7 @@ def run_attempts(
                 resumed=resumed,
             )
             try:
-                notify_retry(notification)
+                notify_retry(retry_notification)
             except Exception:
                 logger.warning(
                     "Retry notification callback failed for attempt %d",
