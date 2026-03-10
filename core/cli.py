@@ -4,58 +4,22 @@ import argparse
 import logging
 import logging.handlers
 import sys
+from typing import Callable
 
-from .commands._helpers import (
-    CONFIG_ENV_VAR as _CONFIG_ENV_VAR,
-    default_config_path as _default_config_path,
-)
-from .commands.init import cmd_init as _cmd_init
-from .commands.list_runs import cmd_list as _cmd_list
-from .commands.monitor import cmd_monitor as _cmd_monitor
-from .commands.organize import cmd_organize as _cmd_organize
-from .commands.summary import cmd_summary as _cmd_summary
+from .commands._helpers import default_config_path
+from .commands.init import cmd_init
+from .commands.list_runs import cmd_list
+from .commands.monitor import cmd_monitor
+from .commands.organize import cmd_organize
 from .commands.queue import (
     cmd_queue_add as _cmd_queue_add,
     cmd_queue_cancel as _cmd_queue_cancel,
     cmd_queue_stop as _cmd_queue_stop,
     cmd_queue_worker as _cmd_queue_worker,
 )
-from .commands.run_inp import (
-    _retry_inp_path as _retry_inp_path_impl,
-    _select_latest_inp as _select_latest_inp_impl,
-    cmd_run_inp as _cmd_run_inp,
-)
-from .orca_runner import OrcaRunner
+from .commands.run_inp import cmd_run_inp
+from .commands.summary import cmd_summary
 from .telegram_bot import run_bot as _run_bot
-
-CONFIG_ENV_VAR = _CONFIG_ENV_VAR
-default_config_path = _default_config_path
-_retry_inp_path = _retry_inp_path_impl
-_select_latest_inp = _select_latest_inp_impl
-
-
-def cmd_run_inp(args: argparse.Namespace) -> int:
-    return int(_cmd_run_inp(args, runner_cls=OrcaRunner))
-
-
-def cmd_list(args: argparse.Namespace) -> int:
-    return int(_cmd_list(args))
-
-
-def cmd_init(args: argparse.Namespace) -> int:
-    return int(_cmd_init(args))
-
-
-def cmd_organize(args: argparse.Namespace) -> int:
-    return int(_cmd_organize(args))
-
-
-def cmd_monitor(args: argparse.Namespace) -> int:
-    return int(_cmd_monitor(args))
-
-
-def cmd_summary(args: argparse.Namespace) -> int:
-    return int(_cmd_summary(args))
 
 
 def cmd_bot(args: argparse.Namespace) -> int:
@@ -65,7 +29,7 @@ def cmd_bot(args: argparse.Namespace) -> int:
 
 
 def cmd_queue(args: argparse.Namespace) -> int:
-    _queue_sub_map = {
+    _queue_sub_map: dict[str, Callable[[argparse.Namespace], int]] = {
         "add": _cmd_queue_add,
         "cancel": _cmd_queue_cancel,
         "worker": _cmd_queue_worker,
@@ -163,7 +127,7 @@ def main(argv: list[str] | None = None) -> int:
 
     _configure_logging(args)
 
-    command_map = {
+    command_map: dict[str, Callable[[argparse.Namespace], int]] = {
         "init": cmd_init,
         "run-inp": cmd_run_inp,
         "list": cmd_list,

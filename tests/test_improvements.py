@@ -219,7 +219,7 @@ class TestCrashRecovery(unittest.TestCase):
                 out.write_text("****ORCA TERMINATED NORMALLY****\n", encoding="utf-8")
                 return RunResult(out_path=str(out), return_code=0)
 
-            with patch("core.cli.OrcaRunner.run", new=_fake_run):
+            with patch("core.commands.run_inp.OrcaRunner.run", new=_fake_run):
                 rc = main(
                     ["--config", str(config), "run-inp", "--reaction-dir", str(reaction)]
                 )

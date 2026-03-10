@@ -192,50 +192,6 @@ def _increase_maxcore(lines: List[str]) -> bool:
     return _set_maxcore(lines, new_value)
 
 
-def _read_nprocs(lines: List[str]) -> Optional[int]:
-    rng = _find_block_range(lines, "pal")
-    if rng is None:
-        return None
-    start, end, _needs_close = rng
-    for i in range(start + 1, end):
-        m = re.search(r"\bnprocs\s+(\d+)\b", lines[i], flags=re.IGNORECASE)
-        if m:
-            try:
-                return int(m.group(1))
-            except ValueError:
-                return None
-    return None
-
-
-def _set_nprocs(lines: List[str], nprocs: int) -> bool:
-    nprocs = max(1, int(nprocs))
-    rng = _find_block_range(lines, "pal")
-    if rng is None:
-        insert_at = _find_geometry_start(lines)
-        if insert_at is None:
-            insert_at = len(lines)
-        block = ["%pal", f"  nprocs {nprocs}", "end", ""]
-        lines[insert_at:insert_at] = block
-        return True
-
-    start, end, needs_close = rng
-    if needs_close:
-        lines.insert(end, "end")
-    changed = False
-    replaced = False
-    for i in range(start + 1, end):
-        if re.search(r"\bnprocs\b", lines[i], flags=re.IGNORECASE):
-            new_line = f"  nprocs {nprocs}"
-            if lines[i] != new_line:
-                lines[i] = new_line
-                changed = True
-            replaced = True
-    if not replaced:
-        lines.insert(end, f"  nprocs {nprocs}")
-        changed = True
-    return changed
-
-
 def _geometry_range(lines: List[str]) -> Optional[Tuple[int, int, int, int]]:
     for start, line in enumerate(lines):
         m = GEOM_HEADER_RE.match(line.strip())

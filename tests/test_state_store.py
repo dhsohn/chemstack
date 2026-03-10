@@ -53,8 +53,8 @@ class TestStateStore(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            with patch("core.state_store._is_process_alive", return_value=True), patch(
-                "core.state_store._process_start_ticks", return_value=111
+            with patch("core.state_store.lock_utils.is_process_alive", return_value=True), patch(
+                "core.state_store.lock_utils.process_start_ticks", return_value=111
             ):
                 with self.assertRaises(RuntimeError):
                     with acquire_run_lock(reaction):
@@ -76,9 +76,9 @@ class TestStateStore(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            with patch("core.state_store._is_process_alive", return_value=True), patch(
-                "core.state_store._process_start_ticks", return_value=222
-            ), patch("core.state_store._current_process_start_ticks", return_value=333):
+            with patch("core.state_store.lock_utils.is_process_alive", return_value=True), patch(
+                "core.state_store.lock_utils.process_start_ticks", return_value=222
+            ), patch("core.state_store.lock_utils.current_process_start_ticks", return_value=333):
                 with acquire_run_lock(reaction):
                     payload = json.loads(lock_path.read_text(encoding="utf-8"))
                     self.assertEqual(payload.get("pid"), os.getpid())

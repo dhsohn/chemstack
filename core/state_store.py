@@ -9,13 +9,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterator, Optional, cast
 from uuid import uuid4
 
-from .lock_utils import (
-    acquire_file_lock as _acquire_file_lock,
-    current_process_start_ticks as _current_process_start_ticks,
-    is_process_alive as _is_process_alive,
-    parse_lock_info as _parse_lock_info,
-    process_start_ticks as _process_start_ticks,
-)
+from . import lock_utils
 from .types import RunFinalResult, RunState
 
 logger = logging.getLogger(__name__)
@@ -213,16 +207,16 @@ def _run_lock_stale_remove_error(lock_pid: int, lock_path: Path, exc: OSError) -
 def acquire_run_lock(reaction_dir: Path) -> Iterator[None]:
     lock_path = reaction_dir / LOCK_FILE_NAME
     lock_payload = {"pid": os.getpid(), "started_at": now_utc_iso()}
-    current_start_ticks = _current_process_start_ticks()
+    current_start_ticks = lock_utils.current_process_start_ticks()
     if current_start_ticks is not None:
         lock_payload["process_start_ticks"] = current_start_ticks
 
-    with _acquire_file_lock(
+    with lock_utils.acquire_file_lock(
         lock_path=lock_path,
         lock_payload_obj=lock_payload,
-        parse_lock_info_fn=_parse_lock_info,
-        is_process_alive_fn=_is_process_alive,
-        process_start_ticks_fn=_process_start_ticks,
+        parse_lock_info_fn=lock_utils.parse_lock_info,
+        is_process_alive_fn=lock_utils.is_process_alive,
+        process_start_ticks_fn=lock_utils.process_start_ticks,
         logger=logger,
         acquired_log_template="Lock acquired: %s",
         released_log_template="Lock released: %s",

@@ -100,10 +100,9 @@ class TestInpRewriter(unittest.TestCase):
 
         Before the fix, calling _find_block_range on an unclosed block would
         append 'end' to lines, corrupting subsequent block lookups. This test
-        verifies that reading nprocs from an unclosed %pal block does NOT
-        change the line count, so a subsequent %scf lookup still works correctly.
+        verifies repeated reads of unclosed blocks do NOT change the line count.
         """
-        from core.inp_rewriter import _find_block_range, _read_nprocs
+        from core.inp_rewriter import _find_block_range
 
         lines = [
             "! OptTS Freq IRC",
@@ -120,9 +119,8 @@ class TestInpRewriter(unittest.TestCase):
             "*",
         ]
         original_len = len(lines)
-        # Reading nprocs calls _find_block_range internally; must NOT mutate lines
-        nprocs = _read_nprocs(lines)
-        self.assertEqual(nprocs, 8)
+        pal_rng = _find_block_range(lines, "pal")
+        self.assertIsNotNone(pal_rng)
         self.assertEqual(len(lines), original_len)
 
         # _find_block_range for %scf should still return correct unclosed range

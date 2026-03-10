@@ -6,7 +6,7 @@ from typing import Any, Callable, Dict, Mapping, Protocol
 
 from .completion_rules import detect_completion_mode
 from .inp_rewriter import rewrite_for_retry
-from .out_analyzer import analyze_output
+from .out_analyzer import OutAnalysis, analyze_output
 from .state_machine import MAX_RETRY_RECIPES, decide_attempt_outcome
 from .state_store import finalize_state, now_utc_iso, save_state, state_path, write_report_files
 from .statuses import AnalyzerStatus, RunStatus
@@ -397,6 +397,216 @@ def _resume_terminal_decision(
     )
 
 
+def _resolve_execution_input(
+    *,
+    reaction_dir: Path,
+    selected_inp: Path,
+    state: RunState,
+    execution_index: int,
+    retries_used: int,
+    retry_inp_path: Callable[[Path, int], Path],
+    to_resolved_local: Callable[[str], Path],
+) -> tuple[Path | None, str | None]:
+    current_inp = selected_inp if execution_index == 1 else retry_inp_path(selected_inp, retries_used)
+    if current_inp.exists():
+        return current_inp, None
+
+    reason = f"missing_input_for_attempt_{execution_index}"
+    if execution_index == 1:
+        return None, reason
+
+    try:
+        recovered, recovery_reason = _recover_missing_retry_input(
+            reaction_dir=reaction_dir,
+            state=state,
+            selected_inp=selected_inp,
+            current_inp=current_inp,
+            retries_used=retries_used,
+            to_resolved_local=to_resolved_local,
+        )
+    except Exception:
+        logger.warning(
+            "Failed while recovering missing retry input for attempt %d",
+            execution_index,
+            exc_info=True,
+        )
+        recovered = False
+        recovery_reason = "resume_recovery_exception"
+
+    if recovered and not current_inp.exists():
+        recovered = False
+        recovery_reason = "resume_recovery_no_output"
+    if not recovered:
+        return None, f"{reason}:{recovery_reason}"
+    if current_inp.exists():
+        return current_inp, None
+    return None, reason
+
+
+def _mark_attempt_started(
+    reaction_dir: Path,
+    state: RunState,
+    *,
+    retries_used: int,
+) -> tuple[str, RunStatus]:
+    started_at = now_utc_iso()
+    current_status = RunStatus.RUNNING if retries_used == 0 else RunStatus.RETRYING
+    state["status"] = current_status.value
+    save_state(reaction_dir, state)
+    return started_at, current_status
+
+
+def _notify_attempt_started(
+    *,
+    reaction_dir: Path,
+    selected_inp: Path,
+    current_inp: Path,
+    state: RunState,
+    execution_index: int,
+    first_execution_index: int,
+    max_retries: int,
+    current_status: RunStatus,
+    started_at: str,
+    resumed: bool,
+    notify_started: Callable[[RunStartedNotification], None] | None,
+) -> None:
+    should_notify_started = execution_index == first_execution_index and (execution_index == 1 or resumed)
+    if not should_notify_started or notify_started is None:
+        return
+
+    started_notification = _build_run_started_notification(
+        reaction_dir=reaction_dir,
+        selected_inp=selected_inp,
+        current_inp=current_inp,
+        state=state,
+        execution_index=execution_index,
+        max_retries=max_retries,
+        status=current_status,
+        attempt_started_at=started_at,
+        resumed=resumed,
+    )
+    try:
+        notify_started(started_notification)
+    except Exception:
+        logger.warning(
+            "Started notification callback failed for attempt %d",
+            execution_index,
+            exc_info=True,
+        )
+
+
+def _run_and_record_attempt(
+    reaction_dir: Path,
+    state: RunState,
+    *,
+    current_inp: Path,
+    execution_index: int,
+    started_at: str,
+    runner: RunnerLike,
+) -> tuple[Path, OutAnalysis]:
+    logger.info("Attempt %d starting: %s", execution_index, current_inp)
+    run_result = runner.run(current_inp)
+    out_path = Path(run_result.out_path)
+
+    mode = detect_completion_mode(current_inp)
+    analysis = analyze_output(out_path, mode)
+    attempt: AttemptRecord = {
+        "index": execution_index,
+        "inp_path": str(current_inp),
+        "out_path": str(out_path),
+        "return_code": run_result.return_code,
+        "analyzer_status": analysis.status,
+        "analyzer_reason": analysis.reason,
+        "markers": analysis.markers,
+        "patch_actions": [],
+        "started_at": started_at,
+        "ended_at": now_utc_iso(),
+    }
+    state["attempts"].append(attempt)
+    save_state(reaction_dir, state)
+
+    logger.info(
+        "Attempt %d finished: return_code=%d, status=%s",
+        execution_index,
+        run_result.return_code,
+        analysis.status,
+    )
+    return out_path, analysis
+
+
+def _prepare_retry_attempt(
+    reaction_dir: Path,
+    state: RunState,
+    selected_inp: Path,
+    *,
+    current_inp: Path,
+    out_path: Path,
+    execution_index: int,
+    retries_used: int,
+    max_retries: int,
+    resumed: bool,
+    analysis: OutAnalysis,
+    retry_inp_path: Callable[[Path, int], Path],
+    emit: Callable[[Dict[str, Any]], None],
+    notify_finished: Callable[[RunFinishedNotification], None] | None,
+    notify_retry: Callable[[RetryNotification], None] | None,
+) -> int | None:
+    next_retry_number = retries_used + 1
+    next_inp = retry_inp_path(selected_inp, next_retry_number)
+    patch_step = _retry_recipe_step(next_retry_number)
+    try:
+        patch_actions = rewrite_for_retry(
+            source_inp=current_inp,
+            target_inp=next_inp,
+            reaction_dir=reaction_dir,
+            step=patch_step,
+        )
+    except Exception as exc:
+        state["attempts"][-1]["patch_actions"] = [f"rewrite_failed:{exc}"]
+        return _exit_with_result(
+            reaction_dir,
+            state,
+            selected_inp,
+            status=RunStatus.FAILED,
+            analyzer_status=analysis.status,
+            reason="rewrite_failed",
+            last_out_path=str(out_path),
+            resumed=resumed,
+            exit_code=1,
+            emit=emit,
+            notify_finished=notify_finished,
+        )
+
+    state["attempts"][-1]["patch_actions"] = patch_actions
+    save_state(reaction_dir, state)
+    if notify_retry is None:
+        return None
+
+    retry_notification = _build_retry_notification(
+        reaction_dir=reaction_dir,
+        selected_inp=selected_inp,
+        current_inp=current_inp,
+        out_path=out_path,
+        next_inp=next_inp,
+        execution_index=execution_index,
+        next_retry_number=next_retry_number,
+        max_retries=max_retries,
+        analysis_status=analysis.status,
+        analysis_reason=analysis.reason,
+        patch_actions=patch_actions,
+        resumed=resumed,
+    )
+    try:
+        notify_retry(retry_notification)
+    except Exception:
+        logger.warning(
+            "Retry notification callback failed for attempt %d",
+            execution_index,
+            exc_info=True,
+        )
+    return None
+
+
 def run_attempts(
     reaction_dir: Path,
     selected_inp: Path,
@@ -444,75 +654,58 @@ def run_attempts(
                 notify_finished=notify_finished,
             )
 
-        current_inp = selected_inp if execution_index == 1 else retry_inp_path(selected_inp, retries_used)
-        if not current_inp.exists():
-            reason = f"missing_input_for_attempt_{execution_index}"
-            if execution_index > 1:
-                try:
-                    recovered, recovery_reason = _recover_missing_retry_input(
-                        reaction_dir=reaction_dir,
-                        state=state,
-                        selected_inp=selected_inp,
-                        current_inp=current_inp,
-                        retries_used=retries_used,
-                        to_resolved_local=to_resolved_local,
-                    )
-                except Exception:
-                    logger.warning(
-                        "Failed while recovering missing retry input for attempt %d",
-                        execution_index,
-                        exc_info=True,
-                    )
-                    recovered = False
-                    recovery_reason = "resume_recovery_exception"
-                if recovered and not current_inp.exists():
-                    recovered = False
-                    recovery_reason = "resume_recovery_no_output"
-                if not recovered:
-                    reason = f"{reason}:{recovery_reason}"
-            if not current_inp.exists():
-                return _exit_with_result(
-                    reaction_dir, state, selected_inp,
-                    status=RunStatus.FAILED,
-                    analyzer_status=AnalyzerStatus.INCOMPLETE,
-                    reason=reason, last_out_path=None,
-                    resumed=resumed,
-    
-                    exit_code=1,
-                    emit=emit,
-                    notify_finished=notify_finished,
-                )
-
-        started_at = now_utc_iso()
-        current_status = RunStatus.RUNNING if retries_used == 0 else RunStatus.RETRYING
-        state["status"] = current_status.value
-        save_state(reaction_dir, state)
-
-        should_notify_started = execution_index == first_execution_index and (execution_index == 1 or resumed)
-        if should_notify_started and notify_started is not None:
-            started_notification = _build_run_started_notification(
-                reaction_dir=reaction_dir,
-                selected_inp=selected_inp,
-                current_inp=current_inp,
-                state=state,
-                execution_index=execution_index,
-                max_retries=max_retries,
-                status=current_status,
-                attempt_started_at=started_at,
+        current_inp, missing_reason = _resolve_execution_input(
+            reaction_dir=reaction_dir,
+            selected_inp=selected_inp,
+            state=state,
+            execution_index=execution_index,
+            retries_used=retries_used,
+            retry_inp_path=retry_inp_path,
+            to_resolved_local=to_resolved_local,
+        )
+        if current_inp is None:
+            return _exit_with_result(
+                reaction_dir,
+                state,
+                selected_inp,
+                status=RunStatus.FAILED,
+                analyzer_status=AnalyzerStatus.INCOMPLETE,
+                reason=missing_reason or f"missing_input_for_attempt_{execution_index}",
+                last_out_path=None,
                 resumed=resumed,
+                exit_code=1,
+                emit=emit,
+                notify_finished=notify_finished,
             )
-            try:
-                notify_started(started_notification)
-            except Exception:
-                logger.warning(
-                    "Started notification callback failed for attempt %d",
-                    execution_index,
-                    exc_info=True,
-                )
 
-        logger.info("Attempt %d starting: %s", execution_index, current_inp)
+        started_at, current_status = _mark_attempt_started(
+            reaction_dir,
+            state,
+            retries_used=retries_used,
+        )
+        _notify_attempt_started(
+            reaction_dir=reaction_dir,
+            selected_inp=selected_inp,
+            current_inp=current_inp,
+            state=state,
+            execution_index=execution_index,
+            first_execution_index=first_execution_index,
+            max_retries=max_retries,
+            current_status=current_status,
+            started_at=started_at,
+            resumed=resumed,
+            notify_started=notify_started,
+        )
+
         try:
-            run_result = runner.run(current_inp)
+            out_path, analysis = _run_and_record_attempt(
+                reaction_dir,
+                state,
+                current_inp=current_inp,
+                execution_index=execution_index,
+                started_at=started_at,
+                runner=runner,
+            )
         except KeyboardInterrupt:
             logger.warning("Interrupted by user during attempt %d", execution_index)
             return _exit_with_result(
@@ -542,26 +735,6 @@ def run_attempts(
                 extra={"runner_error": str(exc)},
                 notify_finished=notify_finished,
             )
-        out_path = Path(run_result.out_path)
-
-        mode = detect_completion_mode(current_inp)
-        analysis = analyze_output(out_path, mode)
-        attempt: AttemptRecord = {
-            "index": execution_index,
-            "inp_path": str(current_inp),
-            "out_path": str(out_path),
-            "return_code": run_result.return_code,
-            "analyzer_status": analysis.status,
-            "analyzer_reason": analysis.reason,
-            "markers": analysis.markers,
-            "patch_actions": [],
-            "started_at": started_at,
-            "ended_at": now_utc_iso(),
-        }
-        state["attempts"].append(attempt)
-        save_state(reaction_dir, state)
-
-        logger.info("Attempt %d finished: return_code=%d, status=%s", execution_index, run_result.return_code, analysis.status)
         decision = decide_attempt_outcome(
             analyzer_status=analysis.status,
             analyzer_reason=analysis.reason,
@@ -582,54 +755,22 @@ def run_attempts(
                 notify_finished=notify_finished,
             )
 
-        next_retry_number = retries_used + 1
-        next_inp = retry_inp_path(selected_inp, next_retry_number)
-        patch_step = _retry_recipe_step(next_retry_number)
-        try:
-            patch_actions = rewrite_for_retry(
-                source_inp=current_inp,
-                target_inp=next_inp,
-                reaction_dir=reaction_dir,
-                step=patch_step,
-            )
-        except Exception as exc:
-            state["attempts"][-1]["patch_actions"] = [f"rewrite_failed:{exc}"]
-            return _exit_with_result(
-                reaction_dir, state, selected_inp,
-                status=RunStatus.FAILED,
-                analyzer_status=analysis.status,
-                reason="rewrite_failed",
-                last_out_path=str(out_path),
-                resumed=resumed,
-
-                exit_code=1,
-                emit=emit,
-                notify_finished=notify_finished,
-            )
-
-        state["attempts"][-1]["patch_actions"] = patch_actions
-        save_state(reaction_dir, state)
-        if notify_retry is not None:
-            retry_notification = _build_retry_notification(
-                reaction_dir=reaction_dir,
-                selected_inp=selected_inp,
-                current_inp=current_inp,
-                out_path=out_path,
-                next_inp=next_inp,
-                execution_index=execution_index,
-                next_retry_number=next_retry_number,
-                max_retries=max_retries,
-                analysis_status=analysis.status,
-                analysis_reason=analysis.reason,
-                patch_actions=patch_actions,
-                resumed=resumed,
-            )
-            try:
-                notify_retry(retry_notification)
-            except Exception:
-                logger.warning(
-                    "Retry notification callback failed for attempt %d",
-                    execution_index,
-                    exc_info=True,
-                )
+        retry_exit = _prepare_retry_attempt(
+            reaction_dir,
+            state,
+            selected_inp,
+            current_inp=current_inp,
+            out_path=out_path,
+            execution_index=execution_index,
+            retries_used=retries_used,
+            max_retries=max_retries,
+            resumed=resumed,
+            analysis=analysis,
+            retry_inp_path=retry_inp_path,
+            emit=emit,
+            notify_finished=notify_finished,
+            notify_retry=notify_retry,
+        )
+        if retry_exit is not None:
+            return retry_exit
         execution_index += 1

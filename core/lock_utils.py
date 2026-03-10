@@ -1,10 +1,4 @@
-"""Shared lock-file utilities.
-
-Extracted from state_store and organize_index to eliminate duplication.
-Both modules re-import these under their original private names so that
-existing test patch targets (e.g. ``core.state_store._is_process_alive``)
-continue to work.
-"""
+"""Shared lock-file utilities used by run state, queue, and organize index."""
 from __future__ import annotations
 
 import logging
@@ -30,7 +24,7 @@ def parse_lock_info(lock_path: Path) -> Dict[str, Any]:
     try:
         parsed = json.loads(raw)
     except Exception:
-        parsed = None
+        return {"pid": None, "started_at": None, "process_start_ticks": None}
 
     if isinstance(parsed, dict):
         raw_pid = parsed.get("pid")
@@ -58,15 +52,7 @@ def parse_lock_info(lock_path: Path) -> Dict[str, Any]:
                 process_start_ticks = None
         return {"pid": pid, "started_at": started_at, "process_start_ticks": process_start_ticks}
 
-    # Backward-compatible fallback: legacy lock file contained only a pid line.
-    first_line = raw.splitlines()[0].strip()
-    try:
-        parsed_pid = int(first_line)
-        if parsed_pid > 0:
-            pid = parsed_pid
-    except ValueError:
-        pid = None
-    return {"pid": pid, "started_at": None, "process_start_ticks": None}
+    return {"pid": None, "started_at": None, "process_start_ticks": None}
 
 
 def is_process_alive(pid: int) -> bool:

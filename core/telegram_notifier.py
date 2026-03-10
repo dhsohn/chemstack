@@ -1,8 +1,4 @@
-"""Telegram notification sender.
-
-Sends DFT monitor scan results as Telegram messages.
-Uses only urllib with no external dependencies.
-"""
+"""Telegram notification sender and formatter utilities."""
 
 from __future__ import annotations
 
@@ -10,6 +6,7 @@ import json
 import logging
 import urllib.error
 import urllib.request
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -76,36 +73,86 @@ def send_message(
         return False
 
 
-def format_scan_report(report: ScanReport) -> str | None:
-    """Format a ScanReport as a Telegram HTML message. Returns None if nothing to report."""
-    if not report.new_results:
+def has_monitor_updates(report: ScanReport) -> bool:
+    return bool(_notifiable_monitor_results(report) or report.failures)
+
+
+def _notifiable_monitor_results(report: ScanReport) -> list:
+    return [
+        result
+        for result in report.new_results
+        if str(result.status).strip().lower() != "running"
+    ]
+
+
+def _format_monitor_dft_section(report: ScanReport) -> str | None:
+    results = _notifiable_monitor_results(report)
+    if not results:
         return None
 
-    lines: list[str] = [f"<b>DFT Calculation Alert</b> ({len(report.new_results)} new)\n"]
-
-    for r in report.new_results:
-        status_icon = _status_icon(r.status)
-        line = (
-            f"{status_icon} <b>{escape_html(r.formula)}</b>"
-            f" | {escape_html(r.method_basis)}"
-            f" | {escape_html(r.energy)}"
+    lines: list[str] = []
+    for result in results:
+        icon = _status_icon(str(result.status))
+        calc_label = result.calc_type.upper() if result.calc_type else "-"
+        note = f"\n   \u26a0\ufe0f {escape_html(result.note.strip('() '))}" if result.note else ""
+        lines.append(
+            f"{icon} <b>{escape_html(result.formula)}</b>  [{escape_html(calc_label)}]\n"
+            f"   \U0001f9ec {escape_html(result.method_basis)}\n"
+            f"   \u26a1 {escape_html(result.energy)}\n"
+            f"   \U0001f4c2 <code>{escape_html(result.path)}</code>"
+            f"{note}"
         )
-        if r.calc_type:
-            line += f" | {escape_html(r.calc_type)}"
-        if r.note:
-            line += f" {escape_html(r.note)}"
-        line += f"\n<code>{escape_html(r.path)}</code>"
-        lines.append(line)
 
-    return "\n\n".join(lines)
+    header = f"\U0001f9ea <b>New Calculations Detected</b>  ({len(results)})"
+    return header + "\n\n" + "\n\n".join(lines)
 
 
-def notify_scan_report(config: TelegramConfig, report: ScanReport) -> bool:
-    """Send a Telegram notification if the ScanReport contains new results."""
-    text = format_scan_report(report)
-    if text is None:
+def _format_monitor_failure_section(report: ScanReport) -> str | None:
+    if not report.failures:
+        return None
+
+    lines: list[str] = []
+    for failure in report.failures[:5]:
+        lines.append(
+            f"\u274c <code>{escape_html(failure.path)}</code>\n"
+            f"   {escape_html(failure.error_type)}: {escape_html(failure.error)}"
+        )
+
+    count = len(report.failures)
+    header = f"\u26a0\ufe0f <b>Scan Parse Failures</b>  ({count})"
+    body = "\n\n".join(lines)
+    if count > 5:
+        body += f"\n\n   ... and {count - 5} more"
+    return header + "\n\n" + body
+
+
+def format_monitor_message(report: ScanReport, *, now: datetime | None = None) -> str:
+    current_time = now.astimezone() if now is not None else datetime.now().astimezone()
+    header = f"\u2699\ufe0f <b>orca_auto monitor</b>  <code>{current_time.strftime('%Y-%m-%d %H:%M %Z')}</code>"
+    divider = "\u2500" * 28
+    scope = (
+        "\U0001f50d <b>Scope</b>\n"
+        "Filesystem discovery only. "
+        "Use run-inp alerts for immediate lifecycle events and summary for periodic state digests."
+    )
+
+    sections: list[str] = [header, divider, scope]
+
+    dft_section = _format_monitor_dft_section(report)
+    if dft_section:
+        sections.append(dft_section)
+
+    failure_section = _format_monitor_failure_section(report)
+    if failure_section:
+        sections.append(failure_section)
+
+    return "\n\n".join(sections)
+
+
+def notify_monitor_report(config: TelegramConfig, report: ScanReport) -> bool:
+    if not has_monitor_updates(report):
         return False
-    return send_message(config, text)
+    return send_message(config, format_monitor_message(report))
 
 
 def format_run_started_event(event: RunStartedNotification) -> str:

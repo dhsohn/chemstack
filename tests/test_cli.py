@@ -7,8 +7,9 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from core.cli import CONFIG_ENV_VAR, _retry_inp_path, _select_latest_inp, default_config_path, main
-from core.commands._helpers import _emit
+from core.cli import main
+from core.commands._helpers import CONFIG_ENV_VAR, _emit, default_config_path
+from core.commands.run_inp import _retry_inp_path, _select_latest_inp
 from core.orca_runner import RunResult
 
 
@@ -99,7 +100,7 @@ class TestCli(unittest.TestCase):
             (reaction / "rxn.retry01.out").write_text("****ORCA TERMINATED NORMALLY****\n", encoding="utf-8")
             config = self._write_config(root, root / "orca_runs")
 
-            with patch("core.cli.OrcaRunner.run") as run_mock:
+            with patch("core.commands.run_inp.OrcaRunner.run") as run_mock:
                 rc = main(["--config", str(config), "run-inp", "--reaction-dir", str(reaction)])
             self.assertFalse(run_mock.called)
             state = json.loads((reaction / "run_state.json").read_text(encoding="utf-8"))
@@ -169,7 +170,7 @@ class TestCli(unittest.TestCase):
             }
             (reaction / "run_state.json").write_text(json.dumps(state), encoding="utf-8")
 
-            with patch("core.cli.OrcaRunner.run") as run_mock:
+            with patch("core.commands.run_inp.OrcaRunner.run") as run_mock:
                 rc = main(["--config", str(config), "run-inp", "--reaction-dir", str(reaction)])
             self.assertFalse(run_mock.called)
             saved = json.loads((reaction / "run_state.json").read_text(encoding="utf-8"))
@@ -210,7 +211,7 @@ class TestCli(unittest.TestCase):
                 )
                 return RunResult(out_path=str(out), return_code=0)
 
-            with patch("core.cli.OrcaRunner.run", new=_fake_run):
+            with patch("core.commands.run_inp.OrcaRunner.run", new=_fake_run):
                 rc = main(
                     [
                         "--config",
@@ -257,7 +258,7 @@ class TestCli(unittest.TestCase):
                 )
                 return RunResult(out_path=str(out), return_code=0)
 
-            with patch("core.cli.OrcaRunner.run", new=_fake_run):
+            with patch("core.commands.run_inp.OrcaRunner.run", new=_fake_run):
                 rc = main(["--config", str(config), "run-inp", "--reaction-dir", str(reaction)])
 
         self.assertEqual(rc, 0)
@@ -287,7 +288,7 @@ class TestCli(unittest.TestCase):
                 out.write_text("COULD NOT WRITE TO DISK\n", encoding="utf-8")
                 return RunResult(out_path=str(out), return_code=99)
 
-            with patch("core.cli.OrcaRunner.run", new=_fake_run):
+            with patch("core.commands.run_inp.OrcaRunner.run", new=_fake_run):
                 rc = main(
                     [
                         "--config",
@@ -341,7 +342,7 @@ class TestCli(unittest.TestCase):
                 out.write_text("COULD NOT WRITE TO DISK\n", encoding="utf-8")
                 return RunResult(out_path=str(out), return_code=99)
 
-            with patch("core.cli.OrcaRunner.run", new=_fake_run):
+            with patch("core.commands.run_inp.OrcaRunner.run", new=_fake_run):
                 rc = main(
                     [
                         "--config",
@@ -418,7 +419,7 @@ class TestCli(unittest.TestCase):
             }
             (reaction / "run_state.json").write_text(json.dumps(state), encoding="utf-8")
 
-            with patch("core.cli.OrcaRunner.run") as run_mock:
+            with patch("core.commands.run_inp.OrcaRunner.run") as run_mock:
                 rc = main(
                     [
                         "--config",
@@ -477,7 +478,7 @@ class TestCli(unittest.TestCase):
                 out.write_text("****ORCA TERMINATED NORMALLY****\n", encoding="utf-8")
                 return RunResult(out_path=str(out), return_code=0)
 
-            with patch("core.cli.OrcaRunner.run", new=_fake_run):
+            with patch("core.commands.run_inp.OrcaRunner.run", new=_fake_run):
                 rc = main(
                     [
                         "--config",
@@ -545,7 +546,7 @@ class TestCli(unittest.TestCase):
                 out.write_text("****ORCA TERMINATED NORMALLY****\n", encoding="utf-8")
                 return RunResult(out_path=str(out), return_code=0)
 
-            with patch("core.cli.OrcaRunner.run", new=_fake_run):
+            with patch("core.commands.run_inp.OrcaRunner.run", new=_fake_run):
                 rc = main(
                     [
                         "--config",
@@ -602,7 +603,7 @@ class TestCli(unittest.TestCase):
             }
             (reaction / "run_state.json").write_text(json.dumps(state), encoding="utf-8")
 
-            with patch("core.cli.OrcaRunner.run") as run_mock:
+            with patch("core.commands.run_inp.OrcaRunner.run") as run_mock:
                 rc = main(
                     [
                         "--config",
@@ -633,7 +634,7 @@ class TestCli(unittest.TestCase):
             def _fake_run(_self, inp_path: Path) -> RunResult:
                 raise KeyboardInterrupt
 
-            with patch("core.cli.OrcaRunner.run", new=_fake_run):
+            with patch("core.commands.run_inp.OrcaRunner.run", new=_fake_run):
                 rc = main(
                     [
                         "--config",
@@ -663,7 +664,7 @@ class TestCli(unittest.TestCase):
             def _fake_run(_self, inp_path: Path) -> RunResult:
                 raise RuntimeError("runner exploded")
 
-            with patch("core.cli.OrcaRunner.run", new=_fake_run):
+            with patch("core.commands.run_inp.OrcaRunner.run", new=_fake_run):
                 rc = main(
                     [
                         "--config",

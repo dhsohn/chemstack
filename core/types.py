@@ -103,15 +103,3 @@ class QueueEntry(TypedDict, total=False):
     run_id: Optional[str]
     error: Optional[str]
     force: bool
-
-
-class RunInfo(TypedDict):
-    """Structured representation of a simulation run for display."""
-
-    dir: str
-    status: str
-    elapsed: float
-    elapsed_text: str
-    inp: str
-    attempts: int
-    started_at: str

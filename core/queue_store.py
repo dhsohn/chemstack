@@ -316,13 +316,6 @@ def list_queue(
     return entries
 
 
-def count_running(allowed_root: Path) -> int:
-    """Count entries currently in running state."""
-    with _acquire_queue_lock(allowed_root):
-        entries = _load_entries(allowed_root)
-    return sum(1 for e in entries if e.get("status") == QueueStatus.RUNNING.value)
-
-
 def get_cancel_requested(allowed_root: Path, queue_id: str) -> bool:
     """Check if a running entry has a cancel request."""
     with _acquire_queue_lock(allowed_root):
@@ -356,16 +349,6 @@ def clear_terminal(allowed_root: Path, *, keep_last: int = 0) -> int:
         _save_entries(allowed_root, entries)
     logger.info("Cleared %d terminal entries", removed_count)
     return removed_count
-
-
-def find_entry(allowed_root: Path, queue_id: str) -> Optional[QueueEntry]:
-    """Find a single entry by queue_id."""
-    with _acquire_queue_lock(allowed_root):
-        entries = _load_entries(allowed_root)
-    for entry in entries:
-        if entry.get("queue_id") == queue_id:
-            return entry
-    return None
 
 
 # -- Internal helpers -----------------------------------------------------

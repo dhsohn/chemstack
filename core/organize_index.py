@@ -7,13 +7,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional
 
-from .lock_utils import (
-    acquire_file_lock as _acquire_file_lock,
-    current_process_start_ticks as _current_process_start_ticks,
-    is_process_alive as _is_process_alive,
-    parse_lock_info as _parse_index_lock_info,
-    process_start_ticks as _process_start_ticks,
-)
+from . import lock_utils
 from .molecule_key import extract_molecule_key
 from .pathing import resolve_artifact_path
 from .state_store import atomic_write_text, load_state, now_utc_iso
@@ -212,16 +206,16 @@ def acquire_index_lock(organized_root: Path, timeout_seconds: int = 30) -> Itera
     idir.mkdir(parents=True, exist_ok=True)
     lock_path = idir / LOCK_FILE_NAME
     lock_payload_obj: Dict[str, Any] = {"pid": os.getpid(), "started_at": now_utc_iso()}
-    current_start_ticks = _current_process_start_ticks()
+    current_start_ticks = lock_utils.current_process_start_ticks()
     if current_start_ticks is not None:
         lock_payload_obj["process_start_ticks"] = current_start_ticks
 
-    with _acquire_file_lock(
+    with lock_utils.acquire_file_lock(
         lock_path=lock_path,
         lock_payload_obj=lock_payload_obj,
-        parse_lock_info_fn=_parse_index_lock_info,
-        is_process_alive_fn=_is_process_alive,
-        process_start_ticks_fn=_process_start_ticks,
+        parse_lock_info_fn=lock_utils.parse_lock_info,
+        is_process_alive_fn=lock_utils.is_process_alive,
+        process_start_ticks_fn=lock_utils.process_start_ticks,
         logger=logger,
         acquired_log_template="Index lock acquired: %s",
         released_log_template="Index lock released: %s",

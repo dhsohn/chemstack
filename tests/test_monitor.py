@@ -2,19 +2,17 @@
 
 from __future__ import annotations
 
-import os
 import tempfile
-import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from core.commands.monitor import (
-    _build_message,
-    _format_dft_section,
-    _format_failure_section,
-)
 from core.config import AppConfig, PathsConfig, RuntimeConfig, TelegramConfig
 from core.dft_monitor import MonitorResult, ParseFailure, ScanReport
+from core.telegram_notifier import (
+    _format_monitor_dft_section,
+    _format_monitor_failure_section,
+    format_monitor_message,
+)
 
 
 def _sample_report(n: int = 1) -> ScanReport:
@@ -53,11 +51,11 @@ def _sample_running_report() -> ScanReport:
 class TestFormatDftSection:
     def test_empty_report_returns_none(self) -> None:
         report = ScanReport(new_results=[], scanned_files=5)
-        assert _format_dft_section(report) is None
+        assert _format_monitor_dft_section(report) is None
 
     def test_dft_section_content(self) -> None:
         report = _sample_report()
-        result = _format_dft_section(report)
+        result = _format_monitor_dft_section(report)
         assert result is not None
         assert "New Calculations Detected" in result
         assert "C6H6" in result
@@ -65,13 +63,13 @@ class TestFormatDftSection:
 
     def test_running_only_results_are_suppressed(self) -> None:
         report = _sample_running_report()
-        assert _format_dft_section(report) is None
+        assert _format_monitor_dft_section(report) is None
 
 
 class TestFormatFailureSection:
     def test_no_failures_returns_none(self) -> None:
         report = ScanReport(new_results=[], scanned_files=5)
-        assert _format_failure_section(report) is None
+        assert _format_monitor_failure_section(report) is None
 
     def test_failure_section_content(self) -> None:
         report = ScanReport(
@@ -85,7 +83,7 @@ class TestFormatFailureSection:
             ],
             scanned_files=5,
         )
-        result = _format_failure_section(report)
+        result = _format_monitor_failure_section(report)
         assert result is not None
         assert "Scan Parse Failures" in result
         assert "ValueError" in result
@@ -93,7 +91,7 @@ class TestFormatFailureSection:
 
 class TestBuildMessage:
     def test_contains_header_scope_and_divider(self) -> None:
-        message = _build_message(ScanReport(new_results=[], scanned_files=0))
+        message = format_monitor_message(ScanReport(new_results=[], scanned_files=0))
         assert "orca_auto monitor" in message
         assert "\u2500" in message
         assert "Filesystem discovery only" in message
@@ -101,18 +99,13 @@ class TestBuildMessage:
         assert "summary" in message
 
     def test_header_uses_local_timezone_like_summary(self) -> None:
-        previous_tz = os.environ.get("TZ")
-        try:
-            os.environ["TZ"] = "Asia/Seoul"
-            time.tzset()
-            message = _build_message(ScanReport(new_results=[], scanned_files=0))
-        finally:
-            if previous_tz is None:
-                os.environ.pop("TZ", None)
-            else:
-                os.environ["TZ"] = previous_tz
-            time.tzset()
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
 
+        message = format_monitor_message(
+            ScanReport(new_results=[], scanned_files=0),
+            now=datetime(2026, 3, 10, 21, 0, tzinfo=ZoneInfo("Asia/Seoul")),
+        )
         assert "<code>" in message
         assert "KST" in message
 
@@ -122,21 +115,21 @@ class TestBuildMessage:
             failures=[ParseFailure(path="job/calc.out", error="bad encoding", error_type="UnicodeDecodeError")],
             scanned_files=1,
         )
-        message = _build_message(report)
+        message = format_monitor_message(report)
         assert "New Calculations Detected" in message
         assert "Scan Parse Failures" in message
         assert "UnicodeDecodeError" in message
 
 
 class TestRunMonitor:
-    @patch("core.commands.monitor.send_message", return_value=True)
+    @patch("core.commands.monitor.notify_monitor_report", return_value=True)
     @patch("core.commands.monitor.DFTMonitor")
     @patch("core.commands.monitor.DFTIndex")
     def test_does_not_send_when_no_discoveries(
         self,
         mock_index_cls: MagicMock,
         mock_monitor_cls: MagicMock,
-        mock_send: MagicMock,
+        mock_notify: MagicMock,
     ) -> None:
         mock_monitor = MagicMock()
         mock_monitor.scan.return_value = ScanReport(new_results=[], scanned_files=0)
@@ -156,16 +149,16 @@ class TestRunMonitor:
             result = _run_monitor(cfg)
 
         assert result == 0
-        mock_send.assert_not_called()
+        mock_notify.assert_not_called()
 
-    @patch("core.commands.monitor.send_message", return_value=True)
+    @patch("core.commands.monitor.notify_monitor_report", return_value=True)
     @patch("core.commands.monitor.DFTMonitor")
     @patch("core.commands.monitor.DFTIndex")
     def test_sends_when_new_dft_discovery_exists(
         self,
         mock_index_cls: MagicMock,
         mock_monitor_cls: MagicMock,
-        mock_send: MagicMock,
+        mock_notify: MagicMock,
     ) -> None:
         mock_monitor = MagicMock()
         mock_monitor.scan.return_value = _sample_report()
@@ -185,19 +178,16 @@ class TestRunMonitor:
             result = _run_monitor(cfg)
 
         assert result == 0
-        mock_send.assert_called_once()
-        sent_text = mock_send.call_args[0][1]
-        assert "Filesystem discovery only" in sent_text
-        assert "New Calculations Detected" in sent_text
+        mock_notify.assert_called_once()
 
-    @patch("core.commands.monitor.send_message", return_value=True)
+    @patch("core.commands.monitor.notify_monitor_report", return_value=True)
     @patch("core.commands.monitor.DFTMonitor")
     @patch("core.commands.monitor.DFTIndex")
     def test_does_not_send_when_only_running_dft_updates_exist(
         self,
         mock_index_cls: MagicMock,
         mock_monitor_cls: MagicMock,
-        mock_send: MagicMock,
+        mock_notify: MagicMock,
     ) -> None:
         mock_monitor = MagicMock()
         mock_monitor.scan.return_value = _sample_running_report()
@@ -217,4 +207,4 @@ class TestRunMonitor:
             result = _run_monitor(cfg)
 
         assert result == 0
-        mock_send.assert_not_called()
+        mock_notify.assert_not_called()

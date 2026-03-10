@@ -11,12 +11,13 @@ from core.types import QueueEnqueuedNotification, RetryNotification, RunFinished
 from core.telegram_notifier import (
     escape_html,
     _status_icon,
-    format_scan_report,
+    format_monitor_message,
     format_run_finished_event,
     format_run_started_event,
     format_retry_event,
     format_queue_enqueued_event,
-    notify_scan_report,
+    has_monitor_updates,
+    notify_monitor_report,
     notify_retry_event,
     notify_run_finished_event,
     notify_run_started_event,
@@ -126,17 +127,17 @@ class TestStatusIcon:
         assert _status_icon("unknown") == "\u2753"
 
 
-class TestFormatScanReport:
+class TestMonitorFormatting:
     def test_empty_report_returns_none(self) -> None:
         report = ScanReport(new_results=[], scanned_files=5)
-        assert format_scan_report(report) is None
+        assert has_monitor_updates(report) is False
 
     def test_format_with_results(self) -> None:
         report = _sample_report()
-        text = format_scan_report(report)
-        assert text is not None
-        assert "DFT Calculation Alert" in text
-        assert "2 new" in text
+        text = format_monitor_message(report)
+        assert has_monitor_updates(report) is True
+        assert "orca_auto monitor" in text
+        assert "New Calculations Detected" in text
         assert "CH4" in text
         assert "C6H6" in text
         assert "B3LYP/def2-SVP" in text
@@ -212,18 +213,18 @@ class TestSendMessage:
         assert send_message(_enabled_config(), "hello") is False
 
 
-class TestNotifyScanReport:
+class TestNotifyMonitorReport:
     @patch("core.telegram_notifier.send_message", return_value=True)
     def test_sends_when_results_exist(self, mock_send: MagicMock) -> None:
         report = _sample_report()
-        result = notify_scan_report(_enabled_config(), report)
+        result = notify_monitor_report(_enabled_config(), report)
         assert result is True
         mock_send.assert_called_once()
 
     @patch("core.telegram_notifier.send_message")
     def test_skips_empty_report(self, mock_send: MagicMock) -> None:
         report = ScanReport(new_results=[], scanned_files=5)
-        result = notify_scan_report(_enabled_config(), report)
+        result = notify_monitor_report(_enabled_config(), report)
         assert result is False
         mock_send.assert_not_called()
 

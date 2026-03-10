@@ -8,10 +8,8 @@ from core.queue_store import (
     cancel,
     cancel_all_pending,
     clear_terminal,
-    count_running,
     dequeue_next,
     enqueue,
-    find_entry,
     get_cancel_requested,
     list_queue,
     mark_completed,
@@ -27,6 +25,12 @@ class TestQueueStore(unittest.TestCase):
 
     def tearDown(self) -> None:
         self._tmpdir.cleanup()
+
+    def _find_entry(self, queue_id: str):
+        for entry in list_queue(self.root):
+            if entry["queue_id"] == queue_id:
+                return entry
+        return None
 
     # -- enqueue / basic flow -------------------------------------------
 
@@ -133,7 +137,8 @@ class TestQueueStore(unittest.TestCase):
         count = cancel_all_pending(self.root)
         self.assertEqual(count, 2)
         # running entry should be unaffected
-        self.assertEqual(count_running(self.root), 1)
+        running = [entry for entry in list_queue(self.root) if entry.get("status") == QueueStatus.RUNNING.value]
+        self.assertEqual(len(running), 1)
 
     # -- mark_completed / mark_failed -----------------------------------
 
@@ -141,7 +146,7 @@ class TestQueueStore(unittest.TestCase):
         entry = enqueue(self.root, str(self.root / "mol_A"))
         dequeue_next(self.root)
         self.assertTrue(mark_completed(self.root, entry["queue_id"], run_id="run_test"))
-        found = find_entry(self.root, entry["queue_id"])
+        found = self._find_entry(entry["queue_id"])
         self.assertEqual(found["status"], QueueStatus.COMPLETED.value)
         self.assertEqual(found["run_id"], "run_test")
 
@@ -149,7 +154,7 @@ class TestQueueStore(unittest.TestCase):
         entry = enqueue(self.root, str(self.root / "mol_A"))
         dequeue_next(self.root)
         self.assertTrue(mark_failed(self.root, entry["queue_id"], error="exit_code=1"))
-        found = find_entry(self.root, entry["queue_id"])
+        found = self._find_entry(entry["queue_id"])
         self.assertEqual(found["status"], QueueStatus.FAILED.value)
         self.assertEqual(found["error"], "exit_code=1")
 
@@ -167,23 +172,24 @@ class TestQueueStore(unittest.TestCase):
         self.assertEqual(len(remaining), 1)
         self.assertEqual(remaining[0]["status"], QueueStatus.PENDING.value)
 
-    def test_count_running(self) -> None:
+    def test_list_queue_can_count_running(self) -> None:
         enqueue(self.root, str(self.root / "a"))
         enqueue(self.root, str(self.root / "b"))
         dequeue_next(self.root)
         dequeue_next(self.root)
-        self.assertEqual(count_running(self.root), 2)
+        running = [entry for entry in list_queue(self.root) if entry.get("status") == QueueStatus.RUNNING.value]
+        self.assertEqual(len(running), 2)
 
-    # -- find_entry -----------------------------------------------------
+    # -- queue lookup via list ------------------------------------------
 
-    def test_find_entry_exists(self) -> None:
+    def test_lookup_entry_exists(self) -> None:
         entry = enqueue(self.root, str(self.root / "mol_A"))
-        found = find_entry(self.root, entry["queue_id"])
+        found = self._find_entry(entry["queue_id"])
         self.assertIsNotNone(found)
         self.assertEqual(found["queue_id"], entry["queue_id"])
 
-    def test_find_entry_missing(self) -> None:
-        self.assertIsNone(find_entry(self.root, "q_nonexistent"))
+    def test_lookup_entry_missing(self) -> None:
+        self.assertIsNone(self._find_entry("q_nonexistent"))
 
     # -- priority tie-breaking by enqueued_at ---------------------------
 
