@@ -10,7 +10,14 @@ from .out_analyzer import analyze_output
 from .state_machine import MAX_RETRY_RECIPES, decide_attempt_outcome
 from .state_store import finalize_state, now_utc_iso, save_state, state_path, write_report_files
 from .statuses import AnalyzerStatus, RunStatus
-from .types import AttemptRecord, RetryNotification, RunFinalResult, RunState
+from .types import (
+    AttemptRecord,
+    RetryNotification,
+    RunFinalResult,
+    RunFinishedNotification,
+    RunStartedNotification,
+    RunState,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -138,6 +145,62 @@ def _build_retry_notification(
     }
 
 
+def _build_run_started_notification(
+    *,
+    reaction_dir: Path,
+    selected_inp: Path,
+    current_inp: Path,
+    state: RunState,
+    execution_index: int,
+    max_retries: int,
+    status: RunStatus | str,
+    attempt_started_at: str,
+    resumed: bool,
+) -> RunStartedNotification:
+    return {
+        "reaction_dir": str(reaction_dir),
+        "selected_inp": str(selected_inp),
+        "current_inp": str(current_inp),
+        "run_id": str(state.get("run_id", "")),
+        "attempt_index": execution_index,
+        "max_retries": max_retries,
+        "status": _run_status_text(status),
+        "attempt_started_at": attempt_started_at,
+        "resumed": resumed,
+    }
+
+
+def _build_run_finished_notification(
+    *,
+    reaction_dir: Path,
+    selected_inp: Path,
+    state: RunState,
+    status: RunStatus | str,
+    final_result: RunFinalResult,
+) -> RunFinishedNotification:
+    attempts = state.get("attempts")
+    final_status = str(final_result.get("status", _run_status_text(status)))
+    analyzer_status = str(final_result.get("analyzer_status", ""))
+    reason = str(final_result.get("reason", ""))
+    completed_at = str(final_result.get("completed_at", ""))
+    last_out_path = final_result.get("last_out_path")
+    skipped_execution = bool(final_result.get("skipped_execution", False))
+    return {
+        "reaction_dir": str(reaction_dir),
+        "selected_inp": str(selected_inp),
+        "run_id": str(state.get("run_id", "")),
+        "status": final_status,
+        "analyzer_status": analyzer_status,
+        "reason": reason,
+        "attempt_count": len(attempts) if isinstance(attempts, list) else 0,
+        "max_retries": int(state.get("max_retries", 0)),
+        "completed_at": completed_at,
+        "last_out_path": last_out_path if isinstance(last_out_path, str) else None,
+        "resumed": bool(final_result.get("resumed", False)),
+        "skipped_execution": skipped_execution,
+    }
+
+
 def finalize_and_emit(
     reaction_dir: Path,
     state: RunState,
@@ -149,6 +212,7 @@ def finalize_and_emit(
     as_json: bool,
     exit_code: int,
     emit: Callable[[Dict[str, Any], bool], None],
+    notify_finished: Callable[[RunFinishedNotification], None] | None = None,
 ) -> int:
     status_text = _run_status_text(status)
     finalize_state(reaction_dir, state, status=status_text, final_result=final_result)
@@ -162,6 +226,22 @@ def finalize_and_emit(
         reason=reason,
         reports=reports,
     )
+    if notify_finished is not None:
+        notification = _build_run_finished_notification(
+            reaction_dir=reaction_dir,
+            selected_inp=selected_inp,
+            state=state,
+            status=status,
+            final_result=final_result,
+        )
+        try:
+            notify_finished(notification)
+        except Exception:
+            logger.warning(
+                "Finished notification callback failed for reaction_dir=%s",
+                reaction_dir,
+                exc_info=True,
+            )
     emit(payload, as_json)
     return exit_code
 
@@ -180,6 +260,7 @@ def _exit_with_result(
     exit_code: int,
     emit: Callable[[Dict[str, Any], bool], None],
     extra: Mapping[str, object] | None = None,
+    notify_finished: Callable[[RunFinishedNotification], None] | None = None,
 ) -> int:
     final = build_final_result(
         status=status,
@@ -199,6 +280,7 @@ def _exit_with_result(
         as_json=as_json,
         exit_code=exit_code,
         emit=emit,
+        notify_finished=notify_finished,
     )
 
 
@@ -272,6 +354,7 @@ def _resume_terminal_decision(
     max_retries: int,
     as_json: bool,
     emit: Callable[[Dict[str, Any], bool], None],
+    notify_finished: Callable[[RunFinishedNotification], None] | None = None,
 ) -> int | None:
     if not resumed:
         return None
@@ -306,7 +389,11 @@ def _resume_terminal_decision(
         analyzer_status=analyzer_status,
         reason=decision.reason,
         last_out_path=last_out_path,
-        resumed=resumed, as_json=as_json, exit_code=decision.exit_code, emit=emit,
+        resumed=resumed,
+        as_json=as_json,
+        exit_code=decision.exit_code,
+        emit=emit,
+        notify_finished=notify_finished,
     )
 
 
@@ -322,6 +409,8 @@ def run_attempts(
     retry_inp_path: Callable[[Path, int], Path],
     to_resolved_local: Callable[[str], Path],
     emit: Callable[[Dict[str, Any], bool], None],
+    notify_started: Callable[[RunStartedNotification], None] | None = None,
+    notify_finished: Callable[[RunFinishedNotification], None] | None = None,
     notify_retry: Callable[[RetryNotification], None] | None = None,
 ) -> int:
     resumed_exit = _resume_terminal_decision(
@@ -332,11 +421,13 @@ def run_attempts(
         max_retries=max_retries,
         as_json=as_json,
         emit=emit,
+        notify_finished=notify_finished,
     )
     if resumed_exit is not None:
         return resumed_exit
 
     execution_index = len(state["attempts"]) + 1
+    first_execution_index = execution_index
     while True:
         retries_used = execution_index - 1
         if retries_used > max_retries:
@@ -346,7 +437,11 @@ def run_attempts(
                 analyzer_status=AnalyzerStatus.INCOMPLETE,
                 reason="retry_limit_reached",
                 last_out_path=_last_out_path_from_state(state),
-                resumed=resumed, as_json=as_json, exit_code=1, emit=emit,
+                resumed=resumed,
+                as_json=as_json,
+                exit_code=1,
+                emit=emit,
+                notify_finished=notify_finished,
             )
 
         current_inp = selected_inp if execution_index == 1 else retry_inp_path(selected_inp, retries_used)
@@ -381,13 +476,40 @@ def run_attempts(
                     status=RunStatus.FAILED,
                     analyzer_status=AnalyzerStatus.INCOMPLETE,
                     reason=reason, last_out_path=None,
-                    resumed=resumed, as_json=as_json, exit_code=1, emit=emit,
+                    resumed=resumed,
+                    as_json=as_json,
+                    exit_code=1,
+                    emit=emit,
+                    notify_finished=notify_finished,
                 )
 
-        state["status"] = RunStatus.RUNNING.value if retries_used == 0 else RunStatus.RETRYING.value
+        started_at = now_utc_iso()
+        current_status = RunStatus.RUNNING if retries_used == 0 else RunStatus.RETRYING
+        state["status"] = current_status.value
         save_state(reaction_dir, state)
 
-        started_at = now_utc_iso()
+        should_notify_started = execution_index == first_execution_index and (execution_index == 1 or resumed)
+        if should_notify_started and notify_started is not None:
+            notification = _build_run_started_notification(
+                reaction_dir=reaction_dir,
+                selected_inp=selected_inp,
+                current_inp=current_inp,
+                state=state,
+                execution_index=execution_index,
+                max_retries=max_retries,
+                status=current_status,
+                attempt_started_at=started_at,
+                resumed=resumed,
+            )
+            try:
+                notify_started(notification)
+            except Exception:
+                logger.warning(
+                    "Started notification callback failed for attempt %d",
+                    execution_index,
+                    exc_info=True,
+                )
+
         logger.info("Attempt %d starting: %s", execution_index, current_inp)
         try:
             run_result = runner.run(current_inp)
@@ -399,7 +521,11 @@ def run_attempts(
                 analyzer_status=AnalyzerStatus.INCOMPLETE,
                 reason="interrupted_by_user",
                 last_out_path=str(current_inp.with_suffix(".out")),
-                resumed=resumed, as_json=as_json, exit_code=130, emit=emit,
+                resumed=resumed,
+                as_json=as_json,
+                exit_code=130,
+                emit=emit,
+                notify_finished=notify_finished,
             )
         except Exception as exc:
             logger.exception("ORCA runner crashed during attempt %d: %s", execution_index, exc)
@@ -409,8 +535,12 @@ def run_attempts(
                 analyzer_status=AnalyzerStatus.INCOMPLETE,
                 reason="runner_exception",
                 last_out_path=str(current_inp.with_suffix(".out")),
-                resumed=resumed, as_json=as_json, exit_code=1, emit=emit,
+                resumed=resumed,
+                as_json=as_json,
+                exit_code=1,
+                emit=emit,
                 extra={"runner_error": str(exc)},
+                notify_finished=notify_finished,
             )
         out_path = Path(run_result.out_path)
 
@@ -445,8 +575,11 @@ def run_attempts(
                 analyzer_status=analysis.status,
                 reason=decision.reason,
                 last_out_path=str(out_path),
-                resumed=resumed, as_json=as_json,
-                exit_code=decision.exit_code, emit=emit,
+                resumed=resumed,
+                as_json=as_json,
+                exit_code=decision.exit_code,
+                emit=emit,
+                notify_finished=notify_finished,
             )
 
         next_retry_number = retries_used + 1
@@ -467,7 +600,11 @@ def run_attempts(
                 analyzer_status=analysis.status,
                 reason="rewrite_failed",
                 last_out_path=str(out_path),
-                resumed=resumed, as_json=as_json, exit_code=1, emit=emit,
+                resumed=resumed,
+                as_json=as_json,
+                exit_code=1,
+                emit=emit,
+                notify_finished=notify_finished,
             )
 
         state["attempts"][-1]["patch_actions"] = patch_actions

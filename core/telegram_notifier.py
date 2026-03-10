@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from core.config import TelegramConfig
     from core.dft_monitor import ScanReport
-    from core.types import RetryNotification
+    from core.types import RetryNotification, RunFinishedNotification, RunStartedNotification
 
 logger = logging.getLogger(__name__)
 
@@ -108,6 +108,28 @@ def notify_scan_report(config: TelegramConfig, report: ScanReport) -> bool:
     return send_message(config, text)
 
 
+def format_run_started_event(event: RunStartedNotification) -> str:
+    """Format an immediate run-start notification."""
+    reaction_dir = Path(event["reaction_dir"])
+    current_inp = Path(event["current_inp"])
+    status = str(event["status"]).strip().lower()
+    title = "ORCA Auto Resumed" if event.get("resumed") else "ORCA Auto Started"
+    lines = [
+        f"<b>{escape_html(title)}</b>",
+        f"<b>Job</b>: {escape_html(reaction_dir.name or reaction_dir.as_posix())}",
+        (
+            f"<b>Attempt</b>: #{event['attempt_index']} "
+            f"(<code>{escape_html(status or 'running')}</code>)"
+        ),
+        f"<b>Input</b>: <code>{escape_html(current_inp.name)}</code>",
+        f"<b>Max retries</b>: {event['max_retries']}",
+    ]
+    if event.get("resumed"):
+        lines.append("<b>Mode</b>: resumed run")
+    lines.append(f"<b>Directory</b>: <code>{escape_html(event['reaction_dir'])}</code>")
+    return "\n".join(lines)
+
+
 def format_retry_event(event: RetryNotification) -> str:
     """Format a retry event as a Telegram HTML message."""
     reaction_dir = Path(event["reaction_dir"])
@@ -136,6 +158,53 @@ def format_retry_event(event: RetryNotification) -> str:
     return "\n".join(lines)
 
 
+def format_run_finished_event(event: RunFinishedNotification) -> str:
+    """Format an immediate terminal run notification."""
+    reaction_dir = Path(event["reaction_dir"])
+    status = str(event["status"]).strip().lower()
+    title = "ORCA Auto Completed" if status == "completed" else "ORCA Auto Failed"
+    status_text = status or "unknown"
+    lines = [
+        f"<b>{escape_html(title)}</b>",
+        f"<b>Job</b>: {escape_html(reaction_dir.name or reaction_dir.as_posix())}",
+        f"<b>Result</b>: <code>{escape_html(status_text)}</code>",
+        f"<b>Attempts</b>: {event['attempt_count']}",
+        f"<b>Reason</b>: <code>{escape_html(event['reason'])}</code>",
+        f"<b>Analyzer</b>: <code>{escape_html(event['analyzer_status'])}</code>",
+    ]
+    last_out_path = event.get("last_out_path")
+    if isinstance(last_out_path, str) and last_out_path.strip():
+        lines.append(f"<b>Output</b>: <code>{escape_html(Path(last_out_path).name)}</code>")
+    if event.get("skipped_execution"):
+        lines.append("<b>Mode</b>: reused existing output")
+    elif event.get("resumed"):
+        lines.append("<b>Mode</b>: resumed run")
+    lines.append(f"<b>Directory</b>: <code>{escape_html(event['reaction_dir'])}</code>")
+    return "\n".join(lines)
+
+
+def notify_run_started_event(config: TelegramConfig, event: RunStartedNotification) -> bool:
+    """Send a Telegram notification when a run attempt starts."""
+    if not config.enabled:
+        logger.debug("telegram_run_started_notification_disabled")
+        return False
+
+    sent = send_message(config, format_run_started_event(event))
+    if sent:
+        logger.info(
+            "telegram_run_started_notification_sent: reaction_dir=%s attempt=%d",
+            event["reaction_dir"],
+            event["attempt_index"],
+        )
+    else:
+        logger.warning(
+            "telegram_run_started_notification_failed: reaction_dir=%s attempt=%d",
+            event["reaction_dir"],
+            event["attempt_index"],
+        )
+    return sent
+
+
 def notify_retry_event(config: TelegramConfig, event: RetryNotification) -> bool:
     """Send a Telegram notification when an automatic retry is scheduled."""
     if not config.enabled:
@@ -158,10 +227,33 @@ def notify_retry_event(config: TelegramConfig, event: RetryNotification) -> bool
     return sent
 
 
+def notify_run_finished_event(config: TelegramConfig, event: RunFinishedNotification) -> bool:
+    """Send a Telegram notification when a run reaches a terminal state."""
+    if not config.enabled:
+        logger.debug("telegram_run_finished_notification_disabled")
+        return False
+
+    sent = send_message(config, format_run_finished_event(event))
+    if sent:
+        logger.info(
+            "telegram_run_finished_notification_sent: reaction_dir=%s status=%s",
+            event["reaction_dir"],
+            event["status"],
+        )
+    else:
+        logger.warning(
+            "telegram_run_finished_notification_failed: reaction_dir=%s status=%s",
+            event["reaction_dir"],
+            event["status"],
+        )
+    return sent
+
+
 def _status_icon(status: str) -> str:
     icons = {
         "completed": "\u2705",
         "running": "\u23f3",
+        "retrying": "\U0001f504",
         "failed": "\u274c",
         "error": "\u274c",
     }

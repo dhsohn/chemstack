@@ -13,8 +13,12 @@ from ..out_analyzer import analyze_output
 from ..state_machine import RESUMABLE_RUN_STATUSES, load_or_create_state
 from ..state_store import LOCK_FILE_NAME, acquire_run_lock, load_state, save_state
 from ..statuses import AnalyzerStatus, RunStatus
-from ..telegram_notifier import notify_retry_event
-from ..types import RetryNotification
+from ..telegram_notifier import (
+    notify_retry_event,
+    notify_run_finished_event,
+    notify_run_started_event,
+)
+from ..types import RetryNotification, RunFinishedNotification, RunStartedNotification
 from ._helpers import ORCA_GENERATED_INP_RE, RETRY_INP_RE, _emit, _to_resolved_local, _validate_reaction_dir
 
 logger = logging.getLogger(__name__)
@@ -158,11 +162,21 @@ def cmd_run_inp(args: Any, *, runner_cls: Type[OrcaRunner] = OrcaRunner) -> int:
                 to_resolved_local=_to_resolved_local,
             )
 
+            notify_started = None
+            notify_finished = None
             notify_retry = None
             if cfg.telegram.enabled:
+                def _notify_started(event: RunStartedNotification) -> None:
+                    notify_run_started_event(cfg.telegram, event)
+
+                def _notify_finished(event: RunFinishedNotification) -> None:
+                    notify_run_finished_event(cfg.telegram, event)
+
                 def _notify_retry(event: RetryNotification) -> None:
                     notify_retry_event(cfg.telegram, event)
 
+                notify_started = _notify_started
+                notify_finished = _notify_finished
                 notify_retry = _notify_retry
 
             runner = runner_cls(cfg.paths.orca_executable)
@@ -177,6 +191,8 @@ def cmd_run_inp(args: Any, *, runner_cls: Type[OrcaRunner] = OrcaRunner) -> int:
                 retry_inp_path=_retry_inp_path,
                 to_resolved_local=_to_resolved_local,
                 emit=_emit,
+                notify_started=notify_started,
+                notify_finished=notify_finished,
                 notify_retry=notify_retry,
             )
     except RuntimeError as exc:

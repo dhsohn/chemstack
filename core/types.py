@@ -54,6 +54,33 @@ class RetryNotification(TypedDict):
     resumed: bool
 
 
+class RunStartedNotification(TypedDict):
+    reaction_dir: str
+    selected_inp: str
+    current_inp: str
+    run_id: str
+    attempt_index: int
+    max_retries: int
+    status: str
+    attempt_started_at: str
+    resumed: bool
+
+
+class RunFinishedNotification(TypedDict):
+    reaction_dir: str
+    selected_inp: str
+    run_id: str
+    status: str
+    analyzer_status: str
+    reason: str
+    attempt_count: int
+    max_retries: int
+    completed_at: str
+    last_out_path: Optional[str]
+    resumed: bool
+    skipped_execution: bool
+
+
 class QueueEntry(TypedDict, total=False):
     """A single item in the task queue."""
 

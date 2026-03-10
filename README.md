@@ -29,7 +29,7 @@ This project was created to reduce those operational burdens.
 - Classifies failure causes by analyzing `.out` files
 - Generates `*.retryNN.inp` with conservative retry recipes and automatically retries
 - Produces `run_state.json`, `run_report.json`, `run_report.md`
-- Sends a Telegram alert when an automatic retry is scheduled, including failure reason and restart input
+- Sends immediate Telegram alerts when a run starts, a retry is scheduled, and a run completes/fails
 - Skips if a completed `.out` already exists; re-runs with `--force`
 - A production-ready CLI including `list`, `organize`, and a Telegram bot
 
@@ -151,8 +151,8 @@ $ ./bin/orca_auto list --json
 | `run-inp` | Select the latest `.inp`, then run/recover/retry |
 | `list` | Query the status of all runs under `allowed_root` |
 | `organize` | Move completed calculation results under `organized_root` and index them |
-| `monitor` | Send Telegram alerts only when new run/result events are detected |
-| `summary` | Send a periodic Telegram digest of the current workstation state |
+| `monitor` | Send scan-based Telegram alerts only for newly discovered DFT results or parse failures |
+| `summary` | Send a periodic Telegram digest of active runs and current blockers |
 | `bot` | Run the Telegram long-polling bot |
 
 Frequently used options:
@@ -192,9 +192,15 @@ bash scripts/install_cron.sh
 
 Installed schedules:
 
-- `dft_summary`: `0 9,21 * * *`  periodic digest of current runs
-- `dft_monitor`: `0 * * * *`  event alert when new results/failures/retries appear
+- `dft_summary`: `0 9,21 * * *`  periodic digest of active runs and current blockers
+- `dft_monitor`: `0 * * * *`  hourly filesystem scan alert for newly discovered DFT results or parse failures
 - `organize`: `0 0 * * 6`
+
+Role split:
+
+- `run-inp`: immediate lifecycle alerts for start, retry scheduling, completion, and failure
+- `monitor`: scan/discovery alerts from periodic filesystem scans
+- `summary`: current-state digest for active jobs and attention-needed runs; completed history omitted
 
 ## Result organization and indexing
 

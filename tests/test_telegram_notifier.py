@@ -7,14 +7,18 @@ from unittest.mock import MagicMock, patch
 
 from core.config import TelegramConfig
 from core.dft_monitor import MonitorResult, ScanReport
-from core.types import RetryNotification
+from core.types import RetryNotification, RunFinishedNotification, RunStartedNotification
 from core.telegram_notifier import (
     escape_html,
     _status_icon,
     format_scan_report,
+    format_run_finished_event,
+    format_run_started_event,
     format_retry_event,
     notify_scan_report,
     notify_retry_event,
+    notify_run_finished_event,
+    notify_run_started_event,
     send_message,
 )
 
@@ -70,6 +74,37 @@ def _sample_retry_event() -> RetryNotification:
     }
 
 
+def _sample_started_event() -> RunStartedNotification:
+    return {
+        "reaction_dir": "/tmp/rxn<demo>",
+        "selected_inp": "/tmp/rxn<demo>/rxn.inp",
+        "current_inp": "/tmp/rxn<demo>/rxn.inp",
+        "run_id": "run_20260310_demo",
+        "attempt_index": 1,
+        "max_retries": 2,
+        "status": "running",
+        "attempt_started_at": "2026-03-10T00:00:00+00:00",
+        "resumed": False,
+    }
+
+
+def _sample_finished_event() -> RunFinishedNotification:
+    return {
+        "reaction_dir": "/tmp/rxn<demo>",
+        "selected_inp": "/tmp/rxn<demo>/rxn.inp",
+        "run_id": "run_20260310_demo",
+        "status": "completed",
+        "analyzer_status": "completed",
+        "reason": "normal_termination",
+        "attempt_count": 2,
+        "max_retries": 2,
+        "completed_at": "2026-03-10T00:05:00+00:00",
+        "last_out_path": "/tmp/rxn<demo>/rxn.retry01.out",
+        "resumed": False,
+        "skipped_execution": False,
+    }
+
+
 class TestEscapeHtml:
     def test_special_chars(self) -> None:
         assert escape_html("<b>&test</b>") == "&lt;b&gt;&amp;test&lt;/b&gt;"
@@ -82,6 +117,7 @@ class TestStatusIcon:
     def test_known_statuses(self) -> None:
         assert _status_icon("completed") == "\u2705"
         assert _status_icon("running") == "\u23f3"
+        assert _status_icon("retrying") == "\U0001f504"
         assert _status_icon("failed") == "\u274c"
 
     def test_unknown_status(self) -> None:
@@ -116,6 +152,26 @@ class TestFormatRetryEvent:
         assert "rxn.retry01.inp" in text
         assert "TightSCF + SlowConv" in text
         assert "geometry restart from rxn.xyz" in text
+        assert "&lt;demo&gt;" in text
+
+
+class TestFormatRunStartedEvent:
+    def test_format_contains_start_context(self) -> None:
+        text = format_run_started_event(_sample_started_event())
+        assert "ORCA Auto Started" in text
+        assert "#1" in text
+        assert "running" in text
+        assert "rxn.inp" in text
+        assert "&lt;demo&gt;" in text
+
+
+class TestFormatRunFinishedEvent:
+    def test_format_contains_terminal_context(self) -> None:
+        text = format_run_finished_event(_sample_finished_event())
+        assert "ORCA Auto Completed" in text
+        assert "normal_termination" in text
+        assert "completed" in text
+        assert "rxn.retry01.out" in text
         assert "&lt;demo&gt;" in text
 
 
@@ -180,5 +236,33 @@ class TestNotifyRetryEvent:
     @patch("core.telegram_notifier.send_message")
     def test_skips_when_disabled(self, mock_send: MagicMock) -> None:
         result = notify_retry_event(_disabled_config(), _sample_retry_event())
+        assert result is False
+        mock_send.assert_not_called()
+
+
+class TestNotifyRunStartedEvent:
+    @patch("core.telegram_notifier.send_message", return_value=True)
+    def test_sends_started_message(self, mock_send: MagicMock) -> None:
+        result = notify_run_started_event(_enabled_config(), _sample_started_event())
+        assert result is True
+        mock_send.assert_called_once()
+
+    @patch("core.telegram_notifier.send_message")
+    def test_skips_when_disabled(self, mock_send: MagicMock) -> None:
+        result = notify_run_started_event(_disabled_config(), _sample_started_event())
+        assert result is False
+        mock_send.assert_not_called()
+
+
+class TestNotifyRunFinishedEvent:
+    @patch("core.telegram_notifier.send_message", return_value=True)
+    def test_sends_finished_message(self, mock_send: MagicMock) -> None:
+        result = notify_run_finished_event(_enabled_config(), _sample_finished_event())
+        assert result is True
+        mock_send.assert_called_once()
+
+    @patch("core.telegram_notifier.send_message")
+    def test_skips_when_disabled(self, mock_send: MagicMock) -> None:
+        result = notify_run_finished_event(_disabled_config(), _sample_finished_event())
         assert result is False
         mock_send.assert_not_called()

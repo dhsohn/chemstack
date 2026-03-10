@@ -269,8 +269,9 @@ Scripts available for Linux transition:
 
 Notification commands:
 
-- `monitor`: Event-oriented Telegram alert. Reports newly detected completions, failures, retries, and new DFT results.
-- `summary`: Digest-oriented Telegram report. Shows current running jobs, recent failures/completions, and overall workstation activity.
+- `run-inp`: Immediate Telegram alerts for run start, retry scheduling, and terminal completion/failure when Telegram is configured.
+- `monitor`: Scan-oriented Telegram alert. Reports only newly discovered DFT results and parse failures from periodic filesystem scans.
+- `summary`: Digest-oriented Telegram report. Shows active runs and current blockers at the reporting time; completed history is omitted.
 
 ## 14) Testing
 

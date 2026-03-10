@@ -105,6 +105,49 @@ class TestAttemptEngine(unittest.TestCase):
         self.assertIn("route_add_tightscf_slowconv", event["patch_actions"])
         self.assertIn("geometry_restart_from_rxn.xyz", event["patch_actions"])
 
+    def test_start_and_finish_callbacks_emit_immediate_terminal_lifecycle_events(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            reaction_dir = Path(td)
+            selected_inp = reaction_dir / "rxn.inp"
+            selected_inp.write_text("! Opt\n* xyz 0 1\nH 0 0 0\nH 0 0 0.74\n*\n", encoding="utf-8")
+            state = new_state(reaction_dir, selected_inp, max_retries=2)
+            started_notifications = []
+            finished_notifications = []
+            retry_notifications = []
+
+            rc = run_attempts(
+                reaction_dir,
+                selected_inp,
+                state,
+                resumed=False,
+                runner=_RetryThenSuccessRunner(),
+                max_retries=2,
+                as_json=False,
+                retry_inp_path=_retry_inp_path,
+                to_resolved_local=lambda raw: Path(raw),
+                emit=lambda _payload, _as_json: None,
+                notify_started=lambda payload: started_notifications.append(payload),
+                notify_finished=lambda payload: finished_notifications.append(payload),
+                notify_retry=lambda payload: retry_notifications.append(payload),
+            )
+
+        self.assertEqual(rc, 0)
+        self.assertEqual(len(started_notifications), 1)
+        self.assertEqual(len(retry_notifications), 1)
+        self.assertEqual(len(finished_notifications), 1)
+
+        started = started_notifications[0]
+        self.assertEqual(started["attempt_index"], 1)
+        self.assertEqual(started["status"], "running")
+        self.assertTrue(started["current_inp"].endswith("rxn.inp"))
+
+        finished = finished_notifications[0]
+        self.assertEqual(finished["status"], "completed")
+        self.assertEqual(finished["analyzer_status"], "completed")
+        self.assertEqual(finished["reason"], "normal_termination")
+        self.assertEqual(finished["attempt_count"], 2)
+        self.assertTrue(finished["last_out_path"].endswith("rxn.retry01.out"))
+
 
 class TestRetryRecipeStep(unittest.TestCase):
     def test_retry_recipe_step_caps_to_max_recipes(self) -> None:

@@ -29,8 +29,7 @@ _ENERGY_RE = re.compile(r"FINAL SINGLE POINT ENERGY\s+([-\d.]+)")
 _MAX_CYCLES_RE = re.compile(r"Max\.\s+no of cycles\s+MaxIter\s+\.\.\.\.\s+(\d+)", re.IGNORECASE)
 _MAX_PROGRESS_FILE_BYTES = 128 * 1024 * 1024
 _RUNNING_SHOW_LIMIT = 8
-_FAILED_SHOW_LIMIT = 8
-_COMPLETED_SHOW_LIMIT = 3
+_ATTENTION_SHOW_LIMIT = 8
 
 
 @dataclass
@@ -43,13 +42,6 @@ class ProgressSnapshot:
     proc_count: int | None
     eta_text: str
     tail_text: str
-
-
-def _format_local_datetime(value: Any) -> str:
-    dt = parse_iso_utc(value)
-    if dt is None:
-        return "n/a"
-    return dt.astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
 
 
 def _human_duration(seconds: float) -> str:
@@ -281,16 +273,16 @@ def _count_active_orca_processes(orca_executable: str) -> int:
 
 def _format_overview_section(
     active: list[RunSnapshot],
-    completed: list[RunSnapshot],
     failed: list[RunSnapshot],
     other: list[RunSnapshot],
     orca_proc_count: int,
 ) -> str:
-    total = len(active) + len(completed) + len(failed) + len(other)
+    running_count = sum(1 for snapshot in active if snapshot.status == "running")
+    retrying_count = sum(1 for snapshot in active if snapshot.status == "retrying")
     parts: list[str] = []
     for status, count in [
-        ("running", len(active)),
-        ("completed", len(completed)),
+        ("running", running_count),
+        ("retrying", retrying_count),
         ("failed", len(failed)),
     ]:
         if count > 0:
@@ -298,9 +290,9 @@ def _format_overview_section(
     if other:
         parts.append(f"\u2753 other {len(other)}")
 
-    summary_line = " | ".join(parts) if parts else "No runs"
+    summary_line = " | ".join(parts) if parts else "No active or attention-needed runs"
     proc_line = f"\U0001f5a5 Active ORCA processes: {orca_proc_count}"
-    return f"\U0001f4ca <b>Overview</b>  (total {total})\n{summary_line}\n{proc_line}"
+    return f"\U0001f4ca <b>Current State</b>\n{summary_line}\n{proc_line}"
 
 
 def _format_running_section(
@@ -342,45 +334,36 @@ def _format_running_section(
             + "\n".join(detail_lines)
         )
 
-    header = f"\u23f3 <b>Running</b>  ({len(active)})"
+    header = f"\u23f3 <b>Active Runs</b>  ({len(active)})"
     if len(active) > len(shown):
         header += f"  showing {len(shown)}/{len(active)}"
     return header + "\n\n" + "\n\n".join(lines)
 
 
-def _format_failed_section(failed: list[RunSnapshot]) -> str | None:
-    if not failed:
+def _format_attention_section(
+    failed: list[RunSnapshot],
+    other: list[RunSnapshot],
+) -> str | None:
+    attention: list[RunSnapshot] = list(failed)
+    attention.extend(other)
+    if not attention:
         return None
 
-    shown = failed[:_FAILED_SHOW_LIMIT]
+    shown = attention[:_ATTENTION_SHOW_LIMIT]
     lines: list[str] = []
     for run in shown:
-        updated_value = run.updated_at or run.completed_at
-        reason = f"\n   \U0001f4cc {escape_html(run.final_reason)}" if run.final_reason else ""
+        status_text = run.status or "unknown"
+        detail = escape_html(status_text)
+        if run.final_reason:
+            detail += f" · {escape_html(run.final_reason)}"
         lines.append(
-            f"\u274c <b>{escape_html(run.name)}</b>\n"
-            f"   \U0001f4c5 {escape_html(_format_local_datetime(updated_value))}"
-            f"{reason}"
+            f"{status_icon(run.status)} <b>{escape_html(run.name)}</b>\n"
+            f"   \U0001f4cc {detail}"
         )
 
-    header = f"\u274c <b>Failed</b>  ({len(failed)})"
-    return header + "\n\n" + "\n\n".join(lines)
-
-
-def _format_completed_section(completed: list[RunSnapshot]) -> str | None:
-    if not completed:
-        return None
-
-    shown = completed[:_COMPLETED_SHOW_LIMIT]
-    lines: list[str] = []
-    for run in shown:
-        updated_value = run.completed_at or run.updated_at
-        lines.append(
-            f"\u2705 <b>{escape_html(run.name)}</b>\n"
-            f"   \U0001f4c5 {escape_html(_format_local_datetime(updated_value))}"
-        )
-
-    header = f"\u2705 <b>Recent Completed</b>  ({len(shown)}/{len(completed)})"
+    header = f"\u26a0\ufe0f <b>Needs Attention</b>  ({len(attention)})"
+    if len(attention) > len(shown):
+        header += f"  showing {len(shown)}/{len(attention)}"
     return header + "\n\n" + "\n\n".join(lines)
 
 
@@ -391,9 +374,6 @@ def _build_summary_message(cfg: AppConfig) -> str:
 
     active = sort_snapshots_by_started(
         snapshot for snapshot in snapshots if snapshot.status in {"running", "retrying"}
-    )
-    completed = sort_snapshots_by_completed(
-        snapshot for snapshot in snapshots if snapshot.status == "completed"
     )
     failed = sort_snapshots_by_completed(
         snapshot for snapshot in snapshots if snapshot.status == "failed"
@@ -407,23 +387,24 @@ def _build_summary_message(cfg: AppConfig) -> str:
     now = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M %Z")
     header = f"\U0001f4ca <b>orca_auto summary</b>  <code>{escape_html(now)}</code>"
     divider = "\u2500" * 28
+    scope = (
+        "\U0001f50e <b>Scope</b>\n"
+        "Current-state digest only. Active runs and current blockers are shown; completed history is omitted."
+    )
 
     orca_proc_count = _count_active_orca_processes(cfg.paths.orca_executable)
 
     sections: list[str] = [header, divider]
-    sections.append(_format_overview_section(active, completed, failed, other, orca_proc_count))
+    sections.append(scope)
+    sections.append(_format_overview_section(active, failed, other, orca_proc_count))
 
     running = _format_running_section(active, process_counts)
     if running:
         sections.append(running)
 
-    fail = _format_failed_section(failed)
-    if fail:
-        sections.append(fail)
-
-    comp = _format_completed_section(completed)
-    if comp:
-        sections.append(comp)
+    attention = _format_attention_section(failed, other)
+    if attention:
+        sections.append(attention)
 
     sections.append(divider)
 

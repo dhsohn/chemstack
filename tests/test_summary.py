@@ -65,7 +65,7 @@ def _write_state(
     )
 
 
-def test_build_summary_text_includes_running_failed_and_completed_sections(tmp_path: Path) -> None:
+def test_build_summary_text_focuses_on_current_state_and_attention(tmp_path: Path) -> None:
     allowed = tmp_path / "orca_runs"
     allowed.mkdir()
 
@@ -116,21 +116,23 @@ def test_build_summary_text_includes_running_failed_and_completed_sections(tmp_p
         text = _build_summary_message(_cfg(allowed))
 
     assert "<b>orca_auto summary</b>" in text
+    assert "Current-state digest only" in text
+    assert "<b>Current State</b>" in text
     assert "running 1" in text
-    assert "completed 1" in text
     assert "failed 1" in text
     assert "Active ORCA processes: 2" in text
-    assert "<b>Running</b>" in text
+    assert "<b>Active Runs</b>" in text
     assert "cycle=12" in text
     assert "E=-123.456789 Eh" in text
     assert "ETA" in text
     assert "maxiter=174" in text
     assert "rate=" in text
     assert "run.lock present" in text
-    assert "<b>Failed</b>" in text
+    assert "<b>Needs Attention</b>" in text
     assert "rxn_failed" in text
-    assert "<b>Recent Completed</b>" in text
-    assert "rxn_completed" in text
+    assert "error_termination" in text
+    assert "rxn_completed" not in text
+    assert "Recent Completed" not in text
 
 
 def test_run_summary_no_send_prints_and_returns_zero(tmp_path: Path, capsys) -> None:

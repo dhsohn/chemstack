@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Cron script: DFT summary — print and send a progress summary via Telegram
+# Cron script: DFT summary — send a periodic active-run / blocker digest
 # Schedule: twice daily (0 9,21 * * *)
 set -euo pipefail
 

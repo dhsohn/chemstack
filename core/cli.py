@@ -106,8 +106,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("bot", help="Start Telegram bot (long polling)")
 
-    sub.add_parser("monitor", help="Send Telegram alerts for newly detected run/result events")
-    summary = sub.add_parser("summary", help="Send a periodic Telegram digest of current workstation activity")
+    sub.add_parser("monitor", help="Send Telegram alerts for newly discovered DFT results or scan failures")
+    summary = sub.add_parser("summary", help="Send a periodic Telegram digest of current run/workstation state")
     summary.add_argument("--no-send", action="store_true", default=False, help="Print summary without sending Telegram")
 
     organize = sub.add_parser("organize")

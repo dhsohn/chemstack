@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Cron script: DFT monitor — scan simulations and send Telegram summary
+# Cron script: DFT monitor — scan filesystem and send discovery alerts
 # Schedule: every hour (0 * * * *)
 set -euo pipefail
 
