@@ -9,8 +9,7 @@ from unittest.mock import patch
 
 from core.cli import main
 from core.commands.list_runs import _format_elapsed, _status_icon
-from core.queue_store import enqueue, mark_completed, mark_failed
-from core.statuses import QueueStatus, RunStatus
+from core.queue_store import enqueue, mark_completed
 
 
 class _ListTestBase(unittest.TestCase):
@@ -221,7 +220,7 @@ class TestListQueueEntries(_ListTestBase):
 
             rxn_dir = allowed / "mol_A"
             rxn_dir.mkdir()
-            entry = enqueue(allowed, str(rxn_dir))
+            enqueue(allowed, str(rxn_dir))
             # Create a run_state for the same directory
             self._make_run(rxn_dir, status="running",
                            started_at="2026-03-02T00:00:00+00:00",

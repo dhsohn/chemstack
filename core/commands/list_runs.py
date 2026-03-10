@@ -12,7 +12,6 @@ from ..queue_store import clear_terminal, list_queue
 from ..run_snapshot import RunSnapshot, collect_run_snapshots, elapsed_text
 from ..state_store import STATE_FILE_NAME, load_state
 from ..statuses import QueueStatus, RunStatus
-from ..types import QueueEntry
 from ._helpers import _to_resolved_local
 
 logger = logging.getLogger(__name__)
