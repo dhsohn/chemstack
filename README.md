@@ -217,7 +217,7 @@ Simulations: 3 total (1 running, 1 pending, 1 completed)
 The worker is a process that picks up pending jobs from the queue and executes them.
 
 ```bash
-# Run worker in foreground (default: 4 concurrent jobs)
+# Run worker in foreground (default: 4 total active calculations under allowed_root)
 ./bin/orca_auto queue worker
 
 # Specify concurrency limit
@@ -229,7 +229,8 @@ The worker is a process that picks up pending jobs from the queue and executes t
 
 Worker behavior:
 - Periodically polls the queue for `pending` jobs
-- Limits concurrent executions via `--max-concurrent` (default: 4)
+- Limits the total number of active calculations under `allowed_root` via `--max-concurrent` (default: 4)
+- Counts already running direct `run-inp` processes under `allowed_root` before starting more queued jobs
 - Each job runs as an `orca_auto run-inp --foreground` subprocess
 - Checks exit codes upon completion and updates job status
 - Supports graceful shutdown via `SIGTERM` / `SIGINT`

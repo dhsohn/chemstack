@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
 import tempfile
@@ -24,6 +25,11 @@ from core.queue_worker import (
 
 def _make_cfg(tmp: str) -> AppConfig:
     return AppConfig(runtime=RuntimeConfig(allowed_root=tmp))
+
+
+def _write_active_lock(reaction_dir: Path, *, pid: int) -> None:
+    reaction_dir.mkdir(parents=True, exist_ok=True)
+    (reaction_dir / "run.lock").write_text(json.dumps({"pid": pid}), encoding="utf-8")
 
 
 class TestBuildRunCommand(unittest.TestCase):
@@ -320,6 +326,79 @@ class TestFillSlots(unittest.TestCase):
                 mock_popen.return_value = mock_proc
                 worker._fill_slots()
                 self.assertEqual(len(worker._running), 1)
+
+    @patch("core.queue_worker.is_process_alive", return_value=True)
+    def test_fill_slots_counts_external_active_runs(self, mock_alive: MagicMock) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            cfg = _make_cfg(tmp)
+            worker = QueueWorker(cfg, str(root / "config.yaml"), max_concurrent=4)
+
+            for idx in range(3):
+                _write_active_lock(root / f"direct_{idx}", pid=4000 + idx)
+
+            for name in ("queued_a", "queued_b"):
+                d = root / name
+                d.mkdir()
+                enqueue(root, str(d))
+
+            with patch("core.queue_worker.subprocess.Popen") as mock_popen:
+                mock_proc = MagicMock()
+                mock_popen.return_value = mock_proc
+                worker._fill_slots()
+
+            self.assertEqual(len(worker._running), 1)
+            self.assertEqual(mock_popen.call_count, 1)
+            self.assertGreaterEqual(mock_alive.call_count, 3)
+
+    @patch("core.queue_worker.is_process_alive", return_value=True)
+    def test_fill_slots_stops_when_global_limit_reached(self, mock_alive: MagicMock) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            cfg = _make_cfg(tmp)
+            worker = QueueWorker(cfg, str(root / "config.yaml"), max_concurrent=3)
+
+            for idx in range(3):
+                _write_active_lock(root / f"direct_{idx}", pid=5000 + idx)
+
+            queued = root / "queued_only"
+            queued.mkdir()
+            enqueue(root, str(queued))
+
+            with patch("core.queue_worker.subprocess.Popen") as mock_popen:
+                worker._fill_slots()
+
+            self.assertEqual(len(worker._running), 0)
+            mock_popen.assert_not_called()
+            self.assertEqual(mock_alive.call_count, 3)
+
+    @patch("core.queue_worker.is_process_alive", return_value=True)
+    def test_fill_slots_does_not_double_count_worker_jobs_with_lock(self, mock_alive: MagicMock) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            cfg = _make_cfg(tmp)
+            worker = QueueWorker(cfg, str(root / "config.yaml"), max_concurrent=2)
+
+            active_dir = root / "already_running"
+            _write_active_lock(active_dir, pid=6001)
+            worker._running["q_existing"] = _RunningJob(
+                queue_id="q_existing",
+                reaction_dir=str(active_dir),
+                process=MagicMock(),
+            )
+
+            queued = root / "queued_only"
+            queued.mkdir()
+            enqueue(root, str(queued))
+
+            with patch("core.queue_worker.subprocess.Popen") as mock_popen:
+                mock_proc = MagicMock()
+                mock_popen.return_value = mock_proc
+                worker._fill_slots()
+
+            self.assertEqual(len(worker._running), 2)
+            mock_popen.assert_called_once()
+            self.assertEqual(mock_alive.call_count, 0)
 
 
 if __name__ == "__main__":

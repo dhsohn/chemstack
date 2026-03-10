@@ -1,8 +1,8 @@
-"""Queue worker daemon — polls the queue and runs jobs with up to N concurrent slots.
+"""Queue worker daemon — polls the queue and runs jobs up to a global active-run limit.
 
 Usage::
 
-    orca_auto queue worker              # foreground, default 4 slots
+    orca_auto queue worker              # foreground, default 4 total active runs
     orca_auto queue worker --daemon     # background daemon
     orca_auto queue worker --max-concurrent 2
 
@@ -23,13 +23,14 @@ from pathlib import Path
 from typing import Dict
 
 from .config import AppConfig
+from .lock_utils import is_process_alive, parse_lock_info, process_start_ticks
 from .queue_store import (
     dequeue_next,
     get_cancel_requested,
     mark_completed,
     mark_failed,
 )
-from .state_store import load_state
+from .state_store import LOCK_FILE_NAME, load_state
 from .statuses import QueueStatus
 from .types import QueueEntry
 
@@ -103,6 +104,52 @@ def _get_run_id_from_state(reaction_dir: str) -> str | None:
     return None
 
 
+def _active_lock_pid(reaction_dir: Path) -> int | None:
+    lock_info = parse_lock_info(reaction_dir / LOCK_FILE_NAME)
+    pid = lock_info.get("pid")
+    if not isinstance(pid, int) or pid <= 0:
+        return None
+    if not is_process_alive(pid):
+        return None
+
+    expected_ticks = lock_info.get("process_start_ticks")
+    if isinstance(expected_ticks, int) and expected_ticks > 0:
+        observed_ticks = process_start_ticks(pid)
+        if observed_ticks is None or observed_ticks != expected_ticks:
+            logger.info(
+                "Ignoring stale run.lock due to PID reuse: reaction_dir=%s pid=%d expected=%d observed=%s",
+                reaction_dir,
+                pid,
+                expected_ticks,
+                observed_ticks,
+            )
+            return None
+    return pid
+
+
+def _count_active_run_locks(
+    allowed_root: Path,
+    *,
+    exclude_reaction_dirs: set[str] | None = None,
+) -> int:
+    if not allowed_root.is_dir():
+        return 0
+
+    excluded = {
+        str(Path(reaction_dir).expanduser().resolve())
+        for reaction_dir in (exclude_reaction_dirs or set())
+    }
+    count = 0
+    for lock_path in allowed_root.rglob(LOCK_FILE_NAME):
+        reaction_dir = str(lock_path.parent.resolve())
+        if reaction_dir in excluded:
+            continue
+        if _active_lock_pid(Path(reaction_dir)) is None:
+            continue
+        count += 1
+    return count
+
+
 class QueueWorker:
     """Main worker loop that manages concurrent job execution."""
 
@@ -146,8 +193,20 @@ class QueueWorker:
     # -- Slot management --------------------------------------------------
 
     def _fill_slots(self) -> None:
-        """Dequeue pending jobs until all slots are filled."""
+        """Dequeue pending jobs until the global active-run limit is reached."""
         while len(self._running) < self.max_concurrent:
+            external_active = _count_active_run_locks(
+                self.allowed_root,
+                exclude_reaction_dirs={job.reaction_dir for job in self._running.values()},
+            )
+            total_active = len(self._running) + external_active
+            if total_active >= self.max_concurrent:
+                logger.debug(
+                    "Queue worker admission paused: total_active=%d max_concurrent=%d",
+                    total_active,
+                    self.max_concurrent,
+                )
+                break
             entry = dequeue_next(self.allowed_root)
             if entry is None:
                 break

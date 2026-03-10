@@ -89,7 +89,12 @@ def build_parser() -> argparse.ArgumentParser:
     q_cancel.add_argument("target", help="queue_id, reaction_dir, or run_id to cancel; or 'all-pending'")
 
     q_worker = queue_sub.add_parser("worker", help="Start the queue worker")
-    q_worker.add_argument("--max-concurrent", type=int, default=4, help="Max concurrent jobs (default 4)")
+    q_worker.add_argument(
+        "--max-concurrent",
+        type=int,
+        default=4,
+        help="Max total active calculations under allowed_root (default 4)",
+    )
     q_worker.add_argument("--daemon", action="store_true", help="Run worker in background")
 
     queue_sub.add_parser("stop", help="Stop the running worker daemon")
