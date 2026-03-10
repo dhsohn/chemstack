@@ -95,6 +95,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=4,
         help="Max total active calculations under allowed_root (default 4)",
     )
+    q_worker.add_argument("--foreground", action="store_true", help="Run worker in the foreground")
     q_worker.add_argument("--daemon", action="store_true", help="Run worker in background")
 
     queue_sub.add_parser("stop", help="Stop the running worker daemon")

@@ -68,7 +68,7 @@ Notes:
 
 - Within the repository, you can use `./bin/orca_auto`.
 - The `orca_auto` command installed via the package entry point also calls the same `core.launcher`.
-- This means the default background execution of `run-inp`, the `pid`/`log` output, and the `--foreground` handling are identical across both entry points.
+- This means the default background execution of `run-inp` and `queue worker`, the `pid`/`log` output, and the `--foreground` handling are identical across both entry points.
 
 ## 6) Configuration File
 
@@ -132,7 +132,28 @@ Options:
 - `--force` (optional): Force re-execution even if a completed `*.out` exists
 - `--foreground` (optional): Run `run-inp` in the foreground
 
-### 7.2 Result Organization
+### 7.2 Queue Worker
+
+```bash
+./bin/orca_auto queue worker
+./bin/orca_auto queue worker --max-concurrent 2
+./bin/orca_auto queue worker --foreground
+```
+
+Default behavior:
+
+- `queue worker` runs in the background by default.
+- Immediately after startup, it prints `status`, `pid`, and `log` path, then exits.
+- If foreground execution is needed, add `--foreground`.
+- To change the overall default to foreground, use the environment variable `ORCA_AUTO_QUEUE_WORKER_BACKGROUND=0`.
+
+Options:
+
+- `--max-concurrent` (optional): Maximum total active calculations under `allowed_root`
+- `--foreground` (optional): Run `queue worker` in the foreground
+- `--daemon` (optional): Explicitly use daemon startup path
+
+### 7.3 Result Organization
 
 ```bash
 ./bin/orca_auto organize --root '/absolute/path/to/orca_runs'

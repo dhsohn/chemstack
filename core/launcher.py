@@ -12,7 +12,8 @@ from . import cli
 from .commands._helpers import default_config_path
 
 
-BACKGROUND_ENV_VAR = "ORCA_AUTO_RUN_INP_BACKGROUND"
+RUN_INP_BACKGROUND_ENV_VAR = "ORCA_AUTO_RUN_INP_BACKGROUND"
+QUEUE_WORKER_BACKGROUND_ENV_VAR = "ORCA_AUTO_QUEUE_WORKER_BACKGROUND"
 LOG_DIR_ENV_VAR = "ORCA_AUTO_LOG_DIR"
 _FALSEY_ENV_VALUES = {"0", "false", "no", "off"}
 _LOG_LABEL_RE = re.compile(r"[^A-Za-z0-9._-]+")
@@ -29,15 +30,15 @@ def _config_path_from_args(argv: Sequence[str]) -> str | None:
     return None
 
 
-def _detect_command(argv: Sequence[str]) -> str | None:
+def _detect_command(argv: Sequence[str]) -> tuple[str | None, int | None]:
     args = list(argv)
     idx = 0
     while idx < len(args):
         token = args[idx]
-        if token == "--config":
+        if token in {"--config", "--log-file"}:
             idx += 2
             continue
-        if token.startswith("--config="):
+        if token.startswith("--config=") or token.startswith("--log-file="):
             idx += 1
             continue
         if token in {"--verbose", "-v"}:
@@ -45,31 +46,57 @@ def _detect_command(argv: Sequence[str]) -> str | None:
             continue
         if token == "--":
             if idx + 1 < len(args):
-                return args[idx + 1]
-            return None
+                return args[idx + 1], idx + 1
+            return None, None
         if token.startswith("-"):
             idx += 1
+            continue
+        return token, idx
+    return None, None
+
+
+def _detect_queue_subcommand(argv: Sequence[str]) -> str | None:
+    command, idx = _detect_command(argv)
+    if command != "queue" or idx is None:
+        return None
+
+    args = list(argv)
+    for token in args[idx + 1:]:
+        if token == "--":
+            return None
+        if token.startswith("-"):
             continue
         return token
     return None
 
 
-def _background_requested_by_default() -> bool:
-    raw = os.getenv(BACKGROUND_ENV_VAR, "1").strip()
+def _background_requested_by_default(env_var: str) -> bool:
+    raw = os.getenv(env_var, "1").strip()
     return raw.casefold() not in _FALSEY_ENV_VALUES
 
 
 def _wants_background(argv: Sequence[str]) -> bool:
-    if _detect_command(argv) != "run-inp":
+    command, _ = _detect_command(argv)
+    if any(token in {"-h", "--help"} for token in argv):
         return False
 
-    want_background = _background_requested_by_default()
-    for token in argv:
-        if token in {"-h", "--help"}:
+    if command == "run-inp":
+        want_background = _background_requested_by_default(RUN_INP_BACKGROUND_ENV_VAR)
+        for token in argv:
+            if token == "--foreground":
+                want_background = False
+        return want_background
+
+    if command == "queue" and _detect_queue_subcommand(argv) == "worker":
+        if "--daemon" in argv:
             return False
-        if token == "--foreground":
-            want_background = False
-    return want_background
+        want_background = _background_requested_by_default(QUEUE_WORKER_BACKGROUND_ENV_VAR)
+        for token in argv:
+            if token == "--foreground":
+                want_background = False
+        return want_background
+
+    return False
 
 
 def _reaction_dir_from_args(argv: Sequence[str]) -> str:
@@ -100,14 +127,19 @@ def _sanitize_log_label(raw: str) -> str:
 
 
 def _build_log_file(argv: Sequence[str]) -> Path:
+    command, _ = _detect_command(argv)
+    queue_subcommand = _detect_queue_subcommand(argv) if command == "queue" else None
+    log_dir = _default_log_dir(argv)
+    log_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
+
+    if command == "queue" and queue_subcommand == "worker":
+        return log_dir / f"queue_worker_{timestamp}.log"
+
     reaction_dir = _reaction_dir_from_args(argv)
     label = "runinp"
     if reaction_dir:
         label = _sanitize_log_label(Path(reaction_dir).name)
-
-    log_dir = _default_log_dir(argv)
-    log_dir.mkdir(parents=True, exist_ok=True)
-    timestamp = time.strftime("%Y%m%d_%H%M%S")
     return log_dir / f"run_inp_{timestamp}_{label}.log"
 
 

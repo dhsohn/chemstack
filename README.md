@@ -167,7 +167,7 @@ report_md: /home/user/orca_runs/sample_rxn/run_report.md
 
 ## Task Queue
 
-The queue system provides **batch processing** for running multiple calculations sequentially or concurrently. It supports priority-based ordering, concurrency limits, cancellation, and daemon mode.
+The queue system provides **batch processing** for running multiple calculations sequentially or concurrently. It supports priority-based ordering, concurrency limits, cancellation, and background worker mode.
 
 ### Adding Jobs to the Queue
 
@@ -217,15 +217,21 @@ Simulations: 3 total (1 running, 1 pending, 1 completed)
 The worker is a process that picks up pending jobs from the queue and executes them.
 
 ```bash
-# Run worker in foreground (default: 4 total active calculations under allowed_root)
+# Start worker in background (default: 4 total active calculations under allowed_root)
 ./bin/orca_auto queue worker
 
 # Specify concurrency limit
 ./bin/orca_auto queue worker --max-concurrent 2
 
-# Run as a background daemon
+# Run in foreground explicitly
+./bin/orca_auto queue worker --foreground
+
+# Explicit background mode
 ./bin/orca_auto queue worker --daemon
 ```
+
+By default, `queue worker` runs in the background and prints `status`, `pid`, and `log` before returning.
+Set `ORCA_AUTO_QUEUE_WORKER_BACKGROUND=0` to make foreground execution the default.
 
 Worker behavior:
 - Periodically polls the queue for `pending` jobs
@@ -514,7 +520,7 @@ Installed schedules:
 | `--verbose`, `-v` | Enable debug logging |
 | `--log-file <path>` | Write logs to file (10MB x 5 rotation) |
 | `--force` | Force re-run of completed calculations |
-| `--foreground` | Run in the foreground |
+| `--foreground` | Run `run-inp` or `queue worker` in the foreground |
 
 ### Environment Variables
 
@@ -522,6 +528,7 @@ Installed schedules:
 |----------|-------------|
 | `ORCA_AUTO_CONFIG` | Override config file path |
 | `ORCA_AUTO_RUN_INP_BACKGROUND` | Default run-inp execution mode (`1`=background, `0`=foreground) |
+| `ORCA_AUTO_QUEUE_WORKER_BACKGROUND` | Default queue worker execution mode (`1`=background, `0`=foreground) |
 | `ORCA_AUTO_LOG_DIR` | Override log directory |
 
 ---
