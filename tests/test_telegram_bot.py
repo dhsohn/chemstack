@@ -87,6 +87,7 @@ class TestTelegramBotHandlers(unittest.TestCase):
         self.assertIn("/list", result)
         self.assertIn("/cancel &lt;target&gt;", result)
         self.assertIn("/help", result)
+        self.assertNotIn("/queue", result)
 
     def test_handle_list_missing_root(self) -> None:
         cfg = self._make_cfg("/tmp/nonexistent_root_xyz")

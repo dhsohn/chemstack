@@ -16,8 +16,6 @@ from typing import Any, Callable
 from .cancellation import CancelTargetError, cancel_target
 from .commands.list_runs import _collect_unified, _status_icon as _unified_status_icon
 from .config import AppConfig
-from .queue_store import list_queue
-from .statuses import QueueStatus
 from .telegram_notifier import escape_html
 
 logger = logging.getLogger(__name__)
@@ -98,37 +96,6 @@ def _handle_list(cfg: AppConfig, args: str) -> str:
     return "\n".join(lines)
 
 
-def _queue_status_icon(status: str) -> str:
-    return {
-        QueueStatus.PENDING.value: "\u23f3",
-        QueueStatus.RUNNING.value: "\u25b6",
-        QueueStatus.COMPLETED.value: "\u2705",
-        QueueStatus.FAILED.value: "\u274c",
-        QueueStatus.CANCELLED.value: "\u26d4",
-    }.get(status, "\u2753")
-
-
-def _handle_queue(cfg: AppConfig, args: str) -> str:
-    """Handle ``/queue [status]`` command."""
-    allowed_root = Path(cfg.runtime.allowed_root).expanduser().resolve()
-    status_filter = args.strip().lower() if args.strip() else None
-    entries = list_queue(allowed_root, status_filter=status_filter)
-
-    if not entries:
-        return "Queue is empty."
-
-    pending = sum(1 for e in entries if e.get("status") == QueueStatus.PENDING.value)
-    running = sum(1 for e in entries if e.get("status") == QueueStatus.RUNNING.value)
-
-    lines: list[str] = [f"<b>Queue</b> ({len(entries)} total, {pending} pending, {running} running)\n"]
-    for e in entries:
-        icon = _queue_status_icon(e.get("status", ""))
-        name = escape_html(Path(e.get("reaction_dir", "")).name)
-        qid = escape_html(e.get("queue_id", "?"))
-        lines.append(f"{icon} <code>{qid}</code>  {name}")
-    return "\n".join(lines)
-
-
 def _handle_cancel(cfg: AppConfig, args: str) -> str:
     """Handle ``/cancel <target>`` command."""
     target = args.strip()
@@ -159,8 +126,6 @@ def _handle_help(cfg: AppConfig, args: str) -> str:
         "/list running \u2014 Running jobs only\n"
         "/list completed \u2014 Completed jobs only\n"
         "/list failed \u2014 Failed jobs only\n"
-        "/queue \u2014 Show task queue\n"
-        "/queue pending \u2014 Pending jobs only\n"
         "/cancel &lt;target&gt; \u2014 Cancel by queue_id, reaction_dir, or run_id\n"
         "/help \u2014 This help message"
     )
@@ -168,7 +133,6 @@ def _handle_help(cfg: AppConfig, args: str) -> str:
 
 _HANDLERS: dict[str, Callable[[AppConfig, str], str]] = {
     "list": _handle_list,
-    "queue": _handle_queue,
     "cancel": _handle_cancel,
     "help": _handle_help,
     "start": _handle_help,
@@ -182,7 +146,6 @@ def _set_bot_commands(token: str) -> None:
     """Register bot command autocomplete."""
     commands = [
         {"command": "list", "description": "Show simulation list"},
-        {"command": "queue", "description": "Show task queue"},
         {"command": "cancel", "description": "Cancel a queued/running job"},
         {"command": "help", "description": "Help"},
     ]
