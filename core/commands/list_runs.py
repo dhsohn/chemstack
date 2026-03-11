@@ -12,6 +12,7 @@ from ..queue_store import clear_terminal, list_queue
 from ..run_snapshot import RunSnapshot, collect_run_snapshots, elapsed_text
 from ..state_store import STATE_FILE_NAME, load_state
 from ..statuses import QueueStatus, RunStatus
+from ..types import QueueEntry
 from ._helpers import _to_resolved_local
 
 logger = logging.getLogger(__name__)
@@ -67,7 +68,7 @@ def _resolved_path_text(path_text: str) -> str:
 
 
 def _match_queue_snapshot(
-    entry: dict[str, Any],
+    entry: QueueEntry,
     *,
     snapshot_by_run_id: dict[str, RunSnapshot],
     snapshot_by_dir: dict[str, RunSnapshot],
@@ -86,7 +87,7 @@ def _match_queue_snapshot(
     return snapshot_by_dir.get(reaction_dir)
 
 
-def _queue_entry_represents_snapshot(entry: dict[str, Any], snapshot: RunSnapshot | None) -> bool:
+def _queue_entry_represents_snapshot(entry: QueueEntry, snapshot: RunSnapshot | None) -> bool:
     if snapshot is None:
         return False
 
@@ -160,7 +161,7 @@ def _collect_unified(allowed_root: Path) -> list[dict[str, str]]:
             "inp": inp,
             "attempts": attempts,
         })
-        if _queue_entry_represents_snapshot(entry, snap):
+        if snap is not None and _queue_entry_represents_snapshot(entry, snap):
             represented_snapshot_keys.add(snap.key)
 
     # Add standalone runs (not managed by queue)
