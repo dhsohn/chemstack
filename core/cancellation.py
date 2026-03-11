@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Literal
 
 from .lock_utils import is_process_alive, parse_lock_info, process_start_ticks
-from .queue_store import cancel as queue_cancel, list_queue, reconcile_orphaned_running_entries
+from .queue_store import cancel as queue_cancel, list_queue
 from .state_store import STATE_FILE_NAME, load_state
 from .statuses import QueueStatus
 from .types import QueueEntry
@@ -83,7 +83,6 @@ def cancel_target(allowed_root: Path, target: str) -> CancelResult | None:
 
 
 def _active_queue_candidates(allowed_root: Path) -> list[_CancelCandidate]:
-    reconcile_orphaned_running_entries(allowed_root)
     candidates: list[_CancelCandidate] = []
     for entry in list_queue(allowed_root):
         if entry.get("status") not in _ACTIVE_QUEUE_STATUSES:
