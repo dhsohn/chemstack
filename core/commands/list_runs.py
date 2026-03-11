@@ -32,6 +32,7 @@ ALL_FILTER_STATUSES = [
 ]
 
 _TERMINAL_RUN_STATUSES = frozenset({RunStatus.COMPLETED.value, RunStatus.FAILED.value})
+_ACTIVE_QUEUE_STATUSES = frozenset({QueueStatus.PENDING.value, QueueStatus.RUNNING.value})
 
 
 def _status_icon(status: str) -> str:
@@ -55,24 +56,77 @@ def _format_elapsed(start_iso: str, end_iso: str | None) -> str:
     return elapsed_text(secs)
 
 
+def _resolved_path_text(path_text: str) -> str:
+    text = str(path_text).strip()
+    if not text:
+        return ""
+    try:
+        return str(Path(text).expanduser().resolve())
+    except OSError:
+        return text
+
+
+def _match_queue_snapshot(
+    entry: dict[str, Any],
+    *,
+    snapshot_by_run_id: dict[str, RunSnapshot],
+    snapshot_by_dir: dict[str, RunSnapshot],
+) -> RunSnapshot | None:
+    run_id = str(entry.get("run_id", "")).strip()
+    if run_id:
+        return snapshot_by_run_id.get(run_id)
+
+    status = str(entry.get("status", "")).strip().lower()
+    if status not in _ACTIVE_QUEUE_STATUSES:
+        return None
+
+    reaction_dir = _resolved_path_text(entry.get("reaction_dir", ""))
+    if not reaction_dir:
+        return None
+    return snapshot_by_dir.get(reaction_dir)
+
+
+def _queue_entry_represents_snapshot(entry: dict[str, Any], snapshot: RunSnapshot | None) -> bool:
+    if snapshot is None:
+        return False
+
+    run_id = str(entry.get("run_id", "")).strip()
+    if run_id and run_id == snapshot.run_id:
+        return True
+
+    status = str(entry.get("status", "")).strip().lower()
+    if status not in _ACTIVE_QUEUE_STATUSES:
+        return False
+
+    reaction_dir = _resolved_path_text(entry.get("reaction_dir", ""))
+    return bool(reaction_dir) and reaction_dir == _resolved_path_text(str(snapshot.reaction_dir))
+
+
 def _collect_unified(allowed_root: Path) -> list[dict[str, str]]:
     """Merge queue entries and run snapshots into unified display rows."""
     queue_entries = list_queue(allowed_root)
     snapshots = collect_run_snapshots(allowed_root)
 
-    # Index snapshots by resolved reaction_dir
-    snap_by_dir: dict[str, RunSnapshot] = {}
-    for s in snapshots:
-        snap_by_dir[str(s.reaction_dir)] = s
+    snapshot_by_dir: dict[str, RunSnapshot] = {}
+    snapshot_by_run_id = {
+        s.run_id: s
+        for s in snapshots
+        if s.run_id
+    }
+    for snapshot in snapshots:
+        snapshot_by_dir[_resolved_path_text(str(snapshot.reaction_dir))] = snapshot
 
-    queued_dirs: set[str] = set()
+    represented_snapshot_keys: set[str] = set()
     rows: list[dict[str, str]] = []
 
     # Process queue entries first
     for entry in queue_entries:
         rdir = entry.get("reaction_dir", "")
-        queued_dirs.add(rdir)
-        snap = snap_by_dir.get(rdir)
+        snap = _match_queue_snapshot(
+            entry,
+            snapshot_by_run_id=snapshot_by_run_id,
+            snapshot_by_dir=snapshot_by_dir,
+        )
 
         status = entry.get("status", "?")
         icon = _status_icon(status)
@@ -106,11 +160,12 @@ def _collect_unified(allowed_root: Path) -> list[dict[str, str]]:
             "inp": inp,
             "attempts": attempts,
         })
+        if _queue_entry_represents_snapshot(entry, snap):
+            represented_snapshot_keys.add(snap.key)
 
     # Add standalone runs (not managed by queue)
     for snap in snapshots:
-        rdir = str(snap.reaction_dir)
-        if rdir in queued_dirs:
+        if snap.key in represented_snapshot_keys:
             continue
 
         status = snap.status

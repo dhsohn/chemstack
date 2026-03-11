@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from core.config import AppConfig, PathsConfig, RuntimeConfig, TelegramConfig
+from core.queue_store import enqueue, mark_completed
 from core.state_store import STATE_FILE_NAME
 from core.telegram_bot import _handle_cancel, _handle_help, _handle_list
 
@@ -36,12 +37,19 @@ class TestTelegramBotHandlers(unittest.TestCase):
             telegram=TelegramConfig(bot_token="fake", chat_id="123"),
         )
 
-    def _make_run(self, reaction_dir: Path, *, status: str = "completed") -> None:
+    def _make_run(
+        self,
+        reaction_dir: Path,
+        *,
+        status: str = "completed",
+        run_id: str | None = None,
+        inp_name: str = "rxn.inp",
+    ) -> None:
         reaction_dir.mkdir(parents=True, exist_ok=True)
         state = {
-            "run_id": f"run_{reaction_dir.name}",
+            "run_id": run_id or f"run_{reaction_dir.name}",
             "reaction_dir": str(reaction_dir),
-            "selected_inp": str(reaction_dir / "rxn.inp"),
+            "selected_inp": str(reaction_dir / inp_name),
             "max_retries": 2,
             "status": status,
             "started_at": "2026-03-01T00:00:00+00:00",
@@ -80,6 +88,23 @@ class TestTelegramBotHandlers(unittest.TestCase):
         self.assertIn("rxn2", result)
         self.assertNotIn("rxn1", result)
         self.assertIn("(1)", result)
+
+    def test_handle_list_shows_newer_standalone_run_beside_old_queue_history(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            allowed = Path(td) / "orca_runs"
+            allowed.mkdir()
+            reaction_dir = allowed / "rxn1"
+            reaction_dir.mkdir()
+            entry = enqueue(allowed, str(reaction_dir))
+            self.assertTrue(mark_completed(allowed, entry["queue_id"], run_id="run_old"))
+            self._make_run(reaction_dir, status="completed", run_id="run_new", inp_name="rerun.inp")
+            cfg = self._make_cfg(str(allowed))
+
+            result = _handle_list(cfg, "")
+
+        self.assertIn("(2)", result)
+        self.assertEqual(result.count("rxn1"), 2)
+        self.assertIn("rerun.inp", result)
 
     def test_handle_help(self) -> None:
         cfg = self._make_cfg("/tmp/nonexistent")

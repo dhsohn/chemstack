@@ -8,7 +8,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from core.cli import main
-from core.commands.list_runs import _format_elapsed, _status_icon
+from core.commands.list_runs import _collect_unified, _format_elapsed, _status_icon
 from core.queue_store import enqueue, mark_completed
 
 
@@ -35,10 +35,11 @@ class _ListTestBase(unittest.TestCase):
     def _make_run(self, reaction_dir: Path, *, status: str = "completed",
                   started_at: str = "2026-03-01T00:00:00+00:00",
                   updated_at: str = "2026-03-01T01:00:00+00:00",
-                  inp_name: str = "rxn.inp") -> None:
+                  inp_name: str = "rxn.inp",
+                  run_id: str | None = None) -> None:
         reaction_dir.mkdir(parents=True, exist_ok=True)
         state = {
-            "run_id": f"run_{reaction_dir.name}",
+            "run_id": run_id or f"run_{reaction_dir.name}",
             "reaction_dir": str(reaction_dir),
             "selected_inp": str(reaction_dir / inp_name),
             "max_retries": 2,
@@ -234,6 +235,40 @@ class TestListQueueEntries(_ListTestBase):
         output = captured.getvalue()
         self.assertIn("mol_A", output)
         self.assertIn("opt.inp", output)
+
+    def test_stale_terminal_queue_entry_does_not_hide_newer_standalone_run(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            allowed = root / "orca_runs"
+            allowed.mkdir()
+
+            rxn_dir = allowed / "mol_A"
+            rxn_dir.mkdir()
+            entry = enqueue(allowed, str(rxn_dir))
+            self.assertTrue(mark_completed(allowed, entry["queue_id"], run_id="run_old"))
+
+            self._make_run(
+                rxn_dir,
+                status="completed",
+                inp_name="rerun.inp",
+                run_id="run_new",
+                started_at="2026-03-03T00:00:00+00:00",
+                updated_at="2026-03-03T01:00:00+00:00",
+            )
+
+            rows = _collect_unified(allowed)
+
+        self.assertEqual(len(rows), 2)
+
+        queue_row = next(r for r in rows if r["id"] == entry["queue_id"])
+        self.assertEqual(queue_row["status"], "completed")
+        self.assertEqual(queue_row["inp"], "")
+        self.assertEqual(queue_row["attempts"], "-")
+
+        standalone_row = next(r for r in rows if r["id"] == "run_new")
+        self.assertEqual(standalone_row["status"], "completed")
+        self.assertEqual(standalone_row["inp"], "rerun.inp")
+        self.assertEqual(standalone_row["attempts"], "1")
 
 
 class TestListClear(_ListTestBase):
