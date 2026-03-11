@@ -35,7 +35,7 @@ from .queue_store import (
     _save_entries,
 )
 from .state_store import LOCK_FILE_NAME, load_state
-from .statuses import QueueStatus, RunStatus
+from .statuses import QueueStatus
 from .types import QueueEntry
 
 logger = logging.getLogger(__name__)
