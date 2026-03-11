@@ -14,7 +14,13 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .cancellation import CancelTargetError, cancel_target
-from .commands.list_runs import _collect_unified, _status_icon as _unified_status_icon
+from .commands.list_runs import (
+    _collect_unified,
+    _status_icon as _unified_status_icon,
+    _TERMINAL_RUN_STATUSES,
+)
+from .queue_store import clear_terminal
+from .state_store import STATE_FILE_NAME, load_state
 from .config import AppConfig
 from .telegram_notifier import escape_html
 
@@ -74,7 +80,33 @@ def _handle_list(cfg: AppConfig, args: str) -> str:
 
     rows = _collect_unified(allowed_root)
 
-    filter_status = args.strip().lower() if args.strip() else None
+    action = args.strip().lower() if args.strip() else None
+
+    if action == "clear":
+        queue_count = clear_terminal(allowed_root)
+        run_count = 0
+        for state_path in allowed_root.rglob(STATE_FILE_NAME):
+            state = load_state(state_path.parent)
+            if state is None:
+                continue
+            status = str(state.get("status", "")).strip().lower()
+            if status in _TERMINAL_RUN_STATUSES:
+                try:
+                    state_path.unlink()
+                    run_count += 1
+                except OSError:
+                    pass
+        total = queue_count + run_count
+        if total == 0:
+            return "Nothing to clear."
+        parts = []
+        if queue_count:
+            parts.append(f"queue: {queue_count}")
+        if run_count:
+            parts.append(f"run states: {run_count}")
+        return f"\u2705 Cleared {total} entries ({', '.join(parts)})."
+
+    filter_status = action
     if filter_status:
         rows = [r for r in rows if r["status"] == filter_status]
 
@@ -126,6 +158,7 @@ def _handle_help(cfg: AppConfig, args: str) -> str:
         "/list running \u2014 Running jobs only\n"
         "/list completed \u2014 Completed jobs only\n"
         "/list failed \u2014 Failed jobs only\n"
+        "/list clear \u2014 Remove completed/failed/cancelled entries\n"
         "/cancel &lt;target&gt; \u2014 Cancel by queue_id, reaction_dir, or run_id\n"
         "/help \u2014 This help message"
     )
