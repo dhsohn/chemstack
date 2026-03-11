@@ -1,4 +1,5 @@
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -14,6 +15,7 @@ from core.queue_store import (
     list_queue,
     mark_completed,
     mark_failed,
+    reconcile_orphaned_running_entries,
 )
 from core.statuses import QueueStatus
 
@@ -179,6 +181,65 @@ class TestQueueStore(unittest.TestCase):
         dequeue_next(self.root)
         running = [entry for entry in list_queue(self.root) if entry.get("status") == QueueStatus.RUNNING.value]
         self.assertEqual(len(running), 2)
+
+    def test_reconcile_orphaned_running_entry_from_run_report(self) -> None:
+        reaction_dir = self.root / "mol_done"
+        reaction_dir.mkdir()
+        entry = enqueue(self.root, str(reaction_dir))
+        dequeue_next(self.root)
+
+        (reaction_dir / "run_report.json").write_text(
+            json.dumps(
+                {
+                    "run_id": "run_done_1",
+                    "status": "completed",
+                    "updated_at": "2026-03-10T05:00:00+00:00",
+                    "final_result": {
+                        "status": "completed",
+                        "completed_at": "2026-03-10T04:59:59+00:00",
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        changed = reconcile_orphaned_running_entries(self.root)
+        self.assertEqual(changed, 1)
+
+        entries = list_queue(self.root)
+
+        found = next(item for item in entries if item["queue_id"] == entry["queue_id"])
+        self.assertEqual(found["status"], QueueStatus.COMPLETED.value)
+        self.assertEqual(found["run_id"], "run_done_1")
+        self.assertEqual(found["finished_at"], "2026-03-10T04:59:59+00:00")
+
+    def test_reconcile_skips_when_worker_pid_is_alive(self) -> None:
+        reaction_dir = self.root / "mol_done"
+        reaction_dir.mkdir()
+        entry = enqueue(self.root, str(reaction_dir))
+        dequeue_next(self.root)
+
+        (reaction_dir / "run_report.json").write_text(
+            json.dumps(
+                {
+                    "run_id": "run_done_1",
+                    "status": "completed",
+                    "updated_at": "2026-03-10T05:00:00+00:00",
+                    "final_result": {
+                        "status": "completed",
+                        "completed_at": "2026-03-10T04:59:59+00:00",
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        (self.root / "queue_worker.pid").write_text(str(os.getpid()), encoding="utf-8")
+
+        changed = reconcile_orphaned_running_entries(self.root)
+
+        self.assertEqual(changed, 0)
+        found = self._find_entry(entry["queue_id"])
+        self.assertEqual(found["status"], QueueStatus.RUNNING.value)
 
     # -- queue lookup via list ------------------------------------------
 

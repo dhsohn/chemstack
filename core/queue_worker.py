@@ -25,13 +25,14 @@ from typing import Dict
 from .config import AppConfig
 from .lock_utils import is_process_alive, parse_lock_info, process_start_ticks
 from .queue_store import (
-    _acquire_queue_lock,
-    _load_entries,
-    _save_entries,
     dequeue_next,
     get_cancel_requested,
     mark_completed,
     mark_failed,
+    reconcile_orphaned_running_entries,
+    _acquire_queue_lock,
+    _load_entries,
+    _save_entries,
 )
 from .state_store import LOCK_FILE_NAME, load_state
 from .statuses import QueueStatus, RunStatus
@@ -203,48 +204,7 @@ class QueueWorker:
         has no subprocess tracking it).  Resolve each by checking the
         run_state.json and run.lock of the reaction directory.
         """
-        with _acquire_queue_lock(self.allowed_root):
-            entries = _load_entries(self.allowed_root)
-            changed = False
-            for entry in entries:
-                if entry.get("status") != QueueStatus.RUNNING.value:
-                    continue
-
-                rdir = entry.get("reaction_dir", "")
-                if not rdir:
-                    continue
-
-                # If the subprocess is still alive, leave it alone
-                if _active_lock_pid(Path(rdir)) is not None:
-                    continue
-
-                # Subprocess is gone — check run_state.json for final status
-                state = load_state(Path(rdir))
-                run_status = str(state.get("status", "")).strip().lower() if state else ""
-                queue_id = entry.get("queue_id", "?")
-
-                if run_status == RunStatus.COMPLETED.value:
-                    entry["status"] = QueueStatus.COMPLETED.value
-                    entry["finished_at"] = entry.get("finished_at") or ""
-                    entry["run_id"] = state.get("run_id") if state else None
-                    logger.info("Reconciled orphaned entry %s → completed", queue_id)
-                    changed = True
-                elif run_status == RunStatus.FAILED.value:
-                    entry["status"] = QueueStatus.FAILED.value
-                    entry["finished_at"] = entry.get("finished_at") or ""
-                    entry["error"] = "orphaned_worker_crash"
-                    entry["run_id"] = state.get("run_id") if state else None
-                    logger.info("Reconciled orphaned entry %s → failed", queue_id)
-                    changed = True
-                else:
-                    # Subprocess died without updating run_state — re-queue
-                    entry["status"] = QueueStatus.PENDING.value
-                    entry["started_at"] = None
-                    logger.info("Reconciled orphaned entry %s → pending (re-queue)", queue_id)
-                    changed = True
-
-            if changed:
-                _save_entries(self.allowed_root, entries)
+        reconcile_orphaned_running_entries(self.allowed_root, ignore_worker_pid=True)
 
     # -- Slot management --------------------------------------------------
 

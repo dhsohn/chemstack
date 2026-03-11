@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 from core.cli import main
 from core.commands.list_runs import _collect_unified, _format_elapsed, _status_icon
-from core.queue_store import enqueue, mark_completed
+from core.queue_store import dequeue_next, enqueue, mark_completed
 
 
 class _ListTestBase(unittest.TestCase):
@@ -269,6 +269,42 @@ class TestListQueueEntries(_ListTestBase):
         self.assertEqual(standalone_row["status"], "completed")
         self.assertEqual(standalone_row["inp"], "rerun.inp")
         self.assertEqual(standalone_row["attempts"], "1")
+
+    def test_list_reconciles_orphaned_running_queue_entry_from_run_report(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            allowed = root / "orca_runs"
+            allowed.mkdir()
+            config = self._write_config(root, allowed)
+
+            rxn_dir = allowed / "mol_done"
+            rxn_dir.mkdir()
+            entry = enqueue(allowed, str(rxn_dir))
+            dequeue_next(allowed)
+            (rxn_dir / "run_report.json").write_text(
+                json.dumps(
+                    {
+                        "run_id": "run_done_1",
+                        "status": "completed",
+                        "updated_at": "2026-03-10T05:00:00+00:00",
+                        "final_result": {
+                            "status": "completed",
+                            "completed_at": "2026-03-10T04:59:59+00:00",
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            captured = io.StringIO()
+            with patch("sys.stdout", captured):
+                rc = main(["--config", str(config), "list"])
+
+        self.assertEqual(rc, 0)
+        output = captured.getvalue()
+        self.assertIn(entry["queue_id"], output)
+        self.assertIn("completed", output)
+        self.assertNotIn("running", output)
 
 
 class TestListClear(_ListTestBase):

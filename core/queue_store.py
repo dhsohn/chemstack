@@ -22,14 +22,15 @@ from .lock_utils import (
     parse_lock_info,
     process_start_ticks,
 )
-from .state_store import atomic_write_text
-from .statuses import QueueStatus
+from .state_store import LOCK_FILE_NAME, atomic_write_text, load_state, report_json_path
+from .statuses import QueueStatus, RunStatus
 from .types import QueueEntry
 
 logger = logging.getLogger(__name__)
 
 QUEUE_FILE_NAME = "queue.json"
 QUEUE_LOCK_NAME = "queue.lock"
+WORKER_PID_FILE_NAME = "queue_worker.pid"
 
 # Terminal statuses — entries in these states are "done" and cannot transition.
 _TERMINAL_STATUSES = frozenset({
@@ -127,6 +128,189 @@ def _save_entries(allowed_root: Path, entries: List[QueueEntry]) -> None:
     atomic_write_text(qp, json.dumps(entries, ensure_ascii=True, indent=2))
 
 
+def _active_lock_pid(reaction_dir: Path) -> int | None:
+    lock_info = parse_lock_info(reaction_dir / LOCK_FILE_NAME)
+    pid = lock_info.get("pid")
+    if not isinstance(pid, int) or pid <= 0:
+        return None
+    if not is_process_alive(pid):
+        return None
+
+    expected_ticks = lock_info.get("process_start_ticks")
+    if isinstance(expected_ticks, int) and expected_ticks > 0:
+        observed_ticks = process_start_ticks(pid)
+        if observed_ticks is None or observed_ticks != expected_ticks:
+            logger.info(
+                "Ignoring stale run.lock due to PID reuse: reaction_dir=%s pid=%d expected=%d observed=%s",
+                reaction_dir,
+                pid,
+                expected_ticks,
+                observed_ticks,
+            )
+            return None
+    return pid
+
+
+def _read_worker_pid(allowed_root: Path) -> int | None:
+    pid_path = allowed_root / WORKER_PID_FILE_NAME
+    if not pid_path.exists():
+        return None
+    try:
+        pid = int(pid_path.read_text(encoding="utf-8").strip())
+    except (ValueError, OSError):
+        return None
+    if not is_process_alive(pid):
+        try:
+            pid_path.unlink()
+        except OSError:
+            pass
+        return None
+    return pid
+
+
+def _load_report_payload(reaction_dir: Path) -> dict | None:
+    path = report_json_path(reaction_dir)
+    if not path.exists():
+        return None
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        logger.warning("Failed to parse run report: %s", path)
+        return None
+    if not isinstance(raw, dict):
+        return None
+    return raw
+
+
+def _terminal_report_data(reaction_dir: Path) -> tuple[str, str | None, str | None, str | None] | None:
+    report = _load_report_payload(reaction_dir)
+    if report is None:
+        return None
+
+    final_result = report.get("final_result")
+    final_dict = final_result if isinstance(final_result, dict) else {}
+    status = str(final_dict.get("status") or report.get("status") or "").strip().lower()
+    if status not in {QueueStatus.COMPLETED.value, QueueStatus.FAILED.value}:
+        return None
+
+    run_id_text = str(report.get("run_id", "")).strip()
+    finished_at_text = str(final_dict.get("completed_at") or report.get("updated_at") or "").strip()
+    error_text = None
+    if status == QueueStatus.FAILED.value:
+        reason = str(final_dict.get("reason", "")).strip()
+        if reason:
+            error_text = reason
+
+    return (
+        status,
+        run_id_text or None,
+        finished_at_text or None,
+        error_text,
+    )
+
+
+def _apply_terminal_reconciliation(
+    entry: QueueEntry,
+    *,
+    status: str,
+    run_id: str | None,
+    finished_at: str | None,
+    error: str | None = None,
+) -> None:
+    entry["status"] = status
+    entry["finished_at"] = finished_at or entry.get("finished_at") or _now_iso()
+    if run_id is not None:
+        entry["run_id"] = run_id
+    if error is not None:
+        entry["error"] = error
+    elif status == QueueStatus.COMPLETED.value:
+        entry["error"] = None
+
+
+def reconcile_orphaned_running_entries(
+    allowed_root: Path,
+    *,
+    ignore_worker_pid: bool = False,
+) -> int:
+    """Reconcile queue entries stuck as running after worker/process loss.
+
+    If the queue worker is not active, any queue entry still marked ``running``
+    is orphaned. Prefer terminal state from ``run_state.json``; if that file has
+    already been removed, fall back to ``run_report.json`` before re-queueing.
+    """
+    if not ignore_worker_pid and _read_worker_pid(allowed_root) is not None:
+        return 0
+
+    changed = 0
+    with _acquire_queue_lock(allowed_root):
+        entries = _load_entries(allowed_root)
+        for entry in entries:
+            if entry.get("status") != QueueStatus.RUNNING.value:
+                continue
+
+            rdir = str(entry.get("reaction_dir", "")).strip()
+            if not rdir:
+                continue
+            reaction_dir = Path(rdir)
+
+            if _active_lock_pid(reaction_dir) is not None:
+                continue
+
+            queue_id = entry.get("queue_id", "?")
+            state = load_state(reaction_dir)
+            run_status = str(state.get("status", "")).strip().lower() if state else ""
+
+            if state is not None and run_status == RunStatus.COMPLETED.value:
+                final_result = state.get("final_result")
+                final_dict = final_result if isinstance(final_result, dict) else {}
+                _apply_terminal_reconciliation(
+                    entry,
+                    status=QueueStatus.COMPLETED.value,
+                    run_id=str(state.get("run_id", "")).strip() or None,
+                    finished_at=str(final_dict.get("completed_at") or state.get("updated_at") or "").strip() or None,
+                )
+                logger.info("Reconciled orphaned entry %s -> completed", queue_id)
+                changed += 1
+                continue
+
+            if state is not None and run_status == RunStatus.FAILED.value:
+                final_result = state.get("final_result")
+                final_dict = final_result if isinstance(final_result, dict) else {}
+                _apply_terminal_reconciliation(
+                    entry,
+                    status=QueueStatus.FAILED.value,
+                    run_id=str(state.get("run_id", "")).strip() or None,
+                    finished_at=str(final_dict.get("completed_at") or state.get("updated_at") or "").strip() or None,
+                    error=str(final_dict.get("reason", "")).strip() or "orphaned_worker_crash",
+                )
+                logger.info("Reconciled orphaned entry %s -> failed", queue_id)
+                changed += 1
+                continue
+
+            report_data = _terminal_report_data(reaction_dir)
+            if report_data is not None:
+                status, run_id, finished_at, error = report_data
+                _apply_terminal_reconciliation(
+                    entry,
+                    status=status,
+                    run_id=run_id,
+                    finished_at=finished_at,
+                    error=error,
+                )
+                logger.info("Reconciled orphaned entry %s -> %s (from run_report)", queue_id, status)
+                changed += 1
+                continue
+
+            entry["status"] = QueueStatus.PENDING.value
+            entry["started_at"] = None
+            logger.info("Reconciled orphaned entry %s -> pending (re-queue)", queue_id)
+            changed += 1
+
+        if changed:
+            _save_entries(allowed_root, entries)
+    return changed
+
+
 # -- Duplicate detection --------------------------------------------------
 
 
@@ -180,6 +364,7 @@ def enqueue(
       - With ``force``: allow (intentional re-run / retry).
     """
     resolved = str(Path(reaction_dir).expanduser().resolve())
+    reconcile_orphaned_running_entries(allowed_root)
 
     with _acquire_queue_lock(allowed_root):
         entries = _load_entries(allowed_root)

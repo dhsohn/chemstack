@@ -292,6 +292,35 @@ class TestQueueWorkerMethods(unittest.TestCase):
         rc = self.worker.run()
         self.assertEqual(rc, 0)
 
+    def test_reconcile_orphaned_running_uses_run_report_even_with_worker_pid_file(self) -> None:
+        rxn = self.root / "mol_done"
+        rxn.mkdir()
+        entry = enqueue(self.root, str(rxn))
+        dequeue_next(self.root)
+        self.worker._write_pid_file()
+
+        (rxn / "run_report.json").write_text(
+            json.dumps(
+                {
+                    "run_id": "run_done_1",
+                    "status": "completed",
+                    "updated_at": "2026-03-10T05:00:00+00:00",
+                    "final_result": {
+                        "status": "completed",
+                        "completed_at": "2026-03-10T04:59:59+00:00",
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        self.worker._reconcile_orphaned_running()
+
+        queue_data = json.loads((self.root / "queue.json").read_text(encoding="utf-8"))
+        found = next(item for item in queue_data if item["queue_id"] == entry["queue_id"])
+        self.assertEqual(found["status"], "completed")
+        self.assertEqual(found["run_id"], "run_done_1")
+
 
 class TestFillSlots(unittest.TestCase):
     def test_fill_slots_starts_pending_jobs(self) -> None:

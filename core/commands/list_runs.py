@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from ..config import load_config
-from ..queue_store import clear_terminal, list_queue
+from ..queue_store import clear_terminal, list_queue, reconcile_orphaned_running_entries
 from ..run_snapshot import RunSnapshot, collect_run_snapshots, elapsed_text
 from ..state_store import STATE_FILE_NAME, load_state
 from ..statuses import QueueStatus, RunStatus
@@ -105,6 +105,7 @@ def _queue_entry_represents_snapshot(entry: QueueEntry, snapshot: RunSnapshot | 
 
 def _collect_unified(allowed_root: Path) -> list[dict[str, str]]:
     """Merge queue entries and run snapshots into unified display rows."""
+    reconcile_orphaned_running_entries(allowed_root)
     queue_entries = list_queue(allowed_root)
     snapshots = collect_run_snapshots(allowed_root)
 
