@@ -84,9 +84,9 @@ def _collect_unified(allowed_root: Path) -> list[dict[str, str]]:
             el = snap.elapsed_text
             inp = snap.selected_inp_name if snap.selected_inp_name != "-" else ""
             attempts = str(snap.attempts)
-            # If queue says running but run_state says retrying, prefer retrying
-            if status == QueueStatus.RUNNING.value and snap.status == RunStatus.RETRYING.value:
-                status = RunStatus.RETRYING.value
+            # If queue says running but run_state disagrees, prefer run_state
+            if status == QueueStatus.RUNNING.value and snap.status != RunStatus.RUNNING.value:
+                status = snap.status
                 icon = _status_icon(status)
         else:
             el = _format_elapsed(
