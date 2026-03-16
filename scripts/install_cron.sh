@@ -13,7 +13,7 @@ LEGACY_SUMMARY_END="# ORCA_AUTO_DFT_SUMMARY_CRON_END"
 
 BLOCK="${MARKER_START}
 0 9,21 * * * ${ROOT}/scripts/cron_dft_summary.sh
-0 0 * * 6 ${ROOT}/scripts/cron_organize.sh
+0 0 * * * ${ROOT}/scripts/cron_organize.sh
 0 * * * * ${ROOT}/scripts/cron_dft_monitor.sh
 ${MARKER_END}"
 
@@ -30,7 +30,7 @@ printf '%s\n%s\n' "$CLEANED" "$BLOCK" | crontab -
 
 echo "[install_cron] Cron entries installed:"
 echo "  dft_summary: Twice daily active-run / blocker digest (0 9,21 * * *)"
-echo "  organize:    Saturday midnight (0 0 * * 6)"
+echo "  organize:    Daily midnight (0 0 * * *)"
 echo "  dft_monitor: Hourly discovery alerts for new DFT results / scan failures (0 * * * *)"
 echo ""
 echo "Current crontab:"

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Cron script: organize completed simulations
-# Schedule: every Saturday at midnight (0 0 * * 6)
+# Schedule: every day at midnight (0 0 * * *)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
