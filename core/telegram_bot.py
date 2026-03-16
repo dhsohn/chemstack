@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import logging
+import subprocess
 import time
 import urllib.error
 import urllib.request
@@ -151,6 +152,77 @@ def _handle_cancel(cfg: AppConfig, args: str) -> str:
     return f"\u23f3 Cancel requested for running simulation: <code>{name}</code>"
 
 
+_CRON_INFO: dict[str, str] = {
+    "cron_dft_summary": "Active-run / blocker digest",
+    "cron_organize": "Organize completed simulations",
+    "cron_dft_monitor": "Discovery alerts for new DFT results",
+}
+
+_SCHEDULE_HUMAN: dict[str, str] = {
+    "0 9,21 * * *": "Twice daily (9AM, 9PM)",
+    "0 0 * * *": "Daily at midnight",
+    "0 * * * *": "Every hour",
+}
+
+
+def _humanize_schedule(schedule: str) -> str:
+    return _SCHEDULE_HUMAN.get(schedule, schedule)
+
+
+def _handle_cron(cfg: AppConfig, args: str) -> str:
+    """Handle ``/cron`` command — show active orca_auto cron entries."""
+    try:
+        result = subprocess.run(
+            ["crontab", "-l"],
+            capture_output=True, text=True, timeout=5,
+        )
+        crontab = result.stdout
+    except Exception:
+        return "Failed to read crontab."
+
+    if not crontab.strip():
+        return "No crontab entries found."
+
+    marker_start = "# ORCA_AUTO_CRON_START"
+    marker_end = "# ORCA_AUTO_CRON_END"
+
+    inside_block = False
+    entries: list[str] = []
+    for line in crontab.splitlines():
+        if marker_start in line:
+            inside_block = True
+            continue
+        if marker_end in line:
+            inside_block = False
+            continue
+        if inside_block:
+            stripped = line.strip()
+            if stripped and not stripped.startswith("#"):
+                entries.append(stripped)
+
+    if not entries:
+        return "No orca_auto cron jobs found."
+
+    header = (
+        f"\u23f0 <b>Cron Jobs</b> ({len(entries)})\n"
+        "<pre>"
+        f" {'Name':<22} {'Schedule':<14} Description\n"
+        f" {'─' * 50}"
+    )
+    rows: list[str] = []
+    for entry in entries:
+        parts = entry.split()
+        schedule = " ".join(parts[:5])
+        script = parts[5] if len(parts) > 5 else "?"
+        name = Path(script).stem.removeprefix("cron_")
+
+        human = _humanize_schedule(schedule)
+        desc = _CRON_INFO.get(Path(script).stem, name)
+        rows.append(f" \u2705 {name:<22}{human:<14} {desc}")
+
+    return header + "\n" + "\n".join(rows) + "</pre>"
+
+
 def _handle_help(cfg: AppConfig, args: str) -> str:
     return (
         "<b>orca_auto bot commands</b>\n\n"
@@ -160,6 +232,7 @@ def _handle_help(cfg: AppConfig, args: str) -> str:
         "/list failed \u2014 Failed jobs only\n"
         "/list clear \u2014 Remove completed/failed/cancelled entries\n"
         "/cancel &lt;target&gt; \u2014 Cancel by queue_id, reaction_dir, or run_id\n"
+        "/cron \u2014 Show active cron jobs\n"
         "/help \u2014 This help message"
     )
 
@@ -167,6 +240,7 @@ def _handle_help(cfg: AppConfig, args: str) -> str:
 _HANDLERS: dict[str, Callable[[AppConfig, str], str]] = {
     "list": _handle_list,
     "cancel": _handle_cancel,
+    "cron": _handle_cron,
     "help": _handle_help,
     "start": _handle_help,
 }
@@ -180,6 +254,7 @@ def _set_bot_commands(token: str) -> None:
     commands = [
         {"command": "list", "description": "Show simulation list"},
         {"command": "cancel", "description": "Cancel a queued/running job"},
+        {"command": "cron", "description": "Show active cron jobs"},
         {"command": "help", "description": "Help"},
     ]
     _api_call(token, "setMyCommands", {"commands": commands})
