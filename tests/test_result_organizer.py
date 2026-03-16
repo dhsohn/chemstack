@@ -145,6 +145,34 @@ class TestCheckEligibility(unittest.TestCase):
             self.assertIsNone(state)
             self.assertEqual(skip.reason, "state_output_mismatch")
 
+    def test_report_fallback_completed_is_eligible(self) -> None:
+        """run_state.json missing but run_report.json has completed status."""
+        with tempfile.TemporaryDirectory() as td:
+            d = _make_completed_dir(Path(td), "rxn1")
+            # Remove run_state.json, keep run_report.json with full data
+            state_data = json.loads((d / "run_state.json").read_text())
+            (d / "run_report.json").write_text(
+                json.dumps(state_data, ensure_ascii=True, indent=2), encoding="utf-8",
+            )
+            (d / "run_state.json").unlink()
+
+            state, skip = check_eligibility(d)
+            self.assertIsNotNone(state)
+            self.assertIsNone(skip)
+
+    def test_report_fallback_not_completed_is_skipped(self) -> None:
+        """run_state.json missing, run_report.json has non-completed status."""
+        with tempfile.TemporaryDirectory() as td:
+            d = Path(td) / "rxn1"
+            d.mkdir()
+            (d / "run_report.json").write_text(
+                json.dumps({"run_id": "run_test", "status": "running"}),
+                encoding="utf-8",
+            )
+            state, skip = check_eligibility(d)
+            self.assertIsNone(state)
+            self.assertEqual(skip.reason, "not_completed")
+
     def test_completed_legacy_windows_paths_are_recovered(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             d = Path(td) / "rxn1"
@@ -278,6 +306,52 @@ class TestPlanRootScan(unittest.TestCase):
             plans, skips = plan_root_scan(root, organized)
             self.assertEqual(len(plans), 2)
             self.assertEqual(len(skips), 0)
+
+
+    def test_scan_finds_report_only_dirs(self) -> None:
+        """plan_root_scan discovers dirs with only run_report.json (no run_state.json)."""
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "runs"
+            root.mkdir()
+            organized = Path(td) / "outputs"
+            organized.mkdir()
+
+            # Normal completed dir
+            _make_completed_dir(root, "rxn1")
+
+            # Dir with only run_report.json (no run_state.json)
+            d2 = root / "rxn2"
+            d2.mkdir()
+            inp = d2 / "rxn.inp"
+            inp.write_text("! Opt\n* xyz 0 1\nH 0 0 0\n*\n", encoding="utf-8")
+            out = d2 / "rxn.out"
+            out.write_text("****ORCA TERMINATED NORMALLY****\n", encoding="utf-8")
+            report = {
+                "run_id": "run_20260222_101530_rxn20000",
+                "reaction_dir": str(d2),
+                "selected_inp": str(inp),
+                "status": "completed",
+                "started_at": "2026-02-22T10:15:30+00:00",
+                "updated_at": "2026-02-22T10:15:45+00:00",
+                "max_retries": 5,
+                "attempts": [{"index": 1, "inp_path": str(inp), "out_path": str(out)}],
+                "final_result": {
+                    "status": "completed",
+                    "analyzer_status": "completed",
+                    "reason": "normal_termination",
+                    "completed_at": "2026-02-22T10:15:45+00:00",
+                    "last_out_path": str(out),
+                },
+            }
+            (d2 / "run_report.json").write_text(
+                json.dumps(report, ensure_ascii=True, indent=2), encoding="utf-8",
+            )
+            (d2 / "run_report.md").write_text("# Report\n", encoding="utf-8")
+
+            plans, skips = plan_root_scan(root, organized)
+            self.assertEqual(len(plans), 2)
+            run_ids = {p.run_id for p in plans}
+            self.assertIn("run_20260222_101530_rxn20000", run_ids)
 
 
 class TestCheckConflict(unittest.TestCase):

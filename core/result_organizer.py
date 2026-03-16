@@ -1,18 +1,19 @@
 from __future__ import annotations
 
 import errno
+import json
 import logging
 import os
 import re
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, cast
 
 from .completion_rules import TS_ROUTE_RE
 from .molecule_key import extract_molecule_key
 from .pathing import is_subpath, resolve_artifact_path
-from .state_store import load_state, save_state, write_report_files
+from .state_store import load_state, report_json_path, save_state, write_report_files
 from .statuses import RunStatus
 from .types import RunState
 
@@ -53,8 +54,24 @@ def _resolve_existing_artifact(path_text: str, reaction_dir: Path) -> Optional[P
     return resolve_artifact_path(path_text, reaction_dir)
 
 
+def _load_report_as_state(reaction_dir: Path) -> Optional[RunState]:
+    """Fallback: load run_report.json as RunState when run_state.json is missing."""
+    path = report_json_path(reaction_dir)
+    if not path.exists():
+        return None
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    if not isinstance(raw, dict):
+        return None
+    return cast(RunState, raw)
+
+
 def check_eligibility(reaction_dir: Path) -> Tuple[RunState | None, Optional[SkipReason]]:
     state = load_state(reaction_dir)
+    if state is None:
+        state = _load_report_as_state(reaction_dir)
     if state is None:
         return None, SkipReason(str(reaction_dir), "state_missing_or_invalid")
 
@@ -188,13 +205,19 @@ def plan_root_scan(
 
     try:
         state_files = sorted(root.rglob("run_state.json"))
+        report_files = sorted(root.rglob("run_report.json"))
     except OSError as exc:
         logger.error("Cannot scan root: %s (%s)", root, exc)
         return plans, skips
 
+    candidate_dirs: set[Path] = set()
+    for f in state_files:
+        candidate_dirs.add(f.parent)
+    for f in report_files:
+        candidate_dirs.add(f.parent)
+
     seen_dirs: set[Path] = set()
-    for state_file in state_files:
-        entry = state_file.parent
+    for entry in sorted(candidate_dirs):
         if entry in seen_dirs:
             continue
         seen_dirs.add(entry)
@@ -286,6 +309,8 @@ def _sync_state_after_relocation(
     target_dir: Path,
 ) -> RunState:
     state = load_state(state_dir)
+    if state is None:
+        state = _load_report_as_state(state_dir)
     if state is None:
         raise RuntimeError(f"Relocated directory has invalid state: {state_dir}")
 
