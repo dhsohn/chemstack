@@ -154,6 +154,66 @@ class TestRebuildIndex(unittest.TestCase):
             self.assertEqual(idx["run_test_legacy"]["selected_inp"], "rxn.inp")
             self.assertEqual(idx["run_test_legacy"]["last_out_path"], "rxn.out")
 
+    def test_rebuild_uses_last_successful_attempt_when_selected_inp_falls_back(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            org = Path(td) / "outputs"
+            org.mkdir()
+
+            d = org / "opt" / "mj3" / "run_test_retry"
+            d.mkdir(parents=True)
+            selected_inp = d / "rxn.inp"
+            selected_inp.write_text("! Opt\n* xyzfile 0 1 missing.xyz\n", encoding="utf-8")
+            selected_out = d / "rxn.out"
+            selected_out.write_text("run incomplete\n", encoding="utf-8")
+
+            retry_inp = d / "rxn.retry01.inp"
+            retry_inp.write_text(
+                "! Opt\n* xyz 0 1\nC 0 0 0\nH 1 0 0\nBr 2 0 0\nP 3 0 0\n*\n",
+                encoding="utf-8",
+            )
+            retry_out = d / "rxn.retry01.out"
+            retry_out.write_text("****ORCA TERMINATED NORMALLY****\n", encoding="utf-8")
+
+            state = {
+                "run_id": "run_test_retry",
+                "status": "completed",
+                "selected_inp": str(selected_inp),
+                "attempts": [
+                    {
+                        "index": 1,
+                        "inp_path": str(selected_inp),
+                        "out_path": str(selected_out),
+                        "return_code": 64,
+                        "analyzer_status": "incomplete",
+                    },
+                    {
+                        "index": 2,
+                        "inp_path": str(retry_inp),
+                        "out_path": str(retry_out),
+                        "return_code": 0,
+                        "analyzer_status": "completed",
+                    },
+                ],
+                "final_result": {
+                    "status": "completed",
+                    "analyzer_status": "completed",
+                    "reason": "normal_termination",
+                    "completed_at": "2026-01-01T00:00:00+00:00",
+                    "last_out_path": str(retry_out),
+                },
+            }
+            (d / "run_state.json").write_text(
+                json.dumps(state, ensure_ascii=True, indent=2), encoding="utf-8",
+            )
+
+            count = rebuild_index(org)
+            self.assertEqual(count, 1)
+
+            idx = load_index(org)
+            self.assertEqual(idx["run_test_retry"]["job_type"], "opt")
+            self.assertEqual(idx["run_test_retry"]["molecule_key"], "CHBrP")
+            self.assertEqual(idx["run_test_retry"]["organized_path"], "opt/mj3/run_test_retry")
+
     def test_rebuild_empty(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             org = Path(td) / "outputs"

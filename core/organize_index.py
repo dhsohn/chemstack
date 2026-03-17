@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional
 
 from . import lock_utils
-from .molecule_key import extract_molecule_key
 from .pathing import resolve_artifact_path
 from .state_store import atomic_write_text, load_state, now_utc_iso
 
@@ -116,17 +115,14 @@ def rebuild_index(organized_root: Path) -> int:
             rel = reaction_dir
         organized_path = str(rel)
 
-        from .result_organizer import detect_job_type
+        from .result_organizer import resolve_organize_metadata
 
         selected_inp = state.get("selected_inp", "")
-        inp_path = resolve_state_path(selected_inp, reaction_dir)
+        inp_path, job_type, molecule_key = resolve_organize_metadata(state, reaction_dir)
         if inp_path is None:
             inps = sorted(reaction_dir.glob("*.inp"))
             if inps:
                 inp_path = inps[0]
-
-        job_type = detect_job_type(inp_path) if inp_path and inp_path.exists() else "other"
-        molecule_key = extract_molecule_key(inp_path) if inp_path and inp_path.exists() else "unknown"
 
         attempts = state.get("attempts")
         attempt_count = len(attempts) if isinstance(attempts, list) else 0

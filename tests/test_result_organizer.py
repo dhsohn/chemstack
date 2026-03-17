@@ -271,6 +271,63 @@ class TestComputeOrganizePlan(unittest.TestCase):
             self.assertEqual(plan.reason, "normal_termination")
             self.assertEqual(plan.attempt_count, 1)
 
+    def test_uses_last_successful_attempt_when_selected_inp_falls_back(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            d = Path(td) / "mj3"
+            d.mkdir()
+
+            selected_inp = d / "mj3.inp"
+            selected_inp.write_text("! Opt\n* xyzfile 0 1 missing.xyz\n", encoding="utf-8")
+            selected_out = d / "mj3.out"
+            selected_out.write_text("run incomplete\n", encoding="utf-8")
+
+            retry_inp = d / "mj3.retry01.inp"
+            retry_inp.write_text(
+                "! Opt TightSCF SlowConv\n* xyz 0 1\nC 0 0 0\nH 1 0 0\nBr 2 0 0\nP 3 0 0\n*\n",
+                encoding="utf-8",
+            )
+            retry_out = d / "mj3.retry01.out"
+            retry_out.write_text("****ORCA TERMINATED NORMALLY****\n", encoding="utf-8")
+
+            state = {
+                "run_id": "run_retry_fallback",
+                "reaction_dir": str(d),
+                "selected_inp": str(selected_inp),
+                "status": "completed",
+                "started_at": "2026-02-22T10:15:30+00:00",
+                "updated_at": "2026-02-22T10:15:45+00:00",
+                "max_retries": 5,
+                "attempts": [
+                    {
+                        "index": 1,
+                        "inp_path": str(selected_inp),
+                        "out_path": str(selected_out),
+                        "return_code": 64,
+                        "analyzer_status": "incomplete",
+                    },
+                    {
+                        "index": 2,
+                        "inp_path": str(retry_inp),
+                        "out_path": str(retry_out),
+                        "return_code": 0,
+                        "analyzer_status": "completed",
+                    },
+                ],
+                "final_result": {
+                    "status": "completed",
+                    "analyzer_status": "completed",
+                    "reason": "normal_termination",
+                    "completed_at": "2026-02-22T10:15:45+00:00",
+                    "last_out_path": str(retry_out),
+                },
+            }
+
+            organized = Path(td) / "outputs"
+            plan = compute_organize_plan(d, state, organized)
+            self.assertEqual(plan.job_type, "opt")
+            self.assertEqual(plan.molecule_key, "CHBrP")
+            self.assertEqual(plan.target_rel_path, "opt/CHBrP/run_retry_fallback")
+
 
 class TestPlanRootScan(unittest.TestCase):
 

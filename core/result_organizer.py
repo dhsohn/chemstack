@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, cast
 
 from .completion_rules import TS_ROUTE_RE
-from .molecule_key import extract_molecule_key
+from .molecule_key import resolve_molecule_key
 from .pathing import is_subpath, resolve_artifact_path
 from .state_store import load_state, report_json_path, save_state, write_report_files
 from .statuses import RunStatus
@@ -138,6 +138,90 @@ def _read_route_line(inp_path: Path) -> str:
     return ""
 
 
+def _attempt_is_successful(attempt: Dict[str, Any]) -> bool:
+    analyzer_status = attempt.get("analyzer_status")
+    if isinstance(analyzer_status, str) and analyzer_status == "completed":
+        return True
+
+    return_code = attempt.get("return_code")
+    return return_code == 0
+
+
+def _last_successful_attempt_inp_path(state: RunState, reaction_dir: Path) -> Optional[Path]:
+    attempts = state.get("attempts")
+    if not isinstance(attempts, list):
+        return None
+
+    final_result = state.get("final_result")
+    final_out_path = None
+    if isinstance(final_result, dict):
+        last_out_path = final_result.get("last_out_path")
+        if isinstance(last_out_path, str) and last_out_path.strip():
+            final_out_path = _resolve_existing_artifact(last_out_path, reaction_dir)
+
+    for attempt in reversed(attempts):
+        if not isinstance(attempt, dict):
+            continue
+
+        inp_path_text = attempt.get("inp_path")
+        if not isinstance(inp_path_text, str) or not inp_path_text.strip():
+            continue
+        inp_path = _resolve_existing_artifact(inp_path_text, reaction_dir)
+        if inp_path is None:
+            continue
+
+        if final_out_path is not None:
+            out_path_text = attempt.get("out_path")
+            if isinstance(out_path_text, str) and out_path_text.strip():
+                out_path = _resolve_existing_artifact(out_path_text, reaction_dir)
+                if out_path is not None and out_path == final_out_path:
+                    return inp_path
+
+        if _attempt_is_successful(attempt):
+            return inp_path
+
+    return None
+
+
+def select_organize_metadata_inp_path(state: RunState, reaction_dir: Path) -> Optional[Path]:
+    selected_inp_value = state.get("selected_inp")
+    selected_inp_path = None
+    selected_resolution = None
+
+    if isinstance(selected_inp_value, str) and selected_inp_value.strip():
+        selected_inp_path = _resolve_existing_artifact(selected_inp_value, reaction_dir)
+        if selected_inp_path is not None and selected_inp_path.exists():
+            selected_resolution = resolve_molecule_key(selected_inp_path)
+            if selected_resolution.source != "directory_fallback":
+                return selected_inp_path
+
+    attempt_inp_path = _last_successful_attempt_inp_path(state, reaction_dir)
+    if attempt_inp_path is not None and attempt_inp_path.exists():
+        attempt_resolution = resolve_molecule_key(attempt_inp_path)
+        if (
+            selected_resolution is not None
+            and selected_resolution.source == "directory_fallback"
+            and attempt_resolution.source != "directory_fallback"
+        ):
+            return attempt_inp_path
+        if selected_inp_path is None:
+            return attempt_inp_path
+
+    return selected_inp_path
+
+
+def resolve_organize_metadata(
+    state: RunState,
+    reaction_dir: Path,
+) -> Tuple[Optional[Path], str, str]:
+    inp_path = select_organize_metadata_inp_path(state, reaction_dir)
+    if inp_path is None or not inp_path.exists():
+        return None, "other", "unknown"
+
+    resolution = resolve_molecule_key(inp_path)
+    return inp_path, detect_job_type(inp_path), resolution.key
+
+
 def compute_organize_plan(
     reaction_dir: Path,
     state: RunState,
@@ -149,10 +233,7 @@ def compute_organize_plan(
 
     selected_inp_value = state.get("selected_inp", "")
     selected_inp = selected_inp_value if isinstance(selected_inp_value, str) else ""
-    inp_path = Path(selected_inp) if selected_inp else None
-
-    job_type = detect_job_type(inp_path) if inp_path and inp_path.exists() else "other"
-    molecule_key = extract_molecule_key(inp_path) if inp_path and inp_path.exists() else "unknown"
+    _, job_type, molecule_key = resolve_organize_metadata(state, reaction_dir)
 
     final_result = state.get("final_result") or {}
     last_out_path = final_result.get("last_out_path", "")

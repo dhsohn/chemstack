@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import re
 from collections import Counter
+from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional
 
@@ -14,16 +15,29 @@ TAG_RE = re.compile(r"^#\s*TAG\s*:\s*(.+)$", re.IGNORECASE)
 ATOM_LINE_RE = re.compile(r"^\s*([A-Z][a-z]?)\s+[-+]?\d")
 
 
+@dataclass(frozen=True)
+class MoleculeKeyResolution:
+    key: str
+    source: str
+
+
 def extract_molecule_key(inp_path: Path) -> str:
+    return resolve_molecule_key(inp_path).key
+
+
+def resolve_molecule_key(inp_path: Path) -> MoleculeKeyResolution:
     tag = _find_user_tag(inp_path)
     if tag is not None:
-        return tag
+        return MoleculeKeyResolution(key=tag, source="tag")
 
     formula = _parse_formula_from_inp(inp_path)
     if formula is not None:
-        return formula
+        return MoleculeKeyResolution(key=formula, source="formula")
 
-    return _directory_name_fallback(inp_path)
+    return MoleculeKeyResolution(
+        key=_directory_name_fallback(inp_path),
+        source="directory_fallback",
+    )
 
 
 def _find_user_tag(inp_path: Path) -> Optional[str]:
