@@ -8,7 +8,7 @@ import re
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, cast
+from typing import Any, Dict, List, Mapping, Optional, Tuple, cast
 
 from .completion_rules import TS_ROUTE_RE
 from .molecule_key import resolve_molecule_key
@@ -138,7 +138,7 @@ def _read_route_line(inp_path: Path) -> str:
     return ""
 
 
-def _attempt_is_successful(attempt: Dict[str, Any]) -> bool:
+def _attempt_is_successful(attempt: Mapping[str, Any]) -> bool:
     analyzer_status = attempt.get("analyzer_status")
     if isinstance(analyzer_status, str) and analyzer_status == "completed":
         return True
