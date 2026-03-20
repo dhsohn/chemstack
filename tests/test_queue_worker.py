@@ -29,6 +29,7 @@ from core.queue_worker import (
     read_worker_pid,
     start_worker_daemon,
 )
+from core.types import QueueEntry
 
 
 def _make_cfg(tmp: str) -> AppConfig:
@@ -248,7 +249,7 @@ class TestQueueWorkerMethods(unittest.TestCase):
         mock_proc = MagicMock()
         mock_proc.pid = 4321
         mock_popen.return_value = mock_proc
-        entry = {
+        entry: QueueEntry = {
             "queue_id": "q_test",
             "reaction_dir": str(self.root / "mol_A"),
             "force": False,

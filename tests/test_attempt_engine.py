@@ -143,7 +143,9 @@ class TestAttemptEngine(unittest.TestCase):
         self.assertEqual(finished["analyzer_status"], "completed")
         self.assertEqual(finished["reason"], "normal_termination")
         self.assertEqual(finished["attempt_count"], 2)
-        self.assertTrue(finished["last_out_path"].endswith("rxn.retry01.out"))
+        last_out_path = finished["last_out_path"]
+        assert last_out_path is not None
+        self.assertTrue(last_out_path.endswith("rxn.retry01.out"))
 
 
 class TestRetryRecipeStep(unittest.TestCase):

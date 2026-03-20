@@ -49,7 +49,7 @@ def _write_state(
     else:
         final_result = None
 
-    state = {
+    state: dict[str, object] = {
         "run_id": run_id,
         "reaction_dir": str(reaction_dir),
         "selected_inp": str(inp_path),

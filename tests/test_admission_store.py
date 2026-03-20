@@ -23,7 +23,7 @@ class TestAdmissionStore(unittest.TestCase):
             reaction_dir = root / "rxn"
             reaction_dir.mkdir()
 
-            with acquire_direct_slot(root, max_concurrent=2, reaction_dir=reaction_dir) as token:
+            with acquire_direct_slot(root, max_concurrent=2, reaction_dir=str(reaction_dir)) as token:
                 slots = list_slots(root)
                 self.assertEqual(len(slots), 1)
                 self.assertEqual(slots[0]["token"], token)
@@ -39,9 +39,9 @@ class TestAdmissionStore(unittest.TestCase):
             first.mkdir()
             second.mkdir()
 
-            with acquire_direct_slot(root, max_concurrent=1, reaction_dir=first):
+            with acquire_direct_slot(root, max_concurrent=1, reaction_dir=str(first)):
                 with self.assertRaises(RuntimeError) as ctx:
-                    with acquire_direct_slot(root, max_concurrent=1, reaction_dir=second):
+                    with acquire_direct_slot(root, max_concurrent=1, reaction_dir=str(second)):
                         pass
 
             self.assertIn("Global admission limit reached", str(ctx.exception))

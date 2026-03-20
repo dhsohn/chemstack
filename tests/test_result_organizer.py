@@ -4,6 +4,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from typing import Mapping
 
 from core.result_organizer import (
     check_conflict,
@@ -12,9 +13,10 @@ from core.result_organizer import (
     detect_job_type,
     plan_root_scan,
 )
+from core.types import RunState
 
 
-def _write_state(reaction_dir: Path, state: dict) -> None:
+def _write_state(reaction_dir: Path, state: Mapping[str, object]) -> None:
     (reaction_dir / "run_state.json").write_text(
         json.dumps(state, ensure_ascii=True, indent=2), encoding="utf-8",
     )
@@ -32,7 +34,7 @@ def _make_completed_dir(root: Path, name: str, route: str = "! Opt") -> Path:
     inp.write_text(f"{route}\n* xyz 0 1\nH 0 0 0\n*\n", encoding="utf-8")
     out = d / "rxn.out"
     out.write_text("****ORCA TERMINATED NORMALLY****\n", encoding="utf-8")
-    state = {
+    state: RunState = {
         "run_id": f"run_20260222_101530_{name[:8].ljust(8, '0')}",
         "reaction_dir": str(d),
         "selected_inp": str(inp),
@@ -71,6 +73,7 @@ class TestCheckEligibility(unittest.TestCase):
             state, skip = check_eligibility(d)
             self.assertIsNone(state)
             self.assertIsNotNone(skip)
+            assert skip is not None
             self.assertEqual(skip.reason, "not_completed")
 
     def test_created_is_skipped(self) -> None:
@@ -80,6 +83,7 @@ class TestCheckEligibility(unittest.TestCase):
             _write_state(d, {"run_id": "run_test", "status": "created"})
             state, skip = check_eligibility(d)
             self.assertIsNone(state)
+            assert skip is not None
             self.assertEqual(skip.reason, "not_completed")
 
     def test_running_is_skipped(self) -> None:
@@ -89,6 +93,7 @@ class TestCheckEligibility(unittest.TestCase):
             _write_state(d, {"run_id": "run_test", "status": "running"})
             state, skip = check_eligibility(d)
             self.assertIsNone(state)
+            assert skip is not None
             self.assertEqual(skip.reason, "not_completed")
 
     def test_missing_state_is_skipped(self) -> None:
@@ -97,6 +102,7 @@ class TestCheckEligibility(unittest.TestCase):
             d.mkdir()
             state, skip = check_eligibility(d)
             self.assertIsNone(state)
+            assert skip is not None
             self.assertEqual(skip.reason, "state_missing_or_invalid")
 
     def test_invalid_json_is_skipped(self) -> None:
@@ -106,6 +112,7 @@ class TestCheckEligibility(unittest.TestCase):
             (d / "run_state.json").write_text("not json", encoding="utf-8")
             state, skip = check_eligibility(d)
             self.assertIsNone(state)
+            assert skip is not None
             self.assertEqual(skip.reason, "state_missing_or_invalid")
 
     def test_missing_run_id_is_skipped(self) -> None:
@@ -115,6 +122,7 @@ class TestCheckEligibility(unittest.TestCase):
             _write_state(d, {"status": "completed", "final_result": {}})
             state, skip = check_eligibility(d)
             self.assertIsNone(state)
+            assert skip is not None
             self.assertEqual(skip.reason, "state_schema_invalid")
 
     def test_completed_missing_final_result_is_skipped(self) -> None:
@@ -124,6 +132,7 @@ class TestCheckEligibility(unittest.TestCase):
             _write_state(d, {"run_id": "run_test", "status": "completed"})
             state, skip = check_eligibility(d)
             self.assertIsNone(state)
+            assert skip is not None
             self.assertEqual(skip.reason, "final_result_missing")
 
     def test_completed_missing_out_file_is_skipped(self) -> None:
@@ -143,6 +152,7 @@ class TestCheckEligibility(unittest.TestCase):
             })
             state, skip = check_eligibility(d)
             self.assertIsNone(state)
+            assert skip is not None
             self.assertEqual(skip.reason, "state_output_mismatch")
 
     def test_report_fallback_completed_is_eligible(self) -> None:
@@ -171,6 +181,7 @@ class TestCheckEligibility(unittest.TestCase):
             )
             state, skip = check_eligibility(d)
             self.assertIsNone(state)
+            assert skip is not None
             self.assertEqual(skip.reason, "not_completed")
 
     def test_completed_legacy_windows_paths_are_recovered(self) -> None:
@@ -197,8 +208,10 @@ class TestCheckEligibility(unittest.TestCase):
             self.assertIsNone(skip)
             self.assertIsNotNone(state)
             assert state is not None
+            final_result = state.get("final_result")
+            assert final_result is not None
             self.assertEqual(state["selected_inp"], str(inp.resolve()))
-            self.assertEqual(state["final_result"]["last_out_path"], str(out.resolve()))
+            self.assertEqual(final_result["last_out_path"], str(out.resolve()))
 
 
 class TestDetectJobType(unittest.TestCase):
@@ -289,7 +302,7 @@ class TestComputeOrganizePlan(unittest.TestCase):
             retry_out = d / "mj3.retry01.out"
             retry_out.write_text("****ORCA TERMINATED NORMALLY****\n", encoding="utf-8")
 
-            state = {
+            state: RunState = {
                 "run_id": "run_retry_fallback",
                 "reaction_dir": str(d),
                 "selected_inp": str(selected_inp),

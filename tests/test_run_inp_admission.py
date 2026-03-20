@@ -62,7 +62,7 @@ class TestRunInpAdmission(unittest.TestCase):
                 execute_now=True,
             )
 
-            with acquire_direct_slot(root, max_concurrent=1, reaction_dir=other_dir):
+            with acquire_direct_slot(root, max_concurrent=1, reaction_dir=str(other_dir)):
                 rc = cmd_run_inp(args)
 
             self.assertEqual(rc, 1)

@@ -20,6 +20,7 @@ from core.queue_store import (
     reconcile_orphaned_running_entries,
 )
 from core.statuses import QueueStatus
+from core.types import QueueEntry
 
 
 class TestQueueStore(unittest.TestCase):
@@ -30,7 +31,7 @@ class TestQueueStore(unittest.TestCase):
     def tearDown(self) -> None:
         self._tmpdir.cleanup()
 
-    def _find_entry(self, queue_id: str):
+    def _find_entry(self, queue_id: str) -> QueueEntry | None:
         for entry in list_queue(self.root):
             if entry["queue_id"] == queue_id:
                 return entry
@@ -105,6 +106,7 @@ class TestQueueStore(unittest.TestCase):
 
         entry = dequeue_next(self.root)
         self.assertIsNotNone(entry)
+        assert entry is not None
         self.assertIn("high", entry["reaction_dir"])
         self.assertEqual(entry["status"], QueueStatus.RUNNING.value)
         self.assertIsNotNone(entry["started_at"])
@@ -118,6 +120,7 @@ class TestQueueStore(unittest.TestCase):
         entry = enqueue(self.root, str(self.root / "mol_A"))
         result = cancel(self.root, entry["queue_id"])
         self.assertIsNotNone(result)
+        assert result is not None
         self.assertEqual(result["status"], QueueStatus.CANCELLED.value)
 
     def test_cancel_running_sets_flag(self) -> None:
@@ -125,6 +128,7 @@ class TestQueueStore(unittest.TestCase):
         dequeue_next(self.root)
         result = cancel(self.root, entry["queue_id"])
         self.assertIsNotNone(result)
+        assert result is not None
         self.assertTrue(result["cancel_requested"])
         self.assertTrue(get_cancel_requested(self.root, entry["queue_id"]))
 
@@ -151,6 +155,7 @@ class TestQueueStore(unittest.TestCase):
         dequeue_next(self.root)
         self.assertTrue(mark_completed(self.root, entry["queue_id"], run_id="run_test"))
         found = self._find_entry(entry["queue_id"])
+        assert found is not None
         self.assertEqual(found["status"], QueueStatus.COMPLETED.value)
         self.assertEqual(found["run_id"], "run_test")
 
@@ -159,6 +164,7 @@ class TestQueueStore(unittest.TestCase):
         dequeue_next(self.root)
         self.assertTrue(mark_failed(self.root, entry["queue_id"], error="exit_code=1"))
         found = self._find_entry(entry["queue_id"])
+        assert found is not None
         self.assertEqual(found["status"], QueueStatus.FAILED.value)
         self.assertEqual(found["error"], "exit_code=1")
 
@@ -201,6 +207,7 @@ class TestQueueStore(unittest.TestCase):
         entry = enqueue(self.root, str(reaction_dir))
         found = get_active_entry_for_reaction_dir(self.root, str(reaction_dir))
         self.assertIsNotNone(found)
+        assert found is not None
         self.assertEqual(found["queue_id"], entry["queue_id"])
 
     def test_get_active_entry_for_reaction_dir_returns_running(self) -> None:
@@ -209,6 +216,7 @@ class TestQueueStore(unittest.TestCase):
         dequeue_next(self.root)
         found = get_active_entry_for_reaction_dir(self.root, str(reaction_dir))
         self.assertIsNotNone(found)
+        assert found is not None
         self.assertEqual(found["queue_id"], entry["queue_id"])
 
     def test_get_active_entry_for_reaction_dir_ignores_terminal_entry(self) -> None:
@@ -275,6 +283,7 @@ class TestQueueStore(unittest.TestCase):
 
         self.assertEqual(changed, 0)
         found = self._find_entry(entry["queue_id"])
+        assert found is not None
         self.assertEqual(found["status"], QueueStatus.RUNNING.value)
 
     # -- queue lookup via list ------------------------------------------
@@ -283,6 +292,7 @@ class TestQueueStore(unittest.TestCase):
         entry = enqueue(self.root, str(self.root / "mol_A"))
         found = self._find_entry(entry["queue_id"])
         self.assertIsNotNone(found)
+        assert found is not None
         self.assertEqual(found["queue_id"], entry["queue_id"])
 
     def test_lookup_entry_missing(self) -> None:
@@ -294,6 +304,7 @@ class TestQueueStore(unittest.TestCase):
         e1 = enqueue(self.root, str(self.root / "first"))
         enqueue(self.root, str(self.root / "second"))
         dequeued = dequeue_next(self.root)
+        assert dequeued is not None
         self.assertEqual(dequeued["queue_id"], e1["queue_id"])
 
 

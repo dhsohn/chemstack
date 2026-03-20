@@ -19,6 +19,7 @@ from core.state_machine import (
     is_resumable_state,
 )
 from core.statuses import AnalyzerStatus
+from core.types import RunState
 
 
 # ── Retry Strategy Expansion ──
@@ -171,7 +172,7 @@ class TestCrashRecovery(unittest.TestCase):
         self.assertIn("crashed_recovery", RESUMABLE_FAILED_REASONS)
 
     def test_crashed_state_is_resumable(self) -> None:
-        state = {
+        state: RunState = {
             "status": "failed",
             "final_result": {"reason": "crashed_recovery"},
         }
@@ -187,7 +188,7 @@ class TestCrashRecovery(unittest.TestCase):
             config = self._write_config(root, root / "orca_runs")
 
             # Simulate a crashed state: status=running, no lock file
-            state = {
+            state: RunState = {
                 "run_id": "run_crashed",
                 "reaction_dir": str(reaction),
                 "selected_inp": str(inp),

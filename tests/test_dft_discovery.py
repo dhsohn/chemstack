@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import os
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from core.dft_discovery import discover_orca_targets
@@ -23,7 +23,7 @@ def test_default_policy_uses_run_state_only(tmp_path: Path) -> None:
                 "status": "completed",
                 "final_result": {
                     "status": "completed",
-                    "completed_at": datetime.now(UTC).isoformat(),
+                    "completed_at": datetime.now(timezone.utc).isoformat(),
                 },
             },
             ensure_ascii=False,
@@ -180,7 +180,7 @@ def test_orca_outputs_prefers_run_state_status_when_report_also_exists(
                 "status": "completed",
                 "final_result": {
                     "status": "completed",
-                    "completed_at": datetime.now(UTC).isoformat(),
+                    "completed_at": datetime.now(timezone.utc).isoformat(),
                     "last_out_path": "/home/someone/orca_outputs/run_status_priority/final.out",
                 },
             },
@@ -209,7 +209,7 @@ def test_orca_outputs_ignores_run_report_when_run_state_missing(tmp_path: Path) 
                 "status": "completed",
                 "final_result": {
                     "status": "completed",
-                    "completed_at": datetime.now(UTC).isoformat(),
+                    "completed_at": datetime.now(timezone.utc).isoformat(),
                     "last_out_path": "/home/someone/orca_outputs/run_report_only/final.out",
                 },
             },
@@ -234,7 +234,7 @@ def test_orca_outputs_includes_recent_completed_with_completed_at(tmp_path: Path
     final_out = run_dir / "final.out"
     final_out.write_text("final", encoding="utf-8")
 
-    completed_at = (datetime.now(UTC) - timedelta(minutes=30)).isoformat()
+    completed_at = (datetime.now(timezone.utc) - timedelta(minutes=30)).isoformat()
     (run_dir / "run_state.json").write_text(
         json.dumps(
             {
@@ -265,7 +265,7 @@ def test_orca_outputs_excludes_old_completed_with_completed_at(tmp_path: Path) -
     final_out = run_dir / "final.out"
     final_out.write_text("final", encoding="utf-8")
 
-    completed_at = (datetime.now(UTC) - timedelta(hours=2)).isoformat()
+    completed_at = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
     (run_dir / "run_state.json").write_text(
         json.dumps(
             {
@@ -296,7 +296,7 @@ def test_orca_outputs_uses_mtime_when_completed_at_missing(tmp_path: Path) -> No
     final_out = run_dir / "final.out"
     final_out.write_text("final", encoding="utf-8")
 
-    old_mtime = (datetime.now(UTC) - timedelta(hours=2)).timestamp()
+    old_mtime = (datetime.now(timezone.utc) - timedelta(hours=2)).timestamp()
     os.utime(final_out, (old_mtime, old_mtime))
 
     (run_dir / "run_state.json").write_text(

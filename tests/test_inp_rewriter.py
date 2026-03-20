@@ -126,6 +126,7 @@ class TestInpRewriter(unittest.TestCase):
         # _find_block_range for %scf should still return correct unclosed range
         rng = _find_block_range(lines, "scf")
         self.assertIsNotNone(rng)
+        assert rng is not None
         start, end, needs_close = rng
         self.assertEqual(start, 5)
         self.assertTrue(needs_close)

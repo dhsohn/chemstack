@@ -28,7 +28,7 @@ from ..telegram_notifier import (
     notify_run_finished_event,
     notify_run_started_event,
 )
-from ..types import QueueEnqueuedNotification, RetryNotification, RunFinishedNotification, RunStartedNotification
+from ..types import QueueEnqueuedNotification, QueueEntry, RetryNotification, RunFinishedNotification, RunStartedNotification
 from ._helpers import ORCA_GENERATED_INP_RE, RETRY_INP_RE, _emit, _to_resolved_local, _validate_reaction_dir
 
 logger = logging.getLogger(__name__)
@@ -171,7 +171,7 @@ def _has_pending_entries(allowed_root: Path) -> bool:
     )
 
 
-def _active_queue_entry(allowed_root: Path, reaction_dir: Path) -> dict[str, Any] | None:
+def _active_queue_entry(allowed_root: Path, reaction_dir: Path) -> QueueEntry | None:
     helper = getattr(_queue_store, "get_active_entry_for_reaction_dir", None)
     if callable(helper):
         return helper(allowed_root, str(reaction_dir))
@@ -197,7 +197,7 @@ def _find_submission_conflict(allowed_root: Path, reaction_dir: Path) -> str | N
 
 def _emit_queued_submission(
     reaction_dir: Path,
-    entry: Dict[str, Any],
+    entry: QueueEntry,
     *,
     worker_status: str | None,
     worker_pid: int | None,
