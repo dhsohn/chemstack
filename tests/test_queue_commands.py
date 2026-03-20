@@ -12,13 +12,12 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from core.commands.queue import (
-    _start_daemon,
-    cmd_queue_add,
     cmd_queue_cancel,
     cmd_queue_stop,
     cmd_queue_worker,
 )
 from core.config import AppConfig, RuntimeConfig
+from core.queue_worker import WorkerLaunchResult, start_worker_daemon
 from core.state_store import STATE_FILE_NAME
 
 
@@ -46,58 +45,6 @@ def _write_running_state(reaction_dir: Path, *, run_id: str, pid: int) -> None:
     }
     (reaction_dir / STATE_FILE_NAME).write_text(json.dumps(state), encoding="utf-8")
     (reaction_dir / "run.lock").write_text(json.dumps({"pid": pid}), encoding="utf-8")
-
-
-class TestCmdQueueAdd(unittest.TestCase):
-    def setUp(self) -> None:
-        self._tmpdir = tempfile.TemporaryDirectory()
-        self.root = Path(self._tmpdir.name)
-        self.cfg = _make_cfg(self._tmpdir.name)
-
-    def tearDown(self) -> None:
-        self._tmpdir.cleanup()
-
-    @patch("core.commands.queue.load_config")
-    def test_add_success(self, mock_load: MagicMock) -> None:
-        mock_load.return_value = self.cfg
-        rxn_dir = self.root / "mol_A"
-        rxn_dir.mkdir()
-        args = _make_args(self._tmpdir.name, reaction_dir=str(rxn_dir), priority=5, force=False)
-        buf = io.StringIO()
-        with redirect_stdout(buf):
-            rc = cmd_queue_add(args)
-        self.assertEqual(rc, 0)
-        self.assertIn("Enqueued", buf.getvalue())
-
-    @patch("core.commands.queue.load_config")
-    def test_add_with_force(self, mock_load: MagicMock) -> None:
-        mock_load.return_value = self.cfg
-        rxn_dir = self.root / "mol_C"
-        rxn_dir.mkdir()
-        args = _make_args(self._tmpdir.name, reaction_dir=str(rxn_dir), priority=10, force=True)
-        buf = io.StringIO()
-        with redirect_stdout(buf):
-            rc = cmd_queue_add(args)
-        self.assertEqual(rc, 0)
-        self.assertIn("force: true", buf.getvalue())
-
-    @patch("core.commands.queue.load_config")
-    def test_add_duplicate_returns_1(self, mock_load: MagicMock) -> None:
-        mock_load.return_value = self.cfg
-        rxn_dir = self.root / "mol_D"
-        rxn_dir.mkdir()
-        args = _make_args(self._tmpdir.name, reaction_dir=str(rxn_dir), priority=10, force=False)
-        cmd_queue_add(args)
-        rc = cmd_queue_add(args)
-        self.assertEqual(rc, 1)
-
-    @patch("core.commands.queue.load_config")
-    def test_add_invalid_dir_returns_1(self, mock_load: MagicMock) -> None:
-        mock_load.return_value = self.cfg
-        args = _make_args(self._tmpdir.name, reaction_dir="/nonexistent/dir", priority=10, force=False)
-        rc = cmd_queue_add(args)
-        self.assertEqual(rc, 1)
-
 
 class TestCmdQueueCancel(unittest.TestCase):
     def setUp(self) -> None:
@@ -195,14 +142,19 @@ class TestCmdQueueWorker(unittest.TestCase):
 
     @patch("core.commands.queue.load_config")
     @patch("core.commands.queue.read_worker_pid", return_value=None)
-    @patch("core.commands.queue._start_daemon", return_value=0)
+    @patch("core.commands.queue.start_worker_daemon")
     def test_worker_daemon_mode(self, mock_daemon: MagicMock, mock_pid: MagicMock, mock_load: MagicMock) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             mock_load.return_value = _make_cfg(tmp)
+            mock_daemon.return_value = WorkerLaunchResult(
+                status="started",
+                pid=7777,
+                log_file=Path(tmp) / "logs" / "queue_worker.log",
+            )
             args = _make_args(tmp, daemon=True)
             rc = cmd_queue_worker(args)
             self.assertEqual(rc, 0)
-            mock_daemon.assert_called_once_with(args)
+            mock_daemon.assert_called_once_with(args.config)
 
     @patch("core.commands.queue.load_config")
     @patch("core.commands.queue.read_worker_pid", return_value=None)
@@ -296,11 +248,10 @@ class TestCmdQueueStop(unittest.TestCase):
             rc = cmd_queue_stop(args)
             self.assertEqual(rc, 1)
 
-
-class TestStartDaemon(unittest.TestCase):
-    @patch("core.commands.queue.subprocess.Popen")
-    @patch("core.commands.queue.time.sleep", return_value=None)
-    def test_daemon_start_success(self, mock_sleep: MagicMock, mock_popen: MagicMock) -> None:
+class TestStartWorkerDaemonHelper(unittest.TestCase):
+    @patch("core.queue_worker.subprocess.Popen")
+    @patch("core.queue_worker.time.sleep", return_value=None)
+    def test_start_worker_daemon_success(self, mock_sleep: MagicMock, mock_popen: MagicMock) -> None:
         mock_proc = MagicMock()
         mock_proc.poll.return_value = None
         mock_proc.pid = 7777
@@ -310,49 +261,27 @@ class TestStartDaemon(unittest.TestCase):
             config_path = Path(tmp) / "config" / "settings.yaml"
             config_path.parent.mkdir()
             config_path.touch()
-            args = SimpleNamespace(config=str(config_path))
-            buf = io.StringIO()
-            with redirect_stdout(buf):
-                rc = _start_daemon(args)
-            self.assertEqual(rc, 0)
-            self.assertIn("Worker started", buf.getvalue())
-            cmd = mock_popen.call_args.args[0]
-            self.assertNotIn("--max-concurrent", cmd)
+            result = start_worker_daemon(str(config_path))
+            self.assertEqual(result.status, "started")
+            self.assertEqual(result.pid, 7777)
+            self.assertIsNotNone(result.log_file)
 
-    @patch("core.commands.queue.subprocess.Popen")
-    @patch("core.commands.queue.time.sleep", return_value=None)
-    def test_daemon_start_failure(self, mock_sleep: MagicMock, mock_popen: MagicMock) -> None:
+    @patch("core.queue_worker.subprocess.Popen")
+    @patch("core.queue_worker.time.sleep", return_value=None)
+    def test_start_worker_daemon_failure(self, mock_sleep: MagicMock, mock_popen: MagicMock) -> None:
         mock_proc = MagicMock()
-        mock_proc.poll.return_value = 1  # exited immediately
+        mock_proc.poll.return_value = 1
+        mock_proc.pid = 6666
         mock_popen.return_value = mock_proc
 
         with tempfile.TemporaryDirectory() as tmp:
             config_path = Path(tmp) / "config" / "settings.yaml"
             config_path.parent.mkdir()
             config_path.touch()
-            args = SimpleNamespace(config=str(config_path))
-            buf = io.StringIO()
-            with redirect_stdout(buf):
-                rc = _start_daemon(args)
-            self.assertEqual(rc, 1)
-            self.assertIn("failed to start", buf.getvalue())
-
-    @patch("core.commands.queue.subprocess.Popen")
-    @patch("core.commands.queue.time.sleep", return_value=None)
-    def test_daemon_non_config_dir(self, mock_sleep: MagicMock, mock_popen: MagicMock) -> None:
-        mock_proc = MagicMock()
-        mock_proc.poll.return_value = None
-        mock_proc.pid = 8888
-        mock_popen.return_value = mock_proc
-
-        with tempfile.TemporaryDirectory() as tmp:
-            config_path = Path(tmp) / "my_settings.yaml"
-            config_path.touch()
-            args = SimpleNamespace(config=str(config_path))
-            buf = io.StringIO()
-            with redirect_stdout(buf):
-                rc = _start_daemon(args)
-            self.assertEqual(rc, 0)
+            result = start_worker_daemon(str(config_path))
+            self.assertEqual(result.status, "failed")
+            self.assertEqual(result.pid, 6666)
+            self.assertEqual(result.detail, "worker_exited_early")
 
 
 if __name__ == "__main__":

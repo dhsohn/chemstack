@@ -501,6 +501,21 @@ def list_queue(
     return entries
 
 
+def has_pending_entries(allowed_root: Path) -> bool:
+    """Return True when at least one pending entry exists."""
+    with _acquire_queue_lock(allowed_root):
+        entries = _load_entries(allowed_root)
+    return any(entry.get("status") == QueueStatus.PENDING.value for entry in entries)
+
+
+def get_active_entry_for_reaction_dir(allowed_root: Path, reaction_dir: str) -> QueueEntry | None:
+    """Return the active queue entry for a reaction_dir, if one exists."""
+    resolved = str(Path(reaction_dir).expanduser().resolve())
+    with _acquire_queue_lock(allowed_root):
+        entries = _load_entries(allowed_root)
+    return _find_active_entry(entries, resolved)
+
+
 def get_cancel_requested(allowed_root: Path, queue_id: str) -> bool:
     """Check if a running entry has a cancel request."""
     with _acquire_queue_lock(allowed_root):

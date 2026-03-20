@@ -5,8 +5,10 @@ import os
 from pathlib import Path
 from typing import Any, Dict, Type
 
+from .. import queue_store as _queue_store
 from ..admission_store import (
     ADMISSION_TOKEN_ENV_VAR,
+    AdmissionLimitReachedError,
     activate_reserved_slot,
     acquire_direct_slot,
     release_slot,
@@ -14,18 +16,19 @@ from ..admission_store import (
 from ..attempt_engine import _exit_with_result, run_attempts
 from ..completion_rules import detect_completion_mode
 from ..config import load_config
-from ..lock_utils import is_process_alive, parse_lock_info
+from ..lock_utils import is_process_alive, parse_lock_info, process_start_ticks
 from ..orca_runner import OrcaRunner
 from ..out_analyzer import analyze_output
 from ..state_machine import RESUMABLE_RUN_STATUSES, load_or_create_state
 from ..state_store import LOCK_FILE_NAME, acquire_run_lock, load_state, save_state
-from ..statuses import AnalyzerStatus, RunStatus
+from ..statuses import AnalyzerStatus, QueueStatus, RunStatus
 from ..telegram_notifier import (
+    notify_queue_enqueued_event,
     notify_retry_event,
     notify_run_finished_event,
     notify_run_started_event,
 )
-from ..types import RetryNotification, RunFinishedNotification, RunStartedNotification
+from ..types import QueueEnqueuedNotification, RetryNotification, RunFinishedNotification, RunStartedNotification
 from ._helpers import ORCA_GENERATED_INP_RE, RETRY_INP_RE, _emit, _to_resolved_local, _validate_reaction_dir
 
 logger = logging.getLogger(__name__)
@@ -85,14 +88,7 @@ def _existing_completed_out(selected_inp: Path) -> Dict[str, Any] | None:
 
 
 def _recover_crashed_state(reaction_dir: Path) -> bool:
-    """Detect and recover from a crashed run (status=running/retrying but no active lock).
-
-    If the previous process crashed, we mark the state as failed with reason
-    'crashed_recovery' so that the next load_or_create_state treats it as
-    resumable and continues from where it left off.
-
-    Returns True if recovery was performed.
-    """
+    """Detect and recover from a crashed run (status=running/retrying but no active lock)."""
     state = load_state(reaction_dir)
     if not state:
         return False
@@ -101,15 +97,13 @@ def _recover_crashed_state(reaction_dir: Path) -> bool:
     if status not in RESUMABLE_RUN_STATUSES:
         return False
 
-    # Check if the lock is held by an active process
     lock_path = reaction_dir / LOCK_FILE_NAME
     if lock_path.exists():
         lock_info = parse_lock_info(lock_path)
         lock_pid = lock_info.get("pid")
         if isinstance(lock_pid, int) and is_process_alive(lock_pid):
-            return False  # Another process is actually running
+            return False
 
-    # State says running/retrying but no active lock → crashed
     logger.warning(
         "Detected crashed run in %s (status=%s, no active lock). Recovering state.",
         reaction_dir,
@@ -134,11 +128,181 @@ def _configured_max_concurrent(cfg: Any) -> int:
     return max(1, value)
 
 
-def cmd_run_inp(args: Any, *, runner_cls: Type[OrcaRunner] = OrcaRunner) -> int:
-    cfg = load_config(args.config)
+def _resolve_reaction_and_input(cfg: Any, reaction_dir_raw: str) -> tuple[Path, Path]:
+    reaction_dir = _validate_reaction_dir(cfg, reaction_dir_raw)
+    selected_inp = _select_latest_inp(reaction_dir)
+    return reaction_dir, selected_inp
+
+
+def _active_direct_run_error(reaction_dir: Path) -> str | None:
+    lock_info = parse_lock_info(reaction_dir / LOCK_FILE_NAME)
+    lock_pid = lock_info.get("pid")
+    if not isinstance(lock_pid, int) or not is_process_alive(lock_pid):
+        return None
+
+    expected_ticks = lock_info.get("process_start_ticks")
+    if isinstance(expected_ticks, int) and expected_ticks > 0:
+        observed_ticks = process_start_ticks(lock_pid)
+        if observed_ticks is None or observed_ticks != expected_ticks:
+            logger.info(
+                "Ignoring stale run.lock due to PID reuse: reaction_dir=%s pid=%d expected=%d observed=%s",
+                reaction_dir,
+                lock_pid,
+                expected_ticks,
+                observed_ticks,
+            )
+            return None
+
+    started_at = lock_info.get("started_at")
+    started = started_at if isinstance(started_at, str) and started_at else "unknown"
+    return (
+        "Another orca_auto instance is already running in this directory "
+        f"(pid={lock_pid}, started_at={started}). Lock file: {reaction_dir / LOCK_FILE_NAME}"
+    )
+
+
+def _has_pending_entries(allowed_root: Path) -> bool:
+    helper = getattr(_queue_store, "has_pending_entries", None)
+    if callable(helper):
+        return bool(helper(allowed_root))
+    return any(
+        entry.get("status") == QueueStatus.PENDING.value
+        for entry in _queue_store.list_queue(allowed_root)
+    )
+
+
+def _active_queue_entry(allowed_root: Path, reaction_dir: Path) -> dict[str, Any] | None:
+    helper = getattr(_queue_store, "get_active_entry_for_reaction_dir", None)
+    if callable(helper):
+        return helper(allowed_root, str(reaction_dir))
+
+    resolved = str(reaction_dir.expanduser().resolve())
+    for entry in _queue_store.list_queue(allowed_root):
+        if entry.get("reaction_dir") != resolved:
+            continue
+        if entry.get("status") in {QueueStatus.PENDING.value, QueueStatus.RUNNING.value}:
+            return entry
+    return None
+
+
+def _find_submission_conflict(allowed_root: Path, reaction_dir: Path) -> str | None:
+    active_entry = _active_queue_entry(allowed_root, reaction_dir)
+    if active_entry is not None:
+        return (
+            "Reaction directory already queued: "
+            f"{reaction_dir} (queue_id={active_entry.get('queue_id')}, status={active_entry.get('status')})"
+        )
+    return _active_direct_run_error(reaction_dir)
+
+
+def _emit_queued_submission(
+    reaction_dir: Path,
+    entry: Dict[str, Any],
+    *,
+    worker_status: str | None,
+    worker_pid: int | None,
+    worker_log: str | Path | None,
+    worker_detail: str | None = None,
+) -> None:
+    print("status: queued")
+    print(f"reaction_dir: {reaction_dir}")
+    print(f"queue_id: {entry.get('queue_id')}")
+    print(f"priority: {entry.get('priority')}")
+    if entry.get("force"):
+        print("force: true")
+    if worker_status:
+        print(f"worker: {worker_status}")
+    if worker_pid is not None:
+        print(f"worker_pid: {worker_pid}")
+    if worker_log:
+        print(f"worker_log: {worker_log}")
+    if worker_detail:
+        print(f"worker_detail: {worker_detail}")
+
+
+def _ensure_worker_for_submission(config_path: str, allowed_root: Path) -> Any:
+    from ..queue_worker import ensure_worker_running
+
+    return ensure_worker_running(config_path, allowed_root)
+
+
+def _worker_result_field(result: Any, field: str) -> Any:
+    if result is None:
+        return None
+    if isinstance(result, dict):
+        return result.get(field)
+    return getattr(result, field, None)
+
+
+def _submit_as_queued(cfg: Any, args: Any, reaction_dir: Path) -> int:
+    from ..queue_store import DuplicateEntryError, enqueue
+
+    allowed_root = Path(cfg.runtime.allowed_root).expanduser().resolve()
     try:
-        reaction_dir = _validate_reaction_dir(cfg, args.reaction_dir)
-        selected_inp = _select_latest_inp(reaction_dir)
+        entry = enqueue(
+            allowed_root,
+            str(reaction_dir),
+            priority=int(getattr(args, "priority", 10)),
+            force=bool(getattr(args, "force", False)),
+        )
+    except DuplicateEntryError as exc:
+        logger.error("%s", exc)
+        return 1
+
+    notification: QueueEnqueuedNotification = {
+        "queue_id": entry["queue_id"],
+        "reaction_dir": entry["reaction_dir"],
+        "priority": entry["priority"],
+        "force": entry.get("force", False),
+        "enqueued_at": entry.get("enqueued_at", ""),
+    }
+    notify_queue_enqueued_event(cfg.telegram, notification)
+
+    worker_status = None
+    worker_pid = None
+    worker_log = None
+    worker_detail = None
+    try:
+        worker_result = _ensure_worker_for_submission(args.config, allowed_root)
+        worker_status = _worker_result_field(worker_result, "status")
+        worker_pid = _worker_result_field(worker_result, "pid")
+        worker_log = _worker_result_field(worker_result, "log_file")
+        worker_detail = _worker_result_field(worker_result, "detail")
+        if worker_status == "failed":
+            if worker_detail:
+                logger.warning("Queue worker autostart failed for queued submission %s: %s", reaction_dir, worker_detail)
+            else:
+                logger.warning("Queue worker autostart failed for queued submission: %s", reaction_dir)
+    except Exception as exc:
+        worker_status = "failed"
+        worker_detail = str(exc)
+        logger.warning("Queue worker autostart failed for queued submission %s: %s", reaction_dir, exc)
+
+    _emit_queued_submission(
+        reaction_dir,
+        entry,
+        worker_status=worker_status,
+        worker_pid=worker_pid,
+        worker_log=worker_log,
+        worker_detail=worker_detail,
+    )
+    return 0
+
+
+def _cmd_run_inp_execute(
+    args: Any,
+    *,
+    runner_cls: Type[OrcaRunner] = OrcaRunner,
+    cfg: Any | None = None,
+    reaction_dir: Path | None = None,
+    selected_inp: Path | None = None,
+    raise_on_admission_limit: bool = False,
+) -> int:
+    if cfg is None:
+        cfg = load_config(args.config)
+    try:
+        if reaction_dir is None or selected_inp is None:
+            reaction_dir, selected_inp = _resolve_reaction_and_input(cfg, args.reaction_dir)
     except ValueError as exc:
         logger.error("%s", exc)
         return 1
@@ -150,12 +314,11 @@ def cmd_run_inp(args: Any, *, runner_cls: Type[OrcaRunner] = OrcaRunner) -> int:
     allowed_root = Path(cfg.runtime.allowed_root).expanduser().resolve()
     reservation_token = os.getenv(ADMISSION_TOKEN_ENV_VAR, "").strip() or None
 
-    # Recover from crashes before attempting to acquire the lock
     _recover_crashed_state(reaction_dir)
 
     try:
         with acquire_run_lock(reaction_dir):
-            if not args.force:
+            if not getattr(args, "force", False):
                 done = _existing_completed_out(selected_inp)
                 if done:
                     if reservation_token is not None:
@@ -167,12 +330,16 @@ def cmd_run_inp(args: Any, *, runner_cls: Type[OrcaRunner] = OrcaRunner) -> int:
                         to_resolved_local=_to_resolved_local,
                     )
                     return _exit_with_result(
-                        reaction_dir, state, selected_inp,
+                        reaction_dir,
+                        state,
+                        selected_inp,
                         status=RunStatus.COMPLETED,
                         analyzer_status=AnalyzerStatus.COMPLETED,
                         reason="existing_out_completed",
                         last_out_path=done["out_path"],
-                        resumed=True if resumed else None, exit_code=0, emit=_emit,
+                        resumed=True if resumed else None,
+                        exit_code=0,
+                        emit=_emit,
                         extra={"skipped_execution": True},
                     )
 
@@ -202,6 +369,7 @@ def cmd_run_inp(args: Any, *, runner_cls: Type[OrcaRunner] = OrcaRunner) -> int:
                 notify_finished = None
                 notify_retry = None
                 if cfg.telegram.enabled:
+
                     def _notify_started(event: RunStartedNotification) -> None:
                         notify_run_started_event(cfg.telegram, event)
 
@@ -230,6 +398,13 @@ def cmd_run_inp(args: Any, *, runner_cls: Type[OrcaRunner] = OrcaRunner) -> int:
                     notify_finished=notify_finished,
                     notify_retry=notify_retry,
                 )
+    except AdmissionLimitReachedError as exc:
+        if reservation_token is not None:
+            release_slot(allowed_root, reservation_token)
+        if raise_on_admission_limit:
+            raise
+        logger.error("%s", exc)
+        return 1
     except RuntimeError as exc:
         if reservation_token is not None:
             release_slot(allowed_root, reservation_token)
@@ -240,3 +415,63 @@ def cmd_run_inp(args: Any, *, runner_cls: Type[OrcaRunner] = OrcaRunner) -> int:
             release_slot(allowed_root, reservation_token)
         logger.exception("Unexpected error while running input: %s", exc)
         return 1
+
+
+def _cmd_run_inp_submit(args: Any, *, runner_cls: Type[OrcaRunner] = OrcaRunner) -> int:
+    if getattr(args, "queue_only", False) and getattr(args, "require_slot", False):
+        logger.error("--queue-only and --require-slot cannot be used together.")
+        return 1
+
+    cfg = load_config(args.config)
+    try:
+        reaction_dir, selected_inp = _resolve_reaction_and_input(cfg, args.reaction_dir)
+    except ValueError as exc:
+        logger.error("%s", exc)
+        return 1
+
+    allowed_root = Path(cfg.runtime.allowed_root).expanduser().resolve()
+
+    conflict_error = _find_submission_conflict(allowed_root, reaction_dir)
+    if conflict_error is not None:
+        logger.error("%s", conflict_error)
+        return 1
+
+    if not getattr(args, "force", False) and _existing_completed_out(selected_inp):
+        return _cmd_run_inp_execute(
+            args,
+            runner_cls=runner_cls,
+            cfg=cfg,
+            reaction_dir=reaction_dir,
+            selected_inp=selected_inp,
+        )
+
+    if getattr(args, "queue_only", False):
+        return _submit_as_queued(cfg, args, reaction_dir)
+
+    if _has_pending_entries(allowed_root):
+        if getattr(args, "require_slot", False):
+            logger.error("Immediate execution unavailable: pending queue backlog exists under %s", allowed_root)
+            return 1
+        return _submit_as_queued(cfg, args, reaction_dir)
+
+    try:
+        return _cmd_run_inp_execute(
+            args,
+            runner_cls=runner_cls,
+            cfg=cfg,
+            reaction_dir=reaction_dir,
+            selected_inp=selected_inp,
+            raise_on_admission_limit=True,
+        )
+    except AdmissionLimitReachedError as exc:
+        if getattr(args, "require_slot", False):
+            logger.error("%s", exc)
+            return 1
+        logger.info("Immediate execution unavailable, enqueueing instead: %s", exc)
+        return _submit_as_queued(cfg, args, reaction_dir)
+
+
+def cmd_run_inp(args: Any, *, runner_cls: Type[OrcaRunner] = OrcaRunner) -> int:
+    if getattr(args, "execute_now", False):
+        return _cmd_run_inp_execute(args, runner_cls=runner_cls)
+    return _cmd_run_inp_submit(args, runner_cls=runner_cls)

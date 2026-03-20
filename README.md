@@ -124,17 +124,29 @@ Config file search order:
 ### Running a Single Calculation
 
 ```bash
-# Default execution (background)
+# Default submission
 ./bin/orca_auto run-inp --reaction-dir '/home/user/orca_runs/sample_rxn'
 
-# Foreground execution
+# Foreground execution when a slot is immediately available
 ./bin/orca_auto run-inp --reaction-dir '/home/user/orca_runs/sample_rxn' --foreground
 
 # Force re-run of a completed calculation
 ./bin/orca_auto run-inp --reaction-dir '/home/user/orca_runs/sample_rxn' --force
+
+# Always enqueue instead of trying immediate execution
+./bin/orca_auto run-inp --reaction-dir '/home/user/orca_runs/sample_rxn' --queue-only
+
+# Set queue priority for queued submissions
+./bin/orca_auto run-inp --reaction-dir '/home/user/orca_runs/sample_rxn' --priority 1
 ```
 
 `run-inp` automatically selects the **most recently modified `.inp` file** in the directory.
+
+Submission behavior:
+- If there is no pending queue backlog and a slot is available, `run-inp` starts immediately.
+- If a pending backlog already exists, or no slot is available, `run-inp` enqueues the job as `pending`.
+- When a job is enqueued, `orca_auto` tries to ensure a queue worker is running automatically.
+- Queued jobs select the latest `.inp` at the moment execution actually begins.
 
 By default it runs in the background, printing `status`, `pid`, and `log` path before returning immediately.
 Set `ORCA_AUTO_RUN_INP_BACKGROUND=0` to change the default to foreground.
@@ -171,17 +183,17 @@ report_md: /home/user/orca_runs/sample_rxn/run_report.md
 
 The queue system provides **batch processing** for running multiple calculations sequentially or concurrently. It supports priority-based ordering, concurrency limits, cancellation, and background worker mode.
 
-### Adding Jobs to the Queue
+### Queue Submission
 
 ```bash
-# Add with default priority (10)
-./bin/orca_auto queue add --reaction-dir '/home/user/orca_runs/rxn_001'
+# Default queued submission behavior when immediate execution is unavailable
+./bin/orca_auto run-inp --reaction-dir '/home/user/orca_runs/rxn_001'
 
-# Add with higher priority (lower number = higher priority)
-./bin/orca_auto queue add --reaction-dir '/home/user/orca_runs/rxn_002' --priority 1
+# Explicit queue-only submission with higher priority
+./bin/orca_auto run-inp --reaction-dir '/home/user/orca_runs/rxn_002' --queue-only --priority 1
 
-# Re-enqueue a completed/failed job intentionally
-./bin/orca_auto queue add --reaction-dir '/home/user/orca_runs/rxn_001' --force
+# Intentional re-run of a completed/failed job
+./bin/orca_auto run-inp --reaction-dir '/home/user/orca_runs/rxn_001' --queue-only --force
 ```
 
 - Priority: **lower number** = runs first (default: 10)
@@ -237,7 +249,7 @@ Worker behavior:
 - Enforces a global active-run cap under `allowed_root` via admission slots
 - Uses `runtime.max_concurrent` as the shared hard cap for both queued and direct runs
 - Counts already running direct `run-inp` processes under `allowed_root` before starting more queued jobs
-- Each job runs as an `orca_auto run-inp --foreground` subprocess
+- Each job runs as an internal `orca_auto run-inp --foreground --execute-now` subprocess
 - Checks exit codes upon completion and updates job status
 - Supports graceful shutdown via `SIGTERM` / `SIGINT`
 
@@ -272,10 +284,10 @@ This removes terminal queue entries and run state files for completed/failed sim
 ### Queue Workflow Example
 
 ```bash
-# 1. Add multiple calculations to the queue
-./bin/orca_auto queue add --reaction-dir '/home/user/orca_runs/rxn_A' --priority 1
-./bin/orca_auto queue add --reaction-dir '/home/user/orca_runs/rxn_B' --priority 5
-./bin/orca_auto queue add --reaction-dir '/home/user/orca_runs/rxn_C'
+# 1. Submit multiple calculations
+./bin/orca_auto run-inp --reaction-dir '/home/user/orca_runs/rxn_A' --queue-only --priority 1
+./bin/orca_auto run-inp --reaction-dir '/home/user/orca_runs/rxn_B' --queue-only --priority 5
+./bin/orca_auto run-inp --reaction-dir '/home/user/orca_runs/rxn_C' --queue-only
 
 # 2. Set runtime.max_concurrent: 2 in config/orca_auto.yaml
 
@@ -483,7 +495,7 @@ Installed schedules:
 
 | Command | Role |
 |---------|------|
-| `run-inp` | Immediate alerts — start, retry scheduling, completion, failure |
+| `run-inp` | Submit and execute calculations — immediate run when possible, queue fallback otherwise |
 | `monitor` | Discovery alerts — newly found results from filesystem scans |
 | `summary` | State digest — active jobs and attention-needed items (completed history excluded) |
 
@@ -496,7 +508,7 @@ Installed schedules:
 | Command | Description |
 |---------|-------------|
 | `init` | Interactively create or update the config file |
-| `run-inp` | Select the latest `.inp`, then run/recover/retry |
+| `run-inp` | Submit a calculation; run immediately when possible, otherwise enqueue it |
 | `list` | Unified view of all simulations (queue + standalone) |
 | `list clear` | Remove completed/failed/cancelled entries |
 | `organize` | Move completed results to `organized_root` and index them |
@@ -509,7 +521,6 @@ Installed schedules:
 
 | Subcommand | Description |
 |------------|-------------|
-| `queue add` | Add a calculation directory to the queue |
 | `queue cancel` | Cancel a pending or running job |
 | `queue worker` | Start the queue worker |
 | `queue stop` | Stop the running worker |
@@ -522,6 +533,9 @@ Installed schedules:
 | `--verbose`, `-v` | Enable debug logging |
 | `--log-file <path>` | Write logs to file (10MB x 5 rotation) |
 | `--force` | Force re-run of completed calculations |
+| `--priority <n>` | Queue priority used when a `run-inp` submission is enqueued |
+| `--queue-only` | Always enqueue a `run-inp` submission instead of starting immediately |
+| `--require-slot` | Fail instead of queueing when `run-inp` cannot start immediately |
 | `--foreground` | Run `run-inp` or `queue worker` in the foreground |
 
 ### Environment Variables

@@ -12,7 +12,6 @@ from .commands.list_runs import cmd_list
 from .commands.monitor import cmd_monitor
 from .commands.organize import cmd_organize
 from .commands.queue import (
-    cmd_queue_add as _cmd_queue_add,
     cmd_queue_cancel as _cmd_queue_cancel,
     cmd_queue_stop as _cmd_queue_stop,
     cmd_queue_worker as _cmd_queue_worker,
@@ -30,14 +29,13 @@ def cmd_bot(args: argparse.Namespace) -> int:
 
 def cmd_queue(args: argparse.Namespace) -> int:
     _queue_sub_map: dict[str, Callable[[argparse.Namespace], int]] = {
-        "add": _cmd_queue_add,
         "cancel": _cmd_queue_cancel,
         "worker": _cmd_queue_worker,
         "stop": _cmd_queue_stop,
     }
     handler = _queue_sub_map.get(args.queue_command)
     if handler is None:
-        print("Usage: orca_auto queue {add|cancel|worker|stop}")
+        print("Usage: orca_auto queue {cancel|worker|stop}")
         return 1
     return int(handler(args))
 
@@ -55,7 +53,11 @@ def build_parser() -> argparse.ArgumentParser:
     run_inp = sub.add_parser("run-inp")
     run_inp.add_argument("--reaction-dir", required=True, help="Directory under the configured allowed_root containing input files")
     run_inp.add_argument("--force", action="store_true", help="Force re-run even if existing output is completed")
+    run_inp.add_argument("--priority", type=int, default=10, help="Queue priority when submission is enqueued (lower = higher, default 10)")
+    run_inp.add_argument("--queue-only", action="store_true", help="Submit to the queue without attempting immediate execution")
+    run_inp.add_argument("--require-slot", action="store_true", help="Fail instead of enqueueing when immediate execution is not possible")
     run_inp.add_argument("--foreground", action="store_true", help="Run in the foreground")
+    run_inp.add_argument("--execute-now", action="store_true", help=argparse.SUPPRESS)
 
     list_cmd = sub.add_parser("list", help="Show status of all simulations (queue + standalone)")
     list_cmd.add_argument("action", nargs="?", default=None, choices=["clear"],
@@ -79,11 +81,6 @@ def build_parser() -> argparse.ArgumentParser:
     # -- queue subcommand with its own sub-subcommands --------------------
     queue_parser = sub.add_parser("queue", help="Manage the task queue")
     queue_sub = queue_parser.add_subparsers(dest="queue_command", required=True)
-
-    q_add = queue_sub.add_parser("add", help="Add a reaction directory to the queue")
-    q_add.add_argument("--reaction-dir", required=True, help="Directory under allowed_root")
-    q_add.add_argument("--priority", type=int, default=10, help="Priority (lower = higher, default 10)")
-    q_add.add_argument("--force", action="store_true", help="Allow re-enqueue of completed/failed jobs (intentional retry)")
 
     q_cancel = queue_sub.add_parser("cancel", help="Cancel a queued or running job")
     q_cancel.add_argument("target", help="queue_id, reaction_dir, or run_id to cancel; or 'all-pending'")

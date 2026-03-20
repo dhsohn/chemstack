@@ -11,7 +11,9 @@ from core.queue_store import (
     clear_terminal,
     dequeue_next,
     enqueue,
+    get_active_entry_for_reaction_dir,
     get_cancel_requested,
+    has_pending_entries,
     list_queue,
     mark_completed,
     mark_failed,
@@ -181,6 +183,40 @@ class TestQueueStore(unittest.TestCase):
         dequeue_next(self.root)
         running = [entry for entry in list_queue(self.root) if entry.get("status") == QueueStatus.RUNNING.value]
         self.assertEqual(len(running), 2)
+
+    def test_has_pending_entries_false_when_empty(self) -> None:
+        self.assertFalse(has_pending_entries(self.root))
+
+    def test_has_pending_entries_true_when_pending_exists(self) -> None:
+        enqueue(self.root, str(self.root / "pending"))
+        self.assertTrue(has_pending_entries(self.root))
+
+    def test_has_pending_entries_false_when_only_running_exists(self) -> None:
+        enqueue(self.root, str(self.root / "running_only"))
+        dequeue_next(self.root)
+        self.assertFalse(has_pending_entries(self.root))
+
+    def test_get_active_entry_for_reaction_dir_returns_pending(self) -> None:
+        reaction_dir = self.root / "pending_lookup"
+        entry = enqueue(self.root, str(reaction_dir))
+        found = get_active_entry_for_reaction_dir(self.root, str(reaction_dir))
+        self.assertIsNotNone(found)
+        self.assertEqual(found["queue_id"], entry["queue_id"])
+
+    def test_get_active_entry_for_reaction_dir_returns_running(self) -> None:
+        reaction_dir = self.root / "running_lookup"
+        entry = enqueue(self.root, str(reaction_dir))
+        dequeue_next(self.root)
+        found = get_active_entry_for_reaction_dir(self.root, str(reaction_dir))
+        self.assertIsNotNone(found)
+        self.assertEqual(found["queue_id"], entry["queue_id"])
+
+    def test_get_active_entry_for_reaction_dir_ignores_terminal_entry(self) -> None:
+        reaction_dir = self.root / "terminal_lookup"
+        entry = enqueue(self.root, str(reaction_dir))
+        mark_completed(self.root, entry["queue_id"])
+        found = get_active_entry_for_reaction_dir(self.root, str(reaction_dir))
+        self.assertIsNone(found)
 
     def test_reconcile_orphaned_running_entry_from_run_report(self) -> None:
         reaction_dir = self.root / "mol_done"

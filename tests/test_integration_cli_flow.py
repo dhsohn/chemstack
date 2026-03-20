@@ -2,13 +2,25 @@ import io
 import json
 import tempfile
 import unittest
+import time
 from pathlib import Path
 from unittest.mock import patch
 
+from core.admission_store import acquire_direct_slot
 from core.cli import main
+from core.config import load_config
+from core.queue_store import list_queue
+from core.queue_worker import QueueWorker, WorkerLaunchResult
 
 
-def _write_config(root: Path, allowed_root: Path, organized_root: Path, orca_executable: Path) -> Path:
+def _write_config(
+    root: Path,
+    allowed_root: Path,
+    organized_root: Path,
+    orca_executable: Path,
+    *,
+    max_concurrent: int = 4,
+) -> Path:
     config = root / "orca_auto.yaml"
     config.write_text(
         json.dumps(
@@ -17,6 +29,7 @@ def _write_config(root: Path, allowed_root: Path, organized_root: Path, orca_exe
                     "allowed_root": str(allowed_root),
                     "organized_root": str(organized_root),
                     "default_max_retries": 2,
+                    "max_concurrent": max_concurrent,
                 },
                 "paths": {"orca_executable": str(orca_executable)},
             }
@@ -178,6 +191,71 @@ class TestIntegrationCliFlow(unittest.TestCase):
 
             report_md = (reaction / "run_report.md").read_text(encoding="utf-8")
             self.assertIn("attempt_count: `1`", report_md)
+
+    def test_run_inp_auto_enqueues_and_worker_uses_latest_inp_at_execution_time(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            allowed = root / "orca_runs"
+            organized = root / "orca_outputs"
+            reaction = allowed / "rxn_queue_latest"
+            reaction.mkdir(parents=True)
+            organized.mkdir()
+
+            counter = root / "fake_orca_counter.txt"
+            fake_orca = root / "fake_orca.py"
+            _write_fake_orca(fake_orca, counter, mode="always_success")
+            config = _write_config(root, allowed, organized, fake_orca, max_concurrent=1)
+
+            old_inp = reaction / "old.inp"
+            old_inp.write_text("! Opt\n* xyz 0 1\nH 0 0 0\nH 0 0 0.74\n*\n", encoding="utf-8")
+
+            with acquire_direct_slot(allowed, max_concurrent=1, reaction_dir=str(allowed / "slot_holder")):
+                run_stdout = io.StringIO()
+                with patch(
+                    "core.queue_worker.ensure_worker_running",
+                    return_value=WorkerLaunchResult(status="already_running", pid=4321),
+                ):
+                    with patch("sys.stdout", run_stdout):
+                        rc = main(
+                            [
+                                "--config",
+                                str(config),
+                                "run-inp",
+                                "--reaction-dir",
+                                str(reaction),
+                                "--foreground",
+                            ]
+                        )
+
+                self.assertEqual(rc, 0)
+                self.assertIn("status: queued", run_stdout.getvalue())
+                queued_entries = [entry for entry in list_queue(allowed) if entry["reaction_dir"] == str(reaction.resolve())]
+                self.assertEqual(len(queued_entries), 1)
+                self.assertEqual(queued_entries[0]["status"], "pending")
+
+                time.sleep(0.01)
+                new_inp = reaction / "new.inp"
+                new_inp.write_text("! Opt\n* xyz 0 1\nH 0 0 0\nH 0 0 0.74\n*\n", encoding="utf-8")
+
+            cfg = load_config(str(config))
+            worker = QueueWorker(cfg, str(config), max_concurrent=1)
+            worker._fill_slots()
+            self.assertEqual(len(worker._running), 1)
+
+            deadline = time.time() + 10
+            while time.time() < deadline and any(job.process.poll() is None for job in worker._running.values()):
+                time.sleep(0.1)
+
+            worker._check_completed_jobs()
+
+            state = json.loads((reaction / "run_state.json").read_text(encoding="utf-8"))
+            self.assertEqual(state["status"], "completed")
+            self.assertEqual(Path(state["selected_inp"]).name, "new.inp")
+            self.assertEqual(counter.read_text(encoding="utf-8").strip(), "1")
+
+            queued_entries = [entry for entry in list_queue(allowed) if entry["reaction_dir"] == str(reaction.resolve())]
+            self.assertEqual(len(queued_entries), 1)
+            self.assertEqual(queued_entries[0]["status"], "completed")
 
 
 if __name__ == "__main__":

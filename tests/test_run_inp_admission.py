@@ -59,6 +59,7 @@ class TestRunInpAdmission(unittest.TestCase):
                 reaction_dir=str(reaction_dir),
                 force=False,
                 foreground=True,
+                execute_now=True,
             )
 
             with acquire_direct_slot(root, max_concurrent=1, reaction_dir=other_dir):
@@ -90,6 +91,7 @@ class TestRunInpAdmission(unittest.TestCase):
                 reaction_dir=str(reaction_dir),
                 force=False,
                 foreground=True,
+                execute_now=True,
             )
 
             with patch("core.commands.run_inp.run_attempts", new=_fake_run_attempts):
@@ -121,6 +123,7 @@ class TestRunInpAdmission(unittest.TestCase):
                 reaction_dir=str(reaction_dir),
                 force=False,
                 foreground=True,
+                execute_now=True,
             )
 
             with patch.dict(os.environ, {ADMISSION_TOKEN_ENV_VAR: token or ""}, clear=False):
@@ -151,6 +154,7 @@ class TestRunInpAdmission(unittest.TestCase):
                 reaction_dir=str(reaction_dir),
                 force=False,
                 foreground=True,
+                execute_now=True,
             )
 
             with patch.dict(os.environ, {ADMISSION_TOKEN_ENV_VAR: token or ""}, clear=False):

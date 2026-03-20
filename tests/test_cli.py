@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from core.cli import main
+from core.cli import build_parser, main
 from core.commands._helpers import CONFIG_ENV_VAR, _emit, default_config_path
 from core.commands.run_inp import _retry_inp_path, _select_latest_inp
 from core.orca_runner import RunResult
@@ -69,6 +69,44 @@ class TestCli(unittest.TestCase):
     def test_default_config_path_prefers_env_var(self) -> None:
         with patch.dict(os.environ, {CONFIG_ENV_VAR: "/tmp/custom_orca_auto.yaml"}, clear=False):
             self.assertEqual(default_config_path(), "/tmp/custom_orca_auto.yaml")
+
+    def test_run_inp_accepts_queue_submission_flags(self) -> None:
+        parser = build_parser()
+        args = parser.parse_args(
+            [
+                "run-inp",
+                "--reaction-dir",
+                "/tmp/rxn",
+                "--priority",
+                "3",
+                "--queue-only",
+                "--require-slot",
+            ]
+        )
+
+        self.assertEqual(args.command, "run-inp")
+        self.assertEqual(args.priority, 3)
+        self.assertTrue(args.queue_only)
+        self.assertTrue(args.require_slot)
+
+    def test_run_inp_hidden_execute_now_flag_is_parsed(self) -> None:
+        parser = build_parser()
+        args = parser.parse_args(
+            [
+                "run-inp",
+                "--reaction-dir",
+                "/tmp/rxn",
+                "--execute-now",
+            ]
+        )
+
+        self.assertTrue(args.execute_now)
+
+    def test_queue_add_is_not_a_valid_subcommand(self) -> None:
+        parser = build_parser()
+        with self.assertRaises(SystemExit) as exc:
+            parser.parse_args(["queue", "add"])
+        self.assertEqual(exc.exception.code, 2)
 
     def test_skips_when_existing_out_is_completed(self) -> None:
         with tempfile.TemporaryDirectory() as td:

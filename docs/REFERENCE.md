@@ -126,12 +126,17 @@ Default behavior:
 - Immediately after execution, it prints `status`, `pid`, and `log` path, then exits.
 - If foreground execution is needed, add `--foreground`.
 - To change the overall default to foreground, use the environment variable `ORCA_AUTO_RUN_INP_BACKGROUND=0`.
+- Public `run-inp` is now a submit-first entry point: if no pending backlog exists and capacity is available, it executes immediately; otherwise it enqueues the job and tries to ensure a worker is running.
+- Queued jobs select the latest `.inp` at execution start time, not at submit time.
 
 Options:
 
 - `--reaction-dir` (required): Reaction directory
 - The retry count is configured only through `runtime.default_max_retries` in `orca_auto.yaml`
 - `--force` (optional): Force re-execution even if a completed `*.out` exists
+- `--priority` (optional): Queue priority when the submission is enqueued
+- `--queue-only` (optional): Always enqueue instead of attempting immediate execution
+- `--require-slot` (optional): Fail instead of enqueueing when immediate execution is unavailable
 - `--foreground` (optional): Run `run-inp` in the foreground
 
 ### 7.2 Queue Worker
@@ -153,10 +158,6 @@ Options:
 - `runtime.max_concurrent` in config: Shared hard cap for both queued and direct runs
 - `--foreground` (optional): Run `queue worker` in the foreground
 - `--daemon` (optional): Explicitly use daemon startup path
-
-Design note:
-
-- For a strict hard-cap design that closes the race with direct `run-inp` launches, see `docs/QUEUE_ADMISSION_LOCK.md`
 
 ### 7.3 Result Organization
 
