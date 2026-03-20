@@ -85,6 +85,7 @@ runtime:
   allowed_root: "/path/to/orca_runs"
   organized_root: "/path/to/orca_outputs"
   default_max_retries: 2
+  max_concurrent: 4
 
 paths:
   orca_executable: "/path/to/orca/orca"
@@ -96,6 +97,7 @@ Field descriptions:
 - `runtime.allowed_root`: Root directory permitted for execution
 - `runtime.organized_root`: Root directory for organize target (defaults to `orca_outputs` alongside `allowed_root` if omitted)
 - `runtime.default_max_retries`: Maximum number of retries
+- `runtime.max_concurrent`: Global maximum active simulations under `allowed_root`
 - `paths.orca_executable`: Path to ORCA executable
 
 Caution:
@@ -136,7 +138,6 @@ Options:
 
 ```bash
 ./bin/orca_auto queue worker
-./bin/orca_auto queue worker --max-concurrent 2
 ./bin/orca_auto queue worker --foreground
 ```
 
@@ -149,9 +150,13 @@ Default behavior:
 
 Options:
 
-- `--max-concurrent` (optional): Maximum total active calculations under `allowed_root`
+- `runtime.max_concurrent` in config: Shared hard cap for both queued and direct runs
 - `--foreground` (optional): Run `queue worker` in the foreground
 - `--daemon` (optional): Explicitly use daemon startup path
+
+Design note:
+
+- For a strict hard-cap design that closes the race with direct `run-inp` launches, see `docs/QUEUE_ADMISSION_LOCK.md`
 
 ### 7.3 Result Organization
 

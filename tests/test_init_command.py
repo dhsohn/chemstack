@@ -34,6 +34,7 @@ class TestInitCommand(unittest.TestCase):
                 "",
                 "y",
                 "",
+                "",
                 "n",
             ]
 
@@ -50,6 +51,7 @@ class TestInitCommand(unittest.TestCase):
             self.assertEqual(rendered["runtime"]["allowed_root"], str(allowed_root))
             self.assertEqual(rendered["runtime"]["organized_root"], str(organized_root))
             self.assertEqual(rendered["runtime"]["default_max_retries"], 2)
+            self.assertEqual(rendered["runtime"]["max_concurrent"], 4)
             self.assertEqual(rendered["paths"]["orca_executable"], str(fake_orca))
             self.assertEqual(rendered["telegram"]["bot_token"], "")
             self.assertEqual(rendered["telegram"]["chat_id"], "")
@@ -57,6 +59,7 @@ class TestInitCommand(unittest.TestCase):
             self.assertTrue(organized_root.exists())
             self.assertEqual(cfg.runtime.allowed_root, str(allowed_root))
             self.assertEqual(cfg.runtime.organized_root, str(organized_root))
+            self.assertEqual(cfg.runtime.max_concurrent, 4)
             self.assertIn("Config created successfully.", stdout.getvalue())
 
     def test_init_does_not_overwrite_existing_config_when_declined(self) -> None:

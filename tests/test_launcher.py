@@ -81,7 +81,7 @@ class TestLauncher(unittest.TestCase):
                 patch("core.launcher.subprocess.Popen", return_value=_RunningProcess()) as popen_mock,
                 redirect_stdout(stdout),
             ):
-                rc = launcher.main(["queue", "worker", "--max-concurrent", "2"])
+                rc = launcher.main(["queue", "worker"])
                 popen_args = popen_mock.call_args
                 self.assertIsNotNone(popen_args)
                 log_handle = popen_args.kwargs["stdout"]
@@ -91,7 +91,7 @@ class TestLauncher(unittest.TestCase):
         self.assertEqual(rc, 0)
         command = popen_args.args[0]
         self.assertEqual(command[:3], [sys.executable, "-m", "core.cli"])
-        self.assertEqual(command[3:], ["queue", "worker", "--max-concurrent", "2"])
+        self.assertEqual(command[3:], ["queue", "worker"])
         self.assertTrue(popen_args.kwargs["start_new_session"])
         self.assertTrue(log_path.name.startswith("queue_worker_"))
         output = stdout.getvalue()

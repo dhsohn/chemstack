@@ -101,6 +101,7 @@ def cmd_queue_cancel(args: Any) -> int:
 def cmd_queue_worker(args: Any) -> int:
     cfg = load_config(args.config)
     allowed_root = Path(cfg.runtime.allowed_root).expanduser().resolve()
+    configured_max_concurrent = max(1, int(cfg.runtime.max_concurrent))
 
     # Check if a worker is already running
     existing_pid = read_worker_pid(allowed_root)
@@ -114,7 +115,7 @@ def cmd_queue_worker(args: Any) -> int:
     worker = QueueWorker(
         cfg,
         args.config,
-        max_concurrent=args.max_concurrent,
+        max_concurrent=configured_max_concurrent,
     )
     return worker.run()
 
@@ -162,7 +163,6 @@ def _start_daemon(args: Any) -> int:
         "--config", args.config,
         "--log-file", str(log_file),
         "queue", "worker",
-        "--max-concurrent", str(args.max_concurrent),
     ]
 
     with log_file.open("w", encoding="utf-8") as handle:

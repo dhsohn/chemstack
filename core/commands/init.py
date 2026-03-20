@@ -118,6 +118,20 @@ def _prompt_default_max_retries() -> int:
         return value
 
 
+def _prompt_max_concurrent() -> int:
+    while True:
+        raw = _prompt_text("max_concurrent", "4")
+        try:
+            value = int(raw)
+        except ValueError:
+            print("max_concurrent must be an integer >= 1.")
+            continue
+        if value < 1:
+            print("max_concurrent must be an integer >= 1.")
+            continue
+        return value
+
+
 def _prompt_telegram_config() -> dict[str, str]:
     if not _prompt_yes_no("Configure Telegram notifications now?", default=False):
         return {"bot_token": "", "chat_id": ""}
@@ -158,6 +172,7 @@ def cmd_init(args: Any) -> int:
             allowed_root = _prompt_directory_path("allowed_root directory")
         organized_root = _prompt_organized_root(allowed_root)
         default_max_retries = _prompt_default_max_retries()
+        max_concurrent = _prompt_max_concurrent()
         telegram = _prompt_telegram_config()
     except (EOFError, KeyboardInterrupt):
         print("\nCancelled.")
@@ -168,6 +183,7 @@ def cmd_init(args: Any) -> int:
             "allowed_root": str(allowed_root),
             "organized_root": organized_root,
             "default_max_retries": default_max_retries,
+            "max_concurrent": max_concurrent,
         },
         "paths": {
             "orca_executable": orca_executable,
@@ -188,4 +204,5 @@ def cmd_init(args: Any) -> int:
     print(f"  allowed_root: {allowed_root}")
     print(f"  organized_root: {organized_root}")
     print(f"  orca_executable: {orca_executable}")
+    print(f"  max_concurrent: {max_concurrent}")
     return 0

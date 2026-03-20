@@ -63,6 +63,7 @@ class RuntimeConfig:
     organized_root: str = ""
     # max retry count, not total execution count
     default_max_retries: int = 2
+    max_concurrent: int = 4
 
     def __post_init__(self) -> None:
         if not self.organized_root and self.allowed_root:
@@ -129,6 +130,12 @@ def load_config(config_path: str) -> AppConfig:
         runtime_raw.get("default_max_retries"),
         RuntimeConfig.default_max_retries,
     )
+    max_concurrent = _as_int(
+        runtime_raw.get("max_concurrent"),
+        RuntimeConfig.max_concurrent,
+    )
+    if max_concurrent < 1:
+        raise ValueError("runtime.max_concurrent must be an integer >= 1.")
 
     telegram_cfg = TelegramConfig(
         bot_token=_as_str(telegram_raw.get("bot_token"), ""),
@@ -140,6 +147,7 @@ def load_config(config_path: str) -> AppConfig:
             allowed_root=allowed_root,
             organized_root=organized_root,
             default_max_retries=max(0, default_max_retries),
+            max_concurrent=max_concurrent,
         ),
         paths=PathsConfig(
             orca_executable=orca_executable,
@@ -159,7 +167,10 @@ def load_config(config_path: str) -> AppConfig:
     _validate_config(cfg)
 
     logger.info(
-        "Config loaded: allowed_root=%s, organized_root=%s, orca_executable=%s",
-        cfg.runtime.allowed_root, cfg.runtime.organized_root, cfg.paths.orca_executable,
+        "Config loaded: allowed_root=%s, organized_root=%s, orca_executable=%s, max_concurrent=%d",
+        cfg.runtime.allowed_root,
+        cfg.runtime.organized_root,
+        cfg.paths.orca_executable,
+        cfg.runtime.max_concurrent,
     )
     return cfg

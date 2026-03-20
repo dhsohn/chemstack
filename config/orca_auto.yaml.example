@@ -4,6 +4,7 @@ runtime:
   # Optional: if omitted, defaults to a sibling "orca_outputs" directory next to allowed_root.
   organized_root: "/path/to/orca_outputs"
   default_max_retries: 2
+  max_concurrent: 4
 
 paths:
   # Required: absolute Linux path to the ORCA executable.

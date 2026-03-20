@@ -4,7 +4,6 @@ Usage::
 
     orca_auto queue worker              # foreground, default 4 total active runs
     orca_auto queue worker --daemon     # background daemon
-    orca_auto queue worker --max-concurrent 2
 
 The worker spawns each job as a subprocess (``orca_auto run-inp --foreground``)
 so that existing locking, state management, and signal handling are fully reused.
@@ -22,6 +21,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict
 
+from .admission_store import (
+    ADMISSION_TOKEN_ENV_VAR,
+    reconcile_stale_slots,
+    release_slot,
+    reserve_slot,
+)
 from .config import AppConfig
 from .lock_utils import is_process_alive, parse_lock_info, process_start_ticks
 from .queue_store import (
@@ -55,6 +60,7 @@ class _RunningJob:
     queue_id: str
     reaction_dir: str
     process: subprocess.Popen
+    admission_token: str
     started_at: float = field(default_factory=time.monotonic)
 
 
@@ -204,6 +210,7 @@ class QueueWorker:
         has no subprocess tracking it).  Resolve each by checking the
         run_state.json and run.lock of the reaction directory.
         """
+        reconcile_stale_slots(self.allowed_root)
         reconcile_orphaned_running_entries(self.allowed_root, ignore_worker_pid=True)
 
     # -- Slot management --------------------------------------------------
@@ -211,24 +218,24 @@ class QueueWorker:
     def _fill_slots(self) -> None:
         """Dequeue pending jobs until the global active-run limit is reached."""
         while len(self._running) < self.max_concurrent:
-            external_active = _count_active_run_locks(
+            admission_token = reserve_slot(
                 self.allowed_root,
-                exclude_reaction_dirs={job.reaction_dir for job in self._running.values()},
+                self.max_concurrent,
+                source="queue_worker",
             )
-            total_active = len(self._running) + external_active
-            if total_active >= self.max_concurrent:
+            if admission_token is None:
                 logger.debug(
-                    "Queue worker admission paused: total_active=%d max_concurrent=%d",
-                    total_active,
+                    "Queue worker admission paused: admission slots are full (max_concurrent=%d)",
                     self.max_concurrent,
                 )
                 break
             entry = dequeue_next(self.allowed_root)
             if entry is None:
+                release_slot(self.allowed_root, admission_token)
                 break
-            self._start_job(entry)
+            self._start_job(entry, admission_token=admission_token)
 
-    def _start_job(self, entry: QueueEntry) -> None:
+    def _start_job(self, entry: QueueEntry, *, admission_token: str) -> bool:
         queue_id = entry["queue_id"]
         reaction_dir = entry["reaction_dir"]
         force = bool(entry.get("force", False))
@@ -238,6 +245,8 @@ class QueueWorker:
             self.config_path,
             force=force,
         )
+        env = os.environ.copy()
+        env[ADMISSION_TOKEN_ENV_VAR] = admission_token
         logger.info("Starting job %s: %s", queue_id, reaction_dir)
         try:
             proc = subprocess.Popen(
@@ -246,17 +255,21 @@ class QueueWorker:
                 stderr=subprocess.DEVNULL,
                 stdin=subprocess.DEVNULL,
                 start_new_session=True,
+                env=env,
             )
         except OSError as exc:
             logger.error("Failed to start job %s: %s", queue_id, exc)
+            release_slot(self.allowed_root, admission_token)
             mark_failed(self.allowed_root, queue_id, error=str(exc))
-            return
+            return False
 
         self._running[queue_id] = _RunningJob(
             queue_id=queue_id,
             reaction_dir=reaction_dir,
             process=proc,
+            admission_token=admission_token,
         )
+        return True
 
     # -- Monitoring -------------------------------------------------------
 
@@ -279,6 +292,7 @@ class QueueWorker:
                     error=f"exit_code={rc}",
                     run_id=run_id,
                 )
+            release_slot(self.allowed_root, job.admission_token)
         for qid in done_ids:
             del self._running[qid]
 
@@ -302,6 +316,7 @@ class QueueWorker:
                             entry["finished_at"] = _now_iso()
                             break
                     _save_entries(self.allowed_root, entries)
+                release_slot(self.allowed_root, job.admission_token)
                 del self._running[queue_id]
 
     # -- Shutdown ---------------------------------------------------------
@@ -322,6 +337,7 @@ class QueueWorker:
                         entry["started_at"] = None
                         break
                 _save_entries(self.allowed_root, entries)
+            release_slot(self.allowed_root, job.admission_token)
         self._running.clear()
 
     def _install_signal_handlers(self) -> None:

@@ -187,6 +187,56 @@ class TestConfigValidation(unittest.TestCase):
             )
             cfg = load_config(str(cfg_path))
             self.assertEqual(cfg.runtime.default_max_retries, 9)
+            self.assertEqual(cfg.runtime.max_concurrent, 4)
+
+    def test_max_concurrent_is_loaded_from_runtime_config(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            allowed = root / "orca_runs"
+            allowed.mkdir()
+            fake_orca = root / "orca"
+            fake_orca.write_text("#!/bin/sh\n", encoding="utf-8")
+
+            cfg_path = root / "orca_auto.yaml"
+            cfg_path.write_text(
+                json.dumps(
+                    {
+                        "runtime": {
+                            "allowed_root": str(allowed),
+                            "max_concurrent": 7,
+                        },
+                        "paths": {"orca_executable": str(fake_orca)},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            cfg = load_config(str(cfg_path))
+            self.assertEqual(cfg.runtime.max_concurrent, 7)
+
+    def test_max_concurrent_must_be_positive(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            allowed = root / "orca_runs"
+            allowed.mkdir()
+            fake_orca = root / "orca"
+            fake_orca.write_text("#!/bin/sh\n", encoding="utf-8")
+
+            cfg_path = root / "orca_auto.yaml"
+            cfg_path.write_text(
+                json.dumps(
+                    {
+                        "runtime": {
+                            "allowed_root": str(allowed),
+                            "max_concurrent": 0,
+                        },
+                        "paths": {"orca_executable": str(fake_orca)},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with self.assertRaises(ValueError) as ctx:
+                load_config(str(cfg_path))
+            self.assertIn("runtime.max_concurrent", str(ctx.exception))
 
     def test_missing_config_file_raises_with_setup_hint(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -229,6 +279,56 @@ class TestConfigValidation(unittest.TestCase):
             cfg = load_config(str(cfg_path))
             self.assertEqual(cfg.runtime.organized_root, str(root / "orca_outputs"))
             self.assertEqual(cfg.runtime.default_max_retries, 2)
+            self.assertEqual(cfg.runtime.max_concurrent, 4)
+
+    def test_max_concurrent_can_be_configured(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            allowed = root / "orca_runs"
+            allowed.mkdir()
+            fake_orca = root / "orca"
+            fake_orca.write_text("#!/bin/sh\n", encoding="utf-8")
+
+            cfg_path = root / "orca_auto.yaml"
+            cfg_path.write_text(
+                json.dumps(
+                    {
+                        "runtime": {
+                            "allowed_root": str(allowed),
+                            "max_concurrent": 7,
+                        },
+                        "paths": {"orca_executable": str(fake_orca)},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            cfg = load_config(str(cfg_path))
+            self.assertEqual(cfg.runtime.max_concurrent, 7)
+
+    def test_max_concurrent_must_be_positive(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            allowed = root / "orca_runs"
+            allowed.mkdir()
+            fake_orca = root / "orca"
+            fake_orca.write_text("#!/bin/sh\n", encoding="utf-8")
+
+            cfg_path = root / "orca_auto.yaml"
+            cfg_path.write_text(
+                json.dumps(
+                    {
+                        "runtime": {
+                            "allowed_root": str(allowed),
+                            "max_concurrent": 0,
+                        },
+                        "paths": {"orca_executable": str(fake_orca)},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with self.assertRaises(ValueError) as ctx:
+                load_config(str(cfg_path))
+            self.assertIn("runtime.max_concurrent", str(ctx.exception))
 
     def test_template_placeholder_paths_are_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as td:

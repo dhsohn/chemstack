@@ -189,7 +189,7 @@ class TestCmdQueueWorker(unittest.TestCase):
     def test_worker_already_running(self, mock_pid: MagicMock, mock_load: MagicMock) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             mock_load.return_value = _make_cfg(tmp)
-            args = _make_args(tmp, daemon=False, max_concurrent=4)
+            args = _make_args(tmp, daemon=False)
             rc = cmd_queue_worker(args)
             self.assertEqual(rc, 1)
 
@@ -199,10 +199,10 @@ class TestCmdQueueWorker(unittest.TestCase):
     def test_worker_daemon_mode(self, mock_daemon: MagicMock, mock_pid: MagicMock, mock_load: MagicMock) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             mock_load.return_value = _make_cfg(tmp)
-            args = _make_args(tmp, daemon=True, max_concurrent=4)
+            args = _make_args(tmp, daemon=True)
             rc = cmd_queue_worker(args)
             self.assertEqual(rc, 0)
-            mock_daemon.assert_called_once()
+            mock_daemon.assert_called_once_with(args)
 
     @patch("core.commands.queue.load_config")
     @patch("core.commands.queue.read_worker_pid", return_value=None)
@@ -211,10 +211,37 @@ class TestCmdQueueWorker(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             mock_load.return_value = _make_cfg(tmp)
             mock_worker_cls.return_value.run.return_value = 0
-            args = _make_args(tmp, daemon=False, max_concurrent=2)
+            args = _make_args(tmp, daemon=False)
             rc = cmd_queue_worker(args)
             self.assertEqual(rc, 0)
-            mock_worker_cls.assert_called_once()
+            mock_worker_cls.assert_called_once_with(
+                mock_load.return_value,
+                args.config,
+                max_concurrent=4,
+            )
+
+    @patch("core.commands.queue.load_config")
+    @patch("core.commands.queue.read_worker_pid", return_value=None)
+    @patch("core.commands.queue.QueueWorker")
+    def test_worker_uses_config_max_concurrent_when_flag_omitted(
+        self,
+        mock_worker_cls: MagicMock,
+        mock_pid: MagicMock,
+        mock_load: MagicMock,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = _make_cfg(tmp)
+            cfg.runtime.max_concurrent = 6
+            mock_load.return_value = cfg
+            mock_worker_cls.return_value.run.return_value = 0
+            args = _make_args(tmp, daemon=False)
+            rc = cmd_queue_worker(args)
+            self.assertEqual(rc, 0)
+            mock_worker_cls.assert_called_once_with(
+                cfg,
+                args.config,
+                max_concurrent=6,
+            )
 
 
 class TestCmdQueueStop(unittest.TestCase):
@@ -283,12 +310,14 @@ class TestStartDaemon(unittest.TestCase):
             config_path = Path(tmp) / "config" / "settings.yaml"
             config_path.parent.mkdir()
             config_path.touch()
-            args = SimpleNamespace(config=str(config_path), max_concurrent=4)
+            args = SimpleNamespace(config=str(config_path))
             buf = io.StringIO()
             with redirect_stdout(buf):
                 rc = _start_daemon(args)
             self.assertEqual(rc, 0)
             self.assertIn("Worker started", buf.getvalue())
+            cmd = mock_popen.call_args.args[0]
+            self.assertNotIn("--max-concurrent", cmd)
 
     @patch("core.commands.queue.subprocess.Popen")
     @patch("core.commands.queue.time.sleep", return_value=None)
@@ -301,7 +330,7 @@ class TestStartDaemon(unittest.TestCase):
             config_path = Path(tmp) / "config" / "settings.yaml"
             config_path.parent.mkdir()
             config_path.touch()
-            args = SimpleNamespace(config=str(config_path), max_concurrent=4)
+            args = SimpleNamespace(config=str(config_path))
             buf = io.StringIO()
             with redirect_stdout(buf):
                 rc = _start_daemon(args)
@@ -319,7 +348,7 @@ class TestStartDaemon(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             config_path = Path(tmp) / "my_settings.yaml"
             config_path.touch()
-            args = SimpleNamespace(config=str(config_path), max_concurrent=2)
+            args = SimpleNamespace(config=str(config_path))
             buf = io.StringIO()
             with redirect_stdout(buf):
                 rc = _start_daemon(args)

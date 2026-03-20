@@ -85,6 +85,7 @@ You will be prompted for the following:
 | `runtime.allowed_root` | Root directory for calculation input directories | Yes |
 | `runtime.organized_root` | Directory for organized results (default: `orca_outputs` sibling to `allowed_root`) | No |
 | `runtime.default_max_retries` | Maximum number of retries (default: 2) | No |
+| `runtime.max_concurrent` | Global maximum active simulations under `allowed_root` (default: 4) | No |
 | `telegram.bot_token` | Telegram bot token | No |
 | `telegram.chat_id` | Telegram chat ID | No |
 
@@ -97,6 +98,7 @@ runtime:
   allowed_root: "/home/user/orca_runs"
   organized_root: "/home/user/orca_outputs"
   default_max_retries: 2
+  max_concurrent: 4
 
 paths:
   orca_executable: "/opt/orca/orca"
@@ -217,11 +219,8 @@ Simulations: 3 total (1 running, 1 pending, 1 completed)
 The worker is a process that picks up pending jobs from the queue and executes them.
 
 ```bash
-# Start worker in background (default: 4 total active calculations under allowed_root)
+# Start worker in background (default: runtime.max_concurrent from config, 4 if omitted)
 ./bin/orca_auto queue worker
-
-# Specify concurrency limit
-./bin/orca_auto queue worker --max-concurrent 2
 
 # Run in foreground explicitly
 ./bin/orca_auto queue worker --foreground
@@ -235,7 +234,8 @@ Set `ORCA_AUTO_QUEUE_WORKER_BACKGROUND=0` to make foreground execution the defau
 
 Worker behavior:
 - Periodically polls the queue for `pending` jobs
-- Limits the total number of active calculations under `allowed_root` via `--max-concurrent` (default: 4)
+- Enforces a global active-run cap under `allowed_root` via admission slots
+- Uses `runtime.max_concurrent` as the shared hard cap for both queued and direct runs
 - Counts already running direct `run-inp` processes under `allowed_root` before starting more queued jobs
 - Each job runs as an `orca_auto run-inp --foreground` subprocess
 - Checks exit codes upon completion and updates job status
@@ -277,19 +277,21 @@ This removes terminal queue entries and run state files for completed/failed sim
 ./bin/orca_auto queue add --reaction-dir '/home/user/orca_runs/rxn_B' --priority 5
 ./bin/orca_auto queue add --reaction-dir '/home/user/orca_runs/rxn_C'
 
-# 2. Start the worker as a daemon
-./bin/orca_auto queue worker --daemon --max-concurrent 2
+# 2. Set runtime.max_concurrent: 2 in config/orca_auto.yaml
 
-# 3. Check progress
+# 3. Start the worker as a daemon
+./bin/orca_auto queue worker --daemon
+
+# 4. Check progress
 ./bin/orca_auto list
 
-# 4. Cancel a job if needed
+# 5. Cancel a job if needed
 ./bin/orca_auto queue cancel rxn_C
 
-# 5. Clean up after all jobs complete
+# 6. Clean up after all jobs complete
 ./bin/orca_auto list clear
 
-# 6. Stop the worker
+# 7. Stop the worker
 ./bin/orca_auto queue stop
 ```
 

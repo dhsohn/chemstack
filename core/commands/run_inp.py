@@ -1,9 +1,16 @@
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 from typing import Any, Dict, Type
 
+from ..admission_store import (
+    ADMISSION_TOKEN_ENV_VAR,
+    activate_reserved_slot,
+    acquire_direct_slot,
+    release_slot,
+)
 from ..attempt_engine import _exit_with_result, run_attempts
 from ..completion_rules import detect_completion_mode
 from ..config import load_config
@@ -118,6 +125,15 @@ def _recover_crashed_state(reaction_dir: Path) -> bool:
     return True
 
 
+def _configured_max_concurrent(cfg: Any) -> int:
+    raw = getattr(cfg.runtime, "max_concurrent", 4)
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        value = 4
+    return max(1, value)
+
+
 def cmd_run_inp(args: Any, *, runner_cls: Type[OrcaRunner] = OrcaRunner) -> int:
     cfg = load_config(args.config)
     try:
@@ -130,6 +146,9 @@ def cmd_run_inp(args: Any, *, runner_cls: Type[OrcaRunner] = OrcaRunner) -> int:
     logger.info("Selected input: %s", selected_inp)
 
     max_retries = max(0, int(cfg.runtime.default_max_retries))
+    max_concurrent = _configured_max_concurrent(cfg)
+    allowed_root = Path(cfg.runtime.allowed_root).expanduser().resolve()
+    reservation_token = os.getenv(ADMISSION_TOKEN_ENV_VAR, "").strip() or None
 
     # Recover from crashes before attempting to acquire the lock
     _recover_crashed_state(reaction_dir)
@@ -139,6 +158,8 @@ def cmd_run_inp(args: Any, *, runner_cls: Type[OrcaRunner] = OrcaRunner) -> int:
             if not args.force:
                 done = _existing_completed_out(selected_inp)
                 if done:
+                    if reservation_token is not None:
+                        release_slot(allowed_root, reservation_token)
                     state, resumed = load_or_create_state(
                         reaction_dir,
                         selected_inp,
@@ -155,48 +176,67 @@ def cmd_run_inp(args: Any, *, runner_cls: Type[OrcaRunner] = OrcaRunner) -> int:
                         extra={"skipped_execution": True},
                     )
 
-            state, resumed = load_or_create_state(
-                reaction_dir,
-                selected_inp,
-                max_retries=max_retries,
-                to_resolved_local=_to_resolved_local,
-            )
+            if reservation_token is not None:
+                admission_cm = activate_reserved_slot(
+                    allowed_root,
+                    reservation_token,
+                    reaction_dir=str(reaction_dir),
+                    source="queue_run",
+                )
+            else:
+                admission_cm = acquire_direct_slot(
+                    allowed_root,
+                    max_concurrent=max_concurrent,
+                    reaction_dir=str(reaction_dir),
+                )
 
-            notify_started = None
-            notify_finished = None
-            notify_retry = None
-            if cfg.telegram.enabled:
-                def _notify_started(event: RunStartedNotification) -> None:
-                    notify_run_started_event(cfg.telegram, event)
+            with admission_cm:
+                state, resumed = load_or_create_state(
+                    reaction_dir,
+                    selected_inp,
+                    max_retries=max_retries,
+                    to_resolved_local=_to_resolved_local,
+                )
 
-                def _notify_finished(event: RunFinishedNotification) -> None:
-                    notify_run_finished_event(cfg.telegram, event)
+                notify_started = None
+                notify_finished = None
+                notify_retry = None
+                if cfg.telegram.enabled:
+                    def _notify_started(event: RunStartedNotification) -> None:
+                        notify_run_started_event(cfg.telegram, event)
 
-                def _notify_retry(event: RetryNotification) -> None:
-                    notify_retry_event(cfg.telegram, event)
+                    def _notify_finished(event: RunFinishedNotification) -> None:
+                        notify_run_finished_event(cfg.telegram, event)
 
-                notify_started = _notify_started
-                notify_finished = _notify_finished
-                notify_retry = _notify_retry
+                    def _notify_retry(event: RetryNotification) -> None:
+                        notify_retry_event(cfg.telegram, event)
 
-            runner = runner_cls(cfg.paths.orca_executable)
-            return run_attempts(
-                reaction_dir,
-                selected_inp,
-                state,
-                resumed=resumed,
-                runner=runner,
-                max_retries=max_retries,
-                retry_inp_path=_retry_inp_path,
-                to_resolved_local=_to_resolved_local,
-                emit=_emit,
-                notify_started=notify_started,
-                notify_finished=notify_finished,
-                notify_retry=notify_retry,
-            )
+                    notify_started = _notify_started
+                    notify_finished = _notify_finished
+                    notify_retry = _notify_retry
+
+                runner = runner_cls(cfg.paths.orca_executable)
+                return run_attempts(
+                    reaction_dir,
+                    selected_inp,
+                    state,
+                    resumed=resumed,
+                    runner=runner,
+                    max_retries=max_retries,
+                    retry_inp_path=_retry_inp_path,
+                    to_resolved_local=_to_resolved_local,
+                    emit=_emit,
+                    notify_started=notify_started,
+                    notify_finished=notify_finished,
+                    notify_retry=notify_retry,
+                )
     except RuntimeError as exc:
+        if reservation_token is not None:
+            release_slot(allowed_root, reservation_token)
         logger.error("%s", exc)
         return 1
     except Exception as exc:
+        if reservation_token is not None:
+            release_slot(allowed_root, reservation_token)
         logger.exception("Unexpected error while running input: %s", exc)
         return 1
