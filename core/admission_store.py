@@ -8,7 +8,7 @@ import os
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterator, List, TypedDict
+from typing import Iterator, List, TypedDict, cast
 from uuid import uuid4
 
 from .lock_utils import (
@@ -110,7 +110,7 @@ def _load_slots(allowed_root: Path) -> List[AdmissionSlot]:
         return []
     if not isinstance(raw, list):
         return []
-    return [slot for slot in raw if isinstance(slot, dict)]
+    return [cast(AdmissionSlot, slot) for slot in raw if isinstance(slot, dict)]
 
 
 def _save_slots(allowed_root: Path, slots: List[AdmissionSlot]) -> None:
