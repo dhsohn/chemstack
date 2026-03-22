@@ -22,7 +22,36 @@ class TestCompletionRules(unittest.TestCase):
         self.assertEqual(mode.kind, "opt")
         self.assertFalse(mode.require_irc)
 
+    def test_detect_completion_mode_skips_blank_and_comment_lines(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            inp = Path(td) / "rxn.inp"
+            inp.write_text(
+                "\n\n# comment line\n   \n! NEB-TS IRC TightSCF\n* xyz 0 1\n",
+                encoding="utf-8",
+            )
+            mode = detect_completion_mode(inp)
+        self.assertEqual(mode.kind, "ts")
+        self.assertTrue(mode.require_irc)
+        self.assertEqual(mode.route_line, "! NEB-TS IRC TightSCF")
+
+    def test_detect_completion_mode_defaults_to_opt_when_no_ts_keyword(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            inp = Path(td) / "rxn.inp"
+            inp.write_text("! SP IRC\n* xyz 0 1\n", encoding="utf-8")
+            mode = detect_completion_mode(inp)
+        self.assertEqual(mode.kind, "opt")
+        self.assertTrue(mode.require_irc)
+        self.assertEqual(mode.route_line, "! SP IRC")
+
+    def test_detect_completion_mode_returns_empty_route_when_no_route_found(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            inp = Path(td) / "rxn.inp"
+            inp.write_text("\n# comment only\n* xyz 0 1\nH 0 0 0\n", encoding="utf-8")
+            mode = detect_completion_mode(inp)
+        self.assertEqual(mode.kind, "opt")
+        self.assertFalse(mode.require_irc)
+        self.assertEqual(mode.route_line, "")
+
 
 if __name__ == "__main__":
     unittest.main()
-

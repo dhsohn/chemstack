@@ -117,9 +117,7 @@ def resolve_execution_input(
         recovery_reason = "resume_recovery_no_output"
     if not recovered:
         return None, f"{reason}:{recovery_reason}"
-    if current_inp.exists():
-        return current_inp, None
-    return None, reason
+    return current_inp, None
 
 
 def resume_terminal_decision(

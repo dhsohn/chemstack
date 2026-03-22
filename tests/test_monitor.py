@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import tempfile
+from argparse import Namespace
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -122,6 +123,28 @@ class TestBuildMessage:
 
 
 class TestRunMonitor:
+    def test_returns_error_when_telegram_not_configured(self) -> None:
+        from core.commands.monitor import _run_monitor
+
+        cfg = AppConfig(
+            runtime=RuntimeConfig(allowed_root="/tmp/missing"),
+            paths=PathsConfig(orca_executable="/usr/bin/orca"),
+            telegram=TelegramConfig(),
+        )
+
+        assert _run_monitor(cfg) == 1
+
+    def test_returns_error_when_allowed_root_missing(self) -> None:
+        from core.commands.monitor import _run_monitor
+
+        cfg = AppConfig(
+            runtime=RuntimeConfig(allowed_root="/tmp/definitely_missing_monitor_root"),
+            paths=PathsConfig(orca_executable="/usr/bin/orca"),
+            telegram=TelegramConfig(bot_token="fake", chat_id="123"),
+        )
+
+        assert _run_monitor(cfg) == 1
+
     @patch("core.commands.monitor.notify_monitor_report", return_value=True)
     @patch("core.commands.monitor.DFTMonitor")
     @patch("core.commands.monitor.DFTIndex")
@@ -150,6 +173,36 @@ class TestRunMonitor:
 
         assert result == 0
         mock_notify.assert_not_called()
+
+    @patch("core.commands.monitor.notify_monitor_report", return_value=False)
+    @patch("core.commands.monitor.DFTMonitor")
+    @patch("core.commands.monitor.DFTIndex")
+    def test_returns_error_when_notification_send_fails(
+        self,
+        mock_index_cls: MagicMock,
+        mock_monitor_cls: MagicMock,
+        mock_notify: MagicMock,
+    ) -> None:
+        mock_monitor = MagicMock()
+        mock_monitor.scan.return_value = _sample_report()
+        mock_monitor_cls.return_value = mock_monitor
+
+        with tempfile.TemporaryDirectory() as td:
+            allowed = Path(td) / "orca_runs"
+            allowed.mkdir()
+
+            from core.commands.monitor import _run_monitor
+
+            cfg = AppConfig(
+                runtime=RuntimeConfig(allowed_root=str(allowed)),
+                paths=PathsConfig(orca_executable="/usr/bin/orca"),
+                telegram=TelegramConfig(bot_token="fake", chat_id="123"),
+            )
+            result = _run_monitor(cfg)
+
+        assert result == 1
+        mock_index_cls.return_value.initialize.assert_called_once_with(str(allowed / "dft.db"))
+        mock_notify.assert_called_once()
 
     @patch("core.commands.monitor.notify_monitor_report", return_value=True)
     @patch("core.commands.monitor.DFTMonitor")
@@ -208,3 +261,22 @@ class TestRunMonitor:
 
         assert result == 0
         mock_notify.assert_not_called()
+
+    def test_cmd_monitor_loads_config_and_delegates(self) -> None:
+        from core.commands.monitor import cmd_monitor
+
+        cfg = AppConfig(
+            runtime=RuntimeConfig(allowed_root="/tmp/runs"),
+            paths=PathsConfig(orca_executable="/usr/bin/orca"),
+            telegram=TelegramConfig(bot_token="fake", chat_id="123"),
+        )
+        args = Namespace(config="config.yml")
+
+        with patch("core.commands.monitor.load_config", return_value=cfg) as load_cfg, patch(
+            "core.commands.monitor._run_monitor",
+            return_value=7,
+        ) as run_monitor:
+            assert cmd_monitor(args) == 7
+
+        load_cfg.assert_called_once_with("config.yml")
+        run_monitor.assert_called_once_with(cfg)

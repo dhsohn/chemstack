@@ -1,83 +1,253 @@
 from __future__ import annotations
 
-import io
-import tempfile
-import unittest
-from contextlib import redirect_stdout
+from argparse import Namespace
 from pathlib import Path
 from unittest.mock import patch
 
 import yaml
 
-from core.cli import main
-from core.config import load_config
+from core.commands import init
 
 
-class TestInitCommand(unittest.TestCase):
-    def test_init_creates_config_from_interactive_answers(self) -> None:
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            config_path = root / "config" / "orca_auto.yaml"
-            fake_orca = root / "bin" / "orca"
-            fake_orca.parent.mkdir(parents=True)
-            fake_orca.write_text("#!/bin/sh\n", encoding="utf-8")
-            fake_orca.chmod(0o755)
+def test_prompt_text_returns_value_or_default() -> None:
+    with patch("builtins.input", return_value="typed"):
+        assert init._prompt_text("label", "default") == "typed"
 
-            allowed_root = root / "orca_runs"
-            organized_root = root / "orca_outputs"
-            stdout = io.StringIO()
+    with patch("builtins.input", return_value="   "):
+        assert init._prompt_text("label", "default") == "default"
+        assert init._prompt_text("label") == ""
 
-            answers = [
-                str(fake_orca),
-                str(allowed_root),
-                "y",
-                "",
-                "y",
-                "",
-                "",
-                "n",
-            ]
 
-            with (
-                patch("core.commands.init.default_config_path", return_value=str(config_path)),
-                patch("builtins.input", side_effect=answers),
-                redirect_stdout(stdout),
-            ):
-                rc = main(["init"])
+def test_prompt_yes_no_handles_defaults_and_reprompts(capsys) -> None:
+    with patch("builtins.input", return_value=""):
+        assert init._prompt_yes_no("Proceed?", default=True) is True
 
-            rendered = yaml.safe_load(config_path.read_text(encoding="utf-8"))
-            cfg = load_config(str(config_path))
-            self.assertEqual(rc, 0)
-            self.assertEqual(rendered["runtime"]["allowed_root"], str(allowed_root))
-            self.assertEqual(rendered["runtime"]["organized_root"], str(organized_root))
-            self.assertEqual(rendered["runtime"]["default_max_retries"], 2)
-            self.assertEqual(rendered["runtime"]["max_concurrent"], 4)
-            self.assertEqual(rendered["paths"]["orca_executable"], str(fake_orca))
-            self.assertEqual(rendered["telegram"]["bot_token"], "")
-            self.assertEqual(rendered["telegram"]["chat_id"], "")
-            self.assertTrue(allowed_root.exists())
-            self.assertTrue(organized_root.exists())
-            self.assertEqual(cfg.runtime.allowed_root, str(allowed_root))
-            self.assertEqual(cfg.runtime.organized_root, str(organized_root))
-            self.assertEqual(cfg.runtime.max_concurrent, 4)
-            self.assertIn("Config created successfully.", stdout.getvalue())
+    with patch("builtins.input", side_effect=["maybe", "n"]):
+        assert init._prompt_yes_no("Proceed?", default=True) is False
 
-    def test_init_does_not_overwrite_existing_config_when_declined(self) -> None:
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            config_path = root / "orca_auto.yaml"
-            config_path.write_text("runtime:\n  allowed_root: /tmp/existing\n", encoding="utf-8")
-            stdout = io.StringIO()
+    assert "Please answer y or n." in capsys.readouterr().out
 
-            with (
-                patch("core.commands.init.default_config_path", return_value=str(config_path)),
-                patch("builtins.input", side_effect=["n"]),
-                redirect_stdout(stdout),
-            ):
-                rc = main(["init"])
 
-            contents = config_path.read_text(encoding="utf-8")
+def test_normalize_linux_path_rejects_blank_windows_and_relative(capsys, tmp_path: Path) -> None:
+    assert init._normalize_linux_path("", label="allowed_root") is None
+    assert init._normalize_linux_path(r"C:\\orca.exe", label="orca_executable") is None
+    assert init._normalize_linux_path("relative/path", label="allowed_root") is None
 
-        self.assertEqual(rc, 0)
-        self.assertEqual(contents, "runtime:\n  allowed_root: /tmp/existing\n")
-        self.assertIn("Cancelled.", stdout.getvalue())
+    resolved = init._normalize_linux_path(str(tmp_path / "runs"), label="allowed_root")
+    assert resolved == (tmp_path / "runs").resolve()
+
+    output = capsys.readouterr().out
+    assert "allowed_root is required." in output
+    assert "must be a Linux path" in output
+    assert "must be an absolute Linux path" in output
+
+
+def test_prompt_orca_executable_retries_until_existing_file(capsys, tmp_path: Path) -> None:
+    fake_dir = tmp_path / "not_a_file"
+    fake_dir.mkdir()
+    real_bin = tmp_path / "orca"
+    real_bin.write_text("", encoding="utf-8")
+
+    with patch(
+        "core.commands.init._prompt_text",
+        side_effect=[
+            str(tmp_path / "missing.exe"),
+            str(tmp_path / "missing"),
+            str(fake_dir),
+            str(real_bin),
+        ],
+    ):
+        assert init._prompt_orca_executable() == str(real_bin.resolve())
+
+    output = capsys.readouterr().out
+    assert "Windows .exe" in output
+    assert "File not found" in output
+    assert "Path is not a file" in output
+
+
+def test_prompt_directory_path_retries_when_existing_path_is_file(capsys, tmp_path: Path) -> None:
+    file_path = tmp_path / "single_file"
+    file_path.write_text("", encoding="utf-8")
+    dir_path = tmp_path / "allowed"
+
+    with patch(
+        "core.commands.init._prompt_text",
+        side_effect=[str(file_path), str(dir_path)],
+    ):
+        assert init._prompt_directory_path("allowed_root directory") == dir_path.resolve()
+
+    assert "is not a directory" in capsys.readouterr().out
+
+
+def test_ensure_directory_covers_existing_decline_and_create(capsys, tmp_path: Path) -> None:
+    existing = tmp_path / "existing"
+    existing.mkdir()
+    assert init._ensure_directory(existing, label="allowed_root") is True
+
+    missing = tmp_path / "missing"
+    with patch("core.commands.init._prompt_yes_no", return_value=False):
+        assert init._ensure_directory(missing, label="allowed_root") is False
+    assert "allowed_root was not created." in capsys.readouterr().out
+
+    with patch("core.commands.init._prompt_yes_no", return_value=True):
+        assert init._ensure_directory(missing, label="allowed_root") is True
+    assert missing.is_dir()
+
+
+def test_prompt_organized_root_retries_when_nested_under_allowed_root(capsys, tmp_path: Path) -> None:
+    allowed_root = (tmp_path / "allowed").resolve()
+    allowed_root.mkdir()
+    nested = allowed_root / "organized"
+    valid = (tmp_path / "organized").resolve()
+
+    with patch(
+        "core.commands.init._prompt_directory_path",
+        side_effect=[nested, valid],
+    ), patch("core.commands.init._ensure_directory", return_value=True):
+        assert init._prompt_organized_root(allowed_root) == str(valid)
+
+    assert "must not contain each other" in capsys.readouterr().out
+
+
+def test_prompt_default_max_retries_and_max_concurrent_validate(capsys) -> None:
+    with patch("core.commands.init._prompt_text", side_effect=["abc", "-1", "2"]):
+        assert init._prompt_default_max_retries() == 2
+
+    with patch("core.commands.init._prompt_text", side_effect=["abc", "0", "4"]):
+        assert init._prompt_max_concurrent() == 4
+
+    output = capsys.readouterr().out
+    assert "default_max_retries must be an integer >= 0." in output
+    assert "max_concurrent must be an integer >= 1." in output
+
+
+def test_prompt_telegram_config_covers_skip_and_retry(capsys) -> None:
+    with patch("core.commands.init._prompt_yes_no", return_value=False):
+        assert init._prompt_telegram_config() == {"bot_token": "", "chat_id": ""}
+
+    with patch("core.commands.init._prompt_yes_no", return_value=True), patch(
+        "core.commands.init._prompt_text",
+        side_effect=["token-only", "", "token", "123"],
+    ):
+        assert init._prompt_telegram_config() == {"bot_token": "token", "chat_id": "123"}
+
+    assert "Both Telegram bot token and chat id are required" in capsys.readouterr().out
+
+
+def test_write_config_adds_generated_header(tmp_path: Path) -> None:
+    config_path = tmp_path / "config" / "orca_auto.yaml"
+    payload = {"runtime": {"allowed_root": "/tmp/runs"}}
+
+    init._write_config(config_path, payload)
+
+    written = config_path.read_text(encoding="utf-8")
+    assert written.startswith("# Generated by orca_auto init\n")
+    assert yaml.safe_load(written.split("\n", 1)[1]) == payload
+
+
+def test_cmd_init_returns_zero_when_existing_config_not_overwritten(tmp_path: Path, capsys) -> None:
+    config_path = tmp_path / "orca_auto.yaml"
+    config_path.write_text("existing: true\n", encoding="utf-8")
+
+    with patch("core.commands.init.default_config_path", return_value=str(config_path)), patch(
+        "core.commands.init._prompt_yes_no",
+        return_value=False,
+    ):
+        assert init.cmd_init(Namespace(force=False)) == 0
+
+    assert "Cancelled." in capsys.readouterr().out
+
+
+def test_cmd_init_handles_interrupt(tmp_path: Path, capsys) -> None:
+    config_path = tmp_path / "orca_auto.yaml"
+
+    with patch("core.commands.init.default_config_path", return_value=str(config_path)), patch(
+        "core.commands.init._prompt_orca_executable",
+        side_effect=KeyboardInterrupt,
+    ):
+        assert init.cmd_init(Namespace(force=True)) == 1
+
+    assert "Cancelled." in capsys.readouterr().out
+
+
+def test_cmd_init_handles_write_or_load_failure(tmp_path: Path, capsys) -> None:
+    config_path = tmp_path / "orca_auto.yaml"
+    allowed_root = tmp_path / "allowed"
+    allowed_root.mkdir()
+
+    with patch("core.commands.init.default_config_path", return_value=str(config_path)), patch(
+        "core.commands.init._prompt_orca_executable",
+        return_value="/usr/bin/orca",
+    ), patch(
+        "core.commands.init._prompt_directory_path",
+        return_value=allowed_root,
+    ), patch(
+        "core.commands.init._ensure_directory",
+        return_value=True,
+    ), patch(
+        "core.commands.init._prompt_organized_root",
+        return_value=str(tmp_path / "organized"),
+    ), patch(
+        "core.commands.init._prompt_default_max_retries",
+        return_value=2,
+    ), patch(
+        "core.commands.init._prompt_max_concurrent",
+        return_value=4,
+    ), patch(
+        "core.commands.init._prompt_telegram_config",
+        return_value={"bot_token": "", "chat_id": ""},
+    ), patch(
+        "core.commands.init.load_config",
+        side_effect=RuntimeError("bad config"),
+    ):
+        assert init.cmd_init(Namespace(force=True)) == 1
+
+    assert "Failed to generate config: bad config" in capsys.readouterr().out
+
+
+def test_cmd_init_success_writes_config_and_prints_summary(tmp_path: Path, capsys) -> None:
+    config_path = tmp_path / "orca_auto.yaml"
+    allowed_root = tmp_path / "allowed"
+    organized_root = tmp_path / "organized"
+    allowed_root.mkdir()
+
+    with patch("core.commands.init.default_config_path", return_value=str(config_path)), patch(
+        "core.commands.init._prompt_orca_executable",
+        return_value="/usr/bin/orca",
+    ), patch(
+        "core.commands.init._prompt_directory_path",
+        return_value=allowed_root,
+    ), patch(
+        "core.commands.init._ensure_directory",
+        return_value=True,
+    ), patch(
+        "core.commands.init._prompt_organized_root",
+        return_value=str(organized_root),
+    ), patch(
+        "core.commands.init._prompt_default_max_retries",
+        return_value=2,
+    ), patch(
+        "core.commands.init._prompt_max_concurrent",
+        return_value=4,
+    ), patch(
+        "core.commands.init._prompt_telegram_config",
+        return_value={"bot_token": "token", "chat_id": "123"},
+    ), patch("core.commands.init.load_config") as load_config:
+        assert init.cmd_init(Namespace(force=True)) == 0
+
+    load_config.assert_called_once_with(str(config_path.resolve()))
+    output = capsys.readouterr().out
+    assert "Config created successfully." in output
+    assert "allowed_root" in output
+    assert "organized_root" in output
+    assert "max_concurrent: 4" in output
+    assert yaml.safe_load(config_path.read_text(encoding="utf-8").split("\n", 1)[1]) == {
+        "runtime": {
+            "allowed_root": str(allowed_root),
+            "organized_root": str(organized_root),
+            "default_max_retries": 2,
+            "max_concurrent": 4,
+        },
+        "paths": {"orca_executable": "/usr/bin/orca"},
+        "telegram": {"bot_token": "token", "chat_id": "123"},
+    }

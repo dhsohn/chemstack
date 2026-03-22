@@ -68,10 +68,15 @@ def _load_report_as_state(reaction_dir: Path) -> Optional[RunState]:
     return cast(RunState, raw)
 
 
-def check_eligibility(reaction_dir: Path) -> Tuple[RunState | None, Optional[SkipReason]]:
+def _load_state_with_report_fallback(reaction_dir: Path) -> Optional[RunState]:
     state = load_state(reaction_dir)
-    if state is None:
-        state = _load_report_as_state(reaction_dir)
+    if state is not None:
+        return state
+    return _load_report_as_state(reaction_dir)
+
+
+def check_eligibility(reaction_dir: Path) -> Tuple[RunState | None, Optional[SkipReason]]:
+    state = _load_state_with_report_fallback(reaction_dir)
     if state is None:
         return None, SkipReason(str(reaction_dir), "state_missing_or_invalid")
 
@@ -297,12 +302,7 @@ def plan_root_scan(
     for f in report_files:
         candidate_dirs.add(f.parent)
 
-    seen_dirs: set[Path] = set()
     for entry in sorted(candidate_dirs):
-        if entry in seen_dirs:
-            continue
-        seen_dirs.add(entry)
-
         if entry.is_symlink():
             continue
         if is_subpath(entry, organized_root):
@@ -383,15 +383,57 @@ def rollback_move(plan: OrganizePlan) -> None:
         _cross_device_move(plan.target_abs_path, plan.source_dir)
 
 
+def _normalize_attempt_artifact_paths(
+    attempts: Any,
+    *,
+    source_dir: Path,
+    target_dir: Path,
+) -> None:
+    if not isinstance(attempts, list):
+        return
+    for attempt in attempts:
+        if not isinstance(attempt, dict):
+            continue
+        inp_path = attempt.get("inp_path")
+        if isinstance(inp_path, str):
+            attempt["inp_path"] = _normalize_moved_artifact_path(
+                inp_path,
+                source_dir=source_dir,
+                target_dir=target_dir,
+            )
+        out_path = attempt.get("out_path")
+        if isinstance(out_path, str):
+            attempt["out_path"] = _normalize_moved_artifact_path(
+                out_path,
+                source_dir=source_dir,
+                target_dir=target_dir,
+            )
+
+
+def _normalize_final_result_artifact_path(
+    final_result: Any,
+    *,
+    source_dir: Path,
+    target_dir: Path,
+) -> None:
+    if not isinstance(final_result, dict):
+        return
+    last_out_path = final_result.get("last_out_path")
+    if isinstance(last_out_path, str):
+        final_result["last_out_path"] = _normalize_moved_artifact_path(
+            last_out_path,
+            source_dir=source_dir,
+            target_dir=target_dir,
+        )
+
+
 def _sync_state_after_relocation(
     *,
     state_dir: Path,
     source_dir: Path,
     target_dir: Path,
 ) -> RunState:
-    state = load_state(state_dir)
-    if state is None:
-        state = _load_report_as_state(state_dir)
+    state = _load_state_with_report_fallback(state_dir)
     if state is None:
         raise RuntimeError(f"Relocated directory has invalid state: {state_dir}")
 
@@ -405,35 +447,16 @@ def _sync_state_after_relocation(
             target_dir=target_dir,
         )
 
-    attempts = state.get("attempts")
-    if isinstance(attempts, list):
-        for attempt in attempts:
-            if not isinstance(attempt, dict):
-                continue
-            inp_path = attempt.get("inp_path")
-            if isinstance(inp_path, str):
-                attempt["inp_path"] = _normalize_moved_artifact_path(
-                    inp_path,
-                    source_dir=source_dir,
-                    target_dir=target_dir,
-                )
-            out_path = attempt.get("out_path")
-            if isinstance(out_path, str):
-                attempt["out_path"] = _normalize_moved_artifact_path(
-                    out_path,
-                    source_dir=source_dir,
-                    target_dir=target_dir,
-                )
-
-    final_result = state.get("final_result")
-    if isinstance(final_result, dict):
-        last_out_path = final_result.get("last_out_path")
-        if isinstance(last_out_path, str):
-            final_result["last_out_path"] = _normalize_moved_artifact_path(
-                last_out_path,
-                source_dir=source_dir,
-                target_dir=target_dir,
-            )
+    _normalize_attempt_artifact_paths(
+        state.get("attempts"),
+        source_dir=source_dir,
+        target_dir=target_dir,
+    )
+    _normalize_final_result_artifact_path(
+        state.get("final_result"),
+        source_dir=source_dir,
+        target_dir=target_dir,
+    )
 
     save_state(state_dir, state)
     write_report_files(state_dir, state)

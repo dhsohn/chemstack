@@ -104,32 +104,26 @@ def _prompt_organized_root(allowed_root: Path) -> str:
         return str(path)
 
 
-def _prompt_default_max_retries() -> int:
+def _prompt_int(label: str, *, default: str, minimum: int) -> int:
     while True:
-        raw = _prompt_text("default_max_retries", "2")
+        raw = _prompt_text(label, default)
         try:
             value = int(raw)
         except ValueError:
-            print("default_max_retries must be an integer >= 0.")
+            print(f"{label} must be an integer >= {minimum}.")
             continue
-        if value < 0:
-            print("default_max_retries must be an integer >= 0.")
+        if value < minimum:
+            print(f"{label} must be an integer >= {minimum}.")
             continue
         return value
+
+
+def _prompt_default_max_retries() -> int:
+    return _prompt_int("default_max_retries", default="2", minimum=0)
 
 
 def _prompt_max_concurrent() -> int:
-    while True:
-        raw = _prompt_text("max_concurrent", "4")
-        try:
-            value = int(raw)
-        except ValueError:
-            print("max_concurrent must be an integer >= 1.")
-            continue
-        if value < 1:
-            print("max_concurrent must be an integer >= 1.")
-            continue
-        return value
+    return _prompt_int("max_concurrent", default="4", minimum=1)
 
 
 def _prompt_telegram_config() -> dict[str, str]:

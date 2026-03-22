@@ -103,6 +103,52 @@ def _queue_entry_represents_snapshot(entry: QueueEntry, snapshot: RunSnapshot | 
     return bool(reaction_dir) and reaction_dir == _resolved_path_text(str(snapshot.reaction_dir))
 
 
+def _build_queue_row(entry: QueueEntry, snapshot: RunSnapshot | None) -> tuple[dict[str, str], bool]:
+    status = str(entry.get("status", "?"))
+    icon = _status_icon(status)
+
+    if snapshot is not None:
+        elapsed = snapshot.elapsed_text
+        inp = snapshot.selected_inp_name if snapshot.selected_inp_name != "-" else ""
+        attempts = str(snapshot.attempts)
+        if status == QueueStatus.RUNNING.value and snapshot.status != RunStatus.RUNNING.value:
+            status = snapshot.status
+            icon = _status_icon(status)
+    else:
+        elapsed = _format_elapsed(
+            entry.get("enqueued_at", ""),
+            entry.get("finished_at"),
+        )
+        inp = ""
+        attempts = "-"
+
+    row = {
+        "icon": icon,
+        "id": str(entry.get("queue_id", "?")),
+        "status": status,
+        "pri": str(entry.get("priority", "-")),
+        "dir": Path(str(entry.get("reaction_dir", ""))).name if entry.get("reaction_dir", "") else "?",
+        "elapsed": elapsed,
+        "inp": inp,
+        "attempts": attempts,
+    }
+    return row, _queue_entry_represents_snapshot(entry, snapshot)
+
+
+def _build_standalone_row(snapshot: RunSnapshot) -> dict[str, str]:
+    status = snapshot.status
+    return {
+        "icon": _status_icon(status),
+        "id": snapshot.run_id or snapshot.name,
+        "status": status,
+        "pri": "-",
+        "dir": snapshot.name,
+        "elapsed": snapshot.elapsed_text,
+        "inp": snapshot.selected_inp_name if snapshot.selected_inp_name != "-" else "",
+        "attempts": str(snapshot.attempts),
+    }
+
+
 def _collect_unified(allowed_root: Path) -> list[dict[str, str]]:
     """Merge queue entries and run snapshots into unified display rows."""
     reconcile_orphaned_running_entries(allowed_root)
@@ -123,64 +169,21 @@ def _collect_unified(allowed_root: Path) -> list[dict[str, str]]:
 
     # Process queue entries first
     for entry in queue_entries:
-        rdir = entry.get("reaction_dir", "")
         snap = _match_queue_snapshot(
             entry,
             snapshot_by_run_id=snapshot_by_run_id,
             snapshot_by_dir=snapshot_by_dir,
         )
-
-        status = entry.get("status", "?")
-        icon = _status_icon(status)
-        entry_id = entry.get("queue_id", "?")
-        priority = str(entry.get("priority", "-"))
-        directory = Path(rdir).name if rdir else "?"
-
-        if snap:
-            el = snap.elapsed_text
-            inp = snap.selected_inp_name if snap.selected_inp_name != "-" else ""
-            attempts = str(snap.attempts)
-            # If queue says running but run_state disagrees, prefer run_state
-            if status == QueueStatus.RUNNING.value and snap.status != RunStatus.RUNNING.value:
-                status = snap.status
-                icon = _status_icon(status)
-        else:
-            el = _format_elapsed(
-                entry.get("enqueued_at", ""),
-                entry.get("finished_at"),
-            )
-            inp = ""
-            attempts = "-"
-
-        rows.append({
-            "icon": icon,
-            "id": entry_id,
-            "status": status,
-            "pri": priority,
-            "dir": directory,
-            "elapsed": el,
-            "inp": inp,
-            "attempts": attempts,
-        })
-        if snap is not None and _queue_entry_represents_snapshot(entry, snap):
+        row, represents_snapshot = _build_queue_row(entry, snap)
+        rows.append(row)
+        if snap is not None and represents_snapshot:
             represented_snapshot_keys.add(snap.key)
 
     # Add standalone runs (not managed by queue)
     for snap in snapshots:
         if snap.key in represented_snapshot_keys:
             continue
-
-        status = snap.status
-        rows.append({
-            "icon": _status_icon(status),
-            "id": snap.run_id or snap.name,
-            "status": status,
-            "pri": "-",
-            "dir": snap.name,
-            "elapsed": snap.elapsed_text,
-            "inp": snap.selected_inp_name if snap.selected_inp_name != "-" else "",
-            "attempts": str(snap.attempts),
-        })
+        rows.append(_build_standalone_row(snap))
 
     return rows
 
@@ -202,6 +205,16 @@ def _print_table(rows: list[dict[str, str]]) -> None:
     print("\u2500" * (sum(widths) + 2 * (len(widths) - 1)))
     for row in table_rows:
         print(fmt.format(*row))
+
+
+def _summary_text(rows: list[dict[str, str]]) -> str:
+    counts: dict[str, int] = {}
+    for row in rows:
+        status = row["status"]
+        counts[status] = counts.get(status, 0) + 1
+
+    summary_parts = [f"{counts[status]} {status}" for status in ALL_FILTER_STATUSES if counts.get(status)]
+    return f"Simulations: {len(rows)} total ({', '.join(summary_parts)})"
 
 
 def cmd_list(args: Any) -> int:
@@ -226,14 +239,7 @@ def cmd_list(args: Any) -> int:
         print("No simulations found.")
         return 0
 
-    # Summary line
-    counts: dict[str, int] = {}
-    for r in rows:
-        s = r["status"]
-        counts[s] = counts.get(s, 0) + 1
-
-    summary_parts = [f"{counts[s]} {s}" for s in ALL_FILTER_STATUSES if counts.get(s)]
-    print(f"Simulations: {len(rows)} total ({', '.join(summary_parts)})\n")
+    print(f"{_summary_text(rows)}\n")
 
     _print_table(rows)
     return 0

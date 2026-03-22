@@ -1,12 +1,21 @@
 from __future__ import annotations
 
+import io
+import os
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
+from unittest.mock import patch
 
+import core.commands._helpers as command_helpers
 from core.commands._helpers import (
+    CONFIG_ENV_VAR,
+    _emit,
+    _human_bytes,
     _validate_reaction_dir,
     _validate_root_scan_dir,
+    default_config_path,
     finalize_batch_apply,
 )
 from core.config import AppConfig, PathsConfig, RuntimeConfig
@@ -52,6 +61,18 @@ class TestCommandPathValidators(unittest.TestCase):
             with self.assertRaises(ValueError):
                 _validate_reaction_dir(cfg, str(outside))
 
+    def test_validate_reaction_dir_requires_existing_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            allowed = root / "allowed"
+            organized = root / "organized"
+            allowed.mkdir()
+            organized.mkdir()
+            cfg = _cfg(allowed, organized)
+
+            with self.assertRaises(ValueError):
+                _validate_reaction_dir(cfg, str(allowed / "missing"))
+
     def test_root_validators_require_exact_root(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -66,6 +87,89 @@ class TestCommandPathValidators(unittest.TestCase):
             with self.subTest("allowed_root_mismatch"):
                 with self.assertRaises(ValueError):
                     _validate_root_scan_dir(cfg, str(allowed / "nested"))
+
+    def test_validate_root_scan_dir_requires_existing_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            allowed = root / "allowed"
+            organized = root / "organized"
+            allowed.mkdir()
+            organized.mkdir()
+            cfg = _cfg(allowed, organized)
+
+            with self.assertRaises(ValueError):
+                _validate_root_scan_dir(cfg, str(root / "missing"))
+
+
+class TestHelperUtilities(unittest.TestCase):
+    def test_default_config_path_prefers_repo_home_then_repo_fallback(self) -> None:
+        repo_default = Path(command_helpers.__file__).resolve().parents[2] / "config" / "orca_auto.yaml"
+        original_exists = Path.exists
+
+        with patch.dict(os.environ, {CONFIG_ENV_VAR: ""}, clear=False):
+            def repo_exists(path: Path) -> bool:
+                if path == repo_default:
+                    return True
+                return original_exists(path)
+
+            with patch.object(Path, "exists", repo_exists):
+                self.assertEqual(default_config_path(), str(repo_default))
+
+            fake_home = repo_default.parent.parent.parent / "tmp_home_for_test"
+            home_default = fake_home / "orca_auto" / "config" / "orca_auto.yaml"
+
+            def home_exists(path: Path) -> bool:
+                if path == repo_default:
+                    return False
+                if path == home_default:
+                    return True
+                return original_exists(path)
+
+            with patch.object(Path, "home", return_value=fake_home), patch.object(
+                Path,
+                "exists",
+                home_exists,
+            ):
+                self.assertEqual(default_config_path(), str(home_default))
+
+            def fallback_exists(path: Path) -> bool:
+                if path == repo_default or path == home_default:
+                    return False
+                return original_exists(path)
+
+            with patch.object(Path, "home", return_value=fake_home), patch.object(
+                Path,
+                "exists",
+                fallback_exists,
+            ):
+                self.assertEqual(default_config_path(), str(repo_default))
+
+    def test_human_bytes_formats_values(self) -> None:
+        self.assertEqual(_human_bytes(1), "1.0 B")
+        self.assertEqual(_human_bytes(1536), "1.5 KB")
+        self.assertEqual(_human_bytes(1024**2), "1.0 MB")
+        self.assertEqual(_human_bytes(1024**4), "1.0 TB")
+
+    def test_emit_prints_only_known_keys(self) -> None:
+        payload = {
+            "status": "completed",
+            "reaction_dir": "/tmp/rxn",
+            "selected_inp": "rxn.inp",
+            "attempt_count": 2,
+            "reason": "normal_termination",
+            "report_md": "/tmp/report.md",
+            "ignored": "value",
+        }
+
+        captured = io.StringIO()
+        with redirect_stdout(captured):
+            _emit(payload)
+
+        output = captured.getvalue()
+        self.assertIn("status: completed", output)
+        self.assertIn("reaction_dir: /tmp/rxn", output)
+        self.assertIn("report_md: /tmp/report.md", output)
+        self.assertNotIn("ignored", output)
 
 
 class TestFinalizeBatchApply(unittest.TestCase):

@@ -315,6 +315,14 @@ def _find_terminal_entry(entries: List[QueueEntry], reaction_dir: str) -> Option
     return None
 
 
+def _find_entry_by_queue_id(entries: List[QueueEntry], queue_id: str) -> Optional[QueueEntry]:
+    """Find a queue entry by queue_id."""
+    for entry in entries:
+        if entry.get("queue_id") == queue_id:
+            return entry
+    return None
+
+
 # -- Public API -----------------------------------------------------------
 
 
@@ -415,36 +423,34 @@ def mark_cancelled(allowed_root: Path, queue_id: str) -> bool:
     """Mark a running queue entry as cancelled after the worker stops it."""
     with _acquire_queue_lock(allowed_root):
         entries = _load_entries(allowed_root)
-        for entry in entries:
-            if entry.get("queue_id") != queue_id:
-                continue
-            if entry.get("status") != QueueStatus.RUNNING.value:
-                return False
-            entry["status"] = QueueStatus.CANCELLED.value
-            entry["finished_at"] = _now_iso()
-            entry["cancel_requested"] = False
-            _save_entries(allowed_root, entries)
-            logger.info("Entry %s → %s", queue_id, QueueStatus.CANCELLED.value)
-            return True
-    return False
+        entry = _find_entry_by_queue_id(entries, queue_id)
+        if entry is None:
+            return False
+        if entry.get("status") != QueueStatus.RUNNING.value:
+            return False
+        entry["status"] = QueueStatus.CANCELLED.value
+        entry["finished_at"] = _now_iso()
+        entry["cancel_requested"] = False
+        _save_entries(allowed_root, entries)
+        logger.info("Entry %s → %s", queue_id, QueueStatus.CANCELLED.value)
+        return True
 
 
 def requeue_running_entry(allowed_root: Path, queue_id: str) -> bool:
     """Return a running queue entry back to pending during worker shutdown."""
     with _acquire_queue_lock(allowed_root):
         entries = _load_entries(allowed_root)
-        for entry in entries:
-            if entry.get("queue_id") != queue_id:
-                continue
-            if entry.get("status") != QueueStatus.RUNNING.value:
-                return False
-            entry["status"] = QueueStatus.PENDING.value
-            entry["started_at"] = None
-            entry["cancel_requested"] = False
-            _save_entries(allowed_root, entries)
-            logger.info("Entry %s → %s", queue_id, QueueStatus.PENDING.value)
-            return True
-    return False
+        entry = _find_entry_by_queue_id(entries, queue_id)
+        if entry is None:
+            return False
+        if entry.get("status") != QueueStatus.RUNNING.value:
+            return False
+        entry["status"] = QueueStatus.PENDING.value
+        entry["started_at"] = None
+        entry["cancel_requested"] = False
+        _save_entries(allowed_root, entries)
+        logger.info("Entry %s → %s", queue_id, QueueStatus.PENDING.value)
+        return True
 
 
 def cancel(allowed_root: Path, queue_id: str) -> Optional[QueueEntry]:
@@ -456,26 +462,25 @@ def cancel(allowed_root: Path, queue_id: str) -> Optional[QueueEntry]:
     """
     with _acquire_queue_lock(allowed_root):
         entries = _load_entries(allowed_root)
-        for entry in entries:
-            if entry.get("queue_id") != queue_id:
-                continue
+        entry = _find_entry_by_queue_id(entries, queue_id)
+        if entry is None:
+            return None
 
-            status = entry.get("status", "")
-            if status == QueueStatus.PENDING.value:
-                entry["status"] = QueueStatus.CANCELLED.value
-                entry["finished_at"] = _now_iso()
-                _save_entries(allowed_root, entries)
-                logger.info("Cancelled pending entry: %s", queue_id)
-                return entry
-            elif status == QueueStatus.RUNNING.value:
-                entry["cancel_requested"] = True
-                _save_entries(allowed_root, entries)
-                logger.info("Cancel requested for running entry: %s", queue_id)
-                return entry
-            else:
-                logger.debug("Cannot cancel entry in terminal state: %s (%s)", queue_id, status)
-                return None
-    return None
+        status = entry.get("status", "")
+        if status == QueueStatus.PENDING.value:
+            entry["status"] = QueueStatus.CANCELLED.value
+            entry["finished_at"] = _now_iso()
+            _save_entries(allowed_root, entries)
+            logger.info("Cancelled pending entry: %s", queue_id)
+            return entry
+        if status == QueueStatus.RUNNING.value:
+            entry["cancel_requested"] = True
+            _save_entries(allowed_root, entries)
+            logger.info("Cancel requested for running entry: %s", queue_id)
+            return entry
+
+        logger.debug("Cannot cancel entry in terminal state: %s (%s)", queue_id, status)
+        return None
 
 
 def cancel_all_pending(allowed_root: Path) -> int:
@@ -527,10 +532,10 @@ def get_cancel_requested(allowed_root: Path, queue_id: str) -> bool:
     """Check if a running entry has a cancel request."""
     with _acquire_queue_lock(allowed_root):
         entries = _load_entries(allowed_root)
-    for entry in entries:
-        if entry.get("queue_id") == queue_id:
-            return bool(entry.get("cancel_requested", False))
-    return False
+    entry = _find_entry_by_queue_id(entries, queue_id)
+    if entry is None:
+        return False
+    return bool(entry.get("cancel_requested", False))
 
 
 def clear_terminal(allowed_root: Path, *, keep_last: int = 0) -> int:
@@ -571,16 +576,15 @@ def _update_terminal(
 ) -> bool:
     with _acquire_queue_lock(allowed_root):
         entries = _load_entries(allowed_root)
-        for entry in entries:
-            if entry.get("queue_id") != queue_id:
-                continue
-            entry["status"] = status
-            entry["finished_at"] = _now_iso()
-            if error is not None:
-                entry["error"] = error
-            if run_id is not None:
-                entry["run_id"] = run_id
-            _save_entries(allowed_root, entries)
-            logger.info("Entry %s → %s", queue_id, status)
-            return True
-    return False
+        entry = _find_entry_by_queue_id(entries, queue_id)
+        if entry is None:
+            return False
+        entry["status"] = status
+        entry["finished_at"] = _now_iso()
+        if error is not None:
+            entry["error"] = error
+        if run_id is not None:
+            entry["run_id"] = run_id
+        _save_entries(allowed_root, entries)
+        logger.info("Entry %s → %s", queue_id, status)
+        return True
