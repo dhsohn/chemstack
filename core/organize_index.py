@@ -10,6 +10,7 @@ from typing import Any, Dict, Iterator, List, Optional
 from . import lock_utils
 from .pathing import resolve_artifact_path
 from .state_store import atomic_write_text, load_state, now_utc_iso
+from .types import RunState
 
 logger = logging.getLogger(__name__)
 
@@ -83,12 +84,68 @@ def resolve_state_path(path_value: Any, reaction_dir: Path) -> Optional[Path]:
     return resolve_artifact_path(path_value, reaction_dir)
 
 
+def _build_index_record(
+    organized_root: Path,
+    reaction_dir: Path,
+    state: RunState,
+) -> Optional[Dict[str, Any]]:
+    if state.get("status") != "completed":
+        return None
+    final_result = state.get("final_result")
+    if not isinstance(final_result, dict):
+        return None
+
+    run_id = state.get("run_id", "")
+    if not run_id:
+        return None
+
+    try:
+        rel = reaction_dir.relative_to(organized_root)
+    except ValueError:
+        rel = reaction_dir
+    organized_path = str(rel)
+
+    from .result_organizer import resolve_organize_metadata
+
+    selected_inp = state.get("selected_inp", "")
+    inp_path, job_type, molecule_key = resolve_organize_metadata(state, reaction_dir)
+    if inp_path is None:
+        inps = sorted(reaction_dir.glob("*.inp"))
+        if inps:
+            inp_path = inps[0]
+
+    attempts = state.get("attempts")
+    attempt_count = len(attempts) if isinstance(attempts, list) else 0
+
+    selected_inp_rel = to_reaction_relative_path(selected_inp, reaction_dir)
+    if not selected_inp_rel and inp_path is not None:
+        selected_inp_rel = str(inp_path.relative_to(reaction_dir))
+    last_out_rel = to_reaction_relative_path(final_result.get("last_out_path", ""), reaction_dir)
+
+    return {
+        "run_id": run_id,
+        "reaction_dir": str(reaction_dir),
+        "status": "completed",
+        "analyzer_status": final_result.get("analyzer_status", ""),
+        "reason": final_result.get("reason", ""),
+        "job_type": job_type,
+        "molecule_key": molecule_key,
+        "selected_inp": selected_inp_rel,
+        "last_out_path": last_out_rel,
+        "attempt_count": attempt_count,
+        "completed_at": final_result.get("completed_at", ""),
+        "organized_at": now_utc_iso(),
+        "organized_path": organized_path,
+    }
+
+
 def rebuild_index(organized_root: Path) -> int:
+    root_exists = organized_root.exists()
     idir = index_dir(organized_root)
     idir.mkdir(parents=True, exist_ok=True)
 
     records: List[Dict[str, Any]] = []
-    if not organized_root.exists():
+    if not root_exists:
         atomic_write_text(records_path(organized_root), "")
         return 0
 
@@ -99,54 +156,9 @@ def rebuild_index(organized_root: Path) -> int:
         state = load_state(reaction_dir)
         if state is None:
             continue
-        if state.get("status") != "completed":
+        record = _build_index_record(organized_root, reaction_dir, state)
+        if record is None:
             continue
-        final_result = state.get("final_result")
-        if not isinstance(final_result, dict):
-            continue
-
-        run_id = state.get("run_id", "")
-        if not run_id:
-            continue
-
-        try:
-            rel = reaction_dir.relative_to(organized_root)
-        except ValueError:
-            rel = reaction_dir
-        organized_path = str(rel)
-
-        from .result_organizer import resolve_organize_metadata
-
-        selected_inp = state.get("selected_inp", "")
-        inp_path, job_type, molecule_key = resolve_organize_metadata(state, reaction_dir)
-        if inp_path is None:
-            inps = sorted(reaction_dir.glob("*.inp"))
-            if inps:
-                inp_path = inps[0]
-
-        attempts = state.get("attempts")
-        attempt_count = len(attempts) if isinstance(attempts, list) else 0
-
-        selected_inp_rel = to_reaction_relative_path(selected_inp, reaction_dir)
-        if not selected_inp_rel and inp_path is not None:
-            selected_inp_rel = str(inp_path.relative_to(reaction_dir))
-        last_out_rel = to_reaction_relative_path(final_result.get("last_out_path", ""), reaction_dir)
-
-        record = {
-            "run_id": run_id,
-            "reaction_dir": str(reaction_dir),
-            "status": "completed",
-            "analyzer_status": final_result.get("analyzer_status", ""),
-            "reason": final_result.get("reason", ""),
-            "job_type": job_type,
-            "molecule_key": molecule_key,
-            "selected_inp": selected_inp_rel,
-            "last_out_path": last_out_rel,
-            "attempt_count": attempt_count,
-            "completed_at": final_result.get("completed_at", ""),
-            "organized_at": now_utc_iso(),
-            "organized_path": organized_path,
-        }
         records.append(record)
 
     lines = [json.dumps(r, ensure_ascii=True) for r in records]
@@ -166,28 +178,27 @@ def _assert_index_locked(organized_root: Path) -> None:
         )
 
 
+def _append_jsonl_entry(path: Path, entry: Dict[str, Any]) -> None:
+    line = json.dumps(entry, ensure_ascii=True) + "\n"
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(line)
+        handle.flush()
+        os.fsync(handle.fileno())
+
+
 def append_record(organized_root: Path, record: Dict[str, Any]) -> None:
     _assert_index_locked(organized_root)
     idir = index_dir(organized_root)
     idir.mkdir(parents=True, exist_ok=True)
-    rp = records_path(organized_root)
-    line = json.dumps(record, ensure_ascii=True) + "\n"
-    with rp.open("a", encoding="utf-8") as handle:
-        handle.write(line)
-        handle.flush()
-        os.fsync(handle.fileno())
+    _append_jsonl_entry(records_path(organized_root), record)
 
 
 def append_failed_rollback(organized_root: Path, entry: Dict[str, Any]) -> None:
     _assert_index_locked(organized_root)
     idir = index_dir(organized_root)
     idir.mkdir(parents=True, exist_ok=True)
-    fp = idir / FAILED_ROLLBACKS_FILE_NAME
-    line = json.dumps(entry, ensure_ascii=True) + "\n"
-    with fp.open("a", encoding="utf-8") as handle:
-        handle.write(line)
-        handle.flush()
-        os.fsync(handle.fileno())
+    _append_jsonl_entry(idir / FAILED_ROLLBACKS_FILE_NAME, entry)
+
 
 def _index_lock_timeout_error(lock_path: Path, timeout_seconds: int) -> RuntimeError:
     return RuntimeError(

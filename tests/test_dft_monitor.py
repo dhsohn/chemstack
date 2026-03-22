@@ -54,6 +54,19 @@ def _make_index(tmp_path: Path) -> DFTIndex:
     return index
 
 
+def _advance_mtime(path: Path, *, delta_seconds: float = 5.0) -> None:
+    before = os.path.getmtime(path)
+    for _ in range(5):
+        target = before + delta_seconds
+        os.utime(path, (target, target))
+        after = os.path.getmtime(path)
+        if after > before:
+            return
+        before = after
+        delta_seconds *= 2
+    raise AssertionError(f"Failed to advance mtime for {path}")
+
+
 def test_baseline_seed_prevents_restart_spam(tmp_path: Path) -> None:
     kb_dir = tmp_path / "kb"
     kb_dir.mkdir(parents=True)
@@ -79,8 +92,7 @@ def test_baseline_seed_prevents_restart_spam(tmp_path: Path) -> None:
 
     # Notification when file changes
     out_file.write_text(_COMPLETED_OUT + "\n# changed\n", encoding="utf-8")
-    mtime = os.path.getmtime(out_file)
-    os.utime(out_file, (mtime + 5.0, mtime + 5.0))
+    _advance_mtime(out_file)
 
     report3 = monitor2.scan()
     assert len(report3.new_results) == 1
@@ -103,13 +115,35 @@ def test_running_calc_not_indexed(tmp_path: Path) -> None:
     monitor.scan()  # baseline
 
     out_file.write_text(_RUNNING_OPT_OUT + "\n# updated\n", encoding="utf-8")
-    mtime = os.path.getmtime(out_file)
-    os.utime(out_file, (mtime + 5.0, mtime + 5.0))
+    _advance_mtime(out_file)
 
     report = monitor.scan()
     assert len(report.new_results) == 1
     assert report.new_results[0].status == "running"
     # Running calculations should not be stored in the index
+    assert index._count() == 0
+
+    index.close()
+
+
+def test_running_calc_change_detected_even_if_mtime_moves_backward(tmp_path: Path) -> None:
+    kb_dir = tmp_path / "kb"
+    kb_dir.mkdir(parents=True)
+    out_file = kb_dir / "running.out"
+    out_file.write_text(_RUNNING_OPT_OUT, encoding="utf-8")
+    (kb_dir / "run_state.json").write_text('{"status": "running"}', encoding="utf-8")
+
+    index = _make_index(tmp_path)
+    monitor = DFTMonitor(index, [str(kb_dir)], state_file=str(tmp_path / "automation" / "state.json"))
+    monitor.scan()
+
+    baseline_mtime = os.path.getmtime(out_file)
+    out_file.write_text(_RUNNING_OPT_OUT + "\n# rewritten\n", encoding="utf-8")
+    os.utime(out_file, (baseline_mtime - 10.0, baseline_mtime - 10.0))
+
+    report = monitor.scan()
+    assert len(report.new_results) == 1
+    assert report.new_results[0].status == "running"
     assert index._count() == 0
 
     index.close()

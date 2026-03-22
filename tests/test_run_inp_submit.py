@@ -52,6 +52,20 @@ def _make_args(root: Path, reaction_dir: Path, **overrides) -> SimpleNamespace:
 
 class TestRunInpSubmit(unittest.TestCase):
     @patch("core.commands.run_inp.load_config")
+    def test_submit_rejects_queue_only_with_require_slot_before_loading_config(
+        self,
+        mock_load_config: MagicMock,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            reaction_dir = root / "rxn"
+
+            rc = cmd_run_inp(_make_args(root, reaction_dir, queue_only=True, require_slot=True))
+
+        self.assertEqual(rc, 1)
+        mock_load_config.assert_not_called()
+
+    @patch("core.commands.run_inp.load_config")
     @patch("core.commands.run_inp._submit_as_queued", return_value=0)
     @patch("core.commands.run_inp._cmd_run_inp_execute", return_value=0)
     def test_submit_executes_directly_when_slot_available_and_no_pending_backlog(
@@ -317,6 +331,30 @@ class TestRunInpSubmit(unittest.TestCase):
             self.assertEqual(len(list_queue(root)), 1)
             self.assertIn("worker: failed", buf.getvalue())
             self.assertIn("worker_detail: boom", buf.getvalue())
+            mock_notify_queue.assert_called_once()
+
+    @patch("core.commands.run_inp.notify_queue_enqueued_event", return_value=True)
+    @patch("core.commands.run_inp._ensure_worker_for_submission", side_effect=RuntimeError("autostart exploded"))
+    def test_submit_as_queued_returns_success_when_worker_autostart_raises(
+        self,
+        mock_ensure_worker: MagicMock,
+        mock_notify_queue: MagicMock,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            cfg = _make_cfg(tmp)
+            reaction_dir = root / "rxn"
+            _write_inp(reaction_dir)
+
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                rc = _submit_as_queued(cfg, _make_args(root, reaction_dir), reaction_dir)
+
+            self.assertEqual(rc, 0)
+            self.assertEqual(len(list_queue(root)), 1)
+            self.assertIn("worker: failed", buf.getvalue())
+            self.assertIn("worker_detail: autostart exploded", buf.getvalue())
+            mock_ensure_worker.assert_called_once()
             mock_notify_queue.assert_called_once()
 
 

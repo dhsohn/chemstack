@@ -2,14 +2,18 @@
 
 import json
 import logging
-import os
 from contextlib import contextmanager
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterator, Optional, cast
-from uuid import uuid4
 
 from . import lock_utils
+from .persistence_utils import (
+    atomic_write_json,
+    atomic_write_text as _atomic_write_text,
+    now_utc_iso as _now_utc_iso,
+    timestamped_token,
+)
+from .process_tracking import current_process_lock_payload
 from .types import RunFinalResult, RunState
 
 logger = logging.getLogger(__name__)
@@ -22,7 +26,7 @@ LOCK_FILE_NAME = "run.lock"
 
 
 def now_utc_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return _now_utc_iso()
 
 
 def state_path(reaction_dir: Path) -> Path:
@@ -51,7 +55,7 @@ def load_state(reaction_dir: Path) -> Optional[RunState]:
 
 
 def new_state(reaction_dir: Path, selected_inp: Path, max_retries: int) -> RunState:
-    run_id = f"run_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}_{uuid4().hex[:8]}"
+    run_id = timestamped_token("run")
     ts = now_utc_iso()
     return {
         "run_id": run_id,
@@ -65,29 +69,13 @@ def new_state(reaction_dir: Path, selected_inp: Path, max_retries: int) -> RunSt
         "final_result": None,
     }
 
-
-def _atomic_write_text(path: Path, payload: str) -> None:
-    tmp_path = path.with_name(f"{path.name}.tmp.{os.getpid()}.{uuid4().hex[:8]}")
-    try:
-        with tmp_path.open("w", encoding="utf-8") as handle:
-            handle.write(payload)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(str(tmp_path), str(path))
-    finally:
-        try:
-            tmp_path.unlink()
-        except OSError:
-            pass
-
-
 atomic_write_text = _atomic_write_text
 
 
 def save_state(reaction_dir: Path, state: RunState) -> Path:
     state["updated_at"] = now_utc_iso()
     p = state_path(reaction_dir)
-    _atomic_write_text(p, json.dumps(state, ensure_ascii=True, indent=2))
+    atomic_write_json(p, state, ensure_ascii=True, indent=2)
     logger.debug("State saved: %s", p)
     return p
 
@@ -177,7 +165,7 @@ def write_report_files(reaction_dir: Path, state: RunState) -> Dict[str, str]:
     report_payload = _build_report_payload(state)
     json_path = report_json_path(reaction_dir)
     md_path = report_md_path(reaction_dir)
-    _atomic_write_text(json_path, json.dumps(report_payload, ensure_ascii=True, indent=2))
+    atomic_write_json(json_path, report_payload, ensure_ascii=True, indent=2)
     _atomic_write_text(md_path, _render_report_markdown(report_payload))
     return {"report_json": str(json_path), "report_md": str(md_path)}
 
@@ -206,10 +194,7 @@ def _run_lock_stale_remove_error(lock_pid: int, lock_path: Path, exc: OSError) -
 @contextmanager
 def acquire_run_lock(reaction_dir: Path) -> Iterator[None]:
     lock_path = reaction_dir / LOCK_FILE_NAME
-    lock_payload = {"pid": os.getpid(), "started_at": now_utc_iso()}
-    current_start_ticks = lock_utils.current_process_start_ticks()
-    if current_start_ticks is not None:
-        lock_payload["process_start_ticks"] = current_start_ticks
+    lock_payload = current_process_lock_payload()
 
     with lock_utils.acquire_file_lock(
         lock_path=lock_path,

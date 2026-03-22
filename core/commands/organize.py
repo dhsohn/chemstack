@@ -173,6 +173,64 @@ def _build_organize_message(
     return "\n\n".join(sections)
 
 
+def _send_organize_notification(
+    cfg: AppConfig,
+    *,
+    organized: list[Dict[str, Any]],
+    skipped_results: list[Dict[str, Any]],
+    failures: list[Dict[str, Any]],
+    skips: list[SkipReason],
+) -> None:
+    if not cfg.telegram.enabled:
+        return
+
+    message = _build_organize_message(organized, skipped_results, failures, skips)
+    if message is None:
+        return
+    if send_message(cfg.telegram, message):
+        logger.info("Telegram organize notification sent successfully")
+    else:
+        logger.warning("Failed to send Telegram organize notification")
+
+
+def _resolve_organize_scope(
+    cfg: AppConfig,
+    *,
+    organized_root: Path,
+    reaction_dir_raw: str | None,
+    root_raw: str | None,
+) -> tuple[list[OrganizePlan], list[SkipReason]] | None:
+    if reaction_dir_raw:
+        try:
+            reaction_dir = _validate_reaction_dir(cfg, reaction_dir_raw)
+        except ValueError as exc:
+            logger.error("%s", exc)
+            return None
+        plan, skip = plan_single(reaction_dir, organized_root)
+        return ([plan] if plan else []), ([skip] if skip else [])
+
+    try:
+        assert isinstance(root_raw, str)
+        root = _validate_root_scan_dir(cfg, root_raw)
+    except ValueError as exc:
+        logger.error("%s", exc)
+        return None
+    return plan_root_scan(root, organized_root)
+
+
+def _build_dry_run_summary(
+    plans: list[OrganizePlan],
+    skips_list: list[SkipReason],
+) -> Dict[str, Any]:
+    return {
+        "action": "dry_run",
+        "to_organize": len(plans),
+        "skipped": len(skips_list),
+        "plans": [_plan_to_dict(p) for p in plans],
+        "skip_reasons": [{"reaction_dir": s.reaction_dir, "reason": s.reason} for s in skips_list],
+    }
+
+
 def _cmd_organize_apply(
     plans: list[OrganizePlan],
     skips: list[SkipReason],
@@ -235,14 +293,13 @@ def _cmd_organize_apply(
         "failures": failures,
     }
 
-    # Send Telegram notification
-    if cfg.telegram.enabled:
-        message = _build_organize_message(organized, skipped_results, failures, skips)
-        if message is not None:
-            if send_message(cfg.telegram, message):
-                logger.info("Telegram organize notification sent successfully")
-            else:
-                logger.warning("Failed to send Telegram organize notification")
+    _send_organize_notification(
+        cfg,
+        organized=organized,
+        skipped_results=skipped_results,
+        failures=failures,
+        skips=skips,
+    )
 
     return finalize_batch_apply(
         summary, _emit_organize, failures,
@@ -271,33 +328,18 @@ def cmd_organize(args: Any) -> int:
 
     apply_mode = getattr(args, "apply", False)
 
-    if reaction_dir_raw:
-        try:
-            reaction_dir = _validate_reaction_dir(cfg, reaction_dir_raw)
-        except ValueError as exc:
-            logger.error("%s", exc)
-            return 1
-        plan, skip = plan_single(reaction_dir, organized_root)
-        plans = [plan] if plan else []
-        skips_list = [skip] if skip else []
-    else:
-        try:
-            assert isinstance(root_raw, str)
-            root = _validate_root_scan_dir(cfg, root_raw)
-        except ValueError as exc:
-            logger.error("%s", exc)
-            return 1
-        plans, skips_list = plan_root_scan(root, organized_root)
+    scope = _resolve_organize_scope(
+        cfg,
+        organized_root=organized_root,
+        reaction_dir_raw=reaction_dir_raw,
+        root_raw=root_raw,
+    )
+    if scope is None:
+        return 1
+    plans, skips_list = scope
 
     if not apply_mode:
-        summary = {
-            "action": "dry_run",
-            "to_organize": len(plans),
-            "skipped": len(skips_list),
-            "plans": [_plan_to_dict(p) for p in plans],
-            "skip_reasons": [{"reaction_dir": s.reaction_dir, "reason": s.reason} for s in skips_list],
-        }
-        _emit_organize(summary)
+        _emit_organize(_build_dry_run_summary(plans, skips_list))
         return 0
 
     return _cmd_organize_apply(plans, skips_list, organized_root, cfg)

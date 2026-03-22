@@ -120,7 +120,7 @@ class TestTelegramBotHandlers(unittest.TestCase):
         self.assertIn("not found", result)
 
     @patch("core.cancellation.os.kill")
-    @patch("core.cancellation.is_process_alive", return_value=True)
+    @patch("core.process_tracking.is_process_alive", return_value=True)
     def test_handle_cancel_direct_run(self, mock_alive, mock_kill) -> None:
         with tempfile.TemporaryDirectory() as td:
             allowed = Path(td) / "orca_runs"

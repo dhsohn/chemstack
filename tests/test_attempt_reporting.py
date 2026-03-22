@@ -1,0 +1,85 @@
+from __future__ import annotations
+
+import json
+import tempfile
+import unittest
+from pathlib import Path
+
+from core.attempt_reporting import build_final_result, exit_with_result, last_out_path_from_state
+from core.state_store import load_state, new_state
+from core.statuses import AnalyzerStatus, RunStatus
+
+
+class TestAttemptReporting(unittest.TestCase):
+    def test_last_out_path_from_state_defensive_cases(self) -> None:
+        self.assertIsNone(last_out_path_from_state({"attempts": []}))
+        self.assertIsNone(last_out_path_from_state({"attempts": ["bad"]}))
+        self.assertIsNone(last_out_path_from_state({"attempts": [{"out_path": "   "}]}))
+        self.assertEqual(
+            last_out_path_from_state({"attempts": [{"out_path": "/tmp/run.out"}]}),
+            "/tmp/run.out",
+        )
+
+    def test_build_final_result_keeps_supported_extra_fields_only(self) -> None:
+        result = build_final_result(
+            status=RunStatus.FAILED,
+            analyzer_status=AnalyzerStatus.INCOMPLETE,
+            reason="runner_failed",
+            last_out_path="/tmp/run.out",
+            resumed=False,
+            extra={
+                "skipped_execution": True,
+                "runner_error": "boom",
+                "ignored": 123,
+            },
+        )
+
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(result["analyzer_status"], "incomplete")
+        self.assertTrue(result["skipped_execution"])
+        self.assertEqual(result["runner_error"], "boom")
+        self.assertNotIn("ignored", result)
+
+    def test_exit_with_result_writes_state_reports_and_finished_notification(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            reaction_dir = Path(td)
+            selected_inp = reaction_dir / "rxn.inp"
+            selected_inp.write_text("! Opt\n", encoding="utf-8")
+            state = new_state(reaction_dir, selected_inp, max_retries=2)
+            emitted_payloads: list[dict] = []
+            finished_notifications: list[dict] = []
+
+            rc = exit_with_result(
+                reaction_dir,
+                state,
+                selected_inp,
+                status=RunStatus.COMPLETED,
+                analyzer_status=AnalyzerStatus.COMPLETED,
+                reason="normal_termination",
+                last_out_path=str(reaction_dir / "rxn.out"),
+                resumed=True,
+                exit_code=0,
+                emit=lambda payload: emitted_payloads.append(payload),
+                extra={"skipped_execution": True},
+                notify_finished=lambda payload: finished_notifications.append(payload),
+            )
+
+            saved = load_state(reaction_dir)
+            report_json = json.loads((reaction_dir / "run_report.json").read_text(encoding="utf-8"))
+
+        self.assertEqual(rc, 0)
+        assert saved is not None
+        self.assertEqual(saved["status"], "completed")
+        assert saved["final_result"] is not None
+        self.assertEqual(saved["final_result"]["reason"], "normal_termination")
+        self.assertEqual(saved["final_result"]["last_out_path"], str(reaction_dir / "rxn.out"))
+        self.assertEqual(len(emitted_payloads), 1)
+        self.assertEqual(emitted_payloads[0]["status"], "completed")
+        self.assertEqual(report_json["final_result"]["status"], "completed")
+        self.assertEqual(len(finished_notifications), 1)
+        self.assertTrue(finished_notifications[0]["resumed"])
+        self.assertTrue(finished_notifications[0]["skipped_execution"])
+
+
+if __name__ == "__main__":
+    unittest.main()

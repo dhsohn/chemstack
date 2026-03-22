@@ -107,7 +107,7 @@ class TestCmdQueueCancel(unittest.TestCase):
         self.assertEqual(rc, 1)
 
     @patch("core.cancellation.os.kill")
-    @patch("core.cancellation.is_process_alive", return_value=True)
+    @patch("core.process_tracking.is_process_alive", return_value=True)
     @patch("core.commands.queue.load_config")
     def test_cancel_direct_running_simulation(
         self,

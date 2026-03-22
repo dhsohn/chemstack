@@ -28,19 +28,17 @@ from .admission_store import (
     reserve_slot,
 )
 from .config import AppConfig
-from .lock_utils import is_process_alive, parse_lock_info, process_start_ticks
+from .process_tracking import active_run_lock_pid, read_pid_file
 from .queue_store import (
     dequeue_next,
     get_cancel_requested,
+    mark_cancelled,
     mark_completed,
     mark_failed,
+    requeue_running_entry,
     reconcile_orphaned_running_entries,
-    _acquire_queue_lock,
-    _load_entries,
-    _save_entries,
 )
 from .state_store import LOCK_FILE_NAME, load_state
-from .statuses import QueueStatus
 from .types import QueueEntry
 
 logger = logging.getLogger(__name__)
@@ -189,26 +187,16 @@ def _get_run_id_from_state(reaction_dir: str) -> str | None:
 
 
 def _active_lock_pid(reaction_dir: Path) -> int | None:
-    lock_info = parse_lock_info(reaction_dir / LOCK_FILE_NAME)
-    pid = lock_info.get("pid")
-    if not isinstance(pid, int) or pid <= 0:
-        return None
-    if not is_process_alive(pid):
-        return None
-
-    expected_ticks = lock_info.get("process_start_ticks")
-    if isinstance(expected_ticks, int) and expected_ticks > 0:
-        observed_ticks = process_start_ticks(pid)
-        if observed_ticks is None or observed_ticks != expected_ticks:
-            logger.info(
-                "Ignoring stale run.lock due to PID reuse: reaction_dir=%s pid=%d expected=%d observed=%s",
-                reaction_dir,
-                pid,
-                expected_ticks,
-                observed_ticks,
-            )
-            return None
-    return pid
+    return active_run_lock_pid(
+        reaction_dir,
+        on_pid_reuse=lambda pid, expected_ticks, observed_ticks: logger.info(
+            "Ignoring stale run.lock due to PID reuse: reaction_dir=%s pid=%d expected=%d observed=%s",
+            reaction_dir,
+            pid,
+            expected_ticks,
+            observed_ticks,
+        ),
+    )
 
 
 def _count_active_run_locks(
@@ -380,16 +368,7 @@ class QueueWorker:
                     job.process.wait(timeout=5)
                 except subprocess.TimeoutExpired:
                     pass
-                # Mark as cancelled in the queue
-                from .queue_store import _now_iso
-                with _acquire_queue_lock(self.allowed_root):
-                    entries = _load_entries(self.allowed_root)
-                    for entry in entries:
-                        if entry.get("queue_id") == queue_id:
-                            entry["status"] = QueueStatus.CANCELLED.value
-                            entry["finished_at"] = _now_iso()
-                            break
-                    _save_entries(self.allowed_root, entries)
+                mark_cancelled(self.allowed_root, queue_id)
                 release_slot(self.allowed_root, job.admission_token)
                 del self._running[queue_id]
 
@@ -402,15 +381,7 @@ class QueueWorker:
         logger.info("Shutting down %d running job(s)...", len(self._running))
         for queue_id, job in self._running.items():
             _terminate_process(job.process)
-            # Re-mark as pending so they can be picked up again
-            with _acquire_queue_lock(self.allowed_root):
-                entries = _load_entries(self.allowed_root)
-                for entry in entries:
-                    if entry.get("queue_id") == queue_id and entry.get("status") == QueueStatus.RUNNING.value:
-                        entry["status"] = QueueStatus.PENDING.value
-                        entry["started_at"] = None
-                        break
-                _save_entries(self.allowed_root, entries)
+            requeue_running_entry(self.allowed_root, queue_id)
             release_slot(self.allowed_root, job.admission_token)
         self._running.clear()
 
@@ -442,19 +413,4 @@ class QueueWorker:
 
 def read_worker_pid(allowed_root: Path) -> int | None:
     """Read the worker PID file. Returns None if not found or stale."""
-    pid_path = allowed_root / WORKER_PID_FILE
-    if not pid_path.exists():
-        return None
-    try:
-        pid = int(pid_path.read_text(encoding="utf-8").strip())
-    except (ValueError, OSError):
-        return None
-
-    from .lock_utils import is_process_alive
-    if not is_process_alive(pid):
-        try:
-            pid_path.unlink()
-        except OSError:
-            pass
-        return None
-    return pid
+    return read_pid_file(allowed_root / WORKER_PID_FILE)

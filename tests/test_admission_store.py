@@ -77,6 +77,16 @@ class TestAdmissionStore(unittest.TestCase):
 
             self.assertEqual(active_slot_count(root), 0)
 
+    def test_reserve_slot_uses_slot_prefix(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+
+            token = reserve_slot(root, 1, source="queue_worker")
+
+            self.assertIsNotNone(token)
+            self.assertTrue((token or "").startswith("slot_"))
+            self.assertEqual(active_slot_count(root), 1)
+
     def test_reconcile_stale_slots_removes_dead_owner(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

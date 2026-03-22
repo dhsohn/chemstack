@@ -20,6 +20,8 @@ from .commands.run_inp import cmd_run_inp
 from .commands.summary import cmd_summary
 from .telegram_bot import run_bot as _run_bot
 
+_ORCA_AUTO_HANDLER_ATTR = "_orca_auto_managed_handler"
+
 
 def cmd_bot(args: argparse.Namespace) -> int:
     from .config import load_config
@@ -101,6 +103,7 @@ def _configure_logging(args: argparse.Namespace) -> None:
 
     root_logger = logging.getLogger()
     root_logger.setLevel(log_level)
+    _remove_managed_handlers(root_logger)
 
     formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 
@@ -115,7 +118,19 @@ def _configure_logging(args: argparse.Namespace) -> None:
         handler = logging.StreamHandler(sys.stderr)
 
     handler.setFormatter(formatter)
+    setattr(handler, _ORCA_AUTO_HANDLER_ATTR, True)
     root_logger.addHandler(handler)
+
+
+def _remove_managed_handlers(root_logger: logging.Logger) -> None:
+    for handler in list(root_logger.handlers):
+        if not getattr(handler, _ORCA_AUTO_HANDLER_ATTR, False):
+            continue
+        root_logger.removeHandler(handler)
+        try:
+            handler.close()
+        except Exception:
+            pass
 
 
 def main(argv: list[str] | None = None) -> int:

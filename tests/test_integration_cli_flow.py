@@ -1,8 +1,9 @@
 import io
 import json
+import os
 import tempfile
-import unittest
 import time
+import unittest
 from pathlib import Path
 from unittest.mock import patch
 
@@ -11,6 +12,34 @@ from core.cli import main
 from core.config import load_config
 from core.queue_store import list_queue
 from core.queue_worker import QueueWorker, WorkerLaunchResult
+
+
+def _advance_mtime(
+    path: Path,
+    *,
+    delta_seconds: float = 5.0,
+    min_exclusive: float | None = None,
+) -> None:
+    before = path.stat().st_mtime
+    baseline = before if min_exclusive is None else max(before, min_exclusive)
+    for _ in range(5):
+        target = baseline + delta_seconds
+        os.utime(path, (target, target))
+        after = path.stat().st_mtime
+        if after > baseline:
+            return
+        baseline = max(baseline, after)
+        delta_seconds *= 2
+    raise AssertionError(f"Failed to advance mtime for {path}")
+
+
+def _wait_for(predicate, *, timeout_seconds: float, interval_seconds: float = 0.05) -> None:
+    deadline = time.time() + timeout_seconds
+    while time.time() < deadline:
+        if predicate():
+            return
+        time.sleep(interval_seconds)
+    raise AssertionError("Timed out while waiting for integration-test condition")
 
 
 def _write_config(
@@ -233,20 +262,21 @@ class TestIntegrationCliFlow(unittest.TestCase):
                 self.assertEqual(len(queued_entries), 1)
                 self.assertEqual(queued_entries[0]["status"], "pending")
 
-                time.sleep(0.01)
                 new_inp = reaction / "new.inp"
                 new_inp.write_text("! Opt\n* xyz 0 1\nH 0 0 0\nH 0 0 0.74\n*\n", encoding="utf-8")
+                _advance_mtime(new_inp, min_exclusive=old_inp.stat().st_mtime)
 
             cfg = load_config(str(config))
             worker = QueueWorker(cfg, str(config), max_concurrent=1)
             worker._fill_slots()
             self.assertEqual(len(worker._running), 1)
 
-            deadline = time.time() + 10
-            while time.time() < deadline and any(job.process.poll() is None for job in worker._running.values()):
-                time.sleep(0.1)
-
+            _wait_for(
+                lambda: all(job.process.poll() is not None for job in worker._running.values()),
+                timeout_seconds=20,
+            )
             worker._check_completed_jobs()
+            _wait_for(lambda: (reaction / "run_state.json").exists(), timeout_seconds=5)
 
             state = json.loads((reaction / "run_state.json").read_text(encoding="utf-8"))
             self.assertEqual(state["status"], "completed")

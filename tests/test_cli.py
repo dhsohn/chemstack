@@ -1,13 +1,15 @@
 ﻿import io
 import json
+import logging
 import os
 import tempfile
 import time
 import unittest
+from argparse import Namespace
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from core.cli import build_parser, main
+from core.cli import _configure_logging, build_parser, main
 from core.commands._helpers import CONFIG_ENV_VAR, _emit, default_config_path
 from core.commands.run_inp import _retry_inp_path, _select_latest_inp
 from core.orca_runner import RunResult
@@ -101,6 +103,39 @@ class TestCli(unittest.TestCase):
         )
 
         self.assertTrue(args.execute_now)
+
+    def test_configure_logging_replaces_previous_orca_auto_handler(self) -> None:
+        root_logger = logging.getLogger()
+        original_level = root_logger.level
+        original_handlers = list(root_logger.handlers)
+        for handler in list(root_logger.handlers):
+            if getattr(handler, "_orca_auto_managed_handler", False):
+                root_logger.removeHandler(handler)
+                handler.close()
+
+        try:
+            _configure_logging(Namespace(verbose=False, log_file=None))
+            _configure_logging(Namespace(verbose=True, log_file=None))
+
+            managed_handlers = [
+                handler for handler in root_logger.handlers
+                if getattr(handler, "_orca_auto_managed_handler", False)
+            ]
+            self.assertEqual(len(managed_handlers), 1)
+            self.assertEqual(root_logger.level, logging.DEBUG)
+        finally:
+            for handler in list(root_logger.handlers):
+                if getattr(handler, "_orca_auto_managed_handler", False):
+                    root_logger.removeHandler(handler)
+                    handler.close()
+            root_logger.setLevel(original_level)
+            current_handlers = list(root_logger.handlers)
+            for handler in current_handlers:
+                if handler not in original_handlers:
+                    root_logger.removeHandler(handler)
+            for handler in original_handlers:
+                if handler not in root_logger.handlers:
+                    root_logger.addHandler(handler)
 
     def test_queue_add_is_not_a_valid_subcommand(self) -> None:
         parser = build_parser()

@@ -164,3 +164,34 @@ class TestRunInpAdmission(unittest.TestCase):
             self.assertEqual(active_slot_count(root), 0)
             state = json.loads((reaction_dir / "run_state.json").read_text(encoding="utf-8"))
             self.assertEqual(state["final_result"]["reason"], "existing_out_completed")
+
+    @patch("core.commands.run_inp.load_config")
+    @patch("core.commands.run_inp.run_attempts", side_effect=RuntimeError("boom"))
+    def test_reserved_slot_is_released_when_execution_raises_runtime_error(
+        self,
+        _mock_run_attempts: MagicMock,
+        mock_load_config: MagicMock,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            cfg = _make_cfg(tmp)
+            mock_load_config.return_value = cfg
+            reaction_dir = root / "rxn_error"
+            _write_inp(reaction_dir)
+
+            token = reserve_slot(root, 1, queue_id="q_error", source="queue_worker")
+            self.assertIsNotNone(token)
+
+            args = SimpleNamespace(
+                config=str(root / "orca_auto.yaml"),
+                reaction_dir=str(reaction_dir),
+                force=False,
+                foreground=True,
+                execute_now=True,
+            )
+
+            with patch.dict(os.environ, {ADMISSION_TOKEN_ENV_VAR: token or ""}, clear=False):
+                rc = cmd_run_inp(args)
+
+            self.assertEqual(rc, 1)
+            self.assertEqual(active_slot_count(root), 0)

@@ -8,21 +8,19 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 from contextlib import contextmanager
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterator, List, Optional, cast
-from uuid import uuid4
 
 from .lock_utils import (
     acquire_file_lock,
-    current_process_start_ticks,
     is_process_alive,
     parse_lock_info,
     process_start_ticks,
 )
-from .state_store import LOCK_FILE_NAME, atomic_write_text, load_state, report_json_path
+from .persistence_utils import atomic_write_json, now_utc_iso, timestamped_token
+from .process_tracking import active_run_lock_pid, current_process_lock_payload, read_pid_file
+from .state_store import load_state, report_json_path
 from .statuses import QueueStatus, RunStatus
 from .types import QueueEntry
 
@@ -47,7 +45,7 @@ _ACTIVE_STATUSES = frozenset({
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return now_utc_iso()
 
 
 def _queue_path(allowed_root: Path) -> Path:
@@ -80,10 +78,7 @@ def _queue_lock_stale_remove_error(lock_pid: int, lock_path: Path, exc: OSError)
 @contextmanager
 def _acquire_queue_lock(allowed_root: Path, *, timeout_seconds: int = 10) -> Iterator[None]:
     lp = _lock_path(allowed_root)
-    payload = {"pid": os.getpid(), "started_at": _now_iso()}
-    ticks = current_process_start_ticks()
-    if ticks is not None:
-        payload["process_start_ticks"] = ticks
+    payload = current_process_lock_payload()
 
     with acquire_file_lock(
         lock_path=lp,
@@ -124,48 +119,24 @@ def _load_entries(allowed_root: Path) -> List[QueueEntry]:
 
 
 def _save_entries(allowed_root: Path, entries: List[QueueEntry]) -> None:
-    qp = _queue_path(allowed_root)
-    atomic_write_text(qp, json.dumps(entries, ensure_ascii=True, indent=2))
+    atomic_write_json(_queue_path(allowed_root), entries, ensure_ascii=True, indent=2)
 
 
 def _active_lock_pid(reaction_dir: Path) -> int | None:
-    lock_info = parse_lock_info(reaction_dir / LOCK_FILE_NAME)
-    pid = lock_info.get("pid")
-    if not isinstance(pid, int) or pid <= 0:
-        return None
-    if not is_process_alive(pid):
-        return None
-
-    expected_ticks = lock_info.get("process_start_ticks")
-    if isinstance(expected_ticks, int) and expected_ticks > 0:
-        observed_ticks = process_start_ticks(pid)
-        if observed_ticks is None or observed_ticks != expected_ticks:
-            logger.info(
-                "Ignoring stale run.lock due to PID reuse: reaction_dir=%s pid=%d expected=%d observed=%s",
-                reaction_dir,
-                pid,
-                expected_ticks,
-                observed_ticks,
-            )
-            return None
-    return pid
+    return active_run_lock_pid(
+        reaction_dir,
+        on_pid_reuse=lambda pid, expected_ticks, observed_ticks: logger.info(
+            "Ignoring stale run.lock due to PID reuse: reaction_dir=%s pid=%d expected=%d observed=%s",
+            reaction_dir,
+            pid,
+            expected_ticks,
+            observed_ticks,
+        ),
+    )
 
 
 def _read_worker_pid(allowed_root: Path) -> int | None:
-    pid_path = allowed_root / WORKER_PID_FILE_NAME
-    if not pid_path.exists():
-        return None
-    try:
-        pid = int(pid_path.read_text(encoding="utf-8").strip())
-    except (ValueError, OSError):
-        return None
-    if not is_process_alive(pid):
-        try:
-            pid_path.unlink()
-        except OSError:
-            pass
-        return None
-    return pid
+    return read_pid_file(allowed_root / WORKER_PID_FILE_NAME)
 
 
 def _load_report_payload(reaction_dir: Path) -> dict | None:
@@ -381,7 +352,7 @@ def enqueue(
                 raise DuplicateEntryError(resolved, terminal)
 
         entry: QueueEntry = {
-            "queue_id": f"q_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}_{uuid4().hex[:8]}",
+            "queue_id": timestamped_token("q"),
             "reaction_dir": resolved,
             "status": QueueStatus.PENDING.value,
             "priority": priority,
@@ -411,8 +382,8 @@ def dequeue_next(allowed_root: Path) -> Optional[QueueEntry]:
         if not pending:
             return None
 
-        # Sort by priority (lower = higher priority), then enqueued_at
-        pending.sort(key=lambda t: (t[1].get("priority", 10), t[1].get("enqueued_at", "")))
+        # Preserve FIFO order within the same priority using the persisted list order.
+        pending.sort(key=lambda t: (t[1].get("priority", 10), t[0]))
         idx, entry = pending[0]
 
         entry["status"] = QueueStatus.RUNNING.value
@@ -438,6 +409,42 @@ def mark_failed(
 ) -> bool:
     """Mark a queue entry as failed."""
     return _update_terminal(allowed_root, queue_id, QueueStatus.FAILED.value, error=error, run_id=run_id)
+
+
+def mark_cancelled(allowed_root: Path, queue_id: str) -> bool:
+    """Mark a running queue entry as cancelled after the worker stops it."""
+    with _acquire_queue_lock(allowed_root):
+        entries = _load_entries(allowed_root)
+        for entry in entries:
+            if entry.get("queue_id") != queue_id:
+                continue
+            if entry.get("status") != QueueStatus.RUNNING.value:
+                return False
+            entry["status"] = QueueStatus.CANCELLED.value
+            entry["finished_at"] = _now_iso()
+            entry["cancel_requested"] = False
+            _save_entries(allowed_root, entries)
+            logger.info("Entry %s → %s", queue_id, QueueStatus.CANCELLED.value)
+            return True
+    return False
+
+
+def requeue_running_entry(allowed_root: Path, queue_id: str) -> bool:
+    """Return a running queue entry back to pending during worker shutdown."""
+    with _acquire_queue_lock(allowed_root):
+        entries = _load_entries(allowed_root)
+        for entry in entries:
+            if entry.get("queue_id") != queue_id:
+                continue
+            if entry.get("status") != QueueStatus.RUNNING.value:
+                return False
+            entry["status"] = QueueStatus.PENDING.value
+            entry["started_at"] = None
+            entry["cancel_requested"] = False
+            _save_entries(allowed_root, entries)
+            logger.info("Entry %s → %s", queue_id, QueueStatus.PENDING.value)
+            return True
+    return False
 
 
 def cancel(allowed_root: Path, queue_id: str) -> Optional[QueueEntry]:

@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-from .lock_utils import is_process_alive, parse_lock_info, process_start_ticks
+from .process_tracking import active_run_lock_pid
 from .queue_store import cancel as queue_cancel, list_queue
 from .state_store import STATE_FILE_NAME, load_state
 from .statuses import QueueStatus
@@ -158,26 +158,7 @@ def _candidate_aliases(allowed_root: Path, candidate: _CancelCandidate) -> set[s
 
 
 def _active_lock_pid(reaction_dir: Path) -> int | None:
-    lock_info = parse_lock_info(reaction_dir / "run.lock")
-    pid = lock_info.get("pid")
-    if not isinstance(pid, int) or pid <= 0:
-        return None
-    if not is_process_alive(pid):
-        return None
-
-    expected_ticks = lock_info.get("process_start_ticks")
-    if isinstance(expected_ticks, int) and expected_ticks > 0:
-        observed_ticks = process_start_ticks(pid)
-        if observed_ticks is None or observed_ticks != expected_ticks:
-            logger.info(
-                "Ignoring stale run.lock due to PID reuse: reaction_dir=%s pid=%d expected=%d observed=%s",
-                reaction_dir,
-                pid,
-                expected_ticks,
-                observed_ticks,
-            )
-            return None
-    return pid
+    return active_run_lock_pid(reaction_dir, logger=logger)
 
 
 def _run_id_for_reaction_dir(reaction_dir: str) -> str | None:

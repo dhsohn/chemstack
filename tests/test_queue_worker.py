@@ -17,7 +17,13 @@ from core.admission_store import (
     reserve_slot,
 )
 from core.config import AppConfig, RuntimeConfig
-from core.queue_store import dequeue_next, enqueue, list_queue
+from core.queue_store import (
+    dequeue_next,
+    enqueue,
+    list_queue,
+    mark_cancelled,
+    requeue_running_entry,
+)
 from core.queue_worker import (
     DEFAULT_MAX_CONCURRENT,
     QueueWorker,
@@ -330,7 +336,8 @@ class TestQueueWorkerMethods(unittest.TestCase):
         self.worker._check_completed_jobs()
         self.assertEqual(len(self.worker._running), 1)
 
-    def test_check_cancel_requests(self) -> None:
+    @patch("core.queue_worker.mark_cancelled", return_value=True)
+    def test_check_cancel_requests(self, mock_mark_cancelled: MagicMock) -> None:
         from core.queue_store import cancel
         rxn = self.root / "mol_cancel"
         rxn.mkdir()
@@ -350,12 +357,14 @@ class TestQueueWorkerMethods(unittest.TestCase):
         with patch("core.queue_worker._terminate_process"):
             self.worker._check_cancel_requests()
         self.assertNotIn(entry["queue_id"], self.worker._running)
+        mock_mark_cancelled.assert_called_once_with(self.root, entry["queue_id"])
 
     def test_shutdown_all_empty(self) -> None:
         self.worker._shutdown_all()
         self.assertEqual(len(self.worker._running), 0)
 
-    def test_shutdown_all_with_running(self) -> None:
+    @patch("core.queue_worker.requeue_running_entry", return_value=True)
+    def test_shutdown_all_with_running(self, mock_requeue: MagicMock) -> None:
         rxn = self.root / "mol_shut"
         rxn.mkdir()
         entry = enqueue(self.root, str(rxn))
@@ -372,6 +381,7 @@ class TestQueueWorkerMethods(unittest.TestCase):
         with patch("core.queue_worker._terminate_process"):
             self.worker._shutdown_all()
         self.assertEqual(len(self.worker._running), 0)
+        mock_requeue.assert_called_once_with(self.root, entry["queue_id"])
 
     @patch("core.queue_worker.time.sleep", side_effect=KeyboardInterrupt)
     def test_run_keyboard_interrupt(self, mock_sleep: MagicMock) -> None:
@@ -543,7 +553,7 @@ class TestFillSlots(unittest.TestCase):
                 },
             )
 
-    @patch("core.admission_store.is_process_alive", return_value=True)
+    @patch("core.process_tracking.is_process_alive", return_value=True)
     def test_fill_slots_counts_external_active_runs(self, mock_alive: MagicMock) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -585,7 +595,7 @@ class TestFillSlots(unittest.TestCase):
             self.assertEqual(len(worker._running), 0)
             mock_popen.assert_not_called()
 
-    @patch("core.admission_store.is_process_alive", return_value=True)
+    @patch("core.process_tracking.is_process_alive", return_value=True)
     def test_fill_slots_stops_when_global_limit_reached(self, mock_alive: MagicMock) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -641,6 +651,40 @@ class TestFillSlots(unittest.TestCase):
 
             self.assertEqual(len(worker._running), 2)
             mock_popen.assert_called_once()
+
+
+class TestQueueStoreWorkerTransitions(unittest.TestCase):
+    def test_mark_cancelled_updates_running_entry(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            reaction_dir = root / "mol_cancelled"
+            reaction_dir.mkdir()
+            entry = enqueue(root, str(reaction_dir))
+            dequeue_next(root)
+
+            updated = mark_cancelled(root, entry["queue_id"])
+
+            self.assertTrue(updated)
+            queue_entries = list_queue(root)
+            self.assertEqual(queue_entries[0]["status"], "cancelled")
+            self.assertFalse(queue_entries[0]["cancel_requested"])
+            self.assertIsNotNone(queue_entries[0]["finished_at"])
+
+    def test_requeue_running_entry_returns_job_to_pending(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            reaction_dir = root / "mol_pending_again"
+            reaction_dir.mkdir()
+            entry = enqueue(root, str(reaction_dir))
+            dequeue_next(root)
+
+            updated = requeue_running_entry(root, entry["queue_id"])
+
+            self.assertTrue(updated)
+            queue_entries = list_queue(root)
+            self.assertEqual(queue_entries[0]["status"], "pending")
+            self.assertIsNone(queue_entries[0]["started_at"])
+            self.assertFalse(queue_entries[0]["cancel_requested"])
 
 
 if __name__ == "__main__":

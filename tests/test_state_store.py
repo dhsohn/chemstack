@@ -5,7 +5,14 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from core.state_store import acquire_run_lock, load_state, new_state, write_report_files, save_state
+from core.state_store import (
+    acquire_run_lock,
+    atomic_write_text,
+    load_state,
+    new_state,
+    save_state,
+    write_report_files,
+)
 
 
 class TestStateStore(unittest.TestCase):
@@ -78,7 +85,14 @@ class TestStateStore(unittest.TestCase):
 
             with patch("core.state_store.lock_utils.is_process_alive", return_value=True), patch(
                 "core.state_store.lock_utils.process_start_ticks", return_value=222
-            ), patch("core.state_store.lock_utils.current_process_start_ticks", return_value=333):
+            ), patch(
+                "core.state_store.current_process_lock_payload",
+                return_value={
+                    "pid": os.getpid(),
+                    "started_at": "2026-03-22T00:00:00+00:00",
+                    "process_start_ticks": 333,
+                },
+            ):
                 with acquire_run_lock(reaction):
                     payload = json.loads(lock_path.read_text(encoding="utf-8"))
                     self.assertEqual(payload.get("pid"), os.getpid())
@@ -104,6 +118,15 @@ class TestStateStore(unittest.TestCase):
             tmp_files = list(reaction.glob("*.tmp.*"))
             self.assertEqual(tmp_files, [])
 
+    def test_atomic_write_text_remains_available(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            target = root / "sample.txt"
+
+            atomic_write_text(target, "hello")
+
+            self.assertEqual(target.read_text(encoding="utf-8"), "hello")
+            self.assertEqual(list(root.glob("*.tmp.*")), [])
 
     def test_write_report_files_json_fields(self) -> None:
         with tempfile.TemporaryDirectory() as td:

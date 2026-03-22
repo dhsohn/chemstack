@@ -10,15 +10,17 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from core.dft_discovery import discover_orca_targets
 from core.dft_index import DFTIndex
 from core.orca_parser import parse_orca_output
 
 logger = logging.getLogger(__name__)
+
+FileSignature = tuple[float, int | None]
 
 
 @dataclass
@@ -66,10 +68,10 @@ class DFTMonitor:
         self._index = dft_index
         self._kb_dirs = kb_dirs
         self._state_file = state_file
-        self._last_mtimes: dict[str, float] = (
+        self._last_seen: dict[str, FileSignature] = (
             _load_state(state_file) if state_file else {}
         )
-        self._baseline_seeded = bool(self._last_mtimes)
+        self._baseline_seeded = bool(self._last_seen)
 
     def scan(
         self,
@@ -81,7 +83,7 @@ class DFTMonitor:
         max_bytes = max_file_size_mb * 1024 * 1024
         new_results: list[MonitorResult] = []
         failures: list[ParseFailure] = []
-        scanned_mtimes: dict[str, float] = {}
+        scanned_signatures: dict[str, FileSignature] = {}
         processed_this_scan: set[str] = set()
         state_dirty = False
 
@@ -98,17 +100,16 @@ class DFTMonitor:
             ):
                 spath = str(target.path)
                 canonical = _canonical_path_key(spath)
-                try:
-                    current_mtime = os.path.getmtime(spath)
-                except OSError:
+                signature = _file_signature(spath)
+                if signature is None:
                     continue
-                scanned_mtimes[canonical] = current_mtime
+                scanned_signatures[canonical] = signature
 
                 if not self._baseline_seeded:
                     continue
 
-                last_mtime = self._last_mtimes.get(canonical)
-                if last_mtime is not None and current_mtime <= last_mtime:
+                last_signature = self._last_seen.get(canonical)
+                if last_signature is not None and _same_signature(last_signature, signature):
                     continue
 
                 if canonical in processed_this_scan:
@@ -124,13 +125,13 @@ class DFTMonitor:
                     )
 
                     if is_running:
-                        self._last_mtimes[canonical] = current_mtime
+                        self._last_seen[canonical] = signature
                         state_dirty = True
                     else:
                         success = self._index.upsert_single(spath)
                         if not success:
                             continue
-                        self._last_mtimes[canonical] = current_mtime
+                        self._last_seen[canonical] = signature
                         state_dirty = True
 
                     energy_str = (
@@ -177,37 +178,37 @@ class DFTMonitor:
 
         # Save baseline on first run
         if not self._baseline_seeded:
-            self._last_mtimes.clear()
-            self._last_mtimes.update(scanned_mtimes)
+            self._last_seen.clear()
+            self._last_seen.update(scanned_signatures)
             self._baseline_seeded = True
             if self._state_file:
-                _save_state(self._state_file, self._last_mtimes)
-            logger.info("dft_monitor_baseline_seeded: file_count=%d", len(self._last_mtimes))
+                _save_state(self._state_file, self._last_seen)
+            logger.info("dft_monitor_baseline_seeded: file_count=%d", len(self._last_seen))
             return ScanReport(
                 failures=failures,
-                scanned_files=len(scanned_mtimes),
+                scanned_files=len(scanned_signatures),
                 baseline_seeded=True,
             )
 
         # Clean up cache for deleted files
-        stale_paths = set(self._last_mtimes) - set(scanned_mtimes)
+        stale_paths = set(self._last_seen) - set(scanned_signatures)
         if stale_paths:
             for stale in stale_paths:
-                self._last_mtimes.pop(stale, None)
+                self._last_seen.pop(stale, None)
             state_dirty = True
 
         if state_dirty and self._state_file:
-            _save_state(self._state_file, self._last_mtimes)
+            _save_state(self._state_file, self._last_seen)
 
         logger.info(
             "dft_monitor_scan_complete: scanned=%d new=%d stale_removed=%d",
-            len(scanned_mtimes), len(new_results), len(stale_paths),
+            len(scanned_signatures), len(new_results), len(stale_paths),
         )
 
         return ScanReport(
             new_results=new_results,
             failures=failures,
-            scanned_files=len(scanned_mtimes),
+            scanned_files=len(scanned_signatures),
         )
 
 
@@ -227,7 +228,53 @@ def _canonical_path_key(path: str | Path) -> str:
         return str(Path(path).expanduser().absolute())
 
 
-def _load_state(state_file: str | None) -> dict[str, float]:
+def _file_signature(path: str | Path) -> FileSignature | None:
+    try:
+        stat_result = Path(path).stat()
+    except OSError:
+        return None
+    return (float(stat_result.st_mtime), int(stat_result.st_size))
+
+
+def _same_signature(previous: FileSignature, current: FileSignature) -> bool:
+    prev_mtime, prev_size = previous
+    curr_mtime, curr_size = current
+    if prev_mtime != curr_mtime:
+        return False
+    if prev_size is None:
+        return True
+    return prev_size == curr_size
+
+
+def _signature_sort_key(signature: FileSignature) -> tuple[float, int]:
+    mtime, size = signature
+    return (mtime, -1 if size is None else size)
+
+
+def _load_signature(value: Any) -> FileSignature | None:
+    if isinstance(value, (int, float)):
+        return (float(value), None)
+    if not isinstance(value, dict):
+        return None
+
+    raw_mtime = value.get("mtime")
+    if not isinstance(raw_mtime, (int, float, str)):
+        return None
+    try:
+        mtime = float(raw_mtime)
+    except (TypeError, ValueError):
+        return None
+
+    raw_size = value.get("size")
+    if raw_size is None:
+        return (mtime, None)
+    try:
+        return (mtime, int(raw_size))
+    except (TypeError, ValueError):
+        return (mtime, None)
+
+
+def _load_state(state_file: str | None) -> dict[str, FileSignature]:
     """Load dft_monitor state from disk."""
     if not state_file:
         return {}
@@ -236,17 +283,17 @@ def _load_state(state_file: str | None) -> dict[str, float]:
             raw = json.load(f)
         if not isinstance(raw, dict):
             return {}
-        state: dict[str, float] = {}
+        state: dict[str, FileSignature] = {}
         for k, v in raw.items():
-            if isinstance(k, str):
-                try:
-                    normalized_key = _canonical_path_key(k)
-                    value = float(v)
-                except (TypeError, ValueError):
-                    continue
-                previous = state.get(normalized_key)
-                if previous is None or value > previous:
-                    state[normalized_key] = value
+            if not isinstance(k, str):
+                continue
+            normalized_key = _canonical_path_key(k)
+            signature = _load_signature(v)
+            if signature is None:
+                continue
+            previous = state.get(normalized_key)
+            if previous is None or _signature_sort_key(signature) > _signature_sort_key(previous):
+                state[normalized_key] = signature
         return state
     except FileNotFoundError:
         return {}
@@ -255,7 +302,7 @@ def _load_state(state_file: str | None) -> dict[str, float]:
         return {}
 
 
-def _save_state(state_file: str | None, mtimes: dict[str, float]) -> None:
+def _save_state(state_file: str | None, signatures: dict[str, FileSignature]) -> None:
     """Atomically save dft_monitor state."""
     if not state_file:
         return
@@ -263,8 +310,12 @@ def _save_state(state_file: str | None, mtimes: dict[str, float]) -> None:
         path = Path(state_file)
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp_path = path.with_suffix(path.suffix + ".tmp")
+        payload = {
+            key: {"mtime": mtime, "size": size}
+            for key, (mtime, size) in signatures.items()
+        }
         with open(tmp_path, "w", encoding="utf-8") as f:
-            json.dump(mtimes, f, ensure_ascii=False)
+            json.dump(payload, f, ensure_ascii=False)
         tmp_path.replace(path)
     except Exception as exc:
         logger.warning("dft_monitor_state_save_failed: path=%s error=%s", state_file, exc)

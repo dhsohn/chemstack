@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import logging
 import os
+from contextlib import AbstractContextManager
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Type
+from typing import Any, Callable, Dict, Type
 
 from .. import queue_store as _queue_store
 from ..admission_store import (
@@ -32,6 +34,39 @@ from ..types import QueueEnqueuedNotification, QueueEntry, RetryNotification, Ru
 from ._helpers import ORCA_GENERATED_INP_RE, RETRY_INP_RE, _emit, _to_resolved_local, _validate_reaction_dir
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class ResolvedRunTarget:
+    reaction_dir: Path
+    selected_inp: Path
+
+
+@dataclass(frozen=True)
+class RunExecutionContext:
+    cfg: Any
+    reaction_dir: Path
+    selected_inp: Path
+    allowed_root: Path
+    max_retries: int
+    max_concurrent: int
+    reservation_token: str | None
+
+
+@dataclass(frozen=True)
+class WorkerAutostartInfo:
+    status: str | None = None
+    pid: int | None = None
+    log_file: str | Path | None = None
+    detail: str | None = None
+
+
+@dataclass(frozen=True)
+class RunSubmissionContext:
+    cfg: Any
+    reaction_dir: Path
+    selected_inp: Path
+    allowed_root: Path
 
 
 def _select_latest_inp(reaction_dir: Path) -> Path:
@@ -128,10 +163,20 @@ def _configured_max_concurrent(cfg: Any) -> int:
     return max(1, value)
 
 
-def _resolve_reaction_and_input(cfg: Any, reaction_dir_raw: str) -> tuple[Path, Path]:
+def _resolve_run_target(cfg: Any, reaction_dir_raw: str) -> ResolvedRunTarget:
     reaction_dir = _validate_reaction_dir(cfg, reaction_dir_raw)
-    selected_inp = _select_latest_inp(reaction_dir)
-    return reaction_dir, selected_inp
+    return ResolvedRunTarget(
+        reaction_dir=reaction_dir,
+        selected_inp=_select_latest_inp(reaction_dir),
+    )
+
+
+def _resolve_run_target_or_log(cfg: Any, reaction_dir_raw: str) -> ResolvedRunTarget | None:
+    try:
+        return _resolve_run_target(cfg, reaction_dir_raw)
+    except ValueError as exc:
+        logger.error("%s", exc)
+        return None
 
 
 def _active_direct_run_error(reaction_dir: Path) -> str | None:
@@ -234,6 +279,214 @@ def _worker_result_field(result: Any, field: str) -> Any:
     return getattr(result, field, None)
 
 
+def _existing_completed_exit(
+    *,
+    reaction_dir: Path,
+    selected_inp: Path,
+    allowed_root: Path,
+    reservation_token: str | None,
+    max_retries: int,
+) -> int | None:
+    done = _existing_completed_out(selected_inp)
+    if done is None:
+        return None
+
+    if reservation_token is not None:
+        release_slot(allowed_root, reservation_token)
+    state, resumed = load_or_create_state(
+        reaction_dir,
+        selected_inp,
+        max_retries=max_retries,
+        to_resolved_local=_to_resolved_local,
+    )
+    return _exit_with_result(
+        reaction_dir,
+        state,
+        selected_inp,
+        status=RunStatus.COMPLETED,
+        analyzer_status=AnalyzerStatus.COMPLETED,
+        reason="existing_out_completed",
+        last_out_path=done["out_path"],
+        resumed=True if resumed else None,
+        exit_code=0,
+        emit=_emit,
+        extra={"skipped_execution": True},
+    )
+
+
+def _submission_flag_error(args: Any) -> str | None:
+    if getattr(args, "queue_only", False) and getattr(args, "require_slot", False):
+        return "--queue-only and --require-slot cannot be used together."
+    return None
+
+
+def _resolve_submission_context(
+    args: Any,
+    *,
+    cfg: Any | None = None,
+) -> RunSubmissionContext | None:
+    if cfg is None:
+        cfg = load_config(args.config)
+    target = _resolve_run_target_or_log(cfg, args.reaction_dir)
+    if target is None:
+        return None
+    return RunSubmissionContext(
+        cfg=cfg,
+        reaction_dir=target.reaction_dir,
+        selected_inp=target.selected_inp,
+        allowed_root=Path(cfg.runtime.allowed_root).expanduser().resolve(),
+    )
+
+
+def _resolve_execution_context(
+    args: Any,
+    *,
+    cfg: Any | None = None,
+    reaction_dir: Path | None = None,
+    selected_inp: Path | None = None,
+) -> RunExecutionContext | None:
+    if cfg is None:
+        cfg = load_config(args.config)
+    if reaction_dir is None or selected_inp is None:
+        target = _resolve_run_target_or_log(cfg, args.reaction_dir)
+        if target is None:
+            return None
+        reaction_dir = target.reaction_dir
+        selected_inp = target.selected_inp
+
+    return RunExecutionContext(
+        cfg=cfg,
+        reaction_dir=reaction_dir,
+        selected_inp=selected_inp,
+        allowed_root=Path(cfg.runtime.allowed_root).expanduser().resolve(),
+        max_retries=max(0, int(cfg.runtime.default_max_retries)),
+        max_concurrent=_configured_max_concurrent(cfg),
+        reservation_token=os.getenv(ADMISSION_TOKEN_ENV_VAR, "").strip() or None,
+    )
+
+
+def _admission_context(
+    *,
+    allowed_root: Path,
+    reaction_dir: Path,
+    max_concurrent: int,
+    reservation_token: str | None,
+) -> AbstractContextManager[str]:
+    if reservation_token is not None:
+        return activate_reserved_slot(
+            allowed_root,
+            reservation_token,
+            reaction_dir=str(reaction_dir),
+            source="queue_run",
+        )
+    return acquire_direct_slot(
+        allowed_root,
+        max_concurrent=max_concurrent,
+        reaction_dir=str(reaction_dir),
+    )
+
+
+def _release_reservation_if_needed(allowed_root: Path, reservation_token: str | None) -> None:
+    if reservation_token is not None:
+        release_slot(allowed_root, reservation_token)
+
+
+def _notification_callbacks(
+    cfg: Any,
+) -> tuple[
+    Callable[[RunStartedNotification], None] | None,
+    Callable[[RunFinishedNotification], None] | None,
+    Callable[[RetryNotification], None] | None,
+]:
+    if not cfg.telegram.enabled:
+        return None, None, None
+
+    def _notify_started(event: RunStartedNotification) -> None:
+        notify_run_started_event(cfg.telegram, event)
+
+    def _notify_finished(event: RunFinishedNotification) -> None:
+        notify_run_finished_event(cfg.telegram, event)
+
+    def _notify_retry(event: RetryNotification) -> None:
+        notify_retry_event(cfg.telegram, event)
+
+    return _notify_started, _notify_finished, _notify_retry
+
+
+def _run_with_state(
+    *,
+    cfg: Any,
+    reaction_dir: Path,
+    selected_inp: Path,
+    runner_cls: Type[OrcaRunner],
+    max_retries: int,
+    resumed: bool,
+    state: Any,
+) -> int:
+    notify_started, notify_finished, notify_retry = _notification_callbacks(cfg)
+    runner = runner_cls(cfg.paths.orca_executable)
+    return run_attempts(
+        reaction_dir,
+        selected_inp,
+        state,
+        resumed=resumed,
+        runner=runner,
+        max_retries=max_retries,
+        retry_inp_path=_retry_inp_path,
+        to_resolved_local=_to_resolved_local,
+        emit=_emit,
+        notify_started=notify_started,
+        notify_finished=notify_finished,
+        notify_retry=notify_retry,
+    )
+
+
+def _build_queue_enqueued_notification(entry: QueueEntry) -> QueueEnqueuedNotification:
+    return {
+        "queue_id": entry["queue_id"],
+        "reaction_dir": entry["reaction_dir"],
+        "priority": entry["priority"],
+        "force": entry.get("force", False),
+        "enqueued_at": entry.get("enqueued_at", ""),
+    }
+
+
+def _autostart_worker_for_queue_submission(
+    args: Any,
+    *,
+    allowed_root: Path,
+    reaction_dir: Path,
+) -> WorkerAutostartInfo:
+    try:
+        worker_result = _ensure_worker_for_submission(args.config, allowed_root)
+        info = WorkerAutostartInfo(
+            status=_worker_result_field(worker_result, "status"),
+            pid=_worker_result_field(worker_result, "pid"),
+            log_file=_worker_result_field(worker_result, "log_file"),
+            detail=_worker_result_field(worker_result, "detail"),
+        )
+        if info.status == "failed":
+            if info.detail:
+                logger.warning(
+                    "Queue worker autostart failed for queued submission %s: %s",
+                    reaction_dir,
+                    info.detail,
+                )
+            else:
+                logger.warning(
+                    "Queue worker autostart failed for queued submission: %s",
+                    reaction_dir,
+                )
+        return info
+    except Exception as exc:
+        logger.warning(
+            "Queue worker autostart failed for queued submission %s: %s",
+            reaction_dir,
+            exc,
+        )
+        return WorkerAutostartInfo(status="failed", detail=str(exc))
+
+
 def _submit_as_queued(cfg: Any, args: Any, reaction_dir: Path) -> int:
     from ..queue_store import DuplicateEntryError, enqueue
 
@@ -249,44 +502,114 @@ def _submit_as_queued(cfg: Any, args: Any, reaction_dir: Path) -> int:
         logger.error("%s", exc)
         return 1
 
-    notification: QueueEnqueuedNotification = {
-        "queue_id": entry["queue_id"],
-        "reaction_dir": entry["reaction_dir"],
-        "priority": entry["priority"],
-        "force": entry.get("force", False),
-        "enqueued_at": entry.get("enqueued_at", ""),
-    }
+    notification = _build_queue_enqueued_notification(entry)
     notify_queue_enqueued_event(cfg.telegram, notification)
 
-    worker_status = None
-    worker_pid = None
-    worker_log = None
-    worker_detail = None
-    try:
-        worker_result = _ensure_worker_for_submission(args.config, allowed_root)
-        worker_status = _worker_result_field(worker_result, "status")
-        worker_pid = _worker_result_field(worker_result, "pid")
-        worker_log = _worker_result_field(worker_result, "log_file")
-        worker_detail = _worker_result_field(worker_result, "detail")
-        if worker_status == "failed":
-            if worker_detail:
-                logger.warning("Queue worker autostart failed for queued submission %s: %s", reaction_dir, worker_detail)
-            else:
-                logger.warning("Queue worker autostart failed for queued submission: %s", reaction_dir)
-    except Exception as exc:
-        worker_status = "failed"
-        worker_detail = str(exc)
-        logger.warning("Queue worker autostart failed for queued submission %s: %s", reaction_dir, exc)
+    worker_info = _autostart_worker_for_queue_submission(
+        args,
+        allowed_root=allowed_root,
+        reaction_dir=reaction_dir,
+    )
 
     _emit_queued_submission(
         reaction_dir,
         entry,
-        worker_status=worker_status,
-        worker_pid=worker_pid,
-        worker_log=worker_log,
-        worker_detail=worker_detail,
+        worker_status=worker_info.status,
+        worker_pid=worker_info.pid,
+        worker_log=worker_info.log_file,
+        worker_detail=worker_info.detail,
     )
     return 0
+
+
+def _existing_completed_submit_exit(
+    args: Any,
+    context: RunSubmissionContext,
+    *,
+    runner_cls: Type[OrcaRunner],
+) -> int | None:
+    if getattr(args, "force", False) or not _existing_completed_out(context.selected_inp):
+        return None
+    return _cmd_run_inp_execute(
+        args,
+        runner_cls=runner_cls,
+        cfg=context.cfg,
+        reaction_dir=context.reaction_dir,
+        selected_inp=context.selected_inp,
+    )
+
+
+def _backlog_submit_exit(args: Any, context: RunSubmissionContext) -> int | None:
+    if not _has_pending_entries(context.allowed_root):
+        return None
+    if getattr(args, "require_slot", False):
+        logger.error("Immediate execution unavailable: pending queue backlog exists under %s", context.allowed_root)
+        return 1
+    return _submit_as_queued(context.cfg, args, context.reaction_dir)
+
+
+def _attempt_submit_execution(
+    args: Any,
+    context: RunSubmissionContext,
+    *,
+    runner_cls: Type[OrcaRunner],
+) -> int:
+    try:
+        return _cmd_run_inp_execute(
+            args,
+            runner_cls=runner_cls,
+            cfg=context.cfg,
+            reaction_dir=context.reaction_dir,
+            selected_inp=context.selected_inp,
+            raise_on_admission_limit=True,
+        )
+    except AdmissionLimitReachedError as exc:
+        if getattr(args, "require_slot", False):
+            logger.error("%s", exc)
+            return 1
+        logger.info("Immediate execution unavailable, enqueueing instead: %s", exc)
+        return _submit_as_queued(context.cfg, args, context.reaction_dir)
+
+
+def _execute_locked_run(
+    args: Any,
+    context: RunExecutionContext,
+    *,
+    runner_cls: Type[OrcaRunner],
+) -> int:
+    with acquire_run_lock(context.reaction_dir):
+        if not getattr(args, "force", False):
+            existing_exit = _existing_completed_exit(
+                reaction_dir=context.reaction_dir,
+                selected_inp=context.selected_inp,
+                allowed_root=context.allowed_root,
+                reservation_token=context.reservation_token,
+                max_retries=context.max_retries,
+            )
+            if existing_exit is not None:
+                return existing_exit
+
+        with _admission_context(
+            allowed_root=context.allowed_root,
+            reaction_dir=context.reaction_dir,
+            max_concurrent=context.max_concurrent,
+            reservation_token=context.reservation_token,
+        ):
+            state, resumed = load_or_create_state(
+                context.reaction_dir,
+                context.selected_inp,
+                max_retries=context.max_retries,
+                to_resolved_local=_to_resolved_local,
+            )
+            return _run_with_state(
+                cfg=context.cfg,
+                reaction_dir=context.reaction_dir,
+                selected_inp=context.selected_inp,
+                runner_cls=runner_cls,
+                max_retries=context.max_retries,
+                resumed=resumed,
+                state=state,
+            )
 
 
 def _cmd_run_inp_execute(
@@ -298,177 +621,64 @@ def _cmd_run_inp_execute(
     selected_inp: Path | None = None,
     raise_on_admission_limit: bool = False,
 ) -> int:
-    if cfg is None:
-        cfg = load_config(args.config)
-    try:
-        if reaction_dir is None or selected_inp is None:
-            reaction_dir, selected_inp = _resolve_reaction_and_input(cfg, args.reaction_dir)
-    except ValueError as exc:
-        logger.error("%s", exc)
+    context = _resolve_execution_context(
+        args,
+        cfg=cfg,
+        reaction_dir=reaction_dir,
+        selected_inp=selected_inp,
+    )
+    if context is None:
         return 1
 
-    logger.info("Selected input: %s", selected_inp)
+    logger.info("Selected input: %s", context.selected_inp)
 
-    max_retries = max(0, int(cfg.runtime.default_max_retries))
-    max_concurrent = _configured_max_concurrent(cfg)
-    allowed_root = Path(cfg.runtime.allowed_root).expanduser().resolve()
-    reservation_token = os.getenv(ADMISSION_TOKEN_ENV_VAR, "").strip() or None
-
-    _recover_crashed_state(reaction_dir)
+    _recover_crashed_state(context.reaction_dir)
 
     try:
-        with acquire_run_lock(reaction_dir):
-            if not getattr(args, "force", False):
-                done = _existing_completed_out(selected_inp)
-                if done:
-                    if reservation_token is not None:
-                        release_slot(allowed_root, reservation_token)
-                    state, resumed = load_or_create_state(
-                        reaction_dir,
-                        selected_inp,
-                        max_retries=max_retries,
-                        to_resolved_local=_to_resolved_local,
-                    )
-                    return _exit_with_result(
-                        reaction_dir,
-                        state,
-                        selected_inp,
-                        status=RunStatus.COMPLETED,
-                        analyzer_status=AnalyzerStatus.COMPLETED,
-                        reason="existing_out_completed",
-                        last_out_path=done["out_path"],
-                        resumed=True if resumed else None,
-                        exit_code=0,
-                        emit=_emit,
-                        extra={"skipped_execution": True},
-                    )
-
-            if reservation_token is not None:
-                admission_cm = activate_reserved_slot(
-                    allowed_root,
-                    reservation_token,
-                    reaction_dir=str(reaction_dir),
-                    source="queue_run",
-                )
-            else:
-                admission_cm = acquire_direct_slot(
-                    allowed_root,
-                    max_concurrent=max_concurrent,
-                    reaction_dir=str(reaction_dir),
-                )
-
-            with admission_cm:
-                state, resumed = load_or_create_state(
-                    reaction_dir,
-                    selected_inp,
-                    max_retries=max_retries,
-                    to_resolved_local=_to_resolved_local,
-                )
-
-                notify_started = None
-                notify_finished = None
-                notify_retry = None
-                if cfg.telegram.enabled:
-
-                    def _notify_started(event: RunStartedNotification) -> None:
-                        notify_run_started_event(cfg.telegram, event)
-
-                    def _notify_finished(event: RunFinishedNotification) -> None:
-                        notify_run_finished_event(cfg.telegram, event)
-
-                    def _notify_retry(event: RetryNotification) -> None:
-                        notify_retry_event(cfg.telegram, event)
-
-                    notify_started = _notify_started
-                    notify_finished = _notify_finished
-                    notify_retry = _notify_retry
-
-                runner = runner_cls(cfg.paths.orca_executable)
-                return run_attempts(
-                    reaction_dir,
-                    selected_inp,
-                    state,
-                    resumed=resumed,
-                    runner=runner,
-                    max_retries=max_retries,
-                    retry_inp_path=_retry_inp_path,
-                    to_resolved_local=_to_resolved_local,
-                    emit=_emit,
-                    notify_started=notify_started,
-                    notify_finished=notify_finished,
-                    notify_retry=notify_retry,
-                )
+        return _execute_locked_run(args, context, runner_cls=runner_cls)
     except AdmissionLimitReachedError as exc:
-        if reservation_token is not None:
-            release_slot(allowed_root, reservation_token)
+        _release_reservation_if_needed(context.allowed_root, context.reservation_token)
         if raise_on_admission_limit:
             raise
         logger.error("%s", exc)
         return 1
     except RuntimeError as exc:
-        if reservation_token is not None:
-            release_slot(allowed_root, reservation_token)
+        _release_reservation_if_needed(context.allowed_root, context.reservation_token)
         logger.error("%s", exc)
         return 1
     except Exception as exc:
-        if reservation_token is not None:
-            release_slot(allowed_root, reservation_token)
+        _release_reservation_if_needed(context.allowed_root, context.reservation_token)
         logger.exception("Unexpected error while running input: %s", exc)
         return 1
 
 
 def _cmd_run_inp_submit(args: Any, *, runner_cls: Type[OrcaRunner] = OrcaRunner) -> int:
-    if getattr(args, "queue_only", False) and getattr(args, "require_slot", False):
-        logger.error("--queue-only and --require-slot cannot be used together.")
+    flag_error = _submission_flag_error(args)
+    if flag_error is not None:
+        logger.error("%s", flag_error)
         return 1
 
-    cfg = load_config(args.config)
-    try:
-        reaction_dir, selected_inp = _resolve_reaction_and_input(cfg, args.reaction_dir)
-    except ValueError as exc:
-        logger.error("%s", exc)
+    context = _resolve_submission_context(args)
+    if context is None:
         return 1
 
-    allowed_root = Path(cfg.runtime.allowed_root).expanduser().resolve()
-
-    conflict_error = _find_submission_conflict(allowed_root, reaction_dir)
+    conflict_error = _find_submission_conflict(context.allowed_root, context.reaction_dir)
     if conflict_error is not None:
         logger.error("%s", conflict_error)
         return 1
 
-    if not getattr(args, "force", False) and _existing_completed_out(selected_inp):
-        return _cmd_run_inp_execute(
-            args,
-            runner_cls=runner_cls,
-            cfg=cfg,
-            reaction_dir=reaction_dir,
-            selected_inp=selected_inp,
-        )
+    existing_completed_exit = _existing_completed_submit_exit(args, context, runner_cls=runner_cls)
+    if existing_completed_exit is not None:
+        return existing_completed_exit
 
     if getattr(args, "queue_only", False):
-        return _submit_as_queued(cfg, args, reaction_dir)
+        return _submit_as_queued(context.cfg, args, context.reaction_dir)
 
-    if _has_pending_entries(allowed_root):
-        if getattr(args, "require_slot", False):
-            logger.error("Immediate execution unavailable: pending queue backlog exists under %s", allowed_root)
-            return 1
-        return _submit_as_queued(cfg, args, reaction_dir)
+    backlog_exit = _backlog_submit_exit(args, context)
+    if backlog_exit is not None:
+        return backlog_exit
 
-    try:
-        return _cmd_run_inp_execute(
-            args,
-            runner_cls=runner_cls,
-            cfg=cfg,
-            reaction_dir=reaction_dir,
-            selected_inp=selected_inp,
-            raise_on_admission_limit=True,
-        )
-    except AdmissionLimitReachedError as exc:
-        if getattr(args, "require_slot", False):
-            logger.error("%s", exc)
-            return 1
-        logger.info("Immediate execution unavailable, enqueueing instead: %s", exc)
-        return _submit_as_queued(cfg, args, reaction_dir)
+    return _attempt_submit_execution(args, context, runner_cls=runner_cls)
 
 
 def cmd_run_inp(args: Any, *, runner_cls: Type[OrcaRunner] = OrcaRunner) -> int:

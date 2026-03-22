@@ -36,6 +36,11 @@ class _RetryThenSuccessRunner:
         return SimpleNamespace(out_path=str(out_path), return_code=0)
 
 
+class _UnusedRunner:
+    def run(self, _inp_path: Path):
+        raise AssertionError("runner.run() should not be called for terminal resumed attempts")
+
+
 def _retry_inp_path(selected_inp: Path, retry_number: int) -> Path:
     return selected_inp.parent / f"{selected_inp.stem}.retry{retry_number:02d}.inp"
 
@@ -146,6 +151,54 @@ class TestAttemptEngine(unittest.TestCase):
         last_out_path = finished["last_out_path"]
         assert last_out_path is not None
         self.assertTrue(last_out_path.endswith("rxn.retry01.out"))
+
+    def test_resumed_terminal_attempt_finishes_without_running_again(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            reaction_dir = Path(td)
+            selected_inp = reaction_dir / "rxn.inp"
+            out_path = reaction_dir / "rxn.out"
+            selected_inp.write_text("! Opt\n* xyz 0 1\nH 0 0 0\nH 0 0 0.74\n*\n", encoding="utf-8")
+            out_path.write_text(
+                "****ORCA TERMINATED NORMALLY****\nTOTAL RUN TIME: 0 days 0 hours 0 minutes 1 seconds 0 msec\n",
+                encoding="utf-8",
+            )
+            state = new_state(reaction_dir, selected_inp, max_retries=2)
+            state["attempts"].append(
+                {
+                    "index": 1,
+                    "inp_path": str(selected_inp),
+                    "out_path": str(out_path),
+                    "return_code": 0,
+                    "analyzer_status": "completed",
+                    "analyzer_reason": "normal_termination",
+                    "markers": {},
+                    "patch_actions": [],
+                    "started_at": "2026-03-22T00:00:00+00:00",
+                    "ended_at": "2026-03-22T00:00:01+00:00",
+                }
+            )
+            finished_notifications = []
+            emitted_payloads = []
+
+            rc = run_attempts(
+                reaction_dir,
+                selected_inp,
+                state,
+                resumed=True,
+                runner=_UnusedRunner(),
+                max_retries=2,
+                retry_inp_path=_retry_inp_path,
+                to_resolved_local=lambda raw: Path(raw),
+                emit=lambda payload: emitted_payloads.append(payload),
+                notify_finished=lambda payload: finished_notifications.append(payload),
+            )
+
+        self.assertEqual(rc, 0)
+        self.assertEqual(len(emitted_payloads), 1)
+        self.assertEqual(len(finished_notifications), 1)
+        self.assertEqual(finished_notifications[0]["status"], "completed")
+        self.assertTrue(finished_notifications[0]["resumed"])
+        self.assertEqual(finished_notifications[0]["last_out_path"], str(out_path))
 
 
 class TestRetryRecipeStep(unittest.TestCase):

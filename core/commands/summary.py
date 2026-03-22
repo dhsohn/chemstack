@@ -44,6 +44,10 @@ class ProgressSnapshot:
     tail_text: str
 
 
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
 def _human_duration(seconds: float) -> str:
     total_seconds = max(0, int(seconds))
     days, rem = divmod(total_seconds, 86400)
@@ -60,7 +64,7 @@ def _elapsed_from_started(value: Any) -> str:
     started = parse_iso_utc(value)
     if started is None:
         return "n/a"
-    return _human_duration((datetime.now(timezone.utc) - started).total_seconds())
+    return _human_duration((_utc_now() - started).total_seconds())
 
 
 def _updated_ago_text(path: Path) -> str:
@@ -69,7 +73,7 @@ def _updated_ago_text(path: Path) -> str:
     except OSError:
         return "n/a"
 
-    seconds = max(0, int((datetime.now(timezone.utc) - updated).total_seconds()))
+    seconds = max(0, int((_utc_now() - updated).total_seconds()))
     if seconds < 3600:
         return f"{seconds // 60}m"
     if seconds < 86400:
@@ -88,9 +92,9 @@ def _human_bytes(size_bytes: int) -> str:
     return f"{size_bytes} B"
 
 
-def _scan_cwd_process_counts(allowed_root: Path) -> dict[Path, int]:
+def _scan_cwd_process_counts(allowed_root: Path, proc_root: Path | None = None) -> dict[Path, int]:
     counts: dict[Path, int] = {}
-    proc_root = Path("/proc")
+    proc_root = proc_root or Path("/proc")
     if not proc_root.is_dir():
         return counts
 
@@ -163,7 +167,7 @@ def _eta_summary(
     if started is None:
         return "n/a"
 
-    elapsed_hours = (datetime.now(timezone.utc) - started).total_seconds() / 3600.0
+    elapsed_hours = (_utc_now() - started).total_seconds() / 3600.0
     if elapsed_hours <= 0:
         return "n/a"
 
@@ -244,6 +248,17 @@ def _build_progress_snapshot(
     )
 
 
+def _matches_orca_process(proc_args: str, orca_executable: str) -> bool:
+    stripped = proc_args.strip()
+    if not stripped:
+        return False
+
+    exe_path = str(Path(orca_executable).expanduser())
+    exe_name = Path(exe_path).name
+    first_token = stripped.split(maxsplit=1)[0]
+    return exe_path in stripped or first_token.endswith(f"/{exe_name}")
+
+
 def _count_active_orca_processes(orca_executable: str) -> int:
     if not orca_executable.strip():
         return 0
@@ -259,14 +274,9 @@ def _count_active_orca_processes(orca_executable: str) -> int:
         logger.warning("summary_process_count_failed: %s", exc)
         return 0
 
-    exe_path = str(Path(orca_executable).expanduser())
-    exe_name = Path(exe_path).name
     count = 0
     for line in proc.stdout.splitlines():
-        stripped = line.strip()
-        if not stripped:
-            continue
-        if exe_path in stripped or stripped.split(maxsplit=1)[0].endswith(f"/{exe_name}"):
+        if _matches_orca_process(line, orca_executable):
             count += 1
     return count
 

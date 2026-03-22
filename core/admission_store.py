@@ -6,7 +6,6 @@ import json
 import logging
 import os
 from contextlib import contextmanager
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterator, List, TypedDict, cast
 from uuid import uuid4
@@ -18,7 +17,9 @@ from .lock_utils import (
     parse_lock_info,
     process_start_ticks,
 )
-from .state_store import LOCK_FILE_NAME, atomic_write_text
+from .process_tracking import active_run_lock_pid, current_process_lock_payload
+from .persistence_utils import atomic_write_json, now_utc_iso, timestamped_token
+from .state_store import LOCK_FILE_NAME
 
 logger = logging.getLogger(__name__)
 
@@ -40,10 +41,6 @@ class AdmissionSlot(TypedDict, total=False):
     process_start_ticks: int | None
     source: str
     acquired_at: str
-
-
-def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 def _admission_path(allowed_root: Path) -> Path:
@@ -73,10 +70,7 @@ def _admission_lock_stale_remove_error(lock_pid: int, lock_path: Path, exc: OSEr
 @contextmanager
 def _acquire_admission_lock(allowed_root: Path, *, timeout_seconds: int = 10) -> Iterator[None]:
     lp = _lock_path(allowed_root)
-    payload = {"pid": os.getpid(), "started_at": _now_iso()}
-    ticks = current_process_start_ticks()
-    if ticks is not None:
-        payload["process_start_ticks"] = ticks
+    payload = current_process_lock_payload()
 
     with acquire_file_lock(
         lock_path=lp,
@@ -114,7 +108,7 @@ def _load_slots(allowed_root: Path) -> List[AdmissionSlot]:
 
 
 def _save_slots(allowed_root: Path, slots: List[AdmissionSlot]) -> None:
-    atomic_write_text(_admission_path(allowed_root), json.dumps(slots, ensure_ascii=True, indent=2))
+    atomic_write_json(_admission_path(allowed_root), slots, ensure_ascii=True, indent=2)
 
 
 def _slot_owner_alive(slot: AdmissionSlot) -> bool:
@@ -140,19 +134,7 @@ def _slot_owner_alive(slot: AdmissionSlot) -> bool:
 
 
 def _active_lock_pid(reaction_dir: Path) -> int | None:
-    lock_info = parse_lock_info(reaction_dir / LOCK_FILE_NAME)
-    pid = lock_info.get("pid")
-    if not isinstance(pid, int) or pid <= 0:
-        return None
-    if not is_process_alive(pid):
-        return None
-
-    expected_ticks = lock_info.get("process_start_ticks")
-    if isinstance(expected_ticks, int) and expected_ticks > 0:
-        observed_ticks = process_start_ticks(pid)
-        if observed_ticks is None or observed_ticks != expected_ticks:
-            return None
-    return pid
+    return active_run_lock_pid(reaction_dir)
 
 
 def _ticks_for_owner(owner_pid: int | None) -> int | None:
@@ -210,7 +192,7 @@ def _sync_slots_with_run_locks(
             "owner_pid": pid,
             "process_start_ticks": expected_ticks if isinstance(expected_ticks, int) and expected_ticks > 0 else observed_ticks,
             "source": "run_lock_inferred",
-            "acquired_at": _now_iso(),
+            "acquired_at": now_utc_iso(),
         }
         slots.append(slot)
         active_reaction_dirs.add(reaction_dir)
@@ -260,6 +242,8 @@ def _reconcile_slots(
             if reaction_dir is None or _active_lock_pid(Path(reaction_dir)) is None:
                 removed += 1
                 continue
+            reconciled.append(slot)
+            continue
         if _slot_owner_alive(slot):
             reconciled.append(slot)
         else:
@@ -315,7 +299,7 @@ def reserve_slot(
                 _save_slots(allowed_root, slots)
             return None
 
-        token = f"slot_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}_{uuid4().hex[:8]}"
+        token = timestamped_token("slot")
         slot: AdmissionSlot = {
             "token": token,
             "state": "reserved",
@@ -324,7 +308,7 @@ def reserve_slot(
             "owner_pid": owner_pid if owner_pid is not None else os.getpid(),
             "process_start_ticks": _ticks_for_owner(owner_pid),
             "source": source,
-            "acquired_at": _now_iso(),
+            "acquired_at": now_utc_iso(),
         }
         slots.append(slot)
         _save_slots(allowed_root, slots)
