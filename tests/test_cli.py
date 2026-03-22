@@ -9,7 +9,7 @@ from argparse import Namespace
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from core.cli import _configure_logging, build_parser, main
+from core.cli import _configure_logging, _remove_managed_handlers, build_parser, cmd_bot, cmd_queue, main
 from core.commands._helpers import CONFIG_ENV_VAR, _emit, default_config_path
 from core.commands.run_inp import _retry_inp_path, _select_latest_inp
 from core.orca_runner import RunResult
@@ -142,6 +142,80 @@ class TestCli(unittest.TestCase):
         with self.assertRaises(SystemExit) as exc:
             parser.parse_args(["queue", "add"])
         self.assertEqual(exc.exception.code, 2)
+
+    @patch("core.cli._run_bot", return_value=7)
+    @patch("core.config.load_config")
+    def test_cmd_bot_loads_config_and_returns_int(self, mock_load: MagicMock, mock_run_bot: MagicMock) -> None:
+        args = Namespace(config="orca_auto.yaml")
+
+        rc = cmd_bot(args)
+
+        self.assertEqual(rc, 7)
+        mock_load.assert_called_once_with("orca_auto.yaml")
+        mock_run_bot.assert_called_once_with(mock_load.return_value)
+
+    def test_cmd_queue_invalid_subcommand_prints_usage_and_returns_1(self) -> None:
+        args = Namespace(queue_command="unknown")
+        buf = io.StringIO()
+
+        with unittest.mock.patch("sys.stdout", buf):
+            rc = cmd_queue(args)
+
+        self.assertEqual(rc, 1)
+        self.assertIn("Usage: orca_auto queue", buf.getvalue())
+
+    @patch("core.cli._cmd_queue_worker", return_value=4)
+    def test_cmd_queue_dispatches_to_selected_subcommand(self, mock_worker: MagicMock) -> None:
+        args = Namespace(queue_command="worker", foreground=True)
+
+        rc = cmd_queue(args)
+
+        self.assertEqual(rc, 4)
+        mock_worker.assert_called_once_with(args)
+
+    @patch("core.cli._remove_managed_handlers")
+    @patch("core.cli.logging.handlers.RotatingFileHandler")
+    @patch("core.cli.logging.getLogger")
+    def test_configure_logging_uses_rotating_file_handler_when_log_file_is_set(
+        self,
+        mock_get_logger: MagicMock,
+        mock_rotating_handler: MagicMock,
+        mock_remove_handlers: MagicMock,
+    ) -> None:
+        root_logger = MagicMock()
+        mock_get_logger.return_value = root_logger
+        handler = MagicMock(spec=logging.Handler)
+        mock_rotating_handler.return_value = handler
+
+        _configure_logging(Namespace(verbose=False, log_file="/tmp/orca_auto.log"))
+
+        mock_remove_handlers.assert_called_once_with(root_logger)
+        mock_rotating_handler.assert_called_once_with(
+            "/tmp/orca_auto.log",
+            maxBytes=10 * 1024 * 1024,
+            backupCount=5,
+            encoding="utf-8",
+        )
+        root_logger.setLevel.assert_called_once_with(logging.INFO)
+        handler.setFormatter.assert_called_once()
+        root_logger.addHandler.assert_called_once_with(handler)
+
+    def test_remove_managed_handlers_ignores_close_errors(self) -> None:
+        root_logger = logging.Logger("test_cli_remove_managed")
+        root_logger.handlers = []
+
+        unmanaged = logging.StreamHandler()
+        managed = MagicMock(spec=logging.Handler)
+        setattr(managed, "_orca_auto_managed_handler", True)
+        managed.close.side_effect = RuntimeError("boom")
+
+        root_logger.addHandler(unmanaged)
+        root_logger.addHandler(managed)
+
+        _remove_managed_handlers(root_logger)
+
+        self.assertIn(unmanaged, root_logger.handlers)
+        self.assertNotIn(managed, root_logger.handlers)
 
     def test_skips_when_existing_out_is_completed(self) -> None:
         with tempfile.TemporaryDirectory() as td:

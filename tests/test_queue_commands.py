@@ -16,6 +16,7 @@ from core.commands.queue import (
     cmd_queue_stop,
     cmd_queue_worker,
 )
+from core.cancellation import CancelResult, CancelTargetError
 from core.config import AppConfig, RuntimeConfig
 from core.queue_worker import WorkerLaunchResult, start_worker_daemon
 from core.state_store import STATE_FILE_NAME
@@ -106,6 +107,24 @@ class TestCmdQueueCancel(unittest.TestCase):
         rc = cmd_queue_cancel(args)
         self.assertEqual(rc, 1)
 
+    @patch("core.commands.queue.logger.error")
+    @patch("core.commands.queue.cancel_target", side_effect=CancelTargetError("bad target"))
+    @patch("core.commands.queue.load_config")
+    def test_cancel_target_error_returns_1(
+        self,
+        mock_load: MagicMock,
+        mock_cancel: MagicMock,
+        mock_error: MagicMock,
+    ) -> None:
+        mock_load.return_value = self.cfg
+        args = _make_args(self._tmpdir.name, target="bad")
+
+        rc = cmd_queue_cancel(args)
+
+        self.assertEqual(rc, 1)
+        mock_cancel.assert_called_once()
+        mock_error.assert_called_once()
+
     @patch("core.cancellation.os.kill")
     @patch("core.process_tracking.is_process_alive", return_value=True)
     @patch("core.commands.queue.load_config")
@@ -128,6 +147,34 @@ class TestCmdQueueCancel(unittest.TestCase):
         self.assertIn("pid: 4321", buf.getvalue())
         mock_alive.assert_called_once_with(4321)
         mock_kill.assert_called_once()
+
+    @patch("core.commands.queue.cancel_target")
+    @patch("core.commands.queue.load_config")
+    def test_cancel_direct_running_simulation_without_pid_text(
+        self,
+        mock_load: MagicMock,
+        mock_cancel: MagicMock,
+    ) -> None:
+        mock_load.return_value = self.cfg
+        d = self.root / "mol_direct_no_pid"
+        d.mkdir()
+        mock_cancel.return_value = CancelResult(
+            source="direct",
+            action="requested",
+            reaction_dir=str(d),
+            run_id="run_direct_no_pid",
+            pid=None,
+        )
+        args = _make_args(self._tmpdir.name, target="mol_direct_no_pid")
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            rc = cmd_queue_cancel(args)
+
+        self.assertEqual(rc, 0)
+        output = buf.getvalue()
+        self.assertIn("Cancel requested for running simulation: mol_direct_no_pid", output)
+        self.assertNotIn("pid:", output)
+        mock_cancel.assert_called_once_with(self.root.resolve(), "mol_direct_no_pid")
 
 
 class TestCmdQueueWorker(unittest.TestCase):
@@ -155,6 +202,30 @@ class TestCmdQueueWorker(unittest.TestCase):
             rc = cmd_queue_worker(args)
             self.assertEqual(rc, 0)
             mock_daemon.assert_called_once_with(args.config)
+
+    @patch("core.commands.queue.load_config")
+    @patch("core.commands.queue.read_worker_pid", return_value=None)
+    @patch("core.commands.queue.start_worker_daemon")
+    def test_worker_daemon_mode_returns_1_when_start_fails(
+        self,
+        mock_daemon: MagicMock,
+        mock_pid: MagicMock,
+        mock_load: MagicMock,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            mock_load.return_value = _make_cfg(tmp)
+            mock_daemon.return_value = WorkerLaunchResult(
+                status="failed",
+                pid=None,
+                log_file=Path(tmp) / "logs" / "queue_worker.log",
+            )
+            args = _make_args(tmp, daemon=True)
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                rc = cmd_queue_worker(args)
+            self.assertEqual(rc, 1)
+            self.assertIn("Worker failed to start", buf.getvalue())
+            self.assertIn("queue_worker.log", buf.getvalue())
 
     @patch("core.commands.queue.load_config")
     @patch("core.commands.queue.read_worker_pid", return_value=None)
@@ -224,6 +295,27 @@ class TestCmdQueueStop(unittest.TestCase):
                 rc = cmd_queue_stop(args)
             self.assertEqual(rc, 0)
             self.assertIn("not found", buf.getvalue())
+
+    @patch("core.commands.queue.load_config")
+    @patch("core.commands.queue.read_worker_pid", return_value=99999)
+    @patch("os.kill", side_effect=ProcessLookupError)
+    def test_stop_stale_pid_ignores_unlink_failure(
+        self,
+        mock_kill: MagicMock,
+        mock_pid: MagicMock,
+        mock_load: MagicMock,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            mock_load.return_value = _make_cfg(tmp)
+            pid_file = Path(tmp) / "queue_worker.pid"
+            pid_file.write_text("99999")
+            args = _make_args(tmp)
+            buf = io.StringIO()
+            with patch("pathlib.Path.unlink", side_effect=OSError("cannot unlink")):
+                with redirect_stdout(buf):
+                    rc = cmd_queue_stop(args)
+            self.assertEqual(rc, 0)
+            self.assertIn("stale PID", buf.getvalue())
 
     @patch("core.commands.queue.load_config")
     @patch("core.commands.queue.read_worker_pid", return_value=99999)
