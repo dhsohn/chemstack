@@ -20,7 +20,7 @@ from core.orca_parser import parse_orca_output
 
 logger = logging.getLogger(__name__)
 
-FileSignature = tuple[float, int | None]
+FileSignature = tuple[float, int | None, str]
 
 
 @dataclass
@@ -100,7 +100,8 @@ class DFTMonitor:
             ):
                 spath = str(target.path)
                 canonical = _canonical_path_key(spath)
-                signature = _file_signature(spath)
+                status_override = _run_state_status_override(target.run_state_status)
+                signature = _file_signature(spath, state_marker=status_override)
                 if signature is None:
                     continue
                 scanned_signatures[canonical] = signature
@@ -118,17 +119,17 @@ class DFTMonitor:
 
                 try:
                     result = parse_orca_output(spath)
-
-                    is_running = (
-                        result.status == "running"
-                        or target.run_state_status == "running"
-                    )
+                    effective_status = status_override or result.status
+                    is_running = effective_status == "running"
 
                     if is_running:
                         self._last_seen[canonical] = signature
                         state_dirty = True
                     else:
-                        success = self._index.upsert_single(spath)
+                        success = self._index.upsert_single(
+                            spath,
+                            status_override=effective_status,
+                        )
                         if not success:
                             continue
                         self._last_seen[canonical] = signature
@@ -142,8 +143,6 @@ class DFTMonitor:
                     method_basis = result.method
                     if result.basis_set:
                         method_basis += f"/{result.basis_set}"
-
-                    effective_status = "running" if is_running else result.status
 
                     notes: list[str] = []
                     if result.opt_converged is False:
@@ -228,32 +227,43 @@ def _canonical_path_key(path: str | Path) -> str:
         return str(Path(path).expanduser().absolute())
 
 
-def _file_signature(path: str | Path) -> FileSignature | None:
+def _run_state_status_override(status: str | None) -> str:
+    normalized = str(status or "").strip().lower()
+    if normalized in {"created", "pending", "running", "retrying"}:
+        return "running"
+    if normalized in {"completed", "failed", "cancelled"}:
+        return normalized
+    return ""
+
+
+def _file_signature(path: str | Path, *, state_marker: str = "") -> FileSignature | None:
     try:
         stat_result = Path(path).stat()
     except OSError:
         return None
-    return (float(stat_result.st_mtime), int(stat_result.st_size))
+    return (float(stat_result.st_mtime), int(stat_result.st_size), state_marker)
 
 
 def _same_signature(previous: FileSignature, current: FileSignature) -> bool:
-    prev_mtime, prev_size = previous
-    curr_mtime, curr_size = current
+    prev_mtime, prev_size, prev_state = previous
+    curr_mtime, curr_size, curr_state = current
     if prev_mtime != curr_mtime:
+        return False
+    if prev_state != curr_state:
         return False
     if prev_size is None:
         return True
     return prev_size == curr_size
 
 
-def _signature_sort_key(signature: FileSignature) -> tuple[float, int]:
-    mtime, size = signature
-    return (mtime, -1 if size is None else size)
+def _signature_sort_key(signature: FileSignature) -> tuple[float, int, str]:
+    mtime, size, state = signature
+    return (mtime, -1 if size is None else size, state)
 
 
 def _load_signature(value: Any) -> FileSignature | None:
     if isinstance(value, (int, float)):
-        return (float(value), None)
+        return (float(value), None, "")
     if not isinstance(value, dict):
         return None
 
@@ -266,12 +276,14 @@ def _load_signature(value: Any) -> FileSignature | None:
         return None
 
     raw_size = value.get("size")
+    raw_state = value.get("state")
+    state = raw_state.strip().lower() if isinstance(raw_state, str) else ""
     if raw_size is None:
-        return (mtime, None)
+        return (mtime, None, state)
     try:
-        return (mtime, int(raw_size))
+        return (mtime, int(raw_size), state)
     except (TypeError, ValueError):
-        return (mtime, None)
+        return (mtime, None, state)
 
 
 def _load_state(state_file: str | None) -> dict[str, FileSignature]:
@@ -311,8 +323,8 @@ def _save_state(state_file: str | None, signatures: dict[str, FileSignature]) ->
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp_path = path.with_suffix(path.suffix + ".tmp")
         payload = {
-            key: {"mtime": mtime, "size": size}
-            for key, (mtime, size) in signatures.items()
+            key: {"mtime": mtime, "size": size, "state": state}
+            for key, (mtime, size, state) in signatures.items()
         }
         with open(tmp_path, "w", encoding="utf-8") as f:
             json.dump(payload, f, ensure_ascii=False)

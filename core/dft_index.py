@@ -52,6 +52,15 @@ CREATE INDEX IF NOT EXISTS idx_dft_mtime   ON dft_calculations(mtime);
 """
 
 
+def _normalize_status_override(status: str | None) -> str | None:
+    normalized = str(status or "").strip().lower()
+    if normalized in {"created", "pending", "running", "retrying"}:
+        return "running"
+    if normalized in {"completed", "failed", "cancelled"}:
+        return normalized
+    return None
+
+
 class DFTIndex:
     """Manages a structured index of DFT calculation results."""
 
@@ -104,15 +113,16 @@ class DFTIndex:
         # Load existing index
         with self._lock:
             cursor = db.execute(
-                "SELECT source_path, file_hash FROM dft_calculations"
+                "SELECT source_path, file_hash, status FROM dft_calculations"
             )
-            existing: dict[str, str] = {
-                row["source_path"]: row["file_hash"] for row in cursor
+            existing: dict[str, tuple[str, str]] = {
+                row["source_path"]: (row["file_hash"], str(row["status"]))
+                for row in cursor
             }
 
         # Discover files (I/O-heavy, done outside the lock)
         max_bytes = max_file_size_mb * 1024 * 1024
-        discovered: dict[str, str] = {}  # path -> hash
+        discovered: dict[str, tuple[str, str | None]] = {}  # path -> (hash, status_override)
 
         for kb_dir in kb_dirs:
             kb_path = Path(kb_dir)
@@ -126,12 +136,18 @@ class DFTIndex:
                 with open(fpath, "rb") as f:
                     for chunk in iter(lambda: f.read(65536), b""):
                         h.update(chunk)
-                discovered[spath] = h.hexdigest()[:16]
+                discovered[spath] = (
+                    h.hexdigest()[:16],
+                    _normalize_status_override(target.run_state_status),
+                )
 
         # Detect changes
         to_index = {
-            p: h for p, h in discovered.items()
-            if existing.get(p) != h
+            p: payload for p, payload in discovered.items()
+            if existing.get(p) != (
+                payload[0],
+                payload[1] or "",
+            )
         }
         to_remove = set(existing) - set(discovered)
 
@@ -148,9 +164,11 @@ class DFTIndex:
                 removed += 1
 
             # Index new/changed files
-            for source_path in to_index:
+            for source_path, (_, status_override) in to_index.items():
                 try:
                     result = parse_orca_output(source_path)
+                    if status_override is not None:
+                        result.status = status_override
                     self._upsert(db, result)
                     indexed += 1
                 except Exception as exc:
@@ -174,11 +192,14 @@ class DFTIndex:
             "total": total,
         }
 
-    def upsert_single(self, file_path: str) -> bool:
+    def upsert_single(self, file_path: str, *, status_override: str | None = None) -> bool:
         """Parse and upsert a single file. Returns True on success."""
         db = self._require_db()
         try:
             result = parse_orca_output(file_path)
+            normalized_override = _normalize_status_override(status_override)
+            if normalized_override is not None:
+                result.status = normalized_override
             with self._lock:
                 self._upsert(db, result)
                 db.commit()

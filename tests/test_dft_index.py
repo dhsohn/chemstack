@@ -86,6 +86,43 @@ def test_upsert_single(tmp_path: Path) -> None:
     index.close()
 
 
+def test_upsert_single_applies_status_override(tmp_path: Path) -> None:
+    kb_dir = _setup_kb(tmp_path)
+    db_path = str(tmp_path / "dft.db")
+    out_path = str(kb_dir / "job1" / "calc.out")
+
+    index = DFTIndex()
+    index.initialize(db_path)
+
+    assert index.upsert_single(out_path, status_override="failed") is True
+    results = index.query({})
+    assert len(results) == 1
+    assert results[0]["status"] == "failed"
+
+    index.close()
+
+
+def test_index_calculations_reindexes_when_run_state_status_changes(tmp_path: Path) -> None:
+    kb_dir = _setup_kb(tmp_path)
+    db_path = str(tmp_path / "dft.db")
+    state_path = kb_dir / "job1" / "run_state.json"
+
+    index = DFTIndex()
+    index.initialize(db_path)
+
+    first = index.index_calculations([str(kb_dir)])
+    assert first["indexed"] == 1
+    assert index.query({})[0]["status"] == "completed"
+
+    state_path.write_text(json.dumps({"status": "failed"}), encoding="utf-8")
+
+    second = index.index_calculations([str(kb_dir)])
+    assert second["indexed"] == 1
+    assert index.query({})[0]["status"] == "failed"
+
+    index.close()
+
+
 def test_query_filters(tmp_path: Path) -> None:
     kb_dir = _setup_kb(tmp_path)
     db_path = str(tmp_path / "dft.db")
