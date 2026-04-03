@@ -28,6 +28,14 @@ except ImportError as exc:
     cmd_queue = _raise_cli_import_error
     main = _raise_cli_import_error
 
+try:
+    from core.launcher import main as launcher_main
+except ImportError as exc:
+    _LAUNCHER_IMPORT_ERROR = exc
+
+    def launcher_main(*args, **kwargs):
+        raise _LAUNCHER_IMPORT_ERROR
+
 
 class TestCli(unittest.TestCase):
     def _write_config(self, root: Path, allowed_root: Path, *, telegram_enabled: bool = False) -> Path:
@@ -124,6 +132,9 @@ class TestCli(unittest.TestCase):
 
         self.assertEqual(args.command, "run-job")
         self.assertEqual(args.reaction_dir, "/tmp/rxn")
+
+    def test_launcher_main_delegates_to_cli_main(self) -> None:
+        self.assertIs(launcher_main, main)
 
     def test_configure_logging_replaces_previous_orca_auto_handler(self) -> None:
         root_logger = logging.getLogger()
