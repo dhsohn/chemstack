@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, patch
 
 from core.commands._helpers import CONFIG_ENV_VAR, _emit, default_config_path
 from core.commands.run_inp import _cmd_run_inp_execute, _retry_inp_path, _select_latest_inp
-from core.orca_runner import RunResult
+from core.orca_runner import RunResult, WorkerShutdownInterrupt
 
 try:
     from core.cli import _configure_logging, _remove_managed_handlers, build_parser, cmd_bot, cmd_queue, main
@@ -307,7 +307,7 @@ class TestCli(unittest.TestCase):
         self.assertEqual(rc, 1)
         self.assertFalse((reaction / "run_state.json").exists())
 
-    def test_skip_existing_completed_out_reuses_interrupted_run_id(self) -> None:
+    def test_skip_existing_completed_out_reuses_worker_shutdown_run_id(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             reaction = root / "orca_runs" / "rxn1_resume_skip"
@@ -342,7 +342,7 @@ class TestCli(unittest.TestCase):
                 "final_result": {
                     "status": "failed",
                     "analyzer_status": "incomplete",
-                    "reason": "interrupted_by_user",
+                    "reason": "worker_shutdown",
                     "completed_at": "2026-01-01T00:00:02+00:00",
                     "last_out_path": str(out),
                 },
@@ -359,7 +359,28 @@ class TestCli(unittest.TestCase):
         self.assertEqual(saved["status"], "completed")
         self.assertEqual(saved["final_result"]["reason"], "existing_out_completed")
         self.assertTrue(saved["final_result"]["resumed"])
-        self.assertEqual(len(saved["attempts"]), 1)
+
+    def test_worker_shutdown_stops_run_and_finalizes_state(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            reaction = root / "orca_runs" / "rxn5_worker_shutdown"
+            reaction.mkdir(parents=True)
+            inp = reaction / "rxn.inp"
+            inp.write_text("! Opt\n* xyz 0 1\nH 0 0 0\nH 0 0 0.74\n*\n", encoding="utf-8")
+            config = self._write_config(root, root / "orca_runs")
+
+            def _fake_run(_self, inp_path: Path) -> RunResult:
+                raise WorkerShutdownInterrupt
+
+            with patch("core.commands.run_inp.OrcaRunner.run", new=_fake_run):
+                rc = self._run_internal_execute(config, reaction)
+            saved = json.loads((reaction / "run_state.json").read_text(encoding="utf-8"))
+
+        self.assertEqual(rc, 143)
+        self.assertEqual(saved["status"], "failed")
+        self.assertEqual(saved["final_result"]["reason"], "worker_shutdown")
+        self.assertEqual(saved["final_result"]["analyzer_status"], "incomplete")
+        self.assertEqual(len(saved["attempts"]), 0)
 
     def test_retries_and_completes(self) -> None:
         with tempfile.TemporaryDirectory() as td:

@@ -13,6 +13,7 @@ from .attempt_reporting import (
 from .attempt_resume import resolve_execution_input, resume_terminal_decision
 from .completion_rules import detect_completion_mode
 from .inp_rewriter import rewrite_for_retry
+from .orca_runner import WorkerShutdownInterrupt
 from .out_analyzer import OutAnalysis, analyze_output
 from .state_machine import MAX_RETRY_RECIPES, decide_attempt_outcome
 from .state_store import now_utc_iso, save_state
@@ -304,6 +305,19 @@ def run_attempts(
                 execution_index=execution_index,
                 started_at=started_at,
                 runner=runner,
+            )
+        except WorkerShutdownInterrupt:
+            logger.warning("Interrupted by worker shutdown during attempt %d", execution_index)
+            return _exit_with_result(
+                reaction_dir, state, selected_inp,
+                status=RunStatus.FAILED,
+                analyzer_status=AnalyzerStatus.INCOMPLETE,
+                reason="worker_shutdown",
+                last_out_path=str(current_inp.with_suffix(".out")),
+                resumed=resumed,
+                exit_code=143,
+                emit=emit,
+                notify_finished=notify_finished,
             )
         except KeyboardInterrupt:
             logger.warning("Interrupted by user during attempt %d", execution_index)

@@ -12,6 +12,10 @@ from typing import List
 logger = logging.getLogger(__name__)
 
 
+class WorkerShutdownInterrupt(KeyboardInterrupt):
+    """Raised when a supervisor SIGTERM stops the current ORCA run."""
+
+
 @dataclass
 class RunResult:
     out_path: str
@@ -75,18 +79,23 @@ class OrcaRunner:
             prev_sigterm_handler = None
             sigterm_handler_installed = False
 
-            def _sigterm_to_keyboard_interrupt(_signum: int, _frame: FrameType | None) -> None:
-                raise KeyboardInterrupt
+            def _sigterm_to_worker_shutdown(_signum: int, _frame: FrameType | None) -> None:
+                raise WorkerShutdownInterrupt
 
             try:
                 prev_sigterm_handler = signal.getsignal(signal.SIGTERM)
-                signal.signal(signal.SIGTERM, _sigterm_to_keyboard_interrupt)
+                signal.signal(signal.SIGTERM, _sigterm_to_worker_shutdown)
                 sigterm_handler_installed = True
             except ValueError:
                 # signal handlers can only be installed in the main thread
                 sigterm_handler_installed = False
             try:
                 return_code = proc.wait()
+            except WorkerShutdownInterrupt:
+                handle.write("\n[orca_auto] interrupted by worker shutdown; terminating ORCA process tree\n")
+                handle.flush()
+                self._terminate_subprocess_tree(proc)
+                raise
             except KeyboardInterrupt:
                 handle.write("\n[orca_auto] interrupted by user; terminating ORCA process tree\n")
                 handle.flush()

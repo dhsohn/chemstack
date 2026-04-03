@@ -94,6 +94,12 @@ def test_is_resumable_state_covers_running_retrying_failed_and_non_resumable_cas
     assert is_resumable_state(
         {
             "status": RunStatus.FAILED.value,
+            "final_result": {"reason": "worker_shutdown"},
+        }
+    )
+    assert is_resumable_state(
+        {
+            "status": RunStatus.FAILED.value,
             "final_result": {"reason": "crashed_recovery"},
         }
     )
@@ -191,6 +197,30 @@ def test_load_or_create_state_resumes_or_resets_and_normalizes_attempts(tmp_path
     assert state["final_result"] is None
     assert state["attempts"] == []
     assert state["max_retries"] == 3
+    new_state_mock.assert_not_called()
+    save_state_mock.assert_called_once_with(reaction_dir, state)
+
+    resumable_state = {
+        "run_id": "run_worker_shutdown",
+        "selected_inp": str(selected_inp),
+        "status": RunStatus.FAILED.value,
+        "attempts": [],
+        "final_result": {"reason": "worker_shutdown"},
+    }
+    with patch("core.state_machine.load_state", return_value=resumable_state), patch(
+        "core.state_machine.new_state",
+    ) as new_state_mock, patch("core.state_machine.save_state") as save_state_mock:
+        state, resumed = load_or_create_state(
+            reaction_dir,
+            selected_inp,
+            max_retries=2,
+            to_resolved_local=lambda raw: Path(raw).resolve(),
+        )
+
+    assert resumed
+    assert state["final_result"] is None
+    assert state["attempts"] == []
+    assert state["max_retries"] == 2
     new_state_mock.assert_not_called()
     save_state_mock.assert_called_once_with(reaction_dir, state)
 

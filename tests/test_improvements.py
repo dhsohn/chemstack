@@ -171,10 +171,20 @@ class TestCrashRecovery(unittest.TestCase):
     def test_crashed_recovery_is_resumable_reason(self) -> None:
         self.assertIn("crashed_recovery", RESUMABLE_FAILED_REASONS)
 
+    def test_worker_shutdown_is_resumable_reason(self) -> None:
+        self.assertIn("worker_shutdown", RESUMABLE_FAILED_REASONS)
+
     def test_crashed_state_is_resumable(self) -> None:
         state: RunState = {
             "status": "failed",
             "final_result": {"reason": "crashed_recovery"},
+        }
+        self.assertTrue(is_resumable_state(state))
+
+    def test_worker_shutdown_state_is_resumable(self) -> None:
+        state: RunState = {
+            "status": "failed",
+            "final_result": {"reason": "worker_shutdown"},
         }
         self.assertTrue(is_resumable_state(state))
 

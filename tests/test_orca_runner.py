@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, call, patch
 
-from core.orca_runner import OrcaRunner
+from core.orca_runner import OrcaRunner, WorkerShutdownInterrupt
 
 
 class TestOrcaRunnerCommandConstruction(unittest.TestCase):
@@ -80,7 +80,7 @@ class TestOrcaRunnerTermination(unittest.TestCase):
             with tempfile.TemporaryDirectory() as td:
                 inp = Path(td) / "test.inp"
                 inp.write_text("! Opt\n", encoding="utf-8")
-                with self.assertRaises(KeyboardInterrupt):
+                with self.assertRaises(WorkerShutdownInterrupt):
                     runner.run(inp)
 
         terminate.assert_called_once_with(mock_proc)
