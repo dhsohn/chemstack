@@ -12,7 +12,7 @@ from core.admission_store import (
     active_slot_count,
     reserve_slot,
 )
-from core.commands.run_inp import cmd_run_inp
+from core.commands.run_inp import _cmd_run_inp_execute
 from core.config import AppConfig, PathsConfig, RuntimeConfig
 
 
@@ -37,10 +37,20 @@ def _write_inp(reaction_dir: Path) -> None:
     )
 
 
+def _make_args(root: Path, reaction_dir: Path, **overrides) -> SimpleNamespace:
+    defaults = {
+        "config": str(root / "orca_auto.yaml"),
+        "reaction_dir": str(reaction_dir),
+        "force": False,
+    }
+    defaults.update(overrides)
+    return SimpleNamespace(**defaults)
+
+
 class TestRunInpAdmission(unittest.TestCase):
     @patch("core.commands.run_inp.load_config")
     @patch("core.commands.run_inp.run_attempts", return_value=0)
-    def test_direct_run_rejects_when_global_limit_reached(
+    def test_internal_run_rejects_when_global_limit_reached(
         self,
         mock_run_attempts: MagicMock,
         mock_load_config: MagicMock,
@@ -54,16 +64,8 @@ class TestRunInpAdmission(unittest.TestCase):
             _write_inp(reaction_dir)
             other_dir.mkdir()
 
-            args = SimpleNamespace(
-                config=str(root / "orca_auto.yaml"),
-                reaction_dir=str(reaction_dir),
-                force=False,
-                foreground=True,
-                execute_now=True,
-            )
-
             with acquire_direct_slot(root, max_concurrent=1, reaction_dir=str(other_dir)):
-                rc = cmd_run_inp(args)
+                rc = _cmd_run_inp_execute(_make_args(root, reaction_dir))
 
             self.assertEqual(rc, 1)
             self.assertFalse(mock_run_attempts.called)
@@ -72,7 +74,7 @@ class TestRunInpAdmission(unittest.TestCase):
             self.assertFalse((reaction_dir / "run.lock").exists())
 
     @patch("core.commands.run_inp.load_config")
-    def test_direct_run_holds_slot_during_execution_and_releases_after(self, mock_load_config: MagicMock) -> None:
+    def test_internal_run_holds_slot_during_execution_and_releases_after(self, mock_load_config: MagicMock) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             cfg = _make_cfg(tmp)
@@ -86,16 +88,8 @@ class TestRunInpAdmission(unittest.TestCase):
                 observed_counts.append(active_slot_count(root))
                 return 0
 
-            args = SimpleNamespace(
-                config=str(root / "orca_auto.yaml"),
-                reaction_dir=str(reaction_dir),
-                force=False,
-                foreground=True,
-                execute_now=True,
-            )
-
             with patch("core.commands.run_inp.run_attempts", new=_fake_run_attempts):
-                rc = cmd_run_inp(args)
+                rc = _cmd_run_inp_execute(_make_args(root, reaction_dir))
 
             self.assertEqual(rc, 0)
             self.assertEqual(observed_counts, [1])
@@ -118,16 +112,8 @@ class TestRunInpAdmission(unittest.TestCase):
             token = reserve_slot(root, 1, queue_id="q_test", source="queue_worker")
             self.assertIsNotNone(token)
 
-            args = SimpleNamespace(
-                config=str(root / "orca_auto.yaml"),
-                reaction_dir=str(reaction_dir),
-                force=False,
-                foreground=True,
-                execute_now=True,
-            )
-
             with patch.dict(os.environ, {ADMISSION_TOKEN_ENV_VAR: token or ""}, clear=False):
-                rc = cmd_run_inp(args)
+                rc = _cmd_run_inp_execute(_make_args(root, reaction_dir))
 
             self.assertEqual(rc, 0)
             self.assertTrue(mock_run_attempts.called)
@@ -149,16 +135,8 @@ class TestRunInpAdmission(unittest.TestCase):
             token = reserve_slot(root, 1, queue_id="q_skip", source="queue_worker")
             self.assertIsNotNone(token)
 
-            args = SimpleNamespace(
-                config=str(root / "orca_auto.yaml"),
-                reaction_dir=str(reaction_dir),
-                force=False,
-                foreground=True,
-                execute_now=True,
-            )
-
             with patch.dict(os.environ, {ADMISSION_TOKEN_ENV_VAR: token or ""}, clear=False):
-                rc = cmd_run_inp(args)
+                rc = _cmd_run_inp_execute(_make_args(root, reaction_dir))
 
             self.assertEqual(rc, 0)
             self.assertEqual(active_slot_count(root), 0)
@@ -182,16 +160,12 @@ class TestRunInpAdmission(unittest.TestCase):
             token = reserve_slot(root, 1, queue_id="q_error", source="queue_worker")
             self.assertIsNotNone(token)
 
-            args = SimpleNamespace(
-                config=str(root / "orca_auto.yaml"),
-                reaction_dir=str(reaction_dir),
-                force=False,
-                foreground=True,
-                execute_now=True,
-            )
-
             with patch.dict(os.environ, {ADMISSION_TOKEN_ENV_VAR: token or ""}, clear=False):
-                rc = cmd_run_inp(args)
+                rc = _cmd_run_inp_execute(_make_args(root, reaction_dir))
 
             self.assertEqual(rc, 1)
             self.assertEqual(active_slot_count(root), 0)
+
+
+if __name__ == "__main__":
+    unittest.main()

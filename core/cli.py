@@ -13,10 +13,10 @@ from .commands.monitor import cmd_monitor
 from .commands.organize import cmd_organize
 from .commands.queue import (
     cmd_queue_cancel as _cmd_queue_cancel,
-    cmd_queue_stop as _cmd_queue_stop,
     cmd_queue_worker as _cmd_queue_worker,
 )
 from .commands.run_inp import cmd_run_inp
+from .commands.run_job import cmd_run_job
 from .commands.summary import cmd_summary
 from .telegram_bot import run_bot as _run_bot
 
@@ -33,11 +33,10 @@ def cmd_queue(args: argparse.Namespace) -> int:
     _queue_sub_map: dict[str, Callable[[argparse.Namespace], int]] = {
         "cancel": _cmd_queue_cancel,
         "worker": _cmd_queue_worker,
-        "stop": _cmd_queue_stop,
     }
     handler = _queue_sub_map.get(args.queue_command)
     if handler is None:
-        print("Usage: orca_auto queue {cancel|worker|stop}")
+        print("Usage: orca_auto queue {cancel|worker}")
         return 1
     return int(handler(args))
 
@@ -56,10 +55,16 @@ def build_parser() -> argparse.ArgumentParser:
     run_inp.add_argument("--reaction-dir", required=True, help="Directory under the configured allowed_root containing input files")
     run_inp.add_argument("--force", action="store_true", help="Force re-run even if existing output is completed")
     run_inp.add_argument("--priority", type=int, default=10, help="Queue priority when submission is enqueued (lower = higher, default 10)")
-    run_inp.add_argument("--queue-only", action="store_true", help="Submit to the queue without attempting immediate execution")
-    run_inp.add_argument("--require-slot", action="store_true", help="Fail instead of enqueueing when immediate execution is not possible")
-    run_inp.add_argument("--foreground", action="store_true", help="Run in the foreground")
-    run_inp.add_argument("--execute-now", action="store_true", help=argparse.SUPPRESS)
+    run_inp.add_argument("--queue-only", action="store_true", help="Deprecated alias; submissions are always queued")
+    run_inp.add_argument(
+        "--require-slot",
+        action="store_true",
+        help="Deprecated; immediate execution has been removed and submissions are always queued",
+    )
+
+    run_job = sub.add_parser("run-job", help=argparse.SUPPRESS)
+    run_job.add_argument("--reaction-dir", required=True, help=argparse.SUPPRESS)
+    run_job.add_argument("--force", action="store_true", help=argparse.SUPPRESS)
 
     list_cmd = sub.add_parser("list", help="Show status of all simulations (queue + standalone)")
     list_cmd.add_argument("action", nargs="?", default=None, choices=["clear"],
@@ -87,11 +92,7 @@ def build_parser() -> argparse.ArgumentParser:
     q_cancel = queue_sub.add_parser("cancel", help="Cancel a queued or running job")
     q_cancel.add_argument("target", help="queue_id, reaction_dir, or run_id to cancel; or 'all-pending'")
 
-    q_worker = queue_sub.add_parser("worker", help="Start the queue worker")
-    q_worker.add_argument("--foreground", action="store_true", help="Run worker in the foreground")
-    q_worker.add_argument("--daemon", action="store_true", help="Run worker in background")
-
-    queue_sub.add_parser("stop", help="Stop the running worker daemon")
+    queue_sub.add_parser("worker", help="Run the queue worker in the foreground")
 
     return parser
 
@@ -142,6 +143,7 @@ def main(argv: list[str] | None = None) -> int:
     command_map: dict[str, Callable[[argparse.Namespace], int]] = {
         "init": cmd_init,
         "run-inp": cmd_run_inp,
+        "run-job": cmd_run_job,
         "list": cmd_list,
         "bot": cmd_bot,
         "monitor": cmd_monitor,

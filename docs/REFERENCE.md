@@ -1,43 +1,57 @@
 # ORCA Auto Detailed Reference
 
-An executor that automatically applies conservative modifications to input files (`.inp`) and retries when `ORCA` calculations fail midway or do not meet TS criteria, and organizes the resulting output.
+ORCA Auto is a queue-first executor for ORCA calculations. It conservatively retries failed runs, records state in each reaction directory, and organizes completed results for later review.
 
 ## 1) Project Purpose
 
-- Runs against a single user-specified `~/orca_runs/<reaction_dir>`
-- Automatically selects the most recently modified `*.inp` file within that directory
-- On failure/interruption/TS not met, generates `*.retryNN.inp` for automatic retry
-- Records execution status and results in the same directory
+- Work only within the configured `allowed_root`
+- Select the most recently modified `*.inp` in the target directory
+- Submit work durably through the queue
+- Let a supervised worker execute queued jobs
+- Retry conservatively on recognized failures without overwriting the original input
+- Record execution status and results alongside the calculation
 
-## 2) Core Behavior Summary
+## 2) Runtime Model
 
-- Input root restriction: Only subdirectories under the configured `allowed_root` are permitted
-- Target file selection: The most recently modified `*.inp` file
-- Default behavior: Skips if an existing `*.out` is in completed state
-- Force re-execution: With `--force`, re-executes even if a completed `*.out` exists
-- No execution time limit: Waits until the ORCA process terminates normally or abnormally
-- State file: `run_state.json`
-- Result report: `run_report.json`, `run_report.md`
+Current intended semantics:
+
+- Public `run-inp` enqueues new work durably
+- If an already-completed output is detected, `run-inp` returns completion without relaunching ORCA
+- Successful queue submission returns `status: queued`
+- Public `run-inp` does not launch ORCA directly for new work
+- App-managed background execution has been removed
+- The queue worker is a foreground process intended to run under external supervision
+- On WSL, the recommended supervisor is `systemd`
+
+Operational consequences:
+
+- Closing the submission terminal after `status: queued` is safe
+- If the worker is down, the job remains in `queue.json` until the worker returns
+- Worker stop/start is managed by `systemctl` or the terminal that owns the foreground worker
 
 ## 3) Directory Structure
 
 ```text
 ~/orca_auto
   config/orca_auto.yaml
-  bin/orca_auto            # Local .venv-first shim (same UX as installed orca_auto)
+  bin/orca_auto
   core/
-    launcher.py            # Common user entry point (background/foreground UX)
-    commands/              # CLI command handlers
+    cli.py                 # CLI argument parsing and command routing
+    commands/
       _helpers.py          # Shared utilities (validation, formatting, config paths)
-      run_inp.py           # run-inp command
+      run_inp.py           # Public queue submission command
+      run_job.py           # Internal worker-owned execution path
       organize.py          # organize command
+      queue.py             # queue command handlers
     config.py              # Configuration loading and dataclasses
-    config_validation.py   # Configuration validation/normalization functions
-    lock_utils.py          # Lock file parsing/process liveness check (shared)
-    state_store.py         # State persistence/atomic writes/run lock
-    organize_index.py      # JSONL index management/index lock
+    config_validation.py   # Configuration validation/normalization
+    queue_store.py         # queue.json / queue.lock management
+    queue_worker.py        # Foreground queue worker loop
+    state_store.py         # State persistence, atomic writes, run lock
     attempt_engine.py      # Retry loop orchestration
     ...                    # Other domain modules
+  systemd/
+    orca-auto-queue-worker@.service
   scripts/*.sh / *.py
   tests/*.py
 ```
@@ -45,10 +59,10 @@ An executor that automatically applies conservative modifications to input files
 ## 4) Required Environment
 
 - Linux (WSL2 or native Linux)
-- Access to ORCA Linux binary path (e.g., `/opt/orca/orca`)
-- ORCA dependencies: OpenMPI, BLAS/LAPACK, etc.
+- Access to an ORCA Linux binary path such as `/opt/orca/orca`
+- ORCA runtime dependencies such as OpenMPI and BLAS/LAPACK
 - Python 3.10+
-- Input data root: Explicit absolute path (ext4 filesystem recommended)
+- An input root on a Linux filesystem
 
 ## 5) Installation and Initial Setup
 
@@ -57,27 +71,22 @@ cd ~/orca_auto
 bash scripts/bootstrap_wsl.sh
 ```
 
-`bootstrap_wsl.sh` performs the following:
+`bootstrap_wsl.sh`:
 
-- Verifies ORCA Linux binary exists
-- Prepares Python venv (`.venv`)
-- Installs dependencies (`requirements.txt`)
-- Prepares `orca_auto` for execution
+- Prepares `.venv`
+- Installs Python dependencies
+- Seeds `config/orca_auto.yaml` if missing
 
-Notes:
-
-- Within the repository, you can use `./bin/orca_auto`.
-- The `orca_auto` command installed via the package entry point also calls the same `core.launcher`.
-- This means the default background execution of `run-inp` and `queue worker`, the `pid`/`log` output, and the `--foreground` handling are identical across both entry points.
+Within the repository, use `./bin/orca_auto`. An installed `orca_auto` entry point is intended to expose the same public CLI semantics.
 
 ## 6) Configuration File
 
 Configuration file: `<project_root>/config/orca_auto.yaml`
 
-Default configuration path search order:
+Search order:
 
-1. Environment variable `ORCA_AUTO_CONFIG`
-2. Relative path from execution code `<project_root>/config/orca_auto.yaml`
+1. `ORCA_AUTO_CONFIG`
+2. `<project_root>/config/orca_auto.yaml`
 3. `~/orca_auto/config/orca_auto.yaml`
 
 ```yaml
@@ -89,77 +98,102 @@ runtime:
 
 paths:
   orca_executable: "/path/to/orca/orca"
-
 ```
 
 Field descriptions:
 
 - `runtime.allowed_root`: Root directory permitted for execution
-- `runtime.organized_root`: Root directory for organize target (defaults to `orca_outputs` alongside `allowed_root` if omitted)
-- `runtime.default_max_retries`: Maximum number of retries
-- `runtime.max_concurrent`: Global maximum active simulations under `allowed_root`
-- `paths.orca_executable`: Path to ORCA executable
+- `runtime.organized_root`: Root for organized outputs
+- `runtime.default_max_retries`: Maximum retry count after the initial attempt
+- `runtime.max_concurrent`: Global worker concurrency cap under `allowed_root`
+- `paths.orca_executable`: ORCA executable path
 
-Caution:
+Notes:
 
-- `default_max_retries=2` refers to the number of retries.
-- The total number of executions is `initial 1 + 2 retries = maximum 3 times`.
-- Windows legacy paths (`C:\...`, `/mnt/c/...`) are not supported in the configuration.
+- `default_max_retries=2` means `1 initial + 2 retries = 3 total attempts`
+- Windows-style paths such as `C:\...` and `/mnt/c/...` are not supported in config
+
 ## 7) CLI Usage
 
-### 7.1 Execution
+### 7.1 `run-inp`
 
 ```bash
 cd ~/orca_auto
 ./bin/orca_auto run-inp --reaction-dir '/absolute/path/to/orca_runs/Int1_DMSO'
 ```
 
-When using the installed entry point:
+Successful submission example:
 
-```bash
-orca_auto run-inp --reaction-dir '/absolute/path/to/orca_runs/Int1_DMSO'
+```text
+status: queued
+reaction_dir: /absolute/path/to/orca_runs/Int1_DMSO
+queue_id: q_20260403_151220_ab12cd
+priority: 10
+worker: active
+worker_pid: 12345
 ```
 
-Default behavior:
+Behavior:
 
-- `run-inp` runs in the background by default.
-- Immediately after execution, it prints `status`, `pid`, and `log` path, then exits.
-- If foreground execution is needed, add `--foreground`.
-- To change the overall default to foreground, use the environment variable `ORCA_AUTO_RUN_INP_BACKGROUND=0`.
-- Public `run-inp` is now a submit-first entry point: if no pending backlog exists and capacity is available, it executes immediately; otherwise it enqueues the job and tries to ensure a worker is running.
-- Queued jobs select the latest `.inp` at execution start time, not at submit time.
+- Validates that `--reaction-dir` is under `allowed_root`
+- Rejects duplicate active queue entries for the same directory
+- Chooses the latest `*.inp` when execution actually starts
+- Writes the queue entry durably before returning
+- Does not start a detached ORCA process on behalf of the caller
 
-Options:
+Public options:
 
 - `--reaction-dir` (required): Reaction directory
-- The retry count is configured only through `runtime.default_max_retries` in `orca_auto.yaml`
-- `--force` (optional): Force re-execution even if a completed `*.out` exists
-- `--priority` (optional): Queue priority when the submission is enqueued
-- `--queue-only` (optional): Always enqueue instead of attempting immediate execution
-- `--require-slot` (optional): Fail instead of enqueueing when immediate execution is unavailable
-- `--foreground` (optional): Run `run-inp` in the foreground
+- `--force` (optional): Re-run even if a completed output already exists
+- `--priority` (optional): Queue priority, lower values run sooner
 
-### 7.2 Queue Worker
+Legacy notes:
+
+- `--queue-only` is no longer needed because queuing is the default public behavior
+- `--require-slot`, public direct execution, and app-managed background launch are removed from the intended workflow
+
+### 7.2 `queue worker`
 
 ```bash
 ./bin/orca_auto queue worker
-./bin/orca_auto queue worker --foreground
 ```
 
-Default behavior:
+Behavior:
 
-- `queue worker` runs in the background by default.
-- Immediately after startup, it prints `status`, `pid`, and `log` path, then exits.
-- If foreground execution is needed, add `--foreground`.
-- To change the overall default to foreground, use the environment variable `ORCA_AUTO_QUEUE_WORKER_BACKGROUND=0`.
+- Runs in the foreground
+- Polls `queue.json` for pending jobs
+- Enforces `runtime.max_concurrent`
+- Executes jobs through an internal worker-owned execution path
+- Updates queue status on completion or failure
+- Requeues in-flight jobs during controlled shutdown
 
-Options:
+Use cases:
 
-- `runtime.max_concurrent` in config: Shared hard cap for both queued and direct runs
-- `--foreground` (optional): Run `queue worker` in the foreground
-- `--daemon` (optional): Explicitly use daemon startup path
+- Manual supervised execution in a dedicated terminal
+- `systemd`-managed execution on WSL or Linux
 
-### 7.3 Result Organization
+There is no supported app-managed `--daemon` mode in the intended workflow. There is also no public `queue stop`; stop the service with `systemctl` or interrupt the foreground worker directly.
+
+### 7.3 `queue cancel`
+
+```bash
+./bin/orca_auto queue cancel q_20260403_151220_ab12cd
+./bin/orca_auto queue cancel /absolute/path/to/orca_runs/Int1_DMSO
+./bin/orca_auto queue cancel all-pending
+```
+
+### 7.4 `list`
+
+```bash
+./bin/orca_auto list
+./bin/orca_auto list --filter pending
+./bin/orca_auto list --filter running
+./bin/orca_auto list clear
+```
+
+`list` presents queue state together with run state and can clear terminal entries.
+
+### 7.5 `organize`
 
 ```bash
 ./bin/orca_auto organize --root '/absolute/path/to/orca_runs'
@@ -169,29 +203,65 @@ Options:
 Options:
 
 - `--reaction-dir`: Organize a single reaction directory
-- `--root`: Root scan organization (must exactly match `allowed_root`)
-- `--root` scan recursively searches subdirectories and collects all completed runs that have a `run_state.json`
-- `--apply`: Perform actual move (default is dry-run)
-- `--rebuild-index`: Rebuild index
+- `--root`: Organize from the configured root
+- `--apply`: Perform actual moves
+- `--rebuild-index`: Rebuild the JSONL index
 
-## 8) Completion Determination Rules
+## 8) WSL systemd Setup
 
-The mode is automatically determined based on the input route line (`! ...`).
+WSL should have `systemd` enabled:
+
+```ini
+[boot]
+systemd=true
+```
+
+If you change `/etc/wsl.conf`, restart WSL from Windows:
+
+```powershell
+wsl --shutdown
+```
+
+This repository includes a templated unit file:
+
+- [`systemd/orca-auto-queue-worker@.service`](/home/daehyupsohn/orca_auto/systemd/orca-auto-queue-worker@.service)
+
+Recommended install flow:
+
+```bash
+cd ~/orca_auto
+sudo cp systemd/orca-auto-queue-worker@.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now "orca-auto-queue-worker@$(whoami)"
+systemctl status "orca-auto-queue-worker@$(whoami)"
+journalctl -u "orca-auto-queue-worker@$(whoami)" -f
+```
+
+Assumptions of the template:
+
+- Repository path: `/home/<user>/orca_auto`
+- Config path: `/home/<user>/orca_auto/config/orca_auto.yaml`
+
+If your paths differ, edit the copied unit before enabling it.
+
+## 9) Completion Determination Rules
+
+The mode is determined from the input route line (`! ...`).
 
 - TS mode: Contains `OptTS` or `NEB-TS`
 - Opt mode: Everything else
 
-TS mode completion conditions:
+TS mode completion:
 
 - `****ORCA TERMINATED NORMALLY****` exists
-- Exactly 1 imaginary frequency (`-xxx cm**-1`)
-- If the route line contains `IRC`, the IRC marker is also required
+- Exactly 1 imaginary frequency is present
+- If the route contains `IRC`, the IRC marker is also required
 
-Opt mode completion conditions:
+Opt mode completion:
 
 - `****ORCA TERMINATED NORMALLY****` exists
 
-## 9) Failure Classification and Automatic Recovery
+## 10) Failure Classification and Automatic Recovery
 
 Representative statuses:
 
@@ -204,35 +274,34 @@ Representative statuses:
 - `incomplete`
 - `unknown_failure`
 
-Input file modification order during retry:
+Retry modification order:
 
-1. Add `TightSCF SlowConv` to route + `%scf MaxIter 300`
-2. `%geom Calc_Hess true`, `Recalc_Hess 5`, `MaxIter 300`
-3. No additional recipe (reuses step 2 recipe)
+1. Add `TightSCF SlowConv` plus `%scf MaxIter 300`
+2. Add `%geom Calc_Hess true`, `Recalc_Hess 5`, `MaxIter 300`
+3. Reuse the last conservative retry recipe if more retries are allowed
 
-Common geometry restart rules:
+Geometry restart rules:
 
-- On each retry, finds a `*.xyz` file with the same stem as the previous attempt's input and replaces with `* xyzfile ...`
-- Example: When generating `foo.retry02.inp` from `foo.retry01.inp`, uses `foo.retry01.xyz`
-- If the previous `*.xyz` does not exist, searches the directory for the most recent `*_trj.xyz/xyz` as a fallback
-- If no fallback candidates exist, skips geometry replacement and keeps the original geometry block
+- Prefer the previous attempt's matching `*.xyz`
+- Fall back to the most recent `*_trj.xyz` or `.xyz`
+- Keep the original geometry block if no restart geometry is available
 
 Principles:
 
-- The original `charge/multiplicity` is never changed.
-- The original input file is preserved.
-- Retry filenames follow the pattern `<name>.retry01.inp`, `<name>.retry02.inp`, ... (up to the `max_retries` value)
+- Original charge and multiplicity are never changed automatically
+- Original `.inp` is preserved
+- Retry inputs are generated as `<name>.retryNN.inp`
 
-## 10) Output File Description
+## 11) Output Files
 
-Generated in the execution target directory (`<allowed_root>/<reaction_dir>`):
+Generated in the reaction directory:
 
 - `<stem>.out`, `<stem>.retryNN.out`
 - `run_state.json`
 - `run_report.json`
 - `run_report.md`
 
-`run_state.json` key fields:
+Important `run_state.json` fields:
 
 - `run_id`
 - `reaction_dir`
@@ -241,7 +310,7 @@ Generated in the execution target directory (`<allowed_root>/<reaction_dir>`):
 - `attempts[]`
 - `final_result`
 
-`attempts[]` entries:
+Important `attempts[]` fields:
 
 - `index`
 - `inp_path`
@@ -254,49 +323,37 @@ Generated in the execution target directory (`<allowed_root>/<reaction_dir>`):
 - `started_at`
 - `ended_at`
 
-## 11) Operations Guide
+## 12) Recommended Workflow
 
-- It is recommended to clearly manage one input file per directory.
-- If multiple `*.inp` files exist, the most recently modified file is selected.
-- Use `--force` if a forced restart is needed.
-- Interrupting with `Ctrl+C` will also attempt to terminate the running ORCA process tree, and the status is recorded as `interrupted_by_user`.
-## 12) Frequently Encountered Issues
+1. Ensure the worker service is active, or start `queue worker` in a dedicated terminal
+2. Submit with `run-inp`
+3. Confirm `status: queued`
+4. Close the submission terminal if desired
+5. Monitor with `list` or `journalctl`
+6. Review `run_report.md` after completion
+7. Use `--force` only when a deliberate rerun is needed
+
+## 13) Frequently Encountered Issues
 
 1. `Reaction directory must be under allowed root`
 - Cause: `--reaction-dir` is outside `allowed_root`
 - Action: Check `allowed_root` in `config/orca_auto.yaml`
 
 2. `Reaction directory not found`
-- Cause: Path string/quoting issue
-- Action: Wrap the path in single quotes
-
-Example:
-
-```bash
-./bin/orca_auto run-inp --reaction-dir '/home/daehyupsohn/orca_runs/my_case'
-```
+- Cause: Path string or quoting problem
+- Action: Use an absolute path and quote it if needed
 
 3. `State file not found`
-- Cause: `run-inp` has not been executed in that directory yet
-- Action: Run `run-inp` first
+- Cause: No job has executed in that directory yet
+- Action: Submit with `run-inp` and let the worker pick it up
 
-4. `error_multiplicity_impossible`
-- Cause: Electron count and multiplicity combination mismatch
-- Action: This tool uses a conservative policy and does not automatically change charge/multiplicity, so manually edit the input and re-execute
+4. `worker: inactive`
+- Cause: The queue submission succeeded, but no worker is running
+- Action: Start or restore the worker; the queued job remains durable
 
-## 13) Migration Utilities
-
-Scripts available for Linux transition:
-
-- `scripts/preflight_check.sh`: Cutover pre-check (processes, locks, state, disk)
-- `scripts/audit_input_path_literals.py`: Detects Windows paths inside `.inp` files
-- `scripts/validate_runtime_config.py`: Configuration validity verification
-
-Notification commands:
-
-- `run-inp`: Immediate Telegram alerts for run start, retry scheduling, and terminal completion/failure when Telegram is configured.
-- `monitor`: Scan-oriented Telegram alert. Reports only newly discovered DFT results and parse failures from periodic filesystem scans.
-- `summary`: Digest-oriented Telegram report. Shows active runs and current blockers at the reporting time; completed history is omitted.
+5. `error_multiplicity_impossible`
+- Cause: Electron count and multiplicity mismatch
+- Action: Manually adjust the input, because ORCA Auto does not rewrite charge or multiplicity
 
 ## 14) Testing
 
@@ -304,10 +361,3 @@ Notification commands:
 cd ~/orca_auto
 pytest -q
 ```
-
-## 15) Recommended Workflow
-
-1. Prepare input directory (`~/orca_runs/<case>`)
-2. Run `run-inp`
-3. Review final summary with `run_report.md`
-4. Re-execute with `--force` if needed

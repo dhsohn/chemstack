@@ -1,12 +1,12 @@
-"""Queue worker daemon — polls the queue and runs jobs up to a global active-run limit.
+"""Queue worker foreground loop for queue execution under an external supervisor.
 
 Usage::
 
-    orca_auto queue worker              # foreground, default 4 total active runs
-    orca_auto queue worker --daemon     # background daemon
+    orca_auto queue worker
 
-The worker spawns each job as a subprocess (``orca_auto run-inp --foreground``)
-so that existing locking, state management, and signal handling are fully reused.
+The worker is intended to run in the foreground, typically under systemd in WSL.
+Each job is spawned as an internal execution subprocess so locking, state
+management, and signal handling remain centralized.
 """
 
 from __future__ import annotations
@@ -62,16 +62,6 @@ class _RunningJob:
     started_at: float = field(default_factory=time.monotonic)
 
 
-@dataclass(frozen=True)
-class WorkerLaunchResult:
-    """Structured outcome for worker daemon startup checks."""
-
-    status: str
-    pid: int | None = None
-    log_file: Path | None = None
-    detail: str | None = None
-
-
 def _build_run_command(
     reaction_dir: str,
     config_path: str,
@@ -81,77 +71,12 @@ def _build_run_command(
     cmd = [
         sys.executable, "-m", "core.cli",
         "--config", config_path,
-        "run-inp",
+        "run-job",
         "--reaction-dir", reaction_dir,
-        "--foreground",
-        "--execute-now",
     ]
     if force:
         cmd.append("--force")
     return cmd
-
-
-def _default_worker_log_dir(config_path: str) -> Path:
-    log_dir = Path(config_path).expanduser().resolve().parent
-    if log_dir.name == "config":
-        return log_dir.parent / "logs"
-    return Path.home() / "orca_auto" / "logs"
-
-
-def start_worker_daemon(config_path: str) -> WorkerLaunchResult:
-    """Start the queue worker as a detached daemon."""
-    log_dir = _default_worker_log_dir(config_path)
-    log_dir.mkdir(parents=True, exist_ok=True)
-
-    log_file = log_dir / f"queue_worker_{time.strftime('%Y%m%d_%H%M%S')}.log"
-    cmd = [
-        sys.executable, "-m", "core.cli",
-        "--config", config_path,
-        "--log-file", str(log_file),
-        "queue", "worker",
-    ]
-
-    try:
-        with log_file.open("w", encoding="utf-8") as handle:
-            proc = subprocess.Popen(
-                cmd,
-                stdout=handle,
-                stderr=subprocess.STDOUT,
-                stdin=subprocess.DEVNULL,
-                start_new_session=True,
-            )
-    except OSError as exc:
-        return WorkerLaunchResult(
-            status="failed",
-            log_file=log_file,
-            detail=str(exc),
-        )
-
-    time.sleep(0.3)
-    if proc.poll() is not None:
-        return WorkerLaunchResult(
-            status="failed",
-            pid=proc.pid,
-            log_file=log_file,
-            detail="worker_exited_early",
-        )
-
-    return WorkerLaunchResult(
-        status="started",
-        pid=proc.pid,
-        log_file=log_file,
-    )
-
-
-def ensure_worker_running(config_path: str, allowed_root: Path) -> WorkerLaunchResult:
-    """Return a running worker, starting one if needed."""
-    existing_pid = read_worker_pid(allowed_root)
-    if existing_pid is not None:
-        return WorkerLaunchResult(
-            status="already_running",
-            pid=existing_pid,
-        )
-    return start_worker_daemon(config_path)
 
 
 def _terminate_process(proc: subprocess.Popen) -> None:

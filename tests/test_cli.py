@@ -9,10 +9,24 @@ from argparse import Namespace
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from core.cli import _configure_logging, _remove_managed_handlers, build_parser, cmd_bot, cmd_queue, main
 from core.commands._helpers import CONFIG_ENV_VAR, _emit, default_config_path
-from core.commands.run_inp import _retry_inp_path, _select_latest_inp
+from core.commands.run_inp import _cmd_run_inp_execute, _retry_inp_path, _select_latest_inp
 from core.orca_runner import RunResult
+
+try:
+    from core.cli import _configure_logging, _remove_managed_handlers, build_parser, cmd_bot, cmd_queue, main
+except ImportError as exc:
+    _CLI_IMPORT_ERROR = exc
+
+    def _raise_cli_import_error(*args, **kwargs):
+        raise _CLI_IMPORT_ERROR
+
+    _configure_logging = _raise_cli_import_error
+    _remove_managed_handlers = _raise_cli_import_error
+    build_parser = _raise_cli_import_error
+    cmd_bot = _raise_cli_import_error
+    cmd_queue = _raise_cli_import_error
+    main = _raise_cli_import_error
 
 
 class TestCli(unittest.TestCase):
@@ -38,6 +52,15 @@ class TestCli(unittest.TestCase):
             encoding="utf-8",
         )
         return config
+
+    def _run_internal_execute(self, config: Path, reaction_dir: Path, *, force: bool = False) -> int:
+        return _cmd_run_inp_execute(
+            Namespace(
+                config=str(config),
+                reaction_dir=str(reaction_dir),
+                force=force,
+            )
+        )
 
     def test_rejects_outside_allowed_root(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -82,27 +105,25 @@ class TestCli(unittest.TestCase):
                 "--priority",
                 "3",
                 "--queue-only",
-                "--require-slot",
             ]
         )
 
         self.assertEqual(args.command, "run-inp")
         self.assertEqual(args.priority, 3)
         self.assertTrue(args.queue_only)
-        self.assertTrue(args.require_slot)
 
-    def test_run_inp_hidden_execute_now_flag_is_parsed(self) -> None:
+    def test_run_inp_rejects_foreground_flag(self) -> None:
         parser = build_parser()
-        args = parser.parse_args(
-            [
-                "run-inp",
-                "--reaction-dir",
-                "/tmp/rxn",
-                "--execute-now",
-            ]
-        )
+        with self.assertRaises(SystemExit) as exc:
+            parser.parse_args(["run-inp", "--reaction-dir", "/tmp/rxn", "--foreground"])
+        self.assertEqual(exc.exception.code, 2)
 
-        self.assertTrue(args.execute_now)
+    def test_hidden_run_job_command_is_parsed(self) -> None:
+        parser = build_parser()
+        args = parser.parse_args(["run-job", "--reaction-dir", "/tmp/rxn"])
+
+        self.assertEqual(args.command, "run-job")
+        self.assertEqual(args.reaction_dir, "/tmp/rxn")
 
     def test_configure_logging_replaces_previous_orca_auto_handler(self) -> None:
         root_logger = logging.getLogger()
@@ -166,7 +187,7 @@ class TestCli(unittest.TestCase):
 
     @patch("core.cli._cmd_queue_worker", return_value=4)
     def test_cmd_queue_dispatches_to_selected_subcommand(self, mock_worker: MagicMock) -> None:
-        args = Namespace(queue_command="worker", foreground=True)
+        args = Namespace(queue_command="worker")
 
         rc = cmd_queue(args)
 
@@ -359,15 +380,7 @@ class TestCli(unittest.TestCase):
                 return RunResult(out_path=str(out), return_code=0)
 
             with patch("core.commands.run_inp.OrcaRunner.run", new=_fake_run):
-                rc = main(
-                    [
-                        "--config",
-                        str(config),
-                        "run-inp",
-                        "--reaction-dir",
-                        str(reaction),
-                    ]
-                )
+                rc = self._run_internal_execute(config, reaction)
 
             state = json.loads((reaction / "run_state.json").read_text(encoding="utf-8"))
             retry_exists = (reaction / "rxn.retry01.inp").exists()
@@ -406,7 +419,7 @@ class TestCli(unittest.TestCase):
                 return RunResult(out_path=str(out), return_code=0)
 
             with patch("core.commands.run_inp.OrcaRunner.run", new=_fake_run):
-                rc = main(["--config", str(config), "run-inp", "--reaction-dir", str(reaction)])
+                rc = self._run_internal_execute(config, reaction)
 
         self.assertEqual(rc, 0)
         self.assertEqual(calls["n"], 2)
@@ -436,15 +449,7 @@ class TestCli(unittest.TestCase):
                 return RunResult(out_path=str(out), return_code=99)
 
             with patch("core.commands.run_inp.OrcaRunner.run", new=_fake_run):
-                rc = main(
-                    [
-                        "--config",
-                        str(config),
-                        "run-inp",
-                        "--reaction-dir",
-                        str(reaction),
-                    ]
-                )
+                rc = self._run_internal_execute(config, reaction)
             state = json.loads((reaction / "run_state.json").read_text(encoding="utf-8"))
             retry01_exists = (reaction / "rxn.retry01.inp").exists()
             retry02_exists = (reaction / "rxn.retry02.inp").exists()
@@ -490,15 +495,7 @@ class TestCli(unittest.TestCase):
                 return RunResult(out_path=str(out), return_code=99)
 
             with patch("core.commands.run_inp.OrcaRunner.run", new=_fake_run):
-                rc = main(
-                    [
-                        "--config",
-                        str(config),
-                        "run-inp",
-                        "--reaction-dir",
-                        str(reaction),
-                    ]
-                )
+                rc = self._run_internal_execute(config, reaction)
             state = json.loads((reaction / "run_state.json").read_text(encoding="utf-8"))
 
         self.assertEqual(rc, 1)
@@ -567,15 +564,7 @@ class TestCli(unittest.TestCase):
             (reaction / "run_state.json").write_text(json.dumps(state), encoding="utf-8")
 
             with patch("core.commands.run_inp.OrcaRunner.run") as run_mock:
-                rc = main(
-                    [
-                        "--config",
-                        str(config),
-                        "run-inp",
-                        "--reaction-dir",
-                        str(reaction),
-                    ]
-                )
+                rc = self._run_internal_execute(config, reaction)
             self.assertFalse(run_mock.called)
             saved = json.loads((reaction / "run_state.json").read_text(encoding="utf-8"))
 
@@ -626,15 +615,7 @@ class TestCli(unittest.TestCase):
                 return RunResult(out_path=str(out), return_code=0)
 
             with patch("core.commands.run_inp.OrcaRunner.run", new=_fake_run):
-                rc = main(
-                    [
-                        "--config",
-                        str(config),
-                        "run-inp",
-                        "--reaction-dir",
-                        str(reaction),
-                    ]
-                )
+                rc = self._run_internal_execute(config, reaction)
             saved = json.loads((reaction / "run_state.json").read_text(encoding="utf-8"))
             retry_exists = (reaction / "rxn.retry01.inp").exists()
 
@@ -694,15 +675,7 @@ class TestCli(unittest.TestCase):
                 return RunResult(out_path=str(out), return_code=0)
 
             with patch("core.commands.run_inp.OrcaRunner.run", new=_fake_run):
-                rc = main(
-                    [
-                        "--config",
-                        str(config),
-                        "run-inp",
-                        "--reaction-dir",
-                        str(reaction),
-                    ]
-                )
+                rc = self._run_internal_execute(config, reaction)
             saved = json.loads((reaction / "run_state.json").read_text(encoding="utf-8"))
             retry_exists = (reaction / "rxn.retry01.inp").exists()
 
@@ -751,15 +724,7 @@ class TestCli(unittest.TestCase):
             (reaction / "run_state.json").write_text(json.dumps(state), encoding="utf-8")
 
             with patch("core.commands.run_inp.OrcaRunner.run") as run_mock:
-                rc = main(
-                    [
-                        "--config",
-                        str(config),
-                        "run-inp",
-                        "--reaction-dir",
-                        str(reaction),
-                    ]
-                )
+                rc = self._run_internal_execute(config, reaction)
             self.assertFalse(run_mock.called)
             saved = json.loads((reaction / "run_state.json").read_text(encoding="utf-8"))
 
@@ -782,15 +747,7 @@ class TestCli(unittest.TestCase):
                 raise KeyboardInterrupt
 
             with patch("core.commands.run_inp.OrcaRunner.run", new=_fake_run):
-                rc = main(
-                    [
-                        "--config",
-                        str(config),
-                        "run-inp",
-                        "--reaction-dir",
-                        str(reaction),
-                    ]
-                )
+                rc = self._run_internal_execute(config, reaction)
             saved = json.loads((reaction / "run_state.json").read_text(encoding="utf-8"))
 
         self.assertEqual(rc, 130)
@@ -812,15 +769,7 @@ class TestCli(unittest.TestCase):
                 raise RuntimeError("runner exploded")
 
             with patch("core.commands.run_inp.OrcaRunner.run", new=_fake_run):
-                rc = main(
-                    [
-                        "--config",
-                        str(config),
-                        "run-inp",
-                        "--reaction-dir",
-                        str(reaction),
-                    ]
-                )
+                rc = self._run_internal_execute(config, reaction)
             saved = json.loads((reaction / "run_state.json").read_text(encoding="utf-8"))
 
         self.assertEqual(rc, 1)

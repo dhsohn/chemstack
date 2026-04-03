@@ -1,4 +1,4 @@
-"""Tests for core.commands.queue — CLI subcommands for queue management."""
+"""Tests for core.commands.queue foreground worker and cancel behavior."""
 
 from __future__ import annotations
 
@@ -11,14 +11,9 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-from core.commands.queue import (
-    cmd_queue_cancel,
-    cmd_queue_stop,
-    cmd_queue_worker,
-)
 from core.cancellation import CancelResult, CancelTargetError
+from core.commands.queue import cmd_queue_cancel, cmd_queue_worker
 from core.config import AppConfig, RuntimeConfig
-from core.queue_worker import WorkerLaunchResult, start_worker_daemon
 from core.state_store import STATE_FILE_NAME
 
 
@@ -47,6 +42,7 @@ def _write_running_state(reaction_dir: Path, *, run_id: str, pid: int) -> None:
     (reaction_dir / STATE_FILE_NAME).write_text(json.dumps(state), encoding="utf-8")
     (reaction_dir / "run.lock").write_text(json.dumps({"pid": pid}), encoding="utf-8")
 
+
 class TestCmdQueueCancel(unittest.TestCase):
     def setUp(self) -> None:
         self._tmpdir = tempfile.TemporaryDirectory()
@@ -60,14 +56,17 @@ class TestCmdQueueCancel(unittest.TestCase):
     def test_cancel_all_pending(self, mock_load: MagicMock) -> None:
         mock_load.return_value = self.cfg
         from core.queue_store import enqueue
+
         for name in ("a", "b", "c"):
-            d = self.root / name
-            d.mkdir()
-            enqueue(self.root, str(d))
+            reaction_dir = self.root / name
+            reaction_dir.mkdir()
+            enqueue(self.root, str(reaction_dir))
+
         args = _make_args(self._tmpdir.name, target="all-pending")
         buf = io.StringIO()
         with redirect_stdout(buf):
             rc = cmd_queue_cancel(args)
+
         self.assertEqual(rc, 0)
         self.assertIn("Cancelled 3 pending", buf.getvalue())
 
@@ -75,13 +74,15 @@ class TestCmdQueueCancel(unittest.TestCase):
     def test_cancel_specific_pending(self, mock_load: MagicMock) -> None:
         mock_load.return_value = self.cfg
         from core.queue_store import enqueue
-        d = self.root / "mol_A"
-        d.mkdir()
-        entry = enqueue(self.root, str(d))
+
+        reaction_dir = self.root / "mol_A"
+        reaction_dir.mkdir()
+        entry = enqueue(self.root, str(reaction_dir))
         args = _make_args(self._tmpdir.name, target=entry["queue_id"])
         buf = io.StringIO()
         with redirect_stdout(buf):
             rc = cmd_queue_cancel(args)
+
         self.assertEqual(rc, 0)
         self.assertIn("Cancelled:", buf.getvalue())
 
@@ -89,14 +90,16 @@ class TestCmdQueueCancel(unittest.TestCase):
     def test_cancel_running_entry(self, mock_load: MagicMock) -> None:
         mock_load.return_value = self.cfg
         from core.queue_store import dequeue_next, enqueue
-        d = self.root / "mol_A"
-        d.mkdir()
-        entry = enqueue(self.root, str(d))
+
+        reaction_dir = self.root / "mol_A"
+        reaction_dir.mkdir()
+        entry = enqueue(self.root, str(reaction_dir))
         dequeue_next(self.root)
         args = _make_args(self._tmpdir.name, target=entry["queue_id"])
         buf = io.StringIO()
         with redirect_stdout(buf):
             rc = cmd_queue_cancel(args)
+
         self.assertEqual(rc, 0)
         self.assertIn("Cancel requested", buf.getvalue())
 
@@ -104,7 +107,9 @@ class TestCmdQueueCancel(unittest.TestCase):
     def test_cancel_nonexistent_returns_1(self, mock_load: MagicMock) -> None:
         mock_load.return_value = self.cfg
         args = _make_args(self._tmpdir.name, target="q_nonexistent")
+
         rc = cmd_queue_cancel(args)
+
         self.assertEqual(rc, 1)
 
     @patch("core.commands.queue.logger.error")
@@ -135,13 +140,14 @@ class TestCmdQueueCancel(unittest.TestCase):
         mock_kill: MagicMock,
     ) -> None:
         mock_load.return_value = self.cfg
-        d = self.root / "mol_direct"
-        d.mkdir()
-        _write_running_state(d, run_id="run_direct_1", pid=4321)
+        reaction_dir = self.root / "mol_direct"
+        reaction_dir.mkdir()
+        _write_running_state(reaction_dir, run_id="run_direct_1", pid=4321)
         args = _make_args(self._tmpdir.name, target="mol_direct")
         buf = io.StringIO()
         with redirect_stdout(buf):
             rc = cmd_queue_cancel(args)
+
         self.assertEqual(rc, 0)
         self.assertIn("Cancel requested for running simulation", buf.getvalue())
         self.assertIn("pid: 4321", buf.getvalue())
@@ -156,12 +162,12 @@ class TestCmdQueueCancel(unittest.TestCase):
         mock_cancel: MagicMock,
     ) -> None:
         mock_load.return_value = self.cfg
-        d = self.root / "mol_direct_no_pid"
-        d.mkdir()
+        reaction_dir = self.root / "mol_direct_no_pid"
+        reaction_dir.mkdir()
         mock_cancel.return_value = CancelResult(
             source="direct",
             action="requested",
-            reaction_dir=str(d),
+            reaction_dir=str(reaction_dir),
             run_id="run_direct_no_pid",
             pid=None,
         )
@@ -183,65 +189,34 @@ class TestCmdQueueWorker(unittest.TestCase):
     def test_worker_already_running(self, mock_pid: MagicMock, mock_load: MagicMock) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             mock_load.return_value = _make_cfg(tmp)
-            args = _make_args(tmp, daemon=False)
+            args = _make_args(tmp)
+
             rc = cmd_queue_worker(args)
-            self.assertEqual(rc, 1)
+
+        self.assertEqual(rc, 1)
 
     @patch("core.commands.queue.load_config")
     @patch("core.commands.queue.read_worker_pid", return_value=None)
-    @patch("core.commands.queue.start_worker_daemon")
-    def test_worker_daemon_mode(self, mock_daemon: MagicMock, mock_pid: MagicMock, mock_load: MagicMock) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            mock_load.return_value = _make_cfg(tmp)
-            mock_daemon.return_value = WorkerLaunchResult(
-                status="started",
-                pid=7777,
-                log_file=Path(tmp) / "logs" / "queue_worker.log",
-            )
-            args = _make_args(tmp, daemon=True)
-            rc = cmd_queue_worker(args)
-            self.assertEqual(rc, 0)
-            mock_daemon.assert_called_once_with(args.config)
-
-    @patch("core.commands.queue.load_config")
-    @patch("core.commands.queue.read_worker_pid", return_value=None)
-    @patch("core.commands.queue.start_worker_daemon")
-    def test_worker_daemon_mode_returns_1_when_start_fails(
+    @patch("core.commands.queue.QueueWorker")
+    def test_worker_runs_in_foreground_only(
         self,
-        mock_daemon: MagicMock,
+        mock_worker_cls: MagicMock,
         mock_pid: MagicMock,
         mock_load: MagicMock,
     ) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             mock_load.return_value = _make_cfg(tmp)
-            mock_daemon.return_value = WorkerLaunchResult(
-                status="failed",
-                pid=None,
-                log_file=Path(tmp) / "logs" / "queue_worker.log",
-            )
-            args = _make_args(tmp, daemon=True)
-            buf = io.StringIO()
-            with redirect_stdout(buf):
-                rc = cmd_queue_worker(args)
-            self.assertEqual(rc, 1)
-            self.assertIn("Worker failed to start", buf.getvalue())
-            self.assertIn("queue_worker.log", buf.getvalue())
-
-    @patch("core.commands.queue.load_config")
-    @patch("core.commands.queue.read_worker_pid", return_value=None)
-    @patch("core.commands.queue.QueueWorker")
-    def test_worker_foreground_mode(self, mock_worker_cls: MagicMock, mock_pid: MagicMock, mock_load: MagicMock) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            mock_load.return_value = _make_cfg(tmp)
             mock_worker_cls.return_value.run.return_value = 0
-            args = _make_args(tmp, daemon=False)
+            args = _make_args(tmp)
+
             rc = cmd_queue_worker(args)
-            self.assertEqual(rc, 0)
-            mock_worker_cls.assert_called_once_with(
-                mock_load.return_value,
-                args.config,
-                max_concurrent=4,
-            )
+
+        self.assertEqual(rc, 0)
+        mock_worker_cls.assert_called_once_with(
+            mock_load.return_value,
+            args.config,
+            max_concurrent=4,
+        )
 
     @patch("core.commands.queue.load_config")
     @patch("core.commands.queue.read_worker_pid", return_value=None)
@@ -257,123 +232,16 @@ class TestCmdQueueWorker(unittest.TestCase):
             cfg.runtime.max_concurrent = 6
             mock_load.return_value = cfg
             mock_worker_cls.return_value.run.return_value = 0
-            args = _make_args(tmp, daemon=False)
+            args = _make_args(tmp)
+
             rc = cmd_queue_worker(args)
-            self.assertEqual(rc, 0)
-            mock_worker_cls.assert_called_once_with(
-                cfg,
-                args.config,
-                max_concurrent=6,
-            )
 
-
-class TestCmdQueueStop(unittest.TestCase):
-    @patch("core.commands.queue.load_config")
-    @patch("core.commands.queue.read_worker_pid", return_value=None)
-    def test_stop_no_worker(self, mock_pid: MagicMock, mock_load: MagicMock) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            mock_load.return_value = _make_cfg(tmp)
-            args = _make_args(tmp)
-            buf = io.StringIO()
-            with redirect_stdout(buf):
-                rc = cmd_queue_stop(args)
-            self.assertEqual(rc, 0)
-            self.assertIn("No worker is running", buf.getvalue())
-
-    @patch("core.commands.queue.load_config")
-    @patch("core.commands.queue.read_worker_pid", return_value=99999)
-    @patch("os.kill", side_effect=ProcessLookupError)
-    def test_stop_stale_pid(self, mock_kill: MagicMock, mock_pid: MagicMock, mock_load: MagicMock) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            mock_load.return_value = _make_cfg(tmp)
-            # Create a fake PID file so the unlink branch is exercised
-            pid_file = Path(tmp) / "queue_worker.pid"
-            pid_file.write_text("99999")
-            args = _make_args(tmp)
-            buf = io.StringIO()
-            with redirect_stdout(buf):
-                rc = cmd_queue_stop(args)
-            self.assertEqual(rc, 0)
-            self.assertIn("not found", buf.getvalue())
-
-    @patch("core.commands.queue.load_config")
-    @patch("core.commands.queue.read_worker_pid", return_value=99999)
-    @patch("os.kill", side_effect=ProcessLookupError)
-    def test_stop_stale_pid_ignores_unlink_failure(
-        self,
-        mock_kill: MagicMock,
-        mock_pid: MagicMock,
-        mock_load: MagicMock,
-    ) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            mock_load.return_value = _make_cfg(tmp)
-            pid_file = Path(tmp) / "queue_worker.pid"
-            pid_file.write_text("99999")
-            args = _make_args(tmp)
-            buf = io.StringIO()
-            with patch("pathlib.Path.unlink", side_effect=OSError("cannot unlink")):
-                with redirect_stdout(buf):
-                    rc = cmd_queue_stop(args)
-            self.assertEqual(rc, 0)
-            self.assertIn("stale PID", buf.getvalue())
-
-    @patch("core.commands.queue.load_config")
-    @patch("core.commands.queue.read_worker_pid", return_value=99999)
-    @patch("os.kill")
-    def test_stop_sends_sigterm(self, mock_kill: MagicMock, mock_pid: MagicMock, mock_load: MagicMock) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            mock_load.return_value = _make_cfg(tmp)
-            args = _make_args(tmp)
-            buf = io.StringIO()
-            with redirect_stdout(buf):
-                rc = cmd_queue_stop(args)
-            self.assertEqual(rc, 0)
-            self.assertIn("SIGTERM", buf.getvalue())
-
-    @patch("core.commands.queue.load_config")
-    @patch("core.commands.queue.read_worker_pid", return_value=99999)
-    @patch("os.kill", side_effect=PermissionError)
-    def test_stop_permission_error(self, mock_kill: MagicMock, mock_pid: MagicMock, mock_load: MagicMock) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            mock_load.return_value = _make_cfg(tmp)
-            args = _make_args(tmp)
-            rc = cmd_queue_stop(args)
-            self.assertEqual(rc, 1)
-
-class TestStartWorkerDaemonHelper(unittest.TestCase):
-    @patch("core.queue_worker.subprocess.Popen")
-    @patch("core.queue_worker.time.sleep", return_value=None)
-    def test_start_worker_daemon_success(self, mock_sleep: MagicMock, mock_popen: MagicMock) -> None:
-        mock_proc = MagicMock()
-        mock_proc.poll.return_value = None
-        mock_proc.pid = 7777
-        mock_popen.return_value = mock_proc
-
-        with tempfile.TemporaryDirectory() as tmp:
-            config_path = Path(tmp) / "config" / "settings.yaml"
-            config_path.parent.mkdir()
-            config_path.touch()
-            result = start_worker_daemon(str(config_path))
-            self.assertEqual(result.status, "started")
-            self.assertEqual(result.pid, 7777)
-            self.assertIsNotNone(result.log_file)
-
-    @patch("core.queue_worker.subprocess.Popen")
-    @patch("core.queue_worker.time.sleep", return_value=None)
-    def test_start_worker_daemon_failure(self, mock_sleep: MagicMock, mock_popen: MagicMock) -> None:
-        mock_proc = MagicMock()
-        mock_proc.poll.return_value = 1
-        mock_proc.pid = 6666
-        mock_popen.return_value = mock_proc
-
-        with tempfile.TemporaryDirectory() as tmp:
-            config_path = Path(tmp) / "config" / "settings.yaml"
-            config_path.parent.mkdir()
-            config_path.touch()
-            result = start_worker_daemon(str(config_path))
-            self.assertEqual(result.status, "failed")
-            self.assertEqual(result.pid, 6666)
-            self.assertEqual(result.detail, "worker_exited_early")
+        self.assertEqual(rc, 0)
+        mock_worker_cls.assert_called_once_with(
+            cfg,
+            args.config,
+            max_concurrent=6,
+        )
 
 
 if __name__ == "__main__":

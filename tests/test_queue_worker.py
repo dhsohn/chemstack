@@ -1,4 +1,4 @@
-"""Tests for core.queue_worker — worker daemon managing concurrent job execution."""
+"""Tests for core.queue_worker foreground worker job execution helpers."""
 
 from __future__ import annotations
 
@@ -31,9 +31,7 @@ from core.queue_worker import (
     _build_run_command,
     _get_run_id_from_state,
     _terminate_process,
-    ensure_worker_running,
     read_worker_pid,
-    start_worker_daemon,
 )
 from core.types import QueueEntry
 
@@ -53,10 +51,10 @@ class TestBuildRunCommand(unittest.TestCase):
         self.assertEqual(cmd[:3], [sys.executable, "-m", "core.cli"])
         self.assertIn("--config", cmd)
         self.assertIn("/tmp/config.yaml", cmd)
-        self.assertIn("run-inp", cmd)
+        self.assertIn("run-job", cmd)
         self.assertIn("--reaction-dir", cmd)
-        self.assertIn("--foreground", cmd)
-        self.assertIn("--execute-now", cmd)
+        self.assertNotIn("--foreground", cmd)
+        self.assertNotIn("--execute-now", cmd)
 
     def test_with_force(self) -> None:
         cmd = _build_run_command("/tmp/rxn", "/tmp/config.yaml", force=True)
@@ -138,66 +136,6 @@ class TestReadWorkerPid(unittest.TestCase):
             pid_path = root / "queue_worker.pid"
             pid_path.write_text("not_a_number")
             self.assertIsNone(read_worker_pid(root))
-
-
-class TestWorkerLaunchHelpers(unittest.TestCase):
-    @patch("core.queue_worker.subprocess.Popen")
-    @patch("core.queue_worker.time.sleep", return_value=None)
-    def test_start_worker_daemon_success(self, mock_sleep: MagicMock, mock_popen: MagicMock) -> None:
-        mock_proc = MagicMock()
-        mock_proc.poll.return_value = None
-        mock_proc.pid = 7777
-        mock_popen.return_value = mock_proc
-
-        with tempfile.TemporaryDirectory() as tmp:
-            config_path = Path(tmp) / "config" / "settings.yaml"
-            config_path.parent.mkdir()
-            config_path.touch()
-            result = start_worker_daemon(str(config_path))
-
-        self.assertEqual(result.status, "started")
-        self.assertEqual(result.pid, 7777)
-        self.assertIsNotNone(result.log_file)
-        cmd = mock_popen.call_args.args[0]
-        self.assertNotIn("--max-concurrent", cmd)
-
-    @patch("core.queue_worker.subprocess.Popen")
-    @patch("core.queue_worker.time.sleep", return_value=None)
-    def test_start_worker_daemon_failure(self, mock_sleep: MagicMock, mock_popen: MagicMock) -> None:
-        mock_proc = MagicMock()
-        mock_proc.poll.return_value = 1
-        mock_proc.pid = 8888
-        mock_popen.return_value = mock_proc
-
-        with tempfile.TemporaryDirectory() as tmp:
-            config_path = Path(tmp) / "config" / "settings.yaml"
-            config_path.parent.mkdir()
-            config_path.touch()
-            result = start_worker_daemon(str(config_path))
-
-        self.assertEqual(result.status, "failed")
-        self.assertEqual(result.pid, 8888)
-        self.assertEqual(result.detail, "worker_exited_early")
-
-    @patch("core.queue_worker.read_worker_pid", return_value=4321)
-    def test_ensure_worker_running_returns_existing_pid(self, mock_read_pid: MagicMock) -> None:
-        result = ensure_worker_running("/tmp/config.yaml", Path("/tmp/allowed"))
-        self.assertEqual(result.status, "already_running")
-        self.assertEqual(result.pid, 4321)
-
-    @patch("core.queue_worker.read_worker_pid", return_value=None)
-    @patch("core.queue_worker.start_worker_daemon")
-    def test_ensure_worker_running_starts_daemon_when_missing(
-        self,
-        mock_start_worker: MagicMock,
-        mock_read_pid: MagicMock,
-    ) -> None:
-        mock_start_worker.return_value.status = "started"
-        mock_start_worker.return_value.pid = 5678
-        result = ensure_worker_running("/tmp/config.yaml", Path("/tmp/allowed"))
-        self.assertEqual(result.status, "started")
-        self.assertEqual(result.pid, 5678)
-        mock_start_worker.assert_called_once_with("/tmp/config.yaml")
 
 
 class TestQueueWorkerInit(unittest.TestCase):

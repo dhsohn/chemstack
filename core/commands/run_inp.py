@@ -54,7 +54,7 @@ class RunExecutionContext:
 
 
 @dataclass(frozen=True)
-class WorkerAutostartInfo:
+class WorkerStatusInfo:
     status: str | None = None
     pid: int | None = None
     log_file: str | Path | None = None
@@ -206,16 +206,6 @@ def _active_direct_run_error(reaction_dir: Path) -> str | None:
     )
 
 
-def _has_pending_entries(allowed_root: Path) -> bool:
-    helper = getattr(_queue_store, "has_pending_entries", None)
-    if callable(helper):
-        return bool(helper(allowed_root))
-    return any(
-        entry.get("status") == QueueStatus.PENDING.value
-        for entry in _queue_store.list_queue(allowed_root)
-    )
-
-
 def _active_queue_entry(allowed_root: Path, reaction_dir: Path) -> QueueEntry | None:
     helper = getattr(_queue_store, "get_active_entry_for_reaction_dir", None)
     if callable(helper):
@@ -265,18 +255,13 @@ def _emit_queued_submission(
         print(f"worker_detail: {worker_detail}")
 
 
-def _ensure_worker_for_submission(config_path: str, allowed_root: Path) -> Any:
-    from ..queue_worker import ensure_worker_running
+def _worker_status_for_submission(allowed_root: Path) -> WorkerStatusInfo:
+    from ..queue_worker import read_worker_pid
 
-    return ensure_worker_running(config_path, allowed_root)
-
-
-def _worker_result_field(result: Any, field: str) -> Any:
-    if result is None:
-        return None
-    if isinstance(result, dict):
-        return result.get(field)
-    return getattr(result, field, None)
+    pid = read_worker_pid(allowed_root)
+    if pid is None:
+        return WorkerStatusInfo(status="inactive")
+    return WorkerStatusInfo(status="running", pid=pid)
 
 
 def _existing_completed_exit(
@@ -315,8 +300,8 @@ def _existing_completed_exit(
 
 
 def _submission_flag_error(args: Any) -> str | None:
-    if getattr(args, "queue_only", False) and getattr(args, "require_slot", False):
-        return "--queue-only and --require-slot cannot be used together."
+    if getattr(args, "require_slot", False):
+        return "Immediate execution has been removed; run-inp now always submits to the queue."
     return None
 
 
@@ -451,42 +436,6 @@ def _build_queue_enqueued_notification(entry: QueueEntry) -> QueueEnqueuedNotifi
     }
 
 
-def _autostart_worker_for_queue_submission(
-    args: Any,
-    *,
-    allowed_root: Path,
-    reaction_dir: Path,
-) -> WorkerAutostartInfo:
-    try:
-        worker_result = _ensure_worker_for_submission(args.config, allowed_root)
-        info = WorkerAutostartInfo(
-            status=_worker_result_field(worker_result, "status"),
-            pid=_worker_result_field(worker_result, "pid"),
-            log_file=_worker_result_field(worker_result, "log_file"),
-            detail=_worker_result_field(worker_result, "detail"),
-        )
-        if info.status == "failed":
-            if info.detail:
-                logger.warning(
-                    "Queue worker autostart failed for queued submission %s: %s",
-                    reaction_dir,
-                    info.detail,
-                )
-            else:
-                logger.warning(
-                    "Queue worker autostart failed for queued submission: %s",
-                    reaction_dir,
-                )
-        return info
-    except Exception as exc:
-        logger.warning(
-            "Queue worker autostart failed for queued submission %s: %s",
-            reaction_dir,
-            exc,
-        )
-        return WorkerAutostartInfo(status="failed", detail=str(exc))
-
-
 def _submit_as_queued(cfg: Any, args: Any, reaction_dir: Path) -> int:
     from ..queue_store import DuplicateEntryError, enqueue
 
@@ -505,11 +454,7 @@ def _submit_as_queued(cfg: Any, args: Any, reaction_dir: Path) -> int:
     notification = _build_queue_enqueued_notification(entry)
     notify_queue_enqueued_event(cfg.telegram, notification)
 
-    worker_info = _autostart_worker_for_queue_submission(
-        args,
-        allowed_root=allowed_root,
-        reaction_dir=reaction_dir,
-    )
+    worker_info = _worker_status_for_submission(allowed_root)
 
     _emit_queued_submission(
         reaction_dir,
@@ -537,38 +482,6 @@ def _existing_completed_submit_exit(
         reaction_dir=context.reaction_dir,
         selected_inp=context.selected_inp,
     )
-
-
-def _backlog_submit_exit(args: Any, context: RunSubmissionContext) -> int | None:
-    if not _has_pending_entries(context.allowed_root):
-        return None
-    if getattr(args, "require_slot", False):
-        logger.error("Immediate execution unavailable: pending queue backlog exists under %s", context.allowed_root)
-        return 1
-    return _submit_as_queued(context.cfg, args, context.reaction_dir)
-
-
-def _attempt_submit_execution(
-    args: Any,
-    context: RunSubmissionContext,
-    *,
-    runner_cls: Type[OrcaRunner],
-) -> int:
-    try:
-        return _cmd_run_inp_execute(
-            args,
-            runner_cls=runner_cls,
-            cfg=context.cfg,
-            reaction_dir=context.reaction_dir,
-            selected_inp=context.selected_inp,
-            raise_on_admission_limit=True,
-        )
-    except AdmissionLimitReachedError as exc:
-        if getattr(args, "require_slot", False):
-            logger.error("%s", exc)
-            return 1
-        logger.info("Immediate execution unavailable, enqueueing instead: %s", exc)
-        return _submit_as_queued(context.cfg, args, context.reaction_dir)
 
 
 def _execute_locked_run(
@@ -619,7 +532,6 @@ def _cmd_run_inp_execute(
     cfg: Any | None = None,
     reaction_dir: Path | None = None,
     selected_inp: Path | None = None,
-    raise_on_admission_limit: bool = False,
 ) -> int:
     context = _resolve_execution_context(
         args,
@@ -638,8 +550,6 @@ def _cmd_run_inp_execute(
         return _execute_locked_run(args, context, runner_cls=runner_cls)
     except AdmissionLimitReachedError as exc:
         _release_reservation_if_needed(context.allowed_root, context.reservation_token)
-        if raise_on_admission_limit:
-            raise
         logger.error("%s", exc)
         return 1
     except RuntimeError as exc:
@@ -671,17 +581,8 @@ def _cmd_run_inp_submit(args: Any, *, runner_cls: Type[OrcaRunner] = OrcaRunner)
     if existing_completed_exit is not None:
         return existing_completed_exit
 
-    if getattr(args, "queue_only", False):
-        return _submit_as_queued(context.cfg, args, context.reaction_dir)
-
-    backlog_exit = _backlog_submit_exit(args, context)
-    if backlog_exit is not None:
-        return backlog_exit
-
-    return _attempt_submit_execution(args, context, runner_cls=runner_cls)
+    return _submit_as_queued(context.cfg, args, context.reaction_dir)
 
 
 def cmd_run_inp(args: Any, *, runner_cls: Type[OrcaRunner] = OrcaRunner) -> int:
-    if getattr(args, "execute_now", False):
-        return _cmd_run_inp_execute(args, runner_cls=runner_cls)
     return _cmd_run_inp_submit(args, runner_cls=runner_cls)

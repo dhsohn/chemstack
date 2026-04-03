@@ -8,8 +8,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from core.cli import main
 from core.completion_rules import CompletionMode
+from core.commands.run_inp import _cmd_run_inp_execute
 from core.inp_rewriter import rewrite_for_retry
 from core.orca_runner import RunResult
 from core.out_analyzer import analyze_output
@@ -221,8 +221,16 @@ class TestCrashRecovery(unittest.TestCase):
                 return RunResult(out_path=str(out), return_code=0)
 
             with patch("core.commands.run_inp.OrcaRunner.run", new=_fake_run):
-                rc = main(
-                    ["--config", str(config), "run-inp", "--reaction-dir", str(reaction)]
+                rc = _cmd_run_inp_execute(
+                    type(
+                        "Args",
+                        (),
+                        {
+                            "config": str(config),
+                            "reaction_dir": str(reaction),
+                            "force": False,
+                        },
+                    )()
                 )
             saved = json.loads((reaction / "run_state.json").read_text(encoding="utf-8"))
 

@@ -127,29 +127,22 @@ Config file search order:
 # Default submission
 ./bin/orca_auto run-inp --reaction-dir '/home/user/orca_runs/sample_rxn'
 
-# Foreground execution when a slot is immediately available
-./bin/orca_auto run-inp --reaction-dir '/home/user/orca_runs/sample_rxn' --foreground
-
 # Force re-run of a completed calculation
 ./bin/orca_auto run-inp --reaction-dir '/home/user/orca_runs/sample_rxn' --force
 
-# Always enqueue instead of trying immediate execution
-./bin/orca_auto run-inp --reaction-dir '/home/user/orca_runs/sample_rxn' --queue-only
-
-# Set queue priority for queued submissions
+# Set queue priority
 ./bin/orca_auto run-inp --reaction-dir '/home/user/orca_runs/sample_rxn' --priority 1
 ```
 
 `run-inp` automatically selects the **most recently modified `.inp` file** in the directory.
 
 Submission behavior:
-- If there is no pending queue backlog and a slot is available, `run-inp` starts immediately.
-- If a pending backlog already exists, or no slot is available, `run-inp` enqueues the job as `pending`.
-- When a job is enqueued, `orca_auto` tries to ensure a queue worker is running automatically.
-- Queued jobs select the latest `.inp` at the moment execution actually begins.
-
-By default it runs in the background, printing `status`, `pid`, and `log` path before returning immediately.
-Set `ORCA_AUTO_RUN_INP_BACKGROUND=0` to change the default to foreground.
+- Public `run-inp` durably enqueues new work.
+- If an already-completed output is detected, `run-inp` returns that completion state without launching ORCA again.
+- When a submission is enqueued, the command returns only after the queue entry has been written safely.
+- `run-inp` does not launch ORCA directly for new work, does not daemonize itself, and does not auto-start a worker.
+- The worker selects the latest `.inp` when execution actually begins.
+- If no worker is currently running, the job remains queued until a foreground worker or systemd-managed worker is available.
 
 ### Generated Files
 
@@ -166,46 +159,46 @@ The following files are created in each calculation directory:
 ### Example Output
 
 ```text
-$ ./bin/orca_auto run-inp --reaction-dir '/home/user/orca_runs/sample_rxn' --foreground
-status: completed
+$ ./bin/orca_auto run-inp --reaction-dir '/home/user/orca_runs/sample_rxn'
+status: queued
 reaction_dir: /home/user/orca_runs/sample_rxn
-selected_inp: /home/user/orca_runs/sample_rxn/rxn.inp
-attempt_count: 2
-reason: normal_termination
-run_state: /home/user/orca_runs/sample_rxn/run_state.json
-report_json: /home/user/orca_runs/sample_rxn/run_report.json
-report_md: /home/user/orca_runs/sample_rxn/run_report.md
+queue_id: q_20260403_151220_ab12cd
+priority: 10
+worker: active
+worker_pid: 12345
 ```
 
 ---
 
 ## Task Queue
 
-The queue system provides **batch processing** for running multiple calculations sequentially or concurrently. It supports priority-based ordering, concurrency limits, cancellation, and background worker mode.
+The queue system is now the **only public execution path** for ORCA runs. It supports priority-based ordering, concurrency limits, cancellation, and foreground worker supervision.
 
 ### Queue Submission
 
 ```bash
-# Default queued submission behavior when immediate execution is unavailable
+# Default submission
 ./bin/orca_auto run-inp --reaction-dir '/home/user/orca_runs/rxn_001'
 
-# Explicit queue-only submission with higher priority
-./bin/orca_auto run-inp --reaction-dir '/home/user/orca_runs/rxn_002' --queue-only --priority 1
+# Higher priority
+./bin/orca_auto run-inp --reaction-dir '/home/user/orca_runs/rxn_002' --priority 1
 
 # Intentional re-run of a completed/failed job
-./bin/orca_auto run-inp --reaction-dir '/home/user/orca_runs/rxn_001' --queue-only --force
+./bin/orca_auto run-inp --reaction-dir '/home/user/orca_runs/rxn_001' --force
 ```
 
 - Priority: **lower number** = runs first (default: 10)
 - Duplicate entries for the same directory are rejected
 - Use `--force` to re-enqueue completed/failed jobs
+- Successful queue submission returns `status: queued`
+- The queue is persisted in `{allowed_root}/queue.json` and protected by `queue.lock`
 
 ### Viewing Simulation Status
 
-The `list` command shows a unified view of all simulations — both queue-managed and standalone runs.
+The `list` command shows a unified view of queue state and run state.
 
 ```bash
-# Full listing (queue + standalone)
+# Full listing
 ./bin/orca_auto list
 
 # Filter by status
@@ -226,38 +219,80 @@ Simulations: 3 total (1 running, 1 pending, 1 completed)
   ✅ run_rxn_003               completed  -   rxn_003  2h 10m  rxn.inp  1
 ```
 
-### Starting the Queue Worker
+### Running the Worker
 
 The worker is a process that picks up pending jobs from the queue and executes them.
 
 ```bash
-# Start worker in background (default: runtime.max_concurrent from config, 4 if omitted)
+# Start a foreground worker
 ./bin/orca_auto queue worker
-
-# Run in foreground explicitly
-./bin/orca_auto queue worker --foreground
-
-# Explicit background mode
-./bin/orca_auto queue worker --daemon
 ```
 
-By default, `queue worker` runs in the background and prints `status`, `pid`, and `log` before returning.
-Set `ORCA_AUTO_QUEUE_WORKER_BACKGROUND=0` to make foreground execution the default.
+`queue worker` is a foreground process intended to run under an external supervisor such as `systemd`.
+App-managed background worker startup has been removed, and public direct-background execution paths are no longer part of the supported workflow.
 
 Worker behavior:
 - Periodically polls the queue for `pending` jobs
-- Enforces a global active-run cap under `allowed_root` via admission slots
-- Uses `runtime.max_concurrent` as the shared hard cap for both queued and direct runs
-- Counts already running direct `run-inp` processes under `allowed_root` before starting more queued jobs
-- Each job runs as an internal `orca_auto run-inp --foreground --execute-now` subprocess
-- Checks exit codes upon completion and updates job status
+- Enforces the global active-run cap under `allowed_root` via admission slots
+- Uses `runtime.max_concurrent` as the hard cap for queued execution
+- Starts jobs through an internal worker-owned execution path
+- Checks exit codes upon completion and updates queue status
 - Supports graceful shutdown via `SIGTERM` / `SIGINT`
+- Requeues in-flight jobs during controlled worker shutdown
 
-### Stopping the Worker
+If you launch `queue worker` manually in a terminal, keep that terminal open. For unattended use on WSL, prefer `systemd`.
+
+### WSL systemd Setup
+
+`/etc/wsl.conf` should include:
+
+```ini
+[boot]
+systemd=true
+```
+
+If you had to enable `systemd` yourself, restart WSL from Windows before continuing:
+
+```powershell
+wsl --shutdown
+```
+
+This repository includes a template unit at [`systemd/orca-auto-queue-worker@.service`](/home/daehyupsohn/orca_auto/systemd/orca-auto-queue-worker@.service).
 
 ```bash
-./bin/orca_auto queue stop
+cd ~/orca_auto
+sudo cp systemd/orca-auto-queue-worker@.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now "orca-auto-queue-worker@$(whoami)"
+systemctl status "orca-auto-queue-worker@$(whoami)"
+journalctl -u "orca-auto-queue-worker@$(whoami)" -f
 ```
+
+Notes:
+- The template assumes the repository lives at `/home/<user>/orca_auto`
+- If your checkout or config path differs, edit the copied unit before enabling it
+- Use `sudo systemctl restart "orca-auto-queue-worker@$(whoami)"` after config changes
+- Use `sudo systemctl stop "orca-auto-queue-worker@$(whoami)"` for maintenance
+
+### Safe Workflow
+
+```bash
+# 1. Ensure the worker is active
+systemctl status "orca-auto-queue-worker@$(whoami)"
+
+# 2. Submit work
+./bin/orca_auto run-inp --reaction-dir '/home/user/orca_runs/rxn_A'
+
+# 3. Check progress
+./bin/orca_auto list
+journalctl -u "orca-auto-queue-worker@$(whoami)" -f
+```
+
+Operational guidance:
+- Wait for `status: queued` before closing the submission terminal
+- After `status: queued` is printed, the terminal may be closed safely
+- If submission reports `worker: inactive`, the queue entry is still durable and will start when the worker comes back
+- Use `queue cancel` to cancel pending or running work
 
 ### Cancelling Jobs
 
@@ -284,30 +319,26 @@ This removes terminal queue entries and run state files for completed/failed sim
 ### Queue Workflow Example
 
 ```bash
-# 1. Submit multiple calculations
-./bin/orca_auto run-inp --reaction-dir '/home/user/orca_runs/rxn_A' --queue-only --priority 1
-./bin/orca_auto run-inp --reaction-dir '/home/user/orca_runs/rxn_B' --queue-only --priority 5
-./bin/orca_auto run-inp --reaction-dir '/home/user/orca_runs/rxn_C' --queue-only
+# 1. Ensure the worker service is running
+sudo systemctl enable --now "orca-auto-queue-worker@$(whoami)"
 
-# 2. Set runtime.max_concurrent: 2 in config/orca_auto.yaml
+# 2. Submit multiple calculations
+./bin/orca_auto run-inp --reaction-dir '/home/user/orca_runs/rxn_A' --priority 1
+./bin/orca_auto run-inp --reaction-dir '/home/user/orca_runs/rxn_B' --priority 5
+./bin/orca_auto run-inp --reaction-dir '/home/user/orca_runs/rxn_C'
 
-# 3. Start the worker as a daemon
-./bin/orca_auto queue worker --daemon
+# 3. Set runtime.max_concurrent: 2 in config/orca_auto.yaml
 
 # 4. Check progress
 ./bin/orca_auto list
+journalctl -u "orca-auto-queue-worker@$(whoami)" -f
 
 # 5. Cancel a job if needed
 ./bin/orca_auto queue cancel rxn_C
 
 # 6. Clean up after all jobs complete
 ./bin/orca_auto list clear
-
-# 7. Stop the worker
-./bin/orca_auto queue stop
 ```
-
-Queue data is persisted in `{allowed_root}/queue.json` and protected by a `queue.lock` file for concurrent access safety.
 
 ---
 
@@ -495,7 +526,8 @@ Installed schedules:
 
 | Command | Role |
 |---------|------|
-| `run-inp` | Submit and execute calculations — immediate run when possible, queue fallback otherwise |
+| `run-inp` | Submit calculations durably to the queue |
+| `queue worker` | Execute queued calculations under foreground or `systemd` supervision |
 | `monitor` | Discovery alerts — newly found results from filesystem scans |
 | `summary` | State digest — active jobs and attention-needed items (completed history excluded) |
 
@@ -508,8 +540,8 @@ Installed schedules:
 | Command | Description |
 |---------|-------------|
 | `init` | Interactively create or update the config file |
-| `run-inp` | Submit a calculation; run immediately when possible, otherwise enqueue it |
-| `list` | Unified view of all simulations (queue + standalone) |
+| `run-inp` | Submit a calculation durably to the queue |
+| `list` | Unified view of queue state and run state |
 | `list clear` | Remove completed/failed/cancelled entries |
 | `organize` | Move completed results to `organized_root` and index them |
 | `monitor` | Send Telegram alerts for newly discovered DFT results |
@@ -523,7 +555,6 @@ Installed schedules:
 |------------|-------------|
 | `queue cancel` | Cancel a pending or running job |
 | `queue worker` | Start the queue worker |
-| `queue stop` | Stop the running worker |
 
 ### Common Options
 
@@ -533,18 +564,13 @@ Installed schedules:
 | `--verbose`, `-v` | Enable debug logging |
 | `--log-file <path>` | Write logs to file (10MB x 5 rotation) |
 | `--force` | Force re-run of completed calculations |
-| `--priority <n>` | Queue priority used when a `run-inp` submission is enqueued |
-| `--queue-only` | Always enqueue a `run-inp` submission instead of starting immediately |
-| `--require-slot` | Fail instead of queueing when `run-inp` cannot start immediately |
-| `--foreground` | Run `run-inp` or `queue worker` in the foreground |
+| `--priority <n>` | Queue priority for `run-inp` submissions (`lower = sooner`) |
 
 ### Environment Variables
 
 | Variable | Description |
 |----------|-------------|
 | `ORCA_AUTO_CONFIG` | Override config file path |
-| `ORCA_AUTO_RUN_INP_BACKGROUND` | Default run-inp execution mode (`1`=background, `0`=foreground) |
-| `ORCA_AUTO_QUEUE_WORKER_BACKGROUND` | Default queue worker execution mode (`1`=background, `0`=foreground) |
 | `ORCA_AUTO_LOG_DIR` | Override log directory |
 
 ---
@@ -576,6 +602,10 @@ The electron count and multiplicity combination is invalid. This tool uses a con
 
 The same `reaction_dir` already exists in the queue with an active status (pending/running). Use `--force` to re-enqueue after completion or failure.
 
+### Submission returns `worker: inactive`
+
+The queue submission succeeded, but no foreground worker or `systemd` service is currently running. Start or restore the worker and the queued job will be picked up automatically.
+
 ---
 
 ## Project Structure
@@ -584,11 +614,11 @@ The same `reaction_dir` already exists in the queue with an active status (pendi
 orca_auto/
 ├── bin/orca_auto              # Local .venv-first entry point shim
 ├── core/                      # Main application logic
-│   ├── launcher.py            # Background/foreground execution handler
 │   ├── cli.py                 # CLI argument parsing and command routing
 │   ├── config.py              # YAML configuration loading
 │   ├── commands/              # CLI command implementations
 │   │   ├── run_inp.py         # run-inp command
+│   │   ├── run_job.py         # Internal worker-owned run executor
 │   │   ├── list_runs.py       # list command
 │   │   ├── queue.py           # queue command
 │   │   ├── organize.py        # organize command
@@ -601,7 +631,7 @@ orca_auto/
 │   ├── inp_rewriter.py        # Retry input modification
 │   ├── state_store.py         # State persistence, atomic writes, locks
 │   ├── queue_store.py         # Persistent task queue
-│   ├── queue_worker.py        # Queue worker daemon
+│   ├── queue_worker.py        # Foreground queue worker loop
 │   ├── result_organizer.py    # Completed result relocation
 │   ├── dft_index.py           # SQLite DFT index
 │   ├── dft_discovery.py       # ORCA output file discovery
@@ -609,6 +639,7 @@ orca_auto/
 │   ├── telegram_bot.py        # Telegram long-polling bot
 │   └── telegram_notifier.py   # Telegram notification sender
 ├── config/                    # Configuration files
+├── systemd/                   # Example WSL systemd units
 ├── scripts/                   # Installation and automation scripts
 ├── tests/                     # Test code
 └── docs/REFERENCE.md          # Detailed behavioral reference

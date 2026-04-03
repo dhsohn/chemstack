@@ -8,4 +8,4 @@ if [[ ! -x "$PYTHON_BIN" ]]; then
   PYTHON_BIN="$(command -v python3)"
 fi
 
-PYTHONPATH="$ROOT:${PYTHONPATH:-}" exec "$PYTHON_BIN" -m core.launcher "$@"
+PYTHONPATH="$ROOT:${PYTHONPATH:-}" exec "$PYTHON_BIN" -m core.cli "$@"
