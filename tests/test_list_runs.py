@@ -236,6 +236,33 @@ class TestListQueueEntries(_ListTestBase):
         self.assertIn("mol_A", output)
         self.assertIn("opt.inp", output)
 
+    def test_active_queue_entry_with_null_run_id_is_not_duplicated(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            allowed = root / "orca_runs"
+            allowed.mkdir()
+
+            rxn_dir = allowed / "mol_A"
+            rxn_dir.mkdir()
+            entry = enqueue(allowed, str(rxn_dir))
+            self.assertIsNone(entry["run_id"])
+            dequeue_next(allowed)
+            self._make_run(
+                rxn_dir,
+                status="retrying",
+                started_at="2026-03-02T00:00:00+00:00",
+                updated_at="2026-03-02T01:00:00+00:00",
+                inp_name="opt.retry01.inp",
+                run_id="run_retry_1",
+            )
+
+            rows = _collect_unified(allowed)
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["id"], entry["queue_id"])
+        self.assertEqual(rows[0]["status"], "pending")
+        self.assertEqual(rows[0]["inp"], "opt.retry01.inp")
+
     def test_stale_terminal_queue_entry_does_not_hide_newer_standalone_run(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
