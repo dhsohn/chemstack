@@ -82,6 +82,19 @@ def test_match_queue_snapshot_prefers_run_id_and_filters_inactive_entries(tmp_pa
     ) is snapshot
 
 
+def test_match_queue_snapshot_falls_back_to_directory_when_run_id_is_none(tmp_path: Path) -> None:
+    reaction_dir = tmp_path / "rxn"
+    snapshot = _snapshot(reaction_dir, run_id="run_1")
+    by_id = {"run_1": snapshot}
+    by_dir = {str(reaction_dir.resolve()): snapshot}
+
+    assert list_runs._match_queue_snapshot(
+        {"run_id": None, "status": "running", "reaction_dir": str(reaction_dir)},
+        snapshot_by_run_id=by_id,
+        snapshot_by_dir=by_dir,
+    ) is snapshot
+
+
 def test_queue_entry_represents_snapshot_covers_id_status_and_directory_branches(tmp_path: Path) -> None:
     reaction_dir = tmp_path / "rxn"
     snapshot = _snapshot(reaction_dir, run_id="run_1")

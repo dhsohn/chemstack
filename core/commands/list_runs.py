@@ -67,13 +67,19 @@ def _resolved_path_text(path_text: str) -> str:
         return text
 
 
+def _optional_text(value: Any) -> str:
+    if not isinstance(value, str):
+        return ""
+    return value.strip()
+
+
 def _match_queue_snapshot(
     entry: QueueEntry,
     *,
     snapshot_by_run_id: dict[str, RunSnapshot],
     snapshot_by_dir: dict[str, RunSnapshot],
 ) -> RunSnapshot | None:
-    run_id = str(entry.get("run_id", "")).strip()
+    run_id = _optional_text(entry.get("run_id"))
     if run_id:
         return snapshot_by_run_id.get(run_id)
 
@@ -91,7 +97,7 @@ def _queue_entry_represents_snapshot(entry: QueueEntry, snapshot: RunSnapshot | 
     if snapshot is None:
         return False
 
-    run_id = str(entry.get("run_id", "")).strip()
+    run_id = _optional_text(entry.get("run_id"))
     if run_id and run_id == snapshot.run_id:
         return True
 
