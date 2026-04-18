@@ -65,14 +65,14 @@ class RuntimeConfig:
     default_max_retries: int = 2
     max_concurrent: int = 4
     admission_root: str = ""
-    admission_max_concurrent: int = 4
+    admission_max_concurrent: int | None = None
 
     def __post_init__(self) -> None:
         if not self.organized_root and self.allowed_root:
             self.organized_root = _default_organized_root(self.allowed_root)
         if not self.admission_root and self.allowed_root:
             self.admission_root = self.allowed_root
-        if self.admission_max_concurrent < 1:
+        if self.admission_max_concurrent is not None and self.admission_max_concurrent < 1:
             self.admission_max_concurrent = max(1, self.max_concurrent)
 
 

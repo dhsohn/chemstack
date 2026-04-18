@@ -162,7 +162,20 @@ class QueueWorker:
         self.max_concurrent = max(1, max_concurrent)
         self.allowed_root = Path(cfg.runtime.allowed_root).expanduser().resolve()
         self.admission_root = Path(cfg.runtime.admission_root).expanduser().resolve()
-        self.admission_max_concurrent = max(1, int(cfg.runtime.admission_max_concurrent))
+        raw_admission_max_concurrent = getattr(cfg.runtime, "admission_max_concurrent", None)
+        if raw_admission_max_concurrent in {None, ""}:
+            self.admission_max_concurrent = self.max_concurrent
+        else:
+            try:
+                if isinstance(raw_admission_max_concurrent, bool):
+                    admission_limit = int(raw_admission_max_concurrent)
+                elif isinstance(raw_admission_max_concurrent, (int, float, str)):
+                    admission_limit = int(raw_admission_max_concurrent)
+                else:
+                    raise TypeError("Unsupported admission_max_concurrent type")
+                self.admission_max_concurrent = max(1, admission_limit)
+            except (TypeError, ValueError):
+                self.admission_max_concurrent = self.max_concurrent
         self._running: Dict[str, _RunningJob] = {}  # queue_id → job
         self._shutdown_requested = False
 

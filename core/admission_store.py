@@ -17,6 +17,7 @@ from .lock_utils import (
     process_start_ticks,
 )
 from .persistence_utils import atomic_write_json, now_utc_iso, timestamped_token
+from .process_tracking import RUN_LOCK_FILE_NAME, active_run_lock_pid
 
 ADMISSION_FILE_NAME = "admission_slots.json"
 ADMISSION_LOCK_NAME = "admission.lock"
@@ -129,6 +130,48 @@ def _normalize_slot(slot: AdmissionSlot) -> AdmissionSlot:
     return cast(AdmissionSlot, normalized)
 
 
+def _slot_reaction_dir(slot: AdmissionSlot) -> str | None:
+    raw_reaction_dir = slot.get("reaction_dir")
+    if raw_reaction_dir in {None, ""}:
+        raw_reaction_dir = slot.get("work_dir")
+    if not isinstance(raw_reaction_dir, (str, Path)):
+        return None
+    return _normalize_work_dir(raw_reaction_dir)
+
+
+def _normalize_reaction_dir_set(reaction_dirs: set[str] | None) -> set[str]:
+    normalized: set[str] = set()
+    for reaction_dir in reaction_dirs or set():
+        resolved = _normalize_work_dir(reaction_dir)
+        if resolved is not None:
+            normalized.add(resolved)
+    return normalized
+
+
+def _count_external_active_runs(
+    root: Path,
+    *,
+    represented_reaction_dirs: set[str],
+    exclude_reaction_dirs: set[str],
+) -> int:
+    if not root.is_dir():
+        return 0
+
+    count = 0
+    seen_reaction_dirs: set[str] = set()
+    for lock_path in root.rglob(RUN_LOCK_FILE_NAME):
+        reaction_dir = str(lock_path.parent.resolve())
+        if reaction_dir in exclude_reaction_dirs:
+            continue
+        if reaction_dir in represented_reaction_dirs or reaction_dir in seen_reaction_dirs:
+            continue
+        if active_run_lock_pid(lock_path.parent, logger=logger) is None:
+            continue
+        seen_reaction_dirs.add(reaction_dir)
+        count += 1
+    return count
+
+
 def _slot_owner_alive(slot: AdmissionSlot) -> bool:
     pid = slot.get("owner_pid")
     if not isinstance(pid, int) or pid <= 0:
@@ -183,23 +226,38 @@ def reserve_slot(
     workflow_id: str | None = None,
     state: str = "reserved",
 ) -> str | None:
-    del exclude_reaction_dirs
     resolved_root = Path(root).expanduser().resolve()
     limit = max(1, int(max_concurrent))
+    excluded_reaction_dirs = _normalize_reaction_dir_set(exclude_reaction_dirs)
     with _acquire_admission_lock(resolved_root):
         slots = [
             _normalize_slot(slot)
             for slot in _load_slots(resolved_root)
             if _slot_owner_alive(_normalize_slot(slot))
         ]
-        if len(slots) >= limit:
+        counted_slots: list[AdmissionSlot] = []
+        represented_reaction_dirs: set[str] = set()
+        for existing_slot in slots:
+            slot_reaction_dir = _slot_reaction_dir(existing_slot)
+            if slot_reaction_dir is not None and slot_reaction_dir in excluded_reaction_dirs:
+                continue
+            counted_slots.append(existing_slot)
+            if slot_reaction_dir is not None:
+                represented_reaction_dirs.add(slot_reaction_dir)
+
+        active_count = len(counted_slots) + _count_external_active_runs(
+            resolved_root,
+            represented_reaction_dirs=represented_reaction_dirs,
+            exclude_reaction_dirs=excluded_reaction_dirs,
+        )
+        if active_count >= limit:
             _save_slots(resolved_root, slots)
             return None
 
         token = timestamped_token("slot")
         resolved_work_dir = _normalize_work_dir(reaction_dir)
         resolved_owner_pid = owner_pid if owner_pid is not None else os.getpid()
-        slot: AdmissionSlot = {
+        new_slot: AdmissionSlot = {
             "token": token,
             "state": state,
             "work_dir": resolved_work_dir,
@@ -217,7 +275,7 @@ def reserve_slot(
             "task_id": task_id,
             "workflow_id": workflow_id,
         }
-        slots.append(slot)
+        slots.append(new_slot)
         _save_slots(resolved_root, slots)
         return token
 
@@ -284,6 +342,7 @@ def acquire_direct_slot(
         root,
         max_concurrent,
         reaction_dir=resolved_reaction_dir,
+        exclude_reaction_dirs={resolved_reaction_dir},
         source=source,
         state="reserved",
     )
