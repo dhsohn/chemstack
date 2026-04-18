@@ -161,6 +161,8 @@ class QueueWorker:
         self.config_path = config_path
         self.max_concurrent = max(1, max_concurrent)
         self.allowed_root = Path(cfg.runtime.allowed_root).expanduser().resolve()
+        self.admission_root = Path(cfg.runtime.admission_root).expanduser().resolve()
+        self.admission_max_concurrent = max(1, int(cfg.runtime.admission_max_concurrent))
         self._running: Dict[str, _RunningJob] = {}  # queue_id → job
         self._shutdown_requested = False
 
@@ -170,8 +172,8 @@ class QueueWorker:
         self._write_pid_file()
         self._reconcile_orphaned_running()
         logger.info(
-            "Queue worker started (pid=%d, max_concurrent=%d)",
-            os.getpid(), self.max_concurrent,
+            "Queue worker started (pid=%d, max_concurrent=%d, admission_root=%s, admission_max_concurrent=%d)",
+            os.getpid(), self.max_concurrent, self.admission_root, self.admission_max_concurrent,
         )
 
         try:
@@ -197,7 +199,7 @@ class QueueWorker:
         has no subprocess tracking it).  Resolve each by checking the
         run_state.json and run.lock of the reaction directory.
         """
-        reconcile_stale_slots(self.allowed_root)
+        reconcile_stale_slots(self.admission_root)
         reconcile_orphaned_running_entries(self.allowed_root, ignore_worker_pid=True)
 
     # -- Slot management --------------------------------------------------
@@ -206,19 +208,19 @@ class QueueWorker:
         """Dequeue pending jobs until the global active-run limit is reached."""
         while len(self._running) < self.max_concurrent:
             admission_token = reserve_slot(
-                self.allowed_root,
-                self.max_concurrent,
+                self.admission_root,
+                self.admission_max_concurrent,
                 source="queue_worker",
             )
             if admission_token is None:
                 logger.debug(
-                    "Queue worker admission paused: admission slots are full (max_concurrent=%d)",
-                    self.max_concurrent,
+                    "Queue worker admission paused: admission slots are full (admission_max_concurrent=%d)",
+                    self.admission_max_concurrent,
                 )
                 break
             entry = dequeue_next(self.allowed_root)
             if entry is None:
-                release_slot(self.allowed_root, admission_token)
+                release_slot(self.admission_root, admission_token)
                 break
             self._start_job(entry, admission_token=admission_token)
 
@@ -246,7 +248,7 @@ class QueueWorker:
             )
         except OSError as exc:
             logger.error("Failed to start job %s: %s", queue_id, exc)
-            release_slot(self.allowed_root, admission_token)
+            release_slot(self.admission_root, admission_token)
             mark_failed(self.allowed_root, queue_id, error=str(exc))
             return False
 
@@ -279,7 +281,7 @@ class QueueWorker:
                     error=f"exit_code={rc}",
                     run_id=run_id,
                 )
-            release_slot(self.allowed_root, job.admission_token)
+            release_slot(self.admission_root, job.admission_token)
         for qid in done_ids:
             del self._running[qid]
 
@@ -294,7 +296,7 @@ class QueueWorker:
                 except subprocess.TimeoutExpired:
                     pass
                 mark_cancelled(self.allowed_root, queue_id)
-                release_slot(self.allowed_root, job.admission_token)
+                release_slot(self.admission_root, job.admission_token)
                 del self._running[queue_id]
 
     # -- Shutdown ---------------------------------------------------------
@@ -307,7 +309,7 @@ class QueueWorker:
         for queue_id, job in self._running.items():
             _terminate_process(job.process)
             requeue_running_entry(self.allowed_root, queue_id)
-            release_slot(self.allowed_root, job.admission_token)
+            release_slot(self.admission_root, job.admission_token)
         self._running.clear()
 
     def _install_signal_handlers(self) -> None:

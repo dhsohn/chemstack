@@ -4,7 +4,12 @@ runtime:
   # Optional: if omitted, defaults to a sibling "orca_outputs" directory next to allowed_root.
   organized_root: "/path/to/orca_outputs"
   default_max_retries: 2
+  # Local worker fill limit for this queue root.
   max_concurrent: 4
+  # Optional shared machine-wide admission pool. Defaults to allowed_root.
+  admission_root: "/path/to/chem_admission"
+  # Optional shared machine-wide cap. Defaults to max_concurrent.
+  admission_max_concurrent: 4
 
 paths:
   # Required: absolute Linux path to the ORCA executable.

@@ -29,6 +29,7 @@ def _validate_config(cfg: Any) -> None:
     for label, path_val in [
         ("allowed_root", cfg.runtime.allowed_root),
         ("organized_root", cfg.runtime.organized_root),
+        ("admission_root", cfg.runtime.admission_root),
         ("orca_executable", cfg.paths.orca_executable),
     ]:
         if is_rejected_windows_path(path_val):
