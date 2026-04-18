@@ -114,9 +114,15 @@ def _normalize_work_dir(value: str | Path | None) -> str | None:
 
 def _normalize_slot(slot: AdmissionSlot) -> AdmissionSlot:
     normalized = dict(slot)
-    work_dir = _normalize_work_dir(
-        normalized.get("work_dir") or normalized.get("reaction_dir")
-    )
+    raw_work_dir = normalized.get("work_dir")
+    if raw_work_dir in {None, ""}:
+        raw_work_dir = normalized.get("reaction_dir")
+    work_dir_input: str | Path | None
+    if isinstance(raw_work_dir, (str, Path)):
+        work_dir_input = raw_work_dir
+    else:
+        work_dir_input = None
+    work_dir = _normalize_work_dir(work_dir_input)
     if work_dir is not None:
         normalized["work_dir"] = work_dir
         normalized["reaction_dir"] = work_dir

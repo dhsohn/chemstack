@@ -175,7 +175,12 @@ def _configured_admission_max_concurrent(cfg: Any) -> int:
     if raw in {None, ""}:
         return _configured_max_concurrent(cfg)
     try:
-        value = int(raw)
+        if isinstance(raw, bool):
+            value = int(raw)
+        elif isinstance(raw, (int, float, str)):
+            value = int(raw)
+        else:
+            raise TypeError("Unsupported admission_max_concurrent type")
     except (TypeError, ValueError):
         value = _configured_max_concurrent(cfg)
     return max(1, value)
