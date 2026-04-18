@@ -48,8 +48,10 @@ class RunExecutionContext:
     reaction_dir: Path
     selected_inp: Path
     allowed_root: Path
+    admission_root: Path
     max_retries: int
     max_concurrent: int
+    admission_max_concurrent: int
     reservation_token: str | None
 
 
@@ -163,6 +165,22 @@ def _configured_max_concurrent(cfg: Any) -> int:
     return max(1, value)
 
 
+def _configured_admission_root(cfg: Any) -> Path:
+    raw = getattr(cfg.runtime, "admission_root", "") or getattr(cfg.runtime, "allowed_root", "")
+    return Path(str(raw)).expanduser().resolve()
+
+
+def _configured_admission_max_concurrent(cfg: Any) -> int:
+    raw = getattr(cfg.runtime, "admission_max_concurrent", None)
+    if raw in {None, ""}:
+        return _configured_max_concurrent(cfg)
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        value = _configured_max_concurrent(cfg)
+    return max(1, value)
+
+
 def _resolve_run_target(cfg: Any, reaction_dir_raw: str) -> ResolvedRunTarget:
     reaction_dir = _validate_reaction_dir(cfg, reaction_dir_raw)
     return ResolvedRunTarget(
@@ -268,7 +286,7 @@ def _existing_completed_exit(
     *,
     reaction_dir: Path,
     selected_inp: Path,
-    allowed_root: Path,
+    admission_root: Path,
     reservation_token: str | None,
     max_retries: int,
 ) -> int | None:
@@ -277,7 +295,7 @@ def _existing_completed_exit(
         return None
 
     if reservation_token is not None:
-        release_slot(allowed_root, reservation_token)
+        release_slot(admission_root, reservation_token)
     state, resumed = load_or_create_state(
         reaction_dir,
         selected_inp,
@@ -344,36 +362,38 @@ def _resolve_execution_context(
         reaction_dir=reaction_dir,
         selected_inp=selected_inp,
         allowed_root=Path(cfg.runtime.allowed_root).expanduser().resolve(),
+        admission_root=_configured_admission_root(cfg),
         max_retries=max(0, int(cfg.runtime.default_max_retries)),
         max_concurrent=_configured_max_concurrent(cfg),
+        admission_max_concurrent=_configured_admission_max_concurrent(cfg),
         reservation_token=os.getenv(ADMISSION_TOKEN_ENV_VAR, "").strip() or None,
     )
 
 
 def _admission_context(
     *,
-    allowed_root: Path,
+    admission_root: Path,
     reaction_dir: Path,
-    max_concurrent: int,
+    admission_max_concurrent: int,
     reservation_token: str | None,
 ) -> AbstractContextManager[str]:
     if reservation_token is not None:
         return activate_reserved_slot(
-            allowed_root,
+            admission_root,
             reservation_token,
             reaction_dir=str(reaction_dir),
             source="queue_run",
         )
     return acquire_direct_slot(
-        allowed_root,
-        max_concurrent=max_concurrent,
+        admission_root,
+        max_concurrent=admission_max_concurrent,
         reaction_dir=str(reaction_dir),
     )
 
 
-def _release_reservation_if_needed(allowed_root: Path, reservation_token: str | None) -> None:
+def _release_reservation_if_needed(admission_root: Path, reservation_token: str | None) -> None:
     if reservation_token is not None:
-        release_slot(allowed_root, reservation_token)
+        release_slot(admission_root, reservation_token)
 
 
 def _notification_callbacks(
@@ -495,7 +515,7 @@ def _execute_locked_run(
             existing_exit = _existing_completed_exit(
                 reaction_dir=context.reaction_dir,
                 selected_inp=context.selected_inp,
-                allowed_root=context.allowed_root,
+                admission_root=context.admission_root,
                 reservation_token=context.reservation_token,
                 max_retries=context.max_retries,
             )
@@ -503,9 +523,9 @@ def _execute_locked_run(
                 return existing_exit
 
         with _admission_context(
-            allowed_root=context.allowed_root,
+            admission_root=context.admission_root,
             reaction_dir=context.reaction_dir,
-            max_concurrent=context.max_concurrent,
+            admission_max_concurrent=context.admission_max_concurrent,
             reservation_token=context.reservation_token,
         ):
             state, resumed = load_or_create_state(
@@ -549,15 +569,15 @@ def _cmd_run_inp_execute(
     try:
         return _execute_locked_run(args, context, runner_cls=runner_cls)
     except AdmissionLimitReachedError as exc:
-        _release_reservation_if_needed(context.allowed_root, context.reservation_token)
+        _release_reservation_if_needed(context.admission_root, context.reservation_token)
         logger.error("%s", exc)
         return 1
     except RuntimeError as exc:
-        _release_reservation_if_needed(context.allowed_root, context.reservation_token)
+        _release_reservation_if_needed(context.admission_root, context.reservation_token)
         logger.error("%s", exc)
         return 1
     except Exception as exc:
-        _release_reservation_if_needed(context.allowed_root, context.reservation_token)
+        _release_reservation_if_needed(context.admission_root, context.reservation_token)
         logger.exception("Unexpected error while running input: %s", exc)
         return 1
 

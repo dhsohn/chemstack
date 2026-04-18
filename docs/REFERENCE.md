@@ -95,6 +95,8 @@ runtime:
   organized_root: "/path/to/orca_outputs"
   default_max_retries: 2
   max_concurrent: 4
+  admission_root: "/path/to/chem_admission"
+  admission_max_concurrent: 4
 
 paths:
   orca_executable: "/path/to/orca/orca"
@@ -105,7 +107,9 @@ Field descriptions:
 - `runtime.allowed_root`: Root directory permitted for execution
 - `runtime.organized_root`: Root for organized outputs
 - `runtime.default_max_retries`: Maximum retry count after the initial attempt
-- `runtime.max_concurrent`: Global worker concurrency cap under `allowed_root`
+- `runtime.max_concurrent`: Local worker fill limit for this queue root
+- `runtime.admission_root`: Shared admission root for machine-wide slot coordination
+- `runtime.admission_max_concurrent`: Shared machine-wide active-run cap for `admission_root`
 - `paths.orca_executable`: ORCA executable path
 
 Notes:
@@ -162,7 +166,8 @@ Behavior:
 
 - Runs in the foreground
 - Polls `queue.json` for pending jobs
-- Enforces `runtime.max_concurrent`
+- Uses `runtime.max_concurrent` as the local worker fill limit
+- Enforces `runtime.admission_max_concurrent` under `runtime.admission_root`
 - Executes jobs through an internal worker-owned execution path
 - Updates queue status on completion or failure
 - Requeues in-flight jobs during controlled shutdown

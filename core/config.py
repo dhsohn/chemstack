@@ -64,10 +64,16 @@ class RuntimeConfig:
     # max retry count, not total execution count
     default_max_retries: int = 2
     max_concurrent: int = 4
+    admission_root: str = ""
+    admission_max_concurrent: int = 4
 
     def __post_init__(self) -> None:
         if not self.organized_root and self.allowed_root:
             self.organized_root = _default_organized_root(self.allowed_root)
+        if not self.admission_root and self.allowed_root:
+            self.admission_root = self.allowed_root
+        if self.admission_max_concurrent < 1:
+            self.admission_max_concurrent = max(1, self.max_concurrent)
 
 
 @dataclass
@@ -136,6 +142,16 @@ def load_config(config_path: str) -> AppConfig:
     )
     if max_concurrent < 1:
         raise ValueError("runtime.max_concurrent must be an integer >= 1.")
+    admission_root = _as_str(
+        runtime_raw.get("admission_root"),
+        allowed_root,
+    )
+    admission_max_concurrent = _as_int(
+        runtime_raw.get("admission_max_concurrent"),
+        max_concurrent,
+    )
+    if admission_max_concurrent < 1:
+        raise ValueError("runtime.admission_max_concurrent must be an integer >= 1.")
 
     telegram_cfg = TelegramConfig(
         bot_token=_as_str(telegram_raw.get("bot_token"), ""),
@@ -148,6 +164,8 @@ def load_config(config_path: str) -> AppConfig:
             organized_root=organized_root,
             default_max_retries=max(0, default_max_retries),
             max_concurrent=max_concurrent,
+            admission_root=admission_root,
+            admission_max_concurrent=admission_max_concurrent,
         ),
         paths=PathsConfig(
             orca_executable=orca_executable,
@@ -167,10 +185,12 @@ def load_config(config_path: str) -> AppConfig:
     _validate_config(cfg)
 
     logger.info(
-        "Config loaded: allowed_root=%s, organized_root=%s, orca_executable=%s, max_concurrent=%d",
+        "Config loaded: allowed_root=%s, organized_root=%s, admission_root=%s, orca_executable=%s, max_concurrent=%d, admission_max_concurrent=%d",
         cfg.runtime.allowed_root,
         cfg.runtime.organized_root,
+        cfg.runtime.admission_root,
         cfg.paths.orca_executable,
         cfg.runtime.max_concurrent,
+        cfg.runtime.admission_max_concurrent,
     )
     return cfg

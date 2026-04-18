@@ -85,7 +85,7 @@ You will be prompted for the following:
 | `runtime.allowed_root` | Root directory for calculation input directories | Yes |
 | `runtime.organized_root` | Directory for organized results (default: `orca_outputs` sibling to `allowed_root`) | No |
 | `runtime.default_max_retries` | Maximum number of retries (default: 2) | No |
-| `runtime.max_concurrent` | Global maximum active simulations under `allowed_root` (default: 4) | No |
+| `runtime.max_concurrent` | Local worker fill limit for this queue root (default: 4) | No |
 | `telegram.bot_token` | Telegram bot token | No |
 | `telegram.chat_id` | Telegram chat ID | No |
 
@@ -99,6 +99,8 @@ runtime:
   organized_root: "/home/user/orca_outputs"
   default_max_retries: 2
   max_concurrent: 4
+  admission_root: "/home/user/chem_admission"
+  admission_max_concurrent: 4
 
 paths:
   orca_executable: "/opt/orca/orca"
@@ -106,6 +108,14 @@ paths:
 telegram:
   bot_token: ""
   chat_id: ""
+```
+
+Optional shared-admission settings can also be added manually:
+
+```yaml
+runtime:
+  admission_root: "/home/user/chem_admission"
+  admission_max_concurrent: 4
 ```
 
 Config file search order:
@@ -192,6 +202,7 @@ The queue system is now the **only public execution path** for ORCA runs. It sup
 - Use `--force` to re-enqueue completed/failed jobs
 - Successful queue submission returns `status: queued`
 - The queue is persisted in `{allowed_root}/queue.json` and protected by `queue.lock`
+- Admission slots are persisted separately under `{admission_root}/admission_slots.json`
 
 ### Viewing Simulation Status
 
@@ -233,8 +244,9 @@ App-managed background worker startup has been removed, and public direct-backgr
 
 Worker behavior:
 - Periodically polls the queue for `pending` jobs
-- Enforces the global active-run cap under `allowed_root` via admission slots
-- Uses `runtime.max_concurrent` as the hard cap for queued execution
+- Enforces the shared active-run cap under `runtime.admission_root` via admission slots
+- Uses `runtime.max_concurrent` as the local worker fill limit
+- Uses `runtime.admission_max_concurrent` as the machine-wide hard cap when multiple sibling apps share one admission root
 - Starts jobs through an internal worker-owned execution path
 - Checks exit codes upon completion and updates queue status
 - Supports graceful shutdown via `SIGTERM` / `SIGINT`
