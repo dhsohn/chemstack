@@ -3,8 +3,10 @@ from __future__ import annotations
 import json
 import tempfile
 from pathlib import Path
+from unittest.mock import patch
 
 from core.config import AppConfig, CommonResourceConfig, PathsConfig, RuntimeConfig
+import orca_auto.job_locations as job_locations_module
 from orca_auto.job_locations import (
     index_root_for_cfg,
     load_job_artifacts,
@@ -230,3 +232,46 @@ def test_load_job_artifacts_follows_organized_ref_when_index_lookup_is_missing()
         assert job_path == organized_dir.resolve()
         assert loaded_state is not None and loaded_state["job_id"] == "job_hist_2"
         assert loaded_report is not None and loaded_report["run_id"] == "run_hist_2"
+
+
+def test_job_locations_falls_back_when_chem_core_is_unavailable() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        cfg = _make_cfg(root)
+        allowed_root = Path(cfg.runtime.allowed_root)
+        allowed_root.mkdir(parents=True)
+        job_dir = allowed_root / "rxn_fallback"
+        job_dir.mkdir()
+        inp = job_dir / "rxn.inp"
+        inp.write_text("! Opt\n* xyz 0 1\nH 0 0 0\nH 0 0 0.74\n*\n", encoding="utf-8")
+
+        def _missing_chem_core(_name: str) -> object:
+            exc = ModuleNotFoundError("No module named 'chem_core'")
+            exc.name = "chem_core"
+            raise exc
+
+        job_locations_module._chem_core_indexing_module.cache_clear()
+        try:
+            with patch.object(job_locations_module, "import_module", side_effect=_missing_chem_core):
+                record = upsert_job_record(
+                    cfg,
+                    job_id="job_fallback_1",
+                    status="queued",
+                    job_dir=job_dir,
+                    job_type="opt",
+                    selected_input_xyz=str(inp),
+                    molecule_key="H2",
+                    resource_request={"max_cores": 8, "max_memory_gb": 16},
+                    resource_actual={"max_cores": 8, "max_memory_gb": 16},
+                )
+
+                backend = job_locations_module._chem_core_indexing_module()
+                assert backend.JOB_LOCATION_INDEX_FILE_NAME == "job_locations.json"
+                assert record.job_id == "job_fallback_1"
+                assert resolve_latest_job_dir(index_root_for_cfg(cfg), "job_fallback_1") == job_dir.resolve()
+
+            loaded = _load_job_locations(index_root_for_cfg(cfg))
+            assert len(loaded) == 1
+            assert loaded[0]["job_id"] == "job_fallback_1"
+        finally:
+            job_locations_module._chem_core_indexing_module.cache_clear()

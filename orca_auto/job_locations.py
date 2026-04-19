@@ -10,6 +10,7 @@ from typing import Any
 from core.config import AppConfig
 from core.molecule_key import resolve_molecule_key
 from core.result_organizer import detect_job_type
+from . import _job_location_index_fallback
 from .state import load_organized_ref, load_report_json, load_state
 
 _MOLECULE_KEY_RE = re.compile(r"[^A-Za-z0-9._-]+")
@@ -21,14 +22,20 @@ JobLocationRecord = Any
 def _chem_core_indexing_module() -> Any:
     try:
         return import_module("chem_core.indexing")
-    except ModuleNotFoundError:
-        repo_root = Path(__file__).resolve().parents[2] / "chem_core"
-        if not repo_root.is_dir():
+    except ModuleNotFoundError as exc:
+        if exc.name not in {"chem_core", "chem_core.indexing"}:
             raise
-        repo_root_text = str(repo_root)
-        if repo_root_text not in sys.path:
-            sys.path.insert(0, repo_root_text)
-        return import_module("chem_core.indexing")
+        repo_root = Path(__file__).resolve().parents[2] / "chem_core"
+        if repo_root.is_dir():
+            repo_root_text = str(repo_root)
+            if repo_root_text not in sys.path:
+                sys.path.insert(0, repo_root_text)
+            try:
+                return import_module("chem_core.indexing")
+            except ModuleNotFoundError as retry_exc:
+                if retry_exc.name not in {"chem_core", "chem_core.indexing"}:
+                    raise
+        return _job_location_index_fallback
 
 
 def _normalize_text(value: Any) -> str:
