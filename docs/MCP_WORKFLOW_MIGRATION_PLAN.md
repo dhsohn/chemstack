@@ -4,17 +4,19 @@
 
 | 완료 | 진행중 | 미착수 | 다음 액션 |
 | --- | --- | --- | --- |
-| Wave 1. real `orca_auto` package 도입 | Wave 0. ORCA artifact contract freeze 마무리 | Wave 7. `chem_workflow_mcp` ORCA facade cutover | Wave 7 다음 단계: `chem_workflow_mcp`에서 ORCA defensive fallback read를 더 줄이고 facade 기준 lookup을 우선화 |
-| Wave 2. config를 `chem_core` 스타일 runtime/resource shape로 정렬 | legacy organized-index / workflow contract freeze 보강 |  | `orca_auto.job_locations` / state facade를 기준으로 downstream read path를 더 단순화 |
+| Wave 0. ORCA artifact contract freeze 완료 |  |  | baseline integration test와 contract docs를 이후 유지보수 기준으로 계속 사용 |
+| Wave 1. real `orca_auto` package 도입 |  |  |  |
+| Wave 2. config를 `chem_core` 스타일 runtime/resource shape로 정렬 |  |  |  |
 | Wave 3. queue/admission을 `chem_core` 중심 wrapper shape로 정리 |  |  |  |
-| stable `task_id`, queue metadata, admission metadata handoff 완료 |  |  | Wave 0 테스트 보강은 별도 병행 |
-| Wave 4. `job_locations.py` / `tracking.py` / `chem_core.indexing` facade 완료 |  |  | queue/organize 이후 남은 summary/workflow lookup은 facade 기준으로 연결 완료 |
-| Wave 5. state/report facade 분리 및 `runtime.run_lock` 경계 분리 완료 |  |  | `run_state.json` / `run_report.json` / `run_report.md` 계약 유지 확인 완료 |
-| Wave 6. worker execution flow 단순화 완료 |  |  | hidden `run-job`는 compatibility로 유지하고 worker main path는 internal runtime boundary로 정리 완료 |
+| stable `task_id`, queue metadata, admission metadata handoff 완료 |  |  |  |
+| Wave 4. `job_locations.py` / `tracking.py` / `chem_core.indexing` facade 완료 |  |  |  |
+| Wave 5. state/report facade 분리 및 `runtime.run_lock` 경계 분리 완료 |  |  |  |
+| Wave 6. worker execution flow 단순화 완료 |  |  |  |
+| Wave 7. `chem_workflow_mcp` ORCA facade cutover 완료 |  |  |  |
 
 Notes:
 
-- 현재 상태는 "Wave 1-6은 완료, Wave 0는 진행중, Wave 7은 미착수"로 보는 것이 가장 정확하다.
+- 현재 상태는 "Wave 0-7 전부 완료"로 보는 것이 가장 정확하다.
 - `run_state.json`, `run_report.json`, retry ladder semantics, reaction-directory artifact layout은 아직 유지한다.
 - full validation 기준 최근 상태는 `ruff check .`, `mypy`, `pytest --cov --cov-report=term-missing -q` 통과다.
 
@@ -162,6 +164,19 @@ Done when:
 
 - the ORCA artifact contract is explicit in tests and docs
 - later refactors can be judged against a stable baseline
+
+Progress note:
+
+- `docs/REFERENCE.md` now lists the frozen downstream contract fields for
+  `run_state.json`, `run_report.json`, `queue.json`, `job_locations.json`, and
+  `organized_ref.json`
+- `chem_workflow_mcp/tests/test_orca_contract_freeze.py` now exercises the
+  public workflow sync path and asserts that a completed ORCA result still
+  surfaces through workflow summary and workflow artifacts
+
+Status:
+
+- complete
 
 
 ### Wave 1. Introduce the real `orca_auto` package
@@ -398,12 +413,35 @@ Changes:
 - keep defensive fallback reads only while older ORCA outputs still exist on
   disk
 
+Progress note:
+
+- `chem_workflow_mcp.adapters.orca` now prefers `orca_auto.tracking.load_job_artifacts()`
+  and `orca_auto.state.load_organized_ref()` when those facades are available
+- `orca_auto.tracking.load_job_artifact_context()` now exposes tracked
+  `record/job_dir/state/report/organized_ref` together so downstream code does
+  less ORCA-specific file assembly on its own
+- `orca_auto.tracking.load_job_runtime_context()` now encapsulates queue entry
+  lookup plus legacy organized-record fallback so `chem_workflow_mcp` no longer
+  reads `queue.json` and `records.jsonl` itself on the normal facade-first path
+- `orca_auto.tracking.load_orca_contract_payload()` now exports normalized ORCA
+  runtime/attempt/resource/path fields directly, and
+  `chem_workflow_mcp.adapters.orca` uses that payload as the primary contract
+  source instead of assembling normal ORCA contracts by hand
+- `chem_workflow_mcp` now has regression coverage for ORCA contract
+  consumption in `_sync_orca_stage()` and precomplex downstream handoff
+- legacy `records.jsonl` lookup remains only as a defensive fallback when
+  tracked resolution does not produce an organized run directory
+
 Done when:
 
 - ORCA, CREST, and xTB are all discovered through similarly shaped tracking
   facades
 - the workflow layer no longer needs one-off ORCA recovery logic for normal
   cases
+
+Status:
+
+- complete
 
 
 ## 7. Explicit Non-Goals For This Migration

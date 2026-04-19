@@ -305,12 +305,15 @@ Generated in the reaction directory:
 - `run_state.json`
 - `run_report.json`
 - `run_report.md`
+- `organized_ref.json` after organize leaves a stub in the original run directory
 
 Important `run_state.json` fields:
 
+- `job_id`
 - `run_id`
 - `reaction_dir`
 - `selected_inp`
+- `max_retries`
 - `status`
 - `attempts[]`
 - `final_result`
@@ -327,6 +330,92 @@ Important `attempts[]` fields:
 - `patch_actions`
 - `started_at`
 - `ended_at`
+
+Important `run_report.json` fields:
+
+- `job_id`
+- `run_id`
+- `reaction_dir`
+- `selected_inp`
+- `status`
+- `attempt_count`
+- `max_retries`
+- `attempts[]`
+- `final_result`
+
+## 11.1) Downstream Contract Freeze
+
+The migration baseline assumes the following ORCA-facing compatibility contract
+remains readable by downstream tooling such as `chem_workflow_mcp`.
+
+Queue entry fields currently consumed downstream from `queue.json`:
+
+- `queue_id`
+- `task_id`
+- `run_id`
+- `reaction_dir`
+- `status`
+- `cancel_requested`
+- `resource_request`
+- `resource_actual`
+
+Tracked job-location fields currently consumed downstream from
+`job_locations.json`:
+
+- `job_id`
+- `app_name`
+- `job_type`
+- `status`
+- `original_run_dir`
+- `molecule_key`
+- `selected_input_xyz`
+- `organized_output_dir`
+- `latest_known_path`
+- `resource_request`
+- `resource_actual`
+
+Organize stub fields currently consumed downstream from `organized_ref.json`:
+
+- `job_id`
+- `run_id`
+- `original_run_dir`
+- `organized_output_dir`
+- `selected_inp`
+- `selected_input_xyz`
+- `status`
+- `job_type`
+- `molecule_key`
+- `resource_request`
+- `resource_actual`
+
+The normalized ORCA contract exposed downstream should continue to provide at
+least these fields:
+
+- `run_id`
+- `status`
+- `reason`
+- `state_status`
+- `reaction_dir`
+- `latest_known_path`
+- `organized_output_dir`
+- `optimized_xyz_path`
+- `queue_id`
+- `queue_status`
+- `cancel_requested`
+- `selected_inp`
+- `selected_input_xyz`
+- `analyzer_status`
+- `completed_at`
+- `last_out_path`
+- `run_state_path`
+- `report_json_path`
+- `report_md_path`
+- `attempt_count`
+- `max_retries`
+- `attempts`
+- `final_result`
+- `resource_request`
+- `resource_actual`
 
 ## 12) Recommended Workflow
 
