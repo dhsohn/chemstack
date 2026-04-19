@@ -4,16 +4,17 @@
 
 | 완료 | 진행중 | 미착수 | 다음 액션 |
 | --- | --- | --- | --- |
-| Wave 1. real `orca_auto` package 도입 | Wave 0. ORCA artifact contract freeze 마무리 | Wave 6. worker execution flow 단순화 | Wave 6 시작: worker execution 경로를 subprocess 중심에서 Python call path 중심으로 정리 |
-| Wave 2. config를 `chem_core` 스타일 runtime/resource shape로 정렬 | current artifact contract를 `chem_workflow_mcp` baseline test로 더 명시적으로 고정 | Wave 7. `chem_workflow_mcp` ORCA facade cutover | hidden `run-job` 경계를 compatibility command로 낮추고 worker main path를 단순화 |
-| Wave 3. queue/admission을 `chem_core` 중심 wrapper shape로 정리 | legacy organized-index / workflow contract freeze 보강 |  | worker restart/orphan reconciliation 의미는 유지한 채 내부 execution boundary를 정리 |
+| Wave 1. real `orca_auto` package 도입 | Wave 0. ORCA artifact contract freeze 마무리 | Wave 7. `chem_workflow_mcp` ORCA facade cutover | Wave 7 다음 단계: `chem_workflow_mcp`에서 ORCA defensive fallback read를 더 줄이고 facade 기준 lookup을 우선화 |
+| Wave 2. config를 `chem_core` 스타일 runtime/resource shape로 정렬 | legacy organized-index / workflow contract freeze 보강 |  | `orca_auto.job_locations` / state facade를 기준으로 downstream read path를 더 단순화 |
+| Wave 3. queue/admission을 `chem_core` 중심 wrapper shape로 정리 |  |  |  |
 | stable `task_id`, queue metadata, admission metadata handoff 완료 |  |  | Wave 0 테스트 보강은 별도 병행 |
 | Wave 4. `job_locations.py` / `tracking.py` / `chem_core.indexing` facade 완료 |  |  | queue/organize 이후 남은 summary/workflow lookup은 facade 기준으로 연결 완료 |
 | Wave 5. state/report facade 분리 및 `runtime.run_lock` 경계 분리 완료 |  |  | `run_state.json` / `run_report.json` / `run_report.md` 계약 유지 확인 완료 |
+| Wave 6. worker execution flow 단순화 완료 |  |  | hidden `run-job`는 compatibility로 유지하고 worker main path는 internal runtime boundary로 정리 완료 |
 
 Notes:
 
-- 현재 상태는 "Wave 1-5는 완료, Wave 0는 보강 진행중, Wave 6-7은 미착수"로 보는 것이 가장 정확하다.
+- 현재 상태는 "Wave 1-6은 완료, Wave 0는 진행중, Wave 7은 미착수"로 보는 것이 가장 정확하다.
 - `run_state.json`, `run_report.json`, retry ladder semantics, reaction-directory artifact layout은 아직 유지한다.
 - full validation 기준 최근 상태는 `ruff check .`, `mypy`, `pytest --cov --cov-report=term-missing -q` 통과다.
 
@@ -349,6 +350,17 @@ Changes:
   - optionally auto-organize
 - retain a compatibility `run-job` command temporarily if it makes rollout safer
 
+Progress note:
+
+- the worker now launches an internal `orca_auto.runtime.worker_job` child
+  runner instead of `python -m core.cli run-job`
+- `core.commands.run_job` is retained as a compatibility wrapper over the same
+  execution helper
+- queue submission now persists richer ORCA metadata so the worker can execute
+  from queue entry context with fewer ad hoc recomputations
+- worker completion can optionally auto-organize successful runs via
+  `behavior.auto_organize_on_terminal` or `queue worker --auto-organize`
+
 Rationale:
 
 - `xtb_auto` and `crest_auto` run the engine directly from the worker command
@@ -361,6 +373,10 @@ Done when:
 - the worker no longer depends on `python -m core.cli` as its main long-term
   execution model
 - worker logic is readable as submit -> execute -> persist -> organize
+
+Status:
+
+- complete
 
 
 ### Wave 7. Cut over `chem_workflow_mcp` to the new ORCA facade

@@ -58,6 +58,19 @@ def _placeholder_settings_error(path: Path, placeholder_keys: list[str]) -> Valu
     )
 
 
+def _as_bool(value: Any, default: bool = False) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    text = str(value).strip().lower()
+    if text in {"1", "true", "yes", "on"}:
+        return True
+    if text in {"0", "false", "no", "off"}:
+        return False
+    return default
+
+
 @dataclass
 class CommonResourceConfig:
     max_cores_per_task: int = 8
@@ -145,6 +158,11 @@ class PathsConfig:
 
 
 @dataclass
+class BehaviorConfig:
+    auto_organize_on_terminal: bool = False
+
+
+@dataclass
 class TelegramConfig:
     bot_token: str = ""
     chat_id: str = ""
@@ -158,6 +176,7 @@ class TelegramConfig:
 class AppConfig:
     runtime: CommonRuntimeConfig = field(default_factory=CommonRuntimeConfig)
     paths: PathsConfig = field(default_factory=PathsConfig)
+    behavior: BehaviorConfig = field(default_factory=BehaviorConfig)
     resources: CommonResourceConfig = field(default_factory=CommonResourceConfig)
     telegram: TelegramConfig = field(default_factory=TelegramConfig)
 
@@ -175,6 +194,7 @@ def load_config(config_path: str) -> AppConfig:
 
     runtime_raw = raw.get("runtime", {}) if isinstance(raw.get("runtime", {}), dict) else {}
     paths_raw = raw.get("paths", {}) if isinstance(raw.get("paths", {}), dict) else {}
+    behavior_raw = raw.get("behavior", {}) if isinstance(raw.get("behavior", {}), dict) else {}
     telegram_raw = raw.get("telegram", {}) if isinstance(raw.get("telegram", {}), dict) else {}
     resources_raw = raw.get("resources", {}) if isinstance(raw.get("resources", {}), dict) else {}
 
@@ -239,6 +259,12 @@ def load_config(config_path: str) -> AppConfig:
         ),
         paths=PathsConfig(
             orca_executable=orca_executable,
+        ),
+        behavior=BehaviorConfig(
+            auto_organize_on_terminal=_as_bool(
+                behavior_raw.get("auto_organize_on_terminal"),
+                False,
+            ),
         ),
         resources=CommonResourceConfig(
             max_cores_per_task=max(1, _as_int(resources_raw.get("max_cores_per_task"), 8)),

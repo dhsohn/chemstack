@@ -3,17 +3,12 @@
 from __future__ import annotations
 
 import json
-import subprocess
-import sys
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from core.admission_store import (
-    ADMISSION_APP_NAME_ENV_VAR,
-    ADMISSION_TASK_ID_ENV_VAR,
-    ADMISSION_TOKEN_ENV_VAR,
     acquire_direct_slot,
     active_slot_count,
     list_slots,
@@ -31,8 +26,8 @@ from core.queue_worker import (
     DEFAULT_MAX_CONCURRENT,
     QueueWorker,
     _RunningJob,
-    _build_run_command,
     _get_run_id_from_state,
+    _start_job_process,
     _terminate_process,
     read_worker_pid,
 )
@@ -48,24 +43,30 @@ def _write_active_lock(reaction_dir: Path, *, pid: int) -> None:
     (reaction_dir / "run.lock").write_text(json.dumps({"pid": pid}), encoding="utf-8")
 
 
-class TestBuildRunCommand(unittest.TestCase):
-    def test_basic_command(self) -> None:
-        cmd = _build_run_command("/tmp/rxn", "/tmp/config.yaml")
-        self.assertEqual(cmd[:3], [sys.executable, "-m", "core.cli"])
-        self.assertIn("--config", cmd)
-        self.assertIn("/tmp/config.yaml", cmd)
-        self.assertIn("run-job", cmd)
-        self.assertIn("--reaction-dir", cmd)
-        self.assertNotIn("--foreground", cmd)
-        self.assertNotIn("--execute-now", cmd)
+class TestStartJobProcess(unittest.TestCase):
+    @patch("core.queue_worker.start_background_run_job")
+    def test_forwards_python_execution_arguments(self, mock_start: MagicMock) -> None:
+        mock_proc = MagicMock()
+        mock_start.return_value = mock_proc
 
-    def test_with_force(self) -> None:
-        cmd = _build_run_command("/tmp/rxn", "/tmp/config.yaml", force=True)
-        self.assertIn("--force", cmd)
+        proc = _start_job_process(
+            reaction_dir="/tmp/rxn",
+            config_path="/tmp/config.yaml",
+            force=True,
+            admission_token="slot_123",
+            admission_app_name="orca_auto",
+            admission_task_id="task_123",
+        )
 
-    def test_without_force(self) -> None:
-        cmd = _build_run_command("/tmp/rxn", "/tmp/config.yaml")
-        self.assertNotIn("--force", cmd)
+        self.assertIs(proc, mock_proc)
+        mock_start.assert_called_once_with(
+            config_path="/tmp/config.yaml",
+            reaction_dir="/tmp/rxn",
+            force=True,
+            admission_token="slot_123",
+            admission_app_name="orca_auto",
+            admission_task_id="task_123",
+        )
 
 
 class TestTerminateProcess(unittest.TestCase):
@@ -75,32 +76,33 @@ class TestTerminateProcess(unittest.TestCase):
         _terminate_process(proc)
         proc.terminate.assert_not_called()
 
-    @patch("core.queue_worker.os.killpg")
-    def test_killpg_success(self, mock_killpg: MagicMock) -> None:
+    def test_terminate_success(self) -> None:
         proc = MagicMock()
         proc.poll.return_value = None
         proc.pid = 1234
-        proc.wait.return_value = 0
+        proc.poll.side_effect = [None, 0, 0]
         _terminate_process(proc)
-        mock_killpg.assert_called_once()
+        proc.terminate.assert_called_once()
+        proc.kill.assert_not_called()
 
-    @patch("core.queue_worker.os.killpg", side_effect=ProcessLookupError)
-    def test_killpg_fallback_to_terminate(self, mock_killpg: MagicMock) -> None:
+    def test_terminate_ignores_errors(self) -> None:
         proc = MagicMock()
         proc.poll.return_value = None
         proc.pid = 1234
-        proc.wait.return_value = 0
+        proc.terminate.side_effect = RuntimeError("nope")
+        proc.poll.side_effect = [None, 0, 0]
         _terminate_process(proc)
         proc.terminate.assert_called_once()
 
-    @patch("core.queue_worker.os.killpg")
-    def test_escalate_to_sigkill(self, mock_killpg: MagicMock) -> None:
+    @patch("core.queue_worker.time.monotonic", side_effect=[0.0, 11.0, 11.0, 17.0])
+    def test_escalate_to_kill(self, mock_monotonic: MagicMock) -> None:
         proc = MagicMock()
         proc.poll.return_value = None
         proc.pid = 1234
-        proc.wait.side_effect = subprocess.TimeoutExpired(cmd="test", timeout=10)
+        proc.poll.side_effect = [None, None, None, None]
         _terminate_process(proc)
-        self.assertEqual(mock_killpg.call_count, 2)
+        proc.terminate.assert_called_once()
+        proc.kill.assert_called_once()
 
 
 class TestGetRunIdFromState(unittest.TestCase):
@@ -153,6 +155,7 @@ class TestQueueWorkerInit(unittest.TestCase):
             cfg = _make_cfg(tmp)
             worker = QueueWorker(cfg, str(Path(tmp) / "config.yaml"))
             self.assertEqual(worker.max_concurrent, DEFAULT_MAX_CONCURRENT)
+            self.assertFalse(worker.auto_organize)
             self.assertFalse(worker._shutdown_requested)
             self.assertEqual(len(worker._running), 0)
 
@@ -191,11 +194,11 @@ class TestQueueWorkerMethods(unittest.TestCase):
         self.worker._fill_slots()
         self.assertEqual(len(self.worker._running), 0)
 
-    @patch("core.queue_worker.subprocess.Popen")
-    def test_start_job(self, mock_popen: MagicMock) -> None:
+    @patch("core.queue_worker._start_job_process")
+    def test_start_job(self, mock_start_job_process: MagicMock) -> None:
         mock_proc = MagicMock()
         mock_proc.pid = 4321
-        mock_popen.return_value = mock_proc
+        mock_start_job_process.return_value = mock_proc
         entry: QueueEntry = {
             "queue_id": "q_test",
             "app_name": "orca_auto",
@@ -205,22 +208,64 @@ class TestQueueWorkerMethods(unittest.TestCase):
         }
         self.worker._start_job(entry, admission_token="slot_test")
         self.assertIn("q_test", self.worker._running)
-        mock_popen.assert_called_once()
-        self.assertEqual(
-            mock_popen.call_args.kwargs["env"][ADMISSION_TOKEN_ENV_VAR],
-            "slot_test",
-        )
-        self.assertEqual(
-            mock_popen.call_args.kwargs["env"][ADMISSION_APP_NAME_ENV_VAR],
-            "orca_auto",
-        )
-        self.assertEqual(
-            mock_popen.call_args.kwargs["env"][ADMISSION_TASK_ID_ENV_VAR],
-            "task_test_123",
+        mock_start_job_process.assert_called_once_with(
+            reaction_dir=str(self.root / "mol_A"),
+            config_path=str(self.root / "config.yaml"),
+            force=False,
+            admission_token="slot_test",
+            admission_app_name="orca_auto",
+            admission_task_id="task_test_123",
         )
 
-    @patch("core.queue_worker.subprocess.Popen", side_effect=OSError("spawn failed"))
-    def test_start_job_oserror(self, mock_popen: MagicMock) -> None:
+    @patch("core.queue_worker.upsert_job_record")
+    @patch("core.queue_worker.resolve_job_metadata", side_effect=AssertionError("should use queue metadata"))
+    @patch("core.queue_worker._start_job_process")
+    def test_start_job_prefers_queue_metadata_for_tracking(
+        self,
+        mock_start_job_process: MagicMock,
+        mock_resolve_job_metadata: MagicMock,
+        mock_upsert_job_record: MagicMock,
+    ) -> None:
+        reaction_dir = self.root / "mol_meta"
+        reaction_dir.mkdir()
+        selected_inp = reaction_dir / "rxn.inp"
+        selected_inp.write_text("! Opt\n", encoding="utf-8")
+        mock_proc = MagicMock()
+        mock_proc.pid = 4322
+        mock_start_job_process.return_value = mock_proc
+        entry: QueueEntry = {
+            "queue_id": "q_meta",
+            "app_name": "orca_auto",
+            "task_id": "task_meta_123",
+            "reaction_dir": str(reaction_dir),
+            "force": False,
+            "metadata": {
+                "selected_inp": str(selected_inp),
+                "selected_input_xyz": str(selected_inp),
+                "job_type": "opt",
+                "molecule_key": "H2",
+                "resource_request": {"max_cores": 4, "max_memory_gb": 12},
+                "resource_actual": {"max_cores": 4, "max_memory_gb": 12},
+            },
+        }
+
+        self.worker._start_job(entry, admission_token="slot_meta")
+
+        mock_resolve_job_metadata.assert_not_called()
+        mock_upsert_job_record.assert_called_once_with(
+            self.cfg,
+            job_id="task_meta_123",
+            status="running",
+            job_dir=reaction_dir.resolve(),
+            job_type="opt",
+            selected_input_xyz=str(selected_inp),
+            molecule_key="H2",
+            resource_request={"max_cores": 4, "max_memory_gb": 12},
+            resource_actual={"max_cores": 4, "max_memory_gb": 12},
+        )
+
+    @patch("core.queue_worker._start_job_process", side_effect=OSError("spawn failed"))
+    def test_start_job_oserror(self, mock_start_job_process: MagicMock) -> None:
         rxn = self.root / "mol_err"
         rxn.mkdir()
         entry = enqueue(self.root, str(rxn))
@@ -277,6 +322,119 @@ class TestQueueWorkerMethods(unittest.TestCase):
         )
         self.worker._check_completed_jobs()
         self.assertEqual(len(self.worker._running), 0)
+
+    @patch("core.queue_worker._upsert_terminal_job_record")
+    @patch("core.commands.organize.organize_reaction_dir", return_value={"action": "organized", "target_dir": "/tmp/out"})
+    def test_finalize_finished_job_auto_organizes_when_enabled(
+        self,
+        mock_organize: MagicMock,
+        mock_upsert_terminal: MagicMock,
+    ) -> None:
+        self.worker.auto_organize = True
+        rxn = self.root / "mol_auto_organize"
+        rxn.mkdir()
+        entry = enqueue(self.root, str(rxn))
+        dequeue_next(self.root)
+        token = reserve_slot(
+            self.root,
+            self.worker.max_concurrent,
+            reaction_dir=str(rxn),
+            queue_id=entry["queue_id"],
+            source="queue_worker",
+        )
+        self.assertIsNotNone(token)
+
+        self.worker._finalize_finished_job(
+            entry["queue_id"],
+            _RunningJob(
+                queue_id=entry["queue_id"],
+                reaction_dir=str(rxn),
+                process=MagicMock(),
+                admission_token=token or "",
+            ),
+            rc=0,
+        )
+
+        mock_organize.assert_called_once_with(
+            self.cfg,
+            rxn,
+            notify_summary=False,
+        )
+        queue_entries = list_queue(self.root)
+        self.assertEqual(queue_entries[0]["status"], "completed")
+        mock_upsert_terminal.assert_called_once()
+        self.assertEqual(active_slot_count(self.root), 0)
+
+    @patch("core.queue_worker._upsert_terminal_job_record")
+    @patch("core.commands.organize.organize_reaction_dir")
+    def test_finalize_finished_job_skips_auto_organize_when_disabled(
+        self,
+        mock_organize: MagicMock,
+        mock_upsert_terminal: MagicMock,
+    ) -> None:
+        rxn = self.root / "mol_no_auto_organize"
+        rxn.mkdir()
+        entry = enqueue(self.root, str(rxn))
+        dequeue_next(self.root)
+        token = reserve_slot(
+            self.root,
+            self.worker.max_concurrent,
+            reaction_dir=str(rxn),
+            queue_id=entry["queue_id"],
+            source="queue_worker",
+        )
+        self.assertIsNotNone(token)
+
+        self.worker._finalize_finished_job(
+            entry["queue_id"],
+            _RunningJob(
+                queue_id=entry["queue_id"],
+                reaction_dir=str(rxn),
+                process=MagicMock(),
+                admission_token=token or "",
+            ),
+            rc=0,
+        )
+
+        mock_organize.assert_not_called()
+        mock_upsert_terminal.assert_called_once()
+
+    @patch("core.queue_worker._upsert_terminal_job_record")
+    @patch("core.commands.organize.organize_reaction_dir")
+    def test_finalize_finished_job_does_not_auto_organize_failed_run(
+        self,
+        mock_organize: MagicMock,
+        mock_upsert_terminal: MagicMock,
+    ) -> None:
+        self.worker.auto_organize = True
+        rxn = self.root / "mol_failed_no_organize"
+        rxn.mkdir()
+        entry = enqueue(self.root, str(rxn))
+        dequeue_next(self.root)
+        token = reserve_slot(
+            self.root,
+            self.worker.max_concurrent,
+            reaction_dir=str(rxn),
+            queue_id=entry["queue_id"],
+            source="queue_worker",
+        )
+        self.assertIsNotNone(token)
+
+        self.worker._finalize_finished_job(
+            entry["queue_id"],
+            _RunningJob(
+                queue_id=entry["queue_id"],
+                reaction_dir=str(rxn),
+                process=MagicMock(),
+                admission_token=token or "",
+            ),
+            rc=2,
+        )
+
+        mock_organize.assert_not_called()
+        queue_entries = list_queue(self.root)
+        self.assertEqual(queue_entries[0]["status"], "failed")
+        mock_upsert_terminal.assert_called_once()
 
     def test_check_completed_jobs_still_running(self) -> None:
         mock_proc = MagicMock()
@@ -391,10 +549,10 @@ class TestFillSlots(unittest.TestCase):
             rxn.mkdir()
             enqueue(root, str(rxn))
 
-            with patch("core.queue_worker.subprocess.Popen") as mock_popen:
+            with patch("core.queue_worker._start_job_process") as mock_start_job_process:
                 mock_proc = MagicMock()
                 mock_proc.pid = 4101
-                mock_popen.return_value = mock_proc
+                mock_start_job_process.return_value = mock_proc
                 worker._fill_slots()
                 self.assertEqual(len(worker._running), 1)
 
@@ -408,10 +566,10 @@ class TestFillSlots(unittest.TestCase):
             rxn.mkdir()
             entry = enqueue(root, str(rxn))
 
-            with patch("core.queue_worker.subprocess.Popen") as mock_popen:
+            with patch("core.queue_worker._start_job_process") as mock_start_job_process:
                 mock_proc = MagicMock()
                 mock_proc.pid = 4109
-                mock_popen.return_value = mock_proc
+                mock_start_job_process.return_value = mock_proc
                 worker._fill_slots()
 
             slots = list_slots(root)
@@ -431,10 +589,10 @@ class TestFillSlots(unittest.TestCase):
             entry = enqueue(root, str(rxn), task_id="orca_task_preserved_123")
             self.assertNotEqual(entry["queue_id"], entry["task_id"])
 
-            with patch("core.queue_worker.subprocess.Popen") as mock_popen:
+            with patch("core.queue_worker._start_job_process") as mock_start_job_process:
                 mock_proc = MagicMock()
                 mock_proc.pid = 4110
-                mock_popen.return_value = mock_proc
+                mock_start_job_process.return_value = mock_proc
                 worker._fill_slots()
 
             slots = list_slots(root)
@@ -443,15 +601,15 @@ class TestFillSlots(unittest.TestCase):
             self.assertEqual(slots[0]["task_id"], entry["task_id"])
             self.assertNotEqual(slots[0]["queue_id"], slots[0]["task_id"])
             self.assertEqual(
-                mock_popen.call_args.kwargs["env"][ADMISSION_TOKEN_ENV_VAR],
+                mock_start_job_process.call_args.kwargs["admission_token"],
                 slots[0]["token"],
             )
             self.assertEqual(
-                mock_popen.call_args.kwargs["env"][ADMISSION_TASK_ID_ENV_VAR],
+                mock_start_job_process.call_args.kwargs["admission_task_id"],
                 entry["task_id"],
             )
             self.assertEqual(
-                mock_popen.call_args.kwargs["env"][ADMISSION_APP_NAME_ENV_VAR],
+                mock_start_job_process.call_args.kwargs["admission_app_name"],
                 entry["app_name"],
             )
 
@@ -466,10 +624,10 @@ class TestFillSlots(unittest.TestCase):
                 d.mkdir()
                 enqueue(root, str(d))
 
-            with patch("core.queue_worker.subprocess.Popen") as mock_popen:
+            with patch("core.queue_worker._start_job_process") as mock_start_job_process:
                 mock_proc = MagicMock()
                 mock_proc.pid = 4102
-                mock_popen.return_value = mock_proc
+                mock_start_job_process.return_value = mock_proc
                 worker._fill_slots()
                 self.assertEqual(len(worker._running), 1)
 
@@ -484,8 +642,8 @@ class TestFillSlots(unittest.TestCase):
                 reaction_dir.mkdir()
                 enqueue(root, str(reaction_dir))
 
-            with patch("core.queue_worker.subprocess.Popen") as mock_popen:
-                mock_popen.side_effect = [
+            with patch("core.queue_worker._start_job_process") as mock_start_job_process:
+                mock_start_job_process.side_effect = [
                     MagicMock(pid=4103),
                     MagicMock(pid=4104),
                     MagicMock(pid=4105),
@@ -497,7 +655,7 @@ class TestFillSlots(unittest.TestCase):
                 for entry in list_queue(root)
             }
             self.assertEqual(len(worker._running), 3)
-            self.assertEqual(mock_popen.call_count, 3)
+            self.assertEqual(mock_start_job_process.call_count, 3)
             self.assertEqual(
                 queue_by_name,
                 {
@@ -540,8 +698,8 @@ class TestFillSlots(unittest.TestCase):
                 admission_token=completion_token or "",
             )
 
-            with patch("core.queue_worker.subprocess.Popen") as mock_popen:
-                mock_popen.return_value = MagicMock(pid=4106)
+            with patch("core.queue_worker._start_job_process") as mock_start_job_process:
+                mock_start_job_process.return_value = MagicMock(pid=4106)
                 worker._check_completed_jobs()
                 worker._fill_slots()
 
@@ -549,7 +707,7 @@ class TestFillSlots(unittest.TestCase):
                 Path(entry["reaction_dir"]).name: entry["status"]
                 for entry in list_queue(root)
             }
-            self.assertEqual(mock_popen.call_count, 1)
+            self.assertEqual(mock_start_job_process.call_count, 1)
             self.assertEqual(len(worker._running), 1)
             self.assertIn(pending_entry["queue_id"], worker._running)
             self.assertNotIn(completed_entry["queue_id"], worker._running)
@@ -576,14 +734,14 @@ class TestFillSlots(unittest.TestCase):
                 d.mkdir()
                 enqueue(root, str(d))
 
-            with patch("core.queue_worker.subprocess.Popen") as mock_popen:
+            with patch("core.queue_worker._start_job_process") as mock_start_job_process:
                 mock_proc = MagicMock()
                 mock_proc.pid = 4107
-                mock_popen.return_value = mock_proc
+                mock_start_job_process.return_value = mock_proc
                 worker._fill_slots()
 
             self.assertEqual(len(worker._running), 1)
-            self.assertEqual(mock_popen.call_count, 1)
+            self.assertEqual(mock_start_job_process.call_count, 1)
             self.assertGreaterEqual(mock_alive.call_count, 3)
 
     def test_fill_slots_respects_admission_slots_without_run_lock(self) -> None:
@@ -597,11 +755,11 @@ class TestFillSlots(unittest.TestCase):
             enqueue(root, str(queued))
 
             with acquire_direct_slot(root, max_concurrent=1, reaction_dir=str(root / "direct_hold")):
-                with patch("core.queue_worker.subprocess.Popen") as mock_popen:
+                with patch("core.queue_worker._start_job_process") as mock_start_job_process:
                     worker._fill_slots()
 
             self.assertEqual(len(worker._running), 0)
-            mock_popen.assert_not_called()
+            mock_start_job_process.assert_not_called()
 
     @patch("core.process_tracking.is_process_alive", return_value=True)
     def test_fill_slots_stops_when_global_limit_reached(self, mock_alive: MagicMock) -> None:
@@ -617,11 +775,11 @@ class TestFillSlots(unittest.TestCase):
             queued.mkdir()
             enqueue(root, str(queued))
 
-            with patch("core.queue_worker.subprocess.Popen") as mock_popen:
+            with patch("core.queue_worker._start_job_process") as mock_start_job_process:
                 worker._fill_slots()
 
             self.assertEqual(len(worker._running), 0)
-            mock_popen.assert_not_called()
+            mock_start_job_process.assert_not_called()
             self.assertEqual(mock_alive.call_count, 3)
 
     def test_fill_slots_does_not_double_count_worker_jobs_with_lock(self) -> None:
@@ -651,14 +809,14 @@ class TestFillSlots(unittest.TestCase):
             queued.mkdir()
             enqueue(root, str(queued))
 
-            with patch("core.queue_worker.subprocess.Popen") as mock_popen:
+            with patch("core.queue_worker._start_job_process") as mock_start_job_process:
                 mock_proc = MagicMock()
                 mock_proc.pid = 4108
-                mock_popen.return_value = mock_proc
+                mock_start_job_process.return_value = mock_proc
                 worker._fill_slots()
 
             self.assertEqual(len(worker._running), 2)
-            mock_popen.assert_called_once()
+            mock_start_job_process.assert_called_once()
 
 
 class TestQueueStoreWorkerTransitions(unittest.TestCase):

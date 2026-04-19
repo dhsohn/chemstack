@@ -54,6 +54,11 @@ def cmd_queue_worker(args: Any) -> int:
     cfg = load_config(args.config)
     allowed_root = Path(cfg.runtime.allowed_root).expanduser().resolve()
     configured_max_concurrent = max(1, int(cfg.runtime.max_concurrent))
+    auto_organize = bool(getattr(cfg, "behavior", None) and cfg.behavior.auto_organize_on_terminal)
+    if bool(getattr(args, "auto_organize", False)):
+        auto_organize = True
+    elif bool(getattr(args, "no_auto_organize", False)):
+        auto_organize = False
 
     # Check if a worker is already running
     existing_pid = read_worker_pid(allowed_root)
@@ -68,5 +73,6 @@ def cmd_queue_worker(args: Any) -> int:
         cfg,
         args.config,
         max_concurrent=configured_max_concurrent,
+        auto_organize=auto_organize,
     )
     return worker.run()

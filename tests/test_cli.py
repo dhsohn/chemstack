@@ -133,6 +133,38 @@ class TestCli(unittest.TestCase):
         self.assertEqual(args.command, "run-job")
         self.assertEqual(args.reaction_dir, "/tmp/rxn")
 
+    def test_queue_worker_accepts_auto_organize_flag(self) -> None:
+        parser = build_parser()
+        args = parser.parse_args(["queue", "worker", "--auto-organize"])
+
+        self.assertEqual(args.command, "queue")
+        self.assertEqual(args.queue_command, "worker")
+        self.assertTrue(args.auto_organize)
+        self.assertFalse(args.no_auto_organize)
+
+    def test_queue_worker_accepts_no_auto_organize_flag(self) -> None:
+        parser = build_parser()
+        args = parser.parse_args(["queue", "worker", "--no-auto-organize"])
+
+        self.assertEqual(args.command, "queue")
+        self.assertEqual(args.queue_command, "worker")
+        self.assertFalse(args.auto_organize)
+        self.assertTrue(args.no_auto_organize)
+
+    def test_queue_worker_rejects_conflicting_auto_organize_flags(self) -> None:
+        parser = build_parser()
+        with self.assertRaises(SystemExit) as exc:
+            parser.parse_args(["queue", "worker", "--auto-organize", "--no-auto-organize"])
+
+        self.assertEqual(exc.exception.code, 2)
+
+    @patch("core.cli.cmd_run_job", return_value=9)
+    def test_main_dispatches_hidden_run_job_command(self, mock_cmd_run_job: MagicMock) -> None:
+        rc = main(["run-job", "--reaction-dir", "/tmp/rxn"])
+
+        self.assertEqual(rc, 9)
+        mock_cmd_run_job.assert_called_once()
+
     def test_launcher_main_delegates_to_cli_main(self) -> None:
         self.assertIs(launcher_main, main)
 

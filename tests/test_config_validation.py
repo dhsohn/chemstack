@@ -3,6 +3,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import yaml
+
 from core.config import load_config
 
 
@@ -324,6 +326,38 @@ class TestConfigValidation(unittest.TestCase):
             self.assertEqual(common_runtime.allowed_root, str(allowed))
             self.assertEqual(common_runtime.max_concurrent, 6)
             self.assertEqual(common_runtime.resolved_admission_limit, 6)
+
+    def test_behavior_auto_organize_is_loaded(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            allowed = root / "orca_runs"
+            allowed.mkdir()
+            fake_orca = root / "orca"
+            fake_orca.write_text("#!/bin/sh\n", encoding="utf-8")
+
+            cfg_path = root / "orca_auto.yaml"
+            cfg_path.write_text(
+                json.dumps(
+                    {
+                        "runtime": {
+                            "allowed_root": str(allowed),
+                        },
+                        "paths": {"orca_executable": str(fake_orca)},
+                        "behavior": {
+                            "auto_organize_on_terminal": True,
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            cfg = load_config(str(cfg_path))
+            self.assertTrue(cfg.behavior.auto_organize_on_terminal)
+
+    def test_config_example_sets_auto_organize_off_by_default(self) -> None:
+        example_path = Path(__file__).resolve().parents[1] / "config" / "orca_auto.yaml.example"
+        payload = yaml.safe_load(example_path.read_text(encoding="utf-8"))
+
+        self.assertFalse(payload["behavior"]["auto_organize_on_terminal"])
 
     def test_missing_config_file_raises_with_setup_hint(self) -> None:
         with tempfile.TemporaryDirectory() as td:

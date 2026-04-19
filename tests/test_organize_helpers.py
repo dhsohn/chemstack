@@ -6,7 +6,12 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from core.commands.organize import _build_index_record, _build_organize_message, _cmd_organize_apply
+from core.commands.organize import (
+    _build_index_record,
+    _build_organize_message,
+    _cmd_organize_apply,
+    organize_reaction_dir,
+)
 from core.config import AppConfig, PathsConfig, RuntimeConfig
 from core.result_organizer import OrganizePlan, SkipReason
 
@@ -120,6 +125,55 @@ class TestOrganizeHelpers(unittest.TestCase):
         self.assertEqual(captured["failures"], [])
         move_mock.assert_not_called()
         emit_mock.assert_called_once()
+
+    @patch("core.commands.organize._apply_organize_plans")
+    @patch("core.commands.organize._resolve_organize_scope")
+    def test_organize_reaction_dir_returns_organized_payload(
+        self,
+        mock_scope: unittest.mock.MagicMock,
+        mock_apply: unittest.mock.MagicMock,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            cfg = AppConfig(
+                runtime=RuntimeConfig(allowed_root=str(root / "runs"), organized_root=str(root / "organized")),
+                paths=PathsConfig(orca_executable="/usr/bin/true"),
+            )
+            plan = _make_plan(root)
+            mock_scope.return_value = ([plan], [])
+            mock_apply.return_value = {
+                "organized": 1,
+                "skipped": 0,
+                "failed": 0,
+                "failures": [],
+                "_organized_results": [{"_plan": plan}],
+                "_skipped_results": [],
+                "_skip_reasons": [],
+            }
+
+            result = organize_reaction_dir(cfg, plan.source_dir, notify_summary=False)
+
+        self.assertEqual(result["action"], "organized")
+        self.assertEqual(result["run_id"], plan.run_id)
+        self.assertEqual(result["target_dir"], str(plan.target_abs_path))
+
+    @patch("core.commands.organize._resolve_organize_scope")
+    def test_organize_reaction_dir_returns_skip_reason_for_empty_scope(
+        self,
+        mock_scope: unittest.mock.MagicMock,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            cfg = AppConfig(
+                runtime=RuntimeConfig(allowed_root=str(root / "runs"), organized_root=str(root / "organized")),
+                paths=PathsConfig(orca_executable="/usr/bin/true"),
+            )
+            mock_scope.return_value = ([], [SkipReason("rxn_skip", "already_organized")])
+
+            result = organize_reaction_dir(cfg, root / "runs" / "rxn_skip", notify_summary=False)
+
+        self.assertEqual(result["action"], "skipped")
+        self.assertEqual(result["reason"], "already_organized")
 
 
 if __name__ == "__main__":

@@ -9,6 +9,7 @@ from orca_auto import state as orca_state
 from orca_auto.__main__ import main as package_main
 from orca_auto.commands.run_inp import cmd_run_inp
 from orca_auto.runtime.run_lock import acquire_run_lock
+from orca_auto.runtime.worker_job import start_background_run_job
 
 
 def test_orca_auto_cli_reexports_core_main() -> None:
@@ -27,6 +28,7 @@ def test_orca_auto_state_and_runtime_modules_expose_wave5_facades() -> None:
     assert orca_state.write_state is not None
     assert orca_state.write_report_json is not None
     assert acquire_run_lock is not None
+    assert start_background_run_job is not None
 
 
 def test_orca_auto_command_wrappers_import_expected_symbols() -> None:

@@ -92,7 +92,18 @@ def build_parser() -> argparse.ArgumentParser:
     q_cancel = queue_sub.add_parser("cancel", help="Cancel a queued or running job")
     q_cancel.add_argument("target", help="queue_id, reaction_dir, or run_id to cancel; or 'all-pending'")
 
-    queue_sub.add_parser("worker", help="Run the queue worker in the foreground")
+    q_worker = queue_sub.add_parser("worker", help="Run the queue worker in the foreground")
+    auto_group = q_worker.add_mutually_exclusive_group()
+    auto_group.add_argument(
+        "--auto-organize",
+        action="store_true",
+        help="Automatically move completed runs into organized_root after execution",
+    )
+    auto_group.add_argument(
+        "--no-auto-organize",
+        action="store_true",
+        help="Disable automatic organization for this worker invocation",
+    )
 
     return parser
 

@@ -367,6 +367,9 @@ def _resolve_execution_context(
     cfg: Any | None = None,
     reaction_dir: Path | None = None,
     selected_inp: Path | None = None,
+    reservation_token: str | None = None,
+    admission_app_name: str | None = None,
+    admission_task_id: str | None = None,
 ) -> RunExecutionContext | None:
     if cfg is None:
         cfg = load_config(args.config)
@@ -386,9 +389,15 @@ def _resolve_execution_context(
         max_retries=max(0, int(cfg.runtime.default_max_retries)),
         max_concurrent=_configured_max_concurrent(cfg),
         admission_limit=_configured_admission_limit(cfg),
-        reservation_token=os.getenv(ADMISSION_TOKEN_ENV_VAR, "").strip() or None,
-        admission_app_name=os.getenv(ADMISSION_APP_NAME_ENV_VAR, "").strip() or None,
-        admission_task_id=os.getenv(ADMISSION_TASK_ID_ENV_VAR, "").strip() or None,
+        reservation_token=reservation_token
+        if reservation_token is not None
+        else (os.getenv(ADMISSION_TOKEN_ENV_VAR, "").strip() or None),
+        admission_app_name=admission_app_name
+        if admission_app_name is not None
+        else (os.getenv(ADMISSION_APP_NAME_ENV_VAR, "").strip() or None),
+        admission_task_id=admission_task_id
+        if admission_task_id is not None
+        else (os.getenv(ADMISSION_TASK_ID_ENV_VAR, "").strip() or None),
     )
 
 
@@ -484,21 +493,64 @@ def _build_queue_enqueued_notification(entry: QueueEntry) -> QueueEnqueuedNotifi
     }
 
 
+def _resource_caps(cfg: Any) -> dict[str, int]:
+    from orca_auto.job_locations import resource_dict
+
+    return resource_dict(
+        cfg.resources.max_cores_per_task,
+        cfg.resources.max_memory_gb_per_task,
+    )
+
+
+def _build_queue_metadata(
+    cfg: Any,
+    *,
+    reaction_dir: Path,
+    selected_inp: Path | None,
+) -> dict[str, Any]:
+    from orca_auto.job_locations import resolve_job_metadata
+
+    selected_input = str(selected_inp) if selected_inp is not None else ""
+    job_type, molecule_key = resolve_job_metadata(selected_input, reaction_dir)
+    requested = _resource_caps(cfg)
+    metadata: dict[str, Any] = {
+        "submitted_via": "run_inp",
+        "max_retries": max(0, int(cfg.runtime.default_max_retries)),
+        "job_type": job_type,
+        "molecule_key": molecule_key,
+        "resource_request": requested,
+        "resource_actual": dict(requested),
+    }
+    if selected_inp is not None:
+        metadata["selected_inp"] = str(selected_inp)
+        metadata["selected_input_xyz"] = str(selected_inp)
+    return metadata
+
+
 def _upsert_queued_job_record(
     cfg: Any,
     *,
     reaction_dir: Path,
     selected_inp: Path | None,
     job_id: str,
+    queue_metadata: dict[str, Any] | None = None,
 ) -> None:
-    from orca_auto.job_locations import resolve_job_metadata, resource_dict, upsert_job_record
+    from orca_auto.job_locations import resolve_job_metadata, upsert_job_record
 
     selected_input = str(selected_inp) if selected_inp is not None else ""
-    job_type, molecule_key = resolve_job_metadata(selected_input, reaction_dir)
-    requested = resource_dict(
-        cfg.resources.max_cores_per_task,
-        cfg.resources.max_memory_gb_per_task,
-    )
+    metadata = dict(queue_metadata or {})
+    job_type = str(metadata.get("job_type") or "").strip()
+    molecule_key = str(metadata.get("molecule_key") or "").strip()
+    if not job_type or not molecule_key:
+        derived_job_type, derived_molecule_key = resolve_job_metadata(selected_input, reaction_dir)
+        job_type = job_type or derived_job_type
+        molecule_key = molecule_key or derived_molecule_key
+    requested = metadata.get("resource_request")
+    if not isinstance(requested, dict):
+        requested = _resource_caps(cfg)
+    actual = metadata.get("resource_actual")
+    if not isinstance(actual, dict):
+        actual = dict(requested)
     upsert_job_record(
         cfg,
         job_id=job_id,
@@ -508,7 +560,7 @@ def _upsert_queued_job_record(
         selected_input_xyz=selected_input,
         molecule_key=molecule_key,
         resource_request=requested,
-        resource_actual=requested,
+        resource_actual=actual,
     )
 
 
@@ -527,12 +579,11 @@ def _submit_as_queued(
             selected_inp = _select_latest_inp(reaction_dir)
         except ValueError:
             selected_inp = None
-    queue_metadata: dict[str, Any] = {
-        "submitted_via": "run_inp",
-        "max_retries": max(0, int(cfg.runtime.default_max_retries)),
-    }
-    if selected_inp is not None:
-        queue_metadata["selected_inp"] = str(selected_inp)
+    queue_metadata = _build_queue_metadata(
+        cfg,
+        reaction_dir=reaction_dir,
+        selected_inp=selected_inp,
+    )
     try:
         entry = enqueue(
             allowed_root,
@@ -552,6 +603,7 @@ def _submit_as_queued(
             reaction_dir=reaction_dir,
             selected_inp=selected_inp,
             job_id=task_id,
+            queue_metadata=queue_metadata,
         )
 
     notification = _build_queue_enqueued_notification(entry)
@@ -640,12 +692,18 @@ def _cmd_run_inp_execute(
     cfg: Any | None = None,
     reaction_dir: Path | None = None,
     selected_inp: Path | None = None,
+    reservation_token: str | None = None,
+    admission_app_name: str | None = None,
+    admission_task_id: str | None = None,
 ) -> int:
     context = _resolve_execution_context(
         args,
         cfg=cfg,
         reaction_dir=reaction_dir,
         selected_inp=selected_inp,
+        reservation_token=reservation_token,
+        admission_app_name=admission_app_name,
+        admission_task_id=admission_task_id,
     )
     if context is None:
         return 1

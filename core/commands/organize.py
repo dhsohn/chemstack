@@ -322,6 +322,28 @@ def _cmd_organize_apply(
     organized_root: Path,
     cfg: AppConfig,
 ) -> int:
+    summary = _apply_organize_plans(
+        plans,
+        skips,
+        organized_root,
+        cfg,
+        notify_summary=True,
+    )
+    return finalize_batch_apply(
+        summary,
+        _emit_organize,
+        summary["failures"],
+    )
+
+
+def _apply_organize_plans(
+    plans: list[OrganizePlan],
+    skips: list[SkipReason],
+    organized_root: Path,
+    cfg: AppConfig,
+    *,
+    notify_summary: bool,
+) -> Dict[str, Any]:
     from ..organize_index import append_failed_rollback
 
     results: list[Dict[str, Any]] = []
@@ -378,19 +400,115 @@ def _cmd_organize_apply(
         "skipped": skipped_count,
         "failed": len(failures),
         "failures": failures,
+        "_organized_results": organized,
+        "_skipped_results": skipped_results,
+        "_skip_reasons": skips,
     }
 
-    _send_organize_notification(
-        cfg,
-        organized=organized,
-        skipped_results=skipped_results,
-        failures=failures,
-        skips=skips,
-    )
+    if notify_summary:
+        _send_organize_notification(
+            cfg,
+            organized=organized,
+            skipped_results=skipped_results,
+            failures=failures,
+            skips=skips,
+        )
 
-    return finalize_batch_apply(
-        summary, _emit_organize, failures,
+    return summary
+
+
+def organize_reaction_dir(
+    cfg: AppConfig,
+    reaction_dir: Path,
+    *,
+    notify_summary: bool = True,
+) -> Dict[str, Any]:
+    organized_root = Path(cfg.runtime.organized_root).resolve()
+    scope = _resolve_organize_scope(
+        cfg,
+        organized_root=organized_root,
+        reaction_dir_raw=str(reaction_dir),
+        root_raw=None,
     )
+    if scope is None:
+        return {
+            "action": "failed",
+            "reaction_dir": str(reaction_dir),
+            "reason": "invalid_reaction_dir",
+        }
+
+    plans, skips = scope
+    if not plans:
+        if skips:
+            first_skip = skips[0]
+            return {
+                "action": "skipped",
+                "reaction_dir": first_skip.reaction_dir,
+                "reason": first_skip.reason,
+            }
+        return {
+            "action": "skipped",
+            "reaction_dir": str(reaction_dir),
+            "reason": "nothing_to_organize",
+        }
+
+    summary = _apply_organize_plans(
+        plans,
+        skips,
+        organized_root,
+        cfg,
+        notify_summary=notify_summary,
+    )
+    organized = summary.get("_organized_results", [])
+    skipped_results = summary.get("_skipped_results", [])
+
+    if summary.get("failed"):
+        failure = next(
+            (item for item in summary["failures"] if isinstance(item, dict)),
+            {},
+        )
+        return {
+            "action": "failed",
+            "reaction_dir": str(reaction_dir),
+            "reason": str(failure.get("reason") or "organize_failed"),
+            "run_id": str(failure.get("run_id") or ""),
+        }
+
+    if organized:
+        organized_item = organized[0]
+        plan = organized_item.get("_plan")
+        if isinstance(plan, OrganizePlan):
+            return {
+                "action": "organized",
+                "reaction_dir": str(plan.source_dir),
+                "run_id": plan.run_id,
+                "target_dir": str(plan.target_abs_path),
+                "job_type": plan.job_type,
+                "molecule_key": plan.molecule_key,
+            }
+
+    if skipped_results:
+        skipped_item = skipped_results[0]
+        return {
+            "action": "skipped",
+            "reaction_dir": str(reaction_dir),
+            "reason": str(skipped_item.get("reason") or "skipped"),
+            "run_id": str(skipped_item.get("run_id") or ""),
+        }
+
+    if skips:
+        first_skip = skips[0]
+        return {
+            "action": "skipped",
+            "reaction_dir": first_skip.reaction_dir,
+            "reason": first_skip.reason,
+        }
+
+    return {
+        "action": "skipped",
+        "reaction_dir": str(reaction_dir),
+        "reason": "nothing_to_organize",
+    }
 
 
 def cmd_organize(args: Any) -> int:
