@@ -1,8 +1,4 @@
 from __future__ import annotations
 
-import sys
-from importlib import import_module
-
-
-_MODULE = import_module("core.cli")
-sys.modules[__name__] = _MODULE
+from core.cli import *  # noqa: F401,F403
+from core.cli import main

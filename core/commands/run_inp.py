@@ -51,7 +51,7 @@ class RunExecutionContext:
     admission_root: Path
     max_retries: int
     max_concurrent: int
-    admission_max_concurrent: int
+    admission_limit: int
     reservation_token: str | None
 
 
@@ -166,12 +166,18 @@ def _configured_max_concurrent(cfg: Any) -> int:
 
 
 def _configured_admission_root(cfg: Any) -> Path:
-    raw = getattr(cfg.runtime, "admission_root", "") or getattr(cfg.runtime, "allowed_root", "")
+    raw = (
+        getattr(cfg.runtime, "resolved_admission_root", None)
+        or getattr(cfg.runtime, "admission_root", "")
+        or getattr(cfg.runtime, "allowed_root", "")
+    )
     return Path(str(raw)).expanduser().resolve()
 
 
-def _configured_admission_max_concurrent(cfg: Any) -> int:
-    raw = getattr(cfg.runtime, "admission_max_concurrent", None)
+def _configured_admission_limit(cfg: Any) -> int:
+    raw: object | None = getattr(cfg.runtime, "admission_limit", None)
+    if raw in {None, ""} and not hasattr(cfg.runtime, "admission_limit"):
+        raw = getattr(cfg.runtime, "admission_max_concurrent", None)
     if raw in {None, ""}:
         return _configured_max_concurrent(cfg)
     try:
@@ -180,7 +186,7 @@ def _configured_admission_max_concurrent(cfg: Any) -> int:
         elif isinstance(raw, (int, float, str)):
             value = int(raw)
         else:
-            raise TypeError("Unsupported admission_max_concurrent type")
+            raise TypeError("Unsupported admission_limit type")
     except (TypeError, ValueError):
         value = _configured_max_concurrent(cfg)
     return max(1, value)
@@ -370,7 +376,7 @@ def _resolve_execution_context(
         admission_root=_configured_admission_root(cfg),
         max_retries=max(0, int(cfg.runtime.default_max_retries)),
         max_concurrent=_configured_max_concurrent(cfg),
-        admission_max_concurrent=_configured_admission_max_concurrent(cfg),
+        admission_limit=_configured_admission_limit(cfg),
         reservation_token=os.getenv(ADMISSION_TOKEN_ENV_VAR, "").strip() or None,
     )
 
@@ -379,7 +385,7 @@ def _admission_context(
     *,
     admission_root: Path,
     reaction_dir: Path,
-    admission_max_concurrent: int,
+    admission_limit: int,
     reservation_token: str | None,
 ) -> AbstractContextManager[str]:
     if reservation_token is not None:
@@ -391,7 +397,7 @@ def _admission_context(
         )
     return acquire_direct_slot(
         admission_root,
-        max_concurrent=admission_max_concurrent,
+        max_concurrent=admission_limit,
         reaction_dir=str(reaction_dir),
     )
 
@@ -530,7 +536,7 @@ def _execute_locked_run(
         with _admission_context(
             admission_root=context.admission_root,
             reaction_dir=context.reaction_dir,
-            admission_max_concurrent=context.admission_max_concurrent,
+            admission_limit=context.admission_limit,
             reservation_token=context.reservation_token,
         ):
             state, resumed = load_or_create_state(

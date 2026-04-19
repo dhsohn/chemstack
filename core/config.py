@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Dict
 
 import yaml
+
 from .config_validation import (
     _as_int,
     _as_str,
@@ -58,22 +59,84 @@ def _placeholder_settings_error(path: Path, placeholder_keys: list[str]) -> Valu
 
 
 @dataclass
-class RuntimeConfig:
+class CommonResourceConfig:
+    max_cores_per_task: int = 8
+    max_memory_gb_per_task: int = 32
+
+
+@dataclass
+class CommonRuntimeConfig:
     allowed_root: str = ""
     organized_root: str = ""
     # max retry count, not total execution count
     default_max_retries: int = 2
     max_concurrent: int = 4
     admission_root: str = ""
-    admission_max_concurrent: int | None = None
+    admission_limit: int | None = None
 
     def __post_init__(self) -> None:
+        self.default_max_retries = max(0, _as_int(self.default_max_retries, 2))
+        self.max_concurrent = max(1, _as_int(self.max_concurrent, 4))
         if not self.organized_root and self.allowed_root:
             self.organized_root = _default_organized_root(self.allowed_root)
         if not self.admission_root and self.allowed_root:
             self.admission_root = self.allowed_root
-        if self.admission_max_concurrent is not None and self.admission_max_concurrent < 1:
-            self.admission_max_concurrent = max(1, self.max_concurrent)
+        if self.admission_limit is not None:
+            try:
+                if isinstance(self.admission_limit, bool):
+                    normalized_limit = int(self.admission_limit)
+                elif isinstance(self.admission_limit, (int, str)):
+                    normalized_limit = int(self.admission_limit)
+                else:
+                    raise TypeError("Unsupported admission_limit type")
+            except (TypeError, ValueError):
+                normalized_limit = self.max_concurrent
+            self.admission_limit = normalized_limit
+            if self.admission_limit < 1:
+                self.admission_limit = max(1, self.max_concurrent)
+
+    @property
+    def resolved_admission_root(self) -> str:
+        return self.admission_root or self.allowed_root
+
+    @property
+    def resolved_admission_limit(self) -> int:
+        if self.admission_limit is not None:
+            return max(1, int(self.admission_limit))
+        return max(1, int(self.max_concurrent))
+
+    def to_common_runtime_config(self) -> CommonRuntimeConfig:
+        return CommonRuntimeConfig(
+            allowed_root=self.allowed_root,
+            organized_root=self.organized_root,
+            default_max_retries=self.default_max_retries,
+            max_concurrent=self.max_concurrent,
+            admission_root=self.admission_root,
+            admission_limit=self.admission_limit,
+        )
+
+    @property
+    def admission_max_concurrent(self) -> int:
+        return self.resolved_admission_limit
+
+    @admission_max_concurrent.setter
+    def admission_max_concurrent(self, value: int | str | None) -> None:
+        if value in {None, ""}:
+            self.admission_limit = None
+            return
+        try:
+            if isinstance(value, bool):
+                normalized_limit = int(value)
+            elif isinstance(value, (int, str)):
+                normalized_limit = int(value)
+            else:
+                raise TypeError("Unsupported admission_limit type")
+        except (TypeError, ValueError):
+            normalized_limit = self.max_concurrent
+        self.admission_limit = normalized_limit
+
+
+RuntimeConfig = CommonRuntimeConfig
 
 
 @dataclass
@@ -93,8 +156,9 @@ class TelegramConfig:
 
 @dataclass
 class AppConfig:
-    runtime: RuntimeConfig = field(default_factory=RuntimeConfig)
+    runtime: CommonRuntimeConfig = field(default_factory=CommonRuntimeConfig)
     paths: PathsConfig = field(default_factory=PathsConfig)
+    resources: CommonResourceConfig = field(default_factory=CommonResourceConfig)
     telegram: TelegramConfig = field(default_factory=TelegramConfig)
 
 
@@ -112,6 +176,7 @@ def load_config(config_path: str) -> AppConfig:
     runtime_raw = raw.get("runtime", {}) if isinstance(raw.get("runtime", {}), dict) else {}
     paths_raw = raw.get("paths", {}) if isinstance(raw.get("paths", {}), dict) else {}
     telegram_raw = raw.get("telegram", {}) if isinstance(raw.get("telegram", {}), dict) else {}
+    resources_raw = raw.get("resources", {}) if isinstance(raw.get("resources", {}), dict) else {}
 
     if "platform_mode" in runtime_raw:
         raise ValueError(
@@ -146,12 +211,17 @@ def load_config(config_path: str) -> AppConfig:
         runtime_raw.get("admission_root"),
         allowed_root,
     )
-    admission_max_concurrent = _as_int(
-        runtime_raw.get("admission_max_concurrent"),
-        max_concurrent,
-    )
-    if admission_max_concurrent < 1:
-        raise ValueError("runtime.admission_max_concurrent must be an integer >= 1.")
+
+    admission_limit_key = "runtime.admission_limit"
+    raw_admission_limit = runtime_raw.get("admission_limit")
+    if raw_admission_limit in {None, ""} and "admission_max_concurrent" in runtime_raw:
+        raw_admission_limit = runtime_raw.get("admission_max_concurrent")
+        admission_limit_key = "runtime.admission_max_concurrent"
+    admission_limit: int | None = None
+    if raw_admission_limit not in {None, ""}:
+        admission_limit = _as_int(raw_admission_limit, max_concurrent)
+        if admission_limit < 1:
+            raise ValueError(f"{admission_limit_key} must be an integer >= 1.")
 
     telegram_cfg = TelegramConfig(
         bot_token=_as_str(telegram_raw.get("bot_token"), ""),
@@ -159,16 +229,20 @@ def load_config(config_path: str) -> AppConfig:
     )
 
     cfg = AppConfig(
-        runtime=RuntimeConfig(
+        runtime=CommonRuntimeConfig(
             allowed_root=allowed_root,
             organized_root=organized_root,
             default_max_retries=max(0, default_max_retries),
             max_concurrent=max_concurrent,
             admission_root=admission_root,
-            admission_max_concurrent=admission_max_concurrent,
+            admission_limit=admission_limit,
         ),
         paths=PathsConfig(
             orca_executable=orca_executable,
+        ),
+        resources=CommonResourceConfig(
+            max_cores_per_task=max(1, _as_int(resources_raw.get("max_cores_per_task"), 8)),
+            max_memory_gb_per_task=max(1, _as_int(resources_raw.get("max_memory_gb_per_task"), 32)),
         ),
         telegram=telegram_cfg,
     )
@@ -185,12 +259,12 @@ def load_config(config_path: str) -> AppConfig:
     _validate_config(cfg)
 
     logger.info(
-        "Config loaded: allowed_root=%s, organized_root=%s, admission_root=%s, orca_executable=%s, max_concurrent=%d, admission_max_concurrent=%d",
+        "Config loaded: allowed_root=%s, organized_root=%s, admission_root=%s, orca_executable=%s, max_concurrent=%d, admission_limit=%d",
         cfg.runtime.allowed_root,
         cfg.runtime.organized_root,
-        cfg.runtime.admission_root,
+        cfg.runtime.resolved_admission_root,
         cfg.paths.orca_executable,
         cfg.runtime.max_concurrent,
-        cfg.runtime.admission_max_concurrent,
+        cfg.runtime.resolved_admission_limit,
     )
     return cfg

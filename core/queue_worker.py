@@ -161,21 +161,29 @@ class QueueWorker:
         self.config_path = config_path
         self.max_concurrent = max(1, max_concurrent)
         self.allowed_root = Path(cfg.runtime.allowed_root).expanduser().resolve()
-        self.admission_root = Path(cfg.runtime.admission_root).expanduser().resolve()
-        raw_admission_max_concurrent = getattr(cfg.runtime, "admission_max_concurrent", None)
-        if raw_admission_max_concurrent in {None, ""}:
-            self.admission_max_concurrent = self.max_concurrent
+        resolved_admission_root = getattr(cfg.runtime, "resolved_admission_root", None)
+        admission_root_raw = (
+            resolved_admission_root
+            or getattr(cfg.runtime, "admission_root", "")
+            or cfg.runtime.allowed_root
+        )
+        self.admission_root = Path(admission_root_raw).expanduser().resolve()
+        raw_admission_limit: object | None = getattr(cfg.runtime, "admission_limit", None)
+        if raw_admission_limit in {None, ""} and not hasattr(cfg.runtime, "admission_limit"):
+            raw_admission_limit = getattr(cfg.runtime, "admission_max_concurrent", None)
+        if raw_admission_limit in {None, ""}:
+            self.admission_limit = self.max_concurrent
         else:
             try:
-                if isinstance(raw_admission_max_concurrent, bool):
-                    admission_limit = int(raw_admission_max_concurrent)
-                elif isinstance(raw_admission_max_concurrent, (int, float, str)):
-                    admission_limit = int(raw_admission_max_concurrent)
+                if isinstance(raw_admission_limit, bool):
+                    normalized_limit = int(raw_admission_limit)
+                elif isinstance(raw_admission_limit, (int, float, str)):
+                    normalized_limit = int(raw_admission_limit)
                 else:
-                    raise TypeError("Unsupported admission_max_concurrent type")
-                self.admission_max_concurrent = max(1, admission_limit)
+                    raise TypeError("Unsupported admission_limit type")
+                self.admission_limit = max(1, normalized_limit)
             except (TypeError, ValueError):
-                self.admission_max_concurrent = self.max_concurrent
+                self.admission_limit = self.max_concurrent
         self._running: Dict[str, _RunningJob] = {}  # queue_id → job
         self._shutdown_requested = False
 
@@ -185,8 +193,8 @@ class QueueWorker:
         self._write_pid_file()
         self._reconcile_orphaned_running()
         logger.info(
-            "Queue worker started (pid=%d, max_concurrent=%d, admission_root=%s, admission_max_concurrent=%d)",
-            os.getpid(), self.max_concurrent, self.admission_root, self.admission_max_concurrent,
+            "Queue worker started (pid=%d, max_concurrent=%d, admission_root=%s, admission_limit=%d)",
+            os.getpid(), self.max_concurrent, self.admission_root, self.admission_limit,
         )
 
         try:
@@ -222,13 +230,13 @@ class QueueWorker:
         while len(self._running) < self.max_concurrent:
             admission_token = reserve_slot(
                 self.admission_root,
-                self.admission_max_concurrent,
+                self.admission_limit,
                 source="queue_worker",
             )
             if admission_token is None:
                 logger.debug(
-                    "Queue worker admission paused: admission slots are full (admission_max_concurrent=%d)",
-                    self.admission_max_concurrent,
+                    "Queue worker admission paused: admission slots are full (admission_limit=%d)",
+                    self.admission_limit,
                 )
                 break
             entry = dequeue_next(self.allowed_root)

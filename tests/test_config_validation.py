@@ -238,6 +238,93 @@ class TestConfigValidation(unittest.TestCase):
                 load_config(str(cfg_path))
             self.assertIn("runtime.max_concurrent", str(ctx.exception))
 
+    def test_admission_limit_is_loaded_from_runtime_config(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            allowed = root / "orca_runs"
+            allowed.mkdir()
+            fake_orca = root / "orca"
+            fake_orca.write_text("#!/bin/sh\n", encoding="utf-8")
+
+            cfg_path = root / "orca_auto.yaml"
+            cfg_path.write_text(
+                json.dumps(
+                    {
+                        "runtime": {
+                            "allowed_root": str(allowed),
+                            "admission_limit": 3,
+                        },
+                        "paths": {"orca_executable": str(fake_orca)},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            cfg = load_config(str(cfg_path))
+            self.assertEqual(cfg.runtime.admission_limit, 3)
+            self.assertEqual(cfg.runtime.resolved_admission_limit, 3)
+            self.assertEqual(cfg.runtime.admission_max_concurrent, 3)
+
+    def test_legacy_admission_max_concurrent_is_supported(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            allowed = root / "orca_runs"
+            allowed.mkdir()
+            fake_orca = root / "orca"
+            fake_orca.write_text("#!/bin/sh\n", encoding="utf-8")
+
+            cfg_path = root / "orca_auto.yaml"
+            cfg_path.write_text(
+                json.dumps(
+                    {
+                        "runtime": {
+                            "allowed_root": str(allowed),
+                            "admission_max_concurrent": 5,
+                        },
+                        "paths": {"orca_executable": str(fake_orca)},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            cfg = load_config(str(cfg_path))
+            self.assertEqual(cfg.runtime.admission_limit, 5)
+            self.assertEqual(cfg.runtime.resolved_admission_limit, 5)
+            self.assertEqual(cfg.runtime.admission_max_concurrent, 5)
+
+    def test_resources_section_and_common_runtime_conversion_are_loaded(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            allowed = root / "orca_runs"
+            allowed.mkdir()
+            fake_orca = root / "orca"
+            fake_orca.write_text("#!/bin/sh\n", encoding="utf-8")
+
+            cfg_path = root / "orca_auto.yaml"
+            cfg_path.write_text(
+                json.dumps(
+                    {
+                        "runtime": {
+                            "allowed_root": str(allowed),
+                            "max_concurrent": 6,
+                        },
+                        "paths": {"orca_executable": str(fake_orca)},
+                        "resources": {
+                            "max_cores_per_task": 12,
+                            "max_memory_gb_per_task": 48,
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            cfg = load_config(str(cfg_path))
+
+            self.assertEqual(cfg.resources.max_cores_per_task, 12)
+            self.assertEqual(cfg.resources.max_memory_gb_per_task, 48)
+
+            common_runtime = cfg.runtime.to_common_runtime_config()
+            self.assertEqual(common_runtime.allowed_root, str(allowed))
+            self.assertEqual(common_runtime.max_concurrent, 6)
+            self.assertEqual(common_runtime.resolved_admission_limit, 6)
+
     def test_missing_config_file_raises_with_setup_hint(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             cfg_path = Path(td) / "orca_auto.yaml"

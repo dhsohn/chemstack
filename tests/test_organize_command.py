@@ -20,7 +20,7 @@ def _make_cfg(tmp: str) -> AppConfig:
             organized_root=str(Path(tmp) / "organized"),
         ),
         paths=PathsConfig(),
-        telegram=TelegramConfig(enabled=False),
+        telegram=TelegramConfig(),
     )
 
 
