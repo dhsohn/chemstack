@@ -7,9 +7,12 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from core.admission_store import (
+    ADMISSION_APP_NAME_ENV_VAR,
+    ADMISSION_TASK_ID_ENV_VAR,
     ADMISSION_TOKEN_ENV_VAR,
     acquire_direct_slot,
     active_slot_count,
+    list_slots,
     reserve_slot,
 )
 from core.commands.run_inp import _cmd_run_inp_execute
@@ -117,6 +120,46 @@ class TestRunInpAdmission(unittest.TestCase):
 
             self.assertEqual(rc, 0)
             self.assertTrue(mock_run_attempts.called)
+            self.assertEqual(active_slot_count(root), 0)
+
+    @patch("core.commands.run_inp.load_config")
+    def test_reserved_slot_activation_attaches_task_metadata_from_worker_env(
+        self,
+        mock_load_config: MagicMock,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            cfg = _make_cfg(tmp)
+            mock_load_config.return_value = cfg
+            reaction_dir = root / "rxn_meta"
+            _write_inp(reaction_dir)
+
+            token = reserve_slot(root, 1, queue_id="q_meta", source="queue_worker")
+            self.assertIsNotNone(token)
+            observed_slots: list[dict[str, object]] = []
+
+            def _fake_run_attempts(*args, **kwargs) -> int:
+                slots = list_slots(root)
+                self.assertEqual(len(slots), 1)
+                observed_slots.append(dict(slots[0]))
+                return 0
+
+            with patch("core.commands.run_inp.run_attempts", new=_fake_run_attempts), patch.dict(
+                os.environ,
+                {
+                    ADMISSION_TOKEN_ENV_VAR: token or "",
+                    ADMISSION_APP_NAME_ENV_VAR: "orca_auto",
+                    ADMISSION_TASK_ID_ENV_VAR: "task_meta_456",
+                },
+                clear=False,
+            ):
+                rc = _cmd_run_inp_execute(_make_args(root, reaction_dir))
+
+            self.assertEqual(rc, 0)
+            self.assertEqual(len(observed_slots), 1)
+            self.assertEqual(observed_slots[0]["app_name"], "orca_auto")
+            self.assertEqual(observed_slots[0]["task_id"], "task_meta_456")
+            self.assertEqual(observed_slots[0]["reaction_dir"], str(reaction_dir))
             self.assertEqual(active_slot_count(root), 0)
 
     @patch("core.commands.run_inp.load_config")

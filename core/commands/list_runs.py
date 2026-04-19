@@ -8,7 +8,15 @@ from pathlib import Path
 from typing import Any
 
 from ..config import load_config
-from ..queue_store import clear_terminal, list_queue, reconcile_orphaned_running_entries
+from ..queue_store import (
+    clear_terminal,
+    list_queue,
+    queue_entry_id,
+    queue_entry_priority,
+    queue_entry_reaction_dir,
+    queue_entry_status,
+    reconcile_orphaned_running_entries,
+)
 from ..run_snapshot import RunSnapshot, collect_run_snapshots, elapsed_text
 from ..state_store import STATE_FILE_NAME, load_state
 from ..statuses import QueueStatus, RunStatus
@@ -83,11 +91,11 @@ def _match_queue_snapshot(
     if run_id:
         return snapshot_by_run_id.get(run_id)
 
-    status = str(entry.get("status", "")).strip().lower()
+    status = queue_entry_status(entry)
     if status not in _ACTIVE_QUEUE_STATUSES:
         return None
 
-    reaction_dir = _resolved_path_text(entry.get("reaction_dir", ""))
+    reaction_dir = _resolved_path_text(queue_entry_reaction_dir(entry))
     if not reaction_dir:
         return None
     return snapshot_by_dir.get(reaction_dir)
@@ -101,16 +109,16 @@ def _queue_entry_represents_snapshot(entry: QueueEntry, snapshot: RunSnapshot | 
     if run_id and run_id == snapshot.run_id:
         return True
 
-    status = str(entry.get("status", "")).strip().lower()
+    status = queue_entry_status(entry)
     if status not in _ACTIVE_QUEUE_STATUSES:
         return False
 
-    reaction_dir = _resolved_path_text(entry.get("reaction_dir", ""))
+    reaction_dir = _resolved_path_text(queue_entry_reaction_dir(entry))
     return bool(reaction_dir) and reaction_dir == _resolved_path_text(str(snapshot.reaction_dir))
 
 
 def _build_queue_row(entry: QueueEntry, snapshot: RunSnapshot | None) -> tuple[dict[str, str], bool]:
-    status = str(entry.get("status", "?"))
+    status = queue_entry_status(entry) or "?"
     icon = _status_icon(status)
 
     if snapshot is not None:
@@ -130,10 +138,10 @@ def _build_queue_row(entry: QueueEntry, snapshot: RunSnapshot | None) -> tuple[d
 
     row = {
         "icon": icon,
-        "id": str(entry.get("queue_id", "?")),
+        "id": queue_entry_id(entry) or "?",
         "status": status,
-        "pri": str(entry.get("priority", "-")),
-        "dir": Path(str(entry.get("reaction_dir", ""))).name if entry.get("reaction_dir", "") else "?",
+        "pri": str(queue_entry_priority(entry)),
+        "dir": Path(queue_entry_reaction_dir(entry)).name if queue_entry_reaction_dir(entry) else "?",
         "elapsed": elapsed,
         "inp": inp,
         "attempts": attempts,

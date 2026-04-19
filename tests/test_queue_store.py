@@ -43,7 +43,13 @@ class TestQueueStore(unittest.TestCase):
         entry = enqueue(self.root, str(self.root / "mol_A"))
         self.assertEqual(entry["status"], QueueStatus.PENDING.value)
         self.assertTrue(entry["queue_id"].startswith("q_"))
+        self.assertEqual(entry["app_name"], "orca_auto")
+        self.assertTrue(entry["task_id"].startswith("orca_"))
+        self.assertEqual(entry["task_kind"], "orca_run_inp")
+        self.assertEqual(entry["engine"], "orca")
         self.assertEqual(entry["priority"], 10)
+        self.assertEqual(entry["metadata"]["reaction_dir"], entry["reaction_dir"])
+        self.assertFalse(entry["metadata"]["force"])
 
     def test_enqueue_writes_queue_file(self) -> None:
         enqueue(self.root, str(self.root / "mol_A"))

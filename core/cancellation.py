@@ -10,7 +10,13 @@ from pathlib import Path
 from typing import Literal
 
 from .process_tracking import active_run_lock_pid
-from .queue_store import cancel as queue_cancel, list_queue
+from .queue_store import (
+    cancel as queue_cancel,
+    list_queue,
+    queue_entry_id,
+    queue_entry_reaction_dir,
+    queue_entry_status,
+)
 from .state_store import STATE_FILE_NAME, load_state
 from .statuses import QueueStatus
 from .types import QueueEntry
@@ -85,9 +91,9 @@ def cancel_target(allowed_root: Path, target: str) -> CancelResult | None:
 def _active_queue_candidates(allowed_root: Path) -> list[_CancelCandidate]:
     candidates: list[_CancelCandidate] = []
     for entry in list_queue(allowed_root):
-        if entry.get("status") not in _ACTIVE_QUEUE_STATUSES:
+        if queue_entry_status(entry) not in _ACTIVE_QUEUE_STATUSES:
             continue
-        reaction_dir = str(entry.get("reaction_dir", ""))
+        reaction_dir = queue_entry_reaction_dir(entry)
         if not reaction_dir:
             continue
         run_id = _run_id_for_reaction_dir(reaction_dir)
@@ -95,7 +101,7 @@ def _active_queue_candidates(allowed_root: Path) -> list[_CancelCandidate]:
             _CancelCandidate(
                 source="queue",
                 reaction_dir=reaction_dir,
-                queue_id=entry.get("queue_id"),
+                queue_id=queue_entry_id(entry) or None,
                 run_id=run_id,
             )
         )
@@ -174,10 +180,10 @@ def _run_id_for_reaction_dir(reaction_dir: str) -> str | None:
 def _queue_result(entry: QueueEntry | None) -> CancelResult | None:
     if entry is None:
         return None
-    reaction_dir = str(entry.get("reaction_dir", ""))
-    queue_id = entry.get("queue_id")
+    reaction_dir = queue_entry_reaction_dir(entry)
+    queue_id = queue_entry_id(entry)
     action: Literal["cancelled", "requested"]
-    if entry.get("status") == QueueStatus.CANCELLED.value:
+    if queue_entry_status(entry) == QueueStatus.CANCELLED.value:
         action = "cancelled"
     else:
         action = "requested"
@@ -186,7 +192,7 @@ def _queue_result(entry: QueueEntry | None) -> CancelResult | None:
         source="queue",
         action=action,
         reaction_dir=reaction_dir,
-        queue_id=queue_id if isinstance(queue_id, str) and queue_id else None,
+        queue_id=queue_id or None,
         run_id=run_id,
     )
 

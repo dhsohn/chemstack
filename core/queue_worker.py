@@ -22,10 +22,13 @@ from pathlib import Path
 from typing import Dict
 
 from .admission_store import (
+    ADMISSION_APP_NAME_ENV_VAR,
+    ADMISSION_TASK_ID_ENV_VAR,
     ADMISSION_TOKEN_ENV_VAR,
     reconcile_stale_slots,
     release_slot,
     reserve_slot,
+    update_slot_metadata,
 )
 from .config import AppConfig
 from .process_tracking import active_run_lock_pid, read_pid_file
@@ -35,6 +38,11 @@ from .queue_store import (
     mark_cancelled,
     mark_completed,
     mark_failed,
+    queue_entry_app_name,
+    queue_entry_force,
+    queue_entry_id,
+    queue_entry_reaction_dir,
+    queue_entry_task_id,
     requeue_running_entry,
     reconcile_orphaned_running_entries,
 )
@@ -243,12 +251,27 @@ class QueueWorker:
             if entry is None:
                 release_slot(self.admission_root, admission_token)
                 break
+            if not update_slot_metadata(
+                self.admission_root,
+                admission_token,
+                queue_id=queue_entry_id(entry),
+                app_name=queue_entry_app_name(entry),
+                task_id=queue_entry_task_id(entry),
+            ):
+                logger.error(
+                    "Failed to attach queue identity to admission slot %s for job %s",
+                    admission_token,
+                    queue_entry_id(entry),
+                )
+                mark_failed(self.allowed_root, queue_entry_id(entry), error="admission_slot_missing")
+                release_slot(self.admission_root, admission_token)
+                continue
             self._start_job(entry, admission_token=admission_token)
 
     def _start_job(self, entry: QueueEntry, *, admission_token: str) -> bool:
-        queue_id = entry["queue_id"]
-        reaction_dir = entry["reaction_dir"]
-        force = bool(entry.get("force", False))
+        queue_id = queue_entry_id(entry)
+        reaction_dir = queue_entry_reaction_dir(entry)
+        force = queue_entry_force(entry)
 
         cmd = _build_run_command(
             reaction_dir,
@@ -257,6 +280,12 @@ class QueueWorker:
         )
         env = os.environ.copy()
         env[ADMISSION_TOKEN_ENV_VAR] = admission_token
+        app_name = queue_entry_app_name(entry)
+        task_id = queue_entry_task_id(entry) or ""
+        if app_name:
+            env[ADMISSION_APP_NAME_ENV_VAR] = app_name
+        if task_id:
+            env[ADMISSION_TASK_ID_ENV_VAR] = task_id
         logger.info("Starting job %s: %s", queue_id, reaction_dir)
         try:
             proc = subprocess.Popen(

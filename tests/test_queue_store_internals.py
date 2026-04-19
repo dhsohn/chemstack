@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 from core import queue_store
 from core.statuses import QueueStatus
+from core.types import QueueEntry
 
 
 def _write_entries(root: Path, entries: list[dict[str, object]]) -> None:
@@ -82,7 +83,7 @@ def test_report_reconciliation_helpers_cover_missing_nonterminal_and_failed_reas
 
 
 def test_apply_terminal_reconciliation_and_duplicate_helpers_cover_branches(tmp_path: Path) -> None:
-    entry = {
+    entry: QueueEntry = {
         "queue_id": "q_1",
         "reaction_dir": str(tmp_path / "rxn"),
         "status": QueueStatus.RUNNING.value,
@@ -101,7 +102,7 @@ def test_apply_terminal_reconciliation_and_duplicate_helpers_cover_branches(tmp_
     assert entry["error"] is None
     assert entry["finished_at"] is not None
 
-    entries = [
+    entries: list[QueueEntry] = [
         {"reaction_dir": "/tmp/a", "status": QueueStatus.PENDING.value},
         {"reaction_dir": "/tmp/a", "status": QueueStatus.COMPLETED.value},
         {"reaction_dir": "/tmp/a", "status": QueueStatus.FAILED.value},
@@ -225,7 +226,9 @@ def test_mark_cancelled_requeue_cancel_and_clear_terminal_cover_false_and_keep_l
         assert queue_store.get_cancel_requested(root, "missing") is False
         assert queue_store._update_terminal(root, "missing", QueueStatus.COMPLETED.value) is False
 
-        assert queue_store.cancel(root, "q_run")["cancel_requested"] is True
+        cancelled = queue_store.cancel(root, "q_run")
+        assert cancelled is not None
+        assert cancelled["cancel_requested"] is True
         assert queue_store.requeue_running_entry(root, "q_run") is True
         assert queue_store.mark_cancelled(root, "q_run") is False
 

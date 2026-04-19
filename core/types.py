@@ -93,6 +93,10 @@ class QueueEntry(TypedDict, total=False):
     """A single item in the task queue."""
 
     queue_id: str
+    app_name: str
+    task_id: str
+    task_kind: str
+    engine: str
     reaction_dir: str
     status: str  # QueueStatus value
     priority: int
@@ -103,3 +107,4 @@ class QueueEntry(TypedDict, total=False):
     run_id: Optional[str]
     error: Optional[str]
     force: bool
+    metadata: Dict[str, Any]

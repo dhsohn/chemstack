@@ -11,9 +11,12 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from core.admission_store import (
+    ADMISSION_APP_NAME_ENV_VAR,
+    ADMISSION_TASK_ID_ENV_VAR,
     ADMISSION_TOKEN_ENV_VAR,
     acquire_direct_slot,
     active_slot_count,
+    list_slots,
     reserve_slot,
 )
 from core.config import AppConfig, RuntimeConfig
@@ -195,6 +198,8 @@ class TestQueueWorkerMethods(unittest.TestCase):
         mock_popen.return_value = mock_proc
         entry: QueueEntry = {
             "queue_id": "q_test",
+            "app_name": "orca_auto",
+            "task_id": "task_test_123",
             "reaction_dir": str(self.root / "mol_A"),
             "force": False,
         }
@@ -204,6 +209,14 @@ class TestQueueWorkerMethods(unittest.TestCase):
         self.assertEqual(
             mock_popen.call_args.kwargs["env"][ADMISSION_TOKEN_ENV_VAR],
             "slot_test",
+        )
+        self.assertEqual(
+            mock_popen.call_args.kwargs["env"][ADMISSION_APP_NAME_ENV_VAR],
+            "orca_auto",
+        )
+        self.assertEqual(
+            mock_popen.call_args.kwargs["env"][ADMISSION_TASK_ID_ENV_VAR],
+            "task_test_123",
         )
 
     @patch("core.queue_worker.subprocess.Popen", side_effect=OSError("spawn failed"))
@@ -384,6 +397,63 @@ class TestFillSlots(unittest.TestCase):
                 mock_popen.return_value = mock_proc
                 worker._fill_slots()
                 self.assertEqual(len(worker._running), 1)
+
+    def test_fill_slots_attaches_queue_identity_to_reserved_slot(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            cfg = _make_cfg(tmp)
+            worker = QueueWorker(cfg, str(root / "config.yaml"), max_concurrent=1)
+
+            rxn = root / "mol_identity"
+            rxn.mkdir()
+            entry = enqueue(root, str(rxn))
+
+            with patch("core.queue_worker.subprocess.Popen") as mock_popen:
+                mock_proc = MagicMock()
+                mock_proc.pid = 4109
+                mock_popen.return_value = mock_proc
+                worker._fill_slots()
+
+            slots = list_slots(root)
+            self.assertEqual(len(slots), 1)
+            self.assertEqual(slots[0]["queue_id"], entry["queue_id"])
+            self.assertEqual(slots[0]["app_name"], entry["app_name"])
+            self.assertEqual(slots[0]["task_id"], entry["task_id"])
+
+    def test_fill_slots_preserves_task_id_across_slot_and_worker_handoff(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            cfg = _make_cfg(tmp)
+            worker = QueueWorker(cfg, str(root / "config.yaml"), max_concurrent=1)
+
+            rxn = root / "mol_task_identity"
+            rxn.mkdir()
+            entry = enqueue(root, str(rxn), task_id="orca_task_preserved_123")
+            self.assertNotEqual(entry["queue_id"], entry["task_id"])
+
+            with patch("core.queue_worker.subprocess.Popen") as mock_popen:
+                mock_proc = MagicMock()
+                mock_proc.pid = 4110
+                mock_popen.return_value = mock_proc
+                worker._fill_slots()
+
+            slots = list_slots(root)
+            self.assertEqual(len(slots), 1)
+            self.assertEqual(slots[0]["queue_id"], entry["queue_id"])
+            self.assertEqual(slots[0]["task_id"], entry["task_id"])
+            self.assertNotEqual(slots[0]["queue_id"], slots[0]["task_id"])
+            self.assertEqual(
+                mock_popen.call_args.kwargs["env"][ADMISSION_TOKEN_ENV_VAR],
+                slots[0]["token"],
+            )
+            self.assertEqual(
+                mock_popen.call_args.kwargs["env"][ADMISSION_TASK_ID_ENV_VAR],
+                entry["task_id"],
+            )
+            self.assertEqual(
+                mock_popen.call_args.kwargs["env"][ADMISSION_APP_NAME_ENV_VAR],
+                entry["app_name"],
+            )
 
     def test_fill_slots_respects_max_concurrent(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

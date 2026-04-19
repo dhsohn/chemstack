@@ -9,6 +9,8 @@ from typing import Any, Callable, Dict, Type
 
 from .. import queue_store as _queue_store
 from ..admission_store import (
+    ADMISSION_APP_NAME_ENV_VAR,
+    ADMISSION_TASK_ID_ENV_VAR,
     ADMISSION_TOKEN_ENV_VAR,
     AdmissionLimitReachedError,
     activate_reserved_slot,
@@ -53,6 +55,8 @@ class RunExecutionContext:
     max_concurrent: int
     admission_limit: int
     reservation_token: str | None
+    admission_app_name: str | None
+    admission_task_id: str | None
 
 
 @dataclass(frozen=True)
@@ -242,9 +246,9 @@ def _active_queue_entry(allowed_root: Path, reaction_dir: Path) -> QueueEntry | 
 
     resolved = str(reaction_dir.expanduser().resolve())
     for entry in _queue_store.list_queue(allowed_root):
-        if entry.get("reaction_dir") != resolved:
+        if _queue_store.queue_entry_reaction_dir(entry) != resolved:
             continue
-        if entry.get("status") in {QueueStatus.PENDING.value, QueueStatus.RUNNING.value}:
+        if _queue_store.queue_entry_status(entry) in {QueueStatus.PENDING.value, QueueStatus.RUNNING.value}:
             return entry
     return None
 
@@ -254,7 +258,8 @@ def _find_submission_conflict(allowed_root: Path, reaction_dir: Path) -> str | N
     if active_entry is not None:
         return (
             "Reaction directory already queued: "
-            f"{reaction_dir} (queue_id={active_entry.get('queue_id')}, status={active_entry.get('status')})"
+            f"{reaction_dir} (queue_id={_queue_store.queue_entry_id(active_entry)}, "
+            f"status={_queue_store.queue_entry_status(active_entry)})"
         )
     return _active_direct_run_error(reaction_dir)
 
@@ -270,9 +275,12 @@ def _emit_queued_submission(
 ) -> None:
     print("status: queued")
     print(f"reaction_dir: {reaction_dir}")
-    print(f"queue_id: {entry.get('queue_id')}")
-    print(f"priority: {entry.get('priority')}")
-    if entry.get("force"):
+    print(f"queue_id: {_queue_store.queue_entry_id(entry)}")
+    task_id = _queue_store.queue_entry_task_id(entry)
+    if task_id:
+        print(f"job_id: {task_id}")
+    print(f"priority: {_queue_store.queue_entry_priority(entry)}")
+    if _queue_store.queue_entry_force(entry):
         print("force: true")
     if worker_status:
         print(f"worker: {worker_status}")
@@ -378,6 +386,8 @@ def _resolve_execution_context(
         max_concurrent=_configured_max_concurrent(cfg),
         admission_limit=_configured_admission_limit(cfg),
         reservation_token=os.getenv(ADMISSION_TOKEN_ENV_VAR, "").strip() or None,
+        admission_app_name=os.getenv(ADMISSION_APP_NAME_ENV_VAR, "").strip() or None,
+        admission_task_id=os.getenv(ADMISSION_TASK_ID_ENV_VAR, "").strip() or None,
     )
 
 
@@ -387,6 +397,8 @@ def _admission_context(
     reaction_dir: Path,
     admission_limit: int,
     reservation_token: str | None,
+    admission_app_name: str | None,
+    admission_task_id: str | None,
 ) -> AbstractContextManager[str]:
     if reservation_token is not None:
         return activate_reserved_slot(
@@ -394,11 +406,15 @@ def _admission_context(
             reservation_token,
             reaction_dir=str(reaction_dir),
             source="queue_run",
+            app_name=admission_app_name,
+            task_id=admission_task_id,
         )
     return acquire_direct_slot(
         admission_root,
         max_concurrent=admission_limit,
         reaction_dir=str(reaction_dir),
+        app_name=admission_app_name or "orca_auto",
+        task_id=admission_task_id,
     )
 
 
@@ -459,24 +475,42 @@ def _run_with_state(
 
 def _build_queue_enqueued_notification(entry: QueueEntry) -> QueueEnqueuedNotification:
     return {
-        "queue_id": entry["queue_id"],
-        "reaction_dir": entry["reaction_dir"],
-        "priority": entry["priority"],
-        "force": entry.get("force", False),
+        "queue_id": _queue_store.queue_entry_id(entry),
+        "reaction_dir": _queue_store.queue_entry_reaction_dir(entry),
+        "priority": _queue_store.queue_entry_priority(entry),
+        "force": _queue_store.queue_entry_force(entry),
         "enqueued_at": entry.get("enqueued_at", ""),
     }
 
 
-def _submit_as_queued(cfg: Any, args: Any, reaction_dir: Path) -> int:
+def _submit_as_queued(
+    cfg: Any,
+    args: Any,
+    reaction_dir: Path,
+    *,
+    selected_inp: Path | None = None,
+) -> int:
     from ..queue_store import DuplicateEntryError, enqueue
 
     allowed_root = Path(cfg.runtime.allowed_root).expanduser().resolve()
+    if selected_inp is None:
+        try:
+            selected_inp = _select_latest_inp(reaction_dir)
+        except ValueError:
+            selected_inp = None
+    queue_metadata: dict[str, Any] = {
+        "submitted_via": "run_inp",
+        "max_retries": max(0, int(cfg.runtime.default_max_retries)),
+    }
+    if selected_inp is not None:
+        queue_metadata["selected_inp"] = str(selected_inp)
     try:
         entry = enqueue(
             allowed_root,
             str(reaction_dir),
             priority=int(getattr(args, "priority", 10)),
             force=bool(getattr(args, "force", False)),
+            metadata=queue_metadata,
         )
     except DuplicateEntryError as exc:
         logger.error("%s", exc)
@@ -538,6 +572,8 @@ def _execute_locked_run(
             reaction_dir=context.reaction_dir,
             admission_limit=context.admission_limit,
             reservation_token=context.reservation_token,
+            admission_app_name=context.admission_app_name,
+            admission_task_id=context.admission_task_id,
         ):
             state, resumed = load_or_create_state(
                 context.reaction_dir,
@@ -612,7 +648,12 @@ def _cmd_run_inp_submit(args: Any, *, runner_cls: Type[OrcaRunner] = OrcaRunner)
     if existing_completed_exit is not None:
         return existing_completed_exit
 
-    return _submit_as_queued(context.cfg, args, context.reaction_dir)
+    return _submit_as_queued(
+        context.cfg,
+        args,
+        context.reaction_dir,
+        selected_inp=context.selected_inp,
+    )
 
 
 def cmd_run_inp(args: Any, *, runner_cls: Type[OrcaRunner] = OrcaRunner) -> int:
