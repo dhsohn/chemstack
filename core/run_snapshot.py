@@ -5,6 +5,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
+from orca_auto.job_locations import list_job_location_records, resolve_record_job_dir
+
 from .dft_discovery import _find_latest_out_in_dir
 from .pathing import resolve_artifact_path
 from .state_store import STATE_FILE_NAME, load_state
@@ -106,13 +108,65 @@ def _latest_out_path(reaction_dir: Path, state: RunState) -> Path | None:
     return _find_latest_out_in_dir(reaction_dir)
 
 
+def _dir_key(path: Path) -> str:
+    try:
+        return str(path.expanduser().resolve())
+    except OSError:
+        return str(path)
+
+
+def _original_run_dir(record: Any) -> Path | None:
+    raw = getattr(record, "original_run_dir", "")
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    try:
+        return Path(raw).expanduser().resolve()
+    except OSError:
+        return None
+
+
+def _snapshot_name(allowed_root: Path, reaction_dir: Path, *, original_run_dir: Path | None = None) -> str:
+    for candidate in (original_run_dir, reaction_dir):
+        if candidate is None:
+            continue
+        try:
+            return str(candidate.relative_to(allowed_root))
+        except ValueError:
+            continue
+    return reaction_dir.name
+
+
+def _candidate_snapshot_dirs(allowed_root: Path) -> list[tuple[Path, Path | None]]:
+    candidates: list[tuple[Path, Path | None]] = []
+    seen: set[str] = set()
+
+    for record in list_job_location_records(allowed_root):
+        reaction_dir = resolve_record_job_dir(record)
+        if reaction_dir is None:
+            continue
+        key = _dir_key(reaction_dir)
+        if key in seen:
+            continue
+        seen.add(key)
+        candidates.append((reaction_dir, _original_run_dir(record)))
+
+    for state_path in allowed_root.rglob(STATE_FILE_NAME):
+        reaction_dir = state_path.parent
+        key = _dir_key(reaction_dir)
+        if key in seen:
+            continue
+        seen.add(key)
+        candidates.append((reaction_dir, None))
+
+    return candidates
+
+
 def collect_run_snapshots(allowed_root: Path) -> list[RunSnapshot]:
     snapshots: list[RunSnapshot] = []
     if not allowed_root.is_dir():
         return snapshots
 
-    for state_path in allowed_root.rglob(STATE_FILE_NAME):
-        reaction_dir = state_path.parent
+    for reaction_dir, original_run_dir in _candidate_snapshot_dirs(allowed_root):
         state = load_state(reaction_dir)
         if state is None:
             continue
@@ -130,7 +184,11 @@ def collect_run_snapshots(allowed_root: Path) -> list[RunSnapshot]:
             selected_inp_name = Path(selected_inp).name
 
         run_id = str(state.get("run_id", "")).strip()
-        reaction_name = str(reaction_dir.relative_to(allowed_root))
+        reaction_name = _snapshot_name(
+            allowed_root,
+            reaction_dir,
+            original_run_dir=original_run_dir,
+        )
         elapsed = _compute_elapsed(state)
 
         snapshots.append(

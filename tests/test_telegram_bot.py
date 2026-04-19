@@ -106,6 +106,49 @@ class TestTelegramBotHandlers(unittest.TestCase):
         self.assertEqual(result.count("rxn1"), 2)
         self.assertIn("rerun.inp", result)
 
+    def test_handle_list_clear_clears_tracked_terminal_runs_with_legacy_fallback(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            allowed = root / "orca_runs"
+            organized = root / "organized" / "project" / "rxn_tracked"
+            legacy_dir = allowed / "legacy" / "rxn_legacy"
+            running_dir = allowed / "live" / "rxn_running"
+            allowed.mkdir()
+            self._make_run(organized, status="completed", run_id="run_tracked", inp_name="tracked.inp")
+            self._make_run(legacy_dir, status="failed", run_id="run_legacy")
+            self._make_run(running_dir, status="running", run_id="run_running")
+            (allowed / "job_locations.json").write_text(
+                json.dumps(
+                    [
+                        {
+                            "job_id": "job_tracked",
+                            "app_name": "orca_auto",
+                            "job_type": "orca_opt",
+                            "status": "completed",
+                            "original_run_dir": str(allowed / "project" / "rxn_tracked"),
+                            "molecule_key": "rxn_tracked",
+                            "selected_input_xyz": str(organized / "tracked.inp"),
+                            "organized_output_dir": str(organized),
+                            "latest_known_path": str(organized),
+                            "resource_request": {},
+                            "resource_actual": {},
+                        }
+                    ],
+                    ensure_ascii=True,
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+            cfg = self._make_cfg(str(allowed))
+
+            result = _handle_list(cfg, "clear")
+
+            self.assertIn("Cleared 2 entries", result)
+            self.assertIn("run states: 2", result)
+            self.assertFalse((organized / "run_state.json").exists())
+            self.assertFalse((legacy_dir / "run_state.json").exists())
+            self.assertTrue((running_dir / "run_state.json").exists())
+
     def test_handle_help(self) -> None:
         cfg = self._make_cfg("/tmp/nonexistent")
         result = _handle_help(cfg, "")

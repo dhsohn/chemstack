@@ -28,6 +28,7 @@ class RunFinalResult(TypedDict, total=False):
 
 
 class RunState(TypedDict, total=False):
+    job_id: str
     run_id: str
     reaction_dir: str
     selected_inp: str

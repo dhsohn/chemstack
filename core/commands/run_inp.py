@@ -483,6 +483,34 @@ def _build_queue_enqueued_notification(entry: QueueEntry) -> QueueEnqueuedNotifi
     }
 
 
+def _upsert_queued_job_record(
+    cfg: Any,
+    *,
+    reaction_dir: Path,
+    selected_inp: Path | None,
+    job_id: str,
+) -> None:
+    from orca_auto.job_locations import resolve_job_metadata, resource_dict, upsert_job_record
+
+    selected_input = str(selected_inp) if selected_inp is not None else ""
+    job_type, molecule_key = resolve_job_metadata(selected_input, reaction_dir)
+    requested = resource_dict(
+        cfg.resources.max_cores_per_task,
+        cfg.resources.max_memory_gb_per_task,
+    )
+    upsert_job_record(
+        cfg,
+        job_id=job_id,
+        status="queued",
+        job_dir=reaction_dir,
+        job_type=job_type,
+        selected_input_xyz=selected_input,
+        molecule_key=molecule_key,
+        resource_request=requested,
+        resource_actual=requested,
+    )
+
+
 def _submit_as_queued(
     cfg: Any,
     args: Any,
@@ -515,6 +543,15 @@ def _submit_as_queued(
     except DuplicateEntryError as exc:
         logger.error("%s", exc)
         return 1
+
+    task_id = _queue_store.queue_entry_task_id(entry)
+    if task_id:
+        _upsert_queued_job_record(
+            cfg,
+            reaction_dir=reaction_dir,
+            selected_inp=selected_inp,
+            job_id=task_id,
+        )
 
     notification = _build_queue_enqueued_notification(entry)
     notify_queue_enqueued_event(cfg.telegram, notification)
@@ -581,6 +618,9 @@ def _execute_locked_run(
                 max_retries=context.max_retries,
                 to_resolved_local=_to_resolved_local,
             )
+            if context.admission_task_id and state.get("job_id") != context.admission_task_id:
+                state["job_id"] = context.admission_task_id
+                save_state(context.reaction_dir, state)
             return _run_with_state(
                 cfg=context.cfg,
                 reaction_dir=context.reaction_dir,

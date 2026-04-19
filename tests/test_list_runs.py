@@ -162,6 +162,63 @@ class TestListStandaloneRuns(_ListTestBase):
         self.assertIn("rxn2", output)
         self.assertIn("Simulations: 2 total", output)
 
+    def test_tracked_organized_run_is_listed_via_job_locations_index(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            allowed = root / "orca_runs"
+            organized = root / "organized" / "project" / "rxn_tracked"
+            allowed.mkdir()
+            organized.mkdir(parents=True)
+            config = self._write_config(root, allowed)
+
+            state = {
+                "run_id": "run_tracked",
+                "reaction_dir": str(organized),
+                "selected_inp": str(organized / "tracked.inp"),
+                "max_retries": 2,
+                "status": "completed",
+                "started_at": "2026-03-01T00:00:00+00:00",
+                "updated_at": "2026-03-01T01:00:00+00:00",
+                "attempts": [{"index": 1}],
+                "final_result": {"status": "completed"},
+            }
+            (organized / "run_state.json").write_text(
+                json.dumps(state, ensure_ascii=True, indent=2),
+                encoding="utf-8",
+            )
+            (allowed / "job_locations.json").write_text(
+                json.dumps(
+                    [
+                        {
+                            "job_id": "job_tracked",
+                            "app_name": "orca_auto",
+                            "job_type": "orca_opt",
+                            "status": "completed",
+                            "original_run_dir": str(allowed / "project" / "rxn_tracked"),
+                            "molecule_key": "rxn_tracked",
+                            "selected_input_xyz": str(organized / "tracked.inp"),
+                            "organized_output_dir": str(organized),
+                            "latest_known_path": str(organized),
+                            "resource_request": {},
+                            "resource_actual": {},
+                        }
+                    ],
+                    ensure_ascii=True,
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            captured = io.StringIO()
+            with patch("sys.stdout", captured):
+                rc = main(["--config", str(config), "list"])
+
+        self.assertEqual(rc, 0)
+        output = captured.getvalue()
+        self.assertIn("rxn_tracked", output)
+        self.assertIn("completed", output)
+        self.assertIn("Simulations: 1 total", output)
+
 
 class TestListQueueEntries(_ListTestBase):
     """Test listing queue entries in unified view."""

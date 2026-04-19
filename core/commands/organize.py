@@ -24,7 +24,8 @@ from ..result_organizer import (
     sync_state_after_move,
     sync_state_after_rollback,
 )
-from ..state_store import now_utc_iso
+from ..state_store import ORGANIZED_REF_NAME, now_utc_iso
+from orca_auto.tracking import reindex_job_locations, resource_dict, upsert_job_record, write_organized_ref
 from ..telegram_notifier import escape_html, send_message
 from ..types import RunState
 from ._helpers import (
@@ -37,7 +38,7 @@ logger = logging.getLogger(__name__)
 
 
 def _emit_organize(payload: Dict[str, Any]) -> None:
-    for key in ["action", "to_organize", "skipped", "organized", "failed", "records_count"]:
+    for key in ["action", "to_organize", "skipped", "organized", "failed", "records_count", "job_locations_count"]:
         if key in payload:
             print(f"{key}: {payload[key]}")
     for p in payload.get("plans", []):
@@ -87,6 +88,90 @@ def _build_index_record(plan: OrganizePlan, state: RunState) -> Dict[str, Any]:
         "organized_at": now_utc_iso(),
         "organized_path": plan.target_rel_path,
     }
+
+
+def _tracking_resources(cfg: AppConfig) -> dict[str, int]:
+    return resource_dict(
+        cfg.resources.max_cores_per_task,
+        cfg.resources.max_memory_gb_per_task,
+    )
+
+
+def _tracking_job_id(plan: OrganizePlan, state: RunState) -> str:
+    return str(state.get("job_id") or state.get("run_id") or plan.run_id).strip()
+
+
+def _write_tracking_after_move(
+    cfg: AppConfig,
+    *,
+    plan: OrganizePlan,
+    state_after_move: RunState,
+) -> None:
+    job_id = _tracking_job_id(plan, state_after_move)
+    requested = _tracking_resources(cfg)
+    selected_inp = str(state_after_move.get("selected_inp") or "").strip()
+
+    plan.source_dir.mkdir(parents=True, exist_ok=True)
+    write_organized_ref(
+        plan.source_dir,
+        {
+            "job_id": job_id,
+            "run_id": plan.run_id,
+            "original_run_dir": str(plan.source_dir),
+            "organized_output_dir": str(plan.target_abs_path),
+            "organized_at": now_utc_iso(),
+            "status": str(state_after_move.get("status") or "completed"),
+            "job_type": plan.job_type,
+            "selected_inp": selected_inp,
+            "selected_input_xyz": selected_inp,
+            "molecule_key": plan.molecule_key,
+            "resource_request": requested,
+            "resource_actual": requested,
+        },
+    )
+    upsert_job_record(
+        cfg,
+        job_id=job_id,
+        status=str(state_after_move.get("status") or "completed"),
+        job_dir=plan.source_dir,
+        job_type=plan.job_type,
+        selected_input_xyz=selected_inp,
+        organized_output_dir=plan.target_abs_path,
+        molecule_key=plan.molecule_key,
+        resource_request=requested,
+        resource_actual=requested,
+    )
+
+
+def _cleanup_organized_ref_stub(plan: OrganizePlan) -> None:
+    organized_ref_path = plan.source_dir / ORGANIZED_REF_NAME
+    if organized_ref_path.exists():
+        organized_ref_path.unlink()
+    try:
+        plan.source_dir.rmdir()
+    except OSError:
+        pass
+
+
+def _restore_tracking_after_rollback(
+    cfg: AppConfig,
+    *,
+    plan: OrganizePlan,
+    state_after_rollback: RunState,
+) -> None:
+    job_id = _tracking_job_id(plan, state_after_rollback)
+    requested = _tracking_resources(cfg)
+    upsert_job_record(
+        cfg,
+        job_id=job_id,
+        status=str(state_after_rollback.get("status") or "completed"),
+        job_dir=plan.source_dir,
+        job_type=plan.job_type,
+        selected_input_xyz=str(state_after_rollback.get("selected_inp") or "").strip(),
+        molecule_key=plan.molecule_key,
+        resource_request=requested,
+        resource_actual=requested,
+    )
 
 
 _ORGANIZE_RESULT_LIMIT = 10
@@ -258,16 +343,18 @@ def _cmd_organize_apply(
                 execute_move(plan)
                 moved = True
                 state_after_move = sync_state_after_move(plan)
-                record = _build_index_record(plan, state_after_move)
-                append_record(organized_root, record)
+                _write_tracking_after_move(cfg, plan=plan, state_after_move=state_after_move)
+                append_record(organized_root, _build_index_record(plan, state_after_move))
                 results.append({"run_id": plan.run_id, "action": "moved", "_plan": plan})
         except Exception as exc:
             logger.error("Organize apply failed for %s: %s", plan.run_id, exc)
             failure_reason = f"apply_failed: {exc}"
             if moved:
                 try:
+                    _cleanup_organized_ref_stub(plan)
                     rollback_move(plan)
-                    sync_state_after_rollback(plan)
+                    state_after_rollback = sync_state_after_rollback(plan)
+                    _restore_tracking_after_rollback(cfg, plan=plan, state_after_rollback=state_after_rollback)
                     failure_reason = f"{failure_reason}; rolled_back=true"
                 except Exception as rollback_exc:
                     logger.error("Rollback failed for %s: %s", plan.run_id, rollback_exc)
@@ -312,7 +399,8 @@ def cmd_organize(args: Any) -> int:
 
     if getattr(args, "rebuild_index", False):
         count = rebuild_index(organized_root)
-        _emit_organize({"action": "rebuild_index", "records_count": count})
+        tracking_count = reindex_job_locations(cfg)
+        _emit_organize({"action": "rebuild_index", "records_count": count, "job_locations_count": tracking_count})
         return 0
 
     reaction_dir_raw = getattr(args, "reaction_dir", None)

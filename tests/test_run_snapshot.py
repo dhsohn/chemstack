@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -224,6 +225,134 @@ def test_collect_run_snapshots_builds_basic_snapshot_fields(
     assert snapshot.final_reason == "terminated_normally"
     assert snapshot.elapsed == 3661.0
     assert snapshot.elapsed_text == "1h 01m"
+
+
+def test_collect_run_snapshots_uses_tracking_record_for_tracked_run(tmp_path: Path) -> None:
+    allowed_root = tmp_path / "orca_runs"
+    organized_root = tmp_path / "organized"
+    allowed_root.mkdir()
+    tracked_run = organized_root / "project" / "rxn_tracked"
+    tracked_run.mkdir(parents=True)
+
+    out_path = tracked_run / "calc.out"
+    out_path.write_text("done", encoding="utf-8")
+    state = {
+        "run_id": "run-tracked",
+        "status": "completed",
+        "started_at": "2026-01-10T10:00:00+00:00",
+        "updated_at": "2026-01-10T11:01:01+00:00",
+        "selected_inp": str(tracked_run / "calc.inp"),
+        "attempts": [{"out_path": str(out_path)}],
+        "final_result": {
+            "completed_at": "2026-01-10T11:01:01+00:00",
+            "reason": "tracked_completion",
+            "last_out_path": str(out_path),
+        },
+    }
+    (tracked_run / "run_state.json").write_text(
+        json.dumps(state, ensure_ascii=True, indent=2),
+        encoding="utf-8",
+    )
+
+    original_run = allowed_root / "project" / "rxn_tracked"
+    job_locations = [
+        {
+            "job_id": "job-tracked",
+            "app_name": "orca_auto",
+            "job_type": "orca_opt",
+            "status": "completed",
+            "original_run_dir": str(original_run),
+            "molecule_key": "rxn_tracked",
+            "selected_input_xyz": str(tracked_run / "calc.inp"),
+            "organized_output_dir": str(tracked_run),
+            "latest_known_path": str(tracked_run),
+            "resource_request": {"max_cores": 8},
+            "resource_actual": {"max_cores": 8},
+        }
+    ]
+    (allowed_root / "job_locations.json").write_text(
+        json.dumps(job_locations, ensure_ascii=True, indent=2),
+        encoding="utf-8",
+    )
+
+    snapshots = collect_run_snapshots(allowed_root)
+
+    assert len(snapshots) == 1
+    snapshot = snapshots[0]
+    assert snapshot.name == "project/rxn_tracked"
+    assert snapshot.reaction_dir == tracked_run.resolve()
+    assert snapshot.run_id == "run-tracked"
+    assert snapshot.selected_inp_name == "calc.inp"
+    assert snapshot.latest_out_path == out_path.resolve()
+    assert snapshot.final_reason == "tracked_completion"
+
+
+def test_collect_run_snapshots_preserves_legacy_fallback_when_index_is_incomplete(
+    tmp_path: Path,
+) -> None:
+    allowed_root = tmp_path / "orca_runs"
+    organized_root = tmp_path / "organized"
+    allowed_root.mkdir()
+
+    tracked_run = organized_root / "project" / "rxn_tracked"
+    tracked_run.mkdir(parents=True)
+    tracked_state = {
+        "run_id": "run-tracked",
+        "status": "completed",
+        "started_at": "2026-01-10T10:00:00+00:00",
+        "updated_at": "2026-01-10T11:01:01+00:00",
+        "selected_inp": str(tracked_run / "calc.inp"),
+        "attempts": [],
+        "final_result": {
+            "completed_at": "2026-01-10T11:01:01+00:00",
+            "reason": "tracked_completion",
+        },
+    }
+    (tracked_run / "run_state.json").write_text(
+        json.dumps(tracked_state, ensure_ascii=True, indent=2),
+        encoding="utf-8",
+    )
+
+    legacy_run = allowed_root / "legacy" / "rxn_legacy"
+    legacy_run.mkdir(parents=True)
+    legacy_state = {
+        "run_id": "run-legacy",
+        "status": "running",
+        "started_at": "2026-01-10T09:00:00+00:00",
+        "updated_at": "2026-01-10T10:00:00+00:00",
+        "selected_inp": str(legacy_run / "legacy.inp"),
+        "attempts": [],
+        "final_result": None,
+    }
+    (legacy_run / "run_state.json").write_text(
+        json.dumps(legacy_state, ensure_ascii=True, indent=2),
+        encoding="utf-8",
+    )
+
+    job_locations = [
+        {
+            "job_id": "job-tracked",
+            "app_name": "orca_auto",
+            "job_type": "orca_opt",
+            "status": "completed",
+            "original_run_dir": str(allowed_root / "project" / "rxn_tracked"),
+            "molecule_key": "rxn_tracked",
+            "selected_input_xyz": str(tracked_run / "calc.inp"),
+            "organized_output_dir": str(tracked_run),
+            "latest_known_path": str(tracked_run),
+            "resource_request": {},
+            "resource_actual": {},
+        }
+    ]
+    (allowed_root / "job_locations.json").write_text(
+        json.dumps(job_locations, ensure_ascii=True, indent=2),
+        encoding="utf-8",
+    )
+
+    snapshots = collect_run_snapshots(allowed_root)
+
+    assert {snapshot.run_id for snapshot in snapshots} == {"run-tracked", "run-legacy"}
+    assert {snapshot.name for snapshot in snapshots} == {"project/rxn_tracked", "legacy/rxn_legacy"}
 
 
 def test_sort_snapshots_by_started_handles_invalid_timestamps(tmp_path: Path) -> None:

@@ -18,7 +18,7 @@ from ..queue_store import (
     reconcile_orphaned_running_entries,
 )
 from ..run_snapshot import RunSnapshot, collect_run_snapshots, elapsed_text
-from ..state_store import STATE_FILE_NAME, load_state
+from ..state_store import STATE_FILE_NAME
 from ..statuses import QueueStatus, RunStatus
 from ..types import QueueEntry
 from ._helpers import _to_resolved_local
@@ -259,24 +259,42 @@ def cmd_list(args: Any) -> int:
     return 0
 
 
+def _clear_terminal_run_states(allowed_root: Path) -> int:
+    """Remove terminal run state files discovered via snapshots."""
+    cleared_state_paths: set[str] = set()
+    run_count = 0
+
+    for snapshot in collect_run_snapshots(allowed_root):
+        if snapshot.status not in _TERMINAL_RUN_STATUSES:
+            continue
+
+        state_path = snapshot.reaction_dir / STATE_FILE_NAME
+        state_key = _resolved_path_text(str(state_path))
+        if state_key in cleared_state_paths:
+            continue
+        cleared_state_paths.add(state_key)
+
+        try:
+            state_path.unlink()
+            run_count += 1
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            logger.warning("Failed to remove %s: %s", state_path, exc)
+
+    return run_count
+
+
+def _clear_terminal_entries(allowed_root: Path) -> tuple[int, int]:
+    """Remove terminal queue entries and terminal run states."""
+    queue_count = clear_terminal(allowed_root)
+    run_count = _clear_terminal_run_states(allowed_root)
+    return queue_count, run_count
+
+
 def _cmd_clear(allowed_root: Path) -> int:
     """Remove completed/failed/cancelled simulations from the list."""
-    # 1. Clear terminal queue entries
-    queue_count = clear_terminal(allowed_root)
-
-    # 2. Clear standalone terminal run_state.json files
-    run_count = 0
-    for state_path in allowed_root.rglob(STATE_FILE_NAME):
-        state = load_state(state_path.parent)
-        if state is None:
-            continue
-        status = str(state.get("status", "")).strip().lower()
-        if status in _TERMINAL_RUN_STATUSES:
-            try:
-                state_path.unlink()
-                run_count += 1
-            except OSError as exc:
-                logger.warning("Failed to remove %s: %s", state_path, exc)
+    queue_count, run_count = _clear_terminal_entries(allowed_root)
 
     total = queue_count + run_count
     print(f"Cleared {total} completed/failed/cancelled entries.")

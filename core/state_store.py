@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 STATE_FILE_NAME = "run_state.json"
 REPORT_JSON_NAME = "run_report.json"
 REPORT_MD_NAME = "run_report.md"
+ORGANIZED_REF_NAME = "organized_ref.json"
 LOCK_FILE_NAME = "run.lock"
 
 
@@ -41,6 +42,10 @@ def report_md_path(reaction_dir: Path) -> Path:
     return reaction_dir / REPORT_MD_NAME
 
 
+def organized_ref_path(reaction_dir: Path) -> Path:
+    return reaction_dir / ORGANIZED_REF_NAME
+
+
 def load_state(reaction_dir: Path) -> Optional[RunState]:
     p = state_path(reaction_dir)
     if not p.exists():
@@ -52,6 +57,32 @@ def load_state(reaction_dir: Path) -> Optional[RunState]:
     if not isinstance(raw, dict):
         return None
     return cast(RunState, raw)
+
+
+def load_report_json(reaction_dir: Path) -> Dict[str, Any] | None:
+    p = report_json_path(reaction_dir)
+    if not p.exists():
+        return None
+    try:
+        raw = json.loads(p.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    if not isinstance(raw, dict):
+        return None
+    return raw
+
+
+def load_organized_ref(reaction_dir: Path) -> Dict[str, Any] | None:
+    p = organized_ref_path(reaction_dir)
+    if not p.exists():
+        return None
+    try:
+        raw = json.loads(p.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    if not isinstance(raw, dict):
+        return None
+    return raw
 
 
 def new_state(reaction_dir: Path, selected_inp: Path, max_retries: int) -> RunState:
@@ -97,6 +128,7 @@ def _build_report_payload(state: RunState) -> Dict[str, Any]:
     if not isinstance(attempts, list):
         attempts = []
     return {
+        "job_id": state.get("job_id"),
         "run_id": state.get("run_id"),
         "reaction_dir": state.get("reaction_dir"),
         "selected_inp": state.get("selected_inp"),
@@ -168,6 +200,12 @@ def write_report_files(reaction_dir: Path, state: RunState) -> Dict[str, str]:
     atomic_write_json(json_path, report_payload, ensure_ascii=True, indent=2)
     _atomic_write_text(md_path, _render_report_markdown(report_payload))
     return {"report_json": str(json_path), "report_md": str(md_path)}
+
+
+def write_organized_ref(reaction_dir: Path, payload: Dict[str, Any]) -> Path:
+    path = organized_ref_path(reaction_dir)
+    atomic_write_json(path, payload, ensure_ascii=True, indent=2)
+    return path
 
 def _run_lock_active_error(lock_pid: int, lock_info: Dict[str, Any], lock_path: Path) -> RuntimeError:
     started_at = lock_info.get("started_at")

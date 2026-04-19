@@ -41,12 +41,14 @@ from .queue_store import (
     queue_entry_app_name,
     queue_entry_force,
     queue_entry_id,
+    queue_entry_metadata,
     queue_entry_reaction_dir,
     queue_entry_task_id,
     requeue_running_entry,
     reconcile_orphaned_running_entries,
 )
-from .state_store import LOCK_FILE_NAME, load_state
+from .state_store import LOCK_FILE_NAME, load_organized_ref, load_report_json, load_state
+from orca_auto.tracking import record_from_artifacts, resolve_job_metadata, resource_dict, upsert_job_record
 from .types import QueueEntry
 
 logger = logging.getLogger(__name__)
@@ -67,6 +69,7 @@ class _RunningJob:
     reaction_dir: str
     process: subprocess.Popen
     admission_token: str
+    task_id: str | None = None
     started_at: float = field(default_factory=time.monotonic)
 
 
@@ -129,6 +132,63 @@ def _active_lock_pid(reaction_dir: Path) -> int | None:
             expected_ticks,
             observed_ticks,
         ),
+    )
+
+
+def _upsert_running_job_record(cfg: AppConfig, entry: QueueEntry) -> None:
+    task_id = queue_entry_task_id(entry)
+    if not task_id:
+        return
+    reaction_dir = Path(queue_entry_reaction_dir(entry)).expanduser().resolve()
+    metadata = queue_entry_metadata(entry)
+    selected_input = str(metadata.get("selected_inp") or "").strip()
+    job_type, molecule_key = resolve_job_metadata(selected_input, reaction_dir)
+    requested = resource_dict(
+        cfg.resources.max_cores_per_task,
+        cfg.resources.max_memory_gb_per_task,
+    )
+    upsert_job_record(
+        cfg,
+        job_id=task_id,
+        status="running",
+        job_dir=reaction_dir,
+        job_type=job_type,
+        selected_input_xyz=selected_input,
+        molecule_key=molecule_key,
+        resource_request=requested,
+        resource_actual=requested,
+    )
+
+
+def _upsert_terminal_job_record(
+    cfg: AppConfig,
+    reaction_dir: str,
+    *,
+    fallback_job_id: str | None = None,
+) -> None:
+    job_dir = Path(reaction_dir).expanduser().resolve()
+    state = load_state(job_dir)
+    record = record_from_artifacts(
+        job_dir=job_dir,
+        state=dict(state) if state is not None else None,
+        report=load_report_json(job_dir),
+        organized_ref=load_organized_ref(job_dir),
+        fallback_job_id=fallback_job_id or "",
+    )
+    if record is None:
+        return
+    organized_output_dir = Path(record.organized_output_dir).expanduser().resolve() if record.organized_output_dir else None
+    upsert_job_record(
+        cfg,
+        job_id=record.job_id,
+        status=record.status,
+        job_dir=Path(record.original_run_dir).expanduser().resolve(),
+        job_type=record.job_type,
+        selected_input_xyz=record.selected_input_xyz,
+        organized_output_dir=organized_output_dir,
+        molecule_key=record.molecule_key,
+        resource_request=dict(record.resource_request),
+        resource_actual=dict(record.resource_actual),
     )
 
 
@@ -305,9 +365,14 @@ class QueueWorker:
         self._running[queue_id] = _RunningJob(
             queue_id=queue_id,
             reaction_dir=reaction_dir,
+            task_id=task_id or None,
             process=proc,
             admission_token=admission_token,
         )
+        try:
+            _upsert_running_job_record(self.cfg, entry)
+        except Exception as exc:
+            logger.warning("Failed to update running job location for %s: %s", queue_id, exc)
         return True
 
     # -- Monitoring -------------------------------------------------------
@@ -331,6 +396,10 @@ class QueueWorker:
                     error=f"exit_code={rc}",
                     run_id=run_id,
                 )
+            try:
+                _upsert_terminal_job_record(self.cfg, job.reaction_dir, fallback_job_id=job.task_id)
+            except Exception as exc:
+                logger.warning("Failed to update terminal job location for %s: %s", queue_id, exc)
             release_slot(self.admission_root, job.admission_token)
         for qid in done_ids:
             del self._running[qid]

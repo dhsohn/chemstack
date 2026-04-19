@@ -140,7 +140,8 @@ class TestOrganizeApply(unittest.TestCase):
                 "--apply",
             ])
             self.assertEqual(rc, 0)
-            self.assertFalse(rxn.exists(), "Source should be removed after apply")
+            self.assertTrue(rxn.exists(), "Original run directory should remain as an organized_ref stub")
+            self.assertTrue((rxn / "organized_ref.json").exists(), "organized_ref should be written in original run directory")
 
             rp = records_path(organized)
             self.assertTrue(rp.exists(), "Index should be created")
@@ -162,6 +163,15 @@ class TestOrganizeApply(unittest.TestCase):
             self.assertEqual(state["reaction_dir"], str(target_dir))
             self.assertEqual(state["selected_inp"], str(target_dir / "rxn.inp"))
             self.assertEqual(state["final_result"]["last_out_path"], str(target_dir / "rxn.out"))
+            organized_ref = json.loads((rxn / "organized_ref.json").read_text(encoding="utf-8"))
+            self.assertEqual(organized_ref["run_id"], rec["run_id"])
+            self.assertEqual(organized_ref["organized_output_dir"], str(target_dir))
+            tracking_records = json.loads((allowed / "job_locations.json").read_text(encoding="utf-8"))
+            self.assertEqual(len(tracking_records), 1)
+            self.assertEqual(tracking_records[0]["job_id"], rec["run_id"])
+            self.assertEqual(tracking_records[0]["original_run_dir"], str(rxn.resolve()))
+            self.assertEqual(tracking_records[0]["organized_output_dir"], str(target_dir.resolve()))
+            self.assertEqual(tracking_records[0]["latest_known_path"], str(target_dir.resolve()))
 
     def test_apply_recovers_legacy_windows_paths_in_state(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -225,6 +235,7 @@ class TestOrganizeApply(unittest.TestCase):
 
             self.assertEqual(rc, 1)
             self.assertTrue(rxn.exists(), "Source should be restored after rollback")
+            self.assertFalse((rxn / "organized_ref.json").exists(), "organized_ref stub should be cleaned up on rollback")
 
             moved_state_files = [
                 p for p in organized.rglob("run_state.json")
@@ -281,8 +292,8 @@ class TestOrganizeRootScan(unittest.TestCase):
                 "--apply",
             ])
             self.assertEqual(rc, 0)
-            self.assertFalse(nested_a.exists())
-            self.assertFalse(nested_b.exists())
+            self.assertTrue((nested_a / "organized_ref.json").exists())
+            self.assertTrue((nested_b / "organized_ref.json").exists())
 
             rp = records_path(organized)
             self.assertTrue(rp.exists())

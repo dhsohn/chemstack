@@ -161,6 +161,8 @@ class TestRunInpAdmission(unittest.TestCase):
             self.assertEqual(observed_slots[0]["task_id"], "task_meta_456")
             self.assertEqual(observed_slots[0]["reaction_dir"], str(reaction_dir))
             self.assertEqual(active_slot_count(root), 0)
+            state = json.loads((reaction_dir / "run_state.json").read_text(encoding="utf-8"))
+            self.assertEqual(state["job_id"], "task_meta_456")
 
     @patch("core.commands.run_inp.load_config")
     def test_reserved_slot_is_released_when_existing_completed_out_skips_execution(

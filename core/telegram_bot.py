@@ -17,11 +17,9 @@ from typing import Any, Callable
 from .cancellation import CancelTargetError, cancel_target
 from .commands.list_runs import (
     _collect_unified,
+    _clear_terminal_entries,
     _status_icon as _unified_status_icon,
-    _TERMINAL_RUN_STATUSES,
 )
-from .queue_store import clear_terminal
-from .state_store import STATE_FILE_NAME, load_state
 from .config import AppConfig
 from .telegram_notifier import escape_html
 
@@ -84,19 +82,7 @@ def _handle_list(cfg: AppConfig, args: str) -> str:
     action = args.strip().lower() if args.strip() else None
 
     if action == "clear":
-        queue_count = clear_terminal(allowed_root)
-        run_count = 0
-        for state_path in allowed_root.rglob(STATE_FILE_NAME):
-            state = load_state(state_path.parent)
-            if state is None:
-                continue
-            status = str(state.get("status", "")).strip().lower()
-            if status in _TERMINAL_RUN_STATUSES:
-                try:
-                    state_path.unlink()
-                    run_count += 1
-                except OSError:
-                    pass
+        queue_count, run_count = _clear_terminal_entries(allowed_root)
         total = queue_count + run_count
         if total == 0:
             return "Nothing to clear."
