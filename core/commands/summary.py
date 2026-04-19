@@ -20,7 +20,7 @@ from ..run_snapshot import (
     sort_snapshots_by_started,
     status_icon,
 )
-from ..state_store import LOCK_FILE_NAME
+from ..runtime.run_lock import LOCK_FILE_NAME
 from ..telegram_notifier import escape_html, send_message
 
 logger = logging.getLogger(__name__)

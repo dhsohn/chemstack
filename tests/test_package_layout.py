@@ -5,8 +5,10 @@ import importlib
 from core import cli as core_cli
 from core.commands.run_inp import cmd_run_inp as core_cmd_run_inp
 from orca_auto import cli as orca_cli
+from orca_auto import state as orca_state
 from orca_auto.__main__ import main as package_main
 from orca_auto.commands.run_inp import cmd_run_inp
+from orca_auto.runtime.run_lock import acquire_run_lock
 
 
 def test_orca_auto_cli_reexports_core_main() -> None:
@@ -19,6 +21,12 @@ def test_orca_auto_package_entrypoint_uses_cli_main() -> None:
 
 def test_orca_auto_command_module_reexports_core_command() -> None:
     assert cmd_run_inp is core_cmd_run_inp
+
+
+def test_orca_auto_state_and_runtime_modules_expose_wave5_facades() -> None:
+    assert orca_state.write_state is not None
+    assert orca_state.write_report_json is not None
+    assert acquire_run_lock is not None
 
 
 def test_orca_auto_command_wrappers_import_expected_symbols() -> None:

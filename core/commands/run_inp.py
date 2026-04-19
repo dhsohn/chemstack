@@ -23,8 +23,9 @@ from ..config import load_config
 from ..lock_utils import is_process_alive, parse_lock_info, process_start_ticks
 from ..orca_runner import OrcaRunner
 from ..out_analyzer import analyze_output
+from ..runtime.run_lock import LOCK_FILE_NAME, acquire_run_lock
 from ..state_machine import RESUMABLE_RUN_STATUSES, load_or_create_state
-from ..state_store import LOCK_FILE_NAME, acquire_run_lock, load_state, save_state
+from ..state_store import load_state, save_state
 from ..statuses import AnalyzerStatus, QueueStatus, RunStatus
 from ..telegram_notifier import (
     notify_queue_enqueued_event,

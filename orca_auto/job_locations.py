@@ -10,7 +10,7 @@ from typing import Any
 from core.config import AppConfig
 from core.molecule_key import resolve_molecule_key
 from core.result_organizer import detect_job_type
-from core.state_store import load_organized_ref, load_report_json, load_state
+from .state import load_organized_ref, load_report_json, load_state
 
 _MOLECULE_KEY_RE = re.compile(r"[^A-Za-z0-9._-]+")
 _TERMINAL_STATUSES = frozenset({"completed", "failed", "cancelled"})

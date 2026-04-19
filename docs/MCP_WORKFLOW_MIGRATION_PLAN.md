@@ -4,15 +4,16 @@
 
 | 완료 | 진행중 | 미착수 | 다음 액션 |
 | --- | --- | --- | --- |
-| Wave 1. real `orca_auto` package 도입 | Wave 0. ORCA artifact contract freeze 마무리 | Wave 5. state/report facade 분리 | Wave 5 시작: state/report facade와 run-lock 경계 분리 |
-| Wave 2. config를 `chem_core` 스타일 runtime/resource shape로 정렬 | current artifact contract를 `chem_workflow_mcp` baseline test로 더 명시적으로 고정 | Wave 6. worker execution flow 단순화 | `state_store.py` 책임을 JSON/report와 run-lock concern으로 나누기 |
-| Wave 3. queue/admission을 `chem_core` 중심 wrapper shape로 정리 | legacy organized-index / workflow contract freeze 보강 | Wave 7. `chem_workflow_mcp` ORCA facade cutover | `run_state.json` / `run_report.json` 계약은 유지한 채 facade extraction 진행 |
+| Wave 1. real `orca_auto` package 도입 | Wave 0. ORCA artifact contract freeze 마무리 | Wave 6. worker execution flow 단순화 | Wave 6 시작: worker execution 경로를 subprocess 중심에서 Python call path 중심으로 정리 |
+| Wave 2. config를 `chem_core` 스타일 runtime/resource shape로 정렬 | current artifact contract를 `chem_workflow_mcp` baseline test로 더 명시적으로 고정 | Wave 7. `chem_workflow_mcp` ORCA facade cutover | hidden `run-job` 경계를 compatibility command로 낮추고 worker main path를 단순화 |
+| Wave 3. queue/admission을 `chem_core` 중심 wrapper shape로 정리 | legacy organized-index / workflow contract freeze 보강 |  | worker restart/orphan reconciliation 의미는 유지한 채 내부 execution boundary를 정리 |
 | stable `task_id`, queue metadata, admission metadata handoff 완료 |  |  | Wave 0 테스트 보강은 별도 병행 |
 | Wave 4. `job_locations.py` / `tracking.py` / `chem_core.indexing` facade 완료 |  |  | queue/organize 이후 남은 summary/workflow lookup은 facade 기준으로 연결 완료 |
+| Wave 5. state/report facade 분리 및 `runtime.run_lock` 경계 분리 완료 |  |  | `run_state.json` / `run_report.json` / `run_report.md` 계약 유지 확인 완료 |
 
 Notes:
 
-- 현재 상태는 "Wave 1-4는 완료, Wave 0는 보강 진행중, Wave 5-7은 미착수"로 보는 것이 가장 정확하다.
+- 현재 상태는 "Wave 1-5는 완료, Wave 0는 보강 진행중, Wave 6-7은 미착수"로 보는 것이 가장 정확하다.
 - `run_state.json`, `run_report.json`, retry ladder semantics, reaction-directory artifact layout은 아직 유지한다.
 - full validation 기준 최근 상태는 `ruff check .`, `mypy`, `pytest --cov --cov-report=term-missing -q` 통과다.
 

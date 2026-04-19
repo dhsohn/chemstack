@@ -47,7 +47,8 @@ from .queue_store import (
     requeue_running_entry,
     reconcile_orphaned_running_entries,
 )
-from .state_store import LOCK_FILE_NAME, load_organized_ref, load_report_json, load_state
+from .runtime.run_lock import LOCK_FILE_NAME
+from .state_store import load_organized_ref, load_report_json, load_state
 from orca_auto.tracking import record_from_artifacts, resolve_job_metadata, resource_dict, upsert_job_record
 from .types import QueueEntry
 

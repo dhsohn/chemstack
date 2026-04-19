@@ -15,7 +15,7 @@ from .job_locations import (
     resolve_latest_job_dir,
     upsert_job_record,
 )
-from core.state_store import write_organized_ref
+from .state import write_organized_ref
 
 __all__ = [
     "build_job_location_record",
