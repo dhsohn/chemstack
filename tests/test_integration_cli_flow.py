@@ -83,8 +83,7 @@ class TestIntegrationCliFlow(unittest.TestCase):
                     [
                         "--config",
                         str(config),
-                        "run-inp",
-                        "--reaction-dir",
+                        "run-dir",
                         str(reaction),
                     ]
                 )
@@ -121,8 +120,7 @@ class TestIntegrationCliFlow(unittest.TestCase):
                     [
                         "--config",
                         str(config),
-                        "run-inp",
-                        "--reaction-dir",
+                        "run-dir",
                         str(reaction),
                         "--force",
                     ]
@@ -158,8 +156,7 @@ class TestIntegrationCliFlow(unittest.TestCase):
                 [
                     "--config",
                     str(config),
-                    "run-inp",
-                    "--reaction-dir",
+                    "run-dir",
                     str(reaction),
                 ]
             )

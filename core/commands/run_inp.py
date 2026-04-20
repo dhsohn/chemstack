@@ -258,7 +258,7 @@ def _find_submission_conflict(allowed_root: Path, reaction_dir: Path) -> str | N
     active_entry = _active_queue_entry(allowed_root, reaction_dir)
     if active_entry is not None:
         return (
-            "Reaction directory already queued: "
+            "Job directory already queued: "
             f"{reaction_dir} (queue_id={_queue_store.queue_entry_id(active_entry)}, "
             f"status={_queue_store.queue_entry_status(active_entry)})"
         )
@@ -275,7 +275,7 @@ def _emit_queued_submission(
     worker_detail: str | None = None,
 ) -> None:
     print("status: queued")
-    print(f"reaction_dir: {reaction_dir}")
+    print(f"job_dir: {reaction_dir}")
     print(f"queue_id: {_queue_store.queue_entry_id(entry)}")
     task_id = _queue_store.queue_entry_task_id(entry)
     if task_id:
@@ -339,8 +339,15 @@ def _existing_completed_exit(
 
 def _submission_flag_error(args: Any) -> str | None:
     if getattr(args, "require_slot", False):
-        return "Immediate execution has been removed; run-inp now always submits to the queue."
+        return "Immediate execution has been removed; run-dir now always submits to the queue."
     return None
+
+
+def _reaction_dir_arg(args: Any) -> str | None:
+    raw = getattr(args, "path", None) or getattr(args, "reaction_dir", None)
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    return raw
 
 
 def _resolve_submission_context(
@@ -350,7 +357,11 @@ def _resolve_submission_context(
 ) -> RunSubmissionContext | None:
     if cfg is None:
         cfg = load_config(args.config)
-    target = _resolve_run_target_or_log(cfg, args.reaction_dir)
+    reaction_dir_raw = _reaction_dir_arg(args)
+    if reaction_dir_raw is None:
+        logger.error("job directory path is required")
+        return None
+    target = _resolve_run_target_or_log(cfg, reaction_dir_raw)
     if target is None:
         return None
     return RunSubmissionContext(
@@ -374,7 +385,11 @@ def _resolve_execution_context(
     if cfg is None:
         cfg = load_config(args.config)
     if reaction_dir is None or selected_inp is None:
-        target = _resolve_run_target_or_log(cfg, args.reaction_dir)
+        reaction_dir_raw = _reaction_dir_arg(args)
+        if reaction_dir_raw is None:
+            logger.error("job directory path is required")
+            return None
+        target = _resolve_run_target_or_log(cfg, reaction_dir_raw)
         if target is None:
             return None
         reaction_dir = target.reaction_dir
@@ -493,12 +508,20 @@ def _build_queue_enqueued_notification(entry: QueueEntry) -> QueueEnqueuedNotifi
     }
 
 
-def _resource_caps(cfg: Any) -> dict[str, int]:
+def _resource_caps(cfg: Any, *, args: Any | None = None) -> dict[str, int]:
     from orca_auto.job_locations import resource_dict
 
+    default_max_cores = int(cfg.resources.max_cores_per_task)
+    default_max_memory_gb = int(cfg.resources.max_memory_gb_per_task)
+    max_cores = int(getattr(args, "max_cores", default_max_cores) or default_max_cores) if args is not None else default_max_cores
+    max_memory_gb = (
+        int(getattr(args, "max_memory_gb", default_max_memory_gb) or default_max_memory_gb)
+        if args is not None
+        else default_max_memory_gb
+    )
     return resource_dict(
-        cfg.resources.max_cores_per_task,
-        cfg.resources.max_memory_gb_per_task,
+        max_cores,
+        max_memory_gb,
     )
 
 
@@ -507,12 +530,13 @@ def _build_queue_metadata(
     *,
     reaction_dir: Path,
     selected_inp: Path | None,
+    args: Any | None = None,
 ) -> dict[str, Any]:
     from orca_auto.job_locations import resolve_job_metadata
 
     selected_input = str(selected_inp) if selected_inp is not None else ""
     job_type, molecule_key = resolve_job_metadata(selected_input, reaction_dir)
-    requested = _resource_caps(cfg)
+    requested = _resource_caps(cfg, args=args)
     metadata: dict[str, Any] = {
         "submitted_via": "run_inp",
         "max_retries": max(0, int(cfg.runtime.default_max_retries)),
@@ -583,6 +607,7 @@ def _submit_as_queued(
         cfg,
         reaction_dir=reaction_dir,
         selected_inp=selected_inp,
+        args=args,
     )
     try:
         entry = enqueue(

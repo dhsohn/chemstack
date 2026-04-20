@@ -1,6 +1,6 @@
 # ORCA Auto Detailed Reference
 
-ORCA Auto is a queue-first executor for ORCA calculations. It conservatively retries failed runs, records state in each reaction directory, and organizes completed results for later review.
+ORCA Auto is a queue-first executor for ORCA calculations. It conservatively retries failed runs, records state in each job directory, and organizes completed results for later review.
 
 ## 1) Project Purpose
 
@@ -15,10 +15,10 @@ ORCA Auto is a queue-first executor for ORCA calculations. It conservatively ret
 
 Current intended semantics:
 
-- Public `run-inp` enqueues new work durably
-- If an already-completed output is detected, `run-inp` returns completion without relaunching ORCA
+- Public `run-dir` enqueues new work durably
+- If an already-completed output is detected, `run-dir` returns completion without relaunching ORCA
 - Successful queue submission returns `status: queued`
-- Public `run-inp` does not launch ORCA directly for new work
+- Public `run-dir` does not launch ORCA directly for new work
 - App-managed background execution has been removed
 - The queue worker is a foreground process intended to run under external supervision
 - On WSL, the recommended supervisor is `systemd`
@@ -119,18 +119,18 @@ Notes:
 
 ## 7) CLI Usage
 
-### 7.1 `run-inp`
+### 7.1 `run-dir`
 
 ```bash
 cd ~/orca_auto
-./bin/orca_auto run-inp --reaction-dir '/absolute/path/to/orca_runs/Int1_DMSO'
+./bin/orca_auto run-dir '/absolute/path/to/orca_runs/Int1_DMSO'
 ```
 
 Successful submission example:
 
 ```text
 status: queued
-reaction_dir: /absolute/path/to/orca_runs/Int1_DMSO
+job_dir: /absolute/path/to/orca_runs/Int1_DMSO
 queue_id: q_20260403_151220_ab12cd
 priority: 10
 worker: active
@@ -139,7 +139,7 @@ worker_pid: 12345
 
 Behavior:
 
-- Validates that `--reaction-dir` is under `allowed_root`
+- Validates that the job directory path is under `allowed_root`
 - Rejects duplicate active queue entries for the same directory
 - Chooses the latest `*.inp` when execution actually starts
 - Writes the queue entry durably before returning
@@ -147,11 +147,9 @@ Behavior:
 
 Public options:
 
-- `--reaction-dir` (required): Reaction directory
+- `<path>` (required): Job directory
 - `--force` (optional): Re-run even if a completed output already exists
 - `--priority` (optional): Queue priority, lower values run sooner
-
-Legacy notes:
 
 - `--queue-only` is no longer needed because queuing is the default public behavior
 - `--require-slot`, public direct execution, and app-managed background launch are removed from the intended workflow
@@ -207,7 +205,7 @@ There is no supported app-managed `--daemon` mode in the intended workflow. Ther
 
 Options:
 
-- `--reaction-dir`: Organize a single reaction directory
+- `--reaction-dir`: Organize a single job directory
 - `--root`: Organize from the configured root
 - `--apply`: Perform actual moves
 - `--rebuild-index`: Rebuild the JSONL index
@@ -299,7 +297,7 @@ Principles:
 
 ## 11) Output Files
 
-Generated in the reaction directory:
+Generated in the job directory:
 
 - `<stem>.out`, `<stem>.retryNN.out`
 - `run_state.json`
@@ -346,7 +344,7 @@ Important `run_report.json` fields:
 ## 11.1) Downstream Contract Freeze
 
 The migration baseline assumes the following ORCA-facing compatibility contract
-remains readable by downstream tooling such as `chem_workflow_mcp`.
+remains readable by downstream tooling such as `chem_flow`.
 
 Queue entry fields currently consumed downstream from `queue.json`:
 
@@ -420,7 +418,7 @@ least these fields:
 ## 12) Recommended Workflow
 
 1. Ensure the worker service is active, or start `queue worker` in a dedicated terminal
-2. Submit with `run-inp`
+2. Submit with `run-dir`
 3. Confirm `status: queued`
 4. Close the submission terminal if desired
 5. Monitor with `list` or `journalctl`
@@ -429,17 +427,17 @@ least these fields:
 
 ## 13) Frequently Encountered Issues
 
-1. `Reaction directory must be under allowed root`
-- Cause: `--reaction-dir` is outside `allowed_root`
+1. `Job directory must be under allowed root`
+- Cause: the job directory path is outside `allowed_root`
 - Action: Check `allowed_root` in `config/orca_auto.yaml`
 
-2. `Reaction directory not found`
+2. `Job directory not found`
 - Cause: Path string or quoting problem
 - Action: Use an absolute path and quote it if needed
 
 3. `State file not found`
 - Cause: No job has executed in that directory yet
-- Action: Submit with `run-inp` and let the worker pick it up
+- Action: Submit with `run-dir` and let the worker pick it up
 
 4. `worker: inactive`
 - Cause: The queue submission succeeded, but no worker is running

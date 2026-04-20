@@ -96,7 +96,7 @@ class TestBuildMessage:
         assert "orca_auto monitor" in message
         assert "\u2500" in message
         assert "Filesystem discovery only" in message
-        assert "run-inp alerts" in message
+        assert "run-dir alerts" in message
         assert "summary" in message
 
     def test_header_uses_local_timezone_like_summary(self) -> None:

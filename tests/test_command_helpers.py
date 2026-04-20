@@ -167,7 +167,7 @@ class TestHelperUtilities(unittest.TestCase):
 
         output = captured.getvalue()
         self.assertIn("status: completed", output)
-        self.assertIn("reaction_dir: /tmp/rxn", output)
+        self.assertIn("job_dir: /tmp/rxn", output)
         self.assertIn("report_md: /tmp/report.md", output)
         self.assertNotIn("ignored", output)
 

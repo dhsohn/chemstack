@@ -12,7 +12,7 @@
 | Wave 4. `job_locations.py` / `tracking.py` / `chem_core.indexing` facade 완료 |  |  |  |
 | Wave 5. state/report facade 분리 및 `runtime.run_lock` 경계 분리 완료 |  |  |  |
 | Wave 6. worker execution flow 단순화 완료 |  |  |  |
-| Wave 7. `chem_workflow_mcp` ORCA facade cutover 완료 |  |  |  |
+| Wave 7. `chem_flow` ORCA facade cutover 완료 |  |  |  |
 
 Notes:
 
@@ -26,7 +26,7 @@ Restructure `orca_auto` so it fits the same application shape now used by:
 
 - `crest_auto`
 - `xtb_auto`
-- `chem_workflow_mcp`
+- `chem_flow`
 - `chem_core`
 
 The migration should make `orca_auto` easier to integrate as a sibling engine
@@ -38,13 +38,13 @@ queue-first ORCA executor.
 
 The following behaviors should remain stable during the migration:
 
-- manual CLI submission through `run-inp`
+- manual CLI submission through `run-dir`
 - supervised foreground worker execution
 - conservative ORCA-specific retry logic
 - existing reaction-directory artifact layout
 - existing `run_state.json` / `run_report.json` / `run_report.md` outputs
 - existing organized output layout under `organized_root`
-- existing compatibility with `chem_workflow_mcp`
+- existing compatibility with `chem_flow`
 
 Important constraint:
 
@@ -65,7 +65,7 @@ Important constraint:
   of exposing a `chem_core.indexing`-style job location facade
 - it uses `reaction_dir` and `run_id` as the practical identifiers, but lacks a
   stable submission-time `job_id`/`task_id` model like the sibling apps
-- `chem_workflow_mcp` therefore has to read ORCA artifacts more directly and
+- `chem_flow` therefore has to read ORCA artifacts more directly and
   more defensively than it does for CREST and xTB
 
 
@@ -135,7 +135,7 @@ Use these rules throughout the migration:
 2. preserve user-visible behavior until the end of the migration
 3. keep compatibility shims while tests and downstream code still import `core.*`
 4. add facades before deleting raw file readers
-5. cut over `chem_workflow_mcp` only after `orca_auto` exposes a stable ORCA
+5. cut over `chem_flow` only after `orca_auto` exposes a stable ORCA
    tracking/index facade
 
 
@@ -157,7 +157,7 @@ Changes:
   - `run_report.md`
   - queue entry fields currently consumed downstream
   - organized-index record fields currently consumed downstream
-- add a focused integration test that asserts `chem_workflow_mcp` can still
+- add a focused integration test that asserts `chem_flow` can still
   load a completed ORCA result after later internal refactors
 
 Done when:
@@ -170,7 +170,7 @@ Progress note:
 - `docs/REFERENCE.md` now lists the frozen downstream contract fields for
   `run_state.json`, `run_report.json`, `queue.json`, `job_locations.json`, and
   `organized_ref.json`
-- `chem_workflow_mcp/tests/test_orca_contract_freeze.py` now exercises the
+- `chem_flow/tests/test_orca_contract_freeze.py` now exercises the
   public workflow sync path and asserts that a completed ORCA result still
   surfaces through workflow summary and workflow artifacts
 
@@ -264,7 +264,7 @@ Important design choice:
 
 Done when:
 
-- `run-inp` and `queue worker` use `chem_core.queue` and `chem_core.admission`
+- `run-dir` and `queue worker` use `chem_core.queue` and `chem_core.admission`
 - queue and admission tests cover the new path
 - the old queue/admission modules are either deleted or reduced to wrappers
 
@@ -293,7 +293,7 @@ Changes:
   - `resource_request`
   - `resource_actual`
 - keep writing the legacy organized `records.jsonl` temporarily if
-  `chem_workflow_mcp` still depends on it
+  `chem_flow` still depends on it
 - add `organized_ref.json` in original run directories after successful moves,
   matching the pattern already used in sibling apps
 
@@ -306,7 +306,7 @@ Important rule:
 Done when:
 
 - ORCA has `resolve_latest_job_dir`, `load_job_artifacts`, and `upsert_job_record`
-- `chem_workflow_mcp` can load ORCA job locations without reading raw ORCA
+- `chem_flow` can load ORCA job locations without reading raw ORCA
   internals first
 
 
@@ -354,7 +354,7 @@ Purpose:
 
 Changes:
 
-- keep `run-inp` as the public queue submission command
+- keep `run-dir` as the public queue submission command
 - keep an internal execution function, but stop treating hidden `run-job` as the
   long-term primary boundary
 - refactor worker execution toward:
@@ -394,7 +394,7 @@ Status:
 - complete
 
 
-### Wave 7. Cut over `chem_workflow_mcp` to the new ORCA facade
+### Wave 7. Cut over `chem_flow` to the new ORCA facade
 
 Purpose:
 
@@ -402,7 +402,7 @@ Purpose:
 
 Changes:
 
-- update `chem_workflow_mcp` so ORCA artifact loading prefers:
+- update `chem_flow` so ORCA artifact loading prefers:
   - `orca_auto.job_locations`
   - `chem_core.indexing`
   - ORCA state/report facade helpers
@@ -415,19 +415,19 @@ Changes:
 
 Progress note:
 
-- `chem_workflow_mcp.adapters.orca` now prefers `orca_auto.tracking.load_job_artifacts()`
+- `chem_flow.adapters.orca` now prefers `orca_auto.tracking.load_job_artifacts()`
   and `orca_auto.state.load_organized_ref()` when those facades are available
 - `orca_auto.tracking.load_job_artifact_context()` now exposes tracked
   `record/job_dir/state/report/organized_ref` together so downstream code does
   less ORCA-specific file assembly on its own
 - `orca_auto.tracking.load_job_runtime_context()` now encapsulates queue entry
-  lookup plus legacy organized-record fallback so `chem_workflow_mcp` no longer
+  lookup plus legacy organized-record fallback so `chem_flow` no longer
   reads `queue.json` and `records.jsonl` itself on the normal facade-first path
 - `orca_auto.tracking.load_orca_contract_payload()` now exports normalized ORCA
   runtime/attempt/resource/path fields directly, and
-  `chem_workflow_mcp.adapters.orca` uses that payload as the primary contract
+  `chem_flow.adapters.orca` uses that payload as the primary contract
   source instead of assembling normal ORCA contracts by hand
-- `chem_workflow_mcp` now has regression coverage for ORCA contract
+- `chem_flow` now has regression coverage for ORCA contract
   consumption in `_sync_orca_stage()` and precomplex downstream handoff
 - legacy `records.jsonl` lookup remains only as a defensive fallback when
   tracked resolution does not produce an organized run directory
@@ -511,7 +511,7 @@ Each wave should have its own acceptance checks.
 - ORCA jobs can be resolved by `job_id`, `run_id`, original path, and organized
   path
 - organized runs still remain discoverable after relocation
-- `chem_workflow_mcp` can load a completed ORCA artifact through the new facade
+- `chem_flow` can load a completed ORCA artifact through the new facade
 
 ### Required checks after Wave 5
 
@@ -525,7 +525,7 @@ Each wave should have its own acceptance checks.
 
 ### Required checks after Wave 7
 
-- one end-to-end workflow in `chem_workflow_mcp` can submit, sync, and complete
+- one end-to-end workflow in `chem_flow` can submit, sync, and complete
   an ORCA stage through the new ORCA tracking path
 
 
@@ -539,14 +539,14 @@ Recommended PR sequence:
 4. add `job_locations.py`, `tracking.py`, and `organized_ref.json`
 5. split state/report facade from run-lock concerns
 6. simplify worker execution flow
-7. cut `chem_workflow_mcp` over to the ORCA facade
+7. cut `chem_flow` over to the ORCA facade
 8. remove `core/` shims and any legacy raw-index dependencies
 
 Why this order:
 
 - it preserves operator behavior early
 - it stabilizes shared infrastructure before touching workflow integration
-- it avoids breaking `chem_workflow_mcp` while ORCA internals are still moving
+- it avoids breaking `chem_flow` while ORCA internals are still moving
 
 
 ## 11. Recommended Immediate Next Step

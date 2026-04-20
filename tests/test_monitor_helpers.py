@@ -71,7 +71,7 @@ def test_human_bytes_and_emit_cover_formatting_and_selected_keys(capsys) -> None
 
     output = capsys.readouterr().out
     assert "status: completed" in output
-    assert "reaction_dir: /tmp/rxn" in output
+    assert "job_dir: /tmp/rxn" in output
     assert "reason: done" in output
     assert "ignored" not in output
 

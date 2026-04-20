@@ -80,7 +80,7 @@ class TestCli(unittest.TestCase):
             (outside / "a.inp").write_text("! Opt\n* xyz 0 1\nH 0 0 0\nH 0 0 0.74\n*\n", encoding="utf-8")
             config = self._write_config(root, allowed)
 
-            rc = main(["--config", str(config), "run-inp", "--reaction-dir", str(outside)])
+            rc = main(["--config", str(config), "run-dir", str(outside)])
         self.assertEqual(rc, 1)
 
     def test_select_latest_inp_prefers_base_input(self) -> None:
@@ -103,27 +103,33 @@ class TestCli(unittest.TestCase):
         with patch.dict(os.environ, {CONFIG_ENV_VAR: "/tmp/custom_orca_auto.yaml"}, clear=False):
             self.assertEqual(default_config_path(), "/tmp/custom_orca_auto.yaml")
 
-    def test_run_inp_accepts_queue_submission_flags(self) -> None:
+    def test_run_dir_accepts_queue_submission_flags(self) -> None:
         parser = build_parser()
         args = parser.parse_args(
             [
-                "run-inp",
-                "--reaction-dir",
+                "run-dir",
                 "/tmp/rxn",
                 "--priority",
                 "3",
+                "--max-cores",
+                "16",
+                "--max-memory-gb",
+                "64",
                 "--queue-only",
             ]
         )
 
-        self.assertEqual(args.command, "run-inp")
+        self.assertEqual(args.command, "run-dir")
+        self.assertEqual(args.path, "/tmp/rxn")
         self.assertEqual(args.priority, 3)
+        self.assertEqual(args.max_cores, 16)
+        self.assertEqual(args.max_memory_gb, 64)
         self.assertTrue(args.queue_only)
 
-    def test_run_inp_rejects_foreground_flag(self) -> None:
+    def test_run_dir_rejects_foreground_flag(self) -> None:
         parser = build_parser()
         with self.assertRaises(SystemExit) as exc:
-            parser.parse_args(["run-inp", "--reaction-dir", "/tmp/rxn", "--foreground"])
+            parser.parse_args(["run-dir", "/tmp/rxn", "--foreground"])
         self.assertEqual(exc.exception.code, 2)
 
     def test_hidden_run_job_command_is_parsed(self) -> None:
@@ -164,6 +170,13 @@ class TestCli(unittest.TestCase):
 
         self.assertEqual(rc, 9)
         mock_cmd_run_job.assert_called_once()
+
+    @patch("core.cli.cmd_run_inp", return_value=8)
+    def test_main_dispatches_run_dir_command(self, mock_cmd_run_inp: MagicMock) -> None:
+        rc = main(["run-dir", "/tmp/rxn"])
+
+        self.assertEqual(rc, 8)
+        mock_cmd_run_inp.assert_called_once()
 
     def test_launcher_main_delegates_to_cli_main(self) -> None:
         self.assertIs(launcher_main, main)
@@ -291,7 +304,7 @@ class TestCli(unittest.TestCase):
             (reaction / "rxn.out").write_text("****ORCA TERMINATED NORMALLY****\n", encoding="utf-8")
             config = self._write_config(root, root / "orca_runs")
 
-            rc = main(["--config", str(config), "run-inp", "--reaction-dir", str(reaction)])
+            rc = main(["--config", str(config), "run-dir", str(reaction)])
 
             state = json.loads((reaction / "run_state.json").read_text(encoding="utf-8"))
         self.assertEqual(rc, 0)
@@ -312,7 +325,7 @@ class TestCli(unittest.TestCase):
             config = self._write_config(root, root / "orca_runs")
 
             with patch("core.commands.run_inp.OrcaRunner.run") as run_mock:
-                rc = main(["--config", str(config), "run-inp", "--reaction-dir", str(reaction)])
+                rc = main(["--config", str(config), "run-dir", str(reaction)])
             self.assertFalse(run_mock.called)
             state = json.loads((reaction / "run_state.json").read_text(encoding="utf-8"))
         self.assertEqual(rc, 0)
@@ -334,7 +347,7 @@ class TestCli(unittest.TestCase):
             )
             config = self._write_config(root, root / "orca_runs")
 
-            rc = main(["--config", str(config), "run-inp", "--reaction-dir", str(reaction)])
+            rc = main(["--config", str(config), "run-dir", str(reaction)])
 
         self.assertEqual(rc, 1)
         self.assertFalse((reaction / "run_state.json").exists())
@@ -382,7 +395,7 @@ class TestCli(unittest.TestCase):
             (reaction / "run_state.json").write_text(json.dumps(state), encoding="utf-8")
 
             with patch("core.commands.run_inp.OrcaRunner.run") as run_mock:
-                rc = main(["--config", str(config), "run-inp", "--reaction-dir", str(reaction)])
+                rc = main(["--config", str(config), "run-dir", str(reaction)])
             self.assertFalse(run_mock.called)
             saved = json.loads((reaction / "run_state.json").read_text(encoding="utf-8"))
 
@@ -874,7 +887,7 @@ class TestCli(unittest.TestCase):
             captured_stderr = io.StringIO()
             captured_stdout = io.StringIO()
             with patch("sys.stderr", captured_stderr), patch("sys.stdout", captured_stdout):
-                rc = main(["--config", str(config), "run-inp", "--reaction-dir", str(outside)])
+                rc = main(["--config", str(config), "run-dir", str(outside)])
         self.assertEqual(rc, 1)
         # Error should go to stderr (via logger.error), not stdout
         self.assertNotIn("allowed root", captured_stdout.getvalue())

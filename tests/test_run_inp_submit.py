@@ -241,6 +241,38 @@ class TestRunInpSubmit(unittest.TestCase):
             mock_read_worker_pid.assert_called_once()
             mock_notify_queue.assert_called_once()
 
+    @patch("core.commands.run_inp.notify_queue_enqueued_event", return_value=True)
+    @patch("core.queue_worker.read_worker_pid", return_value=None)
+    def test_submit_as_queued_honors_resource_override_flags(
+        self,
+        mock_read_worker_pid: MagicMock,
+        mock_notify_queue: MagicMock,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            cfg = _make_cfg(tmp)
+            reaction_dir = root / "rxn"
+            _write_inp(reaction_dir)
+
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                rc = _submit_as_queued(
+                    cfg,
+                    _make_args(root, reaction_dir, max_cores=20, max_memory_gb=80),
+                    reaction_dir,
+                )
+
+            entries = list_queue(root)
+
+            self.assertEqual(rc, 0)
+            self.assertEqual(len(entries), 1)
+            self.assertEqual(entries[0]["metadata"]["resource_request"]["max_cores"], 20)
+            self.assertEqual(entries[0]["metadata"]["resource_request"]["max_memory_gb"], 80)
+            self.assertEqual(entries[0]["metadata"]["resource_actual"]["max_cores"], 20)
+            self.assertEqual(entries[0]["metadata"]["resource_actual"]["max_memory_gb"], 80)
+            mock_read_worker_pid.assert_called_once()
+            mock_notify_queue.assert_called_once()
+
 
 if __name__ == "__main__":
     unittest.main()

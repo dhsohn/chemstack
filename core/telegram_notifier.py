@@ -138,7 +138,7 @@ def format_monitor_message(report: ScanReport, *, now: datetime | None = None) -
     scope = (
         "\U0001f50d <b>Scope</b>\n"
         "Filesystem discovery only. "
-        "Use run-inp alerts for immediate lifecycle events and summary for periodic state digests."
+        "Use run-dir alerts for immediate lifecycle events and summary for periodic state digests."
     )
 
     sections: list[str] = [header, divider, scope]

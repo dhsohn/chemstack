@@ -135,22 +135,22 @@ Config file search order:
 
 ```bash
 # Default submission
-./bin/orca_auto run-inp --reaction-dir '/home/user/orca_runs/sample_rxn'
+./bin/orca_auto run-dir '/home/user/orca_runs/sample_rxn'
 
 # Force re-run of a completed calculation
-./bin/orca_auto run-inp --reaction-dir '/home/user/orca_runs/sample_rxn' --force
+./bin/orca_auto run-dir '/home/user/orca_runs/sample_rxn' --force
 
 # Set queue priority
-./bin/orca_auto run-inp --reaction-dir '/home/user/orca_runs/sample_rxn' --priority 1
+./bin/orca_auto run-dir '/home/user/orca_runs/sample_rxn' --priority 1
 ```
 
-`run-inp` automatically selects the **most recently modified `.inp` file** in the directory.
+`run-dir` automatically selects the **most recently modified `.inp` file** in the directory.
 
 Submission behavior:
-- Public `run-inp` durably enqueues new work.
-- If an already-completed output is detected, `run-inp` returns that completion state without launching ORCA again.
+- Public `run-dir` durably enqueues new work.
+- If an already-completed output is detected, `run-dir` returns that completion state without launching ORCA again.
 - When a submission is enqueued, the command returns only after the queue entry has been written safely.
-- `run-inp` does not launch ORCA directly for new work, does not daemonize itself, and does not auto-start a worker.
+- `run-dir` does not launch ORCA directly for new work, does not daemonize itself, and does not auto-start a worker.
 - The worker selects the latest `.inp` when execution actually begins.
 - If no worker is currently running, the job remains queued until a foreground worker or systemd-managed worker is available.
 
@@ -169,9 +169,9 @@ The following files are created in each calculation directory:
 ### Example Output
 
 ```text
-$ ./bin/orca_auto run-inp --reaction-dir '/home/user/orca_runs/sample_rxn'
+$ ./bin/orca_auto run-dir '/home/user/orca_runs/sample_rxn'
 status: queued
-reaction_dir: /home/user/orca_runs/sample_rxn
+job_dir: /home/user/orca_runs/sample_rxn
 queue_id: q_20260403_151220_ab12cd
 priority: 10
 worker: active
@@ -188,13 +188,13 @@ The queue system is now the **only public execution path** for ORCA runs. It sup
 
 ```bash
 # Default submission
-./bin/orca_auto run-inp --reaction-dir '/home/user/orca_runs/rxn_001'
+./bin/orca_auto run-dir '/home/user/orca_runs/rxn_001'
 
 # Higher priority
-./bin/orca_auto run-inp --reaction-dir '/home/user/orca_runs/rxn_002' --priority 1
+./bin/orca_auto run-dir '/home/user/orca_runs/rxn_002' --priority 1
 
 # Intentional re-run of a completed/failed job
-./bin/orca_auto run-inp --reaction-dir '/home/user/orca_runs/rxn_001' --force
+./bin/orca_auto run-dir '/home/user/orca_runs/rxn_001' --force
 ```
 
 - Priority: **lower number** = runs first (default: 10)
@@ -293,7 +293,7 @@ Notes:
 systemctl status "orca-auto-queue-worker@$(whoami)"
 
 # 2. Submit work
-./bin/orca_auto run-inp --reaction-dir '/home/user/orca_runs/rxn_A'
+./bin/orca_auto run-dir '/home/user/orca_runs/rxn_A'
 
 # 3. Check progress
 ./bin/orca_auto list
@@ -312,7 +312,7 @@ Operational guidance:
 # Cancel by queue ID
 ./bin/orca_auto queue cancel q-abc123
 
-# Cancel by reaction directory
+# Cancel by job directory
 ./bin/orca_auto queue cancel /home/user/orca_runs/rxn_001
 
 # Cancel all pending jobs
@@ -335,9 +335,9 @@ This removes terminal queue entries and run state files for completed/failed sim
 sudo systemctl enable --now "orca-auto-queue-worker@$(whoami)"
 
 # 2. Submit multiple calculations
-./bin/orca_auto run-inp --reaction-dir '/home/user/orca_runs/rxn_A' --priority 1
-./bin/orca_auto run-inp --reaction-dir '/home/user/orca_runs/rxn_B' --priority 5
-./bin/orca_auto run-inp --reaction-dir '/home/user/orca_runs/rxn_C'
+./bin/orca_auto run-dir '/home/user/orca_runs/rxn_A' --priority 1
+./bin/orca_auto run-dir '/home/user/orca_runs/rxn_B' --priority 5
+./bin/orca_auto run-dir '/home/user/orca_runs/rxn_C'
 
 # 3. Set runtime.max_concurrent: 2 in config/orca_auto.yaml
 
@@ -477,7 +477,7 @@ Set `bot_token` and `chat_id` in `config/orca_auto.yaml` to activate notificatio
 
 | Event | Content |
 |-------|---------|
-| Run started | Reaction directory, selected input, attempt info |
+| Run started | Job directory, selected input, attempt info |
 | Retry scheduled | Failure reason, patch actions, next input file |
 | Run completed/failed | Final status, attempt count, completion reason |
 | DFT discovery | Formula, method, energy of new results |
@@ -538,7 +538,7 @@ Installed schedules:
 
 | Command | Role |
 |---------|------|
-| `run-inp` | Submit calculations durably to the queue |
+| `run-dir` | Submit calculations durably to the queue |
 | `queue worker` | Execute queued calculations under foreground or `systemd` supervision |
 | `monitor` | Discovery alerts — newly found results from filesystem scans |
 | `summary` | State digest — active jobs and attention-needed items (completed history excluded) |
@@ -552,7 +552,7 @@ Installed schedules:
 | Command | Description |
 |---------|-------------|
 | `init` | Interactively create or update the config file |
-| `run-inp` | Submit a calculation durably to the queue |
+| `run-dir` | Submit a calculation durably to the queue |
 | `list` | Unified view of queue state and run state |
 | `list clear` | Remove completed/failed/cancelled entries |
 | `organize` | Move completed results to `organized_root` and index them |
@@ -576,7 +576,7 @@ Installed schedules:
 | `--verbose`, `-v` | Enable debug logging |
 | `--log-file <path>` | Write logs to file (10MB x 5 rotation) |
 | `--force` | Force re-run of completed calculations |
-| `--priority <n>` | Queue priority for `run-inp` submissions (`lower = sooner`) |
+| `--priority <n>` | Queue priority for `run-dir` submissions (`lower = sooner`) |
 
 ### Environment Variables
 
@@ -589,22 +589,22 @@ Installed schedules:
 
 ## Troubleshooting
 
-### `Reaction directory must be under allowed root`
+### `Job directory must be under allowed root`
 
-The `--reaction-dir` path is not under `allowed_root`.
+The job directory path is not under `allowed_root`.
 Check `allowed_root` in `config/orca_auto.yaml`.
 
-### `Reaction directory not found`
+### `Job directory not found`
 
 Path string or quoting issue. Wrap the path in single quotes:
 
 ```bash
-./bin/orca_auto run-inp --reaction-dir '/home/user/orca_runs/my_case'
+./bin/orca_auto run-dir '/home/user/orca_runs/my_case'
 ```
 
 ### `State file not found`
 
-`run-inp` has not been executed in that directory yet. Run `run-inp` first.
+`run-dir` has not been executed in that directory yet. Run `run-dir` first.
 
 ### `error_multiplicity_impossible`
 
@@ -612,7 +612,7 @@ The electron count and multiplicity combination is invalid. This tool uses a con
 
 ### Duplicate queue entry rejected
 
-The same `reaction_dir` already exists in the queue with an active status (pending/running). Use `--force` to re-enqueue after completion or failure.
+The same `job_dir` already exists in the queue with an active status (pending/running). Use `--force` to re-enqueue after completion or failure.
 
 ### Submission returns `worker: inactive`
 
@@ -629,7 +629,7 @@ orca_auto/
 │   ├── cli.py                 # CLI argument parsing and command routing
 │   ├── config.py              # YAML configuration loading
 │   ├── commands/              # CLI command implementations
-│   │   ├── run_inp.py         # run-inp command
+│   │   ├── run_inp.py         # run-dir command
 │   │   ├── run_job.py         # Internal worker-owned run executor
 │   │   ├── list_runs.py       # list command
 │   │   ├── queue.py           # queue command

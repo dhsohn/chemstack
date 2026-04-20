@@ -48,19 +48,25 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--log-file", default=None, help="Write logs to file (with rotation, max 10MB x 5)")
     sub = parser.add_subparsers(dest="command", required=True)
 
+    def _add_run_dir_parser(name: str, *, help_text: str) -> argparse.ArgumentParser:
+        run_parser = sub.add_parser(name, help=help_text)
+        run_parser.add_argument("path", help="Job directory under the configured allowed_root")
+        run_parser.add_argument("--force", action="store_true", help="Force re-run even if existing output is completed")
+        run_parser.add_argument("--priority", type=int, default=10, help="Queue priority when submission is enqueued (lower = higher, default 10)")
+        run_parser.add_argument("--max-cores", type=int, default=None, help="Override max cores recorded for this queued run")
+        run_parser.add_argument("--max-memory-gb", type=int, default=None, help="Override max memory (GB) recorded for this queued run")
+        run_parser.add_argument("--queue-only", action="store_true", help="Deprecated alias; submissions are always queued")
+        run_parser.add_argument(
+            "--require-slot",
+            action="store_true",
+            help="Deprecated; immediate execution has been removed and submissions are always queued",
+        )
+        return run_parser
+
     init = sub.add_parser("init", help="Interactively create or update the config file")
     init.add_argument("--force", action="store_true", help="Overwrite existing config without confirmation")
 
-    run_inp = sub.add_parser("run-inp")
-    run_inp.add_argument("--reaction-dir", required=True, help="Directory under the configured allowed_root containing input files")
-    run_inp.add_argument("--force", action="store_true", help="Force re-run even if existing output is completed")
-    run_inp.add_argument("--priority", type=int, default=10, help="Queue priority when submission is enqueued (lower = higher, default 10)")
-    run_inp.add_argument("--queue-only", action="store_true", help="Deprecated alias; submissions are always queued")
-    run_inp.add_argument(
-        "--require-slot",
-        action="store_true",
-        help="Deprecated; immediate execution has been removed and submissions are always queued",
-    )
+    _add_run_dir_parser("run-dir", help_text="Queue an ORCA job directory")
 
     run_job = sub.add_parser("run-job", help=argparse.SUPPRESS)
     run_job.add_argument("--reaction-dir", required=True, help=argparse.SUPPRESS)
@@ -80,7 +86,7 @@ def build_parser() -> argparse.ArgumentParser:
     summary.add_argument("--no-send", action="store_true", default=False, help="Print summary without sending Telegram")
 
     organize = sub.add_parser("organize")
-    organize.add_argument("--reaction-dir", default=None, help="Single reaction directory to organize")
+    organize.add_argument("--reaction-dir", default=None, help="Single job directory to organize")
     organize.add_argument("--root", default=None, help="Root directory to scan (mutually exclusive with --reaction-dir)")
     organize.add_argument("--apply", action="store_true", default=False, help="Actually move files (default is dry-run)")
     organize.add_argument("--rebuild-index", action="store_true", default=False, help="Rebuild JSONL index from organized directories")
@@ -90,7 +96,7 @@ def build_parser() -> argparse.ArgumentParser:
     queue_sub = queue_parser.add_subparsers(dest="queue_command", required=True)
 
     q_cancel = queue_sub.add_parser("cancel", help="Cancel a queued or running job")
-    q_cancel.add_argument("target", help="queue_id, reaction_dir, or run_id to cancel; or 'all-pending'")
+    q_cancel.add_argument("target", help="queue_id, job_dir, or run_id to cancel; or 'all-pending'")
 
     q_worker = queue_sub.add_parser("worker", help="Run the queue worker in the foreground")
     auto_group = q_worker.add_mutually_exclusive_group()
@@ -153,7 +159,7 @@ def main(argv: list[str] | None = None) -> int:
 
     command_map: dict[str, Callable[[argparse.Namespace], int]] = {
         "init": cmd_init,
-        "run-inp": cmd_run_inp,
+        "run-dir": cmd_run_inp,
         "run-job": cmd_run_job,
         "list": cmd_list,
         "bot": cmd_bot,

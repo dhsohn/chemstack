@@ -45,12 +45,12 @@ def _to_resolved_local(path_text: str) -> Path:
 def _validate_reaction_dir(cfg: AppConfig, reaction_dir_raw: str) -> Path:
     reaction_dir = _to_resolved_local(reaction_dir_raw)
     if not reaction_dir.exists() or not reaction_dir.is_dir():
-        raise ValueError(f"Reaction directory not found: {reaction_dir}")
+        raise ValueError(f"Job directory not found: {reaction_dir}")
 
     allowed_root = _to_resolved_local(cfg.runtime.allowed_root)
     if not is_subpath(reaction_dir, allowed_root):
         raise ValueError(
-            f"Reaction directory must be under allowed root: {allowed_root}. got={reaction_dir}"
+            f"Job directory must be under allowed root: {allowed_root}. got={reaction_dir}"
         )
     return reaction_dir
 
@@ -87,15 +87,20 @@ def finalize_batch_apply(
 
 
 def _emit(payload: Dict[str, Any]) -> None:
-    for key in [
-        "status",
-        "reaction_dir",
-        "selected_inp",
-        "attempt_count",
-        "reason",
-        "run_state",
-        "report_json",
-        "report_md",
-    ]:
-        if key in payload:
-            print(f"{key}: {payload[key]}")
+    fields = [
+        ("status", "status"),
+        ("job_dir", "job_dir"),
+        ("reaction_dir", "job_dir"),
+        ("selected_inp", "selected_inp"),
+        ("attempt_count", "attempt_count"),
+        ("reason", "reason"),
+        ("run_state", "run_state"),
+        ("report_json", "report_json"),
+        ("report_md", "report_md"),
+    ]
+    emitted_labels: set[str] = set()
+    for key, label in fields:
+        if key not in payload or label in emitted_labels:
+            continue
+        print(f"{label}: {payload[key]}")
+        emitted_labels.add(label)

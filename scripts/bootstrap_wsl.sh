@@ -47,4 +47,4 @@ if [[ ! -f "$CONFIG" ]]; then
 fi
 
 echo "[bootstrap] Done."
-echo "[bootstrap] Example: ./bin/orca_auto run-inp --reaction-dir '/absolute/path/to/orca_runs/<dir>'"
+echo "[bootstrap] Example: ./bin/orca_auto run-dir '/absolute/path/to/orca_runs/<dir>'"
