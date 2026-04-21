@@ -50,7 +50,7 @@ scheduler:
   max_active_simulations: 4
 
 workflow:
-  root: /home/user/chemstack/workflow_root
+  root: /home/user/workflow_root
 
 telegram:
   bot_token: ""
@@ -104,7 +104,7 @@ python -m chemstack.cli queue worker
 python -m chemstack.cli run-dir orca '/home/user/orca_runs/sample_rxn'
 python -m chemstack.cli run-dir xtb '/home/user/xtb_runs/job_001'
 python -m chemstack.cli run-dir crest '/home/user/crest_runs/job_001'
-python -m chemstack.cli run-dir workflow '/home/user/workflow_inputs/reaction_case'
+python -m chemstack.cli run-dir workflow '/home/user/workflow_runs/reaction_case'
 
 # inspect and maintain
 python -m chemstack.cli queue list --engine orca
