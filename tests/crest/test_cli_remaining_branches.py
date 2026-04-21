@@ -7,24 +7,21 @@ from pathlib import Path
 
 import pytest
 
-from chemstack.crest.commands import init as init_cmd
 from chemstack.crest.commands import run_dir as run_dir_cmd
-
-_MISSING = object()
 
 
 def _write_config(tmp_path: Path) -> Path:
-    allowed_root = tmp_path / "allowed"
-    organized_root = tmp_path / "organized"
-    allowed_root.mkdir()
-    organized_root.mkdir()
+    workflow_root = tmp_path / "workflow_root"
+    allowed_root = workflow_root / "internal" / "crest" / "runs"
+    organized_root = workflow_root / "internal" / "crest" / "outputs"
+    allowed_root.mkdir(parents=True)
+    organized_root.mkdir(parents=True)
     config_path = tmp_path / "chemstack.yaml"
     config_path.write_text(
         "\n".join(
             [
-                "runtime:",
-                f"  allowed_root: {allowed_root}",
-                f"  organized_root: {organized_root}",
+                "workflow:",
+                f"  root: {workflow_root}",
                 "resources:",
                 "  max_cores_per_task: 4",
                 "  max_memory_gb_per_task: 8",
@@ -47,33 +44,14 @@ def test_cli_module_main_raises_system_exit_with_main_return_code(
     with warnings.catch_warnings():
         warnings.filterwarnings(
             "ignore",
-            message=r"'crest_auto\.cli' found in sys\.modules .* prior to execution of 'crest_auto\.cli'",
+            message=r"'chemstack\.crest\._internal_cli' found in sys\.modules .* prior to execution of 'chemstack\.crest\._internal_cli'",
             category=RuntimeWarning,
         )
         with pytest.raises(SystemExit) as exc_info:
-            runpy.run_module("chemstack.crest.cli", run_name="__main__")
+            runpy.run_module("chemstack.crest._internal_cli", run_name="__main__")
 
     assert exc_info.value.code == 0
-    assert capsys.readouterr().out == "activity_count: 0\n"
-
-
-@pytest.mark.parametrize(
-    "root_value",
-    [_MISSING, "", "   "],
-    ids=["missing-root-attr", "empty-root", "blank-root"],
-)
-def test_cmd_init_returns_error_when_root_is_missing_or_blank(
-    tmp_path: Path,
-    root_value: object,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    config_path = _write_config(tmp_path)
-    args = Namespace(config=str(config_path))
-    if root_value is not _MISSING:
-        args.root = root_value
-
-    assert init_cmd.cmd_init(args) == 1
-    assert capsys.readouterr().out == "error: init requires --root\n"
+    assert capsys.readouterr().out == "No CREST jobs found.\n"
 
 
 @pytest.mark.parametrize(

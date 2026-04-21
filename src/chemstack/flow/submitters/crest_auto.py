@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from chemstack.core.app_ids import CHEMSTACK_CLI_MODULE
+from chemstack.core.app_ids import CHEMSTACK_CREST_MODULE
 
 from .common import normalize_text, parse_key_value_lines, run_sibling_app
 
-_MODULE_NAME = CHEMSTACK_CLI_MODULE
+_MODULE_NAME = CHEMSTACK_CREST_MODULE
 
 
 def submit_job_dir(
@@ -24,7 +24,6 @@ def submit_job_dir(
         module_name=_MODULE_NAME,
         tail_argv=[
             "run-dir",
-            "crest",
             job_dir,
             "--priority",
             str(int(priority)),

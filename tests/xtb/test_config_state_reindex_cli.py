@@ -10,7 +10,7 @@ from types import SimpleNamespace
 import pytest
 import yaml
 
-from chemstack.xtb import cli
+from chemstack.xtb import _internal_cli as cli
 from chemstack.xtb import state as state_mod
 from chemstack.xtb.commands import reindex as reindex_cmd
 from chemstack.xtb.config import CONFIG_ENV_VAR, _as_bool, _as_int, _as_str, default_config_path, load_config
@@ -25,8 +25,8 @@ def test_default_config_path_prefers_env(monkeypatch: pytest.MonkeyPatch) -> Non
 
 
 def test_load_config_parses_defaults_and_normalizes_values(tmp_path: Path) -> None:
-    allowed_root = tmp_path / "allowed"
-    allowed_root.mkdir()
+    workflow_root = tmp_path / "workflow_root"
+    workflow_root.mkdir()
     config_path = tmp_path / "chemstack.yaml"
     config_path.write_text(
         yaml.safe_dump(
@@ -34,10 +34,8 @@ def test_load_config_parses_defaults_and_normalizes_values(tmp_path: Path) -> No
                 "scheduler": {
                     "max_active_simulations": "6",
                 },
-                "xtb": {
-                    "runtime": {
-                        "allowed_root": str(allowed_root),
-                    },
+                "workflow": {
+                    "root": str(workflow_root),
                     "paths": {
                         "xtb_executable": " /opt/xtb ",
                     },
@@ -61,8 +59,8 @@ def test_load_config_parses_defaults_and_normalizes_values(tmp_path: Path) -> No
 
     cfg = load_config(str(config_path))
 
-    assert cfg.runtime.allowed_root == str(allowed_root)
-    assert cfg.runtime.organized_root == str(allowed_root.parent / "xtb_outputs")
+    assert cfg.runtime.allowed_root == str((workflow_root / "internal" / "xtb" / "runs").resolve())
+    assert cfg.runtime.organized_root == str((workflow_root / "internal" / "xtb" / "outputs").resolve())
     assert cfg.runtime.max_concurrent == 6
     assert cfg.runtime.admission_root == str(tmp_path / "admission")
     assert cfg.runtime.admission_limit == 6
@@ -74,7 +72,9 @@ def test_load_config_parses_defaults_and_normalizes_values(tmp_path: Path) -> No
     assert cfg.telegram.chat_id == "chat"
 
 
-def test_load_config_reports_missing_file_invalid_payload_and_missing_allowed_root(tmp_path: Path) -> None:
+def test_load_config_reports_missing_file_invalid_payload_and_requires_workflow_root(
+    tmp_path: Path,
+) -> None:
     missing_path = tmp_path / "missing.yaml"
     with pytest.raises(ValueError, match="Config file not found"):
         load_config(str(missing_path))
@@ -84,10 +84,10 @@ def test_load_config_reports_missing_file_invalid_payload_and_missing_allowed_ro
     with pytest.raises(ValueError, match="Config file is invalid"):
         load_config(str(invalid_path))
 
-    missing_allowed_root_path = tmp_path / "missing-allowed.yaml"
-    missing_allowed_root_path.write_text(yaml.safe_dump({"xtb": {"runtime": {}}}), encoding="utf-8")
-    with pytest.raises(ValueError, match="Config is missing runtime.allowed_root"):
-        load_config(str(missing_allowed_root_path))
+    missing_workflow_root_path = tmp_path / "missing-workflow-root.yaml"
+    missing_workflow_root_path.write_text(yaml.safe_dump({"xtb": {"runtime": {}}}), encoding="utf-8")
+    with pytest.raises(ValueError, match=r"Config is missing workflow\.root"):
+        load_config(str(missing_workflow_root_path))
 
 
 @pytest.mark.parametrize(
@@ -122,16 +122,14 @@ def test_helper_normalizers_cover_string_and_int_defaults() -> None:
 def test_load_config_applies_defaults_for_missing_and_non_mapping_optional_sections(
     tmp_path: Path,
 ) -> None:
-    allowed_root = tmp_path / "allowed"
-    allowed_root.mkdir()
+    workflow_root = tmp_path / "workflow_root"
+    workflow_root.mkdir()
     config_path = tmp_path / "chemstack.yaml"
     config_path.write_text(
         yaml.safe_dump(
             {
-                "xtb": {
-                    "runtime": {
-                        "allowed_root": str(allowed_root),
-                    },
+                "workflow": {
+                    "root": str(workflow_root),
                     "paths": [],
                 },
                 "behavior": [],
@@ -145,10 +143,10 @@ def test_load_config_applies_defaults_for_missing_and_non_mapping_optional_secti
 
     cfg = load_config(str(config_path))
 
-    assert cfg.runtime.allowed_root == str(allowed_root)
-    assert cfg.runtime.organized_root == str(allowed_root.parent / "xtb_outputs")
+    assert cfg.runtime.allowed_root == str((workflow_root / "internal" / "xtb" / "runs").resolve())
+    assert cfg.runtime.organized_root == str((workflow_root / "internal" / "xtb" / "outputs").resolve())
     assert cfg.runtime.max_concurrent == 4
-    assert cfg.runtime.admission_root == str(allowed_root)
+    assert cfg.runtime.admission_root == str((workflow_root / "internal" / "xtb" / "runs").resolve())
     assert cfg.runtime.admission_limit == 4
     assert cfg.paths.xtb_executable == ""
     assert cfg.behavior.auto_organize_on_terminal is False
@@ -285,16 +283,16 @@ def test_cli_module_main_entrypoint_raises_system_exit(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     config_path = tmp_path / "chemstack.yaml"
-    allowed_root = tmp_path / "allowed"
-    organized_root = tmp_path / "organized"
-    allowed_root.mkdir()
-    organized_root.mkdir()
+    workflow_root = tmp_path / "workflow_root"
+    allowed_root = workflow_root / "internal" / "xtb" / "runs"
+    organized_root = workflow_root / "internal" / "xtb" / "outputs"
+    allowed_root.mkdir(parents=True)
+    organized_root.mkdir(parents=True)
     config_path.write_text(
         yaml.safe_dump(
             {
-                "runtime": {
-                    "allowed_root": str(allowed_root),
-                    "organized_root": str(organized_root),
+                "workflow": {
+                    "root": str(workflow_root),
                 }
             },
             sort_keys=False,
@@ -310,11 +308,11 @@ def test_cli_module_main_entrypoint_raises_system_exit(
     with warnings.catch_warnings():
         warnings.filterwarnings(
             "ignore",
-            message=r"'xtb_auto\.cli' found in sys\.modules .* prior to execution of 'xtb_auto\.cli'",
+            message=r"'chemstack\.xtb\._internal_cli' found in sys\.modules .* prior to execution of 'chemstack\.xtb\._internal_cli'",
             category=RuntimeWarning,
         )
         with pytest.raises(SystemExit) as exc_info:
-            runpy.run_module("chemstack.xtb.cli", run_name="__main__")
+            runpy.run_module("chemstack.xtb._internal_cli", run_name="__main__")
 
     assert exc_info.value.code == 0
-    assert capsys.readouterr().out == "activity_count: 0\n"
+    assert capsys.readouterr().out == "No xTB jobs found.\n"

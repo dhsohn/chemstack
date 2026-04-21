@@ -574,8 +574,14 @@ def _collect_activity_records(
     orca_auto_config: str | None = None,
     orca_auto_repo_root: str | None = None,
 ) -> list[ActivityRecord]:
-    resolved_workflow_root = _discover_workflow_root(workflow_root)
     shared_config_hint = _shared_config_hint(orca_auto_config, crest_auto_config, xtb_auto_config)
+    explicit_workflow_root = normalize_text(workflow_root)
+    if explicit_workflow_root:
+        resolved_workflow_root = str(Path(explicit_workflow_root).expanduser().resolve())
+    elif shared_config_hint:
+        resolved_workflow_root = shared_workflow_root_from_config(shared_config_hint)
+    else:
+        resolved_workflow_root = _discover_workflow_root(None)
     resolved_crest_auto_config = _discover_sibling_config(
         crest_auto_config or shared_config_hint,
         app_name="crest_auto",
@@ -589,9 +595,9 @@ def _collect_activity_records(
     rows: list[ActivityRecord] = []
     if normalize_text(resolved_workflow_root):
         rows.extend(_workflow_records(workflow_root=str(resolved_workflow_root), refresh=refresh))
-    if normalize_text(resolved_crest_auto_config):
+    if normalize_text(resolved_workflow_root) and normalize_text(resolved_crest_auto_config):
         rows.extend(_standalone_queue_records(app_name="crest_auto", engine="crest", config_path=str(resolved_crest_auto_config)))
-    if normalize_text(resolved_xtb_auto_config):
+    if normalize_text(resolved_workflow_root) and normalize_text(resolved_xtb_auto_config):
         rows.extend(_standalone_queue_records(app_name="xtb_auto", engine="xtb", config_path=str(resolved_xtb_auto_config)))
     if normalize_text(resolved_orca_auto_config):
         rows.extend(_orca_records(config_path=str(resolved_orca_auto_config), repo_root=_discover_orca_repo_root(orca_auto_repo_root)))
@@ -608,8 +614,14 @@ def list_activities(
     orca_auto_config: str | None = None,
     orca_auto_repo_root: str | None = None,
 ) -> dict[str, Any]:
-    resolved_workflow_root = _discover_workflow_root(workflow_root)
     shared_config_hint = _shared_config_hint(orca_auto_config, crest_auto_config, xtb_auto_config)
+    explicit_workflow_root = normalize_text(workflow_root)
+    if explicit_workflow_root:
+        resolved_workflow_root = str(Path(explicit_workflow_root).expanduser().resolve())
+    elif shared_config_hint:
+        resolved_workflow_root = shared_workflow_root_from_config(shared_config_hint)
+    else:
+        resolved_workflow_root = _discover_workflow_root(None)
     resolved_crest_auto_config = _discover_sibling_config(
         crest_auto_config or shared_config_hint,
         app_name="crest_auto",
@@ -689,8 +701,14 @@ def cancel_activity(
     orca_auto_executable: str = CHEMSTACK_EXECUTABLE,
     orca_auto_repo_root: str | None = None,
 ) -> dict[str, Any]:
-    resolved_workflow_root = _discover_workflow_root(workflow_root)
     shared_config_hint = _shared_config_hint(orca_auto_config, crest_auto_config, xtb_auto_config)
+    explicit_workflow_root = normalize_text(workflow_root)
+    if explicit_workflow_root:
+        resolved_workflow_root = str(Path(explicit_workflow_root).expanduser().resolve())
+    elif shared_config_hint:
+        resolved_workflow_root = shared_workflow_root_from_config(shared_config_hint)
+    else:
+        resolved_workflow_root = _discover_workflow_root(None)
     resolved_crest_auto_config = _discover_sibling_config(
         crest_auto_config or shared_config_hint,
         app_name="crest_auto",

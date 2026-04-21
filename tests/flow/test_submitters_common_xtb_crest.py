@@ -52,14 +52,14 @@ def test_sibling_app_command_without_repo_root_uses_module_execution() -> None:
         executable="xtb_auto",
         config_path="/tmp/config.yaml",
         repo_root=None,
-        module_name="chemstack.xtb.cli",
+        module_name="chemstack.xtb._internal_cli",
         tail_argv=["run-dir", "/tmp/job"],
     )
 
     assert argv == [
         sys.executable,
         "-m",
-        "chemstack.xtb.cli",
+        "chemstack.xtb._internal_cli",
         "--config",
         "/tmp/config.yaml",
         "run-dir",
@@ -81,14 +81,14 @@ def test_sibling_app_command_with_repo_root_uses_module_execution_and_prepends_p
         executable="ignored",
         config_path="/tmp/config.yaml",
         repo_root=str(repo_root),
-        module_name="chemstack.xtb.cli",
+        module_name="chemstack.xtb._internal_cli",
         tail_argv=["queue", "cancel", "job-1"],
     )
 
     assert argv == [
         sys.executable,
         "-m",
-        "chemstack.xtb.cli",
+        "chemstack.xtb._internal_cli",
         "--config",
         "/tmp/config.yaml",
         "queue",
@@ -134,7 +134,7 @@ def test_run_sibling_app_forwards_command_to_subprocess(monkeypatch: pytest.Monk
         executable="xtb_auto",
         config_path="/tmp/config.yaml",
         repo_root="/tmp/repo",
-        module_name="chemstack.xtb.cli",
+        module_name="chemstack.xtb._internal_cli",
         tail_argv=["run-dir", "/tmp/job"],
     )
 
@@ -143,7 +143,7 @@ def test_run_sibling_app_forwards_command_to_subprocess(monkeypatch: pytest.Monk
         "executable": "xtb_auto",
         "config_path": "/tmp/config.yaml",
         "repo_root": "/tmp/repo",
-        "module_name": "chemstack.xtb.cli",
+        "module_name": "chemstack.xtb._internal_cli",
         "tail_argv": ["run-dir", "/tmp/job"],
     }
     assert captured["run_kwargs"] == {
@@ -175,9 +175,7 @@ def test_sibling_allowed_root_requires_runtime_allowed_root(tmp_path: Path) -> N
         common.sibling_allowed_root(str(config_path))
 
 
-def test_sibling_runtime_paths_reads_optional_runtime_paths(tmp_path: Path) -> None:
-    allowed_root = tmp_path / "allowed"
-    organized_root = tmp_path / "organized"
+def test_sibling_runtime_paths_requires_workflow_root_for_xtb(tmp_path: Path) -> None:
     admission_root = tmp_path / "admission"
     config_path = tmp_path / "config.yaml"
     config_path.write_text(
@@ -187,19 +185,15 @@ def test_sibling_runtime_paths_reads_optional_runtime_paths(tmp_path: Path) -> N
                 f"  admission_root: {admission_root}",
                 "xtb:",
                 "  runtime:",
-                f"    allowed_root: {allowed_root}",
-                f"    organized_root: {organized_root}",
+                "    allowed_root: /tmp/runs",
                 "",
             ]
         ),
         encoding="utf-8",
     )
 
-    assert common.sibling_runtime_paths(str(config_path), engine="xtb") == {
-        "allowed_root": allowed_root.resolve(),
-        "organized_root": organized_root.resolve(),
-        "admission_root": admission_root.resolve(),
-    }
+    with pytest.raises(ValueError, match=r"Missing workflow\.root in config"):
+        common.sibling_runtime_paths(str(config_path), engine="xtb")
 
 
 def test_sibling_runtime_paths_requires_runtime_allowed_root(tmp_path: Path) -> None:
@@ -208,6 +202,33 @@ def test_sibling_runtime_paths_requires_runtime_allowed_root(tmp_path: Path) -> 
 
     with pytest.raises(ValueError, match="Missing runtime.allowed_root"):
         common.sibling_runtime_paths(str(config_path))
+
+
+def test_sibling_runtime_paths_derives_internal_engine_roots_from_workflow_root(tmp_path: Path) -> None:
+    workflow_root = tmp_path / "workflow_root"
+    admission_root = tmp_path / "admission"
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        "\n".join(
+            [
+                "scheduler:",
+                f"  admission_root: {admission_root}",
+                "workflow:",
+                f"  root: {workflow_root}",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    assert common.sibling_runtime_paths(str(config_path), engine="xtb") == {
+        "allowed_root": (workflow_root / "internal" / "xtb" / "runs").resolve(),
+        "organized_root": (workflow_root / "internal" / "xtb" / "outputs").resolve(),
+        "admission_root": admission_root.resolve(),
+    }
+    assert common.sibling_allowed_root(str(config_path), engine="crest") == (
+        workflow_root / "internal" / "crest" / "runs"
+    ).resolve()
 
 
 @pytest.mark.parametrize(
@@ -277,11 +298,10 @@ def test_submit_job_dir_maps_success_and_failure(
         args=[
             "python",
             "-m",
-            "chemstack.cli",
+            "chemstack.xtb._internal_cli" if module is xtb_auto else "chemstack.crest._internal_cli",
             "--config",
             "/tmp/config.yaml",
             "run-dir",
-            "xtb" if module is xtb_auto else "crest",
             job_dir,
         ],
         returncode=returncode,
@@ -307,8 +327,8 @@ def test_submit_job_dir_maps_success_and_failure(
         "executable": executable,
         "config_path": "/tmp/config.yaml",
         "repo_root": repo_root,
-        "module_name": "chemstack.cli",
-        "tail_argv": ["run-dir", "xtb" if module is xtb_auto else "crest", job_dir, "--priority", str(priority)],
+        "module_name": "chemstack.xtb._internal_cli" if module is xtb_auto else "chemstack.crest._internal_cli",
+        "tail_argv": ["run-dir", job_dir, "--priority", str(priority)],
     }
     assert result["status"] == expected["status"]
     assert result["returncode"] == returncode
@@ -374,7 +394,7 @@ def test_cancel_target_maps_status_from_stdout_and_returncode(
         "executable": "tool",
         "config_path": "/tmp/config.yaml",
         "repo_root": "/tmp/repo",
-        "module_name": "chemstack.cli",
+        "module_name": "chemstack.cli" if module is xtb_auto else "chemstack.crest._internal_cli",
         "tail_argv": ["queue", "cancel", target],
     }
     assert result["status"] == expected_status

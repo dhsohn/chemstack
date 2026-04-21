@@ -61,7 +61,7 @@ def _shared_orca_logging_argv(args: argparse.Namespace) -> list[str]:
 
 
 def cmd_init(args: argparse.Namespace) -> int:
-    argv = ["init", "orca", *_shared_config_argv(args.config), *_shared_orca_logging_argv(args)]
+    argv = ["init", *_shared_config_argv(args.config), *_shared_orca_logging_argv(args)]
     if bool(getattr(args, "force", False)):
         argv.append("--force")
     return int(unified_cli.main(argv))
@@ -70,10 +70,9 @@ def cmd_init(args: argparse.Namespace) -> int:
 def cmd_run_inp(args: argparse.Namespace) -> int:
     argv = [
         "run-dir",
-        "orca",
+        args.path,
         *_shared_config_argv(args.config),
         *_shared_orca_logging_argv(args),
-        args.path,
         "--priority",
         str(args.priority),
     ]

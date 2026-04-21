@@ -352,14 +352,18 @@ def test_append_reaction_orca_stages_covers_skip_and_first_candidate_path(
 
     assert created is True
     assert "workflow_error" not in payload["metadata"]
-    appended = payload["stages"][-1]
-    assert appended["stage_id"] == "orca_optts_freq_01"
-    assert appended["metadata"]["reaction_candidate_pool_size"] == 2
-    assert appended["metadata"]["reaction_remaining_candidates_after_this"] == 1
+    appended = payload["stages"][-2:]
+    assert [stage["stage_id"] for stage in appended] == ["orca_optts_freq_01", "orca_optts_freq_02"]
+    assert [
+        stage["task"]["metadata"]["source_candidate_path"]
+        for stage in appended
+    ] == ["/tmp/candidate_a.xyz", "/tmp/candidate_b.xyz"]
+    assert [stage["metadata"]["reaction_candidate_pool_size"] for stage in appended] == [2, 2]
+    assert [stage["metadata"]["reaction_remaining_candidates_after_this"] for stage in appended] == [1, 0]
     assert payload["stages"][3]["metadata"]["reaction_handoff_status"] == "ready"
 
 
-def test_append_reaction_orca_stages_false_and_exhaustion_paths(
+def test_append_reaction_orca_stages_false_and_attempted_path_edges(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -386,6 +390,22 @@ def test_append_reaction_orca_stages_false_and_exhaustion_paths(
     monkeypatch.setattr(orchestration, "_load_config_root", lambda config: tmp_path / ("xtb" if config == "xtb.yaml" else "orca"))
     monkeypatch.setattr(orchestration, "load_xtb_artifact_contract", lambda **kwargs: SimpleNamespace(job_id="xtb_job", job_type="path_search", candidate_details=()))
     monkeypatch.setattr(orchestration, "select_xtb_downstream_inputs", lambda contract, policy, require_geometry: (_candidate("/tmp/already.xyz"),))
+    monkeypatch.setattr(
+        orchestration,
+        "build_materialized_orca_stage",
+        lambda **kwargs: _FakeMaterializedStage(
+            {
+                "stage_id": kwargs["stage_id"],
+                "status": "planned",
+                "metadata": {},
+                "task": {
+                    "engine": "orca",
+                    "status": "planned",
+                    "metadata": {"source_candidate_path": kwargs["candidate"].artifact_path},
+                },
+            }
+        ),
+    )
 
     active_payload = {
         "stages": [
@@ -412,8 +432,15 @@ def test_append_reaction_orca_stages_false_and_exhaustion_paths(
         ],
         "metadata": {"request": {"parameters": {}}},
     }
-    monkeypatch.setattr(orchestration, "_reaction_orca_allows_next_candidate", lambda stage: False)
-    assert orchestration._append_reaction_orca_stages(blocked_payload, workspace_dir=tmp_path, xtb_auto_config="xtb.yaml", orca_auto_config="orca.yaml") is False
+    created = orchestration._append_reaction_orca_stages(
+        blocked_payload,
+        workspace_dir=tmp_path,
+        xtb_auto_config="xtb.yaml",
+        orca_auto_config="orca.yaml",
+    )
+    assert created is True
+    assert blocked_payload["stages"][-1]["stage_id"] == "orca_optts_freq_02"
+    assert blocked_payload["stages"][-1]["task"]["metadata"]["source_candidate_path"] == "/tmp/already.xyz"
 
     exhausted_payload: dict[str, Any] = {
         "stages": [
@@ -427,7 +454,6 @@ def test_append_reaction_orca_stages_false_and_exhaustion_paths(
         ],
         "metadata": {"request": {"parameters": {}}},
     }
-    monkeypatch.setattr(orchestration, "_reaction_orca_allows_next_candidate", lambda stage: True)
     created = orchestration._append_reaction_orca_stages(
         exhausted_payload,
         workspace_dir=tmp_path,
@@ -437,8 +463,9 @@ def test_append_reaction_orca_stages_false_and_exhaustion_paths(
     assert created is False
     exhausted_stages = cast(list[dict[str, Any]], exhausted_payload["stages"])
     exhausted_metadata = cast(dict[str, Any], exhausted_payload["metadata"])
-    assert exhausted_stages[1]["metadata"]["reaction_candidate_status"] == "exhausted"
-    assert exhausted_metadata["workflow_error"]["scope"] == "reaction_ts_search_orca_candidate_exhausted"
+    assert len(exhausted_stages) == 2
+    assert exhausted_stages[1]["metadata"] == {}
+    assert "workflow_error" not in exhausted_metadata
 
 
 def test_append_crest_orca_stage_false_branches(

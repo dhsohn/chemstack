@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any
 
@@ -137,7 +136,7 @@ def test_conformer_screening_workflow_handoff_smoke(
 
     worker = app_runner(
         smoke_workspace.repo_root,
-        "chemstack.crest.cli",
+        "chemstack.crest._internal_cli",
         "--config",
         str(smoke_workspace.crest_config_path),
         "queue",
@@ -219,7 +218,7 @@ def test_xtb_reaction_ts_search_handoff_smoke(
 
     worker = app_runner(
         smoke_workspace.repo_root,
-        "chemstack.xtb.cli",
+        "chemstack.xtb._internal_cli",
         "--config",
         str(smoke_workspace.xtb_config_path),
         "queue",

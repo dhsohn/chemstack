@@ -65,7 +65,7 @@ def _orca_stage_result(**kwargs: Any) -> SimpleNamespace:
     return SimpleNamespace(to_dict=lambda: stage)
 
 
-def test_append_reaction_xtb_stages_limits_cartesian_product_to_max_xtb_stages(
+def test_append_reaction_xtb_stages_creates_full_cartesian_product(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -117,6 +117,7 @@ def test_append_reaction_xtb_stages_limits_cartesian_product_to_max_xtb_stages(
         "xtb_path_search_01",
         "xtb_path_search_02",
         "xtb_path_search_03",
+        "xtb_path_search_04",
     ]
     assert all(stage["task"]["payload"]["max_handoff_retries"] == 4 for stage in xtb_stages)
 
@@ -175,7 +176,7 @@ def test_append_reaction_orca_stages_sets_xtb_handoff_workflow_error_when_no_can
     }
 
 
-def test_append_reaction_orca_stages_supersedes_failed_stage_and_appends_next_candidate(
+def test_append_reaction_orca_stages_appends_unattempted_candidate_without_mutating_failed_stage(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -247,10 +248,7 @@ def test_append_reaction_orca_stages_supersedes_failed_stage_and_appends_next_ca
     latest_existing = payload["stages"][1]
     appended = payload["stages"][2]
     assert created is True
-    assert latest_existing["metadata"]["reaction_candidate_status"] == "superseded"
-    assert latest_existing["metadata"]["reaction_candidate_superseded_at"] == "2026-04-19T15:00:00+00:00"
-    assert latest_existing["metadata"]["reaction_next_candidate_path"] == second_candidate.artifact_path
-    assert latest_existing["metadata"]["reaction_next_candidate_rank"] == 2
+    assert latest_existing["metadata"] == {"analyzer_status": "ts_not_found"}
     assert "workflow_error" not in payload["metadata"]
     assert appended["stage_id"] == "orca_optts_freq_02"
     assert appended["metadata"]["reaction_candidate_attempt_index"] == 2
@@ -300,3 +298,52 @@ def test_append_crest_orca_stages_materializes_orca_stages_from_completed_crest(
     assert created is True
     assert payload["stages"][-1]["stage_id"] == "orca_conformer_01"
     assert payload["stages"][-1]["task"]["engine"] == "orca"
+
+
+def test_append_crest_orca_stages_materializes_twenty_orca_children(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    crest_candidates = tuple(
+        _candidate(
+            f"/tmp/crest_conformer_{index:02d}.xyz",
+            source_job_id="crest_job_20",
+            source_job_type="conformer_search",
+            reaction_key="mol_20",
+            rank=index,
+            kind="conformer",
+        )
+        for index in range(1, 21)
+    )
+    payload: dict[str, Any] = {
+        "workflow_id": "wf_conf_20",
+        "metadata": {"request": {"parameters": {"max_orca_stages": 20}}},
+        "stages": [
+            {
+                "stage_id": "crest_stage_01",
+                "status": "completed",
+                "task": {"engine": "crest"},
+            }
+        ],
+    }
+
+    monkeypatch.setattr(orchestration, "_completed_crest_stage", lambda stage, **kwargs: "crest_contract")
+    monkeypatch.setattr(orchestration, "_load_config_root", lambda path: tmp_path / "orca_allowed")
+    monkeypatch.setattr(orchestration, "select_crest_downstream_inputs", lambda contract, policy: crest_candidates)
+    monkeypatch.setattr(orchestration, "build_materialized_orca_stage", _orca_stage_result)
+
+    created = orchestration._append_crest_orca_stages(
+        payload,
+        template_name="conformer_screening",
+        crest_auto_config="/tmp/crest.yaml",
+        orca_auto_config="/tmp/orca.yaml",
+        stage_id_prefix="orca_conformer",
+        xyz_filename="conformer_guess.xyz",
+        inp_filename="conformer_opt.inp",
+    )
+
+    orca_stages = [stage for stage in payload["stages"] if stage.get("task", {}).get("engine") == "orca"]
+    assert created is True
+    assert len(orca_stages) == 20
+    assert orca_stages[0]["stage_id"] == "orca_conformer_01"
+    assert orca_stages[-1]["stage_id"] == "orca_conformer_20"

@@ -195,8 +195,8 @@ from chemstack.crest.runner import run_crest_job
 ```toml
 [project.scripts]
 orca_auto = "chemstack.orca.cli:main"
-xtb_auto = "chemstack.xtb.cli:main"
-crest_auto = "chemstack.crest.cli:main"
+xtb_auto = "chemstack.xtb._internal_cli:main"
+crest_auto = "chemstack.crest._internal_cli:main"
 chem_flow = "chemstack.flow.cli:main"
 ```
 

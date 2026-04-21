@@ -10,14 +10,15 @@ from chemstack.xtb.commands import init as init_cmd
 
 
 def _write_config(tmp_path: Path) -> tuple[Path, Path]:
-    allowed_root = tmp_path / "allowed_root"
-    allowed_root.mkdir()
+    workflow_root = tmp_path / "workflow_root"
+    allowed_root = workflow_root / "internal" / "xtb" / "runs"
+    allowed_root.mkdir(parents=True)
     config_path = tmp_path / "chemstack.yaml"
     config_path.write_text(
         yaml.safe_dump(
             {
-                "runtime": {
-                    "allowed_root": str(allowed_root),
+                "workflow": {
+                    "root": str(workflow_root),
                 },
             },
             sort_keys=False,
@@ -30,7 +31,7 @@ def _write_config(tmp_path: Path) -> tuple[Path, Path]:
 @pytest.mark.parametrize(
     ("job_type", "expected_error"),
     [
-        ("banana", "error: unsupported init job_type: banana"),
+        ("banana", "error: unsupported scaffold job_type: banana"),
     ],
 )
 def test_cmd_init_rejects_unsupported_job_type(
@@ -67,7 +68,7 @@ def test_cmd_init_requires_root(tmp_path: Path, capsys: pytest.CaptureFixture[st
 
     captured = capsys.readouterr().out
     assert exit_code == 1
-    assert "error: init requires --root" in captured
+    assert "error: scaffold requires --root" in captured
 
 
 @pytest.mark.parametrize(
@@ -83,7 +84,7 @@ def test_scaffold_helpers_reject_unsupported_job_type(
 ) -> None:
     helper = getattr(init_cmd, helper_name)
 
-    with pytest.raises(ValueError, match="Unsupported init job_type: banana"):
+    with pytest.raises(ValueError, match="Unsupported scaffold job_type: banana"):
         helper(*call_args)
 
 

@@ -21,10 +21,36 @@ DEFAULT_NOTIFICATION_EVENT_TYPES = frozenset(
     {
         "workflow_status_changed",
         "workflow_advance_failed",
+        "workflow_stage_submitted",
+        "workflow_stage_completed",
+        "workflow_stage_failed",
+        "workflow_stage_cancelled",
+        "workflow_stage_handoff_ready",
+        "workflow_stage_handoff_retrying",
+        "workflow_stage_handoff_failed",
+        "workflow_stage_status_changed",
+        "workflow_stage_reaction_handoff_status_changed",
         "worker_started",
         "worker_stopped",
         "worker_interrupted",
         "worker_lock_error",
+    }
+)
+STAGE_STATUS_EVENT_TYPES = frozenset(
+    {
+        "workflow_stage_submitted",
+        "workflow_stage_completed",
+        "workflow_stage_failed",
+        "workflow_stage_cancelled",
+        "workflow_stage_status_changed",
+    }
+)
+STAGE_HANDOFF_EVENT_TYPES = frozenset(
+    {
+        "workflow_stage_handoff_ready",
+        "workflow_stage_handoff_retrying",
+        "workflow_stage_handoff_failed",
+        "workflow_stage_reaction_handoff_status_changed",
     }
 )
 
@@ -49,7 +75,32 @@ class WorkflowRegistryRecord:
 
 
 def _normalize_text(value: Any) -> str:
+    if value is None:
+        return ""
     return str(value).strip()
+
+
+def _event_text(event: dict[str, Any], metadata: dict[str, Any], *keys: str) -> str:
+    for key in keys:
+        text = _normalize_text(event.get(key))
+        if text:
+            return text
+        text = _normalize_text(metadata.get(key))
+        if text:
+            return text
+    return ""
+
+
+def _transition_text(previous: str, current: str) -> str:
+    previous_text = _normalize_text(previous)
+    current_text = _normalize_text(current)
+    if previous_text and current_text:
+        return f"{previous_text} -> {current_text}"
+    if current_text:
+        return current_text
+    if previous_text:
+        return previous_text
+    return "-"
 
 
 def _registry_path(workflow_root: str | Path) -> Path:
@@ -117,12 +168,20 @@ def _telegram_transport_from_env():
 
 def _journal_event_message(event: dict[str, Any], workflow_root: str | Path) -> str:
     event_type = _normalize_text(event.get("event_type"))
+    metadata = _coerce_mapping(event.get("metadata"))
     workflow_id = _normalize_text(event.get("workflow_id")) or "-"
     template_name = _normalize_text(event.get("template_name")) or "-"
     status = _normalize_text(event.get("status")) or "-"
     previous_status = _normalize_text(event.get("previous_status")) or "-"
     reason = _normalize_text(event.get("reason")) or "-"
     session = _normalize_text(event.get("worker_session_id")) or "-"
+    stage_id = _event_text(event, metadata, "stage_id") or "-"
+    engine = _event_text(event, metadata, "engine") or "-"
+    task_kind = _event_text(event, metadata, "task_kind") or "-"
+    stage_status = _event_text(event, metadata, "stage_status", "status")
+    previous_stage_status = _event_text(event, metadata, "previous_stage_status", "previous_status")
+    reaction_handoff_status = _event_text(event, metadata, "reaction_handoff_status")
+    previous_reaction_handoff_status = _event_text(event, metadata, "previous_reaction_handoff_status")
     root_text = str(Path(workflow_root).expanduser().resolve())
 
     if event_type == "workflow_status_changed":
@@ -141,6 +200,35 @@ def _journal_event_message(event: dict[str, Any], workflow_root: str | Path) -> 
             f"advance_failed={reason}\n"
             f"worker_session={session}"
         )
+    if event_type in STAGE_STATUS_EVENT_TYPES:
+        lines = [
+            "[chem_flow]",
+            f"workflow={workflow_id}",
+            f"template={template_name}",
+            f"event={event_type}",
+            f"stage={stage_id}",
+            f"task={engine}/{task_kind}",
+            f"stage_status={_transition_text(previous_stage_status, stage_status)}",
+            f"worker_session={session}",
+        ]
+        if reason:
+            lines.append(f"reason={reason}")
+        return "\n".join(lines)
+    if event_type in STAGE_HANDOFF_EVENT_TYPES:
+        lines = [
+            "[chem_flow]",
+            f"workflow={workflow_id}",
+            f"template={template_name}",
+            f"event={event_type}",
+            f"stage={stage_id}",
+            f"task={engine}/{task_kind}",
+            f"stage_status={_transition_text(previous_stage_status, stage_status)}",
+            f"reaction_handoff_status={_transition_text(previous_reaction_handoff_status, reaction_handoff_status)}",
+            f"worker_session={session}",
+        ]
+        if reason:
+            lines.append(f"reason={reason}")
+        return "\n".join(lines)
     if event_type in {"worker_started", "worker_stopped", "worker_interrupted", "worker_lock_error"}:
         return (
             "[chem_flow]\n"
@@ -254,6 +342,13 @@ def append_workflow_journal_event(
     previous_status: str = "",
     reason: str = "",
     worker_session_id: str = "",
+    stage_id: str = "",
+    engine: str = "",
+    task_kind: str = "",
+    stage_status: str = "",
+    previous_stage_status: str = "",
+    reaction_handoff_status: str = "",
+    previous_reaction_handoff_status: str = "",
     metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     resolved_root = Path(workflow_root).expanduser().resolve()
@@ -268,6 +363,13 @@ def append_workflow_journal_event(
         "previous_status": _normalize_text(previous_status),
         "reason": _normalize_text(reason),
         "worker_session_id": _normalize_text(worker_session_id),
+        "stage_id": _normalize_text(stage_id),
+        "engine": _normalize_text(engine),
+        "task_kind": _normalize_text(task_kind),
+        "stage_status": _normalize_text(stage_status),
+        "previous_stage_status": _normalize_text(previous_stage_status),
+        "reaction_handoff_status": _normalize_text(reaction_handoff_status),
+        "previous_reaction_handoff_status": _normalize_text(previous_reaction_handoff_status),
         "metadata": _coerce_mapping(metadata),
     }
     with file_lock(_registry_lock_path(resolved_root)):

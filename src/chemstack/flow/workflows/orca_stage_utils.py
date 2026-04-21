@@ -254,7 +254,7 @@ def build_materialized_orca_stage(
         "resource_request": dict(resource_request),
         "reaction_dir": materialized.reaction_dir,
         "selected_inp": materialized.selected_inp,
-        "suggested_command": f"{CHEMSTACK_CLI_COMMAND} run-dir orca '{materialized.reaction_dir}'",
+        "suggested_command": f"{CHEMSTACK_CLI_COMMAND} run-dir '{materialized.reaction_dir}'",
         "metadata": {
             "candidate_rank": candidate.rank,
             "candidate_kind": candidate.kind,

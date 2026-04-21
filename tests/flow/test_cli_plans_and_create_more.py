@@ -42,7 +42,7 @@ def _plan_payload(template_name: str, *, include_source: bool = True) -> dict[st
                         "selected_input_xyz": "/tmp/input.xyz",
                         "reaction_dir": "/tmp/reaction_dir",
                     },
-                    "enqueue_payload": {"command": "python -m chemstack.cli run-dir orca /tmp/reaction_dir"},
+                    "enqueue_payload": {"command": "python -m chemstack.cli run-dir /tmp/reaction_dir"},
                 },
             },
             {
@@ -52,7 +52,7 @@ def _plan_payload(template_name: str, *, include_source: bool = True) -> dict[st
                     "task_kind": "freq",
                     "payload": {
                         "selected_input_xyz": "/tmp/fallback.xyz",
-                        "suggested_command": "python -m chemstack.cli run-dir orca /tmp/fallback.xyz",
+                        "suggested_command": "python -m chemstack.cli run-dir /tmp/fallback.xyz",
                     },
                 },
             },
@@ -186,8 +186,8 @@ def test_cmd_crest_inspect_text_mode_formats_retained_paths(monkeypatch: pytest.
                 "workflow_id: wf_reaction_ts_search",
                 "source_job_id: source_1",
                 "reaction_dir=/tmp/reaction_dir",
-                "enqueue_command=python -m chemstack.cli run-dir orca /tmp/reaction_dir",
-                "suggested_command=python -m chemstack.cli run-dir orca /tmp/fallback.xyz",
+                "enqueue_command=python -m chemstack.cli run-dir /tmp/reaction_dir",
+                "suggested_command=python -m chemstack.cli run-dir /tmp/fallback.xyz",
             ],
         ),
         (
@@ -405,7 +405,7 @@ def test_cmd_run_dir_reads_manifest_for_conformer_workflow(
     workflow_dir = tmp_path / "conformer_job"
     workflow_dir.mkdir()
     (workflow_dir / "input.xyz").write_text("2\nmol\nH 0 0 0\nH 0 0 0.74\n", encoding="utf-8")
-    (workflow_dir / "chemstack.flow.yaml").write_text(
+    (workflow_dir / "flow.yaml").write_text(
         "\n".join(
             [
                 "workflow_type: conformer_screening",
@@ -515,7 +515,7 @@ def test_cmd_run_dir_for_reaction_uses_nested_engine_sections(
     (workflow_dir / "reactant.xyz").write_text("2\nreactant\nH 0 0 0\nH 0 0 0.74\n", encoding="utf-8")
     (workflow_dir / "product.xyz").write_text("2\nproduct\nH 0 0 0\nH 0 0 0.80\n", encoding="utf-8")
     (workflow_dir / "path.inp").write_text("$path\nnrun=3\n$end\n", encoding="utf-8")
-    (workflow_dir / "chemstack.flow.yaml").write_text(
+    (workflow_dir / "flow.yaml").write_text(
         "\n".join(
             [
                 "workflow_type: reaction_ts_search",

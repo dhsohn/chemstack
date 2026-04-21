@@ -13,17 +13,17 @@ from chemstack.xtb.state import write_state
 
 
 def _write_config(tmp_path: Path) -> tuple[Path, Path, Path]:
-    allowed_root = tmp_path / "allowed_root"
-    organized_root = tmp_path / "organized_root"
-    allowed_root.mkdir()
-    organized_root.mkdir()
+    workflow_root = tmp_path / "workflow_root"
+    allowed_root = workflow_root / "internal" / "xtb" / "runs"
+    organized_root = workflow_root / "internal" / "xtb" / "outputs"
+    allowed_root.mkdir(parents=True)
+    organized_root.mkdir(parents=True)
     config_path = tmp_path / "chemstack.yaml"
     config_path.write_text(
         yaml.safe_dump(
             {
-                "runtime": {
-                    "allowed_root": str(allowed_root),
-                    "organized_root": str(organized_root),
+                "workflow": {
+                    "root": str(workflow_root),
                 },
                 "resources": {
                     "max_cores_per_task": 4,

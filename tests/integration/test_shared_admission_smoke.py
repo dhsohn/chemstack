@@ -68,7 +68,7 @@ exit 0
 
     xtb_worker = spawn_app(
         smoke_workspace.repo_root,
-        "chemstack.xtb.cli",
+        "chemstack.xtb._internal_cli",
         "--config",
         str(smoke_workspace.xtb_config_path),
         "queue",
@@ -84,7 +84,7 @@ exit 0
 
     blocked_crest_worker = app_runner(
         smoke_workspace.repo_root,
-        "chemstack.crest.cli",
+        "chemstack.crest._internal_cli",
         "--config",
         str(smoke_workspace.crest_config_path),
         "queue",
@@ -115,7 +115,7 @@ exit 0
 
     crest_worker = app_runner(
         smoke_workspace.repo_root,
-        "chemstack.crest.cli",
+        "chemstack.crest._internal_cli",
         "--config",
         str(smoke_workspace.crest_config_path),
         "queue",

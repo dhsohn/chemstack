@@ -17,7 +17,7 @@ def _workflow_id(_: CrestArtifactContract) -> str:
 def build_conformer_screening_plan(
     contract: CrestArtifactContract,
     *,
-    max_orca_stages: int = 3,
+    max_orca_stages: int = 20,
     workspace_root: str | Path | None = None,
     charge: int = 0,
     multiplicity: int = 1,
@@ -107,7 +107,7 @@ def build_conformer_screening_plan_from_target(
     *,
     crest_index_root: str | Path,
     target: str,
-    max_orca_stages: int = 3,
+    max_orca_stages: int = 20,
     workspace_root: str | Path | None = None,
     charge: int = 0,
     multiplicity: int = 1,

@@ -292,7 +292,7 @@ def create_conformer_screening_workflow(
     priority: int = 10,
     max_cores: int = 8,
     max_memory_gb: int = 32,
-    max_orca_stages: int = 3,
+    max_orca_stages: int = 20,
     orca_route_line: str = "! r2scan-3c Opt TightSCF",
     charge: int = 0,
     multiplicity: int = 1,

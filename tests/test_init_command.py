@@ -104,7 +104,7 @@ def test_prompt_organized_root_retries_when_nested_under_allowed_root(capsys, tm
         "chemstack.orca.commands.init._prompt_directory_path",
         side_effect=[nested, valid],
     ), patch("chemstack.orca.commands.init._ensure_directory", return_value=True):
-        assert init._prompt_organized_root(allowed_root) == str(valid)
+        assert init._prompt_organized_root(allowed_root, engine_key="orca", engine_label="ORCA") == str(valid)
 
     assert "must not contain each other" in capsys.readouterr().out
 
@@ -162,7 +162,7 @@ def test_cmd_init_handles_interrupt(tmp_path: Path, capsys) -> None:
     config_path = tmp_path / "chemstack.yaml"
 
     with patch("chemstack.orca.commands.init.default_config_path", return_value=str(config_path)), patch(
-        "chemstack.orca.commands.init._prompt_orca_executable",
+        "chemstack.orca.commands.init._prompt_workflow_root",
         side_effect=KeyboardInterrupt,
     ):
         assert init.cmd_init(Namespace(force=True)) == 1
@@ -172,24 +172,30 @@ def test_cmd_init_handles_interrupt(tmp_path: Path, capsys) -> None:
 
 def test_cmd_init_handles_write_or_load_failure(tmp_path: Path, capsys) -> None:
     config_path = tmp_path / "chemstack.yaml"
-    allowed_root = tmp_path / "allowed"
-    allowed_root.mkdir()
+    workflow_root = tmp_path / "workflow_root"
+    orca_allowed_root = tmp_path / "orca_allowed"
 
     with patch("chemstack.orca.commands.init.default_config_path", return_value=str(config_path)), patch(
-        "chemstack.orca.commands.init._prompt_orca_executable",
-        return_value="/usr/bin/orca",
+        "chemstack.orca.commands.init._prompt_workflow_root",
+        return_value=str(workflow_root),
     ), patch(
-        "chemstack.orca.commands.init._prompt_directory_path",
-        return_value=allowed_root,
+        "chemstack.orca.commands.init._prompt_orca_runtime",
+        return_value={
+            "allowed_root": str(orca_allowed_root),
+            "organized_root": str(tmp_path / "orca_organized"),
+            "default_max_retries": 2,
+            "executable": "/usr/bin/orca",
+        },
     ), patch(
-        "chemstack.orca.commands.init._ensure_directory",
-        return_value=True,
+        "chemstack.orca.commands.init._prompt_xtb_runtime",
+        return_value={
+            "executable": "/usr/bin/xtb",
+        },
     ), patch(
-        "chemstack.orca.commands.init._prompt_organized_root",
-        return_value=str(tmp_path / "organized"),
-    ), patch(
-        "chemstack.orca.commands.init._prompt_default_max_retries",
-        return_value=2,
+        "chemstack.orca.commands.init._prompt_crest_runtime",
+        return_value={
+            "executable": "/usr/bin/crest",
+        },
     ), patch(
         "chemstack.orca.commands.init._prompt_max_active_simulations",
         return_value=4,
@@ -197,7 +203,7 @@ def test_cmd_init_handles_write_or_load_failure(tmp_path: Path, capsys) -> None:
         "chemstack.orca.commands.init._prompt_telegram_config",
         return_value={"bot_token": "", "chat_id": ""},
     ), patch(
-        "chemstack.orca.commands.init.load_config",
+        "chemstack.orca.commands.init._validate_generated_config",
         side_effect=RuntimeError("bad config"),
     ):
         assert init.cmd_init(Namespace(force=True)) == 1
@@ -207,39 +213,47 @@ def test_cmd_init_handles_write_or_load_failure(tmp_path: Path, capsys) -> None:
 
 def test_cmd_init_success_writes_config_and_prints_summary(tmp_path: Path, capsys) -> None:
     config_path = tmp_path / "chemstack.yaml"
-    allowed_root = tmp_path / "allowed"
-    organized_root = tmp_path / "organized"
-    allowed_root.mkdir()
+    workflow_root = tmp_path / "workflow_root"
+    orca_allowed_root = tmp_path / "orca_allowed"
+    orca_organized_root = tmp_path / "orca_organized"
 
     with patch("chemstack.orca.commands.init.default_config_path", return_value=str(config_path)), patch(
-        "chemstack.orca.commands.init._prompt_orca_executable",
-        return_value="/usr/bin/orca",
+        "chemstack.orca.commands.init._prompt_workflow_root",
+        return_value=str(workflow_root),
     ), patch(
-        "chemstack.orca.commands.init._prompt_directory_path",
-        return_value=allowed_root,
+        "chemstack.orca.commands.init._prompt_orca_runtime",
+        return_value={
+            "allowed_root": str(orca_allowed_root),
+            "organized_root": str(orca_organized_root),
+            "default_max_retries": 2,
+            "executable": "/usr/bin/orca",
+        },
     ), patch(
-        "chemstack.orca.commands.init._ensure_directory",
-        return_value=True,
+        "chemstack.orca.commands.init._prompt_xtb_runtime",
+        return_value={
+            "executable": "/usr/bin/xtb",
+        },
     ), patch(
-        "chemstack.orca.commands.init._prompt_organized_root",
-        return_value=str(organized_root),
-    ), patch(
-        "chemstack.orca.commands.init._prompt_default_max_retries",
-        return_value=2,
+        "chemstack.orca.commands.init._prompt_crest_runtime",
+        return_value={
+            "executable": "/usr/bin/crest",
+        },
     ), patch(
         "chemstack.orca.commands.init._prompt_max_active_simulations",
         return_value=4,
     ), patch(
         "chemstack.orca.commands.init._prompt_telegram_config",
         return_value={"bot_token": "token", "chat_id": "123"},
-    ), patch("chemstack.orca.commands.init.load_config") as load_config:
+    ), patch("chemstack.orca.commands.init._validate_generated_config") as validate_generated_config:
         assert init.cmd_init(Namespace(force=True)) == 0
 
-    load_config.assert_called_once_with(str(config_path.resolve()))
+    validate_generated_config.assert_called_once_with(str(config_path.resolve()))
     output = capsys.readouterr().out
     assert "Config created successfully." in output
-    assert "allowed_root" in output
-    assert "organized_root" in output
+    assert "workflow_root" in output
+    assert "orca_allowed_root" in output
+    assert "xtb_executable" in output
+    assert "crest_executable" in output
     assert "max_active_simulations: 4" in output
     assert yaml.safe_load(config_path.read_text(encoding="utf-8").split("\n", 1)[1]) == {
         "resources": {
@@ -252,27 +266,20 @@ def test_cmd_init_success_writes_config_and_prints_summary(tmp_path: Path, capsy
         "scheduler": {
             "max_active_simulations": 4,
         },
+        "workflow": {
+            "root": str(workflow_root),
+            "paths": {
+                "xtb_executable": "/usr/bin/xtb",
+                "crest_executable": "/usr/bin/crest",
+            },
+        },
         "telegram": {"bot_token": "token", "chat_id": "123"},
         "orca": {
             "runtime": {
-                "allowed_root": str(allowed_root),
-                "organized_root": str(organized_root),
+                "allowed_root": str(orca_allowed_root),
+                "organized_root": str(orca_organized_root),
                 "default_max_retries": 2,
             },
             "paths": {"orca_executable": "/usr/bin/orca"},
-        },
-        "xtb": {
-            "runtime": {
-                "allowed_root": "",
-                "organized_root": "",
-            },
-            "paths": {"xtb_executable": ""},
-        },
-        "crest": {
-            "runtime": {
-                "allowed_root": "",
-                "organized_root": "",
-            },
-            "paths": {"crest_executable": ""},
         },
     }

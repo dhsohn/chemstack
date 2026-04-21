@@ -293,13 +293,12 @@ class TestCli(unittest.TestCase):
             seen,
             [[
                 "run-dir",
-                "orca",
+                "/tmp/rxn",
                 "--chemstack-config",
                 "/tmp/chemstack.yaml",
                 "--verbose",
                 "--log-file",
                 "/tmp/orca.log",
-                "/tmp/rxn",
                 "--priority",
                 "3",
                 "--force",
@@ -338,7 +337,7 @@ class TestCli(unittest.TestCase):
         self.assertEqual(
             seen,
             [
-                ["init", "orca", "--chemstack-config", "/tmp/chemstack.yaml", "--force"],
+                ["init", "--chemstack-config", "/tmp/chemstack.yaml", "--force"],
                 [
                     "organize",
                     "orca",

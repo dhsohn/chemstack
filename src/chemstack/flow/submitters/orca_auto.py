@@ -6,7 +6,6 @@ from typing import Any
 from chemstack.core.app_ids import (
     CHEMSTACK_CLI_MODULE,
     CHEMSTACK_EXECUTABLE,
-    CHEMSTACK_ORCA_SUBMITTER,
     ORCA_SUBMITTERS,
 )
 from chemstack.core.utils import now_utc_iso

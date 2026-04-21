@@ -9,6 +9,8 @@ import yaml
 CHEMSTACK_CONFIG_ENV_VAR = "CHEMSTACK_CONFIG"
 DEFAULT_CONFIG_FILENAME = "chemstack.yaml"
 DEFAULT_SHARED_ADMISSION_DIRNAME = "admission"
+WORKFLOW_INTERNAL_DIRNAME = "internal"
+_WORKFLOW_INTERNAL_ENGINES = frozenset({"xtb", "crest"})
 
 
 def default_config_path_from_repo_root(
@@ -53,6 +55,52 @@ def default_shared_admission_root(config_path: Path) -> str:
     return str(config_path.expanduser().resolve().parent / DEFAULT_SHARED_ADMISSION_DIRNAME)
 
 
+def workflow_root_from_mapping(raw: dict[str, Any] | None) -> str:
+    if not isinstance(raw, dict):
+        return ""
+
+    workflow_raw = raw.get("workflow", {})
+    if not isinstance(workflow_raw, dict):
+        return ""
+
+    root_text = str(
+        workflow_raw.get("root")
+        or workflow_raw.get("workflow_root")
+        or ""
+    ).strip()
+    if not root_text:
+        return ""
+    return str(Path(root_text).expanduser().resolve())
+
+
+def workflow_internal_engine_runtime_paths(
+    workflow_root: str | Path,
+    *,
+    engine: str,
+) -> dict[str, Path]:
+    engine_text = str(engine or "").strip().lower()
+    if engine_text not in _WORKFLOW_INTERNAL_ENGINES:
+        raise ValueError(f"Unsupported workflow-internal engine: {engine_text}")
+
+    root = Path(workflow_root).expanduser().resolve()
+    base = root / WORKFLOW_INTERNAL_DIRNAME / engine_text
+    return {
+        "allowed_root": base / "runs",
+        "organized_root": base / "outputs",
+    }
+
+
+def workflow_internal_engine_runtime_paths_from_mapping(
+    raw: dict[str, Any] | None,
+    *,
+    engine: str,
+) -> dict[str, Path]:
+    workflow_root = workflow_root_from_mapping(raw)
+    if not workflow_root:
+        return {}
+    return workflow_internal_engine_runtime_paths(workflow_root, engine=engine)
+
+
 def shared_workflow_root_from_config(config_path: str | Path | None) -> str | None:
     if config_path is None:
         return None
@@ -72,15 +120,7 @@ def shared_workflow_root_from_config(config_path: str | Path | None) -> str | No
     if not isinstance(parsed, dict):
         return None
 
-    workflow_raw = parsed.get("workflow", {})
-    if not isinstance(workflow_raw, dict):
-        return None
-
-    root_text = str(
-        workflow_raw.get("root")
-        or workflow_raw.get("workflow_root")
-        or ""
-    ).strip()
+    root_text = workflow_root_from_mapping(parsed)
     if not root_text:
         return None
-    return str(Path(root_text).expanduser().resolve())
+    return root_text

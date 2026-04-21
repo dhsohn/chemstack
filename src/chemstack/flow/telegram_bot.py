@@ -9,13 +9,17 @@ import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Callable
 
+from chemstack.activity_view import count_active_simulations, queue_list_display_rows
 from chemstack.core.app_ids import (
     CHEMSTACK_REPO_ROOT_ENV_VAR,
     LEGACY_ORCA_REPO_ROOT_ENV_VAR,
 )
 from chemstack.core.config import TelegramConfig
+from chemstack.core.config.files import shared_workflow_root_from_config
+import yaml
 
 from .activity import _discover_sibling_config, _discover_workflow_root
 from .operations import cancel_activity, list_activities
@@ -78,6 +82,59 @@ def settings_from_env() -> TelegramBotSettings:
     )
 
 
+def _telegram_from_config_path(config_path: str | None) -> TelegramConfig:
+    config_text = str(config_path or "").strip()
+    if not config_text:
+        return TelegramConfig()
+
+    try:
+        path = Path(config_text).expanduser().resolve()
+    except OSError:
+        return TelegramConfig()
+    if not path.exists():
+        return TelegramConfig()
+
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            parsed = yaml.safe_load(handle) or {}
+    except Exception:
+        return TelegramConfig()
+    if not isinstance(parsed, dict):
+        return TelegramConfig()
+
+    telegram_raw = parsed.get("telegram")
+    if not isinstance(telegram_raw, dict):
+        return TelegramConfig()
+
+    return TelegramConfig(
+        bot_token=str(telegram_raw.get("bot_token", "")).strip(),
+        chat_id=str(telegram_raw.get("chat_id", "")).strip(),
+    )
+
+
+def settings_from_config(config_path: str | None = None) -> TelegramBotSettings:
+    shared_config = _discover_sibling_config(config_path, app_name="chemstack")
+    telegram = _telegram_from_config_path(shared_config)
+    if not telegram.enabled:
+        telegram = TelegramConfig(
+            bot_token=os.getenv("CHEM_FLOW_TELEGRAM_BOT_TOKEN", "").strip(),
+            chat_id=os.getenv("CHEM_FLOW_TELEGRAM_CHAT_ID", "").strip(),
+        )
+    workflow_root = shared_workflow_root_from_config(shared_config) or _discover_workflow_root(None)
+    return TelegramBotSettings(
+        telegram=telegram,
+        workflow_root=workflow_root,
+        crest_auto_config=shared_config,
+        xtb_auto_config=shared_config,
+        orca_auto_config=shared_config,
+        orca_auto_repo_root=(
+            os.getenv(CHEMSTACK_REPO_ROOT_ENV_VAR, "").strip()
+            or os.getenv(LEGACY_ORCA_REPO_ROOT_ENV_VAR, "").strip()
+            or None
+        ),
+    )
+
+
 def _api_call(
     token: str,
     method: str,
@@ -126,22 +183,34 @@ def _activity_payload(settings: TelegramBotSettings) -> dict[str, Any]:
     )
 
 
-def _format_activity_rows(rows: list[dict[str, Any]], *, limit: int = 12) -> str:
+def _format_activity_rows(rows: list[tuple[int, dict[str, Any]]], *, limit: int | None = None) -> str:
     lines: list[str] = []
-    for item in rows[:limit]:
-        label = escape_html(str(item.get("label", "")).strip() or str(item.get("activity_id", "-")))
-        engine = escape_html(str(item.get("engine", "-")).strip())
-        source = escape_html(str(item.get("source", "-")).strip())
-        status = escape_html(str(item.get("status", "-")).strip())
-        lines.append(f"{_status_icon(status)} <b>{label}</b>  {engine}  {status}  [{source}]")
-    if len(rows) > limit:
+    visible_rows = rows if limit is None or limit <= 0 else rows[:limit]
+    for indent, item in visible_rows:
+        indent_prefix = "\u00A0\u00A0" * max(0, int(indent))
+        activity_id = escape_html(str(item.get("activity_id", "-")).strip() or "-")
+        kind = escape_html(str(item.get("kind", "-")).strip() or "-")
+        engine = escape_html(str(item.get("engine", "-")).strip() or "-")
+        status = escape_html(str(item.get("status", "-")).strip() or "-")
+        label = escape_html(str(item.get("label", "-")).strip() or "-")
+        source = escape_html(str(item.get("source", "-")).strip() or "-")
+        lines.append(
+            f"{indent_prefix}- <code>{activity_id}</code>"
+            f" kind=<code>{kind}</code>"
+            f" engine=<code>{engine}</code>"
+            f" status=<code>{status}</code>"
+            f" label=<code>{label}</code>"
+            f" source=<code>{source}</code>"
+        )
+    if limit is not None and limit > 0 and len(rows) > limit:
         lines.append(f"... and {len(rows) - limit} more")
     return "\n".join(lines)
 
 
 def _handle_list(settings: TelegramBotSettings, args: str) -> str:
     payload = _activity_payload(settings)
-    rows = list(payload.get("activities", []))
+    all_rows = list(payload.get("activities", []))
+    rows = list(all_rows)
 
     filter_status = args.strip().lower()
     if filter_status:
@@ -150,8 +219,13 @@ def _handle_list(settings: TelegramBotSettings, args: str) -> str:
     if not rows:
         return "No activities found."
 
-    header = f"<b>Activities</b> ({len(rows)})"
-    return header + "\n\n" + _format_activity_rows(rows)
+    header = f"<b>active_simulations</b>: <code>{count_active_simulations(rows)}</code>"
+    display_rows = queue_list_display_rows(
+        all_items=all_rows,
+        visible_items=rows,
+        show_workflow_context=True,
+    )
+    return header + "\n\n" + _format_activity_rows(display_rows)
 
 
 def _handle_cancel(settings: TelegramBotSettings, args: str) -> str:
@@ -206,7 +280,10 @@ def _set_bot_commands(token: str) -> None:
 def run_bot(settings: TelegramBotSettings | None = None) -> int:
     resolved = settings or settings_from_env()
     if not resolved.enabled:
-        logger.error("Telegram is not configured. Set CHEM_FLOW_TELEGRAM_BOT_TOKEN and CHEM_FLOW_TELEGRAM_CHAT_ID.")
+        logger.error(
+            "Telegram is not configured. Set telegram.bot_token/chat_id in chemstack.yaml "
+            "or CHEM_FLOW_TELEGRAM_BOT_TOKEN and CHEM_FLOW_TELEGRAM_CHAT_ID."
+        )
         return 1
 
     _set_bot_commands(resolved.telegram.bot_token)
@@ -268,5 +345,6 @@ __all__ = [
     "TelegramBotSettings",
     "escape_html",
     "run_bot",
+    "settings_from_config",
     "settings_from_env",
 ]

@@ -6,7 +6,11 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from chemstack.core.config.files import default_shared_admission_root, engine_config_mapping
+from chemstack.core.config.files import (
+    default_shared_admission_root,
+    engine_config_mapping,
+    workflow_internal_engine_runtime_paths_from_mapping,
+)
 
 
 def normalize_text(value: Any) -> str:
@@ -86,8 +90,16 @@ def sibling_allowed_root(config_path: str, *, engine: str | None = None) -> Path
     raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     if not isinstance(raw, dict):
         raise ValueError(f"Invalid sibling app config file: {path}")
+
+    if engine in {"xtb", "crest"}:
+        derived_runtime_paths = workflow_internal_engine_runtime_paths_from_mapping(raw, engine=engine)
+        allowed_root = str(derived_runtime_paths.get("allowed_root", "")).strip()
+        if not allowed_root:
+            raise ValueError(f"Missing workflow.root in config: {path}")
+        return Path(allowed_root).expanduser().resolve()
+
     if engine:
-        raw = engine_config_mapping(raw, engine)
+        raw = engine_config_mapping(raw, engine, inherit_keys=("workflow",))
     runtime = raw.get("runtime")
     if not isinstance(runtime, dict):
         raise ValueError(f"Missing runtime section in config: {path}")
@@ -104,8 +116,27 @@ def sibling_runtime_paths(config_path: str, *, engine: str | None = None) -> dic
     raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     if not isinstance(raw, dict):
         raise ValueError(f"Invalid sibling app config file: {path}")
+
+    if engine in {"xtb", "crest"}:
+        derived_runtime_paths = workflow_internal_engine_runtime_paths_from_mapping(raw, engine=engine)
+        if "allowed_root" not in derived_runtime_paths:
+            raise ValueError(f"Missing workflow.root in config: {path}")
+        scheduler = raw.get("scheduler")
+        if not isinstance(scheduler, dict):
+            scheduler = {}
+        resolved = {
+            "allowed_root": derived_runtime_paths["allowed_root"].expanduser().resolve(),
+            "organized_root": derived_runtime_paths["organized_root"].expanduser().resolve(),
+        }
+        admission_root = normalize_text(scheduler.get("admission_root"))
+        if not admission_root and scheduler:
+            admission_root = default_shared_admission_root(path)
+        if admission_root:
+            resolved["admission_root"] = Path(admission_root).expanduser().resolve()
+        return resolved
+
     if engine:
-        raw = engine_config_mapping(raw, engine, inherit_keys=("scheduler",))
+        raw = engine_config_mapping(raw, engine, inherit_keys=("scheduler", "workflow"))
     runtime = raw.get("runtime")
     if not isinstance(runtime, dict):
         raise ValueError(f"Missing runtime section in config: {path}")

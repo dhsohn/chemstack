@@ -74,7 +74,7 @@ def _scaffold_manifest(job_type: str) -> str:
             "dry_run: true",
         ]
     else:
-        raise ValueError(f"Unsupported init job_type: {job_type}")
+        raise ValueError(f"Unsupported scaffold job_type: {job_type}")
     return "\n".join(
         [*body, ""]
     )
@@ -103,18 +103,18 @@ def _scaffold_readme(job_dir: Path, job_type: str) -> str:
             "- The worker will evaluate the candidate set and rank them by xTB energy.",
         ]
     else:
-        raise ValueError(f"Unsupported init job_type: {job_type}")
+        raise ValueError(f"Unsupported scaffold job_type: {job_type}")
 
     return "\n".join(
         [
             "# chemstack xTB job scaffold",
             "",
-            f"This directory was created by `python -m chemstack.cli init xtb --root {job_dir} --job-type {job_type}`.",
+            "This directory is an internal xTB scaffold used by ChemStack workflow/runtime paths.",
             "",
             *layout_lines,
             "- Adjust `xtb_job.yaml` as needed.",
             "- Set `dry_run: false` when you are ready for a real run.",
-            "- Then queue the directory with `python -m chemstack.cli run-dir xtb <path>`.",
+            "- Queueing is handled by the internal xTB runtime or by workflow orchestration.",
             "",
         ]
     )
@@ -124,12 +124,12 @@ def cmd_init(args: Any) -> int:
     cfg = load_config(getattr(args, "config", None))
     raw_root = str(getattr(args, "root", "")).strip()
     if not raw_root:
-        print("error: init requires --root")
+        print("error: scaffold requires --root")
         return 1
 
     job_type = str(getattr(args, "job_type", "path_search")).strip().lower() or "path_search"
     if job_type not in _SUPPORTED_JOB_TYPES:
-        print(f"error: unsupported init job_type: {job_type}")
+        print(f"error: unsupported scaffold job_type: {job_type}")
         return 1
 
     allowed_root = ensure_directory(cfg.runtime.allowed_root, label="Allowed root")

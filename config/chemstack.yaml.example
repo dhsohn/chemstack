@@ -2,6 +2,11 @@ scheduler:
   max_active_simulations: 4
 workflow:
   root: /home/user/chemstack/workflow_root
+  paths:
+    xtb_executable: /home/user/bin/xtb-dist/bin/xtb
+    crest_executable: /home/user/bin/crest/crest
+behavior:
+  auto_organize_on_terminal: false
 telegram:
   bot_token: ""
   chat_id: ""
@@ -12,15 +17,3 @@ orca:
     default_max_retries: 2
   paths:
     orca_executable: /home/user/opt/orca/orca
-xtb:
-  runtime:
-    allowed_root: /home/user/xtb_runs
-    organized_root: /home/user/xtb_outputs
-  paths:
-    xtb_executable: /home/user/bin/xtb-dist/bin/xtb
-crest:
-  runtime:
-    allowed_root: /home/user/crest_runs
-    organized_root: /home/user/crest_outputs
-  paths:
-    crest_executable: /home/user/bin/crest/crest

@@ -38,7 +38,7 @@ from .workflows import (
     build_reaction_ts_search_plan_from_target,
 )
 
-_RUN_DIR_MANIFEST_NAMES = ("chemstack.flow.yaml", "chemstack.flow.yml", "chemstack.flow.json")
+_RUN_DIR_MANIFEST_NAMES = ("flow.yaml",)
 _REACTION_REACTANT_FILENAMES = ("reactant.xyz", "reactant_precomplex.xyz", "reactant-precomplex.xyz")
 _REACTION_PRODUCT_FILENAMES = ("product.xyz", "product_precomplex.xyz", "product-precomplex.xyz")
 _CONFORMER_INPUT_FILENAMES = ("input.xyz", "molecule.xyz", "structure.xyz")
@@ -422,7 +422,7 @@ def cmd_run_dir(args: Any) -> int:
                 getattr(args, "max_memory_gb", None), manifest, "max_memory_gb", resources_manifest, "max_memory_gb", 32
             )
             max_orca_stages_value = _resolve_int_option(
-                getattr(args, "max_orca_stages", None), manifest, "max_orca_stages", 3
+                getattr(args, "max_orca_stages", None), manifest, "max_orca_stages", 20
             )
             orca_route_line_value = _resolve_text_option_with_section(
                 getattr(args, "orca_route_line", None),
@@ -607,7 +607,7 @@ def cmd_workflow_conformer_screening(args: Any) -> int:
     payload = build_conformer_screening_plan_from_target(
         crest_index_root=getattr(args, "crest_index_root"),
         target=getattr(args, "target"),
-        max_orca_stages=int(getattr(args, "max_orca_stages", 3) or 3),
+        max_orca_stages=int(getattr(args, "max_orca_stages", 20) or 20),
         workspace_root=getattr(args, "workspace_root", None),
         charge=int(getattr(args, "charge", 0) or 0),
         multiplicity=int(getattr(args, "multiplicity", 1) or 1),
@@ -666,7 +666,7 @@ def cmd_workflow_create_conformer_screening(args: Any) -> int:
         priority=int(getattr(args, "priority", 10) or 10),
         max_cores=int(getattr(args, "max_cores", 8) or 8),
         max_memory_gb=int(getattr(args, "max_memory_gb", 32) or 32),
-        max_orca_stages=int(getattr(args, "max_orca_stages", 3) or 3),
+        max_orca_stages=int(getattr(args, "max_orca_stages", 20) or 20),
         orca_route_line=str(getattr(args, "orca_route_line", "") or ""),
         charge=int(getattr(args, "charge", 0) or 0),
         multiplicity=int(getattr(args, "multiplicity", 1) or 1),

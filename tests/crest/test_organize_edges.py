@@ -12,17 +12,17 @@ from chemstack.crest.state import write_report_json, write_report_md, write_stat
 
 
 def _write_config(tmp_path: Path) -> tuple[Path, Path, Path]:
-    allowed_root = tmp_path / "allowed"
-    organized_root = tmp_path / "organized"
-    allowed_root.mkdir()
-    organized_root.mkdir()
+    workflow_root = tmp_path / "workflow_root"
+    allowed_root = workflow_root / "internal" / "crest" / "runs"
+    organized_root = workflow_root / "internal" / "crest" / "outputs"
+    allowed_root.mkdir(parents=True)
+    organized_root.mkdir(parents=True)
     config_path = tmp_path / "chemstack.yaml"
     config_path.write_text(
         "\n".join(
             [
-                "runtime:",
-                f"  allowed_root: {json.dumps(str(allowed_root))}",
-                f"  organized_root: {json.dumps(str(organized_root))}",
+                "workflow:",
+                f"  root: {json.dumps(str(workflow_root))}",
                 "resources:",
                 "  max_cores_per_task: 8",
                 "  max_memory_gb_per_task: 16",

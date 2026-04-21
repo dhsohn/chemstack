@@ -9,14 +9,11 @@ import yaml
 from chemstack.core.config.files import (
     default_config_path_from_repo_root,
     default_shared_admission_root,
-    engine_config_mapping,
+    workflow_internal_engine_runtime_paths_from_mapping,
 )
 from chemstack.core.config import CommonResourceConfig, CommonRuntimeConfig, TelegramConfig
 
 CONFIG_ENV_VAR = "CHEMSTACK_CONFIG"
-_REMOVED_RUNTIME_SCHEDULER_KEYS = frozenset(
-    {"max_concurrent", "admission_root", "admission_limit", "admission_max_concurrent"}
-)
 
 
 @dataclass(frozen=True)
@@ -69,16 +66,11 @@ def _as_bool(value: Any, default: bool = False) -> bool:
     return default
 
 
-def _raise_removed_runtime_scheduler_keys(path: Path, removed_keys: list[str]) -> None:
-    keys = ", ".join(f"runtime.{key}" for key in removed_keys)
-    raise ValueError(f"Config uses unsupported runtime keys: {keys} ({path})")
-
-
 def load_config(config_path: str | None = None) -> AppConfig:
     path = Path(config_path or default_config_path()).expanduser().resolve()
     if not path.exists():
         raise ValueError(
-            f"Config file not found: {path}. Copy config/chemstack.yaml.example to this path and edit the crest section."
+            f"Config file not found: {path}. Copy config/chemstack.yaml.example to this path and edit the workflow section."
         )
 
     with path.open("r", encoding="utf-8") as handle:
@@ -86,20 +78,17 @@ def load_config(config_path: str | None = None) -> AppConfig:
     if not isinstance(raw, dict):
         raise ValueError(f"Config file is invalid: {path}")
 
-    raw = engine_config_mapping(raw, "crest", inherit_keys=("behavior", "resources", "telegram", "scheduler"))
     scheduler_raw = raw.get("scheduler", {}) if isinstance(raw.get("scheduler"), dict) else {}
-    runtime_raw = raw.get("runtime", {}) if isinstance(raw.get("runtime"), dict) else {}
-    paths_raw = raw.get("paths", {}) if isinstance(raw.get("paths"), dict) else {}
+    workflow_raw = raw.get("workflow", {}) if isinstance(raw.get("workflow"), dict) else {}
+    workflow_paths_raw = workflow_raw.get("paths", {}) if isinstance(workflow_raw.get("paths"), dict) else {}
     behavior_raw = raw.get("behavior", {}) if isinstance(raw.get("behavior"), dict) else {}
     resources_raw = raw.get("resources", {}) if isinstance(raw.get("resources"), dict) else {}
     telegram_raw = raw.get("telegram", {}) if isinstance(raw.get("telegram"), dict) else {}
-    removed_runtime_scheduler_keys = sorted(_REMOVED_RUNTIME_SCHEDULER_KEYS.intersection(runtime_raw.keys()))
-    if removed_runtime_scheduler_keys:
-        _raise_removed_runtime_scheduler_keys(path, removed_runtime_scheduler_keys)
 
-    allowed_root = _as_str(runtime_raw.get("allowed_root"))
+    derived_runtime_paths = workflow_internal_engine_runtime_paths_from_mapping(raw, engine="crest")
+    allowed_root = str(derived_runtime_paths.get("allowed_root", "")).strip()
     if not allowed_root:
-        raise ValueError(f"Config is missing runtime.allowed_root: {path}")
+        raise ValueError(f"Config is missing workflow.root: {path}")
 
     scheduler_enabled = bool(scheduler_raw)
     shared_max_active_simulations = max(1, _as_int(scheduler_raw.get("max_active_simulations"), 4))
@@ -107,7 +96,7 @@ def load_config(config_path: str | None = None) -> AppConfig:
         scheduler_raw.get("admission_root"),
         default_shared_admission_root(path) if scheduler_enabled else allowed_root,
     )
-    organized_root = _as_str(runtime_raw.get("organized_root"), str(Path(allowed_root).parent / "crest_outputs"))
+    organized_root = str(derived_runtime_paths.get("organized_root", "")).strip() or str(Path(allowed_root).parent / "crest_outputs")
     max_concurrent = shared_max_active_simulations
     admission_root = shared_admission_root
     admission_limit = shared_max_active_simulations
@@ -121,7 +110,7 @@ def load_config(config_path: str | None = None) -> AppConfig:
             admission_limit=admission_limit,
         ),
         paths=PathsConfig(
-            crest_executable=_as_str(paths_raw.get("crest_executable")),
+            crest_executable=_as_str(workflow_paths_raw.get("crest_executable")),
         ),
         behavior=BehaviorConfig(
             auto_organize_on_terminal=_as_bool(behavior_raw.get("auto_organize_on_terminal"), False),

@@ -296,7 +296,7 @@ def run_case(case_dir: Path, *, args: argparse.Namespace, env: dict[str, str]) -
     crest_worker = [
         sys.executable,
         "-m",
-        "chemstack.crest.cli",
+        "chemstack.crest._internal_cli",
         "--config",
         str(shared_config),
         "queue",
@@ -306,7 +306,7 @@ def run_case(case_dir: Path, *, args: argparse.Namespace, env: dict[str, str]) -
     xtb_worker = [
         sys.executable,
         "-m",
-        "chemstack.xtb.cli",
+        "chemstack.xtb._internal_cli",
         "--config",
         str(shared_config),
         "queue",

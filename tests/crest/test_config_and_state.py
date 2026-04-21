@@ -87,16 +87,16 @@ def test_load_config_reads_and_normalizes_all_sections(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    workflow_root = tmp_path / "workflow_root"
+    workflow_root.mkdir()
     config_path = _write_config(
         tmp_path / "chemstack.yaml",
-        """
+        f"""
         scheduler:
           max_active_simulations: "6"
           admission_root: /tmp/admission
-        crest:
-          runtime:
-            allowed_root: /tmp/runs
-            organized_root: /tmp/organized
+        workflow:
+          root: {workflow_root}
           paths:
             crest_executable: " /opt/crest "
         behavior:
@@ -113,8 +113,8 @@ def test_load_config_reads_and_normalizes_all_sections(
 
     cfg = config_mod.load_config()
 
-    assert cfg.runtime.allowed_root == "/tmp/runs"
-    assert cfg.runtime.organized_root == "/tmp/organized"
+    assert cfg.runtime.allowed_root == str((workflow_root / "internal" / "crest" / "runs").resolve())
+    assert cfg.runtime.organized_root == str((workflow_root / "internal" / "crest" / "outputs").resolve())
     assert cfg.runtime.max_concurrent == 6
     assert cfg.runtime.admission_root == "/tmp/admission"
     assert cfg.runtime.admission_limit == 6
@@ -126,7 +126,7 @@ def test_load_config_reads_and_normalizes_all_sections(
     assert cfg.telegram.chat_id == "4567"
 
 
-def test_load_config_supports_top_level_scheduler_shape(tmp_path: Path) -> None:
+def test_load_config_no_longer_supports_top_level_runtime_and_paths_shape(tmp_path: Path) -> None:
     config_path = _write_config(
         tmp_path / "chemstack.yaml",
         """
@@ -148,31 +148,21 @@ def test_load_config_supports_top_level_scheduler_shape(tmp_path: Path) -> None:
           chat_id: " 4567 "
         """,
     )
-    cfg = config_mod.load_config(str(config_path))
 
-    assert cfg.runtime.allowed_root == "/tmp/runs"
-    assert cfg.runtime.organized_root == "/tmp/organized"
-    assert cfg.runtime.max_concurrent == 6
-    assert cfg.runtime.admission_root == "/tmp/admission"
-    assert cfg.runtime.admission_limit == 6
-    assert cfg.paths.crest_executable == "/opt/crest"
-    assert cfg.behavior.auto_organize_on_terminal is True
-    assert cfg.resources.max_cores_per_task == 12
-    assert cfg.resources.max_memory_gb_per_task == 48
-    assert cfg.telegram.bot_token == "token-123"
-    assert cfg.telegram.chat_id == "4567"
+    with pytest.raises(ValueError, match=r"Config is missing workflow\.root"):
+        config_mod.load_config(str(config_path))
 
 
 def test_load_config_applies_defaults_for_missing_or_invalid_sections(tmp_path: Path) -> None:
-    allowed_root = tmp_path / "runs"
+    workflow_root = tmp_path / "workflow_root"
+    workflow_root.mkdir()
     config_path = _write_config(
         tmp_path / "chemstack.yaml",
         f"""
         scheduler:
           max_active_simulations: 0
-        crest:
-          runtime:
-            allowed_root: {allowed_root}
+        workflow:
+          root: {workflow_root}
           paths: []
         behavior: invalid
         resources: nope
@@ -182,8 +172,8 @@ def test_load_config_applies_defaults_for_missing_or_invalid_sections(tmp_path: 
 
     cfg = config_mod.load_config(str(config_path))
 
-    assert cfg.runtime.allowed_root == str(allowed_root)
-    assert cfg.runtime.organized_root == str(tmp_path / "crest_outputs")
+    assert cfg.runtime.allowed_root == str((workflow_root / "internal" / "crest" / "runs").resolve())
+    assert cfg.runtime.organized_root == str((workflow_root / "internal" / "crest" / "outputs").resolve())
     assert cfg.runtime.max_concurrent == 1
     assert cfg.runtime.admission_root == str(tmp_path / "admission")
     assert cfg.runtime.admission_limit == 1
@@ -206,7 +196,7 @@ def test_load_config_rejects_removed_runtime_scheduler_keys(tmp_path: Path) -> N
         """,
     )
 
-    with pytest.raises(ValueError, match=r"unsupported runtime keys: runtime\.max_concurrent"):
+    with pytest.raises(ValueError, match=r"Config is missing workflow\.root"):
         config_mod.load_config(str(config_path))
 
 
@@ -231,17 +221,17 @@ def test_load_config_rejects_non_mapping_yaml(tmp_path: Path) -> None:
         config_mod.load_config(str(config_path))
 
 
-def test_load_config_requires_runtime_allowed_root(tmp_path: Path) -> None:
+def test_load_config_requires_workflow_root(tmp_path: Path) -> None:
     config_path = _write_config(
         tmp_path / "chemstack.yaml",
         """
-        crest:
-          runtime:
-            organized_root: /tmp/organized
+        workflow:
+          paths:
+            crest_executable: /opt/crest
         """,
     )
 
-    with pytest.raises(ValueError, match=r"Config is missing runtime\.allowed_root"):
+    with pytest.raises(ValueError, match=r"Config is missing workflow\.root"):
         config_mod.load_config(str(config_path))
 
 

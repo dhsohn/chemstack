@@ -46,11 +46,11 @@ def _scaffold_readme(job_dir: Path) -> str:
         [
             "# chemstack CREST job scaffold",
             "",
-            f"This directory was created by `python -m chemstack.cli init crest --root {job_dir}`.",
+            "This directory is an internal CREST scaffold used by ChemStack workflow/runtime paths.",
             "",
             "- Replace `input.xyz` with the molecule you want to process.",
             "- Adjust `crest_job.yaml` if you need NCI mode, charge, or solvent settings.",
-            "- Then queue the directory with `python -m chemstack.cli run-dir crest <path>`.",
+            "- Queueing is handled by the internal CREST runtime or by workflow orchestration.",
             "",
         ]
     )

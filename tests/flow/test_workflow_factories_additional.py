@@ -53,14 +53,14 @@ def test_new_crest_stage_builds_expected_payload_and_metadata() -> None:
     assert task["enqueue_payload"]["command_argv"][:4] == [
         "python",
         "-m",
-        "chemstack.cli",
+        "chemstack.crest._internal_cli",
         "--config",
     ]
     assert task["enqueue_payload"]["command_argv"][4:8] == [
         "<crest_auto_config>",
         "run-dir",
-        "crest",
         "<job_dir>",
+        "--priority",
     ]
     assert task["metadata"] == {"input_role": "reactant", "mode": "nci"}
     assert stage["metadata"] == {"input_role": "reactant", "mode": "nci"}
@@ -237,6 +237,25 @@ def test_create_conformer_screening_nci_workflow_writes_expected_request_shape(
         "crest_mode": "nci",
     }
     assert sync_calls == ["wf_conf_nci_extra"]
+
+
+def test_create_conformer_screening_workflow_defaults_to_twenty_orca_children(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    input_xyz = tmp_path / "default_conf.xyz"
+    _write_xyz(input_xyz, [("H", 0.0, 0.0, 0.0), ("H", 0.0, 0.0, 0.74)])
+
+    monkeypatch.setattr(orchestration, "_workflow_id", lambda prefix: "wf_conf_default_20")
+    monkeypatch.setattr(orchestration, "now_utc_iso", lambda: "2026-04-22T10:00:00+00:00")
+    monkeypatch.setattr(orchestration, "sync_workflow_registry", lambda workflow_root, workspace_dir, payload: None)
+
+    payload = orchestration.create_conformer_screening_workflow(
+        input_xyz=str(input_xyz),
+        workflow_root=tmp_path,
+    )
+
+    assert payload["metadata"]["request"]["parameters"]["max_orca_stages"] == 20
 
 
 def test_workflow_factories_preserve_engine_manifest_overrides(

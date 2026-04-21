@@ -12,6 +12,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Sequence
 
+from chemstack.activity_view import (
+    activity_with_parent_hint,
+    count_active_simulations,
+    queue_list_display_rows,
+)
 from chemstack.core.app_ids import (
     CHEMSTACK_CONFIG_ENV_VAR,
     CHEMSTACK_CREST_MODULE,
@@ -23,11 +28,20 @@ from chemstack.core.config.files import shared_workflow_root_from_config
 from chemstack.flow.activity import cancel_activity, list_activities
 from chemstack.flow.submitters.common import normalize_text, sibling_app_command
 
-_ENGINE_APPS = ("orca", "xtb", "crest")
+_WORKFLOW_INTERNAL_ENGINE_APPS = ("crest", "xtb")
+_ENGINE_APPS = ("orca",)
 _KNOWN_WORKER_APPS = (*_ENGINE_APPS, "workflow")
 _DEFAULT_WORKER_APPS = _ENGINE_APPS
 _WORKER_POLL_INTERVAL_SECONDS = 1.0
 _DIRECT_ENGINE_WORKER_ENV_VAR = "CHEMSTACK_QUEUE_WORKER_DIRECT"
+_RUN_DIR_WORKFLOW_MANIFEST_FILENAMES = (
+    "flow.yaml",
+)
+_RUN_DIR_WORKFLOW_REACTION_FILENAMES = ("reactant.xyz", "product.xyz")
+_WORKFLOW_SCAFFOLD_SHORTCUTS = (
+    ("ts_search", "reaction_ts_search", "Create a reaction TS-search scaffold."),
+    ("conformer_search", "conformer_screening", "Create a conformer-screening scaffold."),
+)
 
 
 @dataclass(frozen=True)
@@ -168,19 +182,31 @@ def cmd_queue_list(args: argparse.Namespace) -> int:
     )
     if limit > 0:
         activities = activities[:limit]
+    active_simulations = count_active_simulations(activities)
+    enriched_activities = [activity_with_parent_hint(item) for item in activities]
     filtered_payload = {
         "count": len(activities),
-        "activities": activities,
+        "active_simulations": active_simulations,
+        "activities": enriched_activities,
         "sources": dict(payload.get("sources", {})),
     }
     if bool(getattr(args, "json", False)):
         print(json.dumps(filtered_payload, ensure_ascii=True, indent=2))
         return 0
 
-    print(f"activity_count: {filtered_payload['count']}")
-    for item in activities:
+    kind_filter = set(_normalize_filter_values(getattr(args, "kind", None)))
+    show_workflow_context = kind_filter != {"job"}
+    display_rows = queue_list_display_rows(
+        all_items=payload.get("activities", []),
+        visible_items=activities,
+        show_workflow_context=show_workflow_context,
+    )
+
+    print(f"active_simulations: {filtered_payload['active_simulations']}")
+    for indent, item in display_rows:
+        prefix = "  " * max(0, int(indent))
         print(
-            f"- {item.get('activity_id', '-')}"
+            f"{prefix}- {item.get('activity_id', '-')}"
             f" kind={item.get('kind', '-')}"
             f" engine={item.get('engine', '-')}"
             f" status={item.get('status', '-')}"
@@ -313,8 +339,13 @@ def _build_worker_specs(args: argparse.Namespace) -> list[WorkerSpec]:
     explicit_app_selection = bool(explicit_apps)
     config_path = _discover_shared_config_path(_effective_shared_config_text(args))
     workflow_root = _workflow_root_for_args(args)
+    workflow_enabled = "workflow" in apps or (not explicit_app_selection and bool(workflow_root))
 
     engine_apps = [app for app in apps if app in _ENGINE_APPS]
+    if workflow_enabled:
+        for app in _WORKFLOW_INTERNAL_ENGINE_APPS:
+            if app not in engine_apps:
+                engine_apps.append(app)
     if engine_apps and not normalize_text(config_path):
         raise ValueError(
             "Could not discover chemstack.yaml for engine workers. Pass --chemstack-config or set CHEMSTACK_CONFIG."
@@ -456,7 +487,7 @@ def _configure_orca_logging(args: argparse.Namespace) -> None:
     )
 
 
-def cmd_orca_init(args: argparse.Namespace) -> int:
+def cmd_init(args: argparse.Namespace) -> int:
     from chemstack.orca.commands.init import cmd_init as _cmd_orca_init
 
     _configure_orca_logging(args)
@@ -488,60 +519,77 @@ def cmd_orca_summary(args: argparse.Namespace) -> int:
     return int(_cmd_orca_summary(args))
 
 
-def cmd_xtb_init(args: argparse.Namespace) -> int:
-    from chemstack.xtb.commands.init import cmd_init as _cmd_xtb_init
+def cmd_bot(args: argparse.Namespace) -> int:
+    from chemstack.flow.telegram_bot import run_bot as _run_bot
+    from chemstack.flow.telegram_bot import settings_from_config as _settings_from_config
 
-    args.config = _engine_config_for_command(args)
-    return int(_cmd_xtb_init(args))
-
-
-def cmd_xtb_run_dir(args: argparse.Namespace) -> int:
-    from chemstack.xtb.commands.run_dir import cmd_run_dir as _cmd_xtb_run_dir
-
-    args.config = _engine_config_for_command(args)
-    return int(_cmd_xtb_run_dir(args))
+    return int(_run_bot(_settings_from_config(_engine_config_for_command(args))))
 
 
-def cmd_xtb_organize(args: argparse.Namespace) -> int:
-    from chemstack.xtb.commands.organize import cmd_organize as _cmd_xtb_organize
+def cmd_workflow_scaffold(args: argparse.Namespace) -> int:
+    from chemstack.flow.scaffold import cmd_scaffold as _cmd_workflow_scaffold
 
-    args.config = _engine_config_for_command(args)
-    return int(_cmd_xtb_organize(args))
-
-
-def cmd_xtb_summary(args: argparse.Namespace) -> int:
-    from chemstack.xtb.commands.summary import cmd_summary as _cmd_xtb_summary
-
-    args.config = _engine_config_for_command(args)
-    return int(_cmd_xtb_summary(args))
+    return int(_cmd_workflow_scaffold(args))
 
 
-def cmd_crest_init(args: argparse.Namespace) -> int:
-    from chemstack.crest.commands.init import cmd_init as _cmd_crest_init
+def _detect_run_dir_app(args: argparse.Namespace) -> str:
+    raw_path = normalize_text(getattr(args, "path", None))
+    if not raw_path:
+        raise ValueError("run-dir requires a target directory path")
 
-    args.config = _engine_config_for_command(args)
-    return int(_cmd_crest_init(args))
+    target = Path(raw_path).expanduser().resolve()
+    if not target.exists():
+        raise ValueError(f"run-dir target not found: {target}")
+    if not target.is_dir():
+        raise ValueError(f"run-dir target is not a directory: {target}")
+
+    workflow_manifest_present = any((target / name).is_file() for name in _RUN_DIR_WORKFLOW_MANIFEST_FILENAMES)
+    reaction_inputs_present = all((target / name).is_file() for name in _RUN_DIR_WORKFLOW_REACTION_FILENAMES)
+    conformer_input_present = (target / "input.xyz").is_file()
+    orca_input_present = any(candidate.is_file() for candidate in target.glob("*.inp"))
+
+    if workflow_manifest_present or reaction_inputs_present:
+        return "workflow"
+    if orca_input_present:
+        return "orca"
+    if conformer_input_present:
+        return "workflow"
+
+    raise ValueError(
+        "Could not infer run-dir target type from directory. "
+        "Expected flow.yaml, reactant.xyz + product.xyz, input.xyz, or *.inp."
+    )
 
 
-def cmd_crest_run_dir(args: argparse.Namespace) -> int:
-    from chemstack.crest.commands.run_dir import cmd_run_dir as _cmd_crest_run_dir
+def cmd_run_dir(args: argparse.Namespace) -> int:
+    try:
+        run_dir_app = _detect_run_dir_app(args)
+    except ValueError as exc:
+        print(f"error: {exc}")
+        return 1
 
-    args.config = _engine_config_for_command(args)
-    return int(_cmd_crest_run_dir(args))
+    args.run_dir_app = run_dir_app
+    if run_dir_app == "workflow":
+        args.workflow_dir = getattr(args, "path")
+        return int(cmd_workflow_run_dir(args))
+    if getattr(args, "priority", None) is None:
+        args.priority = 10
+    return int(cmd_orca_run_dir(args))
 
 
-def cmd_crest_organize(args: argparse.Namespace) -> int:
-    from chemstack.crest.commands.organize import cmd_organize as _cmd_crest_organize
-
-    args.config = _engine_config_for_command(args)
-    return int(_cmd_crest_organize(args))
-
-
-def cmd_crest_summary(args: argparse.Namespace) -> int:
-    from chemstack.crest.commands.summary import cmd_summary as _cmd_crest_summary
-
-    args.config = _engine_config_for_command(args)
-    return int(_cmd_crest_summary(args))
+def _add_workflow_scaffold_shortcut(
+    scaffold_subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+    *,
+    name: str,
+    workflow_type: str,
+    help_text: str,
+) -> None:
+    parser = scaffold_subparsers.add_parser(name, help=help_text)
+    parser.add_argument("root", help="Workflow input directory to create")
+    parser.set_defaults(
+        func=cmd_workflow_scaffold,
+        workflow_type=workflow_type,
+    )
 
 
 def cmd_workflow_run_dir(args: argparse.Namespace) -> int:
@@ -581,13 +629,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     queue_parser = subparsers.add_parser(
         "queue",
-        help="Unified queue and worker commands across ORCA, xTB, CREST, and workflows.",
+        help="Unified queue and worker commands across ORCA, workflow-managed internal engines, and workflows.",
     )
     queue_subparsers = queue_parser.add_subparsers(dest="queue_command", required=True)
 
     list_parser = queue_subparsers.add_parser(
         "list",
-        help="List workflows and standalone engine activities together.",
+        help="List workflows and engine activities together.",
     )
     list_parser.add_argument("--workflow-root", help=argparse.SUPPRESS)
     list_parser.add_argument("--chemstack-config", "--config", dest="chemstack_config", help="Path to shared chemstack.yaml")
@@ -615,7 +663,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     cancel_parser = queue_subparsers.add_parser(
         "cancel",
-        help="Cancel a workflow or standalone engine activity.",
+        help="Cancel a workflow or engine activity.",
     )
     cancel_parser.add_argument("target", help="Activity id, workflow id, queue id, run id, or known path alias")
     cancel_parser.add_argument("--workflow-root", help=argparse.SUPPRESS)
@@ -630,8 +678,8 @@ def build_parser() -> argparse.ArgumentParser:
     worker_parser.add_argument(
         "--app",
         action="append",
-        choices=["orca", "xtb", "crest", "workflow"],
-        help="Worker app to start. Defaults to ORCA, xTB, and CREST.",
+        choices=["orca", "workflow"],
+        help="Worker app to start. Defaults to ORCA, and adds workflow-managed internal engines when configured.",
     )
     worker_parser.add_argument("--once", action="store_true", help="Run exactly one cycle for apps that support it")
     auto_group = worker_parser.add_mutually_exclusive_group()
@@ -658,83 +706,47 @@ def build_parser() -> argparse.ArgumentParser:
 
     run_dir_parser = subparsers.add_parser(
         "run-dir",
-        help="Queue engine jobs or materialize workflows through the unified CLI.",
+        help="Submit an ORCA job directory or workflow input directory through the unified CLI.",
     )
-    run_dir_subparsers = run_dir_parser.add_subparsers(dest="run_dir_app", required=True)
-
-    orca_run_dir_parser = run_dir_subparsers.add_parser("orca", help="Queue an ORCA job directory")
-    _add_engine_config_argument(orca_run_dir_parser)
-    _add_orca_logging_arguments(orca_run_dir_parser)
-    orca_run_dir_parser.add_argument("path", help="Job directory under the configured allowed_root")
-    orca_run_dir_parser.add_argument("--force", action="store_true", help="Force re-run even if existing output is completed")
-    orca_run_dir_parser.add_argument("--priority", type=int, default=10, help="Queue priority when submission is enqueued (lower = higher, default 10)")
-    orca_run_dir_parser.add_argument("--max-cores", type=int, default=None, help="Override max cores recorded for this queued run")
-    orca_run_dir_parser.add_argument("--max-memory-gb", type=int, default=None, help="Override max memory (GB) recorded for this queued run")
-    orca_run_dir_parser.set_defaults(func=cmd_orca_run_dir)
-
-    xtb_run_dir_parser = run_dir_subparsers.add_parser("xtb", help="Queue an xTB job directory")
-    _add_engine_config_argument(xtb_run_dir_parser)
-    xtb_run_dir_parser.add_argument("path", help="Job directory under allowed_root")
-    xtb_run_dir_parser.add_argument("--priority", type=int, default=10, help="Queue priority (lower = earlier)")
-    xtb_run_dir_parser.set_defaults(func=cmd_xtb_run_dir)
-
-    crest_run_dir_parser = run_dir_subparsers.add_parser("crest", help="Queue a CREST job directory")
-    _add_engine_config_argument(crest_run_dir_parser)
-    crest_run_dir_parser.add_argument("path", help="Job directory under allowed_root")
-    crest_run_dir_parser.add_argument("--priority", type=int, default=10, help="Queue priority (lower = earlier)")
-    crest_run_dir_parser.set_defaults(func=cmd_crest_run_dir)
-
-    workflow_run_dir_parser = run_dir_subparsers.add_parser("workflow", help="Materialize a workflow from an input directory")
-    workflow_run_dir_parser.add_argument("workflow_dir", help="Directory that contains workflow input XYZ files")
-    workflow_run_dir_parser.add_argument(
-        "--workflow-type",
-        help="Optional workflow type override: reaction_ts_search or conformer_screening",
-    )
-    workflow_run_dir_parser.add_argument("--workflow-root", help=argparse.SUPPRESS)
-    workflow_run_dir_parser.add_argument("--reactant-xyz", help="Optional reactant XYZ override")
-    workflow_run_dir_parser.add_argument("--product-xyz", help="Optional product XYZ override")
-    workflow_run_dir_parser.add_argument("--input-xyz", help="Optional conformer input XYZ override")
-    workflow_run_dir_parser.add_argument("--crest-mode", help="CREST mode (`standard` or `nci`)")
-    workflow_run_dir_parser.add_argument("--priority", type=int, default=None)
-    workflow_run_dir_parser.add_argument("--max-cores", type=int, default=None)
-    workflow_run_dir_parser.add_argument("--max-memory-gb", type=int, default=None)
-    workflow_run_dir_parser.add_argument("--max-crest-candidates", type=int, default=None)
-    workflow_run_dir_parser.add_argument("--max-xtb-stages", type=int, default=None)
-    workflow_run_dir_parser.add_argument("--max-orca-stages", type=int, default=None)
-    workflow_run_dir_parser.add_argument("--orca-route-line")
-    workflow_run_dir_parser.add_argument("--charge", type=int, default=None)
-    workflow_run_dir_parser.add_argument("--multiplicity", type=int, default=None)
-    workflow_run_dir_parser.add_argument("--chemstack-config", "--config", dest="chemstack_config", default=None, help="Path to shared chemstack.yaml")
-    workflow_run_dir_parser.add_argument("--json", action="store_true", help="Print JSON output")
-    workflow_run_dir_parser.set_defaults(func=cmd_workflow_run_dir)
+    _add_engine_config_argument(run_dir_parser)
+    _add_orca_logging_arguments(run_dir_parser)
+    run_dir_parser.add_argument("path", help="ORCA job directory or workflow input directory")
+    run_dir_parser.add_argument("--force", action="store_true", help="Force re-run even if existing ORCA output is completed")
+    run_dir_parser.add_argument("--priority", type=int, default=None, help="Queue priority when submission is enqueued (lower = higher)")
+    run_dir_parser.add_argument("--max-cores", type=int, default=None, help="Override max cores recorded for this queued run or workflow")
+    run_dir_parser.add_argument("--max-memory-gb", type=int, default=None, help="Override max memory (GB) recorded for this queued run or workflow")
+    run_dir_parser.add_argument("--json", action="store_true", help="Print JSON output for workflow submission")
+    run_dir_parser.set_defaults(func=cmd_run_dir)
 
     init_parser = subparsers.add_parser(
         "init",
-        help="Initialize config or job scaffolds through the unified CLI.",
+        help="Interactively create or update the shared chemstack.yaml config.",
     )
-    init_subparsers = init_parser.add_subparsers(dest="init_app", required=True)
+    _add_engine_config_argument(init_parser)
+    _add_orca_logging_arguments(init_parser)
+    init_parser.add_argument("--force", action="store_true", help="Overwrite existing config without confirmation")
+    init_parser.set_defaults(func=cmd_init)
 
-    orca_init_parser = init_subparsers.add_parser("orca", help="Interactively create or update chemstack.yaml")
-    _add_engine_config_argument(orca_init_parser)
-    _add_orca_logging_arguments(orca_init_parser)
-    orca_init_parser.add_argument("--force", action="store_true", help="Overwrite existing config without confirmation")
-    orca_init_parser.set_defaults(func=cmd_orca_init)
-
-    xtb_init_parser = init_subparsers.add_parser("xtb", help="Create an xTB job scaffold")
-    _add_engine_config_argument(xtb_init_parser)
-    xtb_init_parser.add_argument("--root", required=True, help="Job directory to create under allowed_root")
-    xtb_init_parser.add_argument(
-        "--job-type",
-        default="path_search",
-        choices=["path_search", "opt", "sp", "ranking"],
-        help="Scaffold type to create",
+    bot_parser = subparsers.add_parser(
+        "bot",
+        help="Start the unified Telegram bot for workflow and engine activity control.",
     )
-    xtb_init_parser.set_defaults(func=cmd_xtb_init)
+    _add_engine_config_argument(bot_parser)
+    bot_parser.set_defaults(func=cmd_bot)
 
-    crest_init_parser = init_subparsers.add_parser("crest", help="Create a CREST job scaffold")
-    _add_engine_config_argument(crest_init_parser)
-    crest_init_parser.add_argument("--root", required=True, help="Job directory to create under allowed_root")
-    crest_init_parser.set_defaults(func=cmd_crest_init)
+    scaffold_parser = subparsers.add_parser(
+        "scaffold",
+        help="Create raw input workflow scaffold directories.",
+    )
+    scaffold_subparsers = scaffold_parser.add_subparsers(dest="scaffold_app", required=True)
+
+    for name, workflow_type, help_text in _WORKFLOW_SCAFFOLD_SHORTCUTS:
+        _add_workflow_scaffold_shortcut(
+            scaffold_subparsers,
+            name=name,
+            workflow_type=workflow_type,
+            help_text=help_text,
+        )
 
     organize_parser = subparsers.add_parser(
         "organize",
@@ -751,20 +763,6 @@ def build_parser() -> argparse.ArgumentParser:
     orca_organize_parser.add_argument("--rebuild-index", action="store_true", default=False, help="Rebuild JSONL index from organized directories")
     orca_organize_parser.set_defaults(func=cmd_orca_organize)
 
-    xtb_organize_parser = organize_subparsers.add_parser("xtb", help="Plan or apply organization into xtb_outputs")
-    _add_engine_config_argument(xtb_organize_parser)
-    xtb_organize_parser.add_argument("--job-dir", default=None, help="Single job directory to organize")
-    xtb_organize_parser.add_argument("--root", default=None, help="Root under allowed_root to scan for completed jobs")
-    xtb_organize_parser.add_argument("--apply", action="store_true", help="Move completed job directories into organized_root")
-    xtb_organize_parser.set_defaults(func=cmd_xtb_organize)
-
-    crest_organize_parser = organize_subparsers.add_parser("crest", help="Plan or apply organization into crest_outputs")
-    _add_engine_config_argument(crest_organize_parser)
-    crest_organize_parser.add_argument("--job-dir", default=None, help="Single job directory to organize")
-    crest_organize_parser.add_argument("--root", default=None, help="Root under allowed_root to scan for completed jobs")
-    crest_organize_parser.add_argument("--apply", action="store_true", help="Move completed job directories into organized_root")
-    crest_organize_parser.set_defaults(func=cmd_crest_organize)
-
     summary_parser = subparsers.add_parser(
         "summary",
         help="Show engine summaries or send ORCA Telegram digests through the unified CLI.",
@@ -776,18 +774,6 @@ def build_parser() -> argparse.ArgumentParser:
     _add_orca_logging_arguments(orca_summary_parser)
     orca_summary_parser.add_argument("--no-send", action="store_true", default=False, help="Print summary without sending Telegram")
     orca_summary_parser.set_defaults(func=cmd_orca_summary)
-
-    xtb_summary_parser = summary_subparsers.add_parser("xtb", help="Show summary by job_id or job directory")
-    _add_engine_config_argument(xtb_summary_parser)
-    xtb_summary_parser.add_argument("target", help="job_id or job directory path")
-    xtb_summary_parser.add_argument("--json", action="store_true", help="Print combined index/state/report JSON")
-    xtb_summary_parser.set_defaults(func=cmd_xtb_summary)
-
-    crest_summary_parser = summary_subparsers.add_parser("crest", help="Show summary by job_id or job directory")
-    _add_engine_config_argument(crest_summary_parser)
-    crest_summary_parser.add_argument("target", help="job_id or job directory path")
-    crest_summary_parser.add_argument("--json", action="store_true", help="Print combined index/state/report JSON")
-    crest_summary_parser.set_defaults(func=cmd_crest_summary)
 
     return parser
 

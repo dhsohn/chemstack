@@ -39,7 +39,7 @@ def test_xtb_submitter_roundtrip_smoke(
 
     worker = app_runner(
         smoke_workspace.repo_root,
-        "chemstack.xtb.cli",
+        "chemstack.xtb._internal_cli",
         "--config",
         str(smoke_workspace.xtb_config_path),
         "queue",

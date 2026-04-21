@@ -10,7 +10,7 @@ import yaml
 
 from chemstack.core.queue import DuplicateQueueEntryError
 
-from chemstack.xtb import cli
+from chemstack.xtb import _internal_cli as cli
 from chemstack.xtb.commands import run_dir
 from chemstack.xtb.state import STATE_FILE_NAME, load_state
 
@@ -41,17 +41,17 @@ def _write_manifest(job_dir: Path, payload: dict[str, object]) -> Path:
 
 
 def _write_config(tmp_path: Path) -> tuple[Path, Path, Path]:
-    allowed_root = tmp_path / "allowed_root"
-    organized_root = tmp_path / "organized_root"
-    allowed_root.mkdir()
-    organized_root.mkdir()
+    workflow_root = tmp_path / "workflow_root"
+    allowed_root = workflow_root / "internal" / "xtb" / "runs"
+    organized_root = workflow_root / "internal" / "xtb" / "outputs"
+    allowed_root.mkdir(parents=True)
+    organized_root.mkdir(parents=True)
     config_path = tmp_path / "chemstack.yaml"
     config_path.write_text(
         yaml.safe_dump(
             {
-                "runtime": {
-                    "allowed_root": str(allowed_root),
-                    "organized_root": str(organized_root),
+                "workflow": {
+                    "root": str(workflow_root),
                 },
                 "resources": {
                     "max_cores_per_task": 6,
@@ -65,13 +65,17 @@ def _write_config(tmp_path: Path) -> tuple[Path, Path, Path]:
     return config_path, allowed_root, organized_root
 
 
-def test_build_parser_supports_compatibility_list_and_queue_commands() -> None:
+def test_build_parser_supports_internal_scaffold_list_and_queue_commands() -> None:
     parser = cli.build_parser()
 
+    scaffold_args = parser.parse_args(["scaffold", "--root", "/tmp/job", "--job-type", "ranking"])
     list_args = parser.parse_args(["list"])
     worker_args = parser.parse_args(["queue", "worker", "--once", "--auto-organize"])
     cancel_args = parser.parse_args(["queue", "cancel", "q-123"])
 
+    assert scaffold_args.command == "scaffold"
+    assert scaffold_args.root == "/tmp/job"
+    assert scaffold_args.job_type == "ranking"
     assert list_args.command == "list"
 
     assert worker_args.command == "queue"
@@ -341,14 +345,14 @@ def test_cmd_run_dir_requires_job_dir_argument(
         )
 
 
-def test_cli_main_init_creates_job_scaffold(
+def test_cli_main_scaffold_creates_job_scaffold(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     config_path, allowed_root, _ = _write_config(tmp_path)
     job_dir = allowed_root / "fresh_job"
 
     result = cli.main(
-        ["--config", str(config_path), "init", "--root", str(job_dir), "--job-type", "path_search"]
+        ["--config", str(config_path), "scaffold", "--root", str(job_dir), "--job-type", "path_search"]
     )
 
     captured = capsys.readouterr()
@@ -387,24 +391,15 @@ def test_cli_main_run_dir_accepts_positional_job_dir(
     assert captured_args[0].priority == 10
 
 
-def test_public_wrappers_delegate_to_unified_cli(monkeypatch: pytest.MonkeyPatch) -> None:
-    seen: list[list[str]] = []
+def test_internal_cli_command_helpers_delegate_to_xtb_command_modules(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(cli.scaffold_cmd, "cmd_init", lambda args: 29)
+    monkeypatch.setattr(cli.run_dir_cmd, "cmd_run_dir", lambda args: 30)
+    monkeypatch.setattr(cli.organize_cmd, "cmd_organize", lambda args: 31)
+    monkeypatch.setattr(cli.summary_cmd, "cmd_summary", lambda args: 32)
 
-    def fake_main(argv: list[str]) -> int:
-        seen.append(list(argv))
-        return 29
-
-    monkeypatch.setattr(cli.unified_cli, "main", fake_main)
-
-    init_rc = cli.cmd_init(Namespace(config="/tmp/chemstack.yaml", root="/tmp/init-job", job_type="ranking"))
+    scaffold_rc = cli.cmd_scaffold(Namespace(config="/tmp/chemstack.yaml", root="/tmp/init-job", job_type="ranking"))
     run_rc = cli.cmd_run_dir(Namespace(config="/tmp/chemstack.yaml", path="/tmp/run-job", priority=6))
     organize_rc = cli.cmd_organize(Namespace(config="/tmp/chemstack.yaml", root="/tmp/jobs", apply=True))
     summary_rc = cli.cmd_summary(Namespace(config="/tmp/chemstack.yaml", target="job-123", json=True))
 
-    assert (init_rc, run_rc, organize_rc, summary_rc) == (29, 29, 29, 29)
-    assert seen == [
-        ["init", "xtb", "--chemstack-config", "/tmp/chemstack.yaml", "--root", "/tmp/init-job", "--job-type", "ranking"],
-        ["run-dir", "xtb", "--chemstack-config", "/tmp/chemstack.yaml", "/tmp/run-job", "--priority", "6"],
-        ["organize", "xtb", "--chemstack-config", "/tmp/chemstack.yaml", "--root", "/tmp/jobs", "--apply"],
-        ["summary", "xtb", "--chemstack-config", "/tmp/chemstack.yaml", "job-123", "--json"],
-    ]
+    assert (scaffold_rc, run_rc, organize_rc, summary_rc) == (29, 30, 31, 32)

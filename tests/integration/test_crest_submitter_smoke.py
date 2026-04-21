@@ -39,7 +39,7 @@ def test_crest_submitter_roundtrip_smoke(
 
     worker = app_runner(
         smoke_workspace.repo_root,
-        "chemstack.crest.cli",
+        "chemstack.crest._internal_cli",
         "--config",
         str(smoke_workspace.crest_config_path),
         "queue",

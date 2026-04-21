@@ -2,11 +2,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from chemstack.core.app_ids import CHEMSTACK_CLI_MODULE
+from chemstack.core.app_ids import CHEMSTACK_CLI_MODULE, CHEMSTACK_XTB_MODULE
 
 from .common import normalize_text, parse_key_value_lines, run_sibling_app
 
-_MODULE_NAME = CHEMSTACK_CLI_MODULE
+_SUBMIT_MODULE_NAME = CHEMSTACK_XTB_MODULE
+_CANCEL_MODULE_NAME = CHEMSTACK_CLI_MODULE
 
 
 def submit_job_dir(
@@ -21,10 +22,9 @@ def submit_job_dir(
         executable=normalize_text(executable) or "xtb_auto",
         config_path=normalize_text(config_path),
         repo_root=normalize_text(repo_root) or None,
-        module_name=_MODULE_NAME,
+        module_name=_SUBMIT_MODULE_NAME,
         tail_argv=[
             "run-dir",
-            "xtb",
             job_dir,
             "--priority",
             str(int(priority)),
@@ -59,7 +59,7 @@ def cancel_target(
         executable=normalize_text(executable) or "xtb_auto",
         config_path=normalize_text(config_path),
         repo_root=normalize_text(repo_root) or None,
-        module_name=_MODULE_NAME,
+        module_name=_CANCEL_MODULE_NAME,
         tail_argv=["queue", "cancel", target],
     )
     parsed = parse_key_value_lines(result.stdout)

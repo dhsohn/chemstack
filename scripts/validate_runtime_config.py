@@ -22,8 +22,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from chemstack.orca.commands._helpers import default_config_path
-from chemstack.orca.config import load_config
+from chemstack.orca.commands._helpers import default_config_path  # noqa: E402
+from chemstack.orca.config import load_config  # noqa: E402
 
 
 def main() -> int:

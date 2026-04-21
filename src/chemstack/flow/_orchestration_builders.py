@@ -5,8 +5,10 @@ from pathlib import Path
 from typing import Any, Callable
 
 from chemstack.core.app_ids import (
-    CHEMSTACK_CLI_COMMAND,
-    CHEMSTACK_CLI_MODULE,
+    CHEMSTACK_CREST_COMMAND,
+    CHEMSTACK_CREST_MODULE,
+    CHEMSTACK_XTB_COMMAND,
+    CHEMSTACK_XTB_MODULE,
 )
 
 from .contracts import WorkflowArtifactRef, WorkflowPlan, WorkflowStage, WorkflowTask, WorkflowTemplateRequest
@@ -55,15 +57,14 @@ def new_crest_stage_impl(
         enqueue_payload={
             "submitter": "crest_auto_cli",
             "app_name": "crest_auto",
-            "command": f"{CHEMSTACK_CLI_COMMAND} --config {config_placeholder} run-dir crest '<job_dir>' --priority {int(priority)}",
+            "command": f"{CHEMSTACK_CREST_COMMAND} --config {config_placeholder} run-dir '<job_dir>' --priority {int(priority)}",
             "command_argv": [
                 "python",
                 "-m",
-                CHEMSTACK_CLI_MODULE,
+                CHEMSTACK_CREST_MODULE,
                 "--config",
                 config_placeholder,
                 "run-dir",
-                "crest",
                 "<job_dir>",
                 "--priority",
                 str(int(priority)),
@@ -134,15 +135,14 @@ def new_xtb_stage_impl(
         enqueue_payload={
             "submitter": "xtb_auto_cli",
             "app_name": "xtb_auto",
-            "command": f"{CHEMSTACK_CLI_COMMAND} --config {config_placeholder} run-dir xtb '<job_dir>' --priority {int(priority)}",
+            "command": f"{CHEMSTACK_XTB_COMMAND} --config {config_placeholder} run-dir '<job_dir>' --priority {int(priority)}",
             "command_argv": [
                 "python",
                 "-m",
-                CHEMSTACK_CLI_MODULE,
+                CHEMSTACK_XTB_MODULE,
                 "--config",
                 config_placeholder,
                 "run-dir",
-                "xtb",
                 "<job_dir>",
                 "--priority",
                 str(int(priority)),
@@ -336,7 +336,7 @@ def create_conformer_screening_workflow_impl(
     priority: int = 10,
     max_cores: int = 8,
     max_memory_gb: int = 32,
-    max_orca_stages: int = 3,
+    max_orca_stages: int = 20,
     orca_route_line: str = "! r2scan-3c Opt TightSCF",
     charge: int = 0,
     multiplicity: int = 1,

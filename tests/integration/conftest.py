@@ -9,9 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
-from chemstack.core.admission import active_slot_count, list_slots
-from chemstack.core.indexing import get_job_location
-from chemstack.core.queue import list_queue
+from chemstack.core.admission import list_slots
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -39,10 +37,7 @@ def _write_executable(path: Path, content: str) -> None:
 def _write_shared_config(
     path: Path,
     *,
-    xtb_allowed_root: Path,
-    xtb_organized_root: Path,
-    crest_allowed_root: Path,
-    crest_organized_root: Path,
+    workflow_root: Path,
     admission_root: Path,
     xtb_executable: Path,
     crest_executable: Path,
@@ -53,6 +48,11 @@ def _write_shared_config(
             scheduler:
               max_active_simulations: 1
               admission_root: {admission_root}
+            workflow:
+              root: {workflow_root}
+              paths:
+                xtb_executable: {xtb_executable}
+                crest_executable: {crest_executable}
             resources:
               max_cores_per_task: 2
               max_memory_gb_per_task: 2
@@ -61,18 +61,6 @@ def _write_shared_config(
             telegram:
               bot_token: ""
               chat_id: ""
-            xtb:
-              runtime:
-                allowed_root: {xtb_allowed_root}
-                organized_root: {xtb_organized_root}
-              paths:
-                xtb_executable: {xtb_executable}
-            crest:
-              runtime:
-                allowed_root: {crest_allowed_root}
-                organized_root: {crest_organized_root}
-              paths:
-                crest_executable: {crest_executable}
             """
         ).lstrip(),
         encoding="utf-8",
@@ -105,14 +93,16 @@ def _require_repo_root() -> None:
 @pytest.fixture
 def smoke_workspace(tmp_path: Path) -> SmokeWorkspace:
     root = tmp_path / "integration_smoke"
-    xtb_allowed_root = root / "xtb_runs"
-    xtb_organized_root = root / "xtb_outputs"
-    crest_allowed_root = root / "crest_runs"
-    crest_organized_root = root / "crest_outputs"
+    workflow_root = root / "workflow_root"
+    xtb_allowed_root = workflow_root / "internal" / "xtb" / "runs"
+    xtb_organized_root = workflow_root / "internal" / "xtb" / "outputs"
+    crest_allowed_root = workflow_root / "internal" / "crest" / "runs"
+    crest_organized_root = workflow_root / "internal" / "crest" / "outputs"
     admission_root = root / "admission"
     bin_dir = root / "bin"
 
     for path in (
+        workflow_root,
         xtb_allowed_root,
         xtb_organized_root,
         crest_allowed_root,
@@ -186,10 +176,7 @@ def smoke_workspace(tmp_path: Path) -> SmokeWorkspace:
     config_path = root / "chemstack.yaml"
     _write_shared_config(
         config_path,
-        xtb_allowed_root=xtb_allowed_root,
-        xtb_organized_root=xtb_organized_root,
-        crest_allowed_root=crest_allowed_root,
-        crest_organized_root=crest_organized_root,
+        workflow_root=workflow_root,
         admission_root=admission_root,
         xtb_executable=fake_xtb,
         crest_executable=fake_crest,
@@ -267,41 +254,52 @@ def _init_job(
 @pytest.fixture
 def xtb_opt_job(smoke_workspace: SmokeWorkspace, app_runner) -> Path:
     job_dir = smoke_workspace.xtb_allowed_root / "manual_xtb"
-    _init_job(
-        app_runner,
-        repo_root=smoke_workspace.repo_root,
-        config_path=smoke_workspace.xtb_config_path,
-        module_name="chemstack.xtb.cli",
-        job_dir=job_dir,
-        extra_args=["--job-type", "opt"],
+    result = app_runner(
+        smoke_workspace.repo_root,
+        "chemstack.xtb._internal_cli",
+        "--config",
+        str(smoke_workspace.xtb_config_path),
+        "scaffold",
+        "--root",
+        str(job_dir),
+        "--job-type",
+        "opt",
     )
+    assert result.returncode == 0, result.stderr or result.stdout
     return job_dir
 
 
 @pytest.fixture
 def xtb_path_search_job(smoke_workspace: SmokeWorkspace, app_runner) -> Path:
     job_dir = smoke_workspace.xtb_allowed_root / "manual_path_search"
-    _init_job(
-        app_runner,
-        repo_root=smoke_workspace.repo_root,
-        config_path=smoke_workspace.xtb_config_path,
-        module_name="chemstack.xtb.cli",
-        job_dir=job_dir,
-        extra_args=["--job-type", "path_search"],
+    result = app_runner(
+        smoke_workspace.repo_root,
+        "chemstack.xtb._internal_cli",
+        "--config",
+        str(smoke_workspace.xtb_config_path),
+        "scaffold",
+        "--root",
+        str(job_dir),
+        "--job-type",
+        "path_search",
     )
+    assert result.returncode == 0, result.stderr or result.stdout
     return job_dir
 
 
 @pytest.fixture
 def crest_job(smoke_workspace: SmokeWorkspace, app_runner) -> Path:
     job_dir = smoke_workspace.crest_allowed_root / "manual_crest"
-    _init_job(
-        app_runner,
-        repo_root=smoke_workspace.repo_root,
-        config_path=smoke_workspace.crest_config_path,
-        module_name="chemstack.crest.cli",
-        job_dir=job_dir,
+    result = app_runner(
+        smoke_workspace.repo_root,
+        "chemstack.crest._internal_cli",
+        "--config",
+        str(smoke_workspace.crest_config_path),
+        "scaffold",
+        "--root",
+        str(job_dir),
     )
+    assert result.returncode == 0, result.stderr or result.stdout
     return job_dir
 
 

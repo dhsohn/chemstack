@@ -58,42 +58,101 @@ def test_record_from_summary_coerces_counts_and_nested_metadata(monkeypatch: pyt
 
 
 @pytest.mark.parametrize(
-    ("event_type", "expected_lines"),
+    ("event", "expected_lines"),
     [
         (
-            "workflow_status_changed",
+            {
+                "event_type": "workflow_status_changed",
+                "workflow_id": "wf_1",
+                "template_name": "reaction_ts_search",
+                "status": "running",
+                "previous_status": "planned",
+                "worker_session_id": "session-1",
+            },
             ["workflow=wf_1", "template=reaction_ts_search", "status=planned -> running"],
         ),
         (
-            "workflow_advance_failed",
+            {
+                "event_type": "workflow_advance_failed",
+                "workflow_id": "wf_2",
+                "template_name": "reaction_ts_search",
+                "reason": "boom",
+                "worker_session_id": "session-2",
+            },
             ["workflow=wf_2", "advance_failed=boom", "worker_session=session-2"],
         ),
         (
-            "worker_started",
+            {
+                "event_type": "workflow_stage_submitted",
+                "workflow_id": "wf_stage",
+                "template_name": "reaction_ts_search",
+                "stage_id": "xtb_path_search_01",
+                "engine": "xtb",
+                "task_kind": "path_search",
+                "status": "queued",
+                "previous_status": "planned",
+                "stage_status": "queued",
+                "previous_stage_status": "planned",
+                "worker_session_id": "session-stage",
+            },
+            [
+                "workflow=wf_stage",
+                "event=workflow_stage_submitted",
+                "stage=xtb_path_search_01",
+                "task=xtb/path_search",
+                "stage_status=planned -> queued",
+            ],
+        ),
+        (
+            {
+                "event_type": "workflow_stage_handoff_ready",
+                "workflow_id": "wf_stage",
+                "template_name": "reaction_ts_search",
+                "stage_id": "xtb_path_search_01",
+                "engine": "xtb",
+                "task_kind": "path_search",
+                "stage_status": "completed",
+                "reaction_handoff_status": "ready",
+                "previous_reaction_handoff_status": "queued",
+                "reason": "xtb_ts_guess_ready",
+                "worker_session_id": "session-handoff",
+            },
+            [
+                "workflow=wf_stage",
+                "event=workflow_stage_handoff_ready",
+                "stage=xtb_path_search_01",
+                "task=xtb/path_search",
+                "stage_status=completed",
+                "reaction_handoff_status=queued -> ready",
+                "reason=xtb_ts_guess_ready",
+            ],
+        ),
+        (
+            {
+                "event_type": "worker_started",
+                "reason": "started",
+                "worker_session_id": "session-1",
+            },
             ["event=worker_started", "workflow_root=/tmp/root_3", "reason=started"],
         ),
         (
-            "custom_event",
+            {
+                "event_type": "custom_event",
+                "workflow_id": "wf_4",
+                "status": "queued",
+                "previous_status": "planned",
+                "reason": "started",
+                "worker_session_id": "session-1",
+            },
             ["event=custom_event", "workflow=wf_4", "status=queued"],
         ),
     ],
 )
 def test_journal_event_message_formats_supported_event_types(
-    event_type: str,
+    event: dict[str, Any],
     expected_lines: list[str],
 ) -> None:
-    message = registry._journal_event_message(
-        {
-            "event_type": event_type,
-            "workflow_id": "wf_1" if event_type == "workflow_status_changed" else "wf_2" if event_type == "workflow_advance_failed" else "wf_4",
-            "template_name": "reaction_ts_search",
-            "status": "running" if event_type == "workflow_status_changed" else "queued",
-            "previous_status": "planned",
-            "reason": "boom" if event_type == "workflow_advance_failed" else "started",
-            "worker_session_id": "session-2" if event_type == "workflow_advance_failed" else "session-1",
-        },
-        "/tmp/root_3",
-    )
+    message = registry._journal_event_message(event, "/tmp/root_3")
 
     assert message.startswith("[chem_flow]\n")
     for line in expected_lines:
@@ -110,11 +169,20 @@ def test_notification_configuration_helpers_cover_default_override_and_transport
 
     assert registry._notification_event_types_from_env() == set(registry.DEFAULT_NOTIFICATION_EVENT_TYPES)
     assert registry._journal_notification_enabled("workflow_status_changed") is True
+    assert registry._journal_notification_enabled("workflow_stage_submitted") is True
+    assert registry._journal_notification_enabled("workflow_stage_handoff_ready") is True
     assert registry._telegram_transport_from_env() is None
 
-    monkeypatch.setenv("CHEM_FLOW_NOTIFY_EVENT_TYPES", "custom_event, workflow_status_changed")
+    monkeypatch.setenv(
+        "CHEM_FLOW_NOTIFY_EVENT_TYPES",
+        "custom_event, workflow_status_changed, workflow_stage_submitted",
+    )
     monkeypatch.setenv("CHEM_FLOW_NOTIFY_DISABLED", "true")
-    assert registry._notification_event_types_from_env() == {"custom_event", "workflow_status_changed"}
+    assert registry._notification_event_types_from_env() == {
+        "custom_event",
+        "workflow_stage_submitted",
+        "workflow_status_changed",
+    }
     assert registry._journal_notification_enabled("custom_event") is False
 
     monkeypatch.setenv("CHEM_FLOW_NOTIFY_DISABLED", "0")
@@ -176,8 +244,14 @@ def test_append_workflow_journal_event_writes_jsonl_and_returns_event(
     tmp_path: Path,
 ) -> None:
     notifications: list[dict[str, Any]] = []
-    token_values = iter(["wf_evt_1", "wf_evt_2"])
-    time_values = iter(["2026-04-19T01:00:00+00:00", "2026-04-19T01:05:00+00:00"])
+    token_values = iter(["wf_evt_1", "wf_evt_2", "wf_evt_3"])
+    time_values = iter(
+        [
+            "2026-04-19T01:00:00+00:00",
+            "2026-04-19T01:05:00+00:00",
+            "2026-04-19T01:10:00+00:00",
+        ]
+    )
 
     monkeypatch.setattr(registry, "file_lock", _no_lock)
     monkeypatch.setattr(registry, "timestamped_token", lambda prefix: next(token_values))
@@ -203,23 +277,53 @@ def test_append_workflow_journal_event_writes_jsonl_and_returns_event(
     )
     second = registry.append_workflow_journal_event(
         tmp_path,
-        event_type="workflow_advance_failed",
+        event_type="workflow_stage_submitted",
         workflow_id="wf_2",
-        reason="boom",
+        template_name="reaction_ts_search",
+        stage_id="xtb_path_search_01",
+        engine="xtb",
+        task_kind="path_search",
+        stage_status="queued",
+        previous_stage_status="planned",
+        worker_session_id="session-stage",
+    )
+    third = registry.append_workflow_journal_event(
+        tmp_path,
+        event_type="workflow_stage_handoff_ready",
+        workflow_id="wf_2",
+        template_name="reaction_ts_search",
+        stage_id="xtb_path_search_01",
+        engine="xtb",
+        task_kind="path_search",
+        stage_status="completed",
+        reaction_handoff_status="ready",
+        previous_reaction_handoff_status="queued",
+        reason="xtb_ts_guess_ready",
     )
 
     journal_path = registry.workflow_journal_path(tmp_path)
     lines = journal_path.read_text(encoding="utf-8").splitlines()
+    second_raw = json.loads(lines[1])
+    third_raw = json.loads(lines[2])
 
     assert first["event_id"] == "wf_evt_1"
     assert first["occurred_at"] == "2026-04-19T01:00:00+00:00"
     assert first["metadata"] == {"attempt": 1}
     assert second["event_id"] == "wf_evt_2"
-    assert len(lines) == 2
+    assert third["event_id"] == "wf_evt_3"
+    assert len(lines) == 3
     assert json.loads(lines[0])["workflow_id"] == "wf_1"
-    assert json.loads(lines[1])["workflow_id"] == "wf_2"
+    assert second_raw["workflow_id"] == "wf_2"
+    assert second_raw["stage_id"] == "xtb_path_search_01"
+    assert second_raw["engine"] == "xtb"
+    assert second_raw["task_kind"] == "path_search"
+    assert second_raw["previous_stage_status"] == "planned"
+    assert second_raw["stage_status"] == "queued"
+    assert third_raw["reaction_handoff_status"] == "ready"
+    assert third_raw["previous_reaction_handoff_status"] == "queued"
     assert notifications[0]["workflow_root"] == str(tmp_path.resolve())
-    assert notifications[1]["event"]["reason"] == "boom"
+    assert notifications[1]["event"]["stage_status"] == "queued"
+    assert notifications[2]["event"]["reason"] == "xtb_ts_guess_ready"
 
 
 def test_list_workflow_journal_sorts_descending_and_applies_limit(

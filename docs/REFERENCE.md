@@ -1,6 +1,6 @@
 # ChemStack Detailed Reference
 
-ChemStack is a queue-first executor for ORCA, xTB, CREST, and workflow orchestration. This reference standardizes the shared public CLI and keeps the deeper ORCA runtime behavior documented in one place, since ORCA still has the richest retry, reporting, and monitoring surface.
+ChemStack is a queue-first executor for ORCA and workflow orchestration. xTB and CREST remain part of the runtime, but they are now used internally for workflow stages rather than as standalone public CLI surfaces. This reference standardizes the shared public CLI and keeps the deeper ORCA runtime behavior documented in one place, since ORCA still has the richest retry, reporting, and monitoring surface.
 
 Current developer-facing package rule:
 
@@ -56,8 +56,6 @@ Operational consequences:
   systemd/
     chemstack-queue-worker@.service
     chemstack-orca-queue-worker@.service
-    chemstack-xtb-queue-worker@.service
-    chemstack-crest-queue-worker@.service
     chemstack-flow-workflow-worker.service
     chemstack-flow-worker.env.example
   scripts/*.sh / *.py
@@ -94,13 +92,15 @@ commands:
 - `queue list`
 - `queue cancel`
 - `queue worker`
-- `run-dir <orca|xtb|crest|workflow>`
-- `init <orca|xtb|crest>`
-- `organize <orca|xtb|crest>`
-- `summary <orca|xtb|crest>`
+- `run-dir <path>`
+- `init`
+- `bot`
+- `scaffold <ts_search|conformer_search>`
+- `organize orca`
+- `summary orca`
 
-Engine-specific CLIs remain available as thin compatibility wrappers. ORCA-only
-commands that are not yet unified, such as `monitor` and `bot`, still live
+Only the ORCA-specific CLI remains public as a compatibility wrapper. ORCA-only
+commands that are not yet unified, such as `monitor`, still live
 under `python -m chemstack.orca.cli ...`.
 Activate `.venv` first, or call `.venv/bin/python -m chemstack.cli ...` directly.
 By default, config is resolved from `CHEMSTACK_CONFIG`, then `<repo_root>/config/chemstack.yaml`, then `~/chemstack/config/chemstack.yaml`.
@@ -130,6 +130,9 @@ scheduler:
 
 workflow:
   root: "/path/to/workflow_root"
+  paths:
+    xtb_executable: "/path/to/xtb"
+    crest_executable: "/path/to/crest"
 
 telegram:
   bot_token: ""
@@ -142,20 +145,6 @@ orca:
     default_max_retries: 2
   paths:
     orca_executable: "/path/to/orca/orca"
-
-xtb:
-  runtime:
-    allowed_root: "/path/to/xtb_runs"
-    organized_root: "/path/to/xtb_outputs"
-  paths:
-    xtb_executable: "/path/to/xtb"
-
-crest:
-  runtime:
-    allowed_root: "/path/to/crest_runs"
-    organized_root: "/path/to/crest_outputs"
-  paths:
-    crest_executable: "/path/to/crest"
 ```
 
 Field descriptions for the `orca` section:
@@ -163,9 +152,12 @@ Field descriptions for the `orca` section:
 - `runtime.allowed_root`: Root directory permitted for execution
 - `runtime.organized_root`: Root for organized outputs
 - `runtime.default_max_retries`: Maximum retry count after the initial attempt
-- `scheduler.max_active_simulations`: Shared total active-run cap across ORCA, xTB, and CREST
+- `scheduler.max_active_simulations`: Shared total active-run cap across ORCA, internal xTB stages, and internal CREST stages
 - `scheduler.admission_root`: Shared admission root for machine-wide slot coordination
 - `workflow.root`: Workflow root for workflow creation, activity inspection, and the integrated workflow worker
+- `workflow.paths.xtb_executable`: xTB executable path used by workflow-managed internal stages
+- `workflow.paths.crest_executable`: CREST executable path used by workflow-managed internal stages
+- Internal xTB/CREST runtime roots are derived under `workflow.root/internal/<engine>/{runs,outputs}`
 - `paths.orca_executable`: ORCA executable path
 
 Notes:
@@ -175,36 +167,32 @@ Notes:
 
 ## 7) CLI Usage
 
-All public queue, submission, scaffold, organization, and summary commands
+All public queue, submission, scaffold, organization, summary, and bot commands
 should be documented through `python -m chemstack.cli ...`.
 
 Compatibility note:
 
-- `python -m chemstack.orca.cli`, `python -m chemstack.xtb.cli`, and `python -m chemstack.crest.cli` remain thin wrappers for the public commands below.
-- `python -m chemstack.orca.cli monitor` and `python -m chemstack.orca.cli bot` remain engine-specific entrypoints.
+- `python -m chemstack.orca.cli` remains a thin wrapper for the public ORCA commands below.
+- Standalone xTB and CREST CLI commands were removed. xTB and CREST now run as internal workflow/runtime engines.
+- `python -m chemstack.orca.cli monitor` remains an engine-specific entrypoint.
 
 ### 7.1 `init`
 
 ```bash
-python -m chemstack.cli init orca
-python -m chemstack.cli init xtb --root '/absolute/path/to/xtb_runs/job_001' --job-type path_search
-python -m chemstack.cli init crest --root '/absolute/path/to/crest_runs/job_001'
+python -m chemstack.cli init
 ```
 
 Behavior:
 
-- `init orca` interactively creates or updates `chemstack.yaml`
-- `init xtb` creates an xTB job scaffold under the configured `allowed_root`
-- `init crest` creates a CREST job scaffold under the configured `allowed_root`
+- `init` interactively creates or updates the shared `chemstack.yaml`
+- ORCA, internal xTB, internal CREST, and workflow settings are collected in one place
 
 ### 7.2 `run-dir`
 
 ```bash
 cd <repo_root>
-python -m chemstack.cli run-dir orca '/absolute/path/to/orca_runs/Int1_DMSO'
-python -m chemstack.cli run-dir xtb '/absolute/path/to/xtb_runs/job_001'
-python -m chemstack.cli run-dir crest '/absolute/path/to/crest_runs/job_001'
-python -m chemstack.cli run-dir workflow '/absolute/path/to/workflow_inputs/reaction_case'
+python -m chemstack.cli run-dir '/absolute/path/to/orca_runs/Int1_DMSO'
+python -m chemstack.cli run-dir '/absolute/path/to/workflow_inputs/reaction_case'
 ```
 
 Successful ORCA submission example:
@@ -220,7 +208,8 @@ worker_pid: 12345
 
 Shared behavior:
 
-- Validates that the target path is under the configured engine `allowed_root`
+- Inspects the target directory and routes it to ORCA or workflow handling automatically
+- Validates the target directory against the detected run type and configured roots
 - Rejects duplicate active queue entries for the same directory
 - Writes the queue entry durably before returning
 - Leaves actual execution to a worker
@@ -233,8 +222,13 @@ ORCA-specific notes:
 
 Workflow notes:
 
-- `run-dir workflow` materializes a workflow from an input directory instead of queueing an engine job directly
+- `run-dir` materializes a workflow when the target directory looks like a workflow input scaffold
+- reaction-path and conformer workflows create and submit xTB/CREST stages internally
+- `reaction_ts_search` expands all selected reactant x product CREST pairs into xTB child jobs, and as each xTB child finishes it immediately creates and queues the matching ORCA OptTS child job from that `ts_guess`
+- `conformer_search` starts with one CREST child job and then hands off up to 20 retained conformers to ORCA child jobs in the next workflow cycle
 - Set top-level `workflow.root` in `chemstack.yaml` before using workflow commands
+- Public `run-dir` does not expose workflow override flags; workflow settings come from `flow.yaml` and `chemstack.yaml`
+- `scaffold ts_search` and `scaffold conformer_search` write `flow.yaml` with `crest_mode: standard` by default; change it to `nci` when needed
 
 There is no public direct-execution mode for new work. `run-dir` is the durable submission path.
 
@@ -251,8 +245,9 @@ Behavior:
 - Runs in the foreground
 - Polls engine queues for pending jobs
 - Enforces `scheduler.max_active_simulations` under `scheduler.admission_root`
-- Supervises ORCA, xTB, and CREST together by default
+- Supervises ORCA by default
 - Also starts the workflow worker when `workflow.root` is set in `chemstack.yaml`
+- When workflow supervision is active, the internal CREST and xTB workers are started automatically
 - `workflow.root` is the supported workflow-root source for the public CLI
 - Requeues in-flight jobs during controlled shutdown
 
@@ -270,26 +265,28 @@ python -m chemstack.cli queue cancel q_20260403_151220_ab12cd
 python -m chemstack.cli queue cancel /absolute/path/to/orca_runs/Int1_DMSO
 ```
 
-`queue cancel` accepts activity ids, workflow ids, queue ids, run ids, and known path aliases.
+`queue cancel` accepts workflow ids for whole-workflow cancellation plus queue ids, run ids,
+and known path aliases for individual jobs.
 
 ### 7.5 `queue list`
 
 ```bash
 python -m chemstack.cli queue list
 python -m chemstack.cli queue list --engine orca
-python -m chemstack.cli queue list --engine orca --status pending
-python -m chemstack.cli queue list --engine workflow --kind workflow
+python -m chemstack.cli queue list --status pending
+python -m chemstack.cli queue list --engine xtb
 ```
 
-`queue list` shows standalone engine jobs and workflow activity in one view.
+`queue list` shows workflow and engine activity in one view, but workflow child simulations
+are rendered underneath their parent workflow with indentation. Standalone ORCA jobs remain
+top-level entries. The `active_simulations` line counts only the currently running
+simulations that consume the shared `scheduler.max_active_simulations` slots.
 
 ### 7.6 `organize`
 
 ```bash
 python -m chemstack.cli organize orca --root '/absolute/path/to/orca_runs'
 python -m chemstack.cli organize orca --root '/absolute/path/to/orca_runs' --apply
-python -m chemstack.cli organize xtb --root '/absolute/path/to/xtb_runs' --apply
-python -m chemstack.cli organize crest --root '/absolute/path/to/crest_runs' --apply
 ```
 
 Options:
@@ -297,22 +294,32 @@ Options:
 - `organize orca --reaction-dir <dir>`: Organize one ORCA job directory
 - `organize orca --root <dir>`: Scan from the configured ORCA root
 - `organize orca --rebuild-index`: Rebuild the ORCA JSONL index
-- `organize xtb --job-dir <dir>` or `organize crest --job-dir <dir>`: Organize one xTB or CREST job directory
 - `--apply`: Perform actual moves; otherwise the command is a dry run
 
 ### 7.7 `summary`
 
 ```bash
 python -m chemstack.cli summary orca --no-send
-python -m chemstack.cli summary xtb <job_id_or_dir>
-python -m chemstack.cli summary crest <job_id_or_dir>
 ```
 
 Behavior:
 
 - `summary orca` prints or sends the ORCA Telegram digest
-- `summary xtb` and `summary crest` summarize one job by job id or job directory
-- `--json` is available for xTB and CREST summaries when you want machine-readable output
+
+### 7.8 `bot`
+
+```bash
+python -m chemstack.cli bot
+python -m chemstack.cli bot --config '/absolute/path/to/chemstack.yaml'
+```
+
+Behavior:
+
+- Starts the unified Telegram bot using `telegram.bot_token` and `telegram.chat_id` from `chemstack.yaml`
+- Reuses the unified workflow activity layer, so `/list` shows workflow parents with indented child jobs while standalone ORCA jobs remain top-level
+- `/cancel` can target either a workflow or an individual job
+- Reads `workflow.root` from `chemstack.yaml` for workflow-side activity discovery
+- Falls back to `CHEM_FLOW_TELEGRAM_BOT_TOKEN` and `CHEM_FLOW_TELEGRAM_CHAT_ID` when Telegram settings are not present in config
 
 ## 8) WSL systemd Setup
 
@@ -333,8 +340,6 @@ This repository includes service assets under `systemd/`:
 
 - [`systemd/chemstack-queue-worker@.service`](/home/daehyupsohn/chemstack/systemd/chemstack-queue-worker@.service)
 - [`systemd/chemstack-orca-queue-worker@.service`](/home/daehyupsohn/chemstack/systemd/chemstack-orca-queue-worker@.service)
-- [`systemd/chemstack-xtb-queue-worker@.service`](/home/daehyupsohn/chemstack/systemd/chemstack-xtb-queue-worker@.service)
-- [`systemd/chemstack-crest-queue-worker@.service`](/home/daehyupsohn/chemstack/systemd/chemstack-crest-queue-worker@.service)
 - [`systemd/chemstack-flow-workflow-worker.service`](/home/daehyupsohn/chemstack/systemd/chemstack-flow-workflow-worker.service)
 - [`systemd/chemstack-flow-worker.env.example`](/home/daehyupsohn/chemstack/systemd/chemstack-flow-worker.env.example)
 
@@ -356,15 +361,15 @@ Assumptions of the unified engine template:
 
 If your paths differ, edit the copied unit before enabling it.
 
-The unified service supervises ORCA, xTB, and CREST together. The shared
-`scheduler.max_active_simulations` setting still limits the combined number of
-active simulations across all three engines.
+The unified service supervises ORCA by default. When `workflow.root` is
+configured, it also starts workflow supervision plus the internal CREST and
+xTB workers. The shared `scheduler.max_active_simulations` setting still limits
+the combined number of active simulations across ORCA and workflow-managed
+internal engine stages.
 
 If you still need split services, the compatibility templates remain available:
 
 - [`systemd/chemstack-orca-queue-worker@.service`](/home/daehyupsohn/chemstack/systemd/chemstack-orca-queue-worker@.service)
-- [`systemd/chemstack-xtb-queue-worker@.service`](/home/daehyupsohn/chemstack/systemd/chemstack-xtb-queue-worker@.service)
-- [`systemd/chemstack-crest-queue-worker@.service`](/home/daehyupsohn/chemstack/systemd/chemstack-crest-queue-worker@.service)
 
 For the workflow worker:
 

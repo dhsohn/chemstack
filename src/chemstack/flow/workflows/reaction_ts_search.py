@@ -266,7 +266,7 @@ def _materialize_orca_stage(
         resource_request=dict(orca_payload.resource_request),
         reaction_dir=str(reaction_dir),
         selected_inp=str(target_inp),
-        suggested_command=f"{CHEMSTACK_CLI_COMMAND} run-dir orca '{reaction_dir}'",
+        suggested_command=f"{CHEMSTACK_CLI_COMMAND} run-dir '{reaction_dir}'",
         metadata=dict(orca_payload.metadata),
     )
 

@@ -97,7 +97,9 @@ class TestListEmpty(_ListTestBase):
                 rc = main(["--config", str(config), "list"])
 
         self.assertEqual(rc, 0)
-        self.assertIn("No simulations found", captured.getvalue())
+        output = captured.getvalue()
+        self.assertIn("active_simulations: 0", output)
+        self.assertNotIn("- ", output)
 
 
 class TestListStandaloneRuns(_ListTestBase):
@@ -122,7 +124,7 @@ class TestListStandaloneRuns(_ListTestBase):
         self.assertIn("rxn2", output)
         self.assertIn("completed", output)
         self.assertIn("running", output)
-        self.assertIn("Simulations: 2 total", output)
+        self.assertIn("active_simulations: 1", output)
 
     def test_filter(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -141,7 +143,7 @@ class TestListStandaloneRuns(_ListTestBase):
         output = captured.getvalue()
         self.assertIn("rxn2", output)
         self.assertNotIn("rxn1", output)
-        self.assertIn("Simulations: 1 total", output)
+        self.assertIn("active_simulations: 1", output)
 
     def test_nested_dirs(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -157,10 +159,9 @@ class TestListStandaloneRuns(_ListTestBase):
 
         self.assertEqual(rc, 0)
         output = captured.getvalue()
-        # Nested dirs show just the leaf name in the DIRECTORY column
         self.assertIn("rxn1", output)
         self.assertIn("rxn2", output)
-        self.assertIn("Simulations: 2 total", output)
+        self.assertIn("active_simulations: 0", output)
 
     def test_tracked_organized_run_is_listed_via_job_locations_index(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -217,7 +218,7 @@ class TestListStandaloneRuns(_ListTestBase):
         output = captured.getvalue()
         self.assertIn("rxn_tracked", output)
         self.assertIn("completed", output)
-        self.assertIn("Simulations: 1 total", output)
+        self.assertIn("active_simulations: 0", output)
 
 
 class TestListQueueEntries(_ListTestBase):
@@ -240,11 +241,9 @@ class TestListQueueEntries(_ListTestBase):
 
         self.assertEqual(rc, 0)
         output = captured.getvalue()
-        self.assertIn("Simulations:", output)
-        self.assertIn("1 pending", output)
+        self.assertIn("active_simulations: 0", output)
         self.assertIn("mol_A", output)
-        self.assertIn("ID", output)
-        self.assertIn("STATUS", output)
+        self.assertIn("kind=job engine=orca status=pending", output)
 
     def test_filter_pending(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -291,7 +290,8 @@ class TestListQueueEntries(_ListTestBase):
         self.assertEqual(rc, 0)
         output = captured.getvalue()
         self.assertIn("mol_A", output)
-        self.assertIn("opt.inp", output)
+        self.assertIn("active_simulations: 0", output)
+        self.assertIn("status=pending", output)
 
     def test_active_queue_entry_with_null_run_id_is_not_duplicated(self) -> None:
         with tempfile.TemporaryDirectory() as td:

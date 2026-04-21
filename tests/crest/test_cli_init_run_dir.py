@@ -10,8 +10,7 @@ import pytest
 from chemstack.core.indexing import get_job_location
 from chemstack.core.queue import list_queue
 
-from chemstack.crest import cli
-from chemstack.crest.commands import init as init_cmd
+from chemstack.crest import _internal_cli as cli
 from chemstack.crest.commands import queue as queue_cmd
 from chemstack.crest.commands import run_dir as run_dir_cmd
 from chemstack.crest.runner import CrestRunResult
@@ -19,17 +18,17 @@ from chemstack.crest.state import load_organized_ref, load_report_json, load_sta
 
 
 def _write_config(tmp_path: Path) -> tuple[Path, Path, Path]:
-    allowed_root = tmp_path / "allowed"
-    organized_root = tmp_path / "organized"
-    allowed_root.mkdir()
-    organized_root.mkdir()
+    workflow_root = tmp_path / "workflow_root"
+    allowed_root = workflow_root / "internal" / "crest" / "runs"
+    organized_root = workflow_root / "internal" / "crest" / "outputs"
+    allowed_root.mkdir(parents=True)
+    organized_root.mkdir(parents=True)
     config_path = tmp_path / "chemstack.yaml"
     config_path.write_text(
         "\n".join(
             [
-                "runtime:",
-                f"  allowed_root: {json.dumps(str(allowed_root))}",
-                f"  organized_root: {json.dumps(str(organized_root))}",
+                "workflow:",
+                f"  root: {json.dumps(str(workflow_root))}",
                 "resources:",
                 "  max_cores_per_task: 6",
                 "  max_memory_gb_per_task: 14",
@@ -46,13 +45,16 @@ def _write_xyz(path: Path, label: str = "sample") -> None:
     path.write_text(f"1\n{label}\nH 0.0 0.0 0.0\n", encoding="utf-8")
 
 
-def test_build_parser_supports_run_dir_alias_and_queue_subcommands() -> None:
+def test_build_parser_supports_internal_scaffold_run_dir_and_queue_subcommands() -> None:
     parser = cli.build_parser()
 
+    scaffold_args = parser.parse_args(["scaffold", "--root", "/tmp/job"])
     run_dir_args = parser.parse_args(["run-dir", "jobs/demo", "--priority", "3"])
     worker_args = parser.parse_args(["queue", "worker", "--once", "--auto-organize"])
     cancel_args = parser.parse_args(["queue", "cancel", "q-123"])
 
+    assert scaffold_args.command == "scaffold"
+    assert scaffold_args.root == "/tmp/job"
     assert run_dir_args.command == "run-dir"
     assert run_dir_args.path == "jobs/demo"
     assert run_dir_args.priority == 3
@@ -71,7 +73,7 @@ def test_build_parser_supports_run_dir_alias_and_queue_subcommands() -> None:
 @pytest.mark.parametrize(
     ("argv", "attr_name", "expected_result"),
     [
-        (["init", "--root", "/tmp/job"], "cmd_init", 11),
+        (["scaffold", "--root", "/tmp/job"], "cmd_scaffold", 11),
         (["run-dir", "/tmp/job"], "cmd_run_dir", 12),
         (["list"], "cmd_list", 13),
         (["organize"], "cmd_organize", 14),
@@ -127,35 +129,6 @@ def test_cmd_queue_rejects_unknown_subcommand() -> None:
         cli._cmd_queue(Namespace(queue_command="noop"))
 
 
-def test_cmd_init_creates_scaffold_files(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    config_path, allowed_root, _ = _write_config(tmp_path)
-    job_dir = allowed_root / "runs" / "job-init"
-
-    rc = init_cmd.cmd_init(Namespace(config=str(config_path), root=str(job_dir)))
-
-    output = capsys.readouterr().out
-    assert rc == 0
-    assert f"job_dir: {job_dir.resolve()}" in output
-    assert "created: 3" in output
-    assert "skipped: 0" in output
-    assert "created_file: input.xyz" in output
-    assert "created_file: crest_job.yaml" in output
-    assert "created_file: README.md" in output
-
-    assert (job_dir / "input.xyz").read_text(encoding="utf-8").startswith("3\nchemstack CREST scaffold\n")
-    assert (job_dir / "crest_job.yaml").read_text(encoding="utf-8") == (
-        "# chemstack CREST scaffold manifest\n"
-        "mode: standard\n"
-        "speed: quick\n"
-        "gfn: 2\n"
-        "input_xyz: input.xyz\n"
-    )
-    assert (
-        f"This directory was created by `python -m chemstack.cli init crest --root {job_dir.resolve()}`."
-        in (job_dir / "README.md").read_text(encoding="utf-8")
-    )
-
-
 def test_main_run_dir_accepts_positional_job_dir(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -176,53 +149,18 @@ def test_main_run_dir_accepts_positional_job_dir(
     assert captured_args[0].path == str(job_dir)
 
 
-def test_public_wrappers_delegate_to_unified_cli(monkeypatch: pytest.MonkeyPatch) -> None:
-    seen: list[list[str]] = []
+def test_internal_cli_command_helpers_delegate_to_crest_command_modules(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(cli.scaffold_cmd, "cmd_init", lambda args: 27)
+    monkeypatch.setattr(cli.run_dir_cmd, "cmd_run_dir", lambda args: 28)
+    monkeypatch.setattr(cli.organize_cmd, "cmd_organize", lambda args: 29)
+    monkeypatch.setattr(cli.summary_cmd, "cmd_summary", lambda args: 30)
 
-    def fake_main(argv: list[str]) -> int:
-        seen.append(list(argv))
-        return 27
-
-    monkeypatch.setattr(cli.unified_cli, "main", fake_main)
-
-    init_rc = cli.cmd_init(Namespace(config="/tmp/chemstack.yaml", root="/tmp/init-job"))
+    scaffold_rc = cli.cmd_scaffold(Namespace(config="/tmp/chemstack.yaml", root="/tmp/crest-job"))
     run_rc = cli.cmd_run_dir(Namespace(config="/tmp/chemstack.yaml", path="/tmp/run-job", priority=4))
     organize_rc = cli.cmd_organize(Namespace(config="/tmp/chemstack.yaml", root="/tmp/jobs", apply=True))
     summary_rc = cli.cmd_summary(Namespace(config="/tmp/chemstack.yaml", target="job-123", json=True))
 
-    assert (init_rc, run_rc, organize_rc, summary_rc) == (27, 27, 27, 27)
-    assert seen == [
-        ["init", "crest", "--chemstack-config", "/tmp/chemstack.yaml", "--root", "/tmp/init-job"],
-        ["run-dir", "crest", "--chemstack-config", "/tmp/chemstack.yaml", "/tmp/run-job", "--priority", "4"],
-        ["organize", "crest", "--chemstack-config", "/tmp/chemstack.yaml", "--root", "/tmp/jobs", "--apply"],
-        ["summary", "crest", "--chemstack-config", "/tmp/chemstack.yaml", "job-123", "--json"],
-    ]
-
-
-def test_cmd_init_is_idempotent_and_preserves_existing_files(
-    tmp_path: Path,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    config_path, allowed_root, _ = _write_config(tmp_path)
-    job_dir = allowed_root / "runs" / "job-idempotent"
-
-    first_rc = init_cmd.cmd_init(Namespace(config=str(config_path), root=str(job_dir)))
-    assert first_rc == 0
-    capsys.readouterr()
-
-    custom_xyz = "1\ncustom\nHe 0.0 0.0 0.0\n"
-    (job_dir / "input.xyz").write_text(custom_xyz, encoding="utf-8")
-
-    second_rc = init_cmd.cmd_init(Namespace(config=str(config_path), root=str(job_dir)))
-
-    output = capsys.readouterr().out
-    assert second_rc == 0
-    assert "created: 0" in output
-    assert "skipped: 3" in output
-    assert "skipped_file: input.xyz" in output
-    assert "skipped_file: crest_job.yaml" in output
-    assert "skipped_file: README.md" in output
-    assert (job_dir / "input.xyz").read_text(encoding="utf-8") == custom_xyz
+    assert (scaffold_rc, run_rc, organize_rc, summary_rc) == (27, 28, 29, 30)
 
 
 def test_cmd_run_dir_queues_job_updates_state_and_index(
@@ -431,9 +369,9 @@ def test_cli_end_to_end_smoke_path_submission_worker_organize_and_summary(
     monkeypatch.setattr(queue_cmd, "start_crest_job", fake_start_crest_job)
     monkeypatch.setattr(queue_cmd, "finalize_crest_job", fake_finalize_crest_job)
 
-    assert cli.main(["--config", str(config_path), "init", "--root", str(job_dir)]) == 0
-    init_output = capsys.readouterr().out
-    assert "created: 3" in init_output
+    job_dir.mkdir(parents=True)
+    _write_xyz(job_dir / "input.xyz", "input")
+    (job_dir / "crest_job.yaml").write_text("mode: standard\ninput_xyz: input.xyz\n", encoding="utf-8")
 
     assert cli.main(["--config", str(config_path), "run-dir", str(job_dir), "--priority", "2"]) == 0
     run_output = capsys.readouterr().out
@@ -452,8 +390,10 @@ def test_cli_end_to_end_smoke_path_submission_worker_organize_and_summary(
     ) == 0
     worker_output = capsys.readouterr().out
     organized_target = organized_root / "standard" / "input" / "crest-e2e-001"
-    assert "starting worker[crest]:" in worker_output
-    assert "worker[crest] exited with code 0" in worker_output
+    assert f"organized_output_dir: {organized_target.resolve()}" in worker_output
+    assert "queue_id:" in worker_output
+    assert "job_id: crest-e2e-001" in worker_output
+    assert "status: completed" in worker_output
 
     queue_entries = list_queue(allowed_root)
     assert len(queue_entries) == 1
@@ -481,8 +421,15 @@ def test_cli_end_to_end_smoke_path_submission_worker_organize_and_summary(
 
     assert len(queued_notifications) == 1
     assert queued_notifications[0]["job_id"] == "crest-e2e-001"
-    assert started_notifications == []
-    assert finished_notifications == []
+    assert len(started_notifications) == 1
+    assert started_notifications[0]["job_id"] == "crest-e2e-001"
+    assert started_notifications[0]["queue_id"].startswith("q_")
+    assert Path(started_notifications[0]["job_dir"]).resolve() == job_dir.resolve()
+
+    assert len(finished_notifications) == 1
+    assert finished_notifications[0]["job_id"] == "crest-e2e-001"
+    assert finished_notifications[0]["status"] == "completed"
+    assert finished_notifications[0]["organized_output_dir"] == organized_target
 
     assert cli.main(["--config", str(config_path), "summary", "crest-e2e-001", "--json"]) == 0
     summary_json = json.loads(capsys.readouterr().out)

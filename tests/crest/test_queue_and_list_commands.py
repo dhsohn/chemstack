@@ -14,11 +14,12 @@ from chemstack.crest.commands import list_jobs, queue as queue_cmd
 
 @pytest.fixture
 def command_env(tmp_path: Path) -> SimpleNamespace:
-    allowed_root = tmp_path / "allowed_root"
-    organized_root = tmp_path / "organized_root"
+    workflow_root = tmp_path / "workflow_root"
+    allowed_root = workflow_root / "internal" / "crest" / "runs"
+    organized_root = workflow_root / "internal" / "crest" / "outputs"
     admission_root = tmp_path / "admission_root"
-    allowed_root.mkdir()
-    organized_root.mkdir()
+    allowed_root.mkdir(parents=True)
+    organized_root.mkdir(parents=True)
     admission_root.mkdir()
 
     config_path = tmp_path / "chemstack.yaml"
@@ -28,10 +29,8 @@ def command_env(tmp_path: Path) -> SimpleNamespace:
                 "scheduler:",
                 "  max_active_simulations: 2",
                 f"  admission_root: {admission_root}",
-                "crest:",
-                "  runtime:",
-                f"    allowed_root: {allowed_root}",
-                f"    organized_root: {organized_root}",
+                "workflow:",
+                f"  root: {workflow_root}",
                 "behavior:",
                 "  auto_organize_on_terminal: false",
                 "",

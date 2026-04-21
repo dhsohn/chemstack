@@ -23,17 +23,17 @@ from chemstack.crest.state import (
 
 
 def _write_config(tmp_path: Path) -> tuple[Path, Path, Path]:
-    allowed_root = tmp_path / "allowed"
-    organized_root = tmp_path / "organized"
-    allowed_root.mkdir()
-    organized_root.mkdir()
+    workflow_root = tmp_path / "workflow_root"
+    allowed_root = workflow_root / "internal" / "crest" / "runs"
+    organized_root = workflow_root / "internal" / "crest" / "outputs"
+    allowed_root.mkdir(parents=True)
+    organized_root.mkdir(parents=True)
     config_path = tmp_path / "chemstack.yaml"
     config_path.write_text(
         "\n".join(
             [
-                "runtime:",
-                f"  allowed_root: {json.dumps(str(allowed_root))}",
-                f"  organized_root: {json.dumps(str(organized_root))}",
+                "workflow:",
+                f"  root: {json.dumps(str(workflow_root))}",
                 "resources:",
                 "  max_cores_per_task: 8",
                 "  max_memory_gb_per_task: 16",
@@ -117,7 +117,7 @@ def _write_job_artifacts(
 def test_organize_job_dir_moves_terminal_job_and_updates_index(tmp_path: Path) -> None:
     config_path, allowed_root, organized_root = _write_config(tmp_path)
     cfg = load_config(str(config_path))
-    job_dir = allowed_root / "runs" / "job-complete"
+    job_dir = allowed_root / "job-complete"
     selected_xyz = _write_job_artifacts(
         job_dir,
         job_id="job-001",
@@ -175,8 +175,8 @@ def test_cmd_organize_dry_run_lists_planned_moves_without_moving_files(
     capsys,
 ) -> None:
     config_path, allowed_root, organized_root = _write_config(tmp_path)
-    completed_job = allowed_root / "runs" / "job-complete"
-    running_job = allowed_root / "runs" / "job-running"
+    completed_job = allowed_root / "job-complete"
+    running_job = allowed_root / "job-running"
     _write_job_artifacts(completed_job, job_id="job-100", status="completed", selected_name="ethanol.xyz")
     _write_job_artifacts(running_job, job_id="job-200", status="running", selected_name="methane.xyz")
 
@@ -206,12 +206,12 @@ def test_cmd_reindex_indexes_jobs_from_allowed_and_organized_artifacts(
     capsys,
 ) -> None:
     config_path, allowed_root, organized_root = _write_config(tmp_path)
-    first_job = allowed_root / "runs" / "job-alpha"
+    first_job = allowed_root / "job-alpha"
     organized_job = organized_root / "standard" / "beta" / "job-beta"
     skipped_job = organized_root / "standard" / "bad" / "missing-id"
 
     _write_job_artifacts(first_job, job_id="job-alpha", status="completed", selected_name="alpha.xyz")
-    original_run_dir = allowed_root / "runs" / "job-beta-original"
+    original_run_dir = allowed_root / "job-beta-original"
     _write_job_artifacts(
         organized_job,
         job_id="job-beta",
@@ -280,7 +280,7 @@ def test_cmd_summary_resolves_job_id_and_original_path_with_json_and_text_output
     capsys,
 ) -> None:
     config_path, allowed_root, organized_root = _write_config(tmp_path)
-    original_job_dir = allowed_root / "runs" / "job-900"
+    original_job_dir = allowed_root / "job-900"
     original_job_dir.mkdir(parents=True, exist_ok=True)
     selected_xyz = original_job_dir / "ethanol.xyz"
     _write_xyz(selected_xyz)

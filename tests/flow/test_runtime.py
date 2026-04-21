@@ -30,6 +30,10 @@ def _registry_record(
     )
 
 
+def _summary_with_stages(*stages: dict[str, Any]) -> dict[str, Any]:
+    return {"stage_summaries": [dict(stage) for stage in stages]}
+
+
 def _capture_worker_side_effects(
     monkeypatch: pytest.MonkeyPatch,
     *,
@@ -82,6 +86,143 @@ def test_workflow_worker_lock_path_expands_home_directory(
     lock_path = runtime.workflow_worker_lock_path("~/chem_root")
 
     assert lock_path == (tmp_path / "chem_root").resolve() / runtime.WORKFLOW_WORKER_LOCK_NAME
+
+
+def test_stage_transition_event_payloads_emit_start_and_xtb_handoff_events() -> None:
+    previous_summary = _summary_with_stages(
+        {
+            "stage_id": "crest_1",
+            "status": "planned",
+            "task_status": "planned",
+            "engine": "crest",
+            "task_kind": "conformer_search",
+            "reaction_dir": "/tmp/crest_case",
+        },
+        {
+            "stage_id": "xtb_retry_1",
+            "status": "failed",
+            "task_status": "failed",
+            "engine": "xtb",
+            "task_kind": "path_search",
+            "reaction_handoff_status": "failed",
+            "reaction_handoff_reason": "ts_not_found",
+            "xtb_handoff_retries_used": 0,
+            "xtb_handoff_retry_limit": 2,
+        },
+        {
+            "stage_id": "xtb_ready_1",
+            "status": "running",
+            "task_status": "running",
+            "engine": "xtb",
+            "task_kind": "path_search",
+        },
+    )
+    current_summary = _summary_with_stages(
+        {
+            "stage_id": "crest_1",
+            "status": "queued",
+            "task_status": "submitted",
+            "submission_status": "submitted",
+            "engine": "crest",
+            "task_kind": "conformer_search",
+            "queue_id": "crest-q-1",
+            "reaction_dir": "/tmp/crest_case",
+        },
+        {
+            "stage_id": "xtb_retry_1",
+            "status": "queued",
+            "task_status": "submitted",
+            "engine": "xtb",
+            "task_kind": "path_search",
+            "queue_id": "xtb-q-1",
+            "reaction_handoff_status": "retrying",
+            "reaction_handoff_reason": "ts_not_found",
+            "xtb_handoff_retries_used": 1,
+            "xtb_handoff_retry_limit": 2,
+        },
+        {
+            "stage_id": "xtb_ready_1",
+            "status": "completed",
+            "task_status": "completed",
+            "engine": "xtb",
+            "task_kind": "path_search",
+            "reaction_handoff_status": "ready",
+            "selected_input_xyz": "/tmp/ts_guess.xyz",
+        },
+    )
+
+    events = runtime._stage_transition_event_payloads(
+        previous_summary=previous_summary,
+        current_summary=current_summary,
+        workflow_id="wf_stage_events",
+        template_name="reaction_ts_search",
+        worker_session_id="session-1",
+    )
+
+    assert [item["event_type"] for item in events] == [
+        "workflow_stage_submitted",
+        "workflow_stage_submitted",
+        "workflow_stage_handoff_retrying",
+        "workflow_stage_handoff_ready",
+    ]
+    assert events[0]["metadata"]["stage_id"] == "crest_1"
+    assert events[1]["metadata"]["stage_id"] == "xtb_retry_1"
+    assert events[1]["metadata"]["xtb_handoff_retries_used"] == 1
+    assert events[2]["reason"] == "ts_not_found"
+    assert events[3]["status"] == "ready"
+    assert all(item["event_type"] != "workflow_stage_completed" for item in events)
+
+
+def test_stage_transition_event_payloads_emit_completion_and_failure_without_xtb_handoff() -> None:
+    previous_summary = _summary_with_stages(
+        {
+            "stage_id": "crest_done_1",
+            "status": "queued",
+            "task_status": "submitted",
+            "engine": "crest",
+            "task_kind": "conformer_search",
+        },
+        {
+            "stage_id": "xtb_submit_fail_1",
+            "status": "planned",
+            "task_status": "planned",
+            "engine": "xtb",
+            "task_kind": "path_search",
+        },
+    )
+    current_summary = _summary_with_stages(
+        {
+            "stage_id": "crest_done_1",
+            "status": "completed",
+            "task_status": "completed",
+            "engine": "crest",
+            "task_kind": "conformer_search",
+            "organized_output_dir": "/tmp/crest_done",
+        },
+        {
+            "stage_id": "xtb_submit_fail_1",
+            "status": "submission_failed",
+            "task_status": "submission_failed",
+            "engine": "xtb",
+            "task_kind": "path_search",
+            "reason": "submit_failed",
+        },
+    )
+
+    events = runtime._stage_transition_event_payloads(
+        previous_summary=previous_summary,
+        current_summary=current_summary,
+        workflow_id="wf_stage_terminal_events",
+        template_name="reaction_ts_search",
+        worker_session_id="session-2",
+    )
+
+    assert [item["event_type"] for item in events] == [
+        "workflow_stage_completed",
+        "workflow_stage_failed",
+    ]
+    assert events[0]["metadata"]["organized_output_dir"] == "/tmp/crest_done"
+    assert events[1]["reason"] == "submit_failed"
 
 
 @pytest.mark.parametrize(
@@ -369,6 +510,90 @@ def test_advance_workflow_registry_once_advances_non_terminal_workflow(
         "workflow_status_changed",
         "worker_cycle_finished",
     ]
+
+
+def test_advance_workflow_registry_once_appends_stage_transition_events(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    record = _registry_record(
+        workflow_id="wf_stage_runtime",
+        status="queued",
+        workspace_dir="/tmp/wf_stage_runtime",
+        stage_count=2,
+    )
+    _, journal_calls, _ = _capture_worker_side_effects(monkeypatch, records=[record])
+
+    previous_summary = _summary_with_stages(
+        {
+            "stage_id": "crest_1",
+            "status": "planned",
+            "task_status": "planned",
+            "engine": "crest",
+            "task_kind": "conformer_search",
+        },
+        {
+            "stage_id": "xtb_1",
+            "status": "running",
+            "task_status": "running",
+            "engine": "xtb",
+            "task_kind": "path_search",
+        },
+    )
+    current_summary = _summary_with_stages(
+        {
+            "stage_id": "crest_1",
+            "status": "queued",
+            "task_status": "submitted",
+            "engine": "crest",
+            "task_kind": "conformer_search",
+            "queue_id": "crest-q-1",
+        },
+        {
+            "stage_id": "xtb_1",
+            "status": "completed",
+            "task_status": "completed",
+            "engine": "xtb",
+            "task_kind": "path_search",
+            "reaction_handoff_status": "ready",
+            "selected_input_xyz": "/tmp/ts_guess.xyz",
+        },
+    )
+    summaries = iter([previous_summary, current_summary])
+
+    monkeypatch.setattr(
+        runtime,
+        "_workflow_needs_terminal_sync",
+        lambda workspace_dir: pytest.fail("terminal sync checks should not run for active workflows"),
+    )
+    monkeypatch.setattr(runtime, "_safe_workflow_summary", lambda *args, **kwargs: next(summaries))
+    monkeypatch.setattr(
+        runtime,
+        "advance_workflow",
+        lambda **kwargs: {
+            "workflow_id": "wf_stage_runtime",
+            "template_name": "reaction_ts_search",
+            "status": "running",
+            "stages": [{"stage_id": "crest_1"}, {"stage_id": "xtb_1"}],
+        },
+    )
+
+    runtime.advance_workflow_registry_once(
+        workflow_root=tmp_path / "workflow_root",
+        worker_session_id="session-1",
+        lease_seconds=0,
+    )
+
+    assert [call["event_type"] for call in journal_calls] == [
+        "worker_cycle_started",
+        "workflow_status_changed",
+        "workflow_stage_submitted",
+        "workflow_stage_handoff_ready",
+        "worker_cycle_finished",
+    ]
+    assert journal_calls[2]["metadata"]["stage_id"] == "crest_1"
+    assert journal_calls[3]["status"] == "ready"
+    assert journal_calls[3]["metadata"]["stage_id"] == "xtb_1"
 
 
 def test_advance_workflow_registry_once_records_non_terminal_advance_failure(

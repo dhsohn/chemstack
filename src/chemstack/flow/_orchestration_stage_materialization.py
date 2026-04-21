@@ -35,13 +35,10 @@ def append_reaction_xtb_stages_impl(payload: dict[str, Any], *, workspace_dir: P
     params = request.get("parameters") or {}
     reactant_inputs = o.select_crest_downstream_inputs(reactant_contract, policy=o.CrestDownstreamPolicy.build(max_candidates=int(params.get("max_crest_candidates", 3) or 3)))
     product_inputs = o.select_crest_downstream_inputs(product_contract, policy=o.CrestDownstreamPolicy.build(max_candidates=int(params.get("max_crest_candidates", 3) or 3)))
-    limit = int(params.get("max_xtb_stages", 3) or 3)
     created = 0
     for reactant in reactant_inputs:
         for product in product_inputs:
             created += 1
-            if created > limit:
-                return created > 1
             stage = o._new_xtb_stage(
                 workflow_id=str(payload.get("workflow_id", "")),
                 stage_id=f"xtb_path_search_{created:02d}",
@@ -86,13 +83,9 @@ def append_reaction_orca_stages_impl(
     payload_metadata = o._coerce_mapping(payload.get("metadata"))
     request = o._coerce_mapping(payload_metadata.get("request"))
     params = o._coerce_mapping(request.get("parameters"))
-    max_orca_stages = int(params.get("max_orca_stages", 3) or 3)
     candidate_pool: list[tuple[int, int, str, Any]] = []
     handoff_errors: list[dict[str, str]] = []
     payload_metadata = payload.setdefault("metadata", {})
-    if isinstance(payload_metadata, dict) and isinstance(payload_metadata.get("workflow_error"), dict):
-        if o._normalize_text(payload_metadata["workflow_error"].get("scope")) == "reaction_ts_search_xtb_handoff":
-            payload_metadata.pop("workflow_error", None)
     for xtb_stage_index, xtb_stage in enumerate(xtb_stages, start=1):
         task = xtb_stage.get("task")
         if not isinstance(task, dict):
@@ -105,12 +98,17 @@ def append_reaction_orca_stages_impl(
             contract = o.load_xtb_artifact_contract(xtb_index_root=xtb_allowed_root, target=target)
         except Exception:
             continue
+        max_candidate_count = max(
+            1,
+            len(getattr(contract, "candidate_details", ()) or ()),
+            len(getattr(contract, "selected_candidate_paths", ()) or ()),
+        )
         inputs = o.select_xtb_downstream_inputs(
             contract,
             policy=o.XtbDownstreamPolicy.build(
                 preferred_kinds=("ts_guess",),
                 allowed_kinds=("ts_guess",),
-                max_candidates=max_orca_stages,
+                max_candidates=max_candidate_count,
                 selected_only=False,
                 fallback_to_selected_paths=False,
             ),
@@ -173,19 +171,11 @@ def append_reaction_orca_stages_impl(
             continue
         seen_candidate_paths.add(candidate_path)
         ordered_candidates.append(candidate)
-        if len(ordered_candidates) >= max_orca_stages:
-            break
 
     existing = [
         stage for stage in payload.get("stages", [])
         if isinstance(stage, dict) and o._normalize_text((stage.get("task") or {}).get("engine")) == "orca"
     ]
-    active_statuses = {"planned", "queued", "running", "submitted", "cancel_requested"}
-    if any(o._normalize_text(stage.get("status")).lower() in active_statuses for stage in existing):
-        return False
-    if any(o._normalize_text(stage.get("status")).lower() == "completed" for stage in existing):
-        return False
-
     attempted_paths = {
         o._reaction_orca_source_candidate_path(stage)
         for stage in existing
@@ -195,69 +185,61 @@ def append_reaction_orca_stages_impl(
         candidate for candidate in ordered_candidates
         if o._normalize_text(candidate.artifact_path) not in attempted_paths
     ]
+    active_xtb_statuses = {"planned", "queued", "running", "submitted", "cancel_requested"}
+    has_pending_xtb = any(
+        isinstance(stage, dict)
+        and o._normalize_text((stage.get("task") or {}).get("engine")) == "xtb"
+        and (
+            o._normalize_text(stage.get("status")).lower() in active_xtb_statuses
+            or o._normalize_text(((stage.get("task") or {}).get("status"))).lower() in active_xtb_statuses
+        )
+        for stage in payload.get("stages", [])
+    )
 
-    if not existing:
-        if not remaining_candidates:
-            if handoff_errors and isinstance(payload_metadata, dict):
-                payload_metadata["workflow_error"] = {
-                    "status": "failed",
-                    "scope": "reaction_ts_search_xtb_handoff",
-                    **handoff_errors[0],
-                }
-            return False
-        next_candidate = remaining_candidates[0]
-    else:
-        latest_stage = existing[-1]
-        if not o._reaction_orca_allows_next_candidate(latest_stage):
-            return False
-        latest_metadata = o._stage_metadata(latest_stage)
-        if not remaining_candidates:
-            latest_metadata["reaction_candidate_status"] = "exhausted"
-            latest_metadata["reaction_candidate_exhausted_at"] = o.now_utc_iso()
-            if isinstance(payload_metadata, dict):
-                payload_metadata["workflow_error"] = {
-                    "status": "failed",
-                    "scope": "reaction_ts_search_orca_candidate_exhausted",
-                    "stage_id": o._normalize_text(latest_stage.get("stage_id")),
-                    "reason": "orca_ts_guess_exhausted",
-                    "message": "ORCA exhausted all ranked xTB TS guesses without finding a valid transition state.",
-                }
-            return False
-        next_candidate = remaining_candidates[0]
-        latest_metadata["reaction_candidate_status"] = "superseded"
-        latest_metadata["reaction_candidate_superseded_at"] = o.now_utc_iso()
-        latest_metadata["reaction_next_candidate_path"] = o._normalize_text(next_candidate.artifact_path)
-        latest_metadata["reaction_next_candidate_rank"] = o._safe_int(next_candidate.rank, default=0)
-        if isinstance(payload_metadata, dict) and isinstance(payload_metadata.get("workflow_error"), dict):
-            if o._normalize_text(payload_metadata["workflow_error"].get("scope")) == "reaction_ts_search_orca_candidate_exhausted":
-                payload_metadata.pop("workflow_error", None)
+    if not remaining_candidates:
+        if not existing and not has_pending_xtb and handoff_errors and isinstance(payload_metadata, dict):
+            payload_metadata["workflow_error"] = {
+                "status": "failed",
+                "scope": "reaction_ts_search_xtb_handoff",
+                **handoff_errors[0],
+            }
+        return False
 
-    next_index = len(existing) + 1
-    stage = o.build_materialized_orca_stage(
-        workflow_id=str(payload.get("workflow_id", "")),
-        template_name="reaction_ts_search",
-        stage_id=f"orca_optts_freq_{next_index:02d}",
-        stage_key=f"{next_index:02d}_{o.safe_name(next_candidate.kind, fallback='candidate')}",
-        stage_root_name=f"workflow_jobs/{payload.get('workflow_id', '')}/stage_03_orca",
-        workspace_dir=orca_allowed_root,
-        input_artifact_kind="xtb_candidate",
-        candidate=next_candidate,
-        task_kind="optts_freq",
-        route_line=str(params.get("orca_route_line", "! r2scan-3c OptTS Freq TightSCF")),
-        charge=int(params.get("charge", 0) or 0),
-        multiplicity=int(params.get("multiplicity", 1) or 1),
-        max_cores=int(params.get("max_cores", 8) or 8),
-        max_memory_gb=int(params.get("max_memory_gb", 32) or 32),
-        priority=int(params.get("priority", 10) or 10),
-        xyz_filename="ts_guess.xyz",
-        inp_filename="ts_guess.inp",
-    ).to_dict()
-    stage_metadata = o._stage_metadata(stage)
-    stage_metadata["reaction_candidate_attempt_index"] = next_index
-    stage_metadata["reaction_candidate_pool_size"] = len(ordered_candidates)
-    stage_metadata["reaction_remaining_candidates_after_this"] = max(0, len(remaining_candidates) - 1)
-    payload.setdefault("stages", []).append(stage)
-    return True
+    if isinstance(payload_metadata, dict) and isinstance(payload_metadata.get("workflow_error"), dict):
+        scope = o._normalize_text(payload_metadata["workflow_error"].get("scope"))
+        if scope in {"reaction_ts_search_xtb_handoff", "reaction_ts_search_orca_candidate_exhausted"}:
+            payload_metadata.pop("workflow_error", None)
+
+    created = 0
+    starting_index = len(existing)
+    for offset, candidate in enumerate(remaining_candidates, start=1):
+        next_index = starting_index + offset
+        stage = o.build_materialized_orca_stage(
+            workflow_id=str(payload.get("workflow_id", "")),
+            template_name="reaction_ts_search",
+            stage_id=f"orca_optts_freq_{next_index:02d}",
+            stage_key=f"{next_index:02d}_{o.safe_name(candidate.kind, fallback='candidate')}",
+            stage_root_name=f"workflow_jobs/{payload.get('workflow_id', '')}/stage_03_orca",
+            workspace_dir=orca_allowed_root,
+            input_artifact_kind="xtb_candidate",
+            candidate=candidate,
+            task_kind="optts_freq",
+            route_line=str(params.get("orca_route_line", "! r2scan-3c OptTS Freq TightSCF")),
+            charge=int(params.get("charge", 0) or 0),
+            multiplicity=int(params.get("multiplicity", 1) or 1),
+            max_cores=int(params.get("max_cores", 8) or 8),
+            max_memory_gb=int(params.get("max_memory_gb", 32) or 32),
+            priority=int(params.get("priority", 10) or 10),
+            xyz_filename="ts_guess.xyz",
+            inp_filename="ts_guess.inp",
+        ).to_dict()
+        stage_metadata = o._stage_metadata(stage)
+        stage_metadata["reaction_candidate_attempt_index"] = next_index
+        stage_metadata["reaction_candidate_pool_size"] = len(ordered_candidates)
+        stage_metadata["reaction_remaining_candidates_after_this"] = max(0, len(remaining_candidates) - offset)
+        payload.setdefault("stages", []).append(stage)
+        created += 1
+    return created > 0
 
 
 def append_crest_orca_stages_impl(
