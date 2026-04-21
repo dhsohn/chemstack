@@ -4,13 +4,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from core.commands.organize import (
+from chemstack.orca.commands.organize import (
     _build_dry_run_summary,
     _build_organize_message,
     _resolve_organize_scope,
 )
-from core.config import AppConfig, PathsConfig, RuntimeConfig, TelegramConfig
-from core.result_organizer import OrganizePlan, SkipReason
+from chemstack.orca.config import AppConfig, PathsConfig, RuntimeConfig, TelegramConfig
+from chemstack.orca.result_organizer import OrganizePlan, SkipReason
 
 
 def _make_cfg(tmp: str) -> AppConfig:

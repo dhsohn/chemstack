@@ -4,8 +4,8 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
-from core.commands.summary import _build_summary_message, _run_summary
-from core.config import AppConfig, PathsConfig, RuntimeConfig, TelegramConfig
+from chemstack.orca.commands.summary import _build_summary_message, _run_summary
+from chemstack.orca.config import AppConfig, PathsConfig, RuntimeConfig, TelegramConfig
 
 
 def _cfg(allowed_root: Path) -> AppConfig:
@@ -109,13 +109,13 @@ def test_build_summary_text_focuses_on_current_state_and_attention(tmp_path: Pat
     )
     (completed / "calc.out").write_text("ORCA TERMINATED NORMALLY\n", encoding="utf-8")
 
-    with patch("core.commands.summary._count_active_orca_processes", return_value=2), patch(
-        "core.commands.summary._scan_cwd_process_counts",
+    with patch("chemstack.orca.commands.summary._count_active_orca_processes", return_value=2), patch(
+        "chemstack.orca.commands.summary._scan_cwd_process_counts",
         return_value={running.resolve(): 11},
     ):
         text = _build_summary_message(_cfg(allowed))
 
-    assert "<b>orca_auto summary</b>" in text
+    assert "<b>chemstack summary</b>" in text
     assert "Current-state digest only" in text
     assert "<b>Current State</b>" in text
     assert "running 1" in text
@@ -150,12 +150,12 @@ def test_run_summary_no_send_prints_and_returns_zero(tmp_path: Path, capsys) -> 
         encoding="utf-8",
     )
 
-    with patch("core.commands.summary._count_active_orca_processes", return_value=0), patch(
-        "core.commands.summary._scan_cwd_process_counts",
+    with patch("chemstack.orca.commands.summary._count_active_orca_processes", return_value=0), patch(
+        "chemstack.orca.commands.summary._scan_cwd_process_counts",
         return_value={},
     ):
         rc = _run_summary(_cfg(allowed), send=False)
 
     captured = capsys.readouterr()
     assert rc == 0
-    assert "<b>orca_auto summary</b>" in captured.out
+    assert "<b>chemstack summary</b>" in captured.out

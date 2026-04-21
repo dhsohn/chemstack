@@ -1,4 +1,4 @@
-"""Tests for core.queue_worker foreground worker job execution helpers."""
+"""Tests for chemstack.orca.queue_worker foreground worker job execution helpers."""
 
 from __future__ import annotations
 
@@ -8,21 +8,21 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from core.admission_store import (
+from chemstack.orca.admission_store import (
     acquire_direct_slot,
     active_slot_count,
     list_slots,
     reserve_slot,
 )
-from core.config import AppConfig, RuntimeConfig
-from core.queue_store import (
+from chemstack.orca.config import AppConfig, RuntimeConfig
+from chemstack.orca.queue_store import (
     dequeue_next,
     enqueue,
     list_queue,
     mark_cancelled,
     requeue_running_entry,
 )
-from core.queue_worker import (
+from chemstack.orca.queue_worker import (
     DEFAULT_MAX_CONCURRENT,
     QueueWorker,
     _RunningJob,
@@ -31,7 +31,7 @@ from core.queue_worker import (
     _terminate_process,
     read_worker_pid,
 )
-from core.types import QueueEntry
+from chemstack.orca.types import QueueEntry
 
 
 def _make_cfg(tmp: str) -> AppConfig:
@@ -44,7 +44,7 @@ def _write_active_lock(reaction_dir: Path, *, pid: int) -> None:
 
 
 class TestStartJobProcess(unittest.TestCase):
-    @patch("core.queue_worker.start_background_run_job")
+    @patch("chemstack.orca.queue_worker.start_background_run_job")
     def test_forwards_python_execution_arguments(self, mock_start: MagicMock) -> None:
         mock_proc = MagicMock()
         mock_start.return_value = mock_proc
@@ -54,7 +54,7 @@ class TestStartJobProcess(unittest.TestCase):
             config_path="/tmp/config.yaml",
             force=True,
             admission_token="slot_123",
-            admission_app_name="orca_auto",
+            admission_app_name="chemstack_orca",
             admission_task_id="task_123",
         )
 
@@ -64,7 +64,7 @@ class TestStartJobProcess(unittest.TestCase):
             reaction_dir="/tmp/rxn",
             force=True,
             admission_token="slot_123",
-            admission_app_name="orca_auto",
+            admission_app_name="chemstack_orca",
             admission_task_id="task_123",
         )
 
@@ -94,7 +94,7 @@ class TestTerminateProcess(unittest.TestCase):
         _terminate_process(proc)
         proc.terminate.assert_called_once()
 
-    @patch("core.queue_worker.time.monotonic", side_effect=[0.0, 11.0, 11.0, 17.0])
+    @patch("chemstack.orca.queue_worker.time.monotonic", side_effect=[0.0, 11.0, 11.0, 17.0])
     def test_escalate_to_kill(self, mock_monotonic: MagicMock) -> None:
         proc = MagicMock()
         proc.poll.return_value = None
@@ -194,14 +194,14 @@ class TestQueueWorkerMethods(unittest.TestCase):
         self.worker._fill_slots()
         self.assertEqual(len(self.worker._running), 0)
 
-    @patch("core.queue_worker._start_job_process")
+    @patch("chemstack.orca.queue_worker._start_job_process")
     def test_start_job(self, mock_start_job_process: MagicMock) -> None:
         mock_proc = MagicMock()
         mock_proc.pid = 4321
         mock_start_job_process.return_value = mock_proc
         entry: QueueEntry = {
             "queue_id": "q_test",
-            "app_name": "orca_auto",
+            "app_name": "chemstack_orca",
             "task_id": "task_test_123",
             "reaction_dir": str(self.root / "mol_A"),
             "force": False,
@@ -213,13 +213,13 @@ class TestQueueWorkerMethods(unittest.TestCase):
             config_path=str(self.root / "config.yaml"),
             force=False,
             admission_token="slot_test",
-            admission_app_name="orca_auto",
+            admission_app_name="chemstack_orca",
             admission_task_id="task_test_123",
         )
 
-    @patch("core.queue_worker.upsert_job_record")
-    @patch("core.queue_worker.resolve_job_metadata", side_effect=AssertionError("should use queue metadata"))
-    @patch("core.queue_worker._start_job_process")
+    @patch("chemstack.orca.queue_worker.upsert_job_record")
+    @patch("chemstack.orca.queue_worker.resolve_job_metadata", side_effect=AssertionError("should use queue metadata"))
+    @patch("chemstack.orca.queue_worker._start_job_process")
     def test_start_job_prefers_queue_metadata_for_tracking(
         self,
         mock_start_job_process: MagicMock,
@@ -235,7 +235,7 @@ class TestQueueWorkerMethods(unittest.TestCase):
         mock_start_job_process.return_value = mock_proc
         entry: QueueEntry = {
             "queue_id": "q_meta",
-            "app_name": "orca_auto",
+            "app_name": "chemstack_orca",
             "task_id": "task_meta_123",
             "reaction_dir": str(reaction_dir),
             "force": False,
@@ -264,7 +264,7 @@ class TestQueueWorkerMethods(unittest.TestCase):
             resource_actual={"max_cores": 4, "max_memory_gb": 12},
         )
 
-    @patch("core.queue_worker._start_job_process", side_effect=OSError("spawn failed"))
+    @patch("chemstack.orca.queue_worker._start_job_process", side_effect=OSError("spawn failed"))
     def test_start_job_oserror(self, mock_start_job_process: MagicMock) -> None:
         rxn = self.root / "mol_err"
         rxn.mkdir()
@@ -323,8 +323,8 @@ class TestQueueWorkerMethods(unittest.TestCase):
         self.worker._check_completed_jobs()
         self.assertEqual(len(self.worker._running), 0)
 
-    @patch("core.queue_worker._upsert_terminal_job_record")
-    @patch("core.commands.organize.organize_reaction_dir", return_value={"action": "organized", "target_dir": "/tmp/out"})
+    @patch("chemstack.orca.queue_worker._upsert_terminal_job_record")
+    @patch("chemstack.orca.commands.organize.organize_reaction_dir", return_value={"action": "organized", "target_dir": "/tmp/out"})
     def test_finalize_finished_job_auto_organizes_when_enabled(
         self,
         mock_organize: MagicMock,
@@ -365,8 +365,8 @@ class TestQueueWorkerMethods(unittest.TestCase):
         mock_upsert_terminal.assert_called_once()
         self.assertEqual(active_slot_count(self.root), 0)
 
-    @patch("core.queue_worker._upsert_terminal_job_record")
-    @patch("core.commands.organize.organize_reaction_dir")
+    @patch("chemstack.orca.queue_worker._upsert_terminal_job_record")
+    @patch("chemstack.orca.commands.organize.organize_reaction_dir")
     def test_finalize_finished_job_skips_auto_organize_when_disabled(
         self,
         mock_organize: MagicMock,
@@ -399,8 +399,8 @@ class TestQueueWorkerMethods(unittest.TestCase):
         mock_organize.assert_not_called()
         mock_upsert_terminal.assert_called_once()
 
-    @patch("core.queue_worker._upsert_terminal_job_record")
-    @patch("core.commands.organize.organize_reaction_dir")
+    @patch("chemstack.orca.queue_worker._upsert_terminal_job_record")
+    @patch("chemstack.orca.commands.organize.organize_reaction_dir")
     def test_finalize_finished_job_does_not_auto_organize_failed_run(
         self,
         mock_organize: MagicMock,
@@ -445,9 +445,9 @@ class TestQueueWorkerMethods(unittest.TestCase):
         self.worker._check_completed_jobs()
         self.assertEqual(len(self.worker._running), 1)
 
-    @patch("core.queue_worker.mark_cancelled", return_value=True)
+    @patch("chemstack.orca.queue_worker.mark_cancelled", return_value=True)
     def test_check_cancel_requests(self, mock_mark_cancelled: MagicMock) -> None:
-        from core.queue_store import cancel
+        from chemstack.orca.queue_store import cancel
         rxn = self.root / "mol_cancel"
         rxn.mkdir()
         entry = enqueue(self.root, str(rxn))
@@ -463,7 +463,7 @@ class TestQueueWorkerMethods(unittest.TestCase):
             process=mock_proc,
             admission_token="slot_cancel",
         )
-        with patch("core.queue_worker._terminate_process"):
+        with patch("chemstack.orca.queue_worker._terminate_process"):
             self.worker._check_cancel_requests()
         self.assertNotIn(entry["queue_id"], self.worker._running)
         mock_mark_cancelled.assert_called_once_with(self.root, entry["queue_id"])
@@ -472,7 +472,7 @@ class TestQueueWorkerMethods(unittest.TestCase):
         self.worker._shutdown_all()
         self.assertEqual(len(self.worker._running), 0)
 
-    @patch("core.queue_worker.requeue_running_entry", return_value=True)
+    @patch("chemstack.orca.queue_worker.requeue_running_entry", return_value=True)
     def test_shutdown_all_with_running(self, mock_requeue: MagicMock) -> None:
         rxn = self.root / "mol_shut"
         rxn.mkdir()
@@ -487,19 +487,19 @@ class TestQueueWorkerMethods(unittest.TestCase):
             process=mock_proc,
             admission_token="slot_shutdown",
         )
-        with patch("core.queue_worker._terminate_process"):
+        with patch("chemstack.orca.queue_worker._terminate_process"):
             self.worker._shutdown_all()
         self.assertEqual(len(self.worker._running), 0)
         mock_requeue.assert_called_once_with(self.root, entry["queue_id"])
 
-    @patch("core.queue_worker.time.sleep", side_effect=KeyboardInterrupt)
+    @patch("chemstack.orca.queue_worker.time.sleep", side_effect=KeyboardInterrupt)
     def test_run_keyboard_interrupt(self, mock_sleep: MagicMock) -> None:
         rc = self.worker.run()
         self.assertEqual(rc, 0)
         # PID file should be cleaned up
         self.assertFalse(self.worker._pid_file_path().exists())
 
-    @patch("core.queue_worker.time.sleep")
+    @patch("chemstack.orca.queue_worker.time.sleep")
     def test_run_shutdown_flag(self, mock_sleep: MagicMock) -> None:
         def set_shutdown(*a):
             self.worker._shutdown_requested = True
@@ -549,7 +549,7 @@ class TestFillSlots(unittest.TestCase):
             rxn.mkdir()
             enqueue(root, str(rxn))
 
-            with patch("core.queue_worker._start_job_process") as mock_start_job_process:
+            with patch("chemstack.orca.queue_worker._start_job_process") as mock_start_job_process:
                 mock_proc = MagicMock()
                 mock_proc.pid = 4101
                 mock_start_job_process.return_value = mock_proc
@@ -566,7 +566,7 @@ class TestFillSlots(unittest.TestCase):
             rxn.mkdir()
             entry = enqueue(root, str(rxn))
 
-            with patch("core.queue_worker._start_job_process") as mock_start_job_process:
+            with patch("chemstack.orca.queue_worker._start_job_process") as mock_start_job_process:
                 mock_proc = MagicMock()
                 mock_proc.pid = 4109
                 mock_start_job_process.return_value = mock_proc
@@ -589,7 +589,7 @@ class TestFillSlots(unittest.TestCase):
             entry = enqueue(root, str(rxn), task_id="orca_task_preserved_123")
             self.assertNotEqual(entry["queue_id"], entry["task_id"])
 
-            with patch("core.queue_worker._start_job_process") as mock_start_job_process:
+            with patch("chemstack.orca.queue_worker._start_job_process") as mock_start_job_process:
                 mock_proc = MagicMock()
                 mock_proc.pid = 4110
                 mock_start_job_process.return_value = mock_proc
@@ -624,7 +624,7 @@ class TestFillSlots(unittest.TestCase):
                 d.mkdir()
                 enqueue(root, str(d))
 
-            with patch("core.queue_worker._start_job_process") as mock_start_job_process:
+            with patch("chemstack.orca.queue_worker._start_job_process") as mock_start_job_process:
                 mock_proc = MagicMock()
                 mock_proc.pid = 4102
                 mock_start_job_process.return_value = mock_proc
@@ -642,7 +642,7 @@ class TestFillSlots(unittest.TestCase):
                 reaction_dir.mkdir()
                 enqueue(root, str(reaction_dir))
 
-            with patch("core.queue_worker._start_job_process") as mock_start_job_process:
+            with patch("chemstack.orca.queue_worker._start_job_process") as mock_start_job_process:
                 mock_start_job_process.side_effect = [
                     MagicMock(pid=4103),
                     MagicMock(pid=4104),
@@ -698,7 +698,7 @@ class TestFillSlots(unittest.TestCase):
                 admission_token=completion_token or "",
             )
 
-            with patch("core.queue_worker._start_job_process") as mock_start_job_process:
+            with patch("chemstack.orca.queue_worker._start_job_process") as mock_start_job_process:
                 mock_start_job_process.return_value = MagicMock(pid=4106)
                 worker._check_completed_jobs()
                 worker._fill_slots()
@@ -719,7 +719,7 @@ class TestFillSlots(unittest.TestCase):
                 },
             )
 
-    @patch("core.process_tracking.is_process_alive", return_value=True)
+    @patch("chemstack.orca.process_tracking.is_process_alive", return_value=True)
     def test_fill_slots_counts_external_active_runs(self, mock_alive: MagicMock) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -734,7 +734,7 @@ class TestFillSlots(unittest.TestCase):
                 d.mkdir()
                 enqueue(root, str(d))
 
-            with patch("core.queue_worker._start_job_process") as mock_start_job_process:
+            with patch("chemstack.orca.queue_worker._start_job_process") as mock_start_job_process:
                 mock_proc = MagicMock()
                 mock_proc.pid = 4107
                 mock_start_job_process.return_value = mock_proc
@@ -755,13 +755,13 @@ class TestFillSlots(unittest.TestCase):
             enqueue(root, str(queued))
 
             with acquire_direct_slot(root, max_concurrent=1, reaction_dir=str(root / "direct_hold")):
-                with patch("core.queue_worker._start_job_process") as mock_start_job_process:
+                with patch("chemstack.orca.queue_worker._start_job_process") as mock_start_job_process:
                     worker._fill_slots()
 
             self.assertEqual(len(worker._running), 0)
             mock_start_job_process.assert_not_called()
 
-    @patch("core.process_tracking.is_process_alive", return_value=True)
+    @patch("chemstack.orca.process_tracking.is_process_alive", return_value=True)
     def test_fill_slots_stops_when_global_limit_reached(self, mock_alive: MagicMock) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -775,7 +775,7 @@ class TestFillSlots(unittest.TestCase):
             queued.mkdir()
             enqueue(root, str(queued))
 
-            with patch("core.queue_worker._start_job_process") as mock_start_job_process:
+            with patch("chemstack.orca.queue_worker._start_job_process") as mock_start_job_process:
                 worker._fill_slots()
 
             self.assertEqual(len(worker._running), 0)
@@ -809,7 +809,7 @@ class TestFillSlots(unittest.TestCase):
             queued.mkdir()
             enqueue(root, str(queued))
 
-            with patch("core.queue_worker._start_job_process") as mock_start_job_process:
+            with patch("chemstack.orca.queue_worker._start_job_process") as mock_start_job_process:
                 mock_proc = MagicMock()
                 mock_proc.pid = 4108
                 mock_start_job_process.return_value = mock_proc

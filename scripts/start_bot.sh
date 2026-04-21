@@ -7,15 +7,20 @@
 #   start_bot.sh stop       # Stop bot
 #
 # Add to ~/.bashrc for automatic start on WSL boot:
-#   ~/orca_auto/scripts/start_bot.sh
+#   <repo_root>/scripts/start_bot.sh
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 LOG_DIR="$ROOT/logs"
 PID_FILE="$ROOT/.bot.pid"
-CONFIG_PATH="${ORCA_AUTO_CONFIG:-$ROOT/config/orca_auto.yaml}"
 ACTION="${1:-start}"
+
+if [[ -f "$HOME/.chemstack_env" ]]; then
+  source "$HOME/.chemstack_env"
+fi
+
+CONFIG_PATH="${CHEMSTACK_CONFIG:-$ROOT/config/chemstack.yaml}"
 
 _stop_bot() {
   if [[ -f "$PID_FILE" ]]; then
@@ -48,7 +53,7 @@ _start_bot() {
   mkdir -p "$LOG_DIR"
   LOG_FILE="$LOG_DIR/bot.log"
 
-  PYTHONPATH="$ROOT:${PYTHONPATH:-}" nohup "$PYTHON_BIN" -m core.cli \
+  PYTHONPATH="$ROOT/src:$ROOT:${PYTHONPATH:-}" nohup "$PYTHON_BIN" -m chemstack.orca.cli \
     --config "$CONFIG_PATH" \
     bot \
     >>"$LOG_FILE" 2>&1 &

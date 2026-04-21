@@ -8,9 +8,9 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-from core.commands.run_inp import _submit_as_queued, cmd_run_inp
-from core.config import AppConfig, PathsConfig, RuntimeConfig
-from core.queue_store import enqueue, list_queue
+from chemstack.orca.commands.run_inp import _submit_as_queued, cmd_run_inp
+from chemstack.orca.config import AppConfig, PathsConfig, RuntimeConfig
+from chemstack.orca.queue_store import enqueue, list_queue
 
 
 def _make_cfg(tmp: str) -> AppConfig:
@@ -36,35 +36,19 @@ def _write_inp(reaction_dir: Path) -> None:
 
 def _make_args(root: Path, reaction_dir: Path, **overrides) -> SimpleNamespace:
     defaults = {
-        "config": str(root / "orca_auto.yaml"),
+        "config": str(root / "chemstack.yaml"),
         "reaction_dir": str(reaction_dir),
         "force": False,
         "priority": 10,
-        "queue_only": False,
-        "require_slot": False,
     }
     defaults.update(overrides)
     return SimpleNamespace(**defaults)
 
 
 class TestRunInpSubmit(unittest.TestCase):
-    @patch("core.commands.run_inp.load_config")
-    def test_submit_rejects_require_slot_before_loading_config(
-        self,
-        mock_load_config: MagicMock,
-    ) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            reaction_dir = root / "rxn"
-
-            rc = cmd_run_inp(_make_args(root, reaction_dir, require_slot=True))
-
-        self.assertEqual(rc, 1)
-        mock_load_config.assert_not_called()
-
-    @patch("core.commands.run_inp.load_config")
-    @patch("core.commands.run_inp._submit_as_queued", return_value=0)
-    @patch("core.commands.run_inp._cmd_run_inp_execute", return_value=0)
+    @patch("chemstack.orca.commands.run_inp.load_config")
+    @patch("chemstack.orca.commands.run_inp._submit_as_queued", return_value=0)
+    @patch("chemstack.orca.commands.run_inp._cmd_run_inp_execute", return_value=0)
     def test_submit_always_enqueues_without_attempting_direct_execution(
         self,
         mock_execute: MagicMock,
@@ -83,27 +67,9 @@ class TestRunInpSubmit(unittest.TestCase):
         mock_execute.assert_not_called()
         mock_submit_as_queued.assert_called_once()
 
-    @patch("core.commands.run_inp.load_config")
-    @patch("core.commands.run_inp._submit_as_queued", return_value=0)
-    def test_submit_queue_only_alias_still_enqueues(
-        self,
-        mock_submit_as_queued: MagicMock,
-        mock_load_config: MagicMock,
-    ) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            mock_load_config.return_value = _make_cfg(tmp)
-            reaction_dir = root / "rxn"
-            _write_inp(reaction_dir)
-
-            rc = cmd_run_inp(_make_args(root, reaction_dir, queue_only=True))
-
-        self.assertEqual(rc, 0)
-        mock_submit_as_queued.assert_called_once()
-
-    @patch("core.commands.run_inp.load_config")
-    @patch("core.commands.run_inp._submit_as_queued", return_value=0)
-    @patch("core.commands.run_inp._cmd_run_inp_execute", return_value=0)
+    @patch("chemstack.orca.commands.run_inp.load_config")
+    @patch("chemstack.orca.commands.run_inp._submit_as_queued", return_value=0)
+    @patch("chemstack.orca.commands.run_inp._cmd_run_inp_execute", return_value=0)
     def test_submit_rejects_when_active_queue_entry_exists_for_same_reaction_dir(
         self,
         mock_execute: MagicMock,
@@ -123,9 +89,9 @@ class TestRunInpSubmit(unittest.TestCase):
         mock_execute.assert_not_called()
         mock_submit_as_queued.assert_not_called()
 
-    @patch("core.commands.run_inp.load_config")
-    @patch("core.commands.run_inp._submit_as_queued", return_value=0)
-    @patch("core.commands.run_inp._cmd_run_inp_execute", return_value=0)
+    @patch("chemstack.orca.commands.run_inp.load_config")
+    @patch("chemstack.orca.commands.run_inp._submit_as_queued", return_value=0)
+    @patch("chemstack.orca.commands.run_inp._cmd_run_inp_execute", return_value=0)
     def test_submit_rejects_when_same_reaction_dir_is_already_running_directly(
         self,
         mock_execute: MagicMock,
@@ -148,9 +114,9 @@ class TestRunInpSubmit(unittest.TestCase):
         mock_execute.assert_not_called()
         mock_submit_as_queued.assert_not_called()
 
-    @patch("core.commands.run_inp.load_config")
-    @patch("core.commands.run_inp._submit_as_queued", return_value=0)
-    @patch("core.commands.run_inp._cmd_run_inp_execute", return_value=0)
+    @patch("chemstack.orca.commands.run_inp.load_config")
+    @patch("chemstack.orca.commands.run_inp._submit_as_queued", return_value=0)
+    @patch("chemstack.orca.commands.run_inp._cmd_run_inp_execute", return_value=0)
     def test_submit_uses_completed_output_shortcut_before_enqueue(
         self,
         mock_execute: MagicMock,
@@ -164,14 +130,14 @@ class TestRunInpSubmit(unittest.TestCase):
             _write_inp(reaction_dir)
             (reaction_dir / "rxn.out").write_text("****ORCA TERMINATED NORMALLY****\n", encoding="utf-8")
 
-            rc = cmd_run_inp(_make_args(root, reaction_dir, queue_only=True))
+            rc = cmd_run_inp(_make_args(root, reaction_dir))
 
         self.assertEqual(rc, 0)
         mock_execute.assert_called_once()
         mock_submit_as_queued.assert_not_called()
 
-    @patch("core.commands.run_inp.notify_queue_enqueued_event", return_value=True)
-    @patch("core.queue_worker.read_worker_pid", return_value=None)
+    @patch("chemstack.orca.commands.run_inp.notify_queue_enqueued_event", return_value=True)
+    @patch("chemstack.orca.queue_worker.read_worker_pid", return_value=None)
     def test_submit_as_queued_reports_inactive_worker_without_autostart(
         self,
         mock_read_worker_pid: MagicMock,
@@ -192,7 +158,7 @@ class TestRunInpSubmit(unittest.TestCase):
             self.assertEqual(rc, 0)
             self.assertEqual(len(entries), 1)
             self.assertEqual(entries[0]["priority"], 3)
-            self.assertEqual(entries[0]["app_name"], "orca_auto")
+            self.assertEqual(entries[0]["app_name"], "chemstack_orca")
             self.assertTrue(entries[0]["task_id"].startswith("orca_"))
             self.assertEqual(entries[0]["metadata"]["selected_inp"], str(reaction_dir / "rxn.inp"))
             self.assertEqual(entries[0]["metadata"]["selected_input_xyz"], str(reaction_dir / "rxn.inp"))
@@ -217,8 +183,8 @@ class TestRunInpSubmit(unittest.TestCase):
             mock_read_worker_pid.assert_called_once()
             mock_notify_queue.assert_called_once()
 
-    @patch("core.commands.run_inp.notify_queue_enqueued_event", return_value=True)
-    @patch("core.queue_worker.read_worker_pid", return_value=4321)
+    @patch("chemstack.orca.commands.run_inp.notify_queue_enqueued_event", return_value=True)
+    @patch("chemstack.orca.queue_worker.read_worker_pid", return_value=4321)
     def test_submit_as_queued_reports_running_worker_pid(
         self,
         mock_read_worker_pid: MagicMock,
@@ -241,8 +207,8 @@ class TestRunInpSubmit(unittest.TestCase):
             mock_read_worker_pid.assert_called_once()
             mock_notify_queue.assert_called_once()
 
-    @patch("core.commands.run_inp.notify_queue_enqueued_event", return_value=True)
-    @patch("core.queue_worker.read_worker_pid", return_value=None)
+    @patch("chemstack.orca.commands.run_inp.notify_queue_enqueued_event", return_value=True)
+    @patch("chemstack.orca.queue_worker.read_worker_pid", return_value=None)
     def test_submit_as_queued_honors_resource_override_flags(
         self,
         mock_read_worker_pid: MagicMock,

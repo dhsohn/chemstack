@@ -4,14 +4,14 @@ import logging
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-import core.process_tracking as process_tracking
+import chemstack.orca.process_tracking as process_tracking
 
 
 def test_current_process_lock_payload_omits_ticks_when_unavailable() -> None:
-    with patch("core.process_tracking.os.getpid", return_value=4321), patch(
-        "core.process_tracking.now_utc_iso",
+    with patch("chemstack.orca.process_tracking.os.getpid", return_value=4321), patch(
+        "chemstack.orca.process_tracking.now_utc_iso",
         return_value="2026-03-22T00:00:00+00:00",
-    ), patch("core.process_tracking.current_process_start_ticks", return_value=None):
+    ), patch("chemstack.orca.process_tracking.current_process_start_ticks", return_value=None):
         payload = process_tracking.current_process_lock_payload()
 
     assert payload == {
@@ -24,21 +24,21 @@ def test_active_run_lock_pid_covers_invalid_dead_reuse_and_logger_paths(tmp_path
     reaction_dir = tmp_path / "rxn"
     reaction_dir.mkdir()
 
-    with patch("core.process_tracking.parse_lock_info", return_value={"pid": "bad"}):
+    with patch("chemstack.orca.process_tracking.parse_lock_info", return_value={"pid": "bad"}):
         assert process_tracking.active_run_lock_pid(reaction_dir) is None
 
-    with patch("core.process_tracking.parse_lock_info", return_value={"pid": 123}), patch(
-        "core.process_tracking.is_process_alive",
+    with patch("chemstack.orca.process_tracking.parse_lock_info", return_value={"pid": 123}), patch(
+        "chemstack.orca.process_tracking.is_process_alive",
         return_value=False,
     ):
         assert process_tracking.active_run_lock_pid(reaction_dir) is None
 
     on_pid_reuse = Mock()
     with patch(
-        "core.process_tracking.parse_lock_info",
+        "chemstack.orca.process_tracking.parse_lock_info",
         return_value={"pid": 456, "process_start_ticks": 111},
-    ), patch("core.process_tracking.is_process_alive", return_value=True), patch(
-        "core.process_tracking.process_start_ticks",
+    ), patch("chemstack.orca.process_tracking.is_process_alive", return_value=True), patch(
+        "chemstack.orca.process_tracking.process_start_ticks",
         return_value=None,
     ):
         assert (
@@ -52,17 +52,17 @@ def test_active_run_lock_pid_covers_invalid_dead_reuse_and_logger_paths(tmp_path
 
     logger = Mock(spec=logging.Logger)
     with patch(
-        "core.process_tracking.parse_lock_info",
+        "chemstack.orca.process_tracking.parse_lock_info",
         return_value={"pid": 789, "process_start_ticks": 111},
-    ), patch("core.process_tracking.is_process_alive", return_value=True), patch(
-        "core.process_tracking.process_start_ticks",
+    ), patch("chemstack.orca.process_tracking.is_process_alive", return_value=True), patch(
+        "chemstack.orca.process_tracking.process_start_ticks",
         return_value=222,
     ):
         assert process_tracking.active_run_lock_pid(reaction_dir, logger=logger) is None
     logger.info.assert_called_once()
 
-    with patch("core.process_tracking.parse_lock_info", return_value={"pid": 654}), patch(
-        "core.process_tracking.is_process_alive",
+    with patch("chemstack.orca.process_tracking.parse_lock_info", return_value={"pid": 654}), patch(
+        "chemstack.orca.process_tracking.is_process_alive",
         return_value=True,
     ):
         assert process_tracking.active_run_lock_pid(reaction_dir) == 654
@@ -83,7 +83,7 @@ def test_read_pid_file_covers_missing_invalid_dead_unlink_failure_and_live_pid(t
 
     stale = tmp_path / "stale.pid"
     stale.write_text("999", encoding="utf-8")
-    with patch("core.process_tracking.is_process_alive", return_value=False), patch(
+    with patch("chemstack.orca.process_tracking.is_process_alive", return_value=False), patch(
         "pathlib.Path.unlink",
         autospec=True,
         side_effect=OSError("boom"),
@@ -92,5 +92,5 @@ def test_read_pid_file_covers_missing_invalid_dead_unlink_failure_and_live_pid(t
 
     live = tmp_path / "live.pid"
     live.write_text("321", encoding="utf-8")
-    with patch("core.process_tracking.is_process_alive", return_value=True):
+    with patch("chemstack.orca.process_tracking.is_process_alive", return_value=True):
         assert process_tracking.read_pid_file(live) == 321

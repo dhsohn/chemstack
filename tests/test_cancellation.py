@@ -4,9 +4,9 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from core.cancellation import CancelTargetError, cancel_target
-from core.queue_store import dequeue_next, enqueue, get_cancel_requested
-from core.state_store import STATE_FILE_NAME
+from chemstack.orca.cancellation import CancelTargetError, cancel_target
+from chemstack.orca.queue_store import dequeue_next, enqueue, get_cancel_requested
+from chemstack.orca.state_store import STATE_FILE_NAME
 
 
 def _write_running_state(reaction_dir: Path, *, run_id: str, pid: int) -> None:
@@ -61,8 +61,8 @@ class TestCancellation(unittest.TestCase):
         self.assertEqual(result.action, "requested")
         self.assertTrue(get_cancel_requested(self.root, entry["queue_id"]))
 
-    @patch("core.cancellation.os.kill")
-    @patch("core.process_tracking.is_process_alive", return_value=True)
+    @patch("chemstack.orca.cancellation.os.kill")
+    @patch("chemstack.orca.process_tracking.is_process_alive", return_value=True)
     def test_cancel_target_direct_run_by_relative_dir(
         self,
         mock_alive,
@@ -82,8 +82,8 @@ class TestCancellation(unittest.TestCase):
         mock_alive.assert_called_once_with(4321)
         mock_kill.assert_called_once()
 
-    @patch("core.cancellation.os.kill")
-    @patch("core.process_tracking.is_process_alive", return_value=True)
+    @patch("chemstack.orca.cancellation.os.kill")
+    @patch("chemstack.orca.process_tracking.is_process_alive", return_value=True)
     def test_cancel_target_direct_run_by_run_id(
         self,
         mock_alive,
@@ -101,8 +101,8 @@ class TestCancellation(unittest.TestCase):
         mock_alive.assert_called_once_with(4321)
         mock_kill.assert_called_once()
 
-    @patch("core.cancellation.os.kill")
-    @patch("core.process_tracking.is_process_alive", return_value=True)
+    @patch("chemstack.orca.cancellation.os.kill")
+    @patch("chemstack.orca.process_tracking.is_process_alive", return_value=True)
     def test_cancel_target_ambiguous_direct_basename(
         self,
         mock_alive,
@@ -119,8 +119,8 @@ class TestCancellation(unittest.TestCase):
         mock_alive.assert_any_call(2222)
         mock_kill.assert_not_called()
 
-    @patch("core.cancellation.os.kill")
-    @patch("core.process_tracking.is_process_alive", return_value=True)
+    @patch("chemstack.orca.cancellation.os.kill")
+    @patch("chemstack.orca.process_tracking.is_process_alive", return_value=True)
     def test_cancel_target_prefers_queue_for_worker_managed_run(
         self,
         mock_alive,

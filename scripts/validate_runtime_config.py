@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate orca_auto runtime configuration before cutover.
+"""Validate chemstack runtime configuration before cutover.
 
 Checks:
   1. Linux-only path validation is satisfied
@@ -8,7 +8,7 @@ Checks:
 
 Usage:
     python validate_runtime_config.py
-    python validate_runtime_config.py --config /path/to/orca_auto.yaml
+    python validate_runtime_config.py --config /path/to/chemstack.yaml
 """
 from __future__ import annotations
 
@@ -17,16 +17,18 @@ import os
 import sys
 from pathlib import Path
 
-# Add project root to path so we can import core modules
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+# Add project paths so we can import the canonical chemstack packages
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT / "src"))
+sys.path.insert(0, str(PROJECT_ROOT))
 
-from core.commands._helpers import default_config_path
-from core.config import load_config
+from chemstack.orca.commands._helpers import default_config_path
+from chemstack.orca.config import load_config
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Validate orca_auto runtime configuration")
-    parser.add_argument("--config", default=None, help="Path to orca_auto.yaml")
+    parser = argparse.ArgumentParser(description="Validate chemstack runtime configuration")
+    parser.add_argument("--config", default=None, help="Path to chemstack.yaml")
     args = parser.parse_args()
 
     config_path = args.config or default_config_path()

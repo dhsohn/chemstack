@@ -6,10 +6,10 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from core.config import AppConfig, PathsConfig, RuntimeConfig, TelegramConfig
-from core.queue_store import enqueue, mark_completed
-from core.state_store import STATE_FILE_NAME
-from core.telegram_bot import _handle_cancel, _handle_help, _handle_list
+from chemstack.orca.config import AppConfig, PathsConfig, RuntimeConfig, TelegramConfig
+from chemstack.orca.queue_store import enqueue, mark_completed
+from chemstack.orca.state_store import STATE_FILE_NAME
+from chemstack.orca.telegram_bot import _handle_cancel, _handle_help, _handle_list
 
 
 def _write_running_state(reaction_dir: Path, *, run_id: str, pid: int) -> None:
@@ -162,8 +162,8 @@ class TestTelegramBotHandlers(unittest.TestCase):
         result = _handle_list(cfg, "")
         self.assertIn("not found", result)
 
-    @patch("core.cancellation.os.kill")
-    @patch("core.process_tracking.is_process_alive", return_value=True)
+    @patch("chemstack.orca.cancellation.os.kill")
+    @patch("chemstack.orca.process_tracking.is_process_alive", return_value=True)
     def test_handle_cancel_direct_run(self, mock_alive, mock_kill) -> None:
         with tempfile.TemporaryDirectory() as td:
             allowed = Path(td) / "orca_runs"

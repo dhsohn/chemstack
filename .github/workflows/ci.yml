@@ -1,4 +1,4 @@
-name: CI
+name: ChemStack CI
 
 on:
   push:

@@ -12,9 +12,9 @@ from pathlib import Path
 
 import pytest
 
-from core.dft_index import DFTIndex
-from core.dft_monitor import DFTMonitor
-from core.orca_parser import parse_orca_output
+from chemstack.orca.dft_index import DFTIndex
+from chemstack.orca.dft_monitor import DFTMonitor
+from chemstack.orca.orca_parser import parse_orca_output
 
 # ---------------------------------------------------------------------------
 # Realistic ORCA output fixtures

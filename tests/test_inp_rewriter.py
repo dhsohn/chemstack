@@ -3,7 +3,7 @@ import time
 import unittest
 from pathlib import Path
 
-from core.inp_rewriter import rewrite_for_retry
+from chemstack.orca.inp_rewriter import rewrite_for_retry
 
 
 BASE_INP = """! OptTS Freq IRC
@@ -102,7 +102,7 @@ class TestInpRewriter(unittest.TestCase):
         append 'end' to lines, corrupting subsequent block lookups. This test
         verifies repeated reads of unclosed blocks do NOT change the line count.
         """
-        from core.inp_rewriter import _find_block_range
+        from chemstack.orca.inp_rewriter import _find_block_range
 
         lines = [
             "! OptTS Freq IRC",

@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from core.lock_utils import (
+from chemstack.orca.lock_utils import (
     acquire_file_lock,
     current_process_start_ticks,
     is_process_alive,
@@ -32,7 +32,7 @@ class TestParseLockInfo(unittest.TestCase):
     def test_parse_lock_info_returns_empty_shape_for_read_error(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             lock_path = Path(td) / "run.lock"
-            with patch("core.lock_utils.Path.read_text", side_effect=OSError):
+            with patch("chemstack.orca.lock_utils.Path.read_text", side_effect=OSError):
                 info = parse_lock_info(lock_path)
 
         self.assertEqual(
@@ -108,11 +108,11 @@ class TestIsProcessAlive(unittest.TestCase):
         self.assertFalse(is_process_alive(0))
 
     def test_is_process_alive_returns_true_on_permission_error(self) -> None:
-        with patch("core.lock_utils.os.kill", side_effect=PermissionError):
+        with patch("chemstack.orca.lock_utils.os.kill", side_effect=PermissionError):
             self.assertTrue(is_process_alive(1234))
 
     def test_is_process_alive_returns_false_on_generic_oserror(self) -> None:
-        with patch("core.lock_utils.os.kill", side_effect=OSError):
+        with patch("chemstack.orca.lock_utils.os.kill", side_effect=OSError):
             self.assertFalse(is_process_alive(1234))
 
 
@@ -124,19 +124,19 @@ class TestProcessStartTicks(unittest.TestCase):
         raw_stat = "1234 (orca worker) " + " ".join(
             ["S"] + ["0"] * 18 + ["999"] + ["0"] * 2
         )
-        with patch("core.lock_utils.Path.read_text", return_value=raw_stat):
+        with patch("chemstack.orca.lock_utils.Path.read_text", return_value=raw_stat):
             ticks = process_start_ticks(1234)
 
         self.assertEqual(ticks, 999)
 
     def test_process_start_ticks_returns_none_for_short_proc_stat(self) -> None:
-        with patch("core.lock_utils.Path.read_text", return_value="1234 (orca) S 0 0"):
+        with patch("chemstack.orca.lock_utils.Path.read_text", return_value="1234 (orca) S 0 0"):
             ticks = process_start_ticks(1234)
 
         self.assertIsNone(ticks)
 
     def test_process_start_ticks_returns_none_for_empty_stat(self) -> None:
-        with patch("core.lock_utils.Path.read_text", return_value=""):
+        with patch("chemstack.orca.lock_utils.Path.read_text", return_value=""):
             ticks = process_start_ticks(1234)
 
         self.assertIsNone(ticks)
@@ -145,13 +145,13 @@ class TestProcessStartTicks(unittest.TestCase):
         raw_stat = "1234 (orca worker) " + " ".join(
             ["S"] + ["0"] * 18 + ["not-an-int"] + ["0"] * 2
         )
-        with patch("core.lock_utils.Path.read_text", return_value=raw_stat):
+        with patch("chemstack.orca.lock_utils.Path.read_text", return_value=raw_stat):
             ticks = process_start_ticks(1234)
 
         self.assertIsNone(ticks)
 
     def test_current_process_start_ticks_delegates_to_process_start_ticks(self) -> None:
-        with patch("core.lock_utils.process_start_ticks", return_value=555) as mock_ticks:
+        with patch("chemstack.orca.lock_utils.process_start_ticks", return_value=555) as mock_ticks:
             ticks = current_process_start_ticks()
 
         self.assertEqual(ticks, 555)
@@ -237,9 +237,9 @@ class TestAcquireFileLock(unittest.TestCase):
             lock_path.write_text(json.dumps({"pid": 4321}), encoding="utf-8")
 
             with patch(
-                "core.lock_utils.time.monotonic",
+                "chemstack.orca.lock_utils.time.monotonic",
                 side_effect=[0.0, 0.25, 1.25],
-            ), patch("core.lock_utils.time.sleep", return_value=None):
+            ), patch("chemstack.orca.lock_utils.time.sleep", return_value=None):
                 with self.assertRaisesRegex(RuntimeError, r"timeout:run\.lock:1"):
                     with acquire_file_lock(
                         lock_path=lock_path,
@@ -315,9 +315,9 @@ class TestAcquireFileLock(unittest.TestCase):
             lock_path.write_text(json.dumps({"pid": 4321}), encoding="utf-8")
 
             with patch(
-                "core.lock_utils.time.monotonic",
+                "chemstack.orca.lock_utils.time.monotonic",
                 side_effect=[0.0, 0.25, 1.25],
-            ), patch("core.lock_utils.time.sleep", return_value=None):
+            ), patch("chemstack.orca.lock_utils.time.sleep", return_value=None):
                 with self.assertRaisesRegex(RuntimeError, r"timed out after 1s"):
                     with acquire_file_lock(
                         lock_path=lock_path,

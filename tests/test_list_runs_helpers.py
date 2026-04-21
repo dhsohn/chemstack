@@ -5,9 +5,9 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from core.commands import list_runs
-from core.config import AppConfig, PathsConfig, RuntimeConfig
-from core.run_snapshot import RunSnapshot
+from chemstack.orca.commands import list_runs
+from chemstack.orca.config import AppConfig, PathsConfig, RuntimeConfig
+from chemstack.orca.run_snapshot import RunSnapshot
 
 
 def _cfg(allowed_root: Path) -> AppConfig:
@@ -147,11 +147,11 @@ def test_collect_unified_keeps_snapshot_without_run_id_as_standalone(tmp_path: P
     reaction_dir = allowed_root / "rxn"
     snapshot = _snapshot(reaction_dir, run_id="", name="rxn")
 
-    with patch("core.commands.list_runs.reconcile_orphaned_running_entries"), patch(
-        "core.commands.list_runs.list_queue",
+    with patch("chemstack.orca.commands.list_runs.reconcile_orphaned_running_entries"), patch(
+        "chemstack.orca.commands.list_runs.list_queue",
         return_value=[],
     ), patch(
-        "core.commands.list_runs.collect_run_snapshots",
+        "chemstack.orca.commands.list_runs.collect_run_snapshots",
         return_value=[snapshot],
     ):
         rows = list_runs._collect_unified(allowed_root)
@@ -196,7 +196,7 @@ def test_cmd_list_returns_one_when_allowed_root_is_missing(tmp_path: Path) -> No
     cfg = _cfg(tmp_path / "missing")
     args = SimpleNamespace(config="config.yml", action=None, filter=None)
 
-    with patch("core.commands.list_runs.load_config", return_value=cfg):
+    with patch("chemstack.orca.commands.list_runs.load_config", return_value=cfg):
         assert list_runs.cmd_list(args) == 1
 
 
@@ -206,8 +206,8 @@ def test_cmd_list_clear_delegates_to_clear_action(tmp_path: Path) -> None:
     cfg = _cfg(allowed_root)
     args = SimpleNamespace(config="config.yml", action="clear", filter=None)
 
-    with patch("core.commands.list_runs.load_config", return_value=cfg), patch(
-        "core.commands.list_runs._cmd_clear",
+    with patch("chemstack.orca.commands.list_runs.load_config", return_value=cfg), patch(
+        "chemstack.orca.commands.list_runs._cmd_clear",
         return_value=7,
     ) as clear_cmd:
         assert list_runs.cmd_list(args) == 7
@@ -278,12 +278,12 @@ def test_clear_terminal_run_states_skips_missing_files_and_warns_on_unlink_error
         return original_unlink(self, *args, **kwargs)
 
     with patch(
-        "core.commands.list_runs.collect_run_snapshots",
+        "chemstack.orca.commands.list_runs.collect_run_snapshots",
         return_value=[missing_snapshot, failed_snapshot, success_snapshot, running_snapshot],
     ), patch(
         "pathlib.Path.unlink",
         new=fake_unlink,
-    ), patch("core.commands.list_runs.logger.warning") as warning:
+    ), patch("chemstack.orca.commands.list_runs.logger.warning") as warning:
         cleared = list_runs._clear_terminal_run_states(allowed_root)
 
     assert cleared == 1
@@ -297,7 +297,7 @@ def test_cmd_clear_reports_combined_counts(tmp_path: Path, capsys) -> None:
     allowed_root = tmp_path / "orca_runs"
     allowed_root.mkdir()
 
-    with patch("core.commands.list_runs._clear_terminal_entries", return_value=(2, 3)):
+    with patch("chemstack.orca.commands.list_runs._clear_terminal_entries", return_value=(2, 3)):
         rc = list_runs._cmd_clear(allowed_root)
 
     assert rc == 0

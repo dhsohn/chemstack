@@ -5,7 +5,7 @@ import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from core.orca_runner import OrcaRunner
+from chemstack.orca.orca_runner import OrcaRunner
 
 
 def test_ensure_trailing_newline_only_appends_when_needed(tmp_path: Path) -> None:
@@ -34,7 +34,7 @@ def test_terminate_subprocess_tree_falls_back_to_terminate_when_sigterm_group_ki
     proc.pid = 4242
     proc.wait.return_value = 0
 
-    with patch("core.orca_runner.os.killpg", side_effect=Exception("no pg")):
+    with patch("chemstack.orca.orca_runner.os.killpg", side_effect=Exception("no pg")):
         runner._terminate_subprocess_tree(proc)
 
     proc.terminate.assert_called_once()
@@ -47,7 +47,7 @@ def test_terminate_subprocess_tree_falls_back_to_proc_kill_when_sigkill_group_ki
     proc.pid = 4343
     proc.wait.side_effect = Exception("timeout")
 
-    with patch("core.orca_runner.os.killpg", side_effect=[None, Exception("no pg kill")]):
+    with patch("chemstack.orca.orca_runner.os.killpg", side_effect=[None, Exception("no pg kill")]):
         runner._terminate_subprocess_tree(proc)
 
     proc.kill.assert_called_once()
@@ -61,7 +61,7 @@ def test_terminate_subprocess_tree_ignores_terminate_failure_when_sigterm_group_
     proc.terminate.side_effect = Exception("terminate failed")
     proc.wait.return_value = 0
 
-    with patch("core.orca_runner.os.killpg", side_effect=Exception("no pg")):
+    with patch("chemstack.orca.orca_runner.os.killpg", side_effect=Exception("no pg")):
         runner._terminate_subprocess_tree(proc)
 
     proc.terminate.assert_called_once()
@@ -75,15 +75,15 @@ def test_terminate_subprocess_tree_ignores_proc_kill_failure_when_sigkill_group_
     proc.wait.side_effect = Exception("timeout")
     proc.kill.side_effect = Exception("kill failed")
 
-    with patch("core.orca_runner.os.killpg", side_effect=[None, Exception("no pg kill")]):
+    with patch("chemstack.orca.orca_runner.os.killpg", side_effect=[None, Exception("no pg kill")]):
         runner._terminate_subprocess_tree(proc)
 
     proc.kill.assert_called_once()
 
 
-@patch("core.orca_runner.subprocess.Popen")
-@patch("core.orca_runner.signal.getsignal", return_value=signal.SIG_DFL)
-@patch("core.orca_runner.signal.signal", side_effect=ValueError("not main thread"))
+@patch("chemstack.orca.orca_runner.subprocess.Popen")
+@patch("chemstack.orca.orca_runner.signal.getsignal", return_value=signal.SIG_DFL)
+@patch("chemstack.orca.orca_runner.signal.signal", side_effect=ValueError("not main thread"))
 def test_run_handles_signal_install_value_error(
     _mock_signal: MagicMock,
     _mock_getsignal: MagicMock,
@@ -103,8 +103,8 @@ def test_run_handles_signal_install_value_error(
     assert result.out_path.endswith("test.out")
 
 
-@patch("core.orca_runner.subprocess.Popen")
-@patch("core.orca_runner.signal.getsignal", return_value=signal.SIG_DFL)
+@patch("chemstack.orca.orca_runner.subprocess.Popen")
+@patch("chemstack.orca.orca_runner.signal.getsignal", return_value=signal.SIG_DFL)
 def test_run_ignores_restore_signal_value_error(
     _mock_getsignal: MagicMock,
     mock_popen: MagicMock,
@@ -122,7 +122,7 @@ def test_run_ignores_restore_signal_value_error(
         return None
 
     runner = OrcaRunner("/opt/orca/orca")
-    with patch("core.orca_runner.signal.signal", side_effect=_signal):
+    with patch("chemstack.orca.orca_runner.signal.signal", side_effect=_signal):
         with tempfile.TemporaryDirectory() as td:
             inp = Path(td) / "test.inp"
             inp.write_text("! Opt\n", encoding="utf-8")

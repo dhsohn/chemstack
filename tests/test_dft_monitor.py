@@ -5,8 +5,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from core.dft_index import DFTIndex
-from core.dft_monitor import DFTMonitor
+from chemstack.orca.dft_index import DFTIndex
+from chemstack.orca.dft_monitor import DFTMonitor
 
 
 _COMPLETED_OUT = "\n".join([

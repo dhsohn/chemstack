@@ -8,8 +8,8 @@ from unittest.mock import patch
 
 import pytest
 
-import core.result_organizer as organizer
-from core.result_organizer import OrganizePlan
+import chemstack.orca.result_organizer as organizer
+from chemstack.orca.result_organizer import OrganizePlan
 
 
 def _write_state(reaction_dir: Path, state: dict[str, object]) -> None:
@@ -63,7 +63,7 @@ def test_report_loading_and_route_helpers_cover_missing_invalid_and_fallback(tmp
     _write_report(reaction_dir, payload)
     assert organizer._load_report_as_state(reaction_dir) == payload
 
-    with patch("core.result_organizer.load_state", return_value=None):
+    with patch("chemstack.orca.result_organizer.load_state", return_value=None):
         assert organizer._load_state_with_report_fallback(reaction_dir) == payload
 
     inp_path = reaction_dir / "calc.inp"
@@ -113,7 +113,7 @@ def test_metadata_selection_and_eligibility_cover_missing_artifacts_and_attempt_
         "final_result": {"last_out_path": str(retry_out)},
     }
     with patch(
-        "core.result_organizer.resolve_molecule_key",
+        "chemstack.orca.result_organizer.resolve_molecule_key",
         side_effect=[
             SimpleNamespace(source="directory_fallback", key="selected"),
             SimpleNamespace(source="parsed_input", key="retry"),
@@ -151,7 +151,7 @@ def test_plan_root_scan_handles_scan_errors_and_skips_special_dirs(tmp_path: Pat
             [good_report, symlink_report],
         ],
     ), patch("pathlib.Path.is_symlink", autospec=True, side_effect=lambda path: path == symlink_dir), patch(
-        "core.result_organizer.plan_single",
+        "chemstack.orca.result_organizer.plan_single",
         return_value=(plan, None),
     ) as plan_single:
         plans, skips = organizer.plan_root_scan(root, organized)
@@ -180,20 +180,20 @@ def test_move_helpers_cover_copytree_execute_and_rollback_paths(tmp_path: Path) 
     cross_source.mkdir()
     (cross_source / "nested").mkdir()
     (cross_source / "nested" / "calc.out").write_text("done", encoding="utf-8")
-    with patch("core.result_organizer._fsync_directory"):
+    with patch("chemstack.orca.result_organizer._fsync_directory"):
         organizer._cross_device_move(cross_source, cross_target)
     assert not cross_source.exists()
     assert (cross_target / "nested" / "calc.out").read_text(encoding="utf-8") == "done"
 
     plan = _plan(tmp_path / "move_source", tmp_path / "move_target")
     plan.source_dir.mkdir()
-    with patch("core.result_organizer.os.rename", side_effect=OSError(errno.EXDEV, "cross-device")), patch(
-        "core.result_organizer._cross_device_move",
+    with patch("chemstack.orca.result_organizer.os.rename", side_effect=OSError(errno.EXDEV, "cross-device")), patch(
+        "chemstack.orca.result_organizer._cross_device_move",
     ) as cross_move:
         organizer.execute_move(plan)
     cross_move.assert_called_once_with(plan.source_dir, plan.target_abs_path)
 
-    with patch("core.result_organizer.os.rename", side_effect=OSError(errno.EPERM, "nope")):
+    with patch("chemstack.orca.result_organizer.os.rename", side_effect=OSError(errno.EPERM, "nope")):
         with pytest.raises(OSError):
             organizer.execute_move(plan)
 
@@ -209,8 +209,8 @@ def test_move_helpers_cover_copytree_execute_and_rollback_paths(tmp_path: Path) 
     shutil_target = tmp_path / "rollback_target_ok"
     shutil_target.mkdir()
     rollback_plan = _plan(shutil_source, shutil_target)
-    with patch("core.result_organizer.os.rename", side_effect=OSError(errno.EXDEV, "cross-device")), patch(
-        "core.result_organizer._cross_device_move",
+    with patch("chemstack.orca.result_organizer.os.rename", side_effect=OSError(errno.EXDEV, "cross-device")), patch(
+        "chemstack.orca.result_organizer._cross_device_move",
     ) as cross_move:
         organizer.rollback_move(rollback_plan)
     cross_move.assert_called_once_with(shutil_target, shutil_source)
@@ -295,9 +295,9 @@ def test_path_normalization_and_state_sync_cover_relocation_branches(tmp_path: P
 def test_fsync_directory_closes_descriptor(tmp_path: Path) -> None:
     path = tmp_path / "dir"
     path.mkdir()
-    with patch("core.result_organizer.os.open", return_value=7) as open_mock, patch(
-        "core.result_organizer.os.fsync",
-    ) as fsync_mock, patch("core.result_organizer.os.close") as close_mock:
+    with patch("chemstack.orca.result_organizer.os.open", return_value=7) as open_mock, patch(
+        "chemstack.orca.result_organizer.os.fsync",
+    ) as fsync_mock, patch("chemstack.orca.result_organizer.os.close") as close_mock:
         organizer._fsync_directory(path)
 
     open_mock.assert_called_once()

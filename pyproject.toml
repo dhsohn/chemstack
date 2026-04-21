@@ -3,9 +3,9 @@ requires = ["setuptools>=68.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "orca-auto"
+name = "chemstack"
 version = "0.1.0"
-description = "ORCA single-input recovery runner with automatic retry"
+description = "ChemStack monorepo for ORCA, xTB, CREST, and workflow automation"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { file = "LICENSE" }
@@ -37,9 +37,9 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/dhsohn/orca_auto"
-Repository = "https://github.com/dhsohn/orca_auto"
-Issues = "https://github.com/dhsohn/orca_auto/issues"
+Homepage = "https://github.com/dhsohn/chemstack"
+Repository = "https://github.com/dhsohn/chemstack"
+Issues = "https://github.com/dhsohn/chemstack/issues"
 
 [project.optional-dependencies]
 dev = [
@@ -50,11 +50,9 @@ dev = [
     "types-PyYAML>=6.0.12",
 ]
 
-[project.scripts]
-orca_auto = "orca_auto.cli:main"
-
 [tool.setuptools.packages.find]
-include = ["core*", "orca_auto*"]
+where = ["src"]
+include = ["chemstack*"]
 
 [tool.ruff]
 target-version = "py310"
@@ -62,13 +60,13 @@ line-length = 100
 
 [tool.mypy]
 python_version = "3.10"
-files = ["core", "orca_auto"]
+files = ["src/chemstack", "tests"]
 pretty = true
 show_error_codes = true
 warn_unused_configs = true
 
 [tool.coverage.run]
-source = ["core", "orca_auto"]
+source = ["src/chemstack"]
 
 [tool.coverage.report]
 fail_under = 80

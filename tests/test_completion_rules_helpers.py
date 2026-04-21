@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from core.completion_rules import detect_completion_mode
+from chemstack.orca.completion_rules import detect_completion_mode
 
 
 def test_detect_completion_mode_skips_blank_and_comment_lines_before_route(tmp_path: Path) -> None:

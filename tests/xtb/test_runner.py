@@ -1,0 +1,879 @@
+from __future__ import annotations
+
+import json
+import subprocess
+from pathlib import Path
+from types import SimpleNamespace
+from typing import Any, cast
+
+import pytest
+import yaml
+
+from chemstack.core.config import CommonResourceConfig, CommonRuntimeConfig, TelegramConfig
+
+from chemstack.xtb import runner as runner_mod
+from chemstack.xtb.config import AppConfig, PathsConfig
+
+
+def _cfg(tmp_path: Path, *, xtb_executable: str = "") -> AppConfig:
+    return AppConfig(
+        runtime=CommonRuntimeConfig(
+            allowed_root=str(tmp_path / "allowed"),
+            organized_root=str(tmp_path / "organized"),
+        ),
+        paths=PathsConfig(xtb_executable=xtb_executable),
+        resources=CommonResourceConfig(max_cores_per_task=4, max_memory_gb_per_task=12),
+        telegram=TelegramConfig(),
+    )
+
+
+def _write_xyz(path: Path, *, comment: str = "example") -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "\n".join(
+            [
+                "3",
+                comment,
+                "O 0.000000 0.000000 0.000000",
+                "H 0.000000 0.000000 0.970000",
+                "H 0.000000 0.750000 -0.240000",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    return path
+
+
+def _write_multi_xyz(path: Path, comments: list[str]) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lines: list[str] = []
+    for index, comment in enumerate(comments):
+        z_shift = 0.97 + (index * 0.01)
+        y_shift = 0.75 - (index * 0.02)
+        lines.extend(
+            [
+                "3",
+                comment,
+                "O 0.000000 0.000000 0.000000",
+                f"H 0.000000 0.000000 {z_shift:.6f}",
+                f"H 0.000000 {y_shift:.6f} -0.240000",
+            ]
+        )
+    path.write_text("\n".join([*lines, ""]), encoding="utf-8")
+    return path
+
+
+def _ranking_result(candidate_path: Path, *, status: str = "completed", reason: str = "completed") -> runner_mod.XtbRunResult:
+    return runner_mod.XtbRunResult(
+        status=status,
+        reason=reason,
+        command=("xtb", str(candidate_path)),
+        exit_code=0 if status == "completed" else 1,
+        started_at="2026-04-20T00:00:00Z",
+        finished_at="2026-04-20T00:05:00Z",
+        stdout_log=str((candidate_path.parent / "xtb.stdout.log").resolve()),
+        stderr_log=str((candidate_path.parent / "xtb.stderr.log").resolve()),
+        selected_input_xyz=str(candidate_path.resolve()),
+        job_type="sp",
+        reaction_key="rxn-1",
+        input_summary={"input_xyz": str(candidate_path.resolve())},
+        candidate_count=1,
+        selected_candidate_paths=(str(candidate_path.resolve()),),
+        candidate_details=(),
+        analysis_summary={},
+        manifest_path="",
+        resource_request={"max_cores": 4, "max_memory_gb": 12},
+        resource_actual={"assigned_cores": 4, "memory_limit_gb": 12},
+    )
+
+
+def test_resolve_xtb_executable_uses_configured_and_path_lookup(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    executable = tmp_path / "bin" / "xtb"
+    executable.parent.mkdir(parents=True)
+    executable.write_text("#!/bin/sh\n", encoding="utf-8")
+
+    assert runner_mod._resolve_xtb_executable(_cfg(tmp_path, xtb_executable=str(executable))) == str(
+        executable.resolve()
+    )
+
+    with pytest.raises(ValueError, match="Configured xTB executable not found"):
+        runner_mod._resolve_xtb_executable(_cfg(tmp_path, xtb_executable=str(tmp_path / "missing-xtb")))
+
+    monkeypatch.setattr(runner_mod.shutil, "which", lambda name: "/usr/bin/xtb" if name == "xtb" else None)
+    assert runner_mod._resolve_xtb_executable(_cfg(tmp_path)) == "/usr/bin/xtb"
+
+    monkeypatch.setattr(runner_mod.shutil, "which", lambda name: None)
+    with pytest.raises(ValueError, match="xTB executable not configured and not found on PATH"):
+        runner_mod._resolve_xtb_executable(_cfg(tmp_path))
+
+
+def test_build_command_handles_job_types_and_manifest_options(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cfg = _cfg(tmp_path)
+    selected_xyz = _write_xyz(tmp_path / "job" / "reactant.xyz")
+    product_xyz = _write_xyz(tmp_path / "job" / "product.xyz")
+
+    monkeypatch.setattr(runner_mod, "_resolve_xtb_executable", lambda cfg_obj: "/usr/bin/xtb")
+
+    path_search = runner_mod._build_command(
+        cfg,
+        manifest={
+            "gfn": "1",
+            "charge": "2",
+            "uhf": 1,
+            "solvent_model": "gbsa",
+            "solvent": "water",
+            "namespace": "rxn_001",
+            "xcontrol": "input.inp",
+            "dry_run": "true",
+            "resources": {"max_cores": 10, "max_memory_gb": 28},
+        },
+        selected_input_xyz=selected_xyz,
+        secondary_input_xyz=product_xyz,
+        job_type="path_search",
+    )
+    assert path_search == [
+        "/usr/bin/xtb",
+        str(selected_xyz),
+        "--parallel",
+        "10",
+        "--json",
+        "--gfn",
+        "1",
+        "--chrg",
+        "2",
+        "--uhf",
+        "1",
+        "--gbsa",
+        "water",
+        "--namespace",
+        "rxn_001",
+        "--input",
+        "input.inp",
+        "--path",
+        str(product_xyz),
+        "--define",
+    ]
+
+    opt_command = runner_mod._build_command(
+        cfg,
+        manifest={"opt_level": "tight"},
+        selected_input_xyz=selected_xyz,
+        secondary_input_xyz=None,
+        job_type="opt",
+    )
+    assert opt_command[-2:] == ["--opt", "tight"]
+
+    sp_command = runner_mod._build_command(
+        cfg,
+        manifest={},
+        selected_input_xyz=selected_xyz,
+        secondary_input_xyz=None,
+        job_type="sp",
+    )
+    assert sp_command[-1] == "--sp"
+
+    with pytest.raises(ValueError, match="path_search requires a product/reference structure"):
+        runner_mod._build_command(
+            cfg,
+            manifest={},
+            selected_input_xyz=selected_xyz,
+            secondary_input_xyz=None,
+            job_type="path_search",
+        )
+
+    with pytest.raises(ValueError, match="Unsupported xtb job_type: weird"):
+        runner_mod._build_command(
+            cfg,
+            manifest={},
+            selected_input_xyz=selected_xyz,
+            secondary_input_xyz=None,
+            job_type="weird",
+        )
+
+
+def test_extract_sp_energy_prefers_xtbout_then_string_then_comment(tmp_path: Path) -> None:
+    job_dir = tmp_path / "sp-job"
+    candidate_xyz = _write_xyz(job_dir / "candidate.xyz", comment="energy = -17.25")
+
+    (job_dir / "xtbout.json").write_text(json.dumps({"total energy": -11.5}), encoding="utf-8")
+    assert runner_mod._extract_sp_energy(job_dir, candidate_xyz) == (-11.5, "xtbout.json:total energy")
+
+    (job_dir / "xtbout.json").write_text(json.dumps({"total energy": "-12.75"}), encoding="utf-8")
+    assert runner_mod._extract_sp_energy(job_dir, candidate_xyz) == (-12.75, "xtbout.json:total energy")
+
+    (job_dir / "xtbout.json").unlink()
+    assert runner_mod._extract_sp_energy(job_dir, candidate_xyz) == (-17.25, "candidate_comment")
+
+    candidate_xyz.write_text("3\nno energy here\nH 0 0 0\nH 0 0 1\nH 0 1 0\n", encoding="utf-8")
+    assert runner_mod._extract_sp_energy(job_dir, candidate_xyz) == (None, "")
+
+
+def test_runner_helper_functions_cover_invalid_and_fallback_paths(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assert runner_mod._manifest_int({"charge": "   "}, "charge") is None
+    with pytest.raises(ValueError, match="must be an integer-compatible value"):
+        runner_mod._manifest_int({"charge": object()}, "charge")
+
+    assert runner_mod._safe_float("not-a-number") is None
+    assert runner_mod._ranking_top_n({"top_n": "bad"}) == 3
+
+    job_dir = tmp_path / "job"
+    job_dir.mkdir()
+    assert runner_mod._resolve_existing_path(job_dir, "missing.xyz") == ""
+
+    original_resolve = runner_mod.Path.resolve
+
+    def fake_resolve(self: Path) -> Path:
+        if self.name == "boom.xyz":
+            raise OSError("boom")
+        return original_resolve(self)
+
+    monkeypatch.setattr(runner_mod.Path, "resolve", fake_resolve, raising=False)
+    assert runner_mod._resolve_existing_path(job_dir, "boom.xyz") == ""
+
+    invalid_json_dir = tmp_path / "invalid-json"
+    invalid_json_dir.mkdir()
+    (invalid_json_dir / "xtbout.json").write_text("{not-json", encoding="utf-8")
+    assert runner_mod._load_xtbout_json(invalid_json_dir) == {}
+
+    short_xyz = job_dir / "short.xyz"
+    short_xyz.write_text("1\n", encoding="utf-8")
+    assert runner_mod._parse_candidate_comment_energy(short_xyz) is None
+
+    def fake_read_text(self: Path, *args: Any, **kwargs: Any) -> str:
+        if self == short_xyz:
+            raise OSError("blocked")
+        return Path.read_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(runner_mod.Path, "read_text", fake_read_text, raising=False)
+    assert runner_mod._parse_candidate_comment_energy(short_xyz) is None
+
+
+def test_run_xtb_ranking_job_returns_failed_result_when_no_usable_energy(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cfg = _cfg(tmp_path)
+    job_dir = tmp_path / "ranking-job"
+    candidate_a = _write_xyz(job_dir / "candidates" / "a.xyz")
+    candidate_b = _write_xyz(job_dir / "candidates" / "b.xyz")
+
+    monkeypatch.setattr(runner_mod, "load_job_manifest", lambda path: {"top_n": 2})
+    monkeypatch.setattr(
+        runner_mod,
+        "resolve_job_inputs",
+        lambda job_dir_path, manifest: {
+            "job_type": "ranking",
+            "reaction_key": "rxn-1",
+            "input_summary": {
+                "candidate_paths": [str(candidate_a.resolve()), str(candidate_b.resolve())],
+                "top_n": 2,
+            },
+        },
+    )
+    monkeypatch.setattr(
+        runner_mod,
+        "_run_candidate_sp_job",
+        lambda cfg_obj, *, candidate_xyz, candidate_run_dir, manifest: _ranking_result(
+            candidate_xyz,
+            status="failed",
+            reason="xtb_exit_code_1",
+        ),
+    )
+    monkeypatch.setattr(runner_mod, "_extract_sp_energy", lambda job_dir_path, candidate_xyz: (None, ""))
+    monkeypatch.setattr(runner_mod, "now_utc_iso", lambda: "2026-04-20T00:00:00Z")
+
+    result = runner_mod.run_xtb_ranking_job(cfg, job_dir=job_dir)
+
+    assert result.status == "failed"
+    assert result.reason == "ranking_no_usable_energy"
+    assert result.candidate_count == 2
+    assert result.selected_candidate_paths == ()
+    assert result.analysis_summary["failure_reason"] == "ranking_no_usable_energy"
+    assert result.analysis_summary["top_n"] == 2
+    assert all(item["selected"] is False for item in result.candidate_details)
+    assert Path(result.stdout_log).read_text(encoding="utf-8") == "ranking failed: ranking_no_usable_energy\n"
+    assert (
+        Path(result.stderr_log).read_text(encoding="utf-8")
+        == "no candidate produced a usable xTB energy\n"
+    )
+
+
+def test_run_candidate_sp_job_writes_scaffold_and_finalizes_result(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cfg = _cfg(tmp_path)
+    candidate_xyz = _write_xyz(tmp_path / "input-candidates" / "rank 1.xyz")
+    candidate_run_dir = tmp_path / "ranking-job" / ".ranking_runs" / "01_rank_1"
+    started: list[tuple[Path, Path]] = []
+    finalized: list[object] = []
+
+    sentinel_running = object()
+    expected_result = _ranking_result(candidate_xyz)
+
+    def fake_start_xtb_job(cfg_obj: AppConfig, *, job_dir: Path, selected_input_xyz: Path) -> object:
+        started.append((job_dir, selected_input_xyz))
+        return sentinel_running
+
+    def fake_finalize_xtb_job(running: object) -> runner_mod.XtbRunResult:
+        finalized.append(running)
+        return expected_result
+
+    monkeypatch.setattr(runner_mod, "start_xtb_job", fake_start_xtb_job)
+    monkeypatch.setattr(runner_mod, "finalize_xtb_job", fake_finalize_xtb_job)
+
+    result = runner_mod._run_candidate_sp_job(
+        cfg,
+        candidate_xyz=candidate_xyz,
+        candidate_run_dir=candidate_run_dir,
+        manifest={"job_type": "ranking", "top_n": 2},
+    )
+
+    manifest = yaml.safe_load((candidate_run_dir / "xtb_job.yaml").read_text(encoding="utf-8"))
+    assert result is expected_result
+    assert started == [(candidate_run_dir, candidate_run_dir / "input.xyz")]
+    assert finalized == [sentinel_running]
+    assert (candidate_run_dir / "input.xyz").read_text(encoding="utf-8") == candidate_xyz.read_text(encoding="utf-8")
+    assert manifest["job_type"] == "sp"
+    assert manifest["input_xyz"] == "input.xyz"
+
+
+def test_run_xtb_ranking_job_requires_candidates(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    cfg = _cfg(tmp_path)
+    job_dir = tmp_path / "ranking-job"
+    job_dir.mkdir()
+
+    monkeypatch.setattr(runner_mod, "load_job_manifest", lambda path: {"top_n": 2})
+    monkeypatch.setattr(
+        runner_mod,
+        "resolve_job_inputs",
+        lambda job_dir_path, manifest: {
+            "job_type": "ranking",
+            "reaction_key": "rxn-1",
+            "input_summary": {"candidate_paths": []},
+        },
+    )
+
+    with pytest.raises(ValueError, match="No ranking candidates available"):
+        runner_mod.run_xtb_ranking_job(cfg, job_dir=job_dir)
+
+
+def test_run_xtb_ranking_job_selects_lowest_energy_candidates_and_logs_summary(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cfg = _cfg(tmp_path)
+    job_dir = tmp_path / "ranking-job"
+    candidate_a = _write_xyz(job_dir / "candidates" / "alpha.xyz")
+    candidate_b = _write_xyz(job_dir / "candidates" / "beta.xyz")
+    candidate_c = _write_xyz(job_dir / "candidates" / "gamma.xyz")
+    energy_by_candidate = {
+        candidate_a.resolve(): (-10.0, "xtbout.json:total energy"),
+        candidate_b.resolve(): (-12.5, "xtbout.json:total energy"),
+        candidate_c.resolve(): (None, ""),
+    }
+
+    monkeypatch.setattr(runner_mod, "load_job_manifest", lambda path: {"top_n": 2})
+    monkeypatch.setattr(
+        runner_mod,
+        "resolve_job_inputs",
+        lambda job_dir_path, manifest: {
+            "job_type": "ranking",
+            "reaction_key": "rxn-1",
+            "input_summary": {
+                "candidate_paths": [
+                    str(candidate_a.resolve()),
+                    str(candidate_b.resolve()),
+                    str(candidate_c.resolve()),
+                ],
+                "top_n": 2,
+            },
+        },
+    )
+
+    def fake_run_candidate_sp_job(
+        cfg_obj: AppConfig,
+        *,
+        candidate_xyz: Path,
+        candidate_run_dir: Path,
+        manifest: dict[str, Any],
+    ) -> runner_mod.XtbRunResult:
+        status = "completed" if candidate_xyz.resolve() != candidate_c.resolve() else "failed"
+        reason = "completed" if status == "completed" else "xtb_exit_code_1"
+        return _ranking_result(candidate_xyz, status=status, reason=reason)
+
+    monkeypatch.setattr(runner_mod, "_run_candidate_sp_job", fake_run_candidate_sp_job)
+    monkeypatch.setattr(
+        runner_mod,
+        "_extract_sp_energy",
+        lambda job_dir_path, candidate_xyz: energy_by_candidate[candidate_xyz.resolve()],
+    )
+    monkeypatch.setattr(runner_mod, "now_utc_iso", lambda: "2026-04-20T00:00:00Z")
+
+    result = runner_mod.run_xtb_ranking_job(cfg, job_dir=job_dir)
+
+    assert result.status == "completed"
+    assert result.reason == "completed"
+    assert result.selected_input_xyz == str(candidate_b.resolve())
+    assert result.selected_candidate_paths == (
+        str(candidate_b.resolve()),
+        str(candidate_a.resolve()),
+    )
+    assert result.command == ("xtb", str(candidate_b))
+    assert result.analysis_summary["best_candidate_path"] == str(candidate_b.resolve())
+    assert result.analysis_summary["best_total_energy"] == -12.5
+    assert result.analysis_summary["failed_candidate_count"] == 1
+    assert result.analysis_summary["selected_candidate_paths"] == [
+        str(candidate_b.resolve()),
+        str(candidate_a.resolve()),
+    ]
+    stdout_text = Path(result.stdout_log).read_text(encoding="utf-8")
+    assert "ranking completed: evaluated=3 selected=2" in stdout_text
+    assert "failed_candidates: 1" in stdout_text
+
+
+def test_parse_path_search_stdout_and_candidate_collection_fallbacks(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    job_dir = tmp_path / "path-job"
+    job_dir.mkdir()
+    stdout_log = job_dir / "missing.stdout.log"
+    assert runner_mod._parse_path_search_stdout(job_dir, str(stdout_log)) == {}
+
+    fallback_stdout = job_dir / "xtb.stdout.log"
+    fallback_stdout.write_text("path output without ranked selections\n", encoding="utf-8")
+    path_file = _write_xyz(job_dir / "xtbpath.xyz")
+    count, selected_paths, details, summary = runner_mod._collect_path_search_candidates(job_dir, str(fallback_stdout))
+    assert count == 0
+    assert details == ()
+    assert selected_paths == (str(path_file.resolve()),)
+    assert summary["selected_candidate_paths"] == [str(path_file.resolve())]
+
+    _write_xyz(job_dir / "xtbpath_1.xyz")
+    ignored_count, ignored_paths, ignored_details, _ = runner_mod._collect_path_search_candidates(job_dir, str(fallback_stdout))
+    assert ignored_count == 0
+    assert ignored_paths == (str(path_file.resolve()),)
+    assert ignored_details == ()
+
+
+def test_collect_path_search_candidates_parses_stdout_and_keeps_only_ts_and_selected_path(tmp_path: Path) -> None:
+    job_dir = tmp_path / "path-job"
+    job_dir.mkdir()
+    ts_guess = _write_xyz(job_dir / "ts_guess.xyz")
+    path_file = _write_xyz(job_dir / "xtbpath.xyz")
+    selected_path = _write_multi_xyz(
+        job_dir / "xtbpath_0.xyz",
+        comments=[
+            "energy: -10.0",
+            "energy: -8.5",
+            "energy: -6.0",
+            "energy: -3.5",
+            "energy: -2.0",
+            "energy: -1.0",
+            "energy: -4.0",
+        ],
+    )
+    _write_xyz(job_dir / "xtbpath_1.xyz")
+    _write_xyz(job_dir / "xtbpath_2.xyz")
+    stdout_log = job_dir / "xtb.stdout.log"
+    stdout_log.write_text(
+        "\n".join(
+            [
+                "forward barrier (kcal) : 15.5",
+                "backward barrier (kcal) : 10.0",
+                "reaction energy (kcal) : -3.2",
+                f"estimated TS on file {ts_guess.name}",
+                "path 0 taken with 12 points",
+                "run 1 barrier: 22.0 dE: -0.5 product-end path RMSD: 0.10",
+                "run 2 barrier: 18.0 dE: 1.0 product-end path RMSD: 0.20",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    candidate_count, selected_paths, candidate_details, summary = runner_mod._collect_path_search_candidates(
+        job_dir,
+        str(stdout_log),
+    )
+
+    assert candidate_count == 2
+    assert selected_paths == (
+        str(ts_guess.resolve()),
+        str(selected_path.resolve()),
+    )
+    assert candidate_details[0]["kind"] == "ts_guess"
+    assert candidate_details[1]["kind"] == "selected_path"
+    assert summary["forward_barrier_kcal"] == 15.5
+    assert summary["backward_barrier_kcal"] == 10.0
+    assert summary["reaction_energy_kcal"] == -3.2
+    assert summary["ts_guess_path"] == str(ts_guess.resolve())
+    assert summary["path_file"] == str(path_file.resolve())
+    assert summary["selected_path_file"] == str(selected_path.resolve())
+    assert summary["selected_path_index"] == 0
+    assert summary["selected_path_point_count"] == 12
+    assert summary["path_trials"] == [
+        {"trial_index": 1, "barrier_kcal": 22.0, "delta_e_kcal": -0.5, "product_end_rmsd": 0.1},
+        {"trial_index": 2, "barrier_kcal": 18.0, "delta_e_kcal": 1.0, "product_end_rmsd": 0.2},
+    ]
+    assert summary["selected_candidate_paths"] == list(selected_paths)
+
+
+def test_collect_opt_and_sp_candidates_return_expected_metadata(tmp_path: Path) -> None:
+    opt_job_dir = tmp_path / "opt-job"
+    sp_job_dir = tmp_path / "sp-job"
+    optimized_geometry = _write_xyz(opt_job_dir / "xtbopt.xyz")
+    (opt_job_dir / "xtbopt.log").write_text("optimization complete\n", encoding="utf-8")
+    (opt_job_dir / ".xtboptok").write_text("", encoding="utf-8")
+
+    opt_count, opt_paths, opt_details, opt_summary = runner_mod._collect_opt_candidates(opt_job_dir)
+    assert opt_count == 1
+    assert opt_paths == (str(optimized_geometry.resolve()),)
+    assert opt_details[0]["kind"] == "optimized_geometry"
+    assert opt_summary["optimization_ok"] is True
+
+    result_json = sp_job_dir / "xtbout.json"
+    result_json.parent.mkdir(parents=True, exist_ok=True)
+    result_json.write_text(
+        json.dumps({"total energy": -42.0, "electronic energy": -41.5}),
+        encoding="utf-8",
+    )
+    (sp_job_dir / "charges").write_text("charges\n", encoding="utf-8")
+    (sp_job_dir / "wbo").write_text("wbo\n", encoding="utf-8")
+    (sp_job_dir / "xtbtopo.mol").write_text("topology\n", encoding="utf-8")
+
+    sp_count, sp_paths, sp_details, sp_summary = runner_mod._collect_sp_candidates(sp_job_dir)
+    assert sp_count == 1
+    assert sp_paths == (str(result_json.resolve()),)
+    assert sp_details[0]["kind"] == "single_point_result"
+    assert sp_details[0]["total_energy"] == -42.0
+    assert sp_details[0]["score"] == 42.0
+    assert sp_summary["canonical_result_path"] == str(result_json.resolve())
+    assert sp_summary["total_energy"] == -42.0
+    assert sp_summary["electronic_energy"] == -41.5
+
+    empty_opt_dir = tmp_path / "empty-opt"
+    empty_sp_dir = tmp_path / "empty-sp"
+    empty_opt_dir.mkdir()
+    empty_sp_dir.mkdir()
+
+    assert runner_mod._collect_opt_candidates(empty_opt_dir) == (
+        0,
+        (),
+        (),
+        {
+            "canonical_result_path": "",
+            "optimization_log_path": "",
+            "optimization_ok": False,
+        },
+    )
+    assert runner_mod._collect_sp_candidates(empty_sp_dir) == (
+        0,
+        (),
+        (),
+        {
+            "canonical_result_path": "",
+            "charges_path": "",
+            "wbo_path": "",
+            "topology_path": "",
+        },
+    )
+
+
+def test_preexec_with_limits_sets_address_space_limit(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[tuple[int, tuple[int, int]]] = []
+    monkeypatch.setattr(runner_mod.resource, "setrlimit", lambda kind, limits: calls.append((kind, limits)))
+
+    runner_mod._preexec_with_limits(3)()
+
+    assert calls == [
+        (
+            runner_mod.resource.RLIMIT_AS,
+            (3 * 1024 * 1024 * 1024, 3 * 1024 * 1024 * 1024),
+        )
+    ]
+
+
+def test_start_xtb_job_passes_expected_subprocess_options(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cfg = _cfg(tmp_path)
+    job_dir = tmp_path / "job"
+    selected_xyz = _write_xyz(job_dir / "input.xyz")
+    secondary_xyz = _write_xyz(job_dir / "product.xyz")
+    popen_calls: dict[str, Any] = {}
+    build_command_calls: list[dict[str, Any]] = []
+
+    class _FakeProcess:
+        def poll(self) -> int | None:
+            return 0
+
+    def fake_popen(*args: Any, **kwargs: Any) -> _FakeProcess:
+        popen_calls["args"] = args
+        popen_calls["kwargs"] = kwargs
+        return _FakeProcess()
+
+    def fake_build_command(
+        cfg_obj: AppConfig,
+        *,
+        manifest: dict[str, Any],
+        selected_input_xyz: Path,
+        secondary_input_xyz: Path | None,
+        job_type: str,
+    ) -> list[str]:
+        build_command_calls.append(
+            {
+                "manifest": manifest,
+                "selected_input_xyz": selected_input_xyz,
+                "secondary_input_xyz": secondary_input_xyz,
+                "job_type": job_type,
+            }
+        )
+        return ["xtb", str(selected_input_xyz), "--sp"]
+
+    monkeypatch.setattr(
+        runner_mod,
+        "load_job_manifest",
+        lambda path: {"job_type": "path_search", "resources": {"max_cores": 9, "max_memory_gb": 18}},
+    )
+    monkeypatch.setattr(
+        runner_mod,
+        "resolve_job_inputs",
+        lambda job_dir_path, manifest: {
+            "job_type": "path_search",
+            "reaction_key": "rxn-1",
+            "secondary_input_xyz": str(secondary_xyz.resolve()),
+            "input_summary": {"product_xyz": str(secondary_xyz.resolve())},
+        },
+    )
+    monkeypatch.setattr(runner_mod, "_build_command", fake_build_command)
+    monkeypatch.setattr(runner_mod, "now_utc_iso", lambda: "2026-04-20T00:00:00Z")
+    monkeypatch.setattr(runner_mod.subprocess, "Popen", fake_popen)
+
+    running = runner_mod.start_xtb_job(cfg, job_dir=job_dir, selected_input_xyz=selected_xyz)
+
+    assert build_command_calls == [
+        {
+            "manifest": {"job_type": "path_search", "resources": {"max_cores": 9, "max_memory_gb": 18}},
+            "selected_input_xyz": selected_xyz,
+            "secondary_input_xyz": secondary_xyz.resolve(),
+            "job_type": "path_search",
+        }
+    ]
+    assert running.command == ("xtb", str(selected_xyz), "--sp")
+    assert running.started_at == "2026-04-20T00:00:00Z"
+    assert running.selected_input_xyz == str(selected_xyz.resolve())
+    assert running.job_type == "path_search"
+    assert running.reaction_key == "rxn-1"
+    assert running.input_summary == {"product_xyz": str(secondary_xyz.resolve())}
+    kwargs = popen_calls["kwargs"]
+    assert kwargs["cwd"] == job_dir
+    assert kwargs["text"] is True
+    assert kwargs["stdin"] is subprocess.DEVNULL
+    assert kwargs["start_new_session"] is True
+    assert kwargs["env"]["OMP_NUM_THREADS"] == "9"
+    assert kwargs["env"]["OPENBLAS_NUM_THREADS"] == "9"
+    assert kwargs["env"]["MKL_NUM_THREADS"] == "9"
+    assert kwargs["env"]["NUMEXPR_NUM_THREADS"] == "9"
+    assert callable(kwargs["preexec_fn"])
+    running.stdout_handle.close()
+    running.stderr_handle.close()
+
+
+def test_finalize_xtb_job_defaults_for_completed_path_search_and_unknown_job_type(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path_job_dir = tmp_path / "path-job"
+    path_job_dir.mkdir()
+    stdout_path = path_job_dir / "xtb.stdout.log"
+    stderr_path = path_job_dir / "xtb.stderr.log"
+    stdout_handle = stdout_path.open("w", encoding="utf-8")
+    stderr_handle = stderr_path.open("w", encoding="utf-8")
+
+    class _CompletedProcess:
+        def poll(self) -> int:
+            return 0
+
+    monkeypatch.setattr(
+        runner_mod,
+        "_collect_path_search_candidates",
+        lambda job_dir, stdout_log: (
+            2,
+            ("a.xyz", "b.xyz"),
+            ({"kind": "ts_guess"}, {"kind": "selected_path"}),
+            {"path_file": "a.xyz"},
+        ),
+    )
+    monkeypatch.setattr(runner_mod, "now_utc_iso", lambda: "2026-04-20T00:10:00Z")
+
+    path_running = runner_mod.XtbRunningJob(
+        process=cast(Any, _CompletedProcess()),
+        command=("xtb", "input.xyz", "--path", "product.xyz"),
+        started_at="2026-04-20T00:00:00Z",
+        stdout_log=str(stdout_path.resolve()),
+        stderr_log=str(stderr_path.resolve()),
+        stdout_handle=stdout_handle,
+        stderr_handle=stderr_handle,
+        selected_input_xyz=str((path_job_dir / "input.xyz").resolve()),
+        job_type="path_search",
+        reaction_key="rxn-1",
+        input_summary={},
+        manifest_path=str((path_job_dir / "xtb_job.yaml").resolve()),
+        resource_request={"max_cores": 4, "max_memory_gb": 12},
+        resource_actual={"assigned_cores": 4, "memory_limit_gb": 12},
+        job_dir=str(path_job_dir.resolve()),
+    )
+
+    path_result = runner_mod.finalize_xtb_job(path_running)
+    assert path_result.status == "completed"
+    assert path_result.reason == "completed"
+    assert path_result.candidate_count == 2
+    assert path_result.selected_candidate_paths == ("a.xyz", "b.xyz")
+
+    unknown_job_dir = tmp_path / "unknown-job"
+    unknown_job_dir.mkdir()
+    unknown_stdout = unknown_job_dir / "xtb.stdout.log"
+    unknown_stderr = unknown_job_dir / "xtb.stderr.log"
+    unknown_running = runner_mod.XtbRunningJob(
+        process=cast(Any, SimpleNamespace(poll=lambda: 5)),
+        command=("xtb", "input.xyz"),
+        started_at="2026-04-20T00:00:00Z",
+        stdout_log=str(unknown_stdout.resolve()),
+        stderr_log=str(unknown_stderr.resolve()),
+        stdout_handle=unknown_stdout.open("w", encoding="utf-8"),
+        stderr_handle=unknown_stderr.open("w", encoding="utf-8"),
+        selected_input_xyz=str((unknown_job_dir / "input.xyz").resolve()),
+        job_type="mystery",
+        reaction_key="rxn-2",
+        input_summary={},
+        manifest_path=str((unknown_job_dir / "xtb_job.yaml").resolve()),
+        resource_request={"max_cores": 4, "max_memory_gb": 12},
+        resource_actual={"assigned_cores": 4, "memory_limit_gb": 12},
+        job_dir=str(unknown_job_dir.resolve()),
+    )
+
+    unknown_result = runner_mod.finalize_xtb_job(unknown_running)
+    assert unknown_result.status == "failed"
+    assert unknown_result.reason == "xtb_exit_code_5"
+    assert unknown_result.candidate_count == 0
+    assert unknown_result.analysis_summary == {}
+
+
+def test_finalize_xtb_job_waits_for_process_and_uses_forced_status(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    job_dir = tmp_path / "job"
+    job_dir.mkdir()
+    stdout_path = job_dir / "xtb.stdout.log"
+    stderr_path = job_dir / "xtb.stderr.log"
+    stdout_handle = stdout_path.open("w", encoding="utf-8")
+    stderr_handle = stderr_path.open("w", encoding="utf-8")
+
+    class _Process:
+        def __init__(self) -> None:
+            self.wait_called = False
+
+        def poll(self) -> None:
+            return None
+
+        def wait(self) -> int:
+            self.wait_called = True
+            return 7
+
+    process = _Process()
+    monkeypatch.setattr(
+        runner_mod,
+        "_collect_opt_candidates",
+        lambda path: (1, ("optimized.xyz",), ({"kind": "optimized_geometry"},), {"optimization_ok": True}),
+    )
+    monkeypatch.setattr(runner_mod, "now_utc_iso", lambda: "2026-04-20T00:10:00Z")
+
+    running = runner_mod.XtbRunningJob(
+        process=cast(Any, process),
+        command=("xtb", "input.xyz", "--opt", "tight"),
+        started_at="2026-04-20T00:00:00Z",
+        stdout_log=str(stdout_path.resolve()),
+        stderr_log=str(stderr_path.resolve()),
+        stdout_handle=stdout_handle,
+        stderr_handle=stderr_handle,
+        selected_input_xyz=str((job_dir / "input.xyz").resolve()),
+        job_type="opt",
+        reaction_key="mol-1",
+        input_summary={"input_xyz": str((job_dir / "input.xyz").resolve())},
+        manifest_path=str((job_dir / "xtb_job.yaml").resolve()),
+        resource_request={"max_cores": 4, "max_memory_gb": 12},
+        resource_actual={"assigned_cores": 4, "memory_limit_gb": 12},
+        job_dir=str(job_dir.resolve()),
+    )
+
+    result = runner_mod.finalize_xtb_job(
+        running,
+        forced_status="cancelled",
+        forced_reason="cancel_requested",
+    )
+
+    assert process.wait_called is True
+    assert result.status == "cancelled"
+    assert result.reason == "cancel_requested"
+    assert result.exit_code == 7
+    assert result.candidate_count == 1
+    assert result.selected_candidate_paths == ("optimized.xyz",)
+    assert result.analysis_summary == {"optimization_ok": True}
+
+
+def test_finalize_xtb_job_uses_single_point_candidate_collection(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    job_dir = tmp_path / "sp-job"
+    job_dir.mkdir()
+    stdout_path = job_dir / "xtb.stdout.log"
+    stderr_path = job_dir / "xtb.stderr.log"
+    stdout_handle = stdout_path.open("w", encoding="utf-8")
+    stderr_handle = stderr_path.open("w", encoding="utf-8")
+
+    monkeypatch.setattr(
+        runner_mod,
+        "_collect_sp_candidates",
+        lambda path: (1, ("xtbout.json",), ({"kind": "single_point_result"},), {"total_energy": -4.2}),
+    )
+    monkeypatch.setattr(runner_mod, "now_utc_iso", lambda: "2026-04-20T00:10:00Z")
+
+    running = runner_mod.XtbRunningJob(
+        process=cast(Any, SimpleNamespace(poll=lambda: 0)),
+        command=("xtb", "input.xyz", "--sp"),
+        started_at="2026-04-20T00:00:00Z",
+        stdout_log=str(stdout_path.resolve()),
+        stderr_log=str(stderr_path.resolve()),
+        stdout_handle=stdout_handle,
+        stderr_handle=stderr_handle,
+        selected_input_xyz=str((job_dir / "input.xyz").resolve()),
+        job_type="sp",
+        reaction_key="mol-sp",
+        input_summary={},
+        manifest_path=str((job_dir / "xtb_job.yaml").resolve()),
+        resource_request={"max_cores": 4, "max_memory_gb": 12},
+        resource_actual={"assigned_cores": 4, "memory_limit_gb": 12},
+        job_dir=str(job_dir.resolve()),
+    )
+
+    result = runner_mod.finalize_xtb_job(running)
+    assert result.status == "completed"
+    assert result.reason == "completed"
+    assert result.candidate_count == 1
+    assert result.selected_candidate_paths == ("xtbout.json",)
+    assert result.analysis_summary == {"total_energy": -4.2}

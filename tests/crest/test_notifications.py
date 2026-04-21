@@ -1,0 +1,259 @@
+from __future__ import annotations
+
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+
+from chemstack.core.config import CommonRuntimeConfig, TelegramConfig
+
+from chemstack.crest.config import AppConfig
+from chemstack.crest import notifications
+
+
+def _cfg(tmp_path: Path) -> AppConfig:
+    return AppConfig(
+        runtime=CommonRuntimeConfig(
+            allowed_root=str(tmp_path / "allowed"),
+            organized_root=str(tmp_path / "organized"),
+        ),
+        telegram=TelegramConfig(bot_token="bot-token", chat_id="chat-id"),
+    )
+
+
+def _patch_transport(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    sent: bool,
+    skipped: bool = False,
+) -> tuple[list[TelegramConfig], list[str]]:
+    build_calls: list[TelegramConfig] = []
+    messages: list[str] = []
+
+    class FakeTransport:
+        def send_text(self, text: str) -> SimpleNamespace:
+            messages.append(text)
+            return SimpleNamespace(sent=sent, skipped=skipped)
+
+    def fake_build(telegram_cfg: TelegramConfig) -> FakeTransport:
+        build_calls.append(telegram_cfg)
+        return FakeTransport()
+
+    monkeypatch.setattr(notifications, "build_telegram_transport", fake_build)
+    return build_calls, messages
+
+
+@pytest.mark.parametrize(
+    ("sent", "skipped", "expected"),
+    [
+        (True, False, True),
+        (False, True, True),
+        (False, False, False),
+    ],
+)
+def test_send_joins_lines_and_maps_transport_result(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    sent: bool,
+    skipped: bool,
+    expected: bool,
+) -> None:
+    cfg = _cfg(tmp_path)
+    build_calls, messages = _patch_transport(monkeypatch, sent=sent, skipped=skipped)
+
+    result = notifications._send(cfg, ["first line", "second line"])
+
+    assert result is expected
+    assert build_calls == [cfg.telegram]
+    assert messages == ["first line\nsecond line"]
+
+
+def test_notify_job_queued_sends_expected_message(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    cfg = _cfg(tmp_path)
+    _, messages = _patch_transport(monkeypatch, sent=True)
+    job_dir = tmp_path / "runs" / "job-001"
+    selected_xyz = job_dir / "picked.xyz"
+
+    result = notifications.notify_job_queued(
+        cfg,
+        job_id="job-001",
+        queue_id="queue-001",
+        job_dir=job_dir,
+        mode="nci",
+        selected_xyz=selected_xyz,
+    )
+
+    assert result is True
+    assert messages == [
+        "\n".join(
+            [
+                "[crest_auto] Job queued",
+                "job_id: job-001",
+                "queue_id: queue-001",
+                "mode: nci",
+                "job_dir: job-001",
+                "selected_xyz: picked.xyz",
+            ]
+        )
+    ]
+
+
+def test_notify_job_started_sends_expected_message(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    cfg = _cfg(tmp_path)
+    _, messages = _patch_transport(monkeypatch, sent=True)
+    job_dir = tmp_path / "runs" / "job-002"
+    selected_xyz = job_dir / "selected_input.xyz"
+
+    result = notifications.notify_job_started(
+        cfg,
+        job_id="job-002",
+        queue_id="queue-002",
+        job_dir=job_dir,
+        mode="standard",
+        selected_xyz=selected_xyz,
+    )
+
+    assert result is True
+    assert messages == [
+        "\n".join(
+            [
+                "[crest_auto] Job started",
+                "job_id: job-002",
+                "queue_id: queue-002",
+                "mode: standard",
+                "job_dir: job-002",
+                "selected_xyz: selected_input.xyz",
+            ]
+        )
+    ]
+
+
+@pytest.mark.parametrize(
+    ("status", "headline"),
+    [
+        ("completed", "Job finished"),
+        ("failed", "Job failed"),
+        ("cancelled", "Job cancelled"),
+    ],
+)
+def test_notify_job_finished_maps_terminal_headlines(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    status: str,
+    headline: str,
+) -> None:
+    cfg = _cfg(tmp_path)
+    _, messages = _patch_transport(monkeypatch, sent=True)
+    job_dir = tmp_path / "runs" / f"job-{status}"
+    selected_xyz = job_dir / "input.xyz"
+
+    result = notifications.notify_job_finished(
+        cfg,
+        job_id=f"job-{status}",
+        queue_id=f"queue-{status}",
+        status=status,
+        reason=f"{status}-reason",
+        mode="nci",
+        job_dir=job_dir,
+        selected_xyz=selected_xyz,
+        retained_conformer_count=3,
+    )
+
+    assert result is True
+    assert messages == [
+        "\n".join(
+            [
+                f"[crest_auto] {headline}",
+                f"job_id: job-{status}",
+                f"queue_id: queue-{status}",
+                f"status: {status}",
+                f"reason: {status}-reason",
+                "mode: nci",
+                f"job_dir: job-{status}",
+                "selected_xyz: input.xyz",
+                "retained_conformer_count: 3",
+            ]
+        )
+    ]
+
+
+def test_notify_job_finished_includes_optional_extra_lines(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    cfg = _cfg(tmp_path)
+    _, messages = _patch_transport(monkeypatch, sent=True)
+    job_dir = tmp_path / "runs" / "job-complete"
+    selected_xyz = job_dir / "input.xyz"
+    organized_output_dir = tmp_path / "organized" / "job-complete"
+    resource_request = {"max_cores": 6, "max_memory_gb": 14}
+    resource_actual = {"assigned_cores": 4, "memory_limit_gb": 12}
+
+    result = notifications.notify_job_finished(
+        cfg,
+        job_id="job-complete",
+        queue_id="queue-complete",
+        status="completed",
+        reason="ok",
+        mode="standard",
+        job_dir=job_dir,
+        selected_xyz=selected_xyz,
+        retained_conformer_count=7,
+        organized_output_dir=organized_output_dir,
+        resource_request=resource_request,
+        resource_actual=resource_actual,
+    )
+
+    assert result is True
+    assert messages == [
+        "\n".join(
+            [
+                "[crest_auto] Job finished",
+                "job_id: job-complete",
+                "queue_id: queue-complete",
+                "status: completed",
+                "reason: ok",
+                "mode: standard",
+                "job_dir: job-complete",
+                "selected_xyz: input.xyz",
+                "retained_conformer_count: 7",
+                f"organized_output_dir: {organized_output_dir}",
+                f"resource_request: {resource_request}",
+                f"resource_actual: {resource_actual}",
+            ]
+        )
+    ]
+
+
+def test_notify_organize_summary_sends_expected_message(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    cfg = _cfg(tmp_path)
+    _, messages = _patch_transport(monkeypatch, sent=True)
+    root = tmp_path / "organized"
+
+    result = notifications.notify_organize_summary(
+        cfg,
+        organized_count=5,
+        skipped_count=2,
+        root=root,
+    )
+
+    assert result is True
+    assert messages == [
+        "\n".join(
+            [
+                "[crest_auto] Organize summary",
+                f"root: {root}",
+                "organized: 5",
+                "skipped: 2",
+            ]
+        )
+    ]

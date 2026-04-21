@@ -2,7 +2,7 @@
 import unittest
 from pathlib import Path
 
-from core.completion_rules import detect_completion_mode
+from chemstack.orca.completion_rules import detect_completion_mode
 
 
 class TestCompletionRules(unittest.TestCase):

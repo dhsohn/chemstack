@@ -8,10 +8,13 @@ ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 LOCK_FILE="$ROOT/.cron_organize.lock"
 LOG_DIR="$ROOT/logs"
 LOG_FILE="$LOG_DIR/cron_organize_$(date +%Y%m%d_%H%M%S).log"
-CONFIG_PATH="${ORCA_AUTO_CONFIG:-$ROOT/config/orca_auto.yaml}"
 
 # Load user env vars if available
-[[ -f "$HOME/.orca_auto_env" ]] && source "$HOME/.orca_auto_env"
+if [[ -f "$HOME/.chemstack_env" ]]; then
+  source "$HOME/.chemstack_env"
+fi
+
+CONFIG_PATH="${CHEMSTACK_CONFIG:-$ROOT/config/chemstack.yaml}"
 
 # Prevent concurrent execution via flock
 exec 200>"$LOCK_FILE"
@@ -23,9 +26,9 @@ PYTHON_BIN="$ROOT/.venv/bin/python3"
 [[ -x "$PYTHON_BIN" ]] || PYTHON_BIN="$(command -v python3)"
 
 ALLOWED_ROOT="$(
-  PYTHONPATH="$ROOT:${PYTHONPATH:-}" "$PYTHON_BIN" - "$CONFIG_PATH" <<'PY'
+  PYTHONPATH="$ROOT/src:$ROOT:${PYTHONPATH:-}" "$PYTHON_BIN" - "$CONFIG_PATH" <<'PY'
 import sys
-from core.config import load_config
+from chemstack.orca.config import load_config
 
 cfg = load_config(sys.argv[1])
 print(cfg.runtime.allowed_root)
@@ -35,7 +38,7 @@ PY
 echo "[cron_organize] Started at $(date -Iseconds)" | tee -a "$LOG_FILE"
 echo "[cron_organize] allowed_root=$ALLOWED_ROOT config=$CONFIG_PATH" | tee -a "$LOG_FILE"
 
-PYTHONPATH="$ROOT:${PYTHONPATH:-}" "$PYTHON_BIN" -m core.cli \
+PYTHONPATH="$ROOT/src:$ROOT:${PYTHONPATH:-}" "$PYTHON_BIN" -m chemstack.orca.cli \
   --config "$CONFIG_PATH" \
   organize --root "$ALLOWED_ROOT" --apply \
   2>&1 | tee -a "$LOG_FILE"

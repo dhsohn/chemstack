@@ -8,12 +8,12 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from core.process_tracking import active_run_lock_pid, current_process_lock_payload, read_pid_file
+from chemstack.orca.process_tracking import active_run_lock_pid, current_process_lock_payload, read_pid_file
 
 
 class TestProcessTracking(unittest.TestCase):
     def test_current_process_lock_payload_includes_ticks_when_available(self) -> None:
-        with patch("core.process_tracking.current_process_start_ticks", return_value=123):
+        with patch("chemstack.orca.process_tracking.current_process_start_ticks", return_value=123):
             payload = current_process_lock_payload()
 
         self.assertEqual(payload["pid"], os.getpid())
@@ -21,7 +21,7 @@ class TestProcessTracking(unittest.TestCase):
         self.assertIsInstance(payload["started_at"], str)
 
     def test_current_process_lock_payload_omits_ticks_when_unavailable(self) -> None:
-        with patch("core.process_tracking.current_process_start_ticks", return_value=None):
+        with patch("chemstack.orca.process_tracking.current_process_start_ticks", return_value=None):
             payload = current_process_lock_payload()
 
         self.assertEqual(payload["pid"], os.getpid())
@@ -42,7 +42,7 @@ class TestProcessTracking(unittest.TestCase):
             reaction_dir = Path(td)
             (reaction_dir / "run.lock").write_text(json.dumps({"pid": 4321}), encoding="utf-8")
 
-            with patch("core.process_tracking.is_process_alive", return_value=False):
+            with patch("chemstack.orca.process_tracking.is_process_alive", return_value=False):
                 pid = active_run_lock_pid(reaction_dir)
 
         self.assertIsNone(pid)
@@ -54,8 +54,8 @@ class TestProcessTracking(unittest.TestCase):
                 json.dumps({"pid": 4321, "process_start_ticks": 111}),
                 encoding="utf-8",
             )
-            with patch("core.process_tracking.is_process_alive", return_value=True), patch(
-                "core.process_tracking.process_start_ticks",
+            with patch("chemstack.orca.process_tracking.is_process_alive", return_value=True), patch(
+                "chemstack.orca.process_tracking.process_start_ticks",
                 return_value=111,
             ):
                 pid = active_run_lock_pid(reaction_dir)
@@ -70,8 +70,8 @@ class TestProcessTracking(unittest.TestCase):
                 encoding="utf-8",
             )
             callback = Mock()
-            with patch("core.process_tracking.is_process_alive", return_value=True), patch(
-                "core.process_tracking.process_start_ticks",
+            with patch("chemstack.orca.process_tracking.is_process_alive", return_value=True), patch(
+                "chemstack.orca.process_tracking.process_start_ticks",
                 return_value=222,
             ):
                 pid = active_run_lock_pid(reaction_dir, on_pid_reuse=callback)
@@ -87,8 +87,8 @@ class TestProcessTracking(unittest.TestCase):
                 encoding="utf-8",
             )
             logger = Mock(spec=logging.Logger)
-            with patch("core.process_tracking.is_process_alive", return_value=True), patch(
-                "core.process_tracking.process_start_ticks",
+            with patch("chemstack.orca.process_tracking.is_process_alive", return_value=True), patch(
+                "chemstack.orca.process_tracking.process_start_ticks",
                 return_value=None,
             ):
                 pid = active_run_lock_pid(reaction_dir, logger=logger, lock_file_name="custom.lock")
@@ -102,8 +102,8 @@ class TestProcessTracking(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             reaction_dir = Path(td)
             (reaction_dir / "run.lock").write_text(json.dumps({"pid": 4321}), encoding="utf-8")
-            with patch("core.process_tracking.is_process_alive", return_value=True), patch(
-                "core.process_tracking.process_start_ticks"
+            with patch("chemstack.orca.process_tracking.is_process_alive", return_value=True), patch(
+                "chemstack.orca.process_tracking.process_start_ticks"
             ) as process_start_ticks:
                 pid = active_run_lock_pid(reaction_dir)
 
@@ -144,7 +144,7 @@ class TestProcessTracking(unittest.TestCase):
             pid_path = Path(td) / "queue_worker.pid"
             pid_path.write_text("999999999", encoding="utf-8")
 
-            with patch("core.process_tracking.is_process_alive", return_value=False), patch.object(
+            with patch("chemstack.orca.process_tracking.is_process_alive", return_value=False), patch.object(
                 Path,
                 "unlink",
                 side_effect=OSError("busy"),
@@ -160,7 +160,7 @@ class TestProcessTracking(unittest.TestCase):
             pid_path = Path(td) / "queue_worker.pid"
             pid_path.write_text("1234", encoding="utf-8")
 
-            with patch("core.process_tracking.is_process_alive", return_value=True):
+            with patch("chemstack.orca.process_tracking.is_process_alive", return_value=True):
                 pid = read_pid_file(pid_path)
                 exists_after = pid_path.exists()
 

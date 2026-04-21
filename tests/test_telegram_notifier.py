@@ -5,10 +5,10 @@ from __future__ import annotations
 import json
 from unittest.mock import MagicMock, patch
 
-from core.config import TelegramConfig
-from core.dft_monitor import MonitorResult, ScanReport
-from core.types import QueueEnqueuedNotification, RetryNotification, RunFinishedNotification, RunStartedNotification
-from core.telegram_notifier import (
+from chemstack.orca.config import TelegramConfig
+from chemstack.orca.dft_monitor import MonitorResult, ScanReport
+from chemstack.orca.types import QueueEnqueuedNotification, RetryNotification, RunFinishedNotification, RunStartedNotification
+from chemstack.orca.telegram_notifier import (
     escape_html,
     _status_icon,
     format_monitor_message,
@@ -136,7 +136,7 @@ class TestMonitorFormatting:
         report = _sample_report()
         text = format_monitor_message(report)
         assert has_monitor_updates(report) is True
-        assert "orca_auto monitor" in text
+        assert "chemstack monitor" in text
         assert "New Calculations Detected" in text
         assert "CH4" in text
         assert "C6H6" in text
@@ -147,7 +147,7 @@ class TestMonitorFormatting:
 class TestFormatRetryEvent:
     def test_format_contains_failure_and_restart_context(self) -> None:
         text = format_retry_event(_sample_retry_event())
-        assert "ORCA Auto Retry" in text
+        assert "ChemStack ORCA Retry" in text
         assert "retry 1/2 is starting" in text
         assert "error_scf" in text
         assert "scf_not_converged" in text
@@ -161,7 +161,7 @@ class TestFormatRetryEvent:
 class TestFormatRunStartedEvent:
     def test_format_contains_start_context(self) -> None:
         text = format_run_started_event(_sample_started_event())
-        assert "ORCA Auto Started" in text
+        assert "ChemStack ORCA Started" in text
         assert "#1" in text
         assert "running" in text
         assert "rxn.inp" in text
@@ -171,7 +171,7 @@ class TestFormatRunStartedEvent:
 class TestFormatRunFinishedEvent:
     def test_format_contains_terminal_context(self) -> None:
         text = format_run_finished_event(_sample_finished_event())
-        assert "ORCA Auto Completed" in text
+        assert "ChemStack ORCA Completed" in text
         assert "normal_termination" in text
         assert "completed" in text
         assert "rxn.retry01.out" in text
@@ -182,7 +182,7 @@ class TestSendMessage:
     def test_disabled_config_returns_false(self) -> None:
         assert send_message(_disabled_config(), "test") is False
 
-    @patch("core.telegram_notifier.urllib.request.urlopen")
+    @patch("chemstack.orca.telegram_notifier.urllib.request.urlopen")
     def test_success(self, mock_urlopen: MagicMock) -> None:
         mock_resp = MagicMock()
         mock_resp.read.return_value = json.dumps({"ok": True}).encode()
@@ -202,7 +202,7 @@ class TestSendMessage:
         assert body["text"] == "hello"
         assert body["parse_mode"] == "HTML"
 
-    @patch("core.telegram_notifier.urllib.request.urlopen")
+    @patch("chemstack.orca.telegram_notifier.urllib.request.urlopen")
     def test_api_error(self, mock_urlopen: MagicMock) -> None:
         mock_resp = MagicMock()
         mock_resp.read.return_value = json.dumps({"ok": False}).encode()
@@ -214,14 +214,14 @@ class TestSendMessage:
 
 
 class TestNotifyMonitorReport:
-    @patch("core.telegram_notifier.send_message", return_value=True)
+    @patch("chemstack.orca.telegram_notifier.send_message", return_value=True)
     def test_sends_when_results_exist(self, mock_send: MagicMock) -> None:
         report = _sample_report()
         result = notify_monitor_report(_enabled_config(), report)
         assert result is True
         mock_send.assert_called_once()
 
-    @patch("core.telegram_notifier.send_message")
+    @patch("chemstack.orca.telegram_notifier.send_message")
     def test_skips_empty_report(self, mock_send: MagicMock) -> None:
         report = ScanReport(new_results=[], scanned_files=5)
         result = notify_monitor_report(_enabled_config(), report)
@@ -230,13 +230,13 @@ class TestNotifyMonitorReport:
 
 
 class TestNotifyRetryEvent:
-    @patch("core.telegram_notifier.send_message", return_value=True)
+    @patch("chemstack.orca.telegram_notifier.send_message", return_value=True)
     def test_sends_retry_message(self, mock_send: MagicMock) -> None:
         result = notify_retry_event(_enabled_config(), _sample_retry_event())
         assert result is True
         mock_send.assert_called_once()
 
-    @patch("core.telegram_notifier.send_message")
+    @patch("chemstack.orca.telegram_notifier.send_message")
     def test_skips_when_disabled(self, mock_send: MagicMock) -> None:
         result = notify_retry_event(_disabled_config(), _sample_retry_event())
         assert result is False
@@ -244,13 +244,13 @@ class TestNotifyRetryEvent:
 
 
 class TestNotifyRunStartedEvent:
-    @patch("core.telegram_notifier.send_message", return_value=True)
+    @patch("chemstack.orca.telegram_notifier.send_message", return_value=True)
     def test_sends_started_message(self, mock_send: MagicMock) -> None:
         result = notify_run_started_event(_enabled_config(), _sample_started_event())
         assert result is True
         mock_send.assert_called_once()
 
-    @patch("core.telegram_notifier.send_message")
+    @patch("chemstack.orca.telegram_notifier.send_message")
     def test_skips_when_disabled(self, mock_send: MagicMock) -> None:
         result = notify_run_started_event(_disabled_config(), _sample_started_event())
         assert result is False
@@ -258,13 +258,13 @@ class TestNotifyRunStartedEvent:
 
 
 class TestNotifyRunFinishedEvent:
-    @patch("core.telegram_notifier.send_message", return_value=True)
+    @patch("chemstack.orca.telegram_notifier.send_message", return_value=True)
     def test_sends_finished_message(self, mock_send: MagicMock) -> None:
         result = notify_run_finished_event(_enabled_config(), _sample_finished_event())
         assert result is True
         mock_send.assert_called_once()
 
-    @patch("core.telegram_notifier.send_message")
+    @patch("chemstack.orca.telegram_notifier.send_message")
     def test_skips_when_disabled(self, mock_send: MagicMock) -> None:
         result = notify_run_finished_event(_disabled_config(), _sample_finished_event())
         assert result is False
@@ -284,7 +284,7 @@ def _sample_queue_enqueued_event() -> QueueEnqueuedNotification:
 class TestFormatQueueEnqueuedEvent:
     def test_format_contains_queue_context(self) -> None:
         text = format_queue_enqueued_event(_sample_queue_enqueued_event())
-        assert "ORCA Auto Queued" in text
+        assert "ChemStack ORCA Queued" in text
         assert "q_20260310_abc12345" in text
         assert "Priority" in text
         assert "5" in text
@@ -298,13 +298,13 @@ class TestFormatQueueEnqueuedEvent:
 
 
 class TestNotifyQueueEnqueuedEvent:
-    @patch("core.telegram_notifier.send_message", return_value=True)
+    @patch("chemstack.orca.telegram_notifier.send_message", return_value=True)
     def test_sends_enqueued_message(self, mock_send: MagicMock) -> None:
         result = notify_queue_enqueued_event(_enabled_config(), _sample_queue_enqueued_event())
         assert result is True
         mock_send.assert_called_once()
 
-    @patch("core.telegram_notifier.send_message")
+    @patch("chemstack.orca.telegram_notifier.send_message")
     def test_skips_when_disabled(self, mock_send: MagicMock) -> None:
         result = notify_queue_enqueued_event(_disabled_config(), _sample_queue_enqueued_event())
         assert result is False

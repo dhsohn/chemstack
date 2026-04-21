@@ -6,14 +6,14 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from core.commands.organize import (
+from chemstack.orca.commands.organize import (
     _build_index_record,
     _build_organize_message,
     _cmd_organize_apply,
     organize_reaction_dir,
 )
-from core.config import AppConfig, PathsConfig, RuntimeConfig
-from core.result_organizer import OrganizePlan, SkipReason
+from chemstack.orca.config import AppConfig, PathsConfig, RuntimeConfig
+from chemstack.orca.result_organizer import OrganizePlan, SkipReason
 
 
 def _make_plan(root: Path, name: str = "rxn1") -> OrganizePlan:
@@ -101,20 +101,20 @@ class TestOrganizeHelpers(unittest.TestCase):
                 emit_fn(summary)
                 return 1 if failures else 0
 
-            with patch("core.commands.organize.acquire_index_lock", return_value=contextlib.nullcontext()), patch(
-                "core.commands.organize.load_index",
+            with patch("chemstack.orca.commands.organize.acquire_index_lock", return_value=contextlib.nullcontext()), patch(
+                "chemstack.orca.commands.organize.load_index",
                 return_value=[],
             ), patch(
-                "core.commands.organize.check_conflict",
+                "chemstack.orca.commands.organize.check_conflict",
                 return_value="already_organized",
             ), patch(
-                "core.commands.organize.finalize_batch_apply",
+                "chemstack.orca.commands.organize.finalize_batch_apply",
                 side_effect=_finalize,
             ), patch(
-                "core.commands.organize._emit_organize",
+                "chemstack.orca.commands.organize._emit_organize",
                 return_value=None,
             ) as emit_mock, patch(
-                "core.commands.organize.execute_move",
+                "chemstack.orca.commands.organize.execute_move",
             ) as move_mock:
                 rc = _cmd_organize_apply([plan], [], root / "organized", cfg)
 
@@ -126,8 +126,8 @@ class TestOrganizeHelpers(unittest.TestCase):
         move_mock.assert_not_called()
         emit_mock.assert_called_once()
 
-    @patch("core.commands.organize._apply_organize_plans")
-    @patch("core.commands.organize._resolve_organize_scope")
+    @patch("chemstack.orca.commands.organize._apply_organize_plans")
+    @patch("chemstack.orca.commands.organize._resolve_organize_scope")
     def test_organize_reaction_dir_returns_organized_payload(
         self,
         mock_scope: unittest.mock.MagicMock,
@@ -157,7 +157,7 @@ class TestOrganizeHelpers(unittest.TestCase):
         self.assertEqual(result["run_id"], plan.run_id)
         self.assertEqual(result["target_dir"], str(plan.target_abs_path))
 
-    @patch("core.commands.organize._resolve_organize_scope")
+    @patch("chemstack.orca.commands.organize._resolve_organize_scope")
     def test_organize_reaction_dir_returns_skip_reason_for_empty_scope(
         self,
         mock_scope: unittest.mock.MagicMock,

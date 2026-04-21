@@ -1,6 +1,12 @@
-# ORCA Auto Detailed Reference
+# ChemStack ORCA Detailed Reference
 
-ORCA Auto is a queue-first executor for ORCA calculations. It conservatively retries failed runs, records state in each job directory, and organizes completed results for later review.
+ChemStack ORCA is a queue-first executor for ORCA calculations. It conservatively retries failed runs, records state in each job directory, and organizes completed results for later review.
+
+Current developer-facing package rule:
+
+- The canonical implementation lives in `chemstack.orca`
+- Shared infrastructure lives in `chemstack.core`
+- Supported imports live under `chemstack.*`
 
 ## 1) Project Purpose
 
@@ -32,28 +38,32 @@ Operational consequences:
 ## 3) Directory Structure
 
 ```text
-~/orca_auto
-  config/orca_auto.yaml
-  bin/orca_auto
-  core/
-    cli.py                 # CLI argument parsing and command routing
-    commands/
-      _helpers.py          # Shared utilities (validation, formatting, config paths)
-      run_inp.py           # Public queue submission command
-      run_job.py           # Internal worker-owned execution path
-      organize.py          # organize command
-      queue.py             # queue command handlers
-    config.py              # Configuration loading and dataclasses
-    config_validation.py   # Configuration validation/normalization
-    queue_store.py         # queue.json / queue.lock management
-    queue_worker.py        # Foreground queue worker loop
-    state_store.py         # State persistence, atomic writes, run lock
-    attempt_engine.py      # Retry loop orchestration
-    ...                    # Other domain modules
+<repo_root>
+  config/chemstack.yaml
+  src/
+    chemstack/
+      core/               # Shared chemistry-platform infrastructure
+      flow/               # Workflow orchestration package
+      xtb/                # xTB engine package
+      crest/              # CREST engine package
+      orca/               # Canonical ORCA implementation
+        cli.py
+        commands/
+        runtime/
+        state.py
+        tracking.py
+        ...
   systemd/
-    orca-auto-queue-worker@.service
+    chemstack-orca-queue-worker@.service
+    chemstack-xtb-queue-worker@.service
+    chemstack-crest-queue-worker@.service
+    chemstack-flow-workflow-worker.service
+    chemstack-flow-worker.env.example
   scripts/*.sh / *.py
-  tests/*.py
+  tests/
+    integration/
+    flow/
+    ...
 ```
 
 ## 4) Required Environment
@@ -67,49 +77,77 @@ Operational consequences:
 ## 5) Installation and Initial Setup
 
 ```bash
-cd ~/orca_auto
+cd <repo_root>
 bash scripts/bootstrap_wsl.sh
 ```
 
 `bootstrap_wsl.sh`:
 
 - Prepares `.venv`
-- Installs Python dependencies
-- Seeds `config/orca_auto.yaml` if missing
+- Installs Python dependencies and the repository itself into `.venv`
+- Seeds `config/chemstack.yaml` if missing
 
-Within the repository, use `./bin/orca_auto`. An installed `orca_auto` entry point is intended to expose the same public CLI semantics.
+This reference standardizes on `python -m chemstack.orca.cli ...`.
+Activate `.venv` first, or call `.venv/bin/python -m chemstack.orca.cli ...` directly.
+By default, config is resolved from `CHEMSTACK_CONFIG`, then `<repo_root>/config/chemstack.yaml`, then `~/chemstack/config/chemstack.yaml`.
+Add `--config <path>` only when you want to override default config discovery.
 
 ## 6) Configuration File
 
-Configuration file: `<project_root>/config/orca_auto.yaml`
+Configuration file: `<project_root>/config/chemstack.yaml`
 
 Search order:
 
-1. `ORCA_AUTO_CONFIG`
-2. `<project_root>/config/orca_auto.yaml`
-3. `~/orca_auto/config/orca_auto.yaml`
+1. `CHEMSTACK_CONFIG`
+2. `<project_root>/config/chemstack.yaml`
+3. `~/chemstack/config/chemstack.yaml`
 
 ```yaml
-runtime:
-  allowed_root: "/path/to/orca_runs"
-  organized_root: "/path/to/orca_outputs"
-  default_max_retries: 2
-  max_concurrent: 4
-  admission_root: "/path/to/chem_admission"
-  admission_max_concurrent: 4
+resources:
+  max_cores_per_task: 8
+  max_memory_gb_per_task: 32
 
-paths:
-  orca_executable: "/path/to/orca/orca"
+behavior:
+  auto_organize_on_terminal: false
+
+scheduler:
+  max_active_simulations: 4
+  admission_root: "/path/to/chem_admission"
+
+telegram:
+  bot_token: ""
+  chat_id: ""
+
+orca:
+  runtime:
+    allowed_root: "/path/to/orca_runs"
+    organized_root: "/path/to/orca_outputs"
+    default_max_retries: 2
+  paths:
+    orca_executable: "/path/to/orca/orca"
+
+xtb:
+  runtime:
+    allowed_root: "/path/to/xtb_runs"
+    organized_root: "/path/to/xtb_outputs"
+  paths:
+    xtb_executable: "/path/to/xtb"
+
+crest:
+  runtime:
+    allowed_root: "/path/to/crest_runs"
+    organized_root: "/path/to/crest_outputs"
+  paths:
+    crest_executable: "/path/to/crest"
 ```
 
-Field descriptions:
+Field descriptions for the `orca` section:
 
 - `runtime.allowed_root`: Root directory permitted for execution
 - `runtime.organized_root`: Root for organized outputs
 - `runtime.default_max_retries`: Maximum retry count after the initial attempt
-- `runtime.max_concurrent`: Local worker fill limit for this queue root
-- `runtime.admission_root`: Shared admission root for machine-wide slot coordination
-- `runtime.admission_max_concurrent`: Shared machine-wide active-run cap for `admission_root`
+- `scheduler.max_active_simulations`: Shared total active-run cap across ORCA, xTB, and CREST
+- `scheduler.admission_root`: Shared admission root for machine-wide slot coordination
 - `paths.orca_executable`: ORCA executable path
 
 Notes:
@@ -122,8 +160,8 @@ Notes:
 ### 7.1 `run-dir`
 
 ```bash
-cd ~/orca_auto
-./bin/orca_auto run-dir '/absolute/path/to/orca_runs/Int1_DMSO'
+cd <repo_root>
+python -m chemstack.orca.cli run-dir '/absolute/path/to/orca_runs/Int1_DMSO'
 ```
 
 Successful submission example:
@@ -157,15 +195,14 @@ Public options:
 ### 7.2 `queue worker`
 
 ```bash
-./bin/orca_auto queue worker
+python -m chemstack.orca.cli queue worker
 ```
 
 Behavior:
 
 - Runs in the foreground
 - Polls `queue.json` for pending jobs
-- Uses `runtime.max_concurrent` as the local worker fill limit
-- Enforces `runtime.admission_max_concurrent` under `runtime.admission_root`
+- Enforces `scheduler.max_active_simulations` under `scheduler.admission_root`
 - Executes jobs through an internal worker-owned execution path
 - Updates queue status on completion or failure
 - Requeues in-flight jobs during controlled shutdown
@@ -180,18 +217,18 @@ There is no supported app-managed `--daemon` mode in the intended workflow. Ther
 ### 7.3 `queue cancel`
 
 ```bash
-./bin/orca_auto queue cancel q_20260403_151220_ab12cd
-./bin/orca_auto queue cancel /absolute/path/to/orca_runs/Int1_DMSO
-./bin/orca_auto queue cancel all-pending
+python -m chemstack.orca.cli queue cancel q_20260403_151220_ab12cd
+python -m chemstack.orca.cli queue cancel /absolute/path/to/orca_runs/Int1_DMSO
+python -m chemstack.orca.cli queue cancel all-pending
 ```
 
 ### 7.4 `list`
 
 ```bash
-./bin/orca_auto list
-./bin/orca_auto list --filter pending
-./bin/orca_auto list --filter running
-./bin/orca_auto list clear
+python -m chemstack.orca.cli list
+python -m chemstack.orca.cli list --filter pending
+python -m chemstack.orca.cli list --filter running
+python -m chemstack.orca.cli list clear
 ```
 
 `list` presents queue state together with run state and can clear terminal entries.
@@ -199,8 +236,8 @@ There is no supported app-managed `--daemon` mode in the intended workflow. Ther
 ### 7.5 `organize`
 
 ```bash
-./bin/orca_auto organize --root '/absolute/path/to/orca_runs'
-./bin/orca_auto organize --root '/absolute/path/to/orca_runs' --apply
+python -m chemstack.orca.cli organize --root '/absolute/path/to/orca_runs'
+python -m chemstack.orca.cli organize --root '/absolute/path/to/orca_runs' --apply
 ```
 
 Options:
@@ -225,27 +262,52 @@ If you change `/etc/wsl.conf`, restart WSL from Windows:
 wsl --shutdown
 ```
 
-This repository includes a templated unit file:
+This repository includes service assets under `systemd/`:
 
-- [`systemd/orca-auto-queue-worker@.service`](/home/daehyupsohn/orca_auto/systemd/orca-auto-queue-worker@.service)
+- [`systemd/chemstack-orca-queue-worker@.service`](/home/daehyupsohn/chemstack/systemd/chemstack-orca-queue-worker@.service)
+- [`systemd/chemstack-xtb-queue-worker@.service`](/home/daehyupsohn/chemstack/systemd/chemstack-xtb-queue-worker@.service)
+- [`systemd/chemstack-crest-queue-worker@.service`](/home/daehyupsohn/chemstack/systemd/chemstack-crest-queue-worker@.service)
+- [`systemd/chemstack-flow-workflow-worker.service`](/home/daehyupsohn/chemstack/systemd/chemstack-flow-workflow-worker.service)
+- [`systemd/chemstack-flow-worker.env.example`](/home/daehyupsohn/chemstack/systemd/chemstack-flow-worker.env.example)
 
-Recommended install flow:
+Recommended engine-worker install flow:
 
 ```bash
-cd ~/orca_auto
-sudo cp systemd/orca-auto-queue-worker@.service /etc/systemd/system/
+cd <repo_root>
+APP=orca   # or xtb / crest
+sudo cp "systemd/chemstack-${APP}-queue-worker@.service" /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable --now "orca-auto-queue-worker@$(whoami)"
-systemctl status "orca-auto-queue-worker@$(whoami)"
-journalctl -u "orca-auto-queue-worker@$(whoami)" -f
+sudo systemctl enable --now "chemstack-${APP}-queue-worker@$(whoami)"
+systemctl status "chemstack-${APP}-queue-worker@$(whoami)"
+journalctl -u "chemstack-${APP}-queue-worker@$(whoami)" -f
 ```
 
-Assumptions of the template:
+Assumptions of the engine templates:
 
-- Repository path: `/home/<user>/orca_auto`
-- Config path: `/home/<user>/orca_auto/config/orca_auto.yaml`
+- Repository path: `/home/<user>/chemstack`
+- Config path: `/home/<user>/chemstack/config/chemstack.yaml`
 
 If your paths differ, edit the copied unit before enabling it.
+
+ORCA, xTB, and CREST workers can all be enabled together. The shared
+`scheduler.max_active_simulations` setting still limits the combined number of
+active simulations.
+
+For the workflow worker:
+
+```bash
+cd <repo_root>
+sudo install -d /etc/chemstack
+sudo cp systemd/chemstack-flow-worker.env.example /etc/chemstack/flow-worker.env
+sudo cp systemd/chemstack-flow-workflow-worker.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now chemstack-flow-workflow-worker
+systemctl status chemstack-flow-workflow-worker
+journalctl -u chemstack-flow-workflow-worker -f
+```
+
+Edit `/etc/chemstack/flow-worker.env` before enabling the service and set
+`CHEM_FLOW_WORKFLOW_ROOT` for your machine.
 
 ## 9) Completion Determination Rules
 
@@ -344,7 +406,7 @@ Important `run_report.json` fields:
 ## 11.1) Downstream Contract Freeze
 
 The migration baseline assumes the following ORCA-facing compatibility contract
-remains readable by downstream tooling such as `chem_flow`.
+remains readable by downstream tooling such as `chemstack.flow`.
 
 Queue entry fields currently consumed downstream from `queue.json`:
 
@@ -429,7 +491,7 @@ least these fields:
 
 1. `Job directory must be under allowed root`
 - Cause: the job directory path is outside `allowed_root`
-- Action: Check `allowed_root` in `config/orca_auto.yaml`
+- Action: Check `allowed_root` in `config/chemstack.yaml`
 
 2. `Job directory not found`
 - Cause: Path string or quoting problem
@@ -445,11 +507,21 @@ least these fields:
 
 5. `error_multiplicity_impossible`
 - Cause: Electron count and multiplicity mismatch
-- Action: Manually adjust the input, because ORCA Auto does not rewrite charge or multiplicity
+- Action: Manually adjust the input, because ChemStack ORCA does not rewrite charge or multiplicity
 
 ## 14) Testing
 
 ```bash
-cd ~/orca_auto
+cd <repo_root>
 pytest -q
 ```
+
+Focused regression commands used during the monorepo migration:
+
+```bash
+pytest tests/flow -q
+pytest tests/integration -q
+```
+
+For package-layout and import guidance, see [DEVELOPMENT.md](DEVELOPMENT.md).
+Historical migration plans are archived under [archive/README.md](archive/README.md).

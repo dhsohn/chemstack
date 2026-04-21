@@ -7,7 +7,7 @@ import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from core.dft_discovery import discover_orca_targets
+from chemstack.orca.dft_discovery import discover_orca_targets
 
 
 def test_default_policy_uses_run_state_only(tmp_path: Path) -> None:

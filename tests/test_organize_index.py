@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from core.organize_index import (
+from chemstack.orca.organize_index import (
     load_index,
     rebuild_index,
     records_path,

@@ -1,0 +1,18 @@
+[Unit]
+Description=ChemStack flow workflow worker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/chemstack/flow-worker.env
+WorkingDirectory=/home/daehyupsohn/chemstack
+ExecStart=/usr/bin/env bash /home/daehyupsohn/chemstack/scripts/flow/chem_flow_worker_service.sh
+Restart=always
+RestartSec=10
+KillMode=process
+TimeoutStopSec=30
+Nice=5
+
+[Install]
+WantedBy=multi-user.target

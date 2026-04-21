@@ -6,7 +6,7 @@ import unittest
 from datetime import datetime, timezone
 from pathlib import Path
 
-from core.persistence_utils import atomic_write_json, atomic_write_text, now_utc_iso, timestamped_token
+from chemstack.orca.persistence_utils import atomic_write_json, atomic_write_text, now_utc_iso, timestamped_token
 
 
 class TestPersistenceUtils(unittest.TestCase):

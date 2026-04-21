@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from core.queue_store import (
+from chemstack.orca.queue_store import (
     DuplicateEntryError,
     cancel,
     cancel_all_pending,
@@ -19,8 +19,8 @@ from core.queue_store import (
     mark_failed,
     reconcile_orphaned_running_entries,
 )
-from core.statuses import QueueStatus
-from core.types import QueueEntry
+from chemstack.orca.statuses import QueueStatus
+from chemstack.orca.types import QueueEntry
 
 
 class TestQueueStore(unittest.TestCase):
@@ -43,7 +43,7 @@ class TestQueueStore(unittest.TestCase):
         entry = enqueue(self.root, str(self.root / "mol_A"))
         self.assertEqual(entry["status"], QueueStatus.PENDING.value)
         self.assertTrue(entry["queue_id"].startswith("q_"))
-        self.assertEqual(entry["app_name"], "orca_auto")
+        self.assertEqual(entry["app_name"], "chemstack_orca")
         self.assertTrue(entry["task_id"].startswith("orca_"))
         self.assertEqual(entry["task_kind"], "orca_run_inp")
         self.assertEqual(entry["engine"], "orca")

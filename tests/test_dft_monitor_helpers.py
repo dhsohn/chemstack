@@ -7,8 +7,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from core.dft_discovery import DiscoveredTarget
-from core.dft_monitor import (
+from chemstack.orca.dft_discovery import DiscoveredTarget
+from chemstack.orca.dft_monitor import (
     DFTMonitor,
     _canonical_path_key,
     _file_signature,
@@ -18,7 +18,7 @@ from core.dft_monitor import (
     _save_state,
     _short_path,
 )
-from core.orca_parser import OrcaResult
+from chemstack.orca.orca_parser import OrcaResult
 
 
 def _write_output(tmp_path: Path, relative_path: str = "calc.out") -> Path:
@@ -113,7 +113,7 @@ def test_load_state_keeps_latest_signature_for_duplicate_normalized_keys(
             return "/canonical/calc.out"
         return str(path_text)
 
-    with patch("core.dft_monitor._canonical_path_key", side_effect=normalize):
+    with patch("chemstack.orca.dft_monitor._canonical_path_key", side_effect=normalize):
         state = _load_state(str(state_file))
 
     assert state == {"/canonical/calc.out": (20.0, 200, "")}
@@ -134,7 +134,7 @@ def test_load_state_skips_non_string_keys_from_loaded_payload(tmp_path: Path) ->
     state_file = tmp_path / "state.json"
     state_file.write_text("{}", encoding="utf-8")
 
-    with patch("core.dft_monitor.json.load", return_value={
+    with patch("chemstack.orca.dft_monitor.json.load", return_value={
         1: {"mtime": 1.0},
         "good": {"mtime": 2.0},
     }):
@@ -167,7 +167,7 @@ def test_save_state_logs_warning_when_write_fails(
 ) -> None:
     state_file = tmp_path / "state.json"
 
-    with patch("core.dft_monitor.json.dump", side_effect=OSError("disk full")):
+    with patch("chemstack.orca.dft_monitor.json.dump", side_effect=OSError("disk full")):
         with caplog.at_level(logging.WARNING):
             _save_state(str(state_file), {"/tmp/calc.out": (1.0, 2, "")})
 
@@ -195,10 +195,10 @@ def test_scan_records_parse_failure_for_changed_target(tmp_path: Path) -> None:
     monitor = DFTMonitor(index, [str(tmp_path)])
     monitor._baseline_seeded = True
 
-    with patch("core.dft_monitor.discover_orca_targets", return_value=[
+    with patch("chemstack.orca.dft_monitor.discover_orca_targets", return_value=[
         DiscoveredTarget(path=out_file, run_state_status="completed"),
     ]):
-        with patch("core.dft_monitor.parse_orca_output", side_effect=ValueError("boom")):
+        with patch("chemstack.orca.dft_monitor.parse_orca_output", side_effect=ValueError("boom")):
             report = monitor.scan()
 
     assert len(report.failures) == 1
@@ -214,10 +214,10 @@ def test_scan_skips_targets_with_missing_file_signature(tmp_path: Path) -> None:
     monitor = DFTMonitor(index, [str(tmp_path)])
     monitor._baseline_seeded = True
 
-    with patch("core.dft_monitor.discover_orca_targets", return_value=[
+    with patch("chemstack.orca.dft_monitor.discover_orca_targets", return_value=[
         DiscoveredTarget(path=missing_file, run_state_status="completed"),
     ]):
-        with patch("core.dft_monitor.parse_orca_output") as parse_mock:
+        with patch("chemstack.orca.dft_monitor.parse_orca_output") as parse_mock:
             report = monitor.scan()
 
     assert report.scanned_files == 0
@@ -233,11 +233,11 @@ def test_scan_suppresses_duplicate_canonical_target_after_parse_failure(tmp_path
     monitor = DFTMonitor(index, [str(tmp_path)])
     monitor._baseline_seeded = True
 
-    with patch("core.dft_monitor.discover_orca_targets", return_value=[
+    with patch("chemstack.orca.dft_monitor.discover_orca_targets", return_value=[
         DiscoveredTarget(path=out_file, run_state_status="completed"),
         DiscoveredTarget(path=out_file, run_state_status="completed"),
     ]):
-        with patch("core.dft_monitor.parse_orca_output", side_effect=ValueError("boom")) as parse_mock:
+        with patch("chemstack.orca.dft_monitor.parse_orca_output", side_effect=ValueError("boom")) as parse_mock:
             report = monitor.scan()
 
     assert len(report.failures) == 1
@@ -251,10 +251,10 @@ def test_scan_running_result_updates_cache_without_upsert(tmp_path: Path) -> Non
     monitor = DFTMonitor(index, [str(tmp_path)])
     monitor._baseline_seeded = True
 
-    with patch("core.dft_monitor.discover_orca_targets", return_value=[
+    with patch("chemstack.orca.dft_monitor.discover_orca_targets", return_value=[
         DiscoveredTarget(path=out_file, run_state_status="running"),
     ]):
-        with patch("core.dft_monitor.parse_orca_output", return_value=_parsed_result(
+        with patch("chemstack.orca.dft_monitor.parse_orca_output", return_value=_parsed_result(
             out_file,
             status="completed",
             opt_converged=False,
@@ -277,10 +277,10 @@ def test_scan_failed_run_state_overrides_completed_parser_status(tmp_path: Path)
     monitor = DFTMonitor(index, [str(tmp_path)])
     monitor._baseline_seeded = True
 
-    with patch("core.dft_monitor.discover_orca_targets", return_value=[
+    with patch("chemstack.orca.dft_monitor.discover_orca_targets", return_value=[
         DiscoveredTarget(path=out_file, run_state_status="failed"),
     ]):
-        with patch("core.dft_monitor.parse_orca_output", return_value=_parsed_result(
+        with patch("chemstack.orca.dft_monitor.parse_orca_output", return_value=_parsed_result(
             out_file,
             status="completed",
         )):
@@ -298,10 +298,10 @@ def test_scan_detects_run_state_only_transition_without_file_change(tmp_path: Pa
     monitor = DFTMonitor(index, [str(tmp_path)])
     monitor._baseline_seeded = True
 
-    with patch("core.dft_monitor.discover_orca_targets", return_value=[
+    with patch("chemstack.orca.dft_monitor.discover_orca_targets", return_value=[
         DiscoveredTarget(path=out_file, run_state_status="running"),
     ]):
-        with patch("core.dft_monitor.parse_orca_output", return_value=_parsed_result(
+        with patch("chemstack.orca.dft_monitor.parse_orca_output", return_value=_parsed_result(
             out_file,
             status="completed",
         )):
@@ -311,10 +311,10 @@ def test_scan_detects_run_state_only_transition_without_file_change(tmp_path: Pa
     assert running_report.new_results[0].status == "running"
     index.upsert_single.assert_not_called()
 
-    with patch("core.dft_monitor.discover_orca_targets", return_value=[
+    with patch("chemstack.orca.dft_monitor.discover_orca_targets", return_value=[
         DiscoveredTarget(path=out_file, run_state_status="failed"),
     ]):
-        with patch("core.dft_monitor.parse_orca_output", return_value=_parsed_result(
+        with patch("chemstack.orca.dft_monitor.parse_orca_output", return_value=_parsed_result(
             out_file,
             status="completed",
         )):
@@ -331,11 +331,11 @@ def test_scan_seeds_baseline_without_parsing_on_first_run(tmp_path: Path) -> Non
     index = MagicMock()
     monitor = DFTMonitor(index, [str(tmp_path)], state_file=str(state_file))
 
-    with patch("core.dft_monitor.discover_orca_targets", return_value=[
+    with patch("chemstack.orca.dft_monitor.discover_orca_targets", return_value=[
         DiscoveredTarget(path=out_file, run_state_status="completed"),
     ]):
-        with patch("core.dft_monitor.parse_orca_output") as parse_mock:
-            with patch("core.dft_monitor._save_state") as save_mock:
+        with patch("chemstack.orca.dft_monitor.parse_orca_output") as parse_mock:
+            with patch("chemstack.orca.dft_monitor._save_state") as save_mock:
                 report = monitor.scan()
 
     canonical = _canonical_path_key(out_file)
@@ -360,11 +360,11 @@ def test_scan_removes_stale_paths_and_saves_state(tmp_path: Path) -> None:
         stale_canonical: (1.0, 1, ""),
     }
 
-    with patch("core.dft_monitor.discover_orca_targets", return_value=[
+    with patch("chemstack.orca.dft_monitor.discover_orca_targets", return_value=[
         DiscoveredTarget(path=out_file, run_state_status="completed"),
     ]):
-        with patch("core.dft_monitor.parse_orca_output") as parse_mock:
-            with patch("core.dft_monitor._save_state") as save_mock:
+        with patch("chemstack.orca.dft_monitor.parse_orca_output") as parse_mock:
+            with patch("chemstack.orca.dft_monitor._save_state") as save_mock:
                 report = monitor.scan()
 
     assert report.scanned_files == 1
@@ -380,10 +380,10 @@ def test_scan_skips_completed_result_when_upsert_fails(tmp_path: Path) -> None:
     monitor = DFTMonitor(index, [str(tmp_path)])
     monitor._baseline_seeded = True
 
-    with patch("core.dft_monitor.discover_orca_targets", return_value=[
+    with patch("chemstack.orca.dft_monitor.discover_orca_targets", return_value=[
         DiscoveredTarget(path=out_file, run_state_status="completed"),
     ]):
-        with patch("core.dft_monitor.parse_orca_output", return_value=_parsed_result(out_file)):
+        with patch("chemstack.orca.dft_monitor.parse_orca_output", return_value=_parsed_result(out_file)):
             report = monitor.scan()
 
     assert report.new_results == []

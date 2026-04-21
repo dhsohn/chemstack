@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from core.orca_parser import parse_opt_progress, parse_orca_output
+from chemstack.orca.orca_parser import parse_opt_progress, parse_orca_output
 
 
 def test_error_termination_is_classified_as_failed(tmp_path: Path) -> None:

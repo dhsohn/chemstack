@@ -5,7 +5,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import patch
 
-from core import organize_index
+from chemstack.orca import organize_index
 
 
 def _write_state(reaction_dir: Path, state: dict[str, object] | str) -> None:
@@ -73,7 +73,7 @@ def test_resolve_state_path_handles_blank_and_delegates(tmp_path: Path) -> None:
 
     assert organize_index.resolve_state_path("", reaction_dir) is None
 
-    with patch("core.organize_index.resolve_artifact_path", return_value=resolved) as mocked:
+    with patch("chemstack.orca.organize_index.resolve_artifact_path", return_value=resolved) as mocked:
         assert organize_index.resolve_state_path("calc.out", reaction_dir) == resolved
 
     mocked.assert_called_once_with("calc.out", reaction_dir)
@@ -152,7 +152,7 @@ def test_rebuild_index_falls_back_to_first_inp_when_metadata_missing(tmp_path: P
         },
     )
 
-    with patch("core.result_organizer.resolve_organize_metadata", return_value=(None, "other", "unknown")):
+    with patch("chemstack.orca.result_organizer.resolve_organize_metadata", return_value=(None, "other", "unknown")):
         assert organize_index.rebuild_index(organized_root) == 1
 
     record = organize_index.load_index(organized_root)["run_fallback"]
@@ -167,7 +167,7 @@ def test_append_failed_rollback_writes_jsonl_and_respects_lock(tmp_path: Path) -
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     lock_path.write_text("{}", encoding="utf-8")
 
-    with patch("core.organize_index.logger.warning") as warning:
+    with patch("chemstack.orca.organize_index.logger.warning") as warning:
         organize_index.append_failed_rollback(organized_root, {"run_id": "run_1", "reason": "rollback_failed"})
 
     warning.assert_not_called()
@@ -179,7 +179,7 @@ def test_append_failed_rollback_writes_jsonl_and_respects_lock(tmp_path: Path) -
 def test_append_record_warns_without_lock_and_appends_jsonl(tmp_path: Path) -> None:
     organized_root = tmp_path / "outputs"
 
-    with patch("core.organize_index.logger.warning") as warning:
+    with patch("chemstack.orca.organize_index.logger.warning") as warning:
         organize_index.append_record(organized_root, {"run_id": "run_2"})
 
     warning.assert_called_once()
@@ -201,8 +201,8 @@ def test_acquire_index_lock_passes_expected_payload_and_callbacks(tmp_path: Path
         captured.update(kwargs)
         yield
 
-    with patch("core.organize_index.lock_utils.current_process_start_ticks", return_value=321), patch(
-        "core.organize_index.lock_utils.acquire_file_lock",
+    with patch("chemstack.orca.organize_index.lock_utils.current_process_start_ticks", return_value=321), patch(
+        "chemstack.orca.organize_index.lock_utils.acquire_file_lock",
         side_effect=_fake_acquire_file_lock,
     ):
         with organize_index.acquire_index_lock(organized_root, timeout_seconds=7):
@@ -226,8 +226,8 @@ def test_acquire_index_lock_omits_process_ticks_when_unavailable(tmp_path: Path)
         captured.update(kwargs)
         yield
 
-    with patch("core.organize_index.lock_utils.current_process_start_ticks", return_value=None), patch(
-        "core.organize_index.lock_utils.acquire_file_lock",
+    with patch("chemstack.orca.organize_index.lock_utils.current_process_start_ticks", return_value=None), patch(
+        "chemstack.orca.organize_index.lock_utils.acquire_file_lock",
         side_effect=_fake_acquire_file_lock,
     ):
         with organize_index.acquire_index_lock(organized_root):

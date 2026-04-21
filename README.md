@@ -1,6 +1,6 @@
-# ORCA Auto — User Guide
+# ChemStack — ORCA Automation Guide
 
-[![CI](https://github.com/dhsohn/orca_auto/actions/workflows/ci.yml/badge.svg)](https://github.com/dhsohn/orca_auto/actions/workflows/ci.yml)
+[![CI](https://github.com/dhsohn/chemstack/actions/workflows/ci.yml/badge.svg)](https://github.com/dhsohn/chemstack/actions/workflows/ci.yml)
 
 > A Python CLI that automates failure analysis, input modification, retry, state recording, and result reporting for ORCA quantum chemistry calculations.
 
@@ -22,6 +22,7 @@
 12. [Troubleshooting](#troubleshooting)
 13. [Project Structure](#project-structure)
 14. [Testing](#testing)
+15. [Developer Notes](#developer-notes)
 
 ---
 
@@ -35,7 +36,7 @@ ORCA calculations can run for hours or days before stopping due to `SCF NOT CONV
 - Consistently managing retry artifacts and final results
 - Handling duplicate runs, mid-run interruptions, and resume scenarios
 
-**ORCA Auto** automates all of this — from single calculation execution to batch processing (queue), result organization, monitoring, and Telegram notifications.
+**ChemStack ORCA** automates all of this — from single calculation execution to batch processing (queue), result organization, monitoring, and Telegram notifications.
 
 ### Design Principles
 
@@ -43,6 +44,12 @@ ORCA calculations can run for hours or days before stopping due to `SCF NOT CONV
 - **Separation of concerns**: Runner, analyzer, retry engine, state store, and organizer are each independent
 - **Operational safety first**: Lock files, atomic writes, stale lock recovery, and resume detection
 - **Conservative recovery**: Never overwrites the original `.inp`; only generates retry inputs
+
+### Developer Import Note
+
+- The canonical ORCA implementation now lives under `chemstack.orca`
+- New code should import `chemstack.orca.*` and shared infrastructure from `chemstack.core.*`
+- Top-level `core.*` and `orca_auto.*` shim packages were removed; supported imports now live under `chemstack.*`
 
 ---
 
@@ -58,14 +65,20 @@ ORCA calculations can run for hours or days before stopping due to `SCF NOT CONV
 ### Setup
 
 ```bash
-cd ~/orca_auto
+cd <repo_root>
 bash scripts/bootstrap_wsl.sh
 ```
 
 `bootstrap_wsl.sh` performs the following:
 - Creates a Python virtual environment (`.venv`)
-- Installs dependencies (`requirements.txt`)
-- Seeds `config/orca_auto.yaml` from the example template if not present
+- Installs dependencies and the repository itself into `.venv`
+- Seeds `config/chemstack.yaml` from the example template if not present
+
+Examples below assume the repository virtual environment is active:
+
+```bash
+source .venv/bin/activate
+```
 
 ---
 
@@ -74,7 +87,7 @@ bash scripts/bootstrap_wsl.sh
 ### Interactive Setup
 
 ```bash
-./bin/orca_auto init
+python -m chemstack.orca.cli init
 ```
 
 You will be prompted for the following:
@@ -85,43 +98,59 @@ You will be prompted for the following:
 | `runtime.allowed_root` | Root directory for calculation input directories | Yes |
 | `runtime.organized_root` | Directory for organized results (default: `orca_outputs` sibling to `allowed_root`) | No |
 | `runtime.default_max_retries` | Maximum number of retries (default: 2) | No |
-| `runtime.max_concurrent` | Local worker fill limit for this queue root (default: 4) | No |
+| `scheduler.max_active_simulations` | Shared total active-run cap across ORCA, xTB, and CREST (default: 4) | No |
 | `telegram.bot_token` | Telegram bot token | No |
 | `telegram.chat_id` | Telegram chat ID | No |
 
 ### Configuration File Format
 
-Location: `config/orca_auto.yaml`
+Location: `config/chemstack.yaml`
 
 ```yaml
-runtime:
-  allowed_root: "/home/user/orca_runs"
-  organized_root: "/home/user/orca_outputs"
-  default_max_retries: 2
-  max_concurrent: 4
-  admission_root: "/home/user/chem_admission"
-  admission_max_concurrent: 4
+resources:
+  max_cores_per_task: 8
+  max_memory_gb_per_task: 32
 
-paths:
-  orca_executable: "/opt/orca/orca"
+behavior:
+  auto_organize_on_terminal: false
+
+scheduler:
+  max_active_simulations: 4
+  admission_root: "/home/user/chem_admission"
 
 telegram:
   bot_token: ""
   chat_id: ""
+
+orca:
+  runtime:
+    allowed_root: "/home/user/orca_runs"
+    organized_root: "/home/user/orca_outputs"
+    default_max_retries: 2
+  paths:
+    orca_executable: "/opt/orca/orca"
+
+xtb:
+  runtime:
+    allowed_root: "/home/user/xtb_runs"
+    organized_root: "/home/user/xtb_outputs"
+  paths:
+    xtb_executable: "/opt/xtb/xtb"
+
+crest:
+  runtime:
+    allowed_root: "/home/user/crest_runs"
+    organized_root: "/home/user/crest_outputs"
+  paths:
+    crest_executable: "/opt/crest/crest"
 ```
 
-Optional shared-admission settings can also be added manually:
-
-```yaml
-runtime:
-  admission_root: "/home/user/chem_admission"
-  admission_max_concurrent: 4
-```
+One `chemstack.yaml` now holds ORCA, xTB, and CREST settings together. `scheduler.max_active_simulations` is the single shared concurrency knob for the whole stack, and the sectioned layout above is the canonical format.
 
 Config file search order:
-1. Environment variable `ORCA_AUTO_CONFIG`
-2. `<project_root>/config/orca_auto.yaml`
-3. `~/orca_auto/config/orca_auto.yaml`
+1. Environment variable `CHEMSTACK_CONFIG`
+2. `<project_root>/config/chemstack.yaml`
+3. `~/chemstack/config/chemstack.yaml`
 
 > **Note**: `default_max_retries=2` refers to the number of retries. Total executions = `1 initial + 2 retries = 3 maximum`.
 
@@ -131,17 +160,34 @@ Config file search order:
 
 ## Basic Usage
 
-### Running a Single Calculation
+### CLI Map
+
+`run-dir` is reused across multiple CLIs, but it is **not one global command**. The meaning depends on which CLI you invoke.
+
+| Use case | CLI | Example |
+|---------|-----|---------|
+| ORCA single-job submission | `python -m chemstack.orca.cli` | `python -m chemstack.orca.cli run-dir /home/user/orca_runs/sample_rxn` |
+| xTB single-job submission | `python -m chemstack.xtb.cli` | `python -m chemstack.xtb.cli run-dir /home/user/xtb_runs/job_001` |
+| CREST single-job submission | `python -m chemstack.crest.cli` | `python -m chemstack.crest.cli run-dir /home/user/crest_runs/job_001` |
+| Workflow submission | `python -m chemstack.flow.cli` | `python -m chemstack.flow.cli run-dir /home/user/workflow_inputs/reaction_case` |
+
+This README is primarily the ORCA operations guide. Workflow orchestration lives under `chemstack.flow`, and its worker-service notes are in [systemd/README.md](systemd/README.md).
+This README intentionally standardizes on `python -m chemstack.<app>.cli ...` so there is only one canonical command shape to remember.
+Legacy console-script aliases such as `orca_auto`, `xtb_auto`, `crest_auto`, `chem_flow`, and `./bin/orca_auto` were removed.
+By default, engine CLIs resolve config from `CHEMSTACK_CONFIG`, then `<repo_root>/config/chemstack.yaml`, then `~/chemstack/config/chemstack.yaml`.
+Add `--config <path>` only when you want to override that search.
+
+### Running a Single ORCA Calculation
 
 ```bash
-# Default submission
-./bin/orca_auto run-dir '/home/user/orca_runs/sample_rxn'
+# Submit one ORCA job directory
+python -m chemstack.orca.cli run-dir '/home/user/orca_runs/sample_rxn'
 
 # Force re-run of a completed calculation
-./bin/orca_auto run-dir '/home/user/orca_runs/sample_rxn' --force
+python -m chemstack.orca.cli run-dir '/home/user/orca_runs/sample_rxn' --force
 
 # Set queue priority
-./bin/orca_auto run-dir '/home/user/orca_runs/sample_rxn' --priority 1
+python -m chemstack.orca.cli run-dir '/home/user/orca_runs/sample_rxn' --priority 1
 ```
 
 `run-dir` automatically selects the **most recently modified `.inp` file** in the directory.
@@ -169,13 +215,60 @@ The following files are created in each calculation directory:
 ### Example Output
 
 ```text
-$ ./bin/orca_auto run-dir '/home/user/orca_runs/sample_rxn'
+$ python -m chemstack.orca.cli run-dir '/home/user/orca_runs/sample_rxn'
 status: queued
 job_dir: /home/user/orca_runs/sample_rxn
 queue_id: q_20260403_151220_ab12cd
 priority: 10
 worker: active
 worker_pid: 12345
+```
+
+### Running a Single xTB Calculation
+
+```bash
+# Submit one xTB job directory
+python -m chemstack.xtb.cli run-dir '/home/user/xtb_runs/job_001'
+
+# Scaffold a new xTB job directory
+python -m chemstack.xtb.cli init --root '/home/user/xtb_runs/job_002' --job-type path_search
+
+# Run one worker cycle
+python -m chemstack.xtb.cli queue worker --once
+```
+
+For unattended xTB queue processing on WSL, use
+[`systemd/chemstack-xtb-queue-worker@.service`](/home/daehyupsohn/chemstack/systemd/chemstack-xtb-queue-worker@.service).
+
+### Running a Single CREST Calculation
+
+```bash
+# Submit one CREST job directory
+python -m chemstack.crest.cli run-dir '/home/user/crest_runs/job_001'
+
+# Scaffold a new CREST job directory
+python -m chemstack.crest.cli init --root '/home/user/crest_runs/job_002'
+
+# Run one worker cycle
+python -m chemstack.crest.cli queue worker --once
+```
+
+For unattended CREST queue processing on WSL, use
+[`systemd/chemstack-crest-queue-worker@.service`](/home/daehyupsohn/chemstack/systemd/chemstack-crest-queue-worker@.service).
+
+### Running a Workflow
+
+Workflow submission is separate from ORCA single-job submission. Use the workflow CLI, not `python -m chemstack.orca.cli`.
+
+```bash
+# Materialize a workflow from an input directory
+python -m chemstack.flow.cli run-dir '/home/user/workflow_inputs/reaction_case' --workflow-root '/home/user/workflows'
+
+# Advance one workflow
+python -m chemstack.flow.cli workflow advance wf_reaction_ts_search_001 --workflow-root '/home/user/workflows' --chemstack-config config/chemstack.yaml
+
+# Run one workflow worker cycle
+python -m chemstack.flow.cli workflow worker --workflow-root '/home/user/workflows' --chemstack-config config/chemstack.yaml --once
 ```
 
 ---
@@ -188,13 +281,13 @@ The queue system is now the **only public execution path** for ORCA runs. It sup
 
 ```bash
 # Default submission
-./bin/orca_auto run-dir '/home/user/orca_runs/rxn_001'
+python -m chemstack.orca.cli run-dir '/home/user/orca_runs/rxn_001'
 
 # Higher priority
-./bin/orca_auto run-dir '/home/user/orca_runs/rxn_002' --priority 1
+python -m chemstack.orca.cli run-dir '/home/user/orca_runs/rxn_002' --priority 1
 
 # Intentional re-run of a completed/failed job
-./bin/orca_auto run-dir '/home/user/orca_runs/rxn_001' --force
+python -m chemstack.orca.cli run-dir '/home/user/orca_runs/rxn_001' --force
 ```
 
 - Priority: **lower number** = runs first (default: 10)
@@ -210,14 +303,14 @@ The `list` command shows a unified view of queue state and run state.
 
 ```bash
 # Full listing
-./bin/orca_auto list
+python -m chemstack.orca.cli list
 
 # Filter by status
-./bin/orca_auto list --filter pending
-./bin/orca_auto list --filter running
-./bin/orca_auto list --filter completed
-./bin/orca_auto list --filter failed
-./bin/orca_auto list --filter cancelled
+python -m chemstack.orca.cli list --filter pending
+python -m chemstack.orca.cli list --filter running
+python -m chemstack.orca.cli list --filter completed
+python -m chemstack.orca.cli list --filter failed
+python -m chemstack.orca.cli list --filter cancelled
 ```
 
 Example output:
@@ -236,7 +329,7 @@ The worker is a process that picks up pending jobs from the queue and executes t
 
 ```bash
 # Start a foreground worker
-./bin/orca_auto queue worker
+python -m chemstack.orca.cli queue worker
 ```
 
 `queue worker` is a foreground process intended to run under an external supervisor such as `systemd`.
@@ -244,9 +337,8 @@ App-managed background worker startup has been removed, and public direct-backgr
 
 Worker behavior:
 - Periodically polls the queue for `pending` jobs
-- Enforces the shared active-run cap under `runtime.admission_root` via admission slots
-- Uses `runtime.max_concurrent` as the local worker fill limit
-- Uses `runtime.admission_max_concurrent` as the machine-wide hard cap when multiple sibling apps share one admission root
+- Enforces the shared active-run cap under `scheduler.admission_root` via admission slots
+- Uses `scheduler.max_active_simulations` as the shared total active-run cap across ORCA, xTB, and CREST
 - Starts jobs through an internal worker-owned execution path
 - Checks exit codes upon completion and updates queue status
 - Supports graceful shutdown via `SIGTERM` / `SIGINT`
@@ -269,35 +361,41 @@ If you had to enable `systemd` yourself, restart WSL from Windows before continu
 wsl --shutdown
 ```
 
-This repository includes a template unit at [`systemd/orca-auto-queue-worker@.service`](/home/daehyupsohn/orca_auto/systemd/orca-auto-queue-worker@.service).
+This repository includes queue-worker templates for ORCA, xTB, and CREST:
+
+- [`systemd/chemstack-orca-queue-worker@.service`](/home/daehyupsohn/chemstack/systemd/chemstack-orca-queue-worker@.service)
+- [`systemd/chemstack-xtb-queue-worker@.service`](/home/daehyupsohn/chemstack/systemd/chemstack-xtb-queue-worker@.service)
+- [`systemd/chemstack-crest-queue-worker@.service`](/home/daehyupsohn/chemstack/systemd/chemstack-crest-queue-worker@.service)
 
 ```bash
-cd ~/orca_auto
-sudo cp systemd/orca-auto-queue-worker@.service /etc/systemd/system/
+cd <repo_root>
+APP=orca   # or xtb / crest
+sudo cp "systemd/chemstack-${APP}-queue-worker@.service" /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable --now "orca-auto-queue-worker@$(whoami)"
-systemctl status "orca-auto-queue-worker@$(whoami)"
-journalctl -u "orca-auto-queue-worker@$(whoami)" -f
+sudo systemctl enable --now "chemstack-${APP}-queue-worker@$(whoami)"
+systemctl status "chemstack-${APP}-queue-worker@$(whoami)"
+journalctl -u "chemstack-${APP}-queue-worker@$(whoami)" -f
 ```
 
 Notes:
-- The template assumes the repository lives at `/home/<user>/orca_auto`
+- The templates assume the repository lives at `/home/<user>/chemstack`
 - If your checkout or config path differs, edit the copied unit before enabling it
-- Use `sudo systemctl restart "orca-auto-queue-worker@$(whoami)"` after config changes
-- Use `sudo systemctl stop "orca-auto-queue-worker@$(whoami)"` for maintenance
+- You can run ORCA, xTB, and CREST workers together; `scheduler.max_active_simulations` still limits the combined active simulation count
+- Use `sudo systemctl restart "chemstack-${APP}-queue-worker@$(whoami)"` after config changes
+- Use `sudo systemctl stop "chemstack-${APP}-queue-worker@$(whoami)"` for maintenance
 
 ### Safe Workflow
 
 ```bash
 # 1. Ensure the worker is active
-systemctl status "orca-auto-queue-worker@$(whoami)"
+systemctl status "chemstack-orca-queue-worker@$(whoami)"
 
 # 2. Submit work
-./bin/orca_auto run-dir '/home/user/orca_runs/rxn_A'
+python -m chemstack.orca.cli run-dir '/home/user/orca_runs/rxn_A'
 
 # 3. Check progress
-./bin/orca_auto list
-journalctl -u "orca-auto-queue-worker@$(whoami)" -f
+python -m chemstack.orca.cli list
+journalctl -u "chemstack-orca-queue-worker@$(whoami)" -f
 ```
 
 Operational guidance:
@@ -310,20 +408,20 @@ Operational guidance:
 
 ```bash
 # Cancel by queue ID
-./bin/orca_auto queue cancel q-abc123
+python -m chemstack.orca.cli queue cancel q-abc123
 
 # Cancel by job directory
-./bin/orca_auto queue cancel /home/user/orca_runs/rxn_001
+python -m chemstack.orca.cli queue cancel /home/user/orca_runs/rxn_001
 
 # Cancel all pending jobs
-./bin/orca_auto queue cancel all-pending
+python -m chemstack.orca.cli queue cancel all-pending
 ```
 
 ### Clearing Completed Entries
 
 ```bash
 # Remove completed, failed, and cancelled entries from the list
-./bin/orca_auto list clear
+python -m chemstack.orca.cli list clear
 ```
 
 This removes terminal queue entries and run state files for completed/failed simulations.
@@ -332,24 +430,24 @@ This removes terminal queue entries and run state files for completed/failed sim
 
 ```bash
 # 1. Ensure the worker service is running
-sudo systemctl enable --now "orca-auto-queue-worker@$(whoami)"
+sudo systemctl enable --now "chemstack-orca-queue-worker@$(whoami)"
 
 # 2. Submit multiple calculations
-./bin/orca_auto run-dir '/home/user/orca_runs/rxn_A' --priority 1
-./bin/orca_auto run-dir '/home/user/orca_runs/rxn_B' --priority 5
-./bin/orca_auto run-dir '/home/user/orca_runs/rxn_C'
+python -m chemstack.orca.cli run-dir '/home/user/orca_runs/rxn_A' --priority 1
+python -m chemstack.orca.cli run-dir '/home/user/orca_runs/rxn_B' --priority 5
+python -m chemstack.orca.cli run-dir '/home/user/orca_runs/rxn_C'
 
-# 3. Set runtime.max_concurrent: 2 in config/orca_auto.yaml
+# 3. Set scheduler.max_active_simulations: 2 in config/chemstack.yaml
 
 # 4. Check progress
-./bin/orca_auto list
-journalctl -u "orca-auto-queue-worker@$(whoami)" -f
+python -m chemstack.orca.cli list
+journalctl -u "chemstack-orca-queue-worker@$(whoami)" -f
 
 # 5. Cancel a job if needed
-./bin/orca_auto queue cancel rxn_C
+python -m chemstack.orca.cli queue cancel rxn_C
 
 # 6. Clean up after all jobs complete
-./bin/orca_auto list clear
+python -m chemstack.orca.cli list clear
 ```
 
 ---
@@ -425,16 +523,16 @@ Moves completed calculation results to `organized_root` and maintains an index.
 
 ```bash
 # Dry run (default — preview without moving)
-./bin/orca_auto organize --root /home/user/orca_runs
+python -m chemstack.orca.cli organize --root /home/user/orca_runs
 
 # Apply actual moves
-./bin/orca_auto organize --root /home/user/orca_runs --apply
+python -m chemstack.orca.cli organize --root /home/user/orca_runs --apply
 
 # Organize a single directory
-./bin/orca_auto organize --reaction-dir /home/user/orca_runs/sample_rxn --apply
+python -m chemstack.orca.cli organize --reaction-dir /home/user/orca_runs/sample_rxn --apply
 
 # Rebuild the index
-./bin/orca_auto organize --root /home/user/orca_runs --rebuild-index
+python -m chemstack.orca.cli organize --root /home/user/orca_runs --rebuild-index
 ```
 
 - `--root` must exactly match `runtime.allowed_root` in the configuration
@@ -458,7 +556,7 @@ Filesystem (.out)
 
 ```bash
 # Manual execution
-./bin/orca_auto monitor
+python -m chemstack.orca.cli monitor
 ```
 
 - Sends Telegram alerts only for newly discovered DFT results
@@ -471,7 +569,7 @@ Filesystem (.out)
 
 ### Enabling Notifications
 
-Set `bot_token` and `chat_id` in `config/orca_auto.yaml` to activate notifications automatically.
+Set `bot_token` and `chat_id` in `config/chemstack.yaml` to activate notifications automatically.
 
 ### Notification Types
 
@@ -488,7 +586,7 @@ Set `bot_token` and `chat_id` in `config/orca_auto.yaml` to activate notificatio
 
 ```bash
 # Start the bot
-./bin/orca_auto bot
+python -m chemstack.orca.cli bot
 
 # Or manage via script
 bash scripts/start_bot.sh start
@@ -510,10 +608,10 @@ Bot commands:
 
 ```bash
 # Send via Telegram
-./bin/orca_auto summary
+python -m chemstack.orca.cli summary
 
 # Print without sending
-./bin/orca_auto summary --no-send
+python -m chemstack.orca.cli summary --no-send
 ```
 
 Shows active run status, progress info (cycle count, energy, elapsed time, ETA), and jobs needing attention.
@@ -546,6 +644,9 @@ Installed schedules:
 ---
 
 ## Command Reference
+
+This command table covers the ORCA CLI exposed by `python -m chemstack.orca.cli`.
+For xTB, CREST, and workflow commands, use the CLI map and examples in [Basic Usage](#basic-usage).
 
 ### Main Commands
 
@@ -582,8 +683,7 @@ Installed schedules:
 
 | Variable | Description |
 |----------|-------------|
-| `ORCA_AUTO_CONFIG` | Override config file path |
-| `ORCA_AUTO_LOG_DIR` | Override log directory |
+| `CHEMSTACK_CONFIG` | Override config file path |
 
 ---
 
@@ -592,14 +692,14 @@ Installed schedules:
 ### `Job directory must be under allowed root`
 
 The job directory path is not under `allowed_root`.
-Check `allowed_root` in `config/orca_auto.yaml`.
+Check `allowed_root` in `config/chemstack.yaml`.
 
 ### `Job directory not found`
 
 Path string or quoting issue. Wrap the path in single quotes:
 
 ```bash
-./bin/orca_auto run-dir '/home/user/orca_runs/my_case'
+python -m chemstack.orca.cli run-dir '/home/user/orca_runs/my_case'
 ```
 
 ### `State file not found`
@@ -623,37 +723,26 @@ The queue submission succeeded, but no foreground worker or `systemd` service is
 ## Project Structure
 
 ```text
-orca_auto/
-├── bin/orca_auto              # Local .venv-first entry point shim
-├── core/                      # Main application logic
-│   ├── cli.py                 # CLI argument parsing and command routing
-│   ├── config.py              # YAML configuration loading
-│   ├── commands/              # CLI command implementations
-│   │   ├── run_inp.py         # run-dir command
-│   │   ├── run_job.py         # Internal worker-owned run executor
-│   │   ├── list_runs.py       # list command
-│   │   ├── queue.py           # queue command
-│   │   ├── organize.py        # organize command
-│   │   ├── monitor.py         # monitor command
-│   │   └── summary.py         # summary command
-│   ├── orca_runner.py         # ORCA subprocess execution
-│   ├── out_analyzer.py        # Output file analysis
-│   ├── orca_parser.py         # ORCA output parsing (energies, frequencies, etc.)
-│   ├── attempt_engine.py      # Retry loop orchestration
-│   ├── inp_rewriter.py        # Retry input modification
-│   ├── state_store.py         # State persistence, atomic writes, locks
-│   ├── queue_store.py         # Persistent task queue
-│   ├── queue_worker.py        # Foreground queue worker loop
-│   ├── result_organizer.py    # Completed result relocation
-│   ├── dft_index.py           # SQLite DFT index
-│   ├── dft_discovery.py       # ORCA output file discovery
-│   ├── dft_monitor.py         # Auto-discovery monitoring
-│   ├── telegram_bot.py        # Telegram long-polling bot
-│   └── telegram_notifier.py   # Telegram notification sender
+<repo_root>/
+├── src/
+│   └── chemstack/
+│       ├── core/              # Shared chemistry-platform infrastructure
+│       ├── flow/              # Workflow orchestration layer
+│       ├── xtb/               # xTB engine package
+│       ├── crest/             # CREST engine package
+│       └── orca/              # Canonical ORCA implementation
+│           ├── cli.py         # CLI argument parsing and command routing
+│           ├── commands/      # CLI command implementations
+│           ├── runtime/       # Worker-owned execution helpers and run locks
+│           ├── state.py       # Run state / report facade
+│           ├── tracking.py    # ORCA artifact and job-location facade
+│           └── ...            # Execution, parsing, monitoring, notifications
 ├── config/                    # Configuration files
 ├── systemd/                   # Example WSL systemd units
 ├── scripts/                   # Installation and automation scripts
-├── tests/                     # Test code
+├── tests/
+│   ├── integration/           # In-repo workflow / engine integration smoke tests
+│   └── ...                    # ORCA, xTB, CREST, flow, and shared tests
 └── docs/REFERENCE.md          # Detailed behavioral reference
 ```
 
@@ -673,6 +762,18 @@ pytest --cov --cov-report=term-missing -q
 ```
 
 Verified on GitHub Actions with Python 3.11, 3.12, 3.13 matrix.
+
+---
+
+## Developer Notes
+
+For package-layout rules, canonical imports, and test entry points, see [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
+
+Quick rules:
+
+- Use `chemstack.orca.*` for new ORCA code
+- Use `chemstack.core.*` for shared queue, admission, indexing, and utility code
+- Keep implementation code under `src/chemstack/*`; do not add top-level legacy package aliases back
 
 ---
 

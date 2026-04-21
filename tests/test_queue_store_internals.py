@@ -5,9 +5,9 @@ import os
 from pathlib import Path
 from unittest.mock import patch
 
-from core import queue_store
-from core.statuses import QueueStatus
-from core.types import QueueEntry
+from chemstack.orca import queue_store
+from chemstack.orca.statuses import QueueStatus
+from chemstack.orca.types import QueueEntry
 
 
 def _write_entries(root: Path, entries: list[dict[str, object]]) -> None:
@@ -148,11 +148,11 @@ def test_reconcile_orphaned_running_entries_covers_state_completion_failure_and_
             }
         return None
 
-    with patch("core.queue_store._acquire_queue_lock"), patch(
-        "core.queue_store._active_lock_pid",
+    with patch("chemstack.orca.queue_store._acquire_queue_lock"), patch(
+        "chemstack.orca.queue_store._active_lock_pid",
         return_value=None,
-    ), patch("core.queue_store._read_worker_pid", return_value=None), patch(
-        "core.queue_store.load_state",
+    ), patch("chemstack.orca.queue_store._read_worker_pid", return_value=None), patch(
+        "chemstack.orca.queue_store.load_state",
         side_effect=_load_state,
     ):
         changed = queue_store.reconcile_orphaned_running_entries(root)
@@ -176,16 +176,16 @@ def test_reconcile_orphaned_running_entries_skips_when_lock_or_worker_is_active(
         [{"queue_id": "q_1", "reaction_dir": str(reaction_dir), "status": QueueStatus.RUNNING.value}],
     )
 
-    with patch("core.queue_store._acquire_queue_lock"), patch(
-        "core.queue_store._read_worker_pid",
+    with patch("chemstack.orca.queue_store._acquire_queue_lock"), patch(
+        "chemstack.orca.queue_store._read_worker_pid",
         return_value=os.getpid(),
     ):
         assert queue_store.reconcile_orphaned_running_entries(root) == 0
 
-    with patch("core.queue_store._acquire_queue_lock"), patch(
-        "core.queue_store._read_worker_pid",
+    with patch("chemstack.orca.queue_store._acquire_queue_lock"), patch(
+        "chemstack.orca.queue_store._read_worker_pid",
         return_value=None,
-    ), patch("core.queue_store._active_lock_pid", return_value=999):
+    ), patch("chemstack.orca.queue_store._active_lock_pid", return_value=999):
         assert queue_store.reconcile_orphaned_running_entries(root) == 0
 
 
@@ -218,7 +218,7 @@ def test_mark_cancelled_requeue_cancel_and_clear_terminal_cover_false_and_keep_l
         ],
     )
 
-    with patch("core.queue_store._acquire_queue_lock"):
+    with patch("chemstack.orca.queue_store._acquire_queue_lock"):
         assert queue_store.mark_cancelled(root, "missing") is False
         assert queue_store.requeue_running_entry(root, "missing") is False
 

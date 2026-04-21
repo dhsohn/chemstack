@@ -8,8 +8,8 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
-import core.commands._helpers as command_helpers
-from core.commands._helpers import (
+import chemstack.orca.commands._helpers as command_helpers
+from chemstack.orca.commands._helpers import (
     CONFIG_ENV_VAR,
     _emit,
     _human_bytes,
@@ -18,7 +18,7 @@ from core.commands._helpers import (
     default_config_path,
     finalize_batch_apply,
 )
-from core.config import AppConfig, PathsConfig, RuntimeConfig
+from chemstack.orca.config import AppConfig, PathsConfig, RuntimeConfig
 
 
 def _cfg(allowed_root: Path, organized_root: Path) -> AppConfig:
@@ -102,8 +102,9 @@ class TestCommandPathValidators(unittest.TestCase):
 
 
 class TestHelperUtilities(unittest.TestCase):
-    def test_default_config_path_prefers_repo_home_then_repo_fallback(self) -> None:
-        repo_default = Path(command_helpers.__file__).resolve().parents[2] / "config" / "orca_auto.yaml"
+    def test_default_config_path_prefers_primary_repo_then_home_then_repo_default(self) -> None:
+        repo_root = Path(command_helpers.__file__).resolve().parents[4]
+        repo_default = repo_root / "config" / "chemstack.yaml"
         original_exists = Path.exists
 
         with patch.dict(os.environ, {CONFIG_ENV_VAR: ""}, clear=False):
@@ -115,8 +116,8 @@ class TestHelperUtilities(unittest.TestCase):
             with patch.object(Path, "exists", repo_exists):
                 self.assertEqual(default_config_path(), str(repo_default))
 
-            fake_home = repo_default.parent.parent.parent / "tmp_home_for_test"
-            home_default = fake_home / "orca_auto" / "config" / "orca_auto.yaml"
+            fake_home = repo_root / "tmp_home_for_test"
+            home_default = fake_home / "chemstack" / "config" / "chemstack.yaml"
 
             def home_exists(path: Path) -> bool:
                 if path == repo_default:
@@ -133,7 +134,7 @@ class TestHelperUtilities(unittest.TestCase):
                 self.assertEqual(default_config_path(), str(home_default))
 
             def fallback_exists(path: Path) -> bool:
-                if path == repo_default or path == home_default:
+                if path in {repo_default, home_default}:
                     return False
                 return original_exists(path)
 

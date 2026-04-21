@@ -1,4 +1,4 @@
-"""Tests for core.commands.queue foreground worker and cancel behavior."""
+"""Tests for chemstack.orca.commands.queue foreground worker and cancel behavior."""
 
 from __future__ import annotations
 
@@ -11,10 +11,10 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-from core.cancellation import CancelResult, CancelTargetError
-from core.commands.queue import cmd_queue_cancel, cmd_queue_worker
-from core.config import AppConfig, RuntimeConfig
-from core.state_store import STATE_FILE_NAME
+from chemstack.orca.cancellation import CancelResult, CancelTargetError
+from chemstack.orca.commands.queue import cmd_queue_cancel, cmd_queue_worker
+from chemstack.orca.config import AppConfig, RuntimeConfig
+from chemstack.orca.state_store import STATE_FILE_NAME
 
 
 def _make_cfg(tmp: str) -> AppConfig:
@@ -56,10 +56,10 @@ class TestCmdQueueCancel(unittest.TestCase):
     def tearDown(self) -> None:
         self._tmpdir.cleanup()
 
-    @patch("core.commands.queue.load_config")
+    @patch("chemstack.orca.commands.queue.load_config")
     def test_cancel_all_pending(self, mock_load: MagicMock) -> None:
         mock_load.return_value = self.cfg
-        from core.queue_store import enqueue
+        from chemstack.orca.queue_store import enqueue
 
         for name in ("a", "b", "c"):
             reaction_dir = self.root / name
@@ -74,10 +74,10 @@ class TestCmdQueueCancel(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertIn("Cancelled 3 pending", buf.getvalue())
 
-    @patch("core.commands.queue.load_config")
+    @patch("chemstack.orca.commands.queue.load_config")
     def test_cancel_specific_pending(self, mock_load: MagicMock) -> None:
         mock_load.return_value = self.cfg
-        from core.queue_store import enqueue
+        from chemstack.orca.queue_store import enqueue
 
         reaction_dir = self.root / "mol_A"
         reaction_dir.mkdir()
@@ -90,10 +90,10 @@ class TestCmdQueueCancel(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertIn("Cancelled:", buf.getvalue())
 
-    @patch("core.commands.queue.load_config")
+    @patch("chemstack.orca.commands.queue.load_config")
     def test_cancel_running_entry(self, mock_load: MagicMock) -> None:
         mock_load.return_value = self.cfg
-        from core.queue_store import dequeue_next, enqueue
+        from chemstack.orca.queue_store import dequeue_next, enqueue
 
         reaction_dir = self.root / "mol_A"
         reaction_dir.mkdir()
@@ -107,7 +107,7 @@ class TestCmdQueueCancel(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertIn("Cancel requested", buf.getvalue())
 
-    @patch("core.commands.queue.load_config")
+    @patch("chemstack.orca.commands.queue.load_config")
     def test_cancel_nonexistent_returns_1(self, mock_load: MagicMock) -> None:
         mock_load.return_value = self.cfg
         args = _make_args(self._tmpdir.name, target="q_nonexistent")
@@ -116,9 +116,9 @@ class TestCmdQueueCancel(unittest.TestCase):
 
         self.assertEqual(rc, 1)
 
-    @patch("core.commands.queue.logger.error")
-    @patch("core.commands.queue.cancel_target", side_effect=CancelTargetError("bad target"))
-    @patch("core.commands.queue.load_config")
+    @patch("chemstack.orca.commands.queue.logger.error")
+    @patch("chemstack.orca.commands.queue.cancel_target", side_effect=CancelTargetError("bad target"))
+    @patch("chemstack.orca.commands.queue.load_config")
     def test_cancel_target_error_returns_1(
         self,
         mock_load: MagicMock,
@@ -134,9 +134,9 @@ class TestCmdQueueCancel(unittest.TestCase):
         mock_cancel.assert_called_once()
         mock_error.assert_called_once()
 
-    @patch("core.cancellation.os.kill")
-    @patch("core.process_tracking.is_process_alive", return_value=True)
-    @patch("core.commands.queue.load_config")
+    @patch("chemstack.orca.cancellation.os.kill")
+    @patch("chemstack.orca.process_tracking.is_process_alive", return_value=True)
+    @patch("chemstack.orca.commands.queue.load_config")
     def test_cancel_direct_running_simulation(
         self,
         mock_load: MagicMock,
@@ -158,8 +158,8 @@ class TestCmdQueueCancel(unittest.TestCase):
         mock_alive.assert_called_once_with(4321)
         mock_kill.assert_called_once()
 
-    @patch("core.commands.queue.cancel_target")
-    @patch("core.commands.queue.load_config")
+    @patch("chemstack.orca.commands.queue.cancel_target")
+    @patch("chemstack.orca.commands.queue.load_config")
     def test_cancel_direct_running_simulation_without_pid_text(
         self,
         mock_load: MagicMock,
@@ -188,8 +188,8 @@ class TestCmdQueueCancel(unittest.TestCase):
 
 
 class TestCmdQueueWorker(unittest.TestCase):
-    @patch("core.commands.queue.load_config")
-    @patch("core.commands.queue.read_worker_pid", return_value=12345)
+    @patch("chemstack.orca.commands.queue.load_config")
+    @patch("chemstack.orca.commands.queue.read_worker_pid", return_value=12345)
     def test_worker_already_running(self, mock_pid: MagicMock, mock_load: MagicMock) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             mock_load.return_value = _make_cfg(tmp)
@@ -199,9 +199,9 @@ class TestCmdQueueWorker(unittest.TestCase):
 
         self.assertEqual(rc, 1)
 
-    @patch("core.commands.queue.load_config")
-    @patch("core.commands.queue.read_worker_pid", return_value=None)
-    @patch("core.commands.queue.QueueWorker")
+    @patch("chemstack.orca.commands.queue.load_config")
+    @patch("chemstack.orca.commands.queue.read_worker_pid", return_value=None)
+    @patch("chemstack.orca.commands.queue.QueueWorker")
     def test_worker_runs_in_foreground_only(
         self,
         mock_worker_cls: MagicMock,
@@ -223,9 +223,9 @@ class TestCmdQueueWorker(unittest.TestCase):
             auto_organize=False,
         )
 
-    @patch("core.commands.queue.load_config")
-    @patch("core.commands.queue.read_worker_pid", return_value=None)
-    @patch("core.commands.queue.QueueWorker")
+    @patch("chemstack.orca.commands.queue.load_config")
+    @patch("chemstack.orca.commands.queue.read_worker_pid", return_value=None)
+    @patch("chemstack.orca.commands.queue.QueueWorker")
     def test_worker_uses_config_max_concurrent_when_flag_omitted(
         self,
         mock_worker_cls: MagicMock,
@@ -249,9 +249,9 @@ class TestCmdQueueWorker(unittest.TestCase):
             auto_organize=False,
         )
 
-    @patch("core.commands.queue.load_config")
-    @patch("core.commands.queue.read_worker_pid", return_value=None)
-    @patch("core.commands.queue.QueueWorker")
+    @patch("chemstack.orca.commands.queue.load_config")
+    @patch("chemstack.orca.commands.queue.read_worker_pid", return_value=None)
+    @patch("chemstack.orca.commands.queue.QueueWorker")
     def test_worker_uses_configured_auto_organize_by_default(
         self,
         mock_worker_cls: MagicMock,
@@ -275,9 +275,9 @@ class TestCmdQueueWorker(unittest.TestCase):
             auto_organize=True,
         )
 
-    @patch("core.commands.queue.load_config")
-    @patch("core.commands.queue.read_worker_pid", return_value=None)
-    @patch("core.commands.queue.QueueWorker")
+    @patch("chemstack.orca.commands.queue.load_config")
+    @patch("chemstack.orca.commands.queue.read_worker_pid", return_value=None)
+    @patch("chemstack.orca.commands.queue.QueueWorker")
     def test_worker_cli_can_enable_auto_organize(
         self,
         mock_worker_cls: MagicMock,
@@ -300,9 +300,9 @@ class TestCmdQueueWorker(unittest.TestCase):
             auto_organize=True,
         )
 
-    @patch("core.commands.queue.load_config")
-    @patch("core.commands.queue.read_worker_pid", return_value=None)
-    @patch("core.commands.queue.QueueWorker")
+    @patch("chemstack.orca.commands.queue.load_config")
+    @patch("chemstack.orca.commands.queue.read_worker_pid", return_value=None)
+    @patch("chemstack.orca.commands.queue.QueueWorker")
     def test_worker_cli_can_disable_configured_auto_organize(
         self,
         mock_worker_cls: MagicMock,

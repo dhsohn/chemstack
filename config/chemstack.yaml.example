@@ -1,0 +1,44 @@
+resources:
+  # Optional default scheduling metadata shared by ORCA, xTB, and CREST.
+  max_cores_per_task: 8
+  max_memory_gb_per_task: 32
+
+behavior:
+  # Optional default behavior shared by ORCA, xTB, and CREST.
+  auto_organize_on_terminal: false
+
+scheduler:
+  # Shared total cap across ORCA, xTB, and CREST combined.
+  max_active_simulations: 4
+  # Optional: if omitted, defaults to a shared "admission" directory next to this config file.
+  admission_root: "/path/to/chem_admission"
+
+# Telegram notification settings shared by all apps.
+telegram:
+  bot_token: ""
+  chat_id: ""
+
+orca:
+  runtime:
+    # Required: absolute Linux path to the directory tree that contains ORCA runs.
+    allowed_root: "/path/to/orca_runs"
+    # Optional: if omitted, defaults to a sibling "orca_outputs" directory next to allowed_root.
+    organized_root: "/path/to/orca_outputs"
+    default_max_retries: 2
+  paths:
+    # Required: absolute Linux path to the ORCA executable.
+    orca_executable: "/path/to/orca/orca"
+
+xtb:
+  runtime:
+    allowed_root: "/path/to/xtb_runs"
+    organized_root: "/path/to/xtb_outputs"
+  paths:
+    xtb_executable: "/path/to/xtb"
+
+crest:
+  runtime:
+    allowed_root: "/path/to/crest_runs"
+    organized_root: "/path/to/crest_outputs"
+  paths:
+    crest_executable: "/path/to/crest"

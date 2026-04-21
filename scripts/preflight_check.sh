@@ -5,9 +5,9 @@ echo "=== Preflight Check ==="
 
 # 1. Running processes (exclude this script itself and its parent shell)
 echo "[1/4] Checking running processes..."
-RUNNING=$(pgrep -af 'orca_auto|/orca ' 2>/dev/null | grep -v "preflight_check" | grep -v "$$" || true)
+RUNNING=$(pgrep -af 'chemstack\.orca\.cli|/orca ' 2>/dev/null | grep -v "preflight_check" | grep -v "$$" || true)
 if [ -n "$RUNNING" ]; then
-  echo "  FAIL: orca_auto or orca processes are running. Abort cutover."
+  echo "  FAIL: chemstack ORCA CLI or ORCA engine processes are running. Abort cutover."
   echo "$RUNNING"
   exit 1
 fi

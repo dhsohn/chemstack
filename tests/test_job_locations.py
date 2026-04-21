@@ -5,9 +5,9 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
-from core.config import AppConfig, CommonResourceConfig, PathsConfig, RuntimeConfig
-import orca_auto.job_locations as job_locations_module
-from orca_auto.job_locations import (
+from chemstack.orca.config import AppConfig, CommonResourceConfig, PathsConfig, RuntimeConfig
+import chemstack.orca.job_locations as job_locations_module
+from chemstack.orca.job_locations import (
     index_root_for_cfg,
     load_job_artifact_context,
     load_job_artifacts,
@@ -185,7 +185,7 @@ def test_resolve_latest_job_dir_and_load_job_artifacts_cover_job_and_path_target
             [
                 {
                     "job_id": "job_hist_1",
-                    "app_name": "orca_auto",
+                    "app_name": "chemstack_orca",
                     "job_type": "orca_opt",
                     "status": "completed",
                     "original_run_dir": str(original_dir),
@@ -283,7 +283,7 @@ def test_load_job_artifact_context_includes_record_and_original_stub_for_run_id_
             [
                 {
                     "job_id": "job_hist_3",
-                    "app_name": "orca_auto",
+                    "app_name": "chemstack_orca",
                     "job_type": "orca_opt",
                     "status": "completed",
                     "original_run_dir": str(original_dir),
@@ -369,7 +369,7 @@ def test_load_job_runtime_context_exposes_queue_entry_and_organized_refresh() ->
             [
                 {
                     "job_id": "job_hist_4",
-                    "app_name": "orca_auto",
+                    "app_name": "chemstack_orca",
                     "job_type": "orca_opt",
                     "status": "completed",
                     "original_run_dir": str(original_dir),
@@ -517,7 +517,7 @@ def test_load_orca_contract_payload_returns_normalized_runtime_fields() -> None:
             [
                 {
                     "job_id": "job_hist_5",
-                    "app_name": "orca_auto",
+                    "app_name": "chemstack_orca",
                     "job_type": "orca_opt",
                     "status": "completed",
                     "original_run_dir": str(original_dir),
@@ -554,7 +554,7 @@ def test_load_orca_contract_payload_returns_normalized_runtime_fields() -> None:
         assert payload["resource_request"] == {"max_cores": 8, "max_memory_gb": 16}
 
 
-def test_job_locations_falls_back_when_chem_core_is_unavailable() -> None:
+def test_job_locations_falls_back_when_chemstack_core_is_unavailable() -> None:
     with tempfile.TemporaryDirectory() as td:
         root = Path(td)
         cfg = _make_cfg(root)
@@ -565,14 +565,14 @@ def test_job_locations_falls_back_when_chem_core_is_unavailable() -> None:
         inp = job_dir / "rxn.inp"
         inp.write_text("! Opt\n* xyz 0 1\nH 0 0 0\nH 0 0 0.74\n*\n", encoding="utf-8")
 
-        def _missing_chem_core(_name: str) -> object:
-            exc = ModuleNotFoundError("No module named 'chem_core'")
-            exc.name = "chem_core"
+        def _missing_chemstack_core(_name: str) -> object:
+            exc = ModuleNotFoundError("No module named 'chemstack'")
+            exc.name = "chemstack"
             raise exc
 
         job_locations_module._chem_core_indexing_module.cache_clear()
         try:
-            with patch.object(job_locations_module, "import_module", side_effect=_missing_chem_core):
+            with patch.object(job_locations_module, "import_module", side_effect=_missing_chemstack_core):
                 record = upsert_job_record(
                     cfg,
                     job_id="job_fallback_1",

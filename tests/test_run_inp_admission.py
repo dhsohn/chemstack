@@ -6,7 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-from core.admission_store import (
+from chemstack.orca.admission_store import (
     ADMISSION_APP_NAME_ENV_VAR,
     ADMISSION_TASK_ID_ENV_VAR,
     ADMISSION_TOKEN_ENV_VAR,
@@ -15,8 +15,8 @@ from core.admission_store import (
     list_slots,
     reserve_slot,
 )
-from core.commands.run_inp import _cmd_run_inp_execute
-from core.config import AppConfig, PathsConfig, RuntimeConfig
+from chemstack.orca.commands.run_inp import _cmd_run_inp_execute
+from chemstack.orca.config import AppConfig, PathsConfig, RuntimeConfig
 
 
 def _make_cfg(tmp: str) -> AppConfig:
@@ -42,7 +42,7 @@ def _write_inp(reaction_dir: Path) -> None:
 
 def _make_args(root: Path, reaction_dir: Path, **overrides) -> SimpleNamespace:
     defaults = {
-        "config": str(root / "orca_auto.yaml"),
+        "config": str(root / "chemstack.yaml"),
         "reaction_dir": str(reaction_dir),
         "force": False,
     }
@@ -51,8 +51,8 @@ def _make_args(root: Path, reaction_dir: Path, **overrides) -> SimpleNamespace:
 
 
 class TestRunInpAdmission(unittest.TestCase):
-    @patch("core.commands.run_inp.load_config")
-    @patch("core.commands.run_inp.run_attempts", return_value=0)
+    @patch("chemstack.orca.commands.run_inp.load_config")
+    @patch("chemstack.orca.commands.run_inp.run_attempts", return_value=0)
     def test_internal_run_rejects_when_global_limit_reached(
         self,
         mock_run_attempts: MagicMock,
@@ -76,7 +76,7 @@ class TestRunInpAdmission(unittest.TestCase):
             self.assertFalse((reaction_dir / "run_state.json").exists())
             self.assertFalse((reaction_dir / "run.lock").exists())
 
-    @patch("core.commands.run_inp.load_config")
+    @patch("chemstack.orca.commands.run_inp.load_config")
     def test_internal_run_holds_slot_during_execution_and_releases_after(self, mock_load_config: MagicMock) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -91,15 +91,15 @@ class TestRunInpAdmission(unittest.TestCase):
                 observed_counts.append(active_slot_count(root))
                 return 0
 
-            with patch("core.commands.run_inp.run_attempts", new=_fake_run_attempts):
+            with patch("chemstack.orca.commands.run_inp.run_attempts", new=_fake_run_attempts):
                 rc = _cmd_run_inp_execute(_make_args(root, reaction_dir))
 
             self.assertEqual(rc, 0)
             self.assertEqual(observed_counts, [1])
             self.assertEqual(active_slot_count(root), 0)
 
-    @patch("core.commands.run_inp.load_config")
-    @patch("core.commands.run_inp.run_attempts", return_value=0)
+    @patch("chemstack.orca.commands.run_inp.load_config")
+    @patch("chemstack.orca.commands.run_inp.run_attempts", return_value=0)
     def test_reserved_slot_from_queue_is_activated_and_released(
         self,
         mock_run_attempts: MagicMock,
@@ -122,7 +122,7 @@ class TestRunInpAdmission(unittest.TestCase):
             self.assertTrue(mock_run_attempts.called)
             self.assertEqual(active_slot_count(root), 0)
 
-    @patch("core.commands.run_inp.load_config")
+    @patch("chemstack.orca.commands.run_inp.load_config")
     def test_reserved_slot_activation_attaches_task_metadata_from_worker_env(
         self,
         mock_load_config: MagicMock,
@@ -144,11 +144,11 @@ class TestRunInpAdmission(unittest.TestCase):
                 observed_slots.append(dict(slots[0]))
                 return 0
 
-            with patch("core.commands.run_inp.run_attempts", new=_fake_run_attempts), patch.dict(
+            with patch("chemstack.orca.commands.run_inp.run_attempts", new=_fake_run_attempts), patch.dict(
                 os.environ,
                 {
                     ADMISSION_TOKEN_ENV_VAR: token or "",
-                    ADMISSION_APP_NAME_ENV_VAR: "orca_auto",
+                    ADMISSION_APP_NAME_ENV_VAR: "chemstack_orca",
                     ADMISSION_TASK_ID_ENV_VAR: "task_meta_456",
                 },
                 clear=False,
@@ -157,14 +157,14 @@ class TestRunInpAdmission(unittest.TestCase):
 
             self.assertEqual(rc, 0)
             self.assertEqual(len(observed_slots), 1)
-            self.assertEqual(observed_slots[0]["app_name"], "orca_auto")
+            self.assertEqual(observed_slots[0]["app_name"], "chemstack_orca")
             self.assertEqual(observed_slots[0]["task_id"], "task_meta_456")
             self.assertEqual(observed_slots[0]["reaction_dir"], str(reaction_dir))
             self.assertEqual(active_slot_count(root), 0)
             state = json.loads((reaction_dir / "run_state.json").read_text(encoding="utf-8"))
             self.assertEqual(state["job_id"], "task_meta_456")
 
-    @patch("core.commands.run_inp.load_config")
+    @patch("chemstack.orca.commands.run_inp.load_config")
     def test_reserved_slot_is_released_when_existing_completed_out_skips_execution(
         self,
         mock_load_config: MagicMock,
@@ -188,8 +188,8 @@ class TestRunInpAdmission(unittest.TestCase):
             state = json.loads((reaction_dir / "run_state.json").read_text(encoding="utf-8"))
             self.assertEqual(state["final_result"]["reason"], "existing_out_completed")
 
-    @patch("core.commands.run_inp.load_config")
-    @patch("core.commands.run_inp.run_attempts", side_effect=RuntimeError("boom"))
+    @patch("chemstack.orca.commands.run_inp.load_config")
+    @patch("chemstack.orca.commands.run_inp.run_attempts", side_effect=RuntimeError("boom"))
     def test_reserved_slot_is_released_when_execution_raises_runtime_error(
         self,
         _mock_run_attempts: MagicMock,

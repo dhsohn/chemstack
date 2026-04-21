@@ -5,11 +5,11 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from core.queue_store import list_queue
+from chemstack.orca.queue_store import list_queue
 
 
 def _run_main(argv: list[str]) -> int:
-    from core.cli import main
+    from chemstack.orca.cli import main
 
     return main(argv)
 
@@ -22,15 +22,17 @@ def _write_config(
     *,
     max_concurrent: int = 4,
 ) -> Path:
-    config = root / "orca_auto.yaml"
+    config = root / "chemstack.yaml"
     config.write_text(
         json.dumps(
             {
+                "scheduler": {
+                    "max_active_simulations": max_concurrent,
+                },
                 "runtime": {
                     "allowed_root": str(allowed_root),
                     "organized_root": str(organized_root),
                     "default_max_retries": 2,
-                    "max_concurrent": max_concurrent,
                 },
                 "paths": {"orca_executable": str(orca_executable)},
             }

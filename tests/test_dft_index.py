@@ -6,7 +6,7 @@ import json
 import threading
 from pathlib import Path
 
-from core.dft_index import DFTIndex
+from chemstack.orca.dft_index import DFTIndex
 
 
 _COMPLETED_OUT = "\n".join([

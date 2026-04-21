@@ -5,13 +5,13 @@ from pathlib import Path
 
 import yaml
 
-from core.config import load_config
+from chemstack.orca.config import load_config
 
 
 class TestConfigValidation(unittest.TestCase):
     def test_platform_mode_key_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as td:
-            cfg_path = Path(td) / "orca_auto.yaml"
+            cfg_path = Path(td) / "chemstack.yaml"
             cfg_path.write_text(
                 json.dumps(
                     {
@@ -30,7 +30,7 @@ class TestConfigValidation(unittest.TestCase):
 
     def test_windows_allowed_root_raises(self) -> None:
         with tempfile.TemporaryDirectory() as td:
-            cfg_path = Path(td) / "orca_auto.yaml"
+            cfg_path = Path(td) / "chemstack.yaml"
             cfg_path.write_text(
                 json.dumps(
                     {
@@ -48,7 +48,7 @@ class TestConfigValidation(unittest.TestCase):
 
     def test_windows_mount_allowed_root_raises(self) -> None:
         with tempfile.TemporaryDirectory() as td:
-            cfg_path = Path(td) / "orca_auto.yaml"
+            cfg_path = Path(td) / "chemstack.yaml"
             cfg_path.write_text(
                 json.dumps(
                     {
@@ -66,7 +66,7 @@ class TestConfigValidation(unittest.TestCase):
 
     def test_relative_paths_raise(self) -> None:
         with tempfile.TemporaryDirectory() as td:
-            cfg_path = Path(td) / "orca_auto.yaml"
+            cfg_path = Path(td) / "chemstack.yaml"
             cfg_path.write_text(
                 json.dumps(
                     {
@@ -84,7 +84,7 @@ class TestConfigValidation(unittest.TestCase):
 
     def test_windows_orca_executable_raises(self) -> None:
         with tempfile.TemporaryDirectory() as td:
-            cfg_path = Path(td) / "orca_auto.yaml"
+            cfg_path = Path(td) / "chemstack.yaml"
             cfg_path.write_text(
                 json.dumps(
                     {
@@ -102,7 +102,7 @@ class TestConfigValidation(unittest.TestCase):
 
     def test_exe_suffix_orca_executable_raises(self) -> None:
         with tempfile.TemporaryDirectory() as td:
-            cfg_path = Path(td) / "orca_auto.yaml"
+            cfg_path = Path(td) / "chemstack.yaml"
             cfg_path.write_text(
                 json.dumps(
                     {
@@ -126,7 +126,7 @@ class TestConfigValidation(unittest.TestCase):
             fake_orca = root / "orca"
             fake_orca.write_text("#!/bin/sh\n", encoding="utf-8")
 
-            cfg_path = root / "orca_auto.yaml"
+            cfg_path = root / "chemstack.yaml"
             cfg_path.write_text(
                 json.dumps(
                     {
@@ -150,7 +150,7 @@ class TestConfigValidation(unittest.TestCase):
             fake_orca = root / "orca"
             fake_orca.write_text("#!/bin/sh\n", encoding="utf-8")
 
-            cfg_path = root / "orca_auto.yaml"
+            cfg_path = root / "chemstack.yaml"
             cfg_path.write_text(
                 json.dumps(
                     {
@@ -174,7 +174,7 @@ class TestConfigValidation(unittest.TestCase):
             fake_orca = root / "orca"
             fake_orca.write_text("#!/bin/sh\n", encoding="utf-8")
 
-            cfg_path = root / "orca_auto.yaml"
+            cfg_path = root / "chemstack.yaml"
             cfg_path.write_text(
                 json.dumps(
                     {
@@ -191,106 +191,38 @@ class TestConfigValidation(unittest.TestCase):
             self.assertEqual(cfg.runtime.default_max_retries, 9)
             self.assertEqual(cfg.runtime.max_concurrent, 4)
 
-    def test_max_concurrent_is_loaded_from_runtime_config(self) -> None:
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            allowed = root / "orca_runs"
-            allowed.mkdir()
-            fake_orca = root / "orca"
-            fake_orca.write_text("#!/bin/sh\n", encoding="utf-8")
+    def test_removed_runtime_scheduler_keys_are_rejected(self) -> None:
+        for key, value in (
+            ("max_concurrent", 7),
+            ("admission_limit", 3),
+            ("admission_max_concurrent", 5),
+            ("admission_root", "/tmp/admission"),
+        ):
+            with self.subTest(key=key):
+                with tempfile.TemporaryDirectory() as td:
+                    root = Path(td)
+                    allowed = root / "orca_runs"
+                    allowed.mkdir()
+                    fake_orca = root / "orca"
+                    fake_orca.write_text("#!/bin/sh\n", encoding="utf-8")
 
-            cfg_path = root / "orca_auto.yaml"
-            cfg_path.write_text(
-                json.dumps(
-                    {
-                        "runtime": {
-                            "allowed_root": str(allowed),
-                            "max_concurrent": 7,
-                        },
-                        "paths": {"orca_executable": str(fake_orca)},
-                    }
-                ),
-                encoding="utf-8",
-            )
-            cfg = load_config(str(cfg_path))
-            self.assertEqual(cfg.runtime.max_concurrent, 7)
-
-    def test_max_concurrent_must_be_positive(self) -> None:
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            allowed = root / "orca_runs"
-            allowed.mkdir()
-            fake_orca = root / "orca"
-            fake_orca.write_text("#!/bin/sh\n", encoding="utf-8")
-
-            cfg_path = root / "orca_auto.yaml"
-            cfg_path.write_text(
-                json.dumps(
-                    {
-                        "runtime": {
-                            "allowed_root": str(allowed),
-                            "max_concurrent": 0,
-                        },
-                        "paths": {"orca_executable": str(fake_orca)},
-                    }
-                ),
-                encoding="utf-8",
-            )
-            with self.assertRaises(ValueError) as ctx:
-                load_config(str(cfg_path))
-            self.assertIn("runtime.max_concurrent", str(ctx.exception))
-
-    def test_admission_limit_is_loaded_from_runtime_config(self) -> None:
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            allowed = root / "orca_runs"
-            allowed.mkdir()
-            fake_orca = root / "orca"
-            fake_orca.write_text("#!/bin/sh\n", encoding="utf-8")
-
-            cfg_path = root / "orca_auto.yaml"
-            cfg_path.write_text(
-                json.dumps(
-                    {
-                        "runtime": {
-                            "allowed_root": str(allowed),
-                            "admission_limit": 3,
-                        },
-                        "paths": {"orca_executable": str(fake_orca)},
-                    }
-                ),
-                encoding="utf-8",
-            )
-            cfg = load_config(str(cfg_path))
-            self.assertEqual(cfg.runtime.admission_limit, 3)
-            self.assertEqual(cfg.runtime.resolved_admission_limit, 3)
-            self.assertEqual(cfg.runtime.admission_max_concurrent, 3)
-
-    def test_legacy_admission_max_concurrent_is_supported(self) -> None:
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            allowed = root / "orca_runs"
-            allowed.mkdir()
-            fake_orca = root / "orca"
-            fake_orca.write_text("#!/bin/sh\n", encoding="utf-8")
-
-            cfg_path = root / "orca_auto.yaml"
-            cfg_path.write_text(
-                json.dumps(
-                    {
-                        "runtime": {
-                            "allowed_root": str(allowed),
-                            "admission_max_concurrent": 5,
-                        },
-                        "paths": {"orca_executable": str(fake_orca)},
-                    }
-                ),
-                encoding="utf-8",
-            )
-            cfg = load_config(str(cfg_path))
-            self.assertEqual(cfg.runtime.admission_limit, 5)
-            self.assertEqual(cfg.runtime.resolved_admission_limit, 5)
-            self.assertEqual(cfg.runtime.admission_max_concurrent, 5)
+                    cfg_path = root / "chemstack.yaml"
+                    cfg_path.write_text(
+                        json.dumps(
+                            {
+                                "runtime": {
+                                    "allowed_root": str(allowed),
+                                    key: value,
+                                },
+                                "paths": {"orca_executable": str(fake_orca)},
+                            }
+                        ),
+                        encoding="utf-8",
+                    )
+                    with self.assertRaises(ValueError) as ctx:
+                        load_config(str(cfg_path))
+                    self.assertIn("unsupported runtime keys", str(ctx.exception))
+                    self.assertIn(f"runtime.{key}", str(ctx.exception))
 
     def test_resources_section_and_common_runtime_conversion_are_loaded(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -300,13 +232,15 @@ class TestConfigValidation(unittest.TestCase):
             fake_orca = root / "orca"
             fake_orca.write_text("#!/bin/sh\n", encoding="utf-8")
 
-            cfg_path = root / "orca_auto.yaml"
+            cfg_path = root / "chemstack.yaml"
             cfg_path.write_text(
                 json.dumps(
                     {
+                        "scheduler": {
+                            "max_active_simulations": 6,
+                        },
                         "runtime": {
                             "allowed_root": str(allowed),
-                            "max_concurrent": 6,
                         },
                         "paths": {"orca_executable": str(fake_orca)},
                         "resources": {
@@ -326,6 +260,7 @@ class TestConfigValidation(unittest.TestCase):
             self.assertEqual(common_runtime.allowed_root, str(allowed))
             self.assertEqual(common_runtime.max_concurrent, 6)
             self.assertEqual(common_runtime.resolved_admission_limit, 6)
+            self.assertEqual(common_runtime.resolved_admission_root, str(root / "admission"))
 
     def test_behavior_auto_organize_is_loaded(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -335,7 +270,7 @@ class TestConfigValidation(unittest.TestCase):
             fake_orca = root / "orca"
             fake_orca.write_text("#!/bin/sh\n", encoding="utf-8")
 
-            cfg_path = root / "orca_auto.yaml"
+            cfg_path = root / "chemstack.yaml"
             cfg_path.write_text(
                 json.dumps(
                     {
@@ -354,22 +289,22 @@ class TestConfigValidation(unittest.TestCase):
             self.assertTrue(cfg.behavior.auto_organize_on_terminal)
 
     def test_config_example_sets_auto_organize_off_by_default(self) -> None:
-        example_path = Path(__file__).resolve().parents[1] / "config" / "orca_auto.yaml.example"
+        example_path = Path(__file__).resolve().parents[1] / "config" / "chemstack.yaml.example"
         payload = yaml.safe_load(example_path.read_text(encoding="utf-8"))
 
         self.assertFalse(payload["behavior"]["auto_organize_on_terminal"])
 
     def test_missing_config_file_raises_with_setup_hint(self) -> None:
         with tempfile.TemporaryDirectory() as td:
-            cfg_path = Path(td) / "orca_auto.yaml"
+            cfg_path = Path(td) / "chemstack.yaml"
             with self.assertRaises(ValueError) as ctx:
                 load_config(str(cfg_path))
             self.assertIn("Config file not found", str(ctx.exception))
-            self.assertIn("orca_auto.yaml.example", str(ctx.exception))
+            self.assertIn("chemstack.yaml.example", str(ctx.exception))
 
     def test_missing_required_paths_raise_with_explicit_path_hint(self) -> None:
         with tempfile.TemporaryDirectory() as td:
-            cfg_path = Path(td) / "orca_auto.yaml"
+            cfg_path = Path(td) / "chemstack.yaml"
             cfg_path.write_text("{}", encoding="utf-8")
             with self.assertRaises(ValueError) as ctx:
                 load_config(str(cfg_path))
@@ -385,7 +320,7 @@ class TestConfigValidation(unittest.TestCase):
             fake_orca = root / "orca"
             fake_orca.write_text("#!/bin/sh\n", encoding="utf-8")
 
-            cfg_path = root / "orca_auto.yaml"
+            cfg_path = root / "chemstack.yaml"
             cfg_path.write_text(
                 json.dumps(
                     {
@@ -404,7 +339,7 @@ class TestConfigValidation(unittest.TestCase):
 
     def test_template_placeholder_paths_are_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as td:
-            cfg_path = Path(td) / "orca_auto.yaml"
+            cfg_path = Path(td) / "chemstack.yaml"
             cfg_path.write_text(
                 json.dumps(
                     {
@@ -423,7 +358,7 @@ class TestConfigValidation(unittest.TestCase):
 
     def test_windows_organized_root_raises(self) -> None:
         with tempfile.TemporaryDirectory() as td:
-            cfg_path = Path(td) / "orca_auto.yaml"
+            cfg_path = Path(td) / "chemstack.yaml"
             cfg_path.write_text(
                 json.dumps(
                     {
@@ -442,7 +377,7 @@ class TestConfigValidation(unittest.TestCase):
 
     def test_relative_organized_root_raises(self) -> None:
         with tempfile.TemporaryDirectory() as td:
-            cfg_path = Path(td) / "orca_auto.yaml"
+            cfg_path = Path(td) / "chemstack.yaml"
             cfg_path.write_text(
                 json.dumps(
                     {
@@ -468,7 +403,7 @@ class TestConfigValidation(unittest.TestCase):
             organized.mkdir()
             fake_orca = root / "orca"
             fake_orca.write_text("#!/bin/sh\n", encoding="utf-8")
-            cfg_path = root / "orca_auto.yaml"
+            cfg_path = root / "chemstack.yaml"
             cfg_path.write_text(
                 json.dumps(
                     {
@@ -495,7 +430,7 @@ class TestConfigValidation(unittest.TestCase):
             fake_orca = root / "orca"
             fake_orca.write_text("#!/bin/sh\n", encoding="utf-8")
 
-            cfg_path = root / "orca_auto.yaml"
+            cfg_path = root / "chemstack.yaml"
             cfg_path.write_text(
                 json.dumps(
                     {
@@ -517,7 +452,7 @@ class TestConfigValidation(unittest.TestCase):
             root = Path(td)
             allowed = root / "orca_runs"
             allowed.mkdir()
-            cfg_path = root / "orca_auto.yaml"
+            cfg_path = root / "chemstack.yaml"
             cfg_path.write_text(
                 json.dumps(
                     {
@@ -536,7 +471,7 @@ class TestConfigValidation(unittest.TestCase):
             root = Path(td)
             fake_orca = root / "orca"
             fake_orca.write_text("#!/bin/sh\n", encoding="utf-8")
-            cfg_path = root / "orca_auto.yaml"
+            cfg_path = root / "chemstack.yaml"
             cfg_path.write_text(
                 json.dumps(
                     {
@@ -557,7 +492,7 @@ class TestConfigValidation(unittest.TestCase):
             not_a_dir.write_text("oops", encoding="utf-8")
             fake_orca = root / "orca"
             fake_orca.write_text("#!/bin/sh\n", encoding="utf-8")
-            cfg_path = root / "orca_auto.yaml"
+            cfg_path = root / "chemstack.yaml"
             cfg_path.write_text(
                 json.dumps(
                     {

@@ -3,9 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import patch
 
-from core import attempt_resume
-from core.state_store import new_state
-from core.statuses import AnalyzerStatus, RunStatus
+from chemstack.orca import attempt_resume
+from chemstack.orca.state_store import new_state
+from chemstack.orca.statuses import AnalyzerStatus, RunStatus
 
 
 def test_attempt_resume_text_and_patch_action_helpers_cover_existing_and_missing_values() -> None:
@@ -80,7 +80,7 @@ def test_recover_missing_retry_input_success_creates_patch_actions_and_saves_sta
     source_inp.write_text("! Retry\n", encoding="utf-8")
     state = {"attempts": [{"inp_path": str(source_inp), "patch_actions": "bad"}]}
 
-    with patch("core.attempt_resume.rewrite_for_retry", return_value=["patch_one"]) as rewrite_mock:
+    with patch("chemstack.orca.attempt_resume.rewrite_for_retry", return_value=["patch_one"]) as rewrite_mock:
         saved_paths: list[Path] = []
         recovered, reason = attempt_resume.recover_missing_retry_input(
             reaction_dir=reaction_dir,
@@ -132,7 +132,7 @@ def test_resolve_execution_input_covers_existing_retry_recovery_exception_and_su
 
     retry_path.unlink()
     with patch(
-        "core.attempt_resume.recover_missing_retry_input",
+        "chemstack.orca.attempt_resume.recover_missing_retry_input",
         side_effect=RuntimeError("boom"),
     ):
         current_inp, reason = attempt_resume.resolve_execution_input(
@@ -153,7 +153,7 @@ def test_resolve_execution_input_covers_existing_retry_recovery_exception_and_su
         retry_path.write_text("! Retry\n", encoding="utf-8")
         return True, "resume_recovered"
 
-    with patch("core.attempt_resume.recover_missing_retry_input", side_effect=_recover_and_create):
+    with patch("chemstack.orca.attempt_resume.recover_missing_retry_input", side_effect=_recover_and_create):
         current_inp, reason = attempt_resume.resolve_execution_input(
             reaction_dir=reaction_dir,
             selected_inp=selected_inp,

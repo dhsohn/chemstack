@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
-import core.dft_discovery as discovery
+import chemstack.orca.dft_discovery as discovery
 
 
 def test_discover_orca_targets_routes_by_path_policy(tmp_path: Path) -> None:

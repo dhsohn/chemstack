@@ -7,9 +7,9 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-import core.queue_store as queue_store
-from core.statuses import QueueStatus, RunStatus
-from core.types import QueueEntry
+import chemstack.orca.queue_store as queue_store
+from chemstack.orca.statuses import QueueStatus, RunStatus
+from chemstack.orca.types import QueueEntry
 
 
 def _entry(
@@ -138,7 +138,7 @@ def test_apply_terminal_reconciliation_updates_fields_and_clears_completed_error
         finished_at=None,
         error="stale_error",
     )
-    with patch("core.queue_store._now_iso", return_value="2026-03-10T06:00:00+00:00"):
+    with patch("chemstack.orca.queue_store._now_iso", return_value="2026-03-10T06:00:00+00:00"):
         queue_store._apply_terminal_reconciliation(
             completed_entry,
             status=QueueStatus.COMPLETED.value,
@@ -204,7 +204,7 @@ def test_list_queue_normalizes_common_fields_for_legacy_entries(tmp_path: Path) 
 
     assert len(entries) == 1
     entry = entries[0]
-    assert entry["app_name"] == "orca_auto"
+    assert entry["app_name"] == "chemstack_orca"
     assert entry["task_id"] == "q_legacy"
     assert entry["task_kind"] == "orca_run_inp"
     assert entry["engine"] == "orca"
@@ -228,7 +228,7 @@ def test_queue_entry_accessors_read_common_fields_from_metadata(tmp_path: Path) 
     assert queue_store.queue_entry_status(entry) == QueueStatus.PENDING.value
     assert queue_store.queue_entry_priority(entry) == 7
     assert queue_store.queue_entry_force(entry) is True
-    assert queue_store.queue_entry_app_name(entry) == "orca_auto"
+    assert queue_store.queue_entry_app_name(entry) == "chemstack_orca"
     assert queue_store.queue_entry_reaction_dir(entry) == str(tmp_path / "rxn")
     assert queue_store.queue_entry_metadata(entry)["reaction_dir"] == str(tmp_path / "rxn")
 
@@ -289,7 +289,7 @@ def test_save_entries_uses_chem_core_queue_serializer_when_available(tmp_path: P
     root = tmp_path / "queue_root"
     root.mkdir()
 
-    with patch("core.queue_store._chem_core_queue_module", return_value=fake_backend):
+    with patch("chemstack.orca.queue_store._chem_core_queue_module", return_value=fake_backend):
         queue_store._save_entries(
             root,
             [
@@ -306,7 +306,7 @@ def test_save_entries_uses_chem_core_queue_serializer_when_available(tmp_path: P
     assert len(captured) == 1
     saved_entry = captured[0]
     assert saved_entry.queue_id == "q_backend"
-    assert saved_entry.app_name == "orca_auto"
+    assert saved_entry.app_name == "chemstack_orca"
     assert saved_entry.task_id == "q_backend"
     assert saved_entry.task_kind == "orca_run_inp"
     assert saved_entry.engine == "orca"
@@ -363,14 +363,14 @@ def test_reconcile_orphaned_running_entries_covers_state_terminal_paths_and_pend
             }
         return None
 
-    with patch("core.queue_store._read_worker_pid", return_value=None), patch(
-        "core.queue_store._active_lock_pid",
+    with patch("chemstack.orca.queue_store._read_worker_pid", return_value=None), patch(
+        "chemstack.orca.queue_store._active_lock_pid",
         return_value=None,
     ), patch(
-        "core.queue_store.load_state",
+        "chemstack.orca.queue_store.load_state",
         side_effect=_load_state,
     ), patch(
-        "core.queue_store._terminal_report_data",
+        "chemstack.orca.queue_store._terminal_report_data",
         return_value=None,
     ):
         changed = queue_store.reconcile_orphaned_running_entries(root)
@@ -399,8 +399,8 @@ def test_reconcile_orphaned_running_entries_skips_blank_dirs_and_active_locks(tm
         ],
     )
 
-    with patch("core.queue_store._read_worker_pid", return_value=None), patch(
-        "core.queue_store._active_lock_pid",
+    with patch("chemstack.orca.queue_store._read_worker_pid", return_value=None), patch(
+        "chemstack.orca.queue_store._active_lock_pid",
         side_effect=lambda reaction_dir: 999 if reaction_dir == locked_dir else None,
     ):
         changed = queue_store.reconcile_orphaned_running_entries(root)

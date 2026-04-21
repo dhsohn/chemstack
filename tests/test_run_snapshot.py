@@ -4,8 +4,8 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-from core import run_snapshot
-from core.run_snapshot import (
+from chemstack.orca import run_snapshot
+from chemstack.orca.run_snapshot import (
     RunSnapshot,
     _compute_elapsed,
     _latest_out_path,

@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from core.molecule_key import (
+from chemstack.orca.molecule_key import (
     _atoms_to_hill_formula,
     _directory_name_fallback,
     _find_user_tag,

@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import patch
 
-import core.pathing as pathing
+import chemstack.orca.pathing as pathing
 
 
 class _Candidate:
@@ -71,7 +71,7 @@ def test_resolve_artifact_path_skips_resolve_errors_and_duplicate_resolved_candi
     resolved = (tmp_path / "calc.out").resolve()
 
     with patch(
-        "core.pathing.artifact_candidates",
+        "chemstack.orca.pathing.artifact_candidates",
         return_value=[
             _Candidate(resolved, exists=False, resolve_error=OSError("boom")),
             _Candidate(resolved, exists=False),
@@ -81,7 +81,7 @@ def test_resolve_artifact_path_skips_resolve_errors_and_duplicate_resolved_candi
         assert pathing.resolve_artifact_path("calc.out", tmp_path) is None
 
     with patch(
-        "core.pathing.artifact_candidates",
+        "chemstack.orca.pathing.artifact_candidates",
         return_value=[_Candidate(resolved, exists=True)],
     ):
         assert pathing.resolve_artifact_path("calc.out", tmp_path) == resolved

@@ -6,12 +6,12 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from core.cli import main
-from core.organize_index import records_path
+from chemstack.orca.cli import main
+from chemstack.orca.organize_index import records_path
 
 
 def _write_config(root: Path, allowed_root: Path, organized_root: Path) -> Path:
-    config_path = root / "orca_auto.yaml"
+    config_path = root / "chemstack.yaml"
     config_path.write_text(
         json.dumps({
             "runtime": {
@@ -225,7 +225,7 @@ class TestOrganizeApply(unittest.TestCase):
             _make_completed_reaction(rxn)
 
             config = _write_config(root, allowed, organized)
-            with patch("core.commands.organize.append_record", side_effect=RuntimeError("index write failed")):
+            with patch("chemstack.orca.commands.organize.append_record", side_effect=RuntimeError("index write failed")):
                 rc = main([
                     "--config", str(config),
                     "organize",

@@ -7,9 +7,9 @@ from argparse import Namespace
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from core.config import AppConfig, PathsConfig, RuntimeConfig, TelegramConfig
-from core.dft_monitor import MonitorResult, ParseFailure, ScanReport
-from core.telegram_notifier import (
+from chemstack.orca.config import AppConfig, PathsConfig, RuntimeConfig, TelegramConfig
+from chemstack.orca.dft_monitor import MonitorResult, ParseFailure, ScanReport
+from chemstack.orca.telegram_notifier import (
     _format_monitor_dft_section,
     _format_monitor_failure_section,
     format_monitor_message,
@@ -93,7 +93,7 @@ class TestFormatFailureSection:
 class TestBuildMessage:
     def test_contains_header_scope_and_divider(self) -> None:
         message = format_monitor_message(ScanReport(new_results=[], scanned_files=0))
-        assert "orca_auto monitor" in message
+        assert "chemstack monitor" in message
         assert "\u2500" in message
         assert "Filesystem discovery only" in message
         assert "run-dir alerts" in message
@@ -124,7 +124,7 @@ class TestBuildMessage:
 
 class TestRunMonitor:
     def test_returns_error_when_telegram_not_configured(self) -> None:
-        from core.commands.monitor import _run_monitor
+        from chemstack.orca.commands.monitor import _run_monitor
 
         cfg = AppConfig(
             runtime=RuntimeConfig(allowed_root="/tmp/missing"),
@@ -135,7 +135,7 @@ class TestRunMonitor:
         assert _run_monitor(cfg) == 1
 
     def test_returns_error_when_allowed_root_missing(self) -> None:
-        from core.commands.monitor import _run_monitor
+        from chemstack.orca.commands.monitor import _run_monitor
 
         cfg = AppConfig(
             runtime=RuntimeConfig(allowed_root="/tmp/definitely_missing_monitor_root"),
@@ -145,9 +145,9 @@ class TestRunMonitor:
 
         assert _run_monitor(cfg) == 1
 
-    @patch("core.commands.monitor.notify_monitor_report", return_value=True)
-    @patch("core.commands.monitor.DFTMonitor")
-    @patch("core.commands.monitor.DFTIndex")
+    @patch("chemstack.orca.commands.monitor.notify_monitor_report", return_value=True)
+    @patch("chemstack.orca.commands.monitor.DFTMonitor")
+    @patch("chemstack.orca.commands.monitor.DFTIndex")
     def test_does_not_send_when_no_discoveries(
         self,
         mock_index_cls: MagicMock,
@@ -162,7 +162,7 @@ class TestRunMonitor:
             allowed = Path(td) / "orca_runs"
             allowed.mkdir()
 
-            from core.commands.monitor import _run_monitor
+            from chemstack.orca.commands.monitor import _run_monitor
 
             cfg = AppConfig(
                 runtime=RuntimeConfig(allowed_root=str(allowed)),
@@ -174,9 +174,9 @@ class TestRunMonitor:
         assert result == 0
         mock_notify.assert_not_called()
 
-    @patch("core.commands.monitor.notify_monitor_report", return_value=False)
-    @patch("core.commands.monitor.DFTMonitor")
-    @patch("core.commands.monitor.DFTIndex")
+    @patch("chemstack.orca.commands.monitor.notify_monitor_report", return_value=False)
+    @patch("chemstack.orca.commands.monitor.DFTMonitor")
+    @patch("chemstack.orca.commands.monitor.DFTIndex")
     def test_returns_error_when_notification_send_fails(
         self,
         mock_index_cls: MagicMock,
@@ -191,7 +191,7 @@ class TestRunMonitor:
             allowed = Path(td) / "orca_runs"
             allowed.mkdir()
 
-            from core.commands.monitor import _run_monitor
+            from chemstack.orca.commands.monitor import _run_monitor
 
             cfg = AppConfig(
                 runtime=RuntimeConfig(allowed_root=str(allowed)),
@@ -204,9 +204,9 @@ class TestRunMonitor:
         mock_index_cls.return_value.initialize.assert_called_once_with(str(allowed / "dft.db"))
         mock_notify.assert_called_once()
 
-    @patch("core.commands.monitor.notify_monitor_report", return_value=True)
-    @patch("core.commands.monitor.DFTMonitor")
-    @patch("core.commands.monitor.DFTIndex")
+    @patch("chemstack.orca.commands.monitor.notify_monitor_report", return_value=True)
+    @patch("chemstack.orca.commands.monitor.DFTMonitor")
+    @patch("chemstack.orca.commands.monitor.DFTIndex")
     def test_sends_when_new_dft_discovery_exists(
         self,
         mock_index_cls: MagicMock,
@@ -221,7 +221,7 @@ class TestRunMonitor:
             allowed = Path(td) / "orca_runs"
             allowed.mkdir()
 
-            from core.commands.monitor import _run_monitor
+            from chemstack.orca.commands.monitor import _run_monitor
 
             cfg = AppConfig(
                 runtime=RuntimeConfig(allowed_root=str(allowed)),
@@ -233,9 +233,9 @@ class TestRunMonitor:
         assert result == 0
         mock_notify.assert_called_once()
 
-    @patch("core.commands.monitor.notify_monitor_report", return_value=True)
-    @patch("core.commands.monitor.DFTMonitor")
-    @patch("core.commands.monitor.DFTIndex")
+    @patch("chemstack.orca.commands.monitor.notify_monitor_report", return_value=True)
+    @patch("chemstack.orca.commands.monitor.DFTMonitor")
+    @patch("chemstack.orca.commands.monitor.DFTIndex")
     def test_does_not_send_when_only_running_dft_updates_exist(
         self,
         mock_index_cls: MagicMock,
@@ -250,7 +250,7 @@ class TestRunMonitor:
             allowed = Path(td) / "orca_runs"
             allowed.mkdir()
 
-            from core.commands.monitor import _run_monitor
+            from chemstack.orca.commands.monitor import _run_monitor
 
             cfg = AppConfig(
                 runtime=RuntimeConfig(allowed_root=str(allowed)),
@@ -263,7 +263,7 @@ class TestRunMonitor:
         mock_notify.assert_not_called()
 
     def test_cmd_monitor_loads_config_and_delegates(self) -> None:
-        from core.commands.monitor import cmd_monitor
+        from chemstack.orca.commands.monitor import cmd_monitor
 
         cfg = AppConfig(
             runtime=RuntimeConfig(allowed_root="/tmp/runs"),
@@ -272,8 +272,8 @@ class TestRunMonitor:
         )
         args = Namespace(config="config.yml")
 
-        with patch("core.commands.monitor.load_config", return_value=cfg) as load_cfg, patch(
-            "core.commands.monitor._run_monitor",
+        with patch("chemstack.orca.commands.monitor.load_config", return_value=cfg) as load_cfg, patch(
+            "chemstack.orca.commands.monitor._run_monitor",
             return_value=7,
         ) as run_monitor:
             assert cmd_monitor(args) == 7

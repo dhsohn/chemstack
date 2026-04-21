@@ -17,7 +17,7 @@ else
   echo "[bootstrap] Sudo not available. Skipping apt package installation."
 fi
 
-chmod +x "$ROOT/bin/orca_auto" "$ROOT/scripts/"*.sh
+chmod +x "$ROOT/scripts/"*.sh
 
 echo "[bootstrap] Checking ORCA Linux binary..."
 ORCA_BIN="${ORCA_BIN:-$HOME/opt/orca/orca}"
@@ -38,13 +38,15 @@ fi
 source .venv/bin/activate
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
+python -m pip install -e .
 
-CONFIG="$ROOT/config/orca_auto.yaml"
+CONFIG="$ROOT/config/chemstack.yaml"
 if [[ ! -f "$CONFIG" ]]; then
-  cp "$ROOT/config/orca_auto.yaml.example" "$CONFIG"
-  echo "[bootstrap] Created config/orca_auto.yaml from example template."
-  echo "[bootstrap] Edit config/orca_auto.yaml and replace /path/to/... placeholders before first run."
+  cp "$ROOT/config/chemstack.yaml.example" "$CONFIG"
+  echo "[bootstrap] Created config/chemstack.yaml from example template."
+  echo "[bootstrap] Edit config/chemstack.yaml and replace /path/to/... placeholders before first run."
 fi
 
 echo "[bootstrap] Done."
-echo "[bootstrap] Example: ./bin/orca_auto run-dir '/absolute/path/to/orca_runs/<dir>'"
+echo "[bootstrap] Next: source .venv/bin/activate"
+echo "[bootstrap] Example: python -m chemstack.orca.cli run-dir '/absolute/path/to/orca_runs/<dir>'"

@@ -7,7 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-from core.admission_store import (
+from chemstack.orca.admission_store import (
     ADMISSION_FILE_NAME,
     _save_slots,
     activate_slot,
@@ -121,12 +121,12 @@ class TestAdmissionStore(unittest.TestCase):
                 reaction_dir=str(reaction_dir),
                 source="queue_run",
                 queue_id="q_meta",
-                app_name="orca_auto",
+                app_name="chemstack_orca",
                 task_id="task_meta_123",
             ):
                 slots = list_slots(root)
                 self.assertEqual(len(slots), 1)
-            self.assertEqual(slots[0]["app_name"], "orca_auto")
+            self.assertEqual(slots[0]["app_name"], "chemstack_orca")
             self.assertEqual(slots[0]["task_id"], "task_meta_123")
             self.assertEqual(slots[0]["reaction_dir"], str(reaction_dir))
 
@@ -175,15 +175,15 @@ class TestAdmissionStore(unittest.TestCase):
             self.assertEqual(removed, 1)
             self.assertEqual(active_slot_count(root), 0)
 
-    @patch("core.admission_store.process_start_ticks", return_value=999)
-    @patch("core.admission_store.is_process_alive", return_value=True)
+    @patch("chemstack.orca.admission_store.process_start_ticks", return_value=999)
+    @patch("chemstack.orca.admission_store.is_process_alive", return_value=True)
     def test_list_slots_treats_pid_reuse_as_stale(
         self,
         mock_alive,
         mock_ticks,
     ) -> None:
         with tempfile.TemporaryDirectory() as tmp, patch(
-            "core.admission_store._chem_core_admission_module",
+            "chemstack.orca.admission_store._chem_core_admission_module",
             return_value=None,
         ):
             root = Path(tmp)
@@ -207,10 +207,10 @@ class TestAdmissionStore(unittest.TestCase):
             mock_alive.assert_called()
             mock_ticks.assert_called()
 
-    @patch("core.admission_store.is_process_alive", return_value=True)
+    @patch("chemstack.orca.admission_store.is_process_alive", return_value=True)
     def test_list_slots_supports_chem_core_style_work_dir_payload(self, mock_alive) -> None:
         with tempfile.TemporaryDirectory() as tmp, patch(
-            "core.admission_store._chem_core_admission_module",
+            "chemstack.orca.admission_store._chem_core_admission_module",
             return_value=None,
         ):
             root = Path(tmp)
@@ -225,7 +225,7 @@ class TestAdmissionStore(unittest.TestCase):
                     "process_start_ticks": None,
                     "source": "queue_run",
                     "acquired_at": "2026-03-20T00:00:00+00:00",
-                    "app_name": "orca_auto",
+                    "app_name": "chemstack_orca",
                     "task_id": "task_123",
                 }
             ]
@@ -266,7 +266,7 @@ class TestAdmissionStore(unittest.TestCase):
         )
 
         with tempfile.TemporaryDirectory() as tmp, patch(
-            "core.admission_store._chem_core_admission_module",
+            "chemstack.orca.admission_store._chem_core_admission_module",
             return_value=fake_backend,
         ):
             root = Path(tmp)
@@ -282,7 +282,7 @@ class TestAdmissionStore(unittest.TestCase):
                         "process_start_ticks": 456,
                         "source": "direct_run",
                         "acquired_at": "2026-03-20T00:00:00+00:00",
-                        "app_name": "orca_auto",
+                        "app_name": "chemstack_orca",
                         "task_id": "task_123",
                         "workflow_id": "wf_123",
                     }
@@ -329,7 +329,7 @@ class TestAdmissionStore(unittest.TestCase):
         )
 
         with tempfile.TemporaryDirectory() as tmp, patch(
-            "core.admission_store._chem_core_admission_module",
+            "chemstack.orca.admission_store._chem_core_admission_module",
             return_value=fake_backend,
         ):
             root = Path(tmp)
@@ -339,7 +339,7 @@ class TestAdmissionStore(unittest.TestCase):
                 reaction_dir=str(root / "rxn"),
                 queue_id="q_123",
                 source="queue_worker",
-                app_name="orca_auto",
+                app_name="chemstack_orca",
                 task_id="task_123",
                 workflow_id="wf_123",
             )
@@ -357,7 +357,7 @@ class TestAdmissionStore(unittest.TestCase):
         self.assertEqual(saved_slot.state, "reserved")
         self.assertEqual(saved_slot.work_dir, str(root / "rxn"))
         self.assertEqual(saved_slot.queue_id, "q_123")
-        self.assertEqual(saved_slot.app_name, "orca_auto")
+        self.assertEqual(saved_slot.app_name, "chemstack_orca")
         self.assertEqual(saved_slot.task_id, "task_123")
         self.assertEqual(saved_slot.workflow_id, "wf_123")
 
@@ -384,7 +384,7 @@ class TestAdmissionStore(unittest.TestCase):
         )
 
         with tempfile.TemporaryDirectory() as tmp, patch(
-            "core.admission_store._chem_core_admission_module",
+            "chemstack.orca.admission_store._chem_core_admission_module",
             return_value=fake_backend,
         ):
             root = Path(tmp)
@@ -409,7 +409,7 @@ class TestAdmissionStore(unittest.TestCase):
         fake_backend = SimpleNamespace(activate_reserved_slot=activate_reserved)
 
         with tempfile.TemporaryDirectory() as tmp, patch(
-            "core.admission_store._chem_core_admission_module",
+            "chemstack.orca.admission_store._chem_core_admission_module",
             return_value=fake_backend,
         ):
             root = Path(tmp)
@@ -438,10 +438,10 @@ class TestAdmissionStore(unittest.TestCase):
         fake_backend = SimpleNamespace(activate_reserved_slot=activate_reserved)
 
         with tempfile.TemporaryDirectory() as tmp, patch(
-            "core.admission_store._chem_core_admission_module",
+            "chemstack.orca.admission_store._chem_core_admission_module",
             return_value=fake_backend,
         ), patch(
-            "core.admission_store.update_slot_metadata",
+            "chemstack.orca.admission_store.update_slot_metadata",
             return_value=True,
         ) as mock_update_metadata:
             root = Path(tmp)
@@ -452,7 +452,7 @@ class TestAdmissionStore(unittest.TestCase):
                 source="queue_run",
                 owner_pid=4321,
                 queue_id="q_meta",
-                app_name="orca_auto",
+                app_name="chemstack_orca",
                 task_id="task_meta",
                 workflow_id="wf_meta",
             )
@@ -471,7 +471,7 @@ class TestAdmissionStore(unittest.TestCase):
             root,
             "slot_meta",
             queue_id="q_meta",
-            app_name="orca_auto",
+            app_name="chemstack_orca",
             task_id="task_meta",
             workflow_id="wf_meta",
         )
@@ -481,7 +481,7 @@ class TestAdmissionStore(unittest.TestCase):
         fake_backend = SimpleNamespace(release_slot=release)
 
         with tempfile.TemporaryDirectory() as tmp, patch(
-            "core.admission_store._chem_core_admission_module",
+            "chemstack.orca.admission_store._chem_core_admission_module",
             return_value=fake_backend,
         ):
             root = Path(tmp)
@@ -495,7 +495,7 @@ class TestAdmissionStore(unittest.TestCase):
         fake_backend = SimpleNamespace(reconcile_stale_slots=reconcile)
 
         with tempfile.TemporaryDirectory() as tmp, patch(
-            "core.admission_store._chem_core_admission_module",
+            "chemstack.orca.admission_store._chem_core_admission_module",
             return_value=fake_backend,
         ):
             root = Path(tmp)
@@ -514,7 +514,7 @@ class TestAdmissionStore(unittest.TestCase):
                 root,
                 token or "",
                 queue_id="q_123",
-                app_name="orca_auto",
+                app_name="chemstack_orca",
                 task_id="orca_task_123",
                 workflow_id="wf_123",
             )
@@ -523,11 +523,11 @@ class TestAdmissionStore(unittest.TestCase):
             slots = list_slots(root)
             self.assertEqual(len(slots), 1)
             self.assertEqual(slots[0]["queue_id"], "q_123")
-            self.assertEqual(slots[0]["app_name"], "orca_auto")
+            self.assertEqual(slots[0]["app_name"], "chemstack_orca")
             self.assertEqual(slots[0]["task_id"], "orca_task_123")
             self.assertEqual(slots[0]["workflow_id"], "wf_123")
 
-    @patch("core.admission_store.is_process_alive", return_value=True)
+    @patch("chemstack.orca.admission_store.is_process_alive", return_value=True)
     def test_list_slots_reads_chem_core_backend_slots_when_available(self, mock_alive: MagicMock) -> None:
         @dataclass(frozen=True)
         class FakeChemCoreSlot:
@@ -552,7 +552,7 @@ class TestAdmissionStore(unittest.TestCase):
                         process_start_ticks=None,
                         source="queue_run",
                         acquired_at="2026-03-20T00:00:00+00:00",
-                        app_name="orca_auto",
+                        app_name="chemstack_orca",
                         task_id="task_backend",
                         workflow_id="wf_backend",
                         state="active",
@@ -562,7 +562,7 @@ class TestAdmissionStore(unittest.TestCase):
                 ]
             )
             with patch(
-            "core.admission_store._chem_core_admission_module",
+            "chemstack.orca.admission_store._chem_core_admission_module",
             return_value=SimpleNamespace(
                 list_slots=list_slots_backend,
                 _load_slots=MagicMock(side_effect=AssertionError("backend._load_slots should not be used")),
@@ -574,7 +574,7 @@ class TestAdmissionStore(unittest.TestCase):
         self.assertEqual(len(slots), 1)
         self.assertEqual(slots[0]["reaction_dir"], str(Path(tmp) / "rxn"))
         self.assertEqual(slots[0]["work_dir"], str(Path(tmp) / "rxn"))
-        self.assertEqual(slots[0]["app_name"], "orca_auto")
+        self.assertEqual(slots[0]["app_name"], "chemstack_orca")
         self.assertEqual(slots[0]["task_id"], "task_backend")
         self.assertEqual(slots[0]["workflow_id"], "wf_backend")
         self.assertEqual(slots[0]["queue_id"], "q_backend")
@@ -586,7 +586,7 @@ class TestAdmissionStore(unittest.TestCase):
         fake_backend = SimpleNamespace(active_slot_count=active_count)
 
         with tempfile.TemporaryDirectory() as tmp, patch(
-            "core.admission_store._chem_core_admission_module",
+            "chemstack.orca.admission_store._chem_core_admission_module",
             return_value=fake_backend,
         ):
             root = Path(tmp)

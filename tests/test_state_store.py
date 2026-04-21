@@ -5,11 +5,11 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from orca_auto import state as state_facade
-from orca_auto.runtime import run_lock
-from orca_auto.runtime.run_lock import acquire_run_lock
+from chemstack.orca import state as state_facade
+from chemstack.orca.runtime import run_lock
+from chemstack.orca.runtime.run_lock import acquire_run_lock
 
-from core.state_store import (
+from chemstack.orca.state_store import (
     atomic_write_text,
     load_report_json,
     load_state,
@@ -67,8 +67,8 @@ class TestStateStore(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            with patch("orca_auto.runtime.run_lock.lock_utils.is_process_alive", return_value=True), patch(
-                "orca_auto.runtime.run_lock.lock_utils.process_start_ticks", return_value=111
+            with patch("chemstack.orca.runtime.run_lock.lock_utils.is_process_alive", return_value=True), patch(
+                "chemstack.orca.runtime.run_lock.lock_utils.process_start_ticks", return_value=111
             ):
                 with self.assertRaises(RuntimeError):
                     with acquire_run_lock(reaction):
@@ -90,10 +90,10 @@ class TestStateStore(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            with patch("orca_auto.runtime.run_lock.lock_utils.is_process_alive", return_value=True), patch(
-                "orca_auto.runtime.run_lock.lock_utils.process_start_ticks", return_value=222
+            with patch("chemstack.orca.runtime.run_lock.lock_utils.is_process_alive", return_value=True), patch(
+                "chemstack.orca.runtime.run_lock.lock_utils.process_start_ticks", return_value=222
             ), patch(
-                "orca_auto.runtime.run_lock.current_process_lock_payload",
+                "chemstack.orca.runtime.run_lock.current_process_lock_payload",
                 return_value={
                     "pid": os.getpid(),
                     "started_at": "2026-03-22T00:00:00+00:00",

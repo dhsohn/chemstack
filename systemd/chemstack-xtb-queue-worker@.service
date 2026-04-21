@@ -1,0 +1,16 @@
+[Unit]
+Description=ChemStack xTB queue worker for %i
+After=local-fs.target
+
+[Service]
+Type=simple
+User=%i
+WorkingDirectory=/home/%i/chemstack
+Environment=PYTHONUNBUFFERED=1
+Environment=CHEMSTACK_CONFIG=/home/%i/chemstack/config/chemstack.yaml
+ExecStart=/home/%i/chemstack/.venv/bin/python -m chemstack.xtb.cli queue worker
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
