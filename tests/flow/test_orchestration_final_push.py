@@ -425,7 +425,7 @@ def test_append_reaction_orca_stages_false_and_attempted_path_edges(
     }
     assert orchestration._append_reaction_orca_stages(completed_payload, workspace_dir=tmp_path, xtb_auto_config="xtb.yaml", orca_auto_config="orca.yaml") is False
 
-    blocked_payload = {
+    blocked_payload: dict[str, Any] = {
         "stages": [
             deepcopy(base_xtb_stage),
             {"stage_id": "orca_failed", "status": "failed", "task": {"engine": "orca", "metadata": {"source_candidate_path": "/tmp/other.xyz"}}, "metadata": {}},

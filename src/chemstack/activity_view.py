@@ -5,6 +5,8 @@ from typing import Any, Sequence
 from chemstack.flow.submitters.common import normalize_text
 
 ACTIVE_SIMULATION_STATUSES = frozenset({"running", "retrying", "cancel_requested"})
+ActivityItem = dict[str, Any]
+TopLevelToken = tuple[str, str | int]
 
 
 def workflow_parent_id_from_activity(item: dict[str, Any]) -> str:
@@ -50,15 +52,15 @@ def queue_list_display_rows(
     visible_items: Sequence[dict[str, Any]],
     show_workflow_context: bool,
 ) -> list[tuple[int, dict[str, Any]]]:
-    workflow_by_id: dict[str, dict[str, Any]] = {}
+    workflow_by_id: dict[str, ActivityItem] = {}
     for item in all_items:
         workflow_id = normalize_text(item.get("activity_id"))
         if workflow_id and normalize_text(item.get("kind")).lower() == "workflow":
             workflow_by_id[workflow_id] = dict(item)
 
-    workflow_children: dict[str, list[dict[str, Any]]] = {}
-    standalone_items: dict[tuple[str, int], dict[str, Any]] = {}
-    top_level_tokens: list[tuple[str, str | int]] = []
+    workflow_children: dict[str, list[ActivityItem]] = {}
+    standalone_items: dict[tuple[str, int], ActivityItem] = {}
+    top_level_tokens: list[TopLevelToken] = []
     seen_workflow_tokens: set[str] = set()
 
     for index, raw_item in enumerate(visible_items):
@@ -94,9 +96,9 @@ def queue_list_display_rows(
         standalone_items[token] = item
         top_level_tokens.append(token)
 
-    rows: list[tuple[int, dict[str, Any]]] = []
-    for token in top_level_tokens:
-        token_kind, token_value = token
+    rows: list[tuple[int, ActivityItem]] = []
+    for row_token in top_level_tokens:
+        token_kind, token_value = row_token
         if token_kind == "workflow":
             workflow_id = str(token_value)
             parent = workflow_by_id.get(workflow_id)
@@ -109,7 +111,9 @@ def queue_list_display_rows(
             for child in children:
                 rows.append((0, dict(child)))
             continue
-        item = standalone_items.get(token)
-        if item is not None:
-            rows.append((0, dict(item)))
+        if not isinstance(token_value, int):
+            continue
+        standalone_item = standalone_items.get((token_kind, token_value))
+        if standalone_item is not None:
+            rows.append((0, dict(standalone_item)))
     return rows

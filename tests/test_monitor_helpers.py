@@ -7,7 +7,7 @@ from unittest.mock import patch
 from chemstack.orca.commands import monitor
 from chemstack.orca.commands import _helpers as command_helpers
 from chemstack.orca.config import AppConfig, PathsConfig, RuntimeConfig, TelegramConfig
-from chemstack.orca.dft_monitor import ScanReport
+from chemstack.orca.dft_monitor import MonitorResult, ScanReport
 
 
 def _cfg(allowed_root: Path, *, telegram_enabled: bool = True) -> AppConfig:
@@ -88,7 +88,7 @@ def test_run_monitor_returns_one_when_notification_fails(tmp_path: Path) -> None
     allowed_root = tmp_path / "orca_runs"
     allowed_root.mkdir()
     cfg = _cfg(allowed_root, telegram_enabled=True)
-    fake_monitor = SimpleNamespace(scan=lambda: ScanReport(new_results=[object()], scanned_files=1))
+    fake_monitor = SimpleNamespace(scan=lambda: ScanReport(new_results=[MonitorResult()], scanned_files=1))
 
     with patch("chemstack.orca.commands.monitor.DFTIndex") as index_cls, patch(
         "chemstack.orca.commands.monitor.DFTMonitor",

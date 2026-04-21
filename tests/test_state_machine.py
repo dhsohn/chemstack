@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import cast
 from unittest.mock import patch
 
 from chemstack.orca.state_machine import (
@@ -12,6 +13,7 @@ from chemstack.orca.state_machine import (
     state_matches_selected,
 )
 from chemstack.orca.statuses import AnalyzerStatus, RunStatus
+from chemstack.orca.types import RunState
 
 
 def test_parse_analyzer_status_and_decide_attempt_outcome_cover_terminal_and_retry_paths() -> None:
@@ -109,12 +111,15 @@ def test_is_resumable_state_covers_running_retrying_failed_and_non_resumable_cas
             "final_result": {"reason": "orca_crash"},
         }
     )
-    assert not is_resumable_state({"status": RunStatus.FAILED.value, "final_result": []})
+    assert not is_resumable_state(cast(RunState, {"status": RunStatus.FAILED.value, "final_result": []}))
     assert not is_resumable_state(
-        {
-            "status": RunStatus.FAILED.value,
-            "final_result": {"reason": 123},
-        }
+        cast(
+            RunState,
+            {
+                "status": RunStatus.FAILED.value,
+                "final_result": {"reason": 123},
+            },
+        )
     )
     assert not is_resumable_state({"status": RunStatus.COMPLETED.value})
 
@@ -122,7 +127,7 @@ def test_is_resumable_state_covers_running_retrying_failed_and_non_resumable_cas
 def test_load_or_create_state_creates_new_state_for_missing_or_mismatched_selection(tmp_path: Path) -> None:
     reaction_dir = tmp_path / "rxn"
     selected_inp = reaction_dir / "calc.inp"
-    replacement_state = {
+    replacement_state: RunState = {
         "run_id": "run_new",
         "selected_inp": str(selected_inp),
         "status": RunStatus.CREATED.value,
@@ -147,7 +152,7 @@ def test_load_or_create_state_creates_new_state_for_missing_or_mismatched_select
     new_state_mock.assert_called_once_with(reaction_dir, selected_inp, max_retries=4)
     save_state_mock.assert_called_once_with(reaction_dir, state)
 
-    mismatched_loaded_state = {
+    mismatched_loaded_state: RunState = {
         "run_id": "run_old",
         "selected_inp": str(reaction_dir / "other.inp"),
         "status": RunStatus.RUNNING.value,
@@ -231,7 +236,7 @@ def test_load_or_create_state_resumes_or_resets_and_normalizes_attempts(tmp_path
         "attempts": [{"inp_path": str(selected_inp)}],
         "final_result": {"reason": "normal_termination"},
     }
-    replacement_state = {
+    replacement_state: RunState = {
         "run_id": "run_reset",
         "selected_inp": str(selected_inp),
         "status": RunStatus.CREATED.value,

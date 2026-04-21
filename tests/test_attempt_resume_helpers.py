@@ -1,15 +1,17 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import cast
 from unittest.mock import patch
 
 from chemstack.orca import attempt_resume
 from chemstack.orca.state_store import new_state
 from chemstack.orca.statuses import AnalyzerStatus, RunStatus
+from chemstack.orca.types import AttemptRecord, RunFinishedNotification, RunState
 
 
 def test_attempt_resume_text_and_patch_action_helpers_cover_existing_and_missing_values() -> None:
-    attempt = {"patch_actions": ["existing"]}
+    attempt: AttemptRecord = {"patch_actions": ["existing"]}
     assert attempt_resume._ensure_patch_actions_list(attempt) == ["existing"]
 
     attempt = {}
@@ -29,27 +31,35 @@ def test_recover_missing_retry_input_covers_missing_attempt_shapes_and_sources(t
     current_inp = reaction_dir / "calc.retry01.inp"
     selected_inp.write_text("! Opt\n", encoding="utf-8")
 
-    base_kwargs = {
-        "reaction_dir": reaction_dir,
-        "selected_inp": selected_inp,
-        "current_inp": current_inp,
-        "retries_used": 1,
-        "retry_recipe_step": lambda retry_number: retry_number,
-        "to_resolved_local": lambda raw: Path(raw),
-        "save_state": lambda _reaction_dir, _state: reaction_dir / "run_state.json",
-    }
-
     assert attempt_resume.recover_missing_retry_input(
         state={},
-        **base_kwargs,
+        reaction_dir=reaction_dir,
+        selected_inp=selected_inp,
+        current_inp=current_inp,
+        retries_used=1,
+        retry_recipe_step=lambda retry_number: retry_number,
+        to_resolved_local=lambda raw: Path(raw),
+        save_state=lambda _reaction_dir, _state: reaction_dir / "run_state.json",
     ) == (False, "resume_attempts_missing")
     assert attempt_resume.recover_missing_retry_input(
-        state={"attempts": ["bad"]},
-        **base_kwargs,
+        state=cast(RunState, {"attempts": ["bad"]}),
+        reaction_dir=reaction_dir,
+        selected_inp=selected_inp,
+        current_inp=current_inp,
+        retries_used=1,
+        retry_recipe_step=lambda retry_number: retry_number,
+        to_resolved_local=lambda raw: Path(raw),
+        save_state=lambda _reaction_dir, _state: reaction_dir / "run_state.json",
     ) == (False, "resume_last_attempt_invalid")
     assert attempt_resume.recover_missing_retry_input(
         state={"attempts": [{}]},
-        **base_kwargs,
+        reaction_dir=reaction_dir,
+        selected_inp=selected_inp,
+        current_inp=current_inp,
+        retries_used=1,
+        retry_recipe_step=lambda retry_number: retry_number,
+        to_resolved_local=lambda raw: Path(raw),
+        save_state=lambda _reaction_dir, _state: reaction_dir / "run_state.json",
     ) == (False, "resume_source_input_missing")
 
     missing_selected = reaction_dir / "missing_selected.inp"
@@ -66,7 +76,13 @@ def test_recover_missing_retry_input_covers_missing_attempt_shapes_and_sources(t
 
     assert attempt_resume.recover_missing_retry_input(
         state={"attempts": [{"inp_path": str(reaction_dir / "missing_source.inp")}]},
-        **base_kwargs,
+        reaction_dir=reaction_dir,
+        selected_inp=selected_inp,
+        current_inp=current_inp,
+        retries_used=1,
+        retry_recipe_step=lambda retry_number: retry_number,
+        to_resolved_local=lambda raw: Path(raw),
+        save_state=lambda _reaction_dir, _state: reaction_dir / "run_state.json",
     ) == (False, "resume_source_input_not_found")
 
 
@@ -78,10 +94,15 @@ def test_recover_missing_retry_input_success_creates_patch_actions_and_saves_sta
     selected_inp.write_text("! Opt\n", encoding="utf-8")
     source_inp = reaction_dir / "calc.prev.inp"
     source_inp.write_text("! Retry\n", encoding="utf-8")
-    state = {"attempts": [{"inp_path": str(source_inp), "patch_actions": "bad"}]}
+    state = cast(RunState, {"attempts": [{"inp_path": str(source_inp), "patch_actions": "bad"}]})
 
     with patch("chemstack.orca.attempt_resume.rewrite_for_retry", return_value=["patch_one"]) as rewrite_mock:
         saved_paths: list[Path] = []
+
+        def _save_state(reaction_dir_arg: Path, _state: RunState) -> Path:
+            saved_paths.append(reaction_dir_arg)
+            return reaction_dir / "run_state.json"
+
         recovered, reason = attempt_resume.recover_missing_retry_input(
             reaction_dir=reaction_dir,
             state=state,
@@ -90,7 +111,7 @@ def test_recover_missing_retry_input_success_creates_patch_actions_and_saves_sta
             retries_used=1,
             retry_recipe_step=lambda retry_number: retry_number + 1,
             to_resolved_local=lambda raw: Path(raw).resolve(),
-            save_state=lambda reaction_dir_arg, _state: saved_paths.append(reaction_dir_arg) or reaction_dir / "run_state.json",
+            save_state=_save_state,
         )
 
     assert recovered
@@ -116,10 +137,11 @@ def test_resolve_execution_input_covers_existing_retry_recovery_exception_and_su
     retry_path = reaction_dir / "calc.retry01.inp"
     retry_path.write_text("! Retry\n", encoding="utf-8")
 
+    empty_state: RunState = {"attempts": []}
     current_inp, reason = attempt_resume.resolve_execution_input(
         reaction_dir=reaction_dir,
         selected_inp=selected_inp,
-        state={"attempts": []},
+        state=empty_state,
         execution_index=2,
         retries_used=1,
         retry_inp_path=lambda inp, retry_number: inp.with_name(f"{inp.stem}.retry{retry_number:02d}.inp"),
@@ -138,7 +160,7 @@ def test_resolve_execution_input_covers_existing_retry_recovery_exception_and_su
         current_inp, reason = attempt_resume.resolve_execution_input(
             reaction_dir=reaction_dir,
             selected_inp=selected_inp,
-            state={"attempts": []},
+            state=empty_state,
             execution_index=2,
             retries_used=1,
             retry_inp_path=lambda inp, retry_number: inp.with_name(f"{inp.stem}.retry{retry_number:02d}.inp"),
@@ -157,7 +179,7 @@ def test_resolve_execution_input_covers_existing_retry_recovery_exception_and_su
         current_inp, reason = attempt_resume.resolve_execution_input(
             reaction_dir=reaction_dir,
             selected_inp=selected_inp,
-            state={"attempts": []},
+            state=empty_state,
             execution_index=2,
             retries_used=1,
             retry_inp_path=lambda inp, retry_number: inp.with_name(f"{inp.stem}.retry{retry_number:02d}.inp"),
@@ -195,7 +217,7 @@ def test_resume_terminal_decision_covers_non_resumed_malformed_and_defaulted_ter
         attempt_resume.resume_terminal_decision(
             reaction_dir=reaction_dir,
             selected_inp=selected_inp,
-            state={"attempts": "bad"},
+            state=cast(RunState, {"attempts": "bad"}),
             resumed=True,
             max_retries=2,
             last_out_path_from_state=lambda current_state: None,
@@ -208,7 +230,7 @@ def test_resume_terminal_decision_covers_non_resumed_malformed_and_defaulted_ter
         attempt_resume.resume_terminal_decision(
             reaction_dir=reaction_dir,
             selected_inp=selected_inp,
-            state={"attempts": ["bad"]},
+            state=cast(RunState, {"attempts": ["bad"]}),
             resumed=True,
             max_retries=2,
             last_out_path_from_state=lambda current_state: None,
@@ -218,7 +240,7 @@ def test_resume_terminal_decision_covers_non_resumed_malformed_and_defaulted_ter
         is None
     )
 
-    non_terminal_state = {
+    non_terminal_state: RunState = {
         "attempts": [
             {
                 "analyzer_status": AnalyzerStatus.INCOMPLETE.value,
@@ -240,7 +262,7 @@ def test_resume_terminal_decision_covers_non_resumed_malformed_and_defaulted_ter
         is None
     )
 
-    terminal_state = {
+    terminal_state: RunState = {
         "attempts": [
             {"analyzer_status": "completed", "analyzer_reason": "normal_termination"},
             {"analyzer_status": " ", "analyzer_reason": " ", "out_path": " "},
@@ -248,8 +270,13 @@ def test_resume_terminal_decision_covers_non_resumed_malformed_and_defaulted_ter
     }
     exit_calls: list[dict[str, object]] = []
 
-    def notify_finished(payload: object) -> None:
+    def notify_finished(payload: RunFinishedNotification) -> None:
         del payload
+
+    def _exit_with_result(*args: object, **kwargs: object) -> int:
+        del args
+        exit_calls.append(dict(kwargs))
+        return 7
 
     result = attempt_resume.resume_terminal_decision(
         reaction_dir=reaction_dir,
@@ -258,7 +285,7 @@ def test_resume_terminal_decision_covers_non_resumed_malformed_and_defaulted_ter
         resumed=True,
         max_retries=1,
         last_out_path_from_state=lambda current_state: "state.out",
-        exit_with_result=lambda *args, **kwargs: exit_calls.append(kwargs) or 7,
+        exit_with_result=_exit_with_result,
         emit=lambda _payload: None,
         notify_finished=notify_finished,
     )

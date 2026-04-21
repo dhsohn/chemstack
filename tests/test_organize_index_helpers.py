@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from contextlib import contextmanager
 from pathlib import Path
+from typing import Any, cast
 from unittest.mock import patch
 
 from chemstack.orca import organize_index
@@ -211,7 +212,8 @@ def test_acquire_index_lock_passes_expected_payload_and_callbacks(tmp_path: Path
     assert captured["lock_path"] == organize_index.index_dir(organized_root) / organize_index.LOCK_FILE_NAME
     assert captured["timeout_seconds"] == 7
     assert captured["timeout_error_builder"] is organize_index._index_lock_timeout_error
-    assert captured["lock_payload_obj"]["process_start_ticks"] == 321
+    lock_payload = cast(dict[str, Any], captured["lock_payload_obj"])
+    assert lock_payload["process_start_ticks"] == 321
     assert captured["parse_lock_info_fn"] is organize_index.lock_utils.parse_lock_info
     assert captured["is_process_alive_fn"] is organize_index.lock_utils.is_process_alive
     assert captured["process_start_ticks_fn"] is organize_index.lock_utils.process_start_ticks
@@ -233,4 +235,5 @@ def test_acquire_index_lock_omits_process_ticks_when_unavailable(tmp_path: Path)
         with organize_index.acquire_index_lock(organized_root):
             pass
 
-    assert "process_start_ticks" not in captured["lock_payload_obj"]
+    lock_payload = cast(dict[str, Any], captured["lock_payload_obj"])
+    assert "process_start_ticks" not in lock_payload

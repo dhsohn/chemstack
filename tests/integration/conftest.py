@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
-from chemstack.core.admission import list_slots
+from chemstack.core.admission import AdmissionSlot, list_slots
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -303,7 +303,7 @@ def crest_job(smoke_workspace: SmokeWorkspace, app_runner) -> Path:
     return job_dir
 
 
-def wait_for_active_slots(root: Path, *, expected: int, timeout: float = 5.0) -> list[object]:
+def wait_for_active_slots(root: Path, *, expected: int, timeout: float = 5.0) -> list[AdmissionSlot]:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         slots = list_slots(root)

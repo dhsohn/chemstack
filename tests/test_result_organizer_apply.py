@@ -204,6 +204,7 @@ def test_sync_state_after_relocation_updates_paths_and_raises_for_invalid_state(
     assert synced["selected_inp"] == str(target_inp.resolve())
     assert synced["attempts"][0]["inp_path"] == str(target_inp.resolve())
     assert synced["attempts"][0]["out_path"] == str(target_out.resolve())
+    assert synced["final_result"] is not None
     assert synced["final_result"]["last_out_path"] == str(target_out.resolve())
 
     empty_dir = tmp_path / "empty"

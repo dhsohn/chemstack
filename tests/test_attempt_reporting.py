@@ -8,6 +8,7 @@ from pathlib import Path
 from chemstack.orca.attempt_reporting import build_final_result, exit_with_result, last_out_path_from_state
 from chemstack.orca.state_store import load_state, new_state
 from chemstack.orca.statuses import AnalyzerStatus, RunStatus
+from chemstack.orca.types import RunFinishedNotification
 
 
 class TestAttemptReporting(unittest.TestCase):
@@ -47,7 +48,7 @@ class TestAttemptReporting(unittest.TestCase):
             selected_inp.write_text("! Opt\n", encoding="utf-8")
             state = new_state(reaction_dir, selected_inp, max_retries=2)
             emitted_payloads: list[dict] = []
-            finished_notifications: list[dict] = []
+            finished_notifications: list[RunFinishedNotification] = []
 
             rc = exit_with_result(
                 reaction_dir,

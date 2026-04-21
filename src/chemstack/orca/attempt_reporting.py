@@ -25,7 +25,7 @@ def analyzer_status_text(status: AnalyzerStatus | str) -> str:
     return status.value if isinstance(status, AnalyzerStatus) else str(status)
 
 
-def last_out_path_from_state(state: RunState) -> str | None:
+def last_out_path_from_state(state: Mapping[str, Any]) -> str | None:
     attempts = state.get("attempts")
     if not isinstance(attempts, list) or not attempts:
         return None

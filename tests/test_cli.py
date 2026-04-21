@@ -7,11 +7,14 @@ import time
 import unittest
 from argparse import Namespace
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 from chemstack.orca.commands._helpers import CONFIG_ENV_VAR, _emit, default_config_path
 from chemstack.orca.commands.run_inp import _cmd_run_inp_execute, _retry_inp_path, _select_latest_inp
 from chemstack.orca.orca_runner import RunResult, WorkerShutdownInterrupt
+
+orca_cli: Any
 
 try:
     from chemstack.orca import cli as orca_cli
@@ -26,7 +29,7 @@ try:
 except ImportError as exc:
     _CLI_IMPORT_ERROR = exc
 
-    def _raise_cli_import_error(*args, **kwargs):
+    def _raise_cli_import_error(*args: Any, **kwargs: Any) -> Any:
         raise _CLI_IMPORT_ERROR
 
     _configure_logging = _raise_cli_import_error
@@ -42,7 +45,8 @@ try:
 except ImportError as exc:
     _LAUNCHER_IMPORT_ERROR = exc
 
-    def launcher_main(*args, **kwargs):
+    def launcher_main(argv: list[str] | None = None) -> int:
+        del argv
         raise _LAUNCHER_IMPORT_ERROR
 
 
@@ -274,7 +278,11 @@ class TestCli(unittest.TestCase):
     def test_cmd_run_inp_delegates_to_unified_cli(self) -> None:
         seen: list[list[str]] = []
 
-        with patch("chemstack.orca.cli.unified_cli.main", side_effect=lambda argv: seen.append(list(argv)) or 41):
+        def _fake_unified_main(argv: list[str]) -> int:
+            seen.append(list(argv))
+            return 41
+
+        with patch("chemstack.orca.cli.unified_cli.main", side_effect=_fake_unified_main):
             rc = orca_cli.cmd_run_inp(
                 Namespace(
                     config="/tmp/chemstack.yaml",

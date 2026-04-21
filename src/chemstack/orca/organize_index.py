@@ -5,12 +5,11 @@ import logging
 import os
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Dict, Iterator, List, Optional
+from typing import Any, Dict, Iterator, List, Mapping, Optional
 
 from . import lock_utils
 from .pathing import resolve_artifact_path
 from .state_store import atomic_write_text, load_state, now_utc_iso
-from .types import RunState
 
 logger = logging.getLogger(__name__)
 
@@ -87,7 +86,7 @@ def resolve_state_path(path_value: Any, reaction_dir: Path) -> Optional[Path]:
 def _build_index_record(
     organized_root: Path,
     reaction_dir: Path,
-    state: RunState,
+    state: Mapping[str, Any],
 ) -> Optional[Dict[str, Any]]:
     if state.get("status") != "completed":
         return None

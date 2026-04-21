@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 from chemstack.orca.attempt_resume import recover_missing_retry_input, resolve_execution_input, resume_terminal_decision
 from chemstack.orca.state_store import new_state
+from chemstack.orca.types import RunState
 
 
 class TestAttemptResume(unittest.TestCase):
@@ -46,7 +47,7 @@ class TestAttemptResume(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             reaction_dir = Path(td)
             selected_inp = Path(td) / "missing.inp"
-            state = {"attempts": []}
+            state: RunState = {"attempts": []}
 
             current_inp, reason = resolve_execution_input(
                 reaction_dir=reaction_dir,
@@ -103,6 +104,11 @@ class TestAttemptResume(unittest.TestCase):
             )
             exit_calls: list[dict] = []
 
+            def _exit_with_result(*args, **kwargs) -> int:
+                del args
+                exit_calls.append(kwargs)
+                return 0
+
             result = resume_terminal_decision(
                 reaction_dir=reaction_dir,
                 selected_inp=selected_inp,
@@ -110,7 +116,7 @@ class TestAttemptResume(unittest.TestCase):
                 resumed=True,
                 max_retries=2,
                 last_out_path_from_state=lambda current_state: current_state["attempts"][-1].get("out_path"),
-                exit_with_result=lambda *args, **kwargs: exit_calls.append(kwargs) or 0,
+                exit_with_result=_exit_with_result,
                 emit=lambda _payload: None,
             )
 

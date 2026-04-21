@@ -144,14 +144,14 @@ def sibling_runtime_paths(config_path: str, *, engine: str | None = None) -> dic
     if not isinstance(scheduler, dict):
         scheduler = {}
 
-    resolved: dict[str, Path] = {}
+    resolved_runtime_paths: dict[str, Path] = {}
     for key in ("allowed_root", "organized_root"):
         value = normalize_text(runtime.get(key))
         if not value:
             continue
-        resolved[key] = Path(value).expanduser().resolve()
+        resolved_runtime_paths[key] = Path(value).expanduser().resolve()
 
-    if "allowed_root" not in resolved:
+    if "allowed_root" not in resolved_runtime_paths:
         raise ValueError(f"Missing runtime.allowed_root in config: {path}")
 
     admission_root = normalize_text(runtime.get("admission_root"))
@@ -160,8 +160,8 @@ def sibling_runtime_paths(config_path: str, *, engine: str | None = None) -> dic
     if not admission_root and scheduler:
         admission_root = default_shared_admission_root(path)
     if admission_root:
-        resolved["admission_root"] = Path(admission_root).expanduser().resolve()
-    return resolved
+        resolved_runtime_paths["admission_root"] = Path(admission_root).expanduser().resolve()
+    return resolved_runtime_paths
 
 
 __all__ = [

@@ -3,14 +3,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping
 
 from .job_locations import list_job_location_records, resolve_record_job_dir
 
 from .dft_discovery import _find_latest_out_in_dir
 from .pathing import resolve_artifact_path
 from .state_store import STATE_FILE_NAME, load_state
-from .types import RunState
 
 _STATUS_ICONS = {
     "completed": "\u2705",
@@ -71,7 +70,7 @@ def elapsed_text(seconds: float) -> str:
     return f"{secs}s"
 
 
-def _compute_elapsed(state: RunState) -> float:
+def _compute_elapsed(state: Mapping[str, Any]) -> float:
     started = parse_iso_utc(state.get("started_at"))
     if started is None:
         return -1.0
@@ -85,7 +84,7 @@ def _compute_elapsed(state: RunState) -> float:
     return (datetime.now(timezone.utc) - started).total_seconds()
 
 
-def _latest_out_path(reaction_dir: Path, state: RunState) -> Path | None:
+def _latest_out_path(reaction_dir: Path, state: Mapping[str, Any]) -> Path | None:
     final_result = state.get("final_result")
     if isinstance(final_result, dict):
         last_out_path = final_result.get("last_out_path")

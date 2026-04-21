@@ -576,6 +576,7 @@ def _collect_activity_records(
 ) -> list[ActivityRecord]:
     shared_config_hint = _shared_config_hint(orca_auto_config, crest_auto_config, xtb_auto_config)
     explicit_workflow_root = normalize_text(workflow_root)
+    resolved_workflow_root: str | None
     if explicit_workflow_root:
         resolved_workflow_root = str(Path(explicit_workflow_root).expanduser().resolve())
     elif shared_config_hint:
@@ -616,6 +617,7 @@ def list_activities(
 ) -> dict[str, Any]:
     shared_config_hint = _shared_config_hint(orca_auto_config, crest_auto_config, xtb_auto_config)
     explicit_workflow_root = normalize_text(workflow_root)
+    resolved_workflow_root: str | None
     if explicit_workflow_root:
         resolved_workflow_root = str(Path(explicit_workflow_root).expanduser().resolve())
     elif shared_config_hint:
@@ -703,6 +705,7 @@ def cancel_activity(
 ) -> dict[str, Any]:
     shared_config_hint = _shared_config_hint(orca_auto_config, crest_auto_config, xtb_auto_config)
     explicit_workflow_root = normalize_text(workflow_root)
+    resolved_workflow_root: str | None
     if explicit_workflow_root:
         resolved_workflow_root = str(Path(explicit_workflow_root).expanduser().resolve())
     elif shared_config_hint:

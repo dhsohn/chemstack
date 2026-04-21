@@ -111,15 +111,15 @@ def test_find_latest_out_in_dir_handles_non_dir_stat_errors_and_latest_selection
     original_is_file = Path.is_file
     original_stat = Path.stat
 
-    def _is_file(self: Path, *args: object, **kwargs: object) -> bool:
+    def _is_file(self: Path) -> bool:
         if self == bad_out:
             return True
-        return original_is_file(self, *args, **kwargs)
+        return original_is_file(self)
 
-    def _stat(self: Path, *args: object, **kwargs: object):
+    def _stat(self: Path, *, follow_symlinks: bool = True) -> os.stat_result:
         if self == bad_out:
             raise OSError("boom")
-        return original_stat(self, *args, **kwargs)
+        return original_stat(self, follow_symlinks=follow_symlinks)
 
     with (
         patch("pathlib.Path.is_file", autospec=True, side_effect=_is_file),
@@ -214,10 +214,10 @@ def test_recent_completed_output_uses_mtime_fallback_and_handles_stat_error(
 
     original_stat = Path.stat
 
-    def _stat(self: Path, *args: object, **kwargs: object):
+    def _stat(self: Path, *, follow_symlinks: bool = True) -> os.stat_result:
         if self == out_path:
             raise OSError("boom")
-        return original_stat(self, *args, **kwargs)
+        return original_stat(self, follow_symlinks=follow_symlinks)
 
     with patch("pathlib.Path.stat", autospec=True, side_effect=_stat):
         assert not discovery._is_recent_completed_output(
@@ -258,10 +258,10 @@ def test_add_if_valid_target_covers_suffix_size_and_stat_errors(tmp_path: Path) 
 
     original_stat = Path.stat
 
-    def _stat(self: Path, *args: object, **kwargs: object):
+    def _stat(self: Path, *, follow_symlinks: bool = True) -> os.stat_result:
         if self == big_out:
             raise OSError("boom")
-        return original_stat(self, *args, **kwargs)
+        return original_stat(self, follow_symlinks=follow_symlinks)
 
     with patch("pathlib.Path.stat", autospec=True, side_effect=_stat):
         discovery._add_if_valid_target(resolved=big_out, max_bytes=1024, targets=targets)

@@ -107,7 +107,7 @@ def _discover_workflow_root(explicit: str | None) -> str | None:
     return None
 
 
-def _workflow_root_for_args(args: argparse.Namespace) -> str | None:
+def _workflow_root_for_args(args: Any) -> str | None:
     explicit_root = _discover_workflow_root(getattr(args, "workflow_root", None))
     if explicit_root:
         return explicit_root
@@ -163,7 +163,7 @@ def _filter_activity_items(
     return filtered
 
 
-def cmd_queue_list(args: argparse.Namespace) -> int:
+def cmd_queue_list(args: Any) -> int:
     shared_config = _effective_shared_config_text(args) or None
     limit = int(getattr(args, "limit", 0) or 0)
     payload = list_activities(
@@ -216,7 +216,7 @@ def cmd_queue_list(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_queue_cancel(args: argparse.Namespace) -> int:
+def cmd_queue_cancel(args: Any) -> int:
     shared_config = _effective_shared_config_text(args) or None
     try:
         payload = cancel_activity(
@@ -333,7 +333,7 @@ def _workflow_worker_spec(
     return WorkerSpec(app="workflow", argv=tuple(argv))
 
 
-def _build_worker_specs(args: argparse.Namespace) -> list[WorkerSpec]:
+def _build_worker_specs(args: Any) -> list[WorkerSpec]:
     explicit_apps = list(getattr(args, "app", None) or [])
     apps = _selected_worker_apps(explicit_apps)
     explicit_app_selection = bool(explicit_apps)
@@ -413,7 +413,7 @@ def _run_worker_supervisor(specs: Sequence[WorkerSpec]) -> int:
         nonlocal shutdown_requested
         shutdown_requested = True
 
-    previous_handlers: dict[int, Any] = {}
+    previous_handlers: dict[signal.Signals, Any] = {}
     for sig in (signal.SIGINT, signal.SIGTERM):
         try:
             previous_handlers[sig] = signal.getsignal(sig)
@@ -455,7 +455,7 @@ def _run_worker_supervisor(specs: Sequence[WorkerSpec]) -> int:
     return exit_code
 
 
-def cmd_queue_worker(args: argparse.Namespace) -> int:
+def cmd_queue_worker(args: Any) -> int:
     try:
         specs = _build_worker_specs(args)
     except ValueError as exc:
@@ -519,7 +519,7 @@ def cmd_orca_summary(args: argparse.Namespace) -> int:
     return int(_cmd_orca_summary(args))
 
 
-def cmd_bot(args: argparse.Namespace) -> int:
+def cmd_bot(args: Any) -> int:
     from chemstack.flow.telegram_bot import run_bot as _run_bot
     from chemstack.flow.telegram_bot import settings_from_config as _settings_from_config
 
@@ -561,7 +561,7 @@ def _detect_run_dir_app(args: argparse.Namespace) -> str:
     )
 
 
-def cmd_run_dir(args: argparse.Namespace) -> int:
+def cmd_run_dir(args: Any) -> int:
     try:
         run_dir_app = _detect_run_dir_app(args)
     except ValueError as exc:

@@ -4,6 +4,7 @@ import os
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Literal
 from unittest.mock import patch
 
 from chemstack.orca.commands import summary
@@ -56,7 +57,7 @@ class _FakeBinaryHandle:
     def __enter__(self) -> _FakeBinaryHandle:
         return self
 
-    def __exit__(self, exc_type, exc, tb) -> bool:
+    def __exit__(self, exc_type, exc, tb) -> Literal[False]:
         return False
 
     def seek(self, *_args) -> None:

@@ -389,8 +389,16 @@ def test_cmd_run_dir_dispatches_to_orca_for_inp_directories(
     (target / "job.inp").write_text("! Opt\n", encoding="utf-8")
     calls: list[tuple[str, str]] = []
 
-    monkeypatch.setattr(unified_cli, "cmd_orca_run_dir", lambda args: calls.append(("orca", args.path)) or 41)
-    monkeypatch.setattr(unified_cli, "cmd_workflow_run_dir", lambda args: calls.append(("workflow", args.path)) or 42)
+    def _fake_orca_run_dir(args: Any) -> int:
+        calls.append(("orca", args.path))
+        return 41
+
+    def _fake_workflow_run_dir(args: Any) -> int:
+        calls.append(("workflow", args.path))
+        return 42
+
+    monkeypatch.setattr(unified_cli, "cmd_orca_run_dir", _fake_orca_run_dir)
+    monkeypatch.setattr(unified_cli, "cmd_workflow_run_dir", _fake_workflow_run_dir)
 
     result = unified_cli.cmd_run_dir(
         SimpleNamespace(
@@ -412,12 +420,16 @@ def test_cmd_run_dir_dispatches_to_workflow_for_manifest_directories(
     (target / "path.inp").write_text("$path\n$end\n", encoding="utf-8")
     calls: list[tuple[str, str, str | None]] = []
 
-    monkeypatch.setattr(unified_cli, "cmd_orca_run_dir", lambda args: calls.append(("orca", args.path, None)) or 41)
-    monkeypatch.setattr(
-        unified_cli,
-        "cmd_workflow_run_dir",
-        lambda args: calls.append(("workflow", args.path, getattr(args, "workflow_dir", None))) or 42,
-    )
+    def _fake_orca_run_dir(args: Any) -> int:
+        calls.append(("orca", args.path, None))
+        return 41
+
+    def _fake_workflow_run_dir(args: Any) -> int:
+        calls.append(("workflow", args.path, getattr(args, "workflow_dir", None)))
+        return 42
+
+    monkeypatch.setattr(unified_cli, "cmd_orca_run_dir", _fake_orca_run_dir)
+    monkeypatch.setattr(unified_cli, "cmd_workflow_run_dir", _fake_workflow_run_dir)
 
     result = unified_cli.cmd_run_dir(
         SimpleNamespace(
@@ -908,10 +920,15 @@ def test_workflow_root_for_args_uses_shared_config(monkeypatch: pytest.MonkeyPat
     seen: list[str | None] = []
 
     monkeypatch.setattr(unified_cli, "_discover_shared_config_path", lambda explicit: "/tmp/chemstack.yaml")
+
+    def _shared_workflow_root(config_path: str | None) -> str:
+        seen.append(config_path)
+        return "/tmp/from-config-workflows"
+
     monkeypatch.setattr(
         unified_cli,
         "shared_workflow_root_from_config",
-        lambda config_path: seen.append(config_path) or "/tmp/from-config-workflows",
+        _shared_workflow_root,
     )
 
     discovered = unified_cli._workflow_root_for_args(

@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Mapping
 
 from ..config import AppConfig, load_config
 from ..organize_index import (
@@ -65,7 +65,7 @@ def _plan_to_dict(plan: OrganizePlan) -> Dict[str, Any]:
     }
 
 
-def _build_index_record(plan: OrganizePlan, state: RunState) -> Dict[str, Any]:
+def _build_index_record(plan: OrganizePlan, state: Mapping[str, Any]) -> Dict[str, Any]:
     final_result = state.get("final_result")
     if not isinstance(final_result, dict):
         final_result = {}

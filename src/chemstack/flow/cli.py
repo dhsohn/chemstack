@@ -925,7 +925,7 @@ def cmd_workflow_telemetry(args: Any) -> int:
 
 
 def cmd_workflow_submit_reaction_ts_search(args: Any) -> int:
-    shared_config = _shared_chemstack_config(args)
+    shared_config = _shared_chemstack_config(args) or default_config_path_from_repo_root(_project_root())
     payload = submit_reaction_ts_search_workflow(
         workflow_target=getattr(args, "target"),
         workflow_root=getattr(args, "workflow_root", None),

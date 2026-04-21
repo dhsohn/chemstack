@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any
 import time
 
-from chemstack.core.admission import active_slot_count, list_slots
+from chemstack.core.admission import AdmissionSlot, active_slot_count, list_slots
 from chemstack.core.indexing import get_job_location
 from chemstack.core.queue import list_queue
 from chemstack.flow.submitters import crest_auto as crest_submitter
@@ -15,7 +15,7 @@ def _queue_status(entry: Any) -> str:
     return str(getattr(getattr(entry, "status", None), "value", "")).strip()
 
 
-def _wait_for_active_slots(root: Path, *, expected: int, timeout: float = 5.0) -> list[object]:
+def _wait_for_active_slots(root: Path, *, expected: int, timeout: float = 5.0) -> list[AdmissionSlot]:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         slots = list_slots(root)

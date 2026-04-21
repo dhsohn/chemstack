@@ -4,6 +4,7 @@ import errno
 import json
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Mapping
 from unittest.mock import patch
 
 import pytest
@@ -12,7 +13,7 @@ import chemstack.orca.result_organizer as organizer
 from chemstack.orca.result_organizer import OrganizePlan
 
 
-def _write_state(reaction_dir: Path, state: dict[str, object]) -> None:
+def _write_state(reaction_dir: Path, state: Mapping[str, object]) -> None:
     reaction_dir.mkdir(parents=True, exist_ok=True)
     (reaction_dir / "run_state.json").write_text(
         json.dumps(state, ensure_ascii=True, indent=2),
@@ -82,7 +83,7 @@ def test_metadata_selection_and_eligibility_cover_missing_artifacts_and_attempt_
     reaction_dir = tmp_path / "rxn"
     reaction_dir.mkdir()
 
-    state = {
+    state: dict[str, object] = {
         "run_id": "run_test",
         "status": "completed",
         "selected_inp": str(reaction_dir / "missing.inp"),
@@ -101,7 +102,7 @@ def test_metadata_selection_and_eligibility_cover_missing_artifacts_and_attempt_
     retry_out = reaction_dir / "retry.out"
     retry_out.write_text("done\n", encoding="utf-8")
 
-    state = {
+    fallback_state: dict[str, object] = {
         "selected_inp": str(selected_inp),
         "attempts": [
             {
@@ -119,7 +120,7 @@ def test_metadata_selection_and_eligibility_cover_missing_artifacts_and_attempt_
             SimpleNamespace(source="parsed_input", key="retry"),
         ],
     ):
-        assert organizer.select_organize_metadata_inp_path(state, reaction_dir) == retry_inp.resolve()
+        assert organizer.select_organize_metadata_inp_path(fallback_state, reaction_dir) == retry_inp.resolve()
 
     assert organizer.resolve_organize_metadata({"selected_inp": ""}, reaction_dir) == (None, "other", "unknown")
 
@@ -254,6 +255,7 @@ def test_path_normalization_and_state_sync_cover_relocation_branches(tmp_path: P
     assert state["selected_inp"] == str(moved_inp.resolve())
     assert state["attempts"][0]["inp_path"] == str(moved_inp.resolve())
     assert state["attempts"][0]["out_path"] == str(moved_out.resolve())
+    assert state["final_result"] is not None
     assert state["final_result"]["last_out_path"] == str(moved_out.resolve())
 
     assert organizer._remap_moved_path("relative/file.out", source_dir, target_dir) == "relative/file.out"

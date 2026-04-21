@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 from chemstack.orca import run_snapshot
 from chemstack.orca.run_snapshot import (
@@ -315,7 +316,7 @@ def test_collect_run_snapshots_preserves_legacy_fallback_when_index_is_incomplet
 
     legacy_run = allowed_root / "legacy" / "rxn_legacy"
     legacy_run.mkdir(parents=True)
-    legacy_state = {
+    legacy_state: dict[str, Any] = {
         "run_id": "run-legacy",
         "status": "running",
         "started_at": "2026-01-10T09:00:00+00:00",

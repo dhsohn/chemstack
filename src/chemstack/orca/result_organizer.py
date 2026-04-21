@@ -152,7 +152,7 @@ def _attempt_is_successful(attempt: Mapping[str, Any]) -> bool:
     return return_code == 0
 
 
-def _last_successful_attempt_inp_path(state: RunState, reaction_dir: Path) -> Optional[Path]:
+def _last_successful_attempt_inp_path(state: Mapping[str, Any], reaction_dir: Path) -> Optional[Path]:
     attempts = state.get("attempts")
     if not isinstance(attempts, list):
         return None
@@ -188,7 +188,7 @@ def _last_successful_attempt_inp_path(state: RunState, reaction_dir: Path) -> Op
     return None
 
 
-def select_organize_metadata_inp_path(state: RunState, reaction_dir: Path) -> Optional[Path]:
+def select_organize_metadata_inp_path(state: Mapping[str, Any], reaction_dir: Path) -> Optional[Path]:
     selected_inp_value = state.get("selected_inp")
     selected_inp_path = None
     selected_resolution = None
@@ -216,7 +216,7 @@ def select_organize_metadata_inp_path(state: RunState, reaction_dir: Path) -> Op
 
 
 def resolve_organize_metadata(
-    state: RunState,
+    state: Mapping[str, Any],
     reaction_dir: Path,
 ) -> Tuple[Optional[Path], str, str]:
     inp_path = select_organize_metadata_inp_path(state, reaction_dir)
@@ -229,7 +229,7 @@ def resolve_organize_metadata(
 
 def compute_organize_plan(
     reaction_dir: Path,
-    state: RunState,
+    state: Mapping[str, Any],
     organized_root: Path,
 ) -> OrganizePlan:
     run_id = state.get("run_id")
