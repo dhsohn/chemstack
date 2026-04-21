@@ -1,16 +1,16 @@
 from __future__ import annotations
 
 import argparse
+import os
 from typing import Callable
 
-from .commands.init import cmd_init
-from .commands.list_jobs import cmd_list
-from .commands.organize import cmd_organize
-from .commands.queue import cmd_queue_cancel, cmd_queue_worker
+from chemstack import cli as unified_cli
+
+from .commands.queue import cmd_queue_worker as _engine_cmd_queue_worker
 from .commands.reindex import cmd_reindex
-from .commands.run_dir import cmd_run_dir
-from .commands.summary import cmd_summary
 from .config import default_config_path
+
+_DIRECT_WORKER_ENV_VAR = "CHEMSTACK_QUEUE_WORKER_DIRECT"
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -60,6 +60,93 @@ def build_parser() -> argparse.ArgumentParser:
     cancel = queue_sub.add_parser("cancel", help="Cancel a queued or running job")
     cancel.add_argument("target", help="queue_id or job_id")
     return parser
+
+
+def _shared_config_argv(config_path: str | None) -> list[str]:
+    if not config_path:
+        return []
+    return ["--chemstack-config", config_path]
+
+
+def cmd_init(args: argparse.Namespace) -> int:
+    argv = ["init", "xtb", *_shared_config_argv(args.config), "--root", args.root]
+    argv.extend(["--job-type", args.job_type])
+    return int(unified_cli.main(argv))
+
+
+def cmd_run_dir(args: argparse.Namespace) -> int:
+    argv = ["run-dir", "xtb", *_shared_config_argv(args.config), args.path]
+    argv.extend(["--priority", str(args.priority)])
+    return int(unified_cli.main(argv))
+
+
+def cmd_list(args: argparse.Namespace) -> int:
+    return int(
+        unified_cli.main(
+            [
+                "queue",
+                "list",
+                "--engine",
+                "xtb",
+                "--kind",
+                "job",
+                "--chemstack-config",
+                args.config,
+            ]
+        )
+    )
+
+
+def cmd_organize(args: argparse.Namespace) -> int:
+    argv = ["organize", "xtb", *_shared_config_argv(args.config)]
+    if getattr(args, "job_dir", None):
+        argv.extend(["--job-dir", args.job_dir])
+    if getattr(args, "root", None):
+        argv.extend(["--root", args.root])
+    if bool(getattr(args, "apply", False)):
+        argv.append("--apply")
+    return int(unified_cli.main(argv))
+
+
+def cmd_summary(args: argparse.Namespace) -> int:
+    argv = ["summary", "xtb", *_shared_config_argv(args.config), args.target]
+    if bool(getattr(args, "json", False)):
+        argv.append("--json")
+    return int(unified_cli.main(argv))
+
+
+def cmd_queue_cancel(args: argparse.Namespace) -> int:
+    return int(
+        unified_cli.main(
+            [
+                "queue",
+                "cancel",
+                str(getattr(args, "target", "")).strip(),
+                "--chemstack-config",
+                args.config,
+            ]
+        )
+    )
+
+
+def cmd_queue_worker(args: argparse.Namespace) -> int:
+    if os.getenv(_DIRECT_WORKER_ENV_VAR) == "1":
+        return int(_engine_cmd_queue_worker(args))
+    argv = [
+        "queue",
+        "worker",
+        "--app",
+        "xtb",
+        "--chemstack-config",
+        args.config,
+    ]
+    if bool(getattr(args, "once", False)):
+        argv.append("--once")
+    if bool(getattr(args, "auto_organize", False)):
+        argv.append("--auto-organize")
+    elif bool(getattr(args, "no_auto_organize", False)):
+        argv.append("--no-auto-organize")
+    return int(unified_cli.main(argv))
 
 
 def _cmd_queue(args: argparse.Namespace) -> int:

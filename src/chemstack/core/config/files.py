@@ -4,6 +4,8 @@ import os
 from pathlib import Path
 from typing import Any, Iterable
 
+import yaml
+
 CHEMSTACK_CONFIG_ENV_VAR = "CHEMSTACK_CONFIG"
 DEFAULT_CONFIG_FILENAME = "chemstack.yaml"
 DEFAULT_SHARED_ADMISSION_DIRNAME = "admission"
@@ -49,3 +51,36 @@ def engine_config_mapping(
 
 def default_shared_admission_root(config_path: Path) -> str:
     return str(config_path.expanduser().resolve().parent / DEFAULT_SHARED_ADMISSION_DIRNAME)
+
+
+def shared_workflow_root_from_config(config_path: str | Path | None) -> str | None:
+    if config_path is None:
+        return None
+
+    try:
+        path = Path(config_path).expanduser().resolve()
+    except OSError:
+        return None
+    if not path.exists():
+        return None
+
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            parsed = yaml.safe_load(handle) or {}
+    except Exception:
+        return None
+    if not isinstance(parsed, dict):
+        return None
+
+    workflow_raw = parsed.get("workflow", {})
+    if not isinstance(workflow_raw, dict):
+        return None
+
+    root_text = str(
+        workflow_raw.get("root")
+        or workflow_raw.get("workflow_root")
+        or ""
+    ).strip()
+    if not root_text:
+        return None
+    return str(Path(root_text).expanduser().resolve())

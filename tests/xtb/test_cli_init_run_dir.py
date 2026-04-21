@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from argparse import Namespace
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -62,6 +63,63 @@ def _write_config(tmp_path: Path) -> tuple[Path, Path, Path]:
         encoding="utf-8",
     )
     return config_path, allowed_root, organized_root
+
+
+def test_build_parser_supports_compatibility_list_and_queue_commands() -> None:
+    parser = cli.build_parser()
+
+    list_args = parser.parse_args(["list"])
+    worker_args = parser.parse_args(["queue", "worker", "--once", "--auto-organize"])
+    cancel_args = parser.parse_args(["queue", "cancel", "q-123"])
+
+    assert list_args.command == "list"
+
+    assert worker_args.command == "queue"
+    assert worker_args.queue_command == "worker"
+    assert worker_args.once is True
+    assert worker_args.auto_organize is True
+    assert worker_args.no_auto_organize is False
+
+    assert cancel_args.command == "queue"
+    assert cancel_args.queue_command == "cancel"
+    assert cancel_args.target == "q-123"
+
+
+def test_main_dispatches_list_and_queue_compatibility_commands(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    list_calls: list[Any] = []
+    worker_calls: list[Any] = []
+    cancel_calls: list[Any] = []
+
+    def fake_list(args: Any) -> int:
+        list_calls.append(args)
+        return 31
+
+    def fake_worker(args: Any) -> int:
+        worker_calls.append(args)
+        return 32
+
+    def fake_cancel(args: Any) -> int:
+        cancel_calls.append(args)
+        return 33
+
+    monkeypatch.setattr(cli, "cmd_list", fake_list)
+    monkeypatch.setattr(cli, "cmd_queue_worker", fake_worker)
+    monkeypatch.setattr(cli, "cmd_queue_cancel", fake_cancel)
+
+    assert cli.main(["list"]) == 31
+    assert cli.main(["queue", "worker", "--once"]) == 32
+    assert cli.main(["queue", "cancel", "job-123"]) == 33
+
+    assert len(list_calls) == 1
+    assert list_calls[0].command == "list"
+    assert len(worker_calls) == 1
+    assert worker_calls[0].queue_command == "worker"
+    assert worker_calls[0].once is True
+    assert len(cancel_calls) == 1
+    assert cancel_calls[0].queue_command == "cancel"
+    assert cancel_calls[0].target == "job-123"
 
 
 def test_cmd_run_dir_path_search_submits_and_writes_state(
@@ -327,3 +385,26 @@ def test_cli_main_run_dir_accepts_positional_job_dir(
     assert len(captured_args) == 1
     assert captured_args[0].path == str(job_dir)
     assert captured_args[0].priority == 10
+
+
+def test_public_wrappers_delegate_to_unified_cli(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: list[list[str]] = []
+
+    def fake_main(argv: list[str]) -> int:
+        seen.append(list(argv))
+        return 29
+
+    monkeypatch.setattr(cli.unified_cli, "main", fake_main)
+
+    init_rc = cli.cmd_init(Namespace(config="/tmp/chemstack.yaml", root="/tmp/init-job", job_type="ranking"))
+    run_rc = cli.cmd_run_dir(Namespace(config="/tmp/chemstack.yaml", path="/tmp/run-job", priority=6))
+    organize_rc = cli.cmd_organize(Namespace(config="/tmp/chemstack.yaml", root="/tmp/jobs", apply=True))
+    summary_rc = cli.cmd_summary(Namespace(config="/tmp/chemstack.yaml", target="job-123", json=True))
+
+    assert (init_rc, run_rc, organize_rc, summary_rc) == (29, 29, 29, 29)
+    assert seen == [
+        ["init", "xtb", "--chemstack-config", "/tmp/chemstack.yaml", "--root", "/tmp/init-job", "--job-type", "ranking"],
+        ["run-dir", "xtb", "--chemstack-config", "/tmp/chemstack.yaml", "/tmp/run-job", "--priority", "6"],
+        ["organize", "xtb", "--chemstack-config", "/tmp/chemstack.yaml", "--root", "/tmp/jobs", "--apply"],
+        ["summary", "xtb", "--chemstack-config", "/tmp/chemstack.yaml", "job-123", "--json"],
+    ]

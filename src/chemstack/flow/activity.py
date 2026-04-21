@@ -17,6 +17,7 @@ from chemstack.core.app_ids import (
     LEGACY_ORCA_REPO_ROOT_ENV_VAR,
     LEGACY_ORCA_SOURCE,
 )
+from chemstack.core.config.files import default_config_path_from_repo_root, shared_workflow_root_from_config
 from chemstack.core.queue import list_queue
 from chemstack.core.queue.types import QueueEntry
 
@@ -29,9 +30,6 @@ from .submitters.xtb_auto import cancel_target as cancel_xtb_target
 
 _WORKFLOW_TERMINAL_STATUSES = frozenset({"completed", "failed", "cancelled"})
 _ORCA_ACTIVE_QUEUE_STATUSES = frozenset({"pending", "running"})
-_CHEM_FLOW_WORKFLOW_ROOT_ENV = "CHEM_FLOW_WORKFLOW_ROOT"
-
-
 def _project_root() -> Path:
     return Path(__file__).resolve().parents[3]
 
@@ -51,22 +49,7 @@ def _discover_workflow_root(explicit: str | Path | None) -> str | None:
     explicit_text = normalize_text(explicit)
     if explicit_text:
         return str(Path(explicit_text).expanduser().resolve())
-
-    env_text = normalize_text(os.getenv(_CHEM_FLOW_WORKFLOW_ROOT_ENV))
-    if env_text:
-        return str(Path(env_text).expanduser().resolve())
-
-    project_root = _project_root()
-    candidates = [
-        Path.cwd() / "workflow_root",
-        project_root / "workflow_root",
-        Path.home() / "chem_flow" / "workflow_root",
-    ]
-    for candidate in candidates:
-        resolved = _resolve_existing_path(str(candidate))
-        if resolved is not None:
-            return str(resolved)
-    return None
+    return shared_workflow_root_from_config(default_config_path_from_repo_root(_project_root()))
 
 
 def _discover_sibling_config(explicit: str | None, *, app_name: str) -> str | None:

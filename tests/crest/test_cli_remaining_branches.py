@@ -54,7 +54,7 @@ def test_cli_module_main_raises_system_exit_with_main_return_code(
             runpy.run_module("chemstack.crest.cli", run_name="__main__")
 
     assert exc_info.value.code == 0
-    assert capsys.readouterr().out == "No CREST jobs found.\n"
+    assert capsys.readouterr().out == "activity_count: 0\n"
 
 
 @pytest.mark.parametrize(

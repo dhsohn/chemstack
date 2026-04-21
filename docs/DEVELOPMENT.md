@@ -35,12 +35,15 @@ Top-level `core.*` and `orca_auto.*` shim packages were removed. New code, tests
 
 User-facing docs should standardize on these command forms:
 
-- `python -m chemstack.orca.cli ...`
-- `python -m chemstack.xtb.cli ...`
-- `python -m chemstack.crest.cli ...`
-- `python -m chemstack.flow.cli ...`
+- `python -m chemstack.cli queue ...`
+- `python -m chemstack.cli run-dir <orca|xtb|crest|workflow> ...`
+- `python -m chemstack.cli init <orca|xtb|crest> ...`
+- `python -m chemstack.cli organize <orca|xtb|crest> ...`
+- `python -m chemstack.cli summary <orca|xtb|crest> ...`
 
-Console-script aliases such as `orca_auto`, `xtb_auto`, `crest_auto`, `chem_flow`, and `./bin/orca_auto` were removed from the supported CLI surface.
+Engine-specific CLI modules currently remain as thin compatibility wrappers for
+those public entrypoints. Commands that are not yet unified, such as ORCA
+`monitor` and `bot`, still live under `python -m chemstack.orca.cli ...`.
 
 ## Practical Import Map
 

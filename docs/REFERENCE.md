@@ -1,6 +1,6 @@
-# ChemStack ORCA Detailed Reference
+# ChemStack Detailed Reference
 
-ChemStack ORCA is a queue-first executor for ORCA calculations. It conservatively retries failed runs, records state in each job directory, and organizes completed results for later review.
+ChemStack is a queue-first executor for ORCA, xTB, CREST, and workflow orchestration. This reference standardizes the shared public CLI and keeps the deeper ORCA runtime behavior documented in one place, since ORCA still has the richest retry, reporting, and monitoring surface.
 
 Current developer-facing package rule:
 
@@ -54,6 +54,7 @@ Operational consequences:
         tracking.py
         ...
   systemd/
+    chemstack-queue-worker@.service
     chemstack-orca-queue-worker@.service
     chemstack-xtb-queue-worker@.service
     chemstack-crest-queue-worker@.service
@@ -87,8 +88,21 @@ bash scripts/bootstrap_wsl.sh
 - Installs Python dependencies and the repository itself into `.venv`
 - Seeds `config/chemstack.yaml` if missing
 
-This reference standardizes on `python -m chemstack.orca.cli ...`.
-Activate `.venv` first, or call `.venv/bin/python -m chemstack.orca.cli ...` directly.
+This reference standardizes on `python -m chemstack.cli ...` for public
+commands:
+
+- `queue list`
+- `queue cancel`
+- `queue worker`
+- `run-dir <orca|xtb|crest|workflow>`
+- `init <orca|xtb|crest>`
+- `organize <orca|xtb|crest>`
+- `summary <orca|xtb|crest>`
+
+Engine-specific CLIs remain available as thin compatibility wrappers. ORCA-only
+commands that are not yet unified, such as `monitor` and `bot`, still live
+under `python -m chemstack.orca.cli ...`.
+Activate `.venv` first, or call `.venv/bin/python -m chemstack.cli ...` directly.
 By default, config is resolved from `CHEMSTACK_CONFIG`, then `<repo_root>/config/chemstack.yaml`, then `~/chemstack/config/chemstack.yaml`.
 Add `--config <path>` only when you want to override default config discovery.
 
@@ -113,6 +127,9 @@ behavior:
 scheduler:
   max_active_simulations: 4
   admission_root: "/path/to/chem_admission"
+
+workflow:
+  root: "/path/to/workflow_root"
 
 telegram:
   bot_token: ""
@@ -148,6 +165,7 @@ Field descriptions for the `orca` section:
 - `runtime.default_max_retries`: Maximum retry count after the initial attempt
 - `scheduler.max_active_simulations`: Shared total active-run cap across ORCA, xTB, and CREST
 - `scheduler.admission_root`: Shared admission root for machine-wide slot coordination
+- `workflow.root`: Workflow root for workflow creation, activity inspection, and the integrated workflow worker
 - `paths.orca_executable`: ORCA executable path
 
 Notes:
@@ -157,14 +175,39 @@ Notes:
 
 ## 7) CLI Usage
 
-### 7.1 `run-dir`
+All public queue, submission, scaffold, organization, and summary commands
+should be documented through `python -m chemstack.cli ...`.
+
+Compatibility note:
+
+- `python -m chemstack.orca.cli`, `python -m chemstack.xtb.cli`, and `python -m chemstack.crest.cli` remain thin wrappers for the public commands below.
+- `python -m chemstack.orca.cli monitor` and `python -m chemstack.orca.cli bot` remain engine-specific entrypoints.
+
+### 7.1 `init`
+
+```bash
+python -m chemstack.cli init orca
+python -m chemstack.cli init xtb --root '/absolute/path/to/xtb_runs/job_001' --job-type path_search
+python -m chemstack.cli init crest --root '/absolute/path/to/crest_runs/job_001'
+```
+
+Behavior:
+
+- `init orca` interactively creates or updates `chemstack.yaml`
+- `init xtb` creates an xTB job scaffold under the configured `allowed_root`
+- `init crest` creates a CREST job scaffold under the configured `allowed_root`
+
+### 7.2 `run-dir`
 
 ```bash
 cd <repo_root>
-python -m chemstack.orca.cli run-dir '/absolute/path/to/orca_runs/Int1_DMSO'
+python -m chemstack.cli run-dir orca '/absolute/path/to/orca_runs/Int1_DMSO'
+python -m chemstack.cli run-dir xtb '/absolute/path/to/xtb_runs/job_001'
+python -m chemstack.cli run-dir crest '/absolute/path/to/crest_runs/job_001'
+python -m chemstack.cli run-dir workflow '/absolute/path/to/workflow_inputs/reaction_case'
 ```
 
-Successful submission example:
+Successful ORCA submission example:
 
 ```text
 status: queued
@@ -175,36 +218,42 @@ worker: active
 worker_pid: 12345
 ```
 
-Behavior:
+Shared behavior:
 
-- Validates that the job directory path is under `allowed_root`
+- Validates that the target path is under the configured engine `allowed_root`
 - Rejects duplicate active queue entries for the same directory
-- Chooses the latest `*.inp` when execution actually starts
 - Writes the queue entry durably before returning
-- Does not start a detached ORCA process on behalf of the caller
+- Leaves actual execution to a worker
 
-Public options:
+ORCA-specific notes:
 
-- `<path>` (required): Job directory
-- `--force` (optional): Re-run even if a completed output already exists
-- `--priority` (optional): Queue priority, lower values run sooner
+- Chooses the latest `*.inp` when execution actually starts
+- `--force` re-runs even if completed output already exists
+- `--max-cores` and `--max-memory-gb` override recorded resource limits for that queued run
 
-- `--queue-only` is no longer needed because queuing is the default public behavior
-- `--require-slot`, public direct execution, and app-managed background launch are removed from the intended workflow
+Workflow notes:
 
-### 7.2 `queue worker`
+- `run-dir workflow` materializes a workflow from an input directory instead of queueing an engine job directly
+- Set top-level `workflow.root` in `chemstack.yaml` before using workflow commands
+
+There is no public direct-execution mode for new work. `run-dir` is the durable submission path.
+
+### 7.3 `queue worker`
 
 ```bash
-python -m chemstack.orca.cli queue worker
+python -m chemstack.cli queue worker
+python -m chemstack.cli queue worker --app orca
+python -m chemstack.cli queue worker --app workflow
 ```
 
 Behavior:
 
 - Runs in the foreground
-- Polls `queue.json` for pending jobs
+- Polls engine queues for pending jobs
 - Enforces `scheduler.max_active_simulations` under `scheduler.admission_root`
-- Executes jobs through an internal worker-owned execution path
-- Updates queue status on completion or failure
+- Supervises ORCA, xTB, and CREST together by default
+- Also starts the workflow worker when `workflow.root` is set in `chemstack.yaml`
+- `workflow.root` is the supported workflow-root source for the public CLI
 - Requeues in-flight jobs during controlled shutdown
 
 Use cases:
@@ -214,38 +263,56 @@ Use cases:
 
 There is no supported app-managed `--daemon` mode in the intended workflow. There is also no public `queue stop`; stop the service with `systemctl` or interrupt the foreground worker directly.
 
-### 7.3 `queue cancel`
+### 7.4 `queue cancel`
 
 ```bash
-python -m chemstack.orca.cli queue cancel q_20260403_151220_ab12cd
-python -m chemstack.orca.cli queue cancel /absolute/path/to/orca_runs/Int1_DMSO
-python -m chemstack.orca.cli queue cancel all-pending
+python -m chemstack.cli queue cancel q_20260403_151220_ab12cd
+python -m chemstack.cli queue cancel /absolute/path/to/orca_runs/Int1_DMSO
 ```
 
-### 7.4 `list`
+`queue cancel` accepts activity ids, workflow ids, queue ids, run ids, and known path aliases.
+
+### 7.5 `queue list`
 
 ```bash
-python -m chemstack.orca.cli list
-python -m chemstack.orca.cli list --filter pending
-python -m chemstack.orca.cli list --filter running
-python -m chemstack.orca.cli list clear
+python -m chemstack.cli queue list
+python -m chemstack.cli queue list --engine orca
+python -m chemstack.cli queue list --engine orca --status pending
+python -m chemstack.cli queue list --engine workflow --kind workflow
 ```
 
-`list` presents queue state together with run state and can clear terminal entries.
+`queue list` shows standalone engine jobs and workflow activity in one view.
 
-### 7.5 `organize`
+### 7.6 `organize`
 
 ```bash
-python -m chemstack.orca.cli organize --root '/absolute/path/to/orca_runs'
-python -m chemstack.orca.cli organize --root '/absolute/path/to/orca_runs' --apply
+python -m chemstack.cli organize orca --root '/absolute/path/to/orca_runs'
+python -m chemstack.cli organize orca --root '/absolute/path/to/orca_runs' --apply
+python -m chemstack.cli organize xtb --root '/absolute/path/to/xtb_runs' --apply
+python -m chemstack.cli organize crest --root '/absolute/path/to/crest_runs' --apply
 ```
 
 Options:
 
-- `--reaction-dir`: Organize a single job directory
-- `--root`: Organize from the configured root
-- `--apply`: Perform actual moves
-- `--rebuild-index`: Rebuild the JSONL index
+- `organize orca --reaction-dir <dir>`: Organize one ORCA job directory
+- `organize orca --root <dir>`: Scan from the configured ORCA root
+- `organize orca --rebuild-index`: Rebuild the ORCA JSONL index
+- `organize xtb --job-dir <dir>` or `organize crest --job-dir <dir>`: Organize one xTB or CREST job directory
+- `--apply`: Perform actual moves; otherwise the command is a dry run
+
+### 7.7 `summary`
+
+```bash
+python -m chemstack.cli summary orca --no-send
+python -m chemstack.cli summary xtb <job_id_or_dir>
+python -m chemstack.cli summary crest <job_id_or_dir>
+```
+
+Behavior:
+
+- `summary orca` prints or sends the ORCA Telegram digest
+- `summary xtb` and `summary crest` summarize one job by job id or job directory
+- `--json` is available for xTB and CREST summaries when you want machine-readable output
 
 ## 8) WSL systemd Setup
 
@@ -264,6 +331,7 @@ wsl --shutdown
 
 This repository includes service assets under `systemd/`:
 
+- [`systemd/chemstack-queue-worker@.service`](/home/daehyupsohn/chemstack/systemd/chemstack-queue-worker@.service)
 - [`systemd/chemstack-orca-queue-worker@.service`](/home/daehyupsohn/chemstack/systemd/chemstack-orca-queue-worker@.service)
 - [`systemd/chemstack-xtb-queue-worker@.service`](/home/daehyupsohn/chemstack/systemd/chemstack-xtb-queue-worker@.service)
 - [`systemd/chemstack-crest-queue-worker@.service`](/home/daehyupsohn/chemstack/systemd/chemstack-crest-queue-worker@.service)
@@ -274,24 +342,29 @@ Recommended engine-worker install flow:
 
 ```bash
 cd <repo_root>
-APP=orca   # or xtb / crest
-sudo cp "systemd/chemstack-${APP}-queue-worker@.service" /etc/systemd/system/
+sudo cp systemd/chemstack-queue-worker@.service /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable --now "chemstack-${APP}-queue-worker@$(whoami)"
-systemctl status "chemstack-${APP}-queue-worker@$(whoami)"
-journalctl -u "chemstack-${APP}-queue-worker@$(whoami)" -f
+sudo systemctl enable --now "chemstack-queue-worker@$(whoami)"
+systemctl status "chemstack-queue-worker@$(whoami)"
+journalctl -u "chemstack-queue-worker@$(whoami)" -f
 ```
 
-Assumptions of the engine templates:
+Assumptions of the unified engine template:
 
 - Repository path: `/home/<user>/chemstack`
 - Config path: `/home/<user>/chemstack/config/chemstack.yaml`
 
 If your paths differ, edit the copied unit before enabling it.
 
-ORCA, xTB, and CREST workers can all be enabled together. The shared
+The unified service supervises ORCA, xTB, and CREST together. The shared
 `scheduler.max_active_simulations` setting still limits the combined number of
-active simulations.
+active simulations across all three engines.
+
+If you still need split services, the compatibility templates remain available:
+
+- [`systemd/chemstack-orca-queue-worker@.service`](/home/daehyupsohn/chemstack/systemd/chemstack-orca-queue-worker@.service)
+- [`systemd/chemstack-xtb-queue-worker@.service`](/home/daehyupsohn/chemstack/systemd/chemstack-xtb-queue-worker@.service)
+- [`systemd/chemstack-crest-queue-worker@.service`](/home/daehyupsohn/chemstack/systemd/chemstack-crest-queue-worker@.service)
 
 For the workflow worker:
 
@@ -306,8 +379,7 @@ systemctl status chemstack-flow-workflow-worker
 journalctl -u chemstack-flow-workflow-worker -f
 ```
 
-Edit `/etc/chemstack/flow-worker.env` before enabling the service and set
-`CHEM_FLOW_WORKFLOW_ROOT` for your machine.
+Set top-level `workflow.root` in `chemstack.yaml` before enabling the workflow service. Edit `/etc/chemstack/flow-worker.env` only when you need to override the Python path or config path used by the service.
 
 ## 9) Completion Determination Rules
 

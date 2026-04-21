@@ -14,7 +14,15 @@ from chemstack.orca.commands.run_inp import _cmd_run_inp_execute, _retry_inp_pat
 from chemstack.orca.orca_runner import RunResult, WorkerShutdownInterrupt
 
 try:
-    from chemstack.orca.cli import _configure_logging, _remove_managed_handlers, build_parser, cmd_bot, cmd_queue, main
+    from chemstack.orca import cli as orca_cli
+    from chemstack.orca.cli import (
+        _configure_logging,
+        _remove_managed_handlers,
+        build_parser,
+        cmd_bot,
+        cmd_queue,
+        main,
+    )
 except ImportError as exc:
     _CLI_IMPORT_ERROR = exc
 
@@ -27,6 +35,7 @@ except ImportError as exc:
     cmd_bot = _raise_cli_import_error
     cmd_queue = _raise_cli_import_error
     main = _raise_cli_import_error
+    orca_cli = _raise_cli_import_error
 
 try:
     from chemstack.orca.launcher import main as launcher_main
@@ -174,6 +183,13 @@ class TestCli(unittest.TestCase):
         self.assertEqual(rc, 8)
         mock_cmd_run_inp.assert_called_once()
 
+    @patch("chemstack.orca.cli.cmd_list", return_value=9)
+    def test_main_dispatches_list_command(self, mock_cmd_list: MagicMock) -> None:
+        rc = main(["list"])
+
+        self.assertEqual(rc, 9)
+        mock_cmd_list.assert_called_once()
+
     def test_launcher_main_delegates_to_cli_main(self) -> None:
         self.assertIs(launcher_main, main)
 
@@ -237,7 +253,7 @@ class TestCli(unittest.TestCase):
         self.assertEqual(rc, 1)
         self.assertIn("Usage: python -m chemstack.orca.cli queue", buf.getvalue())
 
-    @patch("chemstack.orca.cli._cmd_queue_worker", return_value=4)
+    @patch("chemstack.orca.cli.cmd_queue_worker", return_value=4)
     def test_cmd_queue_dispatches_to_selected_subcommand(self, mock_worker: MagicMock) -> None:
         args = Namespace(queue_command="worker")
 
@@ -245,6 +261,96 @@ class TestCli(unittest.TestCase):
 
         self.assertEqual(rc, 4)
         mock_worker.assert_called_once_with(args)
+
+    @patch("chemstack.orca.cli.cmd_queue_cancel", return_value=5)
+    def test_cmd_queue_dispatches_cancel_subcommand(self, mock_cancel: MagicMock) -> None:
+        args = Namespace(queue_command="cancel")
+
+        rc = cmd_queue(args)
+
+        self.assertEqual(rc, 5)
+        mock_cancel.assert_called_once_with(args)
+
+    def test_cmd_run_inp_delegates_to_unified_cli(self) -> None:
+        seen: list[list[str]] = []
+
+        with patch("chemstack.orca.cli.unified_cli.main", side_effect=lambda argv: seen.append(list(argv)) or 41):
+            rc = orca_cli.cmd_run_inp(
+                Namespace(
+                    config="/tmp/chemstack.yaml",
+                    verbose=True,
+                    log_file="/tmp/orca.log",
+                    path="/tmp/rxn",
+                    priority=3,
+                    force=True,
+                    max_cores=12,
+                    max_memory_gb=48,
+                )
+            )
+
+        self.assertEqual(rc, 41)
+        self.assertEqual(
+            seen,
+            [[
+                "run-dir",
+                "orca",
+                "--chemstack-config",
+                "/tmp/chemstack.yaml",
+                "--verbose",
+                "--log-file",
+                "/tmp/orca.log",
+                "/tmp/rxn",
+                "--priority",
+                "3",
+                "--force",
+                "--max-cores",
+                "12",
+                "--max-memory-gb",
+                "48",
+            ]],
+        )
+
+    def test_other_public_wrappers_delegate_to_unified_cli(self) -> None:
+        seen: list[list[str]] = []
+
+        def _record(argv: list[str]) -> int:
+            seen.append(list(argv))
+            return 42
+
+        with patch("chemstack.orca.cli.unified_cli.main", side_effect=_record):
+            init_rc = orca_cli.cmd_init(Namespace(config="/tmp/chemstack.yaml", verbose=False, log_file=None, force=True))
+            organize_rc = orca_cli.cmd_organize(
+                Namespace(
+                    config="/tmp/chemstack.yaml",
+                    verbose=False,
+                    log_file=None,
+                    reaction_dir="/tmp/rxn",
+                    root=None,
+                    apply=True,
+                    rebuild_index=False,
+                )
+            )
+            summary_rc = orca_cli.cmd_summary(
+                Namespace(config="/tmp/chemstack.yaml", verbose=False, log_file=None, no_send=True)
+            )
+
+        self.assertEqual((init_rc, organize_rc, summary_rc), (42, 42, 42))
+        self.assertEqual(
+            seen,
+            [
+                ["init", "orca", "--chemstack-config", "/tmp/chemstack.yaml", "--force"],
+                [
+                    "organize",
+                    "orca",
+                    "--chemstack-config",
+                    "/tmp/chemstack.yaml",
+                    "--reaction-dir",
+                    "/tmp/rxn",
+                    "--apply",
+                ],
+                ["summary", "orca", "--chemstack-config", "/tmp/chemstack.yaml", "--no-send"],
+            ],
+        )
 
     @patch("chemstack.orca.cli._remove_managed_handlers")
     @patch("chemstack.orca.cli.logging.handlers.RotatingFileHandler")

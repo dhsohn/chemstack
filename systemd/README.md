@@ -4,12 +4,14 @@ This directory is the single home for long-running ChemStack service assets.
 
 ## Included units
 
+- `chemstack-queue-worker@.service`
+  - recommended unified ORCA+xTB+CREST queue worker template
 - `chemstack-orca-queue-worker@.service`
-  - WSL-friendly ORCA queue worker template
+  - ORCA-only compatibility template powered by the unified CLI
 - `chemstack-xtb-queue-worker@.service`
-  - WSL-friendly xTB queue worker template
+  - xTB-only compatibility template powered by the unified CLI
 - `chemstack-crest-queue-worker@.service`
-  - WSL-friendly CREST queue worker template
+  - CREST-only compatibility template powered by the unified CLI
 - `chemstack-flow-workflow-worker.service`
   - supervised workflow worker for `chemstack.flow`
 - `chemstack-flow-worker.env.example`
@@ -17,22 +19,47 @@ This directory is the single home for long-running ChemStack service assets.
 
 ## Engine queue workers
 
-ORCA, xTB, and CREST queue workers now share the same `systemd` pattern.
+Use `chemstack-queue-worker@.service` as the default engine-worker service. It starts ORCA, xTB, and CREST together through:
 
-Available templates:
-
-- `chemstack-orca-queue-worker@.service`
-- `chemstack-xtb-queue-worker@.service`
-- `chemstack-crest-queue-worker@.service`
+- `python -m chemstack.cli queue worker --app orca --app xtb --app crest`
 
 Common assumptions:
 
 - Repository path is `/home/<user>/chemstack`
 - Config path is `/home/<user>/chemstack/config/chemstack.yaml`
 - Python path is `/home/<user>/chemstack/.venv/bin/python`
-- Each worker runs `python -m chemstack.<app>.cli queue worker`
+- The unified service runs all three engine workers under one supervisor process
 
-Install one of the engine workers:
+Install the unified engine worker:
+
+```bash
+cd <repo_root>
+sudo cp systemd/chemstack-queue-worker@.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now "chemstack-queue-worker@$(whoami)"
+```
+
+Monitor the unified engine worker:
+
+```bash
+systemctl status "chemstack-queue-worker@$(whoami)"
+journalctl -u "chemstack-queue-worker@$(whoami)" -f
+```
+
+Maintain the unified engine worker:
+
+```bash
+sudo systemctl restart "chemstack-queue-worker@$(whoami)"
+sudo systemctl stop "chemstack-queue-worker@$(whoami)"
+```
+
+If you still want split services, the compatibility templates remain available:
+
+- `chemstack-orca-queue-worker@.service` runs `python -m chemstack.cli queue worker --app orca`
+- `chemstack-xtb-queue-worker@.service` runs `python -m chemstack.cli queue worker --app xtb`
+- `chemstack-crest-queue-worker@.service` runs `python -m chemstack.cli queue worker --app crest`
+
+Install one compatibility worker like this:
 
 ```bash
 cd <repo_root>
@@ -42,30 +69,11 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now "chemstack-${APP}-queue-worker@$(whoami)"
 ```
 
-Monitor one of the engine workers:
-
-```bash
-APP=orca   # or xtb / crest
-systemctl status "chemstack-${APP}-queue-worker@$(whoami)"
-journalctl -u "chemstack-${APP}-queue-worker@$(whoami)" -f
-```
-
-Maintain one of the engine workers:
-
-```bash
-APP=orca   # or xtb / crest
-sudo systemctl restart "chemstack-${APP}-queue-worker@$(whoami)"
-sudo systemctl stop "chemstack-${APP}-queue-worker@$(whoami)"
-```
-
-You can keep ORCA, xTB, and CREST workers enabled at the same time. The shared
-`scheduler.max_active_simulations` limit in `chemstack.yaml` still caps the
-combined number of active simulations across all three engines.
+Whether you use one unified service or three split services, `scheduler.max_active_simulations` in `chemstack.yaml` still caps the combined number of active simulations across ORCA, xTB, and CREST.
 
 ## Flow workflow worker
 
-This worker is for the orchestration loop under `chemstack.flow`, not for
-single-engine job submission.
+This worker is for the orchestration loop under `chemstack.flow`, not for engine job execution. Engine workers should use `chemstack-queue-worker@.service` or `python -m chemstack.cli queue worker`.
 
 Quick install:
 
@@ -78,12 +86,20 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now chemstack-flow-workflow-worker
 ```
 
-Before enabling the service, edit `/etc/chemstack/flow-worker.env` and set at
-least:
+Before enabling the service:
 
-- `CHEM_FLOW_WORKFLOW_ROOT`
+- Set top-level `workflow.root` in `chemstack.yaml`
 - `CHEM_FLOW_PYTHON` if you do not use `<repo_root>/.venv/bin/python`
 - `CHEM_FLOW_CONFIG` if you do not use the default `chemstack.yaml`
+
+For manual foreground runs without the extra flow-only tuning flags, use:
+
+```bash
+python -m chemstack.cli queue worker
+python -m chemstack.cli queue worker --app workflow --chemstack-config config/chemstack.yaml
+```
+
+The plain `queue worker` form also starts the workflow worker when `workflow.root` is set in `chemstack.yaml`.
 
 Monitoring:
 

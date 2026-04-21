@@ -13,19 +13,13 @@ fi
 
 repo_root="${CHEM_FLOW_CHEMSTACK_REPO_ROOT:-${script_root}}"
 python_bin="${CHEM_FLOW_PYTHON:-${repo_root}/.venv/bin/python}"
-workflow_root="${CHEM_FLOW_WORKFLOW_ROOT:-}"
-
-if [[ -z "${workflow_root}" ]]; then
-  echo "error: CHEM_FLOW_WORKFLOW_ROOT is required" >&2
-  exit 1
-fi
 
 args=(
   -m
-  chemstack.flow.cli
-  workflow
+  chemstack.cli
+  queue
   worker
-  --workflow-root "${workflow_root}"
+  --app workflow
 )
 
 shared_config="${CHEM_FLOW_CONFIG:-}"

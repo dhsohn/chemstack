@@ -2,7 +2,7 @@
 
 Usage::
 
-    python -m chemstack.orca.cli queue worker
+    python -m chemstack.cli queue worker --app orca
 
 The worker is intended to run in the foreground, typically under systemd in WSL.
 Each job is spawned in a dedicated child process so locking, state management,

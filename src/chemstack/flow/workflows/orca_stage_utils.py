@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from chemstack.core.app_ids import CHEMSTACK_ORCA_COMMAND, CHEMSTACK_ORCA_MODULE, CHEMSTACK_ORCA_SUBMITTER
+from chemstack.core.app_ids import CHEMSTACK_CLI_COMMAND, CHEMSTACK_CLI_MODULE, CHEMSTACK_ORCA_SUBMITTER
 from chemstack.core.utils import atomic_write_json
 
 from ..contracts import WorkflowArtifactRef, WorkflowStage, WorkflowStageInput, WorkflowTask
@@ -74,10 +74,11 @@ def build_orca_enqueue_payload(
     command_argv = [
         "python",
         "-m",
-        CHEMSTACK_ORCA_MODULE,
+        CHEMSTACK_CLI_MODULE,
         "--config",
         config_placeholder,
         "run-dir",
+        "orca",
         reaction_dir,
         "--priority",
         str(int(priority)),
@@ -87,8 +88,9 @@ def build_orca_enqueue_payload(
     if max_memory_gb > 0:
         command_argv.extend(["--max-memory-gb", str(max_memory_gb)])
     command_parts = [
-        f"{CHEMSTACK_ORCA_COMMAND} --config {config_placeholder}",
+        f"{CHEMSTACK_CLI_COMMAND} --config {config_placeholder}",
         "run-dir",
+        "orca",
         f"'{reaction_dir}'",
         f"--priority {int(priority)}",
     ]
@@ -252,7 +254,7 @@ def build_materialized_orca_stage(
         "resource_request": dict(resource_request),
         "reaction_dir": materialized.reaction_dir,
         "selected_inp": materialized.selected_inp,
-        "suggested_command": f"{CHEMSTACK_ORCA_COMMAND} run-dir '{materialized.reaction_dir}'",
+        "suggested_command": f"{CHEMSTACK_CLI_COMMAND} run-dir orca '{materialized.reaction_dir}'",
         "metadata": {
             "candidate_rank": candidate.rank,
             "candidate_kind": candidate.kind,

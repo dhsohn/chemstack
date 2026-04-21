@@ -96,10 +96,11 @@ def test_build_orca_enqueue_payload_includes_resource_override_flags() -> None:
     assert payload["command_argv"] == [
         "python",
         "-m",
-        "chemstack.orca.cli",
+        "chemstack.cli",
         "--config",
         "<chemstack_config>",
         "run-dir",
+        "orca",
         "/tmp/rxn",
         "--priority",
         "5",

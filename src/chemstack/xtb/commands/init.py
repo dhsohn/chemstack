@@ -109,12 +109,12 @@ def _scaffold_readme(job_dir: Path, job_type: str) -> str:
         [
             "# chemstack xTB job scaffold",
             "",
-            f"This directory was created by `python -m chemstack.xtb.cli init --root {job_dir} --job-type {job_type}`.",
+            f"This directory was created by `python -m chemstack.cli init xtb --root {job_dir} --job-type {job_type}`.",
             "",
             *layout_lines,
             "- Adjust `xtb_job.yaml` as needed.",
             "- Set `dry_run: false` when you are ready for a real run.",
-            "- Then queue the directory with `python -m chemstack.xtb.cli run-dir <path>`.",
+            "- Then queue the directory with `python -m chemstack.cli run-dir xtb <path>`.",
             "",
         ]
     )

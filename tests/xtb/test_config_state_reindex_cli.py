@@ -317,4 +317,4 @@ def test_cli_module_main_entrypoint_raises_system_exit(
             runpy.run_module("chemstack.xtb.cli", run_name="__main__")
 
     assert exc_info.value.code == 0
-    assert capsys.readouterr().out == "No xTB jobs found.\n"
+    assert capsys.readouterr().out == "activity_count: 0\n"

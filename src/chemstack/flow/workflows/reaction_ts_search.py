@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from chemstack.core.app_ids import CHEMSTACK_ORCA_COMMAND, CHEMSTACK_ORCA_MODULE, CHEMSTACK_ORCA_SUBMITTER
+from chemstack.core.app_ids import CHEMSTACK_CLI_COMMAND, CHEMSTACK_CLI_MODULE, CHEMSTACK_ORCA_SUBMITTER
 from chemstack.core.utils import atomic_write_json, now_utc_iso, timestamped_token
 
 from ..adapters.xtb import load_xtb_artifact_contract, select_xtb_downstream_inputs
@@ -123,30 +123,45 @@ def _build_orca_enqueue_payload(
     reaction_key: str,
 ) -> dict[str, Any]:
     config_placeholder = "<chemstack_config>"
-    command = (
-        f"{CHEMSTACK_ORCA_COMMAND} --config {config_placeholder} "
-        f"run-dir '{reaction_dir}' --priority {int(priority)}"
-    )
+    max_cores = int(resource_request.get("max_cores", 0) or 0)
+    max_memory_gb = int(resource_request.get("max_memory_gb", 0) or 0)
+    command_parts = [
+        f"{CHEMSTACK_CLI_COMMAND} --config {config_placeholder}",
+        "run-dir",
+        "orca",
+        f"'{reaction_dir}'",
+        f"--priority {int(priority)}",
+    ]
+    command_argv = [
+        "python",
+        "-m",
+        CHEMSTACK_CLI_MODULE,
+        "--config",
+        config_placeholder,
+        "run-dir",
+        "orca",
+        reaction_dir,
+        "--priority",
+        str(int(priority)),
+    ]
+    if max_cores > 0:
+        command_parts.append(f"--max-cores {max_cores}")
+        command_argv.extend(["--max-cores", str(max_cores)])
+    if max_memory_gb > 0:
+        command_parts.append(f"--max-memory-gb {max_memory_gb}")
+        command_argv.extend(["--max-memory-gb", str(max_memory_gb)])
     return {
         "submitter": CHEMSTACK_ORCA_SUBMITTER,
-        "command": command,
-        "command_argv": [
-            "python",
-            "-m",
-            CHEMSTACK_ORCA_MODULE,
-            "--config",
-            config_placeholder,
-            "run-dir",
-            reaction_dir,
-            "--priority",
-            str(int(priority)),
-        ],
+        "command": " ".join(command_parts),
+        "command_argv": command_argv,
         "requires_config": True,
         "config_argument_placeholder": config_placeholder,
         "reaction_dir": reaction_dir,
         "selected_inp": selected_inp,
         "priority": int(priority),
         "force": False,
+        "max_cores": max_cores,
+        "max_memory_gb": max_memory_gb,
         "workflow_id": workflow_id,
         "workflow_stage_id": stage_id,
         "source_job_id": source_job_id,
@@ -251,7 +266,7 @@ def _materialize_orca_stage(
         resource_request=dict(orca_payload.resource_request),
         reaction_dir=str(reaction_dir),
         selected_inp=str(target_inp),
-        suggested_command=f"{CHEMSTACK_ORCA_COMMAND} run-dir '{reaction_dir}'",
+        suggested_command=f"{CHEMSTACK_CLI_COMMAND} run-dir orca '{reaction_dir}'",
         metadata=dict(orca_payload.metadata),
     )
 

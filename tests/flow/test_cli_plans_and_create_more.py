@@ -42,7 +42,7 @@ def _plan_payload(template_name: str, *, include_source: bool = True) -> dict[st
                         "selected_input_xyz": "/tmp/input.xyz",
                         "reaction_dir": "/tmp/reaction_dir",
                     },
-                    "enqueue_payload": {"command": "python -m chemstack.orca.cli run-dir /tmp/reaction_dir"},
+                    "enqueue_payload": {"command": "python -m chemstack.cli run-dir orca /tmp/reaction_dir"},
                 },
             },
             {
@@ -52,7 +52,7 @@ def _plan_payload(template_name: str, *, include_source: bool = True) -> dict[st
                     "task_kind": "freq",
                     "payload": {
                         "selected_input_xyz": "/tmp/fallback.xyz",
-                        "suggested_command": "python -m chemstack.orca.cli run-dir /tmp/fallback.xyz",
+                        "suggested_command": "python -m chemstack.cli run-dir orca /tmp/fallback.xyz",
                     },
                 },
             },
@@ -186,8 +186,8 @@ def test_cmd_crest_inspect_text_mode_formats_retained_paths(monkeypatch: pytest.
                 "workflow_id: wf_reaction_ts_search",
                 "source_job_id: source_1",
                 "reaction_dir=/tmp/reaction_dir",
-                "enqueue_command=python -m chemstack.orca.cli run-dir /tmp/reaction_dir",
-                "suggested_command=python -m chemstack.orca.cli run-dir /tmp/fallback.xyz",
+                "enqueue_command=python -m chemstack.cli run-dir orca /tmp/reaction_dir",
+                "suggested_command=python -m chemstack.cli run-dir orca /tmp/fallback.xyz",
             ],
         ),
         (

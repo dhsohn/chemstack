@@ -151,7 +151,7 @@ def test_cmd_init_creates_scaffold_files(tmp_path: Path, capsys: pytest.CaptureF
         "input_xyz: input.xyz\n"
     )
     assert (
-        f"This directory was created by `python -m chemstack.crest.cli init --root {job_dir.resolve()}`."
+        f"This directory was created by `python -m chemstack.cli init crest --root {job_dir.resolve()}`."
         in (job_dir / "README.md").read_text(encoding="utf-8")
     )
 
@@ -174,6 +174,29 @@ def test_main_run_dir_accepts_positional_job_dir(
     assert cli.main(["--config", str(config_path), "run-dir", str(job_dir)]) == 19
     assert len(captured_args) == 1
     assert captured_args[0].path == str(job_dir)
+
+
+def test_public_wrappers_delegate_to_unified_cli(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: list[list[str]] = []
+
+    def fake_main(argv: list[str]) -> int:
+        seen.append(list(argv))
+        return 27
+
+    monkeypatch.setattr(cli.unified_cli, "main", fake_main)
+
+    init_rc = cli.cmd_init(Namespace(config="/tmp/chemstack.yaml", root="/tmp/init-job"))
+    run_rc = cli.cmd_run_dir(Namespace(config="/tmp/chemstack.yaml", path="/tmp/run-job", priority=4))
+    organize_rc = cli.cmd_organize(Namespace(config="/tmp/chemstack.yaml", root="/tmp/jobs", apply=True))
+    summary_rc = cli.cmd_summary(Namespace(config="/tmp/chemstack.yaml", target="job-123", json=True))
+
+    assert (init_rc, run_rc, organize_rc, summary_rc) == (27, 27, 27, 27)
+    assert seen == [
+        ["init", "crest", "--chemstack-config", "/tmp/chemstack.yaml", "--root", "/tmp/init-job"],
+        ["run-dir", "crest", "--chemstack-config", "/tmp/chemstack.yaml", "/tmp/run-job", "--priority", "4"],
+        ["organize", "crest", "--chemstack-config", "/tmp/chemstack.yaml", "--root", "/tmp/jobs", "--apply"],
+        ["summary", "crest", "--chemstack-config", "/tmp/chemstack.yaml", "job-123", "--json"],
+    ]
 
 
 def test_cmd_init_is_idempotent_and_preserves_existing_files(
@@ -429,8 +452,8 @@ def test_cli_end_to_end_smoke_path_submission_worker_organize_and_summary(
     ) == 0
     worker_output = capsys.readouterr().out
     organized_target = organized_root / "standard" / "input" / "crest-e2e-001"
-    assert "status: completed" in worker_output
-    assert f"organized_output_dir: {organized_target.resolve()}" in worker_output
+    assert "starting worker[crest]:" in worker_output
+    assert "worker[crest] exited with code 0" in worker_output
 
     queue_entries = list_queue(allowed_root)
     assert len(queue_entries) == 1
@@ -458,11 +481,8 @@ def test_cli_end_to_end_smoke_path_submission_worker_organize_and_summary(
 
     assert len(queued_notifications) == 1
     assert queued_notifications[0]["job_id"] == "crest-e2e-001"
-    assert len(started_notifications) == 1
-    assert started_notifications[0]["job_id"] == "crest-e2e-001"
-    assert len(finished_notifications) == 1
-    assert finished_notifications[0]["status"] == "completed"
-    assert finished_notifications[0]["organized_output_dir"] == organized_target.resolve()
+    assert started_notifications == []
+    assert finished_notifications == []
 
     assert cli.main(["--config", str(config_path), "summary", "crest-e2e-001", "--json"]) == 0
     summary_json = json.loads(capsys.readouterr().out)

@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from chemstack.core.app_ids import (
+    CHEMSTACK_CLI_MODULE,
     CHEMSTACK_EXECUTABLE,
     CHEMSTACK_ORCA_SUBMITTER,
     ORCA_SUBMITTERS,
@@ -28,6 +29,7 @@ def _submission_tail_argv(
 ) -> list[str]:
     argv = [
         "run-dir",
+        "orca",
         reaction_dir,
         "--priority",
         str(int(priority)),
@@ -72,7 +74,7 @@ def submit_reaction_dir(
         executable=_normalize_text(executable) or CHEMSTACK_EXECUTABLE,
         config_path=_normalize_text(config_path),
         repo_root=_normalize_text(repo_root) or None,
-        module_name="chemstack.orca.cli",
+        module_name=CHEMSTACK_CLI_MODULE,
         tail_argv=_submission_tail_argv(
             reaction_dir=reaction_dir,
             priority=priority,
@@ -106,7 +108,7 @@ def cancel_target(
         executable=_normalize_text(executable) or CHEMSTACK_EXECUTABLE,
         config_path=_normalize_text(config_path),
         repo_root=_normalize_text(repo_root) or None,
-        module_name="chemstack.orca.cli",
+        module_name=CHEMSTACK_CLI_MODULE,
         tail_argv=_cancel_tail_argv(target=target),
     )
     argv = list(result.args) if isinstance(result.args, (list, tuple)) else [str(result.args)]

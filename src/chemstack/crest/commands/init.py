@@ -46,11 +46,11 @@ def _scaffold_readme(job_dir: Path) -> str:
         [
             "# chemstack CREST job scaffold",
             "",
-            f"This directory was created by `python -m chemstack.crest.cli init --root {job_dir}`.",
+            f"This directory was created by `python -m chemstack.cli init crest --root {job_dir}`.",
             "",
             "- Replace `input.xyz` with the molecule you want to process.",
             "- Adjust `crest_job.yaml` if you need NCI mode, charge, or solvent settings.",
-            "- Then queue the directory with `python -m chemstack.crest.cli run-dir <path>`.",
+            "- Then queue the directory with `python -m chemstack.cli run-dir crest <path>`.",
             "",
         ]
     )

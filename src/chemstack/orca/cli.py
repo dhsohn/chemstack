@@ -3,23 +3,23 @@ from __future__ import annotations
 import argparse
 import logging
 import logging.handlers
+import os
 import sys
 from typing import Callable
 
+from chemstack import cli as unified_cli
+
 from .commands._helpers import default_config_path
-from .commands.init import cmd_init
-from .commands.list_runs import cmd_list
+from .commands.list_runs import cmd_list as _engine_cmd_list
 from .commands.monitor import cmd_monitor
-from .commands.organize import cmd_organize
 from .commands.queue import (
-    cmd_queue_cancel as _cmd_queue_cancel,
-    cmd_queue_worker as _cmd_queue_worker,
+    cmd_queue_cancel as _engine_cmd_queue_cancel,
+    cmd_queue_worker as _engine_cmd_queue_worker,
 )
-from .commands.run_inp import cmd_run_inp
-from .commands.summary import cmd_summary
 from .telegram_bot import run_bot as _run_bot
 
 _CHEMSTACK_HANDLER_ATTR = "_chemstack_managed_handler"
+_DIRECT_WORKER_ENV_VAR = "CHEMSTACK_QUEUE_WORKER_DIRECT"
 
 
 def cmd_bot(args: argparse.Namespace) -> int:
@@ -28,10 +28,142 @@ def cmd_bot(args: argparse.Namespace) -> int:
     return int(_run_bot(cfg))
 
 
+def _shared_list_argv(*, config_path: str, engine: str, status: str | None = None) -> list[str]:
+    argv = [
+        "queue",
+        "list",
+        "--engine",
+        engine,
+        "--kind",
+        "job",
+        "--chemstack-config",
+        config_path,
+    ]
+    if status:
+        argv.extend(["--status", status])
+    return argv
+
+
+def _shared_config_argv(config_path: str | None) -> list[str]:
+    if not config_path:
+        return []
+    return ["--chemstack-config", config_path]
+
+
+def _shared_orca_logging_argv(args: argparse.Namespace) -> list[str]:
+    argv: list[str] = []
+    if bool(getattr(args, "verbose", False)):
+        argv.append("--verbose")
+    log_file = getattr(args, "log_file", None)
+    if log_file:
+        argv.extend(["--log-file", str(log_file)])
+    return argv
+
+
+def cmd_init(args: argparse.Namespace) -> int:
+    argv = ["init", "orca", *_shared_config_argv(args.config), *_shared_orca_logging_argv(args)]
+    if bool(getattr(args, "force", False)):
+        argv.append("--force")
+    return int(unified_cli.main(argv))
+
+
+def cmd_run_inp(args: argparse.Namespace) -> int:
+    argv = [
+        "run-dir",
+        "orca",
+        *_shared_config_argv(args.config),
+        *_shared_orca_logging_argv(args),
+        args.path,
+        "--priority",
+        str(args.priority),
+    ]
+    if bool(getattr(args, "force", False)):
+        argv.append("--force")
+    max_cores = getattr(args, "max_cores", None)
+    if max_cores is not None:
+        argv.extend(["--max-cores", str(max_cores)])
+    max_memory_gb = getattr(args, "max_memory_gb", None)
+    if max_memory_gb is not None:
+        argv.extend(["--max-memory-gb", str(max_memory_gb)])
+    return int(unified_cli.main(argv))
+
+
+cmd_run_dir = cmd_run_inp
+
+
+def cmd_list(args: argparse.Namespace) -> int:
+    if getattr(args, "action", None) == "clear":
+        return int(_engine_cmd_list(args))
+    return int(
+        unified_cli.main(
+            _shared_list_argv(
+                config_path=args.config,
+                engine="orca",
+                status=getattr(args, "filter", None),
+            )
+        )
+    )
+
+
+def cmd_queue_cancel(args: argparse.Namespace) -> int:
+    target = str(getattr(args, "target", "")).strip()
+    if target == "all-pending":
+        return int(_engine_cmd_queue_cancel(args))
+    return int(
+        unified_cli.main(
+            [
+                "queue",
+                "cancel",
+                target,
+                "--chemstack-config",
+                args.config,
+            ]
+        )
+    )
+
+
+def cmd_queue_worker(args: argparse.Namespace) -> int:
+    if os.getenv(_DIRECT_WORKER_ENV_VAR) == "1":
+        return int(_engine_cmd_queue_worker(args))
+    argv = [
+        "queue",
+        "worker",
+        "--app",
+        "orca",
+        "--chemstack-config",
+        args.config,
+    ]
+    if bool(getattr(args, "auto_organize", False)):
+        argv.append("--auto-organize")
+    elif bool(getattr(args, "no_auto_organize", False)):
+        argv.append("--no-auto-organize")
+    return int(unified_cli.main(argv))
+
+
+def cmd_organize(args: argparse.Namespace) -> int:
+    argv = ["organize", "orca", *_shared_config_argv(args.config), *_shared_orca_logging_argv(args)]
+    if getattr(args, "reaction_dir", None):
+        argv.extend(["--reaction-dir", args.reaction_dir])
+    if getattr(args, "root", None):
+        argv.extend(["--root", args.root])
+    if bool(getattr(args, "apply", False)):
+        argv.append("--apply")
+    if bool(getattr(args, "rebuild_index", False)):
+        argv.append("--rebuild-index")
+    return int(unified_cli.main(argv))
+
+
+def cmd_summary(args: argparse.Namespace) -> int:
+    argv = ["summary", "orca", *_shared_config_argv(args.config), *_shared_orca_logging_argv(args)]
+    if bool(getattr(args, "no_send", False)):
+        argv.append("--no-send")
+    return int(unified_cli.main(argv))
+
+
 def cmd_queue(args: argparse.Namespace) -> int:
     _queue_sub_map: dict[str, Callable[[argparse.Namespace], int]] = {
-        "cancel": _cmd_queue_cancel,
-        "worker": _cmd_queue_worker,
+        "cancel": cmd_queue_cancel,
+        "worker": cmd_queue_worker,
     }
     handler = _queue_sub_map.get(args.queue_command)
     if handler is None:

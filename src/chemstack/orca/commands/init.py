@@ -146,7 +146,8 @@ def _write_config(config_path: Path, payload: dict[str, object]) -> None:
 
 def cmd_init(args: Any) -> int:
     force = bool(getattr(args, "force", False))
-    config_path = Path(default_config_path()).expanduser().resolve()
+    raw_config_path = str(getattr(args, "config", "") or "").strip() or default_config_path()
+    config_path = Path(raw_config_path).expanduser().resolve()
 
     if config_path.exists() and not force:
         overwrite = _prompt_yes_no(

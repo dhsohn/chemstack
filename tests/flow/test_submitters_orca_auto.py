@@ -116,7 +116,16 @@ def test_submit_reaction_dir_maps_queue_status(
             returncode=returncode,
             stdout=stdout,
             stderr="stderr text",
-            args=("orca_auto_bin", "--config", "/tmp/orca.yaml", "run-dir"),
+            args=(
+                "python",
+                "-m",
+                "chemstack.cli",
+                "--config",
+                "/tmp/orca.yaml",
+                "run-dir",
+                "orca",
+                "/tmp/rxn_input",
+            ),
         )
 
     monkeypatch.setattr(orca_auto, "run_sibling_app", fake_run_sibling_app)
@@ -134,8 +143,8 @@ def test_submit_reaction_dir_maps_queue_status(
             "executable": "orca_auto_bin",
             "config_path": "/tmp/orca.yaml",
             "repo_root": "/tmp/orca_repo",
-            "module_name": "chemstack.orca.cli",
-            "tail_argv": ["run-dir", "/tmp/rxn_input", "--priority", "12"],
+            "module_name": "chemstack.cli",
+            "tail_argv": ["run-dir", "orca", "/tmp/rxn_input", "--priority", "12"],
         }
     ]
     assert result["status"] == expected_status
@@ -143,7 +152,16 @@ def test_submit_reaction_dir_maps_queue_status(
     assert result["reaction_dir"] == expected_reaction_dir
     assert result["priority"] == 12
     assert result["parsed_stdout"]["status"] == stdout.splitlines()[0].split(": ", 1)[1]
-    assert result["command_argv"] == ["orca_auto_bin", "--config", "/tmp/orca.yaml", "run-dir"]
+    assert result["command_argv"] == [
+        "python",
+        "-m",
+        "chemstack.cli",
+        "--config",
+        "/tmp/orca.yaml",
+        "run-dir",
+        "orca",
+        "/tmp/rxn_input",
+    ]
     assert result["stderr"] == "stderr text"
 
 
@@ -158,7 +176,16 @@ def test_submit_reaction_dir_passes_resource_override_flags(
             returncode=0,
             stdout="status: queued\nqueue_id: q_456\n",
             stderr="",
-            args=("orca_auto_bin", "--config", "/tmp/orca.yaml", "run-dir"),
+            args=(
+                "python",
+                "-m",
+                "chemstack.cli",
+                "--config",
+                "/tmp/orca.yaml",
+                "run-dir",
+                "orca",
+                "/tmp/rxn_input",
+            ),
         )
 
     monkeypatch.setattr(orca_auto, "run_sibling_app", fake_run_sibling_app)
@@ -177,9 +204,10 @@ def test_submit_reaction_dir_passes_resource_override_flags(
             "executable": "orca_auto_bin",
             "config_path": "/tmp/orca.yaml",
             "repo_root": None,
-            "module_name": "chemstack.orca.cli",
+            "module_name": "chemstack.cli",
             "tail_argv": [
                 "run-dir",
+                "orca",
                 "/tmp/rxn_input",
                 "--priority",
                 "4",
@@ -216,7 +244,7 @@ def test_cancel_target_maps_cli_cancel_status(
             returncode=returncode,
             stdout=stdout,
             stderr="cancel stderr",
-            args="orca_auto_bin --config /tmp/orca.yaml queue cancel q_123",
+            args="python -m chemstack.cli --config /tmp/orca.yaml queue cancel q_123",
         )
 
     monkeypatch.setattr(orca_auto, "run_sibling_app", fake_run_sibling_app)
@@ -233,7 +261,7 @@ def test_cancel_target_maps_cli_cancel_status(
             "executable": "orca_auto_bin",
             "config_path": "/tmp/orca.yaml",
             "repo_root": "/tmp/orca_repo",
-            "module_name": "chemstack.orca.cli",
+            "module_name": "chemstack.cli",
             "tail_argv": ["queue", "cancel", "q_123"],
         }
     ]
@@ -241,7 +269,7 @@ def test_cancel_target_maps_cli_cancel_status(
     assert result["returncode"] == returncode
     assert result["stdout"] == stdout
     assert result["stderr"] == "cancel stderr"
-    assert result["command_argv"] == ["orca_auto_bin --config /tmp/orca.yaml queue cancel q_123"]
+    assert result["command_argv"] == ["python -m chemstack.cli --config /tmp/orca.yaml queue cancel q_123"]
 
 
 def test_submit_reaction_ts_search_workflow_updates_skip_failure_and_submit_branches(

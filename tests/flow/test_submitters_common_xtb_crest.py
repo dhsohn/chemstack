@@ -274,7 +274,16 @@ def test_submit_job_dir_maps_success_and_failure(
 ) -> None:
     captured: dict[str, Any] = {}
     completed = _completed_process(
-        args=[executable, "--config", "/tmp/config.yaml", "run-dir", job_dir],
+        args=[
+            "python",
+            "-m",
+            "chemstack.cli",
+            "--config",
+            "/tmp/config.yaml",
+            "run-dir",
+            "xtb" if module is xtb_auto else "crest",
+            job_dir,
+        ],
         returncode=returncode,
         stdout=stdout,
         stderr=stderr,
@@ -298,8 +307,8 @@ def test_submit_job_dir_maps_success_and_failure(
         "executable": executable,
         "config_path": "/tmp/config.yaml",
         "repo_root": repo_root,
-        "module_name": "chemstack.xtb.cli" if module is xtb_auto else "chemstack.crest.cli",
-        "tail_argv": ["run-dir", job_dir, "--priority", str(priority)],
+        "module_name": "chemstack.cli",
+        "tail_argv": ["run-dir", "xtb" if module is xtb_auto else "crest", job_dir, "--priority", str(priority)],
     }
     assert result["status"] == expected["status"]
     assert result["returncode"] == returncode
@@ -365,7 +374,7 @@ def test_cancel_target_maps_status_from_stdout_and_returncode(
         "executable": "tool",
         "config_path": "/tmp/config.yaml",
         "repo_root": "/tmp/repo",
-        "module_name": "chemstack.xtb.cli" if module is xtb_auto else "chemstack.crest.cli",
+        "module_name": "chemstack.cli",
         "tail_argv": ["queue", "cancel", target],
     }
     assert result["status"] == expected_status

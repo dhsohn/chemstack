@@ -53,12 +53,13 @@ def test_new_crest_stage_builds_expected_payload_and_metadata() -> None:
     assert task["enqueue_payload"]["command_argv"][:4] == [
         "python",
         "-m",
-        "chemstack.crest.cli",
+        "chemstack.cli",
         "--config",
     ]
-    assert task["enqueue_payload"]["command_argv"][4:7] == [
+    assert task["enqueue_payload"]["command_argv"][4:8] == [
         "<crest_auto_config>",
         "run-dir",
+        "crest",
         "<job_dir>",
     ]
     assert task["metadata"] == {"input_role": "reactant", "mode": "nci"}

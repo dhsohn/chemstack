@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import time
 from pathlib import Path
 from typing import Any
 
 from chemstack.core.app_ids import CHEMSTACK_EXECUTABLE
+from chemstack.core.config.files import default_config_path_from_repo_root, shared_workflow_root_from_config
 from chemstack.core.utils import file_lock, now_utc_iso, timestamped_token
 
 from .adapters import load_crest_artifact_contract, load_xtb_artifact_contract, select_xtb_downstream_inputs
@@ -38,7 +38,6 @@ from .workflows import (
     build_reaction_ts_search_plan_from_target,
 )
 
-_CHEM_FLOW_WORKFLOW_ROOT_ENV = "CHEM_FLOW_WORKFLOW_ROOT"
 _RUN_DIR_MANIFEST_NAMES = ("chemstack.flow.yaml", "chemstack.flow.yml", "chemstack.flow.json")
 _REACTION_REACTANT_FILENAMES = ("reactant.xyz", "reactant_precomplex.xyz", "reactant-precomplex.xyz")
 _REACTION_PRODUCT_FILENAMES = ("product.xyz", "product_precomplex.xyz", "product-precomplex.xyz")
@@ -70,22 +69,7 @@ def _discover_workflow_root(explicit: str | Path | None) -> str | None:
     explicit_text = _normalize_text(explicit)
     if explicit_text:
         return str(Path(explicit_text).expanduser().resolve())
-
-    env_text = _normalize_text(os.getenv(_CHEM_FLOW_WORKFLOW_ROOT_ENV))
-    if env_text:
-        return str(Path(env_text).expanduser().resolve())
-
-    project_root = _project_root()
-    candidates = [
-        Path.cwd() / "workflow_root",
-        project_root / "workflow_root",
-        Path.home() / "chem_flow" / "workflow_root",
-    ]
-    for candidate in candidates:
-        resolved = _resolve_existing_path(str(candidate))
-        if resolved is not None:
-            return str(resolved)
-    return None
+    return shared_workflow_root_from_config(default_config_path_from_repo_root(_project_root()))
 
 
 def _shared_chemstack_config(args: Any) -> str | None:
@@ -334,7 +318,7 @@ def cmd_run_dir(args: Any) -> int:
         )
         if not resolved_workflow_root:
             raise ValueError(
-                "workflow_root could not be discovered. Pass --workflow-root or set CHEM_FLOW_WORKFLOW_ROOT."
+                "workflow_root is not configured. Set workflow.root in chemstack.yaml."
             )
 
         if workflow_type == "reaction_ts_search":

@@ -5,10 +5,8 @@ from pathlib import Path
 from typing import Any, Callable
 
 from chemstack.core.app_ids import (
-    CHEMSTACK_CREST_COMMAND,
-    CHEMSTACK_CREST_MODULE,
-    CHEMSTACK_XTB_COMMAND,
-    CHEMSTACK_XTB_MODULE,
+    CHEMSTACK_CLI_COMMAND,
+    CHEMSTACK_CLI_MODULE,
 )
 
 from .contracts import WorkflowArtifactRef, WorkflowPlan, WorkflowStage, WorkflowTask, WorkflowTemplateRequest
@@ -57,14 +55,15 @@ def new_crest_stage_impl(
         enqueue_payload={
             "submitter": "crest_auto_cli",
             "app_name": "crest_auto",
-            "command": f"{CHEMSTACK_CREST_COMMAND} --config {config_placeholder} run-dir '<job_dir>' --priority {int(priority)}",
+            "command": f"{CHEMSTACK_CLI_COMMAND} --config {config_placeholder} run-dir crest '<job_dir>' --priority {int(priority)}",
             "command_argv": [
                 "python",
                 "-m",
-                CHEMSTACK_CREST_MODULE,
+                CHEMSTACK_CLI_MODULE,
                 "--config",
                 config_placeholder,
                 "run-dir",
+                "crest",
                 "<job_dir>",
                 "--priority",
                 str(int(priority)),
@@ -135,14 +134,15 @@ def new_xtb_stage_impl(
         enqueue_payload={
             "submitter": "xtb_auto_cli",
             "app_name": "xtb_auto",
-            "command": f"{CHEMSTACK_XTB_COMMAND} --config {config_placeholder} run-dir '<job_dir>' --priority {int(priority)}",
+            "command": f"{CHEMSTACK_CLI_COMMAND} --config {config_placeholder} run-dir xtb '<job_dir>' --priority {int(priority)}",
             "command_argv": [
                 "python",
                 "-m",
-                CHEMSTACK_XTB_MODULE,
+                CHEMSTACK_CLI_MODULE,
                 "--config",
                 config_placeholder,
                 "run-dir",
+                "xtb",
                 "<job_dir>",
                 "--priority",
                 str(int(priority)),

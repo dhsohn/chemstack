@@ -1,5 +1,5 @@
 [Unit]
-Description=ChemStack CREST queue worker for %i
+Description=ChemStack CREST queue worker for %i (compat)
 After=local-fs.target
 
 [Service]
@@ -8,7 +8,7 @@ User=%i
 WorkingDirectory=/home/%i/chemstack
 Environment=PYTHONUNBUFFERED=1
 Environment=CHEMSTACK_CONFIG=/home/%i/chemstack/config/chemstack.yaml
-ExecStart=/home/%i/chemstack/.venv/bin/python -m chemstack.crest.cli queue worker
+ExecStart=/home/%i/chemstack/.venv/bin/python -m chemstack.cli queue worker --app crest
 Restart=always
 RestartSec=5
 
