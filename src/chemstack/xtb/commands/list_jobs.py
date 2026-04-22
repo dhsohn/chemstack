@@ -6,6 +6,7 @@ from typing import Any
 from chemstack.core.queue import list_queue
 
 from ..config import load_config
+from ..tracking import runtime_roots_for_cfg
 
 
 def _display_status(entry: Any) -> str:
@@ -16,7 +17,10 @@ def _display_status(entry: Any) -> str:
 
 def cmd_list(args: Any) -> int:
     cfg = load_config(getattr(args, "config", None))
-    entries = list_queue(cfg.runtime.allowed_root)
+    entries = []
+    for root in runtime_roots_for_cfg(cfg):
+        entries.extend(list_queue(root))
+    entries.sort(key=lambda entry: (int(entry.priority), str(entry.enqueued_at), str(entry.queue_id)))
 
     if not entries:
         print("No xTB jobs found.")

@@ -9,6 +9,10 @@ from chemstack.core.utils import atomic_write_json, file_lock
 
 WORKFLOW_FILE_NAME = "workflow.json"
 WORKFLOW_LOCK_NAME = "workflow.lock"
+# Deprecated compatibility placeholder. Workflow workspaces now live directly
+# under ``workflow.root`` instead of ``workflow.root/workflows``.
+WORKFLOWS_DIRNAME = ""
+WORKFLOW_INTERNAL_DIRNAME = "internal"
 
 
 def _normalize_text(value: Any) -> str:
@@ -44,7 +48,57 @@ def _workflow_parent_dir(path: Path) -> Path:
 
 
 def workflow_root_dir(workflow_root: str | Path) -> Path:
-    return Path(workflow_root).expanduser().resolve() / "workflows"
+    root = Path(workflow_root).expanduser().resolve()
+    if not WORKFLOWS_DIRNAME:
+        return root
+    return root / WORKFLOWS_DIRNAME
+
+
+def workflow_workspace_internal_engine_paths(
+    workspace_dir: str | Path,
+    *,
+    engine: str,
+) -> dict[str, Path]:
+    engine_text = _normalize_text(engine).lower()
+    if not engine_text:
+        raise ValueError("workflow internal engine is required")
+    workspace = Path(workspace_dir).expanduser().resolve()
+    base = workspace / WORKFLOW_INTERNAL_DIRNAME / engine_text
+    return {
+        "allowed_root": base / "runs",
+        "organized_root": base / "outputs",
+    }
+
+
+def workflow_workspace_internal_engine_paths_from_path(
+    path: str | Path,
+    *,
+    workflow_root: str | Path,
+    engine: str,
+) -> dict[str, Path] | None:
+    engine_text = _normalize_text(engine).lower()
+    if not engine_text:
+        return None
+
+    try:
+        resolved_path = Path(path).expanduser().resolve()
+    except OSError:
+        return None
+
+    workspaces_root = workflow_root_dir(workflow_root)
+    try:
+        relative = resolved_path.relative_to(workspaces_root)
+    except ValueError:
+        return None
+
+    parts = relative.parts
+    if len(parts) < 4:
+        return None
+    if parts[1] != WORKFLOW_INTERNAL_DIRNAME or parts[2] != engine_text or parts[3] not in {"runs", "outputs"}:
+        return None
+
+    workspace_dir = workspaces_root / parts[0]
+    return workflow_workspace_internal_engine_paths(workspace_dir, engine=engine_text)
 
 
 def resolve_workflow_workspace(*, target: str, workflow_root: str | Path | None = None) -> Path:
@@ -108,6 +162,33 @@ def iter_workflow_workspaces(workflow_root: str | Path) -> list[Path]:
     if not root.exists():
         return []
     candidates = [item for item in root.iterdir() if item.is_dir() and (item / WORKFLOW_FILE_NAME).exists()]
+    return sorted(candidates, key=lambda item: item.name, reverse=True)
+
+
+def iter_workflow_runtime_workspaces(
+    workflow_root: str | Path,
+    *,
+    engine: str | None = None,
+) -> list[Path]:
+    root = workflow_root_dir(workflow_root)
+    if not root.exists():
+        return []
+
+    engine_text = _normalize_text(engine).lower()
+    candidates: list[Path] = []
+    for item in root.iterdir():
+        if not item.is_dir():
+            continue
+        if (item / WORKFLOW_FILE_NAME).exists():
+            candidates.append(item)
+            continue
+        if engine_text:
+            runtime_paths = workflow_workspace_internal_engine_paths(item, engine=engine_text)
+            if runtime_paths["allowed_root"].exists() or runtime_paths["organized_root"].exists():
+                candidates.append(item)
+            continue
+        if (item / WORKFLOW_INTERNAL_DIRNAME).exists():
+            candidates.append(item)
     return sorted(candidates, key=lambda item: item.name, reverse=True)
 
 
@@ -380,8 +461,10 @@ def workflow_artifacts(workspace_dir: str | Path, payload: dict[str, Any] | None
 
 
 __all__ = [
-    "WORKFLOW_LOCK_NAME",
     "WORKFLOW_FILE_NAME",
+    "WORKFLOW_INTERNAL_DIRNAME",
+    "WORKFLOW_LOCK_NAME",
+    "WORKFLOWS_DIRNAME",
     "acquire_workflow_lock",
     "iter_workflow_workspaces",
     "list_workflow_summaries",
@@ -393,5 +476,7 @@ __all__ = [
     "workflow_file_path",
     "workflow_root_dir",
     "workflow_summary",
+    "workflow_workspace_internal_engine_paths",
+    "workflow_workspace_internal_engine_paths_from_path",
     "write_workflow_payload",
 ]

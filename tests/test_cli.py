@@ -22,7 +22,6 @@ try:
         _configure_logging,
         _remove_managed_handlers,
         build_parser,
-        cmd_bot,
         cmd_queue,
         main,
     )
@@ -35,7 +34,6 @@ except ImportError as exc:
     _configure_logging = _raise_cli_import_error
     _remove_managed_handlers = _raise_cli_import_error
     build_parser = _raise_cli_import_error
-    cmd_bot = _raise_cli_import_error
     cmd_queue = _raise_cli_import_error
     main = _raise_cli_import_error
     orca_cli = _raise_cli_import_error
@@ -155,31 +153,6 @@ class TestCli(unittest.TestCase):
             parser.parse_args(["run-dir", "/tmp/rxn", "--require-slot"])
         self.assertEqual(exc.exception.code, 2)
 
-    def test_queue_worker_accepts_auto_organize_flag(self) -> None:
-        parser = build_parser()
-        args = parser.parse_args(["queue", "worker", "--auto-organize"])
-
-        self.assertEqual(args.command, "queue")
-        self.assertEqual(args.queue_command, "worker")
-        self.assertTrue(args.auto_organize)
-        self.assertFalse(args.no_auto_organize)
-
-    def test_queue_worker_accepts_no_auto_organize_flag(self) -> None:
-        parser = build_parser()
-        args = parser.parse_args(["queue", "worker", "--no-auto-organize"])
-
-        self.assertEqual(args.command, "queue")
-        self.assertEqual(args.queue_command, "worker")
-        self.assertFalse(args.auto_organize)
-        self.assertTrue(args.no_auto_organize)
-
-    def test_queue_worker_rejects_conflicting_auto_organize_flags(self) -> None:
-        parser = build_parser()
-        with self.assertRaises(SystemExit) as exc:
-            parser.parse_args(["queue", "worker", "--auto-organize", "--no-auto-organize"])
-
-        self.assertEqual(exc.exception.code, 2)
-
     @patch("chemstack.orca.cli.cmd_run_inp", return_value=8)
     def test_main_dispatches_run_dir_command(self, mock_cmd_run_inp: MagicMock) -> None:
         rc = main(["run-dir", "/tmp/rxn"])
@@ -236,17 +209,6 @@ class TestCli(unittest.TestCase):
             parser.parse_args(["queue", "add"])
         self.assertEqual(exc.exception.code, 2)
 
-    @patch("chemstack.orca.cli._run_bot", return_value=7)
-    @patch("chemstack.orca.config.load_config")
-    def test_cmd_bot_loads_config_and_returns_int(self, mock_load: MagicMock, mock_run_bot: MagicMock) -> None:
-        args = Namespace(config="chemstack.yaml")
-
-        rc = cmd_bot(args)
-
-        self.assertEqual(rc, 7)
-        mock_load.assert_called_once_with("chemstack.yaml")
-        mock_run_bot.assert_called_once_with(mock_load.return_value)
-
     def test_cmd_queue_invalid_subcommand_prints_usage_and_returns_1(self) -> None:
         args = Namespace(queue_command="unknown")
         buf = io.StringIO()
@@ -255,16 +217,7 @@ class TestCli(unittest.TestCase):
             rc = cmd_queue(args)
 
         self.assertEqual(rc, 1)
-        self.assertIn("Usage: python -m chemstack.orca.cli queue", buf.getvalue())
-
-    @patch("chemstack.orca.cli.cmd_queue_worker", return_value=4)
-    def test_cmd_queue_dispatches_to_selected_subcommand(self, mock_worker: MagicMock) -> None:
-        args = Namespace(queue_command="worker")
-
-        rc = cmd_queue(args)
-
-        self.assertEqual(rc, 4)
-        mock_worker.assert_called_once_with(args)
+        self.assertIn("Usage: python -m chemstack.orca.cli queue cancel <target>", buf.getvalue())
 
     @patch("chemstack.orca.cli.cmd_queue_cancel", return_value=5)
     def test_cmd_queue_dispatches_cancel_subcommand(self, mock_cancel: MagicMock) -> None:
@@ -358,6 +311,13 @@ class TestCli(unittest.TestCase):
                 ["summary", "orca", "--chemstack-config", "/tmp/chemstack.yaml", "--no-send"],
             ],
         )
+
+    def test_build_parser_rejects_removed_service_commands(self) -> None:
+        parser = build_parser()
+        for argv in (["bot"], ["queue", "worker"]):
+            with self.assertRaises(SystemExit) as exc:
+                parser.parse_args(argv)
+            self.assertEqual(exc.exception.code, 2)
 
     @patch("chemstack.orca.cli._remove_managed_handlers")
     @patch("chemstack.orca.cli.logging.handlers.RotatingFileHandler")

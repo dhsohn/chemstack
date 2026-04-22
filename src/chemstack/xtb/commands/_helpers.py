@@ -8,6 +8,7 @@ import yaml
 
 from chemstack.core.paths import validate_job_dir
 from chemstack.core.utils import now_utc_iso, timestamped_token
+from chemstack.flow.state import workflow_workspace_internal_engine_paths_from_path
 
 from ..config import AppConfig
 
@@ -168,6 +169,20 @@ def resolve_job_inputs(job_dir: Path, manifest: dict[str, Any]) -> dict[str, Any
 
 
 def resolve_job_dir(cfg: AppConfig, raw_job_dir: str) -> Path:
+    candidate = Path(raw_job_dir).expanduser().resolve()
+    workflow_root = _normalize_text(getattr(cfg, "workflow_root", ""))
+    if workflow_root:
+        runtime_paths = workflow_workspace_internal_engine_paths_from_path(
+            candidate,
+            workflow_root=workflow_root,
+            engine="xtb",
+        )
+        if runtime_paths is None:
+            raise ValueError(
+                "Job directory must be under a workflow-local xTB runs root: "
+                "<workflow.root>/<workflow_id>/internal/xtb/runs/..."
+            )
+        return validate_job_dir(raw_job_dir, str(runtime_paths["allowed_root"]), label="Job directory")
     return validate_job_dir(raw_job_dir, cfg.runtime.allowed_root, label="Job directory")
 
 

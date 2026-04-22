@@ -150,12 +150,33 @@ def test_cmd_init_returns_zero_when_existing_config_not_overwritten(tmp_path: Pa
     config_path.write_text("existing: true\n", encoding="utf-8")
 
     with patch("chemstack.orca.commands.init.default_config_path", return_value=str(config_path)), patch(
+        "chemstack.orca.commands.init._stdin_supports_interactive_prompts",
+        return_value=True,
+    ), patch(
         "chemstack.orca.commands.init._prompt_yes_no",
         return_value=False,
     ):
         assert init.cmd_init(Namespace(force=False)) == 0
 
     assert "Cancelled." in capsys.readouterr().out
+
+
+def test_cmd_init_existing_config_in_noninteractive_mode_requires_force(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    config_path = tmp_path / "chemstack.yaml"
+    config_path.write_text("existing: true\n", encoding="utf-8")
+
+    with patch("chemstack.orca.commands.init.default_config_path", return_value=str(config_path)), patch(
+        "chemstack.orca.commands.init._stdin_supports_interactive_prompts",
+        return_value=False,
+    ), patch("chemstack.orca.commands.init._prompt_yes_no") as prompt_yes_no:
+        assert init.cmd_init(Namespace(force=False)) == 1
+
+    prompt_yes_no.assert_not_called()
+    output = capsys.readouterr().out
+    assert "Re-run with --force to overwrite it without confirmation." in output
 
 
 def test_cmd_init_handles_interrupt(tmp_path: Path, capsys) -> None:

@@ -143,7 +143,7 @@ def test_build_conformer_screening_plan_with_no_candidates_writes_empty_workflow
         max_orca_stages=4,
     )
 
-    workspace_dir = tmp_path / "workflows" / "wf_conformer_empty"
+    workspace_dir = tmp_path / "wf_conformer_empty"
     workflow_json = workspace_dir / "workflow.json"
 
     assert payload["stages"] == []
@@ -247,7 +247,7 @@ def test_build_conformer_screening_plan_from_target_syncs_registry_when_workspac
     tmp_path: Path,
 ) -> None:
     workspace_root = tmp_path / "workspace_root"
-    workspace_dir = workspace_root / "workflows" / "wf_conformer_sync"
+    workspace_dir = workspace_root / "wf_conformer_sync"
     contract = _contract(tmp_path)
     build_calls: list[dict[str, object]] = []
     sync_calls: list[dict[str, object]] = []

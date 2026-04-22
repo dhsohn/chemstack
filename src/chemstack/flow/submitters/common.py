@@ -9,7 +9,7 @@ from typing import Any
 from chemstack.core.config.files import (
     default_shared_admission_root,
     engine_config_mapping,
-    workflow_internal_engine_runtime_paths_from_mapping,
+    workflow_root_from_mapping,
 )
 
 
@@ -92,11 +92,10 @@ def sibling_allowed_root(config_path: str, *, engine: str | None = None) -> Path
         raise ValueError(f"Invalid sibling app config file: {path}")
 
     if engine in {"xtb", "crest"}:
-        derived_runtime_paths = workflow_internal_engine_runtime_paths_from_mapping(raw, engine=engine)
-        allowed_root = str(derived_runtime_paths.get("allowed_root", "")).strip()
-        if not allowed_root:
+        workflow_root = workflow_root_from_mapping(raw)
+        if not workflow_root:
             raise ValueError(f"Missing workflow.root in config: {path}")
-        return Path(allowed_root).expanduser().resolve()
+        return Path(workflow_root).expanduser().resolve()
 
     if engine:
         raw = engine_config_mapping(raw, engine, inherit_keys=("workflow",))
@@ -118,18 +117,20 @@ def sibling_runtime_paths(config_path: str, *, engine: str | None = None) -> dic
         raise ValueError(f"Invalid sibling app config file: {path}")
 
     if engine in {"xtb", "crest"}:
-        derived_runtime_paths = workflow_internal_engine_runtime_paths_from_mapping(raw, engine=engine)
-        if "allowed_root" not in derived_runtime_paths:
+        workflow_root = workflow_root_from_mapping(raw)
+        if not workflow_root:
             raise ValueError(f"Missing workflow.root in config: {path}")
         scheduler = raw.get("scheduler")
         if not isinstance(scheduler, dict):
             scheduler = {}
+        resolved_workflow_root = Path(workflow_root).expanduser().resolve()
         resolved = {
-            "allowed_root": derived_runtime_paths["allowed_root"].expanduser().resolve(),
-            "organized_root": derived_runtime_paths["organized_root"].expanduser().resolve(),
+            "workflow_root": resolved_workflow_root,
+            "allowed_root": resolved_workflow_root,
+            "organized_root": resolved_workflow_root,
         }
         admission_root = normalize_text(scheduler.get("admission_root"))
-        if not admission_root and scheduler:
+        if not admission_root:
             admission_root = default_shared_admission_root(path)
         if admission_root:
             resolved["admission_root"] = Path(admission_root).expanduser().resolve()

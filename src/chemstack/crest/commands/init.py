@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from chemstack.core.paths import ensure_directory, require_subpath
+from chemstack.flow.state import workflow_workspace_internal_engine_paths_from_path
 
 from ..config import load_config
 
@@ -63,7 +64,21 @@ def cmd_init(args: Any) -> int:
         print("error: init requires --root")
         return 1
 
-    allowed_root = ensure_directory(cfg.runtime.allowed_root, label="Allowed root")
+    workflow_root = str(getattr(cfg, "workflow_root", "")).strip()
+    if workflow_root:
+        runtime_paths = workflow_workspace_internal_engine_paths_from_path(
+            raw_root,
+            workflow_root=workflow_root,
+            engine="crest",
+        )
+        if runtime_paths is None:
+            raise ValueError(
+                "Init root must be under a workflow-local CREST runs root: "
+                "<workflow.root>/<workflow_id>/internal/crest/runs/..."
+            )
+        allowed_root = ensure_directory(runtime_paths["allowed_root"], label="Allowed root")
+    else:
+        allowed_root = ensure_directory(cfg.runtime.allowed_root, label="Allowed root")
     job_dir = require_subpath(Path(raw_root), allowed_root, label="Init root")
     job_dir.mkdir(parents=True, exist_ok=True)
 

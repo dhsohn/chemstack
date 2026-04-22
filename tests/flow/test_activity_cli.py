@@ -28,8 +28,8 @@ def test_list_activities_merges_workflows_and_standalone_sources(monkeypatch) ->
         source_job_type="",
         reaction_key="rxn-2",
         requested_at="2026-04-20T10:00:00+00:00",
-        workspace_dir="/tmp/wf/workflows/wf-2",
-        workflow_file="/tmp/wf/workflows/wf-2/workflow.json",
+        workspace_dir="/tmp/wf/wf-2",
+        workflow_file="/tmp/wf/wf-2/workflow.json",
         stage_count=2,
         updated_at="2026-04-20T10:06:00+00:00",
     )
@@ -131,8 +131,9 @@ def test_list_activities_merges_workflows_and_standalone_sources(monkeypatch) ->
         "crest-q-1",
     ]
     workflow_item = next(item for item in payload["activities"] if item["activity_id"] == "wf-2")
-    assert workflow_item["engine"] == "xtb"
+    assert workflow_item["engine"] == "workflow"
     assert workflow_item["label"] == "/tmp/xtb_jobs/rxn-2"
+    assert workflow_item["metadata"]["current_engine"] == "xtb"
 
 
 def test_cancel_activity_routes_workflow_targets(monkeypatch) -> None:
@@ -150,7 +151,7 @@ def test_cancel_activity_routes_workflow_targets(monkeypatch) -> None:
                 submitted_at="2026-04-20T10:00:00+00:00",
                 updated_at="2026-04-20T10:00:00+00:00",
                 cancel_target="wf-9",
-                aliases=("wf-9", "/tmp/wf/workflows/wf-9"),
+                aliases=("wf-9", "/tmp/wf/wf-9"),
                 metadata={},
             )
         ],
@@ -199,6 +200,56 @@ def test_cancel_activity_routes_xtb_targets(monkeypatch) -> None:
     assert payload["activity_id"] == "xtb-q-1"
     assert payload["status"] == "cancel_requested"
     assert payload["source"] == "xtb_auto"
+
+
+def test_clear_activities_clears_workflow_and_engine_terminal_sources(monkeypatch) -> None:
+    import chemstack.orca.commands.list_runs as orca_list_runs
+
+    monkeypatch.setattr(activity, "clear_terminal_workflow_registry", lambda workflow_root, statuses=None: 2)
+    monkeypatch.setattr(
+        activity,
+        "_engine_queue_roots",
+        lambda config_path, *, engine: (
+            (Path("/tmp/xtb_root_a"), Path("/tmp/xtb_root_b"))
+            if engine == "xtb"
+            else (Path("/tmp/crest_root"),)
+        ),
+    )
+
+    cleared_roots: list[str] = []
+
+    def fake_clear_queue_terminal(root: Path) -> int:
+        cleared_roots.append(str(root))
+        if "xtb_root_a" in str(root):
+            return 1
+        if "xtb_root_b" in str(root):
+            return 2
+        return 3
+
+    monkeypatch.setattr(activity, "clear_queue_terminal", fake_clear_queue_terminal)
+    monkeypatch.setattr(
+        activity,
+        "sibling_runtime_paths",
+        lambda config_path, *, engine="orca": {"allowed_root": Path("/tmp/orca_root")},
+    )
+    monkeypatch.setattr(orca_list_runs, "clear_terminal_entries", lambda allowed_root: (4, 5))
+
+    payload = activity.clear_activities(
+        workflow_root="/tmp/workflows",
+        crest_auto_config="/tmp/chemstack.yaml",
+        xtb_auto_config="/tmp/chemstack.yaml",
+        orca_auto_config="/tmp/chemstack.yaml",
+    )
+
+    assert payload["total_cleared"] == 17
+    assert payload["cleared"] == {
+        "workflows": 2,
+        "xtb_queue_entries": 3,
+        "crest_queue_entries": 3,
+        "orca_queue_entries": 4,
+        "orca_run_states": 5,
+    }
+    assert cleared_roots == ["/tmp/xtb_root_a", "/tmp/xtb_root_b", "/tmp/crest_root"]
 
 
 def test_cmd_activity_list_text_output(monkeypatch, capsys) -> None:

@@ -245,7 +245,7 @@ def create_reaction_ts_search_workflow_impl(
 ) -> dict[str, Any]:
     workflow_id = workflow_id_factory("wf_reaction_ts")
     workflow_root_path = Path(workflow_root).expanduser().resolve()
-    workspace_dir = workflow_root_path / "workflows" / workflow_id
+    workspace_dir = workflow_root_path / workflow_id
     reactant_sequence = load_xyz_atom_sequence_fn(reactant_xyz)
     product_sequence = load_xyz_atom_sequence_fn(product_xyz)
     if reactant_sequence != product_sequence:
@@ -350,7 +350,7 @@ def create_conformer_screening_workflow_impl(
 ) -> dict[str, Any]:
     workflow_id = workflow_id_factory("wf_conformer_screening")
     workflow_root_path = Path(workflow_root).expanduser().resolve()
-    workspace_dir = workflow_root_path / "workflows" / workflow_id
+    workspace_dir = workflow_root_path / workflow_id
     copied_input = copy_input_fn(input_xyz, workspace_dir / "inputs" / Path(input_xyz).name)
     requested_at = now_utc_iso_fn()
     stages = [

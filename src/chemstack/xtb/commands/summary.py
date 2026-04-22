@@ -3,10 +3,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from chemstack.core.indexing import resolve_job_location
-
 from ..config import load_config
-from ..tracking import index_root_for_cfg, load_job_artifacts
+from ..tracking import load_job_artifacts_for_cfg, resolve_job_location_for_cfg
 
 
 def cmd_summary(args: Any) -> int:
@@ -16,9 +14,8 @@ def cmd_summary(args: Any) -> int:
         print("error: summary requires a job_id or job directory")
         return 1
 
-    index_root = index_root_for_cfg(cfg)
-    record = resolve_job_location(index_root, target)
-    job_dir, state, report = load_job_artifacts(index_root, target)
+    _root, record = resolve_job_location_for_cfg(cfg, target)
+    job_dir, state, report, record = load_job_artifacts_for_cfg(cfg, target)
     if job_dir is None:
         print(f"error: job not found: {target}")
         return 1

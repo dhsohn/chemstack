@@ -38,7 +38,7 @@ def _write_orca_config(path: Path, *, allowed_root: Path, organized_root: Path) 
 
 def test_orca_contract_freeze_completed_result_survives_public_workflow_sync(tmp_path: Path) -> None:
     workflow_root = tmp_path / "workflow_root"
-    workflow_workspace = workflow_root / "workflows" / "wf_contract_freeze"
+    workflow_workspace = workflow_root / "wf_contract_freeze"
     orca_allowed_root = tmp_path / "orca_runs"
     orca_organized_root = tmp_path / "orca_outputs"
     original_dir = orca_allowed_root / "rxn_original"

@@ -5,7 +5,11 @@ from typing import Any
 
 from chemstack.core.app_ids import CHEMSTACK_EXECUTABLE
 
-from .activity import cancel_activity as cancel_activity_impl, list_activities as list_activities_impl
+from .activity import (
+    cancel_activity as cancel_activity_impl,
+    clear_activities as clear_activities_impl,
+    list_activities as list_activities_impl,
+)
 from .orchestration import (
     advance_workflow,
     cancel_materialized_workflow,
@@ -224,6 +228,23 @@ def list_activities(
         workflow_root=workflow_root,
         limit=limit,
         refresh=refresh,
+        crest_auto_config=crest_auto_config,
+        xtb_auto_config=xtb_auto_config,
+        orca_auto_config=orca_auto_config,
+        orca_auto_repo_root=orca_auto_repo_root,
+    )
+
+
+def clear_activities(
+    *,
+    workflow_root: str | Path | None = None,
+    crest_auto_config: str | None = None,
+    xtb_auto_config: str | None = None,
+    orca_auto_config: str | None = None,
+    orca_auto_repo_root: str | None = None,
+) -> dict[str, Any]:
+    return clear_activities_impl(
+        workflow_root=workflow_root,
         crest_auto_config=crest_auto_config,
         xtb_auto_config=xtb_auto_config,
         orca_auto_config=orca_auto_config,

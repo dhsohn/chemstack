@@ -99,6 +99,8 @@ def test_conformer_screening_workflow_handoff_smoke(
         max_orca_stages=2,
     )
     workflow_id = str(created["workflow_id"])
+    workspace_dir = workflow_root / workflow_id
+    crest_runs_root = workspace_dir / "internal" / "crest" / "runs"
 
     initial_payload = get_workflow(target=workflow_id, workflow_root=workflow_root)["workflow"]
     initial_crest_stages = _engine_stages(initial_payload, "crest")
@@ -123,12 +125,12 @@ def test_conformer_screening_workflow_handoff_smoke(
     assert submitted_metadata["child_job_id"]
     assert _engine_stages(submitted_payload, "orca") == []
 
-    record = get_job_location(smoke_workspace.crest_allowed_root, submitted_metadata["child_job_id"])
+    record = get_job_location(crest_runs_root, submitted_metadata["child_job_id"])
     assert record is not None
     assert record.app_name == "crest_auto"
     assert record.status in {"queued", "pending"}
 
-    queue_entries = list_queue(smoke_workspace.crest_allowed_root)
+    queue_entries = list_queue(crest_runs_root)
     assert len(queue_entries) == 1
     assert queue_entries[0].task_id == submitted_metadata["child_job_id"]
     assert queue_entries[0].queue_id == submitted_metadata["queue_id"]
@@ -165,6 +167,9 @@ def test_conformer_screening_workflow_handoff_smoke(
     assert crest_metadata["child_job_id"] == submitted_metadata["child_job_id"]
     assert crest_metadata["organized_output_dir"]
     assert Path(crest_metadata["organized_output_dir"]).exists()
+    assert Path(crest_metadata["organized_output_dir"]).is_relative_to(
+        workspace_dir / "internal" / "crest" / "outputs"
+    )
     assert Path(crest_metadata["organized_output_dir"], "crest_conformers.xyz").exists()
 
     orca_stages = _engine_stages(handed_off_payload, "orca")
@@ -269,7 +274,7 @@ def test_xtb_reaction_ts_search_handoff_smoke(
     )
 
     workflow_id = str(payload["workflow_id"])
-    workspace_dir = workflow_root / "workflows" / workflow_id
+    workspace_dir = workflow_root / workflow_id
     assert payload["template_name"] == "reaction_ts_search"
     assert payload["source_job_id"] == submission["job_id"]
     assert payload["metadata"]["source_contract"]["job_id"] == submission["job_id"]

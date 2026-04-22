@@ -24,8 +24,8 @@ from chemstack.crest.state import (
 
 def _write_config(tmp_path: Path) -> tuple[Path, Path, Path]:
     workflow_root = tmp_path / "workflow_root"
-    allowed_root = workflow_root / "internal" / "crest" / "runs"
-    organized_root = workflow_root / "internal" / "crest" / "outputs"
+    allowed_root = workflow_root / "wf_001" / "internal" / "crest" / "runs"
+    organized_root = workflow_root / "wf_001" / "internal" / "crest" / "outputs"
     allowed_root.mkdir(parents=True)
     organized_root.mkdir(parents=True)
     config_path = tmp_path / "chemstack.yaml"

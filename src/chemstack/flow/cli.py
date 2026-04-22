@@ -293,6 +293,7 @@ def _print_created_workflow(payload: dict[str, Any], *, json_mode: bool) -> int:
         print(json.dumps(payload, ensure_ascii=True, indent=2))
         return 0
     print(f"workflow_id: {payload.get('workflow_id', '-')}")
+    print(f"template_name: {payload.get('template_name', '-')}")
     print(f"workspace_dir: {(payload.get('metadata') or {}).get('workspace_dir', '-')}")
     print(f"stage_count: {len(payload.get('stages', []))}")
     return 0
@@ -1121,7 +1122,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--workflow-type",
         help="Optional workflow type override: reaction_ts_search or conformer_screening",
     )
-    run_dir_parser.add_argument("--workflow-root", help="Root that contains workflows/")
+    run_dir_parser.add_argument("--workflow-root", help="Root that directly contains workflow workspaces.")
     run_dir_parser.add_argument("--reactant-xyz", help="Optional reactant XYZ override")
     run_dir_parser.add_argument("--product-xyz", help="Optional product XYZ override")
     run_dir_parser.add_argument("--input-xyz", help="Optional conformer input XYZ override")
@@ -1139,7 +1140,7 @@ def build_parser() -> argparse.ArgumentParser:
     run_dir_parser.set_defaults(func=cmd_run_dir)
 
     activity_list_parser = subparsers.add_parser("list", help="List workflows and standalone engine activities together.")
-    activity_list_parser.add_argument("--workflow-root", help="Root that contains workflows/")
+    activity_list_parser.add_argument("--workflow-root", help="Root that directly contains workflow workspaces.")
     activity_list_parser.add_argument("--limit", type=int, default=0, help="Optional maximum number of activities to print")
     activity_list_parser.add_argument("--refresh", action="store_true", help="Refresh workflow registry before listing")
     activity_list_parser.add_argument("--chemstack-config", help="Path to shared chemstack.yaml")
@@ -1148,7 +1149,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     activity_cancel_parser = subparsers.add_parser("cancel", help="Cancel a workflow or standalone engine activity.")
     activity_cancel_parser.add_argument("target", help="Activity id, workflow id, queue id, run id, or known path alias")
-    activity_cancel_parser.add_argument("--workflow-root", help="Root that contains workflows/")
+    activity_cancel_parser.add_argument("--workflow-root", help="Root that directly contains workflow workspaces.")
     activity_cancel_parser.add_argument("--chemstack-config", help="Path to shared chemstack.yaml")
     activity_cancel_parser.add_argument("--json", action="store_true", help="Print JSON output")
     activity_cancel_parser.set_defaults(func=cmd_activity_cancel)
@@ -1195,7 +1196,7 @@ def build_parser() -> argparse.ArgumentParser:
     workflow_subparsers = workflow_parser.add_subparsers(dest="workflow_command", required=True)
 
     list_parser = workflow_subparsers.add_parser("list", help="List materialized workflows under a workflow root.")
-    list_parser.add_argument("--workflow-root", required=True, help="Root that contains workflows/")
+    list_parser.add_argument("--workflow-root", required=True, help="Root that directly contains workflow workspaces.")
     list_parser.add_argument("--limit", type=int, default=0, help="Optional maximum number of workflows to print")
     list_parser.add_argument("--refresh", action="store_true", help="Rebuild the registry from workflow workspaces before listing")
     list_parser.add_argument("--json", action="store_true", help="Print JSON output")
@@ -1203,7 +1204,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     get_parser = workflow_subparsers.add_parser("get", help="Inspect one materialized workflow.")
     get_parser.add_argument("target", help="workflow_id, workflow workspace directory, or workflow.json path")
-    get_parser.add_argument("--workflow-root", help="Root that contains workflows/")
+    get_parser.add_argument("--workflow-root", help="Root that directly contains workflow workspaces.")
     get_parser.add_argument("--json", action="store_true", help="Print JSON output")
     get_parser.set_defaults(func=cmd_workflow_get)
 
@@ -1212,7 +1213,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="List known materialized artifacts for one workflow.",
     )
     artifacts_parser.add_argument("target", help="workflow_id, workflow workspace directory, or workflow.json path")
-    artifacts_parser.add_argument("--workflow-root", help="Root that contains workflows/")
+    artifacts_parser.add_argument("--workflow-root", help="Root that directly contains workflow workspaces.")
     artifacts_parser.add_argument("--json", action="store_true", help="Print JSON output")
     artifacts_parser.set_defaults(func=cmd_workflow_artifacts)
 
@@ -1221,13 +1222,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="Cancel a materialized workflow and request queue cancellation for submitted engine stages.",
     )
     cancel_parser.add_argument("target", help="workflow_id, workflow workspace directory, or workflow.json path")
-    cancel_parser.add_argument("--workflow-root", help="Root that contains workflows/")
+    cancel_parser.add_argument("--workflow-root", help="Root that directly contains workflow workspaces.")
     cancel_parser.add_argument("--chemstack-config", help="Path to shared chemstack.yaml; required if submitted stages exist")
     cancel_parser.add_argument("--json", action="store_true", help="Print JSON output")
     cancel_parser.set_defaults(func=cmd_workflow_cancel)
 
     reindex_parser = workflow_subparsers.add_parser("reindex", help="Rebuild the workflow registry from workflow workspaces.")
-    reindex_parser.add_argument("--workflow-root", required=True, help="Root that contains workflows/")
+    reindex_parser.add_argument("--workflow-root", required=True, help="Root that directly contains workflow workspaces.")
     reindex_parser.add_argument("--json", action="store_true", help="Print JSON output")
     reindex_parser.set_defaults(func=cmd_workflow_reindex)
 
@@ -1235,7 +1236,7 @@ def build_parser() -> argparse.ArgumentParser:
         "runtime-status",
         help="Show the current worker heartbeat/state for a workflow root.",
     )
-    runtime_status_parser.add_argument("--workflow-root", required=True, help="Root that contains workflows/")
+    runtime_status_parser.add_argument("--workflow-root", required=True, help="Root that directly contains workflow workspaces.")
     runtime_status_parser.add_argument("--json", action="store_true", help="Print JSON output")
     runtime_status_parser.set_defaults(func=cmd_workflow_runtime_status)
 
@@ -1243,7 +1244,7 @@ def build_parser() -> argparse.ArgumentParser:
         "journal",
         help="Show recent append-only orchestration journal events.",
     )
-    journal_parser.add_argument("--workflow-root", required=True, help="Root that contains workflows/")
+    journal_parser.add_argument("--workflow-root", required=True, help="Root that directly contains workflow workspaces.")
     journal_parser.add_argument("--limit", type=int, default=50, help="Maximum number of recent events to show")
     journal_parser.add_argument("--json", action="store_true", help="Print JSON output")
     journal_parser.set_defaults(func=cmd_workflow_journal)
@@ -1252,7 +1253,7 @@ def build_parser() -> argparse.ArgumentParser:
         "telemetry",
         help="Summarize registry status, worker heartbeat, and recent journal activity.",
     )
-    telemetry_parser.add_argument("--workflow-root", required=True, help="Root that contains workflows/")
+    telemetry_parser.add_argument("--workflow-root", required=True, help="Root that directly contains workflow workspaces.")
     telemetry_parser.add_argument("--limit", type=int, default=200, help="Maximum number of recent journal events to summarize")
     telemetry_parser.add_argument("--json", action="store_true", help="Print JSON output")
     telemetry_parser.set_defaults(func=cmd_workflow_telemetry)
@@ -1324,7 +1325,7 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
         help="Product-side XYZ input",
     )
-    create_reaction_parser.add_argument("--workflow-root", required=True, help="Root that contains workflows/")
+    create_reaction_parser.add_argument("--workflow-root", required=True, help="Root that directly contains workflow workspaces.")
     create_reaction_parser.add_argument("--crest-mode", default="standard", help="CREST mode for initial stages (`standard` or `nci`)")
     create_reaction_parser.add_argument("--priority", type=int, default=10)
     create_reaction_parser.add_argument("--max-cores", type=int, default=8)
@@ -1343,7 +1344,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Create a raw-input conformer_screening workflow that can be advanced through CREST and ORCA (`standard` or `nci`).",
     )
     create_conformer_parser.add_argument("--input-xyz", required=True, help="Input XYZ for the molecule to screen")
-    create_conformer_parser.add_argument("--workflow-root", required=True, help="Root that contains workflows/")
+    create_conformer_parser.add_argument("--workflow-root", required=True, help="Root that directly contains workflow workspaces.")
     create_conformer_parser.add_argument("--crest-mode", default="standard", help="CREST mode for the initial stage")
     create_conformer_parser.add_argument("--priority", type=int, default=10)
     create_conformer_parser.add_argument("--max-cores", type=int, default=8)
@@ -1360,7 +1361,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Advance a materialized workflow by syncing/submitting actionable CREST, xTB, and ORCA stages.",
     )
     advance_parser.add_argument("target", help="workflow_id, workflow workspace directory, or workflow.json path")
-    advance_parser.add_argument("--workflow-root", required=True, help="Root that contains workflows/")
+    advance_parser.add_argument("--workflow-root", required=True, help="Root that directly contains workflow workspaces.")
     advance_parser.add_argument("--chemstack-config", help="Path to shared chemstack.yaml")
     advance_parser.add_argument("--no-submit", action="store_true", help="Only sync and append stages; do not submit newly actionable stages")
     advance_parser.add_argument("--json", action="store_true", help="Print JSON output")
@@ -1370,7 +1371,7 @@ def build_parser() -> argparse.ArgumentParser:
         "worker",
         help="Continuously advance non-terminal workflows from the registry.",
     )
-    worker_parser.add_argument("--workflow-root", required=True, help="Root that contains workflows/")
+    worker_parser.add_argument("--workflow-root", required=True, help="Root that directly contains workflow workspaces.")
     worker_parser.add_argument("--chemstack-config", help="Path to shared chemstack.yaml")
     worker_parser.add_argument("--no-submit", action="store_true", help="Only sync/append stages; do not submit newly actionable stages")
     worker_parser.add_argument("--once", action="store_true", help="Run exactly one orchestration cycle")
@@ -1387,7 +1388,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Submit a materialized reaction_ts_search workflow into chemstack ORCA.",
     )
     submit_parser.add_argument("target", help="workflow_id, workflow workspace directory, or workflow.json path")
-    submit_parser.add_argument("--workflow-root", help="Root that contains workflows/")
+    submit_parser.add_argument("--workflow-root", help="Root that directly contains workflow workspaces.")
     submit_parser.add_argument("--chemstack-config", required=True, help="Path to shared chemstack.yaml")
     submit_parser.add_argument("--resubmit", action="store_true", help="Retry stages already marked as submitted")
     submit_parser.add_argument("--json", action="store_true", help="Print JSON output")

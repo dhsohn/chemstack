@@ -439,7 +439,16 @@ def _ensure_xtb_job_dir(stage: dict[str, Any], *, xtb_allowed_root: Path, workfl
     )
 
 
-def _sync_crest_stage(stage: dict[str, Any], *, crest_auto_config: str | None, crest_auto_executable: str, crest_auto_repo_root: str | None, submit_ready: bool, workflow_id: str) -> None:
+def _sync_crest_stage(
+    stage: dict[str, Any],
+    *,
+    crest_auto_config: str | None,
+    crest_auto_executable: str,
+    crest_auto_repo_root: str | None,
+    submit_ready: bool,
+    workflow_id: str,
+    workspace_dir: Path,
+) -> None:
     return sync_crest_stage_impl(
         stage,
         crest_auto_config=crest_auto_config,
@@ -447,10 +456,20 @@ def _sync_crest_stage(stage: dict[str, Any], *, crest_auto_config: str | None, c
         crest_auto_repo_root=crest_auto_repo_root,
         submit_ready=submit_ready,
         workflow_id=workflow_id,
+        workspace_dir=workspace_dir,
     )
 
 
-def _sync_xtb_stage(stage: dict[str, Any], *, xtb_auto_config: str | None, xtb_auto_executable: str, xtb_auto_repo_root: str | None, submit_ready: bool, workflow_id: str) -> None:
+def _sync_xtb_stage(
+    stage: dict[str, Any],
+    *,
+    xtb_auto_config: str | None,
+    xtb_auto_executable: str,
+    xtb_auto_repo_root: str | None,
+    submit_ready: bool,
+    workflow_id: str,
+    workspace_dir: Path,
+) -> None:
     return sync_xtb_stage_impl(
         stage,
         xtb_auto_config=xtb_auto_config,
@@ -458,6 +477,7 @@ def _sync_xtb_stage(stage: dict[str, Any], *, xtb_auto_config: str | None, xtb_a
         xtb_auto_repo_root=xtb_auto_repo_root,
         submit_ready=submit_ready,
         workflow_id=workflow_id,
+        workspace_dir=workspace_dir,
     )
 
 
@@ -555,7 +575,15 @@ def advance_workflow(
         for stage in payload.get("stages", []):
             if not isinstance(stage, dict):
                 continue
-            _sync_crest_stage(stage, crest_auto_config=crest_auto_config, crest_auto_executable=crest_auto_executable, crest_auto_repo_root=crest_auto_repo_root, submit_ready=effective_submit_ready, workflow_id=workflow_id)
+            _sync_crest_stage(
+                stage,
+                crest_auto_config=crest_auto_config,
+                crest_auto_executable=crest_auto_executable,
+                crest_auto_repo_root=crest_auto_repo_root,
+                submit_ready=effective_submit_ready,
+                workflow_id=workflow_id,
+                workspace_dir=workspace_dir,
+            )
 
         if not sync_only and template_name == "reaction_ts_search":
             _append_reaction_xtb_stages(payload, workspace_dir=workspace_dir, crest_auto_config=crest_auto_config)
@@ -563,7 +591,15 @@ def advance_workflow(
         for stage in payload.get("stages", []):
             if not isinstance(stage, dict):
                 continue
-            _sync_xtb_stage(stage, xtb_auto_config=xtb_auto_config, xtb_auto_executable=xtb_auto_executable, xtb_auto_repo_root=xtb_auto_repo_root, submit_ready=effective_submit_ready, workflow_id=workflow_id)
+            _sync_xtb_stage(
+                stage,
+                xtb_auto_config=xtb_auto_config,
+                xtb_auto_executable=xtb_auto_executable,
+                xtb_auto_repo_root=xtb_auto_repo_root,
+                submit_ready=effective_submit_ready,
+                workflow_id=workflow_id,
+                workspace_dir=workspace_dir,
+            )
 
         _clear_reaction_xtb_handoff_error_if_recovering(payload)
 

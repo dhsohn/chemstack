@@ -6,6 +6,8 @@ from typing import Any
 
 import yaml
 
+from .state import workflow_workspace_internal_engine_paths
+
 
 def _orchestration_module():
     from . import orchestration as o
@@ -174,7 +176,7 @@ def write_xtb_path_job_impl(
     payload = o._task_payload_dict(task)
     recipe = o._xtb_retry_recipe(attempt_number)
     stage_id = o._normalize_text(stage.get("stage_id"))
-    base_dir = xtb_allowed_root / "workflow_jobs" / workflow_id / stage_id
+    base_dir = xtb_allowed_root / stage_id
     job_dir = base_dir if attempt_number == 0 else base_dir / f"retry_attempt_{attempt_number:02d}"
 
     reactants_dir = job_dir / "reactants"
@@ -349,7 +351,7 @@ def ensure_crest_job_dir_impl(stage: dict[str, Any], *, crest_allowed_root: Path
     if existing:
         return existing
     stage_id = o._normalize_text(stage.get("stage_id"))
-    job_dir = crest_allowed_root / "workflow_jobs" / workflow_id / stage_id
+    job_dir = crest_allowed_root / stage_id
     job_dir.mkdir(parents=True, exist_ok=True)
     input_target = job_dir / "input.xyz"
     shutil.copy2(Path(payload["source_input_xyz"]).expanduser().resolve(), input_target)
@@ -397,6 +399,7 @@ def sync_crest_stage_impl(
     crest_auto_repo_root: str | None,
     submit_ready: bool,
     workflow_id: str,
+    workspace_dir: Path,
 ) -> None:
     o = _orchestration_module()
     task = stage.get("task")
@@ -404,10 +407,11 @@ def sync_crest_stage_impl(
         return
     if o._normalize_text(task.get("engine")) != "crest":
         return
+    crest_runtime_paths = workflow_workspace_internal_engine_paths(workspace_dir, engine="crest")
     if o._normalize_text(task.get("status")) == "planned" and submit_ready and o._normalize_text(crest_auto_config):
         job_dir = o._ensure_crest_job_dir(
             stage,
-            crest_allowed_root=_call_engine_aware(o.sibling_allowed_root, str(crest_auto_config), engine="crest"),
+            crest_allowed_root=crest_runtime_paths["allowed_root"],
             workflow_id=workflow_id,
         )
         submission = o.submit_crest_job_dir(
@@ -427,7 +431,11 @@ def sync_crest_stage_impl(
             stage["metadata"]["child_job_id"] = submission.get("job_id", "")
     payload = o._task_payload_dict(task)
     job_dir_target = o._normalize_text(payload.get("job_dir"))
-    index_root = _call_engine_aware(o._load_config_root, crest_auto_config, engine="crest") or Path(job_dir_target or ".").resolve().parent
+    index_root = (
+        crest_runtime_paths["allowed_root"]
+        or _call_engine_aware(o._load_config_root, crest_auto_config, engine="crest")
+        or Path(job_dir_target or ".").resolve().parent
+    )
     target = job_dir_target or o._submission_target(stage)
     if not target:
         return
@@ -465,6 +473,7 @@ def sync_xtb_stage_impl(
     xtb_auto_repo_root: str | None,
     submit_ready: bool,
     workflow_id: str,
+    workspace_dir: Path,
 ) -> None:
     o = _orchestration_module()
     task = stage.get("task")
@@ -472,10 +481,11 @@ def sync_xtb_stage_impl(
         return
     stage_metadata = o._stage_metadata(stage)
     task_payload = o._task_payload_dict(task)
+    xtb_runtime_paths = workflow_workspace_internal_engine_paths(workspace_dir, engine="xtb")
     if o._normalize_text(task.get("status")) == "planned" and submit_ready and o._normalize_text(xtb_auto_config):
         job_dir = o._ensure_xtb_job_dir(
             stage,
-            xtb_allowed_root=_call_engine_aware(o.sibling_allowed_root, str(xtb_auto_config), engine="xtb"),
+            xtb_allowed_root=xtb_runtime_paths["allowed_root"],
             workflow_id=workflow_id,
         )
         submission = o.submit_xtb_job_dir(
@@ -498,7 +508,11 @@ def sync_xtb_stage_impl(
         stage_metadata["child_job_id"] = submission.get("job_id", "")
         stage_metadata["xtb_handoff_status"] = "submitted"
     job_dir_target = o._normalize_text(task_payload.get("job_dir"))
-    index_root = _call_engine_aware(o._load_config_root, xtb_auto_config, engine="xtb") or Path(job_dir_target or ".").resolve().parent
+    index_root = (
+        xtb_runtime_paths["allowed_root"]
+        or _call_engine_aware(o._load_config_root, xtb_auto_config, engine="xtb")
+        or Path(job_dir_target or ".").resolve().parent
+    )
     target = job_dir_target or o._submission_target(stage)
     if not target:
         return
@@ -566,7 +580,7 @@ def sync_xtb_stage_impl(
             next_attempt = retries_used + 1
             retry_job_dir = o._write_xtb_path_job(
                 stage,
-                xtb_allowed_root=_call_engine_aware(o.sibling_allowed_root, str(xtb_auto_config), engine="xtb"),
+                xtb_allowed_root=xtb_runtime_paths["allowed_root"],
                 workflow_id=workflow_id,
                 attempt_number=next_attempt,
             )
@@ -793,7 +807,11 @@ def completed_crest_stage_impl(stage: dict[str, Any], *, crest_auto_config: str 
         return None
     payload = o._task_payload_dict(task)
     job_dir_target = o._normalize_text(payload.get("job_dir"))
-    index_root = _call_engine_aware(o._load_config_root, crest_auto_config, engine="crest") or Path(job_dir_target or ".").resolve().parent
+    index_root = (
+        Path(job_dir_target).expanduser().resolve().parent
+        if job_dir_target
+        else _call_engine_aware(o._load_config_root, crest_auto_config, engine="crest") or Path(".").resolve().parent
+    )
     target = job_dir_target or o._submission_target(stage)
     if not target:
         return None

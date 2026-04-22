@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/dhsohn/chemstack/actions/workflows/ci.yml/badge.svg)](https://github.com/dhsohn/chemstack/actions/workflows/ci.yml)
 
-ChemStack is a queue-first CLI for ORCA and workflow orchestration on Linux and WSL. xTB and CREST remain part of the runtime, but they are now used internally for workflow stages rather than as standalone public CLI surfaces. It submits work durably, runs it under supervised workers, records per-job state and reports, and organizes completed outputs.
+ChemStack is a queue-first interface for ORCA and workflow orchestration on Linux and WSL. xTB and CREST remain part of the runtime, but they are now used internally for workflow stages rather than as standalone public surfaces. It submits work durably, runs it under supervised workers, records per-job state and reports, and organizes completed outputs.
 
 ## Docs
 
@@ -28,13 +28,14 @@ source .venv/bin/activate
 ```
 
 `bootstrap_wsl.sh` creates `.venv`, installs the project, and seeds `config/chemstack.yaml` from the example template when needed.
+If you do not activate the virtual environment, you can still run the installed CLI directly as `.venv/bin/chemstack ...`.
 
 ## Configure
 
 Create or update `chemstack.yaml`:
 
 ```bash
-python -m chemstack.cli init
+chemstack init
 ```
 
 Config search order:
@@ -74,44 +75,43 @@ Notes:
 - `default_max_retries: 2` means `1 initial + 2 retries = 3` total attempts.
 - `scheduler.max_active_simulations` is the shared cap across ORCA, internal xTB workflow stages, and internal CREST workflow stages.
 - `workflow.root` is the workflow root used by the unified CLI and workflow worker.
-- Internal xTB/CREST runtime roots are derived automatically under `workflow.root/internal/...`.
+- Internal xTB/CREST runtimes no longer use a shared `workflow.root/internal/...` root.
+- Workflow-managed xTB/CREST job dirs, per-workflow queues/indexes, and organized outputs live only under `workflow.root/<workflow_id>/internal/<engine>/{runs,outputs}`.
 - The full template lives at [config/chemstack.yaml.example](config/chemstack.yaml.example).
 
-## Unified CLI
+## User Commands
 
-Public queue, submission, scaffold, organization, summary, and bot commands now use `python -m chemstack.cli ...`.
+User-facing submission, inspection, and maintenance commands use `chemstack ...`.
 
 ```bash
 # create/update shared config
-python -m chemstack.cli init
+chemstack init
 
 # create raw input scaffolds when they help
-python -m chemstack.cli scaffold ts_search '/home/user/workflow_inputs/rxn_001'
-python -m chemstack.cli scaffold conformer_search '/home/user/workflow_inputs/conf_001'
-
-# start foreground services manually when not using systemd
-python -m chemstack.cli queue worker
-python -m chemstack.cli runtime
-python -m chemstack.cli bot
+chemstack scaffold ts_search '/home/user/workflow_inputs/rxn_001'
+chemstack scaffold conformer_search '/home/user/workflow_inputs/conf_001'
 
 # submit work
-python -m chemstack.cli run-dir '/home/user/orca_runs/sample_rxn'
-python -m chemstack.cli run-dir '/home/user/workflow_inputs/reaction_case'
+chemstack run-dir '/home/user/orca_runs/sample_rxn'
+chemstack run-dir '/home/user/workflow_inputs/reaction_case'
 
 # inspect and maintain
-python -m chemstack.cli queue list --engine orca
-python -m chemstack.cli queue cancel <target>
-python -m chemstack.cli organize orca --root '/home/user/orca_runs' --apply
-python -m chemstack.cli summary orca --no-send
+chemstack queue list --engine orca
+chemstack queue list clear
+chemstack queue cancel <target>
+chemstack organize orca --root '/home/user/orca_runs' --apply
+chemstack summary orca --no-send
 ```
 
 `queue list` groups workflow child simulations under their parent workflow with indentation.
+Use `chemstack queue list clear` to prune completed, failed, and cancelled entries from
+the unified list. The Telegram bot supports the same cleanup via `/list clear`.
 The `active_simulations` line counts only simulations that currently consume the shared
 `scheduler.max_active_simulations` slots.
 
-On WSL or Linux you usually should not type both long-running commands every
-session. After `chemstack.yaml` is configured, enable the combined runtime
-target once and let `systemd` start both the worker and the bot automatically:
+Long-running services are managed through `systemd` only. After `chemstack.yaml`
+is configured, enable the combined runtime target once and let `systemd` start
+both the worker and the bot automatically:
 
 ```bash
 cd <repo_root>
@@ -120,12 +120,13 @@ sudo cp systemd/chemstack-bot@.service /etc/systemd/system/
 sudo cp systemd/chemstack-runtime@.target /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now "chemstack-runtime@$(whoami)"
+sudo systemctl status "chemstack-runtime@$(whoami)"
+sudo systemctl status "chemstack-queue-worker@$(whoami)"
+sudo systemctl status "chemstack-bot@$(whoami)"
 ```
 
 If you want only the worker managed automatically, enable
 `chemstack-queue-worker@$(whoami)` instead.
-For an all-in-one foreground process without `systemd`, use
-`python -m chemstack.cli runtime`.
 
 ## Runtime Notes
 

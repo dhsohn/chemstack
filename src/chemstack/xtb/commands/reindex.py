@@ -5,10 +5,13 @@ from typing import Any
 
 from chemstack.core.indexing import get_job_location, upsert_job_location
 from chemstack.core.paths import ensure_directory
+from chemstack.flow.state import iter_workflow_runtime_workspaces, workflow_workspace_internal_engine_paths
 
 from ..config import load_config
 from ..state import load_organized_ref, load_report_json, load_state
-from ..tracking import index_root_for_cfg, record_from_artifacts
+from ..tracking import index_root_for_cfg as _index_root_for_cfg, index_root_for_path, record_from_artifacts
+
+index_root_for_cfg = _index_root_for_cfg
 
 
 def _scan_roots(cfg: Any, raw_root: str | None) -> list[Path]:
@@ -16,6 +19,20 @@ def _scan_roots(cfg: Any, raw_root: str | None) -> list[Path]:
         return [ensure_directory(raw_root, label="Reindex root")]
 
     roots: list[Path] = []
+    workflow_root = str(getattr(cfg, "workflow_root", "")).strip()
+    if workflow_root:
+        for workspace_dir in iter_workflow_runtime_workspaces(workflow_root, engine="xtb"):
+            runtime_paths = workflow_workspace_internal_engine_paths(workspace_dir, engine="xtb")
+            for key in ("allowed_root", "organized_root"):
+                candidate = runtime_paths[key]
+                try:
+                    root = ensure_directory(candidate, label="Reindex root")
+                except ValueError:
+                    continue
+                if root not in roots:
+                    roots.append(root)
+        return roots
+
     for candidate in (cfg.runtime.allowed_root, cfg.runtime.organized_root):
         try:
             root = ensure_directory(candidate, label="Reindex root")
@@ -44,14 +61,16 @@ def cmd_reindex(args: Any) -> int:
         print("error: no reindex roots available")
         return 1
 
-    index_root = index_root_for_cfg(cfg)
     discovered: set[Path] = set()
     for root in roots:
         discovered.update(_iter_candidate_dirs(root))
 
     indexed = 0
     skipped = 0
+    index_roots_used: set[Path] = set()
     for job_dir in sorted(discovered, key=lambda path: str(path).lower()):
+        index_root = index_root_for_path(cfg, job_dir)
+        index_roots_used.add(index_root)
         state = load_state(job_dir)
         report = load_report_json(job_dir)
         organized_ref = load_organized_ref(job_dir)
@@ -76,7 +95,7 @@ def cmd_reindex(args: Any) -> int:
         upsert_job_location(index_root, record)
         indexed += 1
 
-    print(f"index_root: {index_root}")
+    print(f"index_roots: {len(index_roots_used)}")
     print(f"scan_roots: {len(roots)}")
     print(f"candidate_dirs: {len(discovered)}")
     print(f"indexed: {indexed}")

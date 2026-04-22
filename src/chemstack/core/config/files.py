@@ -9,8 +9,6 @@ import yaml
 CHEMSTACK_CONFIG_ENV_VAR = "CHEMSTACK_CONFIG"
 DEFAULT_CONFIG_FILENAME = "chemstack.yaml"
 DEFAULT_SHARED_ADMISSION_DIRNAME = "admission"
-WORKFLOW_INTERNAL_DIRNAME = "internal"
-_WORKFLOW_INTERNAL_ENGINES = frozenset({"xtb", "crest"})
 
 
 def default_config_path_from_repo_root(
@@ -71,34 +69,6 @@ def workflow_root_from_mapping(raw: dict[str, Any] | None) -> str:
     if not root_text:
         return ""
     return str(Path(root_text).expanduser().resolve())
-
-
-def workflow_internal_engine_runtime_paths(
-    workflow_root: str | Path,
-    *,
-    engine: str,
-) -> dict[str, Path]:
-    engine_text = str(engine or "").strip().lower()
-    if engine_text not in _WORKFLOW_INTERNAL_ENGINES:
-        raise ValueError(f"Unsupported workflow-internal engine: {engine_text}")
-
-    root = Path(workflow_root).expanduser().resolve()
-    base = root / WORKFLOW_INTERNAL_DIRNAME / engine_text
-    return {
-        "allowed_root": base / "runs",
-        "organized_root": base / "outputs",
-    }
-
-
-def workflow_internal_engine_runtime_paths_from_mapping(
-    raw: dict[str, Any] | None,
-    *,
-    engine: str,
-) -> dict[str, Path]:
-    workflow_root = workflow_root_from_mapping(raw)
-    if not workflow_root:
-        return {}
-    return workflow_internal_engine_runtime_paths(workflow_root, engine=engine)
 
 
 def shared_workflow_root_from_config(config_path: str | Path | None) -> str | None:

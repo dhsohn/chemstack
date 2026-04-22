@@ -72,15 +72,17 @@ def test_build_parser_parses_unified_queue_commands() -> None:
     assert list_args.kind == ["job"]
     assert list_args.func is unified_cli.cmd_queue_list
 
+    clear_args = parser.parse_args(["queue", "list", "clear", "--json"])
+    assert clear_args.command == "queue"
+    assert clear_args.queue_command == "list"
+    assert clear_args.action == "clear"
+    assert clear_args.json is True
+    assert clear_args.func is unified_cli.cmd_queue_list
+
     cancel_args = parser.parse_args(["queue", "cancel", "xtb-q-1"])
     assert cancel_args.queue_command == "cancel"
     assert cancel_args.target == "xtb-q-1"
     assert cancel_args.func is unified_cli.cmd_queue_cancel
-
-    worker_args = parser.parse_args(["queue", "worker", "--app", "orca", "--app", "workflow"])
-    assert worker_args.queue_command == "worker"
-    assert worker_args.app == ["orca", "workflow"]
-    assert worker_args.func is unified_cli.cmd_queue_worker
 
 
 def test_build_parser_parses_unified_run_dir_commands() -> None:
@@ -123,12 +125,10 @@ def test_build_parser_parses_unified_run_dir_commands() -> None:
     assert workflow_args.func is unified_cli.cmd_run_dir
 
 
-def test_build_parser_parses_unified_init_bot_scaffold_organize_and_summary_commands() -> None:
+def test_build_parser_parses_unified_init_scaffold_organize_and_summary_commands() -> None:
     parser = unified_cli.build_parser()
 
     init_args = parser.parse_args(["init", "--chemstack-config", "/tmp/chemstack.yaml", "--force"])
-    bot_args = parser.parse_args(["bot", "--chemstack-config", "/tmp/chemstack.yaml"])
-    runtime_args = parser.parse_args(["runtime", "--app", "workflow", "--chemstack-config", "/tmp/chemstack.yaml"])
     ts_scaffold_args = parser.parse_args(["scaffold", "ts_search", "/tmp/workflow-inputs"])
     shortcut_scaffold_args = parser.parse_args(
         ["scaffold", "conformer_search", "/tmp/conformer-inputs"]
@@ -143,15 +143,6 @@ def test_build_parser_parses_unified_init_bot_scaffold_organize_and_summary_comm
     assert init_args.command == "init"
     assert init_args.force is True
     assert init_args.func is unified_cli.cmd_init
-
-    assert bot_args.command == "bot"
-    assert bot_args.config == "/tmp/chemstack.yaml"
-    assert bot_args.func is unified_cli.cmd_bot
-
-    assert runtime_args.command == "runtime"
-    assert runtime_args.app == ["workflow"]
-    assert runtime_args.chemstack_config == "/tmp/chemstack.yaml"
-    assert runtime_args.func is unified_cli.cmd_runtime
 
     assert ts_scaffold_args.command == "scaffold"
     assert ts_scaffold_args.scaffold_app == "ts_search"
@@ -264,6 +255,21 @@ def test_build_parser_rejects_removed_workflow_scaffold_forms(argv: list[str]) -
         parser.parse_args(argv)
 
 
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["bot"],
+        ["runtime"],
+        ["queue", "worker"],
+    ],
+)
+def test_build_parser_rejects_removed_service_commands(argv: list[str]) -> None:
+    parser = unified_cli.build_parser()
+
+    with pytest.raises(SystemExit):
+        parser.parse_args(argv)
+
+
 def test_main_dispatches_unified_queue_list(monkeypatch: pytest.MonkeyPatch) -> None:
     seen: list[SimpleNamespace] = []
 
@@ -300,80 +306,30 @@ def test_main_dispatches_unified_queue_cancel(monkeypatch: pytest.MonkeyPatch) -
     assert seen[0].json is True
 
 
-def test_main_dispatches_unified_queue_worker(monkeypatch: pytest.MonkeyPatch) -> None:
-    seen: list[SimpleNamespace] = []
-
-    def fake_cmd(args: SimpleNamespace) -> int:
-        seen.append(args)
-        return 19
-
-    monkeypatch.setattr(unified_cli, "cmd_queue_worker", fake_cmd)
-
-    result = unified_cli.main(
-        ["queue", "worker", "--app", "orca", "--app", "workflow", "--workflow-root", "/tmp/workflows"]
-    )
-
-    assert result == 19
-    assert len(seen) == 1
-    assert seen[0].queue_command == "worker"
-    assert seen[0].app == ["orca", "workflow"]
-    assert seen[0].workflow_root == "/tmp/workflows"
-
-
-def test_cmd_bot_uses_flow_telegram_bot(monkeypatch: pytest.MonkeyPatch) -> None:
-    import chemstack.flow.telegram_bot as flow_bot
-
-    sentinel = object()
-    captured: dict[str, object | None] = {}
-
-    def fake_settings_from_config(config_path: str | None = None) -> object:
-        captured["config_path"] = config_path
-        return sentinel
-
-    def fake_run_bot(settings: object | None = None) -> int:
-        captured["settings"] = settings
-        return 26
-
-    monkeypatch.setattr(flow_bot, "settings_from_config", fake_settings_from_config)
-    monkeypatch.setattr(flow_bot, "run_bot", fake_run_bot)
-
-    result = unified_cli.cmd_bot(SimpleNamespace(config="/tmp/chemstack.yaml"))
-
-    assert result == 26
-    assert captured == {
-        "config_path": str(Path("/tmp/chemstack.yaml").resolve()),
-        "settings": sentinel,
-    }
-
-
-def test_cmd_runtime_delegates_to_supervisor(monkeypatch: pytest.MonkeyPatch) -> None:
-    specs = [
-        unified_cli.WorkerSpec(app="workflow", argv=("python", "-m", "chemstack.flow.cli", "workflow", "worker")),
-        unified_cli.WorkerSpec(app="bot", argv=("python", "-m", "chemstack.cli", "bot")),
-    ]
-    monkeypatch.setattr(unified_cli, "_build_runtime_specs", lambda args: specs)
-    monkeypatch.setattr(unified_cli, "_runtime_bot_enabled", lambda args: True)
-    monkeypatch.setattr(unified_cli, "_run_worker_supervisor", lambda built_specs: 0 if built_specs == specs else 1)
-
-    result = unified_cli.cmd_runtime(
-        SimpleNamespace(app=["workflow"], workflow_root="/tmp/workflows", chemstack_config="/tmp/chemstack.yaml", json=False)
-    )
-
-    assert result == 0
-
-
-def test_cmd_runtime_reports_missing_bot_configuration(
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
+@pytest.mark.parametrize(
+    ("command_argv", "expected"),
+    [
+        (
+            (
+                "/home/user/chemstack/.venv/bin/python",
+                "-m",
+                "chemstack.orca._internal_cli",
+                "--config",
+                "/tmp/chemstack.yaml",
+                "queue",
+                "worker",
+            ),
+            "chemstack",
+        ),
+        (("/home/user/.venv/bin/chemstack", "queue", "worker"), "chemstack"),
+        (("/usr/bin/python", "-m", "something_else"), "unknown"),
+    ],
+)
+def test_classify_existing_orca_worker_distinguishes_chemstack_and_unknown(
+    command_argv: tuple[str, ...],
+    expected: str,
 ) -> None:
-    specs = [unified_cli.WorkerSpec(app="bot", argv=("python", "-m", "chemstack.cli", "bot"))]
-    monkeypatch.setattr(unified_cli, "_build_runtime_specs", lambda args: specs)
-    monkeypatch.setattr(unified_cli, "_runtime_bot_enabled", lambda args: False)
-
-    result = unified_cli.cmd_runtime(SimpleNamespace(chemstack_config="/tmp/chemstack.yaml", json=False))
-
-    assert result == 1
-    assert "runtime requires Telegram bot configuration" in capsys.readouterr().out
+    assert unified_cli._classify_existing_orca_worker(command_argv) == expected
 
 
 @pytest.mark.parametrize(
@@ -390,18 +346,6 @@ def test_cmd_runtime_reports_missing_bot_configuration(
             "cmd_init",
             {"command": "init", "force": True},
             22,
-        ),
-        (
-            ["bot", "--chemstack-config", "/tmp/chemstack.yaml"],
-            "cmd_bot",
-            {"command": "bot", "config": "/tmp/chemstack.yaml"},
-            23,
-        ),
-        (
-            ["runtime", "--chemstack-config", "/tmp/chemstack.yaml"],
-            "cmd_runtime",
-            {"command": "runtime", "chemstack_config": "/tmp/chemstack.yaml"},
-            28,
         ),
         (
             ["scaffold", "conformer_search", "/tmp/workflow-job"],
@@ -602,10 +546,14 @@ def test_cmd_queue_list_groups_workflow_children_in_text_output(
                 {
                     "activity_id": "wf-1",
                     "kind": "workflow",
-                    "engine": "orca",
+                    "engine": "workflow",
                     "status": "running",
                     "label": "reaction-case",
                     "source": "chem_flow",
+                    "metadata": {
+                        "template_name": "reaction_ts_search",
+                        "current_engine": "orca",
+                    },
                 },
                 {
                     "activity_id": "xtb-q-1",
@@ -661,7 +609,10 @@ def test_cmd_queue_list_groups_workflow_children_in_text_output(
     assert result == 0
     stdout = capsys.readouterr().out
     assert "active_simulations: 3" in stdout
-    assert "- wf-1 kind=workflow engine=orca status=running label=reaction-case source=chem_flow" in stdout
+    assert (
+        "- wf-1 kind=workflow engine=workflow status=running label=reaction-case source=chem_flow"
+        " template=reaction_ts_search current_engine=orca"
+    ) in stdout
     assert "  - xtb-q-1 kind=job engine=xtb status=running label=path-search source=xtb_auto" in stdout
     assert "  - orca-q-1 kind=job engine=orca status=running label=ts-opt source=chemstack_orca" in stdout
     assert "- orca-q-standalone kind=job engine=orca status=running label=standalone-ts source=chemstack_orca" in stdout
@@ -694,10 +645,14 @@ def test_cmd_queue_list_shows_all_workflow_child_jobs(
                 {
                     "activity_id": "wf-1",
                     "kind": "workflow",
-                    "engine": "orca",
+                    "engine": "workflow",
                     "status": "running",
                     "label": "reaction-case",
                     "source": "chem_flow",
+                    "metadata": {
+                        "template_name": "reaction_ts_search",
+                        "current_engine": "orca",
+                    },
                 },
                 *child_rows,
             ],
@@ -722,7 +677,10 @@ def test_cmd_queue_list_shows_all_workflow_child_jobs(
     stdout = capsys.readouterr().out
     assert "active_simulations: 9" in stdout
     assert stdout.count("  - orca-q-") == 9
-    assert "- wf-1 kind=workflow engine=orca status=running label=reaction-case source=chem_flow" in stdout
+    assert (
+        "- wf-1 kind=workflow engine=workflow status=running label=reaction-case source=chem_flow"
+        " template=reaction_ts_search current_engine=orca"
+    ) in stdout
 
 
 def test_cmd_queue_list_json_filters_payload(
@@ -913,6 +871,116 @@ def test_cmd_queue_list_applies_limit_after_filters(
     assert payload["activities"][0]["activity_id"] == "xtb-q-1"
 
 
+def test_cmd_queue_list_clear_text_output(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(
+        unified_cli,
+        "clear_activities",
+        lambda **kwargs: {
+            "total_cleared": 5,
+            "cleared": {
+                "workflows": 1,
+                "xtb_queue_entries": 2,
+                "crest_queue_entries": 0,
+                "orca_queue_entries": 1,
+                "orca_run_states": 1,
+            },
+            "sources": {},
+        },
+    )
+
+    result = unified_cli.cmd_queue_list(
+        SimpleNamespace(
+            action="clear",
+            workflow_root=None,
+            chemstack_config="/tmp/chemstack.yaml",
+            limit=0,
+            refresh=False,
+            engine=None,
+            status=None,
+            kind=None,
+            json=False,
+        )
+    )
+
+    assert result == 0
+    stdout = capsys.readouterr().out
+    assert "Cleared 5 completed/failed/cancelled entries." in stdout
+    assert "workflows: 1" in stdout
+    assert "xTB queue entries: 2" in stdout
+    assert "ORCA queue entries: 1" in stdout
+    assert "ORCA run states: 1" in stdout
+
+
+def test_cmd_queue_list_clear_json_output(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(
+        unified_cli,
+        "clear_activities",
+        lambda **kwargs: {
+            "total_cleared": 0,
+            "cleared": {
+                "workflows": 0,
+                "xtb_queue_entries": 0,
+                "crest_queue_entries": 0,
+                "orca_queue_entries": 0,
+                "orca_run_states": 0,
+            },
+            "sources": {"workflow_root": "/tmp/workflows"},
+        },
+    )
+
+    result = unified_cli.cmd_queue_list(
+        SimpleNamespace(
+            action="clear",
+            workflow_root=None,
+            chemstack_config="/tmp/chemstack.yaml",
+            limit=0,
+            refresh=False,
+            engine=None,
+            status=None,
+            kind=None,
+            json=True,
+        )
+    )
+
+    assert result == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["total_cleared"] == 0
+    assert payload["sources"]["workflow_root"] == "/tmp/workflows"
+
+
+def test_cmd_queue_list_clear_rejects_filters(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(unified_cli, "clear_activities", lambda **kwargs: pytest.fail("clear_activities should not run"))
+
+    result = unified_cli.cmd_queue_list(
+        SimpleNamespace(
+            action="clear",
+            workflow_root=None,
+            chemstack_config="/tmp/chemstack.yaml",
+            limit=0,
+            refresh=False,
+            engine=["orca"],
+            status=None,
+            kind=None,
+            json=False,
+        )
+    )
+
+    assert result == 1
+    assert (
+        capsys.readouterr().out
+        == "error: `chemstack queue list clear` does not support --engine/--status/--kind/--limit filters.\n"
+    )
+
+
 def test_cmd_queue_cancel_reports_lookup_error(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -990,7 +1058,7 @@ def test_build_worker_specs_defaults_to_engine_workers(monkeypatch: pytest.Monke
 
     assert [spec.app for spec in specs] == ["orca"]
     assert specs[0].argv[-2:] == ("queue", "worker")
-    assert str(specs[0].argv[2]) == "chemstack.orca.cli"
+    assert str(specs[0].argv[2]) == "chemstack.orca._internal_cli"
     assert specs[0].env is not None
     assert specs[0].env[unified_cli._DIRECT_ENGINE_WORKER_ENV_VAR] == "1"
 
@@ -1085,7 +1153,7 @@ def test_workflow_root_for_args_uses_shared_config(monkeypatch: pytest.MonkeyPat
 
 
 def test_cmd_queue_worker_delegates_to_supervisor(monkeypatch: pytest.MonkeyPatch) -> None:
-    specs = [unified_cli.WorkerSpec(app="orca", argv=("python", "-m", "chemstack.orca.cli", "queue", "worker"))]
+    specs = [unified_cli.WorkerSpec(app="orca", argv=("python", "-m", "chemstack.orca._internal_cli", "queue", "worker"))]
     monkeypatch.setattr(unified_cli, "_build_worker_specs", lambda args: specs)
     monkeypatch.setattr(unified_cli, "_run_worker_supervisor", lambda built_specs: 0 if built_specs == specs else 1)
 
@@ -1094,6 +1162,37 @@ def test_cmd_queue_worker_delegates_to_supervisor(monkeypatch: pytest.MonkeyPatc
     )
 
     assert result == 0
+
+
+def test_cmd_queue_worker_reports_existing_chemstack_orca_worker_conflict(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    specs = [unified_cli.WorkerSpec(app="orca", argv=("python", "-m", "chemstack.orca._internal_cli", "queue", "worker"))]
+    monkeypatch.setattr(unified_cli, "_build_worker_specs", lambda args: specs)
+    monkeypatch.setattr(
+        unified_cli,
+        "_detect_existing_orca_worker_conflict",
+        lambda built_specs, args: unified_cli._ExistingWorkerConflict(
+            app="orca",
+            pid=3589996,
+            allowed_root="/home/user/orca_runs",
+            source="chemstack",
+            command="/home/user/chemstack/.venv/bin/python -m chemstack.orca.cli --config /tmp/chemstack.yaml queue worker",
+        ),
+    )
+    monkeypatch.setattr(unified_cli, "_run_worker_supervisor", lambda built_specs: 99)
+
+    result = unified_cli.cmd_queue_worker(
+        SimpleNamespace(app=["orca"], workflow_root=None, chemstack_config="/tmp/chemstack.yaml", json=False)
+    )
+
+    assert result == 1
+    out = capsys.readouterr().out
+    assert "existing ORCA queue worker detected" in out
+    assert "source: chemstack queue worker" in out
+    assert "legacy orca_auto queue worker" not in out
+    assert "Stop the existing queue-worker service before starting another worker." in out
 
 
 def test_run_worker_supervisor_keeps_siblings_running_after_clean_exit(
@@ -1200,6 +1299,58 @@ def test_run_worker_supervisor_restarts_workers_after_failure(
     assert "restarting worker[workflow]: workflow worker" in out
 
 
+def test_run_worker_supervisor_stops_after_repeated_startup_failures(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    processes = [
+        _FakeWorkerProcess([2]),
+        _FakeWorkerProcess([None]),
+        _FakeWorkerProcess([2]),
+    ]
+    popen_calls = 0
+    installed_handlers: dict[int, Any] = {}
+    sleep_calls = 0
+
+    def _fake_popen(*args: Any, **kwargs: Any) -> _FakeWorkerProcess:
+        del args, kwargs
+        nonlocal popen_calls
+        process = processes[popen_calls]
+        popen_calls += 1
+        return process
+
+    def _fake_signal(sig: int, handler: Any) -> None:
+        installed_handlers[sig] = handler
+
+    def _fake_sleep(seconds: float) -> None:
+        del seconds
+        nonlocal sleep_calls
+        sleep_calls += 1
+
+    monkeypatch.setattr(unified_cli.subprocess, "Popen", _fake_popen)
+    monkeypatch.setattr(unified_cli.signal, "getsignal", lambda sig: None)
+    monkeypatch.setattr(unified_cli.signal, "signal", _fake_signal)
+    monkeypatch.setattr(unified_cli.time, "sleep", _fake_sleep)
+
+    result = unified_cli._run_worker_supervisor(
+        [
+            unified_cli.WorkerSpec(app="workflow", argv=("workflow", "worker")),
+            unified_cli.WorkerSpec(app="orca", argv=("orca", "worker")),
+        ]
+    )
+
+    assert result == 2
+    assert processes[0].terminate_calls == 0
+    assert processes[1].terminate_calls == 1
+    assert processes[2].terminate_calls == 0
+    assert popen_calls == 3
+    assert sleep_calls == 1
+    out = capsys.readouterr().out
+    assert "worker[workflow] exited with code 2" in out
+    assert "worker[workflow] failed repeatedly during startup; stopping supervisor to avoid a restart loop." in out
+    assert "restarting worker[workflow]: workflow worker" in out
+
+
 def test_cmd_queue_worker_json_outputs_commands(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -1222,36 +1373,10 @@ def test_cmd_queue_worker_json_outputs_commands(
     assert payload["workers"][0]["argv"][2] == "chemstack.flow.cli"
 
 
-def test_cmd_runtime_json_outputs_commands(
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    specs = [
-        unified_cli.WorkerSpec(
-            app="workflow",
-            argv=("python", "-m", "chemstack.flow.cli", "workflow", "worker", "--workflow-root", "/tmp/workflows"),
-        ),
-        unified_cli.WorkerSpec(
-            app="bot",
-            argv=("python", "-m", "chemstack.cli", "--config", "/tmp/chemstack.yaml", "bot"),
-        ),
-    ]
-    monkeypatch.setattr(unified_cli, "_build_runtime_specs", lambda args: specs)
-
-    result = unified_cli.cmd_runtime(
-        SimpleNamespace(app=["workflow"], workflow_root="/tmp/workflows", chemstack_config="/tmp/chemstack.yaml", json=True)
-    )
-
-    assert result == 0
-    payload = json.loads(capsys.readouterr().out)
-    assert payload["processes"][0]["app"] == "workflow"
-    assert payload["processes"][1]["app"] == "bot"
-
-
 def test_worker_spec_to_dict_redacts_unrelated_environment_keys() -> None:
     spec = unified_cli.WorkerSpec(
         app="orca",
-        argv=("python", "-m", "chemstack.orca.cli", "queue", "worker"),
+        argv=("python", "-m", "chemstack.orca._internal_cli", "queue", "worker"),
         cwd="/tmp/chemstack",
         env={
             "PYTHONPATH": "/tmp/chemstack/src:/tmp/chemstack",

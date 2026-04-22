@@ -113,8 +113,8 @@ def test_load_config_reads_and_normalizes_all_sections(
 
     cfg = config_mod.load_config()
 
-    assert cfg.runtime.allowed_root == str((workflow_root / "internal" / "crest" / "runs").resolve())
-    assert cfg.runtime.organized_root == str((workflow_root / "internal" / "crest" / "outputs").resolve())
+    assert cfg.runtime.allowed_root == str(workflow_root.resolve())
+    assert cfg.runtime.organized_root == str(workflow_root.resolve())
     assert cfg.runtime.max_concurrent == 6
     assert cfg.runtime.admission_root == "/tmp/admission"
     assert cfg.runtime.admission_limit == 6
@@ -172,8 +172,8 @@ def test_load_config_applies_defaults_for_missing_or_invalid_sections(tmp_path: 
 
     cfg = config_mod.load_config(str(config_path))
 
-    assert cfg.runtime.allowed_root == str((workflow_root / "internal" / "crest" / "runs").resolve())
-    assert cfg.runtime.organized_root == str((workflow_root / "internal" / "crest" / "outputs").resolve())
+    assert cfg.runtime.allowed_root == str(workflow_root.resolve())
+    assert cfg.runtime.organized_root == str(workflow_root.resolve())
     assert cfg.runtime.max_concurrent == 1
     assert cfg.runtime.admission_root == str(tmp_path / "admission")
     assert cfg.runtime.admission_limit == 1

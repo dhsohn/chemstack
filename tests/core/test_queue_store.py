@@ -213,6 +213,37 @@ def test_request_cancel_handles_pending_running_and_terminal_entries(
     assert store.request_cancel(tmp_path, terminal.queue_id) is None
 
 
+def test_clear_terminal_removes_terminal_entries_and_can_keep_latest(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _install_deterministic_helpers(monkeypatch)
+
+    _queue_file(tmp_path).write_text(
+        json.dumps(
+            [
+                _entry("q-running", status=QueueStatus.RUNNING, started_at="2026-04-19T00:00:01+00:00"),
+                _entry("q-done-old", status=QueueStatus.COMPLETED, finished_at="2026-04-19T00:00:02+00:00"),
+                _entry("q-cancel-mid", status=QueueStatus.CANCELLED, finished_at="2026-04-19T00:00:03+00:00"),
+                _entry("q-failed-new", status=QueueStatus.FAILED, finished_at="2026-04-19T00:00:04+00:00"),
+            ],
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    assert store.clear_terminal(tmp_path, keep_last=1) == 2
+    remaining = json.loads(_queue_file(tmp_path).read_text(encoding="utf-8"))
+    assert [item["queue_id"] for item in remaining] == ["q-running", "q-failed-new"]
+
+    assert store.clear_terminal(tmp_path) == 1
+    remaining = json.loads(_queue_file(tmp_path).read_text(encoding="utf-8"))
+    assert [item["queue_id"] for item in remaining] == ["q-running"]
+
+    assert store.clear_terminal(tmp_path) == 0
+    assert store.clear_terminal(tmp_path / "missing") == 0
+
+
 @pytest.mark.parametrize(
     ("helper_name", "helper_kwargs", "expected_status"),
     [

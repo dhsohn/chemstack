@@ -1,5 +1,6 @@
 from .store import (
     DuplicateQueueEntryError,
+    clear_terminal,
     dequeue_next,
     enqueue,
     get_cancel_requested,
@@ -15,6 +16,7 @@ __all__ = [
     "DuplicateQueueEntryError",
     "QueueEntry",
     "QueueStatus",
+    "clear_terminal",
     "dequeue_next",
     "enqueue",
     "get_cancel_requested",

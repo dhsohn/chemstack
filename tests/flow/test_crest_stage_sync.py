@@ -39,7 +39,7 @@ def test_ensure_crest_job_dir_copies_input_and_populates_manifest(tmp_path: Path
 
     job_path = Path(job_dir)
     manifest = (job_path / "crest_job.yaml").read_text(encoding="utf-8")
-    assert job_path == tmp_path / "crest_allowed" / "workflow_jobs" / "wf_ensure_crest" / "crest_nci_01"
+    assert job_path == tmp_path / "crest_allowed" / "crest_nci_01"
     assert (job_path / "input.xyz").exists()
     assert "mode: nci" in manifest
     assert "max_cores: 10" in manifest
@@ -91,7 +91,7 @@ def test_ensure_xtb_job_dir_returns_existing_or_delegates_to_writer(
     assert calls == [("wf_generated", 0)]
 
 
-def test_sync_crest_stage_ignores_non_dict_task_and_non_crest_engine() -> None:
+def test_sync_crest_stage_ignores_non_dict_task_and_non_crest_engine(tmp_path: Path) -> None:
     stage_without_task = {"task": "bad"}
     stage_xtb = {"task": {"engine": "xtb", "status": "planned"}}
 
@@ -102,6 +102,7 @@ def test_sync_crest_stage_ignores_non_dict_task_and_non_crest_engine() -> None:
         crest_auto_repo_root="/tmp/crest_repo",
         submit_ready=True,
         workflow_id="wf_01",
+        workspace_dir=tmp_path / "workspace" / "wf_01",
     )
     orchestration._sync_crest_stage(
         stage_xtb,
@@ -110,6 +111,7 @@ def test_sync_crest_stage_ignores_non_dict_task_and_non_crest_engine() -> None:
         crest_auto_repo_root="/tmp/crest_repo",
         submit_ready=True,
         workflow_id="wf_01",
+        workspace_dir=tmp_path / "workspace" / "wf_01",
     )
 
     assert stage_without_task == {"task": "bad"}
@@ -162,6 +164,7 @@ def test_sync_crest_stage_submits_and_materializes_retained_conformers(
         crest_auto_repo_root="/tmp/crest_repo",
         submit_ready=True,
         workflow_id="wf_01",
+        workspace_dir=tmp_path / "workspace" / "wf_01",
     )
 
     task = cast(dict[str, Any], stage["task"])
@@ -191,7 +194,7 @@ def test_sync_crest_stage_submits_and_materializes_retained_conformers(
     ]
 
 
-def test_sync_crest_stage_returns_without_target_when_not_submitted_and_no_queue_id() -> None:
+def test_sync_crest_stage_returns_without_target_when_not_submitted_and_no_queue_id(tmp_path: Path) -> None:
     stage: dict[str, Any] = {
         "stage_id": "crest_nci_02",
         "status": "planned",
@@ -210,6 +213,7 @@ def test_sync_crest_stage_returns_without_target_when_not_submitted_and_no_queue
         crest_auto_repo_root=None,
         submit_ready=False,
         workflow_id="wf_02",
+        workspace_dir=tmp_path / "workspace" / "wf_02",
     )
 
     assert stage["status"] == "planned"
@@ -247,6 +251,7 @@ def test_sync_crest_stage_returns_cleanly_when_contract_lookup_raises(
         crest_auto_repo_root="/tmp/crest_repo",
         submit_ready=False,
         workflow_id="wf_03",
+        workspace_dir=tmp_path / "workspace" / "wf_03",
     )
 
     assert stage["status"] == "submitted"

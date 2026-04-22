@@ -320,7 +320,7 @@ def build_reaction_ts_search_plan(
 
     workspace_dir: Path | None = None
     if workspace_root is not None:
-        workspace_dir = Path(workspace_root).expanduser().resolve() / "workflows" / workflow_id
+        workspace_dir = Path(workspace_root).expanduser().resolve() / workflow_id
         workspace_dir.mkdir(parents=True, exist_ok=True)
         (workspace_dir / "stage_03_orca").mkdir(parents=True, exist_ok=True)
 

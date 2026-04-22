@@ -35,13 +35,15 @@ Top-level `core.*` and `orca_auto.*` shim packages were removed. New code, tests
 
 User-facing docs should standardize on these command forms:
 
-- `python -m chemstack.cli queue ...`
-- `python -m chemstack.cli run-dir <path>`
-- `python -m chemstack.cli init`
-- `python -m chemstack.cli bot`
-- `python -m chemstack.cli scaffold <ts_search|conformer_search> <path>`
-- `python -m chemstack.cli organize orca ...`
-- `python -m chemstack.cli summary orca ...`
+- `chemstack queue ...`
+- `chemstack run-dir <path>`
+- `chemstack init`
+- `chemstack scaffold <ts_search|conformer_search> <path>`
+- `chemstack organize orca ...`
+- `chemstack summary orca ...`
+
+Long-running services are not part of the public CLI surface. Users should run
+them only through the `systemd/` units.
 
 Engine-specific CLI modules currently remain as thin compatibility wrappers for
 those public entrypoints. Commands that are not yet unified, such as ORCA

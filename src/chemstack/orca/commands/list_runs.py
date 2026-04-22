@@ -292,6 +292,11 @@ def _clear_terminal_entries(allowed_root: Path) -> tuple[int, int]:
     return queue_count, run_count
 
 
+def clear_terminal_entries(allowed_root: Path) -> tuple[int, int]:
+    """Public wrapper for terminal ORCA list cleanup helpers."""
+    return _clear_terminal_entries(allowed_root)
+
+
 def _cmd_clear(allowed_root: Path) -> int:
     """Remove completed/failed/cancelled simulations from the list."""
     queue_count, run_count = _clear_terminal_entries(allowed_root)

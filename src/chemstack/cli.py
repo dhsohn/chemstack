@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Sequence
 
 from chemstack.activity_view import (
+    activity_display_fields,
     activity_with_parent_hint,
     count_global_active_simulations,
     queue_list_display_rows,
@@ -21,11 +22,12 @@ from chemstack.core.app_ids import (
     CHEMSTACK_CONFIG_ENV_VAR,
     CHEMSTACK_CREST_MODULE,
     CHEMSTACK_FLOW_MODULE,
+    CHEMSTACK_ORCA_INTERNAL_MODULE,
     CHEMSTACK_ORCA_MODULE,
     CHEMSTACK_XTB_MODULE,
 )
 from chemstack.core.config.files import shared_workflow_root_from_config
-from chemstack.flow.activity import cancel_activity, list_activities
+from chemstack.flow.operations import cancel_activity, clear_activities, list_activities
 from chemstack.flow.run_dir_layout import inspect_workflow_run_dir
 from chemstack.flow.submitters.common import normalize_text, sibling_app_command
 
@@ -34,6 +36,8 @@ _ENGINE_APPS = ("orca",)
 _KNOWN_WORKER_APPS = (*_ENGINE_APPS, "workflow")
 _DEFAULT_WORKER_APPS = _ENGINE_APPS
 _WORKER_POLL_INTERVAL_SECONDS = 1.0
+_WORKER_STARTUP_FAILURE_WINDOW_SECONDS = 5.0
+_WORKER_MAX_STARTUP_FAILURES = 2
 _DIRECT_ENGINE_WORKER_ENV_VAR = "CHEMSTACK_QUEUE_WORKER_DIRECT"
 _WORKFLOW_SCAFFOLD_SHORTCUTS = (
     ("ts_search", "reaction_ts_search", "Create a reaction TS-search scaffold."),
@@ -65,6 +69,23 @@ class WorkerSpec:
             "cwd": self.cwd or "",
             "env": env_payload,
         }
+
+
+@dataclass
+class _SupervisedWorker:
+    spec: WorkerSpec
+    process: subprocess.Popen[Any]
+    started_at_monotonic: float
+    startup_failure_count: int = 0
+
+
+@dataclass(frozen=True)
+class _ExistingWorkerConflict:
+    app: str
+    pid: int
+    allowed_root: str
+    source: str
+    command: str
 
 
 def _repo_root() -> Path:
@@ -118,6 +139,112 @@ def _effective_shared_config_text(args: argparse.Namespace) -> str:
         or normalize_text(getattr(args, "config", None))
         or normalize_text(getattr(args, "global_config", None))
     )
+
+
+def _read_process_command(pid: int) -> tuple[str, ...]:
+    cmdline_path = Path("/proc") / str(pid) / "cmdline"
+    try:
+        raw = cmdline_path.read_bytes()
+    except OSError:
+        return ()
+    parts = [part.decode("utf-8", errors="replace") for part in raw.split(b"\0") if part]
+    return tuple(parts)
+
+
+def _command_invokes_module(command_argv: Sequence[str], module_name: str) -> bool:
+    target = normalize_text(module_name).lower()
+    if not target:
+        return False
+
+    normalized = [normalize_text(part).lower() for part in command_argv]
+    for index, part in enumerate(normalized[:-1]):
+        if part == "-m" and normalized[index + 1] == target:
+            return True
+    return False
+
+
+def _command_program_name(command_argv: Sequence[str]) -> str:
+    if not command_argv:
+        return ""
+    raw = normalize_text(command_argv[0])
+    if not raw:
+        return ""
+    return Path(raw).stem.lower()
+
+
+def _classify_existing_orca_worker(command_argv: Sequence[str]) -> str:
+    program_name = _command_program_name(command_argv)
+    if program_name == "chemstack" or _command_invokes_module(command_argv, "chemstack.orca.cli") or _command_invokes_module(
+        command_argv, "chemstack.orca._internal_cli"
+    ) or _command_invokes_module(
+        command_argv, "chemstack.cli"
+    ):
+        return "chemstack"
+    return "unknown"
+
+
+def _format_command_argv(command_argv: Sequence[str]) -> str:
+    if not command_argv:
+        return "<unavailable>"
+    return " ".join(shlex.quote(part) for part in command_argv)
+
+
+def _detect_existing_orca_worker_conflict(
+    specs: Sequence[WorkerSpec],
+    *,
+    args: argparse.Namespace,
+) -> _ExistingWorkerConflict | None:
+    if not any(spec.app == "orca" for spec in specs):
+        return None
+
+    config_path = _discover_shared_config_path(_effective_shared_config_text(args))
+    if not normalize_text(config_path):
+        return None
+
+    try:
+        from chemstack.orca.config import load_config as _load_orca_config
+        from chemstack.orca.queue_worker import read_worker_pid as _read_orca_worker_pid
+
+        cfg = _load_orca_config(str(config_path))
+    except Exception:
+        return None
+
+    allowed_root = Path(cfg.runtime.allowed_root).expanduser().resolve()
+    existing_pid = _read_orca_worker_pid(allowed_root)
+    if existing_pid is None:
+        return None
+
+    command_argv = _read_process_command(existing_pid)
+    source = _classify_existing_orca_worker(command_argv)
+    return _ExistingWorkerConflict(
+        app="orca",
+        pid=existing_pid,
+        allowed_root=str(allowed_root),
+        source=source,
+        command=_format_command_argv(command_argv),
+    )
+
+
+def _emit_existing_orca_worker_conflict(
+    conflict: _ExistingWorkerConflict,
+    *,
+    command_name: str,
+) -> int:
+    print(
+        f"error: existing ORCA queue worker detected for allowed_root {conflict.allowed_root} "
+        f"(pid={conflict.pid})."
+    )
+    if conflict.source == "chemstack":
+        print("source: chemstack queue worker")
+        print("This queue root is already being managed by a running chemstack worker.")
+    else:
+        print("source: existing queue worker")
+    print(f"command: {conflict.command}")
+    if conflict.source == "chemstack":
+        print("Stop the existing queue-worker service before starting another worker.")
+    else:
+        print("Stop the existing worker before starting another worker.")
+    return 1
 
 
 def _normalize_filter_values(values: Sequence[str] | None) -> tuple[str, ...]:
@@ -178,8 +305,49 @@ def _activity_counter_config_path(
     return None
 
 
+def _queue_clear_lines(payload: dict[str, Any]) -> list[str]:
+    total_cleared = int(payload.get("total_cleared", 0) or 0)
+    if total_cleared <= 0:
+        return ["Nothing to clear."]
+
+    lines = [f"Cleared {total_cleared} completed/failed/cancelled entries."]
+    cleared = payload.get("cleared")
+    if not isinstance(cleared, dict):
+        return lines
+
+    labels = (
+        ("workflows", "workflows"),
+        ("xtb_queue_entries", "xTB queue entries"),
+        ("crest_queue_entries", "CREST queue entries"),
+        ("orca_queue_entries", "ORCA queue entries"),
+        ("orca_run_states", "ORCA run states"),
+    )
+    for key, label in labels:
+        count = int(cleared.get(key, 0) or 0)
+        if count > 0:
+            lines.append(f"  {label}: {count}")
+    return lines
+
+
 def cmd_queue_list(args: Any) -> int:
     shared_config = _effective_shared_config_text(args) or None
+    if normalize_text(getattr(args, "action", None)).lower() == "clear":
+        if any(getattr(args, field, None) for field in ("engine", "status", "kind")) or int(getattr(args, "limit", 0) or 0) > 0:
+            print("error: `chemstack queue list clear` does not support --engine/--status/--kind/--limit filters.")
+            return 1
+        payload = clear_activities(
+            workflow_root=_workflow_root_for_args(args),
+            crest_auto_config=shared_config,
+            xtb_auto_config=shared_config,
+            orca_auto_config=shared_config,
+        )
+        if bool(getattr(args, "json", False)):
+            print(json.dumps(payload, ensure_ascii=True, indent=2))
+            return 0
+        for line in _queue_clear_lines(payload):
+            print(line)
+        return 0
+
     limit = int(getattr(args, "limit", 0) or 0)
     payload = list_activities(
         workflow_root=_workflow_root_for_args(args),
@@ -223,6 +391,7 @@ def cmd_queue_list(args: Any) -> int:
     print(f"active_simulations: {filtered_payload['active_simulations']}")
     for indent, item in display_rows:
         prefix = "  " * max(0, int(indent))
+        detail_suffix = "".join(f" {key}={value}" for key, value in activity_display_fields(item))
         print(
             f"{prefix}- {item.get('activity_id', '-')}"
             f" kind={item.get('kind', '-')}"
@@ -230,6 +399,7 @@ def cmd_queue_list(args: Any) -> int:
             f" status={item.get('status', '-')}"
             f" label={item.get('label', '-')}"
             f" source={item.get('source', '-')}"
+            f"{detail_suffix}"
         )
     return 0
 
@@ -295,7 +465,7 @@ def _engine_worker_tail_argv(*, app: str, args: argparse.Namespace) -> list[str]
 
 def _engine_worker_spec(*, app: str, config_path: str, args: argparse.Namespace) -> WorkerSpec:
     module_name = {
-        "orca": CHEMSTACK_ORCA_MODULE,
+        "orca": CHEMSTACK_ORCA_INTERNAL_MODULE,
         "xtb": CHEMSTACK_XTB_MODULE,
         "crest": CHEMSTACK_CREST_MODULE,
     }[app]
@@ -351,35 +521,6 @@ def _workflow_worker_spec(
     return WorkerSpec(app="workflow", argv=tuple(argv))
 
 
-def _bot_worker_spec(*, config_path: str | None) -> WorkerSpec:
-    config_text = normalize_text(config_path)
-    repo_root = _repo_root_for_subprocess()
-    if config_text:
-        argv, cwd, env = sibling_app_command(
-            executable="",
-            config_path=config_text,
-            repo_root=repo_root,
-            module_name="chemstack.cli",
-            tail_argv=["bot"],
-        )
-        return WorkerSpec(app="bot", argv=tuple(argv), cwd=cwd, env=env)
-
-    argv = [sys.executable, "-m", "chemstack.cli", "bot"]
-    if repo_root is None:
-        return WorkerSpec(app="bot", argv=tuple(argv))
-
-    root_path = Path(repo_root).expanduser().resolve()
-    env = dict(os.environ)
-    existing = env.get("PYTHONPATH", "")
-    candidates = [str(root_path)]
-    src_root = root_path / "src"
-    if src_root.is_dir():
-        candidates.insert(0, str(src_root))
-    pythonpath = ":".join(candidates)
-    env["PYTHONPATH"] = pythonpath if not existing else f"{pythonpath}:{existing}"
-    return WorkerSpec(app="bot", argv=tuple(argv), cwd=str(root_path), env=env)
-
-
 def _build_worker_specs(args: Any) -> list[WorkerSpec]:
     explicit_apps = list(getattr(args, "app", None) or [])
     apps = _selected_worker_apps(explicit_apps)
@@ -422,20 +563,6 @@ def _build_worker_specs(args: Any) -> list[WorkerSpec]:
     return specs
 
 
-def _runtime_bot_enabled(args: Any) -> bool:
-    from chemstack.flow.telegram_bot import settings_from_config as _settings_from_config
-
-    config_path = _discover_shared_config_path(_effective_shared_config_text(args))
-    return bool(_settings_from_config(config_path).enabled)
-
-
-def _build_runtime_specs(args: Any) -> list[WorkerSpec]:
-    specs = list(_build_worker_specs(args))
-    config_path = _discover_shared_config_path(_effective_shared_config_text(args))
-    specs.append(_bot_worker_spec(config_path=config_path))
-    return specs
-
-
 def _terminate_process(proc: subprocess.Popen[Any]) -> None:
     if proc.poll() is not None:
         return
@@ -465,15 +592,19 @@ def _run_worker_supervisor(specs: Sequence[WorkerSpec]) -> int:
         print("error: no workers selected")
         return 1
 
-    processes: list[tuple[WorkerSpec, subprocess.Popen[Any]]] = []
+    processes: list[_SupervisedWorker] = []
     shutdown_requested = False
     exit_code = 0
 
-    def _spawn_worker(spec: WorkerSpec, *, restart: bool = False) -> subprocess.Popen[Any]:
+    def _spawn_worker(spec: WorkerSpec, *, restart: bool = False) -> _SupervisedWorker:
         command_text = " ".join(shlex.quote(part) for part in spec.argv)
         action = "restarting" if restart else "starting"
         print(f"{action} worker[{spec.app}]: {command_text}")
-        return subprocess.Popen(spec.argv, cwd=spec.cwd, env=spec.env)
+        return _SupervisedWorker(
+            spec=spec,
+            process=subprocess.Popen(spec.argv, cwd=spec.cwd, env=spec.env),
+            started_at_monotonic=time.monotonic(),
+        )
 
     def _request_shutdown(signum: int, frame: Any) -> None:
         del signum, frame
@@ -490,25 +621,50 @@ def _run_worker_supervisor(specs: Sequence[WorkerSpec]) -> int:
 
     try:
         for spec in specs:
-            process = _spawn_worker(spec)
-            processes.append((spec, process))
+            processes.append(_spawn_worker(spec))
 
         while True:
-            for index, (spec, process) in enumerate(processes):
+            current_time = time.monotonic()
+            for index, managed in enumerate(processes):
+                spec = managed.spec
+                process = managed.process
                 returncode = process.poll()
                 if returncode is None:
+                    if (
+                        managed.startup_failure_count > 0
+                        and current_time - managed.started_at_monotonic >= _WORKER_STARTUP_FAILURE_WINDOW_SECONDS
+                    ):
+                        managed.startup_failure_count = 0
                     continue
                 print(f"worker[{spec.app}] exited with code {returncode}")
                 if shutdown_requested:
                     continue
+                quick_startup_failure = (
+                    returncode != 0
+                    and current_time - managed.started_at_monotonic < _WORKER_STARTUP_FAILURE_WINDOW_SECONDS
+                )
+                if quick_startup_failure:
+                    managed.startup_failure_count += 1
+                    if managed.startup_failure_count >= _WORKER_MAX_STARTUP_FAILURES:
+                        print(
+                            f"worker[{spec.app}] failed repeatedly during startup; "
+                            "stopping supervisor to avoid a restart loop."
+                        )
+                        exit_code = returncode if returncode > 0 else 1
+                        shutdown_requested = True
+                        break
+                else:
+                    managed.startup_failure_count = 0
+
                 restarted = _spawn_worker(spec, restart=True)
-                processes[index] = (spec, restarted)
+                restarted.startup_failure_count = managed.startup_failure_count
+                processes[index] = restarted
             if shutdown_requested:
                 break
             time.sleep(_WORKER_POLL_INTERVAL_SECONDS)
     finally:
-        for _, process in processes:
-            _terminate_process(process)
+        for managed in processes:
+            _terminate_process(managed.process)
         for sig, handler in previous_handlers.items():
             try:
                 signal.signal(sig, handler)
@@ -532,26 +688,9 @@ def cmd_queue_worker(args: Any) -> int:
     if bool(getattr(args, "json", False)):
         return _emit_supervisor_specs_json(key="workers", specs=specs)
 
-    return _run_worker_supervisor(specs)
-
-
-def cmd_runtime(args: Any) -> int:
-    try:
-        specs = _build_runtime_specs(args)
-    except ValueError as exc:
-        print(f"error: {exc}")
-        return 1
-
-    if bool(getattr(args, "json", False)):
-        return _emit_supervisor_specs_json(key="processes", specs=specs)
-
-    if not _runtime_bot_enabled(args):
-        print(
-            "error: runtime requires Telegram bot configuration. "
-            "Set telegram.bot_token/chat_id in chemstack.yaml or "
-            "CHEM_FLOW_TELEGRAM_BOT_TOKEN and CHEM_FLOW_TELEGRAM_CHAT_ID."
-        )
-        return 1
+    conflict = _detect_existing_orca_worker_conflict(specs, args=args)
+    if conflict is not None:
+        return _emit_existing_orca_worker_conflict(conflict, command_name="queue worker")
 
     return _run_worker_supervisor(specs)
 
@@ -604,13 +743,6 @@ def cmd_orca_summary(args: argparse.Namespace) -> int:
     _configure_orca_logging(args)
     args.config = _engine_config_for_command(args)
     return int(_cmd_orca_summary(args))
-
-
-def cmd_bot(args: Any) -> int:
-    from chemstack.flow.telegram_bot import run_bot as _run_bot
-    from chemstack.flow.telegram_bot import settings_from_config as _settings_from_config
-
-    return int(_run_bot(_settings_from_config(_engine_config_for_command(args))))
 
 
 def cmd_workflow_scaffold(args: argparse.Namespace) -> int:
@@ -700,7 +832,7 @@ def _add_orca_logging_arguments(parser: argparse.ArgumentParser) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="python -m chemstack.cli")
+    parser = argparse.ArgumentParser(prog="chemstack")
     parser.add_argument(
         "--chemstack-config",
         "--config",
@@ -719,6 +851,12 @@ def build_parser() -> argparse.ArgumentParser:
     list_parser = queue_subparsers.add_parser(
         "list",
         help="List workflows and engine activities together.",
+    )
+    list_parser.add_argument(
+        "action",
+        nargs="?",
+        choices=["clear"],
+        help="Remove completed/failed/cancelled entries from the unified activity list",
     )
     list_parser.add_argument("--workflow-root", help=argparse.SUPPRESS)
     list_parser.add_argument("--chemstack-config", "--config", dest="chemstack_config", help="Path to shared chemstack.yaml")
@@ -754,72 +892,6 @@ def build_parser() -> argparse.ArgumentParser:
     cancel_parser.add_argument("--json", action="store_true", help="Print JSON output")
     cancel_parser.set_defaults(func=cmd_queue_cancel)
 
-    worker_parser = queue_subparsers.add_parser(
-        "worker",
-        help="Start one or more engine workers, plus the workflow worker when requested.",
-    )
-    worker_parser.add_argument(
-        "--app",
-        action="append",
-        choices=["orca", "workflow"],
-        help="Worker app to start. Defaults to ORCA, and adds workflow-managed internal engines when configured.",
-    )
-    worker_parser.add_argument("--once", action="store_true", help="Run exactly one cycle for apps that support it")
-    auto_group = worker_parser.add_mutually_exclusive_group()
-    auto_group.add_argument(
-        "--auto-organize",
-        action="store_true",
-        help="Automatically organize terminal engine jobs after execution",
-    )
-    auto_group.add_argument(
-        "--no-auto-organize",
-        action="store_true",
-        help="Disable automatic organization for engine workers",
-    )
-    worker_parser.add_argument("--workflow-root", help=argparse.SUPPRESS)
-    worker_parser.add_argument("--chemstack-config", "--config", dest="chemstack_config", help="Path to shared chemstack.yaml")
-    worker_parser.add_argument("--no-submit", action="store_true", help="Only sync workflow stages; do not submit newly actionable stages")
-    worker_parser.add_argument("--refresh-registry", action="store_true", help="Refresh the workflow registry before the first workflow cycle")
-    worker_parser.add_argument("--refresh-each-cycle", action="store_true", help="Refresh the workflow registry before every workflow cycle")
-    worker_parser.add_argument("--max-cycles", type=int, default=0, help="Maximum workflow cycles to run; 0 means run until stopped")
-    worker_parser.add_argument("--interval-seconds", type=float, default=0.0, help="Workflow worker sleep interval between cycles")
-    worker_parser.add_argument("--lock-timeout-seconds", type=float, default=0.0, help="Workflow worker lock wait timeout")
-    worker_parser.add_argument("--json", action="store_true", help="Print the worker commands without starting them")
-    worker_parser.set_defaults(func=cmd_queue_worker)
-
-    runtime_parser = subparsers.add_parser(
-        "runtime",
-        help="Start the unified runtime supervisor for workers plus the Telegram bot.",
-    )
-    runtime_parser.add_argument(
-        "--app",
-        action="append",
-        choices=["orca", "workflow"],
-        help="Worker app to start. Defaults to ORCA, and adds workflow-managed internal engines when configured.",
-    )
-    runtime_parser.add_argument("--once", action="store_true", help="Run exactly one cycle for apps that support it")
-    runtime_auto_group = runtime_parser.add_mutually_exclusive_group()
-    runtime_auto_group.add_argument(
-        "--auto-organize",
-        action="store_true",
-        help="Automatically organize terminal engine jobs after execution",
-    )
-    runtime_auto_group.add_argument(
-        "--no-auto-organize",
-        action="store_true",
-        help="Disable automatic organization for engine workers",
-    )
-    runtime_parser.add_argument("--workflow-root", help=argparse.SUPPRESS)
-    runtime_parser.add_argument("--chemstack-config", "--config", dest="chemstack_config", help="Path to shared chemstack.yaml")
-    runtime_parser.add_argument("--no-submit", action="store_true", help="Only sync workflow stages; do not submit newly actionable stages")
-    runtime_parser.add_argument("--refresh-registry", action="store_true", help="Refresh the workflow registry before the first workflow cycle")
-    runtime_parser.add_argument("--refresh-each-cycle", action="store_true", help="Refresh the workflow registry before every workflow cycle")
-    runtime_parser.add_argument("--max-cycles", type=int, default=0, help="Maximum workflow cycles to run; 0 means run until stopped")
-    runtime_parser.add_argument("--interval-seconds", type=float, default=0.0, help="Workflow worker sleep interval between cycles")
-    runtime_parser.add_argument("--lock-timeout-seconds", type=float, default=0.0, help="Workflow worker lock wait timeout")
-    runtime_parser.add_argument("--json", action="store_true", help="Print the supervised commands without starting them")
-    runtime_parser.set_defaults(func=cmd_runtime)
-
     run_dir_parser = subparsers.add_parser(
         "run-dir",
         help="Submit an ORCA job directory or workflow input directory through the unified CLI.",
@@ -842,13 +914,6 @@ def build_parser() -> argparse.ArgumentParser:
     _add_orca_logging_arguments(init_parser)
     init_parser.add_argument("--force", action="store_true", help="Overwrite existing config without confirmation")
     init_parser.set_defaults(func=cmd_init)
-
-    bot_parser = subparsers.add_parser(
-        "bot",
-        help="Start the unified Telegram bot for workflow and engine activity control.",
-    )
-    _add_engine_config_argument(bot_parser)
-    bot_parser.set_defaults(func=cmd_bot)
 
     scaffold_parser = subparsers.add_parser(
         "scaffold",

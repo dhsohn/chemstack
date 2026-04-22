@@ -5,7 +5,7 @@ from typing import Any
 from chemstack.core.queue import DuplicateQueueEntryError, enqueue
 
 from ..config import load_config
-from ..job_locations import molecule_key_from_selected_xyz, upsert_job_record
+from ..job_locations import index_root_for_path, molecule_key_from_selected_xyz, upsert_job_record
 from ..notifications import notify_job_queued
 from ..state import write_state
 from ._helpers import (
@@ -32,10 +32,11 @@ def cmd_run_dir(args: Any) -> int:
     mode = job_mode(manifest)
     molecule_key = molecule_key_from_selected_xyz(str(selected_xyz), job_dir)
     resource_request = resource_request_from_manifest(cfg, manifest)
+    queue_root = index_root_for_path(cfg, job_dir)
 
     try:
         entry = enqueue(
-            cfg.runtime.allowed_root,
+            queue_root,
             app_name="crest_auto",
             task_id=job_id,
             task_kind="crest_conformer_search",

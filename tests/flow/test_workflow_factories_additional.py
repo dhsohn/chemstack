@@ -123,7 +123,7 @@ def test_create_reaction_ts_search_workflow_materializes_two_crest_stages(
         orca_route_line="! custom ts route",
     )
 
-    workspace_dir = tmp_path / "workflows" / "wf_reaction_extra"
+    workspace_dir = tmp_path / "wf_reaction_extra"
     request = payload["metadata"]["request"]
     assert payload["template_name"] == "reaction_ts_search"
     assert [stage["stage_id"] for stage in payload["stages"]] == ["crest_reactant_01", "crest_product_01"]
@@ -173,7 +173,7 @@ def test_single_input_crest_workflow_factories_materialize_expected_stage(
         multiplicity=2,
     )
 
-    workspace_dir = tmp_path / "workflows" / workflow_id
+    workspace_dir = tmp_path / workflow_id
     request = payload["metadata"]["request"]
     stage = payload["stages"][0]
     assert payload["workflow_id"] == workflow_id
@@ -221,7 +221,7 @@ def test_create_conformer_screening_nci_workflow_writes_expected_request_shape(
     assert payload["metadata"]["request"]["source_artifacts"] == [
         {
             "kind": "input_xyz",
-            "path": str((tmp_path / "workflows" / "wf_conf_nci_extra" / "inputs" / input_xyz.name).resolve()),
+                "path": str((tmp_path / "wf_conf_nci_extra" / "inputs" / input_xyz.name).resolve()),
             "selected": True,
             "metadata": {},
         }

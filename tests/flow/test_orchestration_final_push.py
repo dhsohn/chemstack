@@ -154,6 +154,7 @@ def test_sync_xtb_stage_returns_early_without_target_or_on_contract_lookup_error
         xtb_auto_repo_root=None,
         submit_ready=False,
         workflow_id="wf_01",
+        workspace_dir=Path("/tmp/workspaces/wf_01"),
     )
     assert load_calls == []
 
@@ -181,6 +182,7 @@ def test_sync_xtb_stage_returns_early_without_target_or_on_contract_lookup_error
         xtb_auto_repo_root=None,
         submit_ready=False,
         workflow_id="wf_01",
+        workspace_dir=Path("/tmp/workspaces/wf_01"),
     )
     assert failing_stage["status"] == "completed"
 

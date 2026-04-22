@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import sys
 from pathlib import Path
 from typing import Any, Mapping, TypedDict
 
@@ -21,6 +22,17 @@ class _PromptedEngineRuntime(TypedDict):
 
 class _PromptedOrcaRuntime(_PromptedEngineRuntime):
     default_max_retries: int
+
+
+def _stdin_supports_interactive_prompts() -> bool:
+    stdin = getattr(sys, "stdin", None)
+    isatty = getattr(stdin, "isatty", None)
+    if not callable(isatty):
+        return False
+    try:
+        return bool(isatty())
+    except OSError:
+        return False
 
 
 def _prompt_text(label: str, default: str | None = None) -> str:
@@ -236,10 +248,20 @@ def cmd_init(args: Any) -> int:
     config_path = Path(raw_config_path).expanduser().resolve()
 
     if config_path.exists() and not force:
-        overwrite = _prompt_yes_no(
-            f"Config already exists at {config_path}. Overwrite it?",
-            default=False,
-        )
+        if not _stdin_supports_interactive_prompts():
+            print(
+                f"Config already exists at {config_path}. "
+                "Re-run with --force to overwrite it without confirmation."
+            )
+            return 1
+        try:
+            overwrite = _prompt_yes_no(
+                f"Config already exists at {config_path}. Overwrite it?",
+                default=False,
+            )
+        except (EOFError, KeyboardInterrupt):
+            print("\nCancelled.")
+            return 1
         if not overwrite:
             print("Cancelled.")
             return 0

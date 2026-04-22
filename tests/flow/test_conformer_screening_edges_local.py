@@ -129,7 +129,7 @@ def test_build_conformer_screening_plan_with_no_candidates_still_writes_workflow
 
     payload = conformer_screening.build_conformer_screening_plan(contract, workspace_root=tmp_path, max_orca_stages=0)
 
-    expected_workspace = tmp_path / "workflows" / "wf_no_candidates"
+    expected_workspace = tmp_path / "wf_no_candidates"
     assert payload["workflow_id"] == "wf_no_candidates"
     assert payload["stages"] == []
     assert payload["metadata"]["workspace_dir"] == str(expected_workspace)
@@ -205,7 +205,7 @@ def test_build_conformer_screening_plan_from_target_syncs_registry_when_workspac
         "build_conformer_screening_plan",
         lambda current_contract, **kwargs: {
             "workflow_id": "wf_target_sync",
-            "metadata": {"workspace_dir": str(tmp_path / "workflows" / "wf_target_sync")},
+            "metadata": {"workspace_dir": str(tmp_path / "wf_target_sync")},
         },
     )
     import chemstack.flow.registry as workflow_registry
@@ -232,7 +232,7 @@ def test_build_conformer_screening_plan_from_target_syncs_registry_when_workspac
     assert sync_calls == [
         {
             "workflow_root": tmp_path.resolve(),
-            "workspace_dir": (tmp_path / "workflows" / "wf_target_sync").resolve(),
+            "workspace_dir": (tmp_path / "wf_target_sync").resolve(),
             "workflow_id": "wf_target_sync",
         }
     ]

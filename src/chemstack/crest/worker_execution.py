@@ -239,28 +239,34 @@ def _build_execution_context(
     )
 
 
-def _mark_queue_terminal(cfg: Any, context: ExecutionContext, result: CrestRunResult, *, dependencies: WorkerExecutionDependencies) -> None:
+def _mark_queue_terminal(
+    queue_root: str | Path,
+    context: ExecutionContext,
+    result: CrestRunResult,
+    *,
+    dependencies: WorkerExecutionDependencies,
+) -> None:
     metadata_update = {
         "retained_conformer_count": result.retained_conformer_count,
         "mode": result.mode,
     }
     if result.status == "completed":
         dependencies.mark_completed(
-            cfg.runtime.allowed_root,
+            str(queue_root),
             context.entry.queue_id,
             metadata_update=metadata_update,
         )
         return
     if result.status == "cancelled":
         dependencies.mark_cancelled(
-            cfg.runtime.allowed_root,
+            str(queue_root),
             context.entry.queue_id,
             error=result.reason,
             metadata_update=metadata_update,
         )
         return
     dependencies.mark_failed(
-        cfg.runtime.allowed_root,
+        str(queue_root),
         context.entry.queue_id,
         error=result.reason,
         metadata_update=metadata_update,
@@ -334,11 +340,13 @@ def process_dequeued_entry(
     cfg: Any,
     entry: Any,
     *,
+    queue_root: Path | None = None,
     auto_organize: bool,
     resource_caps: Callable[[Any], dict[str, int]],
     molecule_key_resolver: Callable[[Any, Path, Path], str],
     dependencies: WorkerExecutionDependencies,
 ) -> WorkerExecutionOutcome:
+    active_queue_root = queue_root or Path(str(cfg.runtime.allowed_root)).expanduser().resolve()
     context = _build_execution_context(
         cfg,
         entry,
@@ -377,7 +385,7 @@ def process_dequeued_entry(
                 result = dependencies.finalize_crest_job(running)
                 break
 
-            if dependencies.get_cancel_requested(cfg.runtime.allowed_root, entry.queue_id):
+            if dependencies.get_cancel_requested(str(active_queue_root), entry.queue_id):
                 dependencies.terminate_process(running.process)
                 result = dependencies.finalize_crest_job(
                     running,
@@ -413,7 +421,7 @@ def process_dequeued_entry(
         )
 
     dependencies.write_execution_artifacts(entry, result)
-    _mark_queue_terminal(cfg, context, result, dependencies=dependencies)
+    _mark_queue_terminal(active_queue_root, context, result, dependencies=dependencies)
     organized_output_dir = _sync_job_tracking(
         cfg,
         context,

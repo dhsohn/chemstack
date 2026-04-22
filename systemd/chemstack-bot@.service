@@ -10,7 +10,7 @@ User=%i
 WorkingDirectory=/home/%i/chemstack
 Environment=PYTHONUNBUFFERED=1
 Environment=CHEMSTACK_CONFIG=/home/%i/chemstack/config/chemstack.yaml
-ExecStart=/home/%i/chemstack/.venv/bin/python -m chemstack.cli bot
+ExecStart=/home/%i/chemstack/.venv/bin/python -m chemstack.services.bot
 Restart=always
 RestartSec=5
 

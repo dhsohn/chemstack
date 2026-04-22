@@ -4,8 +4,13 @@ import shutil
 from pathlib import Path
 from typing import Any
 
-from chemstack.core.paths import ensure_directory, is_subpath, validate_job_dir
+from chemstack.core.paths import ensure_directory, is_subpath
 from chemstack.core.utils import now_utc_iso
+from chemstack.flow.state import (
+    iter_workflow_runtime_workspaces,
+    workflow_workspace_internal_engine_paths,
+    workflow_workspace_internal_engine_paths_from_path,
+)
 
 from ..config import load_config
 from ..notifications import notify_organize_summary
@@ -19,6 +24,46 @@ from ..state import (
     write_state,
 )
 from ..tracking import is_terminal_status, molecule_key_from_selected_xyz, upsert_job_record
+from ._helpers import resolve_job_dir
+
+
+def _workflow_runtime_paths(cfg: Any, path: Path) -> dict[str, Path] | None:
+    workflow_root = str(getattr(cfg, "workflow_root", "")).strip()
+    if not workflow_root:
+        return None
+    return workflow_workspace_internal_engine_paths_from_path(
+        path,
+        workflow_root=workflow_root,
+        engine="crest",
+    )
+
+
+def _resolved_organized_root(cfg: Any, job_dir: Path) -> Path:
+    runtime_paths = _workflow_runtime_paths(cfg, job_dir)
+    if runtime_paths is not None:
+        return runtime_paths["organized_root"].expanduser().resolve()
+    return Path(cfg.runtime.organized_root).expanduser().resolve()
+
+
+def _default_scan_roots(cfg: Any) -> list[Path]:
+    workflow_root = str(getattr(cfg, "workflow_root", "")).strip()
+    if not workflow_root:
+        return [Path(cfg.runtime.allowed_root).expanduser().resolve()]
+
+    roots: list[Path] = []
+    for workspace_dir in iter_workflow_runtime_workspaces(workflow_root, engine="crest"):
+        candidate = workflow_workspace_internal_engine_paths(workspace_dir, engine="crest")["allowed_root"].expanduser().resolve()
+        if candidate not in roots:
+            roots.append(candidate)
+    return roots
+
+
+def _is_supported_scan_root(cfg: Any, root: Path) -> bool:
+    runtime_paths = _workflow_runtime_paths(cfg, root)
+    if runtime_paths is not None:
+        return is_subpath(root, runtime_paths["allowed_root"])
+    allowed_root = Path(cfg.runtime.allowed_root).expanduser().resolve()
+    return is_subpath(root, allowed_root)
 
 
 def _resolve_scope(cfg: Any, args: Any) -> tuple[Path | None, Path | None]:
@@ -29,16 +74,20 @@ def _resolve_scope(cfg: Any, args: Any) -> tuple[Path | None, Path | None]:
         raise ValueError("job directory target and --root are mutually exclusive")
 
     if raw_job_dir:
-        return validate_job_dir(raw_job_dir, cfg.runtime.allowed_root, label="Job directory"), None
+        return resolve_job_dir(cfg, raw_job_dir), None
 
     if raw_root:
         root = ensure_directory(raw_root, label="Scan root")
-        allowed_root = Path(cfg.runtime.allowed_root).expanduser().resolve()
-        if not is_subpath(root, allowed_root):
+        if not _is_supported_scan_root(cfg, root):
+            workflow_root = str(getattr(cfg, "workflow_root", "")).strip()
+            if workflow_root:
+                allowed_root = Path(workflow_root).expanduser().resolve()
+            else:
+                allowed_root = Path(cfg.runtime.allowed_root).expanduser().resolve()
             raise ValueError(f"Scan root must be under allowed_root: {allowed_root}")
         return None, root
 
-    return None, Path(cfg.runtime.allowed_root).expanduser().resolve()
+    return None, None
 
 
 def _iter_candidate_job_dirs(root: Path) -> list[Path]:
@@ -46,8 +95,8 @@ def _iter_candidate_job_dirs(root: Path) -> list[Path]:
     return [path.parent.resolve() for path in state_files]
 
 
-def _planned_target(cfg: Any, *, job_id: str, mode: str, molecule_key: str) -> Path:
-    organized_root = Path(cfg.runtime.organized_root).expanduser().resolve()
+def _planned_target_for_job_dir(cfg: Any, *, job_dir: Path, job_id: str, mode: str, molecule_key: str) -> Path:
+    organized_root = _resolved_organized_root(cfg, job_dir)
     return organized_root / mode / molecule_key / job_id
 
 
@@ -110,9 +159,15 @@ def _collect_plan_for_dir(cfg: Any, job_dir: Path) -> dict[str, Any]:
     resource_actual = state.get("resource_actual", {})
     mode = str(state.get("mode", "standard")).strip().lower() or "standard"
     molecule_key = molecule_key_from_selected_xyz(selected_input_xyz, job_dir)
-    target_dir = _planned_target(cfg, job_id=job_id, mode=mode, molecule_key=molecule_key)
+    target_dir = _planned_target_for_job_dir(
+        cfg,
+        job_dir=job_dir,
+        job_id=job_id,
+        mode=mode,
+        molecule_key=molecule_key,
+    )
 
-    organized_root = Path(cfg.runtime.organized_root).expanduser().resolve()
+    organized_root = _resolved_organized_root(cfg, job_dir)
     if is_subpath(job_dir, organized_root):
         return {"action": "skip", "job_dir": str(job_dir), "reason": "already_under_organized_root"}
 
@@ -217,9 +272,15 @@ def cmd_organize(args: Any) -> int:
     if job_dir is not None:
         candidates = [job_dir]
     else:
-        if root is None:
-            raise ValueError("Scan root could not be resolved.")
-        candidates = _iter_candidate_job_dirs(root)
+        scan_roots = [root] if root is not None else _default_scan_roots(cfg)
+        candidates = sorted(
+            {
+                candidate
+                for scan_root in scan_roots
+                for candidate in _iter_candidate_job_dirs(scan_root)
+            },
+            key=lambda path: str(path).lower(),
+        )
     plans = [_collect_plan_for_dir(cfg, candidate) for candidate in candidates]
 
     to_organize = [item for item in plans if item["action"] == "organize"]
@@ -260,6 +321,6 @@ def cmd_organize(args: Any) -> int:
         cfg,
         organized_count=len(organized),
         skipped_count=len(skipped) + len(failures),
-        root=root or job_dir or Path(cfg.runtime.allowed_root).expanduser().resolve(),
+        root=root or job_dir or Path(str(getattr(cfg, "workflow_root", "")).strip() or cfg.runtime.allowed_root).expanduser().resolve(),
     )
     return 0 if not failures else 1

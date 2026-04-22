@@ -8,6 +8,7 @@ import yaml
 
 from chemstack.core.paths import validate_job_dir
 from chemstack.core.utils import now_utc_iso, timestamped_token
+from chemstack.flow.state import workflow_workspace_internal_engine_paths_from_path
 
 from ..config import AppConfig
 
@@ -71,6 +72,20 @@ def select_input_xyz(job_dir: Path, manifest: dict[str, Any]) -> Path:
 
 
 def resolve_job_dir(cfg: AppConfig, raw_job_dir: str) -> Path:
+    candidate = Path(raw_job_dir).expanduser().resolve()
+    workflow_root = str(getattr(cfg, "workflow_root", "")).strip()
+    if workflow_root:
+        runtime_paths = workflow_workspace_internal_engine_paths_from_path(
+            candidate,
+            workflow_root=workflow_root,
+            engine="crest",
+        )
+        if runtime_paths is None:
+            raise ValueError(
+                "Job directory must be under a workflow-local CREST runs root: "
+                "<workflow.root>/<workflow_id>/internal/crest/runs/..."
+            )
+        return validate_job_dir(raw_job_dir, str(runtime_paths["allowed_root"]), label="Job directory")
     return validate_job_dir(raw_job_dir, cfg.runtime.allowed_root, label="Job directory")
 
 

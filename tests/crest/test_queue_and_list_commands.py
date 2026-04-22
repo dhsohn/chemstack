@@ -15,8 +15,8 @@ from chemstack.crest.commands import list_jobs, queue as queue_cmd
 @pytest.fixture
 def command_env(tmp_path: Path) -> SimpleNamespace:
     workflow_root = tmp_path / "workflow_root"
-    allowed_root = workflow_root / "internal" / "crest" / "runs"
-    organized_root = workflow_root / "internal" / "crest" / "outputs"
+    allowed_root = workflow_root / "wf_001" / "internal" / "crest" / "runs"
+    organized_root = workflow_root / "wf_001" / "internal" / "crest" / "outputs"
     admission_root = tmp_path / "admission_root"
     allowed_root.mkdir(parents=True)
     organized_root.mkdir(parents=True)

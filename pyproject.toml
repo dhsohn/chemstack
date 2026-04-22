@@ -50,6 +50,9 @@ dev = [
     "types-PyYAML>=6.0.12",
 ]
 
+[project.scripts]
+chemstack = "chemstack.cli:main"
+
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["chemstack*"]

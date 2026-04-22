@@ -4,7 +4,12 @@ import re
 from pathlib import Path
 from typing import Any
 
-from chemstack.core.indexing import JobLocationRecord, get_job_location, resolve_job_location, upsert_job_location
+from chemstack.core.indexing import JobLocationRecord, get_job_location, list_job_locations, resolve_job_location, upsert_job_location
+from chemstack.flow.state import (
+    iter_workflow_runtime_workspaces,
+    workflow_workspace_internal_engine_paths,
+    workflow_workspace_internal_engine_paths_from_path,
+)
 
 from .config import AppConfig
 from .state import load_organized_ref, load_report_json, load_state
@@ -19,6 +24,70 @@ def _normalize_text(value: Any) -> str:
 
 def index_root_for_cfg(cfg: AppConfig) -> Path:
     return Path(cfg.runtime.allowed_root).expanduser().resolve()
+
+
+def runtime_roots_for_cfg(cfg: AppConfig) -> tuple[Path, ...]:
+    workflow_root = _normalize_text(getattr(cfg, "workflow_root", ""))
+    if not workflow_root:
+        return (index_root_for_cfg(cfg),)
+
+    roots: list[Path] = []
+
+    for workspace_dir in iter_workflow_runtime_workspaces(workflow_root, engine="xtb"):
+        runtime_paths = workflow_workspace_internal_engine_paths(workspace_dir, engine="xtb")
+        candidate = runtime_paths["allowed_root"].expanduser().resolve()
+        if candidate not in roots:
+            roots.append(candidate)
+    return tuple(roots)
+
+
+def index_root_for_path(
+    cfg: AppConfig,
+    *paths: str | Path | None,
+) -> Path:
+    workflow_root = _normalize_text(getattr(cfg, "workflow_root", ""))
+    if workflow_root:
+        for raw_path in paths:
+            text = _normalize_text(raw_path)
+            if not text:
+                continue
+            runtime_paths = workflow_workspace_internal_engine_paths_from_path(
+                text,
+                workflow_root=workflow_root,
+                engine="xtb",
+            )
+            if runtime_paths is None:
+                continue
+            return runtime_paths["allowed_root"].expanduser().resolve()
+    return index_root_for_cfg(cfg)
+
+
+def _lookup_roots_for_target(cfg: AppConfig, target: str) -> tuple[Path, ...]:
+    roots = list(runtime_roots_for_cfg(cfg))
+    specific_root = index_root_for_path(cfg, target)
+    if specific_root in roots:
+        roots.remove(specific_root)
+        roots.insert(0, specific_root)
+    return tuple(roots)
+
+
+def list_job_records_for_cfg(cfg: AppConfig) -> list[tuple[Path, JobLocationRecord]]:
+    rows: list[tuple[Path, JobLocationRecord]] = []
+    for root in runtime_roots_for_cfg(cfg):
+        for record in list_job_locations(root):
+            rows.append((root, record))
+    return rows
+
+
+def resolve_job_location_for_cfg(
+    cfg: AppConfig,
+    target: str,
+) -> tuple[Path | None, JobLocationRecord | None]:
+    for root in _lookup_roots_for_target(cfg, target):
+        record = resolve_job_location(root, target)
+        if record is not None:
+            return root, record
+    return None, None
 
 
 def job_type_identifier(job_type: str) -> str:
@@ -114,7 +183,7 @@ def upsert_job_record(
     resource_request: dict[str, int] | None = None,
     resource_actual: dict[str, int] | None = None,
 ) -> JobLocationRecord:
-    root = index_root_for_cfg(cfg)
+    root = index_root_for_path(cfg, job_dir, organized_output_dir)
     existing = get_job_location(root, job_id)
     record = build_job_location_record(
         existing=existing,
@@ -163,6 +232,21 @@ def load_job_artifacts(
     if job_dir is None:
         return None, None, None
     return job_dir, load_state(job_dir), load_report_json(job_dir)
+
+
+def load_job_artifacts_for_cfg(
+    cfg: AppConfig,
+    target: str,
+) -> tuple[Path | None, dict[str, Any] | None, dict[str, Any] | None, JobLocationRecord | None]:
+    resolved_record: JobLocationRecord | None = None
+    for root in _lookup_roots_for_target(cfg, target):
+        record = resolve_job_location(root, target)
+        job_dir = resolve_latest_job_dir(root, target)
+        if job_dir is None:
+            continue
+        resolved_record = record
+        return job_dir, load_state(job_dir), load_report_json(job_dir), resolved_record
+    return None, None, None, resolved_record
 
 
 def is_terminal_status(status: str) -> bool:

@@ -26,14 +26,14 @@ Current intended semantics:
 - Successful queue submission returns `status: queued`
 - Public `run-dir` does not launch ORCA directly for new work
 - App-managed background execution has been removed
-- The queue worker is a foreground process intended to run under external supervision
+- The queue worker runs under external supervision
 - On WSL, the recommended supervisor is `systemd`
 
 Operational consequences:
 
 - Closing the submission terminal after `status: queued` is safe
 - If the worker is down, the job remains in `queue.json` until the worker returns
-- Worker stop/start is managed by `systemctl` or the terminal that owns the foreground worker
+- Worker stop/start is managed by `systemctl`
 
 ## 3) Directory Structure
 
@@ -55,7 +55,6 @@ Operational consequences:
         ...
   systemd/
     chemstack-queue-worker@.service
-    chemstack-orca-queue-worker@.service
     chemstack-flow-workflow-worker.service
     chemstack-flow-worker.env.example
   scripts/*.sh / *.py
@@ -86,15 +85,13 @@ bash scripts/bootstrap_wsl.sh
 - Installs Python dependencies and the repository itself into `.venv`
 - Seeds `config/chemstack.yaml` if missing
 
-This reference standardizes on `python -m chemstack.cli ...` for public
+This reference standardizes on `chemstack ...` for public
 commands:
 
 - `queue list`
 - `queue cancel`
-- `queue worker`
 - `run-dir <path>`
 - `init`
-- `bot`
 - `scaffold <ts_search|conformer_search>`
 - `organize orca`
 - `summary orca`
@@ -102,7 +99,7 @@ commands:
 Only the ORCA-specific CLI remains public as a compatibility wrapper. ORCA-only
 commands that are not yet unified, such as `monitor`, still live
 under `python -m chemstack.orca.cli ...`.
-Activate `.venv` first, or call `.venv/bin/python -m chemstack.cli ...` directly.
+Activate `.venv` first, or call `.venv/bin/chemstack ...` directly.
 By default, config is resolved from `CHEMSTACK_CONFIG`, then `<repo_root>/config/chemstack.yaml`, then `~/chemstack/config/chemstack.yaml`.
 Add `--config <path>` only when you want to override default config discovery.
 
@@ -157,7 +154,8 @@ Field descriptions for the `orca` section:
 - `workflow.root`: Workflow root for workflow creation, activity inspection, and the integrated workflow worker
 - `workflow.paths.xtb_executable`: xTB executable path used by workflow-managed internal stages
 - `workflow.paths.crest_executable`: CREST executable path used by workflow-managed internal stages
-- Internal xTB/CREST runtime roots are derived under `workflow.root/internal/<engine>/{runs,outputs}`
+- Internal xTB/CREST runtimes no longer use a shared `workflow.root/internal/<engine>/...` root
+- Workflow-managed xTB/CREST job dirs, per-workflow queues/indexes, and organized outputs are stored only under `workflow.root/<workflow_id>/internal/<engine>/{runs,outputs}`
 - `paths.orca_executable`: ORCA executable path
 
 Notes:
@@ -167,8 +165,8 @@ Notes:
 
 ## 7) CLI Usage
 
-All public queue, submission, scaffold, organization, summary, and bot commands
-should be documented through `python -m chemstack.cli ...`.
+All public queue, submission, scaffold, organization, and summary commands
+should be documented through `chemstack ...`.
 
 Compatibility note:
 
@@ -179,7 +177,7 @@ Compatibility note:
 ### 7.1 `init`
 
 ```bash
-python -m chemstack.cli init
+chemstack init
 ```
 
 Behavior:
@@ -191,8 +189,8 @@ Behavior:
 
 ```bash
 cd <repo_root>
-python -m chemstack.cli run-dir '/absolute/path/to/orca_runs/Int1_DMSO'
-python -m chemstack.cli run-dir '/absolute/path/to/workflow_inputs/reaction_case'
+chemstack run-dir '/absolute/path/to/orca_runs/Int1_DMSO'
+chemstack run-dir '/absolute/path/to/workflow_inputs/reaction_case'
 ```
 
 Successful ORCA submission example:
@@ -232,51 +230,23 @@ Workflow notes:
 
 There is no public direct-execution mode for new work. `run-dir` is the durable submission path.
 
-### 7.3 `queue worker`
+### 7.3 `queue cancel`
 
 ```bash
-python -m chemstack.cli queue worker
-python -m chemstack.cli queue worker --app orca
-python -m chemstack.cli queue worker --app workflow
-python -m chemstack.cli runtime
-```
-
-Behavior:
-
-- Runs in the foreground
-- Polls engine queues for pending jobs
-- Enforces `scheduler.max_active_simulations` under `scheduler.admission_root`
-- Supervises ORCA by default
-- Also starts the workflow worker when `workflow.root` is set in `chemstack.yaml`
-- When workflow supervision is active, the internal CREST and xTB workers are started automatically
-- `workflow.root` is the supported workflow-root source for the public CLI
-- Requeues in-flight jobs during controlled shutdown
-- `runtime` uses the same worker stack but also supervises the unified Telegram bot in a sibling process
-
-Use cases:
-
-- Manual supervised execution in a dedicated terminal
-- `systemd`-managed execution on WSL or Linux
-
-There is no supported app-managed `--daemon` mode in the intended workflow. There is also no public `queue stop`; stop the service with `systemctl` or interrupt the foreground worker directly.
-
-### 7.4 `queue cancel`
-
-```bash
-python -m chemstack.cli queue cancel q_20260403_151220_ab12cd
-python -m chemstack.cli queue cancel /absolute/path/to/orca_runs/Int1_DMSO
+chemstack queue cancel q_20260403_151220_ab12cd
+chemstack queue cancel /absolute/path/to/orca_runs/Int1_DMSO
 ```
 
 `queue cancel` accepts workflow ids for whole-workflow cancellation plus queue ids, run ids,
 and known path aliases for individual jobs.
 
-### 7.5 `queue list`
+### 7.4 `queue list`
 
 ```bash
-python -m chemstack.cli queue list
-python -m chemstack.cli queue list --engine orca
-python -m chemstack.cli queue list --status pending
-python -m chemstack.cli queue list --engine xtb
+chemstack queue list
+chemstack queue list --engine orca
+chemstack queue list --status pending
+chemstack queue list --engine xtb
 ```
 
 `queue list` shows workflow and engine activity in one view, but workflow child simulations
@@ -284,11 +254,11 @@ are rendered underneath their parent workflow with indentation. Standalone ORCA 
 top-level entries. The `active_simulations` line counts only the currently running
 simulations that consume the shared `scheduler.max_active_simulations` slots.
 
-### 7.6 `organize`
+### 7.5 `organize`
 
 ```bash
-python -m chemstack.cli organize orca --root '/absolute/path/to/orca_runs'
-python -m chemstack.cli organize orca --root '/absolute/path/to/orca_runs' --apply
+chemstack organize orca --root '/absolute/path/to/orca_runs'
+chemstack organize orca --root '/absolute/path/to/orca_runs' --apply
 ```
 
 Options:
@@ -298,31 +268,27 @@ Options:
 - `organize orca --rebuild-index`: Rebuild the ORCA JSONL index
 - `--apply`: Perform actual moves; otherwise the command is a dry run
 
-### 7.7 `summary`
+### 7.6 `summary`
 
 ```bash
-python -m chemstack.cli summary orca --no-send
+chemstack summary orca --no-send
 ```
 
 Behavior:
 
 - `summary orca` prints or sends the ORCA Telegram digest
 
-### 7.8 `bot`
+### 7.7 Long-Running Services
 
-```bash
-python -m chemstack.cli bot
-python -m chemstack.cli bot --config '/absolute/path/to/chemstack.yaml'
-```
+Long-running worker and Telegram bot processes are managed through `systemd`
+only. Public CLI commands do not start those services directly.
 
 Behavior:
 
-- Starts the unified Telegram bot using `telegram.bot_token` and `telegram.chat_id` from `chemstack.yaml`
-- Reuses the unified workflow activity layer, so `/list` shows workflow parents with indented child jobs while standalone ORCA jobs remain top-level
-- `/cancel` can target either a workflow or an individual job
-- Reads `workflow.root` from `chemstack.yaml` for workflow-side activity discovery
-- Falls back to `CHEM_FLOW_TELEGRAM_BOT_TOKEN` and `CHEM_FLOW_TELEGRAM_CHAT_ID` when Telegram settings are not present in config
-- For unattended WSL/Linux use, prefer `chemstack-bot@.service` or `chemstack-runtime@.target` under `systemd/`
+- `chemstack-queue-worker@.service` supervises ORCA by default
+- If `workflow.root` is set, the same worker service also starts workflow supervision plus the internal CREST and xTB workers
+- `chemstack-bot@.service` starts the unified Telegram bot using `telegram.bot_token` and `telegram.chat_id` from `chemstack.yaml`
+- `chemstack-runtime@.target` starts both services together
 
 ## 8) WSL systemd Setup
 
@@ -344,7 +310,6 @@ This repository includes service assets under `systemd/`:
 - [`systemd/chemstack-runtime@.target`](/home/daehyupsohn/chemstack/systemd/chemstack-runtime@.target)
 - [`systemd/chemstack-queue-worker@.service`](/home/daehyupsohn/chemstack/systemd/chemstack-queue-worker@.service)
 - [`systemd/chemstack-bot@.service`](/home/daehyupsohn/chemstack/systemd/chemstack-bot@.service)
-- [`systemd/chemstack-orca-queue-worker@.service`](/home/daehyupsohn/chemstack/systemd/chemstack-orca-queue-worker@.service)
 - [`systemd/chemstack-flow-workflow-worker.service`](/home/daehyupsohn/chemstack/systemd/chemstack-flow-workflow-worker.service)
 - [`systemd/chemstack-flow-worker.env.example`](/home/daehyupsohn/chemstack/systemd/chemstack-flow-worker.env.example)
 
@@ -385,10 +350,6 @@ internal engine stages.
 If you only want unattended execution without the Telegram bot, enable
 `chemstack-queue-worker@$(whoami)` directly instead of the combined runtime
 target.
-
-If you still need split services, the compatibility templates remain available:
-
-- [`systemd/chemstack-orca-queue-worker@.service`](/home/daehyupsohn/chemstack/systemd/chemstack-orca-queue-worker@.service)
 
 For the workflow worker:
 
@@ -575,7 +536,7 @@ least these fields:
 
 ## 12) Recommended Workflow
 
-1. Ensure the worker service is active, or start `queue worker` in a dedicated terminal
+1. Ensure the worker service is active under `systemd`
 2. Submit with `run-dir`
 3. Confirm `status: queued`
 4. Close the submission terminal if desired

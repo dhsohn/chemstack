@@ -38,6 +38,26 @@ def activity_with_parent_hint(item: dict[str, Any]) -> dict[str, Any]:
     return enriched
 
 
+def activity_display_fields(item: dict[str, Any]) -> list[tuple[str, str]]:
+    fields: list[tuple[str, str]] = []
+    if normalize_text(item.get("kind")).lower() != "workflow":
+        return fields
+
+    metadata = item.get("metadata")
+    if not isinstance(metadata, dict):
+        return fields
+
+    template_name = normalize_text(metadata.get("template_name"))
+    if template_name:
+        fields.append(("template", template_name))
+
+    current_engine = normalize_text(metadata.get("current_engine"))
+    if current_engine and current_engine != "workflow":
+        fields.append(("current_engine", current_engine))
+
+    return fields
+
+
 def count_active_simulations(items: Sequence[dict[str, Any]]) -> int:
     total = 0
     for item in items:

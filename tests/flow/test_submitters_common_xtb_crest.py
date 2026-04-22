@@ -222,13 +222,12 @@ def test_sibling_runtime_paths_derives_internal_engine_roots_from_workflow_root(
     )
 
     assert common.sibling_runtime_paths(str(config_path), engine="xtb") == {
-        "allowed_root": (workflow_root / "internal" / "xtb" / "runs").resolve(),
-        "organized_root": (workflow_root / "internal" / "xtb" / "outputs").resolve(),
+        "workflow_root": workflow_root.resolve(),
+        "allowed_root": workflow_root.resolve(),
+        "organized_root": workflow_root.resolve(),
         "admission_root": admission_root.resolve(),
     }
-    assert common.sibling_allowed_root(str(config_path), engine="crest") == (
-        workflow_root / "internal" / "crest" / "runs"
-    ).resolve()
+    assert common.sibling_allowed_root(str(config_path), engine="crest") == workflow_root.resolve()
 
 
 @pytest.mark.parametrize(

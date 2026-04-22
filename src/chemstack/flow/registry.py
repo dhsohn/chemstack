@@ -17,6 +17,7 @@ WORKFLOW_REGISTRY_FILE_NAME = "workflow_registry.json"
 WORKFLOW_REGISTRY_LOCK_NAME = "workflow_registry.lock"
 WORKFLOW_JOURNAL_FILE_NAME = "workflow_registry.journal.jsonl"
 WORKFLOW_WORKER_STATE_FILE_NAME = "workflow_worker_state.json"
+_TERMINAL_WORKFLOW_STATUSES = frozenset({"completed", "failed", "cancelled", "cancel_failed"})
 DEFAULT_NOTIFICATION_EVENT_TYPES = frozenset(
     {
         "workflow_status_changed",
@@ -504,6 +505,36 @@ def list_workflow_registry(workflow_root: str | Path, *, reindex_if_missing: boo
     return reindex_workflow_registry(resolved_root)
 
 
+def clear_terminal_workflow_registry(
+    workflow_root: str | Path,
+    *,
+    statuses: set[str] | frozenset[str] | None = None,
+) -> int:
+    resolved_root = Path(workflow_root).expanduser().resolve()
+    if not _registry_path(resolved_root).exists():
+        return 0
+
+    target_statuses = {
+        _normalize_text(status).lower()
+        for status in (statuses or _TERMINAL_WORKFLOW_STATUSES)
+        if _normalize_text(status)
+    }
+    if not target_statuses:
+        return 0
+
+    with file_lock(_registry_lock_path(resolved_root)):
+        records = _load_records(resolved_root)
+        kept_records = [
+            record
+            for record in records
+            if _normalize_text(record.status).lower() not in target_statuses
+        ]
+        removed_count = len(records) - len(kept_records)
+        if removed_count > 0:
+            _save_records(resolved_root, kept_records)
+        return removed_count
+
+
 def get_workflow_registry_record(workflow_root: str | Path, workflow_id: str) -> WorkflowRegistryRecord | None:
     target = _normalize_text(workflow_id)
     if not target:
@@ -544,6 +575,7 @@ __all__ = [
     "WORKFLOW_WORKER_STATE_FILE_NAME",
     "WorkflowRegistryRecord",
     "append_workflow_journal_event",
+    "clear_terminal_workflow_registry",
     "get_workflow_registry_record",
     "list_workflow_journal",
     "list_workflow_registry",

@@ -94,7 +94,7 @@ def test_build_conformer_screening_plan_materializes_orca_stages(
         priority=7,
     )
 
-    workspace_dir = tmp_path / "workflows" / "wf_conformer_screening_1"
+    workspace_dir = tmp_path / "wf_conformer_screening_1"
     assert payload["workflow_id"] == "wf_conformer_screening_1"
     assert payload["metadata"]["workspace_dir"] == str(workspace_dir)
     assert payload["metadata"]["request"]["parameters"] == {
@@ -170,7 +170,7 @@ def test_build_conformer_screening_plan_from_target_accepts_nci_contracts(
         priority=9,
     )
 
-    workspace_dir = tmp_path / "workflows" / "wf_conformer_screening_nci"
+    workspace_dir = tmp_path / "wf_conformer_screening_nci"
     assert payload["workflow_id"] == "wf_conformer_screening_nci"
     assert payload["stages"][0]["stage_id"] == "orca_conformer_01"
     assert sync_calls == [
@@ -274,7 +274,7 @@ def test_build_reaction_ts_search_plan_materializes_orca_stage_and_syncs_registr
         priority=15,
     )
 
-    workspace_dir = tmp_path / "workflows" / "wf_reaction_ts_1"
+    workspace_dir = tmp_path / "wf_reaction_ts_1"
     stage = payload["stages"][0]
     stage_dir = workspace_dir / "stage_03_orca" / "01_ts_guess"
     assert payload["workflow_id"] == "wf_reaction_ts_1"

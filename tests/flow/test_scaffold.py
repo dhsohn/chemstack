@@ -36,7 +36,7 @@ def test_cmd_scaffold_creates_reaction_workflow_scaffold(tmp_path: Path, capsys:
     assert "crest_mode: standard" in output
     assert "created_file: reactant.xyz" in output
     assert "created_file: product.xyz" in output
-    assert "python -m chemstack.cli scaffold ts_search" in readme
+    assert "chemstack scaffold ts_search" in readme
     assert "crest_mode: nci" in readme
     assert "queues one ORCA OptTS child job for each xTB ts_guess" in readme
 

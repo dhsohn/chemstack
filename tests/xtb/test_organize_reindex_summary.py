@@ -167,7 +167,7 @@ def test_cmd_reindex_scans_allowed_and_organized_roots(
 
     captured = capsys.readouterr().out
     assert exit_code == 0
-    assert f"index_root: {Path(cfg.runtime.allowed_root).resolve()}" in captured
+    assert "index_roots: 1" in captured
     assert "scan_roots: 2" in captured
     assert "candidate_dirs: 2" in captured
     assert "indexed: 2" in captured

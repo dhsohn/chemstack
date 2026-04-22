@@ -62,7 +62,7 @@ def test_workflow_file_helpers_and_resolution_support_direct_and_root_targets(tm
 
     written_path = write_workflow_payload(workspace, payload)
 
-    assert workflow_root_dir(workflow_root) == (workflow_root.resolve() / "workflows")
+    assert workflow_root_dir(workflow_root) == workflow_root.resolve()
     assert written_path == workspace.resolve() / WORKFLOW_FILE_NAME
     assert workflow_file_path(workspace) == workspace.resolve() / WORKFLOW_FILE_NAME
     assert workflow_lock_path(workspace) == workspace.resolve() / WORKFLOW_LOCK_NAME

@@ -1,12 +1,8 @@
 """Queue worker foreground loop for queue execution under an external supervisor.
 
-Usage::
-
-    python -m chemstack.cli queue worker --app orca
-
-The worker is intended to run in the foreground, typically under systemd in WSL.
-Each job is spawned in a dedicated child process so locking, state management,
-and signal handling remain centralized.
+This engine worker is launched by the unified ChemStack worker service under
+systemd. Each job is spawned in a dedicated child process so locking, state
+management, and signal handling remain centralized.
 """
 
 from __future__ import annotations

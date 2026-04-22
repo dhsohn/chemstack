@@ -18,17 +18,18 @@ from chemstack.core.app_ids import (
     LEGACY_ORCA_SOURCE,
 )
 from chemstack.core.config.files import default_config_path_from_repo_root, shared_workflow_root_from_config
-from chemstack.core.queue import list_queue
+from chemstack.core.queue import clear_terminal as clear_queue_terminal, list_queue
 from chemstack.core.queue.types import QueueEntry
 
-from .registry import list_workflow_registry, reindex_workflow_registry
-from .state import list_workflow_summaries
+from .registry import clear_terminal_workflow_registry, list_workflow_registry, reindex_workflow_registry
+from .state import iter_workflow_runtime_workspaces, iter_workflow_workspaces, list_workflow_summaries, workflow_workspace_internal_engine_paths
 from .submitters.common import normalize_text, sibling_runtime_paths
 from .submitters.crest_auto import cancel_target as cancel_crest_target
 from .submitters.orca_auto import cancel_target as cancel_orca_target
 from .submitters.xtb_auto import cancel_target as cancel_xtb_target
 
 _WORKFLOW_TERMINAL_STATUSES = frozenset({"completed", "failed", "cancelled"})
+_ACTIVITY_CLEARABLE_TERMINAL_STATUSES = frozenset({"completed", "failed", "cancelled", "cancel_failed"})
 _ORCA_ACTIVE_QUEUE_STATUSES = frozenset({"pending", "running"})
 def _project_root() -> Path:
     return Path(__file__).resolve().parents[3]
@@ -87,6 +88,39 @@ def _shared_config_hint(*configs: str | None) -> str | None:
         if text:
             return text
     return None
+
+
+def _resolve_activity_sources(
+    *,
+    workflow_root: str | Path | None = None,
+    crest_auto_config: str | None = None,
+    xtb_auto_config: str | None = None,
+    orca_auto_config: str | None = None,
+) -> tuple[str | None, str | None, str | None, str | None]:
+    shared_config_hint = _shared_config_hint(orca_auto_config, crest_auto_config, xtb_auto_config)
+    explicit_workflow_root = normalize_text(workflow_root)
+    resolved_workflow_root: str | None
+    if explicit_workflow_root:
+        resolved_workflow_root = str(Path(explicit_workflow_root).expanduser().resolve())
+    elif shared_config_hint:
+        resolved_workflow_root = shared_workflow_root_from_config(shared_config_hint)
+    else:
+        resolved_workflow_root = _discover_workflow_root(None)
+    resolved_crest_auto_config = _discover_sibling_config(
+        crest_auto_config or shared_config_hint,
+        app_name="crest_auto",
+    )
+    resolved_xtb_auto_config = _discover_sibling_config(
+        xtb_auto_config or shared_config_hint,
+        app_name="xtb_auto",
+    )
+    resolved_orca_auto_config = _discover_orca_config(orca_auto_config or shared_config_hint)
+    return (
+        resolved_workflow_root,
+        resolved_crest_auto_config,
+        resolved_xtb_auto_config,
+        resolved_orca_auto_config,
+    )
 
 
 def _discover_orca_repo_root(explicit: str | None) -> str | None:
@@ -235,7 +269,7 @@ def _workflow_records(*, workflow_root: str | Path, refresh: bool) -> list[Activ
             ActivityRecord(
                 activity_id=workflow_id,
                 kind="workflow",
-                engine=current_engine,
+                engine="workflow",
                 status=normalize_text(record.status) or "unknown",
                 label=label,
                 source="chem_flow",
@@ -251,6 +285,7 @@ def _workflow_records(*, workflow_root: str | Path, refresh: bool) -> list[Activ
                     "reaction_key": normalize_text(record.reaction_key),
                     "source_job_id": normalize_text(record.source_job_id),
                     "source_job_type": normalize_text(record.source_job_type),
+                    "current_engine": current_engine,
                     "current_stage_id": current_stage_id,
                     "current_stage_status": _mapping_text(current_stage, "status"),
                     "current_task_status": _mapping_text(current_stage, "task_status"),
@@ -277,57 +312,73 @@ def _runtime_paths_for_engine(config_path: str, *, engine: str) -> dict[str, Pat
         return sibling_runtime_paths(config_path)
 
 
+def _engine_queue_roots(config_path: str, *, engine: str) -> tuple[Path, ...]:
+    runtime_paths = _runtime_paths_for_engine(config_path, engine=engine)
+    if engine not in {"xtb", "crest"}:
+        roots: list[Path] = [runtime_paths["allowed_root"]]
+        return tuple(roots)
+
+    workflow_root = shared_workflow_root_from_config(config_path)
+    if not workflow_root:
+        return (runtime_paths["allowed_root"],)
+
+    roots: list[Path] = []
+
+    for workspace_dir in iter_workflow_runtime_workspaces(workflow_root, engine=engine):
+        runtime_root = workflow_workspace_internal_engine_paths(workspace_dir, engine=engine)["allowed_root"]
+        if runtime_root not in roots:
+            roots.append(runtime_root)
+    return tuple(roots)
+
+
 def _standalone_queue_records(
     *,
     app_name: str,
     engine: str,
     config_path: str,
 ) -> list[ActivityRecord]:
-    runtime_paths = _runtime_paths_for_engine(config_path, engine=engine)
-    allowed_root = runtime_paths["allowed_root"]
-    entries = list_queue(allowed_root)
-
     rows: list[ActivityRecord] = []
-    for entry in entries:
-        metadata = dict(entry.metadata)
-        path_text = normalize_text(metadata.get("job_dir")) or normalize_text(metadata.get("reaction_dir"))
-        label = (
-            normalize_text(metadata.get("reaction_key"))
-            or normalize_text(metadata.get("molecule_key"))
-            or normalize_text(Path(path_text).name if path_text else "")
-            or normalize_text(entry.task_id)
-            or normalize_text(entry.queue_id)
-        )
-        aliases = _unique_texts(
-            [
-                normalize_text(entry.queue_id),
-                normalize_text(entry.task_id),
-                *list(_path_aliases(path_text, root=allowed_root)),
-            ]
-        )
-        updated_at = normalize_text(entry.finished_at) or normalize_text(entry.started_at) or normalize_text(entry.enqueued_at)
-        rows.append(
-            ActivityRecord(
-                activity_id=normalize_text(entry.queue_id) or normalize_text(entry.task_id),
-                kind="job",
-                engine=engine,
-                status=_queue_entry_status(entry),
-                label=label,
-                source=app_name,
-                submitted_at=normalize_text(entry.enqueued_at),
-                updated_at=updated_at,
-                cancel_target=normalize_text(entry.queue_id),
-                aliases=aliases,
-                metadata={
-                    "queue_id": normalize_text(entry.queue_id),
-                    "task_id": normalize_text(entry.task_id),
-                    "task_kind": normalize_text(entry.task_kind),
-                    "job_dir": path_text,
-                    "allowed_root": str(allowed_root),
-                    "priority": int(entry.priority),
-                },
+    for allowed_root in _engine_queue_roots(config_path, engine=engine):
+        for entry in list_queue(allowed_root):
+            metadata = dict(entry.metadata)
+            path_text = normalize_text(metadata.get("job_dir")) or normalize_text(metadata.get("reaction_dir"))
+            label = (
+                normalize_text(metadata.get("reaction_key"))
+                or normalize_text(metadata.get("molecule_key"))
+                or normalize_text(Path(path_text).name if path_text else "")
+                or normalize_text(entry.task_id)
+                or normalize_text(entry.queue_id)
             )
-        )
+            aliases = _unique_texts(
+                [
+                    normalize_text(entry.queue_id),
+                    normalize_text(entry.task_id),
+                    *list(_path_aliases(path_text, root=allowed_root)),
+                ]
+            )
+            updated_at = normalize_text(entry.finished_at) or normalize_text(entry.started_at) or normalize_text(entry.enqueued_at)
+            rows.append(
+                ActivityRecord(
+                    activity_id=normalize_text(entry.queue_id) or normalize_text(entry.task_id),
+                    kind="job",
+                    engine=engine,
+                    status=_queue_entry_status(entry),
+                    label=label,
+                    source=app_name,
+                    submitted_at=normalize_text(entry.enqueued_at),
+                    updated_at=updated_at,
+                    cancel_target=normalize_text(entry.queue_id),
+                    aliases=aliases,
+                    metadata={
+                        "queue_id": normalize_text(entry.queue_id),
+                        "task_id": normalize_text(entry.task_id),
+                        "task_kind": normalize_text(entry.task_kind),
+                        "job_dir": path_text,
+                        "allowed_root": str(allowed_root),
+                        "priority": int(entry.priority),
+                    },
+                )
+            )
     return rows
 
 
@@ -574,24 +625,17 @@ def _collect_activity_records(
     orca_auto_config: str | None = None,
     orca_auto_repo_root: str | None = None,
 ) -> list[ActivityRecord]:
-    shared_config_hint = _shared_config_hint(orca_auto_config, crest_auto_config, xtb_auto_config)
-    explicit_workflow_root = normalize_text(workflow_root)
-    resolved_workflow_root: str | None
-    if explicit_workflow_root:
-        resolved_workflow_root = str(Path(explicit_workflow_root).expanduser().resolve())
-    elif shared_config_hint:
-        resolved_workflow_root = shared_workflow_root_from_config(shared_config_hint)
-    else:
-        resolved_workflow_root = _discover_workflow_root(None)
-    resolved_crest_auto_config = _discover_sibling_config(
-        crest_auto_config or shared_config_hint,
-        app_name="crest_auto",
+    (
+        resolved_workflow_root,
+        resolved_crest_auto_config,
+        resolved_xtb_auto_config,
+        resolved_orca_auto_config,
+    ) = _resolve_activity_sources(
+        workflow_root=workflow_root,
+        crest_auto_config=crest_auto_config,
+        xtb_auto_config=xtb_auto_config,
+        orca_auto_config=orca_auto_config,
     )
-    resolved_xtb_auto_config = _discover_sibling_config(
-        xtb_auto_config or shared_config_hint,
-        app_name="xtb_auto",
-    )
-    resolved_orca_auto_config = _discover_orca_config(orca_auto_config or shared_config_hint)
 
     rows: list[ActivityRecord] = []
     if normalize_text(resolved_workflow_root):
@@ -615,24 +659,17 @@ def list_activities(
     orca_auto_config: str | None = None,
     orca_auto_repo_root: str | None = None,
 ) -> dict[str, Any]:
-    shared_config_hint = _shared_config_hint(orca_auto_config, crest_auto_config, xtb_auto_config)
-    explicit_workflow_root = normalize_text(workflow_root)
-    resolved_workflow_root: str | None
-    if explicit_workflow_root:
-        resolved_workflow_root = str(Path(explicit_workflow_root).expanduser().resolve())
-    elif shared_config_hint:
-        resolved_workflow_root = shared_workflow_root_from_config(shared_config_hint)
-    else:
-        resolved_workflow_root = _discover_workflow_root(None)
-    resolved_crest_auto_config = _discover_sibling_config(
-        crest_auto_config or shared_config_hint,
-        app_name="crest_auto",
+    (
+        resolved_workflow_root,
+        resolved_crest_auto_config,
+        resolved_xtb_auto_config,
+        resolved_orca_auto_config,
+    ) = _resolve_activity_sources(
+        workflow_root=workflow_root,
+        crest_auto_config=crest_auto_config,
+        xtb_auto_config=xtb_auto_config,
+        orca_auto_config=orca_auto_config,
     )
-    resolved_xtb_auto_config = _discover_sibling_config(
-        xtb_auto_config or shared_config_hint,
-        app_name="xtb_auto",
-    )
-    resolved_orca_auto_config = _discover_orca_config(orca_auto_config or shared_config_hint)
     records = _collect_activity_records(
         workflow_root=resolved_workflow_root,
         refresh=refresh,
@@ -647,6 +684,67 @@ def list_activities(
     return {
         "count": len(records),
         "activities": [record.to_dict() for record in records],
+        "sources": {
+            "workflow_root": str(Path(workflow_root_text).expanduser().resolve()) if workflow_root_text else "",
+            "crest_auto_config": normalize_text(resolved_crest_auto_config),
+            "xtb_auto_config": normalize_text(resolved_xtb_auto_config),
+            "orca_auto_config": normalize_text(resolved_orca_auto_config),
+        },
+    }
+
+
+def clear_activities(
+    *,
+    workflow_root: str | Path | None = None,
+    crest_auto_config: str | None = None,
+    xtb_auto_config: str | None = None,
+    orca_auto_config: str | None = None,
+    orca_auto_repo_root: str | None = None,
+) -> dict[str, Any]:
+    del orca_auto_repo_root
+    (
+        resolved_workflow_root,
+        resolved_crest_auto_config,
+        resolved_xtb_auto_config,
+        resolved_orca_auto_config,
+    ) = _resolve_activity_sources(
+        workflow_root=workflow_root,
+        crest_auto_config=crest_auto_config,
+        xtb_auto_config=xtb_auto_config,
+        orca_auto_config=orca_auto_config,
+    )
+
+    cleared = {
+        "workflows": 0,
+        "xtb_queue_entries": 0,
+        "crest_queue_entries": 0,
+        "orca_queue_entries": 0,
+        "orca_run_states": 0,
+    }
+
+    if normalize_text(resolved_workflow_root):
+        cleared["workflows"] = clear_terminal_workflow_registry(
+            str(resolved_workflow_root),
+            statuses=_ACTIVITY_CLEARABLE_TERMINAL_STATUSES,
+        )
+    if normalize_text(resolved_xtb_auto_config):
+        for allowed_root in _engine_queue_roots(str(resolved_xtb_auto_config), engine="xtb"):
+            cleared["xtb_queue_entries"] += clear_queue_terminal(allowed_root)
+    if normalize_text(resolved_crest_auto_config):
+        for allowed_root in _engine_queue_roots(str(resolved_crest_auto_config), engine="crest"):
+            cleared["crest_queue_entries"] += clear_queue_terminal(allowed_root)
+    if normalize_text(resolved_orca_auto_config):
+        from chemstack.orca.commands.list_runs import clear_terminal_entries as clear_orca_terminal_entries
+
+        allowed_root = sibling_runtime_paths(str(resolved_orca_auto_config), engine="orca")["allowed_root"]
+        queue_count, run_count = clear_orca_terminal_entries(allowed_root)
+        cleared["orca_queue_entries"] += queue_count
+        cleared["orca_run_states"] += run_count
+
+    workflow_root_text = normalize_text(resolved_workflow_root)
+    return {
+        "total_cleared": sum(int(value) for value in cleared.values()),
+        "cleared": cleared,
         "sources": {
             "workflow_root": str(Path(workflow_root_text).expanduser().resolve()) if workflow_root_text else "",
             "crest_auto_config": normalize_text(resolved_crest_auto_config),
@@ -703,24 +801,17 @@ def cancel_activity(
     orca_auto_executable: str = CHEMSTACK_EXECUTABLE,
     orca_auto_repo_root: str | None = None,
 ) -> dict[str, Any]:
-    shared_config_hint = _shared_config_hint(orca_auto_config, crest_auto_config, xtb_auto_config)
-    explicit_workflow_root = normalize_text(workflow_root)
-    resolved_workflow_root: str | None
-    if explicit_workflow_root:
-        resolved_workflow_root = str(Path(explicit_workflow_root).expanduser().resolve())
-    elif shared_config_hint:
-        resolved_workflow_root = shared_workflow_root_from_config(shared_config_hint)
-    else:
-        resolved_workflow_root = _discover_workflow_root(None)
-    resolved_crest_auto_config = _discover_sibling_config(
-        crest_auto_config or shared_config_hint,
-        app_name="crest_auto",
+    (
+        resolved_workflow_root,
+        resolved_crest_auto_config,
+        resolved_xtb_auto_config,
+        resolved_orca_auto_config,
+    ) = _resolve_activity_sources(
+        workflow_root=workflow_root,
+        crest_auto_config=crest_auto_config,
+        xtb_auto_config=xtb_auto_config,
+        orca_auto_config=orca_auto_config,
     )
-    resolved_xtb_auto_config = _discover_sibling_config(
-        xtb_auto_config or shared_config_hint,
-        app_name="xtb_auto",
-    )
-    resolved_orca_auto_config = _discover_orca_config(orca_auto_config or shared_config_hint)
     record = _match_activity_record(
         _collect_activity_records(
             workflow_root=resolved_workflow_root,
@@ -805,5 +896,6 @@ def cancel_activity(
 __all__ = [
     "ActivityRecord",
     "cancel_activity",
+    "clear_activities",
     "list_activities",
 ]

@@ -16,10 +16,9 @@ python_bin="${CHEM_FLOW_PYTHON:-${repo_root}/.venv/bin/python}"
 
 args=(
   -m
-  chemstack.cli
-  queue
+  chemstack.flow.cli
+  workflow
   worker
-  --app workflow
 )
 
 shared_config="${CHEM_FLOW_CONFIG:-}"

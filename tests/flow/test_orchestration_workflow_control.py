@@ -56,7 +56,7 @@ def test_xtb_retry_helpers_and_job_writer_materialize_attempt_files(tmp_path: Pa
     metadata = cast(dict[str, Any], stage["metadata"])
     attempt = cast(list[dict[str, Any]], metadata["xtb_attempts"])[0]
 
-    assert job_path == tmp_path / "xtb_allowed" / "workflow_jobs" / "wf_01" / "xtb_path_search_01" / "retry_attempt_02"
+    assert job_path == tmp_path / "xtb_allowed" / "xtb_path_search_01" / "retry_attempt_02"
     assert (job_path / "reactants" / "r1.xyz").exists()
     assert (job_path / "products" / "p1.xyz").exists()
     assert (job_path / "path_retry_02.inp").read_text(encoding="utf-8").startswith("$path")
@@ -571,6 +571,7 @@ def test_sync_xtb_stage_submits_initial_attempt_and_records_handoff_metadata(
         xtb_auto_repo_root="/tmp/xtb_repo",
         submit_ready=True,
         workflow_id="wf_01",
+        workspace_dir=tmp_path / "workspace" / "wf_01",
     )
 
     metadata = stage["metadata"]
@@ -659,6 +660,7 @@ def test_sync_xtb_stage_retries_failed_handoff_when_retry_budget_remains(
         xtb_auto_repo_root="/tmp/xtb_repo",
         submit_ready=True,
         workflow_id="wf_02",
+        workspace_dir=tmp_path / "workspace" / "wf_02",
     )
 
     metadata = stage["metadata"]
@@ -731,6 +733,7 @@ def test_sync_xtb_stage_stops_retrying_after_limit_and_materializes_empty_candid
         xtb_auto_repo_root="/tmp/xtb_repo",
         submit_ready=True,
         workflow_id="wf_03",
+        workspace_dir=tmp_path / "workspace" / "wf_03",
     )
 
     metadata = stage["metadata"]

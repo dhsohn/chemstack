@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
-from chemstack.activity_view import count_global_active_simulations, queue_list_display_rows
+from chemstack.activity_view import activity_display_fields, count_global_active_simulations, queue_list_display_rows
 from chemstack.core.app_ids import (
     CHEMSTACK_REPO_ROOT_ENV_VAR,
     LEGACY_ORCA_REPO_ROOT_ENV_VAR,
@@ -22,7 +22,7 @@ from chemstack.core.config.files import shared_workflow_root_from_config
 import yaml
 
 from .activity import _discover_sibling_config, _discover_workflow_root
-from .operations import cancel_activity, list_activities
+from .operations import cancel_activity, clear_activities, list_activities
 
 logger = logging.getLogger(__name__)
 
@@ -194,6 +194,10 @@ def _format_activity_rows(rows: list[tuple[int, dict[str, Any]]], *, limit: int 
         status = escape_html(str(item.get("status", "-")).strip() or "-")
         label = escape_html(str(item.get("label", "-")).strip() or "-")
         source = escape_html(str(item.get("source", "-")).strip() or "-")
+        details = "".join(
+            f" {escape_html(key)}=<code>{escape_html(value)}</code>"
+            for key, value in activity_display_fields(item)
+        )
         lines.append(
             f"{indent_prefix}- <code>{activity_id}</code>"
             f" kind=<code>{kind}</code>"
@@ -201,6 +205,7 @@ def _format_activity_rows(rows: list[tuple[int, dict[str, Any]]], *, limit: int 
             f" status=<code>{status}</code>"
             f" label=<code>{label}</code>"
             f" source=<code>{source}</code>"
+            f"{details}"
         )
     if limit is not None and limit > 0 and len(rows) > limit:
         lines.append(f"... and {len(rows) - limit} more")
@@ -226,11 +231,42 @@ def _activity_counter_config_path(
 
 
 def _handle_list(settings: TelegramBotSettings, args: str) -> str:
+    action = args.strip().lower()
+    if action == "clear":
+        payload = clear_activities(
+            workflow_root=settings.workflow_root,
+            crest_auto_config=settings.crest_auto_config,
+            xtb_auto_config=settings.xtb_auto_config,
+            orca_auto_config=settings.orca_auto_config,
+            orca_auto_repo_root=settings.orca_auto_repo_root,
+        )
+        total_cleared = int(payload.get("total_cleared", 0) or 0)
+        if total_cleared <= 0:
+            return "Nothing to clear."
+
+        lines = [
+            f"\u2705 Cleared <code>{total_cleared}</code> completed/failed/cancelled entries."
+        ]
+        cleared = payload.get("cleared")
+        if isinstance(cleared, dict):
+            labels = (
+                ("workflows", "workflows"),
+                ("xtb_queue_entries", "xTB queue entries"),
+                ("crest_queue_entries", "CREST queue entries"),
+                ("orca_queue_entries", "ORCA queue entries"),
+                ("orca_run_states", "ORCA run states"),
+            )
+            for key, label in labels:
+                count = int(cleared.get(key, 0) or 0)
+                if count > 0:
+                    lines.append(f"{escape_html(label)}: <code>{count}</code>")
+        return "\n".join(lines)
+
     payload = _activity_payload(settings)
     all_rows = list(payload.get("activities", []))
     rows = list(all_rows)
 
-    filter_status = args.strip().lower()
+    filter_status = action
     if filter_status:
         rows = [item for item in rows if str(item.get("status", "")).strip().lower() == filter_status]
 
@@ -273,6 +309,7 @@ def _handle_help(settings: TelegramBotSettings, args: str) -> str:
     return (
         "<b>chem_flow bot commands</b>\n\n"
         "/list — Show unified activities\n"
+        "/list clear — Remove completed/failed/cancelled entries\n"
         "/list running — Running activities only\n"
         "/list failed — Failed activities only\n"
         "/cancel &lt;target&gt; — Cancel a workflow or standalone job\n"

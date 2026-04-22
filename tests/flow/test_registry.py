@@ -239,6 +239,55 @@ def test_maybe_notify_journal_event_sends_message_and_swallows_transport_errors(
     assert len(sent_messages) == 1
 
 
+def test_clear_terminal_workflow_registry_removes_only_terminal_rows(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(registry, "file_lock", _no_lock)
+
+    records = [
+        registry.WorkflowRegistryRecord(
+            workflow_id="wf-completed",
+            template_name="reaction_ts_search",
+            status="completed",
+            source_job_id="job-1",
+            source_job_type="reaction_ts_search",
+            reaction_key="rxn-1",
+            requested_at="2026-04-19T00:00:00+00:00",
+            workspace_dir="/tmp/wf-completed",
+            workflow_file="/tmp/wf-completed/workflow.json",
+        ),
+        registry.WorkflowRegistryRecord(
+            workflow_id="wf-running",
+            template_name="reaction_ts_search",
+            status="running",
+            source_job_id="job-2",
+            source_job_type="reaction_ts_search",
+            reaction_key="rxn-2",
+            requested_at="2026-04-19T00:01:00+00:00",
+            workspace_dir="/tmp/wf-running",
+            workflow_file="/tmp/wf-running/workflow.json",
+        ),
+        registry.WorkflowRegistryRecord(
+            workflow_id="wf-cancelled",
+            template_name="reaction_ts_search",
+            status="cancelled",
+            source_job_id="job-3",
+            source_job_type="reaction_ts_search",
+            reaction_key="rxn-3",
+            requested_at="2026-04-19T00:02:00+00:00",
+            workspace_dir="/tmp/wf-cancelled",
+            workflow_file="/tmp/wf-cancelled/workflow.json",
+        ),
+    ]
+    registry._save_records(tmp_path, records)
+
+    assert registry.clear_terminal_workflow_registry(tmp_path) == 2
+    remaining = registry.list_workflow_registry(tmp_path, reindex_if_missing=False)
+    assert [record.workflow_id for record in remaining] == ["wf-running"]
+    assert registry.clear_terminal_workflow_registry(tmp_path) == 0
+
+
 def test_append_workflow_journal_event_writes_jsonl_and_returns_event(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -474,8 +523,8 @@ def test_list_workflow_registry_reindexes_when_missing_and_reindex_skips_bad_wor
     assert reindex_calls == [tmp_path.resolve()]
     monkeypatch.setattr(registry, "reindex_workflow_registry", original_reindex)
 
-    good_workspace = tmp_path / "workflows" / "wf_good"
-    bad_workspace = tmp_path / "workflows" / "wf_bad"
+    good_workspace = tmp_path / "wf_good"
+    bad_workspace = tmp_path / "wf_bad"
     summaries = {
         good_workspace: {
             "workflow_id": "wf_good",

@@ -113,10 +113,10 @@ def _readme(root: Path, workflow_type: str) -> str:
         [
             "# chemstack workflow scaffold",
             "",
-            f"This directory was created for `python -m chemstack.cli scaffold {shortcut_name} {root_text}`.",
+            f"This directory was created for `chemstack scaffold {shortcut_name} {root_text}`.",
             "",
             *lines,
-            "- Then materialize it with `python -m chemstack.cli run-dir <path>`.",
+            "- Then materialize it with `chemstack run-dir <path>`.",
             "",
         ]
     )

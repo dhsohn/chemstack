@@ -64,7 +64,7 @@ def cmd_queue_worker(args: Any) -> int:
     existing_pid = read_worker_pid(allowed_root)
     if existing_pid is not None:
         logger.error(
-            "Worker already running (pid=%d). Check the active systemd service or foreground worker.",
+            "Worker already running (pid=%d). Check the active systemd service.",
             existing_pid,
         )
         return 1

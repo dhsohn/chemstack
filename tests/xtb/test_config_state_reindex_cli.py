@@ -59,8 +59,8 @@ def test_load_config_parses_defaults_and_normalizes_values(tmp_path: Path) -> No
 
     cfg = load_config(str(config_path))
 
-    assert cfg.runtime.allowed_root == str((workflow_root / "internal" / "xtb" / "runs").resolve())
-    assert cfg.runtime.organized_root == str((workflow_root / "internal" / "xtb" / "outputs").resolve())
+    assert cfg.runtime.allowed_root == str(workflow_root.resolve())
+    assert cfg.runtime.organized_root == str(workflow_root.resolve())
     assert cfg.runtime.max_concurrent == 6
     assert cfg.runtime.admission_root == str(tmp_path / "admission")
     assert cfg.runtime.admission_limit == 6
@@ -143,10 +143,10 @@ def test_load_config_applies_defaults_for_missing_and_non_mapping_optional_secti
 
     cfg = load_config(str(config_path))
 
-    assert cfg.runtime.allowed_root == str((workflow_root / "internal" / "xtb" / "runs").resolve())
-    assert cfg.runtime.organized_root == str((workflow_root / "internal" / "xtb" / "outputs").resolve())
+    assert cfg.runtime.allowed_root == str(workflow_root.resolve())
+    assert cfg.runtime.organized_root == str(workflow_root.resolve())
     assert cfg.runtime.max_concurrent == 4
-    assert cfg.runtime.admission_root == str((workflow_root / "internal" / "xtb" / "runs").resolve())
+    assert cfg.runtime.admission_root == str((tmp_path / "admission").resolve())
     assert cfg.runtime.admission_limit == 4
     assert cfg.paths.xtb_executable == ""
     assert cfg.behavior.auto_organize_on_terminal is False
@@ -284,8 +284,8 @@ def test_cli_module_main_entrypoint_raises_system_exit(
 ) -> None:
     config_path = tmp_path / "chemstack.yaml"
     workflow_root = tmp_path / "workflow_root"
-    allowed_root = workflow_root / "internal" / "xtb" / "runs"
-    organized_root = workflow_root / "internal" / "xtb" / "outputs"
+    allowed_root = workflow_root / "wf_001" / "internal" / "xtb" / "runs"
+    organized_root = workflow_root / "wf_001" / "internal" / "xtb" / "outputs"
     allowed_root.mkdir(parents=True)
     organized_root.mkdir(parents=True)
     config_path.write_text(

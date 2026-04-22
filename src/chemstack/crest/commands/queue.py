@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+from pathlib import Path
 from typing import Any
 
 from chemstack.core.admission import release_slot, reserve_slot
@@ -15,6 +16,7 @@ from chemstack.core.queue import (
 )
 
 from ..config import load_config
+from ..job_locations import runtime_roots_for_cfg
 from chemstack.core.utils import now_utc_iso
 from ..job_locations import upsert_job_record
 from ..notifications import notify_job_finished, notify_job_started
@@ -48,6 +50,57 @@ def _find_entry_by_target(entries: list[Any], target: str) -> Any | None:
     return None
 
 
+def _queue_roots(cfg: Any) -> tuple[Path, ...]:
+    try:
+        return tuple(runtime_roots_for_cfg(cfg))
+    except Exception:
+        return (Path(cfg.runtime.allowed_root).expanduser().resolve(),)
+
+
+def _queue_entries_with_roots(cfg: Any) -> list[tuple[Path, Any]]:
+    rows: list[tuple[Path, Any]] = []
+    for root in _queue_roots(cfg):
+        for entry in list_queue(root):
+            rows.append((root, entry))
+    return rows
+
+
+def _dequeue_next_entry(cfg: Any) -> tuple[Path, Any] | None:
+    roots = _queue_roots(cfg)
+    if len(roots) == 1:
+        entry = dequeue_next(roots[0])
+        if entry is None:
+            return None
+        return roots[0], entry
+
+    selected_root: Path | None = None
+    selected_key: tuple[int, str, int, str] | None = None
+
+    for root_index, root in enumerate(roots):
+        for entry in list_queue(root):
+            status_value = getattr(getattr(entry, "status", None), "value", None)
+            status = str(status_value).strip().lower()
+            if status != "pending" or getattr(entry, "cancel_requested", False):
+                continue
+            key = (
+                int(getattr(entry, "priority", 10) or 10),
+                str(getattr(entry, "enqueued_at", "")),
+                root_index,
+                str(getattr(entry, "queue_id", "")),
+            )
+            if selected_key is None or key < selected_key:
+                selected_key = key
+                selected_root = root
+
+    if selected_root is None:
+        return None
+
+    entry = dequeue_next(selected_root)
+    if entry is None:
+        return None
+    return selected_root, entry
+
+
 def cmd_queue_cancel(args: Any) -> int:
     cfg = load_config(getattr(args, "config", None))
     target = str(getattr(args, "target", "")).strip()
@@ -55,13 +108,17 @@ def cmd_queue_cancel(args: Any) -> int:
         print("error: queue cancel requires a queue_id or job_id")
         return 1
 
-    entries = list_queue(cfg.runtime.allowed_root)
-    entry = _find_entry_by_target(entries, target)
-    if entry is None:
+    entry_with_root = None
+    for queue_root, entry in _queue_entries_with_roots(cfg):
+        if entry.queue_id == target or entry.task_id == target:
+            entry_with_root = (queue_root, entry)
+            break
+    if entry_with_root is None:
         print(f"error: queue target not found: {target}")
         return 1
+    queue_root, entry = entry_with_root
 
-    updated = request_cancel(cfg.runtime.allowed_root, entry.queue_id)
+    updated = request_cancel(queue_root, entry.queue_id)
     if updated is None:
         print(f"error: queue target already terminal: {target}")
         return 1
@@ -89,12 +146,14 @@ def _process_one(cfg: Any, *, auto_organize: bool) -> str:
         return "blocked"
 
     try:
-        entry = dequeue_next(cfg.runtime.allowed_root)
-        if entry is None:
+        dequeued = _dequeue_next_entry(cfg)
+        if dequeued is None:
             return "idle"
+        queue_root, entry = dequeued
         outcome = process_dequeued_entry(
             cfg,
             entry,
+            queue_root=queue_root,
             auto_organize=auto_organize,
             resource_caps=_resource_caps,
             molecule_key_resolver=_molecule_key,

@@ -3,7 +3,6 @@ from __future__ import annotations
 import argparse
 import logging
 import logging.handlers
-import os
 import sys
 from typing import Callable
 
@@ -12,20 +11,9 @@ from chemstack import cli as unified_cli
 from .commands._helpers import default_config_path
 from .commands.list_runs import cmd_list as _engine_cmd_list
 from .commands.monitor import cmd_monitor
-from .commands.queue import (
-    cmd_queue_cancel as _engine_cmd_queue_cancel,
-    cmd_queue_worker as _engine_cmd_queue_worker,
-)
-from .telegram_bot import run_bot as _run_bot
+from .commands.queue import cmd_queue_cancel as _engine_cmd_queue_cancel
 
 _CHEMSTACK_HANDLER_ATTR = "_chemstack_managed_handler"
-_DIRECT_WORKER_ENV_VAR = "CHEMSTACK_QUEUE_WORKER_DIRECT"
-
-
-def cmd_bot(args: argparse.Namespace) -> int:
-    from .config import load_config
-    cfg = load_config(args.config)
-    return int(_run_bot(cfg))
 
 
 def _shared_list_argv(*, config_path: str, engine: str, status: str | None = None) -> list[str]:
@@ -121,24 +109,6 @@ def cmd_queue_cancel(args: argparse.Namespace) -> int:
     )
 
 
-def cmd_queue_worker(args: argparse.Namespace) -> int:
-    if os.getenv(_DIRECT_WORKER_ENV_VAR) == "1":
-        return int(_engine_cmd_queue_worker(args))
-    argv = [
-        "queue",
-        "worker",
-        "--app",
-        "orca",
-        "--chemstack-config",
-        args.config,
-    ]
-    if bool(getattr(args, "auto_organize", False)):
-        argv.append("--auto-organize")
-    elif bool(getattr(args, "no_auto_organize", False)):
-        argv.append("--no-auto-organize")
-    return int(unified_cli.main(argv))
-
-
 def cmd_organize(args: argparse.Namespace) -> int:
     argv = ["organize", "orca", *_shared_config_argv(args.config), *_shared_orca_logging_argv(args)]
     if getattr(args, "reaction_dir", None):
@@ -162,11 +132,10 @@ def cmd_summary(args: argparse.Namespace) -> int:
 def cmd_queue(args: argparse.Namespace) -> int:
     _queue_sub_map: dict[str, Callable[[argparse.Namespace], int]] = {
         "cancel": cmd_queue_cancel,
-        "worker": cmd_queue_worker,
     }
     handler = _queue_sub_map.get(args.queue_command)
     if handler is None:
-        print("Usage: python -m chemstack.orca.cli queue {cancel|worker}")
+        print("Usage: python -m chemstack.orca.cli queue cancel <target>")
         return 1
     return int(handler(args))
 
@@ -203,8 +172,6 @@ def build_parser() -> argparse.ArgumentParser:
                           choices=["pending", "created", "running", "retrying", "completed", "failed", "cancelled"],
                           help="Filter by status")
 
-    sub.add_parser("bot", help="Start Telegram bot (long polling)")
-
     sub.add_parser("monitor", help="Send Telegram alerts for newly discovered DFT results or scan failures")
     summary = sub.add_parser("summary", help="Send a periodic Telegram digest of current run/workstation state")
     summary.add_argument("--no-send", action="store_true", default=False, help="Print summary without sending Telegram")
@@ -221,19 +188,6 @@ def build_parser() -> argparse.ArgumentParser:
 
     q_cancel = queue_sub.add_parser("cancel", help="Cancel a queued or running job")
     q_cancel.add_argument("target", help="queue_id, job_dir, or run_id to cancel; or 'all-pending'")
-
-    q_worker = queue_sub.add_parser("worker", help="Run the queue worker in the foreground")
-    auto_group = q_worker.add_mutually_exclusive_group()
-    auto_group.add_argument(
-        "--auto-organize",
-        action="store_true",
-        help="Automatically move completed runs into organized_root after execution",
-    )
-    auto_group.add_argument(
-        "--no-auto-organize",
-        action="store_true",
-        help="Disable automatic organization for this worker invocation",
-    )
 
     return parser
 
@@ -285,7 +239,6 @@ def main(argv: list[str] | None = None) -> int:
         "init": cmd_init,
         "run-dir": cmd_run_inp,
         "list": cmd_list,
-        "bot": cmd_bot,
         "monitor": cmd_monitor,
         "summary": cmd_summary,
         "organize": cmd_organize,

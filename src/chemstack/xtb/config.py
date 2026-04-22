@@ -9,7 +9,7 @@ import yaml
 from chemstack.core.config.files import (
     default_config_path_from_repo_root,
     default_shared_admission_root,
-    workflow_internal_engine_runtime_paths_from_mapping,
+    workflow_root_from_mapping,
 )
 from chemstack.core.config import CommonResourceConfig, CommonRuntimeConfig, TelegramConfig
 
@@ -29,6 +29,7 @@ class BehaviorConfig:
 @dataclass(frozen=True)
 class AppConfig:
     runtime: CommonRuntimeConfig
+    workflow_root: str = ""
     paths: PathsConfig = field(default_factory=PathsConfig)
     behavior: BehaviorConfig = field(default_factory=BehaviorConfig)
     resources: CommonResourceConfig = field(default_factory=CommonResourceConfig)
@@ -85,30 +86,28 @@ def load_config(config_path: str | None = None) -> AppConfig:
     resources_raw = raw.get("resources", {}) if isinstance(raw.get("resources"), dict) else {}
     telegram_raw = raw.get("telegram", {}) if isinstance(raw.get("telegram"), dict) else {}
 
-    derived_runtime_paths = workflow_internal_engine_runtime_paths_from_mapping(raw, engine="xtb")
-    allowed_root = str(derived_runtime_paths.get("allowed_root", "")).strip()
-    if not allowed_root:
+    workflow_root = workflow_root_from_mapping(raw)
+    if not workflow_root:
         raise ValueError(f"Config is missing workflow.root: {path}")
 
-    scheduler_enabled = bool(scheduler_raw)
     shared_max_active_simulations = max(1, _as_int(scheduler_raw.get("max_active_simulations"), 4))
     shared_admission_root = _as_str(
         scheduler_raw.get("admission_root"),
-        default_shared_admission_root(path) if scheduler_enabled else allowed_root,
+        default_shared_admission_root(path),
     )
-    organized_root = str(derived_runtime_paths.get("organized_root", "")).strip() or str(Path(allowed_root).parent / "xtb_outputs")
     max_concurrent = shared_max_active_simulations
     admission_root = shared_admission_root
     admission_limit = shared_max_active_simulations
 
     return AppConfig(
         runtime=CommonRuntimeConfig(
-            allowed_root=allowed_root,
-            organized_root=organized_root,
+            allowed_root=workflow_root,
+            organized_root=workflow_root,
             max_concurrent=max_concurrent,
             admission_root=admission_root,
             admission_limit=admission_limit,
         ),
+        workflow_root=workflow_root,
         paths=PathsConfig(
             xtb_executable=_as_str(workflow_paths_raw.get("xtb_executable")),
         ),

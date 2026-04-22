@@ -38,9 +38,13 @@ def test_handle_list_formats_unified_activity_rows(monkeypatch) -> None:
                     "label": "wf-a",
                     "activity_id": "wf-a",
                     "kind": "workflow",
-                    "engine": "orca",
+                    "engine": "workflow",
                     "status": "running",
                     "source": "chem_flow",
+                    "metadata": {
+                        "template_name": "reaction_ts_search",
+                        "current_engine": "orca",
+                    },
                 },
                 {
                     "label": "mol-b",
@@ -71,7 +75,11 @@ def test_handle_list_formats_unified_activity_rows(monkeypatch) -> None:
     text = bot._handle_list(_settings(), "")
 
     assert "<b>active_simulations</b>: <code>2</code>" in text
-    assert "- <code>wf-a</code> kind=<code>workflow</code> engine=<code>orca</code>" in text
+    assert (
+        "- <code>wf-a</code> kind=<code>workflow</code> engine=<code>workflow</code>"
+        " status=<code>running</code> label=<code>wf-a</code> source=<code>chem_flow</code>"
+        " template=<code>reaction_ts_search</code> current_engine=<code>orca</code>"
+    ) in text
     assert "\xa0\xa0- <code>crest-q-1</code> kind=<code>job</code> engine=<code>crest</code>" in text
     assert "- <code>orca-q-1</code> kind=<code>job</code> engine=<code>orca</code>" in text
 
@@ -86,9 +94,13 @@ def test_handle_list_filter_keeps_workflow_parent_for_visible_child(monkeypatch)
                     "label": "wf-a",
                     "activity_id": "wf-a",
                     "kind": "workflow",
-                    "engine": "orca",
+                    "engine": "workflow",
                     "status": "running",
                     "source": "chem_flow",
+                    "metadata": {
+                        "template_name": "reaction_ts_search",
+                        "current_engine": "crest",
+                    },
                 },
                 {
                     "label": "mol-b",
@@ -179,9 +191,13 @@ def test_handle_list_shows_all_workflow_child_jobs(monkeypatch) -> None:
                     "label": "wf-a",
                     "activity_id": "wf-a",
                     "kind": "workflow",
-                    "engine": "orca",
+                    "engine": "workflow",
                     "status": "running",
                     "source": "chem_flow",
+                    "metadata": {
+                        "template_name": "reaction_ts_search",
+                        "current_engine": "orca",
+                    },
                 },
                 *child_rows,
             ]
@@ -192,7 +208,32 @@ def test_handle_list_shows_all_workflow_child_jobs(monkeypatch) -> None:
 
     assert "<b>active_simulations</b>: <code>9</code>" in text
     assert text.count("\xa0\xa0- <code>orca-q-") == 9
-    assert "- <code>wf-a</code> kind=<code>workflow</code> engine=<code>orca</code>" in text
+    assert "template=<code>reaction_ts_search</code> current_engine=<code>orca</code>" in text
+
+
+def test_handle_list_clear_uses_shared_clear_activity_control(monkeypatch) -> None:
+    monkeypatch.setattr(
+        bot,
+        "clear_activities",
+        lambda **kwargs: {
+            "total_cleared": 4,
+            "cleared": {
+                "workflows": 1,
+                "xtb_queue_entries": 1,
+                "crest_queue_entries": 0,
+                "orca_queue_entries": 1,
+                "orca_run_states": 1,
+            },
+        },
+    )
+
+    text = bot._handle_list(_settings(), "clear")
+
+    assert "Cleared <code>4</code> completed/failed/cancelled entries." in text
+    assert "workflows: <code>1</code>" in text
+    assert "xTB queue entries: <code>1</code>" in text
+    assert "ORCA queue entries: <code>1</code>" in text
+    assert "ORCA run states: <code>1</code>" in text
 
 
 def test_handle_cancel_routes_through_activity_control(monkeypatch) -> None:
@@ -216,6 +257,7 @@ def test_handle_help_mentions_only_supported_commands() -> None:
     text = bot._handle_help(_settings(), "")
 
     assert "/list" in text
+    assert "/list clear" in text
     assert "/cancel" in text
     assert "/help" in text
     assert "/cron" not in text

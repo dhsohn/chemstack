@@ -19,8 +19,8 @@ from chemstack.crest.state import load_organized_ref, load_report_json, load_sta
 
 def _write_config(tmp_path: Path) -> tuple[Path, Path, Path]:
     workflow_root = tmp_path / "workflow_root"
-    allowed_root = workflow_root / "internal" / "crest" / "runs"
-    organized_root = workflow_root / "internal" / "crest" / "outputs"
+    allowed_root = workflow_root / "wf_001" / "internal" / "crest" / "runs"
+    organized_root = workflow_root / "wf_001" / "internal" / "crest" / "outputs"
     allowed_root.mkdir(parents=True)
     organized_root.mkdir(parents=True)
     config_path = tmp_path / "chemstack.yaml"
@@ -133,7 +133,7 @@ def test_main_run_dir_accepts_positional_job_dir(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     config_path, allowed_root, _ = _write_config(tmp_path)
-    job_dir = allowed_root / "runs" / "job-cli"
+    job_dir = allowed_root / "job-cli"
     job_dir.mkdir(parents=True)
 
     captured_args: list[Any] = []
@@ -169,7 +169,7 @@ def test_cmd_run_dir_queues_job_updates_state_and_index(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     config_path, allowed_root, _ = _write_config(tmp_path)
-    job_dir = allowed_root / "runs" / "job-queue"
+    job_dir = allowed_root / "job-queue"
     job_dir.mkdir(parents=True)
     _write_xyz(job_dir / "fallback.xyz", "fallback")
     _write_xyz(job_dir / "preferred.xyz", "preferred")
@@ -258,7 +258,7 @@ def test_cmd_run_dir_reports_duplicate_queue_entries(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     config_path, allowed_root, _ = _write_config(tmp_path)
-    job_dir = allowed_root / "runs" / "job-duplicate"
+    job_dir = allowed_root / "job-duplicate"
     job_dir.mkdir(parents=True)
     _write_xyz(job_dir / "input.xyz", "input")
 
@@ -310,7 +310,7 @@ def test_cli_end_to_end_smoke_path_submission_worker_organize_and_summary(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     config_path, allowed_root, organized_root = _write_config(tmp_path)
-    job_dir = allowed_root / "runs" / "job-e2e"
+    job_dir = allowed_root / "job-e2e"
     queued_notifications: list[dict[str, Any]] = []
     started_notifications: list[dict[str, Any]] = []
     finished_notifications: list[dict[str, Any]] = []

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 CHEMSTACK_ORCA_MODULE = "chemstack.orca.cli"
+CHEMSTACK_ORCA_INTERNAL_MODULE = "chemstack.orca._internal_cli"
 CHEMSTACK_XTB_MODULE = "chemstack.xtb._internal_cli"
 CHEMSTACK_CREST_MODULE = "chemstack.crest._internal_cli"
 CHEMSTACK_FLOW_MODULE = "chemstack.flow.cli"

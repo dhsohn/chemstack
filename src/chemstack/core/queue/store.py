@@ -19,6 +19,7 @@ from .types import QueueEntry, QueueStatus
 QUEUE_FILE_NAME = "queue.json"
 QUEUE_LOCK_NAME = "queue.lock"
 _ACTIVE_STATUSES = frozenset({QueueStatus.PENDING, QueueStatus.RUNNING})
+_TERMINAL_STATUSES = frozenset({QueueStatus.COMPLETED, QueueStatus.FAILED, QueueStatus.CANCELLED})
 
 
 class DuplicateQueueEntryError(RuntimeError):
@@ -88,6 +89,41 @@ def list_queue(root: str | Path) -> list[QueueEntry]:
     resolved_root = resolve_root_path(root)
     with file_lock(_lock_path(resolved_root)):
         return _load_entries(resolved_root)
+
+
+def _entry_timestamp(entry: QueueEntry) -> str:
+    return entry.finished_at or entry.started_at or entry.enqueued_at
+
+
+def clear_terminal(root: str | Path, *, keep_last: int = 0) -> int:
+    resolved_root = resolve_root_path(root)
+    if not _queue_path(resolved_root).exists():
+        return 0
+
+    with file_lock(_lock_path(resolved_root)):
+        entries = _load_entries(resolved_root)
+        terminal_entries = [entry for entry in entries if entry.status in _TERMINAL_STATUSES]
+        if not terminal_entries:
+            return 0
+
+        kept_terminal_ids: set[str] = set()
+        if keep_last > 0:
+            terminal_entries = sorted(
+                terminal_entries,
+                key=lambda entry: (_entry_timestamp(entry), entry.queue_id),
+                reverse=True,
+            )
+            kept_terminal_ids = {entry.queue_id for entry in terminal_entries[:keep_last]}
+
+        kept_entries = [
+            entry
+            for entry in entries
+            if entry.status not in _TERMINAL_STATUSES or entry.queue_id in kept_terminal_ids
+        ]
+        removed_count = len(entries) - len(kept_entries)
+        if removed_count > 0:
+            _save_entries(resolved_root, kept_entries)
+        return removed_count
 
 
 def enqueue(

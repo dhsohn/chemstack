@@ -13,8 +13,8 @@ from chemstack.crest.state import write_report_json, write_report_md, write_stat
 
 def _write_config(tmp_path: Path) -> tuple[Path, Path, Path]:
     workflow_root = tmp_path / "workflow_root"
-    allowed_root = workflow_root / "internal" / "crest" / "runs"
-    organized_root = workflow_root / "internal" / "crest" / "outputs"
+    allowed_root = workflow_root / "wf_001" / "internal" / "crest" / "runs"
+    organized_root = workflow_root / "wf_001" / "internal" / "crest" / "outputs"
     allowed_root.mkdir(parents=True)
     organized_root.mkdir(parents=True)
     config_path = tmp_path / "chemstack.yaml"
@@ -89,7 +89,7 @@ def _write_job_artifacts(
 def test_resolve_scope_rejects_mutually_exclusive_job_dir_and_root(tmp_path: Path) -> None:
     config_path, allowed_root, _ = _write_config(tmp_path)
     cfg = load_config(str(config_path))
-    job_dir = allowed_root / "runs" / "job-scope"
+    job_dir = allowed_root / "job-scope"
     job_dir.mkdir(parents=True)
 
     with pytest.raises(ValueError, match="mutually exclusive"):
@@ -102,9 +102,9 @@ def test_resolve_scope_rejects_mutually_exclusive_job_dir_and_root(tmp_path: Pat
 def test_resolve_scope_validates_job_dir_root_and_default_scope(tmp_path: Path) -> None:
     config_path, allowed_root, _ = _write_config(tmp_path)
     cfg = load_config(str(config_path))
-    scan_root = allowed_root / "runs"
+    scan_root = allowed_root
     job_dir = scan_root / "job-scope"
-    scan_root.mkdir(parents=True)
+    scan_root.mkdir(parents=True, exist_ok=True)
     job_dir.mkdir()
 
     resolved_job_dir, resolved_root = organize_module._resolve_scope(
@@ -126,7 +126,7 @@ def test_resolve_scope_validates_job_dir_root_and_default_scope(tmp_path: Path) 
         Namespace(job_dir=None, root=None),
     )
     assert resolved_job_dir is None
-    assert resolved_root == allowed_root.resolve()
+    assert resolved_root is None
 
     outside_root = tmp_path / "outside"
     outside_root.mkdir()
@@ -137,11 +137,48 @@ def test_resolve_scope_validates_job_dir_root_and_default_scope(tmp_path: Path) 
         )
 
 
+def test_resolve_scope_and_plan_support_workflow_local_runtime_dirs(tmp_path: Path) -> None:
+    config_path, _, organized_root = _write_config(tmp_path)
+    cfg = load_config(str(config_path))
+    workflow_job_dir = tmp_path / "workflow_root" / "wf_crest_001" / "internal" / "crest" / "runs" / "job-local"
+    _write_job_artifacts(
+        workflow_job_dir,
+        job_id="job-local",
+        status="completed",
+        selected_name="local.xyz",
+        include_report=False,
+    )
+
+    job_dir, root = organize_module._resolve_scope(
+        cfg,
+        Namespace(job_dir=str(workflow_job_dir), root=None),
+    )
+
+    assert job_dir == workflow_job_dir.resolve()
+    assert root is None
+
+    plan = organize_module._collect_plan_for_dir(cfg, workflow_job_dir.resolve())
+    expected_target = (
+        tmp_path
+        / "workflow_root"
+        / "wf_crest_001"
+        / "internal"
+        / "crest"
+        / "outputs"
+        / "standard"
+        / "local"
+        / "job-local"
+    )
+    assert plan["action"] == "organize"
+    assert plan["target_dir"] == str(expected_target)
+    assert plan["target_dir"] != str(organized_root / "standard" / "local" / "job-local")
+
+
 def test_collect_plan_for_dir_returns_skip_reasons_for_edge_cases(tmp_path: Path) -> None:
     config_path, allowed_root, organized_root = _write_config(tmp_path)
     cfg = load_config(str(config_path))
 
-    missing_state_dir = (allowed_root / "runs" / "missing-state").resolve()
+    missing_state_dir = (allowed_root / "missing-state").resolve()
     missing_state_dir.mkdir(parents=True)
     assert organize_module._collect_plan_for_dir(cfg, missing_state_dir) == {
         "action": "skip",
@@ -149,7 +186,7 @@ def test_collect_plan_for_dir_returns_skip_reasons_for_edge_cases(tmp_path: Path
         "reason": "missing_state",
     }
 
-    missing_job_id_dir = (allowed_root / "runs" / "missing-job-id").resolve()
+    missing_job_id_dir = (allowed_root / "missing-job-id").resolve()
     _write_job_artifacts(
         missing_job_id_dir,
         job_id="job-missing",
@@ -177,7 +214,7 @@ def test_collect_plan_for_dir_returns_skip_reasons_for_edge_cases(tmp_path: Path
         "reason": "already_under_organized_root",
     }
 
-    target_exists_dir = (allowed_root / "runs" / "job-target-source").resolve()
+    target_exists_dir = (allowed_root / "job-target-source").resolve()
     _write_job_artifacts(
         target_exists_dir,
         job_id="job-400",
@@ -199,7 +236,7 @@ def test_collect_plan_for_dir_returns_skip_reasons_for_edge_cases(tmp_path: Path
 def test_organize_job_dir_returns_skip_plan_without_moving_files(tmp_path: Path) -> None:
     config_path, allowed_root, _ = _write_config(tmp_path)
     cfg = load_config(str(config_path))
-    job_dir = allowed_root / "runs" / "job-empty"
+    job_dir = allowed_root / "job-empty"
     job_dir.mkdir(parents=True)
 
     result = organize_module.organize_job_dir(cfg, job_dir)
@@ -218,7 +255,7 @@ def test_organize_job_dir_notifies_summary_when_requested(
 ) -> None:
     config_path, allowed_root, organized_root = _write_config(tmp_path)
     cfg = load_config(str(config_path))
-    job_dir = allowed_root / "runs" / "job-notify"
+    job_dir = allowed_root / "job-notify"
     _write_job_artifacts(
         job_dir,
         job_id="job-500",
@@ -257,7 +294,7 @@ def test_organize_job_dir_notifies_summary_when_requested(
 
 def test_cmd_organize_dry_run_accepts_job_dir_scope(tmp_path: Path, capsys) -> None:
     config_path, allowed_root, organized_root = _write_config(tmp_path)
-    job_dir = allowed_root / "runs" / "job-single"
+    job_dir = allowed_root / "job-single"
     _write_job_artifacts(
         job_dir,
         job_id="job-600",
@@ -291,15 +328,16 @@ def test_cmd_organize_raises_when_scope_does_not_resolve_root(
 
     monkeypatch.setattr(organize_module, "_resolve_scope", lambda cfg, args: (None, None))
 
-    with pytest.raises(ValueError, match="Scan root could not be resolved"):
-        organize_module.cmd_organize(
-            Namespace(
-                config=str(config_path),
-                job_dir=None,
-                root=None,
-                apply=False,
-            )
+    rc = organize_module.cmd_organize(
+        Namespace(
+            config=str(config_path),
+            job_dir=None,
+            root=None,
+            apply=False,
         )
+    )
+
+    assert rc == 0
 
 
 def test_cmd_organize_apply_mode_reports_failures_and_notifies_summary(
@@ -308,8 +346,8 @@ def test_cmd_organize_apply_mode_reports_failures_and_notifies_summary(
     capsys,
 ) -> None:
     config_path, allowed_root, organized_root = _write_config(tmp_path)
-    success_job_dir = allowed_root / "runs" / "job-success"
-    failure_job_dir = allowed_root / "runs" / "job-failure"
+    success_job_dir = allowed_root / "job-success"
+    failure_job_dir = allowed_root / "job-failure"
     _write_job_artifacts(
         success_job_dir,
         job_id="job-700",
