@@ -320,6 +320,7 @@ Behavior:
 - `/cancel` can target either a workflow or an individual job
 - Reads `workflow.root` from `chemstack.yaml` for workflow-side activity discovery
 - Falls back to `CHEM_FLOW_TELEGRAM_BOT_TOKEN` and `CHEM_FLOW_TELEGRAM_CHAT_ID` when Telegram settings are not present in config
+- For unattended WSL/Linux use, prefer `chemstack-bot@.service` or `chemstack-runtime@.target` under `systemd/`
 
 ## 8) WSL systemd Setup
 
@@ -338,34 +339,50 @@ wsl --shutdown
 
 This repository includes service assets under `systemd/`:
 
+- [`systemd/chemstack-runtime@.target`](/home/daehyupsohn/chemstack/systemd/chemstack-runtime@.target)
 - [`systemd/chemstack-queue-worker@.service`](/home/daehyupsohn/chemstack/systemd/chemstack-queue-worker@.service)
+- [`systemd/chemstack-bot@.service`](/home/daehyupsohn/chemstack/systemd/chemstack-bot@.service)
 - [`systemd/chemstack-orca-queue-worker@.service`](/home/daehyupsohn/chemstack/systemd/chemstack-orca-queue-worker@.service)
 - [`systemd/chemstack-flow-workflow-worker.service`](/home/daehyupsohn/chemstack/systemd/chemstack-flow-workflow-worker.service)
 - [`systemd/chemstack-flow-worker.env.example`](/home/daehyupsohn/chemstack/systemd/chemstack-flow-worker.env.example)
 
-Recommended engine-worker install flow:
+Recommended always-on runtime install flow when Telegram is configured:
 
 ```bash
 cd <repo_root>
+sudo cp systemd/chemstack-bot@.service /etc/systemd/system/
 sudo cp systemd/chemstack-queue-worker@.service /etc/systemd/system/
+sudo cp systemd/chemstack-runtime@.target /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable --now "chemstack-queue-worker@$(whoami)"
+sudo systemctl enable --now "chemstack-runtime@$(whoami)"
+systemctl status "chemstack-runtime@$(whoami)"
 systemctl status "chemstack-queue-worker@$(whoami)"
+systemctl status "chemstack-bot@$(whoami)"
 journalctl -u "chemstack-queue-worker@$(whoami)" -f
+journalctl -u "chemstack-bot@$(whoami)" -f
 ```
 
-Assumptions of the unified engine template:
+Before enabling the combined runtime target:
+
+- Set `telegram.bot_token` and `telegram.chat_id` in `chemstack.yaml`
+- Set `workflow.root` in `chemstack.yaml` if you also want workflow supervision
+
+Assumptions of the unified runtime templates:
 
 - Repository path: `/home/<user>/chemstack`
 - Config path: `/home/<user>/chemstack/config/chemstack.yaml`
 
 If your paths differ, edit the copied unit before enabling it.
 
-The unified service supervises ORCA by default. When `workflow.root` is
+The unified queue-worker service supervises ORCA by default. When `workflow.root` is
 configured, it also starts workflow supervision plus the internal CREST and
 xTB workers. The shared `scheduler.max_active_simulations` setting still limits
 the combined number of active simulations across ORCA and workflow-managed
 internal engine stages.
+
+If you only want unattended execution without the Telegram bot, enable
+`chemstack-queue-worker@$(whoami)` directly instead of the combined runtime
+target.
 
 If you still need split services, the compatibility templates remain available:
 

@@ -1,6 +1,7 @@
 [Unit]
-Description=ChemStack unified queue workers for %i
-After=local-fs.target
+Description=ChemStack unified Telegram bot for %i
+After=network-online.target
+Wants=network-online.target
 PartOf=chemstack-runtime@%i.target
 
 [Service]
@@ -9,7 +10,7 @@ User=%i
 WorkingDirectory=/home/%i/chemstack
 Environment=PYTHONUNBUFFERED=1
 Environment=CHEMSTACK_CONFIG=/home/%i/chemstack/config/chemstack.yaml
-ExecStart=/home/%i/chemstack/.venv/bin/python -m chemstack.cli queue worker
+ExecStart=/home/%i/chemstack/.venv/bin/python -m chemstack.cli bot
 Restart=always
 RestartSec=5
 

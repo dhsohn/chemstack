@@ -1,0 +1,9 @@
+[Unit]
+Description=ChemStack runtime stack for %i
+Wants=chemstack-queue-worker@%i.service
+Wants=chemstack-bot@%i.service
+After=local-fs.target
+After=network-online.target
+
+[Install]
+WantedBy=multi-user.target

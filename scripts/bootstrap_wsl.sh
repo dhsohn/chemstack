@@ -50,3 +50,4 @@ fi
 echo "[bootstrap] Done."
 echo "[bootstrap] Next: source .venv/bin/activate"
 echo "[bootstrap] Example: python -m chemstack.orca.cli run-dir '/absolute/path/to/orca_runs/<dir>'"
+echo "[bootstrap] Optional auto-start on WSL: see systemd/README.md and enable chemstack-runtime@$(whoami) after configuring Telegram."

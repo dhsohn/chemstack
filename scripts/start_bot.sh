@@ -6,8 +6,8 @@
 #   start_bot.sh restart    # Stop existing bot and restart
 #   start_bot.sh stop       # Stop bot
 #
-# Add to ~/.bashrc for automatic start on WSL boot:
-#   <repo_root>/scripts/start_bot.sh
+# Prefer the systemd assets under systemd/ on WSL. This script remains as a
+# manual fallback for shells without systemd management.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -53,9 +53,9 @@ _start_bot() {
   mkdir -p "$LOG_DIR"
   LOG_FILE="$LOG_DIR/bot.log"
 
-  PYTHONPATH="$ROOT/src:$ROOT:${PYTHONPATH:-}" nohup "$PYTHON_BIN" -m chemstack.orca.cli \
-    --config "$CONFIG_PATH" \
+  PYTHONPATH="$ROOT/src:$ROOT:${PYTHONPATH:-}" nohup "$PYTHON_BIN" -m chemstack.cli \
     bot \
+    --config "$CONFIG_PATH" \
     >>"$LOG_FILE" 2>&1 &
 
   echo $! > "$PID_FILE"

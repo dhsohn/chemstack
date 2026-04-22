@@ -7,7 +7,7 @@ ChemStack is a queue-first CLI for ORCA and workflow orchestration on Linux and 
 ## Docs
 
 - Runtime and command reference: [docs/REFERENCE.md](docs/REFERENCE.md)
-- WSL and `systemd` worker setup: [systemd/README.md](systemd/README.md)
+- WSL and `systemd` runtime setup: [systemd/README.md](systemd/README.md)
 - Package layout and development notes: [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)
 
 ## Install
@@ -89,8 +89,9 @@ python -m chemstack.cli init
 python -m chemstack.cli scaffold ts_search '/home/user/workflow_inputs/rxn_001'
 python -m chemstack.cli scaffold conformer_search '/home/user/workflow_inputs/conf_001'
 
-# start workers
+# start foreground services manually when not using systemd
 python -m chemstack.cli queue worker
+python -m chemstack.cli bot
 
 # submit work
 python -m chemstack.cli run-dir '/home/user/orca_runs/sample_rxn'
@@ -99,7 +100,6 @@ python -m chemstack.cli run-dir '/home/user/workflow_inputs/reaction_case'
 # inspect and maintain
 python -m chemstack.cli queue list --engine orca
 python -m chemstack.cli queue cancel <target>
-python -m chemstack.cli bot
 python -m chemstack.cli organize orca --root '/home/user/orca_runs' --apply
 python -m chemstack.cli summary orca --no-send
 ```
@@ -107,6 +107,22 @@ python -m chemstack.cli summary orca --no-send
 `queue list` groups workflow child simulations under their parent workflow with indentation.
 The `active_simulations` line counts only simulations that currently consume the shared
 `scheduler.max_active_simulations` slots.
+
+On WSL or Linux you usually should not type both long-running commands every
+session. After `chemstack.yaml` is configured, enable the combined runtime
+target once and let `systemd` start both the worker and the bot automatically:
+
+```bash
+cd <repo_root>
+sudo cp systemd/chemstack-queue-worker@.service /etc/systemd/system/
+sudo cp systemd/chemstack-bot@.service /etc/systemd/system/
+sudo cp systemd/chemstack-runtime@.target /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now "chemstack-runtime@$(whoami)"
+```
+
+If you want only the worker managed automatically, enable
+`chemstack-queue-worker@$(whoami)` instead.
 
 Compatibility notes:
 
@@ -125,7 +141,7 @@ Compatibility notes:
 - If no worker is running, queued jobs remain pending until one returns.
 - ORCA selects the most recently modified `.inp` when execution starts.
 - Completed ORCA runs write state and report files such as `run_state.json`, `run_report.json`, and `run_report.md`.
-- Use the unified engine worker service in [systemd/README.md](systemd/README.md) for unattended WSL or Linux execution.
+- Use the `systemd` assets in [systemd/README.md](systemd/README.md) for unattended WSL or Linux execution.
 
 ## Testing
 

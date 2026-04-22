@@ -4,14 +4,61 @@ This directory is the single home for long-running ChemStack service assets.
 
 ## Included units
 
+- `chemstack-runtime@.target`
+  - recommended combined runtime target for the unified queue worker plus Telegram bot
 - `chemstack-queue-worker@.service`
   - recommended unified queue worker template
+- `chemstack-bot@.service`
+  - unified Telegram bot template
 - `chemstack-orca-queue-worker@.service`
   - ORCA-only compatibility template powered by the unified CLI
 - `chemstack-flow-workflow-worker.service`
   - supervised workflow worker for `chemstack.flow`
 - `chemstack-flow-worker.env.example`
   - example environment file for the workflow worker
+
+## Combined runtime target
+
+Use `chemstack-runtime@.target` when you want the unified queue worker and the
+unified Telegram bot to start together at boot.
+
+It pulls in:
+
+- `chemstack-queue-worker@.service`
+- `chemstack-bot@.service`
+
+Before enabling the combined runtime target:
+
+- Set `telegram.bot_token` and `telegram.chat_id` in `chemstack.yaml`
+- Set `workflow.root` in `chemstack.yaml` if you want workflow supervision too
+
+Install the combined runtime target:
+
+```bash
+cd <repo_root>
+sudo cp systemd/chemstack-queue-worker@.service /etc/systemd/system/
+sudo cp systemd/chemstack-bot@.service /etc/systemd/system/
+sudo cp systemd/chemstack-runtime@.target /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now "chemstack-runtime@$(whoami)"
+```
+
+Monitor the combined runtime target:
+
+```bash
+systemctl status "chemstack-runtime@$(whoami)"
+systemctl status "chemstack-queue-worker@$(whoami)"
+systemctl status "chemstack-bot@$(whoami)"
+journalctl -u "chemstack-queue-worker@$(whoami)" -f
+journalctl -u "chemstack-bot@$(whoami)" -f
+```
+
+Maintain the combined runtime target:
+
+```bash
+sudo systemctl restart "chemstack-runtime@$(whoami)"
+sudo systemctl stop "chemstack-runtime@$(whoami)"
+```
 
 ## Engine queue workers
 
@@ -35,6 +82,9 @@ sudo cp systemd/chemstack-queue-worker@.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now "chemstack-queue-worker@$(whoami)"
 ```
+
+Use the worker-only service when you do not want the Telegram bot managed by
+systemd, or when Telegram is not configured yet.
 
 Monitor the unified engine worker:
 
