@@ -171,16 +171,6 @@ def _resolve_run_dir_path(
     return ""
 
 
-def _resolve_text_option(explicit: Any, manifest: dict[str, Any], key: str, default: str) -> str:
-    explicit_text = _normalize_text(explicit)
-    if explicit_text:
-        return explicit_text
-    manifest_text = _normalize_text(manifest.get(key))
-    if manifest_text:
-        return manifest_text
-    return default
-
-
 def _resolve_text_option_with_section(
     explicit: Any,
     manifest: dict[str, Any],
@@ -229,23 +219,73 @@ def _resolve_int_option_with_section(
     return int(section_value)
 
 
-def _resolve_int_option_with_fallback_section(
-    explicit: Any,
+def _resolve_required_workflow_root(args: Any, manifest: dict[str, Any]) -> str:
+    resolved_workflow_root = _discover_workflow_root(
+        getattr(args, "workflow_root", None) or manifest.get("workflow_root")
+    )
+    if not resolved_workflow_root:
+        raise ValueError("workflow_root is not configured. Set workflow.root in chemstack.yaml.")
+    return resolved_workflow_root
+
+
+def _resolve_run_dir_common_workflow_kwargs(
+    args: Any,
     manifest: dict[str, Any],
-    key: str,
-    section: dict[str, Any],
-    section_key: str,
-    default: int,
-) -> int:
-    if explicit is not None:
-        return int(explicit)
-    manifest_value = manifest.get(key)
-    if manifest_value is not None and _normalize_text(manifest_value) != "":
-        return int(manifest_value)
-    section_value = section.get(section_key)
-    if section_value is None or _normalize_text(section_value) == "":
-        return default
-    return int(section_value)
+    *,
+    resources_manifest: dict[str, Any],
+    crest_manifest: dict[str, Any],
+    orca_manifest: dict[str, Any],
+    default_orca_route_line: str,
+    default_max_orca_stages: int,
+) -> dict[str, Any]:
+    return {
+        "workflow_root": _resolve_required_workflow_root(args, manifest),
+        "crest_mode": _resolve_text_option_with_section(
+            getattr(args, "crest_mode", None),
+            manifest,
+            "crest_mode",
+            crest_manifest,
+            "mode",
+            "standard",
+        ),
+        "priority": _resolve_int_option(getattr(args, "priority", None), manifest, "priority", 10),
+        "max_cores": _resolve_int_option_with_section(
+            getattr(args, "max_cores", None), manifest, "max_cores", resources_manifest, "max_cores", 8
+        ),
+        "max_memory_gb": _resolve_int_option_with_section(
+            getattr(args, "max_memory_gb", None),
+            manifest,
+            "max_memory_gb",
+            resources_manifest,
+            "max_memory_gb",
+            32,
+        ),
+        "max_orca_stages": _resolve_int_option(
+            getattr(args, "max_orca_stages", None),
+            manifest,
+            "max_orca_stages",
+            default_max_orca_stages,
+        ),
+        "orca_route_line": _resolve_text_option_with_section(
+            getattr(args, "orca_route_line", None),
+            manifest,
+            "orca_route_line",
+            orca_manifest,
+            "route_line",
+            default_orca_route_line,
+        ),
+        "charge": _resolve_int_option_with_section(
+            getattr(args, "charge", None), manifest, "charge", orca_manifest, "charge", 0
+        ),
+        "multiplicity": _resolve_int_option_with_section(
+            getattr(args, "multiplicity", None),
+            manifest,
+            "multiplicity",
+            orca_manifest,
+            "multiplicity",
+            1,
+        ),
+    }
 
 
 def _print_created_workflow(payload: dict[str, Any], *, json_mode: bool) -> int:
@@ -319,160 +359,50 @@ def cmd_run_dir(args: Any) -> int:
                     "reaction_ts_search requires both reactant.xyz and product.xyz "
                     "(or manifest/CLI overrides)."
                 )
-            resolved_workflow_root = _discover_workflow_root(
-                getattr(args, "workflow_root", None) or manifest.get("workflow_root")
-            )
-            if not resolved_workflow_root:
-                raise ValueError(
-                    "workflow_root is not configured. Set workflow.root in chemstack.yaml."
-                )
-            crest_mode_value = _resolve_text_option_with_section(
-                getattr(args, "crest_mode", None),
-                manifest,
-                "crest_mode",
-                crest_manifest,
-                "mode",
-                "standard",
-            )
-            priority_value = _resolve_int_option(getattr(args, "priority", None), manifest, "priority", 10)
-            max_cores_value = _resolve_int_option_with_fallback_section(
-                getattr(args, "max_cores", None), manifest, "max_cores", resources_manifest, "max_cores", 8
-            )
-            max_memory_gb_value = _resolve_int_option_with_fallback_section(
-                getattr(args, "max_memory_gb", None), manifest, "max_memory_gb", resources_manifest, "max_memory_gb", 32
-            )
-            max_crest_candidates_value = _resolve_int_option(
-                getattr(args, "max_crest_candidates", None), manifest, "max_crest_candidates", 3
-            )
-            max_xtb_stages_value = _resolve_int_option(
-                getattr(args, "max_xtb_stages", None), manifest, "max_xtb_stages", 3
-            )
-            max_orca_stages_value = _resolve_int_option(
-                getattr(args, "max_orca_stages", None), manifest, "max_orca_stages", 3
-            )
-            orca_route_line_value = _resolve_text_option_with_section(
-                getattr(args, "orca_route_line", None),
-                manifest,
-                "orca_route_line",
-                orca_manifest,
-                "route_line",
-                "! r2scan-3c OptTS Freq TightSCF",
-            )
-            charge_value = _resolve_int_option_with_section(
-                getattr(args, "charge", None), manifest, "charge", orca_manifest, "charge", 0
-            )
-            multiplicity_value = _resolve_int_option_with_section(
-                getattr(args, "multiplicity", None), manifest, "multiplicity", orca_manifest, "multiplicity", 1
-            )
-            if crest_manifest or xtb_manifest:
-                reaction_kwargs: dict[str, Any] = {
-                    "reactant_xyz": reactant_xyz,
-                    "product_xyz": product_xyz,
-                    "workflow_root": resolved_workflow_root,
-                    "crest_mode": crest_mode_value,
-                    "priority": priority_value,
-                    "max_cores": max_cores_value,
-                    "max_memory_gb": max_memory_gb_value,
-                    "max_crest_candidates": max_crest_candidates_value,
-                    "max_xtb_stages": max_xtb_stages_value,
-                    "max_orca_stages": max_orca_stages_value,
-                    "orca_route_line": orca_route_line_value,
-                    "charge": charge_value,
-                    "multiplicity": multiplicity_value,
-                    "crest_job_manifest": crest_manifest or None,
-                    "xtb_job_manifest": xtb_manifest or None,
-                }
-                payload = create_reaction_workflow(**reaction_kwargs)
-            else:
-                reaction_kwargs = {
-                    "reactant_xyz": reactant_xyz,
-                    "product_xyz": product_xyz,
-                    "workflow_root": resolved_workflow_root,
-                    "crest_mode": crest_mode_value,
-                    "priority": priority_value,
-                    "max_cores": max_cores_value,
-                    "max_memory_gb": max_memory_gb_value,
-                    "max_crest_candidates": max_crest_candidates_value,
-                    "max_xtb_stages": max_xtb_stages_value,
-                    "max_orca_stages": max_orca_stages_value,
-                    "orca_route_line": orca_route_line_value,
-                    "charge": charge_value,
-                    "multiplicity": multiplicity_value,
-                }
-                payload = create_reaction_workflow(**reaction_kwargs)
+            reaction_kwargs: dict[str, Any] = {
+                "reactant_xyz": reactant_xyz,
+                "product_xyz": product_xyz,
+                **_resolve_run_dir_common_workflow_kwargs(
+                    args,
+                    manifest,
+                    resources_manifest=resources_manifest,
+                    crest_manifest=crest_manifest,
+                    orca_manifest=orca_manifest,
+                    default_orca_route_line="! r2scan-3c OptTS Freq TightSCF",
+                    default_max_orca_stages=3,
+                ),
+                "max_crest_candidates": _resolve_int_option(
+                    getattr(args, "max_crest_candidates", None), manifest, "max_crest_candidates", 3
+                ),
+                "max_xtb_stages": _resolve_int_option(
+                    getattr(args, "max_xtb_stages", None), manifest, "max_xtb_stages", 3
+                ),
+            }
+            if crest_manifest:
+                reaction_kwargs["crest_job_manifest"] = crest_manifest
+            if xtb_manifest:
+                reaction_kwargs["xtb_job_manifest"] = xtb_manifest
+            payload = create_reaction_workflow(**reaction_kwargs)
         else:
             if not input_xyz:
                 raise ValueError(
                     "conformer_screening requires input.xyz (or manifest/CLI override)."
                 )
-            resolved_workflow_root = _discover_workflow_root(
-                getattr(args, "workflow_root", None) or manifest.get("workflow_root")
-            )
-            if not resolved_workflow_root:
-                raise ValueError(
-                    "workflow_root is not configured. Set workflow.root in chemstack.yaml."
-                )
-            crest_mode_value = _resolve_text_option_with_section(
-                getattr(args, "crest_mode", None),
-                manifest,
-                "crest_mode",
-                crest_manifest,
-                "mode",
-                "standard",
-            )
-            priority_value = _resolve_int_option(getattr(args, "priority", None), manifest, "priority", 10)
-            max_cores_value = _resolve_int_option_with_fallback_section(
-                getattr(args, "max_cores", None), manifest, "max_cores", resources_manifest, "max_cores", 8
-            )
-            max_memory_gb_value = _resolve_int_option_with_fallback_section(
-                getattr(args, "max_memory_gb", None), manifest, "max_memory_gb", resources_manifest, "max_memory_gb", 32
-            )
-            max_orca_stages_value = _resolve_int_option(
-                getattr(args, "max_orca_stages", None), manifest, "max_orca_stages", 20
-            )
-            orca_route_line_value = _resolve_text_option_with_section(
-                getattr(args, "orca_route_line", None),
-                manifest,
-                "orca_route_line",
-                orca_manifest,
-                "route_line",
-                "! r2scan-3c Opt TightSCF",
-            )
-            charge_value = _resolve_int_option_with_section(
-                getattr(args, "charge", None), manifest, "charge", orca_manifest, "charge", 0
-            )
-            multiplicity_value = _resolve_int_option_with_section(
-                getattr(args, "multiplicity", None), manifest, "multiplicity", orca_manifest, "multiplicity", 1
-            )
+            conformer_kwargs: dict[str, Any] = {
+                "input_xyz": input_xyz,
+                **_resolve_run_dir_common_workflow_kwargs(
+                    args,
+                    manifest,
+                    resources_manifest=resources_manifest,
+                    crest_manifest=crest_manifest,
+                    orca_manifest=orca_manifest,
+                    default_orca_route_line="! r2scan-3c Opt TightSCF",
+                    default_max_orca_stages=20,
+                ),
+            }
             if crest_manifest:
-                conformer_kwargs: dict[str, Any] = {
-                    "input_xyz": input_xyz,
-                    "workflow_root": resolved_workflow_root,
-                    "crest_mode": crest_mode_value,
-                    "priority": priority_value,
-                    "max_cores": max_cores_value,
-                    "max_memory_gb": max_memory_gb_value,
-                    "max_orca_stages": max_orca_stages_value,
-                    "orca_route_line": orca_route_line_value,
-                    "charge": charge_value,
-                    "multiplicity": multiplicity_value,
-                    "crest_job_manifest": crest_manifest,
-                }
-                payload = create_conformer_screening_workflow(**conformer_kwargs)
-            else:
-                conformer_kwargs = {
-                    "input_xyz": input_xyz,
-                    "workflow_root": resolved_workflow_root,
-                    "crest_mode": crest_mode_value,
-                    "priority": priority_value,
-                    "max_cores": max_cores_value,
-                    "max_memory_gb": max_memory_gb_value,
-                    "max_orca_stages": max_orca_stages_value,
-                    "orca_route_line": orca_route_line_value,
-                    "charge": charge_value,
-                    "multiplicity": multiplicity_value,
-                }
-                payload = create_conformer_screening_workflow(**conformer_kwargs)
+                conformer_kwargs["crest_job_manifest"] = crest_manifest
+            payload = create_conformer_screening_workflow(**conformer_kwargs)
     except ValueError as exc:
         print(f"error: {exc}")
         return 1

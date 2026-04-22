@@ -572,6 +572,97 @@ def test_cmd_run_dir_requires_standard_reaction_xyz_names_for_reaction_workflow(
     assert "reaction_ts_search requires both reactant.xyz and product.xyz" in capsys.readouterr().out
 
 
+def test_cmd_run_dir_requires_workflow_root_for_reaction_workflow(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    workflow_dir = tmp_path / "reaction_missing_root"
+    workflow_dir.mkdir()
+    (workflow_dir / "reactant.xyz").write_text("x", encoding="utf-8")
+    (workflow_dir / "product.xyz").write_text("x", encoding="utf-8")
+    (workflow_dir / "flow.yaml").write_text("workflow_type: reaction_ts_search\n", encoding="utf-8")
+    create_called = False
+
+    monkeypatch.setattr(cli, "_discover_workflow_root", lambda explicit: None)
+
+    def fake_create_reaction_workflow(**kwargs: Any) -> dict[str, Any]:
+        nonlocal create_called
+        create_called = True
+        return _create_payload("reaction_ts_search")
+
+    monkeypatch.setattr(cli, "create_reaction_workflow", fake_create_reaction_workflow)
+
+    args = SimpleNamespace(
+        workflow_dir=str(workflow_dir),
+        workflow_type=None,
+        workflow_root=None,
+        reactant_xyz=None,
+        product_xyz=None,
+        input_xyz=None,
+        crest_mode=None,
+        priority=None,
+        max_cores=None,
+        max_memory_gb=None,
+        max_crest_candidates=None,
+        max_xtb_stages=None,
+        max_orca_stages=None,
+        orca_route_line=None,
+        charge=None,
+        multiplicity=None,
+        json=False,
+    )
+
+    assert cli.cmd_run_dir(args) == 1
+    assert "workflow_root is not configured" in capsys.readouterr().out
+    assert create_called is False
+
+
+def test_cmd_run_dir_requires_workflow_root_for_conformer_workflow(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    workflow_dir = tmp_path / "conformer_missing_root"
+    workflow_dir.mkdir()
+    (workflow_dir / "input.xyz").write_text("x", encoding="utf-8")
+    (workflow_dir / "flow.yaml").write_text("workflow_type: conformer_screening\n", encoding="utf-8")
+    create_called = False
+
+    monkeypatch.setattr(cli, "_discover_workflow_root", lambda explicit: None)
+
+    def fake_create_conformer_screening_workflow(**kwargs: Any) -> dict[str, Any]:
+        nonlocal create_called
+        create_called = True
+        return _create_payload("conformer_screening")
+
+    monkeypatch.setattr(cli, "create_conformer_screening_workflow", fake_create_conformer_screening_workflow)
+
+    args = SimpleNamespace(
+        workflow_dir=str(workflow_dir),
+        workflow_type=None,
+        workflow_root=None,
+        reactant_xyz=None,
+        product_xyz=None,
+        input_xyz=None,
+        crest_mode=None,
+        priority=None,
+        max_cores=None,
+        max_memory_gb=None,
+        max_crest_candidates=None,
+        max_xtb_stages=None,
+        max_orca_stages=None,
+        orca_route_line=None,
+        charge=None,
+        multiplicity=None,
+        json=False,
+    )
+
+    assert cli.cmd_run_dir(args) == 1
+    assert "workflow_root is not configured" in capsys.readouterr().out
+    assert create_called is False
+
+
 def test_cmd_run_dir_for_reaction_uses_nested_engine_sections(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
