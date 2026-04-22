@@ -538,6 +538,40 @@ def test_cmd_run_dir_requires_standard_input_xyz_name_for_conformer_workflow(
     assert "conformer_screening requires input.xyz" in capsys.readouterr().out
 
 
+def test_cmd_run_dir_requires_standard_reaction_xyz_names_for_reaction_workflow(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    workflow_dir = tmp_path / "reaction_nonstandard"
+    workflow_dir.mkdir()
+    (workflow_dir / "reactants.xyz").write_text("x", encoding="utf-8")
+    (workflow_dir / "products.xyz").write_text("x", encoding="utf-8")
+    (workflow_dir / "flow.yaml").write_text("workflow_type: reaction_ts_search\n", encoding="utf-8")
+
+    args = SimpleNamespace(
+        workflow_dir=str(workflow_dir),
+        workflow_type=None,
+        workflow_root=None,
+        reactant_xyz=None,
+        product_xyz=None,
+        input_xyz=None,
+        crest_mode=None,
+        priority=None,
+        max_cores=None,
+        max_memory_gb=None,
+        max_crest_candidates=None,
+        max_xtb_stages=None,
+        max_orca_stages=None,
+        orca_route_line=None,
+        charge=None,
+        multiplicity=None,
+        json=False,
+    )
+
+    assert cli.cmd_run_dir(args) == 1
+    assert "reaction_ts_search requires both reactant.xyz and product.xyz" in capsys.readouterr().out
+
+
 def test_cmd_run_dir_for_reaction_uses_nested_engine_sections(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

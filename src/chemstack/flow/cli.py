@@ -313,19 +313,18 @@ def cmd_run_dir(args: Any) -> int:
                     "Expected reactant.xyz + product.xyz or input.xyz."
                 )
 
-        resolved_workflow_root = _discover_workflow_root(
-            getattr(args, "workflow_root", None) or manifest.get("workflow_root")
-        )
-        if not resolved_workflow_root:
-            raise ValueError(
-                "workflow_root is not configured. Set workflow.root in chemstack.yaml."
-            )
-
         if workflow_type == "reaction_ts_search":
             if not reactant_xyz or not product_xyz:
                 raise ValueError(
                     "reaction_ts_search requires both reactant.xyz and product.xyz "
                     "(or manifest/CLI overrides)."
+                )
+            resolved_workflow_root = _discover_workflow_root(
+                getattr(args, "workflow_root", None) or manifest.get("workflow_root")
+            )
+            if not resolved_workflow_root:
+                raise ValueError(
+                    "workflow_root is not configured. Set workflow.root in chemstack.yaml."
                 )
             crest_mode_value = _resolve_text_option_with_section(
                 getattr(args, "crest_mode", None),
@@ -405,6 +404,13 @@ def cmd_run_dir(args: Any) -> int:
             if not input_xyz:
                 raise ValueError(
                     "conformer_screening requires input.xyz (or manifest/CLI override)."
+                )
+            resolved_workflow_root = _discover_workflow_root(
+                getattr(args, "workflow_root", None) or manifest.get("workflow_root")
+            )
+            if not resolved_workflow_root:
+                raise ValueError(
+                    "workflow_root is not configured. Set workflow.root in chemstack.yaml."
                 )
             crest_mode_value = _resolve_text_option_with_section(
                 getattr(args, "crest_mode", None),
