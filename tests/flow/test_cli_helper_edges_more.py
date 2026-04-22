@@ -46,7 +46,9 @@ def test_cli_path_and_manifest_helper_edges(
 def test_cli_option_and_workflow_root_helpers(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    assert cli._discover_workflow_root("~/workflow-root").endswith("workflow-root")
+    explicit_workflow_root = cli._discover_workflow_root("~/workflow-root")
+    assert explicit_workflow_root is not None
+    assert explicit_workflow_root.endswith("workflow-root")
 
     captured_root: Path | None = None
 
