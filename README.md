@@ -124,17 +124,6 @@ sudo systemctl enable --now "chemstack-runtime@$(whoami)"
 If you want only the worker managed automatically, enable
 `chemstack-queue-worker@$(whoami)` instead.
 
-Compatibility notes:
-
-- `python -m chemstack.orca.cli` remains as the only public engine-specific wrapper.
-- Standalone xTB and CREST CLI commands were removed. xTB job creation/execution and CREST job creation/execution now happen through workflow orchestration and internal runtime paths.
-- ORCA-only commands that are not yet unified still live under `python -m chemstack.orca.cli`, such as `monitor`.
-- Set top-level `workflow.root` in `chemstack.yaml` when you use workflow commands or want `python -m chemstack.cli queue worker` to supervise workflow activity, including internal xTB and CREST stages.
-- Workflow scaffolds default to `crest_mode: standard`; switch to `nci` in `flow.yaml` when needed.
-- `reaction_ts_search` expands all selected reactant x product CREST pairs into xTB path-search child jobs, and as each xTB child finishes it immediately queues the matching ORCA OptTS child job from that `ts_guess`.
-- `conformer_search` starts with one CREST child job and then hands off up to 20 retained conformers to ORCA child jobs in the next workflow cycle.
-- `python -m chemstack.cli bot` reuses the unified workflow activity layer, so `/list` shows workflow parents with indented child jobs and keeps standalone ORCA jobs top-level. `/cancel` can still target either a workflow or an individual job.
-
 ## Runtime Notes
 
 - `run-dir` enqueues work durably; workers perform execution.
