@@ -1,5 +1,6 @@
 ﻿from __future__ import annotations
 
+import math
 import re
 from pathlib import Path
 from typing import List, Optional, Tuple
@@ -145,6 +146,7 @@ def _set_block_key_value(lines: List[str], block_name: str, key: str, value: str
 
 
 _MAXCORE_RE = re.compile(r"^\s*%maxcore\s+(\d+)", re.IGNORECASE)
+_NPROCS_RE = re.compile(r"\bnprocs\s+(\d+)\b", re.IGNORECASE)
 _DEFAULT_MAXCORE_MB = 4000
 _MAXCORE_INCREASE_FACTOR = 1.5
 
@@ -159,6 +161,102 @@ def _read_maxcore(lines: List[str]) -> Optional[int]:
             except ValueError:
                 return None
     return None
+
+
+def _read_nprocs(lines: List[str]) -> Optional[int]:
+    """Read the %pal nprocs value from the input file."""
+    in_pal_block = False
+    for line in lines:
+        block_match = BLOCK_START_RE.match(line)
+        if not in_pal_block:
+            if not block_match or block_match.group(1).lower() != "pal":
+                continue
+            remainder = line[block_match.end():]
+            nprocs_match = _NPROCS_RE.search(remainder)
+            if nprocs_match:
+                try:
+                    value = int(nprocs_match.group(1))
+                except ValueError:
+                    value = 0
+                return value if value > 0 else None
+            if re.search(r"\bend\b", remainder, re.IGNORECASE):
+                return None
+            in_pal_block = True
+            continue
+
+        stripped = line.strip()
+        if stripped.lower() == "end":
+            return None
+        if BLOCK_START_RE.match(line) or GEOM_HEADER_RE.match(stripped):
+            return None
+
+        nprocs_match = _NPROCS_RE.search(line)
+        if not nprocs_match:
+            continue
+        try:
+            value = int(nprocs_match.group(1))
+        except ValueError:
+            value = 0
+        return value if value > 0 else None
+    return None
+
+
+def maxcore_mb_per_core(*, max_memory_gb: int, max_cores: int) -> int:
+    total_mb = max(1, int(max_memory_gb)) * 1024
+    return max(1, total_mb // max(1, int(max_cores)))
+
+
+def _resource_request_from_lines(lines: List[str]) -> dict[str, int]:
+    max_cores = _read_nprocs(lines)
+    maxcore_mb = _read_maxcore(lines)
+    if max_cores is None or maxcore_mb is None or maxcore_mb <= 0:
+        return {}
+    total_memory_gb = max(1, math.ceil((max_cores * maxcore_mb) / 1024))
+    return {
+        "max_cores": max_cores,
+        "max_memory_gb": total_memory_gb,
+    }
+
+
+def read_resource_request_from_input(inp_path: Path) -> dict[str, int]:
+    lines = inp_path.read_text(encoding="utf-8", errors="ignore").splitlines()
+    return _resource_request_from_lines(lines)
+
+
+def ensure_submission_resource_request(
+    inp_path: Path,
+    *,
+    default_max_cores: int,
+    default_max_memory_gb: int,
+) -> tuple[dict[str, int], list[str]]:
+    lines = inp_path.read_text(encoding="utf-8", errors="ignore").splitlines()
+    actions: list[str] = []
+
+    max_cores = _read_nprocs(lines)
+    if max_cores is None:
+        configured_cores = max(1, int(default_max_cores))
+        if _set_block_key_value(lines, "pal", "nprocs", str(configured_cores)):
+            actions.append("pal_nprocs_injected")
+        max_cores = _read_nprocs(lines) or configured_cores
+
+    maxcore_mb = _read_maxcore(lines)
+    if maxcore_mb is None or maxcore_mb <= 0:
+        configured_maxcore = maxcore_mb_per_core(
+            max_memory_gb=max(1, int(default_max_memory_gb)),
+            max_cores=max_cores,
+        )
+        if _set_maxcore(lines, configured_maxcore):
+            actions.append("maxcore_injected")
+
+    resource_request = _resource_request_from_lines(lines)
+    if not resource_request:
+        raise ValueError(
+            f"Could not determine ORCA resource_request from input: {inp_path}"
+        )
+
+    if actions:
+        inp_path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+    return resource_request, actions
 
 
 def _set_maxcore(lines: List[str], value_mb: int) -> bool:

@@ -534,7 +534,7 @@ def test_append_crest_orca_stage_false_branches(
 
 def test_recompute_workflow_status_covers_cancelled_and_cancel_requested_edges() -> None:
     assert orchestration._recompute_workflow_status({"status": "cancelled", "stages": []}) == "cancelled"
-    assert orchestration._recompute_workflow_status({"status": "planned", "stages": [{"status": "cancel_requested", "task": {"engine": "crest"}}]}) == "cancel_requested"
+    assert orchestration._recompute_workflow_status({"status": "planned", "stages": [{"status": "cancel_requested", "task": {"engine": "crest"}}]}) == "running"
     assert (
         orchestration._recompute_workflow_status(
             {
@@ -545,7 +545,7 @@ def test_recompute_workflow_status_covers_cancelled_and_cancel_requested_edges()
                 ],
             }
         )
-        == "cancelled"
+        == "running"
     )
 
 

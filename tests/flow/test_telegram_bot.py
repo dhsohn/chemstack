@@ -5,6 +5,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
@@ -109,6 +110,49 @@ def test_handle_list_filter_keeps_workflow_parent_for_visible_child(monkeypatch)
     assert "<b>active_simulations</b>: <code>0</code>" in text
     assert "- <code>wf-a</code> kind=<code>workflow</code>" in text
     assert "\xa0\xa0- <code>crest-q-1</code> kind=<code>job</code> engine=<code>crest</code> status=<code>pending</code>" in text
+
+
+def test_handle_list_uses_global_active_simulation_count_from_full_payload(monkeypatch) -> None:
+    captured: dict[str, Any] = {}
+    monkeypatch.setattr(
+        bot,
+        "list_activities",
+        lambda **kwargs: {
+            "activities": [
+                {
+                    "label": "hidden-run",
+                    "activity_id": "orca-q-1",
+                    "kind": "job",
+                    "engine": "orca",
+                    "status": "running",
+                    "source": "chemstack_orca",
+                },
+                {
+                    "label": "visible-pending",
+                    "activity_id": "crest-q-1",
+                    "kind": "job",
+                    "engine": "crest",
+                    "status": "pending",
+                    "source": "crest_auto",
+                },
+            ],
+            "sources": {"orca_auto_config": "/tmp/chemstack.yaml"},
+        },
+    )
+
+    def _fake_count(items, *, config_path=None):
+        captured["items"] = list(items)
+        captured["config_path"] = config_path
+        return 4
+
+    monkeypatch.setattr(bot, "count_global_active_simulations", _fake_count)
+
+    text = bot._handle_list(_settings(), "pending")
+
+    assert "<b>active_simulations</b>: <code>4</code>" in text
+    assert len(captured["items"]) == 2
+    assert captured["config_path"] == "/tmp/chemstack.yaml"
+    assert "visible-pending" in text
 
 
 def test_handle_list_shows_all_workflow_child_jobs(monkeypatch) -> None:

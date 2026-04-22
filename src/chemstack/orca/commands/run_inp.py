@@ -22,6 +22,7 @@ from ..admission_store import (
 from ..attempt_engine import _exit_with_result, run_attempts
 from ..completion_rules import detect_completion_mode
 from ..config import load_config
+from ..inp_rewriter import ensure_submission_resource_request, read_resource_request_from_input
 from ..lock_utils import is_process_alive, parse_lock_info, process_start_ticks
 from ..orca_runner import OrcaRunner
 from ..out_analyzer import analyze_output
@@ -508,20 +509,29 @@ def _build_queue_enqueued_notification(entry: QueueEntry) -> QueueEnqueuedNotifi
     }
 
 
-def _resource_caps(cfg: Any, *, args: Any | None = None) -> dict[str, int]:
-    from ..job_locations import resource_dict
-
-    default_max_cores = int(cfg.resources.max_cores_per_task)
-    default_max_memory_gb = int(cfg.resources.max_memory_gb_per_task)
-    max_cores = int(getattr(args, "max_cores", default_max_cores) or default_max_cores) if args is not None else default_max_cores
-    max_memory_gb = (
-        int(getattr(args, "max_memory_gb", default_max_memory_gb) or default_max_memory_gb)
-        if args is not None
-        else default_max_memory_gb
+def _resource_request_from_selected_inp(cfg: Any, selected_inp: Path | None) -> dict[str, int]:
+    if selected_inp is None:
+        raise ValueError("No .inp file selected for ORCA queue submission.")
+    resource_request, actions = ensure_submission_resource_request(
+        selected_inp,
+        default_max_cores=int(cfg.resources.max_cores_per_task),
+        default_max_memory_gb=int(cfg.resources.max_memory_gb_per_task),
     )
-    return resource_dict(
-        max_cores,
-        max_memory_gb,
+    if actions:
+        logger.info(
+            "Updated ORCA input resource directives in %s: %s",
+            selected_inp,
+            ", ".join(actions),
+        )
+    return resource_request
+
+
+def _warn_ignored_resource_override_flags(args: Any) -> None:
+    if getattr(args, "max_cores", None) is None and getattr(args, "max_memory_gb", None) is None:
+        return
+    logger.warning(
+        "Standalone ORCA queue submission ignores --max-cores/--max-memory-gb; "
+        "resource metadata is read from the input file."
     )
 
 
@@ -536,7 +546,7 @@ def _build_queue_metadata(
 
     selected_input = str(selected_inp) if selected_inp is not None else ""
     job_type, molecule_key = resolve_job_metadata(selected_input, reaction_dir)
-    requested = _resource_caps(cfg, args=args)
+    requested = _resource_request_from_selected_inp(cfg, selected_inp)
     metadata: dict[str, Any] = {
         "submitted_via": "run_inp",
         "max_retries": max(0, int(cfg.runtime.default_max_retries)),
@@ -571,7 +581,11 @@ def _upsert_queued_job_record(
         molecule_key = molecule_key or derived_molecule_key
     requested = metadata.get("resource_request")
     if not isinstance(requested, dict):
-        requested = _resource_caps(cfg)
+        requested = {}
+    if not requested and selected_inp is not None and selected_inp.exists():
+        requested = read_resource_request_from_input(selected_inp)
+    if not requested and selected_inp is not None and selected_inp.exists():
+        requested = _resource_request_from_selected_inp(cfg, selected_inp)
     actual = metadata.get("resource_actual")
     if not isinstance(actual, dict):
         actual = dict(requested)
@@ -603,6 +617,7 @@ def _submit_as_queued(
             selected_inp = _select_latest_inp(reaction_dir)
         except ValueError:
             selected_inp = None
+    _warn_ignored_resource_override_flags(args)
     queue_metadata = _build_queue_metadata(
         cfg,
         reaction_dir=reaction_dir,

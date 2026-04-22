@@ -1,19 +1,67 @@
+# Shared chemstack config example.
+#
+# Search order:
+# 1. $CHEMSTACK_CONFIG
+# 2. <project_root>/config/chemstack.yaml
+# 3. ~/chemstack/config/chemstack.yaml
+#
+# Use Linux paths only. Windows-style paths such as C:\... or /mnt/c/... are
+# not supported.
+
+resources:
+  # Default per-task resource limits used unless a task or manifest overrides
+  # them.
+  max_cores_per_task: 8
+  max_memory_gb_per_task: 32
+
+behavior:
+  # When true, queue workers auto-organize runs as soon as they reach a
+  # terminal state.
+  auto_organize_on_terminal: false
+
 scheduler:
+  # Shared total active-run cap across ORCA, internal xTB workflow stages, and
+  # internal CREST workflow stages.
   max_active_simulations: 4
+  # Shared admission directory for machine-wide slot coordination.
+  # If omitted, chemstack defaults to "<directory containing this file>/admission".
+  admission_root: /home/user/chemstack/admission
+
 workflow:
+  # Base directory for workflow definitions, workflow journals, and unified
+  # activity inspection.
   root: /home/user/chemstack/workflow_root
   paths:
+    # Executables used by workflow-managed internal stages.
     xtb_executable: /home/user/bin/xtb-dist/bin/xtb
     crest_executable: /home/user/bin/crest/crest
-behavior:
-  auto_organize_on_terminal: false
+  # Internal xTB/CREST runtime roots are derived automatically and are not set
+  # directly in config:
+  #   xTB runs     -> <workflow.root>/internal/xtb/runs
+  #   xTB outputs  -> <workflow.root>/internal/xtb/outputs
+  #   CREST runs   -> <workflow.root>/internal/crest/runs
+  #   CREST outputs-> <workflow.root>/internal/crest/outputs
+
 telegram:
+  # Leave blank to disable the unified Telegram bot and shared Telegram
+  # notifications that use this config.
   bot_token: ""
   chat_id: ""
+
 orca:
   runtime:
+    # Root directory where ORCA jobs are allowed to execute.
     allowed_root: /home/user/orca_runs
+    # Root directory where organized ORCA outputs are collected.
+    # If omitted, chemstack defaults to a sibling directory named
+    # "orca_outputs".
     organized_root: /home/user/orca_outputs
+    # Retry count after the initial attempt.
+    # Example: 2 means "1 initial run + up to 2 retries" = 3 total attempts.
     default_max_retries: 2
+    # Do not add runtime.max_concurrent, runtime.admission_root, or
+    # runtime.admission_limit here. Shared scheduling is configured only under
+    # the top-level scheduler section.
   paths:
+    # Linux path to the ORCA executable.
     orca_executable: /home/user/opt/orca/orca

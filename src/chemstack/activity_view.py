@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, Sequence
 
+from chemstack.core.admission import active_slot_count
 from chemstack.flow.submitters.common import normalize_text
+from chemstack.flow.submitters.common import sibling_runtime_paths
 
 ACTIVE_SIMULATION_STATUSES = frozenset({"running", "retrying", "cancel_requested"})
 ActivityItem = dict[str, Any]
@@ -44,6 +47,26 @@ def count_active_simulations(items: Sequence[dict[str, Any]]) -> int:
         if status in ACTIVE_SIMULATION_STATUSES:
             total += 1
     return total
+
+
+def count_global_active_simulations(
+    items: Sequence[dict[str, Any]],
+    *,
+    config_path: str | None = None,
+) -> int:
+    config_text = normalize_text(config_path)
+    if config_text:
+        try:
+            runtime_paths = sibling_runtime_paths(config_text)
+        except Exception:
+            runtime_paths = {}
+        admission_root = runtime_paths.get("admission_root")
+        if isinstance(admission_root, Path):
+            try:
+                return max(0, int(active_slot_count(admission_root)))
+            except Exception:
+                pass
+    return count_active_simulations(items)
 
 
 def queue_list_display_rows(

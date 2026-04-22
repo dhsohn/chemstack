@@ -91,6 +91,7 @@ python -m chemstack.cli scaffold conformer_search '/home/user/workflow_inputs/co
 
 # start foreground services manually when not using systemd
 python -m chemstack.cli queue worker
+python -m chemstack.cli runtime
 python -m chemstack.cli bot
 
 # submit work
@@ -123,6 +124,8 @@ sudo systemctl enable --now "chemstack-runtime@$(whoami)"
 
 If you want only the worker managed automatically, enable
 `chemstack-queue-worker@$(whoami)` instead.
+For an all-in-one foreground process without `systemd`, use
+`python -m chemstack.cli runtime`.
 
 ## Runtime Notes
 

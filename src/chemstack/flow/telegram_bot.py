@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
-from chemstack.activity_view import count_active_simulations, queue_list_display_rows
+from chemstack.activity_view import count_global_active_simulations, queue_list_display_rows
 from chemstack.core.app_ids import (
     CHEMSTACK_REPO_ROOT_ENV_VAR,
     LEGACY_ORCA_REPO_ROOT_ENV_VAR,
@@ -207,6 +207,24 @@ def _format_activity_rows(rows: list[tuple[int, dict[str, Any]]], *, limit: int 
     return "\n".join(lines)
 
 
+def _activity_counter_config_path(
+    payload: dict[str, Any],
+    *,
+    settings: TelegramBotSettings,
+) -> str | None:
+    sources = payload.get("sources")
+    if isinstance(sources, dict):
+        for key in ("orca_auto_config", "crest_auto_config", "xtb_auto_config"):
+            source_text = str(sources.get(key, "")).strip()
+            if source_text:
+                return source_text
+    for value in (settings.orca_auto_config, settings.crest_auto_config, settings.xtb_auto_config):
+        text = str(value or "").strip()
+        if text:
+            return text
+    return None
+
+
 def _handle_list(settings: TelegramBotSettings, args: str) -> str:
     payload = _activity_payload(settings)
     all_rows = list(payload.get("activities", []))
@@ -219,7 +237,9 @@ def _handle_list(settings: TelegramBotSettings, args: str) -> str:
     if not rows:
         return "No activities found."
 
-    header = f"<b>active_simulations</b>: <code>{count_active_simulations(rows)}</code>"
+    header = (
+        f"<b>active_simulations</b>: <code>{count_global_active_simulations(all_rows, config_path=_activity_counter_config_path(payload, settings=settings))}</code>"
+    )
     display_rows = queue_list_display_rows(
         all_items=all_rows,
         visible_items=rows,

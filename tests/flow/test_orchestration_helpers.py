@@ -275,9 +275,81 @@ def test_completed_role_and_contract_helpers_use_expected_targets(monkeypatch: p
         ({"stages": [{"status": "queued"}]}, "running"),
         ({"stages": [{"status": "completed"}, {"status": "completed"}]}, "completed"),
         ({"stages": [{"status": "completed"}, {"status": "planned"}]}, "running"),
-        ({"stages": [{"status": "cancelled"}]}, "cancelled"),
+        ({"stages": [{"status": "cancelled"}]}, "completed"),
         ({"stages": []}, "planned"),
     ],
 )
 def test_recompute_workflow_status_covers_major_branches(payload: dict[str, Any], expected: str) -> None:
     assert _recompute_workflow_status(payload) == expected
+
+
+def test_recompute_workflow_status_treats_child_failures_by_engine_role() -> None:
+    assert _recompute_workflow_status(
+        {
+            "template_name": "reaction_ts_search",
+            "stages": [
+                {"status": "failed", "task": {"engine": "crest"}},
+                {"status": "running", "task": {"engine": "xtb"}},
+            ],
+        }
+    ) == "failed"
+
+    assert _recompute_workflow_status(
+        {
+            "template_name": "reaction_ts_search",
+            "stages": [
+                {"status": "failed", "task": {"engine": "xtb"}},
+                {"status": "planned", "task": {"engine": "orca"}},
+            ],
+        }
+    ) == "running"
+
+    assert _recompute_workflow_status(
+        {
+            "template_name": "reaction_ts_search",
+            "stages": [
+                {"status": "failed", "task": {"engine": "xtb"}},
+                {"status": "failed", "task": {"engine": "orca"}},
+            ],
+        }
+    ) == "completed"
+
+    assert _recompute_workflow_status(
+        {
+            "template_name": "conformer_screening",
+            "stages": [
+                {"status": "cancel_requested", "task": {"engine": "orca"}},
+                {"status": "completed", "task": {"engine": "orca"}},
+            ],
+        }
+    ) == "running"
+
+    assert _recompute_workflow_status(
+        {
+            "template_name": "conformer_screening",
+            "stages": [
+                {"status": "cancelled", "task": {"engine": "orca"}},
+                {"status": "completed", "task": {"engine": "orca"}},
+            ],
+        }
+    ) == "completed"
+
+    assert _recompute_workflow_status(
+        {
+            "template_name": "conformer_screening",
+            "stages": [
+                {"status": "completed", "task": {"engine": "orca"}},
+                {"status": "running", "task": {"engine": "orca"}},
+            ],
+        }
+    ) == "running"
+
+    assert _recompute_workflow_status(
+        {
+            "template_name": "conformer_screening",
+            "stages": [
+                {"status": "failed", "task": {"engine": "orca"}},
+                {"status": "completed", "task": {"engine": "orca"}},
+            ],
+        }
+    ) == "completed"

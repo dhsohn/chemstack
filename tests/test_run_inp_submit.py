@@ -9,11 +9,11 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from chemstack.orca.commands.run_inp import _submit_as_queued, cmd_run_inp
-from chemstack.orca.config import AppConfig, PathsConfig, RuntimeConfig
+from chemstack.orca.config import AppConfig, CommonResourceConfig, PathsConfig, RuntimeConfig
 from chemstack.orca.queue_store import enqueue, list_queue
 
 
-def _make_cfg(tmp: str) -> AppConfig:
+def _make_cfg(tmp: str, *, max_cores: int = 8, max_memory_gb: int = 32) -> AppConfig:
     root = Path(tmp)
     fake_orca = root / "fake_orca"
     fake_orca.write_text("#!/bin/sh\n", encoding="utf-8")
@@ -21,15 +21,19 @@ def _make_cfg(tmp: str) -> AppConfig:
     cfg = AppConfig(
         runtime=RuntimeConfig(allowed_root=tmp),
         paths=PathsConfig(orca_executable=str(fake_orca)),
+        resources=CommonResourceConfig(
+            max_cores_per_task=max_cores,
+            max_memory_gb_per_task=max_memory_gb,
+        ),
     )
     setattr(cfg.runtime, "max_concurrent", 1)
     return cfg
 
 
-def _write_inp(reaction_dir: Path) -> None:
+def _write_inp(reaction_dir: Path, content: str | None = None) -> None:
     reaction_dir.mkdir(parents=True, exist_ok=True)
     (reaction_dir / "rxn.inp").write_text(
-        "! Opt\n* xyz 0 1\nH 0 0 0\nH 0 0 0.74\n*\n",
+        content or "! Opt\n* xyz 0 1\nH 0 0 0\nH 0 0 0.74\n*\n",
         encoding="utf-8",
     )
 
@@ -170,6 +174,10 @@ class TestRunInpSubmit(unittest.TestCase):
             self.assertEqual(entries[0]["metadata"]["resource_request"]["max_memory_gb"], 32)
             self.assertEqual(entries[0]["metadata"]["resource_actual"]["max_cores"], 8)
             self.assertEqual(entries[0]["metadata"]["resource_actual"]["max_memory_gb"], 32)
+            inp_text = (reaction_dir / "rxn.inp").read_text(encoding="utf-8")
+            self.assertIn("%pal", inp_text)
+            self.assertIn("nprocs 8", inp_text)
+            self.assertIn("%maxcore 4096", inp_text)
             tracking_records = json.loads((root / "job_locations.json").read_text(encoding="utf-8"))
             self.assertEqual(len(tracking_records), 1)
             self.assertEqual(tracking_records[0]["job_id"], entries[0]["task_id"])
@@ -209,7 +217,7 @@ class TestRunInpSubmit(unittest.TestCase):
 
     @patch("chemstack.orca.commands.run_inp.notify_queue_enqueued_event", return_value=True)
     @patch("chemstack.orca.queue_worker.read_worker_pid", return_value=None)
-    def test_submit_as_queued_honors_resource_override_flags(
+    def test_submit_as_queued_reads_metadata_from_input_even_when_flags_are_present(
         self,
         mock_read_worker_pid: MagicMock,
         mock_notify_queue: MagicMock,
@@ -218,7 +226,20 @@ class TestRunInpSubmit(unittest.TestCase):
             root = Path(tmp)
             cfg = _make_cfg(tmp)
             reaction_dir = root / "rxn"
-            _write_inp(reaction_dir)
+            _write_inp(
+                reaction_dir,
+                content=(
+                    "! Opt\n"
+                    "%pal\n"
+                    "  nprocs 12\n"
+                    "end\n"
+                    "%maxcore 2048\n"
+                    "* xyz 0 1\n"
+                    "H 0 0 0\n"
+                    "H 0 0 0.74\n"
+                    "*\n"
+                ),
+            )
 
             buf = io.StringIO()
             with redirect_stdout(buf):
@@ -232,10 +253,13 @@ class TestRunInpSubmit(unittest.TestCase):
 
             self.assertEqual(rc, 0)
             self.assertEqual(len(entries), 1)
-            self.assertEqual(entries[0]["metadata"]["resource_request"]["max_cores"], 20)
-            self.assertEqual(entries[0]["metadata"]["resource_request"]["max_memory_gb"], 80)
-            self.assertEqual(entries[0]["metadata"]["resource_actual"]["max_cores"], 20)
-            self.assertEqual(entries[0]["metadata"]["resource_actual"]["max_memory_gb"], 80)
+            self.assertEqual(entries[0]["metadata"]["resource_request"]["max_cores"], 12)
+            self.assertEqual(entries[0]["metadata"]["resource_request"]["max_memory_gb"], 24)
+            self.assertEqual(entries[0]["metadata"]["resource_actual"]["max_cores"], 12)
+            self.assertEqual(entries[0]["metadata"]["resource_actual"]["max_memory_gb"], 24)
+            inp_text = (reaction_dir / "rxn.inp").read_text(encoding="utf-8")
+            self.assertIn("nprocs 12", inp_text)
+            self.assertIn("%maxcore 2048", inp_text)
             mock_read_worker_pid.assert_called_once()
             mock_notify_queue.assert_called_once()
 

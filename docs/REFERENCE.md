@@ -238,6 +238,7 @@ There is no public direct-execution mode for new work. `run-dir` is the durable 
 python -m chemstack.cli queue worker
 python -m chemstack.cli queue worker --app orca
 python -m chemstack.cli queue worker --app workflow
+python -m chemstack.cli runtime
 ```
 
 Behavior:
@@ -250,6 +251,7 @@ Behavior:
 - When workflow supervision is active, the internal CREST and xTB workers are started automatically
 - `workflow.root` is the supported workflow-root source for the public CLI
 - Requeues in-flight jobs during controlled shutdown
+- `runtime` uses the same worker stack but also supervises the unified Telegram bot in a sibling process
 
 Use cases:
 

@@ -22,6 +22,7 @@ from typing import Dict, Protocol
 
 from .admission_store import reconcile_stale_slots, release_slot, reserve_slot, update_slot_metadata
 from .config import AppConfig
+from .inp_rewriter import read_resource_request_from_input
 from .process_tracking import read_pid_file
 from .queue_store import (
     dequeue_next,
@@ -123,6 +124,8 @@ def _get_run_id_from_state(reaction_dir: str) -> str | None:
     if state:
         return state.get("run_id")
     return None
+
+
 def _upsert_running_job_record(cfg: AppConfig, entry: QueueEntry) -> None:
     task_id = queue_entry_task_id(entry)
     if not task_id:
@@ -180,6 +183,10 @@ def _tracking_metadata_from_queue_entry(
         return result
 
     requested = _resource_caps_from_metadata(metadata.get("resource_request"))
+    if not requested and selected_input.lower().endswith(".inp"):
+        selected_inp_path = Path(selected_input).expanduser().resolve()
+        if selected_inp_path.exists():
+            requested = read_resource_request_from_input(selected_inp_path)
     if not requested:
         requested = resource_dict(
             cfg.resources.max_cores_per_task,

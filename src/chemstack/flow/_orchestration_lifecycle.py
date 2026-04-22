@@ -141,31 +141,44 @@ def recompute_workflow_status_impl(
     effective_stage_status_fn: Callable[[dict[str, Any]], str],
 ) -> str:
     stages = [stage for stage in payload.get("stages", []) if isinstance(stage, dict)]
-    statuses = [effective_stage_status_fn(stage) for stage in stages]
+    failed_statuses = {"submission_failed", "failed", "cancel_failed"}
+    active_statuses = {"queued", "running", "submitted", "cancel_requested"}
+    terminal_statuses = {"completed", "cancelled", *failed_statuses}
+
+    def _stage_engine(stage: dict[str, Any]) -> str:
+        task = stage.get("task")
+        if not isinstance(task, dict):
+            return ""
+        return normalize_text_fn(task.get("engine")).lower()
+
+    stage_rows = [
+        (stage, effective_stage_status_fn(stage), _stage_engine(stage))
+        for stage in stages
+    ]
+    statuses = [status for _, status, _ in stage_rows]
     current_status = normalize_text_fn(payload.get("status")).lower()
     metadata = payload.get("metadata")
     if isinstance(metadata, dict):
         workflow_error = metadata.get("workflow_error")
         if isinstance(workflow_error, dict) and normalize_text_fn(workflow_error.get("status")).lower() == "failed":
             return "failed"
-    if any(status in {"submission_failed", "failed", "cancel_failed"} for status in statuses):
+    if any(
+        status in failed_statuses and engine in {"", "crest"}
+        for _, status, engine in stage_rows
+    ):
         return "failed"
     if current_status == "cancelled":
         return "cancelled"
     if current_status == "cancel_requested":
-        if any(status in {"queued", "running", "submitted", "cancel_requested"} for status in statuses):
+        if any(status in active_statuses for status in statuses):
             return "cancel_requested"
         return "cancelled"
-    if any(status == "cancel_requested" for status in statuses):
-        return "cancel_requested"
-    if any(status in {"queued", "running", "submitted"} for status in statuses):
+    if any(status in active_statuses for status in statuses):
         return "running"
-    if stages and all(status in {"completed", "cancelled"} for status in statuses):
-        if any(status == "cancelled" for status in statuses):
-            return "cancelled"
+    if any(status == "planned" for status in statuses):
+        return "running"
+    if stages and all(status in terminal_statuses for status in statuses):
         return "completed"
-    if any(status == "cancelled" for status in statuses):
-        return "cancelled"
     if any(status == "completed" for status in statuses):
         return "running"
     return "planned"

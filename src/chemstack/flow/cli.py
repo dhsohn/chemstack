@@ -32,16 +32,18 @@ from .registry import (
     write_workflow_worker_state,
 )
 from .runtime import advance_workflow_registry_once, workflow_worker_lock_path
+from .run_dir_layout import (
+    STANDARD_CONFORMER_INPUT_FILENAME,
+    STANDARD_REACTION_PRODUCT_FILENAME,
+    STANDARD_REACTION_REACTANT_FILENAME,
+    WORKFLOW_MANIFEST_FILENAMES,
+    inspect_workflow_run_dir,
+)
 from .submitters import submit_reaction_ts_search_workflow
 from .workflows import (
     build_conformer_screening_plan_from_target,
     build_reaction_ts_search_plan_from_target,
 )
-
-_RUN_DIR_MANIFEST_NAMES = ("flow.yaml",)
-_REACTION_REACTANT_FILENAMES = ("reactant.xyz", "reactant_precomplex.xyz", "reactant-precomplex.xyz")
-_REACTION_PRODUCT_FILENAMES = ("product.xyz", "product_precomplex.xyz", "product-precomplex.xyz")
-_CONFORMER_INPUT_FILENAMES = ("input.xyz", "molecule.xyz", "structure.xyz")
 
 
 def _normalize_text(value: Any) -> str:
@@ -101,7 +103,7 @@ def _normalize_workflow_type(value: Any) -> str:
 
 
 def _load_run_dir_manifest(workflow_dir: Path) -> dict[str, Any]:
-    for name in _RUN_DIR_MANIFEST_NAMES:
+    for name in WORKFLOW_MANIFEST_FILENAMES:
         candidate = workflow_dir / name
         if not candidate.exists():
             continue
@@ -272,21 +274,21 @@ def cmd_run_dir(args: Any) -> int:
             explicit=getattr(args, "reactant_xyz", None),
             manifest=manifest,
             key="reactant_xyz",
-            default_names=_REACTION_REACTANT_FILENAMES,
+            default_names=(STANDARD_REACTION_REACTANT_FILENAME,),
         )
         product_xyz = _resolve_run_dir_path(
             workflow_dir,
             explicit=getattr(args, "product_xyz", None),
             manifest=manifest,
             key="product_xyz",
-            default_names=_REACTION_PRODUCT_FILENAMES,
+            default_names=(STANDARD_REACTION_PRODUCT_FILENAME,),
         )
         input_xyz = _resolve_run_dir_path(
             workflow_dir,
             explicit=getattr(args, "input_xyz", None),
             manifest=manifest,
             key="input_xyz",
-            default_names=_CONFORMER_INPUT_FILENAMES,
+            default_names=(STANDARD_CONFORMER_INPUT_FILENAME,),
         )
 
         workflow_type_text = _normalize_text(getattr(args, "workflow_type", None))
@@ -296,17 +298,15 @@ def cmd_run_dir(args: Any) -> int:
         if workflow_type_text:
             workflow_type = _normalize_workflow_type(workflow_type_text)
         else:
-            has_reaction_inputs = bool(reactant_xyz and product_xyz)
-            has_conformer_input = bool(input_xyz)
-            if has_reaction_inputs and not has_conformer_input:
-                workflow_type = "reaction_ts_search"
-            elif has_conformer_input and not has_reaction_inputs:
-                workflow_type = "conformer_screening"
-            elif has_reaction_inputs and has_conformer_input:
+            workflow_layout = inspect_workflow_run_dir(workflow_dir)
+            if workflow_layout.is_ambiguous:
                 raise ValueError(
                     "Ambiguous workflow_dir: found both reaction inputs and conformer input. "
                     "Pass --workflow-type to choose one."
                 )
+            inferred_workflow_type = workflow_layout.inferred_workflow_type
+            if inferred_workflow_type:
+                workflow_type = inferred_workflow_type
             else:
                 raise ValueError(
                     "Could not infer workflow type from workflow_dir. "

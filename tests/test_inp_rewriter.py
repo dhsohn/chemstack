@@ -3,7 +3,7 @@ import time
 import unittest
 from pathlib import Path
 
-from chemstack.orca.inp_rewriter import rewrite_for_retry
+from chemstack.orca.inp_rewriter import ensure_submission_resource_request, read_resource_request_from_input, rewrite_for_retry
 
 
 BASE_INP = """! OptTS Freq IRC
@@ -20,6 +20,59 @@ H 0 0 0.74
 
 
 class TestInpRewriter(unittest.TestCase):
+    def test_ensure_submission_resource_request_injects_missing_directives(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            inp = root / "rxn.inp"
+            inp.write_text("! Opt\n* xyz 0 1\nH 0 0 0\nH 0 0 0.74\n*\n", encoding="utf-8")
+
+            resource_request, actions = ensure_submission_resource_request(
+                inp,
+                default_max_cores=8,
+                default_max_memory_gb=32,
+            )
+            text = inp.read_text(encoding="utf-8")
+
+        self.assertEqual(resource_request, {"max_cores": 8, "max_memory_gb": 32})
+        self.assertEqual(actions, ["pal_nprocs_injected", "maxcore_injected"])
+        self.assertIn("%pal", text)
+        self.assertIn("nprocs 8", text)
+        self.assertIn("%maxcore 4096", text)
+
+    def test_ensure_submission_resource_request_preserves_existing_nprocs(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            inp = root / "rxn.inp"
+            inp.write_text(
+                "! Opt\n%pal\n  nprocs 12\nend\n* xyz 0 1\nH 0 0 0\nH 0 0 0.74\n*\n",
+                encoding="utf-8",
+            )
+
+            resource_request, actions = ensure_submission_resource_request(
+                inp,
+                default_max_cores=8,
+                default_max_memory_gb=32,
+            )
+            text = inp.read_text(encoding="utf-8")
+
+        self.assertEqual(resource_request, {"max_cores": 12, "max_memory_gb": 32})
+        self.assertEqual(actions, ["maxcore_injected"])
+        self.assertIn("nprocs 12", text)
+        self.assertIn("%maxcore 2730", text)
+
+    def test_read_resource_request_from_input_uses_inp_values(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            inp = root / "rxn.inp"
+            inp.write_text(
+                "! Opt\n%pal\n  nprocs 6\nend\n%maxcore 3072\n* xyz 0 1\nH 0 0 0\nH 0 0 0.74\n*\n",
+                encoding="utf-8",
+            )
+
+            resource_request = read_resource_request_from_input(inp)
+
+        self.assertEqual(resource_request, {"max_cores": 6, "max_memory_gb": 18})
+
     def test_step1_adds_scf_stability_and_uses_previous_xyz(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

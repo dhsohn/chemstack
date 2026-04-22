@@ -14,7 +14,7 @@ from typing import Any, Sequence
 
 from chemstack.activity_view import (
     activity_with_parent_hint,
-    count_active_simulations,
+    count_global_active_simulations,
     queue_list_display_rows,
 )
 from chemstack.core.app_ids import (
@@ -26,6 +26,7 @@ from chemstack.core.app_ids import (
 )
 from chemstack.core.config.files import shared_workflow_root_from_config
 from chemstack.flow.activity import cancel_activity, list_activities
+from chemstack.flow.run_dir_layout import inspect_workflow_run_dir
 from chemstack.flow.submitters.common import normalize_text, sibling_app_command
 
 _WORKFLOW_INTERNAL_ENGINE_APPS = ("crest", "xtb")
@@ -34,10 +35,6 @@ _KNOWN_WORKER_APPS = (*_ENGINE_APPS, "workflow")
 _DEFAULT_WORKER_APPS = _ENGINE_APPS
 _WORKER_POLL_INTERVAL_SECONDS = 1.0
 _DIRECT_ENGINE_WORKER_ENV_VAR = "CHEMSTACK_QUEUE_WORKER_DIRECT"
-_RUN_DIR_WORKFLOW_MANIFEST_FILENAMES = (
-    "flow.yaml",
-)
-_RUN_DIR_WORKFLOW_REACTION_FILENAMES = ("reactant.xyz", "product.xyz")
 _WORKFLOW_SCAFFOLD_SHORTCUTS = (
     ("ts_search", "reaction_ts_search", "Create a reaction TS-search scaffold."),
     ("conformer_search", "conformer_screening", "Create a conformer-screening scaffold."),
@@ -163,6 +160,24 @@ def _filter_activity_items(
     return filtered
 
 
+def _activity_counter_config_path(
+    *,
+    payload: dict[str, Any],
+    config_hint: str | None,
+) -> str | None:
+    config_text = normalize_text(config_hint)
+    if config_text:
+        return config_text
+    sources = payload.get("sources")
+    if not isinstance(sources, dict):
+        return None
+    for key in ("orca_auto_config", "crest_auto_config", "xtb_auto_config"):
+        source_text = normalize_text(sources.get(key))
+        if source_text:
+            return source_text
+    return None
+
+
 def cmd_queue_list(args: Any) -> int:
     shared_config = _effective_shared_config_text(args) or None
     limit = int(getattr(args, "limit", 0) or 0)
@@ -182,7 +197,10 @@ def cmd_queue_list(args: Any) -> int:
     )
     if limit > 0:
         activities = activities[:limit]
-    active_simulations = count_active_simulations(activities)
+    active_simulations = count_global_active_simulations(
+        payload.get("activities", []),
+        config_path=_activity_counter_config_path(payload=payload, config_hint=shared_config),
+    )
     enriched_activities = [activity_with_parent_hint(item) for item in activities]
     filtered_payload = {
         "count": len(activities),
@@ -333,6 +351,35 @@ def _workflow_worker_spec(
     return WorkerSpec(app="workflow", argv=tuple(argv))
 
 
+def _bot_worker_spec(*, config_path: str | None) -> WorkerSpec:
+    config_text = normalize_text(config_path)
+    repo_root = _repo_root_for_subprocess()
+    if config_text:
+        argv, cwd, env = sibling_app_command(
+            executable="",
+            config_path=config_text,
+            repo_root=repo_root,
+            module_name="chemstack.cli",
+            tail_argv=["bot"],
+        )
+        return WorkerSpec(app="bot", argv=tuple(argv), cwd=cwd, env=env)
+
+    argv = [sys.executable, "-m", "chemstack.cli", "bot"]
+    if repo_root is None:
+        return WorkerSpec(app="bot", argv=tuple(argv))
+
+    root_path = Path(repo_root).expanduser().resolve()
+    env = dict(os.environ)
+    existing = env.get("PYTHONPATH", "")
+    candidates = [str(root_path)]
+    src_root = root_path / "src"
+    if src_root.is_dir():
+        candidates.insert(0, str(src_root))
+    pythonpath = ":".join(candidates)
+    env["PYTHONPATH"] = pythonpath if not existing else f"{pythonpath}:{existing}"
+    return WorkerSpec(app="bot", argv=tuple(argv), cwd=str(root_path), env=env)
+
+
 def _build_worker_specs(args: Any) -> list[WorkerSpec]:
     explicit_apps = list(getattr(args, "app", None) or [])
     apps = _selected_worker_apps(explicit_apps)
@@ -375,6 +422,20 @@ def _build_worker_specs(args: Any) -> list[WorkerSpec]:
     return specs
 
 
+def _runtime_bot_enabled(args: Any) -> bool:
+    from chemstack.flow.telegram_bot import settings_from_config as _settings_from_config
+
+    config_path = _discover_shared_config_path(_effective_shared_config_text(args))
+    return bool(_settings_from_config(config_path).enabled)
+
+
+def _build_runtime_specs(args: Any) -> list[WorkerSpec]:
+    specs = list(_build_worker_specs(args))
+    config_path = _discover_shared_config_path(_effective_shared_config_text(args))
+    specs.append(_bot_worker_spec(config_path=config_path))
+    return specs
+
+
 def _terminate_process(proc: subprocess.Popen[Any]) -> None:
     if proc.poll() is not None:
         return
@@ -408,6 +469,12 @@ def _run_worker_supervisor(specs: Sequence[WorkerSpec]) -> int:
     shutdown_requested = False
     exit_code = 0
 
+    def _spawn_worker(spec: WorkerSpec, *, restart: bool = False) -> subprocess.Popen[Any]:
+        command_text = " ".join(shlex.quote(part) for part in spec.argv)
+        action = "restarting" if restart else "starting"
+        print(f"{action} worker[{spec.app}]: {command_text}")
+        return subprocess.Popen(spec.argv, cwd=spec.cwd, env=spec.env)
+
     def _request_shutdown(signum: int, frame: Any) -> None:
         del signum, frame
         nonlocal shutdown_requested
@@ -423,25 +490,20 @@ def _run_worker_supervisor(specs: Sequence[WorkerSpec]) -> int:
 
     try:
         for spec in specs:
-            command_text = " ".join(shlex.quote(part) for part in spec.argv)
-            print(f"starting worker[{spec.app}]: {command_text}")
-            process = subprocess.Popen(spec.argv, cwd=spec.cwd, env=spec.env)
+            process = _spawn_worker(spec)
             processes.append((spec, process))
 
         while True:
-            any_running = False
-            for spec, process in processes:
+            for index, (spec, process) in enumerate(processes):
                 returncode = process.poll()
                 if returncode is None:
-                    any_running = True
-                    continue
-                if shutdown_requested:
                     continue
                 print(f"worker[{spec.app}] exited with code {returncode}")
-                shutdown_requested = True
-                if returncode != 0:
-                    exit_code = int(returncode)
-            if shutdown_requested or not any_running:
+                if shutdown_requested:
+                    continue
+                restarted = _spawn_worker(spec, restart=True)
+                processes[index] = (spec, restarted)
+            if shutdown_requested:
                 break
             time.sleep(_WORKER_POLL_INTERVAL_SECONDS)
     finally:
@@ -455,6 +517,11 @@ def _run_worker_supervisor(specs: Sequence[WorkerSpec]) -> int:
     return exit_code
 
 
+def _emit_supervisor_specs_json(*, key: str, specs: Sequence[WorkerSpec]) -> int:
+    print(json.dumps({key: [spec.to_dict() for spec in specs]}, ensure_ascii=True, indent=2))
+    return 0
+
+
 def cmd_queue_worker(args: Any) -> int:
     try:
         specs = _build_worker_specs(args)
@@ -463,8 +530,28 @@ def cmd_queue_worker(args: Any) -> int:
         return 1
 
     if bool(getattr(args, "json", False)):
-        print(json.dumps({"workers": [spec.to_dict() for spec in specs]}, ensure_ascii=True, indent=2))
-        return 0
+        return _emit_supervisor_specs_json(key="workers", specs=specs)
+
+    return _run_worker_supervisor(specs)
+
+
+def cmd_runtime(args: Any) -> int:
+    try:
+        specs = _build_runtime_specs(args)
+    except ValueError as exc:
+        print(f"error: {exc}")
+        return 1
+
+    if bool(getattr(args, "json", False)):
+        return _emit_supervisor_specs_json(key="processes", specs=specs)
+
+    if not _runtime_bot_enabled(args):
+        print(
+            "error: runtime requires Telegram bot configuration. "
+            "Set telegram.bot_token/chat_id in chemstack.yaml or "
+            "CHEM_FLOW_TELEGRAM_BOT_TOKEN and CHEM_FLOW_TELEGRAM_CHAT_ID."
+        )
+        return 1
 
     return _run_worker_supervisor(specs)
 
@@ -543,17 +630,13 @@ def _detect_run_dir_app(args: argparse.Namespace) -> str:
     if not target.is_dir():
         raise ValueError(f"run-dir target is not a directory: {target}")
 
-    workflow_manifest_present = any((target / name).is_file() for name in _RUN_DIR_WORKFLOW_MANIFEST_FILENAMES)
-    reaction_inputs_present = all((target / name).is_file() for name in _RUN_DIR_WORKFLOW_REACTION_FILENAMES)
-    conformer_input_present = (target / "input.xyz").is_file()
+    workflow_layout = inspect_workflow_run_dir(target)
     orca_input_present = any(candidate.is_file() for candidate in target.glob("*.inp"))
 
-    if workflow_manifest_present or reaction_inputs_present:
+    if workflow_layout.is_workflow_dir:
         return "workflow"
     if orca_input_present:
         return "orca"
-    if conformer_input_present:
-        return "workflow"
 
     raise ValueError(
         "Could not infer run-dir target type from directory. "
@@ -703,6 +786,39 @@ def build_parser() -> argparse.ArgumentParser:
     worker_parser.add_argument("--lock-timeout-seconds", type=float, default=0.0, help="Workflow worker lock wait timeout")
     worker_parser.add_argument("--json", action="store_true", help="Print the worker commands without starting them")
     worker_parser.set_defaults(func=cmd_queue_worker)
+
+    runtime_parser = subparsers.add_parser(
+        "runtime",
+        help="Start the unified runtime supervisor for workers plus the Telegram bot.",
+    )
+    runtime_parser.add_argument(
+        "--app",
+        action="append",
+        choices=["orca", "workflow"],
+        help="Worker app to start. Defaults to ORCA, and adds workflow-managed internal engines when configured.",
+    )
+    runtime_parser.add_argument("--once", action="store_true", help="Run exactly one cycle for apps that support it")
+    runtime_auto_group = runtime_parser.add_mutually_exclusive_group()
+    runtime_auto_group.add_argument(
+        "--auto-organize",
+        action="store_true",
+        help="Automatically organize terminal engine jobs after execution",
+    )
+    runtime_auto_group.add_argument(
+        "--no-auto-organize",
+        action="store_true",
+        help="Disable automatic organization for engine workers",
+    )
+    runtime_parser.add_argument("--workflow-root", help=argparse.SUPPRESS)
+    runtime_parser.add_argument("--chemstack-config", "--config", dest="chemstack_config", help="Path to shared chemstack.yaml")
+    runtime_parser.add_argument("--no-submit", action="store_true", help="Only sync workflow stages; do not submit newly actionable stages")
+    runtime_parser.add_argument("--refresh-registry", action="store_true", help="Refresh the workflow registry before the first workflow cycle")
+    runtime_parser.add_argument("--refresh-each-cycle", action="store_true", help="Refresh the workflow registry before every workflow cycle")
+    runtime_parser.add_argument("--max-cycles", type=int, default=0, help="Maximum workflow cycles to run; 0 means run until stopped")
+    runtime_parser.add_argument("--interval-seconds", type=float, default=0.0, help="Workflow worker sleep interval between cycles")
+    runtime_parser.add_argument("--lock-timeout-seconds", type=float, default=0.0, help="Workflow worker lock wait timeout")
+    runtime_parser.add_argument("--json", action="store_true", help="Print the supervised commands without starting them")
+    runtime_parser.set_defaults(func=cmd_runtime)
 
     run_dir_parser = subparsers.add_parser(
         "run-dir",
