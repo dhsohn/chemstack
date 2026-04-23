@@ -160,7 +160,10 @@ def _admission_limit(cfg: Any) -> int:
     raw = getattr(cfg.runtime, "resolved_admission_limit", None)
     if raw in (None, ""):
         raw = getattr(cfg.runtime, "admission_limit", 0) or cfg.runtime.max_concurrent
-    return max(1, int(raw))
+    try:
+        return max(1, int(raw if raw is not None else 1))
+    except (TypeError, ValueError):
+        return 1
 
 
 def _pid_is_alive(pid: int) -> bool:

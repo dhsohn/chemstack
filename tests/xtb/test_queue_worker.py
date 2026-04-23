@@ -578,12 +578,23 @@ def test_queue_worker_starts_up_to_max_concurrent_children(
 
     monkeypatch.setattr(queue_cmd, "_try_reserve_admission_slot", lambda _cfg: next(slots))
     monkeypatch.setattr(queue_cmd, "dequeue_next", lambda _root: next(dequeued))
+
+    def fake_start_background_job_process(
+        *,
+        config_path: str,
+        queue_root: Path,
+        entry: object,
+        admission_root: str,
+        admission_token: str,
+        auto_organize: bool,
+    ) -> _Process:
+        started.append((config_path, str(queue_root), admission_token, auto_organize))
+        return _Process(len(started) + 100)
+
     monkeypatch.setattr(
         queue_cmd,
         "_start_background_job_process",
-        lambda *, config_path, queue_root, entry, admission_root, admission_token, auto_organize: (
-            started.append((config_path, str(queue_root), admission_token, auto_organize)) or _Process(len(started) + 100)
-        ),
+        fake_start_background_job_process,
     )
 
     worker = queue_cmd.QueueWorker(
@@ -1024,12 +1035,22 @@ def test_run_worker_job_activates_reserved_slot_and_releases_it(
 
     monkeypatch.setattr(queue_cmd, "load_config", lambda _path=None: cfg)
     monkeypatch.setattr(queue_cmd, "list_queue", lambda _root: [entry])
+
+    def fake_activate_reserved_slot(
+        root: str,
+        token: str,
+        *,
+        work_dir: object,
+        queue_id: str,
+        source: str,
+    ) -> object:
+        activated.append((root, token, str(work_dir), queue_id, source))
+        return object()
+
     monkeypatch.setattr(
         queue_cmd,
         "activate_reserved_slot",
-        lambda root, token, *, work_dir, queue_id, source: (
-            activated.append((root, token, str(work_dir), queue_id, source)) or object()
-        ),
+        fake_activate_reserved_slot,
     )
     monkeypatch.setattr(queue_cmd, "release_slot", lambda root, token: released.append((root, token)))
     monkeypatch.setattr(

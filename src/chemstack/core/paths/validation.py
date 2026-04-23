@@ -11,7 +11,7 @@ def is_rejected_windows_path(path_text: str) -> bool:
     return bool(_WINDOWS_DRIVE_RE.match(path_text) or _WSL_WINDOWS_MOUNT_RE.match(path_text))
 
 
-def resolve_local_path(path_text: str) -> Path:
+def resolve_local_path(path_text: str | Path) -> Path:
     text = str(path_text).strip()
     if not text:
         raise ValueError("Path must not be empty.")
@@ -36,7 +36,7 @@ def require_subpath(path: Path, root: Path, *, label: str = "Path") -> Path:
     return resolved_path
 
 
-def ensure_directory(path_text: str, *, label: str = "Directory") -> Path:
+def ensure_directory(path_text: str | Path, *, label: str = "Directory") -> Path:
     path = resolve_local_path(path_text)
     if not path.exists():
         raise ValueError(f"{label} not found: {path}")

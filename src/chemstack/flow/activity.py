@@ -315,8 +315,8 @@ def _runtime_paths_for_engine(config_path: str, *, engine: str) -> dict[str, Pat
 def _engine_queue_roots(config_path: str, *, engine: str) -> tuple[Path, ...]:
     runtime_paths = _runtime_paths_for_engine(config_path, engine=engine)
     if engine not in {"xtb", "crest"}:
-        roots: list[Path] = [runtime_paths["allowed_root"]]
-        return tuple(roots)
+        engine_roots: list[Path] = [runtime_paths["allowed_root"]]
+        return tuple(engine_roots)
 
     workflow_root = shared_workflow_root_from_config(config_path)
     if not workflow_root:

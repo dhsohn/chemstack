@@ -146,7 +146,7 @@ def _admission_limit_for_cfg(cfg: Any) -> int:
     if raw in {None, "", 0}:
         raw = getattr(cfg.runtime, "max_concurrent", 1)
     try:
-        return max(1, int(raw))
+        return max(1, int(raw if raw is not None else 1))
     except (TypeError, ValueError):
         return 1
 

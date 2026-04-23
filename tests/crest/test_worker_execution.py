@@ -811,17 +811,21 @@ def test_process_dequeued_entry_raises_worker_shutdown_requested_after_start(
 
     monkeypatch.setattr(worker_execution.time, "sleep", lambda seconds: sleeps.append(seconds))
 
-    deps = _dependencies(
-        get_cancel_requested=lambda *args, **kwargs: False,
-        start_crest_job=lambda cfg, *, job_dir, selected_xyz: running,
-        terminate_process=lambda actual_proc: terminate_calls.append(actual_proc),
-        finalize_crest_job=lambda running_job, **kwargs: finalize_kwargs.append(kwargs) or _result(
+    def fake_finalize_crest_job(running_job: object, **kwargs: Any) -> CrestRunResult:
+        finalize_kwargs.append(kwargs)
+        return _result(
             job_dir,
             selected_xyz,
             status="failed",
             reason="worker_shutdown",
             exit_code=143,
-        ),
+        )
+
+    deps = _dependencies(
+        get_cancel_requested=lambda *args, **kwargs: False,
+        start_crest_job=lambda cfg, *, job_dir, selected_xyz: running,
+        terminate_process=lambda actual_proc: terminate_calls.append(actual_proc),
+        finalize_crest_job=fake_finalize_crest_job,
         write_execution_artifacts=lambda *args, **kwargs: pytest.fail("artifacts should not be written"),
         mark_completed=lambda *args, **kwargs: pytest.fail("queue should not be marked completed"),
         mark_cancelled=lambda *args, **kwargs: pytest.fail("queue should not be marked cancelled"),

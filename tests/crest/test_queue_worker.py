@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -417,11 +417,15 @@ def test_queue_worker_fill_slots_starts_multiple_child_processes(
         started_commands.append(command)
         return child_processes.pop(0)
 
+    def fake_activate_reserved_slot(root: Path | str, token: str, **kwargs: object) -> SimpleNamespace:
+        activated_slots.append((Path(root), token, dict(kwargs)))
+        return SimpleNamespace(token=token)
+
     monkeypatch.setattr(queue_cmd.subprocess, "Popen", fake_popen)
     monkeypatch.setattr(
         queue_cmd,
         "activate_reserved_slot",
-        lambda root, token, **kwargs: activated_slots.append((Path(root), token, dict(kwargs))) or SimpleNamespace(token=token),
+        fake_activate_reserved_slot,
     )
 
     worker = queue_cmd.QueueWorker(cfg, "/tmp/chemstack.yaml", max_concurrent=2, auto_organize=True)
@@ -458,7 +462,7 @@ def test_queue_worker_shutdown_requeues_running_children(
     worker._running[entry.queue_id] = queue_cmd._RunningJob(
         queue_root=queue_root,
         entry=entry,
-        process=child,
+        process=cast(Any, child),
         admission_token="slot-1",
     )
 
