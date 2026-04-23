@@ -24,6 +24,26 @@ def _call_engine_aware(func: Any, config_path: str | None, *, engine: str) -> An
         return func(config_path)
 
 
+def _workflow_internal_runs_root(path_text: str, *, engine: str) -> Path | None:
+    text = str(path_text).strip()
+    if not text:
+        return None
+    try:
+        path = Path(text).expanduser().resolve()
+    except OSError:
+        return None
+
+    engine_text = str(engine).strip().lower()
+    for candidate in (path, *path.parents):
+        if (
+            candidate.name == "runs"
+            and candidate.parent.name == engine_text
+            and candidate.parent.parent.name == "internal"
+        ):
+            return candidate
+    return None
+
+
 def _manifest_override_mapping(value: Any) -> dict[str, Any]:
     if not isinstance(value, dict):
         return {}
@@ -808,9 +828,9 @@ def completed_crest_stage_impl(stage: dict[str, Any], *, crest_auto_config: str 
     payload = o._task_payload_dict(task)
     job_dir_target = o._normalize_text(payload.get("job_dir"))
     index_root = (
-        Path(job_dir_target).expanduser().resolve().parent
-        if job_dir_target
-        else _call_engine_aware(o._load_config_root, crest_auto_config, engine="crest") or Path(".").resolve().parent
+        _workflow_internal_runs_root(job_dir_target, engine="crest")
+        or _call_engine_aware(o._load_config_root, crest_auto_config, engine="crest")
+        or (Path(job_dir_target).expanduser().resolve().parent if job_dir_target else Path(".").resolve().parent)
     )
     target = job_dir_target or o._submission_target(stage)
     if not target:
