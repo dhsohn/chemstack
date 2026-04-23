@@ -6,6 +6,7 @@ from typing import Any
 
 from chemstack.core.indexing import get_job_location
 from chemstack.core.queue import list_queue
+from chemstack.crest.commands import queue as crest_queue_cmd
 from chemstack.flow.adapters.crest import load_crest_artifact_contract
 from chemstack.flow.submitters import crest_auto as crest_submitter
 
@@ -16,8 +17,8 @@ def _queue_status(entry: Any) -> str:
 
 def test_crest_submitter_roundtrip_smoke(
     smoke_workspace: Any,
-    app_runner: Any,
     crest_job: Path,
+    capsys: Any,
 ) -> None:
     submission = crest_submitter.submit_job_dir(
         job_dir=str(crest_job),
@@ -37,21 +38,14 @@ def test_crest_submitter_roundtrip_smoke(
     assert queue_entries[0].queue_id == submission["queue_id"]
     assert _queue_status(queue_entries[0]) == "pending"
 
-    worker = app_runner(
-        smoke_workspace.repo_root,
-        "chemstack.crest._internal_cli",
-        "--config",
-        str(smoke_workspace.crest_config_path),
-        "queue",
-        "worker",
-        "--once",
-        "--auto-organize",
-    )
-
-    assert worker.returncode == 0, worker.stderr or worker.stdout
-    assert f"queue_id: {submission['queue_id']}" in worker.stdout
-    assert f"job_id: {submission['job_id']}" in worker.stdout
-    assert "status: completed" in worker.stdout
+    assert crest_queue_cmd._process_one(
+        crest_queue_cmd.load_config(str(smoke_workspace.crest_config_path)),
+        auto_organize=True,
+    ) == "processed"
+    worker_output = capsys.readouterr().out
+    assert f"queue_id: {submission['queue_id']}" in worker_output
+    assert f"job_id: {submission['job_id']}" in worker_output
+    assert "status: completed" in worker_output
 
     record = get_job_location(smoke_workspace.crest_allowed_root, submission["job_id"])
     assert record is not None

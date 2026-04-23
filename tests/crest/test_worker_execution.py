@@ -758,3 +758,89 @@ def test_process_dequeued_entry_builds_failed_result_when_runner_raises(
     assert mark_failed_calls[0][1]["error"] == "runner_error:boom"
     assert finished_notifications[0]["status"] == "failed"
     assert finished_notifications[0]["reason"] == "runner_error:boom"
+
+
+def test_process_dequeued_entry_raises_worker_shutdown_requested_before_start(
+    tmp_path: Path,
+) -> None:
+    cfg = _cfg(tmp_path)
+    job_dir = tmp_path / "job"
+    job_dir.mkdir()
+    selected_xyz = job_dir / "selected_input.xyz"
+    selected_xyz.write_text("1\nselected\nH 0.0 0.0 0.0\n", encoding="utf-8")
+    entry = _entry(job_dir, selected_xyz)
+
+    deps = _dependencies(
+        write_running_state=lambda *args, **kwargs: pytest.fail("running state should not be written"),
+        upsert_job_record=lambda *args, **kwargs: pytest.fail("job record should not be updated"),
+        notify_job_started=lambda *args, **kwargs: pytest.fail("start notification should not run"),
+        start_crest_job=lambda *args, **kwargs: pytest.fail("job should not start"),
+    )
+
+    with pytest.raises(worker_execution.WorkerShutdownRequested) as exc_info:
+        worker_execution.process_dequeued_entry(
+            cfg,
+            entry,
+            auto_organize=False,
+            resource_caps=lambda cfg: {"max_cores": 4, "max_memory_gb": 16},
+            molecule_key_resolver=lambda entry, selected_xyz, job_dir: "shutdown-key",
+            dependencies=deps,
+            shutdown_requested=lambda: True,
+        )
+
+    assert exc_info.value.context.job_dir == job_dir.resolve()
+    assert exc_info.value.context.selected_xyz == selected_xyz.resolve()
+
+
+def test_process_dequeued_entry_raises_worker_shutdown_requested_after_start(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    cfg = _cfg(tmp_path)
+    job_dir = tmp_path / "job"
+    job_dir.mkdir()
+    selected_xyz = job_dir / "selected_input.xyz"
+    selected_xyz.write_text("1\nselected\nH 0.0 0.0 0.0\n", encoding="utf-8")
+    entry = _entry(job_dir, selected_xyz)
+    proc = FakeProcess(None)
+    running = SimpleNamespace(process=proc)
+
+    terminate_calls: list[FakeProcess] = []
+    finalize_kwargs: list[dict[str, Any]] = []
+    sleeps: list[int] = []
+
+    monkeypatch.setattr(worker_execution.time, "sleep", lambda seconds: sleeps.append(seconds))
+
+    deps = _dependencies(
+        get_cancel_requested=lambda *args, **kwargs: False,
+        start_crest_job=lambda cfg, *, job_dir, selected_xyz: running,
+        terminate_process=lambda actual_proc: terminate_calls.append(actual_proc),
+        finalize_crest_job=lambda running_job, **kwargs: finalize_kwargs.append(kwargs) or _result(
+            job_dir,
+            selected_xyz,
+            status="failed",
+            reason="worker_shutdown",
+            exit_code=143,
+        ),
+        write_execution_artifacts=lambda *args, **kwargs: pytest.fail("artifacts should not be written"),
+        mark_completed=lambda *args, **kwargs: pytest.fail("queue should not be marked completed"),
+        mark_cancelled=lambda *args, **kwargs: pytest.fail("queue should not be marked cancelled"),
+        mark_failed=lambda *args, **kwargs: pytest.fail("queue should not be marked failed"),
+        notify_job_finished=lambda *args, **kwargs: pytest.fail("finish notification should not run"),
+    )
+
+    shutdown_checks = iter([False, False, True])
+    with pytest.raises(worker_execution.WorkerShutdownRequested):
+        worker_execution.process_dequeued_entry(
+            cfg,
+            entry,
+            auto_organize=False,
+            resource_caps=lambda cfg: {"max_cores": 4, "max_memory_gb": 16},
+            molecule_key_resolver=lambda entry, selected_xyz, job_dir: "shutdown-key",
+            dependencies=deps,
+            shutdown_requested=lambda: next(shutdown_checks),
+        )
+
+    assert terminate_calls == [proc]
+    assert finalize_kwargs == [{"forced_status": "failed", "forced_reason": "worker_shutdown"}]
+    assert sleeps == []

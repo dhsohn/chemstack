@@ -8,6 +8,7 @@ from .store import (
     mark_cancelled,
     mark_completed,
     mark_failed,
+    requeue_running_entry,
     request_cancel,
 )
 from .types import QueueEntry, QueueStatus
@@ -24,5 +25,6 @@ __all__ = [
     "mark_cancelled",
     "mark_completed",
     "mark_failed",
+    "requeue_running_entry",
     "request_cancel",
 ]

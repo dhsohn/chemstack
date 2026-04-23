@@ -50,7 +50,7 @@ def test_build_parser_supports_internal_scaffold_run_dir_and_queue_subcommands()
 
     scaffold_args = parser.parse_args(["scaffold", "--root", "/tmp/job"])
     run_dir_args = parser.parse_args(["run-dir", "jobs/demo", "--priority", "3"])
-    worker_args = parser.parse_args(["queue", "worker", "--once", "--auto-organize"])
+    worker_args = parser.parse_args(["queue", "worker", "--auto-organize"])
     cancel_args = parser.parse_args(["queue", "cancel", "q-123"])
 
     assert scaffold_args.command == "scaffold"
@@ -61,9 +61,11 @@ def test_build_parser_supports_internal_scaffold_run_dir_and_queue_subcommands()
 
     assert worker_args.command == "queue"
     assert worker_args.queue_command == "worker"
-    assert worker_args.once is True
     assert worker_args.auto_organize is True
     assert worker_args.no_auto_organize is False
+
+    with pytest.raises(SystemExit):
+        parser.parse_args(["queue", "worker", "--once"])
 
     assert cancel_args.command == "queue"
     assert cancel_args.queue_command == "cancel"
@@ -114,11 +116,10 @@ def test_main_dispatches_queue_worker_and_cancel(monkeypatch: pytest.MonkeyPatch
     monkeypatch.setattr(cli, "cmd_queue_worker", _worker)
     monkeypatch.setattr(cli, "cmd_queue_cancel", _cancel)
 
-    assert cli.main(["queue", "worker", "--once", "--no-auto-organize"]) == 21
+    assert cli.main(["queue", "worker", "--no-auto-organize"]) == 21
     assert cli.main(["queue", "cancel", "job-123"]) == 22
 
     assert len(worker_calls) == 1
-    assert worker_calls[0].once is True
     assert worker_calls[0].no_auto_organize is True
     assert len(cancel_calls) == 1
     assert cancel_calls[0].target == "job-123"
@@ -378,16 +379,10 @@ def test_cli_end_to_end_smoke_path_submission_worker_organize_and_summary(
     assert "status: queued" in run_output
     assert "job_id: crest-e2e-001" in run_output
 
-    assert cli.main(
-        [
-            "--config",
-            str(config_path),
-            "queue",
-            "worker",
-            "--once",
-            "--auto-organize",
-        ]
-    ) == 0
+    assert queue_cmd._process_one(
+        queue_cmd.load_config(str(config_path)),
+        auto_organize=True,
+    ) == "processed"
     worker_output = capsys.readouterr().out
     organized_target = organized_root / "standard" / "input" / "crest-e2e-001"
     assert f"organized_output_dir: {organized_target.resolve()}" in worker_output

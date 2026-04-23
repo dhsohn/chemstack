@@ -1,14 +1,17 @@
 from __future__ import annotations
 
+import threading
+import time
 from pathlib import Path
 from typing import Any
-import time
 
 from chemstack.core.admission import AdmissionSlot, active_slot_count, list_slots
 from chemstack.core.indexing import get_job_location
 from chemstack.core.queue import list_queue
+from chemstack.crest.commands import queue as crest_queue_cmd
 from chemstack.flow.submitters import crest_auto as crest_submitter
 from chemstack.flow.submitters import xtb_auto as xtb_submitter
+from chemstack.xtb.commands import queue as xtb_queue_cmd
 
 
 def _queue_status(entry: Any) -> str:
@@ -27,10 +30,9 @@ def _wait_for_active_slots(root: Path, *, expected: int, timeout: float = 5.0) -
 
 def test_xtb_and_crest_share_single_admission_slot(
     smoke_workspace: Any,
-    app_runner: Any,
-    spawn_app: Any,
     xtb_opt_job: Path,
     crest_job: Path,
+    capsys: Any,
 ) -> None:
     smoke_workspace.fake_xtb.write_text(
         """#!/usr/bin/env bash
@@ -66,41 +68,41 @@ exit 0
     assert _queue_status(list_queue(smoke_workspace.xtb_allowed_root)[0]) == "pending"
     assert _queue_status(list_queue(smoke_workspace.crest_allowed_root)[0]) == "pending"
 
-    xtb_worker = spawn_app(
-        smoke_workspace.repo_root,
-        "chemstack.xtb._internal_cli",
-        "--config",
-        str(smoke_workspace.xtb_config_path),
-        "queue",
-        "worker",
-        "--once",
-        "--auto-organize",
-    )
+    xtb_outcomes: list[str] = []
+    xtb_errors: list[BaseException] = []
+
+    def _run_xtb_process_one() -> None:
+        try:
+            xtb_outcomes.append(
+                xtb_queue_cmd._process_one(
+                    xtb_queue_cmd.load_config(str(smoke_workspace.xtb_config_path)),
+                    auto_organize=True,
+                )
+            )
+        except BaseException as exc:
+            xtb_errors.append(exc)
+
+    xtb_thread = threading.Thread(target=_run_xtb_process_one)
+    xtb_thread.start()
 
     slots = _wait_for_active_slots(smoke_workspace.admission_root, expected=1)
     assert active_slot_count(smoke_workspace.admission_root) == 1
     assert slots[0].app_name == "xtb_auto"
     assert slots[0].source == "chemstack.xtb.queue_worker"
 
-    blocked_crest_worker = app_runner(
-        smoke_workspace.repo_root,
-        "chemstack.crest._internal_cli",
-        "--config",
-        str(smoke_workspace.crest_config_path),
-        "queue",
-        "worker",
-        "--once",
-        "--auto-organize",
-    )
-
-    assert blocked_crest_worker.returncode == 0
-    assert "status: waiting_for_slot" in blocked_crest_worker.stdout
+    assert crest_queue_cmd._process_one(
+        crest_queue_cmd.load_config(str(smoke_workspace.crest_config_path)),
+        auto_organize=True,
+    ) == "blocked"
     assert active_slot_count(smoke_workspace.admission_root) == 1
     assert len(list_slots(smoke_workspace.admission_root)) == 1
     assert _queue_status(list_queue(smoke_workspace.crest_allowed_root)[0]) == "pending"
 
-    xtb_stdout, xtb_stderr = xtb_worker.communicate(timeout=15)
-    assert xtb_worker.returncode == 0, xtb_stderr or xtb_stdout
+    xtb_thread.join(timeout=15)
+    assert not xtb_thread.is_alive()
+    assert xtb_errors == []
+    assert xtb_outcomes == ["processed"]
+    xtb_stdout = capsys.readouterr().out
     assert f"queue_id: {xtb_submission['queue_id']}" in xtb_stdout
     assert f"job_id: {xtb_submission['job_id']}" in xtb_stdout
     assert "status: completed" in xtb_stdout
@@ -113,21 +115,14 @@ exit 0
     assert xtb_record.organized_output_dir
     assert Path(xtb_record.organized_output_dir).exists()
 
-    crest_worker = app_runner(
-        smoke_workspace.repo_root,
-        "chemstack.crest._internal_cli",
-        "--config",
-        str(smoke_workspace.crest_config_path),
-        "queue",
-        "worker",
-        "--once",
-        "--auto-organize",
-    )
-
-    assert crest_worker.returncode == 0, crest_worker.stderr or crest_worker.stdout
-    assert f"queue_id: {crest_submission['queue_id']}" in crest_worker.stdout
-    assert f"job_id: {crest_submission['job_id']}" in crest_worker.stdout
-    assert "status: completed" in crest_worker.stdout
+    assert crest_queue_cmd._process_one(
+        crest_queue_cmd.load_config(str(smoke_workspace.crest_config_path)),
+        auto_organize=True,
+    ) == "processed"
+    crest_stdout = capsys.readouterr().out
+    assert f"queue_id: {crest_submission['queue_id']}" in crest_stdout
+    assert f"job_id: {crest_submission['job_id']}" in crest_stdout
+    assert "status: completed" in crest_stdout
 
     crest_record = get_job_location(smoke_workspace.crest_allowed_root, crest_submission["job_id"])
     assert crest_record is not None

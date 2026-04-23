@@ -224,7 +224,7 @@ def test_cmd_queue_cancel_rejects_terminal_entry(
         (False, True, True, True),
     ],
 )
-def test_cmd_queue_worker_run_once_passes_expected_auto_organize(
+def test_cmd_queue_worker_passes_expected_auto_organize_to_pool_worker(
     config_default: bool,
     auto_flag: bool,
     no_auto_flag: bool,
@@ -233,29 +233,43 @@ def test_cmd_queue_worker_run_once_passes_expected_auto_organize(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     cfg = SimpleNamespace(
+        runtime=SimpleNamespace(
+            allowed_root="/tmp/allowed",
+            max_concurrent=2,
+        ),
         behavior=SimpleNamespace(auto_organize_on_terminal=config_default),
     )
-    seen: list[tuple[object, bool]] = []
+    seen: list[tuple[object, str, int, bool]] = []
 
     monkeypatch.setattr(queue_cmd, "load_config", lambda path=None: cfg)
+    monkeypatch.setattr(queue_cmd, "read_worker_pid", lambda allowed_root: None)
 
-    def fake_process_one(cfg_obj: object, *, auto_organize: bool) -> str:
-        seen.append((cfg_obj, auto_organize))
-        return "processed"
+    class FakeWorker:
+        def __init__(
+            self,
+            cfg_obj: object,
+            config_path: str,
+            *,
+            max_concurrent: int,
+            auto_organize: bool,
+        ) -> None:
+            seen.append((cfg_obj, config_path, max_concurrent, auto_organize))
 
-    monkeypatch.setattr(queue_cmd, "_process_one", fake_process_one)
+        def run(self) -> int:
+            return 0
+
+    monkeypatch.setattr(queue_cmd, "QueueWorker", FakeWorker)
 
     result = queue_cmd.cmd_queue_worker(
         SimpleNamespace(
             config="ignored",
-            once=True,
             auto_organize=auto_flag,
             no_auto_organize=no_auto_flag,
         )
     )
 
     assert result == 0
-    assert seen == [(cfg, expected)]
+    assert seen == [(cfg, "ignored", 2, expected)]
     assert capsys.readouterr().out == ""
 
 
@@ -290,76 +304,40 @@ def test_process_one_returns_idle_and_releases_reserved_slot(
     assert released == [(cfg.runtime.allowed_root, "slot-1")]
 
 
-def test_cmd_queue_worker_loops_until_keyboard_interrupt(
+def test_cmd_queue_worker_runs_pool_worker_when_not_once(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     cfg = SimpleNamespace(
+        runtime=SimpleNamespace(
+            allowed_root="/tmp/allowed",
+            max_concurrent=3,
+        ),
         behavior=SimpleNamespace(auto_organize_on_terminal=False),
     )
-    seen: list[tuple[object, bool]] = []
+    constructed: list[tuple[object, str, int, bool]] = []
+    run_calls: list[bool] = []
 
     monkeypatch.setattr(queue_cmd, "load_config", lambda path=None: cfg)
+    monkeypatch.setattr(queue_cmd, "read_worker_pid", lambda allowed_root: None)
 
-    def fake_process_one(cfg_obj: object, *, auto_organize: bool) -> str:
-        seen.append((cfg_obj, auto_organize))
-        return "idle"
+    class FakeWorker:
+        def __init__(self, cfg_obj: object, config_path: str, *, max_concurrent: int, auto_organize: bool) -> None:
+            constructed.append((cfg_obj, config_path, max_concurrent, auto_organize))
 
-    def fake_sleep(seconds: float) -> None:
-        assert seconds == queue_cmd.POLL_INTERVAL_SECONDS
-        raise KeyboardInterrupt
+        def run(self) -> int:
+            run_calls.append(True)
+            return 17
 
-    monkeypatch.setattr(queue_cmd, "_process_one", fake_process_one)
-    monkeypatch.setattr(queue_cmd.time, "sleep", fake_sleep)
+    monkeypatch.setattr(queue_cmd, "QueueWorker", FakeWorker)
 
     result = queue_cmd.cmd_queue_worker(
         SimpleNamespace(
             config="ignored",
-            once=False,
             auto_organize=False,
             no_auto_organize=False,
         )
     )
 
-    assert result == 0
-    assert seen == [(cfg, False)]
-
-
-@pytest.mark.parametrize(
-    ("outcome", "expected_output"),
-    [
-        ("idle", "No pending jobs.\n"),
-        ("blocked", "status: waiting_for_slot\n"),
-    ],
-)
-def test_cmd_queue_worker_run_once_reports_idle_and_blocked(
-    outcome: str,
-    expected_output: str,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    cfg = SimpleNamespace(
-        behavior=SimpleNamespace(auto_organize_on_terminal=False),
-    )
-    seen: list[bool] = []
-
-    monkeypatch.setattr(queue_cmd, "load_config", lambda path=None: cfg)
-
-    def fake_process_one(cfg_obj: object, *, auto_organize: bool) -> str:
-        assert cfg_obj is cfg
-        seen.append(auto_organize)
-        return outcome
-
-    monkeypatch.setattr(queue_cmd, "_process_one", fake_process_one)
-
-    result = queue_cmd.cmd_queue_worker(
-        SimpleNamespace(
-            config="ignored",
-            once=True,
-            auto_organize=False,
-            no_auto_organize=False,
-        )
-    )
-
-    assert result == 0
-    assert seen == [False]
-    assert capsys.readouterr().out == expected_output
+    assert result == 17
+    assert constructed == [(cfg, "ignored", 3, False)]
+    assert run_calls == [True]

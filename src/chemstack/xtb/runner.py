@@ -6,9 +6,10 @@ import re
 import resource
 import shutil
 import subprocess
+import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, TextIO
+from typing import Any, Callable, TextIO
 
 import yaml
 
@@ -272,6 +273,9 @@ def _run_candidate_sp_job(
     candidate_xyz: Path,
     candidate_run_dir: Path,
     manifest: dict[str, Any],
+    should_cancel: Callable[[], bool] | None = None,
+    on_running_job: Callable[[XtbRunningJob | None], None] | None = None,
+    terminate_process: Callable[[subprocess.Popen[str]], None] | None = None,
 ) -> XtbRunResult:
     candidate_run_dir.mkdir(parents=True, exist_ok=True)
     candidate_input = candidate_run_dir / "input.xyz"
@@ -282,10 +286,43 @@ def _run_candidate_sp_job(
     candidate_manifest_path = candidate_run_dir / MANIFEST_FILE_NAME
     candidate_manifest_path.write_text(yaml.safe_dump(candidate_manifest, sort_keys=False), encoding="utf-8")
     running = start_xtb_job(cfg, job_dir=candidate_run_dir, selected_input_xyz=candidate_input)
-    return finalize_xtb_job(running)
+    if on_running_job is not None:
+        on_running_job(running)
+    try:
+        process = getattr(running, "process", None)
+        if process is None:
+            return finalize_xtb_job(running)
+        while True:
+            if should_cancel is not None and should_cancel():
+                if process.poll() is None:
+                    if terminate_process is not None:
+                        terminate_process(process)
+                    else:
+                        try:
+                            process.terminate()
+                        except Exception:
+                            pass
+                return finalize_xtb_job(
+                    running,
+                    forced_status="cancelled",
+                    forced_reason="cancel_requested",
+                )
+            if process.poll() is not None:
+                return finalize_xtb_job(running)
+            time.sleep(1)
+    finally:
+        if on_running_job is not None:
+            on_running_job(None)
 
 
-def run_xtb_ranking_job(cfg: AppConfig, *, job_dir: Path) -> XtbRunResult:
+def run_xtb_ranking_job(
+    cfg: AppConfig,
+    *,
+    job_dir: Path,
+    should_cancel: Callable[[], bool] | None = None,
+    on_running_job: Callable[[XtbRunningJob | None], None] | None = None,
+    terminate_process: Callable[[subprocess.Popen[str]], None] | None = None,
+) -> XtbRunResult:
     manifest = load_job_manifest(job_dir)
     inputs = resolve_job_inputs(job_dir, manifest)
     candidate_paths = [Path(path) for path in inputs.get("input_summary", {}).get("candidate_paths", []) if str(path).strip()]
@@ -302,13 +339,26 @@ def run_xtb_ranking_job(cfg: AppConfig, *, job_dir: Path) -> XtbRunResult:
     candidate_results: list[dict[str, Any]] = []
     command_summary: list[list[str]] = []
     for index, candidate_path in enumerate(candidate_paths, start=1):
+        if should_cancel is not None and should_cancel():
+            break
         candidate_run_dir = ranking_root / f"{index:02d}_{_safe_rank_name(candidate_path.stem, fallback=f'candidate_{index:02d}')}"
-        result = _run_candidate_sp_job(
-            cfg,
-            candidate_xyz=candidate_path,
-            candidate_run_dir=candidate_run_dir,
-            manifest=manifest,
-        )
+        if should_cancel is None and on_running_job is None and terminate_process is None:
+            result = _run_candidate_sp_job(
+                cfg,
+                candidate_xyz=candidate_path,
+                candidate_run_dir=candidate_run_dir,
+                manifest=manifest,
+            )
+        else:
+            result = _run_candidate_sp_job(
+                cfg,
+                candidate_xyz=candidate_path,
+                candidate_run_dir=candidate_run_dir,
+                manifest=manifest,
+                should_cancel=should_cancel,
+                on_running_job=on_running_job,
+                terminate_process=terminate_process,
+            )
         energy, energy_source = _extract_sp_energy(candidate_run_dir, candidate_path)
         command_summary.append(list(result.command))
         candidate_results.append(
@@ -324,6 +374,59 @@ def run_xtb_ranking_job(cfg: AppConfig, *, job_dir: Path) -> XtbRunResult:
                 "command": list(result.command),
                 "analysis_summary": dict(result.analysis_summary),
             }
+        )
+        if result.status == "cancelled":
+            break
+
+    cancelled = any(item["status"] == "cancelled" for item in candidate_results) or (
+        should_cancel is not None and should_cancel()
+    )
+    if cancelled:
+        summary_stdout = job_dir / "ranking.stdout.log"
+        summary_stderr = job_dir / "ranking.stderr.log"
+        _write_text(summary_stdout, "ranking cancelled: cancel_requested\n")
+        _write_text(summary_stderr, "")
+        return XtbRunResult(
+            status="cancelled",
+            reason="cancel_requested",
+            command=tuple(command_summary[0]) if command_summary else tuple(),
+            exit_code=1,
+            started_at=started_at,
+            finished_at=now_utc_iso(),
+            stdout_log=str(summary_stdout.resolve()),
+            stderr_log=str(summary_stderr.resolve()),
+            selected_input_xyz=str(candidate_paths[0].resolve()),
+            job_type="ranking",
+            reaction_key=str(inputs["reaction_key"]),
+            input_summary=dict(inputs["input_summary"]),
+            candidate_count=len(candidate_paths),
+            selected_candidate_paths=(),
+            candidate_details=tuple(
+                {
+                    "rank": idx + 1,
+                    "kind": "ranking_candidate",
+                    "path": item["candidate_path"],
+                    "candidate_run_dir_path": item["candidate_run_dir_path"],
+                    "energy_source": item["energy_source"],
+                    "status": item["status"],
+                    "reason": item["reason"],
+                    "exit_code": item["exit_code"],
+                    "selected": False,
+                }
+                for idx, item in enumerate(candidate_results)
+            ),
+            analysis_summary={
+                "ranking_metric": "total_energy",
+                "evaluated_candidate_count": len(candidate_results),
+                "candidate_paths": [item["candidate_path"] for item in candidate_results],
+                "candidate_run_dir_paths": [item["candidate_run_dir_path"] for item in candidate_results],
+                "candidate_results": candidate_results,
+                "top_n": top_n,
+                "failure_reason": "cancel_requested",
+            },
+            manifest_path=str((job_dir / MANIFEST_FILE_NAME).resolve()),
+            resource_request=resource_request,
+            resource_actual=resource_actual,
         )
 
     usable = [item for item in candidate_results if item.get("total_energy") is not None and item["status"] == "completed"]

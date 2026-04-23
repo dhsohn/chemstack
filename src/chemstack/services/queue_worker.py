@@ -10,7 +10,6 @@ from chemstack.core.app_ids import CHEMSTACK_CONFIG_ENV_VAR
 def _service_args() -> SimpleNamespace:
     return SimpleNamespace(
         app=None,
-        once=False,
         auto_organize=False,
         no_auto_organize=False,
         workflow_root=None,

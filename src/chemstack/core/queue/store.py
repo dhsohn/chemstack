@@ -214,6 +214,26 @@ def get_cancel_requested(root: str | Path, queue_id: str) -> bool:
     return False
 
 
+def requeue_running_entry(root: str | Path, queue_id: str) -> QueueEntry | None:
+    resolved_root = resolve_root_path(root)
+    with file_lock(_lock_path(resolved_root)):
+        entries = _load_entries(resolved_root)
+        for index, entry in enumerate(entries):
+            if entry.queue_id != queue_id or entry.status != QueueStatus.RUNNING:
+                continue
+            updated = replace(
+                entry,
+                status=QueueStatus.PENDING,
+                started_at="",
+                cancel_requested=False,
+                error="",
+            )
+            entries[index] = updated
+            _save_entries(resolved_root, entries)
+            return updated
+    return None
+
+
 def _mark_status(
     root: str | Path,
     queue_id: str,

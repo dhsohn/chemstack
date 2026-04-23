@@ -43,7 +43,6 @@ def build_parser() -> argparse.ArgumentParser:
     queue_sub = queue_parser.add_subparsers(dest="queue_command", required=True)
 
     worker = queue_sub.add_parser("worker", help="Run the CREST queue worker")
-    worker.add_argument("--once", action="store_true", help="Process at most one pending job and exit")
     auto_group = worker.add_mutually_exclusive_group()
     auto_group.add_argument(
         "--auto-organize",

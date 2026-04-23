@@ -7,6 +7,8 @@ import yaml
 
 from chemstack.core.indexing import get_job_location
 from chemstack.core.queue import list_queue
+from chemstack.crest.commands import queue as crest_queue_cmd
+from chemstack.xtb.commands import queue as xtb_queue_cmd
 from chemstack.flow.adapters.xtb import load_xtb_artifact_contract
 from chemstack.flow.operations import (
     advance_materialized_workflow,
@@ -70,7 +72,7 @@ def _queue_status(entry: Any) -> str:
 
 def test_conformer_screening_workflow_handoff_smoke(
     smoke_workspace: Any,
-    app_runner: Any,
+    capsys: Any,
 ) -> None:
     workflow_root = smoke_workspace.root / "workflow_root"
     workflow_root.mkdir(parents=True, exist_ok=True)
@@ -136,20 +138,14 @@ def test_conformer_screening_workflow_handoff_smoke(
     assert queue_entries[0].queue_id == submitted_metadata["queue_id"]
     assert _queue_status(queue_entries[0]) == "pending"
 
-    worker = app_runner(
-        smoke_workspace.repo_root,
-        "chemstack.crest._internal_cli",
-        "--config",
-        str(smoke_workspace.crest_config_path),
-        "queue",
-        "worker",
-        "--once",
-        "--auto-organize",
-    )
-    assert worker.returncode == 0, worker.stderr or worker.stdout
-    assert f"queue_id: {submitted_metadata['queue_id']}" in worker.stdout
-    assert f"job_id: {submitted_metadata['child_job_id']}" in worker.stdout
-    assert "status: completed" in worker.stdout
+    assert crest_queue_cmd._process_one(
+        crest_queue_cmd.load_config(str(smoke_workspace.crest_config_path)),
+        auto_organize=True,
+    ) == "processed"
+    worker_output = capsys.readouterr().out
+    assert f"queue_id: {submitted_metadata['queue_id']}" in worker_output
+    assert f"job_id: {submitted_metadata['child_job_id']}" in worker_output
+    assert "status: completed" in worker_output
 
     handed_off_payload = advance_materialized_workflow(
         target=workflow_id,
@@ -200,8 +196,8 @@ def test_conformer_screening_workflow_handoff_smoke(
 
 def test_xtb_reaction_ts_search_handoff_smoke(
     smoke_workspace: Any,
-    app_runner: Any,
     xtb_path_search_job: Path,
+    capsys: Any,
 ) -> None:
     submission = xtb_submitter.submit_job_dir(
         job_dir=str(xtb_path_search_job),
@@ -221,21 +217,14 @@ def test_xtb_reaction_ts_search_handoff_smoke(
     assert queue_entries[0].queue_id == submission["queue_id"]
     assert _queue_status(queue_entries[0]) == "pending"
 
-    worker = app_runner(
-        smoke_workspace.repo_root,
-        "chemstack.xtb._internal_cli",
-        "--config",
-        str(smoke_workspace.xtb_config_path),
-        "queue",
-        "worker",
-        "--once",
-        "--auto-organize",
-    )
-
-    assert worker.returncode == 0, worker.stderr or worker.stdout
-    assert f"queue_id: {submission['queue_id']}" in worker.stdout
-    assert f"job_id: {submission['job_id']}" in worker.stdout
-    assert "status: completed" in worker.stdout
+    assert xtb_queue_cmd._process_one(
+        xtb_queue_cmd.load_config(str(smoke_workspace.xtb_config_path)),
+        auto_organize=True,
+    ) == "processed"
+    worker_output = capsys.readouterr().out
+    assert f"queue_id: {submission['queue_id']}" in worker_output
+    assert f"job_id: {submission['job_id']}" in worker_output
+    assert "status: completed" in worker_output
 
     record = get_job_location(smoke_workspace.xtb_allowed_root, submission["job_id"])
     assert record is not None

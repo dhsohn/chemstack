@@ -146,6 +146,18 @@ def _run_command(
     )
 
 
+def _process_one_worker_command(*, queue_module: str, config_path: Path) -> list[str]:
+    code = (
+        "from importlib import import_module; "
+        "import sys; "
+        f"queue_cmd = import_module({queue_module!r}); "
+        f"cfg = queue_cmd.load_config({str(config_path)!r}); "
+        "outcome = queue_cmd._process_one(cfg, auto_organize=False); "
+        "sys.exit(0 if outcome in {'processed', 'idle', 'blocked'} else 1)"
+    )
+    return [sys.executable, "-c", code]
+
+
 def _success_snapshot(case_root: Path, workflow_id: str, workflow_payload: dict[str, Any]) -> tuple[list[str], list[dict[str, Any]]]:
     xtb_root = case_root / "xtb_runs" / "workflow_jobs" / workflow_id
     xtb_ts_paths = [
@@ -293,26 +305,14 @@ def run_case(case_dir: Path, *, args: argparse.Namespace, env: dict[str, str]) -
         "--chemstack-config",
         str(shared_config),
     ]
-    crest_worker = [
-        sys.executable,
-        "-m",
-        "chemstack.crest._internal_cli",
-        "--config",
-        str(shared_config),
-        "queue",
-        "worker",
-        "--once",
-    ]
-    xtb_worker = [
-        sys.executable,
-        "-m",
-        "chemstack.xtb._internal_cli",
-        "--config",
-        str(shared_config),
-        "queue",
-        "worker",
-        "--once",
-    ]
+    crest_worker = _process_one_worker_command(
+        queue_module="chemstack.crest.commands.queue",
+        config_path=shared_config,
+    )
+    xtb_worker = _process_one_worker_command(
+        queue_module="chemstack.xtb.commands.queue",
+        config_path=shared_config,
+    )
 
     status = "unknown"
     reason = ""

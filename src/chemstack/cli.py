@@ -452,10 +452,6 @@ def _selected_worker_apps(values: Sequence[str] | None) -> list[str]:
 
 def _engine_worker_tail_argv(*, app: str, args: argparse.Namespace) -> list[str]:
     tail_argv = ["queue", "worker"]
-    if bool(getattr(args, "once", False)):
-        if app == "orca":
-            raise ValueError("--once is not supported for app=orca")
-        tail_argv.append("--once")
     if bool(getattr(args, "auto_organize", False)):
         tail_argv.append("--auto-organize")
     elif bool(getattr(args, "no_auto_organize", False)):

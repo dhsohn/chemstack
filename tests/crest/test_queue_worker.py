@@ -29,6 +29,22 @@ class FakeProcess:
         return self._poll_values[0]
 
 
+class FakeChildProcess(FakeProcess):
+    def __init__(self, pid: int, *poll_values: int | None) -> None:
+        super().__init__(*poll_values)
+        self.pid = pid
+        self.terminate_calls = 0
+        self.kill_calls = 0
+
+    def terminate(self) -> None:
+        self.terminate_calls += 1
+        self._poll_values = [0]
+
+    def kill(self) -> None:
+        self.kill_calls += 1
+        self._poll_values = [-9]
+
+
 @pytest.fixture
 def queue_env(tmp_path: Path) -> SimpleNamespace:
     allowed_root = tmp_path / "allowed_root"
@@ -369,3 +385,132 @@ def test_process_one_cancel_requested_terminates_and_marks_cancelled(
 
     stdout = capsys.readouterr().out
     assert "status: cancelled" in stdout
+
+
+def test_queue_worker_fill_slots_starts_multiple_child_processes(
+    queue_env: SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cfg = AppConfig(
+        runtime=CommonRuntimeConfig(
+            allowed_root=str(queue_env.allowed_root),
+            organized_root=str(queue_env.organized_root),
+            max_concurrent=2,
+            admission_root=str(queue_env.tmp_path / "admission_root"),
+            admission_limit=2,
+        ),
+        resources=queue_env.cfg.resources,
+    )
+    job_one = _enqueue_job(queue_env, task_id="pool-job-001")
+    job_two = _enqueue_job(queue_env, task_id="pool-job-002")
+    tokens = iter(["slot-1", "slot-2"])
+    started_commands: list[list[str]] = []
+    activated_slots: list[tuple[Path, str, dict[str, object]]] = []
+    child_processes = [
+        FakeChildProcess(5101, None),
+        FakeChildProcess(5102, None),
+    ]
+
+    monkeypatch.setattr(queue_cmd, "_try_reserve_admission_slot", lambda cfg_obj: next(tokens))
+
+    def fake_popen(command: list[str], **kwargs: object) -> FakeChildProcess:
+        started_commands.append(command)
+        return child_processes.pop(0)
+
+    monkeypatch.setattr(queue_cmd.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(
+        queue_cmd,
+        "activate_reserved_slot",
+        lambda root, token, **kwargs: activated_slots.append((Path(root), token, dict(kwargs))) or SimpleNamespace(token=token),
+    )
+
+    worker = queue_cmd.QueueWorker(cfg, "/tmp/chemstack.yaml", max_concurrent=2, auto_organize=True)
+    worker._fill_slots()
+
+    assert sorted(worker._running) == sorted([job_one.entry.queue_id, job_two.entry.queue_id])
+    assert len(started_commands) == 2
+    assert all("chemstack.crest.worker_execution" in command for command in started_commands)
+    assert all("--auto-organize" in command for command in started_commands)
+    assert {command[command.index("--queue-id") + 1] for command in started_commands} == {
+        job_one.entry.queue_id,
+        job_two.entry.queue_id,
+    }
+    assert [slot[1] for slot in activated_slots] == ["slot-1", "slot-2"]
+    assert [slot[2]["owner_pid"] for slot in activated_slots] == [5101, 5102]
+
+    entries = sorted(list_queue(queue_env.allowed_root), key=lambda item: item.task_id)
+    assert [entry.status for entry in entries] == [QueueStatus.RUNNING, QueueStatus.RUNNING]
+
+
+def test_queue_worker_shutdown_requeues_running_children(
+    queue_env: SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    job = _enqueue_job(queue_env, task_id="pool-shutdown-001")
+    queue_root, entry = queue_cmd._dequeue_next_entry(queue_env.cfg) or pytest.fail("expected dequeued entry")
+    released: list[tuple[Path, str]] = []
+    child = FakeChildProcess(6201, None)
+
+    monkeypatch.setattr(queue_cmd, "release_slot", lambda root, token: released.append((Path(root), token)))
+
+    worker = queue_cmd.QueueWorker(queue_env.cfg, "/tmp/chemstack.yaml", max_concurrent=2, auto_organize=False)
+    worker._shutdown_requested = True
+    worker._running[entry.queue_id] = queue_cmd._RunningJob(
+        queue_root=queue_root,
+        entry=entry,
+        process=child,
+        admission_token="slot-1",
+    )
+
+    worker._shutdown_all()
+
+    updated = queue_cmd._find_entry_by_target(list_queue(queue_env.allowed_root), job.entry.queue_id)
+    assert updated is not None
+    assert updated.status == QueueStatus.PENDING
+    assert updated.cancel_requested is False
+    assert child.terminate_calls == 1
+    assert released == [(worker.admission_root, "slot-1")]
+
+
+def test_queue_worker_reconcile_orphaned_running_requeues_entry_without_live_slot(
+    queue_env: SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    orphan_job = _enqueue_job(queue_env, task_id="orphan-running")
+    live_job = _enqueue_job(queue_env, task_id="live-running")
+    orphan_root, orphan_entry = queue_cmd._dequeue_next_entry(queue_env.cfg) or pytest.fail("expected orphan entry")
+    live_root, live_entry = queue_cmd._dequeue_next_entry(queue_env.cfg) or pytest.fail("expected live entry")
+
+    monkeypatch.setattr(queue_cmd, "reconcile_stale_slots", lambda root: 0)
+    monkeypatch.setattr(queue_cmd, "list_slots", lambda root: [SimpleNamespace(queue_id=live_entry.queue_id)])
+
+    worker = queue_cmd.QueueWorker(queue_env.cfg, "/tmp/chemstack.yaml", max_concurrent=2, auto_organize=False)
+    worker._reconcile_orphaned_running()
+
+    orphan_updated = queue_cmd._find_entry_by_target(list_queue(queue_env.allowed_root), orphan_job.entry.queue_id)
+    live_updated = queue_cmd._find_entry_by_target(list_queue(queue_env.allowed_root), live_job.entry.queue_id)
+    assert orphan_root == live_root
+    assert orphan_updated is not None
+    assert live_updated is not None
+    assert orphan_updated.status == QueueStatus.PENDING
+    assert live_updated.status == QueueStatus.RUNNING
+
+
+def test_queue_worker_reconcile_orphaned_cancel_requested_marks_cancelled(
+    queue_env: SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    job = _enqueue_job(queue_env, task_id="orphan-cancelled")
+    queue_root, entry = queue_cmd._dequeue_next_entry(queue_env.cfg) or pytest.fail("expected dequeued entry")
+    request_cancel(queue_root, entry.queue_id)
+
+    monkeypatch.setattr(queue_cmd, "reconcile_stale_slots", lambda root: 0)
+    monkeypatch.setattr(queue_cmd, "list_slots", lambda root: [])
+
+    worker = queue_cmd.QueueWorker(queue_env.cfg, "/tmp/chemstack.yaml", max_concurrent=2, auto_organize=False)
+    worker._reconcile_orphaned_running()
+
+    updated = queue_cmd._find_entry_by_target(list_queue(queue_env.allowed_root), job.entry.queue_id)
+    assert updated is not None
+    assert updated.status == QueueStatus.CANCELLED
+    assert updated.error == "cancel_requested"

@@ -213,6 +213,39 @@ def test_request_cancel_handles_pending_running_and_terminal_entries(
     assert store.request_cancel(tmp_path, terminal.queue_id) is None
 
 
+def test_requeue_running_entry_returns_running_entry_to_pending(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _install_deterministic_helpers(monkeypatch)
+
+    running = store.enqueue(
+        tmp_path,
+        app_name="app",
+        task_id="running",
+        task_kind="kind",
+        engine="engine",
+        metadata={"keep": "yes"},
+    )
+    dequeued = store.dequeue_next(tmp_path)
+    assert dequeued is not None
+    assert dequeued.queue_id == running.queue_id
+    assert dequeued.status == QueueStatus.RUNNING
+
+    updated = store.requeue_running_entry(tmp_path, running.queue_id)
+    assert updated is not None
+    assert updated.status == QueueStatus.PENDING
+    assert updated.started_at == ""
+    assert updated.cancel_requested is False
+    assert updated.error == ""
+    assert updated.metadata == {"keep": "yes"}
+
+    entries = store.list_queue(tmp_path)
+    assert len(entries) == 1
+    assert entries[0].status == QueueStatus.PENDING
+    assert store.requeue_running_entry(tmp_path, "missing-queue-id") is None
+
+
 def test_clear_terminal_removes_terminal_entries_and_can_keep_latest(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

@@ -1,14 +1,32 @@
 from __future__ import annotations
 
+import argparse
 import os
 import signal
 import subprocess
+import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
-from .runner import CrestRunResult
+from chemstack.core.admission import release_slot
+from chemstack.core.queue import (
+    get_cancel_requested,
+    list_queue,
+    mark_cancelled,
+    mark_completed,
+    mark_failed,
+    requeue_running_entry,
+)
+from chemstack.core.queue.types import QueueStatus
+from chemstack.core.utils import now_utc_iso
+
+from .commands.organize import organize_job_dir
+from .config import load_config
+from .job_locations import upsert_job_record
+from .notifications import notify_job_finished, notify_job_started
+from .runner import CrestRunResult, finalize_crest_job, start_crest_job
 from .state import write_report_json, write_report_md_lines, write_state
 
 CANCEL_CHECK_INTERVAL_SECONDS = 1
@@ -49,6 +67,68 @@ class WorkerExecutionDependencies:
     notify_job_started: Callable[..., bool]
     notify_job_finished: Callable[..., bool]
     organize_job_dir: Callable[..., dict[str, str]]
+
+
+class WorkerShutdownRequested(RuntimeError):
+    def __init__(self, context: ExecutionContext):
+        super().__init__("worker_shutdown")
+        self.context = context
+
+
+@dataclass
+class _ShutdownController:
+    requested: bool = False
+
+    def request(self) -> None:
+        self.requested = True
+
+    def is_requested(self) -> bool:
+        return self.requested
+
+
+def default_worker_execution_dependencies() -> WorkerExecutionDependencies:
+    return WorkerExecutionDependencies(
+        now_utc_iso=now_utc_iso,
+        get_cancel_requested=get_cancel_requested,
+        start_crest_job=start_crest_job,
+        finalize_crest_job=finalize_crest_job,
+        terminate_process=_terminate_process,
+        write_running_state=_write_running_state,
+        write_execution_artifacts=_write_execution_artifacts,
+        mark_completed=mark_completed,
+        mark_cancelled=mark_cancelled,
+        mark_failed=mark_failed,
+        upsert_job_record=upsert_job_record,
+        notify_job_started=notify_job_started,
+        notify_job_finished=notify_job_finished,
+        organize_job_dir=organize_job_dir,
+    )
+
+
+def build_worker_child_command(
+    *,
+    config_path: str,
+    queue_root: str | Path,
+    queue_id: str,
+    auto_organize: bool = False,
+    admission_token: str | None = None,
+) -> list[str]:
+    command = [
+        sys.executable,
+        "-m",
+        "chemstack.crest.worker_execution",
+        "--config",
+        config_path,
+        "--queue-root",
+        str(Path(queue_root)),
+        "--queue-id",
+        queue_id,
+    ]
+    if auto_organize:
+        command.append("--auto-organize")
+    if admission_token:
+        command.extend(["--admission-token", admission_token])
+    return command
 
 
 def _build_state_payload(entry: Any, result: CrestRunResult) -> dict[str, Any]:
@@ -150,9 +230,9 @@ def _write_running_state(cfg: Any, entry: Any) -> None:
 
 
 def depsafe_now_utc_iso() -> str:
-    from chemstack.core.utils import now_utc_iso
+    from chemstack.core.utils import now_utc_iso as dynamic_now_utc_iso
 
-    return now_utc_iso()
+    return dynamic_now_utc_iso()
 
 
 def _terminate_process(proc: subprocess.Popen[str]) -> None:
@@ -345,6 +425,7 @@ def process_dequeued_entry(
     resource_caps: Callable[[Any], dict[str, int]],
     molecule_key_resolver: Callable[[Any, Path, Path], str],
     dependencies: WorkerExecutionDependencies,
+    shutdown_requested: Callable[[], bool] | None = None,
 ) -> WorkerExecutionOutcome:
     active_queue_root = queue_root or Path(str(cfg.runtime.allowed_root)).expanduser().resolve()
     context = _build_execution_context(
@@ -353,6 +434,8 @@ def process_dequeued_entry(
         resource_caps=resource_caps,
         molecule_key_resolver=molecule_key_resolver,
     )
+    if shutdown_requested is not None and shutdown_requested():
+        raise WorkerShutdownRequested(context)
     dependencies.write_running_state(cfg, entry)
     dependencies.upsert_job_record(
         cfg,
@@ -373,6 +456,8 @@ def process_dequeued_entry(
         mode=context.mode,
         selected_xyz=context.selected_xyz,
     )
+    if shutdown_requested is not None and shutdown_requested():
+        raise WorkerShutdownRequested(context)
 
     try:
         running = dependencies.start_crest_job(
@@ -394,8 +479,22 @@ def process_dequeued_entry(
                 )
                 break
 
+            if shutdown_requested is not None and shutdown_requested():
+                dependencies.terminate_process(running.process)
+                try:
+                    dependencies.finalize_crest_job(
+                        running,
+                        forced_status="failed",
+                        forced_reason="worker_shutdown",
+                    )
+                except Exception:
+                    pass
+                raise WorkerShutdownRequested(context)
+
             time.sleep(CANCEL_CHECK_INTERVAL_SECONDS)
     except Exception as exc:
+        if isinstance(exc, WorkerShutdownRequested):
+            raise
         failure_time = dependencies.now_utc_iso()
         resource_request = context.resource_request
         result = CrestRunResult(
@@ -450,3 +549,106 @@ def process_dequeued_entry(
         molecule_key=context.molecule_key,
         organized_output_dir=organized_output_dir,
     )
+
+
+def _admission_root_for_cfg(cfg: Any) -> str:
+    return str(
+        getattr(cfg.runtime, "resolved_admission_root", None)
+        or getattr(cfg.runtime, "admission_root", "")
+        or cfg.runtime.allowed_root
+    )
+
+
+def _find_queue_entry(queue_root: Path, queue_id: str) -> Any | None:
+    for entry in list_queue(queue_root):
+        if entry.queue_id == queue_id:
+            return entry
+    return None
+
+
+def _install_shutdown_signal_handlers(controller: _ShutdownController) -> None:
+    def _handle_signal(_signum: int, _frame: object) -> None:
+        controller.request()
+
+    try:
+        signal.signal(signal.SIGTERM, _handle_signal)
+        signal.signal(signal.SIGINT, _handle_signal)
+    except ValueError:
+        pass
+
+
+def run_worker_child_job(
+    *,
+    config_path: str,
+    queue_root: str | Path,
+    queue_id: str,
+    auto_organize: bool = False,
+    admission_token: str | None = None,
+) -> int:
+    cfg = load_config(config_path)
+    queue_root_path = Path(queue_root).expanduser().resolve()
+    entry = _find_queue_entry(queue_root_path, queue_id)
+    if entry is None or getattr(entry, "status", None) != QueueStatus.RUNNING:
+        if admission_token:
+            release_slot(_admission_root_for_cfg(cfg), admission_token)
+        return 1
+
+    controller = _ShutdownController()
+    _install_shutdown_signal_handlers(controller)
+
+    try:
+        process_dequeued_entry(
+            cfg,
+            entry,
+            queue_root=queue_root_path,
+            auto_organize=auto_organize,
+            resource_caps=_resource_caps,
+            molecule_key_resolver=_molecule_key,
+            dependencies=default_worker_execution_dependencies(),
+            shutdown_requested=controller.is_requested,
+        )
+        return 0
+    except WorkerShutdownRequested as exc:
+        requeue_running_entry(queue_root_path, queue_id)
+        task_id = str(exc.context.entry.task_id).strip()
+        if task_id:
+            upsert_job_record(
+                cfg,
+                job_id=task_id,
+                status="pending",
+                job_dir=exc.context.job_dir,
+                mode=exc.context.mode,
+                selected_input_xyz=str(exc.context.selected_xyz),
+                molecule_key=exc.context.molecule_key,
+                resource_request=exc.context.resource_request,
+                resource_actual=dict(exc.context.resource_request),
+            )
+        return 0
+    finally:
+        if admission_token:
+            release_slot(_admission_root_for_cfg(cfg), admission_token)
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="python -m chemstack.crest.worker_execution")
+    parser.add_argument("--config", required=True)
+    parser.add_argument("--queue-root", required=True)
+    parser.add_argument("--queue-id", required=True)
+    parser.add_argument("--admission-token", default=None)
+    parser.add_argument("--auto-organize", action="store_true")
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    return run_worker_child_job(
+        config_path=args.config,
+        queue_root=args.queue_root,
+        queue_id=args.queue_id,
+        auto_organize=bool(args.auto_organize),
+        admission_token=str(args.admission_token).strip() or None,
+    )
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
