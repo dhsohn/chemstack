@@ -28,7 +28,6 @@ def _submission_tail_argv(
 ) -> list[str]:
     argv = [
         "run-dir",
-        "orca",
         reaction_dir,
         "--priority",
         str(int(priority)),

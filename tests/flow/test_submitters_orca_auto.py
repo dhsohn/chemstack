@@ -123,7 +123,6 @@ def test_submit_reaction_dir_maps_queue_status(
                 "--config",
                 "/tmp/orca.yaml",
                 "run-dir",
-                "orca",
                 "/tmp/rxn_input",
             ),
         )
@@ -144,7 +143,7 @@ def test_submit_reaction_dir_maps_queue_status(
             "config_path": "/tmp/orca.yaml",
             "repo_root": "/tmp/orca_repo",
             "module_name": "chemstack.cli",
-            "tail_argv": ["run-dir", "orca", "/tmp/rxn_input", "--priority", "12"],
+            "tail_argv": ["run-dir", "/tmp/rxn_input", "--priority", "12"],
         }
     ]
     assert result["status"] == expected_status
@@ -159,7 +158,6 @@ def test_submit_reaction_dir_maps_queue_status(
         "--config",
         "/tmp/orca.yaml",
         "run-dir",
-        "orca",
         "/tmp/rxn_input",
     ]
     assert result["stderr"] == "stderr text"
@@ -183,7 +181,6 @@ def test_submit_reaction_dir_passes_resource_override_flags(
                 "--config",
                 "/tmp/orca.yaml",
                 "run-dir",
-                "orca",
                 "/tmp/rxn_input",
             ),
         )
@@ -207,7 +204,6 @@ def test_submit_reaction_dir_passes_resource_override_flags(
             "module_name": "chemstack.cli",
             "tail_argv": [
                 "run-dir",
-                "orca",
                 "/tmp/rxn_input",
                 "--priority",
                 "4",

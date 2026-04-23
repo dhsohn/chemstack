@@ -100,7 +100,6 @@ def test_build_orca_enqueue_payload_includes_resource_override_flags() -> None:
         "--config",
         "<chemstack_config>",
         "run-dir",
-        "orca",
         "/tmp/rxn",
         "--priority",
         "5",

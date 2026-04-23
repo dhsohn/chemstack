@@ -128,7 +128,6 @@ def _build_orca_enqueue_payload(
     command_parts = [
         f"{CHEMSTACK_CLI_COMMAND} --config {config_placeholder}",
         "run-dir",
-        "orca",
         f"'{reaction_dir}'",
         f"--priority {int(priority)}",
     ]
@@ -139,7 +138,6 @@ def _build_orca_enqueue_payload(
         "--config",
         config_placeholder,
         "run-dir",
-        "orca",
         reaction_dir,
         "--priority",
         str(int(priority)),
