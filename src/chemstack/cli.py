@@ -23,7 +23,6 @@ from chemstack.core.app_ids import (
     CHEMSTACK_CREST_MODULE,
     CHEMSTACK_FLOW_MODULE,
     CHEMSTACK_ORCA_INTERNAL_MODULE,
-    CHEMSTACK_ORCA_MODULE,
     CHEMSTACK_XTB_MODULE,
 )
 from chemstack.core.config.files import shared_workflow_root_from_config

@@ -22,7 +22,7 @@ from chemstack.core.queue import clear_terminal as clear_queue_terminal, list_qu
 from chemstack.core.queue.types import QueueEntry
 
 from .registry import clear_terminal_workflow_registry, list_workflow_registry, reindex_workflow_registry
-from .state import iter_workflow_runtime_workspaces, iter_workflow_workspaces, list_workflow_summaries, workflow_workspace_internal_engine_paths
+from .state import iter_workflow_runtime_workspaces, list_workflow_summaries, workflow_workspace_internal_engine_paths
 from .submitters.common import normalize_text, sibling_runtime_paths
 from .submitters.crest_auto import cancel_target as cancel_crest_target
 from .submitters.orca_auto import cancel_target as cancel_orca_target
