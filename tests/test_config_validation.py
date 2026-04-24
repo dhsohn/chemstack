@@ -142,6 +142,40 @@ class TestConfigValidation(unittest.TestCase):
             self.assertEqual(cfg.runtime.allowed_root, str(allowed))
             self.assertEqual(cfg.paths.orca_executable, str(fake_orca))
 
+    def test_workflow_root_is_preserved_with_engine_scoped_orca_config(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            workflow_root = root / "workflow_runs"
+            workflow_root.mkdir()
+            allowed = root / "orca_runs"
+            allowed.mkdir()
+            fake_orca = root / "orca"
+            fake_orca.write_text("#!/bin/sh\n", encoding="utf-8")
+
+            cfg_path = root / "chemstack.yaml"
+            cfg_path.write_text(
+                json.dumps(
+                    {
+                        "workflow": {
+                            "root": str(workflow_root),
+                        },
+                        "orca": {
+                            "runtime": {
+                                "allowed_root": str(allowed),
+                            },
+                            "paths": {"orca_executable": str(fake_orca)},
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            cfg = load_config(str(cfg_path))
+
+            self.assertEqual(cfg.workflow_root, str(workflow_root.resolve()))
+            self.assertEqual(cfg.runtime.allowed_root, str(allowed.resolve()))
+            self.assertEqual(cfg.paths.orca_executable, str(fake_orca.resolve()))
+
     def test_deprecated_max_attempts_key_is_ignored(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

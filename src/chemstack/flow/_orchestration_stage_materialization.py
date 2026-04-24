@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from .state import workflow_workspace_internal_engine_paths
+
 
 def _orchestration_module():
     from . import orchestration as o
@@ -77,9 +79,9 @@ def append_reaction_orca_stages_impl(
     xtb_allowed_root = _call_engine_aware(o._load_config_root, xtb_auto_config, engine="xtb")
     if xtb_allowed_root is None:
         return False
-    orca_allowed_root = _call_engine_aware(o._load_config_root, orca_auto_config, engine="orca")
-    if orca_allowed_root is None:
+    if _call_engine_aware(o._load_config_root, orca_auto_config, engine="orca") is None:
         return False
+    orca_runtime_paths = workflow_workspace_internal_engine_paths(workspace_dir, engine="orca")
     payload_metadata = o._coerce_mapping(payload.get("metadata"))
     request = o._coerce_mapping(payload_metadata.get("request"))
     params = o._coerce_mapping(request.get("parameters"))
@@ -219,8 +221,8 @@ def append_reaction_orca_stages_impl(
             template_name="reaction_ts_search",
             stage_id=f"orca_optts_freq_{next_index:02d}",
             stage_key=f"{next_index:02d}_{o.safe_name(candidate.kind, fallback='candidate')}",
-            stage_root_name=f"workflow_jobs/{payload.get('workflow_id', '')}/stage_03_orca",
-            workspace_dir=orca_allowed_root,
+            stage_root_name="stage_03_orca",
+            workspace_dir=orca_runtime_paths["allowed_root"],
             input_artifact_kind="xtb_candidate",
             candidate=candidate,
             task_kind="optts_freq",
@@ -269,9 +271,12 @@ def append_crest_orca_stages_impl(
     if crest_stage is None:
         return False
     crest_contract = o._completed_crest_stage(crest_stage, crest_auto_config=crest_auto_config)
-    orca_allowed_root = _call_engine_aware(o._load_config_root, orca_auto_config, engine="orca")
-    if crest_contract is None or orca_allowed_root is None:
+    if crest_contract is None or _call_engine_aware(o._load_config_root, orca_auto_config, engine="orca") is None:
         return False
+    payload_metadata = o._coerce_mapping(payload.get("metadata"))
+    workspace_dir_text = o._normalize_text(payload_metadata.get("workspace_dir"))
+    workspace_dir = Path(workspace_dir_text).expanduser().resolve() if workspace_dir_text else Path(".").resolve()
+    orca_runtime_paths = workflow_workspace_internal_engine_paths(workspace_dir, engine="orca")
     request = ((payload.get("metadata") or {}).get("request") or {})
     params = request.get("parameters") or {}
     candidates = o.select_crest_downstream_inputs(crest_contract, policy=o.CrestDownstreamPolicy.build(max_candidates=int(params.get("max_orca_stages", 3) or 3)))
@@ -283,8 +288,8 @@ def append_crest_orca_stages_impl(
             template_name=template_name,
             stage_id=f"{stage_id_prefix}_{created:02d}",
             stage_key=f"{created:02d}_{o.safe_name(candidate.kind, fallback='conformer')}",
-            stage_root_name=f"workflow_jobs/{payload.get('workflow_id', '')}/stage_02_orca",
-            workspace_dir=orca_allowed_root,
+            stage_root_name="stage_02_orca",
+            workspace_dir=orca_runtime_paths["allowed_root"],
             input_artifact_kind="crest_conformer",
             candidate=candidate,
             task_kind="opt",

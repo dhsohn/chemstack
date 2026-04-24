@@ -129,10 +129,13 @@ def test_create_reaction_ts_search_workflow_materializes_two_crest_stages(
     assert [stage["stage_id"] for stage in payload["stages"]] == ["crest_reactant_01", "crest_product_01"]
     assert [stage["metadata"]["mode"] for stage in payload["stages"]] == [crest_mode, crest_mode]
     assert request["parameters"]["crest_mode"] == crest_mode
+    assert request["parameters"]["crest_job_manifest"] == {"rthr": 0.3}
     assert request["parameters"]["max_xtb_stages"] == 4
     assert request["parameters"]["max_xtb_handoff_retries"] == 3
     assert request["parameters"]["max_orca_stages"] == 2
     assert request["parameters"]["orca_route_line"] == "! custom ts route"
+    assert payload["stages"][0]["task"]["payload"]["job_manifest_overrides"] == {"rthr": 0.3}
+    assert payload["stages"][1]["task"]["payload"]["job_manifest_overrides"] == {"rthr": 0.3}
     assert (workspace_dir / "workflow.json").exists()
     assert sync_calls == ["wf_reaction_extra"]
 
@@ -258,6 +261,30 @@ def test_create_conformer_screening_workflow_defaults_to_twenty_orca_children(
     assert payload["metadata"]["request"]["parameters"]["max_orca_stages"] == 20
 
 
+def test_create_reaction_ts_search_workflow_uses_explicit_workflow_id(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    reactant_xyz = tmp_path / "reactant.xyz"
+    product_xyz = tmp_path / "product.xyz"
+    _write_xyz(reactant_xyz, [("H", 0.0, 0.0, 0.0), ("H", 0.0, 0.0, 0.74)])
+    _write_xyz(product_xyz, [("H", 0.1, 0.0, 0.0), ("H", 0.0, 0.0, 0.74)])
+
+    monkeypatch.setattr(orchestration, "_workflow_id", lambda prefix: "wf_should_not_be_used")
+    monkeypatch.setattr(orchestration, "now_utc_iso", lambda: "2026-04-24T00:00:00+00:00")
+    monkeypatch.setattr(orchestration, "sync_workflow_registry", lambda workflow_root, workspace_dir, payload: None)
+
+    payload = orchestration.create_reaction_ts_search_workflow(
+        reactant_xyz=str(reactant_xyz),
+        product_xyz=str(product_xyz),
+        workflow_root=tmp_path,
+        workflow_id="manual_rxn_case",
+    )
+
+    assert payload["workflow_id"] == "manual_rxn_case"
+    assert payload["metadata"]["workspace_dir"] == str((tmp_path / "manual_rxn_case").resolve())
+
+
 def test_workflow_factories_preserve_engine_manifest_overrides(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -281,9 +308,10 @@ def test_workflow_factories_preserve_engine_manifest_overrides(
         xtb_job_manifest={"gfn": 1, "namespace": "rxn_a"},
     )
     request_params = reaction_payload["metadata"]["request"]["parameters"]
-    assert request_params["crest_job_manifest"] == {"speed": "squick", "solvent": "water"}
+    assert request_params["crest_job_manifest"] == {"rthr": 0.3, "speed": "squick", "solvent": "water"}
     assert request_params["xtb_job_manifest"] == {"gfn": 1, "namespace": "rxn_a"}
     assert reaction_payload["stages"][0]["task"]["payload"]["job_manifest_overrides"] == {
+        "rthr": 0.3,
         "speed": "squick",
         "solvent": "water",
     }

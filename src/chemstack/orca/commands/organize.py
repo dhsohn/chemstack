@@ -5,6 +5,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Mapping
 
+from chemstack.flow.state import workflow_workspace_internal_engine_paths_from_path
+
 from ..config import AppConfig, load_config
 from ..organize_index import (
     acquire_index_lock,
@@ -35,6 +37,24 @@ from ._helpers import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _workflow_runtime_paths(cfg: AppConfig, path: str | Path) -> dict[str, Path] | None:
+    workflow_root = str(getattr(cfg, "workflow_root", "")).strip()
+    if not workflow_root:
+        return None
+    return workflow_workspace_internal_engine_paths_from_path(
+        path,
+        workflow_root=workflow_root,
+        engine="orca",
+    )
+
+
+def _resolved_organized_root(cfg: AppConfig, reaction_dir: str | Path) -> Path:
+    runtime_paths = _workflow_runtime_paths(cfg, reaction_dir)
+    if runtime_paths is not None:
+        return runtime_paths["organized_root"].expanduser().resolve()
+    return Path(cfg.runtime.organized_root).resolve()
 
 
 def _emit_organize(payload: Dict[str, Any]) -> None:
@@ -423,7 +443,7 @@ def organize_reaction_dir(
     *,
     notify_summary: bool = True,
 ) -> Dict[str, Any]:
-    organized_root = Path(cfg.runtime.organized_root).resolve()
+    organized_root = _resolved_organized_root(cfg, reaction_dir)
     scope = _resolve_organize_scope(
         cfg,
         organized_root=organized_root,
@@ -531,6 +551,9 @@ def cmd_organize(args: Any) -> int:
     if not reaction_dir_raw and not root_raw:
         logger.error("Either --reaction-dir or --root is required")
         return 1
+
+    if reaction_dir_raw:
+        organized_root = _resolved_organized_root(cfg, str(reaction_dir_raw))
 
     apply_mode = getattr(args, "apply", False)
 

@@ -119,11 +119,24 @@ sudo cp systemd/chemstack-queue-worker@.service /etc/systemd/system/
 sudo cp systemd/chemstack-bot@.service /etc/systemd/system/
 sudo cp systemd/chemstack-runtime@.target /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable --now "chemstack-runtime@$(whoami)"
-sudo systemctl status "chemstack-runtime@$(whoami)"
+sudo systemctl enable --now "chemstack-runtime@$(whoami).target"
+sudo systemctl status "chemstack-runtime@$(whoami).target"
 sudo systemctl status "chemstack-queue-worker@$(whoami)"
 sudo systemctl status "chemstack-bot@$(whoami)"
 ```
+
+Restart examples:
+
+```bash
+# restart the combined runtime target (worker + Telegram bot)
+sudo systemctl restart "chemstack-runtime@$(whoami).target"
+
+# restart only one service when needed
+sudo systemctl restart "chemstack-queue-worker@$(whoami)"
+sudo systemctl restart "chemstack-bot@$(whoami)"
+```
+
+If you edited files under `systemd/`, run `sudo systemctl daemon-reload` before restarting.
 
 If you want only the worker managed automatically, enable
 `chemstack-queue-worker@$(whoami)` instead.

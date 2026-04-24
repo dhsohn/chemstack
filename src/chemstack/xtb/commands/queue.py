@@ -26,7 +26,17 @@ from ..config import default_config_path, load_config
 from ..job_locations import reaction_key_from_job_dir, resource_dict, runtime_roots_for_cfg, upsert_job_record
 from ..notifications import notify_job_finished, notify_job_started
 from ..runner import XtbRunResult, finalize_xtb_job, run_xtb_ranking_job, start_xtb_job
-from ..state import load_organized_ref, load_report_json, load_state, write_report_json, write_report_md_lines, write_state
+from ..state import (
+    is_recovery_pending,
+    load_organized_ref,
+    load_report_json,
+    load_state,
+    mark_recovery_pending,
+    state_matches_job,
+    write_report_json,
+    write_report_md_lines,
+    write_state,
+)
 from .organize import organize_job_dir
 
 POLL_INTERVAL_SECONDS = 5
@@ -225,6 +235,33 @@ def _coerce_resource_dict(value: Any) -> dict[str, int]:
     return result
 
 
+def _coerce_mapping(value: Any) -> dict[str, Any]:
+    return dict(value) if isinstance(value, dict) else {}
+
+
+def _coerce_list(value: Any) -> list[Any]:
+    return list(value) if isinstance(value, list) else []
+
+
+def _matching_state(
+    entry: Any,
+    *,
+    job_dir: Path,
+    selected_xyz: Path,
+    job_type: str,
+    reaction_key: str,
+) -> dict[str, Any]:
+    state = load_state(job_dir) or {}
+    if not state_matches_job(
+        state,
+        selected_input_xyz=str(selected_xyz),
+        job_type=job_type,
+        reaction_key=reaction_key,
+    ):
+        return {}
+    return state
+
+
 def _entry_resource_request(cfg: Any, entry: Any) -> dict[str, int]:
     return _coerce_resource_dict(entry.metadata.get("resource_request")) or _resource_caps(cfg)
 
@@ -244,11 +281,13 @@ def _input_summary(entry: Any) -> dict[str, Any]:
     return dict(payload) if isinstance(payload, dict) else {}
 
 
-def _build_state_payload(entry: Any, result: XtbRunResult) -> dict[str, Any]:
+def _build_state_payload(entry: Any, result: XtbRunResult, *, previous_state: dict[str, Any] | None = None, resumed: bool = False) -> dict[str, Any]:
+    base_state = _coerce_mapping(previous_state)
     candidate_paths = list(result.analysis_summary.get("candidate_paths", []))
     if not candidate_paths and isinstance(result.input_summary, dict):
         candidate_paths = list(result.input_summary.get("candidate_paths", []))
-    return {
+    recovery_reason = str(base_state.get("recovery_reason") or base_state.get("reason") or "").strip()
+    payload = {
         "job_id": entry.task_id,
         "job_dir": str(entry.metadata.get("job_dir", "")).strip(),
         "selected_input_xyz": result.selected_input_xyz,
@@ -267,14 +306,23 @@ def _build_state_payload(entry: Any, result: XtbRunResult) -> dict[str, Any]:
         "manifest_path": result.manifest_path,
         "resource_request": dict(result.resource_request),
         "resource_actual": dict(result.resource_actual),
+        "created_at": str(base_state.get("created_at", "")).strip(),
+        "recovery_pending": False,
+        "recovery_count": int(base_state.get("recovery_count", 0) or 0),
+        "resumed": bool(resumed),
     }
+    if recovery_reason:
+        payload["recovery_reason"] = recovery_reason
+    return payload
 
 
-def _build_report_payload(entry: Any, result: XtbRunResult) -> dict[str, Any]:
+def _build_report_payload(entry: Any, result: XtbRunResult, *, previous_state: dict[str, Any] | None = None, resumed: bool = False) -> dict[str, Any]:
+    base_state = _coerce_mapping(previous_state)
     candidate_paths = list(result.analysis_summary.get("candidate_paths", []))
     if not candidate_paths and isinstance(result.input_summary, dict):
         candidate_paths = list(result.input_summary.get("candidate_paths", []))
-    return {
+    recovery_reason = str(base_state.get("recovery_reason") or base_state.get("reason") or "").strip()
+    payload = {
         "job_id": entry.task_id,
         "queue_id": entry.queue_id,
         "status": result.status,
@@ -297,17 +345,29 @@ def _build_report_payload(entry: Any, result: XtbRunResult) -> dict[str, Any]:
         "manifest_path": result.manifest_path,
         "resource_request": dict(result.resource_request),
         "resource_actual": dict(result.resource_actual),
+        "created_at": str(base_state.get("created_at", "")).strip(),
+        "recovery_count": int(base_state.get("recovery_count", 0) or 0),
+        "resumed": bool(resumed),
     }
+    if recovery_reason:
+        payload["recovery_reason"] = recovery_reason
+    return payload
 
 
-def _write_execution_artifacts(entry: Any, result: XtbRunResult) -> None:
+def _write_execution_artifacts(
+    entry: Any,
+    result: XtbRunResult,
+    *,
+    previous_state: dict[str, Any] | None = None,
+    resumed: bool = False,
+) -> None:
     job_dir_text = str(entry.metadata.get("job_dir", "")).strip()
     if not job_dir_text:
         return
 
     job_dir = Path(job_dir_text).expanduser().resolve()
-    write_state(job_dir, _build_state_payload(entry, result))
-    write_report_json(job_dir, _build_report_payload(entry, result))
+    write_state(job_dir, _build_state_payload(entry, result, previous_state=previous_state, resumed=resumed))
+    write_report_json(job_dir, _build_report_payload(entry, result, previous_state=previous_state, resumed=resumed))
     lines = [
         "# xtb_auto Report",
         "",
@@ -340,13 +400,24 @@ def _write_execution_artifacts(entry: Any, result: XtbRunResult) -> None:
     write_report_md_lines(job_dir, lines)
 
 
-def _write_running_state(cfg: Any, entry: Any, *, worker_job_pid: int | None = None) -> None:
+def _write_running_state(
+    cfg: Any,
+    entry: Any,
+    *,
+    worker_job_pid: int | None = None,
+    previous_state: dict[str, Any] | None = None,
+    resumed: bool = False,
+) -> None:
     job_dir_text = str(entry.metadata.get("job_dir", "")).strip()
     if not job_dir_text:
         return
     job_dir = Path(job_dir_text).expanduser().resolve()
     input_summary = _input_summary(entry)
     resource_request = _entry_resource_request(cfg, entry)
+    base_state = _coerce_mapping(previous_state)
+    recovery_reason = str(base_state.get("recovery_reason") or base_state.get("reason") or "").strip()
+    started_at = entry.started_at or now_utc_iso()
+    updated_at = now_utc_iso()
     payload = {
         "job_id": entry.task_id,
         "job_dir": str(job_dir),
@@ -355,9 +426,9 @@ def _write_running_state(cfg: Any, entry: Any, *, worker_job_pid: int | None = N
         "reaction_key": _reaction_key(entry, job_dir),
         "input_summary": input_summary,
         "status": "running",
-        "reason": "",
-        "started_at": entry.started_at or now_utc_iso(),
-        "updated_at": now_utc_iso(),
+        "reason": recovery_reason if resumed else "",
+        "started_at": started_at,
+        "updated_at": updated_at,
         "candidate_count": int(input_summary.get("candidate_count", 0) or 0),
         "candidate_paths": list(input_summary.get("candidate_paths", [])),
         "selected_candidate_paths": [],
@@ -365,10 +436,47 @@ def _write_running_state(cfg: Any, entry: Any, *, worker_job_pid: int | None = N
         "analysis_summary": {},
         "resource_request": resource_request,
         "resource_actual": dict(resource_request),
+        "created_at": str(base_state.get("created_at", "")).strip() or started_at,
+        "recovery_pending": False,
+        "recovery_count": int(base_state.get("recovery_count", 0) or 0),
+        "resumed": bool(resumed),
     }
+    if recovery_reason:
+        payload["recovery_reason"] = recovery_reason
     if worker_job_pid is not None and worker_job_pid > 0:
         payload["worker_job_pid"] = int(worker_job_pid)
     write_state(job_dir, payload)
+
+
+def _mark_recovery_pending_state(cfg: Any, entry: Any, *, reason: str) -> None:
+    job_dir = _job_dir(entry)
+    selected_xyz = _selected_xyz(entry)
+    job_type = _job_type(entry)
+    reaction_key = _reaction_key(entry, job_dir)
+    input_summary = _input_summary(entry)
+    resource_request = _entry_resource_request(cfg, entry)
+    mark_recovery_pending(
+        job_dir,
+        job_id=str(entry.task_id),
+        selected_input_xyz=str(selected_xyz),
+        job_type=job_type,
+        reaction_key=reaction_key,
+        input_summary=input_summary,
+        resource_request=resource_request,
+        resource_actual=resource_request,
+        reason=reason,
+    )
+    upsert_job_record(
+        cfg,
+        job_id=entry.task_id,
+        status="pending",
+        job_dir=job_dir,
+        job_type=job_type,
+        selected_input_xyz=str(selected_xyz),
+        reaction_key=reaction_key,
+        resource_request=resource_request,
+        resource_actual=resource_request,
+    )
 
 
 def _terminate_process(proc: _ManagedProcess) -> None:
@@ -535,8 +643,10 @@ def _finalize_execution_result(
     result: XtbRunResult,
     auto_organize: bool,
     emit_output: bool,
+    previous_state: dict[str, Any] | None = None,
+    resumed: bool = False,
 ) -> QueueExecutionOutcome:
-    _write_execution_artifacts(entry, result)
+    _write_execution_artifacts(entry, result, previous_state=previous_state, resumed=resumed)
     final_selected_xyz = Path(str(result.selected_input_xyz)).expanduser().resolve() if str(result.selected_input_xyz).strip() else _selected_xyz(entry)
 
     metadata_update = {
@@ -618,8 +728,22 @@ def _execute_queue_entry(
     reaction_key = _reaction_key(entry, job_dir)
     input_summary = _input_summary(entry)
     resource_request = _entry_resource_request(cfg, entry)
+    previous_state = _matching_state(
+        entry,
+        job_dir=job_dir,
+        selected_xyz=selected_xyz,
+        job_type=job_type,
+        reaction_key=reaction_key,
+    )
+    resumed = is_recovery_pending(previous_state) or str(previous_state.get("status", "")).strip().lower() == "running"
 
-    _write_running_state(cfg, entry, worker_job_pid=worker_job_pid)
+    _write_running_state(
+        cfg,
+        entry,
+        worker_job_pid=worker_job_pid,
+        previous_state=previous_state,
+        resumed=resumed,
+    )
     upsert_job_record(
         cfg,
         job_id=entry.task_id,
@@ -705,6 +829,8 @@ def _execute_queue_entry(
         result=result,
         auto_organize=auto_organize,
         emit_output=emit_output,
+        previous_state=previous_state,
+        resumed=resumed,
     )
 
 
@@ -939,6 +1065,7 @@ class QueueWorker:
             return
         for queue_id, job in list(self._running.items()):
             _terminate_process(job.process)
+            _mark_recovery_pending_state(self.cfg, job.entry, reason="worker_shutdown")
             requeue_running_entry(str(job.queue_root), queue_id)
             release_slot(self.admission_root, job.admission_token)
             del self._running[queue_id]
@@ -969,6 +1096,7 @@ class QueueWorker:
             if worker_job_pid and _pid_is_alive(worker_job_pid):
                 continue
             requeue_running_entry(str(queue_root), entry.queue_id)
+            _mark_recovery_pending_state(self.cfg, entry, reason="crashed_recovery")
 
 
 def _process_one(cfg: Any, *, auto_organize: bool) -> str:

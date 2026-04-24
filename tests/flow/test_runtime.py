@@ -225,6 +225,40 @@ def test_stage_transition_event_payloads_emit_completion_and_failure_without_xtb
     assert events[1]["reason"] == "submit_failed"
 
 
+def test_stage_transition_event_payloads_emit_running_status_change_event() -> None:
+    previous_summary = _summary_with_stages(
+        {
+            "stage_id": "crest_running_1",
+            "status": "queued",
+            "task_status": "submitted",
+            "engine": "crest",
+            "task_kind": "conformer_search",
+        }
+    )
+    current_summary = _summary_with_stages(
+        {
+            "stage_id": "crest_running_1",
+            "status": "running",
+            "task_status": "running",
+            "engine": "crest",
+            "task_kind": "conformer_search",
+            "queue_id": "crest-q-running",
+        }
+    )
+
+    events = runtime._stage_transition_event_payloads(
+        previous_summary=previous_summary,
+        current_summary=current_summary,
+        workflow_id="wf_stage_running",
+        template_name="reaction_ts_search",
+        worker_session_id="session-running",
+    )
+
+    assert [item["event_type"] for item in events] == ["workflow_stage_status_changed"]
+    assert events[0]["stage_status"] == "running"
+    assert events[0]["previous_stage_status"] == "queued"
+
+
 @pytest.mark.parametrize(
     "error",
     [

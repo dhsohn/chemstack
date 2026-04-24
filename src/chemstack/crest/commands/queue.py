@@ -34,6 +34,7 @@ from ..notifications import notify_job_finished, notify_job_started
 from ..runner import finalize_crest_job, start_crest_job
 from ..worker_execution import (
     WorkerExecutionDependencies,
+    _mark_recovery_pending_entry,
     _molecule_key,
     _resource_caps,
     _terminate_process,
@@ -311,6 +312,7 @@ class QueueWorker:
                     mark_cancelled(queue_root, entry.queue_id, error="cancel_requested")
                 else:
                     requeue_running_entry(queue_root, entry.queue_id)
+                    _mark_recovery_pending_entry(self.cfg, entry, reason="crashed_recovery")
 
     def _fill_slots(self) -> None:
         while len(self._running) < self.max_concurrent:
@@ -396,6 +398,7 @@ class QueueWorker:
                     mark_cancelled(job.queue_root, current.queue_id, error="cancel_requested")
                 else:
                     requeue_running_entry(job.queue_root, current.queue_id)
+                    _mark_recovery_pending_entry(self.cfg, job.entry, reason="worker_shutdown")
             elif getattr(current, "cancel_requested", False):
                 mark_cancelled(job.queue_root, current.queue_id, error="cancel_requested")
             else:

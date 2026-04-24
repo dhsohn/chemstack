@@ -13,6 +13,24 @@ from chemstack.core.app_ids import (
 
 from .contracts import WorkflowArtifactRef, WorkflowPlan, WorkflowStage, WorkflowTask, WorkflowTemplateRequest
 
+_REACTION_TS_SEARCH_CREST_MANIFEST_DEFAULTS: dict[str, Any] = {"rthr": 0.3}
+
+
+def _merge_manifest_defaults(
+    defaults: dict[str, Any],
+    overrides: dict[str, Any] | None,
+) -> dict[str, Any]:
+    merged = dict(defaults)
+    for raw_key, value in dict(overrides or {}).items():
+        key = str(raw_key).strip()
+        if not key:
+            continue
+        if value is None or (isinstance(value, str) and not value.strip()):
+            merged.pop(key, None)
+            continue
+        merged[key] = value
+    return merged
+
 
 def new_crest_stage_impl(
     *,
@@ -220,6 +238,7 @@ def create_reaction_ts_search_workflow_impl(
     reactant_xyz: str,
     product_xyz: str,
     workflow_root: str | Path,
+    workflow_id: str | None = None,
     crest_mode: str = "standard",
     priority: int = 10,
     max_cores: int = 8,
@@ -243,9 +262,13 @@ def create_reaction_ts_search_workflow_impl(
     write_workflow_payload_fn: Callable[[Path, dict[str, Any]], None],
     sync_workflow_registry_fn: Callable[[Path, Path, dict[str, Any]], None],
 ) -> dict[str, Any]:
-    workflow_id = workflow_id_factory("wf_reaction_ts")
+    workflow_id = str(workflow_id or "").strip() or workflow_id_factory("wf_reaction_ts")
     workflow_root_path = Path(workflow_root).expanduser().resolve()
     workspace_dir = workflow_root_path / workflow_id
+    resolved_crest_job_manifest = _merge_manifest_defaults(
+        _REACTION_TS_SEARCH_CREST_MANIFEST_DEFAULTS,
+        crest_job_manifest,
+    )
     reactant_sequence = load_xyz_atom_sequence_fn(reactant_xyz)
     product_sequence = load_xyz_atom_sequence_fn(product_xyz)
     if reactant_sequence != product_sequence:
@@ -267,7 +290,7 @@ def create_reaction_ts_search_workflow_impl(
             priority=priority,
             max_cores=max_cores,
             max_memory_gb=max_memory_gb,
-            manifest_overrides=crest_job_manifest,
+            manifest_overrides=resolved_crest_job_manifest,
         ),
         new_crest_stage_fn(
             workflow_id=workflow_id,
@@ -279,7 +302,7 @@ def create_reaction_ts_search_workflow_impl(
             priority=priority,
             max_cores=max_cores,
             max_memory_gb=max_memory_gb,
-            manifest_overrides=crest_job_manifest,
+            manifest_overrides=resolved_crest_job_manifest,
         ),
     ]
     resolved_source_job_type = source_job_type or "raw_xyz"
@@ -304,7 +327,7 @@ def create_reaction_ts_search_workflow_impl(
             "orca_route_line": str(orca_route_line),
             "charge": int(charge),
             "multiplicity": int(multiplicity),
-            **({"crest_job_manifest": dict(crest_job_manifest)} if crest_job_manifest else {}),
+            **({"crest_job_manifest": dict(resolved_crest_job_manifest)} if resolved_crest_job_manifest else {}),
             **({"xtb_job_manifest": dict(xtb_job_manifest)} if xtb_job_manifest else {}),
         },
         source_artifacts=(
@@ -332,6 +355,7 @@ def create_conformer_screening_workflow_impl(
     *,
     input_xyz: str,
     workflow_root: str | Path,
+    workflow_id: str | None = None,
     crest_mode: str = "standard",
     priority: int = 10,
     max_cores: int = 8,
@@ -348,7 +372,7 @@ def create_conformer_screening_workflow_impl(
     write_workflow_payload_fn: Callable[[Path, dict[str, Any]], None],
     sync_workflow_registry_fn: Callable[[Path, Path, dict[str, Any]], None],
 ) -> dict[str, Any]:
-    workflow_id = workflow_id_factory("wf_conformer_screening")
+    workflow_id = str(workflow_id or "").strip() or workflow_id_factory("wf_conformer_screening")
     workflow_root_path = Path(workflow_root).expanduser().resolve()
     workspace_dir = workflow_root_path / workflow_id
     copied_input = copy_input_fn(input_xyz, workspace_dir / "inputs" / Path(input_xyz).name)

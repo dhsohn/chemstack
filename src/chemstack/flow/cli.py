@@ -228,6 +228,39 @@ def _resolve_required_workflow_root(args: Any, manifest: dict[str, Any]) -> str:
     return resolved_workflow_root
 
 
+def _safe_workflow_name(value: Any, *, fallback: str) -> str:
+    cleaned = "".join(ch if ch.isalnum() or ch in {"_", "-", "."} else "_" for ch in _normalize_text(value))
+    cleaned = cleaned.strip("._-").lower()
+    return cleaned or fallback
+
+
+def _preferred_run_dir_workflow_id(workflow_dir: Path, *, workflow_type: str) -> str:
+    stem = _safe_workflow_name(workflow_dir.name, fallback="workflow")
+    prefix = "wf_reaction_ts" if workflow_type == "reaction_ts_search" else "wf_conformer_screening"
+    if stem.startswith(prefix):
+        return stem
+    return f"{prefix}_{stem}"
+
+
+def _unique_run_dir_workflow_id(
+    workflow_dir: Path,
+    *,
+    workflow_root: str | Path,
+    workflow_type: str,
+) -> str:
+    workflow_root_path = Path(workflow_root).expanduser().resolve()
+    if workflow_dir.parent == workflow_root_path and not (workflow_dir / "workflow.json").exists():
+        return workflow_dir.name
+
+    preferred = _preferred_run_dir_workflow_id(workflow_dir, workflow_type=workflow_type)
+    candidate = preferred
+    suffix = 2
+    while (workflow_root_path / candidate).exists():
+        candidate = f"{preferred}_{suffix:02d}"
+        suffix += 1
+    return candidate
+
+
 def _resolve_run_dir_common_workflow_kwargs(
     args: Any,
     manifest: dict[str, Any],
@@ -360,9 +393,15 @@ def cmd_run_dir(args: Any) -> int:
                     "reaction_ts_search requires both reactant.xyz and product.xyz "
                     "(or manifest/CLI overrides)."
                 )
+            workflow_root = _resolve_required_workflow_root(args, manifest)
             reaction_kwargs: dict[str, Any] = {
                 "reactant_xyz": reactant_xyz,
                 "product_xyz": product_xyz,
+                "workflow_id": _unique_run_dir_workflow_id(
+                    workflow_dir,
+                    workflow_root=workflow_root,
+                    workflow_type=workflow_type,
+                ),
                 **_resolve_run_dir_common_workflow_kwargs(
                     args,
                     manifest,
@@ -389,8 +428,14 @@ def cmd_run_dir(args: Any) -> int:
                 raise ValueError(
                     "conformer_screening requires input.xyz (or manifest/CLI override)."
                 )
+            workflow_root = _resolve_required_workflow_root(args, manifest)
             conformer_kwargs: dict[str, Any] = {
                 "input_xyz": input_xyz,
+                "workflow_id": _unique_run_dir_workflow_id(
+                    workflow_dir,
+                    workflow_root=workflow_root,
+                    workflow_type=workflow_type,
+                ),
                 **_resolve_run_dir_common_workflow_kwargs(
                     args,
                     manifest,

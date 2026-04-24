@@ -111,6 +111,8 @@ def _stage_status_event_type(
         return ""
     if current_status == "queued":
         return "workflow_stage_submitted"
+    if current_status in {"submitted", "running"}:
+        return "workflow_stage_status_changed"
     if suppress_terminal_event:
         return ""
     if current_status == "completed":

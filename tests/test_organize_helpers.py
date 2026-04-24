@@ -175,6 +175,30 @@ class TestOrganizeHelpers(unittest.TestCase):
         self.assertEqual(result["action"], "skipped")
         self.assertEqual(result["reason"], "already_organized")
 
+    @patch("chemstack.orca.commands.organize._resolve_organize_scope")
+    def test_organize_reaction_dir_uses_workflow_local_organized_root(
+        self,
+        mock_scope: unittest.mock.MagicMock,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            workflow_root = root / "workflow_root"
+            reaction_dir = workflow_root / "wf_local" / "internal" / "orca" / "runs" / "stage_02_orca" / "job_01" / "reaction_dir"
+            expected_organized_root = workflow_root / "wf_local" / "internal" / "orca" / "outputs"
+            cfg = AppConfig(
+                runtime=RuntimeConfig(allowed_root=str(root / "runs"), organized_root=str(root / "organized")),
+                workflow_root=str(workflow_root),
+                paths=PathsConfig(orca_executable="/usr/bin/true"),
+            )
+            mock_scope.return_value = ([], [])
+
+            organize_reaction_dir(cfg, reaction_dir, notify_summary=False)
+
+        self.assertEqual(
+            mock_scope.call_args.kwargs["organized_root"],
+            expected_organized_root.resolve(),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

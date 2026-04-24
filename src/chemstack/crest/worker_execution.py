@@ -27,7 +27,15 @@ from .config import load_config
 from .job_locations import upsert_job_record
 from .notifications import notify_job_finished, notify_job_started
 from .runner import CrestRunResult, finalize_crest_job, start_crest_job
-from .state import write_report_json, write_report_md_lines, write_state
+from .state import (
+    is_recovery_pending,
+    load_state,
+    mark_recovery_pending,
+    state_matches_job,
+    write_report_json,
+    write_report_md_lines,
+    write_state,
+)
 
 CANCEL_CHECK_INTERVAL_SECONDS = 1
 
@@ -105,6 +113,10 @@ def default_worker_execution_dependencies() -> WorkerExecutionDependencies:
     )
 
 
+def _coerce_mapping(value: Any) -> dict[str, Any]:
+    return dict(value) if isinstance(value, dict) else {}
+
+
 def build_worker_child_command(
     *,
     config_path: str,
@@ -132,7 +144,20 @@ def build_worker_child_command(
 
 
 def _build_state_payload(entry: Any, result: CrestRunResult) -> dict[str, Any]:
-    return {
+    job_dir_text = str(entry.metadata.get("job_dir", "")).strip()
+    job_dir = Path(job_dir_text).expanduser().resolve() if job_dir_text else None
+    previous_state = {}
+    if job_dir is not None:
+        state = load_state(job_dir) or {}
+        if state_matches_job(
+            state,
+            selected_input_xyz=result.selected_input_xyz,
+            mode=result.mode,
+            molecule_key=str(entry.metadata.get("molecule_key", "")).strip(),
+        ):
+            previous_state = state
+    recovery_reason = str(previous_state.get("recovery_reason") or previous_state.get("reason") or "").strip()
+    payload = {
         "job_id": entry.task_id,
         "job_dir": str(entry.metadata.get("job_dir", "")).strip(),
         "selected_input_xyz": result.selected_input_xyz,
@@ -147,11 +172,31 @@ def _build_state_payload(entry: Any, result: CrestRunResult) -> dict[str, Any]:
         "manifest_path": result.manifest_path,
         "resource_request": dict(result.resource_request),
         "resource_actual": dict(result.resource_actual),
+        "created_at": str(previous_state.get("created_at", "")).strip(),
+        "recovery_pending": False,
+        "recovery_count": int(previous_state.get("recovery_count", 0) or 0),
+        "resumed": bool(previous_state.get("resumed", False)),
     }
+    if recovery_reason:
+        payload["recovery_reason"] = recovery_reason
+    return payload
 
 
 def _build_report_payload(entry: Any, result: CrestRunResult) -> dict[str, Any]:
-    return {
+    job_dir_text = str(entry.metadata.get("job_dir", "")).strip()
+    job_dir = Path(job_dir_text).expanduser().resolve() if job_dir_text else None
+    previous_state = {}
+    if job_dir is not None:
+        state = load_state(job_dir) or {}
+        if state_matches_job(
+            state,
+            selected_input_xyz=result.selected_input_xyz,
+            mode=result.mode,
+            molecule_key=str(entry.metadata.get("molecule_key", "")).strip(),
+        ):
+            previous_state = state
+    recovery_reason = str(previous_state.get("recovery_reason") or previous_state.get("reason") or "").strip()
+    payload = {
         "job_id": entry.task_id,
         "queue_id": entry.queue_id,
         "status": result.status,
@@ -170,7 +215,13 @@ def _build_report_payload(entry: Any, result: CrestRunResult) -> dict[str, Any]:
         "manifest_path": result.manifest_path,
         "resource_request": dict(result.resource_request),
         "resource_actual": dict(result.resource_actual),
+        "created_at": str(previous_state.get("created_at", "")).strip(),
+        "recovery_count": int(previous_state.get("recovery_count", 0) or 0),
+        "resumed": bool(previous_state.get("resumed", False)),
     }
+    if recovery_reason:
+        payload["recovery_reason"] = recovery_reason
+    return payload
 
 
 def _write_execution_artifacts(entry: Any, result: CrestRunResult) -> None:
@@ -211,6 +262,19 @@ def _write_running_state(cfg: Any, entry: Any) -> None:
         return
     job_dir = Path(job_dir_text).expanduser().resolve()
     resource_request = _entry_resource_request(cfg, entry)
+    previous_state = load_state(job_dir) or {}
+    resumed = False
+    recovery_reason = ""
+    if state_matches_job(
+        previous_state,
+        selected_input_xyz=str(entry.metadata.get("selected_input_xyz", "")).strip(),
+        mode=str(entry.metadata.get("mode", "standard")).strip(),
+        molecule_key=str(entry.metadata.get("molecule_key", "")).strip(),
+    ):
+        resumed = is_recovery_pending(previous_state) or str(previous_state.get("status", "")).strip().lower() == "running"
+        recovery_reason = str(previous_state.get("recovery_reason") or previous_state.get("reason") or "").strip()
+    started_at = entry.started_at or depsafe_now_utc_iso()
+    updated_at = depsafe_now_utc_iso()
     write_state(
         job_dir,
         {
@@ -220,11 +284,16 @@ def _write_running_state(cfg: Any, entry: Any) -> None:
             "molecule_key": str(entry.metadata.get("molecule_key", "")).strip(),
             "mode": str(entry.metadata.get("mode", "standard")).strip(),
             "status": "running",
-            "reason": "",
-            "started_at": entry.started_at or depsafe_now_utc_iso(),
-            "updated_at": depsafe_now_utc_iso(),
+            "reason": recovery_reason if resumed else "",
+            "started_at": started_at,
+            "updated_at": updated_at,
             "resource_request": resource_request,
             "resource_actual": dict(resource_request),
+            "created_at": str(previous_state.get("created_at", "")).strip() or started_at,
+            "recovery_pending": False,
+            "recovery_count": int(previous_state.get("recovery_count", 0) or 0),
+            "resumed": resumed,
+            **({"recovery_reason": recovery_reason} if recovery_reason else {}),
         },
     )
 
@@ -317,6 +386,40 @@ def _build_execution_context(
         mode=str(entry.metadata.get("mode", "standard")),
         resource_request=_entry_resource_request(cfg, entry),
     )
+
+
+def _mark_recovery_pending_context(cfg: Any, context: ExecutionContext, *, reason: str) -> None:
+    mark_recovery_pending(
+        context.job_dir,
+        job_id=str(context.entry.task_id),
+        selected_input_xyz=str(context.selected_xyz),
+        mode=context.mode,
+        molecule_key=context.molecule_key,
+        resource_request=context.resource_request,
+        resource_actual=context.resource_request,
+        reason=reason,
+    )
+    upsert_job_record(
+        cfg,
+        job_id=context.entry.task_id,
+        status="pending",
+        job_dir=context.job_dir,
+        mode=context.mode,
+        selected_input_xyz=str(context.selected_xyz),
+        molecule_key=context.molecule_key,
+        resource_request=context.resource_request,
+        resource_actual=dict(context.resource_request),
+    )
+
+
+def _mark_recovery_pending_entry(cfg: Any, entry: Any, *, reason: str) -> None:
+    context = _build_execution_context(
+        cfg,
+        entry,
+        resource_caps=_resource_caps,
+        molecule_key_resolver=_molecule_key,
+    )
+    _mark_recovery_pending_context(cfg, context, reason=reason)
 
 
 def _mark_queue_terminal(
@@ -481,14 +584,6 @@ def process_dequeued_entry(
 
             if shutdown_requested is not None and shutdown_requested():
                 dependencies.terminate_process(running.process)
-                try:
-                    dependencies.finalize_crest_job(
-                        running,
-                        forced_status="failed",
-                        forced_reason="worker_shutdown",
-                    )
-                except Exception:
-                    pass
                 raise WorkerShutdownRequested(context)
 
             time.sleep(CANCEL_CHECK_INTERVAL_SECONDS)
@@ -610,19 +705,7 @@ def run_worker_child_job(
         return 0
     except WorkerShutdownRequested as exc:
         requeue_running_entry(queue_root_path, queue_id)
-        task_id = str(exc.context.entry.task_id).strip()
-        if task_id:
-            upsert_job_record(
-                cfg,
-                job_id=task_id,
-                status="pending",
-                job_dir=exc.context.job_dir,
-                mode=exc.context.mode,
-                selected_input_xyz=str(exc.context.selected_xyz),
-                molecule_key=exc.context.molecule_key,
-                resource_request=exc.context.resource_request,
-                resource_actual=dict(exc.context.resource_request),
-            )
+        _mark_recovery_pending_context(cfg, exc.context, reason="worker_shutdown")
         return 0
     finally:
         if admission_token:

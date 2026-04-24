@@ -6,6 +6,7 @@ from typing import Any
 from chemstack.core.app_ids import (
     CHEMSTACK_CLI_MODULE,
     CHEMSTACK_EXECUTABLE,
+    CHEMSTACK_ORCA_INTERNAL_MODULE,
     ORCA_SUBMITTERS,
 )
 from chemstack.core.utils import now_utc_iso
@@ -13,6 +14,9 @@ from chemstack.core.utils import now_utc_iso
 from ..registry import sync_workflow_registry
 from ..state import load_workflow_payload, resolve_workflow_workspace, write_workflow_payload
 from .common import normalize_text as _normalize_text, parse_key_value_lines as _parse_key_value_lines, run_sibling_app
+
+_SUBMIT_MODULE_NAME = CHEMSTACK_CLI_MODULE
+_CANCEL_MODULE_NAME = CHEMSTACK_ORCA_INTERNAL_MODULE
 
 
 def _mapping_payload(value: Any) -> dict[str, Any]:
@@ -72,7 +76,7 @@ def submit_reaction_dir(
         executable=_normalize_text(executable) or CHEMSTACK_EXECUTABLE,
         config_path=_normalize_text(config_path),
         repo_root=_normalize_text(repo_root) or None,
-        module_name=CHEMSTACK_CLI_MODULE,
+        module_name=_SUBMIT_MODULE_NAME,
         tail_argv=_submission_tail_argv(
             reaction_dir=reaction_dir,
             priority=priority,
@@ -106,7 +110,7 @@ def cancel_target(
         executable=_normalize_text(executable) or CHEMSTACK_EXECUTABLE,
         config_path=_normalize_text(config_path),
         repo_root=_normalize_text(repo_root) or None,
-        module_name=CHEMSTACK_CLI_MODULE,
+        module_name=_CANCEL_MODULE_NAME,
         tail_argv=_cancel_tail_argv(target=target),
     )
     argv = list(result.args) if isinstance(result.args, (list, tuple)) else [str(result.args)]

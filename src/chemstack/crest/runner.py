@@ -109,6 +109,21 @@ def _manifest_int(manifest: dict[str, Any], key: str) -> int | None:
     raise ValueError(f"Manifest field {key!r} must be an integer-compatible value.")
 
 
+def _manifest_scalar_text(manifest: dict[str, Any], key: str) -> str | None:
+    value = manifest.get(key)
+    if value is None:
+        return None
+    if isinstance(value, str):
+        stripped = value.strip()
+        return stripped or None
+    if isinstance(value, bool):
+        return "true" if value else None
+    if isinstance(value, (int, float)):
+        return str(value)
+    text = str(value).strip()
+    return text or None
+
+
 def _build_command(
     cfg: AppConfig,
     *,
@@ -163,6 +178,20 @@ def _build_command(
     solvent = str(manifest.get("solvent", "")).strip()
     if solvent and solvent_model in {"gbsa", "alpb"}:
         command.extend([f"--{solvent_model}", solvent])
+
+    for manifest_key, option in (
+        ("rthr", "--rthr"),
+        ("ewin", "--ewin"),
+        ("ethr", "--ethr"),
+        ("bthr", "--bthr"),
+        ("cluster", "--cluster"),
+    ):
+        value = _manifest_scalar_text(manifest, manifest_key)
+        if value:
+            command.extend([option, value])
+
+    if _bool_flag(manifest, "esort"):
+        command.append("--esort")
 
     scratch_dir = job_dir / ".crest_scratch"
     command.extend(["--scratch", str(scratch_dir)])

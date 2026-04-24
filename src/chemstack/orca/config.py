@@ -7,7 +7,11 @@ from typing import Any, Dict
 
 import yaml
 
-from chemstack.core.config.files import default_shared_admission_root, engine_config_mapping
+from chemstack.core.config.files import (
+    default_shared_admission_root,
+    engine_config_mapping,
+    workflow_root_from_mapping,
+)
 
 from .config_validation import (
     _as_int,
@@ -168,6 +172,7 @@ class TelegramConfig:
 @dataclass
 class AppConfig:
     runtime: CommonRuntimeConfig = field(default_factory=CommonRuntimeConfig)
+    workflow_root: str = ""
     paths: PathsConfig = field(default_factory=PathsConfig)
     behavior: BehaviorConfig = field(default_factory=BehaviorConfig)
     resources: CommonResourceConfig = field(default_factory=CommonResourceConfig)
@@ -185,6 +190,7 @@ def load_config(config_path: str) -> AppConfig:
     else:
         raise _missing_config_error(path)
 
+    workflow_root = _as_str(workflow_root_from_mapping(raw), "")
     raw = engine_config_mapping(raw, "orca", inherit_keys=("behavior", "resources", "telegram", "scheduler"))
     scheduler_raw = raw.get("scheduler", {}) if isinstance(raw.get("scheduler", {}), dict) else {}
     runtime_raw = raw.get("runtime", {}) if isinstance(raw.get("runtime", {}), dict) else {}
@@ -248,6 +254,7 @@ def load_config(config_path: str) -> AppConfig:
             admission_root=admission_root,
             admission_limit=admission_limit,
         ),
+        workflow_root=workflow_root,
         paths=PathsConfig(
             orca_executable=orca_executable,
         ),

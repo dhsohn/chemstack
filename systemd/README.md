@@ -38,13 +38,13 @@ sudo cp systemd/chemstack-queue-worker@.service /etc/systemd/system/
 sudo cp systemd/chemstack-bot@.service /etc/systemd/system/
 sudo cp systemd/chemstack-runtime@.target /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable --now "chemstack-runtime@$(whoami)"
+sudo systemctl enable --now "chemstack-runtime@$(whoami).target"
 ```
 
 Monitor the combined runtime target:
 
 ```bash
-systemctl status "chemstack-runtime@$(whoami)"
+systemctl status "chemstack-runtime@$(whoami).target"
 systemctl status "chemstack-queue-worker@$(whoami)"
 systemctl status "chemstack-bot@$(whoami)"
 journalctl -u "chemstack-queue-worker@$(whoami)" -f
@@ -54,8 +54,8 @@ journalctl -u "chemstack-bot@$(whoami)" -f
 Maintain the combined runtime target:
 
 ```bash
-sudo systemctl restart "chemstack-runtime@$(whoami)"
-sudo systemctl stop "chemstack-runtime@$(whoami)"
+sudo systemctl restart "chemstack-runtime@$(whoami).target"
+sudo systemctl stop "chemstack-runtime@$(whoami).target"
 ```
 
 ## Engine queue workers

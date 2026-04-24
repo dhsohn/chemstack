@@ -173,6 +173,57 @@ def _send_message(token: str, chat_id: str, text: str, *, parse_mode: str | None
     return _api_call(token, "sendMessage", payload) is not None
 
 
+def _message_chunks(text: str, *, limit: int = _MAX_MESSAGE_LENGTH) -> list[str]:
+    if limit <= 0:
+        raise ValueError("message chunk limit must be positive")
+
+    if len(text) <= limit:
+        return [text]
+
+    chunks: list[str] = []
+    current = ""
+    for line in text.splitlines(keepends=True):
+        if len(line) > limit:
+            if current:
+                chunks.append(current.rstrip("\n"))
+                current = ""
+            remaining = line
+            while remaining:
+                piece = remaining[:limit]
+                chunks.append(piece.rstrip("\n"))
+                remaining = remaining[len(piece) :]
+            continue
+        if current and len(current) + len(line) > limit:
+            chunks.append(current.rstrip("\n"))
+            current = line
+            continue
+        current += line
+
+    if current:
+        chunks.append(current.rstrip("\n"))
+    return [chunk for chunk in chunks if chunk]
+
+
+def _send_response(
+    token: str,
+    chat_id: str,
+    text: str,
+    *,
+    parse_mode: str | None = "HTML",
+    limit: int = _MAX_MESSAGE_LENGTH,
+) -> bool:
+    sent_any = False
+    for chunk in _message_chunks(text, limit=limit):
+        if _send_message(token, chat_id, chunk, parse_mode=parse_mode):
+            sent_any = True
+            continue
+        if parse_mode and _send_message(token, chat_id, chunk, parse_mode=None):
+            sent_any = True
+            continue
+        return False
+    return sent_any
+
+
 def _activity_payload(settings: TelegramBotSettings) -> dict[str, Any]:
     return list_activities(
         workflow_root=settings.workflow_root,
@@ -389,7 +440,7 @@ def run_bot(settings: TelegramBotSettings | None = None) -> int:
                     except Exception as exc:
                         logger.exception("telegram_bot_handler_error: cmd=%s", command)
                         response = f"Error: {escape_html(str(exc))}"
-                _send_message(resolved.telegram.bot_token, resolved.telegram.chat_id, response)
+                _send_response(resolved.telegram.bot_token, resolved.telegram.chat_id, response)
         except KeyboardInterrupt:
             logger.info("chem_flow Telegram bot stopped")
             return 0

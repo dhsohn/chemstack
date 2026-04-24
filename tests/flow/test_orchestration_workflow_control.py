@@ -16,6 +16,21 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 from chemstack.flow import orchestration
 
 
+def _write_xyz_ensemble(path: Path, comments: tuple[str, ...]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lines: list[str] = []
+    for comment in comments:
+        lines.extend(
+            [
+                "2",
+                comment,
+                "H 0 0 0",
+                "H 0 0 0.74",
+            ]
+        )
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
 def test_xtb_retry_helpers_and_job_writer_materialize_attempt_files(tmp_path: Path) -> None:
     reactant_xyz = tmp_path / "inputs" / "reactant.xyz"
     product_xyz = tmp_path / "inputs" / "product.xyz"
@@ -75,6 +90,54 @@ def test_xtb_retry_helpers_and_job_writer_materialize_attempt_files(tmp_path: Pa
 
     metadata["xtb_active_attempt_number"] = 4
     assert orchestration._xtb_current_attempt_number(stage) == 4
+
+
+def test_xtb_job_writer_materializes_ranked_multiframe_inputs(tmp_path: Path) -> None:
+    reactant_xyz = tmp_path / "inputs" / "crest_reactant_conformers.xyz"
+    product_xyz = tmp_path / "inputs" / "crest_product_conformers.xyz"
+    _write_xyz_ensemble(reactant_xyz, ("energy: -3.0", "energy: -2.5", "energy: -2.2"))
+    _write_xyz_ensemble(product_xyz, ("energy: -1.0", "energy: -0.8", "energy: -0.6"))
+
+    stage: dict[str, Any] = {
+        "stage_id": "xtb_path_search_02",
+        "metadata": {},
+        "task": {
+            "resource_request": {"max_cores": 8, "max_memory_gb": 24},
+            "payload": {
+                "reaction_key": "rxn_ranked",
+                "reactant_source": {
+                    "artifact_path": str(reactant_xyz),
+                    "rank": 2,
+                    "metadata": {"source_frame_index": 2},
+                },
+                "product_source": {
+                    "artifact_path": str(product_xyz),
+                    "rank": 3,
+                    "metadata": {"source_frame_index": 3},
+                },
+            },
+            "enqueue_payload": {},
+        },
+    }
+
+    job_dir = orchestration._write_xtb_path_job(
+        stage,
+        xtb_allowed_root=tmp_path / "xtb_ranked",
+        workflow_id="wf_ranked",
+        attempt_number=0,
+    )
+
+    job_path = Path(job_dir)
+    reactant_target = job_path / "reactants" / "r2.xyz"
+    product_target = job_path / "products" / "p3.xyz"
+    manifest = yaml.safe_load((job_path / "xtb_job.yaml").read_text(encoding="utf-8"))
+
+    assert reactant_target.exists()
+    assert product_target.exists()
+    assert reactant_target.read_text(encoding="utf-8").splitlines()[1] == "energy: -2.5"
+    assert product_target.read_text(encoding="utf-8").splitlines()[1] == "energy: -0.6"
+    assert manifest["reactant_xyz"] == "r2.xyz"
+    assert manifest["product_xyz"] == "p3.xyz"
 
 
 def test_job_dir_writers_apply_manifest_overrides(tmp_path: Path) -> None:
@@ -262,8 +325,80 @@ def test_advance_workflow_reaction_ts_search_runs_append_sequence_and_sets_child
         ("orca", "orca_stage_01"),
     ]
     assert {entry[2] for entry in calls if entry[0] in {"crest", "xtb", "orca"}} == {True}
-    assert written and written[0]["metadata"]["final_child_sync_pending"] is True
-    assert synced and synced[0]["metadata"]["sync_only"] is False
+    assert written and written[-1]["metadata"]["final_child_sync_pending"] is True
+    assert synced and synced[-1]["metadata"]["sync_only"] is False
+
+
+def test_advance_workflow_checkpoints_completed_crest_before_xtb_materialization(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payload: dict[str, Any] = {
+        "workflow_id": "wf_reaction_checkpoint",
+        "template_name": "reaction_ts_search",
+        "status": "planned",
+        "stages": [
+            {
+                "stage_id": "crest_reactant_01",
+                "status": "running",
+                "task": {"engine": "crest", "status": "running"},
+                "metadata": {"input_role": "reactant"},
+            },
+            {
+                "stage_id": "crest_product_01",
+                "status": "running",
+                "task": {"engine": "crest", "status": "running"},
+                "metadata": {"input_role": "product"},
+            },
+        ],
+        "metadata": {},
+    }
+    writes: list[dict[str, Any]] = []
+
+    monkeypatch.setattr(orchestration, "resolve_workflow_workspace", lambda target, workflow_root: tmp_path / "workspace")
+    monkeypatch.setattr(orchestration, "acquire_workflow_lock", lambda workspace_dir: nullcontext())
+    monkeypatch.setattr(orchestration, "load_workflow_payload", lambda workspace_dir: payload)
+    monkeypatch.setattr(orchestration, "now_utc_iso", lambda: "2026-04-24T06:00:00+00:00")
+
+    def fake_sync_crest_stage(stage: dict[str, Any], **kwargs: object) -> None:
+        stage["status"] = "completed"
+        cast(dict[str, Any], stage["task"])["status"] = "completed"
+
+    def fake_append_reaction_xtb_stages(current_payload: dict[str, Any], **kwargs: object) -> bool:
+        cast(list[dict[str, Any]], current_payload.setdefault("stages", [])).append(
+            {
+                "stage_id": "xtb_path_search_01",
+                "status": "planned",
+                "task": {"engine": "xtb", "status": "planned"},
+                "metadata": {},
+            }
+        )
+        return True
+
+    monkeypatch.setattr(orchestration, "_sync_crest_stage", fake_sync_crest_stage)
+    monkeypatch.setattr(orchestration, "_append_reaction_xtb_stages", fake_append_reaction_xtb_stages)
+    monkeypatch.setattr(orchestration, "_sync_xtb_stage", lambda stage, **kwargs: None)
+    monkeypatch.setattr(orchestration, "_clear_reaction_xtb_handoff_error_if_recovering", lambda current_payload: None)
+    monkeypatch.setattr(orchestration, "_append_reaction_orca_stages", lambda current_payload, **kwargs: False)
+    monkeypatch.setattr(orchestration, "_sync_orca_stage", lambda stage, **kwargs: None)
+    monkeypatch.setattr(orchestration, "_recompute_workflow_status", lambda current_payload: "running")
+    monkeypatch.setattr(orchestration, "_workflow_has_active_children", lambda current_payload: False)
+    monkeypatch.setattr(orchestration, "write_workflow_payload", lambda workspace_dir, current_payload: writes.append(deepcopy(current_payload)))
+    monkeypatch.setattr(orchestration, "sync_workflow_registry", lambda workflow_root, workspace_dir, current_payload: None)
+
+    orchestration.advance_workflow(
+        target="wf_reaction_checkpoint",
+        workflow_root=tmp_path,
+        submit_ready=True,
+    )
+
+    assert len(writes) >= 3
+    first_stage_ids = [stage["stage_id"] for stage in writes[0]["stages"]]
+    second_stage_ids = [stage["stage_id"] for stage in writes[1]["stages"]]
+    assert first_stage_ids == ["crest_reactant_01", "crest_product_01"]
+    assert all(stage["status"] == "completed" for stage in writes[0]["stages"])
+    assert second_stage_ids == ["crest_reactant_01", "crest_product_01", "xtb_path_search_01"]
+    assert writes[-1]["metadata"]["last_advanced_at"] == "2026-04-24T06:00:00+00:00"
 
 
 def test_advance_workflow_reaction_ts_search_queues_orca_without_waiting_for_all_xtb_children(
@@ -409,6 +544,81 @@ def test_advance_workflow_conformer_screening_queues_twenty_orca_children_after_
     assert len(synced_orca_stage_ids) == 20
     assert synced_orca_stage_ids[0] == "orca_conformer_01"
     assert synced_orca_stage_ids[-1] == "orca_conformer_20"
+
+
+def test_advance_workflow_auto_cancels_active_siblings_after_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payload: dict[str, Any] = {
+        "workflow_id": "wf_failed_cancel",
+        "template_name": "reaction_ts_search",
+        "status": "running",
+        "stages": [
+            {
+                "stage_id": "crest_product",
+                "status": "failed",
+                "task": {"engine": "crest", "status": "failed"},
+                "metadata": {},
+            },
+            {
+                "stage_id": "crest_reactant",
+                "status": "running",
+                "task": {"engine": "crest", "status": "running"},
+                "metadata": {"queue_id": "q_reactant"},
+            },
+            {
+                "stage_id": "xtb_pending",
+                "status": "planned",
+                "task": {"engine": "xtb", "status": "planned"},
+                "metadata": {},
+            },
+        ],
+        "metadata": {},
+    }
+    crest_cancel_calls: list[dict[str, Any]] = []
+
+    monkeypatch.setattr(orchestration, "resolve_workflow_workspace", lambda target, workflow_root: tmp_path / "workspace")
+    monkeypatch.setattr(orchestration, "acquire_workflow_lock", lambda workspace_dir: nullcontext())
+    monkeypatch.setattr(orchestration, "load_workflow_payload", lambda workspace_dir: payload)
+    monkeypatch.setattr(orchestration, "now_utc_iso", lambda: "2026-04-24T01:00:00+00:00")
+    monkeypatch.setattr(orchestration, "_sync_crest_stage", lambda stage, **kwargs: None)
+    monkeypatch.setattr(orchestration, "_append_reaction_xtb_stages", lambda current_payload, **kwargs: False)
+    monkeypatch.setattr(orchestration, "_sync_xtb_stage", lambda stage, **kwargs: None)
+    monkeypatch.setattr(orchestration, "_clear_reaction_xtb_handoff_error_if_recovering", lambda current_payload: None)
+    monkeypatch.setattr(orchestration, "_append_reaction_orca_stages", lambda current_payload, **kwargs: False)
+    monkeypatch.setattr(orchestration, "_sync_orca_stage", lambda stage, **kwargs: None)
+    monkeypatch.setattr(
+        orchestration,
+        "crest_cancel_target",
+        lambda **kwargs: crest_cancel_calls.append(dict(kwargs)) or {"status": "cancel_requested", "queue_id": kwargs["target"]},
+    )
+    monkeypatch.setattr(orchestration, "write_workflow_payload", lambda workspace_dir, current_payload: None)
+    monkeypatch.setattr(orchestration, "sync_workflow_registry", lambda workflow_root, workspace_dir, current_payload: None)
+
+    result = orchestration.advance_workflow(
+        target="wf_failed_cancel",
+        workflow_root=tmp_path,
+        crest_auto_config="crest.yaml",
+        submit_ready=True,
+    )
+
+    assert result["status"] == "failed"
+    assert crest_cancel_calls == [
+        {
+            "target": "q_reactant",
+            "config_path": "crest.yaml",
+            "executable": "crest_auto",
+            "repo_root": None,
+        }
+    ]
+    assert result["stages"][1]["status"] == "cancel_requested"
+    assert result["stages"][1]["task"]["status"] == "cancel_requested"
+    assert result["stages"][1]["task"]["cancel_result"]["status"] == "cancel_requested"
+    assert result["stages"][2]["status"] == "cancelled"
+    assert result["stages"][2]["task"]["status"] == "cancelled"
+    assert result["metadata"]["final_child_sync_pending"] is True
+    assert result["metadata"]["final_child_sync_completed_at"] == ""
 
 
 def test_cancel_materialized_workflow_mixes_local_remote_and_failed_cancellations(

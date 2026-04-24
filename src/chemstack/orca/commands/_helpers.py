@@ -6,6 +6,8 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List
 
 from chemstack.core.config.files import default_config_path_from_repo_root
+from chemstack.core.paths import validate_job_dir
+from chemstack.flow.state import workflow_workspace_internal_engine_paths_from_path
 
 from ..config import AppConfig
 from ..pathing import is_subpath
@@ -32,10 +34,25 @@ def _to_resolved_local(path_text: str) -> Path:
     return Path(path_text).expanduser().resolve()
 
 
+def _workflow_runtime_paths(cfg: AppConfig, path: Path) -> dict[str, Path] | None:
+    workflow_root = str(getattr(cfg, "workflow_root", "")).strip()
+    if not workflow_root:
+        return None
+    return workflow_workspace_internal_engine_paths_from_path(
+        path,
+        workflow_root=workflow_root,
+        engine="orca",
+    )
+
+
 def _validate_reaction_dir(cfg: AppConfig, reaction_dir_raw: str) -> Path:
     reaction_dir = _to_resolved_local(reaction_dir_raw)
     if not reaction_dir.exists() or not reaction_dir.is_dir():
         raise ValueError(f"Job directory not found: {reaction_dir}")
+
+    runtime_paths = _workflow_runtime_paths(cfg, reaction_dir)
+    if runtime_paths is not None:
+        return validate_job_dir(reaction_dir_raw, str(runtime_paths["allowed_root"]), label="Job directory")
 
     allowed_root = _to_resolved_local(cfg.runtime.allowed_root)
     if not is_subpath(reaction_dir, allowed_root):

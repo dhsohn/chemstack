@@ -263,6 +263,36 @@ def test_handle_help_mentions_only_supported_commands() -> None:
     assert "/cron" not in text
 
 
+def test_send_response_splits_long_messages(monkeypatch) -> None:
+    sent: list[tuple[str, str | None]] = []
+
+    def fake_send(token: str, chat_id: str, text: str, *, parse_mode: str | None = "HTML") -> bool:
+        sent.append((text, parse_mode))
+        return True
+
+    monkeypatch.setattr(bot, "_send_message", fake_send)
+
+    text = "\n".join(f"<code>line-{index}</code> {'x' * 28}" for index in range(8))
+
+    assert bot._send_response("bot-token", "chat-id", text, parse_mode="HTML", limit=80)
+    assert len(sent) > 1
+    assert all(len(chunk) <= 80 for chunk, _mode in sent)
+    assert all(mode == "HTML" for _chunk, mode in sent)
+
+
+def test_send_response_falls_back_to_plain_text_when_html_send_fails(monkeypatch) -> None:
+    sent_modes: list[str | None] = []
+
+    def fake_send(token: str, chat_id: str, text: str, *, parse_mode: str | None = "HTML") -> bool:
+        sent_modes.append(parse_mode)
+        return parse_mode is None
+
+    monkeypatch.setattr(bot, "_send_message", fake_send)
+
+    assert bot._send_response("bot-token", "chat-id", "<b>hello</b>", parse_mode="HTML")
+    assert sent_modes == ["HTML", None]
+
+
 def test_settings_from_env_uses_autodiscovery(monkeypatch) -> None:
     monkeypatch.setenv("CHEM_FLOW_TELEGRAM_BOT_TOKEN", "bot-token")
     monkeypatch.setenv("CHEM_FLOW_TELEGRAM_CHAT_ID", "chat-id")

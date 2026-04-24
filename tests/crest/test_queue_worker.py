@@ -15,7 +15,7 @@ from chemstack.core.queue.types import QueueStatus
 from chemstack.crest.commands import queue as queue_cmd
 from chemstack.crest.config import AppConfig
 from chemstack.crest.runner import CrestRunResult
-from chemstack.crest.state import REPORT_JSON_FILE_NAME, REPORT_MD_FILE_NAME, STATE_FILE_NAME
+from chemstack.crest.state import REPORT_JSON_FILE_NAME, REPORT_MD_FILE_NAME, STATE_FILE_NAME, load_state
 
 
 class FakeProcess:
@@ -474,6 +474,11 @@ def test_queue_worker_shutdown_requeues_running_children(
     assert updated.cancel_requested is False
     assert child.terminate_calls == 1
     assert released == [(worker.admission_root, "slot-1")]
+    state = load_state(job.job_dir)
+    assert state is not None
+    assert state["status"] == "queued"
+    assert state["reason"] == "worker_shutdown"
+    assert state["recovery_pending"] is True
 
 
 def test_queue_worker_reconcile_orphaned_running_requeues_entry_without_live_slot(
@@ -498,6 +503,11 @@ def test_queue_worker_reconcile_orphaned_running_requeues_entry_without_live_slo
     assert live_updated is not None
     assert orphan_updated.status == QueueStatus.PENDING
     assert live_updated.status == QueueStatus.RUNNING
+    state = load_state(orphan_job.job_dir)
+    assert state is not None
+    assert state["status"] == "queued"
+    assert state["reason"] == "crashed_recovery"
+    assert state["recovery_pending"] is True
 
 
 def test_queue_worker_reconcile_orphaned_cancel_requested_marks_cancelled(

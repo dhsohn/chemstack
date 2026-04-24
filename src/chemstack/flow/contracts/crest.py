@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .xtb import WorkflowStageInput, _coerce_resource_dict
+from ..xyz_utils import load_xyz_frames
 
 
 def _normalize_text(value: Any) -> str:
@@ -60,23 +61,57 @@ def to_workflow_stage_inputs(
 ) -> tuple[WorkflowStageInput, ...]:
     active_policy = policy or CrestDownstreamPolicy.build()
     rows: list[WorkflowStageInput] = []
-    for index, path in enumerate(contract.retained_conformer_paths, start=1):
+    next_rank = 1
+    for path in contract.retained_conformer_paths:
         text = _normalize_text(path)
         if not text:
             continue
-        rows.append(
-            WorkflowStageInput(
-                source_job_id=contract.job_id,
-                source_job_type=f"crest_{contract.mode}",
-                reaction_key=contract.molecule_key,
-                selected_input_xyz=contract.selected_input_xyz,
-                rank=index,
-                kind="crest_conformer",
-                artifact_path=text,
-                selected=index == 1,
-                metadata={"mode": contract.mode},
+        frames = load_xyz_frames(text)
+        if len(frames) <= 1:
+            rows.append(
+                WorkflowStageInput(
+                    source_job_id=contract.job_id,
+                    source_job_type=f"crest_{contract.mode}",
+                    reaction_key=contract.molecule_key,
+                    selected_input_xyz=contract.selected_input_xyz,
+                    rank=next_rank,
+                    kind="crest_conformer",
+                    artifact_path=text,
+                    selected=next_rank == 1,
+                    metadata={"mode": contract.mode},
+                )
             )
-        )
+            next_rank += 1
+            if len(rows) >= active_policy.max_candidates:
+                break
+            continue
+
+        frame_count = len(frames)
+        for frame in frames:
+            metadata: dict[str, Any] = {
+                "mode": contract.mode,
+                "source_artifact_path": text,
+                "source_frame_index": frame.index,
+                "source_frame_count": frame_count,
+            }
+            if frame.energy is not None:
+                metadata["source_frame_energy"] = frame.energy
+            rows.append(
+                WorkflowStageInput(
+                    source_job_id=contract.job_id,
+                    source_job_type=f"crest_{contract.mode}",
+                    reaction_key=contract.molecule_key,
+                    selected_input_xyz=contract.selected_input_xyz,
+                    rank=next_rank,
+                    kind="crest_conformer",
+                    artifact_path=text,
+                    selected=next_rank == 1,
+                    metadata=metadata,
+                )
+            )
+            next_rank += 1
+            if len(rows) >= active_policy.max_candidates:
+                break
         if len(rows) >= active_policy.max_candidates:
             break
     return tuple(rows)

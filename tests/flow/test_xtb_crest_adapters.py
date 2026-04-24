@@ -36,6 +36,21 @@ def _write_xyz(path: Path, *, comment: str = "comment") -> None:
     )
 
 
+def _write_xyz_ensemble(path: Path, comments: tuple[str, ...]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lines: list[str] = []
+    for comment in comments:
+        lines.extend(
+            [
+                "2",
+                comment,
+                "H 0.0 0.0 0.0",
+                "H 0.0 0.0 0.74",
+            ]
+        )
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
 def test_load_xtb_artifact_contract_parses_candidate_details_from_direct_path_target(tmp_path: Path) -> None:
     job_dir = tmp_path / "xtb_direct"
     selected_input_xyz = job_dir / "input.xyz"
@@ -248,3 +263,48 @@ def test_load_crest_artifact_contract_and_select_retained_conformers(tmp_path: P
     assert stage_inputs[0].metadata == {"mode": "nci"}
     assert stage_inputs[1].artifact_path == str(conformer_two)
     assert stage_inputs[1].selected is False
+
+
+def test_select_crest_downstream_inputs_splits_multiframe_retained_ensemble(tmp_path: Path) -> None:
+    job_dir = tmp_path / "crest_multiframe"
+    selected_input_xyz = job_dir / "input.xyz"
+    retained_ensemble = job_dir / "crest_conformers.xyz"
+
+    _write_xyz(selected_input_xyz)
+    _write_xyz_ensemble(
+        retained_ensemble,
+        (
+            "energy: -2.0",
+            "energy: -1.7",
+            "energy: -1.4",
+        ),
+    )
+    _write_json(
+        job_dir / "job_report.json",
+        {
+            "job_id": "crest_multiframe_1",
+            "mode": "standard",
+            "status": "completed",
+            "reason": "retained",
+            "molecule_key": "mol-frames",
+            "selected_input_xyz": str(selected_input_xyz),
+            "retained_conformer_paths": [str(retained_ensemble)],
+        },
+    )
+
+    contract = load_crest_artifact_contract(crest_index_root=tmp_path, target=str(job_dir))
+    stage_inputs = select_crest_downstream_inputs(contract, policy=CrestDownstreamPolicy.build(max_candidates=2))
+
+    assert len(stage_inputs) == 2
+    assert [item.rank for item in stage_inputs] == [1, 2]
+    assert all(item.artifact_path == str(retained_ensemble.resolve()) for item in stage_inputs)
+    assert stage_inputs[0].selected is True
+    assert stage_inputs[0].metadata == {
+        "mode": "standard",
+        "source_artifact_path": str(retained_ensemble.resolve()),
+        "source_frame_index": 1,
+        "source_frame_count": 3,
+        "source_frame_energy": -2.0,
+    }
+    assert stage_inputs[1].selected is False
+    assert stage_inputs[1].metadata["source_frame_index"] == 2

@@ -240,7 +240,7 @@ def test_cancel_target_maps_cli_cancel_status(
             returncode=returncode,
             stdout=stdout,
             stderr="cancel stderr",
-            args="python -m chemstack.cli --config /tmp/orca.yaml queue cancel q_123",
+            args="python -m chemstack.orca._internal_cli --config /tmp/orca.yaml queue cancel q_123",
         )
 
     monkeypatch.setattr(orca_auto, "run_sibling_app", fake_run_sibling_app)
@@ -257,7 +257,7 @@ def test_cancel_target_maps_cli_cancel_status(
             "executable": "orca_auto_bin",
             "config_path": "/tmp/orca.yaml",
             "repo_root": "/tmp/orca_repo",
-            "module_name": "chemstack.cli",
+            "module_name": "chemstack.orca._internal_cli",
             "tail_argv": ["queue", "cancel", "q_123"],
         }
     ]
@@ -265,7 +265,7 @@ def test_cancel_target_maps_cli_cancel_status(
     assert result["returncode"] == returncode
     assert result["stdout"] == stdout
     assert result["stderr"] == "cancel stderr"
-    assert result["command_argv"] == ["python -m chemstack.cli --config /tmp/orca.yaml queue cancel q_123"]
+    assert result["command_argv"] == ["python -m chemstack.orca._internal_cli --config /tmp/orca.yaml queue cancel q_123"]
 
 
 def test_submit_reaction_ts_search_workflow_updates_skip_failure_and_submit_branches(

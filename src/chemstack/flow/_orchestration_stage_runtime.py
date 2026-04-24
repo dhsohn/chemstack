@@ -7,6 +7,7 @@ from typing import Any
 import yaml
 
 from .state import workflow_workspace_internal_engine_paths
+from .xyz_utils import load_xyz_frames
 
 
 def _orchestration_module():
@@ -42,6 +43,16 @@ def _workflow_internal_runs_root(path_text: str, *, engine: str) -> Path | None:
         ):
             return candidate
     return None
+
+
+def _workflow_internal_organized_root(path_text: str, *, engine: str) -> Path | None:
+    runs_root = _workflow_internal_runs_root(path_text, engine=engine)
+    if runs_root is None:
+        return None
+    try:
+        return workflow_workspace_internal_engine_paths(runs_root.parents[2], engine=engine)["organized_root"]
+    except (IndexError, ValueError):
+        return None
 
 
 def _manifest_override_mapping(value: Any) -> dict[str, Any]:
@@ -80,6 +91,44 @@ def _materialize_xtb_override_xcontrol(
         return target_name
 
     return ""
+
+
+def _stage_input_mapping(value: Any) -> dict[str, Any]:
+    return dict(value) if isinstance(value, dict) else {}
+
+
+def _stage_input_rank(source: dict[str, Any]) -> int:
+    rank = 1
+    try:
+        rank = int(source.get("rank", 1))
+    except (TypeError, ValueError):
+        rank = 1
+    return max(1, rank)
+
+
+def _materialize_xtb_stage_input(source: dict[str, Any], target: Path) -> str:
+    source_path = Path(str(source.get("artifact_path", "")).strip()).expanduser().resolve()
+    if not source_path.exists() or not source_path.is_file():
+        raise FileNotFoundError(f"xTB workflow input artifact not found: {source_path}")
+
+    metadata = _stage_input_mapping(source.get("metadata"))
+    try:
+        frame_index = int(metadata.get("source_frame_index", 0) or 0)
+    except (TypeError, ValueError):
+        frame_index = 0
+
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if frame_index > 0:
+        frames = load_xyz_frames(source_path)
+        if frame_index > len(frames):
+            raise ValueError(
+                f"Requested CREST frame {frame_index} is unavailable in retained artifact: {source_path}"
+            )
+        target.write_text(frames[frame_index - 1].render(), encoding="utf-8")
+        return str(target.resolve())
+
+    shutil.copy2(source_path, target)
+    return str(target.resolve())
 
 
 def xtb_attempt_rows_impl(stage: dict[str, Any]) -> list[dict[str, Any]]:
@@ -204,10 +253,14 @@ def write_xtb_path_job_impl(
     reactants_dir.mkdir(parents=True, exist_ok=True)
     products_dir.mkdir(parents=True, exist_ok=True)
 
-    reactant_target = reactants_dir / "r1.xyz"
-    product_target = products_dir / "p1.xyz"
-    shutil.copy2(Path(payload["reactant_source"]["artifact_path"]).expanduser().resolve(), reactant_target)
-    shutil.copy2(Path(payload["product_source"]["artifact_path"]).expanduser().resolve(), product_target)
+    reactant_source = _stage_input_mapping(payload.get("reactant_source"))
+    product_source = _stage_input_mapping(payload.get("product_source"))
+    reactant_name = f"r{_stage_input_rank(reactant_source)}.xyz"
+    product_name = f"p{_stage_input_rank(product_source)}.xyz"
+    reactant_target = reactants_dir / reactant_name
+    product_target = products_dir / product_name
+    _materialize_xtb_stage_input(reactant_source, reactant_target)
+    _materialize_xtb_stage_input(product_source, product_target)
 
     xcontrol_name = o._normalize_text(recipe.get("xcontrol_name"))
     if xcontrol_name:
@@ -249,8 +302,8 @@ def write_xtb_path_job_impl(
     selected_xcontrol_name = xcontrol_name or xcontrol_override_name
 
     manifest_payload["reaction_key"] = o._normalize_text(payload.get("reaction_key")) or stage_id
-    manifest_payload["reactant_xyz"] = "r1.xyz"
-    manifest_payload["product_xyz"] = "p1.xyz"
+    manifest_payload["reactant_xyz"] = reactant_target.name
+    manifest_payload["product_xyz"] = product_target.name
     if namespace:
         manifest_payload["namespace"] = namespace
     if selected_xcontrol_name:
@@ -657,6 +710,7 @@ def sync_orca_stage_impl(
         return
     stage_metadata = o._stage_metadata(stage)
     task_payload = o._task_payload_dict(task)
+    reaction_dir_hint = o._normalize_text(task_payload.get("reaction_dir") or enqueue_payload.get("reaction_dir"))
     if o._normalize_text(task.get("status")) == "planned" and submit_ready and o._normalize_text(orca_auto_config):
         resource_kwargs: dict[str, Any] = {}
         max_cores = o._safe_int(enqueue_payload.get("max_cores"), default=0)
@@ -682,11 +736,13 @@ def sync_orca_stage_impl(
         stage_metadata["submitted_at"] = submission.get("submitted_at", "")
 
     allowed_root = _call_engine_aware(o._load_config_root, orca_auto_config, engine="orca")
-    organized_root = _call_engine_aware(o._load_config_organized_root, orca_auto_config, engine="orca")
+    organized_root = (
+        _workflow_internal_organized_root(reaction_dir_hint, engine="orca")
+        or _call_engine_aware(o._load_config_organized_root, orca_auto_config, engine="orca")
+    )
     target = (
         o._normalize_text(stage_metadata.get("run_id"))
-        or o._normalize_text(task_payload.get("reaction_dir"))
-        or o._normalize_text(enqueue_payload.get("reaction_dir"))
+        or reaction_dir_hint
         or o._normalize_text(stage_metadata.get("queue_id"))
     )
     if not target:
@@ -697,7 +753,7 @@ def sync_orca_stage_impl(
         orca_organized_root=organized_root,
         queue_id=o._normalize_text(stage_metadata.get("queue_id")),
         run_id=o._normalize_text(stage_metadata.get("run_id")),
-        reaction_dir=o._normalize_text(task_payload.get("reaction_dir") or enqueue_payload.get("reaction_dir")),
+        reaction_dir=reaction_dir_hint,
     )
     if contract.status != "unknown":
         task["status"] = contract.status
@@ -849,10 +905,10 @@ def completed_orca_stage_impl(stage: dict[str, Any], *, orca_auto_config: str | 
     payload = o._task_payload_dict(task)
     enqueue_payload = o._coerce_mapping(task.get("enqueue_payload"))
     stage_metadata = o._stage_metadata(stage)
+    reaction_dir_hint = o._normalize_text(payload.get("reaction_dir") or enqueue_payload.get("reaction_dir"))
     target = (
         o._normalize_text(stage_metadata.get("run_id"))
-        or o._normalize_text(payload.get("reaction_dir"))
-        or o._normalize_text(enqueue_payload.get("reaction_dir"))
+        or reaction_dir_hint
         or o._normalize_text(stage_metadata.get("queue_id"))
     )
     if not target:
@@ -861,10 +917,13 @@ def completed_orca_stage_impl(stage: dict[str, Any], *, orca_auto_config: str | 
         return o.load_orca_artifact_contract(
             target=target,
             orca_allowed_root=_call_engine_aware(o._load_config_root, orca_auto_config, engine="orca"),
-            orca_organized_root=_call_engine_aware(o._load_config_organized_root, orca_auto_config, engine="orca"),
+            orca_organized_root=(
+                _workflow_internal_organized_root(reaction_dir_hint, engine="orca")
+                or _call_engine_aware(o._load_config_organized_root, orca_auto_config, engine="orca")
+            ),
             queue_id=o._normalize_text(stage_metadata.get("queue_id")),
             run_id=o._normalize_text(stage_metadata.get("run_id")),
-            reaction_dir=o._normalize_text(payload.get("reaction_dir") or enqueue_payload.get("reaction_dir")),
+            reaction_dir=reaction_dir_hint,
         )
     except Exception:
         return None

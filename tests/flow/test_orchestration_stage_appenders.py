@@ -256,6 +256,60 @@ def test_append_reaction_orca_stages_appends_unattempted_candidate_without_mutat
     assert appended["metadata"]["reaction_remaining_candidates_after_this"] == 0
 
 
+def test_append_reaction_orca_stages_materializes_under_workflow_internal_orca_runs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    candidate = _candidate(
+        "/tmp/candidate_local.xyz",
+        source_job_id="xtb_job_local",
+        source_job_type="path_search",
+        reaction_key="rxn_local",
+        rank=1,
+        kind="ts_guess",
+    )
+    payload: dict[str, Any] = {
+        "workflow_id": "wf_reaction_local",
+        "metadata": {
+            "request": {"parameters": {"max_orca_stages": 1}},
+            "workspace_dir": str((tmp_path / "wf_reaction_local").resolve()),
+        },
+        "stages": [
+            {
+                "stage_id": "xtb_path_search_01",
+                "status": "completed",
+                "metadata": {},
+                "task": {
+                    "engine": "xtb",
+                    "payload": {"job_dir": "/tmp/xtb_job_local"},
+                },
+            }
+        ],
+    }
+    contract = SimpleNamespace(job_id="xtb_job_local", job_type="path_search", candidate_details=())
+    build_calls: list[dict[str, Any]] = []
+
+    monkeypatch.setattr(orchestration, "_load_config_root", lambda path: tmp_path / "orca_allowed")
+    monkeypatch.setattr(orchestration, "load_xtb_artifact_contract", lambda **kwargs: contract)
+    monkeypatch.setattr(orchestration, "select_xtb_downstream_inputs", lambda *args, **kwargs: (candidate,))
+    monkeypatch.setattr(
+        orchestration,
+        "build_materialized_orca_stage",
+        lambda **kwargs: build_calls.append(kwargs) or _orca_stage_result(**kwargs),
+    )
+
+    created = orchestration._append_reaction_orca_stages(
+        payload,
+        workspace_dir=tmp_path / "wf_reaction_local",
+        xtb_auto_config="/tmp/xtb.yaml",
+        orca_auto_config="/tmp/orca.yaml",
+    )
+
+    assert created is True
+    assert build_calls[0]["workspace_dir"] == (tmp_path / "wf_reaction_local" / "internal" / "orca" / "runs").resolve()
+    assert build_calls[0]["stage_root_name"] == "stage_03_orca"
+
+
 def test_append_crest_orca_stages_materializes_orca_stages_from_completed_crest(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

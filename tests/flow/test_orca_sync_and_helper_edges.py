@@ -191,3 +191,67 @@ def test_sync_orca_stage_submit_path_preserves_submitted_state_for_unknown_contr
             "metadata": {"organized": False},
         }
     ]
+
+
+def test_sync_orca_stage_prefers_workflow_local_organized_root_for_internal_orca_runs(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    reaction_dir = (
+        tmp_path
+        / "wf_local"
+        / "internal"
+        / "orca"
+        / "runs"
+        / "stage_02_orca"
+        / "job_01"
+        / "reaction_dir"
+    )
+    stage: dict[str, object] = {
+        "status": "planned",
+        "metadata": {},
+        "task": {
+            "engine": "orca",
+            "status": "planned",
+            "payload": {"reaction_dir": str(reaction_dir)},
+            "enqueue_payload": {"reaction_dir": str(reaction_dir), "priority": 7},
+        },
+    }
+    load_calls: list[dict[str, object]] = []
+
+    monkeypatch.setattr(orchestration, "submit_reaction_dir", lambda **kwargs: {"status": "submitted", "queue_id": "q_local"})
+    monkeypatch.setattr(orchestration, "now_utc_iso", lambda: "2026-04-19T01:23:45+00:00")
+    monkeypatch.setattr(orchestration, "_load_config_root", lambda path: Path("/tmp/orca_allowed"))
+    monkeypatch.setattr(orchestration, "_load_config_organized_root", lambda path: Path("/tmp/orca_organized"))
+    monkeypatch.setattr(
+        orchestration,
+        "load_orca_artifact_contract",
+        lambda **kwargs: load_calls.append(kwargs)
+        or OrcaArtifactContract(
+            run_id="",
+            status="unknown",
+            reason="",
+            state_status="running",
+            reaction_dir=str(reaction_dir),
+            latest_known_path=str(reaction_dir),
+            queue_id="",
+            queue_status="running",
+            attempt_count=0,
+            max_retries=0,
+            attempts=(),
+            final_result={},
+        ),
+    )
+
+    _sync_orca_stage(
+        stage,
+        orca_auto_config="/tmp/orca.yaml",
+        orca_auto_executable="orca_auto",
+        orca_auto_repo_root="/tmp/orca_repo",
+        submit_ready=True,
+    )
+
+    assert load_calls[0]["orca_allowed_root"] == Path("/tmp/orca_allowed")
+    assert load_calls[0]["orca_organized_root"] == (
+        tmp_path / "wf_local" / "internal" / "orca" / "outputs"
+    ).resolve()

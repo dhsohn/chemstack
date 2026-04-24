@@ -383,6 +383,7 @@ def test_cmd_run_dir_infers_reaction_workflow_from_directory(
     assert captured == {
         "reactant_xyz": str((workflow_dir / "reactant.xyz").resolve()),
         "product_xyz": str((workflow_dir / "product.xyz").resolve()),
+        "workflow_id": "wf_reaction_ts_reaction_job",
         "workflow_root": "/tmp/workflow_root",
         "crest_mode": "standard",
         "priority": 10,
@@ -459,6 +460,7 @@ def test_cmd_run_dir_reads_manifest_for_conformer_workflow(
     assert payload["workflow_id"] == "wf_create_conformer_screening"
     assert captured == {
         "input_xyz": str((workflow_dir / "input.xyz").resolve()),
+        "workflow_id": "wf_conformer_screening_conformer_job",
         "workflow_root": str(Path("/tmp/from_manifest").resolve()),
         "crest_mode": "nci",
         "priority": 7,
@@ -469,6 +471,46 @@ def test_cmd_run_dir_reads_manifest_for_conformer_workflow(
         "charge": -1,
         "multiplicity": 2,
     }
+
+
+def test_cmd_run_dir_reuses_direct_child_workflow_directory_when_already_under_workflow_root(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    workflow_root = tmp_path / "workflow_root"
+    workflow_dir = workflow_root / "rxn_case"
+    workflow_dir.mkdir(parents=True)
+    (workflow_dir / "reactant.xyz").write_text("2\nreactant\nH 0 0 0\nH 0 0 0.74\n", encoding="utf-8")
+    (workflow_dir / "product.xyz").write_text("2\nproduct\nH 0 0 0\nH 0 0 0.80\n", encoding="utf-8")
+    captured: dict[str, Any] = {}
+
+    monkeypatch.setattr(cli, "_discover_workflow_root", lambda explicit: str(workflow_root.resolve()))
+    monkeypatch.setattr(cli, "create_reaction_workflow", lambda **kwargs: captured.update(kwargs) or _create_payload("reaction_ts_search"))
+
+    args = SimpleNamespace(
+        workflow_dir=str(workflow_dir),
+        workflow_type=None,
+        workflow_root=None,
+        reactant_xyz=None,
+        product_xyz=None,
+        input_xyz=None,
+        crest_mode=None,
+        priority=None,
+        max_cores=None,
+        max_memory_gb=None,
+        max_crest_candidates=None,
+        max_xtb_stages=None,
+        max_orca_stages=None,
+        orca_route_line=None,
+        charge=None,
+        multiplicity=None,
+        json=False,
+    )
+
+    assert cli.cmd_run_dir(args) == 0
+    assert "workflow_id: wf_create_reaction_ts_search" in capsys.readouterr().out
+    assert captured["workflow_id"] == "rxn_case"
 
 
 def test_cmd_run_dir_reports_ambiguous_layout(

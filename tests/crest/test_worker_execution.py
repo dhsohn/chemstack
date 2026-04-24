@@ -252,7 +252,49 @@ def test_write_running_state_writes_running_payload_with_fallback_timestamps(
         "updated_at": "2026-04-19T08:00:01+00:00",
         "resource_request": {"max_cores": 4, "max_memory_gb": 16},
         "resource_actual": {"max_cores": 4, "max_memory_gb": 16},
+        "created_at": "2026-04-19T08:00:00+00:00",
+        "recovery_pending": False,
+        "recovery_count": 0,
+        "resumed": False,
     }
+
+
+def test_write_running_state_marks_resumed_when_recovery_pending_state_exists(tmp_path: Path) -> None:
+    cfg = _cfg(tmp_path)
+    job_dir = tmp_path / "job"
+    job_dir.mkdir()
+    selected_xyz = job_dir / "selected_input.xyz"
+    selected_xyz.write_text("1\nselected\nH 0.0 0.0 0.0\n", encoding="utf-8")
+    entry = _entry(job_dir, selected_xyz, mode="nci", molecule_key="mol-42")
+    worker_execution.write_state(
+        job_dir,
+        {
+            "job_id": entry.task_id,
+            "job_dir": str(job_dir.resolve()),
+            "selected_input_xyz": str(selected_xyz.resolve()),
+            "molecule_key": "mol-42",
+            "mode": "nci",
+            "status": "queued",
+            "reason": "worker_shutdown",
+            "created_at": "2026-04-19T07:59:00+00:00",
+            "updated_at": "2026-04-19T07:59:00+00:00",
+            "recovery_pending": True,
+            "recovery_reason": "worker_shutdown",
+            "recovery_count": 2,
+        },
+    )
+
+    worker_execution._write_running_state(cfg, entry)
+
+    payload = load_state(job_dir)
+    assert payload is not None
+    assert payload["status"] == "running"
+    assert payload["reason"] == "worker_shutdown"
+    assert payload["created_at"] == "2026-04-19T07:59:00+00:00"
+    assert payload["recovery_pending"] is False
+    assert payload["recovery_reason"] == "worker_shutdown"
+    assert payload["recovery_count"] == 2
+    assert payload["resumed"] is True
 
 
 def test_molecule_key_prefers_metadata_and_falls_back_to_selected_xyz(tmp_path: Path) -> None:
@@ -806,26 +848,15 @@ def test_process_dequeued_entry_raises_worker_shutdown_requested_after_start(
     running = SimpleNamespace(process=proc)
 
     terminate_calls: list[FakeProcess] = []
-    finalize_kwargs: list[dict[str, Any]] = []
     sleeps: list[int] = []
 
     monkeypatch.setattr(worker_execution.time, "sleep", lambda seconds: sleeps.append(seconds))
-
-    def fake_finalize_crest_job(running_job: object, **kwargs: Any) -> CrestRunResult:
-        finalize_kwargs.append(kwargs)
-        return _result(
-            job_dir,
-            selected_xyz,
-            status="failed",
-            reason="worker_shutdown",
-            exit_code=143,
-        )
 
     deps = _dependencies(
         get_cancel_requested=lambda *args, **kwargs: False,
         start_crest_job=lambda cfg, *, job_dir, selected_xyz: running,
         terminate_process=lambda actual_proc: terminate_calls.append(actual_proc),
-        finalize_crest_job=fake_finalize_crest_job,
+        finalize_crest_job=lambda *args, **kwargs: pytest.fail("finalize should not run"),
         write_execution_artifacts=lambda *args, **kwargs: pytest.fail("artifacts should not be written"),
         mark_completed=lambda *args, **kwargs: pytest.fail("queue should not be marked completed"),
         mark_cancelled=lambda *args, **kwargs: pytest.fail("queue should not be marked cancelled"),
@@ -846,5 +877,4 @@ def test_process_dequeued_entry_raises_worker_shutdown_requested_after_start(
         )
 
     assert terminate_calls == [proc]
-    assert finalize_kwargs == [{"forced_status": "failed", "forced_reason": "worker_shutdown"}]
     assert sleeps == []
