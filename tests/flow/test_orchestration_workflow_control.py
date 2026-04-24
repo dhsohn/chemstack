@@ -588,10 +588,15 @@ def test_advance_workflow_auto_cancels_active_siblings_after_failure(
     monkeypatch.setattr(orchestration, "_clear_reaction_xtb_handoff_error_if_recovering", lambda current_payload: None)
     monkeypatch.setattr(orchestration, "_append_reaction_orca_stages", lambda current_payload, **kwargs: False)
     monkeypatch.setattr(orchestration, "_sync_orca_stage", lambda stage, **kwargs: None)
+
+    def fake_crest_cancel_target(**kwargs: Any) -> dict[str, Any]:
+        crest_cancel_calls.append(dict(kwargs))
+        return {"status": "cancel_requested", "queue_id": kwargs["target"]}
+
     monkeypatch.setattr(
         orchestration,
         "crest_cancel_target",
-        lambda **kwargs: crest_cancel_calls.append(dict(kwargs)) or {"status": "cancel_requested", "queue_id": kwargs["target"]},
+        fake_crest_cancel_target,
     )
     monkeypatch.setattr(orchestration, "write_workflow_payload", lambda workspace_dir, current_payload: None)
     monkeypatch.setattr(orchestration, "sync_workflow_registry", lambda workflow_root, workspace_dir, current_payload: None)

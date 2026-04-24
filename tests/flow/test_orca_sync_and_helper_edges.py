@@ -223,11 +223,10 @@ def test_sync_orca_stage_prefers_workflow_local_organized_root_for_internal_orca
     monkeypatch.setattr(orchestration, "now_utc_iso", lambda: "2026-04-19T01:23:45+00:00")
     monkeypatch.setattr(orchestration, "_load_config_root", lambda path: Path("/tmp/orca_allowed"))
     monkeypatch.setattr(orchestration, "_load_config_organized_root", lambda path: Path("/tmp/orca_organized"))
-    monkeypatch.setattr(
-        orchestration,
-        "load_orca_artifact_contract",
-        lambda **kwargs: load_calls.append(kwargs)
-        or OrcaArtifactContract(
+
+    def fake_load_orca_artifact_contract(**kwargs: object) -> OrcaArtifactContract:
+        load_calls.append(dict(kwargs))
+        return OrcaArtifactContract(
             run_id="",
             status="unknown",
             reason="",
@@ -240,7 +239,12 @@ def test_sync_orca_stage_prefers_workflow_local_organized_root_for_internal_orca
             max_retries=0,
             attempts=(),
             final_result={},
-        ),
+        )
+
+    monkeypatch.setattr(
+        orchestration,
+        "load_orca_artifact_contract",
+        fake_load_orca_artifact_contract,
     )
 
     _sync_orca_stage(

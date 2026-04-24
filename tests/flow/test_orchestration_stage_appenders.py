@@ -292,10 +292,15 @@ def test_append_reaction_orca_stages_materializes_under_workflow_internal_orca_r
     monkeypatch.setattr(orchestration, "_load_config_root", lambda path: tmp_path / "orca_allowed")
     monkeypatch.setattr(orchestration, "load_xtb_artifact_contract", lambda **kwargs: contract)
     monkeypatch.setattr(orchestration, "select_xtb_downstream_inputs", lambda *args, **kwargs: (candidate,))
+
+    def fake_build_materialized_orca_stage(**kwargs: Any) -> Any:
+        build_calls.append(kwargs)
+        return _orca_stage_result(**kwargs)
+
     monkeypatch.setattr(
         orchestration,
         "build_materialized_orca_stage",
-        lambda **kwargs: build_calls.append(kwargs) or _orca_stage_result(**kwargs),
+        fake_build_materialized_orca_stage,
     )
 
     created = orchestration._append_reaction_orca_stages(
