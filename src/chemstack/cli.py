@@ -691,10 +691,10 @@ def cmd_queue_worker(args: Any) -> int:
 
 
 def _engine_config_for_command(args: argparse.Namespace) -> str | None:
-    config_text = _effective_shared_config_text(args)
-    if not config_text:
+    config_path = _discover_shared_config_path(_effective_shared_config_text(args))
+    if not config_path:
         return None
-    return str(Path(config_text).expanduser().resolve())
+    return str(Path(config_path).expanduser().resolve())
 
 
 def _configure_orca_logging(args: argparse.Namespace) -> None:

@@ -19,6 +19,7 @@ from chemstack.core.app_ids import (
 )
 from chemstack.core.config import TelegramConfig
 from chemstack.core.config.files import shared_workflow_root_from_config
+from chemstack.core.notifications.telegram import urlopen_with_ipv4_fallback
 import yaml
 
 from .activity import _discover_sibling_config, _discover_workflow_root
@@ -151,7 +152,7 @@ def _api_call(
         method="POST",
     )
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        with urlopen_with_ipv4_fallback(request, timeout=timeout) as response:
             result = json.loads(response.read().decode("utf-8"))
             if result.get("ok"):
                 return result.get("result")

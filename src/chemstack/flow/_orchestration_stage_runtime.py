@@ -863,15 +863,25 @@ def sync_orca_stage_impl(
 
 def completed_crest_roles_impl(payload: dict[str, Any]) -> dict[str, dict[str, Any]]:
     o = _orchestration_module()
-    rows: dict[str, dict[str, Any]] = {}
+    latest_by_role: dict[str, dict[str, Any]] = {}
     for stage in payload.get("stages", []):
         if not isinstance(stage, dict):
             continue
         task = stage.get("task")
         if not isinstance(task, dict) or o._normalize_text(task.get("engine")) != "crest":
             continue
-        role = o._normalize_text((stage.get("metadata") or {}).get("input_role"))
-        if role and o._normalize_text(stage.get("status")) == "completed":
+        task_payload = task.get("payload")
+        role = o._normalize_text((stage.get("metadata") or {}).get("input_role")).lower()
+        if not role and isinstance(task_payload, dict):
+            role = o._normalize_text(task_payload.get("input_role")).lower()
+        if role:
+            latest_by_role[role] = stage
+    rows: dict[str, dict[str, Any]] = {}
+    for role, stage in latest_by_role.items():
+        stage_status = o._normalize_text(stage.get("status")).lower()
+        task = stage.get("task")
+        task_status = o._normalize_text((task or {}).get("status")).lower() if isinstance(task, dict) else ""
+        if stage_status == "completed" and task_status in {"", "completed"}:
             rows[role] = stage
     return rows
 

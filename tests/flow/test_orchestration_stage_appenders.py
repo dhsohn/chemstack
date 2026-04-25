@@ -122,6 +122,36 @@ def test_append_reaction_xtb_stages_creates_full_cartesian_product(
     assert all(stage["task"]["payload"]["max_handoff_retries"] == 4 for stage in xtb_stages)
 
 
+def test_append_reaction_xtb_stages_waits_for_latest_product_crest_stage(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payload: dict[str, Any] = {
+        "workflow_id": "wf_reaction_wait",
+        "stages": [
+            {"stage_id": "crest_reactant", "status": "completed", "metadata": {"input_role": "reactant"}, "task": {"engine": "crest", "status": "completed"}},
+            {"stage_id": "crest_product_old", "status": "completed", "metadata": {"input_role": "product"}, "task": {"engine": "crest", "status": "completed"}},
+            {"stage_id": "crest_product_new", "status": "running", "metadata": {"input_role": "product"}, "task": {"engine": "crest", "status": "running"}},
+        ],
+        "metadata": {"request": {"parameters": {"max_crest_candidates": 2}}},
+    }
+
+    monkeypatch.setattr(
+        orchestration,
+        "_completed_crest_stage",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("xTB stage creation should wait for the newest product CREST stage")),
+    )
+
+    created = orchestration._append_reaction_xtb_stages(
+        payload,
+        workspace_dir=tmp_path,
+        crest_auto_config="/tmp/crest.yaml",
+    )
+
+    assert created is False
+    assert all(stage.get("task", {}).get("engine") != "xtb" for stage in payload["stages"])
+
+
 def test_append_reaction_orca_stages_sets_xtb_handoff_workflow_error_when_no_candidate_survives(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

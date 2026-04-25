@@ -10,6 +10,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from chemstack.core.notifications.telegram import urlopen_with_ipv4_fallback
+
 if TYPE_CHECKING:
     from .config import TelegramConfig
     from .dft_monitor import ScanReport
@@ -58,7 +60,7 @@ def send_message(
     )
 
     try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        with urlopen_with_ipv4_fallback(req, timeout=10) as resp:
             result = json.loads(resp.read().decode("utf-8"))
             if not result.get("ok"):
                 logger.warning("telegram_send_api_error: %s", result)

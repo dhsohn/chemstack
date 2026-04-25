@@ -254,6 +254,28 @@ def test_url_error_handling_returns_url_error(monkeypatch: pytest.MonkeyPatch) -
     assert result.error == "telegram_url_error:<urlopen error temporary DNS failure>"
 
 
+def test_network_unreachable_retries_with_ipv4_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[tuple[str, float]] = []
+
+    def fake_urlopen(request, timeout):
+        calls.append((request.full_url, timeout))
+        if len(calls) == 1:
+            raise URLError(OSError(101, "Network is unreachable"))
+        return _FakeResponse(body='{"ok":true}', status=200)
+
+    monkeypatch.setattr(telegram_mod, "urlopen", fake_urlopen)
+
+    transport = _make_transport(base_url="https://api.telegram.org/")
+
+    result = transport.send_text("hello")
+
+    assert result.sent is True
+    assert result.error == ""
+    assert len(calls) == 2
+    assert calls[0][0] == "https://api.telegram.org/botbot-token/sendMessage"
+    assert calls[1][0] == "https://api.telegram.org/botbot-token/sendMessage"
+
+
 def test_build_telegram_transport_uses_defaults() -> None:
     config = TelegramConfig(bot_token="bot-token", chat_id="chat-id")
 

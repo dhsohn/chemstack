@@ -14,6 +14,8 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Callable
 
+from chemstack.core.notifications.telegram import urlopen_with_ipv4_fallback
+
 from .cancellation import CancelTargetError, cancel_target
 from .commands.list_runs import (
     _collect_unified,
@@ -46,7 +48,7 @@ def _api_call(
         method="POST",
     )
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        with urlopen_with_ipv4_fallback(req, timeout=timeout) as resp:
             result = json.loads(resp.read().decode("utf-8"))
             if result.get("ok"):
                 return result.get("result")

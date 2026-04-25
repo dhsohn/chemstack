@@ -265,6 +265,18 @@ def test_completed_role_and_contract_helpers_use_expected_targets(monkeypatch: p
     ]
 
 
+def test_completed_crest_roles_ignore_stale_completed_stage_when_newer_stage_is_active() -> None:
+    payload = {
+        "stages": [
+            {"status": "completed", "metadata": {"input_role": "reactant"}, "task": {"engine": "crest", "status": "completed"}},
+            {"status": "completed", "metadata": {"input_role": "product"}, "task": {"engine": "crest", "status": "completed"}},
+            {"status": "running", "metadata": {"input_role": "product"}, "task": {"engine": "crest", "status": "running"}},
+        ]
+    }
+
+    assert set(_completed_crest_roles(payload).keys()) == {"reactant"}
+
+
 @pytest.mark.parametrize(
     ("payload", "expected"),
     [

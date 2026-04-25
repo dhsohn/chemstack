@@ -182,7 +182,7 @@ class TestSendMessage:
     def test_disabled_config_returns_false(self) -> None:
         assert send_message(_disabled_config(), "test") is False
 
-    @patch("chemstack.orca.telegram_notifier.urllib.request.urlopen")
+    @patch("chemstack.orca.telegram_notifier.urlopen_with_ipv4_fallback")
     def test_success(self, mock_urlopen: MagicMock) -> None:
         mock_resp = MagicMock()
         mock_resp.read.return_value = json.dumps({"ok": True}).encode()
@@ -202,7 +202,7 @@ class TestSendMessage:
         assert body["text"] == "hello"
         assert body["parse_mode"] == "HTML"
 
-    @patch("chemstack.orca.telegram_notifier.urllib.request.urlopen")
+    @patch("chemstack.orca.telegram_notifier.urlopen_with_ipv4_fallback")
     def test_api_error(self, mock_urlopen: MagicMock) -> None:
         mock_resp = MagicMock()
         mock_resp.read.return_value = json.dumps({"ok": False}).encode()

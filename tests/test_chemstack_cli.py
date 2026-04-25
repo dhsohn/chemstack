@@ -1152,6 +1152,55 @@ def test_workflow_root_for_args_uses_shared_config(monkeypatch: pytest.MonkeyPat
     assert seen == ["/tmp/chemstack.yaml"]
 
 
+def test_engine_config_for_command_uses_discovered_shared_config(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(unified_cli, "_discover_shared_config_path", lambda explicit: "/tmp/chemstack.yaml")
+
+    discovered = unified_cli._engine_config_for_command(
+        SimpleNamespace(
+            chemstack_config=None,
+            config=None,
+            global_config=None,
+        )
+    )
+
+    assert discovered == str(Path("/tmp/chemstack.yaml").resolve())
+
+
+def test_cmd_orca_run_dir_uses_discovered_shared_config(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    target = tmp_path / "orca_job"
+    target.mkdir()
+    (target / "job.inp").write_text("! Opt\n", encoding="utf-8")
+    captured: list[tuple[str | None, str]] = []
+
+    monkeypatch.setattr(unified_cli, "_configure_orca_logging", lambda args: None)
+    monkeypatch.setattr(unified_cli, "_discover_shared_config_path", lambda explicit: "/tmp/chemstack.yaml")
+
+    import chemstack.orca.commands.run_inp as run_inp_cmd
+
+    monkeypatch.setattr(
+        run_inp_cmd,
+        "cmd_run_inp",
+        lambda args: captured.append((getattr(args, "config", None), getattr(args, "path", ""))) or 31,
+    )
+
+    result = unified_cli.cmd_orca_run_dir(
+        SimpleNamespace(
+            path=str(target),
+            chemstack_config=None,
+            config=None,
+            global_config=None,
+            verbose=False,
+            log_file=None,
+        )
+    )
+
+    assert result == 31
+    assert captured == [(str(Path("/tmp/chemstack.yaml").resolve()), str(target))]
+
+
 def test_cmd_queue_worker_delegates_to_supervisor(monkeypatch: pytest.MonkeyPatch) -> None:
     specs = [unified_cli.WorkerSpec(app="orca", argv=("python", "-m", "chemstack.orca._internal_cli", "queue", "worker"))]
     monkeypatch.setattr(unified_cli, "_build_worker_specs", lambda args: specs)
