@@ -136,6 +136,65 @@ def test_list_activities_merges_workflows_and_standalone_sources(monkeypatch) ->
     assert workflow_item["metadata"]["current_engine"] == "xtb"
 
 
+def test_list_activities_treats_submission_failed_stage_as_terminal_for_current_stage(monkeypatch) -> None:
+    workflow_record = SimpleNamespace(
+        workflow_id="wf-3",
+        template_name="reaction_ts_search",
+        status="running",
+        source_job_id="",
+        source_job_type="",
+        reaction_key="rxn-3",
+        requested_at="2026-04-20T10:00:00+00:00",
+        workspace_dir="/tmp/wf/wf-3",
+        workflow_file="/tmp/wf/wf-3/workflow.json",
+        stage_count=2,
+        updated_at="2026-04-20T10:06:00+00:00",
+    )
+
+    monkeypatch.setattr(activity, "list_workflow_registry", lambda workflow_root: [workflow_record])
+    monkeypatch.setattr(
+        activity,
+        "list_workflow_summaries",
+        lambda workflow_root: [
+            {
+                "workflow_id": "wf-3",
+                "stage_summaries": [
+                    {
+                        "stage_id": "orca.submit",
+                        "status": "submission_failed",
+                        "task_status": "submission_failed",
+                        "engine": "orca",
+                        "reaction_dir": "/tmp/orca_jobs/rxn-3/failed-submit",
+                    },
+                    {
+                        "stage_id": "xtb.path",
+                        "status": "running",
+                        "task_status": "running",
+                        "engine": "xtb",
+                        "reaction_dir": "/tmp/xtb_jobs/rxn-3",
+                    },
+                ],
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        activity,
+        "_resolve_activity_sources",
+        lambda **kwargs: ("/tmp/wf", None, None, None),
+    )
+    monkeypatch.setattr(activity, "list_queue", lambda root: [])
+    monkeypatch.setattr(activity, "_orca_records", lambda **kwargs: [])
+
+    payload = activity.list_activities(workflow_root="/tmp/wf")
+
+    workflow_item = payload["activities"][0]
+    assert workflow_item["activity_id"] == "wf-3"
+    assert workflow_item["label"] == "/tmp/xtb_jobs/rxn-3"
+    assert workflow_item["metadata"]["current_engine"] == "xtb"
+    assert workflow_item["metadata"]["current_stage_id"] == "xtb.path"
+    assert workflow_item["metadata"]["current_stage_status"] == "running"
+
+
 def test_cancel_activity_routes_workflow_targets(monkeypatch) -> None:
     monkeypatch.setattr(
         activity,
@@ -205,7 +264,14 @@ def test_cancel_activity_routes_xtb_targets(monkeypatch) -> None:
 def test_clear_activities_clears_workflow_and_engine_terminal_sources(monkeypatch) -> None:
     import chemstack.orca.commands.list_runs as orca_list_runs
 
-    monkeypatch.setattr(activity, "clear_terminal_workflow_registry", lambda workflow_root, statuses=None: 2)
+    captured_statuses: tuple[str, ...] = ()
+
+    def fake_clear_terminal_workflow_registry(workflow_root, statuses=None):
+        nonlocal captured_statuses
+        captured_statuses = tuple(sorted(statuses or ()))
+        return 2
+
+    monkeypatch.setattr(activity, "clear_terminal_workflow_registry", fake_clear_terminal_workflow_registry)
     monkeypatch.setattr(
         activity,
         "_engine_queue_roots",
@@ -249,6 +315,7 @@ def test_clear_activities_clears_workflow_and_engine_terminal_sources(monkeypatc
         "orca_queue_entries": 4,
         "orca_run_states": 5,
     }
+    assert "submission_failed" in captured_statuses
     assert cleared_roots == ["/tmp/xtb_root_a", "/tmp/xtb_root_b", "/tmp/crest_root"]
 
 

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
+from .workflow_status import WORKFLOW_FAILED_STATUSES, WORKFLOW_TERMINAL_STATUSES
+
 
 def workflow_sync_only_impl(payload: dict[str, Any], *, normalize_text_fn: Callable[[Any], str]) -> bool:
     return normalize_text_fn(payload.get("status")).lower() in {
@@ -81,7 +83,7 @@ def downstream_terminal_result_impl(
     normalize_text_fn: Callable[[Any], str],
 ) -> dict[str, Any]:
     status = normalize_text_fn(child_summary.get("status")).lower()
-    if status not in {"completed", "failed", "cancelled", "cancel_failed"}:
+    if status not in WORKFLOW_TERMINAL_STATUSES:
         return {}
     metadata = child_payload.get("metadata")
     workflow_error: dict[str, Any] = {}
@@ -109,7 +111,7 @@ def stage_failure_is_recoverable_impl(
     stage_metadata_fn: Callable[[dict[str, Any]], dict[str, Any]],
 ) -> bool:
     status = normalize_text_fn(stage.get("status")).lower()
-    if status not in {"failed", "cancel_failed"}:
+    if status not in WORKFLOW_FAILED_STATUSES:
         return False
     task = stage.get("task")
     if not isinstance(task, dict):
@@ -141,9 +143,9 @@ def recompute_workflow_status_impl(
     effective_stage_status_fn: Callable[[dict[str, Any]], str],
 ) -> str:
     stages = [stage for stage in payload.get("stages", []) if isinstance(stage, dict)]
-    failed_statuses = {"submission_failed", "failed", "cancel_failed"}
+    failed_statuses = WORKFLOW_FAILED_STATUSES
     active_statuses = {"queued", "running", "submitted", "cancel_requested"}
-    terminal_statuses = {"completed", "cancelled", *failed_statuses}
+    terminal_statuses = WORKFLOW_TERMINAL_STATUSES
 
     def _stage_engine(stage: dict[str, Any]) -> str:
         task = stage.get("task")

@@ -8,8 +8,8 @@ import yaml
 from chemstack.core.config import TelegramConfig
 from chemstack.core.notifications import build_telegram_transport
 from chemstack.core.utils import now_utc_iso
+from chemstack.flow.workflow_status import workflow_status_is_terminal
 
-_TERMINAL_STATUSES = frozenset({"completed", "failed", "cancelled", "cancel_failed", "submission_failed"})
 _ACTIVE_STATUSES = frozenset({"planned", "queued", "running", "submitted", "cancel_requested", "retrying"})
 
 
@@ -123,7 +123,7 @@ def _stage_is_terminal(
         return False
     if stage_failure_is_recoverable_fn is not None and stage_failure_is_recoverable_fn(stage):
         return True
-    return status in _TERMINAL_STATUSES or task_status in _TERMINAL_STATUSES
+    return workflow_status_is_terminal(status) or workflow_status_is_terminal(task_status)
 
 
 def _terminal_phase_stages(

@@ -98,6 +98,8 @@ def test_submit_reaction_ts_search_workflow_ignores_invalid_stages_and_sets_subm
                         "reaction_dir": "/tmp/rxn_submit",
                         "priority": "7",
                         "submitter": "",
+                        "max_cores": "24",
+                        "max_memory_gb": 96,
                     },
                 },
             },
@@ -147,6 +149,8 @@ def test_submit_reaction_ts_search_workflow_ignores_invalid_stages_and_sets_subm
             "config_path": "/tmp/orca.yaml",
             "executable": "orca_auto_bin",
             "repo_root": "/tmp/orca_repo",
+            "max_cores": 24,
+            "max_memory_gb": 96,
         }
     ]
     assert sync_calls == []
@@ -192,6 +196,7 @@ def test_submit_reaction_ts_search_workflow_ignores_invalid_stages_and_sets_subm
 
     assert saved_payload["status"] == "queued"
     assert saved_payload["metadata"]["submission_summary"] == {
+        "status": "submitted",
         "submitted_count": 1,
         "skipped_count": 0,
         "failed_count": 0,
@@ -204,6 +209,83 @@ def test_submit_reaction_ts_search_workflow_ignores_invalid_stages_and_sets_subm
             }
         ],
         "updated_at": "2026-04-19T01:01:00+00:00",
+    }
+
+
+def test_submit_reaction_ts_search_workflow_records_skipped_only_summary_without_changing_payload_status(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    workspace_dir = tmp_path / "workspace"
+    payload: dict[str, Any] = {
+        "workflow_id": "wf_submit_skipped_only",
+        "status": "running",
+        "metadata": {},
+        "stages": [
+            {
+                "stage_id": "skip_stage",
+                "status": "queued",
+                "task": {
+                    "status": "planned",
+                    "enqueue_payload": {
+                        "reaction_dir": "/tmp/rxn_skip",
+                        "priority": 3,
+                        "submitter": "chemstack_orca_cli",
+                    },
+                },
+            }
+        ],
+    }
+    saved_payloads: list[dict[str, Any]] = []
+    sync_calls: list[dict[str, Any]] = []
+    submit_calls: list[dict[str, Any]] = []
+
+    _install_workflow_io(
+        monkeypatch,
+        payload=payload,
+        workspace_dir=workspace_dir,
+        saved_payloads=saved_payloads,
+        sync_calls=sync_calls,
+    )
+    _install_timestamps(monkeypatch, "2026-04-19T01:05:00+00:00")
+    monkeypatch.setattr(
+        orca_auto,
+        "submit_reaction_dir",
+        lambda **kwargs: submit_calls.append(kwargs),
+    )
+
+    result = orca_auto.submit_reaction_ts_search_workflow(
+        workflow_target="wf_submit_skipped_only",
+        workflow_root=None,
+        orca_auto_config="/tmp/orca.yaml",
+    )
+
+    assert submit_calls == []
+    assert sync_calls == []
+    assert result == {
+        "workflow_id": "wf_submit_skipped_only",
+        "workspace_dir": str(workspace_dir),
+        "status": "running",
+        "submitted": [],
+        "skipped": [{"stage_id": "skip_stage", "reason": "already_submitted"}],
+        "failed": [],
+    }
+
+    saved_payload = saved_payloads[0]["payload"]
+    assert saved_payload["status"] == "running"
+    assert saved_payload["metadata"]["submission_summary"] == {
+        "status": "skipped",
+        "submitted_count": 0,
+        "skipped_count": 1,
+        "failed_count": 0,
+        "stage_results": [
+            {
+                "stage_id": "skip_stage",
+                "status": "skipped",
+                "reason": "already_submitted",
+            }
+        ],
+        "updated_at": "2026-04-19T01:05:00+00:00",
     }
 
 
@@ -313,6 +395,7 @@ def test_submit_reaction_ts_search_workflow_records_failed_only_summary(
 
     assert saved_payload["status"] == "submission_failed"
     assert saved_payload["metadata"]["submission_summary"] == {
+        "status": "submission_failed",
         "submitted_count": 0,
         "skipped_count": 0,
         "failed_count": 1,

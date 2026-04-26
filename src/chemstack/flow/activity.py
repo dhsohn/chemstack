@@ -27,9 +27,9 @@ from .submitters.common import normalize_text, sibling_runtime_paths
 from .submitters.crest_auto import cancel_target as cancel_crest_target
 from .submitters.orca_auto import cancel_target as cancel_orca_target
 from .submitters.xtb_auto import cancel_target as cancel_xtb_target
+from .workflow_status import WORKFLOW_TERMINAL_STATUSES, select_current_stage
 
-_WORKFLOW_TERMINAL_STATUSES = frozenset({"completed", "failed", "cancelled"})
-_ACTIVITY_CLEARABLE_TERMINAL_STATUSES = frozenset({"completed", "failed", "cancelled", "cancel_failed"})
+_ACTIVITY_CLEARABLE_TERMINAL_STATUSES = WORKFLOW_TERMINAL_STATUSES
 _ORCA_ACTIVE_QUEUE_STATUSES = frozenset({"pending", "running"})
 
 
@@ -228,18 +228,6 @@ def _path_aliases(path_text: str, *, root: Path | None = None) -> tuple[str, ...
             aliases.extend([str(relative), relative.as_posix()])
     return _unique_texts(aliases)
 
-
-def _select_current_stage(stage_summaries: list[dict[str, Any]]) -> dict[str, Any]:
-    if not stage_summaries:
-        return {}
-    for stage in stage_summaries:
-        stage_status = _mapping_text(stage, "status").lower()
-        task_status = _mapping_text(stage, "task_status").lower()
-        if stage_status not in _WORKFLOW_TERMINAL_STATUSES or task_status not in _WORKFLOW_TERMINAL_STATUSES:
-            return dict(stage)
-    return dict(stage_summaries[-1])
-
-
 def _workflow_records(*, workflow_root: str | Path, refresh: bool) -> list[ActivityRecord]:
     root = Path(workflow_root).expanduser().resolve()
     registry_records = reindex_workflow_registry(root) if refresh else list_workflow_registry(root)
@@ -253,7 +241,7 @@ def _workflow_records(*, workflow_root: str | Path, refresh: bool) -> list[Activ
     for record in registry_records:
         workflow_id = normalize_text(record.workflow_id)
         summary = summary_by_id.get(workflow_id, {})
-        current_stage = _select_current_stage(list(summary.get("stage_summaries", [])))
+        current_stage = select_current_stage(summary.get("stage_summaries") or [])
         current_engine = _mapping_text(current_stage, "engine") or "workflow"
         current_stage_id = _mapping_text(current_stage, "stage_id")
         label = (

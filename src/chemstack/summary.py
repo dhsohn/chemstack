@@ -8,6 +8,13 @@ from typing import Any
 
 from chemstack.activity_view import count_global_active_simulations
 from chemstack.core.config.files import shared_workflow_root_from_config
+from chemstack.flow.workflow_status import (
+    WORKFLOW_STATUS_ORDER,
+    normalize_workflow_status,
+    select_current_stage,
+    workflow_status_is_active,
+    workflow_status_needs_attention,
+)
 from chemstack.flow.operations import list_activities
 from chemstack.flow.state import list_workflow_summaries
 from chemstack.orca.commands import summary as orca_summary
@@ -16,30 +23,6 @@ from chemstack.orca.telegram_notifier import escape_html, send_message
 
 logger = logging.getLogger(__name__)
 
-_WORKFLOW_ACTIVE_STATUSES = frozenset(
-    {
-        "created",
-        "planned",
-        "pending",
-        "queued",
-        "submitted",
-        "running",
-        "retrying",
-        "cancel_requested",
-    }
-)
-_WORKFLOW_ATTENTION_STATUSES = frozenset({"failed", "cancel_failed"})
-_WORKFLOW_TERMINAL_STATUSES = frozenset({"completed", "failed", "cancelled", "cancel_failed"})
-_WORKFLOW_STATUS_ORDER = (
-    "running",
-    "queued",
-    "submitted",
-    "planned",
-    "retrying",
-    "cancel_requested",
-    "failed",
-    "cancel_failed",
-)
 _WORKFLOW_SHOW_LIMIT = 6
 
 
@@ -62,6 +45,7 @@ def _workflow_status_icon(status: str) -> str:
         "completed": "✅",
         "failed": "❌",
         "cancel_failed": "❌",
+        "submission_failed": "❌",
         "cancelled": "⛔",
     }.get(_normalize_text(status).lower(), "•")
 
@@ -72,20 +56,6 @@ def _workflow_template_label(template_name: Any) -> str:
         "reaction_ts_search": "ts_search",
         "conformer_screening": "conformer_search",
     }.get(normalized, _normalize_text(template_name) or "workflow")
-
-
-def _select_current_stage(summary: dict[str, Any]) -> dict[str, Any]:
-    raw_stages = summary.get("stage_summaries")
-    stages = [stage for stage in raw_stages if isinstance(stage, dict)] if isinstance(raw_stages, list) else []
-    if not stages:
-        return {}
-
-    for stage in stages:
-        stage_status = _normalize_text(stage.get("status")).lower()
-        task_status = _normalize_text(stage.get("task_status")).lower()
-        if stage_status not in _WORKFLOW_TERMINAL_STATUSES or task_status not in _WORKFLOW_TERMINAL_STATUSES:
-            return dict(stage)
-    return dict(stages[-1])
 
 
 def _workflow_summary_rows(config_path: str | None) -> tuple[str | None, list[dict[str, Any]]]:
@@ -132,10 +102,10 @@ def _format_overview_section(
     if other_runs:
         orca_parts.append(f"❓ other {len(other_runs)}")
 
-    workflow_counts = Counter(_normalize_text(item.get("status")).lower() or "unknown" for item in workflow_summaries)
+    workflow_counts = Counter(normalize_workflow_status(item.get("status")) or "unknown" for item in workflow_summaries)
     workflow_parts = [
         f"{_workflow_status_icon(status)} {status} {workflow_counts[status]}"
-        for status in _WORKFLOW_STATUS_ORDER
+        for status in WORKFLOW_STATUS_ORDER
         if workflow_counts.get(status)
     ]
 
@@ -156,8 +126,8 @@ def _format_overview_section(
 def _workflow_detail_block(summary: dict[str, Any]) -> str:
     workflow_id = _normalize_text(summary.get("workflow_id")) or "-"
     template = _workflow_template_label(summary.get("template_name"))
-    status = _normalize_text(summary.get("status")).lower() or "unknown"
-    current_stage = _select_current_stage(summary)
+    status = normalize_workflow_status(summary.get("status")) or "unknown"
+    current_stage = select_current_stage(summary.get("stage_summaries") or [])
     current_engine = _normalize_text(current_stage.get("engine")) or "workflow"
     current_task = _normalize_text(current_stage.get("task_kind")) or _normalize_text(current_stage.get("stage_kind")) or "-"
     current_stage_id = _normalize_text(current_stage.get("stage_id"))
@@ -188,7 +158,7 @@ def _workflow_detail_block(summary: dict[str, Any]) -> str:
 
 
 def _format_active_workflows_section(workflow_summaries: list[dict[str, Any]]) -> str | None:
-    active = [item for item in workflow_summaries if _normalize_text(item.get("status")).lower() in _WORKFLOW_ACTIVE_STATUSES]
+    active = [item for item in workflow_summaries if workflow_status_is_active(item.get("status"))]
     if not active:
         return None
 
@@ -200,9 +170,7 @@ def _format_active_workflows_section(workflow_summaries: list[dict[str, Any]]) -
 
 
 def _format_attention_workflows_section(workflow_summaries: list[dict[str, Any]]) -> str | None:
-    attention = [
-        item for item in workflow_summaries if _normalize_text(item.get("status")).lower() in _WORKFLOW_ATTENTION_STATUSES
-    ]
+    attention = [item for item in workflow_summaries if workflow_status_needs_attention(item.get("status"))]
     if not attention:
         return None
 

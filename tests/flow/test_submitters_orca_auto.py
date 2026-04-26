@@ -396,7 +396,7 @@ def test_submit_reaction_ts_search_workflow_updates_skip_failure_and_submit_bran
     assert result == {
         "workflow_id": "wf_submit",
         "workspace_dir": str(workspace_dir),
-        "status": "partially_submitted",
+        "status": "queued",
         "submitted": [
             {
                 "stage_id": "submit_stage",
@@ -439,8 +439,9 @@ def test_submit_reaction_ts_search_workflow_updates_skip_failure_and_submit_bran
 
     assert skip_stage["task"]["submission_result"] == {"status": "submitted"}
 
-    assert saved_payload["status"] == "partially_submitted"
+    assert saved_payload["status"] == "queued"
     assert saved_payload["metadata"]["submission_summary"] == {
+        "status": "partially_submitted",
         "submitted_count": 1,
         "skipped_count": 1,
         "failed_count": 1,

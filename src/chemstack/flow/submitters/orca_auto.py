@@ -137,6 +137,144 @@ def cancel_target(
     }
 
 
+def _ensure_submission_metadata(stage: dict[str, Any], task: dict[str, Any]) -> dict[str, Any]:
+    metadata = task.get("metadata")
+    if not isinstance(metadata, dict):
+        task["metadata"] = {}
+    stage_metadata = stage.get("metadata")
+    if not isinstance(stage_metadata, dict):
+        stage_metadata = {}
+        stage["metadata"] = stage_metadata
+    return stage_metadata
+
+
+def _skip_submission_reason(
+    *,
+    stage: dict[str, Any],
+    task: dict[str, Any],
+    skip_submitted: bool,
+) -> str:
+    if not skip_submitted:
+        return ""
+    existing_submission = task.get("submission_result")
+    task_status = _normalize_text(task.get("status")).lower()
+    stage_status = _normalize_text(stage.get("status")).lower()
+    if (
+        (isinstance(existing_submission, dict) and existing_submission.get("status") == "submitted")
+        or task_status == "submitted"
+        or stage_status in {"submitted", "queued"}
+    ):
+        return "already_submitted"
+    return ""
+
+
+def _submission_resource_kwargs(enqueue_payload: dict[str, Any]) -> dict[str, int]:
+    resource_kwargs: dict[str, int] = {}
+    max_cores = int(enqueue_payload.get("max_cores", 0) or 0)
+    max_memory_gb = int(enqueue_payload.get("max_memory_gb", 0) or 0)
+    if max_cores > 0:
+        resource_kwargs["max_cores"] = max_cores
+    if max_memory_gb > 0:
+        resource_kwargs["max_memory_gb"] = max_memory_gb
+    return resource_kwargs
+
+
+def _record_missing_reaction_dir(
+    *,
+    stage: dict[str, Any],
+    task: dict[str, Any],
+    stage_metadata: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    submission_record = {
+        "status": "failed",
+        "reason": "missing_reaction_dir",
+        "submitted_at": now_utc_iso(),
+    }
+    stage_id = stage.get("stage_id", "")
+    task["status"] = "submission_failed"
+    task["submission_result"] = submission_record
+    stage["status"] = "submission_failed"
+    stage_metadata["submission_status"] = "submission_failed"
+    stage_metadata["submitted_at"] = submission_record["submitted_at"]
+    return (
+        {"stage_id": stage_id, "reason": "missing_reaction_dir"},
+        {"stage_id": stage_id, "status": "submission_failed", "reason": "missing_reaction_dir"},
+    )
+
+
+def _record_submission_outcome(
+    *,
+    stage: dict[str, Any],
+    task: dict[str, Any],
+    stage_metadata: dict[str, Any],
+    reaction_dir: str,
+    submission_record: dict[str, Any],
+) -> tuple[str, dict[str, Any], dict[str, Any]]:
+    stage_id = stage.get("stage_id", "")
+    stdout_payload = _mapping_payload(submission_record.get("parsed_stdout"))
+    returncode = int(submission_record.get("returncode", 1))
+    submission_record["submitted_at"] = now_utc_iso()
+    task["submission_result"] = submission_record
+
+    if submission_record["status"] == "submitted":
+        task["status"] = "submitted"
+        stage["status"] = "queued"
+        stage_metadata["queue_id"] = stdout_payload.get("queue_id", "")
+        stage_metadata["submission_status"] = "submitted"
+        stage_metadata["submitted_at"] = submission_record["submitted_at"]
+        return (
+            "submitted",
+            {
+                "stage_id": stage_id,
+                "queue_id": stdout_payload.get("queue_id", ""),
+                "reaction_dir": stdout_payload.get("job_dir") or stdout_payload.get("reaction_dir", reaction_dir),
+            },
+            {
+                "stage_id": stage_id,
+                "status": "submitted",
+                "queue_id": stdout_payload.get("queue_id", ""),
+                "returncode": returncode,
+            },
+        )
+
+    task["status"] = "submission_failed"
+    stage["status"] = "submission_failed"
+    stage_metadata["submission_status"] = "submission_failed"
+    stage_metadata["submitted_at"] = submission_record["submitted_at"]
+    return (
+        "failed",
+        {
+            "stage_id": stage_id,
+            "returncode": returncode,
+            "stderr": str(submission_record.get("stderr", "")).strip(),
+            "stdout": str(submission_record.get("stdout", "")).strip(),
+        },
+        {
+            "stage_id": stage_id,
+            "status": "submission_failed",
+            "queue_id": stdout_payload.get("queue_id", ""),
+            "returncode": returncode,
+        },
+    )
+
+
+def _submission_summary_state(
+    *,
+    submitted: list[dict[str, Any]],
+    skipped: list[dict[str, Any]],
+    failed: list[dict[str, Any]],
+) -> tuple[str | None, str]:
+    if failed and submitted:
+        return "queued", "partially_submitted"
+    if failed:
+        return "submission_failed", "submission_failed"
+    if submitted:
+        return "queued", "submitted"
+    if skipped:
+        return None, "skipped"
+    return None, ""
+
+
 def submit_reaction_ts_search_workflow(
     *,
     workflow_target: str,
@@ -162,117 +300,57 @@ def submit_reaction_ts_search_workflow(
         enqueue_payload = task.get("enqueue_payload")
         if not isinstance(enqueue_payload, dict):
             continue
-        metadata = task.get("metadata")
-        if not isinstance(metadata, dict):
-            metadata = {}
-            task["metadata"] = metadata
-        stage_metadata = stage.get("metadata")
-        if not isinstance(stage_metadata, dict):
-            stage_metadata = {}
-            stage["metadata"] = stage_metadata
+        stage_metadata = _ensure_submission_metadata(stage, task)
 
-        existing_submission = task.get("submission_result")
-        task_status = _normalize_text(task.get("status")).lower()
-        stage_status = _normalize_text(stage.get("status")).lower()
-        if skip_submitted and (
-            (isinstance(existing_submission, dict) and existing_submission.get("status") == "submitted")
-            or task_status == "submitted"
-            or stage_status in {"submitted", "queued"}
-        ):
-            skip_record = {"stage_id": stage.get("stage_id", ""), "reason": "already_submitted"}
+        skip_reason = _skip_submission_reason(stage=stage, task=task, skip_submitted=skip_submitted)
+        if skip_reason:
+            skip_record = {"stage_id": stage.get("stage_id", ""), "reason": skip_reason}
             skipped.append(skip_record)
-            stage_results.append({"stage_id": stage.get("stage_id", ""), "status": "skipped", "reason": "already_submitted"})
+            stage_results.append({"stage_id": stage.get("stage_id", ""), "status": "skipped", "reason": skip_reason})
             continue
 
         reaction_dir = _normalize_text(enqueue_payload.get("reaction_dir"))
         priority = int(enqueue_payload.get("priority", 10) or 10)
         if not reaction_dir:
-            submission_record = {
-                "status": "failed",
-                "reason": "missing_reaction_dir",
-                "submitted_at": now_utc_iso(),
-            }
-            task["status"] = "submission_failed"
-            task["submission_result"] = submission_record
-            stage["status"] = "submission_failed"
-            stage_metadata["submission_status"] = "submission_failed"
-            stage_metadata["submitted_at"] = submission_record["submitted_at"]
-            fail_record = {"stage_id": stage.get("stage_id", ""), "reason": "missing_reaction_dir"}
+            fail_record, stage_result = _record_missing_reaction_dir(stage=stage, task=task, stage_metadata=stage_metadata)
             failed.append(fail_record)
-            stage_results.append({"stage_id": stage.get("stage_id", ""), "status": "submission_failed", "reason": "missing_reaction_dir"})
+            stage_results.append(stage_result)
             continue
 
         if _normalize_text(enqueue_payload.get("submitter")) not in {"", *ORCA_SUBMITTERS}:
             continue
-        resource_kwargs: dict[str, Any] = {}
-        max_cores = int(enqueue_payload.get("max_cores", 0) or 0)
-        max_memory_gb = int(enqueue_payload.get("max_memory_gb", 0) or 0)
-        if max_cores > 0:
-            resource_kwargs["max_cores"] = max_cores
-        if max_memory_gb > 0:
-            resource_kwargs["max_memory_gb"] = max_memory_gb
         submission_record = submit_reaction_dir(
             reaction_dir=reaction_dir,
             priority=priority,
             config_path=_normalize_text(orca_auto_config),
             executable=_normalize_text(orca_auto_executable) or CHEMSTACK_EXECUTABLE,
             repo_root=_normalize_text(orca_auto_repo_root) or None,
-            **resource_kwargs,
+            **_submission_resource_kwargs(enqueue_payload),
         )
-        stdout_payload: dict[str, Any] = _mapping_payload(submission_record.get("parsed_stdout"))
-        stderr_text = str(submission_record.get("stderr", "")).strip()
-        submission_record["submitted_at"] = now_utc_iso()
-        task["submission_result"] = submission_record
-        task["status"] = "submitted" if submission_record["status"] == "submitted" else "submission_failed"
-
-        if submission_record["status"] == "submitted":
-            stage["status"] = "queued"
-            stage_metadata["queue_id"] = stdout_payload.get("queue_id", "")
-            stage_metadata["submission_status"] = "submitted"
-            stage_metadata["submitted_at"] = submission_record["submitted_at"]
-            submitted_record = {
-                "stage_id": stage.get("stage_id", ""),
-                "queue_id": stdout_payload.get("queue_id", ""),
-                "reaction_dir": stdout_payload.get("job_dir") or stdout_payload.get("reaction_dir", reaction_dir),
-            }
-            submitted.append(submitted_record)
-            stage_results.append(
-                {
-                    "stage_id": stage.get("stage_id", ""),
-                    "status": "submitted",
-                    "queue_id": stdout_payload.get("queue_id", ""),
-                    "returncode": int(submission_record.get("returncode", 1)),
-                }
-            )
+        outcome, detail_record, stage_result = _record_submission_outcome(
+            stage=stage,
+            task=task,
+            stage_metadata=stage_metadata,
+            reaction_dir=reaction_dir,
+            submission_record=submission_record,
+        )
+        if outcome == "submitted":
+            submitted.append(detail_record)
         else:
-            stage["status"] = "submission_failed"
-            stage_metadata["submission_status"] = "submission_failed"
-            stage_metadata["submitted_at"] = submission_record["submitted_at"]
-            failed_record = {
-                "stage_id": stage.get("stage_id", ""),
-                "returncode": int(submission_record.get("returncode", 1)),
-                "stderr": stderr_text,
-                "stdout": str(submission_record.get("stdout", "")).strip(),
-            }
-            failed.append(failed_record)
-            stage_results.append(
-                {
-                    "stage_id": stage.get("stage_id", ""),
-                    "status": "submission_failed",
-                    "queue_id": stdout_payload.get("queue_id", ""),
-                    "returncode": int(submission_record.get("returncode", 1)),
-                }
-            )
+            failed.append(detail_record)
+        stage_results.append(stage_result)
 
-    if failed and submitted:
-        payload["status"] = "partially_submitted"
-    elif failed:
-        payload["status"] = "submission_failed"
-    elif submitted:
-        payload["status"] = "queued"
+    payload_status, submission_summary_status = _submission_summary_state(
+        submitted=submitted,
+        skipped=skipped,
+        failed=failed,
+    )
+    if payload_status:
+        payload["status"] = payload_status
     payload.setdefault("metadata", {})
     if isinstance(payload["metadata"], dict):
         payload["metadata"]["submission_summary"] = {
+            "status": submission_summary_status,
             "submitted_count": len(submitted),
             "skipped_count": len(skipped),
             "failed_count": len(failed),

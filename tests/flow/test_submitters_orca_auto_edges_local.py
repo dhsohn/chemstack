@@ -57,6 +57,43 @@ def _append_and_return(
     return result
 
 
+def test_ensure_submission_metadata_reuses_existing_mappings() -> None:
+    stage = {"metadata": {"queue_id": "q_existing"}}
+    task = {"metadata": {"note": "keep"}}
+
+    stage_metadata = orca_auto._ensure_submission_metadata(stage, task)
+
+    assert stage_metadata is stage["metadata"]
+    assert stage["metadata"] == {"queue_id": "q_existing"}
+    assert task["metadata"] == {"note": "keep"}
+
+
+@pytest.mark.parametrize(
+    ("submitted", "skipped", "failed", "expected"),
+    [
+        ([{"stage_id": "submit"}], [], [], ("queued", "submitted")),
+        ([], [{"stage_id": "skip"}], [], (None, "skipped")),
+        ([], [], [{"stage_id": "fail"}], ("submission_failed", "submission_failed")),
+        ([{"stage_id": "submit"}], [], [{"stage_id": "fail"}], ("queued", "partially_submitted")),
+        ([], [], [], (None, "")),
+    ],
+)
+def test_submission_summary_state_helper(
+    submitted: list[dict[str, Any]],
+    skipped: list[dict[str, Any]],
+    failed: list[dict[str, Any]],
+    expected: tuple[str | None, str],
+) -> None:
+    assert (
+        orca_auto._submission_summary_state(
+            submitted=submitted,
+            skipped=skipped,
+            failed=failed,
+        )
+        == expected
+    )
+
+
 def test_submit_reaction_ts_search_workflow_covers_continue_and_failed_only_paths(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -170,6 +207,7 @@ def test_submit_reaction_ts_search_workflow_covers_continue_and_failed_only_path
     }
     assert fail_stage["task"]["submission_result"]["submitted_at"] == "2026-04-19T01:00:00+00:00"
     assert saved_payload["metadata"]["submission_summary"] == {
+        "status": "submission_failed",
         "submitted_count": 0,
         "skipped_count": 0,
         "failed_count": 1,
