@@ -122,8 +122,8 @@ class TestListStandaloneRuns(_ListTestBase):
         output = captured.getvalue()
         self.assertIn("rxn1", output)
         self.assertIn("rxn2", output)
-        self.assertIn("completed", output)
-        self.assertIn("running", output)
+        self.assertIn("✅", output)
+        self.assertIn("▶", output)
         self.assertIn("active_simulations: 1", output)
 
     def test_filter(self) -> None:
@@ -216,8 +216,8 @@ class TestListStandaloneRuns(_ListTestBase):
 
         self.assertEqual(rc, 0)
         output = captured.getvalue()
-        self.assertIn("rxn_tracked", output)
-        self.assertIn("completed", output)
+        self.assertIn("run_tracked", output)
+        self.assertIn("✅", output)
         self.assertIn("active_simulations: 0", output)
 
 
@@ -233,7 +233,7 @@ class TestListQueueEntries(_ListTestBase):
 
             rxn_dir = allowed / "mol_A"
             rxn_dir.mkdir()
-            enqueue(allowed, str(rxn_dir))
+            entry = enqueue(allowed, str(rxn_dir))
 
             captured = io.StringIO()
             with patch("sys.stdout", captured):
@@ -242,8 +242,9 @@ class TestListQueueEntries(_ListTestBase):
         self.assertEqual(rc, 0)
         output = captured.getvalue()
         self.assertIn("active_simulations: 0", output)
-        self.assertIn("mol_A", output)
-        self.assertIn("kind=job engine=orca status=pending", output)
+        self.assertIn(entry["queue_id"], output)
+        self.assertIn("orca_run_inp", output)
+        self.assertIn("⏳", output)
 
     def test_filter_pending(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -254,7 +255,7 @@ class TestListQueueEntries(_ListTestBase):
 
             rxn_a = allowed / "mol_A"
             rxn_a.mkdir()
-            enqueue(allowed, str(rxn_a))
+            entry = enqueue(allowed, str(rxn_a))
             # Also add a standalone completed run
             self._make_run(allowed / "rxn_done", status="completed")
 
@@ -264,7 +265,8 @@ class TestListQueueEntries(_ListTestBase):
 
         self.assertEqual(rc, 0)
         output = captured.getvalue()
-        self.assertIn("mol_A", output)
+        self.assertIn(entry["queue_id"], output)
+        self.assertIn("orca_run_inp", output)
         self.assertNotIn("rxn_done", output)
 
     def test_queue_with_run_state(self) -> None:
@@ -277,7 +279,7 @@ class TestListQueueEntries(_ListTestBase):
 
             rxn_dir = allowed / "mol_A"
             rxn_dir.mkdir()
-            enqueue(allowed, str(rxn_dir))
+            entry = enqueue(allowed, str(rxn_dir))
             # Create a run_state for the same directory
             self._make_run(rxn_dir, status="running",
                            started_at="2026-03-02T00:00:00+00:00",
@@ -289,9 +291,10 @@ class TestListQueueEntries(_ListTestBase):
 
         self.assertEqual(rc, 0)
         output = captured.getvalue()
-        self.assertIn("mol_A", output)
+        self.assertIn(entry["queue_id"], output)
         self.assertIn("active_simulations: 0", output)
-        self.assertIn("status=pending", output)
+        self.assertIn("orca_run_inp", output)
+        self.assertIn("⏳", output)
 
     def test_active_queue_entry_with_null_run_id_is_not_duplicated(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -387,8 +390,8 @@ class TestListQueueEntries(_ListTestBase):
         self.assertEqual(rc, 0)
         output = captured.getvalue()
         self.assertIn(entry["queue_id"], output)
-        self.assertIn("completed", output)
-        self.assertNotIn("running", output)
+        self.assertIn("✅", output)
+        self.assertNotIn("▶", output)
 
 
 class TestListClear(_ListTestBase):

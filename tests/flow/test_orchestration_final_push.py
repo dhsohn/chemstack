@@ -573,7 +573,7 @@ def test_advance_workflow_routes_template_specific_appenders(
     calls: list[str] = []
 
     monkeypatch.setattr(orchestration, "resolve_workflow_workspace", lambda target, workflow_root: tmp_path / "workspace")
-    monkeypatch.setattr(orchestration, "acquire_workflow_lock", lambda workspace_dir: nullcontext())
+    monkeypatch.setattr(orchestration, "acquire_workflow_lock", lambda workspace_dir, timeout_seconds=5.0: nullcontext())
     monkeypatch.setattr(orchestration, "load_workflow_payload", lambda workspace_dir: deepcopy(payload))
     monkeypatch.setattr(orchestration, "_workflow_sync_only", lambda current_payload: False)
     def record_sync_crest(stage: dict[str, Any], **kwargs: object) -> None:
@@ -628,7 +628,7 @@ def test_cancel_materialized_workflow_skips_invalid_rows_and_uses_xtb_remote_can
     }
 
     monkeypatch.setattr(orchestration, "resolve_workflow_workspace", lambda target, workflow_root: tmp_path / "workspace")
-    monkeypatch.setattr(orchestration, "acquire_workflow_lock", lambda workspace_dir: nullcontext())
+    monkeypatch.setattr(orchestration, "acquire_workflow_lock", lambda workspace_dir, timeout_seconds=5.0: nullcontext())
     monkeypatch.setattr(orchestration, "load_workflow_payload", lambda workspace_dir: payload)
     monkeypatch.setattr(orchestration, "xtb_cancel_target", lambda **kwargs: {"status": "cancel_requested", "queue_id": kwargs["target"]})
     monkeypatch.setattr(orchestration, "write_workflow_payload", lambda workspace_dir, current_payload: None)
