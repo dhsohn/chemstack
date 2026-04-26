@@ -18,7 +18,8 @@ WORKFLOW_REGISTRY_FILE_NAME = "workflow_registry.json"
 WORKFLOW_REGISTRY_LOCK_NAME = "workflow_registry.lock"
 WORKFLOW_JOURNAL_FILE_NAME = "workflow_registry.journal.jsonl"
 WORKFLOW_WORKER_STATE_FILE_NAME = "workflow_worker_state.json"
-_TERMINAL_WORKFLOW_STATUSES = frozenset({"completed", "failed", "cancelled", "cancel_failed"})
+WORKFLOW_REGISTRY_CLEARED_FILE_NAME = "workflow_registry_cleared.json"
+_TERMINAL_WORKFLOW_STATUSES = frozenset({"completed", "failed", "cancelled", "cancel_failed", "submission_failed"})
 DEFAULT_NOTIFICATION_EVENT_TYPES = frozenset(
     {
         "workflow_status_changed",
@@ -138,6 +139,11 @@ def workflow_journal_path(workflow_root: str | Path) -> Path:
 def workflow_worker_state_path(workflow_root: str | Path) -> Path:
     root = Path(workflow_root).expanduser().resolve()
     return root / WORKFLOW_WORKER_STATE_FILE_NAME
+
+
+def _cleared_path(workflow_root: str | Path) -> Path:
+    root = Path(workflow_root).expanduser().resolve()
+    return root / WORKFLOW_REGISTRY_CLEARED_FILE_NAME
 
 
 def _coerce_mapping(value: Any) -> dict[str, Any]:
@@ -377,6 +383,128 @@ def _save_records(workflow_root: str | Path, records: list[WorkflowRegistryRecor
     )
 
 
+def _normal_path_key(value: str) -> str:
+    text = _normalize_text(value)
+    if not text:
+        return ""
+    try:
+        return str(Path(text).expanduser().resolve())
+    except OSError:
+        return text
+
+
+def _cleared_record_keys(record: WorkflowRegistryRecord) -> set[str]:
+    keys = {_normalize_text(record.workflow_id)}
+    keys.add(_normal_path_key(record.workspace_dir))
+    keys.add(_normal_path_key(record.workflow_file))
+    return {key for key in keys if key}
+
+
+def _load_cleared_markers(workflow_root: str | Path) -> list[dict[str, Any]]:
+    path = _cleared_path(workflow_root)
+    if not path.exists():
+        return []
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+    if not isinstance(raw, list):
+        return []
+    return [_coerce_mapping(item) for item in raw if isinstance(item, dict)]
+
+
+def _save_cleared_markers(workflow_root: str | Path, markers: list[dict[str, Any]]) -> None:
+    atomic_write_json(_cleared_path(workflow_root), markers, ensure_ascii=True, indent=2)
+
+
+def _marker_keys(marker: dict[str, Any]) -> set[str]:
+    keys = {_normalize_text(marker.get("workflow_id"))}
+    keys.add(_normal_path_key(_normalize_text(marker.get("workspace_dir"))))
+    keys.add(_normal_path_key(_normalize_text(marker.get("workflow_file"))))
+    return {key for key in keys if key}
+
+
+def _cleared_marker_identity(marker: dict[str, Any]) -> str:
+    return (
+        _normalize_text(marker.get("workflow_id"))
+        or _normal_path_key(_normalize_text(marker.get("workspace_dir")))
+        or _normal_path_key(_normalize_text(marker.get("workflow_file")))
+    )
+
+
+def _record_clear_identity(record: WorkflowRegistryRecord) -> str:
+    return (
+        _normalize_text(record.workflow_id)
+        or _normal_path_key(record.workspace_dir)
+        or _normal_path_key(record.workflow_file)
+    )
+
+
+def _record_matches_cleared_marker(record: WorkflowRegistryRecord, markers: list[dict[str, Any]]) -> bool:
+    keys = _cleared_record_keys(record)
+    return any(keys & _marker_keys(marker) for marker in markers)
+
+
+def _record_is_clearable_terminal(record: WorkflowRegistryRecord, statuses: set[str] | frozenset[str] | None = None) -> bool:
+    target_statuses = {
+        _normalize_text(status).lower()
+        for status in (statuses or _TERMINAL_WORKFLOW_STATUSES)
+        if _normalize_text(status)
+    }
+    return _normalize_text(record.status).lower() in target_statuses
+
+
+def _remove_matching_cleared_markers(
+    markers: list[dict[str, Any]],
+    record: WorkflowRegistryRecord,
+) -> tuple[list[dict[str, Any]], bool]:
+    keys = _cleared_record_keys(record)
+    kept = [marker for marker in markers if not keys & _marker_keys(marker)]
+    return kept, len(kept) != len(markers)
+
+
+def _add_cleared_markers(
+    markers: list[dict[str, Any]],
+    records: list[WorkflowRegistryRecord],
+    *,
+    cleared_at: str,
+) -> tuple[list[dict[str, Any]], bool]:
+    by_key: dict[str, dict[str, Any]] = {}
+    for marker in markers:
+        marker_key = _cleared_marker_identity(marker)
+        if not marker_key:
+            continue
+        by_key[marker_key] = marker
+
+    changed = False
+    for record in records:
+        marker = {
+            "workflow_id": _normalize_text(record.workflow_id),
+            "status": _normalize_text(record.status).lower(),
+            "workspace_dir": _normal_path_key(record.workspace_dir),
+            "workflow_file": _normal_path_key(record.workflow_file),
+            "cleared_at": cleared_at,
+        }
+        key = _record_clear_identity(record)
+        if not key:
+            continue
+        if by_key.get(key) != marker:
+            changed = True
+        by_key[key] = marker
+    return list(by_key.values()), changed
+
+
+def _filter_cleared_terminal_records(
+    records: list[WorkflowRegistryRecord],
+    markers: list[dict[str, Any]],
+) -> list[WorkflowRegistryRecord]:
+    return [
+        record
+        for record in records
+        if not (_record_is_clearable_terminal(record) and _record_matches_cleared_marker(record, markers))
+    ]
+
+
 def append_workflow_journal_event(
     workflow_root: str | Path,
     *,
@@ -501,6 +629,16 @@ def upsert_workflow_registry_record(workflow_root: str | Path, record: WorkflowR
     resolved_root = Path(workflow_root).expanduser().resolve()
     resolved_root.mkdir(parents=True, exist_ok=True)
     with file_lock(_registry_lock_path(resolved_root)):
+        cleared_markers = _load_cleared_markers(resolved_root)
+        is_clearable_terminal = _record_is_clearable_terminal(record)
+        matches_cleared_marker = _record_matches_cleared_marker(record, cleared_markers)
+        if is_clearable_terminal and matches_cleared_marker:
+            return record
+        if not is_clearable_terminal and matches_cleared_marker:
+            cleared_markers, removed_marker = _remove_matching_cleared_markers(cleared_markers, record)
+            if removed_marker:
+                _save_cleared_markers(resolved_root, cleared_markers)
+
         records = _load_records(resolved_root)
         updated = False
         for index, existing in enumerate(records):
@@ -535,6 +673,16 @@ def reindex_workflow_registry(workflow_root: str | Path) -> list[WorkflowRegistr
         records.append(_record_from_summary(summary))
     records.sort(key=lambda item: (item.requested_at, item.workflow_id), reverse=True)
     with file_lock(_registry_lock_path(root)):
+        cleared_markers = _load_cleared_markers(root)
+        markers_changed = False
+        for record in records:
+            if _record_is_clearable_terminal(record) or not _record_matches_cleared_marker(record, cleared_markers):
+                continue
+            cleared_markers, removed_marker = _remove_matching_cleared_markers(cleared_markers, record)
+            markers_changed = markers_changed or removed_marker
+        records = _filter_cleared_terminal_records(records, cleared_markers)
+        if markers_changed:
+            _save_cleared_markers(root, cleared_markers)
         _save_records(root, records)
     return records
 
@@ -569,8 +717,9 @@ def clear_terminal_workflow_registry(
     statuses: set[str] | frozenset[str] | None = None,
 ) -> int:
     resolved_root = Path(workflow_root).expanduser().resolve()
+    resolved_root.mkdir(parents=True, exist_ok=True)
     if not _registry_path(resolved_root).exists():
-        return 0
+        reindex_workflow_registry(resolved_root)
 
     target_statuses = {
         _normalize_text(status).lower()
@@ -582,6 +731,11 @@ def clear_terminal_workflow_registry(
 
     with file_lock(_registry_lock_path(resolved_root)):
         records = _load_records(resolved_root)
+        removed_records = [
+            record
+            for record in records
+            if _normalize_text(record.status).lower() in target_statuses
+        ]
         kept_records = [
             record
             for record in records
@@ -589,6 +743,13 @@ def clear_terminal_workflow_registry(
         ]
         removed_count = len(records) - len(kept_records)
         if removed_count > 0:
+            markers, markers_changed = _add_cleared_markers(
+                _load_cleared_markers(resolved_root),
+                removed_records,
+                cleared_at=now_utc_iso(),
+            )
+            if markers_changed:
+                _save_cleared_markers(resolved_root, markers)
             _save_records(resolved_root, kept_records)
         return removed_count
 

@@ -345,6 +345,102 @@ def test_clear_terminal_workflow_registry_removes_only_terminal_rows(
     assert registry.clear_terminal_workflow_registry(tmp_path) == 0
 
 
+def test_clear_terminal_workflow_registry_prevents_reindex_resurrection(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(registry, "file_lock", _no_lock)
+    monkeypatch.setattr(registry, "now_utc_iso", lambda: "2026-04-19T00:20:00+00:00")
+
+    completed_workspace = tmp_path / "wf-completed"
+    running_workspace = tmp_path / "wf-running"
+    completed_workspace.mkdir()
+    running_workspace.mkdir()
+    completed_payload = {
+        "workflow_id": "wf-completed",
+        "template_name": "reaction_ts_search",
+        "status": "completed",
+        "source_job_id": "job-1",
+        "source_job_type": "reaction_ts_search",
+        "reaction_key": "rxn-1",
+        "requested_at": "2026-04-19T00:00:00+00:00",
+        "stages": [],
+        "metadata": {},
+    }
+    (completed_workspace / "workflow.json").write_text(json.dumps(completed_payload), encoding="utf-8")
+    (running_workspace / "workflow.json").write_text(
+        json.dumps(
+            {
+                "workflow_id": "wf-running",
+                "template_name": "reaction_ts_search",
+                "status": "running",
+                "source_job_id": "job-2",
+                "source_job_type": "reaction_ts_search",
+                "reaction_key": "rxn-2",
+                "requested_at": "2026-04-19T00:01:00+00:00",
+                "stages": [],
+                "metadata": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert registry.clear_terminal_workflow_registry(tmp_path) == 1
+    assert [record.workflow_id for record in registry.list_workflow_registry(tmp_path, reindex_if_missing=False)] == [
+        "wf-running"
+    ]
+
+    reindexed = registry.reindex_workflow_registry(tmp_path)
+    assert [record.workflow_id for record in reindexed] == ["wf-running"]
+
+    completed_payload["status"] = "running"
+    (completed_workspace / "workflow.json").write_text(json.dumps(completed_payload), encoding="utf-8")
+    assert {record.workflow_id for record in registry.reindex_workflow_registry(tmp_path)} == {
+        "wf-completed",
+        "wf-running",
+    }
+
+    completed_payload["status"] = "completed"
+    (completed_workspace / "workflow.json").write_text(json.dumps(completed_payload), encoding="utf-8")
+    assert {record.workflow_id for record in registry.reindex_workflow_registry(tmp_path)} == {
+        "wf-completed",
+        "wf-running",
+    }
+
+
+def test_sync_skips_cleared_terminal_workflow_until_it_becomes_active(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(registry, "file_lock", _no_lock)
+    monkeypatch.setattr(registry, "now_utc_iso", lambda: "2026-04-19T00:20:00+00:00")
+
+    workspace = tmp_path / "wf-completed"
+    workspace.mkdir()
+    terminal_payload = {
+        "workflow_id": "wf-completed",
+        "template_name": "reaction_ts_search",
+        "status": "completed",
+        "source_job_id": "job-1",
+        "source_job_type": "reaction_ts_search",
+        "reaction_key": "rxn-1",
+        "requested_at": "2026-04-19T00:00:00+00:00",
+        "stages": [],
+        "metadata": {},
+    }
+    (workspace / "workflow.json").write_text(json.dumps(terminal_payload), encoding="utf-8")
+
+    assert registry.clear_terminal_workflow_registry(tmp_path) == 1
+    registry.sync_workflow_registry(tmp_path, workspace, terminal_payload)
+    assert registry.list_workflow_registry(tmp_path, reindex_if_missing=False) == []
+
+    active_payload = dict(terminal_payload)
+    active_payload["status"] = "running"
+    registry.sync_workflow_registry(tmp_path, workspace, active_payload)
+    records = registry.list_workflow_registry(tmp_path, reindex_if_missing=False)
+    assert [(record.workflow_id, record.status) for record in records] == [("wf-completed", "running")]
+
+
 def test_list_workflow_registry_does_not_reindex_valid_empty_registry(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
