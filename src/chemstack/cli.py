@@ -392,11 +392,14 @@ def _queue_task_label(task_kind: Any) -> str:
 
 
 def _infer_orca_detail_from_metadata(metadata: dict[str, Any]) -> str:
-    task_label = _queue_task_label(metadata.get("task_kind"))
-    if task_label:
+    task_kind = normalize_text(metadata.get("task_kind")).lower()
+    task_label = _queue_task_label(task_kind)
+    if task_label and task_kind not in {"orca_run_inp", "run_inp"}:
         return task_label
-    job_type_label = _queue_task_label(metadata.get("job_type"))
-    if job_type_label:
+
+    job_type = normalize_text(metadata.get("job_type")).lower()
+    job_type_label = _queue_task_label(job_type)
+    if job_type_label and job_type not in {"other", "unknown"}:
         return job_type_label
     selected_inp_name = normalize_text(metadata.get("selected_inp_name") or metadata.get("selected_inp"))
     lowered = selected_inp_name.lower()
@@ -438,6 +441,59 @@ def _queue_detail_text(item: dict[str, Any]) -> str:
     if engine == "orca":
         return _infer_orca_detail_from_metadata(metadata)
     return normalize_text(item.get("label")) or normalize_text(item.get("source")) or "-"
+
+
+def _queue_looks_like_path(value: str) -> bool:
+    text = normalize_text(value)
+    return "/" in text or "\\" in text
+
+
+def _queue_path_name(value: Any) -> str:
+    text = normalize_text(value)
+    if not text:
+        return ""
+    normalized = text.replace("\\", "/").rstrip("/")
+    if not normalized:
+        return ""
+    return normalized.rsplit("/", 1)[-1]
+
+
+def _queue_metadata_path_name(metadata: dict[str, Any], keys: Sequence[str]) -> str:
+    for key in keys:
+        name = _queue_path_name(metadata.get(key))
+        if name and name not in {"reaction_dir", "workflow.json"}:
+            return name
+    return ""
+
+
+def _queue_name_text(item: dict[str, Any]) -> str:
+    activity_id = normalize_text(item.get("activity_id")) or "-"
+    kind = normalize_text(item.get("kind")).lower()
+    label = normalize_text(item.get("label"))
+    metadata = item.get("metadata")
+    metadata = metadata if isinstance(metadata, dict) else {}
+
+    if label and not _queue_looks_like_path(label):
+        return label
+
+    if kind == "workflow":
+        workspace_name = _queue_metadata_path_name(metadata, ("workspace_dir", "workflow_file"))
+        if workspace_name:
+            return workspace_name
+        return activity_id
+
+    path_name = _queue_metadata_path_name(
+        metadata,
+        ("reaction_dir", "job_dir", "original_run_dir", "latest_known_path", "organized_output_dir"),
+    )
+    if path_name:
+        return path_name
+
+    label_name = _queue_path_name(label)
+    if label_name and label_name not in {"reaction_dir", "workflow.json"}:
+        return label_name
+
+    return activity_id
 
 
 def _queue_truncate(value: str, *, max_width: int) -> str:
@@ -494,21 +550,24 @@ def _queue_table_lines(rows: Sequence[tuple[int, dict[str, Any]]]) -> list[str]:
     prepared: list[dict[str, str]] = []
     now = _queue_table_now()
     for indent, item in rows:
-        job_id = normalize_text(item.get("activity_id")) or "-"
+        name = _queue_name_text(item)
         if int(indent) > 0:
-            job_id = ("  " * int(indent)) + job_id
+            name = ("  " * int(indent)) + name
+        item_id = normalize_text(item.get("activity_id")) or "-"
         prepared.append(
             {
                 "status": _queue_status_icon(item),
-                "job_id": job_id,
+                "name": name,
                 "detail": _queue_detail_text(item),
+                "id": item_id,
                 "elapsed": _queue_elapsed_text(item, now=now),
             }
         )
 
     status_header = "Status"
-    job_id_header = "Job ID"
+    name_header = "Name"
     detail_header = "Detail"
+    id_header = "ID"
     elapsed_header = "Elapsed"
 
     detail_width = max(
@@ -522,24 +581,33 @@ def _queue_table_lines(rows: Sequence[tuple[int, dict[str, Any]]]) -> list[str]:
         _queue_display_width(status_header),
         max((_queue_display_width(row["status"]) for row in prepared), default=0),
     )
-    job_id_width = max(
-        _queue_display_width(job_id_header),
-        max((_queue_display_width(row["job_id"]) for row in prepared), default=0),
+    name_width = max(
+        _queue_display_width(name_header),
+        min(
+            32,
+            max((_queue_display_width(row["name"]) for row in prepared), default=0),
+        ),
+    )
+    id_width = max(
+        _queue_display_width(id_header),
+        max((_queue_display_width(row["id"]) for row in prepared), default=0),
     )
     elapsed_width = max(_queue_display_width(elapsed_header), 8)
 
     lines = [
         f"{_queue_pad_right(status_header, status_width)}  "
-        f"{_queue_pad_right(job_id_header, job_id_width)}  "
+        f"{_queue_pad_right(name_header, name_width)}  "
         f"{_queue_pad_right(detail_header, detail_width)}  "
+        f"{_queue_pad_right(id_header, id_width)}  "
         f"{_queue_pad_right(elapsed_header, elapsed_width)}",
-        "─" * (status_width + job_id_width + detail_width + elapsed_width + 6),
+        "─" * (status_width + name_width + detail_width + id_width + elapsed_width + 8),
     ]
     for row in prepared:
         lines.append(
             f"{_queue_pad_right(row['status'], status_width)}  "
-            f"{_queue_pad_right(row['job_id'], job_id_width)}  "
+            f"{_queue_pad_right(_queue_truncate(row['name'], max_width=name_width), name_width)}  "
             f"{_queue_pad_right(_queue_truncate(row['detail'], max_width=detail_width), detail_width)}  "
+            f"{_queue_pad_right(row['id'], id_width)}  "
             f"{_queue_pad_right(row['elapsed'], elapsed_width)}"
         )
     return lines

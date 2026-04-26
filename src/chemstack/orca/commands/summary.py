@@ -6,6 +6,7 @@ import re
 import subprocess
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from html import unescape
 from pathlib import Path
 from typing import Any
 
@@ -30,6 +31,7 @@ _MAX_CYCLES_RE = re.compile(r"Max\.\s+no of cycles\s+MaxIter\s+\.\.\.\.\s+(\d+)"
 _MAX_PROGRESS_FILE_BYTES = 128 * 1024 * 1024
 _RUNNING_SHOW_LIMIT = 8
 _ATTENTION_SHOW_LIMIT = 8
+_HTML_TAG_RE = re.compile(r"</?(?:b|code|pre)>")
 
 
 @dataclass
@@ -285,7 +287,7 @@ def _format_overview_section(
     active: list[RunSnapshot],
     failed: list[RunSnapshot],
     other: list[RunSnapshot],
-    orca_proc_count: int,
+    active_simulations: int,
 ) -> str:
     running_count = sum(1 for snapshot in active if snapshot.status == "running")
     retrying_count = sum(1 for snapshot in active if snapshot.status == "retrying")
@@ -301,8 +303,8 @@ def _format_overview_section(
         parts.append(f"\u2753 other {len(other)}")
 
     summary_line = " | ".join(parts) if parts else "No active or attention-needed runs"
-    proc_line = f"\U0001f5a5 Active ORCA processes: {orca_proc_count}"
-    return f"\U0001f4ca <b>Current State</b>\n{summary_line}\n{proc_line}"
+    active_line = f"\U0001f517 Active simulations: {active_simulations}"
+    return f"\U0001f4ca <b>Current State</b>\n{summary_line}\n{active_line}"
 
 
 def _format_running_section(
@@ -402,11 +404,9 @@ def _build_summary_message(cfg: AppConfig) -> str:
         "Current-state digest only. Active runs and current blockers are shown; completed history is omitted."
     )
 
-    orca_proc_count = _count_active_orca_processes(cfg.paths.orca_executable)
-
     sections: list[str] = [header, divider]
     sections.append(scope)
-    sections.append(_format_overview_section(active, failed, other, orca_proc_count))
+    sections.append(_format_overview_section(active, failed, other, len(active)))
 
     running = _format_running_section(active, process_counts)
     if running:
@@ -421,9 +421,13 @@ def _build_summary_message(cfg: AppConfig) -> str:
     return "\n\n".join(sections)
 
 
+def _html_to_plain_text(message: str) -> str:
+    return unescape(_HTML_TAG_RE.sub("", message))
+
+
 def _run_summary(cfg: AppConfig, *, send: bool = True) -> int:
     summary_message = _build_summary_message(cfg)
-    print(summary_message)
+    print(_html_to_plain_text(summary_message))
 
     if not send:
         return 0

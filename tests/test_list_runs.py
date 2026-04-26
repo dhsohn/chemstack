@@ -243,7 +243,7 @@ class TestListQueueEntries(_ListTestBase):
         output = captured.getvalue()
         self.assertIn("active_simulations: 0", output)
         self.assertIn(entry["queue_id"], output)
-        self.assertIn("orca_run_inp", output)
+        self.assertIn("ORCA", output)
         self.assertIn("⏳", output)
 
     def test_filter_pending(self) -> None:
@@ -266,7 +266,7 @@ class TestListQueueEntries(_ListTestBase):
         self.assertEqual(rc, 0)
         output = captured.getvalue()
         self.assertIn(entry["queue_id"], output)
-        self.assertIn("orca_run_inp", output)
+        self.assertIn("ORCA", output)
         self.assertNotIn("rxn_done", output)
 
     def test_queue_with_run_state(self) -> None:
@@ -293,7 +293,7 @@ class TestListQueueEntries(_ListTestBase):
         output = captured.getvalue()
         self.assertIn(entry["queue_id"], output)
         self.assertIn("active_simulations: 0", output)
-        self.assertIn("orca_run_inp", output)
+        self.assertIn("ORCA", output)
         self.assertIn("⏳", output)
 
     def test_active_queue_entry_with_null_run_id_is_not_duplicated(self) -> None:

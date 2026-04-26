@@ -716,7 +716,7 @@ def test_cmd_queue_list_filters_text_output(
     assert result == 0
     stdout = capsys.readouterr().out
     assert "active_simulations: 1" in stdout
-    assert "Status" in stdout and "Job ID" in stdout and "Detail" in stdout and "Elapsed" in stdout
+    assert "Status" in stdout and "Name" in stdout and "Detail" in stdout and "ID" in stdout and "Elapsed" in stdout
     assert "▶" in stdout
     assert "xtb-q-1" in stdout
     assert "TS path" in stdout

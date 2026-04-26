@@ -83,10 +83,10 @@ def _format_overview_section(
     active_runs: list[orca_summary.RunSnapshot],
     failed_runs: list[orca_summary.RunSnapshot],
     other_runs: list[orca_summary.RunSnapshot],
-    orca_proc_count: int,
     active_simulations: int,
     workflow_summaries: list[dict[str, Any]],
     workflow_root: str | None,
+    orca_proc_count: int | None = None,
 ) -> str:
     running_count = sum(1 for snapshot in active_runs if snapshot.status == "running")
     retrying_count = sum(1 for snapshot in active_runs if snapshot.status == "retrying")
@@ -112,7 +112,6 @@ def _format_overview_section(
     lines = [
         "📊 <b>Current State</b>",
         " | ".join(orca_parts) if orca_parts else "No active or attention-needed ORCA runs",
-        f"🖥 Active ORCA processes: {orca_proc_count}",
         f"🔗 Active simulations: {active_simulations}",
     ]
     if workflow_root:
@@ -217,7 +216,6 @@ def _build_summary_message(cfg: AppConfig, *, config_path: str | None) -> str:
             active_runs=active_runs,
             failed_runs=failed_runs,
             other_runs=other_runs,
-            orca_proc_count=orca_summary._count_active_orca_processes(cfg.paths.orca_executable),
             active_simulations=active_simulations,
             workflow_summaries=workflow_summaries,
             workflow_root=workflow_root,
@@ -245,7 +243,7 @@ def _build_summary_message(cfg: AppConfig, *, config_path: str | None) -> str:
 
 def _run_summary(cfg: AppConfig, *, config_path: str | None, send: bool = True) -> int:
     summary_message = _build_summary_message(cfg, config_path=config_path)
-    print(summary_message)
+    print(orca_summary._html_to_plain_text(summary_message))
 
     if not send:
         return 0

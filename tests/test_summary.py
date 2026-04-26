@@ -120,7 +120,8 @@ def test_build_summary_text_focuses_on_current_state_and_attention(tmp_path: Pat
     assert "<b>Current State</b>" in text
     assert "running 1" in text
     assert "failed 1" in text
-    assert "Active ORCA processes: 2" in text
+    assert "Active ORCA processes" not in text
+    assert "Active simulations: 1" in text
     assert "<b>Active Runs</b>" in text
     assert "cycle=12" in text
     assert "E=-123.456789 Eh" in text
@@ -158,4 +159,5 @@ def test_run_summary_no_send_prints_and_returns_zero(tmp_path: Path, capsys) -> 
 
     captured = capsys.readouterr()
     assert rc == 0
-    assert "<b>chemstack summary</b>" in captured.out
+    assert "chemstack summary" in captured.out
+    assert "<b>chemstack summary</b>" not in captured.out

@@ -152,7 +152,7 @@ def test_build_summary_message_includes_workflow_sections(tmp_path: Path) -> Non
     ):
         message = combined_summary._build_summary_message(cfg, config_path="/tmp/chemstack.yaml")
 
-    assert "Active ORCA processes: 7" in message
+    assert "Active ORCA processes" not in message
     assert "Active simulations: 4" in message
     assert "🧭 Workflows:" in message
     assert "▶ running 1" in message
@@ -239,7 +239,7 @@ def test_build_summary_message_uses_active_run_fallback_without_workflow_root(tm
         message = combined_summary._build_summary_message(cfg, config_path=None)
 
     mocked_active_simulations.assert_not_called()
-    assert "🖥 Active ORCA processes: 2" in message
+    assert "Active ORCA processes" not in message
     assert "🔗 Active simulations: 1" in message
     assert "🧭 Workflows:" not in message
 

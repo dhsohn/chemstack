@@ -90,7 +90,7 @@ def test_handle_list_formats_unified_activity_rows(monkeypatch) -> None:
     text = bot._handle_list(_settings(), "")
 
     assert "active_simulations: 2" in text
-    assert "Status" in text and "Job ID" in text and "Detail" in text and "Elapsed" in text
+    assert "Status" in text and "Name" in text and "Detail" in text and "ID" in text and "Elapsed" in text
     assert "wf-a" in text
     assert "ts_search(nci)" in text
     assert "crest-q-1" not in text
