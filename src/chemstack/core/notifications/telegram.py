@@ -4,17 +4,35 @@ import socket
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Protocol
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urlsplit
 from urllib.request import Request, urlopen
-
-from ..config.schema import TelegramConfig
 
 DEFAULT_TELEGRAM_BASE_URL = "https://api.telegram.org"
 DEFAULT_TIMEOUT_SECONDS = 5.0
 DEFAULT_MAX_ATTEMPTS = 2
 DEFAULT_RETRY_BACKOFF_SECONDS = 0.5
+
+
+class TelegramConfigLike(Protocol):
+    @property
+    def bot_token(self) -> str: ...
+
+    @property
+    def chat_id(self) -> str: ...
+
+    @property
+    def timeout_seconds(self) -> float: ...
+
+    @property
+    def max_attempts(self) -> int: ...
+
+    @property
+    def retry_backoff_seconds(self) -> float: ...
+
+    @property
+    def enabled(self) -> bool: ...
 
 
 def _iter_exception_chain(exc: BaseException) -> list[BaseException]:
@@ -84,18 +102,25 @@ def _force_ipv4_resolution(hostname: str):
     target = str(hostname).strip().lower()
     original_getaddrinfo = socket.getaddrinfo
 
-    def _ipv4_only_getaddrinfo(host: str, port: Any, family: int = 0, type: int = 0, proto: int = 0, flags: int = 0):
+    def _ipv4_only_getaddrinfo(
+        host: bytes | str | None,
+        port: bytes | str | int | None,
+        family: int = 0,
+        type: int = 0,
+        proto: int = 0,
+        flags: int = 0,
+    ):
         results = original_getaddrinfo(host, port, family, type, proto, flags)
         if str(host).strip().lower() != target:
             return results
         filtered = [item for item in results if item[0] == socket.AF_INET]
         return filtered or results
 
-    socket.getaddrinfo = _ipv4_only_getaddrinfo
+    setattr(socket, "getaddrinfo", _ipv4_only_getaddrinfo)
     try:
         yield
     finally:
-        socket.getaddrinfo = original_getaddrinfo
+        setattr(socket, "getaddrinfo", original_getaddrinfo)
 
 
 def urlopen_with_ipv4_fallback(request: Request, *, timeout: float):
@@ -123,7 +148,7 @@ class TelegramSendResult:
 
 @dataclass(frozen=True)
 class TelegramTransport:
-    config: TelegramConfig
+    config: TelegramConfigLike
     timeout: float = DEFAULT_TIMEOUT_SECONDS
     max_attempts: int = DEFAULT_MAX_ATTEMPTS
     retry_backoff_seconds: float = DEFAULT_RETRY_BACKOFF_SECONDS
@@ -242,7 +267,7 @@ class TelegramTransport:
 
 
 def build_telegram_transport(
-    config: TelegramConfig,
+    config: TelegramConfigLike,
     *,
     timeout: float | None = None,
     max_attempts: int | None = None,

@@ -362,7 +362,7 @@ def _queue_status_icon(item: dict[str, Any]) -> str:
     return "•"
 
 
-def _queue_template_label(template_name: str) -> str:
+def _queue_template_label(template_name: Any) -> str:
     normalized = normalize_text(template_name).lower()
     return {
         "reaction_ts_search": "ts_search",
@@ -370,7 +370,7 @@ def _queue_template_label(template_name: str) -> str:
     }.get(normalized, normalize_text(template_name) or "workflow")
 
 
-def _queue_task_label(task_kind: str) -> str:
+def _queue_task_label(task_kind: Any) -> str:
     normalized = normalize_text(task_kind).lower()
     return {
         "crest_conformer_search": "conformer_search",

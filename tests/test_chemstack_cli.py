@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 from datetime import datetime, timezone
 import json
 import signal
@@ -1387,7 +1388,7 @@ def test_engine_config_for_command_uses_discovered_shared_config(monkeypatch: py
     monkeypatch.setattr(unified_cli, "_discover_shared_config_path", lambda explicit: "/tmp/chemstack.yaml")
 
     discovered = unified_cli._engine_config_for_command(
-        SimpleNamespace(
+        argparse.Namespace(
             chemstack_config=None,
             config=None,
             global_config=None,
@@ -1411,14 +1412,18 @@ def test_cmd_orca_run_dir_uses_discovered_shared_config(
 
     import chemstack.orca.commands.run_inp as run_inp_cmd
 
+    def _fake_cmd_run_inp(args: argparse.Namespace) -> int:
+        captured.append((getattr(args, "config", None), getattr(args, "path", "")))
+        return 31
+
     monkeypatch.setattr(
         run_inp_cmd,
         "cmd_run_inp",
-        lambda args: captured.append((getattr(args, "config", None), getattr(args, "path", ""))) or 31,
+        _fake_cmd_run_inp,
     )
 
     result = unified_cli.cmd_orca_run_dir(
-        SimpleNamespace(
+        argparse.Namespace(
             path=str(target),
             chemstack_config=None,
             config=None,

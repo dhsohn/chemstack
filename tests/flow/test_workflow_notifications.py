@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from chemstack.core.notifications import TelegramSendResult
 from chemstack.flow import workflow_notifications
@@ -37,7 +38,7 @@ def test_maybe_notify_workflow_phase_summary_sends_crest_summary_once(
     _write_config(config_path)
     transport = _FakeTransport()
     monkeypatch.setattr(workflow_notifications, "build_telegram_transport", lambda _cfg: transport)
-    payload = {
+    payload: dict[str, Any] = {
         "workflow_id": "wf_crest_1",
         "template_name": "reaction_ts_search",
         "metadata": {},
@@ -95,7 +96,7 @@ def test_maybe_notify_workflow_phase_summary_sends_xtb_ready_counts(
     _write_config(config_path)
     transport = _FakeTransport()
     monkeypatch.setattr(workflow_notifications, "build_telegram_transport", lambda _cfg: transport)
-    payload = {
+    payload: dict[str, Any] = {
         "workflow_id": "wf_xtb_1",
         "template_name": "reaction_ts_search",
         "metadata": {},
