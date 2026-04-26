@@ -4,13 +4,11 @@ from __future__ import annotations
 
 import json
 import logging
-import urllib.error
-import urllib.request
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from chemstack.core.notifications.telegram import urlopen_with_ipv4_fallback
+from chemstack.core.notifications import build_telegram_transport
 
 if TYPE_CHECKING:
     from .config import TelegramConfig
@@ -43,36 +41,24 @@ def send_message(
         logger.debug("telegram_notifier_disabled")
         return False
 
-    url = f"{_API_BASE.format(token=config.bot_token)}/sendMessage"
-    payload: dict = {
-        "chat_id": config.chat_id,
-        "text": text[:_MAX_MESSAGE_LENGTH],
-    }
-    if parse_mode:
-        payload["parse_mode"] = parse_mode
-
-    data = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(
-        url,
-        data=data,
-        headers={"Content-Type": "application/json"},
-        method="POST",
+    result = build_telegram_transport(config).send_text(
+        text[:_MAX_MESSAGE_LENGTH],
+        parse_mode=parse_mode,
     )
-
-    try:
-        with urlopen_with_ipv4_fallback(req, timeout=10) as resp:
-            result = json.loads(resp.read().decode("utf-8"))
-            if not result.get("ok"):
-                logger.warning("telegram_send_api_error: %s", result)
-                return False
-            return True
-    except urllib.error.HTTPError as exc:
-        body = exc.read().decode("utf-8", errors="replace") if exc.fp else ""
-        logger.warning("telegram_send_http_error: status=%d body=%s", exc.code, body)
-        return False
-    except Exception as exc:
-        logger.warning("telegram_send_failed: %s", exc)
-        return False
+    if result.sent:
+        return True
+    if result.status_code is not None:
+        logger.warning(
+            "telegram_send_failed: status=%s error=%s body=%s",
+            result.status_code,
+            result.error,
+            result.response_text,
+        )
+    elif result.error:
+        logger.warning("telegram_send_failed: %s", result.error)
+    else:
+        logger.warning("telegram_send_failed: unknown_error")
+    return False
 
 
 def has_monitor_updates(report: ScanReport) -> bool:

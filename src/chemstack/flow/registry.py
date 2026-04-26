@@ -11,6 +11,7 @@ from chemstack.core.config.schema import TelegramConfig
 from chemstack.core.notifications import build_telegram_transport
 from chemstack.core.utils import atomic_write_json, file_lock, now_utc_iso, timestamped_token
 
+from ._workflow_phases import SUPPRESSED_STAGE_NOTIFICATION_ENGINES, WORKFLOW_PHASE_FINISHED_EVENT
 from .state import iter_workflow_workspaces, load_workflow_payload, workflow_summary
 
 WORKFLOW_REGISTRY_FILE_NAME = "workflow_registry.json"
@@ -31,6 +32,7 @@ DEFAULT_NOTIFICATION_EVENT_TYPES = frozenset(
         "workflow_stage_handoff_failed",
         "workflow_stage_status_changed",
         "workflow_stage_reaction_handoff_status_changed",
+        WORKFLOW_PHASE_FINISHED_EVENT,
         "worker_started",
         "worker_stopped",
         "worker_interrupted",
@@ -102,6 +104,20 @@ def _transition_text(previous: str, current: str) -> str:
     if previous_text:
         return previous_text
     return "-"
+
+
+def _format_count_mapping(value: Any) -> str:
+    mapping = _coerce_mapping(value)
+    if not mapping:
+        return "-"
+    parts: list[str] = []
+    for key in sorted(mapping):
+        try:
+            count = int(mapping[key])
+        except (TypeError, ValueError):
+            continue
+        parts.append(f"{_normalize_text(key)}:{count}")
+    return ",".join(parts) if parts else "-"
 
 
 def _registry_path(workflow_root: str | Path) -> Path:
@@ -230,6 +246,28 @@ def _journal_event_message(event: dict[str, Any], workflow_root: str | Path) -> 
         if reason:
             lines.append(f"reason={reason}")
         return "\n".join(lines)
+    if event_type == WORKFLOW_PHASE_FINISHED_EVENT:
+        phase = _event_text(event, metadata, "phase_label", "phase") or "-"
+        lines = [
+            "[chem_flow]",
+            f"workflow={workflow_id}",
+            f"template={template_name}",
+            f"event={event_type}",
+            f"phase={phase}",
+            f"phase_outcome={_event_text(event, metadata, 'phase_outcome', 'status') or '-'}",
+            f"stage_count={_event_text(event, metadata, 'stage_count') or '0'}",
+            f"stage_status_counts={_format_count_mapping(metadata.get('stage_status_counts'))}",
+            f"worker_session={session}",
+        ]
+        handoff_counts = _format_count_mapping(metadata.get("reaction_handoff_status_counts"))
+        if handoff_counts != "-":
+            lines.append(f"reaction_handoff_status_counts={handoff_counts}")
+        failure_reasons = metadata.get("failure_reasons")
+        if isinstance(failure_reasons, list):
+            joined = ",".join(_normalize_text(item) for item in failure_reasons if _normalize_text(item))
+            if joined:
+                lines.append(f"failure_reasons={joined}")
+        return "\n".join(lines)
     if event_type in {"worker_started", "worker_stopped", "worker_interrupted", "worker_lock_error"}:
         return (
             "[chem_flow]\n"
@@ -250,6 +288,12 @@ def _journal_event_message(event: dict[str, Any], workflow_root: str | Path) -> 
 def _maybe_notify_journal_event(event: dict[str, Any], workflow_root: str | Path) -> None:
     event_type = _normalize_text(event.get("event_type"))
     if not _journal_notification_enabled(event_type):
+        return
+    engine = _event_text(event, _coerce_mapping(event.get("metadata")), "engine")
+    if (
+        event_type in STAGE_STATUS_EVENT_TYPES | STAGE_HANDOFF_EVENT_TYPES
+        and engine.lower() in SUPPRESSED_STAGE_NOTIFICATION_ENGINES
+    ):
         return
     transport = _telegram_transport_from_env()
     if transport is None:
@@ -498,9 +542,23 @@ def reindex_workflow_registry(workflow_root: str | Path) -> list[WorkflowRegistr
 def list_workflow_registry(workflow_root: str | Path, *, reindex_if_missing: bool = True) -> list[WorkflowRegistryRecord]:
     resolved_root = Path(workflow_root).expanduser().resolve()
     resolved_root.mkdir(parents=True, exist_ok=True)
+    path = _registry_path(resolved_root)
     with file_lock(_registry_lock_path(resolved_root)):
-        records = _load_records(resolved_root)
-    if records or not reindex_if_missing:
+        if not path.exists():
+            records: list[WorkflowRegistryRecord] = []
+            loaded_valid_list = False
+        else:
+            try:
+                raw = json.loads(path.read_text(encoding="utf-8"))
+            except Exception:
+                raw = None
+            if isinstance(raw, list):
+                records = [_record_from_dict(item) for item in raw if isinstance(item, dict)]
+                loaded_valid_list = True
+            else:
+                records = []
+                loaded_valid_list = False
+    if loaded_valid_list or not reindex_if_missing:
         return records
     return reindex_workflow_registry(resolved_root)
 

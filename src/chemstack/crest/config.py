@@ -67,6 +67,13 @@ def _as_bool(value: Any, default: bool = False) -> bool:
     return default
 
 
+def _as_float(value: Any, default: float) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
 def load_config(config_path: str | None = None) -> AppConfig:
     path = Path(config_path or default_config_path()).expanduser().resolve()
     if not path.exists():
@@ -121,5 +128,11 @@ def load_config(config_path: str | None = None) -> AppConfig:
         telegram=TelegramConfig(
             bot_token=_as_str(telegram_raw.get("bot_token")),
             chat_id=_as_str(telegram_raw.get("chat_id")),
+            timeout_seconds=max(0.1, _as_float(telegram_raw.get("timeout_seconds"), TelegramConfig.timeout_seconds)),
+            max_attempts=max(1, _as_int(telegram_raw.get("max_attempts"), TelegramConfig.max_attempts)),
+            retry_backoff_seconds=max(
+                0.0,
+                _as_float(telegram_raw.get("retry_backoff_seconds"), TelegramConfig.retry_backoff_seconds),
+            ),
         ),
     )

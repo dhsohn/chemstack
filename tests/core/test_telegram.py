@@ -282,5 +282,51 @@ def test_build_telegram_transport_uses_defaults() -> None:
     transport = telegram_mod.build_telegram_transport(config)
 
     assert transport.config is config
-    assert transport.timeout == telegram_mod.DEFAULT_TIMEOUT_SECONDS
+    assert transport.timeout == config.timeout_seconds
+    assert transport.max_attempts == config.max_attempts
+    assert transport.retry_backoff_seconds == config.retry_backoff_seconds
     assert transport.base_url == telegram_mod.DEFAULT_TELEGRAM_BASE_URL
+
+
+def test_timeout_error_is_retried_and_can_succeed(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[tuple[str, float]] = []
+
+    def fake_urlopen(request, timeout):
+        calls.append((request.full_url, timeout))
+        if len(calls) == 1:
+            raise URLError(TimeoutError("timed out"))
+        return _FakeResponse(body='{"ok":true}', status=200)
+
+    monkeypatch.setattr(telegram_mod, "urlopen", fake_urlopen)
+
+    transport = _make_transport(base_url="https://api.telegram.org/")
+
+    result = transport.send_text("hello")
+
+    assert result.sent is True
+    assert len(calls) == 2
+
+
+def test_retryable_http_error_is_retried_and_can_succeed(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[tuple[str, float]] = []
+
+    def fake_urlopen(request, timeout):
+        calls.append((request.full_url, timeout))
+        if len(calls) == 1:
+            raise HTTPError(
+                url=request.full_url,
+                code=503,
+                msg="Service Unavailable",
+                hdrs=None,
+                fp=BytesIO(b"busy"),
+            )
+        return _FakeResponse(body='{"ok":true}', status=200)
+
+    monkeypatch.setattr(telegram_mod, "urlopen", fake_urlopen)
+
+    transport = _make_transport(base_url="https://api.telegram.org/")
+
+    result = transport.send_text("hello")
+
+    assert result.sent is True
+    assert len(calls) == 2

@@ -41,9 +41,12 @@ def test_handle_list_formats_unified_activity_rows(monkeypatch) -> None:
                     "engine": "workflow",
                     "status": "running",
                     "source": "chem_flow",
+                    "submitted_at": "2026-04-26T01:00:00+00:00",
+                    "updated_at": "2026-04-26T01:00:00+00:00",
                     "metadata": {
                         "template_name": "reaction_ts_search",
                         "current_engine": "orca",
+                        "request_parameters": {"crest_mode": "nci"},
                     },
                 },
                 {
@@ -53,7 +56,10 @@ def test_handle_list_formats_unified_activity_rows(monkeypatch) -> None:
                     "engine": "crest",
                     "status": "running",
                     "source": "crest_auto",
+                    "submitted_at": "2026-04-26T01:10:00+00:00",
+                    "updated_at": "2026-04-26T01:10:00+00:00",
                     "metadata": {
+                        "task_kind": "conformer_search",
                         "job_dir": "/tmp/crest/workflow_jobs/wf-a/stage_01_crest",
                     },
                 },
@@ -64,7 +70,10 @@ def test_handle_list_formats_unified_activity_rows(monkeypatch) -> None:
                     "engine": "orca",
                     "status": "running",
                     "source": "chemstack_orca",
+                    "submitted_at": "2026-04-26T01:20:00+00:00",
+                    "updated_at": "2026-04-26T01:20:00+00:00",
                     "metadata": {
+                        "task_kind": "irc",
                         "reaction_dir": "/tmp/orca/standalone/ts-1",
                     },
                 },
@@ -74,14 +83,13 @@ def test_handle_list_formats_unified_activity_rows(monkeypatch) -> None:
 
     text = bot._handle_list(_settings(), "")
 
-    assert "<b>active_simulations</b>: <code>2</code>" in text
-    assert (
-        "- <code>wf-a</code> kind=<code>workflow</code> engine=<code>workflow</code>"
-        " status=<code>running</code> label=<code>wf-a</code> source=<code>chem_flow</code>"
-        " template=<code>reaction_ts_search</code> current_engine=<code>orca</code>"
-    ) in text
-    assert "\xa0\xa0- <code>crest-q-1</code> kind=<code>job</code> engine=<code>crest</code>" in text
-    assert "- <code>orca-q-1</code> kind=<code>job</code> engine=<code>orca</code>" in text
+    assert "active_simulations: 2" in text
+    assert "Status" in text and "Job ID" in text and "Detail" in text and "Elapsed" in text
+    assert "wf-a" in text
+    assert "ts_search(nci)" in text
+    assert "crest-q-1" not in text
+    assert "orca-q-1" in text
+    assert "IRC" in text
 
 
 def test_handle_list_filter_keeps_workflow_parent_for_visible_child(monkeypatch) -> None:
@@ -97,6 +105,8 @@ def test_handle_list_filter_keeps_workflow_parent_for_visible_child(monkeypatch)
                     "engine": "workflow",
                     "status": "running",
                     "source": "chem_flow",
+                    "submitted_at": "2026-04-26T01:00:00+00:00",
+                    "updated_at": "2026-04-26T01:00:00+00:00",
                     "metadata": {
                         "template_name": "reaction_ts_search",
                         "current_engine": "crest",
@@ -109,7 +119,11 @@ def test_handle_list_filter_keeps_workflow_parent_for_visible_child(monkeypatch)
                     "engine": "crest",
                     "status": "pending",
                     "source": "crest_auto",
+                    "submitted_at": "2026-04-26T01:10:00+00:00",
+                    "updated_at": "2026-04-26T01:10:00+00:00",
                     "metadata": {
+                        "task_kind": "conformer_search",
+                        "mode": "nci",
                         "job_dir": "/tmp/crest/workflow_jobs/wf-a/stage_01_crest",
                     },
                 },
@@ -119,9 +133,10 @@ def test_handle_list_filter_keeps_workflow_parent_for_visible_child(monkeypatch)
 
     text = bot._handle_list(_settings(), "pending")
 
-    assert "<b>active_simulations</b>: <code>0</code>" in text
-    assert "- <code>wf-a</code> kind=<code>workflow</code>" in text
-    assert "\xa0\xa0- <code>crest-q-1</code> kind=<code>job</code> engine=<code>crest</code> status=<code>pending</code>" in text
+    assert "active_simulations: 0" in text
+    assert "wf-a" in text
+    assert "crest-q-1" in text
+    assert "conformer_search(nci)" in text
 
 
 def test_handle_list_uses_global_active_simulation_count_from_full_payload(monkeypatch) -> None:
@@ -161,10 +176,11 @@ def test_handle_list_uses_global_active_simulation_count_from_full_payload(monke
 
     text = bot._handle_list(_settings(), "pending")
 
-    assert "<b>active_simulations</b>: <code>4</code>" in text
+    assert "active_simulations: 4" in text
     assert len(captured["items"]) == 2
     assert captured["config_path"] == "/tmp/chemstack.yaml"
-    assert "visible-pending" in text
+    assert "crest-q-1" in text
+    assert "conformer_search" in text
 
 
 def test_handle_list_shows_all_workflow_child_jobs(monkeypatch) -> None:
@@ -194,6 +210,8 @@ def test_handle_list_shows_all_workflow_child_jobs(monkeypatch) -> None:
                     "engine": "workflow",
                     "status": "running",
                     "source": "chem_flow",
+                    "submitted_at": "2026-04-26T01:00:00+00:00",
+                    "updated_at": "2026-04-26T01:00:00+00:00",
                     "metadata": {
                         "template_name": "reaction_ts_search",
                         "current_engine": "orca",
@@ -206,9 +224,10 @@ def test_handle_list_shows_all_workflow_child_jobs(monkeypatch) -> None:
 
     text = bot._handle_list(_settings(), "")
 
-    assert "<b>active_simulations</b>: <code>9</code>" in text
-    assert text.count("\xa0\xa0- <code>orca-q-") == 9
-    assert "template=<code>reaction_ts_search</code> current_engine=<code>orca</code>" in text
+    assert "active_simulations: 9" in text
+    assert text.count("orca-q-") == 9
+    assert "wf-a" in text
+    assert "ts_search" in text
 
 
 def test_handle_list_clear_uses_shared_clear_activity_control(monkeypatch) -> None:
@@ -229,11 +248,28 @@ def test_handle_list_clear_uses_shared_clear_activity_control(monkeypatch) -> No
 
     text = bot._handle_list(_settings(), "clear")
 
-    assert "Cleared <code>4</code> completed/failed/cancelled entries." in text
-    assert "workflows: <code>1</code>" in text
-    assert "xTB queue entries: <code>1</code>" in text
-    assert "ORCA queue entries: <code>1</code>" in text
-    assert "ORCA run states: <code>1</code>" in text
+    assert "Cleared 4 completed/failed/cancelled entries." in text
+    assert "workflows: 1" in text
+    assert "xTB queue entries: 1" in text
+    assert "ORCA queue entries: 1" in text
+    assert "ORCA run states: 1" in text
+
+
+def test_send_preformatted_response_wraps_chunks_in_pre(monkeypatch) -> None:
+    sent: list[tuple[str, str | None]] = []
+
+    def fake_send(token: str, chat_id: str, text: str, *, parse_mode: str | None = "HTML") -> bool:
+        sent.append((text, parse_mode))
+        return True
+
+    monkeypatch.setattr(bot, "_send_message", fake_send)
+
+    text = "\n".join(f"line-{index} {'x' * 20}" for index in range(8))
+
+    assert bot._send_preformatted_response("bot-token", "chat-id", text, limit=80)
+    assert len(sent) > 1
+    assert all(mode == "HTML" for _chunk, mode in sent)
+    assert all(chunk.startswith("<pre>") and chunk.endswith("</pre>") for chunk, _mode in sent)
 
 
 def test_handle_cancel_routes_through_activity_control(monkeypatch) -> None:

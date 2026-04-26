@@ -31,6 +31,12 @@ from .submitters.xtb_auto import cancel_target as cancel_xtb_target
 _WORKFLOW_TERMINAL_STATUSES = frozenset({"completed", "failed", "cancelled"})
 _ACTIVITY_CLEARABLE_TERMINAL_STATUSES = frozenset({"completed", "failed", "cancelled", "cancel_failed"})
 _ORCA_ACTIVE_QUEUE_STATUSES = frozenset({"pending", "running"})
+
+
+def _coerce_mapping(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
 def _project_root() -> Path:
     return Path(__file__).resolve().parents[3]
 
@@ -279,6 +285,7 @@ def _workflow_records(*, workflow_root: str | Path, refresh: bool) -> list[Activ
                 aliases=aliases,
                 metadata={
                     "template_name": normalize_text(record.template_name),
+                    "request_parameters": _coerce_mapping(summary.get("request_parameters")),
                     "workspace_dir": normalize_text(record.workspace_dir),
                     "workflow_file": normalize_text(record.workflow_file),
                     "stage_count": int(record.stage_count),
@@ -341,6 +348,7 @@ def _standalone_queue_records(
     for allowed_root in _engine_queue_roots(config_path, engine=engine):
         for entry in list_queue(allowed_root):
             metadata = dict(entry.metadata)
+            workflow_id = normalize_text(metadata.get("workflow_id"))
             path_text = normalize_text(metadata.get("job_dir")) or normalize_text(metadata.get("reaction_dir"))
             label = (
                 normalize_text(metadata.get("reaction_key"))
@@ -373,6 +381,9 @@ def _standalone_queue_records(
                         "queue_id": normalize_text(entry.queue_id),
                         "task_id": normalize_text(entry.task_id),
                         "task_kind": normalize_text(entry.task_kind),
+                        "mode": normalize_text(metadata.get("mode")),
+                        "job_type": normalize_text(metadata.get("job_type")),
+                        "workflow_id": workflow_id,
                         "job_dir": path_text,
                         "allowed_root": str(allowed_root),
                         "priority": int(entry.priority),
@@ -468,6 +479,7 @@ def _fallback_orca_queue_records(*, config_path: str) -> list[ActivityRecord]:
             continue
         metadata = raw.get("metadata")
         metadata = dict(metadata) if isinstance(metadata, dict) else {}
+        workflow_id = normalize_text(metadata.get("workflow_id")) or normalize_text(raw.get("workflow_id"))
         reaction_dir = normalize_text(metadata.get("reaction_dir")) or normalize_text(raw.get("reaction_dir"))
         queue_id = normalize_text(raw.get("queue_id"))
         run_id = normalize_text(metadata.get("run_id")) or normalize_text(raw.get("run_id"))
@@ -491,6 +503,10 @@ def _fallback_orca_queue_records(*, config_path: str) -> list[ActivityRecord]:
                 metadata={
                     "queue_id": queue_id,
                     "run_id": run_id,
+                    "task_kind": normalize_text(raw.get("task_kind")),
+                    "job_type": normalize_text(metadata.get("job_type")),
+                    "selected_inp": normalize_text(metadata.get("selected_inp")),
+                    "workflow_id": workflow_id,
                     "reaction_dir": reaction_dir,
                     "allowed_root": str(allowed_root),
                     "priority": raw.get("priority"),
@@ -530,6 +546,9 @@ def _orca_records(*, config_path: str, repo_root: str | None = None) -> list[Act
     rows: list[ActivityRecord] = []
 
     for entry in queue_entries:
+        entry_metadata_loader = getattr(queue_store, "queue_entry_metadata", None)
+        entry_metadata = dict(entry_metadata_loader(entry)) if callable(entry_metadata_loader) else {}
+        workflow_id = normalize_text(entry_metadata.get("workflow_id"))
         snapshot = _orca_snapshot_matches_entry(queue_store, entry, snapshot_by_run_id, snapshot_by_dir)
         queue_id = normalize_text(queue_store.queue_entry_id(entry))
         task_id = normalize_text(queue_store.queue_entry_task_id(entry))
@@ -567,7 +586,11 @@ def _orca_records(*, config_path: str, repo_root: str | None = None) -> list[Act
                 metadata={
                     "queue_id": queue_id,
                     "task_id": task_id,
+                    "task_kind": normalize_text(entry.get("task_kind")),
                     "run_id": run_id,
+                    "job_type": normalize_text(entry_metadata.get("job_type")),
+                    "selected_inp": normalize_text(entry_metadata.get("selected_inp")),
+                    "workflow_id": workflow_id,
                     "reaction_dir": reaction_dir,
                     "allowed_root": str(allowed_root),
                     "priority": getattr(queue_store, "queue_entry_priority")(entry),
@@ -609,6 +632,7 @@ def _orca_records(*, config_path: str, repo_root: str | None = None) -> list[Act
                     "allowed_root": str(allowed_root),
                     "attempts": getattr(snapshot, "attempts", 0),
                     "selected_inp_name": normalize_text(getattr(snapshot, "selected_inp_name", "")),
+                    "job_type": normalize_text(getattr(snapshot, "job_type", "")),
                 },
             )
         )
@@ -624,6 +648,7 @@ def _collect_activity_records(
     xtb_auto_config: str | None = None,
     orca_auto_config: str | None = None,
     orca_auto_repo_root: str | None = None,
+    child_job_engines: tuple[str, ...] | None = None,
 ) -> list[ActivityRecord]:
     (
         resolved_workflow_root,
@@ -640,9 +665,24 @@ def _collect_activity_records(
     rows: list[ActivityRecord] = []
     if normalize_text(resolved_workflow_root):
         rows.extend(_workflow_records(workflow_root=str(resolved_workflow_root), refresh=refresh))
-    if normalize_text(resolved_workflow_root) and normalize_text(resolved_crest_auto_config):
+    include_children = {
+        normalize_text(engine).lower()
+        for engine in (child_job_engines or ())
+        if normalize_text(engine)
+    }
+    include_all_children = child_job_engines is None
+
+    if (
+        normalize_text(resolved_workflow_root)
+        and normalize_text(resolved_crest_auto_config)
+        and (include_all_children or "crest" in include_children)
+    ):
         rows.extend(_standalone_queue_records(app_name="crest_auto", engine="crest", config_path=str(resolved_crest_auto_config)))
-    if normalize_text(resolved_workflow_root) and normalize_text(resolved_xtb_auto_config):
+    if (
+        normalize_text(resolved_workflow_root)
+        and normalize_text(resolved_xtb_auto_config)
+        and (include_all_children or "xtb" in include_children)
+    ):
         rows.extend(_standalone_queue_records(app_name="xtb_auto", engine="xtb", config_path=str(resolved_xtb_auto_config)))
     if normalize_text(resolved_orca_auto_config):
         rows.extend(_orca_records(config_path=str(resolved_orca_auto_config), repo_root=_discover_orca_repo_root(orca_auto_repo_root)))
@@ -658,6 +698,7 @@ def list_activities(
     xtb_auto_config: str | None = None,
     orca_auto_config: str | None = None,
     orca_auto_repo_root: str | None = None,
+    child_job_engines: tuple[str, ...] | None = None,
 ) -> dict[str, Any]:
     (
         resolved_workflow_root,
@@ -677,6 +718,7 @@ def list_activities(
         xtb_auto_config=resolved_xtb_auto_config,
         orca_auto_config=resolved_orca_auto_config,
         orca_auto_repo_root=orca_auto_repo_root,
+        child_job_engines=child_job_engines,
     )
     if limit > 0:
         records = records[:limit]

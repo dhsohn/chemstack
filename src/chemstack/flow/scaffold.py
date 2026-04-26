@@ -95,7 +95,7 @@ def _readme(root: Path, workflow_type: str) -> str:
             "- Replace `reactant.xyz` and `product.xyz` with your precomplex inputs.",
             "- Adjust `flow.yaml` before materializing the workflow.",
             "- Change `crest_mode: standard` to `crest_mode: nci` when you want NCI-mode CREST stages.",
-            "- reaction_ts_search expands all selected reactant x product CREST pairs and queues one ORCA OptTS child job for each xTB ts_guess.",
+            "- reaction_ts_search expands all selected reactant x product CREST pairs into xTB path searches, waits for the xTB phase to finish, and then batches matching ORCA OptTS child jobs from retained ts_guess artifacts.",
         ]
     elif workflow_type == "conformer_screening":
         lines = [

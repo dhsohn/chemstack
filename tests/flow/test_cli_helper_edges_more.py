@@ -133,7 +133,7 @@ def test_cmd_run_dir_reports_invalid_directory_and_unknown_layout(
     empty_workflow_dir.mkdir()
     unknown_args = SimpleNamespace(**{**invalid_args.__dict__, "workflow_dir": str(empty_workflow_dir)})
     assert cli.cmd_run_dir(unknown_args) == 1
-    assert "Could not infer workflow type from workflow_dir" in capsys.readouterr().out
+    assert "workflow run-dir requires flow.yaml" in capsys.readouterr().out
 
 
 def test_cmd_run_dir_for_conformer_uses_nested_crest_section(

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from chemstack.orca.config import TelegramConfig
@@ -182,35 +183,52 @@ class TestSendMessage:
     def test_disabled_config_returns_false(self) -> None:
         assert send_message(_disabled_config(), "test") is False
 
-    @patch("chemstack.orca.telegram_notifier.urlopen_with_ipv4_fallback")
-    def test_success(self, mock_urlopen: MagicMock) -> None:
-        mock_resp = MagicMock()
-        mock_resp.read.return_value = json.dumps({"ok": True}).encode()
-        mock_resp.__enter__ = MagicMock(return_value=mock_resp)
-        mock_resp.__exit__ = MagicMock(return_value=False)
-        mock_urlopen.return_value = mock_resp
+    @patch("chemstack.orca.telegram_notifier.build_telegram_transport")
+    def test_success(self, mock_build_transport: MagicMock) -> None:
+        fake_transport = MagicMock()
+        fake_transport.send_text.return_value = SimpleNamespace(
+            sent=True,
+            skipped=False,
+            status_code=200,
+            response_text='{"ok":true}',
+            error="",
+        )
+        mock_build_transport.return_value = fake_transport
 
         result = send_message(_enabled_config(), "hello")
         assert result is True
-        mock_urlopen.assert_called_once()
+        mock_build_transport.assert_called_once()
+        fake_transport.send_text.assert_called_once_with("hello", parse_mode="HTML")
 
-        # Verify sent payload
-        call_args = mock_urlopen.call_args
-        req = call_args[0][0]
-        body = json.loads(req.data.decode("utf-8"))
-        assert body["chat_id"] == "999"
-        assert body["text"] == "hello"
-        assert body["parse_mode"] == "HTML"
-
-    @patch("chemstack.orca.telegram_notifier.urlopen_with_ipv4_fallback")
-    def test_api_error(self, mock_urlopen: MagicMock) -> None:
-        mock_resp = MagicMock()
-        mock_resp.read.return_value = json.dumps({"ok": False}).encode()
-        mock_resp.__enter__ = MagicMock(return_value=mock_resp)
-        mock_resp.__exit__ = MagicMock(return_value=False)
-        mock_urlopen.return_value = mock_resp
-
+    @patch("chemstack.orca.telegram_notifier.build_telegram_transport")
+    def test_api_error(self, mock_build_transport: MagicMock) -> None:
+        fake_transport = MagicMock()
+        fake_transport.send_text.return_value = SimpleNamespace(
+            sent=False,
+            skipped=False,
+            status_code=503,
+            response_text="busy",
+            error="telegram_http_503",
+        )
+        mock_build_transport.return_value = fake_transport
         assert send_message(_enabled_config(), "hello") is False
+
+    @patch("chemstack.orca.telegram_notifier.build_telegram_transport")
+    def test_custom_timeout_flows_through_shared_transport(self, mock_build_transport: MagicMock) -> None:
+        fake_transport = MagicMock()
+        fake_transport.send_text.return_value = SimpleNamespace(
+            sent=True,
+            skipped=False,
+            status_code=200,
+            response_text='{"ok":true}',
+            error="",
+        )
+        mock_build_transport.return_value = fake_transport
+        config = TelegramConfig(bot_token="123:ABC", chat_id="999", timeout_seconds=1.5)
+
+        assert send_message(config, "hello") is True
+        built_config = mock_build_transport.call_args.args[0]
+        assert built_config.timeout_seconds == 1.5
 
 
 class TestNotifyMonitorReport:

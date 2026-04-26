@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 from copy import deepcopy
+import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -259,6 +260,7 @@ def test_cancel_target_maps_cli_cancel_status(
             "repo_root": "/tmp/orca_repo",
             "module_name": "chemstack.orca._internal_cli",
             "tail_argv": ["queue", "cancel", "q_123"],
+            "timeout_seconds": 5.0,
         }
     ]
     assert result["status"] == expected_status
@@ -266,6 +268,26 @@ def test_cancel_target_maps_cli_cancel_status(
     assert result["stdout"] == stdout
     assert result["stderr"] == "cancel stderr"
     assert result["command_argv"] == ["python -m chemstack.orca._internal_cli --config /tmp/orca.yaml queue cancel q_123"]
+
+
+def test_cancel_target_reports_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_run_sibling_app(**kwargs: Any) -> SimpleNamespace:
+        raise subprocess.TimeoutExpired(cmd=["python", "-m", "chemstack.orca._internal_cli", "queue", "cancel", "q_123"], timeout=5.0, output="slow", stderr="timeout")
+
+    monkeypatch.setattr(orca_auto, "run_sibling_app", fake_run_sibling_app)
+
+    result = orca_auto.cancel_target(
+        target="q_123",
+        config_path="/tmp/orca.yaml",
+        executable="orca_auto_bin",
+        repo_root="/tmp/orca_repo",
+    )
+
+    assert result["status"] == "failed"
+    assert result["reason"] == "cancel_command_timeout"
+    assert result["returncode"] == 124
+    assert result["stdout"] == "slow"
+    assert result["stderr"] == "timeout"
 
 
 def test_submit_reaction_ts_search_workflow_updates_skip_failure_and_submit_branches(

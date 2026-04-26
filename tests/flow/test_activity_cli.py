@@ -252,6 +252,41 @@ def test_clear_activities_clears_workflow_and_engine_terminal_sources(monkeypatc
     assert cleared_roots == ["/tmp/xtb_root_a", "/tmp/xtb_root_b", "/tmp/crest_root"]
 
 
+def test_clear_activities_keeps_cleared_terminal_workflows_hidden_from_listing(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(activity, "_resolve_activity_sources", lambda **kwargs: (str(tmp_path), None, None, None))
+
+    workspace = tmp_path / "wf_completed"
+    workspace.mkdir(parents=True)
+    (workspace / "workflow.json").write_text(
+        json.dumps(
+            {
+                "workflow_id": "wf_completed",
+                "template_name": "reaction_ts_search",
+                "status": "completed",
+                "source_job_id": "job-1",
+                "source_job_type": "reaction_ts_search",
+                "reaction_key": "rxn-1",
+                "requested_at": "2026-04-20T10:00:00+00:00",
+                "stages": [],
+                "metadata": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    initial = activity.list_activities(workflow_root=tmp_path)
+    assert [item["activity_id"] for item in initial["activities"]] == ["wf_completed"]
+
+    cleared = activity.clear_activities(workflow_root=tmp_path)
+    assert cleared["cleared"]["workflows"] == 1
+
+    after_clear = activity.list_activities(workflow_root=tmp_path)
+    assert after_clear["activities"] == []
+
+
 def test_cmd_activity_list_text_output(monkeypatch, capsys) -> None:
     monkeypatch.setattr(
         cli,

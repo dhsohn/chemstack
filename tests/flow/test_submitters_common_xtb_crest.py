@@ -116,6 +116,7 @@ def test_run_sibling_app_forwards_command_to_subprocess(monkeypatch: pytest.Monk
         capture_output: bool,
         text: bool,
         check: bool,
+        timeout: float | None,
     ) -> subprocess.CompletedProcess[str]:
         captured["run_kwargs"] = {
             "argv": argv,
@@ -124,6 +125,7 @@ def test_run_sibling_app_forwards_command_to_subprocess(monkeypatch: pytest.Monk
             "capture_output": capture_output,
             "text": text,
             "check": check,
+            "timeout": timeout,
         }
         return expected_result
 
@@ -136,6 +138,7 @@ def test_run_sibling_app_forwards_command_to_subprocess(monkeypatch: pytest.Monk
         repo_root="/tmp/repo",
         module_name="chemstack.xtb._internal_cli",
         tail_argv=["run-dir", "/tmp/job"],
+        timeout_seconds=7.5,
     )
 
     assert result is expected_result
@@ -153,6 +156,7 @@ def test_run_sibling_app_forwards_command_to_subprocess(monkeypatch: pytest.Monk
         "capture_output": True,
         "text": True,
         "check": False,
+        "timeout": 7.5,
     }
 
 
@@ -395,6 +399,7 @@ def test_cancel_target_maps_status_from_stdout_and_returncode(
         "repo_root": "/tmp/repo",
         "module_name": "chemstack.cli" if module is xtb_auto else "chemstack.crest._internal_cli",
         "tail_argv": ["queue", "cancel", target],
+        "timeout_seconds": 5.0,
     }
     assert result["status"] == expected_status
     assert result["returncode"] == returncode
@@ -403,3 +408,24 @@ def test_cancel_target_maps_status_from_stdout_and_returncode(
     assert result["stderr"] == "stderr text"
     assert result["queue_id"] == expected_queue_id
     assert result["job_id"] == expected_job_id
+
+
+@pytest.mark.parametrize("module", [xtb_auto, crest_auto])
+def test_cancel_target_reports_timeout(monkeypatch: pytest.MonkeyPatch, module: Any) -> None:
+    def fake_run_sibling_app(**kwargs: Any) -> subprocess.CompletedProcess[str]:
+        raise subprocess.TimeoutExpired(cmd=["tool", "queue", "cancel", "job-1"], timeout=5.0, output="slow", stderr="timeout")
+
+    monkeypatch.setattr(module, "run_sibling_app", fake_run_sibling_app)
+
+    result = module.cancel_target(
+        target="job-1",
+        config_path="/tmp/config.yaml",
+        executable="tool",
+        repo_root="/tmp/repo",
+    )
+
+    assert result["status"] == "failed"
+    assert result["reason"] == "cancel_command_timeout"
+    assert result["returncode"] == 124
+    assert result["stdout"] == "slow"
+    assert result["stderr"] == "timeout"

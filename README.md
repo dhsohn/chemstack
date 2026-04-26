@@ -59,6 +59,9 @@ workflow:
 telegram:
   bot_token: ""
   chat_id: ""
+  timeout_seconds: 5.0
+  max_attempts: 2
+  retry_backoff_seconds: 0.5
 
 orca:
   runtime:
@@ -103,9 +106,13 @@ chemstack organize orca --root '/home/user/orca_runs' --apply
 chemstack summary orca --no-send
 ```
 
-`queue list` groups workflow child simulations under their parent workflow with indentation.
+`queue list` prints a compact table with `Status`, `Job ID`, `Detail`, and `Elapsed`
+columns. Workflow child simulations stay grouped under their parent workflow with indentation.
+By default, only ORCA child jobs are expanded in the combined text view; internal xTB/CREST
+workflow children stay hidden unless you ask for them with filters or `--json`.
 Use `chemstack queue list clear` to prune completed, failed, and cancelled entries from
-the unified list. The Telegram bot supports the same cleanup via `/list clear`.
+the unified list. The Telegram bot uses the same `/list` table layout and supports the same
+cleanup via `/list clear`.
 The `active_simulations` line counts only simulations that currently consume the shared
 `scheduler.max_active_simulations` slots.
 

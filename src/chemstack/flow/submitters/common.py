@@ -65,6 +65,7 @@ def run_sibling_app(
     repo_root: str | None,
     module_name: str,
     tail_argv: list[str],
+    timeout_seconds: float | None = None,
 ) -> subprocess.CompletedProcess[str]:
     argv, cwd, env = sibling_app_command(
         executable=executable,
@@ -80,6 +81,7 @@ def run_sibling_app(
         capture_output=True,
         text=True,
         check=False,
+        timeout=timeout_seconds,
     )
 
 

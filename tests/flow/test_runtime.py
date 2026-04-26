@@ -259,6 +259,90 @@ def test_stage_transition_event_payloads_emit_running_status_change_event() -> N
     assert events[0]["previous_stage_status"] == "queued"
 
 
+def test_phase_transition_event_payloads_emit_phase_finished_summaries() -> None:
+    previous_summary = _summary_with_stages(
+        {
+            "stage_id": "crest_reactant_01",
+            "status": "running",
+            "task_status": "running",
+            "engine": "crest",
+            "task_kind": "conformer_search",
+        },
+        {
+            "stage_id": "crest_product_01",
+            "status": "queued",
+            "task_status": "submitted",
+            "engine": "crest",
+            "task_kind": "conformer_search",
+        },
+        {
+            "stage_id": "xtb_path_search_01",
+            "status": "running",
+            "task_status": "running",
+            "engine": "xtb",
+            "task_kind": "path_search",
+        },
+        {
+            "stage_id": "xtb_path_search_02",
+            "status": "queued",
+            "task_status": "submitted",
+            "engine": "xtb",
+            "task_kind": "path_search",
+        },
+    )
+    current_summary = _summary_with_stages(
+        {
+            "stage_id": "crest_reactant_01",
+            "status": "completed",
+            "task_status": "completed",
+            "engine": "crest",
+            "task_kind": "conformer_search",
+        },
+        {
+            "stage_id": "crest_product_01",
+            "status": "completed",
+            "task_status": "completed",
+            "engine": "crest",
+            "task_kind": "conformer_search",
+        },
+        {
+            "stage_id": "xtb_path_search_01",
+            "status": "completed",
+            "task_status": "completed",
+            "engine": "xtb",
+            "task_kind": "path_search",
+            "reaction_handoff_status": "ready",
+        },
+        {
+            "stage_id": "xtb_path_search_02",
+            "status": "completed",
+            "task_status": "completed",
+            "engine": "xtb",
+            "task_kind": "path_search",
+            "reaction_handoff_status": "failed",
+            "reaction_handoff_reason": "xtb_ts_guess_missing",
+        },
+    )
+
+    events = runtime.phase_transition_event_payloads(
+        previous_summary=previous_summary,
+        current_summary=current_summary,
+        workflow_id="wf_phase_events",
+        template_name="reaction_ts_search",
+        worker_session_id="session-phase",
+    )
+
+    assert [item["event_type"] for item in events] == [
+        "workflow_phase_finished",
+        "workflow_phase_finished",
+    ]
+    assert events[0]["metadata"]["phase"] == "crest"
+    assert events[0]["metadata"]["stage_status_counts"] == {"completed": 2}
+    assert events[1]["metadata"]["phase"] == "xtb"
+    assert events[1]["metadata"]["reaction_handoff_status_counts"] == {"failed": 1, "ready": 1}
+    assert events[1]["metadata"]["failure_reasons"] == ["xtb_ts_guess_missing"]
+
+
 @pytest.mark.parametrize(
     "error",
     [
@@ -621,13 +705,15 @@ def test_advance_workflow_registry_once_appends_stage_transition_events(
     assert [call["event_type"] for call in journal_calls] == [
         "worker_cycle_started",
         "workflow_status_changed",
+        "workflow_phase_finished",
         "workflow_stage_submitted",
         "workflow_stage_handoff_ready",
         "worker_cycle_finished",
     ]
-    assert journal_calls[2]["metadata"]["stage_id"] == "crest_1"
-    assert journal_calls[3]["status"] == "ready"
-    assert journal_calls[3]["metadata"]["stage_id"] == "xtb_1"
+    assert journal_calls[2]["metadata"]["phase"] == "xtb"
+    assert journal_calls[3]["metadata"]["stage_id"] == "crest_1"
+    assert journal_calls[4]["status"] == "ready"
+    assert journal_calls[4]["metadata"]["stage_id"] == "xtb_1"
 
 
 def test_advance_workflow_registry_once_records_non_terminal_advance_failure(

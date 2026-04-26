@@ -38,7 +38,7 @@ def test_cmd_scaffold_creates_reaction_workflow_scaffold(tmp_path: Path, capsys:
     assert "created_file: product.xyz" in output
     assert "chemstack scaffold ts_search" in readme
     assert "crest_mode: nci" in readme
-    assert "queues one ORCA OptTS child job for each xTB ts_guess" in readme
+    assert "waits for the xTB phase to finish" in readme
 
 
 def test_cmd_scaffold_is_idempotent_for_conformer_workflow(

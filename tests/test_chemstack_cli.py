@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import json
 import signal
 from pathlib import Path
@@ -456,6 +457,37 @@ def test_cmd_run_dir_dispatches_to_workflow_for_manifest_directories(
     assert calls == [("workflow", str(target), str(target))]
 
 
+def test_cmd_run_dir_prefers_orca_for_mixed_input_xyz_and_inp_without_manifest(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    target = tmp_path / "mixed_job"
+    target.mkdir()
+    (target / "input.xyz").write_text("3\nmixed\nH 0 0 0\nH 0 0 0.7\nH 0 0 1.4\n", encoding="utf-8")
+    (target / "tsopt.inp").write_text("! OptTS\n", encoding="utf-8")
+    calls: list[tuple[str, str]] = []
+
+    def _fake_orca_run_dir(args: Any) -> int:
+        calls.append(("orca", args.path))
+        return 41
+
+    def _fake_workflow_run_dir(args: Any) -> int:
+        calls.append(("workflow", args.path))
+        return 42
+
+    monkeypatch.setattr(unified_cli, "cmd_orca_run_dir", _fake_orca_run_dir)
+    monkeypatch.setattr(unified_cli, "cmd_workflow_run_dir", _fake_workflow_run_dir)
+
+    result = unified_cli.cmd_run_dir(
+        SimpleNamespace(
+            path=str(target),
+        )
+    )
+
+    assert result == 41
+    assert calls == [("orca", str(target))]
+
+
 def test_cmd_run_dir_reports_unknown_directory_layout(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
@@ -473,10 +505,90 @@ def test_cmd_run_dir_reports_unknown_directory_layout(
     assert "Could not infer run-dir target type from directory" in capsys.readouterr().out
 
 
+def test_cmd_run_dir_requires_manifest_for_workflow_scaffold_directories(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    target = tmp_path / "workflow_scaffold"
+    target.mkdir()
+    (target / "input.xyz").write_text("3\nmol\nH 0 0 0\nH 0 0 0.7\nH 0 0 1.4\n", encoding="utf-8")
+
+    result = unified_cli.cmd_run_dir(
+        SimpleNamespace(
+            path=str(target),
+        )
+    )
+
+    assert result == 1
+    assert "Could not infer run-dir target type from directory" in capsys.readouterr().out
+
+
+def test_queue_table_lines_align_wide_headers_and_icons(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(unified_cli, "_queue_table_now", lambda: datetime(2026, 4, 26, 3, 0, 0, tzinfo=timezone.utc))
+
+    lines = unified_cli._queue_table_lines(
+        [
+            (
+                0,
+                {
+                    "activity_id": "wf-1",
+                    "kind": "workflow",
+                    "engine": "workflow",
+                    "status": "running",
+                    "label": "reaction-case",
+                    "source": "chem_flow",
+                    "submitted_at": "2026-04-26T01:30:00+00:00",
+                    "updated_at": "2026-04-26T02:00:00+00:00",
+                    "metadata": {
+                        "template_name": "reaction_ts_search",
+                        "request_parameters": {"crest_mode": "nci"},
+                    },
+                },
+            ),
+            (
+                1,
+                {
+                    "activity_id": "orca-q-very-long-child-id",
+                    "kind": "job",
+                    "engine": "orca",
+                    "status": "retrying",
+                    "label": "standalone-ts",
+                    "source": "chemstack_orca",
+                    "submitted_at": "2026-04-26T02:00:00+00:00",
+                    "updated_at": "2026-04-26T02:20:00+00:00",
+                    "metadata": {
+                        "task_kind": "optts_freq",
+                    },
+                },
+            ),
+            (
+                0,
+                {
+                    "activity_id": "custom-q-1",
+                    "kind": "job",
+                    "engine": "custom",
+                    "status": "failed",
+                    "label": "very-long-detail-label-for-width-checking-and-truncation",
+                    "source": "custom",
+                    "submitted_at": "2026-04-26T02:10:00+00:00",
+                    "updated_at": "2026-04-26T02:40:00+00:00",
+                },
+            ),
+        ]
+    )
+
+    widths = [unified_cli._queue_display_width(line) for line in lines]
+    assert len(set(widths)) == 1
+    assert "..." in lines[-1]
+
+
 def test_cmd_queue_list_filters_text_output(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
+    monkeypatch.setattr(unified_cli, "_queue_table_now", lambda: datetime(2026, 4, 26, 3, 0, 0, tzinfo=timezone.utc))
     monkeypatch.setattr(
         unified_cli,
         "list_activities",
@@ -490,6 +602,8 @@ def test_cmd_queue_list_filters_text_output(
                     "status": "running",
                     "label": "wf-1",
                     "source": "chem_flow",
+                    "submitted_at": "2026-04-26T01:00:00+00:00",
+                    "updated_at": "2026-04-26T01:00:00+00:00",
                 },
                 {
                     "activity_id": "xtb-q-1",
@@ -498,6 +612,9 @@ def test_cmd_queue_list_filters_text_output(
                     "status": "running",
                     "label": "rxn-a",
                     "source": "xtb_auto",
+                    "submitted_at": "2026-04-26T02:00:00+00:00",
+                    "updated_at": "2026-04-26T02:30:00+00:00",
+                    "metadata": {"task_kind": "path_search"},
                 },
                 {
                     "activity_id": "crest-q-1",
@@ -506,6 +623,8 @@ def test_cmd_queue_list_filters_text_output(
                     "status": "pending",
                     "label": "mol-a",
                     "source": "crest_auto",
+                    "submitted_at": "2026-04-26T02:15:00+00:00",
+                    "updated_at": "2026-04-26T02:15:00+00:00",
                 },
             ],
             "sources": {},
@@ -528,20 +647,25 @@ def test_cmd_queue_list_filters_text_output(
     assert result == 0
     stdout = capsys.readouterr().out
     assert "active_simulations: 1" in stdout
-    assert "- xtb-q-1 kind=job engine=xtb status=running label=rxn-a source=xtb_auto" in stdout
+    assert "Status" in stdout and "Job ID" in stdout and "Detail" in stdout and "Elapsed" in stdout
+    assert "▶" in stdout
+    assert "xtb-q-1" in stdout
+    assert "TS path" in stdout
+    assert "01:00:00" in stdout
     assert "crest-q-1" not in stdout
     assert "wf-1" not in stdout
 
 
-def test_cmd_queue_list_groups_workflow_children_in_text_output(
+def test_cmd_queue_list_hides_non_orca_workflow_children_in_default_text_output(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
+    monkeypatch.setattr(unified_cli, "_queue_table_now", lambda: datetime(2026, 4, 26, 3, 0, 0, tzinfo=timezone.utc))
     monkeypatch.setattr(
         unified_cli,
         "list_activities",
         lambda **kwargs: {
-            "count": 4,
+            "count": 5,
             "activities": [
                 {
                     "activity_id": "wf-1",
@@ -550,9 +674,12 @@ def test_cmd_queue_list_groups_workflow_children_in_text_output(
                     "status": "running",
                     "label": "reaction-case",
                     "source": "chem_flow",
+                    "submitted_at": "2026-04-26T01:30:00+00:00",
+                    "updated_at": "2026-04-26T02:00:00+00:00",
                     "metadata": {
                         "template_name": "reaction_ts_search",
                         "current_engine": "orca",
+                        "request_parameters": {"crest_mode": "nci"},
                     },
                 },
                 {
@@ -562,8 +689,27 @@ def test_cmd_queue_list_groups_workflow_children_in_text_output(
                     "status": "running",
                     "label": "path-search",
                     "source": "xtb_auto",
+                    "submitted_at": "2026-04-26T02:00:00+00:00",
+                    "updated_at": "2026-04-26T02:15:00+00:00",
                     "metadata": {
-                        "job_dir": "/tmp/xtb/workflow_jobs/wf-1/stage_01_xtb",
+                        "task_kind": "path_search",
+                        "workflow_id": "wf-1",
+                        "job_dir": "/tmp/workflows/wf-1/internal/xtb/runs/stage_01_xtb",
+                    },
+                },
+                {
+                    "activity_id": "crest-q-1",
+                    "kind": "job",
+                    "engine": "crest",
+                    "status": "pending",
+                    "label": "conformer-search",
+                    "source": "crest_auto",
+                    "submitted_at": "2026-04-26T02:10:00+00:00",
+                    "updated_at": "2026-04-26T02:10:00+00:00",
+                    "metadata": {
+                        "task_kind": "conformer_search",
+                        "workflow_id": "wf-1",
+                        "job_dir": "/tmp/workflows/wf-1/internal/crest/runs/stage_00_crest",
                     },
                 },
                 {
@@ -573,8 +719,12 @@ def test_cmd_queue_list_groups_workflow_children_in_text_output(
                     "status": "running",
                     "label": "ts-opt",
                     "source": "chemstack_orca",
+                    "submitted_at": "2026-04-26T02:00:00+00:00",
+                    "updated_at": "2026-04-26T02:20:00+00:00",
                     "metadata": {
-                        "reaction_dir": "/tmp/orca/workflow_jobs/wf-1/stage_03_orca/case_001",
+                        "task_kind": "optts_freq",
+                        "workflow_id": "wf-1",
+                        "reaction_dir": "/tmp/workflows/wf-1/stage_03_orca/case_001/reaction_dir",
                     },
                 },
                 {
@@ -584,7 +734,10 @@ def test_cmd_queue_list_groups_workflow_children_in_text_output(
                     "status": "running",
                     "label": "standalone-ts",
                     "source": "chemstack_orca",
+                    "submitted_at": "2026-04-26T00:30:00+00:00",
+                    "updated_at": "2026-04-26T01:30:00+00:00",
                     "metadata": {
+                        "job_type": "neb",
                         "reaction_dir": "/tmp/orca/standalone/case_002",
                     },
                 },
@@ -609,19 +762,22 @@ def test_cmd_queue_list_groups_workflow_children_in_text_output(
     assert result == 0
     stdout = capsys.readouterr().out
     assert "active_simulations: 3" in stdout
-    assert (
-        "- wf-1 kind=workflow engine=workflow status=running label=reaction-case source=chem_flow"
-        " template=reaction_ts_search current_engine=orca"
-    ) in stdout
-    assert "  - xtb-q-1 kind=job engine=xtb status=running label=path-search source=xtb_auto" in stdout
-    assert "  - orca-q-1 kind=job engine=orca status=running label=ts-opt source=chemstack_orca" in stdout
-    assert "- orca-q-standalone kind=job engine=orca status=running label=standalone-ts source=chemstack_orca" in stdout
+    assert "▶" in stdout
+    assert "wf-1" in stdout
+    assert "ts_search(nci)" in stdout
+    assert "xtb-q-1" not in stdout
+    assert "crest-q-1" not in stdout
+    assert "orca-q-1" in stdout
+    assert "OptTS+Freq" in stdout
+    assert "orca-q-standalone" in stdout
+    assert "NEB" in stdout
 
 
 def test_cmd_queue_list_shows_all_workflow_child_jobs(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
+    monkeypatch.setattr(unified_cli, "_queue_table_now", lambda: datetime(2026, 4, 26, 3, 0, 0, tzinfo=timezone.utc))
     child_rows = [
         {
             "activity_id": f"orca-q-{index}",
@@ -630,7 +786,10 @@ def test_cmd_queue_list_shows_all_workflow_child_jobs(
             "status": "running",
             "label": f"ts-{index}",
             "source": "chemstack_orca",
+            "submitted_at": "2026-04-26T02:00:00+00:00",
+            "updated_at": "2026-04-26T02:00:00+00:00",
             "metadata": {
+                "task_kind": "optts_freq",
                 "reaction_dir": f"/tmp/orca/workflow_jobs/wf-1/stage_03_orca/case_{index:03d}",
             },
         }
@@ -649,6 +808,8 @@ def test_cmd_queue_list_shows_all_workflow_child_jobs(
                     "status": "running",
                     "label": "reaction-case",
                     "source": "chem_flow",
+                    "submitted_at": "2026-04-26T01:00:00+00:00",
+                    "updated_at": "2026-04-26T01:00:00+00:00",
                     "metadata": {
                         "template_name": "reaction_ts_search",
                         "current_engine": "orca",
@@ -676,11 +837,56 @@ def test_cmd_queue_list_shows_all_workflow_child_jobs(
     assert result == 0
     stdout = capsys.readouterr().out
     assert "active_simulations: 9" in stdout
-    assert stdout.count("  - orca-q-") == 9
-    assert (
-        "- wf-1 kind=workflow engine=workflow status=running label=reaction-case source=chem_flow"
-        " template=reaction_ts_search current_engine=orca"
-    ) in stdout
+    assert stdout.count("▶") >= 1
+    assert stdout.count("orca-q-") == 9
+    assert "wf-1" in stdout
+    assert "ts_search" in stdout
+
+
+def test_cmd_queue_list_reports_empty_filtered_results(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(
+        unified_cli,
+        "list_activities",
+        lambda **kwargs: {
+            "count": 1,
+            "activities": [
+                {
+                    "activity_id": "wf-1",
+                    "kind": "workflow",
+                    "engine": "workflow",
+                    "status": "running",
+                    "label": "reaction-case",
+                    "source": "chem_flow",
+                    "submitted_at": "2026-04-26T01:00:00+00:00",
+                    "updated_at": "2026-04-26T01:00:00+00:00",
+                    "metadata": {"template_name": "reaction_ts_search"},
+                }
+            ],
+            "sources": {},
+        },
+    )
+
+    result = unified_cli.cmd_queue_list(
+        SimpleNamespace(
+            workflow_root=None,
+            chemstack_config=None,
+            limit=0,
+            refresh=False,
+            engine=["orca"],
+            status=["failed"],
+            kind=["job"],
+            json=False,
+        )
+    )
+
+    assert result == 0
+    stdout = capsys.readouterr().out
+    assert "active_simulations: 0" in stdout
+    assert "No matching activities." in stdout
+    assert "Status" not in stdout
 
 
 def test_cmd_queue_list_json_filters_payload(
@@ -1001,6 +1207,31 @@ def test_cmd_queue_cancel_reports_lookup_error(
 
     assert result == 1
     assert capsys.readouterr().out == "error: Activity target not found: missing\n"
+
+
+def test_cmd_queue_cancel_reports_timeout_error(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    def fake_cancel_activity(**kwargs: Any) -> dict[str, Any]:
+        raise TimeoutError("Workflow is busy and could not be locked for cancellation within 5s: /tmp/wf_busy")
+
+    monkeypatch.setattr(unified_cli, "cancel_activity", fake_cancel_activity)
+
+    result = unified_cli.cmd_queue_cancel(
+        SimpleNamespace(
+            target="wf_busy",
+            workflow_root=None,
+            chemstack_config=None,
+            json=False,
+        )
+    )
+
+    assert result == 1
+    assert (
+        capsys.readouterr().out
+        == "error: Workflow is busy and could not be locked for cancellation within 5s: /tmp/wf_busy\n"
+    )
 
 
 def test_cmd_queue_cancel_json_output(

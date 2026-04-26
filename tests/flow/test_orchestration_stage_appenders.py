@@ -206,6 +206,48 @@ def test_append_reaction_orca_stages_sets_xtb_handoff_workflow_error_when_no_can
     }
 
 
+def test_append_reaction_orca_stages_waits_for_all_xtb_children_to_finish(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payload: dict[str, Any] = {
+        "workflow_id": "wf_reaction_wait_orca",
+        "stages": [
+            {
+                "stage_id": "xtb_path_search_01",
+                "status": "completed",
+                "metadata": {},
+                "task": {"engine": "xtb", "status": "completed", "payload": {"job_dir": "/tmp/xtb_done"}},
+            },
+            {
+                "stage_id": "xtb_path_search_02",
+                "status": "queued",
+                "metadata": {},
+                "task": {"engine": "xtb", "status": "submitted", "payload": {"job_dir": "/tmp/xtb_queued"}},
+            },
+        ],
+    }
+
+    monkeypatch.setattr(
+        orchestration,
+        "load_xtb_artifact_contract",
+        lambda **kwargs: (_ for _ in ()).throw(AssertionError("ORCA batching should wait for terminal xTB phases")),
+    )
+
+    created = orchestration._append_reaction_orca_stages(
+        payload,
+        workspace_dir=tmp_path,
+        xtb_auto_config="/tmp/xtb.yaml",
+        orca_auto_config="/tmp/orca.yaml",
+    )
+
+    assert created is False
+    assert [stage["stage_id"] for stage in payload["stages"]] == [
+        "xtb_path_search_01",
+        "xtb_path_search_02",
+    ]
+
+
 def test_append_reaction_orca_stages_appends_unattempted_candidate_without_mutating_failed_stage(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

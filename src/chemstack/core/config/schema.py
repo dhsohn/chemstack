@@ -32,6 +32,9 @@ class CommonResourceConfig:
 class TelegramConfig:
     bot_token: str = ""
     chat_id: str = ""
+    timeout_seconds: float = 5.0
+    max_attempts: int = 2
+    retry_backoff_seconds: float = 0.5
 
     @property
     def enabled(self) -> bool:

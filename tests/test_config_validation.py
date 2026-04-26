@@ -142,6 +142,42 @@ class TestConfigValidation(unittest.TestCase):
             self.assertEqual(cfg.runtime.allowed_root, str(allowed))
             self.assertEqual(cfg.paths.orca_executable, str(fake_orca))
 
+    def test_telegram_delivery_settings_are_loaded(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            allowed = root / "orca_runs"
+            allowed.mkdir()
+            fake_orca = root / "orca"
+            fake_orca.write_text("#!/bin/sh\n", encoding="utf-8")
+
+            cfg_path = root / "chemstack.yaml"
+            cfg_path.write_text(
+                json.dumps(
+                    {
+                        "runtime": {
+                            "allowed_root": str(allowed),
+                        },
+                        "paths": {"orca_executable": str(fake_orca)},
+                        "telegram": {
+                            "bot_token": "token",
+                            "chat_id": "chat",
+                            "timeout_seconds": 3.5,
+                            "max_attempts": 4,
+                            "retry_backoff_seconds": 0.25,
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            cfg = load_config(str(cfg_path))
+
+            self.assertEqual(cfg.telegram.bot_token, "token")
+            self.assertEqual(cfg.telegram.chat_id, "chat")
+            self.assertEqual(cfg.telegram.timeout_seconds, 3.5)
+            self.assertEqual(cfg.telegram.max_attempts, 4)
+            self.assertEqual(cfg.telegram.retry_backoff_seconds, 0.25)
+
     def test_workflow_root_is_preserved_with_engine_scoped_orca_config(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

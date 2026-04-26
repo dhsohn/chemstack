@@ -48,6 +48,12 @@ telegram:
   # notifications that use this config.
   bot_token: ""
   chat_id: ""
+  # Each Telegram API call waits up to this many seconds before retry/fail.
+  timeout_seconds: 5.0
+  # Retry transient Telegram send failures this many times total.
+  max_attempts: 2
+  # Pause between retry attempts for transient Telegram failures.
+  retry_backoff_seconds: 0.5
 
 orca:
   runtime:

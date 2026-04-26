@@ -7,6 +7,10 @@ from chemstack.core.notifications import build_telegram_transport
 from .config import AppConfig
 
 
+def _is_workflow_child(job_dir: Path) -> bool:
+    return "workflow_jobs" in {part for part in job_dir.parts if part}
+
+
 def _send(cfg: AppConfig, lines: list[str]) -> bool:
     result = build_telegram_transport(cfg.telegram).send_text("\n".join(lines))
     return bool(result.sent or result.skipped)
@@ -22,6 +26,8 @@ def notify_job_queued(
     reaction_key: str,
     selected_xyz: Path,
 ) -> bool:
+    if _is_workflow_child(job_dir):
+        return True
     return _send(
         cfg,
         [
@@ -46,6 +52,8 @@ def notify_job_started(
     reaction_key: str,
     selected_xyz: Path,
 ) -> bool:
+    if _is_workflow_child(job_dir):
+        return True
     return _send(
         cfg,
         [
@@ -75,6 +83,8 @@ def notify_job_terminal(
     candidate_count: int,
     extra_lines: list[str] | None = None,
 ) -> bool:
+    if _is_workflow_child(job_dir):
+        return True
     lines = [
         f"[xtb_auto] {headline}",
         f"job_id: {job_id}",

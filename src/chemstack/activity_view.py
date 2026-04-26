@@ -8,6 +8,7 @@ from chemstack.flow.submitters.common import normalize_text
 from chemstack.flow.submitters.common import sibling_runtime_paths
 
 ACTIVE_SIMULATION_STATUSES = frozenset({"running", "retrying", "cancel_requested"})
+DEFAULT_COMBINED_WORKFLOW_CHILD_ENGINES = frozenset({"orca"})
 ActivityItem = dict[str, Any]
 TopLevelToken = tuple[str, str | int]
 
@@ -58,6 +59,26 @@ def activity_display_fields(item: dict[str, Any]) -> list[tuple[str, str]]:
     return fields
 
 
+def queue_list_default_visible_items(items: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
+    visible: list[dict[str, Any]] = []
+    for raw_item in items:
+        item = activity_with_parent_hint(raw_item)
+        kind = normalize_text(item.get("kind")).lower()
+        if kind != "job":
+            visible.append(item)
+            continue
+
+        parent_workflow_id = normalize_text(item.get("parent_workflow_id"))
+        if not parent_workflow_id:
+            visible.append(item)
+            continue
+
+        engine = normalize_text(item.get("engine")).lower()
+        if engine in DEFAULT_COMBINED_WORKFLOW_CHILD_ENGINES:
+            visible.append(item)
+    return visible
+
+
 def count_active_simulations(items: Sequence[dict[str, Any]]) -> int:
     total = 0
     for item in items:
@@ -94,7 +115,14 @@ def queue_list_display_rows(
     all_items: Sequence[dict[str, Any]],
     visible_items: Sequence[dict[str, Any]],
     show_workflow_context: bool,
+    visible_workflow_child_engines: Sequence[str] | None = None,
 ) -> list[tuple[int, dict[str, Any]]]:
+    visible_child_engines = {
+        normalize_text(engine).lower()
+        for engine in (visible_workflow_child_engines or ())
+        if normalize_text(engine)
+    }
+    filter_workflow_children = visible_workflow_child_engines is not None
     workflow_by_id: dict[str, ActivityItem] = {}
     for item in all_items:
         workflow_id = normalize_text(item.get("activity_id"))
@@ -111,6 +139,14 @@ def queue_list_display_rows(
         kind = normalize_text(item.get("kind")).lower()
         if kind == "job":
             parent_workflow_id = normalize_text(item.get("parent_workflow_id"))
+            engine = normalize_text(item.get("engine")).lower()
+            if (
+                filter_workflow_children
+                and parent_workflow_id
+                and engine
+                and engine not in visible_child_engines
+            ):
+                continue
             if show_workflow_context and parent_workflow_id and parent_workflow_id in workflow_by_id:
                 workflow_children.setdefault(parent_workflow_id, []).append(item)
                 if parent_workflow_id not in seen_workflow_tokens:

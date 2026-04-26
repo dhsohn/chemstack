@@ -88,6 +88,13 @@ def _as_bool(value: Any, default: bool = False) -> bool:
     return default
 
 
+def _as_float(value: Any, default: float) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
 @dataclass
 class CommonResourceConfig:
     max_cores_per_task: int = 8
@@ -163,9 +170,15 @@ class BehaviorConfig:
 class TelegramConfig:
     bot_token: str = ""
     chat_id: str = ""
+    timeout_seconds: float = 5.0
+    max_attempts: int = 2
+    retry_backoff_seconds: float = 0.5
     enabled: bool = False
 
     def __post_init__(self) -> None:
+        self.timeout_seconds = max(0.1, _as_float(self.timeout_seconds, 5.0))
+        self.max_attempts = max(1, _as_int(self.max_attempts, 2))
+        self.retry_backoff_seconds = max(0.0, _as_float(self.retry_backoff_seconds, 0.5))
         self.enabled = bool(self.bot_token and self.chat_id)
 
 
@@ -243,6 +256,12 @@ def load_config(config_path: str) -> AppConfig:
     telegram_cfg = TelegramConfig(
         bot_token=_as_str(telegram_raw.get("bot_token"), ""),
         chat_id=str(telegram_raw.get("chat_id", "")).strip(),
+        timeout_seconds=_as_float(telegram_raw.get("timeout_seconds"), TelegramConfig.timeout_seconds),
+        max_attempts=_as_int(telegram_raw.get("max_attempts"), TelegramConfig.max_attempts),
+        retry_backoff_seconds=_as_float(
+            telegram_raw.get("retry_backoff_seconds"),
+            TelegramConfig.retry_backoff_seconds,
+        ),
     )
 
     cfg = AppConfig(

@@ -646,9 +646,6 @@ def _submit_as_queued(
             queue_metadata=queue_metadata,
         )
 
-    notification = _build_queue_enqueued_notification(entry)
-    notify_queue_enqueued_event(cfg.telegram, notification)
-
     worker_info = _worker_status_for_submission(allowed_root)
 
     _emit_queued_submission(
@@ -659,6 +656,8 @@ def _submit_as_queued(
         worker_log=worker_info.log_file,
         worker_detail=worker_info.detail,
     )
+    notification = _build_queue_enqueued_notification(entry)
+    notify_queue_enqueued_event(cfg.telegram, notification)
     return 0
 
 

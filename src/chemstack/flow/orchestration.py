@@ -58,6 +58,7 @@ from ._orchestration_support import (
     submission_target_impl,
     task_payload_dict_impl,
 )
+from ._workflow_phases import phase_finished
 from .adapters import (
     load_crest_artifact_contract,
     load_orca_artifact_contract,
@@ -78,6 +79,7 @@ from .submitters.common import normalize_text, sibling_allowed_root, sibling_run
 from .submitters.crest_auto import cancel_target as crest_cancel_target, submit_job_dir as submit_crest_job_dir
 from .submitters.orca_auto import cancel_target as orca_cancel_target, submit_reaction_dir
 from .submitters.xtb_auto import cancel_target as xtb_cancel_target, submit_job_dir as submit_xtb_job_dir
+from .workflow_notifications import maybe_notify_workflow_phase_summary
 from .workflows.orca_stage_utils import build_materialized_orca_stage, safe_name
 from .xyz_utils import choose_orca_geometry_frame, load_xyz_atom_sequence
 
@@ -190,6 +192,22 @@ def _downstream_terminal_result(child_payload: dict[str, Any], child_summary: di
         child_payload,
         child_summary,
         normalize_text_fn=_normalize_text,
+    )
+
+
+def _maybe_notify_workflow_phase_summary(
+    payload: dict[str, Any],
+    *,
+    config_path: str | None,
+    phase_engine: str,
+    extra_lines: list[str] | None = None,
+) -> bool:
+    return maybe_notify_workflow_phase_summary(
+        payload=payload,
+        config_path=config_path,
+        phase_engine=phase_engine,
+        stage_failure_is_recoverable_fn=_stage_failure_is_recoverable,
+        extra_lines=extra_lines,
     )
 
 
@@ -532,6 +550,8 @@ def _append_reaction_xtb_stages(payload: dict[str, Any], *, workspace_dir: Path,
 
 
 def _append_reaction_orca_stages(payload: dict[str, Any], *, workspace_dir: Path, xtb_auto_config: str | None, orca_auto_config: str | None) -> bool:
+    if not phase_finished(payload.get("stages", []), engine="xtb"):
+        return False
     return append_reaction_orca_stages_impl(
         payload,
         workspace_dir=workspace_dir,
@@ -644,7 +664,7 @@ def _cancel_stage_activity(
         task["status"] = result["status"]
         stage["status"] = result["status"]
         return {"status": result["status"]}
-    return {"status": "failed", "reason": result.get("reason", "cancel_failed")}
+    return {"status": "failed", "reason": _normalize_text(result.get("reason")) or "cancel_failed"}
 
 
 def _cancel_active_workflow_stages(
@@ -761,6 +781,15 @@ def advance_workflow(
             _append_reaction_xtb_stages(payload, workspace_dir=workspace_dir, crest_auto_config=crest_auto_config)
             checkpoint(before_phase)
 
+        if not sync_only:
+            before_phase = deepcopy(payload)
+            _maybe_notify_workflow_phase_summary(
+                payload,
+                config_path=crest_auto_config,
+                phase_engine="crest",
+            )
+            checkpoint(before_phase)
+
         before_phase = deepcopy(payload)
         for stage in payload.get("stages", []):
             if not isinstance(stage, dict):
@@ -780,9 +809,22 @@ def advance_workflow(
         _clear_reaction_xtb_handoff_error_if_recovering(payload)
         checkpoint(before_phase)
 
-        if not sync_only and template_name == "reaction_ts_search":
+        if not sync_only and template_name == "reaction_ts_search" and phase_finished(payload.get("stages", []), engine="xtb"):
             before_phase = deepcopy(payload)
             _append_reaction_orca_stages(payload, workspace_dir=workspace_dir, xtb_auto_config=xtb_auto_config, orca_auto_config=orca_auto_config)
+            checkpoint(before_phase)
+            before_phase = deepcopy(payload)
+            orca_stage_count = sum(
+                1
+                for stage in payload.get("stages", [])
+                if isinstance(stage, dict) and _normalize_text((stage.get("task") or {}).get("engine")).lower() == "orca"
+            )
+            _maybe_notify_workflow_phase_summary(
+                payload,
+                config_path=xtb_auto_config,
+                phase_engine="xtb",
+                extra_lines=[f"planned_orca_stages: {orca_stage_count}"],
+            )
             checkpoint(before_phase)
         elif not sync_only and template_name == "conformer_screening":
             before_phase = deepcopy(payload)
@@ -854,33 +896,45 @@ def cancel_materialized_workflow(
 ) -> dict[str, Any]:
     workflow_root_path = Path(workflow_root).expanduser().resolve()
     workspace_dir = resolve_workflow_workspace(target=target, workflow_root=workflow_root_path)
-    with acquire_workflow_lock(workspace_dir):
-        payload = load_workflow_payload(workspace_dir)
-        cancellation = _cancel_active_workflow_stages(
-            payload,
-            crest_auto_config=crest_auto_config,
-            crest_auto_executable=crest_auto_executable,
-            crest_auto_repo_root=crest_auto_repo_root,
-            xtb_auto_config=xtb_auto_config,
-            xtb_auto_executable=xtb_auto_executable,
-            xtb_auto_repo_root=xtb_auto_repo_root,
-            orca_auto_config=orca_auto_config,
-            orca_auto_executable=orca_auto_executable,
-            orca_auto_repo_root=orca_auto_repo_root,
-        )
-        cancelled = cancellation["cancelled"]
-        failed = cancellation["failed"]
+    try:
+        lock_context = acquire_workflow_lock(workspace_dir, timeout_seconds=5.0)
+        with lock_context:
+            payload = load_workflow_payload(workspace_dir)
+            cancellation = _cancel_active_workflow_stages(
+                payload,
+                crest_auto_config=crest_auto_config,
+                crest_auto_executable=crest_auto_executable,
+                crest_auto_repo_root=crest_auto_repo_root,
+                xtb_auto_config=xtb_auto_config,
+                xtb_auto_executable=xtb_auto_executable,
+                xtb_auto_repo_root=xtb_auto_repo_root,
+                orca_auto_config=orca_auto_config,
+                orca_auto_executable=orca_auto_executable,
+                orca_auto_repo_root=orca_auto_repo_root,
+            )
+            cancelled = cancellation["cancelled"]
+            failed = cancellation["failed"]
 
-        payload["status"] = "cancel_requested" if any(item.get("status") == "cancel_requested" for item in cancelled) else "cancelled"
-        write_workflow_payload(workspace_dir, payload)
-        sync_workflow_registry(workflow_root_path, workspace_dir, payload)
-        return {
-            "workflow_id": payload.get("workflow_id", ""),
-            "workspace_dir": str(workspace_dir),
-            "status": payload.get("status", ""),
-            "cancelled": cancelled,
-            "failed": failed,
-        }
+            payload["status"] = (
+                "cancel_requested"
+                if any(item.get("status") == "cancel_requested" for item in cancelled)
+                else "cancel_failed"
+                if failed
+                else "cancelled"
+            )
+            write_workflow_payload(workspace_dir, payload)
+            sync_workflow_registry(workflow_root_path, workspace_dir, payload)
+            return {
+                "workflow_id": payload.get("workflow_id", ""),
+                "workspace_dir": str(workspace_dir),
+                "status": payload.get("status", ""),
+                "cancelled": cancelled,
+                "failed": failed,
+            }
+    except TimeoutError as exc:
+        raise ValueError(
+            f"Workflow is busy and could not be locked for cancellation within 5s: {workspace_dir}"
+        ) from exc
 
 
 __all__ = [

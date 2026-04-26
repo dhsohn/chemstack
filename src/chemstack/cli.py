@@ -8,14 +8,16 @@ import signal
 import subprocess
 import sys
 import time
+import unicodedata
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Sequence
 
 from chemstack.activity_view import (
-    activity_display_fields,
     activity_with_parent_hint,
     count_global_active_simulations,
+    queue_list_default_visible_items,
     queue_list_display_rows,
 )
 from chemstack.core.app_ids import (
@@ -304,6 +306,245 @@ def _activity_counter_config_path(
     return None
 
 
+def _queue_table_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _parse_activity_timestamp(value: Any) -> datetime | None:
+    text = normalize_text(value)
+    if not text:
+        return None
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _queue_elapsed_text(item: dict[str, Any], *, now: datetime | None = None) -> str:
+    started_at = _parse_activity_timestamp(item.get("submitted_at"))
+    if started_at is None:
+        started_at = _parse_activity_timestamp(item.get("updated_at"))
+    if started_at is None:
+        return "--:--:--"
+
+    status = normalize_text(item.get("status")).lower()
+    end_at = _parse_activity_timestamp(item.get("updated_at"))
+    if status in {"planned", "pending", "queued", "submitted", "running", "retrying", "cancel_requested"} or end_at is None:
+        end_at = now or _queue_table_now()
+    if end_at < started_at:
+        end_at = started_at
+    total_seconds = max(0, int((end_at - started_at).total_seconds()))
+    hours = total_seconds // 3600
+    minutes = (total_seconds % 3600) // 60
+    seconds = total_seconds % 60
+    return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+
+
+def _queue_status_icon(item: dict[str, Any]) -> str:
+    status = normalize_text(item.get("status")).lower()
+    if status in {"completed"}:
+        return "✅"
+    if status in {"retrying"}:
+        return "🔄"
+    if status in {"failed", "cancelled", "cancel_failed", "submission_failed"}:
+        return "❌"
+    if status in {"cancel_requested"}:
+        return "⏹"
+    if status in {"running"}:
+        return "▶"
+    if status in {"planned", "pending", "queued", "submitted"}:
+        return "⏳"
+    return "•"
+
+
+def _queue_template_label(template_name: str) -> str:
+    normalized = normalize_text(template_name).lower()
+    return {
+        "reaction_ts_search": "ts_search",
+        "conformer_screening": "conformer_search",
+    }.get(normalized, normalize_text(template_name) or "workflow")
+
+
+def _queue_task_label(task_kind: str) -> str:
+    normalized = normalize_text(task_kind).lower()
+    return {
+        "crest_conformer_search": "conformer_search",
+        "conformer_search": "conformer_search",
+        "path_search": "TS path",
+        "xtb_path_search": "TS path",
+        "optts_freq": "OptTS+Freq",
+        "optts": "OptTS",
+        "ts": "TS",
+        "opt": "Opt",
+        "sp": "SP",
+        "freq": "Freq",
+        "irc": "IRC",
+        "neb": "NEB",
+        "orca": "ORCA",
+        "xtb": "xTB",
+        "crest": "CREST",
+    }.get(normalized, normalize_text(task_kind) or "")
+
+
+def _infer_orca_detail_from_metadata(metadata: dict[str, Any]) -> str:
+    task_label = _queue_task_label(metadata.get("task_kind"))
+    if task_label:
+        return task_label
+    job_type_label = _queue_task_label(metadata.get("job_type"))
+    if job_type_label:
+        return job_type_label
+    selected_inp_name = normalize_text(metadata.get("selected_inp_name") or metadata.get("selected_inp"))
+    lowered = selected_inp_name.lower()
+    if "neb" in lowered:
+        return "NEB"
+    if "irc" in lowered:
+        return "IRC"
+    if "ts" in lowered:
+        return "TS"
+    if "opt" in lowered:
+        return "Opt"
+    if "freq" in lowered:
+        return "Freq"
+    return "ORCA"
+
+
+def _queue_detail_text(item: dict[str, Any]) -> str:
+    kind = normalize_text(item.get("kind")).lower()
+    engine = normalize_text(item.get("engine")).lower()
+    metadata = item.get("metadata")
+    metadata = metadata if isinstance(metadata, dict) else {}
+
+    if kind == "workflow":
+        base = _queue_template_label(metadata.get("template_name"))
+        request_parameters = metadata.get("request_parameters")
+        request_parameters = request_parameters if isinstance(request_parameters, dict) else {}
+        crest_mode = normalize_text(request_parameters.get("crest_mode"))
+        if crest_mode:
+            return f"{base}({crest_mode})"
+        return base
+    if engine == "crest":
+        base = _queue_task_label(metadata.get("task_kind")) or "conformer_search"
+        mode = normalize_text(metadata.get("mode"))
+        if mode:
+            return f"{base}({mode})"
+        return base
+    if engine == "xtb":
+        return _queue_task_label(metadata.get("task_kind")) or _queue_task_label(metadata.get("job_type")) or "xTB"
+    if engine == "orca":
+        return _infer_orca_detail_from_metadata(metadata)
+    return normalize_text(item.get("label")) or normalize_text(item.get("source")) or "-"
+
+
+def _queue_truncate(value: str, *, max_width: int) -> str:
+    text = normalize_text(value)
+    if _queue_display_width(text) <= max_width:
+        return text
+    if max_width <= 3:
+        return _queue_trim_to_width(text, max_width)
+    return _queue_trim_to_width(text, max_width - 3) + "..."
+
+
+def _queue_char_width(char: str) -> int:
+    if not char:
+        return 0
+    if unicodedata.combining(char):
+        return 0
+    if unicodedata.category(char) == "Cf":
+        return 0
+    if unicodedata.east_asian_width(char) in {"W", "F"}:
+        return 2
+    return 1
+
+
+def _queue_text(value: Any) -> str:
+    if value is None:
+        return ""
+    return str(value)
+
+
+def _queue_display_width(value: str) -> int:
+    return sum(_queue_char_width(char) for char in _queue_text(value))
+
+
+def _queue_trim_to_width(value: str, max_width: int) -> str:
+    if max_width <= 0:
+        return ""
+    trimmed: list[str] = []
+    current_width = 0
+    for char in _queue_text(value):
+        char_width = _queue_char_width(char)
+        if current_width + char_width > max_width:
+            break
+        trimmed.append(char)
+        current_width += char_width
+    return "".join(trimmed)
+
+
+def _queue_pad_right(value: str, width: int) -> str:
+    padding = max(0, int(width) - _queue_display_width(value))
+    return _queue_text(value) + (" " * padding)
+
+
+def _queue_table_lines(rows: Sequence[tuple[int, dict[str, Any]]]) -> list[str]:
+    prepared: list[dict[str, str]] = []
+    now = _queue_table_now()
+    for indent, item in rows:
+        job_id = normalize_text(item.get("activity_id")) or "-"
+        if int(indent) > 0:
+            job_id = ("  " * int(indent)) + job_id
+        prepared.append(
+            {
+                "status": _queue_status_icon(item),
+                "job_id": job_id,
+                "detail": _queue_detail_text(item),
+                "elapsed": _queue_elapsed_text(item, now=now),
+            }
+        )
+
+    status_header = "Status"
+    job_id_header = "Job ID"
+    detail_header = "Detail"
+    elapsed_header = "Elapsed"
+
+    detail_width = max(
+        _queue_display_width(detail_header),
+        min(
+            36,
+            max((_queue_display_width(row["detail"]) for row in prepared), default=0),
+        ),
+    )
+    status_width = max(
+        _queue_display_width(status_header),
+        max((_queue_display_width(row["status"]) for row in prepared), default=0),
+    )
+    job_id_width = max(
+        _queue_display_width(job_id_header),
+        max((_queue_display_width(row["job_id"]) for row in prepared), default=0),
+    )
+    elapsed_width = max(_queue_display_width(elapsed_header), 8)
+
+    lines = [
+        f"{_queue_pad_right(status_header, status_width)}  "
+        f"{_queue_pad_right(job_id_header, job_id_width)}  "
+        f"{_queue_pad_right(detail_header, detail_width)}  "
+        f"{_queue_pad_right(elapsed_header, elapsed_width)}",
+        "─" * (status_width + job_id_width + detail_width + elapsed_width + 6),
+    ]
+    for row in prepared:
+        lines.append(
+            f"{_queue_pad_right(row['status'], status_width)}  "
+            f"{_queue_pad_right(row['job_id'], job_id_width)}  "
+            f"{_queue_pad_right(_queue_truncate(row['detail'], max_width=detail_width), detail_width)}  "
+            f"{_queue_pad_right(row['elapsed'], elapsed_width)}"
+        )
+    return lines
+
+
 def _queue_clear_lines(payload: dict[str, Any]) -> list[str]:
     total_cleared = int(payload.get("total_cleared", 0) or 0)
     if total_cleared <= 0:
@@ -348,6 +589,15 @@ def cmd_queue_list(args: Any) -> int:
         return 0
 
     limit = int(getattr(args, "limit", 0) or 0)
+    engine_values = _normalize_filter_values(getattr(args, "engine", None))
+    status_values = _normalize_filter_values(getattr(args, "status", None))
+    kind_values = _normalize_filter_values(getattr(args, "kind", None))
+    default_combined_text_view = (
+        not bool(getattr(args, "json", False))
+        and not engine_values
+        and not status_values
+        and not kind_values
+    )
     payload = list_activities(
         workflow_root=_workflow_root_for_args(args),
         limit=0,
@@ -355,13 +605,15 @@ def cmd_queue_list(args: Any) -> int:
         crest_auto_config=shared_config,
         xtb_auto_config=shared_config,
         orca_auto_config=shared_config,
+        child_job_engines=() if default_combined_text_view else None,
     )
-    activities = _filter_activity_items(
+    filtered_activities = _filter_activity_items(
         payload.get("activities", []),
-        engines=getattr(args, "engine", None),
-        statuses=getattr(args, "status", None),
-        kinds=getattr(args, "kind", None),
+        engines=engine_values,
+        statuses=status_values,
+        kinds=kind_values,
     )
+    activities = list(filtered_activities)
     if limit > 0:
         activities = activities[:limit]
     active_simulations = count_global_active_simulations(
@@ -379,27 +631,26 @@ def cmd_queue_list(args: Any) -> int:
         print(json.dumps(filtered_payload, ensure_ascii=True, indent=2))
         return 0
 
-    kind_filter = set(_normalize_filter_values(getattr(args, "kind", None)))
+    kind_filter = set(kind_values)
+    display_items = list(filtered_activities)
+    if default_combined_text_view:
+        display_items = queue_list_default_visible_items(display_items)
+    if limit > 0:
+        display_items = display_items[:limit]
     show_workflow_context = kind_filter != {"job"}
     display_rows = queue_list_display_rows(
         all_items=payload.get("activities", []),
-        visible_items=activities,
+        visible_items=display_items,
         show_workflow_context=show_workflow_context,
+        visible_workflow_child_engines=("orca",) if default_combined_text_view else None,
     )
 
     print(f"active_simulations: {filtered_payload['active_simulations']}")
-    for indent, item in display_rows:
-        prefix = "  " * max(0, int(indent))
-        detail_suffix = "".join(f" {key}={value}" for key, value in activity_display_fields(item))
-        print(
-            f"{prefix}- {item.get('activity_id', '-')}"
-            f" kind={item.get('kind', '-')}"
-            f" engine={item.get('engine', '-')}"
-            f" status={item.get('status', '-')}"
-            f" label={item.get('label', '-')}"
-            f" source={item.get('source', '-')}"
-            f"{detail_suffix}"
-        )
+    if not display_rows:
+        print("No matching activities.")
+        return 0
+    for line in _queue_table_lines(display_rows):
+        print(line)
     return 0
 
 
@@ -413,7 +664,7 @@ def cmd_queue_cancel(args: Any) -> int:
             xtb_auto_config=shared_config,
             orca_auto_config=shared_config,
         )
-    except (LookupError, ValueError) as exc:
+    except (LookupError, ValueError, TimeoutError) as exc:
         print(f"error: {exc}")
         return 1
 
@@ -760,14 +1011,14 @@ def _detect_run_dir_app(args: argparse.Namespace) -> str:
     workflow_layout = inspect_workflow_run_dir(target)
     orca_input_present = any(candidate.is_file() for candidate in target.glob("*.inp"))
 
-    if workflow_layout.is_workflow_dir:
+    if workflow_layout.has_manifest:
         return "workflow"
     if orca_input_present:
         return "orca"
 
     raise ValueError(
         "Could not infer run-dir target type from directory. "
-        "Expected flow.yaml, reactant.xyz + product.xyz, input.xyz, or *.inp."
+        "Expected flow.yaml for workflow inputs, or *.inp for ORCA."
     )
 
 

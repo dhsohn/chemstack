@@ -12,7 +12,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
-from chemstack.activity_view import activity_display_fields, count_global_active_simulations, queue_list_display_rows
+from chemstack.cli import _queue_clear_lines, _queue_table_lines
+from chemstack.activity_view import (
+    count_global_active_simulations,
+    queue_list_default_visible_items,
+    queue_list_display_rows,
+)
 from chemstack.core.app_ids import (
     CHEMSTACK_REPO_ROOT_ENV_VAR,
     LEGACY_ORCA_REPO_ROOT_ENV_VAR,
@@ -225,43 +230,45 @@ def _send_response(
     return sent_any
 
 
-def _activity_payload(settings: TelegramBotSettings) -> dict[str, Any]:
+def _send_preformatted_response(
+    token: str,
+    chat_id: str,
+    text: str,
+    *,
+    limit: int = _MAX_MESSAGE_LENGTH,
+) -> bool:
+    wrapper_prefix = "<pre>"
+    wrapper_suffix = "</pre>"
+    wrapper_overhead = len(wrapper_prefix) + len(wrapper_suffix)
+    if limit <= wrapper_overhead:
+        raise ValueError("preformatted message limit must exceed wrapper size")
+
+    sent_any = False
+    for chunk in _message_chunks(text, limit=limit - wrapper_overhead):
+        wrapped = f"{wrapper_prefix}{escape_html(chunk)}{wrapper_suffix}"
+        if _send_message(token, chat_id, wrapped, parse_mode="HTML"):
+            sent_any = True
+            continue
+        if _send_message(token, chat_id, chunk, parse_mode=None):
+            sent_any = True
+            continue
+        return False
+    return sent_any
+
+
+def _activity_payload(
+    settings: TelegramBotSettings,
+    *,
+    child_job_engines: tuple[str, ...] | None = None,
+) -> dict[str, Any]:
     return list_activities(
         workflow_root=settings.workflow_root,
         crest_auto_config=settings.crest_auto_config,
         xtb_auto_config=settings.xtb_auto_config,
         orca_auto_config=settings.orca_auto_config,
         orca_auto_repo_root=settings.orca_auto_repo_root,
+        child_job_engines=child_job_engines,
     )
-
-
-def _format_activity_rows(rows: list[tuple[int, dict[str, Any]]], *, limit: int | None = None) -> str:
-    lines: list[str] = []
-    visible_rows = rows if limit is None or limit <= 0 else rows[:limit]
-    for indent, item in visible_rows:
-        indent_prefix = "\u00A0\u00A0" * max(0, int(indent))
-        activity_id = escape_html(str(item.get("activity_id", "-")).strip() or "-")
-        kind = escape_html(str(item.get("kind", "-")).strip() or "-")
-        engine = escape_html(str(item.get("engine", "-")).strip() or "-")
-        status = escape_html(str(item.get("status", "-")).strip() or "-")
-        label = escape_html(str(item.get("label", "-")).strip() or "-")
-        source = escape_html(str(item.get("source", "-")).strip() or "-")
-        details = "".join(
-            f" {escape_html(key)}=<code>{escape_html(value)}</code>"
-            for key, value in activity_display_fields(item)
-        )
-        lines.append(
-            f"{indent_prefix}- <code>{activity_id}</code>"
-            f" kind=<code>{kind}</code>"
-            f" engine=<code>{engine}</code>"
-            f" status=<code>{status}</code>"
-            f" label=<code>{label}</code>"
-            f" source=<code>{source}</code>"
-            f"{details}"
-        )
-    if limit is not None and limit > 0 and len(rows) > limit:
-        lines.append(f"... and {len(rows) - limit} more")
-    return "\n".join(lines)
 
 
 def _activity_counter_config_path(
@@ -292,48 +299,34 @@ def _handle_list(settings: TelegramBotSettings, args: str) -> str:
             orca_auto_config=settings.orca_auto_config,
             orca_auto_repo_root=settings.orca_auto_repo_root,
         )
-        total_cleared = int(payload.get("total_cleared", 0) or 0)
-        if total_cleared <= 0:
-            return "Nothing to clear."
-
-        lines = [
-            f"\u2705 Cleared <code>{total_cleared}</code> completed/failed/cancelled entries."
-        ]
-        cleared = payload.get("cleared")
-        if isinstance(cleared, dict):
-            labels = (
-                ("workflows", "workflows"),
-                ("xtb_queue_entries", "xTB queue entries"),
-                ("crest_queue_entries", "CREST queue entries"),
-                ("orca_queue_entries", "ORCA queue entries"),
-                ("orca_run_states", "ORCA run states"),
-            )
-            for key, label in labels:
-                count = int(cleared.get(key, 0) or 0)
-                if count > 0:
-                    lines.append(f"{escape_html(label)}: <code>{count}</code>")
-        return "\n".join(lines)
-
-    payload = _activity_payload(settings)
-    all_rows = list(payload.get("activities", []))
-    rows = list(all_rows)
+        return "\n".join(_queue_clear_lines(payload))
 
     filter_status = action
+    payload = _activity_payload(
+        settings,
+        child_job_engines=() if not filter_status else None,
+    )
+    all_rows = list(payload.get("activities", []))
+    rows = list(all_rows)
     if filter_status:
         rows = [item for item in rows if str(item.get("status", "")).strip().lower() == filter_status]
+    else:
+        rows = queue_list_default_visible_items(rows)
 
-    if not rows:
-        return "No activities found."
-
-    header = (
-        f"<b>active_simulations</b>: <code>{count_global_active_simulations(all_rows, config_path=_activity_counter_config_path(payload, settings=settings))}</code>"
-    )
     display_rows = queue_list_display_rows(
         all_items=all_rows,
         visible_items=rows,
         show_workflow_context=True,
+        visible_workflow_child_engines=("orca",) if not filter_status else None,
     )
-    return header + "\n\n" + _format_activity_rows(display_rows)
+    lines = [
+        f"active_simulations: {count_global_active_simulations(all_rows, config_path=_activity_counter_config_path(payload, settings=settings))}"
+    ]
+    if not display_rows:
+        lines.append("No matching activities.")
+        return "\n".join(lines)
+    lines.extend(_queue_table_lines(display_rows))
+    return "\n".join(lines)
 
 
 def _handle_cancel(settings: TelegramBotSettings, args: str) -> str:
@@ -435,13 +428,19 @@ def run_bot(settings: TelegramBotSettings | None = None) -> int:
                 handler = _HANDLERS.get(command)
                 if handler is None:
                     response = f"Unknown command: /{escape_html(command)}\nType /help for available commands."
+                    send_preformatted = False
                 else:
                     try:
                         response = handler(resolved, cmd_args)
+                        send_preformatted = command == "list"
                     except Exception as exc:
                         logger.exception("telegram_bot_handler_error: cmd=%s", command)
                         response = f"Error: {escape_html(str(exc))}"
-                _send_response(resolved.telegram.bot_token, resolved.telegram.chat_id, response)
+                        send_preformatted = False
+                if send_preformatted:
+                    _send_preformatted_response(resolved.telegram.bot_token, resolved.telegram.chat_id, response)
+                else:
+                    _send_response(resolved.telegram.bot_token, resolved.telegram.chat_id, response)
         except KeyboardInterrupt:
             logger.info("chem_flow Telegram bot stopped")
             return 0

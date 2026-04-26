@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +18,7 @@ from .common import normalize_text as _normalize_text, parse_key_value_lines as 
 
 _SUBMIT_MODULE_NAME = CHEMSTACK_CLI_MODULE
 _CANCEL_MODULE_NAME = CHEMSTACK_ORCA_INTERNAL_MODULE
+_CANCEL_TIMEOUT_SECONDS = 5.0
 
 
 def _mapping_payload(value: Any) -> dict[str, Any]:
@@ -106,13 +108,25 @@ def cancel_target(
     executable: str = CHEMSTACK_EXECUTABLE,
     repo_root: str | None = None,
 ) -> dict[str, Any]:
-    result = run_sibling_app(
-        executable=_normalize_text(executable) or CHEMSTACK_EXECUTABLE,
-        config_path=_normalize_text(config_path),
-        repo_root=_normalize_text(repo_root) or None,
-        module_name=_CANCEL_MODULE_NAME,
-        tail_argv=_cancel_tail_argv(target=target),
-    )
+    try:
+        result = run_sibling_app(
+            executable=_normalize_text(executable) or CHEMSTACK_EXECUTABLE,
+            config_path=_normalize_text(config_path),
+            repo_root=_normalize_text(repo_root) or None,
+            module_name=_CANCEL_MODULE_NAME,
+            tail_argv=_cancel_tail_argv(target=target),
+            timeout_seconds=_CANCEL_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired as exc:
+        command_argv = list(exc.cmd) if isinstance(exc.cmd, (list, tuple)) else [str(exc.cmd)]
+        return {
+            "status": "failed",
+            "reason": "cancel_command_timeout",
+            "returncode": 124,
+            "command_argv": command_argv,
+            "stdout": exc.stdout or "",
+            "stderr": exc.stderr or "",
+        }
     argv = list(result.args) if isinstance(result.args, (list, tuple)) else [str(result.args)]
     return {
         "status": _cancel_status_from_output(returncode=result.returncode, stdout=result.stdout),

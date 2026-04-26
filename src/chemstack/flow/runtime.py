@@ -7,6 +7,7 @@ from chemstack.core.app_ids import CHEMSTACK_EXECUTABLE
 from chemstack.core.utils import now_utc_iso, timestamped_token
 
 from .orchestration import advance_workflow
+from ._workflow_phases import phase_transition_event_payloads
 from .registry import (
     append_workflow_journal_event,
     list_workflow_registry,
@@ -251,6 +252,25 @@ def _append_stage_transition_events(
         append_workflow_journal_event(workflow_root, **payload)
 
 
+def _append_phase_transition_events(
+    workflow_root: str | Path,
+    *,
+    previous_summary: dict[str, Any],
+    current_summary: dict[str, Any],
+    workflow_id: str,
+    template_name: str,
+    worker_session_id: str,
+) -> None:
+    for payload in phase_transition_event_payloads(
+        previous_summary=previous_summary,
+        current_summary=current_summary,
+        workflow_id=workflow_id,
+        template_name=template_name,
+        worker_session_id=worker_session_id,
+    ):
+        append_workflow_journal_event(workflow_root, **payload)
+
+
 def workflow_worker_lock_path(workflow_root: str | Path) -> Path:
     return Path(workflow_root).expanduser().resolve() / WORKFLOW_WORKER_LOCK_NAME
 
@@ -404,6 +424,14 @@ def advance_workflow_registry_once(
                         reason="terminal_child_sync",
                         worker_session_id=session_id,
                     )
+                _append_phase_transition_events(
+                    root,
+                    previous_summary=previous_summary,
+                    current_summary=current_summary,
+                    workflow_id=_normalize_text(payload.get("workflow_id")) or record.workflow_id,
+                    template_name=_normalize_text(payload.get("template_name")) or record.template_name,
+                    worker_session_id=session_id,
+                )
                 _append_stage_transition_events(
                     root,
                     previous_summary=previous_summary,
@@ -490,6 +518,14 @@ def advance_workflow_registry_once(
                 status=status,
                 worker_session_id=session_id,
             )
+        _append_phase_transition_events(
+            root,
+            previous_summary=previous_summary,
+            current_summary=current_summary,
+            workflow_id=_normalize_text(payload.get("workflow_id")) or record.workflow_id,
+            template_name=_normalize_text(payload.get("template_name")) or record.template_name,
+            worker_session_id=session_id,
+        )
         _append_stage_transition_events(
             root,
             previous_summary=previous_summary,

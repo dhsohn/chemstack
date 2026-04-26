@@ -259,6 +259,8 @@ def workflow_summary(workspace_dir: str | Path, payload: dict[str, Any] | None =
         )
 
     metadata = _coerce_mapping(data.get("metadata"))
+    request = _coerce_mapping(metadata.get("request"))
+    request_parameters = _coerce_mapping(request.get("parameters"))
     downstream = _coerce_mapping(metadata.get("downstream_reaction_workflow"))
     precomplex_handoff = _coerce_mapping(metadata.get("precomplex_handoff"))
     parent_workflow = _coerce_mapping(metadata.get("parent_workflow"))
@@ -276,6 +278,7 @@ def workflow_summary(workspace_dir: str | Path, payload: dict[str, Any] | None =
         "stage_status_counts": status_counts,
         "task_status_counts": task_status_counts,
         "submission_summary": _coerce_mapping(metadata.get("submission_summary")),
+        "request_parameters": request_parameters,
         "downstream_reaction_workflow": downstream,
         "precomplex_handoff": precomplex_handoff,
         "parent_workflow": parent_workflow,

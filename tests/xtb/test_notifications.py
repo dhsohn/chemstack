@@ -253,3 +253,36 @@ def test_notify_organize_summary_formats_counts_and_root(
             ]
         )
     ]
+
+
+def test_workflow_child_notifications_are_suppressed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cfg = _make_cfg(tmp_path, enabled=True)
+    transport = _FakeTransport(TelegramSendResult(sent=True))
+    monkeypatch.setattr(notifications, "build_telegram_transport", lambda _cfg: transport)
+    workflow_job_dir = tmp_path / "workflow_jobs" / "wf-1" / "stage_02_xtb" / "job-004"
+
+    assert notifications.notify_job_queued(
+        cfg,
+        job_id="job-004",
+        queue_id="queue-004",
+        job_dir=workflow_job_dir,
+        job_type="path_search",
+        reaction_key="rxn-4",
+        selected_xyz=workflow_job_dir / "ts.xyz",
+    )
+    assert notifications.notify_job_finished(
+        cfg,
+        job_id="job-004",
+        queue_id="queue-004",
+        status="completed",
+        reason="done",
+        job_type="path_search",
+        reaction_key="rxn-4",
+        job_dir=workflow_job_dir,
+        selected_xyz=workflow_job_dir / "ts.xyz",
+        candidate_count=2,
+    )
+    assert transport.messages == []

@@ -338,7 +338,7 @@ def test_workflow_create_commands_render_text_and_json(
     assert json_payload["workflow_id"] == payload["workflow_id"]
 
 
-def test_cmd_run_dir_infers_reaction_workflow_from_directory(
+def test_cmd_run_dir_reads_manifest_for_reaction_workflow(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
@@ -347,6 +347,7 @@ def test_cmd_run_dir_infers_reaction_workflow_from_directory(
     workflow_dir.mkdir()
     (workflow_dir / "reactant.xyz").write_text("2\nreactant\nH 0 0 0\nH 0 0 0.74\n", encoding="utf-8")
     (workflow_dir / "product.xyz").write_text("2\nproduct\nH 0 0 0\nH 0 0 0.80\n", encoding="utf-8")
+    (workflow_dir / "flow.yaml").write_text("workflow_type: reaction_ts_search\n", encoding="utf-8")
     captured: dict[str, Any] = {}
 
     monkeypatch.setattr(cli, "_discover_workflow_root", lambda explicit: "/tmp/workflow_root")
@@ -483,6 +484,7 @@ def test_cmd_run_dir_reuses_direct_child_workflow_directory_when_already_under_w
     workflow_dir.mkdir(parents=True)
     (workflow_dir / "reactant.xyz").write_text("2\nreactant\nH 0 0 0\nH 0 0 0.74\n", encoding="utf-8")
     (workflow_dir / "product.xyz").write_text("2\nproduct\nH 0 0 0\nH 0 0 0.80\n", encoding="utf-8")
+    (workflow_dir / "flow.yaml").write_text("workflow_type: reaction_ts_search\n", encoding="utf-8")
     captured: dict[str, Any] = {}
 
     monkeypatch.setattr(cli, "_discover_workflow_root", lambda explicit: str(workflow_root.resolve()))
@@ -519,6 +521,7 @@ def test_cmd_run_dir_reports_ambiguous_layout(
 ) -> None:
     workflow_dir = tmp_path / "ambiguous_job"
     workflow_dir.mkdir()
+    (workflow_dir / "flow.yaml").write_text("priority: 10\n", encoding="utf-8")
     (workflow_dir / "reactant.xyz").write_text("x", encoding="utf-8")
     (workflow_dir / "product.xyz").write_text("x", encoding="utf-8")
     (workflow_dir / "input.xyz").write_text("x", encoding="utf-8")
@@ -545,6 +548,38 @@ def test_cmd_run_dir_reports_ambiguous_layout(
 
     assert cli.cmd_run_dir(args) == 1
     assert "Ambiguous workflow_dir" in capsys.readouterr().out
+
+
+def test_cmd_run_dir_requires_manifest_before_materializing_workflow(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    workflow_dir = tmp_path / "missing_manifest"
+    workflow_dir.mkdir()
+    (workflow_dir / "input.xyz").write_text("x", encoding="utf-8")
+
+    args = SimpleNamespace(
+        workflow_dir=str(workflow_dir),
+        workflow_type=None,
+        workflow_root=None,
+        reactant_xyz=None,
+        product_xyz=None,
+        input_xyz=None,
+        crest_mode=None,
+        priority=None,
+        max_cores=None,
+        max_memory_gb=None,
+        max_crest_candidates=None,
+        max_xtb_stages=None,
+        max_orca_stages=None,
+        orca_route_line=None,
+        charge=None,
+        multiplicity=None,
+        json=False,
+    )
+
+    assert cli.cmd_run_dir(args) == 1
+    assert "workflow run-dir requires flow.yaml" in capsys.readouterr().out
 
 
 def test_cmd_run_dir_requires_standard_input_xyz_name_for_conformer_workflow(

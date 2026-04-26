@@ -223,6 +223,7 @@ def list_activities(
     xtb_auto_config: str | None = None,
     orca_auto_config: str | None = None,
     orca_auto_repo_root: str | None = None,
+    child_job_engines: tuple[str, ...] | None = None,
 ) -> dict[str, Any]:
     return list_activities_impl(
         workflow_root=workflow_root,
@@ -232,6 +233,7 @@ def list_activities(
         xtb_auto_config=xtb_auto_config,
         orca_auto_config=orca_auto_config,
         orca_auto_repo_root=orca_auto_repo_root,
+        child_job_engines=child_job_engines,
     )
 
 

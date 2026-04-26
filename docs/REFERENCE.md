@@ -134,6 +134,9 @@ workflow:
 telegram:
   bot_token: ""
   chat_id: ""
+  timeout_seconds: 5.0
+  max_attempts: 2
+  retry_backoff_seconds: 0.5
 
 orca:
   runtime:
@@ -220,9 +223,10 @@ ORCA-specific notes:
 
 Workflow notes:
 
-- `run-dir` materializes a workflow when the target directory looks like a workflow input scaffold
+- `run-dir` materializes a workflow only when `flow.yaml` is present in the target directory
+- If a directory mixes raw ORCA `*.inp` files with scaffold-style filenames but does not include `flow.yaml`, `run-dir` prefers ORCA direct submission
 - reaction-path and conformer workflows create and submit xTB/CREST stages internally
-- `reaction_ts_search` expands all selected reactant x product CREST pairs into xTB child jobs, and as each xTB child finishes it immediately creates and queues the matching ORCA OptTS child job from that `ts_guess`
+- `reaction_ts_search` expands all selected reactant x product CREST pairs into xTB child jobs, waits for the full xTB phase to reach terminal states, and then batches any matching ORCA OptTS child jobs from the retained `ts_guess` artifacts
 - `conformer_search` starts with one CREST child job and then hands off up to 20 retained conformers to ORCA child jobs in the next workflow cycle
 - Set top-level `workflow.root` in `chemstack.yaml` before using workflow commands
 - Public `run-dir` does not expose workflow override flags; workflow settings come from `flow.yaml` and `chemstack.yaml`
@@ -250,9 +254,16 @@ chemstack queue list --engine xtb
 ```
 
 `queue list` shows workflow and engine activity in one view, but workflow child simulations
-are rendered underneath their parent workflow with indentation. Standalone ORCA jobs remain
-top-level entries. The `active_simulations` line counts only the currently running
+are rendered underneath their parent workflow with indentation. The text view prints a table
+with `Status`, `Job ID`, `Detail`, and `Elapsed` columns, where the detail field surfaces
+workflow or job intent such as `ts_search(nci)`, `IRC`, or `NEB`. By default, only ORCA child
+jobs are expanded beneath workflow parents; internal xTB/CREST child jobs stay hidden in the
+combined text view to reduce noise, but remain available through `--engine ... --kind job`
+filters and `--json`. Standalone ORCA jobs remain top-level entries. The
+`active_simulations` line counts only the currently running
 simulations that consume the shared `scheduler.max_active_simulations` slots.
+The integrated Telegram bot `/list` command renders the same table layout and default
+workflow-child visibility policy.
 
 ### 7.5 `organize`
 
@@ -288,6 +299,7 @@ Behavior:
 - `chemstack-queue-worker@.service` supervises ORCA by default
 - If `workflow.root` is set, the same worker service also starts workflow supervision plus the internal CREST and xTB workers
 - `chemstack-bot@.service` starts the unified Telegram bot using `telegram.bot_token` and `telegram.chat_id` from `chemstack.yaml`
+- Workflow Telegram alerts keep per-job ORCA messages, but summarize internal CREST and reaction-path xTB child phases in one message each after those phases finish
 - `chemstack-runtime@.target` starts both services together
 
 ## 8) WSL systemd Setup

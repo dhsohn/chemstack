@@ -338,6 +338,12 @@ def cmd_run_dir(args: Any) -> int:
         if not workflow_dir.is_dir():
             raise ValueError(f"workflow_dir does not exist or is not a directory: {workflow_dir}")
 
+        workflow_layout = inspect_workflow_run_dir(workflow_dir)
+        if not workflow_layout.has_manifest:
+            raise ValueError(
+                "workflow run-dir requires flow.yaml in workflow_dir."
+            )
+
         manifest = _load_run_dir_manifest(workflow_dir)
         resources_manifest = _manifest_mapping(manifest.get("resources"))
         crest_manifest = _resolve_engine_manifest(workflow_dir, manifest, "crest")
@@ -372,7 +378,6 @@ def cmd_run_dir(args: Any) -> int:
         if workflow_type_text:
             workflow_type = _normalize_workflow_type(workflow_type_text)
         else:
-            workflow_layout = inspect_workflow_run_dir(workflow_dir)
             if workflow_layout.is_ambiguous:
                 raise ValueError(
                     "Ambiguous workflow_dir: found both reaction inputs and conformer input. "
@@ -1099,19 +1104,23 @@ def cmd_workflow_artifacts(args: Any) -> int:
 
 
 def cmd_workflow_cancel(args: Any) -> int:
-    payload = cancel_workflow(
-        target=getattr(args, "target"),
-        workflow_root=getattr(args, "workflow_root", None),
-        crest_auto_config=getattr(args, "crest_auto_config", None),
-        crest_auto_executable=getattr(args, "crest_auto_executable", "crest_auto"),
-        crest_auto_repo_root=getattr(args, "crest_auto_repo_root", None),
-        xtb_auto_config=getattr(args, "xtb_auto_config", None),
-        xtb_auto_executable=getattr(args, "xtb_auto_executable", "xtb_auto"),
-        xtb_auto_repo_root=getattr(args, "xtb_auto_repo_root", None),
-        orca_auto_config=getattr(args, "orca_auto_config", None),
-        orca_auto_executable=getattr(args, "orca_auto_executable", CHEMSTACK_EXECUTABLE),
-        orca_auto_repo_root=getattr(args, "orca_auto_repo_root", None),
-    )
+    try:
+        payload = cancel_workflow(
+            target=getattr(args, "target"),
+            workflow_root=getattr(args, "workflow_root", None),
+            crest_auto_config=getattr(args, "crest_auto_config", None),
+            crest_auto_executable=getattr(args, "crest_auto_executable", "crest_auto"),
+            crest_auto_repo_root=getattr(args, "crest_auto_repo_root", None),
+            xtb_auto_config=getattr(args, "xtb_auto_config", None),
+            xtb_auto_executable=getattr(args, "xtb_auto_executable", "xtb_auto"),
+            xtb_auto_repo_root=getattr(args, "xtb_auto_repo_root", None),
+            orca_auto_config=getattr(args, "orca_auto_config", None),
+            orca_auto_executable=getattr(args, "orca_auto_executable", CHEMSTACK_EXECUTABLE),
+            orca_auto_repo_root=getattr(args, "orca_auto_repo_root", None),
+        )
+    except (ValueError, TimeoutError) as exc:
+        print(f"error: {exc}")
+        return 1
     if bool(getattr(args, "json", False)):
         print(json.dumps(payload, ensure_ascii=True, indent=2))
         return 0

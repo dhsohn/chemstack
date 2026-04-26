@@ -137,6 +137,33 @@ def test_record_from_summary_coerces_counts_and_nested_metadata(monkeypatch: pyt
         ),
         (
             {
+                "event_type": "workflow_phase_finished",
+                "workflow_id": "wf_phase",
+                "template_name": "reaction_ts_search",
+                "status": "mixed",
+                "worker_session_id": "session-phase",
+                "metadata": {
+                    "phase": "xtb",
+                    "phase_label": "xTB",
+                    "phase_outcome": "mixed",
+                    "stage_count": 2,
+                    "stage_status_counts": {"completed": 2},
+                    "reaction_handoff_status_counts": {"ready": 1, "failed": 1},
+                    "failure_reasons": ["xtb_ts_guess_missing"],
+                },
+            },
+            [
+                "workflow=wf_phase",
+                "event=workflow_phase_finished",
+                "phase=xTB",
+                "phase_outcome=mixed",
+                "stage_status_counts=completed:2",
+                "reaction_handoff_status_counts=failed:1,ready:1",
+                "failure_reasons=xtb_ts_guess_missing",
+            ],
+        ),
+        (
+            {
                 "event_type": "custom_event",
                 "workflow_id": "wf_4",
                 "status": "queued",
@@ -171,6 +198,7 @@ def test_notification_configuration_helpers_cover_default_override_and_transport
     assert registry._journal_notification_enabled("workflow_status_changed") is True
     assert registry._journal_notification_enabled("workflow_stage_submitted") is True
     assert registry._journal_notification_enabled("workflow_stage_handoff_ready") is True
+    assert registry._journal_notification_enabled("workflow_phase_finished") is True
     assert registry._telegram_transport_from_env() is None
 
     monkeypatch.setenv(
@@ -230,13 +258,42 @@ def test_maybe_notify_journal_event_sends_message_and_swallows_transport_errors(
     monkeypatch.setattr(registry, "_journal_notification_enabled", lambda event_type: True)
     monkeypatch.setattr(registry, "_telegram_transport_from_env", lambda: FakeTransport(fail=False))
     registry._maybe_notify_journal_event(event, tmp_path)
+    registry._maybe_notify_journal_event(
+        {
+            "event_type": "workflow_stage_submitted",
+            "workflow_id": "wf_notify",
+            "template_name": "reaction_ts_search",
+            "stage_id": "xtb_path_search_01",
+            "engine": "xtb",
+            "task_kind": "path_search",
+            "metadata": {"engine": "xtb"},
+        },
+        tmp_path,
+    )
+    registry._maybe_notify_journal_event(
+        {
+            "event_type": "workflow_phase_finished",
+            "workflow_id": "wf_notify",
+            "template_name": "reaction_ts_search",
+            "worker_session_id": "session-notify",
+            "metadata": {
+                "phase": "xtb",
+                "phase_label": "xTB",
+                "phase_outcome": "completed",
+                "stage_count": 2,
+                "stage_status_counts": {"completed": 2},
+            },
+        },
+        tmp_path,
+    )
 
-    assert len(sent_messages) == 1
+    assert len(sent_messages) == 2
     assert "workflow=wf_notify" in sent_messages[0]
+    assert "phase=xTB" in sent_messages[1]
 
     monkeypatch.setattr(registry, "_telegram_transport_from_env", lambda: FakeTransport(fail=True))
     registry._maybe_notify_journal_event(event, tmp_path)
-    assert len(sent_messages) == 1
+    assert len(sent_messages) == 2
 
 
 def test_clear_terminal_workflow_registry_removes_only_terminal_rows(
@@ -286,6 +343,53 @@ def test_clear_terminal_workflow_registry_removes_only_terminal_rows(
     remaining = registry.list_workflow_registry(tmp_path, reindex_if_missing=False)
     assert [record.workflow_id for record in remaining] == ["wf-running"]
     assert registry.clear_terminal_workflow_registry(tmp_path) == 0
+
+
+def test_list_workflow_registry_does_not_reindex_valid_empty_registry(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(registry, "file_lock", _no_lock)
+    registry._save_records(tmp_path, [])
+
+    def fake_reindex_workflow_registry(root: str | Path) -> list[registry.WorkflowRegistryRecord]:
+        raise AssertionError(f"unexpected reindex for {root}")
+
+    monkeypatch.setattr(registry, "reindex_workflow_registry", fake_reindex_workflow_registry)
+
+    assert registry.list_workflow_registry(tmp_path) == []
+
+
+def test_list_workflow_registry_reindexes_invalid_existing_registry(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(registry, "file_lock", _no_lock)
+    registry._registry_path(tmp_path).write_text("{invalid", encoding="utf-8")
+
+    list_result = [
+        registry.WorkflowRegistryRecord(
+            workflow_id="wf_reindexed",
+            template_name="reaction_ts_search",
+            status="planned",
+            source_job_id="job_reindexed",
+            source_job_type="xtb_path",
+            reaction_key="rxn_reindexed",
+            requested_at="2026-04-19T00:00:00+00:00",
+            workspace_dir=str(tmp_path / "wf_reindexed"),
+            workflow_file=str(tmp_path / "wf_reindexed" / "workflow.json"),
+        )
+    ]
+    reindex_calls: list[Path] = []
+
+    def fake_reindex_workflow_registry(root: str | Path) -> list[registry.WorkflowRegistryRecord]:
+        reindex_calls.append(Path(root).resolve())
+        return list_result
+
+    monkeypatch.setattr(registry, "reindex_workflow_registry", fake_reindex_workflow_registry)
+
+    assert registry.list_workflow_registry(tmp_path) == list_result
+    assert reindex_calls == [tmp_path.resolve()]
 
 
 def test_append_workflow_journal_event_writes_jsonl_and_returns_event(
