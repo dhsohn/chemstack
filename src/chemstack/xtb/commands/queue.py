@@ -7,7 +7,7 @@ import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Protocol
+from typing import Any, Callable
 
 from chemstack.core.admission import activate_reserved_slot, reconcile_stale_slots, release_slot, reserve_slot
 from chemstack.core.queue import (
@@ -19,6 +19,18 @@ from chemstack.core.queue import (
     mark_failed,
     requeue_running_entry,
     request_cancel,
+)
+from chemstack.core.queue.worker import (
+    ManagedProcess as _ManagedProcess,
+    dequeue_next_across_roots,
+    fill_worker_slots,
+    install_shutdown_signal_handlers,
+    pid_is_alive as worker_pid_is_alive,
+    pop_completed_worker_jobs,
+    reserve_queue_worker_slot,
+    resolve_admission_limit,
+    resolve_admission_root,
+    terminate_process_group,
 )
 from chemstack.core.utils import now_utc_iso
 
@@ -44,15 +56,6 @@ CANCEL_CHECK_INTERVAL_SECONDS = 1
 WORKER_CANCEL_SIGNAL = getattr(signal, "SIGUSR1", signal.SIGTERM)
 WORKER_SHUTDOWN_EXIT_CODE = 190
 WORKER_JOB_MODULE = "chemstack.xtb.worker_job"
-
-
-class _ManagedProcess(Protocol):
-    pid: int
-
-    def kill(self) -> None: ...
-    def poll(self) -> int | None: ...
-    def terminate(self) -> None: ...
-    def wait(self, timeout: float | None = None) -> int: ...
 
 
 @dataclass(frozen=True)
@@ -112,39 +115,11 @@ def _queue_entries_with_roots(cfg: Any) -> list[tuple[Path, Any]]:
 
 
 def _dequeue_next_entry(cfg: Any) -> tuple[Path, Any] | None:
-    roots = _queue_roots(cfg)
-    if len(roots) == 1:
-        entry = dequeue_next(roots[0])
-        if entry is None:
-            return None
-        return roots[0], entry
-
-    selected_root: Path | None = None
-    selected_key: tuple[int, str, int, str] | None = None
-
-    for root_index, root in enumerate(roots):
-        for entry in list_queue(root):
-            status_value = getattr(getattr(entry, "status", None), "value", None)
-            status = str(status_value).strip().lower()
-            if status != "pending" or getattr(entry, "cancel_requested", False):
-                continue
-            key = (
-                int(getattr(entry, "priority", 10) or 10),
-                str(getattr(entry, "enqueued_at", "")),
-                root_index,
-                str(getattr(entry, "queue_id", "")),
-            )
-            if selected_key is None or key < selected_key:
-                selected_key = key
-                selected_root = root
-
-    if selected_root is None:
-        return None
-
-    entry = dequeue_next(selected_root)
-    if entry is None:
-        return None
-    return selected_root, entry
+    return dequeue_next_across_roots(
+        _queue_roots(cfg),
+        list_queue_fn=list_queue,
+        dequeue_next_fn=dequeue_next,
+    )
 
 
 def _queue_entry_by_id(queue_root: Path | str, queue_id: str) -> Any | None:
@@ -163,27 +138,15 @@ def _selected_xyz(entry: Any) -> Path:
 
 
 def _admission_root(cfg: Any) -> str:
-    return getattr(cfg.runtime, "resolved_admission_root", None) or getattr(cfg.runtime, "admission_root", "") or cfg.runtime.allowed_root
+    return resolve_admission_root(cfg)
 
 
 def _admission_limit(cfg: Any) -> int:
-    raw = getattr(cfg.runtime, "resolved_admission_limit", None)
-    if raw in (None, ""):
-        raw = getattr(cfg.runtime, "admission_limit", 0) or cfg.runtime.max_concurrent
-    try:
-        return max(1, int(raw if raw is not None else 1))
-    except (TypeError, ValueError):
-        return 1
+    return resolve_admission_limit(cfg)
 
 
 def _pid_is_alive(pid: int) -> bool:
-    if pid <= 0:
-        return False
-    try:
-        os.kill(pid, 0)
-    except OSError:
-        return False
-    return True
+    return worker_pid_is_alive(pid)
 
 
 def cmd_queue_cancel(args: Any) -> int:
@@ -480,39 +443,15 @@ def _mark_recovery_pending_state(cfg: Any, entry: Any, *, reason: str) -> None:
 
 
 def _terminate_process(proc: _ManagedProcess) -> None:
-    if proc.poll() is not None:
-        return
-
-    try:
-        os.killpg(proc.pid, signal.SIGTERM)
-    except (ProcessLookupError, PermissionError):
-        try:
-            proc.terminate()
-        except Exception:
-            pass
-
-    try:
-        proc.wait(timeout=10)
-    except subprocess.TimeoutExpired:
-        try:
-            os.killpg(proc.pid, signal.SIGKILL)
-        except (ProcessLookupError, PermissionError):
-            try:
-                proc.kill()
-            except Exception:
-                pass
-        try:
-            proc.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            pass
+    terminate_process_group(proc)
 
 
 def _try_reserve_admission_slot(cfg: Any) -> str | None:
-    return reserve_slot(
-        _admission_root(cfg),
-        _admission_limit(cfg),
+    return reserve_queue_worker_slot(
+        cfg,
         source="chemstack.xtb.queue_worker",
         app_name="xtb_auto",
+        reserve_slot_fn=reserve_slot,
     )
 
 
@@ -986,17 +925,18 @@ class QueueWorker:
         return "processed", (queue_root, entry, slot_token)
 
     def _fill_slots(self, *, max_new_jobs: int | None = None) -> str:
-        started = 0
-        while len(self._running) < self.max_concurrent:
-            if max_new_jobs is not None and started >= max_new_jobs:
-                break
-            outcome, reserved = self._reserve_next_entry()
-            if outcome != "processed" or reserved is None:
-                return "processed" if started else outcome
+        def start_reserved(reserved: tuple[Path, Any, str]) -> None:
             queue_root, entry, slot_token = reserved
             self._start_job(queue_root, entry, admission_token=slot_token)
-            started += 1
-        return "processed" if started else "idle"
+
+        result = fill_worker_slots(
+            running_count=lambda: len(self._running),
+            max_concurrent=self.max_concurrent,
+            reserve_next=self._reserve_next_entry,
+            start_reserved=start_reserved,
+            max_new_jobs=max_new_jobs,
+        )
+        return result.status
 
     def _start_job(self, queue_root: Path, entry: Any, *, admission_token: str) -> None:
         try:
@@ -1039,18 +979,17 @@ class QueueWorker:
         )
 
     def _check_completed_jobs(self) -> None:
-        finished_queue_ids: list[str] = []
-        for queue_id, job in self._running.items():
-            rc = job.process.poll()
-            if rc is None:
-                continue
+        def finalize_finished(_queue_id: str, job: _RunningJob, rc: int) -> None:
             summary = _load_terminal_summary(job.queue_root, job.entry, rc=rc)
             _ensure_terminal_queue_status(job.queue_root, job.entry, summary)
             _print_terminal_summary(summary)
             release_slot(self.admission_root, job.admission_token)
-            finished_queue_ids.append(queue_id)
-        for queue_id in finished_queue_ids:
-            del self._running[queue_id]
+
+        pop_completed_worker_jobs(
+            self._running,
+            poll_job=lambda job: job.process.poll(),
+            finalize_finished=finalize_finished,
+        )
 
     def _check_cancel_requests(self) -> None:
         for job in self._running.values():
@@ -1071,14 +1010,10 @@ class QueueWorker:
             del self._running[queue_id]
 
     def _install_signal_handlers(self) -> None:
-        def _handle_signal(_signum: int, _frame: object) -> None:
+        def request_shutdown() -> None:
             self._shutdown_requested = True
 
-        try:
-            signal.signal(signal.SIGTERM, _handle_signal)
-            signal.signal(signal.SIGINT, _handle_signal)
-        except ValueError:
-            pass
+        install_shutdown_signal_handlers(request_shutdown)
 
     def _reconcile_worker_state(self) -> None:
         reconcile_stale_slots(self.admission_root)

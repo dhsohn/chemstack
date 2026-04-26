@@ -2,10 +2,16 @@
 
 from __future__ import annotations
 
+import io
+import json
 import sys
+import urllib.error
+from email.message import Message
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
+
+import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
@@ -255,6 +261,36 @@ def test_handle_list_clear_uses_shared_clear_activity_control(monkeypatch) -> No
     assert "ORCA run states: 1" in text
 
 
+def test_handle_list_reports_empty_activity_results(monkeypatch) -> None:
+    monkeypatch.setattr(bot, "list_activities", lambda **kwargs: {"activities": []})
+    monkeypatch.setattr(bot, "count_global_active_simulations", lambda items, *, config_path=None: 0)
+
+    text = bot._handle_list(_settings(), "running")
+
+    assert "active_simulations: 0" in text
+    assert "No matching activities." in text
+
+
+def test_activity_counter_config_path_falls_back_to_settings() -> None:
+    settings = bot.TelegramBotSettings(
+        telegram=TelegramConfig(bot_token="bot-token", chat_id="chat-id"),
+        workflow_root=None,
+        crest_auto_config="",
+        xtb_auto_config="/tmp/xtb.yaml",
+        orca_auto_config=None,
+        orca_auto_repo_root=None,
+    )
+
+    assert bot._activity_counter_config_path({"sources": {}}, settings=settings) == "/tmp/xtb.yaml"
+    assert (
+        bot._activity_counter_config_path(
+            {"sources": {"crest_auto_config": " /tmp/crest.yaml "}},
+            settings=settings,
+        )
+        == "/tmp/crest.yaml"
+    )
+
+
 def test_send_preformatted_response_wraps_chunks_in_pre(monkeypatch) -> None:
     sent: list[tuple[str, str | None]] = []
 
@@ -272,6 +308,38 @@ def test_send_preformatted_response_wraps_chunks_in_pre(monkeypatch) -> None:
     assert all(chunk.startswith("<pre>") and chunk.endswith("</pre>") for chunk, _mode in sent)
 
 
+def test_message_chunks_rejects_non_positive_limit_and_splits_long_line() -> None:
+    with pytest.raises(ValueError, match="positive"):
+        bot._message_chunks("hello", limit=0)
+
+    assert bot._message_chunks("abcdef", limit=2) == ["ab", "cd", "ef"]
+
+
+def test_send_response_returns_false_when_all_send_attempts_fail(monkeypatch) -> None:
+    monkeypatch.setattr(bot, "_send_message", lambda *args, **kwargs: False)
+
+    assert bot._send_response("bot-token", "chat-id", "<b>hello</b>", parse_mode="HTML") is False
+
+
+def test_send_preformatted_response_falls_back_to_plain_text_and_reports_failure(monkeypatch) -> None:
+    sent_modes: list[str | None] = []
+
+    def fake_send(token: str, chat_id: str, text: str, *, parse_mode: str | None = "HTML") -> bool:
+        sent_modes.append(parse_mode)
+        return parse_mode is None
+
+    monkeypatch.setattr(bot, "_send_message", fake_send)
+
+    assert bot._send_preformatted_response("bot-token", "chat-id", "hello")
+    assert sent_modes == ["HTML", None]
+
+    monkeypatch.setattr(bot, "_send_message", lambda *args, **kwargs: False)
+    assert bot._send_preformatted_response("bot-token", "chat-id", "hello") is False
+
+    with pytest.raises(ValueError, match="exceed wrapper"):
+        bot._send_preformatted_response("bot-token", "chat-id", "hello", limit=10)
+
+
 def test_handle_cancel_routes_through_activity_control(monkeypatch) -> None:
     monkeypatch.setattr(
         bot,
@@ -287,6 +355,18 @@ def test_handle_cancel_routes_through_activity_control(monkeypatch) -> None:
 
     assert "wf-a" in text
     assert "cancel_requested" in text
+
+
+def test_handle_cancel_usage_and_error_paths(monkeypatch) -> None:
+    assert "Usage:" in bot._handle_cancel(_settings(), "")
+
+    monkeypatch.setattr(
+        bot,
+        "cancel_activity",
+        lambda **kwargs: (_ for _ in ()).throw(LookupError("missing <target>")),
+    )
+
+    assert "missing &lt;target&gt;" in bot._handle_cancel(_settings(), "wf-missing")
 
 
 def test_handle_help_mentions_only_supported_commands() -> None:
@@ -329,6 +409,87 @@ def test_send_response_falls_back_to_plain_text_when_html_send_fails(monkeypatch
     assert sent_modes == ["HTML", None]
 
 
+def test_send_message_truncates_text_and_omits_parse_mode_when_none(monkeypatch) -> None:
+    captured: dict[str, Any] = {}
+
+    def fake_api_call(token: str, method: str, payload: dict[str, Any], **kwargs: Any) -> object:
+        captured.update({"token": token, "method": method, "payload": payload})
+        return {"message_id": 1}
+
+    monkeypatch.setattr(bot, "_api_call", fake_api_call)
+
+    assert bot._send_message("bot-token", "chat-id", "x" * 5000, parse_mode=None)
+    assert captured["token"] == "bot-token"
+    assert captured["method"] == "sendMessage"
+    assert captured["payload"]["chat_id"] == "chat-id"
+    assert len(captured["payload"]["text"]) == bot._MAX_MESSAGE_LENGTH
+    assert "parse_mode" not in captured["payload"]
+
+
+def test_api_call_handles_success_api_error_http_error_and_generic_error(monkeypatch) -> None:
+    class Response:
+        def __init__(self, payload: dict[str, Any]) -> None:
+            self.payload = payload
+
+        def __enter__(self) -> "Response":
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+        def read(self) -> bytes:
+            return json.dumps(self.payload).encode("utf-8")
+
+    monkeypatch.setattr(
+        bot,
+        "urlopen_with_ipv4_fallback",
+        lambda request, *, timeout: Response({"ok": True, "result": {"id": 1}}),
+    )
+    assert bot._api_call("token", "method") == {"id": 1}
+
+    monkeypatch.setattr(
+        bot,
+        "urlopen_with_ipv4_fallback",
+        lambda request, *, timeout: Response({"ok": False, "description": "bad"}),
+    )
+    assert bot._api_call("token", "method") is None
+
+    def raise_http_error(request: object, *, timeout: int) -> object:
+        headers: Message[str, str] = Message()
+        raise urllib.error.HTTPError(
+            url="https://example.test",
+            code=429,
+            msg="too many",
+            hdrs=headers,
+            fp=io.BytesIO(b"rate limited"),
+        )
+
+    monkeypatch.setattr(bot, "urlopen_with_ipv4_fallback", raise_http_error)
+    assert bot._api_call("token", "method") is None
+
+    monkeypatch.setattr(
+        bot,
+        "urlopen_with_ipv4_fallback",
+        lambda request, *, timeout: (_ for _ in ()).throw(RuntimeError("offline")),
+    )
+    assert bot._api_call("token", "method") is None
+
+
+def test_set_bot_commands_delegates_to_api_call(monkeypatch) -> None:
+    captured: dict[str, Any] = {}
+
+    def fake_api_call(token: str, method: str, payload: dict[str, Any]) -> None:
+        captured.update({"token": token, "method": method, "payload": payload})
+
+    monkeypatch.setattr(bot, "_api_call", fake_api_call)
+
+    bot._set_bot_commands("bot-token")
+
+    assert captured["token"] == "bot-token"
+    assert captured["method"] == "setMyCommands"
+    assert [item["command"] for item in captured["payload"]["commands"]] == ["list", "cancel", "help"]
+
+
 def test_settings_from_env_uses_autodiscovery(monkeypatch) -> None:
     monkeypatch.setenv("CHEM_FLOW_TELEGRAM_BOT_TOKEN", "bot-token")
     monkeypatch.setenv("CHEM_FLOW_TELEGRAM_CHAT_ID", "chat-id")
@@ -347,6 +508,36 @@ def test_settings_from_env_uses_autodiscovery(monkeypatch) -> None:
     assert settings.crest_auto_config == "/tmp/chemstack.yaml"
     assert settings.xtb_auto_config == "/tmp/chemstack.yaml"
     assert settings.orca_auto_config == "/tmp/chemstack.yaml"
+
+
+def test_telegram_from_config_path_handles_empty_missing_invalid_and_missing_section(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assert not bot._telegram_from_config_path("").enabled
+    assert not bot._telegram_from_config_path(str(tmp_path / "missing.yaml")).enabled
+
+    bad_yaml = tmp_path / "bad.yaml"
+    bad_yaml.write_text("telegram: [", encoding="utf-8")
+    assert not bot._telegram_from_config_path(str(bad_yaml)).enabled
+
+    non_mapping = tmp_path / "list.yaml"
+    non_mapping.write_text("- item\n", encoding="utf-8")
+    assert not bot._telegram_from_config_path(str(non_mapping)).enabled
+
+    no_telegram = tmp_path / "no-telegram.yaml"
+    no_telegram.write_text("workflow:\n  root: /tmp/wf\n", encoding="utf-8")
+    assert not bot._telegram_from_config_path(str(no_telegram)).enabled
+
+    class BadPath:
+        def __init__(self, _value: object) -> None:
+            pass
+
+        def expanduser(self) -> "BadPath":
+            raise OSError("bad path")
+
+    monkeypatch.setattr(bot, "Path", BadPath)
+    assert not bot._telegram_from_config_path("/bad").enabled
 
 
 def test_settings_from_config_uses_shared_telegram_section(tmp_path: Path) -> None:
@@ -373,6 +564,85 @@ def test_settings_from_config_uses_shared_telegram_section(tmp_path: Path) -> No
     assert settings.crest_auto_config == str(config_path.resolve())
     assert settings.xtb_auto_config == str(config_path.resolve())
     assert settings.orca_auto_config == str(config_path.resolve())
+
+
+def test_settings_from_config_falls_back_to_environment_when_config_telegram_disabled(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_path = tmp_path / "chemstack.yaml"
+    config_path.write_text("workflow:\n  root: /tmp/workflows\n", encoding="utf-8")
+    monkeypatch.setenv("CHEM_FLOW_TELEGRAM_BOT_TOKEN", "env-token")
+    monkeypatch.setenv("CHEM_FLOW_TELEGRAM_CHAT_ID", "env-chat")
+
+    settings = bot.settings_from_config(str(config_path))
+
+    assert settings.enabled is True
+    assert settings.telegram.bot_token == "env-token"
+    assert settings.telegram.chat_id == "env-chat"
+
+
+def test_run_bot_disabled_settings_returns_error() -> None:
+    settings = bot.TelegramBotSettings(
+        telegram=TelegramConfig(),
+        workflow_root=None,
+        crest_auto_config=None,
+        xtb_auto_config=None,
+        orca_auto_config=None,
+        orca_auto_repo_root=None,
+    )
+
+    assert bot.run_bot(settings) == 1
+
+
+def test_run_bot_processes_known_unknown_and_handler_error_updates(monkeypatch) -> None:
+    settings = _settings()
+    sent: list[tuple[str, str | None]] = []
+    calls = {"polls": 0}
+
+    def fake_api_call(token: str, method: str, payload: dict[str, Any] | None = None, **kwargs: Any) -> Any:
+        if method == "setMyCommands":
+            return True
+        if method == "getUpdates":
+            calls["polls"] += 1
+            if calls["polls"] > 1:
+                raise KeyboardInterrupt
+            return [
+                "skip",
+                {"update_id": 1, "message": "skip"},
+                {"update_id": 2, "message": {"chat": {"id": "other"}, "text": "/help"}},
+                {"update_id": 3, "message": {"chat": {"id": "chat-id"}, "text": "hello"}},
+                {"update_id": 4, "message": {"chat": {"id": "chat-id"}, "text": "/unknown"}},
+                {"update_id": 5, "message": {"chat": {"id": "chat-id"}, "text": "/list"}},
+                {"update_id": 6, "message": {"chat": {"id": "chat-id"}, "text": "/boom"}},
+            ]
+        return None
+
+    def fake_send_response(
+        token: str,
+        chat_id: str,
+        text: str,
+        *,
+        parse_mode: str | None = "HTML",
+        limit: int = bot._MAX_MESSAGE_LENGTH,
+    ) -> bool:
+        sent.append((text, parse_mode))
+        return True
+
+    monkeypatch.setitem(
+        bot._HANDLERS,
+        "boom",
+        lambda _settings, _args: (_ for _ in ()).throw(RuntimeError("bad <boom>")),
+    )
+    monkeypatch.setitem(bot._HANDLERS, "list", lambda _settings, _args: "list body")
+    monkeypatch.setattr(bot, "_api_call", fake_api_call)
+    monkeypatch.setattr(bot, "_send_response", fake_send_response)
+    monkeypatch.setattr(bot, "_send_preformatted_response", fake_send_response)
+
+    assert bot.run_bot(settings) == 0
+    assert any("Unknown command: /unknown" in text for text, _mode in sent)
+    assert any(text == "list body" and mode == "HTML" for text, mode in sent)
+    assert any("Error: bad &lt;boom&gt;" in text for text, _mode in sent)
 
 
 def test_cmd_bot_and_parser(monkeypatch) -> None:

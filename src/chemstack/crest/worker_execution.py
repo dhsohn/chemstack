@@ -20,6 +20,11 @@ from chemstack.core.queue import (
     requeue_running_entry,
 )
 from chemstack.core.queue.types import QueueStatus
+from chemstack.core.queue.worker import (
+    install_shutdown_signal_handlers,
+    resolve_admission_root,
+    terminate_process_group,
+)
 from chemstack.core.utils import now_utc_iso
 
 from .commands.organize import organize_job_dir
@@ -305,31 +310,12 @@ def depsafe_now_utc_iso() -> str:
 
 
 def _terminate_process(proc: subprocess.Popen[str]) -> None:
-    if proc.poll() is not None:
-        return
-
-    try:
-        os.killpg(proc.pid, signal.SIGTERM)
-    except (ProcessLookupError, PermissionError):
-        try:
-            proc.terminate()
-        except Exception:
-            pass
-
-    try:
-        proc.wait(timeout=10)
-    except subprocess.TimeoutExpired:
-        try:
-            os.killpg(proc.pid, signal.SIGKILL)
-        except (ProcessLookupError, PermissionError):
-            try:
-                proc.kill()
-            except Exception:
-                pass
-        try:
-            proc.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            pass
+    terminate_process_group(
+        proc,
+        killpg_fn=os.killpg,
+        sigterm=signal.SIGTERM,
+        sigkill=signal.SIGKILL,
+    )
 
 
 def _resource_caps(cfg: Any) -> dict[str, int]:
@@ -647,11 +633,7 @@ def process_dequeued_entry(
 
 
 def _admission_root_for_cfg(cfg: Any) -> str:
-    return str(
-        getattr(cfg.runtime, "resolved_admission_root", None)
-        or getattr(cfg.runtime, "admission_root", "")
-        or cfg.runtime.allowed_root
-    )
+    return resolve_admission_root(cfg)
 
 
 def _find_queue_entry(queue_root: Path, queue_id: str) -> Any | None:
@@ -662,14 +644,10 @@ def _find_queue_entry(queue_root: Path, queue_id: str) -> Any | None:
 
 
 def _install_shutdown_signal_handlers(controller: _ShutdownController) -> None:
-    def _handle_signal(_signum: int, _frame: object) -> None:
+    def request_shutdown() -> None:
         controller.request()
 
-    try:
-        signal.signal(signal.SIGTERM, _handle_signal)
-        signal.signal(signal.SIGINT, _handle_signal)
-    except ValueError:
-        pass
+    install_shutdown_signal_handlers(request_shutdown)
 
 
 def run_worker_child_job(

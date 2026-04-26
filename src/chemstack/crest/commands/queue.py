@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import signal
 import subprocess
 import time
 from dataclasses import dataclass, field
@@ -26,6 +25,16 @@ from chemstack.core.queue import (
     request_cancel,
 )
 from chemstack.core.queue.types import QueueStatus
+from chemstack.core.queue.worker import (
+    dequeue_next_across_roots,
+    fill_worker_slots,
+    install_shutdown_signal_handlers,
+    pop_completed_worker_jobs,
+    read_live_pid_file,
+    reserve_queue_worker_slot,
+    resolve_admission_limit,
+    resolve_admission_root,
+)
 from chemstack.core.utils import now_utc_iso
 
 from ..config import default_config_path, load_config
@@ -97,67 +106,27 @@ def _find_queue_entry(queue_root: Path, queue_id: str) -> Any | None:
 
 
 def _dequeue_next_entry(cfg: Any) -> tuple[Path, Any] | None:
-    roots = _queue_roots(cfg)
-    if len(roots) == 1:
-        entry = dequeue_next(roots[0])
-        if entry is None:
-            return None
-        return roots[0], entry
-
-    selected_root: Path | None = None
-    selected_key: tuple[int, str, int, str] | None = None
-
-    for root_index, root in enumerate(roots):
-        for entry in list_queue(root):
-            status_value = getattr(getattr(entry, "status", None), "value", None)
-            status = str(status_value).strip().lower()
-            if status != "pending" or getattr(entry, "cancel_requested", False):
-                continue
-            key = (
-                int(getattr(entry, "priority", 10) or 10),
-                str(getattr(entry, "enqueued_at", "")),
-                root_index,
-                str(getattr(entry, "queue_id", "")),
-            )
-            if selected_key is None or key < selected_key:
-                selected_key = key
-                selected_root = root
-
-    if selected_root is None:
-        return None
-
-    entry = dequeue_next(selected_root)
-    if entry is None:
-        return None
-    return selected_root, entry
-
-
-def _admission_root_for_cfg(cfg: Any) -> str:
-    return str(
-        getattr(cfg.runtime, "resolved_admission_root", None)
-        or getattr(cfg.runtime, "admission_root", "")
-        or cfg.runtime.allowed_root
+    return dequeue_next_across_roots(
+        _queue_roots(cfg),
+        list_queue_fn=list_queue,
+        dequeue_next_fn=dequeue_next,
     )
 
 
+def _admission_root_for_cfg(cfg: Any) -> str:
+    return resolve_admission_root(cfg)
+
+
 def _admission_limit_for_cfg(cfg: Any) -> int:
-    raw = getattr(cfg.runtime, "resolved_admission_limit", None)
-    if raw in {None, "", 0}:
-        raw = getattr(cfg.runtime, "admission_limit", None)
-    if raw in {None, "", 0}:
-        raw = getattr(cfg.runtime, "max_concurrent", 1)
-    try:
-        return max(1, int(raw if raw is not None else 1))
-    except (TypeError, ValueError):
-        return 1
+    return resolve_admission_limit(cfg)
 
 
 def _try_reserve_admission_slot(cfg: Any) -> str | None:
-    return reserve_slot(
-        _admission_root_for_cfg(cfg),
-        _admission_limit_for_cfg(cfg),
+    return reserve_queue_worker_slot(
+        cfg,
         source="chemstack.crest.queue_worker",
         app_name="crest_auto",
+        reserve_slot_fn=reserve_slot,
     )
 
 
@@ -238,22 +207,7 @@ def _process_one(cfg: Any, *, auto_organize: bool) -> str:
 
 
 def read_worker_pid(allowed_root: Path) -> int | None:
-    pid_path = allowed_root / WORKER_PID_FILE
-    if not pid_path.exists():
-        return None
-    try:
-        pid = int(pid_path.read_text(encoding="utf-8").strip())
-    except (OSError, ValueError):
-        return None
-    try:
-        os.kill(pid, 0)
-    except OSError:
-        try:
-            pid_path.unlink()
-        except OSError:
-            pass
-        return None
-    return pid
+    return read_live_pid_file(allowed_root / WORKER_PID_FILE)
 
 
 class QueueWorker:
@@ -315,12 +269,22 @@ class QueueWorker:
                     _mark_recovery_pending_entry(self.cfg, entry, reason="crashed_recovery")
 
     def _fill_slots(self) -> None:
-        while len(self._running) < self.max_concurrent:
+        def reserve_next() -> tuple[str, tuple[Path, Any, str] | None]:
             reserved = self._reserve_next_entry()
             if reserved is None:
-                break
+                return "idle", None
+            return "processed", reserved
+
+        def start_reserved(reserved: tuple[Path, Any, str]) -> None:
             queue_root, entry, admission_token = reserved
             self._start_job(queue_root, entry, admission_token=admission_token)
+
+        fill_worker_slots(
+            running_count=lambda: len(self._running),
+            max_concurrent=self.max_concurrent,
+            reserve_next=reserve_next,
+            start_reserved=start_reserved,
+        )
 
     def _reserve_next_entry(self) -> tuple[Path, Any, str] | None:
         admission_token = _try_reserve_admission_slot(self.cfg)
@@ -380,15 +344,14 @@ class QueueWorker:
         return True
 
     def _check_completed_jobs(self) -> None:
-        done_ids: list[str] = []
-        for queue_id, job in list(self._running.items()):
-            rc = job.process.poll()
-            if rc is None:
-                continue
+        def finalize_finished(_queue_id: str, job: _RunningJob, rc: int) -> None:
             self._finalize_child_exit(job, rc=rc)
-            done_ids.append(queue_id)
-        for queue_id in done_ids:
-            self._running.pop(queue_id, None)
+
+        pop_completed_worker_jobs(
+            self._running,
+            poll_job=lambda job: job.process.poll(),
+            finalize_finished=finalize_finished,
+        )
 
     def _finalize_child_exit(self, job: _RunningJob, *, rc: int) -> None:
         current = _find_queue_entry(job.queue_root, job.entry.queue_id)
@@ -428,14 +391,10 @@ class QueueWorker:
         self._finalize_child_exit(job, rc=int(rc) if rc is not None else 0)
 
     def _install_signal_handlers(self) -> None:
-        def _handle_signal(_signum: int, _frame: object) -> None:
+        def request_shutdown() -> None:
             self._shutdown_requested = True
 
-        try:
-            signal.signal(signal.SIGTERM, _handle_signal)
-            signal.signal(signal.SIGINT, _handle_signal)
-        except ValueError:
-            pass
+        install_shutdown_signal_handlers(request_shutdown)
 
     def _pid_file_path(self) -> Path:
         return self.allowed_root / WORKER_PID_FILE

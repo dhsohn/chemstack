@@ -261,6 +261,343 @@ def test_cancel_activity_routes_xtb_targets(monkeypatch) -> None:
     assert payload["source"] == "xtb_auto"
 
 
+def test_activity_helper_edges_and_discovery_paths(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assert activity._coerce_mapping({"a": 1}) == {"a": 1}
+    assert activity._coerce_mapping(["not", "mapping"]) == {}
+    assert activity._resolve_existing_path("") is None
+
+    existing = tmp_path / "config.yaml"
+    existing.write_text("workflow:\n  root: /tmp/wf\n", encoding="utf-8")
+    assert activity._resolve_existing_path(str(existing)) == existing.resolve()
+
+    assert activity._discover_workflow_root(tmp_path / "wf") == str((tmp_path / "wf").resolve())
+    monkeypatch.setenv(activity.CHEMSTACK_CONFIG_ENV_VAR, str(existing))
+    assert activity._discover_sibling_config(None, app_name="xtb_auto") == str(existing.resolve())
+    assert activity._discover_sibling_config(str(existing), app_name="crest_auto") == str(existing.resolve())
+
+    monkeypatch.setenv(activity.CHEMSTACK_REPO_ROOT_ENV_VAR, str(tmp_path / "repo"))
+    assert activity._discover_orca_repo_root(None) == str((tmp_path / "repo").resolve())
+    assert activity._discover_orca_repo_root(str(tmp_path / "explicit")) == str(
+        (tmp_path / "explicit").resolve()
+    )
+
+    assert activity._shared_config_hint("", None, " /tmp/shared.yaml ") == "/tmp/shared.yaml"
+    assert activity._parse_iso("") < activity._parse_iso("2026-04-26T00:00:00Z")
+    assert activity._parse_iso("bad") < activity._parse_iso("2026-04-26T00:00:00+09:00")
+    assert activity._parse_iso("2026-04-26T00:00:00").tzinfo is not None
+    assert activity._unique_texts([" a ", "", "a", "b"]) == ("a", "b")
+    assert activity._mapping_text({"key": " value "}, "key") == "value"
+    assert activity._path_aliases("", root=tmp_path) == ()
+
+
+def test_runtime_path_and_engine_root_edges(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    allowed = tmp_path / "allowed"
+    calls: list[tuple[str, str | None]] = []
+
+    def fake_sibling_runtime_paths(config_path: str, *, engine: str | None = None) -> dict[str, Path]:
+        calls.append((config_path, engine))
+        if engine == "xtb":
+            raise TypeError("unexpected keyword argument 'engine'")
+        if engine == "bad":
+            raise TypeError("other type error")
+        return {"allowed_root": allowed}
+
+    monkeypatch.setattr(activity, "sibling_runtime_paths", fake_sibling_runtime_paths)
+    assert activity._runtime_paths_for_engine("/tmp/cfg.yaml", engine="xtb") == {"allowed_root": allowed}
+    assert calls[-1] == ("/tmp/cfg.yaml", None)
+
+    with pytest.raises(TypeError):
+        activity._runtime_paths_for_engine("/tmp/cfg.yaml", engine="bad")
+
+    monkeypatch.setattr(activity, "sibling_runtime_paths", lambda config_path, *, engine: {"allowed_root": allowed})
+    assert activity._engine_queue_roots("/tmp/cfg.yaml", engine="orca") == (allowed,)
+    monkeypatch.setattr(activity, "shared_workflow_root_from_config", lambda config_path: "")
+    assert activity._engine_queue_roots("/tmp/cfg.yaml", engine="xtb") == (allowed,)
+
+    workspace_a = tmp_path / "wf" / "a"
+    workspace_b = tmp_path / "wf" / "b"
+    runtime_a = tmp_path / "runtime-a"
+    runtime_b = tmp_path / "runtime-b"
+    monkeypatch.setattr(activity, "shared_workflow_root_from_config", lambda config_path: str(tmp_path / "wf"))
+    monkeypatch.setattr(
+        activity,
+        "iter_workflow_runtime_workspaces",
+        lambda workflow_root, *, engine: [workspace_a, workspace_b, workspace_a],
+    )
+    monkeypatch.setattr(
+        activity,
+        "workflow_workspace_internal_engine_paths",
+        lambda workspace_dir, *, engine: {
+            "allowed_root": runtime_a if workspace_dir == workspace_a else runtime_b
+        },
+    )
+    assert activity._engine_queue_roots("/tmp/cfg.yaml", engine="crest") == (runtime_a, runtime_b)
+
+
+def test_orca_fallback_queue_records_cover_file_edges(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    allowed = tmp_path / "orca"
+    allowed.mkdir()
+    monkeypatch.setattr(
+        activity,
+        "sibling_runtime_paths",
+        lambda config_path, *, engine: {"allowed_root": allowed},
+    )
+
+    assert activity._fallback_orca_queue_records(config_path="/tmp/cfg.yaml") == []
+    (allowed / "queue.json").write_text("{not json", encoding="utf-8")
+    assert activity._fallback_orca_queue_records(config_path="/tmp/cfg.yaml") == []
+    (allowed / "queue.json").write_text(json.dumps({"not": "a-list"}), encoding="utf-8")
+    assert activity._fallback_orca_queue_records(config_path="/tmp/cfg.yaml") == []
+
+    reaction_dir = allowed / "wf" / "rxn-1"
+    payload = [
+        "skip",
+        {
+            "queue_id": "q-1",
+            "run_id": "run-1",
+            "status": "running",
+            "cancel_requested": True,
+            "task_kind": "orca_run",
+            "priority": 5,
+            "enqueued_at": "2026-04-26T00:00:00+00:00",
+            "metadata": {
+                "workflow_id": "wf-1",
+                "reaction_dir": str(reaction_dir),
+                "job_type": "opt",
+                "selected_inp": "rxn.inp",
+            },
+        },
+    ]
+    (allowed / "queue.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    rows = activity._fallback_orca_queue_records(config_path="/tmp/cfg.yaml")
+
+    assert len(rows) == 1
+    row = rows[0]
+    assert row.activity_id == "q-1"
+    assert row.status == "cancel_requested"
+    assert row.label == "rxn-1"
+    assert "wf/rxn-1" in row.aliases
+    assert row.metadata["priority"] == 5
+
+
+def test_orca_records_merge_queue_entries_and_snapshots(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    allowed = tmp_path / "orca"
+    allowed.mkdir()
+    reaction_dir = allowed / "rxn-1"
+    reaction_dir.mkdir()
+    orphan_dir = allowed / "orphan"
+    orphan_dir.mkdir()
+    entries = [
+        {
+            "queue_id": "q-1",
+            "task_id": "task-1",
+            "run_id": "run-1",
+            "reaction_dir": str(reaction_dir),
+            "status": "running",
+            "cancel_requested": False,
+            "task_kind": "orca_run",
+            "priority": 3,
+            "enqueued_at": "2026-04-26T00:00:00+00:00",
+            "started_at": "2026-04-26T00:01:00+00:00",
+            "metadata": {"workflow_id": "wf-1", "job_type": "opt", "selected_inp": "rxn.inp"},
+        },
+        {
+            "queue_id": "q-2",
+            "task_id": "task-2",
+            "run_id": "",
+            "reaction_dir": str(tmp_path / "missing"),
+            "status": "running",
+            "cancel_requested": True,
+            "task_kind": "orca_run",
+            "priority": 4,
+            "enqueued_at": "2026-04-26T00:02:00+00:00",
+            "metadata": {},
+        },
+    ]
+    snapshots = [
+        SimpleNamespace(
+            key="snap-1",
+            run_id="run-1",
+            reaction_dir=reaction_dir,
+            status="completed",
+            name="tracked-name",
+            completed_at="2026-04-26T01:00:00+00:00",
+            updated_at="",
+            started_at="2026-04-26T00:00:00+00:00",
+            attempts=2,
+            selected_inp_name="rxn.inp",
+            job_type="opt",
+        ),
+        SimpleNamespace(
+            key="snap-2",
+            run_id="run-2",
+            reaction_dir=orphan_dir,
+            status="failed",
+            name="",
+            completed_at="",
+            updated_at="2026-04-26T02:00:00+00:00",
+            started_at="2026-04-26T01:30:00+00:00",
+            attempts=1,
+            selected_inp_name="orphan.inp",
+            job_type="sp",
+        ),
+    ]
+    reconciled: list[Path] = []
+
+    queue_store = SimpleNamespace(
+        reconcile_orphaned_running_entries=lambda root: reconciled.append(root),
+        list_queue=lambda root: entries,
+        queue_entry_metadata=lambda entry: entry.get("metadata", {}),
+        queue_entry_run_id=lambda entry: entry.get("run_id", ""),
+        queue_entry_status=lambda entry: entry.get("status", ""),
+        queue_entry_reaction_dir=lambda entry: entry.get("reaction_dir", ""),
+        queue_entry_id=lambda entry: entry.get("queue_id", ""),
+        queue_entry_task_id=lambda entry: entry.get("task_id", ""),
+        queue_entry_priority=lambda entry: entry.get("priority", 0),
+    )
+    run_snapshot = SimpleNamespace(collect_run_snapshots=lambda root: snapshots)
+    monkeypatch.setattr(activity, "sibling_runtime_paths", lambda config_path, *, engine: {"allowed_root": allowed})
+    monkeypatch.setattr(activity, "_import_orca_runtime_modules", lambda repo_root: (queue_store, run_snapshot))
+
+    rows = activity._orca_records(config_path="/tmp/cfg.yaml", repo_root="/tmp/repo")
+
+    assert reconciled == [allowed]
+    by_id = {row.activity_id: row for row in rows}
+    assert by_id["q-1"].status == "completed"
+    assert by_id["q-1"].label == "tracked-name"
+    assert by_id["q-2"].status == "cancel_requested"
+    assert by_id["run-2"].status == "failed"
+    assert by_id["run-2"].metadata["selected_inp_name"] == "orphan.inp"
+
+
+def test_orca_matching_helpers_cover_empty_and_active_dir_paths(tmp_path: Path) -> None:
+    reaction_dir = tmp_path / "rxn"
+    reaction_dir.mkdir()
+    snapshot = SimpleNamespace(run_id="run-1", reaction_dir=reaction_dir)
+    queue_store = SimpleNamespace(
+        queue_entry_run_id=lambda entry: entry.get("run_id", ""),
+        queue_entry_status=lambda entry: entry.get("status", ""),
+        queue_entry_reaction_dir=lambda entry: entry.get("reaction_dir", ""),
+    )
+
+    assert activity._orca_snapshot_matches_entry(queue_store, {"run_id": "run-1"}, {"run-1": snapshot}, {}) is snapshot
+    assert activity._orca_snapshot_matches_entry(queue_store, {"status": "completed"}, {}, {}) is None
+    assert activity._orca_snapshot_matches_entry(queue_store, {"status": "running", "reaction_dir": ""}, {}, {}) is None
+    assert (
+        activity._orca_snapshot_matches_entry(
+            queue_store,
+            {"status": "running", "reaction_dir": str(reaction_dir)},
+            {},
+            {str(reaction_dir.resolve()): snapshot},
+        )
+        is snapshot
+    )
+    assert activity._orca_queue_represents_snapshot(queue_store, {"run_id": "run-1"}, snapshot) is True
+    assert activity._orca_queue_represents_snapshot(queue_store, {"status": "completed"}, snapshot) is False
+    assert (
+        activity._orca_queue_represents_snapshot(
+            queue_store,
+            {"status": "running", "reaction_dir": str(reaction_dir)},
+            snapshot,
+        )
+        is True
+    )
+
+
+def test_repo_import_helpers_cover_missing_and_module_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    missing = tmp_path / "missing"
+    assert activity._ensure_repo_on_syspath(str(missing), fallback_name="unknown") is None
+
+    repo = tmp_path / "repo"
+    src = repo / "src"
+    src.mkdir(parents=True)
+    assert activity._ensure_repo_on_syspath(str(repo), fallback_name="unknown") == repo.resolve()
+    assert str(repo.resolve()) in sys.path
+    assert str(src.resolve()) in sys.path
+
+    monkeypatch.setattr(activity, "_ensure_repo_on_syspath", lambda repo_root, *, fallback_name: None)
+    assert activity._import_orca_runtime_modules(None) is None
+
+    monkeypatch.setattr(activity, "_ensure_repo_on_syspath", lambda repo_root, *, fallback_name: repo)
+    monkeypatch.setattr(
+        activity.importlib,
+        "import_module",
+        lambda name: (_ for _ in ()).throw(ModuleNotFoundError(name)),
+    )
+    assert activity._import_orca_runtime_modules(str(repo)) is None
+
+
+def test_match_activity_record_and_cancel_error_edges(monkeypatch: pytest.MonkeyPatch) -> None:
+    records = [
+        activity.ActivityRecord("a", "job", "xtb", "running", "A", "xtb_auto", "", "", "target", aliases=("same",)),
+        activity.ActivityRecord("b", "job", "xtb", "running", "B", "xtb_auto", "", "", "target", aliases=("same",)),
+    ]
+    with pytest.raises(ValueError, match="empty"):
+        activity._match_activity_record(records, "")
+    with pytest.raises(ValueError, match="Ambiguous activity target"):
+        activity._match_activity_record(records, "target")
+    with pytest.raises(ValueError, match="Ambiguous activity target"):
+        activity._match_activity_record(records, "same")
+    with pytest.raises(LookupError, match="not found"):
+        activity._match_activity_record(records, "missing")
+
+    def collect_one(record: activity.ActivityRecord) -> None:
+        monkeypatch.setattr(activity, "_collect_activity_records", lambda **kwargs: [record])
+
+    monkeypatch.setattr(activity, "_resolve_activity_sources", lambda **kwargs: (None, None, None, None))
+
+    collect_one(activity.ActivityRecord("crest", "job", "crest", "running", "C", "crest_auto", "", "", "crest-q"))
+    with pytest.raises(ValueError, match="crest_auto_config"):
+        activity.cancel_activity(target="crest-q")
+
+    collect_one(activity.ActivityRecord("xtb", "job", "xtb", "running", "X", "xtb_auto", "", "", "xtb-q"))
+    with pytest.raises(ValueError, match="xtb_auto_config"):
+        activity.cancel_activity(target="xtb-q")
+
+    collect_one(activity.ActivityRecord("orca", "job", "orca", "running", "O", activity.CHEMSTACK_ORCA_SOURCE, "", "", "orca-q"))
+    with pytest.raises(ValueError, match="chemstack_config"):
+        activity.cancel_activity(target="orca-q")
+
+    collect_one(activity.ActivityRecord("bad", "job", "x", "running", "B", "unknown", "", "", "bad-q"))
+    with pytest.raises(ValueError, match="Unsupported activity source"):
+        activity.cancel_activity(target="bad-q")
+
+
+def test_cancel_activity_routes_crest_and_orca_targets(monkeypatch: pytest.MonkeyPatch) -> None:
+    records = {
+        "crest-q": activity.ActivityRecord("crest-q", "job", "crest", "running", "C", "crest_auto", "", "", "crest-q"),
+        "orca-q": activity.ActivityRecord("orca-q", "job", "orca", "running", "O", activity.CHEMSTACK_ORCA_SOURCE, "", "", "orca-q"),
+    }
+    monkeypatch.setattr(activity, "_collect_activity_records", lambda **kwargs: list(records.values()))
+    monkeypatch.setattr(activity, "cancel_crest_target", lambda **kwargs: {"status": "cancel_requested", **kwargs})
+    monkeypatch.setattr(activity, "cancel_orca_target", lambda **kwargs: {"status": "", **kwargs})
+    monkeypatch.setattr(activity, "_discover_orca_repo_root", lambda explicit: "/tmp/orca-repo")
+
+    crest_payload = activity.cancel_activity(target="crest-q", crest_auto_config="/tmp/crest.yaml")
+    orca_payload = activity.cancel_activity(target="orca-q", orca_auto_config="/tmp/orca.yaml")
+
+    assert crest_payload["status"] == "cancel_requested"
+    assert crest_payload["result"]["config_path"] == str(Path("/tmp/crest.yaml").resolve())
+    assert orca_payload["status"] == "failed"
+    assert orca_payload["result"]["repo_root"] == "/tmp/orca-repo"
+
+
 def test_clear_activities_clears_workflow_and_engine_terminal_sources(monkeypatch) -> None:
     import chemstack.orca.commands.list_runs as orca_list_runs
 

@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+from chemstack.core.scaffold import write_if_missing
 from chemstack.xtb.commands import init as init_cmd
 
 
@@ -92,7 +93,7 @@ def test_write_if_missing_returns_false_for_existing_file(tmp_path: Path) -> Non
     path = tmp_path / "existing.txt"
     path.write_text("original\n", encoding="utf-8")
 
-    assert init_cmd._write_if_missing(path, "new\n") is False
+    assert write_if_missing(path, "new\n") is False
     assert path.read_text(encoding="utf-8") == "original\n"
 
 

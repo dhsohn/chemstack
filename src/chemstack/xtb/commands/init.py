@@ -3,19 +3,16 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from chemstack.core.paths import ensure_directory, require_subpath
-from chemstack.flow.state import workflow_workspace_internal_engine_paths_from_path
+from chemstack.core.scaffold import (
+    ScaffoldFile,
+    print_scaffold_report,
+    resolve_scaffold_job_dir,
+    write_scaffold_files,
+)
 
 from ..config import load_config
 
 _SUPPORTED_JOB_TYPES = {"path_search", "opt", "sp", "ranking"}
-
-
-def _write_if_missing(path: Path, content: str) -> bool:
-    if path.exists():
-        return False
-    path.write_text(content, encoding="utf-8")
-    return True
 
 
 def _scaffold_xyz(comment: str) -> str:
@@ -133,26 +130,7 @@ def cmd_init(args: Any) -> int:
         print(f"error: unsupported scaffold job_type: {job_type}")
         return 1
 
-    workflow_root = str(getattr(cfg, "workflow_root", "")).strip()
-    if workflow_root:
-        runtime_paths = workflow_workspace_internal_engine_paths_from_path(
-            raw_root,
-            workflow_root=workflow_root,
-            engine="xtb",
-        )
-        if runtime_paths is None:
-            raise ValueError(
-                "Init root must be under a workflow-local xTB runs root: "
-                "<workflow.root>/<workflow_id>/internal/xtb/runs/..."
-            )
-        allowed_root = ensure_directory(runtime_paths["allowed_root"], label="Allowed root")
-    else:
-        allowed_root = ensure_directory(cfg.runtime.allowed_root, label="Allowed root")
-    job_dir = require_subpath(Path(raw_root), allowed_root, label="Init root")
-    job_dir.mkdir(parents=True, exist_ok=True)
-
-    created: list[str] = []
-    skipped: list[str] = []
+    job_dir = resolve_scaffold_job_dir(raw_root, cfg, engine="xtb", engine_label="xTB")
 
     if job_type == "path_search":
         reactants_dir = job_dir / "reactants"
@@ -160,37 +138,37 @@ def cmd_init(args: Any) -> int:
         reactants_dir.mkdir(parents=True, exist_ok=True)
         products_dir.mkdir(parents=True, exist_ok=True)
         targets = [
-            (reactants_dir / "r1.xyz", _scaffold_xyz("chemstack xTB scaffold reactant"), "reactants/r1.xyz"),
-            (products_dir / "p1.xyz", _scaffold_xyz("chemstack xTB scaffold product"), "products/p1.xyz"),
-            (job_dir / "xtb_job.yaml", _scaffold_manifest(job_type), "xtb_job.yaml"),
-            (job_dir / "README.md", _scaffold_readme(job_dir, job_type), "README.md"),
+            ScaffoldFile(
+                reactants_dir / "r1.xyz",
+                _scaffold_xyz("chemstack xTB scaffold reactant"),
+                "reactants/r1.xyz",
+            ),
+            ScaffoldFile(
+                products_dir / "p1.xyz",
+                _scaffold_xyz("chemstack xTB scaffold product"),
+                "products/p1.xyz",
+            ),
+            ScaffoldFile(job_dir / "xtb_job.yaml", _scaffold_manifest(job_type), "xtb_job.yaml"),
+            ScaffoldFile(job_dir / "README.md", _scaffold_readme(job_dir, job_type), "README.md"),
         ]
     elif job_type == "ranking":
         candidates_dir = job_dir / "candidates"
         candidates_dir.mkdir(parents=True, exist_ok=True)
         targets = [
-            (job_dir / "xtb_job.yaml", _scaffold_manifest(job_type), "xtb_job.yaml"),
-            (job_dir / "README.md", _scaffold_readme(job_dir, job_type), "README.md"),
+            ScaffoldFile(job_dir / "xtb_job.yaml", _scaffold_manifest(job_type), "xtb_job.yaml"),
+            ScaffoldFile(job_dir / "README.md", _scaffold_readme(job_dir, job_type), "README.md"),
         ]
     else:
         targets = [
-            (job_dir / "input.xyz", _scaffold_xyz(f"chemstack xTB scaffold {job_type}"), "input.xyz"),
-            (job_dir / "xtb_job.yaml", _scaffold_manifest(job_type), "xtb_job.yaml"),
-            (job_dir / "README.md", _scaffold_readme(job_dir, job_type), "README.md"),
+            ScaffoldFile(
+                job_dir / "input.xyz",
+                _scaffold_xyz(f"chemstack xTB scaffold {job_type}"),
+                "input.xyz",
+            ),
+            ScaffoldFile(job_dir / "xtb_job.yaml", _scaffold_manifest(job_type), "xtb_job.yaml"),
+            ScaffoldFile(job_dir / "README.md", _scaffold_readme(job_dir, job_type), "README.md"),
         ]
 
-    for path, content, label in targets:
-        if _write_if_missing(path, content):
-            created.append(label)
-        else:
-            skipped.append(label)
-
-    print(f"job_dir: {job_dir}")
-    print(f"job_type: {job_type}")
-    print(f"created: {len(created)}")
-    print(f"skipped: {len(skipped)}")
-    for name in created:
-        print(f"created_file: {name}")
-    for name in skipped:
-        print(f"skipped_file: {name}")
+    result = write_scaffold_files(targets)
+    print_scaffold_report(job_dir, result, metadata=(("job_type", job_type),))
     return 0

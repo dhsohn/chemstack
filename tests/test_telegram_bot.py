@@ -1,15 +1,24 @@
 """Telegram bot handler tests."""
 
+import io
 import json
 import tempfile
+import urllib.error
 import unittest
+from email.message import Message
 from pathlib import Path
+from typing import cast
+from types import SimpleNamespace
 from unittest.mock import patch
 
+import pytest
+
+from chemstack.orca import telegram_bot as bot
+from chemstack.orca.cancellation import CancelTargetError
 from chemstack.orca.config import AppConfig, PathsConfig, RuntimeConfig, TelegramConfig
 from chemstack.orca.queue_store import enqueue, mark_completed
 from chemstack.orca.state_store import STATE_FILE_NAME
-from chemstack.orca.telegram_bot import _handle_cancel, _handle_help, _handle_list
+from chemstack.orca.telegram_bot import _handle_cancel, _handle_cron, _handle_help, _handle_list
 
 
 def _write_running_state(reaction_dir: Path, *, run_id: str, pid: int) -> None:
@@ -183,6 +192,274 @@ class TestTelegramBotHandlers(unittest.TestCase):
         result = _handle_cancel(cfg, "")
         self.assertIn("/cancel &lt;target&gt;", result)
 
+    def test_handle_cancel_error_and_terminal_paths(self) -> None:
+        cfg = self._make_cfg("/tmp/nonexistent")
+        with patch(
+            "chemstack.orca.telegram_bot.cancel_target",
+            side_effect=CancelTargetError("bad <target>"),
+        ):
+            self.assertIn("bad &lt;target&gt;", _handle_cancel(cfg, "bad"))
+
+        with patch("chemstack.orca.telegram_bot.cancel_target", return_value=None):
+            self.assertIn("Cannot cancel", _handle_cancel(cfg, "done"))
+
+        with patch(
+            "chemstack.orca.telegram_bot.cancel_target",
+            return_value=SimpleNamespace(action="cancelled", source="queue", queue_id="q-1", reaction_dir=""),
+        ):
+            self.assertIn("Cancelled", _handle_cancel(cfg, "q-1"))
+
+        with patch(
+            "chemstack.orca.telegram_bot.cancel_target",
+            return_value=SimpleNamespace(action="requested", source="queue", queue_id="q-2", reaction_dir=""),
+        ):
+            self.assertIn("running job", _handle_cancel(cfg, "q-2"))
+
+    def test_handle_cron_reports_empty_crontab(self) -> None:
+        cfg = self._make_cfg("/tmp/nonexistent")
+
+        with patch(
+            "chemstack.orca.telegram_bot.subprocess.run",
+            return_value=SimpleNamespace(stdout=""),
+        ):
+            result = _handle_cron(cfg, "")
+
+        self.assertIn("No crontab entries found", result)
+
+    def test_handle_cron_formats_managed_entries(self) -> None:
+        cfg = self._make_cfg("/tmp/nonexistent")
+        crontab = "\n".join(
+            [
+                "# ORCA_AUTO_CRON_START",
+                "0 9,21 * * * /opt/chemstack/cron_dft_summary --config /tmp/chemstack.yaml",
+                "0 * * * * /opt/chemstack/cron_custom --config /tmp/chemstack.yaml",
+                "# ORCA_AUTO_CRON_END",
+            ]
+        )
+
+        with patch(
+            "chemstack.orca.telegram_bot.subprocess.run",
+            return_value=SimpleNamespace(stdout=crontab),
+        ):
+            result = _handle_cron(cfg, "")
+
+        self.assertIn("Cron Jobs", result)
+        self.assertIn("dft_summary", result)
+        self.assertIn("Twice daily", result)
+        self.assertIn("custom", result)
+
+    def test_handle_list_clear_reports_nothing_to_clear(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            allowed = Path(td) / "orca_runs"
+            allowed.mkdir()
+            cfg = self._make_cfg(str(allowed))
+            with patch("chemstack.orca.telegram_bot._clear_terminal_entries", return_value=(0, 0)):
+                result = _handle_list(cfg, "clear")
+
+        self.assertIn("Nothing to clear", result)
+
+    def test_handle_cron_reports_read_failure_and_missing_managed_block(self) -> None:
+        cfg = self._make_cfg("/tmp/nonexistent")
+        with patch(
+            "chemstack.orca.telegram_bot.subprocess.run",
+            side_effect=RuntimeError("no crontab"),
+        ):
+            self.assertIn("Failed to read crontab", _handle_cron(cfg, ""))
+
+        with patch(
+            "chemstack.orca.telegram_bot.subprocess.run",
+            return_value=SimpleNamespace(stdout="0 * * * * /bin/echo hi\n"),
+        ):
+            self.assertIn("No chemstack cron jobs", _handle_cron(cfg, ""))
+
+
+class _TelegramApiResponse:
+    def __init__(self, payload: dict[str, object]) -> None:
+        self.payload = payload
+
+    def __enter__(self) -> "_TelegramApiResponse":
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        return None
+
+    def read(self) -> bytes:
+        return json.dumps(self.payload).encode("utf-8")
+
+
+def _make_cfg(allowed_root: str = "/tmp/nonexistent") -> AppConfig:
+    return AppConfig(
+        runtime=RuntimeConfig(allowed_root=allowed_root),
+        paths=PathsConfig(),
+        telegram=TelegramConfig(bot_token="fake-token", chat_id="123"),
+    )
+
+
+def test_api_call_handles_success_api_error_http_error_and_generic_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        bot,
+        "urlopen_with_ipv4_fallback",
+        lambda request, *, timeout: _TelegramApiResponse({"ok": True, "result": {"message_id": 1}}),
+    )
+    assert bot._api_call("token", "sendMessage") == {"message_id": 1}
+
+    monkeypatch.setattr(
+        bot,
+        "urlopen_with_ipv4_fallback",
+        lambda request, *, timeout: _TelegramApiResponse({"ok": False, "description": "bad"}),
+    )
+    assert bot._api_call("token", "sendMessage") is None
+
+    def raise_http_error(request: object, *, timeout: int) -> object:
+        headers: Message[str, str] = Message()
+        raise urllib.error.HTTPError(
+            url="https://example.test",
+            code=500,
+            msg="server error",
+            hdrs=headers,
+            fp=io.BytesIO(b"server failed"),
+        )
+
+    monkeypatch.setattr(bot, "urlopen_with_ipv4_fallback", raise_http_error)
+    assert bot._api_call("token", "sendMessage") is None
+
+    monkeypatch.setattr(
+        bot,
+        "urlopen_with_ipv4_fallback",
+        lambda request, *, timeout: (_ for _ in ()).throw(RuntimeError("offline")),
+    )
+    assert bot._api_call("token", "sendMessage") is None
+
+
+def test_send_message_truncates_and_set_commands_delegates(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: list[tuple[str, str, dict[str, object]]] = []
+
+    def fake_api_call(token: str, method: str, payload: dict[str, object]) -> object:
+        captured.append((token, method, payload))
+        return {"ok": True}
+
+    monkeypatch.setattr(bot, "_api_call", fake_api_call)
+
+    assert bot._send_message("token", "123", "x" * 5000, parse_mode=None)
+    assert captured[0][0] == "token"
+    assert captured[0][1] == "sendMessage"
+    assert len(str(captured[0][2]["text"])) == bot._MAX_MESSAGE_LENGTH
+    assert "parse_mode" not in captured[0][2]
+
+    bot._set_bot_commands("token")
+    assert captured[1][1] == "setMyCommands"
+    commands = cast(list[dict[str, str]], captured[1][2]["commands"])
+    assert [item["command"] for item in commands] == [
+        "list",
+        "cancel",
+        "cron",
+        "help",
+    ]
+
+
+def test_handle_list_formats_rows_without_input_path(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    cfg = _make_cfg(str(tmp_path))
+    monkeypatch.setattr(
+        bot,
+        "_collect_unified",
+        lambda allowed_root: [
+            {
+                "dir": "rxn <one>",
+                "status": "running",
+                "elapsed": "1m",
+                "inp": "",
+            }
+        ],
+    )
+
+    result = bot._handle_list(cfg, "")
+
+    assert "rxn &lt;one&gt;" in result
+    assert "<code>" not in result
+
+
+def test_run_bot_disabled_and_polling_paths(monkeypatch: pytest.MonkeyPatch) -> None:
+    disabled_cfg = AppConfig(
+        runtime=RuntimeConfig(allowed_root="/tmp"),
+        paths=PathsConfig(),
+        telegram=TelegramConfig(),
+    )
+    assert bot.run_bot(disabled_cfg) == 1
+
+    cfg = _make_cfg("/tmp")
+    sent: list[str] = []
+    calls = {"polls": 0}
+
+    def fake_api_call(
+        token: str,
+        method: str,
+        payload: dict[str, object] | None = None,
+        *,
+        timeout: int = 35,
+    ) -> object:
+        if method == "setMyCommands":
+            return True
+        if method == "getUpdates":
+            calls["polls"] += 1
+            if calls["polls"] > 1:
+                raise KeyboardInterrupt
+            return [
+                "skip",
+                {"update_id": 1, "message": "skip"},
+                {"update_id": 2, "message": {"chat": {"id": "999"}, "text": "/help"}},
+                {"update_id": 3, "message": {"chat": {"id": "123"}, "text": "hello"}},
+                {"update_id": 4, "message": {"chat": {"id": "123"}, "text": "/unknown"}},
+                {"update_id": 5, "message": {"chat": {"id": "123"}, "text": "/list running"}},
+                {"update_id": 6, "message": {"chat": {"id": "123"}, "text": "/boom"}},
+            ]
+        return None
+
+    monkeypatch.setattr(bot, "_api_call", fake_api_call)
+
+    def fake_send_message(token: str, chat_id: str, text: str, **kwargs: object) -> bool:
+        sent.append(text)
+        return True
+
+    monkeypatch.setattr(bot, "_send_message", fake_send_message)
+    monkeypatch.setitem(bot._HANDLERS, "list", lambda cfg, args: f"list:{args}")
+    monkeypatch.setitem(
+        bot._HANDLERS,
+        "boom",
+        lambda cfg, args: (_ for _ in ()).throw(RuntimeError("handler failed")),
+    )
+
+    assert bot.run_bot(cfg) == 0
+    assert any("Unknown command" in text for text in sent)
+    assert "list:running" in sent
+    assert any("Error: handler failed" in text for text in sent)
+
+
+def test_run_bot_poll_errors_sleep_and_continue(monkeypatch: pytest.MonkeyPatch) -> None:
+    cfg = _make_cfg("/tmp")
+    calls = {"polls": 0}
+    sleeps: list[float] = []
+
+    def fake_api_call(
+        token: str,
+        method: str,
+        payload: dict[str, object] | None = None,
+        *,
+        timeout: int = 35,
+    ) -> object:
+        if method == "setMyCommands":
+            return True
+        calls["polls"] += 1
+        if calls["polls"] == 1:
+            raise RuntimeError("temporary")
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(bot, "_api_call", fake_api_call)
+    monkeypatch.setattr(bot.time, "sleep", lambda seconds: sleeps.append(seconds))
+
+    assert bot.run_bot(cfg) == 0
+    assert sleeps == [5]
 
 if __name__ == "__main__":
     unittest.main()
