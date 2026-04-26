@@ -1,0 +1,12 @@
+[Unit]
+Description=ChemStack combined summary sender for %i
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=%i
+WorkingDirectory=/home/%i/chemstack
+Environment=PYTHONUNBUFFERED=1
+Environment=CHEMSTACK_CONFIG=/home/%i/chemstack/config/chemstack.yaml
+ExecStart=/home/%i/chemstack/.venv/bin/python -m chemstack.services.summary

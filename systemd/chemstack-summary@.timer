@@ -1,0 +1,11 @@
+[Unit]
+Description=ChemStack combined summary timer for %i
+PartOf=chemstack-runtime@%i.target
+
+[Timer]
+OnCalendar=*-*-* 00,06,12,18:00:00
+Persistent=true
+Unit=chemstack-summary@%i.service
+
+[Install]
+WantedBy=timers.target

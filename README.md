@@ -103,6 +103,7 @@ chemstack queue list --engine orca
 chemstack queue list clear
 chemstack queue cancel <target>
 chemstack organize orca --root '/home/user/orca_runs' --apply
+chemstack summary --no-send
 chemstack summary orca --no-send
 ```
 
@@ -124,12 +125,15 @@ both the worker and the bot automatically:
 cd <repo_root>
 sudo cp systemd/chemstack-queue-worker@.service /etc/systemd/system/
 sudo cp systemd/chemstack-bot@.service /etc/systemd/system/
+sudo cp systemd/chemstack-summary@.service /etc/systemd/system/
+sudo cp systemd/chemstack-summary@.timer /etc/systemd/system/
 sudo cp systemd/chemstack-runtime@.target /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now "chemstack-runtime@$(whoami).target"
 sudo systemctl status "chemstack-runtime@$(whoami).target"
 sudo systemctl status "chemstack-queue-worker@$(whoami)"
 sudo systemctl status "chemstack-bot@$(whoami)"
+sudo systemctl status "chemstack-summary@$(whoami).timer"
 ```
 
 Restart examples:
@@ -142,6 +146,9 @@ sudo systemctl restart "chemstack-runtime@$(whoami).target"
 sudo systemctl restart "chemstack-queue-worker@$(whoami)"
 sudo systemctl restart "chemstack-bot@$(whoami)"
 ```
+
+The combined runtime target also starts a summary timer that runs `chemstack summary`
+every 6 hours and sends the digest through the shared Telegram configuration.
 
 If you edited files under `systemd/`, run `sudo systemctl daemon-reload` before restarting.
 

@@ -2,6 +2,7 @@
 Description=ChemStack runtime stack for %i
 Wants=chemstack-queue-worker@%i.service
 Wants=chemstack-bot@%i.service
+Wants=chemstack-summary@%i.timer
 After=local-fs.target
 After=network-online.target
 

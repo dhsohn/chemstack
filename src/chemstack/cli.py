@@ -991,6 +991,18 @@ def cmd_orca_summary(args: argparse.Namespace) -> int:
     return int(_cmd_orca_summary(args))
 
 
+def cmd_summary(args: argparse.Namespace) -> int:
+    summary_app = normalize_text(getattr(args, "summary_app", None)).lower() or "combined"
+    if summary_app == "orca":
+        return int(cmd_orca_summary(args))
+
+    from chemstack.summary import cmd_summary as _cmd_combined_summary
+
+    _configure_orca_logging(args)
+    args.config = _engine_config_for_command(args)
+    return int(_cmd_combined_summary(args))
+
+
 def cmd_workflow_scaffold(args: argparse.Namespace) -> int:
     from chemstack.flow.scaffold import cmd_scaffold as _cmd_workflow_scaffold
 
@@ -1192,15 +1204,19 @@ def build_parser() -> argparse.ArgumentParser:
 
     summary_parser = subparsers.add_parser(
         "summary",
-        help="Show engine summaries or send ORCA Telegram digests through the unified CLI.",
+        help="Show combined ORCA/workflow summaries or send Telegram digests through the unified CLI.",
     )
-    summary_subparsers = summary_parser.add_subparsers(dest="summary_app", required=True)
-
-    orca_summary_parser = summary_subparsers.add_parser("orca", help="Send or print the ORCA Telegram digest")
-    _add_engine_config_argument(orca_summary_parser)
-    _add_orca_logging_arguments(orca_summary_parser)
-    orca_summary_parser.add_argument("--no-send", action="store_true", default=False, help="Print summary without sending Telegram")
-    orca_summary_parser.set_defaults(func=cmd_orca_summary)
+    _add_engine_config_argument(summary_parser)
+    _add_orca_logging_arguments(summary_parser)
+    summary_parser.add_argument(
+        "summary_app",
+        nargs="?",
+        choices=("combined", "orca"),
+        default="combined",
+        help="Summary mode. Defaults to combined.",
+    )
+    summary_parser.add_argument("--no-send", action="store_true", default=False, help="Print summary without sending Telegram")
+    summary_parser.set_defaults(func=cmd_summary)
 
     return parser
 

@@ -5,11 +5,15 @@ This directory is the single home for long-running ChemStack service assets.
 ## Included units
 
 - `chemstack-runtime@.target`
-  - recommended combined runtime target for the unified queue worker plus Telegram bot
+  - recommended combined runtime target for the unified queue worker, Telegram bot, and scheduled summary timer
 - `chemstack-queue-worker@.service`
   - recommended unified queue worker template
 - `chemstack-bot@.service`
   - unified Telegram bot template
+- `chemstack-summary@.service`
+  - oneshot sender for the combined ORCA/workflow Telegram summary
+- `chemstack-summary@.timer`
+  - runs the combined summary every 6 hours
 - `chemstack-flow-workflow-worker.service`
   - supervised workflow worker for `chemstack.flow`
 - `chemstack-flow-worker.env.example`
@@ -24,6 +28,7 @@ It pulls in:
 
 - `chemstack-queue-worker@.service`
 - `chemstack-bot@.service`
+- `chemstack-summary@.timer`
 
 Before enabling the combined runtime target:
 
@@ -36,6 +41,8 @@ Install the combined runtime target:
 cd <repo_root>
 sudo cp systemd/chemstack-queue-worker@.service /etc/systemd/system/
 sudo cp systemd/chemstack-bot@.service /etc/systemd/system/
+sudo cp systemd/chemstack-summary@.service /etc/systemd/system/
+sudo cp systemd/chemstack-summary@.timer /etc/systemd/system/
 sudo cp systemd/chemstack-runtime@.target /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now "chemstack-runtime@$(whoami).target"
@@ -47,6 +54,8 @@ Monitor the combined runtime target:
 systemctl status "chemstack-runtime@$(whoami).target"
 systemctl status "chemstack-queue-worker@$(whoami)"
 systemctl status "chemstack-bot@$(whoami)"
+systemctl status "chemstack-summary@$(whoami).timer"
+journalctl -u "chemstack-summary@$(whoami).service" -n 50
 journalctl -u "chemstack-queue-worker@$(whoami)" -f
 journalctl -u "chemstack-bot@$(whoami)" -f
 ```
@@ -57,6 +66,10 @@ Maintain the combined runtime target:
 sudo systemctl restart "chemstack-runtime@$(whoami).target"
 sudo systemctl stop "chemstack-runtime@$(whoami).target"
 ```
+
+The summary timer runs `chemstack summary` at `00:00`, `06:00`, `12:00`, and `18:00`
+local time and sends the combined digest through the shared Telegram settings in
+`chemstack.yaml`.
 
 ## Engine queue workers
 

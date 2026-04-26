@@ -141,6 +141,9 @@ def test_build_parser_parses_unified_init_scaffold_organize_and_summary_commands
     summary_args = parser.parse_args(
         ["summary", "orca", "--chemstack-config", "/tmp/chemstack.yaml", "--no-send"]
     )
+    combined_summary_args = parser.parse_args(
+        ["summary", "--chemstack-config", "/tmp/chemstack.yaml", "--no-send"]
+    )
 
     assert init_args.command == "init"
     assert init_args.force is True
@@ -169,7 +172,12 @@ def test_build_parser_parses_unified_init_scaffold_organize_and_summary_commands
     assert summary_args.command == "summary"
     assert summary_args.summary_app == "orca"
     assert summary_args.no_send is True
-    assert summary_args.func is unified_cli.cmd_orca_summary
+    assert summary_args.func is unified_cli.cmd_summary
+
+    assert combined_summary_args.command == "summary"
+    assert combined_summary_args.summary_app == "combined"
+    assert combined_summary_args.no_send is True
+    assert combined_summary_args.func is unified_cli.cmd_summary
 
 
 def test_build_parser_rejects_removed_engine_specific_init_subcommands() -> None:
@@ -368,9 +376,15 @@ def test_classify_existing_orca_worker_distinguishes_chemstack_and_unknown(
         ),
         (
             ["summary", "orca", "--chemstack-config", "/tmp/chemstack.yaml", "--no-send"],
-            "cmd_orca_summary",
+            "cmd_summary",
             {"command": "summary", "summary_app": "orca", "no_send": True},
             27,
+        ),
+        (
+            ["summary", "--chemstack-config", "/tmp/chemstack.yaml", "--no-send"],
+            "cmd_summary",
+            {"command": "summary", "summary_app": "combined", "no_send": True},
+            28,
         ),
     ],
 )
@@ -395,6 +409,60 @@ def test_main_dispatches_unified_engine_commands(
     assert len(seen) == 1
     for key, expected_value in expected_attrs.items():
         assert getattr(seen[0], key) == expected_value
+
+
+def test_cmd_summary_dispatches_combined_summary(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: list[argparse.Namespace] = []
+
+    def _fake_combined_summary(args: argparse.Namespace) -> int:
+        seen.append(args)
+        return 29
+
+    monkeypatch.setattr(unified_cli, "_configure_orca_logging", lambda args: None)
+    monkeypatch.setattr(unified_cli, "_engine_config_for_command", lambda args: "/tmp/chemstack.yaml")
+    monkeypatch.setattr("chemstack.summary.cmd_summary", _fake_combined_summary)
+
+    args = argparse.Namespace(
+        command="summary",
+        summary_app="combined",
+        chemstack_config="/tmp/chemstack.yaml",
+        config=None,
+        no_send=True,
+        verbose=False,
+        log_file=None,
+    )
+
+    result = unified_cli.cmd_summary(args)
+
+    assert result == 29
+    assert args.config == "/tmp/chemstack.yaml"
+    assert seen == [args]
+
+
+def test_cmd_summary_dispatches_orca_summary(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: list[argparse.Namespace] = []
+
+    def _fake_orca_summary(args: argparse.Namespace) -> int:
+        seen.append(args)
+        return 30
+
+    monkeypatch.setattr(unified_cli, "cmd_orca_summary", _fake_orca_summary)
+
+    args = argparse.Namespace(
+        command="summary",
+        summary_app="orca",
+        chemstack_config="/tmp/chemstack.yaml",
+        config=None,
+        no_send=True,
+        verbose=False,
+        log_file=None,
+    )
+
+    result = unified_cli.cmd_summary(args)
+
+    assert result == 30
+    assert args.config is None
+    assert seen == [args]
 
 
 def test_cmd_run_dir_dispatches_to_orca_for_inp_directories(

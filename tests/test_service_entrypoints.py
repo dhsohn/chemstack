@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from chemstack.core.app_ids import CHEMSTACK_CONFIG_ENV_VAR
 from chemstack.services import bot as bot_service
 from chemstack.services import queue_worker as queue_worker_service
+from chemstack.services import summary as summary_service
 
 
 def test_bot_service_main_uses_shared_config(monkeypatch) -> None:
@@ -53,3 +54,18 @@ def test_queue_worker_service_main_uses_default_apps(monkeypatch) -> None:
     assert args.app is None
     assert args.chemstack_config == "/tmp/chemstack.yaml"
     assert args.json is False
+
+
+def test_summary_service_main_runs_combined_summary(monkeypatch) -> None:
+    captured: dict[str, object | None] = {}
+
+    def _fake_main(argv=None):
+        captured["argv"] = argv
+        return 13
+
+    monkeypatch.setattr(summary_service.unified_cli, "main", _fake_main)
+
+    result = summary_service.main()
+
+    assert result == 13
+    assert captured["argv"] == ["summary"]
