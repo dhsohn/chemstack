@@ -35,8 +35,12 @@ def _stage_row(stage: Any) -> dict[str, str]:
     task = stage.get("task")
     metadata = _coerce_mapping(stage.get("metadata"))
     if isinstance(task, dict):
+        payload = _coerce_mapping(task.get("payload"))
+        stage_id = _normalize_text(stage.get("stage_id"))
         return {
-            "stage_id": _normalize_text(stage.get("stage_id")),
+            "stage_id": stage_id,
+            "label": _normalize_text(metadata.get("input_role") or payload.get("input_role") or payload.get("reaction_key"))
+            or stage_id,
             "engine": _normalize_text(task.get("engine")).lower(),
             "task_kind": _normalize_text(task.get("task_kind")).lower(),
             "status": _normalize_text(stage.get("status")).lower(),
@@ -46,8 +50,10 @@ def _stage_row(stage: Any) -> dict[str, str]:
             "reaction_handoff_reason": _normalize_text(metadata.get("reaction_handoff_reason")).lower(),
         }
 
+    stage_id = _normalize_text(stage.get("stage_id"))
     return {
-        "stage_id": _normalize_text(stage.get("stage_id")),
+        "stage_id": stage_id,
+        "label": _normalize_text(stage.get("input_role") or stage.get("reaction_key")) or stage_id,
         "engine": _normalize_text(stage.get("engine")).lower(),
         "task_kind": _normalize_text(stage.get("task_kind")).lower(),
         "status": _normalize_text(stage.get("status")).lower(),
@@ -66,6 +72,27 @@ def _count_values(rows: Iterable[dict[str, str]], key: str) -> dict[str, int]:
             continue
         counts[value] = counts.get(value, 0) + 1
     return counts
+
+
+def _stage_status_details(rows: Iterable[dict[str, str]]) -> list[dict[str, str]]:
+    details: list[dict[str, str]] = []
+    for row in rows:
+        status = _normalize_text(row.get("status")).lower()
+        task_status = _normalize_text(row.get("task_status")).lower()
+        detail = {
+            "stage_id": _normalize_text(row.get("stage_id")),
+            "label": _normalize_text(row.get("label") or row.get("stage_id")),
+            "status": status or task_status or "unknown",
+            "task_status": task_status,
+        }
+        reason = _normalize_text(row.get("reaction_handoff_reason") or row.get("reason"))
+        if reason:
+            detail["reason"] = reason
+        handoff_status = _normalize_text(row.get("reaction_handoff_status")).lower()
+        if handoff_status:
+            detail["reaction_handoff_status"] = handoff_status
+        details.append(detail)
+    return details
 
 
 def _row_is_terminal(row: dict[str, str]) -> bool:
@@ -133,6 +160,7 @@ def phase_snapshot(stages: Iterable[Any], *, engine: str) -> dict[str, Any]:
         "engine": engine_text,
         "stage_count": len(rows),
         "stage_ids": [_normalize_text(row.get("stage_id")) for row in rows if _normalize_text(row.get("stage_id"))],
+        "stage_statuses": _stage_status_details(rows),
         "terminal_stage_ids": [
             _normalize_text(row.get("stage_id"))
             for row in terminal_rows
@@ -196,6 +224,7 @@ def phase_transition_event_payloads(
                     "phase_outcome": _normalize_text(current_phase.get("outcome")),
                     "stage_count": int(current_phase.get("stage_count", 0) or 0),
                     "stage_ids": list(current_phase.get("stage_ids") or []),
+                    "stage_statuses": list(current_phase.get("stage_statuses") or []),
                     "terminal_stage_ids": list(current_phase.get("terminal_stage_ids") or []),
                     "stage_status_counts": dict(current_phase.get("status_counts") or {}),
                     "task_status_counts": dict(current_phase.get("task_status_counts") or {}),

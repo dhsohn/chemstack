@@ -372,6 +372,47 @@ def test_load_crest_artifact_contract_uses_state_and_index_fallbacks_for_resourc
     assert stage_inputs[0].metadata == {"mode": "screen"}
 
 
+def test_load_crest_artifact_contract_prefers_active_state_over_stale_report(
+    tmp_path: Path,
+) -> None:
+    index_root = tmp_path / "crest_index"
+    job_dir = tmp_path / "crest_job"
+    selected_input_xyz = job_dir / "input.xyz"
+    _write_xyz(selected_input_xyz)
+    _write_json(
+        job_dir / "job_report.json",
+        {
+            "job_id": "crest_old",
+            "status": "failed",
+            "reason": "old_failure",
+            "mode": "nci",
+            "selected_input_xyz": str(selected_input_xyz),
+            "retained_conformer_count": 12,
+            "retained_conformer_paths": [str(job_dir / "old_conf.xyz")],
+        },
+    )
+    _write_json(
+        job_dir / "job_state.json",
+        {
+            "job_id": "crest_new",
+            "status": "running",
+            "reason": "",
+            "mode": "nci",
+            "selected_input_xyz": str(selected_input_xyz),
+            "resource_request": {"max_cores": 4, "max_memory_gb": 16},
+        },
+    )
+
+    contract = load_crest_artifact_contract(crest_index_root=index_root, target=str(job_dir))
+
+    assert contract.job_id == "crest_new"
+    assert contract.status == "running"
+    assert contract.reason == ""
+    assert contract.retained_conformer_count == 0
+    assert contract.retained_conformer_paths == ()
+    assert contract.resource_request == {"max_cores": 4, "max_memory_gb": 16}
+
+
 def test_load_crest_artifact_contract_rejects_non_crest_index_records(tmp_path: Path) -> None:
     index_root = tmp_path / "crest_index"
     job_dir = tmp_path / "crest_wrong_app"

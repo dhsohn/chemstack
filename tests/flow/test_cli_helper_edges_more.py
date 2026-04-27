@@ -70,6 +70,35 @@ def test_cli_option_and_workflow_root_helpers(
     assert cli._resolve_int_option_with_section(9, {}, "key", {}, "section_key", 1) == 9
 
 
+def test_cli_shared_config_and_worker_root_defaults(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    workflow_root = tmp_path / "workflows"
+    workflow_root.mkdir()
+    config_path = tmp_path / "chemstack.yaml"
+    config_path.write_text(
+        "\n".join(
+            [
+                "workflow:",
+                f"  root: {workflow_root}",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(cli, "default_config_path_from_repo_root", lambda repo_root: str(config_path))
+    args = SimpleNamespace(chemstack_config=None, orca_auto_config=None, workflow_root=None)
+
+    assert cli._shared_chemstack_config(args) == str(config_path.resolve())
+    assert cli._workflow_root_from_args(args, config_path=str(config_path)) == str(workflow_root.resolve())
+
+    explicit_config = tmp_path / "explicit.yaml"
+    explicit_args = SimpleNamespace(chemstack_config=str(explicit_config), orca_auto_config=None)
+    assert cli._shared_chemstack_config(explicit_args) == str(explicit_config.resolve())
+
+
 def test_cli_run_dir_manifest_and_path_resolution_edges(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

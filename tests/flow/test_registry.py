@@ -148,6 +148,10 @@ def test_record_from_summary_coerces_counts_and_nested_metadata(monkeypatch: pyt
                     "phase_outcome": "mixed",
                     "stage_count": 2,
                     "stage_status_counts": {"completed": 2},
+                    "stage_statuses": [
+                        {"label": "rxn_01", "stage_id": "xtb_path_search_01", "status": "completed"},
+                        {"label": "rxn_02", "stage_id": "xtb_path_search_02", "status": "failed"},
+                    ],
                     "reaction_handoff_status_counts": {"ready": 1, "failed": 1},
                     "failure_reasons": ["xtb_ts_guess_missing"],
                 },
@@ -158,6 +162,7 @@ def test_record_from_summary_coerces_counts_and_nested_metadata(monkeypatch: pyt
                 "phase=xTB",
                 "phase_outcome=mixed",
                 "stage_status_counts=completed:2",
+                "stage_statuses=rxn_01:completed,rxn_02:failed",
                 "reaction_handoff_status_counts=failed:1,ready:1",
                 "failure_reasons=xtb_ts_guess_missing",
             ],
@@ -193,6 +198,7 @@ def test_notification_configuration_helpers_cover_default_override_and_transport
     monkeypatch.delenv("CHEM_FLOW_NOTIFY_DISABLED", raising=False)
     monkeypatch.delenv("CHEM_FLOW_TELEGRAM_BOT_TOKEN", raising=False)
     monkeypatch.delenv("CHEM_FLOW_TELEGRAM_CHAT_ID", raising=False)
+    monkeypatch.delenv("CHEMSTACK_CONFIG", raising=False)
 
     assert registry._notification_event_types_from_env() == set(registry.DEFAULT_NOTIFICATION_EVENT_TYPES)
     assert registry._journal_notification_enabled("workflow_status_changed") is True
@@ -229,6 +235,50 @@ def test_notification_configuration_helpers_cover_default_override_and_transport
     assert registry._journal_notification_enabled("custom_event") is True
     assert registry._telegram_transport_from_env() == "transport"
     assert captured == {"bot_token": "bot-token", "chat_id": "chat-id"}
+
+
+def test_telegram_transport_from_env_uses_chemstack_config_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.delenv("CHEM_FLOW_TELEGRAM_BOT_TOKEN", raising=False)
+    monkeypatch.delenv("CHEM_FLOW_TELEGRAM_CHAT_ID", raising=False)
+    config_path = tmp_path / "chemstack.yaml"
+    config_path.write_text(
+        "\n".join(
+            [
+                "telegram:",
+                "  bot_token: config-token",
+                "  chat_id: config-chat",
+                "  timeout_seconds: 7.5",
+                "  max_attempts: 3",
+                "  retry_backoff_seconds: 0.25",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("CHEMSTACK_CONFIG", str(config_path))
+    captured: dict[str, Any] = {}
+
+    def fake_build_telegram_transport(config: Any) -> str:
+        captured["bot_token"] = config.bot_token
+        captured["chat_id"] = config.chat_id
+        captured["timeout_seconds"] = config.timeout_seconds
+        captured["max_attempts"] = config.max_attempts
+        captured["retry_backoff_seconds"] = config.retry_backoff_seconds
+        return "transport"
+
+    monkeypatch.setattr(registry, "build_telegram_transport", fake_build_telegram_transport)
+
+    assert registry._telegram_transport_from_env() == "transport"
+    assert captured == {
+        "bot_token": "config-token",
+        "chat_id": "config-chat",
+        "timeout_seconds": 7.5,
+        "max_attempts": 3,
+        "retry_backoff_seconds": 0.25,
+    }
 
 
 def test_maybe_notify_journal_event_sends_message_and_swallows_transport_errors(

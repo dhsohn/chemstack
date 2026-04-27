@@ -12,6 +12,7 @@ from ..contracts.xtb import WorkflowStageInput
 REPORT_JSON_FILE_NAME = "job_report.json"
 STATE_FILE_NAME = "job_state.json"
 ORGANIZED_REF_FILE_NAME = "organized_ref.json"
+_ACTIVE_PAYLOAD_STATUSES = frozenset({"queued", "running", "submitted", "cancel_requested", "retrying"})
 
 
 def _normalize_text(value: Any) -> str:
@@ -26,6 +27,24 @@ def _load_json_dict(path: Path) -> dict[str, Any]:
     except Exception:
         return {}
     return raw if isinstance(raw, dict) else {}
+
+
+def _select_artifact_payload(
+    *,
+    report: dict[str, Any],
+    state: dict[str, Any],
+    organized_ref: dict[str, Any],
+) -> dict[str, Any]:
+    state_status = _normalize_text(state.get("status")).lower()
+    if state and state_status in _ACTIVE_PAYLOAD_STATUSES:
+        return state
+
+    report_job_id = _normalize_text(report.get("job_id"))
+    state_job_id = _normalize_text(state.get("job_id"))
+    if state and report_job_id and state_job_id and report_job_id != state_job_id:
+        return state
+
+    return report or state or organized_ref
 
 
 def _direct_path_target(target: str) -> Path | None:
@@ -108,7 +127,7 @@ def load_crest_artifact_contract(*, crest_index_root: str | Path, target: str) -
     report = _load_json_dict(job_dir / REPORT_JSON_FILE_NAME)
     state = _load_json_dict(job_dir / STATE_FILE_NAME)
     organized_ref = _load_json_dict(job_dir / ORGANIZED_REF_FILE_NAME)
-    payload = report or state or organized_ref
+    payload = _select_artifact_payload(report=report, state=state, organized_ref=organized_ref)
     if not payload:
         raise FileNotFoundError(f"CREST artifact files not found in job directory: {job_dir}")
 

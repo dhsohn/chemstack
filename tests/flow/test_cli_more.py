@@ -472,6 +472,19 @@ def test_build_parser_and_main_cover_worker_and_submit_commands(monkeypatch) -> 
     assert submit_args.resubmit is True
     assert submit_args.func is cli.cmd_workflow_submit_reaction_ts_search
 
+    worker_args = parser.parse_args(
+        [
+            "workflow",
+            "worker",
+            "--chemstack-config",
+            "/tmp/chemstack.yaml",
+            "--once",
+        ]
+    )
+    assert worker_args.workflow_command == "worker"
+    assert worker_args.workflow_root is None
+    assert worker_args.chemstack_config == "/tmp/chemstack.yaml"
+
     captured: dict[str, Any] = {}
 
     def fake_cmd_workflow_list(args: Any) -> int:

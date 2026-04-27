@@ -25,6 +25,9 @@ shared_config="${CHEM_FLOW_CONFIG:-}"
 if [[ -n "${shared_config:-}" ]]; then
   args+=(--chemstack-config "${shared_config}")
 fi
+if [[ -n "${CHEM_FLOW_WORKFLOW_ROOT:-}" ]]; then
+  args+=(--workflow-root "${CHEM_FLOW_WORKFLOW_ROOT}")
+fi
 
 if [[ "${CHEM_FLOW_NO_SUBMIT:-0}" == "1" ]]; then
   args+=(--no-submit)

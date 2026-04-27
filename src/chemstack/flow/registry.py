@@ -7,6 +7,9 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
+import yaml
+
+from chemstack.core.config.files import CHEMSTACK_CONFIG_ENV_VAR
 from chemstack.core.config.schema import TelegramConfig
 from chemstack.core.notifications import build_telegram_transport
 from chemstack.core.utils import atomic_write_json, file_lock, now_utc_iso, timestamped_token
@@ -121,6 +124,21 @@ def _format_count_mapping(value: Any) -> str:
     return ",".join(parts) if parts else "-"
 
 
+def _format_stage_statuses(value: Any) -> str:
+    if not isinstance(value, list):
+        return "-"
+    parts: list[str] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        label = _normalize_text(item.get("label") or item.get("stage_id"))
+        status = _normalize_text(item.get("status") or item.get("task_status"))
+        if not label or not status:
+            continue
+        parts.append(f"{label}:{status}")
+    return ",".join(parts) if parts else "-"
+
+
 def _registry_path(workflow_root: str | Path) -> Path:
     root = Path(workflow_root).expanduser().resolve()
     return root / WORKFLOW_REGISTRY_FILE_NAME
@@ -167,6 +185,63 @@ def _coerce_counts(value: Any) -> dict[str, int]:
     return counts
 
 
+def _safe_float(value: Any, *, default: float) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _safe_int(value: Any, *, default: int) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _telegram_config_from_file(config_path: str | Path) -> TelegramConfig:
+    try:
+        path = Path(config_path).expanduser().resolve()
+    except OSError:
+        return TelegramConfig()
+    if not path.exists():
+        return TelegramConfig()
+    try:
+        raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except Exception:
+        return TelegramConfig()
+    if not isinstance(raw, dict):
+        return TelegramConfig()
+    telegram_raw = raw.get("telegram")
+    if not isinstance(telegram_raw, dict):
+        return TelegramConfig()
+    return TelegramConfig(
+        bot_token=_normalize_text(telegram_raw.get("bot_token")),
+        chat_id=_normalize_text(telegram_raw.get("chat_id")),
+        timeout_seconds=max(
+            0.1,
+            _safe_float(
+                telegram_raw.get("timeout_seconds"),
+                default=TelegramConfig.timeout_seconds,
+            ),
+        ),
+        max_attempts=max(
+            1,
+            _safe_int(
+                telegram_raw.get("max_attempts"),
+                default=TelegramConfig.max_attempts,
+            ),
+        ),
+        retry_backoff_seconds=max(
+            0.0,
+            _safe_float(
+                telegram_raw.get("retry_backoff_seconds"),
+                default=TelegramConfig.retry_backoff_seconds,
+            ),
+        ),
+    )
+
+
 def _notification_event_types_from_env() -> set[str]:
     raw = os.environ.get("CHEM_FLOW_NOTIFY_EVENT_TYPES", "")
     if not raw.strip():
@@ -184,9 +259,16 @@ def _journal_notification_enabled(event_type: str) -> bool:
 def _telegram_transport_from_env():
     token = os.environ.get("CHEM_FLOW_TELEGRAM_BOT_TOKEN", "").strip()
     chat_id = os.environ.get("CHEM_FLOW_TELEGRAM_CHAT_ID", "").strip()
-    if not token or not chat_id:
+    if token and chat_id:
+        return build_telegram_transport(TelegramConfig(bot_token=token, chat_id=chat_id))
+
+    config_path = os.environ.get(CHEMSTACK_CONFIG_ENV_VAR, "").strip()
+    if not config_path:
         return None
-    return build_telegram_transport(TelegramConfig(bot_token=token, chat_id=chat_id))
+    telegram = _telegram_config_from_file(config_path)
+    if not telegram.enabled:
+        return None
+    return build_telegram_transport(telegram)
 
 
 def _journal_event_message(event: dict[str, Any], workflow_root: str | Path) -> str:
@@ -263,6 +345,7 @@ def _journal_event_message(event: dict[str, Any], workflow_root: str | Path) -> 
             f"phase_outcome={_event_text(event, metadata, 'phase_outcome', 'status') or '-'}",
             f"stage_count={_event_text(event, metadata, 'stage_count') or '0'}",
             f"stage_status_counts={_format_count_mapping(metadata.get('stage_status_counts'))}",
+            f"stage_statuses={_format_stage_statuses(metadata.get('stage_statuses'))}",
             f"worker_session={session}",
         ]
         handoff_counts = _format_count_mapping(metadata.get("reaction_handoff_status_counts"))

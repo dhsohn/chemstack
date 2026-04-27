@@ -137,6 +137,7 @@ Before enabling the service:
 - Set top-level `workflow.root` in `chemstack.yaml`
 - `CHEM_FLOW_PYTHON` if you do not use `<repo_root>/.venv/bin/python`
 - `CHEM_FLOW_CONFIG` if you do not use the default `chemstack.yaml`
+- `CHEM_FLOW_WORKFLOW_ROOT` only if you want to override `workflow.root`
 
 Monitoring:
 

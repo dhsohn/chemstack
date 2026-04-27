@@ -235,6 +235,8 @@ def workflow_summary(workspace_dir: str | Path, payload: dict[str, Any] | None =
                 "task_status": task_status,
                 "engine": _normalize_text(task.get("engine")),
                 "task_kind": _normalize_text(task.get("task_kind")),
+                "input_role": _normalize_text(stage_metadata.get("input_role") or task_payload.get("input_role")),
+                "reaction_key": _normalize_text(task_payload.get("reaction_key") or enqueue_payload.get("reaction_key")),
                 "queue_id": _normalize_text(stage_metadata.get("queue_id")),
                 "reaction_dir": _normalize_text(task_payload.get("reaction_dir") or enqueue_payload.get("reaction_dir")),
                 "selected_input_xyz": _normalize_text(task_payload.get("selected_input_xyz")),

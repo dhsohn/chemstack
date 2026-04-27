@@ -74,6 +74,10 @@ def test_restart_failed_workflow_resets_failed_and_cancelled_stages(tmp_path: Pa
             "metadata": {
                 "workflow_error": {"status": "failed", "reason": "boom"},
                 "final_child_sync_pending": True,
+                "phase_notifications": {
+                    "crest_summary": {"sent_at": "2026-04-27T00:00:00+00:00"},
+                    "xtb_summary": {"sent_at": "2026-04-27T01:00:00+00:00"},
+                },
             },
         },
     )
@@ -87,6 +91,7 @@ def test_restart_failed_workflow_resets_failed_and_cancelled_stages(tmp_path: Pa
     assert saved["status"] == "planned"
     assert "workflow_error" not in saved["metadata"]
     assert saved["metadata"]["restart_summary"]["restarted_count"] == 2
+    assert saved["metadata"]["phase_notifications"] == {"xtb_summary": {"sent_at": "2026-04-27T01:00:00+00:00"}}
     assert saved["stages"][0]["status"] == "completed"
     assert saved["stages"][0]["output_artifacts"] == [{"kind": "crest_conformer", "path": "/tmp/done.xyz"}]
 
@@ -110,6 +115,110 @@ def test_restart_failed_workflow_resets_failed_and_cancelled_stages(tmp_path: Pa
     assert registry[0]["status"] == "planned"
     journal = (root / "workflow_registry.journal.jsonl").read_text(encoding="utf-8")
     assert "workflow_restarted" in journal
+
+
+def test_restart_failed_workflow_rejects_active_sibling_before_cancellation_finishes(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "workflow_runs"
+    workspace = root / "wf_half_failed"
+    original_payload: dict[str, object] = {
+        "workflow_id": "wf_half_failed",
+        "template_name": "reaction_ts_search",
+        "status": "failed",
+        "requested_at": "2026-04-27T00:00:00+00:00",
+        "stages": [
+            {
+                "stage_id": "crest_product",
+                "status": "failed",
+                "task": {
+                    "engine": "crest",
+                    "status": "failed",
+                    "payload": {"job_dir": "/tmp/product"},
+                    "enqueue_payload": {"job_dir": "/tmp/product", "priority": 10},
+                },
+                "metadata": {"queue_id": "q_product"},
+            },
+            {
+                "stage_id": "crest_reactant",
+                "status": "running",
+                "task": {
+                    "engine": "crest",
+                    "status": "running",
+                    "payload": {"job_dir": "/tmp/reactant"},
+                    "enqueue_payload": {"job_dir": "/tmp/reactant", "priority": 10},
+                },
+                "metadata": {"queue_id": "q_reactant"},
+            },
+        ],
+        "metadata": {
+            "workflow_error": {"status": "failed", "reason": "product_failed"},
+        },
+    }
+    _write_workflow(workspace, original_payload)
+
+    with pytest.raises(ValueError, match="workflow still has active stages"):
+        restart_failed_workflow(workspace_dir=workspace, workflow_root=root)
+
+    saved = json.loads((workspace / "workflow.json").read_text(encoding="utf-8"))
+    assert saved == original_payload
+    assert not (root / "workflow_registry.json").exists()
+    assert not (root / "workflow_registry.journal.jsonl").exists()
+
+
+def test_restart_cancelled_workflow_resets_cancelled_stages(tmp_path: Path) -> None:
+    root = tmp_path / "workflow_runs"
+    workspace = root / "wf_cancelled"
+    _write_workflow(
+        workspace,
+        {
+            "workflow_id": "wf_cancelled",
+            "template_name": "reaction_ts_search",
+            "status": "cancelled",
+            "requested_at": "2026-04-27T00:00:00+00:00",
+            "stages": [
+                {
+                    "stage_id": "crest_product",
+                    "status": "cancelled",
+                    "task": {
+                        "engine": "crest",
+                        "status": "cancelled",
+                        "cancel_result": {"status": "cancelled"},
+                        "payload": {"job_dir": "/tmp/product"},
+                        "enqueue_payload": {"job_dir": "/tmp/product", "priority": 10},
+                    },
+                    "metadata": {"queue_id": "q_product", "child_job_id": "crest_product_old"},
+                },
+                {
+                    "stage_id": "crest_reactant",
+                    "status": "completed",
+                    "task": {
+                        "engine": "crest",
+                        "status": "completed",
+                        "payload": {"job_dir": "/tmp/reactant"},
+                        "enqueue_payload": {"job_dir": "/tmp/reactant", "priority": 10},
+                    },
+                    "metadata": {"queue_id": "q_reactant"},
+                    "output_artifacts": [{"kind": "crest_conformer", "path": "/tmp/reactant/conf.xyz"}],
+                },
+            ],
+            "metadata": {"final_child_sync_pending": False},
+        },
+    )
+
+    result = restart_failed_workflow(workspace_dir=workspace, workflow_root=root)
+
+    saved = json.loads((workspace / "workflow.json").read_text(encoding="utf-8"))
+    assert result["status"] == "restarted"
+    assert result["previous_status"] == "cancelled"
+    assert result["restarted_count"] == 1
+    restarted_stage = saved["stages"][0]
+    assert restarted_stage["status"] == "planned"
+    assert restarted_stage["task"]["status"] == "planned"
+    assert "cancel_result" not in restarted_stage["task"]
+    assert "queue_id" not in restarted_stage["metadata"]
+    assert saved["stages"][1]["status"] == "completed"
+    assert saved["metadata"]["restart_summary"]["previous_status"] == "cancelled"
 
 
 def test_flow_run_dir_restarts_existing_workflow_workspace_without_flow_yaml(

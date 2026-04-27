@@ -68,19 +68,33 @@ def _resolve_existing_path(path_text: str) -> Path | None:
     return candidate if candidate.exists() else None
 
 
-def _discover_workflow_root(explicit: str | Path | None) -> str | None:
+def _discover_workflow_root(
+    explicit: str | Path | None,
+    *,
+    config_path: str | Path | None = None,
+) -> str | None:
     explicit_text = _normalize_text(explicit)
     if explicit_text:
         return str(Path(explicit_text).expanduser().resolve())
+    config_text = _normalize_text(config_path)
+    if config_text:
+        return shared_workflow_root_from_config(config_text)
     return shared_workflow_root_from_config(default_config_path_from_repo_root(_project_root()))
 
 
 def _shared_chemstack_config(args: Any) -> str | None:
-    return (
+    explicit = (
         _normalize_text(getattr(args, "chemstack_config", None))
         or _normalize_text(getattr(args, "orca_auto_config", None))
-        or None
     )
+    if explicit:
+        return str(Path(explicit).expanduser().resolve())
+    default_config = _resolve_existing_path(default_config_path_from_repo_root(_project_root()))
+    return str(default_config) if default_config is not None else None
+
+
+def _workflow_root_from_args(args: Any, *, config_path: str | None = None) -> str | None:
+    return _discover_workflow_root(getattr(args, "workflow_root", None), config_path=config_path)
 
 
 def _normalize_workflow_type(value: Any) -> str:
@@ -761,9 +775,12 @@ def cmd_workflow_worker(args: Any) -> int:
     refresh_each_cycle = bool(getattr(args, "refresh_each_cycle", False))
     service_mode = bool(getattr(args, "service_mode", False))
     json_mode = bool(getattr(args, "json", False))
-    workflow_root = getattr(args, "workflow_root")
-    workflow_root_text = str(workflow_root)
     shared_config = _shared_chemstack_config(args)
+    workflow_root = _workflow_root_from_args(args, config_path=shared_config)
+    if not workflow_root:
+        print("error: workflow_root is not configured. Pass --workflow-root or set workflow.root in chemstack.yaml.")
+        return 1
+    workflow_root_text = str(workflow_root)
     cycle_count = 0
     worker_session_id = _normalize_text(getattr(args, "worker_session_id", "")) or timestamped_token("wf_worker")
     lease_seconds = max(float(getattr(args, "lease_seconds", 60.0) or 60.0), interval_seconds * 2.5)
@@ -1465,7 +1482,10 @@ def build_parser() -> argparse.ArgumentParser:
         "worker",
         help="Continuously advance non-terminal workflows from the registry.",
     )
-    worker_parser.add_argument("--workflow-root", required=True, help="Root that directly contains workflow workspaces.")
+    worker_parser.add_argument(
+        "--workflow-root",
+        help="Root that directly contains workflow workspaces. Defaults to workflow.root in chemstack.yaml.",
+    )
     worker_parser.add_argument("--chemstack-config", help="Path to shared chemstack.yaml")
     worker_parser.add_argument("--no-submit", action="store_true", help="Only sync/append stages; do not submit newly actionable stages")
     worker_parser.add_argument("--once", action="store_true", help="Run exactly one orchestration cycle")

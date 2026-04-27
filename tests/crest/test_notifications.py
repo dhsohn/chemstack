@@ -265,25 +265,29 @@ def test_workflow_child_notifications_are_suppressed(
 ) -> None:
     cfg = _cfg(tmp_path)
     _, messages = _patch_transport(monkeypatch, sent=True)
-    workflow_job_dir = tmp_path / "workflow_jobs" / "wf-1" / "stage_00_crest" / "job-queued"
+    workflow_job_dirs = [
+        tmp_path / "workflow_jobs" / "wf-1" / "stage_00_crest" / "job-queued",
+        tmp_path / "wf-1" / "internal" / "crest" / "runs" / "crest_reactant_01",
+    ]
 
-    assert notifications.notify_job_queued(
-        cfg,
-        job_id="job-queued",
-        queue_id="queue-queued",
-        job_dir=workflow_job_dir,
-        mode="standard",
-        selected_xyz=workflow_job_dir / "input.xyz",
-    )
-    assert notifications.notify_job_finished(
-        cfg,
-        job_id="job-queued",
-        queue_id="queue-queued",
-        status="completed",
-        reason="ok",
-        mode="standard",
-        job_dir=workflow_job_dir,
-        selected_xyz=workflow_job_dir / "input.xyz",
-        retained_conformer_count=2,
-    )
+    for workflow_job_dir in workflow_job_dirs:
+        assert notifications.notify_job_queued(
+            cfg,
+            job_id="job-queued",
+            queue_id="queue-queued",
+            job_dir=workflow_job_dir,
+            mode="standard",
+            selected_xyz=workflow_job_dir / "input.xyz",
+        )
+        assert notifications.notify_job_finished(
+            cfg,
+            job_id="job-queued",
+            queue_id="queue-queued",
+            status="completed",
+            reason="ok",
+            mode="standard",
+            job_dir=workflow_job_dir,
+            selected_xyz=workflow_job_dir / "input.xyz",
+            retained_conformer_count=2,
+        )
     assert messages == []

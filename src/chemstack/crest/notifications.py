@@ -8,7 +8,13 @@ from .config import AppConfig
 
 
 def _is_workflow_child(job_dir: Path) -> bool:
-    return "workflow_jobs" in {part for part in job_dir.parts if part}
+    parts = tuple(part for part in job_dir.parts if part)
+    if "workflow_jobs" in parts:
+        return True
+    return any(
+        parts[index : index + 3] == ("internal", "crest", "runs")
+        for index in range(max(0, len(parts) - 2))
+    )
 
 
 def _send(cfg: AppConfig, lines: list[str]) -> bool:

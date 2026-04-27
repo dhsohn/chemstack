@@ -293,6 +293,7 @@ def test_phase_transition_event_payloads_emit_phase_finished_summaries() -> None
     current_summary = _summary_with_stages(
         {
             "stage_id": "crest_reactant_01",
+            "input_role": "reactant",
             "status": "completed",
             "task_status": "completed",
             "engine": "crest",
@@ -300,6 +301,7 @@ def test_phase_transition_event_payloads_emit_phase_finished_summaries() -> None
         },
         {
             "stage_id": "crest_product_01",
+            "input_role": "product",
             "status": "completed",
             "task_status": "completed",
             "engine": "crest",
@@ -338,6 +340,20 @@ def test_phase_transition_event_payloads_emit_phase_finished_summaries() -> None
     ]
     assert events[0]["metadata"]["phase"] == "crest"
     assert events[0]["metadata"]["stage_status_counts"] == {"completed": 2}
+    assert events[0]["metadata"]["stage_statuses"] == [
+        {
+            "stage_id": "crest_reactant_01",
+            "label": "reactant",
+            "status": "completed",
+            "task_status": "completed",
+        },
+        {
+            "stage_id": "crest_product_01",
+            "label": "product",
+            "status": "completed",
+            "task_status": "completed",
+        },
+    ]
     assert events[1]["metadata"]["phase"] == "xtb"
     assert events[1]["metadata"]["reaction_handoff_status_counts"] == {"failed": 1, "ready": 1}
     assert events[1]["metadata"]["failure_reasons"] == ["xtb_ts_guess_missing"]
