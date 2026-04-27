@@ -162,6 +162,19 @@ def _resolve_engine_manifest(workflow_dir: Path, manifest: dict[str, Any], key: 
     return resolved
 
 
+def _resolve_endpoint_pairing_manifest(
+    manifest: dict[str, Any],
+    xtb_manifest: dict[str, Any],
+) -> dict[str, Any]:
+    xtb_section = _manifest_mapping(xtb_manifest.pop("endpoint_pairing", None))
+    top_level = _manifest_mapping(manifest.get("endpoint_pairing"))
+    legacy_top_level = _manifest_mapping(manifest.get("xtb_endpoint_pairing"))
+    resolved = dict(xtb_section)
+    resolved.update(legacy_top_level)
+    resolved.update(top_level)
+    return resolved
+
+
 def _resolve_run_dir_path(
     workflow_dir: Path,
     *,
@@ -397,6 +410,7 @@ def cmd_run_dir(args: Any) -> int:
         resources_manifest = _manifest_mapping(manifest.get("resources"))
         crest_manifest = _resolve_engine_manifest(workflow_dir, manifest, "crest")
         xtb_manifest = _resolve_engine_manifest(workflow_dir, manifest, "xtb")
+        endpoint_pairing = _resolve_endpoint_pairing_manifest(manifest, xtb_manifest)
         orca_manifest = _resolve_engine_manifest(workflow_dir, manifest, "orca")
         reactant_xyz = _resolve_run_dir_path(
             workflow_dir,
@@ -476,6 +490,8 @@ def cmd_run_dir(args: Any) -> int:
                 reaction_kwargs["crest_job_manifest"] = crest_manifest
             if xtb_manifest:
                 reaction_kwargs["xtb_job_manifest"] = xtb_manifest
+            if endpoint_pairing:
+                reaction_kwargs["endpoint_pairing"] = endpoint_pairing
             payload = create_reaction_workflow(**reaction_kwargs)
         else:
             if not input_xyz:

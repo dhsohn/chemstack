@@ -66,7 +66,17 @@ from .adapters import (
     select_crest_downstream_inputs,
     select_xtb_downstream_inputs,
 )
-from .contracts import CrestDownstreamPolicy, WorkflowArtifactRef, WorkflowPlan, WorkflowStage, WorkflowStageInput, WorkflowTask, WorkflowTemplateRequest, XtbDownstreamPolicy
+from .contracts import (
+    CrestDownstreamPolicy,
+    WorkflowArtifactRef,
+    WorkflowPlan,
+    WorkflowStage,
+    WorkflowStageInput,
+    WorkflowTask,
+    WorkflowTemplateRequest,
+    XtbDownstreamPolicy,
+)
+from .endpoint_pairing import EndpointPairingPolicy, select_endpoint_pairs
 from .registry import sync_workflow_registry
 from .state import (
     acquire_workflow_lock,
@@ -99,6 +109,8 @@ _FACADE_COMPAT = (
     WorkflowTask,
     WorkflowTemplateRequest,
     XtbDownstreamPolicy,
+    EndpointPairingPolicy,
+    select_endpoint_pairs,
     sibling_allowed_root,
     sibling_runtime_paths,
     submit_crest_job_dir,
@@ -284,6 +296,7 @@ def create_reaction_ts_search_workflow(
     multiplicity: int = 1,
     crest_job_manifest: dict[str, Any] | None = None,
     xtb_job_manifest: dict[str, Any] | None = None,
+    endpoint_pairing: dict[str, Any] | None = None,
     source_job_id: str = "",
     source_job_type: str = "",
 ) -> dict[str, Any]:
@@ -308,6 +321,7 @@ def create_reaction_ts_search_workflow(
         multiplicity=multiplicity,
         crest_job_manifest=crest_job_manifest,
         xtb_job_manifest=xtb_job_manifest,
+        endpoint_pairing=endpoint_pairing,
         source_job_id=source_job_id,
         source_job_type=source_job_type,
         workflow_id_factory=_workflow_id,

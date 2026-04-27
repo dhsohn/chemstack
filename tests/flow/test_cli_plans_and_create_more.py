@@ -766,6 +766,10 @@ def test_cmd_run_dir_for_reaction_uses_nested_engine_sections(
                 "  gfn: 1",
                 "  namespace: rxn_case",
                 "  xcontrol_file: path.inp",
+                "  endpoint_pairing:",
+                "    enabled: true",
+                "    comparison_atoms: [1, 2]",
+                "    max_distance_rmsd: 0.25",
                 "orca:",
                 '  route_line: "! custom ts"',
                 "  charge: -2",
@@ -823,6 +827,11 @@ def test_cmd_run_dir_for_reaction_uses_nested_engine_sections(
         "gfn": 1,
         "namespace": "rxn_case",
         "xcontrol_file": str((workflow_dir / "path.inp").resolve()),
+    }
+    assert captured["endpoint_pairing"] == {
+        "enabled": True,
+        "comparison_atoms": [1, 2],
+        "max_distance_rmsd": 0.25,
     }
 
 

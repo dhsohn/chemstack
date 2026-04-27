@@ -60,6 +60,13 @@ def _manifest(workflow_type: str, crest_mode: str) -> str:
                 "priority: 10",
                 "# Each selected reactant/product CREST conformer pair becomes an xTB path search.",
                 "max_crest_candidates: 3",
+                "# Optional: filter CREST endpoint pairs before xTB path search.",
+                "# Use stable scaffold atoms rather than atoms whose bonds change.",
+                "# endpoint_pairing:",
+                "#   enabled: true",
+                "#   comparison_atoms: [1, 2, 3, 4]",
+                "#   max_distance_rmsd: 0.75",
+                "#   max_pairs: 3",
                 "resources:",
                 "  max_cores: 8",
                 "  max_memory_gb: 32",
@@ -105,6 +112,7 @@ def _readme(root: Path, workflow_type: str) -> str:
             "- Change `crest_mode: standard` to `crest_mode: nci` when you want NCI-mode CREST stages.",
             "- Put CREST overrides under `crest:` in `flow.yaml`, for example "
             "`gfn: ff` or `no_preopt: true` when GFN2 pre-opt changes topology.",
+            "- Use `endpoint_pairing:` when multiple CREST conformers create bad reactant/product pairings before xTB.",
             "- reaction_ts_search expands all selected reactant x product CREST pairs into xTB path searches, waits for the xTB phase to finish, and then batches matching ORCA OptTS child jobs from retained ts_guess artifacts.",
         ]
     elif workflow_type == "conformer_screening":

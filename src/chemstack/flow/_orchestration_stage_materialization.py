@@ -37,23 +37,67 @@ def append_reaction_xtb_stages_impl(payload: dict[str, Any], *, workspace_dir: P
     params = request.get("parameters") or {}
     reactant_inputs = o.select_crest_downstream_inputs(reactant_contract, policy=o.CrestDownstreamPolicy.build(max_candidates=int(params.get("max_crest_candidates", 3) or 3)))
     product_inputs = o.select_crest_downstream_inputs(product_contract, policy=o.CrestDownstreamPolicy.build(max_candidates=int(params.get("max_crest_candidates", 3) or 3)))
+    pairing_policy = o.EndpointPairingPolicy.from_raw(
+        params.get("endpoint_pairing"),
+        default_max_pairs=int(params.get("max_xtb_stages", 0) or 0),
+    )
+    endpoint_pairs = o.select_endpoint_pairs(
+        reactant_inputs,
+        product_inputs,
+        policy=pairing_policy,
+    )
+    candidate_pair_count = len(reactant_inputs) * len(product_inputs)
+    if pairing_policy.enabled:
+        payload_metadata = payload.setdefault("metadata", {})
+        if isinstance(payload_metadata, dict):
+            payload_metadata["endpoint_pairing"] = {
+                **pairing_policy.to_summary(),
+                "candidate_pair_count": candidate_pair_count,
+                "selected_pair_count": len(endpoint_pairs),
+            }
+            workflow_error = payload_metadata.get("workflow_error")
+            if (
+                isinstance(workflow_error, dict)
+                and o._normalize_text(workflow_error.get("scope"))
+                == "reaction_ts_search_endpoint_pairing"
+                and endpoint_pairs
+            ):
+                payload_metadata.pop("workflow_error", None)
+    if pairing_policy.enabled and not endpoint_pairs:
+        payload_metadata = payload.setdefault("metadata", {})
+        if isinstance(payload_metadata, dict):
+            payload_metadata["workflow_error"] = {
+                "status": "failed",
+                "scope": "reaction_ts_search_endpoint_pairing",
+                "reason": "no_endpoint_pairs",
+                "message": "No CREST reactant/product conformer pair passed endpoint pairing filters.",
+            }
+        return False
+
     created = 0
-    for reactant in reactant_inputs:
-        for product in product_inputs:
-            created += 1
-            stage = o._new_xtb_stage(
-                workflow_id=str(payload.get("workflow_id", "")),
-                stage_id=f"xtb_path_search_{created:02d}",
-                reaction_key=f"{payload.get('reaction_key', 'reaction')}_{created:02d}",
-                reactant_input=reactant.to_dict(),
-                product_input=product.to_dict(),
-                priority=int(params.get("priority", 10) or 10),
-                max_cores=int(params.get("max_cores", 8) or 8),
-                max_memory_gb=int(params.get("max_memory_gb", 32) or 32),
-                max_handoff_retries=int(params.get("max_xtb_handoff_retries", 2) or 2),
-                manifest_overrides=o._coerce_mapping(params.get("xtb_job_manifest")),
-            )
-            payload.setdefault("stages", []).append(stage)
+    for endpoint_pair in endpoint_pairs:
+        created += 1
+        stage = o._new_xtb_stage(
+            workflow_id=str(payload.get("workflow_id", "")),
+            stage_id=f"xtb_path_search_{created:02d}",
+            reaction_key=f"{payload.get('reaction_key', 'reaction')}_{created:02d}",
+            reactant_input=endpoint_pair.reactant.to_dict(),
+            product_input=endpoint_pair.product.to_dict(),
+            priority=int(params.get("priority", 10) or 10),
+            max_cores=int(params.get("max_cores", 8) or 8),
+            max_memory_gb=int(params.get("max_memory_gb", 32) or 32),
+            max_handoff_retries=int(params.get("max_xtb_handoff_retries", 2) or 2),
+            manifest_overrides=o._coerce_mapping(params.get("xtb_job_manifest")),
+        )
+        if pairing_policy.enabled:
+            stage_metadata = o._stage_metadata(stage)
+            stage_metadata["endpoint_pairing"] = dict(endpoint_pair.metadata)
+            task = stage.get("task")
+            if isinstance(task, dict):
+                task_metadata = task.setdefault("metadata", {})
+                if isinstance(task_metadata, dict):
+                    task_metadata["endpoint_pairing"] = dict(endpoint_pair.metadata)
+        payload.setdefault("stages", []).append(stage)
     return created > 0
 
 

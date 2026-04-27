@@ -244,6 +244,19 @@ def _resolve_engine_manifest(
     return True, resolved
 
 
+def _resolve_endpoint_pairing_manifest(
+    manifest: dict[str, Any],
+    xtb_manifest: dict[str, Any],
+) -> dict[str, Any]:
+    xtb_section = _manifest_mapping(xtb_manifest.pop("endpoint_pairing", None))
+    top_level = _manifest_mapping(manifest.get("endpoint_pairing"))
+    legacy_top_level = _manifest_mapping(manifest.get("xtb_endpoint_pairing"))
+    resolved = dict(xtb_section)
+    resolved.update(legacy_top_level)
+    resolved.update(top_level)
+    return resolved
+
+
 def _positive_int(value: Any) -> int | None:
     if value in (None, ""):
         return None
@@ -350,6 +363,7 @@ def _update_request_parameters(
     crest_overrides: dict[str, Any],
     xtb_present: bool,
     xtb_overrides: dict[str, Any],
+    endpoint_pairing: dict[str, Any],
 ) -> None:
     metadata = payload.get("metadata")
     if not isinstance(metadata, dict):
@@ -372,6 +386,7 @@ def _update_request_parameters(
         _set_mapping_field(params, "crest_job_manifest", crest_overrides)
     if xtb_present:
         _set_mapping_field(params, "xtb_job_manifest", xtb_overrides)
+    _set_mapping_field(params, "endpoint_pairing", endpoint_pairing)
 
     for key in (
         "max_crest_candidates",
@@ -409,6 +424,7 @@ def _flow_restart_settings(workspace: Path, payload: dict[str, Any]) -> dict[str
     template_name = _workflow_template_name(payload, manifest)
     crest_present, crest_manifest = _resolve_engine_manifest(workspace, manifest, "crest")
     xtb_present, xtb_manifest = _resolve_engine_manifest(workspace, manifest, "xtb")
+    endpoint_pairing = _resolve_endpoint_pairing_manifest(manifest, xtb_manifest)
     crest_overrides = _crest_manifest_with_defaults(
         template_name=template_name,
         crest_manifest=crest_manifest,
@@ -426,6 +442,7 @@ def _flow_restart_settings(workspace: Path, payload: dict[str, Any]) -> dict[str
         crest_overrides=crest_overrides,
         xtb_present=xtb_present,
         xtb_overrides=xtb_manifest,
+        endpoint_pairing=endpoint_pairing,
     )
     return {
         "applied": True,
@@ -436,6 +453,7 @@ def _flow_restart_settings(workspace: Path, payload: dict[str, Any]) -> dict[str
         "crest_overrides": crest_overrides,
         "xtb_present": xtb_present,
         "xtb_overrides": xtb_manifest,
+        "endpoint_pairing": endpoint_pairing,
     }
 
 

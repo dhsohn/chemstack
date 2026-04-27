@@ -65,6 +65,21 @@ def _orca_stage_result(**kwargs: Any) -> SimpleNamespace:
     return SimpleNamespace(to_dict=lambda: stage)
 
 
+def _write_xyz(path: Path, coords: list[tuple[str, float, float, float]]) -> str:
+    path.write_text(
+        "\n".join(
+            [
+                str(len(coords)),
+                path.stem,
+                *(f"{element} {x:.6f} {y:.6f} {z:.6f}" for element, x, y, z in coords),
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    return str(path)
+
+
 def test_append_reaction_xtb_stages_creates_full_cartesian_product(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -120,6 +135,84 @@ def test_append_reaction_xtb_stages_creates_full_cartesian_product(
         "xtb_path_search_04",
     ]
     assert all(stage["task"]["payload"]["max_handoff_retries"] == 4 for stage in xtb_stages)
+
+
+def test_append_reaction_xtb_stages_filters_endpoint_pairs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payload: dict[str, Any] = {
+        "workflow_id": "wf_reaction_pairing",
+        "stages": [
+            {"stage_id": "crest_reactant", "status": "completed", "metadata": {"input_role": "reactant"}, "task": {"engine": "crest"}},
+            {"stage_id": "crest_product", "status": "completed", "metadata": {"input_role": "product"}, "task": {"engine": "crest"}},
+        ],
+        "metadata": {
+            "request": {
+                "parameters": {
+                    "max_crest_candidates": 2,
+                    "max_xtb_stages": 1,
+                    "endpoint_pairing": {
+                        "enabled": True,
+                        "comparison_atoms": [1, 2, 3],
+                        "max_distance_rmsd": 0.05,
+                    },
+                }
+            }
+        },
+    }
+    r_a = _write_xyz(
+        tmp_path / "reactant_a.xyz",
+        [("H", 0, 0, 0), ("H", 1, 0, 0), ("H", 0, 1, 0)],
+    )
+    r_b = _write_xyz(
+        tmp_path / "reactant_b.xyz",
+        [("H", 0, 0, 0), ("H", 2, 0, 0), ("H", 0, 2, 0)],
+    )
+    p_a = _write_xyz(
+        tmp_path / "product_a.xyz",
+        [("H", 5, 5, 0), ("H", 6, 5, 0), ("H", 5, 6, 0)],
+    )
+    p_b = _write_xyz(
+        tmp_path / "product_b.xyz",
+        [("H", 0, 0, 0), ("H", 2, 0, 0), ("H", 0, 2, 0)],
+    )
+    reactant_inputs = [
+        _candidate(r_a, source_job_id="crest_r", source_job_type="crest", reaction_key="rxn_r_a", rank=1, kind="conformer"),
+        _candidate(r_b, source_job_id="crest_r", source_job_type="crest", reaction_key="rxn_r_b", rank=2, kind="conformer"),
+    ]
+    product_inputs = [
+        _candidate(p_a, source_job_id="crest_p", source_job_type="crest", reaction_key="rxn_p_a", rank=1, kind="conformer"),
+        _candidate(p_b, source_job_id="crest_p", source_job_type="crest", reaction_key="rxn_p_b", rank=2, kind="conformer"),
+    ]
+
+    monkeypatch.setattr(
+        orchestration,
+        "_completed_crest_stage",
+        lambda stage, **kwargs: "reactant_contract" if stage["metadata"]["input_role"] == "reactant" else "product_contract",
+    )
+    monkeypatch.setattr(
+        orchestration,
+        "select_crest_downstream_inputs",
+        lambda contract, policy: reactant_inputs if contract == "reactant_contract" else product_inputs,
+    )
+
+    created = orchestration._append_reaction_xtb_stages(
+        payload,
+        workspace_dir=tmp_path,
+        crest_auto_config="/tmp/crest.yaml",
+    )
+
+    xtb_stages = [stage for stage in payload["stages"] if stage.get("task", {}).get("engine") == "xtb"]
+    assert created is True
+    assert len(xtb_stages) == 1
+    assert xtb_stages[0]["task"]["payload"]["reactant_source"]["artifact_path"] == r_a
+    assert xtb_stages[0]["task"]["payload"]["product_source"]["artifact_path"] == p_a
+    pairing = xtb_stages[0]["metadata"]["endpoint_pairing"]
+    assert pairing["strategy"] == "distance_fingerprint"
+    assert pairing["distance_fingerprint_rmsd"] == 0.0
+    assert payload["metadata"]["endpoint_pairing"]["candidate_pair_count"] == 4
+    assert payload["metadata"]["endpoint_pairing"]["selected_pair_count"] == 1
 
 
 def test_append_reaction_xtb_stages_waits_for_latest_product_crest_stage(

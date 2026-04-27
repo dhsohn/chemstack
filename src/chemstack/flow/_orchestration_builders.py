@@ -252,6 +252,7 @@ def create_reaction_ts_search_workflow_impl(
     multiplicity: int = 1,
     crest_job_manifest: dict[str, Any] | None = None,
     xtb_job_manifest: dict[str, Any] | None = None,
+    endpoint_pairing: dict[str, Any] | None = None,
     source_job_id: str = "",
     source_job_type: str = "",
     workflow_id_factory: Callable[[str], str],
@@ -329,6 +330,7 @@ def create_reaction_ts_search_workflow_impl(
             "multiplicity": int(multiplicity),
             **({"crest_job_manifest": dict(resolved_crest_job_manifest)} if resolved_crest_job_manifest else {}),
             **({"xtb_job_manifest": dict(xtb_job_manifest)} if xtb_job_manifest else {}),
+            **({"endpoint_pairing": dict(endpoint_pairing)} if endpoint_pairing else {}),
         },
         source_artifacts=(
             WorkflowArtifactRef(kind="reactant_xyz", path=input_reactant, selected=True),
