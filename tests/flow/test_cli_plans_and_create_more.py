@@ -760,6 +760,8 @@ def test_cmd_run_dir_for_reaction_uses_nested_engine_sections(
                 "crest:",
                 "  mode: nci",
                 "  speed: squick",
+                "  gfn: ff",
+                "  no_preopt: true",
                 "xtb:",
                 "  gfn: 1",
                 "  namespace: rxn_case",
@@ -811,7 +813,12 @@ def test_cmd_run_dir_for_reaction_uses_nested_engine_sections(
     assert captured["multiplicity"] == 3
     assert captured["max_cores"] == 20
     assert captured["max_memory_gb"] == 64
-    assert captured["crest_job_manifest"] == {"mode": "nci", "speed": "squick"}
+    assert captured["crest_job_manifest"] == {
+        "mode": "nci",
+        "speed": "squick",
+        "gfn": "ff",
+        "no_preopt": True,
+    }
     assert captured["xtb_job_manifest"] == {
         "gfn": 1,
         "namespace": "rxn_case",

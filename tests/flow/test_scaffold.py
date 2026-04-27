@@ -20,7 +20,8 @@ def test_cmd_scaffold_creates_reaction_workflow_scaffold(tmp_path: Path, capsys:
     )
 
     output = capsys.readouterr().out
-    manifest = yaml.safe_load((workflow_dir / "flow.yaml").read_text(encoding="utf-8"))
+    flow_text = (workflow_dir / "flow.yaml").read_text(encoding="utf-8")
+    manifest = yaml.safe_load(flow_text)
     readme = (workflow_dir / "README.md").read_text(encoding="utf-8")
 
     assert rc == 0
@@ -36,8 +37,12 @@ def test_cmd_scaffold_creates_reaction_workflow_scaffold(tmp_path: Path, capsys:
     assert "crest_mode: standard" in output
     assert "created_file: reactant.xyz" in output
     assert "created_file: product.xyz" in output
+    assert "# crest:" in flow_text
+    assert "#   gfn: ff" in flow_text
+    assert "#   no_preopt: true" in flow_text
     assert "chemstack scaffold ts_search" in readme
     assert "crest_mode: nci" in readme
+    assert "`gfn: ff` or `no_preopt: true`" in readme
     assert "waits for the xTB phase to finish" in readme
 
 
@@ -54,10 +59,14 @@ def test_cmd_scaffold_is_idempotent_for_conformer_workflow(
         )
     )
     assert first_rc == 0
-    manifest = yaml.safe_load((workflow_dir / "flow.yaml").read_text(encoding="utf-8"))
+    flow_text = (workflow_dir / "flow.yaml").read_text(encoding="utf-8")
+    manifest = yaml.safe_load(flow_text)
     readme = (workflow_dir / "README.md").read_text(encoding="utf-8")
     assert manifest["max_orca_stages"] == 20
+    assert "#   gfn: ff" in flow_text
+    assert "#   no_preopt: true" in flow_text
     assert "20 retained CREST conformers" in readme
+    assert "`gfn: ff` or `no_preopt: true`" in readme
     capsys.readouterr()
 
     custom_input = "1\ncustom\nHe 0.0 0.0 0.0\n"

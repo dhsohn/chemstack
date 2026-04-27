@@ -109,6 +109,8 @@ def test_restart_failed_workflow_resets_failed_and_cancelled_stages(tmp_path: Pa
     assert restarted_crest["task"]["status"] == "planned"
     assert "cancel_result" not in restarted_crest["task"]
     assert "child_job_id" not in restarted_crest["metadata"]
+    assert restarted_crest["task"]["payload"]["job_dir"] == "/tmp/crest"
+    assert restarted_crest["task"]["enqueue_payload"]["job_dir"] == "/tmp/crest"
 
     registry = json.loads((root / "workflow_registry.json").read_text(encoding="utf-8"))
     assert registry[0]["workflow_id"] == "wf_failed"
@@ -219,6 +221,102 @@ def test_restart_cancelled_workflow_resets_cancelled_stages(tmp_path: Path) -> N
     assert "queue_id" not in restarted_stage["metadata"]
     assert saved["stages"][1]["status"] == "completed"
     assert saved["metadata"]["restart_summary"]["previous_status"] == "cancelled"
+
+
+def test_restart_failed_workflow_reloads_flow_yaml_for_crest_stage(tmp_path: Path) -> None:
+    root = tmp_path / "workflow_runs"
+    workspace = root / "wf_flow_yaml_refresh"
+    (workspace / "old_crest").mkdir(parents=True)
+    (workspace / "flow.yaml").write_text(
+        "\n".join(
+            [
+                "workflow_type: reaction_ts_search",
+                "crest_mode: nci",
+                "priority: 4",
+                "resources:",
+                "  max_cores: 3",
+                "  max_memory_gb: 11",
+                "crest:",
+                "  gfn: ff",
+                "  no_preopt: true",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    _write_workflow(
+        workspace,
+        {
+            "workflow_id": "wf_flow_yaml_refresh",
+            "template_name": "reaction_ts_search",
+            "status": "failed",
+            "requested_at": "2026-04-27T00:00:00+00:00",
+            "stages": [
+                {
+                    "stage_id": "crest_product_01",
+                    "stage_kind": "crest_stage",
+                    "status": "failed",
+                    "task": {
+                        "engine": "crest",
+                        "status": "failed",
+                        "resource_request": {"max_cores": 8, "max_memory_gb": 32},
+                        "payload": {
+                            "source_input_xyz": str(workspace / "inputs" / "products" / "product.xyz"),
+                            "selected_input_xyz": str(workspace / "old_crest" / "input.xyz"),
+                            "job_dir": str(workspace / "old_crest"),
+                            "mode": "standard",
+                            "job_manifest_overrides": {"rthr": 0.3},
+                        },
+                        "enqueue_payload": {"job_dir": str(workspace / "old_crest"), "priority": 10},
+                        "metadata": {"mode": "standard", "job_manifest_overrides": {"rthr": 0.3}},
+                    },
+                    "metadata": {
+                        "mode": "standard",
+                        "job_manifest_overrides": {"rthr": 0.3},
+                        "queue_id": "q_old",
+                    },
+                    "output_artifacts": [],
+                }
+            ],
+            "metadata": {
+                "request": {
+                    "parameters": {
+                        "crest_mode": "standard",
+                        "priority": 10,
+                        "max_cores": 8,
+                        "max_memory_gb": 32,
+                        "crest_job_manifest": {"rthr": 0.3},
+                    }
+                }
+            },
+        },
+    )
+
+    result = restart_failed_workflow(workspace_dir=workspace, workflow_root=root)
+
+    saved = json.loads((workspace / "workflow.json").read_text(encoding="utf-8"))
+    stage = saved["stages"][0]
+    task = stage["task"]
+    expected_overrides = {"rthr": 0.3, "gfn": "ff", "no_preopt": True}
+    assert result["status"] == "restarted"
+    assert saved["metadata"]["restart_summary"]["flow_manifest_applied"] is True
+    assert task["resource_request"] == {"max_cores": 3, "max_memory_gb": 11}
+    assert task["enqueue_payload"]["priority"] == 4
+    assert task["enqueue_payload"]["job_dir"] == ""
+    assert task["payload"]["job_dir"] == ""
+    assert task["payload"]["selected_input_xyz"] == ""
+    assert task["payload"]["mode"] == "nci"
+    assert task["payload"]["job_manifest_overrides"] == expected_overrides
+    assert task["metadata"]["mode"] == "nci"
+    assert task["metadata"]["job_manifest_overrides"] == expected_overrides
+    assert stage["metadata"]["mode"] == "nci"
+    assert stage["metadata"]["job_manifest_overrides"] == expected_overrides
+    params = saved["metadata"]["request"]["parameters"]
+    assert params["crest_mode"] == "nci"
+    assert params["priority"] == 4
+    assert params["max_cores"] == 3
+    assert params["max_memory_gb"] == 11
+    assert params["crest_job_manifest"] == expected_overrides
 
 
 def test_flow_run_dir_restarts_existing_workflow_workspace_without_flow_yaml(

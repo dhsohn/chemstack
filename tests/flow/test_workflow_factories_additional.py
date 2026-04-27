@@ -304,16 +304,24 @@ def test_workflow_factories_preserve_engine_manifest_overrides(
         reactant_xyz=str(reactant_xyz),
         product_xyz=str(product_xyz),
         workflow_root=tmp_path,
-        crest_job_manifest={"speed": "squick", "solvent": "water"},
+        crest_job_manifest={"speed": "squick", "solvent": "water", "gfn": "ff", "no_preopt": True},
         xtb_job_manifest={"gfn": 1, "namespace": "rxn_a"},
     )
     request_params = reaction_payload["metadata"]["request"]["parameters"]
-    assert request_params["crest_job_manifest"] == {"rthr": 0.3, "speed": "squick", "solvent": "water"}
+    assert request_params["crest_job_manifest"] == {
+        "rthr": 0.3,
+        "speed": "squick",
+        "solvent": "water",
+        "gfn": "ff",
+        "no_preopt": True,
+    }
     assert request_params["xtb_job_manifest"] == {"gfn": 1, "namespace": "rxn_a"}
     assert reaction_payload["stages"][0]["task"]["payload"]["job_manifest_overrides"] == {
         "rthr": 0.3,
         "speed": "squick",
         "solvent": "water",
+        "gfn": "ff",
+        "no_preopt": True,
     }
 
     conformer_payload = orchestration.create_conformer_screening_workflow(

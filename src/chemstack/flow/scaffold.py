@@ -53,6 +53,10 @@ def _manifest(workflow_type: str, crest_mode: str) -> str:
                 "workflow_type: reaction_ts_search",
                 "# Change to `nci` when you want NCI-mode CREST stages.",
                 f"crest_mode: {crest_mode}",
+                "# Optional CREST job overrides; uncomment when GFN2 pre-opt changes topology.",
+                "# crest:",
+                "#   gfn: ff",
+                "#   no_preopt: true",
                 "priority: 10",
                 "# Each selected reactant/product CREST conformer pair becomes an xTB path search.",
                 "max_crest_candidates: 3",
@@ -73,6 +77,10 @@ def _manifest(workflow_type: str, crest_mode: str) -> str:
                 "workflow_type: conformer_screening",
                 "# Change to `nci` when you want NCI-mode CREST stages.",
                 f"crest_mode: {crest_mode}",
+                "# Optional CREST job overrides; uncomment when GFN2 pre-opt changes topology.",
+                "# crest:",
+                "#   gfn: ff",
+                "#   no_preopt: true",
                 "priority: 10",
                 "# Up to 20 retained CREST conformers are handed off to ORCA by default.",
                 "max_orca_stages: 20",
@@ -95,6 +103,8 @@ def _readme(root: Path, workflow_type: str) -> str:
             "- Replace `reactant.xyz` and `product.xyz` with your precomplex inputs.",
             "- Adjust `flow.yaml` before materializing the workflow.",
             "- Change `crest_mode: standard` to `crest_mode: nci` when you want NCI-mode CREST stages.",
+            "- Put CREST overrides under `crest:` in `flow.yaml`, for example "
+            "`gfn: ff` or `no_preopt: true` when GFN2 pre-opt changes topology.",
             "- reaction_ts_search expands all selected reactant x product CREST pairs into xTB path searches, waits for the xTB phase to finish, and then batches matching ORCA OptTS child jobs from retained ts_guess artifacts.",
         ]
     elif workflow_type == "conformer_screening":
@@ -102,6 +112,8 @@ def _readme(root: Path, workflow_type: str) -> str:
             "- Replace `input.xyz` with the molecule you want to screen.",
             "- Adjust `flow.yaml` before materializing the workflow.",
             "- Change `crest_mode: standard` to `crest_mode: nci` when you want NCI-mode CREST stages.",
+            "- Put CREST overrides under `crest:` in `flow.yaml`, for example "
+            "`gfn: ff` or `no_preopt: true` when GFN2 pre-opt changes topology.",
             "- conformer_search hands off up to 20 retained CREST conformers to ORCA child jobs by default.",
         ]
     else:
