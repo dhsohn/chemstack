@@ -25,6 +25,14 @@ def _call_engine_aware(func: Any, config_path: str | None, *, engine: str) -> An
         return func(config_path)
 
 
+def _coerce_bool(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return bool(value)
+
+
 def _workflow_internal_runs_root(path_text: str, *, engine: str) -> Path | None:
     text = str(path_text).strip()
     if not text:
@@ -719,6 +727,8 @@ def sync_orca_stage_impl(
             resource_kwargs["max_cores"] = max_cores
         if max_memory_gb > 0:
             resource_kwargs["max_memory_gb"] = max_memory_gb
+        if _coerce_bool(enqueue_payload.get("force", False)):
+            resource_kwargs["force"] = True
         submission = o.submit_reaction_dir(
             reaction_dir=str(enqueue_payload.get("reaction_dir", "")),
             priority=int(enqueue_payload.get("priority", 10) or 10),

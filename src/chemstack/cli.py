@@ -1088,6 +1088,9 @@ def _detect_run_dir_app(args: argparse.Namespace) -> str:
     if not target.is_dir():
         raise ValueError(f"run-dir target is not a directory: {target}")
 
+    if (target / "workflow.json").is_file():
+        return "workflow"
+
     workflow_layout = inspect_workflow_run_dir(target)
     orca_input_present = any(candidate.is_file() for candidate in target.glob("*.inp"))
 
@@ -1225,7 +1228,11 @@ def build_parser() -> argparse.ArgumentParser:
     _add_engine_config_argument(run_dir_parser)
     _add_orca_logging_arguments(run_dir_parser)
     run_dir_parser.add_argument("path", help="ORCA job directory or workflow input directory")
-    run_dir_parser.add_argument("--force", action="store_true", help="Force re-run even if existing ORCA output is completed")
+    run_dir_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Force ORCA re-run, or allow restarting an existing workflow workspace outside failed status",
+    )
     run_dir_parser.add_argument("--priority", type=int, default=None, help="Queue priority when submission is enqueued (lower = higher)")
     run_dir_parser.add_argument("--max-cores", type=int, default=None, help="Override max cores recorded for this queued run or workflow")
     run_dir_parser.add_argument("--max-memory-gb", type=int, default=None, help="Override max memory (GB) recorded for this queued run or workflow")

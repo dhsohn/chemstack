@@ -224,6 +224,7 @@ ORCA-specific notes:
 Workflow notes:
 
 - `run-dir` materializes a workflow only when `flow.yaml` is present in the target directory
+- If the target already contains `workflow.json` and the workflow failed, `run-dir` restarts failed/cancelled stages in that existing workspace instead of creating a new workflow
 - If a directory mixes raw ORCA `*.inp` files with scaffold-style filenames but does not include `flow.yaml`, `run-dir` prefers ORCA direct submission
 - reaction-path and conformer workflows create and submit xTB/CREST stages internally
 - `reaction_ts_search` expands all selected reactant x product CREST pairs into xTB child jobs, waits for the full xTB phase to reach terminal states, and then batches any matching ORCA OptTS child jobs from the retained `ts_guess` artifacts

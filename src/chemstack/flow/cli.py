@@ -39,6 +39,7 @@ from .run_dir_layout import (
     WORKFLOW_MANIFEST_FILENAMES,
     inspect_workflow_run_dir,
 )
+from .restart import restart_failed_workflow
 from .submitters import submit_reaction_ts_search_workflow
 from .workflows import (
     build_conformer_screening_plan_from_target,
@@ -332,11 +333,45 @@ def _print_created_workflow(payload: dict[str, Any], *, json_mode: bool) -> int:
     return 0
 
 
+def _workflow_root_for_existing_run_dir(args: Any, workflow_dir: Path) -> Path:
+    raw_root = _normalize_text(getattr(args, "workflow_root", None))
+    if raw_root:
+        return Path(raw_root).expanduser().resolve()
+    return workflow_dir.parent
+
+
+def _print_restarted_workflow(payload: dict[str, Any], *, json_mode: bool) -> int:
+    if json_mode:
+        print(json.dumps(payload, ensure_ascii=True, indent=2))
+        return 0
+    print(f"workflow_id: {payload.get('workflow_id', '-')}")
+    print(f"status: {payload.get('status', '-')}")
+    print(f"workflow_status: {payload.get('workflow_status', '-')}")
+    print(f"previous_status: {payload.get('previous_status', '-')}")
+    print(f"workspace_dir: {payload.get('workspace_dir', '-')}")
+    print(f"restarted_count: {payload.get('restarted_count', 0)}")
+    for item in payload.get("restarted_stages", []):
+        print(
+            f"- restarted {item.get('stage_id', '-')}"
+            f" previous_status={item.get('previous_status', '-')}"
+            f" previous_task_status={item.get('previous_task_status', '-')}"
+        )
+    return 0
+
+
 def cmd_run_dir(args: Any) -> int:
     try:
         workflow_dir = Path(getattr(args, "workflow_dir")).expanduser().resolve()
         if not workflow_dir.is_dir():
             raise ValueError(f"workflow_dir does not exist or is not a directory: {workflow_dir}")
+
+        if (workflow_dir / "workflow.json").is_file():
+            payload = restart_failed_workflow(
+                workspace_dir=workflow_dir,
+                workflow_root=_workflow_root_for_existing_run_dir(args, workflow_dir),
+                force=bool(getattr(args, "force", False)),
+            )
+            return _print_restarted_workflow(payload, json_mode=bool(getattr(args, "json", False)))
 
         workflow_layout = inspect_workflow_run_dir(workflow_dir)
         if not workflow_layout.has_manifest:
@@ -1190,6 +1225,11 @@ def build_parser() -> argparse.ArgumentParser:
     run_dir_parser.add_argument("--orca-route-line")
     run_dir_parser.add_argument("--charge", type=int, default=None)
     run_dir_parser.add_argument("--multiplicity", type=int, default=None)
+    run_dir_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Allow restarting an existing workflow workspace outside failed status",
+    )
     run_dir_parser.add_argument("--json", action="store_true", help="Print JSON output")
     run_dir_parser.set_defaults(func=cmd_run_dir)
 

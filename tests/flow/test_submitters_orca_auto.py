@@ -218,6 +218,39 @@ def test_submit_reaction_dir_passes_resource_override_flags(
     assert result["status"] == "submitted"
 
 
+def test_submit_reaction_dir_passes_force_flag(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sibling_calls: list[dict[str, Any]] = []
+
+    def fake_run_sibling_app(**kwargs: Any) -> SimpleNamespace:
+        sibling_calls.append(kwargs)
+        return _completed_process(
+            returncode=0,
+            stdout="status: queued\nqueue_id: q_force\n",
+            stderr="",
+            args=("python", "-m", "chemstack.cli", "run-dir", "/tmp/rxn_input", "--force"),
+        )
+
+    monkeypatch.setattr(orca_auto, "run_sibling_app", fake_run_sibling_app)
+
+    result = orca_auto.submit_reaction_dir(
+        reaction_dir="/tmp/rxn_input",
+        priority=4,
+        config_path="/tmp/orca.yaml",
+        force=True,
+    )
+
+    assert sibling_calls[0]["tail_argv"] == [
+        "run-dir",
+        "/tmp/rxn_input",
+        "--priority",
+        "4",
+        "--force",
+    ]
+    assert result["force"] is True
+
+
 @pytest.mark.parametrize(
     ("returncode", "stdout", "expected_status"),
     [

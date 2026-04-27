@@ -31,6 +31,7 @@ def _submission_tail_argv(
     priority: int,
     max_cores: int | None = None,
     max_memory_gb: int | None = None,
+    force: bool = False,
 ) -> list[str]:
     argv = [
         "run-dir",
@@ -38,6 +39,8 @@ def _submission_tail_argv(
         "--priority",
         str(int(priority)),
     ]
+    if force:
+        argv.append("--force")
     if max_cores is not None and int(max_cores) > 0:
         argv.extend(["--max-cores", str(int(max_cores))])
     if max_memory_gb is not None and int(max_memory_gb) > 0:
@@ -71,6 +74,7 @@ def submit_reaction_dir(
     config_path: str,
     max_cores: int | None = None,
     max_memory_gb: int | None = None,
+    force: bool = False,
     executable: str = CHEMSTACK_EXECUTABLE,
     repo_root: str | None = None,
 ) -> dict[str, Any]:
@@ -84,6 +88,7 @@ def submit_reaction_dir(
             priority=priority,
             max_cores=max_cores,
             max_memory_gb=max_memory_gb,
+            force=force,
         ),
     )
     parsed = _parse_key_value_lines(result.stdout)
@@ -98,6 +103,7 @@ def submit_reaction_dir(
         "queue_id": parsed.get("queue_id", ""),
         "reaction_dir": parsed.get("job_dir") or parsed.get("reaction_dir", reaction_dir),
         "priority": int(priority),
+        "force": bool(force),
     }
 
 
@@ -177,6 +183,15 @@ def _submission_resource_kwargs(enqueue_payload: dict[str, Any]) -> dict[str, in
     if max_memory_gb > 0:
         resource_kwargs["max_memory_gb"] = max_memory_gb
     return resource_kwargs
+
+
+def _submission_force(enqueue_payload: dict[str, Any]) -> bool:
+    value = enqueue_payload.get("force", False)
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return bool(value)
 
 
 def _record_missing_reaction_dir(
@@ -319,13 +334,16 @@ def submit_reaction_ts_search_workflow(
 
         if _normalize_text(enqueue_payload.get("submitter")) not in {"", *ORCA_SUBMITTERS}:
             continue
+        submission_kwargs: dict[str, Any] = _submission_resource_kwargs(enqueue_payload)
+        if _submission_force(enqueue_payload):
+            submission_kwargs["force"] = True
         submission_record = submit_reaction_dir(
             reaction_dir=reaction_dir,
             priority=priority,
             config_path=_normalize_text(orca_auto_config),
             executable=_normalize_text(orca_auto_executable) or CHEMSTACK_EXECUTABLE,
             repo_root=_normalize_text(orca_auto_repo_root) or None,
-            **_submission_resource_kwargs(enqueue_payload),
+            **submission_kwargs,
         )
         outcome, detail_record, stage_result = _record_submission_outcome(
             stage=stage,
