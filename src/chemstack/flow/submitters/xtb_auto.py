@@ -5,7 +5,7 @@ from typing import Any
 
 from chemstack.core.app_ids import CHEMSTACK_CLI_MODULE, CHEMSTACK_XTB_MODULE
 
-from .common import normalize_text, parse_key_value_lines, run_sibling_app
+from .common import normalize_text, parse_key_value_lines, queue_submission_status, run_sibling_app
 
 _SUBMIT_MODULE_NAME = CHEMSTACK_XTB_MODULE
 _CANCEL_MODULE_NAME = CHEMSTACK_CLI_MODULE
@@ -33,10 +33,16 @@ def submit_job_dir(
         ],
     )
     parsed = parse_key_value_lines(result.stdout)
-    status = "submitted" if result.returncode == 0 and parsed.get("status") == "queued" else "failed"
+    status, reason = queue_submission_status(
+        returncode=int(result.returncode),
+        parsed_stdout=parsed,
+        stdout=result.stdout,
+        stderr=result.stderr,
+    )
     argv = list(result.args) if isinstance(result.args, (list, tuple)) else [str(result.args)]
     return {
         "status": status,
+        "reason": reason,
         "returncode": int(result.returncode),
         "command_argv": argv,
         "stdout": result.stdout,

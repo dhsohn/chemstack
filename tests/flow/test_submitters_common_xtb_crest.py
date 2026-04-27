@@ -47,6 +47,18 @@ def test_parse_key_value_lines_ignores_invalid_lines_and_keeps_last_value() -> N
     }
 
 
+def test_queue_submission_status_treats_admission_wait_as_blocked() -> None:
+    status, reason = common.queue_submission_status(
+        returncode=1,
+        parsed_stdout={"status": "waiting_for_slot"},
+        stdout="status: waiting_for_slot\n",
+        stderr="Admission limit reached",
+    )
+
+    assert status == "blocked"
+    assert reason == "waiting_for_slot"
+
+
 def test_sibling_app_command_without_repo_root_uses_module_execution() -> None:
     argv, cwd, env = common.sibling_app_command(
         executable="xtb_auto",

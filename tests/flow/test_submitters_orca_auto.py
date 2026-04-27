@@ -100,6 +100,12 @@ def _install_timestamps(monkeypatch: pytest.MonkeyPatch, *timestamps: str) -> No
             "failed",
             "/tmp/rxn_input",
         ),
+        (
+            1,
+            "status: waiting_for_slot\nqueue_id: q_123\n",
+            "blocked",
+            "/tmp/rxn_input",
+        ),
     ],
 )
 def test_submit_reaction_dir_maps_queue_status(

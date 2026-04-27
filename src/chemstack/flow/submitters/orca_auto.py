@@ -14,7 +14,12 @@ from chemstack.core.utils import now_utc_iso
 
 from ..registry import sync_workflow_registry
 from ..state import load_workflow_payload, resolve_workflow_workspace, write_workflow_payload
-from .common import normalize_text as _normalize_text, parse_key_value_lines as _parse_key_value_lines, run_sibling_app
+from .common import (
+    normalize_text as _normalize_text,
+    parse_key_value_lines as _parse_key_value_lines,
+    queue_submission_status as _queue_submission_status,
+    run_sibling_app,
+)
 
 _SUBMIT_MODULE_NAME = CHEMSTACK_CLI_MODULE
 _CANCEL_MODULE_NAME = CHEMSTACK_ORCA_INTERNAL_MODULE
@@ -23,6 +28,20 @@ _CANCEL_TIMEOUT_SECONDS = 5.0
 
 def _mapping_payload(value: Any) -> dict[str, Any]:
     return dict(value) if isinstance(value, dict) else {}
+
+
+def _submission_is_deferred(value: dict[str, Any]) -> bool:
+    return _normalize_text(value.get("status")).lower() in {
+        "blocked",
+        "waiting_for_slot",
+        "admission_blocked",
+        "admission_limit_reached",
+        "deferred",
+    }
+
+
+def _submission_deferred_reason(value: dict[str, Any]) -> str:
+    return _normalize_text(value.get("reason")) or _normalize_text(value.get("status")) or "waiting_for_slot"
 
 
 def _submission_tail_argv(
@@ -92,9 +111,16 @@ def submit_reaction_dir(
         ),
     )
     parsed = _parse_key_value_lines(result.stdout)
+    status, reason = _queue_submission_status(
+        returncode=int(result.returncode),
+        parsed_stdout=parsed,
+        stdout=result.stdout,
+        stderr=result.stderr,
+    )
     argv = list(result.args) if isinstance(result.args, (list, tuple)) else [str(result.args)]
     return {
-        "status": "submitted" if result.returncode == 0 and parsed.get("status") == "queued" else "failed",
+        "status": status,
+        "reason": reason,
         "returncode": int(result.returncode),
         "command_argv": argv,
         "stdout": result.stdout,
@@ -237,6 +263,8 @@ def _record_submission_outcome(
         stage_metadata["queue_id"] = stdout_payload.get("queue_id", "")
         stage_metadata["submission_status"] = "submitted"
         stage_metadata["submitted_at"] = submission_record["submitted_at"]
+        stage_metadata.pop("submission_deferred_reason", None)
+        stage_metadata.pop("last_submission_attempt_at", None)
         return (
             "submitted",
             {
@@ -252,10 +280,35 @@ def _record_submission_outcome(
             },
         )
 
+    if _submission_is_deferred(submission_record):
+        reason = _submission_deferred_reason(submission_record)
+        task["status"] = "planned"
+        stage["status"] = "planned"
+        stage_metadata["submission_status"] = "waiting_for_slot"
+        stage_metadata["submission_deferred_reason"] = reason
+        stage_metadata["last_submission_attempt_at"] = submission_record["submitted_at"]
+        stage_metadata.pop("submitted_at", None)
+        stage_metadata.pop("queue_id", None)
+        return (
+            "deferred",
+            {
+                "stage_id": stage_id,
+                "reason": reason,
+            },
+            {
+                "stage_id": stage_id,
+                "status": "waiting_for_slot",
+                "reason": reason,
+                "returncode": returncode,
+            },
+        )
+
     task["status"] = "submission_failed"
     stage["status"] = "submission_failed"
     stage_metadata["submission_status"] = "submission_failed"
     stage_metadata["submitted_at"] = submission_record["submitted_at"]
+    stage_metadata.pop("submission_deferred_reason", None)
+    stage_metadata.pop("last_submission_attempt_at", None)
     return (
         "failed",
         {
@@ -354,6 +407,8 @@ def submit_reaction_ts_search_workflow(
         )
         if outcome == "submitted":
             submitted.append(detail_record)
+        elif outcome == "deferred":
+            skipped.append(detail_record)
         else:
             failed.append(detail_record)
         stage_results.append(stage_result)

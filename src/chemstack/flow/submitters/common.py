@@ -32,6 +32,49 @@ def parse_key_value_lines(text: str) -> dict[str, str]:
     return payload
 
 
+def transient_submission_block_reason(*, parsed_stdout: dict[str, str], stdout: str, stderr: str) -> str:
+    parsed_status = normalize_text(parsed_stdout.get("status")).lower()
+    if parsed_status in {"waiting_for_slot", "admission_blocked", "admission_limit_reached"}:
+        return parsed_status
+
+    combined = f"{stdout}\n{stderr}".lower()
+    if parsed_status == "blocked" and any(token in combined for token in ("admission", "slot", "limit")):
+        return "waiting_for_slot"
+
+    patterns = (
+        ("admission limit reached", "admission_limit_reached"),
+        ("admission slots are full", "admission_limit_reached"),
+        ("waiting_for_slot", "waiting_for_slot"),
+        ("waiting for slot", "waiting_for_slot"),
+        ("no admission slot", "waiting_for_slot"),
+        ("active simulation limit", "admission_limit_reached"),
+        ("max_active_simulations", "admission_limit_reached"),
+    )
+    for pattern, reason in patterns:
+        if pattern in combined:
+            return reason
+    return ""
+
+
+def queue_submission_status(
+    *,
+    returncode: int,
+    parsed_stdout: dict[str, str],
+    stdout: str,
+    stderr: str,
+) -> tuple[str, str]:
+    if int(returncode) == 0 and normalize_text(parsed_stdout.get("status")).lower() == "queued":
+        return "submitted", ""
+    blocked_reason = transient_submission_block_reason(
+        parsed_stdout=parsed_stdout,
+        stdout=stdout,
+        stderr=stderr,
+    )
+    if blocked_reason:
+        return "blocked", blocked_reason
+    return "failed", ""
+
+
 def sibling_app_command(
     *,
     executable: str,
@@ -170,8 +213,10 @@ def sibling_runtime_paths(config_path: str, *, engine: str | None = None) -> dic
 __all__ = [
     "normalize_text",
     "parse_key_value_lines",
+    "queue_submission_status",
     "run_sibling_app",
     "sibling_allowed_root",
     "sibling_runtime_paths",
+    "transient_submission_block_reason",
     "sibling_app_command",
 ]

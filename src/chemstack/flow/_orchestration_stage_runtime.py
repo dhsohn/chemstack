@@ -33,6 +33,49 @@ def _coerce_bool(value: Any) -> bool:
     return bool(value)
 
 
+def _submission_status(submission: dict[str, Any]) -> str:
+    return str(submission.get("status", "")).strip().lower()
+
+
+def _submission_is_deferred(submission: dict[str, Any]) -> bool:
+    return _submission_status(submission) in {
+        "blocked",
+        "waiting_for_slot",
+        "admission_blocked",
+        "admission_limit_reached",
+        "deferred",
+    }
+
+
+def _submission_deferred_reason(submission: dict[str, Any]) -> str:
+    reason = str(submission.get("reason", "")).strip()
+    if reason:
+        return reason
+    return _submission_status(submission) or "waiting_for_slot"
+
+
+def _mark_submission_deferred(
+    *,
+    stage: dict[str, Any],
+    task: dict[str, Any],
+    stage_metadata: dict[str, Any],
+    submission: dict[str, Any],
+) -> None:
+    task["status"] = "planned"
+    stage["status"] = "planned"
+    stage_metadata["submission_status"] = "waiting_for_slot"
+    stage_metadata["submission_deferred_reason"] = _submission_deferred_reason(submission)
+    stage_metadata["last_submission_attempt_at"] = str(submission.get("submitted_at", "")).strip()
+    stage_metadata.pop("submitted_at", None)
+    if not str(submission.get("queue_id", "")).strip():
+        stage_metadata.pop("queue_id", None)
+
+
+def _clear_submission_deferred_metadata(stage_metadata: dict[str, Any]) -> None:
+    stage_metadata.pop("submission_deferred_reason", None)
+    stage_metadata.pop("last_submission_attempt_at", None)
+
+
 def _workflow_internal_runs_root(path_text: str, *, engine: str) -> Path | None:
     text = str(path_text).strip()
     if not text:
@@ -508,12 +551,21 @@ def sync_crest_stage_impl(
         )
         submission["submitted_at"] = o.now_utc_iso()
         task["submission_result"] = submission
-        task["status"] = "submitted" if submission["status"] == "submitted" else "submission_failed"
-        stage["status"] = "queued" if submission["status"] == "submitted" else "submission_failed"
         stage.setdefault("metadata", {})
         if isinstance(stage["metadata"], dict):
-            stage["metadata"]["queue_id"] = submission.get("queue_id", "")
-            stage["metadata"]["child_job_id"] = submission.get("job_id", "")
+            if _submission_is_deferred(submission):
+                _mark_submission_deferred(
+                    stage=stage,
+                    task=task,
+                    stage_metadata=stage["metadata"],
+                    submission=submission,
+                )
+            else:
+                task["status"] = "submitted" if submission["status"] == "submitted" else "submission_failed"
+                stage["status"] = "queued" if submission["status"] == "submitted" else "submission_failed"
+                stage["metadata"]["queue_id"] = submission.get("queue_id", "")
+                stage["metadata"]["child_job_id"] = submission.get("job_id", "")
+                _clear_submission_deferred_metadata(stage["metadata"])
     payload = o._task_payload_dict(task)
     job_dir_target = o._normalize_text(payload.get("job_dir"))
     index_root = (
@@ -582,16 +634,26 @@ def sync_xtb_stage_impl(
         )
         submission["submitted_at"] = o.now_utc_iso()
         task["submission_result"] = submission
-        task["status"] = "submitted" if submission["status"] == "submitted" else "submission_failed"
-        stage["status"] = "queued" if submission["status"] == "submitted" else "submission_failed"
         current_attempt = o._xtb_current_attempt_number(stage)
         attempt_record = o._xtb_attempt_record(stage, attempt_number=current_attempt)
         attempt_record["submission_status"] = submission.get("status", "")
         attempt_record["submitted_at"] = submission.get("submitted_at", "")
         attempt_record["queue_id"] = submission.get("queue_id", "")
-        stage_metadata["queue_id"] = submission.get("queue_id", "")
-        stage_metadata["child_job_id"] = submission.get("job_id", "")
-        stage_metadata["xtb_handoff_status"] = "submitted"
+        if _submission_is_deferred(submission):
+            _mark_submission_deferred(
+                stage=stage,
+                task=task,
+                stage_metadata=stage_metadata,
+                submission=submission,
+            )
+            stage_metadata["xtb_handoff_status"] = "waiting_for_slot"
+        else:
+            task["status"] = "submitted" if submission["status"] == "submitted" else "submission_failed"
+            stage["status"] = "queued" if submission["status"] == "submitted" else "submission_failed"
+            stage_metadata["queue_id"] = submission.get("queue_id", "")
+            stage_metadata["child_job_id"] = submission.get("job_id", "")
+            stage_metadata["xtb_handoff_status"] = "submitted"
+            _clear_submission_deferred_metadata(stage_metadata)
     job_dir_target = o._normalize_text(task_payload.get("job_dir"))
     index_root = (
         xtb_runtime_paths["allowed_root"]
@@ -678,19 +740,31 @@ def sync_xtb_stage_impl(
             )
             submission["submitted_at"] = o.now_utc_iso()
             task["submission_result"] = submission
-            task["status"] = "submitted" if submission["status"] == "submitted" else "submission_failed"
-            stage["status"] = "queued" if submission["status"] == "submitted" else "submission_failed"
-            stage_metadata["queue_id"] = submission.get("queue_id", "")
-            stage_metadata["xtb_handoff_status"] = "retrying"
-            stage_metadata["reaction_handoff_status"] = "retrying"
-            stage_metadata["xtb_handoff_retries_used"] = next_attempt
-            stage_metadata["xtb_handoff_retry_limit"] = retry_limit
             retry_record = o._xtb_attempt_record(stage, attempt_number=next_attempt)
             retry_record["submission_status"] = submission.get("status", "")
             retry_record["submitted_at"] = submission.get("submitted_at", "")
             retry_record["queue_id"] = submission.get("queue_id", "")
             retry_record["trigger_reason"] = handoff["reason"]
             retry_record["trigger_message"] = handoff["message"]
+            if _submission_is_deferred(submission):
+                _mark_submission_deferred(
+                    stage=stage,
+                    task=task,
+                    stage_metadata=stage_metadata,
+                    submission=submission,
+                )
+                stage_metadata["xtb_handoff_status"] = "waiting_for_slot"
+                stage_metadata["reaction_handoff_status"] = "retrying"
+                stage_metadata["xtb_handoff_retry_limit"] = retry_limit
+            else:
+                task["status"] = "submitted" if submission["status"] == "submitted" else "submission_failed"
+                stage["status"] = "queued" if submission["status"] == "submitted" else "submission_failed"
+                stage_metadata["queue_id"] = submission.get("queue_id", "")
+                stage_metadata["xtb_handoff_status"] = "retrying"
+                stage_metadata["reaction_handoff_status"] = "retrying"
+                stage_metadata["xtb_handoff_retries_used"] = next_attempt
+                stage_metadata["xtb_handoff_retry_limit"] = retry_limit
+                _clear_submission_deferred_metadata(stage_metadata)
             return
     stage_metadata["xtb_handoff_retries_used"] = o._safe_int(stage_metadata.get("xtb_handoff_retries_used"), default=0)
     stage_metadata["xtb_handoff_retry_limit"] = o._xtb_path_retry_limit(stage)
@@ -743,11 +817,20 @@ def sync_orca_stage_impl(
         )
         submission["submitted_at"] = o.now_utc_iso()
         task["submission_result"] = submission
-        task["status"] = "submitted" if submission["status"] == "submitted" else "submission_failed"
-        stage["status"] = "queued" if submission["status"] == "submitted" else "submission_failed"
-        stage_metadata["queue_id"] = submission.get("queue_id", "")
-        stage_metadata["submission_status"] = submission.get("status", "")
-        stage_metadata["submitted_at"] = submission.get("submitted_at", "")
+        if _submission_is_deferred(submission):
+            _mark_submission_deferred(
+                stage=stage,
+                task=task,
+                stage_metadata=stage_metadata,
+                submission=submission,
+            )
+        else:
+            task["status"] = "submitted" if submission["status"] == "submitted" else "submission_failed"
+            stage["status"] = "queued" if submission["status"] == "submitted" else "submission_failed"
+            stage_metadata["queue_id"] = submission.get("queue_id", "")
+            stage_metadata["submission_status"] = submission.get("status", "")
+            stage_metadata["submitted_at"] = submission.get("submitted_at", "")
+            _clear_submission_deferred_metadata(stage_metadata)
 
     allowed_root = _call_engine_aware(o._load_config_root, orca_auto_config, engine="orca")
     organized_root = (

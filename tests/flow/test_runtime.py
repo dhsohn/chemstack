@@ -10,6 +10,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
+from chemstack.core.admission import release_slot, reserve_slot
 from chemstack.flow import runtime
 
 
@@ -644,6 +645,77 @@ def test_advance_workflow_registry_once_advances_non_terminal_workflow(
         "workflow_status_changed",
         "worker_cycle_finished",
     ]
+
+
+def test_advance_workflow_registry_once_defers_submission_when_admission_full(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    record = _registry_record(
+        workflow_id="wf_waiting",
+        status="queued",
+        workspace_dir="/tmp/wf_waiting",
+        stage_count=1,
+    )
+    state_calls, journal_calls, _registry_calls = _capture_worker_side_effects(
+        monkeypatch,
+        records=[record],
+    )
+    advance_calls: list[dict[str, Any]] = []
+    admission_root = tmp_path / "admission"
+    config_path = tmp_path / "chemstack.yaml"
+    config_path.write_text(
+        "\n".join(
+            [
+                "scheduler:",
+                "  max_active_simulations: 1",
+                f"  admission_root: {admission_root}",
+                "workflow:",
+                f"  root: {tmp_path / 'workflow_root'}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    token = reserve_slot(admission_root, 1, source="test")
+    assert token is not None
+
+    monkeypatch.setattr(
+        runtime,
+        "_workflow_needs_terminal_sync",
+        lambda workspace_dir: pytest.fail("terminal sync checks should not run for active workflows"),
+    )
+
+    def fake_advance_workflow(**kwargs: Any) -> dict[str, Any]:
+        advance_calls.append(kwargs)
+        return {
+            "workflow_id": "wf_waiting",
+            "template_name": "reaction_ts_search",
+            "status": "running",
+            "stages": [{"stage_id": "s1"}],
+        }
+
+    monkeypatch.setattr(runtime, "advance_workflow", fake_advance_workflow)
+
+    try:
+        result = runtime.advance_workflow_registry_once(
+            workflow_root=tmp_path / "workflow_root",
+            orca_auto_config=str(config_path),
+            submit_ready=True,
+            worker_session_id="session-1",
+            lease_seconds=0,
+        )
+    finally:
+        release_slot(admission_root, token)
+
+    assert advance_calls[0]["submit_ready"] is False
+    assert result["submit_ready"] is False
+    assert result["requested_submit_ready"] is True
+    assert result["admission_blocked"] is True
+    assert state_calls[0]["submit_ready"] is False
+    assert state_calls[0]["metadata"] == {"admission_blocked": True}
+    assert state_calls[-1]["metadata"]["admission_blocked"] is True
+    assert journal_calls[0]["metadata"]["admission_blocked"] is True
 
 
 def test_advance_workflow_registry_once_appends_stage_transition_events(

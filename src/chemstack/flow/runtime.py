@@ -3,8 +3,12 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 from chemstack.core.app_ids import CHEMSTACK_EXECUTABLE
+from chemstack.core.admission import active_slot_count
 from chemstack.core.utils import now_utc_iso, timestamped_token
+from chemstack.flow.submitters.common import sibling_runtime_paths
 
 from .orchestration import advance_workflow
 from ._workflow_phases import phase_transition_event_payloads
@@ -49,6 +53,76 @@ def _safe_workflow_summary(
         return workflow_summary(workspace_dir, payload=payload)
     except (FileNotFoundError, ValueError, TypeError):
         return {}
+
+
+def _positive_int(value: Any) -> int | None:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
+
+
+def _submission_admission_limit_from_config(config_path: str | Path) -> int | None:
+    try:
+        path = Path(config_path).expanduser().resolve()
+        raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except Exception:
+        return None
+    if not isinstance(raw, dict):
+        return None
+
+    scheduler = raw.get("scheduler")
+    if not isinstance(scheduler, dict):
+        scheduler = {}
+    runtime = raw.get("runtime")
+    if not isinstance(runtime, dict):
+        runtime = {}
+
+    for candidate in (
+        scheduler.get("max_active_simulations"),
+        scheduler.get("admission_limit"),
+        runtime.get("admission_limit"),
+        runtime.get("admission_max_concurrent"),
+        runtime.get("max_concurrent"),
+    ):
+        parsed = _positive_int(candidate)
+        if parsed is not None:
+            return parsed
+    return None
+
+
+def _submission_admission_has_capacity(config_path: str | Path) -> bool | None:
+    limit = _submission_admission_limit_from_config(config_path)
+    if limit is None:
+        return None
+    admission_root: Path | None = None
+    for engine in (None, "xtb", "crest", "orca"):
+        try:
+            runtime_paths = sibling_runtime_paths(str(config_path), engine=engine)
+        except Exception:
+            continue
+        candidate = runtime_paths.get("admission_root")
+        if isinstance(candidate, Path):
+            admission_root = candidate
+            break
+    if not isinstance(admission_root, Path):
+        return None
+    try:
+        return active_slot_count(admission_root) < limit
+    except Exception:
+        return None
+
+
+def _workflow_submission_has_capacity(*config_paths: str | Path | None) -> bool:
+    for config_path in config_paths:
+        config_text = _normalize_text(config_path)
+        if not config_text:
+            continue
+        has_capacity = _submission_admission_has_capacity(config_text)
+        if has_capacity is not None:
+            return has_capacity
+    return True
 
 
 def _stage_key(stage: dict[str, Any], index: int) -> str:
@@ -316,6 +390,13 @@ def advance_workflow_registry_once(
     root = Path(workflow_root).expanduser().resolve()
     cycle_started_at = now_utc_iso()
     session_id = _normalize_text(worker_session_id) or timestamped_token("wf_worker")
+    requested_submit_ready = bool(submit_ready)
+    cycle_submit_ready = requested_submit_ready and _workflow_submission_has_capacity(
+        crest_auto_config,
+        xtb_auto_config,
+        orca_auto_config,
+    )
+    admission_blocked = requested_submit_ready and not cycle_submit_ready
     lease_expires_at = ""
     if lease_seconds > 0:
         try:
@@ -326,6 +407,7 @@ def advance_workflow_registry_once(
             ).isoformat()
         except Exception:
             lease_expires_at = ""
+    running_metadata = {"admission_blocked": True} if admission_blocked else None
     write_workflow_worker_state(
         root,
         worker_session_id=session_id,
@@ -335,7 +417,8 @@ def advance_workflow_registry_once(
         last_heartbeat_at=cycle_started_at,
         lease_expires_at=lease_expires_at,
         interval_seconds=interval_seconds,
-        submit_ready=bool(submit_ready),
+        submit_ready=cycle_submit_ready,
+        metadata=running_metadata,
     )
     append_workflow_journal_event(
         root,
@@ -344,7 +427,9 @@ def advance_workflow_registry_once(
         metadata={
             "cycle_started_at": cycle_started_at,
             "refresh_registry": bool(refresh_registry),
-            "submit_ready": bool(submit_ready),
+            "submit_ready": cycle_submit_ready,
+            "requested_submit_ready": requested_submit_ready,
+            "admission_blocked": admission_blocked,
         },
     )
     records = reindex_workflow_registry(root) if refresh_registry else list_workflow_registry(root)
@@ -467,7 +552,7 @@ def advance_workflow_registry_once(
                 orca_auto_config=orca_auto_config,
                 orca_auto_executable=orca_auto_executable,
                 orca_auto_repo_root=orca_auto_repo_root,
-                submit_ready=submit_ready,
+                submit_ready=cycle_submit_ready,
             )
         except Exception as exc:
             failed_count += 1
@@ -536,6 +621,14 @@ def advance_workflow_registry_once(
         )
 
     cycle_finished_at = now_utc_iso()
+    finished_metadata = {
+        "discovered_count": len(records),
+        "advanced_count": advanced_count,
+        "skipped_count": skipped_count,
+        "failed_count": failed_count,
+    }
+    if admission_blocked:
+        finished_metadata["admission_blocked"] = True
     write_workflow_worker_state(
         root,
         worker_session_id=session_id,
@@ -546,13 +639,8 @@ def advance_workflow_registry_once(
         last_heartbeat_at=cycle_finished_at,
         lease_expires_at=lease_expires_at,
         interval_seconds=interval_seconds,
-        submit_ready=bool(submit_ready),
-        metadata={
-            "discovered_count": len(records),
-            "advanced_count": advanced_count,
-            "skipped_count": skipped_count,
-            "failed_count": failed_count,
-        },
+        submit_ready=cycle_submit_ready,
+        metadata=finished_metadata,
     )
     append_workflow_journal_event(
         root,
@@ -565,6 +653,7 @@ def advance_workflow_registry_once(
             "advanced_count": advanced_count,
             "skipped_count": skipped_count,
             "failed_count": failed_count,
+            "admission_blocked": admission_blocked,
         },
     )
     return {
@@ -573,7 +662,9 @@ def advance_workflow_registry_once(
         "cycle_started_at": cycle_started_at,
         "cycle_finished_at": cycle_finished_at,
         "refresh_registry": bool(refresh_registry),
-        "submit_ready": bool(submit_ready),
+        "submit_ready": cycle_submit_ready,
+        "requested_submit_ready": requested_submit_ready,
+        "admission_blocked": admission_blocked,
         "discovered_count": len(records),
         "advanced_count": advanced_count,
         "skipped_count": skipped_count,

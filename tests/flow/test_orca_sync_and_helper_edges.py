@@ -193,6 +193,66 @@ def test_sync_orca_stage_submit_path_preserves_submitted_state_for_unknown_contr
     ]
 
 
+def test_sync_orca_stage_waiting_for_slot_stays_planned(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stage: dict[str, object] = {
+        "status": "planned",
+        "metadata": {},
+        "task": {
+            "engine": "orca",
+            "status": "planned",
+            "payload": {"reaction_dir": "/tmp/rxn_wait"},
+            "enqueue_payload": {"reaction_dir": "/tmp/rxn_wait", "priority": 7},
+        },
+    }
+
+    monkeypatch.setattr(orchestration, "now_utc_iso", lambda: "2026-04-19T01:24:45+00:00")
+    monkeypatch.setattr(
+        orchestration,
+        "submit_reaction_dir",
+        lambda **kwargs: {"status": "blocked", "reason": "admission_limit_reached"},
+    )
+    monkeypatch.setattr(orchestration, "_load_config_root", lambda path: Path("/tmp/orca_allowed"))
+    monkeypatch.setattr(orchestration, "_load_config_organized_root", lambda path: Path("/tmp/orca_organized"))
+    monkeypatch.setattr(
+        orchestration,
+        "load_orca_artifact_contract",
+        lambda **kwargs: OrcaArtifactContract(
+            run_id="",
+            status="unknown",
+            reason="",
+            state_status="",
+            reaction_dir="/tmp/rxn_wait",
+            latest_known_path="/tmp/rxn_wait",
+        ),
+    )
+
+    _sync_orca_stage(
+        stage,
+        orca_auto_config="/tmp/orca.yaml",
+        orca_auto_executable="orca_auto",
+        orca_auto_repo_root="/tmp/orca_repo",
+        submit_ready=True,
+    )
+
+    task = stage["task"]
+    metadata = stage["metadata"]
+    assert isinstance(task, dict)
+    assert isinstance(metadata, dict)
+    assert stage["status"] == "planned"
+    assert task["status"] == "planned"
+    assert task["submission_result"] == {
+        "status": "blocked",
+        "reason": "admission_limit_reached",
+        "submitted_at": "2026-04-19T01:24:45+00:00",
+    }
+    assert metadata["submission_status"] == "waiting_for_slot"
+    assert metadata["submission_deferred_reason"] == "admission_limit_reached"
+    assert metadata["last_submission_attempt_at"] == "2026-04-19T01:24:45+00:00"
+    assert metadata["queue_id"] == ""
+
+
 def test_sync_orca_stage_prefers_workflow_local_organized_root_for_internal_orca_root(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
