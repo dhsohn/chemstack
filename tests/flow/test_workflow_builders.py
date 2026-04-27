@@ -276,7 +276,7 @@ def test_build_reaction_ts_search_plan_materializes_orca_stage_and_syncs_registr
 
     workspace_dir = tmp_path / "wf_reaction_ts_1"
     stage = payload["stages"][0]
-    stage_dir = workspace_dir / "stage_03_orca" / "01_ts_guess"
+    stage_dir = workspace_dir / "03_orca" / "01_ts_guess"
     assert payload["workflow_id"] == "wf_reaction_ts_1"
     assert payload["metadata"]["request"]["parameters"]["orca_route_line"] == "! r2scan-3c OptTS Freq TightSCF"
     assert len(payload["metadata"]["orca_stage_payloads"]) == 1

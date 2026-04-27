@@ -145,8 +145,10 @@ def materialize_orca_stage(
     if not source_xyz.exists():
         raise FileNotFoundError(f"ORCA stage source artifact not found: {source_xyz}")
 
-    stage_dir = workspace_dir / stage_root_name / stage_key
-    reaction_dir = stage_dir / "reaction_dir"
+    root_name = normalize_text(stage_root_name)
+    stage_root = workspace_dir / root_name if root_name else workspace_dir
+    stage_dir = stage_root / stage_key
+    reaction_dir = stage_dir
     reaction_dir.mkdir(parents=True, exist_ok=True)
 
     target_xyz = reaction_dir / xyz_filename

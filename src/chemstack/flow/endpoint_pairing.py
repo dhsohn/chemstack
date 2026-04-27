@@ -74,6 +74,7 @@ def _coerce_mapping(value: Any) -> dict[str, Any]:
 class EndpointPairingPolicy:
     enabled: bool = False
     comparison_atoms: tuple[int, ...] = ()
+    excluded_atoms: tuple[int, ...] = ()
     max_distance_rmsd: float | None = None
     max_rank_gap: int = 0
     max_pairs: int = 0
@@ -108,9 +109,15 @@ class EndpointPairingPolicy:
         atoms = (
             _coerce_atom_indices(raw.get("comparison_atoms"))
             or _coerce_atom_indices(raw.get("alignment_atoms"))
-            or _coerce_atom_indices(raw.get("reaction_center_atoms"))
             or _coerce_atom_indices(raw.get("rmsd_atoms"))
             or _coerce_atom_indices(raw.get("atoms"))
+        )
+        excluded_atoms = (
+            _coerce_atom_indices(raw.get("moving_atoms"))
+            or _coerce_atom_indices(raw.get("mobile_atoms"))
+            or _coerce_atom_indices(raw.get("exclude_atoms"))
+            or _coerce_atom_indices(raw.get("excluded_atoms"))
+            or _coerce_atom_indices(raw.get("reaction_center_atoms"))
         )
         max_distance_rmsd = (
             _as_optional_float(raw.get("max_distance_rmsd"))
@@ -121,10 +128,11 @@ class EndpointPairingPolicy:
         )
         max_pairs = _as_positive_int(raw.get("max_pairs"), default=max(0, int(default_max_pairs)))
         rank_weight = _as_optional_float(raw.get("rank_weight"))
-        fallback_default = not bool(atoms or max_distance_rmsd is not None)
+        fallback_default = not bool(atoms or excluded_atoms or max_distance_rmsd is not None)
         return cls(
             enabled=enabled,
             comparison_atoms=atoms,
+            excluded_atoms=excluded_atoms,
             max_distance_rmsd=max_distance_rmsd,
             max_rank_gap=_as_positive_int(raw.get("max_rank_gap"), default=0),
             max_pairs=max_pairs,
@@ -137,6 +145,7 @@ class EndpointPairingPolicy:
         return {
             "enabled": self.enabled,
             "comparison_atoms": list(self.comparison_atoms),
+            "excluded_atoms": list(self.excluded_atoms),
             "max_distance_rmsd": self.max_distance_rmsd,
             "max_rank_gap": self.max_rank_gap,
             "max_pairs": self.max_pairs,
@@ -180,10 +189,16 @@ def _frame_coordinates(frame: XYZFrame) -> tuple[tuple[float, float, float], ...
     return tuple(coords)
 
 
-def _validated_indices(indices: tuple[int, ...], *, natoms: int) -> tuple[int, ...]:
-    if not indices:
-        return tuple(range(1, natoms + 1))
-    return tuple(index for index in indices if 1 <= index <= natoms)
+def _comparison_indices(
+    indices: tuple[int, ...],
+    *,
+    excluded_indices: tuple[int, ...],
+    natoms: int,
+) -> tuple[int, ...]:
+    if indices:
+        return tuple(index for index in indices if 1 <= index <= natoms)
+    excluded = {index for index in excluded_indices if 1 <= index <= natoms}
+    return tuple(index for index in range(1, natoms + 1) if index not in excluded)
 
 
 def _distance(left: tuple[float, float, float], right: tuple[float, float, float]) -> float:
@@ -211,24 +226,29 @@ def _distance_rmsd(
     product: WorkflowStageInput,
     *,
     atom_indices: tuple[int, ...],
-) -> tuple[float | None, str]:
+    excluded_indices: tuple[int, ...],
+) -> tuple[float | None, str, tuple[int, ...]]:
     reactant_frame = _frame_for_input(reactant)
     product_frame = _frame_for_input(product)
     if reactant_frame is None or product_frame is None:
-        return None, "missing_or_invalid_xyz"
+        return None, "missing_or_invalid_xyz", ()
     if reactant_frame.natoms != product_frame.natoms:
-        return None, "atom_count_mismatch"
+        return None, "atom_count_mismatch", ()
 
-    indices = _validated_indices(atom_indices, natoms=reactant_frame.natoms)
+    indices = _comparison_indices(
+        atom_indices,
+        excluded_indices=excluded_indices,
+        natoms=reactant_frame.natoms,
+    )
     if len(indices) < 2:
-        return None, "too_few_comparison_atoms"
+        return None, "too_few_comparison_atoms", indices
 
     reactant_fp = _distance_fingerprint(_frame_coordinates(reactant_frame), indices)
     product_fp = _distance_fingerprint(_frame_coordinates(product_frame), indices)
     if not reactant_fp or len(reactant_fp) != len(product_fp):
-        return None, "empty_distance_fingerprint"
+        return None, "empty_distance_fingerprint", indices
     squared = [(left - right) ** 2 for left, right in zip(reactant_fp, product_fp)]
-    return sqrt(sum(squared) / len(squared)), "distance_fingerprint"
+    return sqrt(sum(squared) / len(squared)), "distance_fingerprint", indices
 
 
 def _rank_gap(reactant: WorkflowStageInput, product: WorkflowStageInput) -> int:
@@ -254,11 +274,17 @@ def select_endpoint_pairs(
 
             distance_rmsd: float | None = None
             metric_reason = "not_requested"
-            if active_policy.enabled and (active_policy.comparison_atoms or active_policy.max_distance_rmsd is not None):
-                distance_rmsd, metric_reason = _distance_rmsd(
+            comparison_atoms: tuple[int, ...] = ()
+            if active_policy.enabled and (
+                active_policy.comparison_atoms
+                or active_policy.excluded_atoms
+                or active_policy.max_distance_rmsd is not None
+            ):
+                distance_rmsd, metric_reason, comparison_atoms = _distance_rmsd(
                     reactant,
                     product,
                     atom_indices=active_policy.comparison_atoms,
+                    excluded_indices=active_policy.excluded_atoms,
                 )
                 if distance_rmsd is None and not active_policy.fallback_to_ranked:
                     continue
@@ -293,6 +319,8 @@ def select_endpoint_pairs(
                         "product_rank": int(product.rank),
                         "reactant_artifact_path": reactant.artifact_path,
                         "product_artifact_path": product.artifact_path,
+                        "comparison_atoms": list(comparison_atoms),
+                        "excluded_atoms": list(active_policy.excluded_atoms),
                         "candidate_pair_order": sequence,
                     },
                 )

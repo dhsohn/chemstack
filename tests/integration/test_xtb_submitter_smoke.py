@@ -52,19 +52,19 @@ def test_xtb_submitter_roundtrip_smoke(
     assert record.app_name == "xtb_auto"
     assert record.status == "completed"
     assert record.original_run_dir == str(xtb_opt_job.resolve())
-    assert record.organized_output_dir
-    assert record.latest_known_path == record.organized_output_dir
+    assert record.organized_output_dir == ""
+    assert record.latest_known_path == str(xtb_opt_job.resolve())
 
-    organized_dir = Path(record.organized_output_dir)
-    assert organized_dir.exists()
-    assert (xtb_opt_job / "organized_ref.json").exists()
-    assert (organized_dir / "job_state.json").exists()
-    assert (organized_dir / "job_report.json").exists()
-    assert (organized_dir / "job_report.md").exists()
-    assert (organized_dir / "xtbopt.xyz").exists()
-    assert (organized_dir / "xtbout.json").exists()
+    artifact_dir = xtb_opt_job.resolve()
+    assert artifact_dir.exists()
+    assert not (xtb_opt_job / "organized_ref.json").exists()
+    assert (artifact_dir / "job_state.json").exists()
+    assert (artifact_dir / "job_report.json").exists()
+    assert (artifact_dir / "job_report.md").exists()
+    assert (artifact_dir / "xtbopt.xyz").exists()
+    assert (artifact_dir / "xtbout.json").exists()
 
-    report_payload = json.loads((organized_dir / "job_report.json").read_text(encoding="utf-8"))
+    report_payload = json.loads((artifact_dir / "job_report.json").read_text(encoding="utf-8"))
     assert report_payload["status"] == "completed"
     assert report_payload["job_type"] == "opt"
     assert report_payload["candidate_count"] == 1
@@ -76,9 +76,9 @@ def test_xtb_submitter_roundtrip_smoke(
     )
     assert contract.status == "completed"
     assert contract.job_type == "opt"
-    assert contract.organized_output_dir == str(organized_dir)
-    assert contract.selected_candidate_paths == (str((organized_dir / "xtbopt.xyz").resolve()),)
-    assert contract.analysis_summary["canonical_result_path"] == str((organized_dir / "xtbopt.xyz").resolve())
+    assert contract.organized_output_dir == ""
+    assert contract.selected_candidate_paths == (str((artifact_dir / "xtbopt.xyz").resolve()),)
+    assert contract.analysis_summary["canonical_result_path"] == str((artifact_dir / "xtbopt.xyz").resolve())
 
     queue_entries_after = list_queue(smoke_workspace.xtb_allowed_root)
     assert len(queue_entries_after) == 1

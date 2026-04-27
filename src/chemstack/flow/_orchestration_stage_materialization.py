@@ -265,7 +265,7 @@ def append_reaction_orca_stages_impl(
             template_name="reaction_ts_search",
             stage_id=f"orca_optts_freq_{next_index:02d}",
             stage_key=f"{next_index:02d}_{o.safe_name(candidate.kind, fallback='candidate')}",
-            stage_root_name="stage_03_orca",
+            stage_root_name="",
             workspace_dir=orca_runtime_paths["allowed_root"],
             input_artifact_kind="xtb_candidate",
             candidate=candidate,
@@ -320,7 +320,12 @@ def append_crest_orca_stages_impl(
     payload_metadata = o._coerce_mapping(payload.get("metadata"))
     workspace_dir_text = o._normalize_text(payload_metadata.get("workspace_dir"))
     workspace_dir = Path(workspace_dir_text).expanduser().resolve() if workspace_dir_text else Path(".").resolve()
-    orca_runtime_paths = workflow_workspace_internal_engine_paths(workspace_dir, engine="orca")
+    orca_stage_dirname = "02_orca" if template_name == "conformer_screening" else None
+    orca_runtime_paths = workflow_workspace_internal_engine_paths(
+        workspace_dir,
+        engine="orca",
+        stage_dirname=orca_stage_dirname,
+    )
     request = ((payload.get("metadata") or {}).get("request") or {})
     params = request.get("parameters") or {}
     candidates = o.select_crest_downstream_inputs(crest_contract, policy=o.CrestDownstreamPolicy.build(max_candidates=int(params.get("max_orca_stages", 3) or 3)))
@@ -332,7 +337,7 @@ def append_crest_orca_stages_impl(
             template_name=template_name,
             stage_id=f"{stage_id_prefix}_{created:02d}",
             stage_key=f"{created:02d}_{o.safe_name(candidate.kind, fallback='conformer')}",
-            stage_root_name="stage_02_orca",
+            stage_root_name="",
             workspace_dir=orca_runtime_paths["allowed_root"],
             input_artifact_kind="crest_conformer",
             candidate=candidate,

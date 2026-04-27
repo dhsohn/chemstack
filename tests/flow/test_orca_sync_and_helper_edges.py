@@ -193,19 +193,15 @@ def test_sync_orca_stage_submit_path_preserves_submitted_state_for_unknown_contr
     ]
 
 
-def test_sync_orca_stage_prefers_workflow_local_organized_root_for_internal_orca_runs(
+def test_sync_orca_stage_prefers_workflow_local_organized_root_for_internal_orca_root(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     reaction_dir = (
         tmp_path
         / "wf_local"
-        / "internal"
-        / "orca"
-        / "runs"
-        / "stage_02_orca"
+        / "03_orca"
         / "job_01"
-        / "reaction_dir"
     )
     stage: dict[str, object] = {
         "status": "planned",
@@ -257,5 +253,5 @@ def test_sync_orca_stage_prefers_workflow_local_organized_root_for_internal_orca
 
     assert load_calls[0]["orca_allowed_root"] == Path("/tmp/orca_allowed")
     assert load_calls[0]["orca_organized_root"] == (
-        tmp_path / "wf_local" / "internal" / "orca" / "outputs"
+        tmp_path / "wf_local" / "03_orca"
     ).resolve()

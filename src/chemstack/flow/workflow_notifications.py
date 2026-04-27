@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
 
@@ -11,12 +12,19 @@ from chemstack.core.utils import now_utc_iso
 from chemstack.flow.workflow_status import workflow_status_is_terminal
 
 _ACTIVE_STATUSES = frozenset({"planned", "queued", "running", "submitted", "cancel_requested", "retrying"})
+_MAX_TELEGRAM_MESSAGE_LENGTH = 4096
+_DIVIDER = "\u2500" * 28
 
 
 def _normalize_text(value: Any) -> str:
     if value is None:
         return ""
     return str(value).strip()
+
+
+def _escape_html(value: Any) -> str:
+    text = _normalize_text(value)
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
 def _coerce_mapping(value: Any) -> dict[str, Any]:
@@ -179,30 +187,127 @@ def _xtb_candidate_count(stage: dict[str, Any]) -> int:
     return _count_output_artifacts(stage)
 
 
-def _phase_stage_line(
+def _status_icon(status: str) -> str:
+    icons = {
+        "completed": "\u2705",
+        "failed": "\u274c",
+        "cancelled": "\u26d4",
+        "ready": "\u2705",
+        "running": "\u25b6",
+        "queued": "\u23f3",
+        "planned": "\u23f3",
+        "submitted": "\U0001f4e4",
+    }
+    return icons.get(_normalize_text(status).lower(), "\u2022")
+
+
+def _phase_label(phase_engine: str) -> str:
+    return {"crest": "CREST", "xtb": "xTB"}.get(phase_engine, phase_engine.upper())
+
+
+def _metric_code(value: Any) -> str:
+    return f"<code>{_escape_html(value)}</code>"
+
+
+def _phase_stage_block(
     stage: dict[str, Any],
     *,
     phase_engine: str,
+    bucket: str,
 ) -> str:
+    detail_separator = " \u00b7 "
     stage_id = _normalize_text(stage.get("stage_id")) or "stage"
     status = _normalize_text(stage.get("status")).lower() or "unknown"
     task_payload = _stage_task_payload(stage)
     metadata = _stage_metadata(stage)
     if phase_engine == "crest":
         role = _normalize_text(task_payload.get("input_role")) or stage_id
-        return (
-            f"- {role}: status={status}"
-            f" retained_conformers={_count_output_artifacts(stage)}"
-        )
+        details = [
+            f"\U0001f4cd {_metric_code(status)}",
+            f"retained_conformers={_metric_code(_count_output_artifacts(stage))}",
+        ]
+        return f"{_status_icon(bucket)} <b>{_escape_html(role)}</b>\n   {detail_separator.join(details)}"
     if phase_engine == "xtb":
         reaction_key = _normalize_text(task_payload.get("reaction_key")) or stage_id
         handoff_status = _normalize_text(metadata.get("reaction_handoff_status")).lower() or "none"
-        return (
-            f"- {reaction_key}: status={status}"
-            f" handoff={handoff_status}"
-            f" candidates={_xtb_candidate_count(stage)}"
+        details = [
+            f"\U0001f4cd {_metric_code(status)}",
+            f"handoff={_metric_code(handoff_status)}",
+            f"candidates={_metric_code(_xtb_candidate_count(stage))}",
+        ]
+        return f"{_status_icon(bucket)} <b>{_escape_html(reaction_key)}</b>\n   {detail_separator.join(details)}"
+    return f"{_status_icon(bucket)} <b>{_escape_html(stage_id)}</b>\n   \U0001f4cd {_metric_code(status)}"
+
+
+def _extra_lines_section(extra_lines: list[str] | None) -> str | None:
+    rows: list[str] = []
+    for raw_line in extra_lines or []:
+        line = _normalize_text(raw_line)
+        if not line:
+            continue
+        if ":" in line:
+            key, value = line.split(":", 1)
+            normalized_key = _normalize_text(key)
+            normalized_value = _normalize_text(value) or "-"
+            if normalized_key:
+                rows.append(f"   {_escape_html(normalized_key)}: {_metric_code(normalized_value)}")
+                continue
+        rows.append(f"   {_escape_html(line)}")
+    if not rows:
+        return None
+    return "<b>Notes</b>\n" + "\n".join(rows)
+
+
+def _format_phase_summary_message(
+    *,
+    payload: dict[str, Any],
+    phase_engine: str,
+    stages: list[dict[str, Any]],
+    counts: dict[str, int],
+    stage_buckets: dict[int, str],
+    extra_lines: list[str] | None,
+) -> str:
+    phase = _phase_label(phase_engine)
+    now = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M %Z")
+    workflow_id = _normalize_text(payload.get("workflow_id")) or "-"
+    template_name = _normalize_text(payload.get("template_name")) or "-"
+
+    overview = [
+        f"\U0001f9ed <b>chem_flow {phase} phase summary</b>  {_metric_code(now)}",
+        _DIVIDER,
+        f"<b>Workflow</b>: {_metric_code(workflow_id)}",
+        f"<b>Template</b>: {_metric_code(template_name)}",
+        (
+            f"<b>Stages</b>: {_metric_code(len(stages))}  "
+            f"{_status_icon('completed')} {counts['completed']} \u00b7 "
+            f"{_status_icon('failed')} {counts['failed']} \u00b7 "
+            f"{_status_icon('cancelled')} {counts['cancelled']}"
+        ),
+    ]
+    if phase_engine == "xtb":
+        ready_count = sum(
+            1
+            for stage in stages
+            if _normalize_text(_stage_metadata(stage).get("reaction_handoff_status")).lower() == "ready"
         )
-    return f"- {stage_id}: status={status}"
+        overview.append(f"<b>Ready for ORCA</b>: {_metric_code(ready_count)}")
+
+    stage_blocks = [
+        _phase_stage_block(
+            stage,
+            phase_engine=phase_engine,
+            bucket=stage_buckets.get(id(stage), "failed"),
+        )
+        for stage in stages
+    ]
+
+    sections: list[str] = ["\n".join(overview)]
+    notes = _extra_lines_section(extra_lines)
+    if notes is not None:
+        sections.append(notes)
+    if stage_blocks:
+        sections.append("\n\n".join(stage_blocks))
+    return "\n\n".join(sections)
 
 
 def maybe_notify_workflow_phase_summary(
@@ -236,6 +341,7 @@ def maybe_notify_workflow_phase_summary(
         return False
 
     counts = {"completed": 0, "failed": 0, "cancelled": 0}
+    stage_buckets: dict[int, str] = {}
     for stage in stages:
         bucket = _stage_result_bucket(
             stage,
@@ -243,28 +349,20 @@ def maybe_notify_workflow_phase_summary(
             stage_failure_is_recoverable_fn=stage_failure_is_recoverable_fn,
         )
         counts[bucket] += 1
+        stage_buckets[id(stage)] = bucket
 
-    lines = [
-        f"[chem_flow] {normalized_engine.upper()} phase summary",
-        f"workflow_id: {_normalize_text(payload.get('workflow_id'))}",
-        f"template_name: {_normalize_text(payload.get('template_name'))}",
-        f"stage_count: {len(stages)}",
-        f"completed: {counts['completed']}",
-        f"failed: {counts['failed']}",
-        f"cancelled: {counts['cancelled']}",
-    ]
-    if normalized_engine == "xtb":
-        ready_count = sum(
-            1
-            for stage in stages
-            if _normalize_text(_stage_metadata(stage).get("reaction_handoff_status")).lower() == "ready"
-        )
-        lines.append(f"ready_for_orca: {ready_count}")
-    if extra_lines:
-        lines.extend(line for line in extra_lines if _normalize_text(line))
-    lines.extend(_phase_stage_line(stage, phase_engine=normalized_engine) for stage in stages)
-
-    result = build_telegram_transport(telegram).send_text("\n".join(lines))
+    message = _format_phase_summary_message(
+        payload=payload,
+        phase_engine=normalized_engine,
+        stages=stages,
+        counts=counts,
+        stage_buckets=stage_buckets,
+        extra_lines=extra_lines,
+    )
+    result = build_telegram_transport(telegram).send_text(
+        message[:_MAX_TELEGRAM_MESSAGE_LENGTH],
+        parse_mode="HTML",
+    )
     if not (result.sent or result.skipped):
         return False
 

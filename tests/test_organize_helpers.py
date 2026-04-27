@@ -183,8 +183,8 @@ class TestOrganizeHelpers(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             workflow_root = root / "workflow_root"
-            reaction_dir = workflow_root / "wf_local" / "internal" / "orca" / "runs" / "stage_02_orca" / "job_01" / "reaction_dir"
-            expected_organized_root = workflow_root / "wf_local" / "internal" / "orca" / "outputs"
+            reaction_dir = workflow_root / "wf_local" / "02_orca" / "job_01"
+            expected_organized_root = workflow_root / "wf_local" / "02_orca"
             cfg = AppConfig(
                 runtime=RuntimeConfig(allowed_root=str(root / "runs"), organized_root=str(root / "organized")),
                 workflow_root=str(workflow_root),

@@ -284,10 +284,8 @@ def test_cli_module_main_entrypoint_raises_system_exit(
 ) -> None:
     config_path = tmp_path / "chemstack.yaml"
     workflow_root = tmp_path / "workflow_root"
-    allowed_root = workflow_root / "wf_001" / "internal" / "xtb" / "runs"
-    organized_root = workflow_root / "wf_001" / "internal" / "xtb" / "outputs"
+    allowed_root = workflow_root / "wf_001" / "02_xtb"
     allowed_root.mkdir(parents=True)
-    organized_root.mkdir(parents=True)
     config_path.write_text(
         yaml.safe_dump(
             {

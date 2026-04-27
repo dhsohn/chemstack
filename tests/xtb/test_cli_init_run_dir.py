@@ -42,10 +42,9 @@ def _write_manifest(job_dir: Path, payload: dict[str, object]) -> Path:
 
 def _write_config(tmp_path: Path) -> tuple[Path, Path, Path]:
     workflow_root = tmp_path / "workflow_root"
-    allowed_root = workflow_root / "wf_001" / "internal" / "xtb" / "runs"
-    organized_root = workflow_root / "wf_001" / "internal" / "xtb" / "outputs"
+    allowed_root = workflow_root / "wf_001" / "02_xtb"
+    organized_root = allowed_root
     allowed_root.mkdir(parents=True)
-    organized_root.mkdir(parents=True)
     config_path = tmp_path / "chemstack.yaml"
     config_path.write_text(
         yaml.safe_dump(

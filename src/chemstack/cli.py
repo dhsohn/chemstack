@@ -32,7 +32,7 @@ from chemstack.flow.operations import cancel_activity, clear_activities, list_ac
 from chemstack.flow.run_dir_layout import inspect_workflow_run_dir
 from chemstack.flow.submitters.common import normalize_text, sibling_app_command
 
-_WORKFLOW_INTERNAL_ENGINE_APPS = ("crest", "xtb")
+_WORKFLOW_ENGINE_APPS = ("crest", "xtb")
 _ENGINE_APPS = ("orca",)
 _KNOWN_WORKER_APPS = (*_ENGINE_APPS, "workflow")
 _DEFAULT_WORKER_APPS = _ENGINE_APPS
@@ -845,7 +845,7 @@ def _build_worker_specs(args: Any) -> list[WorkerSpec]:
 
     engine_apps = [app for app in apps if app in _ENGINE_APPS]
     if workflow_enabled:
-        for app in _WORKFLOW_INTERNAL_ENGINE_APPS:
+        for app in _WORKFLOW_ENGINE_APPS:
             if app not in engine_apps:
                 engine_apps.append(app)
     if engine_apps and not normalize_text(config_path):

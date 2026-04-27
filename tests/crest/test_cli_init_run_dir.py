@@ -19,10 +19,9 @@ from chemstack.crest.state import load_organized_ref, load_report_json, load_sta
 
 def _write_config(tmp_path: Path) -> tuple[Path, Path, Path]:
     workflow_root = tmp_path / "workflow_root"
-    allowed_root = workflow_root / "wf_001" / "internal" / "crest" / "runs"
-    organized_root = workflow_root / "wf_001" / "internal" / "crest" / "outputs"
+    allowed_root = workflow_root / "wf_001" / "01_crest"
+    organized_root = allowed_root
     allowed_root.mkdir(parents=True)
-    organized_root.mkdir(parents=True)
     config_path = tmp_path / "chemstack.yaml"
     config_path.write_text(
         "\n".join(
@@ -310,7 +309,7 @@ def test_cli_end_to_end_smoke_path_submission_worker_organize_and_summary(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    config_path, allowed_root, organized_root = _write_config(tmp_path)
+    config_path, allowed_root, _ = _write_config(tmp_path)
     job_dir = allowed_root / "job-e2e"
     queued_notifications: list[dict[str, Any]] = []
     started_notifications: list[dict[str, Any]] = []
@@ -384,8 +383,7 @@ def test_cli_end_to_end_smoke_path_submission_worker_organize_and_summary(
         auto_organize=True,
     ) == "processed"
     worker_output = capsys.readouterr().out
-    organized_target = organized_root / "standard" / "input" / "crest-e2e-001"
-    assert f"organized_output_dir: {organized_target.resolve()}" in worker_output
+    assert "organized_output_dir:" not in worker_output
     assert "queue_id:" in worker_output
     assert "job_id: crest-e2e-001" in worker_output
     assert "status: completed" in worker_output
@@ -396,12 +394,10 @@ def test_cli_end_to_end_smoke_path_submission_worker_organize_and_summary(
     assert queue_entries[0].status.value == "completed"
 
     organized_ref = load_organized_ref(job_dir)
-    assert organized_ref is not None
-    assert organized_ref["job_id"] == "crest-e2e-001"
-    assert organized_ref["organized_output_dir"] == str(organized_target.resolve())
+    assert organized_ref is None
 
-    state = load_state(organized_target)
-    report = load_report_json(organized_target)
+    state = load_state(job_dir)
+    report = load_report_json(job_dir)
     assert state is not None
     assert report is not None
     assert state["status"] == "completed"
@@ -411,8 +407,8 @@ def test_cli_end_to_end_smoke_path_submission_worker_organize_and_summary(
     record = get_job_location(allowed_root, "crest-e2e-001")
     assert record is not None
     assert record.original_run_dir == str(job_dir.resolve())
-    assert record.organized_output_dir == str(organized_target.resolve())
-    assert record.latest_known_path == str(organized_target.resolve())
+    assert record.organized_output_dir == ""
+    assert record.latest_known_path == str(job_dir.resolve())
 
     assert len(queued_notifications) == 1
     assert queued_notifications[0]["job_id"] == "crest-e2e-001"
@@ -424,15 +420,15 @@ def test_cli_end_to_end_smoke_path_submission_worker_organize_and_summary(
     assert len(finished_notifications) == 1
     assert finished_notifications[0]["job_id"] == "crest-e2e-001"
     assert finished_notifications[0]["status"] == "completed"
-    assert finished_notifications[0]["organized_output_dir"] == organized_target
+    assert finished_notifications[0]["organized_output_dir"] is None
 
     assert cli.main(["--config", str(config_path), "summary", "crest-e2e-001", "--json"]) == 0
     summary_json = json.loads(capsys.readouterr().out)
     assert summary_json["target"] == "crest-e2e-001"
-    assert summary_json["job_dir"] == str(organized_target.resolve())
-    assert summary_json["index_record"]["latest_known_path"] == str(organized_target.resolve())
+    assert summary_json["job_dir"] == str(job_dir.resolve())
+    assert summary_json["index_record"]["latest_known_path"] == str(job_dir.resolve())
 
     assert cli.main(["--config", str(config_path), "summary", str(job_dir.resolve())]) == 0
     summary_text = capsys.readouterr().out
-    assert f"job_dir: {organized_target.resolve()}" in summary_text
+    assert f"job_dir: {job_dir.resolve()}" in summary_text
     assert "job_id: crest-e2e-001" in summary_text

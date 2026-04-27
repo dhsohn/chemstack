@@ -66,7 +66,7 @@ def test_handle_list_formats_unified_activity_rows(monkeypatch) -> None:
                     "updated_at": "2026-04-26T01:10:00+00:00",
                     "metadata": {
                         "task_kind": "conformer_search",
-                        "job_dir": "/tmp/crest/workflow_jobs/wf-a/stage_01_crest",
+                        "job_dir": "/tmp/crest/workflow_jobs/wf-a/01_crest",
                     },
                 },
                 {
@@ -130,7 +130,7 @@ def test_handle_list_filter_keeps_workflow_parent_for_visible_child(monkeypatch)
                     "metadata": {
                         "task_kind": "conformer_search",
                         "mode": "nci",
-                        "job_dir": "/tmp/crest/workflow_jobs/wf-a/stage_01_crest",
+                        "job_dir": "/tmp/crest/workflow_jobs/wf-a/01_crest",
                     },
                 },
             ]
@@ -199,7 +199,7 @@ def test_handle_list_shows_all_workflow_child_jobs(monkeypatch) -> None:
             "status": "running",
             "source": "chemstack_orca",
             "metadata": {
-                "reaction_dir": f"/tmp/orca/workflow_jobs/wf-a/stage_03_orca/case_{index:03d}",
+                "reaction_dir": f"/tmp/orca/workflow_jobs/wf-a/03_orca/case_{index:03d}",
             },
         }
         for index in range(1, 10)

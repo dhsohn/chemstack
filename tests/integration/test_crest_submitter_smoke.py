@@ -52,19 +52,19 @@ def test_crest_submitter_roundtrip_smoke(
     assert record.app_name == "crest_auto"
     assert record.status == "completed"
     assert record.original_run_dir == str(crest_job.resolve())
-    assert record.organized_output_dir
-    assert record.latest_known_path == record.organized_output_dir
+    assert record.organized_output_dir == ""
+    assert record.latest_known_path == str(crest_job.resolve())
 
-    organized_dir = Path(record.organized_output_dir)
-    assert organized_dir.exists()
-    assert (crest_job / "organized_ref.json").exists()
-    assert (organized_dir / "job_state.json").exists()
-    assert (organized_dir / "job_report.json").exists()
-    assert (organized_dir / "job_report.md").exists()
-    assert (organized_dir / "crest_conformers.xyz").exists()
-    assert (organized_dir / "crest_best.xyz").exists()
+    artifact_dir = crest_job.resolve()
+    assert artifact_dir.exists()
+    assert not (crest_job / "organized_ref.json").exists()
+    assert (artifact_dir / "job_state.json").exists()
+    assert (artifact_dir / "job_report.json").exists()
+    assert (artifact_dir / "job_report.md").exists()
+    assert (artifact_dir / "crest_conformers.xyz").exists()
+    assert (artifact_dir / "crest_best.xyz").exists()
 
-    report_payload = json.loads((organized_dir / "job_report.json").read_text(encoding="utf-8"))
+    report_payload = json.loads((artifact_dir / "job_report.json").read_text(encoding="utf-8"))
     assert report_payload["status"] == "completed"
     assert report_payload["mode"] == "standard"
     assert report_payload["retained_conformer_count"] == 2
@@ -79,7 +79,7 @@ def test_crest_submitter_roundtrip_smoke(
     )
     assert contract.status == "completed"
     assert contract.mode == "standard"
-    assert contract.organized_output_dir == str(organized_dir)
+    assert contract.organized_output_dir == ""
     assert contract.retained_conformer_count == 2
     assert sorted(Path(path).name for path in contract.retained_conformer_paths) == [
         "crest_best.xyz",

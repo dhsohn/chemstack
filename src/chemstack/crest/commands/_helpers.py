@@ -82,8 +82,8 @@ def resolve_job_dir(cfg: AppConfig, raw_job_dir: str) -> Path:
         )
         if runtime_paths is None:
             raise ValueError(
-                "Job directory must be under a workflow-local CREST runs root: "
-                "<workflow.root>/<workflow_id>/internal/crest/runs/..."
+                "Job directory must be under a workflow-local CREST root: "
+                "<workflow.root>/<workflow_id>/01_crest/..."
             )
         return validate_job_dir(raw_job_dir, str(runtime_paths["allowed_root"]), label="Job directory")
     return validate_job_dir(raw_job_dir, cfg.runtime.allowed_root, label="Job directory")

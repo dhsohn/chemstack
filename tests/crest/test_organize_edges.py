@@ -13,10 +13,9 @@ from chemstack.crest.state import write_report_json, write_report_md, write_stat
 
 def _write_config(tmp_path: Path) -> tuple[Path, Path, Path]:
     workflow_root = tmp_path / "workflow_root"
-    allowed_root = workflow_root / "wf_001" / "internal" / "crest" / "runs"
-    organized_root = workflow_root / "wf_001" / "internal" / "crest" / "outputs"
+    allowed_root = workflow_root / "wf_001" / "01_crest"
+    organized_root = allowed_root
     allowed_root.mkdir(parents=True)
-    organized_root.mkdir(parents=True)
     config_path = tmp_path / "chemstack.yaml"
     config_path.write_text(
         "\n".join(
@@ -138,9 +137,9 @@ def test_resolve_scope_validates_job_dir_root_and_default_scope(tmp_path: Path) 
 
 
 def test_resolve_scope_and_plan_support_workflow_local_runtime_dirs(tmp_path: Path) -> None:
-    config_path, _, organized_root = _write_config(tmp_path)
+    config_path, _, _ = _write_config(tmp_path)
     cfg = load_config(str(config_path))
-    workflow_job_dir = tmp_path / "workflow_root" / "wf_crest_001" / "internal" / "crest" / "runs" / "job-local"
+    workflow_job_dir = tmp_path / "workflow_root" / "wf_crest_001" / "01_crest" / "job-local"
     _write_job_artifacts(
         workflow_job_dir,
         job_id="job-local",
@@ -158,20 +157,11 @@ def test_resolve_scope_and_plan_support_workflow_local_runtime_dirs(tmp_path: Pa
     assert root is None
 
     plan = organize_module._collect_plan_for_dir(cfg, workflow_job_dir.resolve())
-    expected_target = (
-        tmp_path
-        / "workflow_root"
-        / "wf_crest_001"
-        / "internal"
-        / "crest"
-        / "outputs"
-        / "standard"
-        / "local"
-        / "job-local"
-    )
-    assert plan["action"] == "organize"
-    assert plan["target_dir"] == str(expected_target)
-    assert plan["target_dir"] != str(organized_root / "standard" / "local" / "job-local")
+    assert plan == {
+        "action": "skip",
+        "job_dir": str(workflow_job_dir.resolve()),
+        "reason": "already_under_organized_root",
+    }
 
 
 def test_collect_plan_for_dir_returns_skip_reasons_for_edge_cases(tmp_path: Path) -> None:
@@ -227,9 +217,7 @@ def test_collect_plan_for_dir_returns_skip_reasons_for_edge_cases(tmp_path: Path
     assert organize_module._collect_plan_for_dir(cfg, target_exists_dir) == {
         "action": "skip",
         "job_dir": str(target_exists_dir),
-        "job_id": "job-400",
-        "reason": "target_exists",
-        "target_dir": str(existing_target),
+        "reason": "already_under_organized_root",
     }
 
 
@@ -249,7 +237,7 @@ def test_organize_job_dir_returns_skip_plan_without_moving_files(tmp_path: Path)
     assert list(job_dir.iterdir()) == []
 
 
-def test_organize_job_dir_notifies_summary_when_requested(
+def test_organize_job_dir_skips_workflow_stage_jobs_without_notifying(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -280,20 +268,17 @@ def test_organize_job_dir_notifies_summary_when_requested(
 
     result = organize_module.organize_job_dir(cfg, job_dir, notify_summary=True)
 
-    assert result["action"] == "organized"
-    assert result["target_dir"] == str((organized_root / "standard" / "notify" / "job-500").resolve())
-    assert notifications == [
-        {
-            "cfg": cfg,
-            "organized_count": 1,
-            "skipped_count": 0,
-            "root": job_dir,
-        }
-    ]
+    assert result == {
+        "action": "skip",
+        "job_dir": str(job_dir.resolve()),
+        "reason": "already_under_organized_root",
+    }
+    assert not (organized_root / "standard").exists()
+    assert notifications == []
 
 
 def test_cmd_organize_dry_run_accepts_job_dir_scope(tmp_path: Path, capsys) -> None:
-    config_path, allowed_root, organized_root = _write_config(tmp_path)
+    config_path, allowed_root, _ = _write_config(tmp_path)
     job_dir = allowed_root / "job-single"
     _write_job_artifacts(
         job_dir,
@@ -312,12 +297,11 @@ def test_cmd_organize_dry_run_accepts_job_dir_scope(tmp_path: Path, capsys) -> N
     )
 
     captured = capsys.readouterr().out
-    planned_target = organized_root / "standard" / "single" / "job-600"
     assert rc == 0
     assert "action: dry_run" in captured
-    assert "to_organize: 1" in captured
-    assert "skipped: 0" in captured
-    assert f"job-600: {job_dir.resolve()} -> {planned_target.resolve()}" in captured
+    assert "to_organize: 0" in captured
+    assert "skipped: 1" in captured
+    assert f"job-600: {job_dir.resolve()} ->" not in captured
 
 
 def test_cmd_organize_raises_when_scope_does_not_resolve_root(
@@ -394,20 +378,20 @@ def test_cmd_organize_apply_mode_reports_failures_and_notifies_summary(
 
     captured = capsys.readouterr().out
     success_target = (organized_root / "standard" / "water" / "job-700").resolve()
-    assert rc == 1
+    assert rc == 0
     assert "action: apply" in captured
-    assert "organized: 1" in captured
-    assert "skipped: 0" in captured
-    assert "failed: 1" in captured
-    assert f"job-700: {success_target}" in captured
-    assert "failed: job-800 (forced failure)" in captured
-    assert success_target.exists()
+    assert "organized: 0" in captured
+    assert "skipped: 2" in captured
+    assert "failed: 0" in captured
+    assert f"job-700: {success_target}" not in captured
+    assert "failed: job-800 (forced failure)" not in captured
+    assert not success_target.exists()
     assert failure_job_dir.exists()
     assert notifications == [
         {
             "cfg": load_config(str(config_path)),
-            "organized_count": 1,
-            "skipped_count": 1,
+            "organized_count": 0,
+            "skipped_count": 2,
             "root": allowed_root.resolve(),
         }
     ]

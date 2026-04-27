@@ -27,7 +27,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("list", help="Show queued CREST jobs")
 
-    organize = sub.add_parser("organize", help="Plan or apply organization into crest_outputs")
+    organize = sub.add_parser("organize", help="Plan or apply CREST job organization")
     organize.add_argument("--job-dir", default=None, help="Single job directory to organize")
     organize.add_argument("--root", default=None, help="Root under allowed_root to scan for completed jobs")
     organize.add_argument("--apply", action="store_true", help="Move completed job directories into organized_root")

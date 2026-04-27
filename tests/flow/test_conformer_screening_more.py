@@ -149,7 +149,7 @@ def test_build_conformer_screening_plan_with_no_candidates_writes_empty_workflow
     assert payload["stages"] == []
     assert payload["metadata"]["request"]["source_artifacts"] == []
     assert payload["metadata"]["workspace_dir"] == str(workspace_dir)
-    assert (workspace_dir / "stage_02_orca").is_dir()
+    assert (workspace_dir / "02_orca").is_dir()
     assert workflow_json.exists()
     assert json.loads(workflow_json.read_text(encoding="utf-8")) == payload
 

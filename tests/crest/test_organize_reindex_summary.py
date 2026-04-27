@@ -15,7 +15,6 @@ from chemstack.crest.state import (
     load_organized_ref,
     load_report_json,
     load_state,
-    write_organized_ref,
     write_report_json,
     write_report_md,
     write_state,
@@ -24,10 +23,9 @@ from chemstack.crest.state import (
 
 def _write_config(tmp_path: Path) -> tuple[Path, Path, Path]:
     workflow_root = tmp_path / "workflow_root"
-    allowed_root = workflow_root / "wf_001" / "internal" / "crest" / "runs"
-    organized_root = workflow_root / "wf_001" / "internal" / "crest" / "outputs"
+    allowed_root = workflow_root / "wf_001" / "01_crest"
+    organized_root = allowed_root
     allowed_root.mkdir(parents=True)
-    organized_root.mkdir(parents=True)
     config_path = tmp_path / "chemstack.yaml"
     config_path.write_text(
         "\n".join(
@@ -114,7 +112,7 @@ def _write_job_artifacts(
     return selected_xyz
 
 
-def test_organize_job_dir_moves_terminal_job_and_updates_index(tmp_path: Path) -> None:
+def test_organize_job_dir_skips_workflow_stage_job_without_outputs(tmp_path: Path) -> None:
     config_path, allowed_root, organized_root = _write_config(tmp_path)
     cfg = load_config(str(config_path))
     job_dir = allowed_root / "job-complete"
@@ -129,45 +127,29 @@ def test_organize_job_dir_moves_terminal_job_and_updates_index(tmp_path: Path) -
 
     result = organize_job_dir(cfg, job_dir)
 
-    target_dir = organized_root / "standard" / "water" / "job-001"
     assert result == {
-        "action": "organized",
-        "job_id": "job-001",
-        "status": "completed",
+        "action": "skip",
         "job_dir": str(job_dir.resolve()),
-        "target_dir": str(target_dir.resolve()),
-        "mode": "standard",
-        "molecule_key": "water",
+        "reason": "already_under_organized_root",
     }
-    assert sorted(path.name for path in job_dir.iterdir()) == ["organized_ref.json"]
-    assert not (job_dir / selected_xyz.name).exists()
-    assert (target_dir / selected_xyz.name).exists()
+    assert (job_dir / selected_xyz.name).exists()
+    assert not (organized_root / "standard").exists()
 
     organized_ref = load_organized_ref(job_dir)
-    assert organized_ref is not None
-    assert organized_ref["original_run_dir"] == str(job_dir.resolve())
-    assert organized_ref["organized_output_dir"] == str(target_dir.resolve())
+    assert organized_ref is None
 
-    state = load_state(target_dir)
-    report = load_report_json(target_dir)
+    state = load_state(job_dir)
+    report = load_report_json(job_dir)
     assert state is not None
     assert report is not None
-    assert state["job_dir"] == str(target_dir.resolve())
-    assert state["original_run_dir"] == str(job_dir.resolve())
-    assert state["organized_output_dir"] == str(target_dir.resolve())
-    assert state["latest_known_path"] == str(target_dir.resolve())
-    assert report["latest_known_path"] == str(target_dir.resolve())
-    report_md = (target_dir / "job_report.md").read_text(encoding="utf-8")
-    assert "## Organization" in report_md
-    assert f"- Original Run Dir: `{job_dir.resolve()}`" in report_md
+    assert state["job_dir"] == str(job_dir.resolve())
+    assert "organized_output_dir" not in state
+    assert "latest_known_path" not in state
+    report_md = (job_dir / "job_report.md").read_text(encoding="utf-8")
+    assert "## Organization" not in report_md
 
     record = get_job_location(allowed_root, "job-001")
-    assert record is not None
-    assert record.original_run_dir == str(job_dir.resolve())
-    assert record.organized_output_dir == str(target_dir.resolve())
-    assert record.latest_known_path == str(target_dir.resolve())
-    assert record.resource_request == {"max_cores": 6, "max_memory_gb": 12}
-    assert record.resource_actual == {"max_cores": 4, "max_memory_gb": 10}
+    assert record is None
 
 
 def test_cmd_organize_dry_run_lists_planned_moves_without_moving_files(
@@ -190,14 +172,13 @@ def test_cmd_organize_dry_run_lists_planned_moves_without_moving_files(
     )
 
     captured = capsys.readouterr().out
-    planned_target = organized_root / "standard" / "ethanol" / "job-100"
     assert rc == 0
     assert "action: dry_run" in captured
-    assert "to_organize: 1" in captured
-    assert "skipped: 1" in captured
-    assert f"job-100: {completed_job.resolve()} -> {planned_target.resolve()}" in captured
+    assert "to_organize: 0" in captured
+    assert "skipped: 2" in captured
+    assert f"job-100: {completed_job.resolve()} ->" not in captured
     assert completed_job.exists()
-    assert not planned_target.exists()
+    assert not (organized_root / "standard").exists()
     assert load_organized_ref(completed_job) is None
 
 
@@ -207,20 +188,16 @@ def test_cmd_reindex_indexes_jobs_from_allowed_and_organized_artifacts(
 ) -> None:
     config_path, allowed_root, organized_root = _write_config(tmp_path)
     first_job = allowed_root / "job-alpha"
-    organized_job = organized_root / "standard" / "beta" / "job-beta"
-    skipped_job = organized_root / "standard" / "bad" / "missing-id"
+    second_job = allowed_root / "job-beta"
+    skipped_job = allowed_root / "missing-id"
 
     _write_job_artifacts(first_job, job_id="job-alpha", status="completed", selected_name="alpha.xyz")
-    original_run_dir = allowed_root / "job-beta-original"
     _write_job_artifacts(
-        organized_job,
+        second_job,
         job_id="job-beta",
         status="failed",
         selected_name="beta.xyz",
         molecule_key="beta",
-        original_run_dir=str(original_run_dir.resolve()),
-        organized_output_dir=str(organized_job.resolve()),
-        latest_known_path=str(organized_job.resolve()),
     )
     skipped_job.mkdir(parents=True, exist_ok=True)
     write_state(skipped_job, {"status": "completed"})
@@ -229,7 +206,7 @@ def test_cmd_reindex_indexes_jobs_from_allowed_and_organized_artifacts(
 
     captured = capsys.readouterr().out
     assert rc == 0
-    assert "scan_roots: 2" in captured
+    assert "scan_roots: 1" in captured
     assert "candidate_dirs: 3" in captured
     assert "indexed: 2" in captured
     assert "skipped: 1" in captured
@@ -240,9 +217,9 @@ def test_cmd_reindex_indexes_jobs_from_allowed_and_organized_artifacts(
     assert alpha_record.latest_known_path == str(first_job.resolve())
     assert beta_record is not None
     assert beta_record.status == "failed"
-    assert beta_record.original_run_dir == str(original_run_dir.resolve())
-    assert beta_record.organized_output_dir == str(organized_job.resolve())
-    assert beta_record.latest_known_path == str(organized_job.resolve())
+    assert beta_record.original_run_dir == str(second_job.resolve())
+    assert beta_record.organized_output_dir == ""
+    assert beta_record.latest_known_path == str(second_job.resolve())
 
 
 def test_scan_roots_prefers_explicit_root_and_skips_invalid_default_roots(tmp_path: Path) -> None:
@@ -280,36 +257,13 @@ def test_cmd_summary_resolves_job_id_and_original_path_with_json_and_text_output
     capsys,
 ) -> None:
     config_path, allowed_root, organized_root = _write_config(tmp_path)
-    original_job_dir = allowed_root / "job-900"
-    original_job_dir.mkdir(parents=True, exist_ok=True)
-    selected_xyz = original_job_dir / "ethanol.xyz"
-    _write_xyz(selected_xyz)
-
-    organized_job_dir = organized_root / "standard" / "ethanol" / "job-900"
+    job_dir = allowed_root / "job-900"
     _write_job_artifacts(
-        organized_job_dir,
+        job_dir,
         job_id="job-900",
         status="completed",
-        selected_name=selected_xyz.name,
+        selected_name="ethanol.xyz",
         molecule_key="ethanol",
-        original_run_dir=str(original_job_dir.resolve()),
-        organized_output_dir=str(organized_job_dir.resolve()),
-        latest_known_path=str(organized_job_dir.resolve()),
-    )
-    write_organized_ref(
-        original_job_dir,
-        {
-            "job_id": "job-900",
-            "original_run_dir": str(original_job_dir.resolve()),
-            "organized_output_dir": str(organized_job_dir.resolve()),
-            "organized_at": "2026-04-19T00:00:00+00:00",
-            "status": "completed",
-            "mode": "standard",
-            "selected_input_xyz": str(selected_xyz.resolve()),
-            "molecule_key": "ethanol",
-            "resource_request": {"max_cores": 4, "max_memory_gb": 8},
-            "resource_actual": {"max_cores": 4, "max_memory_gb": 8},
-        },
     )
     cmd_reindex(Namespace(config=str(config_path), root=None))
     capsys.readouterr()
@@ -318,19 +272,19 @@ def test_cmd_summary_resolves_job_id_and_original_path_with_json_and_text_output
     json_payload = json.loads(capsys.readouterr().out)
     assert json_rc == 0
     assert json_payload["target"] == "job-900"
-    assert json_payload["job_dir"] == str(organized_job_dir.resolve())
+    assert json_payload["job_dir"] == str(job_dir.resolve())
     assert json_payload["index_record"]["job_id"] == "job-900"
-    assert json_payload["index_record"]["latest_known_path"] == str(organized_job_dir.resolve())
-    assert json_payload["state"]["original_run_dir"] == str(original_job_dir.resolve())
+    assert json_payload["index_record"]["latest_known_path"] == str(job_dir.resolve())
+    assert json_payload["state"]["job_dir"] == str(job_dir.resolve())
     assert json_payload["report"]["status"] == "completed"
 
-    text_rc = cmd_summary(Namespace(config=str(config_path), target=str(original_job_dir), json=False))
+    text_rc = cmd_summary(Namespace(config=str(config_path), target=str(job_dir), json=False))
     text_output = capsys.readouterr().out
     assert text_rc == 0
-    assert f"job_dir: {organized_job_dir.resolve()}" in text_output
+    assert f"job_dir: {job_dir.resolve()}" in text_output
     assert "job_id: job-900" in text_output
-    assert f"latest_known_path: {organized_job_dir.resolve()}" in text_output
-    assert f"organized_output_dir: {organized_job_dir.resolve()}" in text_output
+    assert f"latest_known_path: {job_dir.resolve()}" in text_output
+    assert "organized_output_dir:" not in text_output
     assert "status: completed" in text_output
     assert "stdout_log:" in text_output
 

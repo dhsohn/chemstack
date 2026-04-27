@@ -135,7 +135,7 @@ def test_build_conformer_screening_plan_with_no_candidates_still_writes_workflow
     assert payload["metadata"]["workspace_dir"] == str(expected_workspace)
     assert payload["metadata"]["request"]["source_artifacts"] == []
     assert atomic_calls == [{"path": expected_workspace / "workflow.json", "payload": payload}]
-    assert (expected_workspace / "stage_02_orca").is_dir()
+    assert (expected_workspace / "02_orca").is_dir()
 
 
 def test_build_conformer_screening_plan_from_target_forwards_args_without_sync(

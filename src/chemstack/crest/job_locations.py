@@ -26,6 +26,12 @@ def index_root_for_cfg(cfg: AppConfig) -> Path:
     return Path(cfg.runtime.allowed_root).expanduser().resolve()
 
 
+def _append_unique_root(roots: list[Path], candidate: Path) -> None:
+    resolved = candidate.expanduser().resolve()
+    if resolved not in roots:
+        roots.append(resolved)
+
+
 def runtime_roots_for_cfg(cfg: AppConfig) -> tuple[Path, ...]:
     workflow_root = _normalize_text(getattr(cfg, "workflow_root", ""))
     if not workflow_root:
@@ -35,9 +41,7 @@ def runtime_roots_for_cfg(cfg: AppConfig) -> tuple[Path, ...]:
 
     for workspace_dir in iter_workflow_runtime_workspaces(workflow_root, engine="crest"):
         runtime_paths = workflow_workspace_internal_engine_paths(workspace_dir, engine="crest")
-        candidate = runtime_paths["allowed_root"].expanduser().resolve()
-        if candidate not in roots:
-            roots.append(candidate)
+        _append_unique_root(roots, runtime_paths["allowed_root"])
     return tuple(roots)
 
 

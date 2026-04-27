@@ -179,8 +179,8 @@ def resolve_job_dir(cfg: AppConfig, raw_job_dir: str) -> Path:
         )
         if runtime_paths is None:
             raise ValueError(
-                "Job directory must be under a workflow-local xTB runs root: "
-                "<workflow.root>/<workflow_id>/internal/xtb/runs/..."
+                "Job directory must be under a workflow-local xTB root: "
+                "<workflow.root>/<workflow_id>/02_xtb/..."
             )
         return validate_job_dir(raw_job_dir, str(runtime_paths["allowed_root"]), label="Job directory")
     return validate_job_dir(raw_job_dir, cfg.runtime.allowed_root, label="Job directory")

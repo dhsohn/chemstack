@@ -102,7 +102,7 @@ def test_conformer_screening_workflow_handoff_smoke(
     )
     workflow_id = str(created["workflow_id"])
     workspace_dir = workflow_root / workflow_id
-    crest_runs_root = workspace_dir / "internal" / "crest" / "runs"
+    crest_root = workspace_dir / "01_crest"
 
     initial_payload = get_workflow(target=workflow_id, workflow_root=workflow_root)["workflow"]
     initial_crest_stages = _engine_stages(initial_payload, "crest")
@@ -127,12 +127,12 @@ def test_conformer_screening_workflow_handoff_smoke(
     assert submitted_metadata["child_job_id"]
     assert _engine_stages(submitted_payload, "orca") == []
 
-    record = get_job_location(crest_runs_root, submitted_metadata["child_job_id"])
+    record = get_job_location(crest_root, submitted_metadata["child_job_id"])
     assert record is not None
     assert record.app_name == "crest_auto"
     assert record.status in {"queued", "pending"}
 
-    queue_entries = list_queue(crest_runs_root)
+    queue_entries = list_queue(crest_root)
     assert len(queue_entries) == 1
     assert queue_entries[0].task_id == submitted_metadata["child_job_id"]
     assert queue_entries[0].queue_id == submitted_metadata["queue_id"]
@@ -161,12 +161,11 @@ def test_conformer_screening_workflow_handoff_smoke(
     assert crest_stage["task"]["status"] == "completed"
     assert crest_metadata["queue_id"] == submitted_metadata["queue_id"]
     assert crest_metadata["child_job_id"] == submitted_metadata["child_job_id"]
-    assert crest_metadata["organized_output_dir"]
-    assert Path(crest_metadata["organized_output_dir"]).exists()
-    assert Path(crest_metadata["organized_output_dir"]).is_relative_to(
-        workspace_dir / "internal" / "crest" / "outputs"
-    )
-    assert Path(crest_metadata["organized_output_dir"], "crest_conformers.xyz").exists()
+    assert not crest_metadata["organized_output_dir"]
+    assert crest_metadata["latest_known_path"]
+    assert Path(crest_metadata["latest_known_path"]).exists()
+    assert Path(crest_metadata["latest_known_path"]).is_relative_to(workspace_dir / "01_crest")
+    assert Path(crest_metadata["latest_known_path"], "crest_conformers.xyz").exists()
 
     orca_stages = _engine_stages(handed_off_payload, "orca")
     assert len(orca_stages) == 2
@@ -181,11 +180,12 @@ def test_conformer_screening_workflow_handoff_smoke(
         assert stage["status"] == "planned"
         assert task["status"] == "planned"
         assert reaction_dir.exists()
+        assert reaction_dir.is_relative_to(workspace_dir / "02_orca")
         assert selected_inp.exists()
         assert selected_input_xyz.exists()
         assert (reaction_dir / selected_inp.name).exists()
-        assert (reaction_dir.parent / "source_candidate.json").exists()
-        assert (reaction_dir.parent / "enqueue_payload.json").exists()
+        assert (reaction_dir / "source_candidate.json").exists()
+        assert (reaction_dir / "enqueue_payload.json").exists()
         assert "r2scan-3c Opt TightSCF" in selected_inp.read_text(encoding="utf-8")
 
     persisted = get_workflow(target=workflow_id, workflow_root=workflow_root)
@@ -230,15 +230,16 @@ def test_xtb_reaction_ts_search_handoff_smoke(
     assert record is not None
     assert record.app_name == "xtb_auto"
     assert record.status == "completed"
-    assert record.organized_output_dir
+    assert record.organized_output_dir == ""
 
-    organized_dir = Path(record.organized_output_dir)
-    assert organized_dir.exists()
-    assert (organized_dir / "xtbpath_ts.xyz").exists()
-    assert (organized_dir / "xtbpath_0.xyz").exists()
-    assert not (organized_dir / "xtbpath_1.xyz").exists()
-    assert not (organized_dir / "xtbpath.xyz").exists()
-    assert (xtb_path_search_job / "organized_ref.json").exists()
+    artifact_dir = xtb_path_search_job.resolve()
+    assert record.latest_known_path == str(artifact_dir)
+    assert artifact_dir.exists()
+    assert (artifact_dir / "xtbpath_ts.xyz").exists()
+    assert (artifact_dir / "xtbpath_0.xyz").exists()
+    assert not (artifact_dir / "xtbpath_1.xyz").exists()
+    assert not (artifact_dir / "xtbpath.xyz").exists()
+    assert not (xtb_path_search_job / "organized_ref.json").exists()
 
     contract = load_xtb_artifact_contract(
         xtb_index_root=smoke_workspace.xtb_allowed_root,
@@ -246,7 +247,7 @@ def test_xtb_reaction_ts_search_handoff_smoke(
     )
     assert contract.status == "completed"
     assert contract.job_type == "path_search"
-    assert contract.organized_output_dir == str(organized_dir)
+    assert contract.organized_output_dir == ""
     assert Path(contract.selected_candidate_paths[0]).name == "xtbpath_ts.xyz"
     assert any(detail.kind == "ts_guess" for detail in contract.candidate_details)
     assert any(detail.kind == "selected_path" for detail in contract.candidate_details)
@@ -267,7 +268,7 @@ def test_xtb_reaction_ts_search_handoff_smoke(
     assert payload["template_name"] == "reaction_ts_search"
     assert payload["source_job_id"] == submission["job_id"]
     assert payload["metadata"]["source_contract"]["job_id"] == submission["job_id"]
-    assert payload["metadata"]["source_contract"]["organized_output_dir"] == str(organized_dir)
+    assert payload["metadata"]["source_contract"]["organized_output_dir"] == ""
     assert len(payload["stages"]) == 1
 
     stage = payload["stages"][0]
@@ -276,7 +277,7 @@ def test_xtb_reaction_ts_search_handoff_smoke(
     reaction_dir = Path(task_payload["reaction_dir"])
     selected_inp = Path(task_payload["selected_inp"])
     selected_input_xyz = Path(task_payload["selected_input_xyz"])
-    stage_dir = reaction_dir.parent
+    stage_dir = reaction_dir
 
     assert stage["stage_id"] == "orca_optts_freq_01"
     assert stage["status"] == "planned"

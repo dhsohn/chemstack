@@ -38,8 +38,8 @@ def resolve_scaffold_job_dir(
         )
         if runtime_paths is None:
             raise ValueError(
-                f"Init root must be under a workflow-local {engine_label} runs root: "
-                f"<workflow.root>/<workflow_id>/internal/{engine}/runs/..."
+                f"Init root must be under a workflow-local {engine_label} root: "
+                f"<workflow.root>/<workflow_id>/<nn>_{engine}/..."
             )
         allowed_root = ensure_directory(runtime_paths["allowed_root"], label="Allowed root")
     else:

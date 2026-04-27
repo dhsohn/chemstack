@@ -215,6 +215,83 @@ def test_append_reaction_xtb_stages_filters_endpoint_pairs(
     assert payload["metadata"]["endpoint_pairing"]["selected_pair_count"] == 1
 
 
+def test_append_reaction_xtb_stages_can_exclude_moving_atoms(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payload: dict[str, Any] = {
+        "workflow_id": "wf_reaction_pairing_exclude",
+        "stages": [
+            {"stage_id": "crest_reactant", "status": "completed", "metadata": {"input_role": "reactant"}, "task": {"engine": "crest"}},
+            {"stage_id": "crest_product", "status": "completed", "metadata": {"input_role": "product"}, "task": {"engine": "crest"}},
+        ],
+        "metadata": {
+            "request": {
+                "parameters": {
+                    "max_crest_candidates": 2,
+                    "max_xtb_stages": 1,
+                    "endpoint_pairing": {
+                        "enabled": True,
+                        "moving_atoms": [4],
+                        "max_distance_rmsd": 0.05,
+                    },
+                }
+            }
+        },
+    }
+    r_a = _write_xyz(
+        tmp_path / "reactant_a.xyz",
+        [("C", 0, 0, 0), ("C", 1, 0, 0), ("C", 0, 1, 0), ("H", 0, 0, 2)],
+    )
+    p_a = _write_xyz(
+        tmp_path / "product_a.xyz",
+        [("C", 5, 5, 0), ("C", 6, 5, 0), ("C", 5, 6, 0), ("H", 12, 12, 12)],
+    )
+    r_b = _write_xyz(
+        tmp_path / "reactant_b.xyz",
+        [("C", 0, 0, 0), ("C", 2, 0, 0), ("C", 0, 2, 0), ("H", 0, 0, 2)],
+    )
+    p_b = _write_xyz(
+        tmp_path / "product_b.xyz",
+        [("C", 0, 0, 0), ("C", 3, 0, 0), ("C", 0, 3, 0), ("H", 0, 0, 2)],
+    )
+    reactant_inputs = [
+        _candidate(r_a, source_job_id="crest_r", source_job_type="crest", reaction_key="rxn_r_a", rank=1, kind="conformer"),
+        _candidate(r_b, source_job_id="crest_r", source_job_type="crest", reaction_key="rxn_r_b", rank=2, kind="conformer"),
+    ]
+    product_inputs = [
+        _candidate(p_a, source_job_id="crest_p", source_job_type="crest", reaction_key="rxn_p_a", rank=1, kind="conformer"),
+        _candidate(p_b, source_job_id="crest_p", source_job_type="crest", reaction_key="rxn_p_b", rank=2, kind="conformer"),
+    ]
+
+    monkeypatch.setattr(
+        orchestration,
+        "_completed_crest_stage",
+        lambda stage, **kwargs: "reactant_contract" if stage["metadata"]["input_role"] == "reactant" else "product_contract",
+    )
+    monkeypatch.setattr(
+        orchestration,
+        "select_crest_downstream_inputs",
+        lambda contract, policy: reactant_inputs if contract == "reactant_contract" else product_inputs,
+    )
+
+    created = orchestration._append_reaction_xtb_stages(
+        payload,
+        workspace_dir=tmp_path,
+        crest_auto_config="/tmp/crest.yaml",
+    )
+
+    xtb_stages = [stage for stage in payload["stages"] if stage.get("task", {}).get("engine") == "xtb"]
+    assert created is True
+    assert len(xtb_stages) == 1
+    assert xtb_stages[0]["task"]["payload"]["reactant_source"]["artifact_path"] == r_a
+    assert xtb_stages[0]["task"]["payload"]["product_source"]["artifact_path"] == p_a
+    pairing = xtb_stages[0]["metadata"]["endpoint_pairing"]
+    assert pairing["comparison_atoms"] == [1, 2, 3]
+    assert pairing["excluded_atoms"] == [4]
+    assert pairing["distance_fingerprint_rmsd"] == 0.0
+
+
 def test_append_reaction_xtb_stages_waits_for_latest_product_crest_stage(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -421,7 +498,7 @@ def test_append_reaction_orca_stages_appends_unattempted_candidate_without_mutat
     assert appended["metadata"]["reaction_remaining_candidates_after_this"] == 0
 
 
-def test_append_reaction_orca_stages_materializes_under_workflow_internal_orca_runs(
+def test_append_reaction_orca_stages_materializes_under_workflow_orca_stage_root(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -476,8 +553,8 @@ def test_append_reaction_orca_stages_materializes_under_workflow_internal_orca_r
     )
 
     assert created is True
-    assert build_calls[0]["workspace_dir"] == (tmp_path / "wf_reaction_local" / "internal" / "orca" / "runs").resolve()
-    assert build_calls[0]["stage_root_name"] == "stage_03_orca"
+    assert build_calls[0]["workspace_dir"] == (tmp_path / "wf_reaction_local" / "03_orca").resolve()
+    assert build_calls[0]["stage_root_name"] == ""
 
 
 def test_append_crest_orca_stages_materializes_orca_stages_from_completed_crest(

@@ -218,8 +218,8 @@ def _materialize_orca_stage(
     if not source_xyz.exists():
         raise FileNotFoundError(f"xTB candidate artifact not found: {source_xyz}")
 
-    stage_dir = workspace_dir / "stage_03_orca" / f"{index:02d}_{_safe_name(candidate.kind, fallback='candidate')}"
-    reaction_dir = stage_dir / "reaction_dir"
+    stage_dir = workspace_dir / "03_orca" / f"{index:02d}_{_safe_name(candidate.kind, fallback='candidate')}"
+    reaction_dir = stage_dir
     reaction_dir.mkdir(parents=True, exist_ok=True)
 
     target_xyz = reaction_dir / "ts_guess.xyz"
@@ -320,7 +320,6 @@ def build_reaction_ts_search_plan(
     if workspace_root is not None:
         workspace_dir = Path(workspace_root).expanduser().resolve() / workflow_id
         workspace_dir.mkdir(parents=True, exist_ok=True)
-        (workspace_dir / "stage_03_orca").mkdir(parents=True, exist_ok=True)
 
     stages: list[WorkflowStage] = []
     stage_payloads: list[dict[str, Any]] = []
@@ -417,7 +416,7 @@ def build_reaction_ts_search_plan(
         if workspace_dir is not None:
             stage_key = f"{index:02d}_{_safe_name(candidate.kind, fallback='candidate')}"
             atomic_write_json(
-                workspace_dir / "stage_03_orca" / stage_key / "enqueue_payload.json",
+                workspace_dir / "03_orca" / stage_key / "enqueue_payload.json",
                 dict(enqueue_payload),
                 ensure_ascii=True,
                 indent=2,

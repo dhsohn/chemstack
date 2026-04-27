@@ -13,9 +13,9 @@ from chemstack.core.scaffold import (
 )
 
 
-def test_resolve_scaffold_job_dir_uses_workflow_local_runs_root(tmp_path: Path) -> None:
+def test_resolve_scaffold_job_dir_uses_workflow_local_root(tmp_path: Path) -> None:
     workflow_root = tmp_path / "workflow_root"
-    allowed_root = workflow_root / "wf_001" / "internal" / "xtb" / "runs"
+    allowed_root = workflow_root / "wf_001" / "02_xtb"
     allowed_root.mkdir(parents=True)
     cfg = SimpleNamespace(
         workflow_root=str(workflow_root),
@@ -52,17 +52,17 @@ def test_resolve_scaffold_job_dir_uses_configured_allowed_root(tmp_path: Path) -
     assert job_dir.is_dir()
 
 
-def test_resolve_scaffold_job_dir_rejects_paths_outside_workflow_runs_root(
+def test_resolve_scaffold_job_dir_rejects_paths_outside_workflow_root(
     tmp_path: Path,
 ) -> None:
     workflow_root = tmp_path / "workflow_root"
-    (workflow_root / "wf_001" / "internal" / "xtb" / "runs").mkdir(parents=True)
+    (workflow_root / "wf_001" / "02_xtb").mkdir(parents=True)
     cfg = SimpleNamespace(
         workflow_root=str(workflow_root),
         runtime=SimpleNamespace(allowed_root=str(tmp_path / "fallback")),
     )
 
-    with pytest.raises(ValueError, match="workflow-local xTB runs root"):
+    with pytest.raises(ValueError, match="workflow-local xTB root"):
         resolve_scaffold_job_dir(
             tmp_path / "outside-job",
             cfg,

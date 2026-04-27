@@ -6,7 +6,7 @@ from typing import Any
 
 import yaml
 
-from .state import workflow_workspace_internal_engine_paths
+from .state import workflow_stage_dirnames_for_engine, workflow_workspace_internal_engine_paths
 from .xyz_utils import load_xyz_frames
 
 
@@ -43,12 +43,9 @@ def _workflow_internal_runs_root(path_text: str, *, engine: str) -> Path | None:
         return None
 
     engine_text = str(engine).strip().lower()
+    stage_dirnames = workflow_stage_dirnames_for_engine(engine_text)
     for candidate in (path, *path.parents):
-        if (
-            candidate.name == "runs"
-            and candidate.parent.name == engine_text
-            and candidate.parent.parent.name == "internal"
-        ):
+        if candidate.name in stage_dirnames:
             return candidate
     return None
 
@@ -58,7 +55,14 @@ def _workflow_internal_organized_root(path_text: str, *, engine: str) -> Path | 
     if runs_root is None:
         return None
     try:
-        return workflow_workspace_internal_engine_paths(runs_root.parents[2], engine=engine)["organized_root"]
+        if runs_root.name not in workflow_stage_dirnames_for_engine(engine):
+            return None
+        workspace_dir = runs_root.parent
+        return workflow_workspace_internal_engine_paths(
+            workspace_dir,
+            engine=engine,
+            stage_dirname=runs_root.name,
+        )["organized_root"]
     except (IndexError, ValueError):
         return None
 

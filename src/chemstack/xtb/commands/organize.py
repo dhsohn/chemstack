@@ -52,8 +52,9 @@ def _default_scan_roots(cfg: Any) -> list[Path]:
 
     roots: list[Path] = []
     for workspace_dir in iter_workflow_runtime_workspaces(workflow_root, engine="xtb"):
-        candidate = workflow_workspace_internal_engine_paths(workspace_dir, engine="xtb")["allowed_root"].expanduser().resolve()
-        if candidate not in roots:
+        runtime_paths = workflow_workspace_internal_engine_paths(workspace_dir, engine="xtb")
+        candidate = runtime_paths["allowed_root"].expanduser().resolve()
+        if candidate.exists() and candidate not in roots:
             roots.append(candidate)
     return roots
 

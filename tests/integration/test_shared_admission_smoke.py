@@ -112,8 +112,9 @@ exit 0
     xtb_record = get_job_location(smoke_workspace.xtb_allowed_root, xtb_submission["job_id"])
     assert xtb_record is not None
     assert xtb_record.status == "completed"
-    assert xtb_record.organized_output_dir
-    assert Path(xtb_record.organized_output_dir).exists()
+    assert xtb_record.organized_output_dir == ""
+    assert xtb_record.latest_known_path == str(xtb_opt_job.resolve())
+    assert Path(xtb_record.latest_known_path).exists()
 
     assert crest_queue_cmd._process_one(
         crest_queue_cmd.load_config(str(smoke_workspace.crest_config_path)),
@@ -127,8 +128,9 @@ exit 0
     crest_record = get_job_location(smoke_workspace.crest_allowed_root, crest_submission["job_id"])
     assert crest_record is not None
     assert crest_record.status == "completed"
-    assert crest_record.organized_output_dir
-    assert Path(crest_record.organized_output_dir).exists()
+    assert crest_record.organized_output_dir == ""
+    assert crest_record.latest_known_path == str(crest_job.resolve())
+    assert Path(crest_record.latest_known_path).exists()
 
     assert _queue_status(list_queue(smoke_workspace.xtb_allowed_root)[0]) == "completed"
     assert _queue_status(list_queue(smoke_workspace.crest_allowed_root)[0]) == "completed"

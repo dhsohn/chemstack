@@ -763,7 +763,7 @@ def test_cmd_queue_list_hides_non_orca_workflow_children_in_default_text_output(
                     "metadata": {
                         "task_kind": "path_search",
                         "workflow_id": "wf-1",
-                        "job_dir": "/tmp/workflows/wf-1/internal/xtb/runs/stage_01_xtb",
+                        "job_dir": "/tmp/workflows/wf-1/02_xtb/xtb_path_search_01",
                     },
                 },
                 {
@@ -778,7 +778,7 @@ def test_cmd_queue_list_hides_non_orca_workflow_children_in_default_text_output(
                     "metadata": {
                         "task_kind": "conformer_search",
                         "workflow_id": "wf-1",
-                        "job_dir": "/tmp/workflows/wf-1/internal/crest/runs/stage_00_crest",
+                        "job_dir": "/tmp/workflows/wf-1/01_crest/crest_reactant_01",
                     },
                 },
                 {
@@ -793,7 +793,7 @@ def test_cmd_queue_list_hides_non_orca_workflow_children_in_default_text_output(
                     "metadata": {
                         "task_kind": "optts_freq",
                         "workflow_id": "wf-1",
-                        "reaction_dir": "/tmp/workflows/wf-1/stage_03_orca/case_001/reaction_dir",
+                        "reaction_dir": "/tmp/workflows/wf-1/03_orca/case_001",
                     },
                 },
                 {
@@ -859,7 +859,7 @@ def test_cmd_queue_list_shows_all_workflow_child_jobs(
             "updated_at": "2026-04-26T02:00:00+00:00",
             "metadata": {
                 "task_kind": "optts_freq",
-                "reaction_dir": f"/tmp/orca/workflow_jobs/wf-1/stage_03_orca/case_{index:03d}",
+                "reaction_dir": f"/tmp/orca/workflow_jobs/wf-1/03_orca/case_{index:03d}",
             },
         }
         for index in range(1, 10)

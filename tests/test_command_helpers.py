@@ -74,13 +74,13 @@ class TestCommandPathValidators(unittest.TestCase):
             with self.assertRaises(ValueError):
                 _validate_reaction_dir(cfg, str(allowed / "missing"))
 
-    def test_validate_reaction_dir_accepts_workflow_local_orca_runs(self) -> None:
+    def test_validate_reaction_dir_accepts_workflow_local_orca_root(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             workflow_root = root / "workflow_root"
             allowed = root / "allowed"
             organized = root / "organized"
-            reaction = workflow_root / "wf_example" / "internal" / "orca" / "runs" / "stage_02_orca" / "job_01" / "reaction_dir"
+            reaction = workflow_root / "wf_example" / "02_orca" / "job_01"
             allowed.mkdir()
             organized.mkdir()
             reaction.mkdir(parents=True)

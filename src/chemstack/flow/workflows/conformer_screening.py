@@ -33,21 +33,24 @@ def build_conformer_screening_plan(
         policy=CrestDownstreamPolicy.build(max_candidates=max_orca_stages),
     )
     workspace_dir: Path | None = None
+    orca_workspace_dir: Path | None = None
     if workspace_root is not None:
         workspace_dir = Path(workspace_root).expanduser().resolve() / workflow_id
-        (workspace_dir / "stage_02_orca").mkdir(parents=True, exist_ok=True)
+        workspace_dir.mkdir(parents=True, exist_ok=True)
+        orca_workspace_dir = workspace_dir / "02_orca"
+        orca_workspace_dir.mkdir(parents=True, exist_ok=True)
 
     stages = []
     for index, candidate in enumerate(candidates, start=1):
-        if workspace_dir is None:
+        if workspace_dir is None or orca_workspace_dir is None:
             continue
         stage = build_materialized_orca_stage(
             workflow_id=workflow_id,
             template_name="conformer_screening",
             stage_id=f"orca_conformer_{index:02d}",
             stage_key=f"{index:02d}_{safe_name(candidate.kind, fallback='conformer')}",
-            stage_root_name="stage_02_orca",
-            workspace_dir=workspace_dir,
+            stage_root_name="",
+            workspace_dir=orca_workspace_dir,
             input_artifact_kind="crest_conformer",
             candidate=candidate,
             task_kind="opt",

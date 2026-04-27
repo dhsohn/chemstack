@@ -12,7 +12,14 @@ WORKFLOW_LOCK_NAME = "workflow.lock"
 # Deprecated compatibility placeholder. Workflow workspaces now live directly
 # under ``workflow.root`` instead of ``workflow.root/workflows``.
 WORKFLOWS_DIRNAME = ""
-WORKFLOW_INTERNAL_DIRNAME = "internal"
+WORKFLOW_STAGE_DIRNAMES = {
+    "crest": "01_crest",
+    "xtb": "02_xtb",
+    "orca": "03_orca",
+}
+WORKFLOW_ENGINE_STAGE_ALIASES = {
+    "orca": ("02_orca", "03_orca"),
+}
 
 
 def _normalize_text(value: Any) -> str:
@@ -58,16 +65,31 @@ def workflow_workspace_internal_engine_paths(
     workspace_dir: str | Path,
     *,
     engine: str,
+    stage_dirname: str | None = None,
 ) -> dict[str, Path]:
     engine_text = _normalize_text(engine).lower()
     if not engine_text:
-        raise ValueError("workflow internal engine is required")
+        raise ValueError("workflow engine is required")
     workspace = Path(workspace_dir).expanduser().resolve()
-    base = workspace / WORKFLOW_INTERNAL_DIRNAME / engine_text
+    stage_name = _normalize_text(stage_dirname) or WORKFLOW_STAGE_DIRNAMES.get(engine_text) or f"stage_{engine_text}"
+    stage_base = workspace / stage_name
     return {
-        "allowed_root": base / "runs",
-        "organized_root": base / "outputs",
+        "allowed_root": stage_base,
+        "organized_root": stage_base,
     }
+
+
+def workflow_stage_dirnames_for_engine(engine: str) -> tuple[str, ...]:
+    engine_text = _normalize_text(engine).lower()
+    if not engine_text:
+        return ()
+    primary = WORKFLOW_STAGE_DIRNAMES.get(engine_text) or f"stage_{engine_text}"
+    aliases = WORKFLOW_ENGINE_STAGE_ALIASES.get(engine_text, ())
+    ordered: list[str] = []
+    for item in (*aliases, primary):
+        if item and item not in ordered:
+            ordered.append(item)
+    return tuple(ordered)
 
 
 def workflow_workspace_internal_engine_paths_from_path(
@@ -92,13 +114,17 @@ def workflow_workspace_internal_engine_paths_from_path(
         return None
 
     parts = relative.parts
-    if len(parts) < 4:
-        return None
-    if parts[1] != WORKFLOW_INTERNAL_DIRNAME or parts[2] != engine_text or parts[3] not in {"runs", "outputs"}:
+    if len(parts) < 2:
         return None
 
-    workspace_dir = workspaces_root / parts[0]
-    return workflow_workspace_internal_engine_paths(workspace_dir, engine=engine_text)
+    for stage_dirname in workflow_stage_dirnames_for_engine(engine_text):
+        if parts[1] == stage_dirname:
+            return workflow_workspace_internal_engine_paths(
+                workspaces_root / parts[0],
+                engine=engine_text,
+                stage_dirname=stage_dirname,
+            )
+    return None
 
 
 def resolve_workflow_workspace(*, target: str, workflow_root: str | Path | None = None) -> Path:
@@ -183,11 +209,25 @@ def iter_workflow_runtime_workspaces(
             candidates.append(item)
             continue
         if engine_text:
-            runtime_paths = workflow_workspace_internal_engine_paths(item, engine=engine_text)
-            if runtime_paths["allowed_root"].exists() or runtime_paths["organized_root"].exists():
-                candidates.append(item)
+            for stage_dirname in workflow_stage_dirnames_for_engine(engine_text):
+                runtime_paths = workflow_workspace_internal_engine_paths(
+                    item,
+                    engine=engine_text,
+                    stage_dirname=stage_dirname,
+                )
+                if (
+                    runtime_paths["allowed_root"].exists()
+                    or runtime_paths["organized_root"].exists()
+                ):
+                    candidates.append(item)
+                    break
             continue
-        if (item / WORKFLOW_INTERNAL_DIRNAME).exists():
+        stage_roots = [
+            item / stage_dirname
+            for engine_name in WORKFLOW_STAGE_DIRNAMES
+            for stage_dirname in workflow_stage_dirnames_for_engine(engine_name)
+        ]
+        if any(stage_root.exists() for stage_root in stage_roots):
             candidates.append(item)
     return sorted(candidates, key=lambda item: item.name, reverse=True)
 
@@ -467,7 +507,8 @@ def workflow_artifacts(workspace_dir: str | Path, payload: dict[str, Any] | None
 
 __all__ = [
     "WORKFLOW_FILE_NAME",
-    "WORKFLOW_INTERNAL_DIRNAME",
+    "WORKFLOW_ENGINE_STAGE_ALIASES",
+    "WORKFLOW_STAGE_DIRNAMES",
     "WORKFLOW_LOCK_NAME",
     "WORKFLOWS_DIRNAME",
     "acquire_workflow_lock",
@@ -480,6 +521,7 @@ __all__ = [
     "workflow_artifacts",
     "workflow_file_path",
     "workflow_root_dir",
+    "workflow_stage_dirnames_for_engine",
     "workflow_summary",
     "workflow_workspace_internal_engine_paths",
     "workflow_workspace_internal_engine_paths_from_path",

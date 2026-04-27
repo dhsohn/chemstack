@@ -263,8 +263,8 @@ def test_workflow_child_notifications_are_suppressed(
     transport = _FakeTransport(TelegramSendResult(sent=True))
     monkeypatch.setattr(notifications, "build_telegram_transport", lambda _cfg: transport)
     workflow_job_dirs = [
-        tmp_path / "workflow_jobs" / "wf-1" / "stage_02_xtb" / "job-004",
-        tmp_path / "wf-1" / "internal" / "xtb" / "runs" / "xtb_path_search_01",
+        tmp_path / "workflow_jobs" / "wf-1" / "02_xtb" / "job-004",
+        tmp_path / "wf-1" / "02_xtb" / "xtb_path_search_01",
     ]
 
     for workflow_job_dir in workflow_job_dirs:

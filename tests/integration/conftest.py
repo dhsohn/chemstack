@@ -94,10 +94,10 @@ def _require_repo_root() -> None:
 def smoke_workspace(tmp_path: Path) -> SmokeWorkspace:
     root = tmp_path / "integration_smoke"
     workflow_root = root / "workflow_root"
-    xtb_allowed_root = workflow_root / "wf_xtb_manual" / "internal" / "xtb" / "runs"
-    xtb_organized_root = workflow_root / "wf_xtb_manual" / "internal" / "xtb" / "outputs"
-    crest_allowed_root = workflow_root / "wf_crest_manual" / "internal" / "crest" / "runs"
-    crest_organized_root = workflow_root / "wf_crest_manual" / "internal" / "crest" / "outputs"
+    xtb_allowed_root = workflow_root / "wf_xtb_manual" / "02_xtb"
+    xtb_organized_root = xtb_allowed_root
+    crest_allowed_root = workflow_root / "wf_crest_manual" / "01_crest"
+    crest_organized_root = crest_allowed_root
     admission_root = root / "admission"
     bin_dir = root / "bin"
 
