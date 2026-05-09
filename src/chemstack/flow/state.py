@@ -191,6 +191,22 @@ def iter_workflow_workspaces(workflow_root: str | Path) -> list[Path]:
     return sorted(candidates, key=lambda item: item.name, reverse=True)
 
 
+def _workflow_payload_has_engine_stage(workspace_dir: Path, engine: str) -> bool:
+    engine_text = _normalize_text(engine).lower()
+    if not engine_text:
+        return False
+    try:
+        payload = load_workflow_payload(workspace_dir)
+    except (FileNotFoundError, ValueError, TypeError, json.JSONDecodeError):
+        return False
+    for raw_stage in _coerce_sequence(payload.get("stages")):
+        stage = _coerce_mapping(raw_stage)
+        task = _coerce_mapping(stage.get("task"))
+        if _normalize_text(task.get("engine")).lower() == engine_text:
+            return True
+    return False
+
+
 def iter_workflow_runtime_workspaces(
     workflow_root: str | Path,
     *,
@@ -205,10 +221,13 @@ def iter_workflow_runtime_workspaces(
     for item in root.iterdir():
         if not item.is_dir():
             continue
-        if (item / WORKFLOW_FILE_NAME).exists():
+        if (item / WORKFLOW_FILE_NAME).exists() and not engine_text:
             candidates.append(item)
             continue
         if engine_text:
+            if _workflow_payload_has_engine_stage(item, engine_text):
+                candidates.append(item)
+                continue
             for stage_dirname in workflow_stage_dirnames_for_engine(engine_text):
                 runtime_paths = workflow_workspace_internal_engine_paths(
                     item,
@@ -306,7 +325,7 @@ def workflow_summary(workspace_dir: str | Path, payload: dict[str, Any] | None =
     downstream = _coerce_mapping(metadata.get("downstream_reaction_workflow"))
     precomplex_handoff = _coerce_mapping(metadata.get("precomplex_handoff"))
     parent_workflow = _coerce_mapping(metadata.get("parent_workflow"))
-    return {
+    summary = {
         "workflow_id": _normalize_text(data.get("workflow_id")),
         "template_name": _normalize_text(data.get("template_name")),
         "status": _normalize_text(data.get("status")),
@@ -327,6 +346,13 @@ def workflow_summary(workspace_dir: str | Path, payload: dict[str, Any] | None =
         "final_child_sync_pending": _coerce_bool(metadata.get("final_child_sync_pending")),
         "stage_summaries": stage_summaries,
     }
+    last_restarted_at = _normalize_text(metadata.get("last_restarted_at"))
+    if last_restarted_at:
+        summary["last_restarted_at"] = last_restarted_at
+    restart_summary = _coerce_mapping(metadata.get("restart_summary"))
+    if restart_summary:
+        summary["restart_summary"] = restart_summary
+    return summary
 
 
 def list_workflow_summaries(workflow_root: str | Path) -> list[dict[str, Any]]:

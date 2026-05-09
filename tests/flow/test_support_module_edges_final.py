@@ -273,7 +273,8 @@ def test_registry_edge_branches_cover_invalid_inputs_and_direct_file_matching(
     monkeypatch.setattr(registry, "_journal_notification_enabled", lambda event_type: True)
 
     class _TelegramTransport:
-        def send_text(self, text: str) -> None:
+        def send_text(self, text: str, *, parse_mode: str | None = None) -> None:
+            assert parse_mode == "HTML"
             sent.append(text)
 
     monkeypatch.setattr(registry, "_telegram_transport_from_env", lambda: _TelegramTransport())
@@ -281,7 +282,7 @@ def test_registry_edge_branches_cover_invalid_inputs_and_direct_file_matching(
     assert sent and "worker_started" in sent[0]
 
     class _BrokenTelegramTransport:
-        def send_text(self, text: str) -> None:
+        def send_text(self, text: str, *, parse_mode: str | None = None) -> None:
             raise RuntimeError("boom")
 
     monkeypatch.setattr(registry, "_telegram_transport_from_env", lambda: _BrokenTelegramTransport())

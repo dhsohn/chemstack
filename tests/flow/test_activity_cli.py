@@ -32,6 +32,7 @@ def test_list_activities_merges_workflows_and_standalone_sources(monkeypatch) ->
         workflow_file="/tmp/wf/wf-2/workflow.json",
         stage_count=2,
         updated_at="2026-04-20T10:06:00+00:00",
+        metadata={"last_restarted_at": "2026-04-20T10:05:00+00:00"},
     )
 
     monkeypatch.setattr(activity, "list_workflow_registry", lambda workflow_root: [workflow_record])
@@ -134,6 +135,9 @@ def test_list_activities_merges_workflows_and_standalone_sources(monkeypatch) ->
     assert workflow_item["engine"] == "workflow"
     assert workflow_item["label"] == "/tmp/xtb_jobs/rxn-2"
     assert workflow_item["metadata"]["current_engine"] == "xtb"
+    assert workflow_item["metadata"]["elapsed_started_at"] == "2026-04-20T10:05:00+00:00"
+    xtb_item = next(item for item in payload["activities"] if item["activity_id"] == "xtb-q-1")
+    assert xtb_item["metadata"]["elapsed_started_at"] == "2026-04-20T10:03:00+00:00"
 
 
 def test_list_activities_treats_submission_failed_stage_as_terminal_for_current_stage(monkeypatch) -> None:
@@ -388,6 +392,7 @@ def test_orca_fallback_queue_records_cover_file_edges(
     assert row.label == "rxn-1"
     assert "wf/rxn-1" in row.aliases
     assert row.metadata["priority"] == 5
+    assert row.metadata["elapsed_started_at"] == "2026-04-26T00:00:00+00:00"
 
 
 def test_orca_records_merge_queue_entries_and_snapshots(
@@ -478,8 +483,11 @@ def test_orca_records_merge_queue_entries_and_snapshots(
     by_id = {row.activity_id: row for row in rows}
     assert by_id["q-1"].status == "completed"
     assert by_id["q-1"].label == "tracked-name"
+    assert by_id["q-1"].metadata["elapsed_started_at"] == "2026-04-26T00:01:00+00:00"
     assert by_id["q-2"].status == "cancel_requested"
+    assert by_id["q-2"].metadata["elapsed_started_at"] == "2026-04-26T00:02:00+00:00"
     assert by_id["run-2"].status == "failed"
+    assert by_id["run-2"].metadata["elapsed_started_at"] == "2026-04-26T01:30:00+00:00"
     assert by_id["run-2"].metadata["selected_inp_name"] == "orphan.inp"
 
 

@@ -15,6 +15,7 @@ from chemstack.flow.contracts.crest import CrestDownstreamPolicy
 from chemstack.flow.state import (
     WORKFLOW_FILE_NAME,
     WORKFLOW_LOCK_NAME,
+    iter_workflow_runtime_workspaces,
     iter_workflow_workspaces,
     list_workflow_summaries,
     load_workflow_payload,
@@ -78,6 +79,51 @@ def test_workflow_file_helpers_and_resolution_support_direct_and_root_targets(tm
 
     with pytest.raises(FileNotFoundError, match="workflow not found: missing-workflow"):
         resolve_workflow_workspace(target="missing-workflow", workflow_root=workflow_root)
+
+
+def test_iter_workflow_runtime_workspaces_filters_engine_without_creating_missing_roots(tmp_path: Path) -> None:
+    workflow_root = tmp_path / "workflow_root"
+    conformer_workspace = workflow_root / "wf_conformer"
+    reaction_workspace = workflow_root / "wf_reaction"
+    manual_xtb_workspace = workflow_root / "wf_manual_xtb"
+    manual_xtb_root = manual_xtb_workspace / "02_xtb"
+
+    write_workflow_payload(
+        conformer_workspace,
+        {
+            "workflow_id": "wf_conformer",
+            "stages": [
+                {
+                    "stage_id": "crest_conformer_01",
+                    "task": {"engine": "crest"},
+                }
+            ],
+        },
+    )
+    write_workflow_payload(
+        reaction_workspace,
+        {
+            "workflow_id": "wf_reaction",
+            "stages": [
+                {
+                    "stage_id": "crest_reactant_01",
+                    "task": {"engine": "crest"},
+                },
+                {
+                    "stage_id": "xtb_path_search_01",
+                    "task": {"engine": "xtb"},
+                },
+            ],
+        },
+    )
+    manual_xtb_root.mkdir(parents=True)
+
+    xtb_workspaces = iter_workflow_runtime_workspaces(workflow_root, engine="xtb")
+
+    assert reaction_workspace.resolve() in xtb_workspaces
+    assert manual_xtb_workspace.resolve() in xtb_workspaces
+    assert conformer_workspace.resolve() not in xtb_workspaces
+    assert not (conformer_workspace / "02_xtb").exists()
 
 
 def test_iter_workflow_workspaces_and_list_summaries_skip_invalid_payloads(tmp_path: Path) -> None:
@@ -176,6 +222,8 @@ def test_workflow_summary_and_artifacts_cover_enqueue_precomplex_and_downstream_
             },
             "parent_workflow": {"workflow_id": "wf_grandparent"},
             "final_child_sync_pending": "yes",
+            "last_restarted_at": "2026-04-19T12:30:00+00:00",
+            "restart_summary": {"status": "restarted", "restarted_at": "2026-04-19T12:30:00+00:00"},
             "downstream_reaction_workflow": {
                 "workflow_id": "child_wf",
                 "workspace_dir": "downstream_child",
@@ -252,6 +300,8 @@ def test_workflow_summary_and_artifacts_cover_enqueue_precomplex_and_downstream_
     assert summary["downstream_reaction_workflow"]["workflow_id"] == "child_wf"
     assert summary["precomplex_handoff"]["reactant_xyz"] == "inputs/reactant.xyz"
     assert summary["parent_workflow"] == {"workflow_id": "wf_grandparent"}
+    assert summary["last_restarted_at"] == "2026-04-19T12:30:00+00:00"
+    assert summary["restart_summary"]["status"] == "restarted"
     assert summary["stage_summaries"][0]["queue_id"] == "queue_01"
     assert summary["stage_summaries"][0]["reaction_dir"] == "jobs/reaction_dir"
     assert summary["stage_summaries"][0]["selected_inp"] == "inputs/reaction.inp"

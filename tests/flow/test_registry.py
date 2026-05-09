@@ -40,6 +40,8 @@ def test_record_from_summary_coerces_counts_and_nested_metadata(monkeypatch: pyt
             "precomplex_handoff": {"reactant_xyz": "/tmp/reactant.xyz"},
             "parent_workflow": {"workflow_id": "parent_1"},
             "final_child_sync_pending": 1,
+            "last_restarted_at": "2026-04-19T00:45:00+00:00",
+            "restart_summary": {"status": "restarted", "restarted_at": "2026-04-19T00:45:00+00:00"},
         }
     )
 
@@ -54,6 +56,8 @@ def test_record_from_summary_coerces_counts_and_nested_metadata(monkeypatch: pyt
         "precomplex_handoff": {"reactant_xyz": "/tmp/reactant.xyz"},
         "parent_workflow": {"workflow_id": "parent_1"},
         "final_child_sync_pending": True,
+        "last_restarted_at": "2026-04-19T00:45:00+00:00",
+        "restart_summary": {"status": "restarted", "restarted_at": "2026-04-19T00:45:00+00:00"},
     }
 
 
@@ -69,7 +73,12 @@ def test_record_from_summary_coerces_counts_and_nested_metadata(monkeypatch: pyt
                 "previous_status": "planned",
                 "worker_session_id": "session-1",
             },
-            ["workflow=wf_1", "template=reaction_ts_search", "status=planned -> running"],
+            [
+                "<b>ChemStack Flow Status Changed</b>",
+                "<b>Workflow</b>: <code>wf_1</code>",
+                "<b>Template</b>: <code>reaction_ts_search</code>",
+                "<b>Status</b>: <code>planned</code> -> <code>running</code>",
+            ],
         ),
         (
             {
@@ -79,7 +88,12 @@ def test_record_from_summary_coerces_counts_and_nested_metadata(monkeypatch: pyt
                 "reason": "boom",
                 "worker_session_id": "session-2",
             },
-            ["workflow=wf_2", "advance_failed=boom", "worker_session=session-2"],
+            [
+                "<b>ChemStack Flow Advance Failed</b>",
+                "<b>Workflow</b>: <code>wf_2</code>",
+                "<b>Reason</b>: <code>boom</code>",
+                "<b>Worker session</b>: <code>session-2</code>",
+            ],
         ),
         (
             {
@@ -96,11 +110,12 @@ def test_record_from_summary_coerces_counts_and_nested_metadata(monkeypatch: pyt
                 "worker_session_id": "session-stage",
             },
             [
-                "workflow=wf_stage",
-                "event=workflow_stage_submitted",
-                "stage=xtb_path_search_01",
-                "task=xtb/path_search",
-                "stage_status=planned -> queued",
+                "<b>ChemStack Flow Stage Submitted</b>",
+                "<b>Workflow</b>: <code>wf_stage</code>",
+                "<b>Event</b>: <code>workflow_stage_submitted</code>",
+                "<b>Stage</b>: <code>xtb_path_search_01</code>",
+                "<b>Task</b>: <code>xtb/path_search</code>",
+                "<b>Stage status</b>: <code>planned</code> -> <code>queued</code>",
             ],
         ),
         (
@@ -118,13 +133,14 @@ def test_record_from_summary_coerces_counts_and_nested_metadata(monkeypatch: pyt
                 "worker_session_id": "session-handoff",
             },
             [
-                "workflow=wf_stage",
-                "event=workflow_stage_handoff_ready",
-                "stage=xtb_path_search_01",
-                "task=xtb/path_search",
-                "stage_status=completed",
-                "reaction_handoff_status=queued -> ready",
-                "reason=xtb_ts_guess_ready",
+                "<b>ChemStack Flow Handoff Ready</b>",
+                "<b>Workflow</b>: <code>wf_stage</code>",
+                "<b>Event</b>: <code>workflow_stage_handoff_ready</code>",
+                "<b>Stage</b>: <code>xtb_path_search_01</code>",
+                "<b>Task</b>: <code>xtb/path_search</code>",
+                "<b>Stage status</b>: <code>completed</code>",
+                "<b>Reaction handoff</b>: <code>queued</code> -> <code>ready</code>",
+                "<b>Reason</b>: <code>xtb_ts_guess_ready</code>",
             ],
         ),
         (
@@ -133,7 +149,12 @@ def test_record_from_summary_coerces_counts_and_nested_metadata(monkeypatch: pyt
                 "reason": "started",
                 "worker_session_id": "session-1",
             },
-            ["event=worker_started", "workflow_root=/tmp/root_3", "reason=started"],
+            [
+                "<b>ChemStack Flow Worker Started</b>",
+                "<b>Event</b>: <code>worker_started</code>",
+                "<b>Workflow root</b>: <code>/tmp/root_3</code>",
+                "<b>Reason</b>: <code>started</code>",
+            ],
         ),
         (
             {
@@ -157,14 +178,15 @@ def test_record_from_summary_coerces_counts_and_nested_metadata(monkeypatch: pyt
                 },
             },
             [
-                "workflow=wf_phase",
-                "event=workflow_phase_finished",
-                "phase=xTB",
-                "phase_outcome=mixed",
-                "stage_status_counts=completed:2",
-                "stage_statuses=rxn_01:completed,rxn_02:failed",
-                "reaction_handoff_status_counts=failed:1,ready:1",
-                "failure_reasons=xtb_ts_guess_missing",
+                "<b>ChemStack Flow Phase Finished</b>",
+                "<b>Workflow</b>: <code>wf_phase</code>",
+                "<b>Event</b>: <code>workflow_phase_finished</code>",
+                "<b>Phase</b>: <code>xTB</code>",
+                "<b>Phase outcome</b>: <code>mixed</code>",
+                "<b>Stage status counts</b>: <code>completed:2</code>",
+                "<b>Stage statuses</b>: <code>rxn_01:completed,rxn_02:failed</code>",
+                "<b>Reaction handoff counts</b>: <code>failed:1,ready:1</code>",
+                "<b>Failure reasons</b>: <code>xtb_ts_guess_missing</code>",
             ],
         ),
         (
@@ -176,7 +198,12 @@ def test_record_from_summary_coerces_counts_and_nested_metadata(monkeypatch: pyt
                 "reason": "started",
                 "worker_session_id": "session-1",
             },
-            ["event=custom_event", "workflow=wf_4", "status=queued"],
+            [
+                "<b>ChemStack Flow Event</b>",
+                "<b>Event</b>: <code>custom_event</code>",
+                "<b>Workflow</b>: <code>wf_4</code>",
+                "<b>Status</b>: <code>queued</code>",
+            ],
         ),
     ],
 )
@@ -186,7 +213,7 @@ def test_journal_event_message_formats_supported_event_types(
 ) -> None:
     message = registry._journal_event_message(event, "/tmp/root_3")
 
-    assert message.startswith("[chem_flow]\n")
+    assert message.startswith("<b>ChemStack Flow")
     for line in expected_lines:
         assert line in message
 
@@ -291,9 +318,10 @@ def test_maybe_notify_journal_event_sends_message_and_swallows_transport_errors(
         def __init__(self, *, fail: bool) -> None:
             self.fail = fail
 
-        def send_text(self, message: str) -> None:
+        def send_text(self, message: str, *, parse_mode: str | None = None) -> None:
             if self.fail:
                 raise RuntimeError("transport failed")
+            assert parse_mode == "HTML"
             sent_messages.append(message)
 
     event = {
@@ -338,8 +366,8 @@ def test_maybe_notify_journal_event_sends_message_and_swallows_transport_errors(
     )
 
     assert len(sent_messages) == 2
-    assert "workflow=wf_notify" in sent_messages[0]
-    assert "phase=xTB" in sent_messages[1]
+    assert "<b>Workflow</b>: <code>wf_notify</code>" in sent_messages[0]
+    assert "<b>Phase</b>: <code>xTB</code>" in sent_messages[1]
 
     monkeypatch.setattr(registry, "_telegram_transport_from_env", lambda: FakeTransport(fail=True))
     registry._maybe_notify_journal_event(event, tmp_path)

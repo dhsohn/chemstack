@@ -325,10 +325,26 @@ def _parse_activity_timestamp(value: Any) -> datetime | None:
     return parsed.astimezone(timezone.utc)
 
 
+def _queue_elapsed_started_at(item: dict[str, Any]) -> datetime | None:
+    metadata = item.get("metadata")
+    metadata = metadata if isinstance(metadata, dict) else {}
+    restart_summary = metadata.get("restart_summary")
+    restart_summary = restart_summary if isinstance(restart_summary, dict) else {}
+    for value in (
+        metadata.get("elapsed_started_at"),
+        metadata.get("last_restarted_at"),
+        restart_summary.get("restarted_at"),
+        item.get("submitted_at"),
+        item.get("updated_at"),
+    ):
+        parsed = _parse_activity_timestamp(value)
+        if parsed is not None:
+            return parsed
+    return None
+
+
 def _queue_elapsed_text(item: dict[str, Any], *, now: datetime | None = None) -> str:
-    started_at = _parse_activity_timestamp(item.get("submitted_at"))
-    if started_at is None:
-        started_at = _parse_activity_timestamp(item.get("updated_at"))
+    started_at = _queue_elapsed_started_at(item)
     if started_at is None:
         return "--:--:--"
 

@@ -83,12 +83,12 @@ def test_maybe_notify_workflow_phase_summary_sends_crest_summary_once(
     assert len(transport.messages) == 1
     assert transport.parse_modes == ["HTML"]
     message = transport.messages[0]
-    assert "<b>chem_flow CREST phase summary</b>" in message
+    assert "<b>ChemStack Flow CREST Phase Summary</b>" in message
     assert "<b>Stages</b>: <code>2</code>" in message
-    assert "<b>reactant</b>" in message
-    assert "retained_conformers=<code>2</code>" in message
-    assert "<b>product</b>" in message
-    assert "retained_conformers=<code>0</code>" in message
+    assert "<b>Stage</b>: reactant" in message
+    assert "<b>Retained conformers</b>: <code>2</code>" in message
+    assert "<b>Stage</b>: product" in message
+    assert "<b>Retained conformers</b>: <code>0</code>" in message
     assert payload["metadata"]["phase_notifications"]["crest_summary"]["sent_at"]
 
 
@@ -146,13 +146,13 @@ def test_maybe_notify_workflow_phase_summary_sends_xtb_ready_counts(
     assert len(transport.messages) == 1
     assert transport.parse_modes == ["HTML"]
     message = transport.messages[0]
-    assert "<b>chem_flow xTB phase summary</b>" in message
+    assert "<b>ChemStack Flow xTB Phase Summary</b>" in message
     assert "wf_&lt;xtb&gt;_1" in message
     assert "<b>Ready for ORCA</b>: <code>1</code>" in message
-    assert "planned_orca_stages: <code>1</code>" in message
-    assert "<b>rxn_&lt;01&gt;</b>" in message
-    assert "handoff=<code>ready</code>" in message
-    assert "candidates=<code>3</code>" in message
-    assert "<b>rxn_02</b>" in message
-    assert "handoff=<code>failed</code>" in message
-    assert "candidates=<code>0</code>" in message
+    assert "<b>planned_orca_stages</b>: <code>1</code>" in message
+    assert "<b>Stage</b>: rxn_&lt;01&gt;" in message
+    assert "<b>Handoff</b>: <code>ready</code>" in message
+    assert "<b>Candidates</b>: <code>3</code>" in message
+    assert "<b>Stage</b>: rxn_02" in message
+    assert "<b>Handoff</b>: <code>failed</code>" in message
+    assert "<b>Candidates</b>: <code>0</code>" in message

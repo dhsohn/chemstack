@@ -98,18 +98,6 @@ def _event_text(event: dict[str, Any], metadata: dict[str, Any], *keys: str) -> 
     return ""
 
 
-def _transition_text(previous: str, current: str) -> str:
-    previous_text = _normalize_text(previous)
-    current_text = _normalize_text(current)
-    if previous_text and current_text:
-        return f"{previous_text} -> {current_text}"
-    if current_text:
-        return current_text
-    if previous_text:
-        return previous_text
-    return "-"
-
-
 def _format_count_mapping(value: Any) -> str:
     mapping = _coerce_mapping(value)
     if not mapping:
@@ -137,6 +125,49 @@ def _format_stage_statuses(value: Any) -> str:
             continue
         parts.append(f"{label}:{status}")
     return ",".join(parts) if parts else "-"
+
+
+def _escape_html(value: Any) -> str:
+    text = _normalize_text(value)
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def _metric_code(value: Any) -> str:
+    return f"<code>{_escape_html(value)}</code>"
+
+
+def _transition_html(previous: str, current: str) -> str:
+    previous_text = _normalize_text(previous)
+    current_text = _normalize_text(current)
+    if previous_text and current_text:
+        return f"{_metric_code(previous_text)} -> {_metric_code(current_text)}"
+    if current_text:
+        return _metric_code(current_text)
+    if previous_text:
+        return _metric_code(previous_text)
+    return _metric_code("-")
+
+
+def _title_from_event_type(event_type: str) -> str:
+    labels = {
+        "workflow_status_changed": "Status Changed",
+        "workflow_advance_failed": "Advance Failed",
+        "workflow_stage_submitted": "Stage Submitted",
+        "workflow_stage_completed": "Stage Completed",
+        "workflow_stage_failed": "Stage Failed",
+        "workflow_stage_cancelled": "Stage Cancelled",
+        "workflow_stage_status_changed": "Stage Status Changed",
+        "workflow_stage_handoff_ready": "Handoff Ready",
+        "workflow_stage_handoff_retrying": "Handoff Retrying",
+        "workflow_stage_handoff_failed": "Handoff Failed",
+        "workflow_stage_reaction_handoff_status_changed": "Handoff Status Changed",
+        WORKFLOW_PHASE_FINISHED_EVENT: "Phase Finished",
+        "worker_started": "Worker Started",
+        "worker_stopped": "Worker Stopped",
+        "worker_interrupted": "Worker Interrupted",
+        "worker_lock_error": "Worker Lock Error",
+    }
+    return f"ChemStack Flow {labels.get(event_type, 'Event')}"
 
 
 def _registry_path(workflow_root: str | Path) -> Path:
@@ -290,87 +321,98 @@ def _journal_event_message(event: dict[str, Any], workflow_root: str | Path) -> 
     root_text = str(Path(workflow_root).expanduser().resolve())
 
     if event_type == "workflow_status_changed":
-        return (
-            "[chem_flow]\n"
-            f"workflow={workflow_id}\n"
-            f"template={template_name}\n"
-            f"status={previous_status} -> {status}\n"
-            f"worker_session={session}"
+        return "\n".join(
+            [
+                f"<b>{_escape_html(_title_from_event_type(event_type))}</b>",
+                f"<b>Workflow</b>: {_metric_code(workflow_id)}",
+                f"<b>Template</b>: {_metric_code(template_name)}",
+                f"<b>Status</b>: {_transition_html(previous_status, status)}",
+                f"<b>Worker session</b>: {_metric_code(session)}",
+            ]
         )
     if event_type == "workflow_advance_failed":
-        return (
-            "[chem_flow]\n"
-            f"workflow={workflow_id}\n"
-            f"template={template_name}\n"
-            f"advance_failed={reason}\n"
-            f"worker_session={session}"
+        return "\n".join(
+            [
+                f"<b>{_escape_html(_title_from_event_type(event_type))}</b>",
+                f"<b>Workflow</b>: {_metric_code(workflow_id)}",
+                f"<b>Template</b>: {_metric_code(template_name)}",
+                f"<b>Reason</b>: {_metric_code(reason)}",
+                f"<b>Worker session</b>: {_metric_code(session)}",
+            ]
         )
     if event_type in STAGE_STATUS_EVENT_TYPES:
         lines = [
-            "[chem_flow]",
-            f"workflow={workflow_id}",
-            f"template={template_name}",
-            f"event={event_type}",
-            f"stage={stage_id}",
-            f"task={engine}/{task_kind}",
-            f"stage_status={_transition_text(previous_stage_status, stage_status)}",
-            f"worker_session={session}",
+            f"<b>{_escape_html(_title_from_event_type(event_type))}</b>",
+            f"<b>Workflow</b>: {_metric_code(workflow_id)}",
+            f"<b>Template</b>: {_metric_code(template_name)}",
+            f"<b>Event</b>: {_metric_code(event_type)}",
+            f"<b>Stage</b>: {_metric_code(stage_id)}",
+            f"<b>Task</b>: {_metric_code(f'{engine}/{task_kind}')}",
+            f"<b>Stage status</b>: {_transition_html(previous_stage_status, stage_status)}",
+            f"<b>Worker session</b>: {_metric_code(session)}",
         ]
         if reason:
-            lines.append(f"reason={reason}")
+            lines.append(f"<b>Reason</b>: {_metric_code(reason)}")
         return "\n".join(lines)
     if event_type in STAGE_HANDOFF_EVENT_TYPES:
         lines = [
-            "[chem_flow]",
-            f"workflow={workflow_id}",
-            f"template={template_name}",
-            f"event={event_type}",
-            f"stage={stage_id}",
-            f"task={engine}/{task_kind}",
-            f"stage_status={_transition_text(previous_stage_status, stage_status)}",
-            f"reaction_handoff_status={_transition_text(previous_reaction_handoff_status, reaction_handoff_status)}",
-            f"worker_session={session}",
+            f"<b>{_escape_html(_title_from_event_type(event_type))}</b>",
+            f"<b>Workflow</b>: {_metric_code(workflow_id)}",
+            f"<b>Template</b>: {_metric_code(template_name)}",
+            f"<b>Event</b>: {_metric_code(event_type)}",
+            f"<b>Stage</b>: {_metric_code(stage_id)}",
+            f"<b>Task</b>: {_metric_code(f'{engine}/{task_kind}')}",
+            f"<b>Stage status</b>: {_transition_html(previous_stage_status, stage_status)}",
+            (
+                "<b>Reaction handoff</b>: "
+                f"{_transition_html(previous_reaction_handoff_status, reaction_handoff_status)}"
+            ),
+            f"<b>Worker session</b>: {_metric_code(session)}",
         ]
         if reason:
-            lines.append(f"reason={reason}")
+            lines.append(f"<b>Reason</b>: {_metric_code(reason)}")
         return "\n".join(lines)
     if event_type == WORKFLOW_PHASE_FINISHED_EVENT:
         phase = _event_text(event, metadata, "phase_label", "phase") or "-"
         lines = [
-            "[chem_flow]",
-            f"workflow={workflow_id}",
-            f"template={template_name}",
-            f"event={event_type}",
-            f"phase={phase}",
-            f"phase_outcome={_event_text(event, metadata, 'phase_outcome', 'status') or '-'}",
-            f"stage_count={_event_text(event, metadata, 'stage_count') or '0'}",
-            f"stage_status_counts={_format_count_mapping(metadata.get('stage_status_counts'))}",
-            f"stage_statuses={_format_stage_statuses(metadata.get('stage_statuses'))}",
-            f"worker_session={session}",
+            f"<b>{_escape_html(_title_from_event_type(event_type))}</b>",
+            f"<b>Workflow</b>: {_metric_code(workflow_id)}",
+            f"<b>Template</b>: {_metric_code(template_name)}",
+            f"<b>Event</b>: {_metric_code(event_type)}",
+            f"<b>Phase</b>: {_metric_code(phase)}",
+            f"<b>Phase outcome</b>: {_metric_code(_event_text(event, metadata, 'phase_outcome', 'status') or '-')}",
+            f"<b>Stage count</b>: {_metric_code(_event_text(event, metadata, 'stage_count') or '0')}",
+            f"<b>Stage status counts</b>: {_metric_code(_format_count_mapping(metadata.get('stage_status_counts')))}",
+            f"<b>Stage statuses</b>: {_metric_code(_format_stage_statuses(metadata.get('stage_statuses')))}",
+            f"<b>Worker session</b>: {_metric_code(session)}",
         ]
         handoff_counts = _format_count_mapping(metadata.get("reaction_handoff_status_counts"))
         if handoff_counts != "-":
-            lines.append(f"reaction_handoff_status_counts={handoff_counts}")
+            lines.append(f"<b>Reaction handoff counts</b>: {_metric_code(handoff_counts)}")
         failure_reasons = metadata.get("failure_reasons")
         if isinstance(failure_reasons, list):
             joined = ",".join(_normalize_text(item) for item in failure_reasons if _normalize_text(item))
             if joined:
-                lines.append(f"failure_reasons={joined}")
+                lines.append(f"<b>Failure reasons</b>: {_metric_code(joined)}")
         return "\n".join(lines)
     if event_type in {"worker_started", "worker_stopped", "worker_interrupted", "worker_lock_error"}:
-        return (
-            "[chem_flow]\n"
-            f"event={event_type}\n"
-            f"workflow_root={root_text}\n"
-            f"worker_session={session}\n"
-            f"reason={reason}"
+        return "\n".join(
+            [
+                f"<b>{_escape_html(_title_from_event_type(event_type))}</b>",
+                f"<b>Event</b>: {_metric_code(event_type)}",
+                f"<b>Workflow root</b>: {_metric_code(root_text)}",
+                f"<b>Worker session</b>: {_metric_code(session)}",
+                f"<b>Reason</b>: {_metric_code(reason)}",
+            ]
         )
-    return (
-        "[chem_flow]\n"
-        f"event={event_type}\n"
-        f"workflow={workflow_id}\n"
-        f"status={status}\n"
-        f"worker_session={session}"
+    return "\n".join(
+        [
+            f"<b>{_escape_html(_title_from_event_type(event_type))}</b>",
+            f"<b>Event</b>: {_metric_code(event_type)}",
+            f"<b>Workflow</b>: {_metric_code(workflow_id)}",
+            f"<b>Status</b>: {_metric_code(status)}",
+            f"<b>Worker session</b>: {_metric_code(session)}",
+        ]
     )
 
 
@@ -388,7 +430,7 @@ def _maybe_notify_journal_event(event: dict[str, Any], workflow_root: str | Path
     if transport is None:
         return
     try:
-        transport.send_text(_journal_event_message(event, workflow_root))
+        transport.send_text(_journal_event_message(event, workflow_root), parse_mode="HTML")
     except Exception:
         return
 
@@ -396,6 +438,18 @@ def _maybe_notify_journal_event(event: dict[str, Any], workflow_root: str | Path
 def _record_from_summary(summary: dict[str, Any]) -> WorkflowRegistryRecord:
     workspace_dir = _normalize_text(summary.get("workspace_dir"))
     updated_at = _normalize_text(_coerce_mapping(summary.get("submission_summary")).get("updated_at")) or now_utc_iso()
+    metadata = {
+        "downstream_reaction_workflow": _coerce_mapping(summary.get("downstream_reaction_workflow")),
+        "precomplex_handoff": _coerce_mapping(summary.get("precomplex_handoff")),
+        "parent_workflow": _coerce_mapping(summary.get("parent_workflow")),
+        "final_child_sync_pending": bool(summary.get("final_child_sync_pending")),
+    }
+    last_restarted_at = _normalize_text(summary.get("last_restarted_at"))
+    if last_restarted_at:
+        metadata["last_restarted_at"] = last_restarted_at
+    restart_summary = _coerce_mapping(summary.get("restart_summary"))
+    if restart_summary:
+        metadata["restart_summary"] = restart_summary
     return WorkflowRegistryRecord(
         workflow_id=_normalize_text(summary.get("workflow_id")),
         template_name=_normalize_text(summary.get("template_name")),
@@ -411,12 +465,7 @@ def _record_from_summary(summary: dict[str, Any]) -> WorkflowRegistryRecord:
         stage_status_counts=_coerce_counts(summary.get("stage_status_counts")),
         task_status_counts=_coerce_counts(summary.get("task_status_counts")),
         submission_summary=_coerce_mapping(summary.get("submission_summary")),
-        metadata={
-            "downstream_reaction_workflow": _coerce_mapping(summary.get("downstream_reaction_workflow")),
-            "precomplex_handoff": _coerce_mapping(summary.get("precomplex_handoff")),
-            "parent_workflow": _coerce_mapping(summary.get("parent_workflow")),
-            "final_child_sync_pending": bool(summary.get("final_child_sync_pending")),
-        },
+        metadata=metadata,
     )
 
 

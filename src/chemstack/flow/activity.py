@@ -228,6 +228,56 @@ def _path_aliases(path_text: str, *, root: Path | None = None) -> tuple[str, ...
             aliases.extend([str(relative), relative.as_posix()])
     return _unique_texts(aliases)
 
+
+def _timestamp_metadata(
+    *,
+    enqueued_at: Any = "",
+    started_at: Any = "",
+    finished_at: Any = "",
+    elapsed_started_at: Any = "",
+) -> dict[str, str]:
+    enqueued_at_text = normalize_text(enqueued_at)
+    started_at_text = normalize_text(started_at)
+    finished_at_text = normalize_text(finished_at)
+    elapsed_started_at_text = (
+        normalize_text(elapsed_started_at)
+        or started_at_text
+        or enqueued_at_text
+    )
+    metadata: dict[str, str] = {}
+    if enqueued_at_text:
+        metadata["enqueued_at"] = enqueued_at_text
+    if started_at_text:
+        metadata["started_at"] = started_at_text
+    if finished_at_text:
+        metadata["finished_at"] = finished_at_text
+    if elapsed_started_at_text:
+        metadata["elapsed_started_at"] = elapsed_started_at_text
+    return metadata
+
+
+def _workflow_elapsed_metadata(
+    *,
+    record_metadata: dict[str, Any],
+    summary: dict[str, Any],
+) -> dict[str, Any]:
+    restart_summary = _coerce_mapping(
+        record_metadata.get("restart_summary")
+    ) or _coerce_mapping(summary.get("restart_summary"))
+    last_restarted_at = (
+        normalize_text(record_metadata.get("last_restarted_at"))
+        or normalize_text(summary.get("last_restarted_at"))
+        or normalize_text(restart_summary.get("restarted_at"))
+    )
+    metadata: dict[str, Any] = {}
+    if last_restarted_at:
+        metadata["last_restarted_at"] = last_restarted_at
+        metadata["elapsed_started_at"] = last_restarted_at
+    if restart_summary:
+        metadata["restart_summary"] = restart_summary
+    return metadata
+
+
 def _workflow_records(*, workflow_root: str | Path, refresh: bool) -> list[ActivityRecord]:
     root = Path(workflow_root).expanduser().resolve()
     registry_records = reindex_workflow_registry(root) if refresh else list_workflow_registry(root)
@@ -241,6 +291,7 @@ def _workflow_records(*, workflow_root: str | Path, refresh: bool) -> list[Activ
     for record in registry_records:
         workflow_id = normalize_text(record.workflow_id)
         summary = summary_by_id.get(workflow_id, {})
+        record_metadata = _coerce_mapping(getattr(record, "metadata", {}))
         current_stage = select_current_stage(summary.get("stage_summaries") or [])
         current_engine = _mapping_text(current_stage, "engine") or "workflow"
         current_stage_id = _mapping_text(current_stage, "stage_id")
@@ -284,6 +335,7 @@ def _workflow_records(*, workflow_root: str | Path, refresh: bool) -> list[Activ
                     "current_stage_id": current_stage_id,
                     "current_stage_status": _mapping_text(current_stage, "status"),
                     "current_task_status": _mapping_text(current_stage, "task_status"),
+                    **_workflow_elapsed_metadata(record_metadata=record_metadata, summary=summary),
                 },
             )
         )
@@ -352,7 +404,10 @@ def _standalone_queue_records(
                     *list(_path_aliases(path_text, root=allowed_root)),
                 ]
             )
-            updated_at = normalize_text(entry.finished_at) or normalize_text(entry.started_at) or normalize_text(entry.enqueued_at)
+            enqueued_at = normalize_text(entry.enqueued_at)
+            started_at = normalize_text(entry.started_at)
+            finished_at = normalize_text(entry.finished_at)
+            updated_at = finished_at or started_at or enqueued_at
             rows.append(
                 ActivityRecord(
                     activity_id=normalize_text(entry.queue_id) or normalize_text(entry.task_id),
@@ -361,7 +416,7 @@ def _standalone_queue_records(
                     status=_queue_entry_status(entry),
                     label=label,
                     source=app_name,
-                    submitted_at=normalize_text(entry.enqueued_at),
+                    submitted_at=enqueued_at,
                     updated_at=updated_at,
                     cancel_target=normalize_text(entry.queue_id),
                     aliases=aliases,
@@ -375,6 +430,11 @@ def _standalone_queue_records(
                         "job_dir": path_text,
                         "allowed_root": str(allowed_root),
                         "priority": int(entry.priority),
+                        **_timestamp_metadata(
+                            enqueued_at=enqueued_at,
+                            started_at=started_at,
+                            finished_at=finished_at,
+                        ),
                     },
                 )
             )
@@ -476,6 +536,9 @@ def _fallback_orca_queue_records(*, config_path: str) -> list[ActivityRecord]:
         status = normalize_text(raw.get("status")).lower() or "unknown"
         if bool(raw.get("cancel_requested")) and status == "running":
             status = "cancel_requested"
+        enqueued_at = normalize_text(raw.get("enqueued_at"))
+        started_at = normalize_text(raw.get("started_at"))
+        finished_at = normalize_text(raw.get("finished_at"))
         rows.append(
             ActivityRecord(
                 activity_id=queue_id or run_id or label,
@@ -484,8 +547,8 @@ def _fallback_orca_queue_records(*, config_path: str) -> list[ActivityRecord]:
                 status=status,
                 label=label,
                 source=CHEMSTACK_ORCA_SOURCE,
-                submitted_at=normalize_text(raw.get("enqueued_at")),
-                updated_at=normalize_text(raw.get("finished_at")) or normalize_text(raw.get("started_at")) or normalize_text(raw.get("enqueued_at")),
+                submitted_at=enqueued_at,
+                updated_at=finished_at or started_at or enqueued_at,
                 cancel_target=queue_id or run_id or reaction_dir,
                 aliases=aliases,
                 metadata={
@@ -498,6 +561,11 @@ def _fallback_orca_queue_records(*, config_path: str) -> list[ActivityRecord]:
                     "reaction_dir": reaction_dir,
                     "allowed_root": str(allowed_root),
                     "priority": raw.get("priority"),
+                    **_timestamp_metadata(
+                        enqueued_at=enqueued_at,
+                        started_at=started_at,
+                        finished_at=finished_at,
+                    ),
                 },
             )
         )
@@ -552,11 +620,13 @@ def _orca_records(*, config_path: str, repo_root: str | None = None) -> list[Act
         label = normalize_text(getattr(snapshot, "name", "")) or normalize_text(Path(reaction_dir).name if reaction_dir else "") or queue_id or task_id
         aliases = _unique_texts([queue_id, task_id, run_id, *list(_path_aliases(reaction_dir, root=allowed_root))])
         submitted_at = normalize_text(entry.get("enqueued_at"))
+        started_at = normalize_text(entry.get("started_at"))
+        finished_at = normalize_text(entry.get("finished_at"))
         updated_at = (
             normalize_text(getattr(snapshot, "completed_at", ""))
             or normalize_text(getattr(snapshot, "updated_at", ""))
-            or normalize_text(entry.get("finished_at"))
-            or normalize_text(entry.get("started_at"))
+            or finished_at
+            or started_at
             or submitted_at
         )
         rows.append(
@@ -582,6 +652,11 @@ def _orca_records(*, config_path: str, repo_root: str | None = None) -> list[Act
                     "reaction_dir": reaction_dir,
                     "allowed_root": str(allowed_root),
                     "priority": getattr(queue_store, "queue_entry_priority")(entry),
+                    **_timestamp_metadata(
+                        enqueued_at=submitted_at,
+                        started_at=started_at,
+                        finished_at=finished_at,
+                    ),
                 },
             )
         )
@@ -602,6 +677,8 @@ def _orca_records(*, config_path: str, repo_root: str | None = None) -> list[Act
         run_id = normalize_text(getattr(snapshot, "run_id", ""))
         label = normalize_text(getattr(snapshot, "name", "")) or normalize_text(Path(reaction_dir).name if reaction_dir else "") or run_id
         aliases = _unique_texts([run_id, *list(_path_aliases(reaction_dir, root=allowed_root)), normalize_text(getattr(snapshot, "name", ""))])
+        started_at = normalize_text(getattr(snapshot, "started_at", ""))
+        completed_at = normalize_text(getattr(snapshot, "completed_at", ""))
         rows.append(
             ActivityRecord(
                 activity_id=run_id or label,
@@ -610,8 +687,8 @@ def _orca_records(*, config_path: str, repo_root: str | None = None) -> list[Act
                 status=normalize_text(getattr(snapshot, "status", "")) or "unknown",
                 label=label,
                 source=CHEMSTACK_ORCA_SOURCE,
-                submitted_at=normalize_text(getattr(snapshot, "started_at", "")),
-                updated_at=normalize_text(getattr(snapshot, "completed_at", "")) or normalize_text(getattr(snapshot, "updated_at", "")) or normalize_text(getattr(snapshot, "started_at", "")),
+                submitted_at=started_at,
+                updated_at=completed_at or normalize_text(getattr(snapshot, "updated_at", "")) or started_at,
                 cancel_target=run_id or reaction_dir,
                 aliases=aliases,
                 metadata={
@@ -621,6 +698,7 @@ def _orca_records(*, config_path: str, repo_root: str | None = None) -> list[Act
                     "attempts": getattr(snapshot, "attempts", 0),
                     "selected_inp_name": normalize_text(getattr(snapshot, "selected_inp_name", "")),
                     "job_type": normalize_text(getattr(snapshot, "job_type", "")),
+                    **_timestamp_metadata(started_at=started_at, finished_at=completed_at),
                 },
             )
         )

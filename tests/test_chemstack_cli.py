@@ -653,6 +653,35 @@ def test_queue_table_lines_align_wide_headers_and_icons(
     assert "..." in lines[-1]
 
 
+def test_queue_elapsed_prefers_attempt_anchor_metadata() -> None:
+    now = datetime(2026, 4, 26, 3, 0, 0, tzinfo=timezone.utc)
+
+    assert (
+        unified_cli._queue_elapsed_text(
+            {
+                "status": "running",
+                "submitted_at": "2026-04-26T01:00:00+00:00",
+                "updated_at": "2026-04-26T02:00:00+00:00",
+                "metadata": {"elapsed_started_at": "2026-04-26T02:45:00+00:00"},
+            },
+            now=now,
+        )
+        == "00:15:00"
+    )
+    assert (
+        unified_cli._queue_elapsed_text(
+            {
+                "status": "completed",
+                "submitted_at": "2026-04-26T01:00:00+00:00",
+                "updated_at": "2026-04-26T02:20:00+00:00",
+                "metadata": {"last_restarted_at": "2026-04-26T02:00:00+00:00"},
+            },
+            now=now,
+        )
+        == "00:20:00"
+    )
+
+
 def test_cmd_queue_list_filters_text_output(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],

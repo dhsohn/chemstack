@@ -7,6 +7,7 @@ import pytest
 import chemstack.xtb.job_locations as job_locations_module
 from chemstack.core.config import CommonRuntimeConfig
 from chemstack.core.indexing import JobLocationRecord, get_job_location, upsert_job_location
+from chemstack.flow.state import write_workflow_payload
 
 from chemstack.xtb.config import AppConfig
 from chemstack.xtb.job_locations import (
@@ -73,6 +74,38 @@ def test_resource_dict_and_terminal_status_helpers() -> None:
     assert is_terminal_status(" completed ")
     assert is_terminal_status("FAILED")
     assert not is_terminal_status("running")
+
+
+def test_runtime_roots_for_cfg_skips_workflows_without_xtb_stages(tmp_path: Path) -> None:
+    workflow_root = tmp_path / "workflow_root"
+    conformer_workspace = workflow_root / "wf_conformer"
+    reaction_workspace = workflow_root / "wf_reaction"
+    cfg = AppConfig(
+        runtime=CommonRuntimeConfig(
+            allowed_root=str(workflow_root),
+            organized_root=str(workflow_root),
+        ),
+        workflow_root=str(workflow_root),
+    )
+    write_workflow_payload(
+        conformer_workspace,
+        {
+            "workflow_id": "wf_conformer",
+            "stages": [{"stage_id": "crest_conformer_01", "task": {"engine": "crest"}}],
+        },
+    )
+    write_workflow_payload(
+        reaction_workspace,
+        {
+            "workflow_id": "wf_reaction",
+            "stages": [{"stage_id": "xtb_path_search_01", "task": {"engine": "xtb"}}],
+        },
+    )
+
+    roots = job_locations_module.runtime_roots_for_cfg(cfg)
+
+    assert roots == ((reaction_workspace / "02_xtb").resolve(),)
+    assert not (conformer_workspace / "02_xtb").exists()
 
 
 def test_build_job_location_record_merges_existing_fields_and_existing_organized_dir(
