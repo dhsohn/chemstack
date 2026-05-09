@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from chemstack.core.notifications import TelegramSendResult
+from chemstack.core.notifications import MAX_TELEGRAM_MESSAGE_LENGTH, TelegramSendResult
 from chemstack.flow import workflow_notifications
 
 
@@ -156,3 +156,42 @@ def test_maybe_notify_workflow_phase_summary_sends_xtb_ready_counts(
     assert "<b>Stage</b>: rxn_02" in message
     assert "<b>Handoff</b>: <code>failed</code>" in message
     assert "<b>Candidates</b>: <code>0</code>" in message
+
+
+def test_maybe_notify_workflow_phase_summary_splits_long_messages(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    config_path = tmp_path / "chemstack.yaml"
+    _write_config(config_path)
+    transport = _FakeTransport()
+    monkeypatch.setattr(workflow_notifications, "build_telegram_transport", lambda _cfg: transport)
+    payload: dict[str, Any] = {
+        "workflow_id": "wf_crest_long",
+        "template_name": "reaction_ts_search",
+        "metadata": {},
+        "stages": [
+            {
+                "stage_id": "crest_reactant",
+                "status": "completed",
+                "task": {
+                    "engine": "crest",
+                    "status": "completed",
+                    "payload": {"input_role": "reactant"},
+                },
+                "metadata": {},
+                "output_artifacts": [{"path": "a.xyz"}],
+            },
+        ],
+    }
+
+    assert workflow_notifications.maybe_notify_workflow_phase_summary(
+        payload=payload,
+        config_path=str(config_path),
+        phase_engine="crest",
+        extra_lines=[f"note_{index}: {'x' * 60}" for index in range(120)],
+    )
+
+    assert len(transport.messages) > 1
+    assert all(len(message) <= MAX_TELEGRAM_MESSAGE_LENGTH for message in transport.messages)
+    assert all(parse_mode == "HTML" for parse_mode in transport.parse_modes)

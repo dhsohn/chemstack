@@ -48,6 +48,20 @@ def _make_transport(
     )
 
 
+def test_split_telegram_message_prefers_line_boundaries() -> None:
+    chunks = telegram_mod.split_telegram_message("first\nsecond\nthird", limit=12)
+
+    assert chunks == ["first", "second\nthird"]
+    assert all(len(chunk) <= 12 for chunk in chunks)
+
+
+def test_split_telegram_message_splits_long_segments() -> None:
+    chunks = telegram_mod.split_telegram_message("abc def ghi", limit=7)
+
+    assert chunks == ["abc def", "ghi"]
+    assert all(len(chunk) <= 7 for chunk in chunks)
+
+
 def test_disabled_transport_skips_without_calling_urlopen(monkeypatch: pytest.MonkeyPatch) -> None:
     called = False
 

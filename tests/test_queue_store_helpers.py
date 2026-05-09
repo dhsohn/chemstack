@@ -7,6 +7,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import pytest
+
 import chemstack.orca.queue_store as queue_store
 from chemstack.orca.statuses import QueueStatus, RunStatus
 from chemstack.orca.types import QueueEntry
@@ -53,10 +55,12 @@ def test_queue_lock_error_builders_and_load_entries_cover_edge_cases(tmp_path: P
 
     queue_path = tmp_path / queue_store.QUEUE_FILE_NAME
     queue_path.write_text("{not-json", encoding="utf-8")
-    assert queue_store._load_entries(tmp_path) == []
+    with pytest.raises(queue_store.QueueStoreCorruptError):
+        queue_store._load_entries(tmp_path)
 
     queue_path.write_text(json.dumps({"status": "bad"}), encoding="utf-8")
-    assert queue_store._load_entries(tmp_path) == []
+    with pytest.raises(queue_store.QueueStoreCorruptError):
+        queue_store._load_entries(tmp_path)
 
     queue_path.write_text(
         json.dumps([{"queue_id": "q_ok", "status": "pending"}, "bad", []]),

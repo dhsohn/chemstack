@@ -6,6 +6,7 @@ from pathlib import Path
 
 from chemstack.orca.queue_store import (
     DuplicateEntryError,
+    QueueStoreCorruptError,
     cancel,
     cancel_all_pending,
     clear_terminal,
@@ -60,6 +61,23 @@ class TestQueueStore(unittest.TestCase):
 
     def test_list_queue_empty(self) -> None:
         self.assertEqual(list_queue(self.root), [])
+
+    def test_list_queue_rejects_corrupt_queue_file(self) -> None:
+        qp = self.root / "queue.json"
+        qp.write_text("{not valid json", encoding="utf-8")
+
+        with self.assertRaises(QueueStoreCorruptError):
+            list_queue(self.root)
+
+    def test_enqueue_rejects_corrupt_queue_file_without_overwriting(self) -> None:
+        qp = self.root / "queue.json"
+        corrupt_text = "{not valid json"
+        qp.write_text(corrupt_text, encoding="utf-8")
+
+        with self.assertRaises(QueueStoreCorruptError):
+            enqueue(self.root, str(self.root / "mol_A"))
+
+        self.assertEqual(qp.read_text(encoding="utf-8"), corrupt_text)
 
     def test_list_queue_with_filter(self) -> None:
         enqueue(self.root, str(self.root / "mol_A"))

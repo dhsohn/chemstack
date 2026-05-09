@@ -5,9 +5,14 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
-from chemstack.core.notifications import MAX_TELEGRAM_MESSAGE_LENGTH, build_telegram_transport, escape_html
+from chemstack.core.notifications import (
+    MAX_TELEGRAM_MESSAGE_LENGTH,
+    build_telegram_transport,
+    escape_html,
+    split_telegram_message,
+)
 
 if TYPE_CHECKING:
     from .config import TelegramConfig
@@ -17,6 +22,27 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _MAX_MESSAGE_LENGTH = MAX_TELEGRAM_MESSAGE_LENGTH
+
+
+def _send_result_ok(result: Any) -> bool:
+    return bool(getattr(result, "sent", False) or getattr(result, "skipped", False))
+
+
+def _log_send_failure(result: Any) -> None:
+    status_code = getattr(result, "status_code", None)
+    error = getattr(result, "error", "")
+    response_text = getattr(result, "response_text", "")
+    if status_code is not None:
+        logger.warning(
+            "telegram_send_failed: status=%s error=%s body=%s",
+            status_code,
+            error,
+            response_text,
+        )
+    elif error:
+        logger.warning("telegram_send_failed: %s", error)
+    else:
+        logger.warning("telegram_send_failed: unknown_error")
 
 
 def send_message(
@@ -30,24 +56,23 @@ def send_message(
         logger.debug("telegram_notifier_disabled")
         return False
 
-    result = build_telegram_transport(config).send_text(
-        text[:_MAX_MESSAGE_LENGTH],
-        parse_mode=parse_mode,
-    )
-    if result.sent:
-        return True
-    if result.status_code is not None:
-        logger.warning(
-            "telegram_send_failed: status=%s error=%s body=%s",
-            result.status_code,
-            result.error,
-            result.response_text,
-        )
-    elif result.error:
-        logger.warning("telegram_send_failed: %s", result.error)
-    else:
-        logger.warning("telegram_send_failed: unknown_error")
-    return False
+    chunks = split_telegram_message(text, limit=_MAX_MESSAGE_LENGTH)
+    if not chunks:
+        return False
+
+    transport = build_telegram_transport(config)
+    for chunk in chunks:
+        result = transport.send_text(chunk, parse_mode=parse_mode)
+        if _send_result_ok(result):
+            continue
+        if parse_mode:
+            fallback_result = transport.send_text(chunk, parse_mode=None)
+            if _send_result_ok(fallback_result):
+                continue
+            result = fallback_result
+        _log_send_failure(result)
+        return False
+    return True
 
 
 def has_monitor_updates(report: ScanReport) -> bool:

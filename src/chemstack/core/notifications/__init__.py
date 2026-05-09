@@ -10,6 +10,7 @@ from .telegram import (
     escape_html,
     html_code,
     load_telegram_config_from_file,
+    split_telegram_message,
 )
 
 __all__ = [
@@ -22,4 +23,5 @@ __all__ = [
     "escape_html",
     "html_code",
     "load_telegram_config_from_file",
+    "split_telegram_message",
 ]

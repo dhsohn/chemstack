@@ -5,6 +5,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+from chemstack.core.notifications import MAX_TELEGRAM_MESSAGE_LENGTH
 from chemstack.orca.config import TelegramConfig
 from chemstack.orca.dft_monitor import MonitorResult, ScanReport
 from chemstack.orca.types import QueueEnqueuedNotification, RetryNotification, RunFinishedNotification, RunStartedNotification
@@ -198,6 +199,54 @@ class TestSendMessage:
         assert result is True
         mock_build_transport.assert_called_once()
         fake_transport.send_text.assert_called_once_with("hello", parse_mode="HTML")
+
+    @patch("chemstack.orca.telegram_notifier.build_telegram_transport")
+    def test_long_message_is_split_without_oversized_chunks(self, mock_build_transport: MagicMock) -> None:
+        fake_transport = MagicMock()
+        fake_transport.send_text.return_value = SimpleNamespace(
+            sent=True,
+            skipped=False,
+            status_code=200,
+            response_text='{"ok":true}',
+            error="",
+        )
+        mock_build_transport.return_value = fake_transport
+        text = "\n".join(f"line {index}" for index in range(700))
+
+        result = send_message(_enabled_config(), text)
+
+        assert result is True
+        calls = fake_transport.send_text.call_args_list
+        assert len(calls) > 1
+        assert all(len(call.args[0]) <= MAX_TELEGRAM_MESSAGE_LENGTH for call in calls)
+        assert all(call.kwargs["parse_mode"] == "HTML" for call in calls)
+
+    @patch("chemstack.orca.telegram_notifier.build_telegram_transport")
+    def test_html_failure_retries_chunk_as_plain_text(self, mock_build_transport: MagicMock) -> None:
+        fake_transport = MagicMock()
+        fake_transport.send_text.side_effect = [
+            SimpleNamespace(
+                sent=False,
+                skipped=False,
+                status_code=400,
+                response_text="bad html",
+                error="telegram_http_400",
+            ),
+            SimpleNamespace(
+                sent=True,
+                skipped=False,
+                status_code=200,
+                response_text='{"ok":true}',
+                error="",
+            ),
+        ]
+        mock_build_transport.return_value = fake_transport
+
+        result = send_message(_enabled_config(), "<b>hello")
+
+        assert result is True
+        assert fake_transport.send_text.call_args_list[0].kwargs["parse_mode"] == "HTML"
+        assert fake_transport.send_text.call_args_list[1].kwargs["parse_mode"] is None
 
     @patch("chemstack.orca.telegram_notifier.build_telegram_transport")
     def test_api_error(self, mock_build_transport: MagicMock) -> None:

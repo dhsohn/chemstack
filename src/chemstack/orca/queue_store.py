@@ -52,6 +52,10 @@ _ACTIVE_STATUSES = frozenset({
 _UNSET = object()
 
 
+class QueueStoreCorruptError(RuntimeError):
+    """Raised when the queue file exists but cannot be safely loaded."""
+
+
 def _now_iso() -> str:
     return now_utc_iso()
 
@@ -265,12 +269,17 @@ def _load_entries(allowed_root: Path) -> List[QueueEntry]:
     if not qp.exists():
         return []
     try:
-        raw = json.loads(qp.read_text(encoding="utf-8"))
-    except Exception:
-        logger.warning("Failed to parse queue file, starting fresh: %s", qp)
+        text = qp.read_text(encoding="utf-8")
+    except FileNotFoundError:
         return []
+    except OSError as exc:
+        raise QueueStoreCorruptError(f"Queue file cannot be read: {qp}") from exc
+    try:
+        raw = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise QueueStoreCorruptError(f"Queue file is not valid JSON: {qp}") from exc
     if not isinstance(raw, list):
-        return []
+        raise QueueStoreCorruptError(f"Queue file must contain a JSON list: {qp}")
     return [cast(QueueEntry, e) for e in raw if isinstance(e, dict)]
 
 

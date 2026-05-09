@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -94,3 +95,20 @@ def test_read_pid_file_covers_missing_invalid_dead_unlink_failure_and_live_pid(t
     live.write_text("321", encoding="utf-8")
     with patch("chemstack.orca.process_tracking.is_process_alive", return_value=True):
         assert process_tracking.read_pid_file(live) == 321
+
+    json_live = tmp_path / "json-live.pid"
+    json_live.write_text(json.dumps({"pid": 654, "process_start_ticks": 111}), encoding="utf-8")
+    with patch("chemstack.orca.process_tracking.is_process_alive", return_value=True), patch(
+        "chemstack.orca.process_tracking.process_start_ticks",
+        return_value=111,
+    ):
+        assert process_tracking.read_pid_file(json_live) == 654
+
+    reused = tmp_path / "reused.pid"
+    reused.write_text(json.dumps({"pid": 654, "process_start_ticks": 111}), encoding="utf-8")
+    with patch("chemstack.orca.process_tracking.is_process_alive", return_value=True), patch(
+        "chemstack.orca.process_tracking.process_start_ticks",
+        return_value=222,
+    ):
+        assert process_tracking.read_pid_file(reused) is None
+    assert not reused.exists()

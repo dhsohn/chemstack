@@ -64,16 +64,21 @@ def _entry(
     }
 
 
-def test_list_queue_handles_missing_and_invalid_json(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_list_queue_handles_missing_and_rejects_corrupt_json(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
     _install_deterministic_helpers(monkeypatch)
 
     assert store.list_queue(tmp_path) == []
 
     _queue_file(tmp_path).write_text("{not valid json", encoding="utf-8")
-    assert store.list_queue(tmp_path) == []
+    with pytest.raises(store.QueueStoreCorruptError):
+        store.list_queue(tmp_path)
 
     _queue_file(tmp_path).write_text(json.dumps({"queue_id": "q-1"}), encoding="utf-8")
-    assert store.list_queue(tmp_path) == []
+    with pytest.raises(store.QueueStoreCorruptError):
+        store.list_queue(tmp_path)
 
     _queue_file(tmp_path).write_text(
         json.dumps(
@@ -92,6 +97,26 @@ def test_list_queue_handles_missing_and_invalid_json(monkeypatch: pytest.MonkeyP
     assert len(entries) == 1
     assert entries[0].status == QueueStatus.PENDING
     assert entries[0].metadata == {}
+
+
+def test_enqueue_rejects_corrupt_queue_file_without_overwriting(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _install_deterministic_helpers(monkeypatch)
+    corrupt_text = "{not valid json"
+    _queue_file(tmp_path).write_text(corrupt_text, encoding="utf-8")
+
+    with pytest.raises(store.QueueStoreCorruptError):
+        store.enqueue(
+            tmp_path,
+            app_name="app",
+            task_id="task-1",
+            task_kind="kind",
+            engine="engine",
+        )
+
+    assert _queue_file(tmp_path).read_text(encoding="utf-8") == corrupt_text
 
 
 def test_enqueue_blocks_active_duplicates_and_allows_reenqueue_after_terminal_state(

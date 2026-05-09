@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import os
+import json
 import subprocess
 import time
 from dataclasses import dataclass, field
@@ -26,6 +26,7 @@ from chemstack.core.queue import (
 )
 from chemstack.core.queue.types import QueueStatus
 from chemstack.core.queue.worker import (
+    current_worker_pid_payload,
     dequeue_next_across_roots,
     fill_worker_slots,
     install_shutdown_signal_handlers,
@@ -400,7 +401,8 @@ class QueueWorker:
         return self.allowed_root / WORKER_PID_FILE
 
     def _write_pid_file(self) -> None:
-        self._pid_file_path().write_text(str(os.getpid()), encoding="utf-8")
+        payload = current_worker_pid_payload()
+        self._pid_file_path().write_text(json.dumps(payload, ensure_ascii=True) + "\n", encoding="utf-8")
 
     def _remove_pid_file(self) -> None:
         try:

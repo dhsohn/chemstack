@@ -26,6 +26,10 @@ class DuplicateQueueEntryError(RuntimeError):
     """Raised when an equivalent active task is already queued or running."""
 
 
+class QueueStoreCorruptError(RuntimeError):
+    """Raised when the queue file exists but cannot be safely loaded."""
+
+
 def _queue_path(root: Path) -> Path:
     return root / QUEUE_FILE_NAME
 
@@ -73,11 +77,17 @@ def _load_entries(root: Path) -> list[QueueEntry]:
     if not path.exists():
         return []
     try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
+        text = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
         return []
+    except OSError as exc:
+        raise QueueStoreCorruptError(f"Queue file cannot be read: {path}") from exc
+    try:
+        raw = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise QueueStoreCorruptError(f"Queue file is not valid JSON: {path}") from exc
     if not isinstance(raw, list):
-        return []
+        raise QueueStoreCorruptError(f"Queue file must contain a JSON list: {path}")
     return [_entry_from_dict(item) for item in raw if isinstance(item, dict)]
 
 

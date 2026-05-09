@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import subprocess
 from pathlib import Path
 from types import SimpleNamespace
@@ -283,6 +284,17 @@ def test_pid_helpers_handle_alive_missing_and_stale_pids(
     pid_path = tmp_path / "worker.pid"
     pid_path.write_text("123\n", encoding="utf-8")
     assert worker_common.read_live_pid_file(pid_path) == 123
+
+    json_pid_path = tmp_path / "json-worker.pid"
+    json_pid_path.write_text(json.dumps({"pid": 123, "process_start_ticks": 111}), encoding="utf-8")
+    monkeypatch.setattr(worker_common, "_process_start_ticks", lambda _pid: 111)
+    assert worker_common.read_live_pid_file(json_pid_path) == 123
+
+    reused_pid_path = tmp_path / "reused-worker.pid"
+    reused_pid_path.write_text(json.dumps({"pid": 123, "process_start_ticks": 111}), encoding="utf-8")
+    monkeypatch.setattr(worker_common, "_process_start_ticks", lambda _pid: 222)
+    assert worker_common.read_live_pid_file(reused_pid_path) is None
+    assert not reused_pid_path.exists()
 
     monkeypatch.setattr(worker_common.os, "kill", lambda _pid, _signal: (_ for _ in ()).throw(OSError()))
     assert worker_common.pid_is_alive(123) is False

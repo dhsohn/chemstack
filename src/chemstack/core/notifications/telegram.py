@@ -132,6 +132,64 @@ def html_code(value: Any) -> str:
     return f"<code>{escape_html(value)}</code>"
 
 
+def _split_long_segment(text: str, *, limit: int) -> list[str]:
+    pieces: list[str] = []
+    remaining = text
+    while remaining:
+        if len(remaining) <= limit:
+            pieces.append(remaining)
+            break
+        split_at = remaining.rfind(" ", 0, limit + 1)
+        if split_at <= 0:
+            split_at = limit
+        else:
+            split_at += 1
+        pieces.append(remaining[:split_at])
+        remaining = remaining[split_at:]
+    return pieces
+
+
+def split_telegram_message(
+    text: str,
+    *,
+    limit: int = MAX_TELEGRAM_MESSAGE_LENGTH,
+) -> list[str]:
+    """Split a Telegram message without cutting across normal line boundaries."""
+    if limit <= 0:
+        raise ValueError("limit must be positive")
+
+    message = str(text).strip()
+    if not message:
+        return []
+    if len(message) <= limit:
+        return [message]
+
+    chunks: list[str] = []
+    current = ""
+
+    def flush() -> None:
+        nonlocal current
+        chunk = current.strip()
+        if chunk:
+            chunks.append(chunk)
+        current = ""
+
+    for line in message.splitlines(keepends=True):
+        if len(line) > limit:
+            flush()
+            for piece in _split_long_segment(line, limit=limit):
+                chunk = piece.strip()
+                if chunk:
+                    chunks.append(chunk)
+            continue
+        if current and len(current) + len(line) > limit:
+            flush()
+        current += line
+
+    flush()
+    return chunks
+
+
 def load_telegram_config_from_file(config_path: str | Path | None) -> TelegramConfig:
     config_text = _normalize_text(config_path)
     if not config_text:

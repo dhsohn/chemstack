@@ -7,6 +7,7 @@ management, and signal handling remain centralized.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import signal
@@ -19,7 +20,7 @@ from typing import Dict, Protocol
 from .admission_store import reconcile_stale_slots, release_slot, reserve_slot, update_slot_metadata
 from .config import AppConfig
 from .inp_rewriter import read_resource_request_from_input
-from .process_tracking import read_pid_file
+from .process_tracking import current_process_lock_payload, read_pid_file
 from .queue_store import (
     dequeue_next,
     get_cancel_requested,
@@ -518,7 +519,8 @@ class QueueWorker:
         return self.allowed_root / WORKER_PID_FILE
 
     def _write_pid_file(self) -> None:
-        self._pid_file_path().write_text(str(os.getpid()), encoding="utf-8")
+        payload = current_process_lock_payload()
+        self._pid_file_path().write_text(json.dumps(payload, ensure_ascii=True) + "\n", encoding="utf-8")
 
     def _remove_pid_file(self) -> None:
         try:

@@ -167,6 +167,42 @@ class TestProcessTracking(unittest.TestCase):
         self.assertEqual(pid, 1234)
         self.assertTrue(exists_after)
 
+    def test_read_pid_file_returns_json_pid_for_matching_ticks(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            pid_path = Path(td) / "queue_worker.pid"
+            pid_path.write_text(
+                json.dumps({"pid": 1234, "process_start_ticks": 111}),
+                encoding="utf-8",
+            )
+
+            with patch("chemstack.orca.process_tracking.is_process_alive", return_value=True), patch(
+                "chemstack.orca.process_tracking.process_start_ticks",
+                return_value=111,
+            ):
+                pid = read_pid_file(pid_path)
+                exists_after = pid_path.exists()
+
+        self.assertEqual(pid, 1234)
+        self.assertTrue(exists_after)
+
+    def test_read_pid_file_removes_json_pid_when_ticks_mismatch(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            pid_path = Path(td) / "queue_worker.pid"
+            pid_path.write_text(
+                json.dumps({"pid": 1234, "process_start_ticks": 111}),
+                encoding="utf-8",
+            )
+
+            with patch("chemstack.orca.process_tracking.is_process_alive", return_value=True), patch(
+                "chemstack.orca.process_tracking.process_start_ticks",
+                return_value=222,
+            ):
+                pid = read_pid_file(pid_path)
+                exists_after = pid_path.exists()
+
+        self.assertIsNone(pid)
+        self.assertFalse(exists_after)
+
 
 if __name__ == "__main__":
     unittest.main()

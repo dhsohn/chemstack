@@ -174,6 +174,8 @@ class TestQueueWorkerMethods(unittest.TestCase):
         self.worker._write_pid_file()
         pid_path = self.worker._pid_file_path()
         self.assertTrue(pid_path.exists())
+        payload = json.loads(pid_path.read_text(encoding="utf-8"))
+        self.assertIsInstance(payload.get("pid"), int)
         self.worker._remove_pid_file()
         self.assertFalse(pid_path.exists())
 

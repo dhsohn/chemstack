@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import signal
 import subprocess
@@ -8,6 +9,7 @@ from pathlib import Path
 from typing import Any, Callable, MutableMapping, Protocol, TypeVar
 
 from chemstack.core.admission import reserve_slot
+from chemstack.core.utils.persistence import now_utc_iso
 
 T = TypeVar("T")
 
@@ -201,17 +203,87 @@ def pid_is_alive(pid: int) -> bool:
     return True
 
 
-def read_live_pid_file(pid_path: Path) -> int | None:
-    if not pid_path.exists():
+def _process_start_ticks(pid: int) -> int | None:
+    stat_path = Path("/proc") / str(pid) / "stat"
+    try:
+        text = stat_path.read_text(encoding="utf-8", errors="ignore").strip()
+    except OSError:
+        return None
+    if not text:
+        return None
+    right_paren = text.rfind(")")
+    if right_paren < 0:
+        return None
+    fields_after_comm = text[right_paren + 2 :].split()
+    if len(fields_after_comm) <= 19:
         return None
     try:
-        pid = int(pid_path.read_text(encoding="utf-8").strip())
-    except (OSError, ValueError):
+        value = int(fields_after_comm[19])
+    except ValueError:
         return None
-    if pid_is_alive(pid):
-        return pid
+    return value if value > 0 else None
+
+
+def current_worker_pid_payload() -> dict[str, int | str]:
+    payload: dict[str, int | str] = {
+        "pid": os.getpid(),
+        "started_at": now_utc_iso(),
+    }
+    ticks = _process_start_ticks(os.getpid())
+    if ticks is not None:
+        payload["process_start_ticks"] = ticks
+    return payload
+
+
+def _positive_int(value: Any) -> int | None:
+    if isinstance(value, bool):
+        return None
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
+
+
+def _read_pid_payload(pid_path: Path) -> tuple[int | None, int | None]:
+    try:
+        text = pid_path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return None, None
+
+    pid = _positive_int(text)
+    if pid is not None:
+        return pid, None
+
+    try:
+        raw = json.loads(text)
+    except json.JSONDecodeError:
+        return None, None
+    if not isinstance(raw, dict):
+        return None, None
+
+    return _positive_int(raw.get("pid")), _positive_int(raw.get("process_start_ticks"))
+
+
+def _remove_pid_file(pid_path: Path) -> None:
     try:
         pid_path.unlink()
     except OSError:
         pass
+
+
+def read_live_pid_file(pid_path: Path) -> int | None:
+    if not pid_path.exists():
+        return None
+    pid, expected_ticks = _read_pid_payload(pid_path)
+    if pid is None:
+        return None
+    if pid_is_alive(pid):
+        if expected_ticks is not None:
+            observed_ticks = _process_start_ticks(pid)
+            if observed_ticks is None or observed_ticks != expected_ticks:
+                _remove_pid_file(pid_path)
+                return None
+        return pid
+    _remove_pid_file(pid_path)
     return None

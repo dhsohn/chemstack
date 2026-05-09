@@ -5,6 +5,8 @@ import os
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 from chemstack.orca import queue_store
 from chemstack.orca.statuses import QueueStatus
 from chemstack.orca.types import QueueEntry
@@ -18,7 +20,7 @@ def _write_entries(root: Path, entries: list[dict[str, object]]) -> None:
     )
 
 
-def test_lock_and_load_helpers_cover_error_paths(tmp_path: Path, caplog) -> None:
+def test_lock_and_load_helpers_cover_error_paths(tmp_path: Path) -> None:
     lock_path = tmp_path / queue_store.QUEUE_LOCK_NAME
     active_error = queue_store._queue_lock_active_error(123, {}, lock_path)
     unreadable_error = queue_store._queue_lock_unreadable_error(lock_path)
@@ -32,11 +34,12 @@ def test_lock_and_load_helpers_cover_error_paths(tmp_path: Path, caplog) -> None
 
     bad_queue = tmp_path / queue_store.QUEUE_FILE_NAME
     bad_queue.write_text("{bad json", encoding="utf-8")
-    assert queue_store._load_entries(tmp_path) == []
-    assert "starting fresh" in caplog.text
+    with pytest.raises(queue_store.QueueStoreCorruptError):
+        queue_store._load_entries(tmp_path)
 
     bad_queue.write_text(json.dumps({"status": "pending"}), encoding="utf-8")
-    assert queue_store._load_entries(tmp_path) == []
+    with pytest.raises(queue_store.QueueStoreCorruptError):
+        queue_store._load_entries(tmp_path)
 
 
 def test_report_reconciliation_helpers_cover_missing_nonterminal_and_failed_reason(tmp_path: Path, caplog) -> None:

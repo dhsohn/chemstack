@@ -4,11 +4,11 @@ from typing import Any, Callable
 
 from chemstack.core.config import TelegramConfig
 from chemstack.core.notifications import (
-    MAX_TELEGRAM_MESSAGE_LENGTH,
     build_telegram_transport,
     escape_html as _escape_html,
     html_code as _metric_code,
     load_telegram_config_from_file,
+    split_telegram_message,
 )
 from chemstack.core.utils import now_utc_iso
 from chemstack.flow.workflow_status import workflow_status_is_terminal
@@ -316,12 +316,18 @@ def maybe_notify_workflow_phase_summary(
         stage_buckets=stage_buckets,
         extra_lines=extra_lines,
     )
-    result = build_telegram_transport(telegram).send_text(
-        message[:MAX_TELEGRAM_MESSAGE_LENGTH],
-        parse_mode="HTML",
-    )
-    if not (result.sent or result.skipped):
+    chunks = split_telegram_message(message)
+    if not chunks:
         return False
+
+    transport = build_telegram_transport(telegram)
+    for chunk in chunks:
+        result = transport.send_text(chunk, parse_mode="HTML")
+        if result.sent or result.skipped:
+            continue
+        fallback_result = transport.send_text(chunk, parse_mode=None)
+        if not (fallback_result.sent or fallback_result.skipped):
+            return False
 
     notification_state[state_key] = {
         "sent_at": now_utc_iso(),

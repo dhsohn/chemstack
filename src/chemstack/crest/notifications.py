@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from chemstack.core.notifications import build_telegram_transport
+from chemstack.core.notifications import build_telegram_transport, split_telegram_message
 
 from .config import AppConfig
 
@@ -15,8 +15,15 @@ def _is_workflow_child(job_dir: Path) -> bool:
 
 
 def _send(cfg: AppConfig, lines: list[str]) -> bool:
-    result = build_telegram_transport(cfg.telegram).send_text("\n".join(lines))
-    return bool(result.sent or result.skipped)
+    transport = build_telegram_transport(cfg.telegram)
+    chunks = split_telegram_message("\n".join(lines))
+    if not chunks:
+        return False
+    for chunk in chunks:
+        result = transport.send_text(chunk)
+        if not bool(result.sent or result.skipped):
+            return False
+    return True
 
 
 def notify_job_queued(

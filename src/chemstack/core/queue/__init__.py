@@ -1,5 +1,6 @@
 from .store import (
     DuplicateQueueEntryError,
+    QueueStoreCorruptError,
     clear_terminal,
     dequeue_next,
     enqueue,
@@ -16,6 +17,7 @@ from .types import QueueEntry, QueueStatus
 __all__ = [
     "DuplicateQueueEntryError",
     "QueueEntry",
+    "QueueStoreCorruptError",
     "QueueStatus",
     "clear_terminal",
     "dequeue_next",
