@@ -288,6 +288,37 @@ def test_build_telegram_transport_uses_defaults() -> None:
     assert transport.base_url == telegram_mod.DEFAULT_TELEGRAM_BASE_URL
 
 
+def test_escape_helpers_and_config_loader(tmp_path: Path) -> None:
+    assert telegram_mod.escape_html("<b>&test</b>") == "&lt;b&gt;&amp;test&lt;/b&gt;"
+    assert telegram_mod.html_code("ready") == "<code>ready</code>"
+
+    missing = telegram_mod.load_telegram_config_from_file(tmp_path / "missing.yaml")
+    assert missing.enabled is False
+
+    config_path = tmp_path / "chemstack.yaml"
+    config_path.write_text(
+        "\n".join(
+            [
+                "telegram:",
+                "  bot_token: bot-token",
+                "  chat_id: chat-id",
+                "  timeout_seconds: 7.5",
+                "  max_attempts: 3",
+                "  retry_backoff_seconds: 0.25",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    config = telegram_mod.load_telegram_config_from_file(config_path)
+    assert config.bot_token == "bot-token"
+    assert config.chat_id == "chat-id"
+    assert config.timeout_seconds == 7.5
+    assert config.max_attempts == 3
+    assert config.retry_backoff_seconds == 0.25
+
+
 def test_timeout_error_is_retried_and_can_succeed(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[tuple[str, float]] = []
 

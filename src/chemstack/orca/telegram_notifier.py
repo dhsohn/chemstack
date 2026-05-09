@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from chemstack.core.notifications import build_telegram_transport
+from chemstack.core.notifications import MAX_TELEGRAM_MESSAGE_LENGTH, build_telegram_transport, escape_html
 
 if TYPE_CHECKING:
     from .config import TelegramConfig
@@ -16,17 +16,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_API_BASE = "https://api.telegram.org/bot{token}"
-_MAX_MESSAGE_LENGTH = 4096
-
-
-def escape_html(text: str) -> str:
-    """Escape HTML special characters for Telegram HTML messages."""
-    return (
-        text.replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-    )
+_MAX_MESSAGE_LENGTH = MAX_TELEGRAM_MESSAGE_LENGTH
 
 
 def send_message(

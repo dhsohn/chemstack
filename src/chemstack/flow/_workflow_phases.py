@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any, Iterable
 
 WORKFLOW_PHASE_FINISHED_EVENT = "workflow_phase_finished"
-SUPPRESSED_STAGE_NOTIFICATION_ENGINES = frozenset({"crest", "xtb"})
+SUPPRESSED_STAGE_NOTIFICATION_ENGINES = frozenset({"crest", "xtb", "orca"})
 TERMINAL_STAGE_STATUSES = frozenset(
     {
         "completed",

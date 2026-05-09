@@ -1,28 +1,25 @@
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any, Callable
 
-import yaml
-
 from chemstack.core.config import TelegramConfig
-from chemstack.core.notifications import build_telegram_transport
+from chemstack.core.notifications import (
+    MAX_TELEGRAM_MESSAGE_LENGTH,
+    build_telegram_transport,
+    escape_html as _escape_html,
+    html_code as _metric_code,
+    load_telegram_config_from_file,
+)
 from chemstack.core.utils import now_utc_iso
 from chemstack.flow.workflow_status import workflow_status_is_terminal
 
 _ACTIVE_STATUSES = frozenset({"planned", "queued", "running", "submitted", "cancel_requested", "retrying"})
-_MAX_TELEGRAM_MESSAGE_LENGTH = 4096
 
 
 def _normalize_text(value: Any) -> str:
     if value is None:
         return ""
     return str(value).strip()
-
-
-def _escape_html(value: Any) -> str:
-    text = _normalize_text(value)
-    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
 def _coerce_mapping(value: Any) -> dict[str, Any]:
@@ -40,57 +37,8 @@ def _safe_int(value: Any, *, default: int = 0) -> int:
         return default
 
 
-def _safe_float(value: Any, *, default: float = 0.0) -> float:
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return default
-
-
 def _load_telegram_config(config_path: str | None) -> TelegramConfig:
-    config_text = _normalize_text(config_path)
-    if not config_text:
-        return TelegramConfig()
-    try:
-        path = Path(config_text).expanduser().resolve()
-    except OSError:
-        return TelegramConfig()
-    if not path.exists():
-        return TelegramConfig()
-
-    try:
-        parsed = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    except Exception:
-        return TelegramConfig()
-    if not isinstance(parsed, dict):
-        return TelegramConfig()
-
-    telegram_raw = parsed.get("telegram")
-    if not isinstance(telegram_raw, dict):
-        return TelegramConfig()
-
-    return TelegramConfig(
-        bot_token=_normalize_text(telegram_raw.get("bot_token")),
-        chat_id=_normalize_text(telegram_raw.get("chat_id")),
-        timeout_seconds=max(
-            0.1,
-            _safe_float(
-                telegram_raw.get("timeout_seconds", TelegramConfig.timeout_seconds),
-                default=TelegramConfig.timeout_seconds,
-            ),
-        ),
-        max_attempts=max(1, _safe_int(telegram_raw.get("max_attempts"), default=TelegramConfig.max_attempts)),
-        retry_backoff_seconds=max(
-            0.0,
-            _safe_float(
-                telegram_raw.get(
-                    "retry_backoff_seconds",
-                    TelegramConfig.retry_backoff_seconds,
-                ),
-                default=TelegramConfig.retry_backoff_seconds,
-            ),
-        ),
-    )
+    return load_telegram_config_from_file(config_path)
 
 
 def _phase_notification_state(payload: dict[str, Any]) -> dict[str, Any]:
@@ -189,8 +137,21 @@ def _phase_label(phase_engine: str) -> str:
     return {"crest": "CREST", "xtb": "xTB"}.get(phase_engine, phase_engine.upper())
 
 
-def _metric_code(value: Any) -> str:
-    return f"<code>{_escape_html(value)}</code>"
+def _phase_outcome(counts: dict[str, int]) -> str:
+    failed = counts.get("failed", 0)
+    cancelled = counts.get("cancelled", 0)
+    completed = counts.get("completed", 0)
+    if failed and completed:
+        return "mixed"
+    if failed:
+        return "failed"
+    if cancelled and completed:
+        return "mixed"
+    if cancelled:
+        return "cancelled"
+    if completed:
+        return "completed"
+    return "unknown"
 
 
 def _phase_stage_block(
@@ -207,10 +168,11 @@ def _phase_stage_block(
         role = _normalize_text(task_payload.get("input_role")) or stage_id
         return "\n".join(
             [
-                f"<b>Stage</b>: {_escape_html(role)}",
-                f"<b>Result</b>: {_metric_code(bucket)}",
-                f"<b>Status</b>: {_metric_code(status)}",
-                f"<b>Retained conformers</b>: {_metric_code(_count_output_artifacts(stage))}",
+                f"<b>Stage</b>: {_escape_html(role)}  <b>Result</b>: {_metric_code(bucket)}",
+                (
+                    f"<b>Status</b>: {_metric_code(status)}  "
+                    f"<b>Retained conformers</b>: {_metric_code(_count_output_artifacts(stage))}"
+                ),
             ]
         )
     if phase_engine == "xtb":
@@ -218,17 +180,17 @@ def _phase_stage_block(
         handoff_status = _normalize_text(metadata.get("reaction_handoff_status")).lower() or "none"
         return "\n".join(
             [
-                f"<b>Stage</b>: {_escape_html(reaction_key)}",
-                f"<b>Result</b>: {_metric_code(bucket)}",
-                f"<b>Status</b>: {_metric_code(status)}",
-                f"<b>Handoff</b>: {_metric_code(handoff_status)}",
-                f"<b>Candidates</b>: {_metric_code(_xtb_candidate_count(stage))}",
+                f"<b>Stage</b>: {_escape_html(reaction_key)}  <b>Result</b>: {_metric_code(bucket)}",
+                (
+                    f"<b>Status</b>: {_metric_code(status)}  "
+                    f"<b>Handoff</b>: {_metric_code(handoff_status)}  "
+                    f"<b>Candidates</b>: {_metric_code(_xtb_candidate_count(stage))}"
+                ),
             ]
         )
     return "\n".join(
         [
-            f"<b>Stage</b>: {_escape_html(stage_id)}",
-            f"<b>Result</b>: {_metric_code(bucket)}",
+            f"<b>Stage</b>: {_escape_html(stage_id)}  <b>Result</b>: {_metric_code(bucket)}",
             f"<b>Status</b>: {_metric_code(status)}",
         ]
     )
@@ -265,11 +227,13 @@ def _format_phase_summary_message(
     phase = _phase_label(phase_engine)
     workflow_id = _normalize_text(payload.get("workflow_id")) or "-"
     template_name = _normalize_text(payload.get("template_name")) or "-"
+    outcome = _phase_outcome(counts)
 
     overview = [
         f"<b>ChemStack Flow {phase} Phase Summary</b>",
         f"<b>Workflow</b>: {_metric_code(workflow_id)}",
         f"<b>Template</b>: {_metric_code(template_name)}",
+        f"<b>Outcome</b>: {_metric_code(outcome)}",
         (
             f"<b>Stages</b>: {_metric_code(len(stages))}  "
             f"completed={_metric_code(counts['completed'])}  "
@@ -299,7 +263,7 @@ def _format_phase_summary_message(
     if notes is not None:
         sections.append(notes)
     if stage_blocks:
-        sections.append("\n\n".join(stage_blocks))
+        sections.append("<b>Stage details</b>\n" + "\n\n".join(stage_blocks))
     return "\n\n".join(sections)
 
 
@@ -353,7 +317,7 @@ def maybe_notify_workflow_phase_summary(
         extra_lines=extra_lines,
     )
     result = build_telegram_transport(telegram).send_text(
-        message[:_MAX_TELEGRAM_MESSAGE_LENGTH],
+        message[:MAX_TELEGRAM_MESSAGE_LENGTH],
         parse_mode="HTML",
     )
     if not (result.sent or result.skipped):

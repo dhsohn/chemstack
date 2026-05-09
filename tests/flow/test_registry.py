@@ -229,9 +229,9 @@ def test_notification_configuration_helpers_cover_default_override_and_transport
 
     assert registry._notification_event_types_from_env() == set(registry.DEFAULT_NOTIFICATION_EVENT_TYPES)
     assert registry._journal_notification_enabled("workflow_status_changed") is True
-    assert registry._journal_notification_enabled("workflow_stage_submitted") is True
-    assert registry._journal_notification_enabled("workflow_stage_handoff_ready") is True
-    assert registry._journal_notification_enabled("workflow_phase_finished") is True
+    assert registry._journal_notification_enabled("workflow_stage_submitted") is False
+    assert registry._journal_notification_enabled("workflow_stage_handoff_ready") is False
+    assert registry._journal_notification_enabled("workflow_phase_finished") is False
     assert registry._telegram_transport_from_env() is None
 
     monkeypatch.setenv(
@@ -345,6 +345,18 @@ def test_maybe_notify_journal_event_sends_message_and_swallows_transport_errors(
             "engine": "xtb",
             "task_kind": "path_search",
             "metadata": {"engine": "xtb"},
+        },
+        tmp_path,
+    )
+    registry._maybe_notify_journal_event(
+        {
+            "event_type": "workflow_stage_submitted",
+            "workflow_id": "wf_notify",
+            "template_name": "reaction_ts_search",
+            "stage_id": "orca_ts",
+            "engine": "orca",
+            "task_kind": "dft",
+            "metadata": {"engine": "orca"},
         },
         tmp_path,
     )

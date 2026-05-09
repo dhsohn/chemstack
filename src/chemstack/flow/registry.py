@@ -7,11 +7,14 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-import yaml
-
 from chemstack.core.config.files import CHEMSTACK_CONFIG_ENV_VAR
 from chemstack.core.config.schema import TelegramConfig
-from chemstack.core.notifications import build_telegram_transport
+from chemstack.core.notifications import (
+    build_telegram_transport,
+    escape_html as _escape_html,
+    html_code as _metric_code,
+    load_telegram_config_from_file,
+)
 from chemstack.core.utils import atomic_write_json, file_lock, now_utc_iso, timestamped_token
 
 from ._workflow_phases import SUPPRESSED_STAGE_NOTIFICATION_ENGINES, WORKFLOW_PHASE_FINISHED_EVENT
@@ -27,16 +30,6 @@ DEFAULT_NOTIFICATION_EVENT_TYPES = frozenset(
     {
         "workflow_status_changed",
         "workflow_advance_failed",
-        "workflow_stage_submitted",
-        "workflow_stage_completed",
-        "workflow_stage_failed",
-        "workflow_stage_cancelled",
-        "workflow_stage_handoff_ready",
-        "workflow_stage_handoff_retrying",
-        "workflow_stage_handoff_failed",
-        "workflow_stage_status_changed",
-        "workflow_stage_reaction_handoff_status_changed",
-        WORKFLOW_PHASE_FINISHED_EVENT,
         "worker_started",
         "worker_stopped",
         "worker_interrupted",
@@ -127,15 +120,6 @@ def _format_stage_statuses(value: Any) -> str:
     return ",".join(parts) if parts else "-"
 
 
-def _escape_html(value: Any) -> str:
-    text = _normalize_text(value)
-    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-
-
-def _metric_code(value: Any) -> str:
-    return f"<code>{_escape_html(value)}</code>"
-
-
 def _transition_html(previous: str, current: str) -> str:
     previous_text = _normalize_text(previous)
     current_text = _normalize_text(current)
@@ -216,63 +200,6 @@ def _coerce_counts(value: Any) -> dict[str, int]:
     return counts
 
 
-def _safe_float(value: Any, *, default: float) -> float:
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return default
-
-
-def _safe_int(value: Any, *, default: int) -> int:
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return default
-
-
-def _telegram_config_from_file(config_path: str | Path) -> TelegramConfig:
-    try:
-        path = Path(config_path).expanduser().resolve()
-    except OSError:
-        return TelegramConfig()
-    if not path.exists():
-        return TelegramConfig()
-    try:
-        raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    except Exception:
-        return TelegramConfig()
-    if not isinstance(raw, dict):
-        return TelegramConfig()
-    telegram_raw = raw.get("telegram")
-    if not isinstance(telegram_raw, dict):
-        return TelegramConfig()
-    return TelegramConfig(
-        bot_token=_normalize_text(telegram_raw.get("bot_token")),
-        chat_id=_normalize_text(telegram_raw.get("chat_id")),
-        timeout_seconds=max(
-            0.1,
-            _safe_float(
-                telegram_raw.get("timeout_seconds"),
-                default=TelegramConfig.timeout_seconds,
-            ),
-        ),
-        max_attempts=max(
-            1,
-            _safe_int(
-                telegram_raw.get("max_attempts"),
-                default=TelegramConfig.max_attempts,
-            ),
-        ),
-        retry_backoff_seconds=max(
-            0.0,
-            _safe_float(
-                telegram_raw.get("retry_backoff_seconds"),
-                default=TelegramConfig.retry_backoff_seconds,
-            ),
-        ),
-    )
-
-
 def _notification_event_types_from_env() -> set[str]:
     raw = os.environ.get("CHEM_FLOW_NOTIFY_EVENT_TYPES", "")
     if not raw.strip():
@@ -296,7 +223,7 @@ def _telegram_transport_from_env():
     config_path = os.environ.get(CHEMSTACK_CONFIG_ENV_VAR, "").strip()
     if not config_path:
         return None
-    telegram = _telegram_config_from_file(config_path)
+    telegram = load_telegram_config_from_file(config_path)
     if not telegram.enabled:
         return None
     return build_telegram_transport(telegram)

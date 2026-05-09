@@ -24,8 +24,8 @@ from chemstack.core.app_ids import (
 )
 from chemstack.core.config import TelegramConfig
 from chemstack.core.config.files import shared_workflow_root_from_config
+from chemstack.core.notifications import MAX_TELEGRAM_MESSAGE_LENGTH, escape_html, load_telegram_config_from_file
 from chemstack.core.notifications.telegram import urlopen_with_ipv4_fallback
-import yaml
 
 from .activity import _discover_sibling_config, _discover_workflow_root
 from .operations import cancel_activity, clear_activities, list_activities
@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 
 _API_BASE = "https://api.telegram.org/bot{token}"
 _POLL_TIMEOUT_SECONDS = 30
-_MAX_MESSAGE_LENGTH = 4096
+_MAX_MESSAGE_LENGTH = MAX_TELEGRAM_MESSAGE_LENGTH
 
 
 @dataclass(frozen=True)
@@ -49,10 +49,6 @@ class TelegramBotSettings:
     @property
     def enabled(self) -> bool:
         return self.telegram.enabled
-
-
-def escape_html(text: str) -> str:
-    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
 def _status_icon(status: str) -> str:
@@ -90,32 +86,12 @@ def settings_from_env() -> TelegramBotSettings:
 
 def _telegram_from_config_path(config_path: str | None) -> TelegramConfig:
     config_text = str(config_path or "").strip()
-    if not config_text:
-        return TelegramConfig()
-
-    try:
-        path = Path(config_text).expanduser().resolve()
-    except OSError:
-        return TelegramConfig()
-    if not path.exists():
-        return TelegramConfig()
-
-    try:
-        with path.open("r", encoding="utf-8") as handle:
-            parsed = yaml.safe_load(handle) or {}
-    except Exception:
-        return TelegramConfig()
-    if not isinstance(parsed, dict):
-        return TelegramConfig()
-
-    telegram_raw = parsed.get("telegram")
-    if not isinstance(telegram_raw, dict):
-        return TelegramConfig()
-
-    return TelegramConfig(
-        bot_token=str(telegram_raw.get("bot_token", "")).strip(),
-        chat_id=str(telegram_raw.get("chat_id", "")).strip(),
-    )
+    if config_text:
+        try:
+            Path(config_text).expanduser().resolve()
+        except OSError:
+            return TelegramConfig()
+    return load_telegram_config_from_file(config_path)
 
 
 def settings_from_config(config_path: str | None = None) -> TelegramBotSettings:

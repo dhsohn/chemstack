@@ -4,15 +4,21 @@ import socket
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Protocol
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urlsplit
 from urllib.request import Request, urlopen
 
+import yaml
+
+from chemstack.core.config.schema import TelegramConfig
+
 DEFAULT_TELEGRAM_BASE_URL = "https://api.telegram.org"
 DEFAULT_TIMEOUT_SECONDS = 5.0
 DEFAULT_MAX_ATTEMPTS = 2
 DEFAULT_RETRY_BACKOFF_SECONDS = 0.5
+MAX_TELEGRAM_MESSAGE_LENGTH = 4096
 
 
 class TelegramConfigLike(Protocol):
@@ -95,6 +101,85 @@ def _should_retry_url_error(exc: BaseException) -> bool:
 
 def _is_retryable_http_status(status_code: int | None) -> bool:
     return status_code in {429, 500, 502, 503, 504}
+
+
+def _normalize_text(value: Any) -> str:
+    if value is None:
+        return ""
+    return str(value).strip()
+
+
+def _safe_float(value: Any, *, default: float) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _safe_int(value: Any, *, default: int) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def escape_html(value: Any) -> str:
+    text = _normalize_text(value)
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def html_code(value: Any) -> str:
+    return f"<code>{escape_html(value)}</code>"
+
+
+def load_telegram_config_from_file(config_path: str | Path | None) -> TelegramConfig:
+    config_text = _normalize_text(config_path)
+    if not config_text:
+        return TelegramConfig()
+
+    try:
+        path = Path(config_text).expanduser().resolve()
+    except OSError:
+        return TelegramConfig()
+    if not path.exists():
+        return TelegramConfig()
+
+    try:
+        raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except Exception:
+        return TelegramConfig()
+    if not isinstance(raw, dict):
+        return TelegramConfig()
+
+    telegram_raw = raw.get("telegram")
+    if not isinstance(telegram_raw, dict):
+        return TelegramConfig()
+
+    return TelegramConfig(
+        bot_token=_normalize_text(telegram_raw.get("bot_token")),
+        chat_id=_normalize_text(telegram_raw.get("chat_id")),
+        timeout_seconds=max(
+            0.1,
+            _safe_float(
+                telegram_raw.get("timeout_seconds"),
+                default=TelegramConfig.timeout_seconds,
+            ),
+        ),
+        max_attempts=max(
+            1,
+            _safe_int(
+                telegram_raw.get("max_attempts"),
+                default=TelegramConfig.max_attempts,
+            ),
+        ),
+        retry_backoff_seconds=max(
+            0.0,
+            _safe_float(
+                telegram_raw.get("retry_backoff_seconds"),
+                default=TelegramConfig.retry_backoff_seconds,
+            ),
+        ),
+    )
 
 
 @contextmanager
