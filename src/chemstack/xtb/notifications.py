@@ -2,28 +2,21 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from chemstack.core.notifications import build_telegram_transport, split_telegram_message
+from chemstack.core.notifications import build_telegram_transport
+from chemstack.core.notifications import engines as _engine_notifications
 
 from .config import AppConfig
 
+_LABEL = "xtb_auto"
+_ENGINE = "xtb"
+
 
 def _is_workflow_child(job_dir: Path) -> bool:
-    parts = tuple(part for part in job_dir.parts if part)
-    if "workflow_jobs" in parts:
-        return True
-    return any(part.endswith("_xtb") for part in parts)
+    return _engine_notifications.is_workflow_child(job_dir, engine=_ENGINE)
 
 
 def _send(cfg: AppConfig, lines: list[str]) -> bool:
-    transport = build_telegram_transport(cfg.telegram)
-    chunks = split_telegram_message("\n".join(lines))
-    if not chunks:
-        return False
-    for chunk in chunks:
-        result = transport.send_text(chunk)
-        if not bool(result.sent or result.skipped):
-            return False
-    return True
+    return _engine_notifications.send_lines(cfg, lines, build_transport=build_telegram_transport)
 
 
 def notify_job_queued(
@@ -41,7 +34,7 @@ def notify_job_queued(
     return _send(
         cfg,
         [
-            "[xtb_auto] Job queued",
+            f"[{_LABEL}] Job queued",
             f"job_id: {job_id}",
             f"queue_id: {queue_id}",
             f"job_type: {job_type}",
@@ -67,7 +60,7 @@ def notify_job_started(
     return _send(
         cfg,
         [
-            "[xtb_auto] Job started",
+            f"[{_LABEL}] Job started",
             f"job_id: {job_id}",
             f"queue_id: {queue_id}",
             f"job_type: {job_type}",
@@ -96,7 +89,7 @@ def notify_job_terminal(
     if _is_workflow_child(job_dir):
         return True
     lines = [
-        f"[xtb_auto] {headline}",
+        f"[{_LABEL}] {headline}",
         f"job_id: {job_id}",
         f"queue_id: {queue_id}",
         f"status: {status}",
@@ -128,20 +121,14 @@ def notify_job_finished(
     resource_request: dict[str, int] | None = None,
     resource_actual: dict[str, int] | None = None,
 ) -> bool:
-    extra_lines: list[str] = []
-    if organized_output_dir is not None:
-        extra_lines.append(f"organized_output_dir: {organized_output_dir}")
-    if resource_request is not None:
-        extra_lines.append(f"resource_request: {resource_request}")
-    if resource_actual is not None:
-        extra_lines.append(f"resource_actual: {resource_actual}")
+    extra_lines = _engine_notifications.optional_terminal_lines(
+        organized_output_dir=organized_output_dir,
+        resource_request=resource_request,
+        resource_actual=resource_actual,
+    )
     return notify_job_terminal(
         cfg,
-        headline={
-            "completed": "Job finished",
-            "failed": "Job failed",
-            "cancelled": "Job cancelled",
-        }.get(status, "Job finished"),
+        headline=_engine_notifications.terminal_headline(status),
         job_id=job_id,
         queue_id=queue_id,
         status=status,
@@ -164,10 +151,10 @@ def notify_organize_summary(
 ) -> bool:
     return _send(
         cfg,
-        [
-            "[xtb_auto] Organize summary",
-            f"root: {root}",
-            f"organized: {organized_count}",
-            f"skipped: {skipped_count}",
-        ],
+        _engine_notifications.organize_summary_lines(
+            label=_LABEL,
+            organized_count=organized_count,
+            skipped_count=skipped_count,
+            root=root,
+        ),
     )

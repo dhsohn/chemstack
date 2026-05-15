@@ -370,24 +370,17 @@ def test_activate_reserved_slot_returns_none_for_missing_token(
 
 
 @pytest.mark.parametrize("bad_payload", ["{not json", json.dumps({"token": "oops"})])
-def test_invalid_json_is_treated_as_empty_state(
+def test_invalid_admission_store_fails_closed(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, bad_payload: str
 ) -> None:
     _patch_deterministic_liveness(monkeypatch)
 
     (tmp_path / store.ADMISSION_FILE_NAME).write_text(bad_payload, encoding="utf-8")
 
-    assert store.list_slots(tmp_path) == []
+    with pytest.raises(store.AdmissionStoreCorruptError):
+        store.list_slots(tmp_path)
 
-    token = store.reserve_slot(tmp_path, 1, source="fresh-source")
+    with pytest.raises(store.AdmissionStoreCorruptError):
+        store.reserve_slot(tmp_path, 1, source="fresh-source")
 
-    assert token == "slot_fixed"
-    assert store.list_slots(tmp_path) == [
-        store.AdmissionSlot(
-            token="slot_fixed",
-            owner_pid=4242,
-            process_start_ticks=12345,
-            source="fresh-source",
-            acquired_at="2026-04-19T00:00:00+00:00",
-        )
-    ]
+    assert (tmp_path / store.ADMISSION_FILE_NAME).read_text(encoding="utf-8") == bad_payload

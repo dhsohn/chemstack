@@ -354,7 +354,7 @@ def test_submit_reaction_ts_search_workflow_records_failed_only_summary(
             "reaction_dir": "/tmp/rxn_failed",
             "priority": 11,
             "config_path": "/tmp/orca.yaml",
-            "executable": "orca_auto",
+            "executable": "chemstack",
             "repo_root": None,
         }
     ]
@@ -510,7 +510,7 @@ def test_cancel_reaction_ts_search_workflow_records_failed_only_summary_for_edge
         {
             "target": "q_fail",
             "config_path": "/tmp/orca.yaml",
-            "executable": "orca_auto",
+            "executable": "chemstack",
             "repo_root": None,
         }
     ]

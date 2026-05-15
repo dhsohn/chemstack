@@ -48,7 +48,6 @@ def test_artifact_candidates_cover_blank_absolute_and_relative_inputs(tmp_path: 
     assert pathing.artifact_candidates("   ", reaction_dir) == []
     assert pathing.artifact_candidates(str(absolute), reaction_dir) == [
         absolute,
-        reaction_dir / absolute.name,
     ]
     assert pathing.artifact_candidates("nested/calc.out", reaction_dir) == [
         reaction_dir / "nested" / "calc.out",

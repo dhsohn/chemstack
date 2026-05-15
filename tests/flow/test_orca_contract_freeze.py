@@ -159,7 +159,7 @@ def test_orca_contract_freeze_completed_result_survives_public_workflow_sync(tmp
         [
             {
                 "job_id": "job_hist_1",
-                "app_name": "orca_auto",
+                "app_name": "chemstack_orca",
                 "job_type": "orca_opt",
                 "status": "completed",
                 "original_run_dir": str(original_dir),

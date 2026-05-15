@@ -433,7 +433,10 @@ class QueueWorker:
 
     def _finalize_finished_job(self, queue_id: str, job: _RunningJob, *, rc: int) -> None:
         run_id = _get_run_id_from_state(job.reaction_dir)
-        if rc == 0:
+        if get_cancel_requested(self.allowed_root, queue_id):
+            logger.info("Job cancelled: %s (rc=%d)", queue_id, rc)
+            mark_cancelled(self.allowed_root, queue_id)
+        elif rc == 0:
             logger.info("Job completed: %s (rc=%d)", queue_id, rc)
             mark_completed(self.allowed_root, queue_id, run_id=run_id)
             self._auto_organize_terminal_job(job)

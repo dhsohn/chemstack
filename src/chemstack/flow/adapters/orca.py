@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import sys
 from functools import lru_cache
 from importlib import import_module
 from pathlib import Path
@@ -57,7 +56,7 @@ RECORDS_FILE_NAME = "records.jsonl"
 
 # Keep these names on the facade module so private helper modules and tests can
 # monkeypatch the original surface after the implementation split.
-_FACADE_COMPAT = (json, sys, import_module, resolve_job_location)
+_FACADE_COMPAT = (json, import_module, resolve_job_location)
 
 
 def _normalize_text(value: Any) -> str:

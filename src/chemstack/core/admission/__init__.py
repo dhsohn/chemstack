@@ -1,6 +1,7 @@
 from .store import (
     AdmissionLimitReachedError,
     AdmissionSlot,
+    AdmissionStoreCorruptError,
     activate_reserved_slot,
     active_slot_count,
     list_slots,
@@ -13,6 +14,7 @@ from .store import (
 __all__ = [
     "AdmissionLimitReachedError",
     "AdmissionSlot",
+    "AdmissionStoreCorruptError",
     "activate_reserved_slot",
     "active_slot_count",
     "list_slots",

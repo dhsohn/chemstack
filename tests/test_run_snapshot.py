@@ -259,7 +259,7 @@ def test_collect_run_snapshots_uses_tracking_record_for_tracked_run(tmp_path: Pa
     job_locations = [
         {
             "job_id": "job-tracked",
-            "app_name": "orca_auto",
+            "app_name": "chemstack_orca",
             "job_type": "orca_opt",
             "status": "completed",
             "original_run_dir": str(original_run),
@@ -288,7 +288,7 @@ def test_collect_run_snapshots_uses_tracking_record_for_tracked_run(tmp_path: Pa
     assert snapshot.final_reason == "tracked_completion"
 
 
-def test_collect_run_snapshots_preserves_legacy_fallback_when_index_is_incomplete(
+def test_collect_run_snapshots_includes_untracked_state_when_index_is_incomplete(
     tmp_path: Path,
 ) -> None:
     allowed_root = tmp_path / "orca_runs"
@@ -314,26 +314,26 @@ def test_collect_run_snapshots_preserves_legacy_fallback_when_index_is_incomplet
         encoding="utf-8",
     )
 
-    legacy_run = allowed_root / "legacy" / "rxn_legacy"
-    legacy_run.mkdir(parents=True)
-    legacy_state: dict[str, Any] = {
-        "run_id": "run-legacy",
+    untracked_run = allowed_root / "untracked" / "rxn_untracked"
+    untracked_run.mkdir(parents=True)
+    untracked_state: dict[str, Any] = {
+        "run_id": "run-untracked",
         "status": "running",
         "started_at": "2026-01-10T09:00:00+00:00",
         "updated_at": "2026-01-10T10:00:00+00:00",
-        "selected_inp": str(legacy_run / "legacy.inp"),
+        "selected_inp": str(untracked_run / "untracked.inp"),
         "attempts": [],
         "final_result": None,
     }
-    (legacy_run / "run_state.json").write_text(
-        json.dumps(legacy_state, ensure_ascii=True, indent=2),
+    (untracked_run / "run_state.json").write_text(
+        json.dumps(untracked_state, ensure_ascii=True, indent=2),
         encoding="utf-8",
     )
 
     job_locations = [
         {
             "job_id": "job-tracked",
-            "app_name": "orca_auto",
+            "app_name": "chemstack_orca",
             "job_type": "orca_opt",
             "status": "completed",
             "original_run_dir": str(allowed_root / "project" / "rxn_tracked"),
@@ -352,8 +352,8 @@ def test_collect_run_snapshots_preserves_legacy_fallback_when_index_is_incomplet
 
     snapshots = collect_run_snapshots(allowed_root)
 
-    assert {snapshot.run_id for snapshot in snapshots} == {"run-tracked", "run-legacy"}
-    assert {snapshot.name for snapshot in snapshots} == {"project/rxn_tracked", "legacy/rxn_legacy"}
+    assert {snapshot.run_id for snapshot in snapshots} == {"run-tracked", "run-untracked"}
+    assert {snapshot.name for snapshot in snapshots} == {"project/rxn_tracked", "untracked/rxn_untracked"}
 
 
 def test_sort_snapshots_by_started_handles_invalid_timestamps(tmp_path: Path) -> None:

@@ -68,8 +68,7 @@ def to_reaction_relative_path(path_value: Any, reaction_dir: Path) -> str:
         try:
             return str(p.relative_to(reaction_dir))
         except ValueError:
-            # Legacy states can point to pre-move absolute paths.
-            return p.name
+            return ""
 
     normalized = p
     if normalized.parts and normalized.parts[0] == ".":
@@ -104,7 +103,7 @@ def _build_index_record(
         rel = reaction_dir
     organized_path = str(rel)
 
-    from .result_organizer import resolve_organize_metadata
+    from .result_organizer import detect_job_type, resolve_organize_metadata
 
     selected_inp = state.get("selected_inp", "")
     inp_path, job_type, molecule_key = resolve_organize_metadata(state, reaction_dir)
@@ -112,6 +111,10 @@ def _build_index_record(
         inps = sorted(reaction_dir.glob("*.inp"))
         if inps:
             inp_path = inps[0]
+            job_type = detect_job_type(inp_path)
+            from .molecule_key import resolve_molecule_key
+
+            molecule_key = resolve_molecule_key(inp_path).key
 
     attempts = state.get("attempts")
     attempt_count = len(attempts) if isinstance(attempts, list) else 0

@@ -344,57 +344,6 @@ def test_runtime_path_and_engine_root_edges(
     assert activity._engine_queue_roots("/tmp/cfg.yaml", engine="crest") == (runtime_a, runtime_b)
 
 
-def test_orca_fallback_queue_records_cover_file_edges(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    allowed = tmp_path / "orca"
-    allowed.mkdir()
-    monkeypatch.setattr(
-        activity,
-        "sibling_runtime_paths",
-        lambda config_path, *, engine: {"allowed_root": allowed},
-    )
-
-    assert activity._fallback_orca_queue_records(config_path="/tmp/cfg.yaml") == []
-    (allowed / "queue.json").write_text("{not json", encoding="utf-8")
-    assert activity._fallback_orca_queue_records(config_path="/tmp/cfg.yaml") == []
-    (allowed / "queue.json").write_text(json.dumps({"not": "a-list"}), encoding="utf-8")
-    assert activity._fallback_orca_queue_records(config_path="/tmp/cfg.yaml") == []
-
-    reaction_dir = allowed / "wf" / "rxn-1"
-    payload = [
-        "skip",
-        {
-            "queue_id": "q-1",
-            "run_id": "run-1",
-            "status": "running",
-            "cancel_requested": True,
-            "task_kind": "orca_run",
-            "priority": 5,
-            "enqueued_at": "2026-04-26T00:00:00+00:00",
-            "metadata": {
-                "workflow_id": "wf-1",
-                "reaction_dir": str(reaction_dir),
-                "job_type": "opt",
-                "selected_inp": "rxn.inp",
-            },
-        },
-    ]
-    (allowed / "queue.json").write_text(json.dumps(payload), encoding="utf-8")
-
-    rows = activity._fallback_orca_queue_records(config_path="/tmp/cfg.yaml")
-
-    assert len(rows) == 1
-    row = rows[0]
-    assert row.activity_id == "q-1"
-    assert row.status == "cancel_requested"
-    assert row.label == "rxn-1"
-    assert "wf/rxn-1" in row.aliases
-    assert row.metadata["priority"] == 5
-    assert row.metadata["elapsed_started_at"] == "2026-04-26T00:00:00+00:00"
-
-
 def test_orca_records_merge_queue_entries_and_snapshots(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -462,20 +411,19 @@ def test_orca_records_merge_queue_entries_and_snapshots(
     ]
     reconciled: list[Path] = []
 
-    queue_store = SimpleNamespace(
-        reconcile_orphaned_running_entries=lambda root: reconciled.append(root),
-        list_queue=lambda root: entries,
-        queue_entry_metadata=lambda entry: entry.get("metadata", {}),
-        queue_entry_run_id=lambda entry: entry.get("run_id", ""),
-        queue_entry_status=lambda entry: entry.get("status", ""),
-        queue_entry_reaction_dir=lambda entry: entry.get("reaction_dir", ""),
-        queue_entry_id=lambda entry: entry.get("queue_id", ""),
-        queue_entry_task_id=lambda entry: entry.get("task_id", ""),
-        queue_entry_priority=lambda entry: entry.get("priority", 0),
-    )
-    run_snapshot = SimpleNamespace(collect_run_snapshots=lambda root: snapshots)
+    from chemstack.orca import queue_store, run_snapshot
+
     monkeypatch.setattr(activity, "sibling_runtime_paths", lambda config_path, *, engine: {"allowed_root": allowed})
-    monkeypatch.setattr(activity, "_import_orca_runtime_modules", lambda repo_root: (queue_store, run_snapshot))
+    monkeypatch.setattr(queue_store, "reconcile_orphaned_running_entries", lambda root: reconciled.append(root))
+    monkeypatch.setattr(queue_store, "list_queue", lambda root: entries)
+    monkeypatch.setattr(queue_store, "queue_entry_metadata", lambda entry: entry.get("metadata", {}))
+    monkeypatch.setattr(queue_store, "queue_entry_run_id", lambda entry: entry.get("run_id", ""))
+    monkeypatch.setattr(queue_store, "queue_entry_status", lambda entry: entry.get("status", ""))
+    monkeypatch.setattr(queue_store, "queue_entry_reaction_dir", lambda entry: entry.get("reaction_dir", ""))
+    monkeypatch.setattr(queue_store, "queue_entry_id", lambda entry: entry.get("queue_id", ""))
+    monkeypatch.setattr(queue_store, "queue_entry_task_id", lambda entry: entry.get("task_id", ""))
+    monkeypatch.setattr(queue_store, "queue_entry_priority", lambda entry: entry.get("priority", 0))
+    monkeypatch.setattr(run_snapshot, "collect_run_snapshots", lambda root: snapshots)
 
     rows = activity._orca_records(config_path="/tmp/cfg.yaml", repo_root="/tmp/repo")
 
@@ -523,32 +471,6 @@ def test_orca_matching_helpers_cover_empty_and_active_dir_paths(tmp_path: Path) 
         )
         is True
     )
-
-
-def test_repo_import_helpers_cover_missing_and_module_error(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    missing = tmp_path / "missing"
-    assert activity._ensure_repo_on_syspath(str(missing), fallback_name="unknown") is None
-
-    repo = tmp_path / "repo"
-    src = repo / "src"
-    src.mkdir(parents=True)
-    assert activity._ensure_repo_on_syspath(str(repo), fallback_name="unknown") == repo.resolve()
-    assert str(repo.resolve()) in sys.path
-    assert str(src.resolve()) in sys.path
-
-    monkeypatch.setattr(activity, "_ensure_repo_on_syspath", lambda repo_root, *, fallback_name: None)
-    assert activity._import_orca_runtime_modules(None) is None
-
-    monkeypatch.setattr(activity, "_ensure_repo_on_syspath", lambda repo_root, *, fallback_name: repo)
-    monkeypatch.setattr(
-        activity.importlib,
-        "import_module",
-        lambda name: (_ for _ in ()).throw(ModuleNotFoundError(name)),
-    )
-    assert activity._import_orca_runtime_modules(str(repo)) is None
 
 
 def test_match_activity_record_and_cancel_error_edges(monkeypatch: pytest.MonkeyPatch) -> None:

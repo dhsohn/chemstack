@@ -215,22 +215,22 @@ def test_cmd_list_clear_delegates_to_clear_action(tmp_path: Path) -> None:
     clear_cmd.assert_called_once_with(allowed_root.resolve())
 
 
-def test_clear_terminal_run_states_clears_tracked_and_legacy_terminal_states(tmp_path: Path) -> None:
+def test_clear_terminal_run_states_clears_tracked_and_untracked_terminal_states(tmp_path: Path) -> None:
     allowed_root = tmp_path / "orca_runs"
     organized_dir = tmp_path / "organized" / "project" / "rxn_tracked"
-    legacy_dir = allowed_root / "legacy" / "rxn_legacy"
+    untracked_dir = allowed_root / "untracked" / "rxn_failed"
     running_dir = allowed_root / "live" / "rxn_running"
     allowed_root.mkdir()
 
     _write_state(organized_dir, run_id="run_tracked", status="completed", inp_name="tracked.inp")
-    _write_state(legacy_dir, run_id="run_legacy", status="failed")
+    _write_state(untracked_dir, run_id="run_failed", status="failed")
     _write_state(running_dir, run_id="run_running", status="running")
     (allowed_root / "job_locations.json").write_text(
         json.dumps(
             [
                 {
                     "job_id": "job_tracked",
-                    "app_name": "orca_auto",
+                    "app_name": "chemstack_orca",
                     "job_type": "orca_opt",
                     "status": "completed",
                     "original_run_dir": str(allowed_root / "project" / "rxn_tracked"),
@@ -252,7 +252,7 @@ def test_clear_terminal_run_states_clears_tracked_and_legacy_terminal_states(tmp
 
     assert cleared == 2
     assert not (organized_dir / "run_state.json").exists()
-    assert not (legacy_dir / "run_state.json").exists()
+    assert not (untracked_dir / "run_state.json").exists()
     assert (running_dir / "run_state.json").exists()
 
 

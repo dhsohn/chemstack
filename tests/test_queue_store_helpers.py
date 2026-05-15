@@ -189,14 +189,14 @@ def test_find_helpers_cover_active_terminal_and_queue_id_lookup() -> None:
     assert queue_store._find_entry_by_queue_id(entries, "q_missing") is None
 
 
-def test_list_queue_normalizes_common_fields_for_legacy_entries(tmp_path: Path) -> None:
+def test_list_queue_normalizes_common_fields_for_partial_entries(tmp_path: Path) -> None:
     root = tmp_path / "queue_root"
     root.mkdir()
     queue_store._save_entries(
         root,
         [
             {
-                "queue_id": "q_legacy",
+                "queue_id": "q_partial",
                 "reaction_dir": str(root / "rxn"),
                 "status": QueueStatus.PENDING.value,
                 "force": False,
@@ -209,7 +209,7 @@ def test_list_queue_normalizes_common_fields_for_legacy_entries(tmp_path: Path) 
     assert len(entries) == 1
     entry = entries[0]
     assert entry["app_name"] == "chemstack_orca"
-    assert entry["task_id"] == "q_legacy"
+    assert entry["task_id"] == "q_partial"
     assert entry["task_kind"] == "orca_run_inp"
     assert entry["engine"] == "orca"
     assert entry["metadata"]["reaction_dir"] == str(root / "rxn")
@@ -287,7 +287,8 @@ def test_save_entries_uses_chem_core_queue_serializer_when_available(tmp_path: P
     fake_backend = SimpleNamespace(
         QueueStatus=FakeQueueStatus,
         QueueEntry=FakeQueueEntry,
-        _entry_to_dict=_capture_entry_to_dict,
+        entry_to_dict=_capture_entry_to_dict,
+        _entry_to_dict=lambda _entry: pytest.fail("private queue serializer should not be used"),
     )
 
     root = tmp_path / "queue_root"

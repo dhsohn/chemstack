@@ -34,26 +34,6 @@ class OutAnalysis:
         }
 
 
-def _detect_encoding(out_path: Path) -> str:
-    """Detect if the file uses UTF-16 encoding.
-
-    Kept for backward compatibility with pre-migration .out files that were
-    produced on Windows.  New Linux-only runs always produce UTF-8.
-    """
-    try:
-        raw = out_path.read_bytes()[:4]
-    except OSError:
-        return "utf-8"
-    if raw[:2] == b"\xff\xfe":
-        return "utf-16-le"
-    if raw[:2] == b"\xfe\xff":
-        return "utf-16-be"
-    # Heuristic: null bytes interleaved with ASCII suggest UTF-16 LE without BOM
-    if len(raw) >= 4 and raw[1:2] == b"\x00" and raw[3:4] == b"\x00":
-        return "utf-16-le"
-    return "utf-8"
-
-
 def _default_markers(out_path: Path) -> Dict[str, Any]:
     return {
         "out_path": str(out_path),
@@ -199,7 +179,7 @@ def analyze_output(out_path: Path, mode: CompletionMode) -> OutAnalysis:
         return OutAnalysis(status=AnalyzerStatus.INCOMPLETE, reason="output_missing", markers=markers)
 
     try:
-        encoding = _detect_encoding(out_path)
+        encoding = "utf-8"
         file_size = out_path.stat().st_size
         tail_bytes = _TS_TAIL_BYTES if mode.kind == "ts" else _DEFAULT_TAIL_BYTES
         full_text: str | None = None

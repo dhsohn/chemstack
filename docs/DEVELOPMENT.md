@@ -9,7 +9,7 @@ This repository now uses a monorepo-style package layout under `src/chemstack`.
 - Workflow orchestration: `chemstack.flow.*`
 - Engine packages: `chemstack.xtb.*`, `chemstack.crest.*`
 
-Top-level `core.*` and `orca_auto.*` shim packages were removed. New code, tests, and docs should import from `chemstack.*`.
+Top-level `core.*` and `orca_auto.*` packages were removed. New code, tests, and docs should import from `chemstack.*`.
 
 ## Current Package Layout
 
@@ -45,9 +45,9 @@ User-facing docs should standardize on these command forms:
 Long-running services are not part of the public CLI surface. Users should run
 them only through the `systemd/` units.
 
-Engine-specific CLI modules currently remain as thin compatibility wrappers for
-those public entrypoints. Commands that are not yet unified, such as ORCA
-`monitor`, still live under `python -m chemstack.orca.cli ...`.
+Engine-specific CLI modules are retained only where the engine owns a command
+that has not graduated to the public `chemstack` surface, such as ORCA
+`monitor`.
 
 `chemstack.flow.cli` is not part of the public CLI surface. Do not document it
 in `README.md`, `docs/REFERENCE.md`, or user-facing setup guides.
@@ -116,7 +116,7 @@ pytest tests/integration -q
 - `chemstack.orca` is the only implementation source of truth
 - All supported package imports live under `src/chemstack`
 - If a new feature requires code changes in ORCA logic, make them under `src/chemstack/orca`
-- Keep runtime compatibility fallbacks explicit, but do not reintroduce top-level alias packages
+- Do not reintroduce top-level alias packages or old-format runtime readers
 
 ## Historical Docs
 

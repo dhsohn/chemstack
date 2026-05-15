@@ -1,32 +1,27 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any
 
-from chemstack.core.utils import atomic_write_json, now_utc_iso
+from chemstack.core.state import engine as _engine_state
+from chemstack.core.utils import now_utc_iso
 
 STATE_FILE_NAME = "job_state.json"
 REPORT_JSON_FILE_NAME = "job_report.json"
 REPORT_MD_FILE_NAME = "job_report.md"
 ORGANIZED_REF_FILE_NAME = "organized_ref.json"
-RECOVERY_PENDING_REASONS = frozenset({"worker_shutdown", "crashed_recovery"})
+RECOVERY_PENDING_REASONS = _engine_state.RECOVERY_PENDING_REASONS
 
 
 def write_state(job_dir: Path, payload: dict[str, Any]) -> Path:
-    path = job_dir / STATE_FILE_NAME
-    atomic_write_json(path, payload, ensure_ascii=True, indent=2)
-    return path
+    return _engine_state.write_json_artifact(job_dir, STATE_FILE_NAME, payload)
 
 
 def write_report_json(job_dir: Path, payload: dict[str, Any]) -> Path:
-    path = job_dir / REPORT_JSON_FILE_NAME
-    atomic_write_json(path, payload, ensure_ascii=True, indent=2)
-    return path
+    return _engine_state.write_json_artifact(job_dir, REPORT_JSON_FILE_NAME, payload)
 
 
 def write_report_md(job_dir: Path, *, job_id: str, status: str, reason: str, selected_input: str) -> Path:
-    path = job_dir / REPORT_MD_FILE_NAME
     lines = [
         "# xtb_auto Report",
         "",
@@ -36,73 +31,39 @@ def write_report_md(job_dir: Path, *, job_id: str, status: str, reason: str, sel
         f"- Selected Input: `{selected_input}`",
         f"- Updated At: `{now_utc_iso()}`",
     ]
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    return path
+    return _engine_state.write_text_artifact(job_dir, REPORT_MD_FILE_NAME, lines)
 
 
 def write_report_md_lines(job_dir: Path, lines: list[str]) -> Path:
-    path = job_dir / REPORT_MD_FILE_NAME
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    return path
+    return _engine_state.write_text_artifact(job_dir, REPORT_MD_FILE_NAME, lines)
 
 
 def write_organized_ref(job_dir: Path, payload: dict[str, Any]) -> Path:
-    path = job_dir / ORGANIZED_REF_FILE_NAME
-    atomic_write_json(path, payload, ensure_ascii=True, indent=2)
-    return path
+    return _engine_state.write_json_artifact(job_dir, ORGANIZED_REF_FILE_NAME, payload)
 
 
 def load_state(job_dir: Path) -> dict[str, Any] | None:
-    path = job_dir / STATE_FILE_NAME
-    if not path.exists():
-        return None
-    try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return None
-    if not isinstance(raw, dict):
-        return None
-    return raw
+    return _engine_state.load_json_mapping_artifact(job_dir, STATE_FILE_NAME)
 
 
 def load_report_json(job_dir: Path) -> dict[str, Any] | None:
-    path = job_dir / REPORT_JSON_FILE_NAME
-    if not path.exists():
-        return None
-    try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return None
-    if not isinstance(raw, dict):
-        return None
-    return raw
+    return _engine_state.load_json_mapping_artifact(job_dir, REPORT_JSON_FILE_NAME)
 
 
 def load_organized_ref(job_dir: Path) -> dict[str, Any] | None:
-    path = job_dir / ORGANIZED_REF_FILE_NAME
-    if not path.exists():
-        return None
-    try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return None
-    if not isinstance(raw, dict):
-        return None
-    return raw
+    return _engine_state.load_json_mapping_artifact(job_dir, ORGANIZED_REF_FILE_NAME)
 
 
 def _normalize_text(value: Any) -> str:
-    if value is None:
-        return ""
-    return str(value).strip()
+    return _engine_state.normalize_text(value)
 
 
 def _coerce_dict(value: Any) -> dict[str, Any]:
-    return dict(value) if isinstance(value, dict) else {}
+    return _engine_state.coerce_dict(value)
 
 
 def _coerce_list(value: Any) -> list[Any]:
-    return list(value) if isinstance(value, list) else []
+    return _engine_state.coerce_list(value)
 
 
 def state_matches_job(
@@ -112,24 +73,18 @@ def state_matches_job(
     job_type: str,
     reaction_key: str,
 ) -> bool:
-    if not isinstance(state, dict):
-        return False
-    selected_text = _normalize_text(selected_input_xyz)
-    if _normalize_text(state.get("selected_input_xyz")) != selected_text:
-        return False
-    if _normalize_text(state.get("job_type")) != _normalize_text(job_type):
-        return False
-    return _normalize_text(state.get("reaction_key")) == _normalize_text(reaction_key)
+    return _engine_state.state_matches_fields(
+        state,
+        {
+            "selected_input_xyz": selected_input_xyz,
+            "job_type": job_type,
+            "reaction_key": reaction_key,
+        },
+    )
 
 
 def is_recovery_pending(state: dict[str, Any] | None) -> bool:
-    if not isinstance(state, dict):
-        return False
-    if bool(state.get("recovery_pending")):
-        return True
-    status = _normalize_text(state.get("status")).lower()
-    reason = _normalize_text(state.get("reason"))
-    return status == "queued" and reason in RECOVERY_PENDING_REASONS
+    return _engine_state.is_recovery_pending_state(state)
 
 
 def mark_recovery_pending(
@@ -151,34 +106,28 @@ def mark_recovery_pending(
     selected_candidate_paths = _coerce_list(existing.get("selected_candidate_paths"))
     candidate_details = _coerce_list(existing.get("candidate_details"))
     analysis_summary = _coerce_dict(existing.get("analysis_summary"))
-    manifest_path = _normalize_text(existing.get("manifest_path"))
-    if not manifest_path:
-        manifest = (job_dir / "xtb_job.yaml").resolve()
-        manifest_path = str(manifest) if manifest.exists() else ""
-    recovery_count = int(existing.get("recovery_count", 0) or 0) + 1
-    payload = {
-        "job_id": _normalize_text(existing.get("job_id")) or _normalize_text(job_id),
-        "job_dir": str(job_dir.resolve()),
-        "selected_input_xyz": _normalize_text(selected_input_xyz),
-        "job_type": _normalize_text(job_type),
-        "reaction_key": _normalize_text(reaction_key),
-        "input_summary": input_summary_payload,
-        "status": "queued",
-        "reason": _normalize_text(reason),
-        "created_at": _normalize_text(existing.get("created_at")) or now,
-        "started_at": _normalize_text(existing.get("started_at")),
-        "updated_at": now,
-        "candidate_count": int(existing.get("candidate_count", 0) or 0),
-        "candidate_paths": candidate_paths,
-        "selected_candidate_paths": selected_candidate_paths,
-        "candidate_details": candidate_details,
-        "analysis_summary": analysis_summary,
-        "manifest_path": manifest_path,
-        "resource_request": _coerce_dict(resource_request) or _coerce_dict(existing.get("resource_request")),
-        "resource_actual": _coerce_dict(resource_actual) or _coerce_dict(existing.get("resource_actual")),
-        "recovery_pending": True,
-        "recovery_reason": _normalize_text(reason),
-        "recovery_count": recovery_count,
-    }
+    payload = _engine_state.recovery_pending_payload(
+        job_dir,
+        existing=existing,
+        job_id=job_id,
+        selected_input_xyz=selected_input_xyz,
+        reason=reason,
+        now=now,
+        manifest_filename="xtb_job.yaml",
+        identity_fields={
+            "job_type": _normalize_text(job_type),
+            "reaction_key": _normalize_text(reaction_key),
+            "input_summary": input_summary_payload,
+        },
+        retained_fields={
+            "candidate_count": int(existing.get("candidate_count", 0) or 0),
+            "candidate_paths": candidate_paths,
+            "selected_candidate_paths": selected_candidate_paths,
+            "candidate_details": candidate_details,
+            "analysis_summary": analysis_summary,
+        },
+        resource_request=resource_request,
+        resource_actual=resource_actual,
+    )
     write_state(job_dir, payload)
     return payload

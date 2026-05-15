@@ -212,7 +212,7 @@ class TestConfigValidation(unittest.TestCase):
             self.assertEqual(cfg.runtime.allowed_root, str(allowed.resolve()))
             self.assertEqual(cfg.paths.orca_executable, str(fake_orca.resolve()))
 
-    def test_deprecated_max_attempts_key_is_ignored(self) -> None:
+    def test_removed_default_max_attempts_key_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             allowed = root / "orca_runs"
@@ -233,8 +233,9 @@ class TestConfigValidation(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
-            cfg = load_config(str(cfg_path))
-            self.assertEqual(cfg.runtime.default_max_retries, 2)
+            with self.assertRaises(ValueError) as ctx:
+                load_config(str(cfg_path))
+            self.assertIn("runtime.default_max_attempts", str(ctx.exception))
 
     def test_default_max_retries_can_exceed_five(self) -> None:
         with tempfile.TemporaryDirectory() as td:

@@ -219,7 +219,7 @@ def test_load_orca_artifact_contract_resolves_selected_input_and_prefers_last_ou
         [
             {
                 "job_id": "job_paths_1",
-                "app_name": "orca_auto",
+                "app_name": "chemstack_orca",
                 "job_type": "orca_opt",
                 "status": "completed",
                 "original_run_dir": str(run_dir),
@@ -309,7 +309,7 @@ def test_load_orca_artifact_contract_propagates_resource_request_and_actual(
         [
             {
                 "job_id": "job_resources_1",
-                "app_name": "orca_auto",
+                "app_name": "chemstack_orca",
                 "job_type": "orca_opt",
                 "status": "queued",
                 "original_run_dir": str(run_dir),

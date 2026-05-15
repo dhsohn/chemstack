@@ -41,20 +41,6 @@ def _write_state(dir_path: Path, payload: dict[str, object]) -> None:
     )
 
 
-def test_load_state_with_report_fallback_uses_report_when_state_missing(tmp_path: Path) -> None:
-    reaction_dir = tmp_path / "rxn"
-    reaction_dir.mkdir()
-    report_payload = {"run_id": "run_1", "status": "completed", "final_result": {}}
-    (reaction_dir / "run_report.json").write_text(
-        json.dumps(report_payload, ensure_ascii=True),
-        encoding="utf-8",
-    )
-
-    loaded = result_organizer._load_state_with_report_fallback(reaction_dir)
-
-    assert loaded == report_payload
-
-
 def test_attempt_and_metadata_helpers_cover_edge_cases(tmp_path: Path) -> None:
     reaction_dir = tmp_path / "rxn"
     reaction_dir.mkdir()

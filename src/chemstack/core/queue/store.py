@@ -38,10 +38,14 @@ def _lock_path(root: Path) -> Path:
     return root / QUEUE_LOCK_NAME
 
 
-def _entry_to_dict(entry: QueueEntry) -> dict[str, Any]:
+def entry_to_dict(entry: QueueEntry) -> dict[str, Any]:
     data = asdict(entry)
     data["status"] = entry.status.value
     return data
+
+
+def _entry_to_dict(entry: QueueEntry) -> dict[str, Any]:
+    return entry_to_dict(entry)
 
 
 def _entry_from_dict(raw: dict[str, Any]) -> QueueEntry:

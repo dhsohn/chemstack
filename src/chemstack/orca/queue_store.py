@@ -312,9 +312,12 @@ def _to_chem_core_entry(entry: QueueEntry, *, backend: Any) -> Any:
     )
 
 
-def _backend_compat_entry_dict(entry: QueueEntry, *, backend: Any) -> dict[str, Any]:
+def _backend_entry_dict(entry: QueueEntry, *, backend: Any) -> dict[str, Any]:
     normalized = _normalize_entry(entry)
-    serialized = dict(backend._entry_to_dict(_to_chem_core_entry(normalized, backend=backend)))
+    serialize_entry = getattr(backend, "entry_to_dict", None)
+    if not callable(serialize_entry):
+        serialize_entry = backend._entry_to_dict
+    serialized = dict(serialize_entry(_to_chem_core_entry(normalized, backend=backend)))
 
     reaction_dir = queue_entry_reaction_dir(normalized)
     if reaction_dir:
@@ -334,7 +337,7 @@ def _save_entries(allowed_root: Path, entries: List[QueueEntry]) -> None:
         atomic_write_json(_queue_path(allowed_root), normalized_entries, ensure_ascii=True, indent=2)
         return
     serialized_entries = [
-        _backend_compat_entry_dict(entry, backend=backend)
+        _backend_entry_dict(entry, backend=backend)
         for entry in normalized_entries
     ]
     atomic_write_json(_queue_path(allowed_root), serialized_entries, ensure_ascii=True, indent=2)

@@ -14,10 +14,6 @@ This directory is the single home for long-running ChemStack service assets.
   - oneshot sender for the combined ORCA/workflow Telegram summary
 - `chemstack-summary@.timer`
   - runs the combined summary every 6 hours
-- `chemstack-flow-workflow-worker.service`
-  - supervised workflow worker for `chemstack.flow`
-- `chemstack-flow-worker.env.example`
-  - example environment file for the workflow worker
 
 ## Combined runtime target
 
@@ -114,47 +110,3 @@ sudo systemctl stop "chemstack-queue-worker@$(whoami)"
 `scheduler.max_active_simulations` in `chemstack.yaml` still caps the combined
 number of active simulations across ORCA, internal xTB stages, and internal
 CREST stages.
-
-## Flow workflow worker
-
-This worker is for the orchestration loop under `chemstack.flow`, not for engine job execution. Engine workers should use `chemstack-queue-worker@.service`.
-
-If `workflow.root` is set, the unified queue worker already starts workflow supervision together with the internal CREST and xTB workers. Use the dedicated flow service when you specifically want a separate workflow-worker process.
-
-Quick install:
-
-```bash
-cd <repo_root>
-sudo install -d /etc/chemstack
-sudo cp systemd/chemstack-flow-worker.env.example /etc/chemstack/flow-worker.env
-sudo cp systemd/chemstack-flow-workflow-worker.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now chemstack-flow-workflow-worker
-```
-
-Before enabling the service:
-
-- Set top-level `workflow.root` in `chemstack.yaml`
-- `CHEM_FLOW_PYTHON` if you do not use `<repo_root>/.venv/bin/python`
-- `CHEM_FLOW_CONFIG` if you do not use the default `chemstack.yaml`
-- `CHEM_FLOW_WORKFLOW_ROOT` only if you want to override `workflow.root`
-
-Monitoring:
-
-```bash
-systemctl status chemstack-flow-workflow-worker
-journalctl -u chemstack-flow-workflow-worker -f
-```
-
-Maintenance:
-
-```bash
-sudo systemctl restart chemstack-flow-workflow-worker
-sudo systemctl stop chemstack-flow-workflow-worker
-```
-
-The flow service uses `scripts/flow/chem_flow_worker_service.sh`, which now
-loads `/etc/chemstack/flow-worker.env` by default.
-
-If your paths differ, edit the copied unit or env file in `/etc` before
-enabling it.

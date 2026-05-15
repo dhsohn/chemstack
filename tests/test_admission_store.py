@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 
 from chemstack.orca.admission_store import (
     ADMISSION_FILE_NAME,
+    AdmissionStoreCorruptError,
     _save_slots,
     activate_slot,
     activate_reserved_slot,
@@ -23,6 +24,19 @@ from chemstack.orca.admission_store import (
 
 
 class TestAdmissionStore(unittest.TestCase):
+    def test_invalid_admission_store_fails_closed(self) -> None:
+        for bad_payload in ("{not json", json.dumps({"token": "oops"})):
+            with self.subTest(bad_payload=bad_payload), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                path = root / ADMISSION_FILE_NAME
+                path.write_text(bad_payload, encoding="utf-8")
+
+                with self.assertRaises(AdmissionStoreCorruptError):
+                    list_slots(root)
+                with self.assertRaises(AdmissionStoreCorruptError):
+                    reserve_slot(root, 1, source="queue_worker")
+                self.assertEqual(path.read_text(encoding="utf-8"), bad_payload)
+
     def test_acquire_direct_slot_tracks_and_releases_slot(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -301,7 +315,7 @@ class TestAdmissionStore(unittest.TestCase):
         self.assertEqual(saved_slot.task_id, "task_123")
         self.assertEqual(saved_slot.queue_id, "q_123")
 
-    def test_reserve_slot_persists_backend_compatible_metadata_when_available(self) -> None:
+    def test_reserve_slot_persists_core_backend_metadata_when_available(self) -> None:
         @dataclass(frozen=True)
         class FakeChemCoreSlot:
             token: str

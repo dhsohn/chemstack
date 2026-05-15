@@ -173,45 +173,8 @@ class TestOrganizeApply(unittest.TestCase):
             self.assertEqual(tracking_records[0]["organized_output_dir"], str(target_dir.resolve()))
             self.assertEqual(tracking_records[0]["latest_known_path"], str(target_dir.resolve()))
 
-    def test_apply_recovers_legacy_windows_paths_in_state(self) -> None:
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            allowed = root / "runs"
-            organized = root / "outputs"
-            allowed.mkdir()
-            organized.mkdir()
-
-            rxn = allowed / "rxn_legacy"
-            _make_completed_reaction(rxn)
-
-            state_path = rxn / "run_state.json"
-            state = json.loads(state_path.read_text(encoding="utf-8"))
-            state["reaction_dir"] = "/mnt/c/orca_runs/rxn_legacy"
-            state["selected_inp"] = "/mnt/c/orca_runs/rxn_legacy/rxn.inp"
-            state["attempts"] = [{"index": 1, "inp_path": "/mnt/c/orca_runs/rxn_legacy/rxn.inp", "out_path": "/mnt/c/orca_runs/rxn_legacy/rxn.out"}]
-            state["final_result"]["last_out_path"] = "/mnt/c/orca_runs/rxn_legacy/rxn.out"
-            state_path.write_text(json.dumps(state, ensure_ascii=True, indent=2), encoding="utf-8")
-
-            config = _write_config(root, allowed, organized)
-            rc = main([
-                "--config", str(config),
-                "organize",
-                "--reaction-dir", str(rxn),
-                "--apply",
-            ])
-            self.assertEqual(rc, 0)
-
-            rp = records_path(organized)
-            recs = [json.loads(line) for line in rp.read_text(encoding="utf-8").splitlines() if line.strip()]
-            self.assertEqual(len(recs), 1)
-            target_dir = organized / recs[0]["organized_path"]
-
-            moved_state = json.loads((target_dir / "run_state.json").read_text(encoding="utf-8"))
-            self.assertEqual(moved_state["reaction_dir"], str(target_dir))
-            self.assertEqual(moved_state["selected_inp"], str(target_dir / "rxn.inp"))
-            self.assertEqual(moved_state["attempts"][0]["inp_path"], str(target_dir / "rxn.inp"))
-            self.assertEqual(moved_state["attempts"][0]["out_path"], str(target_dir / "rxn.out"))
-            self.assertEqual(moved_state["final_result"]["last_out_path"], str(target_dir / "rxn.out"))
+            self.assertEqual(state["attempts"][0]["inp_path"], str(target_dir / "rxn.inp"))
+            self.assertEqual(state["attempts"][0]["out_path"], str(target_dir / "rxn.out"))
 
     def test_apply_rolls_back_when_index_append_fails(self) -> None:
         with tempfile.TemporaryDirectory() as td:

@@ -20,7 +20,6 @@ from chemstack.activity_view import (
 )
 from chemstack.core.app_ids import (
     CHEMSTACK_REPO_ROOT_ENV_VAR,
-    LEGACY_ORCA_REPO_ROOT_ENV_VAR,
 )
 from chemstack.core.config import TelegramConfig
 from chemstack.core.config.files import shared_workflow_root_from_config
@@ -76,11 +75,7 @@ def settings_from_env() -> TelegramBotSettings:
         crest_auto_config=shared_config,
         xtb_auto_config=shared_config,
         orca_auto_config=shared_config,
-        orca_auto_repo_root=(
-            os.getenv(CHEMSTACK_REPO_ROOT_ENV_VAR, "").strip()
-            or os.getenv(LEGACY_ORCA_REPO_ROOT_ENV_VAR, "").strip()
-            or None
-        ),
+        orca_auto_repo_root=os.getenv(CHEMSTACK_REPO_ROOT_ENV_VAR, "").strip() or None,
     )
 
 
@@ -109,11 +104,7 @@ def settings_from_config(config_path: str | None = None) -> TelegramBotSettings:
         crest_auto_config=shared_config,
         xtb_auto_config=shared_config,
         orca_auto_config=shared_config,
-        orca_auto_repo_root=(
-            os.getenv(CHEMSTACK_REPO_ROOT_ENV_VAR, "").strip()
-            or os.getenv(LEGACY_ORCA_REPO_ROOT_ENV_VAR, "").strip()
-            or None
-        ),
+        orca_auto_repo_root=os.getenv(CHEMSTACK_REPO_ROOT_ENV_VAR, "").strip() or None,
     )
 
 

@@ -37,6 +37,10 @@ class AdmissionLimitReachedError(RuntimeError):
     """Raised when the global admission cap is already exhausted."""
 
 
+class AdmissionStoreCorruptError(RuntimeError):
+    """Raised when the admission slot file cannot be safely loaded."""
+
+
 class AdmissionSlot(TypedDict, total=False):
     token: str
     state: str
@@ -50,6 +54,11 @@ class AdmissionSlot(TypedDict, total=False):
     app_name: str | None
     task_id: str | None
     workflow_id: str | None
+
+
+def _wrap_backend_corruption(exc: Exception) -> None:
+    if exc.__class__.__name__ == "AdmissionStoreCorruptError":
+        raise AdmissionStoreCorruptError(str(exc)) from exc
 
 
 def _admission_path(root: Path) -> Path:
@@ -93,21 +102,29 @@ def _acquire_admission_lock(root: Path, *, timeout_seconds: int = 10) -> Iterato
 
 def _load_slots(root: Path) -> List[AdmissionSlot]:
     backend = _chem_core_admission_module()
-    if backend is not None:
+    backend_load_slots = getattr(backend, "_load_slots", None) if backend is not None else None
+    if callable(backend_load_slots):
         try:
-            return [_from_chem_core_slot(slot) for slot in backend._load_slots(root)]
-        except Exception:
-            pass
+            return [_from_chem_core_slot(slot) for slot in backend_load_slots(root)]
+        except Exception as exc:
+            _wrap_backend_corruption(exc)
+            raise
 
     path = _admission_path(root)
     if not path.exists():
         return []
     try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
+        text = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
         return []
+    except OSError as exc:
+        raise AdmissionStoreCorruptError(f"Admission slot file cannot be read: {path}") from exc
+    try:
+        raw = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise AdmissionStoreCorruptError(f"Admission slot file is not valid JSON: {path}") from exc
     if not isinstance(raw, list):
-        return []
+        raise AdmissionStoreCorruptError(f"Admission slot file must contain a JSON list: {path}")
     return [cast(AdmissionSlot, slot) for slot in raw if isinstance(slot, dict)]
 
 
@@ -149,21 +166,33 @@ def _backend_list_slots(root: Path, *, backend: Any) -> list[AdmissionSlot] | No
     list_slots_fn = getattr(backend, "list_slots", None)
     if not callable(list_slots_fn):
         return None
-    return [_from_chem_core_slot(slot) for slot in list_slots_fn(root)]
+    try:
+        return [_from_chem_core_slot(slot) for slot in list_slots_fn(root)]
+    except Exception as exc:
+        _wrap_backend_corruption(exc)
+        raise
 
 
 def _backend_reconcile_stale_slots(root: Path, *, backend: Any) -> int | None:
     reconcile_fn = getattr(backend, "reconcile_stale_slots", None)
     if not callable(reconcile_fn):
         return None
-    return int(reconcile_fn(root))
+    try:
+        return int(reconcile_fn(root))
+    except Exception as exc:
+        _wrap_backend_corruption(exc)
+        raise
 
 
 def _backend_active_slot_count(root: Path, *, backend: Any) -> int | None:
     count_fn = getattr(backend, "active_slot_count", None)
     if not callable(count_fn):
         return None
-    return int(count_fn(root))
+    try:
+        return int(count_fn(root))
+    except Exception as exc:
+        _wrap_backend_corruption(exc)
+        raise
 
 
 def _int_field(value: object) -> int:
@@ -504,15 +533,19 @@ def activate_slot(
     resolved_owner_pid = owner_pid if owner_pid is not None else os.getpid()
     backend = _chem_core_admission_module()
     if backend is not None:
-        updated = backend.activate_reserved_slot(
-            resolved_root,
-            token,
-            state="active",
-            work_dir=resolved_work_dir,
-            queue_id=None if queue_id is None else _text_field(queue_id),
-            owner_pid=resolved_owner_pid,
-            source=source,
-        )
+        try:
+            updated = backend.activate_reserved_slot(
+                resolved_root,
+                token,
+                state="active",
+                work_dir=resolved_work_dir,
+                queue_id=None if queue_id is None else _text_field(queue_id),
+                owner_pid=resolved_owner_pid,
+                source=source,
+            )
+        except Exception as exc:
+            _wrap_backend_corruption(exc)
+            raise
         if updated is None:
             return False
         if app_name is None and task_id is None and workflow_id is None:
@@ -555,7 +588,11 @@ def release_slot(root: Path, token: str) -> bool:
     resolved_root = Path(root).expanduser().resolve()
     backend = _chem_core_admission_module()
     if backend is not None:
-        return bool(backend.release_slot(resolved_root, token))
+        try:
+            return bool(backend.release_slot(resolved_root, token))
+        except Exception as exc:
+            _wrap_backend_corruption(exc)
+            raise
 
     with _acquire_admission_lock(resolved_root):
         slots = _load_live_slots(resolved_root)

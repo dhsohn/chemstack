@@ -37,7 +37,7 @@ def _validate_config(cfg: Any) -> None:
     ]:
         if is_rejected_windows_path(path_val):
             raise ValueError(
-                f"{label} must be a Linux path (Windows legacy paths are no longer supported): {path_val!r}"
+                f"{label} must be a Linux path (Windows paths are not supported): {path_val!r}"
             )
         if not Path(path_val).is_absolute():
             raise ValueError(

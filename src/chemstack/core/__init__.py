@@ -11,8 +11,6 @@ from .indexing import (
     upsert_job_location,
 )
 from .notifications import TelegramSendResult, TelegramTransport, build_telegram_transport
-from .models.task import ResourcePolicy, ResourceRequest, TaskRecord, TaskStatus
-from .models.workflow import WorkflowRecord, WorkflowStatus
 from .queue.types import QueueEntry, QueueStatus
 from .version import __version__
 
@@ -30,16 +28,10 @@ __all__ = [
     "list_job_locations",
     "QueueEntry",
     "QueueStatus",
-    "ResourcePolicy",
-    "ResourceRequest",
-    "TaskRecord",
-    "TaskStatus",
     "TelegramConfig",
     "TelegramSendResult",
     "TelegramTransport",
     "build_telegram_transport",
     "resolve_job_location",
-    "WorkflowRecord",
-    "WorkflowStatus",
     "upsert_job_location",
 ]

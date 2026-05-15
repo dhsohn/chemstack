@@ -77,13 +77,8 @@ def test_load_jsonl_records_skips_blank_invalid_and_non_dict_rows(tmp_path: Path
 
 
 def test_import_orca_auto_module_returns_none_or_raises_by_error_origin(
-    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    repo_root = tmp_path / "chemstack"
-    repo_root.mkdir()
-    monkeypatch.setattr(orca_adapter, "_sibling_orca_auto_repo_root", lambda: repo_root)
-
     calls: list[str] = []
 
     def missing_then_missing(name: str) -> object:
@@ -91,13 +86,8 @@ def test_import_orca_auto_module_returns_none_or_raises_by_error_origin(
         raise ModuleNotFoundError(name=name)
 
     monkeypatch.setattr(orca_adapter, "import_module", missing_then_missing)
-    original_sys_path = list(orca_adapter.sys.path)
-    try:
-        assert orca_adapter._import_orca_auto_module("chemstack.orca.tracking") is None
-        assert calls == ["chemstack.orca.tracking", "chemstack.orca.tracking"]
-        assert str(repo_root) in orca_adapter.sys.path
-    finally:
-        orca_adapter.sys.path[:] = original_sys_path
+    assert orca_adapter._import_orca_auto_module("chemstack.orca.tracking") is None
+    assert calls == ["chemstack.orca.tracking"]
 
     def unrelated_missing(name: str) -> object:
         raise ModuleNotFoundError(name="different_module")

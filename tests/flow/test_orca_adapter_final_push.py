@@ -70,21 +70,16 @@ def test_import_and_basic_path_helpers_cover_remaining_low_level_edges(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    sibling_repo = tmp_path / "chemstack"
-    sibling_repo.mkdir()
     import_calls: list[str] = []
 
     def fake_import(module_name: str) -> object:
         import_calls.append(module_name)
-        if len(import_calls) == 1:
-            raise _module_not_found("chemstack")
-        raise _module_not_found("different_module")
+        raise _module_not_found("chemstack")
 
     monkeypatch.setattr(orca_adapter, "import_module", fake_import)
-    monkeypatch.setattr(orca_adapter, "_sibling_orca_auto_repo_root", lambda: sibling_repo)
 
-    with pytest.raises(ModuleNotFoundError, match="different_module"):
-        orca_adapter._import_orca_auto_module("chemstack.orca.tracking")
+    assert orca_adapter._import_orca_auto_module("chemstack.orca.tracking") is None
+    assert import_calls == ["chemstack.orca.tracking"]
 
     assert orca_adapter._direct_dir_target("   ") is None
 
@@ -120,7 +115,7 @@ def test_resolve_job_dir_and_record_organized_dir_skip_oserror_candidates(
     bad_latest = tmp_path / "bad_latest"
     record = JobLocationRecord(
         job_id="job_refresh",
-        app_name="orca_auto",
+        app_name="chemstack_orca",
         job_type="orca_opt",
         status="running",
         original_run_dir="",
@@ -136,140 +131,6 @@ def test_resolve_job_dir_and_record_organized_dir_skip_oserror_candidates(
     assert resolved_record is record
     assert resolved_dir == valid_dir.resolve()
     assert orca_adapter._record_organized_dir(record) == valid_dir.resolve()
-
-
-def test_resolve_job_dir_scans_job_locations_by_run_id_when_registry_lookup_fails(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    run_dir = tmp_path / "organized_run"
-    run_dir.mkdir()
-    _write_json(run_dir / "run_state.json", {"run_id": "run_match"})
-    _write_json(run_dir / "run_report.json", {"run_id": "run_match"})
-    _write_json(
-        tmp_path / "job_locations.json",
-        [
-            {
-                "job_id": "job_match",
-                "app_name": "orca_auto",
-                "job_type": "orca_opt",
-                "status": "completed",
-                "original_run_dir": "",
-                "molecule_key": "mol-1",
-                "selected_input_xyz": "selected.xyz",
-                "organized_output_dir": str(run_dir),
-                "latest_known_path": str(run_dir),
-                "resource_request": {"max_cores": "8"},
-                "resource_actual": {"max_memory_gb": "12"},
-            }
-        ],
-    )
-
-    def exploding_lookup(_index_root: Path, _target: str) -> JobLocationRecord:
-        raise RuntimeError("registry unavailable")
-
-    monkeypatch.setattr(orca_adapter, "resolve_job_location", exploding_lookup)
-
-    resolved_dir, resolved_record = orca_adapter._resolve_job_dir(tmp_path, "run_match")
-
-    assert resolved_dir == run_dir.resolve()
-    assert resolved_record is not None
-    assert resolved_record.job_id == "job_match"
-    assert resolved_record.resource_request == {"max_cores": 8}
-    assert resolved_record.resource_actual == {"max_memory_gb": 12}
-
-
-def test_resolve_job_dir_uses_stub_organized_ref_when_fallback_stub_matches_run_id(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    stub_dir = tmp_path / "stub_run"
-    organized_dir = tmp_path / "organized_run"
-    stub_dir.mkdir()
-    organized_dir.mkdir()
-    _write_json(stub_dir / "organized_ref.json", {"run_id": "run_stub_match"})
-    _write_json(
-        tmp_path / "job_locations.json",
-        [
-            {
-                "job_id": "job_stub",
-                "app_name": "orca_auto",
-                "job_type": "orca_opt",
-                "status": "completed",
-                "original_run_dir": str(stub_dir),
-                "molecule_key": "mol-stub",
-                "selected_input_xyz": "",
-                "organized_output_dir": str(organized_dir),
-                "latest_known_path": str(tmp_path / "missing_run"),
-                "resource_request": {},
-                "resource_actual": {},
-            }
-        ],
-    )
-
-    def exploding_lookup(_index_root: Path, _target: str) -> JobLocationRecord:
-        raise RuntimeError("registry unavailable")
-
-    monkeypatch.setattr(orca_adapter, "resolve_job_location", exploding_lookup)
-
-    resolved_dir, resolved_record = orca_adapter._resolve_job_dir(tmp_path, "run_stub_match")
-
-    assert resolved_dir == organized_dir.resolve()
-    assert resolved_record is not None
-    assert resolved_record.job_id == "job_stub"
-
-
-def test_resolve_job_dir_skips_unmatched_stub_errors_and_accepts_name_matched_candidate(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    target_dir = tmp_path / "run_name_match"
-    target_dir.mkdir()
-    bad_stub = tmp_path / "bad_stub"
-
-    _write_json(
-        tmp_path / "job_locations.json",
-        [
-            {
-                "job_id": "job_target",
-                "app_name": "orca_auto",
-                "job_type": "orca_opt",
-                "status": "completed",
-                "original_run_dir": "",
-                "molecule_key": "mol-target",
-                "selected_input_xyz": "",
-                "organized_output_dir": str(target_dir),
-                "latest_known_path": str(target_dir),
-                "resource_request": {},
-                "resource_actual": {},
-            },
-            {
-                "job_id": "job_bad_stub",
-                "app_name": "orca_auto",
-                "job_type": "orca_opt",
-                "status": "completed",
-                "original_run_dir": str(bad_stub),
-                "molecule_key": "mol-bad",
-                "selected_input_xyz": "",
-                "organized_output_dir": str(tmp_path / "missing_candidate"),
-                "latest_known_path": str(tmp_path / "missing_candidate"),
-                "resource_request": {},
-                "resource_actual": {},
-            },
-        ],
-    )
-
-    def exploding_lookup(_index_root: Path, _target: str) -> JobLocationRecord:
-        raise RuntimeError("registry unavailable")
-
-    monkeypatch.setattr(orca_adapter, "resolve_job_location", exploding_lookup)
-    _patch_resolve_for_names(monkeypatch, target_dir, {"bad_stub"})
-
-    resolved_dir, resolved_record = orca_adapter._resolve_job_dir(tmp_path, "run_name_match")
-
-    assert resolved_dir == target_dir.resolve()
-    assert resolved_record is not None
-    assert resolved_record.job_id == "job_target"
 
 
 def test_find_queue_entry_covers_target_queue_id_and_not_found(tmp_path: Path) -> None:
@@ -393,7 +254,7 @@ def test_directory_and_artifact_path_helpers_cover_oserror_fallbacks(
         orca_adapter._load_tracked_organized_ref(
             JobLocationRecord(
                 job_id="job_stub_empty",
-                app_name="orca_auto",
+                app_name="chemstack_orca",
                 job_type="orca_opt",
                 status="running",
                 original_run_dir="",
@@ -406,7 +267,7 @@ def test_directory_and_artifact_path_helpers_cover_oserror_fallbacks(
         orca_adapter._load_tracked_organized_ref(
             JobLocationRecord(
                 job_id="job_stub_bad",
-                app_name="orca_auto",
+                app_name="chemstack_orca",
                 job_type="orca_opt",
                 status="running",
                 original_run_dir=str(tmp_path / "bad_stub"),
@@ -530,7 +391,7 @@ def test_load_orca_artifact_contract_refreshes_from_organized_dir_and_uses_refre
 
     refreshed_record = JobLocationRecord(
         job_id="job_refresh",
-        app_name="orca_auto",
+        app_name="chemstack_orca",
         job_type="orca_opt",
         status="running",
         original_run_dir="",

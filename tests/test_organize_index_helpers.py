@@ -61,10 +61,10 @@ def test_to_reaction_relative_path_handles_absolute_paths(tmp_path: Path) -> Non
     reaction_dir.mkdir()
 
     inside = reaction_dir / "calc.out"
-    outside = tmp_path / "legacy" / "calc.out"
+    outside = tmp_path / "outside" / "calc.out"
 
     assert organize_index.to_reaction_relative_path(str(inside), reaction_dir) == "calc.out"
-    assert organize_index.to_reaction_relative_path(str(outside), reaction_dir) == "calc.out"
+    assert organize_index.to_reaction_relative_path(str(outside), reaction_dir) == ""
 
 
 def test_resolve_state_path_handles_blank_and_delegates(tmp_path: Path) -> None:

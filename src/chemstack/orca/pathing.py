@@ -29,7 +29,7 @@ def artifact_candidates(path_text: str, reaction_dir: Path) -> List[Path]:
         return []
     p = Path(raw)
     if p.is_absolute():
-        return [p, reaction_dir / p.name]
+        return [p]
     return [reaction_dir / p, reaction_dir / p.name]
 
 

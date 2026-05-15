@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Callable
 
-from chemstack.core.app_ids import ORCA_APP_NAMES
+from chemstack.core.app_ids import CHEMSTACK_ORCA_APP_NAME
 
 
 def attempt_count_impl(
@@ -378,7 +378,7 @@ def load_orca_artifact_contract_impl(
         ((queue_entry or {}).get("resource_actual") if isinstance((queue_entry or {}).get("resource_actual"), dict) else {})
     ) or coerce_resource_dict_fn(tracked_record.resource_actual if tracked_record is not None else {}) or dict(resource_request)
 
-    if tracked_record is not None and tracked_record.app_name and tracked_record.app_name not in ORCA_APP_NAMES:
+    if tracked_record is not None and tracked_record.app_name and tracked_record.app_name != CHEMSTACK_ORCA_APP_NAME:
         raise ValueError(f"Expected chemstack_orca index record, got: {tracked_record.app_name}")
 
     organized_output_dir = normalize_text_fn(

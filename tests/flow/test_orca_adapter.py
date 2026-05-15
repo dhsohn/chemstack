@@ -17,14 +17,6 @@ def _write_json(path: Path, payload: object) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=True, indent=2), encoding="utf-8")
 
 
-def _write_jsonl(path: Path, records: list[dict[str, object]]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        "\n".join(json.dumps(item, ensure_ascii=True) for item in records) + "\n",
-        encoding="utf-8",
-    )
-
-
 def test_load_orca_artifact_contract_prefers_tracking_record_by_job_id(tmp_path: Path) -> None:
     allowed_root = tmp_path / "orca_runs"
     organized_root = tmp_path / "orca_outputs"
@@ -90,7 +82,7 @@ def test_load_orca_artifact_contract_prefers_tracking_record_by_job_id(tmp_path:
         [
             {
                 "job_id": "job_hist_1",
-                "app_name": "orca_auto",
+                "app_name": "chemstack_orca",
                 "job_type": "orca_opt",
                 "status": "completed",
                 "original_run_dir": str(original_dir),
@@ -145,7 +137,7 @@ def test_load_orca_artifact_contract_matches_queue_task_id(tmp_path: Path) -> No
         [
             {
                 "job_id": "job_q_123",
-                "app_name": "orca_auto",
+                "app_name": "chemstack_orca",
                 "job_type": "orca_opt",
                 "status": "queued",
                 "original_run_dir": str(reaction_dir),
@@ -171,63 +163,6 @@ def test_load_orca_artifact_contract_matches_queue_task_id(tmp_path: Path) -> No
     assert contract.reaction_dir == str(reaction_dir.resolve())
     assert contract.latest_known_path == str(reaction_dir.resolve())
     assert contract.selected_inp == str(inp.resolve())
-
-
-def test_load_orca_artifact_contract_preserves_legacy_records_jsonl_fallback(tmp_path: Path) -> None:
-    allowed_root = tmp_path / "orca_runs"
-    organized_root = tmp_path / "orca_outputs"
-    organized_dir = organized_root / "opt" / "H2" / "run_legacy_1"
-    organized_dir.mkdir(parents=True)
-    inp = organized_dir / "rxn.inp"
-    inp.write_text("! Opt\n* xyzfile 0 1 rxn.xyz\n", encoding="utf-8")
-    xyz = organized_dir / "rxn.xyz"
-    xyz.write_text("2\ncomment\nH 0 0 0\nH 0 0 0.74\n", encoding="utf-8")
-
-    _write_json(
-        organized_dir / "run_state.json",
-        {
-            "run_id": "run_legacy_1",
-            "reaction_dir": str(organized_dir),
-            "selected_inp": str(inp),
-            "status": "completed",
-            "attempts": [],
-            "final_result": {
-                "status": "completed",
-                "analyzer_status": "completed",
-                "reason": "normal_termination",
-                "completed_at": "2026-04-19T00:00:00+00:00",
-                "last_out_path": str(organized_dir / "rxn.out"),
-            },
-        },
-    )
-    _write_json(
-        organized_dir / "run_report.json",
-        {
-            "run_id": "run_legacy_1",
-            "status": "completed",
-        },
-    )
-    _write_jsonl(
-        organized_root / "index" / "records.jsonl",
-        [
-            {
-                "run_id": "run_legacy_1",
-                "reaction_dir": str(organized_dir),
-                "organized_path": "opt/H2/run_legacy_1",
-            }
-        ],
-    )
-
-    contract = load_orca_artifact_contract(
-        target="run_legacy_1",
-        orca_allowed_root=allowed_root,
-        orca_organized_root=organized_root,
-    )
-
-    assert contract.run_id == "run_legacy_1"
-    assert contract.status == "completed"
-    assert contract.reaction_dir == str(organized_dir.resolve())
-    assert contract.selected_input_xyz == str(xyz.resolve())
 
 
 def test_load_orca_artifact_contract_resolves_run_id_via_orca_tracking_without_records_jsonl(tmp_path: Path) -> None:
@@ -295,7 +230,7 @@ def test_load_orca_artifact_contract_resolves_run_id_via_orca_tracking_without_r
         [
             {
                 "job_id": "job_hist_2",
-                "app_name": "orca_auto",
+                "app_name": "chemstack_orca",
                 "job_type": "orca_opt",
                 "status": "completed",
                 "original_run_dir": str(original_dir),

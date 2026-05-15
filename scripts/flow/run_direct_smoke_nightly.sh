@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 SCRATCH_ROOT="$(cd "$REPO_ROOT/.." && pwd)/orca_scratch"
 STAMP="$(date -u +%Y%m%d_%H%M%S)"
 RUN_ROOT="$SCRATCH_ROOT/direct_smoke_nightly_${STAMP}"
@@ -12,7 +12,7 @@ mkdir -p "$RUN_ROOT"
 
 cd "$REPO_ROOT"
 set +e
-python scripts/run_direct_smoke_regression.py --run-root "$RUN_ROOT" --json "$@" | tee "$RUN_ROOT/stdout.json"
+python scripts/flow/run_direct_smoke_regression.py --run-root "$RUN_ROOT" --json "$@" | tee "$RUN_ROOT/stdout.json"
 REGRESSION_STATUS=${PIPESTATUS[0]}
 set -e
 

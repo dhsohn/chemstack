@@ -26,7 +26,13 @@ _TEMPLATE_ALLOWED_ROOT = "/path/to/orca_runs"
 _TEMPLATE_ORGANIZED_ROOT = "/path/to/orca_outputs"
 _TEMPLATE_ORCA_EXECUTABLE = "/path/to/orca/orca"
 _REMOVED_RUNTIME_SCHEDULER_KEYS = frozenset(
-    {"max_concurrent", "admission_root", "admission_limit", "admission_max_concurrent"}
+    {
+        "max_concurrent",
+        "admission_root",
+        "admission_limit",
+        "admission_max_concurrent",
+        "default_max_attempts",
+    }
 )
 
 
@@ -214,7 +220,7 @@ def load_config(config_path: str) -> AppConfig:
 
     if "platform_mode" in runtime_raw:
         raise ValueError(
-            "runtime.platform_mode is removed. chemstack is Linux-only; delete this legacy key from config."
+            "runtime.platform_mode is removed. chemstack is Linux-only; delete this unsupported key from config."
         )
     removed_runtime_scheduler_keys = sorted(_REMOVED_RUNTIME_SCHEDULER_KEYS.intersection(runtime_raw.keys()))
     if removed_runtime_scheduler_keys:

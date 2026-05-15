@@ -2,19 +2,22 @@ from __future__ import annotations
 
 import json
 import re
-import sys
 from dataclasses import dataclass, field
-from functools import lru_cache
-from importlib import import_module
 from pathlib import Path
 from typing import Any
 
 from chemstack.core.app_ids import CHEMSTACK_ORCA_APP_NAME
+from chemstack.core.indexing import (
+    JobLocationRecord,
+    get_job_location,
+    list_job_locations,
+    resolve_job_location,
+    upsert_job_location,
+)
 
 from .config import AppConfig
 from .molecule_key import resolve_molecule_key
 from .result_organizer import detect_job_type
-from . import _job_location_index_fallback
 from .state import (
     REPORT_JSON_NAME,
     REPORT_MD_NAME,
@@ -28,8 +31,6 @@ _MOLECULE_KEY_RE = re.compile(r"[^A-Za-z0-9._-]+")
 _TERMINAL_STATUSES = frozenset({"completed", "failed", "cancelled"})
 QUEUE_FILE_NAME = "queue.json"
 INDEX_DIR_NAME = "index"
-LEGACY_RECORDS_FILE_NAME = "records.jsonl"
-JobLocationRecord = Any
 
 
 @dataclass(frozen=True)
@@ -46,26 +47,6 @@ class JobRuntimeContext:
     artifact: JobArtifactContext = field(default_factory=JobArtifactContext)
     queue_entry: dict[str, Any] | None = None
     organized_dir: Path | None = None
-
-
-@lru_cache(maxsize=1)
-def _chem_core_indexing_module() -> Any:
-    try:
-        return import_module("chemstack.core.indexing")
-    except ModuleNotFoundError as exc:
-        if exc.name not in {"chemstack", "chemstack.core", "chemstack.core.indexing"}:
-            raise
-        repo_root = Path(__file__).resolve().parents[2]
-        if repo_root.is_dir():
-            repo_root_text = str(repo_root)
-            if repo_root_text not in sys.path:
-                sys.path.insert(0, repo_root_text)
-            try:
-                return import_module("chemstack.core.indexing")
-            except ModuleNotFoundError as retry_exc:
-                if retry_exc.name not in {"chemstack", "chemstack.core", "chemstack.core.indexing"}:
-                    raise
-        return _job_location_index_fallback
 
 
 def _normalize_text(value: Any) -> str:
@@ -381,27 +362,6 @@ def _load_json_list(path: Path) -> list[dict[str, Any]]:
     return [item for item in raw if isinstance(item, dict)]
 
 
-def _load_jsonl_records(path: Path) -> list[dict[str, Any]]:
-    if not path.exists():
-        return []
-    rows: list[dict[str, Any]] = []
-    try:
-        lines = path.read_text(encoding="utf-8").splitlines()
-    except OSError:
-        return rows
-    for line in lines:
-        stripped = line.strip()
-        if not stripped:
-            continue
-        try:
-            raw = json.loads(stripped)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(raw, dict):
-            rows.append(raw)
-    return rows
-
-
 def index_root_for_cfg(cfg: AppConfig) -> Path:
     return Path(cfg.runtime.allowed_root).expanduser().resolve()
 
@@ -491,7 +451,7 @@ def build_job_location_record(
         organized_dir = Path(existing.organized_output_dir).expanduser().resolve()
 
     latest_known_path = organized_dir or resolved_job_dir
-    return _chem_core_indexing_module().JobLocationRecord(
+    return JobLocationRecord(
         job_id=_normalize_text(job_id),
         app_name=CHEMSTACK_ORCA_APP_NAME,
         job_type=job_type_identifier(job_type),
@@ -520,7 +480,7 @@ def upsert_job_record(
     resource_actual: dict[str, int] | None = None,
 ) -> JobLocationRecord:
     root = index_root_for_cfg(cfg)
-    existing = _chem_core_indexing_module().get_job_location(root, job_id)
+    existing = get_job_location(root, job_id)
     record = build_job_location_record(
         existing=existing,
         job_id=job_id,
@@ -533,11 +493,11 @@ def upsert_job_record(
         resource_request=resource_request,
         resource_actual=resource_actual,
     )
-    return _chem_core_indexing_module().upsert_job_location(root, record)
+    return upsert_job_location(root, record)
 
 
 def list_job_location_records(index_root: str | Path) -> list[JobLocationRecord]:
-    return list(_chem_core_indexing_module().list_job_locations(index_root))
+    return list(list_job_locations(index_root))
 
 
 def resolve_record_job_dir(record: JobLocationRecord) -> Path | None:
@@ -682,45 +642,6 @@ def _record_organized_dir(record: JobLocationRecord | None) -> Path | None:
     return None
 
 
-def _find_organized_dir_from_legacy_records(
-    *,
-    organized_root: Path | None,
-    target: str,
-    run_id: str,
-    reaction_dir: str,
-) -> Path | None:
-    if organized_root is None:
-        return None
-    records = _load_jsonl_records(organized_root / INDEX_DIR_NAME / LEGACY_RECORDS_FILE_NAME)
-    if not records:
-        return None
-
-    direct_target = _resolve_existing_job_dir(target)
-    resolved_reaction_dir = _resolve_existing_job_dir(reaction_dir)
-
-    def _record_dir(record: dict[str, Any]) -> Path | None:
-        reaction_dir_value = _resolve_existing_job_dir(record.get("reaction_dir"))
-        if reaction_dir_value is not None:
-            return reaction_dir_value
-        organized_path = _normalize_text(record.get("organized_path"))
-        if not organized_path:
-            return None
-        return _resolve_existing_job_dir(organized_root / organized_path)
-
-    for record in reversed(records):
-        record_run_id = _normalize_text(record.get("run_id"))
-        record_dir = _record_dir(record)
-        if run_id and record_run_id == run_id:
-            return record_dir
-        if target and record_run_id == target:
-            return record_dir
-        if direct_target is not None and record_dir == direct_target:
-            return record_dir
-        if resolved_reaction_dir is not None and record_dir == resolved_reaction_dir:
-            return record_dir
-    return None
-
-
 def _organized_job_dir(job_dir: Path) -> Path | None:
     organized_ref = load_organized_ref(job_dir)
     if not organized_ref:
@@ -769,7 +690,7 @@ def _matching_tracked_job_dirs(index_root: str | Path, target: str) -> list[Path
 
 
 def _job_dir_candidates(index_root: str | Path, target: str) -> list[Path]:
-    record = _chem_core_indexing_module().resolve_job_location(index_root, target)
+    record = resolve_job_location(index_root, target)
     raw_candidates: list[Any] = []
     if record is not None:
         raw_candidates.extend(
@@ -810,7 +731,7 @@ def load_job_artifact_context(
     if not candidates:
         return JobArtifactContext()
 
-    record = _chem_core_indexing_module().resolve_job_location(index_root, target)
+    record = resolve_job_location(index_root, target)
     primary_dir = candidates[0]
     if record is None:
         for candidate_record in list_job_location_records(index_root):
@@ -854,7 +775,6 @@ def load_job_runtime_context(
     reaction_dir: str = "",
 ) -> JobRuntimeContext:
     resolved_index_root = Path(index_root).expanduser().resolve()
-    resolved_organized_root = Path(organized_root).expanduser().resolve() if organized_root else None
 
     artifact = _first_artifact_context(resolved_index_root, (target, run_id, reaction_dir))
     queue_entry = _find_queue_entry(
@@ -892,12 +812,7 @@ def load_job_runtime_context(
         or _normalize_text(organized_ref_payload.get("run_id"))
         or _normalize_text((queue_entry or {}).get("run_id"))
     )
-    organized_dir = _record_organized_dir(artifact.record) or _find_organized_dir_from_legacy_records(
-        organized_root=resolved_organized_root,
-        target=target,
-        run_id=resolved_run_id,
-        reaction_dir=str(current_dir) if current_dir is not None else reaction_dir,
-    )
+    organized_dir = _record_organized_dir(artifact.record)
 
     if organized_dir is not None and (
         current_dir is None
@@ -1231,6 +1146,6 @@ def reindex_job_locations(cfg: AppConfig) -> int:
         )
         if record is None:
             continue
-        _chem_core_indexing_module().upsert_job_location(root, record)
+        upsert_job_location(root, record)
         updated += 1
     return updated

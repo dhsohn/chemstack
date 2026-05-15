@@ -18,7 +18,7 @@ from chemstack.orca.cancellation import CancelTargetError
 from chemstack.orca.config import AppConfig, PathsConfig, RuntimeConfig, TelegramConfig
 from chemstack.orca.queue_store import enqueue, mark_completed
 from chemstack.orca.state_store import STATE_FILE_NAME
-from chemstack.orca.telegram_bot import _handle_cancel, _handle_cron, _handle_help, _handle_list
+from chemstack.orca.telegram_bot import _handle_cancel, _handle_help, _handle_list
 
 
 def _write_running_state(reaction_dir: Path, *, run_id: str, pid: int) -> None:
@@ -115,23 +115,23 @@ class TestTelegramBotHandlers(unittest.TestCase):
         self.assertEqual(result.count("rxn1"), 2)
         self.assertIn("rerun.inp", result)
 
-    def test_handle_list_clear_clears_tracked_terminal_runs_with_legacy_fallback(self) -> None:
+    def test_handle_list_clear_clears_tracked_terminal_runs(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             allowed = root / "orca_runs"
             organized = root / "organized" / "project" / "rxn_tracked"
-            legacy_dir = allowed / "legacy" / "rxn_legacy"
+            untracked_dir = allowed / "untracked" / "rxn_failed"
             running_dir = allowed / "live" / "rxn_running"
             allowed.mkdir()
             self._make_run(organized, status="completed", run_id="run_tracked", inp_name="tracked.inp")
-            self._make_run(legacy_dir, status="failed", run_id="run_legacy")
+            self._make_run(untracked_dir, status="failed", run_id="run_failed")
             self._make_run(running_dir, status="running", run_id="run_running")
             (allowed / "job_locations.json").write_text(
                 json.dumps(
                     [
                         {
                             "job_id": "job_tracked",
-                            "app_name": "orca_auto",
+                            "app_name": "chemstack_orca",
                             "job_type": "orca_opt",
                             "status": "completed",
                             "original_run_dir": str(allowed / "project" / "rxn_tracked"),
@@ -155,7 +155,7 @@ class TestTelegramBotHandlers(unittest.TestCase):
             self.assertIn("Cleared 2 entries", result)
             self.assertIn("run states: 2", result)
             self.assertFalse((organized / "run_state.json").exists())
-            self.assertFalse((legacy_dir / "run_state.json").exists())
+            self.assertFalse((untracked_dir / "run_state.json").exists())
             self.assertTrue((running_dir / "run_state.json").exists())
 
     def test_handle_help(self) -> None:
@@ -215,39 +215,6 @@ class TestTelegramBotHandlers(unittest.TestCase):
         ):
             self.assertIn("running job", _handle_cancel(cfg, "q-2"))
 
-    def test_handle_cron_reports_empty_crontab(self) -> None:
-        cfg = self._make_cfg("/tmp/nonexistent")
-
-        with patch(
-            "chemstack.orca.telegram_bot.subprocess.run",
-            return_value=SimpleNamespace(stdout=""),
-        ):
-            result = _handle_cron(cfg, "")
-
-        self.assertIn("No crontab entries found", result)
-
-    def test_handle_cron_formats_managed_entries(self) -> None:
-        cfg = self._make_cfg("/tmp/nonexistent")
-        crontab = "\n".join(
-            [
-                "# ORCA_AUTO_CRON_START",
-                "0 9,21 * * * /opt/chemstack/cron_dft_summary --config /tmp/chemstack.yaml",
-                "0 * * * * /opt/chemstack/cron_custom --config /tmp/chemstack.yaml",
-                "# ORCA_AUTO_CRON_END",
-            ]
-        )
-
-        with patch(
-            "chemstack.orca.telegram_bot.subprocess.run",
-            return_value=SimpleNamespace(stdout=crontab),
-        ):
-            result = _handle_cron(cfg, "")
-
-        self.assertIn("Cron Jobs", result)
-        self.assertIn("dft_summary", result)
-        self.assertIn("Twice daily", result)
-        self.assertIn("custom", result)
-
     def test_handle_list_clear_reports_nothing_to_clear(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             allowed = Path(td) / "orca_runs"
@@ -257,21 +224,6 @@ class TestTelegramBotHandlers(unittest.TestCase):
                 result = _handle_list(cfg, "clear")
 
         self.assertIn("Nothing to clear", result)
-
-    def test_handle_cron_reports_read_failure_and_missing_managed_block(self) -> None:
-        cfg = self._make_cfg("/tmp/nonexistent")
-        with patch(
-            "chemstack.orca.telegram_bot.subprocess.run",
-            side_effect=RuntimeError("no crontab"),
-        ):
-            self.assertIn("Failed to read crontab", _handle_cron(cfg, ""))
-
-        with patch(
-            "chemstack.orca.telegram_bot.subprocess.run",
-            return_value=SimpleNamespace(stdout="0 * * * * /bin/echo hi\n"),
-        ):
-            self.assertIn("No chemstack cron jobs", _handle_cron(cfg, ""))
-
 
 class _TelegramApiResponse:
     def __init__(self, payload: dict[str, object]) -> None:
@@ -354,7 +306,6 @@ def test_send_message_truncates_and_set_commands_delegates(monkeypatch: pytest.M
     assert [item["command"] for item in commands] == [
         "list",
         "cancel",
-        "cron",
         "help",
     ]
 

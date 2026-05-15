@@ -1,9 +1,6 @@
 from __future__ import annotations
 
-import importlib
-import json
 import os
-import sys
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -14,8 +11,6 @@ from chemstack.core.app_ids import (
     CHEMSTACK_CONFIG_ENV_VAR,
     CHEMSTACK_ORCA_SOURCE,
     CHEMSTACK_REPO_ROOT_ENV_VAR,
-    LEGACY_ORCA_REPO_ROOT_ENV_VAR,
-    LEGACY_ORCA_SOURCE,
 )
 from chemstack.core.config.files import default_config_path_from_repo_root, shared_workflow_root_from_config
 from chemstack.core.queue import clear_terminal as clear_queue_terminal, list_queue
@@ -133,10 +128,9 @@ def _discover_orca_repo_root(explicit: str | None) -> str | None:
     explicit_text = normalize_text(explicit)
     if explicit_text:
         return str(Path(explicit_text).expanduser().resolve())
-    for env_var in (CHEMSTACK_REPO_ROOT_ENV_VAR, LEGACY_ORCA_REPO_ROOT_ENV_VAR):
-        env_text = normalize_text(os.getenv(env_var))
-        if env_text:
-            return str(Path(env_text).expanduser().resolve())
+    env_text = normalize_text(os.getenv(CHEMSTACK_REPO_ROOT_ENV_VAR))
+    if env_text:
+        return str(Path(env_text).expanduser().resolve())
     return None
 
 
@@ -441,40 +435,6 @@ def _standalone_queue_records(
     return rows
 
 
-def _default_repo_root(name: str) -> Path | None:
-    project_root = _project_root()
-    if name in {"chemstack", "orca_auto", "xtb_auto", "crest_auto", "chem_flow"}:
-        return project_root
-    candidate = project_root / name
-    return candidate if candidate.is_dir() else None
-
-
-def _ensure_repo_on_syspath(repo_root: str | None, *, fallback_name: str) -> Path | None:
-    repo_root_text = normalize_text(repo_root)
-    root = Path(repo_root_text).expanduser().resolve() if repo_root_text else _default_repo_root(fallback_name)
-    if root is None or not root.is_dir():
-        return None
-    for candidate in (root, root / "src"):
-        if not candidate.is_dir():
-            continue
-        candidate_text = str(candidate)
-        if candidate_text not in sys.path:
-            sys.path.insert(0, candidate_text)
-    return root
-
-
-def _import_orca_runtime_modules(repo_root: str | None) -> tuple[Any, Any] | None:
-    root = _ensure_repo_on_syspath(repo_root, fallback_name="chemstack")
-    if root is None:
-        return None
-    try:
-        queue_store = importlib.import_module("chemstack.orca.queue_store")
-        run_snapshot = importlib.import_module("chemstack.orca.run_snapshot")
-    except ModuleNotFoundError:
-        return None
-    return queue_store, run_snapshot
-
-
 def _orca_snapshot_matches_entry(queue_store: Any, entry: Any, snapshot_by_run_id: dict[str, Any], snapshot_by_dir: dict[str, Any]) -> Any | None:
     run_id = normalize_text(queue_store.queue_entry_run_id(entry))
     if run_id:
@@ -507,79 +467,12 @@ def _orca_queue_represents_snapshot(queue_store: Any, entry: Any, snapshot: Any)
     return resolved == normalize_text(getattr(getattr(snapshot, "reaction_dir", None), "resolve", lambda: getattr(snapshot, "reaction_dir", ""))())
 
 
-def _fallback_orca_queue_records(*, config_path: str) -> list[ActivityRecord]:
-    runtime_paths = sibling_runtime_paths(config_path, engine="orca")
-    allowed_root = runtime_paths["allowed_root"]
-    queue_path = allowed_root / "queue.json"
-    if not queue_path.exists():
-        return []
-
-    try:
-        raw_entries = json.loads(queue_path.read_text(encoding="utf-8"))
-    except Exception:
-        return []
-    if not isinstance(raw_entries, list):
-        return []
-
-    rows: list[ActivityRecord] = []
-    for raw in raw_entries:
-        if not isinstance(raw, dict):
-            continue
-        metadata = raw.get("metadata")
-        metadata = dict(metadata) if isinstance(metadata, dict) else {}
-        workflow_id = normalize_text(metadata.get("workflow_id")) or normalize_text(raw.get("workflow_id"))
-        reaction_dir = normalize_text(metadata.get("reaction_dir")) or normalize_text(raw.get("reaction_dir"))
-        queue_id = normalize_text(raw.get("queue_id"))
-        run_id = normalize_text(metadata.get("run_id")) or normalize_text(raw.get("run_id"))
-        label = normalize_text(Path(reaction_dir).name if reaction_dir else "") or queue_id or run_id
-        aliases = _unique_texts([queue_id, run_id, *list(_path_aliases(reaction_dir, root=allowed_root))])
-        status = normalize_text(raw.get("status")).lower() or "unknown"
-        if bool(raw.get("cancel_requested")) and status == "running":
-            status = "cancel_requested"
-        enqueued_at = normalize_text(raw.get("enqueued_at"))
-        started_at = normalize_text(raw.get("started_at"))
-        finished_at = normalize_text(raw.get("finished_at"))
-        rows.append(
-            ActivityRecord(
-                activity_id=queue_id or run_id or label,
-                kind="job",
-                engine="orca",
-                status=status,
-                label=label,
-                source=CHEMSTACK_ORCA_SOURCE,
-                submitted_at=enqueued_at,
-                updated_at=finished_at or started_at or enqueued_at,
-                cancel_target=queue_id or run_id or reaction_dir,
-                aliases=aliases,
-                metadata={
-                    "queue_id": queue_id,
-                    "run_id": run_id,
-                    "task_kind": normalize_text(raw.get("task_kind")),
-                    "job_type": normalize_text(metadata.get("job_type")),
-                    "selected_inp": normalize_text(metadata.get("selected_inp")),
-                    "workflow_id": workflow_id,
-                    "reaction_dir": reaction_dir,
-                    "allowed_root": str(allowed_root),
-                    "priority": raw.get("priority"),
-                    **_timestamp_metadata(
-                        enqueued_at=enqueued_at,
-                        started_at=started_at,
-                        finished_at=finished_at,
-                    ),
-                },
-            )
-        )
-    return rows
-
-
 def _orca_records(*, config_path: str, repo_root: str | None = None) -> list[ActivityRecord]:
+    del repo_root
+    from chemstack.orca import queue_store, run_snapshot
+
     runtime_paths = sibling_runtime_paths(config_path, engine="orca")
     allowed_root = runtime_paths["allowed_root"]
-    modules = _import_orca_runtime_modules(repo_root)
-    if modules is None:
-        return _fallback_orca_queue_records(config_path=config_path)
-
-    queue_store, run_snapshot = modules
     reconcile = getattr(queue_store, "reconcile_orphaned_running_entries", None)
     if callable(reconcile):
         reconcile(allowed_root)
@@ -716,6 +609,7 @@ def _collect_activity_records(
     orca_auto_repo_root: str | None = None,
     child_job_engines: tuple[str, ...] | None = None,
 ) -> list[ActivityRecord]:
+    del orca_auto_repo_root
     (
         resolved_workflow_root,
         resolved_crest_auto_config,
@@ -751,7 +645,7 @@ def _collect_activity_records(
     ):
         rows.extend(_standalone_queue_records(app_name="xtb_auto", engine="xtb", config_path=str(resolved_xtb_auto_config)))
     if normalize_text(resolved_orca_auto_config):
-        rows.extend(_orca_records(config_path=str(resolved_orca_auto_config), repo_root=_discover_orca_repo_root(orca_auto_repo_root)))
+        rows.extend(_orca_records(config_path=str(resolved_orca_auto_config)))
     return sorted(rows, key=_sort_key, reverse=True)
 
 
@@ -977,7 +871,7 @@ def cancel_activity(
             executable=xtb_auto_executable,
             repo_root=xtb_auto_repo_root,
         )
-    elif record.source in {CHEMSTACK_ORCA_SOURCE, LEGACY_ORCA_SOURCE}:
+    elif record.source == CHEMSTACK_ORCA_SOURCE:
         if not normalize_text(resolved_orca_auto_config):
             raise ValueError("chemstack_config is required to cancel chemstack ORCA activities.")
         result = cancel_orca_target(

@@ -155,63 +155,18 @@ class TestCheckEligibility(unittest.TestCase):
             assert skip is not None
             self.assertEqual(skip.reason, "state_output_mismatch")
 
-    def test_report_fallback_completed_is_eligible(self) -> None:
-        """run_state.json missing but run_report.json has completed status."""
-        with tempfile.TemporaryDirectory() as td:
-            d = _make_completed_dir(Path(td), "rxn1")
-            # Remove run_state.json, keep run_report.json with full data
-            state_data = json.loads((d / "run_state.json").read_text())
-            (d / "run_report.json").write_text(
-                json.dumps(state_data, ensure_ascii=True, indent=2), encoding="utf-8",
-            )
-            (d / "run_state.json").unlink()
-
-            state, skip = check_eligibility(d)
-            self.assertIsNotNone(state)
-            self.assertIsNone(skip)
-
-    def test_report_fallback_not_completed_is_skipped(self) -> None:
-        """run_state.json missing, run_report.json has non-completed status."""
+    def test_missing_run_state_is_skipped_even_when_report_exists(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             d = Path(td) / "rxn1"
             d.mkdir()
             (d / "run_report.json").write_text(
-                json.dumps({"run_id": "run_test", "status": "running"}),
+                json.dumps({"run_id": "run_test", "status": "completed"}),
                 encoding="utf-8",
             )
             state, skip = check_eligibility(d)
             self.assertIsNone(state)
             assert skip is not None
-            self.assertEqual(skip.reason, "not_completed")
-
-    def test_completed_legacy_windows_paths_are_recovered(self) -> None:
-        with tempfile.TemporaryDirectory() as td:
-            d = Path(td) / "rxn1"
-            d.mkdir()
-            inp = d / "rxn.inp"
-            out = d / "rxn.out"
-            inp.write_text("! Opt\n", encoding="utf-8")
-            out.write_text("****ORCA TERMINATED NORMALLY****\n", encoding="utf-8")
-
-            _write_state(d, {
-                "run_id": "run_test",
-                "status": "completed",
-                "selected_inp": "/mnt/c/orca_runs/rxn1/rxn.inp",
-                "final_result": {
-                    "status": "completed",
-                    "last_out_path": "/mnt/c/orca_runs/rxn1/rxn.out",
-                },
-            })
-            _write_report_files(d)
-
-            state, skip = check_eligibility(d)
-            self.assertIsNone(skip)
-            self.assertIsNotNone(state)
-            assert state is not None
-            final_result = state.get("final_result")
-            assert final_result is not None
-            self.assertEqual(state["selected_inp"], str(inp.resolve()))
-            self.assertEqual(final_result["last_out_path"], str(out.resolve()))
+            self.assertEqual(skip.reason, "state_missing_or_invalid")
 
 
 class TestDetectJobType(unittest.TestCase):
@@ -378,8 +333,7 @@ class TestPlanRootScan(unittest.TestCase):
             self.assertEqual(len(skips), 0)
 
 
-    def test_scan_finds_report_only_dirs(self) -> None:
-        """plan_root_scan discovers dirs with only run_report.json (no run_state.json)."""
+    def test_scan_ignores_report_only_dirs(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "runs"
             root.mkdir()
@@ -389,7 +343,6 @@ class TestPlanRootScan(unittest.TestCase):
             # Normal completed dir
             _make_completed_dir(root, "rxn1")
 
-            # Dir with only run_report.json (no run_state.json)
             d2 = root / "rxn2"
             d2.mkdir()
             inp = d2 / "rxn.inp"
@@ -419,9 +372,10 @@ class TestPlanRootScan(unittest.TestCase):
             (d2 / "run_report.md").write_text("# Report\n", encoding="utf-8")
 
             plans, skips = plan_root_scan(root, organized)
-            self.assertEqual(len(plans), 2)
+            self.assertEqual(len(plans), 1)
             run_ids = {p.run_id for p in plans}
-            self.assertIn("run_20260222_101530_rxn20000", run_ids)
+            self.assertNotIn("run_20260222_101530_rxn20000", run_ids)
+            self.assertEqual(len(skips), 0)
 
 
 class TestCheckConflict(unittest.TestCase):

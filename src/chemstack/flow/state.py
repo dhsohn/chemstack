@@ -9,9 +9,6 @@ from chemstack.core.utils import atomic_write_json, file_lock
 
 WORKFLOW_FILE_NAME = "workflow.json"
 WORKFLOW_LOCK_NAME = "workflow.lock"
-# Deprecated compatibility placeholder. Workflow workspaces now live directly
-# under ``workflow.root`` instead of ``workflow.root/workflows``.
-WORKFLOWS_DIRNAME = ""
 WORKFLOW_STAGE_DIRNAMES = {
     "crest": "01_crest",
     "xtb": "02_xtb",
@@ -55,10 +52,7 @@ def _workflow_parent_dir(path: Path) -> Path:
 
 
 def workflow_root_dir(workflow_root: str | Path) -> Path:
-    root = Path(workflow_root).expanduser().resolve()
-    if not WORKFLOWS_DIRNAME:
-        return root
-    return root / WORKFLOWS_DIRNAME
+    return Path(workflow_root).expanduser().resolve()
 
 
 def workflow_workspace_internal_engine_paths(
@@ -536,7 +530,6 @@ __all__ = [
     "WORKFLOW_ENGINE_STAGE_ALIASES",
     "WORKFLOW_STAGE_DIRNAMES",
     "WORKFLOW_LOCK_NAME",
-    "WORKFLOWS_DIRNAME",
     "acquire_workflow_lock",
     "iter_workflow_workspaces",
     "list_workflow_summaries",

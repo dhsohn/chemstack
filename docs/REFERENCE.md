@@ -54,9 +54,11 @@ Operational consequences:
         tracking.py
         ...
   systemd/
+    chemstack-runtime@.target
     chemstack-queue-worker@.service
-    chemstack-flow-workflow-worker.service
-    chemstack-flow-worker.env.example
+    chemstack-bot@.service
+    chemstack-summary@.service
+    chemstack-summary@.timer
   scripts/*.sh / *.py
   tests/
     integration/
@@ -96,8 +98,7 @@ commands:
 - `organize orca`
 - `summary orca`
 
-Only the ORCA-specific CLI remains public as a compatibility wrapper. ORCA-only
-commands that are not yet unified, such as `monitor`, still live
+ORCA-only commands that are not yet unified, such as `monitor`, still live
 under `python -m chemstack.orca.cli ...`.
 Activate `.venv` first, or call `.venv/bin/chemstack ...` directly.
 By default, config is resolved from `CHEMSTACK_CONFIG`, then `<repo_root>/config/chemstack.yaml`, then `~/chemstack/config/chemstack.yaml`.
@@ -323,8 +324,8 @@ This repository includes service assets under `systemd/`:
 - [`systemd/chemstack-runtime@.target`](/home/daehyupsohn/chemstack/systemd/chemstack-runtime@.target)
 - [`systemd/chemstack-queue-worker@.service`](/home/daehyupsohn/chemstack/systemd/chemstack-queue-worker@.service)
 - [`systemd/chemstack-bot@.service`](/home/daehyupsohn/chemstack/systemd/chemstack-bot@.service)
-- [`systemd/chemstack-flow-workflow-worker.service`](/home/daehyupsohn/chemstack/systemd/chemstack-flow-workflow-worker.service)
-- [`systemd/chemstack-flow-worker.env.example`](/home/daehyupsohn/chemstack/systemd/chemstack-flow-worker.env.example)
+- [`systemd/chemstack-summary@.service`](/home/daehyupsohn/chemstack/systemd/chemstack-summary@.service)
+- [`systemd/chemstack-summary@.timer`](/home/daehyupsohn/chemstack/systemd/chemstack-summary@.timer)
 
 Recommended always-on runtime install flow when Telegram is configured:
 
@@ -332,12 +333,16 @@ Recommended always-on runtime install flow when Telegram is configured:
 cd <repo_root>
 sudo cp systemd/chemstack-bot@.service /etc/systemd/system/
 sudo cp systemd/chemstack-queue-worker@.service /etc/systemd/system/
+sudo cp systemd/chemstack-summary@.service /etc/systemd/system/
+sudo cp systemd/chemstack-summary@.timer /etc/systemd/system/
 sudo cp systemd/chemstack-runtime@.target /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now "chemstack-runtime@$(whoami).target"
 systemctl status "chemstack-runtime@$(whoami).target"
 systemctl status "chemstack-queue-worker@$(whoami)"
 systemctl status "chemstack-bot@$(whoami)"
+systemctl status "chemstack-summary@$(whoami).timer"
+journalctl -u "chemstack-summary@$(whoami).service" -n 50
 journalctl -u "chemstack-queue-worker@$(whoami)" -f
 journalctl -u "chemstack-bot@$(whoami)" -f
 ```
@@ -364,20 +369,8 @@ If you only want unattended execution without the Telegram bot, enable
 `chemstack-queue-worker@$(whoami)` directly instead of the combined runtime
 target.
 
-For the workflow worker:
-
-```bash
-cd <repo_root>
-sudo install -d /etc/chemstack
-sudo cp systemd/chemstack-flow-worker.env.example /etc/chemstack/flow-worker.env
-sudo cp systemd/chemstack-flow-workflow-worker.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now chemstack-flow-workflow-worker
-systemctl status chemstack-flow-workflow-worker
-journalctl -u chemstack-flow-workflow-worker -f
-```
-
-Set top-level `workflow.root` in `chemstack.yaml` before enabling the workflow service. Edit `/etc/chemstack/flow-worker.env` only when you need to override the Python path or config path used by the service.
+The previous dedicated flow workflow-worker unit has been removed; workflow
+supervision now belongs to `chemstack-queue-worker@.service`.
 
 ## 9) Completion Determination Rules
 
@@ -475,8 +468,8 @@ Important `run_report.json` fields:
 
 ## 11.1) Downstream Contract Freeze
 
-The migration baseline assumes the following ORCA-facing compatibility contract
-remains readable by downstream tooling such as `chemstack.flow`.
+The ORCA handoff contract exposes the following fields to downstream tooling
+such as `chemstack.flow`.
 
 Queue entry fields currently consumed downstream from `queue.json`:
 

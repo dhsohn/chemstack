@@ -459,7 +459,7 @@ def test_get_workflow_telemetry_aggregates_registry_and_journal_data(monkeypatch
                 "xtb_auto_executable": "xtb-custom",
                 "xtb_auto_repo_root": None,
                 "orca_auto_config": None,
-                "orca_auto_executable": "orca_auto",
+                "orca_auto_executable": "chemstack",
                 "orca_auto_repo_root": "/opt/orca_auto",
             },
             {"status": "cancel_requested"},

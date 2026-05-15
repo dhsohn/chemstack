@@ -14,33 +14,25 @@ CHEMSTACK_CLI_MODULE = "chemstack.cli"
 CHEMSTACK_CLI_COMMAND = f"python -m {CHEMSTACK_CLI_MODULE}"
 
 CHEMSTACK_ORCA_APP_NAME = "chemstack_orca"
-LEGACY_ORCA_APP_NAME = "orca_auto"
-ORCA_APP_NAMES = frozenset({CHEMSTACK_ORCA_APP_NAME, LEGACY_ORCA_APP_NAME})
 
 CHEMSTACK_ORCA_SOURCE = "chemstack_orca"
-LEGACY_ORCA_SOURCE = "orca_auto"
-ORCA_SOURCES = frozenset({CHEMSTACK_ORCA_SOURCE, LEGACY_ORCA_SOURCE})
 
 CHEMSTACK_ORCA_SUBMITTER = "chemstack_orca_cli"
-LEGACY_ORCA_SUBMITTER = "orca_auto_cli"
-ORCA_SUBMITTERS = frozenset({CHEMSTACK_ORCA_SUBMITTER, LEGACY_ORCA_SUBMITTER})
+ORCA_SUBMITTERS = frozenset({CHEMSTACK_ORCA_SUBMITTER})
 
-# Internal compatibility label used by older queue/task metadata.
-CHEMSTACK_EXECUTABLE = "orca_auto"
-ORCA_EXECUTABLE_ALIASES = frozenset({CHEMSTACK_EXECUTABLE})
+CHEMSTACK_EXECUTABLE = "chemstack"
 
 CHEMSTACK_CONFIG_ENV_VAR = "CHEMSTACK_CONFIG"
 
 CHEMSTACK_REPO_ROOT_ENV_VAR = "CHEMSTACK_REPO_ROOT"
-LEGACY_ORCA_REPO_ROOT_ENV_VAR = "ORCA_AUTO_REPO_ROOT"
 
 
 def is_orca_app_name(value: object | None) -> bool:
-    return str(value or "").strip() in ORCA_APP_NAMES
+    return str(value or "").strip() == CHEMSTACK_ORCA_APP_NAME
 
 
 def is_orca_source(value: object | None) -> bool:
-    return str(value or "").strip() in ORCA_SOURCES
+    return str(value or "").strip() == CHEMSTACK_ORCA_SOURCE
 
 
 def is_orca_submitter(value: object | None) -> bool:

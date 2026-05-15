@@ -251,8 +251,6 @@ def _same_signature(previous: FileSignature, current: FileSignature) -> bool:
         return False
     if prev_state != curr_state:
         return False
-    if prev_size is None:
-        return True
     return prev_size == curr_size
 
 
@@ -262,8 +260,6 @@ def _signature_sort_key(signature: FileSignature) -> tuple[float, int, str]:
 
 
 def _load_signature(value: Any) -> FileSignature | None:
-    if isinstance(value, (int, float)):
-        return (float(value), None, "")
     if not isinstance(value, dict):
         return None
 
@@ -279,11 +275,11 @@ def _load_signature(value: Any) -> FileSignature | None:
     raw_state = value.get("state")
     state = raw_state.strip().lower() if isinstance(raw_state, str) else ""
     if raw_size is None:
-        return (mtime, None, state)
+        return None
     try:
         return (mtime, int(raw_size), state)
     except (TypeError, ValueError):
-        return (mtime, None, state)
+        return None
 
 
 def _load_state(state_file: str | None) -> dict[str, FileSignature]:

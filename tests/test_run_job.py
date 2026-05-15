@@ -113,7 +113,7 @@ def test_worker_job_main_delegates_to_execute_run_job(mock_execute: MagicMock) -
             "--admission-token",
             "slot_123",
             "--admission-app-name",
-            "orca_auto",
+            "chemstack_orca",
             "--admission-task-id",
             "task_123",
         ]

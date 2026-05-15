@@ -1,7 +1,12 @@
 from __future__ import annotations
 
 import argparse
-from typing import Callable
+
+from chemstack.core.internal_cli import (
+    EngineInternalCliSpec,
+    build_engine_internal_parser,
+    dispatch_engine_internal_command,
+)
 
 from .commands import init as scaffold_cmd
 from .commands import list_jobs as list_cmd
@@ -14,56 +19,15 @@ from .config import default_config_path
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="python -m chemstack.xtb._internal_cli")
-    parser.add_argument("--config", default=default_config_path(), help="Path to chemstack.yaml containing xTB settings")
-    sub = parser.add_subparsers(dest="command", required=True)
-
-    scaffold = sub.add_parser("scaffold", help="Create an internal xTB job scaffold")
-    scaffold.add_argument("--root", required=True, help="Job directory to create under allowed_root")
-    scaffold.add_argument(
-        "--job-type",
-        default="path_search",
-        choices=["path_search", "opt", "sp", "ranking"],
-        help="Scaffold type to create",
+    return build_engine_internal_parser(
+        EngineInternalCliSpec(
+            module_name="chemstack.xtb._internal_cli",
+            engine_label="xTB",
+            config_path=default_config_path(),
+            scaffold_job_type_choices=("path_search", "opt", "sp", "ranking"),
+            scaffold_default_job_type="path_search",
+        )
     )
-
-    run_dir = sub.add_parser("run-dir", help="Queue an xTB job directory")
-    run_dir.add_argument("path", help="Job directory under allowed_root")
-    run_dir.add_argument("--priority", type=int, default=10, help="Queue priority (lower = earlier)")
-
-    sub.add_parser("list", help="Show queued xTB jobs")
-
-    organize = sub.add_parser("organize", help="Plan or apply xTB job organization")
-    organize.add_argument("--job-dir", default=None, help="Single job directory to organize")
-    organize.add_argument("--root", default=None, help="Root under allowed_root to scan for completed jobs")
-    organize.add_argument("--apply", action="store_true", help="Move completed job directories into organized_root")
-
-    reindex = sub.add_parser("reindex", help="Rebuild the job location index from artifacts")
-    reindex.add_argument("--root", default=None, help="Optional root to scan instead of both configured roots")
-
-    summary = sub.add_parser("summary", help="Show summary by job_id or job directory")
-    summary.add_argument("target", help="job_id or job directory path")
-    summary.add_argument("--json", action="store_true", help="Print combined index/state/report JSON")
-
-    queue_parser = sub.add_parser("queue", help="Queue management")
-    queue_sub = queue_parser.add_subparsers(dest="queue_command", required=True)
-
-    worker = queue_sub.add_parser("worker", help="Run the xTB queue worker")
-    auto_group = worker.add_mutually_exclusive_group()
-    auto_group.add_argument(
-        "--auto-organize",
-        action="store_true",
-        help="Automatically move terminal jobs into organized_root after execution",
-    )
-    auto_group.add_argument(
-        "--no-auto-organize",
-        action="store_true",
-        help="Disable automatic organization for this worker invocation",
-    )
-
-    cancel = queue_sub.add_parser("cancel", help="Cancel a queued or running job")
-    cancel.add_argument("target", help="queue_id or job_id")
-    return parser
 
 
 def cmd_scaffold(args: argparse.Namespace) -> int:
@@ -106,16 +70,19 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
 
-    command_map: dict[str, Callable[[argparse.Namespace], int]] = {
-        "scaffold": cmd_scaffold,
-        "run-dir": cmd_run_dir,
-        "list": cmd_list,
-        "organize": cmd_organize,
-        "reindex": reindex_cmd.cmd_reindex,
-        "queue": _cmd_queue,
-        "summary": cmd_summary,
-    }
-    return int(command_map[args.command](args))
+    return dispatch_engine_internal_command(
+        args,
+        command_handlers={
+            "scaffold": cmd_scaffold,
+            "run-dir": cmd_run_dir,
+            "list": cmd_list,
+            "organize": cmd_organize,
+            "reindex": reindex_cmd.cmd_reindex,
+            "summary": cmd_summary,
+        },
+        queue_worker_handler=cmd_queue_worker,
+        queue_cancel_handler=cmd_queue_cancel,
+    )
 
 
 if __name__ == "__main__":

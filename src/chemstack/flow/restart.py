@@ -250,9 +250,7 @@ def _resolve_endpoint_pairing_manifest(
 ) -> dict[str, Any]:
     xtb_section = _manifest_mapping(xtb_manifest.pop("endpoint_pairing", None))
     top_level = _manifest_mapping(manifest.get("endpoint_pairing"))
-    legacy_top_level = _manifest_mapping(manifest.get("xtb_endpoint_pairing"))
     resolved = dict(xtb_section)
-    resolved.update(legacy_top_level)
     resolved.update(top_level)
     return resolved
 

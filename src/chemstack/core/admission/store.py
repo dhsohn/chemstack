@@ -23,6 +23,10 @@ class AdmissionLimitReachedError(RuntimeError):
     """Raised when no additional admission slots are available."""
 
 
+class AdmissionStoreCorruptError(RuntimeError):
+    """Raised when the admission slot file cannot be safely loaded."""
+
+
 @dataclass(frozen=True)
 class AdmissionSlot:
     token: str
@@ -104,11 +108,17 @@ def _load_slots(root: Path) -> list[AdmissionSlot]:
     if not path.exists():
         return []
     try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
+        text = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
         return []
+    except OSError as exc:
+        raise AdmissionStoreCorruptError(f"Admission slot file cannot be read: {path}") from exc
+    try:
+        raw = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise AdmissionStoreCorruptError(f"Admission slot file is not valid JSON: {path}") from exc
     if not isinstance(raw, list):
-        return []
+        raise AdmissionStoreCorruptError(f"Admission slot file must contain a JSON list: {path}")
     return [_slot_from_dict(item) for item in raw if isinstance(item, dict)]
 
 

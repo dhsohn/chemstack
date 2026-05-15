@@ -24,17 +24,6 @@ def import_orca_auto_module_impl(module_name: str) -> Any | None:
     except ModuleNotFoundError as exc:
         if exc.name not in {"chemstack", "chemstack.orca", module_name}:
             raise
-        repo_root = o._sibling_orca_auto_repo_root()
-        if repo_root.is_dir():
-            for candidate in (repo_root / "src", repo_root):
-                candidate_text = str(candidate)
-                if candidate.is_dir() and candidate_text not in o.sys.path:
-                    o.sys.path.insert(0, candidate_text)
-            try:
-                return o.import_module(module_name)
-            except ModuleNotFoundError as retry_exc:
-                if retry_exc.name not in {"chemstack", "chemstack.orca", module_name}:
-                    raise
         return None
 
 

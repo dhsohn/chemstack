@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 from typing import Type
 
-from chemstack.core.app_ids import CHEMSTACK_ORCA_APP_NAME, ORCA_APP_NAMES
+from chemstack.core.app_ids import CHEMSTACK_ORCA_APP_NAME
 
 from ..orca_runner import OrcaRunner
 
@@ -17,7 +17,7 @@ def _canonical_admission_app_name(value: str | None) -> str | None:
     text = str(value or "").strip()
     if not text:
         return None
-    if text in ORCA_APP_NAMES:
+    if text == CHEMSTACK_ORCA_APP_NAME:
         return CHEMSTACK_ORCA_APP_NAME
     return text
 

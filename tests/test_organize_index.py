@@ -115,31 +115,27 @@ class TestRebuildIndex(unittest.TestCase):
             self.assertEqual(idx["run_test_001"]["selected_inp"], "rxn.inp")
             self.assertEqual(idx["run_test_001"]["last_out_path"], "rxn.out")
 
-    def test_rebuild_resolves_legacy_absolute_selected_inp(self) -> None:
+    def test_rebuild_uses_local_input_when_stored_selected_inp_is_missing(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             org = Path(td) / "outputs"
             org.mkdir()
 
-            d = org / "opt" / "CH" / "run_test_legacy"
+            d = org / "opt" / "CH" / "run_test_missing"
             d.mkdir(parents=True)
             inp = d / "rxn.inp"
             inp.write_text("! Opt\n* xyz 0 1\nC 0 0 0\nH 1 0 0\n*\n", encoding="utf-8")
 
-            legacy_root = Path(td) / "legacy_runs" / "rxn1"
-            legacy_root.mkdir(parents=True)
-            legacy_abs_inp = legacy_root / "rxn.inp"
-
             state = {
-                "run_id": "run_test_legacy",
+                "run_id": "run_test_missing",
                 "status": "completed",
-                "selected_inp": str(legacy_abs_inp),
+                "selected_inp": str(Path(td) / "missing" / "rxn.inp"),
                 "attempts": [{"index": 1}],
                 "final_result": {
                     "status": "completed",
                     "analyzer_status": "completed",
                     "reason": "normal_termination",
                     "completed_at": "2026-01-01T00:00:00+00:00",
-                    "last_out_path": str(legacy_root / "rxn.out"),
+                    "last_out_path": str(Path(td) / "missing" / "rxn.out"),
                 },
             }
             (d / "run_state.json").write_text(
@@ -150,9 +146,9 @@ class TestRebuildIndex(unittest.TestCase):
             self.assertEqual(count, 1)
 
             idx = load_index(org)
-            self.assertEqual(idx["run_test_legacy"]["job_type"], "opt")
-            self.assertEqual(idx["run_test_legacy"]["selected_inp"], "rxn.inp")
-            self.assertEqual(idx["run_test_legacy"]["last_out_path"], "rxn.out")
+            self.assertEqual(idx["run_test_missing"]["job_type"], "opt")
+            self.assertEqual(idx["run_test_missing"]["selected_inp"], "rxn.inp")
+            self.assertEqual(idx["run_test_missing"]["last_out_path"], "")
 
     def test_rebuild_uses_last_successful_attempt_when_selected_inp_falls_back(self) -> None:
         with tempfile.TemporaryDirectory() as td:

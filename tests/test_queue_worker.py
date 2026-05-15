@@ -16,6 +16,7 @@ from chemstack.orca.admission_store import (
 )
 from chemstack.orca.config import AppConfig, RuntimeConfig
 from chemstack.orca.queue_store import (
+    cancel,
     dequeue_next,
     enqueue,
     list_queue,
@@ -438,6 +439,46 @@ class TestQueueWorkerMethods(unittest.TestCase):
         self.assertEqual(queue_entries[0]["status"], "failed")
         mock_upsert_terminal.assert_called_once()
 
+    @patch("chemstack.orca.queue_worker._upsert_terminal_job_record")
+    @patch("chemstack.orca.commands.organize.organize_reaction_dir")
+    def test_finalize_finished_job_marks_cancelled_when_cancel_requested(
+        self,
+        mock_organize: MagicMock,
+        mock_upsert_terminal: MagicMock,
+    ) -> None:
+        self.worker.auto_organize = True
+        rxn = self.root / "mol_cancel_requested_before_exit"
+        rxn.mkdir()
+        entry = enqueue(self.root, str(rxn))
+        dequeue_next(self.root)
+        cancel(self.root, entry["queue_id"])
+        token = reserve_slot(
+            self.root,
+            self.worker.max_concurrent,
+            reaction_dir=str(rxn),
+            queue_id=entry["queue_id"],
+            source="queue_worker",
+        )
+        self.assertIsNotNone(token)
+
+        self.worker._finalize_finished_job(
+            entry["queue_id"],
+            _RunningJob(
+                queue_id=entry["queue_id"],
+                reaction_dir=str(rxn),
+                process=MagicMock(),
+                admission_token=token or "",
+            ),
+            rc=143,
+        )
+
+        mock_organize.assert_not_called()
+        queue_entries = list_queue(self.root)
+        self.assertEqual(queue_entries[0]["status"], "cancelled")
+        self.assertFalse(queue_entries[0]["cancel_requested"])
+        mock_upsert_terminal.assert_called_once()
+        self.assertEqual(active_slot_count(self.root), 0)
+
     def test_check_completed_jobs_still_running(self) -> None:
         mock_proc = MagicMock()
         mock_proc.poll.return_value = None
@@ -449,7 +490,6 @@ class TestQueueWorkerMethods(unittest.TestCase):
 
     @patch("chemstack.orca.queue_worker.mark_cancelled", return_value=True)
     def test_check_cancel_requests(self, mock_mark_cancelled: MagicMock) -> None:
-        from chemstack.orca.queue_store import cancel
         rxn = self.root / "mol_cancel"
         rxn.mkdir()
         entry = enqueue(self.root, str(rxn))

@@ -16,7 +16,7 @@ def _now_stamp() -> str:
 
 
 def _repo_root() -> Path:
-    return Path(__file__).resolve().parents[1]
+    return Path(__file__).resolve().parents[2]
 
 
 def _workspace_root() -> Path:
@@ -70,34 +70,21 @@ def _shared_runtime_yaml(*, root: Path, crest_executable: str, xtb_executable: s
         '  bot_token: ""\n'
         '  chat_id: ""\n'
         "\n"
-        "crest:\n"
-        "  runtime:\n"
-        f'    allowed_root: "{root}/crest_runs"\n'
-        f'    organized_root: "{root}/crest_outputs"\n'
-        "    max_concurrent: 1\n"
-        f'    admission_root: "{root}/admission"\n'
-        "    admission_limit: 2\n"
-        "  paths:\n"
-        f'    crest_executable: "{crest_executable}"\n'
+        "scheduler:\n"
+        "  max_active_simulations: 2\n"
+        f'  admission_root: "{root}/admission"\n'
         "\n"
-        "xtb:\n"
-        "  runtime:\n"
-        f'    allowed_root: "{root}/xtb_runs"\n'
-        f'    organized_root: "{root}/xtb_outputs"\n'
-        "    max_concurrent: 1\n"
-        f'    admission_root: "{root}/admission"\n'
-        "    admission_limit: 2\n"
+        "workflow:\n"
+        f'  root: "{root}/workflow_root"\n'
         "  paths:\n"
         f'    xtb_executable: "{xtb_executable}"\n'
+        f'    crest_executable: "{crest_executable}"\n'
         "\n"
         "orca:\n"
         "  runtime:\n"
         f'    allowed_root: "{root}/orca_runs"\n'
         f'    organized_root: "{root}/orca_outputs"\n'
         "    default_max_retries: 2\n"
-        "    max_concurrent: 1\n"
-        f'    admission_root: "{root}/admission"\n'
-        "    admission_limit: 2\n"
         "  paths:\n"
         f'    orca_executable: "{orca_executable}"\n'
     )
@@ -289,7 +276,7 @@ def run_case(case_dir: Path, *, args: argparse.Namespace, env: dict[str, str]) -
 
     create_payload = json.loads(create_cp.stdout)
     workflow_id = str(create_payload["workflow_id"])
-    workflow_json = case_root / "workflow_root" / "workflows" / workflow_id / "workflow.json"
+    workflow_json = case_root / "workflow_root" / workflow_id / "workflow.json"
     cycle_log: list[dict[str, Any]] = []
     command_failures: list[dict[str, Any]] = []
 

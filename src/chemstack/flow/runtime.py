@@ -369,6 +369,116 @@ def _workflow_needs_terminal_sync(workspace_dir: str | Path) -> bool:
     return workflow_has_active_downstream(payload)
 
 
+def _workflow_advance_failed_result(record: Any, *, previous_status: str, reason: str) -> dict[str, Any]:
+    return {
+        "workflow_id": record.workflow_id,
+        "template_name": record.template_name,
+        "previous_status": previous_status,
+        "status": "advance_failed",
+        "advanced": False,
+        "reason": reason,
+        "stage_count": record.stage_count,
+    }
+
+
+def _workflow_skipped_terminal_result(record: Any, *, previous_status: str) -> dict[str, Any]:
+    return {
+        "workflow_id": record.workflow_id,
+        "template_name": record.template_name,
+        "previous_status": previous_status,
+        "status": previous_status,
+        "advanced": False,
+        "reason": "terminal_status",
+        "stage_count": record.stage_count,
+    }
+
+
+def _workflow_advanced_result(
+    record: Any,
+    payload: dict[str, Any],
+    *,
+    previous_status: str,
+    status: str,
+    reason: str = "",
+) -> dict[str, Any]:
+    result = {
+        "workflow_id": _normalize_text(payload.get("workflow_id")) or record.workflow_id,
+        "template_name": _normalize_text(payload.get("template_name")) or record.template_name,
+        "previous_status": previous_status,
+        "status": status,
+        "advanced": True,
+        "changed": status != previous_status,
+        "stage_count": len(payload.get("stages", [])) if isinstance(payload.get("stages"), list) else record.stage_count,
+    }
+    if reason:
+        result["reason"] = reason
+    return result
+
+
+def _append_workflow_advance_failed_event(
+    workflow_root: str | Path,
+    record: Any,
+    *,
+    previous_status: str,
+    reason: str,
+    worker_session_id: str,
+) -> None:
+    append_workflow_journal_event(
+        workflow_root,
+        event_type="workflow_advance_failed",
+        workflow_id=record.workflow_id,
+        template_name=record.template_name,
+        previous_status=previous_status,
+        status="advance_failed",
+        reason=reason,
+        worker_session_id=worker_session_id,
+    )
+
+
+def _append_workflow_advanced_events(
+    workflow_root: str | Path,
+    record: Any,
+    payload: dict[str, Any],
+    *,
+    previous_status: str,
+    current_summary: dict[str, Any],
+    previous_summary: dict[str, Any],
+    worker_session_id: str,
+    reason: str = "",
+) -> None:
+    status = _normalize_text(payload.get("status")).lower()
+    workflow_id = _normalize_text(payload.get("workflow_id")) or record.workflow_id
+    template_name = _normalize_text(payload.get("template_name")) or record.template_name
+    if status != previous_status:
+        event_kwargs: dict[str, Any] = {
+            "event_type": "workflow_status_changed",
+            "workflow_id": workflow_id,
+            "template_name": template_name,
+            "previous_status": previous_status,
+            "status": status,
+            "worker_session_id": worker_session_id,
+        }
+        if reason:
+            event_kwargs["reason"] = reason
+        append_workflow_journal_event(workflow_root, **event_kwargs)
+    _append_phase_transition_events(
+        workflow_root,
+        previous_summary=previous_summary,
+        current_summary=current_summary,
+        workflow_id=workflow_id,
+        template_name=template_name,
+        worker_session_id=worker_session_id,
+    )
+    _append_stage_transition_events(
+        workflow_root,
+        previous_summary=previous_summary,
+        current_summary=current_summary,
+        workflow_id=workflow_id,
+        template_name=template_name,
+        worker_session_id=worker_session_id,
+    )
+
+
 def advance_workflow_registry_once(
     *,
     workflow_root: str | Path,
@@ -438,186 +548,61 @@ def advance_workflow_registry_once(
     advanced_count = 0
     skipped_count = 0
     failed_count = 0
+    advance_options = {
+        "crest_auto_config": crest_auto_config,
+        "crest_auto_executable": crest_auto_executable,
+        "crest_auto_repo_root": crest_auto_repo_root,
+        "xtb_auto_config": xtb_auto_config,
+        "xtb_auto_executable": xtb_auto_executable,
+        "xtb_auto_repo_root": xtb_auto_repo_root,
+        "orca_auto_config": orca_auto_config,
+        "orca_auto_executable": orca_auto_executable,
+        "orca_auto_repo_root": orca_auto_repo_root,
+    }
 
     for record in records:
         previous_status = _normalize_text(record.status).lower()
         previous_summary = _safe_workflow_summary(record.workspace_dir)
-        if previous_status in TERMINAL_WORKFLOW_STATUSES:
-            if _workflow_needs_terminal_sync(record.workspace_dir):
-                try:
-                    payload = advance_workflow(
-                        target=record.workflow_id,
-                        workflow_root=root,
-                        crest_auto_config=crest_auto_config,
-                        crest_auto_executable=crest_auto_executable,
-                        crest_auto_repo_root=crest_auto_repo_root,
-                        xtb_auto_config=xtb_auto_config,
-                        xtb_auto_executable=xtb_auto_executable,
-                        xtb_auto_repo_root=xtb_auto_repo_root,
-                        orca_auto_config=orca_auto_config,
-                        orca_auto_executable=orca_auto_executable,
-                        orca_auto_repo_root=orca_auto_repo_root,
-                        submit_ready=False,
-                    )
-                except Exception as exc:
-                    failed_count += 1
-                    workflow_results.append(
-                        {
-                            "workflow_id": record.workflow_id,
-                            "template_name": record.template_name,
-                            "previous_status": previous_status,
-                            "status": "advance_failed",
-                            "advanced": False,
-                            "reason": f"terminal_child_sync_failed: {exc}",
-                            "stage_count": record.stage_count,
-                        }
-                    )
-                    append_workflow_journal_event(
-                        root,
-                        event_type="workflow_advance_failed",
-                        workflow_id=record.workflow_id,
-                        template_name=record.template_name,
-                        previous_status=previous_status,
-                        status="advance_failed",
-                        reason=f"terminal_child_sync_failed: {exc}",
-                        worker_session_id=session_id,
-                    )
-                    continue
-                status = _normalize_text(payload.get("status")).lower()
-                current_summary = _safe_workflow_summary(record.workspace_dir, payload=payload)
-                advanced_count += 1
-                workflow_results.append(
-                    {
-                        "workflow_id": _normalize_text(payload.get("workflow_id")) or record.workflow_id,
-                        "template_name": _normalize_text(payload.get("template_name")) or record.template_name,
-                        "previous_status": previous_status,
-                        "status": status,
-                        "advanced": True,
-                        "changed": status != previous_status,
-                        "reason": "terminal_child_sync",
-                        "stage_count": len(payload.get("stages", [])) if isinstance(payload.get("stages"), list) else record.stage_count,
-                    }
-                )
-                if status != previous_status:
-                    append_workflow_journal_event(
-                        root,
-                        event_type="workflow_status_changed",
-                        workflow_id=_normalize_text(payload.get("workflow_id")) or record.workflow_id,
-                        template_name=_normalize_text(payload.get("template_name")) or record.template_name,
-                        previous_status=previous_status,
-                        status=status,
-                        reason="terminal_child_sync",
-                        worker_session_id=session_id,
-                    )
-                _append_phase_transition_events(
-                    root,
-                    previous_summary=previous_summary,
-                    current_summary=current_summary,
-                    workflow_id=_normalize_text(payload.get("workflow_id")) or record.workflow_id,
-                    template_name=_normalize_text(payload.get("template_name")) or record.template_name,
-                    worker_session_id=session_id,
-                )
-                _append_stage_transition_events(
-                    root,
-                    previous_summary=previous_summary,
-                    current_summary=current_summary,
-                    workflow_id=_normalize_text(payload.get("workflow_id")) or record.workflow_id,
-                    template_name=_normalize_text(payload.get("template_name")) or record.template_name,
-                    worker_session_id=session_id,
-                )
-                continue
+        terminal_sync = previous_status in TERMINAL_WORKFLOW_STATUSES and _workflow_needs_terminal_sync(record.workspace_dir)
+        if previous_status in TERMINAL_WORKFLOW_STATUSES and not terminal_sync:
             skipped_count += 1
-            workflow_results.append(
-                {
-                    "workflow_id": record.workflow_id,
-                    "template_name": record.template_name,
-                    "previous_status": previous_status,
-                    "status": previous_status,
-                    "advanced": False,
-                    "reason": "terminal_status",
-                    "stage_count": record.stage_count,
-                }
-            )
+            workflow_results.append(_workflow_skipped_terminal_result(record, previous_status=previous_status))
             continue
+
         try:
             payload = advance_workflow(
                 target=record.workflow_id,
                 workflow_root=root,
-                crest_auto_config=crest_auto_config,
-                crest_auto_executable=crest_auto_executable,
-                crest_auto_repo_root=crest_auto_repo_root,
-                xtb_auto_config=xtb_auto_config,
-                xtb_auto_executable=xtb_auto_executable,
-                xtb_auto_repo_root=xtb_auto_repo_root,
-                orca_auto_config=orca_auto_config,
-                orca_auto_executable=orca_auto_executable,
-                orca_auto_repo_root=orca_auto_repo_root,
-                submit_ready=cycle_submit_ready,
+                **advance_options,
+                submit_ready=False if terminal_sync else cycle_submit_ready,
             )
         except Exception as exc:
+            reason = f"terminal_child_sync_failed: {exc}" if terminal_sync else str(exc)
             failed_count += 1
-            workflow_results.append(
-                {
-                    "workflow_id": record.workflow_id,
-                    "template_name": record.template_name,
-                    "previous_status": previous_status,
-                    "status": "advance_failed",
-                    "advanced": False,
-                    "reason": str(exc),
-                    "stage_count": record.stage_count,
-                }
-            )
-            append_workflow_journal_event(
+            workflow_results.append(_workflow_advance_failed_result(record, previous_status=previous_status, reason=reason))
+            _append_workflow_advance_failed_event(
                 root,
-                event_type="workflow_advance_failed",
-                workflow_id=record.workflow_id,
-                template_name=record.template_name,
+                record,
                 previous_status=previous_status,
-                status="advance_failed",
-                reason=str(exc),
+                reason=reason,
                 worker_session_id=session_id,
             )
             continue
 
         status = _normalize_text(payload.get("status")).lower()
         current_summary = _safe_workflow_summary(record.workspace_dir, payload=payload)
+        reason = "terminal_child_sync" if terminal_sync else ""
         advanced_count += 1
-        workflow_results.append(
-            {
-                "workflow_id": _normalize_text(payload.get("workflow_id")) or record.workflow_id,
-                "template_name": _normalize_text(payload.get("template_name")) or record.template_name,
-                "previous_status": previous_status,
-                "status": status,
-                "advanced": True,
-                "changed": status != previous_status,
-                "stage_count": len(payload.get("stages", [])) if isinstance(payload.get("stages"), list) else record.stage_count,
-            }
-        )
-        if status != previous_status:
-            append_workflow_journal_event(
-                root,
-                event_type="workflow_status_changed",
-                workflow_id=_normalize_text(payload.get("workflow_id")) or record.workflow_id,
-                template_name=_normalize_text(payload.get("template_name")) or record.template_name,
-                previous_status=previous_status,
-                status=status,
-                worker_session_id=session_id,
-            )
-        _append_phase_transition_events(
+        workflow_results.append(_workflow_advanced_result(record, payload, previous_status=previous_status, status=status, reason=reason))
+        _append_workflow_advanced_events(
             root,
+            record,
+            payload,
+            previous_status=previous_status,
             previous_summary=previous_summary,
             current_summary=current_summary,
-            workflow_id=_normalize_text(payload.get("workflow_id")) or record.workflow_id,
-            template_name=_normalize_text(payload.get("template_name")) or record.template_name,
             worker_session_id=session_id,
-        )
-        _append_stage_transition_events(
-            root,
-            previous_summary=previous_summary,
-            current_summary=current_summary,
-            workflow_id=_normalize_text(payload.get("workflow_id")) or record.workflow_id,
-            template_name=_normalize_text(payload.get("template_name")) or record.template_name,
-            worker_session_id=session_id,
+            reason=reason,
         )
 
     cycle_finished_at = now_utc_iso()

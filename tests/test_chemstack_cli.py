@@ -1573,7 +1573,6 @@ def test_cmd_queue_worker_reports_existing_chemstack_orca_worker_conflict(
     out = capsys.readouterr().out
     assert "existing ORCA queue worker detected" in out
     assert "source: chemstack queue worker" in out
-    assert "legacy orca_auto queue worker" not in out
     assert "Stop the existing queue-worker service before starting another worker." in out
 
 

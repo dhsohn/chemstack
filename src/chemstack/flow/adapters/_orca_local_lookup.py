@@ -63,33 +63,6 @@ def resolve_job_dir_impl(index_root: Path | None, target: str) -> tuple[Path | N
     record: JobLocationRecord | None = None
     candidates: list[Path] = []
 
-    def _record_from_raw(raw: dict[str, Any]) -> JobLocationRecord:
-        return JobLocationRecord(
-            job_id=o._normalize_text(raw.get("job_id")),
-            app_name=o._normalize_text(raw.get("app_name")),
-            job_type=o._normalize_text(raw.get("job_type")),
-            status=o._normalize_text(raw.get("status")),
-            original_run_dir=o._normalize_text(raw.get("original_run_dir")),
-            molecule_key=o._normalize_text(raw.get("molecule_key")),
-            selected_input_xyz=o._normalize_text(raw.get("selected_input_xyz")),
-            organized_output_dir=o._normalize_text(raw.get("organized_output_dir")),
-            latest_known_path=o._normalize_text(raw.get("latest_known_path")),
-            resource_request={
-                str(key): int(value)
-                for key, value in raw.get("resource_request", {}).items()
-                if str(key).strip()
-            }
-            if isinstance(raw.get("resource_request"), dict)
-            else {},
-            resource_actual={
-                str(key): int(value)
-                for key, value in raw.get("resource_actual", {}).items()
-                if str(key).strip()
-            }
-            if isinstance(raw.get("resource_actual"), dict)
-            else {},
-        )
-
     def _candidate_dirs(record: JobLocationRecord) -> list[Path]:
         rows: list[Path] = []
         for value in (record.latest_known_path, record.organized_output_dir, record.original_run_dir):
@@ -103,15 +76,6 @@ def resolve_job_dir_impl(index_root: Path | None, target: str) -> tuple[Path | N
             rows.append(candidate)
         return rows
 
-    def _run_id_matches(candidate: Path, target_text: str) -> bool:
-        if candidate.name == target_text:
-            return True
-        for file_name in (o.STATE_FILE_NAME, o.REPORT_JSON_FILE_NAME):
-            payload = o._load_json_dict(candidate / file_name)
-            if o._normalize_text(payload.get("run_id")) == target_text:
-                return True
-        return False
-
     if index_root is not None:
         try:
             record = o.resolve_job_location(index_root, target)
@@ -119,33 +83,6 @@ def resolve_job_dir_impl(index_root: Path | None, target: str) -> tuple[Path | N
             record = None
     if record is not None:
         candidates.extend(_candidate_dirs(record))
-    elif index_root is not None:
-        target_text = o._normalize_text(target)
-        for raw_record in reversed(o._load_json_list(index_root / "job_locations.json")):
-            fallback_record = _record_from_raw(raw_record)
-            fallback_candidates = _candidate_dirs(fallback_record)
-            matched = next(
-                (
-                    candidate
-                    for candidate in fallback_candidates
-                    if candidate.is_dir() and _run_id_matches(candidate, target_text)
-                ),
-                None,
-            )
-            if matched is None and fallback_record.original_run_dir:
-                try:
-                    stub_dir = o.Path(fallback_record.original_run_dir).expanduser().resolve()
-                except OSError:
-                    stub_dir = None
-                if stub_dir is not None:
-                    organized_ref = o._load_json_dict(stub_dir / o.ORGANIZED_REF_FILE_NAME)
-                    if o._normalize_text(organized_ref.get("run_id")) == target_text:
-                        matched = next((candidate for candidate in fallback_candidates if candidate.is_dir()), stub_dir)
-            if matched is None:
-                continue
-            record = fallback_record
-            candidates.extend([matched, *fallback_candidates])
-            break
 
     direct_target = o._direct_dir_target(target)
     if direct_target is not None:

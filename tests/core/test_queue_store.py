@@ -64,6 +64,25 @@ def _entry(
     }
 
 
+def test_entry_to_dict_serializes_status_value() -> None:
+    entry = store.QueueEntry(
+        queue_id="q-1",
+        app_name="app",
+        task_id="task",
+        task_kind="kind",
+        engine="engine",
+        status=QueueStatus.RUNNING,
+        priority=5,
+        enqueued_at="2026-04-19T00:00:00+00:00",
+        started_at="2026-04-19T00:00:01+00:00",
+    )
+
+    serialized = store.entry_to_dict(entry)
+
+    assert serialized["status"] == "running"
+    assert serialized["queue_id"] == "q-1"
+
+
 def test_list_queue_handles_missing_and_rejects_corrupt_json(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

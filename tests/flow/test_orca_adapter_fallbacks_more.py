@@ -174,7 +174,7 @@ def test_load_tracked_organized_ref_reads_stub_only_when_current_dir_differs(tmp
 
     record = JobLocationRecord(
         job_id="job_stub",
-        app_name="orca_auto",
+        app_name="chemstack_orca",
         job_type="orca_opt",
         status="running",
         original_run_dir=str(stub_dir),
@@ -209,7 +209,7 @@ def test_load_orca_artifact_contract_uses_runtime_context_fast_path(
     (artifact_dir / "run_report.md").write_text("# runtime report\n", encoding="utf-8")
 
     tracked_record = SimpleNamespace(
-        app_name="orca_auto",
+        app_name="chemstack_orca",
         status="running",
         selected_input_xyz="",
         latest_known_path=str(organized_dir),

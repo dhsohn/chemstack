@@ -48,26 +48,11 @@ def _plan(source_dir: Path, target_dir: Path) -> OrganizePlan:
     )
 
 
-def test_report_loading_and_route_helpers_cover_missing_invalid_and_fallback(tmp_path: Path) -> None:
+def test_route_and_attempt_helpers_cover_edge_cases(tmp_path: Path) -> None:
     reaction_dir = tmp_path / "rxn"
 
-    assert organizer._load_report_as_state(reaction_dir) is None
-
-    _write_report(reaction_dir, "{not-json")
-    (reaction_dir / "run_report.json").write_text("{not-json", encoding="utf-8")
-    assert organizer._load_report_as_state(reaction_dir) is None
-
-    _write_report(reaction_dir, ["not-a-dict"])
-    assert organizer._load_report_as_state(reaction_dir) is None
-
-    payload = {"run_id": "run_1", "status": "completed"}
-    _write_report(reaction_dir, payload)
-    assert organizer._load_report_as_state(reaction_dir) == payload
-
-    with patch("chemstack.orca.result_organizer.load_state", return_value=None):
-        assert organizer._load_state_with_report_fallback(reaction_dir) == payload
-
     inp_path = reaction_dir / "calc.inp"
+    reaction_dir.mkdir()
     inp_path.write_text("\n# comment\n! Opt TightSCF\n", encoding="utf-8")
     assert organizer._read_route_line(inp_path) == "! Opt TightSCF"
     assert organizer._read_route_line(reaction_dir / "missing.inp") == ""

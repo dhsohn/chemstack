@@ -75,16 +75,16 @@ def test_file_signature_returns_none_for_missing_file(tmp_path: Path) -> None:
     assert _file_signature(tmp_path / "missing.out") is None
 
 
-def test_same_signature_treats_legacy_size_none_as_match() -> None:
-    assert _same_signature((10.0, None, ""), (10.0, 999, "")) is True
+def test_same_signature_requires_matching_size() -> None:
+    assert _same_signature((10.0, None, ""), (10.0, 999, "")) is False
 
 
 @pytest.mark.parametrize(
     ("value", "expected"),
     [
-        (12.5, (12.5, None, "")),
-        ({"mtime": "7.25", "size": None}, (7.25, None, "")),
-        ({"mtime": 7, "size": "bad"}, (7.0, None, "")),
+        (12.5, None),
+        ({"mtime": "7.25", "size": None}, None),
+        ({"mtime": 7, "size": "bad"}, None),
         ({"mtime": 7, "size": 10, "state": "FAILED"}, (7.0, 10, "failed")),
         ({"mtime": []}, None),
         ({"mtime": "bad"}, None),
@@ -140,7 +140,7 @@ def test_load_state_skips_non_string_keys_from_loaded_payload(tmp_path: Path) ->
     }):
         state = _load_state(str(state_file))
 
-    assert state == {_canonical_path_key("good"): (2.0, None, "")}
+    assert state == {}
 
 
 def test_load_state_logs_warning_on_malformed_json(

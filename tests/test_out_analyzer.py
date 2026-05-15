@@ -108,24 +108,6 @@ class TestOutAnalyzer(unittest.TestCase):
             result = analyze_output(out, CompletionMode(kind="opt", require_irc=False, route_line="! Opt"))
         self.assertEqual(result.status, "error_scfgrad_abort")
 
-    def test_completed_with_utf16_le_bom(self) -> None:
-        """Legacy .out files from Windows may have UTF-16 LE BOM."""
-        payload = "****ORCA TERMINATED NORMALLY****\nTOTAL RUN TIME: 0 days\n"
-        with tempfile.TemporaryDirectory() as td:
-            out = Path(td) / "a.out"
-            out.write_bytes(b"\xff\xfe" + payload.encode("utf-16-le"))
-            result = analyze_output(out, CompletionMode(kind="opt", require_irc=False, route_line="! Opt"))
-        self.assertEqual(result.status, "completed")
-
-    def test_completed_with_utf16_be_bom(self) -> None:
-        """UTF-16 BE BOM detection."""
-        payload = "****ORCA TERMINATED NORMALLY****\n"
-        with tempfile.TemporaryDirectory() as td:
-            out = Path(td) / "a.out"
-            out.write_bytes(b"\xfe\xff" + payload.encode("utf-16-be"))
-            result = analyze_output(out, CompletionMode(kind="opt", require_irc=False, route_line="! Opt"))
-        self.assertEqual(result.status, "completed")
-
     def test_scf_not_converged(self) -> None:
         payload = "SCF NOT CONVERGED AFTER 300 CYCLES"
         with tempfile.TemporaryDirectory() as td:

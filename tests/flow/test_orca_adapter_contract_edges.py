@@ -89,12 +89,9 @@ def test_load_jsonl_records_returns_empty_on_read_error() -> None:
     assert orca_adapter._load_jsonl_records(cast(Path, ExplodingPath())) == []
 
 
-def test_import_orca_auto_module_retries_sibling_repo_and_returns_none(
-    tmp_path: Path,
+def test_import_orca_auto_module_returns_none_for_missing_package(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    sibling_repo = tmp_path / "chemstack"
-    sibling_repo.mkdir()
     calls: list[str] = []
 
     def fake_import(module_name: str) -> object:
@@ -102,12 +99,9 @@ def test_import_orca_auto_module_retries_sibling_repo_and_returns_none(
         raise _module_not_found("chemstack")
 
     monkeypatch.setattr(orca_adapter, "import_module", fake_import)
-    monkeypatch.setattr(orca_adapter, "_sibling_orca_auto_repo_root", lambda: sibling_repo)
-    monkeypatch.setattr(orca_adapter.sys, "path", ["existing"])
 
     assert orca_adapter._import_orca_auto_module("chemstack.orca.tracking") is None
-    assert calls == ["chemstack.orca.tracking", "chemstack.orca.tracking"]
-    assert orca_adapter.sys.path[0] == str(sibling_repo)
+    assert calls == ["chemstack.orca.tracking"]
 
 
 def test_import_orca_auto_module_reraises_unrelated_import_errors(
@@ -260,7 +254,7 @@ def test_path_and_record_helpers_cover_relative_deduped_and_subpath_cases(tmp_pa
 
     record = JobLocationRecord(
         job_id="job_1",
-        app_name="orca_auto",
+        app_name="chemstack_orca",
         job_type="orca_opt",
         status="running",
         original_run_dir=str(tmp_path / "missing_stub"),
@@ -423,7 +417,7 @@ def test_load_orca_artifact_contract_refreshes_from_queue_reaction_dir_tracking_
 
     calls: list[tuple[str, ...]] = []
     record = SimpleNamespace(
-        app_name="orca_auto",
+        app_name="chemstack_orca",
         status="queued",
         selected_input_xyz="",
         latest_known_path="",
@@ -506,7 +500,7 @@ def test_load_orca_artifact_contract_uses_tracked_status_state_fallbacks_and_cur
 
     record = JobLocationRecord(
         job_id="job_edge_case",
-        app_name="orca_auto",
+        app_name="chemstack_orca",
         job_type="orca_opt",
         status="submitted",
         original_run_dir=str(tmp_path / "stub"),

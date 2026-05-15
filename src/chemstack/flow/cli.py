@@ -83,10 +83,7 @@ def _discover_workflow_root(
 
 
 def _shared_chemstack_config(args: Any) -> str | None:
-    explicit = (
-        _normalize_text(getattr(args, "chemstack_config", None))
-        or _normalize_text(getattr(args, "orca_auto_config", None))
-    )
+    explicit = _normalize_text(getattr(args, "chemstack_config", None))
     if explicit:
         return str(Path(explicit).expanduser().resolve())
     default_config = _resolve_existing_path(default_config_path_from_repo_root(_project_root()))
@@ -168,9 +165,7 @@ def _resolve_endpoint_pairing_manifest(
 ) -> dict[str, Any]:
     xtb_section = _manifest_mapping(xtb_manifest.pop("endpoint_pairing", None))
     top_level = _manifest_mapping(manifest.get("endpoint_pairing"))
-    legacy_top_level = _manifest_mapping(manifest.get("xtb_endpoint_pairing"))
     resolved = dict(xtb_section)
-    resolved.update(legacy_top_level)
     resolved.update(top_level)
     return resolved
 
@@ -1231,10 +1226,7 @@ def cmd_workflow_reindex(args: Any) -> int:
     return 0
 
 
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="python -m chemstack.flow.cli")
-    subparsers = parser.add_subparsers(dest="command", required=True)
-
+def _register_run_dir_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     run_dir_parser = subparsers.add_parser(
         "run-dir",
         help="Create a workflow from an input directory containing reactant/product or input XYZ files.",
@@ -1266,6 +1258,8 @@ def build_parser() -> argparse.ArgumentParser:
     run_dir_parser.add_argument("--json", action="store_true", help="Print JSON output")
     run_dir_parser.set_defaults(func=cmd_run_dir)
 
+
+def _register_activity_parsers(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     activity_list_parser = subparsers.add_parser("list", help="List workflows and standalone engine activities together.")
     activity_list_parser.add_argument("--workflow-root", help="Root that directly contains workflow workspaces.")
     activity_list_parser.add_argument("--limit", type=int, default=0, help="Optional maximum number of activities to print")
@@ -1284,6 +1278,8 @@ def build_parser() -> argparse.ArgumentParser:
     bot_parser = subparsers.add_parser("bot", help="Run the ChemStack flow Telegram bot.")
     bot_parser.set_defaults(func=cmd_bot)
 
+
+def _register_engine_inspect_parsers(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     xtb_parser = subparsers.add_parser("xtb", help="Inspect and adapt xTB artifacts.")
     xtb_subparsers = xtb_parser.add_subparsers(dest="xtb_command", required=True)
 
@@ -1319,9 +1315,8 @@ def build_parser() -> argparse.ArgumentParser:
     crest_inspect_parser.add_argument("--json", action="store_true", help="Print JSON output")
     crest_inspect_parser.set_defaults(func=cmd_crest_inspect)
 
-    workflow_parser = subparsers.add_parser("workflow", help="Build chemistry workflow plans.")
-    workflow_subparsers = workflow_parser.add_subparsers(dest="workflow_command", required=True)
 
+def _register_workflow_registry_parsers(workflow_subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     list_parser = workflow_subparsers.add_parser("list", help="List materialized workflows under a workflow root.")
     list_parser.add_argument("--workflow-root", required=True, help="Root that directly contains workflow workspaces.")
     list_parser.add_argument("--limit", type=int, default=0, help="Optional maximum number of workflows to print")
@@ -1385,6 +1380,8 @@ def build_parser() -> argparse.ArgumentParser:
     telemetry_parser.add_argument("--json", action="store_true", help="Print JSON output")
     telemetry_parser.set_defaults(func=cmd_workflow_telemetry)
 
+
+def _register_workflow_planning_parsers(workflow_subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     reaction_ts_parser = workflow_subparsers.add_parser(
         "reaction-ts-search",
         help="Build a reaction_ts_search workflow plan from xTB results.",
@@ -1436,6 +1433,8 @@ def build_parser() -> argparse.ArgumentParser:
     conformer_parser.add_argument("--json", action="store_true", help="Print JSON output")
     conformer_parser.set_defaults(func=cmd_workflow_conformer_screening)
 
+
+def _register_workflow_creation_parsers(workflow_subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     create_reaction_parser = workflow_subparsers.add_parser(
         "create-reaction-ts-search",
         help="Create a raw-input reaction_ts_search workflow from reactant/product precomplex XYZ inputs.",
@@ -1483,6 +1482,8 @@ def build_parser() -> argparse.ArgumentParser:
     create_conformer_parser.add_argument("--json", action="store_true", help="Print JSON output")
     create_conformer_parser.set_defaults(func=cmd_workflow_create_conformer_screening)
 
+
+def _register_workflow_runtime_parsers(workflow_subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     advance_parser = workflow_subparsers.add_parser(
         "advance",
         help="Advance a materialized workflow by syncing/submitting actionable CREST, xTB, and ORCA stages.",
@@ -1524,6 +1525,23 @@ def build_parser() -> argparse.ArgumentParser:
     submit_parser.add_argument("--json", action="store_true", help="Print JSON output")
     submit_parser.set_defaults(func=cmd_workflow_submit_reaction_ts_search)
 
+
+def _register_workflow_parsers(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
+    workflow_parser = subparsers.add_parser("workflow", help="Build chemistry workflow plans.")
+    workflow_subparsers = workflow_parser.add_subparsers(dest="workflow_command", required=True)
+    _register_workflow_registry_parsers(workflow_subparsers)
+    _register_workflow_planning_parsers(workflow_subparsers)
+    _register_workflow_creation_parsers(workflow_subparsers)
+    _register_workflow_runtime_parsers(workflow_subparsers)
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="python -m chemstack.flow.cli")
+    subparsers = parser.add_subparsers(dest="command", required=True)
+    _register_run_dir_parser(subparsers)
+    _register_activity_parsers(subparsers)
+    _register_engine_inspect_parsers(subparsers)
+    _register_workflow_parsers(subparsers)
     return parser
 
 

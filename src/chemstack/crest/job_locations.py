@@ -1,97 +1,60 @@
 from __future__ import annotations
 
-import re
 from pathlib import Path
 from typing import Any
 
 from chemstack.core.indexing import JobLocationRecord, get_job_location, list_job_locations, resolve_job_location, upsert_job_location
-from chemstack.flow.state import (
-    iter_workflow_runtime_workspaces,
-    workflow_workspace_internal_engine_paths,
-    workflow_workspace_internal_engine_paths_from_path,
-)
+from chemstack.core.indexing import engines as _engine_locations
 
 from .config import AppConfig
 from .state import load_organized_ref, load_report_json, load_state
 
-_MOLECULE_KEY_RE = re.compile(r"[^A-Za-z0-9._-]+")
-_TERMINAL_STATUSES = frozenset({"completed", "failed", "cancelled"})
+_APP_NAME = "crest_auto"
+_ENGINE = "crest"
+_UNKNOWN_MOLECULE = "unknown_molecule"
 
 
 def _normalize_text(value: Any) -> str:
-    return str(value).strip()
+    return _engine_locations.normalize_text(value)
 
 
 def index_root_for_cfg(cfg: AppConfig) -> Path:
-    return Path(cfg.runtime.allowed_root).expanduser().resolve()
-
-
-def _append_unique_root(roots: list[Path], candidate: Path) -> None:
-    resolved = candidate.expanduser().resolve()
-    if resolved not in roots:
-        roots.append(resolved)
+    return _engine_locations.index_root_for_cfg(cfg)
 
 
 def runtime_roots_for_cfg(cfg: AppConfig) -> tuple[Path, ...]:
-    workflow_root = _normalize_text(getattr(cfg, "workflow_root", ""))
-    if not workflow_root:
-        return (index_root_for_cfg(cfg),)
-
-    roots: list[Path] = []
-
-    for workspace_dir in iter_workflow_runtime_workspaces(workflow_root, engine="crest"):
-        runtime_paths = workflow_workspace_internal_engine_paths(workspace_dir, engine="crest")
-        _append_unique_root(roots, runtime_paths["allowed_root"])
-    return tuple(roots)
+    return _engine_locations.runtime_roots_for_cfg(cfg, engine=_ENGINE)
 
 
 def index_root_for_path(
     cfg: AppConfig,
     *paths: str | Path | None,
 ) -> Path:
-    workflow_root = _normalize_text(getattr(cfg, "workflow_root", ""))
-    if workflow_root:
-        for raw_path in paths:
-            text = _normalize_text(raw_path)
-            if not text:
-                continue
-            runtime_paths = workflow_workspace_internal_engine_paths_from_path(
-                text,
-                workflow_root=workflow_root,
-                engine="crest",
-            )
-            if runtime_paths is None:
-                continue
-            return runtime_paths["allowed_root"].expanduser().resolve()
-    return index_root_for_cfg(cfg)
+    return _engine_locations.index_root_for_path(cfg, *paths, engine=_ENGINE)
 
 
 def _lookup_roots_for_target(cfg: AppConfig, target: str) -> tuple[Path, ...]:
-    roots = list(runtime_roots_for_cfg(cfg))
-    specific_root = index_root_for_path(cfg, target)
-    if specific_root in roots:
-        roots.remove(specific_root)
-        roots.insert(0, specific_root)
-    return tuple(roots)
+    return _engine_locations.lookup_roots_for_target(cfg, target, engine=_ENGINE)
 
 
 def list_job_records_for_cfg(cfg: AppConfig) -> list[tuple[Path, JobLocationRecord]]:
-    rows: list[tuple[Path, JobLocationRecord]] = []
-    for root in runtime_roots_for_cfg(cfg):
-        for record in list_job_locations(root):
-            rows.append((root, record))
-    return rows
+    return _engine_locations.list_job_records_for_cfg(
+        cfg,
+        engine=_ENGINE,
+        list_job_locations_fn=list_job_locations,
+    )
 
 
 def resolve_job_location_for_cfg(
     cfg: AppConfig,
     target: str,
 ) -> tuple[Path | None, JobLocationRecord | None]:
-    for root in _lookup_roots_for_target(cfg, target):
-        record = resolve_job_location(root, target)
-        if record is not None:
-            return root, record
-    return None, None
+    return _engine_locations.resolve_job_location_for_cfg(
+        cfg,
+        target,
+        engine=_ENGINE,
+        resolve_job_location_fn=resolve_job_location,
+    )
 
 
 def job_type_for_mode(mode: str) -> str:
@@ -100,8 +63,7 @@ def job_type_for_mode(mode: str) -> str:
 
 
 def normalize_molecule_key(value: str) -> str:
-    collapsed = _MOLECULE_KEY_RE.sub("_", _normalize_text(value)).strip("._-")
-    return collapsed.lower() or "unknown_molecule"
+    return _engine_locations.normalize_identifier(value, default=_UNKNOWN_MOLECULE)
 
 
 def molecule_key_from_selected_xyz(selected_input_xyz: str, job_dir: Path) -> str:
@@ -112,10 +74,7 @@ def molecule_key_from_selected_xyz(selected_input_xyz: str, job_dir: Path) -> st
 
 
 def resource_dict(max_cores: int, max_memory_gb: int) -> dict[str, int]:
-    return {
-        "max_cores": max(1, int(max_cores)),
-        "max_memory_gb": max(1, int(max_memory_gb)),
-    }
+    return _engine_locations.resource_dict(max_cores, max_memory_gb)
 
 
 def build_job_location_record(
@@ -131,40 +90,22 @@ def build_job_location_record(
     resource_request: dict[str, int] | None = None,
     resource_actual: dict[str, int] | None = None,
 ) -> JobLocationRecord:
-    resolved_job_dir = job_dir.expanduser().resolve()
-    existing_original = Path(existing.original_run_dir).expanduser().resolve() if existing and existing.original_run_dir else None
-    original_run_dir = existing_original or resolved_job_dir
-
-    existing_selected = _normalize_text(existing.selected_input_xyz) if existing is not None else ""
-    selected_input_xyz_text = _normalize_text(selected_input_xyz) or existing_selected
-
-    existing_molecule_key = _normalize_text(existing.molecule_key) if existing is not None else ""
-    molecule_key_text = _normalize_text(molecule_key) or existing_molecule_key
-    if not molecule_key_text:
-        molecule_key_text = molecule_key_from_selected_xyz(selected_input_xyz_text, original_run_dir)
-
-    existing_resource_request = dict(existing.resource_request) if existing is not None else {}
-    existing_resource_actual = dict(existing.resource_actual) if existing is not None else {}
-    resource_request_text = dict(resource_request or existing_resource_request)
-    resource_actual_text = dict(resource_actual or existing_resource_actual or resource_request_text)
-
-    organized_dir = organized_output_dir
-    if organized_dir is None and existing is not None and existing.organized_output_dir:
-        organized_dir = Path(existing.organized_output_dir).expanduser().resolve()
-
-    latest_known_path = organized_dir or resolved_job_dir
-    return JobLocationRecord(
-        job_id=_normalize_text(job_id),
-        app_name="crest_auto",
+    return _engine_locations.build_job_location_record(
+        existing=existing,
+        job_id=job_id,
+        app_name=_APP_NAME,
         job_type=job_type_for_mode(mode),
-        status=_normalize_text(status),
-        original_run_dir=str(original_run_dir),
-        molecule_key=molecule_key_text,
-        selected_input_xyz=selected_input_xyz_text,
-        organized_output_dir=str(organized_dir.resolve()) if organized_dir is not None else "",
-        latest_known_path=str(latest_known_path.resolve()),
-        resource_request=resource_request_text,
-        resource_actual=resource_actual_text,
+        status=status,
+        job_dir=job_dir,
+        selected_input_xyz=selected_input_xyz,
+        molecule_key=molecule_key,
+        organized_output_dir=organized_output_dir,
+        resource_request=resource_request,
+        resource_actual=resource_actual,
+        default_molecule_key_fn=lambda original_run_dir, selected: molecule_key_from_selected_xyz(
+            selected,
+            original_run_dir,
+        ),
     )
 
 
@@ -199,56 +140,43 @@ def upsert_job_record(
 
 
 def resolve_latest_job_dir(index_root: str | Path, target: str) -> Path | None:
-    record = resolve_job_location(index_root, target)
-    if record is None:
-        candidate = Path(_normalize_text(target)).expanduser()
-        try:
-            resolved = candidate.resolve()
-        except OSError:
-            return None
-        return resolved if resolved.exists() and resolved.is_dir() else None
-
-    candidates = [record.latest_known_path, record.organized_output_dir, record.original_run_dir]
-    for latest in candidates:
-        if not latest:
-            continue
-        path = Path(latest).expanduser()
-        try:
-            resolved = path.resolve()
-        except OSError:
-            continue
-        if resolved.exists() and resolved.is_dir():
-            return resolved
-    return None
+    return _engine_locations.resolve_latest_job_dir(
+        index_root,
+        target,
+        resolve_job_location_fn=resolve_job_location,
+    )
 
 
 def load_job_artifacts(
     index_root: str | Path,
     target: str,
 ) -> tuple[Path | None, dict[str, Any] | None, dict[str, Any] | None]:
-    job_dir = resolve_latest_job_dir(index_root, target)
-    if job_dir is None:
-        return None, None, None
-    return job_dir, load_state(job_dir), load_report_json(job_dir)
+    return _engine_locations.load_job_artifacts(
+        index_root,
+        target,
+        load_state_fn=load_state,
+        load_report_json_fn=load_report_json,
+        resolve_latest_job_dir_fn=resolve_latest_job_dir,
+    )
 
 
 def load_job_artifacts_for_cfg(
     cfg: AppConfig,
     target: str,
 ) -> tuple[Path | None, dict[str, Any] | None, dict[str, Any] | None, JobLocationRecord | None]:
-    resolved_record: JobLocationRecord | None = None
-    for root in _lookup_roots_for_target(cfg, target):
-        record = resolve_job_location(root, target)
-        job_dir = resolve_latest_job_dir(root, target)
-        if job_dir is None:
-            continue
-        resolved_record = record
-        return job_dir, load_state(job_dir), load_report_json(job_dir), resolved_record
-    return None, None, None, resolved_record
+    return _engine_locations.load_job_artifacts_for_cfg(
+        cfg,
+        target,
+        engine=_ENGINE,
+        load_state_fn=load_state,
+        load_report_json_fn=load_report_json,
+        resolve_latest_job_dir_fn=resolve_latest_job_dir,
+        resolve_job_location_fn=resolve_job_location,
+    )
 
 
 def is_terminal_status(status: str) -> bool:
-    return _normalize_text(status).lower() in _TERMINAL_STATUSES
+    return _engine_locations.is_terminal_status(status)
 
 
 def record_from_artifacts(
@@ -290,12 +218,14 @@ def record_from_artifacts(
     if not molecule_key:
         molecule_key = molecule_key_from_selected_xyz(selected_input_xyz, job_dir)
 
-    resource_request = report.get("resource_request") or state.get("resource_request") or organized_ref.get("resource_request")
-    if not isinstance(resource_request, dict):
-        resource_request = dict(existing.resource_request) if existing is not None else {}
-    resource_actual = report.get("resource_actual") or state.get("resource_actual") or organized_ref.get("resource_actual")
-    if not isinstance(resource_actual, dict):
-        resource_actual = dict(existing.resource_actual) if existing is not None else {}
+    resource_request = _engine_locations.resource_mapping(
+        report.get("resource_request") or state.get("resource_request") or organized_ref.get("resource_request"),
+        fallback=dict(existing.resource_request) if existing is not None else {},
+    )
+    resource_actual = _engine_locations.resource_mapping(
+        report.get("resource_actual") or state.get("resource_actual") or organized_ref.get("resource_actual"),
+        fallback=dict(existing.resource_actual) if existing is not None else {},
+    )
 
     original_run_dir = _normalize_text(
         report.get("original_run_dir")
@@ -320,8 +250,8 @@ def record_from_artifacts(
         selected_input_xyz=selected_input_xyz,
         organized_output_dir=Path(organized_output_dir).expanduser().resolve() if organized_output_dir else None,
         molecule_key=molecule_key,
-        resource_request={str(key): int(value) for key, value in resource_request.items()},
-        resource_actual={str(key): int(value) for key, value in resource_actual.items()},
+        resource_request=resource_request,
+        resource_actual=resource_actual,
     )
 
 
@@ -342,8 +272,12 @@ def collect_reindex_payload(job_dir: Path) -> dict[str, Any] | None:
     molecule_key = _normalize_text(report.get("molecule_key") or state.get("molecule_key"))
     if not molecule_key:
         molecule_key = molecule_key_from_selected_xyz(selected_input_xyz, Path(original_run_dir))
-    resource_request = report.get("resource_request") or state.get("resource_request") or organized_ref.get("resource_request") or {}
-    resource_actual = report.get("resource_actual") or state.get("resource_actual") or organized_ref.get("resource_actual") or {}
+    resource_request = _engine_locations.resource_mapping(
+        report.get("resource_request") or state.get("resource_request") or organized_ref.get("resource_request"),
+    )
+    resource_actual = _engine_locations.resource_mapping(
+        report.get("resource_actual") or state.get("resource_actual") or organized_ref.get("resource_actual"),
+    )
     organized_output_dir = _normalize_text(
         organized_ref.get("organized_output_dir")
         or report.get("organized_output_dir")
@@ -358,6 +292,6 @@ def collect_reindex_payload(job_dir: Path) -> dict[str, Any] | None:
         "selected_input_xyz": selected_input_xyz,
         "molecule_key": molecule_key,
         "organized_output_dir": organized_output_dir,
-        "resource_request": {str(key): int(value) for key, value in resource_request.items()} if isinstance(resource_request, dict) else {},
-        "resource_actual": {str(key): int(value) for key, value in resource_actual.items()} if isinstance(resource_actual, dict) else {},
+        "resource_request": resource_request,
+        "resource_actual": resource_actual,
     }

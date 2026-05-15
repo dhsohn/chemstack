@@ -90,7 +90,7 @@ def test_build_parser_supports_internal_scaffold_list_and_queue_commands() -> No
     assert cancel_args.target == "q-123"
 
 
-def test_main_dispatches_list_and_queue_compatibility_commands(
+def test_main_dispatches_list_and_queue_commands(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     list_calls: list[Any] = []
