@@ -548,18 +548,6 @@ def advance_workflow_registry_once(
     advanced_count = 0
     skipped_count = 0
     failed_count = 0
-    advance_options = {
-        "crest_auto_config": crest_auto_config,
-        "crest_auto_executable": crest_auto_executable,
-        "crest_auto_repo_root": crest_auto_repo_root,
-        "xtb_auto_config": xtb_auto_config,
-        "xtb_auto_executable": xtb_auto_executable,
-        "xtb_auto_repo_root": xtb_auto_repo_root,
-        "orca_auto_config": orca_auto_config,
-        "orca_auto_executable": orca_auto_executable,
-        "orca_auto_repo_root": orca_auto_repo_root,
-    }
-
     for record in records:
         previous_status = _normalize_text(record.status).lower()
         previous_summary = _safe_workflow_summary(record.workspace_dir)
@@ -573,7 +561,15 @@ def advance_workflow_registry_once(
             payload = advance_workflow(
                 target=record.workflow_id,
                 workflow_root=root,
-                **advance_options,
+                crest_auto_config=crest_auto_config,
+                crest_auto_executable=crest_auto_executable,
+                crest_auto_repo_root=crest_auto_repo_root,
+                xtb_auto_config=xtb_auto_config,
+                xtb_auto_executable=xtb_auto_executable,
+                xtb_auto_repo_root=xtb_auto_repo_root,
+                orca_auto_config=orca_auto_config,
+                orca_auto_executable=orca_auto_executable,
+                orca_auto_repo_root=orca_auto_repo_root,
                 submit_ready=False if terminal_sync else cycle_submit_ready,
             )
         except Exception as exc:
