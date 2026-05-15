@@ -15,7 +15,12 @@ import yaml
 
 from chemstack.core.utils import now_utc_iso
 
-from .commands._helpers import MANIFEST_FILE_NAME, load_job_manifest, resolve_job_inputs, resource_request_from_manifest
+from .commands._helpers import (
+    MANIFEST_FILE_NAME,
+    load_job_manifest,
+    resolve_job_inputs,
+    resource_request_from_manifest,
+)
 from .config import AppConfig
 
 _CANDIDATE_PATTERNS = (
@@ -26,9 +31,15 @@ _CANDIDATE_PATTERNS = (
 _TRIAL_RE = re.compile(
     r"run\s+(\d+)\s+barrier:\s*([-+]?\d+(?:\.\d+)?)\s+dE:\s*([-+]?\d+(?:\.\d+)?)\s+product-end path RMSD:\s*([-+]?\d+(?:\.\d+)?)"
 )
-_FORWARD_BARRIER_RE = re.compile(r"forward\s+barrier\s+\(kcal\)\s*:\s*([-+]?\d+(?:\.\d+)?)", re.IGNORECASE)
-_BACKWARD_BARRIER_RE = re.compile(r"backward\s+barrier\s+\(kcal\)\s*:\s*([-+]?\d+(?:\.\d+)?)", re.IGNORECASE)
-_REACTION_ENERGY_RE = re.compile(r"reaction energy\s+\(kcal\)\s*:\s*([-+]?\d+(?:\.\d+)?)", re.IGNORECASE)
+_FORWARD_BARRIER_RE = re.compile(
+    r"forward\s+barrier\s+\(kcal\)\s*:\s*([-+]?\d+(?:\.\d+)?)", re.IGNORECASE
+)
+_BACKWARD_BARRIER_RE = re.compile(
+    r"backward\s+barrier\s+\(kcal\)\s*:\s*([-+]?\d+(?:\.\d+)?)", re.IGNORECASE
+)
+_REACTION_ENERGY_RE = re.compile(
+    r"reaction energy\s+\(kcal\)\s*:\s*([-+]?\d+(?:\.\d+)?)", re.IGNORECASE
+)
 _TS_FILE_RE = re.compile(r"estimated TS on file\s+(\S+)", re.IGNORECASE)
 _POINT_COUNT_RE = re.compile(r"path\s+(\d+)\s+taken with\s+(\d+)\s+points", re.IGNORECASE)
 _COMMENT_ENERGY_RE = re.compile(r"energy\s*[:=]\s*([-+]?\d+(?:\.\d+)?)", re.IGNORECASE)
@@ -74,6 +85,17 @@ class XtbRunningJob:
     resource_request: dict[str, int]
     resource_actual: dict[str, int]
     job_dir: str
+
+
+@dataclass(frozen=True)
+class _RankingRunContext:
+    job_dir: Path
+    started_at: str
+    candidate_paths: list[Path]
+    inputs: dict[str, Any]
+    top_n: int
+    resource_request: dict[str, int]
+    resource_actual: dict[str, int]
 
 
 def _resolve_xtb_executable(cfg: AppConfig) -> str:
@@ -128,6 +150,56 @@ def _manifest_int(manifest: dict[str, Any], key: str) -> int | None:
     raise ValueError(f"Manifest field {key!r} must be an integer-compatible value.")
 
 
+def _append_xtb_scalar_options(command: list[str], manifest: dict[str, Any]) -> None:
+    gfn = str(manifest.get("gfn", "2")).strip()
+    if gfn:
+        command.extend(["--gfn", gfn])
+
+    for manifest_key, option in (("charge", "--chrg"), ("uhf", "--uhf")):
+        value = _manifest_int(manifest, manifest_key)
+        if value is not None:
+            command.extend([option, str(value)])
+
+
+def _append_xtb_solvent_option(command: list[str], manifest: dict[str, Any]) -> None:
+    solvent_model = str(manifest.get("solvent_model", "")).strip().lower()
+    solvent = str(manifest.get("solvent", "")).strip()
+    if solvent and solvent_model in {"gbsa", "alpb"}:
+        command.extend([f"--{solvent_model}", solvent])
+
+
+def _append_xtb_optional_text_options(command: list[str], manifest: dict[str, Any]) -> None:
+    for manifest_key, option in (("namespace", "--namespace"), ("xcontrol", "--input")):
+        value = str(manifest.get(manifest_key, "")).strip()
+        if value:
+            command.extend([option, value])
+
+
+def _append_xtb_job_type_options(
+    command: list[str],
+    *,
+    manifest: dict[str, Any],
+    secondary_input_xyz: Path | None,
+    job_type: str,
+) -> None:
+    if job_type == "path_search":
+        if secondary_input_xyz is None:
+            raise ValueError("path_search requires a product/reference structure")
+        command.extend(["--path", str(secondary_input_xyz)])
+        return
+    if job_type == "opt":
+        opt_level = (
+            str(manifest.get("opt_level", manifest.get("opt", "normal"))).strip().lower()
+            or "normal"
+        )
+        command.extend(["--opt", opt_level])
+        return
+    if job_type == "sp":
+        command.append("--sp")
+        return
+    raise ValueError(f"Unsupported xtb job_type: {job_type}")
+
+
 def _build_command(
     cfg: AppConfig,
     *,
@@ -145,42 +217,15 @@ def _build_command(
         "--json",
     ]
 
-    gfn = str(manifest.get("gfn", "2")).strip()
-    if gfn:
-        command.extend(["--gfn", gfn])
-
-    charge = _manifest_int(manifest, "charge")
-    if charge is not None:
-        command.extend(["--chrg", str(charge)])
-
-    uhf = _manifest_int(manifest, "uhf")
-    if uhf is not None:
-        command.extend(["--uhf", str(uhf)])
-
-    solvent_model = str(manifest.get("solvent_model", "")).strip().lower()
-    solvent = str(manifest.get("solvent", "")).strip()
-    if solvent and solvent_model in {"gbsa", "alpb"}:
-        command.extend([f"--{solvent_model}", solvent])
-
-    namespace = str(manifest.get("namespace", "")).strip()
-    if namespace:
-        command.extend(["--namespace", namespace])
-
-    xcontrol = str(manifest.get("xcontrol", "")).strip()
-    if xcontrol:
-        command.extend(["--input", xcontrol])
-
-    if job_type == "path_search":
-        if secondary_input_xyz is None:
-            raise ValueError("path_search requires a product/reference structure")
-        command.extend(["--path", str(secondary_input_xyz)])
-    elif job_type == "opt":
-        opt_level = str(manifest.get("opt_level", manifest.get("opt", "normal"))).strip().lower() or "normal"
-        command.extend(["--opt", opt_level])
-    elif job_type == "sp":
-        command.append("--sp")
-    else:
-        raise ValueError(f"Unsupported xtb job_type: {job_type}")
+    _append_xtb_scalar_options(command, manifest)
+    _append_xtb_solvent_option(command, manifest)
+    _append_xtb_optional_text_options(command, manifest)
+    _append_xtb_job_type_options(
+        command,
+        manifest=manifest,
+        secondary_input_xyz=secondary_input_xyz,
+        job_type=job_type,
+    )
 
     if _bool_flag(manifest, "dry_run"):
         command.append("--define")
@@ -284,7 +329,9 @@ def _run_candidate_sp_job(
     candidate_manifest["job_type"] = "sp"
     candidate_manifest["input_xyz"] = "input.xyz"
     candidate_manifest_path = candidate_run_dir / MANIFEST_FILE_NAME
-    candidate_manifest_path.write_text(yaml.safe_dump(candidate_manifest, sort_keys=False), encoding="utf-8")
+    candidate_manifest_path.write_text(
+        yaml.safe_dump(candidate_manifest, sort_keys=False), encoding="utf-8"
+    )
     running = start_xtb_job(cfg, job_dir=candidate_run_dir, selected_input_xyz=candidate_input)
     if on_running_job is not None:
         on_running_job(running)
@@ -315,173 +362,183 @@ def _run_candidate_sp_job(
             on_running_job(None)
 
 
-def run_xtb_ranking_job(
+def _ranking_candidate_run_dir(ranking_root: Path, index: int, candidate_path: Path) -> Path:
+    name = _safe_rank_name(candidate_path.stem, fallback=f"candidate_{index:02d}")
+    return ranking_root / f"{index:02d}_{name}"
+
+
+def _run_ranking_candidate(
     cfg: AppConfig,
     *,
-    job_dir: Path,
-    should_cancel: Callable[[], bool] | None = None,
-    on_running_job: Callable[[XtbRunningJob | None], None] | None = None,
-    terminate_process: Callable[[subprocess.Popen[str]], None] | None = None,
+    candidate_path: Path,
+    candidate_run_dir: Path,
+    manifest: dict[str, Any],
+    should_cancel: Callable[[], bool] | None,
+    on_running_job: Callable[[XtbRunningJob | None], None] | None,
+    terminate_process: Callable[[subprocess.Popen[str]], None] | None,
 ) -> XtbRunResult:
-    manifest = load_job_manifest(job_dir)
-    inputs = resolve_job_inputs(job_dir, manifest)
-    candidate_paths = [Path(path) for path in inputs.get("input_summary", {}).get("candidate_paths", []) if str(path).strip()]
-    if not candidate_paths:
-        raise ValueError(f"No ranking candidates available in job directory: {job_dir}")
+    if should_cancel is None and on_running_job is None and terminate_process is None:
+        return _run_candidate_sp_job(
+            cfg,
+            candidate_xyz=candidate_path,
+            candidate_run_dir=candidate_run_dir,
+            manifest=manifest,
+        )
+    return _run_candidate_sp_job(
+        cfg,
+        candidate_xyz=candidate_path,
+        candidate_run_dir=candidate_run_dir,
+        manifest=manifest,
+        should_cancel=should_cancel,
+        on_running_job=on_running_job,
+        terminate_process=terminate_process,
+    )
 
-    ranking_root = job_dir / ".ranking_runs"
-    ranking_root.mkdir(parents=True, exist_ok=True)
-    top_n = _ranking_top_n(manifest)
-    started_at = now_utc_iso()
-    resource_request = _resource_request_dict(cfg, manifest)
-    resource_actual = _resource_actual_dict(resource_request)
 
+def _ranking_candidate_result(
+    *,
+    candidate_path: Path,
+    candidate_run_dir: Path,
+    result: XtbRunResult,
+    energy: float | None,
+    energy_source: str,
+) -> dict[str, Any]:
+    return {
+        "candidate_path": str(candidate_path.resolve()),
+        "candidate_run_dir_path": str(candidate_run_dir.resolve()),
+        "status": result.status,
+        "reason": result.reason,
+        "exit_code": result.exit_code,
+        "selected_input_xyz": result.selected_input_xyz,
+        "total_energy": energy,
+        "energy_source": energy_source,
+        "command": list(result.command),
+        "analysis_summary": dict(result.analysis_summary),
+    }
+
+
+def _collect_ranking_candidate_results(
+    cfg: AppConfig,
+    *,
+    ranking_root: Path,
+    manifest: dict[str, Any],
+    candidate_paths: list[Path],
+    should_cancel: Callable[[], bool] | None,
+    on_running_job: Callable[[XtbRunningJob | None], None] | None,
+    terminate_process: Callable[[subprocess.Popen[str]], None] | None,
+) -> tuple[list[dict[str, Any]], list[list[str]]]:
     candidate_results: list[dict[str, Any]] = []
     command_summary: list[list[str]] = []
     for index, candidate_path in enumerate(candidate_paths, start=1):
         if should_cancel is not None and should_cancel():
             break
-        candidate_run_dir = ranking_root / f"{index:02d}_{_safe_rank_name(candidate_path.stem, fallback=f'candidate_{index:02d}')}"
-        if should_cancel is None and on_running_job is None and terminate_process is None:
-            result = _run_candidate_sp_job(
-                cfg,
-                candidate_xyz=candidate_path,
-                candidate_run_dir=candidate_run_dir,
-                manifest=manifest,
-            )
-        else:
-            result = _run_candidate_sp_job(
-                cfg,
-                candidate_xyz=candidate_path,
-                candidate_run_dir=candidate_run_dir,
-                manifest=manifest,
-                should_cancel=should_cancel,
-                on_running_job=on_running_job,
-                terminate_process=terminate_process,
-            )
+        candidate_run_dir = _ranking_candidate_run_dir(ranking_root, index, candidate_path)
+        result = _run_ranking_candidate(
+            cfg,
+            candidate_path=candidate_path,
+            candidate_run_dir=candidate_run_dir,
+            manifest=manifest,
+            should_cancel=should_cancel,
+            on_running_job=on_running_job,
+            terminate_process=terminate_process,
+        )
         energy, energy_source = _extract_sp_energy(candidate_run_dir, candidate_path)
         command_summary.append(list(result.command))
         candidate_results.append(
-            {
-                "candidate_path": str(candidate_path.resolve()),
-                "candidate_run_dir_path": str(candidate_run_dir.resolve()),
-                "status": result.status,
-                "reason": result.reason,
-                "exit_code": result.exit_code,
-                "selected_input_xyz": result.selected_input_xyz,
-                "total_energy": energy,
-                "energy_source": energy_source,
-                "command": list(result.command),
-                "analysis_summary": dict(result.analysis_summary),
-            }
+            _ranking_candidate_result(
+                candidate_path=candidate_path,
+                candidate_run_dir=candidate_run_dir,
+                result=result,
+                energy=energy,
+                energy_source=energy_source,
+            )
         )
         if result.status == "cancelled":
             break
+    return candidate_results, command_summary
 
-    cancelled = any(item["status"] == "cancelled" for item in candidate_results) or (
-        should_cancel is not None and should_cancel()
+
+def _ranking_unsuccessful_detail(item: dict[str, Any], rank: int) -> dict[str, Any]:
+    return {
+        "rank": rank,
+        "kind": "ranking_candidate",
+        "path": item["candidate_path"],
+        "candidate_run_dir_path": item["candidate_run_dir_path"],
+        "energy_source": item["energy_source"],
+        "status": item["status"],
+        "reason": item["reason"],
+        "exit_code": item["exit_code"],
+        "selected": False,
+    }
+
+
+def _ranking_failure_analysis(
+    *,
+    candidate_results: list[dict[str, Any]],
+    top_n: int,
+    failure_reason: str,
+) -> dict[str, Any]:
+    return {
+        "ranking_metric": "total_energy",
+        "evaluated_candidate_count": len(candidate_results),
+        "candidate_paths": [item["candidate_path"] for item in candidate_results],
+        "candidate_run_dir_paths": [item["candidate_run_dir_path"] for item in candidate_results],
+        "candidate_results": candidate_results,
+        "top_n": top_n,
+        "failure_reason": failure_reason,
+    }
+
+
+def _ranking_terminal_result(
+    context: _RankingRunContext,
+    *,
+    status: str,
+    reason: str,
+    command: tuple[str, ...],
+    stdout_text: str,
+    stderr_text: str,
+    candidate_results: list[dict[str, Any]],
+) -> XtbRunResult:
+    summary_stdout = context.job_dir / "ranking.stdout.log"
+    summary_stderr = context.job_dir / "ranking.stderr.log"
+    _write_text(summary_stdout, stdout_text)
+    _write_text(summary_stderr, stderr_text)
+    return XtbRunResult(
+        status=status,
+        reason=reason,
+        command=command,
+        exit_code=1,
+        started_at=context.started_at,
+        finished_at=now_utc_iso(),
+        stdout_log=str(summary_stdout.resolve()),
+        stderr_log=str(summary_stderr.resolve()),
+        selected_input_xyz=str(context.candidate_paths[0].resolve()),
+        job_type="ranking",
+        reaction_key=str(context.inputs["reaction_key"]),
+        input_summary=dict(context.inputs["input_summary"]),
+        candidate_count=len(context.candidate_paths),
+        selected_candidate_paths=(),
+        candidate_details=tuple(
+            _ranking_unsuccessful_detail(item, idx + 1)
+            for idx, item in enumerate(candidate_results)
+        ),
+        analysis_summary=_ranking_failure_analysis(
+            candidate_results=candidate_results,
+            top_n=context.top_n,
+            failure_reason=reason,
+        ),
+        manifest_path=str((context.job_dir / MANIFEST_FILE_NAME).resolve()),
+        resource_request=context.resource_request,
+        resource_actual=context.resource_actual,
     )
-    if cancelled:
-        summary_stdout = job_dir / "ranking.stdout.log"
-        summary_stderr = job_dir / "ranking.stderr.log"
-        _write_text(summary_stdout, "ranking cancelled: cancel_requested\n")
-        _write_text(summary_stderr, "")
-        return XtbRunResult(
-            status="cancelled",
-            reason="cancel_requested",
-            command=tuple(command_summary[0]) if command_summary else tuple(),
-            exit_code=1,
-            started_at=started_at,
-            finished_at=now_utc_iso(),
-            stdout_log=str(summary_stdout.resolve()),
-            stderr_log=str(summary_stderr.resolve()),
-            selected_input_xyz=str(candidate_paths[0].resolve()),
-            job_type="ranking",
-            reaction_key=str(inputs["reaction_key"]),
-            input_summary=dict(inputs["input_summary"]),
-            candidate_count=len(candidate_paths),
-            selected_candidate_paths=(),
-            candidate_details=tuple(
-                {
-                    "rank": idx + 1,
-                    "kind": "ranking_candidate",
-                    "path": item["candidate_path"],
-                    "candidate_run_dir_path": item["candidate_run_dir_path"],
-                    "energy_source": item["energy_source"],
-                    "status": item["status"],
-                    "reason": item["reason"],
-                    "exit_code": item["exit_code"],
-                    "selected": False,
-                }
-                for idx, item in enumerate(candidate_results)
-            ),
-            analysis_summary={
-                "ranking_metric": "total_energy",
-                "evaluated_candidate_count": len(candidate_results),
-                "candidate_paths": [item["candidate_path"] for item in candidate_results],
-                "candidate_run_dir_paths": [item["candidate_run_dir_path"] for item in candidate_results],
-                "candidate_results": candidate_results,
-                "top_n": top_n,
-                "failure_reason": "cancel_requested",
-            },
-            manifest_path=str((job_dir / MANIFEST_FILE_NAME).resolve()),
-            resource_request=resource_request,
-            resource_actual=resource_actual,
-        )
 
-    usable = [item for item in candidate_results if item.get("total_energy") is not None and item["status"] == "completed"]
-    if not usable:
-        failure_reason = "ranking_no_usable_energy"
-        summary_stdout = job_dir / "ranking.stdout.log"
-        summary_stderr = job_dir / "ranking.stderr.log"
-        _write_text(summary_stdout, f"ranking failed: {failure_reason}\n")
-        _write_text(summary_stderr, "no candidate produced a usable xTB energy\n")
-        return XtbRunResult(
-            status="failed",
-            reason=failure_reason,
-            command=tuple(),
-            exit_code=1,
-            started_at=started_at,
-            finished_at=now_utc_iso(),
-            stdout_log=str(summary_stdout.resolve()),
-            stderr_log=str(summary_stderr.resolve()),
-            selected_input_xyz=str(candidate_paths[0].resolve()),
-            job_type="ranking",
-            reaction_key=str(inputs["reaction_key"]),
-            input_summary=dict(inputs["input_summary"]),
-            candidate_count=len(candidate_paths),
-            selected_candidate_paths=(),
-            candidate_details=tuple(
-                {
-                    "rank": idx + 1,
-                    "kind": "ranking_candidate",
-                    "path": item["candidate_path"],
-                    "candidate_run_dir_path": item["candidate_run_dir_path"],
-                    "energy_source": item["energy_source"],
-                    "status": item["status"],
-                    "reason": item["reason"],
-                    "exit_code": item["exit_code"],
-                    "selected": False,
-                }
-                for idx, item in enumerate(candidate_results)
-            ),
-            analysis_summary={
-                "ranking_metric": "total_energy",
-                "evaluated_candidate_count": len(candidate_results),
-                "candidate_paths": [item["candidate_path"] for item in candidate_results],
-                "candidate_run_dir_paths": [item["candidate_run_dir_path"] for item in candidate_results],
-                "candidate_results": candidate_results,
-                "top_n": top_n,
-                "failure_reason": failure_reason,
-            },
-            manifest_path=str((job_dir / MANIFEST_FILE_NAME).resolve()),
-            resource_request=resource_request,
-            resource_actual=resource_actual,
-        )
 
-    ranked = sorted(usable, key=lambda item: float(item["total_energy"]))
-    selected = ranked[:top_n]
-    failed_count = len(candidate_results) - len(usable)
+def _rank_usable_candidates(
+    candidate_results: list[dict[str, Any]],
+    *,
+    top_n: int,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[str]]:
+    ranked = sorted(candidate_results, key=lambda item: float(item["total_energy"]))
     candidate_details: list[dict[str, Any]] = []
     selected_paths: list[str] = []
     for rank, item in enumerate(ranked, start=1):
@@ -503,8 +560,18 @@ def run_xtb_ranking_job(
         )
         if is_selected:
             selected_paths.append(item["candidate_path"])
+    return ranked, candidate_details, selected_paths
 
-    best = ranked[0]
+
+def _write_ranking_success_logs(
+    job_dir: Path,
+    *,
+    candidate_results: list[dict[str, Any]],
+    selected_paths: list[str],
+    usable_count: int,
+    failed_count: int,
+    best: dict[str, Any],
+) -> tuple[Path, Path]:
     summary_stdout = job_dir / "ranking.stdout.log"
     summary_stderr = job_dir / "ranking.stderr.log"
     stdout_lines = [
@@ -514,9 +581,133 @@ def run_xtb_ranking_job(
     ]
     if failed_count:
         stdout_lines.append(f"failed_candidates: {failed_count}")
-    stdout_lines.append(f"usable_candidates: {len(usable)}")
+    stdout_lines.append(f"usable_candidates: {usable_count}")
     _write_text(summary_stdout, "\n".join(stdout_lines) + "\n")
     _write_text(summary_stderr, "")
+    return summary_stdout, summary_stderr
+
+
+def _path_trial_from_match(match: re.Match[str]) -> dict[str, Any]:
+    return {
+        "trial_index": int(match.group(1)),
+        "barrier_kcal": float(match.group(2)),
+        "delta_e_kcal": float(match.group(3)),
+        "product_end_rmsd": float(match.group(4)),
+    }
+
+
+def _apply_path_search_stdout_line(
+    job_dir: Path, line: str, summary: dict[str, Any], trials: list[dict[str, Any]]
+) -> None:
+    if match := _TRIAL_RE.search(line):
+        trials.append(_path_trial_from_match(match))
+        return
+    if match := _FORWARD_BARRIER_RE.search(line):
+        summary["forward_barrier_kcal"] = float(match.group(1))
+        return
+    if match := _BACKWARD_BARRIER_RE.search(line):
+        summary["backward_barrier_kcal"] = float(match.group(1))
+        return
+    if match := _REACTION_ENERGY_RE.search(line):
+        summary["reaction_energy_kcal"] = float(match.group(1))
+        return
+    if match := _TS_FILE_RE.search(line):
+        ts_guess_path = _resolve_existing_path(job_dir, match.group(1))
+        if ts_guess_path:
+            summary["ts_guess_path"] = ts_guess_path
+        return
+    if match := _POINT_COUNT_RE.search(line):
+        summary["selected_path_index"] = int(match.group(1))
+        summary["selected_path_point_count"] = int(match.group(2))
+
+
+def run_xtb_ranking_job(
+    cfg: AppConfig,
+    *,
+    job_dir: Path,
+    should_cancel: Callable[[], bool] | None = None,
+    on_running_job: Callable[[XtbRunningJob | None], None] | None = None,
+    terminate_process: Callable[[subprocess.Popen[str]], None] | None = None,
+) -> XtbRunResult:
+    manifest = load_job_manifest(job_dir)
+    inputs = resolve_job_inputs(job_dir, manifest)
+    candidate_paths = [
+        Path(path)
+        for path in inputs.get("input_summary", {}).get("candidate_paths", [])
+        if str(path).strip()
+    ]
+    if not candidate_paths:
+        raise ValueError(f"No ranking candidates available in job directory: {job_dir}")
+
+    ranking_root = job_dir / ".ranking_runs"
+    ranking_root.mkdir(parents=True, exist_ok=True)
+    top_n = _ranking_top_n(manifest)
+    started_at = now_utc_iso()
+    resource_request = _resource_request_dict(cfg, manifest)
+    resource_actual = _resource_actual_dict(resource_request)
+    context = _RankingRunContext(
+        job_dir=job_dir,
+        started_at=started_at,
+        candidate_paths=candidate_paths,
+        inputs=inputs,
+        top_n=top_n,
+        resource_request=resource_request,
+        resource_actual=resource_actual,
+    )
+
+    candidate_results, command_summary = _collect_ranking_candidate_results(
+        cfg,
+        ranking_root=ranking_root,
+        manifest=manifest,
+        candidate_paths=candidate_paths,
+        should_cancel=should_cancel,
+        on_running_job=on_running_job,
+        terminate_process=terminate_process,
+    )
+
+    cancelled = any(item["status"] == "cancelled" for item in candidate_results) or (
+        should_cancel is not None and should_cancel()
+    )
+    if cancelled:
+        return _ranking_terminal_result(
+            context,
+            status="cancelled",
+            reason="cancel_requested",
+            command=tuple(command_summary[0]) if command_summary else tuple(),
+            stdout_text="ranking cancelled: cancel_requested\n",
+            stderr_text="",
+            candidate_results=candidate_results,
+        )
+
+    usable = [
+        item
+        for item in candidate_results
+        if item.get("total_energy") is not None and item["status"] == "completed"
+    ]
+    if not usable:
+        failure_reason = "ranking_no_usable_energy"
+        return _ranking_terminal_result(
+            context,
+            status="failed",
+            reason=failure_reason,
+            command=tuple(),
+            stdout_text=f"ranking failed: {failure_reason}\n",
+            stderr_text="no candidate produced a usable xTB energy\n",
+            candidate_results=candidate_results,
+        )
+
+    ranked, candidate_details, selected_paths = _rank_usable_candidates(usable, top_n=top_n)
+    selected = ranked[:top_n]
+    failed_count = len(candidate_results) - len(usable)
+    best = ranked[0]
+    summary_stdout, summary_stderr = _write_ranking_success_logs(
+        job_dir,
+        candidate_results=candidate_results,
+        selected_paths=selected_paths,
+        usable_count=len(usable),
+        failed_count=failed_count,
+        best=best,
+    )
 
     analysis_summary = {
         "ranking_metric": "total_energy",
@@ -535,7 +726,11 @@ def run_xtb_ranking_job(
     return XtbRunResult(
         status="completed",
         reason="completed",
-        command=tuple(selected[0]["command"]) if selected else tuple(command_summary[0]) if command_summary else tuple(),
+        command=tuple(selected[0]["command"])
+        if selected
+        else tuple(command_summary[0])
+        if command_summary
+        else tuple(),
         exit_code=0,
         started_at=started_at,
         finished_at=now_utc_iso(),
@@ -563,33 +758,7 @@ def _parse_path_search_stdout(job_dir: Path, stdout_log: str) -> dict[str, Any]:
     summary: dict[str, Any] = {}
     trials: list[dict[str, Any]] = []
     for line in path.read_text(encoding="utf-8", errors="ignore").splitlines():
-        if match := _TRIAL_RE.search(line):
-            trials.append(
-                {
-                    "trial_index": int(match.group(1)),
-                    "barrier_kcal": float(match.group(2)),
-                    "delta_e_kcal": float(match.group(3)),
-                    "product_end_rmsd": float(match.group(4)),
-                }
-            )
-            continue
-        if match := _FORWARD_BARRIER_RE.search(line):
-            summary["forward_barrier_kcal"] = float(match.group(1))
-            continue
-        if match := _BACKWARD_BARRIER_RE.search(line):
-            summary["backward_barrier_kcal"] = float(match.group(1))
-            continue
-        if match := _REACTION_ENERGY_RE.search(line):
-            summary["reaction_energy_kcal"] = float(match.group(1))
-            continue
-        if match := _TS_FILE_RE.search(line):
-            ts_guess_path = _resolve_existing_path(job_dir, match.group(1))
-            if ts_guess_path:
-                summary["ts_guess_path"] = ts_guess_path
-            continue
-        if match := _POINT_COUNT_RE.search(line):
-            summary["selected_path_index"] = int(match.group(1))
-            summary["selected_path_point_count"] = int(match.group(2))
+        _apply_path_search_stdout_line(job_dir, line, summary, trials)
 
     if trials:
         summary["path_trials"] = trials
@@ -602,7 +771,9 @@ def _parse_path_search_stdout(job_dir: Path, stdout_log: str) -> dict[str, Any]:
     return summary
 
 
-def _collect_path_search_candidates(job_dir: Path, stdout_log: str) -> tuple[int, tuple[str, ...], tuple[dict[str, Any], ...], dict[str, Any]]:
+def _collect_path_search_candidates(
+    job_dir: Path, stdout_log: str
+) -> tuple[int, tuple[str, ...], tuple[dict[str, Any], ...], dict[str, Any]]:
     summary = _parse_path_search_stdout(job_dir, stdout_log)
     details: list[dict[str, Any]] = []
 
@@ -643,7 +814,9 @@ def _collect_path_search_candidates(job_dir: Path, stdout_log: str) -> tuple[int
     return len(details), tuple(ordered_paths), tuple(details), summary
 
 
-def _collect_opt_candidates(job_dir: Path) -> tuple[int, tuple[str, ...], tuple[dict[str, Any], ...], dict[str, Any]]:
+def _collect_opt_candidates(
+    job_dir: Path,
+) -> tuple[int, tuple[str, ...], tuple[dict[str, Any], ...], dict[str, Any]]:
     optimized_geometry = _resolve_existing_path(job_dir, "xtbopt.xyz")
     summary = {
         "canonical_result_path": optimized_geometry,
@@ -662,7 +835,9 @@ def _collect_opt_candidates(job_dir: Path) -> tuple[int, tuple[str, ...], tuple[
     return 1, (optimized_geometry,), (detail,), summary
 
 
-def _collect_sp_candidates(job_dir: Path) -> tuple[int, tuple[str, ...], tuple[dict[str, Any], ...], dict[str, Any]]:
+def _collect_sp_candidates(
+    job_dir: Path,
+) -> tuple[int, tuple[str, ...], tuple[dict[str, Any], ...], dict[str, Any]]:
     result_json = _resolve_existing_path(job_dir, "xtbout.json")
     xtbout = _load_xtbout_json(job_dir)
     summary: dict[str, Any] = {
@@ -788,14 +963,20 @@ def finalize_xtb_job(
         reason = "completed" if exit_code == 0 else f"xtb_exit_code_{exit_code}"
 
     if running.job_type == "path_search":
-        candidate_count, candidate_paths, candidate_details, analysis_summary = _collect_path_search_candidates(
-            Path(running.job_dir),
-            running.stdout_log,
+        candidate_count, candidate_paths, candidate_details, analysis_summary = (
+            _collect_path_search_candidates(
+                Path(running.job_dir),
+                running.stdout_log,
+            )
         )
     elif running.job_type == "opt":
-        candidate_count, candidate_paths, candidate_details, analysis_summary = _collect_opt_candidates(Path(running.job_dir))
+        candidate_count, candidate_paths, candidate_details, analysis_summary = (
+            _collect_opt_candidates(Path(running.job_dir))
+        )
     elif running.job_type == "sp":
-        candidate_count, candidate_paths, candidate_details, analysis_summary = _collect_sp_candidates(Path(running.job_dir))
+        candidate_count, candidate_paths, candidate_details, analysis_summary = (
+            _collect_sp_candidates(Path(running.job_dir))
+        )
     else:
         candidate_count, candidate_paths, candidate_details, analysis_summary = 0, (), (), {}
 

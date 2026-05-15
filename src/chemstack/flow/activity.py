@@ -12,12 +12,23 @@ from chemstack.core.app_ids import (
     CHEMSTACK_ORCA_SOURCE,
     CHEMSTACK_REPO_ROOT_ENV_VAR,
 )
-from chemstack.core.config.files import default_config_path_from_repo_root, shared_workflow_root_from_config
+from chemstack.core.config.files import (
+    default_config_path_from_repo_root,
+    shared_workflow_root_from_config,
+)
 from chemstack.core.queue import clear_terminal as clear_queue_terminal, list_queue
 from chemstack.core.queue.types import QueueEntry
 
-from .registry import clear_terminal_workflow_registry, list_workflow_registry, reindex_workflow_registry
-from .state import iter_workflow_runtime_workspaces, list_workflow_summaries, workflow_workspace_internal_engine_paths
+from .registry import (
+    clear_terminal_workflow_registry,
+    list_workflow_registry,
+    reindex_workflow_registry,
+)
+from .state import (
+    iter_workflow_runtime_workspaces,
+    list_workflow_summaries,
+    workflow_workspace_internal_engine_paths,
+)
 from .submitters.common import normalize_text, sibling_runtime_paths
 from .submitters.crest_auto import cancel_target as cancel_crest_target
 from .submitters.orca_auto import cancel_target as cancel_orca_target
@@ -234,9 +245,7 @@ def _timestamp_metadata(
     started_at_text = normalize_text(started_at)
     finished_at_text = normalize_text(finished_at)
     elapsed_started_at_text = (
-        normalize_text(elapsed_started_at)
-        or started_at_text
-        or enqueued_at_text
+        normalize_text(elapsed_started_at) or started_at_text or enqueued_at_text
     )
     metadata: dict[str, str] = {}
     if enqueued_at_text:
@@ -255,9 +264,9 @@ def _workflow_elapsed_metadata(
     record_metadata: dict[str, Any],
     summary: dict[str, Any],
 ) -> dict[str, Any]:
-    restart_summary = _coerce_mapping(
-        record_metadata.get("restart_summary")
-    ) or _coerce_mapping(summary.get("restart_summary"))
+    restart_summary = _coerce_mapping(record_metadata.get("restart_summary")) or _coerce_mapping(
+        summary.get("restart_summary")
+    )
     last_restarted_at = (
         normalize_text(record_metadata.get("last_restarted_at"))
         or normalize_text(summary.get("last_restarted_at"))
@@ -301,7 +310,9 @@ def _workflow_records(*, workflow_root: str | Path, refresh: bool) -> list[Activ
                 workflow_id,
                 normalize_text(record.workspace_dir),
                 normalize_text(record.workflow_file),
-                Path(normalize_text(record.workspace_dir)).name if normalize_text(record.workspace_dir) else "",
+                Path(normalize_text(record.workspace_dir)).name
+                if normalize_text(record.workspace_dir)
+                else "",
             ]
         )
         rows.append(
@@ -337,7 +348,9 @@ def _workflow_records(*, workflow_root: str | Path, refresh: bool) -> list[Activ
 
 
 def _queue_entry_status(entry: QueueEntry) -> str:
-    status = normalize_text(getattr(getattr(entry, "status", None), "value", None)) or normalize_text(getattr(entry, "status", None))
+    status = normalize_text(
+        getattr(getattr(entry, "status", None), "value", None)
+    ) or normalize_text(getattr(entry, "status", None))
     status = status or "unknown"
     if getattr(entry, "cancel_requested", False) and status == "running":
         return "cancel_requested"
@@ -366,7 +379,9 @@ def _engine_queue_roots(config_path: str, *, engine: str) -> tuple[Path, ...]:
     roots: list[Path] = []
 
     for workspace_dir in iter_workflow_runtime_workspaces(workflow_root, engine=engine):
-        runtime_root = workflow_workspace_internal_engine_paths(workspace_dir, engine=engine)["allowed_root"]
+        runtime_root = workflow_workspace_internal_engine_paths(workspace_dir, engine=engine)[
+            "allowed_root"
+        ]
         if runtime_root not in roots:
             roots.append(runtime_root)
     return tuple(roots)
@@ -383,7 +398,9 @@ def _standalone_queue_records(
         for entry in list_queue(allowed_root):
             metadata = dict(entry.metadata)
             workflow_id = normalize_text(metadata.get("workflow_id"))
-            path_text = normalize_text(metadata.get("job_dir")) or normalize_text(metadata.get("reaction_dir"))
+            path_text = normalize_text(metadata.get("job_dir")) or normalize_text(
+                metadata.get("reaction_dir")
+            )
             label = (
                 normalize_text(metadata.get("reaction_key"))
                 or normalize_text(metadata.get("molecule_key"))
@@ -435,7 +452,12 @@ def _standalone_queue_records(
     return rows
 
 
-def _orca_snapshot_matches_entry(queue_store: Any, entry: Any, snapshot_by_run_id: dict[str, Any], snapshot_by_dir: dict[str, Any]) -> Any | None:
+def _orca_snapshot_matches_entry(
+    queue_store: Any,
+    entry: Any,
+    snapshot_by_run_id: dict[str, Any],
+    snapshot_by_dir: dict[str, Any],
+) -> Any | None:
     run_id = normalize_text(queue_store.queue_entry_run_id(entry))
     if run_id:
         return snapshot_by_run_id.get(run_id)
@@ -464,7 +486,147 @@ def _orca_queue_represents_snapshot(queue_store: Any, entry: Any, snapshot: Any)
         resolved = str(Path(reaction_dir).expanduser().resolve())
     except OSError:
         resolved = reaction_dir
-    return resolved == normalize_text(getattr(getattr(snapshot, "reaction_dir", None), "resolve", lambda: getattr(snapshot, "reaction_dir", ""))())
+    return resolved == normalize_text(
+        getattr(
+            getattr(snapshot, "reaction_dir", None),
+            "resolve",
+            lambda: getattr(snapshot, "reaction_dir", ""),
+        )()
+    )
+
+
+def _orca_snapshot_indexes(snapshots: list[Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    snapshot_by_run_id = {
+        normalize_text(getattr(snapshot, "run_id", "")): snapshot
+        for snapshot in snapshots
+        if normalize_text(getattr(snapshot, "run_id", ""))
+    }
+    snapshot_by_dir: dict[str, Any] = {}
+    for snapshot in snapshots:
+        try:
+            snapshot_by_dir[str(Path(getattr(snapshot, "reaction_dir")).expanduser().resolve())] = (
+                snapshot
+            )
+        except OSError:
+            continue
+    return snapshot_by_run_id, snapshot_by_dir
+
+
+def _orca_queue_entry_status(queue_store: Any, entry: Any, snapshot: Any) -> str:
+    status = normalize_text(queue_store.queue_entry_status(entry)) or "unknown"
+    if bool(entry.get("cancel_requested")) and status == "running":
+        return "cancel_requested"
+    if snapshot is None or status != "running":
+        return status
+    snapshot_status = normalize_text(getattr(snapshot, "status", ""))
+    return snapshot_status if snapshot_status and snapshot_status != "running" else status
+
+
+def _orca_queue_record(
+    queue_store: Any, entry: Any, snapshot: Any, *, allowed_root: Path
+) -> ActivityRecord:
+    entry_metadata_loader = getattr(queue_store, "queue_entry_metadata", None)
+    entry_metadata = dict(entry_metadata_loader(entry)) if callable(entry_metadata_loader) else {}
+    queue_id = normalize_text(queue_store.queue_entry_id(entry))
+    task_id = normalize_text(queue_store.queue_entry_task_id(entry))
+    run_id = normalize_text(queue_store.queue_entry_run_id(entry))
+    reaction_dir = normalize_text(queue_store.queue_entry_reaction_dir(entry))
+    label = (
+        normalize_text(getattr(snapshot, "name", ""))
+        or normalize_text(Path(reaction_dir).name if reaction_dir else "")
+        or queue_id
+        or task_id
+    )
+    submitted_at = normalize_text(entry.get("enqueued_at"))
+    started_at = normalize_text(entry.get("started_at"))
+    finished_at = normalize_text(entry.get("finished_at"))
+    updated_at = (
+        normalize_text(getattr(snapshot, "completed_at", ""))
+        or normalize_text(getattr(snapshot, "updated_at", ""))
+        or finished_at
+        or started_at
+        or submitted_at
+    )
+    return ActivityRecord(
+        activity_id=queue_id or run_id or task_id or label,
+        kind="job",
+        engine="orca",
+        status=_orca_queue_entry_status(queue_store, entry, snapshot),
+        label=label,
+        source=CHEMSTACK_ORCA_SOURCE,
+        submitted_at=submitted_at,
+        updated_at=updated_at,
+        cancel_target=queue_id or run_id or reaction_dir,
+        aliases=_unique_texts(
+            [queue_id, task_id, run_id, *list(_path_aliases(reaction_dir, root=allowed_root))]
+        ),
+        metadata={
+            "queue_id": queue_id,
+            "task_id": task_id,
+            "task_kind": normalize_text(entry.get("task_kind")),
+            "run_id": run_id,
+            "job_type": normalize_text(entry_metadata.get("job_type")),
+            "selected_inp": normalize_text(entry_metadata.get("selected_inp")),
+            "workflow_id": normalize_text(entry_metadata.get("workflow_id")),
+            "reaction_dir": reaction_dir,
+            "allowed_root": str(allowed_root),
+            "priority": getattr(queue_store, "queue_entry_priority")(entry),
+            **_timestamp_metadata(
+                enqueued_at=submitted_at, started_at=started_at, finished_at=finished_at
+            ),
+        },
+    )
+
+
+def _orca_snapshot_reaction_dir(snapshot: Any) -> str:
+    reaction_dir_obj = getattr(snapshot, "reaction_dir", None)
+    if reaction_dir_obj is None:
+        return ""
+    try:
+        return str(Path(reaction_dir_obj).expanduser().resolve())
+    except OSError:
+        return str(reaction_dir_obj)
+
+
+def _orca_snapshot_record(snapshot: Any, *, allowed_root: Path) -> ActivityRecord:
+    reaction_dir = _orca_snapshot_reaction_dir(snapshot)
+    run_id = normalize_text(getattr(snapshot, "run_id", ""))
+    label = (
+        normalize_text(getattr(snapshot, "name", ""))
+        or normalize_text(Path(reaction_dir).name if reaction_dir else "")
+        or run_id
+    )
+    started_at = normalize_text(getattr(snapshot, "started_at", ""))
+    completed_at = normalize_text(getattr(snapshot, "completed_at", ""))
+    return ActivityRecord(
+        activity_id=run_id or label,
+        kind="job",
+        engine="orca",
+        status=normalize_text(getattr(snapshot, "status", "")) or "unknown",
+        label=label,
+        source=CHEMSTACK_ORCA_SOURCE,
+        submitted_at=started_at,
+        updated_at=completed_at
+        or normalize_text(getattr(snapshot, "updated_at", ""))
+        or started_at,
+        cancel_target=run_id or reaction_dir,
+        aliases=_unique_texts(
+            [
+                run_id,
+                *list(_path_aliases(reaction_dir, root=allowed_root)),
+                normalize_text(getattr(snapshot, "name", "")),
+            ]
+        ),
+        metadata={
+            "run_id": run_id,
+            "reaction_dir": reaction_dir,
+            "allowed_root": str(allowed_root),
+            "attempts": getattr(snapshot, "attempts", 0),
+            "selected_inp_name": normalize_text(getattr(snapshot, "selected_inp_name", "")),
+            "job_type": normalize_text(getattr(snapshot, "job_type", "")),
+            **_timestamp_metadata(started_at=started_at, finished_at=completed_at),
+        },
+    )
 
 
 def _orca_records(*, config_path: str, repo_root: str | None = None) -> list[ActivityRecord]:
@@ -479,122 +641,22 @@ def _orca_records(*, config_path: str, repo_root: str | None = None) -> list[Act
 
     queue_entries = list(getattr(queue_store, "list_queue")(allowed_root))
     snapshots = list(getattr(run_snapshot, "collect_run_snapshots")(allowed_root))
-    snapshot_by_run_id = {
-        normalize_text(getattr(snapshot, "run_id", "")): snapshot
-        for snapshot in snapshots
-        if normalize_text(getattr(snapshot, "run_id", ""))
-    }
-    snapshot_by_dir: dict[str, Any] = {}
-    for snapshot in snapshots:
-        try:
-            snapshot_by_dir[str(Path(getattr(snapshot, "reaction_dir")).expanduser().resolve())] = snapshot
-        except OSError:
-            continue
-
+    snapshot_by_run_id, snapshot_by_dir = _orca_snapshot_indexes(snapshots)
     represented_snapshot_keys: set[str] = set()
     rows: list[ActivityRecord] = []
 
     for entry in queue_entries:
-        entry_metadata_loader = getattr(queue_store, "queue_entry_metadata", None)
-        entry_metadata = dict(entry_metadata_loader(entry)) if callable(entry_metadata_loader) else {}
-        workflow_id = normalize_text(entry_metadata.get("workflow_id"))
-        snapshot = _orca_snapshot_matches_entry(queue_store, entry, snapshot_by_run_id, snapshot_by_dir)
-        queue_id = normalize_text(queue_store.queue_entry_id(entry))
-        task_id = normalize_text(queue_store.queue_entry_task_id(entry))
-        run_id = normalize_text(queue_store.queue_entry_run_id(entry))
-        reaction_dir = normalize_text(queue_store.queue_entry_reaction_dir(entry))
-        status = normalize_text(queue_store.queue_entry_status(entry)) or "unknown"
-        if bool(entry.get("cancel_requested")) and status == "running":
-            status = "cancel_requested"
-        if snapshot is not None and status == "running":
-            snapshot_status = normalize_text(getattr(snapshot, "status", ""))
-            if snapshot_status and snapshot_status != "running":
-                status = snapshot_status
-        label = normalize_text(getattr(snapshot, "name", "")) or normalize_text(Path(reaction_dir).name if reaction_dir else "") or queue_id or task_id
-        aliases = _unique_texts([queue_id, task_id, run_id, *list(_path_aliases(reaction_dir, root=allowed_root))])
-        submitted_at = normalize_text(entry.get("enqueued_at"))
-        started_at = normalize_text(entry.get("started_at"))
-        finished_at = normalize_text(entry.get("finished_at"))
-        updated_at = (
-            normalize_text(getattr(snapshot, "completed_at", ""))
-            or normalize_text(getattr(snapshot, "updated_at", ""))
-            or finished_at
-            or started_at
-            or submitted_at
+        snapshot = _orca_snapshot_matches_entry(
+            queue_store, entry, snapshot_by_run_id, snapshot_by_dir
         )
-        rows.append(
-            ActivityRecord(
-                activity_id=queue_id or run_id or task_id or label,
-                kind="job",
-                engine="orca",
-                status=status,
-                label=label,
-                source=CHEMSTACK_ORCA_SOURCE,
-                submitted_at=submitted_at,
-                updated_at=updated_at,
-                cancel_target=queue_id or run_id or reaction_dir,
-                aliases=aliases,
-                metadata={
-                    "queue_id": queue_id,
-                    "task_id": task_id,
-                    "task_kind": normalize_text(entry.get("task_kind")),
-                    "run_id": run_id,
-                    "job_type": normalize_text(entry_metadata.get("job_type")),
-                    "selected_inp": normalize_text(entry_metadata.get("selected_inp")),
-                    "workflow_id": workflow_id,
-                    "reaction_dir": reaction_dir,
-                    "allowed_root": str(allowed_root),
-                    "priority": getattr(queue_store, "queue_entry_priority")(entry),
-                    **_timestamp_metadata(
-                        enqueued_at=submitted_at,
-                        started_at=started_at,
-                        finished_at=finished_at,
-                    ),
-                },
-            )
-        )
+        rows.append(_orca_queue_record(queue_store, entry, snapshot, allowed_root=allowed_root))
         if snapshot is not None and _orca_queue_represents_snapshot(queue_store, entry, snapshot):
             represented_snapshot_keys.add(normalize_text(getattr(snapshot, "key", "")))
 
     for snapshot in snapshots:
         snapshot_key = normalize_text(getattr(snapshot, "key", ""))
-        if snapshot_key and snapshot_key in represented_snapshot_keys:
-            continue
-        reaction_dir_obj = getattr(snapshot, "reaction_dir", None)
-        reaction_dir = ""
-        if reaction_dir_obj is not None:
-            try:
-                reaction_dir = str(Path(reaction_dir_obj).expanduser().resolve())
-            except OSError:
-                reaction_dir = str(reaction_dir_obj)
-        run_id = normalize_text(getattr(snapshot, "run_id", ""))
-        label = normalize_text(getattr(snapshot, "name", "")) or normalize_text(Path(reaction_dir).name if reaction_dir else "") or run_id
-        aliases = _unique_texts([run_id, *list(_path_aliases(reaction_dir, root=allowed_root)), normalize_text(getattr(snapshot, "name", ""))])
-        started_at = normalize_text(getattr(snapshot, "started_at", ""))
-        completed_at = normalize_text(getattr(snapshot, "completed_at", ""))
-        rows.append(
-            ActivityRecord(
-                activity_id=run_id or label,
-                kind="job",
-                engine="orca",
-                status=normalize_text(getattr(snapshot, "status", "")) or "unknown",
-                label=label,
-                source=CHEMSTACK_ORCA_SOURCE,
-                submitted_at=started_at,
-                updated_at=completed_at or normalize_text(getattr(snapshot, "updated_at", "")) or started_at,
-                cancel_target=run_id or reaction_dir,
-                aliases=aliases,
-                metadata={
-                    "run_id": run_id,
-                    "reaction_dir": reaction_dir,
-                    "allowed_root": str(allowed_root),
-                    "attempts": getattr(snapshot, "attempts", 0),
-                    "selected_inp_name": normalize_text(getattr(snapshot, "selected_inp_name", "")),
-                    "job_type": normalize_text(getattr(snapshot, "job_type", "")),
-                    **_timestamp_metadata(started_at=started_at, finished_at=completed_at),
-                },
-            )
-        )
+        if not snapshot_key or snapshot_key not in represented_snapshot_keys:
+            rows.append(_orca_snapshot_record(snapshot, allowed_root=allowed_root))
 
     return rows
 
@@ -637,13 +699,21 @@ def _collect_activity_records(
         and normalize_text(resolved_crest_auto_config)
         and (include_all_children or "crest" in include_children)
     ):
-        rows.extend(_standalone_queue_records(app_name="crest_auto", engine="crest", config_path=str(resolved_crest_auto_config)))
+        rows.extend(
+            _standalone_queue_records(
+                app_name="crest_auto", engine="crest", config_path=str(resolved_crest_auto_config)
+            )
+        )
     if (
         normalize_text(resolved_workflow_root)
         and normalize_text(resolved_xtb_auto_config)
         and (include_all_children or "xtb" in include_children)
     ):
-        rows.extend(_standalone_queue_records(app_name="xtb_auto", engine="xtb", config_path=str(resolved_xtb_auto_config)))
+        rows.extend(
+            _standalone_queue_records(
+                app_name="xtb_auto", engine="xtb", config_path=str(resolved_xtb_auto_config)
+            )
+        )
     if normalize_text(resolved_orca_auto_config):
         rows.extend(_orca_records(config_path=str(resolved_orca_auto_config)))
     return sorted(rows, key=_sort_key, reverse=True)
@@ -687,7 +757,9 @@ def list_activities(
         "count": len(records),
         "activities": [record.to_dict() for record in records],
         "sources": {
-            "workflow_root": str(Path(workflow_root_text).expanduser().resolve()) if workflow_root_text else "",
+            "workflow_root": str(Path(workflow_root_text).expanduser().resolve())
+            if workflow_root_text
+            else "",
             "crest_auto_config": normalize_text(resolved_crest_auto_config),
             "xtb_auto_config": normalize_text(resolved_xtb_auto_config),
             "orca_auto_config": normalize_text(resolved_orca_auto_config),
@@ -736,9 +808,13 @@ def clear_activities(
         for allowed_root in _engine_queue_roots(str(resolved_crest_auto_config), engine="crest"):
             cleared["crest_queue_entries"] += clear_queue_terminal(allowed_root)
     if normalize_text(resolved_orca_auto_config):
-        from chemstack.orca.commands.list_runs import clear_terminal_entries as clear_orca_terminal_entries
+        from chemstack.orca.commands.list_runs import (
+            clear_terminal_entries as clear_orca_terminal_entries,
+        )
 
-        allowed_root = sibling_runtime_paths(str(resolved_orca_auto_config), engine="orca")["allowed_root"]
+        allowed_root = sibling_runtime_paths(str(resolved_orca_auto_config), engine="orca")[
+            "allowed_root"
+        ]
         queue_count, run_count = clear_orca_terminal_entries(allowed_root)
         cleared["orca_queue_entries"] += queue_count
         cleared["orca_run_states"] += run_count
@@ -748,7 +824,9 @@ def clear_activities(
         "total_cleared": sum(int(value) for value in cleared.values()),
         "cleared": cleared,
         "sources": {
-            "workflow_root": str(Path(workflow_root_text).expanduser().resolve()) if workflow_root_text else "",
+            "workflow_root": str(Path(workflow_root_text).expanduser().resolve())
+            if workflow_root_text
+            else "",
             "crest_auto_config": normalize_text(resolved_crest_auto_config),
             "xtb_auto_config": normalize_text(resolved_xtb_auto_config),
             "orca_auto_config": normalize_text(resolved_orca_auto_config),
@@ -774,11 +852,7 @@ def _match_activity_record(records: list[ActivityRecord], target: str) -> Activi
             + ", ".join(sorted(record.activity_id for record in exact_matches))
         )
 
-    alias_matches = [
-        record
-        for record in records
-        if normalized_target in set(record.aliases)
-    ]
+    alias_matches = [record for record in records if normalized_target in set(record.aliases)]
     if len(alias_matches) == 1:
         return alias_matches[0]
     if len(alias_matches) > 1:

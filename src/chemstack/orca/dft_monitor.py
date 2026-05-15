@@ -68,9 +68,7 @@ class DFTMonitor:
         self._index = dft_index
         self._kb_dirs = kb_dirs
         self._state_file = state_file
-        self._last_seen: dict[str, FileSignature] = (
-            _load_state(state_file) if state_file else {}
-        )
+        self._last_seen: dict[str, FileSignature] = _load_state(state_file) if state_file else {}
         self._baseline_seeded = bool(self._last_seen)
 
     def scan(
@@ -87,93 +85,35 @@ class DFTMonitor:
         processed_this_scan: set[str] = set()
         state_dirty = False
 
-        for kb_dir in self._kb_dirs:
-            kb_path = Path(kb_dir)
-            if not kb_path.is_dir():
-                logger.warning("dft_monitor_kb_dir_missing: %s", kb_dir)
+        for target_info in _iter_target_signatures(
+            self._kb_dirs,
+            max_bytes=max_bytes,
+            recent_completed_window_minutes=recent_completed_window_minutes,
+        ):
+            spath, canonical, status_override, signature = target_info
+            scanned_signatures[canonical] = signature
+
+            if not self._should_process(canonical, signature, processed_this_scan):
                 continue
+            processed_this_scan.add(canonical)
 
-            for target in discover_orca_targets(
-                kb_path,
-                max_bytes=max_bytes,
-                recent_completed_window_minutes=recent_completed_window_minutes,
-            ):
-                spath = str(target.path)
-                canonical = _canonical_path_key(spath)
-                status_override = _run_state_status_override(target.run_state_status)
-                signature = _file_signature(spath, state_marker=status_override)
-                if signature is None:
+            try:
+                result = parse_orca_output(spath)
+                effective_status = status_override or result.status
+                if not self._record_scan_result(spath, canonical, signature, effective_status):
                     continue
-                scanned_signatures[canonical] = signature
-
-                if not self._baseline_seeded:
-                    continue
-
-                last_signature = self._last_seen.get(canonical)
-                if last_signature is not None and _same_signature(last_signature, signature):
-                    continue
-
-                if canonical in processed_this_scan:
-                    continue
-                processed_this_scan.add(canonical)
-
-                try:
-                    result = parse_orca_output(spath)
-                    effective_status = status_override or result.status
-                    is_running = effective_status == "running"
-
-                    if is_running:
-                        self._last_seen[canonical] = signature
-                        state_dirty = True
-                    else:
-                        success = self._index.upsert_single(
-                            spath,
-                            status_override=effective_status,
-                        )
-                        if not success:
-                            continue
-                        self._last_seen[canonical] = signature
-                        state_dirty = True
-
-                    energy_str = (
-                        f"E = {result.energy_hartree:.6f} Eh"
-                        if result.energy_hartree is not None
-                        else "E = N/A"
-                    )
-                    method_basis = result.method
-                    if result.basis_set:
-                        method_basis += f"/{result.basis_set}"
-
-                    notes: list[str] = []
-                    if result.opt_converged is False:
-                        notes.append("NOT CONVERGED")
-                    if result.has_imaginary_freq:
-                        notes.append("imaginary freq")
-                    note_str = f" ({', '.join(notes)})" if notes else ""
-
-                    new_results.append(MonitorResult(
-                        formula=result.formula or "unknown",
-                        method_basis=method_basis or "unknown",
-                        energy=energy_str,
-                        status=effective_status,
-                        calc_type=result.calc_type,
-                        path=_short_path(canonical),
-                        note=note_str,
-                    ))
-
-                    logger.info(
-                        "dft_monitor_new_calc: path=%s formula=%s method=%s status=%s",
-                        spath, result.formula, result.method, effective_status,
-                    )
-                except Exception as exc:
-                    failures.append(ParseFailure(
-                        path=_short_path(canonical),
-                        error=str(exc),
-                        error_type=type(exc).__name__,
-                    ))
-                    logger.warning(
-                        "dft_monitor_parse_error: path=%s error=%s", spath, exc,
-                    )
+                state_dirty = True
+                new_results.append(_monitor_result_from_orca(result, effective_status, canonical))
+                logger.info(
+                    "dft_monitor_new_calc: path=%s formula=%s method=%s status=%s",
+                    spath,
+                    result.formula,
+                    result.method,
+                    effective_status,
+                )
+            except Exception as exc:
+                failures.append(_parse_failure(canonical, exc))
+                logger.warning("dft_monitor_parse_error: path=%s error=%s", spath, exc)
 
         # Save baseline on first run
         if not self._baseline_seeded:
@@ -201,7 +141,9 @@ class DFTMonitor:
 
         logger.info(
             "dft_monitor_scan_complete: scanned=%d new=%d stale_removed=%d",
-            len(scanned_signatures), len(new_results), len(stale_paths),
+            len(scanned_signatures),
+            len(new_results),
+            len(stale_paths),
         )
 
         return ScanReport(
@@ -209,6 +151,94 @@ class DFTMonitor:
             failures=failures,
             scanned_files=len(scanned_signatures),
         )
+
+    def _should_process(
+        self,
+        canonical: str,
+        signature: FileSignature,
+        processed_this_scan: set[str],
+    ) -> bool:
+        if not self._baseline_seeded:
+            return False
+        last_signature = self._last_seen.get(canonical)
+        if last_signature is not None and _same_signature(last_signature, signature):
+            return False
+        return canonical not in processed_this_scan
+
+    def _record_scan_result(
+        self,
+        spath: str,
+        canonical: str,
+        signature: FileSignature,
+        effective_status: str,
+    ) -> bool:
+        if effective_status != "running":
+            success = self._index.upsert_single(spath, status_override=effective_status)
+            if not success:
+                return False
+        self._last_seen[canonical] = signature
+        return True
+
+
+def _iter_target_signatures(
+    kb_dirs: list[str],
+    *,
+    max_bytes: int,
+    recent_completed_window_minutes: int,
+) -> Any:
+    for kb_dir in kb_dirs:
+        kb_path = Path(kb_dir)
+        if not kb_path.is_dir():
+            logger.warning("dft_monitor_kb_dir_missing: %s", kb_dir)
+            continue
+        for target in discover_orca_targets(
+            kb_path,
+            max_bytes=max_bytes,
+            recent_completed_window_minutes=recent_completed_window_minutes,
+        ):
+            spath = str(target.path)
+            canonical = _canonical_path_key(spath)
+            status_override = _run_state_status_override(target.run_state_status)
+            signature = _file_signature(spath, state_marker=status_override)
+            if signature is not None:
+                yield spath, canonical, status_override, signature
+
+
+def _monitor_result_from_orca(result: Any, effective_status: str, canonical: str) -> MonitorResult:
+    energy_str = (
+        f"E = {result.energy_hartree:.6f} Eh" if result.energy_hartree is not None else "E = N/A"
+    )
+    method_basis = result.method
+    if result.basis_set:
+        method_basis += f"/{result.basis_set}"
+    notes = _monitor_notes(result)
+    note_str = f" ({', '.join(notes)})" if notes else ""
+    return MonitorResult(
+        formula=result.formula or "unknown",
+        method_basis=method_basis or "unknown",
+        energy=energy_str,
+        status=effective_status,
+        calc_type=result.calc_type,
+        path=_short_path(canonical),
+        note=note_str,
+    )
+
+
+def _monitor_notes(result: Any) -> list[str]:
+    notes: list[str] = []
+    if result.opt_converged is False:
+        notes.append("NOT CONVERGED")
+    if result.has_imaginary_freq:
+        notes.append("imaginary freq")
+    return notes
+
+
+def _parse_failure(canonical: str, exc: Exception) -> ParseFailure:
+    return ParseFailure(
+        path=_short_path(canonical),
+        error=str(exc),
+        error_type=type(exc).__name__,
+    )
 
 
 def _short_path(path: str) -> str:

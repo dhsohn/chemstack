@@ -3,14 +3,22 @@ from __future__ import annotations
 import argparse
 import json
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from chemstack.core.app_ids import CHEMSTACK_EXECUTABLE
-from chemstack.core.config.files import default_config_path_from_repo_root, shared_workflow_root_from_config
+from chemstack.core.config.files import (
+    default_config_path_from_repo_root,
+    shared_workflow_root_from_config,
+)
 from chemstack.core.utils import file_lock, now_utc_iso, timestamped_token
 
-from .adapters import load_crest_artifact_contract, load_xtb_artifact_contract, select_xtb_downstream_inputs
+from .adapters import (
+    load_crest_artifact_contract,
+    load_xtb_artifact_contract,
+    select_xtb_downstream_inputs,
+)
 from .contracts import XtbDownstreamPolicy
 from .operations import (
     advance_materialized_workflow,
@@ -109,9 +117,7 @@ def _normalize_workflow_type(value: Any) -> str:
     normalized = aliases.get(text, "")
     if normalized:
         return normalized
-    raise ValueError(
-        "workflow_type must be one of: reaction_ts_search, conformer_screening"
-    )
+    raise ValueError("workflow_type must be one of: reaction_ts_search, conformer_screening")
 
 
 def _load_run_dir_manifest(workflow_dir: Path) -> dict[str, Any]:
@@ -149,13 +155,17 @@ def _resolve_manifest_file_value(workflow_dir: Path, value: Any) -> str:
     return str(candidate.resolve())
 
 
-def _resolve_engine_manifest(workflow_dir: Path, manifest: dict[str, Any], key: str) -> dict[str, Any]:
+def _resolve_engine_manifest(
+    workflow_dir: Path, manifest: dict[str, Any], key: str
+) -> dict[str, Any]:
     section = _manifest_mapping(manifest.get(key))
     if not section:
         return {}
     resolved = dict(section)
     if "xcontrol_file" in resolved:
-        resolved["xcontrol_file"] = _resolve_manifest_file_value(workflow_dir, resolved.get("xcontrol_file"))
+        resolved["xcontrol_file"] = _resolve_manifest_file_value(
+            workflow_dir, resolved.get("xcontrol_file")
+        )
     return resolved
 
 
@@ -252,7 +262,9 @@ def _resolve_required_workflow_root(args: Any, manifest: dict[str, Any]) -> str:
 
 
 def _safe_workflow_name(value: Any, *, fallback: str) -> str:
-    cleaned = "".join(ch if ch.isalnum() or ch in {"_", "-", "."} else "_" for ch in _normalize_text(value))
+    cleaned = "".join(
+        ch if ch.isalnum() or ch in {"_", "-", "."} else "_" for ch in _normalize_text(value)
+    )
     cleaned = cleaned.strip("._-").lower()
     return cleaned or fallback
 
@@ -306,7 +318,12 @@ def _resolve_run_dir_common_workflow_kwargs(
         ),
         "priority": _resolve_int_option(getattr(args, "priority", None), manifest, "priority", 10),
         "max_cores": _resolve_int_option_with_section(
-            getattr(args, "max_cores", None), manifest, "max_cores", resources_manifest, "max_cores", 8
+            getattr(args, "max_cores", None),
+            manifest,
+            "max_cores",
+            resources_manifest,
+            "max_cores",
+            8,
         ),
         "max_memory_gb": _resolve_int_option_with_section(
             getattr(args, "max_memory_gb", None),
@@ -381,6 +398,185 @@ def _print_restarted_workflow(payload: dict[str, Any], *, json_mode: bool) -> in
     return 0
 
 
+@dataclass(frozen=True)
+class _RunDirWorkflowConfig:
+    workflow_dir: Path
+    manifest: dict[str, Any]
+    resources_manifest: dict[str, Any]
+    crest_manifest: dict[str, Any]
+    xtb_manifest: dict[str, Any]
+    endpoint_pairing: dict[str, Any]
+    orca_manifest: dict[str, Any]
+    reactant_xyz: str
+    product_xyz: str
+    input_xyz: str
+    workflow_type: str
+
+
+def _resolve_run_dir_workflow_type(
+    args: Any, manifest: dict[str, Any], workflow_layout: Any
+) -> str:
+    workflow_type_text = _normalize_text(getattr(args, "workflow_type", None))
+    if not workflow_type_text:
+        workflow_type_text = _normalize_text(manifest.get("workflow_type"))
+    if workflow_type_text:
+        return _normalize_workflow_type(workflow_type_text)
+    if workflow_layout.is_ambiguous:
+        raise ValueError(
+            "Ambiguous workflow_dir: found both reaction inputs and conformer input. "
+            "Pass --workflow-type to choose one."
+        )
+    inferred_workflow_type = workflow_layout.inferred_workflow_type
+    if inferred_workflow_type:
+        return inferred_workflow_type
+    raise ValueError(
+        "Could not infer workflow type from workflow_dir. "
+        "Expected reactant.xyz + product.xyz or input.xyz."
+    )
+
+
+def _load_run_dir_workflow_config(args: Any, workflow_dir: Path) -> _RunDirWorkflowConfig:
+    workflow_layout = inspect_workflow_run_dir(workflow_dir)
+    if not workflow_layout.has_manifest:
+        raise ValueError("workflow run-dir requires flow.yaml in workflow_dir.")
+
+    manifest = _load_run_dir_manifest(workflow_dir)
+    resources_manifest = _manifest_mapping(manifest.get("resources"))
+    crest_manifest = _resolve_engine_manifest(workflow_dir, manifest, "crest")
+    xtb_manifest = _resolve_engine_manifest(workflow_dir, manifest, "xtb")
+    endpoint_pairing = _resolve_endpoint_pairing_manifest(manifest, xtb_manifest)
+    orca_manifest = _resolve_engine_manifest(workflow_dir, manifest, "orca")
+    return _RunDirWorkflowConfig(
+        workflow_dir=workflow_dir,
+        manifest=manifest,
+        resources_manifest=resources_manifest,
+        crest_manifest=crest_manifest,
+        xtb_manifest=xtb_manifest,
+        endpoint_pairing=endpoint_pairing,
+        orca_manifest=orca_manifest,
+        reactant_xyz=_resolve_run_dir_path(
+            workflow_dir,
+            explicit=getattr(args, "reactant_xyz", None),
+            manifest=manifest,
+            key="reactant_xyz",
+            default_names=(STANDARD_REACTION_REACTANT_FILENAME,),
+        ),
+        product_xyz=_resolve_run_dir_path(
+            workflow_dir,
+            explicit=getattr(args, "product_xyz", None),
+            manifest=manifest,
+            key="product_xyz",
+            default_names=(STANDARD_REACTION_PRODUCT_FILENAME,),
+        ),
+        input_xyz=_resolve_run_dir_path(
+            workflow_dir,
+            explicit=getattr(args, "input_xyz", None),
+            manifest=manifest,
+            key="input_xyz",
+            default_names=(STANDARD_CONFORMER_INPUT_FILENAME,),
+        ),
+        workflow_type=_resolve_run_dir_workflow_type(args, manifest, workflow_layout),
+    )
+
+
+def _run_dir_workflow_id(config: _RunDirWorkflowConfig, workflow_root: str) -> str:
+    return _unique_run_dir_workflow_id(
+        config.workflow_dir,
+        workflow_root=workflow_root,
+        workflow_type=config.workflow_type,
+    )
+
+
+def _common_run_dir_workflow_kwargs(
+    args: Any,
+    config: _RunDirWorkflowConfig,
+    *,
+    workflow_root: str,
+    default_orca_route_line: str,
+    default_max_orca_stages: int,
+) -> dict[str, Any]:
+    kwargs = _resolve_run_dir_common_workflow_kwargs(
+        args,
+        config.manifest,
+        resources_manifest=config.resources_manifest,
+        crest_manifest=config.crest_manifest,
+        orca_manifest=config.orca_manifest,
+        default_orca_route_line=default_orca_route_line,
+        default_max_orca_stages=default_max_orca_stages,
+    )
+    kwargs["workflow_root"] = workflow_root
+    return kwargs
+
+
+def _create_reaction_run_dir_workflow(args: Any, config: _RunDirWorkflowConfig) -> dict[str, Any]:
+    if not config.reactant_xyz or not config.product_xyz:
+        raise ValueError(
+            "reaction_ts_search requires both reactant.xyz and product.xyz "
+            "(or manifest/CLI overrides)."
+        )
+    workflow_root = _resolve_required_workflow_root(args, config.manifest)
+    reaction_kwargs: dict[str, Any] = {
+        "reactant_xyz": config.reactant_xyz,
+        "product_xyz": config.product_xyz,
+        "workflow_id": _run_dir_workflow_id(config, workflow_root),
+        **_common_run_dir_workflow_kwargs(
+            args,
+            config,
+            workflow_root=workflow_root,
+            default_orca_route_line="! r2scan-3c OptTS Freq TightSCF",
+            default_max_orca_stages=3,
+        ),
+        "max_crest_candidates": _resolve_int_option(
+            getattr(args, "max_crest_candidates", None), config.manifest, "max_crest_candidates", 3
+        ),
+        "max_xtb_stages": _resolve_int_option(
+            getattr(args, "max_xtb_stages", None), config.manifest, "max_xtb_stages", 3
+        ),
+    }
+    if config.crest_manifest:
+        reaction_kwargs["crest_job_manifest"] = config.crest_manifest
+    if config.xtb_manifest:
+        reaction_kwargs["xtb_job_manifest"] = config.xtb_manifest
+    if config.endpoint_pairing:
+        reaction_kwargs["endpoint_pairing"] = config.endpoint_pairing
+    return create_reaction_workflow(**reaction_kwargs)
+
+
+def _create_conformer_run_dir_workflow(args: Any, config: _RunDirWorkflowConfig) -> dict[str, Any]:
+    if not config.input_xyz:
+        raise ValueError("conformer_screening requires input.xyz (or manifest/CLI override).")
+    workflow_root = _resolve_required_workflow_root(args, config.manifest)
+    conformer_kwargs: dict[str, Any] = {
+        "input_xyz": config.input_xyz,
+        "workflow_id": _run_dir_workflow_id(config, workflow_root),
+        **_common_run_dir_workflow_kwargs(
+            args,
+            config,
+            workflow_root=workflow_root,
+            default_orca_route_line="! r2scan-3c Opt TightSCF",
+            default_max_orca_stages=20,
+        ),
+    }
+    if config.crest_manifest:
+        conformer_kwargs["crest_job_manifest"] = config.crest_manifest
+    return create_conformer_screening_workflow(**conformer_kwargs)
+
+
+def _create_run_dir_workflow(args: Any, workflow_dir: Path) -> dict[str, Any]:
+    config = _load_run_dir_workflow_config(args, workflow_dir)
+    if config.workflow_type == "reaction_ts_search":
+        return _create_reaction_run_dir_workflow(args, config)
+    return _create_conformer_run_dir_workflow(args, config)
+
+
+def _restart_existing_run_dir_workflow(args: Any, workflow_dir: Path) -> dict[str, Any]:
+    return restart_failed_workflow(
+        workspace_dir=workflow_dir,
+        workflow_root=_workflow_root_for_existing_run_dir(args, workflow_dir),
+        force=bool(getattr(args, "force", False)),
+    )
+
+
 def cmd_run_dir(args: Any) -> int:
     try:
         workflow_dir = Path(getattr(args, "workflow_dir")).expanduser().resolve()
@@ -388,132 +584,10 @@ def cmd_run_dir(args: Any) -> int:
             raise ValueError(f"workflow_dir does not exist or is not a directory: {workflow_dir}")
 
         if (workflow_dir / "workflow.json").is_file():
-            payload = restart_failed_workflow(
-                workspace_dir=workflow_dir,
-                workflow_root=_workflow_root_for_existing_run_dir(args, workflow_dir),
-                force=bool(getattr(args, "force", False)),
-            )
+            payload = _restart_existing_run_dir_workflow(args, workflow_dir)
             return _print_restarted_workflow(payload, json_mode=bool(getattr(args, "json", False)))
 
-        workflow_layout = inspect_workflow_run_dir(workflow_dir)
-        if not workflow_layout.has_manifest:
-            raise ValueError(
-                "workflow run-dir requires flow.yaml in workflow_dir."
-            )
-
-        manifest = _load_run_dir_manifest(workflow_dir)
-        resources_manifest = _manifest_mapping(manifest.get("resources"))
-        crest_manifest = _resolve_engine_manifest(workflow_dir, manifest, "crest")
-        xtb_manifest = _resolve_engine_manifest(workflow_dir, manifest, "xtb")
-        endpoint_pairing = _resolve_endpoint_pairing_manifest(manifest, xtb_manifest)
-        orca_manifest = _resolve_engine_manifest(workflow_dir, manifest, "orca")
-        reactant_xyz = _resolve_run_dir_path(
-            workflow_dir,
-            explicit=getattr(args, "reactant_xyz", None),
-            manifest=manifest,
-            key="reactant_xyz",
-            default_names=(STANDARD_REACTION_REACTANT_FILENAME,),
-        )
-        product_xyz = _resolve_run_dir_path(
-            workflow_dir,
-            explicit=getattr(args, "product_xyz", None),
-            manifest=manifest,
-            key="product_xyz",
-            default_names=(STANDARD_REACTION_PRODUCT_FILENAME,),
-        )
-        input_xyz = _resolve_run_dir_path(
-            workflow_dir,
-            explicit=getattr(args, "input_xyz", None),
-            manifest=manifest,
-            key="input_xyz",
-            default_names=(STANDARD_CONFORMER_INPUT_FILENAME,),
-        )
-
-        workflow_type_text = _normalize_text(getattr(args, "workflow_type", None))
-        if not workflow_type_text:
-            workflow_type_text = _normalize_text(manifest.get("workflow_type"))
-
-        if workflow_type_text:
-            workflow_type = _normalize_workflow_type(workflow_type_text)
-        else:
-            if workflow_layout.is_ambiguous:
-                raise ValueError(
-                    "Ambiguous workflow_dir: found both reaction inputs and conformer input. "
-                    "Pass --workflow-type to choose one."
-                )
-            inferred_workflow_type = workflow_layout.inferred_workflow_type
-            if inferred_workflow_type:
-                workflow_type = inferred_workflow_type
-            else:
-                raise ValueError(
-                    "Could not infer workflow type from workflow_dir. "
-                    "Expected reactant.xyz + product.xyz or input.xyz."
-                )
-
-        if workflow_type == "reaction_ts_search":
-            if not reactant_xyz or not product_xyz:
-                raise ValueError(
-                    "reaction_ts_search requires both reactant.xyz and product.xyz "
-                    "(or manifest/CLI overrides)."
-                )
-            workflow_root = _resolve_required_workflow_root(args, manifest)
-            reaction_kwargs: dict[str, Any] = {
-                "reactant_xyz": reactant_xyz,
-                "product_xyz": product_xyz,
-                "workflow_id": _unique_run_dir_workflow_id(
-                    workflow_dir,
-                    workflow_root=workflow_root,
-                    workflow_type=workflow_type,
-                ),
-                **_resolve_run_dir_common_workflow_kwargs(
-                    args,
-                    manifest,
-                    resources_manifest=resources_manifest,
-                    crest_manifest=crest_manifest,
-                    orca_manifest=orca_manifest,
-                    default_orca_route_line="! r2scan-3c OptTS Freq TightSCF",
-                    default_max_orca_stages=3,
-                ),
-                "max_crest_candidates": _resolve_int_option(
-                    getattr(args, "max_crest_candidates", None), manifest, "max_crest_candidates", 3
-                ),
-                "max_xtb_stages": _resolve_int_option(
-                    getattr(args, "max_xtb_stages", None), manifest, "max_xtb_stages", 3
-                ),
-            }
-            if crest_manifest:
-                reaction_kwargs["crest_job_manifest"] = crest_manifest
-            if xtb_manifest:
-                reaction_kwargs["xtb_job_manifest"] = xtb_manifest
-            if endpoint_pairing:
-                reaction_kwargs["endpoint_pairing"] = endpoint_pairing
-            payload = create_reaction_workflow(**reaction_kwargs)
-        else:
-            if not input_xyz:
-                raise ValueError(
-                    "conformer_screening requires input.xyz (or manifest/CLI override)."
-                )
-            workflow_root = _resolve_required_workflow_root(args, manifest)
-            conformer_kwargs: dict[str, Any] = {
-                "input_xyz": input_xyz,
-                "workflow_id": _unique_run_dir_workflow_id(
-                    workflow_dir,
-                    workflow_root=workflow_root,
-                    workflow_type=workflow_type,
-                ),
-                **_resolve_run_dir_common_workflow_kwargs(
-                    args,
-                    manifest,
-                    resources_manifest=resources_manifest,
-                    crest_manifest=crest_manifest,
-                    orca_manifest=orca_manifest,
-                    default_orca_route_line="! r2scan-3c Opt TightSCF",
-                    default_max_orca_stages=20,
-                ),
-            }
-            if crest_manifest:
-                conformer_kwargs["crest_job_manifest"] = crest_manifest
-            payload = create_conformer_screening_workflow(**conformer_kwargs)
+        payload = _create_run_dir_workflow(args, workflow_dir)
     except ValueError as exc:
         print(f"error: {exc}")
         return 1
@@ -686,6 +760,7 @@ def cmd_workflow_conformer_screening(args: Any) -> int:
             print(f"  reaction_dir={task_payload.get('reaction_dir')}")
     return 0
 
+
 def cmd_workflow_create_reaction_ts_search(args: Any) -> int:
     payload = create_reaction_workflow(
         reactant_xyz=getattr(args, "reactant_xyz"),
@@ -719,6 +794,7 @@ def cmd_workflow_create_conformer_screening(args: Any) -> int:
         multiplicity=int(getattr(args, "multiplicity", 1) or 1),
     )
     return _print_created_workflow(payload, json_mode=bool(getattr(args, "json", False)))
+
 
 def cmd_workflow_advance(args: Any) -> int:
     shared_config = _shared_chemstack_config(args)
@@ -789,15 +865,21 @@ def cmd_workflow_worker(args: Any) -> int:
     shared_config = _shared_chemstack_config(args)
     workflow_root = _workflow_root_from_args(args, config_path=shared_config)
     if not workflow_root:
-        print("error: workflow_root is not configured. Pass --workflow-root or set workflow.root in chemstack.yaml.")
+        print(
+            "error: workflow_root is not configured. Pass --workflow-root or set workflow.root in chemstack.yaml."
+        )
         return 1
     workflow_root_text = str(workflow_root)
     cycle_count = 0
-    worker_session_id = _normalize_text(getattr(args, "worker_session_id", "")) or timestamped_token("wf_worker")
+    worker_session_id = _normalize_text(
+        getattr(args, "worker_session_id", "")
+    ) or timestamped_token("wf_worker")
     lease_seconds = max(float(getattr(args, "lease_seconds", 60.0) or 60.0), interval_seconds * 2.5)
 
     try:
-        with file_lock(workflow_worker_lock_path(workflow_root), timeout_seconds=lock_timeout_seconds):
+        with file_lock(
+            workflow_worker_lock_path(workflow_root), timeout_seconds=lock_timeout_seconds
+        ):
             started_at = now_utc_iso()
             write_workflow_worker_state(
                 workflow_root_text,
@@ -825,7 +907,9 @@ def cmd_workflow_worker(args: Any) -> int:
                     xtb_auto_executable=getattr(args, "xtb_auto_executable", "xtb_auto"),
                     xtb_auto_repo_root=getattr(args, "xtb_auto_repo_root", None),
                     orca_auto_config=shared_config,
-                    orca_auto_executable=getattr(args, "orca_auto_executable", CHEMSTACK_EXECUTABLE),
+                    orca_auto_executable=getattr(
+                        args, "orca_auto_executable", CHEMSTACK_EXECUTABLE
+                    ),
                     orca_auto_repo_root=getattr(args, "orca_auto_repo_root", None),
                     submit_ready=not bool(getattr(args, "no_submit", False)),
                     refresh_registry=refresh_each_cycle or (refresh_registry and cycle_count == 1),
@@ -845,13 +929,21 @@ def cmd_workflow_worker(args: Any) -> int:
                         last_heartbeat_at=stopped_at,
                         interval_seconds=interval_seconds,
                         submit_ready=not bool(getattr(args, "no_submit", False)),
-                        metadata={"stop_reason": "max_cycles_reached", "cycle_count": cycle_count, "service_mode": service_mode},
+                        metadata={
+                            "stop_reason": "max_cycles_reached",
+                            "cycle_count": cycle_count,
+                            "service_mode": service_mode,
+                        },
                     )
                     append_workflow_journal_event(
                         workflow_root_text,
                         event_type="worker_stopped",
                         worker_session_id=worker_session_id,
-                        metadata={"stopped_at": stopped_at, "reason": "max_cycles_reached", "cycle_count": cycle_count},
+                        metadata={
+                            "stopped_at": stopped_at,
+                            "reason": "max_cycles_reached",
+                            "cycle_count": cycle_count,
+                        },
                     )
                     return 0
                 time.sleep(max(0.0, interval_seconds))
@@ -865,7 +957,11 @@ def cmd_workflow_worker(args: Any) -> int:
             last_heartbeat_at=stopped_at,
             interval_seconds=interval_seconds,
             submit_ready=not bool(getattr(args, "no_submit", False)),
-            metadata={"stop_reason": "keyboard_interrupt", "cycle_count": cycle_count, "service_mode": service_mode},
+            metadata={
+                "stop_reason": "keyboard_interrupt",
+                "cycle_count": cycle_count,
+                "service_mode": service_mode,
+            },
         )
         append_workflow_journal_event(
             workflow_root_text,
@@ -884,7 +980,11 @@ def cmd_workflow_worker(args: Any) -> int:
             last_heartbeat_at=stopped_at,
             interval_seconds=interval_seconds,
             submit_ready=not bool(getattr(args, "no_submit", False)),
-            metadata={"stop_reason": "worker_lock_error", "error": str(exc), "service_mode": service_mode},
+            metadata={
+                "stop_reason": "worker_lock_error",
+                "error": str(exc),
+                "service_mode": service_mode,
+            },
         )
         append_workflow_journal_event(
             workflow_root_text,
@@ -975,7 +1075,9 @@ def cmd_workflow_telemetry(args: Any) -> int:
 
 
 def cmd_workflow_submit_reaction_ts_search(args: Any) -> int:
-    shared_config = _shared_chemstack_config(args) or default_config_path_from_repo_root(_project_root())
+    shared_config = _shared_chemstack_config(args) or default_config_path_from_repo_root(
+        _project_root()
+    )
     payload = submit_reaction_ts_search_workflow(
         workflow_target=getattr(args, "target"),
         workflow_root=getattr(args, "workflow_root", None),
@@ -1197,7 +1299,9 @@ def cmd_workflow_cancel(args: Any) -> int:
     if payload.get("requested"):
         print(f"requested_count: {len(payload.get('requested', []))}")
         for item in payload.get("requested", []):
-            print(f"- cancel_requested {item.get('stage_id', '-')} queue_id={item.get('queue_id', '-')}")
+            print(
+                f"- cancel_requested {item.get('stage_id', '-')} queue_id={item.get('queue_id', '-')}"
+            )
     if payload.get("skipped"):
         print(f"skipped_count: {len(payload.get('skipped', []))}")
         for item in payload.get("skipped", []):
@@ -1226,17 +1330,23 @@ def cmd_workflow_reindex(args: Any) -> int:
     return 0
 
 
-def _register_run_dir_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
+def _register_run_dir_parser(
+    subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
     run_dir_parser = subparsers.add_parser(
         "run-dir",
         help="Create a workflow from an input directory containing reactant/product or input XYZ files.",
     )
-    run_dir_parser.add_argument("workflow_dir", help="Directory that contains workflow input XYZ files")
+    run_dir_parser.add_argument(
+        "workflow_dir", help="Directory that contains workflow input XYZ files"
+    )
     run_dir_parser.add_argument(
         "--workflow-type",
         help="Optional workflow type override: reaction_ts_search or conformer_screening",
     )
-    run_dir_parser.add_argument("--workflow-root", help="Root that directly contains workflow workspaces.")
+    run_dir_parser.add_argument(
+        "--workflow-root", help="Root that directly contains workflow workspaces."
+    )
     run_dir_parser.add_argument("--reactant-xyz", help="Optional reactant XYZ override")
     run_dir_parser.add_argument("--product-xyz", help="Optional product XYZ override")
     run_dir_parser.add_argument("--input-xyz", help="Optional conformer input XYZ override")
@@ -1259,18 +1369,34 @@ def _register_run_dir_parser(subparsers: argparse._SubParsersAction[argparse.Arg
     run_dir_parser.set_defaults(func=cmd_run_dir)
 
 
-def _register_activity_parsers(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
-    activity_list_parser = subparsers.add_parser("list", help="List workflows and standalone engine activities together.")
-    activity_list_parser.add_argument("--workflow-root", help="Root that directly contains workflow workspaces.")
-    activity_list_parser.add_argument("--limit", type=int, default=0, help="Optional maximum number of activities to print")
-    activity_list_parser.add_argument("--refresh", action="store_true", help="Refresh workflow registry before listing")
+def _register_activity_parsers(
+    subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
+    activity_list_parser = subparsers.add_parser(
+        "list", help="List workflows and standalone engine activities together."
+    )
+    activity_list_parser.add_argument(
+        "--workflow-root", help="Root that directly contains workflow workspaces."
+    )
+    activity_list_parser.add_argument(
+        "--limit", type=int, default=0, help="Optional maximum number of activities to print"
+    )
+    activity_list_parser.add_argument(
+        "--refresh", action="store_true", help="Refresh workflow registry before listing"
+    )
     activity_list_parser.add_argument("--chemstack-config", help="Path to shared chemstack.yaml")
     activity_list_parser.add_argument("--json", action="store_true", help="Print JSON output")
     activity_list_parser.set_defaults(func=cmd_activity_list)
 
-    activity_cancel_parser = subparsers.add_parser("cancel", help="Cancel a workflow or standalone engine activity.")
-    activity_cancel_parser.add_argument("target", help="Activity id, workflow id, queue id, run id, or known path alias")
-    activity_cancel_parser.add_argument("--workflow-root", help="Root that directly contains workflow workspaces.")
+    activity_cancel_parser = subparsers.add_parser(
+        "cancel", help="Cancel a workflow or standalone engine activity."
+    )
+    activity_cancel_parser.add_argument(
+        "target", help="Activity id, workflow id, queue id, run id, or known path alias"
+    )
+    activity_cancel_parser.add_argument(
+        "--workflow-root", help="Root that directly contains workflow workspaces."
+    )
     activity_cancel_parser.add_argument("--chemstack-config", help="Path to shared chemstack.yaml")
     activity_cancel_parser.add_argument("--json", action="store_true", help="Print JSON output")
     activity_cancel_parser.set_defaults(func=cmd_activity_cancel)
@@ -1279,20 +1405,32 @@ def _register_activity_parsers(subparsers: argparse._SubParsersAction[argparse.A
     bot_parser.set_defaults(func=cmd_bot)
 
 
-def _register_engine_inspect_parsers(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
+def _register_engine_inspect_parsers(
+    subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
     xtb_parser = subparsers.add_parser("xtb", help="Inspect and adapt xTB artifacts.")
     xtb_subparsers = xtb_parser.add_subparsers(dest="xtb_command", required=True)
 
-    inspect_parser = xtb_subparsers.add_parser("inspect", help="Load a normalized xTB artifact contract.")
+    inspect_parser = xtb_subparsers.add_parser(
+        "inspect", help="Load a normalized xTB artifact contract."
+    )
     inspect_parser.add_argument("target", help="xTB job_id or job directory")
-    inspect_parser.add_argument("--xtb-index-root", required=True, help="xTB index root, usually allowed_root")
+    inspect_parser.add_argument(
+        "--xtb-index-root", required=True, help="xTB index root, usually allowed_root"
+    )
     inspect_parser.add_argument("--json", action="store_true", help="Print JSON output")
     inspect_parser.set_defaults(func=cmd_xtb_inspect)
 
-    candidates_parser = xtb_subparsers.add_parser("candidates", help="Select downstream-ready xTB candidate inputs.")
+    candidates_parser = xtb_subparsers.add_parser(
+        "candidates", help="Select downstream-ready xTB candidate inputs."
+    )
     candidates_parser.add_argument("target", help="xTB job_id or job directory")
-    candidates_parser.add_argument("--xtb-index-root", required=True, help="xTB index root, usually allowed_root")
-    candidates_parser.add_argument("--max-candidates", type=int, default=3, help="Maximum number of candidates to emit")
+    candidates_parser.add_argument(
+        "--xtb-index-root", required=True, help="xTB index root, usually allowed_root"
+    )
+    candidates_parser.add_argument(
+        "--max-candidates", type=int, default=3, help="Maximum number of candidates to emit"
+    )
     candidates_parser.add_argument(
         "--preferred-kind",
         dest="preferred_kinds",
@@ -1309,24 +1447,44 @@ def _register_engine_inspect_parsers(subparsers: argparse._SubParsersAction[argp
 
     crest_parser = subparsers.add_parser("crest", help="Inspect CREST artifacts.")
     crest_subparsers = crest_parser.add_subparsers(dest="crest_command", required=True)
-    crest_inspect_parser = crest_subparsers.add_parser("inspect", help="Load a normalized CREST artifact contract.")
+    crest_inspect_parser = crest_subparsers.add_parser(
+        "inspect", help="Load a normalized CREST artifact contract."
+    )
     crest_inspect_parser.add_argument("target", help="CREST job_id or job directory")
-    crest_inspect_parser.add_argument("--crest-index-root", required=True, help="CREST index root, usually allowed_root")
+    crest_inspect_parser.add_argument(
+        "--crest-index-root", required=True, help="CREST index root, usually allowed_root"
+    )
     crest_inspect_parser.add_argument("--json", action="store_true", help="Print JSON output")
     crest_inspect_parser.set_defaults(func=cmd_crest_inspect)
 
 
-def _register_workflow_registry_parsers(workflow_subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
-    list_parser = workflow_subparsers.add_parser("list", help="List materialized workflows under a workflow root.")
-    list_parser.add_argument("--workflow-root", required=True, help="Root that directly contains workflow workspaces.")
-    list_parser.add_argument("--limit", type=int, default=0, help="Optional maximum number of workflows to print")
-    list_parser.add_argument("--refresh", action="store_true", help="Rebuild the registry from workflow workspaces before listing")
+def _register_workflow_registry_parsers(
+    workflow_subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
+    list_parser = workflow_subparsers.add_parser(
+        "list", help="List materialized workflows under a workflow root."
+    )
+    list_parser.add_argument(
+        "--workflow-root", required=True, help="Root that directly contains workflow workspaces."
+    )
+    list_parser.add_argument(
+        "--limit", type=int, default=0, help="Optional maximum number of workflows to print"
+    )
+    list_parser.add_argument(
+        "--refresh",
+        action="store_true",
+        help="Rebuild the registry from workflow workspaces before listing",
+    )
     list_parser.add_argument("--json", action="store_true", help="Print JSON output")
     list_parser.set_defaults(func=cmd_workflow_list)
 
     get_parser = workflow_subparsers.add_parser("get", help="Inspect one materialized workflow.")
-    get_parser.add_argument("target", help="workflow_id, workflow workspace directory, or workflow.json path")
-    get_parser.add_argument("--workflow-root", help="Root that directly contains workflow workspaces.")
+    get_parser.add_argument(
+        "target", help="workflow_id, workflow workspace directory, or workflow.json path"
+    )
+    get_parser.add_argument(
+        "--workflow-root", help="Root that directly contains workflow workspaces."
+    )
     get_parser.add_argument("--json", action="store_true", help="Print JSON output")
     get_parser.set_defaults(func=cmd_workflow_get)
 
@@ -1334,8 +1492,12 @@ def _register_workflow_registry_parsers(workflow_subparsers: argparse._SubParser
         "artifacts",
         help="List known materialized artifacts for one workflow.",
     )
-    artifacts_parser.add_argument("target", help="workflow_id, workflow workspace directory, or workflow.json path")
-    artifacts_parser.add_argument("--workflow-root", help="Root that directly contains workflow workspaces.")
+    artifacts_parser.add_argument(
+        "target", help="workflow_id, workflow workspace directory, or workflow.json path"
+    )
+    artifacts_parser.add_argument(
+        "--workflow-root", help="Root that directly contains workflow workspaces."
+    )
     artifacts_parser.add_argument("--json", action="store_true", help="Print JSON output")
     artifacts_parser.set_defaults(func=cmd_workflow_artifacts)
 
@@ -1343,14 +1505,25 @@ def _register_workflow_registry_parsers(workflow_subparsers: argparse._SubParser
         "cancel",
         help="Cancel a materialized workflow and request queue cancellation for submitted engine stages.",
     )
-    cancel_parser.add_argument("target", help="workflow_id, workflow workspace directory, or workflow.json path")
-    cancel_parser.add_argument("--workflow-root", help="Root that directly contains workflow workspaces.")
-    cancel_parser.add_argument("--chemstack-config", help="Path to shared chemstack.yaml; required if submitted stages exist")
+    cancel_parser.add_argument(
+        "target", help="workflow_id, workflow workspace directory, or workflow.json path"
+    )
+    cancel_parser.add_argument(
+        "--workflow-root", help="Root that directly contains workflow workspaces."
+    )
+    cancel_parser.add_argument(
+        "--chemstack-config",
+        help="Path to shared chemstack.yaml; required if submitted stages exist",
+    )
     cancel_parser.add_argument("--json", action="store_true", help="Print JSON output")
     cancel_parser.set_defaults(func=cmd_workflow_cancel)
 
-    reindex_parser = workflow_subparsers.add_parser("reindex", help="Rebuild the workflow registry from workflow workspaces.")
-    reindex_parser.add_argument("--workflow-root", required=True, help="Root that directly contains workflow workspaces.")
+    reindex_parser = workflow_subparsers.add_parser(
+        "reindex", help="Rebuild the workflow registry from workflow workspaces."
+    )
+    reindex_parser.add_argument(
+        "--workflow-root", required=True, help="Root that directly contains workflow workspaces."
+    )
     reindex_parser.add_argument("--json", action="store_true", help="Print JSON output")
     reindex_parser.set_defaults(func=cmd_workflow_reindex)
 
@@ -1358,7 +1531,9 @@ def _register_workflow_registry_parsers(workflow_subparsers: argparse._SubParser
         "runtime-status",
         help="Show the current worker heartbeat/state for a workflow root.",
     )
-    runtime_status_parser.add_argument("--workflow-root", required=True, help="Root that directly contains workflow workspaces.")
+    runtime_status_parser.add_argument(
+        "--workflow-root", required=True, help="Root that directly contains workflow workspaces."
+    )
     runtime_status_parser.add_argument("--json", action="store_true", help="Print JSON output")
     runtime_status_parser.set_defaults(func=cmd_workflow_runtime_status)
 
@@ -1366,8 +1541,12 @@ def _register_workflow_registry_parsers(workflow_subparsers: argparse._SubParser
         "journal",
         help="Show recent append-only orchestration journal events.",
     )
-    journal_parser.add_argument("--workflow-root", required=True, help="Root that directly contains workflow workspaces.")
-    journal_parser.add_argument("--limit", type=int, default=50, help="Maximum number of recent events to show")
+    journal_parser.add_argument(
+        "--workflow-root", required=True, help="Root that directly contains workflow workspaces."
+    )
+    journal_parser.add_argument(
+        "--limit", type=int, default=50, help="Maximum number of recent events to show"
+    )
     journal_parser.add_argument("--json", action="store_true", help="Print JSON output")
     journal_parser.set_defaults(func=cmd_workflow_journal)
 
@@ -1375,19 +1554,30 @@ def _register_workflow_registry_parsers(workflow_subparsers: argparse._SubParser
         "telemetry",
         help="Summarize registry status, worker heartbeat, and recent journal activity.",
     )
-    telemetry_parser.add_argument("--workflow-root", required=True, help="Root that directly contains workflow workspaces.")
-    telemetry_parser.add_argument("--limit", type=int, default=200, help="Maximum number of recent journal events to summarize")
+    telemetry_parser.add_argument(
+        "--workflow-root", required=True, help="Root that directly contains workflow workspaces."
+    )
+    telemetry_parser.add_argument(
+        "--limit",
+        type=int,
+        default=200,
+        help="Maximum number of recent journal events to summarize",
+    )
     telemetry_parser.add_argument("--json", action="store_true", help="Print JSON output")
     telemetry_parser.set_defaults(func=cmd_workflow_telemetry)
 
 
-def _register_workflow_planning_parsers(workflow_subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
+def _register_workflow_planning_parsers(
+    workflow_subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
     reaction_ts_parser = workflow_subparsers.add_parser(
         "reaction-ts-search",
         help="Build a reaction_ts_search workflow plan from xTB results.",
     )
     reaction_ts_parser.add_argument("target", help="xTB job_id or job directory")
-    reaction_ts_parser.add_argument("--xtb-index-root", required=True, help="xTB index root, usually allowed_root")
+    reaction_ts_parser.add_argument(
+        "--xtb-index-root", required=True, help="xTB index root, usually allowed_root"
+    )
     reaction_ts_parser.add_argument(
         "--max-orca-stages",
         type=int,
@@ -1403,16 +1593,26 @@ def _register_workflow_planning_parsers(workflow_subparsers: argparse._SubParser
         "--workspace-root",
         help="If provided, materialize a workflow workspace with ORCA reaction directories and workflow.json",
     )
-    reaction_ts_parser.add_argument("--charge", type=int, default=0, help="Charge for materialized ORCA inputs")
-    reaction_ts_parser.add_argument("--multiplicity", type=int, default=1, help="Multiplicity for materialized ORCA inputs")
-    reaction_ts_parser.add_argument("--max-cores", type=int, default=8, help="Maximum cores per planned ORCA task")
-    reaction_ts_parser.add_argument("--max-memory-gb", type=int, default=32, help="Maximum memory GiB per planned ORCA task")
+    reaction_ts_parser.add_argument(
+        "--charge", type=int, default=0, help="Charge for materialized ORCA inputs"
+    )
+    reaction_ts_parser.add_argument(
+        "--multiplicity", type=int, default=1, help="Multiplicity for materialized ORCA inputs"
+    )
+    reaction_ts_parser.add_argument(
+        "--max-cores", type=int, default=8, help="Maximum cores per planned ORCA task"
+    )
+    reaction_ts_parser.add_argument(
+        "--max-memory-gb", type=int, default=32, help="Maximum memory GiB per planned ORCA task"
+    )
     reaction_ts_parser.add_argument(
         "--orca-route-line",
         default="! r2scan-3c OptTS Freq TightSCF",
         help="Route line for materialized ORCA inputs",
     )
-    reaction_ts_parser.add_argument("--priority", type=int, default=10, help="Planned queue priority")
+    reaction_ts_parser.add_argument(
+        "--priority", type=int, default=10, help="Planned queue priority"
+    )
     reaction_ts_parser.add_argument("--json", action="store_true", help="Print JSON output")
     reaction_ts_parser.set_defaults(func=cmd_workflow_reaction_ts_search)
 
@@ -1421,20 +1621,43 @@ def _register_workflow_planning_parsers(workflow_subparsers: argparse._SubParser
         help="Build a conformer_screening workflow plan from CREST results (`standard` or `nci`).",
     )
     conformer_parser.add_argument("target", help="CREST job_id or job directory")
-    conformer_parser.add_argument("--crest-index-root", required=True, help="CREST index root, usually allowed_root")
-    conformer_parser.add_argument("--max-orca-stages", type=int, default=3, help="Maximum number of ORCA stage payloads to emit")
-    conformer_parser.add_argument("--workspace-root", help="If provided, materialize a workflow workspace")
-    conformer_parser.add_argument("--charge", type=int, default=0, help="Charge for materialized ORCA inputs")
-    conformer_parser.add_argument("--multiplicity", type=int, default=1, help="Multiplicity for materialized ORCA inputs")
-    conformer_parser.add_argument("--max-cores", type=int, default=8, help="Maximum cores per planned ORCA task")
-    conformer_parser.add_argument("--max-memory-gb", type=int, default=32, help="Maximum memory GiB per planned ORCA task")
-    conformer_parser.add_argument("--orca-route-line", default="! r2scan-3c Opt TightSCF", help="Route line for materialized ORCA inputs")
+    conformer_parser.add_argument(
+        "--crest-index-root", required=True, help="CREST index root, usually allowed_root"
+    )
+    conformer_parser.add_argument(
+        "--max-orca-stages",
+        type=int,
+        default=3,
+        help="Maximum number of ORCA stage payloads to emit",
+    )
+    conformer_parser.add_argument(
+        "--workspace-root", help="If provided, materialize a workflow workspace"
+    )
+    conformer_parser.add_argument(
+        "--charge", type=int, default=0, help="Charge for materialized ORCA inputs"
+    )
+    conformer_parser.add_argument(
+        "--multiplicity", type=int, default=1, help="Multiplicity for materialized ORCA inputs"
+    )
+    conformer_parser.add_argument(
+        "--max-cores", type=int, default=8, help="Maximum cores per planned ORCA task"
+    )
+    conformer_parser.add_argument(
+        "--max-memory-gb", type=int, default=32, help="Maximum memory GiB per planned ORCA task"
+    )
+    conformer_parser.add_argument(
+        "--orca-route-line",
+        default="! r2scan-3c Opt TightSCF",
+        help="Route line for materialized ORCA inputs",
+    )
     conformer_parser.add_argument("--priority", type=int, default=10, help="Planned queue priority")
     conformer_parser.add_argument("--json", action="store_true", help="Print JSON output")
     conformer_parser.set_defaults(func=cmd_workflow_conformer_screening)
 
 
-def _register_workflow_creation_parsers(workflow_subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
+def _register_workflow_creation_parsers(
+    workflow_subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
     create_reaction_parser = workflow_subparsers.add_parser(
         "create-reaction-ts-search",
         help="Create a raw-input reaction_ts_search workflow from reactant/product precomplex XYZ inputs.",
@@ -1451,15 +1674,23 @@ def _register_workflow_creation_parsers(workflow_subparsers: argparse._SubParser
         required=True,
         help="Product-side XYZ input",
     )
-    create_reaction_parser.add_argument("--workflow-root", required=True, help="Root that directly contains workflow workspaces.")
-    create_reaction_parser.add_argument("--crest-mode", default="standard", help="CREST mode for initial stages (`standard` or `nci`)")
+    create_reaction_parser.add_argument(
+        "--workflow-root", required=True, help="Root that directly contains workflow workspaces."
+    )
+    create_reaction_parser.add_argument(
+        "--crest-mode",
+        default="standard",
+        help="CREST mode for initial stages (`standard` or `nci`)",
+    )
     create_reaction_parser.add_argument("--priority", type=int, default=10)
     create_reaction_parser.add_argument("--max-cores", type=int, default=8)
     create_reaction_parser.add_argument("--max-memory-gb", type=int, default=32)
     create_reaction_parser.add_argument("--max-crest-candidates", type=int, default=3)
     create_reaction_parser.add_argument("--max-xtb-stages", type=int, default=3)
     create_reaction_parser.add_argument("--max-orca-stages", type=int, default=3)
-    create_reaction_parser.add_argument("--orca-route-line", default="! r2scan-3c OptTS Freq TightSCF")
+    create_reaction_parser.add_argument(
+        "--orca-route-line", default="! r2scan-3c OptTS Freq TightSCF"
+    )
     create_reaction_parser.add_argument("--charge", type=int, default=0)
     create_reaction_parser.add_argument("--multiplicity", type=int, default=1)
     create_reaction_parser.add_argument("--json", action="store_true", help="Print JSON output")
@@ -1469,9 +1700,15 @@ def _register_workflow_creation_parsers(workflow_subparsers: argparse._SubParser
         "create-conformer-screening",
         help="Create a raw-input conformer_screening workflow that can be advanced through CREST and ORCA (`standard` or `nci`).",
     )
-    create_conformer_parser.add_argument("--input-xyz", required=True, help="Input XYZ for the molecule to screen")
-    create_conformer_parser.add_argument("--workflow-root", required=True, help="Root that directly contains workflow workspaces.")
-    create_conformer_parser.add_argument("--crest-mode", default="standard", help="CREST mode for the initial stage")
+    create_conformer_parser.add_argument(
+        "--input-xyz", required=True, help="Input XYZ for the molecule to screen"
+    )
+    create_conformer_parser.add_argument(
+        "--workflow-root", required=True, help="Root that directly contains workflow workspaces."
+    )
+    create_conformer_parser.add_argument(
+        "--crest-mode", default="standard", help="CREST mode for the initial stage"
+    )
     create_conformer_parser.add_argument("--priority", type=int, default=10)
     create_conformer_parser.add_argument("--max-cores", type=int, default=8)
     create_conformer_parser.add_argument("--max-memory-gb", type=int, default=32)
@@ -1483,15 +1720,25 @@ def _register_workflow_creation_parsers(workflow_subparsers: argparse._SubParser
     create_conformer_parser.set_defaults(func=cmd_workflow_create_conformer_screening)
 
 
-def _register_workflow_runtime_parsers(workflow_subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
+def _register_workflow_runtime_parsers(
+    workflow_subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
     advance_parser = workflow_subparsers.add_parser(
         "advance",
         help="Advance a materialized workflow by syncing/submitting actionable CREST, xTB, and ORCA stages.",
     )
-    advance_parser.add_argument("target", help="workflow_id, workflow workspace directory, or workflow.json path")
-    advance_parser.add_argument("--workflow-root", required=True, help="Root that directly contains workflow workspaces.")
+    advance_parser.add_argument(
+        "target", help="workflow_id, workflow workspace directory, or workflow.json path"
+    )
+    advance_parser.add_argument(
+        "--workflow-root", required=True, help="Root that directly contains workflow workspaces."
+    )
     advance_parser.add_argument("--chemstack-config", help="Path to shared chemstack.yaml")
-    advance_parser.add_argument("--no-submit", action="store_true", help="Only sync and append stages; do not submit newly actionable stages")
+    advance_parser.add_argument(
+        "--no-submit",
+        action="store_true",
+        help="Only sync and append stages; do not submit newly actionable stages",
+    )
     advance_parser.add_argument("--json", action="store_true", help="Print JSON output")
     advance_parser.set_defaults(func=cmd_workflow_advance)
 
@@ -1504,13 +1751,39 @@ def _register_workflow_runtime_parsers(workflow_subparsers: argparse._SubParsers
         help="Root that directly contains workflow workspaces. Defaults to workflow.root in chemstack.yaml.",
     )
     worker_parser.add_argument("--chemstack-config", help="Path to shared chemstack.yaml")
-    worker_parser.add_argument("--no-submit", action="store_true", help="Only sync/append stages; do not submit newly actionable stages")
-    worker_parser.add_argument("--once", action="store_true", help="Run exactly one orchestration cycle")
-    worker_parser.add_argument("--max-cycles", type=int, default=0, help="Optional cycle limit; 0 means run forever")
-    worker_parser.add_argument("--interval-seconds", type=float, default=30.0, help="Sleep interval between orchestration cycles")
-    worker_parser.add_argument("--lock-timeout-seconds", type=float, default=5.0, help="How long to wait for the worker lock")
-    worker_parser.add_argument("--refresh-registry", action="store_true", help="Reindex the workflow registry before the first cycle")
-    worker_parser.add_argument("--refresh-each-cycle", action="store_true", help="Reindex the workflow registry before every cycle")
+    worker_parser.add_argument(
+        "--no-submit",
+        action="store_true",
+        help="Only sync/append stages; do not submit newly actionable stages",
+    )
+    worker_parser.add_argument(
+        "--once", action="store_true", help="Run exactly one orchestration cycle"
+    )
+    worker_parser.add_argument(
+        "--max-cycles", type=int, default=0, help="Optional cycle limit; 0 means run forever"
+    )
+    worker_parser.add_argument(
+        "--interval-seconds",
+        type=float,
+        default=30.0,
+        help="Sleep interval between orchestration cycles",
+    )
+    worker_parser.add_argument(
+        "--lock-timeout-seconds",
+        type=float,
+        default=5.0,
+        help="How long to wait for the worker lock",
+    )
+    worker_parser.add_argument(
+        "--refresh-registry",
+        action="store_true",
+        help="Reindex the workflow registry before the first cycle",
+    )
+    worker_parser.add_argument(
+        "--refresh-each-cycle",
+        action="store_true",
+        help="Reindex the workflow registry before every cycle",
+    )
     worker_parser.add_argument("--json", action="store_true", help="Print JSON output")
     worker_parser.set_defaults(func=cmd_workflow_worker)
 
@@ -1518,15 +1791,25 @@ def _register_workflow_runtime_parsers(workflow_subparsers: argparse._SubParsers
         "submit-reaction-ts-search",
         help="Submit a materialized reaction_ts_search workflow into chemstack ORCA.",
     )
-    submit_parser.add_argument("target", help="workflow_id, workflow workspace directory, or workflow.json path")
-    submit_parser.add_argument("--workflow-root", help="Root that directly contains workflow workspaces.")
-    submit_parser.add_argument("--chemstack-config", required=True, help="Path to shared chemstack.yaml")
-    submit_parser.add_argument("--resubmit", action="store_true", help="Retry stages already marked as submitted")
+    submit_parser.add_argument(
+        "target", help="workflow_id, workflow workspace directory, or workflow.json path"
+    )
+    submit_parser.add_argument(
+        "--workflow-root", help="Root that directly contains workflow workspaces."
+    )
+    submit_parser.add_argument(
+        "--chemstack-config", required=True, help="Path to shared chemstack.yaml"
+    )
+    submit_parser.add_argument(
+        "--resubmit", action="store_true", help="Retry stages already marked as submitted"
+    )
     submit_parser.add_argument("--json", action="store_true", help="Print JSON output")
     submit_parser.set_defaults(func=cmd_workflow_submit_reaction_ts_search)
 
 
-def _register_workflow_parsers(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
+def _register_workflow_parsers(
+    subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
     workflow_parser = subparsers.add_parser("workflow", help="Build chemistry workflow plans.")
     workflow_subparsers = workflow_parser.add_subparsers(dest="workflow_command", required=True)
     _register_workflow_registry_parsers(workflow_subparsers)

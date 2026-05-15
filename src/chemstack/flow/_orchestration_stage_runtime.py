@@ -288,21 +288,18 @@ def xtb_current_attempt_number_impl(stage: dict[str, Any]) -> int:
     return 0
 
 
-def write_xtb_path_job_impl(
-    stage: dict[str, Any],
-    *,
-    xtb_allowed_root: Path,
-    workflow_id: str,
-    attempt_number: int,
-) -> str:
-    o = _orchestration_module()
-    task = stage["task"]
-    payload = o._task_payload_dict(task)
-    recipe = o._xtb_retry_recipe(attempt_number)
-    stage_id = o._normalize_text(stage.get("stage_id"))
+def _xtb_path_job_dir(xtb_allowed_root: Path, stage_id: str, attempt_number: int) -> Path:
     base_dir = xtb_allowed_root / stage_id
-    job_dir = base_dir if attempt_number == 0 else base_dir / f"retry_attempt_{attempt_number:02d}"
+    if attempt_number == 0:
+        return base_dir
+    return base_dir / f"retry_attempt_{attempt_number:02d}"
 
+
+def _materialize_xtb_path_inputs(
+    payload: dict[str, Any],
+    *,
+    job_dir: Path,
+) -> tuple[Path, Path]:
     reactants_dir = job_dir / "reactants"
     products_dir = job_dir / "products"
     reactants_dir.mkdir(parents=True, exist_ok=True)
@@ -310,21 +307,26 @@ def write_xtb_path_job_impl(
 
     reactant_source = _stage_input_mapping(payload.get("reactant_source"))
     product_source = _stage_input_mapping(payload.get("product_source"))
-    reactant_name = f"r{_stage_input_rank(reactant_source)}.xyz"
-    product_name = f"p{_stage_input_rank(product_source)}.xyz"
-    reactant_target = reactants_dir / reactant_name
-    product_target = products_dir / product_name
+    reactant_target = reactants_dir / f"r{_stage_input_rank(reactant_source)}.xyz"
+    product_target = products_dir / f"p{_stage_input_rank(product_source)}.xyz"
     _materialize_xtb_stage_input(reactant_source, reactant_target)
     _materialize_xtb_stage_input(product_source, product_target)
+    return reactant_target, product_target
 
+
+def _write_xtb_recipe_xcontrol(o: Any, job_dir: Path, recipe: dict[str, Any]) -> str:
     xcontrol_name = o._normalize_text(recipe.get("xcontrol_name"))
     if xcontrol_name:
         (job_dir / xcontrol_name).write_text(
             "\n".join(str(line) for line in recipe.get("xcontrol_lines", ())) + "\n",
             encoding="utf-8",
         )
+    return xcontrol_name
 
-    overrides = _manifest_override_mapping(payload.get("job_manifest_overrides"))
+
+def _base_xtb_path_manifest(
+    o: Any, task: dict[str, Any], overrides: dict[str, Any]
+) -> dict[str, Any]:
     task_resource_request = o._coerce_mapping(task.get("resource_request"))
     manifest_payload: dict[str, Any] = {
         "job_type": "path_search",
@@ -332,28 +334,46 @@ def write_xtb_path_job_impl(
         "charge": 0,
         "uhf": 0,
     }
+    reserved_keys = {
+        "job_type",
+        "reaction_key",
+        "reactant_xyz",
+        "product_xyz",
+        "xcontrol",
+        "xcontrol_file",
+        "xcontrol_text",
+        "xcontrol_lines",
+    }
     for key, value in overrides.items():
-        if key in {
-            "job_type",
-            "reaction_key",
-            "reactant_xyz",
-            "product_xyz",
-            "xcontrol",
-            "xcontrol_file",
-            "xcontrol_text",
-            "xcontrol_lines",
-        }:
-            continue
-        manifest_payload[key] = value
+        if key not in reserved_keys:
+            manifest_payload[key] = value
     manifest_payload["resources"] = {
         "max_cores": o._safe_int(task_resource_request.get("max_cores"), default=8),
         "max_memory_gb": o._safe_int(task_resource_request.get("max_memory_gb"), default=32),
     }
+    return manifest_payload
 
-    namespace = o._normalize_text(recipe.get("namespace")) or str(overrides.get("namespace", "")).strip()
-    xcontrol_override_name = ""
-    if not xcontrol_name:
-        xcontrol_override_name = _materialize_xtb_override_xcontrol(job_dir, overrides=overrides)
+
+def _write_xtb_path_manifest(
+    o: Any,
+    *,
+    task: dict[str, Any],
+    payload: dict[str, Any],
+    recipe: dict[str, Any],
+    job_dir: Path,
+    reactant_target: Path,
+    product_target: Path,
+    stage_id: str,
+) -> tuple[str, str]:
+    overrides = _manifest_override_mapping(payload.get("job_manifest_overrides"))
+    manifest_payload = _base_xtb_path_manifest(o, task, overrides)
+    namespace = (
+        o._normalize_text(recipe.get("namespace")) or str(overrides.get("namespace", "")).strip()
+    )
+    xcontrol_name = _write_xtb_recipe_xcontrol(o, job_dir, recipe)
+    xcontrol_override_name = (
+        "" if xcontrol_name else _materialize_xtb_override_xcontrol(job_dir, overrides=overrides)
+    )
     selected_xcontrol_name = xcontrol_name or xcontrol_override_name
 
     manifest_payload["reaction_key"] = o._normalize_text(payload.get("reaction_key")) or stage_id
@@ -368,7 +388,20 @@ def write_xtb_path_job_impl(
         yaml.safe_dump(manifest_payload, sort_keys=False, allow_unicode=False),
         encoding="utf-8",
     )
+    return namespace, selected_xcontrol_name
 
+
+def _record_xtb_path_job_payload(
+    o: Any,
+    *,
+    task: dict[str, Any],
+    payload: dict[str, Any],
+    recipe: dict[str, Any],
+    job_dir: Path,
+    reactant_target: Path,
+    product_target: Path,
+    attempt_number: int,
+) -> None:
     payload["job_dir"] = str(job_dir)
     payload["selected_input_xyz"] = str(reactant_target)
     payload["secondary_input_xyz"] = str(product_target)
@@ -376,11 +409,32 @@ def write_xtb_path_job_impl(
     payload["xtb_retry_recipe_id"] = o._normalize_text(recipe.get("recipe_id"))
     task["enqueue_payload"]["job_dir"] = str(job_dir)
     task["enqueue_payload"]["reaction_key"] = o._normalize_text(payload.get("reaction_key"))
+
+
+def _record_xtb_path_job_metadata(
+    o: Any,
+    *,
+    stage: dict[str, Any],
+    recipe: dict[str, Any],
+    attempt_number: int,
+) -> None:
     stage_metadata = o._stage_metadata(stage)
     stage_metadata["xtb_active_attempt_number"] = int(attempt_number)
     stage_metadata["xtb_retry_recipe_id"] = o._normalize_text(recipe.get("recipe_id"))
     stage_metadata["xtb_retry_recipe_label"] = o._normalize_text(recipe.get("recipe_label"))
 
+
+def _record_xtb_path_attempt(
+    o: Any,
+    *,
+    stage: dict[str, Any],
+    payload: dict[str, Any],
+    recipe: dict[str, Any],
+    job_dir: Path,
+    selected_xcontrol_name: str,
+    namespace: str,
+    attempt_number: int,
+) -> None:
     attempt_record = o._xtb_attempt_record(stage, attempt_number=attempt_number)
     attempt_record.update(
         {
@@ -389,10 +443,59 @@ def write_xtb_path_job_impl(
             "recipe_label": o._normalize_text(recipe.get("recipe_label")),
             "job_dir": str(job_dir),
             "manifest_path": str((job_dir / "xtb_job.yaml").resolve()),
-            "xcontrol_path": str((job_dir / selected_xcontrol_name).resolve()) if selected_xcontrol_name else "",
+            "xcontrol_path": str((job_dir / selected_xcontrol_name).resolve())
+            if selected_xcontrol_name
+            else "",
             "namespace": namespace,
             "reaction_key": o._normalize_text(payload.get("reaction_key")),
         }
+    )
+
+
+def write_xtb_path_job_impl(
+    stage: dict[str, Any],
+    *,
+    xtb_allowed_root: Path,
+    workflow_id: str,
+    attempt_number: int,
+) -> str:
+    o = _orchestration_module()
+    task = stage["task"]
+    payload = o._task_payload_dict(task)
+    recipe = o._xtb_retry_recipe(attempt_number)
+    stage_id = o._normalize_text(stage.get("stage_id"))
+    job_dir = _xtb_path_job_dir(xtb_allowed_root, stage_id, attempt_number)
+    reactant_target, product_target = _materialize_xtb_path_inputs(payload, job_dir=job_dir)
+    namespace, selected_xcontrol_name = _write_xtb_path_manifest(
+        o,
+        task=task,
+        payload=payload,
+        recipe=recipe,
+        job_dir=job_dir,
+        reactant_target=reactant_target,
+        product_target=product_target,
+        stage_id=stage_id,
+    )
+    _record_xtb_path_job_payload(
+        o,
+        task=task,
+        payload=payload,
+        recipe=recipe,
+        job_dir=job_dir,
+        reactant_target=reactant_target,
+        product_target=product_target,
+        attempt_number=attempt_number,
+    )
+    _record_xtb_path_job_metadata(o, stage=stage, recipe=recipe, attempt_number=attempt_number)
+    _record_xtb_path_attempt(
+        o,
+        stage=stage,
+        payload=payload,
+        recipe=recipe,
+        job_dir=job_dir,
+        selected_xcontrol_name=selected_xcontrol_name,
+        namespace=namespace,
+        attempt_number=attempt_number,
     )
     return str(job_dir)
 
@@ -471,7 +574,9 @@ def append_unique_artifact_impl(
     )
 
 
-def ensure_crest_job_dir_impl(stage: dict[str, Any], *, crest_allowed_root: Path, workflow_id: str) -> str:
+def ensure_crest_job_dir_impl(
+    stage: dict[str, Any], *, crest_allowed_root: Path, workflow_id: str
+) -> str:
     o = _orchestration_module()
     task = stage["task"]
     payload = task["payload"]
@@ -509,14 +614,372 @@ def ensure_crest_job_dir_impl(stage: dict[str, Any], *, crest_allowed_root: Path
     return str(job_dir)
 
 
-def ensure_xtb_job_dir_impl(stage: dict[str, Any], *, xtb_allowed_root: Path, workflow_id: str) -> str:
+def ensure_xtb_job_dir_impl(
+    stage: dict[str, Any], *, xtb_allowed_root: Path, workflow_id: str
+) -> str:
     o = _orchestration_module()
     task = stage["task"]
     payload = task["payload"]
     existing = o._normalize_text(payload.get("job_dir"))
     if existing:
         return existing
-    return o._write_xtb_path_job(stage, xtb_allowed_root=xtb_allowed_root, workflow_id=workflow_id, attempt_number=0)
+    return o._write_xtb_path_job(
+        stage, xtb_allowed_root=xtb_allowed_root, workflow_id=workflow_id, attempt_number=0
+    )
+
+
+def _submit_crest_stage(
+    o: Any,
+    stage: dict[str, Any],
+    task: dict[str, Any],
+    *,
+    crest_runtime_paths: dict[str, Path],
+    crest_auto_config: str | None,
+    crest_auto_executable: str,
+    crest_auto_repo_root: str | None,
+    workflow_id: str,
+) -> None:
+    job_dir = o._ensure_crest_job_dir(
+        stage,
+        crest_allowed_root=crest_runtime_paths["allowed_root"],
+        workflow_id=workflow_id,
+    )
+    submission = o.submit_crest_job_dir(
+        job_dir=job_dir,
+        priority=int(task["enqueue_payload"].get("priority", 10) or 10),
+        config_path=str(crest_auto_config),
+        executable=crest_auto_executable,
+        repo_root=crest_auto_repo_root,
+    )
+    submission["submitted_at"] = o.now_utc_iso()
+    task["submission_result"] = submission
+    stage_metadata = stage.setdefault("metadata", {})
+    if not isinstance(stage_metadata, dict):
+        return
+    if _submission_is_deferred(submission):
+        _mark_submission_deferred(
+            stage=stage,
+            task=task,
+            stage_metadata=stage_metadata,
+            submission=submission,
+        )
+        return
+    task["status"] = "submitted" if submission["status"] == "submitted" else "submission_failed"
+    stage["status"] = "queued" if submission["status"] == "submitted" else "submission_failed"
+    stage_metadata["queue_id"] = submission.get("queue_id", "")
+    stage_metadata["child_job_id"] = submission.get("job_id", "")
+    _clear_submission_deferred_metadata(stage_metadata)
+
+
+def _load_crest_contract(
+    o: Any,
+    stage: dict[str, Any],
+    task: dict[str, Any],
+    *,
+    crest_runtime_paths: dict[str, Path],
+    crest_auto_config: str | None,
+) -> Any | None:
+    payload = o._task_payload_dict(task)
+    job_dir_target = o._normalize_text(payload.get("job_dir"))
+    index_root = (
+        crest_runtime_paths["allowed_root"]
+        or _call_engine_aware(o._load_config_root, crest_auto_config, engine="crest")
+        or Path(job_dir_target or ".").resolve().parent
+    )
+    target = job_dir_target or o._submission_target(stage)
+    if not target:
+        return None
+    try:
+        return o.load_crest_artifact_contract(crest_index_root=index_root, target=target)
+    except Exception:
+        return None
+
+
+def _apply_crest_contract(
+    stage: dict[str, Any],
+    task: dict[str, Any],
+    contract: Any,
+) -> None:
+    if contract.status != "unknown":
+        task["status"] = contract.status
+        stage["status"] = contract.status
+    stage_metadata = stage.setdefault("metadata", {})
+    if isinstance(stage_metadata, dict):
+        stage_metadata["child_job_id"] = contract.job_id
+        stage_metadata["latest_known_path"] = contract.latest_known_path
+        stage_metadata["organized_output_dir"] = contract.organized_output_dir
+    task_payload = task.setdefault("payload", {})
+    if isinstance(task_payload, dict):
+        task_payload["selected_input_xyz"] = contract.selected_input_xyz
+    stage["output_artifacts"] = [
+        {
+            "kind": "crest_conformer",
+            "path": path,
+            "selected": index == 1,
+            "metadata": {"rank": index, "mode": contract.mode},
+        }
+        for index, path in enumerate(contract.retained_conformer_paths, start=1)
+    ]
+
+
+def _record_xtb_submission_attempt(
+    o: Any,
+    stage: dict[str, Any],
+    submission: dict[str, Any],
+    *,
+    attempt_number: int,
+    trigger_reason: str = "",
+    trigger_message: str = "",
+) -> None:
+    attempt_record = o._xtb_attempt_record(stage, attempt_number=attempt_number)
+    attempt_record["submission_status"] = submission.get("status", "")
+    attempt_record["submitted_at"] = submission.get("submitted_at", "")
+    attempt_record["queue_id"] = submission.get("queue_id", "")
+    if trigger_reason:
+        attempt_record["trigger_reason"] = trigger_reason
+    if trigger_message:
+        attempt_record["trigger_message"] = trigger_message
+
+
+def _apply_xtb_submission_result(
+    stage: dict[str, Any],
+    task: dict[str, Any],
+    stage_metadata: dict[str, Any],
+    submission: dict[str, Any],
+    *,
+    deferred_handoff_status: str,
+    active_handoff_status: str,
+) -> None:
+    if _submission_is_deferred(submission):
+        _mark_submission_deferred(
+            stage=stage,
+            task=task,
+            stage_metadata=stage_metadata,
+            submission=submission,
+        )
+        stage_metadata["xtb_handoff_status"] = deferred_handoff_status
+        return
+
+    task["status"] = "submitted" if submission["status"] == "submitted" else "submission_failed"
+    stage["status"] = "queued" if submission["status"] == "submitted" else "submission_failed"
+    stage_metadata["queue_id"] = submission.get("queue_id", "")
+    stage_metadata["xtb_handoff_status"] = active_handoff_status
+    _clear_submission_deferred_metadata(stage_metadata)
+
+
+def _submit_xtb_stage(
+    o: Any,
+    stage: dict[str, Any],
+    task: dict[str, Any],
+    stage_metadata: dict[str, Any],
+    *,
+    xtb_runtime_paths: dict[str, Path],
+    xtb_auto_config: str | None,
+    xtb_auto_executable: str,
+    xtb_auto_repo_root: str | None,
+    workflow_id: str,
+) -> None:
+    job_dir = o._ensure_xtb_job_dir(
+        stage,
+        xtb_allowed_root=xtb_runtime_paths["allowed_root"],
+        workflow_id=workflow_id,
+    )
+    submission = o.submit_xtb_job_dir(
+        job_dir=job_dir,
+        priority=int(task["enqueue_payload"].get("priority", 10) or 10),
+        config_path=str(xtb_auto_config),
+        executable=xtb_auto_executable,
+        repo_root=xtb_auto_repo_root,
+    )
+    submission["submitted_at"] = o.now_utc_iso()
+    task["submission_result"] = submission
+    current_attempt = o._xtb_current_attempt_number(stage)
+    _record_xtb_submission_attempt(o, stage, submission, attempt_number=current_attempt)
+    _apply_xtb_submission_result(
+        stage,
+        task,
+        stage_metadata,
+        submission,
+        deferred_handoff_status="waiting_for_slot",
+        active_handoff_status="submitted",
+    )
+    if not _submission_is_deferred(submission):
+        stage_metadata["child_job_id"] = submission.get("job_id", "")
+
+
+def _load_xtb_contract(
+    o: Any,
+    stage: dict[str, Any],
+    task_payload: dict[str, Any],
+    *,
+    xtb_runtime_paths: dict[str, Path],
+    xtb_auto_config: str | None,
+) -> Any | None:
+    job_dir_target = o._normalize_text(task_payload.get("job_dir"))
+    index_root = (
+        xtb_runtime_paths["allowed_root"]
+        or _call_engine_aware(o._load_config_root, xtb_auto_config, engine="xtb")
+        or Path(job_dir_target or ".").resolve().parent
+    )
+    target = job_dir_target or o._submission_target(stage)
+    if not target:
+        return None
+    try:
+        return o.load_xtb_artifact_contract(xtb_index_root=index_root, target=target)
+    except Exception:
+        return None
+
+
+def _empty_xtb_handoff() -> dict[str, str]:
+    return {
+        "status": "",
+        "reason": "",
+        "message": "",
+        "artifact_path": "",
+    }
+
+
+def _update_xtb_handoff_metadata(stage_metadata: dict[str, Any], handoff: dict[str, str]) -> None:
+    if not handoff["status"]:
+        return
+    stage_metadata["reaction_handoff_status"] = handoff["status"]
+    for source_key, metadata_key in (
+        ("reason", "reaction_handoff_reason"),
+        ("message", "reaction_handoff_message"),
+        ("artifact_path", "reaction_handoff_artifact_path"),
+    ):
+        value = handoff[source_key]
+        if value:
+            stage_metadata[metadata_key] = value
+        else:
+            stage_metadata.pop(metadata_key, None)
+
+
+def _apply_xtb_contract(
+    o: Any,
+    stage: dict[str, Any],
+    task: dict[str, Any],
+    task_payload: dict[str, Any],
+    stage_metadata: dict[str, Any],
+    contract: Any,
+) -> dict[str, str]:
+    if contract.status != "unknown":
+        task["status"] = contract.status
+        stage["status"] = contract.status
+    stage_metadata["child_job_id"] = contract.job_id
+    stage_metadata["latest_known_path"] = contract.latest_known_path
+    stage_metadata["organized_output_dir"] = contract.organized_output_dir
+    task_payload["selected_input_xyz"] = contract.selected_input_xyz
+
+    current_attempt = o._xtb_current_attempt_number(stage)
+    handoff = (
+        o._xtb_handoff_status(contract)
+        if o._normalize_text(task.get("task_kind")) == "path_search"
+        else _empty_xtb_handoff()
+    )
+    attempt_record = o._xtb_attempt_record(stage, attempt_number=current_attempt)
+    attempt_record.update(
+        {
+            "job_id": contract.job_id,
+            "status": contract.status,
+            "reason": contract.reason,
+            "latest_known_path": contract.latest_known_path,
+            "organized_output_dir": contract.organized_output_dir,
+            "candidate_count": len(contract.candidate_details),
+            "selected_candidate_paths": list(contract.selected_candidate_paths),
+            "analysis_summary": dict(contract.analysis_summary),
+            "handoff_status": handoff["status"],
+            "handoff_reason": handoff["reason"],
+            "handoff_message": handoff["message"],
+            "completed_at": o._normalize_text(contract.analysis_summary.get("completed_at")),
+        }
+    )
+    _update_xtb_handoff_metadata(stage_metadata, handoff)
+    return handoff
+
+
+def _maybe_retry_xtb_handoff(
+    o: Any,
+    stage: dict[str, Any],
+    task: dict[str, Any],
+    stage_metadata: dict[str, Any],
+    handoff: dict[str, str],
+    *,
+    xtb_runtime_paths: dict[str, Path],
+    xtb_auto_config: str | None,
+    xtb_auto_executable: str,
+    xtb_auto_repo_root: str | None,
+    submit_ready: bool,
+    workflow_id: str,
+) -> bool:
+    if not (
+        submit_ready
+        and o._normalize_text(xtb_auto_config)
+        and o._normalize_text(task.get("task_kind")) == "path_search"
+        and handoff["status"] == "failed"
+        and o._normalize_text(stage.get("status")).lower() in {"completed", "failed"}
+    ):
+        return False
+
+    retries_used = o._safe_int(stage_metadata.get("xtb_handoff_retries_used"), default=0)
+    retry_limit = o._xtb_path_retry_limit(stage)
+    if retries_used >= retry_limit:
+        return False
+
+    next_attempt = retries_used + 1
+    retry_job_dir = o._write_xtb_path_job(
+        stage,
+        xtb_allowed_root=xtb_runtime_paths["allowed_root"],
+        workflow_id=workflow_id,
+        attempt_number=next_attempt,
+    )
+    submission = o.submit_xtb_job_dir(
+        job_dir=retry_job_dir,
+        priority=int(task["enqueue_payload"].get("priority", 10) or 10),
+        config_path=str(xtb_auto_config),
+        executable=xtb_auto_executable,
+        repo_root=xtb_auto_repo_root,
+    )
+    submission["submitted_at"] = o.now_utc_iso()
+    task["submission_result"] = submission
+    _record_xtb_submission_attempt(
+        o,
+        stage,
+        submission,
+        attempt_number=next_attempt,
+        trigger_reason=handoff["reason"],
+        trigger_message=handoff["message"],
+    )
+    _apply_xtb_submission_result(
+        stage,
+        task,
+        stage_metadata,
+        submission,
+        deferred_handoff_status="waiting_for_slot",
+        active_handoff_status="retrying",
+    )
+    stage_metadata["reaction_handoff_status"] = "retrying"
+    stage_metadata["xtb_handoff_retry_limit"] = retry_limit
+    if not _submission_is_deferred(submission):
+        stage_metadata["xtb_handoff_retries_used"] = next_attempt
+    return True
+
+
+def _xtb_output_artifacts(contract: Any) -> list[dict[str, Any]]:
+    return [
+        {
+            "kind": "xtb_candidate",
+            "path": item.path,
+            "selected": item.selected,
+            "metadata": {
+                "rank": item.rank,
+                "kind": item.kind,
+                "score": item.score,
+                **dict(item.metadata),
+            },
+        }
+        for item in contract.candidate_details
+    ]
 
 
 def sync_crest_stage_impl(
@@ -531,75 +994,33 @@ def sync_crest_stage_impl(
 ) -> None:
     o = _orchestration_module()
     task = stage.get("task")
-    if not isinstance(task, dict):
-        return
-    if o._normalize_text(task.get("engine")) != "crest":
+    if not isinstance(task, dict) or o._normalize_text(task.get("engine")) != "crest":
         return
     crest_runtime_paths = workflow_workspace_internal_engine_paths(workspace_dir, engine="crest")
-    if o._normalize_text(task.get("status")) == "planned" and submit_ready and o._normalize_text(crest_auto_config):
-        job_dir = o._ensure_crest_job_dir(
+    if (
+        o._normalize_text(task.get("status")) == "planned"
+        and submit_ready
+        and o._normalize_text(crest_auto_config)
+    ):
+        _submit_crest_stage(
+            o,
             stage,
-            crest_allowed_root=crest_runtime_paths["allowed_root"],
+            task,
+            crest_runtime_paths=crest_runtime_paths,
+            crest_auto_config=crest_auto_config,
+            crest_auto_executable=crest_auto_executable,
+            crest_auto_repo_root=crest_auto_repo_root,
             workflow_id=workflow_id,
         )
-        submission = o.submit_crest_job_dir(
-            job_dir=job_dir,
-            priority=int(task["enqueue_payload"].get("priority", 10) or 10),
-            config_path=str(crest_auto_config),
-            executable=crest_auto_executable,
-            repo_root=crest_auto_repo_root,
-        )
-        submission["submitted_at"] = o.now_utc_iso()
-        task["submission_result"] = submission
-        stage.setdefault("metadata", {})
-        if isinstance(stage["metadata"], dict):
-            if _submission_is_deferred(submission):
-                _mark_submission_deferred(
-                    stage=stage,
-                    task=task,
-                    stage_metadata=stage["metadata"],
-                    submission=submission,
-                )
-            else:
-                task["status"] = "submitted" if submission["status"] == "submitted" else "submission_failed"
-                stage["status"] = "queued" if submission["status"] == "submitted" else "submission_failed"
-                stage["metadata"]["queue_id"] = submission.get("queue_id", "")
-                stage["metadata"]["child_job_id"] = submission.get("job_id", "")
-                _clear_submission_deferred_metadata(stage["metadata"])
-    payload = o._task_payload_dict(task)
-    job_dir_target = o._normalize_text(payload.get("job_dir"))
-    index_root = (
-        crest_runtime_paths["allowed_root"]
-        or _call_engine_aware(o._load_config_root, crest_auto_config, engine="crest")
-        or Path(job_dir_target or ".").resolve().parent
+    contract = _load_crest_contract(
+        o,
+        stage,
+        task,
+        crest_runtime_paths=crest_runtime_paths,
+        crest_auto_config=crest_auto_config,
     )
-    target = job_dir_target or o._submission_target(stage)
-    if not target:
-        return
-    try:
-        contract = o.load_crest_artifact_contract(crest_index_root=index_root, target=target)
-    except Exception:
-        return
-    if contract.status != "unknown":
-        task["status"] = contract.status
-        stage["status"] = contract.status
-    stage.setdefault("metadata", {})
-    if isinstance(stage["metadata"], dict):
-        stage["metadata"]["child_job_id"] = contract.job_id
-        stage["metadata"]["latest_known_path"] = contract.latest_known_path
-        stage["metadata"]["organized_output_dir"] = contract.organized_output_dir
-    task.setdefault("payload", {})
-    if isinstance(task["payload"], dict):
-        task["payload"]["selected_input_xyz"] = contract.selected_input_xyz
-    stage["output_artifacts"] = [
-        {
-            "kind": "crest_conformer",
-            "path": path,
-            "selected": index == 1,
-            "metadata": {"rank": index, "mode": contract.mode},
-        }
-        for index, path in enumerate(contract.retained_conformer_paths, start=1)
-    ]
+    if contract is not None:
+        _apply_crest_contract(stage, task, contract)
 
 
 def sync_xtb_stage_impl(
@@ -619,232 +1040,123 @@ def sync_xtb_stage_impl(
     stage_metadata = o._stage_metadata(stage)
     task_payload = o._task_payload_dict(task)
     xtb_runtime_paths = workflow_workspace_internal_engine_paths(workspace_dir, engine="xtb")
-    if o._normalize_text(task.get("status")) == "planned" and submit_ready and o._normalize_text(xtb_auto_config):
-        job_dir = o._ensure_xtb_job_dir(
+    if (
+        o._normalize_text(task.get("status")) == "planned"
+        and submit_ready
+        and o._normalize_text(xtb_auto_config)
+    ):
+        _submit_xtb_stage(
+            o,
             stage,
-            xtb_allowed_root=xtb_runtime_paths["allowed_root"],
+            task,
+            stage_metadata,
+            xtb_runtime_paths=xtb_runtime_paths,
+            xtb_auto_config=xtb_auto_config,
+            xtb_auto_executable=xtb_auto_executable,
+            xtb_auto_repo_root=xtb_auto_repo_root,
             workflow_id=workflow_id,
         )
-        submission = o.submit_xtb_job_dir(
-            job_dir=job_dir,
-            priority=int(task["enqueue_payload"].get("priority", 10) or 10),
-            config_path=str(xtb_auto_config),
-            executable=xtb_auto_executable,
-            repo_root=xtb_auto_repo_root,
-        )
-        submission["submitted_at"] = o.now_utc_iso()
-        task["submission_result"] = submission
-        current_attempt = o._xtb_current_attempt_number(stage)
-        attempt_record = o._xtb_attempt_record(stage, attempt_number=current_attempt)
-        attempt_record["submission_status"] = submission.get("status", "")
-        attempt_record["submitted_at"] = submission.get("submitted_at", "")
-        attempt_record["queue_id"] = submission.get("queue_id", "")
-        if _submission_is_deferred(submission):
-            _mark_submission_deferred(
-                stage=stage,
-                task=task,
-                stage_metadata=stage_metadata,
-                submission=submission,
-            )
-            stage_metadata["xtb_handoff_status"] = "waiting_for_slot"
-        else:
-            task["status"] = "submitted" if submission["status"] == "submitted" else "submission_failed"
-            stage["status"] = "queued" if submission["status"] == "submitted" else "submission_failed"
-            stage_metadata["queue_id"] = submission.get("queue_id", "")
-            stage_metadata["child_job_id"] = submission.get("job_id", "")
-            stage_metadata["xtb_handoff_status"] = "submitted"
-            _clear_submission_deferred_metadata(stage_metadata)
-    job_dir_target = o._normalize_text(task_payload.get("job_dir"))
-    index_root = (
-        xtb_runtime_paths["allowed_root"]
-        or _call_engine_aware(o._load_config_root, xtb_auto_config, engine="xtb")
-        or Path(job_dir_target or ".").resolve().parent
+    contract = _load_xtb_contract(
+        o,
+        stage,
+        task_payload,
+        xtb_runtime_paths=xtb_runtime_paths,
+        xtb_auto_config=xtb_auto_config,
     )
-    target = job_dir_target or o._submission_target(stage)
-    if not target:
+    if contract is None:
         return
-    try:
-        contract = o.load_xtb_artifact_contract(xtb_index_root=index_root, target=target)
-    except Exception:
-        return
-    if contract.status != "unknown":
-        task["status"] = contract.status
-        stage["status"] = contract.status
-    stage_metadata["child_job_id"] = contract.job_id
-    stage_metadata["latest_known_path"] = contract.latest_known_path
-    stage_metadata["organized_output_dir"] = contract.organized_output_dir
-    task_payload["selected_input_xyz"] = contract.selected_input_xyz
-
-    current_attempt = o._xtb_current_attempt_number(stage)
-    handoff = o._xtb_handoff_status(contract) if o._normalize_text(task.get("task_kind")) == "path_search" else {
-        "status": "",
-        "reason": "",
-        "message": "",
-        "artifact_path": "",
-    }
-    attempt_record = o._xtb_attempt_record(stage, attempt_number=current_attempt)
-    attempt_record.update(
-        {
-            "job_id": contract.job_id,
-            "status": contract.status,
-            "reason": contract.reason,
-            "latest_known_path": contract.latest_known_path,
-            "organized_output_dir": contract.organized_output_dir,
-            "candidate_count": len(contract.candidate_details),
-            "selected_candidate_paths": list(contract.selected_candidate_paths),
-            "analysis_summary": dict(contract.analysis_summary),
-            "handoff_status": handoff["status"],
-            "handoff_reason": handoff["reason"],
-            "handoff_message": handoff["message"],
-            "completed_at": o._normalize_text(contract.analysis_summary.get("completed_at")),
-        }
-    )
-    if handoff["status"]:
-        stage_metadata["reaction_handoff_status"] = handoff["status"]
-        if handoff["reason"]:
-            stage_metadata["reaction_handoff_reason"] = handoff["reason"]
-        else:
-            stage_metadata.pop("reaction_handoff_reason", None)
-        if handoff["message"]:
-            stage_metadata["reaction_handoff_message"] = handoff["message"]
-        else:
-            stage_metadata.pop("reaction_handoff_message", None)
-        if handoff["artifact_path"]:
-            stage_metadata["reaction_handoff_artifact_path"] = handoff["artifact_path"]
-        else:
-            stage_metadata.pop("reaction_handoff_artifact_path", None)
-
-    if (
-        submit_ready
-        and o._normalize_text(xtb_auto_config)
-        and o._normalize_text(task.get("task_kind")) == "path_search"
-        and handoff["status"] == "failed"
-        and o._normalize_text(stage.get("status")).lower() in {"completed", "failed"}
+    handoff = _apply_xtb_contract(o, stage, task, task_payload, stage_metadata, contract)
+    if _maybe_retry_xtb_handoff(
+        o,
+        stage,
+        task,
+        stage_metadata,
+        handoff,
+        xtb_runtime_paths=xtb_runtime_paths,
+        xtb_auto_config=xtb_auto_config,
+        xtb_auto_executable=xtb_auto_executable,
+        xtb_auto_repo_root=xtb_auto_repo_root,
+        submit_ready=submit_ready,
+        workflow_id=workflow_id,
     ):
-        retries_used = o._safe_int(stage_metadata.get("xtb_handoff_retries_used"), default=0)
-        retry_limit = o._xtb_path_retry_limit(stage)
-        if retries_used < retry_limit:
-            next_attempt = retries_used + 1
-            retry_job_dir = o._write_xtb_path_job(
-                stage,
-                xtb_allowed_root=xtb_runtime_paths["allowed_root"],
-                workflow_id=workflow_id,
-                attempt_number=next_attempt,
-            )
-            submission = o.submit_xtb_job_dir(
-                job_dir=retry_job_dir,
-                priority=int(task["enqueue_payload"].get("priority", 10) or 10),
-                config_path=str(xtb_auto_config),
-                executable=xtb_auto_executable,
-                repo_root=xtb_auto_repo_root,
-            )
-            submission["submitted_at"] = o.now_utc_iso()
-            task["submission_result"] = submission
-            retry_record = o._xtb_attempt_record(stage, attempt_number=next_attempt)
-            retry_record["submission_status"] = submission.get("status", "")
-            retry_record["submitted_at"] = submission.get("submitted_at", "")
-            retry_record["queue_id"] = submission.get("queue_id", "")
-            retry_record["trigger_reason"] = handoff["reason"]
-            retry_record["trigger_message"] = handoff["message"]
-            if _submission_is_deferred(submission):
-                _mark_submission_deferred(
-                    stage=stage,
-                    task=task,
-                    stage_metadata=stage_metadata,
-                    submission=submission,
-                )
-                stage_metadata["xtb_handoff_status"] = "waiting_for_slot"
-                stage_metadata["reaction_handoff_status"] = "retrying"
-                stage_metadata["xtb_handoff_retry_limit"] = retry_limit
-            else:
-                task["status"] = "submitted" if submission["status"] == "submitted" else "submission_failed"
-                stage["status"] = "queued" if submission["status"] == "submitted" else "submission_failed"
-                stage_metadata["queue_id"] = submission.get("queue_id", "")
-                stage_metadata["xtb_handoff_status"] = "retrying"
-                stage_metadata["reaction_handoff_status"] = "retrying"
-                stage_metadata["xtb_handoff_retries_used"] = next_attempt
-                stage_metadata["xtb_handoff_retry_limit"] = retry_limit
-                _clear_submission_deferred_metadata(stage_metadata)
-            return
-    stage_metadata["xtb_handoff_retries_used"] = o._safe_int(stage_metadata.get("xtb_handoff_retries_used"), default=0)
+        return
+    stage_metadata["xtb_handoff_retries_used"] = o._safe_int(
+        stage_metadata.get("xtb_handoff_retries_used"), default=0
+    )
     stage_metadata["xtb_handoff_retry_limit"] = o._xtb_path_retry_limit(stage)
-    stage["output_artifacts"] = [
-        {
-            "kind": "xtb_candidate",
-            "path": item.path,
-            "selected": item.selected,
-            "metadata": {"rank": item.rank, "kind": item.kind, "score": item.score, **dict(item.metadata)},
-        }
-        for item in contract.candidate_details
-    ]
+    stage["output_artifacts"] = _xtb_output_artifacts(contract)
 
 
-def sync_orca_stage_impl(
+def _orca_submission_resource_kwargs(o: Any, enqueue_payload: dict[str, Any]) -> dict[str, Any]:
+    resource_kwargs: dict[str, Any] = {}
+    max_cores = o._safe_int(enqueue_payload.get("max_cores"), default=0)
+    max_memory_gb = o._safe_int(enqueue_payload.get("max_memory_gb"), default=0)
+    if max_cores > 0:
+        resource_kwargs["max_cores"] = max_cores
+    if max_memory_gb > 0:
+        resource_kwargs["max_memory_gb"] = max_memory_gb
+    if _coerce_bool(enqueue_payload.get("force", False)):
+        resource_kwargs["force"] = True
+    return resource_kwargs
+
+
+def _submit_orca_stage(
+    o: Any,
     stage: dict[str, Any],
+    task: dict[str, Any],
+    enqueue_payload: dict[str, Any],
+    stage_metadata: dict[str, Any],
     *,
     orca_auto_config: str | None,
     orca_auto_executable: str,
     orca_auto_repo_root: str | None,
-    submit_ready: bool,
 ) -> None:
-    o = _orchestration_module()
-    task = stage.get("task")
-    if not isinstance(task, dict) or o._normalize_text(task.get("engine")) != "orca":
-        return
-    enqueue_payload = task.get("enqueue_payload")
-    if not isinstance(enqueue_payload, dict):
-        return
-    stage_metadata = o._stage_metadata(stage)
-    task_payload = o._task_payload_dict(task)
-    reaction_dir_hint = o._normalize_text(task_payload.get("reaction_dir") or enqueue_payload.get("reaction_dir"))
-    if o._normalize_text(task.get("status")) == "planned" and submit_ready and o._normalize_text(orca_auto_config):
-        resource_kwargs: dict[str, Any] = {}
-        max_cores = o._safe_int(enqueue_payload.get("max_cores"), default=0)
-        max_memory_gb = o._safe_int(enqueue_payload.get("max_memory_gb"), default=0)
-        if max_cores > 0:
-            resource_kwargs["max_cores"] = max_cores
-        if max_memory_gb > 0:
-            resource_kwargs["max_memory_gb"] = max_memory_gb
-        if _coerce_bool(enqueue_payload.get("force", False)):
-            resource_kwargs["force"] = True
-        submission = o.submit_reaction_dir(
-            reaction_dir=str(enqueue_payload.get("reaction_dir", "")),
-            priority=int(enqueue_payload.get("priority", 10) or 10),
-            config_path=str(orca_auto_config),
-            executable=orca_auto_executable,
-            repo_root=orca_auto_repo_root,
-            **resource_kwargs,
-        )
-        submission["submitted_at"] = o.now_utc_iso()
-        task["submission_result"] = submission
-        if _submission_is_deferred(submission):
-            _mark_submission_deferred(
-                stage=stage,
-                task=task,
-                stage_metadata=stage_metadata,
-                submission=submission,
-            )
-        else:
-            task["status"] = "submitted" if submission["status"] == "submitted" else "submission_failed"
-            stage["status"] = "queued" if submission["status"] == "submitted" else "submission_failed"
-            stage_metadata["queue_id"] = submission.get("queue_id", "")
-            stage_metadata["submission_status"] = submission.get("status", "")
-            stage_metadata["submitted_at"] = submission.get("submitted_at", "")
-            _clear_submission_deferred_metadata(stage_metadata)
-
-    allowed_root = _call_engine_aware(o._load_config_root, orca_auto_config, engine="orca")
-    organized_root = (
-        _workflow_internal_organized_root(reaction_dir_hint, engine="orca")
-        or _call_engine_aware(o._load_config_organized_root, orca_auto_config, engine="orca")
+    submission = o.submit_reaction_dir(
+        reaction_dir=str(enqueue_payload.get("reaction_dir", "")),
+        priority=int(enqueue_payload.get("priority", 10) or 10),
+        config_path=str(orca_auto_config),
+        executable=orca_auto_executable,
+        repo_root=orca_auto_repo_root,
+        **_orca_submission_resource_kwargs(o, enqueue_payload),
     )
+    submission["submitted_at"] = o.now_utc_iso()
+    task["submission_result"] = submission
+    if _submission_is_deferred(submission):
+        _mark_submission_deferred(
+            stage=stage,
+            task=task,
+            stage_metadata=stage_metadata,
+            submission=submission,
+        )
+        return
+
+    task["status"] = "submitted" if submission["status"] == "submitted" else "submission_failed"
+    stage["status"] = "queued" if submission["status"] == "submitted" else "submission_failed"
+    stage_metadata["queue_id"] = submission.get("queue_id", "")
+    stage_metadata["submission_status"] = submission.get("status", "")
+    stage_metadata["submitted_at"] = submission.get("submitted_at", "")
+    _clear_submission_deferred_metadata(stage_metadata)
+
+
+def _load_orca_contract(
+    o: Any,
+    stage_metadata: dict[str, Any],
+    *,
+    reaction_dir_hint: str,
+    orca_auto_config: str | None,
+) -> Any | None:
+    allowed_root = _call_engine_aware(o._load_config_root, orca_auto_config, engine="orca")
+    organized_root = _workflow_internal_organized_root(
+        reaction_dir_hint, engine="orca"
+    ) or _call_engine_aware(o._load_config_organized_root, orca_auto_config, engine="orca")
     target = (
         o._normalize_text(stage_metadata.get("run_id"))
         or reaction_dir_hint
         or o._normalize_text(stage_metadata.get("queue_id"))
     )
     if not target:
-        return
-    contract = o.load_orca_artifact_contract(
+        return None
+    return o.load_orca_artifact_contract(
         target=target,
         orca_allowed_root=allowed_root,
         orca_organized_root=organized_root,
@@ -852,11 +1164,45 @@ def sync_orca_stage_impl(
         run_id=o._normalize_text(stage_metadata.get("run_id")),
         reaction_dir=reaction_dir_hint,
     )
+
+
+def _apply_orca_attempt_metadata(
+    o: Any, task_payload: dict[str, Any], stage_metadata: dict[str, Any], contract: Any
+) -> None:
+    if contract.state_status in {"running", "retrying"}:
+        stage_metadata["orca_current_attempt_number"] = max(0, contract.attempt_count)
+    elif contract.attempts:
+        stage_metadata["orca_current_attempt_number"] = contract.attempts[-1].get("attempt_number")
+    else:
+        stage_metadata.pop("orca_current_attempt_number", None)
+
+    if contract.attempts:
+        last_attempt = contract.attempts[-1]
+        stage_metadata["orca_latest_attempt_number"] = last_attempt.get("attempt_number")
+        stage_metadata["orca_latest_attempt_status"] = last_attempt.get("analyzer_status")
+        task_payload["orca_latest_attempt_inp"] = o._normalize_text(last_attempt.get("inp_path"))
+        task_payload["orca_latest_attempt_out"] = o._normalize_text(last_attempt.get("out_path"))
+        return
+
+    stage_metadata.pop("orca_latest_attempt_number", None)
+    stage_metadata.pop("orca_latest_attempt_status", None)
+
+
+def _apply_orca_contract(
+    o: Any,
+    stage: dict[str, Any],
+    task: dict[str, Any],
+    task_payload: dict[str, Any],
+    stage_metadata: dict[str, Any],
+    contract: Any,
+) -> None:
     if contract.status != "unknown":
         task["status"] = contract.status
         stage["status"] = contract.status
 
-    task_payload["selected_inp"] = contract.selected_inp or o._normalize_text(task_payload.get("selected_inp"))
+    task_payload["selected_inp"] = contract.selected_inp or o._normalize_text(
+        task_payload.get("selected_inp")
+    )
     if contract.selected_input_xyz:
         task_payload["selected_input_xyz"] = contract.selected_input_xyz
     if contract.last_out_path:
@@ -864,7 +1210,9 @@ def sync_orca_stage_impl(
     if contract.optimized_xyz_path:
         task_payload["optimized_xyz_path"] = contract.optimized_xyz_path
 
-    stage_metadata["queue_id"] = contract.queue_id or o._normalize_text(stage_metadata.get("queue_id"))
+    stage_metadata["queue_id"] = contract.queue_id or o._normalize_text(
+        stage_metadata.get("queue_id")
+    )
     stage_metadata["run_id"] = contract.run_id or o._normalize_text(stage_metadata.get("run_id"))
     stage_metadata["queue_status"] = contract.queue_status
     stage_metadata["cancel_requested"] = bool(contract.cancel_requested)
@@ -879,22 +1227,10 @@ def sync_orca_stage_impl(
     stage_metadata["max_retries"] = contract.max_retries
     stage_metadata["orca_attempts"] = [dict(item) for item in contract.attempts]
     stage_metadata["orca_final_result"] = dict(contract.final_result)
-    if contract.state_status in {"running", "retrying"}:
-        stage_metadata["orca_current_attempt_number"] = max(0, contract.attempt_count)
-    elif contract.attempts:
-        stage_metadata["orca_current_attempt_number"] = contract.attempts[-1].get("attempt_number")
-    else:
-        stage_metadata.pop("orca_current_attempt_number", None)
-    if contract.attempts:
-        last_attempt = contract.attempts[-1]
-        stage_metadata["orca_latest_attempt_number"] = last_attempt.get("attempt_number")
-        stage_metadata["orca_latest_attempt_status"] = last_attempt.get("analyzer_status")
-        task_payload["orca_latest_attempt_inp"] = o._normalize_text(last_attempt.get("inp_path"))
-        task_payload["orca_latest_attempt_out"] = o._normalize_text(last_attempt.get("out_path"))
-    else:
-        stage_metadata.pop("orca_latest_attempt_number", None)
-        stage_metadata.pop("orca_latest_attempt_status", None)
+    _apply_orca_attempt_metadata(o, task_payload, stage_metadata, contract)
 
+
+def _orca_output_artifacts(o: Any, contract: Any) -> list[dict[str, Any]]:
     artifacts: list[dict[str, Any]] = []
     o._append_unique_artifact(
         artifacts,
@@ -955,7 +1291,54 @@ def sync_orca_stage_impl(
         selected=bool(contract.organized_output_dir),
         metadata={"run_id": contract.run_id},
     )
-    stage["output_artifacts"] = artifacts
+    return artifacts
+
+
+def sync_orca_stage_impl(
+    stage: dict[str, Any],
+    *,
+    orca_auto_config: str | None,
+    orca_auto_executable: str,
+    orca_auto_repo_root: str | None,
+    submit_ready: bool,
+) -> None:
+    o = _orchestration_module()
+    task = stage.get("task")
+    if not isinstance(task, dict) or o._normalize_text(task.get("engine")) != "orca":
+        return
+    enqueue_payload = task.get("enqueue_payload")
+    if not isinstance(enqueue_payload, dict):
+        return
+    stage_metadata = o._stage_metadata(stage)
+    task_payload = o._task_payload_dict(task)
+    reaction_dir_hint = o._normalize_text(
+        task_payload.get("reaction_dir") or enqueue_payload.get("reaction_dir")
+    )
+    if (
+        o._normalize_text(task.get("status")) == "planned"
+        and submit_ready
+        and o._normalize_text(orca_auto_config)
+    ):
+        _submit_orca_stage(
+            o,
+            stage,
+            task,
+            enqueue_payload,
+            stage_metadata,
+            orca_auto_config=orca_auto_config,
+            orca_auto_executable=orca_auto_executable,
+            orca_auto_repo_root=orca_auto_repo_root,
+        )
+    contract = _load_orca_contract(
+        o,
+        stage_metadata,
+        reaction_dir_hint=reaction_dir_hint,
+        orca_auto_config=orca_auto_config,
+    )
+    if contract is None:
+        return
+    _apply_orca_contract(o, stage, task, task_payload, stage_metadata, contract)
+    stage["output_artifacts"] = _orca_output_artifacts(o, contract)
 
 
 def completed_crest_roles_impl(payload: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -977,13 +1360,17 @@ def completed_crest_roles_impl(payload: dict[str, Any]) -> dict[str, dict[str, A
     for role, stage in latest_by_role.items():
         stage_status = o._normalize_text(stage.get("status")).lower()
         task = stage.get("task")
-        task_status = o._normalize_text((task or {}).get("status")).lower() if isinstance(task, dict) else ""
+        task_status = (
+            o._normalize_text((task or {}).get("status")).lower() if isinstance(task, dict) else ""
+        )
         if stage_status == "completed" and task_status in {"", "completed"}:
             rows[role] = stage
     return rows
 
 
-def completed_crest_stage_impl(stage: dict[str, Any], *, crest_auto_config: str | None) -> Any | None:
+def completed_crest_stage_impl(
+    stage: dict[str, Any], *, crest_auto_config: str | None
+) -> Any | None:
     o = _orchestration_module()
     task = stage.get("task")
     if not isinstance(task, dict):
@@ -993,7 +1380,11 @@ def completed_crest_stage_impl(stage: dict[str, Any], *, crest_auto_config: str 
     index_root = (
         _workflow_internal_runs_root(job_dir_target, engine="crest")
         or _call_engine_aware(o._load_config_root, crest_auto_config, engine="crest")
-        or (Path(job_dir_target).expanduser().resolve().parent if job_dir_target else Path(".").resolve().parent)
+        or (
+            Path(job_dir_target).expanduser().resolve().parent
+            if job_dir_target
+            else Path(".").resolve().parent
+        )
     )
     target = job_dir_target or o._submission_target(stage)
     if not target:
@@ -1012,7 +1403,9 @@ def completed_orca_stage_impl(stage: dict[str, Any], *, orca_auto_config: str | 
     payload = o._task_payload_dict(task)
     enqueue_payload = o._coerce_mapping(task.get("enqueue_payload"))
     stage_metadata = o._stage_metadata(stage)
-    reaction_dir_hint = o._normalize_text(payload.get("reaction_dir") or enqueue_payload.get("reaction_dir"))
+    reaction_dir_hint = o._normalize_text(
+        payload.get("reaction_dir") or enqueue_payload.get("reaction_dir")
+    )
     target = (
         o._normalize_text(stage_metadata.get("run_id"))
         or reaction_dir_hint
@@ -1023,10 +1416,14 @@ def completed_orca_stage_impl(stage: dict[str, Any], *, orca_auto_config: str | 
     try:
         return o.load_orca_artifact_contract(
             target=target,
-            orca_allowed_root=_call_engine_aware(o._load_config_root, orca_auto_config, engine="orca"),
+            orca_allowed_root=_call_engine_aware(
+                o._load_config_root, orca_auto_config, engine="orca"
+            ),
             orca_organized_root=(
                 _workflow_internal_organized_root(reaction_dir_hint, engine="orca")
-                or _call_engine_aware(o._load_config_organized_root, orca_auto_config, engine="orca")
+                or _call_engine_aware(
+                    o._load_config_organized_root, orca_auto_config, engine="orca"
+                )
             ),
             queue_id=o._normalize_text(stage_metadata.get("queue_id")),
             run_id=o._normalize_text(stage_metadata.get("run_id")),

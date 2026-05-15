@@ -19,6 +19,23 @@ _DEFAULT_TAIL_BYTES = 64 * 1024
 _TS_TAIL_BYTES = 256 * 1024
 _HEAD_BYTES = 8 * 1024
 
+_MARKER_RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("terminated_normally", ("****ORCA TERMINATED NORMALLY****",)),
+    ("total_run_time_seen", ("TOTAL RUN TIME",)),
+    ("irc_marker_found", ("IRC PATH SUMMARY", "IRC-DRV")),
+    ("opt_converged", ("THE OPTIMIZATION HAS CONVERGED", "OPTIMIZATION RUN DONE")),
+    ("scf_error", ("SCF NOT CONVERGED", "SCF CONVERGENCE FAILED")),
+    ("scfgrad_abort", ("ORCA FINISHED BY ERROR TERMINATION IN SCF GRADIENT",)),
+    ("disk_io_error", ("COULD NOT WRITE TO DISK", "NO SPACE LEFT ON DEVICE")),
+    ("generic_error_termination", ("ORCA FINISHED BY ERROR TERMINATION",)),
+    ("ts_failure_marker", ("NO ACCEPTABLE TS", "FAILED TO FIND TS")),
+    ("memory_error", ("OUT OF MEMORY", "INSUFFICIENT MEMORY", "CANNOT ALLOCATE MEMORY")),
+    (
+        "geom_not_converged",
+        ("THE OPTIMIZATION DID NOT CONVERGE", "OPTIMIZATION HAS NOT YET CONVERGED"),
+    ),
+)
+
 
 @dataclass
 class OutAnalysis:
@@ -55,30 +72,11 @@ def _default_markers(out_path: Path) -> Dict[str, Any]:
 
 def _scan_line_for_markers(line: str, markers: Dict[str, Any]) -> None:
     upper = line.upper()
-    if "****ORCA TERMINATED NORMALLY****" in upper:
-        markers["terminated_normally"] = True
-    if "TOTAL RUN TIME" in upper:
-        markers["total_run_time_seen"] = True
-    if "IRC PATH SUMMARY" in upper or "IRC-DRV" in upper:
-        markers["irc_marker_found"] = True
-    if "THE OPTIMIZATION HAS CONVERGED" in upper or "OPTIMIZATION RUN DONE" in upper:
-        markers["opt_converged"] = True
-    if "SCF NOT CONVERGED" in upper or "SCF CONVERGENCE FAILED" in upper:
-        markers["scf_error"] = True
-    if "ORCA FINISHED BY ERROR TERMINATION IN SCF GRADIENT" in upper:
-        markers["scfgrad_abort"] = True
     if "MULTIPLICITY" in upper and "IMPOSSIBLE" in upper:
         markers["multiplicity_impossible"] = True
-    if "COULD NOT WRITE TO DISK" in upper or "NO SPACE LEFT ON DEVICE" in upper:
-        markers["disk_io_error"] = True
-    if "ORCA FINISHED BY ERROR TERMINATION" in upper:
-        markers["generic_error_termination"] = True
-    if "NO ACCEPTABLE TS" in upper or "FAILED TO FIND TS" in upper:
-        markers["ts_failure_marker"] = True
-    if "OUT OF MEMORY" in upper or "INSUFFICIENT MEMORY" in upper or "CANNOT ALLOCATE MEMORY" in upper:
-        markers["memory_error"] = True
-    if "THE OPTIMIZATION DID NOT CONVERGE" in upper or "OPTIMIZATION HAS NOT YET CONVERGED" in upper:
-        markers["geom_not_converged"] = True
+    for marker_name, needles in _MARKER_RULES:
+        if any(needle in upper for needle in needles):
+            markers[marker_name] = True
 
 
 def _scan_text_for_markers(text: str, markers: Dict[str, Any]) -> None:
@@ -87,39 +85,64 @@ def _scan_text_for_markers(text: str, markers: Dict[str, Any]) -> None:
 
 
 def _interpret_markers(markers: Dict[str, Any], mode: CompletionMode) -> OutAnalysis:
-    if markers["multiplicity_impossible"]:
-        return OutAnalysis(
-            status=AnalyzerStatus.ERROR_MULTIPLICITY_IMPOSSIBLE,
-            reason="multiplicity_parity_mismatch",
-            markers=markers,
-        )
-    if markers["disk_io_error"]:
-        return OutAnalysis(status=AnalyzerStatus.ERROR_DISK_IO, reason="disk_write_failed", markers=markers)
-    if markers["memory_error"]:
-        return OutAnalysis(status=AnalyzerStatus.ERROR_MEMORY, reason="out_of_memory", markers=markers)
-    if markers["scfgrad_abort"]:
-        return OutAnalysis(status=AnalyzerStatus.ERROR_SCFGRAD_ABORT, reason="scf_gradient_abort", markers=markers)
-    if markers["scf_error"]:
-        return OutAnalysis(status=AnalyzerStatus.ERROR_SCF, reason="scf_not_converged", markers=markers)
-    if markers["geom_not_converged"] and not markers["terminated_normally"]:
-        return OutAnalysis(status=AnalyzerStatus.GEOM_NOT_CONVERGED, reason="geometry_not_converged", markers=markers)
+    error_analysis = _marker_error_analysis(markers)
+    if error_analysis is not None:
+        return error_analysis
 
     if markers["terminated_normally"]:
         if mode.kind == "ts":
-            imag_ok = markers["imaginary_frequency_count"] == 1
-            irc_ok = (not mode.require_irc) or bool(markers["irc_marker_found"])
-            if imag_ok and irc_ok:
-                return OutAnalysis(status=AnalyzerStatus.COMPLETED, reason="ts_criteria_met", markers=markers)
-            return OutAnalysis(status=AnalyzerStatus.TS_NOT_FOUND, reason="ts_criteria_failed", markers=markers)
-        return OutAnalysis(status=AnalyzerStatus.COMPLETED, reason="normal_termination", markers=markers)
+            return _interpret_ts_completion(markers, mode)
+        return OutAnalysis(
+            status=AnalyzerStatus.COMPLETED, reason="normal_termination", markers=markers
+        )
 
     if mode.kind == "ts" and markers["ts_failure_marker"]:
-        return OutAnalysis(status=AnalyzerStatus.TS_NOT_FOUND, reason="ts_failure_marker", markers=markers)
+        return OutAnalysis(
+            status=AnalyzerStatus.TS_NOT_FOUND, reason="ts_failure_marker", markers=markers
+        )
 
     if markers["generic_error_termination"]:
-        return OutAnalysis(status=AnalyzerStatus.UNKNOWN_FAILURE, reason="error_termination", markers=markers)
+        return OutAnalysis(
+            status=AnalyzerStatus.UNKNOWN_FAILURE, reason="error_termination", markers=markers
+        )
 
     return OutAnalysis(status=AnalyzerStatus.INCOMPLETE, reason="run_incomplete", markers=markers)
+
+
+def _marker_error_analysis(markers: Dict[str, Any]) -> OutAnalysis | None:
+    checks = (
+        (
+            "multiplicity_impossible",
+            AnalyzerStatus.ERROR_MULTIPLICITY_IMPOSSIBLE,
+            "multiplicity_parity_mismatch",
+        ),
+        ("disk_io_error", AnalyzerStatus.ERROR_DISK_IO, "disk_write_failed"),
+        ("memory_error", AnalyzerStatus.ERROR_MEMORY, "out_of_memory"),
+        ("scfgrad_abort", AnalyzerStatus.ERROR_SCFGRAD_ABORT, "scf_gradient_abort"),
+        ("scf_error", AnalyzerStatus.ERROR_SCF, "scf_not_converged"),
+    )
+    for marker_name, status, reason in checks:
+        if markers[marker_name]:
+            return OutAnalysis(status=status, reason=reason, markers=markers)
+    if markers["geom_not_converged"] and not markers["terminated_normally"]:
+        return OutAnalysis(
+            status=AnalyzerStatus.GEOM_NOT_CONVERGED,
+            reason="geometry_not_converged",
+            markers=markers,
+        )
+    return None
+
+
+def _interpret_ts_completion(markers: Dict[str, Any], mode: CompletionMode) -> OutAnalysis:
+    imag_ok = markers["imaginary_frequency_count"] == 1
+    irc_ok = (not mode.require_irc) or bool(markers["irc_marker_found"])
+    if imag_ok and irc_ok:
+        return OutAnalysis(
+            status=AnalyzerStatus.COMPLETED, reason="ts_criteria_met", markers=markers
+        )
+    return OutAnalysis(
+        status=AnalyzerStatus.TS_NOT_FOUND, reason="ts_criteria_failed", markers=markers
+    )
 
 
 def _read_tail(out_path: Path, encoding: str, nbytes: int) -> str:
@@ -176,7 +199,9 @@ def analyze_output(out_path: Path, mode: CompletionMode) -> OutAnalysis:
     markers = _default_markers(out_path)
     logger.debug("Analyzing output: %s (mode=%s)", out_path, mode.kind)
     if not out_path.exists():
-        return OutAnalysis(status=AnalyzerStatus.INCOMPLETE, reason="output_missing", markers=markers)
+        return OutAnalysis(
+            status=AnalyzerStatus.INCOMPLETE, reason="output_missing", markers=markers
+        )
 
     try:
         encoding = "utf-8"
@@ -213,6 +238,8 @@ def analyze_output(out_path: Path, mode: CompletionMode) -> OutAnalysis:
                 markers["irc_marker_found"] = True
 
     except OSError:
-        return OutAnalysis(status=AnalyzerStatus.INCOMPLETE, reason="output_read_error", markers=markers)
+        return OutAnalysis(
+            status=AnalyzerStatus.INCOMPLETE, reason="output_read_error", markers=markers
+        )
 
     return _interpret_markers(markers, mode)

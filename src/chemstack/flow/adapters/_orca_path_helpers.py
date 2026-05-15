@@ -109,52 +109,37 @@ def is_subpath_impl(candidate: Path, root: Path | None) -> bool:
     return True
 
 
-def prefer_orca_optimized_xyz_impl(
-    *,
-    selected_inp: str,
-    selected_input_xyz: str,
-    current_dir: Path | None,
-    organized_dir: Path | None,
-    latest_known_path: str,
-    last_out_path: str,
-) -> str:
-    o = _orca_module()
-    selected_inp_path = o._resolve_candidate_path(selected_inp)
-    selected_input_xyz_path = o._resolve_candidate_path(selected_input_xyz)
-    last_out = o._resolve_candidate_path(last_out_path)
-    latest_known_dir = o._resolve_candidate_path(latest_known_path)
-    if latest_known_dir is not None and not latest_known_dir.is_dir():
-        latest_known_dir = latest_known_dir.parent
+def _resolved_path_text(path: Path) -> str:
+    try:
+        return str(path.resolve())
+    except OSError:
+        return str(path)
 
-    search_dirs = o._iter_existing_dirs(
-        selected_inp_path.parent if selected_inp_path is not None else None,
-        current_dir,
-        organized_dir,
-        latest_known_dir,
-        last_out.parent if last_out is not None else None,
-    )
-    preferred_names: list[str] = []
-    if selected_inp_path is not None:
-        preferred_names.append(f"{selected_inp_path.stem}.xyz")
-    if last_out is not None:
-        preferred_names.append(f"{last_out.stem}.xyz")
 
+def _path_or_parent(path: Path | None) -> Path | None:
+    if path is None:
+        return None
+    return path if path.is_dir() else path.parent
+
+
+def _parent_if_present(path: Path | None) -> Path | None:
+    return path.parent if path is not None else None
+
+
+def _preferred_xyz_names(*paths: Path | None) -> list[str]:
+    return [f"{path.stem}.xyz" for path in paths if path is not None]
+
+
+def _first_existing_named_file(search_dirs: list[Path], filenames: list[str]) -> str:
     for search_dir in search_dirs:
-        for filename in preferred_names:
+        for filename in filenames:
             candidate = search_dir / filename
             if candidate.exists():
-                try:
-                    return str(candidate.resolve())
-                except OSError:
-                    return str(candidate)
+                return _resolved_path_text(candidate)
+    return ""
 
-    source_input = None
-    if selected_input_xyz_path is not None:
-        try:
-            source_input = selected_input_xyz_path.resolve()
-        except OSError:
-            source_input = selected_input_xyz_path
 
+def _recent_xyz_candidates(search_dirs: list[Path], source_input: Path | None) -> list[Path]:
     xyz_candidates: list[Path] = []
     seen_files: set[Path] = set()
     for search_dir in search_dirs:
@@ -177,13 +162,47 @@ def prefer_orca_optimized_xyz_impl(
                 continue
             seen_files.add(resolved)
             xyz_candidates.append(item)
+    return xyz_candidates
 
+
+def prefer_orca_optimized_xyz_impl(
+    *,
+    selected_inp: str,
+    selected_input_xyz: str,
+    current_dir: Path | None,
+    organized_dir: Path | None,
+    latest_known_path: str,
+    last_out_path: str,
+) -> str:
+    o = _orca_module()
+    selected_inp_path = o._resolve_candidate_path(selected_inp)
+    selected_input_xyz_path = o._resolve_candidate_path(selected_input_xyz)
+    last_out = o._resolve_candidate_path(last_out_path)
+
+    search_dirs = o._iter_existing_dirs(
+        _parent_if_present(selected_inp_path),
+        current_dir,
+        organized_dir,
+        _path_or_parent(o._resolve_candidate_path(latest_known_path)),
+        _parent_if_present(last_out),
+    )
+    preferred_match = _first_existing_named_file(
+        search_dirs, _preferred_xyz_names(selected_inp_path, last_out)
+    )
+    if preferred_match:
+        return preferred_match
+
+    source_input = None
+    if selected_input_xyz_path is not None:
+        try:
+            source_input = selected_input_xyz_path.resolve()
+        except OSError:
+            source_input = selected_input_xyz_path
+
+    xyz_candidates = _recent_xyz_candidates(search_dirs, source_input)
     if not xyz_candidates:
         return ""
-    try:
-        return str(xyz_candidates[0].resolve())
-    except OSError:
-        return str(xyz_candidates[0])
+    return _resolved_path_text(xyz_candidates[0])
 
 
 __all__ = [

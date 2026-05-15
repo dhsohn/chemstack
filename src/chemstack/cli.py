@@ -8,12 +8,11 @@ import signal
 import subprocess
 import sys
 import time
-import unicodedata
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Sequence
 
+from chemstack import activity_rendering as _activity_rendering
 from chemstack.activity_view import (
     activity_with_parent_hint,
     count_global_active_simulations,
@@ -44,6 +43,7 @@ _WORKFLOW_SCAFFOLD_SHORTCUTS = (
     ("ts_search", "reaction_ts_search", "Create a reaction TS-search scaffold."),
     ("conformer_search", "conformer_screening", "Create a conformer-screening scaffold."),
 )
+_DEFAULT_QUEUE_TABLE_NOW = _activity_rendering._queue_table_now
 
 
 @dataclass(frozen=True)
@@ -87,6 +87,30 @@ class _ExistingWorkerConflict:
     allowed_root: str
     source: str
     command: str
+
+
+@dataclass(frozen=True)
+class _QueueListRequest:
+    shared_config: str | None
+    limit: int
+    engine_values: tuple[str, ...]
+    status_values: tuple[str, ...]
+    kind_values: tuple[str, ...]
+    json_output: bool
+
+    @property
+    def default_combined_text_view(self) -> bool:
+        return (
+            not self.json_output
+            and not self.engine_values
+            and not self.status_values
+            and not self.kind_values
+        )
+
+
+@dataclass
+class _SupervisorShutdown:
+    requested: bool = False
 
 
 def _repo_root() -> Path:
@@ -175,10 +199,11 @@ def _command_program_name(command_argv: Sequence[str]) -> str:
 
 def _classify_existing_orca_worker(command_argv: Sequence[str]) -> str:
     program_name = _command_program_name(command_argv)
-    if program_name == "chemstack" or _command_invokes_module(command_argv, "chemstack.orca.cli") or _command_invokes_module(
-        command_argv, "chemstack.orca._internal_cli"
-    ) or _command_invokes_module(
-        command_argv, "chemstack.cli"
+    if (
+        program_name == "chemstack"
+        or _command_invokes_module(command_argv, "chemstack.orca.cli")
+        or _command_invokes_module(command_argv, "chemstack.orca._internal_cli")
+        or _command_invokes_module(command_argv, "chemstack.cli")
     ):
         return "chemstack"
     return "unknown"
@@ -306,429 +331,135 @@ def _activity_counter_config_path(
     return None
 
 
-def _queue_table_now() -> datetime:
-    return datetime.now(timezone.utc)
+def _queue_table_now() -> Any:
+    return _DEFAULT_QUEUE_TABLE_NOW()
 
 
-def _parse_activity_timestamp(value: Any) -> datetime | None:
-    text = normalize_text(value)
-    if not text:
-        return None
-    if text.endswith("Z"):
-        text = text[:-1] + "+00:00"
-    try:
-        parsed = datetime.fromisoformat(text)
-    except ValueError:
-        return None
-    if parsed.tzinfo is None:
-        return parsed.replace(tzinfo=timezone.utc)
-    return parsed.astimezone(timezone.utc)
-
-
-def _queue_elapsed_started_at(item: dict[str, Any]) -> datetime | None:
-    metadata = item.get("metadata")
-    metadata = metadata if isinstance(metadata, dict) else {}
-    restart_summary = metadata.get("restart_summary")
-    restart_summary = restart_summary if isinstance(restart_summary, dict) else {}
-    for value in (
-        metadata.get("elapsed_started_at"),
-        metadata.get("last_restarted_at"),
-        restart_summary.get("restarted_at"),
-        item.get("submitted_at"),
-        item.get("updated_at"),
-    ):
-        parsed = _parse_activity_timestamp(value)
-        if parsed is not None:
-            return parsed
-    return None
-
-
-def _queue_elapsed_text(item: dict[str, Any], *, now: datetime | None = None) -> str:
-    started_at = _queue_elapsed_started_at(item)
-    if started_at is None:
-        return "--:--:--"
-
-    status = normalize_text(item.get("status")).lower()
-    end_at = _parse_activity_timestamp(item.get("updated_at"))
-    if status in {"planned", "pending", "queued", "submitted", "running", "retrying", "cancel_requested"} or end_at is None:
-        end_at = now or _queue_table_now()
-    if end_at < started_at:
-        end_at = started_at
-    total_seconds = max(0, int((end_at - started_at).total_seconds()))
-    hours = total_seconds // 3600
-    minutes = (total_seconds % 3600) // 60
-    seconds = total_seconds % 60
-    return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
-
-
-def _queue_status_icon(item: dict[str, Any]) -> str:
-    status = normalize_text(item.get("status")).lower()
-    if status in {"completed"}:
-        return "✅"
-    if status in {"retrying"}:
-        return "🔄"
-    if status in {"failed", "cancelled", "cancel_failed", "submission_failed"}:
-        return "❌"
-    if status in {"cancel_requested"}:
-        return "⏹"
-    if status in {"running"}:
-        return "▶"
-    if status in {"planned", "pending", "queued", "submitted"}:
-        return "⏳"
-    return "•"
-
-
-def _queue_template_label(template_name: Any) -> str:
-    normalized = normalize_text(template_name).lower()
-    return {
-        "reaction_ts_search": "ts_search",
-        "conformer_screening": "conformer_search",
-    }.get(normalized, normalize_text(template_name) or "workflow")
-
-
-def _queue_task_label(task_kind: Any) -> str:
-    normalized = normalize_text(task_kind).lower()
-    return {
-        "crest_conformer_search": "conformer_search",
-        "conformer_search": "conformer_search",
-        "path_search": "TS path",
-        "xtb_path_search": "TS path",
-        "optts_freq": "OptTS+Freq",
-        "optts": "OptTS",
-        "ts": "TS",
-        "opt": "Opt",
-        "sp": "SP",
-        "freq": "Freq",
-        "irc": "IRC",
-        "neb": "NEB",
-        "orca": "ORCA",
-        "xtb": "xTB",
-        "crest": "CREST",
-    }.get(normalized, normalize_text(task_kind) or "")
-
-
-def _infer_orca_detail_from_metadata(metadata: dict[str, Any]) -> str:
-    task_kind = normalize_text(metadata.get("task_kind")).lower()
-    task_label = _queue_task_label(task_kind)
-    if task_label and task_kind not in {"orca_run_inp", "run_inp"}:
-        return task_label
-
-    job_type = normalize_text(metadata.get("job_type")).lower()
-    job_type_label = _queue_task_label(job_type)
-    if job_type_label and job_type not in {"other", "unknown"}:
-        return job_type_label
-    selected_inp_name = normalize_text(metadata.get("selected_inp_name") or metadata.get("selected_inp"))
-    lowered = selected_inp_name.lower()
-    if "neb" in lowered:
-        return "NEB"
-    if "irc" in lowered:
-        return "IRC"
-    if "ts" in lowered:
-        return "TS"
-    if "opt" in lowered:
-        return "Opt"
-    if "freq" in lowered:
-        return "Freq"
-    return "ORCA"
-
-
-def _queue_detail_text(item: dict[str, Any]) -> str:
-    kind = normalize_text(item.get("kind")).lower()
-    engine = normalize_text(item.get("engine")).lower()
-    metadata = item.get("metadata")
-    metadata = metadata if isinstance(metadata, dict) else {}
-
-    if kind == "workflow":
-        base = _queue_template_label(metadata.get("template_name"))
-        request_parameters = metadata.get("request_parameters")
-        request_parameters = request_parameters if isinstance(request_parameters, dict) else {}
-        crest_mode = normalize_text(request_parameters.get("crest_mode"))
-        if crest_mode:
-            return f"{base}({crest_mode})"
-        return base
-    if engine == "crest":
-        base = _queue_task_label(metadata.get("task_kind")) or "conformer_search"
-        mode = normalize_text(metadata.get("mode"))
-        if mode:
-            return f"{base}({mode})"
-        return base
-    if engine == "xtb":
-        return _queue_task_label(metadata.get("task_kind")) or _queue_task_label(metadata.get("job_type")) or "xTB"
-    if engine == "orca":
-        return _infer_orca_detail_from_metadata(metadata)
-    return normalize_text(item.get("label")) or normalize_text(item.get("source")) or "-"
-
-
-def _queue_looks_like_path(value: str) -> bool:
-    text = normalize_text(value)
-    return "/" in text or "\\" in text
-
-
-def _queue_path_name(value: Any) -> str:
-    text = normalize_text(value)
-    if not text:
-        return ""
-    normalized = text.replace("\\", "/").rstrip("/")
-    if not normalized:
-        return ""
-    return normalized.rsplit("/", 1)[-1]
-
-
-def _queue_metadata_path_name(metadata: dict[str, Any], keys: Sequence[str]) -> str:
-    for key in keys:
-        name = _queue_path_name(metadata.get(key))
-        if name and name not in {"reaction_dir", "workflow.json"}:
-            return name
-    return ""
-
-
-def _queue_name_text(item: dict[str, Any]) -> str:
-    activity_id = normalize_text(item.get("activity_id")) or "-"
-    kind = normalize_text(item.get("kind")).lower()
-    label = normalize_text(item.get("label"))
-    metadata = item.get("metadata")
-    metadata = metadata if isinstance(metadata, dict) else {}
-
-    if label and not _queue_looks_like_path(label):
-        return label
-
-    if kind == "workflow":
-        workspace_name = _queue_metadata_path_name(metadata, ("workspace_dir", "workflow_file"))
-        if workspace_name:
-            return workspace_name
-        return activity_id
-
-    path_name = _queue_metadata_path_name(
-        metadata,
-        ("reaction_dir", "job_dir", "original_run_dir", "latest_known_path", "organized_output_dir"),
-    )
-    if path_name:
-        return path_name
-
-    label_name = _queue_path_name(label)
-    if label_name and label_name not in {"reaction_dir", "workflow.json"}:
-        return label_name
-
-    return activity_id
-
-
-def _queue_truncate(value: str, *, max_width: int) -> str:
-    text = normalize_text(value)
-    if _queue_display_width(text) <= max_width:
-        return text
-    if max_width <= 3:
-        return _queue_trim_to_width(text, max_width)
-    return _queue_trim_to_width(text, max_width - 3) + "..."
-
-
-def _queue_char_width(char: str) -> int:
-    if not char:
-        return 0
-    if unicodedata.combining(char):
-        return 0
-    if unicodedata.category(char) == "Cf":
-        return 0
-    if unicodedata.east_asian_width(char) in {"W", "F"}:
-        return 2
-    return 1
-
-
-def _queue_text(value: Any) -> str:
-    if value is None:
-        return ""
-    return str(value)
+def _queue_elapsed_text(item: dict[str, Any], *, now: Any | None = None) -> str:
+    return _activity_rendering._queue_elapsed_text(item, now=now)
 
 
 def _queue_display_width(value: str) -> int:
-    return sum(_queue_char_width(char) for char in _queue_text(value))
-
-
-def _queue_trim_to_width(value: str, max_width: int) -> str:
-    if max_width <= 0:
-        return ""
-    trimmed: list[str] = []
-    current_width = 0
-    for char in _queue_text(value):
-        char_width = _queue_char_width(char)
-        if current_width + char_width > max_width:
-            break
-        trimmed.append(char)
-        current_width += char_width
-    return "".join(trimmed)
-
-
-def _queue_pad_right(value: str, width: int) -> str:
-    padding = max(0, int(width) - _queue_display_width(value))
-    return _queue_text(value) + (" " * padding)
+    return _activity_rendering._queue_display_width(value)
 
 
 def _queue_table_lines(rows: Sequence[tuple[int, dict[str, Any]]]) -> list[str]:
-    prepared: list[dict[str, str]] = []
-    now = _queue_table_now()
-    for indent, item in rows:
-        name = _queue_name_text(item)
-        if int(indent) > 0:
-            name = ("  " * int(indent)) + name
-        item_id = normalize_text(item.get("activity_id")) or "-"
-        prepared.append(
-            {
-                "status": _queue_status_icon(item),
-                "name": name,
-                "detail": _queue_detail_text(item),
-                "id": item_id,
-                "elapsed": _queue_elapsed_text(item, now=now),
-            }
-        )
-
-    status_header = "Status"
-    name_header = "Name"
-    detail_header = "Detail"
-    id_header = "ID"
-    elapsed_header = "Elapsed"
-
-    detail_width = max(
-        _queue_display_width(detail_header),
-        min(
-            36,
-            max((_queue_display_width(row["detail"]) for row in prepared), default=0),
-        ),
-    )
-    status_width = max(
-        _queue_display_width(status_header),
-        max((_queue_display_width(row["status"]) for row in prepared), default=0),
-    )
-    name_width = max(
-        _queue_display_width(name_header),
-        min(
-            32,
-            max((_queue_display_width(row["name"]) for row in prepared), default=0),
-        ),
-    )
-    id_width = max(
-        _queue_display_width(id_header),
-        max((_queue_display_width(row["id"]) for row in prepared), default=0),
-    )
-    elapsed_width = max(_queue_display_width(elapsed_header), 8)
-
-    lines = [
-        f"{_queue_pad_right(status_header, status_width)}  "
-        f"{_queue_pad_right(name_header, name_width)}  "
-        f"{_queue_pad_right(detail_header, detail_width)}  "
-        f"{_queue_pad_right(id_header, id_width)}  "
-        f"{_queue_pad_right(elapsed_header, elapsed_width)}",
-        "─" * (status_width + name_width + detail_width + id_width + elapsed_width + 8),
-    ]
-    for row in prepared:
-        lines.append(
-            f"{_queue_pad_right(row['status'], status_width)}  "
-            f"{_queue_pad_right(_queue_truncate(row['name'], max_width=name_width), name_width)}  "
-            f"{_queue_pad_right(_queue_truncate(row['detail'], max_width=detail_width), detail_width)}  "
-            f"{_queue_pad_right(row['id'], id_width)}  "
-            f"{_queue_pad_right(row['elapsed'], elapsed_width)}"
-        )
-    return lines
+    original = _activity_rendering._queue_table_now
+    _activity_rendering._queue_table_now = _queue_table_now
+    try:
+        return _activity_rendering.queue_table_lines(rows)
+    finally:
+        _activity_rendering._queue_table_now = original
 
 
 def _queue_clear_lines(payload: dict[str, Any]) -> list[str]:
-    total_cleared = int(payload.get("total_cleared", 0) or 0)
-    if total_cleared <= 0:
-        return ["Nothing to clear."]
+    return _activity_rendering.queue_clear_lines(payload)
 
-    lines = [f"Cleared {total_cleared} completed/failed/cancelled entries."]
-    cleared = payload.get("cleared")
-    if not isinstance(cleared, dict):
-        return lines
 
-    labels = (
-        ("workflows", "workflows"),
-        ("xtb_queue_entries", "xTB queue entries"),
-        ("crest_queue_entries", "CREST queue entries"),
-        ("orca_queue_entries", "ORCA queue entries"),
-        ("orca_run_states", "ORCA run states"),
+def _queue_list_request(args: Any) -> _QueueListRequest:
+    return _QueueListRequest(
+        shared_config=_effective_shared_config_text(args) or None,
+        limit=int(getattr(args, "limit", 0) or 0),
+        engine_values=_normalize_filter_values(getattr(args, "engine", None)),
+        status_values=_normalize_filter_values(getattr(args, "status", None)),
+        kind_values=_normalize_filter_values(getattr(args, "kind", None)),
+        json_output=bool(getattr(args, "json", False)),
     )
-    for key, label in labels:
-        count = int(cleared.get(key, 0) or 0)
-        if count > 0:
-            lines.append(f"  {label}: {count}")
-    return lines
 
 
-def cmd_queue_list(args: Any) -> int:
-    shared_config = _effective_shared_config_text(args) or None
-    if normalize_text(getattr(args, "action", None)).lower() == "clear":
-        if any(getattr(args, field, None) for field in ("engine", "status", "kind")) or int(getattr(args, "limit", 0) or 0) > 0:
-            print("error: `chemstack queue list clear` does not support --engine/--status/--kind/--limit filters.")
-            return 1
-        payload = clear_activities(
-            workflow_root=_workflow_root_for_args(args),
-            crest_auto_config=shared_config,
-            xtb_auto_config=shared_config,
-            orca_auto_config=shared_config,
+def _cmd_queue_list_clear(args: Any, request: _QueueListRequest) -> int:
+    if (
+        any(getattr(args, field, None) for field in ("engine", "status", "kind"))
+        or request.limit > 0
+    ):
+        print(
+            "error: `chemstack queue list clear` does not support --engine/--status/--kind/--limit filters."
         )
-        if bool(getattr(args, "json", False)):
-            print(json.dumps(payload, ensure_ascii=True, indent=2))
-            return 0
-        for line in _queue_clear_lines(payload):
-            print(line)
-        return 0
-
-    limit = int(getattr(args, "limit", 0) or 0)
-    engine_values = _normalize_filter_values(getattr(args, "engine", None))
-    status_values = _normalize_filter_values(getattr(args, "status", None))
-    kind_values = _normalize_filter_values(getattr(args, "kind", None))
-    default_combined_text_view = (
-        not bool(getattr(args, "json", False))
-        and not engine_values
-        and not status_values
-        and not kind_values
+        return 1
+    payload = clear_activities(
+        workflow_root=_workflow_root_for_args(args),
+        crest_auto_config=request.shared_config,
+        xtb_auto_config=request.shared_config,
+        orca_auto_config=request.shared_config,
     )
+    if request.json_output:
+        print(json.dumps(payload, ensure_ascii=True, indent=2))
+        return 0
+    for line in _queue_clear_lines(payload):
+        print(line)
+    return 0
+
+
+def _queue_list_payload(args: Any, request: _QueueListRequest) -> dict[str, Any]:
     payload = list_activities(
         workflow_root=_workflow_root_for_args(args),
         limit=0,
         refresh=bool(getattr(args, "refresh", False)),
-        crest_auto_config=shared_config,
-        xtb_auto_config=shared_config,
-        orca_auto_config=shared_config,
-        child_job_engines=() if default_combined_text_view else None,
+        crest_auto_config=request.shared_config,
+        xtb_auto_config=request.shared_config,
+        orca_auto_config=request.shared_config,
+        child_job_engines=() if request.default_combined_text_view else None,
     )
-    filtered_activities = _filter_activity_items(
+    return payload
+
+
+def _filtered_queue_payload(
+    payload: dict[str, Any],
+    request: _QueueListRequest,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    activities = _filter_activity_items(
         payload.get("activities", []),
-        engines=engine_values,
-        statuses=status_values,
-        kinds=kind_values,
+        engines=request.engine_values,
+        statuses=request.status_values,
+        kinds=request.kind_values,
     )
-    activities = list(filtered_activities)
-    if limit > 0:
-        activities = activities[:limit]
+    limited_activities = activities[: request.limit] if request.limit > 0 else list(activities)
     active_simulations = count_global_active_simulations(
         payload.get("activities", []),
-        config_path=_activity_counter_config_path(payload=payload, config_hint=shared_config),
+        config_path=_activity_counter_config_path(
+            payload=payload, config_hint=request.shared_config
+        ),
     )
-    enriched_activities = [activity_with_parent_hint(item) for item in activities]
-    filtered_payload = {
-        "count": len(activities),
+    return {
+        "count": len(limited_activities),
         "active_simulations": active_simulations,
-        "activities": enriched_activities,
+        "activities": [activity_with_parent_hint(item) for item in limited_activities],
         "sources": dict(payload.get("sources", {})),
-    }
-    if bool(getattr(args, "json", False)):
-        print(json.dumps(filtered_payload, ensure_ascii=True, indent=2))
-        return 0
+    }, activities
 
-    kind_filter = set(kind_values)
+
+def _queue_list_display_rows(
+    *,
+    payload: dict[str, Any],
+    filtered_activities: Sequence[dict[str, Any]],
+    request: _QueueListRequest,
+) -> list[tuple[int, dict[str, Any]]]:
     display_items = list(filtered_activities)
-    if default_combined_text_view:
+    if request.default_combined_text_view:
         display_items = queue_list_default_visible_items(display_items)
-    if limit > 0:
-        display_items = display_items[:limit]
-    show_workflow_context = kind_filter != {"job"}
-    display_rows = queue_list_display_rows(
+    if request.limit > 0:
+        display_items = display_items[: request.limit]
+    show_workflow_context = set(request.kind_values) != {"job"}
+    return queue_list_display_rows(
         all_items=payload.get("activities", []),
         visible_items=display_items,
         show_workflow_context=show_workflow_context,
-        visible_workflow_child_engines=("orca",) if default_combined_text_view else None,
+        visible_workflow_child_engines=("orca",) if request.default_combined_text_view else None,
     )
 
+
+def _print_queue_list_text(
+    *,
+    payload: dict[str, Any],
+    filtered_payload: dict[str, Any],
+    filtered_activities: Sequence[dict[str, Any]],
+    request: _QueueListRequest,
+) -> int:
+    display_rows = _queue_list_display_rows(
+        payload=payload,
+        filtered_activities=filtered_activities,
+        request=request,
+    )
     print(f"active_simulations: {filtered_payload['active_simulations']}")
     if not display_rows:
         print("No matching activities.")
@@ -736,6 +467,24 @@ def cmd_queue_list(args: Any) -> int:
     for line in _queue_table_lines(display_rows):
         print(line)
     return 0
+
+
+def cmd_queue_list(args: Any) -> int:
+    request = _queue_list_request(args)
+    if normalize_text(getattr(args, "action", None)).lower() == "clear":
+        return _cmd_queue_list_clear(args, request)
+
+    payload = _queue_list_payload(args, request)
+    filtered_payload, filtered_activities = _filtered_queue_payload(payload, request)
+    if request.json_output:
+        print(json.dumps(filtered_payload, ensure_ascii=True, indent=2))
+        return 0
+    return _print_queue_list_text(
+        payload=payload,
+        filtered_payload=filtered_payload,
+        filtered_activities=filtered_activities,
+        request=request,
+    )
 
 
 def cmd_queue_cancel(args: Any) -> int:
@@ -851,6 +600,63 @@ def _workflow_worker_spec(
     return WorkerSpec(app="workflow", argv=tuple(argv))
 
 
+def _worker_engine_apps(apps: Sequence[str], *, workflow_enabled: bool) -> list[str]:
+    engine_apps = [app for app in apps if app in _ENGINE_APPS]
+    if workflow_enabled:
+        for app in _WORKFLOW_ENGINE_APPS:
+            if app not in engine_apps:
+                engine_apps.append(app)
+    return engine_apps
+
+
+def _validate_engine_worker_config(engine_apps: Sequence[str], config_path: str | None) -> None:
+    if engine_apps and not normalize_text(config_path):
+        raise ValueError(
+            "Could not discover chemstack.yaml for engine workers. Pass --chemstack-config or set CHEMSTACK_CONFIG."
+        )
+
+
+def _workflow_only_worker_flag_error(args: Any) -> str | None:
+    if any(
+        bool(getattr(args, attr, False))
+        for attr in ("no_submit", "refresh_registry", "refresh_each_cycle")
+    ):
+        raise ValueError("workflow-only worker flags require --app workflow")
+    numeric_flags = (
+        ("max_cycles", int, "--max-cycles"),
+        ("interval_seconds", float, "--interval-seconds"),
+        ("lock_timeout_seconds", float, "--lock-timeout-seconds"),
+    )
+    for attr, caster, option in numeric_flags:
+        if caster(getattr(args, attr, 0) or 0) > 0:
+            return f"{option} requires --app workflow"
+    return None
+
+
+def _add_workflow_worker_spec(
+    specs: list[WorkerSpec],
+    *,
+    apps: Sequence[str],
+    explicit_app_selection: bool,
+    workflow_root: str | None,
+    config_path: str | None,
+    args: argparse.Namespace,
+) -> None:
+    if "workflow" in apps and not workflow_root:
+        raise ValueError("workflow worker requires workflow.root in chemstack.yaml")
+
+    should_add_workflow = "workflow" in apps or (not explicit_app_selection and bool(workflow_root))
+    if should_add_workflow and workflow_root:
+        specs.append(
+            _workflow_worker_spec(workflow_root=workflow_root, config_path=config_path, args=args)
+        )
+        return
+
+    flag_error = _workflow_only_worker_flag_error(args)
+    if flag_error:
+        raise ValueError(flag_error)
+
+
 def _build_worker_specs(args: Any) -> list[WorkerSpec]:
     explicit_apps = list(getattr(args, "app", None) or [])
     apps = _selected_worker_apps(explicit_apps)
@@ -858,38 +664,20 @@ def _build_worker_specs(args: Any) -> list[WorkerSpec]:
     config_path = _discover_shared_config_path(_effective_shared_config_text(args))
     workflow_root = _workflow_root_for_args(args)
     workflow_enabled = "workflow" in apps or (not explicit_app_selection and bool(workflow_root))
+    engine_apps = _worker_engine_apps(apps, workflow_enabled=workflow_enabled)
+    _validate_engine_worker_config(engine_apps, config_path)
 
-    engine_apps = [app for app in apps if app in _ENGINE_APPS]
-    if workflow_enabled:
-        for app in _WORKFLOW_ENGINE_APPS:
-            if app not in engine_apps:
-                engine_apps.append(app)
-    if engine_apps and not normalize_text(config_path):
-        raise ValueError(
-            "Could not discover chemstack.yaml for engine workers. Pass --chemstack-config or set CHEMSTACK_CONFIG."
-        )
-
-    specs: list[WorkerSpec] = []
-    for app in engine_apps:
-        specs.append(_engine_worker_spec(app=app, config_path=str(config_path), args=args))
-
-    if "workflow" in apps:
-        if not workflow_root:
-            raise ValueError("workflow worker requires workflow.root in chemstack.yaml")
-        specs.append(_workflow_worker_spec(workflow_root=workflow_root, config_path=config_path, args=args))
-    elif not explicit_app_selection and workflow_root:
-        specs.append(_workflow_worker_spec(workflow_root=workflow_root, config_path=config_path, args=args))
-    elif any(
-        bool(getattr(args, attr, False))
-        for attr in ("no_submit", "refresh_registry", "refresh_each_cycle")
-    ):
-        raise ValueError("workflow-only worker flags require --app workflow")
-    elif int(getattr(args, "max_cycles", 0) or 0) > 0:
-        raise ValueError("--max-cycles requires --app workflow")
-    elif float(getattr(args, "interval_seconds", 0.0) or 0.0) > 0:
-        raise ValueError("--interval-seconds requires --app workflow")
-    elif float(getattr(args, "lock_timeout_seconds", 0.0) or 0.0) > 0:
-        raise ValueError("--lock-timeout-seconds requires --app workflow")
+    specs = [
+        _engine_worker_spec(app=app, config_path=str(config_path), args=args) for app in engine_apps
+    ]
+    _add_workflow_worker_spec(
+        specs,
+        apps=apps,
+        explicit_app_selection=explicit_app_selection,
+        workflow_root=workflow_root,
+        config_path=config_path,
+        args=args,
+    )
     return specs
 
 
@@ -917,29 +705,21 @@ def _terminate_process(proc: subprocess.Popen[Any]) -> None:
         time.sleep(0.1)
 
 
-def _run_worker_supervisor(specs: Sequence[WorkerSpec]) -> int:
-    if not specs:
-        print("error: no workers selected")
-        return 1
+def _spawn_supervised_worker(spec: WorkerSpec, *, restart: bool = False) -> _SupervisedWorker:
+    command_text = " ".join(shlex.quote(part) for part in spec.argv)
+    action = "restarting" if restart else "starting"
+    print(f"{action} worker[{spec.app}]: {command_text}")
+    return _SupervisedWorker(
+        spec=spec,
+        process=subprocess.Popen(spec.argv, cwd=spec.cwd, env=spec.env),
+        started_at_monotonic=time.monotonic(),
+    )
 
-    processes: list[_SupervisedWorker] = []
-    shutdown_requested = False
-    exit_code = 0
 
-    def _spawn_worker(spec: WorkerSpec, *, restart: bool = False) -> _SupervisedWorker:
-        command_text = " ".join(shlex.quote(part) for part in spec.argv)
-        action = "restarting" if restart else "starting"
-        print(f"{action} worker[{spec.app}]: {command_text}")
-        return _SupervisedWorker(
-            spec=spec,
-            process=subprocess.Popen(spec.argv, cwd=spec.cwd, env=spec.env),
-            started_at_monotonic=time.monotonic(),
-        )
-
+def _install_supervisor_signal_handlers(shutdown: _SupervisorShutdown) -> dict[signal.Signals, Any]:
     def _request_shutdown(signum: int, frame: Any) -> None:
         del signum, frame
-        nonlocal shutdown_requested
-        shutdown_requested = True
+        shutdown.requested = True
 
     previous_handlers: dict[signal.Signals, Any] = {}
     for sig in (signal.SIGINT, signal.SIGTERM):
@@ -948,59 +728,117 @@ def _run_worker_supervisor(specs: Sequence[WorkerSpec]) -> int:
             signal.signal(sig, _request_shutdown)
         except Exception:
             continue
+    return previous_handlers
 
+
+def _restore_signal_handlers(previous_handlers: dict[signal.Signals, Any]) -> None:
+    for sig, handler in previous_handlers.items():
+        try:
+            signal.signal(sig, handler)
+        except Exception:
+            continue
+
+
+def _reset_stable_startup_failure_count(managed: _SupervisedWorker, current_time: float) -> None:
+    if (
+        managed.startup_failure_count > 0
+        and current_time - managed.started_at_monotonic >= _WORKER_STARTUP_FAILURE_WINDOW_SECONDS
+    ):
+        managed.startup_failure_count = 0
+
+
+def _restart_or_stop_worker(
+    processes: list[_SupervisedWorker],
+    *,
+    index: int,
+    managed: _SupervisedWorker,
+    returncode: int,
+    current_time: float,
+) -> int | None:
+    spec = managed.spec
+    quick_startup_failure = (
+        returncode != 0
+        and current_time - managed.started_at_monotonic < _WORKER_STARTUP_FAILURE_WINDOW_SECONDS
+    )
+    if quick_startup_failure:
+        managed.startup_failure_count += 1
+        if managed.startup_failure_count >= _WORKER_MAX_STARTUP_FAILURES:
+            print(
+                f"worker[{spec.app}] failed repeatedly during startup; "
+                "stopping supervisor to avoid a restart loop."
+            )
+            return returncode if returncode > 0 else 1
+    else:
+        managed.startup_failure_count = 0
+
+    restarted = _spawn_supervised_worker(spec, restart=True)
+    restarted.startup_failure_count = managed.startup_failure_count
+    processes[index] = restarted
+    return None
+
+
+def _poll_supervised_workers(
+    processes: list[_SupervisedWorker],
+    shutdown: _SupervisorShutdown,
+) -> int | None:
+    current_time = time.monotonic()
+    for index, managed in enumerate(processes):
+        returncode = managed.process.poll()
+        if returncode is None:
+            _reset_stable_startup_failure_count(managed, current_time)
+            continue
+
+        print(f"worker[{managed.spec.app}] exited with code {returncode}")
+        if shutdown.requested:
+            continue
+
+        exit_code = _restart_or_stop_worker(
+            processes,
+            index=index,
+            managed=managed,
+            returncode=returncode,
+            current_time=current_time,
+        )
+        if exit_code is not None:
+            shutdown.requested = True
+            return exit_code
+    return None
+
+
+def _supervise_worker_processes(
+    processes: list[_SupervisedWorker],
+    shutdown: _SupervisorShutdown,
+) -> int:
+    exit_code = 0
+    while True:
+        failure_exit_code = _poll_supervised_workers(processes, shutdown)
+        if failure_exit_code is not None:
+            exit_code = failure_exit_code
+        if shutdown.requested:
+            return exit_code
+        time.sleep(_WORKER_POLL_INTERVAL_SECONDS)
+
+
+def _terminate_supervised_workers(processes: Sequence[_SupervisedWorker]) -> None:
+    for managed in processes:
+        _terminate_process(managed.process)
+
+
+def _run_worker_supervisor(specs: Sequence[WorkerSpec]) -> int:
+    if not specs:
+        print("error: no workers selected")
+        return 1
+
+    processes: list[_SupervisedWorker] = []
+    shutdown = _SupervisorShutdown()
+    previous_handlers = _install_supervisor_signal_handlers(shutdown)
     try:
         for spec in specs:
-            processes.append(_spawn_worker(spec))
-
-        while True:
-            current_time = time.monotonic()
-            for index, managed in enumerate(processes):
-                spec = managed.spec
-                process = managed.process
-                returncode = process.poll()
-                if returncode is None:
-                    if (
-                        managed.startup_failure_count > 0
-                        and current_time - managed.started_at_monotonic >= _WORKER_STARTUP_FAILURE_WINDOW_SECONDS
-                    ):
-                        managed.startup_failure_count = 0
-                    continue
-                print(f"worker[{spec.app}] exited with code {returncode}")
-                if shutdown_requested:
-                    continue
-                quick_startup_failure = (
-                    returncode != 0
-                    and current_time - managed.started_at_monotonic < _WORKER_STARTUP_FAILURE_WINDOW_SECONDS
-                )
-                if quick_startup_failure:
-                    managed.startup_failure_count += 1
-                    if managed.startup_failure_count >= _WORKER_MAX_STARTUP_FAILURES:
-                        print(
-                            f"worker[{spec.app}] failed repeatedly during startup; "
-                            "stopping supervisor to avoid a restart loop."
-                        )
-                        exit_code = returncode if returncode > 0 else 1
-                        shutdown_requested = True
-                        break
-                else:
-                    managed.startup_failure_count = 0
-
-                restarted = _spawn_worker(spec, restart=True)
-                restarted.startup_failure_count = managed.startup_failure_count
-                processes[index] = restarted
-            if shutdown_requested:
-                break
-            time.sleep(_WORKER_POLL_INTERVAL_SECONDS)
+            processes.append(_spawn_supervised_worker(spec))
+        return _supervise_worker_processes(processes, shutdown)
     finally:
-        for managed in processes:
-            _terminate_process(managed.process)
-        for sig, handler in previous_handlers.items():
-            try:
-                signal.signal(sig, handler)
-            except Exception:
-                continue
-    return exit_code
+        _terminate_supervised_workers(processes)
+        _restore_signal_handlers(previous_handlers)
 
 
 def _emit_supervisor_specs_json(*, key: str, specs: Sequence[WorkerSpec]) -> int:
@@ -1173,29 +1011,16 @@ def _add_engine_config_argument(parser: argparse.ArgumentParser) -> None:
 
 def _add_orca_logging_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--verbose", "-v", action="store_true", help="Enable debug logging")
-    parser.add_argument("--log-file", default=None, help="Write logs to file (with rotation, max 10MB x 5)")
-
-
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="chemstack")
     parser.add_argument(
-        "--chemstack-config",
-        "--config",
-        dest="global_config",
-        default=None,
-        help=argparse.SUPPRESS,
+        "--log-file", default=None, help="Write logs to file (with rotation, max 10MB x 5)"
     )
-    subparsers = parser.add_subparsers(dest="command", required=True)
 
-    queue_parser = subparsers.add_parser(
-        "queue",
-        help="Unified queue and worker commands across ORCA, workflow-managed internal engines, and workflows.",
-    )
-    queue_subparsers = queue_parser.add_subparsers(dest="queue_command", required=True)
 
+def _add_queue_list_parser(
+    queue_subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
     list_parser = queue_subparsers.add_parser(
-        "list",
-        help="List workflows and engine activities together.",
+        "list", help="List workflows and engine activities together."
     )
     list_parser.add_argument(
         "action",
@@ -1204,9 +1029,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="Remove completed/failed/cancelled entries from the unified activity list",
     )
     list_parser.add_argument("--workflow-root", help=argparse.SUPPRESS)
-    list_parser.add_argument("--chemstack-config", "--config", dest="chemstack_config", help="Path to shared chemstack.yaml")
-    list_parser.add_argument("--limit", type=int, default=0, help="Optional maximum number of activities to print")
-    list_parser.add_argument("--refresh", action="store_true", help="Refresh workflow registry before listing")
+    list_parser.add_argument(
+        "--chemstack-config",
+        "--config",
+        dest="chemstack_config",
+        help="Path to shared chemstack.yaml",
+    )
+    list_parser.add_argument(
+        "--limit", type=int, default=0, help="Optional maximum number of activities to print"
+    )
+    list_parser.add_argument(
+        "--refresh", action="store_true", help="Refresh workflow registry before listing"
+    )
     list_parser.add_argument(
         "--engine",
         action="append",
@@ -1214,9 +1048,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Filter by engine; may be passed more than once",
     )
     list_parser.add_argument(
-        "--status",
-        action="append",
-        help="Filter by status; may be passed more than once",
+        "--status", action="append", help="Filter by status; may be passed more than once"
     )
     list_parser.add_argument(
         "--kind",
@@ -1227,16 +1059,38 @@ def build_parser() -> argparse.ArgumentParser:
     list_parser.add_argument("--json", action="store_true", help="Print JSON output")
     list_parser.set_defaults(func=cmd_queue_list)
 
+
+def _add_queue_cancel_parser(
+    queue_subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
     cancel_parser = queue_subparsers.add_parser(
-        "cancel",
-        help="Cancel a workflow or engine activity.",
+        "cancel", help="Cancel a workflow or engine activity."
     )
-    cancel_parser.add_argument("target", help="Activity id, workflow id, queue id, run id, or known path alias")
+    cancel_parser.add_argument(
+        "target", help="Activity id, workflow id, queue id, run id, or known path alias"
+    )
     cancel_parser.add_argument("--workflow-root", help=argparse.SUPPRESS)
-    cancel_parser.add_argument("--chemstack-config", "--config", dest="chemstack_config", help="Path to shared chemstack.yaml")
+    cancel_parser.add_argument(
+        "--chemstack-config",
+        "--config",
+        dest="chemstack_config",
+        help="Path to shared chemstack.yaml",
+    )
     cancel_parser.add_argument("--json", action="store_true", help="Print JSON output")
     cancel_parser.set_defaults(func=cmd_queue_cancel)
 
+
+def _add_queue_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
+    queue_parser = subparsers.add_parser(
+        "queue",
+        help="Unified queue and worker commands across ORCA, workflow-managed internal engines, and workflows.",
+    )
+    queue_subparsers = queue_parser.add_subparsers(dest="queue_command", required=True)
+    _add_queue_list_parser(queue_subparsers)
+    _add_queue_cancel_parser(queue_subparsers)
+
+
+def _add_run_dir_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     run_dir_parser = subparsers.add_parser(
         "run-dir",
         help="Submit an ORCA job directory or workflow input directory through the unified CLI.",
@@ -1249,21 +1103,44 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Force ORCA re-run, or allow restarting an existing workflow workspace outside failed status",
     )
-    run_dir_parser.add_argument("--priority", type=int, default=None, help="Queue priority when submission is enqueued (lower = higher)")
-    run_dir_parser.add_argument("--max-cores", type=int, default=None, help="Override max cores recorded for this queued run or workflow")
-    run_dir_parser.add_argument("--max-memory-gb", type=int, default=None, help="Override max memory (GB) recorded for this queued run or workflow")
-    run_dir_parser.add_argument("--json", action="store_true", help="Print JSON output for workflow submission")
+    run_dir_parser.add_argument(
+        "--priority",
+        type=int,
+        default=None,
+        help="Queue priority when submission is enqueued (lower = higher)",
+    )
+    run_dir_parser.add_argument(
+        "--max-cores",
+        type=int,
+        default=None,
+        help="Override max cores recorded for this queued run or workflow",
+    )
+    run_dir_parser.add_argument(
+        "--max-memory-gb",
+        type=int,
+        default=None,
+        help="Override max memory (GB) recorded for this queued run or workflow",
+    )
+    run_dir_parser.add_argument(
+        "--json", action="store_true", help="Print JSON output for workflow submission"
+    )
     run_dir_parser.set_defaults(func=cmd_run_dir)
 
+
+def _add_init_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     init_parser = subparsers.add_parser(
         "init",
         help="Interactively create or update the shared chemstack.yaml config.",
     )
     _add_engine_config_argument(init_parser)
     _add_orca_logging_arguments(init_parser)
-    init_parser.add_argument("--force", action="store_true", help="Overwrite existing config without confirmation")
+    init_parser.add_argument(
+        "--force", action="store_true", help="Overwrite existing config without confirmation"
+    )
     init_parser.set_defaults(func=cmd_init)
 
+
+def _add_scaffold_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     scaffold_parser = subparsers.add_parser(
         "scaffold",
         help="Create raw input workflow scaffold directories.",
@@ -1278,21 +1155,43 @@ def build_parser() -> argparse.ArgumentParser:
             help_text=help_text,
         )
 
+
+def _add_organize_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     organize_parser = subparsers.add_parser(
         "organize",
         help="Plan or apply organization of terminal engine outputs.",
     )
     organize_subparsers = organize_parser.add_subparsers(dest="organize_app", required=True)
 
-    orca_organize_parser = organize_subparsers.add_parser("orca", help="Plan or apply organization into orca_outputs")
+    orca_organize_parser = organize_subparsers.add_parser(
+        "orca", help="Plan or apply organization into orca_outputs"
+    )
     _add_engine_config_argument(orca_organize_parser)
     _add_orca_logging_arguments(orca_organize_parser)
-    orca_organize_parser.add_argument("--reaction-dir", default=None, help="Single job directory to organize")
-    orca_organize_parser.add_argument("--root", default=None, help="Root directory to scan (mutually exclusive with --reaction-dir)")
-    orca_organize_parser.add_argument("--apply", action="store_true", default=False, help="Actually move files (default is dry-run)")
-    orca_organize_parser.add_argument("--rebuild-index", action="store_true", default=False, help="Rebuild JSONL index from organized directories")
+    orca_organize_parser.add_argument(
+        "--reaction-dir", default=None, help="Single job directory to organize"
+    )
+    orca_organize_parser.add_argument(
+        "--root",
+        default=None,
+        help="Root directory to scan (mutually exclusive with --reaction-dir)",
+    )
+    orca_organize_parser.add_argument(
+        "--apply",
+        action="store_true",
+        default=False,
+        help="Actually move files (default is dry-run)",
+    )
+    orca_organize_parser.add_argument(
+        "--rebuild-index",
+        action="store_true",
+        default=False,
+        help="Rebuild JSONL index from organized directories",
+    )
     orca_organize_parser.set_defaults(func=cmd_orca_organize)
 
+
+def _add_summary_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     summary_parser = subparsers.add_parser(
         "summary",
         help="Show combined ORCA/workflow summaries or send Telegram digests through the unified CLI.",
@@ -1306,9 +1205,31 @@ def build_parser() -> argparse.ArgumentParser:
         default="combined",
         help="Summary mode. Defaults to combined.",
     )
-    summary_parser.add_argument("--no-send", action="store_true", default=False, help="Print summary without sending Telegram")
+    summary_parser.add_argument(
+        "--no-send",
+        action="store_true",
+        default=False,
+        help="Print summary without sending Telegram",
+    )
     summary_parser.set_defaults(func=cmd_summary)
 
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="chemstack")
+    parser.add_argument(
+        "--chemstack-config",
+        "--config",
+        dest="global_config",
+        default=None,
+        help=argparse.SUPPRESS,
+    )
+    subparsers = parser.add_subparsers(dest="command", required=True)
+    _add_queue_parser(subparsers)
+    _add_run_dir_parser(subparsers)
+    _add_init_parser(subparsers)
+    _add_scaffold_parser(subparsers)
+    _add_organize_parser(subparsers)
+    _add_summary_parser(subparsers)
     return parser
 
 

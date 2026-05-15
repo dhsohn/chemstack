@@ -25,7 +25,9 @@ WORKFLOW_REGISTRY_LOCK_NAME = "workflow_registry.lock"
 WORKFLOW_JOURNAL_FILE_NAME = "workflow_registry.journal.jsonl"
 WORKFLOW_WORKER_STATE_FILE_NAME = "workflow_worker_state.json"
 WORKFLOW_REGISTRY_CLEARED_FILE_NAME = "workflow_registry_cleared.json"
-_TERMINAL_WORKFLOW_STATUSES = frozenset({"completed", "failed", "cancelled", "cancel_failed", "submission_failed"})
+_TERMINAL_WORKFLOW_STATUSES = frozenset(
+    {"completed", "failed", "cancelled", "cancel_failed", "submission_failed"}
+)
 DEFAULT_NOTIFICATION_EVENT_TYPES = frozenset(
     {
         "workflow_status_changed",
@@ -229,84 +231,147 @@ def _telegram_transport_from_env():
     return build_telegram_transport(telegram)
 
 
-def _journal_event_message(event: dict[str, Any], workflow_root: str | Path) -> str:
+def _journal_event_context(event: dict[str, Any], workflow_root: str | Path) -> dict[str, str]:
     event_type = _normalize_text(event.get("event_type"))
     metadata = _coerce_mapping(event.get("metadata"))
-    workflow_id = _normalize_text(event.get("workflow_id")) or "-"
-    template_name = _normalize_text(event.get("template_name")) or "-"
-    status = _normalize_text(event.get("status")) or "-"
-    previous_status = _normalize_text(event.get("previous_status")) or "-"
-    reason = _normalize_text(event.get("reason")) or "-"
-    session = _normalize_text(event.get("worker_session_id")) or "-"
-    stage_id = _event_text(event, metadata, "stage_id") or "-"
-    engine = _event_text(event, metadata, "engine") or "-"
-    task_kind = _event_text(event, metadata, "task_kind") or "-"
-    stage_status = _event_text(event, metadata, "stage_status", "status")
-    previous_stage_status = _event_text(event, metadata, "previous_stage_status", "previous_status")
-    reaction_handoff_status = _event_text(event, metadata, "reaction_handoff_status")
-    previous_reaction_handoff_status = _event_text(event, metadata, "previous_reaction_handoff_status")
-    root_text = str(Path(workflow_root).expanduser().resolve())
+    return {
+        "event_type": event_type,
+        "workflow_id": _normalize_text(event.get("workflow_id")) or "-",
+        "template_name": _normalize_text(event.get("template_name")) or "-",
+        "status": _normalize_text(event.get("status")) or "-",
+        "previous_status": _normalize_text(event.get("previous_status")) or "-",
+        "reason": _normalize_text(event.get("reason")) or "-",
+        "session": _normalize_text(event.get("worker_session_id")) or "-",
+        "stage_id": _event_text(event, metadata, "stage_id") or "-",
+        "engine": _event_text(event, metadata, "engine") or "-",
+        "task_kind": _event_text(event, metadata, "task_kind") or "-",
+        "stage_status": _event_text(event, metadata, "stage_status", "status"),
+        "previous_stage_status": _event_text(
+            event, metadata, "previous_stage_status", "previous_status"
+        ),
+        "reaction_handoff_status": _event_text(event, metadata, "reaction_handoff_status"),
+        "previous_reaction_handoff_status": _event_text(
+            event, metadata, "previous_reaction_handoff_status"
+        ),
+        "root_text": str(Path(workflow_root).expanduser().resolve()),
+    }
+
+
+def _workflow_status_event_message(context: dict[str, str]) -> str:
+    event_type = context["event_type"]
+    return "\n".join(
+        [
+            f"<b>{_escape_html(_title_from_event_type(event_type))}</b>",
+            f"<b>Workflow</b>: {_metric_code(context['workflow_id'])}",
+            f"<b>Template</b>: {_metric_code(context['template_name'])}",
+            f"<b>Status</b>: {_transition_html(context['previous_status'], context['status'])}",
+            f"<b>Worker session</b>: {_metric_code(context['session'])}",
+        ]
+    )
+
+
+def _workflow_advance_failed_event_message(context: dict[str, str]) -> str:
+    event_type = context["event_type"]
+    return "\n".join(
+        [
+            f"<b>{_escape_html(_title_from_event_type(event_type))}</b>",
+            f"<b>Workflow</b>: {_metric_code(context['workflow_id'])}",
+            f"<b>Template</b>: {_metric_code(context['template_name'])}",
+            f"<b>Reason</b>: {_metric_code(context['reason'])}",
+            f"<b>Worker session</b>: {_metric_code(context['session'])}",
+        ]
+    )
+
+
+def _stage_status_event_message(context: dict[str, str]) -> str:
+    event_type = context["event_type"]
+    task = f"{context['engine']}/{context['task_kind']}"
+    lines = [
+        f"<b>{_escape_html(_title_from_event_type(event_type))}</b>",
+        f"<b>Workflow</b>: {_metric_code(context['workflow_id'])}",
+        f"<b>Template</b>: {_metric_code(context['template_name'])}",
+        f"<b>Event</b>: {_metric_code(event_type)}",
+        f"<b>Stage</b>: {_metric_code(context['stage_id'])}",
+        f"<b>Task</b>: {_metric_code(task)}",
+        f"<b>Stage status</b>: {_transition_html(context['previous_stage_status'], context['stage_status'])}",
+        f"<b>Worker session</b>: {_metric_code(context['session'])}",
+    ]
+    if context["reason"]:
+        lines.append(f"<b>Reason</b>: {_metric_code(context['reason'])}")
+    return "\n".join(lines)
+
+
+def _stage_handoff_event_message(context: dict[str, str]) -> str:
+    event_type = context["event_type"]
+    task = f"{context['engine']}/{context['task_kind']}"
+    lines = [
+        f"<b>{_escape_html(_title_from_event_type(event_type))}</b>",
+        f"<b>Workflow</b>: {_metric_code(context['workflow_id'])}",
+        f"<b>Template</b>: {_metric_code(context['template_name'])}",
+        f"<b>Event</b>: {_metric_code(event_type)}",
+        f"<b>Stage</b>: {_metric_code(context['stage_id'])}",
+        f"<b>Task</b>: {_metric_code(task)}",
+        f"<b>Stage status</b>: {_transition_html(context['previous_stage_status'], context['stage_status'])}",
+        (
+            "<b>Reaction handoff</b>: "
+            f"{_transition_html(context['previous_reaction_handoff_status'], context['reaction_handoff_status'])}"
+        ),
+        f"<b>Worker session</b>: {_metric_code(context['session'])}",
+    ]
+    if context["reason"]:
+        lines.append(f"<b>Reason</b>: {_metric_code(context['reason'])}")
+    return "\n".join(lines)
+
+
+def _worker_lifecycle_event_message(context: dict[str, str]) -> str:
+    event_type = context["event_type"]
+    return "\n".join(
+        [
+            f"<b>{_escape_html(_title_from_event_type(event_type))}</b>",
+            f"<b>Event</b>: {_metric_code(event_type)}",
+            f"<b>Workflow root</b>: {_metric_code(context['root_text'])}",
+            f"<b>Worker session</b>: {_metric_code(context['session'])}",
+            f"<b>Reason</b>: {_metric_code(context['reason'])}",
+        ]
+    )
+
+
+def _default_journal_event_message(context: dict[str, str]) -> str:
+    event_type = context["event_type"]
+    return "\n".join(
+        [
+            f"<b>{_escape_html(_title_from_event_type(event_type))}</b>",
+            f"<b>Event</b>: {_metric_code(event_type)}",
+            f"<b>Workflow</b>: {_metric_code(context['workflow_id'])}",
+            f"<b>Status</b>: {_metric_code(context['status'])}",
+            f"<b>Worker session</b>: {_metric_code(context['session'])}",
+        ]
+    )
+
+
+def _journal_event_message(event: dict[str, Any], workflow_root: str | Path) -> str:
+    context = _journal_event_context(event, workflow_root)
+    event_type = context["event_type"]
+    metadata = _coerce_mapping(event.get("metadata"))
 
     if event_type == "workflow_status_changed":
-        return "\n".join(
-            [
-                f"<b>{_escape_html(_title_from_event_type(event_type))}</b>",
-                f"<b>Workflow</b>: {_metric_code(workflow_id)}",
-                f"<b>Template</b>: {_metric_code(template_name)}",
-                f"<b>Status</b>: {_transition_html(previous_status, status)}",
-                f"<b>Worker session</b>: {_metric_code(session)}",
-            ]
-        )
+        return _workflow_status_event_message(context)
     if event_type == "workflow_advance_failed":
-        return "\n".join(
-            [
-                f"<b>{_escape_html(_title_from_event_type(event_type))}</b>",
-                f"<b>Workflow</b>: {_metric_code(workflow_id)}",
-                f"<b>Template</b>: {_metric_code(template_name)}",
-                f"<b>Reason</b>: {_metric_code(reason)}",
-                f"<b>Worker session</b>: {_metric_code(session)}",
-            ]
-        )
+        return _workflow_advance_failed_event_message(context)
     if event_type in STAGE_STATUS_EVENT_TYPES:
-        lines = [
-            f"<b>{_escape_html(_title_from_event_type(event_type))}</b>",
-            f"<b>Workflow</b>: {_metric_code(workflow_id)}",
-            f"<b>Template</b>: {_metric_code(template_name)}",
-            f"<b>Event</b>: {_metric_code(event_type)}",
-            f"<b>Stage</b>: {_metric_code(stage_id)}",
-            f"<b>Task</b>: {_metric_code(f'{engine}/{task_kind}')}",
-            f"<b>Stage status</b>: {_transition_html(previous_stage_status, stage_status)}",
-            f"<b>Worker session</b>: {_metric_code(session)}",
-        ]
-        if reason:
-            lines.append(f"<b>Reason</b>: {_metric_code(reason)}")
-        return "\n".join(lines)
+        return _stage_status_event_message(context)
     if event_type in STAGE_HANDOFF_EVENT_TYPES:
-        lines = [
-            f"<b>{_escape_html(_title_from_event_type(event_type))}</b>",
-            f"<b>Workflow</b>: {_metric_code(workflow_id)}",
-            f"<b>Template</b>: {_metric_code(template_name)}",
-            f"<b>Event</b>: {_metric_code(event_type)}",
-            f"<b>Stage</b>: {_metric_code(stage_id)}",
-            f"<b>Task</b>: {_metric_code(f'{engine}/{task_kind}')}",
-            f"<b>Stage status</b>: {_transition_html(previous_stage_status, stage_status)}",
-            (
-                "<b>Reaction handoff</b>: "
-                f"{_transition_html(previous_reaction_handoff_status, reaction_handoff_status)}"
-            ),
-            f"<b>Worker session</b>: {_metric_code(session)}",
-        ]
-        if reason:
-            lines.append(f"<b>Reason</b>: {_metric_code(reason)}")
-        return "\n".join(lines)
+        return _stage_handoff_event_message(context)
     if event_type == WORKFLOW_PHASE_FINISHED_EVENT:
-        phase = _event_text(event, metadata, "phase_label", "phase") or "-"
+        workflow_id = context["workflow_id"]
+        template_name = context["template_name"]
+        session = context["session"]
         lines = [
             f"<b>{_escape_html(_title_from_event_type(event_type))}</b>",
             f"<b>Workflow</b>: {_metric_code(workflow_id)}",
             f"<b>Template</b>: {_metric_code(template_name)}",
             f"<b>Event</b>: {_metric_code(event_type)}",
-            f"<b>Phase</b>: {_metric_code(phase)}",
+            f"<b>Phase</b>: {_metric_code(_event_text(event, metadata, 'phase_label', 'phase') or '-')}",
             f"<b>Phase outcome</b>: {_metric_code(_event_text(event, metadata, 'phase_outcome', 'status') or '-')}",
             f"<b>Stage count</b>: {_metric_code(_event_text(event, metadata, 'stage_count') or '0')}",
             f"<b>Stage status counts</b>: {_metric_code(_format_count_mapping(metadata.get('stage_status_counts')))}",
@@ -318,29 +383,20 @@ def _journal_event_message(event: dict[str, Any], workflow_root: str | Path) -> 
             lines.append(f"<b>Reaction handoff counts</b>: {_metric_code(handoff_counts)}")
         failure_reasons = metadata.get("failure_reasons")
         if isinstance(failure_reasons, list):
-            joined = ",".join(_normalize_text(item) for item in failure_reasons if _normalize_text(item))
+            joined = ",".join(
+                _normalize_text(item) for item in failure_reasons if _normalize_text(item)
+            )
             if joined:
                 lines.append(f"<b>Failure reasons</b>: {_metric_code(joined)}")
         return "\n".join(lines)
-    if event_type in {"worker_started", "worker_stopped", "worker_interrupted", "worker_lock_error"}:
-        return "\n".join(
-            [
-                f"<b>{_escape_html(_title_from_event_type(event_type))}</b>",
-                f"<b>Event</b>: {_metric_code(event_type)}",
-                f"<b>Workflow root</b>: {_metric_code(root_text)}",
-                f"<b>Worker session</b>: {_metric_code(session)}",
-                f"<b>Reason</b>: {_metric_code(reason)}",
-            ]
-        )
-    return "\n".join(
-        [
-            f"<b>{_escape_html(_title_from_event_type(event_type))}</b>",
-            f"<b>Event</b>: {_metric_code(event_type)}",
-            f"<b>Workflow</b>: {_metric_code(workflow_id)}",
-            f"<b>Status</b>: {_metric_code(status)}",
-            f"<b>Worker session</b>: {_metric_code(session)}",
-        ]
-    )
+    if event_type in {
+        "worker_started",
+        "worker_stopped",
+        "worker_interrupted",
+        "worker_lock_error",
+    }:
+        return _worker_lifecycle_event_message(context)
+    return _default_journal_event_message(context)
 
 
 def _maybe_notify_journal_event(event: dict[str, Any], workflow_root: str | Path) -> None:
@@ -364,9 +420,14 @@ def _maybe_notify_journal_event(event: dict[str, Any], workflow_root: str | Path
 
 def _record_from_summary(summary: dict[str, Any]) -> WorkflowRegistryRecord:
     workspace_dir = _normalize_text(summary.get("workspace_dir"))
-    updated_at = _normalize_text(_coerce_mapping(summary.get("submission_summary")).get("updated_at")) or now_utc_iso()
+    updated_at = (
+        _normalize_text(_coerce_mapping(summary.get("submission_summary")).get("updated_at"))
+        or now_utc_iso()
+    )
     metadata = {
-        "downstream_reaction_workflow": _coerce_mapping(summary.get("downstream_reaction_workflow")),
+        "downstream_reaction_workflow": _coerce_mapping(
+            summary.get("downstream_reaction_workflow")
+        ),
         "precomplex_handoff": _coerce_mapping(summary.get("precomplex_handoff")),
         "parent_workflow": _coerce_mapping(summary.get("parent_workflow")),
         "final_child_sync_pending": bool(summary.get("final_child_sync_pending")),
@@ -386,7 +447,9 @@ def _record_from_summary(summary: dict[str, Any]) -> WorkflowRegistryRecord:
         reaction_key=_normalize_text(summary.get("reaction_key")),
         requested_at=_normalize_text(summary.get("requested_at")),
         workspace_dir=workspace_dir,
-        workflow_file=str(Path(workspace_dir).expanduser().resolve() / "workflow.json") if workspace_dir else "",
+        workflow_file=str(Path(workspace_dir).expanduser().resolve() / "workflow.json")
+        if workspace_dir
+        else "",
         stage_count=int(summary.get("stage_count", 0) or 0),
         updated_at=updated_at,
         stage_status_counts=_coerce_counts(summary.get("stage_status_counts")),
@@ -499,12 +562,16 @@ def _record_clear_identity(record: WorkflowRegistryRecord) -> str:
     )
 
 
-def _record_matches_cleared_marker(record: WorkflowRegistryRecord, markers: list[dict[str, Any]]) -> bool:
+def _record_matches_cleared_marker(
+    record: WorkflowRegistryRecord, markers: list[dict[str, Any]]
+) -> bool:
     keys = _cleared_record_keys(record)
     return any(keys & _marker_keys(marker) for marker in markers)
 
 
-def _record_is_clearable_terminal(record: WorkflowRegistryRecord, statuses: set[str] | frozenset[str] | None = None) -> bool:
+def _record_is_clearable_terminal(
+    record: WorkflowRegistryRecord, statuses: set[str] | frozenset[str] | None = None
+) -> bool:
     target_statuses = {
         _normalize_text(status).lower()
         for status in (statuses or _TERMINAL_WORKFLOW_STATUSES)
@@ -560,7 +627,10 @@ def _filter_cleared_terminal_records(
     return [
         record
         for record in records
-        if not (_record_is_clearable_terminal(record) and _record_matches_cleared_marker(record, markers))
+        if not (
+            _record_is_clearable_terminal(record)
+            and _record_matches_cleared_marker(record, markers)
+        )
     ]
 
 
@@ -668,7 +738,13 @@ def write_workflow_worker_state(
     payload = {
         "worker_session_id": _normalize_text(worker_session_id),
         "status": _normalize_text(status),
-        "workflow_root": str((Path(workflow_root_path).expanduser().resolve() if workflow_root_path else resolved_root)),
+        "workflow_root": str(
+            (
+                Path(workflow_root_path).expanduser().resolve()
+                if workflow_root_path
+                else resolved_root
+            )
+        ),
         "pid": os.getpid(),
         "hostname": socket.gethostname(),
         "last_heartbeat_at": _normalize_text(last_heartbeat_at) or now_utc_iso(),
@@ -680,11 +756,15 @@ def write_workflow_worker_state(
         "metadata": _coerce_mapping(metadata),
     }
     with file_lock(_registry_lock_path(resolved_root)):
-        atomic_write_json(workflow_worker_state_path(resolved_root), payload, ensure_ascii=True, indent=2)
+        atomic_write_json(
+            workflow_worker_state_path(resolved_root), payload, ensure_ascii=True, indent=2
+        )
     return payload
 
 
-def upsert_workflow_registry_record(workflow_root: str | Path, record: WorkflowRegistryRecord) -> WorkflowRegistryRecord:
+def upsert_workflow_registry_record(
+    workflow_root: str | Path, record: WorkflowRegistryRecord
+) -> WorkflowRegistryRecord:
     resolved_root = Path(workflow_root).expanduser().resolve()
     resolved_root.mkdir(parents=True, exist_ok=True)
     with file_lock(_registry_lock_path(resolved_root)):
@@ -694,7 +774,9 @@ def upsert_workflow_registry_record(workflow_root: str | Path, record: WorkflowR
         if is_clearable_terminal and matches_cleared_marker:
             return record
         if not is_clearable_terminal and matches_cleared_marker:
-            cleared_markers, removed_marker = _remove_matching_cleared_markers(cleared_markers, record)
+            cleared_markers, removed_marker = _remove_matching_cleared_markers(
+                cleared_markers, record
+            )
             if removed_marker:
                 _save_cleared_markers(resolved_root, cleared_markers)
 
@@ -713,7 +795,9 @@ def upsert_workflow_registry_record(workflow_root: str | Path, record: WorkflowR
     return record
 
 
-def sync_workflow_registry(workflow_root: str | Path, workspace_dir: str | Path, payload: dict[str, Any] | None = None) -> WorkflowRegistryRecord:
+def sync_workflow_registry(
+    workflow_root: str | Path, workspace_dir: str | Path, payload: dict[str, Any] | None = None
+) -> WorkflowRegistryRecord:
     summary = workflow_summary(workspace_dir, payload)
     record = _record_from_summary(summary)
     return upsert_workflow_registry_record(workflow_root, record)
@@ -735,9 +819,13 @@ def reindex_workflow_registry(workflow_root: str | Path) -> list[WorkflowRegistr
         cleared_markers = _load_cleared_markers(root)
         markers_changed = False
         for record in records:
-            if _record_is_clearable_terminal(record) or not _record_matches_cleared_marker(record, cleared_markers):
+            if _record_is_clearable_terminal(record) or not _record_matches_cleared_marker(
+                record, cleared_markers
+            ):
                 continue
-            cleared_markers, removed_marker = _remove_matching_cleared_markers(cleared_markers, record)
+            cleared_markers, removed_marker = _remove_matching_cleared_markers(
+                cleared_markers, record
+            )
             markers_changed = markers_changed or removed_marker
         records = _filter_cleared_terminal_records(records, cleared_markers)
         if markers_changed:
@@ -746,7 +834,9 @@ def reindex_workflow_registry(workflow_root: str | Path) -> list[WorkflowRegistr
     return records
 
 
-def list_workflow_registry(workflow_root: str | Path, *, reindex_if_missing: bool = True) -> list[WorkflowRegistryRecord]:
+def list_workflow_registry(
+    workflow_root: str | Path, *, reindex_if_missing: bool = True
+) -> list[WorkflowRegistryRecord]:
     resolved_root = Path(workflow_root).expanduser().resolve()
     resolved_root.mkdir(parents=True, exist_ok=True)
     path = _registry_path(resolved_root)
@@ -813,7 +903,9 @@ def clear_terminal_workflow_registry(
         return removed_count
 
 
-def get_workflow_registry_record(workflow_root: str | Path, workflow_id: str) -> WorkflowRegistryRecord | None:
+def get_workflow_registry_record(
+    workflow_root: str | Path, workflow_id: str
+) -> WorkflowRegistryRecord | None:
     target = _normalize_text(workflow_id)
     if not target:
         return None
@@ -823,7 +915,9 @@ def get_workflow_registry_record(workflow_root: str | Path, workflow_id: str) ->
     return None
 
 
-def resolve_workflow_registry_record(workflow_root: str | Path, target: str) -> WorkflowRegistryRecord | None:
+def resolve_workflow_registry_record(
+    workflow_root: str | Path, target: str
+) -> WorkflowRegistryRecord | None:
     normalized = _normalize_text(target)
     if not normalized:
         return None

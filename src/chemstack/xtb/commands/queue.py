@@ -9,7 +9,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
-from chemstack.core.admission import activate_reserved_slot, reconcile_stale_slots, release_slot, reserve_slot
+from chemstack.core.admission import (
+    activate_reserved_slot,
+    reconcile_stale_slots,
+    release_slot,
+    reserve_slot,
+)
 from chemstack.core.queue import (
     dequeue_next,
     get_cancel_requested,
@@ -22,11 +27,9 @@ from chemstack.core.queue import (
 )
 from chemstack.core.queue.worker import (
     ManagedProcess as _ManagedProcess,
+    QueueWorkerLoop,
     dequeue_next_across_roots,
-    fill_worker_slots,
-    install_shutdown_signal_handlers,
     pid_is_alive as worker_pid_is_alive,
-    pop_completed_worker_jobs,
     reserve_queue_worker_slot,
     resolve_admission_limit,
     resolve_admission_root,
@@ -35,7 +38,12 @@ from chemstack.core.queue.worker import (
 from chemstack.core.utils import now_utc_iso
 
 from ..config import default_config_path, load_config
-from ..job_locations import reaction_key_from_job_dir, resource_dict, runtime_roots_for_cfg, upsert_job_record
+from ..job_locations import (
+    reaction_key_from_job_dir,
+    resource_dict,
+    runtime_roots_for_cfg,
+    upsert_job_record,
+)
 from ..notifications import notify_job_finished, notify_job_started
 from ..runner import XtbRunResult, finalize_xtb_job, run_xtb_ranking_job, start_xtb_job
 from ..state import (
@@ -244,12 +252,20 @@ def _input_summary(entry: Any) -> dict[str, Any]:
     return dict(payload) if isinstance(payload, dict) else {}
 
 
-def _build_state_payload(entry: Any, result: XtbRunResult, *, previous_state: dict[str, Any] | None = None, resumed: bool = False) -> dict[str, Any]:
+def _build_state_payload(
+    entry: Any,
+    result: XtbRunResult,
+    *,
+    previous_state: dict[str, Any] | None = None,
+    resumed: bool = False,
+) -> dict[str, Any]:
     base_state = _coerce_mapping(previous_state)
     candidate_paths = list(result.analysis_summary.get("candidate_paths", []))
     if not candidate_paths and isinstance(result.input_summary, dict):
         candidate_paths = list(result.input_summary.get("candidate_paths", []))
-    recovery_reason = str(base_state.get("recovery_reason") or base_state.get("reason") or "").strip()
+    recovery_reason = str(
+        base_state.get("recovery_reason") or base_state.get("reason") or ""
+    ).strip()
     payload = {
         "job_id": entry.task_id,
         "job_dir": str(entry.metadata.get("job_dir", "")).strip(),
@@ -279,12 +295,20 @@ def _build_state_payload(entry: Any, result: XtbRunResult, *, previous_state: di
     return payload
 
 
-def _build_report_payload(entry: Any, result: XtbRunResult, *, previous_state: dict[str, Any] | None = None, resumed: bool = False) -> dict[str, Any]:
+def _build_report_payload(
+    entry: Any,
+    result: XtbRunResult,
+    *,
+    previous_state: dict[str, Any] | None = None,
+    resumed: bool = False,
+) -> dict[str, Any]:
     base_state = _coerce_mapping(previous_state)
     candidate_paths = list(result.analysis_summary.get("candidate_paths", []))
     if not candidate_paths and isinstance(result.input_summary, dict):
         candidate_paths = list(result.input_summary.get("candidate_paths", []))
-    recovery_reason = str(base_state.get("recovery_reason") or base_state.get("reason") or "").strip()
+    recovery_reason = str(
+        base_state.get("recovery_reason") or base_state.get("reason") or ""
+    ).strip()
     payload = {
         "job_id": entry.task_id,
         "queue_id": entry.queue_id,
@@ -329,8 +353,13 @@ def _write_execution_artifacts(
         return
 
     job_dir = Path(job_dir_text).expanduser().resolve()
-    write_state(job_dir, _build_state_payload(entry, result, previous_state=previous_state, resumed=resumed))
-    write_report_json(job_dir, _build_report_payload(entry, result, previous_state=previous_state, resumed=resumed))
+    write_state(
+        job_dir, _build_state_payload(entry, result, previous_state=previous_state, resumed=resumed)
+    )
+    write_report_json(
+        job_dir,
+        _build_report_payload(entry, result, previous_state=previous_state, resumed=resumed),
+    )
     lines = [
         "# xtb_auto Report",
         "",
@@ -355,9 +384,13 @@ def _write_execution_artifacts(
             lines.append(f"  - `{path}`")
     if result.job_type == "ranking" and result.analysis_summary:
         if result.analysis_summary.get("best_candidate_path"):
-            lines.append(f"- Best Candidate Path: `{result.analysis_summary.get('best_candidate_path')}`")
+            lines.append(
+                f"- Best Candidate Path: `{result.analysis_summary.get('best_candidate_path')}`"
+            )
         if result.analysis_summary.get("best_total_energy") is not None:
-            lines.append(f"- Best Total Energy: `{result.analysis_summary.get('best_total_energy')}`")
+            lines.append(
+                f"- Best Total Energy: `{result.analysis_summary.get('best_total_energy')}`"
+            )
     if result.analysis_summary:
         lines.append(f"- Analysis Summary: `{result.analysis_summary}`")
     write_report_md_lines(job_dir, lines)
@@ -378,7 +411,9 @@ def _write_running_state(
     input_summary = _input_summary(entry)
     resource_request = _entry_resource_request(cfg, entry)
     base_state = _coerce_mapping(previous_state)
-    recovery_reason = str(base_state.get("recovery_reason") or base_state.get("reason") or "").strip()
+    recovery_reason = str(
+        base_state.get("recovery_reason") or base_state.get("reason") or ""
+    ).strip()
     started_at = entry.started_at or now_utc_iso()
     updated_at = now_utc_iso()
     payload = {
@@ -503,41 +538,47 @@ def _print_terminal_summary(summary: _TerminalSummary) -> None:
     print(f"reason: {summary.reason}")
 
 
-def _load_terminal_summary(queue_root: Path, entry: Any, *, rc: int | None = None) -> _TerminalSummary:
-    job_dir = _job_dir(entry)
-    state = load_state(job_dir) or {}
-    report = load_report_json(job_dir) or {}
-    organized_ref = load_organized_ref(job_dir) or {}
-    refreshed = _queue_entry_by_id(queue_root, entry.queue_id)
-
-    queue_status_value = getattr(getattr(refreshed, "status", None), "value", None) if refreshed is not None else None
+def _terminal_status(
+    state: dict[str, Any], report: dict[str, Any], refreshed: Any, rc: int | None
+) -> str:
+    queue_status_value = (
+        getattr(getattr(refreshed, "status", None), "value", None)
+        if refreshed is not None
+        else None
+    )
     queue_status = str(queue_status_value).strip().lower()
     status = str(report.get("status") or state.get("status") or queue_status).strip().lower()
     if not status:
-        status = "completed" if rc == 0 else "failed"
-    elif status not in {"completed", "failed", "cancelled"} and rc is not None:
-        status = "completed" if rc == 0 else "failed"
+        return "completed" if rc == 0 else "failed"
+    if status not in {"completed", "failed", "cancelled"} and rc is not None:
+        return "completed" if rc == 0 else "failed"
+    return status
 
-    reason = str(report.get("reason") or state.get("reason") or getattr(refreshed, "error", "")).strip()
-    if not reason:
-        if status == "completed":
-            reason = "completed"
-        elif status == "cancelled":
-            reason = "cancel_requested"
-        elif rc is not None:
-            reason = f"worker_exit_code_{rc}"
-        else:
-            reason = "unknown"
 
-    organized_output_dir = str(
-        organized_ref.get("organized_output_dir")
-        or report.get("organized_output_dir")
-        or state.get("organized_output_dir")
-        or ""
+def _terminal_reason(
+    state: dict[str, Any], report: dict[str, Any], refreshed: Any, *, status: str, rc: int | None
+) -> str:
+    reason = str(
+        report.get("reason") or state.get("reason") or getattr(refreshed, "error", "")
     ).strip()
+    if reason:
+        return reason
+    if status == "completed":
+        return "completed"
+    if status == "cancelled":
+        return "cancel_requested"
+    if rc is not None:
+        return f"worker_exit_code_{rc}"
+    return "unknown"
 
+
+def _terminal_metadata_update(
+    state: dict[str, Any], report: dict[str, Any], entry: Any
+) -> dict[str, Any]:
     metadata_update: dict[str, Any] = {}
-    job_type = str(report.get("job_type") or state.get("job_type") or entry.metadata.get("job_type", "")).strip()
+    job_type = str(
+        report.get("job_type") or state.get("job_type") or entry.metadata.get("job_type", "")
+    ).strip()
     if job_type:
         metadata_update["job_type"] = job_type
     candidate_count_raw = report.get("candidate_count")
@@ -548,6 +589,26 @@ def _load_terminal_summary(queue_root: Path, entry: Any, *, rc: int | None = Non
             metadata_update["candidate_count"] = int(candidate_count_raw)
         except (TypeError, ValueError):
             pass
+    return metadata_update
+
+
+def _load_terminal_summary(
+    queue_root: Path, entry: Any, *, rc: int | None = None
+) -> _TerminalSummary:
+    job_dir = _job_dir(entry)
+    state = load_state(job_dir) or {}
+    report = load_report_json(job_dir) or {}
+    organized_ref = load_organized_ref(job_dir) or {}
+    refreshed = _queue_entry_by_id(queue_root, entry.queue_id)
+
+    status = _terminal_status(state, report, refreshed, rc)
+    reason = _terminal_reason(state, report, refreshed, status=status, rc=rc)
+    organized_output_dir = str(
+        organized_ref.get("organized_output_dir")
+        or report.get("organized_output_dir")
+        or state.get("organized_output_dir")
+        or ""
+    ).strip()
 
     return _TerminalSummary(
         queue_id=entry.queue_id,
@@ -555,7 +616,7 @@ def _load_terminal_summary(queue_root: Path, entry: Any, *, rc: int | None = Non
         status=status,
         reason=reason,
         organized_output_dir=organized_output_dir,
-        metadata_update=metadata_update,
+        metadata_update=_terminal_metadata_update(state, report, entry),
     )
 
 
@@ -569,9 +630,13 @@ def _ensure_terminal_queue_status(queue_root: Path, entry: Any, summary: _Termin
     if summary.status == "completed":
         mark_completed(str(queue_root), entry.queue_id, metadata_update=metadata_update)
     elif summary.status == "cancelled":
-        mark_cancelled(str(queue_root), entry.queue_id, error=summary.reason, metadata_update=metadata_update)
+        mark_cancelled(
+            str(queue_root), entry.queue_id, error=summary.reason, metadata_update=metadata_update
+        )
     else:
-        mark_failed(str(queue_root), entry.queue_id, error=summary.reason, metadata_update=metadata_update)
+        mark_failed(
+            str(queue_root), entry.queue_id, error=summary.reason, metadata_update=metadata_update
+        )
 
 
 def _finalize_execution_result(
@@ -586,7 +651,11 @@ def _finalize_execution_result(
     resumed: bool = False,
 ) -> QueueExecutionOutcome:
     _write_execution_artifacts(entry, result, previous_state=previous_state, resumed=resumed)
-    final_selected_xyz = Path(str(result.selected_input_xyz)).expanduser().resolve() if str(result.selected_input_xyz).strip() else _selected_xyz(entry)
+    final_selected_xyz = (
+        Path(str(result.selected_input_xyz)).expanduser().resolve()
+        if str(result.selected_input_xyz).strip()
+        else _selected_xyz(entry)
+    )
 
     metadata_update = {
         "candidate_count": result.candidate_count,
@@ -595,9 +664,13 @@ def _finalize_execution_result(
     if result.status == "completed":
         mark_completed(str(queue_root), entry.queue_id, metadata_update=metadata_update)
     elif result.status == "cancelled":
-        mark_cancelled(str(queue_root), entry.queue_id, error=result.reason, metadata_update=metadata_update)
+        mark_cancelled(
+            str(queue_root), entry.queue_id, error=result.reason, metadata_update=metadata_update
+        )
     else:
-        mark_failed(str(queue_root), entry.queue_id, error=result.reason, metadata_update=metadata_update)
+        mark_failed(
+            str(queue_root), entry.queue_id, error=result.reason, metadata_update=metadata_update
+        )
 
     upsert_job_record(
         cfg,
@@ -674,7 +747,10 @@ def _execute_queue_entry(
         job_type=job_type,
         reaction_key=reaction_key,
     )
-    resumed = is_recovery_pending(previous_state) or str(previous_state.get("status", "")).strip().lower() == "running"
+    resumed = (
+        is_recovery_pending(previous_state)
+        or str(previous_state.get("status", "")).strip().lower() == "running"
+    )
 
     _write_running_state(
         cfg,
@@ -853,7 +929,7 @@ def _config_path_for_worker(args: Any) -> str:
     return configured or default_config_path()
 
 
-class QueueWorker:
+class QueueWorker(QueueWorkerLoop):
     def __init__(
         self,
         cfg: Any,
@@ -862,55 +938,25 @@ class QueueWorker:
         auto_organize: bool,
         max_concurrent: int | None = None,
     ) -> None:
+        configured_max = cfg.runtime.max_concurrent if max_concurrent is None else max_concurrent
+        super().__init__(
+            max_concurrent=max(1, int(configured_max)),
+            poll_interval_seconds=POLL_INTERVAL_SECONDS,
+            sleep_fn=lambda seconds: time.sleep(seconds),
+        )
         self.cfg = cfg
         self.config_path = config_path
         self.auto_organize = bool(auto_organize)
-        configured_max = cfg.runtime.max_concurrent if max_concurrent is None else max_concurrent
-        self.max_concurrent = max(1, int(configured_max))
         self.admission_root = _admission_root(cfg)
-        self._running: dict[str, _RunningJob] = {}
-        self._shutdown_requested = False
 
-    def run(self) -> int:
-        self._install_signal_handlers()
+    def _before_run(self) -> None:
         self._reconcile_worker_state()
-        try:
-            while not self._shutdown_requested:
-                self._run_iteration()
-        except KeyboardInterrupt:
-            self._shutdown_requested = True
-        finally:
-            self._shutdown_all()
-        return 0
 
     def run_once(self) -> int:
-        self._install_signal_handlers()
-        self._reconcile_worker_state()
-        try:
-            outcome = self._fill_slots(max_new_jobs=1)
-            if outcome == "idle":
-                print("No pending jobs.")
-                return 0
-            if outcome == "blocked":
-                print("status: waiting_for_slot")
-                return 0
-
-            while self._running and not self._shutdown_requested:
-                self._check_completed_jobs()
-                self._check_cancel_requests()
-                if self._running:
-                    time.sleep(POLL_INTERVAL_SECONDS)
-        except KeyboardInterrupt:
-            self._shutdown_requested = True
-        finally:
-            self._shutdown_all()
-        return 0
-
-    def _run_iteration(self) -> None:
-        self._check_completed_jobs()
-        self._check_cancel_requests()
-        self._fill_slots()
-        time.sleep(POLL_INTERVAL_SECONDS)
+        return super().run_once(
+            idle_message="No pending jobs.",
+            blocked_message="status: waiting_for_slot",
+        )
 
     def _reserve_next_entry(self) -> tuple[str, tuple[Path, Any, str] | None]:
         slot_token = _try_reserve_admission_slot(self.cfg)
@@ -924,19 +970,9 @@ class QueueWorker:
         queue_root, entry = dequeued
         return "processed", (queue_root, entry, slot_token)
 
-    def _fill_slots(self, *, max_new_jobs: int | None = None) -> str:
-        def start_reserved(reserved: tuple[Path, Any, str]) -> None:
-            queue_root, entry, slot_token = reserved
-            self._start_job(queue_root, entry, admission_token=slot_token)
-
-        result = fill_worker_slots(
-            running_count=lambda: len(self._running),
-            max_concurrent=self.max_concurrent,
-            reserve_next=self._reserve_next_entry,
-            start_reserved=start_reserved,
-            max_new_jobs=max_new_jobs,
-        )
-        return result.status
+    def _start_reserved(self, reserved: Any) -> None:
+        queue_root, entry, slot_token = reserved
+        self._start_job(queue_root, entry, admission_token=slot_token)
 
     def _start_job(self, queue_root: Path, entry: Any, *, admission_token: str) -> None:
         try:
@@ -978,18 +1014,14 @@ class QueueWorker:
             admission_token=admission_token,
         )
 
-    def _check_completed_jobs(self) -> None:
-        def finalize_finished(_queue_id: str, job: _RunningJob, rc: int) -> None:
-            summary = _load_terminal_summary(job.queue_root, job.entry, rc=rc)
-            _ensure_terminal_queue_status(job.queue_root, job.entry, summary)
-            _print_terminal_summary(summary)
-            release_slot(self.admission_root, job.admission_token)
+    def _poll_job(self, job: Any) -> int | None:
+        return job.process.poll()
 
-        pop_completed_worker_jobs(
-            self._running,
-            poll_job=lambda job: job.process.poll(),
-            finalize_finished=finalize_finished,
-        )
+    def _finalize_completed_job(self, _queue_id: str, job: Any, rc: int) -> None:
+        summary = _load_terminal_summary(job.queue_root, job.entry, rc=rc)
+        _ensure_terminal_queue_status(job.queue_root, job.entry, summary)
+        _print_terminal_summary(summary)
+        release_slot(self.admission_root, job.admission_token)
 
     def _check_cancel_requests(self) -> None:
         for job in self._running.values():
@@ -1008,12 +1040,6 @@ class QueueWorker:
             requeue_running_entry(str(job.queue_root), queue_id)
             release_slot(self.admission_root, job.admission_token)
             del self._running[queue_id]
-
-    def _install_signal_handlers(self) -> None:
-        def request_shutdown() -> None:
-            self._shutdown_requested = True
-
-        install_shutdown_signal_handlers(request_shutdown)
 
     def _reconcile_worker_state(self) -> None:
         reconcile_stale_slots(self.admission_root)

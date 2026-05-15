@@ -13,7 +13,12 @@ from ._orchestration_builders import (
     _merge_manifest_defaults,
 )
 from .registry import append_workflow_journal_event, sync_workflow_registry
-from .state import acquire_workflow_lock, load_workflow_payload, workflow_summary, write_workflow_payload
+from .state import (
+    acquire_workflow_lock,
+    load_workflow_payload,
+    workflow_summary,
+    write_workflow_payload,
+)
 from .workflow_status import WORKFLOW_FAILED_STATUSES
 
 _RESTARTABLE_WORKFLOW_STATUSES = frozenset({*WORKFLOW_FAILED_STATUSES, "cancelled"})
@@ -184,7 +189,9 @@ def _active_restart_error(workflow_id: str, rows: list[dict[str, str]]) -> Value
     )
 
 
-def _clear_phase_notification_state(metadata: dict[str, Any], restarted_stages: list[dict[str, str]]) -> None:
+def _clear_phase_notification_state(
+    metadata: dict[str, Any], restarted_stages: list[dict[str, str]]
+) -> None:
     phase_notifications = metadata.get("phase_notifications")
     if not isinstance(phase_notifications, dict):
         return
@@ -310,9 +317,7 @@ def _crest_manifest_with_defaults(
     crest_manifest: dict[str, Any],
 ) -> dict[str, Any]:
     defaults = (
-        _REACTION_TS_SEARCH_CREST_MANIFEST_DEFAULTS
-        if template_name == "reaction_ts_search"
-        else {}
+        _REACTION_TS_SEARCH_CREST_MANIFEST_DEFAULTS if template_name == "reaction_ts_search" else {}
     )
     return _merge_manifest_defaults(defaults, crest_manifest)
 
@@ -350,36 +355,45 @@ def _apply_priority(task: dict[str, Any], priority: int | None) -> None:
             argv[index + 1] = str(priority)
 
 
-def _update_request_parameters(
-    payload: dict[str, Any],
-    *,
-    manifest: dict[str, Any],
-    resources: dict[str, int],
-    priority: int | None,
-    crest_mode: str,
-    crest_present: bool,
-    crest_overrides: dict[str, Any],
-    xtb_present: bool,
-    xtb_overrides: dict[str, Any],
-    endpoint_pairing: dict[str, Any],
-) -> None:
+def _request_parameters(payload: dict[str, Any]) -> dict[str, Any] | None:
     metadata = payload.get("metadata")
     if not isinstance(metadata, dict):
         metadata = {}
         payload["metadata"] = metadata
     request = metadata.get("request")
     if not isinstance(request, dict):
-        return
+        return None
     params = request.get("parameters")
     if not isinstance(params, dict):
         params = {}
         request["parameters"] = params
+    return params
 
+
+def _apply_restart_request_basics(
+    params: dict[str, Any],
+    *,
+    resources: dict[str, int],
+    priority: int | None,
+    crest_mode: str,
+) -> None:
     params.update(resources)
     if priority is not None:
         params["priority"] = priority
     if crest_mode:
         params["crest_mode"] = crest_mode
+
+
+def _apply_restart_request_manifests(
+    params: dict[str, Any],
+    *,
+    manifest: dict[str, Any],
+    crest_present: bool,
+    crest_overrides: dict[str, Any],
+    xtb_present: bool,
+    xtb_overrides: dict[str, Any],
+    endpoint_pairing: dict[str, Any],
+) -> None:
     if crest_present:
         _set_mapping_field(params, "crest_job_manifest", crest_overrides)
     if xtb_present:
@@ -396,6 +410,8 @@ def _update_request_parameters(
         if parsed is not None:
             params[key] = parsed
 
+
+def _apply_orca_request_parameters(params: dict[str, Any], manifest: dict[str, Any]) -> None:
     orca_manifest = _manifest_mapping(manifest.get("orca"))
     route_line = _normalize_text(manifest.get("orca_route_line") or orca_manifest.get("route_line"))
     if route_line:
@@ -413,6 +429,41 @@ def _update_request_parameters(
     multiplicity = _positive_int(raw_multiplicity)
     if multiplicity is not None:
         params["multiplicity"] = multiplicity
+
+
+def _update_request_parameters(
+    payload: dict[str, Any],
+    *,
+    manifest: dict[str, Any],
+    resources: dict[str, int],
+    priority: int | None,
+    crest_mode: str,
+    crest_present: bool,
+    crest_overrides: dict[str, Any],
+    xtb_present: bool,
+    xtb_overrides: dict[str, Any],
+    endpoint_pairing: dict[str, Any],
+) -> None:
+    params = _request_parameters(payload)
+    if params is None:
+        return
+
+    _apply_restart_request_basics(
+        params,
+        resources=resources,
+        priority=priority,
+        crest_mode=crest_mode,
+    )
+    _apply_restart_request_manifests(
+        params,
+        manifest=manifest,
+        crest_present=crest_present,
+        crest_overrides=crest_overrides,
+        xtb_present=xtb_present,
+        xtb_overrides=xtb_overrides,
+        endpoint_pairing=endpoint_pairing,
+    )
+    _apply_orca_request_parameters(params, manifest)
 
 
 def _flow_restart_settings(workspace: Path, payload: dict[str, Any]) -> dict[str, Any]:
@@ -585,8 +636,7 @@ def restart_failed_workflow(
 
         if not restarted_stages:
             raise ValueError(
-                f"workflow has no failed or cancelled stages to restart: "
-                f"{workflow_id}"
+                f"workflow has no failed or cancelled stages to restart: {workflow_id}"
             )
 
         restarted_at = now_utc_iso()

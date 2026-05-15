@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
@@ -62,7 +63,9 @@ def coerce_attempts_impl(
                 "analyzer_status": normalize_text_fn(raw.get("analyzer_status")),
                 "analyzer_reason": normalize_text_fn(raw.get("analyzer_reason")),
                 "markers": list(raw["markers"]) if isinstance(raw.get("markers"), list) else [],
-                "patch_actions": list(raw["patch_actions"]) if isinstance(raw.get("patch_actions"), list) else [],
+                "patch_actions": list(raw["patch_actions"])
+                if isinstance(raw.get("patch_actions"), list)
+                else [],
                 "started_at": normalize_text_fn(raw.get("started_at")),
                 "ended_at": normalize_text_fn(raw.get("ended_at")),
             }
@@ -79,6 +82,96 @@ def final_result_payload_impl(state: dict[str, Any], report: dict[str, Any]) -> 
     return {str(key): value for key, value in payload.items()}
 
 
+@dataclass(frozen=True)
+class OrcaContractLoaderDeps:
+    path_type: type[Path]
+    normalize_text_fn: Callable[[Any], str]
+    normalize_bool_fn: Callable[[Any], bool]
+    safe_int_fn: Callable[[Any, int], int]
+    tracked_contract_payload_fn: Callable[..., dict[str, Any] | None]
+    tracked_runtime_context_fn: Callable[
+        ...,
+        tuple[
+            Path | None,
+            Any,
+            dict[str, Any],
+            dict[str, Any],
+            dict[str, Any],
+            dict[str, Any] | None,
+            Path | None,
+        ]
+        | None,
+    ]
+    tracked_artifact_context_fn: Callable[
+        ..., tuple[Path | None, Any, dict[str, Any], dict[str, Any], dict[str, Any]]
+    ]
+    resolve_job_dir_fn: Callable[[Path | None, str], tuple[Path | None, Any]]
+    find_queue_entry_fn: Callable[..., dict[str, Any] | None]
+    resolve_candidate_path_fn: Callable[[Any], Path | None]
+    direct_dir_target_fn: Callable[[str], Path | None]
+    record_organized_dir_fn: Callable[[Any], Path | None]
+    find_organized_record_fn: Callable[..., dict[str, Any] | None]
+    organized_dir_from_record_fn: Callable[[Path | None, dict[str, Any] | None], Path | None]
+    load_json_dict_fn: Callable[[Path], dict[str, Any]]
+    load_tracked_organized_ref_fn: Callable[[Any, Path | None], dict[str, Any]]
+    status_from_payloads_fn: Callable[..., tuple[str, str, str, str]]
+    resolve_artifact_path_fn: Callable[[Any, Path | None], str]
+    derive_selected_input_xyz_fn: Callable[[str], str]
+    prefer_orca_optimized_xyz_fn: Callable[..., str]
+    is_subpath_fn: Callable[[Path, Path | None], bool]
+    coerce_resource_dict_fn: Callable[[Any], dict[str, int]]
+    attempt_count_fn: Callable[[dict[str, Any], dict[str, Any]], int]
+    max_retries_fn: Callable[[dict[str, Any], dict[str, Any]], int]
+    coerce_attempts_fn: Callable[[dict[str, Any], dict[str, Any]], tuple[dict[str, Any], ...]]
+    final_result_payload_fn: Callable[[dict[str, Any], dict[str, Any]], dict[str, Any]]
+    contract_cls: type
+
+
+@dataclass(frozen=True)
+class _LoadRequest:
+    target: str
+    queue_id: str
+    run_id: str
+    reaction_dir: str
+
+
+@dataclass(frozen=True)
+class _LoadRoots:
+    allowed: Path | None
+    organized: Path | None
+
+
+@dataclass
+class _LoaderContext:
+    tracked_artifact_dir: Path | None
+    tracked_dir: Path | None
+    tracked_record: Any
+    state: dict[str, Any]
+    report: dict[str, Any]
+    organized_ref: dict[str, Any]
+    queue_entry: dict[str, Any] | None
+    precomputed_organized_dir: Path | None = None
+    current_dir: Path | None = None
+    organized_dir: Path | None = None
+    resolved_run_id: str = ""
+
+
+@dataclass(frozen=True)
+class _ArtifactPaths:
+    selected_inp: str
+    selected_input_xyz: str
+    optimized_xyz_path: str
+    last_out_path: str
+
+
+@dataclass(frozen=True)
+class _StatusPayload:
+    status: str
+    analyzer_status: str
+    reason: str
+    completed_at: str
+
+
 def status_from_payloads_impl(
     *,
     queue_entry: dict[str, Any] | None,
@@ -87,39 +180,69 @@ def status_from_payloads_impl(
     normalize_text_fn: Callable[[Any], str],
     normalize_bool_fn: Callable[[Any], bool],
 ) -> tuple[str, str, str, str]:
-    queue_status = normalize_text_fn((queue_entry or {}).get("status")).lower()
-    cancel_requested = normalize_bool_fn((queue_entry or {}).get("cancel_requested"))
+    payload = _status_payload(
+        queue_entry=queue_entry,
+        state=state,
+        report=report,
+        normalize_text_fn=normalize_text_fn,
+        normalize_bool_fn=normalize_bool_fn,
+    )
+    return payload.status, payload.analyzer_status, payload.reason, payload.completed_at
 
+
+def _status_payload(
+    *,
+    queue_entry: dict[str, Any] | None,
+    state: dict[str, Any],
+    report: dict[str, Any],
+    normalize_text_fn: Callable[[Any], str],
+    normalize_bool_fn: Callable[[Any], bool],
+) -> _StatusPayload:
+    queue = queue_entry or {}
+    queue_status = normalize_text_fn(queue.get("status")).lower()
+    cancel_requested = normalize_bool_fn(queue.get("cancel_requested"))
     state_status = normalize_text_fn(state.get("status")).lower()
     report_status = normalize_text_fn(report.get("status")).lower()
-    final_result = report.get("final_result") if isinstance(report.get("final_result"), dict) else state.get("final_result")
-    final = final_result if isinstance(final_result, dict) else {}
+    final = _final_status_source(state, report)
     final_status = normalize_text_fn(final.get("status")).lower()
     analyzer_status = normalize_text_fn(final.get("analyzer_status"))
     reason = normalize_text_fn(final.get("reason"))
     completed_at = normalize_text_fn(final.get("completed_at"))
+    status = _resolve_status(
+        final_status, queue_status, cancel_requested, state_status, report_status
+    )
+    if status == "cancelled" and not reason:
+        reason = "cancelled"
+    return _StatusPayload(status, analyzer_status, reason, completed_at)
 
+
+def _final_status_source(state: dict[str, Any], report: dict[str, Any]) -> dict[str, Any]:
+    report_final = report.get("final_result")
+    final_result = report_final if isinstance(report_final, dict) else state.get("final_result")
+    return final_result if isinstance(final_result, dict) else {}
+
+
+def _resolve_status(
+    final_status: str,
+    queue_status: str,
+    cancel_requested: bool,
+    state_status: str,
+    report_status: str,
+) -> str:
     if final_status in {"completed", "failed"}:
-        return final_status, analyzer_status, reason, completed_at
-    if queue_status == "cancelled":
-        return "cancelled", analyzer_status, reason or "cancelled", completed_at
+        return final_status
+    queue_status_map = {"cancelled": "cancelled", "pending": "queued", "running": "running"}
     if queue_status == "running" and cancel_requested:
-        return "cancel_requested", analyzer_status, reason, completed_at
-    if queue_status == "pending":
-        return "queued", analyzer_status, reason, completed_at
-    if queue_status == "running":
-        return "running", analyzer_status, reason, completed_at
+        return "cancel_requested"
+    if queue_status in queue_status_map:
+        return queue_status_map[queue_status]
     if state_status in {"completed", "failed"}:
-        return state_status, analyzer_status, reason, completed_at
+        return state_status
     if state_status in {"created", "running", "retrying"}:
-        return "running", analyzer_status, reason, completed_at
+        return "running"
     if report_status in {"completed", "failed"}:
-        return report_status, analyzer_status, reason, completed_at
-    if queue_status:
-        return queue_status, analyzer_status, reason, completed_at
-    if state_status:
-        return state_status, analyzer_status, reason, completed_at
-    return "unknown", analyzer_status, reason, completed_at
+        return report_status
+    return queue_status or state_status or "unknown"
 
 
 def load_orca_artifact_contract_impl(
@@ -130,299 +253,501 @@ def load_orca_artifact_contract_impl(
     queue_id: str,
     run_id: str,
     reaction_dir: str,
-    path_type: type[Path],
-    normalize_text_fn: Callable[[Any], str],
-    normalize_bool_fn: Callable[[Any], bool],
-    safe_int_fn: Callable[[Any, int], int],
-    tracked_contract_payload_fn: Callable[..., dict[str, Any] | None],
-    tracked_runtime_context_fn: Callable[..., tuple[Path | None, Any, dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any] | None, Path | None] | None],
-    tracked_artifact_context_fn: Callable[..., tuple[Path | None, Any, dict[str, Any], dict[str, Any], dict[str, Any]]],
-    resolve_job_dir_fn: Callable[[Path | None, str], tuple[Path | None, Any]],
-    find_queue_entry_fn: Callable[..., dict[str, Any] | None],
-    resolve_candidate_path_fn: Callable[[Any], Path | None],
-    direct_dir_target_fn: Callable[[str], Path | None],
-    record_organized_dir_fn: Callable[[Any], Path | None],
-    find_organized_record_fn: Callable[..., dict[str, Any] | None],
-    organized_dir_from_record_fn: Callable[[Path | None, dict[str, Any] | None], Path | None],
-    load_json_dict_fn: Callable[[Path], dict[str, Any]],
-    load_tracked_organized_ref_fn: Callable[[Any, Path | None], dict[str, Any]],
-    status_from_payloads_fn: Callable[..., tuple[str, str, str, str]],
-    resolve_artifact_path_fn: Callable[[Any, Path | None], str],
-    derive_selected_input_xyz_fn: Callable[[str], str],
-    prefer_orca_optimized_xyz_fn: Callable[..., str],
-    is_subpath_fn: Callable[[Path, Path | None], bool],
-    coerce_resource_dict_fn: Callable[[Any], dict[str, int]],
-    attempt_count_fn: Callable[[dict[str, Any], dict[str, Any]], int],
-    max_retries_fn: Callable[[dict[str, Any], dict[str, Any]], int],
-    coerce_attempts_fn: Callable[[dict[str, Any], dict[str, Any]], tuple[dict[str, Any], ...]],
-    final_result_payload_fn: Callable[[dict[str, Any], dict[str, Any]], dict[str, Any]],
-    contract_cls: type,
+    deps: OrcaContractLoaderDeps,
 ) -> Any:
-    allowed_root = path_type(orca_allowed_root).expanduser().resolve() if orca_allowed_root else None
-    organized_root = path_type(orca_organized_root).expanduser().resolve() if orca_organized_root else None
-
-    tracked_payload = tracked_contract_payload_fn(
-        index_root=allowed_root,
-        organized_root=organized_root,
-        target=target,
-        queue_id=queue_id,
-        run_id=run_id,
-        reaction_dir=reaction_dir,
+    request = _LoadRequest(
+        target=target, queue_id=queue_id, run_id=run_id, reaction_dir=reaction_dir
     )
+    roots = _resolve_roots(orca_allowed_root, orca_organized_root, deps)
+    tracked_payload = _tracked_payload(request, roots, deps)
     if tracked_payload is not None:
-        attempts_payload = tracked_payload.get("attempts")
-        attempts = tuple(
-            dict(item) for item in attempts_payload if isinstance(item, dict)
-        ) if isinstance(attempts_payload, list) else ()
-        final_result = tracked_payload.get("final_result")
-        return contract_cls(
-            run_id=normalize_text_fn(tracked_payload.get("run_id")),
-            status=normalize_text_fn(tracked_payload.get("status")) or "unknown",
-            reason=normalize_text_fn(tracked_payload.get("reason")),
-            state_status=normalize_text_fn(tracked_payload.get("state_status")),
-            reaction_dir=normalize_text_fn(tracked_payload.get("reaction_dir") or reaction_dir),
-            latest_known_path=normalize_text_fn(tracked_payload.get("latest_known_path") or target),
-            organized_output_dir=normalize_text_fn(tracked_payload.get("organized_output_dir")),
-            optimized_xyz_path=normalize_text_fn(tracked_payload.get("optimized_xyz_path")),
-            queue_id=normalize_text_fn(tracked_payload.get("queue_id") or queue_id),
-            queue_status=normalize_text_fn(tracked_payload.get("queue_status")).lower(),
-            cancel_requested=normalize_bool_fn(tracked_payload.get("cancel_requested")),
-            selected_inp=normalize_text_fn(tracked_payload.get("selected_inp")),
-            selected_input_xyz=normalize_text_fn(tracked_payload.get("selected_input_xyz")),
-            analyzer_status=normalize_text_fn(tracked_payload.get("analyzer_status")),
-            completed_at=normalize_text_fn(tracked_payload.get("completed_at")),
-            last_out_path=normalize_text_fn(tracked_payload.get("last_out_path")),
-            run_state_path=normalize_text_fn(tracked_payload.get("run_state_path")),
-            report_json_path=normalize_text_fn(tracked_payload.get("report_json_path")),
-            report_md_path=normalize_text_fn(tracked_payload.get("report_md_path")),
-            attempt_count=safe_int_fn(tracked_payload.get("attempt_count"), 0),
-            max_retries=safe_int_fn(tracked_payload.get("max_retries"), 0),
-            attempts=attempts,
-            final_result=dict(final_result) if isinstance(final_result, dict) else {},
-            resource_request=coerce_resource_dict_fn(tracked_payload.get("resource_request")),
-            resource_actual=coerce_resource_dict_fn(tracked_payload.get("resource_actual")),
-        )
+        return _contract_from_tracked_payload(tracked_payload, request, deps)
 
-    runtime_context = tracked_runtime_context_fn(
-        index_root=allowed_root,
-        organized_root=organized_root,
-        target=target,
-        queue_id=queue_id,
-        run_id=run_id,
-        reaction_dir=reaction_dir,
+    context = _load_context(request, roots, deps)
+    queue_reaction_dir = _refresh_context_from_queue_reaction_dir(context, roots, deps)
+    _set_current_dir(request, context, queue_reaction_dir, deps)
+    _load_context_payloads(context, deps)
+    context.resolved_run_id = _resolve_run_id(request, context, deps)
+    _resolve_organized_context(request, roots, context, deps)
+    return _contract_from_context(request, roots, context, queue_reaction_dir, deps)
+
+
+def _resolve_roots(
+    orca_allowed_root: str | Path | None,
+    orca_organized_root: str | Path | None,
+    deps: OrcaContractLoaderDeps,
+) -> _LoadRoots:
+    allowed = (
+        deps.path_type(orca_allowed_root).expanduser().resolve() if orca_allowed_root else None
     )
-    precomputed_organized_dir: Path | None = None
-    if runtime_context is not None:
-        (
-            tracked_artifact_dir,
-            tracked_context_record,
-            tracked_state,
-            tracked_report,
-            tracked_organized_ref,
-            queue_entry,
-            precomputed_organized_dir,
-        ) = runtime_context
-    else:
-        tracked_artifact_dir, tracked_context_record, tracked_state, tracked_report, tracked_organized_ref = tracked_artifact_context_fn(
-            index_root=allowed_root,
-            targets=(
-                target,
-                run_id,
-                reaction_dir,
-            ),
-        )
-        queue_entry = None
-    direct_dir = direct_dir_target_fn(target)
-    tracked_dir: Path | None = tracked_artifact_dir
-    tracked_record = tracked_context_record
-    if tracked_dir is None or tracked_record is None:
-        fallback_dir, fallback_record = resolve_job_dir_fn(allowed_root, target)
-        tracked_dir = tracked_dir or fallback_dir
-        tracked_record = tracked_record or fallback_record
-    if queue_entry is None:
-        queue_entry = find_queue_entry_fn(
-            allowed_root=allowed_root,
-            target=target,
-            queue_id=queue_id,
-            run_id=run_id,
-            reaction_dir=reaction_dir,
-        )
+    organized = (
+        deps.path_type(orca_organized_root).expanduser().resolve() if orca_organized_root else None
+    )
+    return _LoadRoots(allowed=allowed, organized=organized)
 
-    reaction_dir_hint = resolve_candidate_path_fn(reaction_dir)
-    queue_reaction_dir = resolve_candidate_path_fn((queue_entry or {}).get("reaction_dir"))
-    if not tracked_artifact_dir and queue_reaction_dir is not None:
-        refreshed_dir, refreshed_record, refreshed_state, refreshed_report, refreshed_organized_ref = tracked_artifact_context_fn(
-            index_root=allowed_root,
-            targets=(str(queue_reaction_dir),),
-        )
-        tracked_artifact_dir = tracked_artifact_dir or refreshed_dir
-        tracked_record = tracked_record or refreshed_record
-        if not tracked_state:
-            tracked_state = refreshed_state
-        if not tracked_report:
-            tracked_report = refreshed_report
-        if not tracked_organized_ref:
-            tracked_organized_ref = refreshed_organized_ref
-    current_dir = tracked_artifact_dir or tracked_dir or direct_dir or reaction_dir_hint or queue_reaction_dir
 
-    state = dict(tracked_state)
-    if not state and current_dir is not None:
-        state = load_json_dict_fn(current_dir / "run_state.json")
-    report = dict(tracked_report)
-    if not report and current_dir is not None:
-        report = load_json_dict_fn(current_dir / "run_report.json")
-    organized_ref = dict(tracked_organized_ref)
-    if not organized_ref and current_dir is not None:
-        organized_ref = load_json_dict_fn(current_dir / "organized_ref.json")
-    if not organized_ref:
-        organized_ref = load_tracked_organized_ref_fn(tracked_record, current_dir)
+def _tracked_payload(
+    request: _LoadRequest,
+    roots: _LoadRoots,
+    deps: OrcaContractLoaderDeps,
+) -> dict[str, Any] | None:
+    return deps.tracked_contract_payload_fn(
+        index_root=roots.allowed,
+        organized_root=roots.organized,
+        target=request.target,
+        queue_id=request.queue_id,
+        run_id=request.run_id,
+        reaction_dir=request.reaction_dir,
+    )
 
-    resolved_run_id = (
-        normalize_text_fn(run_id)
-        or normalize_text_fn(state.get("run_id"))
-        or normalize_text_fn(report.get("run_id"))
-        or normalize_text_fn(organized_ref.get("run_id"))
-        or normalize_text_fn((queue_entry or {}).get("run_id"))
+
+def _contract_from_tracked_payload(
+    payload: dict[str, Any],
+    request: _LoadRequest,
+    deps: OrcaContractLoaderDeps,
+) -> Any:
+    final_result = payload.get("final_result")
+    return deps.contract_cls(
+        run_id=deps.normalize_text_fn(payload.get("run_id")),
+        status=deps.normalize_text_fn(payload.get("status")) or "unknown",
+        reason=deps.normalize_text_fn(payload.get("reason")),
+        state_status=deps.normalize_text_fn(payload.get("state_status")),
+        reaction_dir=deps.normalize_text_fn(payload.get("reaction_dir") or request.reaction_dir),
+        latest_known_path=deps.normalize_text_fn(
+            payload.get("latest_known_path") or request.target
+        ),
+        organized_output_dir=deps.normalize_text_fn(payload.get("organized_output_dir")),
+        optimized_xyz_path=deps.normalize_text_fn(payload.get("optimized_xyz_path")),
+        queue_id=deps.normalize_text_fn(payload.get("queue_id") or request.queue_id),
+        queue_status=deps.normalize_text_fn(payload.get("queue_status")).lower(),
+        cancel_requested=deps.normalize_bool_fn(payload.get("cancel_requested")),
+        selected_inp=deps.normalize_text_fn(payload.get("selected_inp")),
+        selected_input_xyz=deps.normalize_text_fn(payload.get("selected_input_xyz")),
+        analyzer_status=deps.normalize_text_fn(payload.get("analyzer_status")),
+        completed_at=deps.normalize_text_fn(payload.get("completed_at")),
+        last_out_path=deps.normalize_text_fn(payload.get("last_out_path")),
+        run_state_path=deps.normalize_text_fn(payload.get("run_state_path")),
+        report_json_path=deps.normalize_text_fn(payload.get("report_json_path")),
+        report_md_path=deps.normalize_text_fn(payload.get("report_md_path")),
+        attempt_count=deps.safe_int_fn(payload.get("attempt_count"), 0),
+        max_retries=deps.safe_int_fn(payload.get("max_retries"), 0),
+        attempts=_payload_attempts(payload),
+        final_result=dict(final_result) if isinstance(final_result, dict) else {},
+        resource_request=deps.coerce_resource_dict_fn(payload.get("resource_request")),
+        resource_actual=deps.coerce_resource_dict_fn(payload.get("resource_actual")),
+    )
+
+
+def _payload_attempts(payload: dict[str, Any]) -> tuple[dict[str, Any], ...]:
+    attempts_payload = payload.get("attempts")
+    if not isinstance(attempts_payload, list):
+        return ()
+    return tuple(dict(item) for item in attempts_payload if isinstance(item, dict))
+
+
+def _load_context(
+    request: _LoadRequest,
+    roots: _LoadRoots,
+    deps: OrcaContractLoaderDeps,
+) -> _LoaderContext:
+    runtime_context = deps.tracked_runtime_context_fn(
+        index_root=roots.allowed,
+        organized_root=roots.organized,
+        target=request.target,
+        queue_id=request.queue_id,
+        run_id=request.run_id,
+        reaction_dir=request.reaction_dir,
     )
     if runtime_context is not None:
-        organized_dir = precomputed_organized_dir
+        context = _context_from_runtime(runtime_context)
     else:
-        organized_record = None
-        tracked_organized_dir = record_organized_dir_fn(tracked_record)
-        if tracked_organized_dir is None:
-            organized_record = find_organized_record_fn(
-                organized_root=organized_root,
-                target=target,
-                run_id=resolved_run_id,
-                reaction_dir=str(current_dir) if current_dir is not None else reaction_dir,
-            )
-        organized_dir = tracked_organized_dir or organized_dir_from_record_fn(organized_root, organized_record)
+        tracked_dir, record, state, report, organized_ref = deps.tracked_artifact_context_fn(
+            index_root=roots.allowed,
+            targets=(request.target, request.run_id, request.reaction_dir),
+        )
+        context = _LoaderContext(
+            tracked_dir, tracked_dir, record, dict(state), dict(report), dict(organized_ref), None
+        )
+    _apply_context_fallbacks(context, request, roots, deps)
+    return context
 
-        if organized_dir is not None and (current_dir is None or not current_dir.exists() or (not state and not report)):
-            current_dir = organized_dir
-            refreshed_dir, refreshed_record, refreshed_state, refreshed_report, refreshed_organized_ref = tracked_artifact_context_fn(
-                index_root=allowed_root,
-                targets=(str(current_dir), target, resolved_run_id, reaction_dir),
-            )
-            if refreshed_dir is not None:
-                current_dir = refreshed_dir
-            if tracked_record is None and refreshed_record is not None:
-                tracked_record = refreshed_record
-            state = dict(refreshed_state) or load_json_dict_fn(current_dir / "run_state.json")
-            report = dict(refreshed_report) or load_json_dict_fn(current_dir / "run_report.json")
-            organized_ref = dict(refreshed_organized_ref) or load_json_dict_fn(current_dir / "organized_ref.json")
-            if not organized_ref:
-                organized_ref = load_tracked_organized_ref_fn(tracked_record, current_dir)
-            resolved_run_id = (
-                resolved_run_id
-                or normalize_text_fn(state.get("run_id"))
-                or normalize_text_fn(report.get("run_id"))
-                or normalize_text_fn(organized_ref.get("run_id"))
-            )
 
-    if tracked_record is not None and normalize_text_fn(tracked_record.latest_known_path):
-        latest_known_path = normalize_text_fn(tracked_record.latest_known_path)
-    elif organized_dir is not None:
-        latest_known_path = str(organized_dir)
-    elif current_dir is not None or queue_reaction_dir is not None:
-        latest_known_path = str(current_dir or queue_reaction_dir)
-    else:
-        latest_known_path = normalize_text_fn(target)
-
-    state_status = normalize_text_fn(state.get("status")).lower()
-    status, analyzer_status, reason, completed_at = status_from_payloads_fn(
+def _context_from_runtime(runtime_context: tuple[Any, ...]) -> _LoaderContext:
+    tracked_dir, record, state, report, organized_ref, queue_entry, organized_dir = runtime_context
+    return _LoaderContext(
+        tracked_artifact_dir=tracked_dir,
+        tracked_dir=tracked_dir,
+        tracked_record=record,
+        state=dict(state),
+        report=dict(report),
+        organized_ref=dict(organized_ref),
         queue_entry=queue_entry,
-        state=state,
-        report=report,
+        precomputed_organized_dir=organized_dir,
     )
-    tracked_status = normalize_text_fn(tracked_record.status if tracked_record is not None else "").lower()
-    if status == "unknown" and tracked_status:
-        status = tracked_status
-    base_dir = current_dir
-    selected_inp = resolve_artifact_path_fn(
-        state.get("selected_inp")
-        or report.get("selected_inp")
-        or organized_ref.get("selected_inp")
-        or organized_ref.get("selected_input_xyz")
-        or (tracked_record.selected_input_xyz if tracked_record is not None else ""),
-        base_dir,
+
+
+def _apply_context_fallbacks(
+    context: _LoaderContext,
+    request: _LoadRequest,
+    roots: _LoadRoots,
+    deps: OrcaContractLoaderDeps,
+) -> None:
+    if context.tracked_dir is None or context.tracked_record is None:
+        fallback_dir, fallback_record = deps.resolve_job_dir_fn(roots.allowed, request.target)
+        context.tracked_dir = context.tracked_dir or fallback_dir
+        context.tracked_record = context.tracked_record or fallback_record
+    if context.queue_entry is None:
+        context.queue_entry = deps.find_queue_entry_fn(
+            allowed_root=roots.allowed,
+            target=request.target,
+            queue_id=request.queue_id,
+            run_id=request.run_id,
+            reaction_dir=request.reaction_dir,
+        )
+
+
+def _refresh_context_from_queue_reaction_dir(
+    context: _LoaderContext,
+    roots: _LoadRoots,
+    deps: OrcaContractLoaderDeps,
+) -> Path | None:
+    queue_reaction_dir = deps.resolve_candidate_path_fn(
+        (context.queue_entry or {}).get("reaction_dir")
     )
-    state_final_result = state.get("final_result")
-    state_final = state_final_result if isinstance(state_final_result, dict) else {}
-    report_final_result = report.get("final_result")
-    report_final = report_final_result if isinstance(report_final_result, dict) else {}
-    last_out_path = resolve_artifact_path_fn(
-        state_final.get("last_out_path") or report_final.get("last_out_path"),
-        base_dir,
+    if context.tracked_artifact_dir is None and queue_reaction_dir is not None:
+        refreshed = deps.tracked_artifact_context_fn(
+            index_root=roots.allowed, targets=(str(queue_reaction_dir),)
+        )
+        _merge_refreshed_context(context, refreshed)
+    return queue_reaction_dir
+
+
+def _merge_refreshed_context(context: _LoaderContext, refreshed: tuple[Any, ...]) -> None:
+    refreshed_dir, refreshed_record, refreshed_state, refreshed_report, refreshed_organized_ref = (
+        refreshed
     )
-    selected_input_xyz = resolve_artifact_path_fn(
-        organized_ref.get("selected_input_xyz") or (tracked_record.selected_input_xyz if tracked_record is not None else ""),
-        base_dir,
+    context.tracked_artifact_dir = context.tracked_artifact_dir or refreshed_dir
+    context.tracked_record = context.tracked_record or refreshed_record
+    if not context.state:
+        context.state = dict(refreshed_state)
+    if not context.report:
+        context.report = dict(refreshed_report)
+    if not context.organized_ref:
+        context.organized_ref = dict(refreshed_organized_ref)
+
+
+def _set_current_dir(
+    request: _LoadRequest,
+    context: _LoaderContext,
+    queue_reaction_dir: Path | None,
+    deps: OrcaContractLoaderDeps,
+) -> None:
+    context.current_dir = (
+        context.tracked_artifact_dir
+        or context.tracked_dir
+        or deps.direct_dir_target_fn(request.target)
+        or deps.resolve_candidate_path_fn(request.reaction_dir)
+        or queue_reaction_dir
     )
-    if not selected_input_xyz.lower().endswith(".xyz"):
-        selected_input_xyz = ""
-    selected_input_xyz = selected_input_xyz or derive_selected_input_xyz_fn(selected_inp)
-    optimized_xyz_path = prefer_orca_optimized_xyz_fn(
-        selected_inp=selected_inp,
-        selected_input_xyz=selected_input_xyz,
-        current_dir=current_dir,
-        organized_dir=organized_dir,
+
+
+def _load_context_payloads(context: _LoaderContext, deps: OrcaContractLoaderDeps) -> None:
+    if not context.state and context.current_dir is not None:
+        context.state = deps.load_json_dict_fn(context.current_dir / "run_state.json")
+    if not context.report and context.current_dir is not None:
+        context.report = deps.load_json_dict_fn(context.current_dir / "run_report.json")
+    if not context.organized_ref and context.current_dir is not None:
+        context.organized_ref = deps.load_json_dict_fn(context.current_dir / "organized_ref.json")
+    if not context.organized_ref:
+        context.organized_ref = deps.load_tracked_organized_ref_fn(
+            context.tracked_record, context.current_dir
+        )
+
+
+def _resolve_run_id(
+    request: _LoadRequest, context: _LoaderContext, deps: OrcaContractLoaderDeps
+) -> str:
+    queue = context.queue_entry or {}
+    return (
+        deps.normalize_text_fn(request.run_id)
+        or deps.normalize_text_fn(context.state.get("run_id"))
+        or deps.normalize_text_fn(context.report.get("run_id"))
+        or deps.normalize_text_fn(context.organized_ref.get("run_id"))
+        or deps.normalize_text_fn(queue.get("run_id"))
+    )
+
+
+def _resolve_organized_context(
+    request: _LoadRequest,
+    roots: _LoadRoots,
+    context: _LoaderContext,
+    deps: OrcaContractLoaderDeps,
+) -> None:
+    if context.precomputed_organized_dir is not None:
+        context.organized_dir = context.precomputed_organized_dir
+        return
+    context.organized_dir = _find_organized_dir(request, roots, context, deps)
+    if _should_refresh_from_organized_dir(context):
+        _refresh_from_organized_dir(request, roots, context, deps)
+
+
+def _find_organized_dir(
+    request: _LoadRequest,
+    roots: _LoadRoots,
+    context: _LoaderContext,
+    deps: OrcaContractLoaderDeps,
+) -> Path | None:
+    organized_record = None
+    tracked_organized_dir = deps.record_organized_dir_fn(context.tracked_record)
+    if tracked_organized_dir is None:
+        organized_record = deps.find_organized_record_fn(
+            organized_root=roots.organized,
+            target=request.target,
+            run_id=context.resolved_run_id,
+            reaction_dir=str(context.current_dir)
+            if context.current_dir is not None
+            else request.reaction_dir,
+        )
+    return tracked_organized_dir or deps.organized_dir_from_record_fn(
+        roots.organized, organized_record
+    )
+
+
+def _should_refresh_from_organized_dir(context: _LoaderContext) -> bool:
+    if context.organized_dir is None:
+        return False
+    return (
+        context.current_dir is None
+        or not context.current_dir.exists()
+        or (not context.state and not context.report)
+    )
+
+
+def _refresh_from_organized_dir(
+    request: _LoadRequest,
+    roots: _LoadRoots,
+    context: _LoaderContext,
+    deps: OrcaContractLoaderDeps,
+) -> None:
+    context.current_dir = context.organized_dir
+    refreshed = deps.tracked_artifact_context_fn(
+        index_root=roots.allowed,
+        targets=(
+            str(context.current_dir),
+            request.target,
+            context.resolved_run_id,
+            request.reaction_dir,
+        ),
+    )
+    refreshed_dir, refreshed_record, refreshed_state, refreshed_report, refreshed_organized_ref = (
+        refreshed
+    )
+    context.current_dir = refreshed_dir or context.current_dir
+    context.tracked_record = context.tracked_record or refreshed_record
+    context.state = dict(refreshed_state) or deps.load_json_dict_fn(
+        context.current_dir / "run_state.json"
+    )
+    context.report = dict(refreshed_report) or deps.load_json_dict_fn(
+        context.current_dir / "run_report.json"
+    )
+    context.organized_ref = dict(refreshed_organized_ref) or deps.load_json_dict_fn(
+        context.current_dir / "organized_ref.json"
+    )
+    if not context.organized_ref:
+        context.organized_ref = deps.load_tracked_organized_ref_fn(
+            context.tracked_record, context.current_dir
+        )
+    context.resolved_run_id = context.resolved_run_id or _resolve_run_id(request, context, deps)
+
+
+def _contract_from_context(
+    request: _LoadRequest,
+    roots: _LoadRoots,
+    context: _LoaderContext,
+    queue_reaction_dir: Path | None,
+    deps: OrcaContractLoaderDeps,
+) -> Any:
+    latest_known_path = _latest_known_path(request, context, queue_reaction_dir, deps)
+    status = _contract_status(context, deps)
+    paths = _artifact_paths(context, latest_known_path, deps)
+    resource_request, resource_actual = _resource_payloads(context, deps)
+    _ensure_orca_record(context.tracked_record)
+    metadata_paths = _metadata_paths(context.current_dir)
+    queue = context.queue_entry or {}
+    return deps.contract_cls(
+        run_id=context.resolved_run_id,
+        status=status.status,
+        reason=status.reason,
+        state_status=deps.normalize_text_fn(context.state.get("status")).lower(),
+        reaction_dir=str(context.current_dir)
+        if context.current_dir is not None
+        else deps.normalize_text_fn(request.reaction_dir),
         latest_known_path=latest_known_path,
-        last_out_path=last_out_path,
-    )
-
-    resource_request = coerce_resource_dict_fn(
-        ((queue_entry or {}).get("resource_request") if isinstance((queue_entry or {}).get("resource_request"), dict) else {})
-    ) or coerce_resource_dict_fn(tracked_record.resource_request if tracked_record is not None else {})
-    resource_actual = coerce_resource_dict_fn(
-        ((queue_entry or {}).get("resource_actual") if isinstance((queue_entry or {}).get("resource_actual"), dict) else {})
-    ) or coerce_resource_dict_fn(tracked_record.resource_actual if tracked_record is not None else {}) or dict(resource_request)
-
-    if tracked_record is not None and tracked_record.app_name and tracked_record.app_name != CHEMSTACK_ORCA_APP_NAME:
-        raise ValueError(f"Expected chemstack_orca index record, got: {tracked_record.app_name}")
-
-    organized_output_dir = normalize_text_fn(
-        (tracked_record.organized_output_dir if tracked_record is not None else "")
-        or organized_ref.get("organized_output_dir")
-        or (str(organized_dir) if organized_dir is not None else "")
-        or (str(current_dir) if current_dir is not None and is_subpath_fn(current_dir, organized_root) else "")
-    )
-
-    run_state_path = str((current_dir / "run_state.json").resolve()) if current_dir is not None and (current_dir / "run_state.json").exists() else ""
-    report_json_path = str((current_dir / "run_report.json").resolve()) if current_dir is not None and (current_dir / "run_report.json").exists() else ""
-    report_md_path = str((current_dir / "run_report.md").resolve()) if current_dir is not None and (current_dir / "run_report.md").exists() else ""
-
-    queue_status = normalize_text_fn((queue_entry or {}).get("status")).lower()
-    return contract_cls(
-        run_id=resolved_run_id,
-        status=status,
-        reason=reason,
-        state_status=state_status,
-        reaction_dir=str(current_dir) if current_dir is not None else normalize_text_fn(reaction_dir),
-        latest_known_path=latest_known_path,
-        organized_output_dir=organized_output_dir,
-        optimized_xyz_path=optimized_xyz_path,
-        queue_id=normalize_text_fn((queue_entry or {}).get("queue_id") or queue_id),
-        queue_status=queue_status,
-        cancel_requested=normalize_bool_fn((queue_entry or {}).get("cancel_requested")),
-        selected_inp=selected_inp,
-        selected_input_xyz=selected_input_xyz,
-        analyzer_status=analyzer_status,
-        completed_at=completed_at,
-        last_out_path=last_out_path,
-        run_state_path=run_state_path,
-        report_json_path=report_json_path,
-        report_md_path=report_md_path,
-        attempt_count=attempt_count_fn(state, report),
-        max_retries=max_retries_fn(state, report),
-        attempts=coerce_attempts_fn(state, report),
-        final_result=final_result_payload_fn(state, report),
+        organized_output_dir=_organized_output_dir(context, roots, deps),
+        optimized_xyz_path=paths.optimized_xyz_path,
+        queue_id=deps.normalize_text_fn(queue.get("queue_id") or request.queue_id),
+        queue_status=deps.normalize_text_fn(queue.get("status")).lower(),
+        cancel_requested=deps.normalize_bool_fn(queue.get("cancel_requested")),
+        selected_inp=paths.selected_inp,
+        selected_input_xyz=paths.selected_input_xyz,
+        analyzer_status=status.analyzer_status,
+        completed_at=status.completed_at,
+        last_out_path=paths.last_out_path,
+        run_state_path=metadata_paths["run_state_path"],
+        report_json_path=metadata_paths["report_json_path"],
+        report_md_path=metadata_paths["report_md_path"],
+        attempt_count=deps.attempt_count_fn(context.state, context.report),
+        max_retries=deps.max_retries_fn(context.state, context.report),
+        attempts=deps.coerce_attempts_fn(context.state, context.report),
+        final_result=deps.final_result_payload_fn(context.state, context.report),
         resource_request=resource_request,
         resource_actual=resource_actual,
     )
 
 
+def _latest_known_path(
+    request: _LoadRequest,
+    context: _LoaderContext,
+    queue_reaction_dir: Path | None,
+    deps: OrcaContractLoaderDeps,
+) -> str:
+    record_path = (
+        deps.normalize_text_fn(context.tracked_record.latest_known_path)
+        if context.tracked_record is not None
+        else ""
+    )
+    if record_path:
+        return record_path
+    if context.organized_dir is not None:
+        return str(context.organized_dir)
+    if context.current_dir is not None or queue_reaction_dir is not None:
+        return str(context.current_dir or queue_reaction_dir)
+    return deps.normalize_text_fn(request.target)
+
+
+def _contract_status(context: _LoaderContext, deps: OrcaContractLoaderDeps) -> _StatusPayload:
+    status, analyzer_status, reason, completed_at = deps.status_from_payloads_fn(
+        queue_entry=context.queue_entry,
+        state=context.state,
+        report=context.report,
+    )
+    tracked_status = deps.normalize_text_fn(
+        context.tracked_record.status if context.tracked_record is not None else ""
+    ).lower()
+    if status == "unknown" and tracked_status:
+        status = tracked_status
+    return _StatusPayload(status, analyzer_status, reason, completed_at)
+
+
+def _artifact_paths(
+    context: _LoaderContext, latest_known_path: str, deps: OrcaContractLoaderDeps
+) -> _ArtifactPaths:
+    selected_inp = deps.resolve_artifact_path_fn(
+        _selected_input_source(context), context.current_dir
+    )
+    last_out_path = deps.resolve_artifact_path_fn(_last_out_source(context), context.current_dir)
+    selected_input_xyz = deps.resolve_artifact_path_fn(
+        _selected_xyz_source(context), context.current_dir
+    )
+    if not selected_input_xyz.lower().endswith(".xyz"):
+        selected_input_xyz = ""
+    selected_input_xyz = selected_input_xyz or deps.derive_selected_input_xyz_fn(selected_inp)
+    optimized_xyz_path = deps.prefer_orca_optimized_xyz_fn(
+        selected_inp=selected_inp,
+        selected_input_xyz=selected_input_xyz,
+        current_dir=context.current_dir,
+        organized_dir=context.organized_dir,
+        latest_known_path=latest_known_path,
+        last_out_path=last_out_path,
+    )
+    return _ArtifactPaths(selected_inp, selected_input_xyz, optimized_xyz_path, last_out_path)
+
+
+def _selected_input_source(context: _LoaderContext) -> Any:
+    return (
+        context.state.get("selected_inp")
+        or context.report.get("selected_inp")
+        or context.organized_ref.get("selected_inp")
+        or context.organized_ref.get("selected_input_xyz")
+        or (context.tracked_record.selected_input_xyz if context.tracked_record is not None else "")
+    )
+
+
+def _selected_xyz_source(context: _LoaderContext) -> Any:
+    return context.organized_ref.get("selected_input_xyz") or (
+        context.tracked_record.selected_input_xyz if context.tracked_record is not None else ""
+    )
+
+
+def _last_out_source(context: _LoaderContext) -> Any:
+    state_final = context.state.get("final_result")
+    report_final = context.report.get("final_result")
+    state_final_payload = state_final if isinstance(state_final, dict) else {}
+    report_final_payload = report_final if isinstance(report_final, dict) else {}
+    return state_final_payload.get("last_out_path") or report_final_payload.get("last_out_path")
+
+
+def _resource_payloads(
+    context: _LoaderContext,
+    deps: OrcaContractLoaderDeps,
+) -> tuple[dict[str, int], dict[str, int]]:
+    queue = context.queue_entry or {}
+    queue_request = queue.get("resource_request")
+    queue_actual = queue.get("resource_actual")
+    resource_request = deps.coerce_resource_dict_fn(
+        queue_request if isinstance(queue_request, dict) else {}
+    ) or deps.coerce_resource_dict_fn(
+        context.tracked_record.resource_request if context.tracked_record is not None else {}
+    )
+    resource_actual = deps.coerce_resource_dict_fn(
+        queue_actual if isinstance(queue_actual, dict) else {}
+    ) or deps.coerce_resource_dict_fn(
+        context.tracked_record.resource_actual if context.tracked_record is not None else {}
+    )
+    return resource_request, resource_actual or dict(resource_request)
+
+
+def _ensure_orca_record(tracked_record: Any) -> None:
+    if (
+        tracked_record is not None
+        and tracked_record.app_name
+        and tracked_record.app_name != CHEMSTACK_ORCA_APP_NAME
+    ):
+        raise ValueError(f"Expected chemstack_orca index record, got: {tracked_record.app_name}")
+
+
+def _organized_output_dir(
+    context: _LoaderContext, roots: _LoadRoots, deps: OrcaContractLoaderDeps
+) -> str:
+    record_output = (
+        context.tracked_record.organized_output_dir if context.tracked_record is not None else ""
+    )
+    current_output = ""
+    if context.current_dir is not None and deps.is_subpath_fn(context.current_dir, roots.organized):
+        current_output = str(context.current_dir)
+    return deps.normalize_text_fn(
+        record_output
+        or context.organized_ref.get("organized_output_dir")
+        or (str(context.organized_dir) if context.organized_dir is not None else "")
+        or current_output
+    )
+
+
+def _metadata_paths(current_dir: Path | None) -> dict[str, str]:
+    return {
+        "run_state_path": _existing_child_path(current_dir, "run_state.json"),
+        "report_json_path": _existing_child_path(current_dir, "run_report.json"),
+        "report_md_path": _existing_child_path(current_dir, "run_report.md"),
+    }
+
+
+def _existing_child_path(current_dir: Path | None, filename: str) -> str:
+    path = current_dir / filename if current_dir is not None else None
+    return str(path.resolve()) if path is not None and path.exists() else ""
+
+
 __all__ = [
+    "OrcaContractLoaderDeps",
     "attempt_count_impl",
     "coerce_attempts_impl",
     "final_result_payload_impl",

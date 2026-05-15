@@ -58,7 +58,15 @@ def _resolved_organized_root(cfg: AppConfig, reaction_dir: str | Path) -> Path:
 
 
 def _emit_organize(payload: Dict[str, Any]) -> None:
-    for key in ["action", "to_organize", "skipped", "organized", "failed", "records_count", "job_locations_count"]:
+    for key in [
+        "action",
+        "to_organize",
+        "skipped",
+        "organized",
+        "failed",
+        "records_count",
+        "job_locations_count",
+    ]:
         if key in payload:
             print(f"{key}: {payload[key]}")
     for p in payload.get("plans", []):
@@ -101,8 +109,12 @@ def _build_index_record(plan: OrganizePlan, state: Mapping[str, Any]) -> Dict[st
         "reason": final_result.get("reason", ""),
         "job_type": plan.job_type,
         "molecule_key": plan.molecule_key,
-        "selected_inp": to_reaction_relative_path(state.get("selected_inp", ""), plan.target_abs_path),
-        "last_out_path": to_reaction_relative_path(final_result.get("last_out_path", ""), plan.target_abs_path),
+        "selected_inp": to_reaction_relative_path(
+            state.get("selected_inp", ""), plan.target_abs_path
+        ),
+        "last_out_path": to_reaction_relative_path(
+            final_result.get("last_out_path", ""), plan.target_abs_path
+        ),
         "attempt_count": attempt_count,
         "completed_at": final_result.get("completed_at", ""),
         "organized_at": now_utc_iso(),
@@ -195,6 +207,74 @@ def _restore_tracking_after_rollback(
 
 
 _ORGANIZE_RESULT_LIMIT = 10
+_ORGANIZE_FAILURE_LIMIT = 5
+_ORGANIZE_SKIP_LIMIT = 5
+
+
+def _organize_summary_parts(
+    organized_count: int, skipped_count: int, failed_count: int
+) -> list[str]:
+    summary_parts: list[str] = []
+    if organized_count > 0:
+        summary_parts.append(f"\u2705 Organized: {organized_count}")
+    if skipped_count > 0:
+        summary_parts.append(f"\u23ed Skipped: {skipped_count}")
+    if failed_count > 0:
+        summary_parts.append(f"\u274c Failed: {failed_count}")
+    return summary_parts
+
+
+def _format_organized_line(item: Dict[str, Any]) -> str:
+    plan = item.get("_plan")
+    if plan is None:
+        return f"\u2705 <b>{escape_html(item.get('run_id', '?'))}</b>"
+
+    job_label = plan.job_type.upper() if plan.job_type else "-"
+    mol_label = plan.molecule_key or "-"
+    return (
+        f"\u2705 <b>{escape_html(plan.run_id[:12])}</b>\n"
+        f"   \U0001f4c2 {escape_html(str(plan.source_dir.name))} \u2192 {escape_html(plan.target_rel_path)}\n"
+        f"   \U0001f3f7 {escape_html(job_label)} | {escape_html(mol_label)}"
+    )
+
+
+def _organized_section(organized: list[Dict[str, Any]]) -> str | None:
+    organized_count = len(organized)
+    if organized_count == 0:
+        return None
+
+    lines = [_format_organized_line(item) for item in organized[:_ORGANIZE_RESULT_LIMIT]]
+    detail_header = f"\u2705 <b>Organized</b>  ({organized_count})"
+    if organized_count > _ORGANIZE_RESULT_LIMIT:
+        detail_header += f"  showing {_ORGANIZE_RESULT_LIMIT}/{organized_count}"
+    return detail_header + "\n\n" + "\n\n".join(lines)
+
+
+def _failure_section(failures: list[Dict[str, Any]]) -> str | None:
+    failed_count = len(failures)
+    if failed_count == 0:
+        return None
+
+    lines = [
+        f"\u274c <b>{escape_html(item.get('run_id', '?'))}</b>\n"
+        f"   \U0001f4ac {escape_html(item.get('reason', 'unknown'))}"
+        for item in failures[:_ORGANIZE_FAILURE_LIMIT]
+    ]
+    return f"\u274c <b>Failed</b>  ({failed_count})\n\n" + "\n\n".join(lines)
+
+
+def _skip_section(skips: list[SkipReason], skipped_count: int) -> str | None:
+    if not skips:
+        return None
+
+    skip_lines = [
+        f"\u23ed {escape_html(skip.reaction_dir)}\n   \U0001f4ac {escape_html(skip.reason)}"
+        for skip in skips[:_ORGANIZE_SKIP_LIMIT]
+    ]
+    skip_header = f"\u23ed <b>Skipped</b>  ({skipped_count})"
+    if skipped_count > _ORGANIZE_SKIP_LIMIT:
+        skip_header += f"  showing {_ORGANIZE_SKIP_LIMIT}/{skipped_count}"
+    return skip_header + "\n\n" + "\n\n".join(skip_lines)
 
 
 def _build_organize_message(
@@ -220,58 +300,16 @@ def _build_organize_message(
 
     sections: list[str] = [header, divider]
 
-    # Summary line
-    summary_parts: list[str] = []
-    if organized_count > 0:
-        summary_parts.append(f"\u2705 Organized: {organized_count}")
-    if skipped_count > 0:
-        summary_parts.append(f"\u23ed Skipped: {skipped_count}")
-    if failed_count > 0:
-        summary_parts.append(f"\u274c Failed: {failed_count}")
+    summary_parts = _organize_summary_parts(organized_count, skipped_count, failed_count)
     sections.append(f"\U0001f4ca <b>Summary</b>\n{' | '.join(summary_parts)}")
 
-    # Organized details
-    if organized:
-        lines: list[str] = []
-        for item in organized[:_ORGANIZE_RESULT_LIMIT]:
-            plan = item.get("_plan")
-            if plan is not None:
-                job_label = plan.job_type.upper() if plan.job_type else "-"
-                mol_label = plan.molecule_key or "-"
-                lines.append(
-                    f"\u2705 <b>{escape_html(plan.run_id[:12])}</b>\n"
-                    f"   \U0001f4c2 {escape_html(str(plan.source_dir.name))} \u2192 {escape_html(plan.target_rel_path)}\n"
-                    f"   \U0001f3f7 {escape_html(job_label)} | {escape_html(mol_label)}"
-                )
-            else:
-                lines.append(f"\u2705 <b>{escape_html(item.get('run_id', '?'))}</b>")
-        detail_header = f"\u2705 <b>Organized</b>  ({organized_count})"
-        if organized_count > _ORGANIZE_RESULT_LIMIT:
-            detail_header += f"  showing {_ORGANIZE_RESULT_LIMIT}/{organized_count}"
-        sections.append(detail_header + "\n\n" + "\n\n".join(lines))
-
-    # Failed details
-    if failures:
-        lines = []
-        for item in failures[:5]:
-            run_id = escape_html(item.get("run_id", "?"))
-            reason = escape_html(item.get("reason", "unknown"))
-            lines.append(f"\u274c <b>{run_id}</b>\n   \U0001f4ac {reason}")
-        fail_header = f"\u274c <b>Failed</b>  ({failed_count})"
-        sections.append(fail_header + "\n\n" + "\n\n".join(lines))
-
-    # Skipped details (abbreviated)
-    if skips:
-        skip_lines: list[str] = []
-        for s in skips[:5]:
-            skip_lines.append(
-                f"\u23ed {escape_html(s.reaction_dir)}\n"
-                f"   \U0001f4ac {escape_html(s.reason)}"
-            )
-        skip_header = f"\u23ed <b>Skipped</b>  ({skipped_count})"
-        if skipped_count > 5:
-            skip_header += f"  showing 5/{skipped_count}"
-        sections.append(skip_header + "\n\n" + "\n\n".join(skip_lines))
+    for detail_section in (
+        _organized_section(organized),
+        _failure_section(failures),
+        _skip_section(skips, skipped_count),
+    ):
+        if detail_section is not None:
+            sections.append(detail_section)
 
     sections.append(divider)
 
@@ -396,17 +434,22 @@ def _apply_organize_plans(
                     _cleanup_organized_ref_stub(plan)
                     rollback_move(plan)
                     state_after_rollback = sync_state_after_rollback(plan)
-                    _restore_tracking_after_rollback(cfg, plan=plan, state_after_rollback=state_after_rollback)
+                    _restore_tracking_after_rollback(
+                        cfg, plan=plan, state_after_rollback=state_after_rollback
+                    )
                     failure_reason = f"{failure_reason}; rolled_back=true"
                 except Exception as rollback_exc:
                     logger.error("Rollback failed for %s: %s", plan.run_id, rollback_exc)
                     failure_reason = f"{failure_reason}; rollback_failed: {rollback_exc}"
-                    append_failed_rollback(organized_root, {
-                        "run_id": plan.run_id,
-                        "target_path": str(plan.target_abs_path),
-                        "error": str(rollback_exc),
-                        "timestamp": now_utc_iso(),
-                    })
+                    append_failed_rollback(
+                        organized_root,
+                        {
+                            "run_id": plan.run_id,
+                            "target_path": str(plan.target_abs_path),
+                            "error": str(rollback_exc),
+                            "timestamp": now_utc_iso(),
+                        },
+                    )
             failures.append({"run_id": plan.run_id, "reason": failure_reason})
 
     organized = [r for r in results if r.get("action") == "moved"]
@@ -538,7 +581,13 @@ def cmd_organize(args: Any) -> int:
     if getattr(args, "rebuild_index", False):
         count = rebuild_index(organized_root)
         tracking_count = reindex_job_locations(cfg)
-        _emit_organize({"action": "rebuild_index", "records_count": count, "job_locations_count": tracking_count})
+        _emit_organize(
+            {
+                "action": "rebuild_index",
+                "records_count": count,
+                "job_locations_count": tracking_count,
+            }
+        )
         return 0
 
     reaction_dir_raw = getattr(args, "reaction_dir", None)

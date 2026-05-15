@@ -9,6 +9,7 @@ from typing import Any
 from chemstack.core.indexing import JobLocationRecord, resolve_job_location
 
 from ._orca_contract_assembly import (
+    OrcaContractLoaderDeps,
     attempt_count_impl,
     coerce_attempts_impl,
     final_result_payload_impl,
@@ -127,7 +128,18 @@ def _tracked_runtime_context(
     queue_id: str,
     run_id: str,
     reaction_dir: str,
-) -> tuple[Path | None, JobLocationRecord | None, dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any] | None, Path | None] | None:
+) -> (
+    tuple[
+        Path | None,
+        JobLocationRecord | None,
+        dict[str, Any],
+        dict[str, Any],
+        dict[str, Any],
+        dict[str, Any] | None,
+        Path | None,
+    ]
+    | None
+):
     return tracked_runtime_context_impl(
         index_root=index_root,
         organized_root=organized_root,
@@ -157,7 +169,9 @@ def _tracked_contract_payload(
     )
 
 
-def _resolve_job_dir(index_root: Path | None, target: str) -> tuple[Path | None, JobLocationRecord | None]:
+def _resolve_job_dir(
+    index_root: Path | None, target: str
+) -> tuple[Path | None, JobLocationRecord | None]:
     return resolve_job_dir_impl(index_root, target)
 
 
@@ -193,7 +207,9 @@ def _find_organized_record(
     )
 
 
-def _organized_dir_from_record(organized_root: Path | None, record: dict[str, Any] | None) -> Path | None:
+def _organized_dir_from_record(
+    organized_root: Path | None, record: dict[str, Any] | None
+) -> Path | None:
     return organized_dir_from_record_impl(organized_root, record)
 
 
@@ -205,7 +221,9 @@ def _record_organized_dir(record: JobLocationRecord | None) -> Path | None:
     return record_organized_dir_impl(record)
 
 
-def _load_tracked_organized_ref(record: JobLocationRecord | None, current_dir: Path | None) -> dict[str, Any]:
+def _load_tracked_organized_ref(
+    record: JobLocationRecord | None, current_dir: Path | None
+) -> dict[str, Any]:
     return load_tracked_organized_ref_impl(record, current_dir)
 
 
@@ -284,22 +302,8 @@ def _status_from_payloads(
     )
 
 
-def load_orca_artifact_contract(
-    *,
-    target: str,
-    orca_allowed_root: str | Path | None = None,
-    orca_organized_root: str | Path | None = None,
-    queue_id: str = "",
-    run_id: str = "",
-    reaction_dir: str = "",
-) -> OrcaArtifactContract:
-    return load_orca_artifact_contract_impl(
-        target=target,
-        orca_allowed_root=orca_allowed_root,
-        orca_organized_root=orca_organized_root,
-        queue_id=queue_id,
-        run_id=run_id,
-        reaction_dir=reaction_dir,
+def _contract_loader_deps() -> OrcaContractLoaderDeps:
+    return OrcaContractLoaderDeps(
         path_type=Path,
         normalize_text_fn=_normalize_text,
         normalize_bool_fn=_normalize_bool,
@@ -327,6 +331,26 @@ def load_orca_artifact_contract(
         coerce_attempts_fn=_coerce_attempts,
         final_result_payload_fn=_final_result_payload,
         contract_cls=OrcaArtifactContract,
+    )
+
+
+def load_orca_artifact_contract(
+    *,
+    target: str,
+    orca_allowed_root: str | Path | None = None,
+    orca_organized_root: str | Path | None = None,
+    queue_id: str = "",
+    run_id: str = "",
+    reaction_dir: str = "",
+) -> OrcaArtifactContract:
+    return load_orca_artifact_contract_impl(
+        target=target,
+        orca_allowed_root=orca_allowed_root,
+        orca_organized_root=orca_organized_root,
+        queue_id=queue_id,
+        run_id=run_id,
+        reaction_dir=reaction_dir,
+        deps=_contract_loader_deps(),
     )
 
 

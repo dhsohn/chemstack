@@ -130,43 +130,65 @@ def _attempt_is_successful(attempt: Mapping[str, Any]) -> bool:
     return return_code == 0
 
 
-def _last_successful_attempt_inp_path(state: Mapping[str, Any], reaction_dir: Path) -> Optional[Path]:
+def _last_successful_attempt_inp_path(
+    state: Mapping[str, Any], reaction_dir: Path
+) -> Optional[Path]:
     attempts = state.get("attempts")
     if not isinstance(attempts, list):
         return None
 
-    final_result = state.get("final_result")
-    final_out_path = None
-    if isinstance(final_result, dict):
-        last_out_path = final_result.get("last_out_path")
-        if isinstance(last_out_path, str) and last_out_path.strip():
-            final_out_path = _resolve_existing_artifact(last_out_path, reaction_dir)
+    final_out_path = _final_out_path(state, reaction_dir)
 
     for attempt in reversed(attempts):
         if not isinstance(attempt, dict):
             continue
 
-        inp_path_text = attempt.get("inp_path")
-        if not isinstance(inp_path_text, str) or not inp_path_text.strip():
-            continue
-        inp_path = _resolve_existing_artifact(inp_path_text, reaction_dir)
+        inp_path = _attempt_inp_path(attempt, reaction_dir)
         if inp_path is None:
             continue
 
-        if final_out_path is not None:
-            out_path_text = attempt.get("out_path")
-            if isinstance(out_path_text, str) and out_path_text.strip():
-                out_path = _resolve_existing_artifact(out_path_text, reaction_dir)
-                if out_path is not None and out_path == final_out_path:
-                    return inp_path
-
-        if _attempt_is_successful(attempt):
+        if _attempt_matches_final_out(
+            attempt, final_out_path, reaction_dir
+        ) or _attempt_is_successful(attempt):
             return inp_path
 
     return None
 
 
-def select_organize_metadata_inp_path(state: Mapping[str, Any], reaction_dir: Path) -> Optional[Path]:
+def _final_out_path(state: Mapping[str, Any], reaction_dir: Path) -> Optional[Path]:
+    final_result = state.get("final_result")
+    if not isinstance(final_result, dict):
+        return None
+    last_out_path = final_result.get("last_out_path")
+    if not isinstance(last_out_path, str) or not last_out_path.strip():
+        return None
+    return _resolve_existing_artifact(last_out_path, reaction_dir)
+
+
+def _attempt_inp_path(attempt: Mapping[str, Any], reaction_dir: Path) -> Optional[Path]:
+    inp_path_text = attempt.get("inp_path")
+    if not isinstance(inp_path_text, str) or not inp_path_text.strip():
+        return None
+    return _resolve_existing_artifact(inp_path_text, reaction_dir)
+
+
+def _attempt_matches_final_out(
+    attempt: Mapping[str, Any],
+    final_out_path: Optional[Path],
+    reaction_dir: Path,
+) -> bool:
+    if final_out_path is None:
+        return False
+    out_path_text = attempt.get("out_path")
+    if not isinstance(out_path_text, str) or not out_path_text.strip():
+        return False
+    out_path = _resolve_existing_artifact(out_path_text, reaction_dir)
+    return out_path is not None and out_path == final_out_path
+
+
+def select_organize_metadata_inp_path(
+    state: Mapping[str, Any], reaction_dir: Path
+) -> Optional[Path]:
     selected_inp_value = state.get("selected_inp")
     selected_inp_path = None
     selected_resolution = None
@@ -316,9 +338,7 @@ def _verify_copytree(source: Path, target: Path) -> None:
         rel = src_file.relative_to(source)
         dst_file = target / rel
         if not dst_file.exists():
-            raise RuntimeError(
-                f"Cross-device copy verification failed: missing {dst_file}"
-            )
+            raise RuntimeError(f"Cross-device copy verification failed: missing {dst_file}")
         if dst_file.stat().st_size != src_file.stat().st_size:
             raise RuntimeError(
                 f"Cross-device copy verification failed: size mismatch for {rel} "

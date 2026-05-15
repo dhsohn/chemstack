@@ -1,4 +1,5 @@
 """Shared lock-file utilities used by run state, queue, and organize index."""
+
 from __future__ import annotations
 
 import logging
@@ -11,48 +12,174 @@ from typing import Any, Callable, Dict, Iterator, Optional
 
 
 def parse_lock_info(lock_path: Path) -> Dict[str, Any]:
-    pid: Optional[int] = None
-    started_at: Optional[str] = None
-    process_start_ticks: Optional[int] = None
     try:
         raw = lock_path.read_text(encoding="utf-8").strip()
     except OSError:
-        return {"pid": None, "started_at": None, "process_start_ticks": None}
+        return _empty_lock_info()
     if not raw:
-        return {"pid": None, "started_at": None, "process_start_ticks": None}
+        return _empty_lock_info()
 
     try:
         parsed = json.loads(raw)
     except Exception:
-        return {"pid": None, "started_at": None, "process_start_ticks": None}
+        return _empty_lock_info()
 
     if isinstance(parsed, dict):
-        raw_pid = parsed.get("pid")
-        if isinstance(raw_pid, int) and raw_pid > 0:
-            pid = raw_pid
-        elif isinstance(raw_pid, str):
-            try:
-                parsed_pid = int(raw_pid.strip())
-                if parsed_pid > 0:
-                    pid = parsed_pid
-            except ValueError:
-                pid = None
-        raw_started_at = parsed.get("started_at")
-        if isinstance(raw_started_at, str) and raw_started_at.strip():
-            started_at = raw_started_at
-        raw_ticks = parsed.get("process_start_ticks")
-        if isinstance(raw_ticks, int) and raw_ticks > 0:
-            process_start_ticks = raw_ticks
-        elif isinstance(raw_ticks, str):
-            try:
-                parsed_ticks = int(raw_ticks.strip())
-                if parsed_ticks > 0:
-                    process_start_ticks = parsed_ticks
-            except ValueError:
-                process_start_ticks = None
-        return {"pid": pid, "started_at": started_at, "process_start_ticks": process_start_ticks}
+        return {
+            "pid": _positive_int(parsed.get("pid")),
+            "started_at": _nonempty_string(parsed.get("started_at")),
+            "process_start_ticks": _positive_int(parsed.get("process_start_ticks")),
+        }
 
+    return _empty_lock_info()
+
+
+def _empty_lock_info() -> Dict[str, Any]:
     return {"pid": None, "started_at": None, "process_start_ticks": None}
+
+
+def _positive_int(value: Any) -> Optional[int]:
+    if isinstance(value, int) and value > 0:
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = int(value.strip())
+        except ValueError:
+            return None
+        return parsed if parsed > 0 else None
+    return None
+
+
+def _nonempty_string(value: Any) -> Optional[str]:
+    if isinstance(value, str) and value.strip():
+        return value
+    return None
+
+
+def _write_lock_payload(lock_path: Path, lock_payload: str) -> bool:
+    try:
+        fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except FileExistsError:
+        return False
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        handle.write(lock_payload + "\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+    return True
+
+
+def _unlink_lock(lock_path: Path) -> bool:
+    try:
+        lock_path.unlink()
+    except FileNotFoundError:
+        return True
+    return True
+
+
+def _lock_owner_alive(
+    *,
+    lock_pid: int,
+    lock_start_ticks: Any,
+    is_process_alive_fn: Callable[[int], bool],
+    process_start_ticks_fn: Callable[[int], Optional[int]],
+    logger: logging.Logger,
+    stale_pid_reuse_log_template: str,
+    lock_path: Path,
+) -> bool:
+    alive = is_process_alive_fn(lock_pid)
+    if not alive or not isinstance(lock_start_ticks, int):
+        return alive
+    observed_ticks = process_start_ticks_fn(lock_pid)
+    if observed_ticks is None or observed_ticks == lock_start_ticks:
+        return alive
+    logger.info(
+        stale_pid_reuse_log_template,
+        lock_pid,
+        lock_start_ticks,
+        observed_ticks,
+        lock_path,
+    )
+    return False
+
+
+def _raise_lock_timeout(
+    *,
+    timeout_seconds: Optional[int],
+    lock_path: Path,
+    timeout_error_builder: Callable[[Path, int], RuntimeError] | None,
+) -> None:
+    timeout_value = int(timeout_seconds) if timeout_seconds is not None else 0
+    if timeout_error_builder is not None:
+        raise timeout_error_builder(lock_path, timeout_value)
+    raise RuntimeError(f"Lock acquisition timed out after {timeout_value}s. Lock file: {lock_path}")
+
+
+def _handle_existing_lock(
+    *,
+    lock_path: Path,
+    lock_info: Dict[str, Any],
+    is_process_alive_fn: Callable[[int], bool],
+    process_start_ticks_fn: Callable[[int], Optional[int]],
+    logger: logging.Logger,
+    stale_pid_reuse_log_template: str,
+    stale_lock_log_template: str,
+    deadline: float | None,
+    active_lock_error_builder: Callable[[int, Dict[str, Any], Path], RuntimeError] | None,
+    unreadable_lock_error_builder: Callable[[Path], RuntimeError] | None,
+    stale_remove_error_builder: Callable[[int, Path, OSError], RuntimeError] | None,
+) -> bool:
+    lock_pid = lock_info.get("pid")
+    if not isinstance(lock_pid, int):
+        return _handle_unreadable_lock(
+            lock_path=lock_path,
+            logger=logger,
+            deadline=deadline,
+            unreadable_lock_error_builder=unreadable_lock_error_builder,
+        )
+
+    alive = _lock_owner_alive(
+        lock_pid=lock_pid,
+        lock_start_ticks=lock_info.get("process_start_ticks"),
+        is_process_alive_fn=is_process_alive_fn,
+        process_start_ticks_fn=process_start_ticks_fn,
+        logger=logger,
+        stale_pid_reuse_log_template=stale_pid_reuse_log_template,
+        lock_path=lock_path,
+    )
+    if not alive:
+        logger.info(stale_lock_log_template, lock_pid, lock_path)
+        try:
+            _unlink_lock(lock_path)
+        except OSError as exc:
+            if stale_remove_error_builder is not None:
+                raise stale_remove_error_builder(lock_pid, lock_path, exc)
+            raise
+        return True
+
+    if deadline is None:
+        if active_lock_error_builder is not None:
+            raise active_lock_error_builder(lock_pid, lock_info, lock_path)
+        raise RuntimeError(f"Lock is held by active pid={lock_pid}. Lock file: {lock_path}")
+    return False
+
+
+def _handle_unreadable_lock(
+    *,
+    lock_path: Path,
+    logger: logging.Logger,
+    deadline: float | None,
+    unreadable_lock_error_builder: Callable[[Path], RuntimeError] | None,
+) -> bool:
+    if deadline is None:
+        if unreadable_lock_error_builder is not None:
+            raise unreadable_lock_error_builder(lock_path)
+        raise RuntimeError(f"Lock file owner is unreadable. Lock file: {lock_path}")
+    logger.warning("Lock file has unreadable owner, treating as stale: %s", lock_path)
+    try:
+        _unlink_lock(lock_path)
+    except OSError:
+        return False
+    return True
 
 
 def is_process_alive(pid: int) -> bool:
@@ -129,73 +256,33 @@ def acquire_file_lock(
     deadline = time.monotonic() + timeout_seconds if timeout_seconds is not None else None
 
     while True:
-        try:
-            fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-            with os.fdopen(fd, "w", encoding="utf-8") as handle:
-                handle.write(lock_payload + "\n")
-                handle.flush()
-                os.fsync(handle.fileno())
+        if _write_lock_payload(lock_path, lock_payload):
             logger.debug(acquired_log_template, lock_path)
             break
-        except FileExistsError:
-            lock_info = parse_lock_info_fn(lock_path)
-            lock_pid = lock_info.get("pid")
-            lock_start_ticks = lock_info.get("process_start_ticks")
 
-            if isinstance(lock_pid, int):
-                alive = is_process_alive_fn(lock_pid)
-                if alive and isinstance(lock_start_ticks, int):
-                    observed_ticks = process_start_ticks_fn(lock_pid)
-                    if observed_ticks is not None and observed_ticks != lock_start_ticks:
-                        alive = False
-                        logger.info(
-                            stale_pid_reuse_log_template,
-                            lock_pid,
-                            lock_start_ticks,
-                            observed_ticks,
-                            lock_path,
-                        )
+        lock_info = parse_lock_info_fn(lock_path)
+        if _handle_existing_lock(
+            lock_path=lock_path,
+            lock_info=lock_info,
+            is_process_alive_fn=is_process_alive_fn,
+            process_start_ticks_fn=process_start_ticks_fn,
+            logger=logger,
+            stale_pid_reuse_log_template=stale_pid_reuse_log_template,
+            stale_lock_log_template=stale_lock_log_template,
+            deadline=deadline,
+            active_lock_error_builder=active_lock_error_builder,
+            unreadable_lock_error_builder=unreadable_lock_error_builder,
+            stale_remove_error_builder=stale_remove_error_builder,
+        ):
+            continue
 
-                if not alive:
-                    logger.info(stale_lock_log_template, lock_pid, lock_path)
-                    try:
-                        lock_path.unlink()
-                    except FileNotFoundError:
-                        continue
-                    except OSError as exc:
-                        if stale_remove_error_builder is not None:
-                            raise stale_remove_error_builder(lock_pid, lock_path, exc)
-                        raise
-                    continue
-
-                if deadline is None:
-                    if active_lock_error_builder is not None:
-                        raise active_lock_error_builder(lock_pid, lock_info, lock_path)
-                    raise RuntimeError(f"Lock is held by active pid={lock_pid}. Lock file: {lock_path}")
-            else:
-                # Lock owner PID is unreadable
-                if deadline is None:
-                    if unreadable_lock_error_builder is not None:
-                        raise unreadable_lock_error_builder(lock_path)
-                    raise RuntimeError(f"Lock file owner is unreadable. Lock file: {lock_path}")
-                # With timeout: treat unreadable lock as stale and try to remove it
-                logger.warning("Lock file has unreadable owner, treating as stale: %s", lock_path)
-                try:
-                    lock_path.unlink()
-                except FileNotFoundError:
-                    continue
-                except OSError:
-                    pass  # Will retry until timeout
-                continue
-
-            if time.monotonic() >= deadline:
-                timeout_value = int(timeout_seconds) if timeout_seconds is not None else 0
-                if timeout_error_builder is not None:
-                    raise timeout_error_builder(lock_path, timeout_value)
-                raise RuntimeError(
-                    f"Lock acquisition timed out after {timeout_value}s. Lock file: {lock_path}"
-                )
-            time.sleep(poll_interval_seconds)
+        if time.monotonic() >= deadline:
+            _raise_lock_timeout(
+                timeout_seconds=timeout_seconds,
+                lock_path=lock_path,
+                timeout_error_builder=timeout_error_builder,
+            )
+        time.sleep(poll_interval_seconds)
 
     try:
         yield

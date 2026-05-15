@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import math
 import re
@@ -10,43 +10,83 @@ GEOM_HEADER_RE = re.compile(r"^\s*\*\s+(xyzfile|xyz)\s+(-?\d+)\s+(\d+)(?:\s+(.*)
 BLOCK_START_RE = re.compile(r"^\s*%([A-Za-z0-9_\-]+)")
 
 
-def rewrite_for_retry(source_inp: Path, target_inp: Path, reaction_dir: Path, step: int) -> List[str]:
+def rewrite_for_retry(
+    source_inp: Path, target_inp: Path, reaction_dir: Path, step: int
+) -> List[str]:
     lines = source_inp.read_text(encoding="utf-8", errors="ignore").splitlines()
     actions: List[str] = []
 
-    if step == 1:
-        if _ensure_route_keywords(lines, ["TightSCF", "SlowConv"]):
-            actions.append("route_add_tightscf_slowconv")
-        if _set_block_key_value(lines, "scf", "MaxIter", "300"):
-            actions.append("scf_maxiter_300")
-    elif step == 2:
-        changed = False
-        changed |= _set_block_key_value(lines, "geom", "Calc_Hess", "true")
-        changed |= _set_block_key_value(lines, "geom", "Recalc_Hess", "5")
-        changed |= _set_block_key_value(lines, "geom", "MaxIter", "300")
-        if changed:
-            actions.append("geom_hessian_and_maxiter")
-    elif step == 3:
-        # Increase memory and relax convergence for memory/geometry issues
-        if _increase_maxcore(lines):
-            actions.append("maxcore_increased")
-        if _ensure_route_keywords(lines, ["LooseOpt"]):
-            actions.append("route_add_looseopt")
-    elif step == 4:
-        # Combine all strategies: hessian + more memory + relaxed convergence
-        changed = False
-        changed |= _set_block_key_value(lines, "geom", "Calc_Hess", "true")
-        changed |= _set_block_key_value(lines, "geom", "Recalc_Hess", "5")
-        changed |= _set_block_key_value(lines, "geom", "MaxIter", "500")
-        if changed:
-            actions.append("geom_hessian_and_maxiter_500")
-        if _increase_maxcore(lines):
-            actions.append("maxcore_increased")
-        if _ensure_route_keywords(lines, ["TightSCF", "SlowConv"]):
-            actions.append("route_add_tightscf_slowconv")
-    else:
-        actions.append("no_recipe_applied")
+    actions.extend(_apply_retry_recipe(lines, step))
+    _apply_geometry_restart(lines, actions, source_inp, target_inp, reaction_dir)
 
+    target_inp.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+    return actions
+
+
+def _apply_retry_recipe(lines: List[str], step: int) -> List[str]:
+    recipe = _RETRY_RECIPES.get(step)
+    if recipe is None:
+        return ["no_recipe_applied"]
+    return recipe(lines)
+
+
+def _retry_step_1(lines: List[str]) -> List[str]:
+    actions: List[str] = []
+    if _ensure_route_keywords(lines, ["TightSCF", "SlowConv"]):
+        actions.append("route_add_tightscf_slowconv")
+    if _set_block_key_value(lines, "scf", "MaxIter", "300"):
+        actions.append("scf_maxiter_300")
+    return actions
+
+
+def _retry_step_2(lines: List[str]) -> List[str]:
+    changed = _set_geom_retry_keys(lines, max_iter="300")
+    return ["geom_hessian_and_maxiter"] if changed else []
+
+
+def _retry_step_3(lines: List[str]) -> List[str]:
+    actions: List[str] = []
+    if _increase_maxcore(lines):
+        actions.append("maxcore_increased")
+    if _ensure_route_keywords(lines, ["LooseOpt"]):
+        actions.append("route_add_looseopt")
+    return actions
+
+
+def _retry_step_4(lines: List[str]) -> List[str]:
+    actions: List[str] = []
+    if _set_geom_retry_keys(lines, max_iter="500"):
+        actions.append("geom_hessian_and_maxiter_500")
+    if _increase_maxcore(lines):
+        actions.append("maxcore_increased")
+    if _ensure_route_keywords(lines, ["TightSCF", "SlowConv"]):
+        actions.append("route_add_tightscf_slowconv")
+    return actions
+
+
+def _set_geom_retry_keys(lines: List[str], *, max_iter: str) -> bool:
+    changed = False
+    changed |= _set_block_key_value(lines, "geom", "Calc_Hess", "true")
+    changed |= _set_block_key_value(lines, "geom", "Recalc_Hess", "5")
+    changed |= _set_block_key_value(lines, "geom", "MaxIter", max_iter)
+    return changed
+
+
+_RETRY_RECIPES = {
+    1: _retry_step_1,
+    2: _retry_step_2,
+    3: _retry_step_3,
+    4: _retry_step_4,
+}
+
+
+def _apply_geometry_restart(
+    lines: List[str],
+    actions: List[str],
+    source_inp: Path,
+    target_inp: Path,
+    reaction_dir: Path,
+) -> None:
     geometry_file = _previous_attempt_xyz(source_inp)
     if geometry_file is None:
         actions.append("no_previous_xyz_file_found")
@@ -59,9 +99,6 @@ def rewrite_for_retry(source_inp: Path, target_inp: Path, reaction_dir: Path, st
             actions.append(f"geometry_restart_from_{geometry_file.name}")
         else:
             actions.append("geometry_restart_not_applied")
-
-    target_inp.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
-    return actions
 
 
 def _find_route_idx(lines: List[str]) -> Optional[int]:
@@ -169,36 +206,48 @@ def _read_nprocs(lines: List[str]) -> Optional[int]:
     for line in lines:
         block_match = BLOCK_START_RE.match(line)
         if not in_pal_block:
-            if not block_match or block_match.group(1).lower() != "pal":
+            if not _is_block_start(block_match, "pal"):
                 continue
-            remainder = line[block_match.end():]
-            nprocs_match = _NPROCS_RE.search(remainder)
-            if nprocs_match:
-                try:
-                    value = int(nprocs_match.group(1))
-                except ValueError:
-                    value = 0
-                return value if value > 0 else None
+            remainder = line[block_match.end() :] if block_match else ""
+            inline_value = _read_nprocs_from_text(remainder)
+            if inline_value is not None:
+                return inline_value
             if re.search(r"\bend\b", remainder, re.IGNORECASE):
                 return None
             in_pal_block = True
             continue
 
-        stripped = line.strip()
-        if stripped.lower() == "end":
-            return None
-        if BLOCK_START_RE.match(line) or GEOM_HEADER_RE.match(stripped):
+        if _ends_pal_block(line):
             return None
 
-        nprocs_match = _NPROCS_RE.search(line)
-        if not nprocs_match:
-            continue
-        try:
-            value = int(nprocs_match.group(1))
-        except ValueError:
-            value = 0
-        return value if value > 0 else None
+        value = _read_nprocs_from_text(line)
+        if value is not None:
+            return value
     return None
+
+
+def _is_block_start(block_match: re.Match[str] | None, name: str) -> bool:
+    return bool(block_match and block_match.group(1).lower() == name)
+
+
+def _read_nprocs_from_text(text: str) -> Optional[int]:
+    nprocs_match = _NPROCS_RE.search(text)
+    if not nprocs_match:
+        return None
+    try:
+        value = int(nprocs_match.group(1))
+    except ValueError:
+        return None
+    return value if value > 0 else None
+
+
+def _ends_pal_block(line: str) -> bool:
+    stripped = line.strip()
+    if stripped.lower() == "end":
+        return True
+    if BLOCK_START_RE.match(line):
+        return True
+    return bool(GEOM_HEADER_RE.match(stripped))
 
 
 def maxcore_mb_per_core(*, max_memory_gb: int, max_cores: int) -> int:
@@ -250,9 +299,7 @@ def ensure_submission_resource_request(
 
     resource_request = _resource_request_from_lines(lines)
     if not resource_request:
-        raise ValueError(
-            f"Could not determine ORCA resource_request from input: {inp_path}"
-        )
+        raise ValueError(f"Could not determine ORCA resource_request from input: {inp_path}")
 
     if actions:
         inp_path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")

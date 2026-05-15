@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
-from chemstack.cli import _queue_clear_lines, _queue_table_lines
+from chemstack.activity_rendering import queue_clear_lines, queue_table_lines
 from chemstack.activity_view import (
     count_global_active_simulations,
     queue_list_default_visible_items,
@@ -23,7 +23,11 @@ from chemstack.core.app_ids import (
 )
 from chemstack.core.config import TelegramConfig
 from chemstack.core.config.files import shared_workflow_root_from_config
-from chemstack.core.notifications import MAX_TELEGRAM_MESSAGE_LENGTH, escape_html, load_telegram_config_from_file
+from chemstack.core.notifications import (
+    MAX_TELEGRAM_MESSAGE_LENGTH,
+    escape_html,
+    load_telegram_config_from_file,
+)
 from chemstack.core.notifications.telegram import urlopen_with_ipv4_fallback
 
 from .activity import _discover_sibling_config, _discover_workflow_root
@@ -132,7 +136,9 @@ def _api_call(
             return None
     except urllib.error.HTTPError as exc:
         body = exc.read().decode("utf-8", errors="replace") if exc.fp else ""
-        logger.warning("telegram_api_http_error: method=%s status=%d body=%s", method, exc.code, body)
+        logger.warning(
+            "telegram_api_http_error: method=%s status=%d body=%s", method, exc.code, body
+        )
         return None
     except Exception as exc:
         logger.warning("telegram_api_failed: method=%s error=%s", method, exc)
@@ -266,7 +272,7 @@ def _handle_list(settings: TelegramBotSettings, args: str) -> str:
             orca_auto_config=settings.orca_auto_config,
             orca_auto_repo_root=settings.orca_auto_repo_root,
         )
-        return "\n".join(_queue_clear_lines(payload))
+        return "\n".join(queue_clear_lines(payload))
 
     filter_status = action
     payload = _activity_payload(
@@ -276,7 +282,9 @@ def _handle_list(settings: TelegramBotSettings, args: str) -> str:
     all_rows = list(payload.get("activities", []))
     rows = list(all_rows)
     if filter_status:
-        rows = [item for item in rows if str(item.get("status", "")).strip().lower() == filter_status]
+        rows = [
+            item for item in rows if str(item.get("status", "")).strip().lower() == filter_status
+        ]
     else:
         rows = queue_list_default_visible_items(rows)
 
@@ -292,7 +300,7 @@ def _handle_list(settings: TelegramBotSettings, args: str) -> str:
     if not display_rows:
         lines.append("No matching activities.")
         return "\n".join(lines)
-    lines.extend(_queue_table_lines(display_rows))
+    lines.extend(queue_table_lines(display_rows))
     return "\n".join(lines)
 
 
@@ -346,6 +354,83 @@ def _set_bot_commands(token: str) -> None:
     _api_call(token, "setMyCommands", {"commands": commands})
 
 
+def _poll_updates(token: str, offset: int) -> list[Any]:
+    updates = _api_call(
+        token,
+        "getUpdates",
+        {"offset": offset, "timeout": _POLL_TIMEOUT_SECONDS, "allowed_updates": ["message"]},
+        timeout=_POLL_TIMEOUT_SECONDS + 5,
+    )
+    return updates if isinstance(updates, list) else []
+
+
+def _message_from_update(update: Any, *, chat_id: str) -> tuple[int | None, dict[str, Any] | None]:
+    if not isinstance(update, dict):
+        return None, None
+
+    update_id = int(update.get("update_id", 0) or 0)
+    message = update.get("message")
+    if not isinstance(message, dict):
+        return update_id, None
+
+    chat = message.get("chat")
+    chat_dict = chat if isinstance(chat, dict) else {}
+    if str(chat_dict.get("id", "")).strip() != chat_id:
+        return update_id, None
+    return update_id, message
+
+
+def _command_from_message(message: dict[str, Any]) -> tuple[str, str] | None:
+    text_value = message.get("text")
+    text = text_value.strip() if isinstance(text_value, str) else ""
+    if not text.startswith("/"):
+        return None
+
+    parts = text.split(maxsplit=1)
+    command = parts[0].lstrip("/").split("@")[0].lower()
+    return command, parts[1] if len(parts) > 1 else ""
+
+
+def _response_for_command(
+    settings: TelegramBotSettings, command: str, args: str
+) -> tuple[str, bool]:
+    handler = _HANDLERS.get(command)
+    if handler is None:
+        return (
+            f"Unknown command: /{escape_html(command)}\nType /help for available commands.",
+            False,
+        )
+
+    try:
+        return handler(settings, args), command == "list"
+    except Exception as exc:
+        logger.exception("telegram_bot_handler_error: cmd=%s", command)
+        return f"Error: {escape_html(str(exc))}", False
+
+
+def _send_bot_response(settings: TelegramBotSettings, response: str, *, preformatted: bool) -> None:
+    token = settings.telegram.bot_token
+    chat_id = settings.telegram.chat_id
+    if preformatted:
+        _send_preformatted_response(token, chat_id, response)
+    else:
+        _send_response(token, chat_id, response)
+
+
+def _dispatch_update(settings: TelegramBotSettings, update: Any) -> int | None:
+    update_id, message = _message_from_update(update, chat_id=settings.telegram.chat_id)
+    if message is None:
+        return update_id
+
+    command_parts = _command_from_message(message)
+    if command_parts is None:
+        return update_id
+
+    response, preformatted = _response_for_command(settings, *command_parts)
+    _send_bot_response(settings, response, preformatted=preformatted)
+    return update_id
+
+
 def run_bot(settings: TelegramBotSettings | None = None) -> int:
     resolved = settings or settings_from_env()
     if not resolved.enabled:
@@ -361,53 +446,10 @@ def run_bot(settings: TelegramBotSettings | None = None) -> int:
     offset = 0
     while True:
         try:
-            updates = _api_call(
-                resolved.telegram.bot_token,
-                "getUpdates",
-                {"offset": offset, "timeout": _POLL_TIMEOUT_SECONDS, "allowed_updates": ["message"]},
-                timeout=_POLL_TIMEOUT_SECONDS + 5,
-            )
-            if not isinstance(updates, list) or not updates:
-                continue
-
-            for update in updates:
-                if not isinstance(update, dict):
-                    continue
-                update_id = int(update.get("update_id", 0) or 0)
-                offset = max(offset, update_id + 1)
-
-                message = update.get("message")
-                if not isinstance(message, dict):
-                    continue
-                chat = message.get("chat")
-                chat_dict = chat if isinstance(chat, dict) else {}
-                if str(chat_dict.get("id", "")).strip() != resolved.telegram.chat_id:
-                    continue
-
-                text_value = message.get("text")
-                text = text_value.strip() if isinstance(text_value, str) else ""
-                if not text.startswith("/"):
-                    continue
-
-                parts = text.split(maxsplit=1)
-                command = parts[0].lstrip("/").split("@")[0].lower()
-                cmd_args = parts[1] if len(parts) > 1 else ""
-                handler = _HANDLERS.get(command)
-                if handler is None:
-                    response = f"Unknown command: /{escape_html(command)}\nType /help for available commands."
-                    send_preformatted = False
-                else:
-                    try:
-                        response = handler(resolved, cmd_args)
-                        send_preformatted = command == "list"
-                    except Exception as exc:
-                        logger.exception("telegram_bot_handler_error: cmd=%s", command)
-                        response = f"Error: {escape_html(str(exc))}"
-                        send_preformatted = False
-                if send_preformatted:
-                    _send_preformatted_response(resolved.telegram.bot_token, resolved.telegram.chat_id, response)
-                else:
-                    _send_response(resolved.telegram.bot_token, resolved.telegram.chat_id, response)
+            for update in _poll_updates(resolved.telegram.bot_token, offset):
+                update_id = _dispatch_update(resolved, update)
+                if update_id is not None:
+                    offset = max(offset, update_id + 1)
         except KeyboardInterrupt:
             logger.info("chem_flow Telegram bot stopped")
             return 0

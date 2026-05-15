@@ -76,9 +76,7 @@ def _placeholder_settings_error(path: Path, placeholder_keys: list[str]) -> Valu
 
 def _removed_runtime_scheduler_keys_error(path: Path, removed_keys: list[str]) -> ValueError:
     keys = ", ".join(f"runtime.{key}" for key in removed_keys)
-    return ValueError(
-        f"Config uses unsupported runtime keys: {keys} ({path})"
-    )
+    return ValueError(f"Config uses unsupported runtime keys: {keys} ({path})")
 
 
 def _as_bool(value: Any, default: bool = False) -> bool:
@@ -198,34 +196,38 @@ class AppConfig:
     telegram: TelegramConfig = field(default_factory=TelegramConfig)
 
 
-def load_config(config_path: str) -> AppConfig:
-    path = Path(config_path).expanduser().resolve()
-    raw: Dict[str, Any] = {}
+def _load_raw_config(path: Path) -> Dict[str, Any]:
     if path.exists():
         with path.open("r", encoding="utf-8") as handle:
             parsed = yaml.safe_load(handle) or {}
             if isinstance(parsed, dict):
-                raw = parsed
-    else:
-        raise _missing_config_error(path)
+                return parsed
+        return {}
+    raise _missing_config_error(path)
 
-    workflow_root = _as_str(workflow_root_from_mapping(raw), "")
-    raw = engine_config_mapping(raw, "orca", inherit_keys=("behavior", "resources", "telegram", "scheduler"))
-    scheduler_raw = raw.get("scheduler", {}) if isinstance(raw.get("scheduler", {}), dict) else {}
-    runtime_raw = raw.get("runtime", {}) if isinstance(raw.get("runtime", {}), dict) else {}
-    paths_raw = raw.get("paths", {}) if isinstance(raw.get("paths", {}), dict) else {}
-    behavior_raw = raw.get("behavior", {}) if isinstance(raw.get("behavior", {}), dict) else {}
-    telegram_raw = raw.get("telegram", {}) if isinstance(raw.get("telegram", {}), dict) else {}
-    resources_raw = raw.get("resources", {}) if isinstance(raw.get("resources", {}), dict) else {}
 
+def _section_mapping(raw: Dict[str, Any], key: str) -> Dict[str, Any]:
+    section = raw.get(key, {})
+    return section if isinstance(section, dict) else {}
+
+
+def _reject_unsupported_runtime_keys(path: Path, runtime_raw: Dict[str, Any]) -> None:
     if "platform_mode" in runtime_raw:
         raise ValueError(
             "runtime.platform_mode is removed. chemstack is Linux-only; delete this unsupported key from config."
         )
-    removed_runtime_scheduler_keys = sorted(_REMOVED_RUNTIME_SCHEDULER_KEYS.intersection(runtime_raw.keys()))
+    removed_runtime_scheduler_keys = sorted(
+        _REMOVED_RUNTIME_SCHEDULER_KEYS.intersection(runtime_raw.keys())
+    )
     if removed_runtime_scheduler_keys:
         raise _removed_runtime_scheduler_keys_error(path, removed_runtime_scheduler_keys)
 
+
+def _required_runtime_paths(
+    path: Path,
+    runtime_raw: Dict[str, Any],
+    paths_raw: Dict[str, Any],
+) -> tuple[str, str]:
     allowed_root = _as_str(runtime_raw.get("allowed_root"), "")
     orca_executable = _as_str(paths_raw.get("orca_executable"), "")
     missing_keys: list[str] = []
@@ -235,15 +237,14 @@ def load_config(config_path: str) -> AppConfig:
         missing_keys.append("paths.orca_executable")
     if missing_keys:
         raise _missing_required_settings_error(path, missing_keys)
+    return allowed_root, orca_executable
 
-    organized_root = _as_str(
-        runtime_raw.get("organized_root"),
-        _default_organized_root(allowed_root),
-    )
-    default_max_retries = _as_int(
-        runtime_raw.get("default_max_retries"),
-        RuntimeConfig.default_max_retries,
-    )
+
+def _scheduler_runtime_settings(
+    path: Path,
+    scheduler_raw: Dict[str, Any],
+    allowed_root: str,
+) -> tuple[int, str, int | None]:
     scheduler_enabled = bool(scheduler_raw)
     shared_max_active_simulations = _as_int(
         scheduler_raw.get("max_active_simulations"),
@@ -255,20 +256,66 @@ def load_config(config_path: str) -> AppConfig:
         scheduler_raw.get("admission_root"),
         default_shared_admission_root(path) if scheduler_enabled else allowed_root,
     )
-    max_concurrent = shared_max_active_simulations
-    admission_root = shared_admission_root
-    admission_limit: int | None = shared_max_active_simulations if scheduler_enabled else None
+    admission_limit = shared_max_active_simulations if scheduler_enabled else None
+    return shared_max_active_simulations, shared_admission_root, admission_limit
 
-    telegram_cfg = TelegramConfig(
+
+def _build_telegram_config(telegram_raw: Dict[str, Any]) -> TelegramConfig:
+    return TelegramConfig(
         bot_token=_as_str(telegram_raw.get("bot_token"), ""),
         chat_id=str(telegram_raw.get("chat_id", "")).strip(),
-        timeout_seconds=_as_float(telegram_raw.get("timeout_seconds"), TelegramConfig.timeout_seconds),
+        timeout_seconds=_as_float(
+            telegram_raw.get("timeout_seconds"), TelegramConfig.timeout_seconds
+        ),
         max_attempts=_as_int(telegram_raw.get("max_attempts"), TelegramConfig.max_attempts),
         retry_backoff_seconds=_as_float(
             telegram_raw.get("retry_backoff_seconds"),
             TelegramConfig.retry_backoff_seconds,
         ),
     )
+
+
+def _placeholder_keys(cfg: AppConfig) -> list[str]:
+    placeholder_keys: list[str] = []
+    if cfg.runtime.allowed_root == _TEMPLATE_ALLOWED_ROOT:
+        placeholder_keys.append("runtime.allowed_root")
+    if cfg.runtime.organized_root == _TEMPLATE_ORGANIZED_ROOT:
+        placeholder_keys.append("runtime.organized_root")
+    if cfg.paths.orca_executable == _TEMPLATE_ORCA_EXECUTABLE:
+        placeholder_keys.append("paths.orca_executable")
+    return placeholder_keys
+
+
+def load_config(config_path: str) -> AppConfig:
+    path = Path(config_path).expanduser().resolve()
+    raw = _load_raw_config(path)
+    workflow_root = _as_str(workflow_root_from_mapping(raw), "")
+    raw = engine_config_mapping(
+        raw, "orca", inherit_keys=("behavior", "resources", "telegram", "scheduler")
+    )
+    scheduler_raw = _section_mapping(raw, "scheduler")
+    runtime_raw = _section_mapping(raw, "runtime")
+    paths_raw = _section_mapping(raw, "paths")
+    behavior_raw = _section_mapping(raw, "behavior")
+    telegram_raw = _section_mapping(raw, "telegram")
+    resources_raw = _section_mapping(raw, "resources")
+
+    _reject_unsupported_runtime_keys(path, runtime_raw)
+    allowed_root, orca_executable = _required_runtime_paths(path, runtime_raw, paths_raw)
+    organized_root = _as_str(
+        runtime_raw.get("organized_root"),
+        _default_organized_root(allowed_root),
+    )
+    default_max_retries = _as_int(
+        runtime_raw.get("default_max_retries"),
+        RuntimeConfig.default_max_retries,
+    )
+    max_concurrent, admission_root, admission_limit = _scheduler_runtime_settings(
+        path,
+        scheduler_raw,
+        allowed_root,
+    )
+    telegram_cfg = _build_telegram_config(telegram_raw)
 
     cfg = AppConfig(
         runtime=CommonRuntimeConfig(
@@ -295,13 +342,7 @@ def load_config(config_path: str) -> AppConfig:
         ),
         telegram=telegram_cfg,
     )
-    placeholder_keys: list[str] = []
-    if cfg.runtime.allowed_root == _TEMPLATE_ALLOWED_ROOT:
-        placeholder_keys.append("runtime.allowed_root")
-    if cfg.runtime.organized_root == _TEMPLATE_ORGANIZED_ROOT:
-        placeholder_keys.append("runtime.organized_root")
-    if cfg.paths.orca_executable == _TEMPLATE_ORCA_EXECUTABLE:
-        placeholder_keys.append("paths.orca_executable")
+    placeholder_keys = _placeholder_keys(cfg)
     if placeholder_keys:
         raise _placeholder_settings_error(path, placeholder_keys)
 

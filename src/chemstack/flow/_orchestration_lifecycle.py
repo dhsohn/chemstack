@@ -5,7 +5,9 @@ from typing import Any, Callable
 from .workflow_status import WORKFLOW_FAILED_STATUSES, WORKFLOW_TERMINAL_STATUSES
 
 
-def workflow_sync_only_impl(payload: dict[str, Any], *, normalize_text_fn: Callable[[Any], str]) -> bool:
+def workflow_sync_only_impl(
+    payload: dict[str, Any], *, normalize_text_fn: Callable[[Any], str]
+) -> bool:
     return normalize_text_fn(payload.get("status")).lower() in {
         "completed",
         "cancel_requested",
@@ -136,6 +138,55 @@ def effective_stage_status_impl(
     return normalize_text_fn(stage.get("status")).lower()
 
 
+def _workflow_error_is_failed(
+    payload: dict[str, Any],
+    *,
+    normalize_text_fn: Callable[[Any], str],
+) -> bool:
+    metadata = payload.get("metadata")
+    if not isinstance(metadata, dict):
+        return False
+    workflow_error = metadata.get("workflow_error")
+    return (
+        isinstance(workflow_error, dict)
+        and normalize_text_fn(workflow_error.get("status")).lower() == "failed"
+    )
+
+
+def _stage_engine(stage: dict[str, Any], *, normalize_text_fn: Callable[[Any], str]) -> str:
+    task = stage.get("task")
+    if not isinstance(task, dict):
+        return ""
+    return normalize_text_fn(task.get("engine")).lower()
+
+
+def _workflow_status_from_stage_statuses(
+    *,
+    stages: list[dict[str, Any]],
+    statuses: list[str],
+    current_status: str,
+) -> str:
+    active_statuses = {"queued", "running", "submitted", "cancel_requested"}
+
+    if current_status == "cancelled":
+        return "cancelled"
+    if current_status == "cancel_requested":
+        return (
+            "cancel_requested"
+            if any(status in active_statuses for status in statuses)
+            else "cancelled"
+        )
+    if any(status in active_statuses for status in statuses):
+        return "running"
+    if any(status == "planned" for status in statuses):
+        return "running"
+    if stages and all(status in WORKFLOW_TERMINAL_STATUSES for status in statuses):
+        return "completed"
+    if any(status == "completed" for status in statuses):
+        return "running"
+    return "planned"
+
+
 def recompute_workflow_status_impl(
     payload: dict[str, Any],
     *,
@@ -143,47 +194,28 @@ def recompute_workflow_status_impl(
     effective_stage_status_fn: Callable[[dict[str, Any]], str],
 ) -> str:
     stages = [stage for stage in payload.get("stages", []) if isinstance(stage, dict)]
-    failed_statuses = WORKFLOW_FAILED_STATUSES
-    active_statuses = {"queued", "running", "submitted", "cancel_requested"}
-    terminal_statuses = WORKFLOW_TERMINAL_STATUSES
-
-    def _stage_engine(stage: dict[str, Any]) -> str:
-        task = stage.get("task")
-        if not isinstance(task, dict):
-            return ""
-        return normalize_text_fn(task.get("engine")).lower()
-
     stage_rows = [
-        (stage, effective_stage_status_fn(stage), _stage_engine(stage))
+        (
+            stage,
+            effective_stage_status_fn(stage),
+            _stage_engine(stage, normalize_text_fn=normalize_text_fn),
+        )
         for stage in stages
     ]
     statuses = [status for _, status, _ in stage_rows]
     current_status = normalize_text_fn(payload.get("status")).lower()
-    metadata = payload.get("metadata")
-    if isinstance(metadata, dict):
-        workflow_error = metadata.get("workflow_error")
-        if isinstance(workflow_error, dict) and normalize_text_fn(workflow_error.get("status")).lower() == "failed":
-            return "failed"
+    if _workflow_error_is_failed(payload, normalize_text_fn=normalize_text_fn):
+        return "failed"
     if any(
-        status in failed_statuses and engine in {"", "crest"}
+        status in WORKFLOW_FAILED_STATUSES and engine in {"", "crest"}
         for _, status, engine in stage_rows
     ):
         return "failed"
-    if current_status == "cancelled":
-        return "cancelled"
-    if current_status == "cancel_requested":
-        if any(status in active_statuses for status in statuses):
-            return "cancel_requested"
-        return "cancelled"
-    if any(status in active_statuses for status in statuses):
-        return "running"
-    if any(status == "planned" for status in statuses):
-        return "running"
-    if stages and all(status in terminal_statuses for status in statuses):
-        return "completed"
-    if any(status == "completed" for status in statuses):
-        return "running"
-    return "planned"
+    return _workflow_status_from_stage_statuses(
+        stages=stages,
+        statuses=statuses,
+        current_status=current_status,
+    )
 
 
 __all__ = [

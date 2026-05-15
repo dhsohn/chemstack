@@ -110,25 +110,54 @@ def count_global_active_simulations(
     return count_active_simulations(items)
 
 
-def queue_list_display_rows(
-    *,
-    all_items: Sequence[dict[str, Any]],
-    visible_items: Sequence[dict[str, Any]],
-    show_workflow_context: bool,
-    visible_workflow_child_engines: Sequence[str] | None = None,
-) -> list[tuple[int, dict[str, Any]]]:
-    visible_child_engines = {
-        normalize_text(engine).lower()
-        for engine in (visible_workflow_child_engines or ())
-        if normalize_text(engine)
-    }
-    filter_workflow_children = visible_workflow_child_engines is not None
-    workflow_by_id: dict[str, ActivityItem] = {}
-    for item in all_items:
+def _visible_workflow_child_filter(engines: Sequence[str] | None) -> tuple[bool, set[str]]:
+    return (
+        engines is not None,
+        {normalize_text(engine).lower() for engine in (engines or ()) if normalize_text(engine)},
+    )
+
+
+def _workflow_items_by_id(items: Sequence[dict[str, Any]]) -> dict[str, ActivityItem]:
+    workflows: dict[str, ActivityItem] = {}
+    for item in items:
         workflow_id = normalize_text(item.get("activity_id"))
         if workflow_id and normalize_text(item.get("kind")).lower() == "workflow":
-            workflow_by_id[workflow_id] = dict(item)
+            workflows[workflow_id] = dict(item)
+    return workflows
 
+
+def _store_standalone_item(
+    *,
+    item: ActivityItem,
+    index: int,
+    standalone_items: dict[tuple[str, int], ActivityItem],
+    top_level_tokens: list[TopLevelToken],
+) -> None:
+    token = ("item", index)
+    standalone_items[token] = item
+    top_level_tokens.append(token)
+
+
+def _add_workflow_token(
+    workflow_id: str,
+    *,
+    seen_workflow_tokens: set[str],
+    top_level_tokens: list[TopLevelToken],
+) -> None:
+    if workflow_id in seen_workflow_tokens:
+        return
+    seen_workflow_tokens.add(workflow_id)
+    top_level_tokens.append(("workflow", workflow_id))
+
+
+def _queue_display_indexes(
+    *,
+    visible_items: Sequence[dict[str, Any]],
+    workflow_by_id: dict[str, ActivityItem],
+    show_workflow_context: bool,
+    filter_workflow_children: bool,
+    visible_child_engines: set[str],
+) -> tuple[list[TopLevelToken], dict[tuple[str, int], ActivityItem], dict[str, list[ActivityItem]]]:
     workflow_children: dict[str, list[ActivityItem]] = {}
     standalone_items: dict[tuple[str, int], ActivityItem] = {}
     top_level_tokens: list[TopLevelToken] = []
@@ -147,52 +176,85 @@ def queue_list_display_rows(
                 and engine not in visible_child_engines
             ):
                 continue
-            if show_workflow_context and parent_workflow_id and parent_workflow_id in workflow_by_id:
+            if (
+                show_workflow_context
+                and parent_workflow_id
+                and parent_workflow_id in workflow_by_id
+            ):
                 workflow_children.setdefault(parent_workflow_id, []).append(item)
-                if parent_workflow_id not in seen_workflow_tokens:
-                    seen_workflow_tokens.add(parent_workflow_id)
-                    top_level_tokens.append(("workflow", parent_workflow_id))
+                _add_workflow_token(
+                    parent_workflow_id,
+                    seen_workflow_tokens=seen_workflow_tokens,
+                    top_level_tokens=top_level_tokens,
+                )
                 continue
-            token = ("item", index)
-            standalone_items[token] = item
-            top_level_tokens.append(token)
-            continue
-
-        if kind == "workflow":
+        elif kind == "workflow":
             workflow_id = normalize_text(item.get("activity_id"))
-            if not workflow_id:
-                token = ("item", index)
-                standalone_items[token] = item
-                top_level_tokens.append(token)
+            if workflow_id:
+                _add_workflow_token(
+                    workflow_id,
+                    seen_workflow_tokens=seen_workflow_tokens,
+                    top_level_tokens=top_level_tokens,
+                )
+                workflow_by_id.setdefault(workflow_id, item)
                 continue
-            if workflow_id not in seen_workflow_tokens:
-                seen_workflow_tokens.add(workflow_id)
-                top_level_tokens.append(("workflow", workflow_id))
-            workflow_by_id.setdefault(workflow_id, item)
-            continue
+        _store_standalone_item(
+            item=item,
+            index=index,
+            standalone_items=standalone_items,
+            top_level_tokens=top_level_tokens,
+        )
 
-        token = ("item", index)
-        standalone_items[token] = item
-        top_level_tokens.append(token)
+    return top_level_tokens, standalone_items, workflow_children
 
+
+def _queue_display_rows_from_indexes(
+    *,
+    top_level_tokens: Sequence[TopLevelToken],
+    workflow_by_id: dict[str, ActivityItem],
+    workflow_children: dict[str, list[ActivityItem]],
+    standalone_items: dict[tuple[str, int], ActivityItem],
+) -> list[tuple[int, ActivityItem]]:
     rows: list[tuple[int, ActivityItem]] = []
-    for row_token in top_level_tokens:
-        token_kind, token_value = row_token
+    for token_kind, token_value in top_level_tokens:
         if token_kind == "workflow":
             workflow_id = str(token_value)
             parent = workflow_by_id.get(workflow_id)
             children = workflow_children.get(workflow_id, [])
             if parent is not None:
                 rows.append((0, dict(parent)))
-                for child in children:
-                    rows.append((1, dict(child)))
-                continue
-            for child in children:
-                rows.append((0, dict(child)))
+                rows.extend((1, dict(child)) for child in children)
+            else:
+                rows.extend((0, dict(child)) for child in children)
             continue
-        if not isinstance(token_value, int):
-            continue
-        standalone_item = standalone_items.get((token_kind, token_value))
-        if standalone_item is not None:
-            rows.append((0, dict(standalone_item)))
+        if isinstance(token_value, int):
+            standalone_item = standalone_items.get((token_kind, token_value))
+            if standalone_item is not None:
+                rows.append((0, dict(standalone_item)))
     return rows
+
+
+def queue_list_display_rows(
+    *,
+    all_items: Sequence[dict[str, Any]],
+    visible_items: Sequence[dict[str, Any]],
+    show_workflow_context: bool,
+    visible_workflow_child_engines: Sequence[str] | None = None,
+) -> list[tuple[int, dict[str, Any]]]:
+    filter_workflow_children, visible_child_engines = _visible_workflow_child_filter(
+        visible_workflow_child_engines
+    )
+    workflow_by_id = _workflow_items_by_id(all_items)
+    top_level_tokens, standalone_items, workflow_children = _queue_display_indexes(
+        visible_items=visible_items,
+        workflow_by_id=workflow_by_id,
+        show_workflow_context=show_workflow_context,
+        filter_workflow_children=filter_workflow_children,
+        visible_child_engines=visible_child_engines,
+    )
+    return _queue_display_rows_from_indexes(
+        top_level_tokens=top_level_tokens,
+        workflow_by_id=workflow_by_id,
+        workflow_children=workflow_children,
+        standalone_items=standalone_items,
+    )

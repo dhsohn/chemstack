@@ -11,7 +11,12 @@ from typing import Any, TextIO
 from chemstack.core.utils import now_utc_iso
 
 from .config import AppConfig
-from .commands._helpers import MANIFEST_FILE_NAME, job_mode, load_job_manifest, resource_request_from_manifest
+from .commands._helpers import (
+    MANIFEST_FILE_NAME,
+    job_mode,
+    load_job_manifest,
+    resource_request_from_manifest,
+)
 
 _RETAINED_ENSEMBLE_CANDIDATES = (
     "crest_conformers.xyz",
@@ -124,6 +129,68 @@ def _manifest_scalar_text(manifest: dict[str, Any], key: str) -> str | None:
     return text or None
 
 
+def _append_crest_mode_flags(command: list[str], manifest: dict[str, Any]) -> None:
+    if job_mode(manifest) == "nci":
+        command.append("--nci")
+
+    speed = str(manifest.get("speed", "")).strip().lower()
+    if speed in {"quick", "squick", "mquick"}:
+        command.append(f"--{speed}")
+
+
+def _append_crest_bool_flags(command: list[str], manifest: dict[str, Any]) -> None:
+    for manifest_key, option in (
+        ("dry_run", "--dry"),
+        ("keepdir", "--keepdir"),
+        ("no_preopt", "--noopt"),
+    ):
+        if _bool_flag(manifest, manifest_key):
+            command.append(option)
+
+
+def _append_crest_gfn_flag(command: list[str], manifest: dict[str, Any]) -> None:
+    gfn_options = {
+        "1": "--gfn1",
+        "gfn1": "--gfn1",
+        "2": "--gfn2",
+        "gfn2": "--gfn2",
+        "ff": "--gfnff",
+        "gfnff": "--gfnff",
+        "2//ff": "--gfn2//gfnff",
+        "gfn2//gfnff": "--gfn2//gfnff",
+    }
+    option = gfn_options.get(str(manifest.get("gfn", "")).strip().lower())
+    if option:
+        command.append(option)
+
+
+def _append_crest_int_options(command: list[str], manifest: dict[str, Any]) -> None:
+    for manifest_key, option in (("charge", "--chrg"), ("uhf", "--uhf")):
+        value = _manifest_int(manifest, manifest_key)
+        if value is not None:
+            command.extend([option, str(value)])
+
+
+def _append_crest_solvent_options(command: list[str], manifest: dict[str, Any]) -> None:
+    solvent_model = str(manifest.get("solvent_model", "")).strip().lower()
+    solvent = str(manifest.get("solvent", "")).strip()
+    if solvent and solvent_model in {"gbsa", "alpb"}:
+        command.extend([f"--{solvent_model}", solvent])
+
+
+def _append_crest_scalar_options(command: list[str], manifest: dict[str, Any]) -> None:
+    for manifest_key, option in (
+        ("rthr", "--rthr"),
+        ("ewin", "--ewin"),
+        ("ethr", "--ethr"),
+        ("bthr", "--bthr"),
+        ("cluster", "--cluster"),
+    ):
+        value = _manifest_scalar_text(manifest, manifest_key)
+        if value:
+            command.extend([option, value])
+
+
 def _build_command(
     cfg: AppConfig,
     *,
@@ -139,57 +206,12 @@ def _build_command(
         str(resource_request["max_cores"]),
     ]
 
-    mode = job_mode(manifest)
-    if mode == "nci":
-        command.append("--nci")
-
-    speed = str(manifest.get("speed", "")).strip().lower()
-    if speed in {"quick", "squick", "mquick"}:
-        command.append(f"--{speed}")
-
-    if _bool_flag(manifest, "dry_run"):
-        command.append("--dry")
-
-    if _bool_flag(manifest, "keepdir"):
-        command.append("--keepdir")
-
-    if _bool_flag(manifest, "no_preopt"):
-        command.append("--noopt")
-
-    gfn = str(manifest.get("gfn", "")).strip().lower()
-    if gfn in {"1", "gfn1"}:
-        command.append("--gfn1")
-    elif gfn in {"2", "gfn2"}:
-        command.append("--gfn2")
-    elif gfn in {"ff", "gfnff"}:
-        command.append("--gfnff")
-    elif gfn in {"2//ff", "gfn2//gfnff"}:
-        command.append("--gfn2//gfnff")
-
-    charge = _manifest_int(manifest, "charge")
-    if charge is not None:
-        command.extend(["--chrg", str(charge)])
-
-    uhf = _manifest_int(manifest, "uhf")
-    if uhf is not None:
-        command.extend(["--uhf", str(uhf)])
-
-    solvent_model = str(manifest.get("solvent_model", "")).strip().lower()
-    solvent = str(manifest.get("solvent", "")).strip()
-    if solvent and solvent_model in {"gbsa", "alpb"}:
-        command.extend([f"--{solvent_model}", solvent])
-
-    for manifest_key, option in (
-        ("rthr", "--rthr"),
-        ("ewin", "--ewin"),
-        ("ethr", "--ethr"),
-        ("bthr", "--bthr"),
-        ("cluster", "--cluster"),
-    ):
-        value = _manifest_scalar_text(manifest, manifest_key)
-        if value:
-            command.extend([option, value])
-
+    _append_crest_mode_flags(command, manifest)
+    _append_crest_bool_flags(command, manifest)
+    _append_crest_gfn_flag(command, manifest)
+    _append_crest_int_options(command, manifest)
+    _append_crest_solvent_options(command, manifest)
+    _append_crest_scalar_options(command, manifest)
     if _bool_flag(manifest, "esort"):
         command.append("--esort")
 
@@ -288,7 +310,9 @@ def start_crest_job(cfg: AppConfig, *, job_dir: Path, selected_xyz: Path) -> Cre
         stderr_handle=stderr_handle,
         selected_input_xyz=str(selected_xyz.resolve()),
         mode=job_mode(manifest),
-        manifest_path=str((job_dir / MANIFEST_FILE_NAME).resolve()) if (job_dir / MANIFEST_FILE_NAME).exists() else "",
+        manifest_path=str((job_dir / MANIFEST_FILE_NAME).resolve())
+        if (job_dir / MANIFEST_FILE_NAME).exists()
+        else "",
         job_dir=str(job_dir.resolve()),
         resource_request=resource_request,
         resource_actual=resource_actual,

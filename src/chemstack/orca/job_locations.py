@@ -166,6 +166,20 @@ def _iter_existing_dirs(*candidates: Path | None) -> list[Path]:
     return rows
 
 
+def _path_or_parent(value: Any) -> Path | None:
+    resolved = _resolve_existing_path(value)
+    if resolved is None:
+        return None
+    return resolved.parent if not resolved.is_dir() else resolved
+
+
+def _resolved_path_text(path: Path) -> str:
+    try:
+        return str(path.resolve())
+    except OSError:
+        return str(path)
+
+
 def _is_subpath(candidate: Path, root: Path | None) -> bool:
     if root is None:
         return False
@@ -176,51 +190,20 @@ def _is_subpath(candidate: Path, root: Path | None) -> bool:
     return True
 
 
-def _prefer_orca_optimized_xyz(
-    *,
-    selected_inp: str,
-    selected_input_xyz: str,
-    current_dir: Path | None,
-    organized_dir: Path | None,
-    latest_known_path: str,
-    last_out_path: str,
-) -> str:
-    selected_inp_path = _resolve_existing_path(selected_inp)
-    selected_input_xyz_path = _resolve_existing_path(selected_input_xyz)
-    last_out = _resolve_existing_path(last_out_path)
-    latest_known_dir = _resolve_existing_path(latest_known_path)
-    if latest_known_dir is not None and not latest_known_dir.is_dir():
-        latest_known_dir = latest_known_dir.parent
+def _preferred_xyz_names(*paths: Path | None) -> list[str]:
+    return [f"{path.stem}.xyz" for path in paths if path is not None and not path.is_dir()]
 
-    search_dirs = _iter_existing_dirs(
-        selected_inp_path.parent if selected_inp_path is not None and not selected_inp_path.is_dir() else None,
-        current_dir,
-        organized_dir,
-        latest_known_dir,
-        last_out.parent if last_out is not None and not last_out.is_dir() else None,
-    )
-    preferred_names: list[str] = []
-    if selected_inp_path is not None and not selected_inp_path.is_dir():
-        preferred_names.append(f"{selected_inp_path.stem}.xyz")
-    if last_out is not None and not last_out.is_dir():
-        preferred_names.append(f"{last_out.stem}.xyz")
 
+def _first_existing_named_file(search_dirs: list[Path], filenames: list[str]) -> str:
     for search_dir in search_dirs:
-        for filename in preferred_names:
+        for filename in filenames:
             candidate = search_dir / filename
             if candidate.exists():
-                try:
-                    return str(candidate.resolve())
-                except OSError:
-                    return str(candidate)
+                return _resolved_path_text(candidate)
+    return ""
 
-    source_input = None
-    if selected_input_xyz_path is not None and not selected_input_xyz_path.is_dir():
-        try:
-            source_input = selected_input_xyz_path.resolve()
-        except OSError:
-            source_input = selected_input_xyz_path
 
+def _recent_xyz_candidates(search_dirs: list[Path], source_input: Path | None) -> list[Path]:
     xyz_candidates: list[Path] = []
     seen_files: set[Path] = set()
     for search_dir in search_dirs:
@@ -243,13 +226,48 @@ def _prefer_orca_optimized_xyz(
                 continue
             seen_files.add(resolved)
             xyz_candidates.append(item)
+    return xyz_candidates
 
+
+def _prefer_orca_optimized_xyz(
+    *,
+    selected_inp: str,
+    selected_input_xyz: str,
+    current_dir: Path | None,
+    organized_dir: Path | None,
+    latest_known_path: str,
+    last_out_path: str,
+) -> str:
+    selected_inp_path = _resolve_existing_path(selected_inp)
+    selected_input_xyz_path = _resolve_existing_path(selected_input_xyz)
+    last_out = _resolve_existing_path(last_out_path)
+
+    search_dirs = _iter_existing_dirs(
+        selected_inp_path.parent
+        if selected_inp_path is not None and not selected_inp_path.is_dir()
+        else None,
+        current_dir,
+        organized_dir,
+        _path_or_parent(latest_known_path),
+        last_out.parent if last_out is not None and not last_out.is_dir() else None,
+    )
+    preferred_match = _first_existing_named_file(
+        search_dirs, _preferred_xyz_names(selected_inp_path, last_out)
+    )
+    if preferred_match:
+        return preferred_match
+
+    source_input = None
+    if selected_input_xyz_path is not None and not selected_input_xyz_path.is_dir():
+        try:
+            source_input = selected_input_xyz_path.resolve()
+        except OSError:
+            source_input = selected_input_xyz_path
+
+    xyz_candidates = _recent_xyz_candidates(search_dirs, source_input)
     if not xyz_candidates:
         return ""
-    try:
-        return str(xyz_candidates[0].resolve())
-    except OSError:
-        return str(xyz_candidates[0])
+    return _resolved_path_text(xyz_candidates[0])
 
 
 def _attempt_count(state: dict[str, Any], report: dict[str, Any]) -> int:
@@ -292,7 +310,9 @@ def _coerce_attempts(state: dict[str, Any], report: dict[str, Any]) -> tuple[dic
                 "analyzer_status": _normalize_text(raw.get("analyzer_status")),
                 "analyzer_reason": _normalize_text(raw.get("analyzer_reason")),
                 "markers": list(raw["markers"]) if isinstance(raw.get("markers"), list) else [],
-                "patch_actions": list(raw["patch_actions"]) if isinstance(raw.get("patch_actions"), list) else [],
+                "patch_actions": list(raw["patch_actions"])
+                if isinstance(raw.get("patch_actions"), list)
+                else [],
                 "started_at": _normalize_text(raw.get("started_at")),
                 "ended_at": _normalize_text(raw.get("ended_at")),
             }
@@ -320,8 +340,7 @@ def _status_from_payloads(
 
     state_status = _normalize_text(state.get("status")).lower()
     report_status = _normalize_text(report.get("status")).lower()
-    final_result = report.get("final_result") if isinstance(report.get("final_result"), dict) else state.get("final_result")
-    final = final_result if isinstance(final_result, dict) else {}
+    final = _final_result_payload(state, report)
     final_status = _normalize_text(final.get("status")).lower()
     analyzer_status = _normalize_text(final.get("analyzer_status"))
     reason = _normalize_text(final.get("reason"))
@@ -333,10 +352,9 @@ def _status_from_payloads(
         return "cancelled", analyzer_status, reason or "cancelled", completed_at
     if queue_status == "running" and cancel_requested:
         return "cancel_requested", analyzer_status, reason, completed_at
-    if queue_status == "pending":
-        return "queued", analyzer_status, reason, completed_at
-    if queue_status == "running":
-        return "running", analyzer_status, reason, completed_at
+    queue_aliases = {"pending": "queued", "running": "running"}
+    if queue_status in queue_aliases:
+        return queue_aliases[queue_status], analyzer_status, reason, completed_at
     if state_status in {"completed", "failed"}:
         return state_status, analyzer_status, reason, completed_at
     if state_status in {"created", "running", "retrying"}:
@@ -430,10 +448,16 @@ def build_job_location_record(
     resource_actual: dict[str, int] | None = None,
 ) -> JobLocationRecord:
     resolved_job_dir = job_dir.expanduser().resolve()
-    existing_original = Path(existing.original_run_dir).expanduser().resolve() if existing and existing.original_run_dir else None
+    existing_original = (
+        Path(existing.original_run_dir).expanduser().resolve()
+        if existing and existing.original_run_dir
+        else None
+    )
     original_run_dir = existing_original or resolved_job_dir
 
-    existing_selected = _normalize_path_text(existing.selected_input_xyz) if existing is not None else ""
+    existing_selected = (
+        _normalize_path_text(existing.selected_input_xyz) if existing is not None else ""
+    )
     selected_input_text = _normalize_path_text(selected_input_xyz) or existing_selected
 
     existing_molecule_key = _normalize_text(existing.molecule_key) if existing is not None else ""
@@ -444,7 +468,9 @@ def build_job_location_record(
     existing_resource_request = dict(existing.resource_request) if existing is not None else {}
     existing_resource_actual = dict(existing.resource_actual) if existing is not None else {}
     resource_request_text = dict(resource_request or existing_resource_request)
-    resource_actual_text = dict(resource_actual or existing_resource_actual or resource_request_text)
+    resource_actual_text = dict(
+        resource_actual or existing_resource_actual or resource_request_text
+    )
 
     organized_dir = organized_output_dir
     if organized_dir is None and existing is not None and existing.organized_output_dir:
@@ -582,6 +608,31 @@ def _job_artifact_context(
     )
 
 
+def _queue_entry_matches(
+    entry: dict[str, Any],
+    *,
+    target: str,
+    queue_id: str,
+    run_id: str,
+    direct_target: Path | None,
+    resolved_reaction_dir: Path | None,
+) -> bool:
+    entry_queue_id = _normalize_text(entry.get("queue_id"))
+    entry_task_id = _normalize_text(entry.get("task_id"))
+    entry_run_id = _normalize_text(entry.get("run_id"))
+    entry_reaction_dir = _resolve_existing_job_dir(entry.get("reaction_dir"))
+
+    return (
+        (bool(queue_id) and entry_queue_id == queue_id)
+        or (bool(target) and entry_queue_id == target)
+        or (bool(target) and entry_task_id == target)
+        or (bool(run_id) and entry_run_id == run_id)
+        or (bool(target) and entry_run_id == target)
+        or (resolved_reaction_dir is not None and entry_reaction_dir == resolved_reaction_dir)
+        or (direct_target is not None and entry_reaction_dir == direct_target)
+    )
+
+
 def _find_queue_entry(
     *,
     index_root: Path,
@@ -597,30 +648,15 @@ def _find_queue_entry(
     direct_target = _resolve_existing_job_dir(target)
     resolved_reaction_dir = _resolve_existing_job_dir(reaction_dir)
 
-    def _entry_matches(entry: dict[str, Any]) -> bool:
-        entry_queue_id = _normalize_text(entry.get("queue_id"))
-        entry_task_id = _normalize_text(entry.get("task_id"))
-        entry_run_id = _normalize_text(entry.get("run_id"))
-        entry_reaction_dir = _resolve_existing_job_dir(entry.get("reaction_dir"))
-
-        if queue_id and entry_queue_id == queue_id:
-            return True
-        if target and entry_queue_id == target:
-            return True
-        if target and entry_task_id == target:
-            return True
-        if run_id and entry_run_id == run_id:
-            return True
-        if target and entry_run_id == target:
-            return True
-        if resolved_reaction_dir is not None and entry_reaction_dir == resolved_reaction_dir:
-            return True
-        if direct_target is not None and entry_reaction_dir == direct_target:
-            return True
-        return False
-
     for entry in reversed(entries):
-        if _entry_matches(entry):
+        if _queue_entry_matches(
+            entry,
+            target=target,
+            queue_id=queue_id,
+            run_id=run_id,
+            direct_target=direct_target,
+            resolved_reaction_dir=resolved_reaction_dir,
+        ):
             return dict(entry)
     return None
 
@@ -723,22 +759,21 @@ def resolve_latest_job_dir(index_root: str | Path, target: str) -> Path | None:
     return candidates[0] if candidates else None
 
 
-def load_job_artifact_context(
-    index_root: str | Path,
-    target: str,
-) -> JobArtifactContext:
-    candidates = _job_dir_candidates(index_root, target)
-    if not candidates:
-        return JobArtifactContext()
-
+def _record_for_job_dir(
+    index_root: str | Path, target: str, job_dir: Path
+) -> JobLocationRecord | None:
     record = resolve_job_location(index_root, target)
-    primary_dir = candidates[0]
-    if record is None:
-        for candidate_record in list_job_location_records(index_root):
-            if _record_matches_job_dir(candidate_record, primary_dir):
-                record = candidate_record
-                break
+    if record is not None:
+        return record
+    for candidate_record in list_job_location_records(index_root):
+        if _record_matches_job_dir(candidate_record, job_dir):
+            return candidate_record
+    return None
 
+
+def _first_state_report(
+    candidates: list[Path],
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
     state_payload: dict[str, Any] | None = None
     report_payload: dict[str, Any] | None = None
     for job_dir in candidates:
@@ -749,12 +784,33 @@ def load_job_artifact_context(
             report_payload = load_report_json(job_dir)
         if state_payload is not None and report_payload is not None:
             break
+    return state_payload, report_payload
 
+
+def _organized_ref_for_primary_dir(
+    record: JobLocationRecord | None, primary_dir: Path
+) -> dict[str, Any] | None:
     organized_ref_payload = load_organized_ref(primary_dir)
-    if not organized_ref_payload and record is not None:
-        original_dir = _resolve_existing_job_dir(record.original_run_dir)
-        if original_dir is not None and original_dir != primary_dir:
-            organized_ref_payload = load_organized_ref(original_dir)
+    if organized_ref_payload or record is None:
+        return organized_ref_payload
+    original_dir = _resolve_existing_job_dir(record.original_run_dir)
+    if original_dir is None or original_dir == primary_dir:
+        return organized_ref_payload
+    return load_organized_ref(original_dir)
+
+
+def load_job_artifact_context(
+    index_root: str | Path,
+    target: str,
+) -> JobArtifactContext:
+    candidates = _job_dir_candidates(index_root, target)
+    if not candidates:
+        return JobArtifactContext()
+
+    primary_dir = candidates[0]
+    record = _record_for_job_dir(index_root, target, primary_dir)
+    state_payload, report_payload = _first_state_report(candidates)
+    organized_ref_payload = _organized_ref_for_primary_dir(record, primary_dir)
 
     return JobArtifactContext(
         record=record,
@@ -802,7 +858,9 @@ def load_job_runtime_context(
 
     state_payload = dict(artifact.state) if isinstance(artifact.state, dict) else {}
     report_payload = dict(artifact.report) if isinstance(artifact.report, dict) else {}
-    organized_ref_payload = dict(artifact.organized_ref) if isinstance(artifact.organized_ref, dict) else {}
+    organized_ref_payload = (
+        dict(artifact.organized_ref) if isinstance(artifact.organized_ref, dict) else {}
+    )
     current_dir = artifact.job_dir or _resolve_existing_job_dir(reaction_dir) or queue_reaction_dir
 
     resolved_run_id = (
@@ -862,8 +920,14 @@ def load_orca_contract_payload(
     state = dict(artifact.state) if isinstance(artifact.state, dict) else {}
     report = dict(artifact.report) if isinstance(artifact.report, dict) else {}
     organized_ref = dict(artifact.organized_ref) if isinstance(artifact.organized_ref, dict) else {}
-    current_dir = artifact.job_dir or _resolve_existing_job_dir(reaction_dir) or _resolve_existing_job_dir(queue_entry.get("reaction_dir"))
-    resolved_organized_root = Path(organized_root).expanduser().resolve() if organized_root else None
+    current_dir = (
+        artifact.job_dir
+        or _resolve_existing_job_dir(reaction_dir)
+        or _resolve_existing_job_dir(queue_entry.get("reaction_dir"))
+    )
+    resolved_organized_root = (
+        Path(organized_root).expanduser().resolve() if organized_root else None
+    )
 
     if record is None and current_dir is None and not queue_entry:
         return {}
@@ -914,7 +978,8 @@ def load_orca_contract_payload(
         base_dir,
     )
     selected_input_xyz = _resolve_artifact_path(
-        organized_ref.get("selected_input_xyz") or (record.selected_input_xyz if record is not None else ""),
+        organized_ref.get("selected_input_xyz")
+        or (record.selected_input_xyz if record is not None else ""),
         base_dir,
     )
     if not selected_input_xyz.lower().endswith(".xyz"):
@@ -929,18 +994,24 @@ def load_orca_contract_payload(
         last_out_path=last_out_path,
     )
 
-    resource_request = _resource_dict_from_any(queue_entry.get("resource_request")) or _resource_dict_from_any(
-        record.resource_request if record is not None else {}
+    resource_request = _resource_dict_from_any(
+        queue_entry.get("resource_request")
+    ) or _resource_dict_from_any(record.resource_request if record is not None else {})
+    resource_actual = (
+        _resource_dict_from_any(queue_entry.get("resource_actual"))
+        or _resource_dict_from_any(record.resource_actual if record is not None else {})
+        or dict(resource_request)
     )
-    resource_actual = _resource_dict_from_any(queue_entry.get("resource_actual")) or _resource_dict_from_any(
-        record.resource_actual if record is not None else {}
-    ) or dict(resource_request)
 
     organized_output_dir = _normalize_text(
         (record.organized_output_dir if record is not None else "")
         or organized_ref.get("organized_output_dir")
         or (str(runtime.organized_dir) if runtime.organized_dir is not None else "")
-        or (str(current_dir) if current_dir is not None and _is_subpath(current_dir, resolved_organized_root) else "")
+        or (
+            str(current_dir)
+            if current_dir is not None and _is_subpath(current_dir, resolved_organized_root)
+            else ""
+        )
     )
 
     run_state_path = (
@@ -964,7 +1035,9 @@ def load_orca_contract_payload(
         "status": status,
         "reason": reason,
         "state_status": state_status,
-        "reaction_dir": str(current_dir) if current_dir is not None else _normalize_text(reaction_dir),
+        "reaction_dir": str(current_dir)
+        if current_dir is not None
+        else _normalize_text(reaction_dir),
         "latest_known_path": latest_known_path,
         "organized_output_dir": organized_output_dir,
         "optimized_xyz_path": optimized_xyz_path,
@@ -1027,7 +1100,12 @@ def record_from_artifacts(
     if not job_id:
         return None
 
-    status = _normalize_text(report.get("status") or state.get("status") or organized_ref.get("status") or "unknown") or "unknown"
+    status = (
+        _normalize_text(
+            report.get("status") or state.get("status") or organized_ref.get("status") or "unknown"
+        )
+        or "unknown"
+    )
     selected_input_xyz = _normalize_path_text(
         report.get("selected_inp")
         or state.get("selected_inp")
@@ -1037,13 +1115,16 @@ def record_from_artifacts(
     )
 
     derived_job_type, derived_molecule_key = resolve_job_metadata(selected_input_xyz, job_dir)
-    job_type = _normalize_text(
-        report.get("job_type")
-        or state.get("job_type")
-        or organized_ref.get("job_type")
-        or derived_job_type
+    job_type = (
+        _normalize_text(
+            report.get("job_type")
+            or state.get("job_type")
+            or organized_ref.get("job_type")
+            or derived_job_type
+            or default_job_type
+        )
         or default_job_type
-    ) or default_job_type
+    )
     molecule_key = _normalize_text(
         report.get("molecule_key")
         or state.get("molecule_key")
@@ -1086,7 +1167,9 @@ def record_from_artifacts(
         job_dir=Path(original_run_dir),
         job_type=job_type,
         selected_input_xyz=selected_input_xyz,
-        organized_output_dir=Path(organized_output_dir).expanduser().resolve() if organized_output_dir else None,
+        organized_output_dir=Path(organized_output_dir).expanduser().resolve()
+        if organized_output_dir
+        else None,
         molecule_key=molecule_key,
         resource_request=resource_request,
         resource_actual=resource_actual,

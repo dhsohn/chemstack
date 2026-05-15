@@ -516,6 +516,106 @@ def reserve_slot(
         return token
 
 
+def _activate_slot_with_backend(
+    backend: Any,
+    root: Path,
+    token: str,
+    *,
+    resolved_work_dir: str,
+    resolved_owner_pid: int,
+    source: str,
+    queue_id: str | None,
+    app_name: str | None,
+    task_id: str | None,
+    workflow_id: str | None,
+) -> bool:
+    try:
+        updated = backend.activate_reserved_slot(
+            root,
+            token,
+            state="active",
+            work_dir=resolved_work_dir,
+            queue_id=None if queue_id is None else _text_field(queue_id),
+            owner_pid=resolved_owner_pid,
+            source=source,
+        )
+    except Exception as exc:
+        _wrap_backend_corruption(exc)
+        raise
+    if updated is None:
+        return False
+    if app_name is None and task_id is None and workflow_id is None:
+        return True
+    return update_slot_metadata(
+        root,
+        token,
+        queue_id=queue_id,
+        app_name=app_name,
+        task_id=task_id,
+        workflow_id=workflow_id,
+    )
+
+
+def _activate_live_slot(
+    slot: AdmissionSlot,
+    *,
+    resolved_work_dir: str,
+    resolved_owner_pid: int,
+    source: str,
+    queue_id: str | None,
+    app_name: str | None,
+    task_id: str | None,
+    workflow_id: str | None,
+) -> None:
+    slot["state"] = "active"
+    slot["work_dir"] = resolved_work_dir
+    slot["reaction_dir"] = resolved_work_dir
+    if queue_id is not None:
+        slot["queue_id"] = queue_id
+    slot["owner_pid"] = resolved_owner_pid
+    slot["process_start_ticks"] = process_start_ticks(resolved_owner_pid)
+    slot["source"] = source
+    if app_name is not None:
+        slot["app_name"] = app_name
+    if task_id is not None:
+        slot["task_id"] = task_id
+    if workflow_id is not None:
+        slot["workflow_id"] = workflow_id
+
+
+def _activate_slot_in_store(
+    root: Path,
+    token: str,
+    *,
+    resolved_work_dir: str,
+    resolved_owner_pid: int,
+    source: str,
+    queue_id: str | None,
+    app_name: str | None,
+    task_id: str | None,
+    workflow_id: str | None,
+) -> bool:
+    with _acquire_admission_lock(root):
+        slots = _load_live_slots(root)
+        for slot in slots:
+            if slot.get("token") != token:
+                continue
+            _activate_live_slot(
+                slot,
+                resolved_work_dir=resolved_work_dir,
+                resolved_owner_pid=resolved_owner_pid,
+                source=source,
+                queue_id=queue_id,
+                app_name=app_name,
+                task_id=task_id,
+                workflow_id=workflow_id,
+            )
+            _save_slots(root, slots)
+            return True
+        _save_slots(root, slots)
+    return False
+
+
 def activate_slot(
     root: Path,
     token: str,
@@ -533,55 +633,30 @@ def activate_slot(
     resolved_owner_pid = owner_pid if owner_pid is not None else os.getpid()
     backend = _chem_core_admission_module()
     if backend is not None:
-        try:
-            updated = backend.activate_reserved_slot(
-                resolved_root,
-                token,
-                state="active",
-                work_dir=resolved_work_dir,
-                queue_id=None if queue_id is None else _text_field(queue_id),
-                owner_pid=resolved_owner_pid,
-                source=source,
-            )
-        except Exception as exc:
-            _wrap_backend_corruption(exc)
-            raise
-        if updated is None:
-            return False
-        if app_name is None and task_id is None and workflow_id is None:
-            return True
-        return update_slot_metadata(
+        return _activate_slot_with_backend(
+            backend,
             resolved_root,
             token,
+            resolved_work_dir=resolved_work_dir,
+            resolved_owner_pid=resolved_owner_pid,
+            source=source,
             queue_id=queue_id,
             app_name=app_name,
             task_id=task_id,
             workflow_id=workflow_id,
         )
 
-    with _acquire_admission_lock(resolved_root):
-        slots = _load_live_slots(resolved_root)
-        for slot in slots:
-            if slot.get("token") != token:
-                continue
-            slot["state"] = "active"
-            slot["work_dir"] = resolved_work_dir
-            slot["reaction_dir"] = resolved_work_dir
-            if queue_id is not None:
-                slot["queue_id"] = queue_id
-            slot["owner_pid"] = resolved_owner_pid
-            slot["process_start_ticks"] = process_start_ticks(resolved_owner_pid)
-            slot["source"] = source
-            if app_name is not None:
-                slot["app_name"] = app_name
-            if task_id is not None:
-                slot["task_id"] = task_id
-            if workflow_id is not None:
-                slot["workflow_id"] = workflow_id
-            _save_slots(resolved_root, slots)
-            return True
-        _save_slots(resolved_root, slots)
-    return False
+    return _activate_slot_in_store(
+        resolved_root,
+        token,
+        resolved_work_dir=resolved_work_dir,
+        resolved_owner_pid=resolved_owner_pid,
+        source=source,
+        queue_id=queue_id,
+        app_name=app_name,
+        task_id=task_id,
+        workflow_id=workflow_id,
+    )
 
 
 def release_slot(root: Path, token: str) -> bool:

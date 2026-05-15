@@ -42,7 +42,8 @@ def _api_call(
     url = f"{_API_BASE.format(token=token)}/{method}"
     data = json.dumps(payload or {}).encode("utf-8")
     req = urllib.request.Request(
-        url, data=data,
+        url,
+        data=data,
         headers={"Content-Type": "application/json"},
         method="POST",
     )
@@ -55,7 +56,9 @@ def _api_call(
             return None
     except urllib.error.HTTPError as exc:
         body = exc.read().decode("utf-8", errors="replace") if exc.fp else ""
-        logger.warning("telegram_api_http_error: method=%s status=%d body=%s", method, exc.code, body)
+        logger.warning(
+            "telegram_api_http_error: method=%s status=%d body=%s", method, exc.code, body
+        )
         return None
     except Exception as exc:
         logger.warning("telegram_api_failed: method=%s error=%s", method, exc)
@@ -173,6 +176,71 @@ def _set_bot_commands(token: str) -> None:
     _api_call(token, "setMyCommands", {"commands": commands})
 
 
+def _poll_updates(token: str, offset: int) -> list[Any]:
+    updates = _api_call(
+        token,
+        "getUpdates",
+        {"offset": offset, "timeout": _POLL_TIMEOUT, "allowed_updates": ["message"]},
+        timeout=_POLL_TIMEOUT + 5,
+    )
+    return updates if isinstance(updates, list) else []
+
+
+def _message_from_update(update: Any, *, chat_id: str) -> tuple[int | None, dict[str, Any] | None]:
+    if not isinstance(update, dict):
+        return None, None
+
+    update_id = update.get("update_id", 0)
+    message = update.get("message")
+    if not isinstance(message, dict):
+        return update_id, None
+
+    chat = message.get("chat")
+    chat_dict = chat if isinstance(chat, dict) else {}
+    msg_chat_id = str(chat_dict.get("id", ""))
+    if msg_chat_id != chat_id:
+        logger.debug("telegram_bot_ignored_chat: %s", msg_chat_id)
+        return update_id, None
+    return update_id, message
+
+
+def _command_from_message(message: dict[str, Any]) -> tuple[str, str] | None:
+    text_value = message.get("text")
+    text = text_value.strip() if isinstance(text_value, str) else ""
+    if not text.startswith("/"):
+        return None
+
+    parts = text.split(maxsplit=1)
+    cmd_raw = parts[0].lstrip("/").split("@")[0].lower()
+    return cmd_raw, parts[1] if len(parts) > 1 else ""
+
+
+def _response_for_command(cfg: AppConfig, command: str, args: str) -> str:
+    handler = _HANDLERS.get(command)
+    if handler is None:
+        return f"Unknown command: /{escape_html(command)}\nType /help for available commands."
+
+    try:
+        return handler(cfg, args)
+    except Exception as exc:
+        logger.exception("telegram_bot_handler_error: cmd=%s", command)
+        return f"Error: {exc}"
+
+
+def _dispatch_update(cfg: AppConfig, update: Any) -> int | None:
+    update_id, message = _message_from_update(update, chat_id=cfg.telegram.chat_id)
+    if message is None:
+        return update_id
+
+    command_parts = _command_from_message(message)
+    if command_parts is None:
+        return update_id
+
+    response = _response_for_command(cfg, *command_parts)
+    _send_message(cfg.telegram.bot_token, cfg.telegram.chat_id, response)
+    return update_id
+
+
 def run_bot(cfg: AppConfig) -> int:
     """Run the Telegram bot long-polling loop. Exit with Ctrl+C."""
     tg = cfg.telegram
@@ -186,52 +254,10 @@ def run_bot(cfg: AppConfig) -> int:
     offset = 0
     while True:
         try:
-            updates = _api_call(
-                tg.bot_token, "getUpdates",
-                {"offset": offset, "timeout": _POLL_TIMEOUT, "allowed_updates": ["message"]},
-                timeout=_POLL_TIMEOUT + 5,
-            )
-            if not isinstance(updates, list) or not updates:
-                continue
-
-            for update in updates:
-                if not isinstance(update, dict):
-                    continue
-                update_id = update.get("update_id", 0)
-                offset = max(offset, update_id + 1)
-
-                message = update.get("message")
-                if not isinstance(message, dict):
-                    continue
-
-                # Validate chat_id — only respond to authorized user
-                chat = message.get("chat")
-                chat_dict = chat if isinstance(chat, dict) else {}
-                msg_chat_id = str(chat_dict.get("id", ""))
-                if msg_chat_id != tg.chat_id:
-                    logger.debug("telegram_bot_ignored_chat: %s", msg_chat_id)
-                    continue
-
-                text_value = message.get("text")
-                text = text_value.strip() if isinstance(text_value, str) else ""
-                if not text.startswith("/"):
-                    continue
-
-                parts = text.split(maxsplit=1)
-                cmd_raw = parts[0].lstrip("/").split("@")[0].lower()
-                cmd_args = parts[1] if len(parts) > 1 else ""
-
-                handler = _HANDLERS.get(cmd_raw)
-                if handler:
-                    try:
-                        response = handler(cfg, cmd_args)
-                    except Exception as exc:
-                        logger.exception("telegram_bot_handler_error: cmd=%s", cmd_raw)
-                        response = f"Error: {exc}"
-                    _send_message(tg.bot_token, tg.chat_id, response)
-                else:
-                    _send_message(tg.bot_token, tg.chat_id,
-                                  f"Unknown command: /{escape_html(cmd_raw)}\nType /help for available commands.")
+            for update in _poll_updates(tg.bot_token, offset):
+                update_id = _dispatch_update(cfg, update)
+                if update_id is not None:
+                    offset = max(offset, update_id + 1)
 
         except KeyboardInterrupt:
             logger.info("Telegram bot stopped")

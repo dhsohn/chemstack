@@ -87,7 +87,9 @@ def _is_timeout_error(exc: BaseException) -> bool:
 
 def _is_temporary_dns_error(exc: BaseException) -> bool:
     for current in _iter_exception_chain(exc):
-        if isinstance(current, socket.gaierror) and current.errno == getattr(socket, "EAI_AGAIN", None):
+        if isinstance(current, socket.gaierror) and current.errno == getattr(
+            socket, "EAI_AGAIN", None
+        ):
             return True
         text = str(current).strip().lower()
         if "temporary failure in name resolution" in text or "temporary dns failure" in text:
@@ -96,7 +98,9 @@ def _is_temporary_dns_error(exc: BaseException) -> bool:
 
 
 def _should_retry_url_error(exc: BaseException) -> bool:
-    return _is_timeout_error(exc) or _is_network_unreachable_error(exc) or _is_temporary_dns_error(exc)
+    return (
+        _is_timeout_error(exc) or _is_network_unreachable_error(exc) or _is_temporary_dns_error(exc)
+    )
 
 
 def _is_retryable_http_status(status_code: int | None) -> bool:
@@ -149,6 +153,22 @@ def _split_long_segment(text: str, *, limit: int) -> list[str]:
     return pieces
 
 
+def _append_telegram_line(chunks: list[str], current: str, line: str, *, limit: int) -> str:
+    if current and len(current) + len(line) > limit:
+        chunk = current.strip()
+        if chunk:
+            chunks.append(chunk)
+        return line
+    return current + line
+
+
+def _flush_telegram_chunk(chunks: list[str], current: str) -> str:
+    chunk = current.strip()
+    if chunk:
+        chunks.append(chunk)
+    return ""
+
+
 def split_telegram_message(
     text: str,
     *,
@@ -167,26 +187,15 @@ def split_telegram_message(
     chunks: list[str] = []
     current = ""
 
-    def flush() -> None:
-        nonlocal current
-        chunk = current.strip()
-        if chunk:
-            chunks.append(chunk)
-        current = ""
-
     for line in message.splitlines(keepends=True):
         if len(line) > limit:
-            flush()
+            current = _flush_telegram_chunk(chunks, current)
             for piece in _split_long_segment(line, limit=limit):
-                chunk = piece.strip()
-                if chunk:
-                    chunks.append(chunk)
+                _flush_telegram_chunk(chunks, piece)
             continue
-        if current and len(current) + len(line) > limit:
-            flush()
-        current += line
+        current = _append_telegram_line(chunks, current, line, limit=limit)
 
-    flush()
+    _flush_telegram_chunk(chunks, current)
     return chunks
 
 
@@ -304,6 +313,86 @@ class TelegramTransport:
     def _send_message_url(self, token: str) -> str:
         return f"{self.base_url.rstrip('/')}/bot{token}/sendMessage"
 
+    def _send_text_payload(
+        self,
+        message: str,
+        *,
+        chat_id: str | None = None,
+        disable_web_page_preview: bool = True,
+        silent: bool = False,
+        parse_mode: str | None = None,
+    ) -> tuple[str, dict[str, Any]] | TelegramSendResult:
+        resolved_chat_id = str(chat_id or self.config.chat_id).strip()
+        token = str(self.config.bot_token).strip()
+        if not token or not resolved_chat_id:
+            return TelegramSendResult(sent=False, skipped=True, error="telegram_config_incomplete")
+
+        payload: dict[str, Any] = {
+            "chat_id": resolved_chat_id,
+            "text": message,
+            "disable_web_page_preview": "true" if disable_web_page_preview else "false",
+            "disable_notification": "true" if silent else "false",
+        }
+        if parse_mode:
+            payload["parse_mode"] = str(parse_mode).strip()
+
+        return token, payload
+
+    def _send_text_once(self, request: Request, payload: dict[str, Any]) -> TelegramSendResult:
+        with urlopen_with_ipv4_fallback(request, timeout=float(self.timeout)) as response:
+            body = response.read().decode("utf-8", errors="replace")
+            status_code = int(getattr(response, "status", response.getcode()))
+            return TelegramSendResult(
+                sent=200 <= status_code < 300,
+                skipped=False,
+                status_code=status_code,
+                response_text=body,
+                error="" if 200 <= status_code < 300 else f"telegram_http_{status_code}",
+                payload=payload,
+            )
+
+    def _send_text_attempt(
+        self, request: Request, payload: dict[str, Any]
+    ) -> tuple[TelegramSendResult, bool]:
+        try:
+            result = self._send_text_once(request, payload)
+            return result, False
+        except HTTPError as exc:
+            result = TelegramSendResult(
+                sent=False,
+                skipped=False,
+                status_code=getattr(exc, "code", None),
+                response_text=_read_http_error_body(exc),
+                error=f"telegram_http_error:{exc}",
+                payload=payload,
+            )
+            return result, _is_retryable_http_status(result.status_code)
+        except URLError as exc:
+            return TelegramSendResult(
+                sent=False,
+                skipped=False,
+                error=f"telegram_url_error:{exc}",
+                payload=payload,
+            ), _should_retry_url_error(exc)
+        except Exception as exc:
+            return TelegramSendResult(
+                sent=False,
+                skipped=False,
+                error=f"telegram_error:{exc}",
+                payload=payload,
+            ), _is_timeout_error(exc)
+
+    def _retry_send_text(self, request: Request, payload: dict[str, Any]) -> TelegramSendResult:
+        attempts = max(1, int(self.max_attempts))
+        for attempt_index in range(1, attempts + 1):
+            result, retryable = self._send_text_attempt(request, payload)
+            if result.sent or attempt_index >= attempts or not retryable:
+                return result
+            _sleep_before_retry(self.retry_backoff_seconds)
+        return TelegramSendResult(
+            sent=False, skipped=False, error="telegram_retry_exhausted", payload=payload
+        )
+
     def send_text(
         self,
         text: str,
@@ -319,94 +408,37 @@ class TelegramTransport:
         if not message:
             return TelegramSendResult(sent=False, skipped=True, error="empty_message")
 
-        token = str(self.config.bot_token).strip()
-        resolved_chat_id = str(chat_id or self.config.chat_id).strip()
-        if not token or not resolved_chat_id:
-            return TelegramSendResult(sent=False, skipped=True, error="telegram_config_incomplete")
+        payload_result = self._send_text_payload(
+            message,
+            chat_id=chat_id,
+            disable_web_page_preview=disable_web_page_preview,
+            silent=silent,
+            parse_mode=parse_mode,
+        )
+        if isinstance(payload_result, TelegramSendResult):
+            return payload_result
 
-        payload: dict[str, Any] = {
-            "chat_id": resolved_chat_id,
-            "text": message,
-            "disable_web_page_preview": "true" if disable_web_page_preview else "false",
-            "disable_notification": "true" if silent else "false",
-        }
-        if parse_mode:
-            payload["parse_mode"] = str(parse_mode).strip()
-
+        token, payload = payload_result
         request = Request(
             self._send_message_url(token),
             data=urlencode(payload).encode("utf-8"),
             headers={"Content-Type": "application/x-www-form-urlencoded"},
             method="POST",
         )
+        return self._retry_send_text(request, payload)
 
-        attempts = max(1, int(self.max_attempts))
-        backoff_seconds = max(0.0, float(self.retry_backoff_seconds))
-        timeout_seconds = float(self.timeout)
 
-        for attempt_index in range(1, attempts + 1):
-            try:
-                with urlopen_with_ipv4_fallback(request, timeout=timeout_seconds) as response:
-                    body = response.read().decode("utf-8", errors="replace")
-                    status_code = int(getattr(response, "status", response.getcode()))
-                    return TelegramSendResult(
-                        sent=200 <= status_code < 300,
-                        skipped=False,
-                        status_code=status_code,
-                        response_text=body,
-                        error="" if 200 <= status_code < 300 else f"telegram_http_{status_code}",
-                        payload=payload,
-                    )
-            except HTTPError as exc:
-                body = ""
-                try:
-                    body = exc.read().decode("utf-8", errors="replace")
-                except Exception:
-                    pass
-                result = TelegramSendResult(
-                    sent=False,
-                    skipped=False,
-                    status_code=getattr(exc, "code", None),
-                    response_text=body,
-                    error=f"telegram_http_error:{exc}",
-                    payload=payload,
-                )
-                if attempt_index < attempts and _is_retryable_http_status(result.status_code):
-                    if backoff_seconds > 0:
-                        time.sleep(backoff_seconds)
-                    continue
-                return result
-            except URLError as exc:
-                result = TelegramSendResult(
-                    sent=False,
-                    skipped=False,
-                    error=f"telegram_url_error:{exc}",
-                    payload=payload,
-                )
-                if attempt_index < attempts and _should_retry_url_error(exc):
-                    if backoff_seconds > 0:
-                        time.sleep(backoff_seconds)
-                    continue
-                return result
-            except Exception as exc:
-                result = TelegramSendResult(
-                    sent=False,
-                    skipped=False,
-                    error=f"telegram_error:{exc}",
-                    payload=payload,
-                )
-                if attempt_index < attempts and _is_timeout_error(exc):
-                    if backoff_seconds > 0:
-                        time.sleep(backoff_seconds)
-                    continue
-                return result
+def _read_http_error_body(exc: HTTPError) -> str:
+    try:
+        return exc.read().decode("utf-8", errors="replace")
+    except Exception:
+        return ""
 
-        return TelegramSendResult(
-            sent=False,
-            skipped=False,
-            error="telegram_retry_exhausted",
-            payload=payload,
-        )
+
+def _sleep_before_retry(backoff_seconds: float) -> None:
+    delay = max(0.0, float(backoff_seconds))
+    if delay > 0:
+        time.sleep(delay)
 
 
 def build_telegram_transport(
@@ -418,11 +450,17 @@ def build_telegram_transport(
     base_url: str = DEFAULT_TELEGRAM_BASE_URL,
 ) -> TelegramTransport:
     resolved_timeout = float(
-        timeout if timeout is not None else getattr(config, "timeout_seconds", DEFAULT_TIMEOUT_SECONDS)
+        timeout
+        if timeout is not None
+        else getattr(config, "timeout_seconds", DEFAULT_TIMEOUT_SECONDS)
     )
     resolved_attempts = max(
         1,
-        int(max_attempts if max_attempts is not None else getattr(config, "max_attempts", DEFAULT_MAX_ATTEMPTS)),
+        int(
+            max_attempts
+            if max_attempts is not None
+            else getattr(config, "max_attempts", DEFAULT_MAX_ATTEMPTS)
+        ),
     )
     resolved_backoff = max(
         0.0,

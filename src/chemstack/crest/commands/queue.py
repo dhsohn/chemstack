@@ -26,11 +26,9 @@ from chemstack.core.queue import (
 )
 from chemstack.core.queue.types import QueueStatus
 from chemstack.core.queue.worker import (
+    QueueWorkerLoop,
     current_worker_pid_payload,
     dequeue_next_across_roots,
-    fill_worker_slots,
-    install_shutdown_signal_handlers,
-    pop_completed_worker_jobs,
     read_live_pid_file,
     reserve_queue_worker_slot,
     resolve_admission_limit,
@@ -211,7 +209,7 @@ def read_worker_pid(allowed_root: Path) -> int | None:
     return read_live_pid_file(allowed_root / WORKER_PID_FILE)
 
 
-class QueueWorker:
+class QueueWorker(QueueWorkerLoop):
     def __init__(
         self,
         cfg: Any,
@@ -220,42 +218,29 @@ class QueueWorker:
         max_concurrent: int,
         auto_organize: bool,
     ) -> None:
+        super().__init__(
+            max_concurrent=max(1, int(max_concurrent)),
+            poll_interval_seconds=POLL_INTERVAL_SECONDS,
+            sleep_fn=lambda seconds: time.sleep(seconds),
+        )
         self.cfg = cfg
         self.config_path = str(config_path).strip() or default_config_path()
-        self.max_concurrent = max(1, int(max_concurrent))
         self.auto_organize = bool(auto_organize)
         self.allowed_root = Path(str(cfg.runtime.allowed_root)).expanduser().resolve()
         self.admission_root = Path(_admission_root_for_cfg(cfg)).expanduser().resolve()
-        self._running: dict[str, _RunningJob] = {}
-        self._shutdown_requested = False
 
-    def run(self) -> int:
-        self._install_signal_handlers()
+    def _before_run(self) -> None:
         self._write_pid_file()
         self._reconcile_orphaned_running()
 
-        try:
-            while not self._shutdown_requested:
-                self._run_iteration()
-        except KeyboardInterrupt:
-            self._shutdown_requested = True
-        finally:
-            self._shutdown_all()
-            self._remove_pid_file()
-        return 0
-
-    def _run_iteration(self) -> None:
-        self._check_completed_jobs()
-        if self._shutdown_requested:
-            return
-        self._fill_slots()
-        if self._shutdown_requested:
-            return
-        time.sleep(POLL_INTERVAL_SECONDS)
+    def _after_run(self) -> None:
+        self._remove_pid_file()
 
     def _reconcile_orphaned_running(self) -> None:
         reconcile_stale_slots(self.admission_root)
-        live_queue_ids = {slot.queue_id for slot in list_slots(self.admission_root) if str(slot.queue_id).strip()}
+        live_queue_ids = {
+            slot.queue_id for slot in list_slots(self.admission_root) if str(slot.queue_id).strip()
+        }
 
         for queue_root in _queue_roots(self.cfg):
             for entry in list_queue(queue_root):
@@ -269,36 +254,22 @@ class QueueWorker:
                     requeue_running_entry(queue_root, entry.queue_id)
                     _mark_recovery_pending_entry(self.cfg, entry, reason="crashed_recovery")
 
-    def _fill_slots(self) -> None:
-        def reserve_next() -> tuple[str, tuple[Path, Any, str] | None]:
-            reserved = self._reserve_next_entry()
-            if reserved is None:
-                return "idle", None
-            return "processed", reserved
-
-        def start_reserved(reserved: tuple[Path, Any, str]) -> None:
-            queue_root, entry, admission_token = reserved
-            self._start_job(queue_root, entry, admission_token=admission_token)
-
-        fill_worker_slots(
-            running_count=lambda: len(self._running),
-            max_concurrent=self.max_concurrent,
-            reserve_next=reserve_next,
-            start_reserved=start_reserved,
-        )
-
-    def _reserve_next_entry(self) -> tuple[Path, Any, str] | None:
+    def _reserve_next_entry(self) -> tuple[str, tuple[Path, Any, str] | None]:
         admission_token = _try_reserve_admission_slot(self.cfg)
         if admission_token is None:
-            return None
+            return "blocked", None
 
         dequeued = _dequeue_next_entry(self.cfg)
         if dequeued is None:
             release_slot(self.admission_root, admission_token)
-            return None
+            return "idle", None
 
         queue_root, entry = dequeued
-        return queue_root, entry, admission_token
+        return "processed", (queue_root, entry, admission_token)
+
+    def _start_reserved(self, reserved: Any) -> None:
+        queue_root, entry, admission_token = reserved
+        self._start_job(queue_root, entry, admission_token=admission_token)
 
     def _start_job(self, queue_root: Path, entry: Any, *, admission_token: str) -> bool:
         try:
@@ -344,15 +315,11 @@ class QueueWorker:
         )
         return True
 
-    def _check_completed_jobs(self) -> None:
-        def finalize_finished(_queue_id: str, job: _RunningJob, rc: int) -> None:
-            self._finalize_child_exit(job, rc=rc)
+    def _poll_job(self, job: Any) -> int | None:
+        return job.process.poll()
 
-        pop_completed_worker_jobs(
-            self._running,
-            poll_job=lambda job: job.process.poll(),
-            finalize_finished=finalize_finished,
-        )
+    def _finalize_completed_job(self, _queue_id: str, job: Any, rc: int) -> None:
+        self._finalize_child_exit(job, rc=rc)
 
     def _finalize_child_exit(self, job: _RunningJob, *, rc: int) -> None:
         current = _find_queue_entry(job.queue_root, job.entry.queue_id)
@@ -391,18 +358,14 @@ class QueueWorker:
         rc = job.process.poll()
         self._finalize_child_exit(job, rc=int(rc) if rc is not None else 0)
 
-    def _install_signal_handlers(self) -> None:
-        def request_shutdown() -> None:
-            self._shutdown_requested = True
-
-        install_shutdown_signal_handlers(request_shutdown)
-
     def _pid_file_path(self) -> Path:
         return self.allowed_root / WORKER_PID_FILE
 
     def _write_pid_file(self) -> None:
         payload = current_worker_pid_payload()
-        self._pid_file_path().write_text(json.dumps(payload, ensure_ascii=True) + "\n", encoding="utf-8")
+        self._pid_file_path().write_text(
+            json.dumps(payload, ensure_ascii=True) + "\n", encoding="utf-8"
+        )
 
     def _remove_pid_file(self) -> None:
         try:

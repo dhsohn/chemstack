@@ -25,19 +25,92 @@ HARTREE_TO_KCALMOL = 627.5094740631
 
 # Element symbol -> atomic number order (for chemical formula sorting)
 _ELEMENT_ORDER: dict[str, int] = {
-    "H": 1, "He": 2, "Li": 3, "Be": 4, "B": 5, "C": 6, "N": 7, "O": 8,
-    "F": 9, "Ne": 10, "Na": 11, "Mg": 12, "Al": 13, "Si": 14, "P": 15,
-    "S": 16, "Cl": 17, "Ar": 18, "K": 19, "Ca": 20, "Sc": 21, "Ti": 22,
-    "V": 23, "Cr": 24, "Mn": 25, "Fe": 26, "Co": 27, "Ni": 28, "Cu": 29,
-    "Zn": 30, "Ga": 31, "Ge": 32, "As": 33, "Se": 34, "Br": 35, "Kr": 36,
-    "Rb": 37, "Sr": 38, "Y": 39, "Zr": 40, "Nb": 41, "Mo": 42, "Tc": 43,
-    "Ru": 44, "Rh": 45, "Pd": 46, "Ag": 47, "Cd": 48, "In": 49, "Sn": 50,
-    "Sb": 51, "Te": 52, "I": 53, "Xe": 54, "Cs": 55, "Ba": 56,
-    "La": 57, "Ce": 58, "Pr": 59, "Nd": 60, "Pm": 61, "Sm": 62, "Eu": 63,
-    "Gd": 64, "Tb": 65, "Dy": 66, "Ho": 67, "Er": 68, "Tm": 69, "Yb": 70,
-    "Lu": 71, "Hf": 72, "Ta": 73, "W": 74, "Re": 75, "Os": 76, "Ir": 77,
-    "Pt": 78, "Au": 79, "Hg": 80, "Tl": 81, "Pb": 82, "Bi": 83, "Po": 84,
-    "At": 85, "Rn": 86,
+    "H": 1,
+    "He": 2,
+    "Li": 3,
+    "Be": 4,
+    "B": 5,
+    "C": 6,
+    "N": 7,
+    "O": 8,
+    "F": 9,
+    "Ne": 10,
+    "Na": 11,
+    "Mg": 12,
+    "Al": 13,
+    "Si": 14,
+    "P": 15,
+    "S": 16,
+    "Cl": 17,
+    "Ar": 18,
+    "K": 19,
+    "Ca": 20,
+    "Sc": 21,
+    "Ti": 22,
+    "V": 23,
+    "Cr": 24,
+    "Mn": 25,
+    "Fe": 26,
+    "Co": 27,
+    "Ni": 28,
+    "Cu": 29,
+    "Zn": 30,
+    "Ga": 31,
+    "Ge": 32,
+    "As": 33,
+    "Se": 34,
+    "Br": 35,
+    "Kr": 36,
+    "Rb": 37,
+    "Sr": 38,
+    "Y": 39,
+    "Zr": 40,
+    "Nb": 41,
+    "Mo": 42,
+    "Tc": 43,
+    "Ru": 44,
+    "Rh": 45,
+    "Pd": 46,
+    "Ag": 47,
+    "Cd": 48,
+    "In": 49,
+    "Sn": 50,
+    "Sb": 51,
+    "Te": 52,
+    "I": 53,
+    "Xe": 54,
+    "Cs": 55,
+    "Ba": 56,
+    "La": 57,
+    "Ce": 58,
+    "Pr": 59,
+    "Nd": 60,
+    "Pm": 61,
+    "Sm": 62,
+    "Eu": 63,
+    "Gd": 64,
+    "Tb": 65,
+    "Dy": 66,
+    "Ho": 67,
+    "Er": 68,
+    "Tm": 69,
+    "Yb": 70,
+    "Lu": 71,
+    "Hf": 72,
+    "Ta": 73,
+    "W": 74,
+    "Re": 75,
+    "Os": 76,
+    "Ir": 77,
+    "Pt": 78,
+    "Au": 79,
+    "Hg": 80,
+    "Tl": 81,
+    "Pb": 82,
+    "Bi": 83,
+    "Po": 84,
+    "At": 85,
+    "Rn": 86,
 }
 
 # ---------------------------------------------------------------------------
@@ -127,29 +200,77 @@ _CALC_TYPE_KEYWORDS: dict[str, str] = {
 
 # Known method keywords
 _METHOD_KEYWORDS: list[str] = [
-    "CCSD(T)", "CCSD", "MP2", "RI-MP2", "DLPNO-CCSD(T)",
-    "B3LYP", "PBE0", "PBE", "BP86", "TPSS", "M06-2X", "M06",
-    "ωB97X-D3", "wB97X-D3", "ωB97X-D", "wB97X-D", "ωB97X", "wB97X",
-    "ωB97M-V", "wB97M-V", "ωB97M-D4", "wB97M-D4",
-    "B2PLYP", "REVPBE", "BLYP",
-    "CAM-B3LYP", "LC-BLYP", "BHandHLYP",
-    "HF", "RHF", "UHF", "ROHF",
-    "CASSCF", "NEVPT2", "MRCI",
-    "B97-3c", "r2SCAN-3c", "PBEh-3c",
+    "CCSD(T)",
+    "CCSD",
+    "MP2",
+    "RI-MP2",
+    "DLPNO-CCSD(T)",
+    "B3LYP",
+    "PBE0",
+    "PBE",
+    "BP86",
+    "TPSS",
+    "M06-2X",
+    "M06",
+    "ωB97X-D3",
+    "wB97X-D3",
+    "ωB97X-D",
+    "wB97X-D",
+    "ωB97X",
+    "wB97X",
+    "ωB97M-V",
+    "wB97M-V",
+    "ωB97M-D4",
+    "wB97M-D4",
+    "B2PLYP",
+    "REVPBE",
+    "BLYP",
+    "CAM-B3LYP",
+    "LC-BLYP",
+    "BHandHLYP",
+    "HF",
+    "RHF",
+    "UHF",
+    "ROHF",
+    "CASSCF",
+    "NEVPT2",
+    "MRCI",
+    "B97-3c",
+    "r2SCAN-3c",
+    "PBEh-3c",
 ]
 
 # Known basis set keywords
 _BASIS_KEYWORDS: list[str] = [
-    "def2-QZVPP", "def2-QZVP", "def2-TZVPP", "def2-TZVP",
-    "def2-SVP", "def2-SV(P)",
-    "ma-def2-TZVPP", "ma-def2-TZVP", "ma-def2-SVP",
-    "cc-pVQZ", "cc-pVTZ", "cc-pVDZ",
-    "aug-cc-pVQZ", "aug-cc-pVTZ", "aug-cc-pVDZ",
-    "6-311++G(d,p)", "6-311+G(d,p)", "6-311G(d,p)",
-    "6-311++G(d)", "6-311+G(d)", "6-311G(d)",
-    "6-31++G(d,p)", "6-31+G(d,p)", "6-31G(d,p)",
-    "6-31++G(d)", "6-31+G(d)", "6-31G(d)",
-    "6-31G*", "6-31G**",
+    "def2-QZVPP",
+    "def2-QZVP",
+    "def2-TZVPP",
+    "def2-TZVP",
+    "def2-SVP",
+    "def2-SV(P)",
+    "ma-def2-TZVPP",
+    "ma-def2-TZVP",
+    "ma-def2-SVP",
+    "cc-pVQZ",
+    "cc-pVTZ",
+    "cc-pVDZ",
+    "aug-cc-pVQZ",
+    "aug-cc-pVTZ",
+    "aug-cc-pVDZ",
+    "6-311++G(d,p)",
+    "6-311+G(d,p)",
+    "6-311G(d,p)",
+    "6-311++G(d)",
+    "6-311+G(d)",
+    "6-311G(d)",
+    "6-31++G(d,p)",
+    "6-31+G(d,p)",
+    "6-31G(d,p)",
+    "6-31++G(d)",
+    "6-31+G(d)",
+    "6-31G(d)",
+    "6-31G*",
+    "6-31G**",
     "STO-3G",
 ]
 
@@ -157,6 +278,7 @@ _BASIS_KEYWORDS: list[str] = [
 # ---------------------------------------------------------------------------
 # Result data class
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class OrcaResult:
@@ -218,6 +340,7 @@ class OptProgress:
 # Parser functions
 # ---------------------------------------------------------------------------
 
+
 def _build_formula(elements: list[str]) -> str:
     """Build a Hill system chemical formula from a list of element symbols."""
     counts = Counter(elements)
@@ -252,44 +375,35 @@ def _parse_input_line(text: str) -> tuple[str, str, str, list[str]]:
     for line in matches:
         all_tokens.extend(line.strip().split())
 
-    tokens_upper = [t.upper() for t in all_tokens]
-
-    # Determine calc_type
-    calc_types: list[str] = []
-    for token_upper in tokens_upper:
-        for kw, ct in _CALC_TYPE_KEYWORDS.items():
-            if token_upper == kw:
-                calc_types.append(ct)
-    if not calc_types:
-        calc_type = "sp"
-    elif "opt" in calc_types and "freq" in calc_types:
-        calc_type = "opt+freq"
-    elif "ts" in calc_types and "freq" in calc_types:
-        calc_type = "ts+freq"
-    else:
-        calc_type = calc_types[0]
-
-    # Determine method — preserve case
-    method = ""
-    for mk in _METHOD_KEYWORDS:
-        for token in all_tokens:
-            if token.upper() == mk.upper():
-                method = mk
-                break
-        if method:
-            break
-
-    # Determine basis_set — preserve case
-    basis_set = ""
-    for bk in _BASIS_KEYWORDS:
-        for token in all_tokens:
-            if token.upper() == bk.upper():
-                basis_set = bk
-                break
-        if basis_set:
-            break
+    calc_type = _calc_type_from_tokens(all_tokens)
+    method = _first_known_token(all_tokens, _METHOD_KEYWORDS)
+    basis_set = _first_known_token(all_tokens, _BASIS_KEYWORDS)
 
     return (calc_type, method, basis_set, all_tokens)
+
+
+def _calc_type_from_tokens(tokens: list[str]) -> str:
+    calc_types = [
+        calc_type
+        for token in tokens
+        for keyword, calc_type in _CALC_TYPE_KEYWORDS.items()
+        if token.upper() == keyword
+    ]
+    if not calc_types:
+        return "sp"
+    if "opt" in calc_types and "freq" in calc_types:
+        return "opt+freq"
+    if "ts" in calc_types and "freq" in calc_types:
+        return "ts+freq"
+    return calc_types[0]
+
+
+def _first_known_token(tokens: list[str], known_tokens: list[str]) -> str:
+    token_set = {token.upper() for token in tokens}
+    for known in known_tokens:
+        if known.upper() in token_set:
+            return known
+    return ""
 
 
 def _parse_coordinates(text: str) -> tuple[list[str], int]:
@@ -339,7 +453,12 @@ def _parse_wall_time(text: str) -> int | None:
     m = _RUNTIME_RE.search(text)
     if m is None:
         return None
-    days, hours, minutes, seconds = int(m.group(1)), int(m.group(2)), int(m.group(3)), int(m.group(4))
+    days, hours, minutes, seconds = (
+        int(m.group(1)),
+        int(m.group(2)),
+        int(m.group(3)),
+        int(m.group(4)),
+    )
     return days * 86400 + hours * 3600 + minutes * 60 + seconds
 
 
@@ -401,71 +520,77 @@ def parse_orca_output(file_path: str) -> OrcaResult:
     result.mtime = os.path.getmtime(file_path)
     result.file_hash = _compute_file_hash(file_path)
 
-    # Parse input line
+    _populate_input_metadata(result, text)
+    _populate_coordinates(result, text)
+    _populate_energy(result, text)
+    _populate_convergence(result, text)
+    _populate_frequencies(result, text)
+    _populate_thermodynamics(result, text)
+    result.wall_time_seconds = _parse_wall_time(text)
+    result.status = _parse_status(text, result)
+
+    return result
+
+
+def _populate_input_metadata(result: OrcaResult, text: str) -> None:
     calc_type, method, basis_set, input_tokens = _parse_input_line(text)
     result.calc_type = calc_type
     result.method = method
     result.basis_set = basis_set
     result.input_line = " ".join(input_tokens)
-
-    # charge / multiplicity
     cm_match = _CHARGE_MULT_RE.search(text)
     if cm_match:
         result.charge = int(cm_match.group(1))
         result.multiplicity = int(cm_match.group(2))
 
-    # Coordinates -> elements -> chemical formula
+
+def _populate_coordinates(result: OrcaResult, text: str) -> None:
     elements, n_atoms = _parse_coordinates(text)
     result.elements = elements
     result.n_atoms = n_atoms
     result.formula = _build_formula(elements)
 
-    # Energy (use last value — multiple values are printed during optimization)
-    energy_matches = _ENERGY_RE.findall(text)
-    if energy_matches:
-        energy = float(energy_matches[-1])
-        result.energy_hartree = energy
-        result.energy_ev = energy * HARTREE_TO_EV
-        result.energy_kcalmol = energy * HARTREE_TO_KCALMOL
 
-    # Optimization convergence
+def _populate_energy(result: OrcaResult, text: str) -> None:
+    energy_matches = _ENERGY_RE.findall(text)
+    if not energy_matches:
+        return
+    energy = float(energy_matches[-1])
+    result.energy_hartree = energy
+    result.energy_ev = energy * HARTREE_TO_EV
+    result.energy_kcalmol = energy * HARTREE_TO_KCALMOL
+
+
+def _populate_convergence(result: OrcaResult, text: str) -> None:
     if _OPT_CONVERGED_RE.search(text):
         result.opt_converged = True
     elif _OPT_NOT_CONVERGED_RE.search(text):
         result.opt_converged = False
 
-    # Vibrational frequencies
+
+def _populate_frequencies(result: OrcaResult, text: str) -> None:
     has_imag, lowest = _parse_frequencies(text)
     result.has_imaginary_freq = has_imag
     result.lowest_freq_cm1 = lowest
 
-    # Thermodynamics
+
+def _populate_thermodynamics(result: OrcaResult, text: str) -> None:
     enthalpy_match = _ENTHALPY_RE.search(text)
     if enthalpy_match:
         result.enthalpy = float(enthalpy_match.group(1))
-
     gibbs_match = _GIBBS_RE.search(text)
     if gibbs_match:
         result.gibbs_energy = float(gibbs_match.group(1))
 
-    # Runtime
-    result.wall_time_seconds = _parse_wall_time(text)
 
-    # Status determination
+def _parse_status(text: str, result: OrcaResult) -> str:
     if _NORMAL_TERMINATION_RE.search(text):
-        if result.opt_converged is False:
-            result.status = "failed"
-        else:
-            result.status = "completed"
-    elif _ERROR_TERMINATION_RE.search(text):
-        result.status = "failed"
-    elif result.wall_time_seconds is not None:
-        # TOTAL RUN TIME exists but TERMINATED NORMALLY is missing
-        result.status = "failed"
-    else:
-        result.status = "running"
-
-    return result
+        return "failed" if result.opt_converged is False else "completed"
+    if _ERROR_TERMINATION_RE.search(text):
+        return "failed"
+    if result.wall_time_seconds is not None:
+        return "failed"
+    return "running"
 
 
 def parse_opt_progress(file_path: str) -> OptProgress:
@@ -496,26 +621,16 @@ def parse_opt_progress(file_path: str) -> OptProgress:
     )
 
     # Index cycle positions
-    cycle_positions = [
-        (m.start(), int(m.group(1)))
-        for m in _OPT_CYCLE_RE.finditer(text)
-    ]
+    cycle_positions = [(m.start(), int(m.group(1))) for m in _OPT_CYCLE_RE.finditer(text)]
     if not cycle_positions:
         return progress
 
     # Index energy positions
-    energy_positions = [
-        (m.start(), float(m.group(1)))
-        for m in _ENERGY_RE.finditer(text)
-    ]
+    energy_positions = [(m.start(), float(m.group(1))) for m in _ENERGY_RE.finditer(text)]
 
     for i, (cycle_start, cycle_num) in enumerate(cycle_positions):
         # Determine text range for this cycle
-        cycle_end = (
-            cycle_positions[i + 1][0]
-            if i + 1 < len(cycle_positions)
-            else len(text)
-        )
+        cycle_end = cycle_positions[i + 1][0] if i + 1 < len(cycle_positions) else len(text)
         cycle_text = text[cycle_start:cycle_end]
 
         # Find the last energy within this cycle's range
@@ -527,26 +642,7 @@ def parse_opt_progress(file_path: str) -> OptProgress:
         if energy is None:
             continue
 
-        step = OptStep(cycle=cycle_num, energy_hartree=energy)
-
-        # Parse convergence table
-        for item_match in _CONVERGENCE_ITEM_RE.finditer(cycle_text):
-            name = item_match.group(1)
-            value = float(item_match.group(2))
-            converged = item_match.group(3) == "YES"
-
-            step.converged_flags[name] = converged
-
-            if name == "Energy change":
-                step.energy_change = value
-            elif name == "MAX gradient":
-                step.max_gradient = value
-            elif name == "RMS gradient":
-                step.rms_gradient = value
-            elif name == "MAX step":
-                step.max_step = value
-            elif name == "RMS step":
-                step.rms_step = value
+        step = _parse_opt_step(cycle_num, energy, cycle_text)
 
         progress.steps.append(step)
 
@@ -559,3 +655,24 @@ def parse_opt_progress(file_path: str) -> OptProgress:
     )
 
     return progress
+
+
+_OPT_STEP_ATTRS = {
+    "Energy change": "energy_change",
+    "MAX gradient": "max_gradient",
+    "RMS gradient": "rms_gradient",
+    "MAX step": "max_step",
+    "RMS step": "rms_step",
+}
+
+
+def _parse_opt_step(cycle_num: int, energy: float, cycle_text: str) -> OptStep:
+    step = OptStep(cycle=cycle_num, energy_hartree=energy)
+    for item_match in _CONVERGENCE_ITEM_RE.finditer(cycle_text):
+        name = item_match.group(1)
+        value = float(item_match.group(2))
+        step.converged_flags[name] = item_match.group(3) == "YES"
+        attr_name = _OPT_STEP_ATTRS.get(name)
+        if attr_name is not None:
+            setattr(step, attr_name, value)
+    return step

@@ -201,7 +201,9 @@ def _stage_status_event_type(
 
 def _stage_handoff_event_type(previous_stage: dict[str, Any], current_stage: dict[str, Any]) -> str:
     engine = _normalize_text(current_stage.get("engine") or previous_stage.get("engine")).lower()
-    task_kind = _normalize_text(current_stage.get("task_kind") or previous_stage.get("task_kind")).lower()
+    task_kind = _normalize_text(
+        current_stage.get("task_kind") or previous_stage.get("task_kind")
+    ).lower()
     if engine != "xtb" or task_kind != "path_search":
         return ""
     previous_handoff = _normalize_text(previous_stage.get("reaction_handoff_status")).lower()
@@ -217,6 +219,108 @@ def _stage_handoff_event_type(previous_stage: dict[str, Any], current_stage: dic
     return ""
 
 
+def _stage_transition_context(
+    previous_stage: dict[str, Any],
+    current_stage: dict[str, Any],
+) -> dict[str, str]:
+    return {
+        "previous_stage_status": _normalize_text(previous_stage.get("status")).lower(),
+        "current_stage_status": _normalize_text(current_stage.get("status")).lower(),
+        "previous_handoff_status": _normalize_text(
+            previous_stage.get("reaction_handoff_status")
+        ).lower(),
+        "current_handoff_status": _normalize_text(
+            current_stage.get("reaction_handoff_status")
+        ).lower(),
+        "stage_id": _normalize_text(
+            current_stage.get("stage_id") or previous_stage.get("stage_id")
+        ),
+        "engine": _normalize_text(current_stage.get("engine") or previous_stage.get("engine")),
+        "task_kind": _normalize_text(
+            current_stage.get("task_kind") or previous_stage.get("task_kind")
+        ),
+    }
+
+
+def _stage_transition_metadata(
+    metadata: dict[str, Any],
+    context: dict[str, str],
+    *,
+    include_handoff: bool,
+) -> dict[str, Any]:
+    event_metadata = dict(metadata)
+    if context["previous_stage_status"]:
+        event_metadata["previous_stage_status"] = context["previous_stage_status"]
+    if context["current_stage_status"]:
+        event_metadata["stage_status"] = context["current_stage_status"]
+    if include_handoff and context["previous_handoff_status"]:
+        event_metadata["previous_reaction_handoff_status"] = context["previous_handoff_status"]
+    if include_handoff and context["current_handoff_status"]:
+        event_metadata["reaction_handoff_status"] = context["current_handoff_status"]
+    return event_metadata
+
+
+def _status_transition_event_payload(
+    *,
+    event_type: str,
+    current_stage: dict[str, Any],
+    context: dict[str, str],
+    metadata: dict[str, Any],
+    workflow_id: str,
+    template_name: str,
+    worker_session_id: str,
+) -> dict[str, Any]:
+    reason = ""
+    if event_type in {"workflow_stage_failed", "workflow_stage_cancelled"}:
+        reason = _normalize_text(current_stage.get("reason"))
+    return {
+        "event_type": event_type,
+        "workflow_id": workflow_id,
+        "template_name": template_name,
+        "status": context["current_stage_status"],
+        "previous_status": context["previous_stage_status"],
+        "reason": reason,
+        "worker_session_id": worker_session_id,
+        "stage_id": context["stage_id"],
+        "engine": context["engine"],
+        "task_kind": context["task_kind"],
+        "stage_status": context["current_stage_status"],
+        "previous_stage_status": context["previous_stage_status"],
+        "metadata": _stage_transition_metadata(metadata, context, include_handoff=False),
+    }
+
+
+def _handoff_transition_event_payload(
+    *,
+    event_type: str,
+    current_stage: dict[str, Any],
+    context: dict[str, str],
+    metadata: dict[str, Any],
+    workflow_id: str,
+    template_name: str,
+    worker_session_id: str,
+) -> dict[str, Any]:
+    return {
+        "event_type": event_type,
+        "workflow_id": workflow_id,
+        "template_name": template_name,
+        "status": context["current_handoff_status"],
+        "previous_status": context["previous_handoff_status"],
+        "reason": _normalize_text(
+            current_stage.get("reaction_handoff_reason") or current_stage.get("reason")
+        ),
+        "worker_session_id": worker_session_id,
+        "stage_id": context["stage_id"],
+        "engine": context["engine"],
+        "task_kind": context["task_kind"],
+        "stage_status": context["current_stage_status"],
+        "previous_stage_status": context["previous_stage_status"],
+        "reaction_handoff_status": context["current_handoff_status"],
+        "previous_reaction_handoff_status": context["previous_handoff_status"],
+        "metadata": _stage_transition_metadata(metadata, context, include_handoff=True),
+    }
+
+
 def _stage_transition_event_payloads(
     *,
     previous_summary: dict[str, Any],
@@ -227,7 +331,9 @@ def _stage_transition_event_payloads(
 ) -> list[dict[str, Any]]:
     previous_stages = list(previous_summary.get("stage_summaries", []))
     current_stages = list(current_summary.get("stage_summaries", []))
-    previous_by_key = {_stage_key(stage, index): dict(stage) for index, stage in enumerate(previous_stages)}
+    previous_by_key = {
+        _stage_key(stage, index): dict(stage) for index, stage in enumerate(previous_stages)
+    }
     event_payloads: list[dict[str, Any]] = []
 
     for index, raw_stage in enumerate(current_stages):
@@ -237,72 +343,36 @@ def _stage_transition_event_payloads(
         status_event_type = _stage_status_event_type(
             previous_stage,
             current_stage,
-            suppress_terminal_event=handoff_event_type in {"workflow_stage_handoff_ready", "workflow_stage_handoff_failed"},
+            suppress_terminal_event=handoff_event_type
+            in {"workflow_stage_handoff_ready", "workflow_stage_handoff_failed"},
         )
         metadata = _stage_event_metadata(current_stage)
-        previous_stage_status = _normalize_text(previous_stage.get("status")).lower()
-        current_stage_status = _normalize_text(current_stage.get("status")).lower()
-        previous_handoff_status = _normalize_text(previous_stage.get("reaction_handoff_status")).lower()
-        current_handoff_status = _normalize_text(current_stage.get("reaction_handoff_status")).lower()
-        stage_id = _normalize_text(current_stage.get("stage_id") or previous_stage.get("stage_id"))
-        engine = _normalize_text(current_stage.get("engine") or previous_stage.get("engine"))
-        task_kind = _normalize_text(current_stage.get("task_kind") or previous_stage.get("task_kind"))
+        context = _stage_transition_context(previous_stage, current_stage)
 
         if status_event_type:
-            status_metadata = dict(metadata)
-            if previous_stage_status:
-                status_metadata["previous_stage_status"] = previous_stage_status
-            if current_stage_status:
-                status_metadata["stage_status"] = current_stage_status
-            reason = ""
-            if status_event_type in {"workflow_stage_failed", "workflow_stage_cancelled"}:
-                reason = _normalize_text(current_stage.get("reason"))
             event_payloads.append(
-                {
-                    "event_type": status_event_type,
-                    "workflow_id": workflow_id,
-                    "template_name": template_name,
-                    "status": current_stage_status,
-                    "previous_status": previous_stage_status,
-                    "reason": reason,
-                    "worker_session_id": worker_session_id,
-                    "stage_id": stage_id,
-                    "engine": engine,
-                    "task_kind": task_kind,
-                    "stage_status": current_stage_status,
-                    "previous_stage_status": previous_stage_status,
-                    "metadata": status_metadata,
-                }
+                _status_transition_event_payload(
+                    event_type=status_event_type,
+                    current_stage=current_stage,
+                    context=context,
+                    metadata=metadata,
+                    workflow_id=workflow_id,
+                    template_name=template_name,
+                    worker_session_id=worker_session_id,
+                )
             )
 
         if handoff_event_type:
-            handoff_metadata = dict(metadata)
-            if previous_stage_status:
-                handoff_metadata["previous_stage_status"] = previous_stage_status
-            if current_stage_status:
-                handoff_metadata["stage_status"] = current_stage_status
-            if previous_handoff_status:
-                handoff_metadata["previous_reaction_handoff_status"] = previous_handoff_status
-            if current_handoff_status:
-                handoff_metadata["reaction_handoff_status"] = current_handoff_status
             event_payloads.append(
-                {
-                    "event_type": handoff_event_type,
-                    "workflow_id": workflow_id,
-                    "template_name": template_name,
-                    "status": current_handoff_status,
-                    "previous_status": previous_handoff_status,
-                    "reason": _normalize_text(current_stage.get("reaction_handoff_reason") or current_stage.get("reason")),
-                    "worker_session_id": worker_session_id,
-                    "stage_id": stage_id,
-                    "engine": engine,
-                    "task_kind": task_kind,
-                    "stage_status": current_stage_status,
-                    "previous_stage_status": previous_stage_status,
-                    "reaction_handoff_status": current_handoff_status,
-                    "previous_reaction_handoff_status": previous_handoff_status,
-                    "metadata": handoff_metadata,
-                }
+                _handoff_transition_event_payload(
+                    event_type=handoff_event_type,
+                    current_stage=current_stage,
+                    context=context,
+                    metadata=metadata,
+                    workflow_id=workflow_id,
+                    template_name=template_name,
+                    worker_session_id=worker_session_id,
+                )
             )
     return event_payloads
 
@@ -364,12 +434,17 @@ def _workflow_needs_terminal_sync(workspace_dir: str | Path) -> bool:
         if _normalize_text(raw_stage.get("status")).lower() in active_statuses:
             return True
         task = raw_stage.get("task")
-        if isinstance(task, dict) and _normalize_text(task.get("status")).lower() in active_statuses:
+        if (
+            isinstance(task, dict)
+            and _normalize_text(task.get("status")).lower() in active_statuses
+        ):
             return True
     return workflow_has_active_downstream(payload)
 
 
-def _workflow_advance_failed_result(record: Any, *, previous_status: str, reason: str) -> dict[str, Any]:
+def _workflow_advance_failed_result(
+    record: Any, *, previous_status: str, reason: str
+) -> dict[str, Any]:
     return {
         "workflow_id": record.workflow_id,
         "template_name": record.template_name,
@@ -408,7 +483,9 @@ def _workflow_advanced_result(
         "status": status,
         "advanced": True,
         "changed": status != previous_status,
-        "stage_count": len(payload.get("stages", [])) if isinstance(payload.get("stages"), list) else record.stage_count,
+        "stage_count": len(payload.get("stages", []))
+        if isinstance(payload.get("stages"), list)
+        else record.stage_count,
     }
     if reason:
         result["reason"] = reason
@@ -551,10 +628,15 @@ def advance_workflow_registry_once(
     for record in records:
         previous_status = _normalize_text(record.status).lower()
         previous_summary = _safe_workflow_summary(record.workspace_dir)
-        terminal_sync = previous_status in TERMINAL_WORKFLOW_STATUSES and _workflow_needs_terminal_sync(record.workspace_dir)
+        terminal_sync = (
+            previous_status in TERMINAL_WORKFLOW_STATUSES
+            and _workflow_needs_terminal_sync(record.workspace_dir)
+        )
         if previous_status in TERMINAL_WORKFLOW_STATUSES and not terminal_sync:
             skipped_count += 1
-            workflow_results.append(_workflow_skipped_terminal_result(record, previous_status=previous_status))
+            workflow_results.append(
+                _workflow_skipped_terminal_result(record, previous_status=previous_status)
+            )
             continue
 
         try:
@@ -575,7 +657,11 @@ def advance_workflow_registry_once(
         except Exception as exc:
             reason = f"terminal_child_sync_failed: {exc}" if terminal_sync else str(exc)
             failed_count += 1
-            workflow_results.append(_workflow_advance_failed_result(record, previous_status=previous_status, reason=reason))
+            workflow_results.append(
+                _workflow_advance_failed_result(
+                    record, previous_status=previous_status, reason=reason
+                )
+            )
             _append_workflow_advance_failed_event(
                 root,
                 record,
@@ -589,7 +675,11 @@ def advance_workflow_registry_once(
         current_summary = _safe_workflow_summary(record.workspace_dir, payload=payload)
         reason = "terminal_child_sync" if terminal_sync else ""
         advanced_count += 1
-        workflow_results.append(_workflow_advanced_result(record, payload, previous_status=previous_status, status=status, reason=reason))
+        workflow_results.append(
+            _workflow_advanced_result(
+                record, payload, previous_status=previous_status, status=status, reason=reason
+            )
+        )
         _append_workflow_advanced_events(
             root,
             record,
