@@ -529,11 +529,14 @@ def _refresh_from_organized_dir(
     context: _LoaderContext,
     deps: OrcaContractLoaderDeps,
 ) -> None:
-    context.current_dir = context.organized_dir
+    current_dir = context.organized_dir
+    if current_dir is None:
+        return
+    context.current_dir = current_dir
     refreshed = deps.tracked_artifact_context_fn(
         index_root=roots.allowed,
         targets=(
-            str(context.current_dir),
+            str(current_dir),
             request.target,
             context.resolved_run_id,
             request.reaction_dir,
@@ -542,20 +545,19 @@ def _refresh_from_organized_dir(
     refreshed_dir, refreshed_record, refreshed_state, refreshed_report, refreshed_organized_ref = (
         refreshed
     )
-    context.current_dir = refreshed_dir or context.current_dir
+    current_dir = refreshed_dir or current_dir
+    context.current_dir = current_dir
     context.tracked_record = context.tracked_record or refreshed_record
-    context.state = dict(refreshed_state) or deps.load_json_dict_fn(
-        context.current_dir / "run_state.json"
-    )
+    context.state = dict(refreshed_state) or deps.load_json_dict_fn(current_dir / "run_state.json")
     context.report = dict(refreshed_report) or deps.load_json_dict_fn(
-        context.current_dir / "run_report.json"
+        current_dir / "run_report.json"
     )
     context.organized_ref = dict(refreshed_organized_ref) or deps.load_json_dict_fn(
-        context.current_dir / "organized_ref.json"
+        current_dir / "organized_ref.json"
     )
     if not context.organized_ref:
         context.organized_ref = deps.load_tracked_organized_ref_fn(
-            context.tracked_record, context.current_dir
+            context.tracked_record, current_dir
         )
     context.resolved_run_id = context.resolved_run_id or _resolve_run_id(request, context, deps)
 

@@ -630,6 +630,8 @@ def activate_slot(
 ) -> bool:
     resolved_root = Path(root).expanduser().resolve()
     resolved_work_dir = _normalize_work_dir(reaction_dir)
+    if resolved_work_dir is None:
+        raise ValueError("reaction_dir must not be blank.")
     resolved_owner_pid = owner_pid if owner_pid is not None else os.getpid()
     backend = _chem_core_admission_module()
     if backend is not None:

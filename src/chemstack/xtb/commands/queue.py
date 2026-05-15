@@ -952,10 +952,15 @@ class QueueWorker(QueueWorkerLoop):
     def _before_run(self) -> None:
         self._reconcile_worker_state()
 
-    def run_once(self) -> int:
+    def run_once(
+        self,
+        *,
+        idle_message: str | None = "No pending jobs.",
+        blocked_message: str | None = "status: waiting_for_slot",
+    ) -> int:
         return super().run_once(
-            idle_message="No pending jobs.",
-            blocked_message="status: waiting_for_slot",
+            idle_message=idle_message,
+            blocked_message=blocked_message,
         )
 
     def _reserve_next_entry(self) -> tuple[str, tuple[Path, Any, str] | None]:

@@ -8,7 +8,7 @@ import os
 import time
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterator, Optional
+from typing import Any, Callable, Dict, Iterator, NoReturn, Optional
 
 
 def parse_lock_info(lock_path: Path) -> Dict[str, Any]:
@@ -107,7 +107,7 @@ def _raise_lock_timeout(
     timeout_seconds: Optional[int],
     lock_path: Path,
     timeout_error_builder: Callable[[Path, int], RuntimeError] | None,
-) -> None:
+) -> NoReturn:
     timeout_value = int(timeout_seconds) if timeout_seconds is not None else 0
     if timeout_error_builder is not None:
         raise timeout_error_builder(lock_path, timeout_value)
@@ -276,6 +276,12 @@ def acquire_file_lock(
         ):
             continue
 
+        if deadline is None:
+            _raise_lock_timeout(
+                timeout_seconds=timeout_seconds,
+                lock_path=lock_path,
+                timeout_error_builder=timeout_error_builder,
+            )
         if time.monotonic() >= deadline:
             _raise_lock_timeout(
                 timeout_seconds=timeout_seconds,
