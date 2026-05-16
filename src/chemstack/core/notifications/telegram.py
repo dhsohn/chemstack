@@ -13,6 +13,11 @@ from urllib.request import Request, urlopen
 import yaml
 
 from chemstack.core.config.schema import TelegramConfig
+from chemstack.core.utils.coercion import (
+    normalize_text as _coerce_normalize_text,
+    safe_float as _coerce_safe_float,
+    safe_int as _coerce_safe_int,
+)
 
 DEFAULT_TELEGRAM_BASE_URL = "https://api.telegram.org"
 DEFAULT_TIMEOUT_SECONDS = 5.0
@@ -108,23 +113,16 @@ def _is_retryable_http_status(status_code: int | None) -> bool:
 
 
 def _normalize_text(value: Any) -> str:
-    if value is None:
-        return ""
-    return str(value).strip()
+    return _coerce_normalize_text(value)
 
 
 def _safe_float(value: Any, *, default: float) -> float:
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return default
+    coerced = _coerce_safe_float(value, default=default)
+    return default if coerced is None else coerced
 
 
 def _safe_int(value: Any, *, default: int) -> int:
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return default
+    return _coerce_safe_int(value, default=default)
 
 
 def escape_html(value: Any) -> str:

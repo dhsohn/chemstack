@@ -5,42 +5,42 @@ from math import sqrt
 from pathlib import Path
 from typing import Any
 
+from chemstack.core.utils.coercion import (
+    coerce_mapping as _shared_coerce_mapping,
+    normalize_bool as _shared_normalize_bool,
+    normalize_text as _shared_normalize_text,
+    safe_float as _shared_safe_float,
+    safe_int as _shared_safe_int,
+)
+
 from .contracts import WorkflowStageInput
 from .xyz_utils import XYZFrame, load_xyz_frames
 
 
 def _normalize_text(value: Any) -> str:
-    if value is None:
-        return ""
-    return str(value).strip()
+    return _shared_normalize_text(value)
 
 
 def _as_bool(value: Any, *, default: bool = False) -> bool:
-    if value is None:
+    if value is None or _normalize_text(value) == "":
         return default
-    if isinstance(value, bool):
-        return value
-    text = _normalize_text(value).lower()
-    if not text:
-        return default
-    return text in {"1", "true", "yes", "on", "enabled"}
+    return _shared_normalize_bool(
+        value,
+        default=False,
+        true_values=frozenset({"1", "true", "yes", "on", "enabled"}),
+        false_values=frozenset({"0", "false", "no", "off", "disabled"}),
+    )
 
 
 def _as_positive_int(value: Any, *, default: int = 0) -> int:
-    try:
-        parsed = int(value)
-    except (TypeError, ValueError):
-        return max(0, int(default))
+    parsed = _shared_safe_int(value, default=max(0, int(default)))
     return max(0, parsed)
 
 
 def _as_optional_float(value: Any) -> float | None:
     if value is None or _normalize_text(value) == "":
         return None
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
+    return _shared_safe_float(value)
 
 
 def _coerce_atom_indices(value: Any) -> tuple[int, ...]:
@@ -67,7 +67,7 @@ def _coerce_atom_indices(value: Any) -> tuple[int, ...]:
 
 
 def _coerce_mapping(value: Any) -> dict[str, Any]:
-    return dict(value) if isinstance(value, dict) else {}
+    return _shared_coerce_mapping(value)
 
 
 @dataclass(frozen=True)
@@ -97,7 +97,9 @@ class EndpointPairingPolicy:
             text = value.strip().lower()
             if text in {"", "0", "false", "no", "off", "disabled"}:
                 return cls(enabled=False)
-            return cls(enabled=True, max_pairs=max(0, int(default_max_pairs)), raw={"enabled": value})
+            return cls(
+                enabled=True, max_pairs=max(0, int(default_max_pairs)), raw={"enabled": value}
+            )
 
         raw = _coerce_mapping(value)
         if not raw:
@@ -202,11 +204,7 @@ def _comparison_indices(
 
 
 def _distance(left: tuple[float, float, float], right: tuple[float, float, float]) -> float:
-    return sqrt(
-        (left[0] - right[0]) ** 2
-        + (left[1] - right[1]) ** 2
-        + (left[2] - right[2]) ** 2
-    )
+    return sqrt((left[0] - right[0]) ** 2 + (left[1] - right[1]) ** 2 + (left[2] - right[2]) ** 2)
 
 
 def _distance_fingerprint(
@@ -269,7 +267,11 @@ def select_endpoint_pairs(
         for product in product_inputs:
             sequence += 1
             rank_gap = _rank_gap(reactant, product)
-            if active_policy.enabled and active_policy.max_rank_gap and rank_gap > active_policy.max_rank_gap:
+            if (
+                active_policy.enabled
+                and active_policy.max_rank_gap
+                and rank_gap > active_policy.max_rank_gap
+            ):
                 continue
 
             distance_rmsd: float | None = None

@@ -3,22 +3,23 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
+from chemstack.core.utils.coercion import (
+    coerce_mapping as _shared_coerce_mapping,
+    normalize_text as _shared_normalize_text,
+    safe_int as _shared_safe_int,
+)
+
 
 def _normalize_text(value: Any) -> str:
-    return str(value).strip()
+    return _shared_normalize_text(value, none="None")
 
 
 def _safe_int(value: Any, *, default: int = 0) -> int:
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return default
+    return _shared_safe_int(value, default=default)
 
 
 def _coerce_mapping(value: Any) -> dict[str, Any]:
-    if not isinstance(value, dict):
-        return {}
-    return {str(key): item for key, item in value.items()}
+    return _shared_coerce_mapping(value)
 
 
 @dataclass(frozen=True)
@@ -77,7 +78,9 @@ class WorkflowTask:
             payload=_coerce_mapping(payload),
             enqueue_payload=_coerce_mapping(enqueue_payload),
             submission_result=_coerce_mapping(submission_result),
-            depends_on=tuple(_normalize_text(item) for item in (depends_on or ()) if _normalize_text(item)),
+            depends_on=tuple(
+                _normalize_text(item) for item in (depends_on or ()) if _normalize_text(item)
+            ),
             metadata=_coerce_mapping(metadata),
         )
 

@@ -15,12 +15,23 @@ import subprocess
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, Protocol
+from types import SimpleNamespace
+from typing import Any
+
+from chemstack.core.queue.worker import (
+    ManagedProcess as _ManagedProcess,
+    QueueWorkerLoop,
+    current_worker_pid_payload,
+    read_live_pid_file,
+    reserve_queue_worker_slot,
+    resolve_admission_limit,
+    resolve_admission_root,
+    terminate_process_group,
+)
 
 from .admission_store import reconcile_stale_slots, release_slot, reserve_slot, update_slot_metadata
 from .config import AppConfig
 from .inp_rewriter import read_resource_request_from_input
-from .process_tracking import current_process_lock_payload, read_pid_file
 from .queue_store import (
     dequeue_next,
     get_cancel_requested,
@@ -50,15 +61,6 @@ POLL_INTERVAL_SECONDS = 5
 WORKER_PID_FILE = "queue_worker.pid"
 
 
-class _ManagedProcess(Protocol):
-    pid: int
-
-    def kill(self) -> None: ...
-    def poll(self) -> int | None: ...
-    def terminate(self) -> None: ...
-    def wait(self, timeout: float | None = None) -> int: ...
-
-
 @dataclass
 class _RunningJob:
     """Tracks a child process executing a queued job."""
@@ -73,27 +75,7 @@ class _RunningJob:
 
 def _terminate_process(proc: _ManagedProcess) -> None:
     """Terminate the background run process and escalate if it does not stop."""
-    if proc.poll() is not None:
-        return
-    try:
-        proc.terminate()
-    except Exception:
-        pass
-
-    deadline = time.monotonic() + 10
-    while proc.poll() is None and time.monotonic() < deadline:
-        time.sleep(0.1)
-
-    if proc.poll() is not None:
-        return
-    try:
-        proc.kill()
-    except Exception:
-        pass
-
-    deadline = time.monotonic() + 5
-    while proc.poll() is None and time.monotonic() < deadline:
-        time.sleep(0.1)
+    terminate_process_group(proc)
 
 
 def _start_job_process(
@@ -154,9 +136,7 @@ def _tracking_metadata_from_queue_entry(
 ) -> tuple[str, str, str, dict[str, int], dict[str, int]]:
     metadata = queue_entry_metadata(entry)
     selected_input = str(
-        metadata.get("selected_input_xyz")
-        or metadata.get("selected_inp")
-        or ""
+        metadata.get("selected_input_xyz") or metadata.get("selected_inp") or ""
     ).strip()
     job_type = str(metadata.get("job_type") or "").strip()
     molecule_key = str(metadata.get("molecule_key") or "").strip()
@@ -211,7 +191,11 @@ def _upsert_terminal_job_record(
     )
     if record is None:
         return
-    organized_output_dir = Path(record.organized_output_dir).expanduser().resolve() if record.organized_output_dir else None
+    organized_output_dir = (
+        Path(record.organized_output_dir).expanduser().resolve()
+        if record.organized_output_dir
+        else None
+    )
     upsert_job_record(
         cfg,
         job_id=record.job_id,
@@ -226,7 +210,33 @@ def _upsert_terminal_job_record(
     )
 
 
-class QueueWorker:
+def _worker_admission_limit(cfg: AppConfig, fallback_max_concurrent: int) -> int:
+    raw_admission_limit: object | None = getattr(cfg.runtime, "admission_limit", None)
+    if raw_admission_limit is None or raw_admission_limit == "":
+        return max(1, int(fallback_max_concurrent))
+    try:
+        if isinstance(raw_admission_limit, bool):
+            normalized_limit = int(raw_admission_limit)
+        elif isinstance(raw_admission_limit, (int, float, str)):
+            normalized_limit = int(raw_admission_limit)
+        else:
+            raise TypeError("Unsupported admission_limit type")
+    except (TypeError, ValueError):
+        return max(1, int(fallback_max_concurrent))
+    if normalized_limit < 1:
+        return 1
+    return resolve_admission_limit(
+        SimpleNamespace(
+            runtime=SimpleNamespace(
+                resolved_admission_limit=normalized_limit,
+                admission_limit=normalized_limit,
+                max_concurrent=fallback_max_concurrent,
+            )
+        )
+    )
+
+
+class QueueWorker(QueueWorkerLoop):
     """Main worker loop that manages concurrent job execution."""
 
     def __init__(
@@ -237,61 +247,40 @@ class QueueWorker:
         max_concurrent: int = DEFAULT_MAX_CONCURRENT,
         auto_organize: bool = False,
     ) -> None:
+        super().__init__(
+            max_concurrent=max(1, int(max_concurrent)),
+            poll_interval_seconds=POLL_INTERVAL_SECONDS,
+            sleep_fn=lambda seconds: time.sleep(seconds),
+        )
         self.cfg = cfg
         self.config_path = config_path
-        self.max_concurrent = max(1, max_concurrent)
         self.auto_organize = bool(auto_organize)
         self.allowed_root = Path(cfg.runtime.allowed_root).expanduser().resolve()
-        resolved_admission_root = getattr(cfg.runtime, "resolved_admission_root", None)
-        admission_root_raw = (
-            resolved_admission_root
-            or getattr(cfg.runtime, "admission_root", "")
-            or cfg.runtime.allowed_root
-        )
-        self.admission_root = Path(admission_root_raw).expanduser().resolve()
-        raw_admission_limit: object | None = getattr(cfg.runtime, "admission_limit", None)
-        if raw_admission_limit in {None, ""}:
-            self.admission_limit = self.max_concurrent
-        else:
-            try:
-                if isinstance(raw_admission_limit, bool):
-                    normalized_limit = int(raw_admission_limit)
-                elif isinstance(raw_admission_limit, (int, float, str)):
-                    normalized_limit = int(raw_admission_limit)
-                else:
-                    raise TypeError("Unsupported admission_limit type")
-                self.admission_limit = max(1, normalized_limit)
-            except (TypeError, ValueError):
-                self.admission_limit = self.max_concurrent
-        self._running: Dict[str, _RunningJob] = {}  # queue_id → job
-        self._shutdown_requested = False
+        self.admission_root = Path(resolve_admission_root(cfg)).expanduser().resolve()
+        self.admission_limit = _worker_admission_limit(cfg, self.max_concurrent)
 
-    def run(self) -> int:
-        """Run the worker loop. Returns 0 on clean shutdown."""
-        self._install_signal_handlers()
+    def _before_run(self) -> None:
         self._write_pid_file()
         self._reconcile_orphaned_running()
         logger.info(
             "Queue worker started (pid=%d, max_concurrent=%d, admission_root=%s, admission_limit=%d, auto_organize=%s)",
-            os.getpid(), self.max_concurrent, self.admission_root, self.admission_limit, self.auto_organize,
+            os.getpid(),
+            self.max_concurrent,
+            self.admission_root,
+            self.admission_limit,
+            self.auto_organize,
         )
 
-        try:
-            while not self._shutdown_requested:
-                self._run_iteration()
-        except KeyboardInterrupt:
-            logger.info("Queue worker interrupted")
-        finally:
-            self._shutdown_all()
-            self._remove_pid_file()
-            logger.info("Queue worker stopped")
-        return 0
+    def _after_run(self) -> None:
+        self._remove_pid_file()
+        logger.info("Queue worker stopped")
 
     def _run_iteration(self) -> None:
-        self._check_completed_jobs()
-        self._check_cancel_requests()
-        self._fill_slots()
-        time.sleep(POLL_INTERVAL_SECONDS)
+        try:
+            super()._run_iteration()
+        except KeyboardInterrupt:
+            logger.info("Queue worker interrupted")
+            raise
 
     # -- Orphan reconciliation --------------------------------------------
 
@@ -307,20 +296,16 @@ class QueueWorker:
 
     # -- Slot management --------------------------------------------------
 
-    def _fill_slots(self) -> None:
-        """Dequeue pending jobs until the global active-run limit is reached."""
-        while len(self._running) < self.max_concurrent:
-            reserved = self._reserve_next_entry()
-            if reserved is None:
-                break
-            entry, admission_token = reserved
-            self._start_job(entry, admission_token=admission_token)
-
     def _reserve_admission_slot(self) -> str | None:
-        admission_token = reserve_slot(
-            self.admission_root,
-            self.admission_limit,
+        admission_token = reserve_queue_worker_slot(
+            self.cfg,
             source="queue_worker",
+            app_name="chemstack_orca",
+            reserve_slot_fn=lambda root, _limit, **kwargs: reserve_slot(
+                Path(root),
+                self.admission_limit,
+                **kwargs,
+            ),
         )
         if admission_token is None:
             logger.debug(
@@ -329,20 +314,24 @@ class QueueWorker:
             )
         return admission_token
 
-    def _reserve_next_entry(self) -> tuple[QueueEntry, str] | None:
+    def _reserve_next_entry(self) -> tuple[str, tuple[QueueEntry, str] | None]:
         admission_token = self._reserve_admission_slot()
         if admission_token is None:
-            return None
+            return "blocked", None
 
         entry = dequeue_next(self.allowed_root)
         if entry is None:
             self._release_admission_token(admission_token)
-            return None
+            return "idle", None
 
         if not self._attach_slot_identity(admission_token, entry):
             self._fail_start(entry, admission_token, error="admission_slot_missing")
-            return None
-        return entry, admission_token
+            return "idle", None
+        return "processed", (entry, admission_token)
+
+    def _start_reserved(self, reserved: Any) -> None:
+        entry, admission_token = reserved
+        self._start_job(entry, admission_token=admission_token)
 
     def _attach_slot_identity(self, admission_token: str, entry: QueueEntry) -> bool:
         attached = update_slot_metadata(
@@ -419,17 +408,11 @@ class QueueWorker:
 
     # -- Monitoring -------------------------------------------------------
 
-    def _check_completed_jobs(self) -> None:
-        """Poll running child processes for completion."""
-        done_ids = []
-        for queue_id, job in self._running.items():
-            rc = job.process.poll()
-            if rc is None:
-                continue
-            done_ids.append(queue_id)
-            self._finalize_finished_job(queue_id, job, rc=rc)
-        for qid in done_ids:
-            del self._running[qid]
+    def _poll_job(self, job: Any) -> int | None:
+        return job.process.poll()
+
+    def _finalize_completed_job(self, queue_id: str, job: Any, rc: int) -> None:
+        self._finalize_finished_job(queue_id, job, rc=rc)
 
     def _finalize_finished_job(self, queue_id: str, job: _RunningJob, *, rc: int) -> None:
         run_id = _get_run_id_from_state(job.reaction_dir)
@@ -522,8 +505,10 @@ class QueueWorker:
         return self.allowed_root / WORKER_PID_FILE
 
     def _write_pid_file(self) -> None:
-        payload = current_process_lock_payload()
-        self._pid_file_path().write_text(json.dumps(payload, ensure_ascii=True) + "\n", encoding="utf-8")
+        payload = current_worker_pid_payload()
+        self._pid_file_path().write_text(
+            json.dumps(payload, ensure_ascii=True) + "\n", encoding="utf-8"
+        )
 
     def _remove_pid_file(self) -> None:
         try:
@@ -534,4 +519,4 @@ class QueueWorker:
 
 def read_worker_pid(allowed_root: Path) -> int | None:
     """Read the worker PID file. Returns None if not found or stale."""
-    return read_pid_file(allowed_root / WORKER_PID_FILE)
+    return read_live_pid_file(allowed_root / WORKER_PID_FILE)

@@ -13,6 +13,7 @@ from typing import Any, Callable
 from chemstack.core.config import engines as _config_engines
 from chemstack.core.admission import release_slot
 from chemstack.core.queue import (
+    execution as _queue_execution,
     get_cancel_requested,
     list_queue,
     mark_cancelled,
@@ -155,7 +156,7 @@ def default_worker_execution_dependencies() -> WorkerExecutionDependencies:
 
 
 def _coerce_mapping(value: Any) -> dict[str, Any]:
-    return dict(value) if isinstance(value, dict) else {}
+    return _queue_execution.coerce_mapping(value)
 
 
 def build_worker_child_command(
@@ -184,20 +185,27 @@ def build_worker_child_command(
     return command
 
 
-def _build_state_payload(entry: Any, result: CrestRunResult) -> dict[str, Any]:
-    job_dir_text = str(entry.metadata.get("job_dir", "")).strip()
-    job_dir = Path(job_dir_text).expanduser().resolve() if job_dir_text else None
-    previous_state = {}
-    if job_dir is not None:
-        state = load_state(job_dir) or {}
-        if state_matches_job(
-            state,
-            selected_input_xyz=result.selected_input_xyz,
-            mode=result.mode,
-            molecule_key=str(entry.metadata.get("molecule_key", "")).strip(),
-        ):
-            previous_state = state
-    recovery_reason = str(previous_state.get("recovery_reason") or previous_state.get("reason") or "").strip()
+def _matching_result_state(entry: Any, result: CrestRunResult, job_dir: Path) -> dict[str, Any]:
+    return _queue_execution.load_matching_state(
+        job_dir,
+        load_state_fn=load_state,
+        state_matches_job_fn=state_matches_job,
+        match_kwargs={
+            "selected_input_xyz": result.selected_input_xyz,
+            "mode": result.mode,
+            "molecule_key": str(entry.metadata.get("molecule_key", "")).strip(),
+        },
+    )
+
+
+def _build_state_payload(
+    entry: Any,
+    result: CrestRunResult,
+    *,
+    previous_state: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    base_state = _coerce_mapping(previous_state)
+    recovery_reason = _queue_execution.recovery_reason(base_state)
     payload = {
         "job_id": entry.task_id,
         "job_dir": str(entry.metadata.get("job_dir", "")).strip(),
@@ -213,30 +221,24 @@ def _build_state_payload(entry: Any, result: CrestRunResult) -> dict[str, Any]:
         "manifest_path": result.manifest_path,
         "resource_request": dict(result.resource_request),
         "resource_actual": dict(result.resource_actual),
-        "created_at": str(previous_state.get("created_at", "")).strip(),
+        "created_at": _queue_execution.created_at(base_state),
         "recovery_pending": False,
-        "recovery_count": int(previous_state.get("recovery_count", 0) or 0),
-        "resumed": bool(previous_state.get("resumed", False)),
+        "recovery_count": _queue_execution.recovery_count(base_state),
+        "resumed": bool(base_state.get("resumed", False)),
     }
     if recovery_reason:
         payload["recovery_reason"] = recovery_reason
     return payload
 
 
-def _build_report_payload(entry: Any, result: CrestRunResult) -> dict[str, Any]:
-    job_dir_text = str(entry.metadata.get("job_dir", "")).strip()
-    job_dir = Path(job_dir_text).expanduser().resolve() if job_dir_text else None
-    previous_state = {}
-    if job_dir is not None:
-        state = load_state(job_dir) or {}
-        if state_matches_job(
-            state,
-            selected_input_xyz=result.selected_input_xyz,
-            mode=result.mode,
-            molecule_key=str(entry.metadata.get("molecule_key", "")).strip(),
-        ):
-            previous_state = state
-    recovery_reason = str(previous_state.get("recovery_reason") or previous_state.get("reason") or "").strip()
+def _build_report_payload(
+    entry: Any,
+    result: CrestRunResult,
+    *,
+    previous_state: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    base_state = _coerce_mapping(previous_state)
+    recovery_reason = _queue_execution.recovery_reason(base_state)
     payload = {
         "job_id": entry.task_id,
         "queue_id": entry.queue_id,
@@ -256,9 +258,9 @@ def _build_report_payload(entry: Any, result: CrestRunResult) -> dict[str, Any]:
         "manifest_path": result.manifest_path,
         "resource_request": dict(result.resource_request),
         "resource_actual": dict(result.resource_actual),
-        "created_at": str(previous_state.get("created_at", "")).strip(),
-        "recovery_count": int(previous_state.get("recovery_count", 0) or 0),
-        "resumed": bool(previous_state.get("resumed", False)),
+        "created_at": _queue_execution.created_at(base_state),
+        "recovery_count": _queue_execution.recovery_count(base_state),
+        "resumed": bool(base_state.get("resumed", False)),
     }
     if recovery_reason:
         payload["recovery_reason"] = recovery_reason
@@ -271,8 +273,7 @@ def _write_execution_artifacts(entry: Any, result: CrestRunResult) -> None:
         return
 
     job_dir = Path(job_dir_text).expanduser().resolve()
-    write_state(job_dir, _build_state_payload(entry, result))
-    write_report_json(job_dir, _build_report_payload(entry, result))
+    previous_state = _matching_result_state(entry, result, job_dir)
     lines = [
         "# crest_auto Report",
         "",
@@ -294,7 +295,15 @@ def _write_execution_artifacts(entry: Any, result: CrestRunResult) -> None:
         lines.append("- Retained Files:")
         for path in result.retained_conformer_paths:
             lines.append(f"  - `{path}`")
-    write_report_md_lines(job_dir, lines)
+    _queue_execution.write_result_artifacts(
+        job_dir_text,
+        state_payload=_build_state_payload(entry, result, previous_state=previous_state),
+        report_payload=_build_report_payload(entry, result, previous_state=previous_state),
+        report_lines=lines,
+        write_state_fn=write_state,
+        write_report_json_fn=write_report_json,
+        write_report_md_lines_fn=write_report_md_lines,
+    )
 
 
 def _write_running_state(cfg: Any, entry: Any) -> None:
@@ -303,17 +312,24 @@ def _write_running_state(cfg: Any, entry: Any) -> None:
         return
     job_dir = Path(job_dir_text).expanduser().resolve()
     resource_request = _entry_resource_request(cfg, entry)
-    previous_state = load_state(job_dir) or {}
+    previous_state = _queue_execution.load_matching_state(
+        job_dir,
+        load_state_fn=load_state,
+        state_matches_job_fn=state_matches_job,
+        match_kwargs={
+            "selected_input_xyz": str(entry.metadata.get("selected_input_xyz", "")).strip(),
+            "mode": str(entry.metadata.get("mode", "standard")).strip(),
+            "molecule_key": str(entry.metadata.get("molecule_key", "")).strip(),
+        },
+    )
     resumed = False
     recovery_reason = ""
-    if state_matches_job(
-        previous_state,
-        selected_input_xyz=str(entry.metadata.get("selected_input_xyz", "")).strip(),
-        mode=str(entry.metadata.get("mode", "standard")).strip(),
-        molecule_key=str(entry.metadata.get("molecule_key", "")).strip(),
-    ):
-        resumed = is_recovery_pending(previous_state) or str(previous_state.get("status", "")).strip().lower() == "running"
-        recovery_reason = str(previous_state.get("recovery_reason") or previous_state.get("reason") or "").strip()
+    if previous_state:
+        resumed = (
+            is_recovery_pending(previous_state)
+            or str(previous_state.get("status", "")).strip().lower() == "running"
+        )
+        recovery_reason = _queue_execution.recovery_reason(previous_state)
     started_at = entry.started_at or depsafe_now_utc_iso()
     updated_at = depsafe_now_utc_iso()
     write_state(
@@ -330,9 +346,9 @@ def _write_running_state(cfg: Any, entry: Any) -> None:
             "updated_at": updated_at,
             "resource_request": resource_request,
             "resource_actual": dict(resource_request),
-            "created_at": str(previous_state.get("created_at", "")).strip() or started_at,
+            "created_at": _queue_execution.created_at(previous_state) or started_at,
             "recovery_pending": False,
-            "recovery_count": int(previous_state.get("recovery_count", 0) or 0),
+            "recovery_count": _queue_execution.recovery_count(previous_state),
             "resumed": resumed,
             **({"recovery_reason": recovery_reason} if recovery_reason else {}),
         },
@@ -442,26 +458,15 @@ def _mark_queue_terminal(
         "retained_conformer_count": result.retained_conformer_count,
         "mode": result.mode,
     }
-    if result.status == "completed":
-        dependencies.mark_completed(
-            str(queue_root),
-            context.entry.queue_id,
-            metadata_update=metadata_update,
-        )
-        return
-    if result.status == "cancelled":
-        dependencies.mark_cancelled(
-            str(queue_root),
-            context.entry.queue_id,
-            error=result.reason,
-            metadata_update=metadata_update,
-        )
-        return
-    dependencies.mark_failed(
-        str(queue_root),
+    _queue_execution.mark_terminal_status(
+        queue_root,
         context.entry.queue_id,
-        error=result.reason,
+        status=result.status,
+        reason=result.reason,
         metadata_update=metadata_update,
+        mark_completed_fn=dependencies.mark_completed,
+        mark_cancelled_fn=dependencies.mark_cancelled,
+        mark_failed_fn=dependencies.mark_failed,
     )
 
 

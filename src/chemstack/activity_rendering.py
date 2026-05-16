@@ -4,6 +4,14 @@ import unicodedata
 from datetime import datetime, timezone
 from typing import Any, Sequence
 
+from chemstack.core.statuses import (
+    QUEUE_ACTIVE_STATUSES,
+    STATUS_CANCEL_REQUESTED,
+    STATUS_COMPLETED,
+    STATUS_RETRYING,
+    STATUS_RUNNING,
+    WORKFLOW_FAILED_STATUSES,
+)
 from chemstack.flow.submitters.common import normalize_text
 
 
@@ -51,11 +59,7 @@ def _queue_elapsed_text(item: dict[str, Any], *, now: datetime | None = None) ->
 
     status = normalize_text(item.get("status")).lower()
     end_at = _parse_activity_timestamp(item.get("updated_at"))
-    if (
-        status
-        in {"planned", "pending", "queued", "submitted", "running", "retrying", "cancel_requested"}
-        or end_at is None
-    ):
+    if status in QUEUE_ACTIVE_STATUSES or end_at is None:
         end_at = now or _queue_table_now()
     if end_at < started_at:
         end_at = started_at
@@ -68,17 +72,17 @@ def _queue_elapsed_text(item: dict[str, Any], *, now: datetime | None = None) ->
 
 def _queue_status_icon(item: dict[str, Any]) -> str:
     status = normalize_text(item.get("status")).lower()
-    if status in {"completed"}:
+    if status == STATUS_COMPLETED:
         return "✅"
-    if status in {"retrying"}:
+    if status == STATUS_RETRYING:
         return "🔄"
-    if status in {"failed", "cancelled", "cancel_failed", "submission_failed"}:
+    if status in WORKFLOW_FAILED_STATUSES or status == "cancelled":
         return "❌"
-    if status in {"cancel_requested"}:
+    if status == STATUS_CANCEL_REQUESTED:
         return "⏹"
-    if status in {"running"}:
+    if status == STATUS_RUNNING:
         return "▶"
-    if status in {"planned", "pending", "queued", "submitted"}:
+    if status in QUEUE_ACTIVE_STATUSES:
         return "⏳"
     return "•"
 

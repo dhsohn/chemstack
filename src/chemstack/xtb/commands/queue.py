@@ -11,6 +11,7 @@ from typing import Any, Callable
 
 from chemstack.core.config import engines as _config_engines
 from chemstack.core.commands import queue as _shared_queue
+from chemstack.core.queue import execution as _queue_execution
 from chemstack.core.admission import (
     activate_reserved_slot,
     reconcile_stale_slots,
@@ -173,7 +174,7 @@ def _coerce_resource_dict(value: Any) -> dict[str, int]:
 
 
 def _coerce_mapping(value: Any) -> dict[str, Any]:
-    return dict(value) if isinstance(value, dict) else {}
+    return _queue_execution.coerce_mapping(value)
 
 
 def _coerce_list(value: Any) -> list[Any]:
@@ -188,15 +189,16 @@ def _matching_state(
     job_type: str,
     reaction_key: str,
 ) -> dict[str, Any]:
-    state = load_state(job_dir) or {}
-    if not state_matches_job(
-        state,
-        selected_input_xyz=str(selected_xyz),
-        job_type=job_type,
-        reaction_key=reaction_key,
-    ):
-        return {}
-    return state
+    return _queue_execution.load_matching_state(
+        job_dir,
+        load_state_fn=load_state,
+        state_matches_job_fn=state_matches_job,
+        match_kwargs={
+            "selected_input_xyz": str(selected_xyz),
+            "job_type": job_type,
+            "reaction_key": reaction_key,
+        },
+    )
 
 
 def _entry_resource_request(cfg: Any, entry: Any) -> dict[str, int]:
@@ -229,9 +231,7 @@ def _build_state_payload(
     candidate_paths = list(result.analysis_summary.get("candidate_paths", []))
     if not candidate_paths and isinstance(result.input_summary, dict):
         candidate_paths = list(result.input_summary.get("candidate_paths", []))
-    recovery_reason = str(
-        base_state.get("recovery_reason") or base_state.get("reason") or ""
-    ).strip()
+    recovery_reason = _queue_execution.recovery_reason(base_state)
     payload = {
         "job_id": entry.task_id,
         "job_dir": str(entry.metadata.get("job_dir", "")).strip(),
@@ -251,9 +251,9 @@ def _build_state_payload(
         "manifest_path": result.manifest_path,
         "resource_request": dict(result.resource_request),
         "resource_actual": dict(result.resource_actual),
-        "created_at": str(base_state.get("created_at", "")).strip(),
+        "created_at": _queue_execution.created_at(base_state),
         "recovery_pending": False,
-        "recovery_count": int(base_state.get("recovery_count", 0) or 0),
+        "recovery_count": _queue_execution.recovery_count(base_state),
         "resumed": bool(resumed),
     }
     if recovery_reason:
@@ -272,9 +272,7 @@ def _build_report_payload(
     candidate_paths = list(result.analysis_summary.get("candidate_paths", []))
     if not candidate_paths and isinstance(result.input_summary, dict):
         candidate_paths = list(result.input_summary.get("candidate_paths", []))
-    recovery_reason = str(
-        base_state.get("recovery_reason") or base_state.get("reason") or ""
-    ).strip()
+    recovery_reason = _queue_execution.recovery_reason(base_state)
     payload = {
         "job_id": entry.task_id,
         "queue_id": entry.queue_id,
@@ -298,8 +296,8 @@ def _build_report_payload(
         "manifest_path": result.manifest_path,
         "resource_request": dict(result.resource_request),
         "resource_actual": dict(result.resource_actual),
-        "created_at": str(base_state.get("created_at", "")).strip(),
-        "recovery_count": int(base_state.get("recovery_count", 0) or 0),
+        "created_at": _queue_execution.created_at(base_state),
+        "recovery_count": _queue_execution.recovery_count(base_state),
         "resumed": bool(resumed),
     }
     if recovery_reason:
@@ -318,14 +316,6 @@ def _write_execution_artifacts(
     if not job_dir_text:
         return
 
-    job_dir = Path(job_dir_text).expanduser().resolve()
-    write_state(
-        job_dir, _build_state_payload(entry, result, previous_state=previous_state, resumed=resumed)
-    )
-    write_report_json(
-        job_dir,
-        _build_report_payload(entry, result, previous_state=previous_state, resumed=resumed),
-    )
     lines = [
         "# xtb_auto Report",
         "",
@@ -359,7 +349,25 @@ def _write_execution_artifacts(
             )
     if result.analysis_summary:
         lines.append(f"- Analysis Summary: `{result.analysis_summary}`")
-    write_report_md_lines(job_dir, lines)
+    _queue_execution.write_result_artifacts(
+        job_dir_text,
+        state_payload=_build_state_payload(
+            entry,
+            result,
+            previous_state=previous_state,
+            resumed=resumed,
+        ),
+        report_payload=_build_report_payload(
+            entry,
+            result,
+            previous_state=previous_state,
+            resumed=resumed,
+        ),
+        report_lines=lines,
+        write_state_fn=write_state,
+        write_report_json_fn=write_report_json,
+        write_report_md_lines_fn=write_report_md_lines,
+    )
 
 
 def _write_running_state(
@@ -377,9 +385,7 @@ def _write_running_state(
     input_summary = _input_summary(entry)
     resource_request = _entry_resource_request(cfg, entry)
     base_state = _coerce_mapping(previous_state)
-    recovery_reason = str(
-        base_state.get("recovery_reason") or base_state.get("reason") or ""
-    ).strip()
+    recovery_reason = _queue_execution.recovery_reason(base_state)
     started_at = entry.started_at or now_utc_iso()
     updated_at = now_utc_iso()
     payload = {
@@ -400,9 +406,9 @@ def _write_running_state(
         "analysis_summary": {},
         "resource_request": resource_request,
         "resource_actual": dict(resource_request),
-        "created_at": str(base_state.get("created_at", "")).strip() or started_at,
+        "created_at": _queue_execution.created_at(base_state) or started_at,
         "recovery_pending": False,
-        "recovery_count": int(base_state.get("recovery_count", 0) or 0),
+        "recovery_count": _queue_execution.recovery_count(base_state),
         "resumed": bool(resumed),
     }
     if recovery_reason:
@@ -593,16 +599,16 @@ def _ensure_terminal_queue_status(queue_root: Path, entry: Any, summary: _Termin
         return
 
     metadata_update = summary.metadata_update or None
-    if summary.status == "completed":
-        mark_completed(str(queue_root), entry.queue_id, metadata_update=metadata_update)
-    elif summary.status == "cancelled":
-        mark_cancelled(
-            str(queue_root), entry.queue_id, error=summary.reason, metadata_update=metadata_update
-        )
-    else:
-        mark_failed(
-            str(queue_root), entry.queue_id, error=summary.reason, metadata_update=metadata_update
-        )
+    _queue_execution.mark_terminal_status(
+        queue_root,
+        entry.queue_id,
+        status=summary.status,
+        reason=summary.reason,
+        metadata_update=metadata_update,
+        mark_completed_fn=mark_completed,
+        mark_cancelled_fn=mark_cancelled,
+        mark_failed_fn=mark_failed,
+    )
 
 
 def _finalize_execution_result(
@@ -627,16 +633,16 @@ def _finalize_execution_result(
         "candidate_count": result.candidate_count,
         "job_type": result.job_type,
     }
-    if result.status == "completed":
-        mark_completed(str(queue_root), entry.queue_id, metadata_update=metadata_update)
-    elif result.status == "cancelled":
-        mark_cancelled(
-            str(queue_root), entry.queue_id, error=result.reason, metadata_update=metadata_update
-        )
-    else:
-        mark_failed(
-            str(queue_root), entry.queue_id, error=result.reason, metadata_update=metadata_update
-        )
+    _queue_execution.mark_terminal_status(
+        queue_root,
+        entry.queue_id,
+        status=result.status,
+        reason=result.reason,
+        metadata_update=metadata_update,
+        mark_completed_fn=mark_completed,
+        mark_cancelled_fn=mark_cancelled,
+        mark_failed_fn=mark_failed,
+    )
 
     upsert_job_record(
         cfg,

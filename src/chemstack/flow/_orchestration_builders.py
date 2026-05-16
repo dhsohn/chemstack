@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import shutil
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from chemstack.core.app_ids import (
     CHEMSTACK_CREST_COMMAND,
@@ -11,7 +11,20 @@ from chemstack.core.app_ids import (
     CHEMSTACK_XTB_MODULE,
 )
 
-from .contracts import WorkflowArtifactRef, WorkflowPlan, WorkflowStage, WorkflowTask, WorkflowTemplateRequest
+from ._orchestration_requests import (
+    ConformerScreeningWorkflowRequest,
+    ReactionTsSearchWorkflowCreationContext,
+    ReactionTsSearchWorkflowRequest,
+    WorkflowCreationContext,
+    WorkflowPersistenceContext,
+)
+from .contracts import (
+    WorkflowArtifactRef,
+    WorkflowPlan,
+    WorkflowStage,
+    WorkflowTask,
+    WorkflowTemplateRequest,
+)
 
 _REACTION_TS_SEARCH_CREST_MANIFEST_DEFAULTS: dict[str, Any] = {"rthr": 0.3}
 
@@ -98,7 +111,14 @@ def new_crest_stage_impl(
         stage_id=stage_id,
         stage_kind="crest_stage",
         status="planned",
-        input_artifacts=(WorkflowArtifactRef(kind="input_xyz", path=source_path, selected=True, metadata={"input_role": input_role}),),
+        input_artifacts=(
+            WorkflowArtifactRef(
+                kind="input_xyz",
+                path=source_path,
+                selected=True,
+                metadata={"input_role": input_role},
+            ),
+        ),
         output_artifacts=(),
         task=task,
         metadata=stage_metadata,
@@ -178,8 +198,18 @@ def new_xtb_stage_impl(
         stage_kind="xtb_stage",
         status="planned",
         input_artifacts=(
-            WorkflowArtifactRef(kind="crest_conformer", path=str(reactant_input["artifact_path"]), selected=True, metadata={"role": "reactant", "source_job_id": reactant_input["source_job_id"]}),
-            WorkflowArtifactRef(kind="crest_conformer", path=str(product_input["artifact_path"]), selected=True, metadata={"role": "product", "source_job_id": product_input["source_job_id"]}),
+            WorkflowArtifactRef(
+                kind="crest_conformer",
+                path=str(reactant_input["artifact_path"]),
+                selected=True,
+                metadata={"role": "reactant", "source_job_id": reactant_input["source_job_id"]},
+            ),
+            WorkflowArtifactRef(
+                kind="crest_conformer",
+                path=str(product_input["artifact_path"]),
+                selected=True,
+                metadata={"role": "product", "source_job_id": product_input["source_job_id"]},
+            ),
         ),
         output_artifacts=(),
         task=task,
@@ -199,138 +229,129 @@ def _copy_input_impl(source: str, target: Path) -> str:
 
 def _persist_workflow(
     *,
-    workflow_root_path: Path,
-    workspace_dir: Path,
-    workflow_id: str,
-    template_name: str,
-    source_job_id: str,
-    source_job_type: str,
-    reaction_key: str,
-    requested_at: str,
+    persistence_context: WorkflowPersistenceContext,
     request: WorkflowTemplateRequest,
     stages: list[dict[str, Any]],
-    write_workflow_payload_fn: Callable[[Path, dict[str, Any]], None],
-    sync_workflow_registry_fn: Callable[[Path, Path, dict[str, Any]], None],
+    creation_context: WorkflowCreationContext,
 ) -> dict[str, Any]:
     plan = WorkflowPlan(
-        workflow_id=workflow_id,
-        template_name=template_name,
+        workflow_id=persistence_context.workflow_id,
+        template_name=persistence_context.template_name,
         status="planned",
-        source_job_id=source_job_id,
-        source_job_type=source_job_type,
-        reaction_key=reaction_key,
-        requested_at=requested_at,
+        source_job_id=persistence_context.source_job_id,
+        source_job_type=persistence_context.source_job_type,
+        reaction_key=persistence_context.reaction_key,
+        requested_at=persistence_context.requested_at,
         stages=(),
         metadata={
             "request": request.to_dict(),
-            "workspace_dir": str(workspace_dir),
+            "workspace_dir": str(persistence_context.workspace_dir),
         },
     )
     payload = plan.to_dict()
     payload["stages"] = list(stages)
-    write_workflow_payload_fn(workspace_dir, payload)
-    sync_workflow_registry_fn(workflow_root_path, workspace_dir, payload)
+    creation_context.write_workflow_payload_fn(persistence_context.workspace_dir, payload)
+    creation_context.sync_workflow_registry_fn(
+        persistence_context.workflow_root_path,
+        persistence_context.workspace_dir,
+        payload,
+    )
     return payload
 
 
 def create_reaction_ts_search_workflow_impl(
     *,
-    reactant_xyz: str,
-    product_xyz: str,
-    workflow_root: str | Path,
-    workflow_id: str | None = None,
-    crest_mode: str = "standard",
-    priority: int = 10,
-    max_cores: int = 8,
-    max_memory_gb: int = 32,
-    max_crest_candidates: int = 3,
-    max_xtb_stages: int = 3,
-    max_xtb_handoff_retries: int = 2,
-    max_orca_stages: int = 3,
-    orca_route_line: str = "! r2scan-3c OptTS Freq TightSCF",
-    charge: int = 0,
-    multiplicity: int = 1,
-    crest_job_manifest: dict[str, Any] | None = None,
-    xtb_job_manifest: dict[str, Any] | None = None,
-    endpoint_pairing: dict[str, Any] | None = None,
-    source_job_id: str = "",
-    source_job_type: str = "",
-    workflow_id_factory: Callable[[str], str],
-    copy_input_fn: Callable[[str, Path], str],
-    now_utc_iso_fn: Callable[[], str],
-    load_xyz_atom_sequence_fn: Callable[[str], Any],
-    new_crest_stage_fn: Callable[..., dict[str, Any]],
-    write_workflow_payload_fn: Callable[[Path, dict[str, Any]], None],
-    sync_workflow_registry_fn: Callable[[Path, Path, dict[str, Any]], None],
+    request: ReactionTsSearchWorkflowRequest,
+    context: ReactionTsSearchWorkflowCreationContext,
 ) -> dict[str, Any]:
-    workflow_id = str(workflow_id or "").strip() or workflow_id_factory("wf_reaction_ts")
-    workflow_root_path = Path(workflow_root).expanduser().resolve()
+    workflow_id = str(request.workflow_id or "").strip() or context.workflow_id_factory(
+        "wf_reaction_ts"
+    )
+    workflow_root_path = Path(request.workflow_root).expanduser().resolve()
     workspace_dir = workflow_root_path / workflow_id
     resolved_crest_job_manifest = _merge_manifest_defaults(
         _REACTION_TS_SEARCH_CREST_MANIFEST_DEFAULTS,
-        crest_job_manifest,
+        request.crest_job_manifest,
     )
-    reactant_sequence = load_xyz_atom_sequence_fn(reactant_xyz)
-    product_sequence = load_xyz_atom_sequence_fn(product_xyz)
+    reactant_sequence = context.load_xyz_atom_sequence_fn(request.reactant_xyz)
+    product_sequence = context.load_xyz_atom_sequence_fn(request.product_xyz)
     if reactant_sequence != product_sequence:
         raise ValueError(
             "reaction_ts_search requires identical reactant/product atom order for xTB path search; "
             f"reactant sequence={list(reactant_sequence)}, product sequence={list(product_sequence)}"
         )
-    input_reactant = copy_input_fn(reactant_xyz, workspace_dir / "inputs" / "reactants" / Path(reactant_xyz).name)
-    input_product = copy_input_fn(product_xyz, workspace_dir / "inputs" / "products" / Path(product_xyz).name)
-    requested_at = now_utc_iso_fn()
+    input_reactant = context.copy_input_fn(
+        request.reactant_xyz,
+        workspace_dir / "inputs" / "reactants" / Path(request.reactant_xyz).name,
+    )
+    input_product = context.copy_input_fn(
+        request.product_xyz,
+        workspace_dir / "inputs" / "products" / Path(request.product_xyz).name,
+    )
+    requested_at = context.now_utc_iso_fn()
     stages: list[dict[str, Any]] = [
-        new_crest_stage_fn(
+        context.new_crest_stage_fn(
             workflow_id=workflow_id,
             template_name="reaction_ts_search",
             stage_id="crest_reactant_01",
             source_path=input_reactant,
             input_role="reactant",
-            mode=crest_mode,
-            priority=priority,
-            max_cores=max_cores,
-            max_memory_gb=max_memory_gb,
+            mode=request.crest_mode,
+            priority=request.priority,
+            max_cores=request.max_cores,
+            max_memory_gb=request.max_memory_gb,
             manifest_overrides=resolved_crest_job_manifest,
         ),
-        new_crest_stage_fn(
+        context.new_crest_stage_fn(
             workflow_id=workflow_id,
             template_name="reaction_ts_search",
             stage_id="crest_product_01",
             source_path=input_product,
             input_role="product",
-            mode=crest_mode,
-            priority=priority,
-            max_cores=max_cores,
-            max_memory_gb=max_memory_gb,
+            mode=request.crest_mode,
+            priority=request.priority,
+            max_cores=request.max_cores,
+            max_memory_gb=request.max_memory_gb,
             manifest_overrides=resolved_crest_job_manifest,
         ),
     ]
-    resolved_source_job_type = source_job_type or "raw_xyz"
+    resolved_source_job_type = request.source_job_type or "raw_xyz"
     reaction_key = f"{Path(input_reactant).stem}_to_{Path(input_product).stem}"
-    request = WorkflowTemplateRequest(
+    template_request = WorkflowTemplateRequest(
         workflow_id=workflow_id,
         template_name="reaction_ts_search",
-        source_job_id=source_job_id,
+        source_job_id=request.source_job_id,
         source_job_type=resolved_source_job_type,
         reaction_key=reaction_key,
         status="planned",
         requested_at=requested_at,
         parameters={
-            "crest_mode": crest_mode,
-            "priority": int(priority),
-            "max_cores": int(max_cores),
-            "max_memory_gb": int(max_memory_gb),
-            "max_crest_candidates": int(max_crest_candidates),
-            "max_xtb_stages": int(max_xtb_stages),
-            "max_xtb_handoff_retries": int(max_xtb_handoff_retries),
-            "max_orca_stages": int(max_orca_stages),
-            "orca_route_line": str(orca_route_line),
-            "charge": int(charge),
-            "multiplicity": int(multiplicity),
-            **({"crest_job_manifest": dict(resolved_crest_job_manifest)} if resolved_crest_job_manifest else {}),
-            **({"xtb_job_manifest": dict(xtb_job_manifest)} if xtb_job_manifest else {}),
-            **({"endpoint_pairing": dict(endpoint_pairing)} if endpoint_pairing else {}),
+            "crest_mode": request.crest_mode,
+            "priority": int(request.priority),
+            "max_cores": int(request.max_cores),
+            "max_memory_gb": int(request.max_memory_gb),
+            "max_crest_candidates": int(request.max_crest_candidates),
+            "max_xtb_stages": int(request.max_xtb_stages),
+            "max_xtb_handoff_retries": int(request.max_xtb_handoff_retries),
+            "max_orca_stages": int(request.max_orca_stages),
+            "orca_route_line": str(request.orca_route_line),
+            "charge": int(request.charge),
+            "multiplicity": int(request.multiplicity),
+            **(
+                {"crest_job_manifest": dict(resolved_crest_job_manifest)}
+                if resolved_crest_job_manifest
+                else {}
+            ),
+            **(
+                {"xtb_job_manifest": dict(request.xtb_job_manifest)}
+                if request.xtb_job_manifest
+                else {}
+            ),
+            **(
+                {"endpoint_pairing": dict(request.endpoint_pairing)}
+                if request.endpoint_pairing
+                else {}
+            ),
         },
         source_artifacts=(
             WorkflowArtifactRef(kind="reactant_xyz", path=input_reactant, selected=True),
@@ -338,62 +359,52 @@ def create_reaction_ts_search_workflow_impl(
         ),
     )
     return _persist_workflow(
-        workflow_root_path=workflow_root_path,
-        workspace_dir=workspace_dir,
-        workflow_id=workflow_id,
-        template_name="reaction_ts_search",
-        source_job_id=source_job_id,
-        source_job_type=resolved_source_job_type,
-        reaction_key=reaction_key,
-        requested_at=requested_at,
-        request=request,
+        persistence_context=WorkflowPersistenceContext(
+            workflow_root_path=workflow_root_path,
+            workspace_dir=workspace_dir,
+            workflow_id=workflow_id,
+            template_name="reaction_ts_search",
+            source_job_id=request.source_job_id,
+            source_job_type=resolved_source_job_type,
+            reaction_key=reaction_key,
+            requested_at=requested_at,
+        ),
+        request=template_request,
         stages=stages,
-        write_workflow_payload_fn=write_workflow_payload_fn,
-        sync_workflow_registry_fn=sync_workflow_registry_fn,
+        creation_context=context,
     )
 
 
 def create_conformer_screening_workflow_impl(
     *,
-    input_xyz: str,
-    workflow_root: str | Path,
-    workflow_id: str | None = None,
-    crest_mode: str = "standard",
-    priority: int = 10,
-    max_cores: int = 8,
-    max_memory_gb: int = 32,
-    max_orca_stages: int = 20,
-    orca_route_line: str = "! r2scan-3c Opt TightSCF",
-    charge: int = 0,
-    multiplicity: int = 1,
-    crest_job_manifest: dict[str, Any] | None = None,
-    workflow_id_factory: Callable[[str], str],
-    copy_input_fn: Callable[[str, Path], str],
-    now_utc_iso_fn: Callable[[], str],
-    new_crest_stage_fn: Callable[..., dict[str, Any]],
-    write_workflow_payload_fn: Callable[[Path, dict[str, Any]], None],
-    sync_workflow_registry_fn: Callable[[Path, Path, dict[str, Any]], None],
+    request: ConformerScreeningWorkflowRequest,
+    context: WorkflowCreationContext,
 ) -> dict[str, Any]:
-    workflow_id = str(workflow_id or "").strip() or workflow_id_factory("wf_conformer_screening")
-    workflow_root_path = Path(workflow_root).expanduser().resolve()
+    workflow_id = str(request.workflow_id or "").strip() or context.workflow_id_factory(
+        "wf_conformer_screening"
+    )
+    workflow_root_path = Path(request.workflow_root).expanduser().resolve()
     workspace_dir = workflow_root_path / workflow_id
-    copied_input = copy_input_fn(input_xyz, workspace_dir / "inputs" / Path(input_xyz).name)
-    requested_at = now_utc_iso_fn()
+    copied_input = context.copy_input_fn(
+        request.input_xyz,
+        workspace_dir / "inputs" / Path(request.input_xyz).name,
+    )
+    requested_at = context.now_utc_iso_fn()
     stages = [
-        new_crest_stage_fn(
+        context.new_crest_stage_fn(
             workflow_id=workflow_id,
             template_name="conformer_screening",
             stage_id="crest_conformer_01",
             source_path=copied_input,
             input_role="molecule",
-            mode=crest_mode,
-            priority=priority,
-            max_cores=max_cores,
-            max_memory_gb=max_memory_gb,
-            manifest_overrides=crest_job_manifest,
+            mode=request.crest_mode,
+            priority=request.priority,
+            max_cores=request.max_cores,
+            max_memory_gb=request.max_memory_gb,
+            manifest_overrides=request.crest_job_manifest,
         ),
     ]
-    request = WorkflowTemplateRequest(
+    template_request = WorkflowTemplateRequest(
         workflow_id=workflow_id,
         template_name="conformer_screening",
         source_job_id="",
@@ -402,32 +413,38 @@ def create_conformer_screening_workflow_impl(
         status="planned",
         requested_at=requested_at,
         parameters={
-            "crest_mode": crest_mode,
-            "priority": int(priority),
-            "max_cores": int(max_cores),
-            "max_memory_gb": int(max_memory_gb),
-            "max_orca_stages": int(max_orca_stages),
-            "orca_route_line": str(orca_route_line),
-            "charge": int(charge),
-            "multiplicity": int(multiplicity),
-            **({"crest_job_manifest": dict(crest_job_manifest)} if crest_job_manifest else {}),
+            "crest_mode": request.crest_mode,
+            "priority": int(request.priority),
+            "max_cores": int(request.max_cores),
+            "max_memory_gb": int(request.max_memory_gb),
+            "max_orca_stages": int(request.max_orca_stages),
+            "orca_route_line": str(request.orca_route_line),
+            "charge": int(request.charge),
+            "multiplicity": int(request.multiplicity),
+            **(
+                {"crest_job_manifest": dict(request.crest_job_manifest)}
+                if request.crest_job_manifest
+                else {}
+            ),
         },
         source_artifacts=(WorkflowArtifactRef(kind="input_xyz", path=copied_input, selected=True),),
     )
     return _persist_workflow(
-        workflow_root_path=workflow_root_path,
-        workspace_dir=workspace_dir,
-        workflow_id=workflow_id,
-        template_name="conformer_screening",
-        source_job_id="",
-        source_job_type="raw_xyz",
-        reaction_key=request.reaction_key,
-        requested_at=requested_at,
-        request=request,
+        persistence_context=WorkflowPersistenceContext(
+            workflow_root_path=workflow_root_path,
+            workspace_dir=workspace_dir,
+            workflow_id=workflow_id,
+            template_name="conformer_screening",
+            source_job_id="",
+            source_job_type="raw_xyz",
+            reaction_key=template_request.reaction_key,
+            requested_at=requested_at,
+        ),
+        request=template_request,
         stages=stages,
-        write_workflow_payload_fn=write_workflow_payload_fn,
-        sync_workflow_registry_fn=sync_workflow_registry_fn,
+        creation_context=context,
     )
+
 
 __all__ = [
     "_copy_input_impl",

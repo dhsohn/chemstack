@@ -261,7 +261,7 @@ def load_orca_artifact_contract_impl(
     roots = _resolve_roots(orca_allowed_root, orca_organized_root, deps)
     tracked_payload = _tracked_payload(request, roots, deps)
     if tracked_payload is not None:
-        return _contract_from_tracked_payload(tracked_payload, request, deps)
+        return _contract_from_payload(tracked_payload, request, deps)
 
     context = _load_context(request, roots, deps)
     queue_reaction_dir = _refresh_context_from_queue_reaction_dir(context, roots, deps)
@@ -306,6 +306,14 @@ def _contract_from_tracked_payload(
     request: _LoadRequest,
     deps: OrcaContractLoaderDeps,
 ) -> Any:
+    return _contract_from_payload(payload, request, deps)
+
+
+def _contract_from_payload(
+    payload: dict[str, Any],
+    request: _LoadRequest,
+    deps: OrcaContractLoaderDeps,
+) -> Any:
     final_result = payload.get("final_result")
     return deps.contract_cls(
         run_id=deps.normalize_text_fn(payload.get("run_id")),
@@ -340,7 +348,7 @@ def _contract_from_tracked_payload(
 
 def _payload_attempts(payload: dict[str, Any]) -> tuple[dict[str, Any], ...]:
     attempts_payload = payload.get("attempts")
-    if not isinstance(attempts_payload, list):
+    if not isinstance(attempts_payload, (list, tuple)):
         return ()
     return tuple(dict(item) for item in attempts_payload if isinstance(item, dict))
 
@@ -569,6 +577,20 @@ def _contract_from_context(
     queue_reaction_dir: Path | None,
     deps: OrcaContractLoaderDeps,
 ) -> Any:
+    return _contract_from_payload(
+        _payload_from_context(request, roots, context, queue_reaction_dir, deps),
+        request,
+        deps,
+    )
+
+
+def _payload_from_context(
+    request: _LoadRequest,
+    roots: _LoadRoots,
+    context: _LoaderContext,
+    queue_reaction_dir: Path | None,
+    deps: OrcaContractLoaderDeps,
+) -> dict[str, Any]:
     latest_known_path = _latest_known_path(request, context, queue_reaction_dir, deps)
     status = _contract_status(context, deps)
     paths = _artifact_paths(context, latest_known_path, deps)
@@ -576,35 +598,35 @@ def _contract_from_context(
     _ensure_orca_record(context.tracked_record)
     metadata_paths = _metadata_paths(context.current_dir)
     queue = context.queue_entry or {}
-    return deps.contract_cls(
-        run_id=context.resolved_run_id,
-        status=status.status,
-        reason=status.reason,
-        state_status=deps.normalize_text_fn(context.state.get("status")).lower(),
-        reaction_dir=str(context.current_dir)
+    return {
+        "run_id": context.resolved_run_id,
+        "status": status.status,
+        "reason": status.reason,
+        "state_status": deps.normalize_text_fn(context.state.get("status")).lower(),
+        "reaction_dir": str(context.current_dir)
         if context.current_dir is not None
         else deps.normalize_text_fn(request.reaction_dir),
-        latest_known_path=latest_known_path,
-        organized_output_dir=_organized_output_dir(context, roots, deps),
-        optimized_xyz_path=paths.optimized_xyz_path,
-        queue_id=deps.normalize_text_fn(queue.get("queue_id") or request.queue_id),
-        queue_status=deps.normalize_text_fn(queue.get("status")).lower(),
-        cancel_requested=deps.normalize_bool_fn(queue.get("cancel_requested")),
-        selected_inp=paths.selected_inp,
-        selected_input_xyz=paths.selected_input_xyz,
-        analyzer_status=status.analyzer_status,
-        completed_at=status.completed_at,
-        last_out_path=paths.last_out_path,
-        run_state_path=metadata_paths["run_state_path"],
-        report_json_path=metadata_paths["report_json_path"],
-        report_md_path=metadata_paths["report_md_path"],
-        attempt_count=deps.attempt_count_fn(context.state, context.report),
-        max_retries=deps.max_retries_fn(context.state, context.report),
-        attempts=deps.coerce_attempts_fn(context.state, context.report),
-        final_result=deps.final_result_payload_fn(context.state, context.report),
-        resource_request=resource_request,
-        resource_actual=resource_actual,
-    )
+        "latest_known_path": latest_known_path,
+        "organized_output_dir": _organized_output_dir(context, roots, deps),
+        "optimized_xyz_path": paths.optimized_xyz_path,
+        "queue_id": deps.normalize_text_fn(queue.get("queue_id") or request.queue_id),
+        "queue_status": deps.normalize_text_fn(queue.get("status")).lower(),
+        "cancel_requested": deps.normalize_bool_fn(queue.get("cancel_requested")),
+        "selected_inp": paths.selected_inp,
+        "selected_input_xyz": paths.selected_input_xyz,
+        "analyzer_status": status.analyzer_status,
+        "completed_at": status.completed_at,
+        "last_out_path": paths.last_out_path,
+        "run_state_path": metadata_paths["run_state_path"],
+        "report_json_path": metadata_paths["report_json_path"],
+        "report_md_path": metadata_paths["report_md_path"],
+        "attempt_count": deps.attempt_count_fn(context.state, context.report),
+        "max_retries": deps.max_retries_fn(context.state, context.report),
+        "attempts": deps.coerce_attempts_fn(context.state, context.report),
+        "final_result": deps.final_result_payload_fn(context.state, context.report),
+        "resource_request": resource_request,
+        "resource_actual": resource_actual,
+    }
 
 
 def _latest_known_path(

@@ -2,30 +2,24 @@ from __future__ import annotations
 
 from typing import Any, Iterable
 
+from chemstack.core.statuses import FAILED_STATUSES, STAGE_TERMINAL_STATUSES
+from chemstack.core.utils.coercion import (
+    coerce_mapping as _shared_coerce_mapping,
+    normalize_text as _shared_normalize_text,
+)
+
 WORKFLOW_PHASE_FINISHED_EVENT = "workflow_phase_finished"
 SUPPRESSED_STAGE_NOTIFICATION_ENGINES = frozenset({"crest", "xtb", "orca"})
-TERMINAL_STAGE_STATUSES = frozenset(
-    {
-        "completed",
-        "failed",
-        "cancelled",
-        "cancel_failed",
-        "submission_failed",
-    }
-)
-FAILED_STAGE_STATUSES = frozenset({"failed", "cancel_failed", "submission_failed"})
+TERMINAL_STAGE_STATUSES = STAGE_TERMINAL_STATUSES
+FAILED_STAGE_STATUSES = FAILED_STATUSES
 
 
 def _normalize_text(value: Any) -> str:
-    if value is None:
-        return ""
-    return str(value).strip()
+    return _shared_normalize_text(value)
 
 
 def _coerce_mapping(value: Any) -> dict[str, Any]:
-    if not isinstance(value, dict):
-        return {}
-    return {str(key): item for key, item in value.items()}
+    return _shared_coerce_mapping(value)
 
 
 def _stage_row(stage: Any) -> dict[str, str]:
@@ -39,15 +33,23 @@ def _stage_row(stage: Any) -> dict[str, str]:
         stage_id = _normalize_text(stage.get("stage_id"))
         return {
             "stage_id": stage_id,
-            "label": _normalize_text(metadata.get("input_role") or payload.get("input_role") or payload.get("reaction_key"))
+            "label": _normalize_text(
+                metadata.get("input_role")
+                or payload.get("input_role")
+                or payload.get("reaction_key")
+            )
             or stage_id,
             "engine": _normalize_text(task.get("engine")).lower(),
             "task_kind": _normalize_text(task.get("task_kind")).lower(),
             "status": _normalize_text(stage.get("status")).lower(),
             "task_status": _normalize_text(task.get("status")).lower(),
             "reason": _normalize_text(metadata.get("reason")).lower(),
-            "reaction_handoff_status": _normalize_text(metadata.get("reaction_handoff_status")).lower(),
-            "reaction_handoff_reason": _normalize_text(metadata.get("reaction_handoff_reason")).lower(),
+            "reaction_handoff_status": _normalize_text(
+                metadata.get("reaction_handoff_status")
+            ).lower(),
+            "reaction_handoff_reason": _normalize_text(
+                metadata.get("reaction_handoff_reason")
+            ).lower(),
         }
 
     stage_id = _normalize_text(stage.get("stage_id"))
@@ -159,7 +161,11 @@ def phase_snapshot(stages: Iterable[Any], *, engine: str) -> dict[str, Any]:
     return {
         "engine": engine_text,
         "stage_count": len(rows),
-        "stage_ids": [_normalize_text(row.get("stage_id")) for row in rows if _normalize_text(row.get("stage_id"))],
+        "stage_ids": [
+            _normalize_text(row.get("stage_id"))
+            for row in rows
+            if _normalize_text(row.get("stage_id"))
+        ],
         "stage_statuses": _stage_status_details(rows),
         "terminal_stage_ids": [
             _normalize_text(row.get("stage_id"))
@@ -207,7 +213,11 @@ def phase_transition_event_payloads(
     for definition in _phase_definitions(template_name):
         previous_phase = phase_snapshot(previous_stages, engine=definition["engine"])
         current_phase = phase_snapshot(current_stages, engine=definition["engine"])
-        if not current_phase["stage_count"] or not current_phase["finished"] or previous_phase["finished"]:
+        if (
+            not current_phase["stage_count"]
+            or not current_phase["finished"]
+            or previous_phase["finished"]
+        ):
             continue
         event_payloads.append(
             {
@@ -215,7 +225,9 @@ def phase_transition_event_payloads(
                 "workflow_id": _normalize_text(workflow_id),
                 "template_name": _normalize_text(template_name),
                 "status": _normalize_text(current_phase.get("outcome")),
-                "previous_status": "running" if previous_phase["stage_count"] and not previous_phase["finished"] else "",
+                "previous_status": "running"
+                if previous_phase["stage_count"] and not previous_phase["finished"]
+                else "",
                 "worker_session_id": _normalize_text(worker_session_id),
                 "metadata": {
                     "phase": definition["phase"],
@@ -228,7 +240,9 @@ def phase_transition_event_payloads(
                     "terminal_stage_ids": list(current_phase.get("terminal_stage_ids") or []),
                     "stage_status_counts": dict(current_phase.get("status_counts") or {}),
                     "task_status_counts": dict(current_phase.get("task_status_counts") or {}),
-                    "reaction_handoff_status_counts": dict(current_phase.get("reaction_handoff_status_counts") or {}),
+                    "reaction_handoff_status_counts": dict(
+                        current_phase.get("reaction_handoff_status_counts") or {}
+                    ),
                     "failure_reasons": list(current_phase.get("failure_reasons") or []),
                 },
             }

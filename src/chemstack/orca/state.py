@@ -5,6 +5,13 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, Optional, cast
 
+from chemstack.core.artifacts import (
+    ORGANIZED_REF_FILE,
+    RUN_REPORT_JSON_FILE,
+    RUN_REPORT_MD_FILE,
+    RUN_STATE_FILE,
+)
+
 from .persistence_utils import (
     atomic_write_json,
     atomic_write_text as _atomic_write_text,
@@ -16,10 +23,10 @@ from .types import RunFinalResult, RunState
 logger = logging.getLogger(__name__)
 
 
-STATE_FILE_NAME = "run_state.json"
-REPORT_JSON_NAME = "run_report.json"
-REPORT_MD_NAME = "run_report.md"
-ORGANIZED_REF_NAME = "organized_ref.json"
+STATE_FILE_NAME = RUN_STATE_FILE
+REPORT_JSON_NAME = RUN_REPORT_JSON_FILE
+REPORT_MD_NAME = RUN_REPORT_MD_FILE
+ORGANIZED_REF_NAME = ORGANIZED_REF_FILE
 
 
 def now_utc_iso() -> str:

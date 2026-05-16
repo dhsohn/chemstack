@@ -1,0 +1,125 @@
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
+from ._orchestration_stage_runtime_shared import _orchestration_context
+
+
+def xtb_attempt_rows_impl(stage: dict[str, Any]) -> list[dict[str, Any]]:
+    o = _orchestration_context()
+    metadata = o._stage_metadata(stage)
+    attempts = metadata.get("xtb_attempts")
+    if isinstance(attempts, list):
+        filtered = [item for item in attempts if isinstance(item, dict)]
+        metadata["xtb_attempts"] = filtered
+        return filtered
+    metadata["xtb_attempts"] = []
+    return metadata["xtb_attempts"]
+
+
+def xtb_attempt_record_impl(stage: dict[str, Any], *, attempt_number: int) -> dict[str, Any]:
+    o = _orchestration_context()
+    rows = o._xtb_attempt_rows(stage)
+    for row in rows:
+        if o._safe_int(row.get("attempt_number"), default=-1) == int(attempt_number):
+            return row
+    record = {"attempt_number": int(attempt_number)}
+    rows.append(record)
+    rows.sort(key=lambda item: o._safe_int(item.get("attempt_number"), default=0))
+    return record
+
+
+def xtb_retry_recipe_impl(attempt_number: int) -> dict[str, Any]:
+    attempt = max(0, int(attempt_number))
+    if attempt <= 0:
+        return {
+            "attempt_number": 0,
+            "recipe_id": "baseline",
+            "recipe_label": "baseline",
+            "namespace": "",
+            "xcontrol_name": "",
+            "xcontrol_lines": (),
+        }
+    if attempt == 1:
+        return {
+            "attempt_number": 1,
+            "recipe_id": "path_input_recommended",
+            "recipe_label": "recommended_path_input",
+            "namespace": "retry_01",
+            "xcontrol_name": "path_retry_01.inp",
+            "xcontrol_lines": (
+                "$path",
+                "   nrun=1",
+                "   npoint=25",
+                "   anopt=10",
+                "   kpush=0.003",
+                "   kpull=-0.015",
+                "   ppull=0.05",
+                "   alp=1.2",
+                "$end",
+            ),
+        }
+    return {
+        "attempt_number": attempt,
+        "recipe_id": "path_input_refined",
+        "recipe_label": "refined_path_input",
+        "namespace": f"retry_{attempt:02d}",
+        "xcontrol_name": f"path_retry_{attempt:02d}.inp",
+        "xcontrol_lines": (
+            "$path",
+            "   nrun=2",
+            "   npoint=35",
+            "   anopt=15",
+            "   kpush=0.003",
+            "   kpull=-0.015",
+            "   ppull=0.05",
+            "   alp=1.2",
+            "$end",
+        ),
+    }
+
+
+def xtb_path_retry_limit_impl(stage: dict[str, Any]) -> int:
+    o = _orchestration_context()
+    task = stage.get("task")
+    if not isinstance(task, dict):
+        return 2
+    payload = o._task_payload_dict(task)
+    metadata = o._coerce_mapping(task.get("metadata"))
+    return max(
+        0,
+        o._safe_int(
+            payload.get("max_handoff_retries", metadata.get("max_handoff_retries", 2)),
+            default=2,
+        ),
+    )
+
+
+def xtb_current_attempt_number_impl(stage: dict[str, Any]) -> int:
+    o = _orchestration_context()
+    metadata = o._stage_metadata(stage)
+    current = o._safe_int(metadata.get("xtb_active_attempt_number"), default=-1)
+    if current >= 0:
+        return current
+    attempts = o._xtb_attempt_rows(stage)
+    if attempts:
+        return max(o._safe_int(item.get("attempt_number"), default=0) for item in attempts)
+    return 0
+
+
+def _xtb_path_job_dir(xtb_allowed_root: Path, stage_id: str, attempt_number: int) -> Path:
+    base_dir = xtb_allowed_root / stage_id
+    if attempt_number == 0:
+        return base_dir
+    return base_dir / f"retry_attempt_{attempt_number:02d}"
+
+
+__all__ = [
+    "_xtb_path_job_dir",
+    "xtb_attempt_record_impl",
+    "xtb_attempt_rows_impl",
+    "xtb_current_attempt_number_impl",
+    "xtb_path_retry_limit_impl",
+    "xtb_retry_recipe_impl",
+]

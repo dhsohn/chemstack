@@ -5,6 +5,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
+from ..utils.coercion import normalize_text as _coerce_normalize_text
 from ..utils.lock import file_lock
 from ..utils.persistence import atomic_write_json, coerce_int, resolve_root_path
 from .location import JobLocationRecord
@@ -30,7 +31,7 @@ def _lock_path(root: Path) -> Path:
 
 
 def _normalize_text(value: Any) -> str:
-    return str(value).strip()
+    return _coerce_normalize_text(value, none="None")
 
 
 def _record_to_dict(record: JobLocationRecord) -> dict[str, Any]:
@@ -75,19 +76,13 @@ def _load_records(root: Path) -> list[JobLocationRecord]:
     except FileNotFoundError:
         return []
     except OSError as exc:
-        raise JobLocationIndexCorruptError(
-            f"Job location index cannot be read: {path}"
-        ) from exc
+        raise JobLocationIndexCorruptError(f"Job location index cannot be read: {path}") from exc
     try:
         raw = json.loads(text)
     except json.JSONDecodeError as exc:
-        raise JobLocationIndexCorruptError(
-            f"Job location index is not valid JSON: {path}"
-        ) from exc
+        raise JobLocationIndexCorruptError(f"Job location index is not valid JSON: {path}") from exc
     if not isinstance(raw, list):
-        raise JobLocationIndexCorruptError(
-            f"Job location index must contain a JSON list: {path}"
-        )
+        raise JobLocationIndexCorruptError(f"Job location index must contain a JSON list: {path}")
     return [_record_from_dict(item) for item in raw if isinstance(item, dict)]
 
 

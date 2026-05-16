@@ -5,6 +5,8 @@ from dataclasses import asdict, replace
 from pathlib import Path
 from typing import Any
 
+from chemstack.core.artifacts import QUEUE_FILE
+
 from ..utils.lock import file_lock
 from ..utils.persistence import (
     atomic_write_json,
@@ -16,7 +18,7 @@ from ..utils.persistence import (
 )
 from .types import QueueEntry, QueueStatus
 
-QUEUE_FILE_NAME = "queue.json"
+QUEUE_FILE_NAME = QUEUE_FILE
 QUEUE_LOCK_NAME = "queue.lock"
 _ACTIVE_STATUSES = frozenset({QueueStatus.PENDING, QueueStatus.RUNNING})
 _TERMINAL_STATUSES = frozenset({QueueStatus.COMPLETED, QueueStatus.FAILED, QueueStatus.CANCELLED})
@@ -96,7 +98,12 @@ def _load_entries(root: Path) -> list[QueueEntry]:
 
 
 def _save_entries(root: Path, entries: list[QueueEntry]) -> None:
-    atomic_write_json(root / QUEUE_FILE_NAME, [_entry_to_dict(item) for item in entries], ensure_ascii=True, indent=2)
+    atomic_write_json(
+        root / QUEUE_FILE_NAME,
+        [_entry_to_dict(item) for item in entries],
+        ensure_ascii=True,
+        indent=2,
+    )
 
 
 def list_queue(root: str | Path) -> list[QueueEntry]:
@@ -278,8 +285,12 @@ def _mark_status(
     return None
 
 
-def mark_completed(root: str | Path, queue_id: str, *, metadata_update: dict[str, Any] | None = None) -> QueueEntry | None:
-    return _mark_status(root, queue_id, status=QueueStatus.COMPLETED, metadata_update=metadata_update)
+def mark_completed(
+    root: str | Path, queue_id: str, *, metadata_update: dict[str, Any] | None = None
+) -> QueueEntry | None:
+    return _mark_status(
+        root, queue_id, status=QueueStatus.COMPLETED, metadata_update=metadata_update
+    )
 
 
 def mark_failed(
@@ -289,7 +300,9 @@ def mark_failed(
     error: str,
     metadata_update: dict[str, Any] | None = None,
 ) -> QueueEntry | None:
-    return _mark_status(root, queue_id, status=QueueStatus.FAILED, error=error, metadata_update=metadata_update)
+    return _mark_status(
+        root, queue_id, status=QueueStatus.FAILED, error=error, metadata_update=metadata_update
+    )
 
 
 def mark_cancelled(
@@ -299,4 +312,6 @@ def mark_cancelled(
     error: str = "",
     metadata_update: dict[str, Any] | None = None,
 ) -> QueueEntry | None:
-    return _mark_status(root, queue_id, status=QueueStatus.CANCELLED, error=error, metadata_update=metadata_update)
+    return _mark_status(
+        root, queue_id, status=QueueStatus.CANCELLED, error=error, metadata_update=metadata_update
+    )

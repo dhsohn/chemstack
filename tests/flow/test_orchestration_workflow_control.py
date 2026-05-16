@@ -4,7 +4,6 @@ import sys
 from contextlib import nullcontext
 from copy import deepcopy
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
@@ -150,7 +149,11 @@ def test_job_dir_writers_apply_manifest_overrides(tmp_path: Path) -> None:
             "payload": {
                 "source_input_xyz": str(input_xyz),
                 "mode": "standard",
-                "job_manifest_overrides": {"speed": "mquick", "solvent_model": "alpb", "solvent": "water"},
+                "job_manifest_overrides": {
+                    "speed": "mquick",
+                    "solvent_model": "alpb",
+                    "solvent": "water",
+                },
             },
             "enqueue_payload": {},
         },
@@ -160,7 +163,9 @@ def test_job_dir_writers_apply_manifest_overrides(tmp_path: Path) -> None:
         crest_allowed_root=tmp_path / "crest_allowed",
         workflow_id="wf_crest",
     )
-    crest_manifest = yaml.safe_load((Path(crest_job_dir) / "crest_job.yaml").read_text(encoding="utf-8"))
+    crest_manifest = yaml.safe_load(
+        (Path(crest_job_dir) / "crest_job.yaml").read_text(encoding="utf-8")
+    )
     assert crest_manifest == {
         "mode": "standard",
         "speed": "mquick",
@@ -219,7 +224,9 @@ def test_job_dir_writers_apply_manifest_overrides(tmp_path: Path) -> None:
         "namespace": "baseline_ns",
         "xcontrol": "workflow_xcontrol.inp",
     }
-    assert (xtb_job_path / "workflow_xcontrol.inp").read_text(encoding="utf-8") == "$path\nnrun=4\n$end\n"
+    assert (xtb_job_path / "workflow_xcontrol.inp").read_text(
+        encoding="utf-8"
+    ) == "$path\nnrun=4\n$end\n"
 
 
 def test_advance_workflow_reaction_ts_search_runs_append_sequence_and_sets_child_sync_metadata(
@@ -244,8 +251,16 @@ def test_advance_workflow_reaction_ts_search_runs_append_sequence_and_sets_child
     written: list[dict[str, Any]] = []
     synced: list[dict[str, Any]] = []
 
-    monkeypatch.setattr(orchestration, "resolve_workflow_workspace", lambda target, workflow_root: tmp_path / "workspace")
-    monkeypatch.setattr(orchestration, "acquire_workflow_lock", lambda workspace_dir, timeout_seconds=5.0: nullcontext())
+    monkeypatch.setattr(
+        orchestration,
+        "resolve_workflow_workspace",
+        lambda target, workflow_root: tmp_path / "workspace",
+    )
+    monkeypatch.setattr(
+        orchestration,
+        "acquire_workflow_lock",
+        lambda workspace_dir, timeout_seconds=5.0: nullcontext(),
+    )
     monkeypatch.setattr(orchestration, "load_workflow_payload", lambda workspace_dir: payload)
     monkeypatch.setattr(orchestration, "now_utc_iso", lambda: "2026-04-19T12:00:00+00:00")
 
@@ -290,17 +305,30 @@ def test_advance_workflow_reaction_ts_search_runs_append_sequence_and_sets_child
         calls.append(("orca", str(stage.get("stage_id", "")), bool(kwargs["submit_ready"])))
 
     monkeypatch.setattr(orchestration, "_sync_crest_stage", fake_sync_crest_stage)
-    monkeypatch.setattr(orchestration, "_append_reaction_xtb_stages", fake_append_reaction_xtb_stages)
+    monkeypatch.setattr(
+        orchestration, "_append_reaction_xtb_stages", fake_append_reaction_xtb_stages
+    )
     monkeypatch.setattr(orchestration, "_sync_xtb_stage", fake_sync_xtb_stage)
-    monkeypatch.setattr(orchestration, "_clear_reaction_xtb_handoff_error_if_recovering", fake_clear)
-    monkeypatch.setattr(orchestration, "_append_reaction_orca_stages", fake_append_reaction_orca_stages)
+    monkeypatch.setattr(
+        orchestration, "_clear_reaction_xtb_handoff_error_if_recovering", fake_clear
+    )
+    monkeypatch.setattr(
+        orchestration, "_append_reaction_orca_stages", fake_append_reaction_orca_stages
+    )
     monkeypatch.setattr(orchestration, "_sync_orca_stage", fake_sync_orca_stage)
-    monkeypatch.setattr(orchestration, "_recompute_workflow_status", lambda current_payload: "failed")
-    monkeypatch.setattr(orchestration, "_workflow_has_active_children", lambda current_payload: True)
+    monkeypatch.setattr(
+        orchestration, "_recompute_workflow_status", lambda current_payload: "failed"
+    )
+    monkeypatch.setattr(
+        orchestration, "_workflow_has_active_children", lambda current_payload: True
+    )
+
     def fake_write_workflow_payload(workspace_dir: Path, current_payload: dict[str, Any]) -> None:
         written.append(deepcopy(current_payload))
 
-    def fake_sync_workflow_registry(workflow_root: Path, workspace_dir: Path, current_payload: dict[str, Any]) -> None:
+    def fake_sync_workflow_registry(
+        workflow_root: Path, workspace_dir: Path, current_payload: dict[str, Any]
+    ) -> None:
         synced.append(deepcopy(current_payload))
 
     monkeypatch.setattr(orchestration, "write_workflow_payload", fake_write_workflow_payload)
@@ -359,8 +387,16 @@ def test_advance_workflow_checkpoints_completed_crest_before_xtb_materialization
     }
     writes: list[dict[str, Any]] = []
 
-    monkeypatch.setattr(orchestration, "resolve_workflow_workspace", lambda target, workflow_root: tmp_path / "workspace")
-    monkeypatch.setattr(orchestration, "acquire_workflow_lock", lambda workspace_dir, timeout_seconds=5.0: nullcontext())
+    monkeypatch.setattr(
+        orchestration,
+        "resolve_workflow_workspace",
+        lambda target, workflow_root: tmp_path / "workspace",
+    )
+    monkeypatch.setattr(
+        orchestration,
+        "acquire_workflow_lock",
+        lambda workspace_dir, timeout_seconds=5.0: nullcontext(),
+    )
     monkeypatch.setattr(orchestration, "load_workflow_payload", lambda workspace_dir: payload)
     monkeypatch.setattr(orchestration, "now_utc_iso", lambda: "2026-04-24T06:00:00+00:00")
 
@@ -380,15 +416,35 @@ def test_advance_workflow_checkpoints_completed_crest_before_xtb_materialization
         return True
 
     monkeypatch.setattr(orchestration, "_sync_crest_stage", fake_sync_crest_stage)
-    monkeypatch.setattr(orchestration, "_append_reaction_xtb_stages", fake_append_reaction_xtb_stages)
+    monkeypatch.setattr(
+        orchestration, "_append_reaction_xtb_stages", fake_append_reaction_xtb_stages
+    )
     monkeypatch.setattr(orchestration, "_sync_xtb_stage", lambda stage, **kwargs: None)
-    monkeypatch.setattr(orchestration, "_clear_reaction_xtb_handoff_error_if_recovering", lambda current_payload: None)
-    monkeypatch.setattr(orchestration, "_append_reaction_orca_stages", lambda current_payload, **kwargs: False)
+    monkeypatch.setattr(
+        orchestration,
+        "_clear_reaction_xtb_handoff_error_if_recovering",
+        lambda current_payload: None,
+    )
+    monkeypatch.setattr(
+        orchestration, "_append_reaction_orca_stages", lambda current_payload, **kwargs: False
+    )
     monkeypatch.setattr(orchestration, "_sync_orca_stage", lambda stage, **kwargs: None)
-    monkeypatch.setattr(orchestration, "_recompute_workflow_status", lambda current_payload: "running")
-    monkeypatch.setattr(orchestration, "_workflow_has_active_children", lambda current_payload: False)
-    monkeypatch.setattr(orchestration, "write_workflow_payload", lambda workspace_dir, current_payload: writes.append(deepcopy(current_payload)))
-    monkeypatch.setattr(orchestration, "sync_workflow_registry", lambda workflow_root, workspace_dir, current_payload: None)
+    monkeypatch.setattr(
+        orchestration, "_recompute_workflow_status", lambda current_payload: "running"
+    )
+    monkeypatch.setattr(
+        orchestration, "_workflow_has_active_children", lambda current_payload: False
+    )
+    monkeypatch.setattr(
+        orchestration,
+        "write_workflow_payload",
+        lambda workspace_dir, current_payload: writes.append(deepcopy(current_payload)),
+    )
+    monkeypatch.setattr(
+        orchestration,
+        "sync_workflow_registry",
+        lambda workflow_root, workspace_dir, current_payload: None,
+    )
 
     orchestration.advance_workflow(
         target="wf_reaction_checkpoint",
@@ -431,12 +487,22 @@ def test_advance_workflow_reaction_ts_search_waits_for_all_xtb_children_before_q
     }
     calls: list[tuple[str, str]] = []
 
-    monkeypatch.setattr(orchestration, "resolve_workflow_workspace", lambda target, workflow_root: tmp_path / "workspace")
-    monkeypatch.setattr(orchestration, "acquire_workflow_lock", lambda workspace_dir, timeout_seconds=5.0: nullcontext())
+    monkeypatch.setattr(
+        orchestration,
+        "resolve_workflow_workspace",
+        lambda target, workflow_root: tmp_path / "workspace",
+    )
+    monkeypatch.setattr(
+        orchestration,
+        "acquire_workflow_lock",
+        lambda workspace_dir, timeout_seconds=5.0: nullcontext(),
+    )
     monkeypatch.setattr(orchestration, "load_workflow_payload", lambda workspace_dir: payload)
     monkeypatch.setattr(orchestration, "now_utc_iso", lambda: "2026-04-22T09:00:00+00:00")
     monkeypatch.setattr(orchestration, "_sync_crest_stage", lambda stage, **kwargs: None)
-    monkeypatch.setattr(orchestration, "_append_reaction_xtb_stages", lambda current_payload, **kwargs: False)
+    monkeypatch.setattr(
+        orchestration, "_append_reaction_xtb_stages", lambda current_payload, **kwargs: False
+    )
 
     def fake_sync_xtb_stage(stage: dict[str, Any], **kwargs: object) -> None:
         calls.append(("sync_xtb", str(stage.get("stage_id", ""))))
@@ -451,13 +517,29 @@ def test_advance_workflow_reaction_ts_search_waits_for_all_xtb_children_before_q
             calls.append(("sync_orca", str(stage.get("stage_id", ""))))
 
     monkeypatch.setattr(orchestration, "_sync_xtb_stage", fake_sync_xtb_stage)
-    monkeypatch.setattr(orchestration, "_clear_reaction_xtb_handoff_error_if_recovering", lambda current_payload: None)
-    monkeypatch.setattr(orchestration, "_append_reaction_orca_stages", fake_append_reaction_orca_stages)
+    monkeypatch.setattr(
+        orchestration,
+        "_clear_reaction_xtb_handoff_error_if_recovering",
+        lambda current_payload: None,
+    )
+    monkeypatch.setattr(
+        orchestration, "_append_reaction_orca_stages", fake_append_reaction_orca_stages
+    )
     monkeypatch.setattr(orchestration, "_sync_orca_stage", fake_sync_orca_stage)
-    monkeypatch.setattr(orchestration, "_recompute_workflow_status", lambda current_payload: "running")
-    monkeypatch.setattr(orchestration, "_workflow_has_active_children", lambda current_payload: True)
-    monkeypatch.setattr(orchestration, "write_workflow_payload", lambda workspace_dir, current_payload: None)
-    monkeypatch.setattr(orchestration, "sync_workflow_registry", lambda workflow_root, workspace_dir, current_payload: None)
+    monkeypatch.setattr(
+        orchestration, "_recompute_workflow_status", lambda current_payload: "running"
+    )
+    monkeypatch.setattr(
+        orchestration, "_workflow_has_active_children", lambda current_payload: True
+    )
+    monkeypatch.setattr(
+        orchestration, "write_workflow_payload", lambda workspace_dir, current_payload: None
+    )
+    monkeypatch.setattr(
+        orchestration,
+        "sync_workflow_registry",
+        lambda workflow_root, workspace_dir, current_payload: None,
+    )
 
     result = orchestration.advance_workflow(
         target="wf_reaction_incremental",
@@ -494,13 +576,25 @@ def test_advance_workflow_conformer_screening_queues_twenty_orca_children_after_
     }
     synced_orca_stage_ids: list[str] = []
 
-    monkeypatch.setattr(orchestration, "resolve_workflow_workspace", lambda target, workflow_root: tmp_path / "workspace")
-    monkeypatch.setattr(orchestration, "acquire_workflow_lock", lambda workspace_dir, timeout_seconds=5.0: nullcontext())
+    monkeypatch.setattr(
+        orchestration,
+        "resolve_workflow_workspace",
+        lambda target, workflow_root: tmp_path / "workspace",
+    )
+    monkeypatch.setattr(
+        orchestration,
+        "acquire_workflow_lock",
+        lambda workspace_dir, timeout_seconds=5.0: nullcontext(),
+    )
     monkeypatch.setattr(orchestration, "load_workflow_payload", lambda workspace_dir: payload)
     monkeypatch.setattr(orchestration, "now_utc_iso", lambda: "2026-04-22T11:00:00+00:00")
     monkeypatch.setattr(orchestration, "_sync_crest_stage", lambda stage, **kwargs: None)
     monkeypatch.setattr(orchestration, "_sync_xtb_stage", lambda stage, **kwargs: None)
-    monkeypatch.setattr(orchestration, "_clear_reaction_xtb_handoff_error_if_recovering", lambda current_payload: None)
+    monkeypatch.setattr(
+        orchestration,
+        "_clear_reaction_xtb_handoff_error_if_recovering",
+        lambda current_payload: None,
+    )
 
     def fake_append_crest_orca_stages(current_payload: dict[str, Any], **kwargs: object) -> bool:
         for index in range(1, 21):
@@ -520,10 +614,20 @@ def test_advance_workflow_conformer_screening_queues_twenty_orca_children_after_
 
     monkeypatch.setattr(orchestration, "_append_crest_orca_stages", fake_append_crest_orca_stages)
     monkeypatch.setattr(orchestration, "_sync_orca_stage", fake_sync_orca_stage)
-    monkeypatch.setattr(orchestration, "_recompute_workflow_status", lambda current_payload: "running")
-    monkeypatch.setattr(orchestration, "_workflow_has_active_children", lambda current_payload: True)
-    monkeypatch.setattr(orchestration, "write_workflow_payload", lambda workspace_dir, current_payload: None)
-    monkeypatch.setattr(orchestration, "sync_workflow_registry", lambda workflow_root, workspace_dir, current_payload: None)
+    monkeypatch.setattr(
+        orchestration, "_recompute_workflow_status", lambda current_payload: "running"
+    )
+    monkeypatch.setattr(
+        orchestration, "_workflow_has_active_children", lambda current_payload: True
+    )
+    monkeypatch.setattr(
+        orchestration, "write_workflow_payload", lambda workspace_dir, current_payload: None
+    )
+    monkeypatch.setattr(
+        orchestration,
+        "sync_workflow_registry",
+        lambda workflow_root, workspace_dir, current_payload: None,
+    )
 
     result = orchestration.advance_workflow(
         target="wf_conformer_incremental",
@@ -569,15 +673,31 @@ def test_advance_workflow_auto_cancels_active_siblings_after_failure(
     }
     crest_cancel_calls: list[dict[str, Any]] = []
 
-    monkeypatch.setattr(orchestration, "resolve_workflow_workspace", lambda target, workflow_root: tmp_path / "workspace")
-    monkeypatch.setattr(orchestration, "acquire_workflow_lock", lambda workspace_dir, timeout_seconds=5.0: nullcontext())
+    monkeypatch.setattr(
+        orchestration,
+        "resolve_workflow_workspace",
+        lambda target, workflow_root: tmp_path / "workspace",
+    )
+    monkeypatch.setattr(
+        orchestration,
+        "acquire_workflow_lock",
+        lambda workspace_dir, timeout_seconds=5.0: nullcontext(),
+    )
     monkeypatch.setattr(orchestration, "load_workflow_payload", lambda workspace_dir: payload)
     monkeypatch.setattr(orchestration, "now_utc_iso", lambda: "2026-04-24T01:00:00+00:00")
     monkeypatch.setattr(orchestration, "_sync_crest_stage", lambda stage, **kwargs: None)
-    monkeypatch.setattr(orchestration, "_append_reaction_xtb_stages", lambda current_payload, **kwargs: False)
+    monkeypatch.setattr(
+        orchestration, "_append_reaction_xtb_stages", lambda current_payload, **kwargs: False
+    )
     monkeypatch.setattr(orchestration, "_sync_xtb_stage", lambda stage, **kwargs: None)
-    monkeypatch.setattr(orchestration, "_clear_reaction_xtb_handoff_error_if_recovering", lambda current_payload: None)
-    monkeypatch.setattr(orchestration, "_append_reaction_orca_stages", lambda current_payload, **kwargs: False)
+    monkeypatch.setattr(
+        orchestration,
+        "_clear_reaction_xtb_handoff_error_if_recovering",
+        lambda current_payload: None,
+    )
+    monkeypatch.setattr(
+        orchestration, "_append_reaction_orca_stages", lambda current_payload, **kwargs: False
+    )
     monkeypatch.setattr(orchestration, "_sync_orca_stage", lambda stage, **kwargs: None)
 
     def fake_crest_cancel_target(**kwargs: Any) -> dict[str, Any]:
@@ -589,8 +709,14 @@ def test_advance_workflow_auto_cancels_active_siblings_after_failure(
         "crest_cancel_target",
         fake_crest_cancel_target,
     )
-    monkeypatch.setattr(orchestration, "write_workflow_payload", lambda workspace_dir, current_payload: None)
-    monkeypatch.setattr(orchestration, "sync_workflow_registry", lambda workflow_root, workspace_dir, current_payload: None)
+    monkeypatch.setattr(
+        orchestration, "write_workflow_payload", lambda workspace_dir, current_payload: None
+    )
+    monkeypatch.setattr(
+        orchestration,
+        "sync_workflow_registry",
+        lambda workflow_root, workspace_dir, current_payload: None,
+    )
 
     result = orchestration.advance_workflow(
         target="wf_failed_cancel",
@@ -615,391 +741,3 @@ def test_advance_workflow_auto_cancels_active_siblings_after_failure(
     assert result["stages"][2]["task"]["status"] == "cancelled"
     assert result["metadata"]["final_child_sync_pending"] is True
     assert result["metadata"]["final_child_sync_completed_at"] == ""
-
-
-def test_cancel_materialized_workflow_mixes_local_remote_and_failed_cancellations(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    payload: dict[str, Any] = {
-        "workflow_id": "wf_cancel_01",
-        "status": "running",
-        "stages": [
-            {
-                "stage_id": "stage_completed",
-                "status": "completed",
-                "task": {"engine": "crest", "status": "completed"},
-            },
-            {
-                "stage_id": "stage_local",
-                "status": "planned",
-                "task": {"engine": "crest", "status": "planned"},
-            },
-            {
-                "stage_id": "stage_crest_remote",
-                "status": "queued",
-                "metadata": {"queue_id": "q_crest"},
-                "task": {"engine": "crest", "status": "queued"},
-            },
-            {
-                "stage_id": "stage_xtb_missing_config",
-                "status": "running",
-                "metadata": {"queue_id": "q_xtb"},
-                "task": {"engine": "xtb", "status": "running"},
-            },
-            {
-                "stage_id": "stage_orca_remote",
-                "status": "submitted",
-                "metadata": {"queue_id": "q_orca"},
-                "task": {"engine": "orca", "status": "submitted"},
-            },
-        ],
-    }
-
-    monkeypatch.setattr(orchestration, "resolve_workflow_workspace", lambda target, workflow_root: tmp_path / "workspace")
-    monkeypatch.setattr(orchestration, "acquire_workflow_lock", lambda workspace_dir, timeout_seconds=5.0: nullcontext())
-    monkeypatch.setattr(orchestration, "load_workflow_payload", lambda workspace_dir: payload)
-    monkeypatch.setattr(orchestration, "crest_cancel_target", lambda **kwargs: {"status": "cancel_requested", "queue_id": kwargs["target"]})
-    monkeypatch.setattr(orchestration, "orca_cancel_target", lambda **kwargs: {"status": "cancelled", "queue_id": kwargs["target"]})
-    monkeypatch.setattr(orchestration, "write_workflow_payload", lambda workspace_dir, current_payload: None)
-    monkeypatch.setattr(orchestration, "sync_workflow_registry", lambda workflow_root, workspace_dir, current_payload: None)
-
-    result = orchestration.cancel_materialized_workflow(
-        target="wf_cancel_01",
-        workflow_root=tmp_path,
-        crest_auto_config="/tmp/crest.yaml",
-        orca_auto_config="/tmp/orca.yaml",
-    )
-
-    assert result["status"] == "cancel_requested"
-    assert result["cancelled"] == [
-        {"stage_id": "stage_local", "mode": "local"},
-        {"stage_id": "stage_crest_remote", "status": "cancel_requested"},
-        {"stage_id": "stage_orca_remote", "status": "cancelled"},
-    ]
-    assert result["failed"] == [
-        {"stage_id": "stage_xtb_missing_config", "reason": "missing_engine_config"},
-    ]
-    assert payload["stages"][1]["status"] == "cancelled"
-    assert payload["stages"][1]["task"]["status"] == "cancelled"
-    assert payload["stages"][2]["task"]["cancel_result"]["status"] == "cancel_requested"
-    assert payload["stages"][3]["task"]["cancel_result"]["reason"] == "missing_engine_config"
-    assert payload["stages"][4]["task"]["cancel_result"]["status"] == "cancelled"
-
-
-def test_cancel_materialized_workflow_reports_cancelled_when_no_remote_request_pending(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    payload: dict[str, Any] = {
-        "workflow_id": "wf_cancel_02",
-        "status": "running",
-        "stages": [
-            {
-                "stage_id": "stage_local",
-                "status": "queued",
-                "task": {"engine": "crest", "status": "queued"},
-            }
-        ],
-    }
-
-    monkeypatch.setattr(orchestration, "resolve_workflow_workspace", lambda target, workflow_root: tmp_path / "workspace")
-    monkeypatch.setattr(orchestration, "acquire_workflow_lock", lambda workspace_dir, timeout_seconds=5.0: nullcontext())
-    monkeypatch.setattr(orchestration, "load_workflow_payload", lambda workspace_dir: payload)
-    monkeypatch.setattr(orchestration, "write_workflow_payload", lambda workspace_dir, current_payload: None)
-    monkeypatch.setattr(orchestration, "sync_workflow_registry", lambda workflow_root, workspace_dir, current_payload: None)
-
-    result = orchestration.cancel_materialized_workflow(
-        target="wf_cancel_02",
-        workflow_root=tmp_path,
-    )
-
-    assert result["status"] == "cancelled"
-    assert result["cancelled"] == [{"stage_id": "stage_local", "mode": "local"}]
-    assert result["failed"] == []
-
-
-def test_cancel_materialized_workflow_reports_cancel_failed_when_stage_cancellation_fails(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    payload: dict[str, Any] = {
-        "workflow_id": "wf_failed_cancel",
-        "status": "running",
-        "stages": [
-            {
-                "stage_id": "stage_orca_remote",
-                "status": "submitted",
-                "metadata": {"queue_id": "q_orca"},
-                "task": {"engine": "orca", "status": "submitted"},
-            },
-        ],
-    }
-
-    monkeypatch.setattr(orchestration, "resolve_workflow_workspace", lambda target, workflow_root: tmp_path / "workspace")
-    monkeypatch.setattr(orchestration, "acquire_workflow_lock", lambda workspace_dir, timeout_seconds=5.0: nullcontext())
-    monkeypatch.setattr(orchestration, "load_workflow_payload", lambda workspace_dir: payload)
-    monkeypatch.setattr(orchestration, "orca_cancel_target", lambda **kwargs: {"status": "failed", "reason": "cancel_command_timeout"})
-    monkeypatch.setattr(orchestration, "write_workflow_payload", lambda workspace_dir, current_payload: None)
-    monkeypatch.setattr(orchestration, "sync_workflow_registry", lambda workflow_root, workspace_dir, current_payload: None)
-
-    result = orchestration.cancel_materialized_workflow(
-        target="wf_failed_cancel",
-        workflow_root=tmp_path,
-        orca_auto_config="/tmp/orca.yaml",
-    )
-
-    assert result["status"] == "cancel_failed"
-    assert result["cancelled"] == []
-    assert result["failed"] == [{"stage_id": "stage_orca_remote", "reason": "cancel_command_timeout"}]
-
-
-def test_cancel_materialized_workflow_reports_busy_lock_timeout(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(orchestration, "resolve_workflow_workspace", lambda target, workflow_root: tmp_path / "workspace")
-
-    def fake_acquire_workflow_lock(workspace_dir, timeout_seconds=5.0):
-        raise TimeoutError("Timed out acquiring lock")
-
-    monkeypatch.setattr(orchestration, "acquire_workflow_lock", fake_acquire_workflow_lock)
-
-    with pytest.raises(ValueError, match="Workflow is busy and could not be locked for cancellation within 5s"):
-        orchestration.cancel_materialized_workflow(
-            target="wf_busy",
-            workflow_root=tmp_path,
-        )
-
-
-def test_sync_xtb_stage_submits_initial_attempt_and_records_handoff_metadata(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    contract = SimpleNamespace(
-        status="completed",
-        job_id="xtb_job_01",
-        reason="ok",
-        latest_known_path="/tmp/xtb_done",
-        organized_output_dir="/tmp/xtb_outputs/run_01",
-        selected_input_xyz="/tmp/xtb_done/reactant.xyz",
-        candidate_details=(
-            SimpleNamespace(path="/tmp/xtb_done/ts_guess.xyz", selected=True, rank=1, kind="ts_guess", score=-12.3, metadata={"source": "xtb"}),
-        ),
-        selected_candidate_paths=["/tmp/xtb_done/ts_guess.xyz"],
-        analysis_summary={"completed_at": "2026-04-19T00:10:00+00:00"},
-    )
-    stage: dict[str, Any] = {
-        "stage_id": "xtb_path_search_01",
-        "status": "planned",
-        "metadata": {},
-        "task": {
-            "engine": "xtb",
-            "task_kind": "path_search",
-            "status": "planned",
-            "payload": {"job_dir": "", "selected_input_xyz": ""},
-            "enqueue_payload": {"priority": 7},
-        },
-    }
-
-    monkeypatch.setattr(orchestration, "sibling_allowed_root", lambda path: tmp_path / "xtb_allowed")
-    monkeypatch.setattr(orchestration, "_load_config_root", lambda config_path: tmp_path / "xtb_allowed")
-    monkeypatch.setattr(orchestration, "_ensure_xtb_job_dir", lambda stage, **kwargs: str(tmp_path / "xtb_allowed" / "wf_01" / "job_01"))
-    monkeypatch.setattr(
-        orchestration,
-        "submit_xtb_job_dir",
-        lambda **kwargs: {"status": "submitted", "queue_id": "q_xtb_01", "job_id": "xtb_job_01"},
-    )
-    monkeypatch.setattr(orchestration, "load_xtb_artifact_contract", lambda **kwargs: contract)
-    monkeypatch.setattr(
-        orchestration,
-        "_xtb_handoff_status",
-        lambda current_contract: {
-            "status": "ready",
-            "reason": "",
-            "message": "",
-            "artifact_path": "/tmp/xtb_done/ts_guess.xyz",
-        },
-    )
-    monkeypatch.setattr(orchestration, "now_utc_iso", lambda: "2026-04-19T14:00:00+00:00")
-
-    orchestration._sync_xtb_stage(
-        stage,
-        xtb_auto_config="/tmp/xtb.yaml",
-        xtb_auto_executable="xtb_auto",
-        xtb_auto_repo_root="/tmp/xtb_repo",
-        submit_ready=True,
-        workflow_id="wf_01",
-        workspace_dir=tmp_path / "workspace" / "wf_01",
-    )
-
-    metadata = stage["metadata"]
-    task = stage["task"]
-    attempt = metadata["xtb_attempts"][0]
-
-    assert stage["status"] == "completed"
-    assert task["status"] == "completed"
-    assert task["submission_result"]["queue_id"] == "q_xtb_01"
-    assert task["submission_result"]["submitted_at"] == "2026-04-19T14:00:00+00:00"
-    assert task["payload"]["selected_input_xyz"] == "/tmp/xtb_done/reactant.xyz"
-    assert metadata["queue_id"] == "q_xtb_01"
-    assert metadata["child_job_id"] == "xtb_job_01"
-    assert metadata["reaction_handoff_status"] == "ready"
-    assert metadata["reaction_handoff_artifact_path"] == "/tmp/xtb_done/ts_guess.xyz"
-    assert metadata["xtb_handoff_retry_limit"] == 2
-    assert metadata["xtb_handoff_retries_used"] == 0
-    assert attempt["submission_status"] == "submitted"
-    assert attempt["queue_id"] == "q_xtb_01"
-    assert attempt["status"] == "completed"
-    assert attempt["handoff_status"] == "ready"
-    assert stage["output_artifacts"] == [
-        {
-            "kind": "xtb_candidate",
-            "path": "/tmp/xtb_done/ts_guess.xyz",
-            "selected": True,
-            "metadata": {"rank": 1, "kind": "ts_guess", "score": -12.3, "source": "xtb"},
-        }
-    ]
-
-
-def test_sync_xtb_stage_retries_failed_handoff_when_retry_budget_remains(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    contract = SimpleNamespace(
-        status="completed",
-        job_id="xtb_job_02",
-        reason="ts_missing",
-        latest_known_path="/tmp/xtb_done",
-        organized_output_dir="/tmp/xtb_outputs/run_02",
-        selected_input_xyz="/tmp/xtb_done/reactant.xyz",
-        candidate_details=(),
-        selected_candidate_paths=[],
-        analysis_summary={"completed_at": "2026-04-19T00:20:00+00:00"},
-    )
-    stage: dict[str, Any] = {
-        "stage_id": "xtb_path_search_02",
-        "status": "completed",
-        "metadata": {"xtb_handoff_retries_used": 0},
-        "task": {
-            "engine": "xtb",
-            "task_kind": "path_search",
-            "status": "completed",
-            "payload": {"job_dir": "/tmp/original_job", "max_handoff_retries": 2},
-            "enqueue_payload": {"priority": 9},
-        },
-    }
-    submissions: list[dict[str, Any]] = []
-
-    monkeypatch.setattr(orchestration, "_load_config_root", lambda config_path: tmp_path / "xtb_allowed")
-    monkeypatch.setattr(orchestration, "sibling_allowed_root", lambda path: tmp_path / "xtb_allowed")
-    monkeypatch.setattr(orchestration, "load_xtb_artifact_contract", lambda **kwargs: contract)
-    monkeypatch.setattr(
-        orchestration,
-        "_xtb_handoff_status",
-        lambda current_contract: {
-            "status": "failed",
-            "reason": "xtb_ts_guess_missing",
-            "message": "missing ts guess",
-            "artifact_path": "",
-        },
-    )
-    monkeypatch.setattr(orchestration, "_write_xtb_path_job", lambda stage, **kwargs: str(tmp_path / "xtb_allowed" / "wf_02" / "retry_attempt_01"))
-    def fake_submit_xtb_job_dir(**kwargs: Any) -> dict[str, str]:
-        submissions.append(kwargs)
-        return {"status": "submitted", "queue_id": "q_retry_01", "job_id": "xtb_job_retry"}
-
-    monkeypatch.setattr(orchestration, "submit_xtb_job_dir", fake_submit_xtb_job_dir)
-    monkeypatch.setattr(orchestration, "now_utc_iso", lambda: "2026-04-19T14:10:00+00:00")
-
-    orchestration._sync_xtb_stage(
-        stage,
-        xtb_auto_config="/tmp/xtb.yaml",
-        xtb_auto_executable="xtb_auto",
-        xtb_auto_repo_root="/tmp/xtb_repo",
-        submit_ready=True,
-        workflow_id="wf_02",
-        workspace_dir=tmp_path / "workspace" / "wf_02",
-    )
-
-    metadata = stage["metadata"]
-    retry_attempt = next(item for item in cast(list[dict[str, Any]], metadata["xtb_attempts"]) if item["attempt_number"] == 1)
-
-    assert submissions and submissions[0]["job_dir"].endswith("retry_attempt_01")
-    assert stage["status"] == "queued"
-    assert stage["task"]["status"] == "submitted"
-    assert stage["task"]["submission_result"]["queue_id"] == "q_retry_01"
-    assert metadata["queue_id"] == "q_retry_01"
-    assert metadata["xtb_handoff_status"] == "retrying"
-    assert metadata["reaction_handoff_status"] == "retrying"
-    assert metadata["xtb_handoff_retries_used"] == 1
-    assert metadata["xtb_handoff_retry_limit"] == 2
-    assert retry_attempt["submission_status"] == "submitted"
-    assert retry_attempt["trigger_reason"] == "xtb_ts_guess_missing"
-    assert retry_attempt["trigger_message"] == "missing ts guess"
-
-
-def test_sync_xtb_stage_stops_retrying_after_limit_and_materializes_empty_candidates(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    contract = SimpleNamespace(
-        status="failed",
-        job_id="xtb_job_03",
-        reason="ts_missing",
-        latest_known_path="/tmp/xtb_failed",
-        organized_output_dir="/tmp/xtb_outputs/run_03",
-        selected_input_xyz="/tmp/xtb_failed/reactant.xyz",
-        candidate_details=(),
-        selected_candidate_paths=[],
-        analysis_summary={"completed_at": "2026-04-19T00:30:00+00:00"},
-    )
-    stage: dict[str, Any] = {
-        "stage_id": "xtb_path_search_03",
-        "status": "failed",
-        "metadata": {"xtb_handoff_retries_used": 2},
-        "task": {
-            "engine": "xtb",
-            "task_kind": "path_search",
-            "status": "failed",
-            "payload": {"job_dir": "/tmp/original_job", "max_handoff_retries": 2},
-            "enqueue_payload": {"priority": 9},
-        },
-    }
-
-    monkeypatch.setattr(orchestration, "_load_config_root", lambda config_path: tmp_path / "xtb_allowed")
-    monkeypatch.setattr(orchestration, "load_xtb_artifact_contract", lambda **kwargs: contract)
-    monkeypatch.setattr(
-        orchestration,
-        "_xtb_handoff_status",
-        lambda current_contract: {
-            "status": "failed",
-            "reason": "xtb_ts_guess_missing",
-            "message": "missing ts guess",
-            "artifact_path": "",
-        },
-    )
-    monkeypatch.setattr(
-        orchestration,
-        "submit_xtb_job_dir",
-        lambda **kwargs: (_ for _ in ()).throw(AssertionError("should not resubmit once retry limit is exhausted")),
-    )
-
-    orchestration._sync_xtb_stage(
-        stage,
-        xtb_auto_config="/tmp/xtb.yaml",
-        xtb_auto_executable="xtb_auto",
-        xtb_auto_repo_root="/tmp/xtb_repo",
-        submit_ready=True,
-        workflow_id="wf_03",
-        workspace_dir=tmp_path / "workspace" / "wf_03",
-    )
-
-    metadata = stage["metadata"]
-    assert stage["status"] == "failed"
-    assert stage["task"]["status"] == "failed"
-    assert metadata["reaction_handoff_status"] == "failed"
-    assert metadata["reaction_handoff_reason"] == "xtb_ts_guess_missing"
-    assert metadata["xtb_handoff_retries_used"] == 2
-    assert metadata["xtb_handoff_retry_limit"] == 2
-    assert stage["output_artifacts"] == []

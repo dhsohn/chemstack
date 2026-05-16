@@ -4,7 +4,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from chemstack.core.app_ids import CHEMSTACK_CLI_COMMAND, CHEMSTACK_CLI_MODULE, CHEMSTACK_ORCA_SUBMITTER
+from chemstack.core.app_ids import (
+    CHEMSTACK_CLI_COMMAND,
+    CHEMSTACK_CLI_MODULE,
+    CHEMSTACK_ORCA_SUBMITTER,
+)
 from chemstack.core.utils import atomic_write_json, now_utc_iso, timestamped_token
 
 from ..adapters.xtb import load_xtb_artifact_contract, select_xtb_downstream_inputs
@@ -59,6 +63,41 @@ class OrcaStagePayload:
         }
 
 
+@dataclass(frozen=True)
+class ReactionTsSearchPlanRequest:
+    contract: XtbArtifactContract
+    max_orca_stages: int = 3
+    selected_only: bool = True
+    workspace_root: str | Path | None = None
+    charge: int = 0
+    multiplicity: int = 1
+    max_cores: int = 8
+    max_memory_gb: int = 32
+    orca_route_line: str = "! r2scan-3c OptTS Freq TightSCF"
+    priority: int = 10
+
+    @property
+    def resource_request(self) -> dict[str, int]:
+        return {
+            "max_cores": max(1, int(self.max_cores)),
+            "max_memory_gb": max(1, int(self.max_memory_gb)),
+        }
+
+
+@dataclass(frozen=True)
+class OrcaStageBuildContext:
+    workspace_dir: Path
+    index: int
+    candidate: Any
+    contract: XtbArtifactContract
+    orca_payload: OrcaStagePayload
+    route_line: str
+    charge: int
+    multiplicity: int
+    max_cores: int
+    max_memory_gb: int
+
+
 def _workflow_id(_: XtbArtifactContract) -> str:
     return timestamped_token("wf_reaction_ts")
 
@@ -68,7 +107,9 @@ def _normalize_text(value: Any) -> str:
 
 
 def _safe_name(value: str, *, fallback: str) -> str:
-    cleaned = "".join(ch if ch.isalnum() or ch in {"_", "-", "."} else "_" for ch in _normalize_text(value))
+    cleaned = "".join(
+        ch if ch.isalnum() or ch in {"_", "-", "."} else "_" for ch in _normalize_text(value)
+    )
     cleaned = cleaned.strip("._-").lower()
     return cleaned or fallback
 
@@ -214,11 +255,32 @@ def _materialize_orca_stage(
     max_cores: int,
     max_memory_gb: int,
 ) -> OrcaStagePayload:
-    source_xyz = Path(candidate.artifact_path).expanduser().resolve()
+    return _materialize_orca_stage_from_context(
+        OrcaStageBuildContext(
+            workspace_dir=workspace_dir,
+            index=index,
+            candidate=candidate,
+            contract=contract,
+            orca_payload=orca_payload,
+            route_line=route_line,
+            charge=charge,
+            multiplicity=multiplicity,
+            max_cores=max_cores,
+            max_memory_gb=max_memory_gb,
+        )
+    )
+
+
+def _materialize_orca_stage_from_context(ctx: OrcaStageBuildContext) -> OrcaStagePayload:
+    source_xyz = Path(ctx.candidate.artifact_path).expanduser().resolve()
     if not source_xyz.exists():
         raise FileNotFoundError(f"xTB candidate artifact not found: {source_xyz}")
 
-    stage_dir = workspace_dir / "03_orca" / f"{index:02d}_{_safe_name(candidate.kind, fallback='candidate')}"
+    stage_dir = (
+        ctx.workspace_dir
+        / "03_orca"
+        / f"{ctx.index:02d}_{_safe_name(ctx.candidate.kind, fallback='candidate')}"
+    )
     reaction_dir = stage_dir
     reaction_dir.mkdir(parents=True, exist_ok=True)
 
@@ -227,52 +289,55 @@ def _materialize_orca_stage(
     geometry_metadata = write_orca_ready_xyz(
         source_path=source_xyz,
         target_path=target_xyz,
-        candidate_kind=str(candidate.kind),
+        candidate_kind=str(ctx.candidate.kind),
     )
     target_inp.write_text(
         _render_orca_input(
-            route_line=route_line,
-            charge=charge,
-            multiplicity=multiplicity,
-            max_cores=max_cores,
-            max_memory_gb=max_memory_gb,
+            route_line=ctx.route_line,
+            charge=ctx.charge,
+            multiplicity=ctx.multiplicity,
+            max_cores=ctx.max_cores,
+            max_memory_gb=ctx.max_memory_gb,
             xyz_filename=target_xyz.name,
         ),
         encoding="utf-8",
     )
 
     source_payload = {
-        "source_job_id": contract.job_id,
-        "source_job_type": contract.job_type,
+        "source_job_id": ctx.contract.job_id,
+        "source_job_type": ctx.contract.job_type,
         "source_candidate_path": str(source_xyz),
-        "reaction_key": contract.reaction_key,
+        "reaction_key": ctx.contract.reaction_key,
         "geometry_materialization": dict(geometry_metadata),
     }
-    atomic_write_json(stage_dir / "source_candidate.json", source_payload, ensure_ascii=True, indent=2)
+    atomic_write_json(
+        stage_dir / "source_candidate.json", source_payload, ensure_ascii=True, indent=2
+    )
 
     return OrcaStagePayload(
-        stage_id=orca_payload.stage_id,
-        engine=orca_payload.engine,
-        task_kind=orca_payload.task_kind,
-        selected_input_xyz=orca_payload.selected_input_xyz,
-        selected_input_label=orca_payload.selected_input_label,
-        source_job_id=orca_payload.source_job_id,
-        source_job_type=orca_payload.source_job_type,
-        reaction_key=orca_payload.reaction_key,
-        workflow_id=orca_payload.workflow_id,
-        template_name=orca_payload.template_name,
-        resource_request=dict(orca_payload.resource_request),
+        stage_id=ctx.orca_payload.stage_id,
+        engine=ctx.orca_payload.engine,
+        task_kind=ctx.orca_payload.task_kind,
+        selected_input_xyz=ctx.orca_payload.selected_input_xyz,
+        selected_input_label=ctx.orca_payload.selected_input_label,
+        source_job_id=ctx.orca_payload.source_job_id,
+        source_job_type=ctx.orca_payload.source_job_type,
+        reaction_key=ctx.orca_payload.reaction_key,
+        workflow_id=ctx.orca_payload.workflow_id,
+        template_name=ctx.orca_payload.template_name,
+        resource_request=dict(ctx.orca_payload.resource_request),
         reaction_dir=str(reaction_dir),
         selected_inp=str(target_inp),
         suggested_command=f"{CHEMSTACK_CLI_COMMAND} run-dir '{reaction_dir}'",
-        metadata=dict(orca_payload.metadata),
+        metadata=dict(ctx.orca_payload.metadata),
     )
 
 
 def _reaction_ts_guess_error(contract: XtbArtifactContract) -> str:
     candidates = sorted(
         [
-            item for item in contract.candidate_details
+            item
+            for item in contract.candidate_details
             if _normalize_text(item.kind) == "ts_guess" and _normalize_text(item.path)
         ],
         key=lambda item: item.rank if item.rank > 0 else 10_000,
@@ -299,11 +364,28 @@ def build_reaction_ts_search_plan(
     orca_route_line: str = "! r2scan-3c OptTS Freq TightSCF",
     priority: int = 10,
 ) -> dict[str, Any]:
+    request = ReactionTsSearchPlanRequest(
+        contract=contract,
+        max_orca_stages=max_orca_stages,
+        selected_only=selected_only,
+        workspace_root=workspace_root,
+        charge=charge,
+        multiplicity=multiplicity,
+        max_cores=max_cores,
+        max_memory_gb=max_memory_gb,
+        orca_route_line=orca_route_line,
+        priority=priority,
+    )
+    return _build_reaction_ts_search_plan(request)
+
+
+def _build_reaction_ts_search_plan(request: ReactionTsSearchPlanRequest) -> dict[str, Any]:
+    contract = request.contract
     policy = XtbDownstreamPolicy.build(
         preferred_kinds=("ts_guess",),
         allowed_kinds=("ts_guess",),
-        max_candidates=max_orca_stages,
-        selected_only=selected_only,
+        max_candidates=request.max_orca_stages,
+        selected_only=request.selected_only,
         fallback_to_selected_paths=False,
     )
     candidates = select_xtb_downstream_inputs(contract, policy=policy, require_geometry=True)
@@ -311,14 +393,11 @@ def build_reaction_ts_search_plan(
         raise ValueError(_reaction_ts_guess_error(contract))
     workflow_id = _workflow_id(contract)
     requested_at = now_utc_iso()
-    resource_request = {
-        "max_cores": max(1, int(max_cores)),
-        "max_memory_gb": max(1, int(max_memory_gb)),
-    }
+    resource_request = request.resource_request
 
     workspace_dir: Path | None = None
-    if workspace_root is not None:
-        workspace_dir = Path(workspace_root).expanduser().resolve() / workflow_id
+    if request.workspace_root is not None:
+        workspace_dir = Path(request.workspace_root).expanduser().resolve() / workflow_id
         workspace_dir.mkdir(parents=True, exist_ok=True)
 
     stages: list[WorkflowStage] = []
@@ -338,9 +417,9 @@ def build_reaction_ts_search_plan(
                 candidate=candidate,
                 contract=contract,
                 orca_payload=orca_payload,
-                route_line=orca_route_line,
-                charge=charge,
-                multiplicity=multiplicity,
+                route_line=request.orca_route_line,
+                charge=request.charge,
+                multiplicity=request.multiplicity,
                 max_cores=resource_request["max_cores"],
                 max_memory_gb=resource_request["max_memory_gb"],
             )
@@ -350,7 +429,7 @@ def build_reaction_ts_search_plan(
             stage_id=orca_payload.stage_id,
             reaction_dir=orca_payload.reaction_dir,
             selected_inp=orca_payload.selected_inp,
-            priority=priority,
+            priority=request.priority,
             resource_request=resource_request,
             source_job_id=contract.job_id,
             reaction_key=contract.reaction_key,
@@ -367,7 +446,7 @@ def build_reaction_ts_search_plan(
                 "workflow_id": workflow_id,
                 "template_name": "reaction_ts_search",
                 "source_candidate_path": candidate.artifact_path,
-                "queue_priority": int(priority),
+                "queue_priority": int(request.priority),
                 "reaction_dir": orca_payload.reaction_dir,
                 "selected_inp": orca_payload.selected_inp,
             },
@@ -392,7 +471,8 @@ def build_reaction_ts_search_plan(
             output_artifacts=(
                 WorkflowArtifactRef(
                     kind="orca_input",
-                    path=orca_payload.selected_inp or f"{workflow_id}/{orca_payload.stage_id}/orca.inp",
+                    path=orca_payload.selected_inp
+                    or f"{workflow_id}/{orca_payload.stage_id}/orca.inp",
                     metadata={
                         "engine": "orca",
                         "task_kind": "optts_freq",
@@ -422,7 +502,7 @@ def build_reaction_ts_search_plan(
                 indent=2,
             )
 
-    request = WorkflowTemplateRequest(
+    template_request = WorkflowTemplateRequest(
         workflow_id=workflow_id,
         template_name="reaction_ts_search",
         source_job_id=contract.job_id,
@@ -431,14 +511,14 @@ def build_reaction_ts_search_plan(
         status="planned",
         requested_at=requested_at,
         parameters={
-            "max_orca_stages": max_orca_stages,
-            "selected_only": selected_only,
-            "charge": int(charge),
-            "multiplicity": int(multiplicity),
+            "max_orca_stages": request.max_orca_stages,
+            "selected_only": request.selected_only,
+            "charge": int(request.charge),
+            "multiplicity": int(request.multiplicity),
             "max_cores": resource_request["max_cores"],
             "max_memory_gb": resource_request["max_memory_gb"],
-            "orca_route_line": _ensure_route_line(orca_route_line),
-            "priority": int(priority),
+            "orca_route_line": _ensure_route_line(request.orca_route_line),
+            "priority": int(request.priority),
         },
         source_artifacts=tuple(
             WorkflowArtifactRef(
@@ -459,17 +539,23 @@ def build_reaction_ts_search_plan(
         requested_at=requested_at,
         stages=tuple(stages),
         metadata={
-            "request": request.to_dict(),
+            "request": template_request.to_dict(),
             "source_contract": contract.to_dict(),
             "orca_stage_payloads": stage_payloads,
-            "orca_stage_enqueue_payloads": [dict(stage.task.enqueue_payload) for stage in stages if stage.task is not None],
+            "orca_stage_enqueue_payloads": [
+                dict(stage.task.enqueue_payload) for stage in stages if stage.task is not None
+            ],
             "workspace_dir": str(workspace_dir) if workspace_dir is not None else "",
         },
     )
     payload = plan.to_dict()
     if workspace_dir is not None:
         atomic_write_json(workspace_dir / "workflow.json", payload, ensure_ascii=True, indent=2)
-        workspace_root_path = Path(workspace_root).expanduser().resolve() if workspace_root is not None else workspace_dir.parent.parent
+        workspace_root_path = (
+            Path(request.workspace_root).expanduser().resolve()
+            if request.workspace_root is not None
+            else workspace_dir.parent.parent
+        )
         sync_workflow_registry(workspace_root_path, workspace_dir, payload)
     return payload
 

@@ -8,6 +8,7 @@ from typing import Any
 
 from chemstack.activity_view import count_global_active_simulations
 from chemstack.core.config.files import shared_workflow_root_from_config
+from chemstack.core.utils.coercion import normalize_text as _coerce_normalize_text
 from chemstack.flow.workflow_status import (
     WORKFLOW_STATUS_ORDER,
     normalize_workflow_status,
@@ -27,9 +28,7 @@ _WORKFLOW_SHOW_LIMIT = 6
 
 
 def _normalize_text(value: Any) -> str:
-    if value is None:
-        return ""
-    return str(value).strip()
+    return _coerce_normalize_text(value)
 
 
 def _workflow_status_icon(status: str) -> str:
@@ -75,7 +74,11 @@ def _activity_rows(config_path: str | None, workflow_root: str | None) -> list[d
         orca_auto_config=config_path,
     )
     activities = payload.get("activities")
-    return [item for item in activities if isinstance(item, dict)] if isinstance(activities, list) else []
+    return (
+        [item for item in activities if isinstance(item, dict)]
+        if isinstance(activities, list)
+        else []
+    )
 
 
 def _format_overview_section(
@@ -102,7 +105,9 @@ def _format_overview_section(
     if other_runs:
         orca_parts.append(f"❓ other {len(other_runs)}")
 
-    workflow_counts = Counter(normalize_workflow_status(item.get("status")) or "unknown" for item in workflow_summaries)
+    workflow_counts = Counter(
+        normalize_workflow_status(item.get("status")) or "unknown" for item in workflow_summaries
+    )
     workflow_parts = [
         f"{_workflow_status_icon(status)} {status} {workflow_counts[status]}"
         for status in WORKFLOW_STATUS_ORDER
@@ -128,12 +133,18 @@ def _workflow_detail_block(summary: dict[str, Any]) -> str:
     status = normalize_workflow_status(summary.get("status")) or "unknown"
     current_stage = select_current_stage(summary.get("stage_summaries") or [])
     current_engine = _normalize_text(current_stage.get("engine")) or "workflow"
-    current_task = _normalize_text(current_stage.get("task_kind")) or _normalize_text(current_stage.get("stage_kind")) or "-"
+    current_task = (
+        _normalize_text(current_stage.get("task_kind"))
+        or _normalize_text(current_stage.get("stage_kind"))
+        or "-"
+    )
     current_stage_id = _normalize_text(current_stage.get("stage_id"))
     reaction_key = _normalize_text(summary.get("reaction_key"))
     stage_count = int(summary.get("stage_count", 0) or 0)
     raw_submission_summary = summary.get("submission_summary")
-    submission_summary: dict[str, Any] = raw_submission_summary if isinstance(raw_submission_summary, dict) else {}
+    submission_summary: dict[str, Any] = (
+        raw_submission_summary if isinstance(raw_submission_summary, dict) else {}
+    )
     submitted = int(submission_summary.get("submitted_count", 0) or 0)
     failed = int(submission_summary.get("failed_count", 0) or 0)
     skipped = int(submission_summary.get("skipped_count", 0) or 0)
@@ -149,10 +160,7 @@ def _workflow_detail_block(summary: dict[str, Any]) -> str:
     if reaction_key:
         lines.append(f"   🧬 {escape_html(reaction_key)}")
     if submitted or failed or skipped:
-        lines.append(
-            "   📥 "
-            f"submitted={submitted} skipped={skipped} failed={failed}"
-        )
+        lines.append(f"   📥 submitted={submitted} skipped={skipped} failed={failed}")
     return "\n".join(lines)
 
 
@@ -169,7 +177,9 @@ def _format_active_workflows_section(workflow_summaries: list[dict[str, Any]]) -
 
 
 def _format_attention_workflows_section(workflow_summaries: list[dict[str, Any]]) -> str | None:
-    attention = [item for item in workflow_summaries if workflow_status_needs_attention(item.get("status"))]
+    attention = [
+        item for item in workflow_summaries if workflow_status_needs_attention(item.get("status"))
+    ]
     if not attention:
         return None
 
@@ -199,7 +209,11 @@ def _build_summary_message(cfg: AppConfig, *, config_path: str | None) -> str:
 
     workflow_root, workflow_summaries = _workflow_summary_rows(config_path)
     activity_rows = _activity_rows(config_path, workflow_root)
-    active_simulations = count_global_active_simulations(activity_rows, config_path=config_path) if activity_rows else len(active_runs)
+    active_simulations = (
+        count_global_active_simulations(activity_rows, config_path=config_path)
+        if activity_rows
+        else len(active_runs)
+    )
 
     now = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M %Z")
     header = f"📊 <b>chemstack summary</b>  <code>{escape_html(now)}</code>"

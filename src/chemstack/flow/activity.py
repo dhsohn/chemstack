@@ -39,6 +39,63 @@ _ACTIVITY_CLEARABLE_TERMINAL_STATUSES = WORKFLOW_TERMINAL_STATUSES
 _ORCA_ACTIVE_QUEUE_STATUSES = frozenset({"pending", "running"})
 
 
+@dataclass(frozen=True)
+class ActivitySourceRequest:
+    workflow_root: str | Path | None = None
+    crest_auto_config: str | None = None
+    xtb_auto_config: str | None = None
+    orca_auto_config: str | None = None
+    orca_auto_repo_root: str | None = None
+
+
+@dataclass(frozen=True)
+class ActivityListRequest:
+    sources: ActivitySourceRequest
+    refresh: bool = False
+    limit: int = 0
+    child_job_engines: tuple[str, ...] | None = None
+
+
+@dataclass(frozen=True)
+class ActivityCancelRequest:
+    target: str
+    sources: ActivitySourceRequest
+    crest_auto_executable: str = "crest_auto"
+    crest_auto_repo_root: str | None = None
+    xtb_auto_executable: str = "xtb_auto"
+    xtb_auto_repo_root: str | None = None
+    orca_auto_executable: str = CHEMSTACK_EXECUTABLE
+    orca_auto_repo_root: str | None = None
+
+
+@dataclass(frozen=True)
+class ResolvedActivitySources:
+    workflow_root: str | None
+    crest_auto_config: str | None
+    xtb_auto_config: str | None
+    orca_auto_config: str | None
+
+    def as_tuple(self) -> tuple[str | None, str | None, str | None, str | None]:
+        return (
+            self.workflow_root,
+            self.crest_auto_config,
+            self.xtb_auto_config,
+            self.orca_auto_config,
+        )
+
+    @classmethod
+    def from_tuple(
+        cls,
+        values: tuple[str | None, str | None, str | None, str | None],
+    ) -> ResolvedActivitySources:
+        return cls(
+            workflow_root=values[0],
+            crest_auto_config=values[1],
+            xtb_auto_config=values[2],
+            orca_auto_config=values[3],
+        )
+
+
 def _coerce_mapping(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
@@ -102,15 +159,13 @@ def _shared_config_hint(*configs: str | None) -> str | None:
     return None
 
 
-def _resolve_activity_sources(
-    *,
-    workflow_root: str | Path | None = None,
-    crest_auto_config: str | None = None,
-    xtb_auto_config: str | None = None,
-    orca_auto_config: str | None = None,
-) -> tuple[str | None, str | None, str | None, str | None]:
-    shared_config_hint = _shared_config_hint(orca_auto_config, crest_auto_config, xtb_auto_config)
-    explicit_workflow_root = normalize_text(workflow_root)
+def _resolve_activity_source_request(request: ActivitySourceRequest) -> ResolvedActivitySources:
+    shared_config_hint = _shared_config_hint(
+        request.orca_auto_config,
+        request.crest_auto_config,
+        request.xtb_auto_config,
+    )
+    explicit_workflow_root = normalize_text(request.workflow_root)
     resolved_workflow_root: str | None
     if explicit_workflow_root:
         resolved_workflow_root = str(Path(explicit_workflow_root).expanduser().resolve())
@@ -119,20 +174,39 @@ def _resolve_activity_sources(
     else:
         resolved_workflow_root = _discover_workflow_root(None)
     resolved_crest_auto_config = _discover_sibling_config(
-        crest_auto_config or shared_config_hint,
+        request.crest_auto_config or shared_config_hint,
         app_name="crest_auto",
     )
     resolved_xtb_auto_config = _discover_sibling_config(
-        xtb_auto_config or shared_config_hint,
+        request.xtb_auto_config or shared_config_hint,
         app_name="xtb_auto",
     )
-    resolved_orca_auto_config = _discover_orca_config(orca_auto_config or shared_config_hint)
-    return (
-        resolved_workflow_root,
-        resolved_crest_auto_config,
-        resolved_xtb_auto_config,
-        resolved_orca_auto_config,
+    resolved_orca_auto_config = _discover_orca_config(
+        request.orca_auto_config or shared_config_hint
     )
+    return ResolvedActivitySources(
+        workflow_root=resolved_workflow_root,
+        crest_auto_config=resolved_crest_auto_config,
+        xtb_auto_config=resolved_xtb_auto_config,
+        orca_auto_config=resolved_orca_auto_config,
+    )
+
+
+def _resolve_activity_sources(
+    *,
+    workflow_root: str | Path | None = None,
+    crest_auto_config: str | None = None,
+    xtb_auto_config: str | None = None,
+    orca_auto_config: str | None = None,
+) -> tuple[str | None, str | None, str | None, str | None]:
+    return _resolve_activity_source_request(
+        ActivitySourceRequest(
+            workflow_root=workflow_root,
+            crest_auto_config=crest_auto_config,
+            xtb_auto_config=xtb_auto_config,
+            orca_auto_config=orca_auto_config,
+        )
+    ).as_tuple()
 
 
 def _discover_orca_repo_root(explicit: str | None) -> str | None:
@@ -661,6 +735,61 @@ def _orca_records(*, config_path: str, repo_root: str | None = None) -> list[Act
     return rows
 
 
+def _collect_activity_records_from_request(request: ActivityListRequest) -> list[ActivityRecord]:
+    _ = request.sources.orca_auto_repo_root
+    resolved = ResolvedActivitySources.from_tuple(
+        _resolve_activity_sources(
+            workflow_root=request.sources.workflow_root,
+            crest_auto_config=request.sources.crest_auto_config,
+            xtb_auto_config=request.sources.xtb_auto_config,
+            orca_auto_config=request.sources.orca_auto_config,
+        )
+    )
+
+    rows: list[ActivityRecord] = []
+    if normalize_text(resolved.workflow_root):
+        rows.extend(
+            _workflow_records(
+                workflow_root=str(resolved.workflow_root),
+                refresh=request.refresh,
+            )
+        )
+    include_children = {
+        normalize_text(engine).lower()
+        for engine in (request.child_job_engines or ())
+        if normalize_text(engine)
+    }
+    include_all_children = request.child_job_engines is None
+
+    if (
+        normalize_text(resolved.workflow_root)
+        and normalize_text(resolved.crest_auto_config)
+        and (include_all_children or "crest" in include_children)
+    ):
+        rows.extend(
+            _standalone_queue_records(
+                app_name="crest_auto",
+                engine="crest",
+                config_path=str(resolved.crest_auto_config),
+            )
+        )
+    if (
+        normalize_text(resolved.workflow_root)
+        and normalize_text(resolved.xtb_auto_config)
+        and (include_all_children or "xtb" in include_children)
+    ):
+        rows.extend(
+            _standalone_queue_records(
+                app_name="xtb_auto",
+                engine="xtb",
+                config_path=str(resolved.xtb_auto_config),
+            )
+        )
+    if normalize_text(resolved.orca_auto_config):
+        rows.extend(_orca_records(config_path=str(resolved.orca_auto_config)))
+    return sorted(rows, key=_sort_key, reverse=True)
+
+
 def _collect_activity_records(
     *,
     workflow_root: str | Path | None = None,
@@ -671,52 +800,19 @@ def _collect_activity_records(
     orca_auto_repo_root: str | None = None,
     child_job_engines: tuple[str, ...] | None = None,
 ) -> list[ActivityRecord]:
-    del orca_auto_repo_root
-    (
-        resolved_workflow_root,
-        resolved_crest_auto_config,
-        resolved_xtb_auto_config,
-        resolved_orca_auto_config,
-    ) = _resolve_activity_sources(
-        workflow_root=workflow_root,
-        crest_auto_config=crest_auto_config,
-        xtb_auto_config=xtb_auto_config,
-        orca_auto_config=orca_auto_config,
+    return _collect_activity_records_from_request(
+        ActivityListRequest(
+            sources=ActivitySourceRequest(
+                workflow_root=workflow_root,
+                crest_auto_config=crest_auto_config,
+                xtb_auto_config=xtb_auto_config,
+                orca_auto_config=orca_auto_config,
+                orca_auto_repo_root=orca_auto_repo_root,
+            ),
+            refresh=refresh,
+            child_job_engines=child_job_engines,
+        )
     )
-
-    rows: list[ActivityRecord] = []
-    if normalize_text(resolved_workflow_root):
-        rows.extend(_workflow_records(workflow_root=str(resolved_workflow_root), refresh=refresh))
-    include_children = {
-        normalize_text(engine).lower()
-        for engine in (child_job_engines or ())
-        if normalize_text(engine)
-    }
-    include_all_children = child_job_engines is None
-
-    if (
-        normalize_text(resolved_workflow_root)
-        and normalize_text(resolved_crest_auto_config)
-        and (include_all_children or "crest" in include_children)
-    ):
-        rows.extend(
-            _standalone_queue_records(
-                app_name="crest_auto", engine="crest", config_path=str(resolved_crest_auto_config)
-            )
-        )
-    if (
-        normalize_text(resolved_workflow_root)
-        and normalize_text(resolved_xtb_auto_config)
-        and (include_all_children or "xtb" in include_children)
-    ):
-        rows.extend(
-            _standalone_queue_records(
-                app_name="xtb_auto", engine="xtb", config_path=str(resolved_xtb_auto_config)
-            )
-        )
-    if normalize_text(resolved_orca_auto_config):
-        rows.extend(_orca_records(config_path=str(resolved_orca_auto_config)))
-    return sorted(rows, key=_sort_key, reverse=True)
 
 
 def list_activities(
@@ -730,29 +826,38 @@ def list_activities(
     orca_auto_repo_root: str | None = None,
     child_job_engines: tuple[str, ...] | None = None,
 ) -> dict[str, Any]:
-    (
-        resolved_workflow_root,
-        resolved_crest_auto_config,
-        resolved_xtb_auto_config,
-        resolved_orca_auto_config,
-    ) = _resolve_activity_sources(
-        workflow_root=workflow_root,
-        crest_auto_config=crest_auto_config,
-        xtb_auto_config=xtb_auto_config,
-        orca_auto_config=orca_auto_config,
-    )
-    records = _collect_activity_records(
-        workflow_root=resolved_workflow_root,
+    request = ActivityListRequest(
+        sources=ActivitySourceRequest(
+            workflow_root=workflow_root,
+            crest_auto_config=crest_auto_config,
+            xtb_auto_config=xtb_auto_config,
+            orca_auto_config=orca_auto_config,
+            orca_auto_repo_root=orca_auto_repo_root,
+        ),
         refresh=refresh,
-        crest_auto_config=resolved_crest_auto_config,
-        xtb_auto_config=resolved_xtb_auto_config,
-        orca_auto_config=resolved_orca_auto_config,
-        orca_auto_repo_root=orca_auto_repo_root,
+        limit=limit,
         child_job_engines=child_job_engines,
     )
-    if limit > 0:
-        records = records[:limit]
-    workflow_root_text = normalize_text(resolved_workflow_root)
+    resolved = ResolvedActivitySources.from_tuple(
+        _resolve_activity_sources(
+            workflow_root=request.sources.workflow_root,
+            crest_auto_config=request.sources.crest_auto_config,
+            xtb_auto_config=request.sources.xtb_auto_config,
+            orca_auto_config=request.sources.orca_auto_config,
+        )
+    )
+    records = _collect_activity_records(
+        workflow_root=resolved.workflow_root,
+        refresh=request.refresh,
+        crest_auto_config=resolved.crest_auto_config,
+        xtb_auto_config=resolved.xtb_auto_config,
+        orca_auto_config=resolved.orca_auto_config,
+        orca_auto_repo_root=request.sources.orca_auto_repo_root,
+        child_job_engines=request.child_job_engines,
+    )
+    if request.limit > 0:
+        records = records[: request.limit]
+    workflow_root_text = normalize_text(resolved.workflow_root)
     return {
         "count": len(records),
         "activities": [record.to_dict() for record in records],
@@ -760,9 +865,9 @@ def list_activities(
             "workflow_root": str(Path(workflow_root_text).expanduser().resolve())
             if workflow_root_text
             else "",
-            "crest_auto_config": normalize_text(resolved_crest_auto_config),
-            "xtb_auto_config": normalize_text(resolved_xtb_auto_config),
-            "orca_auto_config": normalize_text(resolved_orca_auto_config),
+            "crest_auto_config": normalize_text(resolved.crest_auto_config),
+            "xtb_auto_config": normalize_text(resolved.xtb_auto_config),
+            "orca_auto_config": normalize_text(resolved.orca_auto_config),
         },
     }
 
@@ -776,16 +881,19 @@ def clear_activities(
     orca_auto_repo_root: str | None = None,
 ) -> dict[str, Any]:
     del orca_auto_repo_root
-    (
-        resolved_workflow_root,
-        resolved_crest_auto_config,
-        resolved_xtb_auto_config,
-        resolved_orca_auto_config,
-    ) = _resolve_activity_sources(
+    source_request = ActivitySourceRequest(
         workflow_root=workflow_root,
         crest_auto_config=crest_auto_config,
         xtb_auto_config=xtb_auto_config,
         orca_auto_config=orca_auto_config,
+    )
+    resolved = ResolvedActivitySources.from_tuple(
+        _resolve_activity_sources(
+            workflow_root=source_request.workflow_root,
+            crest_auto_config=source_request.crest_auto_config,
+            xtb_auto_config=source_request.xtb_auto_config,
+            orca_auto_config=source_request.orca_auto_config,
+        )
     )
 
     cleared = {
@@ -796,30 +904,30 @@ def clear_activities(
         "orca_run_states": 0,
     }
 
-    if normalize_text(resolved_workflow_root):
+    if normalize_text(resolved.workflow_root):
         cleared["workflows"] = clear_terminal_workflow_registry(
-            str(resolved_workflow_root),
+            str(resolved.workflow_root),
             statuses=_ACTIVITY_CLEARABLE_TERMINAL_STATUSES,
         )
-    if normalize_text(resolved_xtb_auto_config):
-        for allowed_root in _engine_queue_roots(str(resolved_xtb_auto_config), engine="xtb"):
+    if normalize_text(resolved.xtb_auto_config):
+        for allowed_root in _engine_queue_roots(str(resolved.xtb_auto_config), engine="xtb"):
             cleared["xtb_queue_entries"] += clear_queue_terminal(allowed_root)
-    if normalize_text(resolved_crest_auto_config):
-        for allowed_root in _engine_queue_roots(str(resolved_crest_auto_config), engine="crest"):
+    if normalize_text(resolved.crest_auto_config):
+        for allowed_root in _engine_queue_roots(str(resolved.crest_auto_config), engine="crest"):
             cleared["crest_queue_entries"] += clear_queue_terminal(allowed_root)
-    if normalize_text(resolved_orca_auto_config):
+    if normalize_text(resolved.orca_auto_config):
         from chemstack.orca.commands.list_runs import (
             clear_terminal_entries as clear_orca_terminal_entries,
         )
 
-        allowed_root = sibling_runtime_paths(str(resolved_orca_auto_config), engine="orca")[
+        allowed_root = sibling_runtime_paths(str(resolved.orca_auto_config), engine="orca")[
             "allowed_root"
         ]
         queue_count, run_count = clear_orca_terminal_entries(allowed_root)
         cleared["orca_queue_entries"] += queue_count
         cleared["orca_run_states"] += run_count
 
-    workflow_root_text = normalize_text(resolved_workflow_root)
+    workflow_root_text = normalize_text(resolved.workflow_root)
     return {
         "total_cleared": sum(int(value) for value in cleared.values()),
         "cleared": cleared,
@@ -827,9 +935,9 @@ def clear_activities(
             "workflow_root": str(Path(workflow_root_text).expanduser().resolve())
             if workflow_root_text
             else "",
-            "crest_auto_config": normalize_text(resolved_crest_auto_config),
-            "xtb_auto_config": normalize_text(resolved_xtb_auto_config),
-            "orca_auto_config": normalize_text(resolved_orca_auto_config),
+            "crest_auto_config": normalize_text(resolved.crest_auto_config),
+            "xtb_auto_config": normalize_text(resolved.xtb_auto_config),
+            "orca_auto_config": normalize_text(resolved.orca_auto_config),
         },
     }
 
@@ -877,27 +985,40 @@ def cancel_activity(
     orca_auto_executable: str = CHEMSTACK_EXECUTABLE,
     orca_auto_repo_root: str | None = None,
 ) -> dict[str, Any]:
-    (
-        resolved_workflow_root,
-        resolved_crest_auto_config,
-        resolved_xtb_auto_config,
-        resolved_orca_auto_config,
-    ) = _resolve_activity_sources(
-        workflow_root=workflow_root,
-        crest_auto_config=crest_auto_config,
-        xtb_auto_config=xtb_auto_config,
-        orca_auto_config=orca_auto_config,
+    request = ActivityCancelRequest(
+        target=target,
+        sources=ActivitySourceRequest(
+            workflow_root=workflow_root,
+            crest_auto_config=crest_auto_config,
+            xtb_auto_config=xtb_auto_config,
+            orca_auto_config=orca_auto_config,
+            orca_auto_repo_root=orca_auto_repo_root,
+        ),
+        crest_auto_executable=crest_auto_executable,
+        crest_auto_repo_root=crest_auto_repo_root,
+        xtb_auto_executable=xtb_auto_executable,
+        xtb_auto_repo_root=xtb_auto_repo_root,
+        orca_auto_executable=orca_auto_executable,
+        orca_auto_repo_root=orca_auto_repo_root,
+    )
+    resolved = ResolvedActivitySources.from_tuple(
+        _resolve_activity_sources(
+            workflow_root=request.sources.workflow_root,
+            crest_auto_config=request.sources.crest_auto_config,
+            xtb_auto_config=request.sources.xtb_auto_config,
+            orca_auto_config=request.sources.orca_auto_config,
+        )
     )
     record = _match_activity_record(
         _collect_activity_records(
-            workflow_root=resolved_workflow_root,
+            workflow_root=resolved.workflow_root,
             refresh=False,
-            crest_auto_config=resolved_crest_auto_config,
-            xtb_auto_config=resolved_xtb_auto_config,
-            orca_auto_config=resolved_orca_auto_config,
-            orca_auto_repo_root=orca_auto_repo_root,
+            crest_auto_config=resolved.crest_auto_config,
+            xtb_auto_config=resolved.xtb_auto_config,
+            orca_auto_config=resolved.orca_auto_config,
+            orca_auto_repo_root=request.sources.orca_auto_repo_root,
         ),
-        target,
+        request.target,
     )
 
     if record.kind == "workflow":
@@ -905,16 +1026,16 @@ def cancel_activity(
 
         result = cancel_workflow(
             target=record.cancel_target,
-            workflow_root=resolved_workflow_root,
-            crest_auto_config=resolved_crest_auto_config,
-            crest_auto_executable=crest_auto_executable,
-            crest_auto_repo_root=crest_auto_repo_root,
-            xtb_auto_config=resolved_xtb_auto_config,
-            xtb_auto_executable=xtb_auto_executable,
-            xtb_auto_repo_root=xtb_auto_repo_root,
-            orca_auto_config=resolved_orca_auto_config,
-            orca_auto_executable=orca_auto_executable,
-            orca_auto_repo_root=orca_auto_repo_root,
+            workflow_root=resolved.workflow_root,
+            crest_auto_config=resolved.crest_auto_config,
+            crest_auto_executable=request.crest_auto_executable,
+            crest_auto_repo_root=request.crest_auto_repo_root,
+            xtb_auto_config=resolved.xtb_auto_config,
+            xtb_auto_executable=request.xtb_auto_executable,
+            xtb_auto_repo_root=request.xtb_auto_repo_root,
+            orca_auto_config=resolved.orca_auto_config,
+            orca_auto_executable=request.orca_auto_executable,
+            orca_auto_repo_root=request.orca_auto_repo_root,
         )
         return {
             "activity_id": record.activity_id,
@@ -928,31 +1049,31 @@ def cancel_activity(
         }
 
     if record.source == "crest_auto":
-        if not normalize_text(resolved_crest_auto_config):
+        if not normalize_text(resolved.crest_auto_config):
             raise ValueError("crest_auto_config is required to cancel crest_auto activities.")
         result = cancel_crest_target(
             target=record.cancel_target,
-            config_path=str(resolved_crest_auto_config),
-            executable=crest_auto_executable,
-            repo_root=crest_auto_repo_root,
+            config_path=str(resolved.crest_auto_config),
+            executable=request.crest_auto_executable,
+            repo_root=request.crest_auto_repo_root,
         )
     elif record.source == "xtb_auto":
-        if not normalize_text(resolved_xtb_auto_config):
+        if not normalize_text(resolved.xtb_auto_config):
             raise ValueError("xtb_auto_config is required to cancel xtb_auto activities.")
         result = cancel_xtb_target(
             target=record.cancel_target,
-            config_path=str(resolved_xtb_auto_config),
-            executable=xtb_auto_executable,
-            repo_root=xtb_auto_repo_root,
+            config_path=str(resolved.xtb_auto_config),
+            executable=request.xtb_auto_executable,
+            repo_root=request.xtb_auto_repo_root,
         )
     elif record.source == CHEMSTACK_ORCA_SOURCE:
-        if not normalize_text(resolved_orca_auto_config):
+        if not normalize_text(resolved.orca_auto_config):
             raise ValueError("chemstack_config is required to cancel chemstack ORCA activities.")
         result = cancel_orca_target(
             target=record.cancel_target,
-            config_path=str(resolved_orca_auto_config),
-            executable=orca_auto_executable,
-            repo_root=_discover_orca_repo_root(orca_auto_repo_root),
+            config_path=str(resolved.orca_auto_config),
+            executable=request.orca_auto_executable,
+            repo_root=_discover_orca_repo_root(request.orca_auto_repo_root),
         )
     else:
         raise ValueError(f"Unsupported activity source: {record.source}")
@@ -970,7 +1091,11 @@ def cancel_activity(
 
 
 __all__ = [
+    "ActivityCancelRequest",
+    "ActivityListRequest",
     "ActivityRecord",
+    "ActivitySourceRequest",
+    "ResolvedActivitySources",
     "cancel_activity",
     "clear_activities",
     "list_activities",

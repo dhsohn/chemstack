@@ -3,13 +3,19 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from chemstack.core.artifacts import (
+    JOB_REPORT_JSON_FILE,
+    JOB_REPORT_MD_FILE,
+    JOB_STATE_FILE,
+    ORGANIZED_REF_FILE,
+)
 from chemstack.core.state import engine as _engine_state
 from chemstack.core.utils import now_utc_iso
 
-STATE_FILE_NAME = "job_state.json"
-REPORT_JSON_FILE_NAME = "job_report.json"
-REPORT_MD_FILE_NAME = "job_report.md"
-ORGANIZED_REF_FILE_NAME = "organized_ref.json"
+STATE_FILE_NAME = JOB_STATE_FILE
+REPORT_JSON_FILE_NAME = JOB_REPORT_JSON_FILE
+REPORT_MD_FILE_NAME = JOB_REPORT_MD_FILE
+ORGANIZED_REF_FILE_NAME = ORGANIZED_REF_FILE
 RECOVERY_PENDING_REASONS = _engine_state.RECOVERY_PENDING_REASONS
 
 
@@ -21,7 +27,9 @@ def write_report_json(job_dir: Path, payload: dict[str, Any]) -> Path:
     return _engine_state.write_json_artifact(job_dir, REPORT_JSON_FILE_NAME, payload)
 
 
-def write_report_md(job_dir: Path, *, job_id: str, status: str, reason: str, selected_xyz: str) -> Path:
+def write_report_md(
+    job_dir: Path, *, job_id: str, status: str, reason: str, selected_xyz: str
+) -> Path:
     lines = [
         "# crest_auto Report",
         "",

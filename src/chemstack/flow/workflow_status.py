@@ -2,38 +2,18 @@ from __future__ import annotations
 
 from typing import Any, Iterable
 
-WORKFLOW_ACTIVE_STATUSES = frozenset(
-    {
-        "created",
-        "planned",
-        "pending",
-        "queued",
-        "submitted",
-        "running",
-        "retrying",
-        "cancel_requested",
-    }
+from chemstack.core.statuses import (
+    WORKFLOW_ACTIVE_STATUSES,
+    WORKFLOW_ATTENTION_STATUSES,
+    WORKFLOW_FAILED_STATUSES,
+    WORKFLOW_STATUS_ORDER,
+    WORKFLOW_TERMINAL_STATUSES,
 )
-WORKFLOW_FAILED_STATUSES = frozenset({"failed", "cancel_failed", "submission_failed"})
-WORKFLOW_ATTENTION_STATUSES = frozenset({"failed", "cancel_failed", "submission_failed"})
-WORKFLOW_TERMINAL_STATUSES = frozenset({"completed", "cancelled", *WORKFLOW_FAILED_STATUSES})
-WORKFLOW_STATUS_ORDER = (
-    "running",
-    "queued",
-    "submitted",
-    "planned",
-    "retrying",
-    "cancel_requested",
-    "failed",
-    "cancel_failed",
-    "submission_failed",
-)
+from chemstack.core.utils.coercion import normalize_text as _shared_normalize_text
 
 
 def _normalize_text(value: Any) -> str:
-    if value is None:
-        return ""
-    return str(value).strip()
+    return _shared_normalize_text(value)
 
 
 def normalize_workflow_status(value: Any) -> str:
@@ -53,7 +33,9 @@ def workflow_status_is_terminal(value: Any) -> bool:
 
 
 def workflow_stage_is_terminal(stage_summary: dict[str, Any]) -> bool:
-    return all(workflow_status_is_terminal(stage_summary.get(key)) for key in ("status", "task_status"))
+    return all(
+        workflow_status_is_terminal(stage_summary.get(key)) for key in ("status", "task_status")
+    )
 
 
 def select_current_stage(stage_summaries: Iterable[Any]) -> dict[str, Any]:

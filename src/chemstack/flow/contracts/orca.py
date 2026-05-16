@@ -3,11 +3,13 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from chemstack.core.utils.coercion import normalize_text as _shared_normalize_text
+
 from .xtb import _coerce_resource_dict
 
 
 def _normalize_text(value: Any) -> str:
-    return str(value).strip()
+    return _shared_normalize_text(value, none="None")
 
 
 @dataclass(frozen=True)

@@ -46,6 +46,17 @@ class _WorkflowAdvanceOptions:
 
 
 @dataclass(frozen=True)
+class WorkflowRuntimeContext:
+    root: Path
+    options: _WorkflowAdvanceOptions
+    submit_ready: bool = True
+    refresh_registry: bool = False
+    worker_session_id: str = ""
+    interval_seconds: float | None = None
+    lease_seconds: float = 60.0
+
+
+@dataclass(frozen=True)
 class _WorkflowCycle:
     root: Path
     cycle_started_at: str
@@ -602,51 +613,45 @@ def _workflow_lease_expires_at(lease_seconds: float) -> str:
 
 def _start_workflow_cycle(
     *,
-    root: Path,
-    worker_session_id: str,
-    submit_ready: bool,
-    refresh_registry: bool,
-    interval_seconds: float | None,
-    lease_seconds: float,
-    options: _WorkflowAdvanceOptions,
+    context: WorkflowRuntimeContext,
 ) -> _WorkflowCycle:
     cycle_started_at = now_utc_iso()
-    session_id = _normalize_text(worker_session_id) or timestamped_token("wf_worker")
-    requested_submit_ready = bool(submit_ready)
+    session_id = _normalize_text(context.worker_session_id) or timestamped_token("wf_worker")
+    requested_submit_ready = bool(context.submit_ready)
     cycle_submit_ready = requested_submit_ready and _workflow_submission_has_capacity(
-        options.crest_auto_config,
-        options.xtb_auto_config,
-        options.orca_auto_config,
+        context.options.crest_auto_config,
+        context.options.xtb_auto_config,
+        context.options.orca_auto_config,
     )
     admission_blocked = requested_submit_ready and not cycle_submit_ready
-    lease_expires_at = _workflow_lease_expires_at(lease_seconds)
+    lease_expires_at = _workflow_lease_expires_at(context.lease_seconds)
 
     write_workflow_worker_state(
-        root,
+        context.root,
         worker_session_id=session_id,
         status="running",
-        workflow_root_path=root,
+        workflow_root_path=context.root,
         last_cycle_started_at=cycle_started_at,
         last_heartbeat_at=cycle_started_at,
         lease_expires_at=lease_expires_at,
-        interval_seconds=interval_seconds,
+        interval_seconds=context.interval_seconds,
         submit_ready=cycle_submit_ready,
         metadata={"admission_blocked": True} if admission_blocked else None,
     )
     append_workflow_journal_event(
-        root,
+        context.root,
         event_type="worker_cycle_started",
         worker_session_id=session_id,
         metadata={
             "cycle_started_at": cycle_started_at,
-            "refresh_registry": bool(refresh_registry),
+            "refresh_registry": bool(context.refresh_registry),
             "submit_ready": cycle_submit_ready,
             "requested_submit_ready": requested_submit_ready,
             "admission_blocked": admission_blocked,
         },
     )
     return _WorkflowCycle(
-        root=root,
+        root=context.root,
         cycle_started_at=cycle_started_at,
         session_id=session_id,
         requested_submit_ready=requested_submit_ready,
@@ -663,9 +668,8 @@ def _advance_workflow_record(
     options: _WorkflowAdvanceOptions,
 ) -> tuple[str, dict[str, Any]]:
     previous_status = _normalize_text(record.status).lower()
-    terminal_sync = (
-        previous_status in TERMINAL_WORKFLOW_STATUSES
-        and _workflow_needs_terminal_sync(record.workspace_dir)
+    terminal_sync = previous_status in TERMINAL_WORKFLOW_STATUSES and _workflow_needs_terminal_sync(
+        record.workspace_dir
     )
     if previous_status in TERMINAL_WORKFLOW_STATUSES and not terminal_sync:
         return "skipped", _workflow_skipped_terminal_result(
@@ -829,15 +833,16 @@ def advance_workflow_registry_once(
         orca_auto_executable=orca_auto_executable,
         orca_auto_repo_root=orca_auto_repo_root,
     )
-    cycle = _start_workflow_cycle(
+    runtime_context = WorkflowRuntimeContext(
         root=root,
+        options=options,
         worker_session_id=worker_session_id,
         submit_ready=submit_ready,
         refresh_registry=refresh_registry,
         interval_seconds=interval_seconds,
         lease_seconds=lease_seconds,
-        options=options,
     )
+    cycle = _start_workflow_cycle(context=runtime_context)
     records = reindex_workflow_registry(root) if refresh_registry else list_workflow_registry(root)
     progress = _advance_workflow_records(
         cycle=cycle,
@@ -870,6 +875,7 @@ def advance_workflow_registry_once(
 __all__ = [
     "TERMINAL_WORKFLOW_STATUSES",
     "WORKFLOW_WORKER_LOCK_NAME",
+    "WorkflowRuntimeContext",
     "advance_workflow_registry_once",
     "workflow_worker_lock_path",
 ]

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -95,12 +96,15 @@ class TestTerminateProcess(unittest.TestCase):
         _terminate_process(proc)
         proc.terminate.assert_called_once()
 
-    @patch("chemstack.orca.queue_worker.time.monotonic", side_effect=[0.0, 11.0, 11.0, 17.0])
-    def test_escalate_to_kill(self, mock_monotonic: MagicMock) -> None:
+    def test_escalate_to_kill(self) -> None:
         proc = MagicMock()
         proc.poll.return_value = None
         proc.pid = 1234
         proc.poll.side_effect = [None, None, None, None]
+        proc.wait.side_effect = [
+            subprocess.TimeoutExpired(cmd="worker", timeout=10),
+            subprocess.TimeoutExpired(cmd="worker", timeout=5),
+        ]
         _terminate_process(proc)
         proc.terminate.assert_called_once()
         proc.kill.assert_called_once()
@@ -115,6 +119,7 @@ class TestGetRunIdFromState(unittest.TestCase):
     def test_with_state(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             import json
+
             state_file = Path(tmp) / "run_state.json"
             state_file.write_text(json.dumps({"run_id": "test_run_123"}))
             result = _get_run_id_from_state(tmp)
@@ -221,7 +226,10 @@ class TestQueueWorkerMethods(unittest.TestCase):
         )
 
     @patch("chemstack.orca.queue_worker.upsert_job_record")
-    @patch("chemstack.orca.queue_worker.resolve_job_metadata", side_effect=AssertionError("should use queue metadata"))
+    @patch(
+        "chemstack.orca.queue_worker.resolve_job_metadata",
+        side_effect=AssertionError("should use queue metadata"),
+    )
     @patch("chemstack.orca.queue_worker._start_job_process")
     def test_start_job_prefers_queue_metadata_for_tracking(
         self,
@@ -327,7 +335,10 @@ class TestQueueWorkerMethods(unittest.TestCase):
         self.assertEqual(len(self.worker._running), 0)
 
     @patch("chemstack.orca.queue_worker._upsert_terminal_job_record")
-    @patch("chemstack.orca.commands.organize.organize_reaction_dir", return_value={"action": "organized", "target_dir": "/tmp/out"})
+    @patch(
+        "chemstack.orca.commands.organize.organize_reaction_dir",
+        return_value={"action": "organized", "target_dir": "/tmp/out"},
+    )
     def test_finalize_finished_job_auto_organizes_when_enabled(
         self,
         mock_organize: MagicMock,
@@ -693,8 +704,7 @@ class TestFillSlots(unittest.TestCase):
                 worker._fill_slots()
 
             queue_by_name = {
-                Path(entry["reaction_dir"]).name: entry["status"]
-                for entry in list_queue(root)
+                Path(entry["reaction_dir"]).name: entry["status"] for entry in list_queue(root)
             }
             self.assertEqual(len(worker._running), 3)
             self.assertEqual(mock_start_job_process.call_count, 3)
@@ -746,8 +756,7 @@ class TestFillSlots(unittest.TestCase):
                 worker._fill_slots()
 
             queue_by_name = {
-                Path(entry["reaction_dir"]).name: entry["status"]
-                for entry in list_queue(root)
+                Path(entry["reaction_dir"]).name: entry["status"] for entry in list_queue(root)
             }
             self.assertEqual(mock_start_job_process.call_count, 1)
             self.assertEqual(len(worker._running), 1)
@@ -796,8 +805,12 @@ class TestFillSlots(unittest.TestCase):
             queued.mkdir()
             enqueue(root, str(queued))
 
-            with acquire_direct_slot(root, max_concurrent=1, reaction_dir=str(root / "direct_hold")):
-                with patch("chemstack.orca.queue_worker._start_job_process") as mock_start_job_process:
+            with acquire_direct_slot(
+                root, max_concurrent=1, reaction_dir=str(root / "direct_hold")
+            ):
+                with patch(
+                    "chemstack.orca.queue_worker._start_job_process"
+                ) as mock_start_job_process:
                     worker._fill_slots()
 
             self.assertEqual(len(worker._running), 0)

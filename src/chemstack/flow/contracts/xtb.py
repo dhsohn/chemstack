@@ -3,42 +3,33 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
+from chemstack.core.utils.coercion import (
+    coerce_int_mapping,
+    normalize_bool as _shared_normalize_bool,
+    normalize_text as _shared_normalize_text,
+    safe_float as _shared_safe_float,
+    safe_int as _shared_safe_int,
+)
+
 
 def _normalize_text(value: Any) -> str:
-    return str(value).strip()
+    return _shared_normalize_text(value, none="None")
 
 
 def _normalize_bool(value: Any) -> bool:
-    if isinstance(value, bool):
-        return value
-    text = _normalize_text(value).lower()
-    return text in {"1", "true", "yes", "y", "on"}
+    return _shared_normalize_bool(value)
 
 
 def _safe_int(value: Any, *, default: int = 0) -> int:
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return default
+    return _shared_safe_int(value, default=default)
 
 
 def _safe_float(value: Any) -> float | None:
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
+    return _shared_safe_float(value)
 
 
 def _coerce_resource_dict(value: Any) -> dict[str, int]:
-    if not isinstance(value, dict):
-        return {}
-    payload: dict[str, int] = {}
-    for key, raw in value.items():
-        name = _normalize_text(key)
-        if not name:
-            continue
-        payload[name] = _safe_int(raw, default=0)
-    return payload
+    return coerce_int_mapping(value, default=0)
 
 
 @dataclass(frozen=True)
@@ -134,8 +125,14 @@ class XtbDownstreamPolicy:
         fallback_to_selected_paths: bool = True,
         allowed_kinds: list[str] | tuple[str, ...] | None = None,
     ) -> "XtbDownstreamPolicy":
-        kinds = tuple(_normalize_text(item) for item in (preferred_kinds or cls().preferred_kinds) if _normalize_text(item))
-        filtered_kinds = tuple(_normalize_text(item) for item in (allowed_kinds or ()) if _normalize_text(item))
+        kinds = tuple(
+            _normalize_text(item)
+            for item in (preferred_kinds or cls().preferred_kinds)
+            if _normalize_text(item)
+        )
+        filtered_kinds = tuple(
+            _normalize_text(item) for item in (allowed_kinds or ()) if _normalize_text(item)
+        )
         return cls(
             preferred_kinds=kinds or cls().preferred_kinds,
             max_candidates=max(1, int(max_candidates)),
