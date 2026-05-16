@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import json
 import os
 import signal
 import subprocess
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, MutableMapping, Protocol, TypeVar
+from typing import Any, Callable, Generic, MutableMapping, Protocol, TypeVar
 
 from chemstack.core.admission import reserve_slot
 from chemstack.core.utils import process as process_utils
@@ -19,6 +20,13 @@ T = TypeVar("T")
 class SlotFillResult:
     status: str
     started: int
+
+
+@dataclass(frozen=True)
+class ReservedQueueEntry(Generic[T]):
+    queue_root: Path
+    entry: T
+    admission_token: str
 
 
 class ManagedProcess(Protocol):
@@ -103,6 +111,34 @@ def dequeue_next_across_roots(
     if entry is None:
         return None
     return selected_root, entry
+
+
+def reserve_dequeued_entry(
+    cfg: Any,
+    *,
+    admission_root: str | Path,
+    reserve_slot_fn: Callable[[Any], str | None],
+    dequeue_next_fn: Callable[[Any], tuple[Path, T] | None],
+    release_slot_fn: Callable[[str | Path, str], object],
+) -> tuple[str, ReservedQueueEntry[T] | None]:
+    admission_token = reserve_slot_fn(cfg)
+    if admission_token is None:
+        return "blocked", None
+
+    dequeued = dequeue_next_fn(cfg)
+    if dequeued is None:
+        release_slot_fn(admission_root, admission_token)
+        return "idle", None
+
+    queue_root, entry = dequeued
+    return (
+        "processed",
+        ReservedQueueEntry(
+            queue_root=queue_root,
+            entry=entry,
+            admission_token=admission_token,
+        ),
+    )
 
 
 def fill_worker_slots(
@@ -335,6 +371,26 @@ def current_worker_pid_payload() -> dict[str, int | str]:
         process_start_ticks_fn=_process_start_ticks,
         pid_fn=os.getpid,
     )
+
+
+def worker_pid_file_path(allowed_root: Path | str, file_name: str = "queue_worker.pid") -> Path:
+    return Path(allowed_root).expanduser().resolve() / file_name
+
+
+def write_worker_pid_file(allowed_root: Path | str, file_name: str = "queue_worker.pid") -> None:
+    payload = current_worker_pid_payload()
+    worker_pid_file_path(allowed_root, file_name).write_text(
+        json.dumps(payload, ensure_ascii=True) + "\n",
+        encoding="utf-8",
+    )
+
+
+def remove_worker_pid_file(allowed_root: Path | str, file_name: str = "queue_worker.pid") -> None:
+    _remove_pid_file(worker_pid_file_path(allowed_root, file_name))
+
+
+def read_worker_pid_file(allowed_root: Path | str, file_name: str = "queue_worker.pid") -> int | None:
+    return read_live_pid_file(worker_pid_file_path(allowed_root, file_name))
 
 
 def _positive_int(value: Any) -> int | None:

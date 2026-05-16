@@ -6,15 +6,13 @@ import json
 import logging
 import os
 import fcntl
-import sys
 import time
 from contextlib import contextmanager
-from functools import lru_cache
-from importlib import import_module
 from pathlib import Path
 from typing import Any, Iterator, List, TypedDict, cast
 
 from chemstack.core.app_ids import CHEMSTACK_ORCA_APP_NAME
+from chemstack.core.admission import store as _core_admission_store
 
 from .lock_utils import (
     current_process_start_ticks,
@@ -138,28 +136,8 @@ def _save_slots(root: Path, slots: List[AdmissionSlot]) -> None:
     backend._save_slots(root, backend_slots)
 
 
-@lru_cache(maxsize=1)
 def _chem_core_admission_module() -> Any | None:
-    try:
-        return import_module("chemstack.core.admission.store")
-    except ModuleNotFoundError as exc:
-        if exc.name not in {
-            "chemstack",
-            "chemstack.core",
-            "chemstack.core.admission",
-            "chemstack.core.admission.store",
-        }:
-            raise
-        repo_root = Path(__file__).resolve().parents[2] / "src"
-        if not repo_root.is_dir():
-            return None
-        repo_root_text = str(repo_root)
-        if repo_root_text not in sys.path:
-            sys.path.insert(0, repo_root_text)
-        try:
-            return import_module("chemstack.core.admission.store")
-        except ModuleNotFoundError:
-            return None
+    return _core_admission_store
 
 
 def _backend_list_slots(root: Path, *, backend: Any) -> list[AdmissionSlot] | None:

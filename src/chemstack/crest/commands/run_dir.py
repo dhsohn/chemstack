@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from chemstack.core.queue import DuplicateQueueEntryError, enqueue
+from chemstack.core.commands.run_dir import EngineRunDirSubmission, cmd_engine_run_dir
+from chemstack.core.queue import enqueue
 
 from ..config import load_config
 from ..job_locations import index_root_for_path, molecule_key_from_selected_xyz, upsert_job_record
@@ -19,57 +20,63 @@ from ._helpers import (
 )
 
 
-def cmd_run_dir(args: Any) -> int:
-    cfg = load_config(getattr(args, "config", None))
-    raw_job_dir = getattr(args, "path", None)
-    if not isinstance(raw_job_dir, str) or not raw_job_dir.strip():
-        raise ValueError("job directory path is required")
-
-    job_dir = resolve_job_dir(cfg, raw_job_dir)
-    manifest = load_job_manifest(job_dir)
+def _build_submission(
+    cfg: Any,
+    job_dir: Any,
+    manifest: dict[str, Any],
+    args: Any,
+) -> EngineRunDirSubmission:
     selected_xyz = select_input_xyz(job_dir, manifest)
     job_id = new_job_id()
     mode = job_mode(manifest)
     molecule_key = molecule_key_from_selected_xyz(str(selected_xyz), job_dir)
     resource_request = resource_request_from_manifest(cfg, manifest)
-    queue_root = index_root_for_path(cfg, job_dir)
+    return EngineRunDirSubmission(
+        queue_root=index_root_for_path(cfg, job_dir),
+        app_name="crest_auto",
+        task_id=job_id,
+        task_kind="crest_conformer_search",
+        engine="crest",
+        priority=int(getattr(args, "priority", 10)),
+        metadata={
+            "job_dir": str(job_dir),
+            "selected_input_xyz": str(selected_xyz),
+            "mode": mode,
+            "molecule_key": molecule_key,
+            "manifest_present": "true" if manifest else "false",
+            "resource_request": dict(resource_request),
+            "resource_actual": dict(resource_request),
+        },
+        context={
+            "job_dir": job_dir,
+            "selected_xyz": selected_xyz,
+            "mode": mode,
+            "molecule_key": molecule_key,
+            "resource_request": resource_request,
+        },
+    )
 
-    try:
-        entry = enqueue(
-            queue_root,
-            app_name="crest_auto",
-            task_id=job_id,
-            task_kind="crest_conformer_search",
-            engine="crest",
-            priority=int(getattr(args, "priority", 10)),
-            metadata={
-                "job_dir": str(job_dir),
-                "selected_input_xyz": str(selected_xyz),
-                "mode": mode,
-                "molecule_key": molecule_key,
-                "manifest_present": "true" if manifest else "false",
-                "resource_request": dict(resource_request),
-                "resource_actual": dict(resource_request),
-            },
-        )
-    except DuplicateQueueEntryError as exc:
-        print(f"error: {exc}")
-        return 1
 
+def _record_queued(cfg: Any, submission: EngineRunDirSubmission, entry: Any) -> None:
+    job_dir = submission.context["job_dir"]
+    selected_xyz = submission.context["selected_xyz"]
+    mode = submission.context["mode"]
+    molecule_key = submission.context["molecule_key"]
+    resource_request = submission.context["resource_request"]
     write_state(
         job_dir,
         queued_state_payload(
-            job_id=job_id,
+            job_id=submission.task_id,
             job_dir=job_dir,
             selected_xyz=selected_xyz,
             mode=mode,
             molecule_key=molecule_key,
             resource_request=resource_request,
-        ),
+        )
     )
     upsert_job_record(
         cfg,
-        job_id=job_id,
+        job_id=submission.task_id,
         status="queued",
         job_dir=job_dir,
         mode=mode,
@@ -80,17 +87,33 @@ def cmd_run_dir(args: Any) -> int:
     )
     notify_job_queued(
         cfg,
-        job_id=job_id,
+        job_id=submission.task_id,
         queue_id=entry.queue_id,
         job_dir=job_dir,
         mode=mode,
         selected_xyz=selected_xyz,
     )
 
+
+def _print_queued(submission: EngineRunDirSubmission, entry: Any) -> None:
+    job_dir = submission.context["job_dir"]
+    selected_xyz = submission.context["selected_xyz"]
     print("status: queued")
     print(f"job_dir: {job_dir}")
-    print(f"job_id: {job_id}")
+    print(f"job_id: {submission.task_id}")
     print(f"queue_id: {entry.queue_id}")
     print(f"priority: {entry.priority}")
     print(f"selected_input_xyz: {selected_xyz.name}")
-    return 0
+
+
+def cmd_run_dir(args: Any) -> int:
+    return cmd_engine_run_dir(
+        args,
+        load_config_fn=load_config,
+        resolve_job_dir_fn=resolve_job_dir,
+        load_manifest_fn=load_job_manifest,
+        build_submission_fn=_build_submission,
+        record_queued_fn=_record_queued,
+        print_queued_fn=_print_queued,
+        enqueue_fn=enqueue,
+    )

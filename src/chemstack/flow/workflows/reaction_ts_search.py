@@ -4,11 +4,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from chemstack.core.app_ids import (
-    CHEMSTACK_CLI_COMMAND,
-    CHEMSTACK_CLI_MODULE,
-    CHEMSTACK_ORCA_SUBMITTER,
-)
+from chemstack.core.app_ids import CHEMSTACK_CLI_COMMAND
 from chemstack.core.utils import atomic_write_json, now_utc_iso, timestamped_token
 
 from ..adapters.xtb import load_xtb_artifact_contract, select_xtb_downstream_inputs
@@ -22,7 +18,13 @@ from ..contracts import (
     XtbDownstreamPolicy,
 )
 from ..registry import sync_workflow_registry
-from ..xyz_utils import choose_orca_geometry_frame, write_orca_ready_xyz
+from ..xyz_utils import choose_orca_geometry_frame
+from .orca_stage_utils import (
+    build_orca_enqueue_payload as _shared_build_orca_enqueue_payload,
+    ensure_route_line as _shared_ensure_route_line,
+    materialize_orca_stage as _shared_materialize_orca_stage,
+    render_orca_input as _shared_render_orca_input,
+)
 
 
 @dataclass(frozen=True)
@@ -119,8 +121,7 @@ def _selected_input_label(path: str) -> str:
 
 
 def _ensure_route_line(route_line: str) -> str:
-    normalized = _normalize_text(route_line) or "r2scan-3c OptTS Freq TightSCF"
-    return normalized if normalized.startswith("!") else f"! {normalized}"
+    return _shared_ensure_route_line(route_line, default="r2scan-3c OptTS Freq TightSCF")
 
 
 def _maxcore_mb_per_core(*, max_memory_gb: int, max_cores: int) -> int:
@@ -137,18 +138,14 @@ def _render_orca_input(
     max_memory_gb: int,
     xyz_filename: str,
 ) -> str:
-    return "\n".join(
-        [
-            _ensure_route_line(route_line),
-            "",
-            "%pal",
-            f"  nprocs {max(1, int(max_cores))}",
-            "end",
-            f"%maxcore {_maxcore_mb_per_core(max_memory_gb=max_memory_gb, max_cores=max_cores)}",
-            "",
-            f"* xyzfile {int(charge)} {int(multiplicity)} {xyz_filename}",
-            "",
-        ]
+    return _shared_render_orca_input(
+        route_line=route_line,
+        charge=charge,
+        multiplicity=multiplicity,
+        max_cores=max_cores,
+        max_memory_gb=max_memory_gb,
+        xyz_filename=xyz_filename,
+        default_route_line="r2scan-3c OptTS Freq TightSCF",
     )
 
 
@@ -163,50 +160,16 @@ def _build_orca_enqueue_payload(
     source_job_id: str,
     reaction_key: str,
 ) -> dict[str, Any]:
-    config_placeholder = "<chemstack_config>"
-    max_cores = int(resource_request.get("max_cores", 0) or 0)
-    max_memory_gb = int(resource_request.get("max_memory_gb", 0) or 0)
-    command_parts = [
-        f"{CHEMSTACK_CLI_COMMAND} --config {config_placeholder}",
-        "run-dir",
-        f"'{reaction_dir}'",
-        f"--priority {int(priority)}",
-    ]
-    command_argv = [
-        "python",
-        "-m",
-        CHEMSTACK_CLI_MODULE,
-        "--config",
-        config_placeholder,
-        "run-dir",
-        reaction_dir,
-        "--priority",
-        str(int(priority)),
-    ]
-    if max_cores > 0:
-        command_parts.append(f"--max-cores {max_cores}")
-        command_argv.extend(["--max-cores", str(max_cores)])
-    if max_memory_gb > 0:
-        command_parts.append(f"--max-memory-gb {max_memory_gb}")
-        command_argv.extend(["--max-memory-gb", str(max_memory_gb)])
-    return {
-        "submitter": CHEMSTACK_ORCA_SUBMITTER,
-        "command": " ".join(command_parts),
-        "command_argv": command_argv,
-        "requires_config": True,
-        "config_argument_placeholder": config_placeholder,
-        "reaction_dir": reaction_dir,
-        "selected_inp": selected_inp,
-        "priority": int(priority),
-        "force": False,
-        "max_cores": max_cores,
-        "max_memory_gb": max_memory_gb,
-        "workflow_id": workflow_id,
-        "workflow_stage_id": stage_id,
-        "source_job_id": source_job_id,
-        "reaction_key": reaction_key,
-        "resource_request": dict(resource_request),
-    }
+    return _shared_build_orca_enqueue_payload(
+        workflow_id=workflow_id,
+        stage_id=stage_id,
+        reaction_dir=reaction_dir,
+        selected_inp=selected_inp,
+        priority=priority,
+        resource_request=resource_request,
+        source_job_id=source_job_id,
+        reaction_key=reaction_key,
+    )
 
 
 def _orca_payload_from_candidate(
@@ -276,42 +239,25 @@ def _materialize_orca_stage_from_context(ctx: OrcaStageBuildContext) -> OrcaStag
     if not source_xyz.exists():
         raise FileNotFoundError(f"xTB candidate artifact not found: {source_xyz}")
 
-    stage_dir = (
-        ctx.workspace_dir
-        / "03_orca"
-        / f"{ctx.index:02d}_{_safe_name(ctx.candidate.kind, fallback='candidate')}"
-    )
-    reaction_dir = stage_dir
-    reaction_dir.mkdir(parents=True, exist_ok=True)
-
-    target_xyz = reaction_dir / "ts_guess.xyz"
-    target_inp = reaction_dir / "ts_guess.inp"
-    geometry_metadata = write_orca_ready_xyz(
-        source_path=source_xyz,
-        target_path=target_xyz,
+    materialized = _shared_materialize_orca_stage(
+        workspace_dir=ctx.workspace_dir,
+        stage_root_name="03_orca",
+        stage_key=f"{ctx.index:02d}_{_safe_name(ctx.candidate.kind, fallback='candidate')}",
+        source_artifact_path=str(source_xyz),
         candidate_kind=str(ctx.candidate.kind),
-    )
-    target_inp.write_text(
-        _render_orca_input(
-            route_line=ctx.route_line,
-            charge=ctx.charge,
-            multiplicity=ctx.multiplicity,
-            max_cores=ctx.max_cores,
-            max_memory_gb=ctx.max_memory_gb,
-            xyz_filename=target_xyz.name,
-        ),
-        encoding="utf-8",
-    )
-
-    source_payload = {
-        "source_job_id": ctx.contract.job_id,
-        "source_job_type": ctx.contract.job_type,
-        "source_candidate_path": str(source_xyz),
-        "reaction_key": ctx.contract.reaction_key,
-        "geometry_materialization": dict(geometry_metadata),
-    }
-    atomic_write_json(
-        stage_dir / "source_candidate.json", source_payload, ensure_ascii=True, indent=2
+        route_line=ctx.route_line,
+        charge=ctx.charge,
+        multiplicity=ctx.multiplicity,
+        max_cores=ctx.max_cores,
+        max_memory_gb=ctx.max_memory_gb,
+        xyz_filename="ts_guess.xyz",
+        inp_filename="ts_guess.inp",
+        extra_source_payload={
+            "source_job_id": ctx.contract.job_id,
+            "source_job_type": ctx.contract.job_type,
+            "source_candidate_path": str(source_xyz),
+            "reaction_key": ctx.contract.reaction_key,
+        },
     )
 
     return OrcaStagePayload(
@@ -326,9 +272,9 @@ def _materialize_orca_stage_from_context(ctx: OrcaStageBuildContext) -> OrcaStag
         workflow_id=ctx.orca_payload.workflow_id,
         template_name=ctx.orca_payload.template_name,
         resource_request=dict(ctx.orca_payload.resource_request),
-        reaction_dir=str(reaction_dir),
-        selected_inp=str(target_inp),
-        suggested_command=f"{CHEMSTACK_CLI_COMMAND} run-dir '{reaction_dir}'",
+        reaction_dir=materialized.reaction_dir,
+        selected_inp=materialized.selected_inp,
+        suggested_command=f"{CHEMSTACK_CLI_COMMAND} run-dir '{materialized.reaction_dir}'",
         metadata=dict(ctx.orca_payload.metadata),
     )
 

@@ -582,25 +582,23 @@ def process_dequeued_entry(
             job_dir=context.job_dir,
             selected_xyz=context.selected_xyz,
         )
-        while True:
-            if running.process.poll() is not None:
-                result = dependencies.finalize_crest_job(running)
-                break
 
-            if dependencies.get_cancel_requested(str(active_queue_root), entry.queue_id):
-                dependencies.terminate_process(running.process)
-                result = dependencies.finalize_crest_job(
-                    running,
-                    forced_status="cancelled",
-                    forced_reason="cancel_requested",
-                )
-                break
+        def raise_shutdown(_running: Any) -> None:
+            raise WorkerShutdownRequested(context)
 
-            if shutdown_requested is not None and shutdown_requested():
-                dependencies.terminate_process(running.process)
-                raise WorkerShutdownRequested(context)
-
-            time.sleep(CANCEL_CHECK_INTERVAL_SECONDS)
+        result = _queue_execution.wait_for_cancellable_process(
+            running,
+            finalize_fn=dependencies.finalize_crest_job,
+            terminate_process_fn=dependencies.terminate_process,
+            should_cancel=lambda: dependencies.get_cancel_requested(
+                str(active_queue_root),
+                entry.queue_id,
+            ),
+            shutdown_requested=shutdown_requested,
+            on_shutdown=raise_shutdown,
+            sleep_fn=time.sleep,
+            poll_interval_seconds=CANCEL_CHECK_INTERVAL_SECONDS,
+        )
     except Exception as exc:
         if isinstance(exc, WorkerShutdownRequested):
             raise

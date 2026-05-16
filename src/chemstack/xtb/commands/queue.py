@@ -33,6 +33,7 @@ from chemstack.core.queue.worker import (
     QueueWorkerLoop,
     dequeue_next_across_roots,
     pid_is_alive as worker_pid_is_alive,
+    reserve_dequeued_entry,
     reserve_queue_worker_slot,
     resolve_admission_limit,
     resolve_admission_root,
@@ -779,19 +780,15 @@ def _execute_queue_entry(
             if register_running_job is not None:
                 register_running_job(running)
             try:
-                while True:
-                    if should_cancel is not None and should_cancel():
-                        _terminate_process(running.process)
-                        result = finalize_xtb_job(
-                            running,
-                            forced_status="cancelled",
-                            forced_reason="cancel_requested",
-                        )
-                        break
-                    if running.process.poll() is not None:
-                        result = finalize_xtb_job(running)
-                        break
-                    time.sleep(CANCEL_CHECK_INTERVAL_SECONDS)
+                result = _queue_execution.wait_for_cancellable_process(
+                    running,
+                    finalize_fn=finalize_xtb_job,
+                    terminate_process_fn=_terminate_process,
+                    should_cancel=should_cancel,
+                    sleep_fn=time.sleep,
+                    poll_interval_seconds=CANCEL_CHECK_INTERVAL_SECONDS,
+                    check_cancel_before_poll=True,
+                )
             finally:
                 if register_running_job is not None:
                     register_running_job(None)
@@ -935,21 +932,21 @@ class QueueWorker(QueueWorkerLoop):
             blocked_message=blocked_message,
         )
 
-    def _reserve_next_entry(self) -> tuple[str, tuple[Path, Any, str] | None]:
-        slot_token = _try_reserve_admission_slot(self.cfg)
-        if slot_token is None:
-            return "blocked", None
-
-        dequeued = _dequeue_next_entry(self.cfg)
-        if dequeued is None:
-            release_slot(self.admission_root, slot_token)
-            return "idle", None
-        queue_root, entry = dequeued
-        return "processed", (queue_root, entry, slot_token)
+    def _reserve_next_entry(self) -> tuple[str, Any | None]:
+        return reserve_dequeued_entry(
+            self.cfg,
+            admission_root=self.admission_root,
+            reserve_slot_fn=_try_reserve_admission_slot,
+            dequeue_next_fn=_dequeue_next_entry,
+            release_slot_fn=release_slot,
+        )
 
     def _start_reserved(self, reserved: Any) -> None:
-        queue_root, entry, slot_token = reserved
-        self._start_job(queue_root, entry, admission_token=slot_token)
+        self._start_job(
+            reserved.queue_root,
+            reserved.entry,
+            admission_token=reserved.admission_token,
+        )
 
     def _start_job(self, queue_root: Path, entry: Any, *, admission_token: str) -> None:
         try:

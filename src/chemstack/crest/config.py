@@ -1,12 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from pathlib import Path
 
 from chemstack.core.config import engines as _engine_config
-from chemstack.core.config.files import (
-    default_config_path_from_repo_root,
-)
 from chemstack.core.config import CommonResourceConfig, CommonRuntimeConfig, TelegramConfig
 
 CONFIG_ENV_VAR = "CHEMSTACK_CONFIG"
@@ -37,8 +33,7 @@ class AppConfig:
 
 
 def default_config_path() -> str:
-    repo_root = Path(__file__).resolve().parents[3]
-    return default_config_path_from_repo_root(repo_root, env_var=CONFIG_ENV_VAR)
+    return _engine_config.default_workflow_engine_config_path(__file__, env_var=CONFIG_ENV_VAR)
 
 
 def load_config(config_path: str | None = None) -> AppConfig:

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import subprocess
 import time
 from dataclasses import dataclass, field
@@ -28,12 +27,15 @@ from chemstack.core.queue import (
 from chemstack.core.queue.types import QueueStatus
 from chemstack.core.queue.worker import (
     QueueWorkerLoop,
-    current_worker_pid_payload,
     dequeue_next_across_roots,
-    read_live_pid_file,
+    read_worker_pid_file,
+    remove_worker_pid_file,
+    reserve_dequeued_entry,
     reserve_queue_worker_slot,
     resolve_admission_limit,
     resolve_admission_root,
+    worker_pid_file_path,
+    write_worker_pid_file,
 )
 from chemstack.core.utils import now_utc_iso
 
@@ -185,7 +187,7 @@ def _process_one(cfg: Any, *, auto_organize: bool) -> str:
 
 
 def read_worker_pid(allowed_root: Path) -> int | None:
-    return read_live_pid_file(allowed_root / WORKER_PID_FILE)
+    return read_worker_pid_file(allowed_root, WORKER_PID_FILE)
 
 
 class QueueWorker(QueueWorkerLoop):
@@ -233,22 +235,21 @@ class QueueWorker(QueueWorkerLoop):
                     requeue_running_entry(queue_root, entry.queue_id)
                     _mark_recovery_pending_entry(self.cfg, entry, reason="crashed_recovery")
 
-    def _reserve_next_entry(self) -> tuple[str, tuple[Path, Any, str] | None]:
-        admission_token = _try_reserve_admission_slot(self.cfg)
-        if admission_token is None:
-            return "blocked", None
-
-        dequeued = _dequeue_next_entry(self.cfg)
-        if dequeued is None:
-            release_slot(self.admission_root, admission_token)
-            return "idle", None
-
-        queue_root, entry = dequeued
-        return "processed", (queue_root, entry, admission_token)
+    def _reserve_next_entry(self) -> tuple[str, Any | None]:
+        return reserve_dequeued_entry(
+            self.cfg,
+            admission_root=self.admission_root,
+            reserve_slot_fn=_try_reserve_admission_slot,
+            dequeue_next_fn=_dequeue_next_entry,
+            release_slot_fn=release_slot,
+        )
 
     def _start_reserved(self, reserved: Any) -> None:
-        queue_root, entry, admission_token = reserved
-        self._start_job(queue_root, entry, admission_token=admission_token)
+        self._start_job(
+            reserved.queue_root,
+            reserved.entry,
+            admission_token=reserved.admission_token,
+        )
 
     def _start_job(self, queue_root: Path, entry: Any, *, admission_token: str) -> bool:
         try:
@@ -338,19 +339,13 @@ class QueueWorker(QueueWorkerLoop):
         self._finalize_child_exit(job, rc=int(rc) if rc is not None else 0)
 
     def _pid_file_path(self) -> Path:
-        return self.allowed_root / WORKER_PID_FILE
+        return worker_pid_file_path(self.allowed_root, WORKER_PID_FILE)
 
     def _write_pid_file(self) -> None:
-        payload = current_worker_pid_payload()
-        self._pid_file_path().write_text(
-            json.dumps(payload, ensure_ascii=True) + "\n", encoding="utf-8"
-        )
+        write_worker_pid_file(self.allowed_root, WORKER_PID_FILE)
 
     def _remove_pid_file(self) -> None:
-        try:
-            self._pid_file_path().unlink()
-        except OSError:
-            pass
+        remove_worker_pid_file(self.allowed_root, WORKER_PID_FILE)
 
 
 def cmd_queue_worker(args: Any) -> int:

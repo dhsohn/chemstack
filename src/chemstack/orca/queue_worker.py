@@ -7,7 +7,6 @@ management, and signal handling remain centralized.
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import signal
@@ -21,12 +20,14 @@ from typing import Any
 from chemstack.core.queue.worker import (
     ManagedProcess as _ManagedProcess,
     QueueWorkerLoop,
-    current_worker_pid_payload,
-    read_live_pid_file,
+    read_worker_pid_file,
+    remove_worker_pid_file,
     reserve_queue_worker_slot,
     resolve_admission_limit,
     resolve_admission_root,
     terminate_process_group,
+    worker_pid_file_path,
+    write_worker_pid_file,
 )
 
 from .admission_store import reconcile_stale_slots, release_slot, reserve_slot, update_slot_metadata
@@ -502,21 +503,15 @@ class QueueWorker(QueueWorkerLoop):
     # -- PID file ---------------------------------------------------------
 
     def _pid_file_path(self) -> Path:
-        return self.allowed_root / WORKER_PID_FILE
+        return worker_pid_file_path(self.allowed_root, WORKER_PID_FILE)
 
     def _write_pid_file(self) -> None:
-        payload = current_worker_pid_payload()
-        self._pid_file_path().write_text(
-            json.dumps(payload, ensure_ascii=True) + "\n", encoding="utf-8"
-        )
+        write_worker_pid_file(self.allowed_root, WORKER_PID_FILE)
 
     def _remove_pid_file(self) -> None:
-        try:
-            self._pid_file_path().unlink()
-        except OSError:
-            pass
+        remove_worker_pid_file(self.allowed_root, WORKER_PID_FILE)
 
 
 def read_worker_pid(allowed_root: Path) -> int | None:
     """Read the worker PID file. Returns None if not found or stale."""
-    return read_live_pid_file(allowed_root / WORKER_PID_FILE)
+    return read_worker_pid_file(allowed_root, WORKER_PID_FILE)

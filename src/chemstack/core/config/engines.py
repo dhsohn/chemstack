@@ -5,7 +5,11 @@ from typing import Any, Callable
 
 import yaml
 
-from .files import default_shared_admission_root, workflow_root_from_mapping
+from .files import (
+    default_config_path_from_repo_root,
+    default_shared_admission_root,
+    workflow_root_from_mapping,
+)
 from .schema import CommonResourceConfig, CommonRuntimeConfig, TelegramConfig
 
 
@@ -69,6 +73,11 @@ def positive_int_mapping(raw: object) -> dict[str, int]:
         if parsed is not None:
             result[key_text] = parsed
     return result
+
+
+def default_workflow_engine_config_path(module_file: str, *, env_var: str) -> str:
+    repo_root = Path(module_file).resolve().parents[3]
+    return default_config_path_from_repo_root(repo_root, env_var=env_var)
 
 
 def resource_request_from_manifest(cfg: Any, manifest: dict[str, Any]) -> dict[str, int]:

@@ -3,7 +3,13 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from chemstack.core.indexing import JobLocationRecord, get_job_location, list_job_locations, resolve_job_location, upsert_job_location
+from chemstack.core.indexing import (
+    JobLocationRecord,
+    get_job_location,
+    list_job_locations,
+    resolve_job_location,
+    upsert_job_location,
+)
 from chemstack.core.indexing import engines as _engine_locations
 
 from .config import AppConfig
@@ -20,6 +26,13 @@ _LOCATION_SPEC = _engine_locations.EngineLocationSpec(
     payload_kind_default="path_search",
     molecule_key_name="reaction_key",
 )
+_LOCATION_FACADE = _engine_locations.EngineLocationFacade(
+    engine=_ENGINE,
+    spec=_LOCATION_SPEC,
+    load_state_fn=load_state,
+    load_report_json_fn=load_report_json,
+    load_organized_ref_fn=load_organized_ref,
+)
 
 
 def _normalize_text(value: Any) -> str:
@@ -27,22 +40,22 @@ def _normalize_text(value: Any) -> str:
 
 
 def index_root_for_cfg(cfg: AppConfig) -> Path:
-    return _engine_locations.index_root_for_cfg(cfg)
+    return _LOCATION_FACADE.index_root_for_cfg(cfg)
 
 
 def runtime_roots_for_cfg(cfg: AppConfig) -> tuple[Path, ...]:
-    return _engine_locations.runtime_roots_for_cfg(cfg, engine=_ENGINE)
+    return _LOCATION_FACADE.runtime_roots_for_cfg(cfg)
 
 
 def index_root_for_path(
     cfg: AppConfig,
     *paths: str | Path | None,
 ) -> Path:
-    return _engine_locations.index_root_for_path(cfg, *paths, engine=_ENGINE)
+    return _LOCATION_FACADE.index_root_for_path(cfg, *paths)
 
 
 def _lookup_roots_for_target(cfg: AppConfig, target: str) -> tuple[Path, ...]:
-    return _engine_locations.lookup_roots_for_target(cfg, target, engine=_ENGINE)
+    return _LOCATION_FACADE.lookup_roots_for_target(cfg, target)
 
 
 def list_job_records_for_cfg(cfg: AppConfig) -> list[tuple[Path, JobLocationRecord]]:
@@ -104,7 +117,7 @@ def build_job_location_record(
     resource_request: dict[str, int] | None = None,
     resource_actual: dict[str, int] | None = None,
 ) -> JobLocationRecord:
-    return _build_job_location_record_from_kind(
+    return _LOCATION_FACADE.build_job_location_record(
         existing=existing,
         job_id=job_id,
         status=status,
@@ -118,7 +131,7 @@ def build_job_location_record(
     )
 
 
-_build_job_location_record_from_kind = _engine_locations.make_engine_record_builder(_LOCATION_SPEC)
+_build_job_location_record_from_kind = _LOCATION_FACADE.build_job_location_record
 
 
 def upsert_job_record(
@@ -200,9 +213,7 @@ def record_from_artifacts(
     existing: JobLocationRecord | None = None,
     default_job_type: str = "path_search",
 ) -> JobLocationRecord | None:
-    return _engine_locations.engine_record_from_artifacts(
-        spec=_LOCATION_SPEC,
-        build_record_fn=_build_job_location_record_from_kind,
+    return _LOCATION_FACADE.record_from_artifacts(
         job_dir=job_dir,
         state=state,
         report=report,
@@ -213,10 +224,4 @@ def record_from_artifacts(
 
 
 def collect_reindex_payload(job_dir: Path) -> dict[str, Any] | None:
-    return _engine_locations.collect_engine_reindex_payload_for_dir(
-        spec=_LOCATION_SPEC,
-        job_dir=job_dir,
-        load_state_fn=load_state,
-        load_report_json_fn=load_report_json,
-        load_organized_ref_fn=load_organized_ref,
-    )
+    return _LOCATION_FACADE.collect_reindex_payload(job_dir)

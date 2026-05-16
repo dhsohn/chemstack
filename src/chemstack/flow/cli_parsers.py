@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import dataclass
 from typing import Any
 
 
@@ -51,6 +52,58 @@ def _add_orca_materialization_arguments(
         default=route_default,
         help="Route line for materialized ORCA inputs",
     )
+
+
+@dataclass(frozen=True)
+class _ArgumentSpec:
+    flags: tuple[str, ...]
+    kwargs: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class _WorkflowParserSpec:
+    name: str
+    help: str
+    func_name: str
+    target_help: str = ""
+    workflow_root: bool = False
+    workflow_root_required: bool = False
+    chemstack_config: bool = False
+    chemstack_config_required: bool = False
+    chemstack_config_help: str = "Path to shared chemstack.yaml"
+    json: bool = True
+    arguments: tuple[_ArgumentSpec, ...] = ()
+
+
+def _add_argument_specs(
+    parser: argparse.ArgumentParser,
+    specs: tuple[_ArgumentSpec, ...],
+) -> None:
+    for spec in specs:
+        parser.add_argument(*spec.flags, **spec.kwargs)
+
+
+def _register_workflow_parser_specs(
+    workflow_subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+    specs: tuple[_WorkflowParserSpec, ...],
+) -> None:
+    commands = _commands()
+    for spec in specs:
+        parser = workflow_subparsers.add_parser(spec.name, help=spec.help)
+        if spec.target_help:
+            parser.add_argument("target", help=spec.target_help)
+        if spec.workflow_root:
+            _add_workflow_root_argument(parser, required=spec.workflow_root_required)
+        if spec.chemstack_config:
+            _add_chemstack_config_argument(
+                parser,
+                required=spec.chemstack_config_required,
+                help_text=spec.chemstack_config_help,
+            )
+        _add_argument_specs(parser, spec.arguments)
+        if spec.json:
+            _add_json_argument(parser)
+        parser.set_defaults(func=getattr(commands, spec.func_name))
 
 
 def _register_run_dir_parser(
@@ -181,95 +234,101 @@ def _register_engine_inspect_parsers(
 def _register_workflow_registry_parsers(
     workflow_subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
 ) -> None:
-    commands = _commands()
-    list_parser = workflow_subparsers.add_parser(
-        "list", help="List materialized workflows under a workflow root."
+    target_help = "workflow_id, workflow workspace directory, or workflow.json path"
+    _register_workflow_parser_specs(
+        workflow_subparsers,
+        (
+            _WorkflowParserSpec(
+                name="list",
+                help="List materialized workflows under a workflow root.",
+                func_name="cmd_workflow_list",
+                workflow_root=True,
+                workflow_root_required=True,
+                arguments=(
+                    _ArgumentSpec(
+                        ("--limit",),
+                        {"type": int, "default": 0, "help": "Optional maximum number of workflows to print"},
+                    ),
+                    _ArgumentSpec(
+                        ("--refresh",),
+                        {
+                            "action": "store_true",
+                            "help": "Rebuild the registry from workflow workspaces before listing",
+                        },
+                    ),
+                ),
+            ),
+            _WorkflowParserSpec(
+                name="get",
+                help="Inspect one materialized workflow.",
+                func_name="cmd_workflow_get",
+                target_help=target_help,
+                workflow_root=True,
+            ),
+            _WorkflowParserSpec(
+                name="artifacts",
+                help="List known materialized artifacts for one workflow.",
+                func_name="cmd_workflow_artifacts",
+                target_help=target_help,
+                workflow_root=True,
+            ),
+            _WorkflowParserSpec(
+                name="cancel",
+                help="Cancel a materialized workflow and request queue cancellation for submitted engine stages.",
+                func_name="cmd_workflow_cancel",
+                target_help=target_help,
+                workflow_root=True,
+                chemstack_config=True,
+                chemstack_config_help=(
+                    "Path to shared chemstack.yaml; required if submitted stages exist"
+                ),
+            ),
+            _WorkflowParserSpec(
+                name="reindex",
+                help="Rebuild the workflow registry from workflow workspaces.",
+                func_name="cmd_workflow_reindex",
+                workflow_root=True,
+                workflow_root_required=True,
+            ),
+            _WorkflowParserSpec(
+                name="runtime-status",
+                help="Show the current worker heartbeat/state for a workflow root.",
+                func_name="cmd_workflow_runtime_status",
+                workflow_root=True,
+                workflow_root_required=True,
+            ),
+            _WorkflowParserSpec(
+                name="journal",
+                help="Show recent append-only orchestration journal events.",
+                func_name="cmd_workflow_journal",
+                workflow_root=True,
+                workflow_root_required=True,
+                arguments=(
+                    _ArgumentSpec(
+                        ("--limit",),
+                        {"type": int, "default": 50, "help": "Maximum number of recent events to show"},
+                    ),
+                ),
+            ),
+            _WorkflowParserSpec(
+                name="telemetry",
+                help="Summarize registry status, worker heartbeat, and recent journal activity.",
+                func_name="cmd_workflow_telemetry",
+                workflow_root=True,
+                workflow_root_required=True,
+                arguments=(
+                    _ArgumentSpec(
+                        ("--limit",),
+                        {
+                            "type": int,
+                            "default": 200,
+                            "help": "Maximum number of recent journal events to summarize",
+                        },
+                    ),
+                ),
+            ),
+        ),
     )
-    _add_workflow_root_argument(list_parser, required=True)
-    list_parser.add_argument(
-        "--limit", type=int, default=0, help="Optional maximum number of workflows to print"
-    )
-    list_parser.add_argument(
-        "--refresh",
-        action="store_true",
-        help="Rebuild the registry from workflow workspaces before listing",
-    )
-    _add_json_argument(list_parser)
-    list_parser.set_defaults(func=commands.cmd_workflow_list)
-
-    get_parser = workflow_subparsers.add_parser("get", help="Inspect one materialized workflow.")
-    get_parser.add_argument(
-        "target", help="workflow_id, workflow workspace directory, or workflow.json path"
-    )
-    _add_workflow_root_argument(get_parser)
-    _add_json_argument(get_parser)
-    get_parser.set_defaults(func=commands.cmd_workflow_get)
-
-    artifacts_parser = workflow_subparsers.add_parser(
-        "artifacts",
-        help="List known materialized artifacts for one workflow.",
-    )
-    artifacts_parser.add_argument(
-        "target", help="workflow_id, workflow workspace directory, or workflow.json path"
-    )
-    _add_workflow_root_argument(artifacts_parser)
-    _add_json_argument(artifacts_parser)
-    artifacts_parser.set_defaults(func=commands.cmd_workflow_artifacts)
-
-    cancel_parser = workflow_subparsers.add_parser(
-        "cancel",
-        help="Cancel a materialized workflow and request queue cancellation for submitted engine stages.",
-    )
-    cancel_parser.add_argument(
-        "target", help="workflow_id, workflow workspace directory, or workflow.json path"
-    )
-    _add_workflow_root_argument(cancel_parser)
-    _add_chemstack_config_argument(
-        cancel_parser,
-        help_text="Path to shared chemstack.yaml; required if submitted stages exist",
-    )
-    _add_json_argument(cancel_parser)
-    cancel_parser.set_defaults(func=commands.cmd_workflow_cancel)
-
-    reindex_parser = workflow_subparsers.add_parser(
-        "reindex", help="Rebuild the workflow registry from workflow workspaces."
-    )
-    _add_workflow_root_argument(reindex_parser, required=True)
-    _add_json_argument(reindex_parser)
-    reindex_parser.set_defaults(func=commands.cmd_workflow_reindex)
-
-    runtime_status_parser = workflow_subparsers.add_parser(
-        "runtime-status",
-        help="Show the current worker heartbeat/state for a workflow root.",
-    )
-    _add_workflow_root_argument(runtime_status_parser, required=True)
-    _add_json_argument(runtime_status_parser)
-    runtime_status_parser.set_defaults(func=commands.cmd_workflow_runtime_status)
-
-    journal_parser = workflow_subparsers.add_parser(
-        "journal",
-        help="Show recent append-only orchestration journal events.",
-    )
-    _add_workflow_root_argument(journal_parser, required=True)
-    journal_parser.add_argument(
-        "--limit", type=int, default=50, help="Maximum number of recent events to show"
-    )
-    _add_json_argument(journal_parser)
-    journal_parser.set_defaults(func=commands.cmd_workflow_journal)
-
-    telemetry_parser = workflow_subparsers.add_parser(
-        "telemetry",
-        help="Summarize registry status, worker heartbeat, and recent journal activity.",
-    )
-    _add_workflow_root_argument(telemetry_parser, required=True)
-    telemetry_parser.add_argument(
-        "--limit",
-        type=int,
-        default=200,
-        help="Maximum number of recent journal events to summarize",
-    )
-    _add_json_argument(telemetry_parser)
-    telemetry_parser.set_defaults(func=commands.cmd_workflow_telemetry)
 
 
 def _register_workflow_planning_parsers(
@@ -393,80 +452,93 @@ def _register_workflow_runtime_parsers(
     workflow_subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
 ) -> None:
     commands = _commands()
-    advance_parser = workflow_subparsers.add_parser(
-        "advance",
-        help="Advance a materialized workflow by syncing/submitting actionable CREST, xTB, and ORCA stages.",
+    target_help = "workflow_id, workflow workspace directory, or workflow.json path"
+    _register_workflow_parser_specs(
+        workflow_subparsers,
+        (
+            _WorkflowParserSpec(
+                name="advance",
+                help="Advance a materialized workflow by syncing/submitting actionable CREST, xTB, and ORCA stages.",
+                func_name="cmd_workflow_advance",
+                target_help=target_help,
+                workflow_root=True,
+                workflow_root_required=True,
+                chemstack_config=True,
+                arguments=(
+                    _ArgumentSpec(
+                        ("--no-submit",),
+                        {
+                            "action": "store_true",
+                            "help": "Only sync and append stages; do not submit newly actionable stages",
+                        },
+                    ),
+                ),
+            ),
+        ),
     )
-    advance_parser.add_argument(
-        "target", help="workflow_id, workflow workspace directory, or workflow.json path"
-    )
-    _add_workflow_root_argument(advance_parser, required=True)
-    _add_chemstack_config_argument(advance_parser)
-    advance_parser.add_argument(
-        "--no-submit",
-        action="store_true",
-        help="Only sync and append stages; do not submit newly actionable stages",
-    )
-    _add_json_argument(advance_parser)
-    advance_parser.set_defaults(func=commands.cmd_workflow_advance)
 
     worker_parser = workflow_subparsers.add_parser(
         "worker",
         help="Continuously advance non-terminal workflows from the registry.",
     )
-    worker_parser.add_argument(
-        "--workflow-root",
-        help="Root that directly contains workflow workspaces. Defaults to workflow.root in chemstack.yaml.",
-    )
+    worker_parser.add_argument("--workflow-root", help="Root that directly contains workflow workspaces. Defaults to workflow.root in chemstack.yaml.")
     _add_chemstack_config_argument(worker_parser)
-    worker_parser.add_argument(
-        "--no-submit",
-        action="store_true",
-        help="Only sync/append stages; do not submit newly actionable stages",
-    )
-    worker_parser.add_argument("--once", action="store_true", help="Run exactly one orchestration cycle")
-    worker_parser.add_argument(
-        "--max-cycles", type=int, default=0, help="Optional cycle limit; 0 means run forever"
-    )
-    worker_parser.add_argument(
-        "--interval-seconds",
-        type=float,
-        default=30.0,
-        help="Sleep interval between orchestration cycles",
-    )
-    worker_parser.add_argument(
-        "--lock-timeout-seconds",
-        type=float,
-        default=5.0,
-        help="How long to wait for the worker lock",
-    )
-    worker_parser.add_argument(
-        "--refresh-registry",
-        action="store_true",
-        help="Reindex the workflow registry before the first cycle",
-    )
-    worker_parser.add_argument(
-        "--refresh-each-cycle",
-        action="store_true",
-        help="Reindex the workflow registry before every cycle",
+    _add_argument_specs(
+        worker_parser,
+        (
+            _ArgumentSpec(
+                ("--no-submit",),
+                {
+                    "action": "store_true",
+                    "help": "Only sync/append stages; do not submit newly actionable stages",
+                },
+            ),
+            _ArgumentSpec(("--once",), {"action": "store_true", "help": "Run exactly one orchestration cycle"}),
+            _ArgumentSpec(
+                ("--max-cycles",),
+                {"type": int, "default": 0, "help": "Optional cycle limit; 0 means run forever"},
+            ),
+            _ArgumentSpec(
+                ("--interval-seconds",),
+                {"type": float, "default": 30.0, "help": "Sleep interval between orchestration cycles"},
+            ),
+            _ArgumentSpec(
+                ("--lock-timeout-seconds",),
+                {"type": float, "default": 5.0, "help": "How long to wait for the worker lock"},
+            ),
+            _ArgumentSpec(
+                ("--refresh-registry",),
+                {"action": "store_true", "help": "Reindex the workflow registry before the first cycle"},
+            ),
+            _ArgumentSpec(
+                ("--refresh-each-cycle",),
+                {"action": "store_true", "help": "Reindex the workflow registry before every cycle"},
+            ),
+        ),
     )
     _add_json_argument(worker_parser)
     worker_parser.set_defaults(func=commands.cmd_workflow_worker)
 
-    submit_parser = workflow_subparsers.add_parser(
-        "submit-reaction-ts-search",
-        help="Submit a materialized reaction_ts_search workflow into chemstack ORCA.",
+    _register_workflow_parser_specs(
+        workflow_subparsers,
+        (
+            _WorkflowParserSpec(
+                name="submit-reaction-ts-search",
+                help="Submit a materialized reaction_ts_search workflow into chemstack ORCA.",
+                func_name="cmd_workflow_submit_reaction_ts_search",
+                target_help=target_help,
+                workflow_root=True,
+                chemstack_config=True,
+                chemstack_config_required=True,
+                arguments=(
+                    _ArgumentSpec(
+                        ("--resubmit",),
+                        {"action": "store_true", "help": "Retry stages already marked as submitted"},
+                    ),
+                ),
+            ),
+        ),
     )
-    submit_parser.add_argument(
-        "target", help="workflow_id, workflow workspace directory, or workflow.json path"
-    )
-    _add_workflow_root_argument(submit_parser)
-    _add_chemstack_config_argument(submit_parser, required=True)
-    submit_parser.add_argument(
-        "--resubmit", action="store_true", help="Retry stages already marked as submitted"
-    )
-    _add_json_argument(submit_parser)
-    submit_parser.set_defaults(func=commands.cmd_workflow_submit_reaction_ts_search)
 
 
 def _register_workflow_parsers(

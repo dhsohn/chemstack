@@ -8,12 +8,11 @@ from __future__ import annotations
 
 import json
 import logging
-import sys
 from contextlib import contextmanager
-from functools import lru_cache
-from importlib import import_module
 from pathlib import Path
 from typing import Any, Iterator, List, Optional, cast
+
+from chemstack.core.queue import store as _core_queue_store
 
 from .lock_utils import (
     acquire_file_lock,
@@ -192,28 +191,8 @@ def _lock_path(allowed_root: Path) -> Path:
     return allowed_root / QUEUE_LOCK_NAME
 
 
-@lru_cache(maxsize=1)
 def _chem_core_queue_module() -> Any | None:
-    try:
-        return import_module("chemstack.core.queue.store")
-    except ModuleNotFoundError as exc:
-        if exc.name not in {
-            "chemstack",
-            "chemstack.core",
-            "chemstack.core.queue",
-            "chemstack.core.queue.store",
-        }:
-            raise
-        repo_root = Path(__file__).resolve().parents[2] / "src"
-        if not repo_root.is_dir():
-            return None
-        repo_root_text = str(repo_root)
-        if repo_root_text not in sys.path:
-            sys.path.insert(0, repo_root_text)
-        try:
-            return import_module("chemstack.core.queue.store")
-        except ModuleNotFoundError:
-            return None
+    return _core_queue_store
 
 
 # -- Lock helpers ---------------------------------------------------------

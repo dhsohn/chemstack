@@ -75,6 +75,19 @@ class RetryPreparationContext:
     analysis: OutAnalysis
 
 
+@dataclass
+class AttemptLoopState:
+    execution_index: int
+    first_execution_index: int
+
+    @property
+    def retries_used(self) -> int:
+        return self.execution_index - 1
+
+    def advance(self) -> None:
+        self.execution_index += 1
+
+
 def _retry_recipe_step(retry_number: int) -> int:
     """Map retry number to available recipe steps.
 
@@ -260,6 +273,161 @@ def _resume_attempts_if_terminal(ctx: AttemptRunContext) -> int | None:
     )
 
 
+def _resolve_current_attempt_input(
+    ctx: AttemptRunContext,
+    loop: AttemptLoopState,
+) -> tuple[Path | None, str | None]:
+    return resolve_execution_input(
+        reaction_dir=ctx.reaction_dir,
+        selected_inp=ctx.selected_inp,
+        state=ctx.state,
+        execution_index=loop.execution_index,
+        retries_used=loop.retries_used,
+        retry_inp_path=ctx.retry_inp_path,
+        retry_recipe_step=_retry_recipe_step,
+        to_resolved_local=ctx.to_resolved_local,
+        save_state=save_state,
+    )
+
+
+def _finish_missing_attempt_input(
+    ctx: AttemptRunContext,
+    loop: AttemptLoopState,
+    *,
+    missing_reason: str | None,
+) -> int:
+    return _finish_attempt(
+        ctx,
+        status=RunStatus.FAILED,
+        analyzer_status=AnalyzerStatus.INCOMPLETE,
+        reason=missing_reason or f"missing_input_for_attempt_{loop.execution_index}",
+        last_out_path=None,
+        exit_code=1,
+    )
+
+
+def _finish_attempt_exception(
+    ctx: AttemptRunContext,
+    loop: AttemptLoopState,
+    current_inp: Path,
+    exc: BaseException,
+) -> int:
+    if isinstance(exc, WorkerShutdownInterrupt):
+        logger.warning("Interrupted by worker shutdown during attempt %d", loop.execution_index)
+        return _finish_attempt(
+            ctx,
+            status=RunStatus.FAILED,
+            analyzer_status=AnalyzerStatus.INCOMPLETE,
+            reason="worker_shutdown",
+            last_out_path=str(current_inp.with_suffix(".out")),
+            exit_code=143,
+        )
+    if isinstance(exc, KeyboardInterrupt):
+        logger.warning("Interrupted by user during attempt %d", loop.execution_index)
+        return _finish_attempt(
+            ctx,
+            status=RunStatus.FAILED,
+            analyzer_status=AnalyzerStatus.INCOMPLETE,
+            reason="interrupted_by_user",
+            last_out_path=str(current_inp.with_suffix(".out")),
+            exit_code=130,
+        )
+
+    logger.exception("ORCA runner crashed during attempt %d: %s", loop.execution_index, exc)
+    return _finish_attempt(
+        ctx,
+        status=RunStatus.FAILED,
+        analyzer_status=AnalyzerStatus.INCOMPLETE,
+        reason="runner_exception",
+        last_out_path=str(current_inp.with_suffix(".out")),
+        exit_code=1,
+        extra={"runner_error": str(exc)},
+    )
+
+
+def _mark_and_notify_attempt_started(
+    ctx: AttemptRunContext,
+    loop: AttemptLoopState,
+    current_inp: Path,
+) -> str:
+    started_at, current_status = _mark_attempt_started(
+        ctx.reaction_dir,
+        ctx.state,
+        retries_used=loop.retries_used,
+    )
+    _notify_attempt_started_from_context(
+        AttemptStartNotificationContext(
+            run=ctx,
+            current_inp=current_inp,
+            execution_index=loop.execution_index,
+            first_execution_index=loop.first_execution_index,
+            current_status=current_status,
+            started_at=started_at,
+        )
+    )
+    return started_at
+
+
+def _run_attempt_cycle(ctx: AttemptRunContext, loop: AttemptLoopState) -> int | None:
+    if loop.retries_used > ctx.max_retries:
+        return _finish_attempt(
+            ctx,
+            status=RunStatus.FAILED,
+            analyzer_status=AnalyzerStatus.INCOMPLETE,
+            reason="retry_limit_reached",
+            last_out_path=_last_out_path_from_state(ctx.state),
+            exit_code=1,
+        )
+
+    current_inp, missing_reason = _resolve_current_attempt_input(ctx, loop)
+    if current_inp is None:
+        return _finish_missing_attempt_input(ctx, loop, missing_reason=missing_reason)
+
+    started_at = _mark_and_notify_attempt_started(ctx, loop, current_inp)
+    try:
+        out_path, analysis = _run_and_record_attempt(
+            ctx.reaction_dir,
+            ctx.state,
+            current_inp=current_inp,
+            execution_index=loop.execution_index,
+            started_at=started_at,
+            runner=ctx.runner,
+        )
+    except (WorkerShutdownInterrupt, KeyboardInterrupt, Exception) as exc:
+        return _finish_attempt_exception(ctx, loop, current_inp, exc)
+
+    decision = decide_attempt_outcome(
+        analyzer_status=analysis.status,
+        analyzer_reason=analysis.reason,
+        retries_used=loop.retries_used,
+        max_retries=ctx.max_retries,
+    )
+    if decision is not None:
+        return _finish_attempt(
+            ctx,
+            status=decision.run_status,
+            analyzer_status=analysis.status,
+            reason=decision.reason,
+            last_out_path=str(out_path),
+            exit_code=decision.exit_code,
+        )
+
+    retry_exit = _prepare_retry_attempt_from_context(
+        RetryPreparationContext(
+            run=ctx,
+            current_inp=current_inp,
+            out_path=out_path,
+            execution_index=loop.execution_index,
+            retries_used=loop.retries_used,
+            analysis=analysis,
+        )
+    )
+    if retry_exit is not None:
+        return retry_exit
+    loop.advance()
+    return None
+
+
 def _prepare_retry_attempt(
     reaction_dir: Path,
     state: RunState,
@@ -392,123 +560,11 @@ def run_attempts(
     if resumed_exit is not None:
         return resumed_exit
 
-    execution_index = len(ctx.state["attempts"]) + 1
-    first_execution_index = execution_index
+    loop = AttemptLoopState(
+        execution_index=len(ctx.state["attempts"]) + 1,
+        first_execution_index=len(ctx.state["attempts"]) + 1,
+    )
     while True:
-        retries_used = execution_index - 1
-        if retries_used > ctx.max_retries:
-            return _finish_attempt(
-                ctx,
-                status=RunStatus.FAILED,
-                analyzer_status=AnalyzerStatus.INCOMPLETE,
-                reason="retry_limit_reached",
-                last_out_path=_last_out_path_from_state(ctx.state),
-                exit_code=1,
-            )
-
-        current_inp, missing_reason = resolve_execution_input(
-            reaction_dir=ctx.reaction_dir,
-            selected_inp=ctx.selected_inp,
-            state=ctx.state,
-            execution_index=execution_index,
-            retries_used=retries_used,
-            retry_inp_path=ctx.retry_inp_path,
-            retry_recipe_step=_retry_recipe_step,
-            to_resolved_local=ctx.to_resolved_local,
-            save_state=save_state,
-        )
-        if current_inp is None:
-            return _finish_attempt(
-                ctx,
-                status=RunStatus.FAILED,
-                analyzer_status=AnalyzerStatus.INCOMPLETE,
-                reason=missing_reason or f"missing_input_for_attempt_{execution_index}",
-                last_out_path=None,
-                exit_code=1,
-            )
-
-        started_at, current_status = _mark_attempt_started(
-            ctx.reaction_dir,
-            ctx.state,
-            retries_used=retries_used,
-        )
-        _notify_attempt_started_from_context(
-            AttemptStartNotificationContext(
-                run=ctx,
-                current_inp=current_inp,
-                execution_index=execution_index,
-                first_execution_index=first_execution_index,
-                current_status=current_status,
-                started_at=started_at,
-            )
-        )
-
-        try:
-            out_path, analysis = _run_and_record_attempt(
-                ctx.reaction_dir,
-                ctx.state,
-                current_inp=current_inp,
-                execution_index=execution_index,
-                started_at=started_at,
-                runner=ctx.runner,
-            )
-        except WorkerShutdownInterrupt:
-            logger.warning("Interrupted by worker shutdown during attempt %d", execution_index)
-            return _finish_attempt(
-                ctx,
-                status=RunStatus.FAILED,
-                analyzer_status=AnalyzerStatus.INCOMPLETE,
-                reason="worker_shutdown",
-                last_out_path=str(current_inp.with_suffix(".out")),
-                exit_code=143,
-            )
-        except KeyboardInterrupt:
-            logger.warning("Interrupted by user during attempt %d", execution_index)
-            return _finish_attempt(
-                ctx,
-                status=RunStatus.FAILED,
-                analyzer_status=AnalyzerStatus.INCOMPLETE,
-                reason="interrupted_by_user",
-                last_out_path=str(current_inp.with_suffix(".out")),
-                exit_code=130,
-            )
-        except Exception as exc:
-            logger.exception("ORCA runner crashed during attempt %d: %s", execution_index, exc)
-            return _finish_attempt(
-                ctx,
-                status=RunStatus.FAILED,
-                analyzer_status=AnalyzerStatus.INCOMPLETE,
-                reason="runner_exception",
-                last_out_path=str(current_inp.with_suffix(".out")),
-                exit_code=1,
-                extra={"runner_error": str(exc)},
-            )
-        decision = decide_attempt_outcome(
-            analyzer_status=analysis.status,
-            analyzer_reason=analysis.reason,
-            retries_used=retries_used,
-            max_retries=ctx.max_retries,
-        )
-        if decision is not None:
-            return _finish_attempt(
-                ctx,
-                status=decision.run_status,
-                analyzer_status=analysis.status,
-                reason=decision.reason,
-                last_out_path=str(out_path),
-                exit_code=decision.exit_code,
-            )
-
-        retry_exit = _prepare_retry_attempt_from_context(
-            RetryPreparationContext(
-                run=ctx,
-                current_inp=current_inp,
-                out_path=out_path,
-                execution_index=execution_index,
-                retries_used=retries_used,
-                analysis=analysis,
-            )
-        )
-        if retry_exit is not None:
-            return retry_exit
-        execution_index += 1
+        cycle_exit = _run_attempt_cycle(ctx, loop)
+        if cycle_exit is not None:
+            return cycle_exit

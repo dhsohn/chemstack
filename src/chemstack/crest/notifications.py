@@ -19,6 +19,9 @@ def _send(cfg: AppConfig, lines: list[str]) -> bool:
     return _engine_notifications.send_lines(cfg, lines, build_transport=build_telegram_transport)
 
 
+_NOTIFIER = _engine_notifications.EngineNotifier(label=_LABEL, engine=_ENGINE, send_fn=_send)
+
+
 def notify_job_queued(
     cfg: AppConfig,
     *,
@@ -28,10 +31,8 @@ def notify_job_queued(
     mode: str,
     selected_xyz: Path,
 ) -> bool:
-    return _engine_notifications.send_job_event(
+    return _NOTIFIER.send_job_event(
         cfg,
-        label=_LABEL,
-        engine=_ENGINE,
         job_dir=job_dir,
         headline="Job queued",
         fields=[
@@ -41,7 +42,6 @@ def notify_job_queued(
             ("job_dir", job_dir.name),
             ("selected_xyz", selected_xyz.name),
         ],
-        send_fn=_send,
     )
 
 
@@ -54,10 +54,8 @@ def notify_job_started(
     mode: str,
     selected_xyz: Path,
 ) -> bool:
-    return _engine_notifications.send_job_event(
+    return _NOTIFIER.send_job_event(
         cfg,
-        label=_LABEL,
-        engine=_ENGINE,
         job_dir=job_dir,
         headline="Job started",
         fields=[
@@ -67,7 +65,6 @@ def notify_job_started(
             ("job_dir", job_dir.name),
             ("selected_xyz", selected_xyz.name),
         ],
-        send_fn=_send,
     )
 
 
@@ -85,10 +82,8 @@ def notify_job_terminal(
     retained_conformer_count: int,
     extra_lines: list[str] | None = None,
 ) -> bool:
-    return _engine_notifications.send_job_event(
+    return _NOTIFIER.send_job_event(
         cfg,
-        label=_LABEL,
-        engine=_ENGINE,
         job_dir=job_dir,
         headline=headline,
         fields=[
@@ -101,7 +96,6 @@ def notify_job_terminal(
             ("selected_xyz", selected_xyz.name),
             ("retained_conformer_count", retained_conformer_count),
         ],
-        send_fn=_send,
         extra_lines=extra_lines,
     )
 
@@ -148,11 +142,9 @@ def notify_organize_summary(
     skipped_count: int,
     root: Path,
 ) -> bool:
-    return _engine_notifications.send_organize_summary(
+    return _NOTIFIER.send_organize_summary(
         cfg,
-        label=_LABEL,
         organized_count=organized_count,
         skipped_count=skipped_count,
         root=root,
-        send_fn=_send,
     )

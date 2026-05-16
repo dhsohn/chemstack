@@ -29,8 +29,8 @@ def safe_name(value: str, *, fallback: str) -> str:
     return cleaned or fallback
 
 
-def ensure_route_line(route_line: str) -> str:
-    normalized = normalize_text(route_line) or "r2scan-3c TightSCF"
+def ensure_route_line(route_line: str, *, default: str = "r2scan-3c TightSCF") -> str:
+    normalized = normalize_text(route_line) or normalize_text(default)
     return normalized if normalized.startswith("!") else f"! {normalized}"
 
 
@@ -47,10 +47,11 @@ def render_orca_input(
     max_cores: int,
     max_memory_gb: int,
     xyz_filename: str,
+    default_route_line: str = "r2scan-3c TightSCF",
 ) -> str:
     return "\n".join(
         [
-            ensure_route_line(route_line),
+            ensure_route_line(route_line, default=default_route_line),
             "",
             "%pal",
             f"  nprocs {max(1, int(max_cores))}",

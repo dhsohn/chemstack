@@ -84,6 +84,7 @@ from .contracts import (
     XtbDownstreamPolicy,
 )
 from .endpoint_pairing import EndpointPairingPolicy, select_endpoint_pairs
+from .engine_options import WorkflowEngineOptions
 from .registry import sync_workflow_registry
 from .state import (
     acquire_workflow_lock,
@@ -662,15 +663,7 @@ def _recompute_workflow_status(payload: dict[str, Any]) -> str:
 def _cancel_stage_activity(
     stage: dict[str, Any],
     *,
-    crest_auto_config: str | None,
-    crest_auto_executable: str,
-    crest_auto_repo_root: str | None,
-    xtb_auto_config: str | None,
-    xtb_auto_executable: str,
-    xtb_auto_repo_root: str | None,
-    orca_auto_config: str | None,
-    orca_auto_executable: str,
-    orca_auto_repo_root: str | None,
+    config: _AdvanceConfig,
 ) -> dict[str, Any]:
     task = stage.get("task")
     if not isinstance(task, dict):
@@ -706,26 +699,39 @@ def _cancel_stage_activity(
         stage["status"] = "cancelled"
         return {"status": "cancelled", "mode": "local"}
 
-    if engine == "crest" and _normalize_text(crest_auto_config):
+    engine_options = config.engines.for_engine(engine)
+    if (
+        engine == "crest"
+        and engine_options is not None
+        and _normalize_text(engine_options.config)
+    ):
         result = crest_cancel_target(
             target=cancel_target,
-            config_path=str(crest_auto_config),
-            executable=crest_auto_executable,
-            repo_root=crest_auto_repo_root,
+            config_path=str(engine_options.config),
+            executable=engine_options.executable,
+            repo_root=engine_options.repo_root,
         )
-    elif engine == "xtb" and _normalize_text(xtb_auto_config):
+    elif (
+        engine == "xtb"
+        and engine_options is not None
+        and _normalize_text(engine_options.config)
+    ):
         result = xtb_cancel_target(
             target=cancel_target,
-            config_path=str(xtb_auto_config),
-            executable=xtb_auto_executable,
-            repo_root=xtb_auto_repo_root,
+            config_path=str(engine_options.config),
+            executable=engine_options.executable,
+            repo_root=engine_options.repo_root,
         )
-    elif engine == "orca" and _normalize_text(orca_auto_config):
+    elif (
+        engine == "orca"
+        and engine_options is not None
+        and _normalize_text(engine_options.config)
+    ):
         result = orca_cancel_target(
             target=cancel_target,
-            config_path=str(orca_auto_config),
-            executable=orca_auto_executable,
-            repo_root=orca_auto_repo_root,
+            config_path=str(engine_options.config),
+            executable=engine_options.executable,
+            repo_root=engine_options.repo_root,
         )
     else:
         result = {"status": "failed", "reason": "missing_engine_config"}
@@ -735,21 +741,16 @@ def _cancel_stage_activity(
         task["status"] = result["status"]
         stage["status"] = result["status"]
         return {"status": result["status"]}
-    return {"status": "failed", "reason": _normalize_text(result.get("reason")) or "cancel_failed"}
+    return {
+        "status": "failed",
+        "reason": _normalize_text(result.get("reason")) or "cancel_failed",
+    }
 
 
 def _cancel_active_workflow_stages(
     payload: dict[str, Any],
     *,
-    crest_auto_config: str | None,
-    crest_auto_executable: str,
-    crest_auto_repo_root: str | None,
-    xtb_auto_config: str | None,
-    xtb_auto_executable: str,
-    xtb_auto_repo_root: str | None,
-    orca_auto_config: str | None,
-    orca_auto_executable: str,
-    orca_auto_repo_root: str | None,
+    config: _AdvanceConfig,
 ) -> dict[str, list[dict[str, Any]]]:
     cancelled: list[dict[str, Any]] = []
     failed: list[dict[str, Any]] = []
@@ -757,18 +758,7 @@ def _cancel_active_workflow_stages(
     for stage in payload.get("stages", []):
         if not isinstance(stage, dict):
             continue
-        outcome = _cancel_stage_activity(
-            stage,
-            crest_auto_config=crest_auto_config,
-            crest_auto_executable=crest_auto_executable,
-            crest_auto_repo_root=crest_auto_repo_root,
-            xtb_auto_config=xtb_auto_config,
-            xtb_auto_executable=xtb_auto_executable,
-            xtb_auto_repo_root=xtb_auto_repo_root,
-            orca_auto_config=orca_auto_config,
-            orca_auto_executable=orca_auto_executable,
-            orca_auto_repo_root=orca_auto_repo_root,
-        )
+        outcome = _cancel_stage_activity(stage, config=config)
         if outcome.get("status") in {"cancelled", "cancel_requested"}:
             if outcome.get("mode"):
                 cancelled.append(
@@ -801,15 +791,71 @@ def _cancel_active_workflow_stages(
 
 @dataclass(frozen=True)
 class _AdvanceConfig:
-    crest_auto_config: str | None
-    crest_auto_executable: str
-    crest_auto_repo_root: str | None
-    xtb_auto_config: str | None
-    xtb_auto_executable: str
-    xtb_auto_repo_root: str | None
-    orca_auto_config: str | None
-    orca_auto_executable: str
-    orca_auto_repo_root: str | None
+    engines: WorkflowEngineOptions
+
+    @classmethod
+    def from_values(
+        cls,
+        *,
+        crest_auto_config: str | None,
+        crest_auto_executable: str,
+        crest_auto_repo_root: str | None,
+        xtb_auto_config: str | None,
+        xtb_auto_executable: str,
+        xtb_auto_repo_root: str | None,
+        orca_auto_config: str | None,
+        orca_auto_executable: str,
+        orca_auto_repo_root: str | None,
+    ) -> _AdvanceConfig:
+        return cls(
+            engines=WorkflowEngineOptions.from_values(
+                crest_auto_config=crest_auto_config,
+                crest_auto_executable=crest_auto_executable,
+                crest_auto_repo_root=crest_auto_repo_root,
+                xtb_auto_config=xtb_auto_config,
+                xtb_auto_executable=xtb_auto_executable,
+                xtb_auto_repo_root=xtb_auto_repo_root,
+                orca_auto_config=orca_auto_config,
+                orca_auto_executable=orca_auto_executable,
+                orca_auto_repo_root=orca_auto_repo_root,
+            )
+        )
+
+    @property
+    def crest_auto_config(self) -> str | None:
+        return self.engines.crest.config
+
+    @property
+    def crest_auto_executable(self) -> str:
+        return self.engines.crest.executable
+
+    @property
+    def crest_auto_repo_root(self) -> str | None:
+        return self.engines.crest.repo_root
+
+    @property
+    def xtb_auto_config(self) -> str | None:
+        return self.engines.xtb.config
+
+    @property
+    def xtb_auto_executable(self) -> str:
+        return self.engines.xtb.executable
+
+    @property
+    def xtb_auto_repo_root(self) -> str | None:
+        return self.engines.xtb.repo_root
+
+    @property
+    def orca_auto_config(self) -> str | None:
+        return self.engines.orca.config
+
+    @property
+    def orca_auto_executable(self) -> str:
+        return self.engines.orca.executable
+
+    @property
+    def orca_auto_repo_root(self) -> str | None:
+        return self.engines.orca.repo_root
 
 
 @dataclass(frozen=True)
@@ -1004,18 +1050,7 @@ def _finalize_advanced_workflow(
 ) -> None:
     payload["status"] = _recompute_workflow_status(payload)
     if _normalize_text(payload.get("status")).lower() == "failed":
-        _cancel_active_workflow_stages(
-            payload,
-            crest_auto_config=config.crest_auto_config,
-            crest_auto_executable=config.crest_auto_executable,
-            crest_auto_repo_root=config.crest_auto_repo_root,
-            xtb_auto_config=config.xtb_auto_config,
-            xtb_auto_executable=config.xtb_auto_executable,
-            xtb_auto_repo_root=config.xtb_auto_repo_root,
-            orca_auto_config=config.orca_auto_config,
-            orca_auto_executable=config.orca_auto_executable,
-            orca_auto_repo_root=config.orca_auto_repo_root,
-        )
+        _cancel_active_workflow_stages(payload, config=config)
         payload["status"] = _recompute_workflow_status(payload)
 
     metadata = payload.setdefault("metadata", {})
@@ -1057,7 +1092,7 @@ def advance_workflow(
     with acquire_workflow_lock(workspace_dir):
         payload = load_workflow_payload(workspace_dir)
         sync_only = _workflow_sync_only(payload)
-        config = _AdvanceConfig(
+        config = _AdvanceConfig.from_values(
             crest_auto_config=crest_auto_config,
             crest_auto_executable=crest_auto_executable,
             crest_auto_repo_root=crest_auto_repo_root,
@@ -1105,8 +1140,7 @@ def cancel_materialized_workflow(
         lock_context = acquire_workflow_lock(workspace_dir, timeout_seconds=5.0)
         with lock_context:
             payload = load_workflow_payload(workspace_dir)
-            cancellation = _cancel_active_workflow_stages(
-                payload,
+            config = _AdvanceConfig.from_values(
                 crest_auto_config=crest_auto_config,
                 crest_auto_executable=crest_auto_executable,
                 crest_auto_repo_root=crest_auto_repo_root,
@@ -1117,6 +1151,7 @@ def cancel_materialized_workflow(
                 orca_auto_executable=orca_auto_executable,
                 orca_auto_repo_root=orca_auto_repo_root,
             )
+            cancellation = _cancel_active_workflow_stages(payload, config=config)
             cancelled = cancellation["cancelled"]
             failed = cancellation["failed"]
 

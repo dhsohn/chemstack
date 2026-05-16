@@ -261,57 +261,76 @@ def workflow_has_active_downstream(payload: dict[str, Any]) -> bool:
     return False
 
 
-def workflow_summary(workspace_dir: str | Path, payload: dict[str, Any] | None = None) -> dict[str, Any]:
-    workspace = Path(workspace_dir).expanduser().resolve()
-    data = payload if payload is not None else load_workflow_payload(workspace)
-    stages = _coerce_sequence(data.get("stages"))
+def _workflow_stage_summary(stage: dict[str, Any]) -> dict[str, Any]:
+    stage_status = _normalize_text(stage.get("status")) or "unknown"
+    task = _coerce_mapping(stage.get("task"))
+    task_status = _normalize_text(task.get("status")) or "unknown"
+    task_payload = _coerce_mapping(task.get("payload"))
+    enqueue_payload = _coerce_mapping(task.get("enqueue_payload"))
+    submission_result = _coerce_mapping(task.get("submission_result"))
+    stage_metadata = _coerce_mapping(stage.get("metadata"))
+    return {
+        "stage_id": _normalize_text(stage.get("stage_id")),
+        "stage_kind": _normalize_text(stage.get("stage_kind")),
+        "status": stage_status,
+        "task_status": task_status,
+        "engine": _normalize_text(task.get("engine")),
+        "task_kind": _normalize_text(task.get("task_kind")),
+        "input_role": _normalize_text(stage_metadata.get("input_role") or task_payload.get("input_role")),
+        "reaction_key": _normalize_text(
+            task_payload.get("reaction_key") or enqueue_payload.get("reaction_key")
+        ),
+        "queue_id": _normalize_text(stage_metadata.get("queue_id")),
+        "reaction_dir": _normalize_text(
+            task_payload.get("reaction_dir") or enqueue_payload.get("reaction_dir")
+        ),
+        "selected_input_xyz": _normalize_text(task_payload.get("selected_input_xyz")),
+        "selected_inp": _normalize_text(
+            task_payload.get("selected_inp") or enqueue_payload.get("selected_inp")
+        ),
+        "submission_status": _normalize_text(submission_result.get("status")),
+        "run_id": _normalize_text(stage_metadata.get("run_id")),
+        "latest_known_path": _normalize_text(stage_metadata.get("latest_known_path")),
+        "organized_output_dir": _normalize_text(stage_metadata.get("organized_output_dir")),
+        "optimized_xyz_path": _normalize_text(
+            stage_metadata.get("optimized_xyz_path") or task_payload.get("optimized_xyz_path")
+        ),
+        "analyzer_status": _normalize_text(stage_metadata.get("analyzer_status")),
+        "reason": _normalize_text(stage_metadata.get("reason")),
+        "reaction_handoff_status": _normalize_text(stage_metadata.get("reaction_handoff_status")),
+        "reaction_handoff_reason": _normalize_text(stage_metadata.get("reaction_handoff_reason")),
+        "xtb_handoff_retries_used": stage_metadata.get("xtb_handoff_retries_used"),
+        "xtb_handoff_retry_limit": stage_metadata.get("xtb_handoff_retry_limit"),
+        "orca_attempt_count": stage_metadata.get("attempt_count"),
+        "orca_max_retries": stage_metadata.get("max_retries"),
+        "completed_at": _normalize_text(stage_metadata.get("completed_at")),
+        "output_artifact_count": len(_coerce_sequence(stage.get("output_artifacts"))),
+        "last_out_path": _normalize_text(task_payload.get("last_out_path")),
+    }
+
+
+def _workflow_stage_summary_rows(
+    stages: list[Any],
+) -> tuple[dict[str, int], dict[str, int], list[dict[str, Any]]]:
     status_counts: dict[str, int] = {}
     task_status_counts: dict[str, int] = {}
     stage_summaries: list[dict[str, Any]] = []
 
     for raw_stage in stages:
         stage = _coerce_mapping(raw_stage)
-        stage_status = _normalize_text(stage.get("status")) or "unknown"
-        status_counts[stage_status] = status_counts.get(stage_status, 0) + 1
-        task = _coerce_mapping(stage.get("task"))
-        task_status = _normalize_text(task.get("status")) or "unknown"
+        summary = _workflow_stage_summary(stage)
+        status_counts[summary["status"]] = status_counts.get(summary["status"], 0) + 1
+        task_status = summary["task_status"]
         task_status_counts[task_status] = task_status_counts.get(task_status, 0) + 1
-        task_payload = _coerce_mapping(task.get("payload"))
-        enqueue_payload = _coerce_mapping(task.get("enqueue_payload"))
-        submission_result = _coerce_mapping(task.get("submission_result"))
-        stage_metadata = _coerce_mapping(stage.get("metadata"))
-        stage_summaries.append(
-            {
-                "stage_id": _normalize_text(stage.get("stage_id")),
-                "stage_kind": _normalize_text(stage.get("stage_kind")),
-                "status": stage_status,
-                "task_status": task_status,
-                "engine": _normalize_text(task.get("engine")),
-                "task_kind": _normalize_text(task.get("task_kind")),
-                "input_role": _normalize_text(stage_metadata.get("input_role") or task_payload.get("input_role")),
-                "reaction_key": _normalize_text(task_payload.get("reaction_key") or enqueue_payload.get("reaction_key")),
-                "queue_id": _normalize_text(stage_metadata.get("queue_id")),
-                "reaction_dir": _normalize_text(task_payload.get("reaction_dir") or enqueue_payload.get("reaction_dir")),
-                "selected_input_xyz": _normalize_text(task_payload.get("selected_input_xyz")),
-                "selected_inp": _normalize_text(task_payload.get("selected_inp") or enqueue_payload.get("selected_inp")),
-                "submission_status": _normalize_text(submission_result.get("status")),
-                "run_id": _normalize_text(stage_metadata.get("run_id")),
-                "latest_known_path": _normalize_text(stage_metadata.get("latest_known_path")),
-                "organized_output_dir": _normalize_text(stage_metadata.get("organized_output_dir")),
-                "optimized_xyz_path": _normalize_text(stage_metadata.get("optimized_xyz_path") or task_payload.get("optimized_xyz_path")),
-                "analyzer_status": _normalize_text(stage_metadata.get("analyzer_status")),
-                "reason": _normalize_text(stage_metadata.get("reason")),
-                "reaction_handoff_status": _normalize_text(stage_metadata.get("reaction_handoff_status")),
-                "reaction_handoff_reason": _normalize_text(stage_metadata.get("reaction_handoff_reason")),
-                "xtb_handoff_retries_used": stage_metadata.get("xtb_handoff_retries_used"),
-                "xtb_handoff_retry_limit": stage_metadata.get("xtb_handoff_retry_limit"),
-                "orca_attempt_count": stage_metadata.get("attempt_count"),
-                "orca_max_retries": stage_metadata.get("max_retries"),
-                "completed_at": _normalize_text(stage_metadata.get("completed_at")),
-                "output_artifact_count": len(_coerce_sequence(stage.get("output_artifacts"))),
-                "last_out_path": _normalize_text(task_payload.get("last_out_path")),
-            }
-        )
+        stage_summaries.append(summary)
+    return status_counts, task_status_counts, stage_summaries
+
+
+def workflow_summary(workspace_dir: str | Path, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    workspace = Path(workspace_dir).expanduser().resolve()
+    data = payload if payload is not None else load_workflow_payload(workspace)
+    stages = _coerce_sequence(data.get("stages"))
+    status_counts, task_status_counts, stage_summaries = _workflow_stage_summary_rows(stages)
 
     metadata = _coerce_mapping(data.get("metadata"))
     request = _coerce_mapping(metadata.get("request"))
@@ -359,18 +378,19 @@ def list_workflow_summaries(workflow_root: str | Path) -> list[dict[str, Any]]:
     return summaries
 
 
-def workflow_artifacts(workspace_dir: str | Path, payload: dict[str, Any] | None = None) -> list[dict[str, Any]]:
-    workspace = Path(workspace_dir).expanduser().resolve()
-    data = payload if payload is not None else load_workflow_payload(workspace)
-    rows: list[dict[str, Any]] = []
-    seen: set[tuple[str, str, str, str]] = set()
+class _WorkflowArtifactRows:
+    def __init__(self, workspace: Path) -> None:
+        self.workspace = workspace
+        self.rows: list[dict[str, Any]] = []
+        self.seen: set[tuple[str, str, str, str]] = set()
 
-    def add_row(
+    def add(
+        self,
         *,
         kind: str,
         path_value: Any,
-        stage_id: str = "",
         source: str,
+        stage_id: str = "",
         selected: bool = False,
         metadata: dict[str, Any] | None = None,
     ) -> None:
@@ -378,12 +398,16 @@ def workflow_artifacts(workspace_dir: str | Path, payload: dict[str, Any] | None
         if not path_text:
             return
         candidate = Path(path_text).expanduser()
-        resolved = candidate.resolve() if candidate.is_absolute() else (workspace / candidate).resolve()
+        resolved = (
+            candidate.resolve()
+            if candidate.is_absolute()
+            else (self.workspace / candidate).resolve()
+        )
         key = (_normalize_text(kind), path_text, _normalize_text(stage_id), _normalize_text(source))
-        if key in seen:
+        if key in self.seen:
             return
-        seen.add(key)
-        rows.append(
+        self.seen.add(key)
+        self.rows.append(
             {
                 "kind": _normalize_text(kind) or "artifact",
                 "path": path_text,
@@ -397,10 +421,12 @@ def workflow_artifacts(workspace_dir: str | Path, payload: dict[str, Any] | None
             }
         )
 
+
+def _collect_request_artifacts(collector: _WorkflowArtifactRows, data: dict[str, Any]) -> None:
     request = _coerce_mapping(_coerce_mapping(data.get("metadata")).get("request"))
     for artifact in _coerce_sequence(request.get("source_artifacts")):
         item = _coerce_mapping(artifact)
-        add_row(
+        collector.add(
             kind=_normalize_text(item.get("kind")) or "source_artifact",
             path_value=item.get("path"),
             source="request.source_artifacts",
@@ -408,85 +434,116 @@ def workflow_artifacts(workspace_dir: str | Path, payload: dict[str, Any] | None
             metadata=_coerce_mapping(item.get("metadata")),
         )
 
+
+def _collect_stage_declared_artifacts(
+    collector: _WorkflowArtifactRows,
+    *,
+    stage: dict[str, Any],
+    stage_id: str,
+    field_name: str,
+    fallback_kind: str,
+    source: str,
+) -> None:
+    for artifact in _coerce_sequence(stage.get(field_name)):
+        item = _coerce_mapping(artifact)
+        collector.add(
+            kind=_normalize_text(item.get("kind")) or fallback_kind,
+            path_value=item.get("path"),
+            stage_id=stage_id,
+            source=source,
+            selected=bool(item.get("selected", False)),
+            metadata=_coerce_mapping(item.get("metadata")),
+        )
+
+
+def _collect_stage_runtime_artifacts(
+    collector: _WorkflowArtifactRows,
+    *,
+    stage: dict[str, Any],
+    stage_id: str,
+) -> None:
+    task = _coerce_mapping(stage.get("task"))
+    task_payload = _coerce_mapping(task.get("payload"))
+    enqueue_payload = _coerce_mapping(task.get("enqueue_payload"))
+    stage_metadata = _coerce_mapping(stage.get("metadata"))
+    collector.add(
+        kind="selected_input_xyz",
+        path_value=task_payload.get("selected_input_xyz"),
+        stage_id=stage_id,
+        source="task.payload",
+    )
+    collector.add(
+        kind="selected_inp",
+        path_value=task_payload.get("selected_inp") or enqueue_payload.get("selected_inp"),
+        stage_id=stage_id,
+        source="task.payload",
+    )
+    collector.add(
+        kind="reaction_dir",
+        path_value=task_payload.get("reaction_dir") or enqueue_payload.get("reaction_dir"),
+        stage_id=stage_id,
+        source="task.payload",
+    )
+    collector.add(
+        kind="latest_known_path",
+        path_value=stage_metadata.get("latest_known_path"),
+        stage_id=stage_id,
+        source="stage.metadata",
+    )
+    collector.add(
+        kind="organized_output_dir",
+        path_value=stage_metadata.get("organized_output_dir"),
+        stage_id=stage_id,
+        source="stage.metadata",
+    )
+    collector.add(
+        kind="last_out_path",
+        path_value=task_payload.get("last_out_path"),
+        stage_id=stage_id,
+        source="task.payload",
+    )
+    collector.add(
+        kind="optimized_xyz_path",
+        path_value=task_payload.get("optimized_xyz_path") or stage_metadata.get("optimized_xyz_path"),
+        stage_id=stage_id,
+        source="task.payload",
+    )
+
+
+def _collect_stage_artifacts(collector: _WorkflowArtifactRows, data: dict[str, Any]) -> None:
     for raw_stage in _coerce_sequence(data.get("stages")):
         stage = _coerce_mapping(raw_stage)
         stage_id = _normalize_text(stage.get("stage_id"))
-        for artifact in _coerce_sequence(stage.get("input_artifacts")):
-            item = _coerce_mapping(artifact)
-            add_row(
-                kind=_normalize_text(item.get("kind")) or "input_artifact",
-                path_value=item.get("path"),
-                stage_id=stage_id,
-                source="stage.input_artifacts",
-                selected=bool(item.get("selected", False)),
-                metadata=_coerce_mapping(item.get("metadata")),
-            )
-        for artifact in _coerce_sequence(stage.get("output_artifacts")):
-            item = _coerce_mapping(artifact)
-            add_row(
-                kind=_normalize_text(item.get("kind")) or "output_artifact",
-                path_value=item.get("path"),
-                stage_id=stage_id,
-                source="stage.output_artifacts",
-                selected=bool(item.get("selected", False)),
-                metadata=_coerce_mapping(item.get("metadata")),
-            )
-        task = _coerce_mapping(stage.get("task"))
-        task_payload = _coerce_mapping(task.get("payload"))
-        enqueue_payload = _coerce_mapping(task.get("enqueue_payload"))
-        add_row(
-            kind="selected_input_xyz",
-            path_value=task_payload.get("selected_input_xyz"),
+        _collect_stage_declared_artifacts(
+            collector,
+            stage=stage,
             stage_id=stage_id,
-            source="task.payload",
+            field_name="input_artifacts",
+            fallback_kind="input_artifact",
+            source="stage.input_artifacts",
         )
-        add_row(
-            kind="selected_inp",
-            path_value=task_payload.get("selected_inp") or enqueue_payload.get("selected_inp"),
+        _collect_stage_declared_artifacts(
+            collector,
+            stage=stage,
             stage_id=stage_id,
-            source="task.payload",
+            field_name="output_artifacts",
+            fallback_kind="output_artifact",
+            source="stage.output_artifacts",
         )
-        add_row(
-            kind="reaction_dir",
-            path_value=task_payload.get("reaction_dir") or enqueue_payload.get("reaction_dir"),
-            stage_id=stage_id,
-            source="task.payload",
-        )
-        add_row(
-            kind="latest_known_path",
-            path_value=_coerce_mapping(stage.get("metadata")).get("latest_known_path"),
-            stage_id=stage_id,
-            source="stage.metadata",
-        )
-        add_row(
-            kind="organized_output_dir",
-            path_value=_coerce_mapping(stage.get("metadata")).get("organized_output_dir"),
-            stage_id=stage_id,
-            source="stage.metadata",
-        )
-        add_row(
-            kind="last_out_path",
-            path_value=task_payload.get("last_out_path"),
-            stage_id=stage_id,
-            source="task.payload",
-        )
-        add_row(
-            kind="optimized_xyz_path",
-            path_value=task_payload.get("optimized_xyz_path") or _coerce_mapping(stage.get("metadata")).get("optimized_xyz_path"),
-            stage_id=stage_id,
-            source="task.payload",
-        )
+        _collect_stage_runtime_artifacts(collector, stage=stage, stage_id=stage_id)
 
+
+def _collect_metadata_artifacts(collector: _WorkflowArtifactRows, data: dict[str, Any]) -> None:
     metadata = _coerce_mapping(data.get("metadata"))
     precomplex_handoff = _coerce_mapping(metadata.get("precomplex_handoff"))
-    add_row(
+    collector.add(
         kind="precomplex_handoff_xyz",
         path_value=precomplex_handoff.get("reactant_xyz"),
         source="metadata.precomplex_handoff",
         selected=True,
         metadata={"role": "reactant"},
     )
-    add_row(
+    collector.add(
         kind="precomplex_handoff_xyz",
         path_value=precomplex_handoff.get("product_xyz"),
         source="metadata.precomplex_handoff",
@@ -496,33 +553,44 @@ def workflow_artifacts(workspace_dir: str | Path, payload: dict[str, Any] | None
     downstream = _coerce_mapping(metadata.get("downstream_reaction_workflow"))
     downstream_workspace = _normalize_text(downstream.get("workspace_dir"))
     if downstream_workspace:
-        add_row(
+        collector.add(
             kind="downstream_workflow_workspace",
             path_value=downstream_workspace,
             source="metadata.downstream_reaction_workflow",
             metadata={"workflow_id": _normalize_text(downstream.get("workflow_id"))},
         )
-        add_row(
+        collector.add(
             kind="downstream_workflow_file",
             path_value=str(Path(downstream_workspace).expanduser() / WORKFLOW_FILE_NAME),
             source="metadata.downstream_reaction_workflow",
             metadata={"workflow_id": _normalize_text(downstream.get("workflow_id"))},
         )
     latest_stage = _coerce_mapping(downstream.get("latest_stage"))
-    add_row(
+    collector.add(
         kind="downstream_latest_known_path",
         path_value=latest_stage.get("latest_known_path"),
         source="metadata.downstream_reaction_workflow",
         metadata={"stage_id": _normalize_text(latest_stage.get("stage_id"))},
     )
-    add_row(
+    collector.add(
         kind="downstream_organized_output_dir",
         path_value=latest_stage.get("organized_output_dir"),
         source="metadata.downstream_reaction_workflow",
         metadata={"stage_id": _normalize_text(latest_stage.get("stage_id"))},
     )
 
-    return rows
+
+def workflow_artifacts(
+    workspace_dir: str | Path,
+    payload: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    workspace = Path(workspace_dir).expanduser().resolve()
+    data = payload if payload is not None else load_workflow_payload(workspace)
+    collector = _WorkflowArtifactRows(workspace)
+    _collect_request_artifacts(collector, data)
+    _collect_stage_artifacts(collector, data)
+    _collect_metadata_artifacts(collector, data)
+    return collector.rows
 
 
 __all__ = [
