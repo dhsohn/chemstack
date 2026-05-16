@@ -7,7 +7,11 @@ from typing import Any
 import yaml
 
 from chemstack.core.app_ids import is_orca_submitter
-from chemstack.core.utils import now_utc_iso
+from chemstack.core.utils import (
+    mapping_or_empty as _shared_mapping_or_empty,
+    normalize_text as _shared_normalize_text,
+    now_utc_iso,
+)
 
 from ._orchestration_builders import (
     _REACTION_TS_SEARCH_CREST_MANIFEST_DEFAULTS,
@@ -79,13 +83,11 @@ _FLOW_MANIFEST_FILENAMES = ("flow.yaml",)
 
 
 def _normalize_text(value: Any) -> str:
-    if value is None:
-        return ""
-    return str(value).strip()
+    return _shared_normalize_text(value)
 
 
 def _coerce_mapping(value: Any) -> dict[str, Any]:
-    return value if isinstance(value, dict) else {}
+    return _shared_mapping_or_empty(value)
 
 
 def _stage_task(stage: dict[str, Any]) -> dict[str, Any]:

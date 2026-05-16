@@ -80,9 +80,39 @@ def dispatch_engine_internal_command(
     queue_cancel_handler: CommandHandler,
 ) -> int:
     if args.command == "queue":
-        if args.queue_command == "worker":
-            return int(queue_worker_handler(args))
-        if args.queue_command == "cancel":
-            return int(queue_cancel_handler(args))
-        raise ValueError(f"Unsupported queue subcommand: {args.queue_command}")
+        return dispatch_engine_internal_queue_command(
+            args,
+            queue_worker_handler=queue_worker_handler,
+            queue_cancel_handler=queue_cancel_handler,
+        )
     return int(command_handlers[args.command](args))
+
+
+def dispatch_engine_internal_queue_command(
+    args: argparse.Namespace,
+    *,
+    queue_worker_handler: CommandHandler,
+    queue_cancel_handler: CommandHandler,
+) -> int:
+    if args.queue_command == "worker":
+        return int(queue_worker_handler(args))
+    if args.queue_command == "cancel":
+        return int(queue_cancel_handler(args))
+    raise ValueError(f"Unsupported queue subcommand: {args.queue_command}")
+
+
+def run_engine_internal_cli(
+    argv: list[str] | None,
+    *,
+    build_parser_fn: Callable[[], argparse.ArgumentParser],
+    command_handlers: dict[str, CommandHandler],
+    queue_worker_handler: CommandHandler,
+    queue_cancel_handler: CommandHandler,
+) -> int:
+    args = build_parser_fn().parse_args(argv)
+    return dispatch_engine_internal_command(
+        args,
+        command_handlers=command_handlers,
+        queue_worker_handler=queue_worker_handler,
+        queue_cancel_handler=queue_cancel_handler,
+    )

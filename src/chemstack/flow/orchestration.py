@@ -4,7 +4,13 @@ import shutil
 from pathlib import Path
 from typing import Any
 
-from chemstack.core.utils import now_utc_iso, timestamped_token
+from chemstack.core.utils import (
+    mapping_or_empty as _shared_mapping_or_empty,
+    normalize_text as _shared_normalize_text,
+    now_utc_iso,
+    safe_int as _shared_safe_int,
+    timestamped_token,
+)
 
 from ._orchestration_advance import (
     _AdvanceConfig,
@@ -98,7 +104,7 @@ from .state import (
     workflow_has_active_downstream,
     write_workflow_payload,
 )
-from .submitters.common import normalize_text, sibling_allowed_root, sibling_runtime_paths
+from .submitters.common import sibling_allowed_root, sibling_runtime_paths
 from .submitters.crest_auto import (
     cancel_target as crest_cancel_target,
     submit_job_dir as submit_crest_job_dir,
@@ -153,20 +159,15 @@ _FACADE_COMPAT = (
 
 
 def _normalize_text(value: Any) -> str:
-    if value is None:
-        return ""
-    return normalize_text(value)
+    return _shared_normalize_text(value)
 
 
 def _coerce_mapping(value: Any) -> dict[str, Any]:
-    return value if isinstance(value, dict) else {}
+    return _shared_mapping_or_empty(value)
 
 
 def _safe_int(value: Any, *, default: int = 0) -> int:
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return default
+    return _shared_safe_int(value, default=default)
 
 
 def _workflow_id(prefix: str) -> str:

@@ -207,6 +207,129 @@ class EngineLocationFacade:
         )
 
 
+@dataclass(frozen=True)
+class EngineLocationModule:
+    """Small adapter for engine modules that expose job-location helpers.
+
+    xTB and CREST intentionally keep their historical module-level functions
+    for tests and downstream imports. This object centralizes the repeated
+    delegation while each module remains free to pass monkeypatchable store
+    functions such as ``resolve_job_location`` at call time.
+    """
+
+    facade: EngineLocationFacade
+    payload_kind_kwarg: str
+    molecule_key_kwarg: str
+    default_payload_kind_kwarg: str
+
+    def build_job_location_record(self, **kwargs: Any) -> JobLocationRecord:
+        return self.facade.build_job_location_record(
+            existing=kwargs.get("existing"),
+            job_id=kwargs["job_id"],
+            status=kwargs["status"],
+            job_dir=kwargs["job_dir"],
+            payload_kind=kwargs[self.payload_kind_kwarg],
+            selected_input_xyz=kwargs["selected_input_xyz"],
+            organized_output_dir=kwargs.get("organized_output_dir"),
+            molecule_key=kwargs.get(self.molecule_key_kwarg, ""),
+            resource_request=kwargs.get("resource_request"),
+            resource_actual=kwargs.get("resource_actual"),
+        )
+
+    def upsert_job_record(
+        self,
+        cfg: Any,
+        *,
+        get_job_location_fn: Callable[[str | Path, str], JobLocationRecord | None],
+        upsert_job_location_fn: Callable[[str | Path, JobLocationRecord], JobLocationRecord],
+        **kwargs: Any,
+    ) -> JobLocationRecord:
+        root = self.facade.index_root_for_path(
+            cfg,
+            kwargs["job_dir"],
+            kwargs.get("organized_output_dir"),
+        )
+        existing = get_job_location_fn(root, kwargs["job_id"])
+        record = self.build_job_location_record(existing=existing, **kwargs)
+        return upsert_job_location_fn(root, record)
+
+    def resolve_latest_job_dir(
+        self,
+        index_root: str | Path,
+        target: str,
+        *,
+        resolve_job_location_fn: Callable[[str | Path, str], JobLocationRecord | None],
+    ) -> Path | None:
+        return resolve_latest_job_dir(
+            index_root,
+            target,
+            resolve_job_location_fn=resolve_job_location_fn,
+        )
+
+    def load_job_artifacts(
+        self,
+        index_root: str | Path,
+        target: str,
+        *,
+        load_state_fn: Callable[[Path], dict[str, Any] | None],
+        load_report_json_fn: Callable[[Path], dict[str, Any] | None],
+        resolve_job_location_fn: Callable[[str | Path, str], JobLocationRecord | None],
+    ) -> tuple[Path | None, dict[str, Any] | None, dict[str, Any] | None]:
+        return load_job_artifacts(
+            index_root,
+            target,
+            load_state_fn=load_state_fn,
+            load_report_json_fn=load_report_json_fn,
+            resolve_latest_job_dir_fn=lambda root, lookup_target: self.resolve_latest_job_dir(
+                root,
+                lookup_target,
+                resolve_job_location_fn=resolve_job_location_fn,
+            ),
+        )
+
+    def load_job_artifacts_for_cfg(
+        self,
+        cfg: Any,
+        target: str,
+        *,
+        load_state_fn: Callable[[Path], dict[str, Any] | None],
+        load_report_json_fn: Callable[[Path], dict[str, Any] | None],
+        resolve_job_location_fn: Callable[[str | Path, str], JobLocationRecord | None],
+    ) -> tuple[Path | None, dict[str, Any] | None, dict[str, Any] | None, JobLocationRecord | None]:
+        return load_job_artifacts_for_cfg(
+            cfg,
+            target,
+            engine=self.facade.engine,
+            load_state_fn=load_state_fn,
+            load_report_json_fn=load_report_json_fn,
+            resolve_latest_job_dir_fn=lambda root, lookup_target: self.resolve_latest_job_dir(
+                root,
+                lookup_target,
+                resolve_job_location_fn=resolve_job_location_fn,
+            ),
+            resolve_job_location_fn=resolve_job_location_fn,
+        )
+
+    def record_from_artifacts(
+        self,
+        *,
+        job_dir: Path,
+        state: dict[str, Any] | None,
+        report: dict[str, Any] | None,
+        organized_ref: dict[str, Any] | None,
+        existing: JobLocationRecord | None = None,
+        **kwargs: Any,
+    ) -> JobLocationRecord | None:
+        return self.facade.record_from_artifacts(
+            job_dir=job_dir,
+            state=state,
+            report=report,
+            organized_ref=organized_ref,
+            existing=existing,
+            default_payload_kind=kwargs.get(self.default_payload_kind_kwarg),
+        )
+
+
 def normalize_text(value: Any) -> str:
     return _shared_normalize_text(value, none="None")
 

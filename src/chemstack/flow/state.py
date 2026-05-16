@@ -5,7 +5,14 @@ import json
 from pathlib import Path
 from typing import Any
 
-from chemstack.core.utils import atomic_write_json, file_lock
+from chemstack.core.utils import (
+    atomic_write_json,
+    coerce_list as _shared_coerce_list,
+    coerce_mapping as _shared_coerce_mapping,
+    file_lock,
+    normalize_text as _shared_normalize_text,
+)
+from chemstack.core.utils.coercion import normalize_bool as _shared_normalize_bool
 
 WORKFLOW_FILE_NAME = "workflow.json"
 WORKFLOW_LOCK_NAME = "workflow.lock"
@@ -20,28 +27,20 @@ WORKFLOW_ENGINE_STAGE_ALIASES = {
 
 
 def _normalize_text(value: Any) -> str:
-    if value is None:
-        return ""
-    return str(value).strip()
+    return _shared_normalize_text(value)
 
 
 def _coerce_mapping(value: Any) -> dict[str, Any]:
-    if not isinstance(value, dict):
-        return {}
-    return {str(key): item for key, item in value.items()}
+    return _shared_coerce_mapping(value)
 
 
 def _coerce_sequence(value: Any) -> list[Any]:
-    if not isinstance(value, list):
-        return []
-    return list(value)
+    return _shared_coerce_list(value)
 
 
 def _coerce_bool(value: Any) -> bool:
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, str):
-        return value.strip().lower() in {"1", "true", "yes", "on"}
+    if isinstance(value, (bool, str)) or value is None:
+        return _shared_normalize_bool(value)
     return bool(value)
 
 

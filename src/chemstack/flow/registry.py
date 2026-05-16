@@ -10,7 +10,14 @@ from typing import Any
 from chemstack.core.config.files import CHEMSTACK_CONFIG_ENV_VAR
 from chemstack.core.config.schema import TelegramConfig
 from chemstack.core.notifications import build_telegram_transport, load_telegram_config_from_file
-from chemstack.core.utils import atomic_write_json, file_lock, now_utc_iso, timestamped_token
+from chemstack.core.utils import (
+    atomic_write_json,
+    coerce_mapping as _shared_coerce_mapping,
+    file_lock,
+    normalize_text as _shared_normalize_text,
+    now_utc_iso,
+    timestamped_token,
+)
 
 from . import _registry_notifications as _notifications
 from ._registry_notifications import (
@@ -59,9 +66,7 @@ class WorkflowRegistryRecord:
 
 
 def _normalize_text(value: Any) -> str:
-    if value is None:
-        return ""
-    return str(value).strip()
+    return _shared_normalize_text(value)
 
 
 def _event_text(event: dict[str, Any], metadata: dict[str, Any], *keys: str) -> str:
@@ -125,9 +130,7 @@ def _read_existing_json(path: Path, *, description: str, missing_default: Any) -
 
 
 def _coerce_mapping(value: Any) -> dict[str, Any]:
-    if not isinstance(value, dict):
-        return {}
-    return {str(key): item for key, item in value.items()}
+    return _shared_coerce_mapping(value)
 
 
 def _coerce_counts(value: Any) -> dict[str, int]:

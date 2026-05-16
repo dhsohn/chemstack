@@ -4,23 +4,26 @@ import json
 from pathlib import Path
 from typing import Any
 
-from chemstack.core.utils import atomic_write_json
+from chemstack.core.utils import (
+    atomic_write_json,
+    coerce_list as _shared_coerce_list,
+    mapping_or_empty,
+    normalize_text as _shared_normalize_text,
+)
 
 RECOVERY_PENDING_REASONS = frozenset({"worker_shutdown", "crashed_recovery"})
 
 
 def normalize_text(value: Any) -> str:
-    if value is None:
-        return ""
-    return str(value).strip()
+    return _shared_normalize_text(value)
 
 
 def coerce_dict(value: Any) -> dict[str, Any]:
-    return dict(value) if isinstance(value, dict) else {}
+    return dict(mapping_or_empty(value))
 
 
 def coerce_list(value: Any) -> list[Any]:
-    return list(value) if isinstance(value, list) else []
+    return _shared_coerce_list(value)
 
 
 def write_json_artifact(job_dir: Path, filename: str, payload: dict[str, Any]) -> Path:

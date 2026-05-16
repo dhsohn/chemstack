@@ -25,3 +25,20 @@ class FacadeOrchestrationDeps:
 
 def orchestration_deps() -> OrchestrationDeps:
     return FacadeOrchestrationDeps()
+
+
+def call_engine_aware(func: Any, config_path: str | None, *, engine: str) -> Any:
+    try:
+        return func(config_path, engine=engine)
+    except TypeError as exc:
+        if "engine" not in str(exc):
+            raise
+        return func(config_path)
+
+
+__all__ = [
+    "FacadeOrchestrationDeps",
+    "OrchestrationDeps",
+    "call_engine_aware",
+    "orchestration_deps",
+]

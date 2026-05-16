@@ -33,30 +33,19 @@ _LOCATION_FACADE = _engine_locations.EngineLocationFacade(
     load_report_json_fn=load_report_json,
     load_organized_ref_fn=load_organized_ref,
 )
+_LOCATION_MODULE = _engine_locations.EngineLocationModule(
+    facade=_LOCATION_FACADE,
+    payload_kind_kwarg="job_type",
+    molecule_key_kwarg="reaction_key",
+    default_payload_kind_kwarg="default_job_type",
+)
 _LOCATION_STORE_COMPAT = (get_job_location, upsert_job_location)
 
-
-def _normalize_text(value: Any) -> str:
-    return _engine_locations.normalize_text(value)
-
-
-def index_root_for_cfg(cfg: AppConfig) -> Path:
-    return _LOCATION_FACADE.index_root_for_cfg(cfg)
-
-
-def runtime_roots_for_cfg(cfg: AppConfig) -> tuple[Path, ...]:
-    return _LOCATION_FACADE.runtime_roots_for_cfg(cfg)
-
-
-def index_root_for_path(
-    cfg: AppConfig,
-    *paths: str | Path | None,
-) -> Path:
-    return _LOCATION_FACADE.index_root_for_path(cfg, *paths)
-
-
-def _lookup_roots_for_target(cfg: AppConfig, target: str) -> tuple[Path, ...]:
-    return _LOCATION_FACADE.lookup_roots_for_target(cfg, target)
+_normalize_text = _engine_locations.normalize_text
+index_root_for_cfg = _LOCATION_FACADE.index_root_for_cfg
+runtime_roots_for_cfg = _LOCATION_FACADE.runtime_roots_for_cfg
+index_root_for_path = _LOCATION_FACADE.index_root_for_path
+_lookup_roots_for_target = _LOCATION_FACADE.lookup_roots_for_target
 
 
 def list_job_records_for_cfg(cfg: AppConfig) -> list[tuple[Path, JobLocationRecord]]:
@@ -101,8 +90,7 @@ def reaction_key_from_selected_xyz(selected_input_xyz: str, job_dir: Path) -> st
     return reaction_key_from_job_dir(job_dir)
 
 
-def resource_dict(max_cores: int, max_memory_gb: int) -> dict[str, int]:
-    return _engine_locations.resource_dict(max_cores, max_memory_gb)
+resource_dict = _engine_locations.resource_dict
 
 
 def build_job_location_record(
@@ -118,15 +106,15 @@ def build_job_location_record(
     resource_request: dict[str, int] | None = None,
     resource_actual: dict[str, int] | None = None,
 ) -> JobLocationRecord:
-    return _LOCATION_FACADE.build_job_location_record(
+    return _LOCATION_MODULE.build_job_location_record(
         existing=existing,
         job_id=job_id,
         status=status,
         job_dir=job_dir,
-        payload_kind=job_type,
+        job_type=job_type,
         selected_input_xyz=selected_input_xyz,
         organized_output_dir=organized_output_dir,
-        molecule_key=reaction_key,
+        reaction_key=reaction_key,
         resource_request=resource_request,
         resource_actual=resource_actual,
     )
@@ -148,22 +136,24 @@ def upsert_job_record(
     resource_request: dict[str, int] | None = None,
     resource_actual: dict[str, int] | None = None,
 ) -> JobLocationRecord:
-    return _LOCATION_FACADE.upsert_job_record(
+    return _LOCATION_MODULE.upsert_job_record(
         cfg,
+        get_job_location_fn=get_job_location,
+        upsert_job_location_fn=upsert_job_location,
         job_id=job_id,
         status=status,
         job_dir=job_dir,
-        payload_kind=job_type,
+        job_type=job_type,
         selected_input_xyz=selected_input_xyz,
         organized_output_dir=organized_output_dir,
-        molecule_key=reaction_key,
+        reaction_key=reaction_key,
         resource_request=resource_request,
         resource_actual=resource_actual,
     )
 
 
 def resolve_latest_job_dir(index_root: str | Path, target: str) -> Path | None:
-    return _engine_locations.resolve_latest_job_dir(
+    return _LOCATION_MODULE.resolve_latest_job_dir(
         index_root,
         target,
         resolve_job_location_fn=resolve_job_location,
@@ -174,12 +164,12 @@ def load_job_artifacts(
     index_root: str | Path,
     target: str,
 ) -> tuple[Path | None, dict[str, Any] | None, dict[str, Any] | None]:
-    return _engine_locations.load_job_artifacts(
+    return _LOCATION_MODULE.load_job_artifacts(
         index_root,
         target,
         load_state_fn=load_state,
         load_report_json_fn=load_report_json,
-        resolve_latest_job_dir_fn=resolve_latest_job_dir,
+        resolve_job_location_fn=resolve_job_location,
     )
 
 
@@ -187,19 +177,16 @@ def load_job_artifacts_for_cfg(
     cfg: AppConfig,
     target: str,
 ) -> tuple[Path | None, dict[str, Any] | None, dict[str, Any] | None, JobLocationRecord | None]:
-    return _engine_locations.load_job_artifacts_for_cfg(
+    return _LOCATION_MODULE.load_job_artifacts_for_cfg(
         cfg,
         target,
-        engine=_ENGINE,
         load_state_fn=load_state,
         load_report_json_fn=load_report_json,
-        resolve_latest_job_dir_fn=resolve_latest_job_dir,
         resolve_job_location_fn=resolve_job_location,
     )
 
 
-def is_terminal_status(status: str) -> bool:
-    return _engine_locations.is_terminal_status(status)
+is_terminal_status = _engine_locations.is_terminal_status
 
 
 def record_from_artifacts(
@@ -211,15 +198,14 @@ def record_from_artifacts(
     existing: JobLocationRecord | None = None,
     default_job_type: str = "path_search",
 ) -> JobLocationRecord | None:
-    return _LOCATION_FACADE.record_from_artifacts(
+    return _LOCATION_MODULE.record_from_artifacts(
         job_dir=job_dir,
         state=state,
         report=report,
         organized_ref=organized_ref,
         existing=existing,
-        default_payload_kind=default_job_type,
+        default_job_type=default_job_type,
     )
 
 
-def collect_reindex_payload(job_dir: Path) -> dict[str, Any] | None:
-    return _LOCATION_FACADE.collect_reindex_payload(job_dir)
+collect_reindex_payload = _LOCATION_FACADE.collect_reindex_payload

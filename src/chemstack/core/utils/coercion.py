@@ -15,6 +15,18 @@ def coerce_mapping(value: Any) -> dict[str, Any]:
     return {str(key): item for key, item in value.items()}
 
 
+def mapping_or_empty(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
+def coerce_list(value: Any) -> list[Any]:
+    return list(value) if isinstance(value, list) else []
+
+
+def list_or_empty(value: Any) -> list[Any]:
+    return value if isinstance(value, list) else []
+
+
 def safe_int(value: Any, *, default: int = 0) -> int:
     try:
         return int(value)
@@ -62,7 +74,10 @@ def coerce_int_mapping(value: Any, *, default: int = 0) -> dict[str, int]:
 
 __all__ = [
     "coerce_int_mapping",
+    "coerce_list",
     "coerce_mapping",
+    "list_or_empty",
+    "mapping_or_empty",
     "normalize_bool",
     "normalize_text",
     "safe_float",

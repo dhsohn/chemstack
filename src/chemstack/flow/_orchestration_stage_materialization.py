@@ -3,22 +3,17 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from ._orchestration_deps import OrchestrationDeps, orchestration_deps
+from ._orchestration_deps import (
+    OrchestrationDeps,
+    call_engine_aware as _call_engine_aware,
+    orchestration_deps,
+)
 from . import _orchestration_stage_builders as _stage_builders
 from .state import workflow_workspace_internal_engine_paths
 
 
 def _orchestration_context() -> OrchestrationDeps:
     return orchestration_deps()
-
-
-def _call_engine_aware(func: Any, config_path: str | None, *, engine: str) -> Any:
-    try:
-        return func(config_path, engine=engine)
-    except TypeError as exc:
-        if "engine" not in str(exc):
-            raise
-        return func(config_path)
 
 
 def _engine_stages(o: Any, payload: dict[str, Any], engine: str) -> list[dict[str, Any]]:

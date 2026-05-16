@@ -10,31 +10,32 @@ from chemstack.core.notifications import (
     load_telegram_config_from_file,
     split_telegram_message,
 )
-from chemstack.core.utils import now_utc_iso
+from chemstack.core.utils import (
+    list_or_empty as _shared_list_or_empty,
+    mapping_or_empty as _shared_mapping_or_empty,
+    normalize_text as _shared_normalize_text,
+    now_utc_iso,
+    safe_int as _shared_safe_int,
+)
 from chemstack.flow.workflow_status import workflow_status_is_terminal
 
 _ACTIVE_STATUSES = frozenset({"planned", "queued", "running", "submitted", "cancel_requested", "retrying"})
 
 
 def _normalize_text(value: Any) -> str:
-    if value is None:
-        return ""
-    return str(value).strip()
+    return _shared_normalize_text(value)
 
 
 def _coerce_mapping(value: Any) -> dict[str, Any]:
-    return value if isinstance(value, dict) else {}
+    return _shared_mapping_or_empty(value)
 
 
 def _coerce_sequence(value: Any) -> list[Any]:
-    return value if isinstance(value, list) else []
+    return _shared_list_or_empty(value)
 
 
 def _safe_int(value: Any, *, default: int = 0) -> int:
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return default
+    return _shared_safe_int(value, default=default)
 
 
 def _load_telegram_config(config_path: str | None) -> TelegramConfig:

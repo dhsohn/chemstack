@@ -38,7 +38,7 @@ from chemstack.core.queue.worker import (
     resolve_admission_root,
     terminate_process_group,
 )
-from chemstack.core.utils import now_utc_iso
+from chemstack.core.utils import coerce_list as _shared_coerce_list, now_utc_iso
 
 from .. import worker_execution as _worker_execution
 from ..config import default_config_path, load_config
@@ -199,7 +199,7 @@ def _coerce_mapping(value: Any) -> dict[str, Any]:
 
 
 def _coerce_list(value: Any) -> list[Any]:
-    return list(value) if isinstance(value, list) else []
+    return _shared_coerce_list(value)
 
 
 def _matching_state(

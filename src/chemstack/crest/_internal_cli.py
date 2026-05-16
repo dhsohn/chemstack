@@ -5,7 +5,8 @@ import argparse
 from chemstack.core.internal_cli import (
     EngineInternalCliSpec,
     build_engine_internal_parser,
-    dispatch_engine_internal_command,
+    dispatch_engine_internal_queue_command,
+    run_engine_internal_cli,
 )
 
 from .commands import init as scaffold_cmd
@@ -61,19 +62,17 @@ def cmd_queue_worker(args: argparse.Namespace) -> int:
 
 
 def _cmd_queue(args: argparse.Namespace) -> int:
-    if args.queue_command == "worker":
-        return int(cmd_queue_worker(args))
-    if args.queue_command == "cancel":
-        return int(cmd_queue_cancel(args))
-    raise ValueError(f"Unsupported queue subcommand: {args.queue_command}")
+    return dispatch_engine_internal_queue_command(
+        args,
+        queue_worker_handler=cmd_queue_worker,
+        queue_cancel_handler=cmd_queue_cancel,
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = build_parser()
-    args = parser.parse_args(argv)
-
-    return dispatch_engine_internal_command(
-        args,
+    return run_engine_internal_cli(
+        argv,
+        build_parser_fn=build_parser,
         command_handlers={
             "scaffold": cmd_scaffold,
             "run-dir": cmd_run_dir,

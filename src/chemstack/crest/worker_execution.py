@@ -4,7 +4,6 @@ import argparse
 import os
 import signal
 import subprocess
-import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -24,6 +23,7 @@ from chemstack.core.queue import (
 from chemstack.core.queue.types import QueueStatus
 from chemstack.core.queue.engine_execution import process_dequeued_engine_entry
 from chemstack.core.queue.worker import (
+    build_background_worker_command,
     install_shutdown_signal_handlers,
     resolve_admission_root,
     terminate_process_group,
@@ -168,22 +168,16 @@ def build_worker_child_command(
     auto_organize: bool = False,
     admission_token: str | None = None,
 ) -> list[str]:
-    command = [
-        sys.executable,
-        "-m",
-        "chemstack.crest.worker_execution",
-        "--config",
-        config_path,
-        "--queue-root",
-        str(Path(queue_root)),
-        "--queue-id",
-        queue_id,
-    ]
-    if auto_organize:
-        command.append("--auto-organize")
-    if admission_token:
-        command.extend(["--admission-token", admission_token])
-    return command
+    return build_background_worker_command(
+        config_path=config_path,
+        queue_root=Path(queue_root),
+        queue_id=queue_id,
+        worker_job_module="chemstack.crest.worker_execution",
+        admission_token=admission_token,
+        auto_organize=auto_organize,
+        include_admission_root=False,
+        auto_organize_before_admission_token=True,
+    )
 
 
 def _matching_result_state(entry: Any, result: CrestRunResult, job_dir: Path) -> dict[str, Any]:

@@ -1,6 +1,9 @@
 from .coercion import (
     coerce_int_mapping,
+    coerce_list,
     coerce_mapping,
+    list_or_empty,
+    mapping_or_empty,
     normalize_bool,
     normalize_text,
     safe_float,
@@ -12,8 +15,11 @@ from .persistence import atomic_write_json, now_utc_iso, parse_iso_utc, timestam
 __all__ = [
     "atomic_write_json",
     "coerce_int_mapping",
+    "coerce_list",
     "coerce_mapping",
     "file_lock",
+    "list_or_empty",
+    "mapping_or_empty",
     "normalize_bool",
     "normalize_text",
     "now_utc_iso",

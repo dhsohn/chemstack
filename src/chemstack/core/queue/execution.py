@@ -4,9 +4,11 @@ import time
 from pathlib import Path
 from typing import Any, Callable
 
+from chemstack.core.utils import mapping_or_empty
+
 
 def coerce_mapping(value: Any) -> dict[str, Any]:
-    return dict(value) if isinstance(value, dict) else {}
+    return dict(mapping_or_empty(value))
 
 
 def recovery_reason(state: dict[str, Any] | None) -> str:

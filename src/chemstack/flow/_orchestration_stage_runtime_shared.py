@@ -5,7 +5,13 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from ._orchestration_deps import OrchestrationDeps, orchestration_deps
+from chemstack.core.utils import normalize_bool as _shared_normalize_bool
+
+from ._orchestration_deps import (
+    OrchestrationDeps,
+    call_engine_aware,
+    orchestration_deps,
+)
 from .state import workflow_stage_dirnames_for_engine, workflow_workspace_internal_engine_paths
 
 _LOGGER = logging.getLogger("chemstack.flow._orchestration_stage_runtime")
@@ -13,6 +19,10 @@ _LOGGER = logging.getLogger("chemstack.flow._orchestration_stage_runtime")
 
 def _orchestration_context() -> OrchestrationDeps:
     return orchestration_deps()
+
+
+def _call_engine_aware(func: Any, config_path: str | None, *, engine: str) -> Any:
+    return call_engine_aware(func, config_path, engine=engine)
 
 
 def _stage_id_for_log(stage: dict[str, Any] | None) -> str:
@@ -43,20 +53,9 @@ def _load_contract_or_none(
         return None
 
 
-def _call_engine_aware(func: Any, config_path: str | None, *, engine: str) -> Any:
-    try:
-        return func(config_path, engine=engine)
-    except TypeError as exc:
-        if "engine" not in str(exc):
-            raise
-        return func(config_path)
-
-
 def _coerce_bool(value: Any) -> bool:
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, str):
-        return value.strip().lower() in {"1", "true", "yes", "on"}
+    if isinstance(value, (bool, str)) or value is None:
+        return _shared_normalize_bool(value)
     return bool(value)
 
 
