@@ -36,6 +36,7 @@ _LOCATION_FACADE = _engine_locations.EngineLocationFacade(
     load_report_json_fn=load_report_json,
     load_organized_ref_fn=load_organized_ref,
 )
+_LOCATION_STORE_COMPAT = (get_job_location, upsert_job_location)
 
 
 def _normalize_text(value: Any) -> str:
@@ -144,21 +145,18 @@ def upsert_job_record(
     resource_request: dict[str, int] | None = None,
     resource_actual: dict[str, int] | None = None,
 ) -> JobLocationRecord:
-    root = index_root_for_path(cfg, job_dir, organized_output_dir)
-    existing = get_job_location(root, job_id)
-    record = build_job_location_record(
-        existing=existing,
+    return _LOCATION_FACADE.upsert_job_record(
+        cfg,
         job_id=job_id,
         status=status,
         job_dir=job_dir,
-        mode=mode,
+        payload_kind=mode,
         selected_input_xyz=selected_input_xyz,
         organized_output_dir=organized_output_dir,
         molecule_key=molecule_key,
         resource_request=resource_request,
         resource_actual=resource_actual,
     )
-    return upsert_job_location(root, record)
 
 
 def resolve_latest_job_dir(index_root: str | Path, target: str) -> Path | None:

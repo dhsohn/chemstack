@@ -533,6 +533,148 @@ def _sync_job_tracking(
     return organized_output_dir
 
 
+def _raise_if_shutdown_requested(
+    context: ExecutionContext,
+    shutdown_requested: Callable[[], bool] | None,
+) -> None:
+    if shutdown_requested is not None and shutdown_requested():
+        raise WorkerShutdownRequested(context)
+
+
+def _mark_job_running(
+    cfg: Any,
+    context: ExecutionContext,
+    *,
+    dependencies: WorkerExecutionDependencies,
+) -> None:
+    dependencies.write_running_state(cfg, context.entry)
+    dependencies.upsert_job_record(
+        cfg,
+        job_id=context.entry.task_id,
+        status="running",
+        job_dir=context.job_dir,
+        mode=context.mode,
+        selected_input_xyz=str(context.selected_xyz),
+        molecule_key=context.molecule_key,
+        resource_request=context.resource_request,
+        resource_actual=context.resource_request,
+    )
+    dependencies.notify_job_started(
+        cfg,
+        job_id=context.entry.task_id,
+        queue_id=context.entry.queue_id,
+        job_dir=context.job_dir,
+        mode=context.mode,
+        selected_xyz=context.selected_xyz,
+    )
+
+
+def _failed_result_from_exception(
+    context: ExecutionContext,
+    *,
+    exc: Exception,
+    failure_time: str,
+) -> CrestRunResult:
+    resource_request = context.resource_request
+    return CrestRunResult(
+        status="failed",
+        reason=f"runner_error:{exc}",
+        command=(),
+        exit_code=1,
+        started_at=context.entry.started_at or failure_time,
+        finished_at=failure_time,
+        stdout_log=str((context.job_dir / "crest.stdout.log").resolve()),
+        stderr_log=str((context.job_dir / "crest.stderr.log").resolve()),
+        selected_input_xyz=str(context.selected_xyz),
+        mode=context.mode,
+        retained_conformer_count=0,
+        retained_conformer_paths=(),
+        manifest_path=(
+            str((context.job_dir / "crest_job.yaml").resolve())
+            if (context.job_dir / "crest_job.yaml").exists()
+            else ""
+        ),
+        resource_request=resource_request,
+        resource_actual=dict(resource_request),
+    )
+
+
+def _run_crest_job_for_entry(
+    cfg: Any,
+    context: ExecutionContext,
+    *,
+    queue_root: Path,
+    dependencies: WorkerExecutionDependencies,
+    shutdown_requested: Callable[[], bool] | None,
+) -> CrestRunResult:
+    try:
+        running = dependencies.start_crest_job(
+            cfg,
+            job_dir=context.job_dir,
+            selected_xyz=context.selected_xyz,
+        )
+
+        def raise_shutdown(_running: Any) -> None:
+            raise WorkerShutdownRequested(context)
+
+        return _queue_execution.wait_for_cancellable_process(
+            running,
+            finalize_fn=dependencies.finalize_crest_job,
+            terminate_process_fn=dependencies.terminate_process,
+            should_cancel=lambda: dependencies.get_cancel_requested(
+                str(queue_root),
+                context.entry.queue_id,
+            ),
+            shutdown_requested=shutdown_requested,
+            on_shutdown=raise_shutdown,
+            sleep_fn=time.sleep,
+            poll_interval_seconds=CANCEL_CHECK_INTERVAL_SECONDS,
+        )
+    except Exception as exc:
+        if isinstance(exc, WorkerShutdownRequested):
+            raise
+        return _failed_result_from_exception(
+            context,
+            exc=exc,
+            failure_time=dependencies.now_utc_iso(),
+        )
+
+
+def _finalize_processed_entry(
+    cfg: Any,
+    context: ExecutionContext,
+    result: CrestRunResult,
+    *,
+    queue_root: Path,
+    auto_organize: bool,
+    dependencies: WorkerExecutionDependencies,
+) -> Path | None:
+    dependencies.write_execution_artifacts(context.entry, result)
+    _mark_queue_terminal(queue_root, context, result, dependencies=dependencies)
+    organized_output_dir = _sync_job_tracking(
+        cfg,
+        context,
+        result,
+        auto_organize=auto_organize,
+        dependencies=dependencies,
+    )
+    dependencies.notify_job_finished(
+        cfg,
+        job_id=context.entry.task_id,
+        queue_id=context.entry.queue_id,
+        status=result.status,
+        reason=result.reason,
+        mode=result.mode,
+        job_dir=context.job_dir,
+        selected_xyz=context.selected_xyz,
+        retained_conformer_count=result.retained_conformer_count,
+        organized_output_dir=organized_output_dir,
+        resource_request=context.resource_request,
+        resource_actual=result.resource_actual,
+    )
+    return organized_output_dir
+
+
 def process_dequeued_entry(
     cfg: Any,
     entry: Any,
@@ -551,103 +693,24 @@ def process_dequeued_entry(
         resource_caps=resource_caps,
         molecule_key_resolver=molecule_key_resolver,
     )
-    if shutdown_requested is not None and shutdown_requested():
-        raise WorkerShutdownRequested(context)
-    dependencies.write_running_state(cfg, entry)
-    dependencies.upsert_job_record(
+    _raise_if_shutdown_requested(context, shutdown_requested)
+    _mark_job_running(cfg, context, dependencies=dependencies)
+    _raise_if_shutdown_requested(context, shutdown_requested)
+
+    result = _run_crest_job_for_entry(
         cfg,
-        job_id=entry.task_id,
-        status="running",
-        job_dir=context.job_dir,
-        mode=context.mode,
-        selected_input_xyz=str(context.selected_xyz),
-        molecule_key=context.molecule_key,
-        resource_request=context.resource_request,
-        resource_actual=context.resource_request,
+        context,
+        queue_root=active_queue_root,
+        dependencies=dependencies,
+        shutdown_requested=shutdown_requested,
     )
-    dependencies.notify_job_started(
-        cfg,
-        job_id=entry.task_id,
-        queue_id=entry.queue_id,
-        job_dir=context.job_dir,
-        mode=context.mode,
-        selected_xyz=context.selected_xyz,
-    )
-    if shutdown_requested is not None and shutdown_requested():
-        raise WorkerShutdownRequested(context)
-
-    try:
-        running = dependencies.start_crest_job(
-            cfg,
-            job_dir=context.job_dir,
-            selected_xyz=context.selected_xyz,
-        )
-
-        def raise_shutdown(_running: Any) -> None:
-            raise WorkerShutdownRequested(context)
-
-        result = _queue_execution.wait_for_cancellable_process(
-            running,
-            finalize_fn=dependencies.finalize_crest_job,
-            terminate_process_fn=dependencies.terminate_process,
-            should_cancel=lambda: dependencies.get_cancel_requested(
-                str(active_queue_root),
-                entry.queue_id,
-            ),
-            shutdown_requested=shutdown_requested,
-            on_shutdown=raise_shutdown,
-            sleep_fn=time.sleep,
-            poll_interval_seconds=CANCEL_CHECK_INTERVAL_SECONDS,
-        )
-    except Exception as exc:
-        if isinstance(exc, WorkerShutdownRequested):
-            raise
-        failure_time = dependencies.now_utc_iso()
-        resource_request = context.resource_request
-        result = CrestRunResult(
-            status="failed",
-            reason=f"runner_error:{exc}",
-            command=(),
-            exit_code=1,
-            started_at=entry.started_at or failure_time,
-            finished_at=failure_time,
-            stdout_log=str((context.job_dir / "crest.stdout.log").resolve()),
-            stderr_log=str((context.job_dir / "crest.stderr.log").resolve()),
-            selected_input_xyz=str(context.selected_xyz),
-            mode=context.mode,
-            retained_conformer_count=0,
-            retained_conformer_paths=(),
-            manifest_path=(
-                str((context.job_dir / "crest_job.yaml").resolve())
-                if (context.job_dir / "crest_job.yaml").exists()
-                else ""
-            ),
-            resource_request=resource_request,
-            resource_actual=dict(resource_request),
-        )
-
-    dependencies.write_execution_artifacts(entry, result)
-    _mark_queue_terminal(active_queue_root, context, result, dependencies=dependencies)
-    organized_output_dir = _sync_job_tracking(
+    organized_output_dir = _finalize_processed_entry(
         cfg,
         context,
         result,
+        queue_root=active_queue_root,
         auto_organize=auto_organize,
         dependencies=dependencies,
-    )
-    dependencies.notify_job_finished(
-        cfg,
-        job_id=entry.task_id,
-        queue_id=entry.queue_id,
-        status=result.status,
-        reason=result.reason,
-        mode=result.mode,
-        job_dir=context.job_dir,
-        selected_xyz=context.selected_xyz,
-        retained_conformer_count=result.retained_conformer_count,
-        organized_output_dir=organized_output_dir,
-        resource_request=context.resource_request,
-        resource_actual=result.resource_actual,
     )
     return WorkerExecutionOutcome(
         result=result,

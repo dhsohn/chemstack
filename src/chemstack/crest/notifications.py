@@ -15,11 +15,12 @@ def _is_workflow_child(job_dir: Path) -> bool:
     return _engine_notifications.is_workflow_child(job_dir, engine=_ENGINE)
 
 
-def _send(cfg: AppConfig, lines: list[str]) -> bool:
-    return _engine_notifications.send_lines(cfg, lines, build_transport=build_telegram_transport)
-
-
-_NOTIFIER = _engine_notifications.EngineNotifier(label=_LABEL, engine=_ENGINE, send_fn=_send)
+_send = _engine_notifications.telegram_line_sender(lambda: build_telegram_transport)
+_NOTIFIER = _engine_notifications.build_engine_notifier(
+    label=_LABEL,
+    engine=_ENGINE,
+    send_fn=_send,
+)
 
 
 def notify_job_queued(

@@ -8,6 +8,7 @@ import os
 import fcntl
 import time
 from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterator, List, TypedDict, cast
 
@@ -52,6 +53,46 @@ class AdmissionSlot(TypedDict, total=False):
     app_name: str | None
     task_id: str | None
     workflow_id: str | None
+
+
+@dataclass(frozen=True)
+class _AdmissionReservationRequest:
+    root: Path
+    max_concurrent: int
+    reaction_dir: str | None
+    queue_id: str | None
+    source: str
+    owner_pid: int | None
+    exclude_reaction_dirs: set[str] | None
+    app_name: str | None
+    task_id: str | None
+    workflow_id: str | None
+    state: str
+
+    @property
+    def limit(self) -> int:
+        return max(1, int(self.max_concurrent))
+
+    @property
+    def excluded_reaction_dirs(self) -> set[str]:
+        return _normalize_reaction_dir_set(self.exclude_reaction_dirs)
+
+
+@dataclass(frozen=True)
+class _AdmissionActivationRequest:
+    root: Path
+    token: str
+    work_dir: str
+    owner_pid: int
+    source: str
+    queue_id: str | None
+    app_name: str | None
+    task_id: str | None
+    workflow_id: str | None
+
+    @property
+    def has_metadata_update(self) -> bool:
+        return self.app_name is not None or self.task_id is not None or self.workflow_id is not None
 
 
 def _wrap_backend_corruption(exc: Exception) -> None:
@@ -407,6 +448,49 @@ def _active_count_with_external_runs(
     )
 
 
+def _reservation_has_capacity(
+    request: _AdmissionReservationRequest,
+    *,
+    slots: list[AdmissionSlot],
+) -> bool:
+    active_count = _active_count_with_external_runs(
+        request.root,
+        slots=slots,
+        exclude_reaction_dirs=request.excluded_reaction_dirs,
+    )
+    return active_count < request.limit
+
+
+def _build_slot_for_reservation(
+    token: str,
+    request: _AdmissionReservationRequest,
+) -> AdmissionSlot:
+    return _build_reserved_slot(
+        token=token,
+        reaction_dir=request.reaction_dir,
+        queue_id=request.queue_id,
+        source=request.source,
+        owner_pid=request.owner_pid,
+        app_name=request.app_name,
+        task_id=request.task_id,
+        workflow_id=request.workflow_id,
+        state=request.state,
+    )
+
+
+def _reserve_slot_from_request(request: _AdmissionReservationRequest) -> str | None:
+    with _acquire_admission_lock(request.root):
+        slots = _load_live_slots(request.root)
+        if not _reservation_has_capacity(request, slots=slots):
+            _save_slots(request.root, slots)
+            return None
+
+        token = timestamped_token("slot")
+        slots.append(_build_slot_for_reservation(token, request))
+        _save_slots(request.root, slots)
+        return token
+
+
 def reconcile_stale_slots(root: Path) -> int:
     resolved_root = Path(root).expanduser().resolve()
     backend = _chem_core_admission_module()
@@ -463,70 +547,44 @@ def reserve_slot(
     state: str = "reserved",
 ) -> str | None:
     resolved_root = Path(root).expanduser().resolve()
-    limit = max(1, int(max_concurrent))
-    excluded_reaction_dirs = _normalize_reaction_dir_set(exclude_reaction_dirs)
-    with _acquire_admission_lock(resolved_root):
-        slots = _load_live_slots(resolved_root)
-        active_count = _active_count_with_external_runs(
-            resolved_root,
-            slots=slots,
-            exclude_reaction_dirs=excluded_reaction_dirs,
-        )
-        if active_count >= limit:
-            _save_slots(resolved_root, slots)
-            return None
-
-        token = timestamped_token("slot")
-        slots.append(
-            _build_reserved_slot(
-                token=token,
-                reaction_dir=reaction_dir,
-                queue_id=queue_id,
-                source=source,
-                owner_pid=owner_pid,
-                app_name=app_name,
-                task_id=task_id,
-                workflow_id=workflow_id,
-                state=state,
-            )
-        )
-        _save_slots(resolved_root, slots)
-        return token
+    request = _AdmissionReservationRequest(
+        root=resolved_root,
+        max_concurrent=max_concurrent,
+        reaction_dir=reaction_dir,
+        queue_id=queue_id,
+        source=source,
+        owner_pid=owner_pid,
+        exclude_reaction_dirs=exclude_reaction_dirs,
+        app_name=app_name,
+        task_id=task_id,
+        workflow_id=workflow_id,
+        state=state,
+    )
+    return _reserve_slot_from_request(request)
 
 
-def _activate_slot_with_backend(
-    backend: Any,
+def _activation_request(
     root: Path,
     token: str,
     *,
-    resolved_work_dir: str,
-    resolved_owner_pid: int,
+    reaction_dir: str,
     source: str,
+    owner_pid: int | None,
     queue_id: str | None,
     app_name: str | None,
     task_id: str | None,
     workflow_id: str | None,
-) -> bool:
-    try:
-        updated = backend.activate_reserved_slot(
-            root,
-            token,
-            state="active",
-            work_dir=resolved_work_dir,
-            queue_id=None if queue_id is None else _text_field(queue_id),
-            owner_pid=resolved_owner_pid,
-            source=source,
-        )
-    except Exception as exc:
-        _wrap_backend_corruption(exc)
-        raise
-    if updated is None:
-        return False
-    if app_name is None and task_id is None and workflow_id is None:
-        return True
-    return update_slot_metadata(
-        root,
-        token,
+) -> _AdmissionActivationRequest:
+    resolved_root = Path(root).expanduser().resolve()
+    resolved_work_dir = _normalize_work_dir(reaction_dir)
+    if resolved_work_dir is None:
+        raise ValueError("reaction_dir must not be blank.")
+    return _AdmissionActivationRequest(
+        root=resolved_root,
+        token=token,
+        work_dir=resolved_work_dir,
+        owner_pid=owner_pid if owner_pid is not None else os.getpid(),
+        source=source,
         queue_id=queue_id,
         app_name=app_name,
         task_id=task_id,
@@ -534,63 +592,69 @@ def _activate_slot_with_backend(
     )
 
 
+def _activate_slot_with_backend(
+    backend: Any,
+    request: _AdmissionActivationRequest,
+) -> bool:
+    try:
+        updated = backend.activate_reserved_slot(
+            request.root,
+            request.token,
+            state="active",
+            work_dir=request.work_dir,
+            queue_id=None if request.queue_id is None else _text_field(request.queue_id),
+            owner_pid=request.owner_pid,
+            source=request.source,
+        )
+    except Exception as exc:
+        _wrap_backend_corruption(exc)
+        raise
+    if updated is None:
+        return False
+    if not request.has_metadata_update:
+        return True
+    return update_slot_metadata(
+        request.root,
+        request.token,
+        queue_id=request.queue_id,
+        app_name=request.app_name,
+        task_id=request.task_id,
+        workflow_id=request.workflow_id,
+    )
+
+
 def _activate_live_slot(
     slot: AdmissionSlot,
-    *,
-    resolved_work_dir: str,
-    resolved_owner_pid: int,
-    source: str,
-    queue_id: str | None,
-    app_name: str | None,
-    task_id: str | None,
-    workflow_id: str | None,
+    request: _AdmissionActivationRequest,
 ) -> None:
     slot["state"] = "active"
-    slot["work_dir"] = resolved_work_dir
-    slot["reaction_dir"] = resolved_work_dir
-    if queue_id is not None:
-        slot["queue_id"] = queue_id
-    slot["owner_pid"] = resolved_owner_pid
-    slot["process_start_ticks"] = process_start_ticks(resolved_owner_pid)
-    slot["source"] = source
-    if app_name is not None:
-        slot["app_name"] = app_name
-    if task_id is not None:
-        slot["task_id"] = task_id
-    if workflow_id is not None:
-        slot["workflow_id"] = workflow_id
+    slot["work_dir"] = request.work_dir
+    slot["reaction_dir"] = request.work_dir
+    if request.queue_id is not None:
+        slot["queue_id"] = request.queue_id
+    slot["owner_pid"] = request.owner_pid
+    slot["process_start_ticks"] = process_start_ticks(request.owner_pid)
+    slot["source"] = request.source
+    if request.app_name is not None:
+        slot["app_name"] = request.app_name
+    if request.task_id is not None:
+        slot["task_id"] = request.task_id
+    if request.workflow_id is not None:
+        slot["workflow_id"] = request.workflow_id
 
 
 def _activate_slot_in_store(
-    root: Path,
-    token: str,
-    *,
-    resolved_work_dir: str,
-    resolved_owner_pid: int,
-    source: str,
-    queue_id: str | None,
-    app_name: str | None,
-    task_id: str | None,
-    workflow_id: str | None,
+    request: _AdmissionActivationRequest,
 ) -> bool:
-    with _acquire_admission_lock(root):
-        slots = _load_live_slots(root)
+    with _acquire_admission_lock(request.root):
+        slots = _load_live_slots(request.root)
         for slot in slots:
-            if slot.get("token") != token:
+            if slot.get("token") != request.token:
                 continue
-            _activate_live_slot(
-                slot,
-                resolved_work_dir=resolved_work_dir,
-                resolved_owner_pid=resolved_owner_pid,
-                source=source,
-                queue_id=queue_id,
-                app_name=app_name,
-                task_id=task_id,
-                workflow_id=workflow_id,
-            )
-            _save_slots(root, slots)
+            _activate_live_slot(slot, request)
+            _save_slots(request.root, slots)
             return True
-        _save_slots(root, slots)
+        _save_slots(request.root, slots)
     return False
 
 
@@ -606,37 +670,22 @@ def activate_slot(
     task_id: str | None = None,
     workflow_id: str | None = None,
 ) -> bool:
-    resolved_root = Path(root).expanduser().resolve()
-    resolved_work_dir = _normalize_work_dir(reaction_dir)
-    if resolved_work_dir is None:
-        raise ValueError("reaction_dir must not be blank.")
-    resolved_owner_pid = owner_pid if owner_pid is not None else os.getpid()
-    backend = _chem_core_admission_module()
-    if backend is not None:
-        return _activate_slot_with_backend(
-            backend,
-            resolved_root,
-            token,
-            resolved_work_dir=resolved_work_dir,
-            resolved_owner_pid=resolved_owner_pid,
-            source=source,
-            queue_id=queue_id,
-            app_name=app_name,
-            task_id=task_id,
-            workflow_id=workflow_id,
-        )
-
-    return _activate_slot_in_store(
-        resolved_root,
+    request = _activation_request(
+        root,
         token,
-        resolved_work_dir=resolved_work_dir,
-        resolved_owner_pid=resolved_owner_pid,
+        reaction_dir=reaction_dir,
         source=source,
+        owner_pid=owner_pid,
         queue_id=queue_id,
         app_name=app_name,
         task_id=task_id,
         workflow_id=workflow_id,
     )
+    backend = _chem_core_admission_module()
+    if backend is not None:
+        return _activate_slot_with_backend(backend, request)
+
+    return _activate_slot_in_store(request)
 
 
 def release_slot(root: Path, token: str) -> bool:

@@ -32,6 +32,15 @@ def send_lines(
     return True
 
 
+def telegram_line_sender(
+    build_transport_getter: Callable[[], Callable[[Any], Any]],
+) -> Callable[[Any, list[str]], bool]:
+    def send(cfg: Any, lines: list[str]) -> bool:
+        return send_lines(cfg, lines, build_transport=build_transport_getter())
+
+    return send
+
+
 @dataclass(frozen=True)
 class EngineNotifier:
     label: str
@@ -74,6 +83,15 @@ class EngineNotifier:
             root=root,
             send_fn=self.send_fn,
         )
+
+
+def build_engine_notifier(
+    *,
+    label: str,
+    engine: str,
+    send_fn: Callable[[Any, list[str]], bool],
+) -> EngineNotifier:
+    return EngineNotifier(label=label, engine=engine, send_fn=send_fn)
 
 
 def terminal_headline(status: str) -> str:

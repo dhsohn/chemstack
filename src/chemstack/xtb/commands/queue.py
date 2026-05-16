@@ -41,6 +41,7 @@ from chemstack.core.queue.worker import (
 )
 from chemstack.core.utils import now_utc_iso
 
+from .. import worker_execution as _worker_execution
 from ..config import default_config_path, load_config
 from ..job_locations import (
     reaction_key_from_job_dir,
@@ -68,6 +69,14 @@ CANCEL_CHECK_INTERVAL_SECONDS = 1
 WORKER_CANCEL_SIGNAL = getattr(signal, "SIGUSR1", signal.SIGTERM)
 WORKER_SHUTDOWN_EXIT_CODE = 190
 WORKER_JOB_MODULE = "chemstack.xtb.worker_job"
+_WORKER_EXECUTION_COMPAT = (
+    activate_reserved_slot,
+    finalize_xtb_job,
+    is_recovery_pending,
+    notify_job_started,
+    run_xtb_ranking_job,
+    start_xtb_job,
+)
 
 
 @dataclass(frozen=True)
@@ -707,114 +716,15 @@ def _execute_queue_entry(
     worker_job_pid: int | None = None,
     emit_output: bool = False,
 ) -> QueueExecutionOutcome:
-    job_dir = _job_dir(entry)
-    selected_xyz = _selected_xyz(entry)
-    job_type = _job_type(entry)
-    reaction_key = _reaction_key(entry, job_dir)
-    input_summary = _input_summary(entry)
-    resource_request = _entry_resource_request(cfg, entry)
-    previous_state = _matching_state(
-        entry,
-        job_dir=job_dir,
-        selected_xyz=selected_xyz,
-        job_type=job_type,
-        reaction_key=reaction_key,
-    )
-    resumed = (
-        is_recovery_pending(previous_state)
-        or str(previous_state.get("status", "")).strip().lower() == "running"
-    )
-
-    _write_running_state(
-        cfg,
-        entry,
-        worker_job_pid=worker_job_pid,
-        previous_state=previous_state,
-        resumed=resumed,
-    )
-    upsert_job_record(
-        cfg,
-        job_id=entry.task_id,
-        status="running",
-        job_dir=job_dir,
-        job_type=job_type,
-        selected_input_xyz=str(selected_xyz),
-        reaction_key=reaction_key,
-        resource_request=resource_request,
-        resource_actual=resource_request,
-    )
-    notify_job_started(
-        cfg,
-        job_id=entry.task_id,
-        queue_id=entry.queue_id,
-        job_dir=job_dir,
-        job_type=job_type,
-        reaction_key=reaction_key,
-        selected_xyz=selected_xyz,
-    )
-
-    try:
-        if should_cancel is not None and should_cancel():
-            result = _build_terminal_result(
-                entry,
-                job_dir=job_dir,
-                selected_xyz=selected_xyz,
-                job_type=job_type,
-                reaction_key=reaction_key,
-                input_summary=input_summary,
-                resource_request=resource_request,
-                status="cancelled",
-                reason="cancel_requested",
-                exit_code=1,
-            )
-        elif job_type == "ranking":
-            result = run_xtb_ranking_job(
-                cfg,
-                job_dir=job_dir,
-                should_cancel=should_cancel,
-                on_running_job=register_running_job,
-                terminate_process=_terminate_process,
-            )
-        else:
-            running = start_xtb_job(cfg, job_dir=job_dir, selected_input_xyz=selected_xyz)
-            if register_running_job is not None:
-                register_running_job(running)
-            try:
-                result = _queue_execution.wait_for_cancellable_process(
-                    running,
-                    finalize_fn=finalize_xtb_job,
-                    terminate_process_fn=_terminate_process,
-                    should_cancel=should_cancel,
-                    sleep_fn=time.sleep,
-                    poll_interval_seconds=CANCEL_CHECK_INTERVAL_SECONDS,
-                    check_cancel_before_poll=True,
-                )
-            finally:
-                if register_running_job is not None:
-                    register_running_job(None)
-    except Exception as exc:
-        result = _build_terminal_result(
-            entry,
-            job_dir=job_dir,
-            selected_xyz=selected_xyz,
-            job_type=job_type,
-            reaction_key=reaction_key,
-            input_summary=input_summary,
-            resource_request=resource_request,
-            status="failed",
-            reason=f"runner_error:{exc}",
-            exit_code=1,
-        )
-
-    return _finalize_execution_result(
+    return _worker_execution.execute_queue_entry(
         cfg,
         queue_root=queue_root,
         entry=entry,
-        result=result,
         auto_organize=auto_organize,
+        should_cancel=should_cancel,
+        register_running_job=register_running_job,
+        worker_job_pid=worker_job_pid,
         emit_output=emit_output,
-        previous_state=previous_state,
-        resumed=resumed,
     )
 
 
@@ -1067,38 +977,16 @@ def run_worker_job(
     should_cancel: Callable[[], bool] | None = None,
     register_running_job: Callable[[Any | None], None] | None = None,
 ) -> int:
-    cfg = load_config(config_path)
-    resolved_queue_root = Path(queue_root).expanduser().resolve()
-    entry = _queue_entry_by_id(resolved_queue_root, queue_id)
-    if entry is None:
-        return 1
-
-    if admission_token:
-        activated = activate_reserved_slot(
-            admission_root,
-            admission_token,
-            work_dir=_job_dir(entry),
-            queue_id=entry.queue_id,
-            source="chemstack.xtb.worker_job",
-        )
-        if activated is None:
-            return 1
-
-    try:
-        outcome = _execute_queue_entry(
-            cfg,
-            queue_root=resolved_queue_root,
-            entry=entry,
-            auto_organize=auto_organize,
-            should_cancel=should_cancel,
-            register_running_job=register_running_job,
-            emit_output=False,
-            worker_job_pid=os.getpid(),
-        )
-        return 0 if outcome.result.status in {"completed", "cancelled"} else 1
-    finally:
-        if admission_token:
-            release_slot(admission_root, admission_token)
+    return _worker_execution.run_worker_job(
+        config_path=config_path,
+        queue_root=queue_root,
+        queue_id=queue_id,
+        admission_root=admission_root,
+        admission_token=admission_token,
+        auto_organize=auto_organize,
+        should_cancel=should_cancel,
+        register_running_job=register_running_job,
+    )
 
 
 def cmd_queue_worker(args: Any) -> int:

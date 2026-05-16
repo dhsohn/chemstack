@@ -50,6 +50,37 @@ class JobRuntimeContext:
     organized_dir: Path | None = None
 
 
+@dataclass(frozen=True)
+class OrcaContractPayloadContext:
+    runtime: JobRuntimeContext
+    target: str
+    reaction_dir: str
+    record: JobLocationRecord | None
+    queue_entry: dict[str, Any]
+    state: dict[str, Any]
+    report: dict[str, Any]
+    organized_ref: dict[str, Any]
+    current_dir: Path | None
+    resolved_run_id: str
+    latest_known_path: str
+    state_status: str
+    status: str
+    analyzer_status: str
+    reason: str
+    completed_at: str
+    selected_inp: str
+    selected_input_xyz: str
+    last_out_path: str
+    optimized_xyz_path: str
+    organized_output_dir: str
+    resource_request: dict[str, int]
+    resource_actual: dict[str, int]
+
+    @property
+    def missing(self) -> bool:
+        return self.record is None and self.current_dir is None and not self.queue_entry
+
+
 def _record_matches_job_dir(record: JobLocationRecord, job_dir: Path) -> bool:
     resolved_job_dir = job_dir.expanduser().resolve()
     for value in (record.latest_known_path, record.organized_output_dir, record.original_run_dir):
@@ -557,7 +588,29 @@ def _organized_output_dir(
     )
 
 
-def load_orca_contract_payload(
+def _tracked_status(record: JobLocationRecord | None) -> str:
+    return normalize_text(record.status if record is not None else "").lower()
+
+
+def _resolved_status(
+    *,
+    record: JobLocationRecord | None,
+    queue_entry: dict[str, Any],
+    state: dict[str, Any],
+    report: dict[str, Any],
+) -> tuple[str, str, str, str]:
+    status, analyzer_status, reason, completed_at = status_from_payloads(
+        queue_entry=queue_entry,
+        state=state,
+        report=report,
+    )
+    tracked_status = _tracked_status(record)
+    if status == "unknown" and tracked_status:
+        status = tracked_status
+    return status, analyzer_status, reason, completed_at
+
+
+def _orca_contract_payload_context(
     index_root: str | Path,
     target: str,
     *,
@@ -565,7 +618,7 @@ def load_orca_contract_payload(
     queue_id: str = "",
     run_id: str = "",
     reaction_dir: str = "",
-) -> dict[str, Any]:
+) -> OrcaContractPayloadContext:
     runtime = load_job_runtime_context(
         index_root,
         target,
@@ -581,9 +634,6 @@ def load_orca_contract_payload(
         reaction_dir=reaction_dir,
     )
 
-    if record is None and current_dir is None and not queue_entry:
-        return {}
-
     resolved_run_id = _resolved_run_id(
         run_id=run_id,
         state=state,
@@ -597,16 +647,13 @@ def load_orca_contract_payload(
         current_dir=current_dir,
         target=target,
     )
-
     state_status = normalize_text(state.get("status")).lower()
-    status, analyzer_status, reason, completed_at = status_from_payloads(
+    status, analyzer_status, reason, completed_at = _resolved_status(
+        record=record,
         queue_entry=queue_entry,
         state=state,
         report=report,
     )
-    tracked_status = normalize_text(record.status if record is not None else "").lower()
-    if status == "unknown" and tracked_status:
-        status = tracked_status
 
     selected_inp, selected_input_xyz, last_out_path, optimized_xyz_path = _selected_artifact_paths(
         record=record,
@@ -629,33 +676,86 @@ def load_orca_contract_payload(
         organized_root=organized_root,
     )
 
+    return OrcaContractPayloadContext(
+        runtime=runtime,
+        target=target,
+        reaction_dir=reaction_dir,
+        record=record,
+        queue_entry=queue_entry,
+        state=state,
+        report=report,
+        organized_ref=organized_ref,
+        current_dir=current_dir,
+        resolved_run_id=resolved_run_id,
+        latest_known_path=latest_known_path,
+        state_status=state_status,
+        status=status,
+        analyzer_status=analyzer_status,
+        reason=reason,
+        completed_at=completed_at,
+        selected_inp=selected_inp,
+        selected_input_xyz=selected_input_xyz,
+        last_out_path=last_out_path,
+        optimized_xyz_path=optimized_xyz_path,
+        organized_output_dir=organized_output_dir,
+        resource_request=resource_request,
+        resource_actual=resource_actual,
+    )
+
+
+def _orca_contract_payload(ctx: OrcaContractPayloadContext) -> dict[str, Any]:
     return {
-        "run_id": resolved_run_id,
-        "status": status,
-        "reason": reason,
-        "state_status": state_status,
+        "run_id": ctx.resolved_run_id,
+        "status": ctx.status,
+        "reason": ctx.reason,
+        "state_status": ctx.state_status,
         "reaction_dir": str(current_dir)
-        if current_dir is not None
-        else normalize_text(reaction_dir),
-        "latest_known_path": latest_known_path,
-        "organized_output_dir": organized_output_dir,
-        "optimized_xyz_path": optimized_xyz_path,
-        "queue_id": normalize_text(queue_entry.get("queue_id") or queue_id),
-        "queue_status": normalize_text(queue_entry.get("status")).lower(),
-        "cancel_requested": normalize_bool(queue_entry.get("cancel_requested")),
-        "selected_inp": selected_inp,
-        "selected_input_xyz": selected_input_xyz,
-        "analyzer_status": analyzer_status,
-        "completed_at": completed_at,
-        "last_out_path": last_out_path,
-        **_runtime_paths(current_dir),
-        "attempt_count": attempt_count(state, report),
-        "max_retries": max_retries(state, report),
-        "attempts": coerce_attempts(state, report),
-        "final_result": final_result_payload(state, report),
-        "resource_request": resource_request,
-        "resource_actual": resource_actual,
+        if (current_dir := ctx.current_dir) is not None
+        else normalize_text(ctx.reaction_dir),
+        "latest_known_path": ctx.latest_known_path,
+        "organized_output_dir": ctx.organized_output_dir,
+        "optimized_xyz_path": ctx.optimized_xyz_path,
+        "queue_id": normalize_text(ctx.queue_entry.get("queue_id") or ""),
+        "queue_status": normalize_text(ctx.queue_entry.get("status")).lower(),
+        "cancel_requested": normalize_bool(ctx.queue_entry.get("cancel_requested")),
+        "selected_inp": ctx.selected_inp,
+        "selected_input_xyz": ctx.selected_input_xyz,
+        "analyzer_status": ctx.analyzer_status,
+        "completed_at": ctx.completed_at,
+        "last_out_path": ctx.last_out_path,
+        **_runtime_paths(ctx.current_dir),
+        "attempt_count": attempt_count(ctx.state, ctx.report),
+        "max_retries": max_retries(ctx.state, ctx.report),
+        "attempts": coerce_attempts(ctx.state, ctx.report),
+        "final_result": final_result_payload(ctx.state, ctx.report),
+        "resource_request": ctx.resource_request,
+        "resource_actual": ctx.resource_actual,
     }
+
+
+def load_orca_contract_payload(
+    index_root: str | Path,
+    target: str,
+    *,
+    organized_root: str | Path | None = None,
+    queue_id: str = "",
+    run_id: str = "",
+    reaction_dir: str = "",
+) -> dict[str, Any]:
+    ctx = _orca_contract_payload_context(
+        index_root,
+        target,
+        organized_root=organized_root,
+        queue_id=queue_id,
+        run_id=run_id,
+        reaction_dir=reaction_dir,
+    )
+    if ctx.missing:
+        return {}
+    payload = _orca_contract_payload(ctx)
+    if not payload["queue_id"]:
+        payload["queue_id"] = normalize_text(queue_id)
+    return payload
 
 
 def load_job_artifacts(
