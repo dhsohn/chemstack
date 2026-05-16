@@ -29,19 +29,21 @@ def notify_job_queued(
     reaction_key: str,
     selected_xyz: Path,
 ) -> bool:
-    if _is_workflow_child(job_dir):
-        return True
-    return _send(
+    return _engine_notifications.send_job_event(
         cfg,
-        [
-            f"[{_LABEL}] Job queued",
-            f"job_id: {job_id}",
-            f"queue_id: {queue_id}",
-            f"job_type: {job_type}",
-            f"reaction_key: {reaction_key}",
-            f"job_dir: {job_dir.name}",
-            f"selected_input_xyz: {selected_xyz.name}",
+        label=_LABEL,
+        engine=_ENGINE,
+        job_dir=job_dir,
+        headline="Job queued",
+        fields=[
+            ("job_id", job_id),
+            ("queue_id", queue_id),
+            ("job_type", job_type),
+            ("reaction_key", reaction_key),
+            ("job_dir", job_dir.name),
+            ("selected_input_xyz", selected_xyz.name),
         ],
+        send_fn=_send,
     )
 
 
@@ -55,19 +57,21 @@ def notify_job_started(
     reaction_key: str,
     selected_xyz: Path,
 ) -> bool:
-    if _is_workflow_child(job_dir):
-        return True
-    return _send(
+    return _engine_notifications.send_job_event(
         cfg,
-        [
-            f"[{_LABEL}] Job started",
-            f"job_id: {job_id}",
-            f"queue_id: {queue_id}",
-            f"job_type: {job_type}",
-            f"reaction_key: {reaction_key}",
-            f"job_dir: {job_dir.name}",
-            f"selected_input_xyz: {selected_xyz.name}",
+        label=_LABEL,
+        engine=_ENGINE,
+        job_dir=job_dir,
+        headline="Job started",
+        fields=[
+            ("job_id", job_id),
+            ("queue_id", queue_id),
+            ("job_type", job_type),
+            ("reaction_key", reaction_key),
+            ("job_dir", job_dir.name),
+            ("selected_input_xyz", selected_xyz.name),
         ],
+        send_fn=_send,
     )
 
 
@@ -86,23 +90,26 @@ def notify_job_terminal(
     candidate_count: int,
     extra_lines: list[str] | None = None,
 ) -> bool:
-    if _is_workflow_child(job_dir):
-        return True
-    lines = [
-        f"[{_LABEL}] {headline}",
-        f"job_id: {job_id}",
-        f"queue_id: {queue_id}",
-        f"status: {status}",
-        f"reason: {reason}",
-        f"job_type: {job_type}",
-        f"reaction_key: {reaction_key}",
-        f"job_dir: {job_dir.name}",
-        f"selected_input_xyz: {selected_xyz.name}",
-        f"candidate_count: {candidate_count}",
-    ]
-    if extra_lines:
-        lines.extend(extra_lines)
-    return _send(cfg, lines)
+    return _engine_notifications.send_job_event(
+        cfg,
+        label=_LABEL,
+        engine=_ENGINE,
+        job_dir=job_dir,
+        headline=headline,
+        fields=[
+            ("job_id", job_id),
+            ("queue_id", queue_id),
+            ("status", status),
+            ("reason", reason),
+            ("job_type", job_type),
+            ("reaction_key", reaction_key),
+            ("job_dir", job_dir.name),
+            ("selected_input_xyz", selected_xyz.name),
+            ("candidate_count", candidate_count),
+        ],
+        send_fn=_send,
+        extra_lines=extra_lines,
+    )
 
 
 def notify_job_finished(
@@ -149,12 +156,11 @@ def notify_organize_summary(
     skipped_count: int,
     root: Path,
 ) -> bool:
-    return _send(
+    return _engine_notifications.send_organize_summary(
         cfg,
-        _engine_notifications.organize_summary_lines(
-            label=_LABEL,
-            organized_count=organized_count,
-            skipped_count=skipped_count,
-            root=root,
-        ),
+        label=_LABEL,
+        organized_count=organized_count,
+        skipped_count=skipped_count,
+        root=root,
+        send_fn=_send,
     )

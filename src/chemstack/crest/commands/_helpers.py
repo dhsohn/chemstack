@@ -6,6 +6,9 @@ from typing import Any
 
 import yaml
 
+from chemstack.core.config.engines import (
+    resource_request_from_manifest as _shared_resource_request_from_manifest,
+)
 from chemstack.core.paths import validate_job_dir
 from chemstack.core.utils import now_utc_iso, timestamped_token
 from chemstack.flow.state import workflow_workspace_internal_engine_paths_from_path
@@ -14,20 +17,6 @@ from ..config import AppConfig
 
 _PREFERRED_EXCLUDE_RE = re.compile(r"(?:^crest_|^struc|^coord)", re.IGNORECASE)
 MANIFEST_FILE_NAME = "crest_job.yaml"
-
-
-def _mapping(value: Any) -> dict[str, Any]:
-    return dict(value) if isinstance(value, dict) else {}
-
-
-def _positive_int(value: Any) -> int | None:
-    if value in (None, ""):
-        return None
-    try:
-        parsed = int(value)
-    except (TypeError, ValueError):
-        return None
-    return parsed if parsed > 0 else None
 
 
 def load_job_manifest(job_dir: Path) -> dict[str, Any]:
@@ -90,27 +79,7 @@ def resolve_job_dir(cfg: AppConfig, raw_job_dir: str) -> Path:
 
 
 def resource_request_from_manifest(cfg: AppConfig, manifest: dict[str, Any]) -> dict[str, int]:
-    resources = _mapping(manifest.get("resources"))
-    default_cores = max(1, int(cfg.resources.max_cores_per_task))
-    default_memory = max(1, int(cfg.resources.max_memory_gb_per_task))
-    max_cores = (
-        _positive_int(resources.get("max_cores"))
-        or _positive_int(resources.get("max_cores_per_task"))
-        or _positive_int(manifest.get("max_cores"))
-        or _positive_int(manifest.get("max_cores_per_task"))
-        or default_cores
-    )
-    max_memory_gb = (
-        _positive_int(resources.get("max_memory_gb"))
-        or _positive_int(resources.get("max_memory_gb_per_task"))
-        or _positive_int(manifest.get("max_memory_gb"))
-        or _positive_int(manifest.get("max_memory_gb_per_task"))
-        or default_memory
-    )
-    return {
-        "max_cores": max_cores,
-        "max_memory_gb": max_memory_gb,
-    }
+    return _shared_resource_request_from_manifest(cfg, manifest)
 
 
 def new_job_id() -> str:

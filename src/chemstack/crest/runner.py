@@ -8,7 +8,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, TextIO
 
+from chemstack.core.config import engines as _config_engines
 from chemstack.core.utils import now_utc_iso
+from chemstack.core.utils import process as process_utils
 
 from .config import AppConfig
 from .commands._helpers import (
@@ -81,23 +83,11 @@ def _resource_request_dict(cfg: AppConfig, manifest: dict[str, Any]) -> dict[str
 
 
 def _resource_actual_dict(resource_request: dict[str, int]) -> dict[str, int]:
-    cores = max(1, int(resource_request.get("max_cores", 1)))
-    memory_gb = max(1, int(resource_request.get("max_memory_gb", 1)))
-    return {
-        "assigned_cores": cores,
-        "memory_limit_gb": memory_gb,
-        "omp_num_threads": cores,
-        "openblas_num_threads": cores,
-        "mkl_num_threads": cores,
-        "numexpr_num_threads": cores,
-    }
+    return _config_engines.resource_actual_from_request(resource_request)
 
 
 def _bool_flag(manifest: dict[str, Any], key: str) -> bool:
-    value = manifest.get(key, False)
-    if isinstance(value, bool):
-        return value
-    return str(value).strip().lower() in {"1", "true", "yes", "on"}
+    return _config_engines.as_bool(manifest.get(key), False)
 
 
 def _manifest_int(manifest: dict[str, Any], key: str) -> int | None:
@@ -261,12 +251,11 @@ def _retained_outputs(job_dir: Path) -> tuple[int, tuple[str, ...]]:
 
 
 def _preexec_with_limits(max_memory_gb: int):
-    limit_bytes = max(1, int(max_memory_gb)) * 1024 * 1024 * 1024
-
-    def _apply() -> None:
-        resource.setrlimit(resource.RLIMIT_AS, (limit_bytes, limit_bytes))
-
-    return _apply
+    return process_utils.memory_limit_preexec(
+        max_memory_gb,
+        setrlimit_fn=resource.setrlimit,
+        limit_resource=resource.RLIMIT_AS,
+    )
 
 
 def start_crest_job(cfg: AppConfig, *, job_dir: Path, selected_xyz: Path) -> CrestRunningJob:

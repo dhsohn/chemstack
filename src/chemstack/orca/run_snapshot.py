@@ -5,6 +5,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
+from chemstack.core.utils import parse_iso_utc as _parse_iso_utc
+
 from .job_locations import list_job_location_records, resolve_record_job_dir
 
 from .dft_discovery import _find_latest_out_in_dir
@@ -43,18 +45,7 @@ def status_icon(status: str) -> str:
 
 
 def parse_iso_utc(value: Any) -> datetime | None:
-    if not isinstance(value, str) or not value.strip():
-        return None
-    text = value.strip()
-    if text.endswith("Z"):
-        text = text[:-1] + "+00:00"
-    try:
-        dt = datetime.fromisoformat(text)
-    except ValueError:
-        return None
-    if dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc)
-    return dt.astimezone(timezone.utc)
+    return _parse_iso_utc(value)
 
 
 def elapsed_text(seconds: float) -> str:

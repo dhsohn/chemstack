@@ -3,6 +3,14 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from chemstack.core.paths import (
+    first_existing_named_file,
+    iter_existing_dirs,
+    recent_file_candidates,
+    resolved_path_text,
+    safe_is_subpath,
+)
+
 
 def _orca_module():
     from . import orca as o
@@ -83,37 +91,15 @@ def derive_selected_input_xyz_impl(selected_inp: str) -> str:
 
 
 def iter_existing_dirs_impl(*candidates: Path | None) -> list[Path]:
-    rows: list[Path] = []
-    seen: set[Path] = set()
-    for candidate in candidates:
-        if candidate is None:
-            continue
-        try:
-            resolved = candidate.expanduser().resolve()
-        except OSError:
-            continue
-        if not resolved.exists() or not resolved.is_dir() or resolved in seen:
-            continue
-        seen.add(resolved)
-        rows.append(resolved)
-    return rows
+    return iter_existing_dirs(*candidates)
 
 
 def is_subpath_impl(candidate: Path, root: Path | None) -> bool:
-    if root is None:
-        return False
-    try:
-        candidate.resolve().relative_to(root.resolve())
-    except (OSError, ValueError):
-        return False
-    return True
+    return safe_is_subpath(candidate, root)
 
 
 def _resolved_path_text(path: Path) -> str:
-    try:
-        return str(path.resolve())
-    except OSError:
-        return str(path)
+    return resolved_path_text(path)
 
 
 def _path_or_parent(path: Path | None) -> Path | None:
@@ -131,38 +117,11 @@ def _preferred_xyz_names(*paths: Path | None) -> list[str]:
 
 
 def _first_existing_named_file(search_dirs: list[Path], filenames: list[str]) -> str:
-    for search_dir in search_dirs:
-        for filename in filenames:
-            candidate = search_dir / filename
-            if candidate.exists():
-                return _resolved_path_text(candidate)
-    return ""
+    return first_existing_named_file(search_dirs, filenames)
 
 
 def _recent_xyz_candidates(search_dirs: list[Path], source_input: Path | None) -> list[Path]:
-    xyz_candidates: list[Path] = []
-    seen_files: set[Path] = set()
-    for search_dir in search_dirs:
-        try:
-            files = sorted(
-                (item for item in search_dir.glob("*.xyz") if item.is_file()),
-                key=lambda item: item.stat().st_mtime,
-                reverse=True,
-            )
-        except OSError:
-            continue
-        for item in files:
-            try:
-                resolved = item.resolve()
-            except OSError:
-                resolved = item
-            if source_input is not None and resolved == source_input:
-                continue
-            if resolved in seen_files:
-                continue
-            seen_files.add(resolved)
-            xyz_candidates.append(item)
-    return xyz_candidates
+    return recent_file_candidates(search_dirs, suffix=".xyz", exclude=source_input)
 
 
 def prefer_orca_optimized_xyz_impl(

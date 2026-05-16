@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
+from chemstack.core.config import engines as _config_engines
 from chemstack.core.admission import release_slot
 from chemstack.core.queue import (
     get_cancel_requested,
@@ -82,6 +83,41 @@ class WorkerExecutionDependencies:
     organize_job_dir: Callable[..., dict[str, str]]
 
 
+def build_worker_execution_dependencies(
+    *,
+    now_utc_iso_fn: Callable[[], str],
+    get_cancel_requested_fn: Callable[[str, str], bool],
+    start_crest_job_fn: Callable[..., Any],
+    finalize_crest_job_fn: Callable[..., CrestRunResult],
+    terminate_process_fn: Callable[[subprocess.Popen[str]], None],
+    write_running_state_fn: Callable[[Any, Any], None],
+    write_execution_artifacts_fn: Callable[[Any, CrestRunResult], None],
+    mark_completed_fn: Callable[..., Any],
+    mark_cancelled_fn: Callable[..., Any],
+    mark_failed_fn: Callable[..., Any],
+    upsert_job_record_fn: Callable[..., Any],
+    notify_job_started_fn: Callable[..., bool],
+    notify_job_finished_fn: Callable[..., bool],
+    organize_job_dir_fn: Callable[..., dict[str, str]],
+) -> WorkerExecutionDependencies:
+    return WorkerExecutionDependencies(
+        now_utc_iso=now_utc_iso_fn,
+        get_cancel_requested=get_cancel_requested_fn,
+        start_crest_job=start_crest_job_fn,
+        finalize_crest_job=finalize_crest_job_fn,
+        terminate_process=terminate_process_fn,
+        write_running_state=write_running_state_fn,
+        write_execution_artifacts=write_execution_artifacts_fn,
+        mark_completed=mark_completed_fn,
+        mark_cancelled=mark_cancelled_fn,
+        mark_failed=mark_failed_fn,
+        upsert_job_record=upsert_job_record_fn,
+        notify_job_started=notify_job_started_fn,
+        notify_job_finished=notify_job_finished_fn,
+        organize_job_dir=organize_job_dir_fn,
+    )
+
+
 class WorkerShutdownRequested(RuntimeError):
     def __init__(self, context: ExecutionContext):
         super().__init__("worker_shutdown")
@@ -100,21 +136,21 @@ class _ShutdownController:
 
 
 def default_worker_execution_dependencies() -> WorkerExecutionDependencies:
-    return WorkerExecutionDependencies(
-        now_utc_iso=now_utc_iso,
-        get_cancel_requested=get_cancel_requested,
-        start_crest_job=start_crest_job,
-        finalize_crest_job=finalize_crest_job,
-        terminate_process=_terminate_process,
-        write_running_state=_write_running_state,
-        write_execution_artifacts=_write_execution_artifacts,
-        mark_completed=mark_completed,
-        mark_cancelled=mark_cancelled,
-        mark_failed=mark_failed,
-        upsert_job_record=upsert_job_record,
-        notify_job_started=notify_job_started,
-        notify_job_finished=notify_job_finished,
-        organize_job_dir=organize_job_dir,
+    return build_worker_execution_dependencies(
+        now_utc_iso_fn=now_utc_iso,
+        get_cancel_requested_fn=get_cancel_requested,
+        start_crest_job_fn=start_crest_job,
+        finalize_crest_job_fn=finalize_crest_job,
+        terminate_process_fn=_terminate_process,
+        write_running_state_fn=_write_running_state,
+        write_execution_artifacts_fn=_write_execution_artifacts,
+        mark_completed_fn=mark_completed,
+        mark_cancelled_fn=mark_cancelled,
+        mark_failed_fn=mark_failed,
+        upsert_job_record_fn=upsert_job_record,
+        notify_job_started_fn=notify_job_started,
+        notify_job_finished_fn=notify_job_finished,
+        organize_job_dir_fn=organize_job_dir,
     )
 
 
@@ -325,20 +361,7 @@ def _resource_caps(cfg: Any) -> dict[str, int]:
 
 
 def _coerce_resource_dict(value: Any) -> dict[str, int]:
-    if not isinstance(value, dict):
-        return {}
-    result: dict[str, int] = {}
-    for key, raw in value.items():
-        key_text = str(key).strip()
-        if not key_text:
-            continue
-        try:
-            parsed = int(raw)
-        except (TypeError, ValueError):
-            continue
-        if parsed > 0:
-            result[key_text] = parsed
-    return result
+    return _config_engines.positive_int_mapping(value)
 
 
 def _entry_resource_request(cfg: Any, entry: Any) -> dict[str, int]:

@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any
 
 from chemstack.core.indexing import JobLocationRecord, resolve_job_location
 
+from . import _engine_adapter_helpers as _adapter_helpers
 from ..contracts.xtb import (
     WorkflowStageInput,
     XtbArtifactContract,
@@ -21,7 +21,7 @@ ORGANIZED_REF_FILE_NAME = "organized_ref.json"
 
 
 def _normalize_text(value: Any) -> str:
-    return str(value).strip()
+    return _adapter_helpers.normalize_text(value)
 
 
 def _job_type_from_record(record: JobLocationRecord | None, fallback: str) -> str:
@@ -34,43 +34,27 @@ def _job_type_from_record(record: JobLocationRecord | None, fallback: str) -> st
 
 
 def _load_json_dict(path: Path) -> dict[str, Any]:
-    if not path.exists():
-        return {}
-    try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
-    return raw if isinstance(raw, dict) else {}
+    return _adapter_helpers.load_json_dict(path)
 
 
 def _direct_path_target(target: str) -> Path | None:
-    raw = _normalize_text(target)
-    if not raw:
-        return None
-    try:
-        candidate = Path(raw).expanduser().resolve()
-    except OSError:
-        return None
-    return candidate if candidate.exists() and candidate.is_dir() else None
+    return _adapter_helpers.direct_dir_target(target, path_factory=Path)
 
 
 def _resolve_job_dir(index_root: Path, target: str) -> tuple[Path, JobLocationRecord | None]:
     record = resolve_job_location(index_root, target)
     candidates: list[Path] = []
     if record is not None:
-        for value in (
-            record.latest_known_path,
-            record.organized_output_dir,
-            record.original_run_dir,
-        ):
-            raw = _normalize_text(value)
-            if not raw:
-                continue
-            try:
-                candidate = Path(raw).expanduser().resolve()
-            except OSError:
-                continue
-            candidates.append(candidate)
+        candidates.extend(
+            _adapter_helpers.resolved_dir_candidates(
+                (
+                    record.latest_known_path,
+                    record.organized_output_dir,
+                    record.original_run_dir,
+                ),
+                path_factory=Path,
+            )
+        )
     direct = _direct_path_target(target)
     if direct is not None:
         candidates.append(direct)

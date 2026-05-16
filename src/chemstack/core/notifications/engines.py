@@ -55,6 +55,44 @@ def optional_terminal_lines(
     return lines
 
 
+def event_lines(
+    *,
+    label: str,
+    headline: str,
+    fields: list[tuple[str, object]],
+    extra_lines: list[str] | None = None,
+) -> list[str]:
+    lines = [f"[{label}] {headline}"]
+    lines.extend(f"{key}: {value}" for key, value in fields)
+    if extra_lines:
+        lines.extend(extra_lines)
+    return lines
+
+
+def send_job_event(
+    cfg: Any,
+    *,
+    label: str,
+    engine: str,
+    job_dir: Path,
+    headline: str,
+    fields: list[tuple[str, object]],
+    send_fn: Callable[[Any, list[str]], bool],
+    extra_lines: list[str] | None = None,
+) -> bool:
+    if is_workflow_child(job_dir, engine=engine):
+        return True
+    return send_fn(
+        cfg,
+        event_lines(
+            label=label,
+            headline=headline,
+            fields=fields,
+            extra_lines=extra_lines,
+        ),
+    )
+
+
 def organize_summary_lines(
     *,
     label: str,
@@ -68,3 +106,23 @@ def organize_summary_lines(
         f"organized: {organized_count}",
         f"skipped: {skipped_count}",
     ]
+
+
+def send_organize_summary(
+    cfg: Any,
+    *,
+    label: str,
+    organized_count: int,
+    skipped_count: int,
+    root: Path,
+    send_fn: Callable[[Any, list[str]], bool],
+) -> bool:
+    return send_fn(
+        cfg,
+        organize_summary_lines(
+            label=label,
+            organized_count=organized_count,
+            skipped_count=skipped_count,
+            root=root,
+        ),
+    )

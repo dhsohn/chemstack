@@ -28,6 +28,80 @@ def is_subpath(path: Path, root: Path) -> bool:
         return False
 
 
+def safe_is_subpath(path: Path, root: Path | None) -> bool:
+    if root is None:
+        return False
+    try:
+        path.resolve().relative_to(root.resolve())
+    except (OSError, ValueError):
+        return False
+    return True
+
+
+def resolved_path_text(path: Path) -> str:
+    try:
+        return str(path.resolve())
+    except OSError:
+        return str(path)
+
+
+def iter_existing_dirs(*candidates: Path | None) -> list[Path]:
+    rows: list[Path] = []
+    seen: set[Path] = set()
+    for candidate in candidates:
+        if candidate is None:
+            continue
+        try:
+            resolved = candidate.expanduser().resolve()
+        except OSError:
+            continue
+        if not resolved.exists() or not resolved.is_dir() or resolved in seen:
+            continue
+        seen.add(resolved)
+        rows.append(resolved)
+    return rows
+
+
+def first_existing_named_file(search_dirs: list[Path], filenames: list[str]) -> str:
+    for search_dir in search_dirs:
+        for filename in filenames:
+            candidate = search_dir / filename
+            if candidate.exists():
+                return resolved_path_text(candidate)
+    return ""
+
+
+def recent_file_candidates(
+    search_dirs: list[Path],
+    *,
+    suffix: str,
+    exclude: Path | None = None,
+) -> list[Path]:
+    candidates: list[Path] = []
+    seen_files: set[Path] = set()
+    for search_dir in search_dirs:
+        try:
+            files = sorted(
+                (item for item in search_dir.glob(f"*{suffix}") if item.is_file()),
+                key=lambda item: item.stat().st_mtime,
+                reverse=True,
+            )
+        except OSError:
+            continue
+        for item in files:
+            try:
+                resolved = item.resolve()
+            except OSError:
+                resolved = item
+            if exclude is not None and resolved == exclude:
+                continue
+            if resolved in seen_files:
+                continue
+            seen_files.add(resolved)
+            candidates.append(item)
+    return candidates
+
+
 def require_subpath(path: Path, root: Path, *, label: str = "Path") -> Path:
     resolved_path = path.expanduser().resolve()
     resolved_root = root.expanduser().resolve()

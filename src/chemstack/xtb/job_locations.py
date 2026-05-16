@@ -118,32 +118,7 @@ def build_job_location_record(
     )
 
 
-def _build_job_location_record_from_kind(
-    *,
-    existing: JobLocationRecord | None = None,
-    job_id: str,
-    status: str,
-    job_dir: Path,
-    payload_kind: str,
-    selected_input_xyz: str,
-    organized_output_dir: Path | None = None,
-    molecule_key: str = "",
-    resource_request: dict[str, int] | None = None,
-    resource_actual: dict[str, int] | None = None,
-) -> JobLocationRecord:
-    return _engine_locations.build_engine_job_location_record(
-        spec=_LOCATION_SPEC,
-        existing=existing,
-        job_id=job_id,
-        status=status,
-        job_dir=job_dir,
-        payload_kind=payload_kind,
-        selected_input_xyz=selected_input_xyz,
-        organized_output_dir=organized_output_dir,
-        molecule_key=molecule_key,
-        resource_request=resource_request,
-        resource_actual=resource_actual,
-    )
+_build_job_location_record_from_kind = _engine_locations.make_engine_record_builder(_LOCATION_SPEC)
 
 
 def upsert_job_record(
@@ -238,11 +213,10 @@ def record_from_artifacts(
 
 
 def collect_reindex_payload(job_dir: Path) -> dict[str, Any] | None:
-    resolved_job_dir = job_dir.expanduser().resolve()
-    return _engine_locations.collect_engine_reindex_payload(
+    return _engine_locations.collect_engine_reindex_payload_for_dir(
         spec=_LOCATION_SPEC,
-        job_dir=resolved_job_dir,
-        state=load_state(resolved_job_dir),
-        report=load_report_json(resolved_job_dir),
-        organized_ref=load_organized_ref(resolved_job_dir),
+        job_dir=job_dir,
+        load_state_fn=load_state,
+        load_report_json_fn=load_report_json,
+        load_organized_ref_fn=load_organized_ref,
     )

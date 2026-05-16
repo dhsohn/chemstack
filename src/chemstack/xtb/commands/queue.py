@@ -9,6 +9,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
+from chemstack.core.config import engines as _config_engines
+from chemstack.core.commands import queue as _shared_queue
 from chemstack.core.admission import (
     activate_reserved_slot,
     reconcile_stale_slots,
@@ -93,40 +95,35 @@ class _TerminalSummary:
 
 
 def _display_status(entry: Any) -> str:
-    status_value = getattr(getattr(entry, "status", None), "value", None)
-    normalized = str(status_value).strip() or "unknown"
-    if getattr(entry, "cancel_requested", False) and normalized == "running":
-        return "cancel_requested"
-    return normalized
+    return _shared_queue.display_status(entry)
 
 
 def _find_entry_by_target(entries: list[Any], target: str) -> Any | None:
-    for entry in entries:
-        if entry.queue_id == target or entry.task_id == target:
-            return entry
-    return None
+    return _shared_queue.find_entry_by_target(entries, target)
 
 
 def _queue_roots(cfg: Any) -> tuple[Path, ...]:
-    try:
-        return tuple(runtime_roots_for_cfg(cfg))
-    except Exception:
-        return (Path(cfg.runtime.allowed_root).expanduser().resolve(),)
+    return _shared_queue.queue_roots(
+        cfg,
+        runtime_roots_for_cfg_fn=runtime_roots_for_cfg,
+    )
 
 
 def _queue_entries_with_roots(cfg: Any) -> list[tuple[Path, Any]]:
-    rows: list[tuple[Path, Any]] = []
-    for root in _queue_roots(cfg):
-        for entry in list_queue(root):
-            rows.append((root, entry))
-    return rows
+    return _shared_queue.queue_entries_with_roots(
+        cfg,
+        queue_roots_fn=_queue_roots,
+        list_queue_fn=list_queue,
+    )
 
 
 def _dequeue_next_entry(cfg: Any) -> tuple[Path, Any] | None:
-    return dequeue_next_across_roots(
-        _queue_roots(cfg),
+    return _shared_queue.dequeue_next_entry(
+        cfg,
+        queue_roots_fn=_queue_roots,
         list_queue_fn=list_queue,
         dequeue_next_fn=dequeue_next,
+        dequeue_next_across_roots_fn=dequeue_next_across_roots,
     )
 
 
@@ -158,31 +155,13 @@ def _pid_is_alive(pid: int) -> bool:
 
 
 def cmd_queue_cancel(args: Any) -> int:
-    cfg = load_config(getattr(args, "config", None))
-    target = str(getattr(args, "target", "")).strip()
-    if not target:
-        print("error: queue cancel requires a queue_id or job_id")
-        return 1
-
-    entry_with_root = None
-    for queue_root, entry in _queue_entries_with_roots(cfg):
-        if entry.queue_id == target or entry.task_id == target:
-            entry_with_root = (queue_root, entry)
-            break
-    if entry_with_root is None:
-        print(f"error: queue target not found: {target}")
-        return 1
-    queue_root, entry = entry_with_root
-
-    updated = request_cancel(queue_root, entry.queue_id)
-    if updated is None:
-        print(f"error: queue target already terminal: {target}")
-        return 1
-
-    print(f"status: {_display_status(updated)}")
-    print(f"queue_id: {updated.queue_id}")
-    print(f"job_id: {updated.task_id}")
-    return 0
+    return _shared_queue.cmd_queue_cancel(
+        args,
+        load_config_fn=load_config,
+        queue_entries_with_roots_fn=_queue_entries_with_roots,
+        request_cancel_fn=request_cancel,
+        display_status_fn=_display_status,
+    )
 
 
 def _resource_caps(cfg: Any) -> dict[str, int]:
@@ -190,20 +169,7 @@ def _resource_caps(cfg: Any) -> dict[str, int]:
 
 
 def _coerce_resource_dict(value: Any) -> dict[str, int]:
-    if not isinstance(value, dict):
-        return {}
-    result: dict[str, int] = {}
-    for key, raw in value.items():
-        key_text = str(key).strip()
-        if not key_text:
-            continue
-        try:
-            parsed = int(raw)
-        except (TypeError, ValueError):
-            continue
-        if parsed > 0:
-            result[key_text] = parsed
-    return result
+    return _config_engines.positive_int_mapping(value)
 
 
 def _coerce_mapping(value: Any) -> dict[str, Any]:

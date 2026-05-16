@@ -5,6 +5,7 @@ import os
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 
+from ..utils import process as process_utils
 from ..utils.lock import file_lock
 from ..utils.persistence import (
     atomic_write_json,
@@ -51,24 +52,7 @@ def _lock_path(root: Path) -> Path:
 
 
 def _process_start_ticks(pid: int) -> int | None:
-    stat_path = Path("/proc") / str(pid) / "stat"
-    try:
-        text = stat_path.read_text(encoding="utf-8", errors="ignore").strip()
-    except OSError:
-        return None
-    if not text:
-        return None
-    right_paren = text.rfind(")")
-    if right_paren < 0:
-        return None
-    fields_after_comm = text[right_paren + 2 :].split()
-    if len(fields_after_comm) <= 19:
-        return None
-    try:
-        value = int(fields_after_comm[19])
-    except ValueError:
-        return None
-    return value if value > 0 else None
+    return process_utils.process_start_ticks(pid, proc_root=Path("/proc"))
 
 
 def _normalize_work_dir(value: str | Path | None) -> str:

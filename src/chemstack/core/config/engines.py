@@ -42,9 +42,71 @@ def as_float(value: Any, default: float) -> float:
         return default
 
 
+def positive_int(value: Any) -> int | None:
+    if value in (None, ""):
+        return None
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
+
+
 def mapping_section(raw: dict[str, Any], key: str) -> dict[str, Any]:
     value = raw.get(key, {})
     return value if isinstance(value, dict) else {}
+
+
+def positive_int_mapping(raw: object) -> dict[str, int]:
+    if not isinstance(raw, dict):
+        return {}
+    result: dict[str, int] = {}
+    for key, value in raw.items():
+        key_text = str(key).strip()
+        if not key_text:
+            continue
+        parsed = positive_int(value)
+        if parsed is not None:
+            result[key_text] = parsed
+    return result
+
+
+def resource_request_from_manifest(cfg: Any, manifest: dict[str, Any]) -> dict[str, int]:
+    resources = manifest.get("resources")
+    resource_overrides = dict(resources) if isinstance(resources, dict) else {}
+    default_cores = max(1, int(cfg.resources.max_cores_per_task))
+    default_memory = max(1, int(cfg.resources.max_memory_gb_per_task))
+    max_cores = (
+        positive_int(resource_overrides.get("max_cores"))
+        or positive_int(resource_overrides.get("max_cores_per_task"))
+        or positive_int(manifest.get("max_cores"))
+        or positive_int(manifest.get("max_cores_per_task"))
+        or default_cores
+    )
+    max_memory_gb = (
+        positive_int(resource_overrides.get("max_memory_gb"))
+        or positive_int(resource_overrides.get("max_memory_gb_per_task"))
+        or positive_int(manifest.get("max_memory_gb"))
+        or positive_int(manifest.get("max_memory_gb_per_task"))
+        or default_memory
+    )
+    return {
+        "max_cores": max_cores,
+        "max_memory_gb": max_memory_gb,
+    }
+
+
+def resource_actual_from_request(resource_request: dict[str, int]) -> dict[str, int]:
+    cores = max(1, int(resource_request.get("max_cores", 1)))
+    memory_gb = max(1, int(resource_request.get("max_memory_gb", 1)))
+    return {
+        "assigned_cores": cores,
+        "memory_limit_gb": memory_gb,
+        "omp_num_threads": cores,
+        "openblas_num_threads": cores,
+        "mkl_num_threads": cores,
+        "numexpr_num_threads": cores,
+    }
 
 
 def load_workflow_engine_config(

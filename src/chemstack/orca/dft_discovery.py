@@ -9,6 +9,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from chemstack.core.utils import parse_iso_utc
+
 logger = logging.getLogger(__name__)
 
 _ORCA_EXTENSIONS = {".out"}
@@ -168,18 +170,7 @@ def _is_recent_completed_output(
 
 
 def _parse_iso_datetime_utc(value: Any) -> datetime | None:
-    if not isinstance(value, str) or not value.strip():
-        return None
-    text = value.strip()
-    if text.endswith("Z"):
-        text = text[:-1] + "+00:00"
-    try:
-        dt = datetime.fromisoformat(text)
-    except ValueError:
-        return None
-    if dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc)
-    return dt.astimezone(timezone.utc)
+    return parse_iso_utc(value)
 
 
 def _add_if_valid_target(

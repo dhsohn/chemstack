@@ -213,6 +213,37 @@ def build_engine_job_location_record(
     )
 
 
+def make_engine_record_builder(spec: EngineLocationSpec) -> Callable[..., JobLocationRecord]:
+    def build_record_from_payload_kind(
+        *,
+        existing: JobLocationRecord | None = None,
+        job_id: str,
+        status: str,
+        job_dir: Path,
+        payload_kind: str,
+        selected_input_xyz: str,
+        organized_output_dir: Path | None = None,
+        molecule_key: str = "",
+        resource_request: dict[str, int] | None = None,
+        resource_actual: dict[str, int] | None = None,
+    ) -> JobLocationRecord:
+        return build_engine_job_location_record(
+            spec=spec,
+            existing=existing,
+            job_id=job_id,
+            status=status,
+            job_dir=job_dir,
+            payload_kind=payload_kind,
+            selected_input_xyz=selected_input_xyz,
+            organized_output_dir=organized_output_dir,
+            molecule_key=molecule_key,
+            resource_request=resource_request,
+            resource_actual=resource_actual,
+        )
+
+    return build_record_from_payload_kind
+
+
 def engine_record_from_artifacts(
     *,
     spec: EngineLocationSpec,
@@ -353,6 +384,24 @@ def collect_engine_reindex_payload(
             report.get("resource_actual") or state.get("resource_actual") or organized_ref.get("resource_actual"),
         ),
     }
+
+
+def collect_engine_reindex_payload_for_dir(
+    *,
+    spec: EngineLocationSpec,
+    job_dir: Path,
+    load_state_fn: Callable[[Path], dict[str, Any] | None],
+    load_report_json_fn: Callable[[Path], dict[str, Any] | None],
+    load_organized_ref_fn: Callable[[Path], dict[str, Any] | None],
+) -> dict[str, Any] | None:
+    resolved_job_dir = job_dir.expanduser().resolve()
+    return collect_engine_reindex_payload(
+        spec=spec,
+        job_dir=resolved_job_dir,
+        state=load_state_fn(resolved_job_dir),
+        report=load_report_json_fn(resolved_job_dir),
+        organized_ref=load_organized_ref_fn(resolved_job_dir),
+    )
 
 
 def resolve_latest_job_dir(

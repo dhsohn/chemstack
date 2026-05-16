@@ -10,6 +10,8 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterator, NoReturn, Optional
 
+from chemstack.core.utils import process as process_utils
+
 
 def parse_lock_info(lock_path: Path) -> Dict[str, Any]:
     try:
@@ -197,28 +199,7 @@ def is_process_alive(pid: int) -> bool:
 
 
 def process_start_ticks(pid: int) -> Optional[int]:
-    if pid <= 0:
-        return None
-    stat_path = Path(f"/proc/{pid}/stat")
-    try:
-        raw = stat_path.read_text(encoding="utf-8", errors="ignore").strip()
-    except OSError:
-        return None
-    if not raw:
-        return None
-
-    right_paren = raw.rfind(")")
-    if right_paren < 0:
-        return None
-    fields_after_comm = raw[right_paren + 2 :].split()
-    # /proc/<pid>/stat field 22 is starttime. After dropping pid+comm, it is index 19.
-    if len(fields_after_comm) <= 19:
-        return None
-    try:
-        value = int(fields_after_comm[19])
-    except ValueError:
-        return None
-    return value if value > 0 else None
+    return process_utils.process_start_ticks(pid, proc_root=Path("/proc"))
 
 
 def current_process_start_ticks() -> Optional[int]:

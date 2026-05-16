@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from chemstack.core.commands import queue as _shared_queue
 from chemstack.core.admission import (
     activate_reserved_slot,
     list_slots,
@@ -48,6 +49,7 @@ from ..worker_execution import (
     _terminate_process,
     _write_execution_artifacts,
     _write_running_state,
+    build_worker_execution_dependencies,
     build_worker_child_command,
     process_dequeued_entry,
 )
@@ -68,33 +70,26 @@ class _RunningJob:
 
 
 def _display_status(entry: Any) -> str:
-    status_value = getattr(getattr(entry, "status", None), "value", None)
-    normalized = str(status_value).strip() or "unknown"
-    if getattr(entry, "cancel_requested", False) and normalized == "running":
-        return "cancel_requested"
-    return normalized
+    return _shared_queue.display_status(entry)
 
 
 def _find_entry_by_target(entries: list[Any], target: str) -> Any | None:
-    for entry in entries:
-        if entry.queue_id == target or entry.task_id == target:
-            return entry
-    return None
+    return _shared_queue.find_entry_by_target(entries, target)
 
 
 def _queue_roots(cfg: Any) -> tuple[Path, ...]:
-    try:
-        return tuple(runtime_roots_for_cfg(cfg))
-    except Exception:
-        return (Path(cfg.runtime.allowed_root).expanduser().resolve(),)
+    return _shared_queue.queue_roots(
+        cfg,
+        runtime_roots_for_cfg_fn=runtime_roots_for_cfg,
+    )
 
 
 def _queue_entries_with_roots(cfg: Any) -> list[tuple[Path, Any]]:
-    rows: list[tuple[Path, Any]] = []
-    for root in _queue_roots(cfg):
-        for entry in list_queue(root):
-            rows.append((root, entry))
-    return rows
+    return _shared_queue.queue_entries_with_roots(
+        cfg,
+        queue_roots_fn=_queue_roots,
+        list_queue_fn=list_queue,
+    )
 
 
 def _find_queue_entry(queue_root: Path, queue_id: str) -> Any | None:
@@ -105,10 +100,12 @@ def _find_queue_entry(queue_root: Path, queue_id: str) -> Any | None:
 
 
 def _dequeue_next_entry(cfg: Any) -> tuple[Path, Any] | None:
-    return dequeue_next_across_roots(
-        _queue_roots(cfg),
+    return _shared_queue.dequeue_next_entry(
+        cfg,
+        queue_roots_fn=_queue_roots,
         list_queue_fn=list_queue,
         dequeue_next_fn=dequeue_next,
+        dequeue_next_across_roots_fn=dequeue_next_across_roots,
     )
 
 
@@ -130,50 +127,32 @@ def _try_reserve_admission_slot(cfg: Any) -> str | None:
 
 
 def _worker_dependencies() -> WorkerExecutionDependencies:
-    return WorkerExecutionDependencies(
-        now_utc_iso=now_utc_iso,
-        get_cancel_requested=get_cancel_requested,
-        start_crest_job=start_crest_job,
-        finalize_crest_job=finalize_crest_job,
-        terminate_process=_terminate_process,
-        write_running_state=_write_running_state,
-        write_execution_artifacts=_write_execution_artifacts,
-        mark_completed=mark_completed,
-        mark_cancelled=mark_cancelled,
-        mark_failed=mark_failed,
-        upsert_job_record=upsert_job_record,
-        notify_job_started=notify_job_started,
-        notify_job_finished=notify_job_finished,
-        organize_job_dir=organize_job_dir,
+    return build_worker_execution_dependencies(
+        now_utc_iso_fn=now_utc_iso,
+        get_cancel_requested_fn=get_cancel_requested,
+        start_crest_job_fn=start_crest_job,
+        finalize_crest_job_fn=finalize_crest_job,
+        terminate_process_fn=_terminate_process,
+        write_running_state_fn=_write_running_state,
+        write_execution_artifacts_fn=_write_execution_artifacts,
+        mark_completed_fn=mark_completed,
+        mark_cancelled_fn=mark_cancelled,
+        mark_failed_fn=mark_failed,
+        upsert_job_record_fn=upsert_job_record,
+        notify_job_started_fn=notify_job_started,
+        notify_job_finished_fn=notify_job_finished,
+        organize_job_dir_fn=organize_job_dir,
     )
 
 
 def cmd_queue_cancel(args: Any) -> int:
-    cfg = load_config(getattr(args, "config", None))
-    target = str(getattr(args, "target", "")).strip()
-    if not target:
-        print("error: queue cancel requires a queue_id or job_id")
-        return 1
-
-    entry_with_root = None
-    for queue_root, entry in _queue_entries_with_roots(cfg):
-        if entry.queue_id == target or entry.task_id == target:
-            entry_with_root = (queue_root, entry)
-            break
-    if entry_with_root is None:
-        print(f"error: queue target not found: {target}")
-        return 1
-    queue_root, entry = entry_with_root
-
-    updated = request_cancel(queue_root, entry.queue_id)
-    if updated is None:
-        print(f"error: queue target already terminal: {target}")
-        return 1
-
-    print(f"status: {_display_status(updated)}")
-    print(f"queue_id: {updated.queue_id}")
-    print(f"job_id: {updated.task_id}")
-    return 0
+    return _shared_queue.cmd_queue_cancel(
+        args,
+        load_config_fn=load_config,
+        queue_entries_with_roots_fn=_queue_entries_with_roots,
+        request_cancel_fn=request_cancel,
+        display_status_fn=_display_status,
+    )
 
 
 def _process_one(cfg: Any, *, auto_organize: bool) -> str:
