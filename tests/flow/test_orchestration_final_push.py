@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import sys
 from collections import UserDict
 from contextlib import nullcontext
@@ -15,6 +16,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
 from chemstack.flow import orchestration
 from chemstack.flow.contracts import WorkflowStageInput
+
+
+def _has_contract_lookup_log(caplog: pytest.LogCaptureFixture, engine: str) -> bool:
+    return any(
+        record.name == "chemstack.flow._orchestration_stage_runtime"
+        and record.levelno == logging.DEBUG
+        and f"Failed to load {engine} artifact contract" in record.getMessage()
+        and record.exc_info
+        for record in caplog.records
+    )
 
 
 class _FakeMaterializedStage:
@@ -127,6 +138,7 @@ def test_helper_edges_cover_invalid_candidates_and_non_recoverable_status(
 
 def test_sync_xtb_stage_returns_early_without_target_or_on_contract_lookup_error(
     monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     no_target_stage = {
         "status": "planned",
@@ -175,6 +187,7 @@ def test_sync_xtb_stage_returns_early_without_target_or_on_contract_lookup_error
         "load_xtb_artifact_contract",
         lambda **kwargs: (_ for _ in ()).throw(RuntimeError("boom")),
     )
+    caplog.set_level(logging.DEBUG, logger="chemstack.flow._orchestration_stage_runtime")
     orchestration._sync_xtb_stage(
         failing_stage,
         xtb_auto_config=None,
@@ -185,11 +198,14 @@ def test_sync_xtb_stage_returns_early_without_target_or_on_contract_lookup_error
         workspace_dir=Path("/tmp/workspaces/wf_01"),
     )
     assert failing_stage["status"] == "completed"
+    assert _has_contract_lookup_log(caplog, "xtb")
 
 
 def test_completed_contract_helpers_cover_missing_targets_and_exceptions(
     monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
+    caplog.set_level(logging.DEBUG, logger="chemstack.flow._orchestration_stage_runtime")
     payload: dict[str, Any] = {
         "stages": [
             "skip",
@@ -214,6 +230,7 @@ def test_completed_contract_helpers_cover_missing_targets_and_exceptions(
         )
         is None
     )
+    assert _has_contract_lookup_log(caplog, "crest")
 
     assert orchestration._completed_orca_stage({"task": None}, orca_auto_config=None) is None
     assert (
@@ -236,6 +253,7 @@ def test_completed_contract_helpers_cover_missing_targets_and_exceptions(
         )
         is None
     )
+    assert _has_contract_lookup_log(caplog, "orca")
 
 
 def test_append_reaction_xtb_stages_false_branches_and_zero_created(

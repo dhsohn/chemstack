@@ -57,6 +57,10 @@ STAGE_HANDOFF_EVENT_TYPES = frozenset(
 )
 
 
+class WorkflowRegistryCorruptError(RuntimeError):
+    """Raised when workflow registry state exists but cannot be safely loaded."""
+
+
 @dataclass(frozen=True)
 class WorkflowRegistryRecord:
     workflow_id: str
@@ -179,6 +183,21 @@ def workflow_worker_state_path(workflow_root: str | Path) -> Path:
 def _cleared_path(workflow_root: str | Path) -> Path:
     root = Path(workflow_root).expanduser().resolve()
     return root / WORKFLOW_REGISTRY_CLEARED_FILE_NAME
+
+
+def _read_existing_json(path: Path, *, description: str, missing_default: Any) -> Any:
+    if not path.exists():
+        return missing_default
+    try:
+        text = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return missing_default
+    except OSError as exc:
+        raise WorkflowRegistryCorruptError(f"{description} cannot be read: {path}") from exc
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise WorkflowRegistryCorruptError(f"{description} is not valid JSON: {path}") from exc
 
 
 def _coerce_mapping(value: Any) -> dict[str, Any]:
@@ -485,14 +504,11 @@ def _record_from_dict(raw: dict[str, Any]) -> WorkflowRegistryRecord:
 
 def _load_records(workflow_root: str | Path) -> list[WorkflowRegistryRecord]:
     path = _registry_path(workflow_root)
-    if not path.exists():
-        return []
-    try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return []
+    raw = _read_existing_json(path, description="Workflow registry file", missing_default=[])
     if not isinstance(raw, list):
-        return []
+        raise WorkflowRegistryCorruptError(
+            f"Workflow registry file must contain a JSON list: {path}"
+        )
     return [_record_from_dict(item) for item in raw if isinstance(item, dict)]
 
 
@@ -524,14 +540,11 @@ def _cleared_record_keys(record: WorkflowRegistryRecord) -> set[str]:
 
 def _load_cleared_markers(workflow_root: str | Path) -> list[dict[str, Any]]:
     path = _cleared_path(workflow_root)
-    if not path.exists():
-        return []
-    try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return []
+    raw = _read_existing_json(path, description="Workflow cleared markers file", missing_default=[])
     if not isinstance(raw, list):
-        return []
+        raise WorkflowRegistryCorruptError(
+            f"Workflow cleared markers file must contain a JSON list: {path}"
+        )
     return [_coerce_mapping(item) for item in raw if isinstance(item, dict)]
 
 
@@ -708,14 +721,11 @@ def list_workflow_journal(workflow_root: str | Path, *, limit: int = 50) -> list
 
 def load_workflow_worker_state(workflow_root: str | Path) -> dict[str, Any]:
     path = workflow_worker_state_path(workflow_root)
-    if not path.exists():
-        return {}
-    try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
+    raw = _read_existing_json(path, description="Workflow worker state file", missing_default={})
     if not isinstance(raw, dict):
-        return {}
+        raise WorkflowRegistryCorruptError(
+            f"Workflow worker state file must contain a JSON object: {path}"
+        )
     return {str(key): value for key, value in raw.items()}
 
 
@@ -756,6 +766,7 @@ def write_workflow_worker_state(
         "metadata": _coerce_mapping(metadata),
     }
     with file_lock(_registry_lock_path(resolved_root)):
+        load_workflow_worker_state(resolved_root)
         atomic_write_json(
             workflow_worker_state_path(resolved_root), payload, ensure_ascii=True, indent=2
         )
@@ -769,6 +780,7 @@ def upsert_workflow_registry_record(
     resolved_root.mkdir(parents=True, exist_ok=True)
     with file_lock(_registry_lock_path(resolved_root)):
         cleared_markers = _load_cleared_markers(resolved_root)
+        records = _load_records(resolved_root)
         is_clearable_terminal = _record_is_clearable_terminal(record)
         matches_cleared_marker = _record_matches_cleared_marker(record, cleared_markers)
         if is_clearable_terminal and matches_cleared_marker:
@@ -780,7 +792,6 @@ def upsert_workflow_registry_record(
             if removed_marker:
                 _save_cleared_markers(resolved_root, cleared_markers)
 
-        records = _load_records(resolved_root)
         updated = False
         for index, existing in enumerate(records):
             if existing.workflow_id != record.workflow_id:
@@ -816,6 +827,7 @@ def reindex_workflow_registry(workflow_root: str | Path) -> list[WorkflowRegistr
         records.append(_record_from_summary(summary))
     records.sort(key=lambda item: (item.requested_at, item.workflow_id), reverse=True)
     with file_lock(_registry_lock_path(root)):
+        _load_records(root)
         cleared_markers = _load_cleared_markers(root)
         markers_changed = False
         for record in records:
@@ -841,21 +853,10 @@ def list_workflow_registry(
     resolved_root.mkdir(parents=True, exist_ok=True)
     path = _registry_path(resolved_root)
     with file_lock(_registry_lock_path(resolved_root)):
-        if not path.exists():
-            records: list[WorkflowRegistryRecord] = []
-            loaded_valid_list = False
-        else:
-            try:
-                raw = json.loads(path.read_text(encoding="utf-8"))
-            except Exception:
-                raw = None
-            if isinstance(raw, list):
-                records = [_record_from_dict(item) for item in raw if isinstance(item, dict)]
-                loaded_valid_list = True
-            else:
-                records = []
-                loaded_valid_list = False
-    if loaded_valid_list or not reindex_if_missing:
+        if path.exists():
+            return _load_records(resolved_root)
+    records: list[WorkflowRegistryRecord] = []
+    if not reindex_if_missing:
         return records
     return reindex_workflow_registry(resolved_root)
 
@@ -945,6 +946,7 @@ __all__ = [
     "WORKFLOW_JOURNAL_FILE_NAME",
     "WORKFLOW_REGISTRY_LOCK_NAME",
     "WORKFLOW_WORKER_STATE_FILE_NAME",
+    "WorkflowRegistryCorruptError",
     "WorkflowRegistryRecord",
     "append_workflow_journal_event",
     "clear_terminal_workflow_registry",

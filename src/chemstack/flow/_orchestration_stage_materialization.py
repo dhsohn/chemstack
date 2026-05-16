@@ -3,13 +3,12 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from ._orchestration_deps import OrchestrationDeps, orchestration_deps
 from .state import workflow_workspace_internal_engine_paths
 
 
-def _orchestration_module():
-    from . import orchestration as o
-
-    return o
+def _orchestration_context() -> OrchestrationDeps:
+    return orchestration_deps()
 
 
 def _call_engine_aware(func: Any, config_path: str | None, *, engine: str) -> Any:
@@ -86,7 +85,7 @@ def _attach_endpoint_pairing_metadata(o: Any, stage: dict[str, Any], endpoint_pa
 def _reaction_xtb_stage_kwargs(
     payload: dict[str, Any], params: dict[str, Any], endpoint_pair: Any, index: int
 ) -> dict[str, Any]:
-    o = _orchestration_module()
+    o = _orchestration_context()
     return {
         "workflow_id": str(payload.get("workflow_id", "")),
         "stage_id": f"xtb_path_search_{index:02d}",
@@ -294,7 +293,7 @@ def _record_reaction_handoff_failure(
 def append_reaction_xtb_stages_impl(
     payload: dict[str, Any], *, workspace_dir: Path, crest_auto_config: str | None
 ) -> bool:
-    o = _orchestration_module()
+    o = _orchestration_context()
     if _engine_stages(o, payload, "xtb"):
         return False
     roles = o._completed_crest_roles(payload)
@@ -362,7 +361,7 @@ def append_reaction_orca_stages_impl(
     xtb_auto_config: str | None,
     orca_auto_config: str | None,
 ) -> bool:
-    o = _orchestration_module()
+    o = _orchestration_context()
     xtb_stages = _completed_or_recoverable_xtb_stages(o, payload)
     if not xtb_stages:
         return False
@@ -448,7 +447,7 @@ def append_crest_orca_stages_impl(
     xyz_filename: str,
     inp_filename: str,
 ) -> bool:
-    o = _orchestration_module()
+    o = _orchestration_context()
     existing = [
         stage
         for stage in payload.get("stages", [])

@@ -1,19 +1,50 @@
 from __future__ import annotations
 
+import logging
 import shutil
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 import yaml
 
+from ._orchestration_deps import OrchestrationDeps, orchestration_deps
 from .state import workflow_stage_dirnames_for_engine, workflow_workspace_internal_engine_paths
 from .xyz_utils import load_xyz_frames
 
+_LOGGER = logging.getLogger(__name__)
 
-def _orchestration_module():
-    from . import orchestration as o
 
-    return o
+def _orchestration_context() -> OrchestrationDeps:
+    return orchestration_deps()
+
+
+def _stage_id_for_log(stage: dict[str, Any] | None) -> str:
+    if not isinstance(stage, dict):
+        return ""
+    value = stage.get("stage_id")
+    return "" if value is None else str(value).strip()
+
+
+def _load_contract_or_none(
+    load_contract: Callable[..., Any],
+    *,
+    engine: str,
+    target: str,
+    stage: dict[str, Any] | None = None,
+    **kwargs: Any,
+) -> Any | None:
+    try:
+        return load_contract(target=target, **kwargs)
+    except Exception:
+        _LOGGER.debug(
+            "Failed to load %s artifact contract for target %r; returning None (stage_id=%r)",
+            engine,
+            target,
+            _stage_id_for_log(stage),
+            exc_info=True,
+        )
+        return None
 
 
 def _call_engine_aware(func: Any, config_path: str | None, *, engine: str) -> Any:
@@ -187,7 +218,7 @@ def _materialize_xtb_stage_input(source: dict[str, Any], target: Path) -> str:
 
 
 def xtb_attempt_rows_impl(stage: dict[str, Any]) -> list[dict[str, Any]]:
-    o = _orchestration_module()
+    o = _orchestration_context()
     metadata = o._stage_metadata(stage)
     attempts = metadata.get("xtb_attempts")
     if isinstance(attempts, list):
@@ -199,7 +230,7 @@ def xtb_attempt_rows_impl(stage: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def xtb_attempt_record_impl(stage: dict[str, Any], *, attempt_number: int) -> dict[str, Any]:
-    o = _orchestration_module()
+    o = _orchestration_context()
     rows = o._xtb_attempt_rows(stage)
     for row in rows:
         if o._safe_int(row.get("attempt_number"), default=-1) == int(attempt_number):
@@ -261,7 +292,7 @@ def xtb_retry_recipe_impl(attempt_number: int) -> dict[str, Any]:
 
 
 def xtb_path_retry_limit_impl(stage: dict[str, Any]) -> int:
-    o = _orchestration_module()
+    o = _orchestration_context()
     task = stage.get("task")
     if not isinstance(task, dict):
         return 2
@@ -277,7 +308,7 @@ def xtb_path_retry_limit_impl(stage: dict[str, Any]) -> int:
 
 
 def xtb_current_attempt_number_impl(stage: dict[str, Any]) -> int:
-    o = _orchestration_module()
+    o = _orchestration_context()
     metadata = o._stage_metadata(stage)
     current = o._safe_int(metadata.get("xtb_active_attempt_number"), default=-1)
     if current >= 0:
@@ -459,7 +490,7 @@ def write_xtb_path_job_impl(
     workflow_id: str,
     attempt_number: int,
 ) -> str:
-    o = _orchestration_module()
+    o = _orchestration_context()
     task = stage["task"]
     payload = o._task_payload_dict(task)
     recipe = o._xtb_retry_recipe(attempt_number)
@@ -501,7 +532,7 @@ def write_xtb_path_job_impl(
 
 
 def xtb_handoff_status_impl(contract: Any) -> dict[str, str]:
-    o = _orchestration_module()
+    o = _orchestration_context()
     inputs = o.select_xtb_downstream_inputs(
         contract,
         policy=o.XtbDownstreamPolicy.build(
@@ -530,7 +561,7 @@ def xtb_handoff_status_impl(contract: Any) -> dict[str, str]:
 
 
 def stage_has_xtb_candidates_impl(stage: dict[str, Any]) -> bool:
-    o = _orchestration_module()
+    o = _orchestration_context()
     artifacts = stage.get("output_artifacts")
     if not isinstance(artifacts, list):
         return False
@@ -552,7 +583,7 @@ def append_unique_artifact_impl(
     selected: bool = False,
     metadata: dict[str, Any] | None = None,
 ) -> None:
-    o = _orchestration_module()
+    o = _orchestration_context()
     path_text = o._normalize_text(path)
     if not path_text:
         return
@@ -577,7 +608,7 @@ def append_unique_artifact_impl(
 def ensure_crest_job_dir_impl(
     stage: dict[str, Any], *, crest_allowed_root: Path, workflow_id: str
 ) -> str:
-    o = _orchestration_module()
+    o = _orchestration_context()
     task = stage["task"]
     payload = task["payload"]
     existing = o._normalize_text(payload.get("job_dir"))
@@ -617,7 +648,7 @@ def ensure_crest_job_dir_impl(
 def ensure_xtb_job_dir_impl(
     stage: dict[str, Any], *, xtb_allowed_root: Path, workflow_id: str
 ) -> str:
-    o = _orchestration_module()
+    o = _orchestration_context()
     task = stage["task"]
     payload = task["payload"]
     existing = o._normalize_text(payload.get("job_dir"))
@@ -689,10 +720,13 @@ def _load_crest_contract(
     target = job_dir_target or o._submission_target(stage)
     if not target:
         return None
-    try:
-        return o.load_crest_artifact_contract(crest_index_root=index_root, target=target)
-    except Exception:
-        return None
+    return _load_contract_or_none(
+        o.load_crest_artifact_contract,
+        engine="crest",
+        target=target,
+        stage=stage,
+        crest_index_root=index_root,
+    )
 
 
 def _apply_crest_contract(
@@ -824,10 +858,13 @@ def _load_xtb_contract(
     target = job_dir_target or o._submission_target(stage)
     if not target:
         return None
-    try:
-        return o.load_xtb_artifact_contract(xtb_index_root=index_root, target=target)
-    except Exception:
-        return None
+    return _load_contract_or_none(
+        o.load_xtb_artifact_contract,
+        engine="xtb",
+        target=target,
+        stage=stage,
+        xtb_index_root=index_root,
+    )
 
 
 def _empty_xtb_handoff() -> dict[str, str]:
@@ -992,7 +1029,7 @@ def sync_crest_stage_impl(
     workflow_id: str,
     workspace_dir: Path,
 ) -> None:
-    o = _orchestration_module()
+    o = _orchestration_context()
     task = stage.get("task")
     if not isinstance(task, dict) or o._normalize_text(task.get("engine")) != "crest":
         return
@@ -1033,7 +1070,7 @@ def sync_xtb_stage_impl(
     workflow_id: str,
     workspace_dir: Path,
 ) -> None:
-    o = _orchestration_module()
+    o = _orchestration_context()
     task = stage.get("task")
     if not isinstance(task, dict) or o._normalize_text(task.get("engine")) != "xtb":
         return
@@ -1302,7 +1339,7 @@ def sync_orca_stage_impl(
     orca_auto_repo_root: str | None,
     submit_ready: bool,
 ) -> None:
-    o = _orchestration_module()
+    o = _orchestration_context()
     task = stage.get("task")
     if not isinstance(task, dict) or o._normalize_text(task.get("engine")) != "orca":
         return
@@ -1342,7 +1379,7 @@ def sync_orca_stage_impl(
 
 
 def completed_crest_roles_impl(payload: dict[str, Any]) -> dict[str, dict[str, Any]]:
-    o = _orchestration_module()
+    o = _orchestration_context()
     latest_by_role: dict[str, dict[str, Any]] = {}
     for stage in payload.get("stages", []):
         if not isinstance(stage, dict):
@@ -1371,7 +1408,7 @@ def completed_crest_roles_impl(payload: dict[str, Any]) -> dict[str, dict[str, A
 def completed_crest_stage_impl(
     stage: dict[str, Any], *, crest_auto_config: str | None
 ) -> Any | None:
-    o = _orchestration_module()
+    o = _orchestration_context()
     task = stage.get("task")
     if not isinstance(task, dict):
         return None
@@ -1389,14 +1426,17 @@ def completed_crest_stage_impl(
     target = job_dir_target or o._submission_target(stage)
     if not target:
         return None
-    try:
-        return o.load_crest_artifact_contract(crest_index_root=index_root, target=target)
-    except Exception:
-        return None
+    return _load_contract_or_none(
+        o.load_crest_artifact_contract,
+        engine="crest",
+        target=target,
+        stage=stage,
+        crest_index_root=index_root,
+    )
 
 
 def completed_orca_stage_impl(stage: dict[str, Any], *, orca_auto_config: str | None) -> Any | None:
-    o = _orchestration_module()
+    o = _orchestration_context()
     task = stage.get("task")
     if not isinstance(task, dict):
         return None
@@ -1413,24 +1453,20 @@ def completed_orca_stage_impl(stage: dict[str, Any], *, orca_auto_config: str | 
     )
     if not target:
         return None
-    try:
-        return o.load_orca_artifact_contract(
-            target=target,
-            orca_allowed_root=_call_engine_aware(
-                o._load_config_root, orca_auto_config, engine="orca"
-            ),
-            orca_organized_root=(
-                _workflow_internal_organized_root(reaction_dir_hint, engine="orca")
-                or _call_engine_aware(
-                    o._load_config_organized_root, orca_auto_config, engine="orca"
-                )
-            ),
-            queue_id=o._normalize_text(stage_metadata.get("queue_id")),
-            run_id=o._normalize_text(stage_metadata.get("run_id")),
-            reaction_dir=reaction_dir_hint,
-        )
-    except Exception:
-        return None
+    return _load_contract_or_none(
+        o.load_orca_artifact_contract,
+        engine="orca",
+        target=target,
+        stage=stage,
+        orca_allowed_root=_call_engine_aware(o._load_config_root, orca_auto_config, engine="orca"),
+        orca_organized_root=(
+            _workflow_internal_organized_root(reaction_dir_hint, engine="orca")
+            or _call_engine_aware(o._load_config_organized_root, orca_auto_config, engine="orca")
+        ),
+        queue_id=o._normalize_text(stage_metadata.get("queue_id")),
+        run_id=o._normalize_text(stage_metadata.get("run_id")),
+        reaction_dir=reaction_dir_hint,
+    )
 
 
 __all__ = [

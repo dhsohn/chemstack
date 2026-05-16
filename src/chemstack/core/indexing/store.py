@@ -17,6 +17,10 @@ class JobLocationIndexError(RuntimeError):
     """Raised when the job location index cannot satisfy a lookup."""
 
 
+class JobLocationIndexCorruptError(JobLocationIndexError):
+    """Raised when the job location index exists but cannot be safely loaded."""
+
+
 def _index_path(root: Path) -> Path:
     return root / JOB_LOCATION_INDEX_FILE_NAME
 
@@ -67,11 +71,23 @@ def _load_records(root: Path) -> list[JobLocationRecord]:
     if not path.exists():
         return []
     try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
+        text = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
         return []
+    except OSError as exc:
+        raise JobLocationIndexCorruptError(
+            f"Job location index cannot be read: {path}"
+        ) from exc
+    try:
+        raw = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise JobLocationIndexCorruptError(
+            f"Job location index is not valid JSON: {path}"
+        ) from exc
     if not isinstance(raw, list):
-        return []
+        raise JobLocationIndexCorruptError(
+            f"Job location index must contain a JSON list: {path}"
+        )
     return [_record_from_dict(item) for item in raw if isinstance(item, dict)]
 
 

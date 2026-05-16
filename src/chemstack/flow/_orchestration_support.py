@@ -3,15 +3,15 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from ._orchestration_deps import OrchestrationDeps, orchestration_deps
 
-def _orchestration_module():
-    from . import orchestration as o
 
-    return o
+def _orchestration_context() -> OrchestrationDeps:
+    return orchestration_deps()
 
 
 def _runtime_paths_for_engine(config_path: str, *, engine: str) -> dict[str, Path]:
-    o = _orchestration_module()
+    o = _orchestration_context()
     try:
         return o.sibling_runtime_paths(config_path, engine=engine)
     except TypeError as exc:
@@ -21,7 +21,7 @@ def _runtime_paths_for_engine(config_path: str, *, engine: str) -> dict[str, Pat
 
 
 def submission_target_impl(stage: dict[str, Any]) -> str:
-    o = _orchestration_module()
+    o = _orchestration_context()
     stage_metadata = stage.get("metadata")
     if isinstance(stage_metadata, dict):
         queue_id = o._normalize_text(stage_metadata.get("queue_id"))
@@ -41,7 +41,7 @@ def submission_target_impl(stage: dict[str, Any]) -> str:
 
 
 def load_config_root_impl(config_path: str | None, *, engine: str = "orca") -> Path | None:
-    o = _orchestration_module()
+    o = _orchestration_context()
     text = o._normalize_text(config_path)
     if not text:
         return None
@@ -52,7 +52,7 @@ def load_config_root_impl(config_path: str | None, *, engine: str = "orca") -> P
 
 
 def load_config_organized_root_impl(config_path: str | None, *, engine: str = "orca") -> Path | None:
-    o = _orchestration_module()
+    o = _orchestration_context()
     text = o._normalize_text(config_path)
     if not text:
         return None
@@ -83,7 +83,7 @@ def task_payload_dict_impl(task: dict[str, Any]) -> dict[str, Any]:
 
 
 def reaction_ts_guess_error_impl(contract: Any) -> dict[str, str]:
-    o = _orchestration_module()
+    o = _orchestration_context()
     details = sorted(
         [
             item for item in getattr(contract, "candidate_details", ())
@@ -116,7 +116,7 @@ def reaction_ts_guess_error_impl(contract: Any) -> dict[str, str]:
 
 
 def reaction_orca_source_candidate_path_impl(stage: dict[str, Any]) -> str:
-    o = _orchestration_module()
+    o = _orchestration_context()
     task = stage.get("task")
     if isinstance(task, dict):
         task_metadata = task.get("metadata")
@@ -136,7 +136,7 @@ def reaction_orca_source_candidate_path_impl(stage: dict[str, Any]) -> str:
 
 
 def reaction_orca_allows_next_candidate_impl(stage: dict[str, Any]) -> bool:
-    o = _orchestration_module()
+    o = _orchestration_context()
     status = o._normalize_text(stage.get("status")).lower()
     if status not in {"failed", "cancel_failed"}:
         return False
@@ -157,7 +157,7 @@ def reaction_orca_allows_next_candidate_impl(stage: dict[str, Any]) -> bool:
 
 
 def clear_reaction_xtb_handoff_error_if_recovering_impl(payload: dict[str, Any]) -> None:
-    o = _orchestration_module()
+    o = _orchestration_context()
     metadata = payload.get("metadata")
     if not isinstance(metadata, dict):
         return

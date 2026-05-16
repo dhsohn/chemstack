@@ -12,6 +12,17 @@ from .state import load_organized_ref, load_report_json, load_state
 _APP_NAME = "crest_auto"
 _ENGINE = "crest"
 _UNKNOWN_MOLECULE = "unknown_molecule"
+_LOCATION_SPEC = _engine_locations.EngineLocationSpec(
+    app_name=_APP_NAME,
+    job_type_from_payload=lambda mode: job_type_for_mode(mode),
+    default_molecule_key=lambda original_run_dir, selected: molecule_key_from_selected_xyz(
+        selected,
+        original_run_dir,
+    ),
+    payload_kind_key="mode",
+    payload_kind_default="standard",
+    molecule_key_name="molecule_key",
+)
 
 
 def _normalize_text(value: Any) -> str:
@@ -90,22 +101,45 @@ def build_job_location_record(
     resource_request: dict[str, int] | None = None,
     resource_actual: dict[str, int] | None = None,
 ) -> JobLocationRecord:
-    return _engine_locations.build_job_location_record(
+    return _build_job_location_record_from_kind(
         existing=existing,
         job_id=job_id,
-        app_name=_APP_NAME,
-        job_type=job_type_for_mode(mode),
         status=status,
         job_dir=job_dir,
+        payload_kind=mode,
         selected_input_xyz=selected_input_xyz,
-        molecule_key=molecule_key,
         organized_output_dir=organized_output_dir,
+        molecule_key=molecule_key,
         resource_request=resource_request,
         resource_actual=resource_actual,
-        default_molecule_key_fn=lambda original_run_dir, selected: molecule_key_from_selected_xyz(
-            selected,
-            original_run_dir,
-        ),
+    )
+
+
+def _build_job_location_record_from_kind(
+    *,
+    existing: JobLocationRecord | None = None,
+    job_id: str,
+    status: str,
+    job_dir: Path,
+    payload_kind: str,
+    selected_input_xyz: str,
+    organized_output_dir: Path | None = None,
+    molecule_key: str = "",
+    resource_request: dict[str, int] | None = None,
+    resource_actual: dict[str, int] | None = None,
+) -> JobLocationRecord:
+    return _engine_locations.build_engine_job_location_record(
+        spec=_LOCATION_SPEC,
+        existing=existing,
+        job_id=job_id,
+        status=status,
+        job_dir=job_dir,
+        payload_kind=payload_kind,
+        selected_input_xyz=selected_input_xyz,
+        organized_output_dir=organized_output_dir,
+        molecule_key=molecule_key,
+        resource_request=resource_request,
+        resource_actual=resource_actual,
     )
 
 
@@ -188,110 +222,24 @@ def record_from_artifacts(
     existing: JobLocationRecord | None = None,
     default_mode: str = "standard",
 ) -> JobLocationRecord | None:
-    state = state or {}
-    report = report or {}
-    organized_ref = organized_ref or {}
-
-    job_id = _normalize_text(
-        report.get("job_id")
-        or state.get("job_id")
-        or organized_ref.get("job_id")
-        or (existing.job_id if existing else "")
-    )
-    if not job_id:
-        return None
-
-    status = _normalize_text(report.get("status") or state.get("status") or organized_ref.get("status") or "unknown") or "unknown"
-    mode = _normalize_text(report.get("mode") or state.get("mode") or organized_ref.get("mode") or default_mode) or default_mode
-    selected_input_xyz = _normalize_text(
-        report.get("selected_input_xyz")
-        or state.get("selected_input_xyz")
-        or organized_ref.get("selected_input_xyz")
-        or (existing.selected_input_xyz if existing else "")
-    )
-    molecule_key = _normalize_text(
-        report.get("molecule_key")
-        or state.get("molecule_key")
-        or organized_ref.get("molecule_key")
-        or (existing.molecule_key if existing else "")
-    )
-    if not molecule_key:
-        molecule_key = molecule_key_from_selected_xyz(selected_input_xyz, job_dir)
-
-    resource_request = _engine_locations.resource_mapping(
-        report.get("resource_request") or state.get("resource_request") or organized_ref.get("resource_request"),
-        fallback=dict(existing.resource_request) if existing is not None else {},
-    )
-    resource_actual = _engine_locations.resource_mapping(
-        report.get("resource_actual") or state.get("resource_actual") or organized_ref.get("resource_actual"),
-        fallback=dict(existing.resource_actual) if existing is not None else {},
-    )
-
-    original_run_dir = _normalize_text(
-        report.get("original_run_dir")
-        or state.get("original_run_dir")
-        or organized_ref.get("original_run_dir")
-        or (existing.original_run_dir if existing else "")
-        or str(job_dir)
-    )
-    organized_output_dir = _normalize_text(
-        report.get("organized_output_dir")
-        or state.get("organized_output_dir")
-        or organized_ref.get("organized_output_dir")
-        or (existing.organized_output_dir if existing else "")
-    )
-
-    return build_job_location_record(
+    return _engine_locations.engine_record_from_artifacts(
+        spec=_LOCATION_SPEC,
+        build_record_fn=_build_job_location_record_from_kind,
+        job_dir=job_dir,
+        state=state,
+        report=report,
+        organized_ref=organized_ref,
         existing=existing,
-        job_id=job_id,
-        status=status,
-        job_dir=Path(original_run_dir),
-        mode=mode,
-        selected_input_xyz=selected_input_xyz,
-        organized_output_dir=Path(organized_output_dir).expanduser().resolve() if organized_output_dir else None,
-        molecule_key=molecule_key,
-        resource_request=resource_request,
-        resource_actual=resource_actual,
+        default_payload_kind=default_mode,
     )
 
 
 def collect_reindex_payload(job_dir: Path) -> dict[str, Any] | None:
     resolved_job_dir = job_dir.expanduser().resolve()
-    state = load_state(resolved_job_dir) or {}
-    report = load_report_json(resolved_job_dir) or {}
-    organized_ref = load_organized_ref(resolved_job_dir) or {}
-
-    job_id = _normalize_text(report.get("job_id") or state.get("job_id") or organized_ref.get("job_id"))
-    if not job_id:
-        return None
-
-    status = _normalize_text(report.get("status") or state.get("status") or organized_ref.get("status")) or "unknown"
-    selected_input_xyz = _normalize_text(report.get("selected_input_xyz") or state.get("selected_input_xyz"))
-    mode = _normalize_text(report.get("mode") or state.get("mode") or "standard") or "standard"
-    original_run_dir = _normalize_text(report.get("original_run_dir") or state.get("original_run_dir") or resolved_job_dir)
-    molecule_key = _normalize_text(report.get("molecule_key") or state.get("molecule_key"))
-    if not molecule_key:
-        molecule_key = molecule_key_from_selected_xyz(selected_input_xyz, Path(original_run_dir))
-    resource_request = _engine_locations.resource_mapping(
-        report.get("resource_request") or state.get("resource_request") or organized_ref.get("resource_request"),
+    return _engine_locations.collect_engine_reindex_payload(
+        spec=_LOCATION_SPEC,
+        job_dir=resolved_job_dir,
+        state=load_state(resolved_job_dir),
+        report=load_report_json(resolved_job_dir),
+        organized_ref=load_organized_ref(resolved_job_dir),
     )
-    resource_actual = _engine_locations.resource_mapping(
-        report.get("resource_actual") or state.get("resource_actual") or organized_ref.get("resource_actual"),
-    )
-    organized_output_dir = _normalize_text(
-        organized_ref.get("organized_output_dir")
-        or report.get("organized_output_dir")
-        or state.get("organized_output_dir")
-    )
-
-    return {
-        "job_id": job_id,
-        "status": status,
-        "mode": mode,
-        "job_dir": original_run_dir,
-        "selected_input_xyz": selected_input_xyz,
-        "molecule_key": molecule_key,
-        "organized_output_dir": organized_output_dir,
-        "resource_request": resource_request,
-        "resource_actual": resource_actual,
-    }

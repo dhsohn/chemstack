@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, Protocol
 
@@ -32,6 +33,22 @@ class RunnerLike(Protocol):
     def run(self, inp_path: Path) -> RunResultLike: ...
 
 
+@dataclass(frozen=True)
+class _AttemptContext:
+    reaction_dir: Path
+    selected_inp: Path
+    state: RunState
+    resumed: bool
+    runner: RunnerLike
+    max_retries: int
+    retry_inp_path: Callable[[Path, int], Path]
+    to_resolved_local: Callable[[str], Path]
+    emit: Callable[[Dict[str, Any]], None]
+    notify_started: Callable[[RunStartedNotification], None] | None
+    notify_finished: Callable[[RunFinishedNotification], None] | None
+    notify_retry: Callable[[RetryNotification], None] | None
+
+
 def _retry_recipe_step(retry_number: int) -> int:
     """Map retry number to available recipe steps.
 
@@ -39,6 +56,7 @@ def _retry_recipe_step(retry_number: int) -> int:
     """
     retry_number = max(1, int(retry_number))
     return min(retry_number, MAX_RETRY_RECIPES)
+
 
 def _mark_attempt_started(
     reaction_dir: Path,
@@ -131,6 +149,46 @@ def _run_and_record_attempt(
     return out_path, analysis
 
 
+def _finish_attempt(
+    ctx: _AttemptContext,
+    *,
+    status: RunStatus,
+    analyzer_status: AnalyzerStatus | str,
+    reason: str,
+    last_out_path: str | None,
+    exit_code: int,
+    extra: Dict[str, Any] | None = None,
+) -> int:
+    return _exit_with_result(
+        ctx.reaction_dir,
+        ctx.state,
+        ctx.selected_inp,
+        status=status,
+        analyzer_status=analyzer_status,
+        reason=reason,
+        last_out_path=last_out_path,
+        resumed=ctx.resumed,
+        exit_code=exit_code,
+        emit=ctx.emit,
+        extra=extra,
+        notify_finished=ctx.notify_finished,
+    )
+
+
+def _resume_attempts_if_terminal(ctx: _AttemptContext) -> int | None:
+    return resume_terminal_decision(
+        reaction_dir=ctx.reaction_dir,
+        selected_inp=ctx.selected_inp,
+        state=ctx.state,
+        resumed=ctx.resumed,
+        max_retries=ctx.max_retries,
+        last_out_path_from_state=_last_out_path_from_state,
+        exit_with_result=_exit_with_result,
+        emit=ctx.emit,
+        notify_finished=ctx.notify_finished,
+    )
+
+
 def _prepare_retry_attempt(
     reaction_dir: Path,
     state: RunState,
@@ -220,169 +278,149 @@ def run_attempts(
     notify_finished: Callable[[RunFinishedNotification], None] | None = None,
     notify_retry: Callable[[RetryNotification], None] | None = None,
 ) -> int:
-    resumed_exit = resume_terminal_decision(
+    ctx = _AttemptContext(
         reaction_dir=reaction_dir,
         selected_inp=selected_inp,
         state=state,
         resumed=resumed,
+        runner=runner,
         max_retries=max_retries,
-        last_out_path_from_state=_last_out_path_from_state,
-        exit_with_result=_exit_with_result,
+        retry_inp_path=retry_inp_path,
+        to_resolved_local=to_resolved_local,
         emit=emit,
+        notify_started=notify_started,
         notify_finished=notify_finished,
+        notify_retry=notify_retry,
     )
+    resumed_exit = _resume_attempts_if_terminal(ctx)
     if resumed_exit is not None:
         return resumed_exit
 
-    execution_index = len(state["attempts"]) + 1
+    execution_index = len(ctx.state["attempts"]) + 1
     first_execution_index = execution_index
     while True:
         retries_used = execution_index - 1
-        if retries_used > max_retries:
-            return _exit_with_result(
-                reaction_dir, state, selected_inp,
+        if retries_used > ctx.max_retries:
+            return _finish_attempt(
+                ctx,
                 status=RunStatus.FAILED,
                 analyzer_status=AnalyzerStatus.INCOMPLETE,
                 reason="retry_limit_reached",
-                last_out_path=_last_out_path_from_state(state),
-                resumed=resumed,
-
+                last_out_path=_last_out_path_from_state(ctx.state),
                 exit_code=1,
-                emit=emit,
-                notify_finished=notify_finished,
             )
 
         current_inp, missing_reason = resolve_execution_input(
-            reaction_dir=reaction_dir,
-            selected_inp=selected_inp,
-            state=state,
+            reaction_dir=ctx.reaction_dir,
+            selected_inp=ctx.selected_inp,
+            state=ctx.state,
             execution_index=execution_index,
             retries_used=retries_used,
-            retry_inp_path=retry_inp_path,
+            retry_inp_path=ctx.retry_inp_path,
             retry_recipe_step=_retry_recipe_step,
-            to_resolved_local=to_resolved_local,
+            to_resolved_local=ctx.to_resolved_local,
             save_state=save_state,
         )
         if current_inp is None:
-            return _exit_with_result(
-                reaction_dir,
-                state,
-                selected_inp,
+            return _finish_attempt(
+                ctx,
                 status=RunStatus.FAILED,
                 analyzer_status=AnalyzerStatus.INCOMPLETE,
                 reason=missing_reason or f"missing_input_for_attempt_{execution_index}",
                 last_out_path=None,
-                resumed=resumed,
                 exit_code=1,
-                emit=emit,
-                notify_finished=notify_finished,
             )
 
         started_at, current_status = _mark_attempt_started(
-            reaction_dir,
-            state,
+            ctx.reaction_dir,
+            ctx.state,
             retries_used=retries_used,
         )
         _notify_attempt_started(
-            reaction_dir=reaction_dir,
-            selected_inp=selected_inp,
+            reaction_dir=ctx.reaction_dir,
+            selected_inp=ctx.selected_inp,
             current_inp=current_inp,
-            state=state,
+            state=ctx.state,
             execution_index=execution_index,
             first_execution_index=first_execution_index,
-            max_retries=max_retries,
+            max_retries=ctx.max_retries,
             current_status=current_status,
             started_at=started_at,
-            resumed=resumed,
-            notify_started=notify_started,
+            resumed=ctx.resumed,
+            notify_started=ctx.notify_started,
         )
 
         try:
             out_path, analysis = _run_and_record_attempt(
-                reaction_dir,
-                state,
+                ctx.reaction_dir,
+                ctx.state,
                 current_inp=current_inp,
                 execution_index=execution_index,
                 started_at=started_at,
-                runner=runner,
+                runner=ctx.runner,
             )
         except WorkerShutdownInterrupt:
             logger.warning("Interrupted by worker shutdown during attempt %d", execution_index)
-            return _exit_with_result(
-                reaction_dir, state, selected_inp,
+            return _finish_attempt(
+                ctx,
                 status=RunStatus.FAILED,
                 analyzer_status=AnalyzerStatus.INCOMPLETE,
                 reason="worker_shutdown",
                 last_out_path=str(current_inp.with_suffix(".out")),
-                resumed=resumed,
                 exit_code=143,
-                emit=emit,
-                notify_finished=notify_finished,
             )
         except KeyboardInterrupt:
             logger.warning("Interrupted by user during attempt %d", execution_index)
-            return _exit_with_result(
-                reaction_dir, state, selected_inp,
+            return _finish_attempt(
+                ctx,
                 status=RunStatus.FAILED,
                 analyzer_status=AnalyzerStatus.INCOMPLETE,
                 reason="interrupted_by_user",
                 last_out_path=str(current_inp.with_suffix(".out")),
-                resumed=resumed,
-
                 exit_code=130,
-                emit=emit,
-                notify_finished=notify_finished,
             )
         except Exception as exc:
             logger.exception("ORCA runner crashed during attempt %d: %s", execution_index, exc)
-            return _exit_with_result(
-                reaction_dir, state, selected_inp,
+            return _finish_attempt(
+                ctx,
                 status=RunStatus.FAILED,
                 analyzer_status=AnalyzerStatus.INCOMPLETE,
                 reason="runner_exception",
                 last_out_path=str(current_inp.with_suffix(".out")),
-                resumed=resumed,
-
                 exit_code=1,
-                emit=emit,
                 extra={"runner_error": str(exc)},
-                notify_finished=notify_finished,
             )
         decision = decide_attempt_outcome(
             analyzer_status=analysis.status,
             analyzer_reason=analysis.reason,
             retries_used=retries_used,
-            max_retries=max_retries,
+            max_retries=ctx.max_retries,
         )
         if decision is not None:
-            return _exit_with_result(
-                reaction_dir, state, selected_inp,
+            return _finish_attempt(
+                ctx,
                 status=decision.run_status,
                 analyzer_status=analysis.status,
                 reason=decision.reason,
                 last_out_path=str(out_path),
-                resumed=resumed,
-
                 exit_code=decision.exit_code,
-                emit=emit,
-                notify_finished=notify_finished,
             )
 
         retry_exit = _prepare_retry_attempt(
-            reaction_dir,
-            state,
-            selected_inp,
+            ctx.reaction_dir,
+            ctx.state,
+            ctx.selected_inp,
             current_inp=current_inp,
             out_path=out_path,
             execution_index=execution_index,
             retries_used=retries_used,
-            max_retries=max_retries,
-            resumed=resumed,
+            max_retries=ctx.max_retries,
+            resumed=ctx.resumed,
             analysis=analysis,
-            retry_inp_path=retry_inp_path,
-            emit=emit,
-            notify_finished=notify_finished,
-            notify_retry=notify_retry,
+            retry_inp_path=ctx.retry_inp_path,
+            emit=ctx.emit,
+            notify_finished=ctx.notify_finished,
+            notify_retry=ctx.notify_retry,
         )
         if retry_exit is not None:
             return retry_exit

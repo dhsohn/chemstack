@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import errno
 import os
 from datetime import datetime, timezone
 from pathlib import Path
@@ -106,6 +107,104 @@ def test_atomic_write_json_success_path(tmp_path: Path) -> None:
         '  "text": "caf\\u00e9"\n'
         "}"
     )
+
+
+def test_atomic_write_json_fsyncs_parent_dir_after_replace(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = tmp_path / "nested" / "payload.json"
+    events: list[str] = []
+    original_replace = os.replace
+
+    def fake_replace(src: Path, dst: Path) -> None:
+        events.append("replace")
+        original_replace(src, dst)
+
+    def fake_fsync_parent_dir(synced_path: Path) -> None:
+        events.append("fsync_parent")
+        assert synced_path == path
+        assert path.exists()
+
+    monkeypatch.setattr(persistence.os, "replace", fake_replace)
+    monkeypatch.setattr(persistence, "_fsync_parent_dir", fake_fsync_parent_dir)
+
+    persistence.atomic_write_json(path, {"ok": True})
+
+    assert events == ["replace", "fsync_parent"]
+
+
+def test_fsync_parent_dir_opens_fsyncs_and_closes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = tmp_path / "payload.json"
+    events: list[tuple[str, int | Path]] = []
+
+    def fake_open(target: str | Path, flags: int) -> int:
+        events.append(("open", Path(target)))
+        expected_flags = os.O_RDONLY
+        if hasattr(os, "O_DIRECTORY"):
+            expected_flags |= os.O_DIRECTORY
+        assert flags == expected_flags
+        return 42
+
+    def fake_fsync(fd: int) -> None:
+        events.append(("fsync", fd))
+
+    def fake_close(fd: int) -> None:
+        events.append(("close", fd))
+
+    monkeypatch.setattr(persistence.os, "open", fake_open)
+    monkeypatch.setattr(persistence.os, "fsync", fake_fsync)
+    monkeypatch.setattr(persistence.os, "close", fake_close)
+
+    persistence._fsync_parent_dir(path)
+
+    assert events == [("open", tmp_path), ("fsync", 42), ("close", 42)]
+
+
+def test_fsync_parent_dir_ignores_unsupported_open_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = tmp_path / "payload.json"
+
+    def fake_open(target: str | Path, flags: int) -> int:
+        raise OSError(errno.EINVAL, "directory fsync unsupported")
+
+    def fail_fsync(fd: int) -> None:
+        raise AssertionError("fsync should not run when opening the directory fails")
+
+    monkeypatch.setattr(persistence.os, "open", fake_open)
+    monkeypatch.setattr(persistence.os, "fsync", fail_fsync)
+
+    persistence._fsync_parent_dir(path)
+
+
+def test_fsync_parent_dir_closes_after_unsupported_fsync_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = tmp_path / "payload.json"
+    closed: list[int] = []
+
+    def fake_open(target: str | Path, flags: int) -> int:
+        return 42
+
+    def fake_fsync(fd: int) -> None:
+        raise OSError(errno.EINVAL, "directory fsync unsupported")
+
+    def fake_close(fd: int) -> None:
+        closed.append(fd)
+
+    monkeypatch.setattr(persistence.os, "open", fake_open)
+    monkeypatch.setattr(persistence.os, "fsync", fake_fsync)
+    monkeypatch.setattr(persistence.os, "close", fake_close)
+
+    persistence._fsync_parent_dir(path)
+
+    assert closed == [42]
 
 
 def test_atomic_write_json_cleans_up_tmp_when_replace_fails(

@@ -291,17 +291,21 @@ def test_registry_edge_branches_cover_invalid_inputs_and_direct_file_matching(
     reg_path = registry._registry_path(tmp_path)
     reg_path.parent.mkdir(parents=True, exist_ok=True)
     reg_path.write_text("{broken", encoding="utf-8")
-    assert registry._load_records(tmp_path) == []
+    with pytest.raises(registry.WorkflowRegistryCorruptError):
+        registry._load_records(tmp_path)
     reg_path.write_text(json.dumps({"bad": True}), encoding="utf-8")
-    assert registry._load_records(tmp_path) == []
+    with pytest.raises(registry.WorkflowRegistryCorruptError):
+        registry._load_records(tmp_path)
 
     assert registry.list_workflow_journal(tmp_path, limit=0) == []
     state_path = registry.workflow_worker_state_path(tmp_path)
     state_path.parent.mkdir(parents=True, exist_ok=True)
     state_path.write_text("{broken", encoding="utf-8")
-    assert registry.load_workflow_worker_state(tmp_path) == {}
+    with pytest.raises(registry.WorkflowRegistryCorruptError):
+        registry.load_workflow_worker_state(tmp_path)
     state_path.write_text(json.dumps(["bad"]), encoding="utf-8")
-    assert registry.load_workflow_worker_state(tmp_path) == {}
+    with pytest.raises(registry.WorkflowRegistryCorruptError):
+        registry.load_workflow_worker_state(tmp_path)
 
     assert registry.get_workflow_registry_record(tmp_path, "   ") is None
 

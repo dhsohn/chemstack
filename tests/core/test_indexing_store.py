@@ -12,6 +12,7 @@ from chemstack.core.indexing.location import JobLocationRecord
 from chemstack.core.indexing import store as indexing_store
 from chemstack.core.indexing.store import (
     JOB_LOCATION_INDEX_FILE_NAME,
+    JobLocationIndexCorruptError,
     get_job_location,
     list_job_locations,
     resolve_job_location,
@@ -55,18 +56,30 @@ def test_list_job_locations_missing_index_returns_empty_list(tmp_path: Path) -> 
     assert get_job_location(tmp_path, "missing") is None
 
 
-def test_list_job_locations_invalid_json_returns_empty_list(tmp_path: Path) -> None:
-    _index_path(tmp_path).write_text("{not valid json", encoding="utf-8")
+def test_list_job_locations_invalid_json_raises_corrupt_error(tmp_path: Path) -> None:
+    corrupt_text = "{not valid json"
+    _index_path(tmp_path).write_text(corrupt_text, encoding="utf-8")
 
-    assert list_job_locations(tmp_path) == []
-    assert resolve_job_location(tmp_path, "anything") is None
+    with pytest.raises(JobLocationIndexCorruptError):
+        list_job_locations(tmp_path)
+    with pytest.raises(JobLocationIndexCorruptError):
+        resolve_job_location(tmp_path, "anything")
+    with pytest.raises(JobLocationIndexCorruptError):
+        upsert_job_location(tmp_path, _record("job-1"))
+    assert _index_path(tmp_path).read_text(encoding="utf-8") == corrupt_text
 
 
-def test_list_job_locations_non_list_json_returns_empty_list(tmp_path: Path) -> None:
-    _index_path(tmp_path).write_text('{"job_id": "job-1"}', encoding="utf-8")
+def test_list_job_locations_non_list_json_raises_corrupt_error(tmp_path: Path) -> None:
+    corrupt_text = '{"job_id": "job-1"}'
+    _index_path(tmp_path).write_text(corrupt_text, encoding="utf-8")
 
-    assert list_job_locations(tmp_path) == []
-    assert resolve_job_location(tmp_path, "job-1") is None
+    with pytest.raises(JobLocationIndexCorruptError):
+        list_job_locations(tmp_path)
+    with pytest.raises(JobLocationIndexCorruptError):
+        resolve_job_location(tmp_path, "job-1")
+    with pytest.raises(JobLocationIndexCorruptError):
+        upsert_job_location(tmp_path, _record("job-1"))
+    assert _index_path(tmp_path).read_text(encoding="utf-8") == corrupt_text
 
 
 def test_get_job_location_blank_id_returns_none(tmp_path: Path) -> None:

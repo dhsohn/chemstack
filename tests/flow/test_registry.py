@@ -531,6 +531,38 @@ def test_sync_skips_cleared_terminal_workflow_until_it_becomes_active(
     assert [(record.workflow_id, record.status) for record in records] == [("wf-completed", "running")]
 
 
+@pytest.mark.parametrize("markers_payload", ["{invalid", json.dumps({"bad": True})])
+def test_workflow_cleared_markers_corrupt_payload_blocks_writes(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    markers_payload: str,
+) -> None:
+    monkeypatch.setattr(registry, "file_lock", _no_lock)
+    record = registry.WorkflowRegistryRecord(
+        workflow_id="wf_completed",
+        template_name="reaction_ts_search",
+        status="completed",
+        source_job_id="job_completed",
+        source_job_type="xtb_path",
+        reaction_key="rxn_completed",
+        requested_at="2026-04-19T00:00:00+00:00",
+        workspace_dir=str(tmp_path / "wf_completed"),
+        workflow_file=str(tmp_path / "wf_completed" / "workflow.json"),
+    )
+    registry._save_records(tmp_path, [record])
+    registry_text = registry._registry_path(tmp_path).read_text(encoding="utf-8")
+    registry._cleared_path(tmp_path).write_text(markers_payload, encoding="utf-8")
+
+    with pytest.raises(registry.WorkflowRegistryCorruptError):
+        registry.clear_terminal_workflow_registry(tmp_path)
+    with pytest.raises(registry.WorkflowRegistryCorruptError):
+        registry.upsert_workflow_registry_record(tmp_path, record)
+    with pytest.raises(registry.WorkflowRegistryCorruptError):
+        registry.reindex_workflow_registry(tmp_path)
+    assert registry._registry_path(tmp_path).read_text(encoding="utf-8") == registry_text
+    assert registry._cleared_path(tmp_path).read_text(encoding="utf-8") == markers_payload
+
+
 def test_list_workflow_registry_does_not_reindex_valid_empty_registry(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -546,36 +578,53 @@ def test_list_workflow_registry_does_not_reindex_valid_empty_registry(
     assert registry.list_workflow_registry(tmp_path) == []
 
 
-def test_list_workflow_registry_reindexes_invalid_existing_registry(
+@pytest.mark.parametrize("payload", ["{invalid", json.dumps({"workflow_id": "wf-bad"})])
+def test_list_workflow_registry_rejects_corrupt_existing_registry(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    payload: str,
 ) -> None:
     monkeypatch.setattr(registry, "file_lock", _no_lock)
-    registry._registry_path(tmp_path).write_text("{invalid", encoding="utf-8")
-
-    list_result = [
-        registry.WorkflowRegistryRecord(
-            workflow_id="wf_reindexed",
-            template_name="reaction_ts_search",
-            status="planned",
-            source_job_id="job_reindexed",
-            source_job_type="xtb_path",
-            reaction_key="rxn_reindexed",
-            requested_at="2026-04-19T00:00:00+00:00",
-            workspace_dir=str(tmp_path / "wf_reindexed"),
-            workflow_file=str(tmp_path / "wf_reindexed" / "workflow.json"),
-        )
-    ]
+    registry._registry_path(tmp_path).write_text(payload, encoding="utf-8")
     reindex_calls: list[Path] = []
 
     def fake_reindex_workflow_registry(root: str | Path) -> list[registry.WorkflowRegistryRecord]:
         reindex_calls.append(Path(root).resolve())
-        return list_result
+        return []
 
     monkeypatch.setattr(registry, "reindex_workflow_registry", fake_reindex_workflow_registry)
 
-    assert registry.list_workflow_registry(tmp_path) == list_result
-    assert reindex_calls == [tmp_path.resolve()]
+    with pytest.raises(registry.WorkflowRegistryCorruptError):
+        registry.list_workflow_registry(tmp_path)
+    assert reindex_calls == []
+    assert registry._registry_path(tmp_path).read_text(encoding="utf-8") == payload
+
+
+@pytest.mark.parametrize("registry_payload", ["{invalid", json.dumps({"workflow_id": "wf-bad"})])
+def test_workflow_registry_writes_reject_corrupt_existing_registry(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    registry_payload: str,
+) -> None:
+    monkeypatch.setattr(registry, "file_lock", _no_lock)
+    registry._registry_path(tmp_path).write_text(registry_payload, encoding="utf-8")
+    record = registry.WorkflowRegistryRecord(
+        workflow_id="wf_safe",
+        template_name="reaction_ts_search",
+        status="planned",
+        source_job_id="job_safe",
+        source_job_type="xtb_path",
+        reaction_key="rxn_safe",
+        requested_at="2026-04-19T00:00:00+00:00",
+        workspace_dir=str(tmp_path / "wf_safe"),
+        workflow_file=str(tmp_path / "wf_safe" / "workflow.json"),
+    )
+
+    with pytest.raises(registry.WorkflowRegistryCorruptError):
+        registry.upsert_workflow_registry_record(tmp_path, record)
+    with pytest.raises(registry.WorkflowRegistryCorruptError):
+        registry.reindex_workflow_registry(tmp_path)
+    assert registry._registry_path(tmp_path).read_text(encoding="utf-8") == registry_payload
 
 
 def test_append_workflow_journal_event_writes_jsonl_and_returns_event(
@@ -726,6 +775,28 @@ def test_write_and_load_workflow_worker_state_round_trip(
         "metadata": {"cycle": 1},
     }
     assert loaded == written
+
+
+@pytest.mark.parametrize("state_payload", ["{invalid", json.dumps(["bad"])])
+def test_workflow_worker_state_corrupt_payload_raises_and_write_does_not_overwrite(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    state_payload: str,
+) -> None:
+    monkeypatch.setattr(registry, "file_lock", _no_lock)
+    state_path = registry.workflow_worker_state_path(tmp_path)
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    state_path.write_text(state_payload, encoding="utf-8")
+
+    with pytest.raises(registry.WorkflowRegistryCorruptError):
+        registry.load_workflow_worker_state(tmp_path)
+    with pytest.raises(registry.WorkflowRegistryCorruptError):
+        registry.write_workflow_worker_state(
+            tmp_path,
+            worker_session_id="session-safe",
+            status="running",
+        )
+    assert state_path.read_text(encoding="utf-8") == state_payload
 
 
 def test_upsert_list_get_and_resolve_workflow_registry_record(

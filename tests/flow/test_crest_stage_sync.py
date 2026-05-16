@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -224,6 +225,7 @@ def test_sync_crest_stage_returns_without_target_when_not_submitted_and_no_queue
 def test_sync_crest_stage_returns_cleanly_when_contract_lookup_raises(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     stage: dict[str, Any] = {
         "stage_id": "crest_nci_03",
@@ -243,6 +245,7 @@ def test_sync_crest_stage_returns_cleanly_when_contract_lookup_raises(
         "load_crest_artifact_contract",
         lambda **kwargs: (_ for _ in ()).throw(RuntimeError("boom")),
     )
+    caplog.set_level(logging.DEBUG, logger="chemstack.flow._orchestration_stage_runtime")
 
     orchestration._sync_crest_stage(
         stage,
@@ -258,3 +261,10 @@ def test_sync_crest_stage_returns_cleanly_when_contract_lookup_raises(
     assert stage["task"]["status"] == "submitted"
     assert stage["metadata"]["queue_id"] == "q_existing"
     assert "output_artifacts" not in stage
+    assert any(
+        record.name == "chemstack.flow._orchestration_stage_runtime"
+        and record.levelno == logging.DEBUG
+        and "Failed to load crest artifact contract" in record.getMessage()
+        and record.exc_info
+        for record in caplog.records
+    )
