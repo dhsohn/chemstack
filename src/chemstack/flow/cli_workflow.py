@@ -16,6 +16,7 @@ from .cli_common import (
     _shared_chemstack_config,
     _workflow_root_from_args,
 )
+from . import cli_workflow_plan_commands as _plan_commands
 from .cli_run_dir import _print_created_workflow
 from .engine_options import WorkflowEngineOptions
 from .operations import (
@@ -47,46 +48,12 @@ def cmd_workflow_reaction_ts_search(args: Any, *, deps: Any | None = None) -> in
     build_plan = _dependency(
         deps, "build_reaction_ts_search_plan_from_target", build_reaction_ts_search_plan_from_target
     )
-    payload = build_plan(
-        xtb_index_root=getattr(args, "xtb_index_root"),
-        target=getattr(args, "target"),
-        max_orca_stages=int(getattr(args, "max_orca_stages", 3) or 3),
-        selected_only=not bool(getattr(args, "include_unselected", False)),
-        workspace_root=getattr(args, "workspace_root", None),
-        charge=int(getattr(args, "charge", 0) or 0),
-        multiplicity=int(getattr(args, "multiplicity", 1) or 1),
-        max_cores=int(getattr(args, "max_cores", 8) or 8),
-        max_memory_gb=int(getattr(args, "max_memory_gb", 32) or 32),
-        orca_route_line=str(getattr(args, "orca_route_line", "") or ""),
-        priority=int(getattr(args, "priority", 10) or 10),
+    payload = _plan_commands.reaction_ts_search_plan_payload(args, build_plan)
+    return _plan_commands.emit_workflow_plan(
+        payload,
+        json_mode=bool(getattr(args, "json", False)),
+        show_enqueue=True,
     )
-    if bool(getattr(args, "json", False)):
-        print(json.dumps(payload, ensure_ascii=True, indent=2))
-        return 0
-
-    print(f"workflow_id: {payload['workflow_id']}")
-    print(f"template_name: {payload['template_name']}")
-    print(f"status: {payload['status']}")
-    print(f"source_job_id: {payload['source_job_id']}")
-    print(f"reaction_key: {payload['reaction_key']}")
-    workspace_dir = str((payload.get("metadata") or {}).get("workspace_dir", "")).strip()
-    print(f"workspace_dir: {workspace_dir or '-'}")
-    print(f"stage_count: {len(payload.get('stages', []))}")
-    for stage in payload.get("stages", []):
-        task = stage.get("task") or {}
-        task_payload = task.get("payload", {})
-        enqueue_payload = task.get("enqueue_payload") or {}
-        print(
-            f"- {stage.get('stage_id')} {task.get('engine', '-')}/{task.get('task_kind', '-')}"
-            f" input={task_payload.get('selected_input_xyz', '-')}"
-        )
-        if task_payload.get("reaction_dir"):
-            print(f"  reaction_dir={task_payload.get('reaction_dir')}")
-        if enqueue_payload.get("command"):
-            print(f"  enqueue_command={enqueue_payload.get('command')}")
-        elif task_payload.get("suggested_command"):
-            print(f"  suggested_command={task_payload.get('suggested_command')}")
-    return 0
 
 
 def cmd_workflow_conformer_screening(args: Any, *, deps: Any | None = None) -> int:
@@ -95,40 +62,12 @@ def cmd_workflow_conformer_screening(args: Any, *, deps: Any | None = None) -> i
         "build_conformer_screening_plan_from_target",
         build_conformer_screening_plan_from_target,
     )
-    payload = build_plan(
-        crest_index_root=getattr(args, "crest_index_root"),
-        target=getattr(args, "target"),
-        max_orca_stages=int(getattr(args, "max_orca_stages", 20) or 20),
-        workspace_root=getattr(args, "workspace_root", None),
-        charge=int(getattr(args, "charge", 0) or 0),
-        multiplicity=int(getattr(args, "multiplicity", 1) or 1),
-        max_cores=int(getattr(args, "max_cores", 8) or 8),
-        max_memory_gb=int(getattr(args, "max_memory_gb", 32) or 32),
-        orca_route_line=str(getattr(args, "orca_route_line", "") or ""),
-        priority=int(getattr(args, "priority", 10) or 10),
+    payload = _plan_commands.conformer_screening_plan_payload(args, build_plan)
+    return _plan_commands.emit_workflow_plan(
+        payload,
+        json_mode=bool(getattr(args, "json", False)),
+        show_enqueue=False,
     )
-    if bool(getattr(args, "json", False)):
-        print(json.dumps(payload, ensure_ascii=True, indent=2))
-        return 0
-
-    print(f"workflow_id: {payload['workflow_id']}")
-    print(f"template_name: {payload['template_name']}")
-    print(f"status: {payload['status']}")
-    print(f"source_job_id: {payload['source_job_id']}")
-    print(f"reaction_key: {payload['reaction_key']}")
-    workspace_dir = str((payload.get("metadata") or {}).get("workspace_dir", "")).strip()
-    print(f"workspace_dir: {workspace_dir or '-'}")
-    print(f"stage_count: {len(payload.get('stages', []))}")
-    for stage in payload.get("stages", []):
-        task = stage.get("task") or {}
-        task_payload = task.get("payload", {})
-        print(
-            f"- {stage.get('stage_id')} {task.get('engine', '-')}/{task.get('task_kind', '-')}"
-            f" input={task_payload.get('selected_input_xyz', '-')}"
-        )
-        if task_payload.get("reaction_dir"):
-            print(f"  reaction_dir={task_payload.get('reaction_dir')}")
-    return 0
 
 
 def cmd_workflow_create_reaction_ts_search(args: Any, *, deps: Any | None = None) -> int:

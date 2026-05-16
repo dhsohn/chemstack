@@ -13,6 +13,7 @@ from chemstack.core.utils import atomic_write_json
 
 from ..contracts import WorkflowArtifactRef, WorkflowStage, WorkflowStageInput, WorkflowTask
 from ..xyz_utils import write_orca_ready_xyz
+from . import orca_stage_payloads as _orca_stage_payloads
 
 
 def normalize_text(value: Any) -> str:
@@ -323,13 +324,7 @@ def _build_materialized_orca_stage(ctx: OrcaStageBuildContext) -> WorkflowStage:
         max_memory_gb=ctx.max_memory_gb,
         xyz_filename=ctx.xyz_filename,
         inp_filename=ctx.inp_filename,
-        extra_source_payload={
-            "source_job_id": ctx.candidate.source_job_id,
-            "source_job_type": ctx.candidate.source_job_type,
-            "reaction_key": ctx.candidate.reaction_key,
-            "rank": ctx.candidate.rank,
-            "kind": ctx.candidate.kind,
-        },
+        extra_source_payload=_orca_stage_payloads.candidate_source_payload(ctx.candidate),
     )
     enqueue_payload = build_orca_enqueue_payload(
         workflow_id=ctx.workflow_id,
@@ -341,45 +336,19 @@ def _build_materialized_orca_stage(ctx: OrcaStageBuildContext) -> WorkflowStage:
         source_job_id=ctx.candidate.source_job_id,
         reaction_key=ctx.candidate.reaction_key,
     )
-    task_payload = {
-        "stage_id": ctx.stage_id,
-        "engine": "orca",
-        "task_kind": ctx.task_kind,
-        "selected_input_xyz": materialized.selected_xyz,
-        "selected_input_label": ctx.selected_input_label,
-        "source_job_id": ctx.candidate.source_job_id,
-        "source_job_type": ctx.candidate.source_job_type,
-        "reaction_key": ctx.candidate.reaction_key,
-        "workflow_id": ctx.workflow_id,
-        "template_name": ctx.template_name,
-        "resource_request": dict(resource_request),
-        "reaction_dir": materialized.reaction_dir,
-        "selected_inp": materialized.selected_inp,
-        "suggested_command": f"{CHEMSTACK_CLI_COMMAND} run-dir '{materialized.reaction_dir}'",
-        "metadata": {
-            "candidate_rank": ctx.candidate.rank,
-            "candidate_kind": ctx.candidate.kind,
-            "candidate_score": ctx.candidate.score,
-            "candidate_selected": ctx.candidate.selected,
-            "candidate_metadata": dict(ctx.candidate.metadata),
-            "source_selected_input_xyz": ctx.candidate.selected_input_xyz,
-        },
-    }
-    task = WorkflowTask.from_raw(
-        task_id=f"{ctx.workflow_id}:{ctx.stage_id}",
-        engine="orca",
-        task_kind=ctx.task_kind,
+    task_payload = _orca_stage_payloads.task_payload(
+        ctx=ctx,
+        materialized=materialized,
         resource_request=resource_request,
-        payload=task_payload,
+        cli_command=CHEMSTACK_CLI_COMMAND,
+    )
+    task = _orca_stage_payloads.workflow_task(
+        ctx=ctx,
+        materialized=materialized,
+        resource_request=resource_request,
         enqueue_payload=enqueue_payload,
-        metadata={
-            "workflow_id": ctx.workflow_id,
-            "template_name": ctx.template_name,
-            "source_candidate_path": ctx.candidate.artifact_path,
-            "queue_priority": int(ctx.priority),
-            "reaction_dir": materialized.reaction_dir,
-            "selected_inp": materialized.selected_inp,
-        },
+        task_payload=task_payload,
+        workflow_task_cls=WorkflowTask,
     )
     atomic_write_json(
         Path(materialized.stage_workspace_dir) / "enqueue_payload.json",
@@ -387,43 +356,12 @@ def _build_materialized_orca_stage(ctx: OrcaStageBuildContext) -> WorkflowStage:
         ensure_ascii=True,
         indent=2,
     )
-    return WorkflowStage(
-        stage_id=ctx.stage_id,
-        stage_kind="orca_stage",
-        status="planned",
-        input_artifacts=(
-            WorkflowArtifactRef(
-                kind=ctx.input_artifact_kind,
-                path=ctx.candidate.artifact_path,
-                selected=ctx.candidate.selected,
-                metadata={
-                    "rank": ctx.candidate.rank,
-                    "kind": ctx.candidate.kind,
-                    "score": ctx.candidate.score,
-                    **dict(ctx.candidate.metadata),
-                },
-            ),
-        ),
-        output_artifacts=(
-            WorkflowArtifactRef(
-                kind="orca_input",
-                path=materialized.selected_inp,
-                selected=True,
-                metadata={
-                    "engine": "orca",
-                    "task_kind": ctx.task_kind,
-                    "reaction_dir": materialized.reaction_dir,
-                },
-            ),
-        ),
+    return _orca_stage_payloads.workflow_stage(
+        ctx=ctx,
+        materialized=materialized,
         task=task,
-        metadata={
-            "candidate_rank": ctx.candidate.rank,
-            "candidate_kind": ctx.candidate.kind,
-            "candidate_score": ctx.candidate.score,
-            "selected_input_label": ctx.selected_input_label,
-            "reaction_dir": materialized.reaction_dir,
-        },
+        workflow_stage_cls=WorkflowStage,
+        artifact_ref_cls=WorkflowArtifactRef,
     )
 
 

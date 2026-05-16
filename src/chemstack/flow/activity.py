@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-import os
+import sys
 from collections.abc import Callable
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -14,7 +13,6 @@ from chemstack.core.app_ids import (
     CHEMSTACK_REPO_ROOT_ENV_VAR,
 )
 from chemstack.core.config.files import (
-    default_config_path_from_repo_root,
     shared_workflow_root_from_config,
 )
 from chemstack.core.queue import clear_terminal as clear_queue_terminal, list_queue
@@ -24,6 +22,19 @@ from .registry import (
     clear_terminal_workflow_registry,
     list_workflow_registry,
     reindex_workflow_registry,
+)
+from ._activity_model import (
+    ActivityCancelRequest,
+    ActivityListRequest,
+    ActivityRecord,
+    ActivitySourceRequest,
+    ResolvedActivitySources,
+    mapping_text as _mapping_text,
+    parse_iso as _parse_iso,
+    path_aliases as _path_aliases,
+    sort_key as _sort_key,
+    timestamp_metadata as _timestamp_metadata,
+    unique_texts as _unique_texts,
 )
 from .state import (
     iter_workflow_runtime_workspaces,
@@ -35,66 +46,23 @@ from .submitters.crest_auto import cancel_target as cancel_crest_target
 from .submitters.orca_auto import cancel_target as cancel_orca_target
 from .submitters.xtb_auto import cancel_target as cancel_xtb_target
 from .workflow_status import WORKFLOW_TERMINAL_STATUSES, select_current_stage
+from . import _activity_orca
+from . import _activity_sources
+from . import _activity_cancel
 
 _ACTIVITY_CLEARABLE_TERMINAL_STATUSES = WORKFLOW_TERMINAL_STATUSES
-_ORCA_ACTIVE_QUEUE_STATUSES = frozenset({"pending", "running"})
+_ACTIVITY_MODEL_COMPAT = (
+    CHEMSTACK_CONFIG_ENV_VAR,
+    CHEMSTACK_REPO_ROOT_ENV_VAR,
+    cancel_crest_target,
+    cancel_orca_target,
+    cancel_xtb_target,
+    _parse_iso,
+)
 
 
-@dataclass(frozen=True)
-class ActivitySourceRequest:
-    workflow_root: str | Path | None = None
-    crest_auto_config: str | None = None
-    xtb_auto_config: str | None = None
-    orca_auto_config: str | None = None
-    orca_auto_repo_root: str | None = None
-
-
-@dataclass(frozen=True)
-class ActivityListRequest:
-    sources: ActivitySourceRequest
-    refresh: bool = False
-    limit: int = 0
-    child_job_engines: tuple[str, ...] | None = None
-
-
-@dataclass(frozen=True)
-class ActivityCancelRequest:
-    target: str
-    sources: ActivitySourceRequest
-    crest_auto_executable: str = "crest_auto"
-    crest_auto_repo_root: str | None = None
-    xtb_auto_executable: str = "xtb_auto"
-    xtb_auto_repo_root: str | None = None
-    orca_auto_executable: str = CHEMSTACK_EXECUTABLE
-    orca_auto_repo_root: str | None = None
-
-
-@dataclass(frozen=True)
-class ResolvedActivitySources:
-    workflow_root: str | None
-    crest_auto_config: str | None
-    xtb_auto_config: str | None
-    orca_auto_config: str | None
-
-    def as_tuple(self) -> tuple[str | None, str | None, str | None, str | None]:
-        return (
-            self.workflow_root,
-            self.crest_auto_config,
-            self.xtb_auto_config,
-            self.orca_auto_config,
-        )
-
-    @classmethod
-    def from_tuple(
-        cls,
-        values: tuple[str | None, str | None, str | None, str | None],
-    ) -> ResolvedActivitySources:
-        return cls(
-            workflow_root=values[0],
-            crest_auto_config=values[1],
-            xtb_auto_config=values[2],
-            orca_auto_config=values[3],
-        )
+def _this_module() -> Any:
+    return sys.modules[__name__]
 
 
 @dataclass(frozen=True)
@@ -103,105 +71,45 @@ class _ActivityListProvider:
     collect: Callable[[ResolvedActivitySources, ActivityListRequest], list[ActivityRecord]]
 
 
-@dataclass(frozen=True)
-class _ActivityCancelProvider:
-    source: str
-    cancel: Callable[[ActivityRecord, ResolvedActivitySources, ActivityCancelRequest], dict[str, Any]]
+_ActivityCancelProvider = _activity_cancel.ActivityCancelProvider
 
 
 def _coerce_mapping(value: Any) -> dict[str, Any]:
-    return value if isinstance(value, dict) else {}
+    return _activity_sources.coerce_mapping(value)
 
 
 def _project_root() -> Path:
-    return Path(__file__).resolve().parents[3]
+    return _activity_sources.project_root()
 
 
 def _resolve_existing_path(path_text: str) -> Path | None:
-    text = normalize_text(path_text)
-    if not text:
-        return None
-    try:
-        candidate = Path(text).expanduser().resolve()
-    except OSError:
-        return None
-    return candidate if candidate.exists() else None
+    return _activity_sources.resolve_existing_path(path_text)
 
 
 def _discover_workflow_root(explicit: str | Path | None) -> str | None:
-    explicit_text = normalize_text(explicit)
-    if explicit_text:
-        return str(Path(explicit_text).expanduser().resolve())
-    return shared_workflow_root_from_config(default_config_path_from_repo_root(_project_root()))
+    return _activity_sources.discover_workflow_root(explicit, deps=_this_module())
 
 
 def _discover_sibling_config(explicit: str | None, *, app_name: str) -> str | None:
-    del app_name
-    explicit_text = normalize_text(explicit)
-    if explicit_text:
-        return str(Path(explicit_text).expanduser().resolve())
-
-    env_text = normalize_text(os.getenv(CHEMSTACK_CONFIG_ENV_VAR))
-    if env_text:
-        return str(Path(env_text).expanduser().resolve())
-
-    project_root = _project_root()
-    candidates = [
-        project_root / "config" / "chemstack.yaml",
-        Path.home() / "chemstack" / "config" / "chemstack.yaml",
-    ]
-    for candidate in candidates:
-        resolved = _resolve_existing_path(str(candidate))
-        if resolved is not None:
-            return str(resolved)
-    return None
+    return _activity_sources.discover_sibling_config(
+        explicit,
+        app_name=app_name,
+        deps=_this_module(),
+    )
 
 
 def _discover_orca_config(explicit: str | None) -> str | None:
-    return _discover_sibling_config(
-        explicit,
-        app_name="chemstack",
-    )
+    return _activity_sources.discover_orca_config(explicit, deps=_this_module())
 
 
 def _shared_config_hint(*configs: str | None) -> str | None:
-    for config in configs:
-        text = normalize_text(config)
-        if text:
-            return text
-    return None
+    return _activity_sources.shared_config_hint(*configs)
 
 
 def _resolve_activity_source_request(request: ActivitySourceRequest) -> ResolvedActivitySources:
-    shared_config_hint = _shared_config_hint(
-        request.orca_auto_config,
-        request.crest_auto_config,
-        request.xtb_auto_config,
-    )
-    explicit_workflow_root = normalize_text(request.workflow_root)
-    resolved_workflow_root: str | None
-    if explicit_workflow_root:
-        resolved_workflow_root = str(Path(explicit_workflow_root).expanduser().resolve())
-    elif shared_config_hint:
-        resolved_workflow_root = shared_workflow_root_from_config(shared_config_hint)
-    else:
-        resolved_workflow_root = _discover_workflow_root(None)
-    resolved_crest_auto_config = _discover_sibling_config(
-        request.crest_auto_config or shared_config_hint,
-        app_name="crest_auto",
-    )
-    resolved_xtb_auto_config = _discover_sibling_config(
-        request.xtb_auto_config or shared_config_hint,
-        app_name="xtb_auto",
-    )
-    resolved_orca_auto_config = _discover_orca_config(
-        request.orca_auto_config or shared_config_hint
-    )
-    return ResolvedActivitySources(
-        workflow_root=resolved_workflow_root,
-        crest_auto_config=resolved_crest_auto_config,
-        xtb_auto_config=resolved_xtb_auto_config,
-        orca_auto_config=resolved_orca_auto_config,
+    return _activity_sources.resolve_activity_source_request(
+        request,
+        deps=_this_module(),
     )
 
 
@@ -236,127 +144,7 @@ def _resolved_activity_sources_for_request(
 
 
 def _discover_orca_repo_root(explicit: str | None) -> str | None:
-    explicit_text = normalize_text(explicit)
-    if explicit_text:
-        return str(Path(explicit_text).expanduser().resolve())
-    env_text = normalize_text(os.getenv(CHEMSTACK_REPO_ROOT_ENV_VAR))
-    if env_text:
-        return str(Path(env_text).expanduser().resolve())
-    return None
-
-
-@dataclass(frozen=True)
-class ActivityRecord:
-    activity_id: str
-    kind: str
-    engine: str
-    status: str
-    label: str
-    source: str
-    submitted_at: str
-    updated_at: str
-    cancel_target: str
-    aliases: tuple[str, ...] = ()
-    metadata: dict[str, Any] = field(default_factory=dict)
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "activity_id": self.activity_id,
-            "kind": self.kind,
-            "engine": self.engine,
-            "status": self.status,
-            "label": self.label,
-            "source": self.source,
-            "submitted_at": self.submitted_at,
-            "updated_at": self.updated_at,
-            "cancel_target": self.cancel_target,
-            "aliases": list(self.aliases),
-            "metadata": dict(self.metadata),
-        }
-
-
-def _parse_iso(value: str) -> datetime:
-    text = normalize_text(value)
-    if not text:
-        return datetime.min.replace(tzinfo=timezone.utc)
-    if text.endswith("Z"):
-        text = text[:-1] + "+00:00"
-    try:
-        parsed = datetime.fromisoformat(text)
-    except ValueError:
-        return datetime.min.replace(tzinfo=timezone.utc)
-    if parsed.tzinfo is None:
-        return parsed.replace(tzinfo=timezone.utc)
-    return parsed.astimezone(timezone.utc)
-
-
-def _sort_key(record: ActivityRecord) -> tuple[datetime, datetime, str]:
-    return (
-        _parse_iso(record.updated_at),
-        _parse_iso(record.submitted_at),
-        record.activity_id,
-    )
-
-
-def _unique_texts(values: list[str]) -> tuple[str, ...]:
-    ordered: list[str] = []
-    seen: set[str] = set()
-    for value in values:
-        text = normalize_text(value)
-        if not text or text in seen:
-            continue
-        seen.add(text)
-        ordered.append(text)
-    return tuple(ordered)
-
-
-def _mapping_text(mapping: dict[str, Any], key: str) -> str:
-    return normalize_text(mapping.get(key))
-
-
-def _path_aliases(path_text: str, *, root: Path | None = None) -> tuple[str, ...]:
-    text = normalize_text(path_text)
-    if not text:
-        return ()
-    try:
-        path = Path(text).expanduser().resolve()
-    except OSError:
-        return (text,)
-
-    aliases = [str(path), path.name]
-    if root is not None:
-        try:
-            relative = path.relative_to(root)
-        except ValueError:
-            relative = None
-        if relative is not None:
-            aliases.extend([str(relative), relative.as_posix()])
-    return _unique_texts(aliases)
-
-
-def _timestamp_metadata(
-    *,
-    enqueued_at: Any = "",
-    started_at: Any = "",
-    finished_at: Any = "",
-    elapsed_started_at: Any = "",
-) -> dict[str, str]:
-    enqueued_at_text = normalize_text(enqueued_at)
-    started_at_text = normalize_text(started_at)
-    finished_at_text = normalize_text(finished_at)
-    elapsed_started_at_text = (
-        normalize_text(elapsed_started_at) or started_at_text or enqueued_at_text
-    )
-    metadata: dict[str, str] = {}
-    if enqueued_at_text:
-        metadata["enqueued_at"] = enqueued_at_text
-    if started_at_text:
-        metadata["started_at"] = started_at_text
-    if finished_at_text:
-        metadata["finished_at"] = finished_at_text
-    if elapsed_started_at_text:
-        metadata["elapsed_started_at"] = elapsed_started_at_text
-    return metadata
+    return _activity_sources.discover_orca_repo_root(explicit)
 
 
 def _workflow_elapsed_metadata(
@@ -558,207 +346,56 @@ def _orca_snapshot_matches_entry(
     snapshot_by_run_id: dict[str, Any],
     snapshot_by_dir: dict[str, Any],
 ) -> Any | None:
-    run_id = normalize_text(queue_store.queue_entry_run_id(entry))
-    if run_id:
-        return snapshot_by_run_id.get(run_id)
-    if normalize_text(queue_store.queue_entry_status(entry)) not in _ORCA_ACTIVE_QUEUE_STATUSES:
-        return None
-    reaction_dir = normalize_text(queue_store.queue_entry_reaction_dir(entry))
-    if not reaction_dir:
-        return None
-    try:
-        resolved = str(Path(reaction_dir).expanduser().resolve())
-    except OSError:
-        resolved = reaction_dir
-    return snapshot_by_dir.get(resolved)
-
-
-def _orca_queue_represents_snapshot(queue_store: Any, entry: Any, snapshot: Any) -> bool:
-    if snapshot is None:
-        return False
-    run_id = normalize_text(queue_store.queue_entry_run_id(entry))
-    if run_id and run_id == normalize_text(getattr(snapshot, "run_id", "")):
-        return True
-    if normalize_text(queue_store.queue_entry_status(entry)) not in _ORCA_ACTIVE_QUEUE_STATUSES:
-        return False
-    reaction_dir = normalize_text(queue_store.queue_entry_reaction_dir(entry))
-    try:
-        resolved = str(Path(reaction_dir).expanduser().resolve())
-    except OSError:
-        resolved = reaction_dir
-    return resolved == normalize_text(
-        getattr(
-            getattr(snapshot, "reaction_dir", None),
-            "resolve",
-            lambda: getattr(snapshot, "reaction_dir", ""),
-        )()
+    return _activity_orca.snapshot_matches_entry(
+        queue_store,
+        entry,
+        snapshot_by_run_id,
+        snapshot_by_dir,
     )
 
 
+def _orca_queue_represents_snapshot(queue_store: Any, entry: Any, snapshot: Any) -> bool:
+    return _activity_orca.queue_represents_snapshot(queue_store, entry, snapshot)
+
+
 def _orca_snapshot_indexes(snapshots: list[Any]) -> tuple[dict[str, Any], dict[str, Any]]:
-    snapshot_by_run_id = {
-        normalize_text(getattr(snapshot, "run_id", "")): snapshot
-        for snapshot in snapshots
-        if normalize_text(getattr(snapshot, "run_id", ""))
-    }
-    snapshot_by_dir: dict[str, Any] = {}
-    for snapshot in snapshots:
-        try:
-            snapshot_by_dir[str(Path(getattr(snapshot, "reaction_dir")).expanduser().resolve())] = (
-                snapshot
-            )
-        except OSError:
-            continue
-    return snapshot_by_run_id, snapshot_by_dir
+    return _activity_orca.snapshot_indexes(snapshots)
 
 
 def _orca_queue_entry_status(queue_store: Any, entry: Any, snapshot: Any) -> str:
-    status = normalize_text(queue_store.queue_entry_status(entry)) or "unknown"
-    if bool(entry.get("cancel_requested")) and status == "running":
-        return "cancel_requested"
-    if snapshot is None or status != "running":
-        return status
-    snapshot_status = normalize_text(getattr(snapshot, "status", ""))
-    return snapshot_status if snapshot_status and snapshot_status != "running" else status
+    return _activity_orca.queue_entry_status(queue_store, entry, snapshot)
 
 
 def _orca_queue_record(
     queue_store: Any, entry: Any, snapshot: Any, *, allowed_root: Path
 ) -> ActivityRecord:
-    entry_metadata_loader = getattr(queue_store, "queue_entry_metadata", None)
-    entry_metadata = dict(entry_metadata_loader(entry)) if callable(entry_metadata_loader) else {}
-    queue_id = normalize_text(queue_store.queue_entry_id(entry))
-    task_id = normalize_text(queue_store.queue_entry_task_id(entry))
-    run_id = normalize_text(queue_store.queue_entry_run_id(entry))
-    reaction_dir = normalize_text(queue_store.queue_entry_reaction_dir(entry))
-    label = (
-        normalize_text(getattr(snapshot, "name", ""))
-        or normalize_text(Path(reaction_dir).name if reaction_dir else "")
-        or queue_id
-        or task_id
-    )
-    submitted_at = normalize_text(entry.get("enqueued_at"))
-    started_at = normalize_text(entry.get("started_at"))
-    finished_at = normalize_text(entry.get("finished_at"))
-    updated_at = (
-        normalize_text(getattr(snapshot, "completed_at", ""))
-        or normalize_text(getattr(snapshot, "updated_at", ""))
-        or finished_at
-        or started_at
-        or submitted_at
-    )
-    return ActivityRecord(
-        activity_id=queue_id or run_id or task_id or label,
-        kind="job",
-        engine="orca",
-        status=_orca_queue_entry_status(queue_store, entry, snapshot),
-        label=label,
-        source=CHEMSTACK_ORCA_SOURCE,
-        submitted_at=submitted_at,
-        updated_at=updated_at,
-        cancel_target=queue_id or run_id or reaction_dir,
-        aliases=_unique_texts(
-            [queue_id, task_id, run_id, *list(_path_aliases(reaction_dir, root=allowed_root))]
-        ),
-        metadata={
-            "queue_id": queue_id,
-            "task_id": task_id,
-            "task_kind": normalize_text(entry.get("task_kind")),
-            "run_id": run_id,
-            "job_type": normalize_text(entry_metadata.get("job_type")),
-            "selected_inp": normalize_text(entry_metadata.get("selected_inp")),
-            "workflow_id": normalize_text(entry_metadata.get("workflow_id")),
-            "reaction_dir": reaction_dir,
-            "allowed_root": str(allowed_root),
-            "priority": getattr(queue_store, "queue_entry_priority")(entry),
-            **_timestamp_metadata(
-                enqueued_at=submitted_at, started_at=started_at, finished_at=finished_at
-            ),
-        },
+    return _activity_orca.queue_record(
+        queue_store,
+        entry,
+        snapshot,
+        allowed_root=allowed_root,
+        deps=_this_module(),
     )
 
 
 def _orca_snapshot_reaction_dir(snapshot: Any) -> str:
-    reaction_dir_obj = getattr(snapshot, "reaction_dir", None)
-    if reaction_dir_obj is None:
-        return ""
-    try:
-        return str(Path(reaction_dir_obj).expanduser().resolve())
-    except OSError:
-        return str(reaction_dir_obj)
+    return _activity_orca.snapshot_reaction_dir(snapshot)
 
 
 def _orca_snapshot_record(snapshot: Any, *, allowed_root: Path) -> ActivityRecord:
-    reaction_dir = _orca_snapshot_reaction_dir(snapshot)
-    run_id = normalize_text(getattr(snapshot, "run_id", ""))
-    label = (
-        normalize_text(getattr(snapshot, "name", ""))
-        or normalize_text(Path(reaction_dir).name if reaction_dir else "")
-        or run_id
-    )
-    started_at = normalize_text(getattr(snapshot, "started_at", ""))
-    completed_at = normalize_text(getattr(snapshot, "completed_at", ""))
-    return ActivityRecord(
-        activity_id=run_id or label,
-        kind="job",
-        engine="orca",
-        status=normalize_text(getattr(snapshot, "status", "")) or "unknown",
-        label=label,
-        source=CHEMSTACK_ORCA_SOURCE,
-        submitted_at=started_at,
-        updated_at=completed_at
-        or normalize_text(getattr(snapshot, "updated_at", ""))
-        or started_at,
-        cancel_target=run_id or reaction_dir,
-        aliases=_unique_texts(
-            [
-                run_id,
-                *list(_path_aliases(reaction_dir, root=allowed_root)),
-                normalize_text(getattr(snapshot, "name", "")),
-            ]
-        ),
-        metadata={
-            "run_id": run_id,
-            "reaction_dir": reaction_dir,
-            "allowed_root": str(allowed_root),
-            "attempts": getattr(snapshot, "attempts", 0),
-            "selected_inp_name": normalize_text(getattr(snapshot, "selected_inp_name", "")),
-            "job_type": normalize_text(getattr(snapshot, "job_type", "")),
-            **_timestamp_metadata(started_at=started_at, finished_at=completed_at),
-        },
+    return _activity_orca.snapshot_record(
+        snapshot,
+        allowed_root=allowed_root,
+        deps=_this_module(),
     )
 
 
 def _orca_records(*, config_path: str, repo_root: str | None = None) -> list[ActivityRecord]:
-    del repo_root
-    from chemstack.orca import queue_store, run_snapshot
-
-    runtime_paths = sibling_runtime_paths(config_path, engine="orca")
-    allowed_root = runtime_paths["allowed_root"]
-    reconcile = getattr(queue_store, "reconcile_orphaned_running_entries", None)
-    if callable(reconcile):
-        reconcile(allowed_root)
-
-    queue_entries = list(getattr(queue_store, "list_queue")(allowed_root))
-    snapshots = list(getattr(run_snapshot, "collect_run_snapshots")(allowed_root))
-    snapshot_by_run_id, snapshot_by_dir = _orca_snapshot_indexes(snapshots)
-    represented_snapshot_keys: set[str] = set()
-    rows: list[ActivityRecord] = []
-
-    for entry in queue_entries:
-        snapshot = _orca_snapshot_matches_entry(
-            queue_store, entry, snapshot_by_run_id, snapshot_by_dir
-        )
-        rows.append(_orca_queue_record(queue_store, entry, snapshot, allowed_root=allowed_root))
-        if snapshot is not None and _orca_queue_represents_snapshot(queue_store, entry, snapshot):
-            represented_snapshot_keys.add(normalize_text(getattr(snapshot, "key", "")))
-
-    for snapshot in snapshots:
-        snapshot_key = normalize_text(getattr(snapshot, "key", ""))
-        if not snapshot_key or snapshot_key not in represented_snapshot_keys:
-            rows.append(_orca_snapshot_record(snapshot, allowed_root=allowed_root))
-
-    return rows
+    return _activity_orca.orca_records(
+        config_path=config_path,
+        repo_root=repo_root,
+        deps=_this_module(),
+    )
 
 
 def _requested_child_engines(request: ActivityListRequest) -> tuple[bool, set[str]]:
@@ -998,32 +635,7 @@ def clear_activities(
 
 
 def _match_activity_record(records: list[ActivityRecord], target: str) -> ActivityRecord:
-    normalized_target = normalize_text(target)
-    if not normalized_target:
-        raise ValueError("Cancel target is empty.")
-
-    exact_matches = [
-        record
-        for record in records
-        if normalized_target in {record.activity_id, record.cancel_target}
-    ]
-    if len(exact_matches) == 1:
-        return exact_matches[0]
-    if len(exact_matches) > 1:
-        raise ValueError(
-            f"Ambiguous activity target: {normalized_target}. Matches: "
-            + ", ".join(sorted(record.activity_id for record in exact_matches))
-        )
-
-    alias_matches = [record for record in records if normalized_target in set(record.aliases)]
-    if len(alias_matches) == 1:
-        return alias_matches[0]
-    if len(alias_matches) > 1:
-        raise ValueError(
-            f"Ambiguous activity target: {normalized_target}. Matches: "
-            + ", ".join(sorted(record.activity_id for record in alias_matches))
-        )
-    raise LookupError(f"Activity target not found: {normalized_target}")
+    return _activity_cancel.match_activity_record(records, target)
 
 
 def _cancel_activity_payload(
@@ -1032,16 +644,11 @@ def _cancel_activity_payload(
     *,
     fallback_status: str,
 ) -> dict[str, Any]:
-    return {
-        "activity_id": record.activity_id,
-        "kind": record.kind,
-        "engine": record.engine,
-        "source": record.source,
-        "label": record.label,
-        "status": normalize_text(result.get("status")) or fallback_status,
-        "cancel_target": record.cancel_target,
-        "result": result,
-    }
+    return _activity_cancel.cancel_activity_payload(
+        record,
+        result,
+        fallback_status=fallback_status,
+    )
 
 
 def _cancel_workflow_activity(
@@ -1049,21 +656,7 @@ def _cancel_workflow_activity(
     resolved: ResolvedActivitySources,
     request: ActivityCancelRequest,
 ) -> dict[str, Any]:
-    from .operations import cancel_workflow
-
-    return cancel_workflow(
-        target=record.cancel_target,
-        workflow_root=resolved.workflow_root,
-        crest_auto_config=resolved.crest_auto_config,
-        crest_auto_executable=request.crest_auto_executable,
-        crest_auto_repo_root=request.crest_auto_repo_root,
-        xtb_auto_config=resolved.xtb_auto_config,
-        xtb_auto_executable=request.xtb_auto_executable,
-        xtb_auto_repo_root=request.xtb_auto_repo_root,
-        orca_auto_config=resolved.orca_auto_config,
-        orca_auto_executable=request.orca_auto_executable,
-        orca_auto_repo_root=request.orca_auto_repo_root,
-    )
+    return _activity_cancel.cancel_workflow_activity(record, resolved, request)
 
 
 def _cancel_crest_activity(
@@ -1071,14 +664,11 @@ def _cancel_crest_activity(
     resolved: ResolvedActivitySources,
     request: ActivityCancelRequest,
 ) -> dict[str, Any]:
-    config_path = normalize_text(resolved.crest_auto_config)
-    if not config_path:
-        raise ValueError("crest_auto_config is required to cancel crest_auto activities.")
-    return cancel_crest_target(
-        target=record.cancel_target,
-        config_path=config_path,
-        executable=request.crest_auto_executable,
-        repo_root=request.crest_auto_repo_root,
+    return _activity_cancel.cancel_crest_activity(
+        record,
+        resolved,
+        request,
+        deps=_this_module(),
     )
 
 
@@ -1087,14 +677,11 @@ def _cancel_xtb_activity(
     resolved: ResolvedActivitySources,
     request: ActivityCancelRequest,
 ) -> dict[str, Any]:
-    config_path = normalize_text(resolved.xtb_auto_config)
-    if not config_path:
-        raise ValueError("xtb_auto_config is required to cancel xtb_auto activities.")
-    return cancel_xtb_target(
-        target=record.cancel_target,
-        config_path=config_path,
-        executable=request.xtb_auto_executable,
-        repo_root=request.xtb_auto_repo_root,
+    return _activity_cancel.cancel_xtb_activity(
+        record,
+        resolved,
+        request,
+        deps=_this_module(),
     )
 
 
@@ -1103,14 +690,11 @@ def _cancel_orca_activity(
     resolved: ResolvedActivitySources,
     request: ActivityCancelRequest,
 ) -> dict[str, Any]:
-    config_path = normalize_text(resolved.orca_auto_config)
-    if not config_path:
-        raise ValueError("chemstack_config is required to cancel chemstack ORCA activities.")
-    return cancel_orca_target(
-        target=record.cancel_target,
-        config_path=config_path,
-        executable=request.orca_auto_executable,
-        repo_root=_discover_orca_repo_root(request.orca_auto_repo_root),
+    return _activity_cancel.cancel_orca_activity(
+        record,
+        resolved,
+        request,
+        deps=_this_module(),
     )
 
 

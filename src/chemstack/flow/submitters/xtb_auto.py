@@ -1,15 +1,17 @@
 from __future__ import annotations
 
-import subprocess
+import sys
 from typing import Any
 
 from chemstack.core.app_ids import CHEMSTACK_CLI_MODULE, CHEMSTACK_XTB_MODULE
 
 from .common import normalize_text, parse_key_value_lines, queue_submission_status, run_sibling_app
+from . import sibling_engine as _sibling_engine
 
 _SUBMIT_MODULE_NAME = CHEMSTACK_XTB_MODULE
 _CANCEL_MODULE_NAME = CHEMSTACK_CLI_MODULE
 _CANCEL_TIMEOUT_SECONDS = 5.0
+_SUBMITTER_COMPAT = (parse_key_value_lines, queue_submission_status, run_sibling_app)
 
 
 def submit_job_dir(
@@ -20,40 +22,19 @@ def submit_job_dir(
     executable: str = "xtb_auto",
     repo_root: str | None = None,
 ) -> dict[str, Any]:
-    result = run_sibling_app(
+    return _sibling_engine.submit_job_dir(
+        deps=sys.modules[__name__],
         executable=normalize_text(executable) or "xtb_auto",
-        config_path=normalize_text(config_path),
-        repo_root=normalize_text(repo_root) or None,
+        config_path=config_path,
+        repo_root=repo_root,
         module_name=_SUBMIT_MODULE_NAME,
-        tail_argv=[
-            "run-dir",
-            job_dir,
-            "--priority",
-            str(int(priority)),
-        ],
+        job_dir=job_dir,
+        priority=priority,
+        extra_fields=lambda parsed: {
+            "job_type": parsed.get("job_type", ""),
+            "reaction_key": parsed.get("reaction_key", ""),
+        },
     )
-    parsed = parse_key_value_lines(result.stdout)
-    status, reason = queue_submission_status(
-        returncode=int(result.returncode),
-        parsed_stdout=parsed,
-        stdout=result.stdout,
-        stderr=result.stderr,
-    )
-    argv = list(result.args) if isinstance(result.args, (list, tuple)) else [str(result.args)]
-    return {
-        "status": status,
-        "reason": reason,
-        "returncode": int(result.returncode),
-        "command_argv": argv,
-        "stdout": result.stdout,
-        "stderr": result.stderr,
-        "parsed_stdout": parsed,
-        "job_id": parsed.get("job_id", ""),
-        "queue_id": parsed.get("queue_id", ""),
-        "job_dir": parsed.get("job_dir", job_dir),
-        "job_type": parsed.get("job_type", ""),
-        "reaction_key": parsed.get("reaction_key", ""),
-    }
 
 
 def cancel_target(
@@ -63,52 +44,15 @@ def cancel_target(
     executable: str = "xtb_auto",
     repo_root: str | None = None,
 ) -> dict[str, Any]:
-    try:
-        result = run_sibling_app(
-            executable=normalize_text(executable) or "xtb_auto",
-            config_path=normalize_text(config_path),
-            repo_root=normalize_text(repo_root) or None,
-            module_name=_CANCEL_MODULE_NAME,
-            tail_argv=["queue", "cancel", target],
-            timeout_seconds=_CANCEL_TIMEOUT_SECONDS,
-        )
-    except subprocess.TimeoutExpired as exc:
-        command_argv = list(exc.cmd) if isinstance(exc.cmd, (list, tuple)) else [str(exc.cmd)]
-        return {
-            "status": "failed",
-            "reason": "cancel_command_timeout",
-            "returncode": 124,
-            "command_argv": command_argv,
-            "stdout": exc.stdout or "",
-            "stderr": exc.stderr or "",
-            "parsed_stdout": {},
-            "queue_id": "",
-            "job_id": "",
-        }
-    parsed = parse_key_value_lines(result.stdout)
-    status = "failed"
-    if result.returncode == 0:
-        parsed_status = normalize_text(parsed.get("status")).lower()
-        if parsed_status == "cancel_requested":
-            status = "cancel_requested"
-        elif parsed_status == "cancelled":
-            status = "cancelled"
-        elif "cancel requested" in result.stdout.lower():
-            status = "cancel_requested"
-        else:
-            status = "cancelled"
-    argv = list(result.args) if isinstance(result.args, (list, tuple)) else [str(result.args)]
-    return {
-        "status": status,
-        "reason": "" if status != "failed" else "cancel_command_failed",
-        "returncode": int(result.returncode),
-        "command_argv": argv,
-        "stdout": result.stdout,
-        "stderr": result.stderr,
-        "parsed_stdout": parsed,
-        "queue_id": parsed.get("queue_id", ""),
-        "job_id": parsed.get("job_id", ""),
-    }
+    return _sibling_engine.cancel_target(
+        deps=sys.modules[__name__],
+        executable=normalize_text(executable) or "xtb_auto",
+        config_path=config_path,
+        repo_root=repo_root,
+        module_name=_CANCEL_MODULE_NAME,
+        target=target,
+        timeout_seconds=_CANCEL_TIMEOUT_SECONDS,
+    )
 
 
 __all__ = [

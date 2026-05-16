@@ -2,10 +2,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
+import sys
 from typing import Any
 
 from chemstack.core.indexing import JobLocationRecord, resolve_job_location
 
+from . import _job_location_contract_payload as _contract_payload
+from . import _job_location_runtime_context as _runtime_context
 from ._job_location_records import list_job_location_records, resolve_record_job_dir
 from ._job_location_utils import (
     QUEUE_FILE_NAME,
@@ -32,6 +35,27 @@ from .state import (
     load_report_json,
     load_state,
 )
+
+
+def _this_module() -> Any:
+    return sys.modules[__name__]
+
+
+_CONTRACT_PAYLOAD_COMPAT = (
+    attempt_count,
+    coerce_attempts,
+    derive_selected_input_xyz,
+    final_result_payload,
+    is_subpath,
+    max_retries,
+    normalize_bool,
+    prefer_orca_optimized_xyz,
+    resolve_artifact_path,
+    resource_dict_from_any,
+    status_from_payloads,
+)
+
+_RUNTIME_CONTEXT_COMPAT = (resolve_record_job_dir,)
 
 
 @dataclass(frozen=True)
@@ -217,40 +241,11 @@ def _organized_job_dir(job_dir: Path) -> Path | None:
 
 
 def _matching_tracked_job_dirs(index_root: str | Path, target: str) -> list[Path]:
-    target_text = normalize_text(target)
-    if not target_text:
-        return []
-
-    candidates: list[Path] = []
-    seen: set[Path] = set()
-    for record in list_job_location_records(index_root):
-        job_dir = resolve_record_job_dir(record)
-        if job_dir is None or job_dir in seen:
-            continue
-
-        state = load_state(job_dir)
-        report = load_report_json(job_dir) or {}
-        organized_ref = load_organized_ref(job_dir) or {}
-
-        if not organized_ref:
-            original_dir = resolve_existing_job_dir(record.original_run_dir)
-            if original_dir is not None and original_dir != job_dir:
-                organized_ref = load_organized_ref(original_dir) or {}
-
-        lookup_values = (
-            record.job_id,
-            report.get("job_id"),
-            (state or {}).get("job_id"),
-            organized_ref.get("job_id"),
-            report.get("run_id"),
-            (state or {}).get("run_id"),
-            organized_ref.get("run_id"),
-        )
-        if any(normalize_text(value) == target_text for value in lookup_values):
-            seen.add(job_dir)
-            candidates.append(job_dir)
-
-    return candidates
+    return _runtime_context.matching_tracked_job_dirs(
+        index_root,
+        target,
+        deps=_this_module(),
+    )
 
 
 def _job_dir_candidates(index_root: str | Path, target: str) -> list[Path]:
@@ -358,85 +353,24 @@ def load_job_runtime_context(
     run_id: str = "",
     reaction_dir: str = "",
 ) -> JobRuntimeContext:
-    resolved_index_root = Path(index_root).expanduser().resolve()
-
-    artifact = _first_artifact_context(resolved_index_root, (target, run_id, reaction_dir))
-    queue_entry = _find_queue_entry(
-        index_root=resolved_index_root,
-        target=target,
+    return _runtime_context.load_job_runtime_context(
+        index_root,
+        target,
+        organized_root=organized_root,
         queue_id=queue_id,
         run_id=run_id,
         reaction_dir=reaction_dir,
-    )
-
-    queue_reaction_dir = resolve_existing_job_dir((queue_entry or {}).get("reaction_dir"))
-    if artifact.job_dir is None and queue_reaction_dir is not None:
-        artifact = _first_artifact_context(
-            resolved_index_root,
-            (str(queue_reaction_dir), target, run_id, reaction_dir),
-        )
-
-    artifact = _job_artifact_context(
-        record=artifact.record,
-        job_dir=artifact.job_dir,
-        state=artifact.state,
-        report=artifact.report,
-        organized_ref=_hydrated_organized_ref(artifact),
-    )
-
-    state_payload = dict(artifact.state) if isinstance(artifact.state, dict) else {}
-    report_payload = dict(artifact.report) if isinstance(artifact.report, dict) else {}
-    organized_ref_payload = (
-        dict(artifact.organized_ref) if isinstance(artifact.organized_ref, dict) else {}
-    )
-    current_dir = artifact.job_dir or resolve_existing_job_dir(reaction_dir) or queue_reaction_dir
-
-    resolved_run_id = (
-        normalize_text(run_id)
-        or normalize_text(state_payload.get("run_id"))
-        or normalize_text(report_payload.get("run_id"))
-        or normalize_text(organized_ref_payload.get("run_id"))
-        or normalize_text((queue_entry or {}).get("run_id"))
-    )
-    organized_dir = _record_organized_dir(artifact.record)
-
-    if organized_dir is not None and (
-        current_dir is None
-        or not current_dir.exists()
-        or (not state_payload and not report_payload)
-    ):
-        refreshed = _first_artifact_context(
-            resolved_index_root,
-            (str(organized_dir), target, resolved_run_id, reaction_dir),
-        )
-        refreshed_dir = refreshed.job_dir or organized_dir
-        artifact = _job_artifact_context(
-            record=refreshed.record or artifact.record,
-            job_dir=refreshed_dir,
-            state=refreshed.state or dict(load_state(refreshed_dir) or {}),
-            report=refreshed.report or load_report_json(refreshed_dir),
-            organized_ref=_hydrated_organized_ref(refreshed) or load_organized_ref(refreshed_dir),
-        )
-
-    return JobRuntimeContext(
-        artifact=artifact,
-        queue_entry=queue_entry,
-        organized_dir=organized_dir,
+        deps=_this_module(),
     )
 
 
 def _runtime_paths(current_dir: Path | None) -> dict[str, str]:
-    return {
-        "run_state_path": str((current_dir / STATE_FILE_NAME).resolve())
-        if current_dir is not None and (current_dir / STATE_FILE_NAME).exists()
-        else "",
-        "report_json_path": str((current_dir / REPORT_JSON_NAME).resolve())
-        if current_dir is not None and (current_dir / REPORT_JSON_NAME).exists()
-        else "",
-        "report_md_path": str((current_dir / REPORT_MD_NAME).resolve())
-        if current_dir is not None and (current_dir / REPORT_MD_NAME).exists()
-        else "",
-    }
+    return _contract_payload.runtime_paths(
+        current_dir,
+        state_file_name=STATE_FILE_NAME,
+        report_json_name=REPORT_JSON_NAME,
+        report_md_name=REPORT_MD_NAME,
+    )
 
 
 def _runtime_payloads(
@@ -448,14 +382,7 @@ def _runtime_payloads(
     dict[str, Any],
     dict[str, Any],
 ]:
-    artifact = runtime.artifact
-    return (
-        artifact.record,
-        dict(runtime.queue_entry) if isinstance(runtime.queue_entry, dict) else {},
-        dict(artifact.state) if isinstance(artifact.state, dict) else {},
-        dict(artifact.report) if isinstance(artifact.report, dict) else {},
-        dict(artifact.organized_ref) if isinstance(artifact.organized_ref, dict) else {},
-    )
+    return _contract_payload.runtime_payloads(runtime)
 
 
 def _runtime_current_dir(
@@ -464,10 +391,11 @@ def _runtime_current_dir(
     queue_entry: dict[str, Any],
     reaction_dir: str,
 ) -> Path | None:
-    return (
-        runtime.artifact.job_dir
-        or resolve_existing_job_dir(reaction_dir)
-        or resolve_existing_job_dir(queue_entry.get("reaction_dir"))
+    return _contract_payload.runtime_current_dir(
+        runtime,
+        queue_entry=queue_entry,
+        reaction_dir=reaction_dir,
+        deps=_this_module(),
     )
 
 
@@ -479,12 +407,13 @@ def _resolved_run_id(
     organized_ref: dict[str, Any],
     queue_entry: dict[str, Any],
 ) -> str:
-    return (
-        normalize_text(run_id)
-        or normalize_text(state.get("run_id"))
-        or normalize_text(report.get("run_id"))
-        or normalize_text(organized_ref.get("run_id"))
-        or normalize_text(queue_entry.get("run_id"))
+    return _contract_payload.resolved_run_id(
+        run_id=run_id,
+        state=state,
+        report=report,
+        organized_ref=organized_ref,
+        queue_entry=queue_entry,
+        deps=_this_module(),
     )
 
 
@@ -495,13 +424,13 @@ def _latest_known_path(
     current_dir: Path | None,
     target: str,
 ) -> str:
-    if record is not None and normalize_text(record.latest_known_path):
-        return normalize_text(record.latest_known_path)
-    if runtime.organized_dir is not None:
-        return str(runtime.organized_dir)
-    if current_dir is not None:
-        return str(current_dir)
-    return normalize_text(target)
+    return _contract_payload.latest_known_path(
+        record=record,
+        runtime=runtime,
+        current_dir=current_dir,
+        target=target,
+        deps=_this_module(),
+    )
 
 
 def _selected_artifact_paths(
@@ -514,39 +443,16 @@ def _selected_artifact_paths(
     organized_dir: Path | None,
     latest_known_path: str,
 ) -> tuple[str, str, str, str]:
-    selected_inp = resolve_artifact_path(
-        state.get("selected_inp")
-        or report.get("selected_inp")
-        or organized_ref.get("selected_inp")
-        or organized_ref.get("selected_input_xyz")
-        or (record.selected_input_xyz if record is not None else ""),
-        current_dir,
-    )
-    state_final_result = state.get("final_result")
-    state_final = state_final_result if isinstance(state_final_result, dict) else {}
-    report_final_result = report.get("final_result")
-    report_final = report_final_result if isinstance(report_final_result, dict) else {}
-    last_out_path = resolve_artifact_path(
-        state_final.get("last_out_path") or report_final.get("last_out_path"),
-        current_dir,
-    )
-    selected_input_xyz = resolve_artifact_path(
-        organized_ref.get("selected_input_xyz")
-        or (record.selected_input_xyz if record is not None else ""),
-        current_dir,
-    )
-    if not selected_input_xyz.lower().endswith(".xyz"):
-        selected_input_xyz = ""
-    selected_input_xyz = selected_input_xyz or derive_selected_input_xyz(selected_inp)
-    optimized_xyz_path = prefer_orca_optimized_xyz(
-        selected_inp=selected_inp,
-        selected_input_xyz=selected_input_xyz,
+    return _contract_payload.selected_artifact_paths(
+        record=record,
+        state=state,
+        report=report,
+        organized_ref=organized_ref,
         current_dir=current_dir,
         organized_dir=organized_dir,
         latest_known_path=latest_known_path,
-        last_out_path=last_out_path,
+        deps=_this_module(),
     )
-    return selected_inp, selected_input_xyz, last_out_path, optimized_xyz_path
 
 
 def _runtime_resources(
@@ -554,15 +460,11 @@ def _runtime_resources(
     record: JobLocationRecord | None,
     queue_entry: dict[str, Any],
 ) -> tuple[dict[str, int], dict[str, int]]:
-    resource_request = resource_dict_from_any(
-        queue_entry.get("resource_request")
-    ) or resource_dict_from_any(record.resource_request if record is not None else {})
-    resource_actual = (
-        resource_dict_from_any(queue_entry.get("resource_actual"))
-        or resource_dict_from_any(record.resource_actual if record is not None else {})
-        or dict(resource_request)
+    return _contract_payload.runtime_resources(
+        record=record,
+        queue_entry=queue_entry,
+        deps=_this_module(),
     )
-    return resource_request, resource_actual
 
 
 def _organized_output_dir(
@@ -573,18 +475,13 @@ def _organized_output_dir(
     current_dir: Path | None,
     organized_root: str | Path | None,
 ) -> str:
-    resolved_organized_root = (
-        Path(organized_root).expanduser().resolve() if organized_root else None
-    )
-    return normalize_text(
-        (record.organized_output_dir if record is not None else "")
-        or organized_ref.get("organized_output_dir")
-        or (str(organized_dir) if organized_dir is not None else "")
-        or (
-            str(current_dir)
-            if current_dir is not None and is_subpath(current_dir, resolved_organized_root)
-            else ""
-        )
+    return _contract_payload.organized_output_dir(
+        record=record,
+        organized_ref=organized_ref,
+        organized_dir=organized_dir,
+        current_dir=current_dir,
+        organized_root=organized_root,
+        deps=_this_module(),
     )
 
 
@@ -599,15 +496,13 @@ def _resolved_status(
     state: dict[str, Any],
     report: dict[str, Any],
 ) -> tuple[str, str, str, str]:
-    status, analyzer_status, reason, completed_at = status_from_payloads(
+    return _contract_payload.resolved_status(
+        record=record,
         queue_entry=queue_entry,
         state=state,
         report=report,
+        deps=_this_module(),
     )
-    tracked_status = _tracked_status(record)
-    if status == "unknown" and tracked_status:
-        status = tracked_status
-    return status, analyzer_status, reason, completed_at
 
 
 def _orca_contract_payload_context(
@@ -704,33 +599,7 @@ def _orca_contract_payload_context(
 
 
 def _orca_contract_payload(ctx: OrcaContractPayloadContext) -> dict[str, Any]:
-    return {
-        "run_id": ctx.resolved_run_id,
-        "status": ctx.status,
-        "reason": ctx.reason,
-        "state_status": ctx.state_status,
-        "reaction_dir": str(current_dir)
-        if (current_dir := ctx.current_dir) is not None
-        else normalize_text(ctx.reaction_dir),
-        "latest_known_path": ctx.latest_known_path,
-        "organized_output_dir": ctx.organized_output_dir,
-        "optimized_xyz_path": ctx.optimized_xyz_path,
-        "queue_id": normalize_text(ctx.queue_entry.get("queue_id") or ""),
-        "queue_status": normalize_text(ctx.queue_entry.get("status")).lower(),
-        "cancel_requested": normalize_bool(ctx.queue_entry.get("cancel_requested")),
-        "selected_inp": ctx.selected_inp,
-        "selected_input_xyz": ctx.selected_input_xyz,
-        "analyzer_status": ctx.analyzer_status,
-        "completed_at": ctx.completed_at,
-        "last_out_path": ctx.last_out_path,
-        **_runtime_paths(ctx.current_dir),
-        "attempt_count": attempt_count(ctx.state, ctx.report),
-        "max_retries": max_retries(ctx.state, ctx.report),
-        "attempts": coerce_attempts(ctx.state, ctx.report),
-        "final_result": final_result_payload(ctx.state, ctx.report),
-        "resource_request": ctx.resource_request,
-        "resource_actual": ctx.resource_actual,
-    }
+    return _contract_payload.orca_contract_payload(ctx, deps=_this_module())
 
 
 def load_orca_contract_payload(

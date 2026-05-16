@@ -9,15 +9,15 @@ from typing import Any
 
 from chemstack.core.config.files import CHEMSTACK_CONFIG_ENV_VAR
 from chemstack.core.config.schema import TelegramConfig
-from chemstack.core.notifications import (
-    build_telegram_transport,
-    escape_html as _escape_html,
-    html_code as _metric_code,
-    load_telegram_config_from_file,
-)
+from chemstack.core.notifications import build_telegram_transport, load_telegram_config_from_file
 from chemstack.core.utils import atomic_write_json, file_lock, now_utc_iso, timestamped_token
 
-from ._workflow_phases import SUPPRESSED_STAGE_NOTIFICATION_ENGINES, WORKFLOW_PHASE_FINISHED_EVENT
+from . import _registry_notifications as _notifications
+from ._registry_notifications import (
+    DEFAULT_NOTIFICATION_EVENT_TYPES,
+    STAGE_HANDOFF_EVENT_TYPES,
+    STAGE_STATUS_EVENT_TYPES,
+)
 from .state import iter_workflow_workspaces, load_workflow_payload, workflow_summary
 
 WORKFLOW_REGISTRY_FILE_NAME = "workflow_registry.json"
@@ -28,32 +28,10 @@ WORKFLOW_REGISTRY_CLEARED_FILE_NAME = "workflow_registry_cleared.json"
 _TERMINAL_WORKFLOW_STATUSES = frozenset(
     {"completed", "failed", "cancelled", "cancel_failed", "submission_failed"}
 )
-DEFAULT_NOTIFICATION_EVENT_TYPES = frozenset(
-    {
-        "workflow_status_changed",
-        "workflow_advance_failed",
-        "worker_started",
-        "worker_stopped",
-        "worker_interrupted",
-        "worker_lock_error",
-    }
-)
-STAGE_STATUS_EVENT_TYPES = frozenset(
-    {
-        "workflow_stage_submitted",
-        "workflow_stage_completed",
-        "workflow_stage_failed",
-        "workflow_stage_cancelled",
-        "workflow_stage_status_changed",
-    }
-)
-STAGE_HANDOFF_EVENT_TYPES = frozenset(
-    {
-        "workflow_stage_handoff_ready",
-        "workflow_stage_handoff_retrying",
-        "workflow_stage_handoff_failed",
-        "workflow_stage_reaction_handoff_status_changed",
-    }
+_NOTIFICATION_COMPAT = (
+    DEFAULT_NOTIFICATION_EVENT_TYPES,
+    STAGE_STATUS_EVENT_TYPES,
+    STAGE_HANDOFF_EVENT_TYPES,
 )
 
 
@@ -87,77 +65,23 @@ def _normalize_text(value: Any) -> str:
 
 
 def _event_text(event: dict[str, Any], metadata: dict[str, Any], *keys: str) -> str:
-    for key in keys:
-        text = _normalize_text(event.get(key))
-        if text:
-            return text
-        text = _normalize_text(metadata.get(key))
-        if text:
-            return text
-    return ""
+    return _notifications.event_text(event, metadata, *keys)
 
 
 def _format_count_mapping(value: Any) -> str:
-    mapping = _coerce_mapping(value)
-    if not mapping:
-        return "-"
-    parts: list[str] = []
-    for key in sorted(mapping):
-        try:
-            count = int(mapping[key])
-        except (TypeError, ValueError):
-            continue
-        parts.append(f"{_normalize_text(key)}:{count}")
-    return ",".join(parts) if parts else "-"
+    return _notifications.format_count_mapping(value)
 
 
 def _format_stage_statuses(value: Any) -> str:
-    if not isinstance(value, list):
-        return "-"
-    parts: list[str] = []
-    for item in value:
-        if not isinstance(item, dict):
-            continue
-        label = _normalize_text(item.get("label") or item.get("stage_id"))
-        status = _normalize_text(item.get("status") or item.get("task_status"))
-        if not label or not status:
-            continue
-        parts.append(f"{label}:{status}")
-    return ",".join(parts) if parts else "-"
+    return _notifications.format_stage_statuses(value)
 
 
 def _transition_html(previous: str, current: str) -> str:
-    previous_text = _normalize_text(previous)
-    current_text = _normalize_text(current)
-    if previous_text and current_text:
-        return f"{_metric_code(previous_text)} -> {_metric_code(current_text)}"
-    if current_text:
-        return _metric_code(current_text)
-    if previous_text:
-        return _metric_code(previous_text)
-    return _metric_code("-")
+    return _notifications.transition_html(previous, current)
 
 
 def _title_from_event_type(event_type: str) -> str:
-    labels = {
-        "workflow_status_changed": "Status Changed",
-        "workflow_advance_failed": "Advance Failed",
-        "workflow_stage_submitted": "Stage Submitted",
-        "workflow_stage_completed": "Stage Completed",
-        "workflow_stage_failed": "Stage Failed",
-        "workflow_stage_cancelled": "Stage Cancelled",
-        "workflow_stage_status_changed": "Stage Status Changed",
-        "workflow_stage_handoff_ready": "Handoff Ready",
-        "workflow_stage_handoff_retrying": "Handoff Retrying",
-        "workflow_stage_handoff_failed": "Handoff Failed",
-        "workflow_stage_reaction_handoff_status_changed": "Handoff Status Changed",
-        WORKFLOW_PHASE_FINISHED_EVENT: "Phase Finished",
-        "worker_started": "Worker Started",
-        "worker_stopped": "Worker Stopped",
-        "worker_interrupted": "Worker Interrupted",
-        "worker_lock_error": "Worker Lock Error",
-    }
-    return f"ChemStack Flow {labels.get(event_type, 'Event')}"
+    return _notifications.title_from_event_type(event_type)
 
 
 def _registry_path(workflow_root: str | Path) -> Path:
@@ -222,17 +146,11 @@ def _coerce_counts(value: Any) -> dict[str, int]:
 
 
 def _notification_event_types_from_env() -> set[str]:
-    raw = os.environ.get("CHEM_FLOW_NOTIFY_EVENT_TYPES", "")
-    if not raw.strip():
-        return set(DEFAULT_NOTIFICATION_EVENT_TYPES)
-    return {item.strip() for item in raw.split(",") if item.strip()}
+    return _notifications.notification_event_types_from_env()
 
 
 def _journal_notification_enabled(event_type: str) -> bool:
-    disabled = os.environ.get("CHEM_FLOW_NOTIFY_DISABLED", "").strip().lower()
-    if disabled in {"1", "true", "yes", "on"}:
-        return False
-    return event_type in _notification_event_types_from_env()
+    return _notifications.journal_notification_enabled(event_type)
 
 
 def _telegram_transport_from_env():
@@ -251,182 +169,42 @@ def _telegram_transport_from_env():
 
 
 def _journal_event_context(event: dict[str, Any], workflow_root: str | Path) -> dict[str, str]:
-    event_type = _normalize_text(event.get("event_type"))
-    metadata = _coerce_mapping(event.get("metadata"))
-    return {
-        "event_type": event_type,
-        "workflow_id": _normalize_text(event.get("workflow_id")) or "-",
-        "template_name": _normalize_text(event.get("template_name")) or "-",
-        "status": _normalize_text(event.get("status")) or "-",
-        "previous_status": _normalize_text(event.get("previous_status")) or "-",
-        "reason": _normalize_text(event.get("reason")) or "-",
-        "session": _normalize_text(event.get("worker_session_id")) or "-",
-        "stage_id": _event_text(event, metadata, "stage_id") or "-",
-        "engine": _event_text(event, metadata, "engine") or "-",
-        "task_kind": _event_text(event, metadata, "task_kind") or "-",
-        "stage_status": _event_text(event, metadata, "stage_status", "status"),
-        "previous_stage_status": _event_text(
-            event, metadata, "previous_stage_status", "previous_status"
-        ),
-        "reaction_handoff_status": _event_text(event, metadata, "reaction_handoff_status"),
-        "previous_reaction_handoff_status": _event_text(
-            event, metadata, "previous_reaction_handoff_status"
-        ),
-        "root_text": str(Path(workflow_root).expanduser().resolve()),
-    }
+    return _notifications.journal_event_context(event, workflow_root)
 
 
 def _workflow_status_event_message(context: dict[str, str]) -> str:
-    event_type = context["event_type"]
-    return "\n".join(
-        [
-            f"<b>{_escape_html(_title_from_event_type(event_type))}</b>",
-            f"<b>Workflow</b>: {_metric_code(context['workflow_id'])}",
-            f"<b>Template</b>: {_metric_code(context['template_name'])}",
-            f"<b>Status</b>: {_transition_html(context['previous_status'], context['status'])}",
-            f"<b>Worker session</b>: {_metric_code(context['session'])}",
-        ]
-    )
+    return _notifications.workflow_status_event_message(context)
 
 
 def _workflow_advance_failed_event_message(context: dict[str, str]) -> str:
-    event_type = context["event_type"]
-    return "\n".join(
-        [
-            f"<b>{_escape_html(_title_from_event_type(event_type))}</b>",
-            f"<b>Workflow</b>: {_metric_code(context['workflow_id'])}",
-            f"<b>Template</b>: {_metric_code(context['template_name'])}",
-            f"<b>Reason</b>: {_metric_code(context['reason'])}",
-            f"<b>Worker session</b>: {_metric_code(context['session'])}",
-        ]
-    )
+    return _notifications.workflow_advance_failed_event_message(context)
 
 
 def _stage_status_event_message(context: dict[str, str]) -> str:
-    event_type = context["event_type"]
-    task = f"{context['engine']}/{context['task_kind']}"
-    lines = [
-        f"<b>{_escape_html(_title_from_event_type(event_type))}</b>",
-        f"<b>Workflow</b>: {_metric_code(context['workflow_id'])}",
-        f"<b>Template</b>: {_metric_code(context['template_name'])}",
-        f"<b>Event</b>: {_metric_code(event_type)}",
-        f"<b>Stage</b>: {_metric_code(context['stage_id'])}",
-        f"<b>Task</b>: {_metric_code(task)}",
-        f"<b>Stage status</b>: {_transition_html(context['previous_stage_status'], context['stage_status'])}",
-        f"<b>Worker session</b>: {_metric_code(context['session'])}",
-    ]
-    if context["reason"]:
-        lines.append(f"<b>Reason</b>: {_metric_code(context['reason'])}")
-    return "\n".join(lines)
+    return _notifications.stage_status_event_message(context)
 
 
 def _stage_handoff_event_message(context: dict[str, str]) -> str:
-    event_type = context["event_type"]
-    task = f"{context['engine']}/{context['task_kind']}"
-    lines = [
-        f"<b>{_escape_html(_title_from_event_type(event_type))}</b>",
-        f"<b>Workflow</b>: {_metric_code(context['workflow_id'])}",
-        f"<b>Template</b>: {_metric_code(context['template_name'])}",
-        f"<b>Event</b>: {_metric_code(event_type)}",
-        f"<b>Stage</b>: {_metric_code(context['stage_id'])}",
-        f"<b>Task</b>: {_metric_code(task)}",
-        f"<b>Stage status</b>: {_transition_html(context['previous_stage_status'], context['stage_status'])}",
-        (
-            "<b>Reaction handoff</b>: "
-            f"{_transition_html(context['previous_reaction_handoff_status'], context['reaction_handoff_status'])}"
-        ),
-        f"<b>Worker session</b>: {_metric_code(context['session'])}",
-    ]
-    if context["reason"]:
-        lines.append(f"<b>Reason</b>: {_metric_code(context['reason'])}")
-    return "\n".join(lines)
+    return _notifications.stage_handoff_event_message(context)
 
 
 def _worker_lifecycle_event_message(context: dict[str, str]) -> str:
-    event_type = context["event_type"]
-    return "\n".join(
-        [
-            f"<b>{_escape_html(_title_from_event_type(event_type))}</b>",
-            f"<b>Event</b>: {_metric_code(event_type)}",
-            f"<b>Workflow root</b>: {_metric_code(context['root_text'])}",
-            f"<b>Worker session</b>: {_metric_code(context['session'])}",
-            f"<b>Reason</b>: {_metric_code(context['reason'])}",
-        ]
-    )
+    return _notifications.worker_lifecycle_event_message(context)
 
 
 def _default_journal_event_message(context: dict[str, str]) -> str:
-    event_type = context["event_type"]
-    return "\n".join(
-        [
-            f"<b>{_escape_html(_title_from_event_type(event_type))}</b>",
-            f"<b>Event</b>: {_metric_code(event_type)}",
-            f"<b>Workflow</b>: {_metric_code(context['workflow_id'])}",
-            f"<b>Status</b>: {_metric_code(context['status'])}",
-            f"<b>Worker session</b>: {_metric_code(context['session'])}",
-        ]
-    )
+    return _notifications.default_journal_event_message(context)
 
 
 def _journal_event_message(event: dict[str, Any], workflow_root: str | Path) -> str:
-    context = _journal_event_context(event, workflow_root)
-    event_type = context["event_type"]
-    metadata = _coerce_mapping(event.get("metadata"))
-
-    if event_type == "workflow_status_changed":
-        return _workflow_status_event_message(context)
-    if event_type == "workflow_advance_failed":
-        return _workflow_advance_failed_event_message(context)
-    if event_type in STAGE_STATUS_EVENT_TYPES:
-        return _stage_status_event_message(context)
-    if event_type in STAGE_HANDOFF_EVENT_TYPES:
-        return _stage_handoff_event_message(context)
-    if event_type == WORKFLOW_PHASE_FINISHED_EVENT:
-        workflow_id = context["workflow_id"]
-        template_name = context["template_name"]
-        session = context["session"]
-        lines = [
-            f"<b>{_escape_html(_title_from_event_type(event_type))}</b>",
-            f"<b>Workflow</b>: {_metric_code(workflow_id)}",
-            f"<b>Template</b>: {_metric_code(template_name)}",
-            f"<b>Event</b>: {_metric_code(event_type)}",
-            f"<b>Phase</b>: {_metric_code(_event_text(event, metadata, 'phase_label', 'phase') or '-')}",
-            f"<b>Phase outcome</b>: {_metric_code(_event_text(event, metadata, 'phase_outcome', 'status') or '-')}",
-            f"<b>Stage count</b>: {_metric_code(_event_text(event, metadata, 'stage_count') or '0')}",
-            f"<b>Stage status counts</b>: {_metric_code(_format_count_mapping(metadata.get('stage_status_counts')))}",
-            f"<b>Stage statuses</b>: {_metric_code(_format_stage_statuses(metadata.get('stage_statuses')))}",
-            f"<b>Worker session</b>: {_metric_code(session)}",
-        ]
-        handoff_counts = _format_count_mapping(metadata.get("reaction_handoff_status_counts"))
-        if handoff_counts != "-":
-            lines.append(f"<b>Reaction handoff counts</b>: {_metric_code(handoff_counts)}")
-        failure_reasons = metadata.get("failure_reasons")
-        if isinstance(failure_reasons, list):
-            joined = ",".join(
-                _normalize_text(item) for item in failure_reasons if _normalize_text(item)
-            )
-            if joined:
-                lines.append(f"<b>Failure reasons</b>: {_metric_code(joined)}")
-        return "\n".join(lines)
-    if event_type in {
-        "worker_started",
-        "worker_stopped",
-        "worker_interrupted",
-        "worker_lock_error",
-    }:
-        return _worker_lifecycle_event_message(context)
-    return _default_journal_event_message(context)
+    return _notifications.journal_event_message(event, workflow_root)
 
 
 def _maybe_notify_journal_event(event: dict[str, Any], workflow_root: str | Path) -> None:
     event_type = _normalize_text(event.get("event_type"))
     if not _journal_notification_enabled(event_type):
         return
-    engine = _event_text(event, _coerce_mapping(event.get("metadata")), "engine")
-    if (
-        event_type in STAGE_STATUS_EVENT_TYPES | STAGE_HANDOFF_EVENT_TYPES
-        and engine.lower() in SUPPRESSED_STAGE_NOTIFICATION_ENGINES
-    ):
+    if _notifications.should_suppress_stage_notification(event):
         return
     transport = _telegram_transport_from_env()
     if transport is None:

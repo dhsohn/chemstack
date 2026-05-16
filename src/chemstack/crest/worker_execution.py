@@ -22,6 +22,7 @@ from chemstack.core.queue import (
     requeue_running_entry,
 )
 from chemstack.core.queue.types import QueueStatus
+from chemstack.core.queue.engine_execution import process_dequeued_engine_entry
 from chemstack.core.queue.worker import (
     install_shutdown_signal_handlers,
     resolve_admission_root,
@@ -686,38 +687,50 @@ def process_dequeued_entry(
     dependencies: WorkerExecutionDependencies,
     shutdown_requested: Callable[[], bool] | None = None,
 ) -> WorkerExecutionOutcome:
-    active_queue_root = queue_root or Path(str(cfg.runtime.allowed_root)).expanduser().resolve()
-    context = _build_execution_context(
+    return process_dequeued_engine_entry(
         cfg,
         entry,
-        resource_caps=resource_caps,
-        molecule_key_resolver=molecule_key_resolver,
-    )
-    _raise_if_shutdown_requested(context, shutdown_requested)
-    _mark_job_running(cfg, context, dependencies=dependencies)
-    _raise_if_shutdown_requested(context, shutdown_requested)
-
-    result = _run_crest_job_for_entry(
-        cfg,
-        context,
-        queue_root=active_queue_root,
-        dependencies=dependencies,
-        shutdown_requested=shutdown_requested,
-    )
-    organized_output_dir = _finalize_processed_entry(
-        cfg,
-        context,
-        result,
-        queue_root=active_queue_root,
+        queue_root=queue_root,
         auto_organize=auto_organize,
-        dependencies=dependencies,
-    )
-    return WorkerExecutionOutcome(
-        result=result,
-        job_dir=context.job_dir,
-        selected_xyz=context.selected_xyz,
-        molecule_key=context.molecule_key,
-        organized_output_dir=organized_output_dir,
+        build_context_fn=lambda cfg_obj, entry_obj: _build_execution_context(
+            cfg_obj,
+            entry_obj,
+            resource_caps=resource_caps,
+            molecule_key_resolver=molecule_key_resolver,
+        ),
+        check_shutdown_fn=lambda context: _raise_if_shutdown_requested(
+            context,
+            shutdown_requested,
+        ),
+        mark_running_fn=lambda cfg_obj, context: _mark_job_running(
+            cfg_obj,
+            context,
+            dependencies=dependencies,
+        ),
+        run_job_fn=lambda cfg_obj, context, active_queue_root: _run_crest_job_for_entry(
+            cfg_obj,
+            context,
+            queue_root=active_queue_root,
+            dependencies=dependencies,
+            shutdown_requested=shutdown_requested,
+        ),
+        finalize_entry_fn=lambda cfg_obj, context, result, active_queue_root, should_organize: (
+            _finalize_processed_entry(
+                cfg_obj,
+                context,
+                result,
+                queue_root=active_queue_root,
+                auto_organize=should_organize,
+                dependencies=dependencies,
+            )
+        ),
+        build_outcome_fn=lambda context, result, organized_output_dir: WorkerExecutionOutcome(
+            result=result,
+            job_dir=context.job_dir,
+            selected_xyz=context.selected_xyz,
+            molecule_key=context.molecule_key,
+            organized_output_dir=organized_output_dir,
+        ),
     )
 
 

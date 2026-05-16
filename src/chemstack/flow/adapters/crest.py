@@ -46,27 +46,14 @@ def _direct_path_target(target: str) -> Path | None:
 
 
 def _resolve_job_dir(index_root: Path, target: str) -> tuple[Path, JobLocationRecord | None]:
-    record = resolve_job_location(index_root, target)
-    candidates: list[Path] = []
-    if record is not None:
-        candidates.extend(
-            _adapter_helpers.resolved_dir_candidates(
-                (
-                    record.latest_known_path,
-                    record.organized_output_dir,
-                    record.original_run_dir,
-                ),
-                path_factory=Path,
-            )
-        )
-    direct = _direct_path_target(target)
-    if direct is not None:
-        candidates.append(direct)
-
-    for candidate in candidates:
-        if candidate.exists() and candidate.is_dir():
-            return candidate, record
-    raise FileNotFoundError(f"CREST job directory not found for target: {target}")
+    return _adapter_helpers.resolve_indexed_job_dir(
+        index_root,
+        target,
+        resolve_job_location_fn=resolve_job_location,
+        direct_path_target_fn=_direct_path_target,
+        missing_label="CREST",
+        path_factory=Path,
+    )
 
 
 def _retained_paths(payload: dict[str, Any]) -> tuple[str, ...]:
@@ -112,15 +99,24 @@ def load_crest_artifact_contract(*, crest_index_root: str | Path, target: str) -
     index_root = Path(crest_index_root).expanduser().resolve()
     job_dir, record = _resolve_job_dir(index_root, target)
 
-    report = _load_json_dict(job_dir / REPORT_JSON_FILE_NAME)
-    state = _load_json_dict(job_dir / STATE_FILE_NAME)
-    organized_ref = _load_json_dict(job_dir / ORGANIZED_REF_FILE_NAME)
-    payload = _select_artifact_payload(report=report, state=state, organized_ref=organized_ref)
-    if not payload:
-        raise FileNotFoundError(f"CREST artifact files not found in job directory: {job_dir}")
+    loaded = _adapter_helpers.load_artifact_files(
+        job_dir=job_dir,
+        record=record,
+        load_json_dict_fn=_load_json_dict,
+        report_filename=REPORT_JSON_FILE_NAME,
+        state_filename=STATE_FILE_NAME,
+        organized_ref_filename=ORGANIZED_REF_FILE_NAME,
+        missing_label="CREST",
+        select_payload_fn=lambda report, state, organized_ref: _select_artifact_payload(
+            report=report,
+            state=state,
+            organized_ref=organized_ref,
+        ),
+    )
+    organized_ref = loaded.organized_ref
+    payload = loaded.payload
 
-    if record is not None and record.app_name and record.app_name != "crest_auto":
-        raise ValueError(f"Expected crest_auto index record, got: {record.app_name}")
+    _adapter_helpers.validate_record_app(record, "crest_auto", label="CREST")
 
     retained_paths = _retained_paths(payload)
     retained_count = int(payload.get("retained_conformer_count", len(retained_paths)) or len(retained_paths))
@@ -143,7 +139,7 @@ def load_crest_artifact_contract(*, crest_index_root: str | Path, target: str) -
         if remapped:
             remapped_retained_paths.append(remapped)
     retained_paths = tuple(remapped_retained_paths)
-    latest_known_path = _normalize_text((record.latest_known_path if record is not None else "") or str(job_dir))
+    latest_known_path = _adapter_helpers.latest_known_path(record, job_dir)
     resource_request = (
         _coerce_resource_dict(payload.get("resource_request"))
         or _coerce_resource_dict(record.resource_request if record is not None else {})

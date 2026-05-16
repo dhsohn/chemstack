@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+import sys
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from pathlib import Path
@@ -38,8 +39,25 @@ from ..telegram_notifier import (
 )
 from ..types import QueueEnqueuedNotification, QueueEntry, RetryNotification, RunFinishedNotification, RunStartedNotification
 from ._helpers import ORCA_GENERATED_INP_RE, RETRY_INP_RE, _emit, _to_resolved_local, _validate_reaction_dir
+from . import run_inp_execution as _run_inp_execution
+from . import run_inp_submission as _run_inp_submission
 
 logger = logging.getLogger(__name__)
+_RUN_INP_COMPAT = (
+    AdmissionLimitReachedError,
+    _exit_with_result,
+    run_attempts,
+    ensure_submission_resource_request,
+    read_resource_request_from_input,
+    acquire_run_lock,
+    load_or_create_state,
+    notify_queue_enqueued_event,
+    notify_retry_event,
+    notify_run_finished_event,
+    notify_run_started_event,
+    _emit,
+    _to_resolved_local,
+)
 
 
 @dataclass(frozen=True)
@@ -311,30 +329,13 @@ def _existing_completed_exit(
     reservation_token: str | None,
     max_retries: int,
 ) -> int | None:
-    done = _existing_completed_out(selected_inp)
-    if done is None:
-        return None
-
-    if reservation_token is not None:
-        release_slot(admission_root, reservation_token)
-    state, resumed = load_or_create_state(
-        reaction_dir,
-        selected_inp,
+    return _run_inp_execution.existing_completed_exit(
+        reaction_dir=reaction_dir,
+        selected_inp=selected_inp,
+        admission_root=admission_root,
+        reservation_token=reservation_token,
         max_retries=max_retries,
-        to_resolved_local=_to_resolved_local,
-    )
-    return _exit_with_result(
-        reaction_dir,
-        state,
-        selected_inp,
-        status=RunStatus.COMPLETED,
-        analyzer_status=AnalyzerStatus.COMPLETED,
-        reason="existing_out_completed",
-        last_out_path=done["out_path"],
-        resumed=True if resumed else None,
-        exit_code=0,
-        emit=_emit,
-        extra={"skipped_execution": True},
+        deps=sys.modules[__name__],
     )
 
 
@@ -456,19 +457,7 @@ def _notification_callbacks(
     Callable[[RunFinishedNotification], None] | None,
     Callable[[RetryNotification], None] | None,
 ]:
-    if not cfg.telegram.enabled:
-        return None, None, None
-
-    def _notify_started(event: RunStartedNotification) -> None:
-        notify_run_started_event(cfg.telegram, event)
-
-    def _notify_finished(event: RunFinishedNotification) -> None:
-        notify_run_finished_event(cfg.telegram, event)
-
-    def _notify_retry(event: RetryNotification) -> None:
-        notify_retry_event(cfg.telegram, event)
-
-    return _notify_started, _notify_finished, _notify_retry
+    return _run_inp_execution.notification_callbacks(cfg, deps=sys.modules[__name__])
 
 
 def _run_with_state(
@@ -481,58 +470,36 @@ def _run_with_state(
     resumed: bool,
     state: Any,
 ) -> int:
-    notify_started, notify_finished, notify_retry = _notification_callbacks(cfg)
-    runner = runner_cls(cfg.paths.orca_executable)
-    return run_attempts(
-        reaction_dir,
-        selected_inp,
-        state,
-        resumed=resumed,
-        runner=runner,
+    return _run_inp_execution.run_with_state(
+        cfg=cfg,
+        reaction_dir=reaction_dir,
+        selected_inp=selected_inp,
+        runner_cls=runner_cls,
         max_retries=max_retries,
-        retry_inp_path=_retry_inp_path,
-        to_resolved_local=_to_resolved_local,
-        emit=_emit,
-        notify_started=notify_started,
-        notify_finished=notify_finished,
-        notify_retry=notify_retry,
+        resumed=resumed,
+        state=state,
+        deps=sys.modules[__name__],
     )
 
 
 def _build_queue_enqueued_notification(entry: QueueEntry) -> QueueEnqueuedNotification:
-    return {
-        "queue_id": _queue_store.queue_entry_id(entry),
-        "reaction_dir": _queue_store.queue_entry_reaction_dir(entry),
-        "priority": _queue_store.queue_entry_priority(entry),
-        "force": _queue_store.queue_entry_force(entry),
-        "enqueued_at": entry.get("enqueued_at", ""),
-    }
+    return _run_inp_submission.build_queue_enqueued_notification(
+        entry,
+        deps=sys.modules[__name__],
+    )
 
 
 def _resource_request_from_selected_inp(cfg: Any, selected_inp: Path | None) -> dict[str, int]:
-    if selected_inp is None:
-        raise ValueError("No .inp file selected for ORCA queue submission.")
-    resource_request, actions = ensure_submission_resource_request(
+    return _run_inp_submission.resource_request_from_selected_inp(
+        cfg,
         selected_inp,
-        default_max_cores=int(cfg.resources.max_cores_per_task),
-        default_max_memory_gb=int(cfg.resources.max_memory_gb_per_task),
+        deps=sys.modules[__name__],
+        logger=logger,
     )
-    if actions:
-        logger.info(
-            "Updated ORCA input resource directives in %s: %s",
-            selected_inp,
-            ", ".join(actions),
-        )
-    return resource_request
 
 
 def _warn_ignored_resource_override_flags(args: Any) -> None:
-    if getattr(args, "max_cores", None) is None and getattr(args, "max_memory_gb", None) is None:
-        return
-    logger.warning(
-        "Standalone ORCA queue submission ignores --max-cores/--max-memory-gb; "
-        "resource metadata is read from the input file."
-    )
+    _run_inp_submission.warn_ignored_resource_override_flags(args, logger=logger)
 
 
 def _build_queue_metadata(
@@ -542,23 +509,13 @@ def _build_queue_metadata(
     selected_inp: Path | None,
     args: Any | None = None,
 ) -> dict[str, Any]:
-    from ..job_locations import resolve_job_metadata
-
-    selected_input = str(selected_inp) if selected_inp is not None else ""
-    job_type, molecule_key = resolve_job_metadata(selected_input, reaction_dir)
-    requested = _resource_request_from_selected_inp(cfg, selected_inp)
-    metadata: dict[str, Any] = {
-        "submitted_via": "run_inp",
-        "max_retries": max(0, int(cfg.runtime.default_max_retries)),
-        "job_type": job_type,
-        "molecule_key": molecule_key,
-        "resource_request": requested,
-        "resource_actual": dict(requested),
-    }
-    if selected_inp is not None:
-        metadata["selected_inp"] = str(selected_inp)
-        metadata["selected_input_xyz"] = str(selected_inp)
-    return metadata
+    return _run_inp_submission.build_queue_metadata(
+        cfg,
+        reaction_dir=reaction_dir,
+        selected_inp=selected_inp,
+        args=args,
+        deps=sys.modules[__name__],
+    )
 
 
 def _upsert_queued_job_record(
@@ -569,36 +526,13 @@ def _upsert_queued_job_record(
     job_id: str,
     queue_metadata: dict[str, Any] | None = None,
 ) -> None:
-    from ..job_locations import resolve_job_metadata, upsert_job_record
-
-    selected_input = str(selected_inp) if selected_inp is not None else ""
-    metadata = dict(queue_metadata or {})
-    job_type = str(metadata.get("job_type") or "").strip()
-    molecule_key = str(metadata.get("molecule_key") or "").strip()
-    if not job_type or not molecule_key:
-        derived_job_type, derived_molecule_key = resolve_job_metadata(selected_input, reaction_dir)
-        job_type = job_type or derived_job_type
-        molecule_key = molecule_key or derived_molecule_key
-    requested = metadata.get("resource_request")
-    if not isinstance(requested, dict):
-        requested = {}
-    if not requested and selected_inp is not None and selected_inp.exists():
-        requested = read_resource_request_from_input(selected_inp)
-    if not requested and selected_inp is not None and selected_inp.exists():
-        requested = _resource_request_from_selected_inp(cfg, selected_inp)
-    actual = metadata.get("resource_actual")
-    if not isinstance(actual, dict):
-        actual = dict(requested)
-    upsert_job_record(
+    _run_inp_submission.upsert_queued_job_record(
         cfg,
+        reaction_dir=reaction_dir,
+        selected_inp=selected_inp,
         job_id=job_id,
-        status="queued",
-        job_dir=reaction_dir,
-        job_type=job_type,
-        selected_input_xyz=selected_input,
-        molecule_key=molecule_key,
-        resource_request=requested,
-        resource_actual=actual,
+        queue_metadata=queue_metadata,
+        deps=sys.modules[__name__],
     )
 
 
@@ -609,56 +543,14 @@ def _submit_as_queued(
     *,
     selected_inp: Path | None = None,
 ) -> int:
-    from ..queue_store import DuplicateEntryError, enqueue
-
-    allowed_root = Path(cfg.runtime.allowed_root).expanduser().resolve()
-    if selected_inp is None:
-        try:
-            selected_inp = _select_latest_inp(reaction_dir)
-        except ValueError:
-            selected_inp = None
-    _warn_ignored_resource_override_flags(args)
-    queue_metadata = _build_queue_metadata(
+    return _run_inp_submission.submit_as_queued(
         cfg,
-        reaction_dir=reaction_dir,
-        selected_inp=selected_inp,
-        args=args,
-    )
-    try:
-        entry = enqueue(
-            allowed_root,
-            str(reaction_dir),
-            priority=int(getattr(args, "priority", 10)),
-            force=bool(getattr(args, "force", False)),
-            metadata=queue_metadata,
-        )
-    except DuplicateEntryError as exc:
-        logger.error("%s", exc)
-        return 1
-
-    task_id = _queue_store.queue_entry_task_id(entry)
-    if task_id:
-        _upsert_queued_job_record(
-            cfg,
-            reaction_dir=reaction_dir,
-            selected_inp=selected_inp,
-            job_id=task_id,
-            queue_metadata=queue_metadata,
-        )
-
-    worker_info = _worker_status_for_submission(allowed_root)
-
-    _emit_queued_submission(
+        args,
         reaction_dir,
-        entry,
-        worker_status=worker_info.status,
-        worker_pid=worker_info.pid,
-        worker_log=worker_info.log_file,
-        worker_detail=worker_info.detail,
+        selected_inp=selected_inp,
+        deps=sys.modules[__name__],
+        logger=logger,
     )
-    notification = _build_queue_enqueued_notification(entry)
-    notify_queue_enqueued_event(cfg.telegram, notification)
-    return 0
 
 
 def _existing_completed_submit_exit(
@@ -684,44 +576,12 @@ def _execute_locked_run(
     *,
     runner_cls: Type[OrcaRunner],
 ) -> int:
-    with acquire_run_lock(context.reaction_dir):
-        if not getattr(args, "force", False):
-            existing_exit = _existing_completed_exit(
-                reaction_dir=context.reaction_dir,
-                selected_inp=context.selected_inp,
-                admission_root=context.admission_root,
-                reservation_token=context.reservation_token,
-                max_retries=context.max_retries,
-            )
-            if existing_exit is not None:
-                return existing_exit
-
-        with _admission_context(
-            admission_root=context.admission_root,
-            reaction_dir=context.reaction_dir,
-            admission_limit=context.admission_limit,
-            reservation_token=context.reservation_token,
-            admission_app_name=context.admission_app_name,
-            admission_task_id=context.admission_task_id,
-        ):
-            state, resumed = load_or_create_state(
-                context.reaction_dir,
-                context.selected_inp,
-                max_retries=context.max_retries,
-                to_resolved_local=_to_resolved_local,
-            )
-            if context.admission_task_id and state.get("job_id") != context.admission_task_id:
-                state["job_id"] = context.admission_task_id
-                save_state(context.reaction_dir, state)
-            return _run_with_state(
-                cfg=context.cfg,
-                reaction_dir=context.reaction_dir,
-                selected_inp=context.selected_inp,
-                runner_cls=runner_cls,
-                max_retries=context.max_retries,
-                resumed=resumed,
-                state=state,
-            )
+    return _run_inp_execution.execute_locked_run(
+        args,
+        context,
+        runner_cls=runner_cls,
+        deps=sys.modules[__name__],
+    )
 
 
 def _cmd_run_inp_execute(
@@ -735,36 +595,18 @@ def _cmd_run_inp_execute(
     admission_app_name: str | None = None,
     admission_task_id: str | None = None,
 ) -> int:
-    context = _resolve_execution_context(
+    return _run_inp_execution.cmd_run_inp_execute(
         args,
+        runner_cls=runner_cls,
         cfg=cfg,
         reaction_dir=reaction_dir,
         selected_inp=selected_inp,
         reservation_token=reservation_token,
         admission_app_name=admission_app_name,
         admission_task_id=admission_task_id,
+        deps=sys.modules[__name__],
+        logger=logger,
     )
-    if context is None:
-        return 1
-
-    logger.info("Selected input: %s", context.selected_inp)
-
-    _recover_crashed_state(context.reaction_dir)
-
-    try:
-        return _execute_locked_run(args, context, runner_cls=runner_cls)
-    except AdmissionLimitReachedError as exc:
-        _release_reservation_if_needed(context.admission_root, context.reservation_token)
-        logger.error("%s", exc)
-        return 1
-    except RuntimeError as exc:
-        _release_reservation_if_needed(context.admission_root, context.reservation_token)
-        logger.error("%s", exc)
-        return 1
-    except Exception as exc:
-        _release_reservation_if_needed(context.admission_root, context.reservation_token)
-        logger.exception("Unexpected error while running input: %s", exc)
-        return 1
 
 
 def _cmd_run_inp_submit(args: Any, *, runner_cls: Type[OrcaRunner] = OrcaRunner) -> int:

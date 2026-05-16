@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import subprocess
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -21,6 +21,7 @@ from .common import (
     queue_submission_status as _queue_submission_status,
     run_sibling_app,
 )
+from . import sibling_engine as _sibling_engine
 
 _SUBMIT_MODULE_NAME = CHEMSTACK_CLI_MODULE
 _CANCEL_MODULE_NAME = CHEMSTACK_ORCA_INTERNAL_MODULE
@@ -123,14 +124,7 @@ def _cancel_tail_argv(*, target: str) -> list[str]:
 
 
 def _cancel_status_from_output(*, returncode: int, stdout: str) -> str:
-    if returncode != 0:
-        return "failed"
-    text = stdout.strip()
-    if text.startswith("Cancelled:"):
-        return "cancelled"
-    if "Cancel requested" in text:
-        return "cancel_requested"
-    return "cancelled"
+    return _sibling_engine.cli_cancel_status(returncode=returncode, stdout=stdout)
 
 
 def submit_reaction_dir(
@@ -187,33 +181,15 @@ def cancel_target(
     executable: str = CHEMSTACK_EXECUTABLE,
     repo_root: str | None = None,
 ) -> dict[str, Any]:
-    try:
-        result = run_sibling_app(
-            executable=_normalize_text(executable) or CHEMSTACK_EXECUTABLE,
-            config_path=_normalize_text(config_path),
-            repo_root=_normalize_text(repo_root) or None,
-            module_name=_CANCEL_MODULE_NAME,
-            tail_argv=_cancel_tail_argv(target=target),
-            timeout_seconds=_CANCEL_TIMEOUT_SECONDS,
-        )
-    except subprocess.TimeoutExpired as exc:
-        command_argv = list(exc.cmd) if isinstance(exc.cmd, (list, tuple)) else [str(exc.cmd)]
-        return {
-            "status": "failed",
-            "reason": "cancel_command_timeout",
-            "returncode": 124,
-            "command_argv": command_argv,
-            "stdout": exc.stdout or "",
-            "stderr": exc.stderr or "",
-        }
-    argv = list(result.args) if isinstance(result.args, (list, tuple)) else [str(result.args)]
-    return {
-        "status": _cancel_status_from_output(returncode=result.returncode, stdout=result.stdout),
-        "returncode": int(result.returncode),
-        "command_argv": argv,
-        "stdout": result.stdout,
-        "stderr": result.stderr,
-    }
+    return _sibling_engine.orca_cancel_target(
+        deps=sys.modules[__name__],
+        executable=_normalize_text(executable) or CHEMSTACK_EXECUTABLE,
+        config_path=config_path,
+        repo_root=repo_root,
+        module_name=_CANCEL_MODULE_NAME,
+        target=target,
+        timeout_seconds=_CANCEL_TIMEOUT_SECONDS,
+    )
 
 
 def _ensure_submission_metadata(stage: dict[str, Any], task: dict[str, Any]) -> dict[str, Any]:

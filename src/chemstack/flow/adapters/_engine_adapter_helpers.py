@@ -2,8 +2,21 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable, Iterable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+from chemstack.core.indexing import JobLocationRecord
+
+
+@dataclass(frozen=True)
+class LoadedArtifactFiles:
+    job_dir: Path
+    record: JobLocationRecord | None
+    report: dict[str, Any]
+    state: dict[str, Any]
+    organized_ref: dict[str, Any]
+    payload: dict[str, Any]
 
 
 def normalize_text(value: Any) -> str:
@@ -50,3 +63,83 @@ def resolved_dir_candidates(
         except OSError:
             continue
     return candidates
+
+
+def resolve_indexed_job_dir(
+    index_root: Path,
+    target: str,
+    *,
+    resolve_job_location_fn: Callable[[Path, str], JobLocationRecord | None],
+    direct_path_target_fn: Callable[[str], Path | None],
+    missing_label: str,
+    path_factory: Callable[[str], Any] = Path,
+) -> tuple[Path, JobLocationRecord | None]:
+    record = resolve_job_location_fn(index_root, target)
+    candidates: list[Path] = []
+    if record is not None:
+        candidates.extend(
+            resolved_dir_candidates(
+                (
+                    record.latest_known_path,
+                    record.organized_output_dir,
+                    record.original_run_dir,
+                ),
+                path_factory=path_factory,
+            )
+        )
+    direct = direct_path_target_fn(target)
+    if direct is not None:
+        candidates.append(direct)
+
+    for candidate in candidates:
+        if candidate.exists() and candidate.is_dir():
+            return candidate, record
+    raise FileNotFoundError(f"{missing_label} job directory not found for target: {target}")
+
+
+def load_artifact_files(
+    *,
+    job_dir: Path,
+    record: JobLocationRecord | None,
+    load_json_dict_fn: Callable[[Path], dict[str, Any]],
+    report_filename: str,
+    state_filename: str,
+    organized_ref_filename: str,
+    missing_label: str,
+    select_payload_fn: Callable[
+        [dict[str, Any], dict[str, Any], dict[str, Any]], dict[str, Any]
+    ]
+    | None = None,
+) -> LoadedArtifactFiles:
+    report = load_json_dict_fn(job_dir / report_filename)
+    state = load_json_dict_fn(job_dir / state_filename)
+    organized_ref = load_json_dict_fn(job_dir / organized_ref_filename)
+    payload = (
+        select_payload_fn(report, state, organized_ref)
+        if select_payload_fn is not None
+        else report or state or organized_ref
+    )
+    if not payload:
+        raise FileNotFoundError(f"{missing_label} artifact files not found in job directory: {job_dir}")
+    return LoadedArtifactFiles(
+        job_dir=job_dir,
+        record=record,
+        report=report,
+        state=state,
+        organized_ref=organized_ref,
+        payload=payload,
+    )
+
+
+def validate_record_app(
+    record: JobLocationRecord | None,
+    expected_app_name: str,
+    *,
+    label: str,
+) -> None:
+    if record is not None and record.app_name and record.app_name != expected_app_name:
+        raise ValueError(f"Expected {expected_app_name} index record, got: {record.app_name}")
+
+
+def latest_known_path(record: JobLocationRecord | None, job_dir: Path) -> str:
+    return normalize_text((record.latest_known_path if record is not None else "") or str(job_dir))

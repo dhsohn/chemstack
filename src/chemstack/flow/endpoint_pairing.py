@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from math import sqrt
 from pathlib import Path
+import sys
 from typing import Any
 
 from chemstack.core.utils.coercion import (
@@ -14,7 +15,12 @@ from chemstack.core.utils.coercion import (
 )
 
 from .contracts import WorkflowStageInput
+from . import endpoint_pairing_selection as _selection
 from .xyz_utils import XYZFrame, load_xyz_frames
+
+
+def _this_module() -> Any:
+    return sys.modules[__name__]
 
 
 def _normalize_text(value: Any) -> str:
@@ -260,89 +266,12 @@ def select_endpoint_pairs(
     policy: EndpointPairingPolicy | None = None,
 ) -> tuple[EndpointPair, ...]:
     active_policy = policy or EndpointPairingPolicy()
-    pairs: list[EndpointPair] = []
-    sequence = 0
-
-    for reactant in reactant_inputs:
-        for product in product_inputs:
-            sequence += 1
-            rank_gap = _rank_gap(reactant, product)
-            if (
-                active_policy.enabled
-                and active_policy.max_rank_gap
-                and rank_gap > active_policy.max_rank_gap
-            ):
-                continue
-
-            distance_rmsd: float | None = None
-            metric_reason = "not_requested"
-            comparison_atoms: tuple[int, ...] = ()
-            if active_policy.enabled and (
-                active_policy.comparison_atoms
-                or active_policy.excluded_atoms
-                or active_policy.max_distance_rmsd is not None
-            ):
-                distance_rmsd, metric_reason, comparison_atoms = _distance_rmsd(
-                    reactant,
-                    product,
-                    atom_indices=active_policy.comparison_atoms,
-                    excluded_indices=active_policy.excluded_atoms,
-                )
-                if distance_rmsd is None and not active_policy.fallback_to_ranked:
-                    continue
-                if (
-                    distance_rmsd is not None
-                    and active_policy.max_distance_rmsd is not None
-                    and distance_rmsd > active_policy.max_distance_rmsd
-                ):
-                    continue
-
-            if distance_rmsd is None:
-                score = float(rank_gap)
-                strategy = "rank"
-            else:
-                score = float(distance_rmsd) + (float(rank_gap) * active_policy.rank_weight)
-                strategy = metric_reason
-
-            pairs.append(
-                EndpointPair(
-                    reactant=reactant,
-                    product=product,
-                    score=score,
-                    metadata={
-                        "enabled": active_policy.enabled,
-                        "strategy": strategy,
-                        "pairing_score": round(score, 6),
-                        "distance_fingerprint_rmsd": round(distance_rmsd, 6)
-                        if distance_rmsd is not None
-                        else None,
-                        "rank_gap": rank_gap,
-                        "reactant_rank": int(reactant.rank),
-                        "product_rank": int(product.rank),
-                        "reactant_artifact_path": reactant.artifact_path,
-                        "product_artifact_path": product.artifact_path,
-                        "comparison_atoms": list(comparison_atoms),
-                        "excluded_atoms": list(active_policy.excluded_atoms),
-                        "candidate_pair_order": sequence,
-                    },
-                )
-            )
-
-    if not active_policy.enabled:
-        return tuple(pairs)
-
-    pairs.sort(
-        key=lambda item: (
-            item.score,
-            int(item.reactant.rank) + int(item.product.rank),
-            int(item.reactant.rank),
-            int(item.product.rank),
-            int(item.metadata.get("candidate_pair_order", 0)),
-        )
+    return _selection.select_endpoint_pairs(
+        reactant_inputs,
+        product_inputs,
+        policy=active_policy,
+        deps=_this_module(),
     )
-    if active_policy.max_pairs:
-        pairs = pairs[: active_policy.max_pairs]
-    return tuple(pairs)
 
 
 __all__ = [

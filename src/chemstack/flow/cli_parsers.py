@@ -1,8 +1,13 @@
 from __future__ import annotations
 
 import argparse
-from dataclasses import dataclass
 from typing import Any
+
+from .cli_parser_specs import (
+    ArgumentSpec as _ArgumentSpec,
+    WorkflowParserSpec as _WorkflowParserSpec,
+    add_argument_specs as _add_argument_specs,
+)
 
 
 def _commands() -> Any:
@@ -52,35 +57,6 @@ def _add_orca_materialization_arguments(
         default=route_default,
         help="Route line for materialized ORCA inputs",
     )
-
-
-@dataclass(frozen=True)
-class _ArgumentSpec:
-    flags: tuple[str, ...]
-    kwargs: dict[str, Any]
-
-
-@dataclass(frozen=True)
-class _WorkflowParserSpec:
-    name: str
-    help: str
-    func_name: str
-    target_help: str = ""
-    workflow_root: bool = False
-    workflow_root_required: bool = False
-    chemstack_config: bool = False
-    chemstack_config_required: bool = False
-    chemstack_config_help: str = "Path to shared chemstack.yaml"
-    json: bool = True
-    arguments: tuple[_ArgumentSpec, ...] = ()
-
-
-def _add_argument_specs(
-    parser: argparse.ArgumentParser,
-    specs: tuple[_ArgumentSpec, ...],
-) -> None:
-    for spec in specs:
-        parser.add_argument(*spec.flags, **spec.kwargs)
 
 
 def _register_workflow_parser_specs(

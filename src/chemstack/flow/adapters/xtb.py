@@ -42,27 +42,14 @@ def _direct_path_target(target: str) -> Path | None:
 
 
 def _resolve_job_dir(index_root: Path, target: str) -> tuple[Path, JobLocationRecord | None]:
-    record = resolve_job_location(index_root, target)
-    candidates: list[Path] = []
-    if record is not None:
-        candidates.extend(
-            _adapter_helpers.resolved_dir_candidates(
-                (
-                    record.latest_known_path,
-                    record.organized_output_dir,
-                    record.original_run_dir,
-                ),
-                path_factory=Path,
-            )
-        )
-    direct = _direct_path_target(target)
-    if direct is not None:
-        candidates.append(direct)
-
-    for candidate in candidates:
-        if candidate.exists() and candidate.is_dir():
-            return candidate, record
-    raise FileNotFoundError(f"xTB job directory not found for target: {target}")
+    return _adapter_helpers.resolve_indexed_job_dir(
+        index_root,
+        target,
+        resolve_job_location_fn=resolve_job_location,
+        direct_path_target_fn=_direct_path_target,
+        missing_label="xTB",
+        path_factory=Path,
+    )
 
 
 def _load_candidate_details(payload: dict[str, Any]) -> tuple[XtbCandidateArtifact, ...]:
@@ -186,12 +173,17 @@ def load_xtb_artifact_contract(*, xtb_index_root: str | Path, target: str) -> Xt
     index_root = Path(xtb_index_root).expanduser().resolve()
     job_dir, record = _resolve_job_dir(index_root, target)
 
-    report = _load_json_dict(job_dir / REPORT_JSON_FILE_NAME)
-    state = _load_json_dict(job_dir / STATE_FILE_NAME)
-    organized_ref = _load_json_dict(job_dir / ORGANIZED_REF_FILE_NAME)
-    payload = report or state or organized_ref
-    if not payload:
-        raise FileNotFoundError(f"xTB artifact files not found in job directory: {job_dir}")
+    loaded = _adapter_helpers.load_artifact_files(
+        job_dir=job_dir,
+        record=record,
+        load_json_dict_fn=_load_json_dict,
+        report_filename=REPORT_JSON_FILE_NAME,
+        state_filename=STATE_FILE_NAME,
+        organized_ref_filename=ORGANIZED_REF_FILE_NAME,
+        missing_label="xTB",
+    )
+    organized_ref = loaded.organized_ref
+    payload = loaded.payload
 
     candidate_details = _load_candidate_details(payload) or _fallback_details_from_paths(payload)
 
@@ -204,8 +196,7 @@ def load_xtb_artifact_contract(*, xtb_index_root: str | Path, target: str) -> Xt
     else:
         selected_candidate_paths = tuple(item.path for item in candidate_details if item.selected)
 
-    if record is not None and record.app_name and record.app_name != "xtb_auto":
-        raise ValueError(f"Expected xtb_auto index record, got: {record.app_name}")
+    _adapter_helpers.validate_record_app(record, "xtb_auto", label="xTB")
 
     job_type = _normalize_text(payload.get("job_type")) or _job_type_from_record(record, "unknown")
     status = (
@@ -226,9 +217,7 @@ def load_xtb_artifact_contract(*, xtb_index_root: str | Path, target: str) -> Xt
         or organized_ref.get("organized_output_dir")
         or (record.organized_output_dir if record is not None else "")
     )
-    latest_known_path = _normalize_text(
-        (record.latest_known_path if record is not None else "") or str(job_dir)
-    )
+    latest_known_path = _adapter_helpers.latest_known_path(record, job_dir)
 
     analysis_summary = payload.get("analysis_summary")
     if not isinstance(analysis_summary, dict):

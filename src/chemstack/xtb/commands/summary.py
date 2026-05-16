@@ -1,107 +1,32 @@
 from __future__ import annotations
 
-import json
 from typing import Any
+
+from chemstack.core.commands.engine_summary import EngineSummarySpec
+from chemstack.core.commands.engine_summary import cmd_summary as _cmd_engine_summary
 
 from ..config import load_config
 from ..tracking import load_job_artifacts_for_cfg, resolve_job_location_for_cfg
 
-
-def _summary_payload(
-    target: str, job_dir: Any, state: Any, report: Any, record: Any
-) -> dict[str, Any]:
-    reaction_key = record.molecule_key if record is not None else ""
-    return {
-        "target": target,
-        "job_dir": str(job_dir),
-        "index_record": {
-            "job_id": record.job_id,
-            "status": record.status,
-            "job_type": record.job_type,
-            "original_run_dir": record.original_run_dir,
-            "reaction_key": reaction_key,
-            "molecule_key": reaction_key,
-            "selected_input_xyz": record.selected_input_xyz,
-            "organized_output_dir": record.organized_output_dir,
-            "latest_known_path": record.latest_known_path,
-            "resource_request": record.resource_request,
-            "resource_actual": record.resource_actual,
-        }
-        if record is not None
-        else None,
-        "state": state,
-        "report": report,
-    }
-
-
-def _print_index_record_summary(record: Any) -> None:
-    if record is None:
-        return
-    reaction_key = record.molecule_key
-    print(f"job_id: {record.job_id}")
-    print(f"latest_known_path: {record.latest_known_path}")
-    print(f"reaction_key: {reaction_key or '-'}")
-    print(f"selected_input_xyz: {record.selected_input_xyz or '-'}")
-    if record.organized_output_dir:
-        print(f"organized_output_dir: {record.organized_output_dir}")
-    if record.resource_request:
-        print(f"resource_request: {record.resource_request}")
-    if record.resource_actual:
-        print(f"resource_actual: {record.resource_actual}")
-
-
-def _print_optional_artifact_field(
-    label: str, state: dict[str, Any], report: dict[str, Any]
-) -> None:
-    value = report.get(label) or state.get(label)
-    if value:
-        print(f"{label}: {value}")
-
-
-def _print_text_summary(job_dir: Any, state: Any, report: Any, record: Any) -> None:
-    state = state or {}
-    report = report or {}
-    reaction_key = record.molecule_key if record is not None else ""
-    print(f"job_dir: {job_dir}")
-    _print_index_record_summary(record)
-    print(f"status: {report.get('status') or state.get('status') or '-'}")
-    print(f"reason: {report.get('reason') or state.get('reason') or '-'}")
-    print(f"job_type: {report.get('job_type') or state.get('job_type') or '-'}")
-    print(
-        f"reaction_key: {report.get('reaction_key') or state.get('reaction_key') or reaction_key or '-'}"
-    )
-    print(
-        f"selected_input_xyz: {report.get('selected_input_xyz') or state.get('selected_input_xyz') or '-'}"
-    )
-    print(f"candidate_count: {report.get('candidate_count') or state.get('candidate_count') or 0}")
-    for label in (
+_XTB_SUMMARY_SPEC = EngineSummarySpec(
+    key_label="reaction_key",
+    record_key_labels=("reaction_key", "molecule_key"),
+    kind_label="job_type",
+    count_label="candidate_count",
+    optional_artifact_fields=(
         "selected_candidate_paths",
         "analysis_summary",
         "resource_request",
         "resource_actual",
-    ):
-        _print_optional_artifact_field(label, state, report)
-    print(f"stdout_log: {report.get('stdout_log') or '-'}")
-    print(f"stderr_log: {report.get('stderr_log') or '-'}")
+    ),
+)
 
 
 def cmd_summary(args: Any) -> int:
-    cfg = load_config(getattr(args, "config", None))
-    target = str(getattr(args, "target", "")).strip()
-    if not target:
-        print("error: summary requires a job_id or job directory")
-        return 1
-
-    _root, record = resolve_job_location_for_cfg(cfg, target)
-    job_dir, state, report, record = load_job_artifacts_for_cfg(cfg, target)
-    if job_dir is None:
-        print(f"error: job not found: {target}")
-        return 1
-
-    if bool(getattr(args, "json", False)):
-        payload = _summary_payload(target, job_dir, state, report, record)
-        print(json.dumps(payload, ensure_ascii=True, indent=2))
-        return 0
-
-    _print_text_summary(job_dir, state, report, record)
-    return 0
+    return _cmd_engine_summary(
+        args,
+        load_config_fn=load_config,
+        resolve_job_location_for_cfg_fn=resolve_job_location_for_cfg,
+        load_job_artifacts_for_cfg_fn=load_job_artifacts_for_cfg,
+        spec=_XTB_SUMMARY_SPEC,
+    )

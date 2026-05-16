@@ -11,6 +11,7 @@ from chemstack.core.indexing import (
     list_job_locations,
     upsert_job_location,
 )
+from chemstack.core.indexing import engines as _engine_locations
 
 from ._job_location_utils import (
     TERMINAL_STATUSES,
@@ -74,10 +75,7 @@ def resolve_job_metadata(selected_inp: str, job_dir: Path) -> tuple[str, str]:
 
 
 def resource_dict(max_cores: int, max_memory_gb: int) -> dict[str, int]:
-    return {
-        "max_cores": max(1, int(max_cores)),
-        "max_memory_gb": max(1, int(max_memory_gb)),
-    }
+    return _engine_locations.resource_dict(max_cores, max_memory_gb)
 
 
 def build_job_location_record(
@@ -93,46 +91,23 @@ def build_job_location_record(
     resource_request: dict[str, int] | None = None,
     resource_actual: dict[str, int] | None = None,
 ) -> JobLocationRecord:
-    resolved_job_dir = job_dir.expanduser().resolve()
-    existing_original = (
-        Path(existing.original_run_dir).expanduser().resolve()
-        if existing and existing.original_run_dir
-        else None
-    )
-    original_run_dir = existing_original or resolved_job_dir
-
-    existing_selected = normalize_path_text(existing.selected_input_xyz) if existing else ""
-    selected_input_text = normalize_path_text(selected_input_xyz) or existing_selected
-
-    existing_molecule_key = normalize_text(existing.molecule_key) if existing else ""
-    molecule_key_text = normalize_text(molecule_key) or existing_molecule_key
-    if not molecule_key_text:
-        molecule_key_text = molecule_key_from_selected_inp(selected_input_text, original_run_dir)
-
-    existing_resource_request = dict(existing.resource_request) if existing else {}
-    existing_resource_actual = dict(existing.resource_actual) if existing else {}
-    resource_request_text = dict(resource_request or existing_resource_request)
-    resource_actual_text = dict(
-        resource_actual or existing_resource_actual or resource_request_text
-    )
-
-    organized_dir = organized_output_dir
-    if organized_dir is None and existing is not None and existing.organized_output_dir:
-        organized_dir = Path(existing.organized_output_dir).expanduser().resolve()
-
-    latest_known_path = organized_dir or resolved_job_dir
-    return JobLocationRecord(
-        job_id=normalize_text(job_id),
+    selected_input_text = normalize_path_text(selected_input_xyz)
+    return _engine_locations.build_job_location_record(
+        existing=existing,
+        job_id=job_id,
         app_name=CHEMSTACK_ORCA_APP_NAME,
         job_type=job_type_identifier(job_type),
-        status=normalize_text(status) or "unknown",
-        original_run_dir=str(original_run_dir),
-        molecule_key=molecule_key_text,
+        status=status or "unknown",
+        job_dir=job_dir,
         selected_input_xyz=selected_input_text,
-        organized_output_dir=str(organized_dir.resolve()) if organized_dir is not None else "",
-        latest_known_path=str(latest_known_path.resolve()),
-        resource_request=resource_request_text,
-        resource_actual=resource_actual_text,
+        molecule_key=molecule_key,
+        organized_output_dir=organized_output_dir,
+        resource_request=resource_request,
+        resource_actual=resource_actual,
+        default_molecule_key_fn=lambda original_run_dir, selected: molecule_key_from_selected_inp(
+            selected,
+            original_run_dir,
+        ),
     )
 
 

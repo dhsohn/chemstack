@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +21,7 @@ from .state import (
     write_workflow_payload,
 )
 from .workflow_status import WORKFLOW_FAILED_STATUSES
+from . import restart_stages as _restart_stages
 
 _RESTARTABLE_WORKFLOW_STATUSES = frozenset({*WORKFLOW_FAILED_STATUSES, "cancelled"})
 _RESTARTABLE_STAGE_STATUSES = frozenset(
@@ -144,67 +146,25 @@ def _task_engine(task: dict[str, Any]) -> str:
 
 
 def _stage_needs_restart(stage: dict[str, Any]) -> bool:
-    task = _coerce_mapping(stage.get("task"))
-    stage_status = _normalize_text(stage.get("status")).lower()
-    task_status = _normalize_text(task.get("status")).lower()
-    if stage_status == "completed" and task_status == "completed":
-        return False
-    return stage_status in _RESTARTABLE_STAGE_STATUSES or task_status in _RESTARTABLE_STAGE_STATUSES
+    return _restart_stages.stage_needs_restart(stage, deps=sys.modules[__name__])
 
 
 def _active_stage_rows(payload: dict[str, Any]) -> list[dict[str, str]]:
-    rows: list[dict[str, str]] = []
-    for raw_stage in payload.get("stages", []):
-        if not isinstance(raw_stage, dict):
-            continue
-        task = _coerce_mapping(raw_stage.get("task"))
-        stage_status = _normalize_text(raw_stage.get("status")).lower()
-        task_status = _normalize_text(task.get("status")).lower()
-        if stage_status not in _ACTIVE_STAGE_STATUSES and task_status not in _ACTIVE_STAGE_STATUSES:
-            continue
-        rows.append(
-            {
-                "stage_id": _normalize_text(raw_stage.get("stage_id")),
-                "status": stage_status,
-                "task_status": task_status,
-                "engine": _normalize_text(task.get("engine")),
-            }
-        )
-    return rows
+    return _restart_stages.active_stage_rows(payload, deps=sys.modules[__name__])
 
 
 def _active_restart_error(workflow_id: str, rows: list[dict[str, str]]) -> ValueError:
-    shown = []
-    for row in rows[:5]:
-        stage_id = row.get("stage_id") or "stage"
-        status = row.get("status") or "-"
-        task_status = row.get("task_status") or "-"
-        shown.append(f"{stage_id}(status={status}, task_status={task_status})")
-    suffix = f"; active_stages={', '.join(shown)}" if shown else ""
-    if len(rows) > len(shown):
-        suffix += f"; remaining_active_count={len(rows) - len(shown)}"
-    return ValueError(
-        f"workflow still has active stages; wait for cancellation/sync to finish before restart: "
-        f"{workflow_id}{suffix}"
-    )
+    return _restart_stages.active_restart_error(workflow_id, rows)
 
 
 def _clear_phase_notification_state(
     metadata: dict[str, Any], restarted_stages: list[dict[str, str]]
 ) -> None:
-    phase_notifications = metadata.get("phase_notifications")
-    if not isinstance(phase_notifications, dict):
-        return
-
-    engines = {
-        _normalize_text(stage.get("engine")).lower()
-        for stage in restarted_stages
-        if _normalize_text(stage.get("engine"))
-    }
-    for engine in engines:
-        phase_notifications.pop(f"{engine}_summary", None)
-    if not phase_notifications:
-        metadata.pop("phase_notifications", None)
+    _restart_stages.clear_phase_notification_state(
+        metadata,
+        restarted_stages,
+        deps=sys.modules[__name__],
+    )
 
 
 def _manifest_mapping(value: Any) -> dict[str, Any]:
@@ -556,41 +516,11 @@ def _reset_stage_for_restart(
     *,
     rematerialize: bool = False,
 ) -> dict[str, str]:
-    task = _stage_task(stage)
-    metadata = _stage_metadata(stage)
-    task_payload = _task_payload(task)
-    enqueue_payload = _enqueue_payload(task)
-    engine = _task_engine(task)
-
-    previous = {
-        "stage_id": _normalize_text(stage.get("stage_id")),
-        "previous_status": _normalize_text(stage.get("status")),
-        "previous_task_status": _normalize_text(task.get("status")),
-        "engine": _normalize_text(task.get("engine")),
-    }
-
-    stage["status"] = "planned"
-    task["status"] = "planned"
-    stage["output_artifacts"] = []
-    task.pop("submission_result", None)
-    task.pop("cancel_result", None)
-
-    for key in _STALE_STAGE_METADATA_KEYS:
-        metadata.pop(key, None)
-    for key in _STALE_TASK_PAYLOAD_KEYS:
-        task_payload.pop(key, None)
-
-    if rematerialize and engine in _REMATERIALIZED_ENGINES:
-        for key in _REMATERIALIZED_TASK_PAYLOAD_KEYS:
-            if key in task_payload:
-                task_payload[key] = ""
-        if "job_dir" in enqueue_payload:
-            enqueue_payload["job_dir"] = ""
-
-    if _task_is_orca(task):
-        enqueue_payload["force"] = True
-
-    return previous
+    return _restart_stages.reset_stage_for_restart(
+        stage,
+        rematerialize=rematerialize,
+        deps=sys.modules[__name__],
+    )
 
 
 def restart_failed_workflow(

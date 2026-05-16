@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import sys
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator, List, Optional, cast
@@ -23,8 +24,10 @@ from .lock_utils import (
 from ..core.app_ids import CHEMSTACK_ORCA_APP_NAME
 from .persistence_utils import atomic_write_json, now_utc_iso, timestamped_token
 from .process_tracking import active_run_lock_pid, current_process_lock_payload, read_pid_file
-from .state_store import load_state, report_json_path
-from .statuses import QueueStatus, RunStatus
+from . import queue_entry_model as _queue_entry_model
+from . import queue_reconciliation as _queue_reconciliation
+from .state_store import load_state, report_json_path  # noqa: F401
+from .statuses import QueueStatus
 from .types import QueueEntry
 
 logger = logging.getLogger(__name__)
@@ -60,74 +63,27 @@ def _now_iso() -> str:
 
 
 def _normalize_text(value: object | None) -> str:
-    if value is None:
-        return ""
-    return str(value).strip()
+    return _queue_entry_model.normalize_text(value)
 
 
 def _normalize_bool(value: object) -> bool:
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, str):
-        return value.strip().lower() in {"1", "true", "yes", "on"}
-    return bool(value)
+    return _queue_entry_model.normalize_bool(value)
 
 
 def _normalize_priority(value: object, *, default: int = 10) -> int:
-    try:
-        if isinstance(value, bool):
-            return int(value)
-        if isinstance(value, (int, float, str)):
-            return int(value)
-    except (TypeError, ValueError):
-        pass
-    return default
+    return _queue_entry_model.normalize_priority(value, default=default)
 
 
 def _normalize_optional_text(value: object | None) -> str | None:
-    text = _normalize_text(value)
-    if not text or text.lower() == "none":
-        return None
-    return text
+    return _queue_entry_model.normalize_optional_text(value)
 
 
 def _normalize_metadata(raw: object) -> dict[str, Any]:
-    if not isinstance(raw, dict):
-        return {}
-    return {str(key): value for key, value in raw.items()}
+    return _queue_entry_model.normalize_metadata(raw)
 
 
 def _normalize_entry(entry: QueueEntry) -> QueueEntry:
-    normalized = cast(QueueEntry, dict(entry))
-    metadata = _normalize_metadata(normalized.get("metadata"))
-    reaction_dir = _normalize_text(metadata.get("reaction_dir")) or _normalize_text(normalized.get("reaction_dir"))
-    force = _normalize_bool(metadata.get("force", normalized.get("force", False)))
-    run_id = _normalize_optional_text(metadata.get("run_id")) or _normalize_optional_text(normalized.get("run_id"))
-
-    if reaction_dir:
-        normalized["reaction_dir"] = reaction_dir
-        metadata["reaction_dir"] = reaction_dir
-    normalized["force"] = force
-    metadata["force"] = force
-    if run_id is not None:
-        normalized["run_id"] = run_id
-        metadata["run_id"] = run_id
-    elif "run_id" in normalized:
-        normalized["run_id"] = None
-
-    normalized["app_name"] = _normalize_text(normalized.get("app_name")) or QUEUE_APP_NAME
-    task_id = _normalize_text(normalized.get("task_id")) or _normalize_text(normalized.get("queue_id"))
-    if task_id:
-        normalized["task_id"] = task_id
-    normalized["task_kind"] = _normalize_text(normalized.get("task_kind")) or QUEUE_TASK_KIND
-    normalized["engine"] = _normalize_text(normalized.get("engine")) or QUEUE_ENGINE
-    normalized["priority"] = _normalize_priority(normalized.get("priority"), default=10)
-    normalized["status"] = _normalize_text(normalized.get("status")).lower()
-    normalized["started_at"] = _normalize_optional_text(normalized.get("started_at"))
-    normalized["finished_at"] = _normalize_optional_text(normalized.get("finished_at"))
-    normalized["error"] = _normalize_optional_text(normalized.get("error"))
-    normalized["metadata"] = metadata
-    return normalized
+    return _queue_entry_model.normalize_entry(entry)
 
 
 def _entry_metadata(
@@ -136,51 +92,47 @@ def _entry_metadata(
     force: bool,
     extra: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    metadata = _normalize_metadata(extra)
-    metadata.setdefault("reaction_dir", reaction_dir)
-    metadata.setdefault("force", force)
-    return metadata
+    return _queue_entry_model.entry_metadata(
+        reaction_dir=reaction_dir,
+        force=force,
+        extra=extra,
+    )
 
 
 def queue_entry_metadata(entry: QueueEntry) -> dict[str, Any]:
-    return dict(_normalize_metadata(_normalize_entry(entry).get("metadata")))
+    return _queue_entry_model.queue_entry_metadata(entry)
 
 
 def queue_entry_run_id(entry: QueueEntry) -> str | None:
-    return _normalize_optional_text(_normalize_entry(entry).get("run_id"))
+    return _queue_entry_model.queue_entry_run_id(entry)
 
 
 def queue_entry_id(entry: QueueEntry) -> str:
-    return _normalize_text(_normalize_entry(entry).get("queue_id"))
+    return _queue_entry_model.queue_entry_id(entry)
 
 
 def queue_entry_task_id(entry: QueueEntry) -> str | None:
-    task_id = _normalize_text(_normalize_entry(entry).get("task_id"))
-    return task_id or None
+    return _queue_entry_model.queue_entry_task_id(entry)
 
 
 def queue_entry_status(entry: QueueEntry) -> str:
-    return _normalize_text(_normalize_entry(entry).get("status")).lower()
+    return _queue_entry_model.queue_entry_status(entry)
 
 
 def queue_entry_reaction_dir(entry: QueueEntry) -> str:
-    normalized = _normalize_entry(entry)
-    metadata = _normalize_metadata(normalized.get("metadata"))
-    return _normalize_text(metadata.get("reaction_dir")) or _normalize_text(normalized.get("reaction_dir"))
+    return _queue_entry_model.queue_entry_reaction_dir(entry)
 
 
 def queue_entry_force(entry: QueueEntry) -> bool:
-    normalized = _normalize_entry(entry)
-    metadata = _normalize_metadata(normalized.get("metadata"))
-    return _normalize_bool(metadata.get("force", normalized.get("force", False)))
+    return _queue_entry_model.queue_entry_force(entry)
 
 
 def queue_entry_priority(entry: QueueEntry) -> int:
-    return _normalize_priority(_normalize_entry(entry).get("priority"), default=10)
+    return _queue_entry_model.queue_entry_priority(entry)
 
 
 def queue_entry_app_name(entry: QueueEntry) -> str:
-    return _normalize_text(_normalize_entry(entry).get("app_name")) or QUEUE_APP_NAME
+    return _queue_entry_model.queue_entry_app_name(entry)
 
 
 def _queue_path(allowed_root: Path) -> Path:
@@ -340,43 +292,17 @@ def _read_worker_pid(allowed_root: Path) -> int | None:
 
 
 def _load_report_payload(reaction_dir: Path) -> dict | None:
-    path = report_json_path(reaction_dir)
-    if not path.exists():
-        return None
-    try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        logger.warning("Failed to parse run report: %s", path)
-        return None
-    if not isinstance(raw, dict):
-        return None
-    return raw
+    return _queue_reconciliation.load_report_payload(
+        reaction_dir,
+        report_json_path_fn=report_json_path,
+        logger=logger,
+    )
 
 
 def _terminal_report_data(reaction_dir: Path) -> tuple[str, str | None, str | None, str | None] | None:
-    report = _load_report_payload(reaction_dir)
-    if report is None:
-        return None
-
-    final_result = report.get("final_result")
-    final_dict = final_result if isinstance(final_result, dict) else {}
-    status = str(final_dict.get("status") or report.get("status") or "").strip().lower()
-    if status not in {QueueStatus.COMPLETED.value, QueueStatus.FAILED.value}:
-        return None
-
-    run_id_text = str(report.get("run_id", "")).strip()
-    finished_at_text = str(final_dict.get("completed_at") or report.get("updated_at") or "").strip()
-    error_text = None
-    if status == QueueStatus.FAILED.value:
-        reason = str(final_dict.get("reason", "")).strip()
-        if reason:
-            error_text = reason
-
-    return (
-        status,
-        run_id_text or None,
-        finished_at_text or None,
-        error_text,
+    return _queue_reconciliation.terminal_report_data(
+        reaction_dir,
+        load_report_payload_fn=_load_report_payload,
     )
 
 
@@ -388,14 +314,14 @@ def _apply_terminal_reconciliation(
     finished_at: str | None,
     error: str | None = None,
 ) -> None:
-    entry["status"] = status
-    entry["finished_at"] = finished_at or entry.get("finished_at") or _now_iso()
-    if run_id is not None:
-        entry["run_id"] = run_id
-    if error is not None:
-        entry["error"] = error
-    elif status == QueueStatus.COMPLETED.value:
-        entry["error"] = None
+    _queue_reconciliation.apply_terminal_reconciliation(
+        entry,
+        status=status,
+        run_id=run_id,
+        finished_at=finished_at,
+        error=error,
+        now_iso_fn=_now_iso,
+    )
 
 
 def reconcile_orphaned_running_entries(
@@ -409,77 +335,12 @@ def reconcile_orphaned_running_entries(
     is orphaned. Prefer terminal state from ``run_state.json``; if that file has
     already been removed, fall back to ``run_report.json`` before re-queueing.
     """
-    if not ignore_worker_pid and _read_worker_pid(allowed_root) is not None:
-        return 0
-
-    changed = 0
-    with _acquire_queue_lock(allowed_root):
-        entries = _load_entries(allowed_root)
-        for entry in entries:
-            if queue_entry_status(entry) != QueueStatus.RUNNING.value:
-                continue
-
-            rdir = queue_entry_reaction_dir(entry)
-            if not rdir:
-                continue
-            reaction_dir = Path(rdir)
-
-            if _active_lock_pid(reaction_dir) is not None:
-                continue
-
-            queue_id = queue_entry_id(entry) or "?"
-            state = load_state(reaction_dir)
-            run_status = str(state.get("status", "")).strip().lower() if state else ""
-
-            if state is not None and run_status == RunStatus.COMPLETED.value:
-                final_result = state.get("final_result")
-                final_dict = final_result if isinstance(final_result, dict) else {}
-                _apply_terminal_reconciliation(
-                    entry,
-                    status=QueueStatus.COMPLETED.value,
-                    run_id=str(state.get("run_id", "")).strip() or None,
-                    finished_at=str(final_dict.get("completed_at") or state.get("updated_at") or "").strip() or None,
-                )
-                logger.info("Reconciled orphaned entry %s -> completed", queue_id)
-                changed += 1
-                continue
-
-            if state is not None and run_status == RunStatus.FAILED.value:
-                final_result = state.get("final_result")
-                final_dict = final_result if isinstance(final_result, dict) else {}
-                _apply_terminal_reconciliation(
-                    entry,
-                    status=QueueStatus.FAILED.value,
-                    run_id=str(state.get("run_id", "")).strip() or None,
-                    finished_at=str(final_dict.get("completed_at") or state.get("updated_at") or "").strip() or None,
-                    error=str(final_dict.get("reason", "")).strip() or "orphaned_worker_crash",
-                )
-                logger.info("Reconciled orphaned entry %s -> failed", queue_id)
-                changed += 1
-                continue
-
-            report_data = _terminal_report_data(reaction_dir)
-            if report_data is not None:
-                status, run_id, finished_at, error = report_data
-                _apply_terminal_reconciliation(
-                    entry,
-                    status=status,
-                    run_id=run_id,
-                    finished_at=finished_at,
-                    error=error,
-                )
-                logger.info("Reconciled orphaned entry %s -> %s (from run_report)", queue_id, status)
-                changed += 1
-                continue
-
-            entry["status"] = QueueStatus.PENDING.value
-            entry["started_at"] = None
-            logger.info("Reconciled orphaned entry %s -> pending (re-queue)", queue_id)
-            changed += 1
-
-        if changed:
-            _save_entries(allowed_root, entries)
-    return changed
+    return _queue_reconciliation.reconcile_orphaned_running_entries(
+        allowed_root,
+        ignore_worker_pid=ignore_worker_pid,
+        deps=sys.modules[__name__],
+        logger=logger,
+    )
 
 
 # -- Duplicate detection --------------------------------------------------

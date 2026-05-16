@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import fcntl
+import sys
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -22,6 +22,7 @@ from .lock_utils import (
 )
 from .persistence_utils import atomic_write_json, now_utc_iso, timestamped_token
 from .process_tracking import RUN_LOCK_FILE_NAME, active_run_lock_pid
+from . import admission_backend as _admission_backend
 
 ADMISSION_FILE_NAME = "admission_slots.json"
 ADMISSION_LOCK_NAME = "admission.lock"
@@ -30,6 +31,7 @@ ADMISSION_APP_NAME_ENV_VAR = "ORCA_AUTO_ADMISSION_APP_NAME"
 ADMISSION_TASK_ID_ENV_VAR = "ORCA_AUTO_ADMISSION_TASK_ID"
 
 logger = logging.getLogger(__name__)
+_ADMISSION_BACKEND_COMPAT = (atomic_write_json,)
 
 
 class AdmissionLimitReachedError(RuntimeError):
@@ -140,41 +142,11 @@ def _acquire_admission_lock(root: Path, *, timeout_seconds: int = 10) -> Iterato
 
 
 def _load_slots(root: Path) -> List[AdmissionSlot]:
-    backend = _chem_core_admission_module()
-    backend_load_slots = getattr(backend, "_load_slots", None) if backend is not None else None
-    if callable(backend_load_slots):
-        try:
-            return [_from_chem_core_slot(slot) for slot in backend_load_slots(root)]
-        except Exception as exc:
-            _wrap_backend_corruption(exc)
-            raise
-
-    path = _admission_path(root)
-    if not path.exists():
-        return []
-    try:
-        text = path.read_text(encoding="utf-8")
-    except FileNotFoundError:
-        return []
-    except OSError as exc:
-        raise AdmissionStoreCorruptError(f"Admission slot file cannot be read: {path}") from exc
-    try:
-        raw = json.loads(text)
-    except json.JSONDecodeError as exc:
-        raise AdmissionStoreCorruptError(f"Admission slot file is not valid JSON: {path}") from exc
-    if not isinstance(raw, list):
-        raise AdmissionStoreCorruptError(f"Admission slot file must contain a JSON list: {path}")
-    return [cast(AdmissionSlot, slot) for slot in raw if isinstance(slot, dict)]
+    return _admission_backend.load_slots(root, deps=sys.modules[__name__])
 
 
 def _save_slots(root: Path, slots: List[AdmissionSlot]) -> None:
-    backend = _chem_core_admission_module()
-    if backend is None:
-        atomic_write_json(_admission_path(root), slots, ensure_ascii=True, indent=2)
-        return
-
-    backend_slots = [_to_chem_core_slot(slot, backend=backend) for slot in slots]
-    backend._save_slots(root, backend_slots)
+    _admission_backend.save_slots(root, slots, deps=sys.modules[__name__])
 
 
 def _chem_core_admission_module() -> Any | None:
@@ -182,84 +154,54 @@ def _chem_core_admission_module() -> Any | None:
 
 
 def _backend_list_slots(root: Path, *, backend: Any) -> list[AdmissionSlot] | None:
-    list_slots_fn = getattr(backend, "list_slots", None)
-    if not callable(list_slots_fn):
-        return None
-    try:
-        return [_from_chem_core_slot(slot) for slot in list_slots_fn(root)]
-    except Exception as exc:
-        _wrap_backend_corruption(exc)
-        raise
+    return _admission_backend.backend_list_slots(
+        root,
+        backend=backend,
+        deps=sys.modules[__name__],
+    )
 
 
 def _backend_reconcile_stale_slots(root: Path, *, backend: Any) -> int | None:
-    reconcile_fn = getattr(backend, "reconcile_stale_slots", None)
-    if not callable(reconcile_fn):
-        return None
-    try:
-        return int(reconcile_fn(root))
-    except Exception as exc:
-        _wrap_backend_corruption(exc)
-        raise
+    return _admission_backend.backend_reconcile_stale_slots(
+        root,
+        backend=backend,
+        deps=sys.modules[__name__],
+    )
 
 
 def _backend_active_slot_count(root: Path, *, backend: Any) -> int | None:
-    count_fn = getattr(backend, "active_slot_count", None)
-    if not callable(count_fn):
-        return None
-    try:
-        return int(count_fn(root))
-    except Exception as exc:
-        _wrap_backend_corruption(exc)
-        raise
+    return _admission_backend.backend_active_slot_count(
+        root,
+        backend=backend,
+        deps=sys.modules[__name__],
+    )
 
 
 def _int_field(value: object) -> int:
-    return value if isinstance(value, int) else 0
+    return _admission_backend.int_field(value)
 
 
 def _optional_int_field(value: object) -> int | None:
-    return value if isinstance(value, int) else None
+    return _admission_backend.optional_int_field(value)
 
 
 def _text_field(value: object) -> str:
-    return str(value or "").strip()
+    return _admission_backend.text_field(value)
 
 
 def _to_chem_core_slot(slot: AdmissionSlot, *, backend: Any) -> Any:
-    normalized = _normalize_slot(slot)
-    return backend.AdmissionSlot(
-        token=_text_field(normalized.get("token")),
-        owner_pid=_int_field(normalized.get("owner_pid")),
-        process_start_ticks=_optional_int_field(normalized.get("process_start_ticks")),
-        source=_text_field(normalized.get("source")),
-        acquired_at=_text_field(normalized.get("acquired_at")),
-        app_name=_text_field(normalized.get("app_name")),
-        task_id=_text_field(normalized.get("task_id")),
-        workflow_id=_text_field(normalized.get("workflow_id")),
-        state=_text_field(normalized.get("state")) or "active",
-        work_dir=_text_field(normalized.get("work_dir") or normalized.get("reaction_dir")),
-        queue_id=_text_field(normalized.get("queue_id")),
+    return _admission_backend.to_chem_core_slot(
+        slot,
+        backend=backend,
+        deps=sys.modules[__name__],
     )
 
 
 def _from_chem_core_slot(slot: object) -> AdmissionSlot:
-    work_dir = _text_field(getattr(slot, "work_dir", ""))
-    normalized: AdmissionSlot = {
-        "token": _text_field(getattr(slot, "token", "")),
-        "state": _text_field(getattr(slot, "state", "")) or "active",
-        "work_dir": work_dir or None,
-        "reaction_dir": work_dir or None,
-        "queue_id": _text_field(getattr(slot, "queue_id", "")) or None,
-        "owner_pid": _int_field(getattr(slot, "owner_pid", 0)),
-        "process_start_ticks": _optional_int_field(getattr(slot, "process_start_ticks", None)),
-        "source": _text_field(getattr(slot, "source", "")),
-        "acquired_at": _text_field(getattr(slot, "acquired_at", "")),
-        "app_name": _text_field(getattr(slot, "app_name", "")) or None,
-        "task_id": _text_field(getattr(slot, "task_id", "")) or None,
-        "workflow_id": _text_field(getattr(slot, "workflow_id", "")) or None,
-    }
-    return _normalize_slot(normalized)
+    return cast(
+        AdmissionSlot,
+        _admission_backend.from_chem_core_slot(slot, deps=sys.modules[__name__]),
+    )
 
 
 def _normalize_work_dir(value: str | Path | None) -> str | None:

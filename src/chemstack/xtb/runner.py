@@ -1,17 +1,14 @@
 from __future__ import annotations
 
-import json
 import os
 import re
 import resource
 import shutil
 import subprocess
-import time
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, TextIO
-
-import yaml
 
 from chemstack.core.config import engines as _config_engines
 from chemstack.core.utils import now_utc_iso
@@ -24,27 +21,30 @@ from .commands._helpers import (
     resource_request_from_manifest,
 )
 from .config import AppConfig
+from . import runner_execution as _runner_execution
+from . import runner_finalize as _runner_finalize
+from .runner_artifacts import (
+    _collect_opt_candidates,
+    _collect_path_search_candidates,
+    _collect_sp_candidates,
+    _extract_sp_energy,
+    _load_xtbout_json,
+    _parse_candidate_comment_energy,
+    _parse_path_search_stdout,
+    _resolve_existing_path,
+    _safe_float,
+)
 
-_CANDIDATE_PATTERNS = (
-    "xtbpath*.xyz",
-    "path*.xyz",
-    "xtbopt.xyz",
+_RUNNER_ARTIFACT_COMPAT = (
+    _collect_opt_candidates,
+    _collect_path_search_candidates,
+    _collect_sp_candidates,
+    _load_xtbout_json,
+    _parse_candidate_comment_energy,
+    _parse_path_search_stdout,
+    _resolve_existing_path,
+    _safe_float,
 )
-_TRIAL_RE = re.compile(
-    r"run\s+(\d+)\s+barrier:\s*([-+]?\d+(?:\.\d+)?)\s+dE:\s*([-+]?\d+(?:\.\d+)?)\s+product-end path RMSD:\s*([-+]?\d+(?:\.\d+)?)"
-)
-_FORWARD_BARRIER_RE = re.compile(
-    r"forward\s+barrier\s+\(kcal\)\s*:\s*([-+]?\d+(?:\.\d+)?)", re.IGNORECASE
-)
-_BACKWARD_BARRIER_RE = re.compile(
-    r"backward\s+barrier\s+\(kcal\)\s*:\s*([-+]?\d+(?:\.\d+)?)", re.IGNORECASE
-)
-_REACTION_ENERGY_RE = re.compile(
-    r"reaction energy\s+\(kcal\)\s*:\s*([-+]?\d+(?:\.\d+)?)", re.IGNORECASE
-)
-_TS_FILE_RE = re.compile(r"estimated TS on file\s+(\S+)", re.IGNORECASE)
-_POINT_COUNT_RE = re.compile(r"path\s+(\d+)\s+taken with\s+(\d+)\s+points", re.IGNORECASE)
-_COMMENT_ENERGY_RE = re.compile(r"energy\s*[:=]\s*([-+]?\d+(?:\.\d+)?)", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -229,66 +229,6 @@ def _build_command(
     return command
 
 
-def _resolve_existing_path(job_dir: Path, path_text: str) -> str:
-    candidate = Path(path_text).expanduser()
-    if not candidate.is_absolute():
-        candidate = job_dir / candidate
-    try:
-        resolved = candidate.resolve()
-    except OSError:
-        return ""
-    if not resolved.exists() or not resolved.is_file():
-        return ""
-    return str(resolved)
-
-
-def _safe_float(value: str) -> float | None:
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
-
-
-def _load_xtbout_json(job_dir: Path) -> dict[str, Any]:
-    path = job_dir / "xtbout.json"
-    if not path.exists():
-        return {}
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
-    return payload if isinstance(payload, dict) else {}
-
-
-def _parse_candidate_comment_energy(candidate_xyz: Path) -> float | None:
-    try:
-        lines = candidate_xyz.read_text(encoding="utf-8", errors="ignore").splitlines()
-    except OSError:
-        return None
-    if len(lines) < 2:
-        return None
-    match = _COMMENT_ENERGY_RE.search(lines[1])
-    if not match:
-        return None
-    return _safe_float(match.group(1))
-
-
-def _extract_sp_energy(job_dir: Path, candidate_xyz: Path) -> tuple[float | None, str]:
-    xtbout = _load_xtbout_json(job_dir)
-    for key in ("total energy", "electronic energy"):
-        value = xtbout.get(key)
-        if isinstance(value, (int, float)):
-            return float(value), f"xtbout.json:{key}"
-    if isinstance(xtbout.get("total energy"), str):
-        value = _safe_float(xtbout["total energy"])
-        if value is not None:
-            return value, "xtbout.json:total energy"
-    comment_energy = _parse_candidate_comment_energy(candidate_xyz)
-    if comment_energy is not None:
-        return comment_energy, "candidate_comment"
-    return None, ""
-
-
 def _ranking_top_n(manifest: dict[str, Any]) -> int:
     raw = manifest.get("top_n", 3)
     try:
@@ -318,44 +258,16 @@ def _run_candidate_sp_job(
     on_running_job: Callable[[XtbRunningJob | None], None] | None = None,
     terminate_process: Callable[[subprocess.Popen[str]], None] | None = None,
 ) -> XtbRunResult:
-    candidate_run_dir.mkdir(parents=True, exist_ok=True)
-    candidate_input = candidate_run_dir / "input.xyz"
-    shutil.copy2(candidate_xyz, candidate_input)
-    candidate_manifest = dict(manifest)
-    candidate_manifest["job_type"] = "sp"
-    candidate_manifest["input_xyz"] = "input.xyz"
-    candidate_manifest_path = candidate_run_dir / MANIFEST_FILE_NAME
-    candidate_manifest_path.write_text(
-        yaml.safe_dump(candidate_manifest, sort_keys=False), encoding="utf-8"
+    return _runner_execution.run_candidate_sp_job(
+        cfg,
+        candidate_xyz=candidate_xyz,
+        candidate_run_dir=candidate_run_dir,
+        manifest=manifest,
+        should_cancel=should_cancel,
+        on_running_job=on_running_job,
+        terminate_process=terminate_process,
+        deps=sys.modules[__name__],
     )
-    running = start_xtb_job(cfg, job_dir=candidate_run_dir, selected_input_xyz=candidate_input)
-    if on_running_job is not None:
-        on_running_job(running)
-    try:
-        process = getattr(running, "process", None)
-        if process is None:
-            return finalize_xtb_job(running)
-        while True:
-            if should_cancel is not None and should_cancel():
-                if process.poll() is None:
-                    if terminate_process is not None:
-                        terminate_process(process)
-                    else:
-                        try:
-                            process.terminate()
-                        except Exception:
-                            pass
-                return finalize_xtb_job(
-                    running,
-                    forced_status="cancelled",
-                    forced_reason="cancel_requested",
-                )
-            if process.poll() is not None:
-                return finalize_xtb_job(running)
-            time.sleep(1)
-    finally:
-        if on_running_job is not None:
-            on_running_job(None)
 
 
 def _ranking_candidate_run_dir(ranking_root: Path, index: int, candidate_path: Path) -> Path:
@@ -753,40 +665,6 @@ def _ranking_completed_result(
     )
 
 
-def _path_trial_from_match(match: re.Match[str]) -> dict[str, Any]:
-    return {
-        "trial_index": int(match.group(1)),
-        "barrier_kcal": float(match.group(2)),
-        "delta_e_kcal": float(match.group(3)),
-        "product_end_rmsd": float(match.group(4)),
-    }
-
-
-def _apply_path_search_stdout_line(
-    job_dir: Path, line: str, summary: dict[str, Any], trials: list[dict[str, Any]]
-) -> None:
-    if match := _TRIAL_RE.search(line):
-        trials.append(_path_trial_from_match(match))
-        return
-    if match := _FORWARD_BARRIER_RE.search(line):
-        summary["forward_barrier_kcal"] = float(match.group(1))
-        return
-    if match := _BACKWARD_BARRIER_RE.search(line):
-        summary["backward_barrier_kcal"] = float(match.group(1))
-        return
-    if match := _REACTION_ENERGY_RE.search(line):
-        summary["reaction_energy_kcal"] = float(match.group(1))
-        return
-    if match := _TS_FILE_RE.search(line):
-        ts_guess_path = _resolve_existing_path(job_dir, match.group(1))
-        if ts_guess_path:
-            summary["ts_guess_path"] = ts_guess_path
-        return
-    if match := _POINT_COUNT_RE.search(line):
-        summary["selected_path_index"] = int(match.group(1))
-        summary["selected_path_point_count"] = int(match.group(2))
-
-
 def run_xtb_ranking_job(
     cfg: AppConfig,
     *,
@@ -830,121 +708,6 @@ def run_xtb_ranking_job(
         return _ranking_failed_result(context, collected)
 
     return _ranking_completed_result(context, collected, usable=usable)
-
-
-def _parse_path_search_stdout(job_dir: Path, stdout_log: str) -> dict[str, Any]:
-    path = Path(stdout_log)
-    if not path.exists():
-        return {}
-
-    summary: dict[str, Any] = {}
-    trials: list[dict[str, Any]] = []
-    for line in path.read_text(encoding="utf-8", errors="ignore").splitlines():
-        _apply_path_search_stdout_line(job_dir, line, summary, trials)
-
-    if trials:
-        summary["path_trials"] = trials
-    full_path = _resolve_existing_path(job_dir, "xtbpath.xyz")
-    if full_path:
-        summary["path_file"] = full_path
-    selected_path = _resolve_existing_path(job_dir, "xtbpath_0.xyz")
-    if selected_path:
-        summary["selected_path_file"] = selected_path
-    return summary
-
-
-def _collect_path_search_candidates(
-    job_dir: Path, stdout_log: str
-) -> tuple[int, tuple[str, ...], tuple[dict[str, Any], ...], dict[str, Any]]:
-    summary = _parse_path_search_stdout(job_dir, stdout_log)
-    details: list[dict[str, Any]] = []
-
-    ts_guess = summary.get("ts_guess_path")
-    if ts_guess:
-        details.append(
-            {
-                "rank": 1,
-                "kind": "ts_guess",
-                "path": ts_guess,
-                "score": 1000.0,
-                "selected": True,
-            }
-        )
-
-    selected_path_file = summary.get("selected_path_file")
-    if selected_path_file:
-        details.append(
-            {
-                "rank": 2,
-                "kind": "selected_path",
-                "path": selected_path_file,
-                "score": 900.0,
-                "selected": True,
-                "selected_path_index": summary.get("selected_path_index"),
-                "selected_path_point_count": summary.get("selected_path_point_count"),
-            }
-        )
-
-    # Keep the downstream contract intentionally small for path_search:
-    # expose the explicit TS guess and the selected path artifact, while
-    # retaining trial metrics in analysis_summary only.
-    ordered_paths = [item["path"] for item in details if item.get("selected")]
-    if not ordered_paths and summary.get("path_file"):
-        ordered_paths = [str(summary["path_file"])]
-    if ordered_paths:
-        summary["selected_candidate_paths"] = list(ordered_paths)
-    return len(details), tuple(ordered_paths), tuple(details), summary
-
-
-def _collect_opt_candidates(
-    job_dir: Path,
-) -> tuple[int, tuple[str, ...], tuple[dict[str, Any], ...], dict[str, Any]]:
-    optimized_geometry = _resolve_existing_path(job_dir, "xtbopt.xyz")
-    summary = {
-        "canonical_result_path": optimized_geometry,
-        "optimization_log_path": _resolve_existing_path(job_dir, "xtbopt.log"),
-        "optimization_ok": (job_dir / ".xtboptok").exists(),
-    }
-    if not optimized_geometry:
-        return 0, (), (), summary
-    detail = {
-        "rank": 1,
-        "kind": "optimized_geometry",
-        "path": optimized_geometry,
-        "score": 1000.0,
-        "selected": True,
-    }
-    return 1, (optimized_geometry,), (detail,), summary
-
-
-def _collect_sp_candidates(
-    job_dir: Path,
-) -> tuple[int, tuple[str, ...], tuple[dict[str, Any], ...], dict[str, Any]]:
-    result_json = _resolve_existing_path(job_dir, "xtbout.json")
-    xtbout = _load_xtbout_json(job_dir)
-    summary: dict[str, Any] = {
-        "canonical_result_path": result_json,
-        "charges_path": _resolve_existing_path(job_dir, "charges"),
-        "wbo_path": _resolve_existing_path(job_dir, "wbo"),
-        "topology_path": _resolve_existing_path(job_dir, "xtbtopo.mol"),
-    }
-    if isinstance(xtbout.get("total energy"), (int, float)):
-        summary["total_energy"] = float(xtbout["total energy"])
-    if isinstance(xtbout.get("electronic energy"), (int, float)):
-        summary["electronic_energy"] = float(xtbout["electronic energy"])
-    if not result_json:
-        return 0, (), (), summary
-    detail = {
-        "rank": 1,
-        "kind": "single_point_result",
-        "path": result_json,
-        "score": 1000.0,
-        "selected": True,
-    }
-    if "total_energy" in summary:
-        detail["total_energy"] = summary["total_energy"]
-        detail["score"] = round(-float(summary["total_energy"]), 6)
-    return 1, (result_json,), (detail,), summary
 
 
 def _preexec_with_limits(max_memory_gb: int):
@@ -1021,64 +784,10 @@ def finalize_xtb_job(
     forced_status: str | None = None,
     forced_reason: str | None = None,
 ) -> XtbRunResult:
-    try:
-        running.stdout_handle.flush()
-        running.stderr_handle.flush()
-    finally:
-        running.stdout_handle.close()
-        running.stderr_handle.close()
-
-    exit_code = running.process.poll()
-    if exit_code is None:
-        exit_code = running.process.wait()
-    finished_at = now_utc_iso()
-
-    if forced_status is not None:
-        status = forced_status
-    else:
-        status = "completed" if exit_code == 0 else "failed"
-
-    if forced_reason is not None:
-        reason = forced_reason
-    else:
-        reason = "completed" if exit_code == 0 else f"xtb_exit_code_{exit_code}"
-
-    if running.job_type == "path_search":
-        candidate_count, candidate_paths, candidate_details, analysis_summary = (
-            _collect_path_search_candidates(
-                Path(running.job_dir),
-                running.stdout_log,
-            )
-        )
-    elif running.job_type == "opt":
-        candidate_count, candidate_paths, candidate_details, analysis_summary = (
-            _collect_opt_candidates(Path(running.job_dir))
-        )
-    elif running.job_type == "sp":
-        candidate_count, candidate_paths, candidate_details, analysis_summary = (
-            _collect_sp_candidates(Path(running.job_dir))
-        )
-    else:
-        candidate_count, candidate_paths, candidate_details, analysis_summary = 0, (), (), {}
-
-    return XtbRunResult(
-        status=status,
-        reason=reason,
-        command=running.command,
-        exit_code=int(exit_code),
-        started_at=running.started_at,
-        finished_at=finished_at,
-        stdout_log=running.stdout_log,
-        stderr_log=running.stderr_log,
-        selected_input_xyz=running.selected_input_xyz,
-        job_type=running.job_type,
-        reaction_key=running.reaction_key,
-        input_summary=dict(running.input_summary),
-        candidate_count=candidate_count,
-        selected_candidate_paths=candidate_paths,
-        candidate_details=candidate_details,
-        analysis_summary=analysis_summary,
-        manifest_path=running.manifest_path,
-        resource_request=running.resource_request,
-        resource_actual=running.resource_actual,
+    return _runner_finalize.finalize_xtb_job(
+        running,
+        forced_status=forced_status,
+        forced_reason=forced_reason,
+        result_cls=XtbRunResult,
+        deps=sys.modules[__name__],
     )
