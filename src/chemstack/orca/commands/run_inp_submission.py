@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from ..types import QueueEnqueuedNotification
 
 
-def build_queue_enqueued_notification(entry: Any, *, deps: Any) -> dict[str, Any]:
+def build_queue_enqueued_notification(entry: Any, *, deps: Any) -> QueueEnqueuedNotification:
     return {
         "queue_id": deps._queue_store.queue_entry_id(entry),
         "reaction_dir": deps._queue_store.queue_entry_reaction_dir(entry),
