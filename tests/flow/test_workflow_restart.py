@@ -319,6 +319,169 @@ def test_restart_failed_workflow_reloads_flow_yaml_for_crest_stage(tmp_path: Pat
     assert params["crest_job_manifest"] == expected_overrides
 
 
+def test_restart_failed_workflow_reloads_xtb_orca_and_endpoint_manifest_settings(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "workflow_runs"
+    workspace = root / "wf_flow_yaml_xtb_orca"
+    (workspace / "controls").mkdir(parents=True)
+    (workspace / "controls" / "path.inp").write_text("$path\n$end\n", encoding="utf-8")
+    (workspace / "flow.yaml").write_text(
+        "\n".join(
+            [
+                "workflow_type: reaction_ts_search",
+                "priority: 5",
+                "max_crest_candidates: 4",
+                "max_xtb_stages: 3",
+                "max_xtb_handoff_retries: 2",
+                "max_orca_stages: 6",
+                "resources:",
+                "  max_cores: 7",
+                "  max_memory_gb: 21",
+                "xtb:",
+                "  gfn: 2",
+                "  xcontrol_file: controls/path.inp",
+                "  endpoint_pairing:",
+                "    strategy: from_xtb_section",
+                "    max_pairs: 2",
+                "endpoint_pairing:",
+                "  max_pairs: 5",
+                "  direction: both",
+                "orca:",
+                "  route_line: '! PBE0 def2-SVP'",
+                "  multiplicity: 2",
+                "charge: -1",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    _write_workflow(
+        workspace,
+        {
+            "workflow_id": "wf_flow_yaml_xtb_orca",
+            "template_name": "reaction_ts_search",
+            "status": "failed",
+            "requested_at": "2026-04-27T00:00:00+00:00",
+            "stages": [
+                {
+                    "stage_id": "xtb_failed",
+                    "status": "failed",
+                    "task": {
+                        "engine": "xtb",
+                        "status": "failed",
+                        "resource_request": {"max_cores": 1},
+                        "payload": {
+                            "job_dir": str(workspace / "old_xtb"),
+                            "selected_input_xyz": str(workspace / "old_xtb" / "reactant.xyz"),
+                            "secondary_input_xyz": str(workspace / "old_xtb" / "product.xyz"),
+                            "job_manifest_overrides": {"gfn": 1},
+                        },
+                        "enqueue_payload": {
+                            "job_dir": str(workspace / "old_xtb"),
+                            "priority": 10,
+                            "command_argv": ["xtb", "--priority", "10", "--run"],
+                        },
+                    },
+                    "metadata": {"queue_id": "q_xtb"},
+                    "output_artifacts": [{"kind": "xtb_result", "path": "/tmp/old_xtb"}],
+                },
+                {
+                    "stage_id": "orca_failed",
+                    "status": "failed",
+                    "task": {
+                        "engine": "orca",
+                        "status": "failed",
+                        "payload": {"reaction_dir": "/tmp/rxn"},
+                        "enqueue_payload": {
+                            "submitter": "chemstack_orca_cli",
+                            "reaction_dir": "/tmp/rxn",
+                            "priority": 10,
+                            "command_argv": ["orca", "--priority", "10", "--run"],
+                        },
+                    },
+                    "metadata": {"queue_id": "q_orca"},
+                    "output_artifacts": [{"kind": "orca_out", "path": "/tmp/old.out"}],
+                },
+            ],
+            "metadata": {"request": {"parameters": {}}},
+        },
+    )
+
+    result = restart_failed_workflow(workspace_dir=workspace, workflow_root=root)
+
+    saved = json.loads((workspace / "workflow.json").read_text(encoding="utf-8"))
+    xtb_stage = saved["stages"][0]
+    xtb_task = xtb_stage["task"]
+    orca_task = saved["stages"][1]["task"]
+    params = saved["metadata"]["request"]["parameters"]
+    xcontrol_path = str((workspace / "controls" / "path.inp").resolve())
+    xtb_overrides = {"gfn": 2, "xcontrol_file": xcontrol_path}
+
+    assert result["restarted_count"] == 2
+    assert saved["metadata"]["restart_summary"]["flow_manifest_applied"] is True
+    assert xtb_task["resource_request"] == {"max_cores": 7, "max_memory_gb": 21}
+    assert xtb_task["enqueue_payload"]["priority"] == 5
+    assert xtb_task["enqueue_payload"]["command_argv"] == ["xtb", "--priority", "5", "--run"]
+    assert xtb_task["enqueue_payload"]["job_dir"] == ""
+    assert xtb_task["payload"]["job_dir"] == ""
+    assert xtb_task["payload"]["selected_input_xyz"] == ""
+    assert xtb_task["payload"]["secondary_input_xyz"] == ""
+    assert xtb_task["payload"]["job_manifest_overrides"] == xtb_overrides
+    assert xtb_task["metadata"]["job_manifest_overrides"] == xtb_overrides
+    assert xtb_stage["metadata"]["job_manifest_overrides"] == xtb_overrides
+    assert orca_task["resource_request"] == {"max_cores": 7, "max_memory_gb": 21}
+    assert orca_task["enqueue_payload"]["priority"] == 5
+    assert orca_task["enqueue_payload"]["command_argv"] == ["orca", "--priority", "5", "--run"]
+    assert orca_task["enqueue_payload"]["force"] is True
+
+    assert params["priority"] == 5
+    assert params["max_cores"] == 7
+    assert params["max_memory_gb"] == 21
+    assert params["max_crest_candidates"] == 4
+    assert params["max_xtb_stages"] == 3
+    assert params["max_xtb_handoff_retries"] == 2
+    assert params["max_orca_stages"] == 6
+    assert params["xtb_job_manifest"] == xtb_overrides
+    assert "crest_job_manifest" not in params
+    assert params["endpoint_pairing"] == {
+        "strategy": "from_xtb_section",
+        "max_pairs": 5,
+        "direction": "both",
+    }
+    assert params["orca_route_line"] == "! PBE0 def2-SVP"
+    assert params["charge"] == -1
+    assert params["multiplicity"] == 2
+
+
+def test_restart_failed_workflow_rejects_non_mapping_flow_yaml(tmp_path: Path) -> None:
+    root = tmp_path / "workflow_runs"
+    workspace = root / "wf_bad_manifest"
+    workspace.mkdir(parents=True)
+    (workspace / "flow.yaml").write_text("- not\n- a mapping\n", encoding="utf-8")
+    _write_workflow(
+        workspace,
+        {
+            "workflow_id": "wf_bad_manifest",
+            "template_name": "reaction_ts_search",
+            "status": "failed",
+            "requested_at": "2026-04-27T00:00:00+00:00",
+            "stages": [
+                {
+                    "stage_id": "xtb_failed",
+                    "status": "failed",
+                    "task": {"engine": "xtb", "status": "failed", "payload": {}, "enqueue_payload": {}},
+                    "metadata": {},
+                }
+            ],
+            "metadata": {},
+        },
+    )
+
+    with pytest.raises(ValueError, match="Workflow manifest must contain a mapping"):
+        restart_failed_workflow(workspace_dir=workspace, workflow_root=root)
+
+
 def test_flow_run_dir_restarts_existing_workflow_workspace_without_flow_yaml(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],

@@ -58,6 +58,8 @@ def _wait_for_candidate_sp_result(
     should_cancel: Callable[[], bool] | None,
     on_cancel: Callable[[subprocess.Popen[str]], None] | None,
     deps: Any,
+    sleep_fn: Callable[[float], None] = time.sleep,
+    poll_interval_seconds: float = 1.0,
 ) -> Any:
     process = getattr(running, "process", None)
     if process is None:
@@ -72,7 +74,7 @@ def _wait_for_candidate_sp_result(
             )
         if process.poll() is not None:
             return deps.finalize_xtb_job(running)
-        time.sleep(1)
+        sleep_fn(poll_interval_seconds)
 
 
 def _request_candidate_process_stop(

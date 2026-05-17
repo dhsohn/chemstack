@@ -8,6 +8,7 @@ from typing import Any
 import pytest
 
 from chemstack import cli as unified_cli
+from chemstack.flow.run_dir_layout import WorkflowRunDirLayout, inspect_workflow_run_dir
 
 
 @pytest.fixture(autouse=True)
@@ -75,6 +76,85 @@ def test_cmd_summary_dispatches_orca_summary(monkeypatch: pytest.MonkeyPatch) ->
     assert result == 30
     assert args.config is None
     assert seen == [args]
+
+
+def test_cmd_orca_summary_configures_logging_and_dispatches(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen: list[argparse.Namespace] = []
+    configured: list[argparse.Namespace] = []
+
+    def _fake_orca_summary(args: argparse.Namespace) -> int:
+        seen.append(args)
+        return 35
+
+    monkeypatch.setattr(unified_cli, "_configure_orca_logging", configured.append)
+    monkeypatch.setattr(
+        unified_cli, "_engine_config_for_command", lambda args: "/tmp/chemstack.yaml"
+    )
+    monkeypatch.setattr("chemstack.orca.commands.summary.cmd_summary", _fake_orca_summary)
+
+    args = argparse.Namespace(
+        command="summary",
+        summary_app="orca",
+        chemstack_config="/tmp/chemstack.yaml",
+        config=None,
+        verbose=True,
+        log_file="/tmp/chemstack.log",
+    )
+
+    result = unified_cli.cmd_orca_summary(args)
+
+    assert result == 35
+    assert args.config == "/tmp/chemstack.yaml"
+    assert configured == [args]
+    assert seen == [args]
+
+
+def test_cli_common_discovers_config_from_explicit_env_and_repo_candidate(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    explicit_config = tmp_path / "explicit.yaml"
+    explicit_config.write_text("workflow:\n  root: /tmp/workflows\n", encoding="utf-8")
+    env_config = tmp_path / "env.yaml"
+    env_config.write_text("workflow:\n  root: /tmp/workflows\n", encoding="utf-8")
+    repo_root = tmp_path / "repo"
+    repo_config = repo_root / "config" / "chemstack.yaml"
+    repo_config.parent.mkdir(parents=True)
+    repo_config.write_text("workflow:\n  root: /tmp/workflows\n", encoding="utf-8")
+
+    assert unified_cli._cli_common._discover_shared_config_path(str(explicit_config)) == str(
+        explicit_config.resolve()
+    )
+
+    monkeypatch.setenv(unified_cli.CHEMSTACK_CONFIG_ENV_VAR, str(env_config))
+    assert unified_cli._cli_common._discover_shared_config_path(None) == str(env_config.resolve())
+
+    monkeypatch.delenv(unified_cli.CHEMSTACK_CONFIG_ENV_VAR)
+    monkeypatch.setattr(unified_cli._cli_common, "_repo_root", lambda: repo_root)
+    assert unified_cli._cli_common._discover_shared_config_path(None) == str(repo_config.resolve())
+    assert unified_cli._cli_common._discover_workflow_root(str(tmp_path / "workflows")) == str(
+        (tmp_path / "workflows").resolve()
+    )
+    assert unified_cli._cli_common._discover_workflow_root(" ") is None
+
+
+def test_workflow_root_for_args_prefers_explicit_root(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        unified_cli,
+        "shared_workflow_root_from_config",
+        lambda config_path: (_ for _ in ()).throw(AssertionError("config should not be read")),
+    )
+
+    assert unified_cli._workflow_root_for_args(
+        argparse.Namespace(
+            workflow_root="/tmp/explicit-workflows",
+            chemstack_config=None,
+            config=None,
+            global_config=None,
+        )
+    ) == str(Path("/tmp/explicit-workflows").resolve())
 
 
 def test_cmd_run_dir_dispatches_to_orca_for_inp_directories(
@@ -202,3 +282,72 @@ def test_cmd_run_dir_requires_manifest_for_workflow_scaffold_directories(
 
     assert result == 1
     assert "Could not infer run-dir target type from directory" in capsys.readouterr().out
+
+
+def test_cmd_run_dir_reports_missing_and_file_targets(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    missing = tmp_path / "missing"
+    assert unified_cli.cmd_run_dir(SimpleNamespace(path=str(missing))) == 1
+    assert f"run-dir target not found: {missing.resolve()}" in capsys.readouterr().out
+
+    file_target = tmp_path / "not-a-dir"
+    file_target.write_text("not a directory\n", encoding="utf-8")
+    assert unified_cli.cmd_run_dir(SimpleNamespace(path=str(file_target))) == 1
+    assert f"run-dir target is not a directory: {file_target.resolve()}" in capsys.readouterr().out
+
+
+def test_cmd_run_dir_sets_default_orca_priority(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    target = tmp_path / "orca_job"
+    target.mkdir()
+    (target / "job.inp").write_text("! Opt\n", encoding="utf-8")
+    seen: list[Any] = []
+
+    def _fake_orca_run_dir(args: Any) -> int:
+        seen.append(args)
+        return 44
+
+    monkeypatch.setattr(unified_cli, "cmd_orca_run_dir", _fake_orca_run_dir)
+
+    args = SimpleNamespace(path=str(target), priority=None)
+
+    assert unified_cli.cmd_run_dir(args) == 44
+    assert args.priority == 10
+    assert seen == [args]
+
+
+def test_workflow_run_dir_layout_properties_and_manifest_detection(tmp_path: Path) -> None:
+    ambiguous = WorkflowRunDirLayout(
+        has_manifest=False,
+        has_reaction_inputs=True,
+        has_conformer_input=True,
+    )
+    reaction = WorkflowRunDirLayout(
+        has_manifest=False,
+        has_reaction_inputs=True,
+        has_conformer_input=False,
+    )
+    conformer = WorkflowRunDirLayout(
+        has_manifest=False,
+        has_reaction_inputs=False,
+        has_conformer_input=True,
+    )
+
+    assert ambiguous.is_ambiguous is True
+    assert ambiguous.inferred_workflow_type is None
+    assert reaction.inferred_workflow_type == "reaction_ts_search"
+    assert conformer.inferred_workflow_type == "conformer_screening"
+
+    target = tmp_path / "workflow"
+    target.mkdir()
+    (target / "reactant.xyz").write_text("1\nr\nH 0 0 0\n", encoding="utf-8")
+    (target / "product.xyz").write_text("1\np\nH 0 0 1\n", encoding="utf-8")
+    layout = inspect_workflow_run_dir(target)
+
+    assert layout.is_workflow_dir is True
+    assert layout.has_reaction_inputs is True
+    assert layout.inferred_workflow_type == "reaction_ts_search"

@@ -469,6 +469,14 @@ def _flow_restart_settings(workspace: Path, payload: dict[str, Any]) -> dict[str
     manifest = _load_flow_manifest(workspace)
     if not manifest:
         return {"applied": False}
+    return _flow_restart_settings_from_manifest(workspace, payload, manifest)
+
+
+def _flow_restart_settings_from_manifest(
+    workspace: Path,
+    payload: dict[str, Any],
+    manifest: dict[str, Any],
+) -> dict[str, Any]:
     template_name = _workflow_template_name(payload, manifest)
     crest_present, crest_manifest = _resolve_engine_manifest(workspace, manifest, "crest")
     xtb_present, xtb_manifest = _resolve_engine_manifest(workspace, manifest, "xtb")

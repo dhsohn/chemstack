@@ -13,6 +13,7 @@ from chemstack.core.config import CommonResourceConfig, CommonRuntimeConfig, Tel
 
 from chemstack.xtb import runner as runner_mod
 from chemstack.xtb import runner_artifacts
+from chemstack.xtb import runner_execution as runner_execution_mod
 from chemstack.xtb.config import AppConfig, PathsConfig
 
 
@@ -63,6 +64,51 @@ def _write_multi_xyz(path: Path, comments: list[str]) -> Path:
         )
     path.write_text("\n".join([*lines, ""]), encoding="utf-8")
     return path
+
+
+class _FakeCandidateProcess:
+    def __init__(
+        self,
+        poll_values: list[int | None],
+        *,
+        terminate_raises: bool = False,
+    ) -> None:
+        self._poll_values = list(poll_values)
+        self._terminal_returncode: int | None = None
+        self.terminate_calls = 0
+        self.terminate_raises = terminate_raises
+
+    def poll(self) -> int | None:
+        if self._terminal_returncode is not None:
+            return self._terminal_returncode
+        if self._poll_values:
+            value = self._poll_values.pop(0)
+            if value is not None:
+                self._terminal_returncode = value
+            return value
+        return None
+
+    def terminate(self) -> None:
+        self.terminate_calls += 1
+        if self.terminate_raises:
+            raise RuntimeError("terminate failed")
+        self._terminal_returncode = -15
+
+
+class _CandidateSpDeps:
+    def __init__(self, result: object) -> None:
+        self.result = result
+        self.finalize_calls: list[tuple[object, str | None, str | None]] = []
+
+    def finalize_xtb_job(
+        self,
+        running: object,
+        *,
+        forced_status: str | None = None,
+        forced_reason: str | None = None,
+    ) -> object:
+        self.finalize_calls.append((running, forced_status, forced_reason))
+        return self.result
 
 
 def _ranking_result(candidate_path: Path, *, status: str = "completed", reason: str = "completed") -> runner_mod.XtbRunResult:
@@ -347,6 +393,115 @@ def test_run_candidate_sp_job_writes_scaffold_and_finalizes_result(
     assert (candidate_run_dir / "input.xyz").read_text(encoding="utf-8") == candidate_xyz.read_text(encoding="utf-8")
     assert manifest["job_type"] == "sp"
     assert manifest["input_xyz"] == "input.xyz"
+
+
+def test_wait_for_candidate_sp_result_handles_non_process_and_exit_paths() -> None:
+    expected_result = object()
+    deps = _CandidateSpDeps(expected_result)
+    no_process_running = SimpleNamespace(process=None)
+
+    assert (
+        runner_execution_mod._wait_for_candidate_sp_result(
+            no_process_running,
+            should_cancel=None,
+            on_cancel=None,
+            deps=deps,
+        )
+        is expected_result
+    )
+
+    process = _FakeCandidateProcess([None, 0])
+    running = SimpleNamespace(process=process)
+    sleeps: list[float] = []
+
+    assert (
+        runner_execution_mod._wait_for_candidate_sp_result(
+            running,
+            should_cancel=lambda: False,
+            on_cancel=None,
+            deps=deps,
+            sleep_fn=sleeps.append,
+            poll_interval_seconds=0.25,
+        )
+        is expected_result
+    )
+
+    assert sleeps == [0.25]
+    assert deps.finalize_calls == [
+        (no_process_running, None, None),
+        (running, None, None),
+    ]
+
+
+def test_run_candidate_sp_job_cancels_process_and_clears_running_callback(
+    tmp_path: Path,
+) -> None:
+    cfg = _cfg(tmp_path)
+    candidate_xyz = _write_xyz(tmp_path / "input-candidates" / "rank 2.xyz")
+    candidate_run_dir = tmp_path / "ranking-job" / ".ranking_runs" / "02_rank_2"
+    process = _FakeCandidateProcess([None])
+    running = SimpleNamespace(process=process)
+    expected_result = _ranking_result(candidate_xyz, status="cancelled", reason="cancel_requested")
+    running_callbacks: list[object | None] = []
+    stopped_processes: list[object] = []
+
+    def fake_finalize_xtb_job(
+        finalized_running: object,
+        *,
+        forced_status: str | None = None,
+        forced_reason: str | None = None,
+    ) -> runner_mod.XtbRunResult:
+        assert finalized_running is running
+        assert forced_status == "cancelled"
+        assert forced_reason == "cancel_requested"
+        return expected_result
+
+    deps = SimpleNamespace(
+        start_xtb_job=lambda cfg_obj, *, job_dir, selected_input_xyz: running,
+        finalize_xtb_job=fake_finalize_xtb_job,
+    )
+
+    result = runner_execution_mod.run_candidate_sp_job(
+        cfg,
+        candidate_xyz=candidate_xyz,
+        candidate_run_dir=candidate_run_dir,
+        manifest={"job_type": "ranking"},
+        should_cancel=lambda: True,
+        on_running_job=running_callbacks.append,
+        terminate_process=stopped_processes.append,
+        deps=deps,
+    )
+
+    manifest = yaml.safe_load((candidate_run_dir / "xtb_job.yaml").read_text(encoding="utf-8"))
+    assert result is expected_result
+    assert manifest["job_type"] == "sp"
+    assert manifest["input_xyz"] == "input.xyz"
+    assert running_callbacks == [running, None]
+    assert stopped_processes == [process]
+    assert process.terminate_calls == 0
+
+
+def test_request_candidate_process_stop_terminates_or_ignores_errors() -> None:
+    process = _FakeCandidateProcess([None])
+    runner_execution_mod._request_candidate_process_stop(
+        cast(subprocess.Popen[str], process),
+        on_cancel=None,
+    )
+    assert process.terminate_calls == 1
+
+    exited = _FakeCandidateProcess([0])
+    runner_execution_mod._request_candidate_process_stop(
+        cast(subprocess.Popen[str], exited),
+        on_cancel=None,
+    )
+    assert exited.terminate_calls == 0
+
+    raising = _FakeCandidateProcess([None], terminate_raises=True)
+    runner_execution_mod._request_candidate_process_stop(
+        cast(subprocess.Popen[str], raising),
+        on_cancel=None,
+    )
+    assert raising.terminate_calls == 1
 
 
 def test_run_xtb_ranking_job_requires_candidates(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

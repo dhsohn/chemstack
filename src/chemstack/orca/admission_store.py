@@ -646,7 +646,7 @@ def release_slot(root: Path, token: str) -> bool:
         slots = _load_live_slots(resolved_root)
         kept = [slot for slot in slots if slot.get("token") != token]
         removed = len(kept) != len(slots)
-        if removed or len(kept) != len(slots):
+        if removed:
             _save_slots(resolved_root, kept)
         return removed
 

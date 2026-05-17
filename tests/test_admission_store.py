@@ -608,3 +608,134 @@ class TestAdmissionStore(unittest.TestCase):
 
         self.assertEqual(count, 3)
         active_count.assert_called_once_with(root)
+
+    @patch("chemstack.orca.admission_store.is_process_alive", return_value=True)
+    def test_list_and_count_fall_back_to_backend_load_slots_when_public_api_missing(
+        self,
+        mock_alive: MagicMock,
+    ) -> None:
+        @dataclass(frozen=True)
+        class FakeChemCoreSlot:
+            token: str
+            owner_pid: int
+            process_start_ticks: int | None
+            source: str
+            acquired_at: str
+            app_name: str = ""
+            task_id: str = ""
+            workflow_id: str = ""
+            state: str = "active"
+            work_dir: str = ""
+            queue_id: str = ""
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            backend_load = MagicMock(
+                return_value=[
+                    FakeChemCoreSlot(
+                        token="slot_backend_fallback",
+                        owner_pid=os.getpid(),
+                        process_start_ticks=None,
+                        source="queue_run",
+                        acquired_at="2026-03-20T00:00:00+00:00",
+                        work_dir=str(root / "rxn"),
+                        queue_id="q_fallback",
+                    )
+                ]
+            )
+            fake_backend = SimpleNamespace(
+                _load_slots=backend_load,
+                _save_slots=MagicMock(),
+            )
+            with patch(
+                "chemstack.orca.admission_store._chem_core_admission_module",
+                return_value=fake_backend,
+            ):
+                slots = list_slots(root)
+                count = active_slot_count(root)
+
+        self.assertEqual(len(slots), 1)
+        self.assertEqual(slots[0]["token"], "slot_backend_fallback")
+        self.assertEqual(slots[0]["reaction_dir"], str(root / "rxn"))
+        self.assertEqual(count, 1)
+        self.assertGreaterEqual(backend_load.call_count, 2)
+        mock_alive.assert_called()
+
+    def test_activate_slot_returns_false_when_backend_does_not_update(self) -> None:
+        activate_reserved = MagicMock(return_value=None)
+        fake_backend = SimpleNamespace(activate_reserved_slot=activate_reserved)
+
+        with tempfile.TemporaryDirectory() as tmp, patch(
+            "chemstack.orca.admission_store._chem_core_admission_module",
+            return_value=fake_backend,
+        ):
+            root = Path(tmp)
+            updated = activate_slot(
+                root,
+                "slot_missing",
+                reaction_dir=str(root / "rxn"),
+                source="queue_run",
+            )
+
+        self.assertFalse(updated)
+        activate_reserved.assert_called_once()
+
+    def test_fallback_store_reports_missing_activation_release_and_metadata_update(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp, patch(
+            "chemstack.orca.admission_store._chem_core_admission_module",
+            return_value=None,
+        ):
+            root = Path(tmp)
+            token = reserve_slot(root, 1, source="queue_worker")
+            self.assertIsNotNone(token)
+
+            self.assertFalse(
+                activate_slot(
+                    root,
+                    "slot_missing",
+                    reaction_dir=str(root / "rxn"),
+                    source="queue_run",
+                )
+            )
+            self.assertFalse(release_slot(root, "slot_missing"))
+            self.assertFalse(admission_update_slot_metadata(root, "slot_missing", queue_id="q_missing"))
+            with self.assertRaisesRegex(ValueError, "reaction_dir must not be blank"):
+                activate_slot(
+                    root,
+                    token or "",
+                    reaction_dir="   ",
+                    source="queue_run",
+                )
+
+    def test_reserve_slot_with_explicit_owner_pid_records_observed_start_ticks(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp, patch(
+            "chemstack.orca.admission_store._chem_core_admission_module",
+            return_value=None,
+        ), patch(
+            "chemstack.orca.admission_store.process_start_ticks",
+            return_value=777,
+        ) as mock_ticks:
+            root = Path(tmp)
+            token = reserve_slot(root, 1, source="queue_worker", owner_pid=12345)
+
+            payload = json.loads((root / ADMISSION_FILE_NAME).read_text(encoding="utf-8"))
+
+        self.assertIsNotNone(token)
+        self.assertEqual(payload[0]["owner_pid"], 12345)
+        self.assertEqual(payload[0]["process_start_ticks"], 777)
+        mock_ticks.assert_called_once_with(12345)
+
+    def test_backend_corruption_errors_are_wrapped_in_orca_store_error(self) -> None:
+        core_corruption_error = type("AdmissionStoreCorruptError", (RuntimeError,), {})
+        active_count = MagicMock(side_effect=core_corruption_error("bad backend"))
+        fake_backend = SimpleNamespace(active_slot_count=active_count)
+
+        with tempfile.TemporaryDirectory() as tmp, patch(
+            "chemstack.orca.admission_store._chem_core_admission_module",
+            return_value=fake_backend,
+        ):
+            root = Path(tmp)
+            with self.assertRaises(AdmissionStoreCorruptError) as ctx:
+                active_slot_count(root)
+
+        self.assertIn("bad backend", str(ctx.exception))

@@ -132,6 +132,10 @@ def _classify_existing_orca_worker(command_argv: Sequence[str]) -> str:
 def _format_command_argv(command_argv: Sequence[str]) -> str:
     if not command_argv:
         return "<unavailable>"
+    return _quoted_command(command_argv)
+
+
+def _quoted_command(command_argv: Sequence[str]) -> str:
     return " ".join(shlex.quote(part) for part in command_argv)
 
 
@@ -417,7 +421,7 @@ def _spawn_supervised_worker(
 ) -> _SupervisedWorker:
     process_module = _dependency(deps, "subprocess", subprocess)
     timer = _dependency(deps, "time", time)
-    command_text = " ".join(shlex.quote(part) for part in spec.argv)
+    command_text = _quoted_command(spec.argv)
     action = "restarting" if restart else "starting"
     print(f"{action} worker[{spec.app}]: {command_text}")
     return _SupervisedWorker(
