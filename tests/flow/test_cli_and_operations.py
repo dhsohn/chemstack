@@ -1,16 +1,8 @@
-# ruff: noqa: E402
-
 from __future__ import annotations
 
 import json
-import sys
-from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
-
-REPO_ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(REPO_ROOT))
-sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from chemstack.flow import cli
 from chemstack.flow.contracts import XtbDownstreamPolicy

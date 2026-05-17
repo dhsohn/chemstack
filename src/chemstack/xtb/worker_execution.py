@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
@@ -269,7 +270,7 @@ def run_worker_job(
             should_cancel=should_cancel,
             register_running_job=register_running_job,
             emit_output=False,
-            worker_job_pid=q.os.getpid(),
+            worker_job_pid=os.getpid(),
         )
         return 0 if outcome.result.status in {"completed", "cancelled"} else 1
     finally:

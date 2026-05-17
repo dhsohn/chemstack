@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -8,9 +7,7 @@ from typing import Any
 
 from chemstack.core.app_ids import (
     CHEMSTACK_EXECUTABLE,
-    CHEMSTACK_CONFIG_ENV_VAR,
     CHEMSTACK_ORCA_SOURCE,
-    CHEMSTACK_REPO_ROOT_ENV_VAR,
 )
 from chemstack.core.config.files import (
     shared_workflow_root_from_config,
@@ -30,7 +27,6 @@ from ._activity_model import (
     ActivitySourceRequest,
     ResolvedActivitySources,
     mapping_text as _mapping_text,
-    parse_iso as _parse_iso,
     path_aliases as _path_aliases,
     sort_key as _sort_key,
     timestamp_metadata as _timestamp_metadata,
@@ -51,18 +47,61 @@ from . import _activity_sources
 from . import _activity_cancel
 
 _ACTIVITY_CLEARABLE_TERMINAL_STATUSES = WORKFLOW_TERMINAL_STATUSES
-_ACTIVITY_MODEL_COMPAT = (
-    CHEMSTACK_CONFIG_ENV_VAR,
-    CHEMSTACK_REPO_ROOT_ENV_VAR,
-    cancel_crest_target,
-    cancel_orca_target,
-    cancel_xtb_target,
-    _parse_iso,
-)
 
 
-def _this_module() -> Any:
-    return sys.modules[__name__]
+@dataclass(frozen=True)
+class _ActivitySourceDeps:
+    _project_root: Any
+    _resolve_existing_path: Any
+    _discover_workflow_root: Any
+    _discover_sibling_config: Any
+    _discover_orca_config: Any
+    _shared_config_hint: Any
+
+
+@dataclass(frozen=True)
+class _OrcaActivityDeps:
+    sibling_runtime_paths: Any
+    _unique_texts: Any
+    _path_aliases: Any
+    _timestamp_metadata: Any
+
+
+@dataclass(frozen=True)
+class _ActivityCancelDeps:
+    cancel_crest_target: Any
+    cancel_xtb_target: Any
+    cancel_orca_target: Any
+    _discover_orca_repo_root: Any
+
+
+def _activity_source_deps() -> _ActivitySourceDeps:
+    return _ActivitySourceDeps(
+        _project_root=_project_root,
+        _resolve_existing_path=_resolve_existing_path,
+        _discover_workflow_root=_discover_workflow_root,
+        _discover_sibling_config=_discover_sibling_config,
+        _discover_orca_config=_discover_orca_config,
+        _shared_config_hint=_shared_config_hint,
+    )
+
+
+def _orca_activity_deps() -> _OrcaActivityDeps:
+    return _OrcaActivityDeps(
+        sibling_runtime_paths=sibling_runtime_paths,
+        _unique_texts=_unique_texts,
+        _path_aliases=_path_aliases,
+        _timestamp_metadata=_timestamp_metadata,
+    )
+
+
+def _activity_cancel_deps() -> _ActivityCancelDeps:
+    return _ActivityCancelDeps(
+        cancel_crest_target=cancel_crest_target,
+        cancel_xtb_target=cancel_xtb_target,
+        cancel_orca_target=cancel_orca_target,
+        _discover_orca_repo_root=_discover_orca_repo_root,
+    )
 
 
 @dataclass(frozen=True)
@@ -87,19 +126,19 @@ def _resolve_existing_path(path_text: str) -> Path | None:
 
 
 def _discover_workflow_root(explicit: str | Path | None) -> str | None:
-    return _activity_sources.discover_workflow_root(explicit, deps=_this_module())
+    return _activity_sources.discover_workflow_root(explicit, deps=_activity_source_deps())
 
 
 def _discover_sibling_config(explicit: str | None, *, app_name: str) -> str | None:
     return _activity_sources.discover_sibling_config(
         explicit,
         app_name=app_name,
-        deps=_this_module(),
+        deps=_activity_source_deps(),
     )
 
 
 def _discover_orca_config(explicit: str | None) -> str | None:
-    return _activity_sources.discover_orca_config(explicit, deps=_this_module())
+    return _activity_sources.discover_orca_config(explicit, deps=_activity_source_deps())
 
 
 def _shared_config_hint(*configs: str | None) -> str | None:
@@ -109,7 +148,7 @@ def _shared_config_hint(*configs: str | None) -> str | None:
 def _resolve_activity_source_request(request: ActivitySourceRequest) -> ResolvedActivitySources:
     return _activity_sources.resolve_activity_source_request(
         request,
-        deps=_this_module(),
+        deps=_activity_source_deps(),
     )
 
 
@@ -374,7 +413,7 @@ def _orca_queue_record(
         entry,
         snapshot,
         allowed_root=allowed_root,
-        deps=_this_module(),
+        deps=_orca_activity_deps(),
     )
 
 
@@ -386,7 +425,7 @@ def _orca_snapshot_record(snapshot: Any, *, allowed_root: Path) -> ActivityRecor
     return _activity_orca.snapshot_record(
         snapshot,
         allowed_root=allowed_root,
-        deps=_this_module(),
+        deps=_orca_activity_deps(),
     )
 
 
@@ -394,7 +433,7 @@ def _orca_records(*, config_path: str, repo_root: str | None = None) -> list[Act
     return _activity_orca.orca_records(
         config_path=config_path,
         repo_root=repo_root,
-        deps=_this_module(),
+        deps=_orca_activity_deps(),
     )
 
 
@@ -668,7 +707,7 @@ def _cancel_crest_activity(
         record,
         resolved,
         request,
-        deps=_this_module(),
+        deps=_activity_cancel_deps(),
     )
 
 
@@ -681,7 +720,7 @@ def _cancel_xtb_activity(
         record,
         resolved,
         request,
-        deps=_this_module(),
+        deps=_activity_cancel_deps(),
     )
 
 
@@ -694,7 +733,7 @@ def _cancel_orca_activity(
         record,
         resolved,
         request,
-        deps=_this_module(),
+        deps=_activity_cancel_deps(),
     )
 
 

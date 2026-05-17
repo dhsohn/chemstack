@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from dataclasses import asdict, replace
 from pathlib import Path
 from typing import Any
@@ -12,6 +11,7 @@ from ..utils.persistence import (
     atomic_write_json,
     coerce_bool,
     coerce_int,
+    load_json_list_file,
     now_utc_iso,
     resolve_root_path,
     timestamped_token,
@@ -79,21 +79,11 @@ def _entry_from_dict(raw: dict[str, Any]) -> QueueEntry:
 
 
 def _load_entries(root: Path) -> list[QueueEntry]:
-    path = _queue_path(root)
-    if not path.exists():
-        return []
-    try:
-        text = path.read_text(encoding="utf-8")
-    except FileNotFoundError:
-        return []
-    except OSError as exc:
-        raise QueueStoreCorruptError(f"Queue file cannot be read: {path}") from exc
-    try:
-        raw = json.loads(text)
-    except json.JSONDecodeError as exc:
-        raise QueueStoreCorruptError(f"Queue file is not valid JSON: {path}") from exc
-    if not isinstance(raw, list):
-        raise QueueStoreCorruptError(f"Queue file must contain a JSON list: {path}")
+    raw = load_json_list_file(
+        _queue_path(root),
+        corrupt_error=QueueStoreCorruptError,
+        description="Queue file",
+    )
     return [_entry_from_dict(item) for item in raw if isinstance(item, dict)]
 
 

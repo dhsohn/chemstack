@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -8,17 +8,13 @@ from chemstack.core.commands import engine_reindex as _engine_reindex
 
 from ..config import load_config
 from ..state import load_organized_ref, load_report_json, load_state
-from ..tracking import index_root_for_cfg as _index_root_for_cfg, index_root_for_path, record_from_artifacts
-
-index_root_for_cfg = _index_root_for_cfg
-_REINDEX_DEPS_COMPAT = (
-    load_config,
-    load_state,
-    load_report_json,
-    load_organized_ref,
+from ..tracking import (
+    index_root_for_cfg as _index_root_for_cfg,
     index_root_for_path,
     record_from_artifacts,
 )
+
+index_root_for_cfg = _index_root_for_cfg
 
 
 def _scan_roots(cfg: Any, raw_root: str | None) -> list[Path]:
@@ -29,11 +25,36 @@ def _iter_candidate_dirs(root: Path) -> set[Path]:
     return _engine_reindex.iter_candidate_dirs(root)
 
 
+@dataclass(frozen=True)
+class _ReindexDeps:
+    load_config: Any
+    load_state: Any
+    load_report_json: Any
+    load_organized_ref: Any
+    index_root_for_path: Any
+    record_from_artifacts: Any
+    _scan_roots: Any
+    _iter_candidate_dirs: Any
+
+
+def _reindex_deps() -> _ReindexDeps:
+    return _ReindexDeps(
+        load_config=load_config,
+        load_state=load_state,
+        load_report_json=load_report_json,
+        load_organized_ref=load_organized_ref,
+        index_root_for_path=index_root_for_path,
+        record_from_artifacts=record_from_artifacts,
+        _scan_roots=_scan_roots,
+        _iter_candidate_dirs=_iter_candidate_dirs,
+    )
+
+
 def cmd_reindex(args: Any) -> int:
     return _engine_reindex.cmd_reindex(
         args,
         engine="xtb",
-        deps=sys.modules[__name__],
+        deps=_reindex_deps(),
         default_payload_kind_name="default_job_type",
         default_payload_kind="path_search",
     )

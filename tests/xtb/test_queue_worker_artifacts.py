@@ -6,6 +6,7 @@ from typing import Any, cast
 
 import pytest
 
+from chemstack.core.queue import worker as queue_worker_mod
 from chemstack.xtb.commands import queue as queue_cmd
 from chemstack.xtb import state as state_mod
 
@@ -245,7 +246,7 @@ def test_terminate_process_uses_fallback_terminate_and_kill(
             raise ProcessLookupError("missing")
         raise PermissionError("denied")
 
-    monkeypatch.setattr(queue_cmd.os, "killpg", fake_killpg)
+    monkeypatch.setattr(queue_worker_mod.os, "killpg", fake_killpg)
 
     proc = _Process()
     queue_cmd._terminate_process(cast(Any, proc))
@@ -278,7 +279,7 @@ def test_terminate_process_swallows_terminate_and_kill_exceptions(
             raise queue_cmd.subprocess.TimeoutExpired(cmd="xtb", timeout=timeout)
 
     monkeypatch.setattr(
-        queue_cmd.os,
+        queue_worker_mod.os,
         "killpg",
         lambda pid, sig: (_ for _ in ()).throw(ProcessLookupError("missing")),
     )

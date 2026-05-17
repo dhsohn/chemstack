@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from types import SimpleNamespace
+from argparse import Namespace
 
 from chemstack.core.app_ids import CHEMSTACK_CONFIG_ENV_VAR
 from chemstack.services import bot as bot_service
@@ -40,17 +40,19 @@ def test_queue_worker_service_main_uses_default_apps(monkeypatch) -> None:
 
     monkeypatch.setenv(CHEMSTACK_CONFIG_ENV_VAR, "/tmp/chemstack.yaml")
 
-    def _fake_cmd_queue_worker(args: SimpleNamespace) -> int:
+    def _fake_cmd_queue_worker(args: Namespace) -> int:
         captured["args"] = args
         return 11
 
-    monkeypatch.setattr(queue_worker_service.unified_cli, "cmd_queue_worker", _fake_cmd_queue_worker)
+    monkeypatch.setattr(
+        queue_worker_service.unified_cli, "cmd_queue_worker", _fake_cmd_queue_worker
+    )
 
     result = queue_worker_service.main()
 
     assert result == 11
     args = captured["args"]
-    assert isinstance(args, SimpleNamespace)
+    assert isinstance(args, Namespace)
     assert args.app is None
     assert args.chemstack_config == "/tmp/chemstack.yaml"
     assert args.json is False

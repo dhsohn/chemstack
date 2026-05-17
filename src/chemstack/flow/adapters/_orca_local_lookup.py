@@ -1,34 +1,40 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
 from chemstack.core.indexing import JobLocationRecord
 
+from ._orca_path_helpers import direct_dir_target_impl, resolve_candidate_path_impl
 
-def _orca_module():
-    from . import orca as o
+QUEUE_FILE_NAME = "queue.json"
+ORGANIZED_REF_FILE_NAME = "organized_ref.json"
+INDEX_DIR_NAME = "index"
+RECORDS_FILE_NAME = "records.jsonl"
 
-    return o
+
+def _normalize_text(value: Any) -> str:
+    if value is None:
+        return ""
+    return str(value).strip()
 
 
 def load_json_dict_impl(path: Path) -> dict[str, Any]:
-    o = _orca_module()
     if not path.exists():
         return {}
     try:
-        raw = o.json.loads(path.read_text(encoding="utf-8"))
+        raw = json.loads(path.read_text(encoding="utf-8"))
     except Exception:
         return {}
     return raw if isinstance(raw, dict) else {}
 
 
 def load_json_list_impl(path: Path) -> list[dict[str, Any]]:
-    o = _orca_module()
     if not path.exists():
         return []
     try:
-        raw = o.json.loads(path.read_text(encoding="utf-8"))
+        raw = json.loads(path.read_text(encoding="utf-8"))
     except Exception:
         return []
     if not isinstance(raw, list):
@@ -37,7 +43,6 @@ def load_json_list_impl(path: Path) -> list[dict[str, Any]]:
 
 
 def load_jsonl_records_impl(path: Path) -> list[dict[str, Any]]:
-    o = _orca_module()
     if not path.exists():
         return []
     records: list[dict[str, Any]] = []
@@ -50,8 +55,8 @@ def load_jsonl_records_impl(path: Path) -> list[dict[str, Any]]:
         if not stripped:
             continue
         try:
-            raw = o.json.loads(stripped)
-        except o.json.JSONDecodeError:
+            raw = json.loads(stripped)
+        except json.JSONDecodeError:
             continue
         if isinstance(raw, dict):
             records.append(raw)
@@ -59,14 +64,13 @@ def load_jsonl_records_impl(path: Path) -> list[dict[str, Any]]:
 
 
 def _record_candidate_dirs(record: JobLocationRecord) -> list[Path]:
-    o = _orca_module()
     rows: list[Path] = []
     for value in (record.latest_known_path, record.organized_output_dir, record.original_run_dir):
-        raw = o._normalize_text(value)
+        raw = _normalize_text(value)
         if not raw:
             continue
         try:
-            rows.append(o.Path(raw).expanduser().resolve())
+            rows.append(Path(raw).expanduser().resolve())
         except OSError:
             continue
     return rows
@@ -75,7 +79,8 @@ def _record_candidate_dirs(record: JobLocationRecord) -> list[Path]:
 def _resolve_record_for_target(index_root: Path | None, target: str) -> JobLocationRecord | None:
     if index_root is None:
         return None
-    o = _orca_module()
+    from . import orca as o
+
     try:
         return o.resolve_job_location(index_root, target)
     except Exception:
@@ -85,13 +90,12 @@ def _resolve_record_for_target(index_root: Path | None, target: str) -> JobLocat
 def resolve_job_dir_impl(
     index_root: Path | None, target: str
 ) -> tuple[Path | None, JobLocationRecord | None]:
-    o = _orca_module()
     candidates: list[Path] = []
     record = _resolve_record_for_target(index_root, target)
     if record is not None:
         candidates.extend(_record_candidate_dirs(record))
 
-    direct_target = o._direct_dir_target(target)
+    direct_target = direct_dir_target_impl(target)
     if direct_target is not None:
         candidates.append(direct_target)
 
@@ -110,11 +114,10 @@ def _queue_entry_matches(
     direct_target: Path | None,
     resolved_reaction_dir: Path | None,
 ) -> bool:
-    o = _orca_module()
-    entry_queue_id = o._normalize_text(entry.get("queue_id"))
-    entry_task_id = o._normalize_text(entry.get("task_id"))
-    entry_run_id = o._normalize_text(entry.get("run_id"))
-    entry_reaction_dir = o._resolve_candidate_path(o._normalize_text(entry.get("reaction_dir")))
+    entry_queue_id = _normalize_text(entry.get("queue_id"))
+    entry_task_id = _normalize_text(entry.get("task_id"))
+    entry_run_id = _normalize_text(entry.get("run_id"))
+    entry_reaction_dir = resolve_candidate_path_impl(_normalize_text(entry.get("reaction_dir")))
 
     return (
         (bool(queue_id) and entry_queue_id == queue_id)
@@ -135,15 +138,14 @@ def find_queue_entry_impl(
     run_id: str,
     reaction_dir: str,
 ) -> dict[str, Any] | None:
-    o = _orca_module()
     if allowed_root is None:
         return None
-    entries = o._load_json_list(allowed_root / o.QUEUE_FILE_NAME)
+    entries = load_json_list_impl(allowed_root / QUEUE_FILE_NAME)
     if not entries:
         return None
 
-    direct_target = o._direct_dir_target(target)
-    resolved_reaction_dir = o._resolve_candidate_path(reaction_dir)
+    direct_target = direct_dir_target_impl(target)
+    resolved_reaction_dir = resolve_candidate_path_impl(reaction_dir)
 
     for entry in reversed(entries):
         if _queue_entry_matches(
@@ -159,14 +161,13 @@ def find_queue_entry_impl(
 
 
 def _organized_record_dir(organized_root: Path, record: dict[str, Any]) -> Path | None:
-    o = _orca_module()
-    reaction_dir_text = o._normalize_text(record.get("reaction_dir"))
+    reaction_dir_text = _normalize_text(record.get("reaction_dir"))
     if reaction_dir_text:
         try:
-            return o.Path(reaction_dir_text).expanduser().resolve()
+            return Path(reaction_dir_text).expanduser().resolve()
         except OSError:
             pass
-    organized_path = o._normalize_text(record.get("organized_path"))
+    organized_path = _normalize_text(record.get("organized_path"))
     if organized_path:
         try:
             return (organized_root / organized_path).expanduser().resolve()
@@ -184,8 +185,7 @@ def _organized_record_matches(
     resolved_reaction_dir: Path | None,
     record_dir: Path | None,
 ) -> bool:
-    o = _orca_module()
-    record_run_id = o._normalize_text(record.get("run_id"))
+    record_run_id = _normalize_text(record.get("run_id"))
     return (
         (bool(run_id) and record_run_id == run_id)
         or (bool(target) and record_run_id == target)
@@ -201,15 +201,14 @@ def find_organized_record_impl(
     run_id: str,
     reaction_dir: str,
 ) -> dict[str, Any] | None:
-    o = _orca_module()
     if organized_root is None:
         return None
-    records = o._load_jsonl_records(organized_root / o.INDEX_DIR_NAME / o.RECORDS_FILE_NAME)
+    records = load_jsonl_records_impl(organized_root / INDEX_DIR_NAME / RECORDS_FILE_NAME)
     if not records:
         return None
 
-    direct_target = o._direct_dir_target(target)
-    resolved_reaction_dir = o._resolve_candidate_path(reaction_dir)
+    direct_target = direct_dir_target_impl(target)
+    resolved_reaction_dir = resolve_candidate_path_impl(reaction_dir)
 
     for record in reversed(records):
         record_dir = _organized_record_dir(organized_root, record)
@@ -228,18 +227,17 @@ def find_organized_record_impl(
 def organized_dir_from_record_impl(
     organized_root: Path | None, record: dict[str, Any] | None
 ) -> Path | None:
-    o = _orca_module()
     if record is None:
         return None
-    reaction_dir_text = o._normalize_text(record.get("reaction_dir"))
+    reaction_dir_text = _normalize_text(record.get("reaction_dir"))
     if reaction_dir_text:
         try:
-            candidate = o.Path(reaction_dir_text).expanduser().resolve()
+            candidate = Path(reaction_dir_text).expanduser().resolve()
         except OSError:
             candidate = None
         if candidate is not None:
             return candidate
-    organized_path = o._normalize_text(record.get("organized_path"))
+    organized_path = _normalize_text(record.get("organized_path"))
     if organized_root is None or not organized_path:
         return None
     try:
@@ -249,11 +247,10 @@ def organized_dir_from_record_impl(
 
 
 def record_organized_dir_impl(record: JobLocationRecord | None) -> Path | None:
-    o = _orca_module()
     if record is None:
         return None
     for value in (record.latest_known_path, record.organized_output_dir):
-        raw = o._normalize_text(value)
+        raw = _normalize_text(value)
         if not raw:
             continue
         try:
@@ -268,19 +265,18 @@ def record_organized_dir_impl(record: JobLocationRecord | None) -> Path | None:
 def load_tracked_organized_ref_impl(
     record: JobLocationRecord | None, current_dir: Path | None
 ) -> dict[str, Any]:
-    o = _orca_module()
     if record is None:
         return {}
-    original_run_dir = o._normalize_text(record.original_run_dir)
+    original_run_dir = _normalize_text(record.original_run_dir)
     if not original_run_dir:
         return {}
     try:
-        stub_dir = o.Path(original_run_dir).expanduser().resolve()
+        stub_dir = Path(original_run_dir).expanduser().resolve()
     except OSError:
         return {}
     if current_dir is not None and stub_dir == current_dir.resolve():
         return {}
-    return o._load_json_dict(stub_dir / o.ORGANIZED_REF_FILE_NAME)
+    return load_json_dict_impl(stub_dir / ORGANIZED_REF_FILE_NAME)
 
 
 __all__ = [

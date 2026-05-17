@@ -1,13 +1,10 @@
 from __future__ import annotations
 
 import json
-import sys
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
 from chemstack.flow.adapters.orca import load_orca_artifact_contract
 

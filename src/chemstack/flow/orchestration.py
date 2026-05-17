@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import shutil
 from pathlib import Path
 from typing import Any
 
@@ -13,15 +12,11 @@ from chemstack.core.utils import (
 )
 
 from ._orchestration_advance import (
-    _AdvanceConfig,
-    _AdvanceContext,
-    _advance_phases,
-    _cancel_active_workflow_stages,
-    _cancel_stage_activity,
     advance_workflow,
     cancel_materialized_workflow,
 )
 from ._orchestration_builders import (
+    _copy_input_impl,
     create_conformer_screening_workflow_impl,
     create_reaction_ts_search_workflow_impl,
     new_crest_stage_impl,
@@ -87,12 +82,8 @@ from .adapters import (
 )
 from .contracts import (
     CrestDownstreamPolicy,
-    WorkflowArtifactRef,
-    WorkflowPlan,
     WorkflowStage,
     WorkflowStageInput,
-    WorkflowTask,
-    WorkflowTemplateRequest,
     XtbDownstreamPolicy,
 )
 from .endpoint_pairing import EndpointPairingPolicy, select_endpoint_pairs
@@ -109,7 +100,10 @@ from .submitters.crest_auto import (
     cancel_target as crest_cancel_target,
     submit_job_dir as submit_crest_job_dir,
 )
-from .submitters.orca_auto import cancel_target as orca_cancel_target, submit_reaction_dir
+from .submitters.orca_auto import (
+    cancel_target as orca_cancel_target,
+    submit_reaction_dir,
+)
 from .submitters.xtb_auto import (
     cancel_target as xtb_cancel_target,
     submit_job_dir as submit_xtb_job_dir,
@@ -118,45 +112,33 @@ from .workflow_notifications import maybe_notify_workflow_phase_summary
 from .workflows.orca_stage_utils import build_materialized_orca_stage, safe_name
 from .xyz_utils import choose_orca_geometry_frame, load_xyz_atom_sequence
 
-# Keep these imports bound on the facade module so extracted private helpers can
-# continue resolving them through ``from . import orchestration as o`` and tests
-# can monkeypatch the pre-refactor surface.
-_FACADE_COMPAT = (
-    load_crest_artifact_contract,
-    load_orca_artifact_contract,
-    load_xtb_artifact_contract,
-    select_crest_downstream_inputs,
-    select_xtb_downstream_inputs,
-    CrestDownstreamPolicy,
-    _AdvanceConfig,
-    _AdvanceContext,
-    _advance_phases,
-    _cancel_active_workflow_stages,
-    _cancel_stage_activity,
-    WorkflowArtifactRef,
-    WorkflowPlan,
-    WorkflowStageInput,
-    WorkflowTask,
-    WorkflowTemplateRequest,
-    XtbDownstreamPolicy,
-    EndpointPairingPolicy,
-    select_endpoint_pairs,
-    sibling_allowed_root,
-    sibling_runtime_paths,
-    acquire_workflow_lock,
-    load_workflow_payload,
-    resolve_workflow_workspace,
-    crest_cancel_target,
-    orca_cancel_target,
-    xtb_cancel_target,
-    submit_crest_job_dir,
-    submit_reaction_dir,
-    submit_xtb_job_dir,
-    build_materialized_orca_stage,
-    safe_name,
-    choose_orca_geometry_frame,
-)
-
+__all__ = [
+    "CrestDownstreamPolicy",
+    "EndpointPairingPolicy",
+    "WorkflowStageInput",
+    "XtbDownstreamPolicy",
+    "acquire_workflow_lock",
+    "build_materialized_orca_stage",
+    "choose_orca_geometry_frame",
+    "crest_cancel_target",
+    "load_crest_artifact_contract",
+    "load_orca_artifact_contract",
+    "load_workflow_payload",
+    "load_xtb_artifact_contract",
+    "load_xyz_atom_sequence",
+    "orca_cancel_target",
+    "resolve_workflow_workspace",
+    "safe_name",
+    "select_crest_downstream_inputs",
+    "select_endpoint_pairs",
+    "select_xtb_downstream_inputs",
+    "sibling_allowed_root",
+    "sibling_runtime_paths",
+    "submit_crest_job_dir",
+    "submit_reaction_dir",
+    "submit_xtb_job_dir",
+    "xtb_cancel_target",
+]
 
 def _normalize_text(value: Any) -> str:
     return _shared_normalize_text(value)
@@ -175,12 +157,7 @@ def _workflow_id(prefix: str) -> str:
 
 
 def _copy_input(source: str, target: Path) -> str:
-    src = Path(source).expanduser().resolve()
-    if not src.exists():
-        raise FileNotFoundError(f"Input XYZ not found: {src}")
-    target.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(src, target)
-    return str(target.resolve())
+    return _copy_input_impl(source, target)
 
 
 def _write_workflow_payload_side_effect(workspace_dir: Path, payload: dict[str, Any]) -> None:

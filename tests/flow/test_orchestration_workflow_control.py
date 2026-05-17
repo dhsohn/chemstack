@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import sys
 from contextlib import nullcontext
 from copy import deepcopy
 from pathlib import Path
@@ -9,8 +8,6 @@ from typing import Any, cast
 import pytest
 import yaml
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
 from chemstack.flow import orchestration
 

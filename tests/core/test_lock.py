@@ -1,13 +1,11 @@
 from __future__ import annotations
 
 import fcntl
-import sys
 from multiprocessing import get_context
 from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from chemstack.core.utils.lock import file_lock
 

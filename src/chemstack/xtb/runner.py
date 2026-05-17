@@ -5,7 +5,6 @@ import re
 import resource
 import shutil
 import subprocess
-import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, TextIO
@@ -28,23 +27,28 @@ from .runner_artifacts import (
     _collect_path_search_candidates,
     _collect_sp_candidates,
     _extract_sp_energy,
-    _load_xtbout_json,
-    _parse_candidate_comment_energy,
-    _parse_path_search_stdout,
-    _resolve_existing_path,
-    _safe_float,
 )
 
-_RUNNER_ARTIFACT_COMPAT = (
-    _collect_opt_candidates,
-    _collect_path_search_candidates,
-    _collect_sp_candidates,
-    _load_xtbout_json,
-    _parse_candidate_comment_energy,
-    _parse_path_search_stdout,
-    _resolve_existing_path,
-    _safe_float,
-)
+
+@dataclass(frozen=True)
+class _RunnerDeps:
+    finalize_xtb_job: Any
+    now_utc_iso: Any
+    start_xtb_job: Any
+    _collect_opt_candidates: Any
+    _collect_path_search_candidates: Any
+    _collect_sp_candidates: Any
+
+
+def _runner_deps() -> _RunnerDeps:
+    return _RunnerDeps(
+        finalize_xtb_job=finalize_xtb_job,
+        now_utc_iso=now_utc_iso,
+        start_xtb_job=start_xtb_job,
+        _collect_opt_candidates=_collect_opt_candidates,
+        _collect_path_search_candidates=_collect_path_search_candidates,
+        _collect_sp_candidates=_collect_sp_candidates,
+    )
 
 
 @dataclass(frozen=True)
@@ -266,7 +270,7 @@ def _run_candidate_sp_job(
         should_cancel=should_cancel,
         on_running_job=on_running_job,
         terminate_process=terminate_process,
-        deps=sys.modules[__name__],
+        deps=_runner_deps(),
     )
 
 
@@ -789,5 +793,5 @@ def finalize_xtb_job(
         forced_status=forced_status,
         forced_reason=forced_reason,
         result_cls=XtbRunResult,
-        deps=sys.modules[__name__],
+        deps=_runner_deps(),
     )

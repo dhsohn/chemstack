@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -82,6 +82,43 @@ _REMATERIALIZED_TASK_PAYLOAD_KEYS = frozenset(
 _FLOW_MANIFEST_FILENAMES = ("flow.yaml",)
 
 
+@dataclass(frozen=True)
+class _RestartStageDeps:
+    _ACTIVE_STAGE_STATUSES: Any
+    _REMATERIALIZED_ENGINES: Any
+    _REMATERIALIZED_TASK_PAYLOAD_KEYS: Any
+    _RESTARTABLE_STAGE_STATUSES: Any
+    _STALE_STAGE_METADATA_KEYS: Any
+    _STALE_TASK_PAYLOAD_KEYS: Any
+    _coerce_mapping: Any
+    _enqueue_payload: Any
+    _normalize_text: Any
+    _stage_metadata: Any
+    _stage_task: Any
+    _task_engine: Any
+    _task_is_orca: Any
+    _task_payload: Any
+
+
+def _restart_stage_deps() -> _RestartStageDeps:
+    return _RestartStageDeps(
+        _ACTIVE_STAGE_STATUSES=_ACTIVE_STAGE_STATUSES,
+        _REMATERIALIZED_ENGINES=_REMATERIALIZED_ENGINES,
+        _REMATERIALIZED_TASK_PAYLOAD_KEYS=_REMATERIALIZED_TASK_PAYLOAD_KEYS,
+        _RESTARTABLE_STAGE_STATUSES=_RESTARTABLE_STAGE_STATUSES,
+        _STALE_STAGE_METADATA_KEYS=_STALE_STAGE_METADATA_KEYS,
+        _STALE_TASK_PAYLOAD_KEYS=_STALE_TASK_PAYLOAD_KEYS,
+        _coerce_mapping=_coerce_mapping,
+        _enqueue_payload=_enqueue_payload,
+        _normalize_text=_normalize_text,
+        _stage_metadata=_stage_metadata,
+        _stage_task=_stage_task,
+        _task_engine=_task_engine,
+        _task_is_orca=_task_is_orca,
+        _task_payload=_task_payload,
+    )
+
+
 def _normalize_text(value: Any) -> str:
     return _shared_normalize_text(value)
 
@@ -148,11 +185,11 @@ def _task_engine(task: dict[str, Any]) -> str:
 
 
 def _stage_needs_restart(stage: dict[str, Any]) -> bool:
-    return _restart_stages.stage_needs_restart(stage, deps=sys.modules[__name__])
+    return _restart_stages.stage_needs_restart(stage, deps=_restart_stage_deps())
 
 
 def _active_stage_rows(payload: dict[str, Any]) -> list[dict[str, str]]:
-    return _restart_stages.active_stage_rows(payload, deps=sys.modules[__name__])
+    return _restart_stages.active_stage_rows(payload, deps=_restart_stage_deps())
 
 
 def _active_restart_error(workflow_id: str, rows: list[dict[str, str]]) -> ValueError:
@@ -165,7 +202,7 @@ def _clear_phase_notification_state(
     _restart_stages.clear_phase_notification_state(
         metadata,
         restarted_stages,
-        deps=sys.modules[__name__],
+        deps=_restart_stage_deps(),
     )
 
 
@@ -521,7 +558,7 @@ def _reset_stage_for_restart(
     return _restart_stages.reset_stage_for_restart(
         stage,
         rematerialize=rematerialize,
-        deps=sys.modules[__name__],
+        deps=_restart_stage_deps(),
     )
 
 

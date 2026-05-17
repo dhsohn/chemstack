@@ -247,6 +247,8 @@ def test_queue_worker_check_cancel_requests_signals_each_job_once(
         def send_signal(self, signum: int) -> None:
             signals.append(signum)
 
+    monkeypatch.setattr(queue_cmd, "get_cancel_requested", lambda _root, _queue_id: True)
+
     worker = queue_cmd.QueueWorker(cfg, config_path="/tmp/cfg.yaml", auto_organize=False)
     worker._running[entry.queue_id] = queue_cmd._RunningJob(
         queue_root=queue_root,
@@ -254,7 +256,6 @@ def test_queue_worker_check_cancel_requests_signals_each_job_once(
         process=_Process(),
         admission_token="slot-1",
     )
-    monkeypatch.setattr(queue_cmd, "get_cancel_requested", lambda _root, _queue_id: True)
 
     worker._check_cancel_requests()
     worker._check_cancel_requests()
@@ -294,19 +295,20 @@ def test_queue_worker_shutdown_requeues_running_entries(
         def kill(self) -> None:
             return None
 
-    worker = queue_cmd.QueueWorker(cfg, config_path="/tmp/cfg.yaml", auto_organize=False)
-    worker._running[entry.queue_id] = queue_cmd._RunningJob(
-        queue_root=queue_root,
-        entry=entry,
-        process=_Process(),
-        admission_token="slot-1",
-    )
     monkeypatch.setattr(queue_cmd, "_terminate_process", lambda proc: terminated.append(proc.pid))
     monkeypatch.setattr(
         queue_cmd, "requeue_running_entry", lambda root, queue_id: requeued.append((root, queue_id))
     )
     monkeypatch.setattr(
         queue_cmd, "release_slot", lambda root, token: released.append((root, token))
+    )
+
+    worker = queue_cmd.QueueWorker(cfg, config_path="/tmp/cfg.yaml", auto_organize=False)
+    worker._running[entry.queue_id] = queue_cmd._RunningJob(
+        queue_root=queue_root,
+        entry=entry,
+        process=_Process(),
+        admission_token="slot-1",
     )
 
     worker._shutdown_all()

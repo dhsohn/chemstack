@@ -21,6 +21,7 @@ _NOTIFIER = _engine_notifications.build_engine_notifier(
     engine=_ENGINE,
     send_fn=_send,
 )
+_SELECTED_XYZ_FIELD = "selected_xyz"
 
 
 def notify_job_queued(
@@ -32,17 +33,16 @@ def notify_job_queued(
     mode: str,
     selected_xyz: Path,
 ) -> bool:
-    return _NOTIFIER.send_job_event(
+    return _engine_notifications.send_lifecycle_event(
+        _NOTIFIER,
         cfg,
-        job_dir=job_dir,
         headline="Job queued",
-        fields=[
-            ("job_id", job_id),
-            ("queue_id", queue_id),
-            ("mode", mode),
-            ("job_dir", job_dir.name),
-            ("selected_xyz", selected_xyz.name),
-        ],
+        job_id=job_id,
+        queue_id=queue_id,
+        job_dir=job_dir,
+        selected_xyz=selected_xyz,
+        selected_field_name=_SELECTED_XYZ_FIELD,
+        detail_fields=[("mode", mode)],
     )
 
 
@@ -55,17 +55,16 @@ def notify_job_started(
     mode: str,
     selected_xyz: Path,
 ) -> bool:
-    return _NOTIFIER.send_job_event(
+    return _engine_notifications.send_lifecycle_event(
+        _NOTIFIER,
         cfg,
-        job_dir=job_dir,
         headline="Job started",
-        fields=[
-            ("job_id", job_id),
-            ("queue_id", queue_id),
-            ("mode", mode),
-            ("job_dir", job_dir.name),
-            ("selected_xyz", selected_xyz.name),
-        ],
+        job_id=job_id,
+        queue_id=queue_id,
+        job_dir=job_dir,
+        selected_xyz=selected_xyz,
+        selected_field_name=_SELECTED_XYZ_FIELD,
+        detail_fields=[("mode", mode)],
     )
 
 
@@ -83,20 +82,19 @@ def notify_job_terminal(
     retained_conformer_count: int,
     extra_lines: list[str] | None = None,
 ) -> bool:
-    return _NOTIFIER.send_job_event(
+    return _engine_notifications.send_terminal_event(
+        _NOTIFIER,
         cfg,
-        job_dir=job_dir,
         headline=headline,
-        fields=[
-            ("job_id", job_id),
-            ("queue_id", queue_id),
-            ("status", status),
-            ("reason", reason),
-            ("mode", mode),
-            ("job_dir", job_dir.name),
-            ("selected_xyz", selected_xyz.name),
-            ("retained_conformer_count", retained_conformer_count),
-        ],
+        job_id=job_id,
+        queue_id=queue_id,
+        status=status,
+        reason=reason,
+        job_dir=job_dir,
+        selected_xyz=selected_xyz,
+        selected_field_name=_SELECTED_XYZ_FIELD,
+        detail_fields=[("mode", mode)],
+        count_field=("retained_conformer_count", retained_conformer_count),
         extra_lines=extra_lines,
     )
 

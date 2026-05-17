@@ -1,14 +1,11 @@
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
 from chemstack.flow import orchestration
 from chemstack.flow.contracts import WorkflowStageInput

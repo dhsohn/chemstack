@@ -2,16 +2,14 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 import json
-import sys
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
 from chemstack.flow import registry
+from chemstack.flow import _registry_notifications as registry_notifications
 
 
 @contextmanager
@@ -227,7 +225,9 @@ def test_notification_configuration_helpers_cover_default_override_and_transport
     monkeypatch.delenv("CHEM_FLOW_TELEGRAM_CHAT_ID", raising=False)
     monkeypatch.delenv("CHEMSTACK_CONFIG", raising=False)
 
-    assert registry._notification_event_types_from_env() == set(registry.DEFAULT_NOTIFICATION_EVENT_TYPES)
+    assert registry._notification_event_types_from_env() == set(
+        registry_notifications.DEFAULT_NOTIFICATION_EVENT_TYPES
+    )
     assert registry._journal_notification_enabled("workflow_status_changed") is True
     assert registry._journal_notification_enabled("workflow_stage_submitted") is False
     assert registry._journal_notification_enabled("workflow_stage_handoff_ready") is False

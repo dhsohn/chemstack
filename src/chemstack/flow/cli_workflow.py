@@ -17,6 +17,7 @@ from .cli_common import (
     _workflow_root_from_args,
 )
 from . import cli_workflow_plan_commands as _plan_commands
+from . import cli_workflow_output as _workflow_output
 from .cli_run_dir import _print_created_workflow
 from .engine_options import WorkflowEngineOptions
 from .operations import (
@@ -147,30 +148,12 @@ def cmd_workflow_advance(args: Any, *, deps: Any | None = None) -> int:
 def _emit_worker_payload(
     payload: dict[str, Any], *, json_mode: bool, single_cycle: bool, deps: Any | None = None
 ) -> None:
-    if json_mode:
-        if single_cycle:
-            print(json.dumps(payload, ensure_ascii=True, indent=2))
-        else:
-            print(json.dumps(payload, ensure_ascii=True))
-        return
-
-    print(
-        f"cycle_started_at: {payload.get('cycle_started_at', '-')}"
-        f" worker_session_id={payload.get('worker_session_id', '-')}"
-        f" discovered={payload.get('discovered_count', 0)}"
-        f" advanced={payload.get('advanced_count', 0)}"
-        f" skipped={payload.get('skipped_count', 0)}"
-        f" failed={payload.get('failed_count', 0)}"
+    emit_worker_payload = _dependency(
+        deps,
+        "emit_worker_payload",
+        _workflow_output.emit_worker_payload,
     )
-    for item in payload.get("workflow_results", []):
-        print(
-            f"- {item.get('workflow_id', '-')} template={item.get('template_name', '-')}"
-            f" previous={item.get('previous_status', '-')}"
-            f" status={item.get('status', '-')}"
-            f" advanced={'yes' if item.get('advanced') else 'no'}"
-        )
-        if item.get("reason"):
-            print(f"  reason={item.get('reason')}")
+    emit_worker_payload(payload, json_mode=json_mode, single_cycle=single_cycle)
 
 
 @dataclass(frozen=True)
@@ -508,82 +491,41 @@ def cmd_workflow_worker(args: Any, *, deps: Any | None = None) -> int:
 
 def cmd_workflow_runtime_status(args: Any, *, deps: Any | None = None) -> int:
     get_status = _dependency(deps, "get_workflow_runtime_status", get_workflow_runtime_status)
+    emit_status = _dependency(
+        deps,
+        "emit_workflow_runtime_status",
+        _workflow_output.emit_workflow_runtime_status,
+    )
     payload = get_status(workflow_root=getattr(args, "workflow_root"))
-    if bool(getattr(args, "json", False)):
-        print(json.dumps(payload, ensure_ascii=True, indent=2))
-        return 0
-
-    state = payload["worker_state"] or {}
-    print(f"worker_session_id: {state.get('worker_session_id', '-')}")
-    print(f"status: {state.get('status', '-')}")
-    print(f"pid: {state.get('pid', '-')}")
-    print(f"hostname: {state.get('hostname', '-')}")
-    print(f"last_heartbeat_at: {state.get('last_heartbeat_at', '-')}")
-    print(f"lease_expires_at: {state.get('lease_expires_at', '-')}")
-    print(f"last_cycle_started_at: {state.get('last_cycle_started_at', '-')}")
-    print(f"last_cycle_finished_at: {state.get('last_cycle_finished_at', '-')}")
-    return 0
+    return emit_status(payload, json_mode=bool(getattr(args, "json", False)))
 
 
 def cmd_workflow_journal(args: Any, *, deps: Any | None = None) -> int:
     get_journal = _dependency(deps, "get_workflow_journal", get_workflow_journal)
+    emit_journal = _dependency(
+        deps,
+        "emit_workflow_journal",
+        _workflow_output.emit_workflow_journal,
+    )
     payload = get_journal(
         workflow_root=getattr(args, "workflow_root"),
         limit=int(getattr(args, "limit", 50) or 0),
     )
-    events = payload["events"]
-    if bool(getattr(args, "json", False)):
-        print(json.dumps(payload, ensure_ascii=True, indent=2))
-        return 0
-
-    print(f"event_count: {len(events)}")
-    for item in events:
-        print(
-            f"- {item.get('occurred_at', '-')} {item.get('event_type', '-')}"
-            f" workflow_id={item.get('workflow_id', '-') or '-'}"
-            f" status={item.get('status', '-') or '-'}"
-        )
-        if item.get("reason"):
-            print(f"  reason={item.get('reason')}")
-    return 0
+    return emit_journal(payload, json_mode=bool(getattr(args, "json", False)))
 
 
 def cmd_workflow_telemetry(args: Any, *, deps: Any | None = None) -> int:
     get_telemetry = _dependency(deps, "get_workflow_telemetry", get_workflow_telemetry)
+    emit_telemetry = _dependency(
+        deps,
+        "emit_workflow_telemetry",
+        _workflow_output.emit_workflow_telemetry,
+    )
     payload = get_telemetry(
         workflow_root=getattr(args, "workflow_root"),
         limit=int(getattr(args, "limit", 200) or 0),
     )
-    if bool(getattr(args, "json", False)):
-        print(json.dumps(payload, ensure_ascii=True, indent=2))
-        return 0
-
-    print(f"workflow_root: {payload.get('workflow_root', '-')}")
-    worker_state = payload.get("worker_state") or {}
-    print(f"worker_status: {worker_state.get('status', '-')}")
-    print(f"worker_session_id: {worker_state.get('worker_session_id', '-')}")
-    print(f"registry_count: {payload.get('registry_count', 0)}")
-    print(f"journal_event_count: {payload.get('journal_event_count', 0)}")
-    print(f"workflow_status_counts: {payload.get('workflow_status_counts', {})}")
-    print(f"template_counts: {payload.get('template_counts', {})}")
-    print(f"journal_event_type_counts: {payload.get('journal_event_type_counts', {})}")
-    recent_failures = payload.get("recent_failures") or []
-    if recent_failures:
-        print("recent_failures:")
-        for item in recent_failures:
-            print(
-                f"- {item.get('occurred_at', '-')} workflow={item.get('workflow_id', '-') or '-'}"
-                f" reason={item.get('reason', '-') or '-'}"
-            )
-    recent_status_changes = payload.get("recent_status_changes") or []
-    if recent_status_changes:
-        print("recent_status_changes:")
-        for item in recent_status_changes:
-            print(
-                f"- {item.get('occurred_at', '-')} workflow={item.get('workflow_id', '-') or '-'}"
-                f" {item.get('previous_status', '-') or '-'}->{item.get('status', '-') or '-'}"
-            )
-    return 0
+    return emit_telemetry(payload, json_mode=bool(getattr(args, "json", False)))
 
 
 def cmd_workflow_submit_reaction_ts_search(args: Any, *, deps: Any | None = None) -> int:

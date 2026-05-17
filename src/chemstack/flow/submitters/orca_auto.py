@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -26,6 +25,19 @@ from . import sibling_engine as _sibling_engine
 _SUBMIT_MODULE_NAME = CHEMSTACK_CLI_MODULE
 _CANCEL_MODULE_NAME = CHEMSTACK_ORCA_INTERNAL_MODULE
 _CANCEL_TIMEOUT_SECONDS = 5.0
+
+
+@dataclass(frozen=True)
+class _SubmitterDeps:
+    _normalize_text: Any
+    run_sibling_app: Any
+
+
+def _submitter_deps() -> _SubmitterDeps:
+    return _SubmitterDeps(
+        _normalize_text=_normalize_text,
+        run_sibling_app=run_sibling_app,
+    )
 
 
 @dataclass(frozen=True)
@@ -182,7 +194,7 @@ def cancel_target(
     repo_root: str | None = None,
 ) -> dict[str, Any]:
     return _sibling_engine.orca_cancel_target(
-        deps=sys.modules[__name__],
+        deps=_submitter_deps(),
         executable=_normalize_text(executable) or CHEMSTACK_EXECUTABLE,
         config_path=config_path,
         repo_root=repo_root,

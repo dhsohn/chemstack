@@ -4,9 +4,6 @@ from __future__ import annotations
 
 import logging
 import os
-import fcntl
-import sys
-import time
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -14,6 +11,7 @@ from typing import Any, Iterator, List, TypedDict, cast
 
 from chemstack.core.app_ids import CHEMSTACK_ORCA_APP_NAME
 from chemstack.core.admission import store as _core_admission_store
+from chemstack.core.utils.lock import file_lock as _core_file_lock
 
 from .lock_utils import (
     current_process_start_ticks,
@@ -31,7 +29,6 @@ ADMISSION_APP_NAME_ENV_VAR = "ORCA_AUTO_ADMISSION_APP_NAME"
 ADMISSION_TASK_ID_ENV_VAR = "ORCA_AUTO_ADMISSION_TASK_ID"
 
 logger = logging.getLogger(__name__)
-_ADMISSION_BACKEND_COMPAT = (atomic_write_json,)
 
 
 class AdmissionLimitReachedError(RuntimeError):
@@ -102,6 +99,31 @@ def _wrap_backend_corruption(exc: Exception) -> None:
         raise AdmissionStoreCorruptError(str(exc)) from exc
 
 
+@dataclass(frozen=True)
+class _AdmissionBackendDeps:
+    AdmissionStoreCorruptError: Any
+    atomic_write_json: Any
+    _admission_path: Any
+    _chem_core_admission_module: Any
+    _from_chem_core_slot: Any
+    _normalize_slot: Any
+    _to_chem_core_slot: Any
+    _wrap_backend_corruption: Any
+
+
+def _admission_backend_deps() -> _AdmissionBackendDeps:
+    return _AdmissionBackendDeps(
+        AdmissionStoreCorruptError=AdmissionStoreCorruptError,
+        atomic_write_json=atomic_write_json,
+        _admission_path=_admission_path,
+        _chem_core_admission_module=_chem_core_admission_module,
+        _from_chem_core_slot=_from_chem_core_slot,
+        _normalize_slot=_normalize_slot,
+        _to_chem_core_slot=_to_chem_core_slot,
+        _wrap_backend_corruption=_wrap_backend_corruption,
+    )
+
+
 def _admission_path(root: Path) -> Path:
     return root / ADMISSION_FILE_NAME
 
@@ -113,40 +135,20 @@ def _lock_path(root: Path) -> Path:
 @contextmanager
 def _acquire_admission_lock(root: Path, *, timeout_seconds: int = 10) -> Iterator[None]:
     lock_path = _lock_path(root)
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
-    deadline = time.monotonic() + timeout_seconds
-    with lock_path.open("a+", encoding="utf-8") as handle:
-        while True:
-            try:
-                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-                break
-            except BlockingIOError:
-                if time.monotonic() >= deadline:
-                    raise TimeoutError(f"Timed out acquiring lock: {lock_path}")
-                time.sleep(0.1)
-
-        handle.seek(0)
-        handle.truncate()
-        handle.write(f"pid={os.getpid()}\nacquired_at={now_utc_iso()}\n")
-        handle.flush()
-        os.fsync(handle.fileno())
+    with _core_file_lock(lock_path, timeout_seconds=float(timeout_seconds)):
         logger.debug("Admission lock acquired: %s", lock_path)
         try:
             yield
         finally:
-            try:
-                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
-            except OSError:
-                pass
             logger.debug("Admission lock released: %s", lock_path)
 
 
 def _load_slots(root: Path) -> List[AdmissionSlot]:
-    return _admission_backend.load_slots(root, deps=sys.modules[__name__])
+    return _admission_backend.load_slots(root, deps=_admission_backend_deps())
 
 
 def _save_slots(root: Path, slots: List[AdmissionSlot]) -> None:
-    _admission_backend.save_slots(root, slots, deps=sys.modules[__name__])
+    _admission_backend.save_slots(root, slots, deps=_admission_backend_deps())
 
 
 def _chem_core_admission_module() -> Any | None:
@@ -157,7 +159,7 @@ def _backend_list_slots(root: Path, *, backend: Any) -> list[AdmissionSlot] | No
     return _admission_backend.backend_list_slots(
         root,
         backend=backend,
-        deps=sys.modules[__name__],
+        deps=_admission_backend_deps(),
     )
 
 
@@ -165,7 +167,7 @@ def _backend_reconcile_stale_slots(root: Path, *, backend: Any) -> int | None:
     return _admission_backend.backend_reconcile_stale_slots(
         root,
         backend=backend,
-        deps=sys.modules[__name__],
+        deps=_admission_backend_deps(),
     )
 
 
@@ -173,7 +175,7 @@ def _backend_active_slot_count(root: Path, *, backend: Any) -> int | None:
     return _admission_backend.backend_active_slot_count(
         root,
         backend=backend,
-        deps=sys.modules[__name__],
+        deps=_admission_backend_deps(),
     )
 
 
@@ -193,14 +195,14 @@ def _to_chem_core_slot(slot: AdmissionSlot, *, backend: Any) -> Any:
     return _admission_backend.to_chem_core_slot(
         slot,
         backend=backend,
-        deps=sys.modules[__name__],
+        deps=_admission_backend_deps(),
     )
 
 
 def _from_chem_core_slot(slot: object) -> AdmissionSlot:
     return cast(
         AdmissionSlot,
-        _admission_backend.from_chem_core_slot(slot, deps=sys.modules[__name__]),
+        _admission_backend.from_chem_core_slot(slot, deps=_admission_backend_deps()),
     )
 
 

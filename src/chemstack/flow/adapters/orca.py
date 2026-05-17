@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from functools import lru_cache
 from importlib import import_module
 from pathlib import Path
@@ -54,10 +53,6 @@ REPORT_MD_FILE_NAME = "run_report.md"
 ORGANIZED_REF_FILE_NAME = "organized_ref.json"
 INDEX_DIR_NAME = "index"
 RECORDS_FILE_NAME = "records.jsonl"
-
-# Keep these names on the facade module so private helper modules and tests can
-# monkeypatch the original surface after the implementation split.
-_FACADE_COMPAT = (json, import_module, resolve_job_location)
 
 
 def _normalize_text(value: Any) -> str:
@@ -355,5 +350,8 @@ def load_orca_artifact_contract(
 
 
 __all__ = [
+    "JobLocationRecord",
+    "import_module",
     "load_orca_artifact_contract",
+    "resolve_job_location",
 ]

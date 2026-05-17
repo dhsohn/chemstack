@@ -1,19 +1,12 @@
-# ruff: noqa: E402
-
 from __future__ import annotations
 
 import json
-import sys
 from pathlib import Path
 from typing import cast
 
 import pytest
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(REPO_ROOT))
-sys.path.insert(0, str(REPO_ROOT / "src"))
-
-from chemstack.flow.adapters import orca as orca_adapter
+from chemstack.flow.adapters import _orca_local_lookup, orca as orca_adapter
 
 
 def test_normalize_bool_and_safe_int_cover_string_and_default_paths() -> None:
@@ -62,14 +55,14 @@ def test_load_jsonl_records_skips_blank_invalid_and_non_dict_rows(tmp_path: Path
     assert orca_adapter._load_jsonl_records(cast(Path, _BrokenPath())) == []
 
     monkeypatch.setattr(
-        orca_adapter,
+        _orca_local_lookup,
         "json",
         type(
             "_JSONStub",
             (),
             {
-                "loads": staticmethod(orca_adapter.json.loads),
-                "JSONDecodeError": orca_adapter.json.JSONDecodeError,
+                "loads": staticmethod(_orca_local_lookup.json.loads),
+                "JSONDecodeError": _orca_local_lookup.json.JSONDecodeError,
             },
         )(),
     )

@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from math import sqrt
 from pathlib import Path
-import sys
 from typing import Any
 
 from chemstack.core.utils.coercion import (
@@ -19,8 +18,19 @@ from . import endpoint_pairing_selection as _selection
 from .xyz_utils import XYZFrame, load_xyz_frames
 
 
-def _this_module() -> Any:
-    return sys.modules[__name__]
+@dataclass(frozen=True)
+class _EndpointPairingDeps:
+    EndpointPair: Any
+    _distance_rmsd: Any
+    _rank_gap: Any
+
+
+def _endpoint_pairing_deps() -> _EndpointPairingDeps:
+    return _EndpointPairingDeps(
+        EndpointPair=EndpointPair,
+        _distance_rmsd=_distance_rmsd,
+        _rank_gap=_rank_gap,
+    )
 
 
 def _normalize_text(value: Any) -> str:
@@ -270,7 +280,7 @@ def select_endpoint_pairs(
         reactant_inputs,
         product_inputs,
         policy=active_policy,
-        deps=_this_module(),
+        deps=_endpoint_pairing_deps(),
     )
 
 

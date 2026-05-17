@@ -6,14 +6,14 @@ Queue entries are stored in ``{allowed_root}/queue.json`` and protected by
 
 from __future__ import annotations
 
-import json
 import logging
-import sys
 from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterator, List, Optional, cast
 
 from chemstack.core.queue import store as _core_queue_store
+from chemstack.core.utils.persistence import load_json_list_file
 
 from .lock_utils import (
     acquire_file_lock,
@@ -26,7 +26,7 @@ from .persistence_utils import atomic_write_json, now_utc_iso, timestamped_token
 from .process_tracking import active_run_lock_pid, current_process_lock_payload, read_pid_file
 from . import queue_entry_model as _queue_entry_model
 from . import queue_reconciliation as _queue_reconciliation
-from .state_store import load_state, report_json_path  # noqa: F401
+from .state_store import load_state, report_json_path
 from .statuses import QueueStatus
 from .types import QueueEntry
 
@@ -40,17 +40,21 @@ QUEUE_ENGINE = "orca"
 QUEUE_TASK_KIND = "orca_run_inp"
 
 # Terminal statuses — entries in these states are "done" and cannot transition.
-_TERMINAL_STATUSES = frozenset({
-    QueueStatus.COMPLETED.value,
-    QueueStatus.FAILED.value,
-    QueueStatus.CANCELLED.value,
-})
+_TERMINAL_STATUSES = frozenset(
+    {
+        QueueStatus.COMPLETED.value,
+        QueueStatus.FAILED.value,
+        QueueStatus.CANCELLED.value,
+    }
+)
 
 # Active statuses — entries that occupy a slot or are waiting to run.
-_ACTIVE_STATUSES = frozenset({
-    QueueStatus.PENDING.value,
-    QueueStatus.RUNNING.value,
-})
+_ACTIVE_STATUSES = frozenset(
+    {
+        QueueStatus.PENDING.value,
+        QueueStatus.RUNNING.value,
+    }
+)
 _UNSET = object()
 
 
@@ -151,9 +155,7 @@ def _chem_core_queue_module() -> Any | None:
 
 
 def _queue_lock_active_error(lock_pid: int, lock_info: dict, lock_path: Path) -> RuntimeError:
-    return RuntimeError(
-        f"Queue lock is held by active process (pid={lock_pid}). Lock: {lock_path}"
-    )
+    return RuntimeError(f"Queue lock is held by active process (pid={lock_pid}). Lock: {lock_path}")
 
 
 def _queue_lock_unreadable_error(lock_path: Path) -> RuntimeError:
@@ -196,21 +198,11 @@ def _acquire_queue_lock(allowed_root: Path, *, timeout_seconds: int = 10) -> Ite
 
 
 def _load_entries(allowed_root: Path) -> List[QueueEntry]:
-    qp = _queue_path(allowed_root)
-    if not qp.exists():
-        return []
-    try:
-        text = qp.read_text(encoding="utf-8")
-    except FileNotFoundError:
-        return []
-    except OSError as exc:
-        raise QueueStoreCorruptError(f"Queue file cannot be read: {qp}") from exc
-    try:
-        raw = json.loads(text)
-    except json.JSONDecodeError as exc:
-        raise QueueStoreCorruptError(f"Queue file is not valid JSON: {qp}") from exc
-    if not isinstance(raw, list):
-        raise QueueStoreCorruptError(f"Queue file must contain a JSON list: {qp}")
+    raw = load_json_list_file(
+        _queue_path(allowed_root),
+        corrupt_error=QueueStoreCorruptError,
+        description="Queue file",
+    )
     return [cast(QueueEntry, e) for e in raw if isinstance(e, dict)]
 
 
@@ -265,11 +257,12 @@ def _save_entries(allowed_root: Path, entries: List[QueueEntry]) -> None:
     normalized_entries = [_normalize_entry(entry) for entry in entries]
     backend = _chem_core_queue_module()
     if backend is None:
-        atomic_write_json(_queue_path(allowed_root), normalized_entries, ensure_ascii=True, indent=2)
+        atomic_write_json(
+            _queue_path(allowed_root), normalized_entries, ensure_ascii=True, indent=2
+        )
         return
     serialized_entries = [
-        _backend_entry_dict(entry, backend=backend)
-        for entry in normalized_entries
+        _backend_entry_dict(entry, backend=backend) for entry in normalized_entries
     ]
     atomic_write_json(_queue_path(allowed_root), serialized_entries, ensure_ascii=True, indent=2)
 
@@ -299,7 +292,9 @@ def _load_report_payload(reaction_dir: Path) -> dict | None:
     )
 
 
-def _terminal_report_data(reaction_dir: Path) -> tuple[str, str | None, str | None, str | None] | None:
+def _terminal_report_data(
+    reaction_dir: Path,
+) -> tuple[str, str | None, str | None, str | None] | None:
     return _queue_reconciliation.terminal_report_data(
         reaction_dir,
         load_report_payload_fn=_load_report_payload,
@@ -324,6 +319,37 @@ def _apply_terminal_reconciliation(
     )
 
 
+@dataclass(frozen=True)
+class _QueueReconciliationDeps:
+    load_state: Any
+    queue_entry_id: Any
+    queue_entry_reaction_dir: Any
+    queue_entry_status: Any
+    _active_lock_pid: Any
+    _acquire_queue_lock: Any
+    _apply_terminal_reconciliation: Any
+    _load_entries: Any
+    _read_worker_pid: Any
+    _save_entries: Any
+    _terminal_report_data: Any
+
+
+def _queue_reconciliation_deps() -> _QueueReconciliationDeps:
+    return _QueueReconciliationDeps(
+        load_state=load_state,
+        queue_entry_id=queue_entry_id,
+        queue_entry_reaction_dir=queue_entry_reaction_dir,
+        queue_entry_status=queue_entry_status,
+        _active_lock_pid=_active_lock_pid,
+        _acquire_queue_lock=_acquire_queue_lock,
+        _apply_terminal_reconciliation=_apply_terminal_reconciliation,
+        _load_entries=_load_entries,
+        _read_worker_pid=_read_worker_pid,
+        _save_entries=_save_entries,
+        _terminal_report_data=_terminal_report_data,
+    )
+
+
 def reconcile_orphaned_running_entries(
     allowed_root: Path,
     *,
@@ -338,7 +364,7 @@ def reconcile_orphaned_running_entries(
     return _queue_reconciliation.reconcile_orphaned_running_entries(
         allowed_root,
         ignore_worker_pid=ignore_worker_pid,
-        deps=sys.modules[__name__],
+        deps=_queue_reconciliation_deps(),
         logger=logger,
     )
 
@@ -363,7 +389,10 @@ class DuplicateEntryError(ValueError):
 def _find_active_entry(entries: List[QueueEntry], reaction_dir: str) -> Optional[QueueEntry]:
     """Find an active (pending/running) entry for the given reaction_dir."""
     for entry in entries:
-        if queue_entry_reaction_dir(entry) == reaction_dir and queue_entry_status(entry) in _ACTIVE_STATUSES:
+        if (
+            queue_entry_reaction_dir(entry) == reaction_dir
+            and queue_entry_status(entry) in _ACTIVE_STATUSES
+        ):
             return entry
     return None
 
@@ -371,7 +400,10 @@ def _find_active_entry(entries: List[QueueEntry], reaction_dir: str) -> Optional
 def _find_terminal_entry(entries: List[QueueEntry], reaction_dir: str) -> Optional[QueueEntry]:
     """Find the most recent terminal entry for the given reaction_dir."""
     for entry in reversed(entries):
-        if queue_entry_reaction_dir(entry) == reaction_dir and queue_entry_status(entry) in _TERMINAL_STATUSES:
+        if (
+            queue_entry_reaction_dir(entry) == reaction_dir
+            and queue_entry_status(entry) in _TERMINAL_STATUSES
+        ):
             return entry
     return None
 
@@ -457,7 +489,8 @@ def dequeue_next(allowed_root: Path) -> Optional[QueueEntry]:
     with _acquire_queue_lock(allowed_root):
         entries = _load_entries(allowed_root)
         pending = [
-            (i, e) for i, e in enumerate(entries)
+            (i, e)
+            for i, e in enumerate(entries)
             if queue_entry_status(e) == QueueStatus.PENDING.value
         ]
         if not pending:
@@ -494,7 +527,9 @@ def mark_failed(
     run_id: str | None = None,
 ) -> bool:
     """Mark a queue entry as failed."""
-    return _update_terminal(allowed_root, queue_id, QueueStatus.FAILED.value, error=error, run_id=run_id)
+    return _update_terminal(
+        allowed_root, queue_id, QueueStatus.FAILED.value, error=error, run_id=run_id
+    )
 
 
 def mark_cancelled(allowed_root: Path, queue_id: str) -> bool:

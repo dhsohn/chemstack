@@ -21,6 +21,7 @@ _NOTIFIER = _engine_notifications.build_engine_notifier(
     engine=_ENGINE,
     send_fn=_send,
 )
+_SELECTED_XYZ_FIELD = "selected_input_xyz"
 
 
 def notify_job_queued(
@@ -33,18 +34,16 @@ def notify_job_queued(
     reaction_key: str,
     selected_xyz: Path,
 ) -> bool:
-    return _NOTIFIER.send_job_event(
+    return _engine_notifications.send_lifecycle_event(
+        _NOTIFIER,
         cfg,
-        job_dir=job_dir,
         headline="Job queued",
-        fields=[
-            ("job_id", job_id),
-            ("queue_id", queue_id),
-            ("job_type", job_type),
-            ("reaction_key", reaction_key),
-            ("job_dir", job_dir.name),
-            ("selected_input_xyz", selected_xyz.name),
-        ],
+        job_id=job_id,
+        queue_id=queue_id,
+        job_dir=job_dir,
+        selected_xyz=selected_xyz,
+        selected_field_name=_SELECTED_XYZ_FIELD,
+        detail_fields=[("job_type", job_type), ("reaction_key", reaction_key)],
     )
 
 
@@ -58,18 +57,16 @@ def notify_job_started(
     reaction_key: str,
     selected_xyz: Path,
 ) -> bool:
-    return _NOTIFIER.send_job_event(
+    return _engine_notifications.send_lifecycle_event(
+        _NOTIFIER,
         cfg,
-        job_dir=job_dir,
         headline="Job started",
-        fields=[
-            ("job_id", job_id),
-            ("queue_id", queue_id),
-            ("job_type", job_type),
-            ("reaction_key", reaction_key),
-            ("job_dir", job_dir.name),
-            ("selected_input_xyz", selected_xyz.name),
-        ],
+        job_id=job_id,
+        queue_id=queue_id,
+        job_dir=job_dir,
+        selected_xyz=selected_xyz,
+        selected_field_name=_SELECTED_XYZ_FIELD,
+        detail_fields=[("job_type", job_type), ("reaction_key", reaction_key)],
     )
 
 
@@ -88,21 +85,19 @@ def notify_job_terminal(
     candidate_count: int,
     extra_lines: list[str] | None = None,
 ) -> bool:
-    return _NOTIFIER.send_job_event(
+    return _engine_notifications.send_terminal_event(
+        _NOTIFIER,
         cfg,
-        job_dir=job_dir,
         headline=headline,
-        fields=[
-            ("job_id", job_id),
-            ("queue_id", queue_id),
-            ("status", status),
-            ("reason", reason),
-            ("job_type", job_type),
-            ("reaction_key", reaction_key),
-            ("job_dir", job_dir.name),
-            ("selected_input_xyz", selected_xyz.name),
-            ("candidate_count", candidate_count),
-        ],
+        job_id=job_id,
+        queue_id=queue_id,
+        status=status,
+        reason=reason,
+        job_dir=job_dir,
+        selected_xyz=selected_xyz,
+        selected_field_name=_SELECTED_XYZ_FIELD,
+        detail_fields=[("job_type", job_type), ("reaction_key", reaction_key)],
+        count_field=("candidate_count", candidate_count),
         extra_lines=extra_lines,
     )
 

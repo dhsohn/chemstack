@@ -1,10 +1,7 @@
-# ruff: noqa: E402
-
 from __future__ import annotations
 
 import io
 import json
-import sys
 import urllib.error
 from email.message import Message
 from pathlib import Path
@@ -12,10 +9,6 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-
-REPO_ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(REPO_ROOT))
-sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from chemstack.core.config import TelegramConfig
 

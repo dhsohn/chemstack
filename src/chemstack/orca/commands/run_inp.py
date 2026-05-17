@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import logging
 import os
-import sys
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from pathlib import Path
@@ -37,27 +36,141 @@ from ..telegram_notifier import (
     notify_run_finished_event,
     notify_run_started_event,
 )
-from ..types import QueueEnqueuedNotification, QueueEntry, RetryNotification, RunFinishedNotification, RunStartedNotification
-from ._helpers import ORCA_GENERATED_INP_RE, RETRY_INP_RE, _emit, _to_resolved_local, _validate_reaction_dir
+from ..types import (
+    QueueEnqueuedNotification,
+    QueueEntry,
+    RetryNotification,
+    RunFinishedNotification,
+    RunStartedNotification,
+)
+from ._helpers import (
+    ORCA_GENERATED_INP_RE,
+    RETRY_INP_RE,
+    _emit,
+    _to_resolved_local,
+    _validate_reaction_dir,
+)
 from . import run_inp_execution as _run_inp_execution
 from . import run_inp_submission as _run_inp_submission
 
 logger = logging.getLogger(__name__)
-_RUN_INP_COMPAT = (
-    AdmissionLimitReachedError,
-    _exit_with_result,
-    run_attempts,
-    ensure_submission_resource_request,
-    read_resource_request_from_input,
-    acquire_run_lock,
-    load_or_create_state,
-    notify_queue_enqueued_event,
-    notify_retry_event,
-    notify_run_finished_event,
-    notify_run_started_event,
-    _emit,
-    _to_resolved_local,
-)
+
+
+@dataclass(frozen=True)
+class _RunInpStatusDeps:
+    AdmissionLimitReachedError: Any
+    AnalyzerStatus: Any
+    RunStatus: Any
+
+
+@dataclass(frozen=True)
+class _RunInpExecutionDeps:
+    acquire_run_lock: Any
+    load_or_create_state: Any
+    release_slot: Any
+    run_attempts: Any
+    save_state: Any
+    _admission_context: Any
+    _emit: Any
+    _execute_locked_run: Any
+    _existing_completed_exit: Any
+    _existing_completed_out: Any
+    _exit_with_result: Any
+    _notification_callbacks: Any
+    _recover_crashed_state: Any
+    _release_reservation_if_needed: Any
+    _resolve_execution_context: Any
+    _retry_inp_path: Any
+    _run_with_state: Any
+    _to_resolved_local: Any
+
+
+@dataclass(frozen=True)
+class _RunInpNotificationDeps:
+    notify_queue_enqueued_event: Any
+    notify_retry_event: Any
+    notify_run_finished_event: Any
+    notify_run_started_event: Any
+
+
+@dataclass(frozen=True)
+class _RunInpSubmissionDeps:
+    ensure_submission_resource_request: Any
+    read_resource_request_from_input: Any
+    _build_queue_enqueued_notification: Any
+    _build_queue_metadata: Any
+    _emit_queued_submission: Any
+    _queue_store: Any
+    _resource_request_from_selected_inp: Any
+    _select_latest_inp: Any
+    _submit_as_queued: Any
+    _upsert_queued_job_record: Any
+    _warn_ignored_resource_override_flags: Any
+    _worker_status_for_submission: Any
+
+
+@dataclass(frozen=True)
+class _RunInpDeps:
+    statuses: _RunInpStatusDeps
+    execution: _RunInpExecutionDeps
+    notifications: _RunInpNotificationDeps
+    submission: _RunInpSubmissionDeps
+
+    def __getattr__(self, name: str) -> Any:
+        for group in (self.statuses, self.execution, self.notifications, self.submission):
+            if hasattr(group, name):
+                return getattr(group, name)
+        raise AttributeError(name)
+
+
+def _run_inp_deps() -> _RunInpDeps:
+    return _RunInpDeps(
+        statuses=_RunInpStatusDeps(
+            AdmissionLimitReachedError=AdmissionLimitReachedError,
+            AnalyzerStatus=AnalyzerStatus,
+            RunStatus=RunStatus,
+        ),
+        execution=_RunInpExecutionDeps(
+            acquire_run_lock=acquire_run_lock,
+            load_or_create_state=load_or_create_state,
+            release_slot=release_slot,
+            run_attempts=run_attempts,
+            save_state=save_state,
+            _admission_context=_admission_context,
+            _emit=_emit,
+            _execute_locked_run=_execute_locked_run,
+            _existing_completed_exit=_existing_completed_exit,
+            _existing_completed_out=_existing_completed_out,
+            _exit_with_result=_exit_with_result,
+            _notification_callbacks=_notification_callbacks,
+            _recover_crashed_state=_recover_crashed_state,
+            _release_reservation_if_needed=_release_reservation_if_needed,
+            _resolve_execution_context=_resolve_execution_context,
+            _retry_inp_path=_retry_inp_path,
+            _run_with_state=_run_with_state,
+            _to_resolved_local=_to_resolved_local,
+        ),
+        notifications=_RunInpNotificationDeps(
+            notify_queue_enqueued_event=notify_queue_enqueued_event,
+            notify_retry_event=notify_retry_event,
+            notify_run_finished_event=notify_run_finished_event,
+            notify_run_started_event=notify_run_started_event,
+        ),
+        submission=_RunInpSubmissionDeps(
+            ensure_submission_resource_request=ensure_submission_resource_request,
+            read_resource_request_from_input=read_resource_request_from_input,
+            _build_queue_enqueued_notification=_build_queue_enqueued_notification,
+            _build_queue_metadata=_build_queue_metadata,
+            _emit_queued_submission=_emit_queued_submission,
+            _queue_store=_queue_store,
+            _resource_request_from_selected_inp=_resource_request_from_selected_inp,
+            _select_latest_inp=_select_latest_inp,
+            _submit_as_queued=_submit_as_queued,
+            _upsert_queued_job_record=_upsert_queued_job_record,
+            _warn_ignored_resource_override_flags=_warn_ignored_resource_override_flags,
+            _worker_status_for_submission=_worker_status_for_submission,
+        ),
+    )
 
 
 @dataclass(frozen=True)
@@ -103,9 +216,9 @@ def _select_latest_inp(reaction_dir: Path) -> Path:
         raise ValueError(f"No .inp file found in: {reaction_dir}")
     # Prefer user-authored base inputs over generated retry/intermediate files.
     candidates = [
-        p for p in all_candidates
-        if not RETRY_INP_RE.search(p.stem)
-        and not ORCA_GENERATED_INP_RE.search(p.stem)
+        p
+        for p in all_candidates
+        if not RETRY_INP_RE.search(p.stem) and not ORCA_GENERATED_INP_RE.search(p.stem)
     ]
     if not candidates:
         candidates = all_candidates
@@ -268,7 +381,10 @@ def _active_queue_entry(allowed_root: Path, reaction_dir: Path) -> QueueEntry | 
     for entry in _queue_store.list_queue(allowed_root):
         if _queue_store.queue_entry_reaction_dir(entry) != resolved:
             continue
-        if _queue_store.queue_entry_status(entry) in {QueueStatus.PENDING.value, QueueStatus.RUNNING.value}:
+        if _queue_store.queue_entry_status(entry) in {
+            QueueStatus.PENDING.value,
+            QueueStatus.RUNNING.value,
+        }:
             return entry
     return None
 
@@ -335,7 +451,7 @@ def _existing_completed_exit(
         admission_root=admission_root,
         reservation_token=reservation_token,
         max_retries=max_retries,
-        deps=sys.modules[__name__],
+        deps=_run_inp_deps(),
     )
 
 
@@ -457,7 +573,7 @@ def _notification_callbacks(
     Callable[[RunFinishedNotification], None] | None,
     Callable[[RetryNotification], None] | None,
 ]:
-    return _run_inp_execution.notification_callbacks(cfg, deps=sys.modules[__name__])
+    return _run_inp_execution.notification_callbacks(cfg, deps=_run_inp_deps())
 
 
 def _run_with_state(
@@ -478,14 +594,14 @@ def _run_with_state(
         max_retries=max_retries,
         resumed=resumed,
         state=state,
-        deps=sys.modules[__name__],
+        deps=_run_inp_deps(),
     )
 
 
 def _build_queue_enqueued_notification(entry: QueueEntry) -> QueueEnqueuedNotification:
     return _run_inp_submission.build_queue_enqueued_notification(
         entry,
-        deps=sys.modules[__name__],
+        deps=_run_inp_deps(),
     )
 
 
@@ -493,7 +609,7 @@ def _resource_request_from_selected_inp(cfg: Any, selected_inp: Path | None) -> 
     return _run_inp_submission.resource_request_from_selected_inp(
         cfg,
         selected_inp,
-        deps=sys.modules[__name__],
+        deps=_run_inp_deps(),
         logger=logger,
     )
 
@@ -514,7 +630,7 @@ def _build_queue_metadata(
         reaction_dir=reaction_dir,
         selected_inp=selected_inp,
         args=args,
-        deps=sys.modules[__name__],
+        deps=_run_inp_deps(),
     )
 
 
@@ -532,7 +648,7 @@ def _upsert_queued_job_record(
         selected_inp=selected_inp,
         job_id=job_id,
         queue_metadata=queue_metadata,
-        deps=sys.modules[__name__],
+        deps=_run_inp_deps(),
     )
 
 
@@ -548,7 +664,7 @@ def _submit_as_queued(
         args,
         reaction_dir,
         selected_inp=selected_inp,
-        deps=sys.modules[__name__],
+        deps=_run_inp_deps(),
         logger=logger,
     )
 
@@ -580,7 +696,7 @@ def _execute_locked_run(
         args,
         context,
         runner_cls=runner_cls,
-        deps=sys.modules[__name__],
+        deps=_run_inp_deps(),
     )
 
 
@@ -604,7 +720,7 @@ def _cmd_run_inp_execute(
         reservation_token=reservation_token,
         admission_app_name=admission_app_name,
         admission_task_id=admission_task_id,
-        deps=sys.modules[__name__],
+        deps=_run_inp_deps(),
         logger=logger,
     )
 

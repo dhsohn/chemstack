@@ -12,6 +12,7 @@ import yaml
 from chemstack.core.config import CommonResourceConfig, CommonRuntimeConfig, TelegramConfig
 
 from chemstack.xtb import runner as runner_mod
+from chemstack.xtb import runner_artifacts
 from chemstack.xtb.config import AppConfig, PathsConfig
 
 
@@ -223,12 +224,12 @@ def test_runner_helper_functions_cover_invalid_and_fallback_paths(
     with pytest.raises(ValueError, match="must be an integer-compatible value"):
         runner_mod._manifest_int({"charge": object()}, "charge")
 
-    assert runner_mod._safe_float("not-a-number") is None
+    assert runner_artifacts._safe_float("not-a-number") is None
     assert runner_mod._ranking_top_n({"top_n": "bad"}) == 3
 
     job_dir = tmp_path / "job"
     job_dir.mkdir()
-    assert runner_mod._resolve_existing_path(job_dir, "missing.xyz") == ""
+    assert runner_artifacts._resolve_existing_path(job_dir, "missing.xyz") == ""
 
     original_resolve = runner_mod.Path.resolve
 
@@ -237,25 +238,25 @@ def test_runner_helper_functions_cover_invalid_and_fallback_paths(
             raise OSError("boom")
         return original_resolve(self)
 
-    monkeypatch.setattr(runner_mod.Path, "resolve", fake_resolve, raising=False)
-    assert runner_mod._resolve_existing_path(job_dir, "boom.xyz") == ""
+    monkeypatch.setattr(runner_artifacts.Path, "resolve", fake_resolve, raising=False)
+    assert runner_artifacts._resolve_existing_path(job_dir, "boom.xyz") == ""
 
     invalid_json_dir = tmp_path / "invalid-json"
     invalid_json_dir.mkdir()
     (invalid_json_dir / "xtbout.json").write_text("{not-json", encoding="utf-8")
-    assert runner_mod._load_xtbout_json(invalid_json_dir) == {}
+    assert runner_artifacts._load_xtbout_json(invalid_json_dir) == {}
 
     short_xyz = job_dir / "short.xyz"
     short_xyz.write_text("1\n", encoding="utf-8")
-    assert runner_mod._parse_candidate_comment_energy(short_xyz) is None
+    assert runner_artifacts._parse_candidate_comment_energy(short_xyz) is None
 
     def fake_read_text(self: Path, *args: Any, **kwargs: Any) -> str:
         if self == short_xyz:
             raise OSError("blocked")
         return Path.read_text(self, *args, **kwargs)
 
-    monkeypatch.setattr(runner_mod.Path, "read_text", fake_read_text, raising=False)
-    assert runner_mod._parse_candidate_comment_energy(short_xyz) is None
+    monkeypatch.setattr(runner_artifacts.Path, "read_text", fake_read_text, raising=False)
+    assert runner_artifacts._parse_candidate_comment_energy(short_xyz) is None
 
 
 def test_run_xtb_ranking_job_returns_failed_result_when_no_usable_energy(
@@ -449,7 +450,7 @@ def test_parse_path_search_stdout_and_candidate_collection_fallbacks(
     job_dir = tmp_path / "path-job"
     job_dir.mkdir()
     stdout_log = job_dir / "missing.stdout.log"
-    assert runner_mod._parse_path_search_stdout(job_dir, str(stdout_log)) == {}
+    assert runner_artifacts._parse_path_search_stdout(job_dir, str(stdout_log)) == {}
 
     fallback_stdout = job_dir / "xtb.stdout.log"
     fallback_stdout.write_text("path output without ranked selections\n", encoding="utf-8")

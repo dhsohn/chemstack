@@ -118,6 +118,100 @@ def optional_terminal_lines(
     return lines
 
 
+def job_event_fields(
+    *,
+    job_id: str,
+    queue_id: str,
+    job_dir: Path,
+    selected_xyz: Path,
+    selected_field_name: str,
+    detail_fields: list[tuple[str, object]] | None = None,
+    status: str | None = None,
+    reason: str | None = None,
+    count_field: tuple[str, object] | None = None,
+) -> list[tuple[str, object]]:
+    fields: list[tuple[str, object]] = [
+        ("job_id", job_id),
+        ("queue_id", queue_id),
+    ]
+    if status is not None:
+        fields.append(("status", status))
+    if reason is not None:
+        fields.append(("reason", reason))
+    fields.extend(detail_fields or [])
+    fields.extend(
+        [
+            ("job_dir", job_dir.name),
+            (selected_field_name, selected_xyz.name),
+        ]
+    )
+    if count_field is not None:
+        fields.append(count_field)
+    return fields
+
+
+def send_lifecycle_event(
+    notifier: EngineNotifier,
+    cfg: Any,
+    *,
+    headline: str,
+    job_id: str,
+    queue_id: str,
+    job_dir: Path,
+    selected_xyz: Path,
+    selected_field_name: str,
+    detail_fields: list[tuple[str, object]] | None = None,
+) -> bool:
+    return notifier.send_job_event(
+        cfg,
+        job_dir=job_dir,
+        headline=headline,
+        fields=job_event_fields(
+            job_id=job_id,
+            queue_id=queue_id,
+            job_dir=job_dir,
+            selected_xyz=selected_xyz,
+            selected_field_name=selected_field_name,
+            detail_fields=detail_fields,
+        ),
+    )
+
+
+def send_terminal_event(
+    notifier: EngineNotifier,
+    cfg: Any,
+    *,
+    headline: str,
+    job_id: str,
+    queue_id: str,
+    status: str,
+    reason: str,
+    job_dir: Path,
+    selected_xyz: Path,
+    selected_field_name: str,
+    count_field: tuple[str, object],
+    detail_fields: list[tuple[str, object]] | None = None,
+    extra_lines: list[str] | None = None,
+) -> bool:
+    return notifier.send_job_event(
+        cfg,
+        job_dir=job_dir,
+        headline=headline,
+        fields=job_event_fields(
+            job_id=job_id,
+            queue_id=queue_id,
+            status=status,
+            reason=reason,
+            job_dir=job_dir,
+            selected_xyz=selected_xyz,
+            selected_field_name=selected_field_name,
+            detail_fields=detail_fields,
+            count_field=count_field,
+        ),
+        extra_lines=extra_lines,
+    )
+
+
 def event_lines(
     *,
     label: str,

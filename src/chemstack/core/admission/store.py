@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import os
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
@@ -11,6 +10,7 @@ from ..utils.persistence import (
     atomic_write_json,
     coerce_int,
     coerce_optional_int,
+    load_json_list_file,
     now_utc_iso,
     resolve_root_path,
     timestamped_token,
@@ -88,21 +88,11 @@ def _slot_from_dict(raw: dict[str, object]) -> AdmissionSlot:
 
 
 def _load_slots(root: Path) -> list[AdmissionSlot]:
-    path = _admission_path(root)
-    if not path.exists():
-        return []
-    try:
-        text = path.read_text(encoding="utf-8")
-    except FileNotFoundError:
-        return []
-    except OSError as exc:
-        raise AdmissionStoreCorruptError(f"Admission slot file cannot be read: {path}") from exc
-    try:
-        raw = json.loads(text)
-    except json.JSONDecodeError as exc:
-        raise AdmissionStoreCorruptError(f"Admission slot file is not valid JSON: {path}") from exc
-    if not isinstance(raw, list):
-        raise AdmissionStoreCorruptError(f"Admission slot file must contain a JSON list: {path}")
+    raw = load_json_list_file(
+        _admission_path(root),
+        corrupt_error=AdmissionStoreCorruptError,
+        description="Admission slot file",
+    )
     return [_slot_from_dict(item) for item in raw if isinstance(item, dict)]
 
 

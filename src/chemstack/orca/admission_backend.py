@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any, cast
+
+from chemstack.core.utils.persistence import load_json_list_file
 
 
 def load_slots(root: Path, *, deps: Any) -> list[Any]:
@@ -15,27 +16,11 @@ def load_slots(root: Path, *, deps: Any) -> list[Any]:
             deps._wrap_backend_corruption(exc)
             raise
 
-    path = deps._admission_path(root)
-    if not path.exists():
-        return []
-    try:
-        text = path.read_text(encoding="utf-8")
-    except FileNotFoundError:
-        return []
-    except OSError as exc:
-        raise deps.AdmissionStoreCorruptError(
-            f"Admission slot file cannot be read: {path}"
-        ) from exc
-    try:
-        raw = json.loads(text)
-    except json.JSONDecodeError as exc:
-        raise deps.AdmissionStoreCorruptError(
-            f"Admission slot file is not valid JSON: {path}"
-        ) from exc
-    if not isinstance(raw, list):
-        raise deps.AdmissionStoreCorruptError(
-            f"Admission slot file must contain a JSON list: {path}"
-        )
+    raw = load_json_list_file(
+        deps._admission_path(root),
+        corrupt_error=deps.AdmissionStoreCorruptError,
+        description="Admission slot file",
+    )
     return [cast(Any, slot) for slot in raw if isinstance(slot, dict)]
 
 

@@ -4,11 +4,9 @@ import json
 from contextlib import nullcontext
 from itertools import count
 from pathlib import Path
-import sys
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from chemstack.core.queue import store
 from chemstack.core.queue.types import QueueStatus

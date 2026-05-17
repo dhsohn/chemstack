@@ -14,7 +14,6 @@ import subprocess
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
 
 from chemstack.core.queue.worker import (
@@ -72,6 +71,18 @@ class _RunningJob:
     admission_token: str
     task_id: str | None = None
     started_at: float = field(default_factory=time.monotonic)
+
+
+@dataclass(frozen=True)
+class _AdmissionLimitRuntimeConfig:
+    resolved_admission_limit: int
+    admission_limit: int
+    max_concurrent: int
+
+
+@dataclass(frozen=True)
+class _AdmissionLimitConfig:
+    runtime: _AdmissionLimitRuntimeConfig
 
 
 def _terminate_process(proc: _ManagedProcess) -> None:
@@ -227,12 +238,12 @@ def _worker_admission_limit(cfg: AppConfig, fallback_max_concurrent: int) -> int
     if normalized_limit < 1:
         return 1
     return resolve_admission_limit(
-        SimpleNamespace(
-            runtime=SimpleNamespace(
+        _AdmissionLimitConfig(
+            runtime=_AdmissionLimitRuntimeConfig(
                 resolved_admission_limit=normalized_limit,
                 admission_limit=normalized_limit,
                 max_concurrent=fallback_max_concurrent,
-            )
+            ),
         )
     )
 

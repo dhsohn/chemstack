@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import sys
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
@@ -10,7 +9,6 @@ from urllib.parse import parse_qs
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from chemstack.core.config.schema import TelegramConfig
 from chemstack.core.notifications import telegram as telegram_mod

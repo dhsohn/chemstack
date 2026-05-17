@@ -39,7 +39,6 @@ _LOCATION_MODULE = _engine_locations.EngineLocationModule(
     molecule_key_kwarg="reaction_key",
     default_payload_kind_kwarg="default_job_type",
 )
-_LOCATION_STORE_COMPAT = (get_job_location, upsert_job_location)
 
 _normalize_text = _engine_locations.normalize_text
 index_root_for_cfg = _LOCATION_FACADE.index_root_for_cfg

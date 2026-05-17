@@ -1,5 +1,3 @@
-# ruff: noqa: E402
-
 from __future__ import annotations
 
 import subprocess
@@ -8,10 +6,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-
-REPO_ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(REPO_ROOT))
-sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from chemstack.flow.submitters import common, crest_auto, xtb_auto
 

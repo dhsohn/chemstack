@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import sys
 from collections import UserDict
 from contextlib import nullcontext
 from copy import deepcopy
@@ -11,8 +10,6 @@ from typing import Any, cast
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
 from chemstack.flow import orchestration
 from chemstack.flow.contracts import WorkflowStageInput

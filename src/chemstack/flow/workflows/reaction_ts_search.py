@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -35,7 +35,44 @@ from .reaction_ts_models import (
     ReactionTsSearchPlanRequest,
 )
 
-_REACTION_TS_STAGE_COMPAT = (_shared_materialize_orca_stage,)
+
+@dataclass(frozen=True)
+class _ReactionTsStageDeps:
+    BuiltReactionOrcaStage: Any
+    OrcaStagePayload: Any
+    WorkflowArtifactRef: Any
+    WorkflowStage: Any
+    WorkflowTask: Any
+    atomic_write_json: Any
+    _build_orca_enqueue_payload: Any
+    _build_reaction_orca_stage: Any
+    _materialized_orca_payload: Any
+    _orca_payload_from_candidate: Any
+    _safe_name: Any
+    _shared_materialize_orca_stage: Any
+    _workflow_stage_for_orca_payload: Any
+    _workflow_task_for_orca_stage: Any
+    _write_stage_enqueue_payload: Any
+
+
+def _reaction_ts_stage_deps() -> _ReactionTsStageDeps:
+    return _ReactionTsStageDeps(
+        BuiltReactionOrcaStage=BuiltReactionOrcaStage,
+        OrcaStagePayload=OrcaStagePayload,
+        WorkflowArtifactRef=WorkflowArtifactRef,
+        WorkflowStage=WorkflowStage,
+        WorkflowTask=WorkflowTask,
+        atomic_write_json=atomic_write_json,
+        _build_orca_enqueue_payload=_build_orca_enqueue_payload,
+        _build_reaction_orca_stage=_build_reaction_orca_stage,
+        _materialized_orca_payload=_materialized_orca_payload,
+        _orca_payload_from_candidate=_orca_payload_from_candidate,
+        _safe_name=_safe_name,
+        _shared_materialize_orca_stage=_shared_materialize_orca_stage,
+        _workflow_stage_for_orca_payload=_workflow_stage_for_orca_payload,
+        _workflow_task_for_orca_stage=_workflow_task_for_orca_stage,
+        _write_stage_enqueue_payload=_write_stage_enqueue_payload,
+    )
 
 
 def _workflow_id(_: XtbArtifactContract) -> str:
@@ -170,7 +207,7 @@ def _materialize_orca_stage(
 def _materialize_orca_stage_from_context(ctx: OrcaStageBuildContext) -> OrcaStagePayload:
     return _reaction_ts_orca_stage.materialize_orca_stage_from_context(
         ctx,
-        deps=sys.modules[__name__],
+        deps=_reaction_ts_stage_deps(),
     )
 
 
@@ -268,7 +305,7 @@ def _workflow_task_for_orca_stage(
         candidate=candidate,
         orca_payload=orca_payload,
         enqueue_payload=enqueue_payload,
-        deps=sys.modules[__name__],
+        deps=_reaction_ts_stage_deps(),
     )
 
 
@@ -282,7 +319,7 @@ def _workflow_stage_for_orca_payload(
         candidate=candidate,
         orca_payload=orca_payload,
         stage_task=stage_task,
-        deps=sys.modules[__name__],
+        deps=_reaction_ts_stage_deps(),
     )
 
 
@@ -296,15 +333,17 @@ def _build_reaction_orca_stage(
         ctx,
         index=index,
         candidate=candidate,
-        deps=sys.modules[__name__],
+        deps=_reaction_ts_stage_deps(),
     )
 
 
-def _write_stage_enqueue_payload(ctx: ReactionTsPlanBuildContext, stage: BuiltReactionOrcaStage) -> None:
+def _write_stage_enqueue_payload(
+    ctx: ReactionTsPlanBuildContext, stage: BuiltReactionOrcaStage
+) -> None:
     _reaction_ts_orca_stage.write_stage_enqueue_payload(
         ctx,
         stage,
-        deps=sys.modules[__name__],
+        deps=_reaction_ts_stage_deps(),
     )
 
 
@@ -315,7 +354,7 @@ def _build_reaction_orca_stages(
     return _reaction_ts_orca_stage.build_reaction_orca_stages(
         ctx,
         candidates,
-        deps=sys.modules[__name__],
+        deps=_reaction_ts_stage_deps(),
     )
 
 

@@ -20,11 +20,6 @@ from chemstack.core.utils import (
 )
 
 from . import _registry_notifications as _notifications
-from ._registry_notifications import (
-    DEFAULT_NOTIFICATION_EVENT_TYPES,
-    STAGE_HANDOFF_EVENT_TYPES,
-    STAGE_STATUS_EVENT_TYPES,
-)
 from .state import iter_workflow_workspaces, load_workflow_payload, workflow_summary
 
 WORKFLOW_REGISTRY_FILE_NAME = "workflow_registry.json"
@@ -35,13 +30,6 @@ WORKFLOW_REGISTRY_CLEARED_FILE_NAME = "workflow_registry_cleared.json"
 _TERMINAL_WORKFLOW_STATUSES = frozenset(
     {"completed", "failed", "cancelled", "cancel_failed", "submission_failed"}
 )
-_NOTIFICATION_COMPAT = (
-    DEFAULT_NOTIFICATION_EVENT_TYPES,
-    STAGE_STATUS_EVENT_TYPES,
-    STAGE_HANDOFF_EVENT_TYPES,
-)
-
-
 class WorkflowRegistryCorruptError(RuntimeError):
     """Raised when workflow registry state exists but cannot be safely loaded."""
 

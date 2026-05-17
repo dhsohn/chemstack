@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 import os
-from types import SimpleNamespace
+from argparse import Namespace
 
 from chemstack import cli as unified_cli
 from chemstack.core.app_ids import CHEMSTACK_CONFIG_ENV_VAR
 
 
-def _service_args() -> SimpleNamespace:
-    return SimpleNamespace(
+def _service_args() -> Namespace:
+    return Namespace(
         app=None,
         auto_organize=False,
         no_auto_organize=False,

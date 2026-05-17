@@ -1,22 +1,17 @@
-# ruff: noqa: E402
-
 from __future__ import annotations
 
 import json
-import sys
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(REPO_ROOT))
-sys.path.insert(0, str(REPO_ROOT / "src"))
-
+from chemstack.core.app_ids import CHEMSTACK_CONFIG_ENV_VAR, CHEMSTACK_REPO_ROOT_ENV_VAR
 from chemstack.core.queue.types import QueueEntry, QueueStatus
 
 from chemstack.flow import activity, cli, operations
+from chemstack.flow import _activity_model
 
 
 def test_list_activities_merges_workflows_and_standalone_sources(monkeypatch) -> None:
@@ -278,20 +273,20 @@ def test_activity_helper_edges_and_discovery_paths(
     assert activity._resolve_existing_path(str(existing)) == existing.resolve()
 
     assert activity._discover_workflow_root(tmp_path / "wf") == str((tmp_path / "wf").resolve())
-    monkeypatch.setenv(activity.CHEMSTACK_CONFIG_ENV_VAR, str(existing))
+    monkeypatch.setenv(CHEMSTACK_CONFIG_ENV_VAR, str(existing))
     assert activity._discover_sibling_config(None, app_name="xtb_auto") == str(existing.resolve())
     assert activity._discover_sibling_config(str(existing), app_name="crest_auto") == str(existing.resolve())
 
-    monkeypatch.setenv(activity.CHEMSTACK_REPO_ROOT_ENV_VAR, str(tmp_path / "repo"))
+    monkeypatch.setenv(CHEMSTACK_REPO_ROOT_ENV_VAR, str(tmp_path / "repo"))
     assert activity._discover_orca_repo_root(None) == str((tmp_path / "repo").resolve())
     assert activity._discover_orca_repo_root(str(tmp_path / "explicit")) == str(
         (tmp_path / "explicit").resolve()
     )
 
     assert activity._shared_config_hint("", None, " /tmp/shared.yaml ") == "/tmp/shared.yaml"
-    assert activity._parse_iso("") < activity._parse_iso("2026-04-26T00:00:00Z")
-    assert activity._parse_iso("bad") < activity._parse_iso("2026-04-26T00:00:00+09:00")
-    assert activity._parse_iso("2026-04-26T00:00:00").tzinfo is not None
+    assert _activity_model.parse_iso("") < _activity_model.parse_iso("2026-04-26T00:00:00Z")
+    assert _activity_model.parse_iso("bad") < _activity_model.parse_iso("2026-04-26T00:00:00+09:00")
+    assert _activity_model.parse_iso("2026-04-26T00:00:00").tzinfo is not None
     assert activity._unique_texts([" a ", "", "a", "b"]) == ("a", "b")
     assert activity._mapping_text({"key": " value "}, "key") == "value"
     assert activity._path_aliases("", root=tmp_path) == ()

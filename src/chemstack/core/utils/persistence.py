@@ -83,6 +83,29 @@ def resolve_root_path(root: str | Path) -> Path:
     return Path(root).expanduser().resolve()
 
 
+def load_json_list_file(
+    path: Path,
+    *,
+    corrupt_error: type[Exception],
+    description: str,
+) -> list[Any]:
+    if not path.exists():
+        return []
+    try:
+        text = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return []
+    except OSError as exc:
+        raise corrupt_error(f"{description} cannot be read: {path}") from exc
+    try:
+        raw = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise corrupt_error(f"{description} is not valid JSON: {path}") from exc
+    if not isinstance(raw, list):
+        raise corrupt_error(f"{description} must contain a JSON list: {path}")
+    return raw
+
+
 def _is_unsupported_dir_fsync_error(exc: OSError) -> bool:
     return exc.errno in _DIR_FSYNC_UNSUPPORTED_ERRNOS
 

@@ -1,5 +1,3 @@
-# ruff: noqa: E402
-
 from __future__ import annotations
 
 import json
@@ -10,10 +8,6 @@ from types import ModuleType, SimpleNamespace
 from typing import Any
 
 import pytest
-
-REPO_ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(REPO_ROOT))
-sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from chemstack.flow import cli, operations, registry, runtime, state, xyz_utils
 from chemstack.flow.adapters import crest as crest_adapter

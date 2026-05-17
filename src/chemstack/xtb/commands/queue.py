@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-import os
 import signal
 import subprocess
-import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -71,39 +69,158 @@ CANCEL_CHECK_INTERVAL_SECONDS = 1
 WORKER_CANCEL_SIGNAL = getattr(signal, "SIGUSR1", signal.SIGTERM)
 WORKER_SHUTDOWN_EXIT_CODE = 190
 WORKER_JOB_MODULE = "chemstack.xtb.worker_job"
-_WORKER_EXECUTION_COMPAT = (
-    activate_reserved_slot,
-    finalize_xtb_job,
-    get_cancel_requested,
-    is_recovery_pending,
-    load_organized_ref,
-    load_report_json,
-    mark_cancelled,
-    mark_completed,
-    mark_failed,
-    mark_recovery_pending,
-    now_utc_iso,
-    notify_job_started,
-    notify_job_finished,
-    os,
-    organize_job_dir,
-    reconcile_stale_slots,
-    release_slot,
-    requeue_running_entry,
-    reserve_dequeued_entry,
-    run_xtb_ranking_job,
-    start_xtb_job,
-    subprocess,
-    time,
-    upsert_job_record,
-    write_report_json,
-    write_report_md_lines,
-    write_state,
-)
 
 
-def _this_module() -> Any:
-    return sys.modules[__name__]
+@dataclass(frozen=True)
+class _QueueTimingDeps:
+    POLL_INTERVAL_SECONDS: int
+    time: Any
+    now_utc_iso: Any
+
+
+@dataclass(frozen=True)
+class _QueueStateDeps:
+    is_recovery_pending: Any
+    load_organized_ref: Any
+    load_report_json: Any
+    load_state: Any
+    mark_recovery_pending: Any
+    write_report_json: Any
+    write_report_md_lines: Any
+    write_state: Any
+
+
+@dataclass(frozen=True)
+class _QueueStoreDeps:
+    activate_reserved_slot: Any
+    get_cancel_requested: Any
+    mark_cancelled: Any
+    mark_completed: Any
+    mark_failed: Any
+    reconcile_stale_slots: Any
+    release_slot: Any
+    requeue_running_entry: Any
+    reserve_dequeued_entry: Any
+
+
+@dataclass(frozen=True)
+class _QueueJobDeps:
+    finalize_xtb_job: Any
+    notify_job_finished: Any
+    notify_job_started: Any
+    organize_job_dir: Any
+    run_xtb_ranking_job: Any
+    start_xtb_job: Any
+    upsert_job_record: Any
+
+
+@dataclass(frozen=True)
+class _QueueHelperDeps:
+    _admission_root: Any
+    _build_terminal_result: Any
+    _coerce_mapping: Any
+    _dequeue_next_entry: Any
+    _entry_resource_request: Any
+    _ensure_terminal_queue_status: Any
+    _execute_queue_entry: Any
+    _finalize_execution_result: Any
+    _input_summary: Any
+    _job_dir: Any
+    _job_type: Any
+    _load_terminal_summary: Any
+    _mark_recovery_pending_state: Any
+    _pid_is_alive: Any
+    _print_terminal_summary: Any
+    _queue_entries_with_roots: Any
+    _queue_entry_by_id: Any
+    _reaction_key: Any
+    _request_job_cancellation: Any
+    _selected_xyz: Any
+    _start_background_job_process: Any
+    _terminate_process: Any
+    _try_reserve_admission_slot: Any
+    _write_execution_artifacts: Any
+
+
+@dataclass(frozen=True)
+class _QueueCommandDeps:
+    timing: _QueueTimingDeps
+    state: _QueueStateDeps
+    store: _QueueStoreDeps
+    job: _QueueJobDeps
+    helpers: _QueueHelperDeps
+
+    def __getattr__(self, name: str) -> Any:
+        for group in (self.timing, self.state, self.store, self.job, self.helpers):
+            if hasattr(group, name):
+                return getattr(group, name)
+        raise AttributeError(name)
+
+
+def _queue_command_deps() -> _QueueCommandDeps:
+    return _QueueCommandDeps(
+        timing=_QueueTimingDeps(
+            POLL_INTERVAL_SECONDS=POLL_INTERVAL_SECONDS,
+            time=time,
+            now_utc_iso=now_utc_iso,
+        ),
+        state=_QueueStateDeps(
+            is_recovery_pending=is_recovery_pending,
+            load_organized_ref=load_organized_ref,
+            load_report_json=load_report_json,
+            load_state=load_state,
+            mark_recovery_pending=mark_recovery_pending,
+            write_report_json=write_report_json,
+            write_report_md_lines=write_report_md_lines,
+            write_state=write_state,
+        ),
+        store=_QueueStoreDeps(
+            activate_reserved_slot=activate_reserved_slot,
+            get_cancel_requested=get_cancel_requested,
+            mark_cancelled=mark_cancelled,
+            mark_completed=mark_completed,
+            mark_failed=mark_failed,
+            reconcile_stale_slots=reconcile_stale_slots,
+            release_slot=release_slot,
+            requeue_running_entry=requeue_running_entry,
+            reserve_dequeued_entry=reserve_dequeued_entry,
+        ),
+        job=_QueueJobDeps(
+            finalize_xtb_job=finalize_xtb_job,
+            notify_job_finished=notify_job_finished,
+            notify_job_started=notify_job_started,
+            organize_job_dir=organize_job_dir,
+            run_xtb_ranking_job=run_xtb_ranking_job,
+            start_xtb_job=start_xtb_job,
+            upsert_job_record=upsert_job_record,
+        ),
+        helpers=_QueueHelperDeps(
+            _admission_root=_admission_root,
+            _build_terminal_result=_build_terminal_result,
+            _coerce_mapping=_coerce_mapping,
+            _dequeue_next_entry=_dequeue_next_entry,
+            _entry_resource_request=_entry_resource_request,
+            _ensure_terminal_queue_status=_ensure_terminal_queue_status,
+            _execute_queue_entry=_execute_queue_entry,
+            _finalize_execution_result=_finalize_execution_result,
+            _input_summary=_input_summary,
+            _job_dir=_job_dir,
+            _job_type=_job_type,
+            _load_terminal_summary=_load_terminal_summary,
+            _mark_recovery_pending_state=_mark_recovery_pending_state,
+            _pid_is_alive=_pid_is_alive,
+            _print_terminal_summary=_print_terminal_summary,
+            _queue_entries_with_roots=_queue_entries_with_roots,
+            _queue_entry_by_id=_queue_entry_by_id,
+            _reaction_key=_reaction_key,
+            _request_job_cancellation=_request_job_cancellation,
+            _selected_xyz=_selected_xyz,
+            _start_background_job_process=_start_background_job_process,
+            _terminate_process=_terminate_process,
+            _try_reserve_admission_slot=_try_reserve_admission_slot,
+            _write_execution_artifacts=_write_execution_artifacts,
+        ),
+    )
 
 
 @dataclass(frozen=True)
@@ -253,7 +370,7 @@ def _build_state_payload(
         result,
         previous_state=previous_state,
         resumed=resumed,
-        deps=_this_module(),
+        deps=_queue_command_deps(),
     )
 
 
@@ -269,7 +386,7 @@ def _build_report_payload(
         result,
         previous_state=previous_state,
         resumed=resumed,
-        deps=_this_module(),
+        deps=_queue_command_deps(),
     )
 
 
@@ -285,7 +402,7 @@ def _write_execution_artifacts(
         result,
         previous_state=previous_state,
         resumed=resumed,
-        deps=_this_module(),
+        deps=_queue_command_deps(),
     )
 
 
@@ -303,7 +420,7 @@ def _write_running_state(
         worker_job_pid=worker_job_pid,
         previous_state=previous_state,
         resumed=resumed,
-        deps=_this_module(),
+        deps=_queue_command_deps(),
     )
 
 
@@ -312,7 +429,7 @@ def _mark_recovery_pending_state(cfg: Any, entry: Any, *, reason: str) -> None:
         cfg,
         entry,
         reason=reason,
-        deps=_this_module(),
+        deps=_queue_command_deps(),
     )
 
 
@@ -355,7 +472,7 @@ def _build_terminal_result(
         reason=reason,
         exit_code=exit_code,
         command=command,
-        deps=_this_module(),
+        deps=_queue_command_deps(),
     )
 
 
@@ -394,7 +511,7 @@ def _load_terminal_summary(
         queue_root,
         entry,
         rc=rc,
-        deps=_this_module(),
+        deps=_queue_command_deps(),
     )
 
 
@@ -403,7 +520,7 @@ def _ensure_terminal_queue_status(queue_root: Path, entry: Any, summary: _Termin
         queue_root,
         entry,
         summary,
-        deps=_this_module(),
+        deps=_queue_command_deps(),
     )
 
 
@@ -428,7 +545,7 @@ def _finalize_execution_result(
         previous_state=previous_state,
         resumed=resumed,
         outcome_cls=QueueExecutionOutcome,
-        deps=_this_module(),
+        deps=_queue_command_deps(),
     )
 
 
@@ -499,7 +616,7 @@ def _request_job_cancellation(proc: _ManagedProcess) -> None:
     _queue_worker_loop.request_job_cancellation(
         proc,
         cancel_signal=WORKER_CANCEL_SIGNAL,
-        deps=_this_module(),
+        deps=_queue_command_deps(),
     )
 
 
@@ -528,7 +645,7 @@ class QueueWorker(_queue_worker_loop.QueueWorker):
             config_path=config_path,
             auto_organize=auto_organize,
             max_concurrent=max_concurrent,
-            deps=_this_module(),
+            deps=_queue_command_deps(),
         )
 
 
@@ -536,7 +653,7 @@ def _process_one(cfg: Any, *, auto_organize: bool) -> str:
     return _queue_worker_loop.process_one(
         cfg,
         auto_organize=auto_organize,
-        deps=_this_module(),
+        deps=_queue_command_deps(),
     )
 
 

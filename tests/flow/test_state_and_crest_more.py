@@ -1,13 +1,10 @@
 from __future__ import annotations
 
 import json
-import sys
 from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
 from chemstack.flow.adapters import crest as crest_adapter
 from chemstack.flow.adapters.crest import load_crest_artifact_contract, select_crest_downstream_inputs
