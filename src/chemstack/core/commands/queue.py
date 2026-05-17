@@ -44,6 +44,45 @@ def queue_entries_with_roots(
     return rows
 
 
+def queue_entry_sort_key(entry: Any) -> tuple[int, str, str]:
+    return (
+        int(getattr(entry, "priority", 10) or 10),
+        str(getattr(entry, "enqueued_at", "")),
+        str(getattr(entry, "queue_id", "")),
+    )
+
+
+def sorted_queue_entries(
+    cfg: Any,
+    *,
+    runtime_roots_for_cfg_fn: Callable[[Any], tuple[Path, ...]],
+    list_queue_fn: Callable[[Path], list[Any]],
+) -> list[Any]:
+    entries = [
+        entry
+        for _root, entry in queue_entries_with_roots(
+            cfg,
+            queue_roots_fn=lambda cfg_obj: queue_roots(
+                cfg_obj,
+                runtime_roots_for_cfg_fn=runtime_roots_for_cfg_fn,
+            ),
+            list_queue_fn=list_queue_fn,
+        )
+    ]
+    entries.sort(key=queue_entry_sort_key)
+    return entries
+
+
+def metadata_text(entry: Any, key: str, *, default: str = "") -> str:
+    value = str(getattr(entry, "metadata", {}).get(key, "")).strip()
+    return value or default
+
+
+def metadata_path_name(entry: Any, key: str, *, default: str = "-") -> str:
+    value = metadata_text(entry, key)
+    return Path(value).name if value else default
+
+
 def dequeue_next_entry(
     cfg: Any,
     *,
@@ -92,4 +131,3 @@ def cmd_queue_cancel(
     print(f"queue_id: {updated.queue_id}")
     print(f"job_id: {updated.task_id}")
     return 0
-

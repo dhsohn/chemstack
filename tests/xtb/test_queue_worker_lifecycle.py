@@ -9,7 +9,7 @@ from chemstack.xtb.commands import queue as queue_cmd
 from chemstack.xtb import state as state_mod
 
 
-def _make_cfg(tmp_path: Path, *, auto_organize: bool = False) -> SimpleNamespace:
+def _make_cfg(tmp_path: Path) -> SimpleNamespace:
     allowed_root = tmp_path / "allowed"
     organized_root = tmp_path / "organized"
     admission_root = tmp_path / "admission"
@@ -24,7 +24,6 @@ def _make_cfg(tmp_path: Path, *, auto_organize: bool = False) -> SimpleNamespace
             admission_root=str(admission_root),
             admission_limit=2,
         ),
-        behavior=SimpleNamespace(auto_organize_on_terminal=auto_organize),
         resources=SimpleNamespace(max_cores_per_task=4, max_memory_gb_per_task=8),
         telegram=SimpleNamespace(bot_token="", chat_id=""),
         paths=SimpleNamespace(xtb_executable=""),
@@ -210,8 +209,8 @@ def test_queue_worker_starts_up_to_max_concurrent_children(
     assert worker._fill_slots() == "processed"
     assert sorted(worker._running) == ["queue-0", "queue-1"]
     assert started == [
-        ("/tmp/chemstack.yaml", str(queue_root), "slot-1", True),
-        ("/tmp/chemstack.yaml", str(queue_root), "slot-2", True),
+        ("/tmp/chemstack.yaml", str(queue_root), "slot-1", False),
+        ("/tmp/chemstack.yaml", str(queue_root), "slot-2", False),
     ]
 
 
@@ -426,22 +425,11 @@ def test_queue_worker_reconcile_worker_state_requeues_stale_running_entries(
     assert state["recovery_pending"] is True
 
 
-@pytest.mark.parametrize(
-    ("cfg_auto", "arg_auto", "arg_no_auto", "expected"),
-    [
-        (False, True, False, True),
-        (True, False, True, False),
-    ],
-)
-def test_cmd_queue_worker_respects_auto_organize_flag_overrides(
+def test_cmd_queue_worker_disables_auto_organize_for_xtb(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    cfg_auto: bool,
-    arg_auto: bool,
-    arg_no_auto: bool,
-    expected: bool,
 ) -> None:
-    cfg = _make_cfg(tmp_path, auto_organize=cfg_auto)
+    cfg = _make_cfg(tmp_path)
     seen: list[tuple[str, bool, str]] = []
 
     class _FakeWorker:
@@ -470,11 +458,9 @@ def test_cmd_queue_worker_respects_auto_organize_flag_overrides(
     exit_code = queue_cmd.cmd_queue_worker(
         SimpleNamespace(
             config=None,
-            auto_organize=arg_auto,
-            no_auto_organize=arg_no_auto,
         )
     )
 
-    assert seen[0] == ("init", expected, "/tmp/default-chemstack.yaml")
+    assert seen[0] == ("init", False, "/tmp/default-chemstack.yaml")
     assert exit_code == 23
     assert seen[-1] == ("run", False, "")

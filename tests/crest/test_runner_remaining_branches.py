@@ -70,7 +70,6 @@ def _dependencies(**overrides: Callable[..., Any]) -> worker_execution.WorkerExe
         "upsert_job_record": lambda *args, **kwargs: None,
         "notify_job_started": lambda *args, **kwargs: True,
         "notify_job_finished": lambda *args, **kwargs: True,
-        "organize_job_dir": lambda *args, **kwargs: {"action": "skipped"},
     }
     defaults.update(overrides)
     return worker_execution.WorkerExecutionDependencies(**defaults)
@@ -126,8 +125,7 @@ def test_preexec_with_limits_applies_address_space_limit(monkeypatch: pytest.Mon
     ]
 
 
-def test_sync_job_tracking_returns_none_for_falsey_organized_target(
-    monkeypatch: pytest.MonkeyPatch,
+def test_sync_job_tracking_ignores_auto_organize_for_crest(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -147,23 +145,8 @@ def test_sync_job_tracking_returns_none_for_falsey_organized_target(
     result = _result(job_dir, selected_xyz)
     upsert_calls: list[dict[str, Any]] = []
 
-    class FalseyPath:
-        def __init__(self, value: str) -> None:
-            self.value = value
-
-        def __bool__(self) -> bool:
-            return False
-
-        def __str__(self) -> str:
-            return self.value
-
-    monkeypatch.setattr(worker_execution, "Path", FalseyPath)
     deps = _dependencies(
         upsert_job_record=lambda cfg, **kwargs: upsert_calls.append(kwargs),
-        organize_job_dir=lambda cfg, actual_job_dir, *, notify_summary: {
-            "action": "organized",
-            "target_dir": "   ",
-        },
     )
 
     organized_output_dir = worker_execution._sync_job_tracking(

@@ -30,7 +30,6 @@ from chemstack.core.queue.worker import (
 )
 from chemstack.core.utils import now_utc_iso
 
-from .commands.organize import organize_job_dir
 from .config import load_config
 from .job_locations import upsert_job_record
 from .notifications import notify_job_finished, notify_job_started
@@ -82,7 +81,6 @@ class WorkerExecutionDependencies:
     upsert_job_record: Callable[..., Any]
     notify_job_started: Callable[..., bool]
     notify_job_finished: Callable[..., bool]
-    organize_job_dir: Callable[..., dict[str, str]]
 
 
 def build_worker_execution_dependencies(
@@ -100,7 +98,6 @@ def build_worker_execution_dependencies(
     upsert_job_record_fn: Callable[..., Any],
     notify_job_started_fn: Callable[..., bool],
     notify_job_finished_fn: Callable[..., bool],
-    organize_job_dir_fn: Callable[..., dict[str, str]],
 ) -> WorkerExecutionDependencies:
     return WorkerExecutionDependencies(
         now_utc_iso=now_utc_iso_fn,
@@ -116,7 +113,6 @@ def build_worker_execution_dependencies(
         upsert_job_record=upsert_job_record_fn,
         notify_job_started=notify_job_started_fn,
         notify_job_finished=notify_job_finished_fn,
-        organize_job_dir=organize_job_dir_fn,
     )
 
 
@@ -152,7 +148,6 @@ def default_worker_execution_dependencies() -> WorkerExecutionDependencies:
         upsert_job_record_fn=upsert_job_record,
         notify_job_started_fn=notify_job_started,
         notify_job_finished_fn=notify_job_finished,
-        organize_job_dir_fn=organize_job_dir,
     )
 
 
@@ -168,13 +163,14 @@ def build_worker_child_command(
     auto_organize: bool = False,
     admission_token: str | None = None,
 ) -> list[str]:
+    del auto_organize
     return build_background_worker_command(
         config_path=config_path,
         queue_root=Path(queue_root),
         queue_id=queue_id,
         worker_job_module="chemstack.crest.worker_execution",
         admission_token=admission_token,
-        auto_organize=auto_organize,
+        auto_organize=False,
         include_admission_root=False,
         auto_organize_before_admission_token=True,
     )
@@ -473,6 +469,7 @@ def _sync_job_tracking(
     auto_organize: bool,
     dependencies: WorkerExecutionDependencies,
 ) -> Path | None:
+    del auto_organize
     dependencies.upsert_job_record(
         cfg,
         job_id=context.entry.task_id,
@@ -485,47 +482,7 @@ def _sync_job_tracking(
         resource_actual=result.resource_actual,
     )
 
-    if not auto_organize:
-        return None
-
-    try:
-        organize_result = dependencies.organize_job_dir(cfg, context.job_dir, notify_summary=False)
-    except Exception as exc:
-        organize_result = {"action": "failed", "reason": f"auto_organize_error:{exc}"}
-
-    if organize_result.get("action") != "organized":
-        return None
-
-    organized_output_dir = Path(str(organize_result.get("target_dir", "")).strip())
-    if not organized_output_dir:
-        return None
-
-    print(f"organized_output_dir: {organized_output_dir}")
-    dependencies.upsert_job_record(
-        cfg,
-        job_id=context.entry.task_id,
-        status=result.status,
-        job_dir=context.job_dir,
-        mode=result.mode,
-        selected_input_xyz=str(context.selected_xyz),
-        organized_output_dir=organized_output_dir,
-        molecule_key=context.molecule_key,
-        resource_request=result.resource_request,
-        resource_actual=result.resource_actual,
-    )
-    dependencies.upsert_job_record(
-        cfg,
-        job_id=context.entry.task_id,
-        status=result.status,
-        job_dir=organized_output_dir,
-        mode=result.mode,
-        selected_input_xyz=str(context.selected_xyz),
-        organized_output_dir=organized_output_dir,
-        molecule_key=context.molecule_key,
-        resource_request=result.resource_request,
-        resource_actual=result.resource_actual,
-    )
-    return organized_output_dir
+    return None
 
 
 def _raise_if_shutdown_requested(
@@ -681,11 +638,12 @@ def process_dequeued_entry(
     dependencies: WorkerExecutionDependencies,
     shutdown_requested: Callable[[], bool] | None = None,
 ) -> WorkerExecutionOutcome:
+    del auto_organize
     return process_dequeued_engine_entry(
         cfg,
         entry,
         queue_root=queue_root,
-        auto_organize=auto_organize,
+        auto_organize=False,
         build_context_fn=lambda cfg_obj, entry_obj: _build_execution_context(
             cfg_obj,
             entry_obj,
@@ -754,6 +712,7 @@ def run_worker_child_job(
     auto_organize: bool = False,
     admission_token: str | None = None,
 ) -> int:
+    del auto_organize
     cfg = load_config(config_path)
     queue_root_path = Path(queue_root).expanduser().resolve()
     entry = _find_queue_entry(queue_root_path, queue_id)
@@ -770,7 +729,7 @@ def run_worker_child_job(
             cfg,
             entry,
             queue_root=queue_root_path,
-            auto_organize=auto_organize,
+            auto_organize=False,
             resource_caps=_resource_caps,
             molecule_key_resolver=_molecule_key,
             dependencies=default_worker_execution_dependencies(),
@@ -792,7 +751,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--queue-root", required=True)
     parser.add_argument("--queue-id", required=True)
     parser.add_argument("--admission-token", default=None)
-    parser.add_argument("--auto-organize", action="store_true")
     return parser
 
 
@@ -802,7 +760,7 @@ def main(argv: list[str] | None = None) -> int:
         config_path=args.config,
         queue_root=args.queue_root,
         queue_id=args.queue_id,
-        auto_organize=bool(args.auto_organize),
+        auto_organize=False,
         admission_token=str(args.admission_token).strip() or None,
     )
 

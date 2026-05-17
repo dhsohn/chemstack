@@ -168,7 +168,7 @@ def _patch_common(monkeypatch: pytest.MonkeyPatch) -> dict[str, list[Any]]:
     return calls
 
 
-def test_process_one_completed_updates_queue_artifacts_index_and_organizes(
+def test_process_one_completed_updates_queue_artifacts_index_without_organizing(
     queue_env: SimpleNamespace,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -176,8 +176,6 @@ def test_process_one_completed_updates_queue_artifacts_index_and_organizes(
     job = _enqueue_job(queue_env, task_id="job-complete", mode="nci")
     manifest_path = job.job_dir / "crest_job.yaml"
     manifest_path.write_text("mode: nci\n", encoding="utf-8")
-    organized_target = queue_env.organized_root / "job-complete"
-    organized_target.mkdir()
     completed_result = _make_result(
         job.job_dir,
         job.selected_xyz,
@@ -194,13 +192,6 @@ def test_process_one_completed_updates_queue_artifacts_index_and_organizes(
         lambda cfg, *, job_dir, selected_xyz: SimpleNamespace(process=FakeProcess(0)),
     )
     monkeypatch.setattr(queue_cmd, "finalize_crest_job", lambda running: completed_result)
-    organize_calls: list[tuple[Path, bool]] = []
-
-    def fake_organize(cfg: AppConfig, job_dir: Path, *, notify_summary: bool) -> dict[str, str]:
-        organize_calls.append((job_dir, notify_summary))
-        return {"action": "organized", "target_dir": str(organized_target)}
-
-    monkeypatch.setattr(queue_cmd, "organize_job_dir", fake_organize)
 
     outcome = queue_cmd._process_one(queue_env.cfg, auto_organize=True)
 
@@ -235,22 +226,21 @@ def test_process_one_completed_updates_queue_artifacts_index_and_organizes(
     assert record.status == "completed"
     assert record.job_type == "crest_nci_conformer_search"
     assert record.original_run_dir == str(job.job_dir.resolve())
-    assert record.organized_output_dir == str(organized_target.resolve())
-    assert record.latest_known_path == str(organized_target.resolve())
+    assert record.organized_output_dir == ""
+    assert record.latest_known_path == str(job.job_dir.resolve())
     assert record.molecule_key == "selected_input"
 
-    assert organize_calls == [(job.job_dir.resolve(), False)]
     assert len(calls["started"]) == 1
     assert calls["started"][0]["queue_id"] == job.entry.queue_id
     assert calls["started"][0]["job_dir"] == job.job_dir.resolve()
     assert len(calls["finished"]) == 1
     assert calls["finished"][0]["status"] == "completed"
-    assert calls["finished"][0]["organized_output_dir"] == organized_target.resolve()
+    assert calls["finished"][0]["organized_output_dir"] is None
     assert calls["finished"][0]["retained_conformer_count"] == 2
     assert calls["released"] == [(queue_env.cfg.runtime.resolved_admission_root, "slot-1")]
 
     stdout = capsys.readouterr().out
-    assert f"organized_output_dir: {organized_target.resolve()}" in stdout
+    assert "organized_output_dir:" not in stdout
     assert "status: completed" in stdout
 
 
@@ -434,7 +424,7 @@ def test_queue_worker_fill_slots_starts_multiple_child_processes(
     assert sorted(worker._running) == sorted([job_one.entry.queue_id, job_two.entry.queue_id])
     assert len(started_commands) == 2
     assert all("chemstack.crest.worker_execution" in command for command in started_commands)
-    assert all("--auto-organize" in command for command in started_commands)
+    assert all("--auto-organize" not in command for command in started_commands)
     assert {command[command.index("--queue-id") + 1] for command in started_commands} == {
         job_one.entry.queue_id,
         job_two.entry.queue_id,

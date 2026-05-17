@@ -19,7 +19,7 @@ class PathsConfig:
 
 @dataclass(frozen=True)
 class BehaviorConfig:
-    auto_organize_on_terminal: bool = False
+    pass
 
 
 @dataclass(frozen=True)

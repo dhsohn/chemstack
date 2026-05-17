@@ -120,6 +120,7 @@ resources:
   max_memory_gb_per_task: 32
 
 behavior:
+  # ORCA-only; internal xTB/CREST stages do not organize.
   auto_organize_on_terminal: false
 
 scheduler:
@@ -159,7 +160,7 @@ Field descriptions for the `orca` section:
 - `workflow.paths.xtb_executable`: xTB executable path used by workflow-managed internal stages
 - `workflow.paths.crest_executable`: CREST executable path used by workflow-managed internal stages
 - Internal xTB/CREST runtimes no longer use a shared `workflow.root/internal/<engine>/...` root
-- Workflow-managed xTB/CREST job dirs, per-workflow queues/indexes, and organized outputs are stored only under `workflow.root/<workflow_id>/internal/<engine>/{runs,outputs}`
+- Workflow-managed xTB/CREST job dirs, per-workflow queues/indexes, and outputs are stored only under `workflow.root/<workflow_id>/internal/<engine>/{runs,outputs}`
 - `paths.orca_executable`: ORCA executable path
 
 Notes:

@@ -6,6 +6,8 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from chemstack.core.queue.worker import resolve_worker_auto_organize
+
 from ..cancellation import CancelTargetError, cancel_target
 from ..config import load_config
 from ..queue_store import cancel_all_pending
@@ -54,11 +56,7 @@ def cmd_queue_worker(args: Any) -> int:
     cfg = load_config(args.config)
     allowed_root = Path(cfg.runtime.allowed_root).expanduser().resolve()
     configured_max_concurrent = max(1, int(cfg.runtime.max_concurrent))
-    auto_organize = bool(getattr(cfg, "behavior", None) and cfg.behavior.auto_organize_on_terminal)
-    if bool(getattr(args, "auto_organize", False)):
-        auto_organize = True
-    elif bool(getattr(args, "no_auto_organize", False)):
-        auto_organize = False
+    auto_organize = resolve_worker_auto_organize(cfg, args)
 
     # Check if a worker is already running
     existing_pid = read_worker_pid(allowed_root)

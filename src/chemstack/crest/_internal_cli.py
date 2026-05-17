@@ -11,7 +11,6 @@ from chemstack.core.internal_cli import (
 
 from .commands import init as scaffold_cmd
 from .commands import list_jobs as list_cmd
-from .commands import organize as organize_cmd
 from .commands import queue as queue_cmd
 from .commands import reindex as reindex_cmd
 from .commands import run_dir as run_dir_cmd
@@ -39,10 +38,6 @@ def cmd_run_dir(args: argparse.Namespace) -> int:
 
 def cmd_list(args: argparse.Namespace) -> int:
     return int(list_cmd.cmd_list(args))
-
-
-def cmd_organize(args: argparse.Namespace) -> int:
-    return int(organize_cmd.cmd_organize(args))
 
 
 def cmd_reindex(args: argparse.Namespace) -> int:
@@ -77,7 +72,6 @@ def main(argv: list[str] | None = None) -> int:
             "scaffold": cmd_scaffold,
             "run-dir": cmd_run_dir,
             "list": cmd_list,
-            "organize": cmd_organize,
             "reindex": cmd_reindex,
             "summary": cmd_summary,
         },

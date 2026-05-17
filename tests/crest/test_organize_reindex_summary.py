@@ -4,19 +4,12 @@ import json
 from argparse import Namespace
 from pathlib import Path
 
-from chemstack.core.config import CommonResourceConfig, CommonRuntimeConfig, TelegramConfig
 from chemstack.core.indexing import get_job_location
 
-import chemstack.crest.commands.organize as organize_module
 from chemstack.crest.commands import reindex as reindex_cmd
-from chemstack.crest.commands.organize import cmd_organize, organize_job_dir
 from chemstack.crest.commands.reindex import cmd_reindex
 from chemstack.crest.commands.summary import cmd_summary
-from chemstack.crest.config import AppConfig, load_config
 from chemstack.crest.state import (
-    load_organized_ref,
-    load_report_json,
-    load_state,
     write_report_json,
     write_report_md,
     write_state,
@@ -43,26 +36,6 @@ def _write_config(tmp_path: Path) -> tuple[Path, Path, Path]:
         encoding="utf-8",
     )
     return config_path, allowed_root, organized_root
-
-
-def _direct_config(tmp_path: Path) -> tuple[AppConfig, Path, Path]:
-    allowed_root = tmp_path / "crest_runs"
-    organized_root = tmp_path / "crest_organized"
-    allowed_root.mkdir(parents=True)
-    organized_root.mkdir(parents=True)
-    return (
-        AppConfig(
-            runtime=CommonRuntimeConfig(
-                allowed_root=str(allowed_root),
-                organized_root=str(organized_root),
-                max_concurrent=2,
-            ),
-            resources=CommonResourceConfig(max_cores_per_task=8, max_memory_gb_per_task=16),
-            telegram=TelegramConfig(),
-        ),
-        allowed_root,
-        organized_root,
-    )
 
 
 def _write_xyz(path: Path) -> None:
@@ -132,161 +105,6 @@ def _write_job_artifacts(
         )
 
     return selected_xyz
-
-
-def test_organize_job_dir_moves_terminal_job_and_refreshes_artifacts(
-    tmp_path: Path,
-) -> None:
-    cfg, allowed_root, organized_root = _direct_config(tmp_path)
-    job_dir = allowed_root / "job-apply"
-    _write_job_artifacts(
-        job_dir,
-        job_id="job-apply",
-        status="completed",
-        mode="nci",
-        selected_name="acetone.xyz",
-        resource_request={"max_cores": 6, "max_memory_gb": 12},
-        resource_actual={"max_cores": 4, "max_memory_gb": 10},
-    )
-
-    result = organize_job_dir(cfg, job_dir)
-
-    target_dir = (organized_root / "nci" / "acetone" / "job-apply").resolve()
-    assert result == {
-        "action": "organized",
-        "job_id": "job-apply",
-        "status": "completed",
-        "job_dir": str(job_dir.resolve()),
-        "target_dir": str(target_dir),
-        "mode": "nci",
-        "molecule_key": "acetone",
-    }
-    assert target_dir.is_dir()
-    assert (target_dir / "acetone.xyz").is_file()
-    assert not (job_dir / "acetone.xyz").exists()
-
-    organized_ref = load_organized_ref(job_dir)
-    assert organized_ref is not None
-    assert organized_ref["job_id"] == "job-apply"
-    assert organized_ref["original_run_dir"] == str(job_dir.resolve())
-    assert organized_ref["organized_output_dir"] == str(target_dir)
-    assert organized_ref["resource_request"] == {"max_cores": 6, "max_memory_gb": 12}
-    assert organized_ref["resource_actual"] == {"max_cores": 4, "max_memory_gb": 10}
-
-    state = load_state(target_dir)
-    report = load_report_json(target_dir)
-    assert state is not None
-    assert report is not None
-    for payload in (state, report):
-        assert payload["job_dir"] == str(target_dir)
-        assert payload["original_run_dir"] == str(job_dir.resolve())
-        assert payload["organized_output_dir"] == str(target_dir)
-        assert payload["latest_known_path"] == str(target_dir)
-        assert payload["status"] == "completed"
-
-    report_md = (target_dir / "job_report.md").read_text(encoding="utf-8")
-    assert "## Organization" in report_md
-    assert f"- Original Run Dir: `{job_dir.resolve()}`" in report_md
-    assert f"- Organized Output Dir: `{target_dir}`" in report_md
-
-    record = get_job_location(allowed_root, "job-apply")
-    assert record is not None
-    assert record.original_run_dir == str(job_dir.resolve())
-    assert record.organized_output_dir == str(target_dir)
-    assert record.latest_known_path == str(target_dir)
-    assert record.job_type == "crest_nci_conformer_search"
-
-
-def test_collect_plan_for_direct_config_reports_target_exists(tmp_path: Path) -> None:
-    cfg, allowed_root, organized_root = _direct_config(tmp_path)
-    job_dir = allowed_root / "job-target-source"
-    _write_job_artifacts(
-        job_dir,
-        job_id="job-target",
-        status="failed",
-        selected_name="ethane.xyz",
-        include_report=False,
-    )
-    target_dir = (organized_root / "standard" / "ethane" / "job-target").resolve()
-    target_dir.mkdir(parents=True)
-
-    assert organize_module._collect_plan_for_dir(cfg, job_dir.resolve()) == {
-        "action": "skip",
-        "job_dir": str(job_dir.resolve()),
-        "job_id": "job-target",
-        "reason": "target_exists",
-        "target_dir": str(target_dir),
-    }
-
-
-def test_organize_job_dir_skips_workflow_stage_job_without_outputs(tmp_path: Path) -> None:
-    config_path, allowed_root, organized_root = _write_config(tmp_path)
-    cfg = load_config(str(config_path))
-    job_dir = allowed_root / "job-complete"
-    selected_xyz = _write_job_artifacts(
-        job_dir,
-        job_id="job-001",
-        status="completed",
-        selected_name="water.xyz",
-        resource_request={"max_cores": 6, "max_memory_gb": 12},
-        resource_actual={"max_cores": 4, "max_memory_gb": 10},
-    )
-
-    result = organize_job_dir(cfg, job_dir)
-
-    assert result == {
-        "action": "skip",
-        "job_dir": str(job_dir.resolve()),
-        "reason": "already_under_organized_root",
-    }
-    assert (job_dir / selected_xyz.name).exists()
-    assert not (organized_root / "standard").exists()
-
-    organized_ref = load_organized_ref(job_dir)
-    assert organized_ref is None
-
-    state = load_state(job_dir)
-    report = load_report_json(job_dir)
-    assert state is not None
-    assert report is not None
-    assert state["job_dir"] == str(job_dir.resolve())
-    assert "organized_output_dir" not in state
-    assert "latest_known_path" not in state
-    report_md = (job_dir / "job_report.md").read_text(encoding="utf-8")
-    assert "## Organization" not in report_md
-
-    record = get_job_location(allowed_root, "job-001")
-    assert record is None
-
-
-def test_cmd_organize_dry_run_lists_planned_moves_without_moving_files(
-    tmp_path: Path,
-    capsys,
-) -> None:
-    config_path, allowed_root, organized_root = _write_config(tmp_path)
-    completed_job = allowed_root / "job-complete"
-    running_job = allowed_root / "job-running"
-    _write_job_artifacts(completed_job, job_id="job-100", status="completed", selected_name="ethanol.xyz")
-    _write_job_artifacts(running_job, job_id="job-200", status="running", selected_name="methane.xyz")
-
-    rc = cmd_organize(
-        Namespace(
-            config=str(config_path),
-            job_dir=None,
-            root=str(allowed_root),
-            apply=False,
-        )
-    )
-
-    captured = capsys.readouterr().out
-    assert rc == 0
-    assert "action: dry_run" in captured
-    assert "to_organize: 0" in captured
-    assert "skipped: 2" in captured
-    assert f"job-100: {completed_job.resolve()} ->" not in captured
-    assert completed_job.exists()
-    assert not (organized_root / "standard").exists()
-    assert load_organized_ref(completed_job) is None
 
 
 def test_cmd_reindex_indexes_jobs_from_allowed_and_organized_artifacts(

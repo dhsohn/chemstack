@@ -475,32 +475,79 @@ class ChildProcessQueueWorker(QueueWorkerLoop):
                 auto_organize=self.auto_organize,
             )
         except OSError as exc:
-            deps.release_slot(self.admission_root, admission_token)
-            failure = deps._build_terminal_result(
-                entry,
-                job_dir=deps._job_dir(entry),
-                selected_xyz=deps._selected_xyz(entry),
-                job_type=deps._job_type(entry),
-                reaction_key=deps._reaction_key(entry, deps._job_dir(entry)),
-                input_summary=deps._input_summary(entry),
-                resource_request=deps._entry_resource_request(self.cfg, entry),
-                status="failed",
-                reason=f"worker_start_error:{exc}",
-            )
-            deps._finalize_execution_result(
-                self.cfg,
-                queue_root=queue_root,
-                entry=entry,
-                result=failure,
-                auto_organize=self.auto_organize,
-                emit_output=True,
-            )
+            self._handle_worker_start_error(queue_root, entry, admission_token, exc)
             return
 
-        self._running[entry.queue_id] = BackgroundRunningJob(
+        if not self._on_worker_process_started(
+            queue_root,
+            entry,
+            process=proc,
+            admission_token=admission_token,
+        ):
+            return
+
+        self._running[self._running_queue_id(entry)] = self._make_running_job(
             queue_root=queue_root,
             entry=entry,
             process=proc,
+            admission_token=admission_token,
+        )
+
+    def _handle_worker_start_error(
+        self,
+        queue_root: Path,
+        entry: Any,
+        admission_token: str,
+        exc: OSError,
+    ) -> None:
+        deps = self.deps
+        deps.release_slot(self.admission_root, admission_token)
+        failure = deps._build_terminal_result(
+            entry,
+            job_dir=deps._job_dir(entry),
+            selected_xyz=deps._selected_xyz(entry),
+            job_type=deps._job_type(entry),
+            reaction_key=deps._reaction_key(entry, deps._job_dir(entry)),
+            input_summary=deps._input_summary(entry),
+            resource_request=deps._entry_resource_request(self.cfg, entry),
+            status="failed",
+            reason=f"worker_start_error:{exc}",
+        )
+        deps._finalize_execution_result(
+            self.cfg,
+            queue_root=queue_root,
+            entry=entry,
+            result=failure,
+            auto_organize=self.auto_organize,
+            emit_output=True,
+        )
+
+    def _on_worker_process_started(
+        self,
+        queue_root: Path,
+        entry: Any,
+        *,
+        process: Any,
+        admission_token: str,
+    ) -> bool:
+        del queue_root, entry, process, admission_token
+        return True
+
+    def _running_queue_id(self, entry: Any) -> str:
+        return str(entry.queue_id)
+
+    def _make_running_job(
+        self,
+        *,
+        queue_root: Path,
+        entry: Any,
+        process: Any,
+        admission_token: str,
+    ) -> Any:
+        return BackgroundRunningJob(
+            queue_root=queue_root,
+            entry=entry,
+            process=process,
             admission_token=admission_token,
         )
 
@@ -526,13 +573,16 @@ class ChildProcessQueueWorker(QueueWorkerLoop):
     def _shutdown_all(self) -> None:
         if not self._running:
             return
-        deps = self.deps
         for queue_id, job in list(self._running.items()):
-            deps._terminate_process(job.process)
-            deps._mark_recovery_pending_state(self.cfg, job.entry, reason="worker_shutdown")
-            deps.requeue_running_entry(str(job.queue_root), queue_id)
-            deps.release_slot(self.admission_root, job.admission_token)
+            self._shutdown_running_job(queue_id, job)
             del self._running[queue_id]
+
+    def _shutdown_running_job(self, queue_id: str, job: Any) -> None:
+        deps = self.deps
+        deps._terminate_process(job.process)
+        deps._mark_recovery_pending_state(self.cfg, job.entry, reason="worker_shutdown")
+        deps.requeue_running_entry(str(job.queue_root), queue_id)
+        deps.release_slot(self.admission_root, job.admission_token)
 
     def _reconcile_worker_state(self) -> None:
         deps = self.deps

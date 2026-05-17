@@ -126,7 +126,6 @@ def _dependencies(**overrides: Callable[..., Any]) -> worker_execution.WorkerExe
         "upsert_job_record": _noop,
         "notify_job_started": _notify_ok,
         "notify_job_finished": _notify_ok,
-        "organize_job_dir": lambda *args, **kwargs: {"action": "skipped"},
     }
     defaults.update(overrides)
     return worker_execution.WorkerExecutionDependencies(**defaults)
@@ -439,7 +438,7 @@ def test_terminate_process_swallows_proc_method_errors_after_killpg_fallback(
     assert proc.wait_calls == [10, 5]
 
 
-def test_sync_job_tracking_skips_organize_when_auto_organize_is_disabled(tmp_path: Path) -> None:
+def test_sync_job_tracking_never_organizes_for_crest(tmp_path: Path) -> None:
     cfg = _cfg(tmp_path)
     job_dir = tmp_path / "job"
     job_dir.mkdir()
@@ -452,14 +451,13 @@ def test_sync_job_tracking_skips_organize_when_auto_organize_is_disabled(tmp_pat
 
     deps = _dependencies(
         upsert_job_record=lambda cfg, **kwargs: upsert_calls.append(kwargs),
-        organize_job_dir=lambda *args, **kwargs: pytest.fail("organize should not run"),
     )
 
     organized_output_dir = worker_execution._sync_job_tracking(
         cfg,
         context,
         result,
-        auto_organize=False,
+        auto_organize=True,
         dependencies=deps,
     )
 
@@ -468,92 +466,6 @@ def test_sync_job_tracking_skips_organize_when_auto_organize_is_disabled(tmp_pat
     assert upsert_calls[0]["job_id"] == entry.task_id
     assert upsert_calls[0]["job_dir"] == job_dir.resolve()
     assert upsert_calls[0]["molecule_key"] == "fixed-key"
-
-
-@pytest.mark.parametrize("raises", [False, True], ids=["not-organized", "organize-exception"])
-def test_sync_job_tracking_returns_none_when_organize_does_not_finish(
-    tmp_path: Path,
-    raises: bool,
-) -> None:
-    cfg = _cfg(tmp_path)
-    job_dir = tmp_path / "job"
-    job_dir.mkdir()
-    selected_xyz = job_dir / "selected_input.xyz"
-    selected_xyz.write_text("1\nselected\nH 0.0 0.0 0.0\n", encoding="utf-8")
-    entry = _entry(job_dir, selected_xyz)
-    context = _context(entry, job_dir, selected_xyz)
-    result = _result(job_dir, selected_xyz, reason="ok")
-    upsert_calls: list[dict[str, Any]] = []
-    organize_calls: list[tuple[Path, bool]] = []
-
-    def fake_organize(cfg: Any, actual_job_dir: Path, *, notify_summary: bool) -> dict[str, str]:
-        organize_calls.append((actual_job_dir, notify_summary))
-        if raises:
-            raise RuntimeError("boom")
-        return {"action": "skipped", "target_dir": str(tmp_path / "organized" / "job")}
-
-    deps = _dependencies(
-        upsert_job_record=lambda cfg, **kwargs: upsert_calls.append(kwargs),
-        organize_job_dir=fake_organize,
-    )
-
-    organized_output_dir = worker_execution._sync_job_tracking(
-        cfg,
-        context,
-        result,
-        auto_organize=True,
-        dependencies=deps,
-    )
-
-    assert organized_output_dir is None
-    assert organize_calls == [(job_dir.resolve(), False)]
-    assert len(upsert_calls) == 1
-    assert upsert_calls[0]["status"] == "completed"
-    assert upsert_calls[0]["selected_input_xyz"] == str(selected_xyz.resolve())
-
-
-def test_sync_job_tracking_records_organized_output_dir_when_auto_organize_succeeds(
-    tmp_path: Path,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    cfg = _cfg(tmp_path)
-    job_dir = tmp_path / "job"
-    job_dir.mkdir()
-    selected_xyz = job_dir / "selected_input.xyz"
-    selected_xyz.write_text("1\nselected\nH 0.0 0.0 0.0\n", encoding="utf-8")
-    organized_target = (tmp_path / "organized" / "job").resolve()
-    organized_target.mkdir(parents=True)
-    entry = _entry(job_dir, selected_xyz, molecule_key="organized-key")
-    context = _context(entry, job_dir, selected_xyz, molecule_key="organized-key")
-    result = _result(job_dir, selected_xyz, reason="ok")
-    upsert_calls: list[dict[str, Any]] = []
-
-    deps = _dependencies(
-        upsert_job_record=lambda cfg, **kwargs: upsert_calls.append(kwargs),
-        organize_job_dir=lambda cfg, actual_job_dir, *, notify_summary: {
-            "action": "organized",
-            "target_dir": str(organized_target),
-        },
-    )
-
-    organized_output_dir = worker_execution._sync_job_tracking(
-        cfg,
-        context,
-        result,
-        auto_organize=True,
-        dependencies=deps,
-    )
-
-    assert organized_output_dir == organized_target
-    assert [call["job_dir"] for call in upsert_calls] == [
-        job_dir.resolve(),
-        job_dir.resolve(),
-        organized_target,
-    ]
-    assert upsert_calls[1]["organized_output_dir"] == organized_target
-    assert upsert_calls[2]["organized_output_dir"] == organized_target
-    assert capsys.readouterr().out.strip() == f"organized_output_dir: {organized_target}"
-
 
 def test_process_dequeued_entry_polls_sleeps_and_completes(
     monkeypatch: pytest.MonkeyPatch,

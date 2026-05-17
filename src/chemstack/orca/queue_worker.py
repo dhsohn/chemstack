@@ -14,11 +14,11 @@ import subprocess
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from chemstack.core.queue.worker import (
+    ChildProcessQueueWorker,
     ManagedProcess as _ManagedProcess,
-    QueueWorkerLoop,
     read_worker_pid_file,
     remove_worker_pid_file,
     reserve_queue_worker_slot,
@@ -74,6 +74,14 @@ class _RunningJob:
 
 
 @dataclass(frozen=True)
+class _QueueWorkerDeps:
+    POLL_INTERVAL_SECONDS: int
+    time: Any
+    _admission_root: Any
+    _start_background_job_process: Any
+
+
+@dataclass(frozen=True)
 class _AdmissionLimitRuntimeConfig:
     resolved_admission_limit: int
     admission_limit: int
@@ -106,6 +114,35 @@ def _start_job_process(
         admission_token=admission_token,
         admission_app_name=admission_app_name,
         admission_task_id=admission_task_id,
+    )
+
+
+def _start_background_job_process(
+    *,
+    config_path: str,
+    queue_root: str | Path,
+    entry: QueueEntry,
+    admission_root: str | Path,
+    admission_token: str,
+    auto_organize: bool,
+) -> BackgroundRunJobProcess:
+    del queue_root, admission_root, auto_organize
+    return _start_job_process(
+        reaction_dir=queue_entry_reaction_dir(entry),
+        config_path=config_path,
+        force=queue_entry_force(entry),
+        admission_token=admission_token,
+        admission_app_name=queue_entry_app_name(entry) or None,
+        admission_task_id=(queue_entry_task_id(entry) or None),
+    )
+
+
+def _queue_worker_deps() -> _QueueWorkerDeps:
+    return _QueueWorkerDeps(
+        POLL_INTERVAL_SECONDS=POLL_INTERVAL_SECONDS,
+        time=time,
+        _admission_root=resolve_admission_root,
+        _start_background_job_process=_start_background_job_process,
     )
 
 
@@ -248,7 +285,7 @@ def _worker_admission_limit(cfg: AppConfig, fallback_max_concurrent: int) -> int
     )
 
 
-class QueueWorker(QueueWorkerLoop):
+class QueueWorker(ChildProcessQueueWorker):
     """Main worker loop that manages concurrent job execution."""
 
     def __init__(
@@ -260,13 +297,12 @@ class QueueWorker(QueueWorkerLoop):
         auto_organize: bool = False,
     ) -> None:
         super().__init__(
+            cfg,
+            config_path=config_path,
+            auto_organize=auto_organize,
             max_concurrent=max(1, int(max_concurrent)),
-            poll_interval_seconds=POLL_INTERVAL_SECONDS,
-            sleep_fn=lambda seconds: time.sleep(seconds),
+            deps=_queue_worker_deps(),
         )
-        self.cfg = cfg
-        self.config_path = config_path
-        self.auto_organize = bool(auto_organize)
         self.allowed_root = Path(cfg.runtime.allowed_root).expanduser().resolve()
         self.admission_root = Path(resolve_admission_root(cfg)).expanduser().resolve()
         self.admission_limit = _worker_admission_limit(cfg, self.max_concurrent)
@@ -368,37 +404,76 @@ class QueueWorker(QueueWorkerLoop):
         mark_failed(self.allowed_root, queue_entry_id(entry), error=error)
         self._release_admission_token(admission_token)
 
-    def _start_job(self, entry: QueueEntry, *, admission_token: str) -> bool:
-        queue_id = queue_entry_id(entry)
-        reaction_dir = queue_entry_reaction_dir(entry)
-        force = queue_entry_force(entry)
-        app_name = queue_entry_app_name(entry)
-        task_id = queue_entry_task_id(entry) or ""
-        logger.info("Starting job %s: %s", queue_id, reaction_dir)
-        try:
-            proc = _start_job_process(
-                reaction_dir=reaction_dir,
-                config_path=self.config_path,
-                force=force,
-                admission_token=admission_token,
-                admission_app_name=app_name or None,
-                admission_task_id=task_id or None,
-            )
-        except OSError as exc:
-            logger.error("Failed to start job %s: %s", queue_id, exc)
-            self._fail_start(entry, admission_token, error=str(exc))
-            return False
+    def _start_job(
+        self,
+        queue_root: Path | QueueEntry,
+        entry: Any | None = None,
+        *,
+        admission_token: str,
+    ) -> None:
+        if entry is None:
+            resolved_queue_root = self.allowed_root
+            queue_entry = cast(QueueEntry, queue_root)
+        else:
+            resolved_queue_root = Path(cast(Path, queue_root))
+            queue_entry = cast(QueueEntry, entry)
 
-        self._register_running_job(
-            entry,
-            process=proc,
-            admission_token=admission_token,
-        )
+        queue_id = queue_entry_id(queue_entry)
+        logger.info("Starting job %s: %s", queue_id, queue_entry_reaction_dir(queue_entry))
+        super()._start_job(resolved_queue_root, queue_entry, admission_token=admission_token)
+
+    def _start_entry_job(self, entry: QueueEntry, *, admission_token: str) -> bool:
+        queue_id = queue_entry_id(entry)
+        self._start_job(entry, admission_token=admission_token)
+        running = self._running.get(queue_id)
+        return running is not None and getattr(running, "admission_token", None) == admission_token
+
+    def _handle_worker_start_error(
+        self,
+        queue_root: Path,
+        entry: Any,
+        admission_token: str,
+        exc: OSError,
+    ) -> None:
+        del queue_root
+        logger.error("Failed to start job %s: %s", queue_entry_id(entry), exc)
+        self._fail_start(entry, admission_token, error=str(exc))
+
+    def _on_worker_process_started(
+        self,
+        queue_root: Path,
+        entry: Any,
+        *,
+        process: _ManagedProcess,
+        admission_token: str,
+    ) -> bool:
+        del queue_root, process, admission_token
+        queue_id = queue_entry_id(entry)
         try:
             _upsert_running_job_record(self.cfg, entry)
         except Exception as exc:
             logger.warning("Failed to update running job location for %s: %s", queue_id, exc)
         return True
+
+    def _running_queue_id(self, entry: Any) -> str:
+        return queue_entry_id(entry)
+
+    def _make_running_job(
+        self,
+        *,
+        queue_root: Path,
+        entry: Any,
+        process: Any,
+        admission_token: str,
+    ) -> _RunningJob:
+        del queue_root
+        return _RunningJob(
+            queue_id=queue_entry_id(entry),
+            reaction_dir=queue_entry_reaction_dir(entry),
+            task_id=queue_entry_task_id(entry) or None,
+            process=process,
+            admission_token=admission_token,
+        )
 
     def _register_running_job(
         self,
@@ -408,20 +483,14 @@ class QueueWorker(QueueWorkerLoop):
         admission_token: str,
     ) -> None:
         queue_id = queue_entry_id(entry)
-        reaction_dir = queue_entry_reaction_dir(entry)
-        task_id = queue_entry_task_id(entry) or ""
-        self._running[queue_id] = _RunningJob(
-            queue_id=queue_id,
-            reaction_dir=reaction_dir,
-            task_id=task_id or None,
+        self._running[queue_id] = self._make_running_job(
+            queue_root=self.allowed_root,
+            entry=entry,
             process=process,
             admission_token=admission_token,
         )
 
     # -- Monitoring -------------------------------------------------------
-
-    def _poll_job(self, job: Any) -> int | None:
-        return job.process.poll()
 
     def _finalize_completed_job(self, queue_id: str, job: Any, rc: int) -> None:
         self._finalize_finished_job(queue_id, job, rc=rc)
@@ -491,9 +560,10 @@ class QueueWorker(QueueWorkerLoop):
         if not self._running:
             return
         logger.info("Shutting down %d running job(s)...", len(self._running))
-        for queue_id, job in self._running.items():
-            self._requeue_running_job(queue_id, job)
-        self._running.clear()
+        super()._shutdown_all()
+
+    def _shutdown_running_job(self, queue_id: str, job: Any) -> None:
+        self._requeue_running_job(queue_id, job)
 
     def _requeue_running_job(self, queue_id: str, job: _RunningJob) -> None:
         _terminate_process(job.process)

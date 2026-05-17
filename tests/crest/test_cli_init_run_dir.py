@@ -49,7 +49,7 @@ def test_build_parser_supports_internal_scaffold_run_dir_and_queue_subcommands()
 
     scaffold_args = parser.parse_args(["scaffold", "--root", "/tmp/job"])
     run_dir_args = parser.parse_args(["run-dir", "jobs/demo", "--priority", "3"])
-    worker_args = parser.parse_args(["queue", "worker", "--auto-organize"])
+    worker_args = parser.parse_args(["queue", "worker"])
     cancel_args = parser.parse_args(["queue", "cancel", "q-123"])
 
     assert scaffold_args.command == "scaffold"
@@ -60,8 +60,11 @@ def test_build_parser_supports_internal_scaffold_run_dir_and_queue_subcommands()
 
     assert worker_args.command == "queue"
     assert worker_args.queue_command == "worker"
-    assert worker_args.auto_organize is True
-    assert worker_args.no_auto_organize is False
+    assert not hasattr(worker_args, "auto_organize")
+    assert not hasattr(worker_args, "no_auto_organize")
+
+    with pytest.raises(SystemExit):
+        parser.parse_args(["queue", "worker", "--auto-organize"])
 
     with pytest.raises(SystemExit):
         parser.parse_args(["queue", "worker", "--once"])
@@ -77,7 +80,6 @@ def test_build_parser_supports_internal_scaffold_run_dir_and_queue_subcommands()
         (["scaffold", "--root", "/tmp/job"], "cmd_scaffold", 11),
         (["run-dir", "/tmp/job"], "cmd_run_dir", 12),
         (["list"], "cmd_list", 13),
-        (["organize"], "cmd_organize", 14),
         (["reindex"], "cmd_reindex", 15),
         (["summary", "job-123"], "cmd_summary", 16),
     ],
@@ -115,11 +117,11 @@ def test_main_dispatches_queue_worker_and_cancel(monkeypatch: pytest.MonkeyPatch
     monkeypatch.setattr(cli, "cmd_queue_worker", _worker)
     monkeypatch.setattr(cli, "cmd_queue_cancel", _cancel)
 
-    assert cli.main(["queue", "worker", "--no-auto-organize"]) == 21
+    assert cli.main(["queue", "worker"]) == 21
     assert cli.main(["queue", "cancel", "job-123"]) == 22
 
     assert len(worker_calls) == 1
-    assert worker_calls[0].no_auto_organize is True
+    assert not hasattr(worker_calls[0], "no_auto_organize")
     assert len(cancel_calls) == 1
     assert cancel_calls[0].target == "job-123"
 
@@ -152,15 +154,13 @@ def test_main_run_dir_accepts_positional_job_dir(
 def test_internal_cli_command_helpers_delegate_to_crest_command_modules(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(cli.scaffold_cmd, "cmd_init", lambda args: 27)
     monkeypatch.setattr(cli.run_dir_cmd, "cmd_run_dir", lambda args: 28)
-    monkeypatch.setattr(cli.organize_cmd, "cmd_organize", lambda args: 29)
     monkeypatch.setattr(cli.summary_cmd, "cmd_summary", lambda args: 30)
 
     scaffold_rc = cli.cmd_scaffold(Namespace(config="/tmp/chemstack.yaml", root="/tmp/crest-job"))
     run_rc = cli.cmd_run_dir(Namespace(config="/tmp/chemstack.yaml", path="/tmp/run-job", priority=4))
-    organize_rc = cli.cmd_organize(Namespace(config="/tmp/chemstack.yaml", root="/tmp/jobs", apply=True))
     summary_rc = cli.cmd_summary(Namespace(config="/tmp/chemstack.yaml", target="job-123", json=True))
 
-    assert (scaffold_rc, run_rc, organize_rc, summary_rc) == (27, 28, 29, 30)
+    assert (scaffold_rc, run_rc, summary_rc) == (27, 28, 30)
 
 
 def test_cmd_run_dir_queues_job_updates_state_and_index(

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
+from chemstack.core.commands import queue as _shared_queue
 from chemstack.core.queue import list_queue
 
 from ..config import load_config
@@ -10,17 +10,16 @@ from ..tracking import runtime_roots_for_cfg
 
 
 def _display_status(entry: Any) -> str:
-    if entry.cancel_requested and entry.status.value == "running":
-        return "cancel_requested"
-    return entry.status.value
+    return _shared_queue.display_status(entry)
 
 
 def cmd_list(args: Any) -> int:
     cfg = load_config(getattr(args, "config", None))
-    entries = []
-    for root in runtime_roots_for_cfg(cfg):
-        entries.extend(list_queue(root))
-    entries.sort(key=lambda entry: (int(entry.priority), str(entry.enqueued_at), str(entry.queue_id)))
+    entries = _shared_queue.sorted_queue_entries(
+        cfg,
+        runtime_roots_for_cfg_fn=runtime_roots_for_cfg,
+        list_queue_fn=list_queue,
+    )
 
     if not entries:
         print("No xTB jobs found.")
@@ -30,10 +29,9 @@ def cmd_list(args: Any) -> int:
     print("QUEUE ID                    STATUS            PRI  JOB TYPE         REACTION KEY         DIRECTORY")
     print("---------------------------------------------------------------------------------------------------")
     for entry in entries:
-        job_dir = str(entry.metadata.get("job_dir", "")).strip()
-        job_name = Path(job_dir).name if job_dir else "-"
-        job_type = str(entry.metadata.get("job_type", "")).strip() or "-"
-        reaction_key = str(entry.metadata.get("reaction_key", "")).strip() or "-"
+        job_name = _shared_queue.metadata_path_name(entry, "job_dir")
+        job_type = _shared_queue.metadata_text(entry, "job_type", default="-")
+        reaction_key = _shared_queue.metadata_text(entry, "reaction_key", default="-")
         print(
             f"{entry.queue_id:<27} "
             f"{_display_status(entry):<16} "

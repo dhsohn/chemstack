@@ -188,16 +188,8 @@ def finalize_execution_result(
         resource_actual=result.resource_actual,
     )
 
+    del auto_organize
     organized_target = ""
-    if auto_organize:
-        try:
-            organize_result = deps.organize_job_dir(
-                cfg, deps._job_dir(entry), notify_summary=False
-            )
-        except Exception as exc:
-            organize_result = {"action": "failed", "reason": f"auto_organize_error:{exc}"}
-        if organize_result.get("action") == "organized":
-            organized_target = str(organize_result.get("target_dir", "")).strip()
 
     deps.notify_job_finished(
         cfg,

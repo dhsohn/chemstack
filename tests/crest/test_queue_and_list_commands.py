@@ -30,8 +30,6 @@ def command_env(tmp_path: Path) -> SimpleNamespace:
                 f"  admission_root: {admission_root}",
                 "workflow:",
                 f"  root: {workflow_root}",
-                "behavior:",
-                "  auto_organize_on_terminal: false",
                 "",
             ]
         ),
@@ -214,20 +212,7 @@ def test_cmd_queue_cancel_rejects_terminal_entry(
     assert capsys.readouterr().out == f"error: queue target already terminal: {entry.queue_id}\n"
 
 
-@pytest.mark.parametrize(
-    ("config_default", "auto_flag", "no_auto_flag", "expected"),
-    [
-        (False, False, False, False),
-        (False, True, False, True),
-        (True, False, True, False),
-        (False, True, True, True),
-    ],
-)
-def test_cmd_queue_worker_passes_expected_auto_organize_to_pool_worker(
-    config_default: bool,
-    auto_flag: bool,
-    no_auto_flag: bool,
-    expected: bool,
+def test_cmd_queue_worker_disables_auto_organize_for_crest(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -236,7 +221,6 @@ def test_cmd_queue_worker_passes_expected_auto_organize_to_pool_worker(
             allowed_root="/tmp/allowed",
             max_concurrent=2,
         ),
-        behavior=SimpleNamespace(auto_organize_on_terminal=config_default),
     )
     seen: list[tuple[object, str, int, bool]] = []
 
@@ -262,13 +246,11 @@ def test_cmd_queue_worker_passes_expected_auto_organize_to_pool_worker(
     result = queue_cmd.cmd_queue_worker(
         SimpleNamespace(
             config="ignored",
-            auto_organize=auto_flag,
-            no_auto_organize=no_auto_flag,
         )
     )
 
     assert result == 0
-    assert seen == [(cfg, "ignored", 2, expected)]
+    assert seen == [(cfg, "ignored", 2, False)]
     assert capsys.readouterr().out == ""
 
 
@@ -310,8 +292,7 @@ def test_cmd_queue_worker_runs_pool_worker_when_not_once(
         runtime=SimpleNamespace(
             allowed_root="/tmp/allowed",
             max_concurrent=3,
-        ),
-        behavior=SimpleNamespace(auto_organize_on_terminal=False),
+        )
     )
     constructed: list[tuple[object, str, int, bool]] = []
     run_calls: list[bool] = []

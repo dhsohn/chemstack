@@ -11,7 +11,7 @@ from chemstack.xtb.commands import queue as queue_cmd
 from chemstack.xtb import state as state_mod
 
 
-def _make_cfg(tmp_path: Path, *, auto_organize: bool = False) -> SimpleNamespace:
+def _make_cfg(tmp_path: Path) -> SimpleNamespace:
     allowed_root = tmp_path / "allowed"
     organized_root = tmp_path / "organized"
     admission_root = tmp_path / "admission"
@@ -26,7 +26,6 @@ def _make_cfg(tmp_path: Path, *, auto_organize: bool = False) -> SimpleNamespace
             admission_root=str(admission_root),
             admission_limit=2,
         ),
-        behavior=SimpleNamespace(auto_organize_on_terminal=auto_organize),
         resources=SimpleNamespace(max_cores_per_task=4, max_memory_gb_per_task=8),
         telegram=SimpleNamespace(bot_token="", chat_id=""),
         paths=SimpleNamespace(xtb_executable=""),

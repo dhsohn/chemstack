@@ -59,7 +59,6 @@ from ..state import (
     write_report_md_lines,
     write_state,
 )
-from .organize import organize_job_dir
 from .. import queue_artifacts as _queue_artifacts
 from .. import queue_terminal as _queue_terminal
 from .. import queue_worker_loop as _queue_worker_loop
@@ -108,7 +107,6 @@ class _QueueJobDeps:
     finalize_xtb_job: Any
     notify_job_finished: Any
     notify_job_started: Any
-    organize_job_dir: Any
     run_xtb_ranking_job: Any
     start_xtb_job: Any
     upsert_job_record: Any
@@ -189,7 +187,6 @@ def _queue_command_deps() -> _QueueCommandDeps:
             finalize_xtb_job=finalize_xtb_job,
             notify_job_finished=notify_job_finished,
             notify_job_started=notify_job_started,
-            organize_job_dir=organize_job_dir,
             run_xtb_ranking_job=run_xtb_ranking_job,
             start_xtb_job=start_xtb_job,
             upsert_job_record=upsert_job_record,
@@ -620,10 +617,6 @@ def _request_job_cancellation(proc: _ManagedProcess) -> None:
     )
 
 
-def _resolve_worker_auto_organize(cfg: Any, args: Any) -> bool:
-    return _queue_worker_loop.resolve_worker_auto_organize(cfg, args)
-
-
 def _config_path_for_worker(args: Any) -> str:
     return _queue_worker_loop.config_path_for_worker(
         args,
@@ -643,16 +636,18 @@ class QueueWorker(_queue_worker_loop.QueueWorker):
         super().__init__(
             cfg,
             config_path=config_path,
-            auto_organize=auto_organize,
+            auto_organize=False,
             max_concurrent=max_concurrent,
             deps=_queue_command_deps(),
         )
+        del auto_organize
 
 
 def _process_one(cfg: Any, *, auto_organize: bool) -> str:
+    del auto_organize
     return _queue_worker_loop.process_one(
         cfg,
-        auto_organize=auto_organize,
+        auto_organize=False,
         deps=_queue_command_deps(),
     )
 
@@ -668,13 +663,14 @@ def run_worker_job(
     should_cancel: Callable[[], bool] | None = None,
     register_running_job: Callable[[Any | None], None] | None = None,
 ) -> int:
+    del auto_organize
     return _worker_execution.run_worker_job(
         config_path=config_path,
         queue_root=queue_root,
         queue_id=queue_id,
         admission_root=admission_root,
         admission_token=admission_token,
-        auto_organize=auto_organize,
+        auto_organize=False,
         should_cancel=should_cancel,
         register_running_job=register_running_job,
     )
@@ -682,10 +678,9 @@ def run_worker_job(
 
 def cmd_queue_worker(args: Any) -> int:
     cfg = load_config(getattr(args, "config", None))
-    auto_organize = _resolve_worker_auto_organize(cfg, args)
     worker = QueueWorker(
         cfg,
         config_path=_config_path_for_worker(args),
-        auto_organize=auto_organize,
+        auto_organize=False,
     )
     return worker.run()

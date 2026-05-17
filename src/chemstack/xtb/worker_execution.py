@@ -199,11 +199,12 @@ def execute_queue_entry(
     worker_job_pid: int | None = None,
     emit_output: bool = False,
 ) -> Any:
+    del auto_organize
     return process_dequeued_engine_entry(
         cfg,
         queue_root=queue_root,
         entry=entry,
-        auto_organize=auto_organize,
+        auto_organize=False,
         build_context_fn=_build_execution_context,
         check_shutdown_fn=None,
         mark_running_fn=lambda cfg_obj, context: _mark_job_running(
@@ -243,6 +244,7 @@ def run_worker_job(
     should_cancel: Callable[[], bool] | None = None,
     register_running_job: Callable[[Any | None], None] | None = None,
 ) -> int:
+    del auto_organize
     q = _queue_cmd()
     cfg = q.load_config(config_path)
     resolved_queue_root = Path(queue_root).expanduser().resolve()
@@ -266,7 +268,7 @@ def run_worker_job(
             cfg,
             queue_root=resolved_queue_root,
             entry=entry,
-            auto_organize=auto_organize,
+            auto_organize=False,
             should_cancel=should_cancel,
             register_running_job=register_running_job,
             emit_output=False,

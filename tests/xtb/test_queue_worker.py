@@ -9,7 +9,7 @@ from chemstack.xtb.commands import queue as queue_cmd
 from chemstack.xtb import state as state_mod
 
 
-def _make_cfg(tmp_path: Path, *, auto_organize: bool = False) -> SimpleNamespace:
+def _make_cfg(tmp_path: Path) -> SimpleNamespace:
     allowed_root = tmp_path / "allowed"
     organized_root = tmp_path / "organized"
     admission_root = tmp_path / "admission"
@@ -24,7 +24,6 @@ def _make_cfg(tmp_path: Path, *, auto_organize: bool = False) -> SimpleNamespace
             admission_root=str(admission_root),
             admission_limit=2,
         ),
-        behavior=SimpleNamespace(auto_organize_on_terminal=auto_organize),
         resources=SimpleNamespace(max_cores_per_task=4, max_memory_gb_per_task=8),
         telegram=SimpleNamespace(bot_token="", chat_id=""),
         paths=SimpleNamespace(xtb_executable=""),
@@ -366,59 +365,11 @@ def test_execute_queue_entry_cancels_running_job(
     assert report["reason"] == "cancel_requested"
 
 
-def test_execute_queue_entry_auto_organize_failure_still_finishes_job(
+def test_execute_queue_entry_processes_ranking_job_without_auto_organizing(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    cfg = _make_cfg(tmp_path, auto_organize=True)
-    queue_root = Path(cfg.runtime.allowed_root)
-    job_dir = queue_root / "job-1"
-    job_dir.mkdir()
-    selected_xyz = job_dir / "input.xyz"
-    selected_xyz.write_text("3\ncandidate\nH 0 0 0\n", encoding="utf-8")
-    entry = _make_entry(job_dir, selected_xyz)
-    result = _make_result(selected_xyz, status="completed", reason="completed")
-    finished_calls: list[dict[str, object]] = []
-
-    monkeypatch.setattr(
-        queue_cmd,
-        "start_xtb_job",
-        lambda _cfg, *, job_dir, selected_input_xyz: SimpleNamespace(
-            process=SimpleNamespace(poll=lambda: 0)
-        ),
-    )
-    monkeypatch.setattr(queue_cmd, "finalize_xtb_job", lambda running, **kwargs: result)
-    monkeypatch.setattr(queue_cmd, "mark_completed", lambda *args, **kwargs: True)
-    monkeypatch.setattr(queue_cmd, "notify_job_started", lambda *args, **kwargs: True)
-    monkeypatch.setattr(
-        queue_cmd,
-        "organize_job_dir",
-        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("boom")),
-    )
-    monkeypatch.setattr(
-        queue_cmd,
-        "notify_job_finished",
-        lambda *args, **kwargs: _record_finished_call(finished_calls, kwargs),
-    )
-
-    outcome = queue_cmd._execute_queue_entry(
-        cfg,
-        queue_root=queue_root,
-        entry=entry,
-        auto_organize=True,
-    )
-
-    assert outcome.result.status == "completed"
-    assert outcome.organized_output_dir == ""
-    assert len(finished_calls) == 1
-    assert finished_calls[0]["organized_output_dir"] is None
-
-
-def test_execute_queue_entry_processes_ranking_job_and_auto_organizes(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    cfg = _make_cfg(tmp_path, auto_organize=True)
+    cfg = _make_cfg(tmp_path)
     queue_root = Path(cfg.runtime.allowed_root)
     job_dir = queue_root / "ranking-job"
     job_dir.mkdir()
@@ -433,7 +384,6 @@ def test_execute_queue_entry_processes_ranking_job_and_auto_organizes(
         reaction_key="ranking-job",
         candidate_paths=(str(selected_xyz),),
     )
-    organized_target = Path(cfg.runtime.organized_root) / "ranking" / "ranking-job" / "job-1"
     finished_calls: list[dict[str, object]] = []
 
     monkeypatch.setattr(
@@ -448,15 +398,6 @@ def test_execute_queue_entry_processes_ranking_job_and_auto_organizes(
     )
     monkeypatch.setattr(queue_cmd, "mark_completed", lambda *args, **kwargs: None)
     monkeypatch.setattr(queue_cmd, "notify_job_started", lambda *args, **kwargs: True)
-    monkeypatch.setattr(
-        queue_cmd,
-        "organize_job_dir",
-        lambda cfg_obj, job_dir, notify_summary=False: {
-            "action": "organized",
-            "target_dir": str(organized_target),
-        },
-    )
-
     def fake_notify_job_finished(cfg_obj: object, **kwargs: object) -> bool:
         finished_calls.append(kwargs)
         return True
@@ -471,8 +412,8 @@ def test_execute_queue_entry_processes_ranking_job_and_auto_organizes(
     )
 
     assert outcome.result.status == "completed"
-    assert outcome.organized_output_dir == str(organized_target)
-    assert finished_calls and finished_calls[0]["organized_output_dir"] == organized_target
+    assert outcome.organized_output_dir == ""
+    assert finished_calls and finished_calls[0]["organized_output_dir"] is None
 
 
 def test_cmd_queue_cancel_accepts_job_id_target(

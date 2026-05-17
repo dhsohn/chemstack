@@ -231,34 +231,6 @@ def test_notify_job_finished_includes_optional_extra_lines(
     ]
 
 
-def test_notify_organize_summary_sends_expected_message(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    cfg = _cfg(tmp_path)
-    _, messages = _patch_transport(monkeypatch, sent=True)
-    root = tmp_path / "organized"
-
-    result = notifications.notify_organize_summary(
-        cfg,
-        organized_count=5,
-        skipped_count=2,
-        root=root,
-    )
-
-    assert result is True
-    assert messages == [
-        "\n".join(
-            [
-                "[crest_auto] Organize summary",
-                f"root: {root}",
-                "organized: 5",
-                "skipped: 2",
-            ]
-        )
-    ]
-
-
 def test_workflow_child_notifications_are_suppressed(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

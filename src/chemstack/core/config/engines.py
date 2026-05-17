@@ -141,7 +141,6 @@ def load_workflow_engine_config(
     scheduler_raw = mapping_section(raw, "scheduler")
     workflow_raw = mapping_section(raw, "workflow")
     workflow_paths_raw = mapping_section(workflow_raw, "paths")
-    behavior_raw = mapping_section(raw, "behavior")
     resources_raw = mapping_section(raw, "resources")
     telegram_raw = mapping_section(raw, "telegram")
 
@@ -167,9 +166,7 @@ def load_workflow_engine_config(
         paths=paths_cls(
             **{executable_key: as_str(workflow_paths_raw.get(executable_key))},
         ),
-        behavior=behavior_cls(
-            auto_organize_on_terminal=as_bool(behavior_raw.get("auto_organize_on_terminal"), False),
-        ),
+        behavior=behavior_cls(),
         resources=CommonResourceConfig(
             max_cores_per_task=max(1, as_int(resources_raw.get("max_cores_per_task"), 8)),
             max_memory_gb_per_task=max(1, as_int(resources_raw.get("max_memory_gb_per_task"), 32)),

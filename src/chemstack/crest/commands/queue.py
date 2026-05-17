@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import subprocess
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -26,7 +26,9 @@ from chemstack.core.queue import (
 )
 from chemstack.core.queue.types import QueueStatus
 from chemstack.core.queue.worker import (
-    QueueWorkerLoop,
+    BackgroundRunningJob as _RunningJob,
+    ChildProcessQueueWorker,
+    config_path_for_worker,
     dequeue_next_across_roots,
     read_worker_pid_file,
     remove_worker_pid_file,
@@ -55,20 +57,37 @@ from ..worker_execution import (
     build_worker_child_command,
     process_dequeued_entry,
 )
-from .organize import organize_job_dir
 
 POLL_INTERVAL_SECONDS = 5
 WORKER_PID_FILE = "queue_worker.pid"
 WORKER_SHUTDOWN_GRACE_SECONDS = 10.0
 
 
-@dataclass
-class _RunningJob:
-    queue_root: Path
-    entry: Any
-    process: subprocess.Popen[str]
-    admission_token: str
-    started_at: float = field(default_factory=time.monotonic)
+@dataclass(frozen=True)
+class _QueueWorkerDeps:
+    POLL_INTERVAL_SECONDS: int
+    time: Any
+    get_cancel_requested: Any
+    release_slot: Any
+    reserve_dequeued_entry: Any
+    _admission_root: Any
+    _dequeue_next_entry: Any
+    _start_background_job_process: Any
+    _try_reserve_admission_slot: Any
+
+
+def _queue_worker_deps() -> _QueueWorkerDeps:
+    return _QueueWorkerDeps(
+        POLL_INTERVAL_SECONDS=POLL_INTERVAL_SECONDS,
+        time=time,
+        get_cancel_requested=get_cancel_requested,
+        release_slot=release_slot,
+        reserve_dequeued_entry=reserve_dequeued_entry,
+        _admission_root=_admission_root_for_cfg,
+        _dequeue_next_entry=_dequeue_next_entry,
+        _start_background_job_process=_start_background_job_process,
+        _try_reserve_admission_slot=_try_reserve_admission_slot,
+    )
 
 
 def _display_status(entry: Any) -> str:
@@ -143,7 +162,6 @@ def _worker_dependencies() -> WorkerExecutionDependencies:
         upsert_job_record_fn=upsert_job_record,
         notify_job_started_fn=notify_job_started,
         notify_job_finished_fn=notify_job_finished,
-        organize_job_dir_fn=organize_job_dir,
     )
 
 
@@ -158,6 +176,7 @@ def cmd_queue_cancel(args: Any) -> int:
 
 
 def _process_one(cfg: Any, *, auto_organize: bool) -> str:
+    del auto_organize
     slot_token = _try_reserve_admission_slot(cfg)
     if slot_token is None:
         return "blocked"
@@ -171,7 +190,7 @@ def _process_one(cfg: Any, *, auto_organize: bool) -> str:
             cfg,
             entry,
             queue_root=queue_root,
-            auto_organize=auto_organize,
+            auto_organize=False,
             resource_caps=_resource_caps,
             molecule_key_resolver=_molecule_key,
             dependencies=_worker_dependencies(),
@@ -190,7 +209,33 @@ def read_worker_pid(allowed_root: Path) -> int | None:
     return read_worker_pid_file(allowed_root, WORKER_PID_FILE)
 
 
-class QueueWorker(QueueWorkerLoop):
+def _start_background_job_process(
+    *,
+    config_path: str,
+    queue_root: Path,
+    entry: Any,
+    admission_root: str | Path,
+    admission_token: str,
+    auto_organize: bool,
+) -> subprocess.Popen[str]:
+    del admission_root, auto_organize
+    return subprocess.Popen(
+        build_worker_child_command(
+            config_path=config_path,
+            queue_root=queue_root,
+            queue_id=entry.queue_id,
+            auto_organize=False,
+            admission_token=admission_token,
+        ),
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        stdin=subprocess.DEVNULL,
+        start_new_session=True,
+        text=True,
+    )
+
+
+class QueueWorker(ChildProcessQueueWorker):
     def __init__(
         self,
         cfg: Any,
@@ -200,13 +245,13 @@ class QueueWorker(QueueWorkerLoop):
         auto_organize: bool,
     ) -> None:
         super().__init__(
+            cfg,
+            config_path=str(config_path).strip() or default_config_path(),
+            auto_organize=False,
             max_concurrent=max(1, int(max_concurrent)),
-            poll_interval_seconds=POLL_INTERVAL_SECONDS,
-            sleep_fn=lambda seconds: time.sleep(seconds),
+            deps=_queue_worker_deps(),
         )
-        self.cfg = cfg
-        self.config_path = str(config_path).strip() or default_config_path()
-        self.auto_organize = bool(auto_organize)
+        del auto_organize
         self.allowed_root = Path(str(cfg.runtime.allowed_root)).expanduser().resolve()
         self.admission_root = Path(_admission_root_for_cfg(cfg)).expanduser().resolve()
 
@@ -235,43 +280,24 @@ class QueueWorker(QueueWorkerLoop):
                     requeue_running_entry(queue_root, entry.queue_id)
                     _mark_recovery_pending_entry(self.cfg, entry, reason="crashed_recovery")
 
-    def _reserve_next_entry(self) -> tuple[str, Any | None]:
-        return reserve_dequeued_entry(
-            self.cfg,
-            admission_root=self.admission_root,
-            reserve_slot_fn=_try_reserve_admission_slot,
-            dequeue_next_fn=_dequeue_next_entry,
-            release_slot_fn=release_slot,
-        )
+    def _handle_worker_start_error(
+        self,
+        queue_root: Path,
+        entry: Any,
+        admission_token: str,
+        exc: OSError,
+    ) -> None:
+        mark_failed(queue_root, entry.queue_id, error=str(exc))
+        release_slot(self.admission_root, admission_token)
 
-    def _start_reserved(self, reserved: Any) -> None:
-        self._start_job(
-            reserved.queue_root,
-            reserved.entry,
-            admission_token=reserved.admission_token,
-        )
-
-    def _start_job(self, queue_root: Path, entry: Any, *, admission_token: str) -> bool:
-        try:
-            process = subprocess.Popen(
-                build_worker_child_command(
-                    config_path=self.config_path,
-                    queue_root=queue_root,
-                    queue_id=entry.queue_id,
-                    auto_organize=self.auto_organize,
-                    admission_token=admission_token,
-                ),
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                stdin=subprocess.DEVNULL,
-                start_new_session=True,
-                text=True,
-            )
-        except OSError as exc:
-            mark_failed(queue_root, entry.queue_id, error=str(exc))
-            release_slot(self.admission_root, admission_token)
-            return False
-
+    def _on_worker_process_started(
+        self,
+        queue_root: Path,
+        entry: Any,
+        *,
+        process: subprocess.Popen[str],
+        admission_token: str,
+    ) -> bool:
         job_dir_text = str(getattr(entry, "metadata", {}).get("job_dir", "")).strip()
         attached = activate_reserved_slot(
             self.admission_root,
@@ -286,17 +312,10 @@ class QueueWorker(QueueWorkerLoop):
             mark_failed(queue_root, entry.queue_id, error="admission_slot_missing")
             release_slot(self.admission_root, admission_token)
             return False
-
-        self._running[entry.queue_id] = _RunningJob(
-            queue_root=queue_root,
-            entry=entry,
-            process=process,
-            admission_token=admission_token,
-        )
         return True
 
-    def _poll_job(self, job: Any) -> int | None:
-        return job.process.poll()
+    def _check_cancel_requests(self) -> None:
+        return None
 
     def _finalize_completed_job(self, _queue_id: str, job: Any, rc: int) -> None:
         self._finalize_child_exit(job, rc=rc)
@@ -316,12 +335,7 @@ class QueueWorker(QueueWorkerLoop):
                 mark_failed(job.queue_root, current.queue_id, error=f"worker_child_exit_code={rc}")
         release_slot(self.admission_root, job.admission_token)
 
-    def _shutdown_all(self) -> None:
-        for queue_id, job in list(self._running.items()):
-            self._shutdown_child(job)
-            self._running.pop(queue_id, None)
-
-    def _shutdown_child(self, job: _RunningJob) -> None:
+    def _shutdown_running_job(self, _queue_id: str, job: Any) -> None:
         if job.process.poll() is None:
             try:
                 job.process.terminate()
@@ -350,11 +364,6 @@ class QueueWorker(QueueWorkerLoop):
 
 def cmd_queue_worker(args: Any) -> int:
     cfg = load_config(getattr(args, "config", None))
-    auto_organize = bool(cfg.behavior.auto_organize_on_terminal)
-    if bool(getattr(args, "auto_organize", False)):
-        auto_organize = True
-    elif bool(getattr(args, "no_auto_organize", False)):
-        auto_organize = False
 
     existing_pid = read_worker_pid(Path(str(cfg.runtime.allowed_root)).expanduser().resolve())
     if existing_pid is not None:
@@ -363,8 +372,8 @@ def cmd_queue_worker(args: Any) -> int:
 
     worker = QueueWorker(
         cfg,
-        getattr(args, "config", None) or default_config_path(),
+        config_path_for_worker(args, default_config_path_fn=default_config_path),
         max_concurrent=max(1, int(getattr(cfg.runtime, "max_concurrent", 1))),
-        auto_organize=auto_organize,
+        auto_organize=False,
     )
     return worker.run()

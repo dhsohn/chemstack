@@ -119,7 +119,7 @@ def test_load_config_reads_and_normalizes_all_sections(
     assert cfg.runtime.admission_root == "/tmp/admission"
     assert cfg.runtime.admission_limit == 6
     assert cfg.paths.crest_executable == "/opt/crest"
-    assert cfg.behavior.auto_organize_on_terminal is True
+    assert not hasattr(cfg.behavior, "auto_organize_on_terminal")
     assert cfg.resources.max_cores_per_task == 12
     assert cfg.resources.max_memory_gb_per_task == 48
     assert cfg.telegram.bot_token == "token-123"
@@ -178,7 +178,7 @@ def test_load_config_applies_defaults_for_missing_or_invalid_sections(tmp_path: 
     assert cfg.runtime.admission_root == str(tmp_path / "admission")
     assert cfg.runtime.admission_limit == 1
     assert cfg.paths.crest_executable == ""
-    assert cfg.behavior.auto_organize_on_terminal is False
+    assert not hasattr(cfg.behavior, "auto_organize_on_terminal")
     assert cfg.resources.max_cores_per_task == 8
     assert cfg.resources.max_memory_gb_per_task == 32
     assert cfg.telegram.bot_token == ""

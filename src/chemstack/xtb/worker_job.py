@@ -15,7 +15,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--queue-id", required=True)
     parser.add_argument("--admission-root", required=True)
     parser.add_argument("--admission-token", default=None)
-    parser.add_argument("--auto-organize", action="store_true")
     return parser
 
 
@@ -62,7 +61,7 @@ def main(argv: list[str] | None = None) -> int:
         queue_id=args.queue_id,
         admission_root=args.admission_root,
         admission_token=str(args.admission_token).strip() or None,
-        auto_organize=bool(args.auto_organize),
+        auto_organize=False,
         should_cancel=controller.should_cancel,
         register_running_job=controller.set_running_job,
     )

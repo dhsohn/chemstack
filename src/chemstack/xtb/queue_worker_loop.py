@@ -9,7 +9,6 @@ from chemstack.core.queue.worker import (
     config_path_for_worker,
     process_one_child_queue as process_one,
     request_job_cancellation as _request_job_cancellation,
-    resolve_worker_auto_organize,
     start_background_job_process,
 )
 
@@ -20,7 +19,6 @@ __all__ = [
     "config_path_for_worker",
     "process_one",
     "request_job_cancellation",
-    "resolve_worker_auto_organize",
     "start_background_job_process",
 ]
 

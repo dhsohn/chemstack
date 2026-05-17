@@ -7,7 +7,6 @@ from types import SimpleNamespace
 import pytest
 
 from chemstack.core.indexing import get_job_location
-from chemstack.xtb.commands import organize as organize_cmd
 from chemstack.xtb.commands import reindex as reindex_cmd
 from chemstack.xtb.commands import summary as summary_cmd
 from chemstack.xtb import state as state_mod
@@ -28,7 +27,6 @@ def _make_cfg(tmp_path: Path) -> SimpleNamespace:
             admission_root=str(admission_root),
             admission_limit=2,
         ),
-        behavior=SimpleNamespace(auto_organize_on_terminal=False),
         resources=SimpleNamespace(max_cores_per_task=4, max_memory_gb_per_task=8),
         telegram=SimpleNamespace(bot_token="", chat_id=""),
         paths=SimpleNamespace(xtb_executable=""),
@@ -108,46 +106,6 @@ def _write_job_artifacts(
         "stdout_log": stdout_log,
         "stderr_log": stderr_log,
     }
-
-
-def test_cmd_organize_apply_moves_terminal_job_and_rewrites_paths(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    cfg = _make_cfg(tmp_path)
-    job_dir = Path(cfg.runtime.allowed_root) / "job-1"
-    artifacts = _write_job_artifacts(job_dir, job_id="job-1", reaction_key="rxn-1")
-    target_dir = Path(cfg.runtime.organized_root) / "ranking" / "rxn-1" / "job-1"
-
-    monkeypatch.setattr(organize_cmd, "load_config", lambda _path=None: cfg)
-    monkeypatch.setattr(organize_cmd, "notify_organize_summary", lambda *args, **kwargs: True)
-
-    exit_code = organize_cmd.cmd_organize(
-        SimpleNamespace(config=None, job_dir="", root=str(Path(cfg.runtime.allowed_root)), apply=True)
-    )
-
-    captured = capsys.readouterr().out
-    assert exit_code == 0
-    assert "action: apply" in captured
-    assert "organized: 1" in captured
-    assert target_dir.exists()
-
-    organized_ref = state_mod.load_organized_ref(job_dir)
-    organized_state = state_mod.load_state(target_dir)
-    organized_report = state_mod.load_report_json(target_dir)
-    assert organized_ref is not None
-    assert organized_state is not None
-    assert organized_report is not None
-    assert organized_ref["organized_output_dir"] == str(target_dir)
-    assert organized_state["job_dir"] == str(target_dir)
-    assert organized_state["selected_input_xyz"] == str(target_dir / "inputs" / artifacts["selected_xyz"].name)
-    assert organized_state["input_summary"]["candidates_dir"] == str(target_dir / "candidates")
-    assert organized_state["selected_candidate_paths"] == [str(target_dir / "candidates" / artifacts["candidate_xyz"].name)]
-    assert organized_state["analysis_summary"]["best_candidate_path"] == str(
-        target_dir / "candidates" / artifacts["candidate_xyz"].name
-    )
-    assert "## Organization" in (target_dir / state_mod.REPORT_MD_FILE_NAME).read_text(encoding="utf-8")
 
 
 def test_cmd_reindex_scans_allowed_and_organized_roots(

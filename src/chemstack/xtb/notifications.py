@@ -137,18 +137,3 @@ def notify_job_finished(
         candidate_count=candidate_count,
         extra_lines=extra_lines or None,
     )
-
-
-def notify_organize_summary(
-    cfg: AppConfig,
-    *,
-    organized_count: int,
-    skipped_count: int,
-    root: Path,
-) -> bool:
-    return _NOTIFIER.send_organize_summary(
-        cfg,
-        organized_count=organized_count,
-        skipped_count=skipped_count,
-        root=root,
-    )

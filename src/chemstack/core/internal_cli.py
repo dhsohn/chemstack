@@ -39,11 +39,6 @@ def build_engine_internal_parser(spec: EngineInternalCliSpec) -> argparse.Argume
 
     sub.add_parser("list", help=f"Show queued {label} jobs")
 
-    organize = sub.add_parser("organize", help=f"Plan or apply {label} job organization")
-    organize.add_argument("--job-dir", default=None, help="Single job directory to organize")
-    organize.add_argument("--root", default=None, help="Root under allowed_root to scan for completed jobs")
-    organize.add_argument("--apply", action="store_true", help="Move completed job directories into organized_root")
-
     reindex = sub.add_parser("reindex", help="Rebuild the job location index from artifacts")
     reindex.add_argument("--root", default=None, help="Optional root to scan instead of both configured roots")
 
@@ -54,18 +49,7 @@ def build_engine_internal_parser(spec: EngineInternalCliSpec) -> argparse.Argume
     queue_parser = sub.add_parser("queue", help="Queue management")
     queue_sub = queue_parser.add_subparsers(dest="queue_command", required=True)
 
-    worker = queue_sub.add_parser("worker", help=f"Run the {label} queue worker")
-    auto_group = worker.add_mutually_exclusive_group()
-    auto_group.add_argument(
-        "--auto-organize",
-        action="store_true",
-        help="Automatically move terminal jobs into organized_root after execution",
-    )
-    auto_group.add_argument(
-        "--no-auto-organize",
-        action="store_true",
-        help="Disable automatic organization for this worker invocation",
-    )
+    queue_sub.add_parser("worker", help=f"Run the {label} queue worker")
 
     cancel = queue_sub.add_parser("cancel", help="Cancel a queued or running job")
     cancel.add_argument("target", help="queue_id or job_id")

@@ -227,34 +227,6 @@ def test_notify_job_finished_maps_headlines_and_optional_fields(
         assert "resource_actual: " not in message
 
 
-def test_notify_organize_summary_formats_counts_and_root(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    cfg = _make_cfg(tmp_path, enabled=True)
-    transport = _FakeTransport(TelegramSendResult(sent=True))
-    monkeypatch.setattr(notifications, "build_telegram_transport", lambda _cfg: transport)
-    root = tmp_path / "organized-root"
-
-    assert notifications.notify_organize_summary(
-        cfg,
-        organized_count=4,
-        skipped_count=2,
-        root=root,
-    )
-
-    assert transport.messages == [
-        "\n".join(
-            [
-                "[xtb_auto] Organize summary",
-                f"root: {root}",
-                "organized: 4",
-                "skipped: 2",
-            ]
-        )
-    ]
-
-
 def test_workflow_child_notifications_are_suppressed(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

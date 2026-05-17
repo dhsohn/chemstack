@@ -65,7 +65,7 @@ def test_load_config_parses_defaults_and_normalizes_values(tmp_path: Path) -> No
     assert cfg.runtime.admission_root == str(tmp_path / "admission")
     assert cfg.runtime.admission_limit == 6
     assert cfg.paths.xtb_executable == "/opt/xtb"
-    assert cfg.behavior.auto_organize_on_terminal is True
+    assert not hasattr(cfg.behavior, "auto_organize_on_terminal")
     assert cfg.resources.max_cores_per_task == 1
     assert cfg.resources.max_memory_gb_per_task == 1
     assert cfg.telegram.bot_token == "token"
@@ -149,7 +149,7 @@ def test_load_config_applies_defaults_for_missing_and_non_mapping_optional_secti
     assert cfg.runtime.admission_root == str((tmp_path / "admission").resolve())
     assert cfg.runtime.admission_limit == 4
     assert cfg.paths.xtb_executable == ""
-    assert cfg.behavior.auto_organize_on_terminal is False
+    assert not hasattr(cfg.behavior, "auto_organize_on_terminal")
     assert cfg.resources.max_cores_per_task == 8
     assert cfg.resources.max_memory_gb_per_task == 32
     assert cfg.telegram.bot_token == ""
