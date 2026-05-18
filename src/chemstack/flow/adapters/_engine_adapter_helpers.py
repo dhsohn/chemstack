@@ -19,6 +19,17 @@ class LoadedArtifactFiles:
     payload: dict[str, Any]
 
 
+@dataclass(frozen=True)
+class ContractArtifactBundle:
+    job_dir: Path
+    record: JobLocationRecord | None
+    organized_ref: dict[str, Any]
+    payload: dict[str, Any]
+    latest_known_path: str
+    resource_request: dict[str, int]
+    resource_actual: dict[str, int]
+
+
 def normalize_text(value: Any) -> str:
     return str(value).strip()
 
@@ -143,3 +154,52 @@ def validate_record_app(
 
 def latest_known_path(record: JobLocationRecord | None, job_dir: Path) -> str:
     return normalize_text((record.latest_known_path if record is not None else "") or str(job_dir))
+
+
+def load_contract_artifact_bundle(
+    *,
+    index_root: str | Path,
+    target: str,
+    resolve_job_dir_fn: Callable[[Path, str], tuple[Path, JobLocationRecord | None]],
+    load_json_dict_fn: Callable[[Path], dict[str, Any]],
+    report_filename: str,
+    state_filename: str,
+    organized_ref_filename: str,
+    missing_label: str,
+    expected_app_name: str,
+    coerce_resource_dict_fn: Callable[[Any], dict[str, int]],
+    select_payload_fn: Callable[
+        [dict[str, Any], dict[str, Any], dict[str, Any]], dict[str, Any]
+    ]
+    | None = None,
+) -> ContractArtifactBundle:
+    resolved_index_root = Path(index_root).expanduser().resolve()
+    job_dir, record = resolve_job_dir_fn(resolved_index_root, target)
+    loaded = load_artifact_files(
+        job_dir=job_dir,
+        record=record,
+        load_json_dict_fn=load_json_dict_fn,
+        report_filename=report_filename,
+        state_filename=state_filename,
+        organized_ref_filename=organized_ref_filename,
+        missing_label=missing_label,
+        select_payload_fn=select_payload_fn,
+    )
+    validate_record_app(record, expected_app_name, label=missing_label)
+    resource_request = coerce_resource_dict_fn(
+        loaded.payload.get("resource_request")
+    ) or coerce_resource_dict_fn(record.resource_request if record is not None else {})
+    resource_actual = (
+        coerce_resource_dict_fn(loaded.payload.get("resource_actual"))
+        or coerce_resource_dict_fn(record.resource_actual if record is not None else {})
+        or dict(resource_request)
+    )
+    return ContractArtifactBundle(
+        job_dir=job_dir,
+        record=record,
+        organized_ref=loaded.organized_ref,
+        payload=loaded.payload,
+        latest_known_path=latest_known_path(record, job_dir),
+        resource_request=resource_request,
+        resource_actual=resource_actual,
+    )

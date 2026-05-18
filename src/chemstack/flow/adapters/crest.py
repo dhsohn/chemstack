@@ -96,27 +96,27 @@ def _resolve_artifact_path(value: Any, *, roots: tuple[Path, ...]) -> str:
 
 
 def load_crest_artifact_contract(*, crest_index_root: str | Path, target: str) -> CrestArtifactContract:
-    index_root = Path(crest_index_root).expanduser().resolve()
-    job_dir, record = _resolve_job_dir(index_root, target)
-
-    loaded = _adapter_helpers.load_artifact_files(
-        job_dir=job_dir,
-        record=record,
+    bundle = _adapter_helpers.load_contract_artifact_bundle(
+        index_root=crest_index_root,
+        target=target,
+        resolve_job_dir_fn=_resolve_job_dir,
         load_json_dict_fn=_load_json_dict,
         report_filename=REPORT_JSON_FILE_NAME,
         state_filename=STATE_FILE_NAME,
         organized_ref_filename=ORGANIZED_REF_FILE_NAME,
         missing_label="CREST",
+        expected_app_name="crest_auto",
+        coerce_resource_dict_fn=_coerce_resource_dict,
         select_payload_fn=lambda report, state, organized_ref: _select_artifact_payload(
             report=report,
             state=state,
             organized_ref=organized_ref,
         ),
     )
-    organized_ref = loaded.organized_ref
-    payload = loaded.payload
-
-    _adapter_helpers.validate_record_app(record, "crest_auto", label="CREST")
+    job_dir = bundle.job_dir
+    record = bundle.record
+    organized_ref = bundle.organized_ref
+    payload = bundle.payload
 
     retained_paths = _retained_paths(payload)
     retained_count = int(payload.get("retained_conformer_count", len(retained_paths)) or len(retained_paths))
@@ -139,16 +139,7 @@ def load_crest_artifact_contract(*, crest_index_root: str | Path, target: str) -
         if remapped:
             remapped_retained_paths.append(remapped)
     retained_paths = tuple(remapped_retained_paths)
-    latest_known_path = _adapter_helpers.latest_known_path(record, job_dir)
-    resource_request = (
-        _coerce_resource_dict(payload.get("resource_request"))
-        or _coerce_resource_dict(record.resource_request if record is not None else {})
-    )
-    resource_actual = (
-        _coerce_resource_dict(payload.get("resource_actual"))
-        or _coerce_resource_dict(record.resource_actual if record is not None else {})
-        or dict(resource_request)
-    )
+    latest_known_path = bundle.latest_known_path
 
     return CrestArtifactContract(
         job_id=job_id,
@@ -162,8 +153,8 @@ def load_crest_artifact_contract(*, crest_index_root: str | Path, target: str) -
         selected_input_xyz=selected_input_xyz,
         retained_conformer_count=retained_count,
         retained_conformer_paths=retained_paths,
-        resource_request=resource_request,
-        resource_actual=resource_actual,
+        resource_request=bundle.resource_request,
+        resource_actual=bundle.resource_actual,
     )
 
 

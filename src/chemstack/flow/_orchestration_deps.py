@@ -114,6 +114,10 @@ def _facade_override(name: str, fallback: Any) -> Any:
     return getattr(facade, name, fallback)
 
 
+def _facade_overrides(items: dict[str, Any]) -> dict[str, Any]:
+    return {name: _facade_override(name, fallback) for name, fallback in items.items()}
+
+
 def _coerce_mapping_fallback(value: Any) -> dict[str, Any]:
     from chemstack.core.utils import mapping_or_empty
 
@@ -274,16 +278,14 @@ def _build_contract_deps() -> OrchestrationContractDeps:
     from .endpoint_pairing import EndpointPairingPolicy
 
     return OrchestrationContractDeps(
-        CrestDownstreamPolicy=_facade_override(
-            "CrestDownstreamPolicy",
-            CrestDownstreamPolicy,
-        ),
-        EndpointPairingPolicy=_facade_override(
-            "EndpointPairingPolicy",
-            EndpointPairingPolicy,
-        ),
-        WorkflowStageInput=_facade_override("WorkflowStageInput", WorkflowStageInput),
-        XtbDownstreamPolicy=_facade_override("XtbDownstreamPolicy", XtbDownstreamPolicy),
+        **_facade_overrides(
+            {
+                "CrestDownstreamPolicy": CrestDownstreamPolicy,
+                "EndpointPairingPolicy": EndpointPairingPolicy,
+                "WorkflowStageInput": WorkflowStageInput,
+                "XtbDownstreamPolicy": XtbDownstreamPolicy,
+            }
+        )
     )
 
 
@@ -295,27 +297,16 @@ def _build_persistence_deps() -> OrchestrationPersistenceDeps:
     from .state import resolve_workflow_workspace, write_workflow_payload
 
     return OrchestrationPersistenceDeps(
-        acquire_workflow_lock=_facade_override(
-            "acquire_workflow_lock",
-            acquire_workflow_lock,
-        ),
-        load_workflow_payload=_facade_override(
-            "load_workflow_payload",
-            load_workflow_payload,
-        ),
-        now_utc_iso=_facade_override("now_utc_iso", now_utc_iso),
-        resolve_workflow_workspace=_facade_override(
-            "resolve_workflow_workspace",
-            resolve_workflow_workspace,
-        ),
-        sync_workflow_registry=_facade_override(
-            "sync_workflow_registry",
-            sync_workflow_registry,
-        ),
-        write_workflow_payload=_facade_override(
-            "write_workflow_payload",
-            write_workflow_payload,
-        ),
+        **_facade_overrides(
+            {
+                "acquire_workflow_lock": acquire_workflow_lock,
+                "load_workflow_payload": load_workflow_payload,
+                "now_utc_iso": now_utc_iso,
+                "resolve_workflow_workspace": resolve_workflow_workspace,
+                "sync_workflow_registry": sync_workflow_registry,
+                "write_workflow_payload": write_workflow_payload,
+            }
+        )
     )
 
 
@@ -339,43 +330,26 @@ def _build_engine_deps() -> OrchestrationEngineDeps:
     from .xyz_utils import choose_orca_geometry_frame
 
     return OrchestrationEngineDeps(
-        build_materialized_orca_stage=_facade_override(
-            "build_materialized_orca_stage",
-            build_materialized_orca_stage,
-        ),
-        choose_orca_geometry_frame=_facade_override(
-            "choose_orca_geometry_frame",
-            choose_orca_geometry_frame,
-        ),
-        crest_cancel_target=_facade_override("crest_cancel_target", crest_cancel_target),
-        load_crest_artifact_contract=_facade_override(
-            "load_crest_artifact_contract",
-            load_crest_artifact_contract,
-        ),
-        load_orca_artifact_contract=_facade_override(
-            "load_orca_artifact_contract",
-            load_orca_artifact_contract,
-        ),
-        load_xtb_artifact_contract=_facade_override(
-            "load_xtb_artifact_contract",
-            load_xtb_artifact_contract,
-        ),
-        orca_cancel_target=_facade_override("orca_cancel_target", orca_cancel_target),
-        safe_name=_facade_override("safe_name", safe_name),
-        select_crest_downstream_inputs=_facade_override(
-            "select_crest_downstream_inputs",
-            select_crest_downstream_inputs,
-        ),
-        select_endpoint_pairs=_facade_override("select_endpoint_pairs", select_endpoint_pairs),
-        select_xtb_downstream_inputs=_facade_override(
-            "select_xtb_downstream_inputs",
-            select_xtb_downstream_inputs,
-        ),
-        sibling_runtime_paths=_facade_override("sibling_runtime_paths", sibling_runtime_paths),
-        submit_crest_job_dir=_facade_override("submit_crest_job_dir", submit_crest_job_dir),
-        submit_reaction_dir=_facade_override("submit_reaction_dir", submit_reaction_dir),
-        submit_xtb_job_dir=_facade_override("submit_xtb_job_dir", submit_xtb_job_dir),
-        xtb_cancel_target=_facade_override("xtb_cancel_target", xtb_cancel_target),
+        **_facade_overrides(
+            {
+                "build_materialized_orca_stage": build_materialized_orca_stage,
+                "choose_orca_geometry_frame": choose_orca_geometry_frame,
+                "crest_cancel_target": crest_cancel_target,
+                "load_crest_artifact_contract": load_crest_artifact_contract,
+                "load_orca_artifact_contract": load_orca_artifact_contract,
+                "load_xtb_artifact_contract": load_xtb_artifact_contract,
+                "orca_cancel_target": orca_cancel_target,
+                "safe_name": safe_name,
+                "select_crest_downstream_inputs": select_crest_downstream_inputs,
+                "select_endpoint_pairs": select_endpoint_pairs,
+                "select_xtb_downstream_inputs": select_xtb_downstream_inputs,
+                "sibling_runtime_paths": sibling_runtime_paths,
+                "submit_crest_job_dir": submit_crest_job_dir,
+                "submit_reaction_dir": submit_reaction_dir,
+                "submit_xtb_job_dir": submit_xtb_job_dir,
+                "xtb_cancel_target": xtb_cancel_target,
+            }
+        )
     )
 
 
@@ -413,107 +387,49 @@ def _build_stage_deps() -> OrchestrationStageDeps:
         task_payload_dict_impl,
     )
 
-    return OrchestrationStageDeps(
-        _append_unique_artifact=_facade_override(
-            "_append_unique_artifact",
-            append_unique_artifact_impl,
-        ),
-        _append_crest_orca_stages=_facade_override(
-            "_append_crest_orca_stages",
-            append_crest_orca_stages_impl,
-        ),
-        _append_reaction_orca_stages=_facade_override(
-            "_append_reaction_orca_stages",
-            _append_reaction_orca_stages_fallback,
-        ),
-        _append_reaction_xtb_stages=_facade_override(
-            "_append_reaction_xtb_stages",
-            append_reaction_xtb_stages_impl,
-        ),
-        _clear_reaction_xtb_handoff_error_if_recovering=_facade_override(
-            "_clear_reaction_xtb_handoff_error_if_recovering",
-            clear_reaction_xtb_handoff_error_if_recovering_impl,
-        ),
-        _coerce_mapping=_facade_override("_coerce_mapping", _coerce_mapping_fallback),
-        _completed_crest_roles=_facade_override(
-            "_completed_crest_roles",
-            completed_crest_roles_impl,
-        ),
-        _completed_crest_stage=_facade_override(
-            "_completed_crest_stage",
-            completed_crest_stage_impl,
-        ),
-        _ensure_crest_job_dir=_facade_override(
-            "_ensure_crest_job_dir",
-            ensure_crest_job_dir_impl,
-        ),
-        _ensure_xtb_job_dir=_facade_override(
-            "_ensure_xtb_job_dir",
-            ensure_xtb_job_dir_impl,
-        ),
-        _load_config_organized_root=_facade_override(
-            "_load_config_organized_root",
-            load_config_organized_root_impl,
-        ),
-        _load_config_root=_facade_override("_load_config_root", load_config_root_impl),
-        _maybe_notify_workflow_phase_summary=_facade_override(
-            "_maybe_notify_workflow_phase_summary",
-            _maybe_notify_workflow_phase_summary_fallback,
-        ),
-        _new_xtb_stage=_facade_override("_new_xtb_stage", new_xtb_stage_impl),
-        _normalize_text=_facade_override("_normalize_text", _normalize_text_fallback),
-        _persist_workflow_progress=_facade_override(
-            "_persist_workflow_progress",
-            _persist_workflow_progress_fallback,
-        ),
-        _reaction_orca_source_candidate_path=_facade_override(
-            "_reaction_orca_source_candidate_path",
-            reaction_orca_source_candidate_path_impl,
-        ),
-        _reaction_ts_guess_error=_facade_override(
-            "_reaction_ts_guess_error",
-            reaction_ts_guess_error_impl,
-        ),
-        _recompute_workflow_status=_facade_override(
-            "_recompute_workflow_status",
-            _recompute_workflow_status_fallback,
-        ),
-        _safe_int=_facade_override("_safe_int", _safe_int_fallback),
-        _stage_failure_is_recoverable=_stage_failure_is_recoverable_override(),
-        _stage_metadata=_facade_override("_stage_metadata", stage_metadata_impl),
-        _submission_target=_facade_override("_submission_target", submission_target_impl),
-        _sync_crest_stage=_facade_override("_sync_crest_stage", sync_crest_stage_impl),
-        _sync_orca_stage=_facade_override("_sync_orca_stage", sync_orca_stage_impl),
-        _sync_xtb_stage=_facade_override("_sync_xtb_stage", sync_xtb_stage_impl),
-        _task_payload_dict=_facade_override("_task_payload_dict", task_payload_dict_impl),
-        _workflow_has_active_children=_facade_override(
-            "_workflow_has_active_children",
-            _workflow_has_active_children_fallback,
-        ),
-        _workflow_sync_only=_facade_override(
-            "_workflow_sync_only",
-            _workflow_sync_only_fallback,
-        ),
-        _write_xtb_path_job=_facade_override(
-            "_write_xtb_path_job",
-            write_xtb_path_job_impl,
-        ),
-        _xtb_attempt_record=_facade_override("_xtb_attempt_record", xtb_attempt_record_impl),
-        _xtb_attempt_rows=_facade_override("_xtb_attempt_rows", xtb_attempt_rows_impl),
-        _xtb_current_attempt_number=_facade_override(
-            "_xtb_current_attempt_number",
-            xtb_current_attempt_number_impl,
-        ),
-        _xtb_handoff_status=_facade_override(
-            "_xtb_handoff_status",
-            xtb_handoff_status_impl,
-        ),
-        _xtb_path_retry_limit=_facade_override(
-            "_xtb_path_retry_limit",
-            xtb_path_retry_limit_impl,
-        ),
-        _xtb_retry_recipe=_facade_override("_xtb_retry_recipe", xtb_retry_recipe_impl),
+    overrides = _facade_overrides(
+        {
+            "_append_unique_artifact": append_unique_artifact_impl,
+            "_append_crest_orca_stages": append_crest_orca_stages_impl,
+            "_append_reaction_orca_stages": _append_reaction_orca_stages_fallback,
+            "_append_reaction_xtb_stages": append_reaction_xtb_stages_impl,
+            "_clear_reaction_xtb_handoff_error_if_recovering": (
+                clear_reaction_xtb_handoff_error_if_recovering_impl
+            ),
+            "_coerce_mapping": _coerce_mapping_fallback,
+            "_completed_crest_roles": completed_crest_roles_impl,
+            "_completed_crest_stage": completed_crest_stage_impl,
+            "_ensure_crest_job_dir": ensure_crest_job_dir_impl,
+            "_ensure_xtb_job_dir": ensure_xtb_job_dir_impl,
+            "_load_config_organized_root": load_config_organized_root_impl,
+            "_load_config_root": load_config_root_impl,
+            "_maybe_notify_workflow_phase_summary": _maybe_notify_workflow_phase_summary_fallback,
+            "_new_xtb_stage": new_xtb_stage_impl,
+            "_normalize_text": _normalize_text_fallback,
+            "_persist_workflow_progress": _persist_workflow_progress_fallback,
+            "_reaction_orca_source_candidate_path": reaction_orca_source_candidate_path_impl,
+            "_reaction_ts_guess_error": reaction_ts_guess_error_impl,
+            "_recompute_workflow_status": _recompute_workflow_status_fallback,
+            "_safe_int": _safe_int_fallback,
+            "_stage_metadata": stage_metadata_impl,
+            "_submission_target": submission_target_impl,
+            "_sync_crest_stage": sync_crest_stage_impl,
+            "_sync_orca_stage": sync_orca_stage_impl,
+            "_sync_xtb_stage": sync_xtb_stage_impl,
+            "_task_payload_dict": task_payload_dict_impl,
+            "_workflow_has_active_children": _workflow_has_active_children_fallback,
+            "_workflow_sync_only": _workflow_sync_only_fallback,
+            "_write_xtb_path_job": write_xtb_path_job_impl,
+            "_xtb_attempt_record": xtb_attempt_record_impl,
+            "_xtb_attempt_rows": xtb_attempt_rows_impl,
+            "_xtb_current_attempt_number": xtb_current_attempt_number_impl,
+            "_xtb_handoff_status": xtb_handoff_status_impl,
+            "_xtb_path_retry_limit": xtb_path_retry_limit_impl,
+            "_xtb_retry_recipe": xtb_retry_recipe_impl,
+        }
     )
+    overrides["_stage_failure_is_recoverable"] = _stage_failure_is_recoverable_override()
+    return OrchestrationStageDeps(**overrides)
 
 
 def _build_advance_deps() -> OrchestrationAdvanceDeps:

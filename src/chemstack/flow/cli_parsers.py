@@ -469,97 +469,96 @@ def _register_workflow_creation_parsers(
     _register_workflow_parser_specs(workflow_subparsers, _workflow_creation_specs())
 
 
+def _workflow_runtime_specs() -> tuple[_WorkflowParserSpec, ...]:
+    target_help = "workflow_id, workflow workspace directory, or workflow.json path"
+    return (
+        _WorkflowParserSpec(
+            name="advance",
+            help=(
+                "Advance a materialized workflow by syncing/submitting actionable CREST, "
+                "xTB, and ORCA stages."
+            ),
+            func_name="cmd_workflow_advance",
+            target_help=target_help,
+            workflow_root=True,
+            workflow_root_required=True,
+            chemstack_config=True,
+            arguments=(
+                _ArgumentSpec(
+                    ("--no-submit",),
+                    {
+                        "action": "store_true",
+                        "help": "Only sync and append stages; do not submit newly actionable stages",
+                    },
+                ),
+            ),
+        ),
+        _WorkflowParserSpec(
+            name="worker",
+            help="Continuously advance non-terminal workflows from the registry.",
+            func_name="cmd_workflow_worker",
+            workflow_root=True,
+            chemstack_config=True,
+            arguments=(
+                _ArgumentSpec(
+                    ("--no-submit",),
+                    {
+                        "action": "store_true",
+                        "help": "Only sync/append stages; do not submit newly actionable stages",
+                    },
+                ),
+                _ArgumentSpec(
+                    ("--once",),
+                    {"action": "store_true", "help": "Run exactly one orchestration cycle"},
+                ),
+                _ArgumentSpec(
+                    ("--max-cycles",),
+                    {"type": int, "default": 0, "help": "Optional cycle limit; 0 means run forever"},
+                ),
+                _ArgumentSpec(
+                    ("--interval-seconds",),
+                    {
+                        "type": float,
+                        "default": 30.0,
+                        "help": "Sleep interval between orchestration cycles",
+                    },
+                ),
+                _ArgumentSpec(
+                    ("--lock-timeout-seconds",),
+                    {"type": float, "default": 5.0, "help": "How long to wait for the worker lock"},
+                ),
+                _ArgumentSpec(
+                    ("--refresh-registry",),
+                    {"action": "store_true", "help": "Reindex the workflow registry before the first cycle"},
+                ),
+                _ArgumentSpec(
+                    ("--refresh-each-cycle",),
+                    {"action": "store_true", "help": "Reindex the workflow registry before every cycle"},
+                ),
+            ),
+        ),
+        _WorkflowParserSpec(
+            name="submit-reaction-ts-search",
+            help="Submit a materialized reaction_ts_search workflow into chemstack ORCA.",
+            func_name="cmd_workflow_submit_reaction_ts_search",
+            target_help=target_help,
+            workflow_root=True,
+            chemstack_config=True,
+            chemstack_config_required=True,
+            arguments=(
+                _ArgumentSpec(
+                    ("--resubmit",),
+                    {"action": "store_true", "help": "Retry stages already marked as submitted"},
+                ),
+            ),
+        ),
+    )
+
+
 def _register_workflow_runtime_parsers(
     workflow_subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
 ) -> None:
-    commands = _commands()
-    target_help = "workflow_id, workflow workspace directory, or workflow.json path"
-    _register_workflow_parser_specs(
-        workflow_subparsers,
-        (
-            _WorkflowParserSpec(
-                name="advance",
-                help="Advance a materialized workflow by syncing/submitting actionable CREST, xTB, and ORCA stages.",
-                func_name="cmd_workflow_advance",
-                target_help=target_help,
-                workflow_root=True,
-                workflow_root_required=True,
-                chemstack_config=True,
-                arguments=(
-                    _ArgumentSpec(
-                        ("--no-submit",),
-                        {
-                            "action": "store_true",
-                            "help": "Only sync and append stages; do not submit newly actionable stages",
-                        },
-                    ),
-                ),
-            ),
-        ),
-    )
-
-    worker_parser = workflow_subparsers.add_parser(
-        "worker",
-        help="Continuously advance non-terminal workflows from the registry.",
-    )
-    worker_parser.add_argument("--workflow-root", help="Root that directly contains workflow workspaces. Defaults to workflow.root in chemstack.yaml.")
-    _add_chemstack_config_argument(worker_parser)
-    _add_argument_specs(
-        worker_parser,
-        (
-            _ArgumentSpec(
-                ("--no-submit",),
-                {
-                    "action": "store_true",
-                    "help": "Only sync/append stages; do not submit newly actionable stages",
-                },
-            ),
-            _ArgumentSpec(("--once",), {"action": "store_true", "help": "Run exactly one orchestration cycle"}),
-            _ArgumentSpec(
-                ("--max-cycles",),
-                {"type": int, "default": 0, "help": "Optional cycle limit; 0 means run forever"},
-            ),
-            _ArgumentSpec(
-                ("--interval-seconds",),
-                {"type": float, "default": 30.0, "help": "Sleep interval between orchestration cycles"},
-            ),
-            _ArgumentSpec(
-                ("--lock-timeout-seconds",),
-                {"type": float, "default": 5.0, "help": "How long to wait for the worker lock"},
-            ),
-            _ArgumentSpec(
-                ("--refresh-registry",),
-                {"action": "store_true", "help": "Reindex the workflow registry before the first cycle"},
-            ),
-            _ArgumentSpec(
-                ("--refresh-each-cycle",),
-                {"action": "store_true", "help": "Reindex the workflow registry before every cycle"},
-            ),
-        ),
-    )
-    _add_json_argument(worker_parser)
-    worker_parser.set_defaults(func=commands.cmd_workflow_worker)
-
-    _register_workflow_parser_specs(
-        workflow_subparsers,
-        (
-            _WorkflowParserSpec(
-                name="submit-reaction-ts-search",
-                help="Submit a materialized reaction_ts_search workflow into chemstack ORCA.",
-                func_name="cmd_workflow_submit_reaction_ts_search",
-                target_help=target_help,
-                workflow_root=True,
-                chemstack_config=True,
-                chemstack_config_required=True,
-                arguments=(
-                    _ArgumentSpec(
-                        ("--resubmit",),
-                        {"action": "store_true", "help": "Retry stages already marked as submitted"},
-                    ),
-                ),
-            ),
-        ),
-    )
+    _register_workflow_parser_specs(workflow_subparsers, _workflow_runtime_specs())
 
 
 def _register_workflow_parsers(

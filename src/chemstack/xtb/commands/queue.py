@@ -27,13 +27,19 @@ from chemstack.core.queue import (
     request_cancel,
 )
 from chemstack.core.queue.worker import (
+    BackgroundRunningJob,
+    ChildProcessQueueWorker,
     ManagedProcess as _ManagedProcess,
+    build_background_worker_command,
+    config_path_for_worker,
     dequeue_next_across_roots,
     pid_is_alive as worker_pid_is_alive,
+    request_job_cancellation,
     reserve_dequeued_entry,
     reserve_queue_worker_slot,
     resolve_admission_limit,
     resolve_admission_root,
+    start_background_job_process,
     terminate_process_group,
 )
 from chemstack.core.utils import coerce_list as _shared_coerce_list, now_utc_iso
@@ -60,8 +66,8 @@ from ..state import (
     write_state,
 )
 from .. import queue_artifacts as _queue_artifacts
+from .. import queue_dependencies as _queue_deps
 from .. import queue_terminal as _queue_terminal
-from .. import queue_worker_loop as _queue_worker_loop
 
 POLL_INTERVAL_SECONDS = 5
 CANCEL_CHECK_INTERVAL_SECONDS = 1
@@ -70,99 +76,17 @@ WORKER_SHUTDOWN_EXIT_CODE = 190
 WORKER_JOB_MODULE = "chemstack.xtb.worker_job"
 
 
-@dataclass(frozen=True)
-class _QueueTimingDeps:
-    POLL_INTERVAL_SECONDS: int
-    time: Any
-    now_utc_iso: Any
-
-
-@dataclass(frozen=True)
-class _QueueStateDeps:
-    is_recovery_pending: Any
-    load_organized_ref: Any
-    load_report_json: Any
-    load_state: Any
-    mark_recovery_pending: Any
-    write_report_json: Any
-    write_report_md_lines: Any
-    write_state: Any
-
-
-@dataclass(frozen=True)
-class _QueueStoreDeps:
-    activate_reserved_slot: Any
-    get_cancel_requested: Any
-    mark_cancelled: Any
-    mark_completed: Any
-    mark_failed: Any
-    reconcile_stale_slots: Any
-    release_slot: Any
-    requeue_running_entry: Any
-    reserve_dequeued_entry: Any
-
-
-@dataclass(frozen=True)
-class _QueueJobDeps:
-    finalize_xtb_job: Any
-    notify_job_finished: Any
-    notify_job_started: Any
-    run_xtb_ranking_job: Any
-    start_xtb_job: Any
-    upsert_job_record: Any
-
-
-@dataclass(frozen=True)
-class _QueueHelperDeps:
-    _admission_root: Any
-    _build_terminal_result: Any
-    _coerce_mapping: Any
-    _dequeue_next_entry: Any
-    _entry_resource_request: Any
-    _ensure_terminal_queue_status: Any
-    _execute_queue_entry: Any
-    _finalize_execution_result: Any
-    _input_summary: Any
-    _job_dir: Any
-    _job_type: Any
-    _load_terminal_summary: Any
-    _mark_recovery_pending_state: Any
-    _pid_is_alive: Any
-    _print_terminal_summary: Any
-    _queue_entries_with_roots: Any
-    _queue_entry_by_id: Any
-    _reaction_key: Any
-    _request_job_cancellation: Any
-    _selected_xyz: Any
-    _start_background_job_process: Any
-    _terminate_process: Any
-    _try_reserve_admission_slot: Any
-    _write_execution_artifacts: Any
-
-
-@dataclass(frozen=True)
-class _QueueCommandDeps:
-    timing: _QueueTimingDeps
-    state: _QueueStateDeps
-    store: _QueueStoreDeps
-    job: _QueueJobDeps
-    helpers: _QueueHelperDeps
-
-    def __getattr__(self, name: str) -> Any:
-        for group in (self.timing, self.state, self.store, self.job, self.helpers):
-            if hasattr(group, name):
-                return getattr(group, name)
-        raise AttributeError(name)
+_QueueCommandDeps = _queue_deps.QueueCommandDeps
 
 
 def _queue_command_deps() -> _QueueCommandDeps:
-    return _QueueCommandDeps(
-        timing=_QueueTimingDeps(
+    return _queue_deps.build_queue_command_deps(
+        timing=_queue_deps.QueueTimingDeps(
             POLL_INTERVAL_SECONDS=POLL_INTERVAL_SECONDS,
             time=time,
             now_utc_iso=now_utc_iso,
         ),
-        state=_QueueStateDeps(
+        state=_queue_deps.QueueStateDeps(
             is_recovery_pending=is_recovery_pending,
             load_organized_ref=load_organized_ref,
             load_report_json=load_report_json,
@@ -172,7 +96,7 @@ def _queue_command_deps() -> _QueueCommandDeps:
             write_report_md_lines=write_report_md_lines,
             write_state=write_state,
         ),
-        store=_QueueStoreDeps(
+        store=_queue_deps.QueueStoreDeps(
             activate_reserved_slot=activate_reserved_slot,
             get_cancel_requested=get_cancel_requested,
             mark_cancelled=mark_cancelled,
@@ -183,7 +107,7 @@ def _queue_command_deps() -> _QueueCommandDeps:
             requeue_running_entry=requeue_running_entry,
             reserve_dequeued_entry=reserve_dequeued_entry,
         ),
-        job=_QueueJobDeps(
+        job=_queue_deps.QueueJobDeps(
             finalize_xtb_job=finalize_xtb_job,
             notify_job_finished=notify_job_finished,
             notify_job_started=notify_job_started,
@@ -191,7 +115,7 @@ def _queue_command_deps() -> _QueueCommandDeps:
             start_xtb_job=start_xtb_job,
             upsert_job_record=upsert_job_record,
         ),
-        helpers=_QueueHelperDeps(
+        helpers=_queue_deps.QueueHelperDeps(
             _admission_root=_admission_root,
             _build_terminal_result=_build_terminal_result,
             _coerce_mapping=_coerce_mapping,
@@ -256,7 +180,7 @@ class QueueExecutionOutcome:
     organized_output_dir: str = ""
 
 
-_RunningJob = _queue_worker_loop.RunningJob
+_RunningJob = BackgroundRunningJob
 _TerminalSummary = _queue_terminal.TerminalSummary
 
 
@@ -609,7 +533,7 @@ def _build_background_worker_command(
     admission_token: str,
     auto_organize: bool,
 ) -> list[str]:
-    return _queue_worker_loop.build_background_worker_command(
+    return build_background_worker_command(
         config_path=config_path,
         queue_root=queue_root,
         queue_id=queue_id,
@@ -629,7 +553,7 @@ def _start_background_job_process(
     admission_token: str,
     auto_organize: bool,
 ) -> subprocess.Popen[str]:
-    return _queue_worker_loop.start_background_job_process(
+    return start_background_job_process(
         config_path=config_path,
         queue_root=queue_root,
         entry=entry,
@@ -641,21 +565,21 @@ def _start_background_job_process(
 
 
 def _request_job_cancellation(proc: _ManagedProcess) -> None:
-    _queue_worker_loop.request_job_cancellation(
+    request_job_cancellation(
         proc,
         cancel_signal=WORKER_CANCEL_SIGNAL,
-        deps=_queue_command_deps(),
+        terminate_process_fn=_terminate_process,
     )
 
 
 def _config_path_for_worker(args: Any) -> str:
-    return _queue_worker_loop.config_path_for_worker(
+    return config_path_for_worker(
         args,
         default_config_path_fn=default_config_path,
     )
 
 
-class QueueWorker(_queue_worker_loop.QueueWorker):
+class QueueWorker(ChildProcessQueueWorker):
     def __init__(
         self,
         cfg: Any,
@@ -676,7 +600,9 @@ class QueueWorker(_queue_worker_loop.QueueWorker):
 
 def _process_one(cfg: Any, *, auto_organize: bool) -> str:
     del auto_organize
-    return _queue_worker_loop.process_one(
+    from chemstack.core.queue.worker import process_one_child_queue
+
+    return process_one_child_queue(
         cfg,
         auto_organize=False,
         deps=_queue_command_deps(),

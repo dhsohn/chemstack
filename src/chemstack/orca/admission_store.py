@@ -132,6 +132,10 @@ def _lock_path(root: Path) -> Path:
     return root / ADMISSION_LOCK_NAME
 
 
+def _resolve_root(root: str | Path) -> Path:
+    return Path(root).expanduser().resolve()
+
+
 @contextmanager
 def _acquire_admission_lock(root: Path, *, timeout_seconds: int = 10) -> Iterator[None]:
     lock_path = _lock_path(root)
@@ -153,6 +157,27 @@ def _save_slots(root: Path, slots: List[AdmissionSlot]) -> None:
 
 def _chem_core_admission_module() -> Any | None:
     return _core_admission_store
+
+
+def _call_chem_core_backend(
+    root: Path,
+    function_name: str,
+    *args: Any,
+    convert: Any = None,
+    **kwargs: Any,
+) -> Any | None:
+    backend = _chem_core_admission_module()
+    if backend is None:
+        return None
+    backend_fn = getattr(backend, function_name, None)
+    if not callable(backend_fn):
+        return None
+    try:
+        result = backend_fn(root, *args, **kwargs)
+    except Exception as exc:
+        _wrap_backend_corruption(exc)
+        raise
+    return convert(result) if convert is not None else result
 
 
 def _backend_list_slots(root: Path, *, backend: Any) -> list[AdmissionSlot] | None:
@@ -411,12 +436,10 @@ def _reserve_slot_from_request(request: _AdmissionReservationRequest) -> str | N
 
 
 def reconcile_stale_slots(root: Path) -> int:
-    resolved_root = Path(root).expanduser().resolve()
-    backend = _chem_core_admission_module()
-    if backend is not None:
-        delegated = _backend_reconcile_stale_slots(resolved_root, backend=backend)
-        if delegated is not None:
-            return delegated
+    resolved_root = _resolve_root(root)
+    delegated = _call_chem_core_backend(resolved_root, "reconcile_stale_slots", convert=int)
+    if delegated is not None:
+        return delegated
     with _acquire_admission_lock(resolved_root):
         original_slots = [_normalize_slot(slot) for slot in _load_slots(resolved_root)]
         kept = _load_live_slots(resolved_root)
@@ -427,12 +450,14 @@ def reconcile_stale_slots(root: Path) -> int:
 
 
 def list_slots(root: Path) -> List[AdmissionSlot]:
-    resolved_root = Path(root).expanduser().resolve()
-    backend = _chem_core_admission_module()
-    if backend is not None:
-        delegated = _backend_list_slots(resolved_root, backend=backend)
-        if delegated is not None:
-            return delegated
+    resolved_root = _resolve_root(root)
+    delegated = _call_chem_core_backend(
+        resolved_root,
+        "list_slots",
+        convert=lambda slots: [_from_chem_core_slot(slot) for slot in slots],
+    )
+    if delegated is not None:
+        return delegated
     with _acquire_admission_lock(resolved_root):
         original_slots = [_normalize_slot(slot) for slot in _load_slots(resolved_root)]
         kept = _load_live_slots(resolved_root)
@@ -442,12 +467,10 @@ def list_slots(root: Path) -> List[AdmissionSlot]:
 
 
 def active_slot_count(root: Path) -> int:
-    resolved_root = Path(root).expanduser().resolve()
-    backend = _chem_core_admission_module()
-    if backend is not None:
-        delegated = _backend_active_slot_count(resolved_root, backend=backend)
-        if delegated is not None:
-            return delegated
+    resolved_root = _resolve_root(root)
+    delegated = _call_chem_core_backend(resolved_root, "active_slot_count", convert=int)
+    if delegated is not None:
+        return delegated
     return len(list_slots(resolved_root))
 
 
@@ -465,7 +488,7 @@ def reserve_slot(
     workflow_id: str | None = None,
     state: str = "reserved",
 ) -> str | None:
-    resolved_root = Path(root).expanduser().resolve()
+    resolved_root = _resolve_root(root)
     request = _AdmissionReservationRequest(
         root=resolved_root,
         max_concurrent=max_concurrent,
@@ -494,7 +517,7 @@ def _activation_request(
     task_id: str | None,
     workflow_id: str | None,
 ) -> _AdmissionActivationRequest:
-    resolved_root = Path(root).expanduser().resolve()
+    resolved_root = _resolve_root(root)
     resolved_work_dir = _normalize_work_dir(reaction_dir)
     if resolved_work_dir is None:
         raise ValueError("reaction_dir must not be blank.")
@@ -608,14 +631,10 @@ def activate_slot(
 
 
 def release_slot(root: Path, token: str) -> bool:
-    resolved_root = Path(root).expanduser().resolve()
-    backend = _chem_core_admission_module()
-    if backend is not None:
-        try:
-            return bool(backend.release_slot(resolved_root, token))
-        except Exception as exc:
-            _wrap_backend_corruption(exc)
-            raise
+    resolved_root = _resolve_root(root)
+    delegated = _call_chem_core_backend(resolved_root, "release_slot", token, convert=bool)
+    if delegated is not None:
+        return delegated
 
     with _acquire_admission_lock(resolved_root):
         slots = _load_live_slots(resolved_root)
@@ -635,7 +654,7 @@ def update_slot_metadata(
     task_id: str | None = None,
     workflow_id: str | None = None,
 ) -> bool:
-    resolved_root = Path(root).expanduser().resolve()
+    resolved_root = _resolve_root(root)
     with _acquire_admission_lock(resolved_root):
         slots = _load_live_slots(resolved_root)
         for slot in slots:

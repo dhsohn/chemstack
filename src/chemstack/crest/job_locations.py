@@ -51,9 +51,8 @@ _lookup_roots_for_target = _LOCATION_FACADE.lookup_roots_for_target
 
 
 def list_job_records_for_cfg(cfg: AppConfig) -> list[tuple[Path, JobLocationRecord]]:
-    return _engine_locations.list_job_records_for_cfg(
+    return _LOCATION_MODULE.list_job_records_for_cfg(
         cfg,
-        engine=_ENGINE,
         list_job_locations_fn=list_job_locations,
     )
 
@@ -62,10 +61,9 @@ def resolve_job_location_for_cfg(
     cfg: AppConfig,
     target: str,
 ) -> tuple[Path | None, JobLocationRecord | None]:
-    return _engine_locations.resolve_job_location_for_cfg(
+    return _LOCATION_MODULE.resolve_job_location_for_cfg(
         cfg,
         target,
-        engine=_ENGINE,
         resolve_job_location_fn=resolve_job_location,
     )
 

@@ -170,20 +170,22 @@ def _fallback_xtb_downstream_inputs(
 
 
 def load_xtb_artifact_contract(*, xtb_index_root: str | Path, target: str) -> XtbArtifactContract:
-    index_root = Path(xtb_index_root).expanduser().resolve()
-    job_dir, record = _resolve_job_dir(index_root, target)
-
-    loaded = _adapter_helpers.load_artifact_files(
-        job_dir=job_dir,
-        record=record,
+    bundle = _adapter_helpers.load_contract_artifact_bundle(
+        index_root=xtb_index_root,
+        target=target,
+        resolve_job_dir_fn=_resolve_job_dir,
         load_json_dict_fn=_load_json_dict,
         report_filename=REPORT_JSON_FILE_NAME,
         state_filename=STATE_FILE_NAME,
         organized_ref_filename=ORGANIZED_REF_FILE_NAME,
         missing_label="xTB",
+        expected_app_name="xtb_auto",
+        coerce_resource_dict_fn=_coerce_resource_dict,
     )
-    organized_ref = loaded.organized_ref
-    payload = loaded.payload
+    job_dir = bundle.job_dir
+    record = bundle.record
+    organized_ref = bundle.organized_ref
+    payload = bundle.payload
 
     candidate_details = _load_candidate_details(payload) or _fallback_details_from_paths(payload)
 
@@ -195,8 +197,6 @@ def load_xtb_artifact_contract(*, xtb_index_root: str | Path, target: str) -> Xt
         )
     else:
         selected_candidate_paths = tuple(item.path for item in candidate_details if item.selected)
-
-    _adapter_helpers.validate_record_app(record, "xtb_auto", label="xTB")
 
     job_type = _normalize_text(payload.get("job_type")) or _job_type_from_record(record, "unknown")
     status = (
@@ -217,20 +217,11 @@ def load_xtb_artifact_contract(*, xtb_index_root: str | Path, target: str) -> Xt
         or organized_ref.get("organized_output_dir")
         or (record.organized_output_dir if record is not None else "")
     )
-    latest_known_path = _adapter_helpers.latest_known_path(record, job_dir)
+    latest_known_path = bundle.latest_known_path
 
     analysis_summary = payload.get("analysis_summary")
     if not isinstance(analysis_summary, dict):
         analysis_summary = {}
-
-    resource_request = _coerce_resource_dict(
-        payload.get("resource_request")
-    ) or _coerce_resource_dict(record.resource_request if record is not None else {})
-    resource_actual = (
-        _coerce_resource_dict(payload.get("resource_actual"))
-        or _coerce_resource_dict(record.resource_actual if record is not None else {})
-        or dict(resource_request)
-    )
 
     return XtbArtifactContract(
         job_id=job_id,
@@ -245,8 +236,8 @@ def load_xtb_artifact_contract(*, xtb_index_root: str | Path, target: str) -> Xt
         selected_candidate_paths=selected_candidate_paths,
         candidate_details=candidate_details,
         analysis_summary=dict(analysis_summary),
-        resource_request=resource_request,
-        resource_actual=resource_actual,
+        resource_request=bundle.resource_request,
+        resource_actual=bundle.resource_actual,
     )
 
 

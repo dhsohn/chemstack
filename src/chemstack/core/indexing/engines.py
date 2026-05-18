@@ -253,6 +253,32 @@ class EngineLocationModule:
         record = self.build_job_location_record(existing=existing, **kwargs)
         return upsert_job_location_fn(root, record)
 
+    def list_job_records_for_cfg(
+        self,
+        cfg: Any,
+        *,
+        list_job_locations_fn: Callable[[str | Path], list[JobLocationRecord]],
+    ) -> list[tuple[Path, JobLocationRecord]]:
+        return list_job_records_for_cfg(
+            cfg,
+            engine=self.facade.engine,
+            list_job_locations_fn=list_job_locations_fn,
+        )
+
+    def resolve_job_location_for_cfg(
+        self,
+        cfg: Any,
+        target: str,
+        *,
+        resolve_job_location_fn: Callable[[str | Path, str], JobLocationRecord | None],
+    ) -> tuple[Path | None, JobLocationRecord | None]:
+        return resolve_job_location_for_cfg(
+            cfg,
+            target,
+            engine=self.facade.engine,
+            resolve_job_location_fn=resolve_job_location_fn,
+        )
+
     def resolve_latest_job_dir(
         self,
         index_root: str | Path,
