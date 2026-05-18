@@ -37,26 +37,37 @@ def _add_chemstack_config_argument(
     parser.add_argument("--chemstack-config", required=required, help=help_text)
 
 
+def _orca_materialization_argument_specs(route_default: str) -> tuple[_ArgumentSpec, ...]:
+    return (
+        _ArgumentSpec(
+            ("--charge",),
+            {"type": int, "default": 0, "help": "Charge for materialized ORCA inputs"},
+        ),
+        _ArgumentSpec(
+            ("--multiplicity",),
+            {"type": int, "default": 1, "help": "Multiplicity for materialized ORCA inputs"},
+        ),
+        _ArgumentSpec(
+            ("--max-cores",),
+            {"type": int, "default": 8, "help": "Maximum cores per planned ORCA task"},
+        ),
+        _ArgumentSpec(
+            ("--max-memory-gb",),
+            {"type": int, "default": 32, "help": "Maximum memory GiB per planned ORCA task"},
+        ),
+        _ArgumentSpec(
+            ("--orca-route-line",),
+            {"default": route_default, "help": "Route line for materialized ORCA inputs"},
+        ),
+    )
+
+
 def _add_orca_materialization_arguments(
     parser: argparse.ArgumentParser,
     *,
     route_default: str,
 ) -> None:
-    parser.add_argument("--charge", type=int, default=0, help="Charge for materialized ORCA inputs")
-    parser.add_argument(
-        "--multiplicity", type=int, default=1, help="Multiplicity for materialized ORCA inputs"
-    )
-    parser.add_argument(
-        "--max-cores", type=int, default=8, help="Maximum cores per planned ORCA task"
-    )
-    parser.add_argument(
-        "--max-memory-gb", type=int, default=32, help="Maximum memory GiB per planned ORCA task"
-    )
-    parser.add_argument(
-        "--orca-route-line",
-        default=route_default,
-        help="Route line for materialized ORCA inputs",
-    )
+    _add_argument_specs(parser, _orca_materialization_argument_specs(route_default))
 
 
 def _register_workflow_parser_specs(
@@ -307,121 +318,155 @@ def _register_workflow_registry_parsers(
     )
 
 
+def _workflow_planning_specs() -> tuple[_WorkflowParserSpec, ...]:
+    return (
+        _WorkflowParserSpec(
+            name="reaction-ts-search",
+            help="Build a reaction_ts_search workflow plan from xTB results.",
+            func_name="cmd_workflow_reaction_ts_search",
+            target_help="xTB job_id or job directory",
+            arguments=(
+                _ArgumentSpec(
+                    ("--xtb-index-root",),
+                    {"required": True, "help": "xTB index root, usually allowed_root"},
+                ),
+                _ArgumentSpec(
+                    ("--max-orca-stages",),
+                    {
+                        "type": int,
+                        "default": 3,
+                        "help": "Maximum number of ORCA stage payloads to emit",
+                    },
+                ),
+                _ArgumentSpec(
+                    ("--include-unselected",),
+                    {
+                        "action": "store_true",
+                        "help": "Consider non-selected xTB candidate_details when planning",
+                    },
+                ),
+                _ArgumentSpec(
+                    ("--workspace-root",),
+                    {
+                        "help": (
+                            "If provided, materialize a workflow workspace with ORCA "
+                            "reaction directories and workflow.json"
+                        )
+                    },
+                ),
+                *_orca_materialization_argument_specs("! r2scan-3c OptTS Freq TightSCF"),
+                _ArgumentSpec(
+                    ("--priority",),
+                    {"type": int, "default": 10, "help": "Planned queue priority"},
+                ),
+            ),
+        ),
+        _WorkflowParserSpec(
+            name="conformer-screening",
+            help="Build a conformer_screening workflow plan from CREST results (`standard` or `nci`).",
+            func_name="cmd_workflow_conformer_screening",
+            target_help="CREST job_id or job directory",
+            arguments=(
+                _ArgumentSpec(
+                    ("--crest-index-root",),
+                    {"required": True, "help": "CREST index root, usually allowed_root"},
+                ),
+                _ArgumentSpec(
+                    ("--max-orca-stages",),
+                    {
+                        "type": int,
+                        "default": 3,
+                        "help": "Maximum number of ORCA stage payloads to emit",
+                    },
+                ),
+                _ArgumentSpec(
+                    ("--workspace-root",),
+                    {"help": "If provided, materialize a workflow workspace"},
+                ),
+                *_orca_materialization_argument_specs("! r2scan-3c Opt TightSCF"),
+                _ArgumentSpec(
+                    ("--priority",),
+                    {"type": int, "default": 10, "help": "Planned queue priority"},
+                ),
+            ),
+        ),
+    )
+
+
 def _register_workflow_planning_parsers(
     workflow_subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
 ) -> None:
-    commands = _commands()
-    reaction_ts_parser = workflow_subparsers.add_parser(
-        "reaction-ts-search",
-        help="Build a reaction_ts_search workflow plan from xTB results.",
-    )
-    reaction_ts_parser.add_argument("target", help="xTB job_id or job directory")
-    reaction_ts_parser.add_argument(
-        "--xtb-index-root", required=True, help="xTB index root, usually allowed_root"
-    )
-    reaction_ts_parser.add_argument(
-        "--max-orca-stages",
-        type=int,
-        default=3,
-        help="Maximum number of ORCA stage payloads to emit",
-    )
-    reaction_ts_parser.add_argument(
-        "--include-unselected",
-        action="store_true",
-        help="Consider non-selected xTB candidate_details when planning",
-    )
-    reaction_ts_parser.add_argument(
-        "--workspace-root",
-        help="If provided, materialize a workflow workspace with ORCA reaction directories and workflow.json",
-    )
-    _add_orca_materialization_arguments(
-        reaction_ts_parser,
-        route_default="! r2scan-3c OptTS Freq TightSCF",
-    )
-    reaction_ts_parser.add_argument("--priority", type=int, default=10, help="Planned queue priority")
-    _add_json_argument(reaction_ts_parser)
-    reaction_ts_parser.set_defaults(func=commands.cmd_workflow_reaction_ts_search)
+    _register_workflow_parser_specs(workflow_subparsers, _workflow_planning_specs())
 
-    conformer_parser = workflow_subparsers.add_parser(
-        "conformer-screening",
-        help="Build a conformer_screening workflow plan from CREST results (`standard` or `nci`).",
+
+def _workflow_creation_specs() -> tuple[_WorkflowParserSpec, ...]:
+    return (
+        _WorkflowParserSpec(
+            name="create-reaction-ts-search",
+            help=(
+                "Create a raw-input reaction_ts_search workflow from reactant/product "
+                "precomplex XYZ inputs."
+            ),
+            func_name="cmd_workflow_create_reaction_ts_search",
+            workflow_root=True,
+            workflow_root_required=True,
+            arguments=(
+                _ArgumentSpec(
+                    ("--reactant-xyz",),
+                    {
+                        "dest": "reactant_xyz",
+                        "required": True,
+                        "help": "Reactant-side precomplex XYZ input",
+                    },
+                ),
+                _ArgumentSpec(
+                    ("--product-xyz",),
+                    {"dest": "product_xyz", "required": True, "help": "Product-side XYZ input"},
+                ),
+                _ArgumentSpec(
+                    ("--crest-mode",),
+                    {
+                        "default": "standard",
+                        "help": "CREST mode for initial stages (`standard` or `nci`)",
+                    },
+                ),
+                _ArgumentSpec(("--priority",), {"type": int, "default": 10}),
+                _ArgumentSpec(("--max-crest-candidates",), {"type": int, "default": 3}),
+                _ArgumentSpec(("--max-xtb-stages",), {"type": int, "default": 3}),
+                _ArgumentSpec(("--max-orca-stages",), {"type": int, "default": 3}),
+                *_orca_materialization_argument_specs("! r2scan-3c OptTS Freq TightSCF"),
+            ),
+        ),
+        _WorkflowParserSpec(
+            name="create-conformer-screening",
+            help=(
+                "Create a raw-input conformer_screening workflow that can be advanced "
+                "through CREST and ORCA (`standard` or `nci`)."
+            ),
+            func_name="cmd_workflow_create_conformer_screening",
+            workflow_root=True,
+            workflow_root_required=True,
+            arguments=(
+                _ArgumentSpec(
+                    ("--input-xyz",),
+                    {"required": True, "help": "Input XYZ for the molecule to screen"},
+                ),
+                _ArgumentSpec(
+                    ("--crest-mode",),
+                    {"default": "standard", "help": "CREST mode for the initial stage"},
+                ),
+                _ArgumentSpec(("--priority",), {"type": int, "default": 10}),
+                _ArgumentSpec(("--max-orca-stages",), {"type": int, "default": 3}),
+                *_orca_materialization_argument_specs("! r2scan-3c Opt TightSCF"),
+            ),
+        ),
     )
-    conformer_parser.add_argument("target", help="CREST job_id or job directory")
-    conformer_parser.add_argument(
-        "--crest-index-root", required=True, help="CREST index root, usually allowed_root"
-    )
-    conformer_parser.add_argument(
-        "--max-orca-stages",
-        type=int,
-        default=3,
-        help="Maximum number of ORCA stage payloads to emit",
-    )
-    conformer_parser.add_argument("--workspace-root", help="If provided, materialize a workflow workspace")
-    _add_orca_materialization_arguments(
-        conformer_parser,
-        route_default="! r2scan-3c Opt TightSCF",
-    )
-    conformer_parser.add_argument("--priority", type=int, default=10, help="Planned queue priority")
-    _add_json_argument(conformer_parser)
-    conformer_parser.set_defaults(func=commands.cmd_workflow_conformer_screening)
 
 
 def _register_workflow_creation_parsers(
     workflow_subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
 ) -> None:
-    commands = _commands()
-    create_reaction_parser = workflow_subparsers.add_parser(
-        "create-reaction-ts-search",
-        help="Create a raw-input reaction_ts_search workflow from reactant/product precomplex XYZ inputs.",
-    )
-    create_reaction_parser.add_argument(
-        "--reactant-xyz",
-        dest="reactant_xyz",
-        required=True,
-        help="Reactant-side precomplex XYZ input",
-    )
-    create_reaction_parser.add_argument(
-        "--product-xyz",
-        dest="product_xyz",
-        required=True,
-        help="Product-side XYZ input",
-    )
-    _add_workflow_root_argument(create_reaction_parser, required=True)
-    create_reaction_parser.add_argument(
-        "--crest-mode",
-        default="standard",
-        help="CREST mode for initial stages (`standard` or `nci`)",
-    )
-    create_reaction_parser.add_argument("--priority", type=int, default=10)
-    create_reaction_parser.add_argument("--max-crest-candidates", type=int, default=3)
-    create_reaction_parser.add_argument("--max-xtb-stages", type=int, default=3)
-    create_reaction_parser.add_argument("--max-orca-stages", type=int, default=3)
-    _add_orca_materialization_arguments(
-        create_reaction_parser,
-        route_default="! r2scan-3c OptTS Freq TightSCF",
-    )
-    _add_json_argument(create_reaction_parser)
-    create_reaction_parser.set_defaults(func=commands.cmd_workflow_create_reaction_ts_search)
-
-    create_conformer_parser = workflow_subparsers.add_parser(
-        "create-conformer-screening",
-        help="Create a raw-input conformer_screening workflow that can be advanced through CREST and ORCA (`standard` or `nci`).",
-    )
-    create_conformer_parser.add_argument(
-        "--input-xyz", required=True, help="Input XYZ for the molecule to screen"
-    )
-    _add_workflow_root_argument(create_conformer_parser, required=True)
-    create_conformer_parser.add_argument(
-        "--crest-mode", default="standard", help="CREST mode for the initial stage"
-    )
-    create_conformer_parser.add_argument("--priority", type=int, default=10)
-    create_conformer_parser.add_argument("--max-orca-stages", type=int, default=3)
-    _add_orca_materialization_arguments(
-        create_conformer_parser,
-        route_default="! r2scan-3c Opt TightSCF",
-    )
-    _add_json_argument(create_conformer_parser)
-    create_conformer_parser.set_defaults(func=commands.cmd_workflow_create_conformer_screening)
+    _register_workflow_parser_specs(workflow_subparsers, _workflow_creation_specs())
 
 
 def _register_workflow_runtime_parsers(

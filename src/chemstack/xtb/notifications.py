@@ -11,17 +11,19 @@ _LABEL = "xtb_auto"
 _ENGINE = "xtb"
 
 
-def _is_workflow_child(job_dir: Path) -> bool:
-    return _engine_notifications.is_workflow_child(job_dir, engine=_ENGINE)
-
-
 _send = _engine_notifications.telegram_line_sender(lambda: build_telegram_transport)
-_NOTIFIER = _engine_notifications.build_engine_notifier(
+_NOTIFICATIONS = _engine_notifications.build_engine_notification_module(
     label=_LABEL,
     engine=_ENGINE,
+    selected_field_name="selected_input_xyz",
+    detail_field_names=("job_type", "reaction_key"),
+    terminal_count_field="candidate_count",
     send_fn=_send,
 )
-_SELECTED_XYZ_FIELD = "selected_input_xyz"
+
+
+def _detail_values(job_type: str, reaction_key: str) -> dict[str, object]:
+    return {"job_type": job_type, "reaction_key": reaction_key}
 
 
 def notify_job_queued(
@@ -34,16 +36,14 @@ def notify_job_queued(
     reaction_key: str,
     selected_xyz: Path,
 ) -> bool:
-    return _engine_notifications.send_lifecycle_event(
-        _NOTIFIER,
+    return _NOTIFICATIONS.notify_lifecycle(
         cfg,
         headline="Job queued",
         job_id=job_id,
         queue_id=queue_id,
         job_dir=job_dir,
         selected_xyz=selected_xyz,
-        selected_field_name=_SELECTED_XYZ_FIELD,
-        detail_fields=[("job_type", job_type), ("reaction_key", reaction_key)],
+        detail_values=_detail_values(job_type, reaction_key),
     )
 
 
@@ -57,16 +57,14 @@ def notify_job_started(
     reaction_key: str,
     selected_xyz: Path,
 ) -> bool:
-    return _engine_notifications.send_lifecycle_event(
-        _NOTIFIER,
+    return _NOTIFICATIONS.notify_lifecycle(
         cfg,
         headline="Job started",
         job_id=job_id,
         queue_id=queue_id,
         job_dir=job_dir,
         selected_xyz=selected_xyz,
-        selected_field_name=_SELECTED_XYZ_FIELD,
-        detail_fields=[("job_type", job_type), ("reaction_key", reaction_key)],
+        detail_values=_detail_values(job_type, reaction_key),
     )
 
 
@@ -85,8 +83,7 @@ def notify_job_terminal(
     candidate_count: int,
     extra_lines: list[str] | None = None,
 ) -> bool:
-    return _engine_notifications.send_terminal_event(
-        _NOTIFIER,
+    return _NOTIFICATIONS.notify_terminal(
         cfg,
         headline=headline,
         job_id=job_id,
@@ -95,9 +92,8 @@ def notify_job_terminal(
         reason=reason,
         job_dir=job_dir,
         selected_xyz=selected_xyz,
-        selected_field_name=_SELECTED_XYZ_FIELD,
-        detail_fields=[("job_type", job_type), ("reaction_key", reaction_key)],
-        count_field=("candidate_count", candidate_count),
+        count_value=candidate_count,
+        detail_values=_detail_values(job_type, reaction_key),
         extra_lines=extra_lines,
     )
 
@@ -118,22 +114,17 @@ def notify_job_finished(
     resource_request: dict[str, int] | None = None,
     resource_actual: dict[str, int] | None = None,
 ) -> bool:
-    extra_lines = _engine_notifications.optional_terminal_lines(
-        organized_output_dir=organized_output_dir,
-        resource_request=resource_request,
-        resource_actual=resource_actual,
-    )
-    return notify_job_terminal(
+    return _NOTIFICATIONS.notify_finished(
         cfg,
-        headline=_engine_notifications.terminal_headline(status),
         job_id=job_id,
         queue_id=queue_id,
         status=status,
         reason=reason,
-        job_type=job_type,
-        reaction_key=reaction_key,
         job_dir=job_dir,
         selected_xyz=selected_xyz,
-        candidate_count=candidate_count,
-        extra_lines=extra_lines or None,
+        count_value=candidate_count,
+        detail_values=_detail_values(job_type, reaction_key),
+        organized_output_dir=organized_output_dir,
+        resource_request=resource_request,
+        resource_actual=resource_actual,
     )

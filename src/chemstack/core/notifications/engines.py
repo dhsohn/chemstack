@@ -94,6 +94,127 @@ def build_engine_notifier(
     return EngineNotifier(label=label, engine=engine, send_fn=send_fn)
 
 
+@dataclass(frozen=True)
+class EngineNotificationModule:
+    notifier: EngineNotifier
+    selected_field_name: str
+    detail_field_names: tuple[str, ...]
+    terminal_count_field: str
+
+    def detail_fields(self, values: dict[str, object]) -> list[tuple[str, object]]:
+        return [
+            (field_name, values[field_name])
+            for field_name in self.detail_field_names
+            if field_name in values
+        ]
+
+    def notify_lifecycle(
+        self,
+        cfg: Any,
+        *,
+        headline: str,
+        job_id: str,
+        queue_id: str,
+        job_dir: Path,
+        selected_xyz: Path,
+        detail_values: dict[str, object],
+    ) -> bool:
+        return send_lifecycle_event(
+            self.notifier,
+            cfg,
+            headline=headline,
+            job_id=job_id,
+            queue_id=queue_id,
+            job_dir=job_dir,
+            selected_xyz=selected_xyz,
+            selected_field_name=self.selected_field_name,
+            detail_fields=self.detail_fields(detail_values),
+        )
+
+    def notify_terminal(
+        self,
+        cfg: Any,
+        *,
+        headline: str,
+        job_id: str,
+        queue_id: str,
+        status: str,
+        reason: str,
+        job_dir: Path,
+        selected_xyz: Path,
+        count_value: int,
+        detail_values: dict[str, object],
+        extra_lines: list[str] | None = None,
+    ) -> bool:
+        return send_terminal_event(
+            self.notifier,
+            cfg,
+            headline=headline,
+            job_id=job_id,
+            queue_id=queue_id,
+            status=status,
+            reason=reason,
+            job_dir=job_dir,
+            selected_xyz=selected_xyz,
+            selected_field_name=self.selected_field_name,
+            detail_fields=self.detail_fields(detail_values),
+            count_field=(self.terminal_count_field, count_value),
+            extra_lines=extra_lines,
+        )
+
+    def notify_finished(
+        self,
+        cfg: Any,
+        *,
+        job_id: str,
+        queue_id: str,
+        status: str,
+        reason: str,
+        job_dir: Path,
+        selected_xyz: Path,
+        count_value: int,
+        detail_values: dict[str, object],
+        organized_output_dir: Path | None = None,
+        resource_request: dict[str, int] | None = None,
+        resource_actual: dict[str, int] | None = None,
+    ) -> bool:
+        extra_lines = optional_terminal_lines(
+            organized_output_dir=organized_output_dir,
+            resource_request=resource_request,
+            resource_actual=resource_actual,
+        )
+        return self.notify_terminal(
+            cfg,
+            headline=terminal_headline(status),
+            job_id=job_id,
+            queue_id=queue_id,
+            status=status,
+            reason=reason,
+            job_dir=job_dir,
+            selected_xyz=selected_xyz,
+            count_value=count_value,
+            detail_values=detail_values,
+            extra_lines=extra_lines or None,
+        )
+
+
+def build_engine_notification_module(
+    *,
+    label: str,
+    engine: str,
+    selected_field_name: str,
+    detail_field_names: tuple[str, ...],
+    terminal_count_field: str,
+    send_fn: Callable[[Any, list[str]], bool],
+) -> EngineNotificationModule:
+    return EngineNotificationModule(
+        notifier=build_engine_notifier(label=label, engine=engine, send_fn=send_fn),
+        selected_field_name=selected_field_name,
+        detail_field_names=detail_field_names,
+        terminal_count_field=terminal_count_field,
+    )
+
+
 def terminal_headline(status: str) -> str:
     return {
         "completed": "Job finished",

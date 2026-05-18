@@ -61,6 +61,49 @@ def _normalize_status_override(status: str | None) -> str | None:
     return None
 
 
+def _short_file_hash(path: Path) -> str:
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(65536), b""):
+            digest.update(chunk)
+    return digest.hexdigest()[:16]
+
+
+def _discover_index_targets(
+    kb_dirs: list[str],
+    *,
+    max_bytes: int,
+) -> dict[str, tuple[str, str | None]]:
+    discovered: dict[str, tuple[str, str | None]] = {}
+    for kb_dir in kb_dirs:
+        kb_path = Path(kb_dir)
+        if not kb_path.is_dir():
+            logger.warning("dft_kb_dir_not_found: path=%s", kb_dir)
+            continue
+        for target in discover_orca_targets(kb_path, max_bytes=max_bytes):
+            discovered[str(target.path)] = (
+                _short_file_hash(target.path),
+                _normalize_status_override(target.run_state_status),
+            )
+    return discovered
+
+
+def _changed_index_targets(
+    existing: dict[str, tuple[str, str]],
+    discovered: dict[str, tuple[str, str | None]],
+) -> tuple[dict[str, tuple[str, str | None]], set[str]]:
+    to_index = {
+        path: payload
+        for path, payload in discovered.items()
+        if existing.get(path) != (
+            payload[0],
+            payload[1] or "",
+        )
+    }
+    to_remove = set(existing) - set(discovered)
+    return to_index, to_remove
+
+
 class DFTIndex:
     """Manages a structured index of DFT calculation results."""
 
@@ -110,7 +153,6 @@ class DFTIndex:
         """
         db = self._require_db()
 
-        # Load existing index
         with self._lock:
             cursor = db.execute(
                 "SELECT source_path, file_hash, status FROM dft_calculations"
@@ -120,50 +162,21 @@ class DFTIndex:
                 for row in cursor
             }
 
-        # Discover files (I/O-heavy, done outside the lock)
         max_bytes = max_file_size_mb * 1024 * 1024
-        discovered: dict[str, tuple[str, str | None]] = {}  # path -> (hash, status_override)
-
-        for kb_dir in kb_dirs:
-            kb_path = Path(kb_dir)
-            if not kb_path.is_dir():
-                logger.warning("dft_kb_dir_not_found: path=%s", kb_dir)
-                continue
-            for target in discover_orca_targets(kb_path, max_bytes=max_bytes):
-                fpath = target.path
-                spath = str(fpath)
-                h = hashlib.sha256()
-                with open(fpath, "rb") as f:
-                    for chunk in iter(lambda: f.read(65536), b""):
-                        h.update(chunk)
-                discovered[spath] = (
-                    h.hexdigest()[:16],
-                    _normalize_status_override(target.run_state_status),
-                )
-
-        # Detect changes
-        to_index = {
-            p: payload for p, payload in discovered.items()
-            if existing.get(p) != (
-                payload[0],
-                payload[1] or "",
-            )
-        }
-        to_remove = set(existing) - set(discovered)
+        discovered = _discover_index_targets(kb_dirs, max_bytes=max_bytes)
+        to_index, to_remove = _changed_index_targets(existing, discovered)
 
         indexed = 0
         failed = 0
         removed = 0
 
         with self._lock:
-            # Remove deleted files
             for rpath in to_remove:
                 db.execute(
                     "DELETE FROM dft_calculations WHERE source_path = ?", (rpath,)
                 )
                 removed += 1
 
-            # Index new/changed files
             for source_path, (_, status_override) in to_index.items():
                 try:
                     result = parse_orca_output(source_path)

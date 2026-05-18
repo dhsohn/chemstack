@@ -211,3 +211,22 @@ class WorkflowEngineConfigSpec:
             behavior_cls=self.behavior_cls,
             app_config_cls=self.app_config_cls,
         )
+
+
+def workflow_engine_config_spec(
+    *,
+    module_file: str,
+    executable_key: str,
+    paths_cls: Callable[..., Any],
+    behavior_cls: Callable[..., Any],
+    app_config_cls: Callable[..., Any],
+    env_var: str = "CHEMSTACK_CONFIG",
+) -> WorkflowEngineConfigSpec:
+    return WorkflowEngineConfigSpec(
+        module_file=module_file,
+        env_var=env_var,
+        executable_key=executable_key,
+        paths_cls=paths_cls,
+        behavior_cls=behavior_cls,
+        app_config_cls=app_config_cls,
+    )

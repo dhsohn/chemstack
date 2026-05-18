@@ -93,3 +93,54 @@ def to_chem_core_slot(slot: Any, *, backend: Any, deps: Any) -> Any:
 def from_chem_core_slot(slot: object, *, deps: Any) -> Any:
     normalized = admission_slot_payload(slot, include_legacy_reaction_dir=True)
     return deps._normalize_slot(normalized)
+
+
+def build_reserved_slot(
+    *,
+    token: str,
+    work_dir: str | None,
+    queue_id: str | None,
+    source: str,
+    owner_pid: int,
+    process_start_ticks: int | None,
+    acquired_at: str,
+    app_name: str | None,
+    task_id: str | None,
+    workflow_id: str | None,
+    state: str,
+    deps: Any,
+) -> Any:
+    backend = deps._chem_core_admission_module()
+    if backend is not None:
+        return deps._from_chem_core_slot(
+            backend.AdmissionSlot(
+                token=token,
+                owner_pid=owner_pid,
+                process_start_ticks=process_start_ticks,
+                source=text_field(source),
+                acquired_at=acquired_at,
+                app_name=text_field(app_name),
+                task_id=text_field(task_id),
+                workflow_id=text_field(workflow_id),
+                state=text_field(state) or "reserved",
+                work_dir=text_field(work_dir),
+                queue_id=text_field(queue_id),
+            )
+        )
+
+    return deps._normalize_slot(
+        {
+            "token": token,
+            "state": state,
+            "work_dir": work_dir,
+            "reaction_dir": work_dir,
+            "queue_id": queue_id,
+            "owner_pid": owner_pid,
+            "process_start_ticks": process_start_ticks,
+            "source": source,
+            "acquired_at": acquired_at,
+            "app_name": app_name,
+            "task_id": task_id,
+            "workflow_id": workflow_id,
+        }
+    )

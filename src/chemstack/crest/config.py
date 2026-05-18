@@ -32,7 +32,7 @@ class AppConfig:
     telegram: TelegramConfig = field(default_factory=TelegramConfig)
 
 
-_CONFIG_SPEC = _engine_config.WorkflowEngineConfigSpec(
+_CONFIG_SPEC = _engine_config.workflow_engine_config_spec(
     module_file=__file__,
     env_var=CONFIG_ENV_VAR,
     executable_key="crest_executable",

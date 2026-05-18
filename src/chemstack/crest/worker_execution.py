@@ -9,7 +9,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
-from chemstack.core.config import engines as _config_engines
 from chemstack.core.admission import release_slot
 from chemstack.core.queue import (
     execution as _queue_execution,
@@ -30,21 +29,20 @@ from chemstack.core.queue.worker import (
 )
 from chemstack.core.utils import now_utc_iso
 
+from . import queue_artifacts as _queue_artifacts
 from .config import load_config
 from .job_locations import upsert_job_record
 from .notifications import notify_job_finished, notify_job_started
 from .runner import CrestRunResult, finalize_crest_job, start_crest_job
-from .state import (
-    is_recovery_pending,
-    load_state,
-    mark_recovery_pending,
-    state_matches_job,
-    write_report_json,
-    write_report_md_lines,
-    write_state,
-)
+from .state import mark_recovery_pending
 
 CANCEL_CHECK_INTERVAL_SECONDS = 1
+is_recovery_pending = _queue_artifacts.is_recovery_pending
+load_state = _queue_artifacts.load_state
+state_matches_job = _queue_artifacts.state_matches_job
+write_report_json = _queue_artifacts.write_report_json
+write_report_md_lines = _queue_artifacts.write_report_md_lines
+write_state = _queue_artifacts.write_state
 
 
 @dataclass(frozen=True)
@@ -152,7 +150,7 @@ def default_worker_execution_dependencies() -> WorkerExecutionDependencies:
 
 
 def _coerce_mapping(value: Any) -> dict[str, Any]:
-    return _queue_execution.coerce_mapping(value)
+    return _queue_artifacts.coerce_mapping(value)
 
 
 def build_worker_child_command(
@@ -177,15 +175,12 @@ def build_worker_child_command(
 
 
 def _matching_result_state(entry: Any, result: CrestRunResult, job_dir: Path) -> dict[str, Any]:
-    return _queue_execution.load_matching_state(
+    return _queue_artifacts.matching_result_state(
+        entry,
+        result,
         job_dir,
         load_state_fn=load_state,
         state_matches_job_fn=state_matches_job,
-        match_kwargs={
-            "selected_input_xyz": result.selected_input_xyz,
-            "mode": result.mode,
-            "molecule_key": str(entry.metadata.get("molecule_key", "")).strip(),
-        },
     )
 
 
@@ -195,31 +190,7 @@ def _build_state_payload(
     *,
     previous_state: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    base_state = _coerce_mapping(previous_state)
-    recovery_reason = _queue_execution.recovery_reason(base_state)
-    payload = {
-        "job_id": entry.task_id,
-        "job_dir": str(entry.metadata.get("job_dir", "")).strip(),
-        "selected_input_xyz": result.selected_input_xyz,
-        "molecule_key": str(entry.metadata.get("molecule_key", "")).strip(),
-        "mode": result.mode,
-        "status": result.status,
-        "reason": result.reason,
-        "started_at": result.started_at,
-        "updated_at": result.finished_at,
-        "retained_conformer_count": result.retained_conformer_count,
-        "retained_conformer_paths": list(result.retained_conformer_paths),
-        "manifest_path": result.manifest_path,
-        "resource_request": dict(result.resource_request),
-        "resource_actual": dict(result.resource_actual),
-        "created_at": _queue_execution.created_at(base_state),
-        "recovery_pending": False,
-        "recovery_count": _queue_execution.recovery_count(base_state),
-        "resumed": bool(base_state.get("resumed", False)),
-    }
-    if recovery_reason:
-        payload["recovery_reason"] = recovery_reason
-    return payload
+    return _queue_artifacts.build_state_payload(entry, result, previous_state=previous_state)
 
 
 def _build_report_payload(
@@ -228,69 +199,15 @@ def _build_report_payload(
     *,
     previous_state: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    base_state = _coerce_mapping(previous_state)
-    recovery_reason = _queue_execution.recovery_reason(base_state)
-    payload = {
-        "job_id": entry.task_id,
-        "queue_id": entry.queue_id,
-        "status": result.status,
-        "reason": result.reason,
-        "mode": result.mode,
-        "selected_input_xyz": result.selected_input_xyz,
-        "molecule_key": str(entry.metadata.get("molecule_key", "")).strip(),
-        "command": list(result.command),
-        "exit_code": result.exit_code,
-        "started_at": result.started_at,
-        "finished_at": result.finished_at,
-        "stdout_log": result.stdout_log,
-        "stderr_log": result.stderr_log,
-        "retained_conformer_count": result.retained_conformer_count,
-        "retained_conformer_paths": list(result.retained_conformer_paths),
-        "manifest_path": result.manifest_path,
-        "resource_request": dict(result.resource_request),
-        "resource_actual": dict(result.resource_actual),
-        "created_at": _queue_execution.created_at(base_state),
-        "recovery_count": _queue_execution.recovery_count(base_state),
-        "resumed": bool(base_state.get("resumed", False)),
-    }
-    if recovery_reason:
-        payload["recovery_reason"] = recovery_reason
-    return payload
+    return _queue_artifacts.build_report_payload(entry, result, previous_state=previous_state)
 
 
 def _write_execution_artifacts(entry: Any, result: CrestRunResult) -> None:
-    job_dir_text = str(entry.metadata.get("job_dir", "")).strip()
-    if not job_dir_text:
-        return
-
-    job_dir = Path(job_dir_text).expanduser().resolve()
-    previous_state = _matching_result_state(entry, result, job_dir)
-    lines = [
-        "# crest_auto Report",
-        "",
-        f"- Job ID: `{entry.task_id}`",
-        f"- Queue ID: `{entry.queue_id}`",
-        f"- Status: `{result.status}`",
-        f"- Reason: `{result.reason}`",
-        f"- Mode: `{result.mode}`",
-        f"- Selected XYZ: `{Path(result.selected_input_xyz).name}`",
-        f"- Molecule Key: `{str(entry.metadata.get('molecule_key', '')).strip() or '-'}`",
-        f"- Exit Code: `{result.exit_code}`",
-        f"- Retained Conformers: `{result.retained_conformer_count}`",
-        f"- Resource Request: `{result.resource_request}`",
-        f"- Resource Actual: `{result.resource_actual}`",
-        f"- Stdout Log: `{result.stdout_log}`",
-        f"- Stderr Log: `{result.stderr_log}`",
-    ]
-    if result.retained_conformer_paths:
-        lines.append("- Retained Files:")
-        for path in result.retained_conformer_paths:
-            lines.append(f"  - `{path}`")
-    _queue_execution.write_result_artifacts(
-        job_dir_text,
-        state_payload=_build_state_payload(entry, result, previous_state=previous_state),
-        report_payload=_build_report_payload(entry, result, previous_state=previous_state),
-        report_lines=lines,
+    _queue_artifacts.write_execution_artifacts(
+        entry,
+        result,
+        load_state_fn=load_state,
+        state_matches_job_fn=state_matches_job,
         write_state_fn=write_state,
         write_report_json_fn=write_report_json,
         write_report_md_lines_fn=write_report_md_lines,
@@ -298,58 +215,19 @@ def _write_execution_artifacts(entry: Any, result: CrestRunResult) -> None:
 
 
 def _write_running_state(cfg: Any, entry: Any) -> None:
-    job_dir_text = str(entry.metadata.get("job_dir", "")).strip()
-    if not job_dir_text:
-        return
-    job_dir = Path(job_dir_text).expanduser().resolve()
-    resource_request = _entry_resource_request(cfg, entry)
-    previous_state = _queue_execution.load_matching_state(
-        job_dir,
+    _queue_artifacts.write_running_state(
+        cfg,
+        entry,
         load_state_fn=load_state,
         state_matches_job_fn=state_matches_job,
-        match_kwargs={
-            "selected_input_xyz": str(entry.metadata.get("selected_input_xyz", "")).strip(),
-            "mode": str(entry.metadata.get("mode", "standard")).strip(),
-            "molecule_key": str(entry.metadata.get("molecule_key", "")).strip(),
-        },
-    )
-    resumed = False
-    recovery_reason = ""
-    if previous_state:
-        resumed = (
-            is_recovery_pending(previous_state)
-            or str(previous_state.get("status", "")).strip().lower() == "running"
-        )
-        recovery_reason = _queue_execution.recovery_reason(previous_state)
-    started_at = entry.started_at or depsafe_now_utc_iso()
-    updated_at = depsafe_now_utc_iso()
-    write_state(
-        job_dir,
-        {
-            "job_id": entry.task_id,
-            "job_dir": str(job_dir),
-            "selected_input_xyz": str(entry.metadata.get("selected_input_xyz", "")).strip(),
-            "molecule_key": str(entry.metadata.get("molecule_key", "")).strip(),
-            "mode": str(entry.metadata.get("mode", "standard")).strip(),
-            "status": "running",
-            "reason": recovery_reason if resumed else "",
-            "started_at": started_at,
-            "updated_at": updated_at,
-            "resource_request": resource_request,
-            "resource_actual": dict(resource_request),
-            "created_at": _queue_execution.created_at(previous_state) or started_at,
-            "recovery_pending": False,
-            "recovery_count": _queue_execution.recovery_count(previous_state),
-            "resumed": resumed,
-            **({"recovery_reason": recovery_reason} if recovery_reason else {}),
-        },
+        is_recovery_pending_fn=is_recovery_pending,
+        write_state_fn=write_state,
+        now_utc_iso_fn=depsafe_now_utc_iso,
     )
 
 
 def depsafe_now_utc_iso() -> str:
-    from chemstack.core.utils import now_utc_iso as dynamic_now_utc_iso
-
-    return dynamic_now_utc_iso()
+    return _queue_artifacts.depsafe_now_utc_iso()
 
 
 def _terminate_process(proc: subprocess.Popen[str]) -> None:
@@ -362,18 +240,15 @@ def _terminate_process(proc: subprocess.Popen[str]) -> None:
 
 
 def _resource_caps(cfg: Any) -> dict[str, int]:
-    from .job_locations import resource_dict
-
-    return resource_dict(cfg.resources.max_cores_per_task, cfg.resources.max_memory_gb_per_task)
+    return _queue_artifacts.resource_caps(cfg)
 
 
 def _coerce_resource_dict(value: Any) -> dict[str, int]:
-    return _config_engines.positive_int_mapping(value)
+    return _queue_artifacts.coerce_resource_dict(value)
 
 
 def _entry_resource_request(cfg: Any, entry: Any) -> dict[str, int]:
-    metadata = getattr(entry, "metadata", {})
-    return _coerce_resource_dict(metadata.get("resource_request")) or _resource_caps(cfg)
+    return _queue_artifacts.entry_resource_request(cfg, entry)
 
 
 def _molecule_key(entry: Any, selected_xyz: Path, job_dir: Path) -> str:

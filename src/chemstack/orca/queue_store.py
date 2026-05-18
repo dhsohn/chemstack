@@ -12,7 +12,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterator, List, Optional, cast
 
-from chemstack.core.queue import compat as _core_queue_compat
 from chemstack.core.queue import store as _core_queue_store
 from chemstack.core.utils.persistence import load_json_list_file
 
@@ -26,6 +25,7 @@ from ..core.app_ids import CHEMSTACK_ORCA_APP_NAME
 from .persistence_utils import atomic_write_json, now_utc_iso, timestamped_token
 from .process_tracking import active_run_lock_pid, current_process_lock_payload, read_pid_file
 from . import queue_entry_model as _queue_entry_model
+from . import queue_backend as _queue_backend
 from . import queue_reconciliation as _queue_reconciliation
 from .state_store import load_state, report_json_path
 from .statuses import QueueStatus
@@ -69,22 +69,6 @@ def _now_iso() -> str:
 
 def _normalize_text(value: object | None) -> str:
     return _queue_entry_model.normalize_text(value)
-
-
-def _normalize_bool(value: object) -> bool:
-    return _queue_entry_model.normalize_bool(value)
-
-
-def _normalize_priority(value: object, *, default: int = 10) -> int:
-    return _queue_entry_model.normalize_priority(value, default=default)
-
-
-def _normalize_optional_text(value: object | None) -> str | None:
-    return _queue_entry_model.normalize_optional_text(value)
-
-
-def _normalize_metadata(raw: object) -> dict[str, Any]:
-    return _queue_entry_model.normalize_metadata(raw)
 
 
 def _normalize_entry(entry: QueueEntry) -> QueueEntry:
@@ -207,63 +191,12 @@ def _load_entries(allowed_root: Path) -> List[QueueEntry]:
     return [cast(QueueEntry, e) for e in raw if isinstance(e, dict)]
 
 
-def _to_chem_core_entry(entry: QueueEntry, *, backend: Any) -> Any:
-    normalized = _normalize_entry(entry)
-    metadata = _core_queue_compat.metadata_with_run_id(
-        queue_entry_metadata(normalized),
-        queue_entry_run_id(normalized),
-    )
-    status = _core_queue_compat.coerce_queue_status(
-        backend.QueueStatus,
-        queue_entry_status(normalized),
-        default=QueueStatus.PENDING.value,
-    )
-    return backend.QueueEntry(
-        queue_id=queue_entry_id(normalized),
-        app_name=queue_entry_app_name(normalized),
-        task_id=queue_entry_task_id(normalized) or queue_entry_id(normalized),
-        task_kind=_normalize_text(normalized.get("task_kind")) or QUEUE_TASK_KIND,
-        engine=_normalize_text(normalized.get("engine")) or QUEUE_ENGINE,
-        status=status,
-        priority=queue_entry_priority(normalized),
-        enqueued_at=_normalize_text(normalized.get("enqueued_at")),
-        started_at=_normalize_text(normalized.get("started_at")),
-        finished_at=_normalize_text(normalized.get("finished_at")),
-        cancel_requested=bool(normalized.get("cancel_requested", False)),
-        error=_normalize_text(normalized.get("error")),
-        metadata=metadata,
-    )
-
-
-def _backend_entry_dict(entry: QueueEntry, *, backend: Any) -> dict[str, Any]:
-    normalized = _normalize_entry(entry)
-    serialize_entry = getattr(backend, "entry_to_dict", None)
-    if not callable(serialize_entry):
-        serialize_entry = backend._entry_to_dict
-    serialized = dict(serialize_entry(_to_chem_core_entry(normalized, backend=backend)))
-
-    reaction_dir = queue_entry_reaction_dir(normalized)
-    if reaction_dir:
-        serialized["reaction_dir"] = reaction_dir
-    serialized["force"] = queue_entry_force(normalized)
-    serialized["started_at"] = normalized.get("started_at")
-    serialized["finished_at"] = normalized.get("finished_at")
-    serialized["error"] = normalized.get("error")
-    serialized["run_id"] = queue_entry_run_id(normalized)
-    return serialized
-
-
 def _save_entries(allowed_root: Path, entries: List[QueueEntry]) -> None:
     normalized_entries = [_normalize_entry(entry) for entry in entries]
-    backend = _chem_core_queue_module()
-    if backend is None:
-        atomic_write_json(
-            _queue_path(allowed_root), normalized_entries, ensure_ascii=True, indent=2
-        )
-        return
-    serialized_entries = [
-        _backend_entry_dict(entry, backend=backend) for entry in normalized_entries
-    ]
+    serialized_entries = _queue_backend.entries_payload(
+        normalized_entries,
+        backend=_chem_core_queue_module(),
+    )
     atomic_write_json(_queue_path(allowed_root), serialized_entries, ensure_ascii=True, indent=2)
 
 

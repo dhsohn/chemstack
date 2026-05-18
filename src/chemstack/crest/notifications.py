@@ -11,17 +11,19 @@ _LABEL = "crest_auto"
 _ENGINE = "crest"
 
 
-def _is_workflow_child(job_dir: Path) -> bool:
-    return _engine_notifications.is_workflow_child(job_dir, engine=_ENGINE)
-
-
 _send = _engine_notifications.telegram_line_sender(lambda: build_telegram_transport)
-_NOTIFIER = _engine_notifications.build_engine_notifier(
+_NOTIFICATIONS = _engine_notifications.build_engine_notification_module(
     label=_LABEL,
     engine=_ENGINE,
+    selected_field_name="selected_xyz",
+    detail_field_names=("mode",),
+    terminal_count_field="retained_conformer_count",
     send_fn=_send,
 )
-_SELECTED_XYZ_FIELD = "selected_xyz"
+
+
+def _detail_values(mode: str) -> dict[str, object]:
+    return {"mode": mode}
 
 
 def notify_job_queued(
@@ -33,16 +35,14 @@ def notify_job_queued(
     mode: str,
     selected_xyz: Path,
 ) -> bool:
-    return _engine_notifications.send_lifecycle_event(
-        _NOTIFIER,
+    return _NOTIFICATIONS.notify_lifecycle(
         cfg,
         headline="Job queued",
         job_id=job_id,
         queue_id=queue_id,
         job_dir=job_dir,
         selected_xyz=selected_xyz,
-        selected_field_name=_SELECTED_XYZ_FIELD,
-        detail_fields=[("mode", mode)],
+        detail_values=_detail_values(mode),
     )
 
 
@@ -55,16 +55,14 @@ def notify_job_started(
     mode: str,
     selected_xyz: Path,
 ) -> bool:
-    return _engine_notifications.send_lifecycle_event(
-        _NOTIFIER,
+    return _NOTIFICATIONS.notify_lifecycle(
         cfg,
         headline="Job started",
         job_id=job_id,
         queue_id=queue_id,
         job_dir=job_dir,
         selected_xyz=selected_xyz,
-        selected_field_name=_SELECTED_XYZ_FIELD,
-        detail_fields=[("mode", mode)],
+        detail_values=_detail_values(mode),
     )
 
 
@@ -82,8 +80,7 @@ def notify_job_terminal(
     retained_conformer_count: int,
     extra_lines: list[str] | None = None,
 ) -> bool:
-    return _engine_notifications.send_terminal_event(
-        _NOTIFIER,
+    return _NOTIFICATIONS.notify_terminal(
         cfg,
         headline=headline,
         job_id=job_id,
@@ -92,9 +89,8 @@ def notify_job_terminal(
         reason=reason,
         job_dir=job_dir,
         selected_xyz=selected_xyz,
-        selected_field_name=_SELECTED_XYZ_FIELD,
-        detail_fields=[("mode", mode)],
-        count_field=("retained_conformer_count", retained_conformer_count),
+        count_value=retained_conformer_count,
+        detail_values=_detail_values(mode),
         extra_lines=extra_lines,
     )
 
@@ -114,21 +110,17 @@ def notify_job_finished(
     resource_request: dict[str, int] | None = None,
     resource_actual: dict[str, int] | None = None,
 ) -> bool:
-    extra_lines = _engine_notifications.optional_terminal_lines(
-        organized_output_dir=organized_output_dir,
-        resource_request=resource_request,
-        resource_actual=resource_actual,
-    )
-    return notify_job_terminal(
+    return _NOTIFICATIONS.notify_finished(
         cfg,
-        headline=_engine_notifications.terminal_headline(status),
         job_id=job_id,
         queue_id=queue_id,
         status=status,
         reason=reason,
-        mode=mode,
         job_dir=job_dir,
         selected_xyz=selected_xyz,
-        retained_conformer_count=retained_conformer_count,
-        extra_lines=extra_lines or None,
+        count_value=retained_conformer_count,
+        detail_values=_detail_values(mode),
+        organized_output_dir=organized_output_dir,
+        resource_request=resource_request,
+        resource_actual=resource_actual,
     )

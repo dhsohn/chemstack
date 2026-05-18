@@ -110,6 +110,19 @@ class _ActivityListProvider:
     collect: Callable[[ResolvedActivitySources, ActivityListRequest], list[ActivityRecord]]
 
 
+@dataclass(frozen=True)
+class _EngineQueueClearProvider:
+    engine: str
+    config_attr: str
+    cleared_key: str
+
+    def clear(self, resolved: ResolvedActivitySources) -> int:
+        config_path = normalize_text(getattr(resolved, self.config_attr))
+        if not config_path:
+            return 0
+        return sum(clear_queue_terminal(root) for root in _engine_queue_roots(config_path, engine=self.engine))
+
+
 _ActivityCancelProvider = _activity_cancel.ActivityCancelProvider
 
 
@@ -527,6 +540,21 @@ def _activity_list_providers() -> tuple[_ActivityListProvider, ...]:
     )
 
 
+def _engine_queue_clear_providers() -> tuple[_EngineQueueClearProvider, ...]:
+    return (
+        _EngineQueueClearProvider(
+            engine="xtb",
+            config_attr="xtb_auto_config",
+            cleared_key="xtb_queue_entries",
+        ),
+        _EngineQueueClearProvider(
+            engine="crest",
+            config_attr="crest_auto_config",
+            cleared_key="crest_queue_entries",
+        ),
+    )
+
+
 def _collect_activity_records_from_request(request: ActivityListRequest) -> list[ActivityRecord]:
     resolved = _resolved_activity_sources_for_request(request.sources)
     rows: list[ActivityRecord] = []
@@ -640,12 +668,8 @@ def clear_activities(
             str(resolved.workflow_root),
             statuses=_ACTIVITY_CLEARABLE_TERMINAL_STATUSES,
         )
-    if normalize_text(resolved.xtb_auto_config):
-        for allowed_root in _engine_queue_roots(str(resolved.xtb_auto_config), engine="xtb"):
-            cleared["xtb_queue_entries"] += clear_queue_terminal(allowed_root)
-    if normalize_text(resolved.crest_auto_config):
-        for allowed_root in _engine_queue_roots(str(resolved.crest_auto_config), engine="crest"):
-            cleared["crest_queue_entries"] += clear_queue_terminal(allowed_root)
+    for provider in _engine_queue_clear_providers():
+        cleared[provider.cleared_key] += provider.clear(resolved)
     if normalize_text(resolved.orca_auto_config):
         from chemstack.orca.commands.list_runs import (
             clear_terminal_entries as clear_orca_terminal_entries,

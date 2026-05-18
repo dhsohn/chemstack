@@ -179,14 +179,6 @@ def _backend_active_slot_count(root: Path, *, backend: Any) -> int | None:
     )
 
 
-def _int_field(value: object) -> int:
-    return _admission_backend.int_field(value)
-
-
-def _optional_int_field(value: object) -> int | None:
-    return _admission_backend.optional_int_field(value)
-
-
 def _text_field(value: object) -> str:
     return _admission_backend.text_field(value)
 
@@ -339,39 +331,22 @@ def _build_reserved_slot(
 ) -> AdmissionSlot:
     resolved_work_dir = _normalize_work_dir(reaction_dir)
     resolved_owner_pid, resolved_start_ticks = _slot_owner_identity(owner_pid)
-    backend = _chem_core_admission_module()
-    if backend is not None:
-        return _from_chem_core_slot(
-            backend.AdmissionSlot(
-                token=token,
-                owner_pid=resolved_owner_pid,
-                process_start_ticks=resolved_start_ticks,
-                source=_text_field(source),
-                acquired_at=now_utc_iso(),
-                app_name=_text_field(app_name),
-                task_id=_text_field(task_id),
-                workflow_id=_text_field(workflow_id),
-                state=_text_field(state) or "reserved",
-                work_dir=_text_field(resolved_work_dir),
-                queue_id=_text_field(queue_id),
-            )
-        )
-
-    return _normalize_slot(
-        {
-            "token": token,
-            "state": state,
-            "work_dir": resolved_work_dir,
-            "reaction_dir": resolved_work_dir,
-            "queue_id": queue_id,
-            "owner_pid": resolved_owner_pid,
-            "process_start_ticks": resolved_start_ticks,
-            "source": source,
-            "acquired_at": now_utc_iso(),
-            "app_name": app_name,
-            "task_id": task_id,
-            "workflow_id": workflow_id,
-        }
+    return cast(
+        AdmissionSlot,
+        _admission_backend.build_reserved_slot(
+            token=token,
+            work_dir=resolved_work_dir,
+            queue_id=queue_id,
+            source=source,
+            owner_pid=resolved_owner_pid,
+            process_start_ticks=resolved_start_ticks,
+            acquired_at=now_utc_iso(),
+            app_name=app_name,
+            task_id=task_id,
+            workflow_id=workflow_id,
+            state=state,
+            deps=_admission_backend_deps(),
+        ),
     )
 
 
