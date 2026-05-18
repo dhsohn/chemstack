@@ -10,8 +10,8 @@ from chemstack.core.config.engines import (
     resource_request_from_manifest as _shared_resource_request_from_manifest,
 )
 from chemstack.core.paths import validate_job_dir
+from chemstack.core.paths.workflow import workflow_workspace_internal_engine_paths_from_path
 from chemstack.core.utils import now_utc_iso, timestamped_token
-from chemstack.flow.state import workflow_workspace_internal_engine_paths_from_path
 
 from ..config import AppConfig
 

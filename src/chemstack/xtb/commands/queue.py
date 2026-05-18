@@ -220,6 +220,36 @@ def _queue_command_deps() -> _QueueCommandDeps:
     )
 
 
+def _worker_execution_dependencies() -> _worker_execution.WorkerExecutionDependencies:
+    return _worker_execution.WorkerExecutionDependencies(
+        load_config=load_config,
+        queue_entry_by_id=_queue_entry_by_id,
+        activate_reserved_slot=activate_reserved_slot,
+        release_slot=release_slot,
+        job_dir=_job_dir,
+        selected_xyz=_selected_xyz,
+        job_type=_job_type,
+        reaction_key=_reaction_key,
+        input_summary=_input_summary,
+        entry_resource_request=_entry_resource_request,
+        matching_state=_matching_state,
+        is_recovery_pending=is_recovery_pending,
+        write_running_state=_write_running_state,
+        upsert_job_record=upsert_job_record,
+        notify_job_started=notify_job_started,
+        build_terminal_result=_build_terminal_result,
+        run_xtb_ranking_job=run_xtb_ranking_job,
+        start_xtb_job=start_xtb_job,
+        finalize_xtb_job=finalize_xtb_job,
+        terminate_process=_terminate_process,
+        wait_for_cancellable_process=_queue_execution.wait_for_cancellable_process,
+        sleep=time.sleep,
+        cancel_check_interval_seconds=CANCEL_CHECK_INTERVAL_SECONDS,
+        finalize_execution_result=_finalize_execution_result,
+        execute_queue_entry=_execute_queue_entry,
+    )
+
+
 @dataclass(frozen=True)
 class QueueExecutionOutcome:
     result: XtbRunResult
@@ -566,6 +596,7 @@ def _execute_queue_entry(
         register_running_job=register_running_job,
         worker_job_pid=worker_job_pid,
         emit_output=emit_output,
+        dependencies=_worker_execution_dependencies(),
     )
 
 
@@ -673,6 +704,7 @@ def run_worker_job(
         auto_organize=False,
         should_cancel=should_cancel,
         register_running_job=register_running_job,
+        dependencies=_worker_execution_dependencies(),
     )
 
 

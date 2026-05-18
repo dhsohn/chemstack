@@ -5,7 +5,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Mapping
 
-from chemstack.flow.state import workflow_workspace_internal_engine_paths_from_path
+from chemstack.core.paths.workflow import workflow_workspace_internal_engine_paths_from_path
 
 from ..config import AppConfig, load_config
 from ..organize_index import (

@@ -32,16 +32,19 @@ class AppConfig:
     telegram: TelegramConfig = field(default_factory=TelegramConfig)
 
 
+_CONFIG_SPEC = _engine_config.WorkflowEngineConfigSpec(
+    module_file=__file__,
+    env_var=CONFIG_ENV_VAR,
+    executable_key="xtb_executable",
+    paths_cls=PathsConfig,
+    behavior_cls=BehaviorConfig,
+    app_config_cls=AppConfig,
+)
+
+
 def default_config_path() -> str:
-    return _engine_config.default_workflow_engine_config_path(__file__, env_var=CONFIG_ENV_VAR)
+    return _CONFIG_SPEC.default_config_path()
 
 
 def load_config(config_path: str | None = None) -> AppConfig:
-    return _engine_config.load_workflow_engine_config(
-        config_path,
-        default_config_path_fn=default_config_path,
-        executable_key="xtb_executable",
-        paths_cls=PathsConfig,
-        behavior_cls=BehaviorConfig,
-        app_config_cls=AppConfig,
-    )
+    return _CONFIG_SPEC.load_config(config_path, default_config_path_fn=default_config_path)

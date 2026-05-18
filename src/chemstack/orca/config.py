@@ -7,6 +7,8 @@ from typing import Any, Dict
 
 import yaml
 
+from chemstack.core.config import CommonResourceConfig, TelegramConfig
+from chemstack.core.config import engines as _config_engines
 from chemstack.core.config.files import (
     default_shared_admission_root,
     engine_config_mapping,
@@ -79,32 +81,6 @@ def _removed_runtime_scheduler_keys_error(path: Path, removed_keys: list[str]) -
     return ValueError(f"Config uses unsupported runtime keys: {keys} ({path})")
 
 
-def _as_bool(value: Any, default: bool = False) -> bool:
-    if value is None:
-        return default
-    if isinstance(value, bool):
-        return value
-    text = str(value).strip().lower()
-    if text in {"1", "true", "yes", "on"}:
-        return True
-    if text in {"0", "false", "no", "off"}:
-        return False
-    return default
-
-
-def _as_float(value: Any, default: float) -> float:
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return default
-
-
-@dataclass
-class CommonResourceConfig:
-    max_cores_per_task: int = 8
-    max_memory_gb_per_task: int = 32
-
-
 @dataclass
 class CommonRuntimeConfig:
     allowed_root: str = ""
@@ -168,22 +144,6 @@ class PathsConfig:
 @dataclass
 class BehaviorConfig:
     auto_organize_on_terminal: bool = False
-
-
-@dataclass
-class TelegramConfig:
-    bot_token: str = ""
-    chat_id: str = ""
-    timeout_seconds: float = 5.0
-    max_attempts: int = 2
-    retry_backoff_seconds: float = 0.5
-    enabled: bool = False
-
-    def __post_init__(self) -> None:
-        self.timeout_seconds = max(0.1, _as_float(self.timeout_seconds, 5.0))
-        self.max_attempts = max(1, _as_int(self.max_attempts, 2))
-        self.retry_backoff_seconds = max(0.0, _as_float(self.retry_backoff_seconds, 0.5))
-        self.enabled = bool(self.bot_token and self.chat_id)
 
 
 @dataclass
@@ -264,11 +224,11 @@ def _build_telegram_config(telegram_raw: Dict[str, Any]) -> TelegramConfig:
     return TelegramConfig(
         bot_token=_as_str(telegram_raw.get("bot_token"), ""),
         chat_id=str(telegram_raw.get("chat_id", "")).strip(),
-        timeout_seconds=_as_float(
+        timeout_seconds=_config_engines.as_float(
             telegram_raw.get("timeout_seconds"), TelegramConfig.timeout_seconds
         ),
         max_attempts=_as_int(telegram_raw.get("max_attempts"), TelegramConfig.max_attempts),
-        retry_backoff_seconds=_as_float(
+        retry_backoff_seconds=_config_engines.as_float(
             telegram_raw.get("retry_backoff_seconds"),
             TelegramConfig.retry_backoff_seconds,
         ),
@@ -331,7 +291,7 @@ def load_config(config_path: str) -> AppConfig:
             orca_executable=orca_executable,
         ),
         behavior=BehaviorConfig(
-            auto_organize_on_terminal=_as_bool(
+            auto_organize_on_terminal=_config_engines.as_bool(
                 behavior_raw.get("auto_organize_on_terminal"),
                 False,
             ),

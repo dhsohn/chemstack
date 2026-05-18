@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterator, List, Optional, cast
 
+from chemstack.core.queue import compat as _core_queue_compat
 from chemstack.core.queue import store as _core_queue_store
 from chemstack.core.utils.persistence import load_json_list_file
 
@@ -208,16 +209,15 @@ def _load_entries(allowed_root: Path) -> List[QueueEntry]:
 
 def _to_chem_core_entry(entry: QueueEntry, *, backend: Any) -> Any:
     normalized = _normalize_entry(entry)
-    metadata = queue_entry_metadata(normalized)
-    run_id = queue_entry_run_id(normalized)
-    if run_id is not None:
-        metadata.setdefault("run_id", run_id)
-
-    status_text = queue_entry_status(normalized) or QueueStatus.PENDING.value
-    try:
-        status = backend.QueueStatus(status_text)
-    except ValueError:
-        status = backend.QueueStatus(QueueStatus.PENDING.value)
+    metadata = _core_queue_compat.metadata_with_run_id(
+        queue_entry_metadata(normalized),
+        queue_entry_run_id(normalized),
+    )
+    status = _core_queue_compat.coerce_queue_status(
+        backend.QueueStatus,
+        queue_entry_status(normalized),
+        default=QueueStatus.PENDING.value,
+    )
     return backend.QueueEntry(
         queue_id=queue_entry_id(normalized),
         app_name=queue_entry_app_name(normalized),

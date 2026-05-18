@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, TextIO
 
 from chemstack.core.config import engines as _config_engines
+from chemstack.core.engine_process import start_logged_process
 from chemstack.core.utils import now_utc_iso
 from chemstack.core.utils import process as process_utils
 
@@ -266,37 +267,26 @@ def start_crest_job(cfg: AppConfig, *, job_dir: Path, selected_xyz: Path) -> Cre
 
     stdout_log = job_dir / "crest.stdout.log"
     stderr_log = job_dir / "crest.stderr.log"
-    started_at = now_utc_iso()
-    # Avoid nested BLAS/OpenMP oversubscription beyond the configured limit.
-    env = {
-        **os.environ,
-        "OMP_NUM_THREADS": str(resource_request["max_cores"]),
-        "OPENBLAS_NUM_THREADS": str(resource_request["max_cores"]),
-        "MKL_NUM_THREADS": str(resource_request["max_cores"]),
-        "NUMEXPR_NUM_THREADS": str(resource_request["max_cores"]),
-    }
-
-    stdout_handle = stdout_log.open("w", encoding="utf-8")
-    stderr_handle = stderr_log.open("w", encoding="utf-8")
-    process = subprocess.Popen(
+    launched = start_logged_process(
         command,
         cwd=job_dir,
-        env=env,
-        text=True,
-        stdout=stdout_handle,
-        stderr=stderr_handle,
-        stdin=subprocess.DEVNULL,
-        start_new_session=True,
+        stdout_log=stdout_log,
+        stderr_log=stderr_log,
+        max_cores=resource_request["max_cores"],
+        base_env=os.environ,
+        now_utc_iso_fn=now_utc_iso,
+        popen_fn=subprocess.Popen,
+        stdin_value=subprocess.DEVNULL,
         preexec_fn=_preexec_with_limits(resource_request["max_memory_gb"]),
     )
     return CrestRunningJob(
-        process=process,
+        process=launched.process,
         command=tuple(command),
-        started_at=started_at,
-        stdout_log=str(stdout_log.resolve()),
-        stderr_log=str(stderr_log.resolve()),
-        stdout_handle=stdout_handle,
-        stderr_handle=stderr_handle,
+        started_at=launched.started_at,
+        stdout_log=str(launched.stdout_log.resolve()),
+        stderr_log=str(launched.stderr_log.resolve()),
+        stdout_handle=launched.stdout_handle,
+        stderr_handle=launched.stderr_handle,
         selected_input_xyz=str(selected_xyz.resolve()),
         mode=job_mode(manifest),
         manifest_path=str((job_dir / MANIFEST_FILE_NAME).resolve())

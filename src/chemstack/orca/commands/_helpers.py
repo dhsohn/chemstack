@@ -7,7 +7,7 @@ from typing import Any, Callable, Dict, List
 
 from chemstack.core.config.files import default_config_path_from_repo_root
 from chemstack.core.paths import validate_job_dir
-from chemstack.flow.state import workflow_workspace_internal_engine_paths_from_path
+from chemstack.core.paths.workflow import workflow_workspace_internal_engine_paths_from_path
 
 from ..config import AppConfig
 from ..pathing import is_subpath

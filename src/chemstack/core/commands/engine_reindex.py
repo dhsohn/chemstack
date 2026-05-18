@@ -5,7 +5,7 @@ from typing import Any
 
 from chemstack.core.indexing import get_job_location, upsert_job_location
 from chemstack.core.paths import ensure_directory
-from chemstack.flow.state import iter_workflow_runtime_workspaces, workflow_workspace_internal_engine_paths
+from chemstack.core.paths.workflow import iter_workflow_runtime_workspaces, workflow_workspace_internal_engine_paths
 
 
 def scan_roots(cfg: Any, raw_root: str | None, *, engine: str) -> list[Path]:

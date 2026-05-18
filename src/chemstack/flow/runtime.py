@@ -14,6 +14,7 @@ from chemstack.flow.submitters.common import sibling_runtime_paths
 from .orchestration import advance_workflow
 from . import _runtime_stage_events
 from ._workflow_phases import phase_transition_event_payloads
+from .engine_options import WorkflowEngineOptions
 from .registry import (
     append_workflow_journal_event,
     list_workflow_registry,
@@ -34,22 +35,9 @@ TERMINAL_WORKFLOW_STATUSES = frozenset(
 
 
 @dataclass(frozen=True)
-class _WorkflowAdvanceOptions:
-    crest_auto_config: str | None
-    crest_auto_executable: str
-    crest_auto_repo_root: str | None
-    xtb_auto_config: str | None
-    xtb_auto_executable: str
-    xtb_auto_repo_root: str | None
-    orca_auto_config: str | None
-    orca_auto_executable: str
-    orca_auto_repo_root: str | None
-
-
-@dataclass(frozen=True)
 class WorkflowRuntimeContext:
     root: Path
-    options: _WorkflowAdvanceOptions
+    options: WorkflowEngineOptions
     submit_ready: bool = True
     refresh_registry: bool = False
     worker_session_id: str = ""
@@ -518,7 +506,7 @@ def _advance_workflow_record(
     *,
     cycle: _WorkflowCycle,
     record: Any,
-    options: _WorkflowAdvanceOptions,
+    options: WorkflowEngineOptions,
 ) -> tuple[str, dict[str, Any]]:
     previous_status = _normalize_text(record.status).lower()
     terminal_sync = previous_status in TERMINAL_WORKFLOW_STATUSES and _workflow_needs_terminal_sync(
@@ -587,7 +575,7 @@ def _advance_workflow_records(
     *,
     cycle: _WorkflowCycle,
     records: list[Any],
-    options: _WorkflowAdvanceOptions,
+    options: WorkflowEngineOptions,
 ) -> _WorkflowCycleProgress:
     workflow_results: list[dict[str, Any]] = []
     advanced_count = 0
@@ -675,7 +663,7 @@ def advance_workflow_registry_once(
     lease_seconds: float = 60.0,
 ) -> dict[str, Any]:
     root = Path(workflow_root).expanduser().resolve()
-    options = _WorkflowAdvanceOptions(
+    options = WorkflowEngineOptions.from_values(
         crest_auto_config=crest_auto_config,
         crest_auto_executable=crest_auto_executable,
         crest_auto_repo_root=crest_auto_repo_root,

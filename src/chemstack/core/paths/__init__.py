@@ -12,11 +12,25 @@ from .validation import (
     safe_is_subpath,
     validate_job_dir,
 )
+from .workflow import (
+    WORKFLOW_ENGINE_STAGE_ALIASES,
+    WORKFLOW_FILE_NAME,
+    WORKFLOW_STAGE_DIRNAMES,
+    iter_workflow_runtime_workspaces,
+    workflow_root_dir,
+    workflow_stage_dirnames_for_engine,
+    workflow_workspace_internal_engine_paths,
+    workflow_workspace_internal_engine_paths_from_path,
+)
 
 __all__ = [
+    "WORKFLOW_ENGINE_STAGE_ALIASES",
+    "WORKFLOW_FILE_NAME",
+    "WORKFLOW_STAGE_DIRNAMES",
     "ensure_directory",
     "first_existing_named_file",
     "iter_existing_dirs",
+    "iter_workflow_runtime_workspaces",
     "is_rejected_windows_path",
     "is_subpath",
     "recent_file_candidates",
@@ -26,4 +40,8 @@ __all__ = [
     "resolved_path_text",
     "safe_is_subpath",
     "validate_job_dir",
+    "workflow_root_dir",
+    "workflow_stage_dirnames_for_engine",
+    "workflow_workspace_internal_engine_paths",
+    "workflow_workspace_internal_engine_paths_from_path",
 ]

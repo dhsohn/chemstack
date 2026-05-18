@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import shutil
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -29,6 +30,13 @@ from .contracts import (
 _REACTION_TS_SEARCH_CREST_MANIFEST_DEFAULTS: dict[str, Any] = {"rthr": 0.3}
 
 
+@dataclass(frozen=True)
+class _StagePayloadSections:
+    task_payload: dict[str, Any]
+    task_metadata: dict[str, Any]
+    stage_metadata: dict[str, Any]
+
+
 def _merge_manifest_defaults(
     defaults: dict[str, Any],
     overrides: dict[str, Any] | None,
@@ -45,6 +53,63 @@ def _merge_manifest_defaults(
     return merged
 
 
+def _resource_request(max_cores: int, max_memory_gb: int) -> dict[str, int]:
+    return {"max_cores": int(max_cores), "max_memory_gb": int(max_memory_gb)}
+
+
+def _stage_payload_sections(
+    *,
+    task_payload: dict[str, Any],
+    task_metadata: dict[str, Any],
+    stage_metadata: dict[str, Any],
+    manifest_overrides: dict[str, Any] | None,
+) -> _StagePayloadSections:
+    resolved_overrides = dict(manifest_overrides or {})
+    if resolved_overrides:
+        task_payload["job_manifest_overrides"] = resolved_overrides
+        task_metadata["job_manifest_overrides"] = resolved_overrides
+        stage_metadata["job_manifest_overrides"] = resolved_overrides
+    return _StagePayloadSections(
+        task_payload=task_payload,
+        task_metadata=task_metadata,
+        stage_metadata=stage_metadata,
+    )
+
+
+def _engine_enqueue_payload(
+    *,
+    submitter: str,
+    app_name: str,
+    command_name: str,
+    module_name: str,
+    config_placeholder: str,
+    priority: int,
+    extra: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "submitter": submitter,
+        "app_name": app_name,
+        "command": f"{command_name} --config {config_placeholder} run-dir '<job_dir>' --priority {int(priority)}",
+        "command_argv": [
+            "python",
+            "-m",
+            module_name,
+            "--config",
+            config_placeholder,
+            "run-dir",
+            "<job_dir>",
+            "--priority",
+            str(int(priority)),
+        ],
+        "requires_config": True,
+        "config_argument_placeholder": config_placeholder,
+        "job_dir": "",
+        "priority": int(priority),
+    }
+    payload.update(extra or {})
+    return payload
+
+
 def new_crest_stage_impl(
     *,
     workflow_id: str,
@@ -58,54 +123,39 @@ def new_crest_stage_impl(
     max_memory_gb: int,
     manifest_overrides: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    resource_request = {"max_cores": int(max_cores), "max_memory_gb": int(max_memory_gb)}
     config_placeholder = "<crest_auto_config>"
-    resolved_overrides = dict(manifest_overrides or {})
-    payload_dict: dict[str, Any] = {
-        "workflow_id": workflow_id,
-        "template_name": template_name,
-        "source_input_xyz": source_path,
-        "selected_input_xyz": "",
-        "job_dir": "",
-        "mode": mode,
-        "input_role": input_role,
-    }
-    metadata_dict: dict[str, Any] = {
-        "input_role": input_role,
-        "mode": mode,
-    }
-    stage_metadata: dict[str, Any] = {"input_role": input_role, "mode": mode}
-    if resolved_overrides:
-        payload_dict["job_manifest_overrides"] = resolved_overrides
-        metadata_dict["job_manifest_overrides"] = resolved_overrides
-        stage_metadata["job_manifest_overrides"] = resolved_overrides
+    sections = _stage_payload_sections(
+        task_payload={
+            "workflow_id": workflow_id,
+            "template_name": template_name,
+            "source_input_xyz": source_path,
+            "selected_input_xyz": "",
+            "job_dir": "",
+            "mode": mode,
+            "input_role": input_role,
+        },
+        task_metadata={
+            "input_role": input_role,
+            "mode": mode,
+        },
+        stage_metadata={"input_role": input_role, "mode": mode},
+        manifest_overrides=manifest_overrides,
+    )
     task = WorkflowTask.from_raw(
         task_id=f"{workflow_id}:{stage_id}",
         engine="crest",
         task_kind="conformer_search",
-        resource_request=resource_request,
-        payload=payload_dict,
-        enqueue_payload={
-            "submitter": "crest_auto_cli",
-            "app_name": "crest_auto",
-            "command": f"{CHEMSTACK_CREST_COMMAND} --config {config_placeholder} run-dir '<job_dir>' --priority {int(priority)}",
-            "command_argv": [
-                "python",
-                "-m",
-                CHEMSTACK_CREST_MODULE,
-                "--config",
-                config_placeholder,
-                "run-dir",
-                "<job_dir>",
-                "--priority",
-                str(int(priority)),
-            ],
-            "requires_config": True,
-            "config_argument_placeholder": config_placeholder,
-            "job_dir": "",
-            "priority": int(priority),
-        },
-        metadata=metadata_dict,
+        resource_request=_resource_request(max_cores, max_memory_gb),
+        payload=sections.task_payload,
+        enqueue_payload=_engine_enqueue_payload(
+            submitter="crest_auto_cli",
+            app_name="crest_auto",
+            command_name=CHEMSTACK_CREST_COMMAND,
+            module_name=CHEMSTACK_CREST_MODULE,
+            config_placeholder=config_placeholder,
+            priority=priority,
+        ),
+        metadata=sections.task_metadata,
     )
     stage = WorkflowStage(
         stage_id=stage_id,
@@ -121,7 +171,7 @@ def new_crest_stage_impl(
         ),
         output_artifacts=(),
         task=task,
-        metadata=stage_metadata,
+        metadata=sections.stage_metadata,
     )
     return stage.to_dict()
 
@@ -139,59 +189,45 @@ def new_xtb_stage_impl(
     max_handoff_retries: int = 2,
     manifest_overrides: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    resource_request = {"max_cores": int(max_cores), "max_memory_gb": int(max_memory_gb)}
     config_placeholder = "<xtb_auto_config>"
-    resolved_overrides = dict(manifest_overrides or {})
-    payload_dict: dict[str, Any] = {
-        "workflow_id": workflow_id,
-        "job_dir": "",
-        "reaction_key": reaction_key,
-        "reactant_source": dict(reactant_input),
-        "product_source": dict(product_input),
-        "selected_input_xyz": "",
-        "secondary_input_xyz": "",
-        "max_handoff_retries": max(0, int(max_handoff_retries)),
-    }
-    metadata_dict: dict[str, Any] = {
-        "reaction_key": reaction_key,
-        "max_handoff_retries": max(0, int(max_handoff_retries)),
-    }
-    stage_metadata: dict[str, Any] = {
-        "reaction_key": reaction_key,
-        "max_handoff_retries": max(0, int(max_handoff_retries)),
-    }
-    if resolved_overrides:
-        payload_dict["job_manifest_overrides"] = resolved_overrides
-        metadata_dict["job_manifest_overrides"] = resolved_overrides
-        stage_metadata["job_manifest_overrides"] = resolved_overrides
+    retry_limit = max(0, int(max_handoff_retries))
+    sections = _stage_payload_sections(
+        task_payload={
+            "workflow_id": workflow_id,
+            "job_dir": "",
+            "reaction_key": reaction_key,
+            "reactant_source": dict(reactant_input),
+            "product_source": dict(product_input),
+            "selected_input_xyz": "",
+            "secondary_input_xyz": "",
+            "max_handoff_retries": retry_limit,
+        },
+        task_metadata={
+            "reaction_key": reaction_key,
+            "max_handoff_retries": retry_limit,
+        },
+        stage_metadata={
+            "reaction_key": reaction_key,
+            "max_handoff_retries": retry_limit,
+        },
+        manifest_overrides=manifest_overrides,
+    )
     task = WorkflowTask.from_raw(
         task_id=f"{workflow_id}:{stage_id}",
         engine="xtb",
         task_kind="path_search",
-        resource_request=resource_request,
-        payload=payload_dict,
-        enqueue_payload={
-            "submitter": "xtb_auto_cli",
-            "app_name": "xtb_auto",
-            "command": f"{CHEMSTACK_XTB_COMMAND} --config {config_placeholder} run-dir '<job_dir>' --priority {int(priority)}",
-            "command_argv": [
-                "python",
-                "-m",
-                CHEMSTACK_XTB_MODULE,
-                "--config",
-                config_placeholder,
-                "run-dir",
-                "<job_dir>",
-                "--priority",
-                str(int(priority)),
-            ],
-            "requires_config": True,
-            "config_argument_placeholder": config_placeholder,
-            "job_dir": "",
-            "priority": int(priority),
-            "reaction_key": reaction_key,
-        },
-        metadata=metadata_dict,
+        resource_request=_resource_request(max_cores, max_memory_gb),
+        payload=sections.task_payload,
+        enqueue_payload=_engine_enqueue_payload(
+            submitter="xtb_auto_cli",
+            app_name="xtb_auto",
+            command_name=CHEMSTACK_XTB_COMMAND,
+            module_name=CHEMSTACK_XTB_MODULE,
+            config_placeholder=config_placeholder,
+            priority=priority,
+            extra={"reaction_key": reaction_key},
+        ),
+        metadata=sections.task_metadata,
     )
     stage = WorkflowStage(
         stage_id=stage_id,
@@ -213,7 +249,7 @@ def new_xtb_stage_impl(
         ),
         output_artifacts=(),
         task=task,
-        metadata=stage_metadata,
+        metadata=sections.stage_metadata,
     )
     return stage.to_dict()
 

@@ -57,3 +57,39 @@ class WorkflowEngineOptions:
         if normalized == "orca":
             return self.orca
         return None
+
+    @property
+    def crest_auto_config(self) -> str | None:
+        return self.crest.config
+
+    @property
+    def crest_auto_executable(self) -> str:
+        return self.crest.executable
+
+    @property
+    def crest_auto_repo_root(self) -> str | None:
+        return self.crest.repo_root
+
+    @property
+    def xtb_auto_config(self) -> str | None:
+        return self.xtb.config
+
+    @property
+    def xtb_auto_executable(self) -> str:
+        return self.xtb.executable
+
+    @property
+    def xtb_auto_repo_root(self) -> str | None:
+        return self.xtb.repo_root
+
+    @property
+    def orca_auto_config(self) -> str | None:
+        return self.orca.config
+
+    @property
+    def orca_auto_executable(self) -> str:
+        return self.orca.executable
+
+    @property
+    def orca_auto_repo_root(self) -> str | None:
+        return self.orca.repo_root

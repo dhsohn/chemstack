@@ -3,6 +3,12 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, cast
 
+from chemstack.core.admission.compat import (
+    admission_slot_payload,
+    int_field,
+    optional_int_field,
+    text_field,
+)
 from chemstack.core.utils.persistence import load_json_list_file
 
 
@@ -67,18 +73,6 @@ def backend_active_slot_count(root: Path, *, backend: Any, deps: Any) -> int | N
         raise
 
 
-def int_field(value: object) -> int:
-    return value if isinstance(value, int) else 0
-
-
-def optional_int_field(value: object) -> int | None:
-    return value if isinstance(value, int) else None
-
-
-def text_field(value: object) -> str:
-    return str(value or "").strip()
-
-
 def to_chem_core_slot(slot: Any, *, backend: Any, deps: Any) -> Any:
     normalized = deps._normalize_slot(slot)
     return backend.AdmissionSlot(
@@ -97,21 +91,5 @@ def to_chem_core_slot(slot: Any, *, backend: Any, deps: Any) -> Any:
 
 
 def from_chem_core_slot(slot: object, *, deps: Any) -> Any:
-    work_dir = text_field(getattr(slot, "work_dir", ""))
-    normalized = {
-        "token": text_field(getattr(slot, "token", "")),
-        "state": text_field(getattr(slot, "state", "")) or "active",
-        "work_dir": work_dir or None,
-        "reaction_dir": work_dir or None,
-        "queue_id": text_field(getattr(slot, "queue_id", "")) or None,
-        "owner_pid": int_field(getattr(slot, "owner_pid", 0)),
-        "process_start_ticks": optional_int_field(
-            getattr(slot, "process_start_ticks", None)
-        ),
-        "source": text_field(getattr(slot, "source", "")),
-        "acquired_at": text_field(getattr(slot, "acquired_at", "")),
-        "app_name": text_field(getattr(slot, "app_name", "")) or None,
-        "task_id": text_field(getattr(slot, "task_id", "")) or None,
-        "workflow_id": text_field(getattr(slot, "workflow_id", "")) or None,
-    }
+    normalized = admission_slot_payload(slot, include_legacy_reaction_dir=True)
     return deps._normalize_slot(normalized)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
@@ -182,3 +183,31 @@ def load_workflow_engine_config(
             ),
         ),
     )
+
+
+@dataclass(frozen=True)
+class WorkflowEngineConfigSpec:
+    module_file: str
+    env_var: str
+    executable_key: str
+    paths_cls: Callable[..., Any]
+    behavior_cls: Callable[..., Any]
+    app_config_cls: Callable[..., Any]
+
+    def default_config_path(self) -> str:
+        return default_workflow_engine_config_path(self.module_file, env_var=self.env_var)
+
+    def load_config(
+        self,
+        config_path: str | None = None,
+        *,
+        default_config_path_fn: Callable[[], str] | None = None,
+    ) -> Any:
+        return load_workflow_engine_config(
+            config_path,
+            default_config_path_fn=default_config_path_fn or self.default_config_path,
+            executable_key=self.executable_key,
+            paths_cls=self.paths_cls,
+            behavior_cls=self.behavior_cls,
+            app_config_cls=self.app_config_cls,
+        )

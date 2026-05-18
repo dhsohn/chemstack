@@ -8,7 +8,7 @@ from typing import Any
 
 from chemstack.core.statuses import TERMINAL_STATUSES
 from chemstack.core.utils.coercion import normalize_text as _shared_normalize_text
-from chemstack.flow.state import (
+from chemstack.core.paths.workflow import (
     iter_workflow_runtime_workspaces,
     workflow_workspace_internal_engine_paths,
     workflow_workspace_internal_engine_paths_from_path,

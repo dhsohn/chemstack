@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from chemstack.core.paths import ensure_directory, is_subpath
-from chemstack.flow.state import (
+from chemstack.core.paths.workflow import (
     iter_workflow_runtime_workspaces,
     workflow_workspace_internal_engine_paths,
     workflow_workspace_internal_engine_paths_from_path,
@@ -187,4 +187,3 @@ def run_organize_command(
         ).expanduser().resolve(),
     )
     return 0 if not failures else 1
-

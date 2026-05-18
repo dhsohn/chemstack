@@ -1,3 +1,4 @@
+from .compat import coerce_queue_status, metadata_with_run_id, normalize_queue_text
 from .store import (
     DuplicateQueueEntryError,
     QueueStoreCorruptError,
@@ -21,6 +22,7 @@ __all__ = [
     "QueueStoreCorruptError",
     "QueueStatus",
     "clear_terminal",
+    "coerce_queue_status",
     "dequeue_next",
     "enqueue",
     "entry_to_dict",
@@ -29,6 +31,8 @@ __all__ = [
     "mark_cancelled",
     "mark_completed",
     "mark_failed",
+    "metadata_with_run_id",
+    "normalize_queue_text",
     "requeue_running_entry",
     "request_cancel",
 ]

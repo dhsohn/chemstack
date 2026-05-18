@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from chemstack.core.paths import ensure_directory, require_subpath
-from chemstack.flow.state import workflow_workspace_internal_engine_paths_from_path
+from chemstack.core.paths.workflow import workflow_workspace_internal_engine_paths_from_path
 
 
 @dataclass(frozen=True)
