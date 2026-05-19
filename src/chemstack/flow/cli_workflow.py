@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import time
 from dataclasses import dataclass
 from typing import Any
@@ -18,7 +17,6 @@ from .cli_common import (
 )
 from . import cli_workflow_plan_commands as _plan_commands
 from . import cli_workflow_output as _workflow_output
-from .cli_run_dir import _print_created_workflow
 from .engine_options import WorkflowEngineOptions
 from .operations import (
     advance_materialized_workflow,
@@ -73,7 +71,9 @@ def cmd_workflow_conformer_screening(args: Any, *, deps: Any | None = None) -> i
 
 def cmd_workflow_create_reaction_ts_search(args: Any, *, deps: Any | None = None) -> int:
     create_workflow = _dependency(deps, "create_reaction_workflow", create_reaction_workflow)
-    print_created_workflow = _dependency(deps, "_print_created_workflow", _print_created_workflow)
+    print_created_workflow = _dependency(
+        deps, "_print_created_workflow", _workflow_output.emit_created_workflow
+    )
     payload = create_workflow(
         reactant_xyz=getattr(args, "reactant_xyz"),
         product_xyz=getattr(args, "product_xyz"),
@@ -96,7 +96,9 @@ def cmd_workflow_create_conformer_screening(args: Any, *, deps: Any | None = Non
     create_workflow = _dependency(
         deps, "create_conformer_screening_workflow", create_conformer_screening_workflow
     )
-    print_created_workflow = _dependency(deps, "_print_created_workflow", _print_created_workflow)
+    print_created_workflow = _dependency(
+        deps, "_print_created_workflow", _workflow_output.emit_created_workflow
+    )
     payload = create_workflow(
         input_xyz=getattr(args, "input_xyz"),
         workflow_root=getattr(args, "workflow_root"),
@@ -119,6 +121,11 @@ def cmd_workflow_advance(args: Any, *, deps: Any | None = None) -> int:
     advance_workflow = _dependency(
         deps, "advance_materialized_workflow", advance_materialized_workflow
     )
+    emit_advance = _dependency(
+        deps,
+        "emit_workflow_advance",
+        _workflow_output.emit_workflow_advance,
+    )
     executable = _dependency(deps, "CHEMSTACK_EXECUTABLE", CHEMSTACK_EXECUTABLE)
 
     shared_config = shared_chemstack_config(args)
@@ -136,13 +143,7 @@ def cmd_workflow_advance(args: Any, *, deps: Any | None = None) -> int:
         orca_auto_repo_root=getattr(args, "orca_auto_repo_root", None),
         submit_ready=not bool(getattr(args, "no_submit", False)),
     )
-    if bool(getattr(args, "json", False)):
-        print(json.dumps(payload, ensure_ascii=True, indent=2))
-        return 0
-    print(f"workflow_id: {payload.get('workflow_id', '-')}")
-    print(f"status: {payload.get('status', '-')}")
-    print(f"stage_count: {len(payload.get('stages', []))}")
-    return 0
+    return emit_advance(payload, json_mode=bool(getattr(args, "json", False)))
 
 
 def _emit_worker_payload(
@@ -168,6 +169,8 @@ class _WorkflowWorkerRuntime:
     write_state: Any
     append_event: Any
     advance_registry_once: Any
+    emit_error: Any
+    emit_worker_lock_error: Any
     emit_worker_payload: Any
     executable: str
     time_module: Any
@@ -221,6 +224,12 @@ def _workflow_worker_runtime(deps: Any | None) -> _WorkflowWorkerRuntime:
             deps,
             "advance_workflow_registry_once",
             advance_workflow_registry_once,
+        ),
+        emit_error=_dependency(deps, "emit_error", _workflow_output.emit_error),
+        emit_worker_lock_error=_dependency(
+            deps,
+            "emit_worker_lock_error",
+            _workflow_output.emit_worker_lock_error,
         ),
         emit_worker_payload=_dependency(deps, "_emit_worker_payload", _emit_worker_payload),
         executable=_dependency(deps, "CHEMSTACK_EXECUTABLE", CHEMSTACK_EXECUTABLE),
@@ -475,7 +484,7 @@ def _run_workflow_worker_loop(
         return 130
     except TimeoutError as exc:
         _record_workflow_worker_lock_error(runtime, options, error=exc)
-        print(f"worker_lock_error: {exc}")
+        runtime.emit_worker_lock_error(exc)
         return 1
 
 
@@ -484,7 +493,7 @@ def cmd_workflow_worker(args: Any, *, deps: Any | None = None) -> int:
     try:
         options = _workflow_worker_options(args, runtime=runtime)
     except ValueError as exc:
-        print(f"error: {exc}")
+        runtime.emit_error(exc)
         return 1
     return _run_workflow_worker_loop(runtime, options)
 
@@ -539,6 +548,11 @@ def cmd_workflow_submit_reaction_ts_search(args: Any, *, deps: Any | None = None
     submit_workflow = _dependency(
         deps, "submit_reaction_ts_search_workflow", submit_reaction_ts_search_workflow
     )
+    emit_submission = _dependency(
+        deps,
+        "emit_workflow_submit_reaction_ts_search",
+        _workflow_output.emit_workflow_submit_reaction_ts_search,
+    )
     executable = _dependency(deps, "CHEMSTACK_EXECUTABLE", CHEMSTACK_EXECUTABLE)
 
     shared_config = shared_chemstack_config(args) or default_config_path(project_root())
@@ -550,25 +564,7 @@ def cmd_workflow_submit_reaction_ts_search(args: Any, *, deps: Any | None = None
         orca_auto_repo_root=getattr(args, "orca_auto_repo_root", None),
         skip_submitted=not bool(getattr(args, "resubmit", False)),
     )
-    if bool(getattr(args, "json", False)):
-        print(json.dumps(payload, ensure_ascii=True, indent=2))
-        return 0
-
-    print(f"workflow_id: {payload.get('workflow_id', '-')}")
-    print(f"workspace_dir: {payload.get('workspace_dir', '-')}")
-    print(f"status: {payload.get('status', '-')}")
-    print(f"submitted_count: {len(payload.get('submitted', []))}")
-    for item in payload.get("submitted", []):
-        print(f"- submitted {item.get('stage_id', '-')} queue_id={item.get('queue_id', '-')}")
-    if payload.get("skipped"):
-        print(f"skipped_count: {len(payload.get('skipped', []))}")
-        for item in payload.get("skipped", []):
-            print(f"- skipped {item.get('stage_id', '-')} reason={item.get('reason', '-')}")
-    if payload.get("failed"):
-        print(f"failed_count: {len(payload.get('failed', []))}")
-        for item in payload.get("failed", []):
-            print(f"- failed {item.get('stage_id', '-')} returncode={item.get('returncode', '-')}")
-    return 0
+    return emit_submission(payload, json_mode=bool(getattr(args, "json", False)))
 
 
 def cmd_bot(args: Any, *, deps: Any | None = None) -> int:
@@ -579,104 +575,57 @@ def cmd_bot(args: Any, *, deps: Any | None = None) -> int:
 
 def cmd_workflow_list(args: Any, *, deps: Any | None = None) -> int:
     list_workflows_fn = _dependency(deps, "list_workflows", list_workflows)
+    emit_list = _dependency(
+        deps,
+        "emit_workflow_list",
+        _workflow_output.emit_workflow_list,
+    )
     payload = list_workflows_fn(
         workflow_root=getattr(args, "workflow_root"),
         limit=int(getattr(args, "limit", 0) or 0),
         refresh=bool(getattr(args, "refresh", False)),
     )
-    if bool(getattr(args, "json", False)):
-        print(json.dumps(payload, ensure_ascii=True, indent=2))
-        return 0
-
-    print(f"workflow_count: {payload.get('count', 0)}")
-    for item in payload.get("workflows", []):
-        submission_summary = item.get("submission_summary") or {}
-        submitted_count = int(submission_summary.get("submitted_count", 0) or 0)
-        failed_count = int(submission_summary.get("failed_count", 0) or 0)
-        print(
-            f"- {item.get('workflow_id', '-')} template={item.get('template_name', '-')}"
-            f" status={item.get('status', '-')}"
-            f" stages={item.get('stage_count', 0)}"
-            f" submitted={submitted_count}"
-            f" failed={failed_count}"
-        )
-    return 0
+    return emit_list(payload, json_mode=bool(getattr(args, "json", False)))
 
 
 def cmd_workflow_get(args: Any, *, deps: Any | None = None) -> int:
     get_workflow_fn = _dependency(deps, "get_workflow", get_workflow)
+    emit_get = _dependency(
+        deps,
+        "emit_workflow_get",
+        _workflow_output.emit_workflow_get,
+    )
     response = get_workflow_fn(
         target=getattr(args, "target"),
         workflow_root=getattr(args, "workflow_root", None),
         sync_registry=True,
     )
-    summary = response["summary"]
-    if bool(getattr(args, "json", False)):
-        print(json.dumps(response, ensure_ascii=True, indent=2))
-        return 0
-
-    print(f"workflow_id: {summary.get('workflow_id', '-')}")
-    print(f"template_name: {summary.get('template_name', '-')}")
-    print(f"status: {summary.get('status', '-')}")
-    print(f"source_job_id: {summary.get('source_job_id', '-')}")
-    print(f"reaction_key: {summary.get('reaction_key', '-')}")
-    print(f"workspace_dir: {summary.get('workspace_dir', '-')}")
-    print(f"stage_count: {summary.get('stage_count', 0)}")
-    downstream = summary.get("downstream_reaction_workflow") or {}
-    if downstream:
-        print(
-            f"downstream_reaction: {downstream.get('workflow_id', '-')} "
-            f"status={downstream.get('status', '-')}"
-        )
-    submission_summary = summary.get("submission_summary") or {}
-    if submission_summary:
-        print(
-            f"submission_summary: submitted={submission_summary.get('submitted_count', 0)} "
-            f"skipped={submission_summary.get('skipped_count', 0)} "
-            f"failed={submission_summary.get('failed_count', 0)}"
-        )
-    for stage in summary.get("stage_summaries", []):
-        print(
-            f"- {stage.get('stage_id', '-')} {stage.get('engine', '-')}/{stage.get('task_kind', '-')}"
-            f" stage_status={stage.get('status', '-')}"
-            f" task_status={stage.get('task_status', '-')}"
-        )
-        if stage.get("queue_id"):
-            print(f"  queue_id={stage.get('queue_id')}")
-        if stage.get("selected_input_xyz"):
-            print(f"  selected_input_xyz={stage.get('selected_input_xyz')}")
-        if stage.get("selected_inp"):
-            print(f"  selected_inp={stage.get('selected_inp')}")
-    return 0
+    return emit_get(response, json_mode=bool(getattr(args, "json", False)))
 
 
 def cmd_workflow_artifacts(args: Any, *, deps: Any | None = None) -> int:
     get_artifacts = _dependency(deps, "get_workflow_artifacts", get_workflow_artifacts)
+    emit_artifacts = _dependency(
+        deps,
+        "emit_workflow_artifacts",
+        _workflow_output.emit_workflow_artifacts,
+    )
     response = get_artifacts(
         target=getattr(args, "target"),
         workflow_root=getattr(args, "workflow_root", None),
         sync_registry=True,
     )
-    if bool(getattr(args, "json", False)):
-        print(json.dumps(response, ensure_ascii=True, indent=2))
-        return 0
-
-    print(f"workflow_id: {response.get('workflow_id', '-')}")
-    print(f"workspace_dir: {response.get('workspace_dir', '-')}")
-    print(f"artifact_count: {response.get('artifact_count', 0)}")
-    for item in response.get("artifacts", []):
-        print(
-            f"- {item.get('kind', '-')}"
-            f" stage={item.get('stage_id', '-') or '-'}"
-            f" exists={'yes' if item.get('exists') else 'no'}"
-            f" selected={'yes' if item.get('selected') else 'no'}"
-        )
-        print(f"  path={item.get('path', '-')}")
-    return 0
+    return emit_artifacts(response, json_mode=bool(getattr(args, "json", False)))
 
 
 def cmd_workflow_cancel(args: Any, *, deps: Any | None = None) -> int:
     cancel_workflow_fn = _dependency(deps, "cancel_workflow", cancel_workflow)
+    emit_cancel = _dependency(
+        deps,
+        "emit_workflow_cancel",
+        _workflow_output.emit_workflow_cancel,
+    )
+    emit_error = _dependency(deps, "emit_error", _workflow_output.emit_error)
     executable = _dependency(deps, "CHEMSTACK_EXECUTABLE", CHEMSTACK_EXECUTABLE)
     try:
         payload = cancel_workflow_fn(
@@ -693,48 +642,26 @@ def cmd_workflow_cancel(args: Any, *, deps: Any | None = None) -> int:
             orca_auto_repo_root=getattr(args, "orca_auto_repo_root", None),
         )
     except (ValueError, TimeoutError) as exc:
-        print(f"error: {exc}")
+        emit_error(exc)
         return 1
-    if bool(getattr(args, "json", False)):
-        print(json.dumps(payload, ensure_ascii=True, indent=2))
-        return 0
-
-    print(f"workflow_id: {payload.get('workflow_id', '-')}")
-    print(f"workspace_dir: {payload.get('workspace_dir', '-')}")
-    print(f"status: {payload.get('status', '-')}")
-    print(f"cancelled_count: {len(payload.get('cancelled', []))}")
-    for item in payload.get("cancelled", []):
-        print(f"- cancelled {item.get('stage_id', '-')} queue_id={item.get('queue_id', '-')}")
-    if payload.get("requested"):
-        print(f"requested_count: {len(payload.get('requested', []))}")
-        for item in payload.get("requested", []):
-            print(
-                f"- cancel_requested {item.get('stage_id', '-')} queue_id={item.get('queue_id', '-')}"
-            )
-    if payload.get("skipped"):
-        print(f"skipped_count: {len(payload.get('skipped', []))}")
-        for item in payload.get("skipped", []):
-            print(f"- skipped {item.get('stage_id', '-')} reason={item.get('reason', '-')}")
-    if payload.get("failed"):
-        print(f"failed_count: {len(payload.get('failed', []))}")
-        for item in payload.get("failed", []):
-            print(f"- failed {item.get('stage_id', '-')} reason={item.get('reason', '-')}")
-    return 0
+    return emit_cancel(payload, json_mode=bool(getattr(args, "json", False)))
 
 
 def cmd_workflow_reindex(args: Any, *, deps: Any | None = None) -> int:
     reindex = _dependency(deps, "reindex_workflow_registry", reindex_workflow_registry)
+    emit_reindex = _dependency(
+        deps,
+        "emit_workflow_reindex",
+        _workflow_output.emit_workflow_reindex,
+    )
     records = reindex(getattr(args, "workflow_root"))
     payload = {
         "workflow_root": str(getattr(args, "workflow_root")),
         "count": len(records),
         "workflow_ids": [record.workflow_id for record in records],
     }
-    if bool(getattr(args, "json", False)):
-        print(json.dumps(payload, ensure_ascii=True, indent=2))
-        return 0
-
-    print(f"workflow_count: {len(records)}")
-    for record in records:
-        print(f"- {record.workflow_id} status={record.status} template={record.template_name}")
-    return 0
+    return emit_reindex(
+        payload,
+        records=records,
+        json_mode=bool(getattr(args, "json", False)),
+    )

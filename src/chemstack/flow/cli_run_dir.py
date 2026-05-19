@@ -10,6 +10,7 @@ from .cli_common import (
     _normalize_text,
     _normalize_workflow_type,
 )
+from . import cli_workflow_output as _workflow_output
 from .operations import create_conformer_screening_workflow, create_reaction_workflow
 from .restart import restart_failed_workflow
 from .run_dir_layout import (
@@ -326,15 +327,7 @@ def _resolve_run_dir_common_workflow_kwargs(
     }
 
 
-def _print_created_workflow(payload: dict[str, Any], *, json_mode: bool) -> int:
-    if json_mode:
-        print(json.dumps(payload, ensure_ascii=True, indent=2))
-        return 0
-    print(f"workflow_id: {payload.get('workflow_id', '-')}")
-    print(f"template_name: {payload.get('template_name', '-')}")
-    print(f"workspace_dir: {(payload.get('metadata') or {}).get('workspace_dir', '-')}")
-    print(f"stage_count: {len(payload.get('stages', []))}")
-    return 0
+_print_created_workflow = _workflow_output.emit_created_workflow
 
 
 def _workflow_root_for_existing_run_dir(
@@ -349,38 +342,62 @@ def _workflow_root_for_existing_run_dir(
     return workflow_dir.parent
 
 
-def _print_restarted_workflow(payload: dict[str, Any], *, json_mode: bool) -> int:
-    if json_mode:
-        print(json.dumps(payload, ensure_ascii=True, indent=2))
-        return 0
-    print(f"workflow_id: {payload.get('workflow_id', '-')}")
-    print(f"status: {payload.get('status', '-')}")
-    print(f"workflow_status: {payload.get('workflow_status', '-')}")
-    print(f"previous_status: {payload.get('previous_status', '-')}")
-    print(f"workspace_dir: {payload.get('workspace_dir', '-')}")
-    print(f"restarted_count: {payload.get('restarted_count', 0)}")
-    for item in payload.get("restarted_stages", []):
-        print(
-            f"- restarted {item.get('stage_id', '-')}"
-            f" previous_status={item.get('previous_status', '-')}"
-            f" previous_task_status={item.get('previous_task_status', '-')}"
-        )
-    return 0
+_print_restarted_workflow = _workflow_output.emit_restarted_workflow
+
+
+@dataclass(frozen=True)
+class _RunDirManifestSections:
+    resources: dict[str, Any]
+    crest: dict[str, Any]
+    xtb: dict[str, Any]
+    endpoint_pairing: dict[str, Any]
+    orca: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class _RunDirWorkflowOptions:
+    workflow_root: str
+    crest_mode: str
+    priority: int
+    max_cores: int
+    max_memory_gb: int
+    max_orca_stages: int
+    orca_route_line: str
+    charge: int
+    multiplicity: int
+    max_crest_candidates: int
+    max_xtb_stages: int
 
 
 @dataclass(frozen=True)
 class _RunDirWorkflowConfig:
     workflow_dir: Path
     manifest: dict[str, Any]
-    resources_manifest: dict[str, Any]
-    crest_manifest: dict[str, Any]
-    xtb_manifest: dict[str, Any]
-    endpoint_pairing: dict[str, Any]
-    orca_manifest: dict[str, Any]
+    sections: _RunDirManifestSections
     reactant_xyz: str
     product_xyz: str
     input_xyz: str
     workflow_type: str
+
+    @property
+    def resources_manifest(self) -> dict[str, Any]:
+        return self.sections.resources
+
+    @property
+    def crest_manifest(self) -> dict[str, Any]:
+        return self.sections.crest
+
+    @property
+    def xtb_manifest(self) -> dict[str, Any]:
+        return self.sections.xtb
+
+    @property
+    def endpoint_pairing(self) -> dict[str, Any]:
+        return self.sections.endpoint_pairing
+
+    @property
+    def orca_manifest(self) -> dict[str, Any]:
+        return self.sections.orca
 
 
 def _resolve_run_dir_workflow_type(
@@ -410,17 +427,138 @@ def _resolve_run_dir_workflow_type(
     )
 
 
-def _load_run_dir_workflow_config(
-    args: Any, workflow_dir: Path, *, deps: Any | None = None
-) -> _RunDirWorkflowConfig:
-    inspect_run_dir = _dependency(deps, "inspect_workflow_run_dir", inspect_workflow_run_dir)
-    load_run_dir_manifest = _dependency(deps, "_load_run_dir_manifest", _load_run_dir_manifest)
+def _resolve_run_dir_manifest_sections(
+    workflow_dir: Path, manifest: dict[str, Any], *, deps: Any | None = None
+) -> _RunDirManifestSections:
     manifest_mapping = _dependency(deps, "_manifest_mapping", _manifest_mapping)
     resolve_engine_manifest = _dependency(
         deps, "_resolve_engine_manifest", _resolve_engine_manifest
     )
     resolve_endpoint_pairing_manifest = _dependency(
         deps, "_resolve_endpoint_pairing_manifest", _resolve_endpoint_pairing_manifest
+    )
+
+    xtb_manifest = resolve_engine_manifest(workflow_dir, manifest, "xtb")
+    return _RunDirManifestSections(
+        resources=manifest_mapping(manifest.get("resources")),
+        crest=resolve_engine_manifest(workflow_dir, manifest, "crest"),
+        xtb=xtb_manifest,
+        endpoint_pairing=resolve_endpoint_pairing_manifest(manifest, xtb_manifest),
+        orca=resolve_engine_manifest(workflow_dir, manifest, "orca"),
+    )
+
+
+def _resolve_run_dir_workflow_options(
+    args: Any,
+    manifest: dict[str, Any],
+    sections: _RunDirManifestSections,
+    *,
+    default_orca_route_line: str,
+    default_max_orca_stages: int,
+    default_max_crest_candidates: int = 3,
+    default_max_xtb_stages: int = 3,
+    workflow_root: str | None = None,
+    deps: Any | None = None,
+) -> _RunDirWorkflowOptions:
+    resolve_required_workflow_root = _dependency(
+        deps, "_resolve_required_workflow_root", _resolve_required_workflow_root
+    )
+    resolve_text_option_with_section = _dependency(
+        deps, "_resolve_text_option_with_section", _resolve_text_option_with_section
+    )
+    resolve_int_option = _dependency(deps, "_resolve_int_option", _resolve_int_option)
+    resolve_int_option_with_section = _dependency(
+        deps, "_resolve_int_option_with_section", _resolve_int_option_with_section
+    )
+
+    return _RunDirWorkflowOptions(
+        workflow_root=workflow_root or resolve_required_workflow_root(args, manifest),
+        crest_mode=resolve_text_option_with_section(
+            getattr(args, "crest_mode", None),
+            manifest,
+            "crest_mode",
+            sections.crest,
+            "mode",
+            "standard",
+        ),
+        priority=resolve_int_option(getattr(args, "priority", None), manifest, "priority", 10),
+        max_cores=resolve_int_option_with_section(
+            getattr(args, "max_cores", None),
+            manifest,
+            "max_cores",
+            sections.resources,
+            "max_cores",
+            8,
+        ),
+        max_memory_gb=resolve_int_option_with_section(
+            getattr(args, "max_memory_gb", None),
+            manifest,
+            "max_memory_gb",
+            sections.resources,
+            "max_memory_gb",
+            32,
+        ),
+        max_orca_stages=resolve_int_option(
+            getattr(args, "max_orca_stages", None),
+            manifest,
+            "max_orca_stages",
+            default_max_orca_stages,
+        ),
+        orca_route_line=resolve_text_option_with_section(
+            getattr(args, "orca_route_line", None),
+            manifest,
+            "orca_route_line",
+            sections.orca,
+            "route_line",
+            default_orca_route_line,
+        ),
+        charge=resolve_int_option_with_section(
+            getattr(args, "charge", None), manifest, "charge", sections.orca, "charge", 0
+        ),
+        multiplicity=resolve_int_option_with_section(
+            getattr(args, "multiplicity", None),
+            manifest,
+            "multiplicity",
+            sections.orca,
+            "multiplicity",
+            1,
+        ),
+        max_crest_candidates=resolve_int_option(
+            getattr(args, "max_crest_candidates", None),
+            manifest,
+            "max_crest_candidates",
+            default_max_crest_candidates,
+        ),
+        max_xtb_stages=resolve_int_option(
+            getattr(args, "max_xtb_stages", None),
+            manifest,
+            "max_xtb_stages",
+            default_max_xtb_stages,
+        ),
+    )
+
+
+def _workflow_options_to_common_kwargs(options: _RunDirWorkflowOptions) -> dict[str, Any]:
+    return {
+        "workflow_root": options.workflow_root,
+        "crest_mode": options.crest_mode,
+        "priority": options.priority,
+        "max_cores": options.max_cores,
+        "max_memory_gb": options.max_memory_gb,
+        "max_orca_stages": options.max_orca_stages,
+        "orca_route_line": options.orca_route_line,
+        "charge": options.charge,
+        "multiplicity": options.multiplicity,
+    }
+
+
+def _load_run_dir_workflow_config(
+    args: Any, workflow_dir: Path, *, deps: Any | None = None
+) -> _RunDirWorkflowConfig:
+    inspect_run_dir = _dependency(deps, "inspect_workflow_run_dir", inspect_workflow_run_dir)
+    load_run_dir_manifest = _dependency(deps, "_load_run_dir_manifest", _load_run_dir_manifest)
+    resolve_run_dir_manifest_sections = _dependency(
+        deps, "_resolve_run_dir_manifest_sections", _resolve_run_dir_manifest_sections
     )
     resolve_run_dir_path = _dependency(deps, "_resolve_run_dir_path", _resolve_run_dir_path)
     resolve_run_dir_workflow_type = _dependency(
@@ -432,19 +570,11 @@ def _load_run_dir_workflow_config(
         raise ValueError("workflow run-dir requires flow.yaml in workflow_dir.")
 
     manifest = load_run_dir_manifest(workflow_dir)
-    resources_manifest = manifest_mapping(manifest.get("resources"))
-    crest_manifest = resolve_engine_manifest(workflow_dir, manifest, "crest")
-    xtb_manifest = resolve_engine_manifest(workflow_dir, manifest, "xtb")
-    endpoint_pairing = resolve_endpoint_pairing_manifest(manifest, xtb_manifest)
-    orca_manifest = resolve_engine_manifest(workflow_dir, manifest, "orca")
+    sections = resolve_run_dir_manifest_sections(workflow_dir, manifest)
     return _RunDirWorkflowConfig(
         workflow_dir=workflow_dir,
         manifest=manifest,
-        resources_manifest=resources_manifest,
-        crest_manifest=crest_manifest,
-        xtb_manifest=xtb_manifest,
-        endpoint_pairing=endpoint_pairing,
-        orca_manifest=orca_manifest,
+        sections=sections,
         reactant_xyz=resolve_run_dir_path(
             workflow_dir,
             explicit=getattr(args, "reactant_xyz", None),
@@ -492,20 +622,22 @@ def _common_run_dir_workflow_kwargs(
     default_max_orca_stages: int,
     deps: Any | None = None,
 ) -> dict[str, Any]:
-    resolve_run_dir_common_workflow_kwargs = _dependency(
-        deps, "_resolve_run_dir_common_workflow_kwargs", _resolve_run_dir_common_workflow_kwargs
+    resolve_run_dir_workflow_options = _dependency(
+        deps, "_resolve_run_dir_workflow_options", _resolve_run_dir_workflow_options
     )
-    kwargs = resolve_run_dir_common_workflow_kwargs(
+    workflow_options_to_common_kwargs = _dependency(
+        deps, "_workflow_options_to_common_kwargs", _workflow_options_to_common_kwargs
+    )
+
+    options = resolve_run_dir_workflow_options(
         args,
         config.manifest,
-        resources_manifest=config.resources_manifest,
-        crest_manifest=config.crest_manifest,
-        orca_manifest=config.orca_manifest,
+        config.sections,
         default_orca_route_line=default_orca_route_line,
         default_max_orca_stages=default_max_orca_stages,
+        workflow_root=workflow_root,
     )
-    kwargs["workflow_root"] = workflow_root
-    return kwargs
+    return workflow_options_to_common_kwargs(options)
 
 
 def _create_reaction_run_dir_workflow(
@@ -515,10 +647,12 @@ def _create_reaction_run_dir_workflow(
         deps, "_resolve_required_workflow_root", _resolve_required_workflow_root
     )
     run_dir_workflow_id = _dependency(deps, "_run_dir_workflow_id", _run_dir_workflow_id)
-    common_run_dir_workflow_kwargs = _dependency(
-        deps, "_common_run_dir_workflow_kwargs", _common_run_dir_workflow_kwargs
+    resolve_run_dir_workflow_options = _dependency(
+        deps, "_resolve_run_dir_workflow_options", _resolve_run_dir_workflow_options
     )
-    resolve_int_option = _dependency(deps, "_resolve_int_option", _resolve_int_option)
+    workflow_options_to_common_kwargs = _dependency(
+        deps, "_workflow_options_to_common_kwargs", _workflow_options_to_common_kwargs
+    )
     create_workflow = _dependency(deps, "create_reaction_workflow", create_reaction_workflow)
 
     if not config.reactant_xyz or not config.product_xyz:
@@ -527,23 +661,21 @@ def _create_reaction_run_dir_workflow(
             "(or manifest/CLI overrides)."
         )
     workflow_root = resolve_required_workflow_root(args, config.manifest)
+    options = resolve_run_dir_workflow_options(
+        args,
+        config.manifest,
+        config.sections,
+        default_orca_route_line="! r2scan-3c OptTS Freq TightSCF",
+        default_max_orca_stages=3,
+        workflow_root=workflow_root,
+    )
     reaction_kwargs: dict[str, Any] = {
         "reactant_xyz": config.reactant_xyz,
         "product_xyz": config.product_xyz,
         "workflow_id": run_dir_workflow_id(config, workflow_root),
-        **common_run_dir_workflow_kwargs(
-            args,
-            config,
-            workflow_root=workflow_root,
-            default_orca_route_line="! r2scan-3c OptTS Freq TightSCF",
-            default_max_orca_stages=3,
-        ),
-        "max_crest_candidates": resolve_int_option(
-            getattr(args, "max_crest_candidates", None), config.manifest, "max_crest_candidates", 3
-        ),
-        "max_xtb_stages": resolve_int_option(
-            getattr(args, "max_xtb_stages", None), config.manifest, "max_xtb_stages", 3
-        ),
+        **workflow_options_to_common_kwargs(options),
+        "max_crest_candidates": options.max_crest_candidates,
+        "max_xtb_stages": options.max_xtb_stages,
     }
     if config.crest_manifest:
         reaction_kwargs["crest_job_manifest"] = config.crest_manifest

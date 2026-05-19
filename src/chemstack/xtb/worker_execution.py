@@ -16,7 +16,10 @@ from chemstack.core.queue import (
     mark_failed,
 )
 from chemstack.core.queue import execution as _queue_execution
-from chemstack.core.queue.engine_execution import process_dequeued_engine_entry
+from chemstack.core.queue.engine_execution import (
+    EngineWorkerLifecycle,
+    run_engine_worker_lifecycle,
+)
 from chemstack.core.queue.worker import terminate_process_group
 from chemstack.core.utils import now_utc_iso
 
@@ -285,9 +288,10 @@ def _build_execution_context(
         job_type=job_type,
         reaction_key=reaction_key,
     )
-    resumed = dependencies.is_recovery_pending(previous_state) or str(
-        previous_state.get("status", "")
-    ).strip().lower() == "running"
+    resumed = (
+        dependencies.is_recovery_pending(previous_state)
+        or str(previous_state.get("status", "")).strip().lower() == "running"
+    )
     return _XtbExecutionContext(
         entry=entry,
         job_dir=job_dir,
@@ -457,24 +461,19 @@ def execute_queue_entry(
 ) -> Any:
     del auto_organize
     deps = dependencies or default_worker_execution_dependencies()
-    return process_dequeued_engine_entry(
-        cfg,
-        queue_root=queue_root,
-        entry=entry,
-        auto_organize=False,
-        build_context_fn=lambda cfg_obj, entry_obj: _build_execution_context(
+    lifecycle = EngineWorkerLifecycle(
+        build_context=lambda cfg_obj, entry_obj: _build_execution_context(
             cfg_obj,
             entry_obj,
             dependencies=deps,
         ),
-        check_shutdown_fn=None,
-        mark_running_fn=lambda cfg_obj, context: _mark_job_running(
+        mark_running=lambda cfg_obj, context: _mark_job_running(
             cfg_obj,
             context,
             worker_job_pid=worker_job_pid,
             dependencies=deps,
         ),
-        run_job_fn=lambda cfg_obj, context, active_queue_root: _run_xtb_job_for_entry(
+        run_job=lambda cfg_obj, context, active_queue_root: _run_xtb_job_for_entry(
             cfg_obj,
             context,
             active_queue_root,
@@ -482,7 +481,7 @@ def execute_queue_entry(
             should_cancel=should_cancel,
             register_running_job=register_running_job,
         ),
-        finalize_entry_fn=lambda cfg_obj, context, result, active_queue_root, should_organize: (
+        finalize_entry=lambda cfg_obj, context, result, active_queue_root, should_organize: (
             _finalize_processed_entry(
                 cfg_obj,
                 context,
@@ -493,7 +492,14 @@ def execute_queue_entry(
                 dependencies=deps,
             )
         ),
-        build_outcome_fn=lambda _context, _result, outcome: outcome,
+        build_outcome=lambda _context, _result, outcome: outcome,
+    )
+    return run_engine_worker_lifecycle(
+        cfg,
+        queue_root=queue_root,
+        entry=entry,
+        auto_organize=False,
+        lifecycle=lifecycle,
     )
 
 

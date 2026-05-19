@@ -29,16 +29,12 @@ def _select_artifact_payload(
     state: dict[str, Any],
     organized_ref: dict[str, Any],
 ) -> dict[str, Any]:
-    state_status = _normalize_text(state.get("status")).lower()
-    if state and state_status in _ACTIVE_PAYLOAD_STATUSES:
-        return state
-
-    report_job_id = _normalize_text(report.get("job_id"))
-    state_job_id = _normalize_text(state.get("job_id"))
-    if state and report_job_id and state_job_id and report_job_id != state_job_id:
-        return state
-
-    return report or state or organized_ref
+    return _adapter_helpers.select_active_artifact_payload(
+        report,
+        state,
+        organized_ref,
+        active_statuses=_ACTIVE_PAYLOAD_STATUSES,
+    )
 
 
 def _direct_path_target(target: str) -> Path | None:
@@ -57,16 +53,13 @@ def _resolve_job_dir(index_root: Path, target: str) -> tuple[Path, JobLocationRe
 
 
 def _retained_paths(payload: dict[str, Any]) -> tuple[str, ...]:
-    raw = payload.get("retained_conformer_paths")
-    if not isinstance(raw, list):
-        return ()
-    return tuple(_normalize_text(item) for item in raw if _normalize_text(item))
+    return _adapter_helpers.normalized_text_sequence(payload.get("retained_conformer_paths"))
 
 
-def _artifact_roots(job_dir: Path, organized_output_dir: str) -> tuple[Path, ...]:
+def _artifact_roots(job_dir: Path, *values: Any) -> tuple[Path, ...]:
     roots: list[Path] = []
-    for candidate in (organized_output_dir, str(job_dir)):
-        text = _normalize_text(candidate)
+    for candidate in (*values, str(job_dir)):
+        text = _adapter_helpers.normalize_scalar_text(candidate)
         if not text:
             continue
         try:
@@ -79,7 +72,7 @@ def _artifact_roots(job_dir: Path, organized_output_dir: str) -> tuple[Path, ...
 
 
 def _resolve_artifact_path(value: Any, *, roots: tuple[Path, ...]) -> str:
-    text = _normalize_text(value)
+    text = _adapter_helpers.normalize_scalar_text(value)
     if not text:
         return ""
     try:
@@ -120,16 +113,33 @@ def load_crest_artifact_contract(*, crest_index_root: str | Path, target: str) -
 
     retained_paths = _retained_paths(payload)
     retained_count = int(payload.get("retained_conformer_count", len(retained_paths)) or len(retained_paths))
-    status = _normalize_text(payload.get("status") or (record.status if record is not None else "")) or "unknown"
+    status = _adapter_helpers.first_normalized_text(
+        payload.get("status"),
+        record.status if record is not None else "",
+        default="unknown",
+    )
     reason = _normalize_text(payload.get("reason"))
-    job_id = _normalize_text(payload.get("job_id") or (record.job_id if record is not None else ""))
-    mode = _normalize_text(payload.get("mode") or (record.job_type if record is not None else "")) or "standard"
-    molecule_key = _normalize_text(payload.get("molecule_key") or (record.molecule_key if record is not None else ""))
-    selected_input_xyz = _normalize_text(payload.get("selected_input_xyz") or (record.selected_input_xyz if record is not None else ""))
-    organized_output_dir = _normalize_text(
-        payload.get("organized_output_dir")
-        or organized_ref.get("organized_output_dir")
-        or (record.organized_output_dir if record is not None else "")
+    job_id = _adapter_helpers.first_normalized_text(
+        payload.get("job_id"),
+        record.job_id if record is not None else "",
+    )
+    mode = _adapter_helpers.first_normalized_text(
+        payload.get("mode"),
+        record.job_type if record is not None else "",
+        default="standard",
+    )
+    molecule_key = _adapter_helpers.first_normalized_text(
+        payload.get("molecule_key"),
+        record.molecule_key if record is not None else "",
+    )
+    selected_input_xyz = _adapter_helpers.first_normalized_text(
+        payload.get("selected_input_xyz"),
+        record.selected_input_xyz if record is not None else "",
+    )
+    organized_output_dir = _adapter_helpers.first_normalized_text(
+        payload.get("organized_output_dir"),
+        organized_ref.get("organized_output_dir"),
+        record.organized_output_dir if record is not None else "",
     )
     artifact_roots = _artifact_roots(job_dir, organized_output_dir)
     selected_input_xyz = _resolve_artifact_path(selected_input_xyz, roots=artifact_roots)

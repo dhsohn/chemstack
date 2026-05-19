@@ -1,34 +1,22 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from chemstack.core.commands import engine_reindex as _engine_reindex
 
 from ..config import load_config
-from ..tracking import index_root_for_path, record_from_artifacts
 from ..state import load_organized_ref, load_report_json, load_state
+from ..tracking import index_root_for_path, record_from_artifacts
+
+_ReindexDeps = _engine_reindex.ReindexDeps
 
 
 def _scan_roots(cfg: Any, raw_root: str | None) -> list[Path]:
     return _engine_reindex.scan_roots(cfg, raw_root, engine="crest")
 
 
-def _iter_candidate_dirs(root: Path) -> set[Path]:
-    return _engine_reindex.iter_candidate_dirs(root)
-
-
-@dataclass(frozen=True)
-class _ReindexDeps:
-    load_config: Any
-    load_state: Any
-    load_report_json: Any
-    load_organized_ref: Any
-    index_root_for_path: Any
-    record_from_artifacts: Any
-    _scan_roots: Any
-    _iter_candidate_dirs: Any
+_iter_candidate_dirs = _engine_reindex.iter_candidate_dirs
 
 
 def _reindex_deps() -> _ReindexDeps:

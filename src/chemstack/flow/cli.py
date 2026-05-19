@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import argparse
-import json as json
 import time as time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -279,321 +279,161 @@ def _activity_deps() -> _FlowActivityDeps:
     )
 
 
-def _normalize_text(value: Any) -> str:
-    return _cli_common._normalize_text(value)
-
-
-def _project_root() -> Path:
-    return _cli_common._project_root(deps=_common_deps())
-
-
-def _resolve_existing_path(path_text: str) -> Path | None:
-    return _cli_common._resolve_existing_path(path_text, deps=_common_deps())
-
-
-def _discover_workflow_root(
-    explicit: str | Path | None,
-    *,
-    config_path: str | Path | None = None,
-) -> str | None:
-    return _cli_common._discover_workflow_root(
-        explicit, config_path=config_path, deps=_common_deps()
-    )
-
-
-def _shared_chemstack_config(args: Any) -> str | None:
-    return _cli_common._shared_chemstack_config(args, deps=_common_deps())
-
-
-def _workflow_root_from_args(args: Any, *, config_path: str | None = None) -> str | None:
-    return _cli_common._workflow_root_from_args(args, config_path=config_path, deps=_common_deps())
-
-
-def _normalize_workflow_type(value: Any) -> str:
-    return _cli_common._normalize_workflow_type(value, deps=_common_deps())
-
-
-def _load_run_dir_manifest(workflow_dir: Path) -> dict[str, Any]:
-    return _cli_run_dir._load_run_dir_manifest(workflow_dir, deps=_run_dir_deps())
-
-
-def _manifest_mapping(value: Any) -> dict[str, Any]:
-    return _cli_run_dir._manifest_mapping(value, deps=_run_dir_deps())
-
-
-def _resolve_manifest_file_value(workflow_dir: Path, value: Any) -> str:
-    return _cli_run_dir._resolve_manifest_file_value(workflow_dir, value, deps=_run_dir_deps())
-
-
-def _resolve_engine_manifest(
-    workflow_dir: Path, manifest: dict[str, Any], key: str
-) -> dict[str, Any]:
-    return _cli_run_dir._resolve_engine_manifest(workflow_dir, manifest, key, deps=_run_dir_deps())
-
-
-def _resolve_endpoint_pairing_manifest(
-    manifest: dict[str, Any],
-    xtb_manifest: dict[str, Any],
-) -> dict[str, Any]:
-    return _cli_run_dir._resolve_endpoint_pairing_manifest(
-        manifest, xtb_manifest, deps=_run_dir_deps()
-    )
-
-
-def _resolve_run_dir_path(
-    workflow_dir: Path,
-    *,
-    explicit: Any,
-    manifest: dict[str, Any],
-    key: str,
-    default_names: tuple[str, ...],
-) -> str:
-    return _cli_run_dir._resolve_run_dir_path(
-        workflow_dir,
-        explicit=explicit,
-        manifest=manifest,
-        key=key,
-        default_names=default_names,
-        deps=_run_dir_deps(),
-    )
-
-
-def _resolve_text_option_with_section(
-    explicit: Any,
-    manifest: dict[str, Any],
-    key: str,
-    section: dict[str, Any],
-    section_key: str,
-    default: str,
-) -> str:
-    return _cli_run_dir._resolve_text_option_with_section(
-        explicit, manifest, key, section, section_key, default, deps=_run_dir_deps()
-    )
-
-
-def _resolve_int_option(explicit: Any, manifest: dict[str, Any], key: str, default: int) -> int:
-    return _cli_run_dir._resolve_int_option(explicit, manifest, key, default, deps=_run_dir_deps())
-
-
-def _resolve_int_option_with_section(
-    explicit: Any,
-    manifest: dict[str, Any],
-    key: str,
-    section: dict[str, Any],
-    section_key: str,
-    default: int,
-) -> int:
-    return _cli_run_dir._resolve_int_option_with_section(
-        explicit, manifest, key, section, section_key, default, deps=_run_dir_deps()
-    )
-
-
-def _resolve_required_workflow_root(args: Any, manifest: dict[str, Any]) -> str:
-    return _cli_run_dir._resolve_required_workflow_root(args, manifest, deps=_run_dir_deps())
-
-
-def _safe_workflow_name(value: Any, *, fallback: str) -> str:
-    return _cli_run_dir._safe_workflow_name(value, fallback=fallback, deps=_run_dir_deps())
-
-
-def _preferred_run_dir_workflow_id(workflow_dir: Path, *, workflow_type: str) -> str:
-    return _cli_run_dir._preferred_run_dir_workflow_id(
-        workflow_dir, workflow_type=workflow_type, deps=_run_dir_deps()
-    )
-
-
-def _unique_run_dir_workflow_id(
-    workflow_dir: Path,
-    *,
-    workflow_root: str | Path,
-    workflow_type: str,
-) -> str:
-    return _cli_run_dir._unique_run_dir_workflow_id(
-        workflow_dir,
-        workflow_root=workflow_root,
-        workflow_type=workflow_type,
-        deps=_run_dir_deps(),
-    )
-
-
-def _resolve_run_dir_common_workflow_kwargs(
-    args: Any,
-    manifest: dict[str, Any],
-    *,
-    resources_manifest: dict[str, Any],
-    crest_manifest: dict[str, Any],
-    orca_manifest: dict[str, Any],
-    default_orca_route_line: str,
-    default_max_orca_stages: int,
-) -> dict[str, Any]:
-    return _cli_run_dir._resolve_run_dir_common_workflow_kwargs(
-        args,
-        manifest,
-        resources_manifest=resources_manifest,
-        crest_manifest=crest_manifest,
-        orca_manifest=orca_manifest,
-        default_orca_route_line=default_orca_route_line,
-        default_max_orca_stages=default_max_orca_stages,
-        deps=_run_dir_deps(),
-    )
-
-
-def _print_created_workflow(payload: dict[str, Any], *, json_mode: bool) -> int:
-    return _cli_run_dir._print_created_workflow(payload, json_mode=json_mode)
-
-
-def _workflow_root_for_existing_run_dir(args: Any, workflow_dir: Path) -> Path:
-    return _cli_run_dir._workflow_root_for_existing_run_dir(
-        args, workflow_dir, deps=_run_dir_deps()
-    )
-
-
-def _print_restarted_workflow(payload: dict[str, Any], *, json_mode: bool) -> int:
-    return _cli_run_dir._print_restarted_workflow(payload, json_mode=json_mode)
-
-
-def _resolve_run_dir_workflow_type(
-    args: Any, manifest: dict[str, Any], workflow_layout: Any
-) -> str:
-    return _cli_run_dir._resolve_run_dir_workflow_type(
-        args, manifest, workflow_layout, deps=_run_dir_deps()
-    )
-
-
-def _load_run_dir_workflow_config(args: Any, workflow_dir: Path) -> _RunDirWorkflowConfig:
-    return _cli_run_dir._load_run_dir_workflow_config(args, workflow_dir, deps=_run_dir_deps())
-
-
-def _run_dir_workflow_id(config: _RunDirWorkflowConfig, workflow_root: str) -> str:
-    return _cli_run_dir._run_dir_workflow_id(config, workflow_root, deps=_run_dir_deps())
-
-
-def _common_run_dir_workflow_kwargs(
-    args: Any,
-    config: _RunDirWorkflowConfig,
-    *,
-    workflow_root: str,
-    default_orca_route_line: str,
-    default_max_orca_stages: int,
-) -> dict[str, Any]:
-    return _cli_run_dir._common_run_dir_workflow_kwargs(
-        args,
-        config,
-        workflow_root=workflow_root,
-        default_orca_route_line=default_orca_route_line,
-        default_max_orca_stages=default_max_orca_stages,
-        deps=_run_dir_deps(),
-    )
-
-
-def _create_reaction_run_dir_workflow(args: Any, config: _RunDirWorkflowConfig) -> dict[str, Any]:
-    return _cli_run_dir._create_reaction_run_dir_workflow(args, config, deps=_run_dir_deps())
-
-
-def _create_conformer_run_dir_workflow(args: Any, config: _RunDirWorkflowConfig) -> dict[str, Any]:
-    return _cli_run_dir._create_conformer_run_dir_workflow(args, config, deps=_run_dir_deps())
-
-
-def _create_run_dir_workflow(args: Any, workflow_dir: Path) -> dict[str, Any]:
-    return _cli_run_dir._create_run_dir_workflow(args, workflow_dir, deps=_run_dir_deps())
-
-
-def _restart_existing_run_dir_workflow(args: Any, workflow_dir: Path) -> dict[str, Any]:
-    return _cli_run_dir._restart_existing_run_dir_workflow(args, workflow_dir, deps=_run_dir_deps())
-
-
-def cmd_run_dir(args: Any) -> int:
-    return _cli_run_dir.cmd_run_dir(args, deps=_run_dir_deps())
-
-
-def cmd_xtb_inspect(args: Any) -> int:
-    return _cli_inspect.cmd_xtb_inspect(args, deps=_inspect_deps())
-
-
-def cmd_xtb_candidates(args: Any) -> int:
-    return _cli_inspect.cmd_xtb_candidates(args, deps=_inspect_deps())
-
-
-def cmd_crest_inspect(args: Any) -> int:
-    return _cli_inspect.cmd_crest_inspect(args, deps=_inspect_deps())
-
-
-def cmd_workflow_reaction_ts_search(args: Any) -> int:
-    return _cli_workflow.cmd_workflow_reaction_ts_search(args, deps=_workflow_deps())
-
-
-def cmd_workflow_conformer_screening(args: Any) -> int:
-    return _cli_workflow.cmd_workflow_conformer_screening(args, deps=_workflow_deps())
-
-
-def cmd_workflow_create_reaction_ts_search(args: Any) -> int:
-    return _cli_workflow.cmd_workflow_create_reaction_ts_search(args, deps=_workflow_deps())
-
-
-def cmd_workflow_create_conformer_screening(args: Any) -> int:
-    return _cli_workflow.cmd_workflow_create_conformer_screening(args, deps=_workflow_deps())
-
-
-def cmd_workflow_advance(args: Any) -> int:
-    return _cli_workflow.cmd_workflow_advance(args, deps=_workflow_deps())
-
-
-def _emit_worker_payload(payload: dict[str, Any], *, json_mode: bool, single_cycle: bool) -> None:
-    return _cli_workflow._emit_worker_payload(
-        payload, json_mode=json_mode, single_cycle=single_cycle, deps=_workflow_deps()
-    )
-
-
-def cmd_workflow_worker(args: Any) -> int:
-    return _cli_workflow.cmd_workflow_worker(args, deps=_workflow_deps())
-
-
-def cmd_workflow_runtime_status(args: Any) -> int:
-    return _cli_workflow.cmd_workflow_runtime_status(args, deps=_workflow_deps())
-
-
-def cmd_workflow_journal(args: Any) -> int:
-    return _cli_workflow.cmd_workflow_journal(args, deps=_workflow_deps())
-
-
-def cmd_workflow_telemetry(args: Any) -> int:
-    return _cli_workflow.cmd_workflow_telemetry(args, deps=_workflow_deps())
-
-
-def cmd_workflow_submit_reaction_ts_search(args: Any) -> int:
-    return _cli_workflow.cmd_workflow_submit_reaction_ts_search(args, deps=_workflow_deps())
-
-
-def cmd_activity_list(args: Any) -> int:
-    return _cli_activity.cmd_activity_list(args, deps=_activity_deps())
-
-
-def cmd_activity_cancel(args: Any) -> int:
-    return _cli_activity.cmd_activity_cancel(args, deps=_activity_deps())
-
-
-def cmd_bot(args: Any) -> int:
-    return _cli_workflow.cmd_bot(args, deps=_workflow_deps())
-
-
-def cmd_workflow_list(args: Any) -> int:
-    return _cli_workflow.cmd_workflow_list(args, deps=_workflow_deps())
-
-
-def cmd_workflow_get(args: Any) -> int:
-    return _cli_workflow.cmd_workflow_get(args, deps=_workflow_deps())
-
-
-def cmd_workflow_artifacts(args: Any) -> int:
-    return _cli_workflow.cmd_workflow_artifacts(args, deps=_workflow_deps())
-
-
-def cmd_workflow_cancel(args: Any) -> int:
-    return _cli_workflow.cmd_workflow_cancel(args, deps=_workflow_deps())
-
-
-def cmd_workflow_reindex(args: Any) -> int:
-    return _cli_workflow.cmd_workflow_reindex(args, deps=_workflow_deps())
+def _delegate(module: Any, name: str) -> Callable[..., Any]:
+    target = getattr(module, name)
+
+    def _wrapped(*args: Any, **kwargs: Any) -> Any:
+        return getattr(module, name)(*args, **kwargs)
+
+    _wrapped.__name__ = name
+    _wrapped.__doc__ = getattr(target, "__doc__", None)
+    return _wrapped
+
+
+def _delegate_with_deps(
+    module: Any,
+    name: str,
+    deps_factory: Callable[[], Any],
+) -> Callable[..., Any]:
+    target = getattr(module, name)
+
+    def _wrapped(*args: Any, **kwargs: Any) -> Any:
+        return getattr(module, name)(*args, **kwargs, deps=deps_factory())
+
+    _wrapped.__name__ = name
+    _wrapped.__doc__ = getattr(target, "__doc__", None)
+    return _wrapped
+
+
+_normalize_text = _delegate(_cli_common, "_normalize_text")
+_project_root = _delegate_with_deps(_cli_common, "_project_root", _common_deps)
+_resolve_existing_path = _delegate_with_deps(
+    _cli_common, "_resolve_existing_path", _common_deps
+)
+_discover_workflow_root = _delegate_with_deps(
+    _cli_common, "_discover_workflow_root", _common_deps
+)
+_shared_chemstack_config = _delegate_with_deps(
+    _cli_common, "_shared_chemstack_config", _common_deps
+)
+_workflow_root_from_args = _delegate_with_deps(
+    _cli_common, "_workflow_root_from_args", _common_deps
+)
+_normalize_workflow_type = _delegate_with_deps(
+    _cli_common, "_normalize_workflow_type", _common_deps
+)
+
+_load_run_dir_manifest = _delegate_with_deps(
+    _cli_run_dir, "_load_run_dir_manifest", _run_dir_deps
+)
+_manifest_mapping = _delegate_with_deps(_cli_run_dir, "_manifest_mapping", _run_dir_deps)
+_resolve_manifest_file_value = _delegate_with_deps(
+    _cli_run_dir, "_resolve_manifest_file_value", _run_dir_deps
+)
+_resolve_engine_manifest = _delegate_with_deps(
+    _cli_run_dir, "_resolve_engine_manifest", _run_dir_deps
+)
+_resolve_endpoint_pairing_manifest = _delegate_with_deps(
+    _cli_run_dir, "_resolve_endpoint_pairing_manifest", _run_dir_deps
+)
+_resolve_run_dir_path = _delegate_with_deps(
+    _cli_run_dir, "_resolve_run_dir_path", _run_dir_deps
+)
+_resolve_text_option_with_section = _delegate_with_deps(
+    _cli_run_dir, "_resolve_text_option_with_section", _run_dir_deps
+)
+_resolve_int_option = _delegate_with_deps(_cli_run_dir, "_resolve_int_option", _run_dir_deps)
+_resolve_int_option_with_section = _delegate_with_deps(
+    _cli_run_dir, "_resolve_int_option_with_section", _run_dir_deps
+)
+_resolve_required_workflow_root = _delegate_with_deps(
+    _cli_run_dir, "_resolve_required_workflow_root", _run_dir_deps
+)
+_safe_workflow_name = _delegate_with_deps(_cli_run_dir, "_safe_workflow_name", _run_dir_deps)
+_preferred_run_dir_workflow_id = _delegate_with_deps(
+    _cli_run_dir, "_preferred_run_dir_workflow_id", _run_dir_deps
+)
+_unique_run_dir_workflow_id = _delegate_with_deps(
+    _cli_run_dir, "_unique_run_dir_workflow_id", _run_dir_deps
+)
+_resolve_run_dir_common_workflow_kwargs = _delegate_with_deps(
+    _cli_run_dir, "_resolve_run_dir_common_workflow_kwargs", _run_dir_deps
+)
+_print_created_workflow = _delegate(_cli_run_dir, "_print_created_workflow")
+_workflow_root_for_existing_run_dir = _delegate_with_deps(
+    _cli_run_dir, "_workflow_root_for_existing_run_dir", _run_dir_deps
+)
+_print_restarted_workflow = _delegate(_cli_run_dir, "_print_restarted_workflow")
+_resolve_run_dir_workflow_type = _delegate_with_deps(
+    _cli_run_dir, "_resolve_run_dir_workflow_type", _run_dir_deps
+)
+_load_run_dir_workflow_config = _delegate_with_deps(
+    _cli_run_dir, "_load_run_dir_workflow_config", _run_dir_deps
+)
+_run_dir_workflow_id = _delegate_with_deps(_cli_run_dir, "_run_dir_workflow_id", _run_dir_deps)
+_common_run_dir_workflow_kwargs = _delegate_with_deps(
+    _cli_run_dir, "_common_run_dir_workflow_kwargs", _run_dir_deps
+)
+_create_reaction_run_dir_workflow = _delegate_with_deps(
+    _cli_run_dir, "_create_reaction_run_dir_workflow", _run_dir_deps
+)
+_create_conformer_run_dir_workflow = _delegate_with_deps(
+    _cli_run_dir, "_create_conformer_run_dir_workflow", _run_dir_deps
+)
+_create_run_dir_workflow = _delegate_with_deps(
+    _cli_run_dir, "_create_run_dir_workflow", _run_dir_deps
+)
+_restart_existing_run_dir_workflow = _delegate_with_deps(
+    _cli_run_dir, "_restart_existing_run_dir_workflow", _run_dir_deps
+)
+cmd_run_dir = _delegate_with_deps(_cli_run_dir, "cmd_run_dir", _run_dir_deps)
+
+cmd_xtb_inspect = _delegate_with_deps(_cli_inspect, "cmd_xtb_inspect", _inspect_deps)
+cmd_xtb_candidates = _delegate_with_deps(_cli_inspect, "cmd_xtb_candidates", _inspect_deps)
+cmd_crest_inspect = _delegate_with_deps(_cli_inspect, "cmd_crest_inspect", _inspect_deps)
+
+cmd_workflow_reaction_ts_search = _delegate_with_deps(
+    _cli_workflow, "cmd_workflow_reaction_ts_search", _workflow_deps
+)
+cmd_workflow_conformer_screening = _delegate_with_deps(
+    _cli_workflow, "cmd_workflow_conformer_screening", _workflow_deps
+)
+cmd_workflow_create_reaction_ts_search = _delegate_with_deps(
+    _cli_workflow, "cmd_workflow_create_reaction_ts_search", _workflow_deps
+)
+cmd_workflow_create_conformer_screening = _delegate_with_deps(
+    _cli_workflow, "cmd_workflow_create_conformer_screening", _workflow_deps
+)
+cmd_workflow_advance = _delegate_with_deps(
+    _cli_workflow, "cmd_workflow_advance", _workflow_deps
+)
+_emit_worker_payload = _delegate_with_deps(
+    _cli_workflow, "_emit_worker_payload", _workflow_deps
+)
+cmd_workflow_worker = _delegate_with_deps(_cli_workflow, "cmd_workflow_worker", _workflow_deps)
+cmd_workflow_runtime_status = _delegate_with_deps(
+    _cli_workflow, "cmd_workflow_runtime_status", _workflow_deps
+)
+cmd_workflow_journal = _delegate_with_deps(
+    _cli_workflow, "cmd_workflow_journal", _workflow_deps
+)
+cmd_workflow_telemetry = _delegate_with_deps(
+    _cli_workflow, "cmd_workflow_telemetry", _workflow_deps
+)
+cmd_workflow_submit_reaction_ts_search = _delegate_with_deps(
+    _cli_workflow, "cmd_workflow_submit_reaction_ts_search", _workflow_deps
+)
+cmd_bot = _delegate_with_deps(_cli_workflow, "cmd_bot", _workflow_deps)
+cmd_workflow_list = _delegate_with_deps(_cli_workflow, "cmd_workflow_list", _workflow_deps)
+cmd_workflow_get = _delegate_with_deps(_cli_workflow, "cmd_workflow_get", _workflow_deps)
+cmd_workflow_artifacts = _delegate_with_deps(
+    _cli_workflow, "cmd_workflow_artifacts", _workflow_deps
+)
+cmd_workflow_cancel = _delegate_with_deps(_cli_workflow, "cmd_workflow_cancel", _workflow_deps)
+cmd_workflow_reindex = _delegate_with_deps(_cli_workflow, "cmd_workflow_reindex", _workflow_deps)
+
+cmd_activity_list = _delegate_with_deps(_cli_activity, "cmd_activity_list", _activity_deps)
+cmd_activity_cancel = _delegate_with_deps(_cli_activity, "cmd_activity_cancel", _activity_deps)
 
 
 def build_parser() -> argparse.ArgumentParser:

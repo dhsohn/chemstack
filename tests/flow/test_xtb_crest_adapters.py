@@ -159,6 +159,42 @@ def test_load_xtb_artifact_contract_falls_back_to_selected_candidate_paths(tmp_p
     assert all(detail.kind == "candidate" and detail.selected for detail in contract.candidate_details)
 
 
+def test_load_xtb_artifact_contract_ignores_malformed_candidate_fallback_entries(
+    tmp_path: Path,
+) -> None:
+    job_dir = tmp_path / "xtb_malformed_fallback"
+    candidate_one = job_dir / "candidate_1.xyz"
+    candidate_two = job_dir / "candidate_2.xyz"
+
+    _write_xyz(candidate_one)
+    _write_xyz(candidate_two)
+    _write_json(
+        job_dir / "job_report.json",
+        {
+            "job_id": "xtb_malformed_fallback",
+            "status": "completed",
+            "selected_candidate_paths": [
+                {"path": str(candidate_one)},
+                str(candidate_one),
+                ["nested"],
+                str(candidate_two),
+            ],
+            "candidate_details": [
+                {"rank": 1, "kind": "candidate", "path": " "},
+                ["not", "a", "dict"],
+            ],
+        },
+    )
+
+    contract = load_xtb_artifact_contract(xtb_index_root=tmp_path, target=str(job_dir))
+
+    assert contract.selected_candidate_paths == (str(candidate_one), str(candidate_two))
+    assert [detail.path for detail in contract.candidate_details] == [
+        str(candidate_one),
+        str(candidate_two),
+    ]
+
+
 def test_select_xtb_downstream_inputs_uses_selected_path_fallback_when_details_are_empty(tmp_path: Path) -> None:
     invalid_candidate = tmp_path / "candidate.txt"
     valid_candidate = tmp_path / "candidate.xyz"
@@ -260,6 +296,116 @@ def test_load_crest_artifact_contract_and_select_retained_conformers(tmp_path: P
     assert stage_inputs[0].metadata == {"mode": "nci"}
     assert stage_inputs[1].artifact_path == str(conformer_two)
     assert stage_inputs[1].selected is False
+
+
+def test_load_crest_artifact_contract_prefers_active_state_over_stale_report(tmp_path: Path) -> None:
+    job_dir = tmp_path / "crest_active_state"
+    old_conformer = job_dir / "old_conf.xyz"
+    active_input = job_dir / "active_input.xyz"
+    active_conformer = job_dir / "active_conf.xyz"
+
+    _write_xyz(old_conformer)
+    _write_xyz(active_input)
+    _write_xyz(active_conformer)
+    _write_json(
+        job_dir / "job_report.json",
+        {
+            "job_id": "crest_old",
+            "status": "completed",
+            "mode": "standard",
+            "molecule_key": "old-mol",
+            "retained_conformer_paths": [str(old_conformer)],
+        },
+    )
+    _write_json(
+        job_dir / "job_state.json",
+        {
+            "job_id": "crest_new",
+            "status": "running",
+            "mode": "nci",
+            "molecule_key": "active-mol",
+            "selected_input_xyz": str(active_input),
+            "retained_conformer_paths": [str(active_conformer)],
+        },
+    )
+
+    contract = load_crest_artifact_contract(crest_index_root=tmp_path, target=str(job_dir))
+
+    assert contract.job_id == "crest_new"
+    assert contract.status == "running"
+    assert contract.mode == "nci"
+    assert contract.molecule_key == "active-mol"
+    assert contract.selected_input_xyz == str(active_input.resolve())
+    assert contract.retained_conformer_paths == (str(active_conformer.resolve()),)
+
+
+def test_load_crest_artifact_contract_uses_index_target_without_organized_ref(
+    tmp_path: Path,
+) -> None:
+    index_root = tmp_path / "crest_index"
+    job_dir = tmp_path / "crest_index_job"
+    selected_input_xyz = job_dir / "input.xyz"
+    conformer = job_dir / "conf.xyz"
+
+    _write_xyz(selected_input_xyz)
+    _write_xyz(conformer)
+    _write_json(
+        index_root / "job_locations.json",
+        [
+            {
+                "job_id": "crest_index_job",
+                "app_name": "crest_auto",
+                "job_type": "crest_standard",
+                "status": "completed",
+                "original_run_dir": str(job_dir),
+                "molecule_key": "mol-index",
+                "selected_input_xyz": str(selected_input_xyz),
+                "organized_output_dir": str(job_dir),
+                "latest_known_path": str(job_dir),
+            }
+        ],
+    )
+    _write_json(
+        job_dir / "job_report.json",
+        {
+            "job_id": "crest_index_job",
+            "status": "completed",
+            "retained_conformer_paths": [str(conformer)],
+        },
+    )
+
+    contract = load_crest_artifact_contract(crest_index_root=index_root, target="crest_index_job")
+
+    assert contract.job_dir == str(job_dir.resolve())
+    assert contract.organized_output_dir == str(job_dir)
+    assert contract.selected_input_xyz == str(selected_input_xyz.resolve())
+    assert contract.retained_conformer_paths == (str(conformer.resolve()),)
+
+
+def test_load_crest_artifact_contract_remaps_retained_paths_to_current_artifact_root(
+    tmp_path: Path,
+) -> None:
+    job_dir = tmp_path / "crest_remap"
+    old_dir = tmp_path / "old_organized"
+    selected_input_xyz = job_dir / "input.xyz"
+    conformer = job_dir / "crest_best.xyz"
+
+    _write_xyz(selected_input_xyz)
+    _write_xyz(conformer)
+    _write_json(
+        job_dir / "job_report.json",
+        {
+            "job_id": "crest_remap",
+            "status": "completed",
+            "selected_input_xyz": str(old_dir / "input.xyz"),
+            "retained_conformer_paths": [str(old_dir / "crest_best.xyz")],
+        },
+    )
+
+    contract = load_crest_artifact_contract(crest_index_root=tmp_path, target=str(job_dir))
+
+    assert contract.selected_input_xyz == str(selected_input_xyz.resolve())
+    assert contract.retained_conformer_paths == (str(conformer.resolve()),)
 
 
 def test_select_crest_downstream_inputs_splits_multiframe_retained_ensemble(tmp_path: Path) -> None:

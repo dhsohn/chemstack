@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
-from typing import Any
+from typing import Any, TypedDict, cast
 
 from chemstack.core.utils.coercion import (
     coerce_mapping as _shared_coerce_mapping,
@@ -22,6 +22,70 @@ def _coerce_mapping(value: Any) -> dict[str, Any]:
     return _shared_coerce_mapping(value)
 
 
+class WorkflowArtifactRefPayload(TypedDict, total=False):
+    kind: str
+    path: str
+    selected: bool
+    metadata: dict[str, Any]
+
+
+class WorkflowTaskPayload(TypedDict, total=False):
+    task_id: str
+    engine: str
+    task_kind: str
+    resource_request: dict[str, int]
+    status: str
+    payload: dict[str, Any]
+    enqueue_payload: dict[str, Any]
+    submission_result: dict[str, Any]
+    depends_on: tuple[str, ...]
+    metadata: dict[str, Any]
+
+
+class WorkflowStagePayload(TypedDict, total=False):
+    stage_id: str
+    stage_kind: str
+    status: str
+    input_artifacts: list[WorkflowArtifactRefPayload]
+    output_artifacts: list[WorkflowArtifactRefPayload]
+    task: WorkflowTaskPayload | None
+    metadata: dict[str, Any]
+
+
+class WorkflowStageWithTaskPayload(TypedDict, total=False):
+    stage_id: str
+    stage_kind: str
+    status: str
+    input_artifacts: list[WorkflowArtifactRefPayload]
+    output_artifacts: list[WorkflowArtifactRefPayload]
+    task: WorkflowTaskPayload
+    metadata: dict[str, Any]
+
+
+class WorkflowTemplateRequestPayload(TypedDict, total=False):
+    workflow_id: str
+    template_name: str
+    source_job_id: str
+    source_job_type: str
+    reaction_key: str
+    status: str
+    requested_at: str
+    parameters: dict[str, Any]
+    source_artifacts: list[WorkflowArtifactRefPayload]
+
+
+class WorkflowPlanPayload(TypedDict, total=False):
+    workflow_id: str
+    template_name: str
+    status: str
+    source_job_id: str
+    source_job_type: str
+    reaction_key: str
+    requested_at: str
+    stages: list[WorkflowStagePayload]
+    metadata: dict[str, Any]
+
+
 @dataclass(frozen=True)
 class WorkflowArtifactRef:
     kind: str
@@ -29,11 +93,11 @@ class WorkflowArtifactRef:
     selected: bool = False
     metadata: dict[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> WorkflowArtifactRefPayload:
         payload = asdict(self)
         if not self.metadata:
             payload["metadata"] = {}
-        return payload
+        return cast(WorkflowArtifactRefPayload, payload)
 
 
 @dataclass(frozen=True)
@@ -84,7 +148,7 @@ class WorkflowTask:
             metadata=_coerce_mapping(metadata),
         )
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> WorkflowTaskPayload:
         payload = asdict(self)
         if not self.payload:
             payload["payload"] = {}
@@ -94,7 +158,7 @@ class WorkflowTask:
             payload["submission_result"] = {}
         if not self.metadata:
             payload["metadata"] = {}
-        return payload
+        return cast(WorkflowTaskPayload, payload)
 
 
 @dataclass(frozen=True)
@@ -107,7 +171,7 @@ class WorkflowStage:
     task: WorkflowTask | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> WorkflowStagePayload:
         return {
             "stage_id": self.stage_id,
             "stage_kind": self.stage_kind,
@@ -131,7 +195,7 @@ class WorkflowTemplateRequest:
     parameters: dict[str, Any] = field(default_factory=dict)
     source_artifacts: tuple[WorkflowArtifactRef, ...] = ()
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> WorkflowTemplateRequestPayload:
         return {
             "workflow_id": self.workflow_id,
             "template_name": self.template_name,
@@ -157,7 +221,7 @@ class WorkflowPlan:
     stages: tuple[WorkflowStage, ...] = ()
     metadata: dict[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> WorkflowPlanPayload:
         return {
             "workflow_id": self.workflow_id,
             "template_name": self.template_name,
@@ -173,8 +237,14 @@ class WorkflowPlan:
 
 __all__ = [
     "WorkflowArtifactRef",
+    "WorkflowArtifactRefPayload",
     "WorkflowPlan",
+    "WorkflowPlanPayload",
     "WorkflowStage",
+    "WorkflowStagePayload",
+    "WorkflowStageWithTaskPayload",
     "WorkflowTask",
+    "WorkflowTaskPayload",
     "WorkflowTemplateRequest",
+    "WorkflowTemplateRequestPayload",
 ]

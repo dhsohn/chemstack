@@ -365,6 +365,96 @@ def test_execute_queue_entry_cancels_running_job(
     assert report["reason"] == "cancel_requested"
 
 
+def test_execute_queue_entry_cancels_before_start_and_updates_terminal_metadata(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cfg = _make_cfg(tmp_path)
+    queue_root = Path(cfg.runtime.allowed_root)
+    job_dir = queue_root / "job-1"
+    job_dir.mkdir()
+    selected_xyz = job_dir / "reactant.xyz"
+    selected_xyz.write_text("3\nreactant\nH 0 0 0\n", encoding="utf-8")
+    entry = _make_entry(
+        job_dir,
+        selected_xyz,
+        input_summary={"candidate_paths": [str(selected_xyz)]},
+    )
+
+    events: list[str] = []
+    cancelled_calls: list[tuple[object, object, object, object | None]] = []
+
+    monkeypatch.setattr(
+        queue_cmd,
+        "start_xtb_job",
+        lambda *args, **kwargs: pytest.fail("start_xtb_job should not run"),
+    )
+    monkeypatch.setattr(
+        queue_cmd,
+        "finalize_xtb_job",
+        lambda *args, **kwargs: pytest.fail("finalize_xtb_job should not run"),
+    )
+    monkeypatch.setattr(
+        queue_cmd,
+        "run_xtb_ranking_job",
+        lambda *args, **kwargs: pytest.fail("ranking runner should not run"),
+    )
+    monkeypatch.setattr(
+        queue_cmd,
+        "mark_completed",
+        lambda *args, **kwargs: pytest.fail("unexpected completed mark"),
+    )
+    monkeypatch.setattr(
+        queue_cmd, "mark_failed", lambda *args, **kwargs: pytest.fail("unexpected failed mark")
+    )
+    monkeypatch.setattr(
+        queue_cmd,
+        "mark_cancelled",
+        lambda root, queue_id, error, metadata_update=None: cancelled_calls.append(
+            (root, queue_id, error, metadata_update)
+        ),
+    )
+
+    def fake_notify_job_started(*args: object, **kwargs: object) -> bool:
+        events.append("notify_started")
+        return True
+
+    def fake_notify_job_finished(*args: object, **kwargs: object) -> bool:
+        events.append(f"notify_finished:{kwargs['status']}")
+        return True
+
+    monkeypatch.setattr(queue_cmd, "notify_job_started", fake_notify_job_started)
+    monkeypatch.setattr(queue_cmd, "notify_job_finished", fake_notify_job_finished)
+
+    outcome = queue_cmd._execute_queue_entry(
+        cfg,
+        queue_root=queue_root,
+        entry=entry,
+        auto_organize=False,
+        should_cancel=lambda: True,
+    )
+
+    assert outcome.result.status == "cancelled"
+    assert outcome.result.reason == "cancel_requested"
+    assert events == ["notify_started", "notify_finished:cancelled"]
+    assert cancelled_calls == [
+        (
+            cfg.runtime.allowed_root,
+            "queue-1",
+            "cancel_requested",
+            {"candidate_count": 0, "job_type": "path_search"},
+        )
+    ]
+
+    state = state_mod.load_state(job_dir)
+    report = state_mod.load_report_json(job_dir)
+    assert state is not None
+    assert report is not None
+    assert state["status"] == "cancelled"
+    assert report["reason"] == "cancel_requested"
+    assert report["candidate_count"] == 0
+
+
 def test_execute_queue_entry_processes_ranking_job_without_auto_organizing(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -398,6 +488,7 @@ def test_execute_queue_entry_processes_ranking_job_without_auto_organizing(
     )
     monkeypatch.setattr(queue_cmd, "mark_completed", lambda *args, **kwargs: None)
     monkeypatch.setattr(queue_cmd, "notify_job_started", lambda *args, **kwargs: True)
+
     def fake_notify_job_finished(cfg_obj: object, **kwargs: object) -> bool:
         finished_calls.append(kwargs)
         return True

@@ -4,7 +4,8 @@ import argparse
 import signal as signal
 import subprocess
 import time as time
-from typing import Any, Sequence
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
 
 from chemstack import cli_common as _cli_common
 from chemstack import cli_queue as _cli_queue
@@ -66,26 +67,93 @@ _WORKER_MAX_STARTUP_FAILURES = _cli_workers._WORKER_MAX_STARTUP_FAILURES
 _DIRECT_ENGINE_WORKER_ENV_VAR = _cli_workers._DIRECT_ENGINE_WORKER_ENV_VAR
 _DEFAULT_QUEUE_TABLE_NOW = _cli_queue._DEFAULT_QUEUE_TABLE_NOW
 
+if TYPE_CHECKING:
+    _activity_counter_config_path: Callable[..., Any]
+    _add_workflow_worker_spec: Callable[..., Any]
+    _build_worker_specs: Callable[..., Any]
+    _classify_existing_orca_worker: Callable[..., Any]
+    _cmd_queue_list_clear: Callable[..., Any]
+    _command_invokes_module: Callable[..., Any]
+    _command_program_name: Callable[..., Any]
+    _configure_orca_logging: Callable[..., Any]
+    _detect_existing_orca_worker_conflict: Callable[..., Any]
+    _detect_run_dir_app: Callable[..., Any]
+    _discover_shared_config_path: Callable[..., Any]
+    _discover_workflow_root: Callable[..., Any]
+    _effective_shared_config_text: Callable[..., Any]
+    _emit_existing_orca_worker_conflict: Callable[..., Any]
+    _emit_supervisor_specs_json: Callable[..., Any]
+    _engine_config_for_command: Callable[..., Any]
+    _engine_worker_spec: Callable[..., Any]
+    _engine_worker_tail_argv: Callable[..., Any]
+    _filter_activity_items: Callable[..., Any]
+    _filtered_queue_payload: Callable[..., Any]
+    _format_command_argv: Callable[..., Any]
+    _install_supervisor_signal_handlers: Callable[..., Any]
+    _normalize_filter_values: Callable[..., Any]
+    _poll_supervised_workers: Callable[..., Any]
+    _print_queue_list_text: Callable[..., Any]
+    _queue_clear_lines: Callable[..., Any]
+    _queue_display_width: Callable[..., Any]
+    _queue_elapsed_text: Callable[..., Any]
+    _queue_list_display_rows: Callable[..., Any]
+    _queue_list_payload: Callable[..., Any]
+    _queue_list_request: Callable[..., Any]
+    _queue_table_lines: Callable[..., Any]
+    _queue_table_now: Callable[..., Any]
+    _read_process_command: Callable[..., Any]
+    _repo_root: Callable[..., Any]
+    _repo_root_for_subprocess: Callable[..., Any]
+    _reset_stable_startup_failure_count: Callable[..., Any]
+    _restore_signal_handlers: Callable[..., Any]
+    _restart_or_stop_worker: Callable[..., Any]
+    _run_worker_supervisor: Callable[..., Any]
+    _selected_worker_apps: Callable[..., Any]
+    _spawn_supervised_worker: Callable[..., Any]
+    _supervise_worker_processes: Callable[..., Any]
+    _terminate_process: Callable[..., Any]
+    _terminate_supervised_workers: Callable[..., Any]
+    _validate_engine_worker_config: Callable[..., Any]
+    _worker_engine_apps: Callable[..., Any]
+    _workflow_only_worker_flag_error: Callable[..., Any]
+    _workflow_root_for_args: Callable[..., Any]
+    _workflow_worker_spec: Callable[..., Any]
+    cmd_init: Callable[..., Any]
+    cmd_orca_organize: Callable[..., Any]
+    cmd_orca_run_dir: Callable[..., Any]
+    cmd_orca_summary: Callable[..., Any]
+    cmd_queue_cancel: Callable[..., Any]
+    cmd_queue_list: Callable[..., Any]
+    cmd_queue_worker: Callable[..., Any]
+    cmd_run_dir: Callable[..., Any]
+    cmd_summary: Callable[..., Any]
+    cmd_workflow_run_dir: Callable[..., Any]
+    cmd_workflow_scaffold: Callable[..., Any]
+
+
+def _current(name: str) -> Any:
+    return globals()[name]
+
 
 def _common_deps() -> _CommonCliDeps:
     return _CommonCliDeps(
-        _discover_shared_config_path=_discover_shared_config_path,
-        _discover_workflow_root=_discover_workflow_root,
-        _effective_shared_config_text=_effective_shared_config_text,
+        _discover_shared_config_path=_current("_discover_shared_config_path"),
+        _discover_workflow_root=_current("_discover_workflow_root"),
+        _effective_shared_config_text=_current("_effective_shared_config_text"),
         shared_workflow_root_from_config=shared_workflow_root_from_config,
     )
 
 
 def _queue_deps() -> _QueueCliDeps:
     return _QueueCliDeps(
-        _effective_shared_config_text=_effective_shared_config_text,
-        _workflow_root_for_args=_workflow_root_for_args,
-        _queue_table_now=_queue_table_now,
-        _queue_table_lines=_queue_table_lines,
-        _cmd_queue_list_clear=_cmd_queue_list_clear,
-        _queue_list_payload=_queue_list_payload,
-        _filtered_queue_payload=_filtered_queue_payload,
-        _print_queue_list_text=_print_queue_list_text,
+        _effective_shared_config_text=_current("_effective_shared_config_text"),
+        _workflow_root_for_args=_current("_workflow_root_for_args"),
+        _queue_table_now=_current("_queue_table_now"),
+        _queue_table_lines=_current("_queue_table_lines"),
+        _cmd_queue_list_clear=_current("_cmd_queue_list_clear"),
+        _queue_list_payload=_current("_queue_list_payload"),
+        _filtered_queue_payload=_current("_filtered_queue_payload"),
+        _print_queue_list_text=_current("_print_queue_list_text"),
         clear_activities=clear_activities,
         list_activities=list_activities,
         count_global_active_simulations=count_global_active_simulations,
@@ -95,375 +163,182 @@ def _queue_deps() -> _QueueCliDeps:
 
 def _worker_deps() -> _WorkerCliDeps:
     return _WorkerCliDeps(
-        _discover_shared_config_path=_discover_shared_config_path,
-        _effective_shared_config_text=_effective_shared_config_text,
-        _workflow_root_for_args=_workflow_root_for_args,
-        _repo_root_for_subprocess=_repo_root_for_subprocess,
+        _discover_shared_config_path=_current("_discover_shared_config_path"),
+        _effective_shared_config_text=_current("_effective_shared_config_text"),
+        _workflow_root_for_args=_current("_workflow_root_for_args"),
+        _repo_root_for_subprocess=_current("_repo_root_for_subprocess"),
         sibling_app_command=sibling_app_command,
         subprocess=subprocess,
         signal=signal,
         time=time,
-        _build_worker_specs=_build_worker_specs,
-        _emit_supervisor_specs_json=_emit_supervisor_specs_json,
-        _detect_existing_orca_worker_conflict=_detect_existing_orca_worker_conflict,
-        _emit_existing_orca_worker_conflict=_emit_existing_orca_worker_conflict,
-        _run_worker_supervisor=_run_worker_supervisor,
-        _spawn_supervised_worker=_spawn_supervised_worker,
-        _terminate_process=_terminate_process,
+        _build_worker_specs=_current("_build_worker_specs"),
+        _emit_supervisor_specs_json=_current("_emit_supervisor_specs_json"),
+        _detect_existing_orca_worker_conflict=_current("_detect_existing_orca_worker_conflict"),
+        _emit_existing_orca_worker_conflict=_current("_emit_existing_orca_worker_conflict"),
+        _run_worker_supervisor=_current("_run_worker_supervisor"),
+        _spawn_supervised_worker=_current("_spawn_supervised_worker"),
+        _terminate_process=_current("_terminate_process"),
     )
 
 
 def _run_dir_deps() -> _RunDirCliDeps:
     return _RunDirCliDeps(
-        _configure_orca_logging=_configure_orca_logging,
-        _engine_config_for_command=_engine_config_for_command,
-        _detect_run_dir_app=_detect_run_dir_app,
-        cmd_orca_run_dir=cmd_orca_run_dir,
-        cmd_workflow_run_dir=cmd_workflow_run_dir,
+        _configure_orca_logging=_current("_configure_orca_logging"),
+        _engine_config_for_command=_current("_engine_config_for_command"),
+        _detect_run_dir_app=_current("_detect_run_dir_app"),
+        cmd_orca_run_dir=_current("cmd_orca_run_dir"),
+        cmd_workflow_run_dir=_current("cmd_workflow_run_dir"),
     )
 
 
 def _summary_deps() -> _SummaryCliDeps:
     return _SummaryCliDeps(
-        _configure_orca_logging=_configure_orca_logging,
-        _engine_config_for_command=_engine_config_for_command,
-        cmd_orca_summary=cmd_orca_summary,
+        _configure_orca_logging=_current("_configure_orca_logging"),
+        _engine_config_for_command=_current("_engine_config_for_command"),
+        cmd_orca_summary=_current("cmd_orca_summary"),
     )
 
 
-def _repo_root() -> Any:
-    return _cli_common._repo_root()
+def _delegate(module: Any, name: str) -> Callable[..., Any]:
+    target = getattr(module, name)
+
+    def _wrapped(*args: Any, **kwargs: Any) -> Any:
+        return target(*args, **kwargs)
+
+    _wrapped.__name__ = name
+    _wrapped.__doc__ = getattr(target, "__doc__", None)
+    return _wrapped
+
+
+def _delegate_with_deps(
+    module: Any,
+    name: str,
+    deps_factory: Callable[[], Any],
+) -> Callable[..., Any]:
+    target = getattr(module, name)
+
+    def _wrapped(*args: Any, **kwargs: Any) -> Any:
+        return target(*args, **kwargs, deps=deps_factory())
+
+    _wrapped.__name__ = name
+    _wrapped.__doc__ = getattr(target, "__doc__", None)
+    return _wrapped
+
+
+_COMMON_DELEGATES = {
+    "_repo_root": "_repo_root",
+    "_repo_root_for_subprocess": "_repo_root_for_subprocess",
+    "_discover_shared_config_path": "_discover_shared_config_path",
+    "_discover_workflow_root": "_discover_workflow_root",
+    "_effective_shared_config_text": "_effective_shared_config_text",
+    "_configure_orca_logging": "_configure_orca_logging",
+}
+
+_COMMON_DEPS_DELEGATES = {
+    "_workflow_root_for_args": "_workflow_root_for_args",
+    "_engine_config_for_command": "_engine_config_for_command",
+}
+
+_QUEUE_DELEGATES = {
+    "_normalize_filter_values": "_normalize_filter_values",
+    "_filter_activity_items": "_filter_activity_items",
+    "_activity_counter_config_path": "_activity_counter_config_path",
+    "_queue_table_now": "_queue_table_now",
+    "_queue_elapsed_text": "_queue_elapsed_text",
+    "_queue_display_width": "_queue_display_width",
+    "_queue_clear_lines": "_queue_clear_lines",
+    "_queue_list_display_rows": "_queue_list_display_rows",
+}
+
+_QUEUE_DEPS_DELEGATES = {
+    "_queue_table_lines": "_queue_table_lines",
+    "_queue_list_request": "_queue_list_request",
+    "_cmd_queue_list_clear": "_cmd_queue_list_clear",
+    "_queue_list_payload": "_queue_list_payload",
+    "_filtered_queue_payload": "_filtered_queue_payload",
+    "_print_queue_list_text": "_print_queue_list_text",
+    "cmd_queue_list": "cmd_queue_list",
+    "cmd_queue_cancel": "cmd_queue_cancel",
+}
+
+_WORKER_DELEGATES = {
+    "_read_process_command": "_read_process_command",
+    "_command_invokes_module": "_command_invokes_module",
+    "_command_program_name": "_command_program_name",
+    "_classify_existing_orca_worker": "_classify_existing_orca_worker",
+    "_format_command_argv": "_format_command_argv",
+    "_selected_worker_apps": "_selected_worker_apps",
+    "_engine_worker_tail_argv": "_engine_worker_tail_argv",
+    "_workflow_worker_spec": "_workflow_worker_spec",
+    "_worker_engine_apps": "_worker_engine_apps",
+    "_validate_engine_worker_config": "_validate_engine_worker_config",
+    "_workflow_only_worker_flag_error": "_workflow_only_worker_flag_error",
+    "_add_workflow_worker_spec": "_add_workflow_worker_spec",
+    "_reset_stable_startup_failure_count": "_reset_stable_startup_failure_count",
+    "_emit_existing_orca_worker_conflict": "_emit_existing_orca_worker_conflict",
+    "_emit_supervisor_specs_json": "_emit_supervisor_specs_json",
+}
+
+_WORKER_DEPS_DELEGATES = {
+    "_detect_existing_orca_worker_conflict": "_detect_existing_orca_worker_conflict",
+    "_engine_worker_spec": "_engine_worker_spec",
+    "_build_worker_specs": "_build_worker_specs",
+    "_terminate_process": "_terminate_process",
+    "_spawn_supervised_worker": "_spawn_supervised_worker",
+    "_install_supervisor_signal_handlers": "_install_supervisor_signal_handlers",
+    "_restore_signal_handlers": "_restore_signal_handlers",
+    "_restart_or_stop_worker": "_restart_or_stop_worker",
+    "_poll_supervised_workers": "_poll_supervised_workers",
+    "_supervise_worker_processes": "_supervise_worker_processes",
+    "_terminate_supervised_workers": "_terminate_supervised_workers",
+    "_run_worker_supervisor": "_run_worker_supervisor",
+    "cmd_queue_worker": "cmd_queue_worker",
+}
+
+_RUN_DIR_DEPS_DELEGATES = {
+    "cmd_init": "cmd_init",
+    "cmd_orca_run_dir": "cmd_orca_run_dir",
+    "cmd_orca_organize": "cmd_orca_organize",
+    "cmd_workflow_scaffold": "cmd_workflow_scaffold",
+    "cmd_run_dir": "cmd_run_dir",
+    "cmd_workflow_run_dir": "cmd_workflow_run_dir",
+}
 
+_RUN_DIR_DELEGATES = {
+    "_detect_run_dir_app": "_detect_run_dir_app",
+}
 
-def _repo_root_for_subprocess() -> str | None:
-    return _cli_common._repo_root_for_subprocess()
+_SUMMARY_DEPS_DELEGATES = {
+    "cmd_orca_summary": "cmd_orca_summary",
+    "cmd_summary": "cmd_summary",
+}
 
+for public_name, target_name in _COMMON_DELEGATES.items():
+    globals()[public_name] = _delegate(_cli_common, target_name)
 
-def _discover_shared_config_path(explicit: str | None) -> str | None:
-    return _cli_common._discover_shared_config_path(explicit)
+for public_name, target_name in _COMMON_DEPS_DELEGATES.items():
+    globals()[public_name] = _delegate_with_deps(_cli_common, target_name, _common_deps)
 
+for public_name, target_name in _QUEUE_DELEGATES.items():
+    globals()[public_name] = _delegate(_cli_queue, target_name)
 
-def _discover_workflow_root(explicit: str | None) -> str | None:
-    return _cli_common._discover_workflow_root(explicit)
+for public_name, target_name in _QUEUE_DEPS_DELEGATES.items():
+    globals()[public_name] = _delegate_with_deps(_cli_queue, target_name, _queue_deps)
 
+for public_name, target_name in _WORKER_DELEGATES.items():
+    globals()[public_name] = _delegate(_cli_workers, target_name)
 
-def _workflow_root_for_args(args: Any) -> str | None:
-    return _cli_common._workflow_root_for_args(args, deps=_common_deps())
+for public_name, target_name in _WORKER_DEPS_DELEGATES.items():
+    globals()[public_name] = _delegate_with_deps(_cli_workers, target_name, _worker_deps)
 
+for public_name, target_name in _RUN_DIR_DELEGATES.items():
+    globals()[public_name] = _delegate(_cli_run_dir, target_name)
 
-def _effective_shared_config_text(args: argparse.Namespace) -> str:
-    return _cli_common._effective_shared_config_text(args)
+for public_name, target_name in _RUN_DIR_DEPS_DELEGATES.items():
+    globals()[public_name] = _delegate_with_deps(_cli_run_dir, target_name, _run_dir_deps)
 
-
-def _engine_config_for_command(args: argparse.Namespace) -> str | None:
-    return _cli_common._engine_config_for_command(args, deps=_common_deps())
-
-
-def _configure_orca_logging(args: argparse.Namespace) -> None:
-    return _cli_common._configure_orca_logging(args)
-
-
-def _normalize_filter_values(values: Sequence[str] | None) -> tuple[str, ...]:
-    return _cli_queue._normalize_filter_values(values)
-
-
-def _filter_activity_items(
-    items: Sequence[dict[str, Any]],
-    *,
-    engines: Sequence[str] | None = None,
-    statuses: Sequence[str] | None = None,
-    kinds: Sequence[str] | None = None,
-) -> list[dict[str, Any]]:
-    return _cli_queue._filter_activity_items(items, engines=engines, statuses=statuses, kinds=kinds)
-
-
-def _activity_counter_config_path(
-    *,
-    payload: dict[str, Any],
-    config_hint: str | None,
-) -> str | None:
-    return _cli_queue._activity_counter_config_path(payload=payload, config_hint=config_hint)
-
-
-def _queue_table_now() -> Any:
-    return _cli_queue._queue_table_now()
-
-
-def _queue_elapsed_text(item: dict[str, Any], *, now: Any | None = None) -> str:
-    return _cli_queue._queue_elapsed_text(item, now=now)
-
-
-def _queue_display_width(value: str) -> int:
-    return _cli_queue._queue_display_width(value)
-
-
-def _queue_table_lines(rows: Sequence[tuple[int, dict[str, Any]]]) -> list[str]:
-    return _cli_queue._queue_table_lines(rows, deps=_queue_deps())
-
-
-def _queue_clear_lines(payload: dict[str, Any]) -> list[str]:
-    return _cli_queue._queue_clear_lines(payload)
-
-
-def _queue_list_request(args: Any) -> _QueueListRequest:
-    return _cli_queue._queue_list_request(args, deps=_queue_deps())
-
-
-def _cmd_queue_list_clear(args: Any, request: _QueueListRequest) -> int:
-    return _cli_queue._cmd_queue_list_clear(args, request, deps=_queue_deps())
-
-
-def _queue_list_payload(args: Any, request: _QueueListRequest) -> dict[str, Any]:
-    return _cli_queue._queue_list_payload(args, request, deps=_queue_deps())
-
-
-def _filtered_queue_payload(
-    payload: dict[str, Any],
-    request: _QueueListRequest,
-) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    return _cli_queue._filtered_queue_payload(payload, request, deps=_queue_deps())
-
-
-def _queue_list_display_rows(
-    *,
-    payload: dict[str, Any],
-    filtered_activities: Sequence[dict[str, Any]],
-    request: _QueueListRequest,
-) -> list[tuple[int, dict[str, Any]]]:
-    return _cli_queue._queue_list_display_rows(
-        payload=payload,
-        filtered_activities=filtered_activities,
-        request=request,
-    )
-
-
-def _print_queue_list_text(
-    *,
-    payload: dict[str, Any],
-    filtered_payload: dict[str, Any],
-    filtered_activities: Sequence[dict[str, Any]],
-    request: _QueueListRequest,
-) -> int:
-    return _cli_queue._print_queue_list_text(
-        payload=payload,
-        filtered_payload=filtered_payload,
-        filtered_activities=filtered_activities,
-        request=request,
-        deps=_queue_deps(),
-    )
-
-
-def cmd_queue_list(args: Any) -> int:
-    return _cli_queue.cmd_queue_list(args, deps=_queue_deps())
-
-
-def cmd_queue_cancel(args: Any) -> int:
-    return _cli_queue.cmd_queue_cancel(args, deps=_queue_deps())
-
-
-def _read_process_command(pid: int) -> tuple[str, ...]:
-    return _cli_workers._read_process_command(pid)
-
-
-def _command_invokes_module(command_argv: Sequence[str], module_name: str) -> bool:
-    return _cli_workers._command_invokes_module(command_argv, module_name)
-
-
-def _command_program_name(command_argv: Sequence[str]) -> str:
-    return _cli_workers._command_program_name(command_argv)
-
-
-def _classify_existing_orca_worker(command_argv: Sequence[str]) -> str:
-    return _cli_workers._classify_existing_orca_worker(command_argv)
-
-
-def _format_command_argv(command_argv: Sequence[str]) -> str:
-    return _cli_workers._format_command_argv(command_argv)
-
-
-def _detect_existing_orca_worker_conflict(
-    specs: Sequence[WorkerSpec],
-    *,
-    args: argparse.Namespace,
-) -> _ExistingWorkerConflict | None:
-    return _cli_workers._detect_existing_orca_worker_conflict(specs, args=args, deps=_worker_deps())
-
-
-def _emit_existing_orca_worker_conflict(
-    conflict: _ExistingWorkerConflict,
-    *,
-    command_name: str,
-) -> int:
-    return _cli_workers._emit_existing_orca_worker_conflict(conflict, command_name=command_name)
-
-
-def _selected_worker_apps(values: Sequence[str] | None) -> list[str]:
-    return _cli_workers._selected_worker_apps(values)
-
-
-def _engine_worker_tail_argv(*, app: str, args: argparse.Namespace) -> list[str]:
-    return _cli_workers._engine_worker_tail_argv(app=app, args=args)
-
-
-def _engine_worker_spec(*, app: str, config_path: str, args: argparse.Namespace) -> WorkerSpec:
-    return _cli_workers._engine_worker_spec(
-        app=app, config_path=config_path, args=args, deps=_worker_deps()
-    )
-
-
-def _workflow_worker_spec(
-    *,
-    workflow_root: str,
-    config_path: str | None,
-    args: argparse.Namespace,
-) -> WorkerSpec:
-    return _cli_workers._workflow_worker_spec(
-        workflow_root=workflow_root,
-        config_path=config_path,
-        args=args,
-    )
-
-
-def _worker_engine_apps(apps: Sequence[str], *, workflow_enabled: bool) -> list[str]:
-    return _cli_workers._worker_engine_apps(apps, workflow_enabled=workflow_enabled)
-
-
-def _validate_engine_worker_config(engine_apps: Sequence[str], config_path: str | None) -> None:
-    return _cli_workers._validate_engine_worker_config(engine_apps, config_path)
-
-
-def _workflow_only_worker_flag_error(args: Any) -> str | None:
-    return _cli_workers._workflow_only_worker_flag_error(args)
-
-
-def _add_workflow_worker_spec(
-    specs: list[WorkerSpec],
-    *,
-    apps: Sequence[str],
-    explicit_app_selection: bool,
-    workflow_root: str | None,
-    config_path: str | None,
-    args: argparse.Namespace,
-) -> None:
-    return _cli_workers._add_workflow_worker_spec(
-        specs,
-        apps=apps,
-        explicit_app_selection=explicit_app_selection,
-        workflow_root=workflow_root,
-        config_path=config_path,
-        args=args,
-    )
-
-
-def _build_worker_specs(args: Any) -> list[WorkerSpec]:
-    return _cli_workers._build_worker_specs(args, deps=_worker_deps())
-
-
-def _terminate_process(proc: subprocess.Popen[Any]) -> None:
-    return _cli_workers._terminate_process(proc, deps=_worker_deps())
-
-
-def _spawn_supervised_worker(spec: WorkerSpec, *, restart: bool = False) -> _SupervisedWorker:
-    return _cli_workers._spawn_supervised_worker(spec, restart=restart, deps=_worker_deps())
-
-
-def _install_supervisor_signal_handlers(shutdown: _SupervisorShutdown) -> dict[Any, Any]:
-    return _cli_workers._install_supervisor_signal_handlers(shutdown, deps=_worker_deps())
-
-
-def _restore_signal_handlers(previous_handlers: dict[Any, Any]) -> None:
-    return _cli_workers._restore_signal_handlers(previous_handlers, deps=_worker_deps())
-
-
-def _reset_stable_startup_failure_count(
-    managed: _SupervisedWorker,
-    current_time: float,
-) -> None:
-    return _cli_workers._reset_stable_startup_failure_count(managed, current_time)
-
-
-def _restart_or_stop_worker(
-    processes: list[_SupervisedWorker],
-    *,
-    index: int,
-    managed: _SupervisedWorker,
-    returncode: int,
-    current_time: float,
-) -> int | None:
-    return _cli_workers._restart_or_stop_worker(
-        processes,
-        index=index,
-        managed=managed,
-        returncode=returncode,
-        current_time=current_time,
-        deps=_worker_deps(),
-    )
-
-
-def _poll_supervised_workers(
-    processes: list[_SupervisedWorker],
-    shutdown: _SupervisorShutdown,
-) -> int | None:
-    return _cli_workers._poll_supervised_workers(processes, shutdown, deps=_worker_deps())
-
-
-def _supervise_worker_processes(
-    processes: list[_SupervisedWorker],
-    shutdown: _SupervisorShutdown,
-) -> int:
-    return _cli_workers._supervise_worker_processes(processes, shutdown, deps=_worker_deps())
-
-
-def _terminate_supervised_workers(processes: Sequence[_SupervisedWorker]) -> None:
-    return _cli_workers._terminate_supervised_workers(processes, deps=_worker_deps())
-
-
-def _run_worker_supervisor(specs: Sequence[WorkerSpec]) -> int:
-    return _cli_workers._run_worker_supervisor(specs, deps=_worker_deps())
-
-
-def _emit_supervisor_specs_json(*, key: str, specs: Sequence[WorkerSpec]) -> int:
-    return _cli_workers._emit_supervisor_specs_json(key=key, specs=specs)
-
-
-def cmd_queue_worker(args: Any) -> int:
-    return _cli_workers.cmd_queue_worker(args, deps=_worker_deps())
-
-
-def cmd_init(args: argparse.Namespace) -> int:
-    return _cli_run_dir.cmd_init(args, deps=_run_dir_deps())
-
-
-def cmd_orca_run_dir(args: argparse.Namespace) -> int:
-    return _cli_run_dir.cmd_orca_run_dir(args, deps=_run_dir_deps())
-
-
-def cmd_orca_organize(args: argparse.Namespace) -> int:
-    return _cli_run_dir.cmd_orca_organize(args, deps=_run_dir_deps())
-
-
-def cmd_orca_summary(args: argparse.Namespace) -> int:
-    return _cli_summary.cmd_orca_summary(args, deps=_summary_deps())
-
-
-def cmd_summary(args: argparse.Namespace) -> int:
-    return _cli_summary.cmd_summary(args, deps=_summary_deps())
-
-
-def cmd_workflow_scaffold(args: argparse.Namespace) -> int:
-    return _cli_run_dir.cmd_workflow_scaffold(args, deps=_run_dir_deps())
-
-
-def _detect_run_dir_app(args: argparse.Namespace) -> str:
-    return _cli_run_dir._detect_run_dir_app(args)
-
-
-def cmd_run_dir(args: Any) -> int:
-    return _cli_run_dir.cmd_run_dir(args, deps=_run_dir_deps())
-
-
-def cmd_workflow_run_dir(args: argparse.Namespace) -> int:
-    return _cli_run_dir.cmd_workflow_run_dir(args, deps=_run_dir_deps())
+for public_name, target_name in _SUMMARY_DEPS_DELEGATES.items():
+    globals()[public_name] = _delegate_with_deps(_cli_summary, target_name, _summary_deps)
 
 
 def build_parser() -> argparse.ArgumentParser:

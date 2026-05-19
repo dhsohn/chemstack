@@ -34,6 +34,26 @@ def normalize_text(value: Any) -> str:
     return str(value).strip()
 
 
+def normalize_scalar_text(value: Any) -> str:
+    if isinstance(value, str | int | float | bool):
+        return normalize_text(value)
+    return ""
+
+
+def normalized_text_sequence(value: Any) -> tuple[str, ...]:
+    if not isinstance(value, list | tuple):
+        return ()
+    return tuple(text for item in value if (text := normalize_scalar_text(item)))
+
+
+def first_normalized_text(*values: Any, default: str = "") -> str:
+    for value in values:
+        text = normalize_scalar_text(value)
+        if text:
+            return text
+    return default
+
+
 def load_json_dict(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
@@ -142,6 +162,25 @@ def load_artifact_files(
     )
 
 
+def select_active_artifact_payload(
+    report: dict[str, Any],
+    state: dict[str, Any],
+    organized_ref: dict[str, Any],
+    *,
+    active_statuses: set[str] | frozenset[str],
+) -> dict[str, Any]:
+    state_status = normalize_text(state.get("status")).lower()
+    if state and state_status in active_statuses:
+        return state
+
+    report_job_id = normalize_text(report.get("job_id"))
+    state_job_id = normalize_text(state.get("job_id"))
+    if state and report_job_id and state_job_id and report_job_id != state_job_id:
+        return state
+
+    return report or state or organized_ref
+
+
 def validate_record_app(
     record: JobLocationRecord | None,
     expected_app_name: str,
@@ -154,6 +193,38 @@ def validate_record_app(
 
 def latest_known_path(record: JobLocationRecord | None, job_dir: Path) -> str:
     return normalize_text((record.latest_known_path if record is not None else "") or str(job_dir))
+
+
+def artifact_roots(job_dir: Path, *values: Any) -> tuple[Path, ...]:
+    roots: list[Path] = []
+    for candidate in (*values, str(job_dir)):
+        text = normalize_scalar_text(candidate)
+        if not text:
+            continue
+        try:
+            resolved = Path(text).expanduser().resolve()
+        except OSError:
+            continue
+        if resolved not in roots:
+            roots.append(resolved)
+    return tuple(roots)
+
+
+def resolve_artifact_path(value: Any, *, roots: tuple[Path, ...]) -> str:
+    text = normalize_scalar_text(value)
+    if not text:
+        return ""
+    try:
+        resolved = Path(text).expanduser().resolve()
+    except OSError:
+        return text
+    if resolved.exists():
+        return str(resolved)
+    for root in roots:
+        remapped = root / resolved.name
+        if remapped.exists():
+            return str(remapped.resolve())
+    return str(resolved)
 
 
 def load_contract_artifact_bundle(

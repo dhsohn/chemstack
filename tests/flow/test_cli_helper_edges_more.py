@@ -8,6 +8,7 @@ from typing import Any
 import pytest
 
 from chemstack.flow import cli
+from chemstack.flow import cli_run_dir as run_dir_cli
 
 
 def test_cli_path_and_manifest_helper_edges(
@@ -122,6 +123,111 @@ def test_cli_run_dir_manifest_and_path_resolution_edges(
         key="input_xyz",
         default_names=("unused.xyz",),
     ) == str((workflow_dir / "inputs" / "input.xyz").resolve())
+
+
+def test_run_dir_workflow_options_apply_cli_manifest_section_default_precedence(
+) -> None:
+    args = SimpleNamespace(
+        workflow_root="/tmp/cli_root",
+        crest_mode="cli_nci",
+        priority=None,
+        max_cores=None,
+        max_memory_gb=96,
+        max_orca_stages=None,
+        orca_route_line=None,
+        charge=None,
+        multiplicity=None,
+        max_crest_candidates=None,
+        max_xtb_stages=None,
+    )
+    sections = run_dir_cli._RunDirManifestSections(
+        resources={"max_cores": 12, "max_memory_gb": 48},
+        crest={"mode": "section_nci"},
+        xtb={},
+        endpoint_pairing={},
+        orca={"route_line": "! section", "charge": -2, "multiplicity": 3},
+    )
+
+    options = run_dir_cli._resolve_run_dir_workflow_options(
+        args,
+        {
+            "workflow_root": "/tmp/manifest_root",
+            "crest_mode": "manifest_nci",
+            "priority": 7,
+            "max_cores": 20,
+            "orca_route_line": "! manifest",
+            "max_crest_candidates": 4,
+            "max_xtb_stages": 5,
+        },
+        sections,
+        default_orca_route_line="! default",
+        default_max_orca_stages=3,
+        deps=SimpleNamespace(
+            _resolve_required_workflow_root=lambda args, manifest: (
+                getattr(args, "workflow_root", None) or manifest.get("workflow_root")
+            )
+        ),
+    )
+
+    assert options.workflow_root == "/tmp/cli_root"
+    assert options.crest_mode == "cli_nci"
+    assert options.max_memory_gb == 96
+    assert options.priority == 7
+    assert options.max_cores == 20
+    assert options.orca_route_line == "! manifest"
+    assert options.max_crest_candidates == 4
+    assert options.max_xtb_stages == 5
+    assert options.charge == -2
+    assert options.multiplicity == 3
+    assert options.max_orca_stages == 3
+
+
+def test_run_dir_manifest_sections_resolve_paths_and_merge_endpoint_pairing(
+    tmp_path: Path,
+) -> None:
+    workflow_dir = tmp_path / "workflow_dir"
+    workflow_dir.mkdir()
+    (workflow_dir / "controls").mkdir()
+    (workflow_dir / "controls" / "path.inp").write_text("$path\n$end\n", encoding="utf-8")
+
+    sections = run_dir_cli._resolve_run_dir_manifest_sections(
+        workflow_dir,
+        {
+            "xtb": {
+                "gfn": 1,
+                "xcontrol_file": "controls/path.inp",
+                "endpoint_pairing": {"enabled": False, "max_distance_rmsd": 0.4},
+            },
+            "endpoint_pairing": {"enabled": True, "comparison_atoms": [1, 2]},
+        },
+    )
+
+    assert sections.xtb == {
+        "gfn": 1,
+        "xcontrol_file": str((workflow_dir / "controls" / "path.inp").resolve()),
+    }
+    assert sections.endpoint_pairing == {
+        "enabled": True,
+        "max_distance_rmsd": 0.4,
+        "comparison_atoms": [1, 2],
+    }
+
+
+def test_unique_run_dir_workflow_id_adds_suffix_for_existing_workspace(tmp_path: Path) -> None:
+    workflow_root = tmp_path / "workflow_root"
+    workflow_root.mkdir()
+    workflow_dir = tmp_path / "runs" / "reaction job"
+    workflow_dir.mkdir(parents=True)
+    (workflow_root / "wf_reaction_ts_reaction_job").mkdir()
+
+    assert (
+        cli._unique_run_dir_workflow_id(
+            workflow_dir,
+            workflow_root=workflow_root,
+            workflow_type="reaction_ts_search",
+        )
+        == "wf_reaction_ts_reaction_job_02"
+    )
 
 
 def test_cmd_run_dir_reports_invalid_directory_and_unknown_layout(

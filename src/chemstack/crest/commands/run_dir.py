@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from chemstack.core.commands.run_dir import EngineRunDirSubmission, cmd_engine_run_dir
+from chemstack.core.commands.run_dir import (
+    EngineRunDirSubmission,
+    cmd_engine_run_dir,
+    print_queued_common,
+)
 from chemstack.core.queue import enqueue
 
 from ..config import load_config
@@ -98,11 +102,7 @@ def _record_queued(cfg: Any, submission: EngineRunDirSubmission, entry: Any) -> 
 def _print_queued(submission: EngineRunDirSubmission, entry: Any) -> None:
     job_dir = submission.context["job_dir"]
     selected_xyz = submission.context["selected_xyz"]
-    print("status: queued")
-    print(f"job_dir: {job_dir}")
-    print(f"job_id: {submission.task_id}")
-    print(f"queue_id: {entry.queue_id}")
-    print(f"priority: {entry.priority}")
+    print_queued_common(submission, entry, job_dir=job_dir)
     print(f"selected_input_xyz: {selected_xyz.name}")
 
 

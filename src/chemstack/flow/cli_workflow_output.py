@@ -1,12 +1,64 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from typing import Any
 
 
 def emit_json(payload: dict[str, Any], *, pretty: bool) -> None:
     indent = 2 if pretty else None
     print(json.dumps(payload, ensure_ascii=True, indent=indent))
+
+
+def emit_error(message: Any) -> None:
+    print(f"error: {message}")
+
+
+def emit_worker_lock_error(message: Any) -> None:
+    print(f"worker_lock_error: {message}")
+
+
+def emit_workflow_advance(payload: dict[str, Any], *, json_mode: bool) -> int:
+    if json_mode:
+        emit_json(payload, pretty=True)
+        return 0
+
+    print(f"workflow_id: {payload.get('workflow_id', '-')}")
+    print(f"status: {payload.get('status', '-')}")
+    print(f"stage_count: {len(payload.get('stages', []))}")
+    return 0
+
+
+def emit_created_workflow(payload: dict[str, Any], *, json_mode: bool) -> int:
+    if json_mode:
+        emit_json(payload, pretty=True)
+        return 0
+
+    print(f"workflow_id: {payload.get('workflow_id', '-')}")
+    print(f"template_name: {payload.get('template_name', '-')}")
+    print(f"workspace_dir: {(payload.get('metadata') or {}).get('workspace_dir', '-')}")
+    print(f"stage_count: {len(payload.get('stages', []))}")
+    return 0
+
+
+def emit_restarted_workflow(payload: dict[str, Any], *, json_mode: bool) -> int:
+    if json_mode:
+        emit_json(payload, pretty=True)
+        return 0
+
+    print(f"workflow_id: {payload.get('workflow_id', '-')}")
+    print(f"status: {payload.get('status', '-')}")
+    print(f"workflow_status: {payload.get('workflow_status', '-')}")
+    print(f"previous_status: {payload.get('previous_status', '-')}")
+    print(f"workspace_dir: {payload.get('workspace_dir', '-')}")
+    print(f"restarted_count: {payload.get('restarted_count', 0)}")
+    for item in payload.get("restarted_stages", []):
+        print(
+            f"- restarted {item.get('stage_id', '-')}"
+            f" previous_status={item.get('previous_status', '-')}"
+            f" previous_task_status={item.get('previous_task_status', '-')}"
+        )
+    return 0
 
 
 def emit_worker_payload(
@@ -89,6 +141,151 @@ def emit_workflow_telemetry(payload: dict[str, Any], *, json_mode: bool) -> int:
     return 0
 
 
+def emit_workflow_submit_reaction_ts_search(
+    payload: dict[str, Any], *, json_mode: bool
+) -> int:
+    if json_mode:
+        emit_json(payload, pretty=True)
+        return 0
+
+    print(f"workflow_id: {payload.get('workflow_id', '-')}")
+    print(f"workspace_dir: {payload.get('workspace_dir', '-')}")
+    print(f"status: {payload.get('status', '-')}")
+    print(f"submitted_count: {len(payload.get('submitted', []))}")
+    for item in payload.get("submitted", []):
+        print(f"- submitted {item.get('stage_id', '-')} queue_id={item.get('queue_id', '-')}")
+    if payload.get("skipped"):
+        print(f"skipped_count: {len(payload.get('skipped', []))}")
+        for item in payload.get("skipped", []):
+            print(f"- skipped {item.get('stage_id', '-')} reason={item.get('reason', '-')}")
+    if payload.get("failed"):
+        print(f"failed_count: {len(payload.get('failed', []))}")
+        for item in payload.get("failed", []):
+            print(f"- failed {item.get('stage_id', '-')} returncode={item.get('returncode', '-')}")
+    return 0
+
+
+def emit_workflow_list(payload: dict[str, Any], *, json_mode: bool) -> int:
+    if json_mode:
+        emit_json(payload, pretty=True)
+        return 0
+
+    print(f"workflow_count: {payload.get('count', 0)}")
+    for item in payload.get("workflows", []):
+        submission_summary = item.get("submission_summary") or {}
+        submitted_count = int(submission_summary.get("submitted_count", 0) or 0)
+        failed_count = int(submission_summary.get("failed_count", 0) or 0)
+        print(
+            f"- {item.get('workflow_id', '-')} template={item.get('template_name', '-')}"
+            f" status={item.get('status', '-')}"
+            f" stages={item.get('stage_count', 0)}"
+            f" submitted={submitted_count}"
+            f" failed={failed_count}"
+        )
+    return 0
+
+
+def emit_workflow_get(response: dict[str, Any], *, json_mode: bool) -> int:
+    summary = response["summary"]
+    if json_mode:
+        emit_json(response, pretty=True)
+        return 0
+
+    print(f"workflow_id: {summary.get('workflow_id', '-')}")
+    print(f"template_name: {summary.get('template_name', '-')}")
+    print(f"status: {summary.get('status', '-')}")
+    print(f"source_job_id: {summary.get('source_job_id', '-')}")
+    print(f"reaction_key: {summary.get('reaction_key', '-')}")
+    print(f"workspace_dir: {summary.get('workspace_dir', '-')}")
+    print(f"stage_count: {summary.get('stage_count', 0)}")
+    downstream = summary.get("downstream_reaction_workflow") or {}
+    if downstream:
+        print(
+            f"downstream_reaction: {downstream.get('workflow_id', '-')} "
+            f"status={downstream.get('status', '-')}"
+        )
+    submission_summary = summary.get("submission_summary") or {}
+    if submission_summary:
+        print(
+            f"submission_summary: submitted={submission_summary.get('submitted_count', 0)} "
+            f"skipped={submission_summary.get('skipped_count', 0)} "
+            f"failed={submission_summary.get('failed_count', 0)}"
+        )
+    for stage in summary.get("stage_summaries", []):
+        print(
+            f"- {stage.get('stage_id', '-')} {stage.get('engine', '-')}/{stage.get('task_kind', '-')}"
+            f" stage_status={stage.get('status', '-')}"
+            f" task_status={stage.get('task_status', '-')}"
+        )
+        if stage.get("queue_id"):
+            print(f"  queue_id={stage.get('queue_id')}")
+        if stage.get("selected_input_xyz"):
+            print(f"  selected_input_xyz={stage.get('selected_input_xyz')}")
+        if stage.get("selected_inp"):
+            print(f"  selected_inp={stage.get('selected_inp')}")
+    return 0
+
+
+def emit_workflow_artifacts(response: dict[str, Any], *, json_mode: bool) -> int:
+    if json_mode:
+        emit_json(response, pretty=True)
+        return 0
+
+    print(f"workflow_id: {response.get('workflow_id', '-')}")
+    print(f"workspace_dir: {response.get('workspace_dir', '-')}")
+    print(f"artifact_count: {response.get('artifact_count', 0)}")
+    for item in response.get("artifacts", []):
+        print(
+            f"- {item.get('kind', '-')}"
+            f" stage={item.get('stage_id', '-') or '-'}"
+            f" exists={'yes' if item.get('exists') else 'no'}"
+            f" selected={'yes' if item.get('selected') else 'no'}"
+        )
+        print(f"  path={item.get('path', '-')}")
+    return 0
+
+
+def emit_workflow_cancel(payload: dict[str, Any], *, json_mode: bool) -> int:
+    if json_mode:
+        emit_json(payload, pretty=True)
+        return 0
+
+    print(f"workflow_id: {payload.get('workflow_id', '-')}")
+    print(f"workspace_dir: {payload.get('workspace_dir', '-')}")
+    print(f"status: {payload.get('status', '-')}")
+    print(f"cancelled_count: {len(payload.get('cancelled', []))}")
+    for item in payload.get("cancelled", []):
+        print(f"- cancelled {item.get('stage_id', '-')} queue_id={item.get('queue_id', '-')}")
+    if payload.get("requested"):
+        print(f"requested_count: {len(payload.get('requested', []))}")
+        for item in payload.get("requested", []):
+            print(
+                f"- cancel_requested {item.get('stage_id', '-')} queue_id={item.get('queue_id', '-')}"
+            )
+    if payload.get("skipped"):
+        print(f"skipped_count: {len(payload.get('skipped', []))}")
+        for item in payload.get("skipped", []):
+            print(f"- skipped {item.get('stage_id', '-')} reason={item.get('reason', '-')}")
+    if payload.get("failed"):
+        print(f"failed_count: {len(payload.get('failed', []))}")
+        for item in payload.get("failed", []):
+            print(f"- failed {item.get('stage_id', '-')} reason={item.get('reason', '-')}")
+    return 0
+
+
+def emit_workflow_reindex(
+    payload: dict[str, Any], *, records: Sequence[Any], json_mode: bool
+) -> int:
+    if json_mode:
+        emit_json(payload, pretty=True)
+        return 0
+
+    print(f"workflow_count: {len(records)}")
+    for record in records:
+        print(f"- {record.workflow_id} status={record.status} template={record.template_name}")
+    return 0
+
+
 def _emit_recent_failures(payload: dict[str, Any]) -> None:
     recent_failures = payload.get("recent_failures") or []
     if not recent_failures:
@@ -114,9 +311,20 @@ def _emit_recent_status_changes(payload: dict[str, Any]) -> None:
 
 
 __all__ = [
+    "emit_created_workflow",
+    "emit_error",
     "emit_json",
+    "emit_restarted_workflow",
+    "emit_worker_lock_error",
     "emit_worker_payload",
+    "emit_workflow_advance",
+    "emit_workflow_artifacts",
+    "emit_workflow_cancel",
+    "emit_workflow_get",
     "emit_workflow_journal",
+    "emit_workflow_list",
+    "emit_workflow_reindex",
     "emit_workflow_runtime_status",
     "emit_workflow_telemetry",
+    "emit_workflow_submit_reaction_ts_search",
 ]

@@ -1,11 +1,27 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from chemstack.core.indexing import get_job_location, upsert_job_location
 from chemstack.core.paths import ensure_directory
-from chemstack.core.paths.workflow import iter_workflow_runtime_workspaces, workflow_workspace_internal_engine_paths
+from chemstack.core.paths.workflow import (
+    iter_workflow_runtime_workspaces,
+    workflow_workspace_internal_engine_paths,
+)
+
+
+@dataclass(frozen=True)
+class ReindexDeps:
+    load_config: Any
+    load_state: Any
+    load_report_json: Any
+    load_organized_ref: Any
+    index_root_for_path: Any
+    record_from_artifacts: Any
+    _scan_roots: Any
+    _iter_candidate_dirs: Any
 
 
 def scan_roots(cfg: Any, raw_root: str | None, *, engine: str) -> list[Path]:

@@ -3,7 +3,7 @@ from __future__ import annotations
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from chemstack.core.app_ids import (
     CHEMSTACK_CREST_COMMAND,
@@ -22,7 +22,10 @@ from ._orchestration_requests import (
 from .contracts import (
     WorkflowArtifactRef,
     WorkflowPlan,
+    WorkflowPlanPayload,
     WorkflowStage,
+    WorkflowStagePayload,
+    WorkflowStageWithTaskPayload,
     WorkflowTask,
     WorkflowTemplateRequest,
 )
@@ -122,7 +125,7 @@ def new_crest_stage_impl(
     max_cores: int,
     max_memory_gb: int,
     manifest_overrides: dict[str, Any] | None = None,
-) -> dict[str, Any]:
+) -> WorkflowStageWithTaskPayload:
     config_placeholder = "<crest_auto_config>"
     sections = _stage_payload_sections(
         task_payload={
@@ -173,7 +176,7 @@ def new_crest_stage_impl(
         task=task,
         metadata=sections.stage_metadata,
     )
-    return stage.to_dict()
+    return cast(WorkflowStageWithTaskPayload, stage.to_dict())
 
 
 def new_xtb_stage_impl(
@@ -188,7 +191,7 @@ def new_xtb_stage_impl(
     max_memory_gb: int,
     max_handoff_retries: int = 2,
     manifest_overrides: dict[str, Any] | None = None,
-) -> dict[str, Any]:
+) -> WorkflowStageWithTaskPayload:
     config_placeholder = "<xtb_auto_config>"
     retry_limit = max(0, int(max_handoff_retries))
     sections = _stage_payload_sections(
@@ -251,7 +254,7 @@ def new_xtb_stage_impl(
         task=task,
         metadata=sections.stage_metadata,
     )
-    return stage.to_dict()
+    return cast(WorkflowStageWithTaskPayload, stage.to_dict())
 
 
 def _copy_input_impl(source: str, target: Path) -> str:
@@ -269,7 +272,7 @@ def _persist_workflow(
     request: WorkflowTemplateRequest,
     stages: list[dict[str, Any]],
     creation_context: WorkflowCreationContext,
-) -> dict[str, Any]:
+) -> WorkflowPlanPayload:
     plan = WorkflowPlan(
         workflow_id=persistence_context.workflow_id,
         template_name=persistence_context.template_name,
@@ -285,12 +288,15 @@ def _persist_workflow(
         },
     )
     payload = plan.to_dict()
-    payload["stages"] = list(stages)
-    creation_context.write_workflow_payload_fn(persistence_context.workspace_dir, payload)
+    payload["stages"] = cast(list[WorkflowStagePayload], list(stages))
+    callback_payload = cast(dict[str, Any], payload)
+    creation_context.write_workflow_payload_fn(
+        persistence_context.workspace_dir, callback_payload
+    )
     creation_context.sync_workflow_registry_fn(
         persistence_context.workflow_root_path,
         persistence_context.workspace_dir,
-        payload,
+        callback_payload,
     )
     return payload
 
@@ -299,7 +305,7 @@ def create_reaction_ts_search_workflow_impl(
     *,
     request: ReactionTsSearchWorkflowRequest,
     context: ReactionTsSearchWorkflowCreationContext,
-) -> dict[str, Any]:
+) -> WorkflowPlanPayload:
     workflow_id = str(request.workflow_id or "").strip() or context.workflow_id_factory(
         "wf_reaction_ts"
     )
@@ -415,7 +421,7 @@ def create_conformer_screening_workflow_impl(
     *,
     request: ConformerScreeningWorkflowRequest,
     context: WorkflowCreationContext,
-) -> dict[str, Any]:
+) -> WorkflowPlanPayload:
     workflow_id = str(request.workflow_id or "").strip() or context.workflow_id_factory(
         "wf_conformer_screening"
     )

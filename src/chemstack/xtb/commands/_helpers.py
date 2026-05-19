@@ -4,8 +4,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-import yaml
-
+from chemstack.core.commands import run_dir as _shared_run_dir
 from chemstack.core.config.engines import (
     resource_request_from_manifest as _shared_resource_request_from_manifest,
 )
@@ -39,14 +38,12 @@ def _as_int(value: Any, default: int) -> int:
 
 
 def load_job_manifest(job_dir: Path) -> dict[str, Any]:
-    path = job_dir / MANIFEST_FILE_NAME
-    if not path.exists():
-        raise ValueError(f"Missing xTB job manifest: {path}")
-    with path.open("r", encoding="utf-8") as handle:
-        parsed = yaml.safe_load(handle) or {}
-    if not isinstance(parsed, dict):
-        raise ValueError(f"Invalid xTB job manifest: {path}")
-    return parsed
+    return _shared_run_dir.load_yaml_job_manifest(
+        job_dir,
+        MANIFEST_FILE_NAME,
+        missing_message="Missing xTB job manifest: {path}",
+        invalid_message="Invalid xTB job manifest: {path}",
+    )
 
 
 def job_type(manifest: dict[str, Any]) -> str:
@@ -57,7 +54,8 @@ def job_type(manifest: dict[str, Any]) -> str:
 
 
 def _xyz_files(root: Path) -> list[Path]:
-    return sorted([path.resolve() for path in root.glob("*.xyz") if path.is_file()], key=lambda path: path.name.lower())
+    files = [path.resolve() for path in root.glob("*.xyz") if path.is_file()]
+    return sorted(files, key=lambda path: path.name.lower())
 
 
 def _choose_xyz(root: Path, explicit_name: str, *, label: str) -> Path:
@@ -158,21 +156,17 @@ def resolve_job_inputs(job_dir: Path, manifest: dict[str, Any]) -> dict[str, Any
 
 
 def resolve_job_dir(cfg: AppConfig, raw_job_dir: str) -> Path:
-    candidate = Path(raw_job_dir).expanduser().resolve()
-    workflow_root = _normalize_text(getattr(cfg, "workflow_root", ""))
-    if workflow_root:
-        runtime_paths = workflow_workspace_internal_engine_paths_from_path(
-            candidate,
-            workflow_root=workflow_root,
-            engine="xtb",
-        )
-        if runtime_paths is None:
-            raise ValueError(
-                "Job directory must be under a workflow-local xTB root: "
-                "<workflow.root>/<workflow_id>/02_xtb/..."
-            )
-        return validate_job_dir(raw_job_dir, str(runtime_paths["allowed_root"]), label="Job directory")
-    return validate_job_dir(raw_job_dir, cfg.runtime.allowed_root, label="Job directory")
+    return _shared_run_dir.resolve_engine_job_dir(
+        cfg,
+        raw_job_dir,
+        engine="xtb",
+        workflow_error_message=(
+            "Job directory must be under a workflow-local xTB root: "
+            "<workflow.root>/<workflow_id>/02_xtb/..."
+        ),
+        validate_job_dir_fn=validate_job_dir,
+        workflow_paths_from_path_fn=workflow_workspace_internal_engine_paths_from_path,
+    )
 
 
 def resource_request_from_manifest(cfg: AppConfig, manifest: dict[str, Any]) -> dict[str, int]:

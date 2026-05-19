@@ -4,8 +4,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-import yaml
-
+from chemstack.core.commands import run_dir as _shared_run_dir
 from chemstack.core.config.engines import (
     resource_request_from_manifest as _shared_resource_request_from_manifest,
 )
@@ -20,14 +19,11 @@ MANIFEST_FILE_NAME = "crest_job.yaml"
 
 
 def load_job_manifest(job_dir: Path) -> dict[str, Any]:
-    path = job_dir / MANIFEST_FILE_NAME
-    if not path.exists():
-        return {}
-    with path.open("r", encoding="utf-8") as handle:
-        parsed = yaml.safe_load(handle) or {}
-    if not isinstance(parsed, dict):
-        raise ValueError(f"Invalid CREST job manifest: {path}")
-    return parsed
+    return _shared_run_dir.load_yaml_job_manifest(
+        job_dir,
+        MANIFEST_FILE_NAME,
+        invalid_message="Invalid CREST job manifest: {path}",
+    )
 
 
 def job_mode(manifest: dict[str, Any]) -> str:
@@ -61,21 +57,17 @@ def select_input_xyz(job_dir: Path, manifest: dict[str, Any]) -> Path:
 
 
 def resolve_job_dir(cfg: AppConfig, raw_job_dir: str) -> Path:
-    candidate = Path(raw_job_dir).expanduser().resolve()
-    workflow_root = str(getattr(cfg, "workflow_root", "")).strip()
-    if workflow_root:
-        runtime_paths = workflow_workspace_internal_engine_paths_from_path(
-            candidate,
-            workflow_root=workflow_root,
-            engine="crest",
-        )
-        if runtime_paths is None:
-            raise ValueError(
-                "Job directory must be under a workflow-local CREST root: "
-                "<workflow.root>/<workflow_id>/01_crest/..."
-            )
-        return validate_job_dir(raw_job_dir, str(runtime_paths["allowed_root"]), label="Job directory")
-    return validate_job_dir(raw_job_dir, cfg.runtime.allowed_root, label="Job directory")
+    return _shared_run_dir.resolve_engine_job_dir(
+        cfg,
+        raw_job_dir,
+        engine="crest",
+        workflow_error_message=(
+            "Job directory must be under a workflow-local CREST root: "
+            "<workflow.root>/<workflow_id>/01_crest/..."
+        ),
+        validate_job_dir_fn=validate_job_dir,
+        workflow_paths_from_path_fn=workflow_workspace_internal_engine_paths_from_path,
+    )
 
 
 def resource_request_from_manifest(cfg: AppConfig, manifest: dict[str, Any]) -> dict[str, int]:

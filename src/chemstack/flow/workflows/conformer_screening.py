@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from chemstack.core.utils import atomic_write_json, now_utc_iso, timestamped_token
 
@@ -192,7 +192,7 @@ def _conformer_plan_payload(
             "workspace_dir": str(ctx.workspace_dir) if ctx.workspace_dir is not None else "",
         },
     )
-    return plan.to_dict()
+    return cast(dict[str, Any], plan.to_dict())
 
 
 def _persist_conformer_plan_payload(

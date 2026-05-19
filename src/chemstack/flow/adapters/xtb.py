@@ -69,14 +69,11 @@ def _load_candidate_details(payload: dict[str, Any]) -> tuple[XtbCandidateArtifa
 def _fallback_details_from_paths(
     contract_payload: dict[str, Any],
 ) -> tuple[XtbCandidateArtifact, ...]:
-    raw_paths = contract_payload.get("selected_candidate_paths")
-    if not isinstance(raw_paths, list):
-        return ()
     details: list[XtbCandidateArtifact] = []
-    for index, raw in enumerate(raw_paths, start=1):
-        path = _normalize_text(raw)
-        if not path:
-            continue
+    for index, path in enumerate(
+        _adapter_helpers.normalized_text_sequence(contract_payload.get("selected_candidate_paths")),
+        start=1,
+    ):
         details.append(
             XtbCandidateArtifact(
                 rank=index,
@@ -189,33 +186,36 @@ def load_xtb_artifact_contract(*, xtb_index_root: str | Path, target: str) -> Xt
 
     candidate_details = _load_candidate_details(payload) or _fallback_details_from_paths(payload)
 
-    selected_candidate_paths_raw = payload.get("selected_candidate_paths")
-    selected_candidate_paths: tuple[str, ...]
-    if isinstance(selected_candidate_paths_raw, list):
-        selected_candidate_paths = tuple(
-            _normalize_text(item) for item in selected_candidate_paths_raw if _normalize_text(item)
-        )
-    else:
-        selected_candidate_paths = tuple(item.path for item in candidate_details if item.selected)
+    selected_candidate_paths = _adapter_helpers.normalized_text_sequence(
+        payload.get("selected_candidate_paths")
+    ) or tuple(item.path for item in candidate_details if item.selected)
 
-    job_type = _normalize_text(payload.get("job_type")) or _job_type_from_record(record, "unknown")
-    status = (
-        _normalize_text(payload.get("status") or (record.status if record is not None else ""))
-        or "unknown"
+    job_type = _adapter_helpers.first_normalized_text(
+        payload.get("job_type"),
+        default=_job_type_from_record(record, "unknown"),
+    )
+    status = _adapter_helpers.first_normalized_text(
+        payload.get("status"),
+        record.status if record is not None else "",
+        default="unknown",
     )
     reason = _normalize_text(payload.get("reason"))
-    job_id = _normalize_text(payload.get("job_id") or (record.job_id if record is not None else ""))
-    reaction_key = _normalize_text(
-        payload.get("reaction_key") or (record.molecule_key if record is not None else "")
+    job_id = _adapter_helpers.first_normalized_text(
+        payload.get("job_id"),
+        record.job_id if record is not None else "",
     )
-    selected_input_xyz = _normalize_text(
-        payload.get("selected_input_xyz")
-        or (record.selected_input_xyz if record is not None else "")
+    reaction_key = _adapter_helpers.first_normalized_text(
+        payload.get("reaction_key"),
+        record.molecule_key if record is not None else "",
     )
-    organized_output_dir = _normalize_text(
-        payload.get("organized_output_dir")
-        or organized_ref.get("organized_output_dir")
-        or (record.organized_output_dir if record is not None else "")
+    selected_input_xyz = _adapter_helpers.first_normalized_text(
+        payload.get("selected_input_xyz"),
+        record.selected_input_xyz if record is not None else "",
+    )
+    organized_output_dir = _adapter_helpers.first_normalized_text(
+        payload.get("organized_output_dir"),
+        organized_ref.get("organized_output_dir"),
+        record.organized_output_dir if record is not None else "",
     )
     latest_known_path = bundle.latest_known_path
 

@@ -111,7 +111,9 @@ class _CandidateSpDeps:
         return self.result
 
 
-def _ranking_result(candidate_path: Path, *, status: str = "completed", reason: str = "completed") -> runner_mod.XtbRunResult:
+def _ranking_result(
+    candidate_path: Path, *, status: str = "completed", reason: str = "completed"
+) -> runner_mod.XtbRunResult:
     return runner_mod.XtbRunResult(
         status=status,
         reason=reason,
@@ -143,14 +145,18 @@ def test_resolve_xtb_executable_uses_configured_and_path_lookup(
     executable.parent.mkdir(parents=True)
     executable.write_text("#!/bin/sh\n", encoding="utf-8")
 
-    assert runner_mod._resolve_xtb_executable(_cfg(tmp_path, xtb_executable=str(executable))) == str(
-        executable.resolve()
-    )
+    assert runner_mod._resolve_xtb_executable(
+        _cfg(tmp_path, xtb_executable=str(executable))
+    ) == str(executable.resolve())
 
     with pytest.raises(ValueError, match="Configured xTB executable not found"):
-        runner_mod._resolve_xtb_executable(_cfg(tmp_path, xtb_executable=str(tmp_path / "missing-xtb")))
+        runner_mod._resolve_xtb_executable(
+            _cfg(tmp_path, xtb_executable=str(tmp_path / "missing-xtb"))
+        )
 
-    monkeypatch.setattr(runner_mod.shutil, "which", lambda name: "/usr/bin/xtb" if name == "xtb" else None)
+    monkeypatch.setattr(
+        runner_mod.shutil, "which", lambda name: "/usr/bin/xtb" if name == "xtb" else None
+    )
     assert runner_mod._resolve_xtb_executable(_cfg(tmp_path)) == "/usr/bin/xtb"
 
     monkeypatch.setattr(runner_mod.shutil, "which", lambda name: None)
@@ -250,10 +256,16 @@ def test_extract_sp_energy_prefers_xtbout_then_string_then_comment(tmp_path: Pat
     candidate_xyz = _write_xyz(job_dir / "candidate.xyz", comment="energy = -17.25")
 
     (job_dir / "xtbout.json").write_text(json.dumps({"total energy": -11.5}), encoding="utf-8")
-    assert runner_mod._extract_sp_energy(job_dir, candidate_xyz) == (-11.5, "xtbout.json:total energy")
+    assert runner_mod._extract_sp_energy(job_dir, candidate_xyz) == (
+        -11.5,
+        "xtbout.json:total energy",
+    )
 
     (job_dir / "xtbout.json").write_text(json.dumps({"total energy": "-12.75"}), encoding="utf-8")
-    assert runner_mod._extract_sp_energy(job_dir, candidate_xyz) == (-12.75, "xtbout.json:total energy")
+    assert runner_mod._extract_sp_energy(job_dir, candidate_xyz) == (
+        -12.75,
+        "xtbout.json:total energy",
+    )
 
     (job_dir / "xtbout.json").unlink()
     assert runner_mod._extract_sp_energy(job_dir, candidate_xyz) == (-17.25, "candidate_comment")
@@ -336,7 +348,9 @@ def test_run_xtb_ranking_job_returns_failed_result_when_no_usable_energy(
             reason="xtb_exit_code_1",
         ),
     )
-    monkeypatch.setattr(runner_mod, "_extract_sp_energy", lambda job_dir_path, candidate_xyz: (None, ""))
+    monkeypatch.setattr(
+        runner_mod, "_extract_sp_energy", lambda job_dir_path, candidate_xyz: (None, "")
+    )
     monkeypatch.setattr(runner_mod, "now_utc_iso", lambda: "2026-04-20T00:00:00Z")
 
     result = runner_mod.run_xtb_ranking_job(cfg, job_dir=job_dir)
@@ -348,7 +362,10 @@ def test_run_xtb_ranking_job_returns_failed_result_when_no_usable_energy(
     assert result.analysis_summary["failure_reason"] == "ranking_no_usable_energy"
     assert result.analysis_summary["top_n"] == 2
     assert all(item["selected"] is False for item in result.candidate_details)
-    assert Path(result.stdout_log).read_text(encoding="utf-8") == "ranking failed: ranking_no_usable_energy\n"
+    assert (
+        Path(result.stdout_log).read_text(encoding="utf-8")
+        == "ranking failed: ranking_no_usable_energy\n"
+    )
     assert (
         Path(result.stderr_log).read_text(encoding="utf-8")
         == "no candidate produced a usable xTB energy\n"
@@ -368,7 +385,9 @@ def test_run_candidate_sp_job_writes_scaffold_and_finalizes_result(
     sentinel_running = object()
     expected_result = _ranking_result(candidate_xyz)
 
-    def fake_start_xtb_job(cfg_obj: AppConfig, *, job_dir: Path, selected_input_xyz: Path) -> object:
+    def fake_start_xtb_job(
+        cfg_obj: AppConfig, *, job_dir: Path, selected_input_xyz: Path
+    ) -> object:
         started.append((job_dir, selected_input_xyz))
         return sentinel_running
 
@@ -390,7 +409,9 @@ def test_run_candidate_sp_job_writes_scaffold_and_finalizes_result(
     assert result is expected_result
     assert started == [(candidate_run_dir, candidate_run_dir / "input.xyz")]
     assert finalized == [sentinel_running]
-    assert (candidate_run_dir / "input.xyz").read_text(encoding="utf-8") == candidate_xyz.read_text(encoding="utf-8")
+    assert (candidate_run_dir / "input.xyz").read_text(encoding="utf-8") == candidate_xyz.read_text(
+        encoding="utf-8"
+    )
     assert manifest["job_type"] == "sp"
     assert manifest["input_xyz"] == "input.xyz"
 
@@ -504,7 +525,9 @@ def test_request_candidate_process_stop_terminates_or_ignores_errors() -> None:
     assert raising.terminate_calls == 1
 
 
-def test_run_xtb_ranking_job_requires_candidates(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_run_xtb_ranking_job_requires_candidates(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     cfg = _cfg(tmp_path)
     job_dir = tmp_path / "ranking-job"
     job_dir.mkdir()
@@ -593,9 +616,116 @@ def test_run_xtb_ranking_job_selects_lowest_energy_candidates_and_logs_summary(
         str(candidate_b.resolve()),
         str(candidate_a.resolve()),
     ]
+    assert result.analysis_summary["command_summary"] == [
+        ["xtb", str(candidate_a)],
+        ["xtb", str(candidate_b)],
+        ["xtb", str(candidate_c)],
+    ]
+    assert [item["path"] for item in result.candidate_details] == [
+        str(candidate_b.resolve()),
+        str(candidate_a.resolve()),
+    ]
+    assert [item["rank"] for item in result.candidate_details] == [1, 2]
+    assert [item["selected"] for item in result.candidate_details] == [True, True]
+    assert result.candidate_details[0] == {
+        "rank": 1,
+        "kind": "ranking_candidate",
+        "path": str(candidate_b.resolve()),
+        "candidate_run_dir_path": str((job_dir / ".ranking_runs" / "02_beta").resolve()),
+        "energy_source": "xtbout.json:total energy",
+        "total_energy": -12.5,
+        "score": 12.5,
+        "status": "completed",
+        "reason": "completed",
+        "exit_code": 0,
+        "selected": True,
+    }
     stdout_text = Path(result.stdout_log).read_text(encoding="utf-8")
     assert "ranking completed: evaluated=3 selected=2" in stdout_text
     assert "failed_candidates: 1" in stdout_text
+
+
+def test_run_xtb_ranking_job_returns_cancelled_when_cancel_requested_mid_ranking(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cfg = _cfg(tmp_path)
+    job_dir = tmp_path / "ranking-job"
+    candidate_a = _write_xyz(job_dir / "candidates" / "alpha.xyz")
+    candidate_b = _write_xyz(job_dir / "candidates" / "beta.xyz")
+    cancel_checks = 0
+    evaluated: list[Path] = []
+
+    monkeypatch.setattr(runner_mod, "load_job_manifest", lambda path: {"top_n": 2})
+    monkeypatch.setattr(
+        runner_mod,
+        "resolve_job_inputs",
+        lambda job_dir_path, manifest: {
+            "job_type": "ranking",
+            "reaction_key": "rxn-1",
+            "input_summary": {
+                "candidate_paths": [
+                    str(candidate_a.resolve()),
+                    str(candidate_b.resolve()),
+                ],
+                "top_n": 2,
+            },
+        },
+    )
+
+    def should_cancel() -> bool:
+        nonlocal cancel_checks
+        cancel_checks += 1
+        return cancel_checks >= 2
+
+    def fake_run_candidate_sp_job(
+        cfg_obj: AppConfig,
+        *,
+        candidate_xyz: Path,
+        candidate_run_dir: Path,
+        manifest: dict[str, Any],
+        should_cancel: Any = None,
+        on_running_job: Any = None,
+        terminate_process: Any = None,
+    ) -> runner_mod.XtbRunResult:
+        evaluated.append(candidate_xyz)
+        return _ranking_result(candidate_xyz)
+
+    monkeypatch.setattr(runner_mod, "_run_candidate_sp_job", fake_run_candidate_sp_job)
+    monkeypatch.setattr(
+        runner_mod,
+        "_extract_sp_energy",
+        lambda job_dir_path, candidate_xyz: (-10.0, "xtbout.json:total energy"),
+    )
+    monkeypatch.setattr(runner_mod, "now_utc_iso", lambda: "2026-04-20T00:00:00Z")
+
+    result = runner_mod.run_xtb_ranking_job(cfg, job_dir=job_dir, should_cancel=should_cancel)
+
+    assert result.status == "cancelled"
+    assert result.reason == "cancel_requested"
+    assert evaluated == [candidate_a]
+    assert result.command == ("xtb", str(candidate_a))
+    assert result.selected_candidate_paths == ()
+    assert result.candidate_count == 2
+    assert result.analysis_summary["evaluated_candidate_count"] == 1
+    assert result.analysis_summary["candidate_paths"] == [str(candidate_a.resolve())]
+    assert result.candidate_details == (
+        {
+            "rank": 1,
+            "kind": "ranking_candidate",
+            "path": str(candidate_a.resolve()),
+            "candidate_run_dir_path": str((job_dir / ".ranking_runs" / "01_alpha").resolve()),
+            "energy_source": "xtbout.json:total energy",
+            "status": "completed",
+            "reason": "completed",
+            "exit_code": 0,
+            "selected": False,
+        },
+    )
+    assert (
+        Path(result.stdout_log).read_text(encoding="utf-8")
+        == "ranking cancelled: cancel_requested\n"
+    )
 
 
 def test_parse_path_search_stdout_and_candidate_collection_fallbacks(
@@ -610,20 +740,26 @@ def test_parse_path_search_stdout_and_candidate_collection_fallbacks(
     fallback_stdout = job_dir / "xtb.stdout.log"
     fallback_stdout.write_text("path output without ranked selections\n", encoding="utf-8")
     path_file = _write_xyz(job_dir / "xtbpath.xyz")
-    count, selected_paths, details, summary = runner_mod._collect_path_search_candidates(job_dir, str(fallback_stdout))
+    count, selected_paths, details, summary = runner_mod._collect_path_search_candidates(
+        job_dir, str(fallback_stdout)
+    )
     assert count == 0
     assert details == ()
     assert selected_paths == (str(path_file.resolve()),)
     assert summary["selected_candidate_paths"] == [str(path_file.resolve())]
 
     _write_xyz(job_dir / "xtbpath_1.xyz")
-    ignored_count, ignored_paths, ignored_details, _ = runner_mod._collect_path_search_candidates(job_dir, str(fallback_stdout))
+    ignored_count, ignored_paths, ignored_details, _ = runner_mod._collect_path_search_candidates(
+        job_dir, str(fallback_stdout)
+    )
     assert ignored_count == 0
     assert ignored_paths == (str(path_file.resolve()),)
     assert ignored_details == ()
 
 
-def test_collect_path_search_candidates_parses_stdout_and_keeps_only_ts_and_selected_path(tmp_path: Path) -> None:
+def test_collect_path_search_candidates_parses_stdout_and_keeps_only_ts_and_selected_path(
+    tmp_path: Path,
+) -> None:
     job_dir = tmp_path / "path-job"
     job_dir.mkdir()
     ts_guess = _write_xyz(job_dir / "ts_guess.xyz")
@@ -659,9 +795,11 @@ def test_collect_path_search_candidates_parses_stdout_and_keeps_only_ts_and_sele
         encoding="utf-8",
     )
 
-    candidate_count, selected_paths, candidate_details, summary = runner_mod._collect_path_search_candidates(
-        job_dir,
-        str(stdout_log),
+    candidate_count, selected_paths, candidate_details, summary = (
+        runner_mod._collect_path_search_candidates(
+            job_dir,
+            str(stdout_log),
+        )
     )
 
     assert candidate_count == 2
@@ -749,7 +887,9 @@ def test_collect_opt_and_sp_candidates_return_expected_metadata(tmp_path: Path) 
 
 def test_preexec_with_limits_sets_address_space_limit(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[tuple[int, tuple[int, int]]] = []
-    monkeypatch.setattr(runner_mod.resource, "setrlimit", lambda kind, limits: calls.append((kind, limits)))
+    monkeypatch.setattr(
+        runner_mod.resource, "setrlimit", lambda kind, limits: calls.append((kind, limits))
+    )
 
     runner_mod._preexec_with_limits(3)()
 
@@ -802,7 +942,10 @@ def test_start_xtb_job_passes_expected_subprocess_options(
     monkeypatch.setattr(
         runner_mod,
         "load_job_manifest",
-        lambda path: {"job_type": "path_search", "resources": {"max_cores": 9, "max_memory_gb": 18}},
+        lambda path: {
+            "job_type": "path_search",
+            "resources": {"max_cores": 9, "max_memory_gb": 18},
+        },
     )
     monkeypatch.setattr(
         runner_mod,
@@ -822,7 +965,10 @@ def test_start_xtb_job_passes_expected_subprocess_options(
 
     assert build_command_calls == [
         {
-            "manifest": {"job_type": "path_search", "resources": {"max_cores": 9, "max_memory_gb": 18}},
+            "manifest": {
+                "job_type": "path_search",
+                "resources": {"max_cores": 9, "max_memory_gb": 18},
+            },
             "selected_input_xyz": selected_xyz,
             "secondary_input_xyz": secondary_xyz.resolve(),
             "job_type": "path_search",
@@ -954,7 +1100,12 @@ def test_finalize_xtb_job_waits_for_process_and_uses_forced_status(
     monkeypatch.setattr(
         runner_mod,
         "_collect_opt_candidates",
-        lambda path: (1, ("optimized.xyz",), ({"kind": "optimized_geometry"},), {"optimization_ok": True}),
+        lambda path: (
+            1,
+            ("optimized.xyz",),
+            ({"kind": "optimized_geometry"},),
+            {"optimization_ok": True},
+        ),
     )
     monkeypatch.setattr(runner_mod, "now_utc_iso", lambda: "2026-04-20T00:10:00Z")
 
@@ -1005,7 +1156,12 @@ def test_finalize_xtb_job_uses_single_point_candidate_collection(
     monkeypatch.setattr(
         runner_mod,
         "_collect_sp_candidates",
-        lambda path: (1, ("xtbout.json",), ({"kind": "single_point_result"},), {"total_energy": -4.2}),
+        lambda path: (
+            1,
+            ("xtbout.json",),
+            ({"kind": "single_point_result"},),
+            {"total_energy": -4.2},
+        ),
     )
     monkeypatch.setattr(runner_mod, "now_utc_iso", lambda: "2026-04-20T00:10:00Z")
 

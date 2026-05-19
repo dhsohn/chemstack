@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from chemstack.core.utils import (
     mapping_or_empty as _shared_mapping_or_empty,
@@ -112,25 +113,11 @@ from .workflow_notifications import maybe_notify_workflow_phase_summary
 from .workflows.orca_stage_utils import build_materialized_orca_stage, safe_name
 from .xyz_utils import choose_orca_geometry_frame, load_xyz_atom_sequence
 
-
-def _normalize_text(value: Any) -> str:
-    return _shared_normalize_text(value)
-
-
-def _coerce_mapping(value: Any) -> dict[str, Any]:
-    return _shared_mapping_or_empty(value)
-
-
-def _safe_int(value: Any, *, default: int = 0) -> int:
-    return _shared_safe_int(value, default=default)
-
-
-def _workflow_id(prefix: str) -> str:
-    return timestamped_token(prefix)
-
-
-def _copy_input(source: str, target: Path) -> str:
-    return _copy_input_impl(source, target)
+_normalize_text = _shared_normalize_text
+_coerce_mapping = _shared_mapping_or_empty
+_safe_int = _shared_safe_int
+_workflow_id = timestamped_token
+_copy_input = _copy_input_impl
 
 
 def _write_workflow_payload_side_effect(workspace_dir: Path, payload: dict[str, Any]) -> None:
@@ -184,7 +171,7 @@ def _persist_workflow_progress(
 
 
 def _stage_dict(stage: WorkflowStage) -> dict[str, Any]:
-    return stage.to_dict()
+    return cast(dict[str, Any], stage.to_dict())
 
 
 def _workflow_sync_only(payload: dict[str, Any]) -> bool:
@@ -229,58 +216,8 @@ def _maybe_notify_workflow_phase_summary(
     )
 
 
-def _new_crest_stage(
-    *,
-    workflow_id: str,
-    template_name: str,
-    stage_id: str,
-    source_path: str,
-    input_role: str,
-    mode: str,
-    priority: int,
-    max_cores: int,
-    max_memory_gb: int,
-    manifest_overrides: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    return new_crest_stage_impl(
-        workflow_id=workflow_id,
-        template_name=template_name,
-        stage_id=stage_id,
-        source_path=source_path,
-        input_role=input_role,
-        mode=mode,
-        priority=priority,
-        max_cores=max_cores,
-        max_memory_gb=max_memory_gb,
-        manifest_overrides=manifest_overrides,
-    )
-
-
-def _new_xtb_stage(
-    *,
-    workflow_id: str,
-    stage_id: str,
-    reaction_key: str,
-    reactant_input: dict[str, Any],
-    product_input: dict[str, Any],
-    priority: int,
-    max_cores: int,
-    max_memory_gb: int,
-    max_handoff_retries: int = 2,
-    manifest_overrides: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    return new_xtb_stage_impl(
-        workflow_id=workflow_id,
-        stage_id=stage_id,
-        reaction_key=reaction_key,
-        reactant_input=reactant_input,
-        product_input=product_input,
-        priority=priority,
-        max_cores=max_cores,
-        max_memory_gb=max_memory_gb,
-        max_handoff_retries=max_handoff_retries,
-        manifest_overrides=manifest_overrides,
-    )
+_new_crest_stage = cast(Callable[..., dict[str, Any]], new_crest_stage_impl)
+_new_xtb_stage = cast(Callable[..., dict[str, Any]], new_xtb_stage_impl)
 
 
 def create_reaction_ts_search_workflow(
@@ -309,30 +246,33 @@ def create_reaction_ts_search_workflow(
     normalized_crest_mode = _normalize_text(crest_mode).lower()
     if normalized_crest_mode not in {"standard", "nci"}:
         raise ValueError("reaction_ts_search only supports crest_mode 'standard' or 'nci'")
-    return create_reaction_ts_search_workflow_impl(
-        request=ReactionTsSearchWorkflowRequest(
-            reactant_xyz=reactant_xyz,
-            product_xyz=product_xyz,
-            workflow_root=workflow_root,
-            workflow_id=workflow_id,
-            crest_mode=normalized_crest_mode,
-            priority=priority,
-            max_cores=max_cores,
-            max_memory_gb=max_memory_gb,
-            max_crest_candidates=max_crest_candidates,
-            max_xtb_stages=max_xtb_stages,
-            max_xtb_handoff_retries=max_xtb_handoff_retries,
-            max_orca_stages=max_orca_stages,
-            orca_route_line=orca_route_line,
-            charge=charge,
-            multiplicity=multiplicity,
-            crest_job_manifest=crest_job_manifest,
-            xtb_job_manifest=xtb_job_manifest,
-            endpoint_pairing=endpoint_pairing,
-            source_job_id=source_job_id,
-            source_job_type=source_job_type,
+    return cast(
+        dict[str, Any],
+        create_reaction_ts_search_workflow_impl(
+            request=ReactionTsSearchWorkflowRequest(
+                reactant_xyz=reactant_xyz,
+                product_xyz=product_xyz,
+                workflow_root=workflow_root,
+                workflow_id=workflow_id,
+                crest_mode=normalized_crest_mode,
+                priority=priority,
+                max_cores=max_cores,
+                max_memory_gb=max_memory_gb,
+                max_crest_candidates=max_crest_candidates,
+                max_xtb_stages=max_xtb_stages,
+                max_xtb_handoff_retries=max_xtb_handoff_retries,
+                max_orca_stages=max_orca_stages,
+                orca_route_line=orca_route_line,
+                charge=charge,
+                multiplicity=multiplicity,
+                crest_job_manifest=crest_job_manifest,
+                xtb_job_manifest=xtb_job_manifest,
+                endpoint_pairing=endpoint_pairing,
+                source_job_id=source_job_id,
+                source_job_type=source_job_type,
+            ),
+            context=_reaction_ts_creation_context(),
         ),
-        context=_reaction_ts_creation_context(),
     )
 
 
@@ -351,86 +291,41 @@ def create_conformer_screening_workflow(
     multiplicity: int = 1,
     crest_job_manifest: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    return create_conformer_screening_workflow_impl(
-        request=ConformerScreeningWorkflowRequest(
-            input_xyz=input_xyz,
-            workflow_root=workflow_root,
-            workflow_id=workflow_id,
-            crest_mode=crest_mode,
-            priority=priority,
-            max_cores=max_cores,
-            max_memory_gb=max_memory_gb,
-            max_orca_stages=max_orca_stages,
-            orca_route_line=orca_route_line,
-            charge=charge,
-            multiplicity=multiplicity,
-            crest_job_manifest=crest_job_manifest,
+    return cast(
+        dict[str, Any],
+        create_conformer_screening_workflow_impl(
+            request=ConformerScreeningWorkflowRequest(
+                input_xyz=input_xyz,
+                workflow_root=workflow_root,
+                workflow_id=workflow_id,
+                crest_mode=crest_mode,
+                priority=priority,
+                max_cores=max_cores,
+                max_memory_gb=max_memory_gb,
+                max_orca_stages=max_orca_stages,
+                orca_route_line=orca_route_line,
+                charge=charge,
+                multiplicity=multiplicity,
+                crest_job_manifest=crest_job_manifest,
+            ),
+            context=_workflow_creation_context(),
         ),
-        context=_workflow_creation_context(),
     )
 
 
-def _submission_target(stage: dict[str, Any]) -> str:
-    return submission_target_impl(stage)
-
-
-def _load_config_root(config_path: str | None, *, engine: str = "orca") -> Path | None:
-    return load_config_root_impl(config_path, engine=engine)
-
-
-def _load_config_organized_root(config_path: str | None, *, engine: str = "orca") -> Path | None:
-    return load_config_organized_root_impl(config_path, engine=engine)
-
-
-def _stage_metadata(stage: dict[str, Any]) -> dict[str, Any]:
-    return stage_metadata_impl(stage)
-
-
-def _task_payload_dict(task: dict[str, Any]) -> dict[str, Any]:
-    return task_payload_dict_impl(task)
-
-
-def _xtb_attempt_rows(stage: dict[str, Any]) -> list[dict[str, Any]]:
-    return xtb_attempt_rows_impl(stage)
-
-
-def _xtb_attempt_record(stage: dict[str, Any], *, attempt_number: int) -> dict[str, Any]:
-    return xtb_attempt_record_impl(stage, attempt_number=attempt_number)
-
-
-def _xtb_retry_recipe(attempt_number: int) -> dict[str, Any]:
-    return xtb_retry_recipe_impl(attempt_number)
-
-
-def _xtb_path_retry_limit(stage: dict[str, Any]) -> int:
-    return xtb_path_retry_limit_impl(stage)
-
-
-def _xtb_current_attempt_number(stage: dict[str, Any]) -> int:
-    return xtb_current_attempt_number_impl(stage)
-
-
-def _write_xtb_path_job(
-    stage: dict[str, Any],
-    *,
-    xtb_allowed_root: Path,
-    workflow_id: str,
-    attempt_number: int,
-) -> str:
-    return write_xtb_path_job_impl(
-        stage,
-        xtb_allowed_root=xtb_allowed_root,
-        workflow_id=workflow_id,
-        attempt_number=attempt_number,
-    )
-
-
-def _xtb_handoff_status(contract: Any) -> dict[str, str]:
-    return xtb_handoff_status_impl(contract)
-
-
-def _stage_has_xtb_candidates(stage: dict[str, Any]) -> bool:
-    return stage_has_xtb_candidates_impl(stage)
+_submission_target = submission_target_impl
+_load_config_root = load_config_root_impl
+_load_config_organized_root = load_config_organized_root_impl
+_stage_metadata = stage_metadata_impl
+_task_payload_dict = task_payload_dict_impl
+_xtb_attempt_rows = xtb_attempt_rows_impl
+_xtb_attempt_record = xtb_attempt_record_impl
+_xtb_retry_recipe = xtb_retry_recipe_impl
+_xtb_path_retry_limit = xtb_path_retry_limit_impl
+_xtb_current_attempt_number = xtb_current_attempt_number_impl
+_write_xtb_path_job = write_xtb_path_job_impl
+_xtb_handoff_status = xtb_handoff_status_impl
+_stage_has_xtb_candidates = stage_has_xtb_candidates_impl
 
 
 def _stage_failure_is_recoverable(stage: dict[str, Any]) -> bool:
@@ -449,136 +344,22 @@ def _effective_stage_status(stage: dict[str, Any]) -> str:
     )
 
 
-def _reaction_ts_guess_error(contract: Any) -> dict[str, str]:
-    return reaction_ts_guess_error_impl(contract)
-
-
-def _reaction_orca_source_candidate_path(stage: dict[str, Any]) -> str:
-    return reaction_orca_source_candidate_path_impl(stage)
-
-
-def _reaction_orca_allows_next_candidate(stage: dict[str, Any]) -> bool:
-    return reaction_orca_allows_next_candidate_impl(stage)
-
-
-def _clear_reaction_xtb_handoff_error_if_recovering(payload: dict[str, Any]) -> None:
-    return clear_reaction_xtb_handoff_error_if_recovering_impl(payload)
-
-
-def _append_unique_artifact(
-    rows: list[dict[str, Any]],
-    *,
-    kind: str,
-    path: str,
-    selected: bool = False,
-    metadata: dict[str, Any] | None = None,
-) -> None:
-    return append_unique_artifact_impl(
-        rows,
-        kind=kind,
-        path=path,
-        selected=selected,
-        metadata=metadata,
-    )
-
-
-def _ensure_crest_job_dir(
-    stage: dict[str, Any], *, crest_allowed_root: Path, workflow_id: str
-) -> str:
-    return ensure_crest_job_dir_impl(
-        stage,
-        crest_allowed_root=crest_allowed_root,
-        workflow_id=workflow_id,
-    )
-
-
-def _ensure_xtb_job_dir(stage: dict[str, Any], *, xtb_allowed_root: Path, workflow_id: str) -> str:
-    return ensure_xtb_job_dir_impl(
-        stage,
-        xtb_allowed_root=xtb_allowed_root,
-        workflow_id=workflow_id,
-    )
-
-
-def _sync_crest_stage(
-    stage: dict[str, Any],
-    *,
-    crest_auto_config: str | None,
-    crest_auto_executable: str,
-    crest_auto_repo_root: str | None,
-    submit_ready: bool,
-    workflow_id: str,
-    workspace_dir: Path,
-) -> None:
-    return sync_crest_stage_impl(
-        stage,
-        crest_auto_config=crest_auto_config,
-        crest_auto_executable=crest_auto_executable,
-        crest_auto_repo_root=crest_auto_repo_root,
-        submit_ready=submit_ready,
-        workflow_id=workflow_id,
-        workspace_dir=workspace_dir,
-    )
-
-
-def _sync_xtb_stage(
-    stage: dict[str, Any],
-    *,
-    xtb_auto_config: str | None,
-    xtb_auto_executable: str,
-    xtb_auto_repo_root: str | None,
-    submit_ready: bool,
-    workflow_id: str,
-    workspace_dir: Path,
-) -> None:
-    return sync_xtb_stage_impl(
-        stage,
-        xtb_auto_config=xtb_auto_config,
-        xtb_auto_executable=xtb_auto_executable,
-        xtb_auto_repo_root=xtb_auto_repo_root,
-        submit_ready=submit_ready,
-        workflow_id=workflow_id,
-        workspace_dir=workspace_dir,
-    )
-
-
-def _sync_orca_stage(
-    stage: dict[str, Any],
-    *,
-    orca_auto_config: str | None,
-    orca_auto_executable: str,
-    orca_auto_repo_root: str | None,
-    submit_ready: bool,
-) -> None:
-    return sync_orca_stage_impl(
-        stage,
-        orca_auto_config=orca_auto_config,
-        orca_auto_executable=orca_auto_executable,
-        orca_auto_repo_root=orca_auto_repo_root,
-        submit_ready=submit_ready,
-    )
-
-
-def _completed_crest_roles(payload: dict[str, Any]) -> dict[str, dict[str, Any]]:
-    return completed_crest_roles_impl(payload)
-
-
-def _completed_crest_stage(stage: dict[str, Any], *, crest_auto_config: str | None) -> Any | None:
-    return completed_crest_stage_impl(stage, crest_auto_config=crest_auto_config)
-
-
-def _completed_orca_stage(stage: dict[str, Any], *, orca_auto_config: str | None) -> Any | None:
-    return completed_orca_stage_impl(stage, orca_auto_config=orca_auto_config)
-
-
-def _append_reaction_xtb_stages(
-    payload: dict[str, Any], *, workspace_dir: Path, crest_auto_config: str | None
-) -> bool:
-    return append_reaction_xtb_stages_impl(
-        payload,
-        workspace_dir=workspace_dir,
-        crest_auto_config=crest_auto_config,
-    )
+_reaction_ts_guess_error = reaction_ts_guess_error_impl
+_reaction_orca_source_candidate_path = reaction_orca_source_candidate_path_impl
+_reaction_orca_allows_next_candidate = reaction_orca_allows_next_candidate_impl
+_clear_reaction_xtb_handoff_error_if_recovering = (
+    clear_reaction_xtb_handoff_error_if_recovering_impl
+)
+_append_unique_artifact = append_unique_artifact_impl
+_ensure_crest_job_dir = ensure_crest_job_dir_impl
+_ensure_xtb_job_dir = ensure_xtb_job_dir_impl
+_sync_crest_stage = sync_crest_stage_impl
+_sync_xtb_stage = sync_xtb_stage_impl
+_sync_orca_stage = sync_orca_stage_impl
+_completed_crest_roles = completed_crest_roles_impl
+_completed_crest_stage = completed_crest_stage_impl
+_completed_orca_stage = completed_orca_stage_impl
+_append_reaction_xtb_stages = append_reaction_xtb_stages_impl
 
 
 def _append_reaction_orca_stages(
@@ -598,25 +379,7 @@ def _append_reaction_orca_stages(
     )
 
 
-def _append_crest_orca_stages(
-    payload: dict[str, Any],
-    *,
-    template_name: str,
-    crest_auto_config: str | None,
-    orca_auto_config: str | None,
-    stage_id_prefix: str,
-    xyz_filename: str,
-    inp_filename: str,
-) -> bool:
-    return append_crest_orca_stages_impl(
-        payload,
-        template_name=template_name,
-        crest_auto_config=crest_auto_config,
-        orca_auto_config=orca_auto_config,
-        stage_id_prefix=stage_id_prefix,
-        xyz_filename=xyz_filename,
-        inp_filename=inp_filename,
-    )
+_append_crest_orca_stages = append_crest_orca_stages_impl
 
 
 def _recompute_workflow_status(payload: dict[str, Any]) -> str:
