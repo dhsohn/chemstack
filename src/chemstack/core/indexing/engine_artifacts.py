@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
@@ -18,66 +19,114 @@ def resource_mapping(raw: object, *, fallback: dict[str, int] | None = None) -> 
     return {str(key): int(value) for key, value in raw.items()}
 
 
-def artifact_identity(
-    *,
-    spec: Any,
-    state: dict[str, Any],
-    report: dict[str, Any],
-    organized_ref: dict[str, Any],
-    existing: JobLocationRecord | None,
-    fallback_payload_kind: str,
-) -> tuple[str, str, str, str, str]:
-    job_id = normalize_text(
-        report.get("job_id")
-        or state.get("job_id")
-        or organized_ref.get("job_id")
-        or (existing.job_id if existing else "")
-    )
-    status = (
-        normalize_text(
-            report.get("status") or state.get("status") or organized_ref.get("status") or "unknown"
+@dataclass(frozen=True)
+class EngineArtifactSnapshot:
+    job_id: str
+    status: str
+    payload_kind: str
+    selected_input_xyz: str
+    molecule_key: str
+    original_run_dir: str
+    organized_output_dir: str
+    resource_request: dict[str, int]
+    resource_actual: dict[str, int]
+
+    @classmethod
+    def from_artifacts(
+        cls,
+        *,
+        spec: Any,
+        job_dir: Path,
+        state: dict[str, Any],
+        report: dict[str, Any],
+        organized_ref: dict[str, Any],
+        existing: JobLocationRecord | None = None,
+        fallback_payload_kind: str | None = None,
+        job_status_sources: tuple[dict[str, Any], ...],
+        detail_sources: tuple[dict[str, Any], ...],
+        use_existing_fallback: bool,
+        organized_output_sources: tuple[dict[str, Any], ...],
+    ) -> EngineArtifactSnapshot:
+        existing_record = existing if use_existing_fallback else None
+
+        job_id = normalize_text(
+            _first_value(job_status_sources, "job_id")
+            or (existing_record.job_id if existing_record else "")
         )
-        or "unknown"
-    )
-    payload_kind = (
-        normalize_text(
-            report.get(spec.payload_kind_key)
-            or state.get(spec.payload_kind_key)
-            or organized_ref.get(spec.payload_kind_key)
-            or fallback_payload_kind
+        if not job_id:
+            return cls(
+                job_id="",
+                status="",
+                payload_kind="",
+                selected_input_xyz="",
+                molecule_key="",
+                original_run_dir="",
+                organized_output_dir="",
+                resource_request={},
+                resource_actual={},
+            )
+
+        payload_kind_default = fallback_payload_kind or spec.payload_kind_default
+        status = (
+            normalize_text(
+                _first_value(job_status_sources, "status")
+                or (existing_record.status if existing_record else "")
+                or "unknown"
+            )
+            or "unknown"
         )
-        or fallback_payload_kind
-    )
-    selected_input_xyz = normalize_text(
-        report.get("selected_input_xyz")
-        or state.get("selected_input_xyz")
-        or organized_ref.get("selected_input_xyz")
-        or (existing.selected_input_xyz if existing else "")
-    )
-    molecule_key = normalize_text(
-        report.get(spec.molecule_key_name)
-        or state.get(spec.molecule_key_name)
-        or organized_ref.get(spec.molecule_key_name)
-        or (existing.molecule_key if existing else "")
-    )
-    return job_id, status, payload_kind, selected_input_xyz, molecule_key
+        payload_kind = (
+            normalize_text(
+                _first_value(detail_sources, spec.payload_kind_key)
+                or payload_kind_default
+            )
+            or payload_kind_default
+        )
+        selected_input_xyz = normalize_text(
+            _first_value(detail_sources, "selected_input_xyz")
+            or (existing_record.selected_input_xyz if existing_record else "")
+        )
+        molecule_key = normalize_text(
+            _first_value(detail_sources, spec.molecule_key_name)
+            or (existing_record.molecule_key if existing_record else "")
+        )
+        original_run_dir = normalize_text(
+            _first_value(detail_sources, "original_run_dir")
+            or (existing_record.original_run_dir if existing_record else "")
+            or str(job_dir)
+        )
+        if not molecule_key:
+            molecule_key = spec.default_molecule_key(Path(original_run_dir), selected_input_xyz)
+
+        organized_output_dir = normalize_text(
+            _first_value(organized_output_sources, "organized_output_dir")
+            or (existing_record.organized_output_dir if existing_record else "")
+        )
+        resource_request, resource_actual = artifact_resources(
+            state=state,
+            report=report,
+            organized_ref=organized_ref,
+            existing=existing_record,
+        )
+        return cls(
+            job_id=job_id,
+            status=status,
+            payload_kind=payload_kind,
+            selected_input_xyz=selected_input_xyz,
+            molecule_key=molecule_key,
+            original_run_dir=original_run_dir,
+            organized_output_dir=organized_output_dir,
+            resource_request=resource_request,
+            resource_actual=resource_actual,
+        )
 
 
-def artifact_original_run_dir(
-    *,
-    job_dir: Path,
-    state: dict[str, Any],
-    report: dict[str, Any],
-    organized_ref: dict[str, Any],
-    existing: JobLocationRecord | None,
-) -> str:
-    return normalize_text(
-        report.get("original_run_dir")
-        or state.get("original_run_dir")
-        or organized_ref.get("original_run_dir")
-        or (existing.original_run_dir if existing else "")
-        or str(job_dir)
-    )
+def _first_value(sources: tuple[dict[str, Any], ...], key: str) -> Any:
+    for source in sources:
+        value = source.get(key)
+        if value:
+            return value
+    return None
 
 
 def artifact_resources(
@@ -118,54 +167,35 @@ def engine_record_from_artifacts(
     organized_ref = organized_ref or {}
     fallback_payload_kind = default_payload_kind or spec.payload_kind_default
 
-    job_id, status, payload_kind, selected_input_xyz, molecule_key = artifact_identity(
+    snapshot = EngineArtifactSnapshot.from_artifacts(
         spec=spec,
-        state=state,
-        report=report,
-        organized_ref=organized_ref,
-        existing=existing,
-        fallback_payload_kind=fallback_payload_kind,
-    )
-    if not job_id:
-        return None
-
-    original_run_dir = artifact_original_run_dir(
         job_dir=job_dir,
         state=state,
         report=report,
         organized_ref=organized_ref,
         existing=existing,
+        fallback_payload_kind=fallback_payload_kind,
+        job_status_sources=(report, state, organized_ref),
+        detail_sources=(report, state, organized_ref),
+        use_existing_fallback=True,
+        organized_output_sources=(report, state, organized_ref),
     )
-    if not molecule_key:
-        molecule_key = spec.default_molecule_key(Path(original_run_dir), selected_input_xyz)
-
-    resource_request, resource_actual = artifact_resources(
-        state=state,
-        report=report,
-        organized_ref=organized_ref,
-        existing=existing,
-    )
-
-    organized_output_dir = normalize_text(
-        report.get("organized_output_dir")
-        or state.get("organized_output_dir")
-        or organized_ref.get("organized_output_dir")
-        or (existing.organized_output_dir if existing else "")
-    )
+    if not snapshot.job_id:
+        return None
 
     return build_record_fn(
         existing=existing,
-        job_id=job_id,
-        status=status,
-        job_dir=Path(original_run_dir),
-        payload_kind=payload_kind,
-        selected_input_xyz=selected_input_xyz,
-        organized_output_dir=Path(organized_output_dir).expanduser().resolve()
-        if organized_output_dir
+        job_id=snapshot.job_id,
+        status=snapshot.status,
+        job_dir=Path(snapshot.original_run_dir),
+        payload_kind=snapshot.payload_kind,
+        selected_input_xyz=snapshot.selected_input_xyz,
+        organized_output_dir=Path(snapshot.organized_output_dir).expanduser().resolve()
+        if snapshot.organized_output_dir
         else None,
-        molecule_key=molecule_key,
-        resource_request=resource_request,
-        resource_actual=resource_actual,
+        molecule_key=snapshot.molecule_key,
+        resource_request=snapshot.resource_request,
+        resource_actual=snapshot.resource_actual,
     )
 
 
@@ -181,57 +211,29 @@ def collect_engine_reindex_payload(
     report = report or {}
     organized_ref = organized_ref or {}
 
-    job_id = normalize_text(
-        report.get("job_id") or state.get("job_id") or organized_ref.get("job_id")
+    snapshot = EngineArtifactSnapshot.from_artifacts(
+        spec=spec,
+        job_dir=job_dir,
+        state=state,
+        report=report,
+        organized_ref=organized_ref,
+        existing=None,
+        job_status_sources=(report, state, organized_ref),
+        detail_sources=(report, state),
+        use_existing_fallback=False,
+        organized_output_sources=(organized_ref, report, state),
     )
-    if not job_id:
+    if not snapshot.job_id:
         return None
 
-    status = (
-        normalize_text(report.get("status") or state.get("status") or organized_ref.get("status"))
-        or "unknown"
-    )
-    payload_kind = (
-        normalize_text(
-            report.get(spec.payload_kind_key)
-            or state.get(spec.payload_kind_key)
-            or spec.payload_kind_default
-        )
-        or spec.payload_kind_default
-    )
-    selected_input_xyz = normalize_text(
-        report.get("selected_input_xyz") or state.get("selected_input_xyz")
-    )
-    original_run_dir = normalize_text(
-        report.get("original_run_dir") or state.get("original_run_dir") or job_dir
-    )
-    molecule_key = normalize_text(
-        report.get(spec.molecule_key_name) or state.get(spec.molecule_key_name)
-    )
-    if not molecule_key:
-        molecule_key = spec.default_molecule_key(Path(original_run_dir), selected_input_xyz)
-
-    organized_output_dir = normalize_text(
-        organized_ref.get("organized_output_dir")
-        or report.get("organized_output_dir")
-        or state.get("organized_output_dir")
-    )
     return {
-        "job_id": job_id,
-        "status": status,
-        spec.payload_kind_key: payload_kind,
-        "job_dir": original_run_dir,
-        "selected_input_xyz": selected_input_xyz,
-        spec.molecule_key_name: molecule_key,
-        "organized_output_dir": organized_output_dir,
-        "resource_request": resource_mapping(
-            report.get("resource_request")
-            or state.get("resource_request")
-            or organized_ref.get("resource_request"),
-        ),
-        "resource_actual": resource_mapping(
-            report.get("resource_actual")
-            or state.get("resource_actual")
-            or organized_ref.get("resource_actual"),
-        ),
+        "job_id": snapshot.job_id,
+        "status": snapshot.status,
+        spec.payload_kind_key: snapshot.payload_kind,
+        "job_dir": snapshot.original_run_dir,
+        "selected_input_xyz": snapshot.selected_input_xyz,
+        spec.molecule_key_name: snapshot.molecule_key,
+        "organized_output_dir": snapshot.organized_output_dir,
+        "resource_request": snapshot.resource_request,
+        "resource_actual": snapshot.resource_actual,
     }

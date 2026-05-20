@@ -38,6 +38,7 @@ from ._orca_path_helpers import (
 )
 from ._orca_tracking import (
     import_orca_auto_module_impl,
+    orca_auto_job_locations_module_impl,
     orca_auto_tracking_module_impl,
     sibling_orca_auto_repo_root_impl,
     tracked_artifact_context_impl,
@@ -92,6 +93,11 @@ def _sibling_orca_auto_repo_root() -> Path:
 
 def _import_orca_auto_module(module_name: str) -> Any | None:
     return import_orca_auto_module_impl(module_name)
+
+
+@lru_cache(maxsize=1)
+def _orca_auto_job_locations_module() -> Any | None:
+    return orca_auto_job_locations_module_impl()
 
 
 @lru_cache(maxsize=1)

@@ -3,11 +3,18 @@ from __future__ import annotations
 import argparse
 from typing import Any
 
-from .cli_parser_specs import (
-    ArgumentSpec as _ArgumentSpec,
-    WorkflowParserSpec as _WorkflowParserSpec,
-    add_argument_specs as _add_argument_specs,
+from .cli_parser_specs import WorkflowParserSpec as _WorkflowParserSpec
+from .cli_parser_specs import add_argument_specs as _add_argument_specs
+from .cli_workflow_plan_parser_specs import (
+    workflow_creation_specs as _workflow_creation_specs,
 )
+from .cli_workflow_plan_parser_specs import (
+    workflow_planning_specs as _workflow_planning_specs,
+)
+from .cli_workflow_registry_parser_specs import (
+    workflow_registry_specs as _workflow_registry_specs,
+)
+from .cli_workflow_runtime_parser_specs import workflow_runtime_specs as _workflow_runtime_specs
 
 
 def _commands() -> Any:
@@ -20,7 +27,9 @@ def _add_json_argument(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--json", action="store_true", help="Print JSON output")
 
 
-def _add_workflow_root_argument(parser: argparse.ArgumentParser, *, required: bool = False) -> None:
+def _add_workflow_root_argument(
+    parser: argparse.ArgumentParser, *, required: bool = False
+) -> None:
     parser.add_argument(
         "--workflow-root",
         required=required,
@@ -35,39 +44,6 @@ def _add_chemstack_config_argument(
     help_text: str = "Path to shared chemstack.yaml",
 ) -> None:
     parser.add_argument("--chemstack-config", required=required, help=help_text)
-
-
-def _orca_materialization_argument_specs(route_default: str) -> tuple[_ArgumentSpec, ...]:
-    return (
-        _ArgumentSpec(
-            ("--charge",),
-            {"type": int, "default": 0, "help": "Charge for materialized ORCA inputs"},
-        ),
-        _ArgumentSpec(
-            ("--multiplicity",),
-            {"type": int, "default": 1, "help": "Multiplicity for materialized ORCA inputs"},
-        ),
-        _ArgumentSpec(
-            ("--max-cores",),
-            {"type": int, "default": 8, "help": "Maximum cores per planned ORCA task"},
-        ),
-        _ArgumentSpec(
-            ("--max-memory-gb",),
-            {"type": int, "default": 32, "help": "Maximum memory GiB per planned ORCA task"},
-        ),
-        _ArgumentSpec(
-            ("--orca-route-line",),
-            {"default": route_default, "help": "Route line for materialized ORCA inputs"},
-        ),
-    )
-
-
-def _add_orca_materialization_arguments(
-    parser: argparse.ArgumentParser,
-    *,
-    route_default: str,
-) -> None:
-    _add_argument_specs(parser, _orca_materialization_argument_specs(route_default))
 
 
 def _register_workflow_parser_specs(
@@ -99,7 +75,10 @@ def _register_run_dir_parser(
     commands = _commands()
     run_dir_parser = subparsers.add_parser(
         "run-dir",
-        help="Create a workflow from an input directory containing reactant/product or input XYZ files.",
+        help=(
+            "Create a workflow from an input directory containing reactant/product or input "
+            "XYZ files."
+        ),
     )
     run_dir_parser.add_argument(
         "workflow_dir", help="Directory that contains workflow input XYZ files"
@@ -221,176 +200,7 @@ def _register_engine_inspect_parsers(
 def _register_workflow_registry_parsers(
     workflow_subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
 ) -> None:
-    target_help = "workflow_id, workflow workspace directory, or workflow.json path"
-    _register_workflow_parser_specs(
-        workflow_subparsers,
-        (
-            _WorkflowParserSpec(
-                name="list",
-                help="List materialized workflows under a workflow root.",
-                func_name="cmd_workflow_list",
-                workflow_root=True,
-                workflow_root_required=True,
-                arguments=(
-                    _ArgumentSpec(
-                        ("--limit",),
-                        {"type": int, "default": 0, "help": "Optional maximum number of workflows to print"},
-                    ),
-                    _ArgumentSpec(
-                        ("--refresh",),
-                        {
-                            "action": "store_true",
-                            "help": "Rebuild the registry from workflow workspaces before listing",
-                        },
-                    ),
-                ),
-            ),
-            _WorkflowParserSpec(
-                name="get",
-                help="Inspect one materialized workflow.",
-                func_name="cmd_workflow_get",
-                target_help=target_help,
-                workflow_root=True,
-            ),
-            _WorkflowParserSpec(
-                name="artifacts",
-                help="List known materialized artifacts for one workflow.",
-                func_name="cmd_workflow_artifacts",
-                target_help=target_help,
-                workflow_root=True,
-            ),
-            _WorkflowParserSpec(
-                name="cancel",
-                help="Cancel a materialized workflow and request queue cancellation for submitted engine stages.",
-                func_name="cmd_workflow_cancel",
-                target_help=target_help,
-                workflow_root=True,
-                chemstack_config=True,
-                chemstack_config_help=(
-                    "Path to shared chemstack.yaml; required if submitted stages exist"
-                ),
-            ),
-            _WorkflowParserSpec(
-                name="reindex",
-                help="Rebuild the workflow registry from workflow workspaces.",
-                func_name="cmd_workflow_reindex",
-                workflow_root=True,
-                workflow_root_required=True,
-            ),
-            _WorkflowParserSpec(
-                name="runtime-status",
-                help="Show the current worker heartbeat/state for a workflow root.",
-                func_name="cmd_workflow_runtime_status",
-                workflow_root=True,
-                workflow_root_required=True,
-            ),
-            _WorkflowParserSpec(
-                name="journal",
-                help="Show recent append-only orchestration journal events.",
-                func_name="cmd_workflow_journal",
-                workflow_root=True,
-                workflow_root_required=True,
-                arguments=(
-                    _ArgumentSpec(
-                        ("--limit",),
-                        {"type": int, "default": 50, "help": "Maximum number of recent events to show"},
-                    ),
-                ),
-            ),
-            _WorkflowParserSpec(
-                name="telemetry",
-                help="Summarize registry status, worker heartbeat, and recent journal activity.",
-                func_name="cmd_workflow_telemetry",
-                workflow_root=True,
-                workflow_root_required=True,
-                arguments=(
-                    _ArgumentSpec(
-                        ("--limit",),
-                        {
-                            "type": int,
-                            "default": 200,
-                            "help": "Maximum number of recent journal events to summarize",
-                        },
-                    ),
-                ),
-            ),
-        ),
-    )
-
-
-def _workflow_planning_specs() -> tuple[_WorkflowParserSpec, ...]:
-    return (
-        _WorkflowParserSpec(
-            name="reaction-ts-search",
-            help="Build a reaction_ts_search workflow plan from xTB results.",
-            func_name="cmd_workflow_reaction_ts_search",
-            target_help="xTB job_id or job directory",
-            arguments=(
-                _ArgumentSpec(
-                    ("--xtb-index-root",),
-                    {"required": True, "help": "xTB index root, usually allowed_root"},
-                ),
-                _ArgumentSpec(
-                    ("--max-orca-stages",),
-                    {
-                        "type": int,
-                        "default": 3,
-                        "help": "Maximum number of ORCA stage payloads to emit",
-                    },
-                ),
-                _ArgumentSpec(
-                    ("--include-unselected",),
-                    {
-                        "action": "store_true",
-                        "help": "Consider non-selected xTB candidate_details when planning",
-                    },
-                ),
-                _ArgumentSpec(
-                    ("--workspace-root",),
-                    {
-                        "help": (
-                            "If provided, materialize a workflow workspace with ORCA "
-                            "reaction directories and workflow.json"
-                        )
-                    },
-                ),
-                *_orca_materialization_argument_specs("! r2scan-3c OptTS Freq TightSCF"),
-                _ArgumentSpec(
-                    ("--priority",),
-                    {"type": int, "default": 10, "help": "Planned queue priority"},
-                ),
-            ),
-        ),
-        _WorkflowParserSpec(
-            name="conformer-screening",
-            help="Build a conformer_screening workflow plan from CREST results (`standard` or `nci`).",
-            func_name="cmd_workflow_conformer_screening",
-            target_help="CREST job_id or job directory",
-            arguments=(
-                _ArgumentSpec(
-                    ("--crest-index-root",),
-                    {"required": True, "help": "CREST index root, usually allowed_root"},
-                ),
-                _ArgumentSpec(
-                    ("--max-orca-stages",),
-                    {
-                        "type": int,
-                        "default": 3,
-                        "help": "Maximum number of ORCA stage payloads to emit",
-                    },
-                ),
-                _ArgumentSpec(
-                    ("--workspace-root",),
-                    {"help": "If provided, materialize a workflow workspace"},
-                ),
-                *_orca_materialization_argument_specs("! r2scan-3c Opt TightSCF"),
-                _ArgumentSpec(
-                    ("--priority",),
-                    {"type": int, "default": 10, "help": "Planned queue priority"},
-                ),
-            ),
-        ),
-    )
+    _register_workflow_parser_specs(workflow_subparsers, _workflow_registry_specs())
 
 
 def _register_workflow_planning_parsers(
@@ -399,160 +209,10 @@ def _register_workflow_planning_parsers(
     _register_workflow_parser_specs(workflow_subparsers, _workflow_planning_specs())
 
 
-def _workflow_creation_specs() -> tuple[_WorkflowParserSpec, ...]:
-    return (
-        _WorkflowParserSpec(
-            name="create-reaction-ts-search",
-            help=(
-                "Create a raw-input reaction_ts_search workflow from reactant/product "
-                "precomplex XYZ inputs."
-            ),
-            func_name="cmd_workflow_create_reaction_ts_search",
-            workflow_root=True,
-            workflow_root_required=True,
-            arguments=(
-                _ArgumentSpec(
-                    ("--reactant-xyz",),
-                    {
-                        "dest": "reactant_xyz",
-                        "required": True,
-                        "help": "Reactant-side precomplex XYZ input",
-                    },
-                ),
-                _ArgumentSpec(
-                    ("--product-xyz",),
-                    {"dest": "product_xyz", "required": True, "help": "Product-side XYZ input"},
-                ),
-                _ArgumentSpec(
-                    ("--crest-mode",),
-                    {
-                        "default": "standard",
-                        "help": "CREST mode for initial stages (`standard` or `nci`)",
-                    },
-                ),
-                _ArgumentSpec(("--priority",), {"type": int, "default": 10}),
-                _ArgumentSpec(("--max-crest-candidates",), {"type": int, "default": 3}),
-                _ArgumentSpec(("--max-xtb-stages",), {"type": int, "default": 3}),
-                _ArgumentSpec(("--max-orca-stages",), {"type": int, "default": 3}),
-                *_orca_materialization_argument_specs("! r2scan-3c OptTS Freq TightSCF"),
-            ),
-        ),
-        _WorkflowParserSpec(
-            name="create-conformer-screening",
-            help=(
-                "Create a raw-input conformer_screening workflow that can be advanced "
-                "through CREST and ORCA (`standard` or `nci`)."
-            ),
-            func_name="cmd_workflow_create_conformer_screening",
-            workflow_root=True,
-            workflow_root_required=True,
-            arguments=(
-                _ArgumentSpec(
-                    ("--input-xyz",),
-                    {"required": True, "help": "Input XYZ for the molecule to screen"},
-                ),
-                _ArgumentSpec(
-                    ("--crest-mode",),
-                    {"default": "standard", "help": "CREST mode for the initial stage"},
-                ),
-                _ArgumentSpec(("--priority",), {"type": int, "default": 10}),
-                _ArgumentSpec(("--max-orca-stages",), {"type": int, "default": 3}),
-                *_orca_materialization_argument_specs("! r2scan-3c Opt TightSCF"),
-            ),
-        ),
-    )
-
-
 def _register_workflow_creation_parsers(
     workflow_subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
 ) -> None:
     _register_workflow_parser_specs(workflow_subparsers, _workflow_creation_specs())
-
-
-def _workflow_runtime_specs() -> tuple[_WorkflowParserSpec, ...]:
-    target_help = "workflow_id, workflow workspace directory, or workflow.json path"
-    return (
-        _WorkflowParserSpec(
-            name="advance",
-            help=(
-                "Advance a materialized workflow by syncing/submitting actionable CREST, "
-                "xTB, and ORCA stages."
-            ),
-            func_name="cmd_workflow_advance",
-            target_help=target_help,
-            workflow_root=True,
-            workflow_root_required=True,
-            chemstack_config=True,
-            arguments=(
-                _ArgumentSpec(
-                    ("--no-submit",),
-                    {
-                        "action": "store_true",
-                        "help": "Only sync and append stages; do not submit newly actionable stages",
-                    },
-                ),
-            ),
-        ),
-        _WorkflowParserSpec(
-            name="worker",
-            help="Continuously advance non-terminal workflows from the registry.",
-            func_name="cmd_workflow_worker",
-            workflow_root=True,
-            chemstack_config=True,
-            arguments=(
-                _ArgumentSpec(
-                    ("--no-submit",),
-                    {
-                        "action": "store_true",
-                        "help": "Only sync/append stages; do not submit newly actionable stages",
-                    },
-                ),
-                _ArgumentSpec(
-                    ("--once",),
-                    {"action": "store_true", "help": "Run exactly one orchestration cycle"},
-                ),
-                _ArgumentSpec(
-                    ("--max-cycles",),
-                    {"type": int, "default": 0, "help": "Optional cycle limit; 0 means run forever"},
-                ),
-                _ArgumentSpec(
-                    ("--interval-seconds",),
-                    {
-                        "type": float,
-                        "default": 30.0,
-                        "help": "Sleep interval between orchestration cycles",
-                    },
-                ),
-                _ArgumentSpec(
-                    ("--lock-timeout-seconds",),
-                    {"type": float, "default": 5.0, "help": "How long to wait for the worker lock"},
-                ),
-                _ArgumentSpec(
-                    ("--refresh-registry",),
-                    {"action": "store_true", "help": "Reindex the workflow registry before the first cycle"},
-                ),
-                _ArgumentSpec(
-                    ("--refresh-each-cycle",),
-                    {"action": "store_true", "help": "Reindex the workflow registry before every cycle"},
-                ),
-            ),
-        ),
-        _WorkflowParserSpec(
-            name="submit-reaction-ts-search",
-            help="Submit a materialized reaction_ts_search workflow into chemstack ORCA.",
-            func_name="cmd_workflow_submit_reaction_ts_search",
-            target_help=target_help,
-            workflow_root=True,
-            chemstack_config=True,
-            chemstack_config_required=True,
-            arguments=(
-                _ArgumentSpec(
-                    ("--resubmit",),
-                    {"action": "store_true", "help": "Retry stages already marked as submitted"},
-                ),
-            ),
-        ),
-    )
 
 
 def _register_workflow_runtime_parsers(

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Mapping
@@ -10,6 +11,7 @@ from chemstack.core.paths.workflow import workflow_workspace_internal_engine_pat
 from ..config import AppConfig, load_config
 from ..organize_index import (
     acquire_index_lock,
+    append_failed_rollback,
     append_record,
     load_index,
     rebuild_index,
@@ -211,6 +213,25 @@ _ORGANIZE_FAILURE_LIMIT = 5
 _ORGANIZE_SKIP_LIMIT = 5
 
 
+@dataclass(frozen=True)
+class _PlanApplyResult:
+    run_id: str
+    action: str
+    reason: str = ""
+    plan: OrganizePlan | None = None
+
+    def to_result_payload(self) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {"run_id": self.run_id, "action": self.action}
+        if self.reason:
+            payload["reason"] = self.reason
+        if self.plan is not None:
+            payload["_plan"] = self.plan
+        return payload
+
+    def to_failure_payload(self) -> Dict[str, Any]:
+        return {"run_id": self.run_id, "reason": self.reason}
+
+
 def _organize_summary_parts(
     organized_count: int, skipped_count: int, failed_count: int
 ) -> list[str]:
@@ -394,6 +415,127 @@ def _cmd_organize_apply(
     )
 
 
+def _plan_conflict_result(
+    plan: OrganizePlan,
+    index: Dict[str, Dict[str, Any]],
+) -> _PlanApplyResult | None:
+    conflict = check_conflict(plan, index)
+    if conflict == "already_organized":
+        return _PlanApplyResult(plan.run_id, "skipped", conflict)
+    if conflict:
+        return _PlanApplyResult(plan.run_id, "failed", conflict)
+    return None
+
+
+def _bookkeep_successful_move(
+    cfg: AppConfig,
+    *,
+    organized_root: Path,
+    plan: OrganizePlan,
+) -> _PlanApplyResult:
+    state_after_move = sync_state_after_move(plan)
+    _write_tracking_after_move(cfg, plan=plan, state_after_move=state_after_move)
+    append_record(organized_root, _build_index_record(plan, state_after_move))
+    return _PlanApplyResult(plan.run_id, "moved", plan=plan)
+
+
+def _bookkeep_rollback_failure(
+    organized_root: Path,
+    *,
+    plan: OrganizePlan,
+    rollback_exc: Exception,
+) -> None:
+    logger.error("Rollback failed for %s: %s", plan.run_id, rollback_exc)
+    append_failed_rollback(
+        organized_root,
+        {
+            "run_id": plan.run_id,
+            "target_path": str(plan.target_abs_path),
+            "error": str(rollback_exc),
+            "timestamp": now_utc_iso(),
+        },
+    )
+
+
+def _rollback_after_apply_failure(
+    cfg: AppConfig,
+    *,
+    organized_root: Path,
+    plan: OrganizePlan,
+    failure_reason: str,
+) -> str:
+    try:
+        _cleanup_organized_ref_stub(plan)
+        rollback_move(plan)
+        state_after_rollback = sync_state_after_rollback(plan)
+        _restore_tracking_after_rollback(
+            cfg, plan=plan, state_after_rollback=state_after_rollback
+        )
+        return f"{failure_reason}; rolled_back=true"
+    except Exception as rollback_exc:
+        _bookkeep_rollback_failure(
+            organized_root,
+            plan=plan,
+            rollback_exc=rollback_exc,
+        )
+        return f"{failure_reason}; rollback_failed: {rollback_exc}"
+
+
+def _apply_one_organize_plan(
+    cfg: AppConfig,
+    *,
+    organized_root: Path,
+    plan: OrganizePlan,
+) -> _PlanApplyResult:
+    moved = False
+    try:
+        with acquire_index_lock(organized_root):
+            index = load_index(organized_root)
+            conflict_result = _plan_conflict_result(plan, index)
+            if conflict_result is not None:
+                return conflict_result
+
+            execute_move(plan)
+            moved = True
+            return _bookkeep_successful_move(
+                cfg,
+                organized_root=organized_root,
+                plan=plan,
+            )
+    except Exception as exc:
+        logger.error("Organize apply failed for %s: %s", plan.run_id, exc)
+        failure_reason = f"apply_failed: {exc}"
+        if moved:
+            failure_reason = _rollback_after_apply_failure(
+                cfg,
+                organized_root=organized_root,
+                plan=plan,
+                failure_reason=failure_reason,
+            )
+        return _PlanApplyResult(plan.run_id, "failed", failure_reason)
+
+
+def _build_apply_summary(
+    *,
+    results: list[Dict[str, Any]],
+    failures: list[Dict[str, Any]],
+    skips: list[SkipReason],
+) -> Dict[str, Any]:
+    organized = [r for r in results if r.get("action") == "moved"]
+    skipped_results = [r for r in results if r.get("action") == "skipped"]
+
+    return {
+        "action": "apply",
+        "organized": len(organized),
+        "skipped": len(skips) + len(skipped_results),
+        "failed": len(failures),
+        "failures": failures,
+        "_organized_results": organized,
+        "_skipped_results": skipped_results,
+        "_skip_reasons": skips,
+    }
+
+
 def _apply_organize_plans(
     plans: list[OrganizePlan],
     skips: list[SkipReason],
@@ -402,77 +544,23 @@ def _apply_organize_plans(
     *,
     notify_summary: bool,
 ) -> Dict[str, Any]:
-    from ..organize_index import append_failed_rollback
-
     results: list[Dict[str, Any]] = []
     failures: list[Dict[str, Any]] = []
 
     for plan in plans:
-        moved = False
-        try:
-            with acquire_index_lock(organized_root):
-                index = load_index(organized_root)
-                conflict = check_conflict(plan, index)
-                if conflict == "already_organized":
-                    results.append({"run_id": plan.run_id, "action": "skipped", "reason": conflict})
-                    continue
-                if conflict:
-                    failures.append({"run_id": plan.run_id, "reason": conflict})
-                    continue
+        result = _apply_one_organize_plan(cfg, organized_root=organized_root, plan=plan)
+        if result.action == "failed":
+            failures.append(result.to_failure_payload())
+        else:
+            results.append(result.to_result_payload())
 
-                execute_move(plan)
-                moved = True
-                state_after_move = sync_state_after_move(plan)
-                _write_tracking_after_move(cfg, plan=plan, state_after_move=state_after_move)
-                append_record(organized_root, _build_index_record(plan, state_after_move))
-                results.append({"run_id": plan.run_id, "action": "moved", "_plan": plan})
-        except Exception as exc:
-            logger.error("Organize apply failed for %s: %s", plan.run_id, exc)
-            failure_reason = f"apply_failed: {exc}"
-            if moved:
-                try:
-                    _cleanup_organized_ref_stub(plan)
-                    rollback_move(plan)
-                    state_after_rollback = sync_state_after_rollback(plan)
-                    _restore_tracking_after_rollback(
-                        cfg, plan=plan, state_after_rollback=state_after_rollback
-                    )
-                    failure_reason = f"{failure_reason}; rolled_back=true"
-                except Exception as rollback_exc:
-                    logger.error("Rollback failed for %s: %s", plan.run_id, rollback_exc)
-                    failure_reason = f"{failure_reason}; rollback_failed: {rollback_exc}"
-                    append_failed_rollback(
-                        organized_root,
-                        {
-                            "run_id": plan.run_id,
-                            "target_path": str(plan.target_abs_path),
-                            "error": str(rollback_exc),
-                            "timestamp": now_utc_iso(),
-                        },
-                    )
-            failures.append({"run_id": plan.run_id, "reason": failure_reason})
-
-    organized = [r for r in results if r.get("action") == "moved"]
-    skipped_results = [r for r in results if r.get("action") == "skipped"]
-    organized_count = len(organized)
-    skipped_count = len(skips) + len(skipped_results)
-
-    summary = {
-        "action": "apply",
-        "organized": organized_count,
-        "skipped": skipped_count,
-        "failed": len(failures),
-        "failures": failures,
-        "_organized_results": organized,
-        "_skipped_results": skipped_results,
-        "_skip_reasons": skips,
-    }
+    summary = _build_apply_summary(results=results, failures=failures, skips=skips)
 
     if notify_summary:
         _send_organize_notification(
             cfg,
-            organized=organized,
-            skipped_results=skipped_results,
+            organized=summary["_organized_results"],
+            skipped_results=summary["_skipped_results"],
             failures=failures,
             skips=skips,
         )

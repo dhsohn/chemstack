@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -23,6 +24,38 @@ def _engine_stages(o: Any, payload: dict[str, Any], engine: str) -> list[dict[st
         if isinstance(stage, dict)
         and o._normalize_text((stage.get("task") or {}).get("engine")) == engine
     ]
+
+
+@dataclass(frozen=True)
+class _ReactionXtbStagePlan:
+    params: dict[str, Any]
+    endpoint_pairs: tuple[Any, ...]
+    pairing_enabled: bool
+
+
+@dataclass(frozen=True)
+class _ReactionOrcaStagePlan:
+    payload_metadata: dict[str, Any]
+    params: dict[str, Any]
+    orca_allowed_root: Path
+    ordered_candidates: list[Any]
+    remaining_candidates: list[Any]
+    existing_stages: list[dict[str, Any]]
+    has_pending_xtb: bool
+    handoff_errors: list[dict[str, str]]
+
+
+@dataclass(frozen=True)
+class _CrestOrcaStagePlan:
+    params: dict[str, Any]
+    candidates: tuple[Any, ...]
+    orca_allowed_root: Path
+
+
+def _request_params(o: Any, payload: dict[str, Any]) -> dict[str, Any]:
+    metadata = o._coerce_mapping(payload.get("metadata"))
+    request = o._coerce_mapping(metadata.get("request"))
+    return o._coerce_mapping(request.get("parameters"))
 
 
 def _clear_workflow_error_scope(o: Any, payload_metadata: dict[str, Any], scopes: set[str]) -> None:
@@ -257,15 +290,15 @@ def _record_reaction_handoff_failure(
         }
 
 
-def append_reaction_xtb_stages_impl(
-    payload: dict[str, Any], *, workspace_dir: Path, crest_auto_config: str | None
-) -> bool:
-    o = _orchestration_context()
-    if _engine_stages(o, payload, "xtb"):
-        return False
+def _completed_reaction_crest_contracts(
+    o: Any,
+    payload: dict[str, Any],
+    *,
+    crest_auto_config: str | None,
+) -> tuple[Any, Any] | None:
     roles = o._completed_crest_roles(payload)
     if set(roles.keys()) != {"reactant", "product"}:
-        return False
+        return None
     reactant_contract = o._completed_crest_stage(
         roles["reactant"], crest_auto_config=crest_auto_config
     )
@@ -273,9 +306,25 @@ def append_reaction_xtb_stages_impl(
         roles["product"], crest_auto_config=crest_auto_config
     )
     if reactant_contract is None or product_contract is None:
-        return False
-    request = (payload.get("metadata") or {}).get("request") or {}
-    params = request.get("parameters") or {}
+        return None
+    return reactant_contract, product_contract
+
+
+def _reaction_xtb_stage_plan(
+    o: Any,
+    payload: dict[str, Any],
+    *,
+    crest_auto_config: str | None,
+) -> _ReactionXtbStagePlan | None:
+    contracts = _completed_reaction_crest_contracts(
+        o,
+        payload,
+        crest_auto_config=crest_auto_config,
+    )
+    if contracts is None:
+        return None
+    reactant_contract, product_contract = contracts
+    params = _request_params(o, payload)
     reactant_inputs = o.select_crest_downstream_inputs(
         reactant_contract,
         policy=o.CrestDownstreamPolicy.build(
@@ -307,16 +356,73 @@ def append_reaction_xtb_stages_impl(
     )
     if pairing_policy.enabled and not endpoint_pairs:
         _record_endpoint_pairing_failure(payload)
+        return None
+    return _ReactionXtbStagePlan(
+        params=params,
+        endpoint_pairs=endpoint_pairs,
+        pairing_enabled=pairing_policy.enabled,
+    )
+
+
+def append_reaction_xtb_stages_impl(
+    payload: dict[str, Any], *, workspace_dir: Path, crest_auto_config: str | None
+) -> bool:
+    o = _orchestration_context()
+    if _engine_stages(o, payload, "xtb"):
+        return False
+    del workspace_dir
+    plan = _reaction_xtb_stage_plan(o, payload, crest_auto_config=crest_auto_config)
+    if plan is None:
         return False
 
     created = _stage_builders.append_reaction_xtb_pair_stages(
         o,
         payload,
-        params,
-        endpoint_pairs=endpoint_pairs,
-        pairing_enabled=pairing_policy.enabled,
+        plan.params,
+        endpoint_pairs=plan.endpoint_pairs,
+        pairing_enabled=plan.pairing_enabled,
     )
     return created > 0
+
+
+def _reaction_orca_stage_plan(
+    o: Any,
+    payload: dict[str, Any],
+    *,
+    workspace_dir: Path,
+    xtb_auto_config: str | None,
+    orca_auto_config: str | None,
+) -> _ReactionOrcaStagePlan | None:
+    xtb_stages = _completed_or_recoverable_xtb_stages(o, payload)
+    if not xtb_stages:
+        return None
+    xtb_allowed_root = _call_engine_aware(o._load_config_root, xtb_auto_config, engine="xtb")
+    if xtb_allowed_root is None:
+        return None
+    if _call_engine_aware(o._load_config_root, orca_auto_config, engine="orca") is None:
+        return None
+    orca_runtime_paths = workflow_workspace_internal_engine_paths(workspace_dir, engine="orca")
+    params = _request_params(o, payload)
+    payload_metadata_raw = payload.setdefault("metadata", {})
+    payload_metadata = payload_metadata_raw if isinstance(payload_metadata_raw, dict) else {}
+    candidate_pool, handoff_errors = _collect_reaction_orca_candidates(
+        o,
+        xtb_stages,
+        xtb_allowed_root=xtb_allowed_root,
+    )
+    ordered_candidates = _unique_ordered_candidates(candidate_pool)
+    existing = _engine_stages(o, payload, "orca")
+    remaining_candidates = _remaining_orca_candidates(o, existing, ordered_candidates)
+    return _ReactionOrcaStagePlan(
+        payload_metadata=payload_metadata,
+        params=params,
+        orca_allowed_root=orca_runtime_paths["allowed_root"],
+        ordered_candidates=ordered_candidates,
+        remaining_candidates=remaining_candidates,
+        existing_stages=existing,
+        has_pending_xtb=_has_pending_xtb_stage(o, payload),
+        handoff_errors=handoff_errors,
+    )
 
 
 def append_reaction_orca_stages_impl(
@@ -327,78 +433,52 @@ def append_reaction_orca_stages_impl(
     orca_auto_config: str | None,
 ) -> bool:
     o = _orchestration_context()
-    xtb_stages = _completed_or_recoverable_xtb_stages(o, payload)
-    if not xtb_stages:
-        return False
-    xtb_allowed_root = _call_engine_aware(o._load_config_root, xtb_auto_config, engine="xtb")
-    if xtb_allowed_root is None:
-        return False
-    if _call_engine_aware(o._load_config_root, orca_auto_config, engine="orca") is None:
-        return False
-    orca_runtime_paths = workflow_workspace_internal_engine_paths(workspace_dir, engine="orca")
-    payload_metadata = o._coerce_mapping(payload.get("metadata"))
-    request = o._coerce_mapping(payload_metadata.get("request"))
-    params = o._coerce_mapping(request.get("parameters"))
-    payload_metadata = payload.setdefault("metadata", {})
-    candidate_pool, handoff_errors = _collect_reaction_orca_candidates(
+    plan = _reaction_orca_stage_plan(
         o,
-        xtb_stages,
-        xtb_allowed_root=xtb_allowed_root,
+        payload,
+        workspace_dir=workspace_dir,
+        xtb_auto_config=xtb_auto_config,
+        orca_auto_config=orca_auto_config,
     )
-    ordered_candidates = _unique_ordered_candidates(candidate_pool)
-    existing = _engine_stages(o, payload, "orca")
-    remaining_candidates = _remaining_orca_candidates(o, existing, ordered_candidates)
-    has_pending_xtb = _has_pending_xtb_stage(o, payload)
+    if plan is None:
+        return False
 
-    if not remaining_candidates:
+    if not plan.remaining_candidates:
         _record_reaction_handoff_failure(
-            payload_metadata,
-            existing=existing,
-            has_pending_xtb=has_pending_xtb,
-            handoff_errors=handoff_errors,
+            plan.payload_metadata,
+            existing=plan.existing_stages,
+            has_pending_xtb=plan.has_pending_xtb,
+            handoff_errors=plan.handoff_errors,
         )
         return False
 
-    if isinstance(payload_metadata, dict) and isinstance(
-        payload_metadata.get("workflow_error"), dict
+    if isinstance(plan.payload_metadata, dict) and isinstance(
+        plan.payload_metadata.get("workflow_error"), dict
     ):
         _clear_workflow_error_scope(
             o,
-            payload_metadata,
+            plan.payload_metadata,
             {"reaction_ts_search_xtb_handoff", "reaction_ts_search_orca_candidate_exhausted"},
         )
 
     created = _stage_builders.append_reaction_orca_candidate_stages(
         o,
         payload,
-        params,
-        orca_allowed_root=orca_runtime_paths["allowed_root"],
-        ordered_candidates=ordered_candidates,
-        remaining_candidates=remaining_candidates,
-        existing=existing,
+        plan.params,
+        orca_allowed_root=plan.orca_allowed_root,
+        ordered_candidates=plan.ordered_candidates,
+        remaining_candidates=plan.remaining_candidates,
+        existing=plan.existing_stages,
     )
     return created > 0
 
 
-def append_crest_orca_stages_impl(
+def _completed_crest_stage_for_orca(
+    o: Any,
     payload: dict[str, Any],
     *,
-    template_name: str,
     crest_auto_config: str | None,
-    orca_auto_config: str | None,
-    stage_id_prefix: str,
-    xyz_filename: str,
-    inp_filename: str,
-) -> bool:
-    o = _orchestration_context()
-    existing = [
-        stage
-        for stage in payload.get("stages", [])
-        if isinstance(stage, dict)
-        and o._normalize_text((stage.get("task") or {}).get("engine")) == "orca"
-    ]
-    if existing:
-        return False
+) -> Any | None:
     crest_stage = next(
         (
             stage
@@ -410,13 +490,30 @@ def append_crest_orca_stages_impl(
         None,
     )
     if crest_stage is None:
-        return False
-    crest_contract = o._completed_crest_stage(crest_stage, crest_auto_config=crest_auto_config)
+        return None
+    return o._completed_crest_stage(crest_stage, crest_auto_config=crest_auto_config)
+
+
+def _crest_orca_stage_plan(
+    o: Any,
+    payload: dict[str, Any],
+    *,
+    template_name: str,
+    crest_auto_config: str | None,
+    orca_auto_config: str | None,
+) -> _CrestOrcaStagePlan | None:
+    if _engine_stages(o, payload, "orca"):
+        return None
+    crest_contract = _completed_crest_stage_for_orca(
+        o,
+        payload,
+        crest_auto_config=crest_auto_config,
+    )
     if (
         crest_contract is None
         or _call_engine_aware(o._load_config_root, orca_auto_config, engine="orca") is None
     ):
-        return False
+        return None
     payload_metadata = o._coerce_mapping(payload.get("metadata"))
     workspace_dir_text = o._normalize_text(payload_metadata.get("workspace_dir"))
     workspace_dir = (
@@ -430,22 +527,48 @@ def append_crest_orca_stages_impl(
         engine="orca",
         stage_dirname=orca_stage_dirname,
     )
-    request = (payload.get("metadata") or {}).get("request") or {}
-    params = request.get("parameters") or {}
+    params = _request_params(o, payload)
     candidates = o.select_crest_downstream_inputs(
         crest_contract,
         policy=o.CrestDownstreamPolicy.build(
             max_candidates=int(params.get("max_orca_stages", 3) or 3)
         ),
     )
+    return _CrestOrcaStagePlan(
+        params=params,
+        candidates=candidates,
+        orca_allowed_root=orca_runtime_paths["allowed_root"],
+    )
+
+
+def append_crest_orca_stages_impl(
+    payload: dict[str, Any],
+    *,
+    template_name: str,
+    crest_auto_config: str | None,
+    orca_auto_config: str | None,
+    stage_id_prefix: str,
+    xyz_filename: str,
+    inp_filename: str,
+) -> bool:
+    o = _orchestration_context()
+    plan = _crest_orca_stage_plan(
+        o,
+        payload,
+        template_name=template_name,
+        crest_auto_config=crest_auto_config,
+        orca_auto_config=orca_auto_config,
+    )
+    if plan is None:
+        return False
     created = _stage_builders.append_crest_orca_candidate_stages(
         o,
         payload,
-        params,
-        candidates=candidates,
+        plan.params,
+        candidates=plan.candidates,
         template_name=template_name,
         stage_id_prefix=stage_id_prefix,
-        orca_allowed_root=orca_runtime_paths["allowed_root"],
+        orca_allowed_root=plan.orca_allowed_root,
         xyz_filename=xyz_filename,
         inp_filename=inp_filename,
     )

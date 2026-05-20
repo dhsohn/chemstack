@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -84,6 +85,39 @@ def test_load_orca_artifact_contract_short_circuits_on_tracked_payload(tmp_path:
     assert contract.attempts == ({"attempt_number": 1, "analyzer_status": "completed"},)
     assert contract.resource_request == {"max_cores": 8, "max_memory_gb": 16}
     assert contract.resource_actual == {"max_cores": 6, "max_memory_gb": 12}
+
+
+def test_tracked_contract_payload_prefers_job_location_payload_helper(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payload = {
+        "run_id": "run_job_location_helper",
+        "status": "completed",
+        "reaction_dir": str(tmp_path / "rxn"),
+    }
+    job_locations_module = SimpleNamespace(
+        load_orca_contract_payload=lambda *_args, **_kwargs: payload
+    )
+    tracking_module = SimpleNamespace(
+        load_orca_contract_payload=lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("legacy tracking payload helper should not run")
+        )
+    )
+
+    monkeypatch.setattr(
+        orca_adapter, "_orca_auto_job_locations_module", lambda: job_locations_module
+    )
+    monkeypatch.setattr(orca_adapter, "_orca_auto_tracking_module", lambda: tracking_module)
+
+    assert orca_adapter._tracked_contract_payload(
+        index_root=tmp_path / "orca_runs",
+        organized_root=tmp_path / "orca_outputs",
+        target="job_location_helper",
+        queue_id="",
+        run_id="",
+        reaction_dir="",
+    ) == payload
 
 
 def test_load_orca_artifact_contract_falls_back_from_queue_stub_to_organized_record(
