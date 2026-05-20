@@ -17,14 +17,20 @@ REPORT_JSON_FILE_NAME = JOB_REPORT_JSON_FILE
 REPORT_MD_FILE_NAME = JOB_REPORT_MD_FILE
 ORGANIZED_REF_FILE_NAME = ORGANIZED_REF_FILE
 RECOVERY_PENDING_REASONS = _engine_state.RECOVERY_PENDING_REASONS
+_STATE_FILES = _engine_state.EngineStateFiles(
+    state_file_name=STATE_FILE_NAME,
+    report_json_file_name=REPORT_JSON_FILE_NAME,
+    report_md_file_name=REPORT_MD_FILE_NAME,
+    organized_ref_file_name=ORGANIZED_REF_FILE_NAME,
+)
 
 
 def write_state(job_dir: Path, payload: dict[str, Any]) -> Path:
-    return _engine_state.write_json_artifact(job_dir, STATE_FILE_NAME, payload)
+    return _STATE_FILES.write_state(job_dir, payload)
 
 
 def write_report_json(job_dir: Path, payload: dict[str, Any]) -> Path:
-    return _engine_state.write_json_artifact(job_dir, REPORT_JSON_FILE_NAME, payload)
+    return _STATE_FILES.write_report_json(job_dir, payload)
 
 
 def write_report_md(
@@ -43,23 +49,23 @@ def write_report_md(
 
 
 def write_report_md_lines(job_dir: Path, lines: list[str]) -> Path:
-    return _engine_state.write_text_artifact(job_dir, REPORT_MD_FILE_NAME, lines)
+    return _STATE_FILES.write_report_md_lines(job_dir, lines)
 
 
 def write_organized_ref(job_dir: Path, payload: dict[str, Any]) -> Path:
-    return _engine_state.write_json_artifact(job_dir, ORGANIZED_REF_FILE_NAME, payload)
+    return _STATE_FILES.write_organized_ref(job_dir, payload)
 
 
 def load_state(job_dir: Path) -> dict[str, Any] | None:
-    return _engine_state.load_json_mapping_artifact(job_dir, STATE_FILE_NAME)
+    return _STATE_FILES.load_state(job_dir)
 
 
 def load_report_json(job_dir: Path) -> dict[str, Any] | None:
-    return _engine_state.load_json_mapping_artifact(job_dir, REPORT_JSON_FILE_NAME)
+    return _STATE_FILES.load_report_json(job_dir)
 
 
 def load_organized_ref(job_dir: Path) -> dict[str, Any] | None:
-    return _engine_state.load_json_mapping_artifact(job_dir, ORGANIZED_REF_FILE_NAME)
+    return _STATE_FILES.load_organized_ref(job_dir)
 
 
 def _normalize_text(value: Any) -> str:

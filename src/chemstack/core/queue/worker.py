@@ -40,6 +40,20 @@ class BackgroundRunningJob:
     started_at: float = field(default_factory=time.monotonic)
 
 
+class QueueWorkerPidFileMixin:
+    worker_pid_file_name = "queue_worker.pid"
+    allowed_root: Path
+
+    def _pid_file_path(self) -> Path:
+        return worker_pid_file_path(self.allowed_root, self.worker_pid_file_name)
+
+    def _write_pid_file(self) -> None:
+        write_worker_pid_file(self.allowed_root, self.worker_pid_file_name)
+
+    def _remove_pid_file(self) -> None:
+        remove_worker_pid_file(self.allowed_root, self.worker_pid_file_name)
+
+
 class ManagedProcess(Protocol):
     pid: int
 
@@ -152,6 +166,30 @@ def reserve_dequeued_entry(
     )
 
 
+def reserve_attached_single_queue_entry(
+    cfg: Any,
+    *,
+    reserve_slot_fn: Callable[[Any], str | None],
+    dequeue_next_fn: Callable[[Any], T | None],
+    release_slot_fn: Callable[[str], object],
+    attach_slot_identity_fn: Callable[[str, T], bool],
+    fail_start_fn: Callable[[T, str], object],
+) -> tuple[str, tuple[T, str] | None]:
+    admission_token = reserve_slot_fn(cfg)
+    if admission_token is None:
+        return "blocked", None
+
+    entry = dequeue_next_fn(cfg)
+    if entry is None:
+        release_slot_fn(admission_token)
+        return "idle", None
+
+    if not attach_slot_identity_fn(admission_token, entry):
+        fail_start_fn(entry, admission_token)
+        return "idle", None
+    return "processed", (entry, admission_token)
+
+
 def fill_worker_slots(
     *,
     running_count: Callable[[], int],
@@ -257,6 +295,79 @@ def start_background_job_process(
         start_new_session=True,
         text=True,
     )
+
+
+def live_queue_ids_for_slots(
+    admission_root: str | Path,
+    *,
+    list_slots_fn: Callable[[str | Path], list[Any]],
+) -> set[str]:
+    return {
+        str(getattr(slot, "queue_id", "")).strip()
+        for slot in list_slots_fn(admission_root)
+        if str(getattr(slot, "queue_id", "")).strip()
+    }
+
+
+def status_matches(value: Any, expected: Any) -> bool:
+    actual_value = getattr(value, "value", value)
+    expected_value = getattr(expected, "value", expected)
+    return str(actual_value).strip().lower() == str(expected_value).strip().lower()
+
+
+def reconcile_orphaned_child_queue_entries(
+    cfg: Any,
+    *,
+    admission_root: str | Path,
+    queue_roots_fn: Callable[[Any], tuple[Path, ...]],
+    list_queue_fn: Callable[[str | Path], list[Any]],
+    list_slots_fn: Callable[[str | Path], list[Any]],
+    reconcile_stale_slots_fn: Callable[[str | Path], object],
+    running_status: Any,
+    mark_cancelled_fn: Callable[..., object],
+    requeue_running_entry_fn: Callable[..., object],
+    mark_recovery_pending_fn: Callable[[Any, Any], object],
+) -> None:
+    reconcile_stale_slots_fn(admission_root)
+    live_queue_ids = live_queue_ids_for_slots(admission_root, list_slots_fn=list_slots_fn)
+
+    for queue_root in queue_roots_fn(cfg):
+        for entry in list_queue_fn(queue_root):
+            if not status_matches(getattr(entry, "status", None), running_status):
+                continue
+            queue_id = str(getattr(entry, "queue_id", ""))
+            if queue_id in live_queue_ids:
+                continue
+            if getattr(entry, "cancel_requested", False):
+                mark_cancelled_fn(queue_root, queue_id, error="cancel_requested")
+            else:
+                requeue_running_entry_fn(queue_root, queue_id)
+                mark_recovery_pending_fn(cfg, entry)
+
+
+def shutdown_child_process_with_grace(
+    job: Any,
+    *,
+    terminate_process_fn: Callable[[Any], object],
+    finalize_child_exit_fn: Callable[[Any, int], object],
+    grace_seconds: float,
+    sleep_fn: Callable[[float], None],
+) -> None:
+    if job.process.poll() is None:
+        try:
+            job.process.terminate()
+        except Exception:
+            pass
+
+    deadline = time.monotonic() + grace_seconds
+    while job.process.poll() is None and time.monotonic() < deadline:
+        sleep_fn(0.1)
+
+    if job.process.poll() is None:
+        terminate_process_fn(job.process)
+
+    rc = job.process.poll()
+    finalize_child_exit_fn(job, int(rc) if rc is not None else 0)
 
 
 def request_job_cancellation(

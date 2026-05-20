@@ -19,14 +19,13 @@ from typing import Any, cast
 from chemstack.core.queue.worker import (
     ChildProcessQueueWorker,
     ManagedProcess as _ManagedProcess,
+    QueueWorkerPidFileMixin,
     read_worker_pid_file,
-    remove_worker_pid_file,
+    reserve_attached_single_queue_entry,
     reserve_queue_worker_slot,
     resolve_admission_limit,
     resolve_admission_root,
     terminate_process_group,
-    worker_pid_file_path,
-    write_worker_pid_file,
 )
 
 from .admission_store import reconcile_stale_slots, release_slot, reserve_slot, update_slot_metadata
@@ -285,8 +284,10 @@ def _worker_admission_limit(cfg: AppConfig, fallback_max_concurrent: int) -> int
     )
 
 
-class QueueWorker(ChildProcessQueueWorker):
+class QueueWorker(QueueWorkerPidFileMixin, ChildProcessQueueWorker):
     """Main worker loop that manages concurrent job execution."""
+
+    worker_pid_file_name = WORKER_PID_FILE
 
     def __init__(
         self,
@@ -363,19 +364,18 @@ class QueueWorker(ChildProcessQueueWorker):
         return admission_token
 
     def _reserve_next_entry(self) -> tuple[str, tuple[QueueEntry, str] | None]:
-        admission_token = self._reserve_admission_slot()
-        if admission_token is None:
-            return "blocked", None
-
-        entry = dequeue_next(self.allowed_root)
-        if entry is None:
-            self._release_admission_token(admission_token)
-            return "idle", None
-
-        if not self._attach_slot_identity(admission_token, entry):
-            self._fail_start(entry, admission_token, error="admission_slot_missing")
-            return "idle", None
-        return "processed", (entry, admission_token)
+        return reserve_attached_single_queue_entry(
+            self.cfg,
+            reserve_slot_fn=lambda _cfg: self._reserve_admission_slot(),
+            dequeue_next_fn=lambda _cfg: dequeue_next(self.allowed_root),
+            release_slot_fn=self._release_admission_token,
+            attach_slot_identity_fn=self._attach_slot_identity,
+            fail_start_fn=lambda entry, token: self._fail_start(
+                entry,
+                token,
+                error="admission_slot_missing",
+            ),
+        )
 
     def _start_reserved(self, reserved: Any) -> None:
         entry, admission_token = reserved
@@ -580,18 +580,6 @@ class QueueWorker(ChildProcessQueueWorker):
             signal.signal(signal.SIGINT, _handle_signal)
         except ValueError:
             pass  # Not in main thread
-
-    # -- PID file ---------------------------------------------------------
-
-    def _pid_file_path(self) -> Path:
-        return worker_pid_file_path(self.allowed_root, WORKER_PID_FILE)
-
-    def _write_pid_file(self) -> None:
-        write_worker_pid_file(self.allowed_root, WORKER_PID_FILE)
-
-    def _remove_pid_file(self) -> None:
-        remove_worker_pid_file(self.allowed_root, WORKER_PID_FILE)
-
 
 def read_worker_pid(allowed_root: Path) -> int | None:
     """Read the worker PID file. Returns None if not found or stale."""

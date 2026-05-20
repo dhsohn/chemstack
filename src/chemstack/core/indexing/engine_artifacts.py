@@ -16,7 +16,47 @@ def normalize_text(value: Any) -> str:
 def resource_mapping(raw: object, *, fallback: dict[str, int] | None = None) -> dict[str, int]:
     if not isinstance(raw, dict):
         return dict(fallback or {})
-    return {str(key): int(value) for key, value in raw.items()}
+    result: dict[str, int] = {}
+    for key, value in raw.items():
+        key_text = normalize_text(key)
+        if not key_text:
+            continue
+        try:
+            result[key_text] = int(value)
+        except (TypeError, ValueError):
+            continue
+    return result
+
+
+def first_artifact_value(sources: tuple[dict[str, Any], ...], *keys: str) -> Any:
+    for source in sources:
+        for key in keys:
+            value = source.get(key)
+            if value:
+                return value
+    return None
+
+
+def first_artifact_text(sources: tuple[dict[str, Any], ...], *keys: str) -> str:
+    value = first_artifact_value(sources, *keys)
+    return "" if value is None else normalize_text(value)
+
+
+def first_resource_mapping(
+    sources: tuple[dict[str, Any], ...],
+    key: str,
+    *,
+    existing: JobLocationRecord | None,
+    existing_attr: str,
+    resource_mapping_fn: Callable[[Any], dict[str, int]],
+) -> dict[str, int]:
+    for source in sources:
+        mapped = resource_mapping_fn(source.get(key))
+        if mapped:
+            return mapped
+    if existing is None:
+        return {}
+    return dict(getattr(existing, existing_attr))
 
 
 @dataclass(frozen=True)
@@ -122,11 +162,7 @@ class EngineArtifactSnapshot:
 
 
 def _first_value(sources: tuple[dict[str, Any], ...], key: str) -> Any:
-    for source in sources:
-        value = source.get(key)
-        if value:
-            return value
-    return None
+    return first_artifact_value(sources, key)
 
 
 def artifact_resources(
@@ -135,18 +171,23 @@ def artifact_resources(
     report: dict[str, Any],
     organized_ref: dict[str, Any],
     existing: JobLocationRecord | None,
+    resource_mapping_fn: Callable[[Any], dict[str, int]] | None = None,
 ) -> tuple[dict[str, int], dict[str, int]]:
-    resource_request = resource_mapping(
-        report.get("resource_request")
-        or state.get("resource_request")
-        or organized_ref.get("resource_request"),
-        fallback=dict(existing.resource_request) if existing is not None else {},
+    mapper = resource_mapping if resource_mapping_fn is None else resource_mapping_fn
+    sources = (report, state, organized_ref)
+    resource_request = first_resource_mapping(
+        sources,
+        "resource_request",
+        existing=existing,
+        existing_attr="resource_request",
+        resource_mapping_fn=mapper,
     )
-    resource_actual = resource_mapping(
-        report.get("resource_actual")
-        or state.get("resource_actual")
-        or organized_ref.get("resource_actual"),
-        fallback=dict(existing.resource_actual) if existing is not None else {},
+    resource_actual = first_resource_mapping(
+        sources,
+        "resource_actual",
+        existing=existing,
+        existing_attr="resource_actual",
+        resource_mapping_fn=mapper,
     )
     return resource_request, resource_actual
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -49,6 +50,35 @@ def load_json_mapping_artifact(job_dir: Path, filename: str) -> dict[str, Any] |
     if not isinstance(raw, dict):
         return None
     return raw
+
+
+@dataclass(frozen=True)
+class EngineStateFiles:
+    state_file_name: str
+    report_json_file_name: str
+    report_md_file_name: str
+    organized_ref_file_name: str
+
+    def write_state(self, job_dir: Path, payload: dict[str, Any]) -> Path:
+        return write_json_artifact(job_dir, self.state_file_name, payload)
+
+    def write_report_json(self, job_dir: Path, payload: dict[str, Any]) -> Path:
+        return write_json_artifact(job_dir, self.report_json_file_name, payload)
+
+    def write_report_md_lines(self, job_dir: Path, lines: list[str]) -> Path:
+        return write_text_artifact(job_dir, self.report_md_file_name, lines)
+
+    def write_organized_ref(self, job_dir: Path, payload: dict[str, Any]) -> Path:
+        return write_json_artifact(job_dir, self.organized_ref_file_name, payload)
+
+    def load_state(self, job_dir: Path) -> dict[str, Any] | None:
+        return load_json_mapping_artifact(job_dir, self.state_file_name)
+
+    def load_report_json(self, job_dir: Path) -> dict[str, Any] | None:
+        return load_json_mapping_artifact(job_dir, self.report_json_file_name)
+
+    def load_organized_ref(self, job_dir: Path) -> dict[str, Any] | None:
+        return load_json_mapping_artifact(job_dir, self.organized_ref_file_name)
 
 
 def state_matches_fields(state: dict[str, Any] | None, fields: dict[str, Any]) -> bool:

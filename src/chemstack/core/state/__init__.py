@@ -1,6 +1,7 @@
 """Shared state persistence helpers."""
 
 from .engine import (
+    EngineStateFiles,
     RECOVERY_PENDING_REASONS,
     coerce_dict,
     coerce_list,
@@ -14,6 +15,7 @@ from .engine import (
 )
 
 __all__ = [
+    "EngineStateFiles",
     "RECOVERY_PENDING_REASONS",
     "coerce_dict",
     "coerce_list",

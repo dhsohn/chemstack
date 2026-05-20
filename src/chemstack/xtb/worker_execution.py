@@ -105,7 +105,7 @@ class WorkerRunnerDependencies:
     cancel_check_interval_seconds: float
 
 
-@dataclass(frozen=True, init=False)
+@dataclass(frozen=True)
 class WorkerExecutionDependencies:
     config: WorkerConfigDependencies
     admission: WorkerAdmissionDependencies
@@ -114,131 +114,6 @@ class WorkerExecutionDependencies:
     tracking: WorkerTrackingDependencies
     runner: WorkerRunnerDependencies
     execute_queue_entry: Callable[..., Any] | None = None
-
-    def __init__(
-        self,
-        *,
-        config: WorkerConfigDependencies | None = None,
-        admission: WorkerAdmissionDependencies | None = None,
-        context: WorkerContextDependencies | None = None,
-        artifacts: WorkerArtifactDependencies | None = None,
-        tracking: WorkerTrackingDependencies | None = None,
-        runner: WorkerRunnerDependencies | None = None,
-        execute_queue_entry: Callable[..., Any] | None = None,
-        load_config: Callable[..., Any] | None = None,
-        queue_entry_by_id: Callable[[Path | str, str], Any | None] | None = None,
-        activate_reserved_slot: Callable[..., Any] | None = None,
-        release_slot: Callable[..., Any] | None = None,
-        job_dir: Callable[[Any], Path] | None = None,
-        selected_xyz: Callable[[Any], Path] | None = None,
-        job_type: Callable[[Any], str] | None = None,
-        reaction_key: Callable[[Any, Path], str] | None = None,
-        input_summary: Callable[[Any], dict[str, Any]] | None = None,
-        entry_resource_request: Callable[[Any, Any], dict[str, int]] | None = None,
-        matching_state: Callable[..., dict[str, Any]] | None = None,
-        is_recovery_pending: Callable[[dict[str, Any]], bool] | None = None,
-        write_running_state: Callable[..., Any] | None = None,
-        build_terminal_result: Callable[..., Any] | None = None,
-        finalize_execution_result: Callable[..., Any] | None = None,
-        upsert_job_record: Callable[..., Any] | None = None,
-        notify_job_started: Callable[..., Any] | None = None,
-        run_xtb_ranking_job: Callable[..., Any] | None = None,
-        start_xtb_job: Callable[..., Any] | None = None,
-        finalize_xtb_job: Callable[..., Any] | None = None,
-        terminate_process: Callable[[Any], Any] | None = None,
-        wait_for_cancellable_process: Callable[..., Any] | None = None,
-        sleep: Callable[[float], None] | None = None,
-        cancel_check_interval_seconds: float | None = None,
-    ) -> None:
-        if config is None:
-            config = WorkerConfigDependencies(
-                load_config=_required_dependency(load_config, "load_config"),
-                queue_entry_by_id=_required_dependency(
-                    queue_entry_by_id,
-                    "queue_entry_by_id",
-                ),
-            )
-        if admission is None:
-            admission = WorkerAdmissionDependencies(
-                activate_reserved_slot=_required_dependency(
-                    activate_reserved_slot,
-                    "activate_reserved_slot",
-                ),
-                release_slot=_required_dependency(release_slot, "release_slot"),
-            )
-        if context is None:
-            context = WorkerContextDependencies(
-                job_dir=_required_dependency(job_dir, "job_dir"),
-                selected_xyz=_required_dependency(selected_xyz, "selected_xyz"),
-                job_type=_required_dependency(job_type, "job_type"),
-                reaction_key=_required_dependency(reaction_key, "reaction_key"),
-                input_summary=_required_dependency(input_summary, "input_summary"),
-                entry_resource_request=_required_dependency(
-                    entry_resource_request,
-                    "entry_resource_request",
-                ),
-                matching_state=_required_dependency(matching_state, "matching_state"),
-                is_recovery_pending=_required_dependency(
-                    is_recovery_pending,
-                    "is_recovery_pending",
-                ),
-            )
-        if artifacts is None:
-            artifacts = WorkerArtifactDependencies(
-                write_running_state=_required_dependency(
-                    write_running_state,
-                    "write_running_state",
-                ),
-                build_terminal_result=_required_dependency(
-                    build_terminal_result,
-                    "build_terminal_result",
-                ),
-                finalize_execution_result=_required_dependency(
-                    finalize_execution_result,
-                    "finalize_execution_result",
-                ),
-            )
-        if tracking is None:
-            tracking = WorkerTrackingDependencies(
-                upsert_job_record=_required_dependency(upsert_job_record, "upsert_job_record"),
-                notify_job_started=_required_dependency(
-                    notify_job_started,
-                    "notify_job_started",
-                ),
-            )
-        if runner is None:
-            runner = WorkerRunnerDependencies(
-                run_xtb_ranking_job=_required_dependency(
-                    run_xtb_ranking_job,
-                    "run_xtb_ranking_job",
-                ),
-                start_xtb_job=_required_dependency(start_xtb_job, "start_xtb_job"),
-                finalize_xtb_job=_required_dependency(
-                    finalize_xtb_job,
-                    "finalize_xtb_job",
-                ),
-                terminate_process=_required_dependency(
-                    terminate_process,
-                    "terminate_process",
-                ),
-                wait_for_cancellable_process=_required_dependency(
-                    wait_for_cancellable_process,
-                    "wait_for_cancellable_process",
-                ),
-                sleep=_required_dependency(sleep, "sleep"),
-                cancel_check_interval_seconds=(
-                    1
-                    if cancel_check_interval_seconds is None
-                    else cancel_check_interval_seconds
-                ),
-            )
-        object.__setattr__(self, "config", config)
-        object.__setattr__(self, "admission", admission)
-        object.__setattr__(self, "context", context)
-        object.__setattr__(self, "artifacts", artifacts)
-        object.__setattr__(self, "tracking", tracking)
-        object.__setattr__(self, "runner", runner)
-        object.__setattr__(self, "execute_queue_entry", execute_queue_entry)
 
     def __getattr__(self, name: str) -> Any:
         for group in (
@@ -252,12 +127,6 @@ class WorkerExecutionDependencies:
             if hasattr(group, name):
                 return getattr(group, name)
         raise AttributeError(name)
-
-
-def _required_dependency(value: Any, name: str) -> Any:
-    if value is None:
-        raise TypeError(f"missing required dependency: {name}")
-    return value
 
 
 def _job_dir(entry: Any) -> Path:

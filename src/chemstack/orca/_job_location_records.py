@@ -11,6 +11,7 @@ from chemstack.core.indexing import (
     list_job_locations,
     upsert_job_location,
 )
+from chemstack.core.indexing import engine_artifacts as _engine_artifacts
 from chemstack.core.indexing import engines as _engine_locations
 
 from ._job_location_utils import (
@@ -171,27 +172,27 @@ def _artifact_record_identity(
     existing: JobLocationRecord | None,
     fallback_job_id: str,
 ) -> tuple[str, str, str]:
-    job_id = normalize_text(
-        report.get("job_id")
-        or state.get("job_id")
-        or organized_ref.get("job_id")
-        or fallback_job_id
-        or (existing.job_id if existing else "")
-        or report.get("run_id")
-        or state.get("run_id")
-        or organized_ref.get("run_id")
+    sources = (report, state, organized_ref)
+    job_id = (
+        _engine_artifacts.first_artifact_text(sources, "job_id")
+        or normalize_text(fallback_job_id)
+        or normalize_text(existing.job_id if existing else "")
+        or _engine_artifacts.first_artifact_text(sources, "run_id")
     )
     status = (
-        normalize_text(
-            report.get("status") or state.get("status") or organized_ref.get("status") or "unknown"
-        )
+        _engine_artifacts.first_artifact_text(sources, "status")
         or "unknown"
     )
     selected_input_xyz = normalize_path_text(
-        report.get("selected_inp")
-        or state.get("selected_inp")
-        or organized_ref.get("selected_input_xyz")
-        or organized_ref.get("selected_inp")
+        _engine_artifacts.first_artifact_value(
+            (report, state),
+            "selected_inp",
+        )
+        or _engine_artifacts.first_artifact_value(
+            (organized_ref,),
+            "selected_input_xyz",
+            "selected_inp",
+        )
         or (existing.selected_input_xyz if existing else "")
     )
     return job_id, status, selected_input_xyz
@@ -235,19 +236,13 @@ def _artifact_resources(
     organized_ref: dict[str, Any],
     existing: JobLocationRecord | None,
 ) -> tuple[dict[str, int], dict[str, int]]:
-    resource_request = (
-        resource_dict_from_any(report.get("resource_request"))
-        or resource_dict_from_any(state.get("resource_request"))
-        or resource_dict_from_any(organized_ref.get("resource_request"))
-        or (dict(existing.resource_request) if existing is not None else {})
+    return _engine_artifacts.artifact_resources(
+        state=state,
+        report=report,
+        organized_ref=organized_ref,
+        existing=existing,
+        resource_mapping_fn=resource_dict_from_any,
     )
-    resource_actual = (
-        resource_dict_from_any(report.get("resource_actual"))
-        or resource_dict_from_any(state.get("resource_actual"))
-        or resource_dict_from_any(organized_ref.get("resource_actual"))
-        or (dict(existing.resource_actual) if existing is not None else {})
-    )
-    return resource_request, resource_actual
 
 
 def _artifact_dirs(
@@ -258,18 +253,15 @@ def _artifact_dirs(
     organized_ref: dict[str, Any],
     existing: JobLocationRecord | None,
 ) -> tuple[str, str]:
-    original_run_dir = normalize_text(
-        report.get("original_run_dir")
-        or state.get("original_run_dir")
-        or organized_ref.get("original_run_dir")
-        or (existing.original_run_dir if existing else "")
+    sources = (report, state, organized_ref)
+    original_run_dir = (
+        _engine_artifacts.first_artifact_text(sources, "original_run_dir")
+        or normalize_text(existing.original_run_dir if existing else "")
         or str(job_dir)
     )
-    organized_output_dir = normalize_text(
-        report.get("organized_output_dir")
-        or state.get("organized_output_dir")
-        or organized_ref.get("organized_output_dir")
-        or (existing.organized_output_dir if existing else "")
+    organized_output_dir = (
+        _engine_artifacts.first_artifact_text(sources, "organized_output_dir")
+        or normalize_text(existing.organized_output_dir if existing else "")
     )
     return original_run_dir, organized_output_dir
 

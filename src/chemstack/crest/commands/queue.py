@@ -28,16 +28,16 @@ from chemstack.core.queue.types import QueueStatus
 from chemstack.core.queue.worker import (
     BackgroundRunningJob as _RunningJob,
     ChildProcessQueueWorker,
+    QueueWorkerPidFileMixin,
     config_path_for_worker,
     dequeue_next_across_roots,
     read_worker_pid_file,
-    remove_worker_pid_file,
+    reconcile_orphaned_child_queue_entries,
     reserve_dequeued_entry,
     reserve_queue_worker_slot,
     resolve_admission_limit,
     resolve_admission_root,
-    worker_pid_file_path,
-    write_worker_pid_file,
+    shutdown_child_process_with_grace,
 )
 from chemstack.core.utils import now_utc_iso
 
@@ -235,7 +235,9 @@ def _start_background_job_process(
     )
 
 
-class QueueWorker(ChildProcessQueueWorker):
+class QueueWorker(QueueWorkerPidFileMixin, ChildProcessQueueWorker):
+    worker_pid_file_name = WORKER_PID_FILE
+
     def __init__(
         self,
         cfg: Any,
@@ -263,22 +265,22 @@ class QueueWorker(ChildProcessQueueWorker):
         self._remove_pid_file()
 
     def _reconcile_orphaned_running(self) -> None:
-        reconcile_stale_slots(self.admission_root)
-        live_queue_ids = {
-            slot.queue_id for slot in list_slots(self.admission_root) if str(slot.queue_id).strip()
-        }
-
-        for queue_root in _queue_roots(self.cfg):
-            for entry in list_queue(queue_root):
-                if getattr(entry, "status", None) != QueueStatus.RUNNING:
-                    continue
-                if entry.queue_id in live_queue_ids:
-                    continue
-                if getattr(entry, "cancel_requested", False):
-                    mark_cancelled(queue_root, entry.queue_id, error="cancel_requested")
-                else:
-                    requeue_running_entry(queue_root, entry.queue_id)
-                    _mark_recovery_pending_entry(self.cfg, entry, reason="crashed_recovery")
+        reconcile_orphaned_child_queue_entries(
+            self.cfg,
+            admission_root=self.admission_root,
+            queue_roots_fn=_queue_roots,
+            list_queue_fn=list_queue,
+            list_slots_fn=list_slots,
+            reconcile_stale_slots_fn=reconcile_stale_slots,
+            running_status=QueueStatus.RUNNING,
+            mark_cancelled_fn=mark_cancelled,
+            requeue_running_entry_fn=requeue_running_entry,
+            mark_recovery_pending_fn=lambda cfg, entry: _mark_recovery_pending_entry(
+                cfg,
+                entry,
+                reason="crashed_recovery",
+            ),
+        )
 
     def _handle_worker_start_error(
         self,
@@ -336,30 +338,16 @@ class QueueWorker(ChildProcessQueueWorker):
         release_slot(self.admission_root, job.admission_token)
 
     def _shutdown_running_job(self, _queue_id: str, job: Any) -> None:
-        if job.process.poll() is None:
-            try:
-                job.process.terminate()
-            except Exception:
-                pass
-
-        deadline = time.monotonic() + WORKER_SHUTDOWN_GRACE_SECONDS
-        while job.process.poll() is None and time.monotonic() < deadline:
-            time.sleep(0.1)
-
-        if job.process.poll() is None:
-            _terminate_process(job.process)
-
-        rc = job.process.poll()
-        self._finalize_child_exit(job, rc=int(rc) if rc is not None else 0)
-
-    def _pid_file_path(self) -> Path:
-        return worker_pid_file_path(self.allowed_root, WORKER_PID_FILE)
-
-    def _write_pid_file(self) -> None:
-        write_worker_pid_file(self.allowed_root, WORKER_PID_FILE)
-
-    def _remove_pid_file(self) -> None:
-        remove_worker_pid_file(self.allowed_root, WORKER_PID_FILE)
+        shutdown_child_process_with_grace(
+            job,
+            terminate_process_fn=_terminate_process,
+            finalize_child_exit_fn=lambda current_job, rc: self._finalize_child_exit(
+                current_job,
+                rc=rc,
+            ),
+            grace_seconds=WORKER_SHUTDOWN_GRACE_SECONDS,
+            sleep_fn=time.sleep,
+        )
 
 
 def cmd_queue_worker(args: Any) -> int:
