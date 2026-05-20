@@ -145,32 +145,32 @@ def _queue_command_deps() -> _QueueCommandDeps:
 
 
 def _worker_execution_dependencies() -> _worker_execution.WorkerExecutionDependencies:
-    return _worker_execution.WorkerExecutionDependencies(
-        load_config=load_config,
-        queue_entry_by_id=_queue_entry_by_id,
-        activate_reserved_slot=activate_reserved_slot,
-        release_slot=release_slot,
-        job_dir=_job_dir,
-        selected_xyz=_selected_xyz,
-        job_type=_job_type,
-        reaction_key=_reaction_key,
-        input_summary=_input_summary,
-        entry_resource_request=_entry_resource_request,
-        matching_state=_matching_state,
-        is_recovery_pending=is_recovery_pending,
-        write_running_state=_write_running_state,
-        upsert_job_record=upsert_job_record,
-        notify_job_started=notify_job_started,
-        build_terminal_result=_build_terminal_result,
-        run_xtb_ranking_job=run_xtb_ranking_job,
-        start_xtb_job=start_xtb_job,
-        finalize_xtb_job=finalize_xtb_job,
-        terminate_process=_terminate_process,
-        wait_for_cancellable_process=_queue_execution.wait_for_cancellable_process,
-        sleep=time.sleep,
+    return _worker_execution.build_worker_execution_dependencies(
+        load_config_fn=load_config,
+        queue_entry_by_id_fn=_queue_entry_by_id,
+        activate_reserved_slot_fn=activate_reserved_slot,
+        release_slot_fn=release_slot,
+        job_dir_fn=_job_dir,
+        selected_xyz_fn=_selected_xyz,
+        job_type_fn=_job_type,
+        reaction_key_fn=_reaction_key,
+        input_summary_fn=_input_summary,
+        entry_resource_request_fn=_entry_resource_request,
+        matching_state_fn=_matching_state,
+        is_recovery_pending_fn=is_recovery_pending,
+        write_running_state_fn=_write_running_state,
+        build_terminal_result_fn=_build_terminal_result,
+        finalize_execution_result_fn=_finalize_execution_result,
+        upsert_job_record_fn=upsert_job_record,
+        notify_job_started_fn=notify_job_started,
+        run_xtb_ranking_job_fn=run_xtb_ranking_job,
+        start_xtb_job_fn=start_xtb_job,
+        finalize_xtb_job_fn=finalize_xtb_job,
+        terminate_process_fn=_terminate_process,
+        wait_for_cancellable_process_fn=_queue_execution.wait_for_cancellable_process,
+        sleep_fn=time.sleep,
         cancel_check_interval_seconds=CANCEL_CHECK_INTERVAL_SECONDS,
-        finalize_execution_result=_finalize_execution_result,
-        execute_queue_entry=_execute_queue_entry,
+        execute_queue_entry_fn=_execute_queue_entry,
     )
 
 
@@ -321,7 +321,7 @@ def _build_state_payload(
         result,
         previous_state=previous_state,
         resumed=resumed,
-        deps=_queue_command_deps(),
+        coerce_mapping_fn=_coerce_mapping,
     )
 
 
@@ -337,7 +337,7 @@ def _build_report_payload(
         result,
         previous_state=previous_state,
         resumed=resumed,
-        deps=_queue_command_deps(),
+        coerce_mapping_fn=_coerce_mapping,
     )
 
 
@@ -353,7 +353,10 @@ def _write_execution_artifacts(
         result,
         previous_state=previous_state,
         resumed=resumed,
-        deps=_queue_command_deps(),
+        coerce_mapping_fn=_coerce_mapping,
+        write_state_fn=write_state,
+        write_report_json_fn=write_report_json,
+        write_report_md_lines_fn=write_report_md_lines,
     )
 
 
@@ -371,7 +374,13 @@ def _write_running_state(
         worker_job_pid=worker_job_pid,
         previous_state=previous_state,
         resumed=resumed,
-        deps=_queue_command_deps(),
+        input_summary_fn=_input_summary,
+        entry_resource_request_fn=_entry_resource_request,
+        coerce_mapping_fn=_coerce_mapping,
+        now_utc_iso_fn=now_utc_iso,
+        job_type_fn=_job_type,
+        reaction_key_fn=_reaction_key,
+        write_state_fn=write_state,
     )
 
 
@@ -380,7 +389,14 @@ def _mark_recovery_pending_state(cfg: Any, entry: Any, *, reason: str) -> None:
         cfg,
         entry,
         reason=reason,
-        deps=_queue_command_deps(),
+        job_dir_fn=_job_dir,
+        selected_xyz_fn=_selected_xyz,
+        job_type_fn=_job_type,
+        reaction_key_fn=_reaction_key,
+        input_summary_fn=_input_summary,
+        entry_resource_request_fn=_entry_resource_request,
+        mark_recovery_pending_fn=mark_recovery_pending,
+        upsert_job_record_fn=upsert_job_record,
     )
 
 
@@ -423,7 +439,7 @@ def _build_terminal_result(
         reason=reason,
         exit_code=exit_code,
         command=command,
-        deps=_queue_command_deps(),
+        now_utc_iso_fn=now_utc_iso,
     )
 
 
@@ -462,7 +478,11 @@ def _load_terminal_summary(
         queue_root,
         entry,
         rc=rc,
-        deps=_queue_command_deps(),
+        job_dir_fn=_job_dir,
+        load_state_fn=load_state,
+        load_report_json_fn=load_report_json,
+        load_organized_ref_fn=load_organized_ref,
+        queue_entry_by_id_fn=_queue_entry_by_id,
     )
 
 
@@ -471,7 +491,10 @@ def _ensure_terminal_queue_status(queue_root: Path, entry: Any, summary: _Termin
         queue_root,
         entry,
         summary,
-        deps=_queue_command_deps(),
+        queue_entry_by_id_fn=_queue_entry_by_id,
+        mark_completed_fn=mark_completed,
+        mark_cancelled_fn=mark_cancelled,
+        mark_failed_fn=mark_failed,
     )
 
 
@@ -496,7 +519,14 @@ def _finalize_execution_result(
         previous_state=previous_state,
         resumed=resumed,
         outcome_cls=QueueExecutionOutcome,
-        deps=_queue_command_deps(),
+        write_execution_artifacts_fn=_write_execution_artifacts,
+        selected_xyz_fn=_selected_xyz,
+        job_dir_fn=_job_dir,
+        mark_completed_fn=mark_completed,
+        mark_cancelled_fn=mark_cancelled,
+        mark_failed_fn=mark_failed,
+        upsert_job_record_fn=upsert_job_record,
+        notify_job_finished_fn=notify_job_finished,
     )
 
 

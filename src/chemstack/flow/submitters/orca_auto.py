@@ -54,6 +54,23 @@ class _WorkflowStageOutcome:
     stage_result: dict[str, Any]
 
 
+@dataclass(frozen=True)
+class _TaskStageMutation:
+    task_status: str | None = None
+    stage_status: str | None = None
+    task_record_key: str | None = None
+    metadata_updates: dict[str, Any] = field(default_factory=dict)
+    metadata_removals: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class _RecordedStageTransition:
+    bucket: str
+    detail: dict[str, Any]
+    stage_result: dict[str, Any]
+    mutation: _TaskStageMutation
+
+
 @dataclass
 class _WorkflowBuckets:
     submitted: list[dict[str, Any]] = field(default_factory=list)
@@ -80,6 +97,25 @@ class _CancelStageContext:
     stage_status: str
     queue_id: str
     reaction_dir: str
+
+
+def _apply_task_stage_mutation(
+    *,
+    stage: dict[str, Any],
+    task: dict[str, Any],
+    stage_metadata: dict[str, Any],
+    mutation: _TaskStageMutation,
+    task_record: Any = None,
+) -> None:
+    if mutation.task_status is not None:
+        task["status"] = mutation.task_status
+    if mutation.stage_status is not None:
+        stage["status"] = mutation.stage_status
+    if mutation.task_record_key is not None:
+        task[mutation.task_record_key] = task_record
+    stage_metadata.update(mutation.metadata_updates)
+    for key in mutation.metadata_removals:
+        stage_metadata.pop(key, None)
 
 
 def _mapping_payload(value: Any) -> dict[str, Any]:
@@ -255,6 +291,22 @@ def _submission_force(enqueue_payload: dict[str, Any]) -> bool:
     return bool(value)
 
 
+def _submission_result_mutation(
+    *,
+    task_status: str,
+    stage_status: str,
+    metadata_updates: dict[str, Any],
+    metadata_removals: tuple[str, ...] = (),
+) -> _TaskStageMutation:
+    return _TaskStageMutation(
+        task_status=task_status,
+        stage_status=stage_status,
+        task_record_key="submission_result",
+        metadata_updates=metadata_updates,
+        metadata_removals=metadata_removals,
+    )
+
+
 def _record_missing_reaction_dir(
     *,
     stage: dict[str, Any],
@@ -267,14 +319,159 @@ def _record_missing_reaction_dir(
         "submitted_at": now_utc_iso(),
     }
     stage_id = stage.get("stage_id", "")
-    task["status"] = "submission_failed"
-    task["submission_result"] = submission_record
-    stage["status"] = "submission_failed"
-    stage_metadata["submission_status"] = "submission_failed"
-    stage_metadata["submitted_at"] = submission_record["submitted_at"]
+    _apply_task_stage_mutation(
+        stage=stage,
+        task=task,
+        stage_metadata=stage_metadata,
+        mutation=_submission_result_mutation(
+            task_status="submission_failed",
+            stage_status="submission_failed",
+            metadata_updates={
+                "submission_status": "submission_failed",
+                "submitted_at": submission_record["submitted_at"],
+            },
+        ),
+        task_record=submission_record,
+    )
     return (
         {"stage_id": stage_id, "reason": "missing_reaction_dir"},
         {"stage_id": stage_id, "status": "submission_failed", "reason": "missing_reaction_dir"},
+    )
+
+
+def _submitted_stage_transition(
+    *,
+    stage_id: str,
+    stdout_payload: dict[str, Any],
+    reaction_dir: str,
+    submitted_at: str,
+    returncode: int,
+) -> _RecordedStageTransition:
+    queue_id = stdout_payload.get("queue_id", "")
+    return _RecordedStageTransition(
+        bucket="submitted",
+        detail={
+            "stage_id": stage_id,
+            "queue_id": queue_id,
+            "reaction_dir": stdout_payload.get("job_dir")
+            or stdout_payload.get("reaction_dir", reaction_dir),
+        },
+        stage_result={
+            "stage_id": stage_id,
+            "status": "submitted",
+            "queue_id": queue_id,
+            "returncode": returncode,
+        },
+        mutation=_submission_result_mutation(
+            task_status="submitted",
+            stage_status="queued",
+            metadata_updates={
+                "queue_id": queue_id,
+                "submission_status": "submitted",
+                "submitted_at": submitted_at,
+            },
+            metadata_removals=("submission_deferred_reason", "last_submission_attempt_at"),
+        ),
+    )
+
+
+def _deferred_submission_transition(
+    *,
+    stage_id: str,
+    submission_record: dict[str, Any],
+    submitted_at: str,
+    returncode: int,
+) -> _RecordedStageTransition:
+    reason = _submission_deferred_reason(submission_record)
+    return _RecordedStageTransition(
+        bucket="deferred",
+        detail={
+            "stage_id": stage_id,
+            "reason": reason,
+        },
+        stage_result={
+            "stage_id": stage_id,
+            "status": "waiting_for_slot",
+            "reason": reason,
+            "returncode": returncode,
+        },
+        mutation=_submission_result_mutation(
+            task_status="planned",
+            stage_status="planned",
+            metadata_updates={
+                "submission_status": "waiting_for_slot",
+                "submission_deferred_reason": reason,
+                "last_submission_attempt_at": submitted_at,
+            },
+            metadata_removals=("submitted_at", "queue_id"),
+        ),
+    )
+
+
+def _failed_submission_transition(
+    *,
+    stage_id: str,
+    stdout_payload: dict[str, Any],
+    submission_record: dict[str, Any],
+    submitted_at: str,
+    returncode: int,
+) -> _RecordedStageTransition:
+    return _RecordedStageTransition(
+        bucket="failed",
+        detail={
+            "stage_id": stage_id,
+            "returncode": returncode,
+            "stderr": str(submission_record.get("stderr", "")).strip(),
+            "stdout": str(submission_record.get("stdout", "")).strip(),
+        },
+        stage_result={
+            "stage_id": stage_id,
+            "status": "submission_failed",
+            "queue_id": stdout_payload.get("queue_id", ""),
+            "returncode": returncode,
+        },
+        mutation=_submission_result_mutation(
+            task_status="submission_failed",
+            stage_status="submission_failed",
+            metadata_updates={
+                "submission_status": "submission_failed",
+                "submitted_at": submitted_at,
+            },
+            metadata_removals=("submission_deferred_reason", "last_submission_attempt_at"),
+        ),
+    )
+
+
+def _submission_transition(
+    *,
+    stage_id: str,
+    reaction_dir: str,
+    submission_record: dict[str, Any],
+    stdout_payload: dict[str, Any],
+    returncode: int,
+) -> _RecordedStageTransition:
+    submitted_at = submission_record["submitted_at"]
+    if submission_record["status"] == "submitted":
+        return _submitted_stage_transition(
+            stage_id=stage_id,
+            stdout_payload=stdout_payload,
+            reaction_dir=reaction_dir,
+            submitted_at=submitted_at,
+            returncode=returncode,
+        )
+    if _submission_is_deferred(submission_record):
+        return _deferred_submission_transition(
+            stage_id=stage_id,
+            submission_record=submission_record,
+            submitted_at=submitted_at,
+            returncode=returncode,
+        )
+    return _failed_submission_transition(
+        stage_id=stage_id,
+        stdout_payload=stdout_payload,
+        submission_record=submission_record,
+        submitted_at=submitted_at,
+        returncode=returncode,
     )
 
 
@@ -290,75 +487,24 @@ def _record_submission_outcome(
     stdout_payload = _mapping_payload(submission_record.get("parsed_stdout"))
     returncode = int(submission_record.get("returncode", 1))
     submission_record["submitted_at"] = now_utc_iso()
-    task["submission_result"] = submission_record
-
-    if submission_record["status"] == "submitted":
-        task["status"] = "submitted"
-        stage["status"] = "queued"
-        stage_metadata["queue_id"] = stdout_payload.get("queue_id", "")
-        stage_metadata["submission_status"] = "submitted"
-        stage_metadata["submitted_at"] = submission_record["submitted_at"]
-        stage_metadata.pop("submission_deferred_reason", None)
-        stage_metadata.pop("last_submission_attempt_at", None)
-        return (
-            "submitted",
-            {
-                "stage_id": stage_id,
-                "queue_id": stdout_payload.get("queue_id", ""),
-                "reaction_dir": stdout_payload.get("job_dir")
-                or stdout_payload.get("reaction_dir", reaction_dir),
-            },
-            {
-                "stage_id": stage_id,
-                "status": "submitted",
-                "queue_id": stdout_payload.get("queue_id", ""),
-                "returncode": returncode,
-            },
-        )
-
-    if _submission_is_deferred(submission_record):
-        reason = _submission_deferred_reason(submission_record)
-        task["status"] = "planned"
-        stage["status"] = "planned"
-        stage_metadata["submission_status"] = "waiting_for_slot"
-        stage_metadata["submission_deferred_reason"] = reason
-        stage_metadata["last_submission_attempt_at"] = submission_record["submitted_at"]
-        stage_metadata.pop("submitted_at", None)
-        stage_metadata.pop("queue_id", None)
-        return (
-            "deferred",
-            {
-                "stage_id": stage_id,
-                "reason": reason,
-            },
-            {
-                "stage_id": stage_id,
-                "status": "waiting_for_slot",
-                "reason": reason,
-                "returncode": returncode,
-            },
-        )
-
-    task["status"] = "submission_failed"
-    stage["status"] = "submission_failed"
-    stage_metadata["submission_status"] = "submission_failed"
-    stage_metadata["submitted_at"] = submission_record["submitted_at"]
-    stage_metadata.pop("submission_deferred_reason", None)
-    stage_metadata.pop("last_submission_attempt_at", None)
+    transition = _submission_transition(
+        stage_id=stage_id,
+        reaction_dir=reaction_dir,
+        submission_record=submission_record,
+        stdout_payload=stdout_payload,
+        returncode=returncode,
+    )
+    _apply_task_stage_mutation(
+        stage=stage,
+        task=task,
+        stage_metadata=stage_metadata,
+        mutation=transition.mutation,
+        task_record=submission_record,
+    )
     return (
-        "failed",
-        {
-            "stage_id": stage_id,
-            "returncode": returncode,
-            "stderr": str(submission_record.get("stderr", "")).strip(),
-            "stdout": str(submission_record.get("stdout", "")).strip(),
-        },
-        {
-            "stage_id": stage_id,
-            "status": "submission_failed",
-            "queue_id": stdout_payload.get("queue_id", ""),
-            "returncode": returncode,
-        },
+        transition.bucket,
+        transition.detail,
+        transition.stage_result,
     )
 
 
@@ -597,17 +743,53 @@ def _needs_orca_cancel(context: _CancelStageContext) -> bool:
     )
 
 
+def _cancel_result_mutation(
+    *,
+    task_status: str | None = None,
+    stage_status: str | None = None,
+    metadata_updates: dict[str, Any] | None = None,
+) -> _TaskStageMutation:
+    return _TaskStageMutation(
+        task_status=task_status,
+        stage_status=stage_status,
+        task_record_key="cancel_result",
+        metadata_updates=metadata_updates or {},
+    )
+
+
+def _apply_cancel_mutation(
+    context: _CancelStageContext,
+    *,
+    mutation: _TaskStageMutation,
+    cancel_record: dict[str, Any],
+) -> None:
+    _apply_task_stage_mutation(
+        stage=context.stage,
+        task=context.task,
+        stage_metadata=context.stage_metadata,
+        mutation=mutation,
+        task_record=cancel_record,
+    )
+
+
 def _record_local_cancel(context: _CancelStageContext) -> _WorkflowStageOutcome:
     cancel_record = {
         "status": "cancelled",
         "cancelled_at": now_utc_iso(),
         "mode": "local",
     }
-    context.task["status"] = "cancelled"
-    context.task["cancel_result"] = cancel_record
-    context.stage["status"] = "cancelled"
-    context.stage_metadata["cancel_status"] = "cancelled"
-    context.stage_metadata["cancelled_at"] = cancel_record["cancelled_at"]
+    _apply_cancel_mutation(
+        context,
+        mutation=_cancel_result_mutation(
+            task_status="cancelled",
+            stage_status="cancelled",
+            metadata_updates={
+                "cancel_status": "cancelled",
+                "cancelled_at": cancel_record["cancelled_at"],
+            },
+        ),
+        cancel_record=cancel_record,
+    )
     return _WorkflowStageOutcome(
         bucket="cancelled",
         detail={"stage_id": context.stage_id, "mode": "local"},
@@ -621,11 +803,16 @@ def _record_cancel_failure(
     reason: str,
     stage_result: dict[str, Any] | None = None,
 ) -> _WorkflowStageOutcome:
-    context.task["cancel_result"] = {
+    cancel_record = {
         "status": "failed",
         "reason": reason,
         "cancelled_at": now_utc_iso(),
     }
+    _apply_cancel_mutation(
+        context,
+        mutation=_cancel_result_mutation(),
+        cancel_record=cancel_record,
+    )
     return _WorkflowStageOutcome(
         bucket="failed",
         detail={"stage_id": context.stage_id, "reason": reason},
@@ -640,11 +827,19 @@ def _record_remote_cancel_success(
     cancel_record: dict[str, Any],
     cancel_status: str,
 ) -> _WorkflowStageOutcome:
-    context.task["status"] = cancel_status
-    context.stage["status"] = cancel_status
-    context.stage_metadata["cancel_status"] = cancel_status
-    context.stage_metadata["cancelled_at"] = cancel_record["cancelled_at"]
-    bucket = "requested" if cancel_status == "cancel_requested" else "cancelled"
+    _apply_cancel_mutation(
+        context,
+        mutation=_cancel_result_mutation(
+            task_status=cancel_status,
+            stage_status=cancel_status,
+            metadata_updates={
+                "cancel_status": cancel_status,
+                "cancelled_at": cancel_record["cancelled_at"],
+            },
+        ),
+        cancel_record=cancel_record,
+    )
+    bucket = {"cancel_requested": "requested"}.get(cancel_status, "cancelled")
     return _WorkflowStageOutcome(
         bucket=bucket,
         detail={
@@ -660,6 +855,11 @@ def _record_remote_cancel_failed(
     context: _CancelStageContext, cancel_record: dict[str, Any]
 ) -> _WorkflowStageOutcome:
     returncode = int(cancel_record.get("returncode", 1))
+    _apply_cancel_mutation(
+        context,
+        mutation=_cancel_result_mutation(),
+        cancel_record=cancel_record,
+    )
     return _WorkflowStageOutcome(
         bucket="failed",
         detail={
@@ -691,7 +891,6 @@ def _record_remote_cancel(
     cancel_status = str(cancel_record.get("status", "failed"))
     cancel_record["cancelled_at"] = now_utc_iso()
     cancel_record["target"] = cancel_identifier
-    context.task["cancel_result"] = cancel_record
     if cancel_status in {"cancel_requested", "cancelled"}:
         return _record_remote_cancel_success(
             context, cancel_record=cancel_record, cancel_status=cancel_status

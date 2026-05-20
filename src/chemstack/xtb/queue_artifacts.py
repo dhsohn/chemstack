@@ -1,11 +1,19 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from chemstack.core.queue import execution as _queue_execution
 
 from .runner import XtbRunResult
+
+
+def _dependency(deps: Any | None, explicit: Any, name: str) -> Any:
+    if explicit is not None:
+        return explicit
+    if deps is not None:
+        return getattr(deps, name)
+    raise TypeError(f"missing required dependency: {name}")
 
 
 def build_state_payload(
@@ -14,9 +22,11 @@ def build_state_payload(
     *,
     previous_state: dict[str, Any] | None = None,
     resumed: bool = False,
-    deps: Any,
+    deps: Any | None = None,
+    coerce_mapping_fn: Callable[[Any], dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    base_state = deps._coerce_mapping(previous_state)
+    coerce_mapping = _dependency(deps, coerce_mapping_fn, "_coerce_mapping")
+    base_state = coerce_mapping(previous_state)
     candidate_paths = list(result.analysis_summary.get("candidate_paths", []))
     if not candidate_paths and isinstance(result.input_summary, dict):
         candidate_paths = list(result.input_summary.get("candidate_paths", []))
@@ -56,9 +66,11 @@ def build_report_payload(
     *,
     previous_state: dict[str, Any] | None = None,
     resumed: bool = False,
-    deps: Any,
+    deps: Any | None = None,
+    coerce_mapping_fn: Callable[[Any], dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    base_state = deps._coerce_mapping(previous_state)
+    coerce_mapping = _dependency(deps, coerce_mapping_fn, "_coerce_mapping")
+    base_state = coerce_mapping(previous_state)
     candidate_paths = list(result.analysis_summary.get("candidate_paths", []))
     if not candidate_paths and isinstance(result.input_summary, dict):
         candidate_paths = list(result.input_summary.get("candidate_paths", []))
@@ -101,11 +113,23 @@ def write_execution_artifacts(
     *,
     previous_state: dict[str, Any] | None = None,
     resumed: bool = False,
-    deps: Any,
+    deps: Any | None = None,
+    coerce_mapping_fn: Callable[[Any], dict[str, Any]] | None = None,
+    write_state_fn: Callable[..., Any] | None = None,
+    write_report_json_fn: Callable[..., Any] | None = None,
+    write_report_md_lines_fn: Callable[..., Any] | None = None,
 ) -> None:
     job_dir_text = str(entry.metadata.get("job_dir", "")).strip()
     if not job_dir_text:
         return
+    coerce_mapping = _dependency(deps, coerce_mapping_fn, "_coerce_mapping")
+    write_state = _dependency(deps, write_state_fn, "write_state")
+    write_report_json = _dependency(deps, write_report_json_fn, "write_report_json")
+    write_report_md_lines = _dependency(
+        deps,
+        write_report_md_lines_fn,
+        "write_report_md_lines",
+    )
 
     lines = [
         "# xtb_auto Report",
@@ -147,19 +171,19 @@ def write_execution_artifacts(
             result,
             previous_state=previous_state,
             resumed=resumed,
-            deps=deps,
+            coerce_mapping_fn=coerce_mapping,
         ),
         report_payload=build_report_payload(
             entry,
             result,
             previous_state=previous_state,
             resumed=resumed,
-            deps=deps,
+            coerce_mapping_fn=coerce_mapping,
         ),
         report_lines=lines,
-        write_state_fn=deps.write_state,
-        write_report_json_fn=deps.write_report_json,
-        write_report_md_lines_fn=deps.write_report_md_lines,
+        write_state_fn=write_state,
+        write_report_json_fn=write_report_json,
+        write_report_md_lines_fn=write_report_md_lines,
     )
 
 
@@ -170,31 +194,49 @@ def write_running_state(
     worker_job_pid: int | None = None,
     previous_state: dict[str, Any] | None = None,
     resumed: bool = False,
-    deps: Any,
+    deps: Any | None = None,
+    input_summary_fn: Callable[[Any], dict[str, Any]] | None = None,
+    entry_resource_request_fn: Callable[[Any, Any], dict[str, int]] | None = None,
+    coerce_mapping_fn: Callable[[Any], dict[str, Any]] | None = None,
+    now_utc_iso_fn: Callable[[], str] | None = None,
+    job_type_fn: Callable[[Any], str] | None = None,
+    reaction_key_fn: Callable[[Any, Path], str] | None = None,
+    write_state_fn: Callable[..., Any] | None = None,
 ) -> None:
     job_dir_text = str(entry.metadata.get("job_dir", "")).strip()
     if not job_dir_text:
         return
+    input_summary = _dependency(deps, input_summary_fn, "_input_summary")
+    entry_resource_request = _dependency(
+        deps,
+        entry_resource_request_fn,
+        "_entry_resource_request",
+    )
+    coerce_mapping = _dependency(deps, coerce_mapping_fn, "_coerce_mapping")
+    now_utc_iso = _dependency(deps, now_utc_iso_fn, "now_utc_iso")
+    job_type = _dependency(deps, job_type_fn, "_job_type")
+    reaction_key = _dependency(deps, reaction_key_fn, "_reaction_key")
+    write_state = _dependency(deps, write_state_fn, "write_state")
     job_dir = Path(job_dir_text).expanduser().resolve()
-    input_summary = deps._input_summary(entry)
-    resource_request = deps._entry_resource_request(cfg, entry)
-    base_state = deps._coerce_mapping(previous_state)
+    input_summary_payload = input_summary(entry)
+    resource_request = entry_resource_request(cfg, entry)
+    base_state = coerce_mapping(previous_state)
     recovery_reason = _queue_execution.recovery_reason(base_state)
-    started_at = entry.started_at or deps.now_utc_iso()
-    updated_at = deps.now_utc_iso()
+    started_at = entry.started_at or now_utc_iso()
+    updated_at = now_utc_iso()
     payload = {
         "job_id": entry.task_id,
         "job_dir": str(job_dir),
         "selected_input_xyz": str(entry.metadata.get("selected_input_xyz", "")).strip(),
-        "job_type": deps._job_type(entry),
-        "reaction_key": deps._reaction_key(entry, job_dir),
-        "input_summary": input_summary,
+        "job_type": job_type(entry),
+        "reaction_key": reaction_key(entry, job_dir),
+        "input_summary": input_summary_payload,
         "status": "running",
         "reason": recovery_reason if resumed else "",
         "started_at": started_at,
         "updated_at": updated_at,
-        "candidate_count": int(input_summary.get("candidate_count", 0) or 0),
-        "candidate_paths": list(input_summary.get("candidate_paths", [])),
+        "candidate_count": int(input_summary_payload.get("candidate_count", 0) or 0),
+        "candidate_paths": list(input_summary_payload.get("candidate_paths", [])),
         "selected_candidate_paths": [],
         "candidate_details": [],
         "analysis_summary": {},
@@ -209,17 +251,47 @@ def write_running_state(
         payload["recovery_reason"] = recovery_reason
     if worker_job_pid is not None and worker_job_pid > 0:
         payload["worker_job_pid"] = int(worker_job_pid)
-    deps.write_state(job_dir, payload)
+    write_state(job_dir, payload)
 
 
-def mark_recovery_pending_state(cfg: Any, entry: Any, *, reason: str, deps: Any) -> None:
-    job_dir = deps._job_dir(entry)
-    selected_xyz = deps._selected_xyz(entry)
-    job_type = deps._job_type(entry)
-    reaction_key = deps._reaction_key(entry, job_dir)
-    input_summary = deps._input_summary(entry)
-    resource_request = deps._entry_resource_request(cfg, entry)
-    deps.mark_recovery_pending(
+def mark_recovery_pending_state(
+    cfg: Any,
+    entry: Any,
+    *,
+    reason: str,
+    deps: Any | None = None,
+    job_dir_fn: Callable[[Any], Path] | None = None,
+    selected_xyz_fn: Callable[[Any], Path] | None = None,
+    job_type_fn: Callable[[Any], str] | None = None,
+    reaction_key_fn: Callable[[Any, Path], str] | None = None,
+    input_summary_fn: Callable[[Any], dict[str, Any]] | None = None,
+    entry_resource_request_fn: Callable[[Any, Any], dict[str, int]] | None = None,
+    mark_recovery_pending_fn: Callable[..., Any] | None = None,
+    upsert_job_record_fn: Callable[..., Any] | None = None,
+) -> None:
+    job_dir_resolver = _dependency(deps, job_dir_fn, "_job_dir")
+    selected_xyz_resolver = _dependency(deps, selected_xyz_fn, "_selected_xyz")
+    job_type_resolver = _dependency(deps, job_type_fn, "_job_type")
+    reaction_key_resolver = _dependency(deps, reaction_key_fn, "_reaction_key")
+    input_summary_resolver = _dependency(deps, input_summary_fn, "_input_summary")
+    entry_resource_request = _dependency(
+        deps,
+        entry_resource_request_fn,
+        "_entry_resource_request",
+    )
+    mark_recovery_pending = _dependency(
+        deps,
+        mark_recovery_pending_fn,
+        "mark_recovery_pending",
+    )
+    upsert_job_record = _dependency(deps, upsert_job_record_fn, "upsert_job_record")
+    job_dir = job_dir_resolver(entry)
+    selected_xyz = selected_xyz_resolver(entry)
+    job_type = job_type_resolver(entry)
+    reaction_key = reaction_key_resolver(entry, job_dir)
+    input_summary = input_summary_resolver(entry)
+    resource_request = entry_resource_request(cfg, entry)
+    mark_recovery_pending(
         job_dir,
         job_id=str(entry.task_id),
         selected_input_xyz=str(selected_xyz),
@@ -230,7 +302,7 @@ def mark_recovery_pending_state(cfg: Any, entry: Any, *, reason: str, deps: Any)
         resource_actual=resource_request,
         reason=reason,
     )
-    deps.upsert_job_record(
+    upsert_job_record(
         cfg,
         job_id=entry.task_id,
         status="pending",
@@ -256,9 +328,11 @@ def build_terminal_result(
     reason: str,
     exit_code: int = 1,
     command: tuple[str, ...] = (),
-    deps: Any,
+    deps: Any | None = None,
+    now_utc_iso_fn: Callable[[], str] | None = None,
 ) -> XtbRunResult:
-    terminal_time = deps.now_utc_iso()
+    now_utc_iso = _dependency(deps, now_utc_iso_fn, "now_utc_iso")
+    terminal_time = now_utc_iso()
     manifest_path = (job_dir / "xtb_job.yaml").resolve()
     return XtbRunResult(
         status=status,

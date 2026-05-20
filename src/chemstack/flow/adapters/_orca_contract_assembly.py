@@ -61,7 +61,6 @@ class OrcaContractLoaderDeps:
     normalize_text_fn: Callable[[Any], str]
     normalize_bool_fn: Callable[[Any], bool]
     safe_int_fn: Callable[[Any, int], int]
-    tracked_contract_payload_fn: Callable[..., dict[str, Any] | None]
     tracked_runtime_context_fn: Callable[
         ...,
         tuple[
@@ -259,10 +258,6 @@ def load_orca_artifact_contract_impl(
         target=target, queue_id=queue_id, run_id=run_id, reaction_dir=reaction_dir
     )
     roots = _resolve_roots(orca_allowed_root, orca_organized_root, deps)
-    tracked_payload = _tracked_payload(request, roots, deps)
-    if tracked_payload is not None:
-        return _contract_from_payload(tracked_payload, request, deps)
-
     context = _load_context(request, roots, deps)
     queue_reaction_dir = _refresh_context_from_queue_reaction_dir(context, roots, deps)
     _set_current_dir(request, context, queue_reaction_dir, deps)
@@ -286,26 +281,18 @@ def _resolve_roots(
     return _LoadRoots(allowed=allowed, organized=organized)
 
 
-def _tracked_payload(
-    request: _LoadRequest,
-    roots: _LoadRoots,
-    deps: OrcaContractLoaderDeps,
-) -> dict[str, Any] | None:
-    return deps.tracked_contract_payload_fn(
-        index_root=roots.allowed,
-        organized_root=roots.organized,
-        target=request.target,
-        queue_id=request.queue_id,
-        run_id=request.run_id,
-        reaction_dir=request.reaction_dir,
-    )
-
-
-def _contract_from_tracked_payload(
+def contract_from_orca_payload_impl(
+    *,
     payload: dict[str, Any],
-    request: _LoadRequest,
+    target: str,
+    queue_id: str,
+    run_id: str,
+    reaction_dir: str,
     deps: OrcaContractLoaderDeps,
 ) -> Any:
+    request = _LoadRequest(
+        target=target, queue_id=queue_id, run_id=run_id, reaction_dir=reaction_dir
+    )
     return _contract_from_payload(payload, request, deps)
 
 
@@ -771,6 +758,7 @@ __all__ = [
     "OrcaContractLoaderDeps",
     "attempt_count_impl",
     "coerce_attempts_impl",
+    "contract_from_orca_payload_impl",
     "final_result_payload_impl",
     "load_orca_artifact_contract_impl",
     "max_retries_impl",

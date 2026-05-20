@@ -46,6 +46,68 @@ class WorkflowRuntimeContext:
 
 
 @dataclass(frozen=True)
+class WorkflowRegistryAdvanceRequest:
+    workflow_root: str | Path
+    options: WorkflowEngineOptions
+    submit_ready: bool = True
+    refresh_registry: bool = False
+    worker_session_id: str = ""
+    interval_seconds: float | None = None
+    lease_seconds: float = 60.0
+
+    @classmethod
+    def from_values(
+        cls,
+        *,
+        workflow_root: str | Path,
+        crest_auto_config: str | None = None,
+        crest_auto_executable: str = "crest_auto",
+        crest_auto_repo_root: str | None = None,
+        xtb_auto_config: str | None = None,
+        xtb_auto_executable: str = "xtb_auto",
+        xtb_auto_repo_root: str | None = None,
+        orca_auto_config: str | None = None,
+        orca_auto_executable: str = CHEMSTACK_EXECUTABLE,
+        orca_auto_repo_root: str | None = None,
+        submit_ready: bool = True,
+        refresh_registry: bool = False,
+        worker_session_id: str = "",
+        interval_seconds: float | None = None,
+        lease_seconds: float = 60.0,
+    ) -> WorkflowRegistryAdvanceRequest:
+        return cls(
+            workflow_root=workflow_root,
+            options=WorkflowEngineOptions.from_values(
+                crest_auto_config=crest_auto_config,
+                crest_auto_executable=crest_auto_executable,
+                crest_auto_repo_root=crest_auto_repo_root,
+                xtb_auto_config=xtb_auto_config,
+                xtb_auto_executable=xtb_auto_executable,
+                xtb_auto_repo_root=xtb_auto_repo_root,
+                orca_auto_config=orca_auto_config,
+                orca_auto_executable=orca_auto_executable,
+                orca_auto_repo_root=orca_auto_repo_root,
+            ),
+            submit_ready=submit_ready,
+            refresh_registry=refresh_registry,
+            worker_session_id=worker_session_id,
+            interval_seconds=interval_seconds,
+            lease_seconds=lease_seconds,
+        )
+
+    def runtime_context(self) -> WorkflowRuntimeContext:
+        return WorkflowRuntimeContext(
+            root=Path(self.workflow_root).expanduser().resolve(),
+            options=self.options,
+            worker_session_id=self.worker_session_id,
+            submit_ready=self.submit_ready,
+            refresh_registry=self.refresh_registry,
+            interval_seconds=self.interval_seconds,
+            lease_seconds=self.lease_seconds,
+        )
+
+
+@dataclass(frozen=True)
 class _WorkflowCycle:
     root: Path
     cycle_started_at: str
@@ -662,8 +724,8 @@ def advance_workflow_registry_once(
     interval_seconds: float | None = None,
     lease_seconds: float = 60.0,
 ) -> dict[str, Any]:
-    root = Path(workflow_root).expanduser().resolve()
-    options = WorkflowEngineOptions.from_values(
+    request = WorkflowRegistryAdvanceRequest.from_values(
+        workflow_root=workflow_root,
         crest_auto_config=crest_auto_config,
         crest_auto_executable=crest_auto_executable,
         crest_auto_repo_root=crest_auto_repo_root,
@@ -673,35 +735,40 @@ def advance_workflow_registry_once(
         orca_auto_config=orca_auto_config,
         orca_auto_executable=orca_auto_executable,
         orca_auto_repo_root=orca_auto_repo_root,
-    )
-    runtime_context = WorkflowRuntimeContext(
-        root=root,
-        options=options,
-        worker_session_id=worker_session_id,
         submit_ready=submit_ready,
         refresh_registry=refresh_registry,
+        worker_session_id=worker_session_id,
         interval_seconds=interval_seconds,
         lease_seconds=lease_seconds,
     )
+    return _advance_workflow_registry_request(request)
+
+
+def _advance_workflow_registry_request(request: WorkflowRegistryAdvanceRequest) -> dict[str, Any]:
+    runtime_context = request.runtime_context()
     cycle = _start_workflow_cycle(context=runtime_context)
-    records = reindex_workflow_registry(root) if refresh_registry else list_workflow_registry(root)
+    records = (
+        reindex_workflow_registry(runtime_context.root)
+        if request.refresh_registry
+        else list_workflow_registry(runtime_context.root)
+    )
     progress = _advance_workflow_records(
         cycle=cycle,
         records=records,
-        options=options,
+        options=request.options,
     )
     cycle_finished_at = _finish_workflow_cycle(
         cycle=cycle,
         discovered_count=len(records),
         progress=progress,
-        interval_seconds=interval_seconds,
+        interval_seconds=request.interval_seconds,
     )
     return {
-        "workflow_root": str(root),
+        "workflow_root": str(runtime_context.root),
         "worker_session_id": cycle.session_id,
         "cycle_started_at": cycle.cycle_started_at,
         "cycle_finished_at": cycle_finished_at,
-        "refresh_registry": bool(refresh_registry),
+        "refresh_registry": bool(request.refresh_registry),
         "submit_ready": cycle.cycle_submit_ready,
         "requested_submit_ready": cycle.requested_submit_ready,
         "admission_blocked": cycle.admission_blocked,
@@ -715,6 +782,7 @@ def advance_workflow_registry_once(
 
 __all__ = [
     "TERMINAL_WORKFLOW_STATUSES",
+    "WorkflowRegistryAdvanceRequest",
     "WORKFLOW_WORKER_LOCK_NAME",
     "WorkflowRuntimeContext",
     "advance_workflow_registry_once",

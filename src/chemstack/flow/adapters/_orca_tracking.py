@@ -114,9 +114,9 @@ def tracked_runtime_context_impl(
     )
 
 
-def _contract_payload_from_module(
+def _contract_payload_from_loader(
     *,
-    module: Any | None,
+    load_payload_fn: Any | None,
     index_root: Path,
     organized_root: Path | None,
     target: str,
@@ -125,11 +125,11 @@ def _contract_payload_from_module(
     reaction_dir: str,
 ) -> dict[str, Any] | None:
     o = _orca_module()
-    if module is None or not hasattr(module, "load_orca_contract_payload"):
+    if load_payload_fn is None:
         return None
 
     try:
-        payload = module.load_orca_contract_payload(
+        payload = load_payload_fn(
             index_root,
             target,
             organized_root=organized_root,
@@ -149,6 +149,10 @@ def _contract_payload_from_module(
     return {str(key): value for key, value in payload.items()}
 
 
+def _contract_payload_loader(module: Any | None) -> Any | None:
+    return getattr(module, "load_orca_contract_payload", None) if module is not None else None
+
+
 def canonical_contract_payload_impl(
     *,
     index_root: Path | None,
@@ -161,8 +165,57 @@ def canonical_contract_payload_impl(
     o = _orca_module()
     if index_root is None:
         return None
-    return _contract_payload_from_module(
-        module=o._orca_auto_job_locations_module(),
+    return _contract_payload_from_loader(
+        load_payload_fn=_contract_payload_loader(o._orca_auto_job_locations_module()),
+        index_root=index_root,
+        organized_root=organized_root,
+        target=target,
+        queue_id=queue_id,
+        run_id=run_id,
+        reaction_dir=reaction_dir,
+    )
+
+
+def legacy_tracking_contract_payload_impl(
+    *,
+    index_root: Path | None,
+    organized_root: Path | None,
+    target: str,
+    queue_id: str,
+    run_id: str,
+    reaction_dir: str,
+) -> dict[str, Any] | None:
+    o = _orca_module()
+    if index_root is None:
+        return None
+    return _contract_payload_from_loader(
+        load_payload_fn=_contract_payload_loader(o._orca_auto_tracking_module()),
+        index_root=index_root,
+        organized_root=organized_root,
+        target=target,
+        queue_id=queue_id,
+        run_id=run_id,
+        reaction_dir=reaction_dir,
+    )
+
+
+def load_orca_contract_payload_impl(
+    *,
+    index_root: Path | None,
+    organized_root: Path | None,
+    target: str,
+    queue_id: str,
+    run_id: str,
+    reaction_dir: str,
+) -> dict[str, Any] | None:
+    return canonical_contract_payload_impl(
+        index_root=index_root,
+        organized_root=organized_root,
+        target=target,
+        queue_id=queue_id,
+        run_id=run_id,
+        reaction_dir=reaction_dir,
+    ) or legacy_tracking_contract_payload_impl(
         index_root=index_root,
         organized_root=organized_root,
         target=target,
@@ -181,18 +234,7 @@ def tracked_contract_payload_impl(
     run_id: str,
     reaction_dir: str,
 ) -> dict[str, Any] | None:
-    o = _orca_module()
-    if index_root is None:
-        return None
-    return canonical_contract_payload_impl(
-        index_root=index_root,
-        organized_root=organized_root,
-        target=target,
-        queue_id=queue_id,
-        run_id=run_id,
-        reaction_dir=reaction_dir,
-    ) or _contract_payload_from_module(
-        module=o._orca_auto_tracking_module(),
+    return load_orca_contract_payload_impl(
         index_root=index_root,
         organized_root=organized_root,
         target=target,
@@ -205,6 +247,8 @@ def tracked_contract_payload_impl(
 __all__ = [
     "canonical_contract_payload_impl",
     "import_orca_auto_module_impl",
+    "legacy_tracking_contract_payload_impl",
+    "load_orca_contract_payload_impl",
     "orca_auto_job_locations_module_impl",
     "orca_auto_tracking_module_impl",
     "sibling_orca_auto_repo_root_impl",

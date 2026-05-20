@@ -11,6 +11,7 @@ from ._orca_contract_assembly import (
     OrcaContractLoaderDeps,
     attempt_count_impl,
     coerce_attempts_impl,
+    contract_from_orca_payload_impl,
     final_result_payload_impl,
     load_orca_artifact_contract_impl,
     max_retries_impl,
@@ -38,11 +39,11 @@ from ._orca_path_helpers import (
 )
 from ._orca_tracking import (
     import_orca_auto_module_impl,
+    load_orca_contract_payload_impl,
     orca_auto_job_locations_module_impl,
     orca_auto_tracking_module_impl,
     sibling_orca_auto_repo_root_impl,
     tracked_artifact_context_impl,
-    tracked_contract_payload_impl,
     tracked_runtime_context_impl,
 )
 from ..contracts.orca import OrcaArtifactContract, _coerce_resource_dict
@@ -160,7 +161,7 @@ def _tracked_contract_payload(
     run_id: str,
     reaction_dir: str,
 ) -> dict[str, Any] | None:
-    return tracked_contract_payload_impl(
+    return load_orca_contract_payload_impl(
         index_root=index_root,
         organized_root=organized_root,
         target=target,
@@ -309,7 +310,6 @@ def _contract_loader_deps() -> OrcaContractLoaderDeps:
         normalize_text_fn=_normalize_text,
         normalize_bool_fn=_normalize_bool,
         safe_int_fn=lambda value, default: _safe_int(value, default=default),
-        tracked_contract_payload_fn=_tracked_contract_payload,
         tracked_runtime_context_fn=_tracked_runtime_context,
         tracked_artifact_context_fn=_tracked_artifact_context,
         resolve_job_dir_fn=_resolve_job_dir,
@@ -344,14 +344,37 @@ def load_orca_artifact_contract(
     run_id: str = "",
     reaction_dir: str = "",
 ) -> OrcaArtifactContract:
-    return load_orca_artifact_contract_impl(
+    deps = _contract_loader_deps()
+    allowed_root = Path(orca_allowed_root).expanduser().resolve() if orca_allowed_root else None
+    organized_root = (
+        Path(orca_organized_root).expanduser().resolve() if orca_organized_root else None
+    )
+    payload = _tracked_contract_payload(
+        index_root=allowed_root,
+        organized_root=organized_root,
         target=target,
-        orca_allowed_root=orca_allowed_root,
-        orca_organized_root=orca_organized_root,
         queue_id=queue_id,
         run_id=run_id,
         reaction_dir=reaction_dir,
-        deps=_contract_loader_deps(),
+    )
+    if payload is not None:
+        return contract_from_orca_payload_impl(
+            payload=payload,
+            target=target,
+            queue_id=queue_id,
+            run_id=run_id,
+            reaction_dir=reaction_dir,
+            deps=deps,
+        )
+
+    return load_orca_artifact_contract_impl(
+        target=target,
+        orca_allowed_root=allowed_root,
+        orca_organized_root=organized_root,
+        queue_id=queue_id,
+        run_id=run_id,
+        reaction_dir=reaction_dir,
+        deps=deps,
     )
 
 
