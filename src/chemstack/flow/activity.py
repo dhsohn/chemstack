@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -32,6 +31,12 @@ from ._activity_model import (
     timestamp_metadata as _timestamp_metadata,
     unique_texts as _unique_texts,
 )
+from ._activity_deps import (
+    ActivityCancelDeps as _ActivityCancelDeps,
+    ActivityListProvider as _ActivityListProvider,
+    ActivitySourceDeps as _ActivitySourceDeps,
+    OrcaActivityDeps as _OrcaActivityDeps,
+)
 from .state import (
     iter_workflow_runtime_workspaces,
     list_workflow_summaries,
@@ -47,32 +52,6 @@ from . import _activity_sources
 from . import _activity_cancel
 
 _ACTIVITY_CLEARABLE_TERMINAL_STATUSES = WORKFLOW_TERMINAL_STATUSES
-
-
-@dataclass(frozen=True)
-class _ActivitySourceDeps:
-    _project_root: Any
-    _resolve_existing_path: Any
-    _discover_workflow_root: Any
-    _discover_sibling_config: Any
-    _discover_orca_config: Any
-    _shared_config_hint: Any
-
-
-@dataclass(frozen=True)
-class _OrcaActivityDeps:
-    sibling_runtime_paths: Any
-    _unique_texts: Any
-    _path_aliases: Any
-    _timestamp_metadata: Any
-
-
-@dataclass(frozen=True)
-class _ActivityCancelDeps:
-    cancel_crest_target: Any
-    cancel_xtb_target: Any
-    cancel_orca_target: Any
-    _discover_orca_repo_root: Any
 
 
 def _activity_source_deps() -> _ActivitySourceDeps:
@@ -102,12 +81,6 @@ def _activity_cancel_deps() -> _ActivityCancelDeps:
         cancel_orca_target=cancel_orca_target,
         _discover_orca_repo_root=_discover_orca_repo_root,
     )
-
-
-@dataclass(frozen=True)
-class _ActivityListProvider:
-    source: str
-    collect: Callable[[ResolvedActivitySources, ActivityListRequest], list[ActivityRecord]]
 
 
 @dataclass(frozen=True)

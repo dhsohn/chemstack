@@ -19,6 +19,7 @@ from chemstack.core.utils import (
     timestamped_token,
 )
 
+from . import _registry_markers as _markers
 from . import _registry_notifications as _notifications
 from .state import iter_workflow_workspaces, load_workflow_payload, workflow_summary
 
@@ -290,21 +291,8 @@ def _save_records(workflow_root: str | Path, records: list[WorkflowRegistryRecor
     )
 
 
-def _normal_path_key(value: str) -> str:
-    text = _normalize_text(value)
-    if not text:
-        return ""
-    try:
-        return str(Path(text).expanduser().resolve())
-    except OSError:
-        return text
-
-
-def _cleared_record_keys(record: WorkflowRegistryRecord) -> set[str]:
-    keys = {_normalize_text(record.workflow_id)}
-    keys.add(_normal_path_key(record.workspace_dir))
-    keys.add(_normal_path_key(record.workflow_file))
-    return {key for key in keys if key}
+_normal_path_key = _markers.normal_path_key
+_cleared_record_keys = _markers.cleared_record_keys
 
 
 def _load_cleared_markers(workflow_root: str | Path) -> list[dict[str, Any]]:
@@ -321,54 +309,31 @@ def _save_cleared_markers(workflow_root: str | Path, markers: list[dict[str, Any
     atomic_write_json(_cleared_path(workflow_root), markers, ensure_ascii=True, indent=2)
 
 
-def _marker_keys(marker: dict[str, Any]) -> set[str]:
-    keys = {_normalize_text(marker.get("workflow_id"))}
-    keys.add(_normal_path_key(_normalize_text(marker.get("workspace_dir"))))
-    keys.add(_normal_path_key(_normalize_text(marker.get("workflow_file"))))
-    return {key for key in keys if key}
-
-
-def _cleared_marker_identity(marker: dict[str, Any]) -> str:
-    return (
-        _normalize_text(marker.get("workflow_id"))
-        or _normal_path_key(_normalize_text(marker.get("workspace_dir")))
-        or _normal_path_key(_normalize_text(marker.get("workflow_file")))
-    )
-
-
-def _record_clear_identity(record: WorkflowRegistryRecord) -> str:
-    return (
-        _normalize_text(record.workflow_id)
-        or _normal_path_key(record.workspace_dir)
-        or _normal_path_key(record.workflow_file)
-    )
+_marker_keys = _markers.marker_keys
+_cleared_marker_identity = _markers.cleared_marker_identity
+_record_clear_identity = _markers.record_clear_identity
 
 
 def _record_matches_cleared_marker(
     record: WorkflowRegistryRecord, markers: list[dict[str, Any]]
 ) -> bool:
-    keys = _cleared_record_keys(record)
-    return any(keys & _marker_keys(marker) for marker in markers)
+    return _markers.record_matches_cleared_marker(record, markers)
 
 
 def _record_is_clearable_terminal(
     record: WorkflowRegistryRecord, statuses: set[str] | frozenset[str] | None = None
 ) -> bool:
-    target_statuses = {
-        _normalize_text(status).lower()
-        for status in (statuses or _TERMINAL_WORKFLOW_STATUSES)
-        if _normalize_text(status)
-    }
-    return _normalize_text(record.status).lower() in target_statuses
+    return _markers.record_is_clearable_terminal(
+        record,
+        statuses or _TERMINAL_WORKFLOW_STATUSES,
+    )
 
 
 def _remove_matching_cleared_markers(
     markers: list[dict[str, Any]],
     record: WorkflowRegistryRecord,
 ) -> tuple[list[dict[str, Any]], bool]:
-    keys = _cleared_record_keys(record)
-    kept = [marker for marker in markers if not keys & _marker_keys(marker)]
-    return kept, len(kept) != len(markers)
+    return _markers.remove_matching_cleared_markers(markers, record)
 
 
 def _add_cleared_markers(
@@ -377,43 +342,18 @@ def _add_cleared_markers(
     *,
     cleared_at: str,
 ) -> tuple[list[dict[str, Any]], bool]:
-    by_key: dict[str, dict[str, Any]] = {}
-    for marker in markers:
-        marker_key = _cleared_marker_identity(marker)
-        if not marker_key:
-            continue
-        by_key[marker_key] = marker
-
-    changed = False
-    for record in records:
-        marker = {
-            "workflow_id": _normalize_text(record.workflow_id),
-            "status": _normalize_text(record.status).lower(),
-            "workspace_dir": _normal_path_key(record.workspace_dir),
-            "workflow_file": _normal_path_key(record.workflow_file),
-            "cleared_at": cleared_at,
-        }
-        key = _record_clear_identity(record)
-        if not key:
-            continue
-        if by_key.get(key) != marker:
-            changed = True
-        by_key[key] = marker
-    return list(by_key.values()), changed
+    return _markers.add_cleared_markers(markers, records, cleared_at=cleared_at)
 
 
 def _filter_cleared_terminal_records(
     records: list[WorkflowRegistryRecord],
     markers: list[dict[str, Any]],
 ) -> list[WorkflowRegistryRecord]:
-    return [
-        record
-        for record in records
-        if not (
-            _record_is_clearable_terminal(record)
-            and _record_matches_cleared_marker(record, markers)
-        )
-    ]
+    return _markers.filter_cleared_terminal_records(
+        records,
+        markers,
+        terminal_statuses=_TERMINAL_WORKFLOW_STATUSES,
+    )
 
 
 def append_workflow_journal_event(

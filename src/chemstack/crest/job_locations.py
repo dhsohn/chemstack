@@ -10,6 +10,7 @@ from chemstack.core.indexing import (
     resolve_job_location,
     upsert_job_location,
 )
+from chemstack.core.indexing.engine_job_locations import build_engine_job_location_api
 from chemstack.core.indexing import engines as _engine_locations
 
 from .config import AppConfig
@@ -29,19 +30,23 @@ _LOCATION_SPEC = _engine_locations.EngineLocationSpec(
     payload_kind_default="standard",
     molecule_key_name="molecule_key",
 )
-_LOCATION_FACADE = _engine_locations.EngineLocationFacade(
+_LOCATION_API = build_engine_job_location_api(
     engine=_ENGINE,
     spec=_LOCATION_SPEC,
     load_state_fn=load_state,
     load_report_json_fn=load_report_json,
     load_organized_ref_fn=load_organized_ref,
-)
-_LOCATION_MODULE = _engine_locations.EngineLocationModule(
-    facade=_LOCATION_FACADE,
     payload_kind_kwarg="mode",
     molecule_key_kwarg="molecule_key",
     default_payload_kind_kwarg="default_mode",
+    get_job_location_fn=lambda: get_job_location,
+    list_job_locations_fn=lambda: list_job_locations,
+    resolve_job_location_fn=lambda: resolve_job_location,
+    upsert_job_location_fn=lambda: upsert_job_location,
+    load_state_supplier=lambda: load_state,
+    load_report_json_supplier=lambda: load_report_json,
 )
+_LOCATION_FACADE = _LOCATION_API.facade
 
 _normalize_text = _engine_locations.normalize_text
 index_root_for_cfg = _LOCATION_FACADE.index_root_for_cfg
@@ -51,21 +56,14 @@ _lookup_roots_for_target = _LOCATION_FACADE.lookup_roots_for_target
 
 
 def list_job_records_for_cfg(cfg: AppConfig) -> list[tuple[Path, JobLocationRecord]]:
-    return _LOCATION_MODULE.list_job_records_for_cfg(
-        cfg,
-        list_job_locations_fn=list_job_locations,
-    )
+    return _LOCATION_API.list_job_records_for_cfg(cfg)
 
 
 def resolve_job_location_for_cfg(
     cfg: AppConfig,
     target: str,
 ) -> tuple[Path | None, JobLocationRecord | None]:
-    return _LOCATION_MODULE.resolve_job_location_for_cfg(
-        cfg,
-        target,
-        resolve_job_location_fn=resolve_job_location,
-    )
+    return _LOCATION_API.resolve_job_location_for_cfg(cfg, target)
 
 
 def job_type_for_mode(mode: str) -> str:
@@ -100,7 +98,7 @@ def build_job_location_record(
     resource_request: dict[str, int] | None = None,
     resource_actual: dict[str, int] | None = None,
 ) -> JobLocationRecord:
-    return _LOCATION_MODULE.build_job_location_record(
+    return _LOCATION_API.build_job_location_record(
         existing=existing,
         job_id=job_id,
         status=status,
@@ -130,10 +128,8 @@ def upsert_job_record(
     resource_request: dict[str, int] | None = None,
     resource_actual: dict[str, int] | None = None,
 ) -> JobLocationRecord:
-    return _LOCATION_MODULE.upsert_job_record(
+    return _LOCATION_API.upsert_job_record(
         cfg,
-        get_job_location_fn=get_job_location,
-        upsert_job_location_fn=upsert_job_location,
         job_id=job_id,
         status=status,
         job_dir=job_dir,
@@ -147,37 +143,21 @@ def upsert_job_record(
 
 
 def resolve_latest_job_dir(index_root: str | Path, target: str) -> Path | None:
-    return _LOCATION_MODULE.resolve_latest_job_dir(
-        index_root,
-        target,
-        resolve_job_location_fn=resolve_job_location,
-    )
+    return _LOCATION_API.resolve_latest_job_dir(index_root, target)
 
 
 def load_job_artifacts(
     index_root: str | Path,
     target: str,
 ) -> tuple[Path | None, dict[str, Any] | None, dict[str, Any] | None]:
-    return _LOCATION_MODULE.load_job_artifacts(
-        index_root,
-        target,
-        load_state_fn=load_state,
-        load_report_json_fn=load_report_json,
-        resolve_job_location_fn=resolve_job_location,
-    )
+    return _LOCATION_API.load_job_artifacts(index_root, target)
 
 
 def load_job_artifacts_for_cfg(
     cfg: AppConfig,
     target: str,
 ) -> tuple[Path | None, dict[str, Any] | None, dict[str, Any] | None, JobLocationRecord | None]:
-    return _LOCATION_MODULE.load_job_artifacts_for_cfg(
-        cfg,
-        target,
-        load_state_fn=load_state,
-        load_report_json_fn=load_report_json,
-        resolve_job_location_fn=resolve_job_location,
-    )
+    return _LOCATION_API.load_job_artifacts_for_cfg(cfg, target)
 
 
 is_terminal_status = _engine_locations.is_terminal_status
@@ -192,7 +172,7 @@ def record_from_artifacts(
     existing: JobLocationRecord | None = None,
     default_mode: str = "standard",
 ) -> JobLocationRecord | None:
-    return _LOCATION_MODULE.record_from_artifacts(
+    return _LOCATION_API.record_from_artifacts(
         job_dir=job_dir,
         state=state,
         report=report,

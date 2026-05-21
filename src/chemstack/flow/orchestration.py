@@ -18,11 +18,11 @@ from ._orchestration_advance import (
 )
 from ._orchestration_builders import (
     _copy_input_impl,
-    create_conformer_screening_workflow_impl,
-    create_reaction_ts_search_workflow_impl,
     new_crest_stage_impl,
     new_xtb_stage_impl,
 )
+from . import orchestration_factories as _workflow_factories
+from .orchestration_factories import WorkflowFactoryDeps
 from ._orchestration_lifecycle import (
     downstream_terminal_result_impl,
     effective_stage_status_impl,
@@ -31,12 +31,6 @@ from ._orchestration_lifecycle import (
     stage_failure_is_recoverable_impl,
     workflow_has_active_children_impl,
     workflow_sync_only_impl,
-)
-from ._orchestration_requests import (
-    ConformerScreeningWorkflowRequest,
-    ReactionTsSearchWorkflowCreationContext,
-    ReactionTsSearchWorkflowRequest,
-    WorkflowCreationContext,
 )
 from ._orchestration_stage_materialization import (
     append_crest_orca_stages_impl,
@@ -132,19 +126,9 @@ def _sync_workflow_registry_side_effect(
     sync_workflow_registry(workflow_root, workspace_dir, payload)
 
 
-def _workflow_creation_context() -> WorkflowCreationContext:
-    return WorkflowCreationContext(
-        workflow_id_factory=_workflow_id,
-        copy_input_fn=_copy_input,
-        now_utc_iso_fn=now_utc_iso,
-        new_crest_stage_fn=_new_crest_stage,
-        write_workflow_payload_fn=_write_workflow_payload_side_effect,
-        sync_workflow_registry_fn=_sync_workflow_registry_side_effect,
-    )
-
-
-def _reaction_ts_creation_context() -> ReactionTsSearchWorkflowCreationContext:
-    return ReactionTsSearchWorkflowCreationContext(
+def _workflow_factory_deps() -> WorkflowFactoryDeps:
+    return WorkflowFactoryDeps(
+        normalize_text=_normalize_text,
         workflow_id_factory=_workflow_id,
         copy_input_fn=_copy_input,
         now_utc_iso_fn=now_utc_iso,
@@ -243,36 +227,28 @@ def create_reaction_ts_search_workflow(
     source_job_id: str = "",
     source_job_type: str = "",
 ) -> dict[str, Any]:
-    normalized_crest_mode = _normalize_text(crest_mode).lower()
-    if normalized_crest_mode not in {"standard", "nci"}:
-        raise ValueError("reaction_ts_search only supports crest_mode 'standard' or 'nci'")
-    return cast(
-        dict[str, Any],
-        create_reaction_ts_search_workflow_impl(
-            request=ReactionTsSearchWorkflowRequest(
-                reactant_xyz=reactant_xyz,
-                product_xyz=product_xyz,
-                workflow_root=workflow_root,
-                workflow_id=workflow_id,
-                crest_mode=normalized_crest_mode,
-                priority=priority,
-                max_cores=max_cores,
-                max_memory_gb=max_memory_gb,
-                max_crest_candidates=max_crest_candidates,
-                max_xtb_stages=max_xtb_stages,
-                max_xtb_handoff_retries=max_xtb_handoff_retries,
-                max_orca_stages=max_orca_stages,
-                orca_route_line=orca_route_line,
-                charge=charge,
-                multiplicity=multiplicity,
-                crest_job_manifest=crest_job_manifest,
-                xtb_job_manifest=xtb_job_manifest,
-                endpoint_pairing=endpoint_pairing,
-                source_job_id=source_job_id,
-                source_job_type=source_job_type,
-            ),
-            context=_reaction_ts_creation_context(),
-        ),
+    return _workflow_factories.create_reaction_ts_search_workflow(
+        reactant_xyz=reactant_xyz,
+        product_xyz=product_xyz,
+        workflow_root=workflow_root,
+        deps=_workflow_factory_deps(),
+        workflow_id=workflow_id,
+        crest_mode=crest_mode,
+        priority=priority,
+        max_cores=max_cores,
+        max_memory_gb=max_memory_gb,
+        max_crest_candidates=max_crest_candidates,
+        max_xtb_stages=max_xtb_stages,
+        max_xtb_handoff_retries=max_xtb_handoff_retries,
+        max_orca_stages=max_orca_stages,
+        orca_route_line=orca_route_line,
+        charge=charge,
+        multiplicity=multiplicity,
+        crest_job_manifest=crest_job_manifest,
+        xtb_job_manifest=xtb_job_manifest,
+        endpoint_pairing=endpoint_pairing,
+        source_job_id=source_job_id,
+        source_job_type=source_job_type,
     )
 
 
@@ -291,25 +267,20 @@ def create_conformer_screening_workflow(
     multiplicity: int = 1,
     crest_job_manifest: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    return cast(
-        dict[str, Any],
-        create_conformer_screening_workflow_impl(
-            request=ConformerScreeningWorkflowRequest(
-                input_xyz=input_xyz,
-                workflow_root=workflow_root,
-                workflow_id=workflow_id,
-                crest_mode=crest_mode,
-                priority=priority,
-                max_cores=max_cores,
-                max_memory_gb=max_memory_gb,
-                max_orca_stages=max_orca_stages,
-                orca_route_line=orca_route_line,
-                charge=charge,
-                multiplicity=multiplicity,
-                crest_job_manifest=crest_job_manifest,
-            ),
-            context=_workflow_creation_context(),
-        ),
+    return _workflow_factories.create_conformer_screening_workflow(
+        input_xyz=input_xyz,
+        workflow_root=workflow_root,
+        deps=_workflow_factory_deps(),
+        workflow_id=workflow_id,
+        crest_mode=crest_mode,
+        priority=priority,
+        max_cores=max_cores,
+        max_memory_gb=max_memory_gb,
+        max_orca_stages=max_orca_stages,
+        orca_route_line=orca_route_line,
+        charge=charge,
+        multiplicity=multiplicity,
+        crest_job_manifest=crest_job_manifest,
     )
 
 

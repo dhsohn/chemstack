@@ -8,13 +8,51 @@ import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Generic, MutableMapping, Protocol, TypeVar
+from typing import Any, Callable, Generic, MutableMapping, TypeVar
 
 from chemstack.core.admission import reserve_slot
 from chemstack.core.utils import process as process_utils
 from chemstack.core.utils.persistence import now_utc_iso
 
+from .processes import (
+    ManagedProcess,
+    terminate_process_group,
+)
+
 T = TypeVar("T")
+
+__all__ = [
+    "BackgroundRunningJob",
+    "ChildProcessQueueWorker",
+    "ManagedProcess",
+    "QueueWorkerLoop",
+    "QueueWorkerPidFileMixin",
+    "ReservedQueueEntry",
+    "SlotFillResult",
+    "build_background_worker_command",
+    "config_path_for_worker",
+    "dequeue_next_across_roots",
+    "fill_worker_slots",
+    "install_shutdown_signal_handlers",
+    "pid_is_alive",
+    "pop_completed_worker_jobs",
+    "process_one_child_queue",
+    "read_worker_pid_file",
+    "reconcile_orphaned_child_queue_entries",
+    "remove_worker_pid_file",
+    "request_job_cancellation",
+    "reserve_attached_single_queue_entry",
+    "reserve_dequeued_entry",
+    "reserve_queue_worker_slot",
+    "resolve_admission_limit",
+    "resolve_admission_root",
+    "resolve_worker_auto_organize",
+    "shutdown_child_process_with_grace",
+    "start_background_job_process",
+    "terminate_process_group",
+    "worker_pid_file_path",
+    "write_worker_pid_file",
+]
 
 
 @dataclass(frozen=True)
@@ -52,15 +90,6 @@ class QueueWorkerPidFileMixin:
 
     def _remove_pid_file(self) -> None:
         remove_worker_pid_file(self.allowed_root, self.worker_pid_file_name)
-
-
-class ManagedProcess(Protocol):
-    pid: int
-
-    def kill(self) -> None: ...
-    def poll(self) -> int | None: ...
-    def terminate(self) -> None: ...
-    def wait(self, timeout: float | None = None) -> int: ...
 
 
 def resolve_admission_root(cfg: Any) -> str:
@@ -735,45 +764,6 @@ def process_one_child_queue(cfg: Any, *, auto_organize: bool, deps: Any) -> str:
         return "processed"
     finally:
         deps.release_slot(deps._admission_root(cfg), slot_token)
-
-
-def terminate_process_group(
-    proc: ManagedProcess,
-    *,
-    graceful_timeout: float = 10,
-    kill_timeout: float = 5,
-    killpg_fn: Callable[[int, int], None] | None = None,
-    sigterm: int | None = None,
-    sigkill: int | None = None,
-) -> None:
-    if proc.poll() is not None:
-        return
-    active_killpg = killpg_fn or os.killpg
-    active_sigterm = signal.SIGTERM if sigterm is None else sigterm
-    active_sigkill = signal.SIGKILL if sigkill is None else sigkill
-
-    try:
-        active_killpg(proc.pid, active_sigterm)
-    except (ProcessLookupError, PermissionError):
-        try:
-            proc.terminate()
-        except Exception:
-            pass
-
-    try:
-        proc.wait(timeout=graceful_timeout)
-    except subprocess.TimeoutExpired:
-        try:
-            active_killpg(proc.pid, active_sigkill)
-        except (ProcessLookupError, PermissionError):
-            try:
-                proc.kill()
-            except Exception:
-                pass
-        try:
-            proc.wait(timeout=kill_timeout)
-        except subprocess.TimeoutExpired:
-            pass
 
 
 def install_shutdown_signal_handlers(request_shutdown: Callable[[], None]) -> None:

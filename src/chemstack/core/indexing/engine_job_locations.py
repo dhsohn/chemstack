@@ -1,0 +1,140 @@
+from __future__ import annotations
+
+from collections.abc import Callable
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+from .location import JobLocationRecord
+from . import engines as _engine_locations
+
+
+@dataclass(frozen=True)
+class EngineJobLocationApi:
+    """Shared module-level job-location API for sibling engine packages.
+
+    CREST and xTB expose almost identical historical helpers. This adapter keeps
+    those module-level functions thin while preserving monkeypatchable store
+    functions through call-time suppliers.
+    """
+
+    facade: _engine_locations.EngineLocationFacade
+    module: _engine_locations.EngineLocationModule
+    get_job_location_fn: Callable[[], Callable[..., Any]]
+    list_job_locations_fn: Callable[[], Callable[..., Any]]
+    resolve_job_location_fn: Callable[[], Callable[..., Any]]
+    upsert_job_location_fn: Callable[[], Callable[..., Any]]
+    load_state_fn: Callable[[], Callable[[Path], dict[str, Any] | None]]
+    load_report_json_fn: Callable[[], Callable[[Path], dict[str, Any] | None]]
+
+    def list_job_records_for_cfg(self, cfg: Any) -> list[tuple[Path, JobLocationRecord]]:
+        return self.module.list_job_records_for_cfg(
+            cfg,
+            list_job_locations_fn=self.list_job_locations_fn(),
+        )
+
+    def resolve_job_location_for_cfg(
+        self,
+        cfg: Any,
+        target: str,
+    ) -> tuple[Path | None, JobLocationRecord | None]:
+        return self.module.resolve_job_location_for_cfg(
+            cfg,
+            target,
+            resolve_job_location_fn=self.resolve_job_location_fn(),
+        )
+
+    def build_job_location_record(self, **kwargs: Any) -> JobLocationRecord:
+        return self.module.build_job_location_record(**kwargs)
+
+    def upsert_job_record(self, cfg: Any, **kwargs: Any) -> JobLocationRecord:
+        return self.module.upsert_job_record(
+            cfg,
+            get_job_location_fn=self.get_job_location_fn(),
+            upsert_job_location_fn=self.upsert_job_location_fn(),
+            **kwargs,
+        )
+
+    def resolve_latest_job_dir(self, index_root: str | Path, target: str) -> Path | None:
+        return self.module.resolve_latest_job_dir(
+            index_root,
+            target,
+            resolve_job_location_fn=self.resolve_job_location_fn(),
+        )
+
+    def load_job_artifacts(
+        self,
+        index_root: str | Path,
+        target: str,
+    ) -> tuple[Path | None, dict[str, Any] | None, dict[str, Any] | None]:
+        return self.module.load_job_artifacts(
+            index_root,
+            target,
+            load_state_fn=self.load_state_fn(),
+            load_report_json_fn=self.load_report_json_fn(),
+            resolve_job_location_fn=self.resolve_job_location_fn(),
+        )
+
+    def load_job_artifacts_for_cfg(
+        self,
+        cfg: Any,
+        target: str,
+    ) -> tuple[Path | None, dict[str, Any] | None, dict[str, Any] | None, JobLocationRecord | None]:
+        return self.module.load_job_artifacts_for_cfg(
+            cfg,
+            target,
+            load_state_fn=self.load_state_fn(),
+            load_report_json_fn=self.load_report_json_fn(),
+            resolve_job_location_fn=self.resolve_job_location_fn(),
+        )
+
+    def record_from_artifacts(self, **kwargs: Any) -> JobLocationRecord | None:
+        return self.module.record_from_artifacts(**kwargs)
+
+
+def build_engine_job_location_api(
+    *,
+    engine: str,
+    spec: _engine_locations.EngineLocationSpec,
+    load_state_fn: Callable[[Path], dict[str, Any] | None],
+    load_report_json_fn: Callable[[Path], dict[str, Any] | None],
+    load_organized_ref_fn: Callable[[Path], dict[str, Any] | None],
+    payload_kind_kwarg: str,
+    molecule_key_kwarg: str,
+    default_payload_kind_kwarg: str,
+    get_job_location_fn: Callable[[], Callable[..., Any]],
+    list_job_locations_fn: Callable[[], Callable[..., Any]],
+    resolve_job_location_fn: Callable[[], Callable[..., Any]],
+    upsert_job_location_fn: Callable[[], Callable[..., Any]],
+    load_state_supplier: Callable[[], Callable[[Path], dict[str, Any] | None]],
+    load_report_json_supplier: Callable[[], Callable[[Path], dict[str, Any] | None]],
+) -> EngineJobLocationApi:
+    facade = _engine_locations.EngineLocationFacade(
+        engine=engine,
+        spec=spec,
+        load_state_fn=load_state_fn,
+        load_report_json_fn=load_report_json_fn,
+        load_organized_ref_fn=load_organized_ref_fn,
+    )
+    module = _engine_locations.EngineLocationModule(
+        facade=facade,
+        payload_kind_kwarg=payload_kind_kwarg,
+        molecule_key_kwarg=molecule_key_kwarg,
+        default_payload_kind_kwarg=default_payload_kind_kwarg,
+    )
+    return EngineJobLocationApi(
+        facade=facade,
+        module=module,
+        get_job_location_fn=get_job_location_fn,
+        list_job_locations_fn=list_job_locations_fn,
+        resolve_job_location_fn=resolve_job_location_fn,
+        upsert_job_location_fn=upsert_job_location_fn,
+        load_state_fn=load_state_supplier,
+        load_report_json_fn=load_report_json_supplier,
+    )
+
+
+__all__ = [
+    "EngineJobLocationApi",
+    "build_engine_job_location_api",
+]
