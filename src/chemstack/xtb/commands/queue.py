@@ -108,11 +108,11 @@ def _queue_command_deps() -> _QueueCommandDeps:
             reserve_dequeued_entry=reserve_dequeued_entry,
         ),
         job=_queue_deps.QueueJobDeps(
-            finalize_xtb_job=finalize_xtb_job,
+            finalize_job=finalize_xtb_job,
             notify_job_finished=notify_job_finished,
             notify_job_started=notify_job_started,
-            run_xtb_ranking_job=run_xtb_ranking_job,
-            start_xtb_job=start_xtb_job,
+            run_followup_job=run_xtb_ranking_job,
+            start_job=start_xtb_job,
             upsert_job_record=upsert_job_record,
         ),
         helpers=_queue_deps.QueueHelperDeps(

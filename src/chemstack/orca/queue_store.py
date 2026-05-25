@@ -13,7 +13,6 @@ from pathlib import Path
 from typing import Any, Iterator, List, Optional, cast
 
 from chemstack.core.queue import store as _core_queue_store
-from chemstack.core.utils.persistence import load_json_list_file
 
 from .lock_utils import (
     acquire_file_lock,
@@ -25,7 +24,7 @@ from ..core.app_ids import CHEMSTACK_ORCA_APP_NAME
 from .persistence_utils import atomic_write_json, now_utc_iso, timestamped_token
 from .process_tracking import active_run_lock_pid, current_process_lock_payload, read_pid_file
 from . import queue_entry_model as _queue_entry_model
-from . import queue_backend as _queue_backend
+from . import queue_backend_adapter as _queue_backend_adapter_module
 from . import queue_reconciliation as _queue_reconciliation
 from .state_store import load_state, report_json_path
 from .statuses import QueueStatus
@@ -136,6 +135,16 @@ def _chem_core_queue_module() -> Any | None:
     return _core_queue_store
 
 
+def _queue_backend_adapter() -> _queue_backend_adapter_module.QueueBackendAdapter:
+    return _queue_backend_adapter_module.QueueBackendAdapter(
+        queue_path=_queue_path,
+        corrupt_error=QueueStoreCorruptError,
+        atomic_write_json=atomic_write_json,
+        backend_module=_chem_core_queue_module,
+        normalize_entry=_normalize_entry,
+    )
+
+
 # -- Lock helpers ---------------------------------------------------------
 
 
@@ -183,21 +192,11 @@ def _acquire_queue_lock(allowed_root: Path, *, timeout_seconds: int = 10) -> Ite
 
 
 def _load_entries(allowed_root: Path) -> List[QueueEntry]:
-    raw = load_json_list_file(
-        _queue_path(allowed_root),
-        corrupt_error=QueueStoreCorruptError,
-        description="Queue file",
-    )
-    return [cast(QueueEntry, e) for e in raw if isinstance(e, dict)]
+    return list(_queue_backend_adapter().load_entries(allowed_root))
 
 
 def _save_entries(allowed_root: Path, entries: List[QueueEntry]) -> None:
-    normalized_entries = [_normalize_entry(entry) for entry in entries]
-    serialized_entries = _queue_backend.entries_payload(
-        normalized_entries,
-        backend=_chem_core_queue_module(),
-    )
-    atomic_write_json(_queue_path(allowed_root), serialized_entries, ensure_ascii=True, indent=2)
+    _queue_backend_adapter().save_entries(allowed_root, entries)
 
 
 def _active_lock_pid(reaction_dir: Path) -> int | None:

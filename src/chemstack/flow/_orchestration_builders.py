@@ -60,6 +60,10 @@ def _resource_request(max_cores: int, max_memory_gb: int) -> dict[str, int]:
     return {"max_cores": int(max_cores), "max_memory_gb": int(max_memory_gb)}
 
 
+def _optional_mapping_parameter(name: str, value: dict[str, Any] | None) -> dict[str, Any]:
+    return {name: dict(value)} if value else {}
+
+
 def _stage_payload_sections(
     *,
     task_payload: dict[str, Any],
@@ -379,21 +383,9 @@ def create_reaction_ts_search_workflow_impl(
             "orca_route_line": str(request.orca_route_line),
             "charge": int(request.charge),
             "multiplicity": int(request.multiplicity),
-            **(
-                {"crest_job_manifest": dict(resolved_crest_job_manifest)}
-                if resolved_crest_job_manifest
-                else {}
-            ),
-            **(
-                {"xtb_job_manifest": dict(request.xtb_job_manifest)}
-                if request.xtb_job_manifest
-                else {}
-            ),
-            **(
-                {"endpoint_pairing": dict(request.endpoint_pairing)}
-                if request.endpoint_pairing
-                else {}
-            ),
+            **_optional_mapping_parameter("crest_job_manifest", resolved_crest_job_manifest),
+            **_optional_mapping_parameter("xtb_job_manifest", request.xtb_job_manifest),
+            **_optional_mapping_parameter("endpoint_pairing", request.endpoint_pairing),
         },
         source_artifacts=(
             WorkflowArtifactRef(kind="reactant_xyz", path=input_reactant, selected=True),
@@ -463,11 +455,7 @@ def create_conformer_screening_workflow_impl(
             "orca_route_line": str(request.orca_route_line),
             "charge": int(request.charge),
             "multiplicity": int(request.multiplicity),
-            **(
-                {"crest_job_manifest": dict(request.crest_job_manifest)}
-                if request.crest_job_manifest
-                else {}
-            ),
+            **_optional_mapping_parameter("crest_job_manifest", request.crest_job_manifest),
         },
         source_artifacts=(WorkflowArtifactRef(kind="input_xyz", path=copied_input, selected=True),),
     )

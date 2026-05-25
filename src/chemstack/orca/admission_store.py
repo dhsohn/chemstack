@@ -20,7 +20,8 @@ from .lock_utils import (
 )
 from .persistence_utils import atomic_write_json, now_utc_iso, timestamped_token
 from .process_tracking import RUN_LOCK_FILE_NAME, active_run_lock_pid
-from . import admission_backend as _admission_backend
+from . import admission_backend_adapter as _admission_backend_adapter_module
+from . import admission_slot_adapter as _admission_slot_adapter
 
 ADMISSION_FILE_NAME = "admission_slots.json"
 ADMISSION_LOCK_NAME = "admission.lock"
@@ -94,34 +95,25 @@ class _AdmissionActivationRequest:
         return self.app_name is not None or self.task_id is not None or self.workflow_id is not None
 
 
-def _wrap_backend_corruption(exc: Exception) -> None:
-    if exc.__class__.__name__ == "AdmissionStoreCorruptError":
-        raise AdmissionStoreCorruptError(str(exc)) from exc
+_AdmissionBackendDeps = _admission_backend_adapter_module.AdmissionBackendAdapter
 
 
-@dataclass(frozen=True)
-class _AdmissionBackendDeps:
-    AdmissionStoreCorruptError: Any
-    atomic_write_json: Any
-    _admission_path: Any
-    _chem_core_admission_module: Any
-    _from_chem_core_slot: Any
-    _normalize_slot: Any
-    _to_chem_core_slot: Any
-    _wrap_backend_corruption: Any
-
-
-def _admission_backend_deps() -> _AdmissionBackendDeps:
-    return _AdmissionBackendDeps(
+def _admission_backend_adapter() -> _AdmissionBackendDeps:
+    return _admission_backend_adapter_module.AdmissionBackendAdapter(
         AdmissionStoreCorruptError=AdmissionStoreCorruptError,
         atomic_write_json=atomic_write_json,
         _admission_path=_admission_path,
         _chem_core_admission_module=_chem_core_admission_module,
-        _from_chem_core_slot=_from_chem_core_slot,
         _normalize_slot=_normalize_slot,
-        _to_chem_core_slot=_to_chem_core_slot,
-        _wrap_backend_corruption=_wrap_backend_corruption,
     )
+
+
+def _admission_backend_deps() -> _AdmissionBackendDeps:
+    return _admission_backend_adapter()
+
+
+def _wrap_backend_corruption(exc: Exception) -> None:
+    _admission_backend_adapter()._wrap_backend_corruption(exc)
 
 
 def _admission_path(root: Path) -> Path:
@@ -148,11 +140,11 @@ def _acquire_admission_lock(root: Path, *, timeout_seconds: int = 10) -> Iterato
 
 
 def _load_slots(root: Path) -> List[AdmissionSlot]:
-    return _admission_backend.load_slots(root, deps=_admission_backend_deps())
+    return cast(List[AdmissionSlot], _admission_backend_adapter().load_slots(root))
 
 
 def _save_slots(root: Path, slots: List[AdmissionSlot]) -> None:
-    _admission_backend.save_slots(root, slots, deps=_admission_backend_deps())
+    _admission_backend_adapter().save_slots(root, slots)
 
 
 def _chem_core_admission_module() -> Any | None:
@@ -166,108 +158,56 @@ def _call_chem_core_backend(
     convert: Any = None,
     **kwargs: Any,
 ) -> Any | None:
-    backend = _chem_core_admission_module()
-    if backend is None:
-        return None
-    backend_fn = getattr(backend, function_name, None)
-    if not callable(backend_fn):
-        return None
-    try:
-        result = backend_fn(root, *args, **kwargs)
-    except Exception as exc:
-        _wrap_backend_corruption(exc)
-        raise
-    return convert(result) if convert is not None else result
+    return _admission_backend_adapter().call_backend(
+        root,
+        function_name,
+        *args,
+        convert=convert,
+        **kwargs,
+    )
 
 
 def _backend_list_slots(root: Path, *, backend: Any) -> list[AdmissionSlot] | None:
-    return _admission_backend.backend_list_slots(
-        root,
-        backend=backend,
-        deps=_admission_backend_deps(),
+    return cast(
+        list[AdmissionSlot] | None,
+        _admission_backend_adapter().backend_list_slots(root, backend=backend),
     )
 
 
 def _backend_reconcile_stale_slots(root: Path, *, backend: Any) -> int | None:
-    return _admission_backend.backend_reconcile_stale_slots(
-        root,
-        backend=backend,
-        deps=_admission_backend_deps(),
-    )
+    return _admission_backend_adapter().backend_reconcile_stale_slots(root, backend=backend)
 
 
 def _backend_active_slot_count(root: Path, *, backend: Any) -> int | None:
-    return _admission_backend.backend_active_slot_count(
-        root,
-        backend=backend,
-        deps=_admission_backend_deps(),
-    )
+    return _admission_backend_adapter().backend_active_slot_count(root, backend=backend)
 
 
 def _text_field(value: object) -> str:
-    return _admission_backend.text_field(value)
+    return _admission_backend_adapter().text_field(value)
 
 
 def _to_chem_core_slot(slot: AdmissionSlot, *, backend: Any) -> Any:
-    return _admission_backend.to_chem_core_slot(
-        slot,
-        backend=backend,
-        deps=_admission_backend_deps(),
-    )
+    return _admission_backend_adapter()._to_chem_core_slot(slot, backend=backend)
 
 
 def _from_chem_core_slot(slot: object) -> AdmissionSlot:
-    return cast(
-        AdmissionSlot,
-        _admission_backend.from_chem_core_slot(slot, deps=_admission_backend_deps()),
-    )
+    return cast(AdmissionSlot, _admission_backend_adapter()._from_chem_core_slot(slot))
 
 
 def _normalize_work_dir(value: str | Path | None) -> str | None:
-    if value is None:
-        return None
-    text = str(value).strip()
-    if not text:
-        return None
-    try:
-        return str(Path(text).expanduser().resolve())
-    except OSError:
-        return text
+    return _admission_slot_adapter.normalize_work_dir(value)
 
 
 def _normalize_slot(slot: AdmissionSlot) -> AdmissionSlot:
-    normalized = dict(slot)
-    raw_work_dir = normalized.get("work_dir")
-    if raw_work_dir in {None, ""}:
-        raw_work_dir = normalized.get("reaction_dir")
-    work_dir_input: str | Path | None
-    if isinstance(raw_work_dir, (str, Path)):
-        work_dir_input = raw_work_dir
-    else:
-        work_dir_input = None
-    work_dir = _normalize_work_dir(work_dir_input)
-    if work_dir is not None:
-        normalized["work_dir"] = work_dir
-        normalized["reaction_dir"] = work_dir
-    return cast(AdmissionSlot, normalized)
+    return cast(AdmissionSlot, _admission_slot_adapter.normalize_slot(dict(slot)))
 
 
 def _slot_reaction_dir(slot: AdmissionSlot) -> str | None:
-    raw_reaction_dir = slot.get("reaction_dir")
-    if raw_reaction_dir in {None, ""}:
-        raw_reaction_dir = slot.get("work_dir")
-    if not isinstance(raw_reaction_dir, (str, Path)):
-        return None
-    return _normalize_work_dir(raw_reaction_dir)
+    return _admission_slot_adapter.slot_reaction_dir(dict(slot))
 
 
 def _normalize_reaction_dir_set(reaction_dirs: set[str] | None) -> set[str]:
-    normalized: set[str] = set()
-    for reaction_dir in reaction_dirs or set():
-        resolved = _normalize_work_dir(reaction_dir)
-        if resolved is not None:
-            normalized.add(resolved)
-    return normalized
+    return _admission_slot_adapter.normalize_reaction_dir_set(reaction_dirs)
 
 
 def _count_external_active_runs(
@@ -358,7 +298,7 @@ def _build_reserved_slot(
     resolved_owner_pid, resolved_start_ticks = _slot_owner_identity(owner_pid)
     return cast(
         AdmissionSlot,
-        _admission_backend.build_reserved_slot(
+        _admission_backend_adapter().build_reserved_slot(
             token=token,
             work_dir=resolved_work_dir,
             queue_id=queue_id,
@@ -370,7 +310,6 @@ def _build_reserved_slot(
             task_id=task_id,
             workflow_id=workflow_id,
             state=state,
-            deps=_admission_backend_deps(),
         ),
     )
 
@@ -538,30 +477,10 @@ def _activate_slot_with_backend(
     backend: Any,
     request: _AdmissionActivationRequest,
 ) -> bool:
-    try:
-        updated = backend.activate_reserved_slot(
-            request.root,
-            request.token,
-            state="active",
-            work_dir=request.work_dir,
-            queue_id=None if request.queue_id is None else _text_field(request.queue_id),
-            owner_pid=request.owner_pid,
-            source=request.source,
-        )
-    except Exception as exc:
-        _wrap_backend_corruption(exc)
-        raise
-    if updated is None:
-        return False
-    if not request.has_metadata_update:
-        return True
-    return update_slot_metadata(
-        request.root,
-        request.token,
-        queue_id=request.queue_id,
-        app_name=request.app_name,
-        task_id=request.task_id,
-        workflow_id=request.workflow_id,
+    return _admission_backend_adapter().activate_reserved_slot(
+        backend,
+        request,
+        update_slot_metadata=update_slot_metadata,
     )
 
 

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import os
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from pathlib import Path
@@ -11,9 +10,6 @@ from chemstack.core.app_ids import CHEMSTACK_ORCA_APP_NAME
 
 from .. import queue_store as _queue_store
 from ..admission_store import (
-    ADMISSION_APP_NAME_ENV_VAR,
-    ADMISSION_TASK_ID_ENV_VAR,
-    ADMISSION_TOKEN_ENV_VAR,
     AdmissionLimitReachedError,
     activate_reserved_slot,
     acquire_direct_slot,
@@ -48,10 +44,16 @@ from ._helpers import (
     RETRY_INP_RE,
     _emit,
     _to_resolved_local,
-    _validate_reaction_dir,
 )
 from . import run_inp_execution as _run_inp_execution
+from . import run_inp_context as _run_inp_context
 from . import run_inp_submission as _run_inp_submission
+from .run_inp_context import (
+    ResolvedRunTarget,
+    RunExecutionContext,
+    RunSubmissionContext,
+    WorkerStatusInfo,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -173,43 +175,6 @@ def _run_inp_deps() -> _RunInpDeps:
     )
 
 
-@dataclass(frozen=True)
-class ResolvedRunTarget:
-    reaction_dir: Path
-    selected_inp: Path
-
-
-@dataclass(frozen=True)
-class RunExecutionContext:
-    cfg: Any
-    reaction_dir: Path
-    selected_inp: Path
-    allowed_root: Path
-    admission_root: Path
-    max_retries: int
-    max_concurrent: int
-    admission_limit: int
-    reservation_token: str | None
-    admission_app_name: str | None
-    admission_task_id: str | None
-
-
-@dataclass(frozen=True)
-class WorkerStatusInfo:
-    status: str | None = None
-    pid: int | None = None
-    log_file: str | Path | None = None
-    detail: str | None = None
-
-
-@dataclass(frozen=True)
-class RunSubmissionContext:
-    cfg: Any
-    reaction_dir: Path
-    selected_inp: Path
-    allowed_root: Path
-
-
 def _select_latest_inp(reaction_dir: Path) -> Path:
     all_candidates = list(reaction_dir.glob("*.inp"))
     if not all_candidates:
@@ -296,53 +261,32 @@ def _recover_crashed_state(reaction_dir: Path) -> bool:
 
 
 def _configured_max_concurrent(cfg: Any) -> int:
-    raw = getattr(cfg.runtime, "max_concurrent", 4)
-    try:
-        value = int(raw)
-    except (TypeError, ValueError):
-        value = 4
-    return max(1, value)
+    return _run_inp_context.configured_max_concurrent(cfg)
 
 
 def _configured_admission_root(cfg: Any) -> Path:
-    raw = (
-        getattr(cfg.runtime, "resolved_admission_root", None)
-        or getattr(cfg.runtime, "admission_root", "")
-        or getattr(cfg.runtime, "allowed_root", "")
-    )
-    return Path(str(raw)).expanduser().resolve()
+    return _run_inp_context.configured_admission_root(cfg)
 
 
 def _configured_admission_limit(cfg: Any) -> int:
-    raw: object | None = getattr(cfg.runtime, "admission_limit", None)
-    if raw in {None, ""}:
-        return _configured_max_concurrent(cfg)
-    try:
-        if isinstance(raw, bool):
-            value = int(raw)
-        elif isinstance(raw, (int, float, str)):
-            value = int(raw)
-        else:
-            raise TypeError("Unsupported admission_limit type")
-    except (TypeError, ValueError):
-        value = _configured_max_concurrent(cfg)
-    return max(1, value)
+    return _run_inp_context.configured_admission_limit(cfg)
 
 
 def _resolve_run_target(cfg: Any, reaction_dir_raw: str) -> ResolvedRunTarget:
-    reaction_dir = _validate_reaction_dir(cfg, reaction_dir_raw)
-    return ResolvedRunTarget(
-        reaction_dir=reaction_dir,
-        selected_inp=_select_latest_inp(reaction_dir),
+    return _run_inp_context.resolve_run_target(
+        cfg,
+        reaction_dir_raw,
+        select_latest_inp_fn=_select_latest_inp,
     )
 
 
 def _resolve_run_target_or_log(cfg: Any, reaction_dir_raw: str) -> ResolvedRunTarget | None:
-    try:
-        return _resolve_run_target(cfg, reaction_dir_raw)
-    except ValueError as exc:
-        logger.error("%s", exc)
-        return None
+    return _run_inp_context.resolve_run_target_or_log(
+        cfg,
+        reaction_dir_raw,
+        select_latest_inp_fn=_select_latest_inp,
+        logger=logger,
+    )
 
 
 def _active_direct_run_error(reaction_dir: Path) -> str | None:
@@ -462,10 +406,7 @@ def _submission_flag_error(args: Any) -> str | None:
 
 
 def _reaction_dir_arg(args: Any) -> str | None:
-    raw = getattr(args, "path", None) or getattr(args, "reaction_dir", None)
-    if not isinstance(raw, str) or not raw.strip():
-        return None
-    return raw
+    return _run_inp_context.reaction_dir_arg(args)
 
 
 def _resolve_submission_context(
@@ -473,20 +414,12 @@ def _resolve_submission_context(
     *,
     cfg: Any | None = None,
 ) -> RunSubmissionContext | None:
-    if cfg is None:
-        cfg = load_config(args.config)
-    reaction_dir_raw = _reaction_dir_arg(args)
-    if reaction_dir_raw is None:
-        logger.error("job directory path is required")
-        return None
-    target = _resolve_run_target_or_log(cfg, reaction_dir_raw)
-    if target is None:
-        return None
-    return RunSubmissionContext(
+    return _run_inp_context.resolve_submission_context(
+        args,
         cfg=cfg,
-        reaction_dir=target.reaction_dir,
-        selected_inp=target.selected_inp,
-        allowed_root=Path(cfg.runtime.allowed_root).expanduser().resolve(),
+        load_config_fn=load_config,
+        select_latest_inp_fn=_select_latest_inp,
+        logger=logger,
     )
 
 
@@ -500,37 +433,17 @@ def _resolve_execution_context(
     admission_app_name: str | None = None,
     admission_task_id: str | None = None,
 ) -> RunExecutionContext | None:
-    if cfg is None:
-        cfg = load_config(args.config)
-    if reaction_dir is None or selected_inp is None:
-        reaction_dir_raw = _reaction_dir_arg(args)
-        if reaction_dir_raw is None:
-            logger.error("job directory path is required")
-            return None
-        target = _resolve_run_target_or_log(cfg, reaction_dir_raw)
-        if target is None:
-            return None
-        reaction_dir = target.reaction_dir
-        selected_inp = target.selected_inp
-
-    return RunExecutionContext(
+    return _run_inp_context.resolve_execution_context(
+        args,
         cfg=cfg,
         reaction_dir=reaction_dir,
         selected_inp=selected_inp,
-        allowed_root=Path(cfg.runtime.allowed_root).expanduser().resolve(),
-        admission_root=_configured_admission_root(cfg),
-        max_retries=max(0, int(cfg.runtime.default_max_retries)),
-        max_concurrent=_configured_max_concurrent(cfg),
-        admission_limit=_configured_admission_limit(cfg),
-        reservation_token=reservation_token
-        if reservation_token is not None
-        else (os.getenv(ADMISSION_TOKEN_ENV_VAR, "").strip() or None),
-        admission_app_name=admission_app_name
-        if admission_app_name is not None
-        else (os.getenv(ADMISSION_APP_NAME_ENV_VAR, "").strip() or None),
-        admission_task_id=admission_task_id
-        if admission_task_id is not None
-        else (os.getenv(ADMISSION_TASK_ID_ENV_VAR, "").strip() or None),
+        reservation_token=reservation_token,
+        admission_app_name=admission_app_name,
+        admission_task_id=admission_task_id,
+        load_config_fn=load_config,
+        select_latest_inp_fn=_select_latest_inp,
+        logger=logger,
     )
 
 

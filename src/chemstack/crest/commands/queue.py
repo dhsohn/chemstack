@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import subprocess
 import time
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -39,6 +38,7 @@ from chemstack.core.queue.worker import (
     resolve_admission_root,
     shutdown_child_process_with_grace,
 )
+from chemstack.core.queue.dependencies import ChildQueueWorkerDeps
 from chemstack.core.utils import now_utc_iso
 
 from ..config import default_config_path, load_config
@@ -63,24 +63,13 @@ WORKER_PID_FILE = "queue_worker.pid"
 WORKER_SHUTDOWN_GRACE_SECONDS = 10.0
 
 
-@dataclass(frozen=True)
-class _QueueWorkerDeps:
-    POLL_INTERVAL_SECONDS: int
-    time: Any
-    get_cancel_requested: Any
-    release_slot: Any
-    reserve_dequeued_entry: Any
-    _admission_root: Any
-    _dequeue_next_entry: Any
-    _start_background_job_process: Any
-    _try_reserve_admission_slot: Any
+_QueueWorkerDeps = ChildQueueWorkerDeps
 
 
 def _queue_worker_deps() -> _QueueWorkerDeps:
     return _QueueWorkerDeps(
         POLL_INTERVAL_SECONDS=POLL_INTERVAL_SECONDS,
         time=time,
-        get_cancel_requested=get_cancel_requested,
         release_slot=release_slot,
         reserve_dequeued_entry=reserve_dequeued_entry,
         _admission_root=_admission_root_for_cfg,

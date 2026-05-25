@@ -27,6 +27,7 @@ from chemstack.core.queue.worker import (
     resolve_admission_root,
     terminate_process_group,
 )
+from chemstack.core.queue.dependencies import QueueWorkerBaseDeps
 
 from .admission_store import reconcile_stale_slots, release_slot, reserve_slot, update_slot_metadata
 from .config import AppConfig
@@ -72,12 +73,7 @@ class _RunningJob:
     started_at: float = field(default_factory=time.monotonic)
 
 
-@dataclass(frozen=True)
-class _QueueWorkerDeps:
-    POLL_INTERVAL_SECONDS: int
-    time: Any
-    _admission_root: Any
-    _start_background_job_process: Any
+_QueueWorkerDeps = QueueWorkerBaseDeps
 
 
 @dataclass(frozen=True)

@@ -4,15 +4,21 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import yaml
-
 from chemstack.core.app_ids import CHEMSTACK_EXECUTABLE
 from chemstack.core.admission import active_slot_count
 from chemstack.core.utils import now_utc_iso, timestamped_token
 from chemstack.flow.submitters.common import sibling_runtime_paths
 
 from .orchestration import advance_workflow
-from . import _runtime_stage_events
+from . import (
+    _runtime_capacity,
+    _runtime_common,
+    _runtime_cycle,
+    _runtime_results,
+    _runtime_stage_events,
+    _runtime_terminal_sync,
+    _runtime_workflow_events,
+)
 from ._workflow_phases import phase_transition_event_payloads
 from .engine_options import WorkflowEngineOptions
 from .registry import (
@@ -107,36 +113,16 @@ class WorkflowRegistryAdvanceRequest:
         )
 
 
-@dataclass(frozen=True)
-class _WorkflowCycle:
-    root: Path
-    cycle_started_at: str
-    session_id: str
-    requested_submit_ready: bool
-    cycle_submit_ready: bool
-    admission_blocked: bool
-    lease_expires_at: str
-
-
-@dataclass(frozen=True)
-class _WorkflowCycleProgress:
-    workflow_results: list[dict[str, Any]]
-    advanced_count: int
-    skipped_count: int
-    failed_count: int
+_WorkflowCycle = _runtime_cycle._WorkflowCycle
+_WorkflowCycleProgress = _runtime_cycle._WorkflowCycleProgress
 
 
 def _normalize_text(value: Any) -> str:
-    if value is None:
-        return ""
-    return str(value).strip()
+    return _runtime_common.normalize_text(value)
 
 
 def _safe_int(value: Any) -> int | None:
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return None
+    return _runtime_common.safe_int(value)
 
 
 def _safe_workflow_summary(
@@ -151,73 +137,31 @@ def _safe_workflow_summary(
 
 
 def _positive_int(value: Any) -> int | None:
-    try:
-        parsed = int(value)
-    except (TypeError, ValueError):
-        return None
-    return parsed if parsed > 0 else None
+    return _runtime_common.positive_int(value)
 
 
 def _submission_admission_limit_from_config(config_path: str | Path) -> int | None:
-    try:
-        path = Path(config_path).expanduser().resolve()
-        raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    except Exception:
-        return None
-    if not isinstance(raw, dict):
-        return None
-
-    scheduler = raw.get("scheduler")
-    if not isinstance(scheduler, dict):
-        scheduler = {}
-    runtime = raw.get("runtime")
-    if not isinstance(runtime, dict):
-        runtime = {}
-
-    for candidate in (
-        scheduler.get("max_active_simulations"),
-        scheduler.get("admission_limit"),
-        runtime.get("admission_limit"),
-        runtime.get("admission_max_concurrent"),
-        runtime.get("max_concurrent"),
-    ):
-        parsed = _positive_int(candidate)
-        if parsed is not None:
-            return parsed
-    return None
+    return _runtime_capacity.submission_admission_limit_from_config(
+        config_path,
+        positive_int_fn=_positive_int,
+    )
 
 
 def _submission_admission_has_capacity(config_path: str | Path) -> bool | None:
-    limit = _submission_admission_limit_from_config(config_path)
-    if limit is None:
-        return None
-    admission_root: Path | None = None
-    for engine in (None, "xtb", "crest", "orca"):
-        try:
-            runtime_paths = sibling_runtime_paths(str(config_path), engine=engine)
-        except Exception:
-            continue
-        candidate = runtime_paths.get("admission_root")
-        if isinstance(candidate, Path):
-            admission_root = candidate
-            break
-    if not isinstance(admission_root, Path):
-        return None
-    try:
-        return active_slot_count(admission_root) < limit
-    except Exception:
-        return None
+    return _runtime_capacity.submission_admission_has_capacity(
+        config_path,
+        submission_admission_limit_from_config_fn=_submission_admission_limit_from_config,
+        active_slot_count_fn=active_slot_count,
+        sibling_runtime_paths_fn=sibling_runtime_paths,
+    )
 
 
 def _workflow_submission_has_capacity(*config_paths: str | Path | None) -> bool:
-    for config_path in config_paths:
-        config_text = _normalize_text(config_path)
-        if not config_text:
-            continue
-        has_capacity = _submission_admission_has_capacity(config_text)
-        if has_capacity is not None:
-            return has_capacity
-    return True
+    return _runtime_capacity.workflow_submission_has_capacity(
+        *config_paths,
+        submission_admission_has_capacity_fn=_submission_admission_has_capacity,
+        normalize_text_fn=_normalize_text,
+    )
 
 
 def _stage_key(stage: dict[str, Any], index: int) -> str:
@@ -333,14 +277,16 @@ def _append_stage_transition_events(
     template_name: str,
     worker_session_id: str,
 ) -> None:
-    for payload in _stage_transition_event_payloads(
+    _runtime_workflow_events.append_stage_transition_events(
+        workflow_root,
         previous_summary=previous_summary,
         current_summary=current_summary,
         workflow_id=workflow_id,
         template_name=template_name,
         worker_session_id=worker_session_id,
-    ):
-        append_workflow_journal_event(workflow_root, **payload)
+        stage_transition_event_payloads_fn=_stage_transition_event_payloads,
+        append_workflow_journal_event_fn=append_workflow_journal_event,
+    )
 
 
 def _append_phase_transition_events(
@@ -352,14 +298,16 @@ def _append_phase_transition_events(
     template_name: str,
     worker_session_id: str,
 ) -> None:
-    for payload in phase_transition_event_payloads(
+    _runtime_workflow_events.append_phase_transition_events(
+        workflow_root,
         previous_summary=previous_summary,
         current_summary=current_summary,
         workflow_id=workflow_id,
         template_name=template_name,
         worker_session_id=worker_session_id,
-    ):
-        append_workflow_journal_event(workflow_root, **payload)
+        phase_transition_event_payloads_fn=phase_transition_event_payloads,
+        append_workflow_journal_event_fn=append_workflow_journal_event,
+    )
 
 
 def workflow_worker_lock_path(workflow_root: str | Path) -> Path:
@@ -367,52 +315,29 @@ def workflow_worker_lock_path(workflow_root: str | Path) -> Path:
 
 
 def _workflow_needs_terminal_sync(workspace_dir: str | Path) -> bool:
-    try:
-        payload = load_workflow_payload(workspace_dir)
-    except (FileNotFoundError, ValueError):
-        return False
-    metadata = payload.get("metadata")
-    if isinstance(metadata, dict) and bool(metadata.get("final_child_sync_pending")):
-        return True
-    active_statuses = {"queued", "running", "submitted", "cancel_requested"}
-    for raw_stage in payload.get("stages", []):
-        if not isinstance(raw_stage, dict):
-            continue
-        if _normalize_text(raw_stage.get("status")).lower() in active_statuses:
-            return True
-        task = raw_stage.get("task")
-        if (
-            isinstance(task, dict)
-            and _normalize_text(task.get("status")).lower() in active_statuses
-        ):
-            return True
-    return workflow_has_active_downstream(payload)
+    return _runtime_terminal_sync.workflow_needs_terminal_sync(
+        workspace_dir,
+        load_workflow_payload_fn=load_workflow_payload,
+        workflow_has_active_downstream_fn=workflow_has_active_downstream,
+        normalize_text_fn=_normalize_text,
+    )
 
 
 def _workflow_advance_failed_result(
     record: Any, *, previous_status: str, reason: str
 ) -> dict[str, Any]:
-    return {
-        "workflow_id": record.workflow_id,
-        "template_name": record.template_name,
-        "previous_status": previous_status,
-        "status": "advance_failed",
-        "advanced": False,
-        "reason": reason,
-        "stage_count": record.stage_count,
-    }
+    return _runtime_results.workflow_advance_failed_result(
+        record,
+        previous_status=previous_status,
+        reason=reason,
+    )
 
 
 def _workflow_skipped_terminal_result(record: Any, *, previous_status: str) -> dict[str, Any]:
-    return {
-        "workflow_id": record.workflow_id,
-        "template_name": record.template_name,
-        "previous_status": previous_status,
-        "status": previous_status,
-        "advanced": False,
-        "reason": "terminal_status",
-        "stage_count": record.stage_count,
-    }
+    return _runtime_results.workflow_skipped_terminal_result(
+        record,
+        previous_status=previous_status,
+    )
 
 
 def _workflow_advanced_result(
@@ -423,20 +348,14 @@ def _workflow_advanced_result(
     status: str,
     reason: str = "",
 ) -> dict[str, Any]:
-    result = {
-        "workflow_id": _normalize_text(payload.get("workflow_id")) or record.workflow_id,
-        "template_name": _normalize_text(payload.get("template_name")) or record.template_name,
-        "previous_status": previous_status,
-        "status": status,
-        "advanced": True,
-        "changed": status != previous_status,
-        "stage_count": len(payload.get("stages", []))
-        if isinstance(payload.get("stages"), list)
-        else record.stage_count,
-    }
-    if reason:
-        result["reason"] = reason
-    return result
+    return _runtime_results.workflow_advanced_result(
+        record,
+        payload,
+        previous_status=previous_status,
+        status=status,
+        reason=reason,
+        normalize_text_fn=_normalize_text,
+    )
 
 
 def _append_workflow_advance_failed_event(
@@ -447,15 +366,13 @@ def _append_workflow_advance_failed_event(
     reason: str,
     worker_session_id: str,
 ) -> None:
-    append_workflow_journal_event(
+    _runtime_workflow_events.append_workflow_advance_failed_event(
         workflow_root,
-        event_type="workflow_advance_failed",
-        workflow_id=record.workflow_id,
-        template_name=record.template_name,
         previous_status=previous_status,
-        status="advance_failed",
         reason=reason,
         worker_session_id=worker_session_id,
+        record=record,
+        append_workflow_journal_event_fn=append_workflow_journal_event,
     )
 
 
@@ -470,97 +387,38 @@ def _append_workflow_advanced_events(
     worker_session_id: str,
     reason: str = "",
 ) -> None:
-    status = _normalize_text(payload.get("status")).lower()
-    workflow_id = _normalize_text(payload.get("workflow_id")) or record.workflow_id
-    template_name = _normalize_text(payload.get("template_name")) or record.template_name
-    if status != previous_status:
-        event_kwargs: dict[str, Any] = {
-            "event_type": "workflow_status_changed",
-            "workflow_id": workflow_id,
-            "template_name": template_name,
-            "previous_status": previous_status,
-            "status": status,
-            "worker_session_id": worker_session_id,
-        }
-        if reason:
-            event_kwargs["reason"] = reason
-        append_workflow_journal_event(workflow_root, **event_kwargs)
-    _append_phase_transition_events(
+    _runtime_workflow_events.append_workflow_advanced_events(
         workflow_root,
+        record,
+        payload,
+        previous_status=previous_status,
         previous_summary=previous_summary,
         current_summary=current_summary,
-        workflow_id=workflow_id,
-        template_name=template_name,
         worker_session_id=worker_session_id,
-    )
-    _append_stage_transition_events(
-        workflow_root,
-        previous_summary=previous_summary,
-        current_summary=current_summary,
-        workflow_id=workflow_id,
-        template_name=template_name,
-        worker_session_id=worker_session_id,
+        reason=reason,
+        append_workflow_journal_event_fn=append_workflow_journal_event,
+        append_phase_transition_events_fn=_append_phase_transition_events,
+        append_stage_transition_events_fn=_append_stage_transition_events,
+        normalize_text_fn=_normalize_text,
     )
 
 
 def _workflow_lease_expires_at(lease_seconds: float) -> str:
-    if lease_seconds <= 0:
-        return ""
-    try:
-        from datetime import datetime, timedelta, timezone
-
-        return (datetime.now(timezone.utc) + timedelta(seconds=float(lease_seconds))).isoformat()
-    except Exception:
-        return ""
+    return _runtime_cycle.workflow_lease_expires_at(lease_seconds)
 
 
 def _start_workflow_cycle(
     *,
     context: WorkflowRuntimeContext,
 ) -> _WorkflowCycle:
-    cycle_started_at = now_utc_iso()
-    session_id = _normalize_text(context.worker_session_id) or timestamped_token("wf_worker")
-    requested_submit_ready = bool(context.submit_ready)
-    cycle_submit_ready = requested_submit_ready and _workflow_submission_has_capacity(
-        context.options.crest_auto_config,
-        context.options.xtb_auto_config,
-        context.options.orca_auto_config,
-    )
-    admission_blocked = requested_submit_ready and not cycle_submit_ready
-    lease_expires_at = _workflow_lease_expires_at(context.lease_seconds)
-
-    write_workflow_worker_state(
-        context.root,
-        worker_session_id=session_id,
-        status="running",
-        workflow_root_path=context.root,
-        last_cycle_started_at=cycle_started_at,
-        last_heartbeat_at=cycle_started_at,
-        lease_expires_at=lease_expires_at,
-        interval_seconds=context.interval_seconds,
-        submit_ready=cycle_submit_ready,
-        metadata={"admission_blocked": True} if admission_blocked else None,
-    )
-    append_workflow_journal_event(
-        context.root,
-        event_type="worker_cycle_started",
-        worker_session_id=session_id,
-        metadata={
-            "cycle_started_at": cycle_started_at,
-            "refresh_registry": bool(context.refresh_registry),
-            "submit_ready": cycle_submit_ready,
-            "requested_submit_ready": requested_submit_ready,
-            "admission_blocked": admission_blocked,
-        },
-    )
-    return _WorkflowCycle(
-        root=context.root,
-        cycle_started_at=cycle_started_at,
-        session_id=session_id,
-        requested_submit_ready=requested_submit_ready,
-        cycle_submit_ready=cycle_submit_ready,
-        admission_blocked=admission_blocked,
-        lease_expires_at=lease_expires_at,
+    return _runtime_cycle.start_workflow_cycle(
+        context=context,
+        now_utc_iso_fn=now_utc_iso,
+        timestamped_token_fn=timestamped_token,
+        workflow_submission_has_capacity_fn=_workflow_submission_has_capacity,
+        write_workflow_worker_state_fn=write_workflow_worker_state,
+        append_workflow_journal_event_fn=append_workflow_journal_event,
+        workflow_lease_expires_at_fn=_workflow_lease_expires_at,
     )
 
 
@@ -667,43 +525,15 @@ def _finish_workflow_cycle(
     progress: _WorkflowCycleProgress,
     interval_seconds: float | None,
 ) -> str:
-    cycle_finished_at = now_utc_iso()
-    finished_metadata = {
-        "discovered_count": discovered_count,
-        "advanced_count": progress.advanced_count,
-        "skipped_count": progress.skipped_count,
-        "failed_count": progress.failed_count,
-    }
-    if cycle.admission_blocked:
-        finished_metadata["admission_blocked"] = True
-    write_workflow_worker_state(
-        cycle.root,
-        worker_session_id=cycle.session_id,
-        status="idle",
-        workflow_root_path=cycle.root,
-        last_cycle_started_at=cycle.cycle_started_at,
-        last_cycle_finished_at=cycle_finished_at,
-        last_heartbeat_at=cycle_finished_at,
-        lease_expires_at=cycle.lease_expires_at,
+    return _runtime_cycle.finish_workflow_cycle(
+        cycle=cycle,
+        discovered_count=discovered_count,
+        progress=progress,
         interval_seconds=interval_seconds,
-        submit_ready=cycle.cycle_submit_ready,
-        metadata=finished_metadata,
+        now_utc_iso_fn=now_utc_iso,
+        write_workflow_worker_state_fn=write_workflow_worker_state,
+        append_workflow_journal_event_fn=append_workflow_journal_event,
     )
-    append_workflow_journal_event(
-        cycle.root,
-        event_type="worker_cycle_finished",
-        worker_session_id=cycle.session_id,
-        metadata={
-            "cycle_started_at": cycle.cycle_started_at,
-            "cycle_finished_at": cycle_finished_at,
-            "discovered_count": discovered_count,
-            "advanced_count": progress.advanced_count,
-            "skipped_count": progress.skipped_count,
-            "failed_count": progress.failed_count,
-            "admission_blocked": cycle.admission_blocked,
-        },
-    )
-    return cycle_finished_at
 
 
 def advance_workflow_registry_once(

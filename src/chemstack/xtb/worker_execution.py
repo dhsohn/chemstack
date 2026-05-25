@@ -14,6 +14,7 @@ from chemstack.core.queue import (
     mark_completed,
     mark_failed,
 )
+from chemstack.core.queue import child_execution as _child_execution
 from chemstack.core.queue import execution as _queue_execution
 from chemstack.core.queue.engine_execution import (
     EngineWorkerLifecycle,
@@ -185,10 +186,11 @@ def _matching_state(
 
 
 def _queue_entry_by_id(queue_root: Path | str, queue_id: str) -> Any | None:
-    for entry in list_queue(queue_root):
-        if entry.queue_id == queue_id:
-            return entry
-    return None
+    return _child_execution.find_queue_entry_by_id(
+        queue_root,
+        queue_id,
+        list_queue_fn=list_queue,
+    )
 
 
 def _write_running_state(
@@ -631,14 +633,14 @@ def run_worker_job(
         return 1
 
     if admission_token:
-        activated = deps.admission.activate_reserved_slot(
+        if not _child_execution.activate_child_admission_token(
             admission_root,
             admission_token,
             work_dir=deps.context.job_dir(entry),
             queue_id=entry.queue_id,
             source="chemstack.xtb.worker_job",
-        )
-        if activated is None:
+            activate_reserved_slot_fn=deps.admission.activate_reserved_slot,
+        ):
             return 1
 
     try:
@@ -667,8 +669,11 @@ def run_worker_job(
             )
         return 0 if outcome.result.status in {"completed", "cancelled"} else 1
     finally:
-        if admission_token:
-            deps.admission.release_slot(admission_root, admission_token)
+        _child_execution.release_child_admission_token(
+            admission_root,
+            admission_token,
+            release_slot_fn=deps.admission.release_slot,
+        )
 
 
 __all__ = [

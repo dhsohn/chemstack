@@ -19,6 +19,7 @@ from chemstack.core.queue import (
     mark_failed,
     requeue_running_entry,
 )
+from chemstack.core.queue import child_execution as _child_execution
 from chemstack.core.queue.types import QueueStatus
 from chemstack.core.queue.engine_execution import (
     EngineWorkerLifecycle,
@@ -123,15 +124,8 @@ class WorkerShutdownRequested(RuntimeError):
         self.context = context
 
 
-@dataclass
-class _ShutdownController:
-    requested: bool = False
-
-    def request(self) -> None:
-        self.requested = True
-
-    def is_requested(self) -> bool:
-        return self.requested
+class _ShutdownController(_child_execution.ChildWorkerShutdownController):
+    pass
 
 
 def default_worker_execution_dependencies() -> WorkerExecutionDependencies:
@@ -572,17 +566,18 @@ def _admission_root_for_cfg(cfg: Any) -> str:
 
 
 def _find_queue_entry(queue_root: Path, queue_id: str) -> Any | None:
-    for entry in list_queue(queue_root):
-        if entry.queue_id == queue_id:
-            return entry
-    return None
+    return _child_execution.find_queue_entry_by_id(
+        queue_root,
+        queue_id,
+        list_queue_fn=list_queue,
+    )
 
 
 def _install_shutdown_signal_handlers(controller: _ShutdownController) -> None:
-    def request_shutdown() -> None:
-        controller.request()
-
-    install_shutdown_signal_handlers(request_shutdown)
+    _child_execution.install_shutdown_request_handlers(
+        controller,
+        install_signal_handlers_fn=install_shutdown_signal_handlers,
+    )
 
 
 def run_worker_child_job(
@@ -599,7 +594,11 @@ def run_worker_child_job(
     entry = _find_queue_entry(queue_root_path, queue_id)
     if entry is None or getattr(entry, "status", None) != QueueStatus.RUNNING:
         if admission_token:
-            release_slot(_admission_root_for_cfg(cfg), admission_token)
+            _child_execution.release_child_admission_token(
+                _admission_root_for_cfg(cfg),
+                admission_token,
+                release_slot_fn=release_slot,
+            )
         return 1
 
     controller = _ShutdownController()
@@ -623,7 +622,11 @@ def run_worker_child_job(
         return 0
     finally:
         if admission_token:
-            release_slot(_admission_root_for_cfg(cfg), admission_token)
+            _child_execution.release_child_admission_token(
+                _admission_root_for_cfg(cfg),
+                admission_token,
+                release_slot_fn=release_slot,
+            )
 
 
 def build_parser() -> argparse.ArgumentParser:
