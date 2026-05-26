@@ -32,7 +32,6 @@ from chemstack.core.queue.worker import (
     BackgroundRunningJob,
     ChildProcessQueueWorker,
     ManagedProcess as _ManagedProcess,
-    build_background_worker_command,
     config_path_for_worker,
     dequeue_next_across_roots,
     pid_is_alive as worker_pid_is_alive,
@@ -78,14 +77,14 @@ WORKER_JOB_MODULE = "chemstack.xtb.worker_job"
 
 def _queue_worker_deps() -> ChildQueueWorkerDeps:
     return ChildQueueWorkerDeps(
-        POLL_INTERVAL_SECONDS=POLL_INTERVAL_SECONDS,
+        poll_interval_seconds=POLL_INTERVAL_SECONDS,
         time=time,
         release_slot=release_slot,
         reserve_dequeued_entry=reserve_dequeued_entry,
-        _admission_root=_admission_root,
-        _dequeue_next_entry=_dequeue_next_entry,
-        _start_background_job_process=_start_background_job_process,
-        _try_reserve_admission_slot=_try_reserve_admission_slot,
+        admission_root=_admission_root,
+        dequeue_next_entry=_dequeue_next_entry,
+        start_background_job_process=_start_background_job_process,
+        try_reserve_admission_slot=_try_reserve_admission_slot,
     )
 
 
@@ -330,7 +329,7 @@ def _try_reserve_admission_slot(cfg: Any) -> str | None:
     return reserve_queue_worker_slot(
         cfg,
         source="chemstack.xtb.queue_worker",
-        app_name="xtb_auto",
+        app_name="chemstack_xtb",
         reserve_slot_fn=reserve_slot,
     )
 
@@ -402,7 +401,6 @@ def _finalize_execution_result(
     queue_root: Path,
     entry: Any,
     result: XtbRunResult,
-    auto_organize: bool,
     emit_output: bool,
     previous_state: dict[str, Any] | None = None,
     resumed: bool = False,
@@ -412,7 +410,6 @@ def _finalize_execution_result(
         queue_root=queue_root,
         entry=entry,
         result=result,
-        auto_organize=auto_organize,
         emit_output=emit_output,
         previous_state=previous_state,
         resumed=resumed,
@@ -433,7 +430,6 @@ def _execute_queue_entry(
     *,
     queue_root: Path,
     entry: Any,
-    auto_organize: bool,
     should_cancel: Callable[[], bool] | None = None,
     register_running_job: Callable[[Any | None], None] | None = None,
     worker_job_pid: int | None = None,
@@ -443,32 +439,11 @@ def _execute_queue_entry(
         cfg,
         queue_root=queue_root,
         entry=entry,
-        auto_organize=auto_organize,
         should_cancel=should_cancel,
         register_running_job=register_running_job,
         worker_job_pid=worker_job_pid,
         emit_output=emit_output,
         dependencies=_worker_execution_dependencies(),
-    )
-
-
-def _build_background_worker_command(
-    *,
-    config_path: str,
-    queue_root: Path,
-    queue_id: str,
-    admission_root: str,
-    admission_token: str,
-    auto_organize: bool,
-) -> list[str]:
-    return build_background_worker_command(
-        config_path=config_path,
-        queue_root=queue_root,
-        queue_id=queue_id,
-        admission_root=admission_root,
-        admission_token=admission_token,
-        auto_organize=auto_organize,
-        worker_job_module=WORKER_JOB_MODULE,
     )
 
 
@@ -479,7 +454,6 @@ def _start_background_job_process(
     entry: Any,
     admission_root: str,
     admission_token: str,
-    auto_organize: bool,
 ) -> subprocess.Popen[str]:
     return start_background_job_process(
         config_path=config_path,
@@ -487,7 +461,6 @@ def _start_background_job_process(
         entry=entry,
         admission_root=admission_root,
         admission_token=admission_token,
-        auto_organize=auto_organize,
         worker_job_module=WORKER_JOB_MODULE,
     )
 
@@ -513,17 +486,14 @@ class QueueWorker(ChildProcessQueueWorker):
         cfg: Any,
         *,
         config_path: str,
-        auto_organize: bool,
         max_concurrent: int | None = None,
     ) -> None:
         super().__init__(
             cfg,
             config_path=config_path,
-            auto_organize=False,
             max_concurrent=max_concurrent,
             deps=_queue_worker_deps(),
         )
-        del auto_organize
 
     def _handle_worker_start_error(
         self,
@@ -550,7 +520,6 @@ class QueueWorker(ChildProcessQueueWorker):
             queue_root=queue_root,
             entry=entry,
             result=failure,
-            auto_organize=self.auto_organize,
             emit_output=True,
         )
 
@@ -593,27 +562,23 @@ class QueueWorker(ChildProcessQueueWorker):
             _mark_recovery_pending_state(self.cfg, entry, reason="crashed_recovery")
 
 
-def _process_one(cfg: Any, *, auto_organize: bool) -> str:
-    del auto_organize
-    slot_token = _try_reserve_admission_slot(cfg)
-    if slot_token is None:
-        return "blocked"
-
-    try:
-        dequeued = _dequeue_next_entry(cfg)
-        if dequeued is None:
-            return "idle"
-        queue_root, entry = dequeued
-        _execute_queue_entry(
+def _process_one(cfg: Any) -> str:
+    def execute(queue_root: Path, entry: Any) -> QueueExecutionOutcome:
+        return _execute_queue_entry(
             cfg,
             queue_root=queue_root,
             entry=entry,
-            auto_organize=False,
             emit_output=True,
         )
-        return "processed"
-    finally:
-        release_slot(_admission_root(cfg), slot_token)
+
+    return _shared_queue.process_one_entry(
+        cfg,
+        reserve_slot_fn=_try_reserve_admission_slot,
+        admission_root_fn=_admission_root,
+        dequeue_next_entry_fn=_dequeue_next_entry,
+        execute_entry_fn=execute,
+        release_slot_fn=release_slot,
+    )
 
 
 def run_worker_job(
@@ -623,18 +588,15 @@ def run_worker_job(
     queue_id: str,
     admission_root: str,
     admission_token: str | None,
-    auto_organize: bool,
     should_cancel: Callable[[], bool] | None = None,
     register_running_job: Callable[[Any | None], None] | None = None,
 ) -> int:
-    del auto_organize
     return _worker_execution.run_worker_job(
         config_path=config_path,
         queue_root=queue_root,
         queue_id=queue_id,
         admission_root=admission_root,
         admission_token=admission_token,
-        auto_organize=False,
         should_cancel=should_cancel,
         register_running_job=register_running_job,
         dependencies=_worker_execution_dependencies(),
@@ -646,6 +608,5 @@ def cmd_queue_worker(args: Any) -> int:
     worker = QueueWorker(
         cfg,
         config_path=_config_path_for_worker(args),
-        auto_organize=False,
     )
     return worker.run()

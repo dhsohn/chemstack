@@ -151,7 +151,7 @@ def new_crest_stage_impl(
     max_memory_gb: int,
     manifest_overrides: dict[str, Any] | None = None,
 ) -> WorkflowStageWithTaskPayload:
-    config_placeholder = "<crest_auto_config>"
+    config_placeholder = "<crest_config>"
     sections = _stage_payload_sections(
         task_payload={
             "workflow_id": workflow_id,
@@ -176,8 +176,8 @@ def new_crest_stage_impl(
         resource_request=_resource_request(max_cores, max_memory_gb),
         payload=sections.task_payload,
         enqueue_payload=_engine_enqueue_payload(
-            submitter="crest_auto_cli",
-            app_name="crest_auto",
+            submitter="chemstack_crest_cli",
+            app_name="chemstack_crest",
             command_name=CHEMSTACK_CREST_COMMAND,
             module_name=CHEMSTACK_CREST_MODULE,
             config_placeholder=config_placeholder,
@@ -217,7 +217,7 @@ def new_xtb_stage_impl(
     max_handoff_retries: int = 2,
     manifest_overrides: dict[str, Any] | None = None,
 ) -> WorkflowStageWithTaskPayload:
-    config_placeholder = "<xtb_auto_config>"
+    config_placeholder = "<xtb_config>"
     retry_limit = max(0, int(max_handoff_retries))
     sections = _stage_payload_sections(
         task_payload={
@@ -247,8 +247,8 @@ def new_xtb_stage_impl(
         resource_request=_resource_request(max_cores, max_memory_gb),
         payload=sections.task_payload,
         enqueue_payload=_engine_enqueue_payload(
-            submitter="xtb_auto_cli",
-            app_name="xtb_auto",
+            submitter="chemstack_xtb_cli",
+            app_name="chemstack_xtb",
             command_name=CHEMSTACK_XTB_COMMAND,
             module_name=CHEMSTACK_XTB_MODULE,
             config_placeholder=config_placeholder,

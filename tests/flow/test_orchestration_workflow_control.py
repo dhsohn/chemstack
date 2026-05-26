@@ -613,7 +613,7 @@ def test_advance_workflow_auto_cancels_active_siblings_after_failure(
     result = orchestration.advance_workflow(
         target="wf_failed_cancel",
         workflow_root=tmp_path,
-        crest_auto_config="crest.yaml",
+        crest_config="crest.yaml",
         submit_ready=True,
         deps=deps,
     )
@@ -623,7 +623,7 @@ def test_advance_workflow_auto_cancels_active_siblings_after_failure(
         {
             "target": "q_reactant",
             "config_path": "crest.yaml",
-            "executable": "crest_auto",
+            "executable": "chemstack_crest",
             "repo_root": None,
         }
     ]

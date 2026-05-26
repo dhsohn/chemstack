@@ -344,15 +344,15 @@ def orca_submitter_matches(
 
 def submission_config(
     *,
-    orca_auto_config: str,
-    orca_auto_executable: str,
-    orca_auto_repo_root: str | None,
+    orca_config: str,
+    orca_executable: str,
+    orca_repo_root: str | None,
     normalize_text: Callable[[Any], str],
 ) -> SiblingSubmitterConfig:
     return SiblingSubmitterConfig(
-        config_path=normalize_text(orca_auto_config),
-        executable=normalize_text(orca_auto_executable) or CHEMSTACK_EXECUTABLE,
-        repo_root=normalize_text(orca_auto_repo_root) or None,
+        config_path=normalize_text(orca_config),
+        executable=normalize_text(orca_executable) or CHEMSTACK_EXECUTABLE,
+        repo_root=normalize_text(orca_repo_root) or None,
     )
 
 
@@ -449,9 +449,9 @@ def submit_reaction_ts_search_workflow(
     *,
     workflow_target: str,
     workflow_root: str | Path | None,
-    orca_auto_config: str,
-    orca_auto_executable: str = CHEMSTACK_EXECUTABLE,
-    orca_auto_repo_root: str | None = None,
+    orca_config: str,
+    orca_executable: str = CHEMSTACK_EXECUTABLE,
+    orca_repo_root: str | None = None,
     skip_submitted: bool = True,
     deps: SubmissionDeps,
 ) -> dict[str, Any]:
@@ -462,9 +462,9 @@ def submit_reaction_ts_search_workflow(
     payload = deps.load_workflow_payload(workspace_dir)
     buckets = WorkflowBuckets()
     submitter_config = submission_config(
-        orca_auto_config=orca_auto_config,
-        orca_auto_executable=orca_auto_executable,
-        orca_auto_repo_root=orca_auto_repo_root,
+        orca_config=orca_config,
+        orca_executable=orca_executable,
+        orca_repo_root=orca_repo_root,
         normalize_text=deps.normalize_text,
     )
 

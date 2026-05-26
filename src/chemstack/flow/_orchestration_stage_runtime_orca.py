@@ -35,16 +35,16 @@ def _submit_orca_stage(
     enqueue_payload: dict[str, Any],
     stage_metadata: dict[str, Any],
     *,
-    orca_auto_config: str | None,
-    orca_auto_executable: str,
-    orca_auto_repo_root: str | None,
+    orca_config: str | None,
+    orca_executable: str,
+    orca_repo_root: str | None,
 ) -> None:
     submission = o.engines.submit_reaction_dir(
         reaction_dir=str(enqueue_payload.get("reaction_dir", "")),
         priority=int(enqueue_payload.get("priority", 10) or 10),
-        config_path=str(orca_auto_config),
-        executable=orca_auto_executable,
-        repo_root=orca_auto_repo_root,
+        config_path=str(orca_config),
+        executable=orca_executable,
+        repo_root=orca_repo_root,
         **_orca_submission_resource_kwargs(o, enqueue_payload),
     )
     submission["submitted_at"] = o.persistence.now_utc_iso()
@@ -71,12 +71,12 @@ def _load_orca_contract(
     stage_metadata: dict[str, Any],
     *,
     reaction_dir_hint: str,
-    orca_auto_config: str | None,
+    orca_config: str | None,
 ) -> Any | None:
-    allowed_root = _call_engine_aware(o.stages._load_config_root, orca_auto_config, engine="orca")
+    allowed_root = _call_engine_aware(o.stages._load_config_root, orca_config, engine="orca")
     organized_root = _workflow_internal_organized_root(
         reaction_dir_hint, engine="orca"
-    ) or _call_engine_aware(o.stages._load_config_organized_root, orca_auto_config, engine="orca")
+    ) or _call_engine_aware(o.stages._load_config_organized_root, orca_config, engine="orca")
     target = (
         o.stages._normalize_text(stage_metadata.get("run_id"))
         or reaction_dir_hint
@@ -225,9 +225,9 @@ def _orca_output_artifacts(o: Any, contract: Any) -> list[dict[str, Any]]:
 def sync_orca_stage_impl(
     stage: dict[str, Any],
     *,
-    orca_auto_config: str | None,
-    orca_auto_executable: str,
-    orca_auto_repo_root: str | None,
+    orca_config: str | None,
+    orca_executable: str,
+    orca_repo_root: str | None,
     submit_ready: bool,
     deps: OrchestrationDeps | None = None,
 ) -> None:
@@ -246,7 +246,7 @@ def sync_orca_stage_impl(
     if (
         o.stages._normalize_text(task.get("status")) == "planned"
         and submit_ready
-        and o.stages._normalize_text(orca_auto_config)
+        and o.stages._normalize_text(orca_config)
     ):
         _submit_orca_stage(
             o,
@@ -254,15 +254,15 @@ def sync_orca_stage_impl(
             task,
             enqueue_payload,
             stage_metadata,
-            orca_auto_config=orca_auto_config,
-            orca_auto_executable=orca_auto_executable,
-            orca_auto_repo_root=orca_auto_repo_root,
+            orca_config=orca_config,
+            orca_executable=orca_executable,
+            orca_repo_root=orca_repo_root,
         )
     contract = _load_orca_contract(
         o,
         stage_metadata,
         reaction_dir_hint=reaction_dir_hint,
-        orca_auto_config=orca_auto_config,
+        orca_config=orca_config,
     )
     if contract is None:
         return
@@ -273,7 +273,7 @@ def sync_orca_stage_impl(
 def completed_orca_stage_impl(
     stage: dict[str, Any],
     *,
-    orca_auto_config: str | None,
+    orca_config: str | None,
     deps: OrchestrationDeps | None = None,
 ) -> Any | None:
     o = _orchestration_context(deps)
@@ -298,10 +298,10 @@ def completed_orca_stage_impl(
         engine="orca",
         target=target,
         stage=stage,
-        orca_allowed_root=_call_engine_aware(o.stages._load_config_root, orca_auto_config, engine="orca"),
+        orca_allowed_root=_call_engine_aware(o.stages._load_config_root, orca_config, engine="orca"),
         orca_organized_root=(
             _workflow_internal_organized_root(reaction_dir_hint, engine="orca")
-            or _call_engine_aware(o.stages._load_config_organized_root, orca_auto_config, engine="orca")
+            or _call_engine_aware(o.stages._load_config_organized_root, orca_config, engine="orca")
         ),
         queue_id=o.stages._normalize_text(stage_metadata.get("queue_id")),
         run_id=o.stages._normalize_text(stage_metadata.get("run_id")),

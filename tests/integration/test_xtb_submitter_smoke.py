@@ -8,7 +8,7 @@ from chemstack.core.indexing import get_job_location
 from chemstack.core.queue import list_queue
 from chemstack.xtb.commands import queue as xtb_queue_cmd
 from chemstack.flow.adapters.xtb import load_xtb_artifact_contract
-from chemstack.flow.submitters import xtb_auto as xtb_submitter
+from chemstack.flow.submitters import xtb as xtb_submitter
 
 
 def _queue_status(entry: Any) -> str:
@@ -39,8 +39,7 @@ def test_xtb_submitter_roundtrip_smoke(
     assert _queue_status(queue_entries[0]) == "pending"
 
     assert xtb_queue_cmd._process_one(
-        xtb_queue_cmd.load_config(str(smoke_workspace.xtb_config_path)),
-        auto_organize=True,
+        xtb_queue_cmd.load_config(str(smoke_workspace.xtb_config_path))
     ) == "processed"
     worker_output = capsys.readouterr().out
     assert f"queue_id: {submission['queue_id']}" in worker_output
@@ -49,7 +48,7 @@ def test_xtb_submitter_roundtrip_smoke(
 
     record = get_job_location(smoke_workspace.xtb_allowed_root, submission["job_id"])
     assert record is not None
-    assert record.app_name == "xtb_auto"
+    assert record.app_name == "chemstack_xtb"
     assert record.status == "completed"
     assert record.original_run_dir == str(xtb_opt_job.resolve())
     assert record.organized_output_dir == ""

@@ -93,7 +93,7 @@ def test_tracked_contract_payload_uses_job_location_payload_helper(
     )
 
     monkeypatch.setattr(
-        orca_adapter, "_orca_auto_job_locations_module", lambda: job_locations_module
+        orca_adapter, "_orca_job_locations_module", lambda: job_locations_module
     )
 
     assert orca_adapter._tracked_contract_payload(

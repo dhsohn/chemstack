@@ -7,7 +7,7 @@ from typing import Any
 
 import pytest
 
-from chemstack.flow.submitters import common, crest_auto, xtb_auto
+from chemstack.flow.submitters import common, crest as crest_submitter, xtb as xtb_submitter
 
 
 def _completed_process(
@@ -55,7 +55,7 @@ def test_queue_submission_status_treats_admission_wait_as_blocked() -> None:
 
 def test_sibling_app_command_without_repo_root_uses_module_execution() -> None:
     argv, cwd, env = common.sibling_app_command(
-        executable="xtb_auto",
+        executable="chemstack_xtb",
         config_path="/tmp/config.yaml",
         repo_root=None,
         module_name="chemstack.xtb._internal_cli",
@@ -139,7 +139,7 @@ def test_run_sibling_app_forwards_command_to_subprocess(monkeypatch: pytest.Monk
     monkeypatch.setattr(common.subprocess, "run", fake_run)
 
     result = common.run_sibling_app(
-        executable="xtb_auto",
+        executable="chemstack_xtb",
         config_path="/tmp/config.yaml",
         repo_root="/tmp/repo",
         module_name="chemstack.xtb._internal_cli",
@@ -149,7 +149,7 @@ def test_run_sibling_app_forwards_command_to_subprocess(monkeypatch: pytest.Monk
 
     assert result is expected_result
     assert captured["command_kwargs"] == {
-        "executable": "xtb_auto",
+        "executable": "chemstack_xtb",
         "config_path": "/tmp/config.yaml",
         "repo_root": "/tmp/repo",
         "module_name": "chemstack.xtb._internal_cli",
@@ -244,7 +244,7 @@ def test_sibling_runtime_paths_derives_internal_engine_roots_from_workflow_root(
     ("module", "executable", "repo_root", "job_dir", "priority", "stdout", "returncode", "stderr", "expected"),
     [
         (
-            xtb_auto,
+            xtb_submitter,
             "xtb_custom",
             "/repo/xtb",
             "/jobs/xtb-1",
@@ -272,7 +272,7 @@ def test_sibling_runtime_paths_derives_internal_engine_roots_from_workflow_root(
             },
         ),
         (
-            crest_auto,
+            crest_submitter,
             "crest_custom",
             None,
             "/jobs/crest-1",
@@ -307,7 +307,7 @@ def test_submit_job_dir_maps_success_and_failure(
         args=[
             "python",
             "-m",
-            "chemstack.xtb._internal_cli" if module is xtb_auto else "chemstack.crest._internal_cli",
+            "chemstack.xtb._internal_cli" if module is xtb_submitter else "chemstack.crest._internal_cli",
             "--config",
             "/tmp/config.yaml",
             "run-dir",
@@ -336,7 +336,7 @@ def test_submit_job_dir_maps_success_and_failure(
         "executable": executable,
         "config_path": "/tmp/config.yaml",
         "repo_root": repo_root,
-        "module_name": "chemstack.xtb._internal_cli" if module is xtb_auto else "chemstack.crest._internal_cli",
+        "module_name": "chemstack.xtb._internal_cli" if module is xtb_submitter else "chemstack.crest._internal_cli",
         "tail_argv": ["run-dir", job_dir, "--priority", str(priority)],
     }
     assert result["status"] == expected["status"]
@@ -348,7 +348,7 @@ def test_submit_job_dir_maps_success_and_failure(
     assert result["job_id"] == expected["job_id"]
     assert result["queue_id"] == expected["queue_id"]
     assert result["job_dir"] == expected["job_dir"]
-    if module is xtb_auto:
+    if module is xtb_submitter:
         assert result["job_type"] == expected["job_type"]
         assert result["reaction_key"] == expected["reaction_key"]
 
@@ -356,16 +356,16 @@ def test_submit_job_dir_maps_success_and_failure(
 @pytest.mark.parametrize(
     ("module", "target", "stdout", "returncode", "expected_status", "expected_queue_id", "expected_job_id"),
     [
-        (xtb_auto, "xtb-job-1", "status: cancel_requested\nqueue_id: q-1\njob_id: xtb-job-1", 0, "cancel_requested", "q-1", "xtb-job-1"),
-        (xtb_auto, "xtb-job-2", "Cancel requested for queue entry q-2", 0, "cancel_requested", "", ""),
-        (xtb_auto, "xtb-job-3", "queue_id: q-3", 0, "cancelled", "q-3", ""),
-        (xtb_auto, "xtb-job-4", "status: cancelled\njob_id: xtb-job-4", 0, "cancelled", "", "xtb-job-4"),
-        (xtb_auto, "xtb-job-5", "status: cancel_requested", 2, "failed", "", ""),
-        (crest_auto, "crest-job-1", "status: cancel_requested\nqueue_id: c-1\njob_id: crest-job-1", 0, "cancel_requested", "c-1", "crest-job-1"),
-        (crest_auto, "crest-job-2", "Cancel requested for queue entry c-2", 0, "cancel_requested", "", ""),
-        (crest_auto, "crest-job-3", "queue_id: c-3", 0, "cancelled", "c-3", ""),
-        (crest_auto, "crest-job-4", "status: cancelled\njob_id: crest-job-4", 0, "cancelled", "", "crest-job-4"),
-        (crest_auto, "crest-job-5", "status: cancel_requested", 3, "failed", "", ""),
+        (xtb_submitter, "xtb-job-1", "status: cancel_requested\nqueue_id: q-1\njob_id: xtb-job-1", 0, "cancel_requested", "q-1", "xtb-job-1"),
+        (xtb_submitter, "xtb-job-2", "Cancel requested for queue entry q-2", 0, "cancel_requested", "", ""),
+        (xtb_submitter, "xtb-job-3", "queue_id: q-3", 0, "cancelled", "q-3", ""),
+        (xtb_submitter, "xtb-job-4", "status: cancelled\njob_id: xtb-job-4", 0, "cancelled", "", "xtb-job-4"),
+        (xtb_submitter, "xtb-job-5", "status: cancel_requested", 2, "failed", "", ""),
+        (crest_submitter, "crest-job-1", "status: cancel_requested\nqueue_id: c-1\njob_id: crest-job-1", 0, "cancel_requested", "c-1", "crest-job-1"),
+        (crest_submitter, "crest-job-2", "Cancel requested for queue entry c-2", 0, "cancel_requested", "", ""),
+        (crest_submitter, "crest-job-3", "queue_id: c-3", 0, "cancelled", "c-3", ""),
+        (crest_submitter, "crest-job-4", "status: cancelled\njob_id: crest-job-4", 0, "cancelled", "", "crest-job-4"),
+        (crest_submitter, "crest-job-5", "status: cancel_requested", 3, "failed", "", ""),
     ],
 )
 def test_cancel_target_maps_status_from_stdout_and_returncode(
@@ -403,7 +403,7 @@ def test_cancel_target_maps_status_from_stdout_and_returncode(
         "executable": "tool",
         "config_path": "/tmp/config.yaml",
         "repo_root": "/tmp/repo",
-        "module_name": "chemstack.cli" if module is xtb_auto else "chemstack.crest._internal_cli",
+        "module_name": "chemstack.cli" if module is xtb_submitter else "chemstack.crest._internal_cli",
         "tail_argv": ["queue", "cancel", target],
         "timeout_seconds": 5.0,
     }
@@ -416,7 +416,7 @@ def test_cancel_target_maps_status_from_stdout_and_returncode(
     assert result["job_id"] == expected_job_id
 
 
-@pytest.mark.parametrize("module", [xtb_auto, crest_auto])
+@pytest.mark.parametrize("module", [xtb_submitter, crest_submitter])
 def test_cancel_target_reports_timeout(monkeypatch: pytest.MonkeyPatch, module: Any) -> None:
     def fake_run_sibling_app(**kwargs: Any) -> subprocess.CompletedProcess[str]:
         raise subprocess.TimeoutExpired(cmd=["tool", "queue", "cancel", "job-1"], timeout=5.0, output="slow", stderr="timeout")

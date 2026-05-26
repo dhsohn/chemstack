@@ -8,6 +8,7 @@ from typing import Any, Callable, Dict, Type
 
 from chemstack.core.app_ids import CHEMSTACK_ORCA_APP_NAME
 from chemstack.core.queue.types import QueueStatus
+from chemstack.core.utils.process_lock import is_process_alive, parse_lock_info, process_start_ticks
 
 from .. import queue_store as _queue_store
 from ..admission_store import (
@@ -20,7 +21,6 @@ from ..attempt_engine import _exit_with_result, run_attempts
 from ..completion_rules import detect_completion_mode
 from ..config import load_config
 from ..inp_rewriter import ensure_submission_resource_request, read_resource_request_from_input
-from ..lock_utils import is_process_alive, parse_lock_info, process_start_ticks
 from ..orca_runner import OrcaRunner
 from ..out_analyzer import analyze_output
 from ..runtime.run_lock import LOCK_FILE_NAME, acquire_run_lock

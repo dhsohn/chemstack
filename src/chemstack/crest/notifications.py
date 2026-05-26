@@ -7,7 +7,7 @@ from chemstack.core.notifications import engines as _engine_notifications
 
 from .config import AppConfig
 
-_LABEL = "crest_auto"
+_LABEL = "chemstack_crest"
 _ENGINE = "crest"
 
 

@@ -262,7 +262,6 @@ def _finalize_execution_result(
     queue_root: Path,
     entry: Any,
     result: XtbRunResult,
-    auto_organize: bool,
     emit_output: bool,
     previous_state: dict[str, Any] | None = None,
     resumed: bool = False,
@@ -272,7 +271,6 @@ def _finalize_execution_result(
         queue_root=queue_root,
         entry=entry,
         result=result,
-        auto_organize=auto_organize,
         emit_output=emit_output,
         previous_state=previous_state,
         resumed=resumed,
@@ -564,7 +562,6 @@ def _finalize_processed_entry(
     result: Any,
     queue_root: Path,
     *,
-    auto_organize: bool,
     emit_output: bool,
     dependencies: WorkerExecutionDependencies,
 ) -> Any:
@@ -573,7 +570,6 @@ def _finalize_processed_entry(
         queue_root=queue_root,
         entry=context.entry,
         result=result,
-        auto_organize=auto_organize,
         emit_output=emit_output,
         previous_state=context.previous_state,
         resumed=context.resumed,
@@ -585,14 +581,12 @@ def execute_queue_entry(
     *,
     queue_root: Path,
     entry: Any,
-    auto_organize: bool,
     should_cancel: Callable[[], bool] | None = None,
     register_running_job: Callable[[Any | None], None] | None = None,
     worker_job_pid: int | None = None,
     emit_output: bool = False,
     dependencies: WorkerExecutionDependencies | None = None,
 ) -> Any:
-    del auto_organize
     deps = dependencies or default_worker_execution_dependencies()
     lifecycle = EngineWorkerLifecycle(
         build_context=lambda cfg_obj, entry_obj: _build_execution_context(
@@ -614,13 +608,12 @@ def execute_queue_entry(
             should_cancel=should_cancel,
             register_running_job=register_running_job,
         ),
-        finalize_entry=lambda cfg_obj, context, result, active_queue_root, should_organize: (
+        finalize_entry=lambda cfg_obj, context, result, active_queue_root: (
             _finalize_processed_entry(
                 cfg_obj,
                 context,
                 result,
                 active_queue_root,
-                auto_organize=should_organize,
                 emit_output=emit_output,
                 dependencies=deps,
             )
@@ -631,7 +624,6 @@ def execute_queue_entry(
         cfg,
         queue_root=queue_root,
         entry=entry,
-        auto_organize=False,
         lifecycle=lifecycle,
     )
 
@@ -643,18 +635,26 @@ def run_worker_job(
     queue_id: str,
     admission_root: str,
     admission_token: str | None,
-    auto_organize: bool,
     should_cancel: Callable[[], bool] | None = None,
     register_running_job: Callable[[Any | None], None] | None = None,
     dependencies: WorkerExecutionDependencies | None = None,
 ) -> int:
-    del auto_organize
     deps = dependencies or default_worker_execution_dependencies()
-    cfg = deps.config.load_config(config_path)
-    resolved_queue_root = Path(queue_root).expanduser().resolve()
-    entry = deps.config.queue_entry_by_id(resolved_queue_root, queue_id)
-    if entry is None:
+    job = _child_execution.load_child_queue_job(
+        config_path=config_path,
+        queue_root=queue_root,
+        queue_id=queue_id,
+        load_config_fn=deps.config.load_config,
+        find_queue_entry_fn=deps.config.queue_entry_by_id,
+        admission_token=admission_token,
+        admission_root_fn=lambda _cfg: admission_root,
+        release_slot_fn=deps.admission.release_slot,
+    )
+    if job is None:
         return 1
+    cfg = job.cfg
+    resolved_queue_root = job.queue_root
+    entry = job.entry
 
     if admission_token:
         if not _child_execution.activate_child_admission_token(
@@ -673,7 +673,6 @@ def run_worker_job(
                 cfg,
                 queue_root=resolved_queue_root,
                 entry=entry,
-                auto_organize=False,
                 should_cancel=should_cancel,
                 register_running_job=register_running_job,
                 emit_output=False,
@@ -685,7 +684,6 @@ def run_worker_job(
                 cfg,
                 queue_root=resolved_queue_root,
                 entry=entry,
-                auto_organize=False,
                 should_cancel=should_cancel,
                 register_running_job=register_running_job,
                 emit_output=False,

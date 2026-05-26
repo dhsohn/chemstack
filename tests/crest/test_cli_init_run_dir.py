@@ -293,7 +293,7 @@ def test_cmd_run_dir_reports_duplicate_queue_entries(
     assert first_rc == 0
     assert "status: queued" in first_output
     assert second_rc == 1
-    assert "error: Active queue entry already exists for app=crest_auto task_id=crest-duplicate-id" in second_output
+    assert "error: Active queue entry already exists for app=chemstack_crest task_id=crest-duplicate-id" in second_output
 
     assert len(queue_entries) == 1
     assert queue_entries[0].task_id == "crest-duplicate-id"
@@ -377,8 +377,7 @@ def test_cli_end_to_end_smoke_path_submission_worker_organize_and_summary(
     assert "job_id: crest-e2e-001" in run_output
 
     assert queue_cmd._process_one(
-        queue_cmd.load_config(str(config_path)),
-        auto_organize=True,
+        queue_cmd.load_config(str(config_path))
     ) == "processed"
     worker_output = capsys.readouterr().out
     assert "organized_output_dir:" not in worker_output

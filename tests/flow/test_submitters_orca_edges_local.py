@@ -7,7 +7,7 @@ from typing import Any
 import pytest
 
 
-from chemstack.flow.submitters import orca_auto
+from chemstack.flow.submitters import orca as orca_submitter
 
 
 def _install_workflow_io(
@@ -18,17 +18,17 @@ def _install_workflow_io(
     saved_payloads: list[dict[str, Any]],
     sync_calls: list[dict[str, Any]],
 ) -> None:
-    monkeypatch.setattr(orca_auto, "resolve_workflow_workspace", lambda target, workflow_root: workspace_dir)
-    monkeypatch.setattr(orca_auto, "load_workflow_payload", lambda current_workspace_dir: payload)
+    monkeypatch.setattr(orca_submitter, "resolve_workflow_workspace", lambda target, workflow_root: workspace_dir)
+    monkeypatch.setattr(orca_submitter, "load_workflow_payload", lambda current_workspace_dir: payload)
     monkeypatch.setattr(
-        orca_auto,
+        orca_submitter,
         "write_workflow_payload",
         lambda current_workspace_dir, current_payload: saved_payloads.append(
             {"workspace_dir": current_workspace_dir, "payload": deepcopy(current_payload)}
         ),
     )
     monkeypatch.setattr(
-        orca_auto,
+        orca_submitter,
         "sync_workflow_registry",
         lambda workflow_root, current_workspace_dir, current_payload: sync_calls.append(
             {
@@ -42,7 +42,7 @@ def _install_workflow_io(
 
 def _install_timestamps(monkeypatch: pytest.MonkeyPatch, *timestamps: str) -> None:
     values = iter(timestamps)
-    monkeypatch.setattr(orca_auto, "now_utc_iso", lambda: next(values))
+    monkeypatch.setattr(orca_submitter, "now_utc_iso", lambda: next(values))
 
 
 def _append_and_return(
@@ -58,7 +58,7 @@ def test_ensure_submission_metadata_reuses_existing_mappings() -> None:
     stage = {"metadata": {"queue_id": "q_existing"}}
     task = {"metadata": {"note": "keep"}}
 
-    stage_metadata = orca_auto._ensure_submission_metadata(stage, task)
+    stage_metadata = orca_submitter._ensure_submission_metadata(stage, task)
 
     assert stage_metadata is stage["metadata"]
     assert stage["metadata"] == {"queue_id": "q_existing"}
@@ -82,7 +82,7 @@ def test_submission_summary_state_helper(
     expected: tuple[str | None, str],
 ) -> None:
     assert (
-        orca_auto._submission_summary_state(
+        orca_submitter._submission_summary_state(
             submitted=submitted,
             skipped=skipped,
             failed=failed,
@@ -139,7 +139,7 @@ def test_submit_reaction_ts_search_workflow_covers_continue_and_failed_only_path
         "2026-04-19T01:01:00+00:00",
     )
     monkeypatch.setattr(
-        orca_auto,
+        orca_submitter,
         "submit_reaction_dir",
         lambda **kwargs: _append_and_return(
             submit_calls,
@@ -157,12 +157,12 @@ def test_submit_reaction_ts_search_workflow_covers_continue_and_failed_only_path
         ),
     )
 
-    result = orca_auto.submit_reaction_ts_search_workflow(
+    result = orca_submitter.submit_reaction_ts_search_workflow(
         workflow_target="wf_submit_edges",
         workflow_root=None,
-        orca_auto_config=" /tmp/orca.yaml ",
-        orca_auto_executable=" orca_auto_bin ",
-        orca_auto_repo_root=" /tmp/orca_repo ",
+        orca_config=" /tmp/orca.yaml ",
+        orca_executable=" chemstack_orca_bin ",
+        orca_repo_root=" /tmp/orca_repo ",
         skip_submitted=False,
     )
 
@@ -171,7 +171,7 @@ def test_submit_reaction_ts_search_workflow_covers_continue_and_failed_only_path
             "reaction_dir": "/tmp/fail",
             "priority": 6,
             "config_path": "/tmp/orca.yaml",
-            "executable": "orca_auto_bin",
+            "executable": "chemstack_orca_bin",
             "repo_root": "/tmp/orca_repo",
         }
     ]
@@ -253,7 +253,7 @@ def test_submit_reaction_ts_search_workflow_sets_queued_when_only_submitted(
     )
     _install_timestamps(monkeypatch, "2026-04-19T01:10:00+00:00", "2026-04-19T01:11:00+00:00")
     monkeypatch.setattr(
-        orca_auto,
+        orca_submitter,
         "submit_reaction_dir",
         lambda **kwargs: {
             "status": "submitted",
@@ -267,10 +267,10 @@ def test_submit_reaction_ts_search_workflow_sets_queued_when_only_submitted(
         },
     )
 
-    result = orca_auto.submit_reaction_ts_search_workflow(
+    result = orca_submitter.submit_reaction_ts_search_workflow(
         workflow_target="wf_submit_only_success",
         workflow_root=workflow_root,
-        orca_auto_config="/tmp/orca.yaml",
+        orca_config="/tmp/orca.yaml",
     )
 
     assert result["status"] == "queued"
@@ -341,7 +341,7 @@ def test_cancel_reaction_ts_search_workflow_covers_terminal_missing_target_and_f
         "2026-04-19T01:22:00+00:00",
     )
     monkeypatch.setattr(
-        orca_auto,
+        orca_submitter,
         "cancel_target",
         lambda **kwargs: _append_and_return(
             cancel_calls,
@@ -350,25 +350,25 @@ def test_cancel_reaction_ts_search_workflow_covers_terminal_missing_target_and_f
                 "returncode": 5,
                 "stdout": "cancel failed",
                 "stderr": "boom",
-                "command_argv": ["orca_auto", "queue", "cancel", "q_fail"],
+                "command_argv": ["chemstack", "queue", "cancel", "q_fail"],
             },
             **kwargs,
         ),
     )
 
-    result = orca_auto.cancel_reaction_ts_search_workflow(
+    result = orca_submitter.cancel_reaction_ts_search_workflow(
         workflow_target="wf_cancel_edges",
         workflow_root=None,
-        orca_auto_config="/tmp/orca.yaml",
-        orca_auto_executable="orca_auto_bin",
-        orca_auto_repo_root="/tmp/orca_repo",
+        orca_config="/tmp/orca.yaml",
+        orca_executable="chemstack_orca_bin",
+        orca_repo_root="/tmp/orca_repo",
     )
 
     assert cancel_calls == [
         {
             "target": "q_fail",
             "config_path": "/tmp/orca.yaml",
-            "executable": "orca_auto_bin",
+            "executable": "chemstack_orca_bin",
             "repo_root": "/tmp/orca_repo",
         }
     ]
@@ -406,7 +406,7 @@ def test_cancel_reaction_ts_search_workflow_covers_terminal_missing_target_and_f
         "returncode": 5,
         "stdout": "cancel failed",
         "stderr": "boom",
-        "command_argv": ["orca_auto", "queue", "cancel", "q_fail"],
+        "command_argv": ["chemstack", "queue", "cancel", "q_fail"],
         "cancelled_at": "2026-04-19T01:21:00+00:00",
         "target": "q_fail",
     }

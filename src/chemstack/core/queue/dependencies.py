@@ -39,20 +39,19 @@ class BackgroundJobProcessStarter(Protocol):
         entry: Any,
         admission_root: Any,
         admission_token: str,
-        auto_organize: bool,
     ) -> Any: ...
 
 
 @dataclass(frozen=True)
 class ChildQueueWorkerDeps:
-    POLL_INTERVAL_SECONDS: int
+    poll_interval_seconds: int
     time: SleepTimer
-    _admission_root: Callable[[Any], str]
-    _start_background_job_process: BackgroundJobProcessStarter
+    admission_root: Callable[[Any], str]
+    start_background_job_process: BackgroundJobProcessStarter
     release_slot: SlotReleaser
     reserve_dequeued_entry: DequeuedEntryReserver
-    _dequeue_next_entry: QueueEntryDequeuer
-    _try_reserve_admission_slot: AdmissionReserver
+    dequeue_next_entry: QueueEntryDequeuer
+    try_reserve_admission_slot: AdmissionReserver
 
 
 __all__ = [

@@ -124,7 +124,7 @@ def test_crest_and_xtb_adapter_helper_edges(tmp_path: Path, monkeypatch: pytest.
         [
             {
                 "job_id": "crest_missing_payload",
-                "app_name": "crest_auto",
+                "app_name": "chemstack_crest",
                 "job_type": "standard",
                 "status": "completed",
                 "latest_known_path": str(tmp_path / "crest_job"),
@@ -149,7 +149,7 @@ def test_crest_and_xtb_adapter_helper_edges(tmp_path: Path, monkeypatch: pytest.
         [
             {
                 "job_id": "xtb_missing_payload",
-                "app_name": "xtb_auto",
+                "app_name": "chemstack_xtb",
                 "job_type": "xtb_path_search",
                 "status": "completed",
                 "latest_known_path": str(tmp_path / "xtb_job"),
@@ -253,11 +253,11 @@ def test_registry_edge_branches_cover_invalid_inputs_and_direct_file_matching(
     assert registry._coerce_counts("bad") == {}
     assert registry._coerce_counts({"": 1, "ok": "2", "bad": "x"}) == {"ok": 2}
 
-    monkeypatch.delenv("CHEM_FLOW_NOTIFY_EVENT_TYPES", raising=False)
+    monkeypatch.delenv("CHEMSTACK_FLOW_NOTIFY_EVENT_TYPES", raising=False)
     assert registry._notification_event_types_from_env()
-    monkeypatch.setenv("CHEM_FLOW_NOTIFY_DISABLED", "yes")
+    monkeypatch.setenv("CHEMSTACK_FLOW_NOTIFY_DISABLED", "yes")
     assert registry._journal_notification_enabled("workflow_status_changed") is False
-    monkeypatch.delenv("CHEM_FLOW_NOTIFY_DISABLED", raising=False)
+    monkeypatch.delenv("CHEMSTACK_FLOW_NOTIFY_DISABLED", raising=False)
 
     sent: list[str] = []
     monkeypatch.setattr(registry, "_journal_notification_enabled", lambda event_type: True)
@@ -435,7 +435,7 @@ def test_xyz_reaction_ts_orca_stage_cli_and_mcp_edges(monkeypatch: pytest.Monkey
         )
 
     assert cli_common._normalize_text(None) == ""
-    monkeypatch.setattr(sys, "argv", ["chem_flow", "--help"])
+    monkeypatch.setattr(sys, "argv", ["chemstack_flow", "--help"])
     monkeypatch.delitem(sys.modules, "chemstack.flow.cli", raising=False)
     with pytest.raises(SystemExit) as cli_exit:
         runpy.run_module("chemstack.flow.cli", run_name="__main__")

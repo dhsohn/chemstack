@@ -204,9 +204,9 @@ def test_activity_rows_filters_non_mapping_entries() -> None:
 
     mocked_list.assert_called_once_with(
         workflow_root="/tmp/workflows",
-        crest_auto_config="/tmp/chemstack.yaml",
-        xtb_auto_config="/tmp/chemstack.yaml",
-        orca_auto_config="/tmp/chemstack.yaml",
+        crest_config="/tmp/chemstack.yaml",
+        xtb_config="/tmp/chemstack.yaml",
+        orca_config="/tmp/chemstack.yaml",
     )
 
 

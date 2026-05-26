@@ -7,7 +7,7 @@ from typing import Any
 import pytest
 
 
-from chemstack.flow.submitters import orca_auto
+from chemstack.flow.submitters import orca as orca_submitter
 
 
 def _install_workflow_io(
@@ -19,12 +19,12 @@ def _install_workflow_io(
     sync_calls: list[dict[str, Any]],
 ) -> None:
     monkeypatch.setattr(
-        orca_auto,
+        orca_submitter,
         "resolve_workflow_workspace",
         lambda target, workflow_root: workspace_dir,
     )
     monkeypatch.setattr(
-        orca_auto,
+        orca_submitter,
         "load_workflow_payload",
         lambda current_workspace_dir: payload,
     )
@@ -50,13 +50,13 @@ def _install_workflow_io(
             }
         )
 
-    monkeypatch.setattr(orca_auto, "write_workflow_payload", fake_write_workflow_payload)
-    monkeypatch.setattr(orca_auto, "sync_workflow_registry", fake_sync_workflow_registry)
+    monkeypatch.setattr(orca_submitter, "write_workflow_payload", fake_write_workflow_payload)
+    monkeypatch.setattr(orca_submitter, "sync_workflow_registry", fake_sync_workflow_registry)
 
 
 def _install_timestamps(monkeypatch: pytest.MonkeyPatch, *timestamps: str) -> None:
     values = iter(timestamps)
-    monkeypatch.setattr(orca_auto, "now_utc_iso", lambda: next(values))
+    monkeypatch.setattr(orca_submitter, "now_utc_iso", lambda: next(values))
 
 
 def test_submit_reaction_ts_search_workflow_ignores_invalid_stages_and_sets_submitted_only_summary(
@@ -129,14 +129,14 @@ def test_submit_reaction_ts_search_workflow_ignores_invalid_stages_and_sets_subm
             "parsed_stdout": "not-a-dict",
         }
 
-    monkeypatch.setattr(orca_auto, "submit_reaction_dir", fake_submit_reaction_dir)
+    monkeypatch.setattr(orca_submitter, "submit_reaction_dir", fake_submit_reaction_dir)
 
-    result = orca_auto.submit_reaction_ts_search_workflow(
+    result = orca_submitter.submit_reaction_ts_search_workflow(
         workflow_target="wf_submit_only",
         workflow_root=None,
-        orca_auto_config=" /tmp/orca.yaml ",
-        orca_auto_executable=" orca_auto_bin ",
-        orca_auto_repo_root=" /tmp/orca_repo ",
+        orca_config=" /tmp/orca.yaml ",
+        orca_executable=" chemstack_orca_bin ",
+        orca_repo_root=" /tmp/orca_repo ",
     )
 
     assert submit_calls == [
@@ -144,7 +144,7 @@ def test_submit_reaction_ts_search_workflow_ignores_invalid_stages_and_sets_subm
             "reaction_dir": "/tmp/rxn_submit",
             "priority": 7,
             "config_path": "/tmp/orca.yaml",
-            "executable": "orca_auto_bin",
+            "executable": "chemstack_orca_bin",
             "repo_root": "/tmp/orca_repo",
             "max_cores": 24,
             "max_memory_gb": 96,
@@ -246,15 +246,15 @@ def test_submit_reaction_ts_search_workflow_records_skipped_only_summary_without
     )
     _install_timestamps(monkeypatch, "2026-04-19T01:05:00+00:00")
     monkeypatch.setattr(
-        orca_auto,
+        orca_submitter,
         "submit_reaction_dir",
         lambda **kwargs: submit_calls.append(kwargs),
     )
 
-    result = orca_auto.submit_reaction_ts_search_workflow(
+    result = orca_submitter.submit_reaction_ts_search_workflow(
         workflow_target="wf_submit_skipped_only",
         workflow_root=None,
-        orca_auto_config="/tmp/orca.yaml",
+        orca_config="/tmp/orca.yaml",
     )
 
     assert submit_calls == []
@@ -338,12 +338,12 @@ def test_submit_reaction_ts_search_workflow_records_failed_only_summary(
             "parsed_stdout": {"queue_id": "q_failed"},
         }
 
-    monkeypatch.setattr(orca_auto, "submit_reaction_dir", fake_submit_reaction_dir)
+    monkeypatch.setattr(orca_submitter, "submit_reaction_dir", fake_submit_reaction_dir)
 
-    result = orca_auto.submit_reaction_ts_search_workflow(
+    result = orca_submitter.submit_reaction_ts_search_workflow(
         workflow_target="wf_submit_failed",
         workflow_root=tmp_path / "workflow_root",
-        orca_auto_config="/tmp/orca.yaml",
+        orca_config="/tmp/orca.yaml",
     )
 
     assert submit_calls == [
@@ -492,15 +492,15 @@ def test_cancel_reaction_ts_search_workflow_records_failed_only_summary_for_edge
             "returncode": 9,
             "stdout": "denied\n",
             "stderr": "permission denied",
-            "command_argv": ["orca_auto", "queue", "cancel", "q_fail"],
+            "command_argv": ["chemstack", "queue", "cancel", "q_fail"],
         }
 
-    monkeypatch.setattr(orca_auto, "cancel_target", fake_cancel_target)
+    monkeypatch.setattr(orca_submitter, "cancel_target", fake_cancel_target)
 
-    result = orca_auto.cancel_reaction_ts_search_workflow(
+    result = orca_submitter.cancel_reaction_ts_search_workflow(
         workflow_target="wf_cancel_failed",
         workflow_root=None,
-        orca_auto_config=" /tmp/orca.yaml ",
+        orca_config=" /tmp/orca.yaml ",
     )
 
     assert cancel_calls == [
@@ -559,7 +559,7 @@ def test_cancel_reaction_ts_search_workflow_records_failed_only_summary_for_edge
         "returncode": 9,
         "stdout": "denied\n",
         "stderr": "permission denied",
-        "command_argv": ["orca_auto", "queue", "cancel", "q_fail"],
+        "command_argv": ["chemstack", "queue", "cancel", "q_fail"],
         "cancelled_at": "2026-04-19T01:21:00+00:00",
         "target": "q_fail",
     }

@@ -73,9 +73,9 @@ def test_sync_orca_stage_applies_contract_state_metadata_and_artifacts() -> None
     deps = orchestration_deps(overrides={"load_orca_artifact_contract": mock_load})
     _sync_orca_stage(
         stage,
-        orca_auto_config=None,
-        orca_auto_executable="orca_auto",
-        orca_auto_repo_root=None,
+        orca_config=None,
+        orca_executable="chemstack",
+        orca_repo_root=None,
         submit_ready=False,
         deps=deps,
     )

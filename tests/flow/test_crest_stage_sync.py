@@ -102,18 +102,18 @@ def test_sync_crest_stage_ignores_non_dict_task_and_non_crest_engine(tmp_path: P
 
     orchestration._sync_crest_stage(
         stage_without_task,
-        crest_auto_config="/tmp/crest.yaml",
-        crest_auto_executable="crest_auto",
-        crest_auto_repo_root="/tmp/crest_repo",
+        crest_config="/tmp/crest.yaml",
+        crest_executable="chemstack_crest",
+        crest_repo_root="/tmp/crest_repo",
         submit_ready=True,
         workflow_id="wf_01",
         workspace_dir=tmp_path / "workspace" / "wf_01",
     )
     orchestration._sync_crest_stage(
         stage_xtb,
-        crest_auto_config="/tmp/crest.yaml",
-        crest_auto_executable="crest_auto",
-        crest_auto_repo_root="/tmp/crest_repo",
+        crest_config="/tmp/crest.yaml",
+        crest_executable="chemstack_crest",
+        crest_repo_root="/tmp/crest_repo",
         submit_ready=True,
         workflow_id="wf_01",
         workspace_dir=tmp_path / "workspace" / "wf_01",
@@ -168,9 +168,9 @@ def test_sync_crest_stage_submits_and_materializes_retained_conformers(
 
     orchestration._sync_crest_stage(
         stage,
-        crest_auto_config="/tmp/crest.yaml",
-        crest_auto_executable="crest_auto",
-        crest_auto_repo_root="/tmp/crest_repo",
+        crest_config="/tmp/crest.yaml",
+        crest_executable="chemstack_crest",
+        crest_repo_root="/tmp/crest_repo",
         submit_ready=True,
         workflow_id="wf_01",
         workspace_dir=tmp_path / "workspace" / "wf_01",
@@ -218,9 +218,9 @@ def test_sync_crest_stage_returns_without_target_when_not_submitted_and_no_queue
 
     orchestration._sync_crest_stage(
         stage,
-        crest_auto_config=None,
-        crest_auto_executable="crest_auto",
-        crest_auto_repo_root=None,
+        crest_config=None,
+        crest_executable="chemstack_crest",
+        crest_repo_root=None,
         submit_ready=False,
         workflow_id="wf_02",
         workspace_dir=tmp_path / "workspace" / "wf_02",
@@ -259,9 +259,9 @@ def test_sync_crest_stage_returns_cleanly_when_contract_lookup_raises(
 
     orchestration._sync_crest_stage(
         stage,
-        crest_auto_config="/tmp/crest.yaml",
-        crest_auto_executable="crest_auto",
-        crest_auto_repo_root="/tmp/crest_repo",
+        crest_config="/tmp/crest.yaml",
+        crest_executable="chemstack_crest",
+        crest_repo_root="/tmp/crest_repo",
         submit_ready=False,
         workflow_id="wf_03",
         workspace_dir=tmp_path / "workspace" / "wf_03",

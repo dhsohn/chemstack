@@ -86,7 +86,7 @@ def test_load_jsonl_records_returns_empty_on_read_error() -> None:
     assert orca_adapter._load_jsonl_records(cast(Path, ExplodingPath())) == []
 
 
-def test_import_orca_auto_module_returns_none_for_missing_package(
+def test_import_orca_module_returns_none_for_missing_package(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     calls: list[str] = []
@@ -97,11 +97,11 @@ def test_import_orca_auto_module_returns_none_for_missing_package(
 
     monkeypatch.setattr(orca_adapter, "import_module", fake_import)
 
-    assert orca_adapter._import_orca_auto_module("chemstack.orca.job_locations") is None
+    assert orca_adapter._import_orca_module("chemstack.orca.job_locations") is None
     assert calls == ["chemstack.orca.job_locations"]
 
 
-def test_import_orca_auto_module_reraises_unrelated_import_errors(
+def test_import_orca_module_reraises_unrelated_import_errors(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
@@ -111,7 +111,7 @@ def test_import_orca_auto_module_reraises_unrelated_import_errors(
     )
 
     with pytest.raises(ModuleNotFoundError, match="different_module"):
-        orca_adapter._import_orca_auto_module("chemstack.orca.job_locations")
+        orca_adapter._import_orca_module("chemstack.orca.job_locations")
 
 
 def test_tracked_helper_guards_return_empty_for_missing_helpers_and_exceptions(
@@ -142,7 +142,7 @@ def test_tracked_helper_guards_return_empty_for_missing_helpers_and_exceptions(
         is None
     )
 
-    monkeypatch.setattr(orca_adapter, "_orca_auto_job_locations_module", lambda: None)
+    monkeypatch.setattr(orca_adapter, "_orca_job_locations_module", lambda: None)
     assert orca_adapter._tracked_artifact_context(index_root=tmp_path, targets=("job_1",)) == (None, None, {}, {}, {})
     assert (
         orca_adapter._tracked_runtime_context(
@@ -164,13 +164,13 @@ def test_tracked_helper_guards_return_empty_for_missing_helpers_and_exceptions(
 
     monkeypatch.setattr(
         orca_adapter,
-        "_orca_auto_job_locations_module",
+        "_orca_job_locations_module",
         lambda: SimpleNamespace(load_job_artifact_context=load_job_artifact_context),
     )
     assert orca_adapter._tracked_artifact_context(index_root=tmp_path, targets=("   ", "job_2")) == (None, None, {}, {}, {})
     assert calls == ["job_2"]
 
-    monkeypatch.setattr(orca_adapter, "_orca_auto_job_locations_module", lambda: SimpleNamespace())
+    monkeypatch.setattr(orca_adapter, "_orca_job_locations_module", lambda: SimpleNamespace())
     assert (
         orca_adapter._tracked_runtime_context(
             index_root=tmp_path,
@@ -185,7 +185,7 @@ def test_tracked_helper_guards_return_empty_for_missing_helpers_and_exceptions(
 
     monkeypatch.setattr(
         orca_adapter,
-        "_orca_auto_job_locations_module",
+        "_orca_job_locations_module",
         lambda: SimpleNamespace(
             load_job_runtime_context=lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("boom"))
         ),
@@ -204,7 +204,7 @@ def test_tracked_helper_guards_return_empty_for_missing_helpers_and_exceptions(
 
     monkeypatch.setattr(
         orca_adapter,
-        "_orca_auto_job_locations_module",
+        "_orca_job_locations_module",
         lambda: SimpleNamespace(load_job_runtime_context=lambda *_args, **_kwargs: SimpleNamespace(artifact=None)),
     )
     assert (
@@ -221,7 +221,7 @@ def test_tracked_helper_guards_return_empty_for_missing_helpers_and_exceptions(
 
     monkeypatch.setattr(
         orca_adapter,
-        "_orca_auto_job_locations_module",
+        "_orca_job_locations_module",
         lambda: SimpleNamespace(
             load_orca_contract_payload=lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("boom"))
         ),

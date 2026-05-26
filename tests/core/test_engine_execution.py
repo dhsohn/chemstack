@@ -40,11 +40,9 @@ def test_process_dequeued_engine_entry_runs_lifecycle_in_order_and_defaults_queu
         context: Any,
         result: Any,
         queue_root: Path,
-        auto_organize: bool,
     ) -> Path:
         assert cfg_obj is cfg
         assert result.status == "completed"
-        assert auto_organize is True
         calls.append(f"finalize:{context.job_id}")
         roots.append(queue_root)
         return tmp_path / "organized"
@@ -59,7 +57,6 @@ def test_process_dequeued_engine_entry_runs_lifecycle_in_order_and_defaults_queu
         cfg,
         entry,
         queue_root=None,
-        auto_organize=True,
         build_context_fn=build_context,
         check_shutdown_fn=check_shutdown,
         mark_running_fn=mark_running,
@@ -97,16 +94,14 @@ def test_process_dequeued_engine_entry_uses_explicit_queue_root_without_shutdown
         _context: Any,
         _result: Any,
         queue_root: Path,
-        auto_organize: bool,
     ) -> Path:
-        calls.append(f"finalize:{queue_root.name}:{auto_organize}")
+        calls.append(f"finalize:{queue_root.name}")
         return tmp_path / "out"
 
     outcome = engine_execution.process_dequeued_engine_entry(
         cfg,
         SimpleNamespace(queue_id="q-1"),
         queue_root=explicit_queue_root,
-        auto_organize=False,
         build_context_fn=lambda _cfg, _entry: SimpleNamespace(job_id="job-1"),
         check_shutdown_fn=None,
         mark_running_fn=lambda _cfg, _context: calls.append("mark"),
@@ -115,7 +110,7 @@ def test_process_dequeued_engine_entry_uses_explicit_queue_root_without_shutdown
         build_outcome_fn=lambda _context, result, organized: (result, organized),
     )
 
-    assert calls == ["mark", "run:queue", "finalize:queue:False"]
+    assert calls == ["mark", "run:queue", "finalize:queue"]
     assert outcome == ("result", tmp_path / "out")
 
 
@@ -147,7 +142,6 @@ def test_run_engine_worker_lifecycle_stops_on_shutdown_before_mark_running(
             cfg,
             SimpleNamespace(queue_id="q-1"),
             queue_root=None,
-            auto_organize=False,
             lifecycle=lifecycle,
         )
     except RuntimeError as exc:
@@ -188,7 +182,6 @@ def test_run_engine_worker_lifecycle_stops_on_shutdown_after_mark_running(
             cfg,
             SimpleNamespace(queue_id="q-1"),
             queue_root=None,
-            auto_organize=False,
             lifecycle=lifecycle,
         )
     except RuntimeError as exc:

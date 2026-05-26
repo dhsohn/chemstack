@@ -12,75 +12,6 @@ from .engine_options import WorkflowEngineOptions
 
 
 @dataclass(frozen=True)
-class _AdvanceConfig:
-    engines: WorkflowEngineOptions
-
-    @classmethod
-    def from_values(
-        cls,
-        *,
-        crest_auto_config: str | None,
-        crest_auto_executable: str,
-        crest_auto_repo_root: str | None,
-        xtb_auto_config: str | None,
-        xtb_auto_executable: str,
-        xtb_auto_repo_root: str | None,
-        orca_auto_config: str | None,
-        orca_auto_executable: str,
-        orca_auto_repo_root: str | None,
-    ) -> _AdvanceConfig:
-        return cls(
-            engines=WorkflowEngineOptions.from_values(
-                crest_auto_config=crest_auto_config,
-                crest_auto_executable=crest_auto_executable,
-                crest_auto_repo_root=crest_auto_repo_root,
-                xtb_auto_config=xtb_auto_config,
-                xtb_auto_executable=xtb_auto_executable,
-                xtb_auto_repo_root=xtb_auto_repo_root,
-                orca_auto_config=orca_auto_config,
-                orca_auto_executable=orca_auto_executable,
-                orca_auto_repo_root=orca_auto_repo_root,
-            )
-        )
-
-    @property
-    def crest_auto_config(self) -> str | None:
-        return self.engines.crest.config
-
-    @property
-    def crest_auto_executable(self) -> str:
-        return self.engines.crest.executable
-
-    @property
-    def crest_auto_repo_root(self) -> str | None:
-        return self.engines.crest.repo_root
-
-    @property
-    def xtb_auto_config(self) -> str | None:
-        return self.engines.xtb.config
-
-    @property
-    def xtb_auto_executable(self) -> str:
-        return self.engines.xtb.executable
-
-    @property
-    def xtb_auto_repo_root(self) -> str | None:
-        return self.engines.xtb.repo_root
-
-    @property
-    def orca_auto_config(self) -> str | None:
-        return self.engines.orca.config
-
-    @property
-    def orca_auto_executable(self) -> str:
-        return self.engines.orca.executable
-
-    @property
-    def orca_auto_repo_root(self) -> str | None:
-        return self.engines.orca.repo_root
-
-
-@dataclass(frozen=True)
 class _AdvanceContext:
     deps: OrchestrationDeps
     workflow_root_path: Path
@@ -123,15 +54,15 @@ def _run_advance_phase(
 
 
 def _sync_crest_phase(
-    payload: dict[str, Any], context: _AdvanceContext, config: _AdvanceConfig
+    payload: dict[str, Any], context: _AdvanceContext, config: WorkflowEngineOptions
 ) -> None:
     o = context.deps
     for stage in _workflow_stage_dicts(payload):
         o.stages._sync_crest_stage(
             stage,
-            crest_auto_config=config.crest_auto_config,
-            crest_auto_executable=config.crest_auto_executable,
-            crest_auto_repo_root=config.crest_auto_repo_root,
+            crest_config=config.crest_config,
+            crest_executable=config.crest_executable,
+            crest_repo_root=config.crest_repo_root,
             submit_ready=context.submit_ready,
             workflow_id=context.workflow_id,
             workspace_dir=context.workspace_dir,
@@ -139,39 +70,39 @@ def _sync_crest_phase(
 
 
 def _append_reaction_xtb_phase(
-    payload: dict[str, Any], context: _AdvanceContext, config: _AdvanceConfig
+    payload: dict[str, Any], context: _AdvanceContext, config: WorkflowEngineOptions
 ) -> None:
     if context.sync_only or context.template_name != "reaction_ts_search":
         return
     context.deps.stages._append_reaction_xtb_stages(
         payload,
         workspace_dir=context.workspace_dir,
-        crest_auto_config=config.crest_auto_config,
+        crest_config=config.crest_config,
     )
 
 
 def _notify_crest_phase(
-    payload: dict[str, Any], context: _AdvanceContext, config: _AdvanceConfig
+    payload: dict[str, Any], context: _AdvanceContext, config: WorkflowEngineOptions
 ) -> None:
     if context.sync_only:
         return
     context.deps.stages._maybe_notify_workflow_phase_summary(
         payload,
-        config_path=config.crest_auto_config,
+        config_path=config.crest_config,
         phase_engine="crest",
     )
 
 
 def _sync_xtb_phase(
-    payload: dict[str, Any], context: _AdvanceContext, config: _AdvanceConfig
+    payload: dict[str, Any], context: _AdvanceContext, config: WorkflowEngineOptions
 ) -> None:
     o = context.deps
     for stage in _workflow_stage_dicts(payload):
         o.stages._sync_xtb_stage(
             stage,
-            xtb_auto_config=config.xtb_auto_config,
-            xtb_auto_executable=config.xtb_auto_executable,
-            xtb_auto_repo_root=config.xtb_auto_repo_root,
+            xtb_config=config.xtb_config,
+            xtb_executable=config.xtb_executable,
+            xtb_repo_root=config.xtb_repo_root,
             submit_ready=context.submit_ready,
             workflow_id=context.workflow_id,
             workspace_dir=context.workspace_dir,
@@ -179,7 +110,7 @@ def _sync_xtb_phase(
 
 
 def _clear_xtb_handoff_phase(
-    payload: dict[str, Any], context: _AdvanceContext, _config: _AdvanceConfig
+    payload: dict[str, Any], context: _AdvanceContext, _config: WorkflowEngineOptions
 ) -> None:
     context.deps.stages._clear_reaction_xtb_handoff_error_if_recovering(payload)
 
@@ -193,15 +124,15 @@ def _reaction_orca_ready(payload: dict[str, Any], context: _AdvanceContext) -> b
 
 
 def _append_reaction_orca_phase(
-    payload: dict[str, Any], context: _AdvanceContext, config: _AdvanceConfig
+    payload: dict[str, Any], context: _AdvanceContext, config: WorkflowEngineOptions
 ) -> None:
     if not _reaction_orca_ready(payload, context):
         return
     context.deps.stages._append_reaction_orca_stages(
         payload,
         workspace_dir=context.workspace_dir,
-        xtb_auto_config=config.xtb_auto_config,
-        orca_auto_config=config.orca_auto_config,
+        xtb_config=config.xtb_config,
+        orca_config=config.orca_config,
     )
 
 
@@ -217,28 +148,28 @@ def _orca_stage_count(
 
 
 def _notify_xtb_phase(
-    payload: dict[str, Any], context: _AdvanceContext, config: _AdvanceConfig
+    payload: dict[str, Any], context: _AdvanceContext, config: WorkflowEngineOptions
 ) -> None:
     if not _reaction_orca_ready(payload, context):
         return
     context.deps.stages._maybe_notify_workflow_phase_summary(
         payload,
-        config_path=config.xtb_auto_config,
+        config_path=config.xtb_config,
         phase_engine="xtb",
         extra_lines=[f"planned_orca_stages: {_orca_stage_count(payload, deps=context.deps)}"],
     )
 
 
 def _append_conformer_orca_phase(
-    payload: dict[str, Any], context: _AdvanceContext, config: _AdvanceConfig
+    payload: dict[str, Any], context: _AdvanceContext, config: WorkflowEngineOptions
 ) -> None:
     if context.sync_only or context.template_name != "conformer_screening":
         return
     context.deps.stages._append_crest_orca_stages(
         payload,
         template_name="conformer_screening",
-        crest_auto_config=config.crest_auto_config,
-        orca_auto_config=config.orca_auto_config,
+        crest_config=config.crest_config,
+        orca_config=config.orca_config,
         stage_id_prefix="orca_conformer",
         xyz_filename="conformer_guess.xyz",
         inp_filename="conformer_opt.inp",
@@ -246,20 +177,20 @@ def _append_conformer_orca_phase(
 
 
 def _sync_orca_phase(
-    payload: dict[str, Any], context: _AdvanceContext, config: _AdvanceConfig
+    payload: dict[str, Any], context: _AdvanceContext, config: WorkflowEngineOptions
 ) -> None:
     o = context.deps
     for stage in _workflow_stage_dicts(payload):
         o.stages._sync_orca_stage(
             stage,
-            orca_auto_config=config.orca_auto_config,
-            orca_auto_executable=config.orca_auto_executable,
-            orca_auto_repo_root=config.orca_auto_repo_root,
+            orca_config=config.orca_config,
+            orca_executable=config.orca_executable,
+            orca_repo_root=config.orca_repo_root,
             submit_ready=context.submit_ready,
         )
 
 
-def _advance_phases(config: _AdvanceConfig) -> tuple[Any, ...]:
+def _advance_phases(config: WorkflowEngineOptions) -> tuple[Any, ...]:
     def bind(phase: Any) -> Any:
         return lambda payload, context: phase(payload, context, config)
 
@@ -277,7 +208,7 @@ def _advance_phases(config: _AdvanceConfig) -> tuple[Any, ...]:
 
 
 def _finalize_advanced_workflow(
-    payload: dict[str, Any], context: _AdvanceContext, config: _AdvanceConfig
+    payload: dict[str, Any], context: _AdvanceContext, config: WorkflowEngineOptions
 ) -> None:
     o = context.deps
     payload["status"] = o.stages._recompute_workflow_status(payload)
@@ -307,7 +238,7 @@ def _finalize_advanced_workflow(
 def _cancel_stage_activity(
     stage: dict[str, Any],
     *,
-    config: _AdvanceConfig,
+    config: WorkflowEngineOptions,
     deps: OrchestrationDeps | None = None,
 ) -> dict[str, Any]:
     o = deps or orchestration_deps()
@@ -345,7 +276,7 @@ def _cancel_stage_activity(
         stage["status"] = "cancelled"
         return {"status": "cancelled", "mode": "local"}
 
-    engine_options = config.engines.for_engine(engine)
+    engine_options = config.for_engine(engine)
     if (
         engine == "crest"
         and engine_options is not None
@@ -396,7 +327,7 @@ def _cancel_stage_activity(
 def _cancel_active_workflow_stages(
     payload: dict[str, Any],
     *,
-    config: _AdvanceConfig,
+    config: WorkflowEngineOptions,
     deps: OrchestrationDeps | None = None,
 ) -> dict[str, list[dict[str, Any]]]:
     o = deps or orchestration_deps()
@@ -441,15 +372,16 @@ def advance_workflow(
     *,
     target: str,
     workflow_root: str | Path,
-    crest_auto_config: str | None = None,
-    crest_auto_executable: str = "crest_auto",
-    crest_auto_repo_root: str | None = None,
-    xtb_auto_config: str | None = None,
-    xtb_auto_executable: str = "xtb_auto",
-    xtb_auto_repo_root: str | None = None,
-    orca_auto_config: str | None = None,
-    orca_auto_executable: str = CHEMSTACK_EXECUTABLE,
-    orca_auto_repo_root: str | None = None,
+    crest_config: str | None = None,
+    crest_executable: str = "chemstack_crest",
+    crest_repo_root: str | None = None,
+    xtb_config: str | None = None,
+    xtb_executable: str = "chemstack_xtb",
+    xtb_repo_root: str | None = None,
+    orca_config: str | None = None,
+    orca_executable: str = CHEMSTACK_EXECUTABLE,
+    orca_repo_root: str | None = None,
+    engine_options: WorkflowEngineOptions | None = None,
     submit_ready: bool = True,
     deps: OrchestrationDeps | None = None,
 ) -> dict[str, Any]:
@@ -459,16 +391,16 @@ def advance_workflow(
     with o.persistence.acquire_workflow_lock(workspace_dir):
         payload = o.persistence.load_workflow_payload(workspace_dir)
         sync_only = o.stages._workflow_sync_only(payload)
-        config = _AdvanceConfig.from_values(
-            crest_auto_config=crest_auto_config,
-            crest_auto_executable=crest_auto_executable,
-            crest_auto_repo_root=crest_auto_repo_root,
-            xtb_auto_config=xtb_auto_config,
-            xtb_auto_executable=xtb_auto_executable,
-            xtb_auto_repo_root=xtb_auto_repo_root,
-            orca_auto_config=orca_auto_config,
-            orca_auto_executable=orca_auto_executable,
-            orca_auto_repo_root=orca_auto_repo_root,
+        config = engine_options or WorkflowEngineOptions.from_values(
+            crest_config=crest_config,
+            crest_executable=crest_executable,
+            crest_repo_root=crest_repo_root,
+            xtb_config=xtb_config,
+            xtb_executable=xtb_executable,
+            xtb_repo_root=xtb_repo_root,
+            orca_config=orca_config,
+            orca_executable=orca_executable,
+            orca_repo_root=orca_repo_root,
         )
         context = _AdvanceContext(
             deps=o,
@@ -492,15 +424,16 @@ def cancel_materialized_workflow(
     *,
     target: str,
     workflow_root: str | Path,
-    crest_auto_config: str | None = None,
-    crest_auto_executable: str = "crest_auto",
-    crest_auto_repo_root: str | None = None,
-    xtb_auto_config: str | None = None,
-    xtb_auto_executable: str = "xtb_auto",
-    xtb_auto_repo_root: str | None = None,
-    orca_auto_config: str | None = None,
-    orca_auto_executable: str = CHEMSTACK_EXECUTABLE,
-    orca_auto_repo_root: str | None = None,
+    crest_config: str | None = None,
+    crest_executable: str = "chemstack_crest",
+    crest_repo_root: str | None = None,
+    xtb_config: str | None = None,
+    xtb_executable: str = "chemstack_xtb",
+    xtb_repo_root: str | None = None,
+    orca_config: str | None = None,
+    orca_executable: str = CHEMSTACK_EXECUTABLE,
+    orca_repo_root: str | None = None,
+    engine_options: WorkflowEngineOptions | None = None,
     deps: OrchestrationDeps | None = None,
 ) -> dict[str, Any]:
     o = deps or orchestration_deps()
@@ -510,16 +443,16 @@ def cancel_materialized_workflow(
         lock_context = o.persistence.acquire_workflow_lock(workspace_dir, timeout_seconds=5.0)
         with lock_context:
             payload = o.persistence.load_workflow_payload(workspace_dir)
-            config = _AdvanceConfig.from_values(
-                crest_auto_config=crest_auto_config,
-                crest_auto_executable=crest_auto_executable,
-                crest_auto_repo_root=crest_auto_repo_root,
-                xtb_auto_config=xtb_auto_config,
-                xtb_auto_executable=xtb_auto_executable,
-                xtb_auto_repo_root=xtb_auto_repo_root,
-                orca_auto_config=orca_auto_config,
-                orca_auto_executable=orca_auto_executable,
-                orca_auto_repo_root=orca_auto_repo_root,
+            config = engine_options or WorkflowEngineOptions.from_values(
+                crest_config=crest_config,
+                crest_executable=crest_executable,
+                crest_repo_root=crest_repo_root,
+                xtb_config=xtb_config,
+                xtb_executable=xtb_executable,
+                xtb_repo_root=xtb_repo_root,
+                orca_config=orca_config,
+                orca_executable=orca_executable,
+                orca_repo_root=orca_repo_root,
             )
             cancellation = o.advance._cancel_active_workflow_stages(payload, config=config)
             cancelled = cancellation["cancelled"]
@@ -548,7 +481,6 @@ def cancel_materialized_workflow(
 
 
 __all__ = [
-    "_AdvanceConfig",
     "_AdvanceContext",
     "_advance_phases",
     "_cancel_active_workflow_stages",

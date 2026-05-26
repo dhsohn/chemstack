@@ -44,15 +44,7 @@ def _entry(
     return queue_store._entry_from_json_payload(entry)
 
 
-def test_queue_lock_error_builders_and_load_entries_cover_edge_cases(tmp_path: Path) -> None:
-    lock_path = tmp_path / queue_store.QUEUE_LOCK_NAME
-
-    assert "active process" in str(queue_store._queue_lock_active_error(123, {}, lock_path))
-    assert "unreadable" in str(queue_store._queue_lock_unreadable_error(lock_path))
-    assert "stale queue lock" in str(
-        queue_store._queue_lock_stale_remove_error(123, lock_path, OSError("boom"))
-    )
-
+def test_load_entries_cover_edge_cases(tmp_path: Path) -> None:
     assert queue_store._load_entries(tmp_path) == []
 
     queue_path = tmp_path / queue_store.QUEUE_FILE_NAME

@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from chemstack.core.artifacts import (
+    XTB_JOB_MANIFEST_FILE,
     JOB_REPORT_JSON_FILE,
     JOB_REPORT_MD_FILE,
     JOB_STATE_FILE,
@@ -23,49 +24,31 @@ _STATE_FILES = _engine_state.EngineStateFiles(
     report_md_file_name=REPORT_MD_FILE_NAME,
     organized_ref_file_name=ORGANIZED_REF_FILE_NAME,
 )
-
-
-def write_state(job_dir: Path, payload: dict[str, Any]) -> Path:
-    return _STATE_FILES.write_state(job_dir, payload)
-
-
-def write_report_json(job_dir: Path, payload: dict[str, Any]) -> Path:
-    return _STATE_FILES.write_report_json(job_dir, payload)
+_STATE_ACCESS = _engine_state.EngineStateAccess(
+    files=_STATE_FILES,
+    report_title="ChemStack xTB Report",
+    selected_input_label="Selected Input",
+    now_fn=lambda: now_utc_iso(),
+)
+write_state = _STATE_ACCESS.write_state
+write_report_json = _STATE_ACCESS.write_report_json
+write_report_md_lines = _STATE_ACCESS.write_report_md_lines
+write_organized_ref = _STATE_ACCESS.write_organized_ref
+load_state = _STATE_ACCESS.load_state
+load_report_json = _STATE_ACCESS.load_report_json
+load_organized_ref = _STATE_ACCESS.load_organized_ref
 
 
 def write_report_md(
     job_dir: Path, *, job_id: str, status: str, reason: str, selected_input: str
 ) -> Path:
-    lines = [
-        "# xtb_auto Report",
-        "",
-        f"- Job ID: `{job_id}`",
-        f"- Status: `{status}`",
-        f"- Reason: `{reason}`",
-        f"- Selected Input: `{selected_input}`",
-        f"- Updated At: `{now_utc_iso()}`",
-    ]
-    return _engine_state.write_text_artifact(job_dir, REPORT_MD_FILE_NAME, lines)
-
-
-def write_report_md_lines(job_dir: Path, lines: list[str]) -> Path:
-    return _STATE_FILES.write_report_md_lines(job_dir, lines)
-
-
-def write_organized_ref(job_dir: Path, payload: dict[str, Any]) -> Path:
-    return _STATE_FILES.write_organized_ref(job_dir, payload)
-
-
-def load_state(job_dir: Path) -> dict[str, Any] | None:
-    return _STATE_FILES.load_state(job_dir)
-
-
-def load_report_json(job_dir: Path) -> dict[str, Any] | None:
-    return _STATE_FILES.load_report_json(job_dir)
-
-
-def load_organized_ref(job_dir: Path) -> dict[str, Any] | None:
-    return _STATE_FILES.load_organized_ref(job_dir)
+    return _STATE_ACCESS.write_report_md(
+        job_dir,
+        job_id=job_id,
+        status=status,
+        reason=reason,
+        selected_input=selected_input,
+    )
 
 
 def _normalize_text(value: Any) -> str:
@@ -129,7 +112,7 @@ def mark_recovery_pending(
         selected_input_xyz=selected_input_xyz,
         reason=reason,
         now=now,
-        manifest_filename="xtb_job.yaml",
+        manifest_filename=XTB_JOB_MANIFEST_FILE,
         identity_fields={
             "job_type": _normalize_text(job_type),
             "reaction_key": _normalize_text(reaction_key),

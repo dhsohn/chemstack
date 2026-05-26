@@ -13,7 +13,7 @@ class EngineWorkerLifecycle:
     build_context: Callable[[Any, Any], Any]
     mark_running: Callable[[Any, Any], None]
     run_job: Callable[[Any, Any, Path], Any]
-    finalize_entry: Callable[[Any, Any, Any, Path, bool], Any]
+    finalize_entry: Callable[[Any, Any, Any, Path], Any]
     build_outcome: Callable[[Any, Any, Any], Any]
     check_shutdown: Callable[[Any], None] | None = None
 
@@ -139,12 +139,83 @@ def build_running_state_payload(
     return payload
 
 
+def build_terminal_state_payload(
+    entry: Any,
+    result: Any,
+    *,
+    job_dir_text: str,
+    selected_input_xyz: str,
+    previous_state: dict[str, Any] | None,
+    resumed: bool,
+    engine_fields: dict[str, Any] | None = None,
+    detail_fields: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    recovery_reason = _queue_execution.recovery_reason(previous_state)
+    payload = {
+        "job_id": entry.task_id,
+        "job_dir": job_dir_text,
+        "selected_input_xyz": selected_input_xyz,
+        **dict(engine_fields or {}),
+        "status": result.status,
+        "reason": result.reason,
+        "started_at": result.started_at,
+        "updated_at": result.finished_at,
+        **dict(detail_fields or {}),
+        "manifest_path": result.manifest_path,
+        "resource_request": dict(result.resource_request),
+        "resource_actual": dict(result.resource_actual),
+        "created_at": _queue_execution.created_at(previous_state),
+        "recovery_pending": False,
+        "recovery_count": _queue_execution.recovery_count(previous_state),
+        "resumed": bool(resumed),
+    }
+    if recovery_reason:
+        payload["recovery_reason"] = recovery_reason
+    return payload
+
+
+def build_terminal_report_payload(
+    entry: Any,
+    result: Any,
+    *,
+    selected_input_xyz: str,
+    previous_state: dict[str, Any] | None,
+    resumed: bool,
+    engine_fields: dict[str, Any] | None = None,
+    detail_fields: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    recovery_reason = _queue_execution.recovery_reason(previous_state)
+    payload = {
+        "job_id": entry.task_id,
+        "queue_id": entry.queue_id,
+        "status": result.status,
+        "reason": result.reason,
+        **dict(engine_fields or {}),
+        "selected_input_xyz": selected_input_xyz,
+        "command": list(result.command),
+        "exit_code": result.exit_code,
+        "started_at": result.started_at,
+        "finished_at": result.finished_at,
+        "stdout_log": result.stdout_log,
+        "stderr_log": result.stderr_log,
+        **dict(detail_fields or {}),
+        "manifest_path": result.manifest_path,
+        "resource_request": dict(result.resource_request),
+        "resource_actual": dict(result.resource_actual),
+        "created_at": _queue_execution.created_at(previous_state),
+        "recovery_count": _queue_execution.recovery_count(previous_state),
+        "resumed": bool(resumed),
+    }
+    if recovery_reason:
+        payload["recovery_reason"] = recovery_reason
+    return payload
+
+
 def run_engine_worker_lifecycle(
     cfg: Any,
     entry: Any,
     *,
     queue_root: Path | None,
-    auto_organize: bool,
     lifecycle: EngineWorkerLifecycle,
 ) -> Any:
     active_queue_root = queue_root or Path(str(cfg.runtime.allowed_root)).expanduser().resolve()
@@ -161,7 +232,6 @@ def run_engine_worker_lifecycle(
         context,
         result,
         active_queue_root,
-        auto_organize,
     )
     return lifecycle.build_outcome(context, result, organized_output_dir)
 
@@ -171,19 +241,17 @@ def process_dequeued_engine_entry(
     entry: Any,
     *,
     queue_root: Path | None,
-    auto_organize: bool,
     build_context_fn: Callable[[Any, Any], Any],
     check_shutdown_fn: Callable[[Any], None] | None,
     mark_running_fn: Callable[[Any, Any], None],
     run_job_fn: Callable[[Any, Any, Path], Any],
-    finalize_entry_fn: Callable[[Any, Any, Any, Path, bool], Any],
+    finalize_entry_fn: Callable[[Any, Any, Any, Path], Any],
     build_outcome_fn: Callable[[Any, Any, Any], Any],
 ) -> Any:
     return run_engine_worker_lifecycle(
         cfg,
         entry,
         queue_root=queue_root,
-        auto_organize=auto_organize,
         lifecycle=EngineWorkerLifecycle(
             build_context=build_context_fn,
             check_shutdown=check_shutdown_fn,

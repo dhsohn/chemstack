@@ -110,8 +110,8 @@ def test_conformer_screening_workflow_handoff_smoke(
     submitted_payload = advance_workflow(
         target=workflow_id,
         workflow_root=workflow_root,
-        crest_auto_config=str(smoke_workspace.crest_config_path),
-        crest_auto_repo_root=str(smoke_workspace.repo_root),
+        crest_config=str(smoke_workspace.crest_config_path),
+        crest_repo_root=str(smoke_workspace.repo_root),
         submit_ready=True,
     )
 
@@ -125,7 +125,7 @@ def test_conformer_screening_workflow_handoff_smoke(
 
     record = get_job_location(crest_root, submitted_metadata["child_job_id"])
     assert record is not None
-    assert record.app_name == "crest_auto"
+    assert record.app_name == "chemstack_crest"
     assert record.status in {"queued", "pending"}
 
     queue_entries = list_queue(crest_root)
@@ -135,8 +135,7 @@ def test_conformer_screening_workflow_handoff_smoke(
     assert _queue_status(queue_entries[0]) == "pending"
 
     assert crest_queue_cmd._process_one(
-        crest_queue_cmd.load_config(str(smoke_workspace.crest_config_path)),
-        auto_organize=True,
+        crest_queue_cmd.load_config(str(smoke_workspace.crest_config_path))
     ) == "processed"
     worker_output = capsys.readouterr().out
     assert f"queue_id: {submitted_metadata['queue_id']}" in worker_output
@@ -146,8 +145,8 @@ def test_conformer_screening_workflow_handoff_smoke(
     handed_off_payload = advance_workflow(
         target=workflow_id,
         workflow_root=workflow_root,
-        crest_auto_config=str(smoke_workspace.crest_config_path),
-        orca_auto_config=str(orca_config_path),
+        crest_config=str(smoke_workspace.crest_config_path),
+        orca_config=str(orca_config_path),
         submit_ready=False,
     )
 

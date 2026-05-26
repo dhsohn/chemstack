@@ -44,10 +44,10 @@ from ._orca_path_helpers import (
     resolve_candidate_path_impl,
 )
 from ._orca_tracking import (
-    import_orca_auto_module_impl,
+    import_orca_module_impl,
     load_orca_contract_payload_impl,
-    orca_auto_job_locations_module_impl,
-    sibling_orca_auto_repo_root_impl,
+    orca_job_locations_module_impl,
+    sibling_orca_repo_root_impl,
     tracked_artifact_context_impl,
     tracked_runtime_context_impl,
 )
@@ -81,11 +81,11 @@ def _safe_int_callback(value: Any, default: int = 0) -> int:
 _load_json_dict = load_json_dict_impl
 _load_json_list = load_json_list_impl
 _load_jsonl_records = load_jsonl_records_impl
-_sibling_orca_auto_repo_root = sibling_orca_auto_repo_root_impl
-_import_orca_auto_module = import_orca_auto_module_impl
+_sibling_orca_repo_root = sibling_orca_repo_root_impl
+_import_orca_module = import_orca_module_impl
 
 
-_orca_auto_job_locations_module = lru_cache(maxsize=1)(orca_auto_job_locations_module_impl)
+_orca_job_locations_module = lru_cache(maxsize=1)(orca_job_locations_module_impl)
 _resolve_candidate_path = resolve_candidate_path_impl
 _direct_dir_target = direct_dir_target_impl
 _tracked_artifact_context = tracked_artifact_context_impl

@@ -3,12 +3,13 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from chemstack.core.utils import (
     atomic_write_json,
     coerce_list as _shared_coerce_list,
     mapping_or_empty,
+    now_utc_iso,
     normalize_text as _shared_normalize_text,
 )
 
@@ -79,6 +80,55 @@ class EngineStateFiles:
 
     def load_organized_ref(self, job_dir: Path) -> dict[str, Any] | None:
         return load_json_mapping_artifact(job_dir, self.organized_ref_file_name)
+
+
+@dataclass(frozen=True)
+class EngineStateAccess:
+    files: EngineStateFiles
+    report_title: str
+    selected_input_label: str
+    now_fn: Callable[[], str] = now_utc_iso
+
+    def write_state(self, job_dir: Path, payload: dict[str, Any]) -> Path:
+        return self.files.write_state(job_dir, payload)
+
+    def write_report_json(self, job_dir: Path, payload: dict[str, Any]) -> Path:
+        return self.files.write_report_json(job_dir, payload)
+
+    def write_report_md(
+        self,
+        job_dir: Path,
+        *,
+        job_id: str,
+        status: str,
+        reason: str,
+        selected_input: str,
+    ) -> Path:
+        lines = [
+            f"# {self.report_title}",
+            "",
+            f"- Job ID: `{job_id}`",
+            f"- Status: `{status}`",
+            f"- Reason: `{reason}`",
+            f"- {self.selected_input_label}: `{selected_input}`",
+            f"- Updated At: `{self.now_fn()}`",
+        ]
+        return self.files.write_report_md_lines(job_dir, lines)
+
+    def write_report_md_lines(self, job_dir: Path, lines: list[str]) -> Path:
+        return self.files.write_report_md_lines(job_dir, lines)
+
+    def write_organized_ref(self, job_dir: Path, payload: dict[str, Any]) -> Path:
+        return self.files.write_organized_ref(job_dir, payload)
+
+    def load_state(self, job_dir: Path) -> dict[str, Any] | None:
+        return self.files.load_state(job_dir)
+
+    def load_report_json(self, job_dir: Path) -> dict[str, Any] | None:
+        return self.files.load_report_json(job_dir)
+
+    def load_organized_ref(self, job_dir: Path) -> dict[str, Any] | None:
+        return self.files.load_organized_ref(job_dir)
 
 
 def state_matches_fields(state: dict[str, Any] | None, fields: dict[str, Any]) -> bool:

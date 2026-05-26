@@ -54,7 +54,7 @@ def test_new_crest_stage_builds_expected_payload_and_metadata() -> None:
         "--config",
     ]
     assert task["enqueue_payload"]["command_argv"][4:8] == [
-        "<crest_auto_config>",
+        "<crest_config>",
         "run-dir",
         "<job_dir>",
         "--priority",

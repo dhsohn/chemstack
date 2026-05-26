@@ -1,4 +1,4 @@
-"""Telegram bot for unified chem_flow activity control."""
+"""Telegram bot for unified chemstack_flow activity control."""
 
 from __future__ import annotations
 
@@ -44,10 +44,10 @@ _MAX_MESSAGE_LENGTH = MAX_TELEGRAM_MESSAGE_LENGTH
 class TelegramBotSettings:
     telegram: TelegramConfig
     workflow_root: str | None
-    crest_auto_config: str | None
-    xtb_auto_config: str | None
-    orca_auto_config: str | None
-    orca_auto_repo_root: str | None
+    crest_config: str | None
+    xtb_config: str | None
+    orca_config: str | None
+    orca_repo_root: str | None
 
     @property
     def enabled(self) -> bool:
@@ -72,14 +72,14 @@ def settings_from_env() -> TelegramBotSettings:
     shared_config = _discover_sibling_config(None, app_name="chemstack")
     return TelegramBotSettings(
         telegram=TelegramConfig(
-            bot_token=os.getenv("CHEM_FLOW_TELEGRAM_BOT_TOKEN", "").strip(),
-            chat_id=os.getenv("CHEM_FLOW_TELEGRAM_CHAT_ID", "").strip(),
+            bot_token=os.getenv("CHEMSTACK_FLOW_TELEGRAM_BOT_TOKEN", "").strip(),
+            chat_id=os.getenv("CHEMSTACK_FLOW_TELEGRAM_CHAT_ID", "").strip(),
         ),
         workflow_root=_discover_workflow_root(None),
-        crest_auto_config=shared_config,
-        xtb_auto_config=shared_config,
-        orca_auto_config=shared_config,
-        orca_auto_repo_root=os.getenv(CHEMSTACK_REPO_ROOT_ENV_VAR, "").strip() or None,
+        crest_config=shared_config,
+        xtb_config=shared_config,
+        orca_config=shared_config,
+        orca_repo_root=os.getenv(CHEMSTACK_REPO_ROOT_ENV_VAR, "").strip() or None,
     )
 
 
@@ -98,17 +98,17 @@ def settings_from_config(config_path: str | None = None) -> TelegramBotSettings:
     telegram = _telegram_from_config_path(shared_config)
     if not telegram.enabled:
         telegram = TelegramConfig(
-            bot_token=os.getenv("CHEM_FLOW_TELEGRAM_BOT_TOKEN", "").strip(),
-            chat_id=os.getenv("CHEM_FLOW_TELEGRAM_CHAT_ID", "").strip(),
+            bot_token=os.getenv("CHEMSTACK_FLOW_TELEGRAM_BOT_TOKEN", "").strip(),
+            chat_id=os.getenv("CHEMSTACK_FLOW_TELEGRAM_CHAT_ID", "").strip(),
         )
     workflow_root = shared_workflow_root_from_config(shared_config) or _discover_workflow_root(None)
     return TelegramBotSettings(
         telegram=telegram,
         workflow_root=workflow_root,
-        crest_auto_config=shared_config,
-        xtb_auto_config=shared_config,
-        orca_auto_config=shared_config,
-        orca_auto_repo_root=os.getenv(CHEMSTACK_REPO_ROOT_ENV_VAR, "").strip() or None,
+        crest_config=shared_config,
+        xtb_config=shared_config,
+        orca_config=shared_config,
+        orca_repo_root=os.getenv(CHEMSTACK_REPO_ROOT_ENV_VAR, "").strip() or None,
     )
 
 
@@ -236,10 +236,10 @@ def _activity_payload(
 ) -> dict[str, Any]:
     return list_activities(
         workflow_root=settings.workflow_root,
-        crest_auto_config=settings.crest_auto_config,
-        xtb_auto_config=settings.xtb_auto_config,
-        orca_auto_config=settings.orca_auto_config,
-        orca_auto_repo_root=settings.orca_auto_repo_root,
+        crest_config=settings.crest_config,
+        xtb_config=settings.xtb_config,
+        orca_config=settings.orca_config,
+        orca_repo_root=settings.orca_repo_root,
         child_job_engines=child_job_engines,
     )
 
@@ -251,11 +251,11 @@ def _activity_counter_config_path(
 ) -> str | None:
     sources = payload.get("sources")
     if isinstance(sources, dict):
-        for key in ("orca_auto_config", "crest_auto_config", "xtb_auto_config"):
+        for key in ("orca_config", "crest_config", "xtb_config"):
             source_text = str(sources.get(key, "")).strip()
             if source_text:
                 return source_text
-    for value in (settings.orca_auto_config, settings.crest_auto_config, settings.xtb_auto_config):
+    for value in (settings.orca_config, settings.crest_config, settings.xtb_config):
         text = str(value or "").strip()
         if text:
             return text
@@ -267,10 +267,10 @@ def _handle_list(settings: TelegramBotSettings, args: str) -> str:
     if action == "clear":
         payload = clear_activities(
             workflow_root=settings.workflow_root,
-            crest_auto_config=settings.crest_auto_config,
-            xtb_auto_config=settings.xtb_auto_config,
-            orca_auto_config=settings.orca_auto_config,
-            orca_auto_repo_root=settings.orca_auto_repo_root,
+            crest_config=settings.crest_config,
+            xtb_config=settings.xtb_config,
+            orca_config=settings.orca_config,
+            orca_repo_root=settings.orca_repo_root,
         )
         return "\n".join(queue_clear_lines(payload))
 
@@ -312,10 +312,10 @@ def _handle_cancel(settings: TelegramBotSettings, args: str) -> str:
         payload = cancel_activity(
             target=target,
             workflow_root=settings.workflow_root,
-            crest_auto_config=settings.crest_auto_config,
-            xtb_auto_config=settings.xtb_auto_config,
-            orca_auto_config=settings.orca_auto_config,
-            orca_auto_repo_root=settings.orca_auto_repo_root,
+            crest_config=settings.crest_config,
+            xtb_config=settings.xtb_config,
+            orca_config=settings.orca_config,
+            orca_repo_root=settings.orca_repo_root,
         )
     except (LookupError, ValueError) as exc:
         return escape_html(str(exc))
@@ -327,7 +327,7 @@ def _handle_cancel(settings: TelegramBotSettings, args: str) -> str:
 
 def _handle_help(settings: TelegramBotSettings, args: str) -> str:
     return (
-        "<b>chem_flow bot commands</b>\n\n"
+        "<b>chemstack_flow bot commands</b>\n\n"
         "/list — Show unified activities\n"
         "/list clear — Remove completed/failed/cancelled entries\n"
         "/list running — Running activities only\n"
@@ -436,12 +436,12 @@ def run_bot(settings: TelegramBotSettings | None = None) -> int:
     if not resolved.enabled:
         logger.error(
             "Telegram is not configured. Set telegram.bot_token/chat_id in chemstack.yaml "
-            "or CHEM_FLOW_TELEGRAM_BOT_TOKEN and CHEM_FLOW_TELEGRAM_CHAT_ID."
+            "or CHEMSTACK_FLOW_TELEGRAM_BOT_TOKEN and CHEMSTACK_FLOW_TELEGRAM_CHAT_ID."
         )
         return 1
 
     _set_bot_commands(resolved.telegram.bot_token)
-    logger.info("chem_flow Telegram bot started (chat_id=%s)", resolved.telegram.chat_id)
+    logger.info("chemstack_flow Telegram bot started (chat_id=%s)", resolved.telegram.chat_id)
 
     offset = 0
     while True:
@@ -451,7 +451,7 @@ def run_bot(settings: TelegramBotSettings | None = None) -> int:
                 if update_id is not None:
                     offset = max(offset, update_id + 1)
         except KeyboardInterrupt:
-            logger.info("chem_flow Telegram bot stopped")
+            logger.info("chemstack_flow Telegram bot stopped")
             return 0
         except Exception as exc:
             logger.exception("telegram_bot_poll_error: %s", exc)

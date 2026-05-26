@@ -70,9 +70,9 @@ def _submit_crest_stage(
     task: dict[str, Any],
     *,
     crest_runtime_paths: dict[str, Path],
-    crest_auto_config: str | None,
-    crest_auto_executable: str,
-    crest_auto_repo_root: str | None,
+    crest_config: str | None,
+    crest_executable: str,
+    crest_repo_root: str | None,
     workflow_id: str,
 ) -> None:
     job_dir = o.stages._ensure_crest_job_dir(
@@ -83,9 +83,9 @@ def _submit_crest_stage(
     submission = o.engines.submit_crest_job_dir(
         job_dir=job_dir,
         priority=int(task["enqueue_payload"].get("priority", 10) or 10),
-        config_path=str(crest_auto_config),
-        executable=crest_auto_executable,
-        repo_root=crest_auto_repo_root,
+        config_path=str(crest_config),
+        executable=crest_executable,
+        repo_root=crest_repo_root,
     )
     submission["submitted_at"] = o.persistence.now_utc_iso()
     task["submission_result"] = submission
@@ -113,13 +113,13 @@ def _load_crest_contract(
     task: dict[str, Any],
     *,
     crest_runtime_paths: dict[str, Path],
-    crest_auto_config: str | None,
+    crest_config: str | None,
 ) -> Any | None:
     payload = o.stages._task_payload_dict(task)
     job_dir_target = o.stages._normalize_text(payload.get("job_dir"))
     index_root = (
         crest_runtime_paths["allowed_root"]
-        or _call_engine_aware(o.stages._load_config_root, crest_auto_config, engine="crest")
+        or _call_engine_aware(o.stages._load_config_root, crest_config, engine="crest")
         or Path(job_dir_target or ".").resolve().parent
     )
     target = job_dir_target or o.stages._submission_target(stage)
@@ -164,9 +164,9 @@ def _apply_crest_contract(
 def sync_crest_stage_impl(
     stage: dict[str, Any],
     *,
-    crest_auto_config: str | None,
-    crest_auto_executable: str,
-    crest_auto_repo_root: str | None,
+    crest_config: str | None,
+    crest_executable: str,
+    crest_repo_root: str | None,
     submit_ready: bool,
     workflow_id: str,
     workspace_dir: Path,
@@ -180,16 +180,16 @@ def sync_crest_stage_impl(
     if (
         o.stages._normalize_text(task.get("status")) == "planned"
         and submit_ready
-        and o.stages._normalize_text(crest_auto_config)
+        and o.stages._normalize_text(crest_config)
     ):
         _submit_crest_stage(
             o,
             stage,
             task,
             crest_runtime_paths=crest_runtime_paths,
-            crest_auto_config=crest_auto_config,
-            crest_auto_executable=crest_auto_executable,
-            crest_auto_repo_root=crest_auto_repo_root,
+            crest_config=crest_config,
+            crest_executable=crest_executable,
+            crest_repo_root=crest_repo_root,
             workflow_id=workflow_id,
         )
     contract = _load_crest_contract(
@@ -197,7 +197,7 @@ def sync_crest_stage_impl(
         stage,
         task,
         crest_runtime_paths=crest_runtime_paths,
-        crest_auto_config=crest_auto_config,
+        crest_config=crest_config,
     )
     if contract is not None:
         _apply_crest_contract(stage, task, contract)
@@ -235,7 +235,7 @@ def completed_crest_roles_impl(
 def completed_crest_stage_impl(
     stage: dict[str, Any],
     *,
-    crest_auto_config: str | None,
+    crest_config: str | None,
     deps: OrchestrationDeps | None = None,
 ) -> Any | None:
     o = _orchestration_context(deps)
@@ -246,7 +246,7 @@ def completed_crest_stage_impl(
     job_dir_target = o.stages._normalize_text(payload.get("job_dir"))
     index_root = (
         _workflow_internal_runs_root(job_dir_target, engine="crest")
-        or _call_engine_aware(o.stages._load_config_root, crest_auto_config, engine="crest")
+        or _call_engine_aware(o.stages._load_config_root, crest_config, engine="crest")
         or (
             Path(job_dir_target).expanduser().resolve().parent
             if job_dir_target

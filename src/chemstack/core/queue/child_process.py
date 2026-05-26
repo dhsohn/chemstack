@@ -20,9 +20,7 @@ def build_background_worker_command(
     worker_job_module: str,
     admission_root: str | Path | None = None,
     admission_token: str | None = None,
-    auto_organize: bool = False,
     include_admission_root: bool = True,
-    auto_organize_before_admission_token: bool = False,
 ) -> list[str]:
     command = [
         sys.executable,
@@ -39,12 +37,8 @@ def build_background_worker_command(
         if admission_root is None:
             raise ValueError("admission_root is required when include_admission_root is true")
         command.extend(["--admission-root", str(admission_root)])
-    if auto_organize and auto_organize_before_admission_token:
-        command.append("--auto-organize")
     if admission_token:
         command.extend(["--admission-token", admission_token])
-    if auto_organize and not auto_organize_before_admission_token:
-        command.append("--auto-organize")
     return command
 
 
@@ -56,9 +50,7 @@ def start_background_job_process(
     worker_job_module: str,
     admission_root: str | Path | None = None,
     admission_token: str | None = None,
-    auto_organize: bool = False,
     include_admission_root: bool = True,
-    auto_organize_before_admission_token: bool = False,
 ) -> subprocess.Popen[str]:
     return subprocess.Popen(
         build_background_worker_command(
@@ -68,9 +60,7 @@ def start_background_job_process(
             worker_job_module=worker_job_module,
             admission_root=admission_root,
             admission_token=admission_token,
-            auto_organize=auto_organize,
             include_admission_root=include_admission_root,
-            auto_organize_before_admission_token=auto_organize_before_admission_token,
         ),
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,

@@ -588,4 +588,3 @@ pytest tests/integration -q
 ```
 
 For package-layout and import guidance, see [DEVELOPMENT.md](DEVELOPMENT.md).
-Historical migration plans are archived under [archive/README.md](archive/README.md).

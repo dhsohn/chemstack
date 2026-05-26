@@ -697,7 +697,7 @@ def test_advance_workflow_registry_once_defers_submission_when_admission_full(
     try:
         result = runtime.advance_workflow_registry_once(
             workflow_root=tmp_path / "workflow_root",
-            orca_auto_config=str(config_path),
+            orca_config=str(config_path),
             submit_ready=True,
             worker_session_id="session-1",
             lease_seconds=0,

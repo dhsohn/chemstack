@@ -5,7 +5,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Dict, Iterator
 
-from .. import lock_utils
+from chemstack.core.utils import process_lock
 from ..process_tracking import RUN_LOCK_FILE_NAME, current_process_lock_payload
 
 logger = logging.getLogger(__name__)
@@ -41,12 +41,12 @@ def acquire_run_lock(reaction_dir: Path) -> Iterator[None]:
     lock_path = reaction_dir / LOCK_FILE_NAME
     lock_payload = current_process_lock_payload()
 
-    with lock_utils.acquire_file_lock(
+    with process_lock.acquire_file_lock(
         lock_path=lock_path,
         lock_payload_obj=lock_payload,
-        parse_lock_info_fn=lock_utils.parse_lock_info,
-        is_process_alive_fn=lock_utils.is_process_alive,
-        process_start_ticks_fn=lock_utils.process_start_ticks,
+        parse_lock_info_fn=process_lock.parse_lock_info,
+        is_process_alive_fn=process_lock.is_process_alive,
+        process_start_ticks_fn=process_lock.process_start_ticks,
         logger=logger,
         acquired_log_template="Lock acquired: %s",
         released_log_template="Lock released: %s",

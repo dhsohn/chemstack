@@ -69,7 +69,7 @@ def test_load_jsonl_records_skips_blank_invalid_and_non_dict_rows(tmp_path: Path
     assert orca_adapter._load_jsonl_records(records_path) == [{"queue_id": "q1"}, {"queue_id": "q2"}]
 
 
-def test_import_orca_auto_module_returns_none_or_raises_by_error_origin(
+def test_import_orca_module_returns_none_or_raises_by_error_origin(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     calls: list[str] = []
@@ -79,7 +79,7 @@ def test_import_orca_auto_module_returns_none_or_raises_by_error_origin(
         raise ModuleNotFoundError(name=name)
 
     monkeypatch.setattr(orca_adapter, "import_module", missing_then_missing)
-    assert orca_adapter._import_orca_auto_module("chemstack.orca.job_locations") is None
+    assert orca_adapter._import_orca_module("chemstack.orca.job_locations") is None
     assert calls == ["chemstack.orca.job_locations"]
 
     def unrelated_missing(name: str) -> object:
@@ -87,7 +87,7 @@ def test_import_orca_auto_module_returns_none_or_raises_by_error_origin(
 
     monkeypatch.setattr(orca_adapter, "import_module", unrelated_missing)
     with pytest.raises(ModuleNotFoundError) as excinfo:
-        orca_adapter._import_orca_auto_module("chemstack.orca.job_locations")
+        orca_adapter._import_orca_module("chemstack.orca.job_locations")
     assert excinfo.value.name == "different_module"
 
 

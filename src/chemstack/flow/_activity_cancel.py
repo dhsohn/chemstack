@@ -72,15 +72,15 @@ def cancel_workflow_activity(
     return cancel_workflow(
         target=record.cancel_target,
         workflow_root=resolved.workflow_root,
-        crest_auto_config=resolved.crest_auto_config,
-        crest_auto_executable=request.crest_auto_executable,
-        crest_auto_repo_root=request.crest_auto_repo_root,
-        xtb_auto_config=resolved.xtb_auto_config,
-        xtb_auto_executable=request.xtb_auto_executable,
-        xtb_auto_repo_root=request.xtb_auto_repo_root,
-        orca_auto_config=resolved.orca_auto_config,
-        orca_auto_executable=request.orca_auto_executable,
-        orca_auto_repo_root=request.orca_auto_repo_root,
+        crest_config=resolved.crest_config,
+        crest_executable=request.engine_options.crest.executable,
+        crest_repo_root=request.engine_options.crest.repo_root,
+        xtb_config=resolved.xtb_config,
+        xtb_executable=request.engine_options.xtb.executable,
+        xtb_repo_root=request.engine_options.xtb.repo_root,
+        orca_config=resolved.orca_config,
+        orca_executable=request.engine_options.orca.executable,
+        orca_repo_root=request.engine_options.orca.repo_root,
     )
 
 
@@ -91,14 +91,14 @@ def cancel_crest_activity(
     *,
     deps: Any,
 ) -> dict[str, Any]:
-    config_path = normalize_text(resolved.crest_auto_config)
+    config_path = normalize_text(resolved.crest_config)
     if not config_path:
-        raise ValueError("crest_auto_config is required to cancel crest_auto activities.")
+        raise ValueError("crest_config is required to cancel crest activities.")
     return deps.cancel_crest_target(
         target=record.cancel_target,
         config_path=config_path,
-        executable=request.crest_auto_executable,
-        repo_root=request.crest_auto_repo_root,
+        executable=request.engine_options.crest.executable,
+        repo_root=request.engine_options.crest.repo_root,
     )
 
 
@@ -109,14 +109,14 @@ def cancel_xtb_activity(
     *,
     deps: Any,
 ) -> dict[str, Any]:
-    config_path = normalize_text(resolved.xtb_auto_config)
+    config_path = normalize_text(resolved.xtb_config)
     if not config_path:
-        raise ValueError("xtb_auto_config is required to cancel xtb_auto activities.")
+        raise ValueError("xtb_config is required to cancel xtb activities.")
     return deps.cancel_xtb_target(
         target=record.cancel_target,
         config_path=config_path,
-        executable=request.xtb_auto_executable,
-        repo_root=request.xtb_auto_repo_root,
+        executable=request.engine_options.xtb.executable,
+        repo_root=request.engine_options.xtb.repo_root,
     )
 
 
@@ -127,21 +127,21 @@ def cancel_orca_activity(
     *,
     deps: Any,
 ) -> dict[str, Any]:
-    config_path = normalize_text(resolved.orca_auto_config)
+    config_path = normalize_text(resolved.orca_config)
     if not config_path:
         raise ValueError("chemstack_config is required to cancel chemstack ORCA activities.")
     return deps.cancel_orca_target(
         target=record.cancel_target,
         config_path=config_path,
-        executable=request.orca_auto_executable,
-        repo_root=deps._discover_orca_repo_root(request.orca_auto_repo_root),
+        executable=request.engine_options.orca.executable,
+        repo_root=deps._discover_orca_repo_root(request.engine_options.orca.repo_root),
     )
 
 
 def cancel_providers(deps: Any) -> tuple[ActivityCancelProvider, ...]:
     return (
         ActivityCancelProvider(
-            "crest_auto",
+            "chemstack_crest",
             lambda record, resolved, request: cancel_crest_activity(
                 record,
                 resolved,
@@ -150,7 +150,7 @@ def cancel_providers(deps: Any) -> tuple[ActivityCancelProvider, ...]:
             ),
         ),
         ActivityCancelProvider(
-            "xtb_auto",
+            "chemstack_xtb",
             lambda record, resolved, request: cancel_xtb_activity(
                 record,
                 resolved,

@@ -37,7 +37,7 @@ def _build_submission(
     resource_request = resource_request_from_manifest(cfg, manifest)
     return EngineRunDirSubmission(
         queue_root=index_root_for_path(cfg, job_dir),
-        app_name="crest_auto",
+        app_name="chemstack_crest",
         task_id=job_id,
         task_kind="crest_conformer_search",
         engine="crest",

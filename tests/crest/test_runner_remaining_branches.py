@@ -72,7 +72,21 @@ def _dependencies(**overrides: Callable[..., Any]) -> worker_execution.WorkerExe
         "notify_job_finished": lambda *args, **kwargs: True,
     }
     defaults.update(overrides)
-    return worker_execution.WorkerExecutionDependencies(**defaults)
+    return worker_execution.build_worker_execution_dependencies(
+        now_utc_iso_fn=defaults["now_utc_iso"],
+        get_cancel_requested_fn=defaults["get_cancel_requested"],
+        start_crest_job_fn=defaults["start_crest_job"],
+        finalize_crest_job_fn=defaults["finalize_crest_job"],
+        terminate_process_fn=defaults["terminate_process"],
+        write_running_state_fn=defaults["write_running_state"],
+        write_execution_artifacts_fn=defaults["write_execution_artifacts"],
+        mark_completed_fn=defaults["mark_completed"],
+        mark_cancelled_fn=defaults["mark_cancelled"],
+        mark_failed_fn=defaults["mark_failed"],
+        upsert_job_record_fn=defaults["upsert_job_record"],
+        notify_job_started_fn=defaults["notify_job_started"],
+        notify_job_finished_fn=defaults["notify_job_finished"],
+    )
 
 
 @pytest.mark.parametrize(
@@ -125,7 +139,7 @@ def test_preexec_with_limits_applies_address_space_limit(monkeypatch: pytest.Mon
     ]
 
 
-def test_sync_job_tracking_ignores_auto_organize_for_crest(
+def test_sync_job_tracking_omits_organized_output_for_crest(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -153,7 +167,6 @@ def test_sync_job_tracking_ignores_auto_organize_for_crest(
         SimpleNamespace(),
         context,
         result,
-        auto_organize=True,
         dependencies=deps,
     )
 

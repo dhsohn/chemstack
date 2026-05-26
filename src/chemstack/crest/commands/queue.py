@@ -65,14 +65,14 @@ WORKER_SHUTDOWN_GRACE_SECONDS = 10.0
 
 def _queue_worker_deps() -> ChildQueueWorkerDeps:
     return ChildQueueWorkerDeps(
-        POLL_INTERVAL_SECONDS=POLL_INTERVAL_SECONDS,
+        poll_interval_seconds=POLL_INTERVAL_SECONDS,
         time=time,
         release_slot=release_slot,
         reserve_dequeued_entry=reserve_dequeued_entry,
-        _admission_root=_admission_root_for_cfg,
-        _dequeue_next_entry=_dequeue_next_entry,
-        _start_background_job_process=_start_background_job_process,
-        _try_reserve_admission_slot=_try_reserve_admission_slot,
+        admission_root=_admission_root_for_cfg,
+        dequeue_next_entry=_dequeue_next_entry,
+        start_background_job_process=_start_background_job_process,
+        try_reserve_admission_slot=_try_reserve_admission_slot,
     )
 
 
@@ -128,7 +128,7 @@ def _try_reserve_admission_slot(cfg: Any) -> str | None:
     return reserve_queue_worker_slot(
         cfg,
         source="chemstack.crest.queue_worker",
-        app_name="crest_auto",
+        app_name="chemstack_crest",
         reserve_slot_fn=reserve_slot,
     )
 
@@ -161,34 +161,32 @@ def cmd_queue_cancel(args: Any) -> int:
     )
 
 
-def _process_one(cfg: Any, *, auto_organize: bool) -> str:
-    del auto_organize
-    slot_token = _try_reserve_admission_slot(cfg)
-    if slot_token is None:
-        return "blocked"
-
-    try:
-        dequeued = _dequeue_next_entry(cfg)
-        if dequeued is None:
-            return "idle"
-        queue_root, entry = dequeued
-        outcome = process_dequeued_entry(
+def _process_one(cfg: Any) -> str:
+    def execute(queue_root: Path, entry: Any) -> Any:
+        return process_dequeued_entry(
             cfg,
             entry,
             queue_root=queue_root,
-            auto_organize=False,
             resource_caps=_resource_caps,
             molecule_key_resolver=_molecule_key,
             dependencies=_worker_dependencies(),
         )
 
+    def print_outcome(entry: Any, outcome: Any) -> None:
         print(f"queue_id: {entry.queue_id}")
         print(f"job_id: {entry.task_id}")
         print(f"status: {outcome.result.status}")
         print(f"reason: {outcome.result.reason}")
-        return "processed"
-    finally:
-        release_slot(_admission_root_for_cfg(cfg), slot_token)
+
+    return _shared_queue.process_one_entry(
+        cfg,
+        reserve_slot_fn=_try_reserve_admission_slot,
+        admission_root_fn=_admission_root_for_cfg,
+        dequeue_next_entry_fn=_dequeue_next_entry,
+        execute_entry_fn=execute,
+        after_execute_fn=print_outcome,
+        release_slot_fn=release_slot,
+    )
 
 
 def read_worker_pid(allowed_root: Path) -> int | None:
@@ -202,15 +200,13 @@ def _start_background_job_process(
     entry: Any,
     admission_root: str | Path,
     admission_token: str,
-    auto_organize: bool,
 ) -> subprocess.Popen[str]:
-    del admission_root, auto_organize
+    del admission_root
     return subprocess.Popen(
         build_worker_child_command(
             config_path=config_path,
             queue_root=queue_root,
             queue_id=entry.queue_id,
-            auto_organize=False,
             admission_token=admission_token,
         ),
         stdout=subprocess.DEVNULL,
@@ -230,16 +226,13 @@ class QueueWorker(QueueWorkerPidFileMixin, ChildProcessQueueWorker):
         config_path: str,
         *,
         max_concurrent: int,
-        auto_organize: bool,
     ) -> None:
         super().__init__(
             cfg,
             config_path=str(config_path).strip() or default_config_path(),
-            auto_organize=False,
             max_concurrent=max(1, int(max_concurrent)),
             deps=_queue_worker_deps(),
         )
-        del auto_organize
         self.allowed_root = Path(str(cfg.runtime.allowed_root)).expanduser().resolve()
         self.admission_root = Path(_admission_root_for_cfg(cfg)).expanduser().resolve()
 
@@ -348,6 +341,5 @@ def cmd_queue_worker(args: Any) -> int:
         cfg,
         config_path_for_worker(args, default_config_path_fn=default_config_path),
         max_concurrent=max(1, int(getattr(cfg.runtime, "max_concurrent", 1))),
-        auto_organize=False,
     )
     return worker.run()

@@ -51,13 +51,13 @@ def engine_queue_clear_providers(
     return (
         EngineQueueClearProvider(
             engine="xtb",
-            config_attr="xtb_auto_config",
+            config_attr="xtb_config",
             cleared_key="xtb_queue_entries",
             deps=deps,
         ),
         EngineQueueClearProvider(
             engine="crest",
-            config_attr="crest_auto_config",
+            config_attr="crest_config",
             cleared_key="crest_queue_entries",
             deps=deps,
         ),
@@ -67,19 +67,19 @@ def engine_queue_clear_providers(
 def clear_activities(
     *,
     workflow_root: str | Path | None = None,
-    crest_auto_config: str | None = None,
-    xtb_auto_config: str | None = None,
-    orca_auto_config: str | None = None,
-    orca_auto_repo_root: str | None = None,
+    crest_config: str | None = None,
+    xtb_config: str | None = None,
+    orca_config: str | None = None,
+    orca_repo_root: str | None = None,
     clearable_terminal_statuses: Iterable[str],
     deps: ActivityClearDeps,
 ) -> dict[str, Any]:
-    del orca_auto_repo_root
+    del orca_repo_root
     source_request = ActivitySourceRequest(
         workflow_root=workflow_root,
-        crest_auto_config=crest_auto_config,
-        xtb_auto_config=xtb_auto_config,
-        orca_auto_config=orca_auto_config,
+        crest_config=crest_config,
+        xtb_config=xtb_config,
+        orca_config=orca_config,
     )
     resolved = deps._resolved_activity_sources_for_request(source_request)
 
@@ -98,12 +98,12 @@ def clear_activities(
         )
     for provider in engine_queue_clear_providers(deps):
         cleared[provider.cleared_key] += provider.clear(resolved)
-    if normalize_text(resolved.orca_auto_config):
+    if normalize_text(resolved.orca_config):
         from chemstack.orca.commands.list_runs import (
             clear_terminal_entries as clear_orca_terminal_entries,
         )
 
-        allowed_root = deps.sibling_runtime_paths(str(resolved.orca_auto_config), engine="orca")[
+        allowed_root = deps.sibling_runtime_paths(str(resolved.orca_config), engine="orca")[
             "allowed_root"
         ]
         queue_count, run_count = clear_orca_terminal_entries(allowed_root)
@@ -118,8 +118,8 @@ def clear_activities(
             "workflow_root": str(Path(workflow_root_text).expanduser().resolve())
             if workflow_root_text
             else "",
-            "crest_auto_config": normalize_text(resolved.crest_auto_config),
-            "xtb_auto_config": normalize_text(resolved.xtb_auto_config),
-            "orca_auto_config": normalize_text(resolved.orca_auto_config),
+            "crest_config": normalize_text(resolved.crest_config),
+            "xtb_config": normalize_text(resolved.xtb_config),
+            "orca_config": normalize_text(resolved.orca_config),
         },
     }

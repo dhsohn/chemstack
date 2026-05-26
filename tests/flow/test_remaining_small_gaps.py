@@ -219,7 +219,7 @@ def test_cli_json_paths_worker_sleep_and_common_workflow_id_helpers(
     assert json.loads(capsys.readouterr().out)["events"] == []
 
     monkeypatch.setattr(cli_workflow, "submit_reaction_ts_search_workflow", lambda **kwargs: {"workflow_id": "wf_submit"})
-    assert cli_workflow.cmd_workflow_submit_reaction_ts_search(SimpleNamespace(target="wf1", workflow_root="/tmp/wf", orca_auto_config="/tmp/cfg", orca_auto_executable="orca_auto", orca_auto_repo_root=None, resubmit=False, json=True)) == 0
+    assert cli_workflow.cmd_workflow_submit_reaction_ts_search(SimpleNamespace(target="wf1", workflow_root="/tmp/wf", orca_config="/tmp/cfg", orca_executable="chemstack", orca_repo_root=None, resubmit=False, json=True)) == 0
     assert json.loads(capsys.readouterr().out)["workflow_id"] == "wf_submit"
 
     monkeypatch.setattr(cli_workflow, "list_workflows", lambda **kwargs: {"count": 0, "workflows": []})
@@ -235,7 +235,7 @@ def test_cli_json_paths_worker_sleep_and_common_workflow_id_helpers(
     assert json.loads(capsys.readouterr().out)["artifact_count"] == 0
 
     monkeypatch.setattr(cli_workflow, "cancel_workflow", lambda **kwargs: {"workflow_id": "wf_cancel"})
-    assert cli_workflow.cmd_workflow_cancel(SimpleNamespace(target="wf_cancel", workflow_root="/tmp/wf", crest_auto_config=None, crest_auto_executable="crest_auto", crest_auto_repo_root=None, xtb_auto_config=None, xtb_auto_executable="xtb_auto", xtb_auto_repo_root=None, orca_auto_config=None, orca_auto_executable="orca_auto", orca_auto_repo_root=None, json=True)) == 0
+    assert cli_workflow.cmd_workflow_cancel(SimpleNamespace(target="wf_cancel", workflow_root="/tmp/wf", crest_config=None, crest_executable="chemstack_crest", crest_repo_root=None, xtb_config=None, xtb_executable="chemstack_xtb", xtb_repo_root=None, orca_config=None, orca_executable="chemstack", orca_repo_root=None, json=True)) == 0
     assert json.loads(capsys.readouterr().out)["workflow_id"] == "wf_cancel"
 
     monkeypatch.setattr(cli_workflow, "reindex_workflow_registry", lambda workflow_root: [])
@@ -270,15 +270,15 @@ def test_cli_json_paths_worker_sleep_and_common_workflow_id_helpers(
             worker_session_id="worker_1",
             lease_seconds=1.0,
             no_submit=False,
-            crest_auto_config=None,
-            crest_auto_executable="crest_auto",
-            crest_auto_repo_root=None,
-            xtb_auto_config=None,
-            xtb_auto_executable="xtb_auto",
-            xtb_auto_repo_root=None,
-            orca_auto_config=None,
-            orca_auto_executable="orca_auto",
-            orca_auto_repo_root=None,
+            crest_config=None,
+            crest_executable="chemstack_crest",
+            crest_repo_root=None,
+            xtb_config=None,
+            xtb_executable="chemstack_xtb",
+            xtb_repo_root=None,
+            orca_config=None,
+            orca_executable="chemstack",
+            orca_repo_root=None,
         )
     ) == 0
     assert slept == [0.1]

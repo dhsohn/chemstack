@@ -305,7 +305,7 @@ def test_try_reserve_admission_slot_uses_resolved_values(
 
     assert queue_cmd._try_reserve_admission_slot(cfg) == "slot-1"
     assert calls == [
-        (str(tmp_path / "resolved-admission"), 5, "chemstack.xtb.queue_worker", "xtb_auto")
+        (str(tmp_path / "resolved-admission"), 5, "chemstack.xtb.queue_worker", "chemstack_xtb")
     ]
 
 
@@ -359,7 +359,6 @@ def test_run_worker_job_activates_reserved_slot_and_releases_it(
         queue_id=entry.queue_id,
         admission_root=cfg.runtime.admission_root,
         admission_token="slot-1",
-        auto_organize=False,
         should_cancel=lambda: False,
         register_running_job=lambda _value: None,
     )

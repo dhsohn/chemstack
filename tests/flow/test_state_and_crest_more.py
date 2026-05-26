@@ -378,7 +378,7 @@ def test_load_crest_artifact_contract_uses_state_and_index_fallbacks_for_resourc
         [
             {
                 "job_id": "crest_job_01",
-                "app_name": "crest_auto",
+                "app_name": "chemstack_crest",
                 "job_type": "screen",
                 "status": "completed",
                 "original_run_dir": str(missing_original),
@@ -470,7 +470,7 @@ def test_load_crest_artifact_contract_rejects_non_crest_index_records(tmp_path: 
         [
             {
                 "job_id": "crest_wrong_app",
-                "app_name": "xtb_auto",
+                "app_name": "chemstack_xtb",
                 "job_type": "screen",
                 "status": "completed",
                 "original_run_dir": str(job_dir),
@@ -480,7 +480,7 @@ def test_load_crest_artifact_contract_rejects_non_crest_index_records(tmp_path: 
     )
     _write_json(job_dir / "job_state.json", {"job_id": "crest_wrong_app", "status": "completed"})
 
-    with pytest.raises(ValueError, match="Expected crest_auto index record"):
+    with pytest.raises(ValueError, match="Expected chemstack_crest index record"):
         load_crest_artifact_contract(crest_index_root=index_root, target="crest_wrong_app")
 
 
@@ -519,7 +519,7 @@ def test_load_crest_artifact_contract_remaps_stale_paths_to_organized_outputs(tm
         [
             {
                 "job_id": "crest_job_organized",
-                "app_name": "crest_auto",
+                "app_name": "chemstack_crest",
                 "job_type": "standard",
                 "status": "completed",
                 "original_run_dir": str(original_dir),

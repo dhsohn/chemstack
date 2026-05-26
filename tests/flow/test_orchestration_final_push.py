@@ -170,9 +170,9 @@ def test_sync_xtb_stage_returns_early_without_target_or_on_contract_lookup_error
     )
     orchestration._sync_xtb_stage(
         no_target_stage,
-        xtb_auto_config=None,
-        xtb_auto_executable="xtb_auto",
-        xtb_auto_repo_root=None,
+        xtb_config=None,
+        xtb_executable="chemstack_xtb",
+        xtb_repo_root=None,
         submit_ready=False,
         workflow_id="wf_01",
         workspace_dir=Path("/tmp/workspaces/wf_01"),
@@ -202,9 +202,9 @@ def test_sync_xtb_stage_returns_early_without_target_or_on_contract_lookup_error
     caplog.set_level(logging.DEBUG, logger="chemstack.flow._orchestration_stage_runtime_shared")
     orchestration._sync_xtb_stage(
         failing_stage,
-        xtb_auto_config=None,
-        xtb_auto_executable="xtb_auto",
-        xtb_auto_repo_root=None,
+        xtb_config=None,
+        xtb_executable="chemstack_xtb",
+        xtb_repo_root=None,
         submit_ready=False,
         workflow_id="wf_01",
         workspace_dir=Path("/tmp/workspaces/wf_01"),
@@ -227,8 +227,8 @@ def test_completed_contract_helpers_cover_missing_targets_and_exceptions(
     }
     assert set(orchestration._completed_crest_roles(payload).keys()) == {"reactant"}
 
-    assert orchestration._completed_crest_stage({"task": None}, crest_auto_config=None) is None
-    assert orchestration._completed_crest_stage({"task": {"payload": {}}, "metadata": {}}, crest_auto_config=None) is None
+    assert orchestration._completed_crest_stage({"task": None}, crest_config=None) is None
+    assert orchestration._completed_crest_stage({"task": {"payload": {}}, "metadata": {}}, crest_config=None) is None
 
     deps = orchestration_deps(
         overrides={
@@ -240,18 +240,18 @@ def test_completed_contract_helpers_cover_missing_targets_and_exceptions(
     assert (
         orchestration._completed_crest_stage(
             {"task": {"payload": {"job_dir": "/tmp/crest_job"}}, "metadata": {}},
-            crest_auto_config=None,
+            crest_config=None,
             deps=deps,
         )
         is None
     )
     assert _has_contract_lookup_log(caplog, "crest")
 
-    assert orchestration._completed_orca_stage({"task": None}, orca_auto_config=None) is None
+    assert orchestration._completed_orca_stage({"task": None}, orca_config=None) is None
     assert (
         orchestration._completed_orca_stage(
             {"task": {"payload": {}, "enqueue_payload": {}}, "metadata": {}},
-            orca_auto_config=None,
+            orca_config=None,
         )
         is None
     )
@@ -266,7 +266,7 @@ def test_completed_contract_helpers_cover_missing_targets_and_exceptions(
     assert (
         orchestration._completed_orca_stage(
             {"task": {"payload": {"reaction_dir": "/tmp/rxn"}, "enqueue_payload": {}}, "metadata": {}},
-            orca_auto_config=None,
+            orca_config=None,
             deps=deps,
         )
         is None
@@ -280,14 +280,14 @@ def test_append_reaction_xtb_stages_false_branches_and_zero_created(
     assert orchestration._append_reaction_xtb_stages(
         {"stages": [{"task": {"engine": "xtb"}}]},
         workspace_dir=tmp_path,
-        crest_auto_config=None,
+        crest_config=None,
     ) is False
 
     deps = orchestration_deps(overrides={"_completed_crest_roles": lambda payload: {"reactant": {}}})
     assert orchestration._append_reaction_xtb_stages(
         {"stages": [], "metadata": {}, "workflow_id": "wf_xtb", "reaction_key": "rxn"},
         workspace_dir=tmp_path,
-        crest_auto_config=None,
+        crest_config=None,
         deps=deps,
     ) is False
 
@@ -304,7 +304,7 @@ def test_append_reaction_xtb_stages_false_branches_and_zero_created(
         orchestration._append_reaction_xtb_stages(
             payload,
             workspace_dir=tmp_path,
-            crest_auto_config=None,
+            crest_config=None,
             deps=deps,
         )
         is False
@@ -321,7 +321,7 @@ def test_append_reaction_xtb_stages_false_branches_and_zero_created(
         orchestration._append_reaction_xtb_stages(
             payload,
             workspace_dir=tmp_path,
-            crest_auto_config=None,
+            crest_config=None,
             deps=deps,
         )
         is False
@@ -407,8 +407,8 @@ def test_append_reaction_orca_stages_covers_skip_and_first_candidate_path(
     created = orchestration._append_reaction_orca_stages(
         payload,
         workspace_dir=tmp_path,
-        xtb_auto_config="xtb.yaml",
-        orca_auto_config="orca.yaml",
+        xtb_config="xtb.yaml",
+        orca_config="orca.yaml",
         deps=deps,
     )
 
@@ -431,8 +431,8 @@ def test_append_reaction_orca_stages_false_and_attempted_path_edges(
     assert orchestration._append_reaction_orca_stages(
         {"stages": [], "metadata": {}},
         workspace_dir=tmp_path,
-        xtb_auto_config="xtb.yaml",
-        orca_auto_config="orca.yaml",
+        xtb_config="xtb.yaml",
+        orca_config="orca.yaml",
     ) is False
 
     base_xtb_stage = {
@@ -453,8 +453,8 @@ def test_append_reaction_orca_stages_false_and_attempted_path_edges(
         orchestration._append_reaction_orca_stages(
             payload,
             workspace_dir=tmp_path,
-            xtb_auto_config="xtb.yaml",
-            orca_auto_config="orca.yaml",
+            xtb_config="xtb.yaml",
+            orca_config="orca.yaml",
             deps=deps,
         )
         is False
@@ -471,8 +471,8 @@ def test_append_reaction_orca_stages_false_and_attempted_path_edges(
         orchestration._append_reaction_orca_stages(
             payload,
             workspace_dir=tmp_path,
-            xtb_auto_config="xtb.yaml",
-            orca_auto_config="orca.yaml",
+            xtb_config="xtb.yaml",
+            orca_config="orca.yaml",
             deps=deps,
         )
         is False
@@ -518,8 +518,8 @@ def test_append_reaction_orca_stages_false_and_attempted_path_edges(
         orchestration._append_reaction_orca_stages(
             active_payload,
             workspace_dir=tmp_path,
-            xtb_auto_config="xtb.yaml",
-            orca_auto_config="orca.yaml",
+            xtb_config="xtb.yaml",
+            orca_config="orca.yaml",
             deps=deps,
         )
         is False
@@ -536,8 +536,8 @@ def test_append_reaction_orca_stages_false_and_attempted_path_edges(
         orchestration._append_reaction_orca_stages(
             completed_payload,
             workspace_dir=tmp_path,
-            xtb_auto_config="xtb.yaml",
-            orca_auto_config="orca.yaml",
+            xtb_config="xtb.yaml",
+            orca_config="orca.yaml",
             deps=deps,
         )
         is False
@@ -553,8 +553,8 @@ def test_append_reaction_orca_stages_false_and_attempted_path_edges(
     created = orchestration._append_reaction_orca_stages(
         blocked_payload,
         workspace_dir=tmp_path,
-        xtb_auto_config="xtb.yaml",
-        orca_auto_config="orca.yaml",
+        xtb_config="xtb.yaml",
+        orca_config="orca.yaml",
         deps=deps,
     )
     assert created is True
@@ -576,8 +576,8 @@ def test_append_reaction_orca_stages_false_and_attempted_path_edges(
     created = orchestration._append_reaction_orca_stages(
         exhausted_payload,
         workspace_dir=tmp_path,
-        xtb_auto_config="xtb.yaml",
-        orca_auto_config="orca.yaml",
+        xtb_config="xtb.yaml",
+        orca_config="orca.yaml",
         deps=deps,
     )
     assert created is False
@@ -596,8 +596,8 @@ def test_append_crest_orca_stage_false_branches(
         orchestration._append_crest_orca_stages(
             payload,
             template_name="conformer_screening",
-            crest_auto_config=None,
-            orca_auto_config=None,
+            crest_config=None,
+            orca_config=None,
             stage_id_prefix="orca_conformer",
             xyz_filename="guess.xyz",
             inp_filename="guess.inp",
@@ -610,8 +610,8 @@ def test_append_crest_orca_stage_false_branches(
         orchestration._append_crest_orca_stages(
             payload,
             template_name="conformer_screening",
-            crest_auto_config=None,
-            orca_auto_config=None,
+            crest_config=None,
+            orca_config=None,
             stage_id_prefix="orca_conformer",
             xyz_filename="guess.xyz",
             inp_filename="guess.inp",
@@ -630,8 +630,8 @@ def test_append_crest_orca_stage_false_branches(
         orchestration._append_crest_orca_stages(
             payload,
             template_name="conformer_screening",
-            crest_auto_config="crest.yaml",
-            orca_auto_config="orca.yaml",
+            crest_config="crest.yaml",
+            orca_config="orca.yaml",
             stage_id_prefix="orca_conformer",
             xyz_filename="guess.xyz",
             inp_filename="guess.inp",
@@ -650,8 +650,8 @@ def test_append_crest_orca_stage_false_branches(
         orchestration._append_crest_orca_stages(
             payload,
             template_name="conformer_screening",
-            crest_auto_config="crest.yaml",
-            orca_auto_config="orca.yaml",
+            crest_config="crest.yaml",
+            orca_config="orca.yaml",
             stage_id_prefix="orca_conformer",
             xyz_filename="guess.xyz",
             inp_filename="guess.inp",
@@ -778,7 +778,7 @@ def test_cancel_materialized_workflow_skips_invalid_rows_and_uses_xtb_remote_can
     result = orchestration.cancel_materialized_workflow(
         target="wf_cancel_xtb",
         workflow_root=tmp_path,
-        xtb_auto_config="xtb.yaml",
+        xtb_config="xtb.yaml",
         deps=deps,
     )
 

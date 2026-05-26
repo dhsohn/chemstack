@@ -40,7 +40,7 @@ def test_queue_table_lines_align_wide_headers_and_icons(
                     "engine": "workflow",
                     "status": "running",
                     "label": "reaction-case",
-                    "source": "chem_flow",
+                    "source": "chemstack_flow",
                     "submitted_at": "2026-04-26T01:30:00+00:00",
                     "updated_at": "2026-04-26T02:00:00+00:00",
                     "metadata": {
@@ -134,7 +134,7 @@ def test_cmd_queue_list_filters_text_output(
                     "engine": "workflow",
                     "status": "running",
                     "label": "wf-1",
-                    "source": "chem_flow",
+                    "source": "chemstack_flow",
                     "submitted_at": "2026-04-26T01:00:00+00:00",
                     "updated_at": "2026-04-26T01:00:00+00:00",
                 },
@@ -144,7 +144,7 @@ def test_cmd_queue_list_filters_text_output(
                     "engine": "xtb",
                     "status": "running",
                     "label": "rxn-a",
-                    "source": "xtb_auto",
+                    "source": "chemstack_xtb",
                     "submitted_at": "2026-04-26T02:00:00+00:00",
                     "updated_at": "2026-04-26T02:30:00+00:00",
                     "metadata": {"task_kind": "path_search"},
@@ -155,7 +155,7 @@ def test_cmd_queue_list_filters_text_output(
                     "engine": "crest",
                     "status": "pending",
                     "label": "mol-a",
-                    "source": "crest_auto",
+                    "source": "chemstack_crest",
                     "submitted_at": "2026-04-26T02:15:00+00:00",
                     "updated_at": "2026-04-26T02:15:00+00:00",
                 },
@@ -214,7 +214,7 @@ def test_cmd_queue_list_hides_non_orca_workflow_children_in_default_text_output(
                     "engine": "workflow",
                     "status": "running",
                     "label": "reaction-case",
-                    "source": "chem_flow",
+                    "source": "chemstack_flow",
                     "submitted_at": "2026-04-26T01:30:00+00:00",
                     "updated_at": "2026-04-26T02:00:00+00:00",
                     "metadata": {
@@ -229,7 +229,7 @@ def test_cmd_queue_list_hides_non_orca_workflow_children_in_default_text_output(
                     "engine": "xtb",
                     "status": "running",
                     "label": "path-search",
-                    "source": "xtb_auto",
+                    "source": "chemstack_xtb",
                     "submitted_at": "2026-04-26T02:00:00+00:00",
                     "updated_at": "2026-04-26T02:15:00+00:00",
                     "metadata": {
@@ -244,7 +244,7 @@ def test_cmd_queue_list_hides_non_orca_workflow_children_in_default_text_output(
                     "engine": "crest",
                     "status": "pending",
                     "label": "conformer-search",
-                    "source": "crest_auto",
+                    "source": "chemstack_crest",
                     "submitted_at": "2026-04-26T02:10:00+00:00",
                     "updated_at": "2026-04-26T02:10:00+00:00",
                     "metadata": {
@@ -350,7 +350,7 @@ def test_cmd_queue_list_shows_all_workflow_child_jobs(
                     "engine": "workflow",
                     "status": "running",
                     "label": "reaction-case",
-                    "source": "chem_flow",
+                    "source": "chemstack_flow",
                     "submitted_at": "2026-04-26T01:00:00+00:00",
                     "updated_at": "2026-04-26T01:00:00+00:00",
                     "metadata": {
@@ -402,7 +402,7 @@ def test_cmd_queue_list_reports_empty_filtered_results(
                     "engine": "workflow",
                     "status": "running",
                     "label": "reaction-case",
-                    "source": "chem_flow",
+                    "source": "chemstack_flow",
                     "submitted_at": "2026-04-26T01:00:00+00:00",
                     "updated_at": "2026-04-26T01:00:00+00:00",
                     "metadata": {"template_name": "reaction_ts_search"},
@@ -456,10 +456,10 @@ def test_cmd_queue_list_json_filters_payload(
                     "engine": "xtb",
                     "status": "queued",
                     "label": "wf-1",
-                    "source": "chem_flow",
+                    "source": "chemstack_flow",
                 },
             ],
-            "sources": {"orca_auto_config": "/tmp/chemstack.yaml"},
+            "sources": {"orca_config": "/tmp/chemstack.yaml"},
         },
     )
 
@@ -481,7 +481,7 @@ def test_cmd_queue_list_json_filters_payload(
     assert payload["count"] == 1
     assert payload["active_simulations"] == 1
     assert payload["activities"][0]["activity_id"] == "orca-q-1"
-    assert payload["sources"]["orca_auto_config"] == "/tmp/chemstack.yaml"
+    assert payload["sources"]["orca_config"] == "/tmp/chemstack.yaml"
 
 
 def test_cmd_queue_list_uses_global_active_simulation_count_from_full_payload(
@@ -501,7 +501,7 @@ def test_cmd_queue_list_uses_global_active_simulation_count_from_full_payload(
                     "engine": "xtb",
                     "status": "running",
                     "label": "rxn-a",
-                    "source": "xtb_auto",
+                    "source": "chemstack_xtb",
                 },
                 {
                     "activity_id": "orca-q-1",
@@ -517,10 +517,10 @@ def test_cmd_queue_list_uses_global_active_simulation_count_from_full_payload(
                     "engine": "xtb",
                     "status": "running",
                     "label": "rxn-b",
-                    "source": "xtb_auto",
+                    "source": "chemstack_xtb",
                 },
             ],
-            "sources": {"orca_auto_config": "/tmp/chemstack.yaml"},
+            "sources": {"orca_config": "/tmp/chemstack.yaml"},
         },
     )
 
@@ -569,7 +569,7 @@ def test_cmd_queue_list_applies_limit_after_filters(
                     "engine": "crest",
                     "status": "pending",
                     "label": "mol-a",
-                    "source": "crest_auto",
+                    "source": "chemstack_crest",
                 },
                 {
                     "activity_id": "xtb-q-1",
@@ -577,7 +577,7 @@ def test_cmd_queue_list_applies_limit_after_filters(
                     "engine": "xtb",
                     "status": "running",
                     "label": "rxn-a",
-                    "source": "xtb_auto",
+                    "source": "chemstack_xtb",
                 },
                 {
                     "activity_id": "orca-q-1",
@@ -593,7 +593,7 @@ def test_cmd_queue_list_applies_limit_after_filters(
                     "engine": "xtb",
                     "status": "running",
                     "label": "rxn-b",
-                    "source": "xtb_auto",
+                    "source": "chemstack_xtb",
                 },
             ],
             "sources": {},
@@ -794,7 +794,7 @@ def test_cmd_queue_cancel_json_output(
             "activity_id": "crest-q-1",
             "kind": "job",
             "engine": "crest",
-            "source": "crest_auto",
+            "source": "chemstack_crest",
             "label": "mol-a",
             "status": "cancel_requested",
             "cancel_target": "crest-q-1",

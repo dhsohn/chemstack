@@ -8,7 +8,7 @@ from chemstack.core.indexing import get_job_location
 from chemstack.core.queue import list_queue
 from chemstack.crest.commands import queue as crest_queue_cmd
 from chemstack.flow.adapters.crest import load_crest_artifact_contract
-from chemstack.flow.submitters import crest_auto as crest_submitter
+from chemstack.flow.submitters import crest as crest_submitter
 
 
 def _queue_status(entry: Any) -> str:
@@ -39,8 +39,7 @@ def test_crest_submitter_roundtrip_smoke(
     assert _queue_status(queue_entries[0]) == "pending"
 
     assert crest_queue_cmd._process_one(
-        crest_queue_cmd.load_config(str(smoke_workspace.crest_config_path)),
-        auto_organize=True,
+        crest_queue_cmd.load_config(str(smoke_workspace.crest_config_path))
     ) == "processed"
     worker_output = capsys.readouterr().out
     assert f"queue_id: {submission['queue_id']}" in worker_output
@@ -49,7 +48,7 @@ def test_crest_submitter_roundtrip_smoke(
 
     record = get_job_location(smoke_workspace.crest_allowed_root, submission["job_id"])
     assert record is not None
-    assert record.app_name == "crest_auto"
+    assert record.app_name == "chemstack_crest"
     assert record.status == "completed"
     assert record.original_run_dir == str(crest_job.resolve())
     assert record.organized_output_dir == ""

@@ -31,34 +31,26 @@ def build_state_payload(
     candidate_paths = list(result.analysis_summary.get("candidate_paths", []))
     if not candidate_paths and isinstance(result.input_summary, dict):
         candidate_paths = list(result.input_summary.get("candidate_paths", []))
-    recovery_reason = _queue_execution.recovery_reason(base_state)
-    payload = {
-        "job_id": entry.task_id,
-        "job_dir": _engine_execution.entry_metadata_text(entry, "job_dir"),
-        "selected_input_xyz": result.selected_input_xyz,
-        "job_type": result.job_type,
-        "reaction_key": result.reaction_key,
-        "input_summary": dict(result.input_summary),
-        "status": result.status,
-        "reason": result.reason,
-        "started_at": result.started_at,
-        "updated_at": result.finished_at,
-        "candidate_count": result.candidate_count,
-        "candidate_paths": candidate_paths,
-        "selected_candidate_paths": list(result.selected_candidate_paths),
-        "candidate_details": [dict(item) for item in result.candidate_details],
-        "analysis_summary": dict(result.analysis_summary),
-        "manifest_path": result.manifest_path,
-        "resource_request": dict(result.resource_request),
-        "resource_actual": dict(result.resource_actual),
-        "created_at": _queue_execution.created_at(base_state),
-        "recovery_pending": False,
-        "recovery_count": _queue_execution.recovery_count(base_state),
-        "resumed": bool(resumed),
-    }
-    if recovery_reason:
-        payload["recovery_reason"] = recovery_reason
-    return payload
+    return _engine_execution.build_terminal_state_payload(
+        entry,
+        result,
+        job_dir_text=_engine_execution.entry_metadata_text(entry, "job_dir"),
+        selected_input_xyz=result.selected_input_xyz,
+        previous_state=base_state,
+        resumed=resumed,
+        engine_fields={
+            "job_type": result.job_type,
+            "reaction_key": result.reaction_key,
+            "input_summary": dict(result.input_summary),
+        },
+        detail_fields={
+            "candidate_count": result.candidate_count,
+            "candidate_paths": candidate_paths,
+            "selected_candidate_paths": list(result.selected_candidate_paths),
+            "candidate_details": [dict(item) for item in result.candidate_details],
+            "analysis_summary": dict(result.analysis_summary),
+        },
+    )
 
 
 def build_report_payload(
@@ -75,37 +67,25 @@ def build_report_payload(
     candidate_paths = list(result.analysis_summary.get("candidate_paths", []))
     if not candidate_paths and isinstance(result.input_summary, dict):
         candidate_paths = list(result.input_summary.get("candidate_paths", []))
-    recovery_reason = _queue_execution.recovery_reason(base_state)
-    payload = {
-        "job_id": entry.task_id,
-        "queue_id": entry.queue_id,
-        "status": result.status,
-        "reason": result.reason,
-        "job_type": result.job_type,
-        "reaction_key": result.reaction_key,
-        "selected_input_xyz": result.selected_input_xyz,
-        "input_summary": dict(result.input_summary),
-        "command": list(result.command),
-        "exit_code": result.exit_code,
-        "started_at": result.started_at,
-        "finished_at": result.finished_at,
-        "stdout_log": result.stdout_log,
-        "stderr_log": result.stderr_log,
-        "candidate_count": result.candidate_count,
-        "candidate_paths": candidate_paths,
-        "selected_candidate_paths": list(result.selected_candidate_paths),
-        "candidate_details": [dict(item) for item in result.candidate_details],
-        "analysis_summary": dict(result.analysis_summary),
-        "manifest_path": result.manifest_path,
-        "resource_request": dict(result.resource_request),
-        "resource_actual": dict(result.resource_actual),
-        "created_at": _queue_execution.created_at(base_state),
-        "recovery_count": _queue_execution.recovery_count(base_state),
-        "resumed": bool(resumed),
-    }
-    if recovery_reason:
-        payload["recovery_reason"] = recovery_reason
-    return payload
+    return _engine_execution.build_terminal_report_payload(
+        entry,
+        result,
+        selected_input_xyz=result.selected_input_xyz,
+        previous_state=base_state,
+        resumed=resumed,
+        engine_fields={
+            "job_type": result.job_type,
+            "reaction_key": result.reaction_key,
+            "input_summary": dict(result.input_summary),
+        },
+        detail_fields={
+            "candidate_count": result.candidate_count,
+            "candidate_paths": candidate_paths,
+            "selected_candidate_paths": list(result.selected_candidate_paths),
+            "candidate_details": [dict(item) for item in result.candidate_details],
+            "analysis_summary": dict(result.analysis_summary),
+        },
+    )
 
 
 def write_execution_artifacts(
@@ -133,7 +113,7 @@ def write_execution_artifacts(
     )
 
     lines = [
-        "# xtb_auto Report",
+        "# ChemStack xTB Report",
         "",
         f"- Job ID: `{entry.task_id}`",
         f"- Queue ID: `{entry.queue_id}`",

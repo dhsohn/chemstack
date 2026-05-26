@@ -311,8 +311,8 @@ def _append_reaction_orca_stages_fallback(
     payload: dict[str, Any],
     *,
     workspace_dir: Path,
-    xtb_auto_config: str | None,
-    orca_auto_config: str | None,
+    xtb_config: str | None,
+    orca_config: str | None,
     resolver: OrchestrationOverrideResolver | None = None,
 ) -> bool:
     from ._orchestration_stage_materialization import append_reaction_orca_stages_impl
@@ -324,8 +324,8 @@ def _append_reaction_orca_stages_fallback(
     return append_reaction_orca_stages_impl(
         payload,
         workspace_dir=workspace_dir,
-        xtb_auto_config=xtb_auto_config,
-        orca_auto_config=orca_auto_config,
+        xtb_config=xtb_config,
+        orca_config=orca_config,
         deps=_deps_for_resolver(resolver),
     )
 
@@ -373,13 +373,13 @@ def _build_engine_deps(resolver: OrchestrationOverrideResolver) -> Orchestration
     from .adapters.xtb import load_xtb_artifact_contract, select_xtb_downstream_inputs
     from .endpoint_pairing import select_endpoint_pairs
     from .submitters.common import sibling_runtime_paths
-    from .submitters.crest_auto import (
+    from .submitters.crest import (
         cancel_target as crest_cancel_target,
         submit_job_dir as submit_crest_job_dir,
     )
-    from .submitters.orca_auto import cancel_target as orca_cancel_target
-    from .submitters.orca_auto import submit_reaction_dir
-    from .submitters.xtb_auto import (
+    from .submitters.orca import cancel_target as orca_cancel_target
+    from .submitters.orca import submit_reaction_dir
+    from .submitters.xtb import (
         cancel_target as xtb_cancel_target,
         submit_job_dir as submit_xtb_job_dir,
     )
@@ -428,14 +428,14 @@ def _stage_materialization_fallbacks(resolver: OrchestrationOverrideResolver) ->
         payload: dict[str, Any],
         *,
         workspace_dir: Path,
-        xtb_auto_config: str | None,
-        orca_auto_config: str | None,
+        xtb_config: str | None,
+        orca_config: str | None,
     ) -> bool:
         return _append_reaction_orca_stages_fallback(
             payload,
             workspace_dir=workspace_dir,
-            xtb_auto_config=xtb_auto_config,
-            orca_auto_config=orca_auto_config,
+            xtb_config=xtb_config,
+            orca_config=orca_config,
             resolver=resolver,
         )
 

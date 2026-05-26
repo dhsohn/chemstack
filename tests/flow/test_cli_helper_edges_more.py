@@ -83,13 +83,13 @@ def test_cli_shared_config_and_worker_root_defaults(
     )
 
     monkeypatch.setattr(cli_common, "default_config_path_from_repo_root", lambda repo_root: str(config_path))
-    args = SimpleNamespace(chemstack_config=None, orca_auto_config=None, workflow_root=None)
+    args = SimpleNamespace(chemstack_config=None, orca_config=None, workflow_root=None)
 
     assert cli_common._shared_chemstack_config(args) == str(config_path.resolve())
     assert cli_common._workflow_root_from_args(args, config_path=str(config_path)) == str(workflow_root.resolve())
 
     explicit_config = tmp_path / "explicit.yaml"
-    explicit_args = SimpleNamespace(chemstack_config=str(explicit_config), orca_auto_config=None)
+    explicit_args = SimpleNamespace(chemstack_config=str(explicit_config), orca_config=None)
     assert cli_common._shared_chemstack_config(explicit_args) == str(explicit_config.resolve())
 
 
@@ -345,7 +345,7 @@ def test_cmd_activity_list_json_and_cancel_text_output(
                     "engine": "xtb",
                     "status": "running",
                     "label": "rxn-a",
-                    "source": "chem_flow",
+                    "source": "chemstack_flow",
                 }
             ],
         },
@@ -356,8 +356,8 @@ def test_cmd_activity_list_json_and_cancel_text_output(
             limit=0,
             refresh=False,
             chemstack_config="/tmp/chemstack.yaml",
-            orca_auto_config=None,
-            orca_auto_repo_root=None,
+            orca_config=None,
+            orca_repo_root=None,
             json=True,
         )
     ) == 0
@@ -369,7 +369,7 @@ def test_cmd_activity_list_json_and_cancel_text_output(
         lambda **kwargs: {
             "activity_id": "xtb-q-1",
             "engine": "xtb",
-            "source": "xtb_auto",
+            "source": "chemstack_xtb",
             "label": "rxn-a",
             "status": "cancel_requested",
             "cancel_target": "xtb-q-1",
@@ -380,19 +380,19 @@ def test_cmd_activity_list_json_and_cancel_text_output(
             target="xtb-q-1",
             workflow_root=None,
             chemstack_config="/tmp/chemstack.yaml",
-            crest_auto_executable="crest_auto",
-            crest_auto_repo_root=None,
-            xtb_auto_executable="xtb_auto",
-            xtb_auto_repo_root=None,
-            orca_auto_executable="orca_auto",
-            orca_auto_repo_root=None,
+            crest_executable="chemstack_crest",
+            crest_repo_root=None,
+            xtb_executable="chemstack_xtb",
+            xtb_repo_root=None,
+            orca_executable="chemstack",
+            orca_repo_root=None,
             json=False,
         )
     ) == 0
     stdout = capsys.readouterr().out
     assert "activity_id: xtb-q-1" in stdout
     assert "engine: xtb" in stdout
-    assert "source: xtb_auto" in stdout
+    assert "source: chemstack_xtb" in stdout
     assert "label: rxn-a" in stdout
     assert "status: cancel_requested" in stdout
     assert "cancel_target: xtb-q-1" in stdout

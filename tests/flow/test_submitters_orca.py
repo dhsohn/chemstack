@@ -9,7 +9,7 @@ from typing import Any
 import pytest
 
 
-from chemstack.flow.submitters import orca_auto
+from chemstack.flow.submitters import orca as orca_submitter
 
 
 def _completed_process(
@@ -36,12 +36,12 @@ def _install_workflow_io(
     sync_calls: list[dict[str, Any]],
 ) -> None:
     monkeypatch.setattr(
-        orca_auto,
+        orca_submitter,
         "resolve_workflow_workspace",
         lambda target, workflow_root: workspace_dir,
     )
     monkeypatch.setattr(
-        orca_auto,
+        orca_submitter,
         "load_workflow_payload",
         lambda current_workspace_dir: payload,
     )
@@ -67,13 +67,13 @@ def _install_workflow_io(
             }
         )
 
-    monkeypatch.setattr(orca_auto, "write_workflow_payload", fake_write_workflow_payload)
-    monkeypatch.setattr(orca_auto, "sync_workflow_registry", fake_sync_workflow_registry)
+    monkeypatch.setattr(orca_submitter, "write_workflow_payload", fake_write_workflow_payload)
+    monkeypatch.setattr(orca_submitter, "sync_workflow_registry", fake_sync_workflow_registry)
 
 
 def _install_timestamps(monkeypatch: pytest.MonkeyPatch, *timestamps: str) -> None:
     values = iter(timestamps)
-    monkeypatch.setattr(orca_auto, "now_utc_iso", lambda: next(values))
+    monkeypatch.setattr(orca_submitter, "now_utc_iso", lambda: next(values))
 
 
 @pytest.mark.parametrize(
@@ -131,19 +131,19 @@ def test_submit_reaction_dir_maps_queue_status(
             ),
         )
 
-    monkeypatch.setattr(orca_auto, "run_sibling_app", fake_run_sibling_app)
+    monkeypatch.setattr(orca_submitter, "run_sibling_app", fake_run_sibling_app)
 
-    result = orca_auto.submit_reaction_dir(
+    result = orca_submitter.submit_reaction_dir(
         reaction_dir="/tmp/rxn_input",
         priority=12,
         config_path=" /tmp/orca.yaml ",
-        executable=" orca_auto_bin ",
+        executable=" chemstack_orca_bin ",
         repo_root=" /tmp/orca_repo ",
     )
 
     assert sibling_calls == [
         {
-            "executable": "orca_auto_bin",
+            "executable": "chemstack_orca_bin",
             "config_path": "/tmp/orca.yaml",
             "repo_root": "/tmp/orca_repo",
             "module_name": "chemstack.cli",
@@ -189,20 +189,20 @@ def test_submit_reaction_dir_passes_resource_override_flags(
             ),
         )
 
-    monkeypatch.setattr(orca_auto, "run_sibling_app", fake_run_sibling_app)
+    monkeypatch.setattr(orca_submitter, "run_sibling_app", fake_run_sibling_app)
 
-    result = orca_auto.submit_reaction_dir(
+    result = orca_submitter.submit_reaction_dir(
         reaction_dir="/tmp/rxn_input",
         priority=4,
         config_path="/tmp/orca.yaml",
         max_cores=16,
         max_memory_gb=64,
-        executable="orca_auto_bin",
+        executable="chemstack_orca_bin",
     )
 
     assert sibling_calls == [
         {
-            "executable": "orca_auto_bin",
+            "executable": "chemstack_orca_bin",
             "config_path": "/tmp/orca.yaml",
             "repo_root": None,
             "module_name": "chemstack.cli",
@@ -235,9 +235,9 @@ def test_submit_reaction_dir_passes_force_flag(
             args=("python", "-m", "chemstack.cli", "run-dir", "/tmp/rxn_input", "--force"),
         )
 
-    monkeypatch.setattr(orca_auto, "run_sibling_app", fake_run_sibling_app)
+    monkeypatch.setattr(orca_submitter, "run_sibling_app", fake_run_sibling_app)
 
-    result = orca_auto.submit_reaction_dir(
+    result = orca_submitter.submit_reaction_dir(
         reaction_dir="/tmp/rxn_input",
         priority=4,
         config_path="/tmp/orca.yaml",
@@ -280,18 +280,18 @@ def test_cancel_target_maps_cli_cancel_status(
             args="python -m chemstack.orca._internal_cli --config /tmp/orca.yaml queue cancel q_123",
         )
 
-    monkeypatch.setattr(orca_auto, "run_sibling_app", fake_run_sibling_app)
+    monkeypatch.setattr(orca_submitter, "run_sibling_app", fake_run_sibling_app)
 
-    result = orca_auto.cancel_target(
+    result = orca_submitter.cancel_target(
         target="q_123",
         config_path=" /tmp/orca.yaml ",
-        executable=" orca_auto_bin ",
+        executable=" chemstack_orca_bin ",
         repo_root=" /tmp/orca_repo ",
     )
 
     assert sibling_calls == [
         {
-            "executable": "orca_auto_bin",
+            "executable": "chemstack_orca_bin",
             "config_path": "/tmp/orca.yaml",
             "repo_root": "/tmp/orca_repo",
             "module_name": "chemstack.orca._internal_cli",
@@ -310,12 +310,12 @@ def test_cancel_target_reports_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
     def fake_run_sibling_app(**kwargs: Any) -> SimpleNamespace:
         raise subprocess.TimeoutExpired(cmd=["python", "-m", "chemstack.orca._internal_cli", "queue", "cancel", "q_123"], timeout=5.0, output="slow", stderr="timeout")
 
-    monkeypatch.setattr(orca_auto, "run_sibling_app", fake_run_sibling_app)
+    monkeypatch.setattr(orca_submitter, "run_sibling_app", fake_run_sibling_app)
 
-    result = orca_auto.cancel_target(
+    result = orca_submitter.cancel_target(
         target="q_123",
         config_path="/tmp/orca.yaml",
-        executable="orca_auto_bin",
+        executable="chemstack_orca_bin",
         repo_root="/tmp/orca_repo",
     )
 
@@ -410,14 +410,14 @@ def test_submit_reaction_ts_search_workflow_updates_skip_failure_and_submit_bran
             "priority": 8,
         }
 
-    monkeypatch.setattr(orca_auto, "submit_reaction_dir", fake_submit_reaction_dir)
+    monkeypatch.setattr(orca_submitter, "submit_reaction_dir", fake_submit_reaction_dir)
 
-    result = orca_auto.submit_reaction_ts_search_workflow(
+    result = orca_submitter.submit_reaction_ts_search_workflow(
         workflow_target="wf_submit",
         workflow_root=workflow_root,
-        orca_auto_config=" /tmp/orca.yaml ",
-        orca_auto_executable=" orca_auto_bin ",
-        orca_auto_repo_root=" /tmp/orca_repo ",
+        orca_config=" /tmp/orca.yaml ",
+        orca_executable=" chemstack_orca_bin ",
+        orca_repo_root=" /tmp/orca_repo ",
     )
 
     assert submit_calls == [
@@ -425,7 +425,7 @@ def test_submit_reaction_ts_search_workflow_updates_skip_failure_and_submit_bran
             "reaction_dir": "/tmp/rxn_submit",
             "priority": 8,
             "config_path": "/tmp/orca.yaml",
-            "executable": "orca_auto_bin",
+            "executable": "chemstack_orca_bin",
             "repo_root": "/tmp/orca_repo",
         }
     ]
@@ -566,15 +566,15 @@ def test_cancel_reaction_ts_search_workflow_handles_local_cancel_and_config_fail
         "2026-04-19T00:12:00+00:00",
     )
     monkeypatch.setattr(
-        orca_auto,
+        orca_submitter,
         "cancel_target",
         lambda **kwargs: pytest.fail("cancel_target should not run without config"),
     )
 
-    result = orca_auto.cancel_reaction_ts_search_workflow(
+    result = orca_submitter.cancel_reaction_ts_search_workflow(
         workflow_target="wf_cancel_local",
         workflow_root=workflow_root,
-        orca_auto_config=None,
+        orca_config=None,
     )
 
     assert result == {
@@ -584,7 +584,7 @@ def test_cancel_reaction_ts_search_workflow_handles_local_cancel_and_config_fail
         "cancelled": [{"stage_id": "local_stage", "mode": "local"}],
         "requested": [],
         "skipped": [{"stage_id": "skip_cancelled_stage", "reason": "already_cancelled"}],
-        "failed": [{"stage_id": "needs_config_stage", "reason": "orca_auto_config_required"}],
+        "failed": [{"stage_id": "needs_config_stage", "reason": "orca_config_required"}],
     }
     assert len(saved_payloads) == 1
     assert len(sync_calls) == 1
@@ -609,7 +609,7 @@ def test_cancel_reaction_ts_search_workflow_handles_local_cancel_and_config_fail
     assert needs_config_stage["task"]["status"] == "submitted"
     assert needs_config_stage["task"]["cancel_result"] == {
         "status": "failed",
-        "reason": "orca_auto_config_required",
+        "reason": "orca_config_required",
         "cancelled_at": "2026-04-19T00:11:00+00:00",
     }
 
@@ -627,7 +627,7 @@ def test_cancel_reaction_ts_search_workflow_handles_local_cancel_and_config_fail
             {
                 "stage_id": "needs_config_stage",
                 "status": "cancel_failed",
-                "reason": "orca_auto_config_required",
+                "reason": "orca_config_required",
             },
             {
                 "stage_id": "skip_cancelled_stage",
@@ -687,14 +687,14 @@ def test_cancel_reaction_ts_search_workflow_records_requested_and_cancelled_stat
                 "returncode": 0,
                 "stdout": "Cancel requested for q_request\n",
                 "stderr": "",
-                "command_argv": ["orca_auto_bin", "queue", "cancel", "q_request"],
+                "command_argv": ["chemstack_orca_bin", "queue", "cancel", "q_request"],
             },
             {
                 "status": "cancelled",
                 "returncode": 0,
                 "stdout": "Cancelled: /tmp/rxn_cancel\n",
                 "stderr": "",
-                "command_argv": ["orca_auto_bin", "queue", "cancel", "/tmp/rxn_cancel"],
+                "command_argv": ["chemstack_orca_bin", "queue", "cancel", "/tmp/rxn_cancel"],
             },
         ]
     )
@@ -717,27 +717,27 @@ def test_cancel_reaction_ts_search_workflow_records_requested_and_cancelled_stat
         cancel_calls.append(kwargs)
         return dict(next(cancel_responses))
 
-    monkeypatch.setattr(orca_auto, "cancel_target", fake_cancel_target)
+    monkeypatch.setattr(orca_submitter, "cancel_target", fake_cancel_target)
 
-    result = orca_auto.cancel_reaction_ts_search_workflow(
+    result = orca_submitter.cancel_reaction_ts_search_workflow(
         workflow_target="wf_cancel_remote",
         workflow_root=workflow_root,
-        orca_auto_config=" /tmp/orca.yaml ",
-        orca_auto_executable=" orca_auto_bin ",
-        orca_auto_repo_root=" /tmp/orca_repo ",
+        orca_config=" /tmp/orca.yaml ",
+        orca_executable=" chemstack_orca_bin ",
+        orca_repo_root=" /tmp/orca_repo ",
     )
 
     assert cancel_calls == [
         {
             "target": "q_request",
             "config_path": "/tmp/orca.yaml",
-            "executable": "orca_auto_bin",
+            "executable": "chemstack_orca_bin",
             "repo_root": "/tmp/orca_repo",
         },
         {
             "target": "/tmp/rxn_cancel",
             "config_path": "/tmp/orca.yaml",
-            "executable": "orca_auto_bin",
+            "executable": "chemstack_orca_bin",
             "repo_root": "/tmp/orca_repo",
         },
     ]
@@ -780,7 +780,7 @@ def test_cancel_reaction_ts_search_workflow_records_requested_and_cancelled_stat
         "returncode": 0,
         "stdout": "Cancel requested for q_request\n",
         "stderr": "",
-        "command_argv": ["orca_auto_bin", "queue", "cancel", "q_request"],
+        "command_argv": ["chemstack_orca_bin", "queue", "cancel", "q_request"],
         "cancelled_at": "2026-04-19T00:20:00+00:00",
         "target": "q_request",
     }
@@ -796,7 +796,7 @@ def test_cancel_reaction_ts_search_workflow_records_requested_and_cancelled_stat
         "returncode": 0,
         "stdout": "Cancelled: /tmp/rxn_cancel\n",
         "stderr": "",
-        "command_argv": ["orca_auto_bin", "queue", "cancel", "/tmp/rxn_cancel"],
+        "command_argv": ["chemstack_orca_bin", "queue", "cancel", "/tmp/rxn_cancel"],
         "cancelled_at": "2026-04-19T00:21:00+00:00",
         "target": "/tmp/rxn_cancel",
     }

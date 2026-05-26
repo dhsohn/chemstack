@@ -61,7 +61,6 @@ def main(argv: list[str] | None = None) -> int:
         queue_id=args.queue_id,
         admission_root=args.admission_root,
         admission_token=str(args.admission_token).strip() or None,
-        auto_organize=False,
         should_cancel=controller.should_cancel,
         register_running_job=controller.set_running_job,
     )

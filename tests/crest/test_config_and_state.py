@@ -7,6 +7,7 @@ from typing import Any, Callable
 
 import pytest
 
+from chemstack.core.config import engines as engine_config
 from chemstack.crest import config as config_mod
 from chemstack.crest import state as state_mod
 
@@ -49,7 +50,7 @@ def test_default_config_path_falls_back_to_repo_config(
     ],
 )
 def test_as_str_normalizes_values(value: object, default: str, expected: str) -> None:
-    assert config_mod._as_str(value, default) == expected
+    assert engine_config.as_str(value, default) == expected
 
 
 @pytest.mark.parametrize(
@@ -62,7 +63,7 @@ def test_as_str_normalizes_values(value: object, default: str, expected: str) ->
     ],
 )
 def test_as_int_returns_default_for_invalid_values(value: object, default: int, expected: int) -> None:
-    assert config_mod._as_int(value, default) == expected
+    assert engine_config.as_int(value, default) == expected
 
 
 @pytest.mark.parametrize(
@@ -80,7 +81,7 @@ def test_as_bool_normalizes_truthy_and_falsy_strings(
     default: bool,
     expected: bool,
 ) -> None:
-    assert config_mod._as_bool(value, default) is expected
+    assert engine_config.as_bool(value, default) is expected
 
 
 def test_load_config_reads_and_normalizes_all_sections(
@@ -318,7 +319,7 @@ def test_write_report_md_writes_expected_markdown(
 
     assert path == job_dir / state_mod.REPORT_MD_FILE_NAME
     assert path.read_text(encoding="utf-8") == (
-        "# crest_auto Report\n"
+        "# ChemStack CREST Report\n"
         "\n"
         "- Job ID: `crest-123`\n"
         "- Status: `completed`\n"

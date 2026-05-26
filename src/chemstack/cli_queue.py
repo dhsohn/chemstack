@@ -92,7 +92,7 @@ def _activity_counter_config_path(
     sources = payload.get("sources")
     if not isinstance(sources, dict):
         return None
-    for key in ("orca_auto_config", "crest_auto_config", "xtb_auto_config"):
+    for key in ("orca_config", "crest_config", "xtb_config"):
         source_text = normalize_text(sources.get(key))
         if source_text:
             return source_text
@@ -162,9 +162,9 @@ def _cmd_queue_list_clear(
     clear = _dependency(deps, "clear_activities", clear_activities)
     payload = clear(
         workflow_root=workflow_root_for_args(args),
-        crest_auto_config=request.shared_config,
-        xtb_auto_config=request.shared_config,
-        orca_auto_config=request.shared_config,
+        crest_config=request.shared_config,
+        xtb_config=request.shared_config,
+        orca_config=request.shared_config,
     )
     if request.json_output:
         print(json.dumps(payload, ensure_ascii=True, indent=2))
@@ -186,9 +186,9 @@ def _queue_list_payload(
         workflow_root=workflow_root_for_args(args),
         limit=0,
         refresh=bool(getattr(args, "refresh", False)),
-        crest_auto_config=request.shared_config,
-        xtb_auto_config=request.shared_config,
-        orca_auto_config=request.shared_config,
+        crest_config=request.shared_config,
+        xtb_config=request.shared_config,
+        orca_config=request.shared_config,
         child_job_engines=() if request.default_combined_text_view else None,
     )
     return payload
@@ -300,9 +300,9 @@ def cmd_queue_cancel(args: Any, *, deps: Any | None = None) -> int:
         payload = cancel(
             target=getattr(args, "target"),
             workflow_root=workflow_root_for_args(args),
-            crest_auto_config=shared_config,
-            xtb_auto_config=shared_config,
-            orca_auto_config=shared_config,
+            crest_config=shared_config,
+            xtb_config=shared_config,
+            orca_config=shared_config,
         )
     except (LookupError, ValueError, TimeoutError) as exc:
         print(f"error: {exc}")

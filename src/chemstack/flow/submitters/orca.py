@@ -88,17 +88,17 @@ def submit_reaction_ts_search_workflow(
     *,
     workflow_target: str,
     workflow_root: str | Path | None,
-    orca_auto_config: str,
-    orca_auto_executable: str = CHEMSTACK_EXECUTABLE,
-    orca_auto_repo_root: str | None = None,
+    orca_config: str,
+    orca_executable: str = CHEMSTACK_EXECUTABLE,
+    orca_repo_root: str | None = None,
     skip_submitted: bool = True,
 ) -> dict[str, Any]:
     return _submission.submit_reaction_ts_search_workflow(
         workflow_target=workflow_target,
         workflow_root=workflow_root,
-        orca_auto_config=orca_auto_config,
-        orca_auto_executable=orca_auto_executable,
-        orca_auto_repo_root=orca_auto_repo_root,
+        orca_config=orca_config,
+        orca_executable=orca_executable,
+        orca_repo_root=orca_repo_root,
         skip_submitted=skip_submitted,
         deps=_submission_deps(),
     )
@@ -120,16 +120,16 @@ def cancel_reaction_ts_search_workflow(
     *,
     workflow_target: str,
     workflow_root: str | Path | None,
-    orca_auto_config: str | None = None,
-    orca_auto_executable: str = CHEMSTACK_EXECUTABLE,
-    orca_auto_repo_root: str | None = None,
+    orca_config: str | None = None,
+    orca_executable: str = CHEMSTACK_EXECUTABLE,
+    orca_repo_root: str | None = None,
 ) -> dict[str, Any]:
     return _cancellation.cancel_reaction_ts_search_workflow(
         workflow_target=workflow_target,
         workflow_root=workflow_root,
-        orca_auto_config=orca_auto_config,
-        orca_auto_executable=orca_auto_executable,
-        orca_auto_repo_root=orca_auto_repo_root,
+        orca_config=orca_config,
+        orca_executable=orca_executable,
+        orca_repo_root=orca_repo_root,
         deps=_cancellation_deps(),
     )
 

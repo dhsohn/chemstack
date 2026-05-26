@@ -37,7 +37,7 @@ def test_cli_module_main_raises_system_exit_with_main_return_code(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     config_path = _write_config(tmp_path)
-    monkeypatch.setattr("sys.argv", ["crest_auto", "--config", str(config_path), "list"])
+    monkeypatch.setattr("sys.argv", ["chemstack_crest", "--config", str(config_path), "list"])
 
     with warnings.catch_warnings():
         warnings.filterwarnings(

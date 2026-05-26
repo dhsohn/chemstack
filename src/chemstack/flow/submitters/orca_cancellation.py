@@ -31,15 +31,15 @@ class CancellationDeps:
 
 def cancel_config(
     *,
-    orca_auto_config: str | None,
-    orca_auto_executable: str,
-    orca_auto_repo_root: str | None,
+    orca_config: str | None,
+    orca_executable: str,
+    orca_repo_root: str | None,
     normalize_text: Callable[[Any], str],
 ) -> SiblingSubmitterConfig:
     return SiblingSubmitterConfig(
-        config_path=normalize_text(orca_auto_config),
-        executable=normalize_text(orca_auto_executable) or CHEMSTACK_EXECUTABLE,
-        repo_root=normalize_text(orca_auto_repo_root) or None,
+        config_path=normalize_text(orca_config),
+        executable=normalize_text(orca_executable) or CHEMSTACK_EXECUTABLE,
+        repo_root=normalize_text(orca_repo_root) or None,
     )
 
 
@@ -284,7 +284,7 @@ def cancel_stage_outcome(
     if not cancel_identifier:
         return record_cancel_failure(context, reason="missing_cancel_target", deps=deps)
     if not submitter_config.config_path:
-        return record_cancel_failure(context, reason="orca_auto_config_required", deps=deps)
+        return record_cancel_failure(context, reason="orca_config_required", deps=deps)
     if not orca_submitter_matches(context.enqueue_payload, normalize_text=deps.normalize_text):
         return None
     return record_remote_cancel(
@@ -318,9 +318,9 @@ def cancel_reaction_ts_search_workflow(
     *,
     workflow_target: str,
     workflow_root: str | Path | None,
-    orca_auto_config: str | None = None,
-    orca_auto_executable: str = CHEMSTACK_EXECUTABLE,
-    orca_auto_repo_root: str | None = None,
+    orca_config: str | None = None,
+    orca_executable: str = CHEMSTACK_EXECUTABLE,
+    orca_repo_root: str | None = None,
     deps: CancellationDeps,
 ) -> dict[str, Any]:
     workspace_dir = deps.resolve_workflow_workspace(
@@ -330,9 +330,9 @@ def cancel_reaction_ts_search_workflow(
     payload = deps.load_workflow_payload(workspace_dir)
     buckets = WorkflowBuckets()
     submitter_config = cancel_config(
-        orca_auto_config=orca_auto_config,
-        orca_auto_executable=orca_auto_executable,
-        orca_auto_repo_root=orca_auto_repo_root,
+        orca_config=orca_config,
+        orca_executable=orca_executable,
+        orca_repo_root=orca_repo_root,
         normalize_text=deps.normalize_text,
     )
 

@@ -125,7 +125,7 @@ def test_load_xtb_artifact_contract_falls_back_to_selected_candidate_paths(tmp_p
         [
             {
                 "job_id": "xtb_job_fallback",
-                "app_name": "xtb_auto",
+                "app_name": "chemstack_xtb",
                 "job_type": "xtb_ts",
                 "status": "completed",
                 "original_run_dir": str(job_dir),
@@ -238,7 +238,7 @@ def test_load_xtb_artifact_contract_rejects_non_xtb_index_records(tmp_path: Path
         [
             {
                 "job_id": "xtb_bad_app",
-                "app_name": "crest_auto",
+                "app_name": "chemstack_crest",
                 "job_type": "xtb_path",
                 "status": "completed",
                 "original_run_dir": str(job_dir),
@@ -248,7 +248,7 @@ def test_load_xtb_artifact_contract_rejects_non_xtb_index_records(tmp_path: Path
     )
     _write_json(job_dir / "job_state.json", {"job_id": "xtb_bad_app", "status": "completed"})
 
-    with pytest.raises(ValueError, match="Expected xtb_auto index record"):
+    with pytest.raises(ValueError, match="Expected chemstack_xtb index record"):
         load_xtb_artifact_contract(xtb_index_root=index_root, target="xtb_bad_app")
 
 
@@ -354,7 +354,7 @@ def test_load_crest_artifact_contract_uses_index_target_without_organized_ref(
         [
             {
                 "job_id": "crest_index_job",
-                "app_name": "crest_auto",
+                "app_name": "chemstack_crest",
                 "job_type": "crest_standard",
                 "status": "completed",
                 "original_run_dir": str(job_dir),

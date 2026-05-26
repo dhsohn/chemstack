@@ -141,8 +141,8 @@ def _journal_notification_enabled(event_type: str) -> bool:
 
 
 def _telegram_transport_from_env():
-    token = os.environ.get("CHEM_FLOW_TELEGRAM_BOT_TOKEN", "").strip()
-    chat_id = os.environ.get("CHEM_FLOW_TELEGRAM_CHAT_ID", "").strip()
+    token = os.environ.get("CHEMSTACK_FLOW_TELEGRAM_BOT_TOKEN", "").strip()
+    chat_id = os.environ.get("CHEMSTACK_FLOW_TELEGRAM_CHAT_ID", "").strip()
     if token and chat_id:
         return build_telegram_transport(TelegramConfig(bot_token=token, chat_id=chat_id))
 

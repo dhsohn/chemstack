@@ -20,10 +20,10 @@ def cmd_activity_list(args: Any, *, deps: Any | None = None) -> int:
         workflow_root=getattr(args, "workflow_root", None),
         limit=int(getattr(args, "limit", 0) or 0),
         refresh=bool(getattr(args, "refresh", False)),
-        crest_auto_config=shared_config,
-        xtb_auto_config=shared_config,
-        orca_auto_config=shared_config,
-        orca_auto_repo_root=getattr(args, "orca_auto_repo_root", None),
+        crest_config=shared_config,
+        xtb_config=shared_config,
+        orca_config=shared_config,
+        orca_repo_root=getattr(args, "orca_repo_root", None),
     )
     if bool(getattr(args, "json", False)):
         print(json.dumps(payload, ensure_ascii=True, indent=2))
@@ -53,15 +53,15 @@ def cmd_activity_cancel(args: Any, *, deps: Any | None = None) -> int:
         payload = cancel_activity_fn(
             target=getattr(args, "target"),
             workflow_root=getattr(args, "workflow_root", None),
-            crest_auto_config=shared_config,
-            crest_auto_executable=getattr(args, "crest_auto_executable", "crest_auto"),
-            crest_auto_repo_root=getattr(args, "crest_auto_repo_root", None),
-            xtb_auto_config=shared_config,
-            xtb_auto_executable=getattr(args, "xtb_auto_executable", "xtb_auto"),
-            xtb_auto_repo_root=getattr(args, "xtb_auto_repo_root", None),
-            orca_auto_config=shared_config,
-            orca_auto_executable=getattr(args, "orca_auto_executable", executable),
-            orca_auto_repo_root=getattr(args, "orca_auto_repo_root", None),
+            crest_config=shared_config,
+            crest_executable=getattr(args, "crest_executable", "chemstack_crest"),
+            crest_repo_root=getattr(args, "crest_repo_root", None),
+            xtb_config=shared_config,
+            xtb_executable=getattr(args, "xtb_executable", "chemstack_xtb"),
+            xtb_repo_root=getattr(args, "xtb_repo_root", None),
+            orca_config=shared_config,
+            orca_executable=getattr(args, "orca_executable", executable),
+            orca_repo_root=getattr(args, "orca_repo_root", None),
         )
     except (LookupError, ValueError) as exc:
         print(f"error: {exc}")

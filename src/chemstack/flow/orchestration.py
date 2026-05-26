@@ -104,15 +104,15 @@ from .state import (
     write_workflow_payload,
 )
 from .submitters.common import sibling_allowed_root, sibling_runtime_paths
-from .submitters.crest_auto import (
+from .submitters.crest import (
     cancel_target as crest_cancel_target,
     submit_job_dir as submit_crest_job_dir,
 )
-from .submitters.orca_auto import (
+from .submitters.orca import (
     cancel_target as orca_cancel_target,
     submit_reaction_dir,
 )
-from .submitters.xtb_auto import (
+from .submitters.xtb import (
     cancel_target as xtb_cancel_target,
     submit_job_dir as submit_xtb_job_dir,
 )
@@ -370,8 +370,8 @@ def _append_reaction_orca_stages(
     payload: dict[str, Any],
     *,
     workspace_dir: Path,
-    xtb_auto_config: str | None,
-    orca_auto_config: str | None,
+    xtb_config: str | None,
+    orca_config: str | None,
     deps: OrchestrationDeps | None = None,
 ) -> bool:
     if not phase_finished(payload.get("stages", []), engine="xtb"):
@@ -379,8 +379,8 @@ def _append_reaction_orca_stages(
     return append_reaction_orca_stages_impl(
         payload,
         workspace_dir=workspace_dir,
-        xtb_auto_config=xtb_auto_config,
-        orca_auto_config=orca_auto_config,
+        xtb_config=xtb_config,
+        orca_config=orca_config,
         deps=deps,
     )
 

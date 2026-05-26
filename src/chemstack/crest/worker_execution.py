@@ -104,55 +104,11 @@ class WorkerTrackingDependencies:
 
 @dataclass(frozen=True)
 class WorkerExecutionDependencies:
-    now_utc_iso: Callable[[], str]
-    get_cancel_requested: Callable[[str, str], bool]
-    start_crest_job: Callable[..., Any]
-    finalize_crest_job: Callable[..., CrestRunResult]
-    terminate_process: Callable[[subprocess.Popen[str]], None]
-    write_running_state: Callable[[Any, Any], None]
-    write_execution_artifacts: Callable[[Any, CrestRunResult], None]
-    mark_completed: Callable[..., Any]
-    mark_cancelled: Callable[..., Any]
-    mark_failed: Callable[..., Any]
-    upsert_job_record: Callable[..., Any]
-    notify_job_started: Callable[..., bool]
-    notify_job_finished: Callable[..., bool]
-
-    @property
-    def timing(self) -> WorkerTimingDependencies:
-        return WorkerTimingDependencies(now_utc_iso=self.now_utc_iso)
-
-    @property
-    def queue(self) -> WorkerQueueDependencies:
-        return WorkerQueueDependencies(
-            get_cancel_requested=self.get_cancel_requested,
-            mark_completed=self.mark_completed,
-            mark_cancelled=self.mark_cancelled,
-            mark_failed=self.mark_failed,
-        )
-
-    @property
-    def runner(self) -> WorkerRunnerDependencies:
-        return WorkerRunnerDependencies(
-            start_crest_job=self.start_crest_job,
-            finalize_crest_job=self.finalize_crest_job,
-            terminate_process=self.terminate_process,
-        )
-
-    @property
-    def artifacts(self) -> WorkerArtifactDependencies:
-        return WorkerArtifactDependencies(
-            write_running_state=self.write_running_state,
-            write_execution_artifacts=self.write_execution_artifacts,
-        )
-
-    @property
-    def tracking(self) -> WorkerTrackingDependencies:
-        return WorkerTrackingDependencies(
-            upsert_job_record=self.upsert_job_record,
-            notify_job_started=self.notify_job_started,
-            notify_job_finished=self.notify_job_finished,
-        )
+    timing: WorkerTimingDependencies
+    queue: WorkerQueueDependencies
+    runner: WorkerRunnerDependencies
+    artifacts: WorkerArtifactDependencies
+    tracking: WorkerTrackingDependencies
 
 
 def build_worker_execution_dependencies(
@@ -172,19 +128,27 @@ def build_worker_execution_dependencies(
     notify_job_finished_fn: Callable[..., bool],
 ) -> WorkerExecutionDependencies:
     return WorkerExecutionDependencies(
-        now_utc_iso=now_utc_iso_fn,
-        get_cancel_requested=get_cancel_requested_fn,
-        start_crest_job=start_crest_job_fn,
-        finalize_crest_job=finalize_crest_job_fn,
-        terminate_process=terminate_process_fn,
-        write_running_state=write_running_state_fn,
-        write_execution_artifacts=write_execution_artifacts_fn,
-        mark_completed=mark_completed_fn,
-        mark_cancelled=mark_cancelled_fn,
-        mark_failed=mark_failed_fn,
-        upsert_job_record=upsert_job_record_fn,
-        notify_job_started=notify_job_started_fn,
-        notify_job_finished=notify_job_finished_fn,
+        timing=WorkerTimingDependencies(now_utc_iso=now_utc_iso_fn),
+        queue=WorkerQueueDependencies(
+            get_cancel_requested=get_cancel_requested_fn,
+            mark_completed=mark_completed_fn,
+            mark_cancelled=mark_cancelled_fn,
+            mark_failed=mark_failed_fn,
+        ),
+        runner=WorkerRunnerDependencies(
+            start_crest_job=start_crest_job_fn,
+            finalize_crest_job=finalize_crest_job_fn,
+            terminate_process=terminate_process_fn,
+        ),
+        artifacts=WorkerArtifactDependencies(
+            write_running_state=write_running_state_fn,
+            write_execution_artifacts=write_execution_artifacts_fn,
+        ),
+        tracking=WorkerTrackingDependencies(
+            upsert_job_record=upsert_job_record_fn,
+            notify_job_started=notify_job_started_fn,
+            notify_job_finished=notify_job_finished_fn,
+        ),
     )
 
 
@@ -225,19 +189,15 @@ def build_worker_child_command(
     config_path: str,
     queue_root: str | Path,
     queue_id: str,
-    auto_organize: bool = False,
     admission_token: str | None = None,
 ) -> list[str]:
-    del auto_organize
     return build_background_worker_command(
         config_path=config_path,
         queue_root=Path(queue_root),
         queue_id=queue_id,
         worker_job_module="chemstack.crest.worker_execution",
         admission_token=admission_token,
-        auto_organize=False,
         include_admission_root=False,
-        auto_organize_before_admission_token=True,
     )
 
 
@@ -409,10 +369,8 @@ def _sync_job_tracking(
     context: ExecutionContext,
     result: CrestRunResult,
     *,
-    auto_organize: bool,
     dependencies: WorkerExecutionDependencies,
 ) -> Path | None:
-    del auto_organize
     tracking_deps = dependencies.tracking
     tracking_deps.upsert_job_record(
         cfg,
@@ -546,7 +504,6 @@ def _finalize_processed_entry(
     result: CrestRunResult,
     *,
     queue_root: Path,
-    auto_organize: bool,
     dependencies: WorkerExecutionDependencies,
 ) -> Path | None:
     artifact_deps = dependencies.artifacts
@@ -584,7 +541,6 @@ def _finalize_processed_entry(
                 cfg,
                 context,
                 result,
-                auto_organize=auto_organize,
                 dependencies=dependencies,
             ),
             notify_finished=notify_finished,
@@ -598,13 +554,11 @@ def process_dequeued_entry(
     entry: Any,
     *,
     queue_root: Path | None = None,
-    auto_organize: bool,
     resource_caps: Callable[[Any], dict[str, int]],
     molecule_key_resolver: Callable[[Any, Path, Path], str],
     dependencies: WorkerExecutionDependencies,
     shutdown_requested: Callable[[], bool] | None = None,
 ) -> WorkerExecutionOutcome:
-    del auto_organize
     lifecycle = EngineWorkerLifecycle(
         build_context=lambda cfg_obj, entry_obj: _build_execution_context(
             cfg_obj,
@@ -628,13 +582,12 @@ def process_dequeued_entry(
             dependencies=dependencies,
             shutdown_requested=shutdown_requested,
         ),
-        finalize_entry=lambda cfg_obj, context, result, active_queue_root, should_organize: (
+        finalize_entry=lambda cfg_obj, context, result, active_queue_root: (
             _finalize_processed_entry(
                 cfg_obj,
                 context,
                 result,
                 queue_root=active_queue_root,
-                auto_organize=should_organize,
                 dependencies=dependencies,
             )
         ),
@@ -650,7 +603,6 @@ def process_dequeued_entry(
         cfg,
         entry,
         queue_root=queue_root,
-        auto_organize=False,
         lifecycle=lifecycle,
     )
 
@@ -679,21 +631,24 @@ def run_worker_child_job(
     config_path: str,
     queue_root: str | Path,
     queue_id: str,
-    auto_organize: bool = False,
     admission_token: str | None = None,
 ) -> int:
-    del auto_organize
-    cfg = load_config(config_path)
-    queue_root_path = Path(queue_root).expanduser().resolve()
-    entry = _find_queue_entry(queue_root_path, queue_id)
-    if entry is None or getattr(entry, "status", None) != QueueStatus.RUNNING:
-        if admission_token:
-            _child_execution.release_child_admission_token(
-                _admission_root_for_cfg(cfg),
-                admission_token,
-                release_slot_fn=release_slot,
-            )
+    job = _child_execution.load_child_queue_job(
+        config_path=config_path,
+        queue_root=queue_root,
+        queue_id=queue_id,
+        load_config_fn=load_config,
+        find_queue_entry_fn=_find_queue_entry,
+        entry_ready_fn=lambda entry: getattr(entry, "status", None) == QueueStatus.RUNNING,
+        admission_token=admission_token,
+        admission_root_fn=_admission_root_for_cfg,
+        release_slot_fn=release_slot,
+    )
+    if job is None:
         return 1
+    cfg = job.cfg
+    queue_root_path = job.queue_root
+    entry = job.entry
 
     controller = _ShutdownController()
     _install_shutdown_signal_handlers(controller)
@@ -703,7 +658,6 @@ def run_worker_child_job(
             cfg,
             entry,
             queue_root=queue_root_path,
-            auto_organize=False,
             resource_caps=_resource_caps,
             molecule_key_resolver=_molecule_key,
             dependencies=default_worker_execution_dependencies(),
@@ -738,7 +692,6 @@ def main(argv: list[str] | None = None) -> int:
         config_path=args.config,
         queue_root=args.queue_root,
         queue_id=args.queue_id,
-        auto_organize=False,
         admission_token=str(args.admission_token).strip() or None,
     )
 

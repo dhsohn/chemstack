@@ -118,7 +118,7 @@ def test_append_reaction_xtb_stages_creates_full_cartesian_product(tmp_path: Pat
     created = orchestration._append_reaction_xtb_stages(
         payload,
         workspace_dir=tmp_path,
-        crest_auto_config="/tmp/crest.yaml",
+        crest_config="/tmp/crest.yaml",
         deps=deps,
     )
 
@@ -197,7 +197,7 @@ def test_append_reaction_xtb_stages_filters_endpoint_pairs(
     created = orchestration._append_reaction_xtb_stages(
         payload,
         workspace_dir=tmp_path,
-        crest_auto_config="/tmp/crest.yaml",
+        crest_config="/tmp/crest.yaml",
         deps=deps,
     )
 
@@ -277,7 +277,7 @@ def test_append_reaction_xtb_stages_can_exclude_moving_atoms(
     created = orchestration._append_reaction_xtb_stages(
         payload,
         workspace_dir=tmp_path,
-        crest_auto_config="/tmp/crest.yaml",
+        crest_config="/tmp/crest.yaml",
         deps=deps,
     )
 
@@ -316,7 +316,7 @@ def test_append_reaction_xtb_stages_waits_for_latest_product_crest_stage(
     created = orchestration._append_reaction_xtb_stages(
         payload,
         workspace_dir=tmp_path,
-        crest_auto_config="/tmp/crest.yaml",
+        crest_config="/tmp/crest.yaml",
         deps=deps,
     )
 
@@ -360,8 +360,8 @@ def test_append_reaction_orca_stages_sets_xtb_handoff_workflow_error_when_no_can
     created = orchestration._append_reaction_orca_stages(
         payload,
         workspace_dir=tmp_path,
-        xtb_auto_config="/tmp/xtb.yaml",
-        orca_auto_config="/tmp/orca.yaml",
+        xtb_config="/tmp/xtb.yaml",
+        orca_config="/tmp/orca.yaml",
         deps=deps,
     )
 
@@ -411,8 +411,8 @@ def test_append_reaction_orca_stages_waits_for_all_xtb_children_to_finish(
     created = orchestration._append_reaction_orca_stages(
         payload,
         workspace_dir=tmp_path,
-        xtb_auto_config="/tmp/xtb.yaml",
-        orca_auto_config="/tmp/orca.yaml",
+        xtb_config="/tmp/xtb.yaml",
+        orca_config="/tmp/orca.yaml",
         deps=deps,
     )
 
@@ -495,8 +495,8 @@ def test_append_reaction_orca_stages_appends_unattempted_candidate_without_mutat
     created = orchestration._append_reaction_orca_stages(
         payload,
         workspace_dir=tmp_path,
-        xtb_auto_config="/tmp/xtb.yaml",
-        orca_auto_config="/tmp/orca.yaml",
+        xtb_config="/tmp/xtb.yaml",
+        orca_config="/tmp/orca.yaml",
         deps=deps,
     )
 
@@ -559,8 +559,8 @@ def test_append_reaction_orca_stages_materializes_under_workflow_orca_stage_root
     created = orchestration._append_reaction_orca_stages(
         payload,
         workspace_dir=tmp_path / "wf_reaction_local",
-        xtb_auto_config="/tmp/xtb.yaml",
-        orca_auto_config="/tmp/orca.yaml",
+        xtb_config="/tmp/xtb.yaml",
+        orca_config="/tmp/orca.yaml",
         deps=deps,
     )
 
@@ -604,8 +604,8 @@ def test_append_crest_orca_stages_materializes_orca_stages_from_completed_crest(
     created = orchestration._append_crest_orca_stages(
         payload,
         template_name="conformer_screening",
-        crest_auto_config="/tmp/crest.yaml",
-        orca_auto_config="/tmp/orca.yaml",
+        crest_config="/tmp/crest.yaml",
+        orca_config="/tmp/orca.yaml",
         stage_id_prefix="orca_conformer",
         xyz_filename="conformer_guess.xyz",
         inp_filename="conformer_opt.inp",
@@ -655,8 +655,8 @@ def test_append_crest_orca_stages_materializes_twenty_orca_children(
     created = orchestration._append_crest_orca_stages(
         payload,
         template_name="conformer_screening",
-        crest_auto_config="/tmp/crest.yaml",
-        orca_auto_config="/tmp/orca.yaml",
+        crest_config="/tmp/crest.yaml",
+        orca_config="/tmp/orca.yaml",
         stage_id_prefix="orca_conformer",
         xyz_filename="conformer_guess.xyz",
         inp_filename="conformer_opt.inp",

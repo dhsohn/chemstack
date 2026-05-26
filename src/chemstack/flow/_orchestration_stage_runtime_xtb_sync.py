@@ -28,12 +28,12 @@ def _load_xtb_contract(
     task_payload: dict[str, Any],
     *,
     xtb_runtime_paths: dict[str, Path],
-    xtb_auto_config: str | None,
+    xtb_config: str | None,
 ) -> Any | None:
     job_dir_target = o.stages._normalize_text(task_payload.get("job_dir"))
     index_root = (
         xtb_runtime_paths["allowed_root"]
-        or _call_engine_aware(o.stages._load_config_root, xtb_auto_config, engine="xtb")
+        or _call_engine_aware(o.stages._load_config_root, xtb_config, engine="xtb")
         or Path(job_dir_target or ".").resolve().parent
     )
     target = job_dir_target or o.stages._submission_target(stage)
@@ -99,15 +99,15 @@ def _maybe_retry_xtb_handoff(
     handoff: dict[str, str],
     *,
     xtb_runtime_paths: dict[str, Path],
-    xtb_auto_config: str | None,
-    xtb_auto_executable: str,
-    xtb_auto_repo_root: str | None,
+    xtb_config: str | None,
+    xtb_executable: str,
+    xtb_repo_root: str | None,
     submit_ready: bool,
     workflow_id: str,
 ) -> bool:
     if not (
         submit_ready
-        and o.stages._normalize_text(xtb_auto_config)
+        and o.stages._normalize_text(xtb_config)
         and o.stages._normalize_text(task.get("task_kind")) == "path_search"
         and handoff["status"] == "failed"
         and o.stages._normalize_text(stage.get("status")).lower() in {"completed", "failed"}
@@ -129,9 +129,9 @@ def _maybe_retry_xtb_handoff(
     submission = o.engines.submit_xtb_job_dir(
         job_dir=retry_job_dir,
         priority=int(task["enqueue_payload"].get("priority", 10) or 10),
-        config_path=str(xtb_auto_config),
-        executable=xtb_auto_executable,
-        repo_root=xtb_auto_repo_root,
+        config_path=str(xtb_config),
+        executable=xtb_executable,
+        repo_root=xtb_repo_root,
     )
     submission["submitted_at"] = o.persistence.now_utc_iso()
     task["submission_result"] = submission
@@ -178,9 +178,9 @@ def _xtb_output_artifacts(contract: Any) -> list[dict[str, Any]]:
 def sync_xtb_stage_impl(
     stage: dict[str, Any],
     *,
-    xtb_auto_config: str | None,
-    xtb_auto_executable: str,
-    xtb_auto_repo_root: str | None,
+    xtb_config: str | None,
+    xtb_executable: str,
+    xtb_repo_root: str | None,
     submit_ready: bool,
     workflow_id: str,
     workspace_dir: Path,
@@ -196,7 +196,7 @@ def sync_xtb_stage_impl(
     if (
         o.stages._normalize_text(task.get("status")) == "planned"
         and submit_ready
-        and o.stages._normalize_text(xtb_auto_config)
+        and o.stages._normalize_text(xtb_config)
     ):
         _submit_xtb_stage(
             o,
@@ -204,9 +204,9 @@ def sync_xtb_stage_impl(
             task,
             stage_metadata,
             xtb_runtime_paths=xtb_runtime_paths,
-            xtb_auto_config=xtb_auto_config,
-            xtb_auto_executable=xtb_auto_executable,
-            xtb_auto_repo_root=xtb_auto_repo_root,
+            xtb_config=xtb_config,
+            xtb_executable=xtb_executable,
+            xtb_repo_root=xtb_repo_root,
             workflow_id=workflow_id,
         )
     contract = _load_xtb_contract(
@@ -214,7 +214,7 @@ def sync_xtb_stage_impl(
         stage,
         task_payload,
         xtb_runtime_paths=xtb_runtime_paths,
-        xtb_auto_config=xtb_auto_config,
+        xtb_config=xtb_config,
     )
     if contract is None:
         return
@@ -226,9 +226,9 @@ def sync_xtb_stage_impl(
         stage_metadata,
         handoff,
         xtb_runtime_paths=xtb_runtime_paths,
-        xtb_auto_config=xtb_auto_config,
-        xtb_auto_executable=xtb_auto_executable,
-        xtb_auto_repo_root=xtb_auto_repo_root,
+        xtb_config=xtb_config,
+        xtb_executable=xtb_executable,
+        xtb_repo_root=xtb_repo_root,
         submit_ready=submit_ready,
         workflow_id=workflow_id,
     ):

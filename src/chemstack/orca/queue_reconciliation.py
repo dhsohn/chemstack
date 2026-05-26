@@ -98,12 +98,12 @@ def reconcile_orphaned_running_entries(
     logger: logging.Logger,
 ) -> int:
     """Reconcile queue entries stuck as running after worker/process loss."""
-    if not ignore_worker_pid and deps._read_worker_pid(allowed_root) is not None:
+    if not ignore_worker_pid and deps.read_worker_pid(allowed_root) is not None:
         return 0
 
     changed = 0
-    with deps._acquire_queue_lock(allowed_root):
-        entries = deps._load_entries(allowed_root)
+    with deps.queue_lock(allowed_root):
+        entries = deps.load_entries(allowed_root)
         for index, entry in enumerate(entries):
             if deps.queue_entry_status(entry) != QueueStatus.RUNNING.value:
                 continue
@@ -114,7 +114,7 @@ def reconcile_orphaned_running_entries(
             changed += 1
 
         if changed:
-            deps._save_entries(allowed_root, entries)
+            deps.save_entries(allowed_root, entries)
     return changed
 
 
@@ -129,7 +129,7 @@ def _reconcile_entry(
         return None
     reaction_dir = Path(rdir)
 
-    if deps._active_lock_pid(reaction_dir) is not None:
+    if deps.active_lock_pid(reaction_dir) is not None:
         return None
 
     queue_id = deps.queue_entry_id(entry) or "?"
@@ -158,10 +158,10 @@ def _reconcile_entry(
         logger.info("Reconciled orphaned entry %s -> failed", queue_id)
         return updated
 
-    report_data = deps._terminal_report_data(reaction_dir)
+    report_data = deps.terminal_report_data(reaction_dir)
     if report_data is not None:
         status, run_id, finished_at, error = report_data
-        updated = deps._apply_terminal_reconciliation(
+        updated = deps.apply_terminal_reconciliation(
             entry,
             status=status,
             run_id=run_id,
@@ -189,7 +189,7 @@ def _apply_state_terminal(
     error = None
     if default_error is not None:
         error = str(final_dict.get("reason", "")).strip() or default_error
-    return deps._apply_terminal_reconciliation(
+    return deps.apply_terminal_reconciliation(
         entry,
         status=status,
         run_id=str(state.get("run_id", "")).strip() or None,

@@ -1,1 +1,1 @@
-"""xtb_auto command handlers."""
+"""ChemStack xTB command handlers."""

@@ -128,7 +128,21 @@ def _dependencies(**overrides: Callable[..., Any]) -> worker_execution.WorkerExe
         "notify_job_finished": _notify_ok,
     }
     defaults.update(overrides)
-    return worker_execution.WorkerExecutionDependencies(**defaults)
+    return worker_execution.build_worker_execution_dependencies(
+        now_utc_iso_fn=defaults["now_utc_iso"],
+        get_cancel_requested_fn=defaults["get_cancel_requested"],
+        start_crest_job_fn=defaults["start_crest_job"],
+        finalize_crest_job_fn=defaults["finalize_crest_job"],
+        terminate_process_fn=defaults["terminate_process"],
+        write_running_state_fn=defaults["write_running_state"],
+        write_execution_artifacts_fn=defaults["write_execution_artifacts"],
+        mark_completed_fn=defaults["mark_completed"],
+        mark_cancelled_fn=defaults["mark_cancelled"],
+        mark_failed_fn=defaults["mark_failed"],
+        upsert_job_record_fn=defaults["upsert_job_record"],
+        notify_job_started_fn=defaults["notify_job_started"],
+        notify_job_finished_fn=defaults["notify_job_finished"],
+    )
 
 
 class FakeProcess:
@@ -457,7 +471,6 @@ def test_sync_job_tracking_never_organizes_for_crest(tmp_path: Path) -> None:
         cfg,
         context,
         result,
-        auto_organize=True,
         dependencies=deps,
     )
 
@@ -541,7 +554,6 @@ def test_process_dequeued_entry_polls_sleeps_and_completes(
     outcome = worker_execution.process_dequeued_entry(
         cfg,
         entry,
-        auto_organize=False,
         resource_caps=fake_resource_caps,
         molecule_key_resolver=fake_molecule_key,
         dependencies=deps,
@@ -617,7 +629,6 @@ def test_process_dequeued_entry_terminates_and_forces_cancelled_result(
     outcome = worker_execution.process_dequeued_entry(
         cfg,
         entry,
-        auto_organize=False,
         resource_caps=lambda cfg: {"max_cores": 4, "max_memory_gb": 16},
         molecule_key_resolver=lambda entry, selected_xyz, job_dir: "cancel-key",
         dependencies=deps,
@@ -685,7 +696,6 @@ def test_process_dequeued_entry_builds_failed_result_when_runner_raises(
     outcome = worker_execution.process_dequeued_entry(
         cfg,
         entry,
-        auto_organize=False,
         resource_caps=fake_resource_caps,
         molecule_key_resolver=lambda entry, selected_xyz, job_dir: "failure-key",
         dependencies=deps,
@@ -735,7 +745,6 @@ def test_process_dequeued_entry_raises_worker_shutdown_requested_before_start(
         worker_execution.process_dequeued_entry(
             cfg,
             entry,
-            auto_organize=False,
             resource_caps=lambda cfg: {"max_cores": 4, "max_memory_gb": 16},
             molecule_key_resolver=lambda entry, selected_xyz, job_dir: "shutdown-key",
             dependencies=deps,
@@ -781,7 +790,6 @@ def test_process_dequeued_entry_raises_worker_shutdown_requested_after_start(
         worker_execution.process_dequeued_entry(
             cfg,
             entry,
-            auto_organize=False,
             resource_caps=lambda cfg: {"max_cores": 4, "max_memory_gb": 16},
             molecule_key_resolver=lambda entry, selected_xyz, job_dir: "shutdown-key",
             dependencies=deps,

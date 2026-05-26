@@ -122,7 +122,7 @@ def test_cmd_list_prints_queue_rows_with_status_and_placeholders(
 
     running = enqueue(
         cfg.runtime.allowed_root,
-        app_name="xtb_auto",
+        app_name="chemstack_xtb",
         task_id="job-running",
         task_kind="xtb_ranking",
         engine="xtb",
@@ -138,7 +138,7 @@ def test_cmd_list_prints_queue_rows_with_status_and_placeholders(
 
     pending = enqueue(
         cfg.runtime.allowed_root,
-        app_name="xtb_auto",
+        app_name="chemstack_xtb",
         task_id="job-pending",
         task_kind="xtb_sp",
         engine="xtb",

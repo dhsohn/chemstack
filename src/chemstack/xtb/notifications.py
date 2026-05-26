@@ -7,7 +7,7 @@ from chemstack.core.notifications import engines as _engine_notifications
 
 from .config import AppConfig
 
-_LABEL = "xtb_auto"
+_LABEL = "chemstack_xtb"
 _ENGINE = "xtb"
 
 

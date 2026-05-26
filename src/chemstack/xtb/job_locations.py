@@ -16,7 +16,7 @@ from chemstack.core.indexing import engines as _engine_locations
 from .config import AppConfig
 from .state import load_organized_ref, load_report_json, load_state
 
-_APP_NAME = "xtb_auto"
+_APP_NAME = "chemstack_xtb"
 _ENGINE = "xtb"
 _UNKNOWN_KEY = "unknown_key"
 _LOCATION_SPEC = _engine_locations.EngineLocationSpec(

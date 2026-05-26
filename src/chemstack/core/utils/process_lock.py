@@ -1,4 +1,4 @@
-"""Shared lock-file utilities used by run state, queue, and organize index."""
+"""Shared JSON lock-file utilities with stale process recovery."""
 
 from __future__ import annotations
 

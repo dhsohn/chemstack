@@ -5,18 +5,17 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from chemstack.core.app_ids import CHEMSTACK_EXECUTABLE
-
+from .engine_options import WorkflowEngineOptions
 from .submitters.common import normalize_text
 
 
 @dataclass(frozen=True)
 class ActivitySourceRequest:
     workflow_root: str | Path | None = None
-    crest_auto_config: str | None = None
-    xtb_auto_config: str | None = None
-    orca_auto_config: str | None = None
-    orca_auto_repo_root: str | None = None
+    crest_config: str | None = None
+    xtb_config: str | None = None
+    orca_config: str | None = None
+    orca_repo_root: str | None = None
 
 
 @dataclass(frozen=True)
@@ -31,27 +30,22 @@ class ActivityListRequest:
 class ActivityCancelRequest:
     target: str
     sources: ActivitySourceRequest
-    crest_auto_executable: str = "crest_auto"
-    crest_auto_repo_root: str | None = None
-    xtb_auto_executable: str = "xtb_auto"
-    xtb_auto_repo_root: str | None = None
-    orca_auto_executable: str = CHEMSTACK_EXECUTABLE
-    orca_auto_repo_root: str | None = None
+    engine_options: WorkflowEngineOptions
 
 
 @dataclass(frozen=True)
 class ResolvedActivitySources:
     workflow_root: str | None
-    crest_auto_config: str | None
-    xtb_auto_config: str | None
-    orca_auto_config: str | None
+    crest_config: str | None
+    xtb_config: str | None
+    orca_config: str | None
 
     def as_tuple(self) -> tuple[str | None, str | None, str | None, str | None]:
         return (
             self.workflow_root,
-            self.crest_auto_config,
-            self.xtb_auto_config,
-            self.orca_auto_config,
+            self.crest_config,
+            self.xtb_config,
+            self.orca_config,
         )
 
     @classmethod
@@ -61,9 +55,9 @@ class ResolvedActivitySources:
     ) -> ResolvedActivitySources:
         return cls(
             workflow_root=values[0],
-            crest_auto_config=values[1],
-            xtb_auto_config=values[2],
-            orca_auto_config=values[3],
+            crest_config=values[1],
+            xtb_config=values[2],
+            orca_config=values[3],
         )
 
 

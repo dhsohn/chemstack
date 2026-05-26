@@ -89,7 +89,7 @@ def _enqueue_job(
         metadata["molecule_key"] = molecule_key
     entry = enqueue(
         env.allowed_root,
-        app_name="crest_auto",
+        app_name="chemstack_crest",
         task_id=task_id,
         task_kind="conformer_search",
         engine="crest",
@@ -193,7 +193,7 @@ def test_process_one_completed_updates_queue_artifacts_index_without_organizing(
     )
     monkeypatch.setattr(queue_cmd, "finalize_crest_job", lambda running: completed_result)
 
-    outcome = queue_cmd._process_one(queue_env.cfg, auto_organize=True)
+    outcome = queue_cmd._process_one(queue_env.cfg)
 
     assert outcome == "processed"
     entry = list_queue(queue_env.allowed_root)[0]
@@ -259,7 +259,7 @@ def test_process_one_runner_failure_marks_failed_and_writes_failure_artifacts(
 
     monkeypatch.setattr(queue_cmd, "start_crest_job", boom)
 
-    outcome = queue_cmd._process_one(queue_env.cfg, auto_organize=False)
+    outcome = queue_cmd._process_one(queue_env.cfg)
 
     assert outcome == "processed"
     entry = list_queue(queue_env.allowed_root)[0]
@@ -341,7 +341,7 @@ def test_process_one_cancel_requested_terminates_and_marks_cancelled(
     monkeypatch.setattr(queue_cmd, "_terminate_process", lambda proc: terminate_calls.append(proc))
     monkeypatch.setattr(queue_cmd, "finalize_crest_job", fake_finalize)
 
-    outcome = queue_cmd._process_one(queue_env.cfg, auto_organize=False)
+    outcome = queue_cmd._process_one(queue_env.cfg)
 
     assert outcome == "processed"
     entry = list_queue(queue_env.allowed_root)[0]
@@ -418,7 +418,7 @@ def test_queue_worker_fill_slots_starts_multiple_child_processes(
         fake_activate_reserved_slot,
     )
 
-    worker = queue_cmd.QueueWorker(cfg, "/tmp/chemstack.yaml", max_concurrent=2, auto_organize=True)
+    worker = queue_cmd.QueueWorker(cfg, "/tmp/chemstack.yaml", max_concurrent=2)
     worker._fill_slots()
 
     assert sorted(worker._running) == sorted([job_one.entry.queue_id, job_two.entry.queue_id])
@@ -447,7 +447,7 @@ def test_queue_worker_shutdown_requeues_running_children(
 
     monkeypatch.setattr(queue_cmd, "release_slot", lambda root, token: released.append((Path(root), token)))
 
-    worker = queue_cmd.QueueWorker(queue_env.cfg, "/tmp/chemstack.yaml", max_concurrent=2, auto_organize=False)
+    worker = queue_cmd.QueueWorker(queue_env.cfg, "/tmp/chemstack.yaml", max_concurrent=2)
     worker._shutdown_requested = True
     worker._running[entry.queue_id] = queue_cmd._RunningJob(
         queue_root=queue_root,
@@ -483,7 +483,7 @@ def test_queue_worker_reconcile_orphaned_running_requeues_entry_without_live_slo
     monkeypatch.setattr(queue_cmd, "reconcile_stale_slots", lambda root: 0)
     monkeypatch.setattr(queue_cmd, "list_slots", lambda root: [SimpleNamespace(queue_id=live_entry.queue_id)])
 
-    worker = queue_cmd.QueueWorker(queue_env.cfg, "/tmp/chemstack.yaml", max_concurrent=2, auto_organize=False)
+    worker = queue_cmd.QueueWorker(queue_env.cfg, "/tmp/chemstack.yaml", max_concurrent=2)
     worker._reconcile_orphaned_running()
 
     orphan_updated = queue_cmd._find_entry_by_target(list_queue(queue_env.allowed_root), orphan_job.entry.queue_id)
@@ -511,7 +511,7 @@ def test_queue_worker_reconcile_orphaned_cancel_requested_marks_cancelled(
     monkeypatch.setattr(queue_cmd, "reconcile_stale_slots", lambda root: 0)
     monkeypatch.setattr(queue_cmd, "list_slots", lambda root: [])
 
-    worker = queue_cmd.QueueWorker(queue_env.cfg, "/tmp/chemstack.yaml", max_concurrent=2, auto_organize=False)
+    worker = queue_cmd.QueueWorker(queue_env.cfg, "/tmp/chemstack.yaml", max_concurrent=2)
     worker._reconcile_orphaned_running()
 
     updated = queue_cmd._find_entry_by_target(list_queue(queue_env.allowed_root), job.entry.queue_id)

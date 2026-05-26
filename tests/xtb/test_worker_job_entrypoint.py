@@ -48,7 +48,6 @@ def test_worker_job_main_delegates_to_queue_runner(monkeypatch: pytest.MonkeyPat
     assert captured["queue_id"] == "q-1"
     assert captured["admission_root"] == "/tmp/admission"
     assert captured["admission_token"] == "slot-1"
-    assert captured["auto_organize"] is False
     assert [signum for signum, _handler in signal_calls] == [
         worker_job.queue_cmd.WORKER_CANCEL_SIGNAL,
         worker_job.signal.SIGTERM,

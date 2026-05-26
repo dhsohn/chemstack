@@ -110,7 +110,7 @@ def workflow_records(
                 engine="workflow",
                 status=normalize_text(record.status) or "unknown",
                 label=label,
-                source="chem_flow",
+                source="chemstack_flow",
                 submitted_at=normalize_text(record.requested_at),
                 updated_at=normalize_text(record.updated_at) or normalize_text(record.requested_at),
                 cancel_target=workflow_id,
@@ -309,9 +309,9 @@ def collect_crest_activity(
     return collect_child_queue_activity(
         resolved,
         request,
-        app_name="crest_auto",
+        app_name="chemstack_crest",
         engine="crest",
-        config_path=resolved.crest_auto_config,
+        config_path=resolved.crest_config,
         deps=deps,
     )
 
@@ -325,9 +325,9 @@ def collect_xtb_activity(
     return collect_child_queue_activity(
         resolved,
         request,
-        app_name="xtb_auto",
+        app_name="chemstack_xtb",
         engine="xtb",
-        config_path=resolved.xtb_auto_config,
+        config_path=resolved.xtb_config,
         deps=deps,
     )
 
@@ -338,18 +338,18 @@ def collect_orca_activity(
     *,
     deps: ActivityListDeps,
 ) -> list[ActivityRecord]:
-    if not normalize_text(resolved.orca_auto_config):
+    if not normalize_text(resolved.orca_config):
         return []
     return deps._orca_records(
-        config_path=str(resolved.orca_auto_config),
-        repo_root=request.sources.orca_auto_repo_root,
+        config_path=str(resolved.orca_config),
+        repo_root=request.sources.orca_repo_root,
     )
 
 
 def activity_list_providers(deps: ActivityListDeps) -> tuple[ActivityListProvider, ...]:
     return (
         ActivityListProvider(
-            "chem_flow",
+            "chemstack_flow",
             lambda resolved, request: collect_workflow_activity(
                 resolved,
                 request,
@@ -357,7 +357,7 @@ def activity_list_providers(deps: ActivityListDeps) -> tuple[ActivityListProvide
             ),
         ),
         ActivityListProvider(
-            "crest_auto",
+            "chemstack_crest",
             lambda resolved, request: collect_crest_activity(
                 resolved,
                 request,
@@ -365,7 +365,7 @@ def activity_list_providers(deps: ActivityListDeps) -> tuple[ActivityListProvide
             ),
         ),
         ActivityListProvider(
-            "xtb_auto",
+            "chemstack_xtb",
             lambda resolved, request: collect_xtb_activity(
                 resolved,
                 request,
@@ -399,10 +399,10 @@ def collect_activity_records(
     *,
     workflow_root: str | Path | None = None,
     refresh: bool = False,
-    crest_auto_config: str | None = None,
-    xtb_auto_config: str | None = None,
-    orca_auto_config: str | None = None,
-    orca_auto_repo_root: str | None = None,
+    crest_config: str | None = None,
+    xtb_config: str | None = None,
+    orca_config: str | None = None,
+    orca_repo_root: str | None = None,
     child_job_engines: tuple[str, ...] | None = None,
     deps: ActivityListDeps,
 ) -> list[ActivityRecord]:
@@ -410,10 +410,10 @@ def collect_activity_records(
         ActivityListRequest(
             sources=ActivitySourceRequest(
                 workflow_root=workflow_root,
-                crest_auto_config=crest_auto_config,
-                xtb_auto_config=xtb_auto_config,
-                orca_auto_config=orca_auto_config,
-                orca_auto_repo_root=orca_auto_repo_root,
+                crest_config=crest_config,
+                xtb_config=xtb_config,
+                orca_config=orca_config,
+                orca_repo_root=orca_repo_root,
             ),
             refresh=refresh,
             child_job_engines=child_job_engines,
@@ -427,20 +427,20 @@ def list_activities(
     workflow_root: str | Path | None = None,
     refresh: bool = False,
     limit: int = 0,
-    crest_auto_config: str | None = None,
-    xtb_auto_config: str | None = None,
-    orca_auto_config: str | None = None,
-    orca_auto_repo_root: str | None = None,
+    crest_config: str | None = None,
+    xtb_config: str | None = None,
+    orca_config: str | None = None,
+    orca_repo_root: str | None = None,
     child_job_engines: tuple[str, ...] | None = None,
     deps: ActivityListDeps,
 ) -> dict[str, Any]:
     request = ActivityListRequest(
         sources=ActivitySourceRequest(
             workflow_root=workflow_root,
-            crest_auto_config=crest_auto_config,
-            xtb_auto_config=xtb_auto_config,
-            orca_auto_config=orca_auto_config,
-            orca_auto_repo_root=orca_auto_repo_root,
+            crest_config=crest_config,
+            xtb_config=xtb_config,
+            orca_config=orca_config,
+            orca_repo_root=orca_repo_root,
         ),
         refresh=refresh,
         limit=limit,
@@ -450,10 +450,10 @@ def list_activities(
     records = deps._collect_activity_records(
         workflow_root=resolved.workflow_root,
         refresh=request.refresh,
-        crest_auto_config=resolved.crest_auto_config,
-        xtb_auto_config=resolved.xtb_auto_config,
-        orca_auto_config=resolved.orca_auto_config,
-        orca_auto_repo_root=request.sources.orca_auto_repo_root,
+        crest_config=resolved.crest_config,
+        xtb_config=resolved.xtb_config,
+        orca_config=resolved.orca_config,
+        orca_repo_root=request.sources.orca_repo_root,
         child_job_engines=request.child_job_engines,
     )
     if request.limit > 0:
@@ -466,8 +466,8 @@ def list_activities(
             "workflow_root": str(Path(workflow_root_text).expanduser().resolve())
             if workflow_root_text
             else "",
-            "crest_auto_config": normalize_text(resolved.crest_auto_config),
-            "xtb_auto_config": normalize_text(resolved.xtb_auto_config),
-            "orca_auto_config": normalize_text(resolved.orca_auto_config),
+            "crest_config": normalize_text(resolved.crest_config),
+            "xtb_config": normalize_text(resolved.xtb_config),
+            "orca_config": normalize_text(resolved.orca_config),
         },
     }

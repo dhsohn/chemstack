@@ -2,6 +2,7 @@
 
 from .engine import (
     EngineStateFiles,
+    EngineStateAccess,
     RECOVERY_PENDING_REASONS,
     coerce_dict,
     coerce_list,
@@ -16,6 +17,7 @@ from .engine import (
 
 __all__ = [
     "EngineStateFiles",
+    "EngineStateAccess",
     "RECOVERY_PENDING_REASONS",
     "coerce_dict",
     "coerce_list",

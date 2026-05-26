@@ -266,7 +266,7 @@ def test_completed_role_and_contract_helpers_use_expected_targets() -> None:
         }
     )
     assert (
-        _completed_crest_stage(crest_stage, crest_auto_config="/tmp/crest.yaml", deps=deps)
+        _completed_crest_stage(crest_stage, crest_config="/tmp/crest.yaml", deps=deps)
         == "crest_contract"
     )
     assert crest_calls == [{"crest_index_root": Path("/tmp/crest_allowed"), "target": "/tmp/crest_job"}]
@@ -292,7 +292,7 @@ def test_completed_role_and_contract_helpers_use_expected_targets() -> None:
         }
     )
     assert (
-        _completed_orca_stage(orca_stage, orca_auto_config="/tmp/orca.yaml", deps=deps)
+        _completed_orca_stage(orca_stage, orca_config="/tmp/orca.yaml", deps=deps)
         == "orca_contract"
     )
     assert orca_calls == [

@@ -7,7 +7,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Mapping, Optional
 
-from . import lock_utils
+from chemstack.core.utils import process_lock
 from .pathing import resolve_artifact_path
 from .state import atomic_write_text, load_state, now_utc_iso
 
@@ -215,16 +215,16 @@ def acquire_index_lock(organized_root: Path, timeout_seconds: int = 30) -> Itera
     idir.mkdir(parents=True, exist_ok=True)
     lock_path = idir / LOCK_FILE_NAME
     lock_payload_obj: Dict[str, Any] = {"pid": os.getpid(), "started_at": now_utc_iso()}
-    current_start_ticks = lock_utils.current_process_start_ticks()
+    current_start_ticks = process_lock.current_process_start_ticks()
     if current_start_ticks is not None:
         lock_payload_obj["process_start_ticks"] = current_start_ticks
 
-    with lock_utils.acquire_file_lock(
+    with process_lock.acquire_file_lock(
         lock_path=lock_path,
         lock_payload_obj=lock_payload_obj,
-        parse_lock_info_fn=lock_utils.parse_lock_info,
-        is_process_alive_fn=lock_utils.is_process_alive,
-        process_start_ticks_fn=lock_utils.process_start_ticks,
+        parse_lock_info_fn=process_lock.parse_lock_info,
+        is_process_alive_fn=process_lock.is_process_alive,
+        process_start_ticks_fn=process_lock.process_start_ticks,
         logger=logger,
         acquired_log_template="Index lock acquired: %s",
         released_log_template="Index lock released: %s",

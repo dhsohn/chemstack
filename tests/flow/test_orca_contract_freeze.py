@@ -209,7 +209,7 @@ def test_orca_contract_freeze_completed_result_survives_public_workflow_sync(tmp
     payload = advance_workflow(
         target="wf_contract_freeze",
         workflow_root=workflow_root,
-        orca_auto_config=str(config_path),
+        orca_config=str(config_path),
         submit_ready=False,
     )
     workflow = get_workflow(

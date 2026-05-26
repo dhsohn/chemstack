@@ -101,7 +101,7 @@ def test_resolve_crest_executable_falls_back_to_path_lookup(
     tmp_path: Path,
 ) -> None:
     cfg = _cfg(tmp_path, crest_executable="  ")
-    monkeypatch.setattr("chemstack.crest.runner.shutil.which", lambda _name: "/usr/bin/crest")
+    monkeypatch.setattr("chemstack.core.engine_runner.shutil.which", lambda _name: "/usr/bin/crest")
 
     assert _resolve_crest_executable(cfg) == "/usr/bin/crest"
 
@@ -111,7 +111,7 @@ def test_resolve_crest_executable_raises_when_not_configured_and_not_on_path(
     tmp_path: Path,
 ) -> None:
     cfg = _cfg(tmp_path, crest_executable="")
-    monkeypatch.setattr("chemstack.crest.runner.shutil.which", lambda _name: None)
+    monkeypatch.setattr("chemstack.core.engine_runner.shutil.which", lambda _name: None)
 
     with pytest.raises(ValueError, match="not configured and not found on PATH"):
         _resolve_crest_executable(cfg)

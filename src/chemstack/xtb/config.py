@@ -6,10 +6,6 @@ from chemstack.core.config import engines as _engine_config
 from chemstack.core.config import CommonResourceConfig, CommonRuntimeConfig, TelegramConfig
 
 CONFIG_ENV_VAR = "CHEMSTACK_CONFIG"
-_as_bool = _engine_config.as_bool
-_as_float = _engine_config.as_float
-_as_int = _engine_config.as_int
-_as_str = _engine_config.as_str
 
 
 @dataclass(frozen=True)

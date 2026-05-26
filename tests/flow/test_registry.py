@@ -219,10 +219,10 @@ def test_journal_event_message_formats_supported_event_types(
 def test_notification_configuration_helpers_cover_default_override_and_transport(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.delenv("CHEM_FLOW_NOTIFY_EVENT_TYPES", raising=False)
-    monkeypatch.delenv("CHEM_FLOW_NOTIFY_DISABLED", raising=False)
-    monkeypatch.delenv("CHEM_FLOW_TELEGRAM_BOT_TOKEN", raising=False)
-    monkeypatch.delenv("CHEM_FLOW_TELEGRAM_CHAT_ID", raising=False)
+    monkeypatch.delenv("CHEMSTACK_FLOW_NOTIFY_EVENT_TYPES", raising=False)
+    monkeypatch.delenv("CHEMSTACK_FLOW_NOTIFY_DISABLED", raising=False)
+    monkeypatch.delenv("CHEMSTACK_FLOW_TELEGRAM_BOT_TOKEN", raising=False)
+    monkeypatch.delenv("CHEMSTACK_FLOW_TELEGRAM_CHAT_ID", raising=False)
     monkeypatch.delenv("CHEMSTACK_CONFIG", raising=False)
 
     assert registry._notification_event_types_from_env() == set(
@@ -235,10 +235,10 @@ def test_notification_configuration_helpers_cover_default_override_and_transport
     assert registry._telegram_transport_from_env() is None
 
     monkeypatch.setenv(
-        "CHEM_FLOW_NOTIFY_EVENT_TYPES",
+        "CHEMSTACK_FLOW_NOTIFY_EVENT_TYPES",
         "custom_event, workflow_status_changed, workflow_stage_submitted",
     )
-    monkeypatch.setenv("CHEM_FLOW_NOTIFY_DISABLED", "true")
+    monkeypatch.setenv("CHEMSTACK_FLOW_NOTIFY_DISABLED", "true")
     assert registry._notification_event_types_from_env() == {
         "custom_event",
         "workflow_stage_submitted",
@@ -246,9 +246,9 @@ def test_notification_configuration_helpers_cover_default_override_and_transport
     }
     assert registry._journal_notification_enabled("custom_event") is False
 
-    monkeypatch.setenv("CHEM_FLOW_NOTIFY_DISABLED", "0")
-    monkeypatch.setenv("CHEM_FLOW_TELEGRAM_BOT_TOKEN", "bot-token")
-    monkeypatch.setenv("CHEM_FLOW_TELEGRAM_CHAT_ID", "chat-id")
+    monkeypatch.setenv("CHEMSTACK_FLOW_NOTIFY_DISABLED", "0")
+    monkeypatch.setenv("CHEMSTACK_FLOW_TELEGRAM_BOT_TOKEN", "bot-token")
+    monkeypatch.setenv("CHEMSTACK_FLOW_TELEGRAM_CHAT_ID", "chat-id")
 
     captured: dict[str, Any] = {}
 
@@ -268,8 +268,8 @@ def test_telegram_transport_from_env_uses_chemstack_config_fallback(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    monkeypatch.delenv("CHEM_FLOW_TELEGRAM_BOT_TOKEN", raising=False)
-    monkeypatch.delenv("CHEM_FLOW_TELEGRAM_CHAT_ID", raising=False)
+    monkeypatch.delenv("CHEMSTACK_FLOW_TELEGRAM_BOT_TOKEN", raising=False)
+    monkeypatch.delenv("CHEMSTACK_FLOW_TELEGRAM_CHAT_ID", raising=False)
     config_path = tmp_path / "chemstack.yaml"
     config_path.write_text(
         "\n".join(

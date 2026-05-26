@@ -9,7 +9,7 @@ This repository now uses a monorepo-style package layout under `src/chemstack`.
 - Workflow orchestration: `chemstack.flow.*`
 - Engine packages: `chemstack.xtb.*`, `chemstack.crest.*`
 
-Top-level `core.*` and `orca_auto.*` packages were removed. New code, tests, and docs should import from `chemstack.*`.
+Pre-monorepo top-level packages were removed. New code, tests, and docs should import from `chemstack.*`.
 
 ## Current Package Layout
 
@@ -89,12 +89,7 @@ from chemstack.core.admission import reserve_slot
 from chemstack.core.indexing import get_job_location
 ```
 
-Do not use these removed pre-monorepo imports:
-
-```python
-from core.commands.run_inp import cmd_run_inp
-from orca_auto.runtime.worker_job import start_background_run_job
-```
+Do not reintroduce removed pre-monorepo import paths or compatibility aliases.
 
 ## Test Layout
 
@@ -118,9 +113,6 @@ pytest tests/integration -q
 - If a new feature requires code changes in ORCA logic, make them under `src/chemstack/orca`
 - Do not reintroduce top-level alias packages or old-format runtime readers
 
-## Historical Docs
+## Related Docs
 
 - [REFERENCE.md](REFERENCE.md): runtime and behavior reference
-- [archive/README.md](archive/README.md): archived migration and planning documents
-- [archive/MCP_WORKFLOW_MIGRATION_PLAN.md](archive/MCP_WORKFLOW_MIGRATION_PLAN.md): historical migration plan, not the current package map
-- [archive/ORCA_AUTO_BASE_MONOREPO_ABSORPTION_PLAN_2026-04-20.md](archive/ORCA_AUTO_BASE_MONOREPO_ABSORPTION_PLAN_2026-04-20.md): absorption planning context

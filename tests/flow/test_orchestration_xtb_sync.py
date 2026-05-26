@@ -84,9 +84,9 @@ def test_sync_xtb_stage_submits_initial_attempt_and_records_handoff_metadata(
 
     orchestration._sync_xtb_stage(
         stage,
-        xtb_auto_config="/tmp/xtb.yaml",
-        xtb_auto_executable="xtb_auto",
-        xtb_auto_repo_root="/tmp/xtb_repo",
+        xtb_config="/tmp/xtb.yaml",
+        xtb_executable="chemstack_xtb",
+        xtb_repo_root="/tmp/xtb_repo",
         submit_ready=True,
         workflow_id="wf_01",
         workspace_dir=tmp_path / "workspace" / "wf_01",
@@ -174,9 +174,9 @@ def test_sync_xtb_stage_retries_failed_handoff_when_retry_budget_remains(
 
     orchestration._sync_xtb_stage(
         stage,
-        xtb_auto_config="/tmp/xtb.yaml",
-        xtb_auto_executable="xtb_auto",
-        xtb_auto_repo_root="/tmp/xtb_repo",
+        xtb_config="/tmp/xtb.yaml",
+        xtb_executable="chemstack_xtb",
+        xtb_repo_root="/tmp/xtb_repo",
         submit_ready=True,
         workflow_id="wf_02",
         workspace_dir=tmp_path / "workspace" / "wf_02",
@@ -249,9 +249,9 @@ def test_sync_xtb_stage_stops_retrying_after_limit_and_materializes_empty_candid
 
     orchestration._sync_xtb_stage(
         stage,
-        xtb_auto_config="/tmp/xtb.yaml",
-        xtb_auto_executable="xtb_auto",
-        xtb_auto_repo_root="/tmp/xtb_repo",
+        xtb_config="/tmp/xtb.yaml",
+        xtb_executable="chemstack_xtb",
+        xtb_repo_root="/tmp/xtb_repo",
         submit_ready=True,
         workflow_id="wf_03",
         workspace_dir=tmp_path / "workspace" / "wf_03",

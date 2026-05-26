@@ -131,22 +131,22 @@ def title_from_event_type(event_type: str) -> str:
 
 
 def notification_event_types_from_env() -> set[str]:
-    raw = os.environ.get("CHEM_FLOW_NOTIFY_EVENT_TYPES", "")
+    raw = os.environ.get("CHEMSTACK_FLOW_NOTIFY_EVENT_TYPES", "")
     if not raw.strip():
         return set(DEFAULT_NOTIFICATION_EVENT_TYPES)
     return {item.strip() for item in raw.split(",") if item.strip()}
 
 
 def journal_notification_enabled(event_type: str) -> bool:
-    disabled = os.environ.get("CHEM_FLOW_NOTIFY_DISABLED", "").strip().lower()
+    disabled = os.environ.get("CHEMSTACK_FLOW_NOTIFY_DISABLED", "").strip().lower()
     if disabled in {"1", "true", "yes", "on"}:
         return False
     return event_type in notification_event_types_from_env()
 
 
 def telegram_transport_from_env():
-    token = os.environ.get("CHEM_FLOW_TELEGRAM_BOT_TOKEN", "").strip()
-    chat_id = os.environ.get("CHEM_FLOW_TELEGRAM_CHAT_ID", "").strip()
+    token = os.environ.get("CHEMSTACK_FLOW_TELEGRAM_BOT_TOKEN", "").strip()
+    chat_id = os.environ.get("CHEMSTACK_FLOW_TELEGRAM_CHAT_ID", "").strip()
     if token and chat_id:
         return build_telegram_transport(TelegramConfig(bot_token=token, chat_id=chat_id))
 

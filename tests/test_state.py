@@ -68,8 +68,8 @@ class TestState(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            with patch("chemstack.orca.runtime.run_lock.lock_utils.is_process_alive", return_value=True), patch(
-                "chemstack.orca.runtime.run_lock.lock_utils.process_start_ticks", return_value=111
+            with patch("chemstack.orca.runtime.run_lock.process_lock.is_process_alive", return_value=True), patch(
+                "chemstack.orca.runtime.run_lock.process_lock.process_start_ticks", return_value=111
             ):
                 with self.assertRaises(RuntimeError):
                     with acquire_run_lock(reaction):
@@ -91,8 +91,8 @@ class TestState(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            with patch("chemstack.orca.runtime.run_lock.lock_utils.is_process_alive", return_value=True), patch(
-                "chemstack.orca.runtime.run_lock.lock_utils.process_start_ticks", return_value=222
+            with patch("chemstack.orca.runtime.run_lock.process_lock.is_process_alive", return_value=True), patch(
+                "chemstack.orca.runtime.run_lock.process_lock.process_start_ticks", return_value=222
             ), patch(
                 "chemstack.orca.runtime.run_lock.current_process_lock_payload",
                 return_value={

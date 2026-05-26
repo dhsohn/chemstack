@@ -41,10 +41,11 @@ from .state import (
     list_workflow_summaries,
     workflow_workspace_internal_engine_paths,
 )
+from .engine_options import WorkflowEngineOptions
 from .submitters.common import sibling_runtime_paths
-from .submitters.crest_auto import cancel_target as cancel_crest_target
-from .submitters.orca_auto import cancel_target as cancel_orca_target
-from .submitters.xtb_auto import cancel_target as cancel_xtb_target
+from .submitters.crest import cancel_target as cancel_crest_target
+from .submitters.orca import cancel_target as cancel_orca_target
+from .submitters.xtb import cancel_target as cancel_xtb_target
 from .workflow_status import WORKFLOW_TERMINAL_STATUSES, select_current_stage
 from . import _activity_clear
 from . import _activity_list
@@ -163,16 +164,16 @@ def _resolve_activity_source_request(request: ActivitySourceRequest) -> Resolved
 def _resolve_activity_sources(
     *,
     workflow_root: str | Path | None = None,
-    crest_auto_config: str | None = None,
-    xtb_auto_config: str | None = None,
-    orca_auto_config: str | None = None,
+    crest_config: str | None = None,
+    xtb_config: str | None = None,
+    orca_config: str | None = None,
 ) -> tuple[str | None, str | None, str | None, str | None]:
     return _resolve_activity_source_request(
         ActivitySourceRequest(
             workflow_root=workflow_root,
-            crest_auto_config=crest_auto_config,
-            xtb_auto_config=xtb_auto_config,
-            orca_auto_config=orca_auto_config,
+            crest_config=crest_config,
+            xtb_config=xtb_config,
+            orca_config=orca_config,
         )
     ).as_tuple()
 
@@ -183,9 +184,9 @@ def _resolved_activity_sources_for_request(
     return ResolvedActivitySources.from_tuple(
         _resolve_activity_sources(
             workflow_root=request.workflow_root,
-            crest_auto_config=request.crest_auto_config,
-            xtb_auto_config=request.xtb_auto_config,
-            orca_auto_config=request.orca_auto_config,
+            crest_config=request.crest_config,
+            xtb_config=request.xtb_config,
+            orca_config=request.orca_config,
         )
     )
 
@@ -391,19 +392,19 @@ def _collect_activity_records(
     *,
     workflow_root: str | Path | None = None,
     refresh: bool = False,
-    crest_auto_config: str | None = None,
-    xtb_auto_config: str | None = None,
-    orca_auto_config: str | None = None,
-    orca_auto_repo_root: str | None = None,
+    crest_config: str | None = None,
+    xtb_config: str | None = None,
+    orca_config: str | None = None,
+    orca_repo_root: str | None = None,
     child_job_engines: tuple[str, ...] | None = None,
 ) -> list[ActivityRecord]:
     return _activity_list.collect_activity_records(
         workflow_root=workflow_root,
         refresh=refresh,
-        crest_auto_config=crest_auto_config,
-        xtb_auto_config=xtb_auto_config,
-        orca_auto_config=orca_auto_config,
-        orca_auto_repo_root=orca_auto_repo_root,
+        crest_config=crest_config,
+        xtb_config=xtb_config,
+        orca_config=orca_config,
+        orca_repo_root=orca_repo_root,
         child_job_engines=child_job_engines,
         deps=_activity_list_deps(),
     )
@@ -414,20 +415,20 @@ def list_activities(
     workflow_root: str | Path | None = None,
     refresh: bool = False,
     limit: int = 0,
-    crest_auto_config: str | None = None,
-    xtb_auto_config: str | None = None,
-    orca_auto_config: str | None = None,
-    orca_auto_repo_root: str | None = None,
+    crest_config: str | None = None,
+    xtb_config: str | None = None,
+    orca_config: str | None = None,
+    orca_repo_root: str | None = None,
     child_job_engines: tuple[str, ...] | None = None,
 ) -> dict[str, Any]:
     return _activity_list.list_activities(
         workflow_root=workflow_root,
         refresh=refresh,
         limit=limit,
-        crest_auto_config=crest_auto_config,
-        xtb_auto_config=xtb_auto_config,
-        orca_auto_config=orca_auto_config,
-        orca_auto_repo_root=orca_auto_repo_root,
+        crest_config=crest_config,
+        xtb_config=xtb_config,
+        orca_config=orca_config,
+        orca_repo_root=orca_repo_root,
         child_job_engines=child_job_engines,
         deps=_activity_list_deps(),
     )
@@ -436,17 +437,17 @@ def list_activities(
 def clear_activities(
     *,
     workflow_root: str | Path | None = None,
-    crest_auto_config: str | None = None,
-    xtb_auto_config: str | None = None,
-    orca_auto_config: str | None = None,
-    orca_auto_repo_root: str | None = None,
+    crest_config: str | None = None,
+    xtb_config: str | None = None,
+    orca_config: str | None = None,
+    orca_repo_root: str | None = None,
 ) -> dict[str, Any]:
     return _activity_clear.clear_activities(
         workflow_root=workflow_root,
-        crest_auto_config=crest_auto_config,
-        xtb_auto_config=xtb_auto_config,
-        orca_auto_config=orca_auto_config,
-        orca_auto_repo_root=orca_auto_repo_root,
+        crest_config=crest_config,
+        xtb_config=xtb_config,
+        orca_config=orca_config,
+        orca_repo_root=orca_repo_root,
         clearable_terminal_statuses=_ACTIVITY_CLEARABLE_TERMINAL_STATUSES,
         deps=_activity_clear_deps(),
     )
@@ -518,8 +519,8 @@ def _cancel_orca_activity(
 
 def _activity_cancel_providers() -> tuple[_ActivityCancelProvider, ...]:
     return (
-        _ActivityCancelProvider("crest_auto", _cancel_crest_activity),
-        _ActivityCancelProvider("xtb_auto", _cancel_xtb_activity),
+        _ActivityCancelProvider("chemstack_crest", _cancel_crest_activity),
+        _ActivityCancelProvider("chemstack_xtb", _cancel_xtb_activity),
         _ActivityCancelProvider(CHEMSTACK_ORCA_SOURCE, _cancel_orca_activity),
     )
 
@@ -539,41 +540,46 @@ def cancel_activity(
     *,
     target: str,
     workflow_root: str | Path | None = None,
-    crest_auto_config: str | None = None,
-    crest_auto_executable: str = "crest_auto",
-    crest_auto_repo_root: str | None = None,
-    xtb_auto_config: str | None = None,
-    xtb_auto_executable: str = "xtb_auto",
-    xtb_auto_repo_root: str | None = None,
-    orca_auto_config: str | None = None,
-    orca_auto_executable: str = CHEMSTACK_EXECUTABLE,
-    orca_auto_repo_root: str | None = None,
+    crest_config: str | None = None,
+    crest_executable: str = "chemstack_crest",
+    crest_repo_root: str | None = None,
+    xtb_config: str | None = None,
+    xtb_executable: str = "chemstack_xtb",
+    xtb_repo_root: str | None = None,
+    orca_config: str | None = None,
+    orca_executable: str = CHEMSTACK_EXECUTABLE,
+    orca_repo_root: str | None = None,
 ) -> dict[str, Any]:
     request = ActivityCancelRequest(
         target=target,
         sources=ActivitySourceRequest(
             workflow_root=workflow_root,
-            crest_auto_config=crest_auto_config,
-            xtb_auto_config=xtb_auto_config,
-            orca_auto_config=orca_auto_config,
-            orca_auto_repo_root=orca_auto_repo_root,
+            crest_config=crest_config,
+            xtb_config=xtb_config,
+            orca_config=orca_config,
+            orca_repo_root=orca_repo_root,
         ),
-        crest_auto_executable=crest_auto_executable,
-        crest_auto_repo_root=crest_auto_repo_root,
-        xtb_auto_executable=xtb_auto_executable,
-        xtb_auto_repo_root=xtb_auto_repo_root,
-        orca_auto_executable=orca_auto_executable,
-        orca_auto_repo_root=orca_auto_repo_root,
+        engine_options=WorkflowEngineOptions.from_values(
+            crest_config=crest_config,
+            crest_executable=crest_executable,
+            crest_repo_root=crest_repo_root,
+            xtb_config=xtb_config,
+            xtb_executable=xtb_executable,
+            xtb_repo_root=xtb_repo_root,
+            orca_config=orca_config,
+            orca_executable=orca_executable,
+            orca_repo_root=orca_repo_root,
+        ),
     )
     resolved = _resolved_activity_sources_for_request(request.sources)
     record = _match_activity_record(
         _collect_activity_records(
             workflow_root=resolved.workflow_root,
             refresh=False,
-            crest_auto_config=resolved.crest_auto_config,
-            xtb_auto_config=resolved.xtb_auto_config,
-            orca_auto_config=resolved.orca_auto_config,
-            orca_auto_repo_root=request.sources.orca_auto_repo_root,
+            crest_config=resolved.crest_config,
+            xtb_config=resolved.xtb_config,
+            orca_config=resolved.orca_config,
+            orca_repo_root=request.engine_options.orca.repo_root,
         ),
         request.target,
     )

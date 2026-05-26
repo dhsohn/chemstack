@@ -202,8 +202,8 @@ def test_acquire_index_lock_passes_expected_payload_and_callbacks(tmp_path: Path
         captured.update(kwargs)
         yield
 
-    with patch("chemstack.orca.organize_index.lock_utils.current_process_start_ticks", return_value=321), patch(
-        "chemstack.orca.organize_index.lock_utils.acquire_file_lock",
+    with patch("chemstack.orca.organize_index.process_lock.current_process_start_ticks", return_value=321), patch(
+        "chemstack.orca.organize_index.process_lock.acquire_file_lock",
         side_effect=_fake_acquire_file_lock,
     ):
         with organize_index.acquire_index_lock(organized_root, timeout_seconds=7):
@@ -214,9 +214,9 @@ def test_acquire_index_lock_passes_expected_payload_and_callbacks(tmp_path: Path
     assert captured["timeout_error_builder"] is organize_index._index_lock_timeout_error
     lock_payload = cast(dict[str, Any], captured["lock_payload_obj"])
     assert lock_payload["process_start_ticks"] == 321
-    assert captured["parse_lock_info_fn"] is organize_index.lock_utils.parse_lock_info
-    assert captured["is_process_alive_fn"] is organize_index.lock_utils.is_process_alive
-    assert captured["process_start_ticks_fn"] is organize_index.lock_utils.process_start_ticks
+    assert captured["parse_lock_info_fn"] is organize_index.process_lock.parse_lock_info
+    assert captured["is_process_alive_fn"] is organize_index.process_lock.is_process_alive
+    assert captured["process_start_ticks_fn"] is organize_index.process_lock.process_start_ticks
 
 
 def test_acquire_index_lock_omits_process_ticks_when_unavailable(tmp_path: Path) -> None:
@@ -228,8 +228,8 @@ def test_acquire_index_lock_omits_process_ticks_when_unavailable(tmp_path: Path)
         captured.update(kwargs)
         yield
 
-    with patch("chemstack.orca.organize_index.lock_utils.current_process_start_ticks", return_value=None), patch(
-        "chemstack.orca.organize_index.lock_utils.acquire_file_lock",
+    with patch("chemstack.orca.organize_index.process_lock.current_process_start_ticks", return_value=None), patch(
+        "chemstack.orca.organize_index.process_lock.acquire_file_lock",
         side_effect=_fake_acquire_file_lock,
     ):
         with organize_index.acquire_index_lock(organized_root):

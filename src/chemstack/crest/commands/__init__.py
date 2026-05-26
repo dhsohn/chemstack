@@ -1,1 +1,1 @@
-"""crest_auto command handlers."""
+"""ChemStack CREST command handlers."""

@@ -352,16 +352,16 @@ def _completed_reaction_crest_contracts(
     o: Any,
     payload: dict[str, Any],
     *,
-    crest_auto_config: str | None,
+    crest_config: str | None,
 ) -> tuple[Any, Any] | None:
     roles = o.stages._completed_crest_roles(payload)
     if set(roles.keys()) != {"reactant", "product"}:
         return None
     reactant_contract = o.stages._completed_crest_stage(
-        roles["reactant"], crest_auto_config=crest_auto_config
+        roles["reactant"], crest_config=crest_config
     )
     product_contract = o.stages._completed_crest_stage(
-        roles["product"], crest_auto_config=crest_auto_config
+        roles["product"], crest_config=crest_config
     )
     if reactant_contract is None or product_contract is None:
         return None
@@ -372,12 +372,12 @@ def _reaction_xtb_stage_plan(
     o: Any,
     payload: dict[str, Any],
     *,
-    crest_auto_config: str | None,
+    crest_config: str | None,
 ) -> _ReactionXtbStagePlan | None:
     contracts = _completed_reaction_crest_contracts(
         o,
         payload,
-        crest_auto_config=crest_auto_config,
+        crest_config=crest_config,
     )
     if contracts is None:
         return None
@@ -426,14 +426,14 @@ def append_reaction_xtb_stages_impl(
     payload: dict[str, Any],
     *,
     workspace_dir: Path,
-    crest_auto_config: str | None,
+    crest_config: str | None,
     deps: OrchestrationDeps | None = None,
 ) -> bool:
     o = _orchestration_context(deps)
     if _engine_stages(o, payload, "xtb"):
         return False
     del workspace_dir
-    plan = _reaction_xtb_stage_plan(o, payload, crest_auto_config=crest_auto_config)
+    plan = _reaction_xtb_stage_plan(o, payload, crest_config=crest_config)
     if plan is None:
         return False
 
@@ -452,16 +452,16 @@ def _reaction_orca_stage_plan(
     payload: dict[str, Any],
     *,
     workspace_dir: Path,
-    xtb_auto_config: str | None,
-    orca_auto_config: str | None,
+    xtb_config: str | None,
+    orca_config: str | None,
 ) -> _ReactionOrcaStagePlan | None:
     xtb_stages = _completed_or_recoverable_xtb_stages(o, payload)
     if not xtb_stages:
         return None
-    xtb_allowed_root = _call_engine_aware(o.stages._load_config_root, xtb_auto_config, engine="xtb")
+    xtb_allowed_root = _call_engine_aware(o.stages._load_config_root, xtb_config, engine="xtb")
     if xtb_allowed_root is None:
         return None
-    if _call_engine_aware(o.stages._load_config_root, orca_auto_config, engine="orca") is None:
+    if _call_engine_aware(o.stages._load_config_root, orca_config, engine="orca") is None:
         return None
     orca_runtime_paths = workflow_workspace_internal_engine_paths(workspace_dir, engine="orca")
     params = _request_params(o, payload)
@@ -491,8 +491,8 @@ def append_reaction_orca_stages_impl(
     payload: dict[str, Any],
     *,
     workspace_dir: Path,
-    xtb_auto_config: str | None,
-    orca_auto_config: str | None,
+    xtb_config: str | None,
+    orca_config: str | None,
     deps: OrchestrationDeps | None = None,
 ) -> bool:
     o = _orchestration_context(deps)
@@ -500,8 +500,8 @@ def append_reaction_orca_stages_impl(
         o,
         payload,
         workspace_dir=workspace_dir,
-        xtb_auto_config=xtb_auto_config,
-        orca_auto_config=orca_auto_config,
+        xtb_config=xtb_config,
+        orca_config=orca_config,
     )
     if plan is None:
         return False
@@ -540,7 +540,7 @@ def _completed_crest_stage_for_orca(
     o: Any,
     payload: dict[str, Any],
     *,
-    crest_auto_config: str | None,
+    crest_config: str | None,
 ) -> Any | None:
     crest_stage = next(
         (
@@ -552,7 +552,7 @@ def _completed_crest_stage_for_orca(
     )
     if crest_stage is None:
         return None
-    return o.stages._completed_crest_stage(crest_stage, crest_auto_config=crest_auto_config)
+    return o.stages._completed_crest_stage(crest_stage, crest_config=crest_config)
 
 
 def _crest_orca_stage_plan(
@@ -560,19 +560,19 @@ def _crest_orca_stage_plan(
     payload: dict[str, Any],
     *,
     template_name: str,
-    crest_auto_config: str | None,
-    orca_auto_config: str | None,
+    crest_config: str | None,
+    orca_config: str | None,
 ) -> _CrestOrcaStagePlan | None:
     if _engine_stages(o, payload, "orca"):
         return None
     crest_contract = _completed_crest_stage_for_orca(
         o,
         payload,
-        crest_auto_config=crest_auto_config,
+        crest_config=crest_config,
     )
     if (
         crest_contract is None
-        or _call_engine_aware(o.stages._load_config_root, orca_auto_config, engine="orca") is None
+        or _call_engine_aware(o.stages._load_config_root, orca_config, engine="orca") is None
     ):
         return None
     payload_metadata = o.stages._coerce_mapping(payload.get("metadata"))
@@ -606,8 +606,8 @@ def append_crest_orca_stages_impl(
     payload: dict[str, Any],
     *,
     template_name: str,
-    crest_auto_config: str | None,
-    orca_auto_config: str | None,
+    crest_config: str | None,
+    orca_config: str | None,
     stage_id_prefix: str,
     xyz_filename: str,
     inp_filename: str,
@@ -618,8 +618,8 @@ def append_crest_orca_stages_impl(
         o,
         payload,
         template_name=template_name,
-        crest_auto_config=crest_auto_config,
-        orca_auto_config=orca_auto_config,
+        crest_config=crest_config,
+        orca_config=orca_config,
     )
     if plan is None:
         return False

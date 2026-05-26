@@ -20,10 +20,10 @@ def _settings() -> bot.TelegramBotSettings:
     return bot.TelegramBotSettings(
         telegram=TelegramConfig(bot_token="bot-token", chat_id="chat-id"),
         workflow_root="/tmp/workflow_root",
-        crest_auto_config="/tmp/chemstack.yaml",
-        xtb_auto_config="/tmp/chemstack.yaml",
-        orca_auto_config="/tmp/chemstack.yaml",
-        orca_auto_repo_root=None,
+        crest_config="/tmp/chemstack.yaml",
+        xtb_config="/tmp/chemstack.yaml",
+        orca_config="/tmp/chemstack.yaml",
+        orca_repo_root=None,
     )
 
 
@@ -39,7 +39,7 @@ def test_handle_list_formats_unified_activity_rows(monkeypatch) -> None:
                     "kind": "workflow",
                     "engine": "workflow",
                     "status": "running",
-                    "source": "chem_flow",
+                    "source": "chemstack_flow",
                     "submitted_at": "2026-04-26T01:00:00+00:00",
                     "updated_at": "2026-04-26T01:00:00+00:00",
                     "metadata": {
@@ -54,7 +54,7 @@ def test_handle_list_formats_unified_activity_rows(monkeypatch) -> None:
                     "kind": "job",
                     "engine": "crest",
                     "status": "running",
-                    "source": "crest_auto",
+                    "source": "chemstack_crest",
                     "submitted_at": "2026-04-26T01:10:00+00:00",
                     "updated_at": "2026-04-26T01:10:00+00:00",
                     "metadata": {
@@ -103,7 +103,7 @@ def test_handle_list_filter_keeps_workflow_parent_for_visible_child(monkeypatch)
                     "kind": "workflow",
                     "engine": "workflow",
                     "status": "running",
-                    "source": "chem_flow",
+                    "source": "chemstack_flow",
                     "submitted_at": "2026-04-26T01:00:00+00:00",
                     "updated_at": "2026-04-26T01:00:00+00:00",
                     "metadata": {
@@ -117,7 +117,7 @@ def test_handle_list_filter_keeps_workflow_parent_for_visible_child(monkeypatch)
                     "kind": "job",
                     "engine": "crest",
                     "status": "pending",
-                    "source": "crest_auto",
+                    "source": "chemstack_crest",
                     "submitted_at": "2026-04-26T01:10:00+00:00",
                     "updated_at": "2026-04-26T01:10:00+00:00",
                     "metadata": {
@@ -159,10 +159,10 @@ def test_handle_list_uses_global_active_simulation_count_from_full_payload(monke
                     "kind": "job",
                     "engine": "crest",
                     "status": "pending",
-                    "source": "crest_auto",
+                    "source": "chemstack_crest",
                 },
             ],
-            "sources": {"orca_auto_config": "/tmp/chemstack.yaml"},
+            "sources": {"orca_config": "/tmp/chemstack.yaml"},
         },
     )
 
@@ -208,7 +208,7 @@ def test_handle_list_shows_all_workflow_child_jobs(monkeypatch) -> None:
                     "kind": "workflow",
                     "engine": "workflow",
                     "status": "running",
-                    "source": "chem_flow",
+                    "source": "chemstack_flow",
                     "submitted_at": "2026-04-26T01:00:00+00:00",
                     "updated_at": "2026-04-26T01:00:00+00:00",
                     "metadata": {
@@ -268,16 +268,16 @@ def test_activity_counter_config_path_falls_back_to_settings() -> None:
     settings = bot.TelegramBotSettings(
         telegram=TelegramConfig(bot_token="bot-token", chat_id="chat-id"),
         workflow_root=None,
-        crest_auto_config="",
-        xtb_auto_config="/tmp/xtb.yaml",
-        orca_auto_config=None,
-        orca_auto_repo_root=None,
+        crest_config="",
+        xtb_config="/tmp/xtb.yaml",
+        orca_config=None,
+        orca_repo_root=None,
     )
 
     assert bot._activity_counter_config_path({"sources": {}}, settings=settings) == "/tmp/xtb.yaml"
     assert (
         bot._activity_counter_config_path(
-            {"sources": {"crest_auto_config": " /tmp/crest.yaml "}},
+            {"sources": {"crest_config": " /tmp/crest.yaml "}},
             settings=settings,
         )
         == "/tmp/crest.yaml"
@@ -484,8 +484,8 @@ def test_set_bot_commands_delegates_to_api_call(monkeypatch) -> None:
 
 
 def test_settings_from_env_uses_autodiscovery(monkeypatch) -> None:
-    monkeypatch.setenv("CHEM_FLOW_TELEGRAM_BOT_TOKEN", "bot-token")
-    monkeypatch.setenv("CHEM_FLOW_TELEGRAM_CHAT_ID", "chat-id")
+    monkeypatch.setenv("CHEMSTACK_FLOW_TELEGRAM_BOT_TOKEN", "bot-token")
+    monkeypatch.setenv("CHEMSTACK_FLOW_TELEGRAM_CHAT_ID", "chat-id")
     monkeypatch.setattr(bot, "_discover_workflow_root", lambda explicit: "/tmp/wf")
     monkeypatch.setattr(
         bot,
@@ -498,9 +498,9 @@ def test_settings_from_env_uses_autodiscovery(monkeypatch) -> None:
     assert settings.telegram.bot_token == "bot-token"
     assert settings.telegram.chat_id == "chat-id"
     assert settings.workflow_root == "/tmp/wf"
-    assert settings.crest_auto_config == "/tmp/chemstack.yaml"
-    assert settings.xtb_auto_config == "/tmp/chemstack.yaml"
-    assert settings.orca_auto_config == "/tmp/chemstack.yaml"
+    assert settings.crest_config == "/tmp/chemstack.yaml"
+    assert settings.xtb_config == "/tmp/chemstack.yaml"
+    assert settings.orca_config == "/tmp/chemstack.yaml"
 
 
 def test_telegram_from_config_path_handles_empty_missing_invalid_and_missing_section(
@@ -554,9 +554,9 @@ def test_settings_from_config_uses_shared_telegram_section(tmp_path: Path) -> No
     assert settings.telegram.bot_token == "bot-token"
     assert settings.telegram.chat_id == "chat-id"
     assert settings.workflow_root == str(Path("/tmp/workflows").resolve())
-    assert settings.crest_auto_config == str(config_path.resolve())
-    assert settings.xtb_auto_config == str(config_path.resolve())
-    assert settings.orca_auto_config == str(config_path.resolve())
+    assert settings.crest_config == str(config_path.resolve())
+    assert settings.xtb_config == str(config_path.resolve())
+    assert settings.orca_config == str(config_path.resolve())
 
 
 def test_settings_from_config_falls_back_to_environment_when_config_telegram_disabled(
@@ -565,8 +565,8 @@ def test_settings_from_config_falls_back_to_environment_when_config_telegram_dis
 ) -> None:
     config_path = tmp_path / "chemstack.yaml"
     config_path.write_text("workflow:\n  root: /tmp/workflows\n", encoding="utf-8")
-    monkeypatch.setenv("CHEM_FLOW_TELEGRAM_BOT_TOKEN", "env-token")
-    monkeypatch.setenv("CHEM_FLOW_TELEGRAM_CHAT_ID", "env-chat")
+    monkeypatch.setenv("CHEMSTACK_FLOW_TELEGRAM_BOT_TOKEN", "env-token")
+    monkeypatch.setenv("CHEMSTACK_FLOW_TELEGRAM_CHAT_ID", "env-chat")
 
     settings = bot.settings_from_config(str(config_path))
 
@@ -579,10 +579,10 @@ def test_run_bot_disabled_settings_returns_error() -> None:
     settings = bot.TelegramBotSettings(
         telegram=TelegramConfig(),
         workflow_root=None,
-        crest_auto_config=None,
-        xtb_auto_config=None,
-        orca_auto_config=None,
-        orca_auto_repo_root=None,
+        crest_config=None,
+        xtb_config=None,
+        orca_config=None,
+        orca_repo_root=None,
     )
 
     assert bot.run_bot(settings) == 1

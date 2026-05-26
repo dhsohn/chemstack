@@ -16,7 +16,7 @@ from chemstack.core.indexing import engines as _engine_locations
 from .config import AppConfig
 from .state import load_organized_ref, load_report_json, load_state
 
-_APP_NAME = "crest_auto"
+_APP_NAME = "chemstack_crest"
 _ENGINE = "crest"
 _UNKNOWN_MOLECULE = "unknown_molecule"
 _LOCATION_SPEC = _engine_locations.EngineLocationSpec(

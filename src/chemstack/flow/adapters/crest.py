@@ -98,7 +98,7 @@ def load_crest_artifact_contract(*, crest_index_root: str | Path, target: str) -
         state_filename=STATE_FILE_NAME,
         organized_ref_filename=ORGANIZED_REF_FILE_NAME,
         missing_label="CREST",
-        expected_app_name="crest_auto",
+        expected_app_name="chemstack_crest",
         coerce_resource_dict_fn=_coerce_resource_dict,
         select_payload_fn=lambda report, state, organized_ref: _select_artifact_payload(
             report=report,

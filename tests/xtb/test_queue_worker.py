@@ -194,8 +194,7 @@ def test_execute_queue_entry_processes_completed_job(
     outcome = queue_cmd._execute_queue_entry(
         cfg,
         queue_root=queue_root,
-        entry=entry,
-        auto_organize=False,
+        entry=entry
     )
 
     assert outcome.result.status == "completed"
@@ -256,8 +255,7 @@ def test_execute_queue_entry_marks_runner_errors_failed(
     outcome = queue_cmd._execute_queue_entry(
         cfg,
         queue_root=queue_root,
-        entry=entry,
-        auto_organize=False,
+        entry=entry
     )
 
     assert outcome.result.status == "failed"
@@ -341,7 +339,6 @@ def test_execute_queue_entry_cancels_running_job(
         cfg,
         queue_root=queue_root,
         entry=entry,
-        auto_organize=False,
         should_cancel=lambda: next(cancel_checks, True),
     )
 
@@ -430,7 +427,6 @@ def test_execute_queue_entry_cancels_before_start_and_updates_terminal_metadata(
         cfg,
         queue_root=queue_root,
         entry=entry,
-        auto_organize=False,
         should_cancel=lambda: True,
     )
 
@@ -498,8 +494,7 @@ def test_execute_queue_entry_processes_ranking_job_without_auto_organizing(
     outcome = queue_cmd._execute_queue_entry(
         cfg,
         queue_root=queue_root,
-        entry=entry,
-        auto_organize=True,
+        entry=entry
     )
 
     assert outcome.result.status == "completed"

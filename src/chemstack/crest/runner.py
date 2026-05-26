@@ -2,13 +2,12 @@ from __future__ import annotations
 
 import os
 import resource
-import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, TextIO
 
-from chemstack.core.config import engines as _config_engines
+from chemstack.core import engine_runner as _engine_runner
 from chemstack.core.engine_process import start_logged_process
 from chemstack.core.utils import now_utc_iso
 from chemstack.core.utils import process as process_utils
@@ -66,17 +65,12 @@ class CrestRunningJob:
 
 
 def _resolve_crest_executable(cfg: AppConfig) -> str:
-    configured = str(cfg.paths.crest_executable).strip()
-    if configured:
-        path = Path(configured).expanduser().resolve()
-        if not path.exists() or not path.is_file():
-            raise ValueError(f"Configured CREST executable not found: {path}")
-        return str(path)
-
-    discovered = shutil.which("crest")
-    if discovered:
-        return discovered
-    raise ValueError("CREST executable not configured and not found on PATH.")
+    return _engine_runner.resolve_configured_executable(
+        cfg,
+        path_attr="crest_executable",
+        executable_name="crest",
+        display_name="CREST",
+    )
 
 
 def _resource_request_dict(cfg: AppConfig, manifest: dict[str, Any]) -> dict[str, int]:
@@ -84,40 +78,19 @@ def _resource_request_dict(cfg: AppConfig, manifest: dict[str, Any]) -> dict[str
 
 
 def _resource_actual_dict(resource_request: dict[str, int]) -> dict[str, int]:
-    return _config_engines.resource_actual_from_request(resource_request)
+    return _engine_runner.resource_actual_dict(resource_request)
 
 
 def _bool_flag(manifest: dict[str, Any], key: str) -> bool:
-    return _config_engines.as_bool(manifest.get(key), False)
+    return _engine_runner.bool_flag(manifest, key)
 
 
 def _manifest_int(manifest: dict[str, Any], key: str) -> int | None:
-    value = manifest.get(key)
-    if value in (None, "", 0, "0"):
-        return None
-    if isinstance(value, str):
-        stripped = value.strip()
-        if not stripped:
-            return None
-        return int(stripped)
-    if isinstance(value, (int, float)):
-        return int(value)
-    raise ValueError(f"Manifest field {key!r} must be an integer-compatible value.")
+    return _engine_runner.manifest_int(manifest, key, zero_is_absent=True)
 
 
 def _manifest_scalar_text(manifest: dict[str, Any], key: str) -> str | None:
-    value = manifest.get(key)
-    if value is None:
-        return None
-    if isinstance(value, str):
-        stripped = value.strip()
-        return stripped or None
-    if isinstance(value, bool):
-        return "true" if value else None
-    if isinstance(value, (int, float)):
-        return str(value)
-    text = str(value).strip()
-    return text or None
+    return _engine_runner.manifest_scalar_text(manifest, key)
 
 
 def _append_crest_mode_flags(command: list[str], manifest: dict[str, Any]) -> None:
@@ -163,10 +136,7 @@ def _append_crest_int_options(command: list[str], manifest: dict[str, Any]) -> N
 
 
 def _append_crest_solvent_options(command: list[str], manifest: dict[str, Any]) -> None:
-    solvent_model = str(manifest.get("solvent_model", "")).strip().lower()
-    solvent = str(manifest.get("solvent", "")).strip()
-    if solvent and solvent_model in {"gbsa", "alpb"}:
-        command.extend([f"--{solvent_model}", solvent])
+    _engine_runner.append_solvent_option(command, manifest)
 
 
 def _append_crest_scalar_options(command: list[str], manifest: dict[str, Any]) -> None:

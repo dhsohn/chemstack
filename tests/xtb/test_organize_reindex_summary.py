@@ -98,7 +98,7 @@ def _write_job_artifacts(
             "latest_known_path": str(job_dir),
         },
     )
-    state_mod.write_report_md_lines(job_dir, ["# xtb_auto Report", "", "- Existing report line"])
+    state_mod.write_report_md_lines(job_dir, ["# ChemStack xTB Report", "", "- Existing report line"])
     return {
         "selected_xyz": selected_xyz,
         "candidate_xyz": candidate_xyz,

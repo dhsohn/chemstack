@@ -51,9 +51,9 @@ def start_workflow_cycle(
     session_id = normalize_text(context.worker_session_id) or timestamped_token_fn("wf_worker")
     requested_submit_ready = bool(context.submit_ready)
     cycle_submit_ready = requested_submit_ready and workflow_submission_has_capacity_fn(
-        context.options.crest_auto_config,
-        context.options.xtb_auto_config,
-        context.options.orca_auto_config,
+        context.options.crest_config,
+        context.options.xtb_config,
+        context.options.orca_config,
     )
     admission_blocked = requested_submit_ready and not cycle_submit_ready
     lease_expires_at = workflow_lease_expires_at_fn(context.lease_seconds)

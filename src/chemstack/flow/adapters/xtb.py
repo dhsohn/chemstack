@@ -176,7 +176,7 @@ def load_xtb_artifact_contract(*, xtb_index_root: str | Path, target: str) -> Xt
         state_filename=STATE_FILE_NAME,
         organized_ref_filename=ORGANIZED_REF_FILE_NAME,
         missing_label="xTB",
-        expected_app_name="xtb_auto",
+        expected_app_name="chemstack_xtb",
         coerce_resource_dict_fn=_coerce_resource_dict,
     )
     job_dir = bundle.job_dir

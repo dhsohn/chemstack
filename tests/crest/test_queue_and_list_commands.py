@@ -59,7 +59,7 @@ def _enqueue_job(
         metadata["job_dir"] = str(job_dir)
     return enqueue(
         env.allowed_root,
-        app_name="crest_auto",
+        app_name="chemstack_crest",
         task_id=task_id,
         task_kind="conformer_search",
         engine="crest",
@@ -212,7 +212,7 @@ def test_cmd_queue_cancel_rejects_terminal_entry(
     assert capsys.readouterr().out == f"error: queue target already terminal: {entry.queue_id}\n"
 
 
-def test_cmd_queue_worker_disables_auto_organize_for_crest(
+def test_cmd_queue_worker_constructs_crest_worker_without_organize_flags(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -222,7 +222,7 @@ def test_cmd_queue_worker_disables_auto_organize_for_crest(
             max_concurrent=2,
         ),
     )
-    seen: list[tuple[object, str, int, bool]] = []
+    seen: list[tuple[object, str, int]] = []
 
     monkeypatch.setattr(queue_cmd, "load_config", lambda path=None: cfg)
     monkeypatch.setattr(queue_cmd, "read_worker_pid", lambda allowed_root: None)
@@ -234,9 +234,8 @@ def test_cmd_queue_worker_disables_auto_organize_for_crest(
             config_path: str,
             *,
             max_concurrent: int,
-            auto_organize: bool,
         ) -> None:
-            seen.append((cfg_obj, config_path, max_concurrent, auto_organize))
+            seen.append((cfg_obj, config_path, max_concurrent))
 
         def run(self) -> int:
             return 0
@@ -250,7 +249,7 @@ def test_cmd_queue_worker_disables_auto_organize_for_crest(
     )
 
     assert result == 0
-    assert seen == [(cfg, "ignored", 2, False)]
+    assert seen == [(cfg, "ignored", 2)]
     assert capsys.readouterr().out == ""
 
 
@@ -261,7 +260,7 @@ def test_process_one_returns_blocked_when_no_admission_slot(
 
     monkeypatch.setattr(queue_cmd, "_try_reserve_admission_slot", lambda cfg_obj: None)
 
-    assert queue_cmd._process_one(cfg, auto_organize=False) == "blocked"
+    assert queue_cmd._process_one(cfg) == "blocked"
 
 
 def test_process_one_returns_idle_and_releases_reserved_slot(
@@ -281,7 +280,7 @@ def test_process_one_returns_idle_and_releases_reserved_slot(
     monkeypatch.setattr(queue_cmd, "dequeue_next", lambda root: None)
     monkeypatch.setattr(queue_cmd, "release_slot", lambda root, token: released.append((root, token)))
 
-    assert queue_cmd._process_one(cfg, auto_organize=False) == "idle"
+    assert queue_cmd._process_one(cfg) == "idle"
     assert released == [(cfg.runtime.allowed_root, "slot-1")]
 
 
@@ -294,15 +293,15 @@ def test_cmd_queue_worker_runs_pool_worker_when_not_once(
             max_concurrent=3,
         )
     )
-    constructed: list[tuple[object, str, int, bool]] = []
+    constructed: list[tuple[object, str, int]] = []
     run_calls: list[bool] = []
 
     monkeypatch.setattr(queue_cmd, "load_config", lambda path=None: cfg)
     monkeypatch.setattr(queue_cmd, "read_worker_pid", lambda allowed_root: None)
 
     class FakeWorker:
-        def __init__(self, cfg_obj: object, config_path: str, *, max_concurrent: int, auto_organize: bool) -> None:
-            constructed.append((cfg_obj, config_path, max_concurrent, auto_organize))
+        def __init__(self, cfg_obj: object, config_path: str, *, max_concurrent: int) -> None:
+            constructed.append((cfg_obj, config_path, max_concurrent))
 
         def run(self) -> int:
             run_calls.append(True)
@@ -313,11 +312,9 @@ def test_cmd_queue_worker_runs_pool_worker_when_not_once(
     result = queue_cmd.cmd_queue_worker(
         SimpleNamespace(
             config="ignored",
-            auto_organize=False,
-            no_auto_organize=False,
         )
     )
 
     assert result == 17
-    assert constructed == [(cfg, "ignored", 3, False)]
+    assert constructed == [(cfg, "ignored", 3)]
     assert run_calls == [True]

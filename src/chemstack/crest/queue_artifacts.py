@@ -48,30 +48,22 @@ def build_state_payload(
     previous_state: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     base_state = coerce_mapping(previous_state)
-    recovery_reason = _queue_execution.recovery_reason(base_state)
-    payload = {
-        "job_id": entry.task_id,
-        "job_dir": _engine_execution.entry_metadata_text(entry, "job_dir"),
-        "selected_input_xyz": result.selected_input_xyz,
-        "molecule_key": _engine_execution.entry_metadata_text(entry, "molecule_key"),
-        "mode": result.mode,
-        "status": result.status,
-        "reason": result.reason,
-        "started_at": result.started_at,
-        "updated_at": result.finished_at,
-        "retained_conformer_count": result.retained_conformer_count,
-        "retained_conformer_paths": list(result.retained_conformer_paths),
-        "manifest_path": result.manifest_path,
-        "resource_request": dict(result.resource_request),
-        "resource_actual": dict(result.resource_actual),
-        "created_at": _queue_execution.created_at(base_state),
-        "recovery_pending": False,
-        "recovery_count": _queue_execution.recovery_count(base_state),
-        "resumed": bool(base_state.get("resumed", False)),
-    }
-    if recovery_reason:
-        payload["recovery_reason"] = recovery_reason
-    return payload
+    return _engine_execution.build_terminal_state_payload(
+        entry,
+        result,
+        job_dir_text=_engine_execution.entry_metadata_text(entry, "job_dir"),
+        selected_input_xyz=result.selected_input_xyz,
+        previous_state=base_state,
+        resumed=bool(base_state.get("resumed", False)),
+        engine_fields={
+            "molecule_key": _engine_execution.entry_metadata_text(entry, "molecule_key"),
+            "mode": result.mode,
+        },
+        detail_fields={
+            "retained_conformer_count": result.retained_conformer_count,
+            "retained_conformer_paths": list(result.retained_conformer_paths),
+        },
+    )
 
 
 def build_report_payload(
@@ -81,38 +73,26 @@ def build_report_payload(
     previous_state: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     base_state = coerce_mapping(previous_state)
-    recovery_reason = _queue_execution.recovery_reason(base_state)
-    payload = {
-        "job_id": entry.task_id,
-        "queue_id": entry.queue_id,
-        "status": result.status,
-        "reason": result.reason,
-        "mode": result.mode,
-        "selected_input_xyz": result.selected_input_xyz,
-        "molecule_key": _engine_execution.entry_metadata_text(entry, "molecule_key"),
-        "command": list(result.command),
-        "exit_code": result.exit_code,
-        "started_at": result.started_at,
-        "finished_at": result.finished_at,
-        "stdout_log": result.stdout_log,
-        "stderr_log": result.stderr_log,
-        "retained_conformer_count": result.retained_conformer_count,
-        "retained_conformer_paths": list(result.retained_conformer_paths),
-        "manifest_path": result.manifest_path,
-        "resource_request": dict(result.resource_request),
-        "resource_actual": dict(result.resource_actual),
-        "created_at": _queue_execution.created_at(base_state),
-        "recovery_count": _queue_execution.recovery_count(base_state),
-        "resumed": bool(base_state.get("resumed", False)),
-    }
-    if recovery_reason:
-        payload["recovery_reason"] = recovery_reason
-    return payload
+    return _engine_execution.build_terminal_report_payload(
+        entry,
+        result,
+        selected_input_xyz=result.selected_input_xyz,
+        previous_state=base_state,
+        resumed=bool(base_state.get("resumed", False)),
+        engine_fields={
+            "mode": result.mode,
+            "molecule_key": _engine_execution.entry_metadata_text(entry, "molecule_key"),
+        },
+        detail_fields={
+            "retained_conformer_count": result.retained_conformer_count,
+            "retained_conformer_paths": list(result.retained_conformer_paths),
+        },
+    )
 
 
 def report_lines(entry: Any, result: CrestRunResult) -> list[str]:
     lines = [
-        "# crest_auto Report",
+        "# ChemStack CREST Report",
         "",
         f"- Job ID: `{entry.task_id}`",
         f"- Queue ID: `{entry.queue_id}`",

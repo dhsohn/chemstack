@@ -12,12 +12,12 @@ def _orca_module():
     return o
 
 
-def sibling_orca_auto_repo_root_impl() -> Path:
+def sibling_orca_repo_root_impl() -> Path:
     o = _orca_module()
     return o.Path(__file__).resolve().parents[4]
 
 
-def import_orca_auto_module_impl(module_name: str) -> Any | None:
+def import_orca_module_impl(module_name: str) -> Any | None:
     o = _orca_module()
     try:
         return o.import_module(module_name)
@@ -27,9 +27,9 @@ def import_orca_auto_module_impl(module_name: str) -> Any | None:
         return None
 
 
-def orca_auto_job_locations_module_impl() -> Any | None:
+def orca_job_locations_module_impl() -> Any | None:
     o = _orca_module()
-    return o._import_orca_auto_module("chemstack.orca.job_locations")
+    return o._import_orca_module("chemstack.orca.job_locations")
 
 
 def tracked_artifact_context_impl(
@@ -40,7 +40,7 @@ def tracked_artifact_context_impl(
     o = _orca_module()
     if index_root is None:
         return None, None, {}, {}, {}
-    job_locations_module = o._orca_auto_job_locations_module()
+    job_locations_module = o._orca_job_locations_module()
     if job_locations_module is None:
         return None, None, {}, {}, {}
 
@@ -77,7 +77,7 @@ def tracked_runtime_context_impl(
     o = _orca_module()
     if index_root is None:
         return None
-    job_locations_module = o._orca_auto_job_locations_module()
+    job_locations_module = o._orca_job_locations_module()
     if job_locations_module is None or not hasattr(job_locations_module, "load_job_runtime_context"):
         return None
 
@@ -161,7 +161,7 @@ def load_orca_contract_payload_impl(
     if index_root is None:
         return None
     return _contract_payload_from_loader(
-        load_payload_fn=_contract_payload_loader(o._orca_auto_job_locations_module()),
+        load_payload_fn=_contract_payload_loader(o._orca_job_locations_module()),
         index_root=index_root,
         organized_root=organized_root,
         target=target,
@@ -172,10 +172,10 @@ def load_orca_contract_payload_impl(
 
 
 __all__ = [
-    "import_orca_auto_module_impl",
+    "import_orca_module_impl",
     "load_orca_contract_payload_impl",
-    "orca_auto_job_locations_module_impl",
-    "sibling_orca_auto_repo_root_impl",
+    "orca_job_locations_module_impl",
+    "sibling_orca_repo_root_impl",
     "tracked_artifact_context_impl",
     "tracked_runtime_context_impl",
 ]

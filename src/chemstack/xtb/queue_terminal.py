@@ -345,7 +345,6 @@ def finalize_execution_result(
     queue_root: Path,
     entry: Any,
     result: XtbRunResult,
-    auto_organize: bool,
     emit_output: bool,
     previous_state: dict[str, Any] | None = None,
     resumed: bool = False,
@@ -360,7 +359,6 @@ def finalize_execution_result(
     upsert_job_record_fn: Callable[..., Any] | None = None,
     notify_job_finished_fn: Callable[..., Any] | None = None,
 ) -> Any:
-    del auto_organize
     return finalize_terminal_result(
         XtbTerminalFinalizationRequest(
             cfg=cfg,

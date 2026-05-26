@@ -9,6 +9,7 @@ from typing import Any, cast
 import pytest
 import yaml
 
+from chemstack.core import engine_runner
 from chemstack.core.config import CommonResourceConfig, CommonRuntimeConfig, TelegramConfig
 
 from chemstack.xtb import runner as runner_mod
@@ -155,11 +156,13 @@ def test_resolve_xtb_executable_uses_configured_and_path_lookup(
         )
 
     monkeypatch.setattr(
-        runner_mod.shutil, "which", lambda name: "/usr/bin/xtb" if name == "xtb" else None
+        engine_runner.shutil,
+        "which",
+        lambda name: "/usr/bin/xtb" if name == "xtb" else None,
     )
     assert runner_mod._resolve_xtb_executable(_cfg(tmp_path)) == "/usr/bin/xtb"
 
-    monkeypatch.setattr(runner_mod.shutil, "which", lambda name: None)
+    monkeypatch.setattr(engine_runner.shutil, "which", lambda name: None)
     with pytest.raises(ValueError, match="xTB executable not configured and not found on PATH"):
         runner_mod._resolve_xtb_executable(_cfg(tmp_path))
 

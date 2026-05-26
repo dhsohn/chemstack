@@ -35,7 +35,7 @@ def _build_submission(
     input_summary = dict(job["input_summary"])
     return EngineRunDirSubmission(
         queue_root=index_root_for_path(cfg, job_dir),
-        app_name="xtb_auto",
+        app_name="chemstack_xtb",
         task_id=job_id,
         task_kind=f"xtb_{job['job_type']}",
         engine="xtb",

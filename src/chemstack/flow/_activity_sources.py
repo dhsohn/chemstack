@@ -88,9 +88,9 @@ def resolve_activity_source_request(
     deps: Any,
 ) -> ResolvedActivitySources:
     shared_hint = deps._shared_config_hint(
-        request.orca_auto_config,
-        request.crest_auto_config,
-        request.xtb_auto_config,
+        request.orca_config,
+        request.crest_config,
+        request.xtb_config,
     )
     explicit_workflow_root = normalize_text(request.workflow_root)
     resolved_workflow_root: str | None
@@ -100,22 +100,22 @@ def resolve_activity_source_request(
         resolved_workflow_root = shared_workflow_root_from_config(shared_hint)
     else:
         resolved_workflow_root = deps._discover_workflow_root(None)
-    resolved_crest_auto_config = deps._discover_sibling_config(
-        request.crest_auto_config or shared_hint,
-        app_name="crest_auto",
+    resolved_crest_config = deps._discover_sibling_config(
+        request.crest_config or shared_hint,
+        app_name="chemstack_crest",
     )
-    resolved_xtb_auto_config = deps._discover_sibling_config(
-        request.xtb_auto_config or shared_hint,
-        app_name="xtb_auto",
+    resolved_xtb_config = deps._discover_sibling_config(
+        request.xtb_config or shared_hint,
+        app_name="chemstack_xtb",
     )
-    resolved_orca_auto_config = deps._discover_orca_config(
-        request.orca_auto_config or shared_hint
+    resolved_orca_config = deps._discover_orca_config(
+        request.orca_config or shared_hint
     )
     return ResolvedActivitySources(
         workflow_root=resolved_workflow_root,
-        crest_auto_config=resolved_crest_auto_config,
-        xtb_auto_config=resolved_xtb_auto_config,
-        orca_auto_config=resolved_orca_auto_config,
+        crest_config=resolved_crest_config,
+        xtb_config=resolved_xtb_config,
+        orca_config=resolved_orca_config,
     )
 
 

@@ -257,9 +257,9 @@ def test_cmd_workflow_cancel_reindex_submit_and_advance_output_paths(monkeypatch
         SimpleNamespace(
             target="wf_submit",
             workflow_root="/tmp/wf",
-            orca_auto_config="/tmp/orca.yaml",
-            orca_auto_executable="orca_auto",
-            orca_auto_repo_root=None,
+            orca_config="/tmp/orca.yaml",
+            orca_executable="chemstack",
+            orca_repo_root=None,
             resubmit=False,
             json=False,
         )
@@ -274,15 +274,15 @@ def test_cmd_workflow_cancel_reindex_submit_and_advance_output_paths(monkeypatch
         SimpleNamespace(
             target="wf_advance",
             workflow_root="/tmp/wf",
-            crest_auto_config=None,
-            crest_auto_executable="crest_auto",
-            crest_auto_repo_root=None,
-            xtb_auto_config=None,
-            xtb_auto_executable="xtb_auto",
-            xtb_auto_repo_root=None,
-            orca_auto_config=None,
-            orca_auto_executable="orca_auto",
-            orca_auto_repo_root=None,
+            crest_config=None,
+            crest_executable="chemstack_crest",
+            crest_repo_root=None,
+            xtb_config=None,
+            xtb_executable="chemstack_xtb",
+            xtb_repo_root=None,
+            orca_config=None,
+            orca_executable="chemstack",
+            orca_repo_root=None,
             no_submit=True,
             json=False,
         )
@@ -307,15 +307,15 @@ def test_cmd_workflow_worker_handles_negative_cycles_and_lock_timeout(monkeypatc
         worker_session_id="",
         lease_seconds=60.0,
         no_submit=False,
-        crest_auto_config=None,
-        crest_auto_executable="crest_auto",
-        crest_auto_repo_root=None,
-        xtb_auto_config=None,
-        xtb_auto_executable="xtb_auto",
-        xtb_auto_repo_root=None,
-        orca_auto_config=None,
-        orca_auto_executable="orca_auto",
-        orca_auto_repo_root=None,
+        crest_config=None,
+        crest_executable="chemstack_crest",
+        crest_repo_root=None,
+        xtb_config=None,
+        xtb_executable="chemstack_xtb",
+        xtb_repo_root=None,
+        orca_config=None,
+        orca_executable="chemstack",
+        orca_repo_root=None,
     )
     assert cli_workflow.cmd_workflow_worker(args) == 1
     assert "--max-cycles must be >= 0" in capsys.readouterr().out
@@ -386,15 +386,15 @@ def test_cmd_workflow_worker_single_cycle_and_keyboard_interrupt(monkeypatch, ca
         worker_session_id="",
         lease_seconds=60.0,
         no_submit=True,
-        crest_auto_config=None,
-        crest_auto_executable="crest_auto",
-        crest_auto_repo_root=None,
-        xtb_auto_config=None,
-        xtb_auto_executable="xtb_auto",
-        xtb_auto_repo_root=None,
-        orca_auto_config=None,
-        orca_auto_executable="orca_auto",
-        orca_auto_repo_root=None,
+        crest_config=None,
+        crest_executable="chemstack_crest",
+        crest_repo_root=None,
+        xtb_config=None,
+        xtb_executable="chemstack_xtb",
+        xtb_repo_root=None,
+        orca_config=None,
+        orca_executable="chemstack",
+        orca_repo_root=None,
     )
 
     assert cli_workflow.cmd_workflow_worker(args) == 0
@@ -495,4 +495,4 @@ def test_build_parser_rejects_removed_workflow_alias_flags() -> None:
     parser = cli.build_parser()
 
     with pytest.raises(SystemExit):
-        parser.parse_args(["workflow", "worker", "--workflow-root", "/tmp/wf", "--orca-auto-repo-root", "/tmp/repo"])
+        parser.parse_args(["workflow", "worker", "--workflow-root", "/tmp/wf", "--orca-repo-root", "/tmp/repo"])

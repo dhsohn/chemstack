@@ -11,9 +11,10 @@ import pytest
 import yaml
 
 from chemstack.core.internal_cli import dispatch_engine_internal_queue_command
+from chemstack.core.config.engines import as_bool, as_int, as_str
 from chemstack.xtb import state as state_mod
 from chemstack.xtb.commands import reindex as reindex_cmd
-from chemstack.xtb.config import CONFIG_ENV_VAR, _as_bool, _as_int, _as_str, default_config_path, load_config
+from chemstack.xtb.config import CONFIG_ENV_VAR, default_config_path, load_config
 
 
 def test_default_config_path_prefers_env(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -108,15 +109,15 @@ def test_helper_normalizers_cover_boolean_and_default_branches(
     default: bool,
     expected: bool,
 ) -> None:
-    assert _as_bool(value, default) == expected
+    assert as_bool(value, default) == expected
 
 
 def test_helper_normalizers_cover_string_and_int_defaults() -> None:
-    assert _as_str(None, "fallback") == "fallback"
-    assert _as_str("  value  ", "fallback") == "value"
-    assert _as_int(None, 7) == 7
-    assert _as_int("9", 7) == 9
-    assert _as_int("not-a-number", 7) == 7
+    assert as_str(None, "fallback") == "fallback"
+    assert as_str("  value  ", "fallback") == "value"
+    assert as_int(None, 7) == 7
+    assert as_int("9", 7) == 9
+    assert as_int("not-a-number", 7) == 7
 
 
 def test_load_config_applies_defaults_for_missing_and_non_mapping_optional_sections(
@@ -313,7 +314,7 @@ def test_cli_module_main_entrypoint_raises_system_exit(
 
     monkeypatch.setattr(
         "sys.argv",
-        ["xtb_auto", "--config", str(config_path), "list"],
+        ["chemstack_xtb", "--config", str(config_path), "list"],
     )
 
     with warnings.catch_warnings():

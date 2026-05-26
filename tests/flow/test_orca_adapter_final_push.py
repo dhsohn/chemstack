@@ -75,7 +75,7 @@ def test_import_and_basic_path_helpers_cover_remaining_low_level_edges(
 
     monkeypatch.setattr(orca_adapter, "import_module", fake_import)
 
-    assert orca_adapter._import_orca_auto_module("chemstack.orca.job_locations") is None
+    assert orca_adapter._import_orca_module("chemstack.orca.job_locations") is None
     assert import_calls == ["chemstack.orca.job_locations"]
 
     assert orca_adapter._direct_dir_target("   ") is None

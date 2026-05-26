@@ -56,7 +56,6 @@ __all__ = [
     "reconcile_orphaned_child_queue_entries",
     "remove_worker_pid_file",
     "request_job_cancellation",
-    "reserve_attached_single_queue_entry",
     "reserve_dequeued_entry",
     "reserve_queue_worker_slot",
     "resolve_admission_limit",
@@ -220,30 +219,6 @@ def reserve_dequeued_entry(
             admission_token=admission_token,
         ),
     )
-
-
-def reserve_attached_single_queue_entry(
-    cfg: Any,
-    *,
-    reserve_slot_fn: Callable[[Any], str | None],
-    dequeue_next_fn: Callable[[Any], T | None],
-    release_slot_fn: Callable[[str], object],
-    attach_slot_identity_fn: Callable[[str, T], bool],
-    fail_start_fn: Callable[[T, str], object],
-) -> tuple[str, tuple[T, str] | None]:
-    admission_token = reserve_slot_fn(cfg)
-    if admission_token is None:
-        return "blocked", None
-
-    entry = dequeue_next_fn(cfg)
-    if entry is None:
-        release_slot_fn(admission_token)
-        return "idle", None
-
-    if not attach_slot_identity_fn(admission_token, entry):
-        fail_start_fn(entry, admission_token)
-        return "idle", None
-    return "processed", (entry, admission_token)
 
 
 def fill_worker_slots(
@@ -426,20 +401,18 @@ class ChildProcessQueueWorker(QueueWorkerLoop):
         cfg: Any,
         *,
         config_path: str,
-        auto_organize: bool,
         max_concurrent: int | None = None,
         deps: Any,
     ) -> None:
         configured_max = cfg.runtime.max_concurrent if max_concurrent is None else max_concurrent
         super().__init__(
             max_concurrent=max(1, int(configured_max)),
-            poll_interval_seconds=deps.POLL_INTERVAL_SECONDS,
+            poll_interval_seconds=deps.poll_interval_seconds,
             sleep_fn=lambda seconds: deps.time.sleep(seconds),
         )
         self.cfg = cfg
         self.config_path = config_path
-        self.auto_organize = bool(auto_organize)
-        self.admission_root = deps._admission_root(cfg)
+        self.admission_root = deps.admission_root(cfg)
         self.deps = deps
 
     def _before_run(self) -> None:
@@ -461,8 +434,8 @@ class ChildProcessQueueWorker(QueueWorkerLoop):
         return deps.reserve_dequeued_entry(
             self.cfg,
             admission_root=self.admission_root,
-            reserve_slot_fn=deps._try_reserve_admission_slot,
-            dequeue_next_fn=deps._dequeue_next_entry,
+            reserve_slot_fn=deps.try_reserve_admission_slot,
+            dequeue_next_fn=deps.dequeue_next_entry,
             release_slot_fn=deps.release_slot,
         )
 
@@ -476,13 +449,12 @@ class ChildProcessQueueWorker(QueueWorkerLoop):
     def _start_job(self, queue_root: Path, entry: Any, *, admission_token: str) -> None:
         deps = self.deps
         try:
-            proc = deps._start_background_job_process(
+            proc = deps.start_background_job_process(
                 config_path=self.config_path,
                 queue_root=queue_root,
                 entry=entry,
                 admission_root=self.admission_root,
                 admission_token=admission_token,
-                auto_organize=self.auto_organize,
             )
         except OSError as exc:
             self._handle_worker_start_error(queue_root, entry, admission_token, exc)
@@ -510,27 +482,7 @@ class ChildProcessQueueWorker(QueueWorkerLoop):
         admission_token: str,
         exc: OSError,
     ) -> None:
-        deps = self.deps
-        deps.release_slot(self.admission_root, admission_token)
-        failure = deps._build_terminal_result(
-            entry,
-            job_dir=deps._job_dir(entry),
-            selected_xyz=deps._selected_xyz(entry),
-            job_type=deps._job_type(entry),
-            reaction_key=deps._reaction_key(entry, deps._job_dir(entry)),
-            input_summary=deps._input_summary(entry),
-            resource_request=deps._entry_resource_request(self.cfg, entry),
-            status="failed",
-            reason=f"worker_start_error:{exc}",
-        )
-        deps._finalize_execution_result(
-            self.cfg,
-            queue_root=queue_root,
-            entry=entry,
-            result=failure,
-            auto_organize=self.auto_organize,
-            emit_output=True,
-        )
+        raise NotImplementedError
 
     def _on_worker_process_started(
         self,
@@ -565,20 +517,10 @@ class ChildProcessQueueWorker(QueueWorkerLoop):
         return job.process.poll()
 
     def _finalize_completed_job(self, _queue_id: str, job: Any, rc: int) -> None:
-        deps = self.deps
-        summary = deps._load_terminal_summary(job.queue_root, job.entry, rc=rc)
-        deps._ensure_terminal_queue_status(job.queue_root, job.entry, summary)
-        deps._print_terminal_summary(summary)
-        deps.release_slot(self.admission_root, job.admission_token)
+        raise NotImplementedError
 
     def _check_cancel_requests(self) -> None:
-        deps = self.deps
-        for job in self._running.values():
-            if job.cancel_requested:
-                continue
-            if deps.get_cancel_requested(str(job.queue_root), job.entry.queue_id):
-                deps._request_job_cancellation(job.process)
-                job.cancel_requested = True
+        raise NotImplementedError
 
     def _shutdown_all(self) -> None:
         if not self._running:
@@ -588,30 +530,10 @@ class ChildProcessQueueWorker(QueueWorkerLoop):
             del self._running[queue_id]
 
     def _shutdown_running_job(self, queue_id: str, job: Any) -> None:
-        deps = self.deps
-        deps._terminate_process(job.process)
-        deps._mark_recovery_pending_state(self.cfg, job.entry, reason="worker_shutdown")
-        deps.requeue_running_entry(str(job.queue_root), queue_id)
-        deps.release_slot(self.admission_root, job.admission_token)
+        raise NotImplementedError
 
     def _reconcile_worker_state(self) -> None:
-        deps = self.deps
-        deps.reconcile_stale_slots(self.admission_root)
-        for queue_root, entry in deps._queue_entries_with_roots(self.cfg):
-            status = str(getattr(getattr(entry, "status", None), "value", "")).strip().lower()
-            if status != "running":
-                continue
-            summary = deps._load_terminal_summary(queue_root, entry)
-            if summary.status in {"completed", "failed", "cancelled"}:
-                deps._ensure_terminal_queue_status(queue_root, entry, summary)
-                continue
-
-            state = deps.load_state(deps._job_dir(entry)) or {}
-            worker_job_pid = int(state.get("worker_job_pid", 0) or 0)
-            if worker_job_pid and deps._pid_is_alive(worker_job_pid):
-                continue
-            deps.requeue_running_entry(str(queue_root), entry.queue_id)
-            deps._mark_recovery_pending_state(self.cfg, entry, reason="crashed_recovery")
+        raise NotImplementedError
 
 def install_shutdown_signal_handlers(request_shutdown: Callable[[], None]) -> None:
     _install_shutdown_signal_handlers(

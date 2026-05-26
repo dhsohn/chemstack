@@ -17,6 +17,13 @@ class ChildWorkerShutdownController:
         return self.requested
 
 
+@dataclass(frozen=True)
+class ChildQueueJob:
+    cfg: Any
+    queue_root: Path
+    entry: Any
+
+
 def find_queue_entry_by_id(
     queue_root: str | Path,
     queue_id: str,
@@ -27,6 +34,33 @@ def find_queue_entry_by_id(
         if entry.queue_id == queue_id:
             return entry
     return None
+
+
+def load_child_queue_job(
+    *,
+    config_path: str,
+    queue_root: str | Path,
+    queue_id: str,
+    load_config_fn: Callable[[str], Any],
+    find_queue_entry_fn: Callable[[Path, str], Any | None],
+    entry_ready_fn: Callable[[Any], bool] | None = None,
+    admission_token: str | None = None,
+    admission_root_fn: Callable[[Any], str | Path] | None = None,
+    release_slot_fn: Callable[[str | Path, str], Any] | None = None,
+) -> ChildQueueJob | None:
+    cfg = load_config_fn(config_path)
+    resolved_queue_root = Path(queue_root).expanduser().resolve()
+    entry = find_queue_entry_fn(resolved_queue_root, queue_id)
+    ready = entry is not None and (entry_ready_fn is None or entry_ready_fn(entry))
+    if not ready:
+        if admission_token and admission_root_fn is not None and release_slot_fn is not None:
+            release_child_admission_token(
+                admission_root_fn(cfg),
+                admission_token,
+                release_slot_fn=release_slot_fn,
+            )
+        return None
+    return ChildQueueJob(cfg=cfg, queue_root=resolved_queue_root, entry=entry)
 
 
 def activate_child_admission_token(
@@ -69,9 +103,11 @@ def install_shutdown_request_handlers(
 
 
 __all__ = [
+    "ChildQueueJob",
     "ChildWorkerShutdownController",
     "activate_child_admission_token",
     "find_queue_entry_by_id",
     "install_shutdown_request_handlers",
+    "load_child_queue_job",
     "release_child_admission_token",
 ]

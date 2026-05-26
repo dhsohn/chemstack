@@ -62,9 +62,9 @@ def _submit_xtb_stage(
     stage_metadata: dict[str, Any],
     *,
     xtb_runtime_paths: dict[str, Path],
-    xtb_auto_config: str | None,
-    xtb_auto_executable: str,
-    xtb_auto_repo_root: str | None,
+    xtb_config: str | None,
+    xtb_executable: str,
+    xtb_repo_root: str | None,
     workflow_id: str,
 ) -> None:
     job_dir = o.stages._ensure_xtb_job_dir(
@@ -75,9 +75,9 @@ def _submit_xtb_stage(
     submission = o.engines.submit_xtb_job_dir(
         job_dir=job_dir,
         priority=int(task["enqueue_payload"].get("priority", 10) or 10),
-        config_path=str(xtb_auto_config),
-        executable=xtb_auto_executable,
-        repo_root=xtb_auto_repo_root,
+        config_path=str(xtb_config),
+        executable=xtb_executable,
+        repo_root=xtb_repo_root,
     )
     submission["submitted_at"] = o.persistence.now_utc_iso()
     task["submission_result"] = submission

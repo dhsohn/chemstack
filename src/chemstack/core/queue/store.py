@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from collections.abc import Callable, Sequence
+from contextlib import contextmanager
 from dataclasses import asdict, replace
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 from chemstack.core.artifacts import QUEUE_FILE
 
@@ -46,10 +48,6 @@ def entry_to_dict(entry: QueueEntry) -> dict[str, Any]:
     return data
 
 
-def _entry_to_dict(entry: QueueEntry) -> dict[str, Any]:
-    return entry_to_dict(entry)
-
-
 def _entry_from_dict(raw: dict[str, Any]) -> QueueEntry:
     status_raw = str(raw.get("status", QueueStatus.PENDING.value)).strip().lower()
     try:
@@ -82,28 +80,68 @@ def entry_from_dict(raw: dict[str, Any]) -> QueueEntry:
     return _entry_from_dict(raw)
 
 
-def _load_entries(root: Path) -> list[QueueEntry]:
+@contextmanager
+def queue_lock(root: str | Path, *, timeout_seconds: float = 10.0) -> Iterator[None]:
+    resolved_root = resolve_root_path(root)
+    with file_lock(_lock_path(resolved_root), timeout_seconds=timeout_seconds):
+        yield
+
+
+def load_entries(
+    root: str | Path,
+    *,
+    entry_from_dict_fn: Callable[[dict[str, Any]], QueueEntry] = entry_from_dict,
+    corrupt_error: type[Exception] = QueueStoreCorruptError,
+) -> list[QueueEntry]:
+    resolved_root = resolve_root_path(root)
     raw = load_json_list_file(
-        _queue_path(root),
-        corrupt_error=QueueStoreCorruptError,
+        _queue_path(resolved_root),
+        corrupt_error=corrupt_error,
         description="Queue file",
     )
-    return [_entry_from_dict(item) for item in raw if isinstance(item, dict)]
+    return [entry_from_dict_fn(item) for item in raw if isinstance(item, dict)]
 
 
-def _save_entries(root: Path, entries: list[QueueEntry]) -> None:
+def _load_entries(root: Path) -> list[QueueEntry]:
+    return load_entries(root)
+
+
+def save_entries(root: str | Path, entries: Sequence[QueueEntry]) -> None:
+    resolved_root = resolve_root_path(root)
     atomic_write_json(
-        root / QUEUE_FILE_NAME,
-        [_entry_to_dict(item) for item in entries],
+        resolved_root / QUEUE_FILE_NAME,
+        [entry_to_dict(item) for item in entries],
         ensure_ascii=True,
         indent=2,
     )
 
 
+def _save_entries(root: Path, entries: list[QueueEntry]) -> None:
+    save_entries(root, entries)
+
+
 def list_queue(root: str | Path) -> list[QueueEntry]:
     resolved_root = resolve_root_path(root)
-    with file_lock(_lock_path(resolved_root)):
+    with queue_lock(resolved_root):
         return _load_entries(resolved_root)
+
+
+def mutate_entries(
+    root: str | Path,
+    mutator: Callable[[list[Any]], tuple[Any, bool]],
+    *,
+    load_entries_fn: Callable[[Path], list[Any]] | None = None,
+    save_entries_fn: Callable[[Path, Sequence[Any]], Any] | None = None,
+) -> Any:
+    resolved_root = resolve_root_path(root)
+    loader = load_entries_fn or _load_entries
+    saver = save_entries_fn or _save_entries
+    with queue_lock(resolved_root):
+        entries = loader(resolved_root)
+        result, changed = mutator(entries)
+        if changed:
+            saver(resolved_root, entries)
+        return result
 
 
 def _entry_timestamp(entry: QueueEntry) -> str:
@@ -115,7 +153,7 @@ def clear_terminal(root: str | Path, *, keep_last: int = 0) -> int:
     if not _queue_path(resolved_root).exists():
         return 0
 
-    with file_lock(_lock_path(resolved_root)):
+    with queue_lock(resolved_root):
         entries = _load_entries(resolved_root)
         terminal_entries = [entry for entry in entries if entry.status in _TERMINAL_STATUSES]
         if not terminal_entries:
@@ -163,7 +201,7 @@ def enqueue(
         metadata=dict(metadata or {}),
     )
 
-    with file_lock(_lock_path(resolved_root)):
+    with queue_lock(resolved_root):
         entries = _load_entries(resolved_root)
         for existing in entries:
             if existing.app_name != entry.app_name or existing.task_id != entry.task_id:
@@ -179,7 +217,7 @@ def enqueue(
 
 def dequeue_next(root: str | Path) -> QueueEntry | None:
     resolved_root = resolve_root_path(root)
-    with file_lock(_lock_path(resolved_root)):
+    with queue_lock(resolved_root):
         entries = _load_entries(resolved_root)
         pending = [
             (entry.priority, entry.enqueued_at, index, entry)
@@ -197,7 +235,7 @@ def dequeue_next(root: str | Path) -> QueueEntry | None:
 
 def request_cancel(root: str | Path, queue_id: str) -> QueueEntry | None:
     resolved_root = resolve_root_path(root)
-    with file_lock(_lock_path(resolved_root)):
+    with queue_lock(resolved_root):
         entries = _load_entries(resolved_root)
         for index, entry in enumerate(entries):
             if entry.queue_id != queue_id:
@@ -221,7 +259,7 @@ def request_cancel(root: str | Path, queue_id: str) -> QueueEntry | None:
 
 def get_cancel_requested(root: str | Path, queue_id: str) -> bool:
     resolved_root = resolve_root_path(root)
-    with file_lock(_lock_path(resolved_root)):
+    with queue_lock(resolved_root):
         entries = _load_entries(resolved_root)
         for entry in entries:
             if entry.queue_id == queue_id:
@@ -231,7 +269,7 @@ def get_cancel_requested(root: str | Path, queue_id: str) -> bool:
 
 def requeue_running_entry(root: str | Path, queue_id: str) -> QueueEntry | None:
     resolved_root = resolve_root_path(root)
-    with file_lock(_lock_path(resolved_root)):
+    with queue_lock(resolved_root):
         entries = _load_entries(resolved_root)
         for index, entry in enumerate(entries):
             if entry.queue_id != queue_id or entry.status != QueueStatus.RUNNING:
@@ -258,7 +296,7 @@ def _mark_status(
     metadata_update: dict[str, Any] | None = None,
 ) -> QueueEntry | None:
     resolved_root = resolve_root_path(root)
-    with file_lock(_lock_path(resolved_root)):
+    with queue_lock(resolved_root):
         entries = _load_entries(resolved_root)
         for index, entry in enumerate(entries):
             if entry.queue_id != queue_id:

@@ -193,7 +193,7 @@ def test_cmd_run_dir_path_search_submits_and_writes_state(
     assert enqueue_calls == [
         {
             "root": allowed_root.resolve(),
-            "app_name": "xtb_auto",
+            "app_name": "chemstack_xtb",
             "task_id": "xtb_job_001",
             "task_kind": "xtb_path_search",
             "engine": "xtb",

@@ -69,9 +69,9 @@ def _activity_rows(config_path: str | None, workflow_root: str | None) -> list[d
         return []
     payload = list_activities(
         workflow_root=workflow_root,
-        crest_auto_config=config_path,
-        xtb_auto_config=config_path,
-        orca_auto_config=config_path,
+        crest_config=config_path,
+        xtb_config=config_path,
+        orca_config=config_path,
     )
     activities = payload.get("activities")
     return (

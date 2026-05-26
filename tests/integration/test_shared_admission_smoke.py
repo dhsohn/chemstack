@@ -9,8 +9,8 @@ from chemstack.core.admission import AdmissionSlot, active_slot_count, list_slot
 from chemstack.core.indexing import get_job_location
 from chemstack.core.queue import list_queue
 from chemstack.crest.commands import queue as crest_queue_cmd
-from chemstack.flow.submitters import crest_auto as crest_submitter
-from chemstack.flow.submitters import xtb_auto as xtb_submitter
+from chemstack.flow.submitters import crest as crest_submitter
+from chemstack.flow.submitters import xtb as xtb_submitter
 from chemstack.xtb.commands import queue as xtb_queue_cmd
 
 
@@ -75,8 +75,7 @@ exit 0
         try:
             xtb_outcomes.append(
                 xtb_queue_cmd._process_one(
-                    xtb_queue_cmd.load_config(str(smoke_workspace.xtb_config_path)),
-                    auto_organize=True,
+                    xtb_queue_cmd.load_config(str(smoke_workspace.xtb_config_path))
                 )
             )
         except BaseException as exc:
@@ -87,12 +86,11 @@ exit 0
 
     slots = _wait_for_active_slots(smoke_workspace.admission_root, expected=1)
     assert active_slot_count(smoke_workspace.admission_root) == 1
-    assert slots[0].app_name == "xtb_auto"
+    assert slots[0].app_name == "chemstack_xtb"
     assert slots[0].source == "chemstack.xtb.queue_worker"
 
     assert crest_queue_cmd._process_one(
-        crest_queue_cmd.load_config(str(smoke_workspace.crest_config_path)),
-        auto_organize=True,
+        crest_queue_cmd.load_config(str(smoke_workspace.crest_config_path))
     ) == "blocked"
     assert active_slot_count(smoke_workspace.admission_root) == 1
     assert len(list_slots(smoke_workspace.admission_root)) == 1
@@ -117,8 +115,7 @@ exit 0
     assert Path(xtb_record.latest_known_path).exists()
 
     assert crest_queue_cmd._process_one(
-        crest_queue_cmd.load_config(str(smoke_workspace.crest_config_path)),
-        auto_organize=True,
+        crest_queue_cmd.load_config(str(smoke_workspace.crest_config_path))
     ) == "processed"
     crest_stdout = capsys.readouterr().out
     assert f"queue_id: {crest_submission['queue_id']}" in crest_stdout

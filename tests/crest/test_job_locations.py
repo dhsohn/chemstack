@@ -72,7 +72,7 @@ def test_build_job_location_record_merges_existing_fields_and_defaults_actual_re
     selected_xyz = _write_xyz(original_dir / "Water.xyz")
     existing = JobLocationRecord(
         job_id="job-001",
-        app_name="crest_auto",
+        app_name="chemstack_crest",
         job_type="crest_standard_conformer_search",
         status="running",
         original_run_dir=str(original_dir.resolve()),
@@ -118,7 +118,7 @@ def test_resolve_latest_job_dir_prefers_indexed_candidates_and_path_lookup(tmp_p
         index_root,
         JobLocationRecord(
             job_id="job-123",
-            app_name="crest_auto",
+            app_name="chemstack_crest",
             job_type="crest_standard_conformer_search",
             status="completed",
             original_run_dir=str(original_dir.resolve()),
@@ -180,7 +180,7 @@ def test_resolve_latest_job_dir_skips_blank_and_unresolvable_indexed_candidates(
         "resolve_job_location",
         lambda root, target: JobLocationRecord(
             job_id="job-124",
-            app_name="crest_auto",
+            app_name="chemstack_crest",
             job_type="crest_standard_conformer_search",
             status="completed",
             original_run_dir=str(fallback_dir),
@@ -218,7 +218,7 @@ def test_resolve_latest_job_dir_returns_none_when_indexed_candidates_are_unusabl
         "resolve_job_location",
         lambda root, target: JobLocationRecord(
             job_id="job-404",
-            app_name="crest_auto",
+            app_name="chemstack_crest",
             job_type="crest_standard_conformer_search",
             status="failed",
             original_run_dir=str(missing_dir),
@@ -266,7 +266,7 @@ def test_load_job_artifacts_reads_files_for_resolved_job(tmp_path: Path) -> None
         index_root,
         JobLocationRecord(
             job_id="job-200",
-            app_name="crest_auto",
+            app_name="chemstack_crest",
             job_type="crest_standard_conformer_search",
             status="completed",
             original_run_dir=str(original_dir.resolve()),
@@ -295,7 +295,7 @@ def test_record_from_artifacts_merges_sources_and_existing_values(tmp_path: Path
     original_dir.mkdir(parents=True)
     existing = JobLocationRecord(
         job_id="job-old",
-        app_name="crest_auto",
+        app_name="chemstack_crest",
         job_type="crest_standard_conformer_search",
         status="queued",
         original_run_dir="",

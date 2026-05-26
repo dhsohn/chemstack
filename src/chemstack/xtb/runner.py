@@ -2,13 +2,12 @@ from __future__ import annotations
 
 import os
 import resource
-import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, TextIO
 
-from chemstack.core.config import engines as _config_engines
+from chemstack.core import engine_runner as _engine_runner
 from chemstack.core.engine_process import start_logged_process
 from chemstack.core.utils import now_utc_iso
 from chemstack.core.utils import process as process_utils
@@ -111,17 +110,12 @@ class XtbRunningJob:
 
 
 def _resolve_xtb_executable(cfg: AppConfig) -> str:
-    configured = str(cfg.paths.xtb_executable).strip()
-    if configured:
-        path = Path(configured).expanduser().resolve()
-        if not path.exists() or not path.is_file():
-            raise ValueError(f"Configured xTB executable not found: {path}")
-        return str(path)
-
-    discovered = shutil.which("xtb")
-    if discovered:
-        return discovered
-    raise ValueError("xTB executable not configured and not found on PATH.")
+    return _engine_runner.resolve_configured_executable(
+        cfg,
+        path_attr="xtb_executable",
+        executable_name="xtb",
+        display_name="xTB",
+    )
 
 
 def _resource_request_dict(cfg: AppConfig, manifest: dict[str, Any]) -> dict[str, int]:
@@ -129,25 +123,15 @@ def _resource_request_dict(cfg: AppConfig, manifest: dict[str, Any]) -> dict[str
 
 
 def _resource_actual_dict(resource_request: dict[str, int]) -> dict[str, int]:
-    return _config_engines.resource_actual_from_request(resource_request)
+    return _engine_runner.resource_actual_dict(resource_request)
 
 
 def _bool_flag(manifest: dict[str, Any], key: str) -> bool:
-    return _config_engines.as_bool(manifest.get(key), False)
+    return _engine_runner.bool_flag(manifest, key)
 
 
 def _manifest_int(manifest: dict[str, Any], key: str) -> int | None:
-    value = manifest.get(key)
-    if value in (None, ""):
-        return None
-    if isinstance(value, str):
-        stripped = value.strip()
-        if not stripped:
-            return None
-        return int(stripped)
-    if isinstance(value, (int, float)):
-        return int(value)
-    raise ValueError(f"Manifest field {key!r} must be an integer-compatible value.")
+    return _engine_runner.manifest_int(manifest, key)
 
 
 def _append_xtb_scalar_options(command: list[str], manifest: dict[str, Any]) -> None:
@@ -162,10 +146,7 @@ def _append_xtb_scalar_options(command: list[str], manifest: dict[str, Any]) -> 
 
 
 def _append_xtb_solvent_option(command: list[str], manifest: dict[str, Any]) -> None:
-    solvent_model = str(manifest.get("solvent_model", "")).strip().lower()
-    solvent = str(manifest.get("solvent", "")).strip()
-    if solvent and solvent_model in {"gbsa", "alpb"}:
-        command.extend([f"--{solvent_model}", solvent])
+    _engine_runner.append_solvent_option(command, manifest)
 
 
 def _append_xtb_optional_text_options(command: list[str], manifest: dict[str, Any]) -> None:

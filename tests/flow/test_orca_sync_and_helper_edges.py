@@ -65,25 +65,25 @@ def test_sync_orca_stage_returns_early_for_non_orca_missing_enqueue_and_missing_
 
     _sync_orca_stage(
         {"task": {"engine": "xtb"}},
-        orca_auto_config=None,
-        orca_auto_executable="orca_auto",
-        orca_auto_repo_root=None,
+        orca_config=None,
+        orca_executable="chemstack",
+        orca_repo_root=None,
         submit_ready=False,
         deps=deps,
     )
     _sync_orca_stage(
         {"task": {"engine": "orca"}},
-        orca_auto_config=None,
-        orca_auto_executable="orca_auto",
-        orca_auto_repo_root=None,
+        orca_config=None,
+        orca_executable="chemstack",
+        orca_repo_root=None,
         submit_ready=False,
         deps=deps,
     )
     _sync_orca_stage(
         {"task": {"engine": "orca", "enqueue_payload": {}, "payload": {}}, "metadata": {}},
-        orca_auto_config=None,
-        orca_auto_executable="orca_auto",
-        orca_auto_repo_root=None,
+        orca_config=None,
+        orca_executable="chemstack",
+        orca_repo_root=None,
         submit_ready=False,
         deps=deps,
     )
@@ -138,9 +138,9 @@ def test_sync_orca_stage_submit_path_preserves_submitted_state_for_unknown_contr
 
     _sync_orca_stage(
         stage,
-        orca_auto_config="/tmp/orca.yaml",
-        orca_auto_executable="orca_auto",
-        orca_auto_repo_root="/tmp/orca_repo",
+        orca_config="/tmp/orca.yaml",
+        orca_executable="chemstack",
+        orca_repo_root="/tmp/orca_repo",
         submit_ready=True,
         deps=deps,
     )
@@ -150,7 +150,7 @@ def test_sync_orca_stage_submit_path_preserves_submitted_state_for_unknown_contr
             "reaction_dir": "/tmp/rxn_from_enqueue",
             "priority": 7,
             "config_path": "/tmp/orca.yaml",
-            "executable": "orca_auto",
+            "executable": "chemstack",
             "repo_root": "/tmp/orca_repo",
         }
     ]
@@ -227,9 +227,9 @@ def test_sync_orca_stage_waiting_for_slot_stays_planned() -> None:
 
     _sync_orca_stage(
         stage,
-        orca_auto_config="/tmp/orca.yaml",
-        orca_auto_executable="orca_auto",
-        orca_auto_repo_root="/tmp/orca_repo",
+        orca_config="/tmp/orca.yaml",
+        orca_executable="chemstack",
+        orca_repo_root="/tmp/orca_repo",
         submit_ready=True,
         deps=deps,
     )
@@ -304,9 +304,9 @@ def test_sync_orca_stage_prefers_workflow_local_organized_root_for_internal_orca
 
     _sync_orca_stage(
         stage,
-        orca_auto_config="/tmp/orca.yaml",
-        orca_auto_executable="orca_auto",
-        orca_auto_repo_root="/tmp/orca_repo",
+        orca_config="/tmp/orca.yaml",
+        orca_executable="chemstack",
+        orca_repo_root="/tmp/orca_repo",
         submit_ready=True,
         deps=deps,
     )

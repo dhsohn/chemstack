@@ -122,7 +122,7 @@ def test_process_one_returns_blocked_when_no_admission_slot(
 
     monkeypatch.setattr(queue_cmd, "_try_reserve_admission_slot", lambda _cfg: None)
 
-    assert queue_cmd._process_one(cfg, auto_organize=False) == "blocked"
+    assert queue_cmd._process_one(cfg) == "blocked"
 
 
 def test_process_one_returns_idle_and_releases_reserved_slot(
@@ -138,7 +138,7 @@ def test_process_one_returns_idle_and_releases_reserved_slot(
         queue_cmd, "release_slot", lambda root, token: released.append((root, token))
     )
 
-    assert queue_cmd._process_one(cfg, auto_organize=False) == "idle"
+    assert queue_cmd._process_one(cfg) == "idle"
     assert released == [(cfg.runtime.admission_root, "slot-1")]
 
 
@@ -188,9 +188,8 @@ def test_queue_worker_starts_up_to_max_concurrent_children(
         entry: object,
         admission_root: str,
         admission_token: str,
-        auto_organize: bool,
     ) -> _Process:
-        started.append((config_path, str(queue_root), admission_token, auto_organize))
+        started.append((config_path, str(queue_root), admission_token))
         return _Process(len(started) + 100)
 
     monkeypatch.setattr(
@@ -202,15 +201,14 @@ def test_queue_worker_starts_up_to_max_concurrent_children(
     worker = queue_cmd.QueueWorker(
         cfg,
         config_path="/tmp/chemstack.yaml",
-        auto_organize=True,
         max_concurrent=2,
     )
 
     assert worker._fill_slots() == "processed"
     assert sorted(worker._running) == ["queue-0", "queue-1"]
     assert started == [
-        ("/tmp/chemstack.yaml", str(queue_root), "slot-1", False),
-        ("/tmp/chemstack.yaml", str(queue_root), "slot-2", False),
+        ("/tmp/chemstack.yaml", str(queue_root), "slot-1"),
+        ("/tmp/chemstack.yaml", str(queue_root), "slot-2"),
     ]
 
 
@@ -248,7 +246,7 @@ def test_queue_worker_check_cancel_requests_signals_each_job_once(
 
     monkeypatch.setattr(queue_cmd, "get_cancel_requested", lambda _root, _queue_id: True)
 
-    worker = queue_cmd.QueueWorker(cfg, config_path="/tmp/cfg.yaml", auto_organize=False)
+    worker = queue_cmd.QueueWorker(cfg, config_path="/tmp/cfg.yaml")
     worker._running[entry.queue_id] = queue_cmd._RunningJob(
         queue_root=queue_root,
         entry=entry,
@@ -302,7 +300,7 @@ def test_queue_worker_shutdown_requeues_running_entries(
         queue_cmd, "release_slot", lambda root, token: released.append((root, token))
     )
 
-    worker = queue_cmd.QueueWorker(cfg, config_path="/tmp/cfg.yaml", auto_organize=False)
+    worker = queue_cmd.QueueWorker(cfg, config_path="/tmp/cfg.yaml")
     worker._running[entry.queue_id] = queue_cmd._RunningJob(
         queue_root=queue_root,
         entry=entry,
@@ -382,7 +380,7 @@ def test_queue_worker_run_once_waits_for_child_completion_and_prints_summary(
     )
     monkeypatch.setattr(queue_cmd.time, "sleep", lambda seconds: sleep_calls.append(seconds))
 
-    worker = queue_cmd.QueueWorker(cfg, config_path="/tmp/cfg.yaml", auto_organize=False)
+    worker = queue_cmd.QueueWorker(cfg, config_path="/tmp/cfg.yaml")
     exit_code = worker.run_once()
 
     output = capsys.readouterr().out
@@ -414,7 +412,7 @@ def test_queue_worker_reconcile_worker_state_requeues_stale_running_entries(
         queue_cmd, "requeue_running_entry", lambda root, queue_id: requeued.append((root, queue_id))
     )
 
-    worker = queue_cmd.QueueWorker(cfg, config_path="/tmp/cfg.yaml", auto_organize=False)
+    worker = queue_cmd.QueueWorker(cfg, config_path="/tmp/cfg.yaml")
     worker._reconcile_worker_state()
 
     assert requeued == [(str(queue_root), "queue-1")]
@@ -425,12 +423,12 @@ def test_queue_worker_reconcile_worker_state_requeues_stale_running_entries(
     assert state["recovery_pending"] is True
 
 
-def test_cmd_queue_worker_disables_auto_organize_for_xtb(
+def test_cmd_queue_worker_constructs_xtb_worker_without_organize_flags(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     cfg = _make_cfg(tmp_path)
-    seen: list[tuple[str, bool, str]] = []
+    seen: list[tuple[str, str]] = []
 
     class _FakeWorker:
         def __init__(
@@ -438,17 +436,16 @@ def test_cmd_queue_worker_disables_auto_organize_for_xtb(
             cfg_obj: object,
             *,
             config_path: str,
-            auto_organize: bool,
             max_concurrent: int | None = None,
         ) -> None:
-            seen.append(("init", auto_organize, config_path))
+            seen.append(("init", config_path))
 
         def run_once(self) -> int:
-            seen.append(("run_once", False, ""))
+            seen.append(("run_once", ""))
             return 17
 
         def run(self) -> int:
-            seen.append(("run", False, ""))
+            seen.append(("run", ""))
             return 23
 
     monkeypatch.setattr(queue_cmd, "load_config", lambda _path=None: cfg)
@@ -461,6 +458,6 @@ def test_cmd_queue_worker_disables_auto_organize_for_xtb(
         )
     )
 
-    assert seen[0] == ("init", False, "/tmp/default-chemstack.yaml")
+    assert seen[0] == ("init", "/tmp/default-chemstack.yaml")
     assert exit_code == 23
-    assert seen[-1] == ("run", False, "")
+    assert seen[-1] == ("run", "")

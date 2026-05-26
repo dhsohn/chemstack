@@ -37,6 +37,47 @@ def test_find_queue_entry_by_id_returns_matching_entry(tmp_path: Path) -> None:
     )
 
 
+def test_load_child_queue_job_resolves_paths_and_entry(tmp_path: Path) -> None:
+    cfg = SimpleNamespace(name="cfg")
+    entry = SimpleNamespace(queue_id="q-wanted", status="running")
+    seen_roots: list[Path] = []
+
+    job = child_execution.load_child_queue_job(
+        config_path="/tmp/chemstack.yaml",
+        queue_root=tmp_path / "queue",
+        queue_id="q-wanted",
+        load_config_fn=lambda _path: cfg,
+        find_queue_entry_fn=lambda root, _queue_id: seen_roots.append(root) or entry,
+        entry_ready_fn=lambda item: item.status == "running",
+    )
+
+    assert job == child_execution.ChildQueueJob(
+        cfg=cfg,
+        queue_root=(tmp_path / "queue").resolve(),
+        entry=entry,
+    )
+    assert seen_roots == [(tmp_path / "queue").resolve()]
+
+
+def test_load_child_queue_job_releases_admission_when_entry_is_missing(tmp_path: Path) -> None:
+    cfg = SimpleNamespace(admission_root=tmp_path / "admission")
+    released: list[tuple[Path, str]] = []
+
+    job = child_execution.load_child_queue_job(
+        config_path="/tmp/chemstack.yaml",
+        queue_root=tmp_path / "queue",
+        queue_id="missing",
+        load_config_fn=lambda _path: cfg,
+        find_queue_entry_fn=lambda _root, _queue_id: None,
+        admission_token="slot-1",
+        admission_root_fn=lambda loaded_cfg: loaded_cfg.admission_root,
+        release_slot_fn=lambda root, token: released.append((Path(root), token)),
+    )
+
+    assert job is None
+    assert released == [(cfg.admission_root, "slot-1")]
+
+
 def test_child_admission_token_activation_and_release_are_conditional(tmp_path: Path) -> None:
     calls: list[tuple[str, str]] = []
 

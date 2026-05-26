@@ -85,8 +85,8 @@ def test_cancel_materialized_workflow_mixes_local_remote_and_failed_cancellation
     result = orchestration.cancel_materialized_workflow(
         target="wf_cancel_01",
         workflow_root=tmp_path,
-        crest_auto_config="/tmp/crest.yaml",
-        orca_auto_config="/tmp/orca.yaml",
+        crest_config="/tmp/crest.yaml",
+        orca_config="/tmp/orca.yaml",
         deps=deps,
     )
 
@@ -175,7 +175,7 @@ def test_cancel_materialized_workflow_reports_cancel_failed_when_stage_cancellat
     result = orchestration.cancel_materialized_workflow(
         target="wf_failed_cancel",
         workflow_root=tmp_path,
-        orca_auto_config="/tmp/orca.yaml",
+        orca_config="/tmp/orca.yaml",
         deps=deps,
     )
 

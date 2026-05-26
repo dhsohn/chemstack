@@ -102,7 +102,7 @@ def test_notify_job_queued_and_started_render_expected_fields(
     assert transport.messages == [
         "\n".join(
             [
-                "[xtb_auto] Job queued",
+                "[chemstack_xtb] Job queued",
                 "job_id: job-001",
                 "queue_id: queue-001",
                 "job_type: ranking",
@@ -113,7 +113,7 @@ def test_notify_job_queued_and_started_render_expected_fields(
         ),
         "\n".join(
             [
-                "[xtb_auto] Job started",
+                "[chemstack_xtb] Job started",
                 "job_id: job-001",
                 "queue_id: queue-001",
                 "job_type: ranking",
@@ -151,7 +151,7 @@ def test_notify_job_terminal_includes_extra_lines(
     assert transport.messages == [
         "\n".join(
             [
-                "[xtb_auto] Job failed",
+                "[chemstack_xtb] Job failed",
                 "job_id: job-002",
                 "queue_id: queue-002",
                 "status: failed",
@@ -211,7 +211,7 @@ def test_notify_job_finished_maps_headlines_and_optional_fields(
     )
 
     message = transport.messages[-1]
-    assert message.startswith(f"[xtb_auto] {headline}\n")
+    assert message.startswith(f"[chemstack_xtb] {headline}\n")
     assert "job_id: job-003" in message
     assert f"status: {status}" in message
     assert "job_dir: job-003" in message

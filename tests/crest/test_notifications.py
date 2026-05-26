@@ -90,7 +90,7 @@ def test_notify_job_queued_sends_expected_message(
     assert messages == [
         "\n".join(
             [
-                "[crest_auto] Job queued",
+                "[chemstack_crest] Job queued",
                 "job_id: job-001",
                 "queue_id: queue-001",
                 "mode: nci",
@@ -123,7 +123,7 @@ def test_notify_job_started_sends_expected_message(
     assert messages == [
         "\n".join(
             [
-                "[crest_auto] Job started",
+                "[chemstack_crest] Job started",
                 "job_id: job-002",
                 "queue_id: queue-002",
                 "mode: standard",
@@ -169,7 +169,7 @@ def test_notify_job_finished_maps_terminal_headlines(
     assert messages == [
         "\n".join(
             [
-                f"[crest_auto] {headline}",
+                f"[chemstack_crest] {headline}",
                 f"job_id: job-{status}",
                 f"queue_id: queue-{status}",
                 f"status: {status}",
@@ -214,7 +214,7 @@ def test_notify_job_finished_includes_optional_extra_lines(
     assert messages == [
         "\n".join(
             [
-                "[crest_auto] Job finished",
+                "[chemstack_crest] Job finished",
                 "job_id: job-complete",
                 "queue_id: queue-complete",
                 "status: completed",

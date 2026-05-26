@@ -216,13 +216,15 @@ class TestQueueWorkerMethods(unittest.TestCase):
             engine="orca",
             metadata={"reaction_dir": str(self.root / "mol_A"), "force": False},
         )
-        self.worker._start_job(entry, admission_token="slot_test")
+        token = reserve_slot(self.root, self.worker.max_concurrent, source="queue_worker")
+        self.assertIsNotNone(token)
+        self.worker._start_job(self.root, entry, admission_token=token or "")
         self.assertIn("q_test", self.worker._running)
         mock_start_job_process.assert_called_once_with(
             reaction_dir=str(self.root / "mol_A"),
             config_path=str(self.root / "config.yaml"),
             force=False,
-            admission_token="slot_test",
+            admission_token=token or "",
             admission_app_name="chemstack_orca",
             admission_task_id="task_test_123",
         )
@@ -264,7 +266,9 @@ class TestQueueWorkerMethods(unittest.TestCase):
             },
         )
 
-        self.worker._start_job(entry, admission_token="slot_meta")
+        token = reserve_slot(self.root, self.worker.max_concurrent, source="queue_worker")
+        self.assertIsNotNone(token)
+        self.worker._start_job(self.root, entry, admission_token=token or "")
 
         mock_resolve_job_metadata.assert_not_called()
         mock_upsert_job_record.assert_called_once_with(
@@ -293,7 +297,7 @@ class TestQueueWorkerMethods(unittest.TestCase):
         )
         self.assertIsNotNone(token)
         dequeue_next(self.root)
-        self.worker._start_job(entry, admission_token=token or "")
+        self.worker._start_job(self.root, entry, admission_token=token or "")
         self.assertNotIn(entry.queue_id, self.worker._running)
         self.assertEqual(active_slot_count(self.root), 0)
 
@@ -776,7 +780,7 @@ class TestFillSlots(unittest.TestCase):
                 },
             )
 
-    @patch("chemstack.orca.process_tracking.is_process_alive", return_value=True)
+    @patch("chemstack.orca.process_tracking.process_lock.is_process_alive", return_value=True)
     def test_fill_slots_counts_external_active_runs(self, mock_alive: MagicMock) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -822,7 +826,7 @@ class TestFillSlots(unittest.TestCase):
             self.assertEqual(len(worker._running), 0)
             mock_start_job_process.assert_not_called()
 
-    @patch("chemstack.orca.process_tracking.is_process_alive", return_value=True)
+    @patch("chemstack.orca.process_tracking.process_lock.is_process_alive", return_value=True)
     def test_fill_slots_stops_when_global_limit_reached(self, mock_alive: MagicMock) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
