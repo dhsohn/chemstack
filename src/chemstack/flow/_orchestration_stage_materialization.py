@@ -17,13 +17,81 @@ def _orchestration_context() -> OrchestrationDeps:
     return orchestration_deps()
 
 
-def _engine_stages(o: Any, payload: dict[str, Any], engine: str) -> list[dict[str, Any]]:
+@dataclass(frozen=True)
+class WorkflowTaskView:
+    raw: dict[str, Any]
+
+    def engine(self, o: Any) -> str:
+        return o._normalize_text(self.raw.get("engine")).lower()
+
+    def status(self, o: Any) -> str:
+        return o._normalize_text(self.raw.get("status")).lower()
+
+
+@dataclass(frozen=True)
+class WorkflowStageView:
+    raw: dict[str, Any]
+
+    @classmethod
+    def from_raw(cls, value: Any) -> WorkflowStageView | None:
+        return cls(value) if isinstance(value, dict) else None
+
+    @property
+    def task(self) -> WorkflowTaskView:
+        task = self.raw.get("task")
+        return WorkflowTaskView(task if isinstance(task, dict) else {})
+
+    def stage_id(self, o: Any) -> str:
+        return o._normalize_text(self.raw.get("stage_id"))
+
+    def status(self, o: Any) -> str:
+        return o._normalize_text(self.raw.get("status")).lower()
+
+    def task_engine(self, o: Any) -> str:
+        return self.task.engine(o)
+
+    def task_status(self, o: Any) -> str:
+        return self.task.status(o)
+
+
+def _stage_views(payload: dict[str, Any]) -> list[WorkflowStageView]:
     return [
-        stage
-        for stage in payload.get("stages", [])
-        if isinstance(stage, dict)
-        and o._normalize_text((stage.get("task") or {}).get("engine")) == engine
+        view
+        for raw_stage in payload.get("stages", [])
+        if (view := WorkflowStageView.from_raw(raw_stage)) is not None
     ]
+
+
+def _engine_stages(o: Any, payload: dict[str, Any], engine: str) -> list[dict[str, Any]]:
+    return [view.raw for view in _stage_views(payload) if view.task_engine(o) == engine]
+
+
+def _engine_stage_views(
+    o: Any,
+    payload: dict[str, Any],
+    engine: str,
+) -> list[WorkflowStageView]:
+    return [view for view in _stage_views(payload) if view.task_engine(o) == engine]
+
+
+def _raw_stages(views: list[WorkflowStageView]) -> list[dict[str, Any]]:
+    return [view.raw for view in views]
+
+
+def _stage_view(stage: dict[str, Any]) -> WorkflowStageView:
+    return WorkflowStageView(stage)
+
+
+def _active_stage_status(view: WorkflowStageView, o: Any) -> str:
+    return view.status(o) or view.task_status(o)
+
+
+def _stage_task_engine(stage: dict[str, Any], o: Any) -> str:
+    return _stage_view(stage).task_engine(o)
+
+
+def _stage_status(stage: dict[str, Any], o: Any) -> str:
+    return _stage_view(stage).status(o)
 
 
 @dataclass(frozen=True)
@@ -102,24 +170,19 @@ def _record_endpoint_pairing_failure(payload: dict[str, Any]) -> None:
 
 def _completed_or_recoverable_xtb_stages(o: Any, payload: dict[str, Any]) -> list[dict[str, Any]]:
     return [
-        stage
-        for stage in payload.get("stages", [])
-        if isinstance(stage, dict)
-        and o._normalize_text((stage.get("task") or {}).get("engine")) == "xtb"
-        and (
-            o._normalize_text(stage.get("status")) == "completed"
-            or o._stage_failure_is_recoverable(stage)
-        )
+        view.raw
+        for view in _engine_stage_views(o, payload, "xtb")
+        if view.status(o) == "completed" or o._stage_failure_is_recoverable(view.raw)
     ]
 
 
 def _load_xtb_contract_for_stage(
     o: Any, xtb_stage: dict[str, Any], *, xtb_allowed_root: Path
 ) -> Any | None:
-    task = xtb_stage.get("task")
-    if not isinstance(task, dict):
+    view = WorkflowStageView.from_raw(xtb_stage)
+    if view is None or not view.task.raw:
         return None
-    payload_dict = o._task_payload_dict(task)
+    payload_dict = o._task_payload_dict(view.task.raw)
     target = o._normalize_text(payload_dict.get("job_dir")) or o._submission_target(xtb_stage)
     if not target:
         return None
@@ -155,7 +218,7 @@ def _record_xtb_handoff_error(o: Any, xtb_stage: dict[str, Any], contract: Any) 
     stage_metadata["reaction_handoff_reason"] = error["reason"]
     stage_metadata["reaction_handoff_message"] = error["message"]
     return {
-        "stage_id": o._normalize_text(xtb_stage.get("stage_id")),
+        "stage_id": _stage_view(xtb_stage).stage_id(o),
         "job_id": o._normalize_text(getattr(contract, "job_id", "")),
         "reason": error["reason"],
         "message": error["message"],
@@ -179,7 +242,7 @@ def _reaction_orca_candidate_pool_rows(
             continue
         candidate_metadata = {
             **dict(candidate.metadata),
-            "xtb_stage_id": o._normalize_text(xtb_stage.get("stage_id")),
+            "xtb_stage_id": _stage_view(xtb_stage).stage_id(o),
             "xtb_stage_order": int(stage_order),
             "xtb_source_job_id": o._normalize_text(getattr(contract, "job_id", "")),
             "xtb_source_job_type": o._normalize_text(getattr(contract, "job_type", "")),
@@ -244,14 +307,9 @@ def _unique_ordered_candidates(candidate_pool: list[tuple[int, int, str, Any]]) 
 def _has_pending_xtb_stage(o: Any, payload: dict[str, Any]) -> bool:
     active_xtb_statuses = {"planned", "queued", "running", "submitted", "cancel_requested"}
     return any(
-        isinstance(stage, dict)
-        and o._normalize_text((stage.get("task") or {}).get("engine")) == "xtb"
-        and (
-            o._normalize_text(stage.get("status")).lower() in active_xtb_statuses
-            or o._normalize_text(((stage.get("task") or {}).get("status"))).lower()
-            in active_xtb_statuses
-        )
-        for stage in payload.get("stages", [])
+        view.task_engine(o) == "xtb"
+        and _active_stage_status(view, o) in active_xtb_statuses
+        for view in _stage_views(payload)
     )
 
 
@@ -481,11 +539,9 @@ def _completed_crest_stage_for_orca(
 ) -> Any | None:
     crest_stage = next(
         (
-            stage
-            for stage in payload.get("stages", [])
-            if isinstance(stage, dict)
-            and o._normalize_text((stage.get("task") or {}).get("engine")) == "crest"
-            and o._normalize_text(stage.get("status")) == "completed"
+            view.raw
+            for view in _engine_stage_views(o, payload, "crest")
+            if view.status(o) == "completed"
         ),
         None,
     )

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Callable, Protocol, cast
 
 from chemstack.core.admission.compat import (
     admission_slot_payload,
@@ -12,7 +12,41 @@ from chemstack.core.admission.compat import (
 from chemstack.core.utils.persistence import load_json_list_file
 
 
-def load_slots(root: Path, *, deps: Any) -> list[Any]:
+class ChemCoreAdmissionBackend(Protocol):
+    AdmissionSlot: Callable[..., Any]
+
+    def _load_slots(self, root: Path) -> list[Any]: ...
+    def _save_slots(self, root: Path, slots: list[Any]) -> None: ...
+    def active_slot_count(self, root: Path) -> int: ...
+    def activate_reserved_slot(self, root: Path, token: str, **kwargs: Any) -> Any | None: ...
+    def list_slots(self, root: Path) -> list[Any]: ...
+    def reconcile_stale_slots(self, root: Path) -> int: ...
+
+
+class AdmissionBackendDeps(Protocol):
+    @property
+    def AdmissionStoreCorruptError(self) -> type[Exception]: ...
+
+    @property
+    def atomic_write_json(self) -> Callable[..., Any]: ...
+
+    @property
+    def _admission_path(self) -> Callable[[Path], Path]: ...
+
+    @property
+    def _chem_core_admission_module(
+        self,
+    ) -> Callable[[], ChemCoreAdmissionBackend | None]: ...
+
+    @property
+    def _normalize_slot(self) -> Callable[[Any], Any]: ...
+
+    def _wrap_backend_corruption(self, exc: Exception) -> None: ...
+    def _to_chem_core_slot(self, slot: Any, *, backend: ChemCoreAdmissionBackend) -> Any: ...
+    def _from_chem_core_slot(self, slot: object) -> Any: ...
+
+
+def load_slots(root: Path, *, deps: AdmissionBackendDeps) -> list[Any]:
     backend = deps._chem_core_admission_module()
     backend_load_slots = getattr(backend, "_load_slots", None) if backend is not None else None
     if callable(backend_load_slots):
@@ -30,7 +64,7 @@ def load_slots(root: Path, *, deps: Any) -> list[Any]:
     return [cast(Any, slot) for slot in raw if isinstance(slot, dict)]
 
 
-def save_slots(root: Path, slots: list[Any], *, deps: Any) -> None:
+def save_slots(root: Path, slots: list[Any], *, deps: AdmissionBackendDeps) -> None:
     backend = deps._chem_core_admission_module()
     if backend is None:
         deps.atomic_write_json(deps._admission_path(root), slots, ensure_ascii=True, indent=2)
@@ -40,7 +74,12 @@ def save_slots(root: Path, slots: list[Any], *, deps: Any) -> None:
     backend._save_slots(root, backend_slots)
 
 
-def backend_list_slots(root: Path, *, backend: Any, deps: Any) -> list[Any] | None:
+def backend_list_slots(
+    root: Path,
+    *,
+    backend: ChemCoreAdmissionBackend,
+    deps: AdmissionBackendDeps,
+) -> list[Any] | None:
     list_slots_fn = getattr(backend, "list_slots", None)
     if not callable(list_slots_fn):
         return None
@@ -51,7 +90,12 @@ def backend_list_slots(root: Path, *, backend: Any, deps: Any) -> list[Any] | No
         raise
 
 
-def backend_reconcile_stale_slots(root: Path, *, backend: Any, deps: Any) -> int | None:
+def backend_reconcile_stale_slots(
+    root: Path,
+    *,
+    backend: ChemCoreAdmissionBackend,
+    deps: AdmissionBackendDeps,
+) -> int | None:
     reconcile_fn = getattr(backend, "reconcile_stale_slots", None)
     if not callable(reconcile_fn):
         return None
@@ -62,7 +106,12 @@ def backend_reconcile_stale_slots(root: Path, *, backend: Any, deps: Any) -> int
         raise
 
 
-def backend_active_slot_count(root: Path, *, backend: Any, deps: Any) -> int | None:
+def backend_active_slot_count(
+    root: Path,
+    *,
+    backend: ChemCoreAdmissionBackend,
+    deps: AdmissionBackendDeps,
+) -> int | None:
     count_fn = getattr(backend, "active_slot_count", None)
     if not callable(count_fn):
         return None
@@ -73,7 +122,12 @@ def backend_active_slot_count(root: Path, *, backend: Any, deps: Any) -> int | N
         raise
 
 
-def to_chem_core_slot(slot: Any, *, backend: Any, deps: Any) -> Any:
+def to_chem_core_slot(
+    slot: Any,
+    *,
+    backend: ChemCoreAdmissionBackend,
+    deps: AdmissionBackendDeps,
+) -> Any:
     normalized = deps._normalize_slot(slot)
     return backend.AdmissionSlot(
         token=text_field(normalized.get("token")),
@@ -90,7 +144,7 @@ def to_chem_core_slot(slot: Any, *, backend: Any, deps: Any) -> Any:
     )
 
 
-def from_chem_core_slot(slot: object, *, deps: Any) -> Any:
+def from_chem_core_slot(slot: object, *, deps: AdmissionBackendDeps) -> Any:
     normalized = admission_slot_payload(slot, include_legacy_reaction_dir=True)
     return deps._normalize_slot(normalized)
 
@@ -108,7 +162,7 @@ def build_reserved_slot(
     task_id: str | None,
     workflow_id: str | None,
     state: str,
-    deps: Any,
+    deps: AdmissionBackendDeps,
 ) -> Any:
     backend = deps._chem_core_admission_module()
     if backend is not None:

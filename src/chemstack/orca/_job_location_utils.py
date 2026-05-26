@@ -11,8 +11,8 @@ from chemstack.core.paths import (
     resolved_path_text,
     safe_is_subpath,
 )
+from chemstack.core.statuses import TERMINAL_STATUSES as TERMINAL_STATUSES
 
-TERMINAL_STATUSES = frozenset({"completed", "failed", "cancelled"})
 QUEUE_FILE_NAME = "queue.json"
 INDEX_DIR_NAME = "index"
 

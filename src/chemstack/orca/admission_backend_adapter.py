@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -9,17 +10,25 @@ from . import admission_backend as _admission_backend
 
 @dataclass(frozen=True)
 class AdmissionBackendAdapter:
-    AdmissionStoreCorruptError: Any
-    atomic_write_json: Any
-    _admission_path: Any
-    _chem_core_admission_module: Any
-    _normalize_slot: Any
+    AdmissionStoreCorruptError: type[Exception]
+    atomic_write_json: Callable[..., Any]
+    _admission_path: Callable[[Path], Path]
+    _chem_core_admission_module: Callable[
+        [],
+        _admission_backend.ChemCoreAdmissionBackend | None,
+    ]
+    _normalize_slot: Callable[[Any], Any]
 
     def _wrap_backend_corruption(self, exc: Exception) -> None:
         if exc.__class__.__name__ == "AdmissionStoreCorruptError":
             raise self.AdmissionStoreCorruptError(str(exc)) from exc
 
-    def _to_chem_core_slot(self, slot: Any, *, backend: Any) -> Any:
+    def _to_chem_core_slot(
+        self,
+        slot: Any,
+        *,
+        backend: _admission_backend.ChemCoreAdmissionBackend,
+    ) -> Any:
         return _admission_backend.to_chem_core_slot(slot, backend=backend, deps=self)
 
     def _from_chem_core_slot(self, slot: object) -> Any:
@@ -36,7 +45,7 @@ class AdmissionBackendAdapter:
         root: Path,
         function_name: str,
         *args: Any,
-        convert: Any = None,
+        convert: Callable[[Any], Any] | None = None,
         **kwargs: Any,
     ) -> Any | None:
         backend = self._chem_core_admission_module()
@@ -52,13 +61,28 @@ class AdmissionBackendAdapter:
             raise
         return convert(result) if convert is not None else result
 
-    def backend_list_slots(self, root: Path, *, backend: Any) -> list[Any] | None:
+    def backend_list_slots(
+        self,
+        root: Path,
+        *,
+        backend: _admission_backend.ChemCoreAdmissionBackend,
+    ) -> list[Any] | None:
         return _admission_backend.backend_list_slots(root, backend=backend, deps=self)
 
-    def backend_reconcile_stale_slots(self, root: Path, *, backend: Any) -> int | None:
+    def backend_reconcile_stale_slots(
+        self,
+        root: Path,
+        *,
+        backend: _admission_backend.ChemCoreAdmissionBackend,
+    ) -> int | None:
         return _admission_backend.backend_reconcile_stale_slots(root, backend=backend, deps=self)
 
-    def backend_active_slot_count(self, root: Path, *, backend: Any) -> int | None:
+    def backend_active_slot_count(
+        self,
+        root: Path,
+        *,
+        backend: _admission_backend.ChemCoreAdmissionBackend,
+    ) -> int | None:
         return _admission_backend.backend_active_slot_count(root, backend=backend, deps=self)
 
     def text_field(self, value: object) -> str:
@@ -96,10 +120,10 @@ class AdmissionBackendAdapter:
 
     def activate_reserved_slot(
         self,
-        backend: Any,
+        backend: _admission_backend.ChemCoreAdmissionBackend,
         request: Any,
         *,
-        update_slot_metadata: Any,
+        update_slot_metadata: Callable[..., bool],
     ) -> bool:
         try:
             updated = backend.activate_reserved_slot(

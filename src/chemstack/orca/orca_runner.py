@@ -33,21 +33,24 @@ class OrcaRunner:
         try:
             os.killpg(proc.pid, signal.SIGTERM)
         except Exception:
+            logger.debug("failed to signal ORCA process group with SIGTERM", exc_info=True)
             try:
                 proc.terminate()
             except Exception:
-                pass
+                logger.debug("failed to terminate ORCA subprocess fallback", exc_info=True)
 
         try:
             proc.wait(timeout=3)
         except Exception:
+            logger.debug("ORCA subprocess did not exit after SIGTERM", exc_info=True)
             try:
                 os.killpg(proc.pid, signal.SIGKILL)
             except Exception:
+                logger.debug("failed to signal ORCA process group with SIGKILL", exc_info=True)
                 try:
                     proc.kill()
                 except Exception:
-                    pass
+                    logger.debug("failed to kill ORCA subprocess fallback", exc_info=True)
 
     @staticmethod
     def _ensure_trailing_newline(path: Path) -> None:
@@ -106,5 +109,5 @@ class OrcaRunner:
                     try:
                         signal.signal(signal.SIGTERM, prev_sigterm_handler)
                     except ValueError:
-                        pass
+                        logger.debug("failed to restore SIGTERM handler outside main thread")
         return RunResult(out_path=str(out), return_code=return_code)

@@ -70,6 +70,39 @@ class WorkerExecutionOutcome:
 
 
 @dataclass(frozen=True)
+class WorkerTimingDependencies:
+    now_utc_iso: Callable[[], str]
+
+
+@dataclass(frozen=True)
+class WorkerQueueDependencies:
+    get_cancel_requested: Callable[[str, str], bool]
+    mark_completed: Callable[..., Any]
+    mark_cancelled: Callable[..., Any]
+    mark_failed: Callable[..., Any]
+
+
+@dataclass(frozen=True)
+class WorkerRunnerDependencies:
+    start_crest_job: Callable[..., Any]
+    finalize_crest_job: Callable[..., CrestRunResult]
+    terminate_process: Callable[[subprocess.Popen[str]], None]
+
+
+@dataclass(frozen=True)
+class WorkerArtifactDependencies:
+    write_running_state: Callable[[Any, Any], None]
+    write_execution_artifacts: Callable[[Any, CrestRunResult], None]
+
+
+@dataclass(frozen=True)
+class WorkerTrackingDependencies:
+    upsert_job_record: Callable[..., Any]
+    notify_job_started: Callable[..., bool]
+    notify_job_finished: Callable[..., bool]
+
+
+@dataclass(frozen=True)
 class WorkerExecutionDependencies:
     now_utc_iso: Callable[[], str]
     get_cancel_requested: Callable[[str, str], bool]
@@ -84,6 +117,42 @@ class WorkerExecutionDependencies:
     upsert_job_record: Callable[..., Any]
     notify_job_started: Callable[..., bool]
     notify_job_finished: Callable[..., bool]
+
+    @property
+    def timing(self) -> WorkerTimingDependencies:
+        return WorkerTimingDependencies(now_utc_iso=self.now_utc_iso)
+
+    @property
+    def queue(self) -> WorkerQueueDependencies:
+        return WorkerQueueDependencies(
+            get_cancel_requested=self.get_cancel_requested,
+            mark_completed=self.mark_completed,
+            mark_cancelled=self.mark_cancelled,
+            mark_failed=self.mark_failed,
+        )
+
+    @property
+    def runner(self) -> WorkerRunnerDependencies:
+        return WorkerRunnerDependencies(
+            start_crest_job=self.start_crest_job,
+            finalize_crest_job=self.finalize_crest_job,
+            terminate_process=self.terminate_process,
+        )
+
+    @property
+    def artifacts(self) -> WorkerArtifactDependencies:
+        return WorkerArtifactDependencies(
+            write_running_state=self.write_running_state,
+            write_execution_artifacts=self.write_execution_artifacts,
+        )
+
+    @property
+    def tracking(self) -> WorkerTrackingDependencies:
+        return WorkerTrackingDependencies(
+            upsert_job_record=self.upsert_job_record,
+            notify_job_started=self.notify_job_started,
+            notify_job_finished=self.notify_job_finished,
+        )
 
 
 def build_worker_execution_dependencies(
@@ -318,6 +387,7 @@ def _mark_queue_terminal(
     *,
     dependencies: WorkerExecutionDependencies,
 ) -> None:
+    queue_deps = dependencies.queue
     metadata_update = {
         "retained_conformer_count": result.retained_conformer_count,
         "mode": result.mode,
@@ -328,9 +398,9 @@ def _mark_queue_terminal(
         status=result.status,
         reason=result.reason,
         metadata_update=metadata_update,
-        mark_completed_fn=dependencies.mark_completed,
-        mark_cancelled_fn=dependencies.mark_cancelled,
-        mark_failed_fn=dependencies.mark_failed,
+        mark_completed_fn=queue_deps.mark_completed,
+        mark_cancelled_fn=queue_deps.mark_cancelled,
+        mark_failed_fn=queue_deps.mark_failed,
     )
 
 
@@ -343,7 +413,8 @@ def _sync_job_tracking(
     dependencies: WorkerExecutionDependencies,
 ) -> Path | None:
     del auto_organize
-    dependencies.upsert_job_record(
+    tracking_deps = dependencies.tracking
+    tracking_deps.upsert_job_record(
         cfg,
         job_id=context.entry.task_id,
         status=result.status,
@@ -372,8 +443,10 @@ def _mark_job_running(
     *,
     dependencies: WorkerExecutionDependencies,
 ) -> None:
-    dependencies.write_running_state(cfg, context.entry)
-    dependencies.upsert_job_record(
+    artifact_deps = dependencies.artifacts
+    tracking_deps = dependencies.tracking
+    artifact_deps.write_running_state(cfg, context.entry)
+    tracking_deps.upsert_job_record(
         cfg,
         job_id=context.entry.task_id,
         status="running",
@@ -384,7 +457,7 @@ def _mark_job_running(
         resource_request=context.resource_request,
         resource_actual=context.resource_request,
     )
-    dependencies.notify_job_started(
+    tracking_deps.notify_job_started(
         cfg,
         job_id=context.entry.task_id,
         queue_id=context.entry.queue_id,
@@ -432,8 +505,10 @@ def _run_crest_job_for_entry(
     dependencies: WorkerExecutionDependencies,
     shutdown_requested: Callable[[], bool] | None,
 ) -> CrestRunResult:
+    queue_deps = dependencies.queue
+    runner_deps = dependencies.runner
     try:
-        running = dependencies.start_crest_job(
+        running = runner_deps.start_crest_job(
             cfg,
             job_dir=context.job_dir,
             selected_xyz=context.selected_xyz,
@@ -444,9 +519,9 @@ def _run_crest_job_for_entry(
 
         return _queue_execution.wait_for_cancellable_process(
             running,
-            finalize_fn=dependencies.finalize_crest_job,
-            terminate_process_fn=dependencies.terminate_process,
-            should_cancel=lambda: dependencies.get_cancel_requested(
+            finalize_fn=runner_deps.finalize_crest_job,
+            terminate_process_fn=runner_deps.terminate_process,
+            should_cancel=lambda: queue_deps.get_cancel_requested(
                 str(queue_root),
                 context.entry.queue_id,
             ),
@@ -461,7 +536,7 @@ def _run_crest_job_for_entry(
         return _failed_result_from_exception(
             context,
             exc=exc,
-            failure_time=dependencies.now_utc_iso(),
+            failure_time=dependencies.timing.now_utc_iso(),
         )
 
 
@@ -474,30 +549,48 @@ def _finalize_processed_entry(
     auto_organize: bool,
     dependencies: WorkerExecutionDependencies,
 ) -> Path | None:
-    dependencies.write_execution_artifacts(context.entry, result)
-    _mark_queue_terminal(queue_root, context, result, dependencies=dependencies)
-    organized_output_dir = _sync_job_tracking(
-        cfg,
-        context,
-        result,
-        auto_organize=auto_organize,
-        dependencies=dependencies,
+    artifact_deps = dependencies.artifacts
+    tracking_deps = dependencies.tracking
+
+    def notify_finished(organized_output_dir: Path | None) -> None:
+        tracking_deps.notify_job_finished(
+            cfg,
+            job_id=context.entry.task_id,
+            queue_id=context.entry.queue_id,
+            status=result.status,
+            reason=result.reason,
+            mode=result.mode,
+            job_dir=context.job_dir,
+            selected_xyz=context.selected_xyz,
+            retained_conformer_count=result.retained_conformer_count,
+            organized_output_dir=organized_output_dir,
+            resource_request=context.resource_request,
+            resource_actual=result.resource_actual,
+        )
+
+    return _engine_execution.sync_terminal_result(
+        _engine_execution.TerminalSyncActions(
+            write_artifacts=lambda: artifact_deps.write_execution_artifacts(
+                context.entry,
+                result,
+            ),
+            mark_queue_terminal=lambda: _mark_queue_terminal(
+                queue_root,
+                context,
+                result,
+                dependencies=dependencies,
+            ),
+            sync_job_record=lambda: _sync_job_tracking(
+                cfg,
+                context,
+                result,
+                auto_organize=auto_organize,
+                dependencies=dependencies,
+            ),
+            notify_finished=notify_finished,
+            build_outcome=lambda organized_output_dir: organized_output_dir,
+        ),
     )
-    dependencies.notify_job_finished(
-        cfg,
-        job_id=context.entry.task_id,
-        queue_id=context.entry.queue_id,
-        status=result.status,
-        reason=result.reason,
-        mode=result.mode,
-        job_dir=context.job_dir,
-        selected_xyz=context.selected_xyz,
-        retained_conformer_count=result.retained_conformer_count,
-        organized_output_dir=organized_output_dir,
-        resource_request=context.resource_request,
-        resource_actual=result.resource_actual,
-    )
-    return organized_output_dir
 
 
 def process_dequeued_entry(

@@ -145,31 +145,43 @@ def _queue_command_deps() -> _QueueCommandDeps:
 
 
 def _worker_execution_dependencies() -> _worker_execution.WorkerExecutionDependencies:
-    return _worker_execution.build_worker_execution_dependencies(
-        load_config_fn=load_config,
-        queue_entry_by_id_fn=_queue_entry_by_id,
-        activate_reserved_slot_fn=activate_reserved_slot,
-        release_slot_fn=release_slot,
-        job_dir_fn=_job_dir,
-        selected_xyz_fn=_selected_xyz,
-        job_type_fn=_job_type,
-        reaction_key_fn=_reaction_key,
-        input_summary_fn=_input_summary,
-        entry_resource_request_fn=_entry_resource_request,
-        matching_state_fn=_matching_state,
-        is_recovery_pending_fn=is_recovery_pending,
-        write_running_state_fn=_write_running_state,
-        build_terminal_result_fn=_build_terminal_result,
-        finalize_execution_result_fn=_finalize_execution_result,
-        upsert_job_record_fn=upsert_job_record,
-        notify_job_started_fn=notify_job_started,
-        run_xtb_ranking_job_fn=run_xtb_ranking_job,
-        start_xtb_job_fn=start_xtb_job,
-        finalize_xtb_job_fn=finalize_xtb_job,
-        terminate_process_fn=_terminate_process,
-        wait_for_cancellable_process_fn=_queue_execution.wait_for_cancellable_process,
-        sleep_fn=time.sleep,
-        cancel_check_interval_seconds=CANCEL_CHECK_INTERVAL_SECONDS,
+    return _worker_execution.build_worker_execution_dependencies_from_groups(
+        config=_worker_execution.WorkerConfigDependencies(
+            load_config=load_config,
+            queue_entry_by_id=_queue_entry_by_id,
+        ),
+        admission=_worker_execution.WorkerAdmissionDependencies(
+            activate_reserved_slot=activate_reserved_slot,
+            release_slot=release_slot,
+        ),
+        context=_worker_execution.WorkerContextDependencies(
+            job_dir=_job_dir,
+            selected_xyz=_selected_xyz,
+            job_type=_job_type,
+            reaction_key=_reaction_key,
+            input_summary=_input_summary,
+            entry_resource_request=_entry_resource_request,
+            matching_state=_matching_state,
+            is_recovery_pending=is_recovery_pending,
+        ),
+        artifacts=_worker_execution.WorkerArtifactDependencies(
+            write_running_state=_write_running_state,
+            build_terminal_result=_build_terminal_result,
+            finalize_execution_result=_finalize_execution_result,
+        ),
+        tracking=_worker_execution.WorkerTrackingDependencies(
+            upsert_job_record=upsert_job_record,
+            notify_job_started=notify_job_started,
+        ),
+        runner=_worker_execution.WorkerRunnerDependencies(
+            run_xtb_ranking_job=run_xtb_ranking_job,
+            start_xtb_job=start_xtb_job,
+            finalize_xtb_job=finalize_xtb_job,
+            terminate_process=_terminate_process,
+            wait_for_cancellable_process=_queue_execution.wait_for_cancellable_process,
+            sleep=time.sleep,
+            cancel_check_interval_seconds=CANCEL_CHECK_INTERVAL_SECONDS,
+        ),
         execute_queue_entry_fn=_execute_queue_entry,
     )
 

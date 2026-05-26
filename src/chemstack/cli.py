@@ -35,6 +35,10 @@ from chemstack.core.app_ids import (
 from chemstack.core.config.files import (
     shared_workflow_root_from_config as shared_workflow_root_from_config,
 )
+from chemstack.core.facade import (
+    delegate as _delegate,
+    delegate_with_deps as _delegate_with_deps,
+)
 from chemstack.flow.operations import (
     cancel_activity as cancel_activity,
     clear_activities as clear_activities,
@@ -197,32 +201,6 @@ def _summary_deps() -> _SummaryCliDeps:
         _engine_config_for_command=_current("_engine_config_for_command"),
         cmd_orca_summary=_current("cmd_orca_summary"),
     )
-
-
-def _delegate(module: Any, name: str) -> Callable[..., Any]:
-    target = getattr(module, name)
-
-    def _wrapped(*args: Any, **kwargs: Any) -> Any:
-        return target(*args, **kwargs)
-
-    _wrapped.__name__ = name
-    _wrapped.__doc__ = getattr(target, "__doc__", None)
-    return _wrapped
-
-
-def _delegate_with_deps(
-    module: Any,
-    name: str,
-    deps_factory: Callable[[], Any],
-) -> Callable[..., Any]:
-    target = getattr(module, name)
-
-    def _wrapped(*args: Any, **kwargs: Any) -> Any:
-        return target(*args, **kwargs, deps=deps_factory())
-
-    _wrapped.__name__ = name
-    _wrapped.__doc__ = getattr(target, "__doc__", None)
-    return _wrapped
 
 
 _COMMON_DELEGATES = {

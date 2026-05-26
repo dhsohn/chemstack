@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import signal
 import subprocess
@@ -16,10 +17,13 @@ from chemstack.core.utils.persistence import now_utc_iso
 
 from .processes import (
     ManagedProcess,
+    ShutdownSignalDeps,
+    install_shutdown_signal_handlers as _install_shutdown_signal_handlers,
     terminate_process_group,
 )
 
 T = TypeVar("T")
+LOGGER = logging.getLogger(__name__)
 
 __all__ = [
     "BackgroundRunningJob",
@@ -29,6 +33,7 @@ __all__ = [
     "QueueWorkerPidFileMixin",
     "ReservedQueueEntry",
     "SlotFillResult",
+    "ShutdownSignalDeps",
     "build_background_worker_command",
     "config_path_for_worker",
     "dequeue_next_across_roots",
@@ -386,7 +391,7 @@ def shutdown_child_process_with_grace(
         try:
             job.process.terminate()
         except Exception:
-            pass
+            LOGGER.debug("failed to terminate child worker process", exc_info=True)
 
     deadline = time.monotonic() + grace_seconds
     while job.process.poll() is None and time.monotonic() < deadline:
@@ -767,14 +772,15 @@ def process_one_child_queue(cfg: Any, *, auto_organize: bool, deps: Any) -> str:
 
 
 def install_shutdown_signal_handlers(request_shutdown: Callable[[], None]) -> None:
-    def _handle_signal(_signum: int, _frame: object) -> None:
-        request_shutdown()
-
-    try:
-        signal.signal(signal.SIGTERM, _handle_signal)
-        signal.signal(signal.SIGINT, _handle_signal)
-    except ValueError:
-        pass
+    _install_shutdown_signal_handlers(
+        request_shutdown,
+        deps=ShutdownSignalDeps(
+            signal_fn=signal.signal,
+            sigterm=signal.SIGTERM,
+            sigint=signal.SIGINT,
+            logger=LOGGER,
+        ),
+    )
 
 
 def pid_is_alive(pid: int) -> bool:

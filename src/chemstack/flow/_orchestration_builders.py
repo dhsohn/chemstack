@@ -40,6 +40,27 @@ class _StagePayloadSections:
     stage_metadata: dict[str, Any]
 
 
+@dataclass(frozen=True)
+class _WorkflowWorkspace:
+    workflow_id: str
+    workflow_root_path: Path
+    workspace_dir: Path
+    requested_at: str
+
+
+@dataclass(frozen=True)
+class _ReactionWorkflowInputs:
+    reactant_xyz: str
+    product_xyz: str
+    reaction_key: str
+
+
+@dataclass(frozen=True)
+class _ConformerWorkflowInput:
+    input_xyz: str
+    reaction_key: str
+
+
 def _merge_manifest_defaults(
     defaults: dict[str, Any],
     overrides: dict[str, Any] | None,
@@ -274,7 +295,7 @@ def _persist_workflow(
     *,
     persistence_context: WorkflowPersistenceContext,
     request: WorkflowTemplateRequest,
-    stages: list[dict[str, Any]],
+    stages: list[WorkflowStagePayload],
     creation_context: WorkflowCreationContext,
 ) -> WorkflowPlanPayload:
     plan = WorkflowPlan(
@@ -305,72 +326,181 @@ def _persist_workflow(
     return payload
 
 
-def create_reaction_ts_search_workflow_impl(
+def _workflow_workspace(
     *,
+    workflow_id: str | None,
+    workflow_root: str | Path,
+    default_id_prefix: str,
+    context: WorkflowCreationContext,
+) -> _WorkflowWorkspace:
+    resolved_workflow_id = str(workflow_id or "").strip() or context.workflow_id_factory(
+        default_id_prefix
+    )
+    workflow_root_path = Path(workflow_root).expanduser().resolve()
+    return _WorkflowWorkspace(
+        workflow_id=resolved_workflow_id,
+        workflow_root_path=workflow_root_path,
+        workspace_dir=workflow_root_path / resolved_workflow_id,
+        requested_at=context.now_utc_iso_fn(),
+    )
+
+
+def _validate_reaction_atom_sequence(
     request: ReactionTsSearchWorkflowRequest,
     context: ReactionTsSearchWorkflowCreationContext,
-) -> WorkflowPlanPayload:
-    workflow_id = str(request.workflow_id or "").strip() or context.workflow_id_factory(
-        "wf_reaction_ts"
-    )
-    workflow_root_path = Path(request.workflow_root).expanduser().resolve()
-    workspace_dir = workflow_root_path / workflow_id
-    resolved_crest_job_manifest = _merge_manifest_defaults(
-        _REACTION_TS_SEARCH_CREST_MANIFEST_DEFAULTS,
-        request.crest_job_manifest,
-    )
+) -> None:
     reactant_sequence = context.load_xyz_atom_sequence_fn(request.reactant_xyz)
     product_sequence = context.load_xyz_atom_sequence_fn(request.product_xyz)
-    if reactant_sequence != product_sequence:
-        raise ValueError(
-            "reaction_ts_search requires identical reactant/product atom order for xTB path search; "
-            f"reactant sequence={list(reactant_sequence)}, product sequence={list(product_sequence)}"
-        )
+    if reactant_sequence == product_sequence:
+        return
+    raise ValueError(
+        "reaction_ts_search requires identical reactant/product atom order for xTB path search; "
+        f"reactant sequence={list(reactant_sequence)}, product sequence={list(product_sequence)}"
+    )
+
+
+def _copy_reaction_inputs(
+    request: ReactionTsSearchWorkflowRequest,
+    workspace: _WorkflowWorkspace,
+    context: WorkflowCreationContext,
+) -> _ReactionWorkflowInputs:
     input_reactant = context.copy_input_fn(
         request.reactant_xyz,
-        workspace_dir / "inputs" / "reactants" / Path(request.reactant_xyz).name,
+        workspace.workspace_dir / "inputs" / "reactants" / Path(request.reactant_xyz).name,
     )
     input_product = context.copy_input_fn(
         request.product_xyz,
-        workspace_dir / "inputs" / "products" / Path(request.product_xyz).name,
+        workspace.workspace_dir / "inputs" / "products" / Path(request.product_xyz).name,
     )
-    requested_at = context.now_utc_iso_fn()
-    stages: list[dict[str, Any]] = [
+    return _ReactionWorkflowInputs(
+        reactant_xyz=input_reactant,
+        product_xyz=input_product,
+        reaction_key=f"{Path(input_reactant).stem}_to_{Path(input_product).stem}",
+    )
+
+
+def _copy_conformer_input(
+    request: ConformerScreeningWorkflowRequest,
+    workspace: _WorkflowWorkspace,
+    context: WorkflowCreationContext,
+) -> _ConformerWorkflowInput:
+    copied_input = context.copy_input_fn(
+        request.input_xyz,
+        workspace.workspace_dir / "inputs" / Path(request.input_xyz).name,
+    )
+    return _ConformerWorkflowInput(
+        input_xyz=copied_input,
+        reaction_key=Path(copied_input).stem,
+    )
+
+
+def _crest_stage_payload(
+    context: WorkflowCreationContext,
+    *,
+    workflow_id: str,
+    template_name: str,
+    stage_id: str,
+    source_path: str,
+    input_role: str,
+    mode: str,
+    priority: int,
+    max_cores: int,
+    max_memory_gb: int,
+    manifest_overrides: dict[str, Any] | None,
+) -> WorkflowStagePayload:
+    return cast(
+        WorkflowStagePayload,
         context.new_crest_stage_fn(
             workflow_id=workflow_id,
+            template_name=template_name,
+            stage_id=stage_id,
+            source_path=source_path,
+            input_role=input_role,
+            mode=mode,
+            priority=priority,
+            max_cores=max_cores,
+            max_memory_gb=max_memory_gb,
+            manifest_overrides=manifest_overrides,
+        ),
+    )
+
+
+def _reaction_crest_stages(
+    request: ReactionTsSearchWorkflowRequest,
+    workspace: _WorkflowWorkspace,
+    inputs: _ReactionWorkflowInputs,
+    context: WorkflowCreationContext,
+    *,
+    manifest_overrides: dict[str, Any],
+) -> list[WorkflowStagePayload]:
+    return [
+        _crest_stage_payload(
+            context,
+            workflow_id=workspace.workflow_id,
             template_name="reaction_ts_search",
             stage_id="crest_reactant_01",
-            source_path=input_reactant,
+            source_path=inputs.reactant_xyz,
             input_role="reactant",
             mode=request.crest_mode,
             priority=request.priority,
             max_cores=request.max_cores,
             max_memory_gb=request.max_memory_gb,
-            manifest_overrides=resolved_crest_job_manifest,
+            manifest_overrides=manifest_overrides,
         ),
-        context.new_crest_stage_fn(
-            workflow_id=workflow_id,
+        _crest_stage_payload(
+            context,
+            workflow_id=workspace.workflow_id,
             template_name="reaction_ts_search",
             stage_id="crest_product_01",
-            source_path=input_product,
+            source_path=inputs.product_xyz,
             input_role="product",
             mode=request.crest_mode,
             priority=request.priority,
             max_cores=request.max_cores,
             max_memory_gb=request.max_memory_gb,
-            manifest_overrides=resolved_crest_job_manifest,
+            manifest_overrides=manifest_overrides,
         ),
     ]
-    resolved_source_job_type = request.source_job_type or "raw_xyz"
-    reaction_key = f"{Path(input_reactant).stem}_to_{Path(input_product).stem}"
-    template_request = WorkflowTemplateRequest(
-        workflow_id=workflow_id,
+
+
+def _conformer_crest_stages(
+    request: ConformerScreeningWorkflowRequest,
+    workspace: _WorkflowWorkspace,
+    copied_input: _ConformerWorkflowInput,
+    context: WorkflowCreationContext,
+) -> list[WorkflowStagePayload]:
+    return [
+        _crest_stage_payload(
+            context,
+            workflow_id=workspace.workflow_id,
+            template_name="conformer_screening",
+            stage_id="crest_conformer_01",
+            source_path=copied_input.input_xyz,
+            input_role="molecule",
+            mode=request.crest_mode,
+            priority=request.priority,
+            max_cores=request.max_cores,
+            max_memory_gb=request.max_memory_gb,
+            manifest_overrides=request.crest_job_manifest,
+        ),
+    ]
+
+
+def _reaction_template_request(
+    request: ReactionTsSearchWorkflowRequest,
+    workspace: _WorkflowWorkspace,
+    inputs: _ReactionWorkflowInputs,
+    *,
+    resolved_crest_job_manifest: dict[str, Any],
+) -> WorkflowTemplateRequest:
+    return WorkflowTemplateRequest(
+        workflow_id=workspace.workflow_id,
         template_name="reaction_ts_search",
         source_job_id=request.source_job_id,
-        source_job_type=resolved_source_job_type,
-        reaction_key=reaction_key,
+        source_job_type=request.source_job_type or "raw_xyz",
+        reaction_key=inputs.reaction_key,
         status="planned",
-        requested_at=requested_at,
+        requested_at=workspace.requested_at,
         parameters={
             "crest_mode": request.crest_mode,
             "priority": int(request.priority),
@@ -388,64 +518,25 @@ def create_reaction_ts_search_workflow_impl(
             **_optional_mapping_parameter("endpoint_pairing", request.endpoint_pairing),
         },
         source_artifacts=(
-            WorkflowArtifactRef(kind="reactant_xyz", path=input_reactant, selected=True),
-            WorkflowArtifactRef(kind="product_xyz", path=input_product, selected=True),
+            WorkflowArtifactRef(kind="reactant_xyz", path=inputs.reactant_xyz, selected=True),
+            WorkflowArtifactRef(kind="product_xyz", path=inputs.product_xyz, selected=True),
         ),
-    )
-    return _persist_workflow(
-        persistence_context=WorkflowPersistenceContext(
-            workflow_root_path=workflow_root_path,
-            workspace_dir=workspace_dir,
-            workflow_id=workflow_id,
-            template_name="reaction_ts_search",
-            source_job_id=request.source_job_id,
-            source_job_type=resolved_source_job_type,
-            reaction_key=reaction_key,
-            requested_at=requested_at,
-        ),
-        request=template_request,
-        stages=stages,
-        creation_context=context,
     )
 
 
-def create_conformer_screening_workflow_impl(
-    *,
+def _conformer_template_request(
     request: ConformerScreeningWorkflowRequest,
-    context: WorkflowCreationContext,
-) -> WorkflowPlanPayload:
-    workflow_id = str(request.workflow_id or "").strip() or context.workflow_id_factory(
-        "wf_conformer_screening"
-    )
-    workflow_root_path = Path(request.workflow_root).expanduser().resolve()
-    workspace_dir = workflow_root_path / workflow_id
-    copied_input = context.copy_input_fn(
-        request.input_xyz,
-        workspace_dir / "inputs" / Path(request.input_xyz).name,
-    )
-    requested_at = context.now_utc_iso_fn()
-    stages = [
-        context.new_crest_stage_fn(
-            workflow_id=workflow_id,
-            template_name="conformer_screening",
-            stage_id="crest_conformer_01",
-            source_path=copied_input,
-            input_role="molecule",
-            mode=request.crest_mode,
-            priority=request.priority,
-            max_cores=request.max_cores,
-            max_memory_gb=request.max_memory_gb,
-            manifest_overrides=request.crest_job_manifest,
-        ),
-    ]
-    template_request = WorkflowTemplateRequest(
-        workflow_id=workflow_id,
+    workspace: _WorkflowWorkspace,
+    copied_input: _ConformerWorkflowInput,
+) -> WorkflowTemplateRequest:
+    return WorkflowTemplateRequest(
+        workflow_id=workspace.workflow_id,
         template_name="conformer_screening",
         source_job_id="",
         source_job_type="raw_xyz",
-        reaction_key=Path(copied_input).stem,
+        reaction_key=copied_input.reaction_key,
         status="planned",
-        requested_at=requested_at,
+        requested_at=workspace.requested_at,
         parameters={
             "crest_mode": request.crest_mode,
             "priority": int(request.priority),
@@ -457,19 +548,82 @@ def create_conformer_screening_workflow_impl(
             "multiplicity": int(request.multiplicity),
             **_optional_mapping_parameter("crest_job_manifest", request.crest_job_manifest),
         },
-        source_artifacts=(WorkflowArtifactRef(kind="input_xyz", path=copied_input, selected=True),),
+        source_artifacts=(
+            WorkflowArtifactRef(kind="input_xyz", path=copied_input.input_xyz, selected=True),
+        ),
+    )
+
+
+def _persistence_context(
+    workspace: _WorkflowWorkspace,
+    template_request: WorkflowTemplateRequest,
+) -> WorkflowPersistenceContext:
+    return WorkflowPersistenceContext(
+        workflow_root_path=workspace.workflow_root_path,
+        workspace_dir=workspace.workspace_dir,
+        workflow_id=workspace.workflow_id,
+        template_name=template_request.template_name,
+        source_job_id=template_request.source_job_id,
+        source_job_type=template_request.source_job_type,
+        reaction_key=template_request.reaction_key,
+        requested_at=workspace.requested_at,
+    )
+
+
+def create_reaction_ts_search_workflow_impl(
+    *,
+    request: ReactionTsSearchWorkflowRequest,
+    context: ReactionTsSearchWorkflowCreationContext,
+) -> WorkflowPlanPayload:
+    workspace = _workflow_workspace(
+        workflow_id=request.workflow_id,
+        workflow_root=request.workflow_root,
+        default_id_prefix="wf_reaction_ts",
+        context=context,
+    )
+    resolved_crest_job_manifest = _merge_manifest_defaults(
+        _REACTION_TS_SEARCH_CREST_MANIFEST_DEFAULTS,
+        request.crest_job_manifest,
+    )
+    _validate_reaction_atom_sequence(request, context)
+    inputs = _copy_reaction_inputs(request, workspace, context)
+    stages = _reaction_crest_stages(
+        request,
+        workspace,
+        inputs,
+        context,
+        manifest_overrides=resolved_crest_job_manifest,
+    )
+    template_request = _reaction_template_request(
+        request,
+        workspace,
+        inputs,
+        resolved_crest_job_manifest=resolved_crest_job_manifest,
     )
     return _persist_workflow(
-        persistence_context=WorkflowPersistenceContext(
-            workflow_root_path=workflow_root_path,
-            workspace_dir=workspace_dir,
-            workflow_id=workflow_id,
-            template_name="conformer_screening",
-            source_job_id="",
-            source_job_type="raw_xyz",
-            reaction_key=template_request.reaction_key,
-            requested_at=requested_at,
-        ),
+        persistence_context=_persistence_context(workspace, template_request),
+        request=template_request,
+        stages=stages,
+        creation_context=context,
+    )
+
+
+def create_conformer_screening_workflow_impl(
+    *,
+    request: ConformerScreeningWorkflowRequest,
+    context: WorkflowCreationContext,
+) -> WorkflowPlanPayload:
+    workspace = _workflow_workspace(
+        workflow_id=request.workflow_id,
+        workflow_root=request.workflow_root,
+        default_id_prefix="wf_conformer_screening",
+        context=context,
+    )
+    copied_input = _copy_conformer_input(request, workspace, context)
+    stages = _conformer_crest_stages(request, workspace, copied_input, context)
+    template_request = _conformer_template_request(request, workspace, copied_input)
+    return _persist_workflow(
+        persistence_context=_persistence_context(workspace, template_request),
         request=template_request,
         stages=stages,
         creation_context=context,

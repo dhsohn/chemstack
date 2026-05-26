@@ -197,3 +197,26 @@ def test_run_engine_worker_lifecycle_stops_on_shutdown_after_mark_running(
         raise AssertionError("expected shutdown")
 
     assert calls == ["build", "check", "mark", "check"]
+
+
+def test_sync_terminal_result_runs_common_terminal_sequence() -> None:
+    calls: list[str] = []
+
+    def sync_job_record() -> str:
+        calls.append("sync")
+        return "organized"
+
+    outcome = engine_execution.sync_terminal_result(
+        engine_execution.TerminalSyncActions(
+            write_artifacts=lambda: calls.append("write"),
+            mark_queue_terminal=lambda: calls.append("mark"),
+            sync_job_record=sync_job_record,
+            notify_finished=lambda sync_result: calls.append(f"notify:{sync_result}"),
+            emit_output=lambda sync_result: calls.append(f"emit:{sync_result}"),
+            build_outcome=lambda sync_result: ("outcome", sync_result),
+        ),
+        emit_output=True,
+    )
+
+    assert calls == ["write", "mark", "sync", "notify:organized", "emit:organized"]
+    assert outcome == ("outcome", "organized")

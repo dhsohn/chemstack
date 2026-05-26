@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from chemstack.core.admission import activate_reserved_slot, release_slot
+from chemstack.core.facade import resolve_grouped_attr
 from chemstack.core.queue import (
     list_queue,
     mark_cancelled,
@@ -117,17 +118,38 @@ class WorkerExecutionDependencies:
     execute_queue_entry: Callable[..., Any] | None = None
 
     def __getattr__(self, name: str) -> Any:
-        for group in (
-            self.config,
-            self.admission,
-            self.context,
-            self.artifacts,
-            self.tracking,
-            self.runner,
-        ):
-            if hasattr(group, name):
-                return getattr(group, name)
-        raise AttributeError(name)
+        return resolve_grouped_attr(
+            name,
+            (
+                self.config,
+                self.admission,
+                self.context,
+                self.artifacts,
+                self.tracking,
+                self.runner,
+            ),
+        )
+
+
+def build_worker_execution_dependencies_from_groups(
+    *,
+    config: WorkerConfigDependencies,
+    admission: WorkerAdmissionDependencies,
+    context: WorkerContextDependencies,
+    artifacts: WorkerArtifactDependencies,
+    tracking: WorkerTrackingDependencies,
+    runner: WorkerRunnerDependencies,
+    execute_queue_entry_fn: Callable[..., Any] | None = None,
+) -> WorkerExecutionDependencies:
+    return WorkerExecutionDependencies(
+        config=config,
+        admission=admission,
+        context=context,
+        artifacts=artifacts,
+        tracking=tracking,
+        runner=runner,
+        execute_queue_entry=execute_queue_entry_fn,
+    )
 
 
 def _job_dir(entry: Any) -> Path:
@@ -308,7 +330,7 @@ def build_worker_execution_dependencies(
     cancel_check_interval_seconds: float,
     execute_queue_entry_fn: Callable[..., Any] | None = None,
 ) -> WorkerExecutionDependencies:
-    return WorkerExecutionDependencies(
+    return build_worker_execution_dependencies_from_groups(
         config=WorkerConfigDependencies(
             load_config=load_config_fn,
             queue_entry_by_id=queue_entry_by_id_fn,
@@ -345,36 +367,48 @@ def build_worker_execution_dependencies(
             sleep=sleep_fn,
             cancel_check_interval_seconds=cancel_check_interval_seconds,
         ),
-        execute_queue_entry=execute_queue_entry_fn,
+        execute_queue_entry_fn=execute_queue_entry_fn,
     )
 
 
 def default_worker_execution_dependencies() -> WorkerExecutionDependencies:
-    return build_worker_execution_dependencies(
-        load_config_fn=load_config,
-        queue_entry_by_id_fn=_queue_entry_by_id,
-        activate_reserved_slot_fn=activate_reserved_slot,
-        release_slot_fn=release_slot,
-        job_dir_fn=_job_dir,
-        selected_xyz_fn=_selected_xyz,
-        job_type_fn=_job_type,
-        reaction_key_fn=_reaction_key,
-        input_summary_fn=_input_summary,
-        entry_resource_request_fn=_entry_resource_request,
-        matching_state_fn=_matching_state,
-        is_recovery_pending_fn=is_recovery_pending,
-        write_running_state_fn=_write_running_state,
-        build_terminal_result_fn=_build_terminal_result,
-        finalize_execution_result_fn=_finalize_execution_result,
-        upsert_job_record_fn=upsert_job_record,
-        notify_job_started_fn=notify_job_started,
-        run_xtb_ranking_job_fn=run_xtb_ranking_job,
-        start_xtb_job_fn=start_xtb_job,
-        finalize_xtb_job_fn=finalize_xtb_job,
-        terminate_process_fn=terminate_process_group,
-        wait_for_cancellable_process_fn=_queue_execution.wait_for_cancellable_process,
-        sleep_fn=time.sleep,
-        cancel_check_interval_seconds=1,
+    return build_worker_execution_dependencies_from_groups(
+        config=WorkerConfigDependencies(
+            load_config=load_config,
+            queue_entry_by_id=_queue_entry_by_id,
+        ),
+        admission=WorkerAdmissionDependencies(
+            activate_reserved_slot=activate_reserved_slot,
+            release_slot=release_slot,
+        ),
+        context=WorkerContextDependencies(
+            job_dir=_job_dir,
+            selected_xyz=_selected_xyz,
+            job_type=_job_type,
+            reaction_key=_reaction_key,
+            input_summary=_input_summary,
+            entry_resource_request=_entry_resource_request,
+            matching_state=_matching_state,
+            is_recovery_pending=is_recovery_pending,
+        ),
+        artifacts=WorkerArtifactDependencies(
+            write_running_state=_write_running_state,
+            build_terminal_result=_build_terminal_result,
+            finalize_execution_result=_finalize_execution_result,
+        ),
+        tracking=WorkerTrackingDependencies(
+            upsert_job_record=upsert_job_record,
+            notify_job_started=notify_job_started,
+        ),
+        runner=WorkerRunnerDependencies(
+            run_xtb_ranking_job=run_xtb_ranking_job,
+            start_xtb_job=start_xtb_job,
+            finalize_xtb_job=finalize_xtb_job,
+            terminate_process=terminate_process_group,
+            wait_for_cancellable_process=_queue_execution.wait_for_cancellable_process,
+            sleep=time.sleep,
+            cancel_check_interval_seconds=1,
+        ),
     )
 
 
@@ -682,8 +716,15 @@ def run_worker_job(
 
 __all__ = [
     "build_worker_execution_dependencies",
+    "build_worker_execution_dependencies_from_groups",
+    "WorkerAdmissionDependencies",
+    "WorkerArtifactDependencies",
+    "WorkerConfigDependencies",
+    "WorkerContextDependencies",
     "WorkerExecutionDependencies",
     "WorkerExecutionOutcome",
+    "WorkerRunnerDependencies",
+    "WorkerTrackingDependencies",
     "default_worker_execution_dependencies",
     "execute_queue_entry",
     "run_worker_job",

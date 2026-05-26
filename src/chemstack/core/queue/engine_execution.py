@@ -18,6 +18,30 @@ class EngineWorkerLifecycle:
     check_shutdown: Callable[[Any], None] | None = None
 
 
+@dataclass(frozen=True)
+class TerminalSyncActions:
+    write_artifacts: Callable[[], Any]
+    mark_queue_terminal: Callable[[], Any]
+    sync_job_record: Callable[[], Any]
+    notify_finished: Callable[[Any], Any]
+    build_outcome: Callable[[Any], Any]
+    emit_output: Callable[[Any], Any] | None = None
+
+
+def sync_terminal_result(
+    actions: TerminalSyncActions,
+    *,
+    emit_output: bool = False,
+) -> Any:
+    actions.write_artifacts()
+    actions.mark_queue_terminal()
+    sync_result = actions.sync_job_record()
+    actions.notify_finished(sync_result)
+    if emit_output and actions.emit_output is not None:
+        actions.emit_output(sync_result)
+    return actions.build_outcome(sync_result)
+
+
 def entry_metadata_value(entry: Any, key: str, default: Any = "") -> Any:
     metadata = getattr(entry, "metadata", {})
     getter = getattr(metadata, "get", None)

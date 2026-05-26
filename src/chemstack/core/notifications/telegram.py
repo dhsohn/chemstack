@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import socket
 import time
+import logging
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -24,6 +25,7 @@ DEFAULT_TIMEOUT_SECONDS = 5.0
 DEFAULT_MAX_ATTEMPTS = 2
 DEFAULT_RETRY_BACKOFF_SECONDS = 0.5
 MAX_TELEGRAM_MESSAGE_LENGTH = 4096
+LOGGER = logging.getLogger(__name__)
 
 
 class TelegramConfigLike(Protocol):
@@ -212,6 +214,7 @@ def load_telegram_config_from_file(config_path: str | Path | None) -> TelegramCo
     try:
         raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     except Exception:
+        LOGGER.debug("failed to load telegram config file: %s", path, exc_info=True)
         return TelegramConfig()
     if not isinstance(raw, dict):
         return TelegramConfig()
@@ -430,6 +433,7 @@ def _read_http_error_body(exc: HTTPError) -> str:
     try:
         return exc.read().decode("utf-8", errors="replace")
     except Exception:
+        LOGGER.debug("failed to read Telegram HTTP error body", exc_info=True)
         return ""
 
 

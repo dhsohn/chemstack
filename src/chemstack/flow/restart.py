@@ -127,6 +127,48 @@ def _coerce_mapping(value: Any) -> dict[str, Any]:
     return _shared_mapping_or_empty(value)
 
 
+@dataclass(frozen=True)
+class WorkflowRestartMutation:
+    root: Path
+    workspace: Path
+    payload: dict[str, Any]
+    previous_status: str
+    restarted_at: str
+    restarted_stages: list[dict[str, str]]
+    flow_manifest_applied: bool
+    summary: dict[str, Any]
+
+    @property
+    def workflow_id(self) -> str:
+        return _normalize_text(self.payload.get("workflow_id"))
+
+    @property
+    def template_name(self) -> str:
+        return _normalize_text(self.payload.get("template_name"))
+
+    def journal_metadata(self) -> dict[str, Any]:
+        return {
+            "workspace_dir": str(self.workspace),
+            "restarted_count": len(self.restarted_stages),
+            "flow_manifest_applied": self.flow_manifest_applied,
+            "stages": self.restarted_stages,
+        }
+
+    def response_payload(self) -> dict[str, Any]:
+        return {
+            "workflow_id": self.workflow_id,
+            "template_name": self.template_name,
+            "workspace_dir": str(self.workspace),
+            "workflow_root": str(self.root),
+            "status": "restarted",
+            "workflow_status": "planned",
+            "previous_status": self.previous_status,
+            "restarted_count": len(self.restarted_stages),
+            "restarted_stages": self.restarted_stages,
+            "summary": self.summary,
+        }
+
+
 def _stage_task(stage: dict[str, Any]) -> dict[str, Any]:
     task = stage.get("task")
     if isinstance(task, dict):
@@ -639,34 +681,28 @@ def restart_failed_workflow(
         write_workflow_payload(workspace, payload)
         sync_workflow_registry(root, workspace, payload)
         summary = workflow_summary(workspace, payload)
+        mutation = WorkflowRestartMutation(
+            root=root,
+            workspace=workspace,
+            payload=payload,
+            previous_status=previous_status,
+            restarted_at=restarted_at,
+            restarted_stages=restarted_stages,
+            flow_manifest_applied=bool(flow_settings.get("applied")),
+            summary=summary,
+        )
 
     append_workflow_journal_event(
-        root,
+        mutation.root,
         event_type="workflow_restarted",
-        workflow_id=_normalize_text(payload.get("workflow_id")),
-        template_name=_normalize_text(payload.get("template_name")),
-        previous_status=previous_status,
+        workflow_id=mutation.workflow_id,
+        template_name=mutation.template_name,
+        previous_status=mutation.previous_status,
         status="planned",
         reason="run_dir_restart",
-        metadata={
-            "workspace_dir": str(workspace),
-            "restarted_count": len(restarted_stages),
-            "flow_manifest_applied": bool(flow_settings.get("applied")),
-            "stages": restarted_stages,
-        },
+        metadata=mutation.journal_metadata(),
     )
-    return {
-        "workflow_id": _normalize_text(payload.get("workflow_id")),
-        "template_name": _normalize_text(payload.get("template_name")),
-        "workspace_dir": str(workspace),
-        "workflow_root": str(root),
-        "status": "restarted",
-        "workflow_status": "planned",
-        "previous_status": previous_status,
-        "restarted_count": len(restarted_stages),
-        "restarted_stages": restarted_stages,
-        "summary": summary,
-    }
+    return mutation.response_payload()
 
 
-__all__ = ["restart_failed_workflow"]
+__all__ = ["WorkflowRestartMutation", "restart_failed_workflow"]

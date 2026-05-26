@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import os
 import shlex
 import signal
@@ -36,6 +37,7 @@ _WORKER_POLL_INTERVAL_SECONDS = 1.0
 _WORKER_STARTUP_FAILURE_WINDOW_SECONDS = 5.0
 _WORKER_MAX_STARTUP_FAILURES = 2
 _DIRECT_ENGINE_WORKER_ENV_VAR = "CHEMSTACK_QUEUE_WORKER_DIRECT"
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -164,6 +166,7 @@ def _detect_existing_orca_worker_conflict(
 
         cfg = _load_orca_config(str(config_path))
     except Exception:
+        LOGGER.debug("failed to inspect existing ORCA worker config", exc_info=True)
         return None
 
     allowed_root = Path(cfg.runtime.allowed_root).expanduser().resolve()
@@ -395,6 +398,7 @@ def _terminate_process(proc: subprocess.Popen[Any], *, deps: Any | None = None) 
     try:
         proc.terminate()
     except Exception:
+        LOGGER.debug("failed to terminate supervised worker process", exc_info=True)
         return
 
     deadline = timer.monotonic() + 10.0
@@ -406,6 +410,7 @@ def _terminate_process(proc: subprocess.Popen[Any], *, deps: Any | None = None) 
     try:
         proc.kill()
     except Exception:
+        LOGGER.debug("failed to kill supervised worker process", exc_info=True)
         return
 
     deadline = timer.monotonic() + 5.0
@@ -448,6 +453,7 @@ def _install_supervisor_signal_handlers(
             previous_handlers[sig] = signal_module.getsignal(sig)
             signal_module.signal(sig, _request_shutdown)
         except Exception:
+            LOGGER.debug("failed to install worker supervisor signal handler", exc_info=True)
             continue
     return previous_handlers
 
@@ -462,6 +468,7 @@ def _restore_signal_handlers(
         try:
             signal_module.signal(sig, handler)
         except Exception:
+            LOGGER.debug("failed to restore worker supervisor signal handler", exc_info=True)
             continue
 
 

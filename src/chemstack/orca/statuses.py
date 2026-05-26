@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from enum import Enum
 
+from chemstack.core.queue.types import QueueStatus as QueueStatus
+
 
 class RunStatus(str, Enum):
     CREATED = "created"
@@ -9,14 +11,6 @@ class RunStatus(str, Enum):
     RETRYING = "retrying"
     COMPLETED = "completed"
     FAILED = "failed"
-
-
-class QueueStatus(str, Enum):
-    PENDING = "pending"
-    RUNNING = "running"
-    COMPLETED = "completed"
-    FAILED = "failed"
-    CANCELLED = "cancelled"
 
 
 class AnalyzerStatus(str, Enum):

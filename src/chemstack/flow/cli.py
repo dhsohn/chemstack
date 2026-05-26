@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 import time as time
-from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -11,6 +10,10 @@ from chemstack.core.app_ids import CHEMSTACK_EXECUTABLE as CHEMSTACK_EXECUTABLE
 from chemstack.core.config.files import (
     default_config_path_from_repo_root as default_config_path_from_repo_root,
     shared_workflow_root_from_config as shared_workflow_root_from_config,
+)
+from chemstack.core.facade import (
+    delegate as _delegate,
+    delegate_with_deps as _delegate_with_deps,
 )
 from chemstack.core.utils import (
     file_lock as file_lock,
@@ -277,32 +280,6 @@ def _activity_deps() -> _FlowActivityDeps:
         cancel_activity=cancel_activity,
         CHEMSTACK_EXECUTABLE=CHEMSTACK_EXECUTABLE,
     )
-
-
-def _delegate(module: Any, name: str) -> Callable[..., Any]:
-    target = getattr(module, name)
-
-    def _wrapped(*args: Any, **kwargs: Any) -> Any:
-        return getattr(module, name)(*args, **kwargs)
-
-    _wrapped.__name__ = name
-    _wrapped.__doc__ = getattr(target, "__doc__", None)
-    return _wrapped
-
-
-def _delegate_with_deps(
-    module: Any,
-    name: str,
-    deps_factory: Callable[[], Any],
-) -> Callable[..., Any]:
-    target = getattr(module, name)
-
-    def _wrapped(*args: Any, **kwargs: Any) -> Any:
-        return getattr(module, name)(*args, **kwargs, deps=deps_factory())
-
-    _wrapped.__name__ = name
-    _wrapped.__doc__ = getattr(target, "__doc__", None)
-    return _wrapped
 
 
 _normalize_text = _delegate(_cli_common, "_normalize_text")

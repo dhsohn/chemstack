@@ -1,14 +1,18 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import signal
 import subprocess
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Protocol
+from typing import Any, Callable, Protocol
 
 from chemstack.core.utils import process as process_utils
 from chemstack.core.utils.persistence import now_utc_iso
+
+LOGGER = logging.getLogger(__name__)
 
 
 class ManagedProcess(Protocol):
@@ -20,6 +24,22 @@ class ManagedProcess(Protocol):
     def wait(self, timeout: float | None = None) -> int: ...
 
 
+@dataclass(frozen=True)
+class ProcessGroupTerminationDeps:
+    killpg: Callable[[int, int], None] | None = None
+    sigterm: int = signal.SIGTERM
+    sigkill: int = signal.SIGKILL
+    logger: logging.Logger = LOGGER
+
+
+@dataclass(frozen=True)
+class ShutdownSignalDeps:
+    signal_fn: Callable[[int, Callable[[int, object], None]], Any] = signal.signal
+    sigterm: int = signal.SIGTERM
+    sigint: int = signal.SIGINT
+    logger: logging.Logger = LOGGER
+
+
 def terminate_process_group(
     proc: ManagedProcess,
     *,
@@ -28,12 +48,15 @@ def terminate_process_group(
     killpg_fn: Callable[[int, int], None] | None = None,
     sigterm: int | None = None,
     sigkill: int | None = None,
+    deps: ProcessGroupTerminationDeps | None = None,
 ) -> None:
     if proc.poll() is not None:
         return
-    active_killpg = killpg_fn or os.killpg
-    active_sigterm = signal.SIGTERM if sigterm is None else sigterm
-    active_sigkill = signal.SIGKILL if sigkill is None else sigkill
+    active_deps = deps or ProcessGroupTerminationDeps()
+    active_killpg = killpg_fn or active_deps.killpg or os.killpg
+    active_sigterm = active_deps.sigterm if sigterm is None else sigterm
+    active_sigkill = active_deps.sigkill if sigkill is None else sigkill
+    logger = active_deps.logger
 
     try:
         active_killpg(proc.pid, active_sigterm)
@@ -41,7 +64,7 @@ def terminate_process_group(
         try:
             proc.terminate()
         except Exception:
-            pass
+            logger.debug("failed to terminate process after group signal failed", exc_info=True)
 
     try:
         proc.wait(timeout=graceful_timeout)
@@ -52,22 +75,28 @@ def terminate_process_group(
             try:
                 proc.kill()
             except Exception:
-                pass
+                logger.debug("failed to kill process after group kill failed", exc_info=True)
         try:
             proc.wait(timeout=kill_timeout)
         except subprocess.TimeoutExpired:
-            pass
+            logger.debug("process did not exit after kill timeout: pid=%s", proc.pid)
 
 
-def install_shutdown_signal_handlers(request_shutdown: Callable[[], None]) -> None:
+def install_shutdown_signal_handlers(
+    request_shutdown: Callable[[], None],
+    *,
+    deps: ShutdownSignalDeps | None = None,
+) -> None:
+    active_deps = deps or ShutdownSignalDeps()
+
     def _handle_signal(_signum: int, _frame: object) -> None:
         request_shutdown()
 
     try:
-        signal.signal(signal.SIGTERM, _handle_signal)
-        signal.signal(signal.SIGINT, _handle_signal)
+        active_deps.signal_fn(active_deps.sigterm, _handle_signal)
+        active_deps.signal_fn(active_deps.sigint, _handle_signal)
     except ValueError:
-        pass
+        active_deps.logger.debug("shutdown signal handlers can only be installed from the main thread")
 
 
 def pid_is_alive(pid: int) -> bool:
@@ -135,6 +164,8 @@ def read_live_pid_file(pid_path: Path) -> int | None:
 
 __all__ = [
     "ManagedProcess",
+    "ProcessGroupTerminationDeps",
+    "ShutdownSignalDeps",
     "_positive_int",
     "_read_pid_payload",
     "_remove_pid_file",
