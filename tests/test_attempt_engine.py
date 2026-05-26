@@ -243,7 +243,3 @@ class TestRetryRecipeStep(unittest.TestCase):
         self.assertEqual(_retry_recipe_step(4), 4)
         self.assertEqual(_retry_recipe_step(5), 4)
         self.assertEqual(_retry_recipe_step(8), 4)
-
-
-if __name__ == "__main__":
-    unittest.main()

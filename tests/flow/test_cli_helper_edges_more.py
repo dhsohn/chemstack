@@ -140,7 +140,7 @@ def test_run_dir_workflow_options_apply_cli_manifest_section_default_precedence(
         max_crest_candidates=None,
         max_xtb_stages=None,
     )
-    sections = run_dir_cli._RunDirManifestSections(
+    sections = run_dir_cli.RunDirManifestSections(
         resources={"max_cores": 12, "max_memory_gb": 48},
         crest={"mode": "section_nci"},
         xtb={},

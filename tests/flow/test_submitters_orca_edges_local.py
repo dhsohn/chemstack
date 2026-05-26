@@ -117,7 +117,7 @@ def test_submit_reaction_ts_search_workflow_covers_continue_and_failed_only_path
                 "status": "planned",
                 "task": {
                     "status": "planned",
-                    "enqueue_payload": {"reaction_dir": "/tmp/fail", "priority": "6", "submitter": "chemstack_orca_cli"},
+                    "enqueue_payload": {"reaction_dir": "/tmp/fail", "priority": "6", "submitter": "chemstack_orca"},
                 },
             },
         ],
@@ -236,7 +236,7 @@ def test_submit_reaction_ts_search_workflow_sets_queued_when_only_submitted(
                 "status": "planned",
                 "task": {
                     "status": "planned",
-                    "enqueue_payload": {"reaction_dir": "/tmp/success", "priority": 4, "submitter": "chemstack_orca_cli"},
+                    "enqueue_payload": {"reaction_dir": "/tmp/success", "priority": 4, "submitter": "chemstack_orca"},
                 },
             }
         ],
@@ -295,7 +295,7 @@ def test_cancel_reaction_ts_search_workflow_covers_terminal_missing_target_and_f
             {
                 "stage_id": "terminal_stage",
                 "status": "completed",
-                "task": {"status": "submitted", "enqueue_payload": {"submitter": "chemstack_orca_cli"}},
+                "task": {"status": "submitted", "enqueue_payload": {"submitter": "chemstack_orca"}},
             },
             {
                 "stage_id": "missing_target_stage",
@@ -318,7 +318,7 @@ def test_cancel_reaction_ts_search_workflow_covers_terminal_missing_target_and_f
                 "task": {
                     "status": "submitted",
                     "payload": {"reaction_dir": "/tmp/cancel_fail"},
-                    "enqueue_payload": {"reaction_dir": "/tmp/cancel_fail", "submitter": "chemstack_orca_cli"},
+                    "enqueue_payload": {"reaction_dir": "/tmp/cancel_fail", "submitter": "chemstack_orca"},
                 },
             },
         ],

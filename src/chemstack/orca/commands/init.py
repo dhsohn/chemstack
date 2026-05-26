@@ -8,7 +8,7 @@ from typing import Any, Mapping, TypedDict
 import yaml
 
 from ..config import _default_organized_root, load_config
-from ..pathing import is_rejected_windows_path, is_subpath
+from chemstack.core.paths import is_rejected_windows_path, is_subpath
 from ._helpers import default_config_path
 
 logger = logging.getLogger(__name__)

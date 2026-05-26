@@ -255,42 +255,6 @@ def _unique_run_dir_workflow_id(
     return candidate
 
 
-def _resolve_run_dir_common_workflow_kwargs(
-    args: Any,
-    manifest: dict[str, Any],
-    *,
-    resources_manifest: dict[str, Any],
-    crest_manifest: dict[str, Any],
-    orca_manifest: dict[str, Any],
-    default_orca_route_line: str,
-    default_max_orca_stages: int,
-    deps: Any | None = None,
-) -> dict[str, Any]:
-    resolve_run_dir_workflow_option_bundle = _dependency(
-        deps,
-        "_resolve_run_dir_workflow_option_bundle",
-        _resolve_run_dir_workflow_option_bundle,
-    )
-    sections = _RunDirManifestSections(
-        resources=resources_manifest,
-        crest=crest_manifest,
-        xtb={},
-        endpoint_pairing={},
-        orca=orca_manifest,
-    )
-    _, common_kwargs = resolve_run_dir_workflow_option_bundle(
-        args,
-        manifest,
-        sections,
-        default_orca_route_line=default_orca_route_line,
-        default_max_orca_stages=default_max_orca_stages,
-    )
-    return common_kwargs
-
-
-_print_created_workflow = _workflow_output.emit_created_workflow
-
-
 def _workflow_root_for_existing_run_dir(
     args: Any, workflow_dir: Path, *, deps: Any | None = None
 ) -> Path:
@@ -301,14 +265,6 @@ def _workflow_root_for_existing_run_dir(
     if raw_root:
         return path_cls(raw_root).expanduser().resolve()
     return workflow_dir.parent
-
-
-_print_restarted_workflow = _workflow_output.emit_restarted_workflow
-
-
-_RunDirManifestSections = RunDirManifestSections
-_RunDirWorkflowOptions = RunDirWorkflowOptions
-_RunDirWorkflowConfig = RunDirWorkflowConfig
 
 
 def _resolve_run_dir_workflow_type(
@@ -340,7 +296,7 @@ def _resolve_run_dir_workflow_type(
 
 def _resolve_run_dir_manifest_sections(
     workflow_dir: Path, manifest: dict[str, Any], *, deps: Any | None = None
-) -> _RunDirManifestSections:
+) -> RunDirManifestSections:
     manifest_mapping = _dependency(deps, "_manifest_mapping", _manifest_mapping)
     resolve_engine_manifest = _dependency(
         deps, "_resolve_engine_manifest", _resolve_engine_manifest
@@ -350,7 +306,7 @@ def _resolve_run_dir_manifest_sections(
     )
 
     xtb_manifest = resolve_engine_manifest(workflow_dir, manifest, "xtb")
-    return _RunDirManifestSections(
+    return RunDirManifestSections(
         resources=manifest_mapping(manifest.get("resources")),
         crest=resolve_engine_manifest(workflow_dir, manifest, "crest"),
         xtb=xtb_manifest,
@@ -362,7 +318,7 @@ def _resolve_run_dir_manifest_sections(
 def _resolve_run_dir_workflow_options(
     args: Any,
     manifest: dict[str, Any],
-    sections: _RunDirManifestSections,
+    sections: RunDirManifestSections,
     *,
     default_orca_route_line: str,
     default_max_orca_stages: int,
@@ -370,7 +326,7 @@ def _resolve_run_dir_workflow_options(
     default_max_xtb_stages: int = 3,
     workflow_root: str | None = None,
     deps: Any | None = None,
-) -> _RunDirWorkflowOptions:
+) -> RunDirWorkflowOptions:
     resolve_required_workflow_root = _dependency(
         deps, "_resolve_required_workflow_root", _resolve_required_workflow_root
     )
@@ -382,7 +338,7 @@ def _resolve_run_dir_workflow_options(
         deps, "_resolve_int_option_with_section", _resolve_int_option_with_section
     )
 
-    return _RunDirWorkflowOptions(
+    return RunDirWorkflowOptions(
         workflow_root=workflow_root or resolve_required_workflow_root(args, manifest),
         crest_mode=resolve_text_option_with_section(
             getattr(args, "crest_mode", None),
@@ -452,7 +408,7 @@ def _resolve_run_dir_workflow_options(
 def _resolve_run_dir_workflow_option_bundle(
     args: Any,
     manifest: dict[str, Any],
-    sections: _RunDirManifestSections,
+    sections: RunDirManifestSections,
     *,
     default_orca_route_line: str,
     default_max_orca_stages: int,
@@ -460,7 +416,7 @@ def _resolve_run_dir_workflow_option_bundle(
     default_max_xtb_stages: int = 3,
     workflow_root: str | None = None,
     deps: Any | None = None,
-) -> tuple[_RunDirWorkflowOptions, dict[str, Any]]:
+) -> tuple[RunDirWorkflowOptions, dict[str, Any]]:
     resolve_run_dir_workflow_options = _dependency(
         deps, "_resolve_run_dir_workflow_options", _resolve_run_dir_workflow_options
     )
@@ -481,7 +437,7 @@ def _resolve_run_dir_workflow_option_bundle(
     return options, workflow_options_to_common_kwargs(options)
 
 
-def _workflow_options_to_common_kwargs(options: _RunDirWorkflowOptions) -> dict[str, Any]:
+def _workflow_options_to_common_kwargs(options: RunDirWorkflowOptions) -> dict[str, Any]:
     common_kwargs = getattr(options, "common_kwargs", None)
     if callable(common_kwargs):
         return common_kwargs()
@@ -496,7 +452,7 @@ def _update_present_kwargs(kwargs: dict[str, Any], values: dict[str, Any]) -> No
 
 def _load_run_dir_workflow_config(
     args: Any, workflow_dir: Path, *, deps: Any | None = None
-) -> _RunDirWorkflowConfig:
+) -> RunDirWorkflowConfig:
     inspect_run_dir = _dependency(deps, "inspect_workflow_run_dir", inspect_workflow_run_dir)
     load_run_dir_manifest = _dependency(deps, "_load_run_dir_manifest", _load_run_dir_manifest)
     resolve_run_dir_manifest_sections = _dependency(
@@ -513,7 +469,7 @@ def _load_run_dir_workflow_config(
 
     manifest = load_run_dir_manifest(workflow_dir)
     sections = resolve_run_dir_manifest_sections(workflow_dir, manifest)
-    return _RunDirWorkflowConfig(
+    return RunDirWorkflowConfig(
         workflow_dir=workflow_dir,
         manifest=manifest,
         sections=sections,
@@ -543,7 +499,7 @@ def _load_run_dir_workflow_config(
 
 
 def _run_dir_workflow_id(
-    config: _RunDirWorkflowConfig, workflow_root: str, *, deps: Any | None = None
+    config: RunDirWorkflowConfig, workflow_root: str, *, deps: Any | None = None
 ) -> str:
     unique_run_dir_workflow_id = _dependency(
         deps, "_unique_run_dir_workflow_id", _unique_run_dir_workflow_id
@@ -557,7 +513,7 @@ def _run_dir_workflow_id(
 
 def _common_run_dir_workflow_kwargs(
     args: Any,
-    config: _RunDirWorkflowConfig,
+    config: RunDirWorkflowConfig,
     *,
     workflow_root: str,
     default_orca_route_line: str,
@@ -582,7 +538,7 @@ def _common_run_dir_workflow_kwargs(
 
 
 def _create_reaction_run_dir_workflow(
-    args: Any, config: _RunDirWorkflowConfig, *, deps: Any | None = None
+    args: Any, config: RunDirWorkflowConfig, *, deps: Any | None = None
 ) -> dict[str, Any]:
     resolve_required_workflow_root = _dependency(
         deps, "_resolve_required_workflow_root", _resolve_required_workflow_root
@@ -632,7 +588,7 @@ def _create_reaction_run_dir_workflow(
 
 
 def _create_conformer_run_dir_workflow(
-    args: Any, config: _RunDirWorkflowConfig, *, deps: Any | None = None
+    args: Any, config: RunDirWorkflowConfig, *, deps: Any | None = None
 ) -> dict[str, Any]:
     resolve_required_workflow_root = _dependency(
         deps, "_resolve_required_workflow_root", _resolve_required_workflow_root
@@ -706,9 +662,11 @@ def cmd_run_dir(args: Any, *, deps: Any | None = None) -> int:
         deps, "_create_run_dir_workflow", _create_run_dir_workflow
     )
     print_restarted_workflow = _dependency(
-        deps, "_print_restarted_workflow", _print_restarted_workflow
+        deps, "_print_restarted_workflow", _workflow_output.emit_restarted_workflow
     )
-    print_created_workflow = _dependency(deps, "_print_created_workflow", _print_created_workflow)
+    print_created_workflow = _dependency(
+        deps, "_print_created_workflow", _workflow_output.emit_created_workflow
+    )
 
     try:
         workflow_dir = path_cls(getattr(args, "workflow_dir")).expanduser().resolve()

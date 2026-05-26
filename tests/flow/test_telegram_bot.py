@@ -486,10 +486,10 @@ def test_set_bot_commands_delegates_to_api_call(monkeypatch) -> None:
 def test_settings_from_env_uses_autodiscovery(monkeypatch) -> None:
     monkeypatch.setenv("CHEMSTACK_FLOW_TELEGRAM_BOT_TOKEN", "bot-token")
     monkeypatch.setenv("CHEMSTACK_FLOW_TELEGRAM_CHAT_ID", "chat-id")
-    monkeypatch.setattr(bot, "_discover_workflow_root", lambda explicit: "/tmp/wf")
+    monkeypatch.setattr(bot._activity_sources, "discover_workflow_root", lambda explicit: "/tmp/wf")
     monkeypatch.setattr(
-        bot,
-        "_discover_sibling_config",
+        bot._activity_sources,
+        "discover_sibling_config",
         lambda explicit, *, app_name: "/tmp/chemstack.yaml",
     )
 

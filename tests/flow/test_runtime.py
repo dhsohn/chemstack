@@ -9,6 +9,7 @@ import pytest
 
 from chemstack.core.admission import release_slot, reserve_slot
 from chemstack.flow import runtime
+from chemstack.flow import _runtime_stage_events as stage_events
 
 
 def _registry_record(
@@ -149,7 +150,7 @@ def test_stage_transition_event_payloads_emit_start_and_xtb_handoff_events() -> 
         },
     )
 
-    events = runtime._stage_transition_event_payloads(
+    events = stage_events.stage_transition_event_payloads(
         previous_summary=previous_summary,
         current_summary=current_summary,
         workflow_id="wf_stage_events",
@@ -207,7 +208,7 @@ def test_stage_transition_event_payloads_emit_completion_and_failure_without_xtb
         },
     )
 
-    events = runtime._stage_transition_event_payloads(
+    events = stage_events.stage_transition_event_payloads(
         previous_summary=previous_summary,
         current_summary=current_summary,
         workflow_id="wf_stage_terminal_events",
@@ -244,7 +245,7 @@ def test_stage_transition_event_payloads_emit_running_status_change_event() -> N
         }
     )
 
-    events = runtime._stage_transition_event_payloads(
+    events = stage_events.stage_transition_event_payloads(
         previous_summary=previous_summary,
         current_summary=current_summary,
         workflow_id="wf_stage_running",

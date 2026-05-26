@@ -1,18 +1,11 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any
 
 from chemstack.core.app_ids import CHEMSTACK_ORCA_SOURCE
 
 from ._activity_model import ActivityCancelRequest, ActivityRecord, ResolvedActivitySources
 from .submitters.common import normalize_text
-
-
-@dataclass(frozen=True)
-class ActivityCancelProvider:
-    source: str
-    cancel: Callable[[ActivityRecord, ResolvedActivitySources, ActivityCancelRequest], dict[str, Any]]
 
 
 def match_activity_record(records: list[ActivityRecord], target: str) -> ActivityRecord:
@@ -138,38 +131,6 @@ def cancel_orca_activity(
     )
 
 
-def cancel_providers(deps: Any) -> tuple[ActivityCancelProvider, ...]:
-    return (
-        ActivityCancelProvider(
-            "chemstack_crest",
-            lambda record, resolved, request: cancel_crest_activity(
-                record,
-                resolved,
-                request,
-                deps=deps,
-            ),
-        ),
-        ActivityCancelProvider(
-            "chemstack_xtb",
-            lambda record, resolved, request: cancel_xtb_activity(
-                record,
-                resolved,
-                request,
-                deps=deps,
-            ),
-        ),
-        ActivityCancelProvider(
-            CHEMSTACK_ORCA_SOURCE,
-            lambda record, resolved, request: cancel_orca_activity(
-                record,
-                resolved,
-                request,
-                deps=deps,
-            ),
-        ),
-    )
-
-
 def cancel_non_workflow_activity(
     record: ActivityRecord,
     resolved: ResolvedActivitySources,
@@ -177,7 +138,10 @@ def cancel_non_workflow_activity(
     *,
     deps: Any,
 ) -> dict[str, Any]:
-    for provider in cancel_providers(deps):
-        if record.source == provider.source:
-            return provider.cancel(record, resolved, request)
+    if record.source == "chemstack_crest":
+        return cancel_crest_activity(record, resolved, request, deps=deps)
+    if record.source == "chemstack_xtb":
+        return cancel_xtb_activity(record, resolved, request, deps=deps)
+    if record.source == CHEMSTACK_ORCA_SOURCE:
+        return cancel_orca_activity(record, resolved, request, deps=deps)
     raise ValueError(f"Unsupported activity source: {record.source}")

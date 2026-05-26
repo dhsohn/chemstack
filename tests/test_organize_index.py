@@ -216,7 +216,3 @@ class TestRebuildIndex(unittest.TestCase):
             org.mkdir()
             count = rebuild_index(org)
             self.assertEqual(count, 0)
-
-
-if __name__ == "__main__":
-    unittest.main()

@@ -209,7 +209,7 @@ def test_journal_event_message_formats_supported_event_types(
     event: dict[str, Any],
     expected_lines: list[str],
 ) -> None:
-    message = registry._journal_event_message(event, "/tmp/root_3")
+    message = registry_notifications.journal_event_message(event, "/tmp/root_3")
 
     assert message.startswith("<b>ChemStack Flow")
     for line in expected_lines:
@@ -225,26 +225,26 @@ def test_notification_configuration_helpers_cover_default_override_and_transport
     monkeypatch.delenv("CHEMSTACK_FLOW_TELEGRAM_CHAT_ID", raising=False)
     monkeypatch.delenv("CHEMSTACK_CONFIG", raising=False)
 
-    assert registry._notification_event_types_from_env() == set(
+    assert registry_notifications.notification_event_types_from_env() == set(
         registry_notifications.DEFAULT_NOTIFICATION_EVENT_TYPES
     )
-    assert registry._journal_notification_enabled("workflow_status_changed") is True
-    assert registry._journal_notification_enabled("workflow_stage_submitted") is False
-    assert registry._journal_notification_enabled("workflow_stage_handoff_ready") is False
-    assert registry._journal_notification_enabled("workflow_phase_finished") is False
-    assert registry._telegram_transport_from_env() is None
+    assert registry_notifications.journal_notification_enabled("workflow_status_changed") is True
+    assert registry_notifications.journal_notification_enabled("workflow_stage_submitted") is False
+    assert registry_notifications.journal_notification_enabled("workflow_stage_handoff_ready") is False
+    assert registry_notifications.journal_notification_enabled("workflow_phase_finished") is False
+    assert registry_notifications.telegram_transport_from_env() is None
 
     monkeypatch.setenv(
         "CHEMSTACK_FLOW_NOTIFY_EVENT_TYPES",
         "custom_event, workflow_status_changed, workflow_stage_submitted",
     )
     monkeypatch.setenv("CHEMSTACK_FLOW_NOTIFY_DISABLED", "true")
-    assert registry._notification_event_types_from_env() == {
+    assert registry_notifications.notification_event_types_from_env() == {
         "custom_event",
         "workflow_stage_submitted",
         "workflow_status_changed",
     }
-    assert registry._journal_notification_enabled("custom_event") is False
+    assert registry_notifications.journal_notification_enabled("custom_event") is False
 
     monkeypatch.setenv("CHEMSTACK_FLOW_NOTIFY_DISABLED", "0")
     monkeypatch.setenv("CHEMSTACK_FLOW_TELEGRAM_BOT_TOKEN", "bot-token")
@@ -257,10 +257,10 @@ def test_notification_configuration_helpers_cover_default_override_and_transport
         captured["chat_id"] = config.chat_id
         return "transport"
 
-    monkeypatch.setattr(registry, "build_telegram_transport", fake_build_telegram_transport)
+    monkeypatch.setattr(registry_notifications, "build_telegram_transport", fake_build_telegram_transport)
 
-    assert registry._journal_notification_enabled("custom_event") is True
-    assert registry._telegram_transport_from_env() == "transport"
+    assert registry_notifications.journal_notification_enabled("custom_event") is True
+    assert registry_notifications.telegram_transport_from_env() == "transport"
     assert captured == {"bot_token": "bot-token", "chat_id": "chat-id"}
 
 
@@ -296,9 +296,9 @@ def test_telegram_transport_from_env_uses_chemstack_config_fallback(
         captured["retry_backoff_seconds"] = config.retry_backoff_seconds
         return "transport"
 
-    monkeypatch.setattr(registry, "build_telegram_transport", fake_build_telegram_transport)
+    monkeypatch.setattr(registry_notifications, "build_telegram_transport", fake_build_telegram_transport)
 
-    assert registry._telegram_transport_from_env() == "transport"
+    assert registry_notifications.telegram_transport_from_env() == "transport"
     assert captured == {
         "bot_token": "config-token",
         "chat_id": "config-chat",
@@ -333,8 +333,8 @@ def test_maybe_notify_journal_event_sends_message_and_swallows_transport_errors(
         "worker_session_id": "session-notify",
     }
 
-    monkeypatch.setattr(registry, "_journal_notification_enabled", lambda event_type: True)
-    monkeypatch.setattr(registry, "_telegram_transport_from_env", lambda: FakeTransport(fail=False))
+    monkeypatch.setattr(registry_notifications, "journal_notification_enabled", lambda event_type: True)
+    monkeypatch.setattr(registry_notifications, "telegram_transport_from_env", lambda: FakeTransport(fail=False))
     registry._maybe_notify_journal_event(event, tmp_path)
     registry._maybe_notify_journal_event(
         {
@@ -381,7 +381,7 @@ def test_maybe_notify_journal_event_sends_message_and_swallows_transport_errors(
     assert "<b>Workflow</b>: <code>wf_notify</code>" in sent_messages[0]
     assert "<b>Phase</b>: <code>xTB</code>" in sent_messages[1]
 
-    monkeypatch.setattr(registry, "_telegram_transport_from_env", lambda: FakeTransport(fail=True))
+    monkeypatch.setattr(registry_notifications, "telegram_transport_from_env", lambda: FakeTransport(fail=True))
     registry._maybe_notify_journal_event(event, tmp_path)
     assert len(sent_messages) == 2
 

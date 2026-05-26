@@ -265,7 +265,3 @@ class TestRunInpSubmit(unittest.TestCase):
             self.assertIn("%maxcore 2048", inp_text)
             mock_read_worker_pid.assert_called_once()
             mock_notify_queue.assert_called_once()
-
-
-if __name__ == "__main__":
-    unittest.main()

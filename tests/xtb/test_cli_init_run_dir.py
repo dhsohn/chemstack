@@ -10,11 +10,8 @@ import yaml
 from chemstack.core.queue import DuplicateQueueEntryError
 
 from chemstack.xtb import _internal_cli as cli
-from chemstack.xtb.commands import init as init_cmd
-from chemstack.xtb.commands import list_jobs as list_cmd
 from chemstack.xtb.commands import queue as queue_cmd
 from chemstack.xtb.commands import run_dir
-from chemstack.xtb.commands import summary as summary_cmd
 from chemstack.xtb.state import STATE_FILE_NAME, load_state
 
 
@@ -67,18 +64,16 @@ def _write_config(tmp_path: Path) -> tuple[Path, Path, Path]:
     return config_path, allowed_root, organized_root
 
 
-def test_build_parser_supports_internal_scaffold_list_and_queue_commands() -> None:
+def test_build_parser_supports_internal_run_dir_and_queue_commands() -> None:
     parser = cli.build_parser()
 
-    scaffold_args = parser.parse_args(["scaffold", "--root", "/tmp/job", "--job-type", "ranking"])
-    list_args = parser.parse_args(["list"])
+    run_dir_args = parser.parse_args(["run-dir", "/tmp/job", "--priority", "7"])
     worker_args = parser.parse_args(["queue", "worker"])
     cancel_args = parser.parse_args(["queue", "cancel", "q-123"])
 
-    assert scaffold_args.command == "scaffold"
-    assert scaffold_args.root == "/tmp/job"
-    assert scaffold_args.job_type == "ranking"
-    assert list_args.command == "list"
+    assert run_dir_args.command == "run-dir"
+    assert run_dir_args.path == "/tmp/job"
+    assert run_dir_args.priority == 7
 
     assert worker_args.command == "queue"
     assert worker_args.queue_command == "worker"
@@ -91,20 +86,29 @@ def test_build_parser_supports_internal_scaffold_list_and_queue_commands() -> No
     with pytest.raises(SystemExit):
         parser.parse_args(["queue", "worker", "--once"])
 
+    for argv in (
+        ["scaffold", "--root", "/tmp/job", "--job-type", "ranking"],
+        ["list"],
+        ["reindex"],
+        ["summary", "job-123"],
+    ):
+        with pytest.raises(SystemExit):
+            parser.parse_args(argv)
+
     assert cancel_args.command == "queue"
     assert cancel_args.queue_command == "cancel"
     assert cancel_args.target == "q-123"
 
 
-def test_main_dispatches_list_and_queue_commands(
+def test_main_dispatches_run_dir_and_queue_commands(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    list_calls: list[Any] = []
+    run_dir_calls: list[Any] = []
     worker_calls: list[Any] = []
     cancel_calls: list[Any] = []
 
-    def fake_list(args: Any) -> int:
-        list_calls.append(args)
+    def fake_run_dir(args: Any) -> int:
+        run_dir_calls.append(args)
         return 31
 
     def fake_worker(args: Any) -> int:
@@ -115,16 +119,16 @@ def test_main_dispatches_list_and_queue_commands(
         cancel_calls.append(args)
         return 33
 
-    monkeypatch.setattr(list_cmd, "cmd_list", fake_list)
+    monkeypatch.setattr(run_dir, "cmd_run_dir", fake_run_dir)
     monkeypatch.setattr(queue_cmd, "cmd_queue_worker", fake_worker)
     monkeypatch.setattr(queue_cmd, "cmd_queue_cancel", fake_cancel)
 
-    assert cli.main(["list"]) == 31
+    assert cli.main(["run-dir", "/tmp/job"]) == 31
     assert cli.main(["queue", "worker"]) == 32
     assert cli.main(["queue", "cancel", "job-123"]) == 33
 
-    assert len(list_calls) == 1
-    assert list_calls[0].command == "list"
+    assert len(run_dir_calls) == 1
+    assert run_dir_calls[0].command == "run-dir"
     assert len(worker_calls) == 1
     assert worker_calls[0].queue_command == "worker"
     assert len(cancel_calls) == 1
@@ -351,29 +355,6 @@ def test_cmd_run_dir_requires_job_dir_argument(
         )
 
 
-def test_cli_main_scaffold_creates_job_scaffold(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    config_path, allowed_root, _ = _write_config(tmp_path)
-    job_dir = allowed_root / "fresh_job"
-
-    result = cli.main(
-        ["--config", str(config_path), "scaffold", "--root", str(job_dir), "--job-type", "path_search"]
-    )
-
-    captured = capsys.readouterr()
-    manifest = yaml.safe_load((job_dir / "xtb_job.yaml").read_text(encoding="utf-8"))
-
-    assert result == 0
-    assert (job_dir / "reactants" / "r1.xyz").exists()
-    assert (job_dir / "products" / "p1.xyz").exists()
-    assert (job_dir / "README.md").exists()
-    assert manifest["job_type"] == "path_search"
-    assert manifest["reactant_xyz"] == "r1.xyz"
-    assert "created_file: reactants/r1.xyz" in captured.out
-    assert "created_file: products/p1.xyz" in captured.out
-
-
 def test_cli_main_run_dir_accepts_positional_job_dir(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -397,36 +378,20 @@ def test_cli_main_run_dir_accepts_positional_job_dir(
     assert captured_args[0].priority == 10
 
 
-def test_main_dispatches_scaffold_run_dir_and_summary_commands(
+def test_main_dispatches_run_dir_command(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     calls: list[tuple[str, Any]] = []
-
-    def fake_init(args: Any) -> int:
-        calls.append(("scaffold", args))
-        return 29
 
     def fake_run_dir(args: Any) -> int:
         calls.append(("run-dir", args))
         return 30
 
-    def fake_summary(args: Any) -> int:
-        calls.append(("summary", args))
-        return 32
-
-    monkeypatch.setattr(init_cmd, "cmd_init", fake_init)
     monkeypatch.setattr(run_dir, "cmd_run_dir", fake_run_dir)
-    monkeypatch.setattr(summary_cmd, "cmd_summary", fake_summary)
 
-    assert cli.main(["scaffold", "--root", "/tmp/init-job", "--job-type", "ranking"]) == 29
     assert cli.main(["run-dir", "/tmp/run-job", "--priority", "6"]) == 30
-    assert cli.main(["summary", "job-123", "--json"]) == 32
 
     assert [(name, args.command) for name, args in calls] == [
-        ("scaffold", "scaffold"),
         ("run-dir", "run-dir"),
-        ("summary", "summary"),
     ]
-    assert calls[0][1].job_type == "ranking"
-    assert calls[1][1].priority == 6
-    assert calls[2][1].json is True
+    assert calls[0][1].priority == 6

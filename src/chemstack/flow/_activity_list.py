@@ -38,7 +38,6 @@ class ActivityListDeps:
     _resolved_activity_sources_for_request: Callable[
         [ActivitySourceRequest], ResolvedActivitySources
     ]
-    _collect_activity_records: Callable[..., list[ActivityRecord]]
 
 
 def workflow_elapsed_metadata(
@@ -447,7 +446,7 @@ def list_activities(
         child_job_engines=child_job_engines,
     )
     resolved = deps._resolved_activity_sources_for_request(request.sources)
-    records = deps._collect_activity_records(
+    records = collect_activity_records(
         workflow_root=resolved.workflow_root,
         refresh=request.refresh,
         crest_config=resolved.crest_config,
@@ -455,6 +454,7 @@ def list_activities(
         orca_config=resolved.orca_config,
         orca_repo_root=request.sources.orca_repo_root,
         child_job_engines=request.child_job_engines,
+        deps=deps,
     )
     if request.limit > 0:
         records = records[: request.limit]

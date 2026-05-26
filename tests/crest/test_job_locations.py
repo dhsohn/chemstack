@@ -11,7 +11,6 @@ from chemstack.core.indexing import JobLocationRecord, get_job_location, upsert_
 from chemstack.crest.config import AppConfig
 from chemstack.crest.job_locations import (
     build_job_location_record,
-    collect_reindex_payload,
     load_job_artifacts,
     molecule_key_from_selected_xyz,
     normalize_molecule_key,
@@ -19,7 +18,7 @@ from chemstack.crest.job_locations import (
     resolve_latest_job_dir,
     upsert_job_record,
 )
-from chemstack.crest.state import write_organized_ref, write_report_json, write_state
+from chemstack.crest.state import write_report_json, write_state
 
 
 def _make_cfg(tmp_path: Path) -> tuple[AppConfig, Path, Path]:
@@ -370,65 +369,6 @@ def test_record_from_artifacts_defaults_invalid_resource_request_without_existin
     assert record is not None
     assert record.resource_request == {}
     assert record.resource_actual == {}
-
-
-def test_collect_reindex_payload_reads_real_artifacts_and_derives_molecule_key(
-    tmp_path: Path,
-) -> None:
-    original_dir = tmp_path / "runs" / "job-400"
-    job_dir = tmp_path / "organized" / "job-400"
-    selected_xyz = _write_xyz(original_dir / "My Molecule.xyz")
-    original_dir.mkdir(parents=True, exist_ok=True)
-    job_dir.mkdir(parents=True)
-
-    write_state(
-        job_dir,
-        {
-            "job_id": "job-400",
-            "status": "running",
-            "mode": "nci",
-            "molecule_key": "",
-            "selected_input_xyz": str(selected_xyz.resolve()),
-            "original_run_dir": str(original_dir.resolve()),
-            "resource_request": {"max_cores": "6", "max_memory_gb": "12"},
-        },
-    )
-    write_report_json(
-        job_dir,
-        {
-            "job_id": "job-400",
-            "status": "completed",
-            "resource_actual": {"max_cores": "5", "max_memory_gb": "10"},
-        },
-    )
-    write_organized_ref(
-        job_dir,
-        {
-            "job_id": "job-400",
-            "organized_output_dir": str(job_dir.resolve()),
-        },
-    )
-
-    assert collect_reindex_payload(job_dir) == {
-        "job_id": "job-400",
-        "status": "completed",
-        "mode": "nci",
-        "job_dir": str(original_dir.resolve()),
-        "selected_input_xyz": str(selected_xyz.resolve()),
-        "molecule_key": "my_molecule",
-        "organized_output_dir": str(job_dir.resolve()),
-        "resource_request": {"max_cores": 6, "max_memory_gb": 12},
-        "resource_actual": {"max_cores": 5, "max_memory_gb": 10},
-    }
-
-
-def test_collect_reindex_payload_returns_none_without_job_id(tmp_path: Path) -> None:
-    job_dir = tmp_path / "job-without-id"
-    job_dir.mkdir()
-    write_state(job_dir, {"job_id": "", "status": "running"})
-    write_organized_ref(job_dir, {"job_id": ""})
-
-    assert collect_reindex_payload(job_dir) is None
 
 
 def test_upsert_job_record_writes_and_updates_existing_index_entry(tmp_path: Path) -> None:

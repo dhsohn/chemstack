@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 from .completion_rules import TS_ROUTE_RE
 from .molecule_key import resolve_molecule_key
-from .pathing import is_subpath, resolve_artifact_path
+from chemstack.core.paths import is_subpath, resolve_artifact_path
 from .state import load_state, save_state, write_report_files
 from .statuses import RunStatus
 from .types import RunState

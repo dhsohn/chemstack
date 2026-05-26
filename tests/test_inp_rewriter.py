@@ -184,7 +184,3 @@ class TestInpRewriter(unittest.TestCase):
         self.assertEqual(start, 5)
         self.assertTrue(needs_close)
         self.assertEqual(len(lines), original_len)
-
-
-if __name__ == "__main__":
-    unittest.main()

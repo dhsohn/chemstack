@@ -34,7 +34,6 @@ from chemstack.core.queue.worker import (
     reconcile_orphaned_child_queue_entries,
     reserve_dequeued_entry,
     reserve_queue_worker_slot,
-    resolve_admission_limit,
     resolve_admission_root,
     shutdown_child_process_with_grace,
 )
@@ -118,10 +117,6 @@ def _dequeue_next_entry(cfg: Any) -> tuple[Path, Any] | None:
 
 def _admission_root_for_cfg(cfg: Any) -> str:
     return resolve_admission_root(cfg)
-
-
-def _admission_limit_for_cfg(cfg: Any) -> int:
-    return resolve_admission_limit(cfg)
 
 
 def _try_reserve_admission_slot(cfg: Any) -> str | None:

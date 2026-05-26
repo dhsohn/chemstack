@@ -198,7 +198,3 @@ class TestOrganizeHelpers(unittest.TestCase):
             mock_scope.call_args.kwargs["organized_root"],
             expected_organized_root.resolve(),
         )
-
-
-if __name__ == "__main__":
-    unittest.main()

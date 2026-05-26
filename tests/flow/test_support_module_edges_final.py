@@ -10,6 +10,7 @@ from typing import Any
 import pytest
 
 from chemstack import cli_common
+from chemstack.flow import _registry_notifications as registry_notifications
 from chemstack.flow import registry, runtime, state, xyz_utils
 from chemstack.flow import _orca_stage_materialization as orca_stage_utils
 from chemstack.flow.adapters import crest as crest_adapter
@@ -189,7 +190,7 @@ def test_runtime_edge_branches_cover_normalize_invalid_stage_and_lease_paths(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    assert runtime._normalize_text(None) == ""
+    assert runtime._runtime_common.normalize_text(None) == ""
 
     payload = {"metadata": {}, "stages": ["bad", {"status": "completed", "task": {"status": "completed"}}]}
     monkeypatch.setattr(runtime, "load_workflow_payload", lambda workspace_dir: payload)
@@ -254,20 +255,20 @@ def test_registry_edge_branches_cover_invalid_inputs_and_direct_file_matching(
     assert registry._coerce_counts({"": 1, "ok": "2", "bad": "x"}) == {"ok": 2}
 
     monkeypatch.delenv("CHEMSTACK_FLOW_NOTIFY_EVENT_TYPES", raising=False)
-    assert registry._notification_event_types_from_env()
+    assert registry_notifications.notification_event_types_from_env()
     monkeypatch.setenv("CHEMSTACK_FLOW_NOTIFY_DISABLED", "yes")
-    assert registry._journal_notification_enabled("workflow_status_changed") is False
+    assert registry_notifications.journal_notification_enabled("workflow_status_changed") is False
     monkeypatch.delenv("CHEMSTACK_FLOW_NOTIFY_DISABLED", raising=False)
 
     sent: list[str] = []
-    monkeypatch.setattr(registry, "_journal_notification_enabled", lambda event_type: True)
+    monkeypatch.setattr(registry_notifications, "journal_notification_enabled", lambda event_type: True)
 
     class _TelegramTransport:
         def send_text(self, text: str, *, parse_mode: str | None = None) -> None:
             assert parse_mode == "HTML"
             sent.append(text)
 
-    monkeypatch.setattr(registry, "_telegram_transport_from_env", lambda: _TelegramTransport())
+    monkeypatch.setattr(registry_notifications, "telegram_transport_from_env", lambda: _TelegramTransport())
     registry._maybe_notify_journal_event({"event_type": "worker_started"}, tmp_path)
     assert sent and "worker_started" in sent[0]
 
@@ -275,7 +276,7 @@ def test_registry_edge_branches_cover_invalid_inputs_and_direct_file_matching(
         def send_text(self, text: str, *, parse_mode: str | None = None) -> None:
             raise RuntimeError("boom")
 
-    monkeypatch.setattr(registry, "_telegram_transport_from_env", lambda: _BrokenTelegramTransport())
+    monkeypatch.setattr(registry_notifications, "telegram_transport_from_env", lambda: _BrokenTelegramTransport())
     registry._maybe_notify_journal_event({"event_type": "worker_started"}, tmp_path)
 
     reg_path = registry._registry_path(tmp_path)

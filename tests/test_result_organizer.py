@@ -418,7 +418,3 @@ class TestCheckConflict(unittest.TestCase):
             plan.target_abs_path.mkdir(parents=True, exist_ok=True)
             result = check_conflict(plan, {})
             self.assertEqual(result, "path_occupied")
-
-
-if __name__ == "__main__":
-    unittest.main()

@@ -45,7 +45,7 @@ def test_restart_failed_workflow_resets_failed_and_cancelled_stages(tmp_path: Pa
                         "submission_result": {"status": "submitted", "queue_id": "q_old"},
                         "payload": {"reaction_dir": "/tmp/rxn", "last_out_path": "/tmp/old.out"},
                         "enqueue_payload": {
-                            "submitter": "chemstack_orca_cli",
+                            "submitter": "chemstack_orca",
                             "reaction_dir": "/tmp/rxn",
                             "priority": 10,
                             "force": False,
@@ -394,7 +394,7 @@ def test_restart_failed_workflow_reloads_xtb_orca_and_endpoint_manifest_settings
                         "status": "failed",
                         "payload": {"reaction_dir": "/tmp/rxn"},
                         "enqueue_payload": {
-                            "submitter": "chemstack_orca_cli",
+                            "submitter": "chemstack_orca",
                             "reaction_dir": "/tmp/rxn",
                             "priority": 10,
                             "command_argv": ["orca", "--priority", "10", "--run"],

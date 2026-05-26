@@ -83,7 +83,3 @@ class TestAttemptReporting(unittest.TestCase):
         self.assertEqual(len(finished_notifications), 1)
         self.assertTrue(finished_notifications[0]["resumed"])
         self.assertTrue(finished_notifications[0]["skipped_execution"])
-
-
-if __name__ == "__main__":
-    unittest.main()

@@ -13,6 +13,11 @@ import pytest
 
 from chemstack.flow import orchestration
 from chemstack.flow._orchestration_deps import orchestration_deps
+from chemstack.flow._orchestration_builders import _copy_input_impl
+from chemstack.flow._orchestration_lifecycle import (
+    downstream_terminal_result_impl,
+    latest_child_stage_summary_impl,
+)
 from chemstack.flow.contracts import WorkflowStageInput
 
 
@@ -54,15 +59,16 @@ def test_misc_helper_edges_cover_missing_inputs_and_non_dict_rows(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     with pytest.raises(FileNotFoundError, match="Input XYZ not found"):
-        orchestration._copy_input(str(tmp_path / "missing.xyz"), tmp_path / "out.xyz")
+        _copy_input_impl(str(tmp_path / "missing.xyz"), tmp_path / "out.xyz")
 
     monkeypatch.setattr(orchestration, "workflow_has_active_downstream", lambda payload: False)
     assert orchestration._workflow_has_active_children({"stages": ["skip", {"status": "completed", "task": "bad"}]}) is False
-    assert orchestration._latest_child_stage_summary([]) == {}
+    assert latest_child_stage_summary_impl([], normalize_text_fn=lambda value: str(value or "").strip()) == {}
 
-    terminal = orchestration._downstream_terminal_result(
+    terminal = downstream_terminal_result_impl(
         {},
         {"status": "completed", "stage_summaries": ["skip", {"completed_at": "2026-04-19T00:00:00+00:00"}]},
+        normalize_text_fn=lambda value: str(value or "").strip(),
     )
     assert terminal["status"] == "completed"
     assert terminal["completed_at"] == "2026-04-19T00:00:00+00:00"
@@ -75,14 +81,14 @@ def test_create_reaction_ts_search_standard_and_barrier_sequence_validation(
     writes: list[dict[str, object]] = []
     syncs: list[dict[str, object]] = []
 
-    monkeypatch.setattr(orchestration, "_workflow_id", lambda prefix: f"{prefix}_001")
+    monkeypatch.setattr(orchestration, "timestamped_token", lambda prefix: f"{prefix}_001")
     monkeypatch.setattr(orchestration, "now_utc_iso", lambda: "2026-04-19T00:00:00+00:00")
     monkeypatch.setattr(
         orchestration,
         "load_xyz_atom_sequence",
         lambda path: ("H", "H") if Path(path).name != "ts_guess.xyz" else ("H", "O"),
     )
-    monkeypatch.setattr(orchestration, "_copy_input", lambda source, target: str(target))
+    monkeypatch.setattr(orchestration, "_copy_input_impl", lambda source, target: str(target))
     monkeypatch.setattr(orchestration, "write_workflow_payload", lambda workspace_dir, payload: writes.append(deepcopy(payload)))
     monkeypatch.setattr(orchestration, "sync_workflow_registry", lambda workflow_root, workspace_dir, payload: syncs.append(deepcopy(payload)))
 

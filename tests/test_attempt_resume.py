@@ -124,7 +124,3 @@ class TestAttemptResume(unittest.TestCase):
         self.assertEqual(len(exit_calls), 1)
         self.assertEqual(exit_calls[0]["reason"], "normal_termination")
         self.assertEqual(exit_calls[0]["status"].value, "completed")
-
-
-if __name__ == "__main__":
-    unittest.main()

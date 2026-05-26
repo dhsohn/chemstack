@@ -325,7 +325,3 @@ class TestCmdQueueWorker(unittest.TestCase):
             max_concurrent=4,
             auto_organize=False,
         )
-
-
-if __name__ == "__main__":
-    unittest.main()

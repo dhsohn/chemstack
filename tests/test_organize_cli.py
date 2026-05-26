@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from chemstack.orca.cli import main
+from chemstack.cli import main
 from chemstack.orca.organize_index import records_path
 
 
@@ -72,6 +72,7 @@ class TestOrganizeDryRun(unittest.TestCase):
             rc = main([
                 "--config", str(config),
                 "organize",
+                "orca",
                 "--reaction-dir", str(rxn),
             ])
             self.assertEqual(rc, 0)
@@ -88,7 +89,7 @@ class TestOrganizeDryRun(unittest.TestCase):
             _make_completed_reaction(rxn)
 
             config = _write_config(root, allowed, organized)
-            main(["--config", str(config), "organize", "--reaction-dir", str(rxn)])
+            main(["--config", str(config), "organize", "orca", "--reaction-dir", str(rxn)])
             self.assertTrue(rxn.exists(), "Source should still exist after dry-run")
             self.assertFalse(
                 any(organized.iterdir()),
@@ -114,6 +115,7 @@ class TestOrganizeDryRun(unittest.TestCase):
             rc = main([
                 "--config", str(config),
                 "organize",
+                "orca",
                 "--reaction-dir", str(rxn),
             ])
             self.assertEqual(rc, 0)
@@ -136,6 +138,7 @@ class TestOrganizeApply(unittest.TestCase):
             rc = main([
                 "--config", str(config),
                 "organize",
+                "orca",
                 "--reaction-dir", str(rxn),
                 "--apply",
             ])
@@ -192,6 +195,7 @@ class TestOrganizeApply(unittest.TestCase):
                 rc = main([
                     "--config", str(config),
                     "organize",
+                    "orca",
                     "--reaction-dir", str(rxn),
                     "--apply",
                 ])
@@ -230,6 +234,7 @@ class TestOrganizeRootScan(unittest.TestCase):
             rc = main([
                 "--config", str(config),
                 "organize",
+                "orca",
                 "--root", str(allowed),
             ])
             self.assertEqual(rc, 0)
@@ -251,6 +256,7 @@ class TestOrganizeRootScan(unittest.TestCase):
             rc = main([
                 "--config", str(config),
                 "organize",
+                "orca",
                 "--root", str(allowed),
                 "--apply",
             ])
@@ -280,6 +286,7 @@ class TestOrganizeRootScan(unittest.TestCase):
             rc = main([
                 "--config", str(config),
                 "organize",
+                "orca",
                 "--root", str(allowed / "batch1"),
             ])
             self.assertEqual(rc, 1)
@@ -299,6 +306,7 @@ class TestOrganizeMutualExclusion(unittest.TestCase):
             rc = main([
                 "--config", str(config),
                 "organize",
+                "orca",
                 "--reaction-dir", str(allowed / "rxn1"),
                 "--root", str(allowed),
             ])
@@ -316,6 +324,7 @@ class TestOrganizeMutualExclusion(unittest.TestCase):
             rc = main([
                 "--config", str(config),
                 "organize",
+                "orca",
             ])
             self.assertEqual(rc, 1)
 
@@ -334,10 +343,7 @@ class TestOrganizeRebuildIndex(unittest.TestCase):
             rc = main([
                 "--config", str(config),
                 "organize",
+                "orca",
                 "--rebuild-index",
             ])
             self.assertEqual(rc, 0)
-
-
-if __name__ == "__main__":
-    unittest.main()

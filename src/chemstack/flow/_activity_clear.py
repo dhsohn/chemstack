@@ -20,47 +20,19 @@ class ActivityClearDeps:
     sibling_runtime_paths: Callable[..., dict[str, Path]]
 
 
-@dataclass(frozen=True)
-class EngineQueueClearProvider:
-    engine: str
-    config_attr: str
-    cleared_key: str
-    deps: ActivityClearDeps | None = None
-
-    def clear(
-        self,
-        resolved: ResolvedActivitySources,
-        *,
-        deps: ActivityClearDeps | None = None,
-    ) -> int:
-        active_deps = deps or self.deps
-        if active_deps is None:
-            raise TypeError("Activity clear dependencies are required.")
-        config_path = normalize_text(getattr(resolved, self.config_attr))
-        if not config_path:
-            return 0
-        return sum(
-            active_deps.clear_queue_terminal(root)
-            for root in active_deps._engine_queue_roots(config_path, engine=self.engine)
-        )
-
-
-def engine_queue_clear_providers(
-    deps: ActivityClearDeps | None = None,
-) -> tuple[EngineQueueClearProvider, ...]:
-    return (
-        EngineQueueClearProvider(
-            engine="xtb",
-            config_attr="xtb_config",
-            cleared_key="xtb_queue_entries",
-            deps=deps,
-        ),
-        EngineQueueClearProvider(
-            engine="crest",
-            config_attr="crest_config",
-            cleared_key="crest_queue_entries",
-            deps=deps,
-        ),
+def _clear_engine_queue(
+    resolved: ResolvedActivitySources,
+    *,
+    engine: str,
+    config_attr: str,
+    deps: ActivityClearDeps,
+) -> int:
+    config_path = normalize_text(getattr(resolved, config_attr))
+    if not config_path or not normalize_text(resolved.workflow_root):
+        return 0
+    return sum(
+        deps.clear_queue_terminal(root)
+        for root in deps._engine_queue_roots(config_path, engine=engine)
     )
 
 
@@ -96,10 +68,18 @@ def clear_activities(
             str(resolved.workflow_root),
             statuses=clearable_terminal_statuses,
         )
-    for provider in engine_queue_clear_providers(deps):
-        cleared[provider.cleared_key] += provider.clear(resolved)
+    for engine, config_attr, cleared_key in (
+        ("xtb", "xtb_config", "xtb_queue_entries"),
+        ("crest", "crest_config", "crest_queue_entries"),
+    ):
+        cleared[cleared_key] += _clear_engine_queue(
+            resolved,
+            engine=engine,
+            config_attr=config_attr,
+            deps=deps,
+        )
     if normalize_text(resolved.orca_config):
-        from chemstack.orca.commands.list_runs import (
+        from chemstack.orca.run_cleanup import (
             clear_terminal_entries as clear_orca_terminal_entries,
         )
 

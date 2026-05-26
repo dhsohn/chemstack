@@ -27,16 +27,6 @@ _CONFIG_TEMPLATE_RELATIVE_PATH = Path("config") / "chemstack.yaml.example"
 _TEMPLATE_ALLOWED_ROOT = "/path/to/orca_runs"
 _TEMPLATE_ORGANIZED_ROOT = "/path/to/orca_outputs"
 _TEMPLATE_ORCA_EXECUTABLE = "/path/to/orca/orca"
-_REMOVED_RUNTIME_SCHEDULER_KEYS = frozenset(
-    {
-        "max_concurrent",
-        "admission_root",
-        "admission_limit",
-        "admission_max_concurrent",
-        "default_max_attempts",
-    }
-)
-
 
 def _config_template_path() -> Path:
     repo_root = Path(__file__).resolve().parents[3]
@@ -74,11 +64,6 @@ def _placeholder_settings_error(path: Path, placeholder_keys: list[str]) -> Valu
         "Config still contains template placeholder paths in "
         f"{keys}. Edit {path} and replace /path/to/... values with your real Linux paths."
     )
-
-
-def _removed_runtime_scheduler_keys_error(path: Path, removed_keys: list[str]) -> ValueError:
-    keys = ", ".join(f"runtime.{key}" for key in removed_keys)
-    return ValueError(f"Config uses unsupported runtime keys: {keys} ({path})")
 
 
 @dataclass
@@ -171,18 +156,6 @@ def _section_mapping(raw: Dict[str, Any], key: str) -> Dict[str, Any]:
     return section if isinstance(section, dict) else {}
 
 
-def _reject_unsupported_runtime_keys(path: Path, runtime_raw: Dict[str, Any]) -> None:
-    if "platform_mode" in runtime_raw:
-        raise ValueError(
-            "runtime.platform_mode is removed. chemstack is Linux-only; delete this unsupported key from config."
-        )
-    removed_runtime_scheduler_keys = sorted(
-        _REMOVED_RUNTIME_SCHEDULER_KEYS.intersection(runtime_raw.keys())
-    )
-    if removed_runtime_scheduler_keys:
-        raise _removed_runtime_scheduler_keys_error(path, removed_runtime_scheduler_keys)
-
-
 def _required_runtime_paths(
     path: Path,
     runtime_raw: Dict[str, Any],
@@ -260,7 +233,6 @@ def load_config(config_path: str) -> AppConfig:
     telegram_raw = _section_mapping(raw, "telegram")
     resources_raw = _section_mapping(raw, "resources")
 
-    _reject_unsupported_runtime_keys(path, runtime_raw)
     allowed_root, orca_executable = _required_runtime_paths(path, runtime_raw, paths_raw)
     organized_root = _as_str(
         runtime_raw.get("organized_root"),

@@ -27,21 +27,7 @@ def submission_admission_limit_from_config(
     scheduler = raw.get("scheduler")
     if not isinstance(scheduler, dict):
         scheduler = {}
-    runtime = raw.get("runtime")
-    if not isinstance(runtime, dict):
-        runtime = {}
-
-    for candidate in (
-        scheduler.get("max_active_simulations"),
-        scheduler.get("admission_limit"),
-        runtime.get("admission_limit"),
-        runtime.get("admission_max_concurrent"),
-        runtime.get("max_concurrent"),
-    ):
-        parsed = positive_int_fn(candidate)
-        if parsed is not None:
-            return parsed
-    return None
+    return positive_int_fn(scheduler.get("max_active_simulations"))
 
 
 def submission_admission_has_capacity(

@@ -7,38 +7,22 @@ import time
 import unittest
 from argparse import Namespace
 from pathlib import Path
-from typing import Any, Callable
+from typing import Callable
 from unittest.mock import MagicMock, patch
 
+from chemstack import cli as unified_cli
+from chemstack import cli_run_dir
+from chemstack import cli_summary
 from chemstack.orca.commands._helpers import CONFIG_ENV_VAR, _emit, default_config_path
 from chemstack.orca.commands.run_inp import _cmd_run_inp_execute, _retry_inp_path, _select_latest_inp
+from chemstack.orca.cli_logging import (
+    configure_logging as _configure_logging,
+    remove_managed_handlers as _remove_managed_handlers,
+)
 from chemstack.orca.orca_runner import RunResult, WorkerShutdownInterrupt
 
-orca_cli: Any
-
-try:
-    from chemstack.orca import cli as orca_cli
-    from chemstack.orca.cli import (
-        build_parser,
-        cmd_queue,
-        main,
-    )
-    from chemstack.orca.cli_logging import (
-        configure_logging as _configure_logging,
-        remove_managed_handlers as _remove_managed_handlers,
-    )
-except ImportError as exc:
-    _CLI_IMPORT_ERROR = exc
-
-    def _raise_cli_import_error(*args: Any, **kwargs: Any) -> Any:
-        raise _CLI_IMPORT_ERROR
-
-    _configure_logging = _raise_cli_import_error
-    _remove_managed_handlers = _raise_cli_import_error
-    build_parser = _raise_cli_import_error
-    cmd_queue = _raise_cli_import_error
-    main = _raise_cli_import_error
-    orca_cli = _raise_cli_import_error
+build_parser = unified_cli.build_parser
+main = unified_cli.main
 
 class TestCli(unittest.TestCase):
     def _write_config(self, root: Path, allowed_root: Path, *, telegram_enabled: bool = False) -> Path:
@@ -133,28 +117,16 @@ class TestCli(unittest.TestCase):
             parser.parse_args(["run-dir", "/tmp/rxn", "--foreground"])
         self.assertEqual(exc.exception.code, 2)
 
-    def test_run_dir_rejects_removed_queue_only_flag(self) -> None:
-        parser = build_parser()
-        with self.assertRaises(SystemExit) as exc:
-            parser.parse_args(["run-dir", "/tmp/rxn", "--queue-only"])
-        self.assertEqual(exc.exception.code, 2)
-
-    def test_run_dir_rejects_removed_require_slot_flag(self) -> None:
-        parser = build_parser()
-        with self.assertRaises(SystemExit) as exc:
-            parser.parse_args(["run-dir", "/tmp/rxn", "--require-slot"])
-        self.assertEqual(exc.exception.code, 2)
-
-    @patch("chemstack.orca.cli.cmd_run_inp", return_value=8)
-    def test_main_dispatches_run_dir_command(self, mock_cmd_run_inp: MagicMock) -> None:
+    @patch("chemstack.cli_run_dir.cmd_run_dir", return_value=8)
+    def test_main_dispatches_run_dir_command(self, mock_cmd_run_dir: MagicMock) -> None:
         rc = main(["run-dir", "/tmp/rxn"])
 
         self.assertEqual(rc, 8)
-        mock_cmd_run_inp.assert_called_once()
+        mock_cmd_run_dir.assert_called_once()
 
-    @patch("chemstack.orca.cli.cmd_list", return_value=9)
+    @patch("chemstack.cli_queue.cmd_queue_list", return_value=9)
     def test_main_dispatches_list_command(self, mock_cmd_list: MagicMock) -> None:
-        rc = main(["list"])
+        rc = main(["queue", "list", "--engine", "orca"])
 
         self.assertEqual(rc, 9)
         mock_cmd_list.assert_called_once()
@@ -198,25 +170,6 @@ class TestCli(unittest.TestCase):
             parser.parse_args(["queue", "add"])
         self.assertEqual(exc.exception.code, 2)
 
-    def test_cmd_queue_invalid_subcommand_prints_usage_and_returns_1(self) -> None:
-        args = Namespace(queue_command="unknown")
-        buf = io.StringIO()
-
-        with unittest.mock.patch("sys.stdout", buf):
-            rc = cmd_queue(args)
-
-        self.assertEqual(rc, 1)
-        self.assertIn("Usage: python -m chemstack.orca.cli queue cancel <target>", buf.getvalue())
-
-    @patch("chemstack.orca.cli.cmd_queue_cancel", return_value=5)
-    def test_cmd_queue_dispatches_cancel_subcommand(self, mock_cancel: MagicMock) -> None:
-        args = Namespace(queue_command="cancel")
-
-        rc = cmd_queue(args)
-
-        self.assertEqual(rc, 5)
-        mock_cancel.assert_called_once_with(args)
-
     def test_cmd_run_inp_dispatches_to_orca_command_module(self) -> None:
         seen: list[Namespace] = []
 
@@ -224,7 +177,7 @@ class TestCli(unittest.TestCase):
             seen.append(args)
             return 41
 
-        with patch("chemstack.orca.cli.run_inp_cmd.cmd_run_inp", side_effect=_fake_run_inp):
+        with patch("chemstack.orca.commands.run_inp.cmd_run_inp", side_effect=_fake_run_inp):
             args = Namespace(
                 config="/tmp/chemstack.yaml",
                 verbose=True,
@@ -235,7 +188,7 @@ class TestCli(unittest.TestCase):
                 max_cores=12,
                 max_memory_gb=48,
             )
-            rc = orca_cli.cmd_run_inp(args)
+            rc = cli_run_dir.cmd_orca_run_dir(args)
 
         self.assertEqual(rc, 41)
         self.assertEqual(seen, [args])
@@ -251,9 +204,9 @@ class TestCli(unittest.TestCase):
             return _inner
 
         with (
-            patch("chemstack.orca.cli.init_cmd.cmd_init", side_effect=_record("init", 42)),
-            patch("chemstack.orca.cli.organize_cmd.cmd_organize", side_effect=_record("organize", 43)),
-            patch("chemstack.orca.cli.summary_cmd.cmd_summary", side_effect=_record("summary", 44)),
+            patch("chemstack.orca.commands.init.cmd_init", side_effect=_record("init", 42)),
+            patch("chemstack.orca.commands.organize.cmd_organize", side_effect=_record("organize", 43)),
+            patch("chemstack.orca.commands.summary.cmd_summary", side_effect=_record("summary", 44)),
         ):
             init_args = Namespace(
                 config="/tmp/chemstack.yaml",
@@ -276,11 +229,11 @@ class TestCli(unittest.TestCase):
                 log_file=None,
                 no_send=True,
             )
-            init_rc = orca_cli.cmd_init(init_args)
-            organize_rc = orca_cli.cmd_organize(
+            init_rc = cli_run_dir.cmd_init(init_args)
+            organize_rc = cli_run_dir.cmd_orca_organize(
                 organize_args
             )
-            summary_rc = orca_cli.cmd_summary(summary_args)
+            summary_rc = cli_summary.cmd_orca_summary(summary_args)
 
         self.assertEqual((init_rc, organize_rc, summary_rc), (42, 43, 44))
         self.assertEqual(
@@ -291,13 +244,6 @@ class TestCli(unittest.TestCase):
                 ("summary", summary_args),
             ],
         )
-
-    def test_build_parser_rejects_removed_service_commands(self) -> None:
-        parser = build_parser()
-        for argv in (["bot"], ["queue", "worker"]):
-            with self.assertRaises(SystemExit) as exc:
-                parser.parse_args(argv)
-            self.assertEqual(exc.exception.code, 2)
 
     @patch("chemstack.orca.cli_logging.remove_managed_handlers")
     @patch("chemstack.orca.cli_logging.logging.handlers.RotatingFileHandler")
@@ -940,7 +886,3 @@ class TestCli(unittest.TestCase):
         self.assertEqual(rc, 1)
         # Error should go to stderr (via logger.error), not stdout
         self.assertNotIn("allowed root", captured_stdout.getvalue())
-
-
-if __name__ == "__main__":
-    unittest.main()

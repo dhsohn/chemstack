@@ -211,7 +211,3 @@ class TestFinalizeBatchApply(unittest.TestCase):
             [{"run_id": "run_001", "reason": "apply_failed"}],
         )
         self.assertEqual(rc, 1)
-
-
-if __name__ == "__main__":
-    unittest.main()

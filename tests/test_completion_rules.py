@@ -51,7 +51,3 @@ class TestCompletionRules(unittest.TestCase):
         self.assertEqual(mode.kind, "opt")
         self.assertFalse(mode.require_irc)
         self.assertEqual(mode.route_line, "")
-
-
-if __name__ == "__main__":
-    unittest.main()

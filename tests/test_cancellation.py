@@ -141,7 +141,3 @@ class TestCancellation(unittest.TestCase):
         self.assertTrue(get_cancel_requested(self.root, entry.queue_id))
         mock_alive.assert_not_called()
         mock_kill.assert_not_called()
-
-
-if __name__ == "__main__":
-    unittest.main()

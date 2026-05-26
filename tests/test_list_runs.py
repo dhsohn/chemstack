@@ -7,9 +7,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from chemstack.orca.cli import main
-from chemstack.orca.commands.list_runs import _collect_unified, _format_elapsed, _status_icon
-from chemstack.orca.queue_store import dequeue_next, enqueue, mark_completed, queue_entry_run_id
+from chemstack.cli import main
+from chemstack.orca.queue_store import dequeue_next, enqueue, mark_completed
 
 
 class _ListTestBase(unittest.TestCase):
@@ -52,38 +51,6 @@ class _ListTestBase(unittest.TestCase):
         (reaction_dir / "run_state.json").write_text(json.dumps(state), encoding="utf-8")
 
 
-class TestStatusIcon(unittest.TestCase):
-    def test_known_statuses(self) -> None:
-        self.assertEqual(_status_icon("pending"), "\u23f3")
-        self.assertEqual(_status_icon("running"), "\u25b6")
-        self.assertEqual(_status_icon("completed"), "\u2705")
-        self.assertEqual(_status_icon("failed"), "\u274c")
-        self.assertEqual(_status_icon("cancelled"), "\u26d4")
-        self.assertEqual(_status_icon("created"), "\U0001f195")
-        self.assertEqual(_status_icon("retrying"), "\U0001f504")
-
-    def test_unknown_status(self) -> None:
-        self.assertEqual(_status_icon("mystery"), "?")
-
-
-class TestFormatElapsed(unittest.TestCase):
-    def test_seconds(self) -> None:
-        self.assertEqual(_format_elapsed("2026-03-10T00:00:00+00:00", "2026-03-10T00:00:30+00:00"), "30s")
-
-    def test_minutes(self) -> None:
-        self.assertEqual(_format_elapsed("2026-03-10T00:00:00+00:00", "2026-03-10T00:05:00+00:00"), "5m 00s")
-
-    def test_hours(self) -> None:
-        self.assertEqual(_format_elapsed("2026-03-10T00:00:00+00:00", "2026-03-10T02:30:00+00:00"), "2h 30m")
-
-    def test_invalid_start(self) -> None:
-        self.assertEqual(_format_elapsed("invalid", None), "-")
-
-    def test_invalid_end_uses_now(self) -> None:
-        result = _format_elapsed("2026-03-10T00:00:00+00:00", "invalid")
-        self.assertNotEqual(result, "-")
-
-
 class TestListEmpty(_ListTestBase):
     def test_list_empty(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -94,7 +61,7 @@ class TestListEmpty(_ListTestBase):
 
             captured = io.StringIO()
             with patch("sys.stdout", captured):
-                rc = main(["--config", str(config), "list"])
+                rc = main(["--config", str(config), "queue", "list", "--engine", "orca", "--kind", "job"])
 
         self.assertEqual(rc, 0)
         output = captured.getvalue()
@@ -116,7 +83,7 @@ class TestListStandaloneRuns(_ListTestBase):
 
             captured = io.StringIO()
             with patch("sys.stdout", captured):
-                rc = main(["--config", str(config), "list"])
+                rc = main(["--config", str(config), "queue", "list", "--engine", "orca", "--kind", "job"])
 
         self.assertEqual(rc, 0)
         output = captured.getvalue()
@@ -137,7 +104,20 @@ class TestListStandaloneRuns(_ListTestBase):
 
             captured = io.StringIO()
             with patch("sys.stdout", captured):
-                rc = main(["--config", str(config), "list", "--filter", "running"])
+                rc = main(
+                    [
+                        "--config",
+                        str(config),
+                        "queue",
+                        "list",
+                        "--engine",
+                        "orca",
+                        "--kind",
+                        "job",
+                        "--status",
+                        "running",
+                    ]
+                )
 
         self.assertEqual(rc, 0)
         output = captured.getvalue()
@@ -155,7 +135,7 @@ class TestListStandaloneRuns(_ListTestBase):
 
             captured = io.StringIO()
             with patch("sys.stdout", captured):
-                rc = main(["--config", str(config), "list"])
+                rc = main(["--config", str(config), "queue", "list", "--engine", "orca", "--kind", "job"])
 
         self.assertEqual(rc, 0)
         output = captured.getvalue()
@@ -212,7 +192,7 @@ class TestListStandaloneRuns(_ListTestBase):
 
             captured = io.StringIO()
             with patch("sys.stdout", captured):
-                rc = main(["--config", str(config), "list"])
+                rc = main(["--config", str(config), "queue", "list", "--engine", "orca", "--kind", "job"])
 
         self.assertEqual(rc, 0)
         output = captured.getvalue()
@@ -237,7 +217,7 @@ class TestListQueueEntries(_ListTestBase):
 
             captured = io.StringIO()
             with patch("sys.stdout", captured):
-                rc = main(["--config", str(config), "list"])
+                rc = main(["--config", str(config), "queue", "list", "--engine", "orca", "--kind", "job"])
 
         self.assertEqual(rc, 0)
         output = captured.getvalue()
@@ -261,7 +241,20 @@ class TestListQueueEntries(_ListTestBase):
 
             captured = io.StringIO()
             with patch("sys.stdout", captured):
-                rc = main(["--config", str(config), "list", "--filter", "pending"])
+                rc = main(
+                    [
+                        "--config",
+                        str(config),
+                        "queue",
+                        "list",
+                        "--engine",
+                        "orca",
+                        "--kind",
+                        "job",
+                        "--status",
+                        "pending",
+                    ]
+                )
 
         self.assertEqual(rc, 0)
         output = captured.getvalue()
@@ -287,7 +280,7 @@ class TestListQueueEntries(_ListTestBase):
 
             captured = io.StringIO()
             with patch("sys.stdout", captured):
-                rc = main(["--config", str(config), "list"])
+                rc = main(["--config", str(config), "queue", "list", "--engine", "orca", "--kind", "job"])
 
         self.assertEqual(rc, 0)
         output = captured.getvalue()
@@ -295,67 +288,6 @@ class TestListQueueEntries(_ListTestBase):
         self.assertIn("active_simulations: 0", output)
         self.assertIn("ORCA", output)
         self.assertIn("⏳", output)
-
-    def test_active_queue_entry_with_null_run_id_is_not_duplicated(self) -> None:
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            allowed = root / "orca_runs"
-            allowed.mkdir()
-
-            rxn_dir = allowed / "mol_A"
-            rxn_dir.mkdir()
-            entry = enqueue(allowed, str(rxn_dir))
-            self.assertIsNone(queue_entry_run_id(entry))
-            dequeue_next(allowed)
-            self._make_run(
-                rxn_dir,
-                status="retrying",
-                started_at="2026-03-02T00:00:00+00:00",
-                updated_at="2026-03-02T01:00:00+00:00",
-                inp_name="opt.retry01.inp",
-                run_id="run_retry_1",
-            )
-
-            rows = _collect_unified(allowed)
-
-        self.assertEqual(len(rows), 1)
-        self.assertEqual(rows[0]["id"], entry.queue_id)
-        self.assertEqual(rows[0]["status"], "pending")
-        self.assertEqual(rows[0]["inp"], "opt.retry01.inp")
-
-    def test_stale_terminal_queue_entry_does_not_hide_newer_standalone_run(self) -> None:
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            allowed = root / "orca_runs"
-            allowed.mkdir()
-
-            rxn_dir = allowed / "mol_A"
-            rxn_dir.mkdir()
-            entry = enqueue(allowed, str(rxn_dir))
-            self.assertTrue(mark_completed(allowed, entry.queue_id, run_id="run_old"))
-
-            self._make_run(
-                rxn_dir,
-                status="completed",
-                inp_name="rerun.inp",
-                run_id="run_new",
-                started_at="2026-03-03T00:00:00+00:00",
-                updated_at="2026-03-03T01:00:00+00:00",
-            )
-
-            rows = _collect_unified(allowed)
-
-        self.assertEqual(len(rows), 2)
-
-        queue_row = next(r for r in rows if r["id"] == entry.queue_id)
-        self.assertEqual(queue_row["status"], "completed")
-        self.assertEqual(queue_row["inp"], "")
-        self.assertEqual(queue_row["attempts"], "-")
-
-        standalone_row = next(r for r in rows if r["id"] == "run_new")
-        self.assertEqual(standalone_row["status"], "completed")
-        self.assertEqual(standalone_row["inp"], "rerun.inp")
-        self.assertEqual(standalone_row["attempts"], "1")
 
     def test_list_reconciles_orphaned_running_queue_entry_from_run_report(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -385,7 +317,7 @@ class TestListQueueEntries(_ListTestBase):
 
             captured = io.StringIO()
             with patch("sys.stdout", captured):
-                rc = main(["--config", str(config), "list"])
+                rc = main(["--config", str(config), "queue", "list", "--engine", "orca", "--kind", "job"])
 
         self.assertEqual(rc, 0)
         output = captured.getvalue()
@@ -411,7 +343,7 @@ class TestListClear(_ListTestBase):
 
             captured = io.StringIO()
             with patch("sys.stdout", captured):
-                rc = main(["--config", str(config), "list", "clear"])
+                rc = main(["--config", str(config), "queue", "list", "clear"])
 
         self.assertEqual(rc, 0)
         self.assertIn("Cleared", captured.getvalue())
@@ -427,7 +359,7 @@ class TestListClear(_ListTestBase):
 
             captured = io.StringIO()
             with patch("sys.stdout", captured):
-                rc = main(["--config", str(config), "list", "clear"])
+                rc = main(["--config", str(config), "queue", "list", "clear"])
 
             self.assertEqual(rc, 0)
             # rxn1 (completed) should be cleared
@@ -444,11 +376,7 @@ class TestListClear(_ListTestBase):
 
             captured = io.StringIO()
             with patch("sys.stdout", captured):
-                rc = main(["--config", str(config), "list", "clear"])
+                rc = main(["--config", str(config), "queue", "list", "clear"])
 
         self.assertEqual(rc, 0)
-        self.assertIn("Cleared 0", captured.getvalue())
-
-
-if __name__ == "__main__":
-    unittest.main()
+        self.assertIn("Nothing to clear.", captured.getvalue())

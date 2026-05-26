@@ -81,7 +81,3 @@ class TestOrganizeCommandHelpers(unittest.TestCase):
         self.assertIn("showing 5/7", message)
         self.assertIn("index write failed", message)
         self.assertIn("not_completed", message)
-
-
-if __name__ == "__main__":
-    unittest.main()

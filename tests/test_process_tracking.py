@@ -202,7 +202,3 @@ class TestProcessTracking(unittest.TestCase):
 
         self.assertIsNone(pid)
         self.assertFalse(exists_after)
-
-
-if __name__ == "__main__":
-    unittest.main()

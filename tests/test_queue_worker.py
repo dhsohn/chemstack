@@ -635,9 +635,9 @@ class TestFillSlots(unittest.TestCase):
 
             slots = list_slots(root)
             self.assertEqual(len(slots), 1)
-            self.assertEqual(slots[0]["queue_id"], entry.queue_id)
-            self.assertEqual(slots[0]["app_name"], entry.app_name)
-            self.assertEqual(slots[0]["task_id"], entry.task_id)
+            self.assertEqual(slots[0].queue_id, entry.queue_id)
+            self.assertEqual(slots[0].app_name, entry.app_name)
+            self.assertEqual(slots[0].task_id, entry.task_id)
 
     def test_fill_slots_preserves_task_id_across_slot_and_worker_handoff(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -658,12 +658,12 @@ class TestFillSlots(unittest.TestCase):
 
             slots = list_slots(root)
             self.assertEqual(len(slots), 1)
-            self.assertEqual(slots[0]["queue_id"], entry.queue_id)
-            self.assertEqual(slots[0]["task_id"], entry.task_id)
-            self.assertNotEqual(slots[0]["queue_id"], slots[0]["task_id"])
+            self.assertEqual(slots[0].queue_id, entry.queue_id)
+            self.assertEqual(slots[0].task_id, entry.task_id)
+            self.assertNotEqual(slots[0].queue_id, slots[0].task_id)
             self.assertEqual(
                 mock_start_job_process.call_args.kwargs["admission_token"],
-                slots[0]["token"],
+                slots[0].token,
             )
             self.assertEqual(
                 mock_start_job_process.call_args.kwargs["admission_task_id"],
@@ -916,7 +916,3 @@ class TestQueueStoreWorkerTransitions(unittest.TestCase):
             self.assertEqual(queue_entries[0].status.value, "pending")
             self.assertEqual(queue_entries[0].started_at, "")
             self.assertFalse(queue_entries[0].cancel_requested)
-
-
-if __name__ == "__main__":
-    unittest.main()

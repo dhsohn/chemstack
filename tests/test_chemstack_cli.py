@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 from pathlib import Path
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
 from typing import Any
 
 import pytest
 
 from chemstack import cli_common
+from chemstack import cli_monitor
 from chemstack import cli_queue
 from chemstack import cli_run_dir
 from chemstack import cli_summary
@@ -128,7 +129,7 @@ def test_build_parser_parses_unified_run_dir_commands() -> None:
     assert workflow_args.func is cli_run_dir.cmd_run_dir
 
 
-def test_build_parser_parses_unified_init_scaffold_organize_and_summary_commands() -> None:
+def test_build_parser_parses_unified_init_scaffold_organize_summary_and_monitor_commands() -> None:
     parser = unified_cli.build_parser()
 
     init_args = parser.parse_args(["init", "--chemstack-config", "/tmp/chemstack.yaml", "--force"])
@@ -153,6 +154,7 @@ def test_build_parser_parses_unified_init_scaffold_organize_and_summary_commands
     combined_summary_args = parser.parse_args(
         ["summary", "--chemstack-config", "/tmp/chemstack.yaml", "--no-send"]
     )
+    monitor_args = parser.parse_args(["monitor", "--chemstack-config", "/tmp/chemstack.yaml"])
 
     assert init_args.command == "init"
     assert init_args.force is True
@@ -188,105 +190,9 @@ def test_build_parser_parses_unified_init_scaffold_organize_and_summary_commands
     assert combined_summary_args.no_send is True
     assert combined_summary_args.func is cli_summary.cmd_summary
 
-
-def test_build_parser_rejects_removed_engine_specific_init_subcommands() -> None:
-    parser = unified_cli.build_parser()
-
-    with pytest.raises(SystemExit):
-        parser.parse_args(["init", "orca"])
-
-    with pytest.raises(SystemExit):
-        parser.parse_args(["init", "xtb"])
-
-    with pytest.raises(SystemExit):
-        parser.parse_args(["init", "crest"])
-
-
-@pytest.mark.parametrize(
-    "argv",
-    [
-        ["run-dir", "orca", "/tmp/orca-job"],
-        ["run-dir", "workflow", "/tmp/workflow-job"],
-        ["run-dir", "crest", "/tmp/crest-job"],
-        ["run-dir", "xtb", "/tmp/xtb-job"],
-        ["organize", "crest", "--root", "/tmp/crest-jobs"],
-        ["organize", "xtb", "--root", "/tmp/xtb-jobs"],
-        ["summary", "crest", "job-123"],
-        ["summary", "xtb", "job-123"],
-        ["queue", "worker", "--app", "crest"],
-        ["queue", "worker", "--app", "xtb"],
-    ],
-)
-def test_build_parser_rejects_removed_internal_engine_public_commands(argv: list[str]) -> None:
-    parser = unified_cli.build_parser()
-
-    with pytest.raises(SystemExit):
-        parser.parse_args(argv)
-
-
-@pytest.mark.parametrize(
-    "argv",
-    [
-        ["run-dir", "/tmp/workflow-inputs", "--workflow-type", "reaction_ts_search"],
-        ["run-dir", "/tmp/workflow-inputs", "--workflow-root", "/tmp/workflows"],
-        ["run-dir", "/tmp/workflow-inputs", "--reactant-xyz", "/tmp/reactant.xyz"],
-        ["run-dir", "/tmp/workflow-inputs", "--product-xyz", "/tmp/product.xyz"],
-        ["run-dir", "/tmp/workflow-inputs", "--input-xyz", "/tmp/input.xyz"],
-        ["run-dir", "/tmp/workflow-inputs", "--crest-mode", "nci"],
-        ["run-dir", "/tmp/workflow-inputs", "--max-crest-candidates", "3"],
-        ["run-dir", "/tmp/workflow-inputs", "--max-xtb-stages", "3"],
-        ["run-dir", "/tmp/workflow-inputs", "--max-orca-stages", "3"],
-        ["run-dir", "/tmp/workflow-inputs", "--orca-route-line", "! Opt"],
-        ["run-dir", "/tmp/workflow-inputs", "--charge", "0"],
-        ["run-dir", "/tmp/workflow-inputs", "--multiplicity", "1"],
-    ],
-)
-def test_build_parser_rejects_removed_workflow_run_dir_override_flags(argv: list[str]) -> None:
-    parser = unified_cli.build_parser()
-
-    with pytest.raises(SystemExit):
-        parser.parse_args(argv)
-
-
-@pytest.mark.parametrize(
-    "argv",
-    [
-        ["scaffold", "ts_search_std", "/tmp/workflow-inputs"],
-        ["scaffold", "ts_search_nci", "/tmp/workflow-inputs"],
-        ["scaffold", "conformer_search_std", "/tmp/workflow-inputs"],
-        ["scaffold", "conformer_search_nci", "/tmp/workflow-inputs"],
-        [
-            "scaffold",
-            "workflow",
-            "--root",
-            "/tmp/workflow-inputs",
-            "--workflow-type",
-            "reaction_ts_search",
-            "--crest-mode",
-            "nci",
-        ],
-    ],
-)
-def test_build_parser_rejects_removed_workflow_scaffold_forms(argv: list[str]) -> None:
-    parser = unified_cli.build_parser()
-
-    with pytest.raises(SystemExit):
-        parser.parse_args(argv)
-
-
-@pytest.mark.parametrize(
-    "argv",
-    [
-        ["bot"],
-        ["runtime"],
-        ["queue", "worker"],
-    ],
-)
-def test_build_parser_rejects_removed_service_commands(argv: list[str]) -> None:
-    parser = unified_cli.build_parser()
-
-    with pytest.raises(SystemExit):
-        parser.parse_args(argv)
+    assert monitor_args.command == "monitor"
+    assert monitor_args.config == "/tmp/chemstack.yaml"
+    assert monitor_args.func is cli_monitor.cmd_orca_monitor
 
 
 def test_main_dispatches_unified_queue_list(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -403,6 +309,12 @@ def test_classify_existing_orca_worker_distinguishes_chemstack_and_unknown(
             {"command": "summary", "summary_app": "combined", "no_send": True},
             28,
         ),
+        (
+            ["monitor", "--chemstack-config", "/tmp/chemstack.yaml"],
+            "cmd_orca_monitor",
+            {"command": "monitor", "config": "/tmp/chemstack.yaml"},
+            29,
+        ),
     ],
 )
 def test_main_dispatches_unified_engine_commands(
@@ -418,7 +330,13 @@ def test_main_dispatches_unified_engine_commands(
         seen.append(args)
         return expected_result
 
-    target_module = cli_summary if attr_name == "cmd_summary" else cli_run_dir
+    target_module: ModuleType
+    if attr_name == "cmd_summary":
+        target_module = cli_summary
+    elif attr_name == "cmd_orca_monitor":
+        target_module = cli_monitor
+    else:
+        target_module = cli_run_dir
     monkeypatch.setattr(target_module, attr_name, fake_cmd)
 
     result = unified_cli.main(argv)

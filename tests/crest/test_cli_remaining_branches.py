@@ -37,7 +37,13 @@ def test_cli_module_main_raises_system_exit_with_main_return_code(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     config_path = _write_config(tmp_path)
-    monkeypatch.setattr("sys.argv", ["chemstack_crest", "--config", str(config_path), "list"])
+    job_dir = tmp_path / "workflow_root" / "wf_001" / "01_crest" / "job"
+    job_dir.mkdir()
+    monkeypatch.setattr(run_dir_cmd, "cmd_run_dir", lambda args: 0)
+    monkeypatch.setattr(
+        "sys.argv",
+        ["chemstack_crest", "--config", str(config_path), "run-dir", str(job_dir)],
+    )
 
     with warnings.catch_warnings():
         warnings.filterwarnings(
@@ -49,7 +55,7 @@ def test_cli_module_main_raises_system_exit_with_main_return_code(
             runpy.run_module("chemstack.crest._internal_cli", run_name="__main__")
 
     assert exc_info.value.code == 0
-    assert capsys.readouterr().out == "No CREST jobs found.\n"
+    assert capsys.readouterr().out == ""
 
 
 @pytest.mark.parametrize(

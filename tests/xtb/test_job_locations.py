@@ -7,22 +7,20 @@ import pytest
 import chemstack.xtb.job_locations as job_locations_module
 from chemstack.core.config import CommonRuntimeConfig
 from chemstack.core.indexing import JobLocationRecord, get_job_location, upsert_job_location
+from chemstack.core.indexing.engines import resource_dict
 from chemstack.flow.state import write_workflow_payload
 
 from chemstack.xtb.config import AppConfig
 from chemstack.xtb.job_locations import (
     build_job_location_record,
-    collect_reindex_payload,
-    is_terminal_status,
     normalize_key,
     reaction_key_from_job_dir,
     reaction_key_from_selected_xyz,
     record_from_artifacts,
     resolve_latest_job_dir,
-    resource_dict,
     upsert_job_record,
 )
-from chemstack.xtb.state import write_organized_ref, write_report_json, write_state
+from chemstack.xtb.state import write_report_json, write_state
 
 
 def _make_cfg(tmp_path: Path) -> tuple[AppConfig, Path, Path]:
@@ -71,9 +69,6 @@ def test_reaction_key_helpers_prefer_selected_name_and_fallbacks(tmp_path: Path)
 
 def test_resource_dict_and_terminal_status_helpers() -> None:
     assert resource_dict(0, -2) == {"max_cores": 1, "max_memory_gb": 1}
-    assert is_terminal_status(" completed ")
-    assert is_terminal_status("FAILED")
-    assert not is_terminal_status("running")
 
 
 def test_runtime_roots_for_cfg_skips_workflows_without_xtb_stages(tmp_path: Path) -> None:
@@ -439,65 +434,6 @@ def test_record_from_artifacts_defaults_invalid_resources_without_existing(
     assert record is not None
     assert record.resource_request == {}
     assert record.resource_actual == {}
-
-
-def test_collect_reindex_payload_reads_real_artifacts_and_derives_reaction_key(
-    tmp_path: Path,
-) -> None:
-    original_dir = tmp_path / "runs" / "job-400"
-    job_dir = tmp_path / "organized" / "job-400"
-    selected_xyz = _write_xyz(original_dir / "My Molecule.xyz")
-    original_dir.mkdir(parents=True, exist_ok=True)
-    job_dir.mkdir(parents=True)
-
-    write_state(
-        job_dir,
-        {
-            "job_id": "job-400",
-            "status": "running",
-            "job_type": "opt",
-            "reaction_key": "",
-            "selected_input_xyz": str(selected_xyz.resolve()),
-            "original_run_dir": str(original_dir.resolve()),
-            "resource_request": {"max_cores": "6", "max_memory_gb": "12"},
-        },
-    )
-    write_report_json(
-        job_dir,
-        {
-            "job_id": "job-400",
-            "status": "completed",
-            "resource_actual": {"max_cores": "5", "max_memory_gb": "10"},
-        },
-    )
-    write_organized_ref(
-        job_dir,
-        {
-            "job_id": "job-400",
-            "organized_output_dir": str(job_dir.resolve()),
-        },
-    )
-
-    assert collect_reindex_payload(job_dir) == {
-        "job_id": "job-400",
-        "status": "completed",
-        "job_type": "opt",
-        "job_dir": str(original_dir.resolve()),
-        "selected_input_xyz": str(selected_xyz.resolve()),
-        "reaction_key": "job-400",
-        "organized_output_dir": str(job_dir.resolve()),
-        "resource_request": {"max_cores": 6, "max_memory_gb": 12},
-        "resource_actual": {"max_cores": 5, "max_memory_gb": 10},
-    }
-
-
-def test_collect_reindex_payload_returns_none_without_job_id(tmp_path: Path) -> None:
-    job_dir = tmp_path / "job-without-id"
-    job_dir.mkdir()
-    write_state(job_dir, {"job_id": "", "status": "running"})
-    write_organized_ref(job_dir, {"job_id": ""})
-
-    assert collect_reindex_payload(job_dir) is None
 
 
 def test_upsert_job_record_writes_and_updates_existing_index_entry(tmp_path: Path) -> None:

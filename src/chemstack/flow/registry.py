@@ -7,9 +7,6 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-from chemstack.core.config.files import CHEMSTACK_CONFIG_ENV_VAR
-from chemstack.core.config.schema import TelegramConfig
-from chemstack.core.notifications import build_telegram_transport, load_telegram_config_from_file
 from chemstack.core.utils import (
     atomic_write_json,
     coerce_mapping as _coerce_mapping,
@@ -55,26 +52,6 @@ class WorkflowRegistryRecord:
     task_status_counts: dict[str, int] = field(default_factory=dict)
     submission_summary: dict[str, Any] = field(default_factory=dict)
     metadata: dict[str, Any] = field(default_factory=dict)
-
-
-def _event_text(event: dict[str, Any], metadata: dict[str, Any], *keys: str) -> str:
-    return _notifications.event_text(event, metadata, *keys)
-
-
-def _format_count_mapping(value: Any) -> str:
-    return _notifications.format_count_mapping(value)
-
-
-def _format_stage_statuses(value: Any) -> str:
-    return _notifications.format_stage_statuses(value)
-
-
-def _transition_html(previous: str, current: str) -> str:
-    return _notifications.transition_html(previous, current)
-
-
-def _title_from_event_type(event_type: str) -> str:
-    return _notifications.title_from_event_type(event_type)
 
 
 def _registry_path(workflow_root: str | Path) -> Path:
@@ -132,72 +109,17 @@ def _coerce_counts(value: Any) -> dict[str, int]:
     return counts
 
 
-def _notification_event_types_from_env() -> set[str]:
-    return _notifications.notification_event_types_from_env()
-
-
-def _journal_notification_enabled(event_type: str) -> bool:
-    return _notifications.journal_notification_enabled(event_type)
-
-
-def _telegram_transport_from_env():
-    token = os.environ.get("CHEMSTACK_FLOW_TELEGRAM_BOT_TOKEN", "").strip()
-    chat_id = os.environ.get("CHEMSTACK_FLOW_TELEGRAM_CHAT_ID", "").strip()
-    if token and chat_id:
-        return build_telegram_transport(TelegramConfig(bot_token=token, chat_id=chat_id))
-
-    config_path = os.environ.get(CHEMSTACK_CONFIG_ENV_VAR, "").strip()
-    if not config_path:
-        return None
-    telegram = load_telegram_config_from_file(config_path)
-    if not telegram.enabled:
-        return None
-    return build_telegram_transport(telegram)
-
-
-def _journal_event_context(event: dict[str, Any], workflow_root: str | Path) -> dict[str, str]:
-    return _notifications.journal_event_context(event, workflow_root)
-
-
-def _workflow_status_event_message(context: dict[str, str]) -> str:
-    return _notifications.workflow_status_event_message(context)
-
-
-def _workflow_advance_failed_event_message(context: dict[str, str]) -> str:
-    return _notifications.workflow_advance_failed_event_message(context)
-
-
-def _stage_status_event_message(context: dict[str, str]) -> str:
-    return _notifications.stage_status_event_message(context)
-
-
-def _stage_handoff_event_message(context: dict[str, str]) -> str:
-    return _notifications.stage_handoff_event_message(context)
-
-
-def _worker_lifecycle_event_message(context: dict[str, str]) -> str:
-    return _notifications.worker_lifecycle_event_message(context)
-
-
-def _default_journal_event_message(context: dict[str, str]) -> str:
-    return _notifications.default_journal_event_message(context)
-
-
-def _journal_event_message(event: dict[str, Any], workflow_root: str | Path) -> str:
-    return _notifications.journal_event_message(event, workflow_root)
-
-
 def _maybe_notify_journal_event(event: dict[str, Any], workflow_root: str | Path) -> None:
     event_type = _normalize_text(event.get("event_type"))
-    if not _journal_notification_enabled(event_type):
+    if not _notifications.journal_notification_enabled(event_type):
         return
     if _notifications.should_suppress_stage_notification(event):
         return
-    transport = _telegram_transport_from_env()
+    transport = _notifications.telegram_transport_from_env()
     if transport is None:
         return
     try:
-        transport.send_text(_journal_event_message(event, workflow_root), parse_mode="HTML")
+        transport.send_text(_notifications.journal_event_message(event, workflow_root), parse_mode="HTML")
     except Exception:
         return
 
@@ -286,10 +208,6 @@ def _save_records(workflow_root: str | Path, records: list[WorkflowRegistryRecor
     )
 
 
-_normal_path_key = _markers.normal_path_key
-_cleared_record_keys = _markers.cleared_record_keys
-
-
 def _load_cleared_markers(workflow_root: str | Path) -> list[dict[str, Any]]:
     path = _cleared_path(workflow_root)
     raw = _read_existing_json(path, description="Workflow cleared markers file", missing_default=[])
@@ -304,17 +222,6 @@ def _save_cleared_markers(workflow_root: str | Path, markers: list[dict[str, Any
     atomic_write_json(_cleared_path(workflow_root), markers, ensure_ascii=True, indent=2)
 
 
-_marker_keys = _markers.marker_keys
-_cleared_marker_identity = _markers.cleared_marker_identity
-_record_clear_identity = _markers.record_clear_identity
-
-
-def _record_matches_cleared_marker(
-    record: WorkflowRegistryRecord, markers: list[dict[str, Any]]
-) -> bool:
-    return _markers.record_matches_cleared_marker(record, markers)
-
-
 def _record_is_clearable_terminal(
     record: WorkflowRegistryRecord, statuses: set[str] | frozenset[str] | None = None
 ) -> bool:
@@ -322,22 +229,6 @@ def _record_is_clearable_terminal(
         record,
         statuses or _TERMINAL_WORKFLOW_STATUSES,
     )
-
-
-def _remove_matching_cleared_markers(
-    markers: list[dict[str, Any]],
-    record: WorkflowRegistryRecord,
-) -> tuple[list[dict[str, Any]], bool]:
-    return _markers.remove_matching_cleared_markers(markers, record)
-
-
-def _add_cleared_markers(
-    markers: list[dict[str, Any]],
-    records: list[WorkflowRegistryRecord],
-    *,
-    cleared_at: str,
-) -> tuple[list[dict[str, Any]], bool]:
-    return _markers.add_cleared_markers(markers, records, cleared_at=cleared_at)
 
 
 def _filter_cleared_terminal_records(
@@ -486,11 +377,14 @@ def upsert_workflow_registry_record(
         cleared_markers = _load_cleared_markers(resolved_root)
         records = _load_records(resolved_root)
         is_clearable_terminal = _record_is_clearable_terminal(record)
-        matches_cleared_marker = _record_matches_cleared_marker(record, cleared_markers)
+        matches_cleared_marker = _markers.record_matches_cleared_marker(
+            record,
+            cleared_markers,
+        )
         if is_clearable_terminal and matches_cleared_marker:
             return record
         if not is_clearable_terminal and matches_cleared_marker:
-            cleared_markers, removed_marker = _remove_matching_cleared_markers(
+            cleared_markers, removed_marker = _markers.remove_matching_cleared_markers(
                 cleared_markers, record
             )
             if removed_marker:
@@ -535,11 +429,11 @@ def reindex_workflow_registry(workflow_root: str | Path) -> list[WorkflowRegistr
         cleared_markers = _load_cleared_markers(root)
         markers_changed = False
         for record in records:
-            if _record_is_clearable_terminal(record) or not _record_matches_cleared_marker(
+            if _record_is_clearable_terminal(record) or not _markers.record_matches_cleared_marker(
                 record, cleared_markers
             ):
                 continue
-            cleared_markers, removed_marker = _remove_matching_cleared_markers(
+            cleared_markers, removed_marker = _markers.remove_matching_cleared_markers(
                 cleared_markers, record
             )
             markers_changed = markers_changed or removed_marker
@@ -597,7 +491,7 @@ def clear_terminal_workflow_registry(
         ]
         removed_count = len(records) - len(kept_records)
         if removed_count > 0:
-            markers, markers_changed = _add_cleared_markers(
+            markers, markers_changed = _markers.add_cleared_markers(
                 _load_cleared_markers(resolved_root),
                 removed_records,
                 cleared_at=now_utc_iso(),

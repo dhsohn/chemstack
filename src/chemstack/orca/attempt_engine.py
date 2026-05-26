@@ -110,62 +110,6 @@ def _mark_attempt_started(
     return started_at, current_status
 
 
-def _notify_attempt_started(
-    *,
-    reaction_dir: Path,
-    selected_inp: Path,
-    current_inp: Path,
-    state: RunState,
-    execution_index: int,
-    first_execution_index: int,
-    max_retries: int,
-    current_status: RunStatus,
-    started_at: str,
-    resumed: bool,
-    notify_started: Callable[[RunStartedNotification], None] | None,
-) -> None:
-    _notify_attempt_started_from_context(
-        AttemptStartNotificationContext(
-            run=AttemptRunContext(
-                reaction_dir=reaction_dir,
-                selected_inp=selected_inp,
-                state=state,
-                resumed=resumed,
-                runner=_NoRunnerForNotification(),
-                max_retries=max_retries,
-                retry_inp_path=_missing_retry_inp_path,
-                to_resolved_local=_missing_to_resolved_local,
-                emit=_missing_emit,
-                notify_started=notify_started,
-                notify_finished=None,
-                notify_retry=None,
-            ),
-            current_inp=current_inp,
-            execution_index=execution_index,
-            first_execution_index=first_execution_index,
-            current_status=current_status,
-            started_at=started_at,
-        )
-    )
-
-
-class _NoRunnerForNotification:
-    def run(self, inp_path: Path) -> RunResultLike:
-        raise RuntimeError("notification-only attempt context cannot run ORCA")
-
-
-def _missing_retry_inp_path(selected_inp: Path, retry_number: int) -> Path:
-    raise RuntimeError("notification-only attempt context cannot resolve retry input")
-
-
-def _missing_to_resolved_local(path_text: str) -> Path:
-    raise RuntimeError("notification-only attempt context cannot resolve local paths")
-
-
-def _missing_emit(payload: Dict[str, Any]) -> None:
-    raise RuntimeError("notification-only attempt context cannot emit")
-
-
 def _notify_attempt_started_from_context(ctx: AttemptStartNotificationContext) -> None:
     should_notify_started = ctx.execution_index == ctx.first_execution_index and (
         ctx.execution_index == 1 or ctx.run.resumed
@@ -426,48 +370,6 @@ def _run_attempt_cycle(ctx: AttemptRunContext, loop: AttemptLoopState) -> int | 
         return retry_exit
     loop.advance()
     return None
-
-
-def _prepare_retry_attempt(
-    reaction_dir: Path,
-    state: RunState,
-    selected_inp: Path,
-    *,
-    current_inp: Path,
-    out_path: Path,
-    execution_index: int,
-    retries_used: int,
-    max_retries: int,
-    resumed: bool,
-    analysis: OutAnalysis,
-    retry_inp_path: Callable[[Path, int], Path],
-    emit: Callable[[Dict[str, Any]], None],
-    notify_finished: Callable[[RunFinishedNotification], None] | None,
-    notify_retry: Callable[[RetryNotification], None] | None,
-) -> int | None:
-    return _prepare_retry_attempt_from_context(
-        RetryPreparationContext(
-            run=AttemptRunContext(
-                reaction_dir=reaction_dir,
-                selected_inp=selected_inp,
-                state=state,
-                resumed=resumed,
-                runner=_NoRunnerForNotification(),
-                max_retries=max_retries,
-                retry_inp_path=retry_inp_path,
-                to_resolved_local=_missing_to_resolved_local,
-                emit=emit,
-                notify_started=None,
-                notify_finished=notify_finished,
-                notify_retry=notify_retry,
-            ),
-            current_inp=current_inp,
-            out_path=out_path,
-            execution_index=execution_index,
-            retries_used=retries_used,
-            analysis=analysis,
-        )
-    )
 
 
 def _prepare_retry_attempt_from_context(ctx: RetryPreparationContext) -> int | None:

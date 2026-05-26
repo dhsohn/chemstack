@@ -42,10 +42,6 @@ def resource_dict(max_cores: int, max_memory_gb: int) -> dict[str, int]:
     }
 
 
-def resource_mapping(raw: object, *, fallback: dict[str, int] | None = None) -> dict[str, int]:
-    return _engine_artifacts.resource_mapping(raw, fallback=fallback)
-
-
 def build_job_location_record(
     *,
     existing: JobLocationRecord | None = None,
@@ -132,139 +128,6 @@ def build_engine_job_location_record(
     )
 
 
-def make_engine_record_builder(spec: EngineLocationSpec) -> Callable[..., JobLocationRecord]:
-    def build_record_from_payload_kind(
-        *,
-        existing: JobLocationRecord | None = None,
-        job_id: str,
-        status: str,
-        job_dir: Path,
-        payload_kind: str,
-        selected_input_xyz: str,
-        organized_output_dir: Path | None = None,
-        molecule_key: str = "",
-        resource_request: dict[str, int] | None = None,
-        resource_actual: dict[str, int] | None = None,
-    ) -> JobLocationRecord:
-        return build_engine_job_location_record(
-            spec=spec,
-            existing=existing,
-            job_id=job_id,
-            status=status,
-            job_dir=job_dir,
-            payload_kind=payload_kind,
-            selected_input_xyz=selected_input_xyz,
-            organized_output_dir=organized_output_dir,
-            molecule_key=molecule_key,
-            resource_request=resource_request,
-            resource_actual=resource_actual,
-        )
-
-    return build_record_from_payload_kind
-
-
-def engine_record_from_artifacts(
-    *,
-    spec: EngineLocationSpec,
-    build_record_fn: Callable[..., JobLocationRecord],
-    job_dir: Path,
-    state: dict[str, Any] | None,
-    report: dict[str, Any] | None,
-    organized_ref: dict[str, Any] | None,
-    existing: JobLocationRecord | None = None,
-    default_payload_kind: str | None = None,
-) -> JobLocationRecord | None:
-    return _engine_artifacts.engine_record_from_artifacts(
-        spec=spec,
-        build_record_fn=build_record_fn,
-        job_dir=job_dir,
-        state=state,
-        report=report,
-        organized_ref=organized_ref,
-        existing=existing,
-        default_payload_kind=default_payload_kind,
-    )
-
-
-def collect_engine_reindex_payload(
-    *,
-    spec: EngineLocationSpec,
-    job_dir: Path,
-    state: dict[str, Any] | None,
-    report: dict[str, Any] | None,
-    organized_ref: dict[str, Any] | None,
-) -> dict[str, Any] | None:
-    return _engine_artifacts.collect_engine_reindex_payload(
-        spec=spec,
-        job_dir=job_dir,
-        state=state,
-        report=report,
-        organized_ref=organized_ref,
-    )
-
-
-def collect_engine_reindex_payload_for_dir(
-    *,
-    spec: EngineLocationSpec,
-    job_dir: Path,
-    load_state_fn: Callable[[Path], dict[str, Any] | None],
-    load_report_json_fn: Callable[[Path], dict[str, Any] | None],
-    load_organized_ref_fn: Callable[[Path], dict[str, Any] | None],
-) -> dict[str, Any] | None:
-    resolved_job_dir = job_dir.expanduser().resolve()
-    return collect_engine_reindex_payload(
-        spec=spec,
-        job_dir=resolved_job_dir,
-        state=load_state_fn(resolved_job_dir),
-        report=load_report_json_fn(resolved_job_dir),
-        organized_ref=load_organized_ref_fn(resolved_job_dir),
-    )
-
-
-@dataclass(frozen=True)
-class EngineLocationStoreOps:
-    get: Callable[[str | Path, str], JobLocationRecord | None] = get_job_location
-    list: Callable[[str | Path], list[JobLocationRecord]] = list_job_locations
-    resolve: Callable[[str | Path, str], JobLocationRecord | None] = resolve_job_location
-    upsert: Callable[[str | Path, JobLocationRecord], JobLocationRecord] = upsert_job_location
-
-
-@dataclass(frozen=True)
-class EngineArtifactLoaders:
-    load_state: Callable[[Path], dict[str, Any] | None]
-    load_report_json: Callable[[Path], dict[str, Any] | None]
-    load_organized_ref: Callable[[Path], dict[str, Any] | None]
-
-
-@dataclass(frozen=True)
-class EngineJobRecordRequest:
-    existing: JobLocationRecord | None
-    job_id: str
-    status: str
-    job_dir: Path
-    payload_kind: str
-    selected_input_xyz: str
-    organized_output_dir: Path | None = None
-    molecule_key: str = ""
-    resource_request: dict[str, int] | None = None
-    resource_actual: dict[str, int] | None = None
-
-    def build(self, spec: EngineLocationSpec) -> JobLocationRecord:
-        return build_engine_job_location_record(
-            spec=spec,
-            existing=self.existing,
-            job_id=self.job_id,
-            status=self.status,
-            job_dir=self.job_dir,
-            payload_kind=self.payload_kind,
-            selected_input_xyz=self.selected_input_xyz,
-            organized_output_dir=self.organized_output_dir,
-            molecule_key=self.molecule_key,
-            resource_request=self.resource_request,
-            resource_actual=self.resource_actual,
-        )
-
-
 @dataclass(frozen=True)
 class EngineLocationService:
     engine: str
@@ -284,23 +147,6 @@ class EngineLocationService:
     upsert_job_location_fn: Callable[[str | Path, JobLocationRecord], JobLocationRecord] = (
         upsert_job_location
     )
-
-    @property
-    def store(self) -> EngineLocationStoreOps:
-        return EngineLocationStoreOps(
-            get=self.get_job_location_fn,
-            list=self.list_job_locations_fn,
-            resolve=self.resolve_job_location_fn,
-            upsert=self.upsert_job_location_fn,
-        )
-
-    @property
-    def artifact_loaders(self) -> EngineArtifactLoaders:
-        return EngineArtifactLoaders(
-            load_state=self.load_state_fn,
-            load_report_json=self.load_report_json_fn,
-            load_organized_ref=self.load_organized_ref_fn,
-        )
 
     def index_root_for_cfg(self, cfg: Any) -> Path:
         return index_root_for_cfg(cfg)
@@ -347,7 +193,8 @@ class EngineLocationService:
         resource_request: dict[str, int] | None = None,
         resource_actual: dict[str, int] | None = None,
     ) -> JobLocationRecord:
-        return EngineJobRecordRequest(
+        return build_engine_job_location_record(
+            spec=self.spec,
             existing=existing,
             job_id=job_id,
             status=status,
@@ -358,7 +205,7 @@ class EngineLocationService:
             molecule_key=molecule_key,
             resource_request=resource_request,
             resource_actual=resource_actual,
-        ).build(self.spec)
+        )
 
     def upsert_job_record(
         self,
@@ -375,8 +222,7 @@ class EngineLocationService:
         resource_actual: dict[str, int] | None = None,
     ) -> JobLocationRecord:
         root = self.index_root_for_path(cfg, job_dir, organized_output_dir)
-        store = self.store
-        existing = store.get(root, job_id)
+        existing = self.get_job_location_fn(root, job_id)
         record = self.build_job_location_record(
             existing=existing,
             job_id=job_id,
@@ -389,7 +235,7 @@ class EngineLocationService:
             resource_request=resource_request,
             resource_actual=resource_actual,
         )
-        return store.upsert(root, record)
+        return self.upsert_job_location_fn(root, record)
 
     def resolve_latest_job_dir(self, index_root: str | Path, target: str) -> Path | None:
         return resolve_latest_job_dir(
@@ -436,7 +282,7 @@ class EngineLocationService:
         existing: JobLocationRecord | None = None,
         default_payload_kind: str | None = None,
     ) -> JobLocationRecord | None:
-        return engine_record_from_artifacts(
+        return _engine_artifacts.engine_record_from_artifacts(
             spec=self.spec,
             build_record_fn=self.build_job_location_record,
             job_dir=job_dir,
@@ -448,13 +294,13 @@ class EngineLocationService:
         )
 
     def collect_reindex_payload(self, job_dir: Path) -> dict[str, Any] | None:
-        loaders = self.artifact_loaders
-        return collect_engine_reindex_payload_for_dir(
+        resolved_job_dir = job_dir.expanduser().resolve()
+        return _engine_artifacts.collect_engine_reindex_payload(
             spec=self.spec,
-            job_dir=job_dir,
-            load_state_fn=loaders.load_state,
-            load_report_json_fn=loaders.load_report_json,
-            load_organized_ref_fn=loaders.load_organized_ref,
+            job_dir=resolved_job_dir,
+            state=self.load_state_fn(resolved_job_dir),
+            report=self.load_report_json_fn(resolved_job_dir),
+            organized_ref=self.load_organized_ref_fn(resolved_job_dir),
         )
 
 
@@ -608,18 +454,12 @@ class EngineLocationModule:
 
 
 __all__ = [
-    "EngineArtifactLoaders",
-    "EngineJobRecordRequest",
     "EngineLocationService",
     "EngineLocationModule",
     "EngineLocationSpec",
-    "EngineLocationStoreOps",
     "append_unique_root",
     "build_engine_job_location_record",
     "build_job_location_record",
-    "collect_engine_reindex_payload",
-    "collect_engine_reindex_payload_for_dir",
-    "engine_record_from_artifacts",
     "index_root_for_cfg",
     "index_root_for_path",
     "is_terminal_status",
@@ -627,12 +467,10 @@ __all__ = [
     "load_job_artifacts",
     "load_job_artifacts_for_cfg",
     "lookup_roots_for_target",
-    "make_engine_record_builder",
     "normalize_identifier",
     "normalize_text",
     "resolve_job_location_for_cfg",
     "resolve_latest_job_dir",
     "resource_dict",
-    "resource_mapping",
     "runtime_roots_for_cfg",
 ]

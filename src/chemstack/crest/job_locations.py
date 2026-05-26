@@ -52,7 +52,6 @@ _normalize_text = _engine_locations.normalize_text
 index_root_for_cfg = _LOCATION_SERVICE.index_root_for_cfg
 runtime_roots_for_cfg = _LOCATION_SERVICE.runtime_roots_for_cfg
 index_root_for_path = _LOCATION_SERVICE.index_root_for_path
-_lookup_roots_for_target = _LOCATION_SERVICE.lookup_roots_for_target
 
 
 def list_job_records_for_cfg(cfg: AppConfig) -> list[tuple[Path, JobLocationRecord]]:
@@ -82,9 +81,6 @@ def molecule_key_from_selected_xyz(selected_input_xyz: str, job_dir: Path) -> st
     return normalize_molecule_key(stem)
 
 
-resource_dict = _engine_locations.resource_dict
-
-
 def build_job_location_record(
     *,
     existing: JobLocationRecord | None = None,
@@ -110,10 +106,6 @@ def build_job_location_record(
         resource_request=resource_request,
         resource_actual=resource_actual,
     )
-
-
-_build_job_location_record_from_kind = _LOCATION_SERVICE.build_job_location_record
-
 
 def upsert_job_record(
     cfg: AppConfig,
@@ -159,10 +151,6 @@ def load_job_artifacts_for_cfg(
 ) -> tuple[Path | None, dict[str, Any] | None, dict[str, Any] | None, JobLocationRecord | None]:
     return _LOCATION_API.load_job_artifacts_for_cfg(cfg, target)
 
-
-is_terminal_status = _engine_locations.is_terminal_status
-
-
 def record_from_artifacts(
     *,
     job_dir: Path,
@@ -180,6 +168,3 @@ def record_from_artifacts(
         existing=existing,
         default_mode=default_mode,
     )
-
-
-collect_reindex_payload = _LOCATION_SERVICE.collect_reindex_payload

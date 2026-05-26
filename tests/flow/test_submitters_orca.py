@@ -345,7 +345,7 @@ def test_submit_reaction_ts_search_workflow_updates_skip_failure_and_submit_bran
                     "enqueue_payload": {
                         "reaction_dir": "/tmp/rxn_skip",
                         "priority": 3,
-                        "submitter": "chemstack_orca_cli",
+                        "submitter": "chemstack_orca",
                     },
                     "submission_result": {"status": "submitted"},
                 },
@@ -357,7 +357,7 @@ def test_submit_reaction_ts_search_workflow_updates_skip_failure_and_submit_bran
                     "status": "planned",
                     "enqueue_payload": {
                         "priority": 4,
-                        "submitter": "chemstack_orca_cli",
+                        "submitter": "chemstack_orca",
                     },
                 },
             },
@@ -369,7 +369,7 @@ def test_submit_reaction_ts_search_workflow_updates_skip_failure_and_submit_bran
                     "enqueue_payload": {
                         "reaction_dir": "/tmp/rxn_submit",
                         "priority": "8",
-                        "submitter": "chemstack_orca_cli",
+                        "submitter": "chemstack_orca",
                     },
                 },
             },
@@ -520,7 +520,7 @@ def test_cancel_reaction_ts_search_workflow_handles_local_cancel_and_config_fail
                 "task": {
                     "status": "planned",
                     "enqueue_payload": {
-                        "submitter": "chemstack_orca_cli",
+                        "submitter": "chemstack_orca",
                     },
                 },
             },
@@ -532,7 +532,7 @@ def test_cancel_reaction_ts_search_workflow_handles_local_cancel_and_config_fail
                     "payload": {"reaction_dir": "/tmp/rxn_needs_config"},
                     "enqueue_payload": {
                         "reaction_dir": "/tmp/rxn_needs_config",
-                        "submitter": "chemstack_orca_cli",
+                        "submitter": "chemstack_orca",
                     },
                 },
             },
@@ -543,7 +543,7 @@ def test_cancel_reaction_ts_search_workflow_handles_local_cancel_and_config_fail
                     "status": "cancelled",
                     "enqueue_payload": {
                         "reaction_dir": "/tmp/rxn_cancelled",
-                        "submitter": "chemstack_orca_cli",
+                        "submitter": "chemstack_orca",
                     },
                 },
             },
@@ -659,7 +659,7 @@ def test_cancel_reaction_ts_search_workflow_records_requested_and_cancelled_stat
                     "payload": {"reaction_dir": "/tmp/rxn_request"},
                     "enqueue_payload": {
                         "reaction_dir": "/tmp/rxn_request",
-                        "submitter": "chemstack_orca_cli",
+                        "submitter": "chemstack_orca",
                     },
                 },
             },
@@ -671,7 +671,7 @@ def test_cancel_reaction_ts_search_workflow_records_requested_and_cancelled_stat
                     "payload": {"reaction_dir": "/tmp/rxn_cancel"},
                     "enqueue_payload": {
                         "reaction_dir": "/tmp/rxn_cancel",
-                        "submitter": "chemstack_orca_cli",
+                        "submitter": "chemstack_orca",
                     },
                 },
             },

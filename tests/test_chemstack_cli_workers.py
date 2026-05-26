@@ -313,7 +313,7 @@ def test_cmd_queue_worker_reports_existing_chemstack_orca_worker_conflict(
             pid=3589996,
             allowed_root="/home/user/orca_runs",
             source="chemstack",
-            command="/home/user/chemstack/.venv/bin/python -m chemstack.orca.cli --config /tmp/chemstack.yaml queue worker",
+            command="/home/user/chemstack/.venv/bin/python -m chemstack.orca._internal_cli --config /tmp/chemstack.yaml queue worker",
         ),
     )
     monkeypatch.setattr(unified_cli, "_run_worker_supervisor", lambda built_specs: 99)

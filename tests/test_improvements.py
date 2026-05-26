@@ -252,11 +252,8 @@ class TestCrashRecovery(unittest.TestCase):
 
 class TestCLILogFileFlag(unittest.TestCase):
     def test_log_file_flag_is_accepted(self) -> None:
-        from chemstack.orca.cli import build_parser
+        from chemstack.cli import build_parser
+
         parser = build_parser()
-        args = parser.parse_args(["--log-file", "/tmp/test.log", "list"])
+        args = parser.parse_args(["monitor", "--log-file", "/tmp/test.log"])
         self.assertEqual(args.log_file, "/tmp/test.log")
-
-
-if __name__ == "__main__":
-    unittest.main()

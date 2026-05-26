@@ -201,25 +201,6 @@ def build_worker_child_command(
     )
 
 
-def _matching_result_state(entry: Any, result: CrestRunResult, job_dir: Path) -> dict[str, Any]:
-    return _queue_artifacts.matching_result_state(
-        entry,
-        result,
-        job_dir,
-        load_state_fn=load_state,
-        state_matches_job_fn=state_matches_job,
-    )
-
-
-def _build_state_payload(
-    entry: Any,
-    result: CrestRunResult,
-    *,
-    previous_state: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    return _queue_artifacts.build_state_payload(entry, result, previous_state=previous_state)
-
-
 def _build_report_payload(
     entry: Any,
     result: CrestRunResult,

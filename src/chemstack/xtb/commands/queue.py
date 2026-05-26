@@ -12,6 +12,7 @@ from chemstack.core.queue import child_execution as _child_execution
 from chemstack.core.queue import engine_execution as _engine_execution
 from chemstack.core.queue import execution as _queue_execution
 from chemstack.core.queue.dependencies import ChildQueueWorkerDeps
+from chemstack.core.indexing.engines import resource_dict
 from chemstack.core.admission import (
     activate_reserved_slot,
     reconcile_stale_slots,
@@ -48,7 +49,6 @@ from .. import worker_execution as _worker_execution
 from ..config import default_config_path, load_config
 from ..job_locations import (
     reaction_key_from_job_dir,
-    resource_dict,
     runtime_roots_for_cfg,
     upsert_job_record,
 )

@@ -4,6 +4,7 @@ import argparse
 
 from chemstack import cli_queue
 from chemstack import cli_run_dir
+from chemstack import cli_monitor
 from chemstack import cli_summary
 
 _WORKFLOW_SCAFFOLD_SHORTCUTS = (
@@ -248,6 +249,16 @@ def _add_summary_parser(subparsers: argparse._SubParsersAction[argparse.Argument
     summary_parser.set_defaults(func=cli_summary.cmd_summary)
 
 
+def _add_monitor_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
+    monitor_parser = subparsers.add_parser(
+        "monitor",
+        help="Send ORCA Telegram alerts for newly discovered DFT results or scan failures.",
+    )
+    _add_engine_config_argument(monitor_parser)
+    _add_orca_logging_arguments(monitor_parser)
+    monitor_parser.set_defaults(func=cli_monitor.cmd_orca_monitor)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="chemstack")
     parser.add_argument(
@@ -264,4 +275,5 @@ def build_parser() -> argparse.ArgumentParser:
     _add_scaffold_parser(subparsers)
     _add_organize_parser(subparsers)
     _add_summary_parser(subparsers)
+    _add_monitor_parser(subparsers)
     return parser

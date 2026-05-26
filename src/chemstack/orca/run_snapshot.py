@@ -10,7 +10,7 @@ from chemstack.core.utils import parse_iso_utc as _parse_iso_utc
 from .job_locations import list_job_location_records, resolve_record_job_dir
 
 from .dft_discovery import _find_latest_out_in_dir
-from .pathing import resolve_artifact_path
+from chemstack.core.paths import resolve_artifact_path
 from .state import STATE_FILE_NAME, load_state
 
 _STATUS_ICONS = {

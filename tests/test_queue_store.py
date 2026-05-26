@@ -333,7 +333,3 @@ class TestQueueStore(unittest.TestCase):
         dequeued = dequeue_next(self.root)
         assert dequeued is not None
         self.assertEqual(dequeued.queue_id, e1.queue_id)
-
-
-if __name__ == "__main__":
-    unittest.main()

@@ -489,10 +489,3 @@ def test_build_parser_and_main_cover_worker_and_submit_commands(monkeypatch) -> 
     result = cli.main(["workflow", "list", "--workflow-root", "/tmp/wf", "--json"])
     assert result == 23
     assert captured == {"workflow_root": "/tmp/wf", "json": True}
-
-
-def test_build_parser_rejects_removed_workflow_alias_flags() -> None:
-    parser = cli.build_parser()
-
-    with pytest.raises(SystemExit):
-        parser.parse_args(["workflow", "worker", "--workflow-root", "/tmp/wf", "--orca-repo-root", "/tmp/repo"])

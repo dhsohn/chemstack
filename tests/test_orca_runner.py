@@ -86,7 +86,3 @@ class TestOrcaRunnerTermination(unittest.TestCase):
         terminate.assert_called_once_with(mock_proc)
         self.assertEqual(mock_signal.call_args_list[0].args[0], signal.SIGTERM)
         self.assertEqual(mock_signal.call_args_list[-1], call(signal.SIGTERM, signal.SIG_DFL))
-
-
-if __name__ == "__main__":
-    unittest.main()

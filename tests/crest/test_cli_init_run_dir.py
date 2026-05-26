@@ -12,12 +12,8 @@ from chemstack.core.internal_cli import dispatch_engine_internal_queue_command
 from chemstack.core.queue import list_queue
 
 from chemstack.crest import _internal_cli as cli
-from chemstack.crest.commands import init as init_cmd
-from chemstack.crest.commands import list_jobs as list_cmd
 from chemstack.crest.commands import queue as queue_cmd
-from chemstack.crest.commands import reindex as reindex_cmd
 from chemstack.crest.commands import run_dir as run_dir_cmd
-from chemstack.crest.commands import summary as summary_cmd
 from chemstack.crest.runner import CrestRunResult
 from chemstack.crest.state import load_organized_ref, load_report_json, load_state
 
@@ -49,16 +45,13 @@ def _write_xyz(path: Path, label: str = "sample") -> None:
     path.write_text(f"1\n{label}\nH 0.0 0.0 0.0\n", encoding="utf-8")
 
 
-def test_build_parser_supports_internal_scaffold_run_dir_and_queue_subcommands() -> None:
+def test_build_parser_supports_internal_run_dir_and_queue_subcommands() -> None:
     parser = cli.build_parser()
 
-    scaffold_args = parser.parse_args(["scaffold", "--root", "/tmp/job"])
     run_dir_args = parser.parse_args(["run-dir", "jobs/demo", "--priority", "3"])
     worker_args = parser.parse_args(["queue", "worker"])
     cancel_args = parser.parse_args(["queue", "cancel", "q-123"])
 
-    assert scaffold_args.command == "scaffold"
-    assert scaffold_args.root == "/tmp/job"
     assert run_dir_args.command == "run-dir"
     assert run_dir_args.path == "jobs/demo"
     assert run_dir_args.priority == 3
@@ -74,6 +67,15 @@ def test_build_parser_supports_internal_scaffold_run_dir_and_queue_subcommands()
     with pytest.raises(SystemExit):
         parser.parse_args(["queue", "worker", "--once"])
 
+    for argv in (
+        ["scaffold", "--root", "/tmp/job"],
+        ["list"],
+        ["reindex"],
+        ["summary", "job-123"],
+    ):
+        with pytest.raises(SystemExit):
+            parser.parse_args(argv)
+
     assert cancel_args.command == "queue"
     assert cancel_args.queue_command == "cancel"
     assert cancel_args.target == "q-123"
@@ -82,11 +84,7 @@ def test_build_parser_supports_internal_scaffold_run_dir_and_queue_subcommands()
 @pytest.mark.parametrize(
     ("argv", "command_module", "attr_name", "expected_result"),
     [
-        (["scaffold", "--root", "/tmp/job"], init_cmd, "cmd_init", 11),
         (["run-dir", "/tmp/job"], run_dir_cmd, "cmd_run_dir", 12),
-        (["list"], list_cmd, "cmd_list", 13),
-        (["reindex"], reindex_cmd, "cmd_reindex", 15),
-        (["summary", "job-123"], summary_cmd, "cmd_summary", 16),
     ],
 )
 def test_main_dispatches_top_level_commands(
@@ -302,7 +300,7 @@ def test_cmd_run_dir_reports_duplicate_queue_entries(
     assert len(notifications) == 1
 
 
-def test_cli_end_to_end_smoke_path_submission_worker_organize_and_summary(
+def test_cli_end_to_end_smoke_path_submission_worker_and_index(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -418,14 +416,3 @@ def test_cli_end_to_end_smoke_path_submission_worker_organize_and_summary(
     assert finished_notifications[0]["job_id"] == "crest-e2e-001"
     assert finished_notifications[0]["status"] == "completed"
     assert finished_notifications[0]["organized_output_dir"] is None
-
-    assert cli.main(["--config", str(config_path), "summary", "crest-e2e-001", "--json"]) == 0
-    summary_json = json.loads(capsys.readouterr().out)
-    assert summary_json["target"] == "crest-e2e-001"
-    assert summary_json["job_dir"] == str(job_dir.resolve())
-    assert summary_json["index_record"]["latest_known_path"] == str(job_dir.resolve())
-
-    assert cli.main(["--config", str(config_path), "summary", str(job_dir.resolve())]) == 0
-    summary_text = capsys.readouterr().out
-    assert f"job_dir: {job_dir.resolve()}" in summary_text
-    assert "job_id: crest-e2e-001" in summary_text

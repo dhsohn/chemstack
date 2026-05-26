@@ -59,7 +59,3 @@ class TestOrganizeMessage(unittest.TestCase):
         self.assertIn(plan.target_rel_path, message)
         self.assertIn("apply_failed: boom", message)
         self.assertIn("runs/rxn_skip", message)
-
-
-if __name__ == "__main__":
-    unittest.main()

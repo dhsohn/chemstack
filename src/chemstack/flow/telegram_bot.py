@@ -30,7 +30,7 @@ from chemstack.core.notifications import (
 )
 from chemstack.core.notifications.telegram import urlopen_with_ipv4_fallback
 
-from .activity import _discover_sibling_config, _discover_workflow_root
+from . import _activity_sources
 from .operations import cancel_activity, clear_activities, list_activities
 
 logger = logging.getLogger(__name__)
@@ -69,13 +69,13 @@ def _status_icon(status: str) -> str:
 
 
 def settings_from_env() -> TelegramBotSettings:
-    shared_config = _discover_sibling_config(None, app_name="chemstack")
+    shared_config = _activity_sources.discover_sibling_config(None, app_name="chemstack")
     return TelegramBotSettings(
         telegram=TelegramConfig(
             bot_token=os.getenv("CHEMSTACK_FLOW_TELEGRAM_BOT_TOKEN", "").strip(),
             chat_id=os.getenv("CHEMSTACK_FLOW_TELEGRAM_CHAT_ID", "").strip(),
         ),
-        workflow_root=_discover_workflow_root(None),
+        workflow_root=_activity_sources.discover_workflow_root(None),
         crest_config=shared_config,
         xtb_config=shared_config,
         orca_config=shared_config,
@@ -94,14 +94,16 @@ def _telegram_from_config_path(config_path: str | None) -> TelegramConfig:
 
 
 def settings_from_config(config_path: str | None = None) -> TelegramBotSettings:
-    shared_config = _discover_sibling_config(config_path, app_name="chemstack")
+    shared_config = _activity_sources.discover_sibling_config(config_path, app_name="chemstack")
     telegram = _telegram_from_config_path(shared_config)
     if not telegram.enabled:
         telegram = TelegramConfig(
             bot_token=os.getenv("CHEMSTACK_FLOW_TELEGRAM_BOT_TOKEN", "").strip(),
             chat_id=os.getenv("CHEMSTACK_FLOW_TELEGRAM_CHAT_ID", "").strip(),
         )
-    workflow_root = shared_workflow_root_from_config(shared_config) or _discover_workflow_root(None)
+    workflow_root = shared_workflow_root_from_config(
+        shared_config
+    ) or _activity_sources.discover_workflow_root(None)
     return TelegramBotSettings(
         telegram=telegram,
         workflow_root=workflow_root,

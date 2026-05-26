@@ -3,7 +3,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from chemstack.core.config import engines as _engine_config
-from chemstack.core.config import CommonResourceConfig, CommonRuntimeConfig, TelegramConfig
+from chemstack.core.config import (
+    CommonResourceConfig,
+    CommonRuntimeConfig,
+    EmptyBehaviorConfig as BehaviorConfig,
+    TelegramConfig,
+)
 
 CONFIG_ENV_VAR = "CHEMSTACK_CONFIG"
 
@@ -11,11 +16,6 @@ CONFIG_ENV_VAR = "CHEMSTACK_CONFIG"
 @dataclass(frozen=True)
 class PathsConfig:
     xtb_executable: str = ""
-
-
-@dataclass(frozen=True)
-class BehaviorConfig:
-    pass
 
 
 @dataclass(frozen=True)

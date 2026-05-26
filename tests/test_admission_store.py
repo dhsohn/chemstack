@@ -45,9 +45,8 @@ class TestAdmissionStore(unittest.TestCase):
             ) as token:
                 slots = list_slots(root)
                 self.assertEqual(len(slots), 1)
-                self.assertEqual(slots[0]["token"], token)
-                self.assertEqual(slots[0]["work_dir"], str(reaction_dir))
-                self.assertNotIn("reaction_dir", slots[0])
+                self.assertEqual(slots[0].token, token)
+                self.assertEqual(slots[0].work_dir, str(reaction_dir))
 
             self.assertEqual(active_slot_count(root), 0)
 
@@ -66,9 +65,8 @@ class TestAdmissionStore(unittest.TestCase):
             ) as token:
                 slots = list_slots(root)
                 self.assertEqual(len(slots), 1)
-                self.assertEqual(slots[0]["token"], token)
-                self.assertEqual(slots[0]["work_dir"], str(reaction_dir))
-                self.assertNotIn("reaction_dir", slots[0])
+                self.assertEqual(slots[0].token, token)
+                self.assertEqual(slots[0].work_dir, str(reaction_dir))
 
             self.assertEqual(active_slot_count(root), 0)
 
@@ -111,11 +109,10 @@ class TestAdmissionStore(unittest.TestCase):
             ):
                 slots = list_slots(root)
                 self.assertEqual(len(slots), 1)
-                self.assertEqual(slots[0]["state"], "active")
-                self.assertEqual(slots[0]["work_dir"], str(reaction_dir))
-                self.assertNotIn("reaction_dir", slots[0])
-                self.assertEqual(slots[0]["queue_id"], "q_test")
-                self.assertEqual(slots[0]["source"], "queue_run")
+                self.assertEqual(slots[0].state, "active")
+                self.assertEqual(slots[0].work_dir, str(reaction_dir))
+                self.assertEqual(slots[0].queue_id, "q_test")
+                self.assertEqual(slots[0].source, "queue_run")
 
             self.assertEqual(active_slot_count(root), 0)
 
@@ -144,10 +141,9 @@ class TestAdmissionStore(unittest.TestCase):
             ):
                 slots = list_slots(root)
                 self.assertEqual(len(slots), 1)
-            self.assertEqual(slots[0]["app_name"], "chemstack_orca")
-            self.assertEqual(slots[0]["task_id"], "task_meta_123")
-            self.assertEqual(slots[0]["work_dir"], str(reaction_dir))
-            self.assertNotIn("reaction_dir", slots[0])
+            self.assertEqual(slots[0].app_name, "chemstack_orca")
+            self.assertEqual(slots[0].task_id, "task_meta_123")
+            self.assertEqual(slots[0].work_dir, str(reaction_dir))
 
             self.assertEqual(active_slot_count(root), 0)
 
@@ -159,8 +155,8 @@ class TestAdmissionStore(unittest.TestCase):
             self.assertIsNotNone(token)
             slots = list_slots(root)
             self.assertEqual(len(slots), 1)
-            self.assertEqual(slots[0]["token"], token)
-            self.assertEqual(slots[0]["state"], "reserved")
+            self.assertEqual(slots[0].token, token)
+            self.assertEqual(slots[0].state, "reserved")
 
     def test_reserve_slot_uses_slot_prefix(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -233,7 +229,6 @@ class TestAdmissionStore(unittest.TestCase):
                     "token": "slot_work_dir",
                     "state": "active",
                     "work_dir": str(reaction_dir),
-                    "reaction_dir": str(root / "legacy_duplicate"),
                     "queue_id": "",
                     "owner_pid": os.getpid(),
                     "process_start_ticks": None,
@@ -248,11 +243,8 @@ class TestAdmissionStore(unittest.TestCase):
             slots = list_slots(root)
 
             self.assertEqual(len(slots), 1)
-            self.assertEqual(slots[0]["work_dir"], str(reaction_dir))
-            self.assertNotIn("reaction_dir", slots[0])
-            self.assertEqual(slots[0]["task_id"], "task_123")
-            saved = json.loads((root / ADMISSION_FILE_NAME).read_text(encoding="utf-8"))
-            self.assertNotIn("reaction_dir", saved[0])
+            self.assertEqual(slots[0].work_dir, str(reaction_dir))
+            self.assertEqual(slots[0].task_id, "task_123")
             mock_alive.assert_called()
 
     def test_reserve_slot_keeps_external_run_limit(self) -> None:
@@ -292,10 +284,10 @@ class TestAdmissionStore(unittest.TestCase):
             self.assertTrue(updated)
             slots = list_slots(root)
             self.assertEqual(len(slots), 1)
-            self.assertEqual(slots[0]["queue_id"], "q_123")
-            self.assertEqual(slots[0]["app_name"], "chemstack_orca")
-            self.assertEqual(slots[0]["task_id"], "orca_task_123")
-            self.assertEqual(slots[0]["workflow_id"], "wf_123")
+            self.assertEqual(slots[0].queue_id, "q_123")
+            self.assertEqual(slots[0].app_name, "chemstack_orca")
+            self.assertEqual(slots[0].task_id, "orca_task_123")
+            self.assertEqual(slots[0].workflow_id, "wf_123")
 
     def test_local_store_reports_missing_activation_release_and_metadata_update(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

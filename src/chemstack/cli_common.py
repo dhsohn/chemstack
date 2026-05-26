@@ -17,9 +17,6 @@ def _normalize_text(value: Any) -> str:
     return _coerce_text(value)
 
 
-normalize_text = _normalize_text
-
-
 def _dependency(deps: Any | None, name: str, fallback: Any) -> Any:
     if deps is not None and hasattr(deps, name):
         return getattr(deps, name)

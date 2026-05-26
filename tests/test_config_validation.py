@@ -9,25 +9,6 @@ from chemstack.orca.config import load_config
 
 
 class TestConfigValidation(unittest.TestCase):
-    def test_platform_mode_key_is_rejected(self) -> None:
-        with tempfile.TemporaryDirectory() as td:
-            cfg_path = Path(td) / "chemstack.yaml"
-            cfg_path.write_text(
-                json.dumps(
-                    {
-                        "runtime": {
-                            "platform_mode": "linux_native",
-                            "allowed_root": "/tmp/runs",
-                        },
-                        "paths": {"orca_executable": "/opt/orca/orca"},
-                    }
-                ),
-                encoding="utf-8",
-            )
-            with self.assertRaises(ValueError) as ctx:
-                load_config(str(cfg_path))
-            self.assertIn("runtime.platform_mode is removed", str(ctx.exception))
-
     def test_windows_allowed_root_raises(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             cfg_path = Path(td) / "chemstack.yaml"
@@ -212,31 +193,6 @@ class TestConfigValidation(unittest.TestCase):
             self.assertEqual(cfg.runtime.allowed_root, str(allowed.resolve()))
             self.assertEqual(cfg.paths.orca_executable, str(fake_orca.resolve()))
 
-    def test_removed_default_max_attempts_key_is_rejected(self) -> None:
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            allowed = root / "orca_runs"
-            allowed.mkdir()
-            fake_orca = root / "orca"
-            fake_orca.write_text("#!/bin/sh\n", encoding="utf-8")
-
-            cfg_path = root / "chemstack.yaml"
-            cfg_path.write_text(
-                json.dumps(
-                    {
-                        "runtime": {
-                            "allowed_root": str(allowed),
-                            "default_max_attempts": 3,
-                        },
-                        "paths": {"orca_executable": str(fake_orca)},
-                    }
-                ),
-                encoding="utf-8",
-            )
-            with self.assertRaises(ValueError) as ctx:
-                load_config(str(cfg_path))
-            self.assertIn("runtime.default_max_attempts", str(ctx.exception))
-
     def test_default_max_retries_can_exceed_five(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -261,39 +217,6 @@ class TestConfigValidation(unittest.TestCase):
             cfg = load_config(str(cfg_path))
             self.assertEqual(cfg.runtime.default_max_retries, 9)
             self.assertEqual(cfg.runtime.max_concurrent, 4)
-
-    def test_removed_runtime_scheduler_keys_are_rejected(self) -> None:
-        for key, value in (
-            ("max_concurrent", 7),
-            ("admission_limit", 3),
-            ("admission_max_concurrent", 5),
-            ("admission_root", "/tmp/admission"),
-        ):
-            with self.subTest(key=key):
-                with tempfile.TemporaryDirectory() as td:
-                    root = Path(td)
-                    allowed = root / "orca_runs"
-                    allowed.mkdir()
-                    fake_orca = root / "orca"
-                    fake_orca.write_text("#!/bin/sh\n", encoding="utf-8")
-
-                    cfg_path = root / "chemstack.yaml"
-                    cfg_path.write_text(
-                        json.dumps(
-                            {
-                                "runtime": {
-                                    "allowed_root": str(allowed),
-                                    key: value,
-                                },
-                                "paths": {"orca_executable": str(fake_orca)},
-                            }
-                        ),
-                        encoding="utf-8",
-                    )
-                    with self.assertRaises(ValueError) as ctx:
-                        load_config(str(cfg_path))
-                    self.assertIn("unsupported runtime keys", str(ctx.exception))
-                    self.assertIn(f"runtime.{key}", str(ctx.exception))
 
     def test_resources_section_and_common_runtime_conversion_are_loaded(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -576,7 +499,3 @@ class TestConfigValidation(unittest.TestCase):
             with self.assertRaises(ValueError) as ctx:
                 load_config(str(cfg_path))
             self.assertIn("is not a directory", str(ctx.exception))
-
-
-if __name__ == "__main__":
-    unittest.main()

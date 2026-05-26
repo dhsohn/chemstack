@@ -1,17 +1,23 @@
 from __future__ import annotations
 
+from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from chemstack.core.app_ids import CHEMSTACK_EXECUTABLE
+from chemstack.core.app_ids import (
+    CHEMSTACK_CLI_MODULE,
+    CHEMSTACK_EXECUTABLE,
+    CHEMSTACK_ORCA_INTERNAL_MODULE,
+)
 from chemstack.core.utils import now_utc_iso
 
 from ..registry import sync_workflow_registry
 from ..state import load_workflow_payload, resolve_workflow_workspace, write_workflow_payload
 from . import orca_cancellation as _cancellation
-from . import orca_cli as _cli
 from . import orca_models as _models
 from . import orca_submission as _submission
+from . import sibling_engine
 from .common import (
     normalize_text as _normalize_text,
     parse_key_value_lines as _parse_key_value_lines,
@@ -19,17 +25,52 @@ from .common import (
     run_sibling_app,
 )
 
+_SUBMIT_MODULE_NAME = CHEMSTACK_CLI_MODULE
+_CANCEL_MODULE_NAME = CHEMSTACK_ORCA_INTERNAL_MODULE
+_CANCEL_TIMEOUT_SECONDS = 5.0
+
 _ensure_submission_metadata = _models.ensure_submission_metadata
 _submission_summary_state = _submission.submission_summary_state
 
 
-def _submitter_deps() -> _cli.OrcaCliDeps:
-    return _cli.OrcaCliDeps(
+@dataclass(frozen=True)
+class _OrcaSubmitterDeps:
+    _normalize_text: Callable[[Any], str]
+    run_sibling_app: Callable[..., Any]
+    parse_key_value_lines: Callable[[str], dict[str, str]]
+    queue_submission_status: Callable[..., tuple[str, str]]
+
+
+def _submitter_deps() -> _OrcaSubmitterDeps:
+    return _OrcaSubmitterDeps(
         _normalize_text=_normalize_text,
         run_sibling_app=run_sibling_app,
         parse_key_value_lines=_parse_key_value_lines,
         queue_submission_status=_queue_submission_status,
     )
+
+
+def _submission_tail_argv(
+    *,
+    reaction_dir: str,
+    priority: int,
+    max_cores: int | None = None,
+    max_memory_gb: int | None = None,
+    force: bool = False,
+) -> list[str]:
+    argv = [
+        "run-dir",
+        reaction_dir,
+        "--priority",
+        str(int(priority)),
+    ]
+    if force:
+        argv.append("--force")
+    if max_cores is not None and int(max_cores) > 0:
+        argv.extend(["--max-cores", str(int(max_cores))])
+    if max_memory_gb is not None and int(max_memory_gb) > 0:
+        argv.extend(["--max-memory-gb", str(int(max_memory_gb))])
+    return argv
 
 
 def submit_reaction_dir(
@@ -43,17 +84,41 @@ def submit_reaction_dir(
     executable: str = CHEMSTACK_EXECUTABLE,
     repo_root: str | None = None,
 ) -> dict[str, Any]:
-    return _cli.submit_reaction_dir(
-        deps=_submitter_deps(),
-        reaction_dir=reaction_dir,
-        priority=priority,
-        config_path=config_path,
-        max_cores=max_cores,
-        max_memory_gb=max_memory_gb,
-        force=force,
-        executable=executable,
-        repo_root=repo_root,
+    deps = _submitter_deps()
+    result = deps.run_sibling_app(
+        executable=deps._normalize_text(executable) or CHEMSTACK_EXECUTABLE,
+        config_path=deps._normalize_text(config_path),
+        repo_root=deps._normalize_text(repo_root) or None,
+        module_name=_SUBMIT_MODULE_NAME,
+        tail_argv=_submission_tail_argv(
+            reaction_dir=reaction_dir,
+            priority=priority,
+            max_cores=max_cores,
+            max_memory_gb=max_memory_gb,
+            force=force,
+        ),
     )
+    parsed = deps.parse_key_value_lines(result.stdout)
+    status, reason = deps.queue_submission_status(
+        returncode=int(result.returncode),
+        parsed_stdout=parsed,
+        stdout=result.stdout,
+        stderr=result.stderr,
+    )
+    argv = list(result.args) if isinstance(result.args, (list, tuple)) else [str(result.args)]
+    return {
+        "status": status,
+        "reason": reason,
+        "returncode": int(result.returncode),
+        "command_argv": argv,
+        "stdout": result.stdout,
+        "stderr": result.stderr,
+        "parsed_stdout": parsed,
+        "queue_id": parsed.get("queue_id", ""),
+        "reaction_dir": parsed.get("job_dir") or parsed.get("reaction_dir", reaction_dir),
+        "priority": int(priority),
+        "force": bool(force),
+    }
 
 
 def cancel_target(
@@ -63,12 +128,15 @@ def cancel_target(
     executable: str = CHEMSTACK_EXECUTABLE,
     repo_root: str | None = None,
 ) -> dict[str, Any]:
-    return _cli.cancel_target(
-        deps=_submitter_deps(),
+    deps = _submitter_deps()
+    return sibling_engine.orca_cancel_target(
+        deps=deps,
+        executable=deps._normalize_text(executable) or CHEMSTACK_EXECUTABLE,
         target=target,
         config_path=config_path,
-        executable=executable,
         repo_root=repo_root,
+        module_name=_CANCEL_MODULE_NAME,
+        timeout_seconds=_CANCEL_TIMEOUT_SECONDS,
     )
 
 

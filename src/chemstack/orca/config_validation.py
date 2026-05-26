@@ -8,7 +8,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from .pathing import is_subpath, is_rejected_windows_path
+from chemstack.core.paths import is_rejected_windows_path, is_subpath
 
 
 def _as_int(value: Any, default: int) -> int:

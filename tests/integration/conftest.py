@@ -229,77 +229,65 @@ def spawn_app(smoke_workspace: SmokeWorkspace):
     return _spawn
 
 
-def _init_job(
-    app_runner,
-    *,
-    repo_root: Path,
-    config_path: Path,
-    module_name: str,
-    job_dir: Path,
-    extra_args: list[str] | None = None,
-) -> None:
-    result = app_runner(
-        repo_root,
-        module_name,
-        "--config",
-        str(config_path),
-        "init",
-        "--root",
-        str(job_dir),
-        *(extra_args or []),
+def _write_xyz(path: Path, *, comment: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "\n".join(
+            [
+                "3",
+                comment,
+                "O 0.000000 0.000000 0.000000",
+                "H 0.000000 0.000000 0.970000",
+                "H 0.000000 0.750000 -0.240000",
+                "",
+            ]
+        ),
+        encoding="utf-8",
     )
-    assert result.returncode == 0, result.stderr or result.stdout
 
 
 @pytest.fixture
 def xtb_opt_job(smoke_workspace: SmokeWorkspace, app_runner) -> Path:
     job_dir = smoke_workspace.xtb_allowed_root / "manual_xtb"
-    result = app_runner(
-        smoke_workspace.repo_root,
-        "chemstack.xtb._internal_cli",
-        "--config",
-        str(smoke_workspace.xtb_config_path),
-        "scaffold",
-        "--root",
-        str(job_dir),
-        "--job-type",
-        "opt",
+    _write_xyz(job_dir / "input.xyz", comment="manual xTB opt")
+    (job_dir / "xtb_job.yaml").write_text(
+        "job_type: opt\ngfn: 2\ncharge: 0\nuhf: 0\ninput_xyz: input.xyz\ndry_run: true\n",
+        encoding="utf-8",
     )
-    assert result.returncode == 0, result.stderr or result.stdout
     return job_dir
 
 
 @pytest.fixture
 def xtb_path_search_job(smoke_workspace: SmokeWorkspace, app_runner) -> Path:
     job_dir = smoke_workspace.xtb_allowed_root / "manual_path_search"
-    result = app_runner(
-        smoke_workspace.repo_root,
-        "chemstack.xtb._internal_cli",
-        "--config",
-        str(smoke_workspace.xtb_config_path),
-        "scaffold",
-        "--root",
-        str(job_dir),
-        "--job-type",
-        "path_search",
+    _write_xyz(job_dir / "reactants" / "r1.xyz", comment="manual xTB reactant")
+    _write_xyz(job_dir / "products" / "p1.xyz", comment="manual xTB product")
+    (job_dir / "xtb_job.yaml").write_text(
+        "\n".join(
+            [
+                "job_type: path_search",
+                "gfn: 2",
+                "charge: 0",
+                "uhf: 0",
+                "reactant_xyz: r1.xyz",
+                "product_xyz: p1.xyz",
+                "dry_run: true",
+                "",
+            ]
+        ),
+        encoding="utf-8",
     )
-    assert result.returncode == 0, result.stderr or result.stdout
     return job_dir
 
 
 @pytest.fixture
 def crest_job(smoke_workspace: SmokeWorkspace, app_runner) -> Path:
     job_dir = smoke_workspace.crest_allowed_root / "manual_crest"
-    result = app_runner(
-        smoke_workspace.repo_root,
-        "chemstack.crest._internal_cli",
-        "--config",
-        str(smoke_workspace.crest_config_path),
-        "scaffold",
-        "--root",
-        str(job_dir),
+    _write_xyz(job_dir / "input.xyz", comment="manual CREST input")
+    (job_dir / "crest_job.yaml").write_text(
+        "mode: standard\nspeed: quick\ngfn: 2\ninput_xyz: input.xyz\n",
+        encoding="utf-8",
     )
-    assert result.returncode == 0, result.stderr or result.stdout
     return job_dir
 
 

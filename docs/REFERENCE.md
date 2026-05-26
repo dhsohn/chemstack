@@ -97,9 +97,7 @@ commands:
 - `scaffold <ts_search|conformer_search>`
 - `organize orca`
 - `summary orca`
-
-ORCA-only commands that are not yet unified, such as `monitor`, still live
-under `python -m chemstack.orca.cli ...`.
+- `monitor`
 Activate `.venv` first, or call `.venv/bin/chemstack ...` directly.
 By default, config is resolved from `CHEMSTACK_CONFIG`, then `<repo_root>/config/chemstack.yaml`, then `~/chemstack/config/chemstack.yaml`.
 Add `--config <path>` only when you want to override default config discovery.
@@ -175,9 +173,8 @@ should be documented through `chemstack ...`.
 
 Compatibility note:
 
-- `python -m chemstack.orca.cli` remains a thin wrapper for the public ORCA commands below.
+- ORCA public commands are exposed through `chemstack ...`; the old ORCA module CLI was removed.
 - Standalone xTB and CREST CLI commands were removed. xTB and CREST now run as internal workflow/runtime engines.
-- `python -m chemstack.orca.cli monitor` remains an engine-specific entrypoint.
 
 ### 7.1 `init`
 
@@ -292,7 +289,17 @@ Behavior:
 
 - `summary orca` prints or sends the ORCA Telegram digest
 
-### 7.7 Long-Running Services
+### 7.7 `monitor`
+
+```bash
+chemstack monitor
+```
+
+Behavior:
+
+- `monitor` scans the configured ORCA root and sends Telegram discovery alerts
+
+### 7.8 Long-Running Services
 
 Long-running worker and Telegram bot processes are managed through `systemd`
 only. Public CLI commands do not start those services directly.

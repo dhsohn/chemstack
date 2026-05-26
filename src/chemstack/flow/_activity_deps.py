@@ -8,16 +8,6 @@ from ._activity_model import ActivityListRequest, ActivityRecord, ResolvedActivi
 
 
 @dataclass(frozen=True)
-class ActivitySourceDeps:
-    _project_root: Any
-    _resolve_existing_path: Any
-    _discover_workflow_root: Any
-    _discover_sibling_config: Any
-    _discover_orca_config: Any
-    _shared_config_hint: Any
-
-
-@dataclass(frozen=True)
 class OrcaActivityDeps:
     sibling_runtime_paths: Any
     _unique_texts: Any
@@ -42,6 +32,5 @@ class ActivityListProvider:
 __all__ = [
     "ActivityCancelDeps",
     "ActivityListProvider",
-    "ActivitySourceDeps",
     "OrcaActivityDeps",
 ]

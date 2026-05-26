@@ -10,6 +10,7 @@ from chemstack.orca.admission_store import (
     ADMISSION_APP_NAME_ENV_VAR,
     ADMISSION_TASK_ID_ENV_VAR,
     ADMISSION_TOKEN_ENV_VAR,
+    AdmissionSlot,
     acquire_direct_slot,
     active_slot_count,
     list_slots,
@@ -136,12 +137,12 @@ class TestRunInpAdmission(unittest.TestCase):
 
             token = reserve_slot(root, 1, queue_id="q_meta", source="queue_worker")
             self.assertIsNotNone(token)
-            observed_slots: list[dict[str, object]] = []
+            observed_slots: list[AdmissionSlot] = []
 
             def _fake_run_attempts(*args, **kwargs) -> int:
                 slots = list_slots(root)
                 self.assertEqual(len(slots), 1)
-                observed_slots.append(dict(slots[0]))
+                observed_slots.append(slots[0])
                 return 0
 
             with patch("chemstack.orca.commands.run_inp.run_attempts", new=_fake_run_attempts), patch.dict(
@@ -157,10 +158,9 @@ class TestRunInpAdmission(unittest.TestCase):
 
             self.assertEqual(rc, 0)
             self.assertEqual(len(observed_slots), 1)
-            self.assertEqual(observed_slots[0]["app_name"], "chemstack_orca")
-            self.assertEqual(observed_slots[0]["task_id"], "task_meta_456")
-            self.assertEqual(observed_slots[0]["work_dir"], str(reaction_dir))
-            self.assertNotIn("reaction_dir", observed_slots[0])
+            self.assertEqual(observed_slots[0].app_name, "chemstack_orca")
+            self.assertEqual(observed_slots[0].task_id, "task_meta_456")
+            self.assertEqual(observed_slots[0].work_dir, str(reaction_dir))
             self.assertEqual(active_slot_count(root), 0)
             state = json.loads((reaction_dir / "run_state.json").read_text(encoding="utf-8"))
             self.assertEqual(state["job_id"], "task_meta_456")
@@ -211,7 +211,3 @@ class TestRunInpAdmission(unittest.TestCase):
 
             self.assertEqual(rc, 1)
             self.assertEqual(active_slot_count(root), 0)
-
-
-if __name__ == "__main__":
-    unittest.main()

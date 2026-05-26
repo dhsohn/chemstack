@@ -234,30 +234,3 @@ def run_engine_worker_lifecycle(
         active_queue_root,
     )
     return lifecycle.build_outcome(context, result, organized_output_dir)
-
-
-def process_dequeued_engine_entry(
-    cfg: Any,
-    entry: Any,
-    *,
-    queue_root: Path | None,
-    build_context_fn: Callable[[Any, Any], Any],
-    check_shutdown_fn: Callable[[Any], None] | None,
-    mark_running_fn: Callable[[Any, Any], None],
-    run_job_fn: Callable[[Any, Any, Path], Any],
-    finalize_entry_fn: Callable[[Any, Any, Any, Path], Any],
-    build_outcome_fn: Callable[[Any, Any, Any], Any],
-) -> Any:
-    return run_engine_worker_lifecycle(
-        cfg,
-        entry,
-        queue_root=queue_root,
-        lifecycle=EngineWorkerLifecycle(
-            build_context=build_context_fn,
-            check_shutdown=check_shutdown_fn,
-            mark_running=mark_running_fn,
-            run_job=run_job_fn,
-            finalize_entry=finalize_entry_fn,
-            build_outcome=build_outcome_fn,
-        ),
-    )

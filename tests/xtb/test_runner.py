@@ -15,6 +15,7 @@ from chemstack.core.config import CommonResourceConfig, CommonRuntimeConfig, Tel
 from chemstack.xtb import runner as runner_mod
 from chemstack.xtb import runner_artifacts
 from chemstack.xtb import runner_execution as runner_execution_mod
+from chemstack.xtb import runner_ranking
 from chemstack.xtb.config import AppConfig, PathsConfig
 
 
@@ -286,7 +287,7 @@ def test_runner_helper_functions_cover_invalid_and_fallback_paths(
         runner_mod._manifest_int({"charge": object()}, "charge")
 
     assert runner_artifacts._safe_float("not-a-number") is None
-    assert runner_mod._ranking_top_n({"top_n": "bad"}) == 3
+    assert runner_ranking.ranking_top_n({"top_n": "bad"}) == 3
 
     job_dir = tmp_path / "job"
     job_dir.mkdir()

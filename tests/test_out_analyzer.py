@@ -159,7 +159,3 @@ class TestOutAnalyzer(unittest.TestCase):
         self.assertEqual(result.status, "completed")
         self.assertEqual(result.reason, "normal_termination")
         self.assertTrue(result.markers["total_run_time_seen"])
-
-
-if __name__ == "__main__":
-    unittest.main()

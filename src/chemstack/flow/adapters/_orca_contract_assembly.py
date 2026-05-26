@@ -8,58 +8,13 @@ from chemstack.core.app_ids import CHEMSTACK_ORCA_APP_NAME
 from chemstack.orca import _job_location_contract_payload as _canonical_payload
 
 from . import _orca_contract_context as _contract_context
-from . import _orca_contract_status as _contract_status_helpers
+from ._orca_contract_status import StatusPayload
 
 ContractPayload = dict[str, Any]
 StatusTuple = tuple[str, str, str, str]
 NormalizeTextFn = Callable[[Any], str]
 NormalizeBoolFn = Callable[[Any], bool]
 SafeIntFn = Callable[[Any, int], int]
-
-
-def attempt_count_impl(
-    state: ContractPayload,
-    report: ContractPayload,
-    *,
-    safe_int_fn: SafeIntFn,
-) -> int:
-    return _contract_status_helpers.attempt_count_impl(
-        state,
-        report,
-        safe_int_fn=safe_int_fn,
-    )
-
-
-def max_retries_impl(
-    state: ContractPayload,
-    report: ContractPayload,
-    *,
-    safe_int_fn: SafeIntFn,
-) -> int:
-    return _contract_status_helpers.max_retries_impl(
-        state,
-        report,
-        safe_int_fn=safe_int_fn,
-    )
-
-
-def coerce_attempts_impl(
-    state: ContractPayload,
-    report: ContractPayload,
-    *,
-    normalize_text_fn: NormalizeTextFn,
-    safe_int_fn: SafeIntFn,
-) -> tuple[ContractPayload, ...]:
-    return _contract_status_helpers.coerce_attempts_impl(
-        state,
-        report,
-        normalize_text_fn=normalize_text_fn,
-        safe_int_fn=safe_int_fn,
-    )
-
-
-def final_result_payload_impl(state: ContractPayload, report: ContractPayload) -> ContractPayload:
-    return _contract_status_helpers.final_result_payload_impl(state, report)
 
 
 @dataclass(frozen=True)
@@ -168,63 +123,6 @@ class _ContractPayloadDeps:
         self, state: ContractPayload, report: ContractPayload
     ) -> ContractPayload:
         return self._deps.final_result_payload_fn(state, report)
-
-
-_StatusPayload = _contract_status_helpers.StatusPayload
-
-
-def status_from_payloads_impl(
-    *,
-    queue_entry: ContractPayload | None,
-    state: ContractPayload,
-    report: ContractPayload,
-    normalize_text_fn: NormalizeTextFn,
-    normalize_bool_fn: NormalizeBoolFn,
-) -> StatusTuple:
-    return _contract_status_helpers.status_from_payloads_impl(
-        queue_entry=queue_entry,
-        state=state,
-        report=report,
-        normalize_text_fn=normalize_text_fn,
-        normalize_bool_fn=normalize_bool_fn,
-    )
-
-
-def _status_payload(
-    *,
-    queue_entry: ContractPayload | None,
-    state: ContractPayload,
-    report: ContractPayload,
-    normalize_text_fn: NormalizeTextFn,
-    normalize_bool_fn: NormalizeBoolFn,
-) -> _StatusPayload:
-    return _contract_status_helpers.status_payload(
-        queue_entry=queue_entry,
-        state=state,
-        report=report,
-        normalize_text_fn=normalize_text_fn,
-        normalize_bool_fn=normalize_bool_fn,
-    )
-
-
-def _final_status_source(state: ContractPayload, report: ContractPayload) -> ContractPayload:
-    return _contract_status_helpers.final_status_source(state, report)
-
-
-def _resolve_status(
-    final_status: str,
-    queue_status: str,
-    cancel_requested: bool,
-    state_status: str,
-    report_status: str,
-) -> str:
-    return _contract_status_helpers.resolve_status(
-        final_status,
-        queue_status,
-        cancel_requested,
-        state_status,
-        report_status,
-    )
 
 
 def load_orca_artifact_contract_impl(
@@ -381,7 +279,7 @@ def _latest_known_path(
     return deps.normalize_text_fn(request.target)
 
 
-def _contract_status(context: _LoaderContext, deps: OrcaContractLoaderDeps) -> _StatusPayload:
+def _contract_status(context: _LoaderContext, deps: OrcaContractLoaderDeps) -> StatusPayload:
     status, analyzer_status, reason, completed_at = deps.status_from_payloads_fn(
         queue_entry=context.queue_entry,
         state=context.state,
@@ -392,7 +290,7 @@ def _contract_status(context: _LoaderContext, deps: OrcaContractLoaderDeps) -> _
     ).lower()
     if status == "unknown" and tracked_status:
         status = tracked_status
-    return _StatusPayload(status, analyzer_status, reason, completed_at)
+    return StatusPayload(status, analyzer_status, reason, completed_at)
 
 
 def _artifact_paths(
@@ -504,11 +402,6 @@ def _existing_child_path(current_dir: Path | None, filename: str) -> str:
 
 __all__ = [
     "OrcaContractLoaderDeps",
-    "attempt_count_impl",
-    "coerce_attempts_impl",
     "contract_from_orca_payload_impl",
-    "final_result_payload_impl",
     "load_orca_artifact_contract_impl",
-    "max_retries_impl",
-    "status_from_payloads_impl",
 ]

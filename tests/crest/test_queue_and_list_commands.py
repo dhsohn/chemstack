@@ -9,7 +9,7 @@ import pytest
 from chemstack.core.queue import dequeue_next, enqueue, list_queue, request_cancel
 from chemstack.core.queue.types import QueueStatus
 
-from chemstack.crest.commands import list_jobs, queue as queue_cmd
+from chemstack.crest.commands import queue as queue_cmd
 
 
 @pytest.fixture
@@ -66,56 +66,6 @@ def _enqueue_job(
         priority=priority,
         metadata=metadata,
     )
-
-
-@pytest.mark.parametrize(
-    ("cancel_requested", "status_value", "expected"),
-    [
-        (True, "running", "cancel_requested"),
-        (False, "pending", "pending"),
-    ],
-)
-def test_list_display_status(cancel_requested: bool, status_value: str, expected: str) -> None:
-    entry = SimpleNamespace(
-        cancel_requested=cancel_requested,
-        status=SimpleNamespace(value=status_value),
-    )
-
-    assert list_jobs._display_status(entry) == expected
-
-
-def test_cmd_list_prints_no_jobs_message(
-    command_env: SimpleNamespace,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    result = list_jobs.cmd_list(SimpleNamespace(config=str(command_env.config_path)))
-
-    assert result == 0
-    assert capsys.readouterr().out == "No CREST jobs found.\n"
-
-
-def test_cmd_list_prints_queue_rows_with_status_and_directory_names(
-    command_env: SimpleNamespace,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    running = _enqueue_job(command_env, task_id="job-running")
-    dequeue_next(command_env.allowed_root)
-    request_cancel(command_env.allowed_root, running.queue_id)
-    pending = _enqueue_job(command_env, task_id="job-pending", with_job_dir=False)
-
-    result = list_jobs.cmd_list(SimpleNamespace(config=str(command_env.config_path)))
-
-    assert result == 0
-    output_lines = capsys.readouterr().out.splitlines()
-    assert output_lines[0] == "CREST queue: 2 entries"
-    assert output_lines[2].startswith("QUEUE ID")
-
-    running_line = next(line for line in output_lines if running.queue_id in line)
-    pending_line = next(line for line in output_lines if pending.queue_id in line)
-    assert "cancel_requested" in running_line
-    assert running_line.rstrip().endswith("job-running")
-    assert "pending" in pending_line
-    assert pending_line.rstrip().endswith("-")
 
 
 @pytest.mark.parametrize(

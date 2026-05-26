@@ -227,7 +227,7 @@ def test_submit_reaction_ts_search_workflow_records_skipped_only_summary_without
                     "enqueue_payload": {
                         "reaction_dir": "/tmp/rxn_skip",
                         "priority": 3,
-                        "submitter": "chemstack_orca_cli",
+                        "submitter": "chemstack_orca",
                     },
                 },
             }
@@ -305,7 +305,7 @@ def test_submit_reaction_ts_search_workflow_records_failed_only_summary(
                     "enqueue_payload": {
                         "reaction_dir": "/tmp/rxn_failed",
                         "priority": 11,
-                        "submitter": "chemstack_orca_cli",
+                        "submitter": "chemstack_orca",
                     },
                 },
             }
@@ -427,7 +427,7 @@ def test_cancel_reaction_ts_search_workflow_records_failed_only_summary_for_edge
                     "status": "planned",
                     "enqueue_payload": {
                         "reaction_dir": "/tmp/terminal",
-                        "submitter": "chemstack_orca_cli",
+                        "submitter": "chemstack_orca",
                     },
                 },
             },

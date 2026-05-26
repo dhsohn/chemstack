@@ -29,6 +29,11 @@ class CommonResourceConfig:
 
 
 @dataclass(frozen=True)
+class EmptyBehaviorConfig:
+    pass
+
+
+@dataclass(frozen=True)
 class TelegramConfig:
     bot_token: str = ""
     chat_id: str = ""

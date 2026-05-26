@@ -9,15 +9,17 @@ import pytest
 
 from chemstack.flow.contracts import WorkflowStageInput
 from chemstack.flow._orchestration_deps import orchestration_deps
+from chemstack.flow._orchestration_lifecycle import (
+    downstream_terminal_result_impl,
+    effective_stage_status_impl,
+    latest_child_stage_summary_impl,
+)
 from chemstack.flow.orchestration import (
     _append_unique_artifact,
     _clear_reaction_xtb_handoff_error_if_recovering,
     _completed_crest_roles,
     _completed_crest_stage,
     _completed_orca_stage,
-    _downstream_terminal_result,
-    _effective_stage_status,
-    _latest_child_stage_summary,
     _load_config_organized_root,
     _load_config_root,
     _reaction_orca_allows_next_candidate,
@@ -31,6 +33,10 @@ from chemstack.flow.orchestration import (
     _xtb_handoff_status,
 )
 from chemstack.flow import orchestration
+
+
+def _normalize_text(value: Any) -> str:
+    return str(value or "").strip()
 
 
 def test_workflow_sync_only_and_active_children_cover_stage_task_and_downstream(
@@ -68,7 +74,7 @@ def test_latest_child_stage_summary_and_terminal_result_extract_relevant_fields(
         {"stage_id": "s3", "status": "queued", "task_status": "queued", "completed_at": "2026-04-19T00:05:00+00:00"},
     ]
 
-    summary = _latest_child_stage_summary(stage_summaries)
+    summary = latest_child_stage_summary_impl(stage_summaries, normalize_text_fn=_normalize_text)
 
     assert summary == {
         "stage_id": "s2",
@@ -86,9 +92,10 @@ def test_latest_child_stage_summary_and_terminal_result_extract_relevant_fields(
         "completed_at": "2026-04-19T00:10:00+00:00",
     }
 
-    terminal = _downstream_terminal_result(
+    terminal = downstream_terminal_result_impl(
         {"metadata": {"workflow_error": {"reason": "boom", "scope": "orca"}}},
         {"status": "failed", "stage_summaries": stage_summaries},
+        normalize_text_fn=_normalize_text,
     )
     assert terminal == {
         "status": "failed",
@@ -96,7 +103,11 @@ def test_latest_child_stage_summary_and_terminal_result_extract_relevant_fields(
         "failure_reason": "boom",
         "failure_scope": "orca",
     }
-    assert _downstream_terminal_result({}, {"status": "running", "stage_summaries": []}) == {}
+    assert downstream_terminal_result_impl(
+        {},
+        {"status": "running", "stage_summaries": []},
+        normalize_text_fn=_normalize_text,
+    ) == {}
 
 
 def test_submission_target_and_config_roots_follow_precedence() -> None:
@@ -198,8 +209,16 @@ def test_stage_candidate_and_failure_helpers_cover_recoverable_paths() -> None:
     assert _stage_failure_is_recoverable(xtb_stage) is True
     assert _stage_failure_is_recoverable(orca_stage) is True
     assert _stage_failure_is_recoverable(plain_stage) is False
-    assert _effective_stage_status(xtb_stage) == "completed"
-    assert _effective_stage_status({"status": "running"}) == "running"
+    assert effective_stage_status_impl(
+        xtb_stage,
+        normalize_text_fn=_normalize_text,
+        stage_failure_is_recoverable_fn=_stage_failure_is_recoverable,
+    ) == "completed"
+    assert effective_stage_status_impl(
+        {"status": "running"},
+        normalize_text_fn=_normalize_text,
+        stage_failure_is_recoverable_fn=_stage_failure_is_recoverable,
+    ) == "running"
 
     failing_orca: dict[str, Any] = {
         "status": "failed",

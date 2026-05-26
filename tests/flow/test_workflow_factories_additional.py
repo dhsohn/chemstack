@@ -104,7 +104,7 @@ def test_create_reaction_ts_search_workflow_materializes_two_crest_stages(
     _write_xyz(product_xyz, [("H", 0.1, 0.0, 0.0), ("O", 0.0, 0.0, 0.96)])
     sync_calls: list[str] = []
 
-    monkeypatch.setattr(orchestration, "_workflow_id", lambda prefix: "wf_reaction_extra")
+    monkeypatch.setattr(orchestration, "timestamped_token", lambda prefix: "wf_reaction_extra")
     monkeypatch.setattr(orchestration, "now_utc_iso", lambda: "2026-04-19T16:10:00+00:00")
     monkeypatch.setattr(orchestration, "sync_workflow_registry", lambda workflow_root, workspace_dir, payload: sync_calls.append(payload["workflow_id"]))
 
@@ -159,7 +159,7 @@ def test_single_input_crest_workflow_factories_materialize_expected_stage(
     _write_xyz(input_xyz, [("H", 0.0, 0.0, 0.0), ("H", 0.0, 0.0, 0.74)])
     sync_calls: list[str] = []
 
-    monkeypatch.setattr(orchestration, "_workflow_id", lambda prefix: workflow_id)
+    monkeypatch.setattr(orchestration, "timestamped_token", lambda prefix: workflow_id)
     monkeypatch.setattr(orchestration, "now_utc_iso", lambda: "2026-04-19T16:20:00+00:00")
     monkeypatch.setattr(orchestration, "sync_workflow_registry", lambda workflow_root, workspace_dir, payload: sync_calls.append(payload["workflow_id"]))
 
@@ -197,7 +197,7 @@ def test_create_conformer_screening_nci_workflow_writes_expected_request_shape(
     _write_xyz(input_xyz, [("H", 0.0, 0.0, 0.0), ("O", 0.0, 0.0, 0.96)])
     sync_calls: list[str] = []
 
-    monkeypatch.setattr(orchestration, "_workflow_id", lambda prefix: "wf_conf_nci_extra")
+    monkeypatch.setattr(orchestration, "timestamped_token", lambda prefix: "wf_conf_nci_extra")
     monkeypatch.setattr(orchestration, "now_utc_iso", lambda: "2026-04-19T16:30:00+00:00")
     monkeypatch.setattr(orchestration, "sync_workflow_registry", lambda workflow_root, workspace_dir, payload: sync_calls.append(payload["workflow_id"]))
 
@@ -246,7 +246,7 @@ def test_create_conformer_screening_workflow_defaults_to_twenty_orca_children(
     input_xyz = tmp_path / "default_conf.xyz"
     _write_xyz(input_xyz, [("H", 0.0, 0.0, 0.0), ("H", 0.0, 0.0, 0.74)])
 
-    monkeypatch.setattr(orchestration, "_workflow_id", lambda prefix: "wf_conf_default_20")
+    monkeypatch.setattr(orchestration, "timestamped_token", lambda prefix: "wf_conf_default_20")
     monkeypatch.setattr(orchestration, "now_utc_iso", lambda: "2026-04-22T10:00:00+00:00")
     monkeypatch.setattr(orchestration, "sync_workflow_registry", lambda workflow_root, workspace_dir, payload: None)
 
@@ -267,7 +267,7 @@ def test_create_reaction_ts_search_workflow_uses_explicit_workflow_id(
     _write_xyz(reactant_xyz, [("H", 0.0, 0.0, 0.0), ("H", 0.0, 0.0, 0.74)])
     _write_xyz(product_xyz, [("H", 0.1, 0.0, 0.0), ("H", 0.0, 0.0, 0.74)])
 
-    monkeypatch.setattr(orchestration, "_workflow_id", lambda prefix: "wf_should_not_be_used")
+    monkeypatch.setattr(orchestration, "timestamped_token", lambda prefix: "wf_should_not_be_used")
     monkeypatch.setattr(orchestration, "now_utc_iso", lambda: "2026-04-24T00:00:00+00:00")
     monkeypatch.setattr(orchestration, "sync_workflow_registry", lambda workflow_root, workspace_dir, payload: None)
 
@@ -293,7 +293,7 @@ def test_workflow_factories_preserve_engine_manifest_overrides(
     _write_xyz(product_xyz, [("H", 0.1, 0.0, 0.0), ("O", 0.0, 0.0, 0.96)])
     _write_xyz(input_xyz, [("H", 0.0, 0.0, 0.0), ("H", 0.0, 0.0, 0.74)])
 
-    monkeypatch.setattr(orchestration, "_workflow_id", lambda prefix: f"{prefix}_with_manifest")
+    monkeypatch.setattr(orchestration, "timestamped_token", lambda prefix: f"{prefix}_with_manifest")
     monkeypatch.setattr(orchestration, "now_utc_iso", lambda: "2026-04-19T17:00:00+00:00")
     monkeypatch.setattr(orchestration, "sync_workflow_registry", lambda workflow_root, workspace_dir, payload: None)
 

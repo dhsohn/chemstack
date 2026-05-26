@@ -14,7 +14,7 @@ from chemstack.core.queue.types import QueueStatus
 
 
 def _run_main(argv: list[str]) -> int:
-    from chemstack.orca.cli import main
+    from chemstack.cli import main
 
     return main(argv)
 
@@ -187,7 +187,3 @@ class TestIntegrationCliFlow(unittest.TestCase):
         self.assertEqual(queue_entries, [])
         self.assertEqual(state["status"], "completed")
         self.assertEqual(state["final_result"]["reason"], "existing_out_completed")
-
-
-if __name__ == "__main__":
-    unittest.main()

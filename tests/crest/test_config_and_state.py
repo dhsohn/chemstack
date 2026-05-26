@@ -186,21 +186,6 @@ def test_load_config_applies_defaults_for_missing_or_invalid_sections(tmp_path: 
     assert cfg.telegram.chat_id == ""
 
 
-def test_load_config_rejects_removed_runtime_scheduler_keys(tmp_path: Path) -> None:
-    config_path = _write_config(
-        tmp_path / "chemstack.yaml",
-        """
-        crest:
-          runtime:
-            allowed_root: /tmp/runs
-            max_concurrent: 2
-        """,
-    )
-
-    with pytest.raises(ValueError, match=r"Config is missing workflow\.root"):
-        config_mod.load_config(str(config_path))
-
-
 def test_load_config_rejects_missing_file(tmp_path: Path) -> None:
     missing_path = tmp_path / "missing.yaml"
 

@@ -1,3 +1,8 @@
-from .schema import CommonResourceConfig, CommonRuntimeConfig, TelegramConfig
+from .schema import CommonResourceConfig, CommonRuntimeConfig, EmptyBehaviorConfig, TelegramConfig
 
-__all__ = ["CommonResourceConfig", "CommonRuntimeConfig", "TelegramConfig"]
+__all__ = [
+    "CommonResourceConfig",
+    "CommonRuntimeConfig",
+    "EmptyBehaviorConfig",
+    "TelegramConfig",
+]

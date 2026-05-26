@@ -1,1 +1,0 @@
-"""ChemStack test package."""

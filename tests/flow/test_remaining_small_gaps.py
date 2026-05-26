@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from chemstack.flow import _registry_notifications as registry_notifications
 from chemstack.flow import cli_workflow, registry, xyz_utils
 from chemstack.flow.adapters import crest as crest_adapter
 from chemstack.flow.adapters import orca as orca_adapter
@@ -133,13 +134,17 @@ def test_registry_notification_and_resolution_remaining_edges(
     tmp_path: Path,
 ) -> None:
     sent: list[str] = []
-    monkeypatch.setattr(registry, "_journal_notification_enabled", lambda event_type: False)
-    monkeypatch.setattr(registry, "_telegram_transport_from_env", lambda: SimpleNamespace(send_text=lambda text: sent.append(text)))
+    monkeypatch.setattr(registry_notifications, "journal_notification_enabled", lambda event_type: False)
+    monkeypatch.setattr(
+        registry_notifications,
+        "telegram_transport_from_env",
+        lambda: SimpleNamespace(send_text=lambda text: sent.append(text)),
+    )
     registry._maybe_notify_journal_event({"event_type": "worker_started"}, tmp_path)
     assert sent == []
 
-    monkeypatch.setattr(registry, "_journal_notification_enabled", lambda event_type: True)
-    monkeypatch.setattr(registry, "_telegram_transport_from_env", lambda: None)
+    monkeypatch.setattr(registry_notifications, "journal_notification_enabled", lambda event_type: True)
+    monkeypatch.setattr(registry_notifications, "telegram_transport_from_env", lambda: None)
     registry._maybe_notify_journal_event({"event_type": "worker_started"}, tmp_path)
     assert sent == []
 

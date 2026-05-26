@@ -5,10 +5,8 @@ from pathlib import Path
 from typing import Any, cast
 
 from chemstack.core.utils import (
-    mapping_or_empty as _shared_mapping_or_empty,
-    normalize_text as _shared_normalize_text,
+    normalize_text,
     now_utc_iso,
-    safe_int as _shared_safe_int,
     timestamped_token,
 )
 
@@ -29,9 +27,7 @@ from ._orchestration_requests import (
 )
 from ._orchestration_deps import OrchestrationDeps
 from ._orchestration_lifecycle import (
-    downstream_terminal_result_impl,
     effective_stage_status_impl,
-    latest_child_stage_summary_impl,
     recompute_workflow_status_impl,
     stage_failure_is_recoverable_impl,
     workflow_has_active_children_impl,
@@ -90,7 +86,6 @@ from .adapters import (
 )
 from .contracts import (
     CrestDownstreamPolicy,
-    WorkflowStage,
     WorkflowStageInput,
     XtbDownstreamPolicy,
 )
@@ -120,13 +115,6 @@ from .workflow_notifications import maybe_notify_workflow_phase_summary
 from ._orca_stage_materialization import build_materialized_orca_stage, safe_name
 from .xyz_utils import choose_orca_geometry_frame, load_xyz_atom_sequence
 
-_normalize_text = _shared_normalize_text
-_coerce_mapping = _shared_mapping_or_empty
-_safe_int = _shared_safe_int
-_workflow_id = timestamped_token
-_copy_input = _copy_input_impl
-
-
 def _write_workflow_payload_side_effect(workspace_dir: Path, payload: dict[str, Any]) -> None:
     write_workflow_payload(workspace_dir, payload)
 
@@ -141,9 +129,9 @@ def _sync_workflow_registry_side_effect(
 
 def _workflow_factory_deps() -> WorkflowFactoryDeps:
     return WorkflowFactoryDeps(
-        normalize_text=_normalize_text,
-        workflow_id_factory=_workflow_id,
-        copy_input_fn=_copy_input,
+        normalize_text=normalize_text,
+        workflow_id_factory=timestamped_token,
+        copy_input_fn=_copy_input_impl,
         now_utc_iso_fn=now_utc_iso,
         new_crest_stage_fn=_new_crest_stage,
         write_workflow_payload_fn=_write_workflow_payload_side_effect,
@@ -160,40 +148,22 @@ def _persist_workflow_progress(
     sync_only: bool,
 ) -> None:
     if not sync_only:
-        status = _normalize_text(payload.get("status")).lower()
+        status = normalize_text(payload.get("status")).lower()
         if status not in {"completed", "failed", "cancel_requested", "cancelled", "cancel_failed"}:
             payload["status"] = "running"
     write_workflow_payload(workspace_dir, payload)
     sync_workflow_registry(workflow_root, workspace_dir, payload)
 
 
-def _stage_dict(stage: WorkflowStage) -> dict[str, Any]:
-    return cast(dict[str, Any], stage.to_dict())
-
-
 def _workflow_sync_only(payload: dict[str, Any]) -> bool:
-    return workflow_sync_only_impl(payload, normalize_text_fn=_normalize_text)
+    return workflow_sync_only_impl(payload, normalize_text_fn=normalize_text)
 
 
 def _workflow_has_active_children(payload: dict[str, Any]) -> bool:
     return workflow_has_active_children_impl(
         payload,
-        normalize_text_fn=_normalize_text,
+        normalize_text_fn=normalize_text,
         workflow_has_active_downstream_fn=workflow_has_active_downstream,
-    )
-
-
-def _latest_child_stage_summary(stage_summaries: list[dict[str, Any]]) -> dict[str, Any]:
-    return latest_child_stage_summary_impl(stage_summaries, normalize_text_fn=_normalize_text)
-
-
-def _downstream_terminal_result(
-    child_payload: dict[str, Any], child_summary: dict[str, Any]
-) -> dict[str, Any]:
-    return downstream_terminal_result_impl(
-        child_payload,
-        child_summary,
-        normalize_text_fn=_normalize_text,
     )
 
 
@@ -335,16 +305,8 @@ _stage_has_xtb_candidates = stage_has_xtb_candidates_impl
 def _stage_failure_is_recoverable(stage: dict[str, Any]) -> bool:
     return stage_failure_is_recoverable_impl(
         stage,
-        normalize_text_fn=_normalize_text,
+        normalize_text_fn=normalize_text,
         stage_metadata_fn=_stage_metadata,
-    )
-
-
-def _effective_stage_status(stage: dict[str, Any]) -> str:
-    return effective_stage_status_impl(
-        stage,
-        normalize_text_fn=_normalize_text,
-        stage_failure_is_recoverable_fn=_stage_failure_is_recoverable,
     )
 
 
@@ -391,8 +353,12 @@ _append_crest_orca_stages = append_crest_orca_stages_impl
 def _recompute_workflow_status(payload: dict[str, Any]) -> str:
     return recompute_workflow_status_impl(
         payload,
-        normalize_text_fn=_normalize_text,
-        effective_stage_status_fn=_effective_stage_status,
+        normalize_text_fn=normalize_text,
+        effective_stage_status_fn=lambda stage: effective_stage_status_impl(
+            stage,
+            normalize_text_fn=normalize_text,
+            stage_failure_is_recoverable_fn=_stage_failure_is_recoverable,
+        ),
     )
 
 __all__ = [

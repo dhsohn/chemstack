@@ -157,7 +157,3 @@ class TestExtractMoleculeKey(unittest.TestCase):
             inp = d / "rxn.inp"
             inp.write_text("! Opt\n")
             self.assertEqual(extract_molecule_key(inp), "TS1_acetone")
-
-
-if __name__ == "__main__":
-    unittest.main()

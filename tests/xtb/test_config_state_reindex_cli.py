@@ -5,7 +5,6 @@ import json
 import runpy
 import warnings
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 import yaml
@@ -13,7 +12,7 @@ import yaml
 from chemstack.core.internal_cli import dispatch_engine_internal_queue_command
 from chemstack.core.config.engines import as_bool, as_int, as_str
 from chemstack.xtb import state as state_mod
-from chemstack.xtb.commands import reindex as reindex_cmd
+from chemstack.xtb.commands import run_dir as run_dir_cmd
 from chemstack.xtb.config import CONFIG_ENV_VAR, default_config_path, load_config
 
 
@@ -208,59 +207,6 @@ def test_state_loaders_return_none_for_missing_invalid_and_non_mapping_payloads(
         assert loader(job_dir) is None
 
 
-def test_reindex_scan_roots_prefers_explicit_root_and_skips_invalid_default_roots(tmp_path: Path) -> None:
-    explicit_root = tmp_path / "explicit"
-    organized_root = tmp_path / "organized"
-    explicit_root.mkdir()
-    organized_root.mkdir()
-    cfg = SimpleNamespace(runtime=SimpleNamespace(allowed_root="", organized_root=str(organized_root)))
-
-    assert reindex_cmd._scan_roots(cfg, str(explicit_root)) == [explicit_root.resolve()]
-    assert reindex_cmd._scan_roots(cfg, None) == [organized_root.resolve()]
-
-
-def test_cmd_reindex_reports_error_when_no_roots_are_available(
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    cfg = SimpleNamespace(runtime=SimpleNamespace(allowed_root="", organized_root=""))
-    monkeypatch.setattr(reindex_cmd, "load_config", lambda path=None: cfg)
-
-    exit_code = reindex_cmd.cmd_reindex(SimpleNamespace(config=None, root=None))
-
-    assert exit_code == 1
-    assert capsys.readouterr().out == "error: no reindex roots available\n"
-
-
-def test_cmd_reindex_counts_skipped_candidates_when_record_cannot_be_built(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    root = tmp_path / "allowed"
-    root.mkdir()
-    job_dir = root / "job-skip"
-    job_dir.mkdir()
-    cfg = SimpleNamespace(runtime=SimpleNamespace(allowed_root=str(root), organized_root=str(root)))
-
-    monkeypatch.setattr(reindex_cmd, "load_config", lambda path=None: cfg)
-    monkeypatch.setattr(reindex_cmd, "_scan_roots", lambda cfg_obj, raw_root: [root.resolve()])
-    monkeypatch.setattr(reindex_cmd, "_iter_candidate_dirs", lambda root_path: {job_dir.resolve()})
-    monkeypatch.setattr(reindex_cmd, "index_root_for_cfg", lambda cfg_obj: root.resolve())
-    monkeypatch.setattr(reindex_cmd, "load_state", lambda path: {})
-    monkeypatch.setattr(reindex_cmd, "load_report_json", lambda path: {})
-    monkeypatch.setattr(reindex_cmd, "load_organized_ref", lambda path: {})
-    monkeypatch.setattr(reindex_cmd, "record_from_artifacts", lambda **kwargs: None)
-
-    exit_code = reindex_cmd.cmd_reindex(SimpleNamespace(config=None, root=None))
-
-    output = capsys.readouterr().out
-    assert exit_code == 0
-    assert "candidate_dirs: 1" in output
-    assert "indexed: 0" in output
-    assert "skipped: 1" in output
-
-
 def test_engine_internal_queue_dispatches_worker_cancel_and_unknown() -> None:
     worker_args = argparse.Namespace(queue_command="worker")
     cancel_args = argparse.Namespace(queue_command="cancel")
@@ -312,9 +258,12 @@ def test_cli_module_main_entrypoint_raises_system_exit(
         encoding="utf-8",
     )
 
+    job_dir = allowed_root / "job"
+    job_dir.mkdir()
+    monkeypatch.setattr(run_dir_cmd, "cmd_run_dir", lambda args: 0)
     monkeypatch.setattr(
         "sys.argv",
-        ["chemstack_xtb", "--config", str(config_path), "list"],
+        ["chemstack_xtb", "--config", str(config_path), "run-dir", str(job_dir)],
     )
 
     with warnings.catch_warnings():
@@ -327,4 +276,4 @@ def test_cli_module_main_entrypoint_raises_system_exit(
             runpy.run_module("chemstack.xtb._internal_cli", run_name="__main__")
 
     assert exc_info.value.code == 0
-    assert capsys.readouterr().out == "No xTB jobs found.\n"
+    assert capsys.readouterr().out == ""

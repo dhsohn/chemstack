@@ -519,10 +519,6 @@ def _organized_output_dir(
     )
 
 
-def _tracked_status(record: JobLocationRecord | None) -> str:
-    return normalize_text(record.status if record is not None else "").lower()
-
-
 def _resolved_status(
     *,
     record: JobLocationRecord | None,

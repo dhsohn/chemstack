@@ -50,7 +50,6 @@ from . import run_inp_execution as _run_inp_execution
 from . import run_inp_context as _run_inp_context
 from . import run_inp_submission as _run_inp_submission
 from .run_inp_context import (
-    ResolvedRunTarget,
     RunExecutionContext,
     RunSubmissionContext,
     WorkerStatusInfo,
@@ -255,35 +254,6 @@ def _recover_crashed_state(reaction_dir: Path) -> bool:
     return True
 
 
-def _configured_max_concurrent(cfg: Any) -> int:
-    return _run_inp_context.configured_max_concurrent(cfg)
-
-
-def _configured_admission_root(cfg: Any) -> Path:
-    return _run_inp_context.configured_admission_root(cfg)
-
-
-def _configured_admission_limit(cfg: Any) -> int:
-    return _run_inp_context.configured_admission_limit(cfg)
-
-
-def _resolve_run_target(cfg: Any, reaction_dir_raw: str) -> ResolvedRunTarget:
-    return _run_inp_context.resolve_run_target(
-        cfg,
-        reaction_dir_raw,
-        select_latest_inp_fn=_select_latest_inp,
-    )
-
-
-def _resolve_run_target_or_log(cfg: Any, reaction_dir_raw: str) -> ResolvedRunTarget | None:
-    return _run_inp_context.resolve_run_target_or_log(
-        cfg,
-        reaction_dir_raw,
-        select_latest_inp_fn=_select_latest_inp,
-        logger=logger,
-    )
-
-
 def _active_direct_run_error(reaction_dir: Path) -> str | None:
     lock_info = parse_lock_info(reaction_dir / LOCK_FILE_NAME)
     lock_pid = lock_info.get("pid")
@@ -392,16 +362,6 @@ def _existing_completed_exit(
         max_retries=max_retries,
         deps=_run_inp_deps(),
     )
-
-
-def _submission_flag_error(args: Any) -> str | None:
-    if getattr(args, "require_slot", False):
-        return "Immediate execution has been removed; run-dir now always submits to the queue."
-    return None
-
-
-def _reaction_dir_arg(args: Any) -> str | None:
-    return _run_inp_context.reaction_dir_arg(args)
 
 
 def _resolve_submission_context(
@@ -634,11 +594,6 @@ def _cmd_run_inp_execute(
 
 
 def _cmd_run_inp_submit(args: Any, *, runner_cls: Type[OrcaRunner] = OrcaRunner) -> int:
-    flag_error = _submission_flag_error(args)
-    if flag_error is not None:
-        logger.error("%s", flag_error)
-        return 1
-
     context = _resolve_submission_context(args)
     if context is None:
         return 1

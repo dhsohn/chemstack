@@ -155,7 +155,7 @@ def depsafe_now_utc_iso() -> str:
 
 
 def resource_caps(cfg: Any) -> dict[str, int]:
-    from .job_locations import resource_dict
+    from chemstack.core.indexing.engines import resource_dict
 
     return _engine_execution.engine_resource_caps(cfg, resource_dict_fn=resource_dict)
 

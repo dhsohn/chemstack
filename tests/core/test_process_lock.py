@@ -333,7 +333,3 @@ class TestAcquireFileLock(unittest.TestCase):
                         timeout_seconds=1,
                     ):
                         pass
-
-
-if __name__ == "__main__":
-    unittest.main()

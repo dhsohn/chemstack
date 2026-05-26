@@ -41,13 +41,13 @@ User-facing docs should standardize on these command forms:
 - `chemstack scaffold <ts_search|conformer_search> <path>`
 - `chemstack organize orca ...`
 - `chemstack summary orca ...`
+- `chemstack monitor`
 
 Long-running services are not part of the public CLI surface. Users should run
 them only through the `systemd/` units.
 
-Engine-specific CLI modules are retained only where the engine owns a command
-that has not graduated to the public `chemstack` surface, such as ORCA
-`monitor`.
+Engine-specific CLI modules are runtime-only worker entrypoints. Do not add new
+user-facing commands there.
 
 `chemstack.flow.cli` is not part of the public CLI surface. Do not document it
 in `README.md`, `docs/REFERENCE.md`, or user-facing setup guides.
@@ -80,7 +80,7 @@ Guideline:
 Use these patterns in new code:
 
 ```python
-from chemstack.orca.cli import main
+from chemstack.cli import main
 from chemstack.orca.commands.run_inp import cmd_run_inp
 from chemstack.orca.runtime.worker_job import start_background_run_job
 

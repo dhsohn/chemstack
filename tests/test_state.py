@@ -257,7 +257,3 @@ class TestState(unittest.TestCase):
                 with acquire_run_lock(reaction):
                     pass
             self.assertIn("unreadable", str(ctx.exception).lower())
-
-
-if __name__ == "__main__":
-    unittest.main()

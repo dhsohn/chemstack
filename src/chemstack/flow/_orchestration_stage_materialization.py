@@ -74,26 +74,6 @@ def _engine_stage_views(
     return [view for view in _stage_views(payload) if view.task_engine(o) == engine]
 
 
-def _raw_stages(views: list[WorkflowStageView]) -> list[dict[str, Any]]:
-    return [view.raw for view in views]
-
-
-def _stage_view(stage: dict[str, Any]) -> WorkflowStageView:
-    return WorkflowStageView(stage)
-
-
-def _active_stage_status(view: WorkflowStageView, o: Any) -> str:
-    return view.status(o) or view.task_status(o)
-
-
-def _stage_task_engine(stage: dict[str, Any], o: Any) -> str:
-    return _stage_view(stage).task_engine(o)
-
-
-def _stage_status(stage: dict[str, Any], o: Any) -> str:
-    return _stage_view(stage).status(o)
-
-
 @dataclass(frozen=True)
 class _ReactionXtbStagePlan:
     params: dict[str, Any]
@@ -218,7 +198,7 @@ def _record_xtb_handoff_error(o: Any, xtb_stage: dict[str, Any], contract: Any) 
     stage_metadata["reaction_handoff_reason"] = error["reason"]
     stage_metadata["reaction_handoff_message"] = error["message"]
     return {
-        "stage_id": _stage_view(xtb_stage).stage_id(o),
+        "stage_id": WorkflowStageView(xtb_stage).stage_id(o),
         "job_id": o.stages._normalize_text(getattr(contract, "job_id", "")),
         "reason": error["reason"],
         "message": error["message"],
@@ -242,7 +222,7 @@ def _reaction_orca_candidate_pool_rows(
             continue
         candidate_metadata = {
             **dict(candidate.metadata),
-            "xtb_stage_id": _stage_view(xtb_stage).stage_id(o),
+            "xtb_stage_id": WorkflowStageView(xtb_stage).stage_id(o),
             "xtb_stage_order": int(stage_order),
             "xtb_source_job_id": o.stages._normalize_text(getattr(contract, "job_id", "")),
             "xtb_source_job_type": o.stages._normalize_text(getattr(contract, "job_type", "")),
@@ -308,7 +288,7 @@ def _has_pending_xtb_stage(o: Any, payload: dict[str, Any]) -> bool:
     active_xtb_statuses = {"planned", "queued", "running", "submitted", "cancel_requested"}
     return any(
         view.task_engine(o) == "xtb"
-        and _active_stage_status(view, o) in active_xtb_statuses
+        and (view.status(o) or view.task_status(o)) in active_xtb_statuses
         for view in _stage_views(payload)
     )
 

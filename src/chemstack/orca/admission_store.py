@@ -4,9 +4,8 @@ from __future__ import annotations
 
 import logging
 from contextlib import contextmanager
-from dataclasses import asdict
 from pathlib import Path
-from typing import Iterator, TypedDict, cast
+from typing import Iterator
 
 from chemstack.core.admission import store as _core_admission
 from chemstack.core.app_ids import CHEMSTACK_ORCA_APP_NAME
@@ -25,18 +24,7 @@ AdmissionStoreCorruptError = _core_admission.AdmissionStoreCorruptError
 logger = logging.getLogger(__name__)
 
 
-class AdmissionSlot(TypedDict, total=False):
-    token: str
-    state: str
-    work_dir: str | None
-    queue_id: str | None
-    owner_pid: int
-    process_start_ticks: int | None
-    source: str
-    acquired_at: str
-    app_name: str | None
-    task_id: str | None
-    workflow_id: str | None
+AdmissionSlot = _core_admission.AdmissionSlot
 
 
 def _normalize_work_dir(value: str | Path | None) -> str | None:
@@ -49,16 +37,6 @@ def _normalize_work_dir(value: str | Path | None) -> str | None:
         return str(Path(text).expanduser().resolve())
     except OSError:
         return text
-
-
-def _slot_payload(slot: _core_admission.AdmissionSlot) -> AdmissionSlot:
-    payload = asdict(slot)
-    payload.pop("reaction_dir", None)
-    return cast(AdmissionSlot, payload)
-
-
-def _slot_payloads(slots: list[_core_admission.AdmissionSlot]) -> list[AdmissionSlot]:
-    return [_slot_payload(slot) for slot in slots]
 
 
 def _count_external_active_runs(
@@ -89,7 +67,7 @@ def reconcile_stale_slots(root: Path) -> int:
 
 
 def list_slots(root: Path) -> list[AdmissionSlot]:
-    return _slot_payloads(_core_admission.list_slots(root))
+    return _core_admission.list_slots(root)
 
 
 def active_slot_count(root: Path) -> int:

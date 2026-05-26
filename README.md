@@ -105,6 +105,7 @@ chemstack queue cancel <target>
 chemstack organize orca --root '/home/user/orca_runs' --apply
 chemstack summary --no-send
 chemstack summary orca --no-send
+chemstack monitor
 ```
 
 `queue list` prints a compact table with `Status`, `Job ID`, `Detail`, and `Elapsed`
