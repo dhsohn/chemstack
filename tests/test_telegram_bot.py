@@ -105,7 +105,7 @@ class TestTelegramBotHandlers(unittest.TestCase):
             reaction_dir = allowed / "rxn1"
             reaction_dir.mkdir()
             entry = enqueue(allowed, str(reaction_dir))
-            self.assertTrue(mark_completed(allowed, entry["queue_id"], run_id="run_old"))
+            self.assertTrue(mark_completed(allowed, entry.queue_id, run_id="run_old"))
             self._make_run(reaction_dir, status="completed", run_id="run_new", inp_name="rerun.inp")
             cfg = self._make_cfg(str(allowed))
 

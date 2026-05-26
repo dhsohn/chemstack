@@ -15,7 +15,7 @@ def build_queue_enqueued_notification(entry: Any, *, deps: Any) -> QueueEnqueued
         "reaction_dir": submission._queue_store.queue_entry_reaction_dir(entry),
         "priority": submission._queue_store.queue_entry_priority(entry),
         "force": submission._queue_store.queue_entry_force(entry),
-        "enqueued_at": entry.get("enqueued_at", ""),
+        "enqueued_at": getattr(entry, "enqueued_at", ""),
     }
 
 

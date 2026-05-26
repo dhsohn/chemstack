@@ -143,12 +143,14 @@ def test_orca_contract_freeze_completed_result_survives_public_workflow_sync(tmp
             {
                 "queue_id": "q_hist_1",
                 "task_id": "job_hist_1",
-                "run_id": "run_hist_1",
-                "reaction_dir": str(original_dir),
                 "status": "completed",
                 "cancel_requested": False,
-                "resource_request": {"max_cores": 8, "max_memory_gb": 16},
-                "resource_actual": {"max_cores": 8, "max_memory_gb": 16},
+                "metadata": {
+                    "run_id": "run_hist_1",
+                    "reaction_dir": str(original_dir),
+                    "resource_request": {"max_cores": 8, "max_memory_gb": 16},
+                    "resource_actual": {"max_cores": 8, "max_memory_gb": 16},
+                },
             }
         ],
     )

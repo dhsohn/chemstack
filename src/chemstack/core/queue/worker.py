@@ -37,6 +37,7 @@ LOGGER = logging.getLogger(__name__)
 __all__ = [
     "BackgroundRunningJob",
     "ChildProcessQueueWorker",
+    "EngineRunningJob",
     "ManagedProcess",
     "QueueWorkerLoop",
     "QueueWorkerPidFileMixin",
@@ -51,7 +52,6 @@ __all__ = [
     "live_queue_ids_for_slots",
     "pid_is_alive",
     "pop_completed_worker_jobs",
-    "process_one_child_queue",
     "read_worker_pid_file",
     "reconcile_orphaned_child_queue_entries",
     "remove_worker_pid_file",
@@ -92,6 +92,16 @@ class BackgroundRunningJob:
     process: Any
     admission_token: str
     cancel_requested: bool = False
+    started_at: float = field(default_factory=time.monotonic)
+
+
+@dataclass
+class EngineRunningJob:
+    queue_id: str
+    reaction_dir: str
+    process: Any
+    admission_token: str
+    task_id: str | None = None
     started_at: float = field(default_factory=time.monotonic)
 
 
@@ -602,29 +612,6 @@ class ChildProcessQueueWorker(QueueWorkerLoop):
                 continue
             deps.requeue_running_entry(str(queue_root), entry.queue_id)
             deps._mark_recovery_pending_state(self.cfg, entry, reason="crashed_recovery")
-
-
-def process_one_child_queue(cfg: Any, *, auto_organize: bool, deps: Any) -> str:
-    slot_token = deps._try_reserve_admission_slot(cfg)
-    if slot_token is None:
-        return "blocked"
-
-    try:
-        dequeued = deps._dequeue_next_entry(cfg)
-        if dequeued is None:
-            return "idle"
-        queue_root, entry = dequeued
-        deps._execute_queue_entry(
-            cfg,
-            queue_root=queue_root,
-            entry=entry,
-            auto_organize=auto_organize,
-            emit_output=True,
-        )
-        return "processed"
-    finally:
-        deps.release_slot(deps._admission_root(cfg), slot_token)
-
 
 def install_shutdown_signal_handlers(request_shutdown: Callable[[], None]) -> None:
     _install_shutdown_signal_handlers(

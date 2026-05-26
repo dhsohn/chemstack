@@ -123,9 +123,9 @@ def test_load_orca_artifact_contract_matches_queue_task_id(tmp_path: Path) -> No
             {
                 "queue_id": "q_123",
                 "task_id": "job_q_123",
-                "reaction_dir": str(reaction_dir),
                 "status": "pending",
                 "cancel_requested": False,
+                "metadata": {"reaction_dir": str(reaction_dir)},
             }
         ],
     )

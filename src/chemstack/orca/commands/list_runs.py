@@ -7,6 +7,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from chemstack.core.queue.types import QueueStatus
+
 from ..config import load_config
 from ..queue_store import (
     clear_terminal,
@@ -14,12 +16,13 @@ from ..queue_store import (
     queue_entry_id,
     queue_entry_priority,
     queue_entry_reaction_dir,
+    queue_entry_run_id,
     queue_entry_status,
     reconcile_orphaned_running_entries,
 )
 from ..run_snapshot import RunSnapshot, collect_run_snapshots, elapsed_text
 from ..state import STATE_FILE_NAME
-from ..statuses import QueueStatus, RunStatus
+from ..statuses import RunStatus
 from ..types import QueueEntry
 from ._helpers import _to_resolved_local
 
@@ -87,7 +90,7 @@ def _match_queue_snapshot(
     snapshot_by_run_id: dict[str, RunSnapshot],
     snapshot_by_dir: dict[str, RunSnapshot],
 ) -> RunSnapshot | None:
-    run_id = _optional_text(entry.get("run_id"))
+    run_id = _optional_text(queue_entry_run_id(entry))
     if run_id:
         return snapshot_by_run_id.get(run_id)
 
@@ -105,7 +108,7 @@ def _queue_entry_represents_snapshot(entry: QueueEntry, snapshot: RunSnapshot | 
     if snapshot is None:
         return False
 
-    run_id = _optional_text(entry.get("run_id"))
+    run_id = _optional_text(queue_entry_run_id(entry))
     if run_id and run_id == snapshot.run_id:
         return True
 
@@ -130,8 +133,8 @@ def _build_queue_row(entry: QueueEntry, snapshot: RunSnapshot | None) -> tuple[d
             icon = _status_icon(status)
     else:
         elapsed = _format_elapsed(
-            entry.get("enqueued_at", ""),
-            entry.get("finished_at"),
+            entry.enqueued_at,
+            entry.finished_at or None,
         )
         inp = ""
         attempts = "-"

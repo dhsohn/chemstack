@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 from chemstack.orca.cli import main
 from chemstack.orca.commands.list_runs import _collect_unified, _format_elapsed, _status_icon
-from chemstack.orca.queue_store import dequeue_next, enqueue, mark_completed
+from chemstack.orca.queue_store import dequeue_next, enqueue, mark_completed, queue_entry_run_id
 
 
 class _ListTestBase(unittest.TestCase):
@@ -242,7 +242,7 @@ class TestListQueueEntries(_ListTestBase):
         self.assertEqual(rc, 0)
         output = captured.getvalue()
         self.assertIn("active_simulations: 0", output)
-        self.assertIn(entry["queue_id"], output)
+        self.assertIn(entry.queue_id, output)
         self.assertIn("ORCA", output)
         self.assertIn("⏳", output)
 
@@ -265,7 +265,7 @@ class TestListQueueEntries(_ListTestBase):
 
         self.assertEqual(rc, 0)
         output = captured.getvalue()
-        self.assertIn(entry["queue_id"], output)
+        self.assertIn(entry.queue_id, output)
         self.assertIn("ORCA", output)
         self.assertNotIn("rxn_done", output)
 
@@ -291,7 +291,7 @@ class TestListQueueEntries(_ListTestBase):
 
         self.assertEqual(rc, 0)
         output = captured.getvalue()
-        self.assertIn(entry["queue_id"], output)
+        self.assertIn(entry.queue_id, output)
         self.assertIn("active_simulations: 0", output)
         self.assertIn("ORCA", output)
         self.assertIn("⏳", output)
@@ -305,7 +305,7 @@ class TestListQueueEntries(_ListTestBase):
             rxn_dir = allowed / "mol_A"
             rxn_dir.mkdir()
             entry = enqueue(allowed, str(rxn_dir))
-            self.assertIsNone(entry["run_id"])
+            self.assertIsNone(queue_entry_run_id(entry))
             dequeue_next(allowed)
             self._make_run(
                 rxn_dir,
@@ -319,7 +319,7 @@ class TestListQueueEntries(_ListTestBase):
             rows = _collect_unified(allowed)
 
         self.assertEqual(len(rows), 1)
-        self.assertEqual(rows[0]["id"], entry["queue_id"])
+        self.assertEqual(rows[0]["id"], entry.queue_id)
         self.assertEqual(rows[0]["status"], "pending")
         self.assertEqual(rows[0]["inp"], "opt.retry01.inp")
 
@@ -332,7 +332,7 @@ class TestListQueueEntries(_ListTestBase):
             rxn_dir = allowed / "mol_A"
             rxn_dir.mkdir()
             entry = enqueue(allowed, str(rxn_dir))
-            self.assertTrue(mark_completed(allowed, entry["queue_id"], run_id="run_old"))
+            self.assertTrue(mark_completed(allowed, entry.queue_id, run_id="run_old"))
 
             self._make_run(
                 rxn_dir,
@@ -347,7 +347,7 @@ class TestListQueueEntries(_ListTestBase):
 
         self.assertEqual(len(rows), 2)
 
-        queue_row = next(r for r in rows if r["id"] == entry["queue_id"])
+        queue_row = next(r for r in rows if r["id"] == entry.queue_id)
         self.assertEqual(queue_row["status"], "completed")
         self.assertEqual(queue_row["inp"], "")
         self.assertEqual(queue_row["attempts"], "-")
@@ -389,7 +389,7 @@ class TestListQueueEntries(_ListTestBase):
 
         self.assertEqual(rc, 0)
         output = captured.getvalue()
-        self.assertIn(entry["queue_id"], output)
+        self.assertIn(entry.queue_id, output)
         self.assertIn("✅", output)
         self.assertNotIn("▶", output)
 
@@ -407,7 +407,7 @@ class TestListClear(_ListTestBase):
             rxn_dir = allowed / "mol_A"
             rxn_dir.mkdir()
             entry = enqueue(allowed, str(rxn_dir))
-            mark_completed(allowed, entry["queue_id"])
+            mark_completed(allowed, entry.queue_id)
 
             captured = io.StringIO()
             with patch("sys.stdout", captured):

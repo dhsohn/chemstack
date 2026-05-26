@@ -73,7 +73,7 @@ def snapshot_indexes(snapshots: list[Any]) -> tuple[dict[str, Any], dict[str, An
 
 def queue_entry_status(queue_store: Any, entry: Any, snapshot: Any) -> str:
     status = normalize_text(queue_store.queue_entry_status(entry)) or "unknown"
-    if bool(entry.get("cancel_requested")) and status == "running":
+    if bool(getattr(entry, "cancel_requested", False)) and status == "running":
         return "cancel_requested"
     if snapshot is None or status != "running":
         return status
@@ -101,9 +101,9 @@ def queue_record(
         or queue_id
         or task_id
     )
-    submitted_at = normalize_text(entry.get("enqueued_at"))
-    started_at = normalize_text(entry.get("started_at"))
-    finished_at = normalize_text(entry.get("finished_at"))
+    submitted_at = normalize_text(getattr(entry, "enqueued_at", ""))
+    started_at = normalize_text(getattr(entry, "started_at", ""))
+    finished_at = normalize_text(getattr(entry, "finished_at", ""))
     updated_at = (
         normalize_text(getattr(snapshot, "completed_at", ""))
         or normalize_text(getattr(snapshot, "updated_at", ""))
@@ -127,7 +127,7 @@ def queue_record(
         metadata={
             "queue_id": queue_id,
             "task_id": task_id,
-            "task_kind": normalize_text(entry.get("task_kind")),
+            "task_kind": normalize_text(getattr(entry, "task_kind", "")),
             "run_id": run_id,
             "job_type": normalize_text(entry_metadata.get("job_type")),
             "selected_inp": normalize_text(entry_metadata.get("selected_inp")),

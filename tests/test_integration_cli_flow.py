@@ -5,7 +5,12 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from chemstack.orca.queue_store import list_queue
+from chemstack.orca.queue_store import (
+    list_queue,
+    queue_entry_force,
+    queue_entry_reaction_dir,
+)
+from chemstack.core.queue.types import QueueStatus
 
 
 def _run_main(argv: list[str]) -> int:
@@ -90,13 +95,17 @@ class TestIntegrationCliFlow(unittest.TestCase):
                     ]
                 )
 
-            queue_entries = [entry for entry in list_queue(allowed) if entry["reaction_dir"] == str(reaction.resolve())]
+            queue_entries = [
+                entry
+                for entry in list_queue(allowed)
+                if queue_entry_reaction_dir(entry) == str(reaction.resolve())
+            ]
 
         self.assertEqual(rc, 0)
         self.assertIn("status: queued", run_stdout.getvalue())
         self.assertFalse(counter.exists())
         self.assertEqual(len(queue_entries), 1)
-        self.assertEqual(queue_entries[0]["status"], "pending")
+        self.assertEqual(queue_entries[0].status, QueueStatus.PENDING)
         self.assertFalse((reaction / "run_state.json").exists())
 
     def test_force_submit_preserves_force_flag_in_queue_entry(self) -> None:
@@ -128,12 +137,16 @@ class TestIntegrationCliFlow(unittest.TestCase):
                     ]
                 )
 
-            queue_entries = [entry for entry in list_queue(allowed) if entry["reaction_dir"] == str(reaction.resolve())]
+            queue_entries = [
+                entry
+                for entry in list_queue(allowed)
+                if queue_entry_reaction_dir(entry) == str(reaction.resolve())
+            ]
 
         self.assertEqual(rc, 0)
         self.assertIn("status: queued", run_stdout.getvalue())
         self.assertEqual(len(queue_entries), 1)
-        self.assertTrue(queue_entries[0]["force"])
+        self.assertTrue(queue_entry_force(queue_entries[0]))
         self.assertFalse(counter.exists())
 
     def test_existing_completed_output_shortcuts_without_enqueuing(self) -> None:
@@ -162,7 +175,11 @@ class TestIntegrationCliFlow(unittest.TestCase):
                     str(reaction),
                 ]
             )
-            queue_entries = [entry for entry in list_queue(allowed) if entry["reaction_dir"] == str(reaction.resolve())]
+            queue_entries = [
+                entry
+                for entry in list_queue(allowed)
+                if queue_entry_reaction_dir(entry) == str(reaction.resolve())
+            ]
             state = json.loads((reaction / "run_state.json").read_text(encoding="utf-8"))
 
         self.assertEqual(rc, 0)

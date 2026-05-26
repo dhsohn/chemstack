@@ -82,7 +82,7 @@ class TestCmdQueueCancel(unittest.TestCase):
         reaction_dir = self.root / "mol_A"
         reaction_dir.mkdir()
         entry = enqueue(self.root, str(reaction_dir))
-        args = _make_args(self._tmpdir.name, target=entry["queue_id"])
+        args = _make_args(self._tmpdir.name, target=entry.queue_id)
         buf = io.StringIO()
         with redirect_stdout(buf):
             rc = cmd_queue_cancel(args)
@@ -99,7 +99,7 @@ class TestCmdQueueCancel(unittest.TestCase):
         reaction_dir.mkdir()
         entry = enqueue(self.root, str(reaction_dir))
         dequeue_next(self.root)
-        args = _make_args(self._tmpdir.name, target=entry["queue_id"])
+        args = _make_args(self._tmpdir.name, target=entry.queue_id)
         buf = io.StringIO()
         with redirect_stdout(buf):
             rc = cmd_queue_cancel(args)

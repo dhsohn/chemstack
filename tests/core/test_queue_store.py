@@ -10,7 +10,6 @@ import pytest
 
 from chemstack.core.queue import store
 from chemstack.core.queue.types import QueueStatus
-from chemstack.orca.statuses import QueueStatus as OrcaQueueStatus
 
 
 def _install_deterministic_helpers(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -80,11 +79,6 @@ def test_entry_to_dict_serializes_status_value() -> None:
 
     assert serialized["status"] == "running"
     assert serialized["queue_id"] == "q-1"
-
-
-def test_orca_queue_status_reuses_core_queue_status() -> None:
-    assert OrcaQueueStatus is QueueStatus
-    assert OrcaQueueStatus.RUNNING.value == "running"
 
 
 def test_list_queue_handles_missing_and_rejects_corrupt_json(

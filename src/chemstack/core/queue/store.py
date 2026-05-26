@@ -78,6 +78,10 @@ def _entry_from_dict(raw: dict[str, Any]) -> QueueEntry:
     )
 
 
+def entry_from_dict(raw: dict[str, Any]) -> QueueEntry:
+    return _entry_from_dict(raw)
+
+
 def _load_entries(root: Path) -> list[QueueEntry]:
     raw = load_json_list_file(
         _queue_path(root),

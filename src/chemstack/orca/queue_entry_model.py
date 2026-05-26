@@ -1,7 +1,9 @@
 from __future__ import annotations
 
-from typing import Any, cast
+from typing import Any
 
+from chemstack.core.queue import store as _core_queue_store
+from chemstack.core.queue.types import QueueStatus
 from chemstack.core.utils import normalize_bool as _normalize_bool
 from chemstack.core.utils import normalize_text as _normalize_text
 
@@ -12,8 +14,9 @@ QUEUE_APP_NAME = CHEMSTACK_ORCA_APP_NAME
 QUEUE_ENGINE = "orca"
 QUEUE_TASK_KIND = "orca_run_inp"
 
-
 def normalize_text(value: object | None) -> str:
+    if isinstance(value, QueueStatus):
+        return value.value
     return _normalize_text(value)
 
 
@@ -47,43 +50,42 @@ def normalize_metadata(raw: object) -> dict[str, Any]:
     return {str(key): value for key, value in raw.items()}
 
 
-def normalize_entry(entry: QueueEntry) -> QueueEntry:
-    normalized = cast(QueueEntry, dict(entry))
+def _normalized_raw(raw: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(raw)
     metadata = normalize_metadata(normalized.get("metadata"))
-    reaction_dir = normalize_text(metadata.get("reaction_dir")) or normalize_text(
-        normalized.get("reaction_dir")
-    )
-    force = normalize_bool(metadata.get("force", normalized.get("force", False)))
-    run_id = normalize_optional_text(metadata.get("run_id")) or normalize_optional_text(
-        normalized.get("run_id")
-    )
+    reaction_dir = normalize_text(metadata.get("reaction_dir"))
+    force = normalize_bool(metadata.get("force", False))
+    run_id = normalize_optional_text(metadata.get("run_id"))
 
     if reaction_dir:
-        normalized["reaction_dir"] = reaction_dir
         metadata["reaction_dir"] = reaction_dir
-    normalized["force"] = force
     metadata["force"] = force
     if run_id is not None:
-        normalized["run_id"] = run_id
         metadata["run_id"] = run_id
-    elif "run_id" in normalized:
-        normalized["run_id"] = None
+    else:
+        metadata.pop("run_id", None)
 
     normalized["app_name"] = normalize_text(normalized.get("app_name")) or QUEUE_APP_NAME
-    task_id = normalize_text(normalized.get("task_id")) or normalize_text(
-        normalized.get("queue_id")
-    )
+    queue_id = normalize_text(normalized.get("queue_id"))
+    task_id = normalize_text(normalized.get("task_id")) or queue_id
     if task_id:
         normalized["task_id"] = task_id
     normalized["task_kind"] = normalize_text(normalized.get("task_kind")) or QUEUE_TASK_KIND
     normalized["engine"] = normalize_text(normalized.get("engine")) or QUEUE_ENGINE
     normalized["priority"] = normalize_priority(normalized.get("priority"), default=10)
-    normalized["status"] = normalize_text(normalized.get("status")).lower()
-    normalized["started_at"] = normalize_optional_text(normalized.get("started_at"))
-    normalized["finished_at"] = normalize_optional_text(normalized.get("finished_at"))
-    normalized["error"] = normalize_optional_text(normalized.get("error"))
+    normalized["status"] = (
+        normalize_text(normalized.get("status")).lower() or QueueStatus.PENDING.value
+    )
+    normalized["started_at"] = normalize_optional_text(normalized.get("started_at")) or ""
+    normalized["finished_at"] = normalize_optional_text(normalized.get("finished_at")) or ""
+    normalized["error"] = normalize_optional_text(normalized.get("error")) or ""
+    normalized["cancel_requested"] = normalize_bool(normalized.get("cancel_requested", False))
     normalized["metadata"] = metadata
     return normalized
+
+
+def entry_from_json_payload(raw: dict[str, Any]) -> QueueEntry:
+    return _core_queue_store.entry_from_dict(_normalized_raw(raw))
 
 
 def entry_metadata(
@@ -99,43 +101,37 @@ def entry_metadata(
 
 
 def queue_entry_metadata(entry: QueueEntry) -> dict[str, Any]:
-    return dict(normalize_metadata(normalize_entry(entry).get("metadata")))
+    return dict(entry.metadata)
 
 
 def queue_entry_run_id(entry: QueueEntry) -> str | None:
-    return normalize_optional_text(normalize_entry(entry).get("run_id"))
+    return normalize_optional_text(entry.metadata.get("run_id"))
 
 
 def queue_entry_id(entry: QueueEntry) -> str:
-    return normalize_text(normalize_entry(entry).get("queue_id"))
+    return normalize_text(entry.queue_id)
 
 
 def queue_entry_task_id(entry: QueueEntry) -> str | None:
-    task_id = normalize_text(normalize_entry(entry).get("task_id"))
+    task_id = normalize_text(entry.task_id)
     return task_id or None
 
 
 def queue_entry_status(entry: QueueEntry) -> str:
-    return normalize_text(normalize_entry(entry).get("status")).lower()
+    return entry.status.value
 
 
 def queue_entry_reaction_dir(entry: QueueEntry) -> str:
-    normalized = normalize_entry(entry)
-    metadata = normalize_metadata(normalized.get("metadata"))
-    return normalize_text(metadata.get("reaction_dir")) or normalize_text(
-        normalized.get("reaction_dir")
-    )
+    return normalize_text(entry.metadata.get("reaction_dir"))
 
 
 def queue_entry_force(entry: QueueEntry) -> bool:
-    normalized = normalize_entry(entry)
-    metadata = normalize_metadata(normalized.get("metadata"))
-    return normalize_bool(metadata.get("force", normalized.get("force", False)))
+    return normalize_bool(entry.metadata.get("force", False))
 
 
 def queue_entry_priority(entry: QueueEntry) -> int:
-    return normalize_priority(normalize_entry(entry).get("priority"), default=10)
+    return int(entry.priority)
 
 
 def queue_entry_app_name(entry: QueueEntry) -> str:
-    return normalize_text(normalize_entry(entry).get("app_name")) or QUEUE_APP_NAME
+    return normalize_text(entry.app_name) or QUEUE_APP_NAME

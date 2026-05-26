@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 
 from chemstack.orca.commands.run_inp import _submit_as_queued, cmd_run_inp
 from chemstack.orca.config import AppConfig, CommonResourceConfig, PathsConfig, RuntimeConfig
-from chemstack.orca.queue_store import enqueue, list_queue
+from chemstack.orca.queue_store import enqueue, list_queue, queue_entry_metadata
 
 
 def _make_cfg(tmp: str, *, max_cores: int = 8, max_memory_gb: int = 32) -> AppConfig:
@@ -161,26 +161,28 @@ class TestRunInpSubmit(unittest.TestCase):
 
             self.assertEqual(rc, 0)
             self.assertEqual(len(entries), 1)
-            self.assertEqual(entries[0]["priority"], 3)
-            self.assertEqual(entries[0]["app_name"], "chemstack_orca")
-            self.assertTrue(entries[0]["task_id"].startswith("orca_"))
-            self.assertEqual(entries[0]["metadata"]["selected_inp"], str(reaction_dir / "rxn.inp"))
-            self.assertEqual(entries[0]["metadata"]["selected_input_xyz"], str(reaction_dir / "rxn.inp"))
-            self.assertEqual(entries[0]["metadata"]["max_retries"], 2)
-            self.assertEqual(entries[0]["metadata"]["submitted_via"], "run_inp")
-            self.assertEqual(entries[0]["metadata"]["job_type"], "opt")
-            self.assertTrue(str(entries[0]["metadata"]["molecule_key"]).strip())
-            self.assertEqual(entries[0]["metadata"]["resource_request"]["max_cores"], 8)
-            self.assertEqual(entries[0]["metadata"]["resource_request"]["max_memory_gb"], 32)
-            self.assertEqual(entries[0]["metadata"]["resource_actual"]["max_cores"], 8)
-            self.assertEqual(entries[0]["metadata"]["resource_actual"]["max_memory_gb"], 32)
+            entry = entries[0]
+            metadata = queue_entry_metadata(entry)
+            self.assertEqual(entry.priority, 3)
+            self.assertEqual(entry.app_name, "chemstack_orca")
+            self.assertTrue(entry.task_id.startswith("orca_"))
+            self.assertEqual(metadata["selected_inp"], str(reaction_dir / "rxn.inp"))
+            self.assertEqual(metadata["selected_input_xyz"], str(reaction_dir / "rxn.inp"))
+            self.assertEqual(metadata["max_retries"], 2)
+            self.assertEqual(metadata["submitted_via"], "run_inp")
+            self.assertEqual(metadata["job_type"], "opt")
+            self.assertTrue(str(metadata["molecule_key"]).strip())
+            self.assertEqual(metadata["resource_request"]["max_cores"], 8)
+            self.assertEqual(metadata["resource_request"]["max_memory_gb"], 32)
+            self.assertEqual(metadata["resource_actual"]["max_cores"], 8)
+            self.assertEqual(metadata["resource_actual"]["max_memory_gb"], 32)
             inp_text = (reaction_dir / "rxn.inp").read_text(encoding="utf-8")
             self.assertIn("%pal", inp_text)
             self.assertIn("nprocs 8", inp_text)
             self.assertIn("%maxcore 4096", inp_text)
             tracking_records = json.loads((root / "job_locations.json").read_text(encoding="utf-8"))
             self.assertEqual(len(tracking_records), 1)
-            self.assertEqual(tracking_records[0]["job_id"], entries[0]["task_id"])
+            self.assertEqual(tracking_records[0]["job_id"], entry.task_id)
             self.assertEqual(tracking_records[0]["status"], "queued")
             self.assertEqual(tracking_records[0]["original_run_dir"], str(reaction_dir.resolve()))
             self.assertEqual(tracking_records[0]["selected_input_xyz"], str((reaction_dir / "rxn.inp").resolve()))
@@ -253,10 +255,11 @@ class TestRunInpSubmit(unittest.TestCase):
 
             self.assertEqual(rc, 0)
             self.assertEqual(len(entries), 1)
-            self.assertEqual(entries[0]["metadata"]["resource_request"]["max_cores"], 12)
-            self.assertEqual(entries[0]["metadata"]["resource_request"]["max_memory_gb"], 24)
-            self.assertEqual(entries[0]["metadata"]["resource_actual"]["max_cores"], 12)
-            self.assertEqual(entries[0]["metadata"]["resource_actual"]["max_memory_gb"], 24)
+            metadata = queue_entry_metadata(entries[0])
+            self.assertEqual(metadata["resource_request"]["max_cores"], 12)
+            self.assertEqual(metadata["resource_request"]["max_memory_gb"], 24)
+            self.assertEqual(metadata["resource_actual"]["max_cores"], 12)
+            self.assertEqual(metadata["resource_actual"]["max_memory_gb"], 24)
             inp_text = (reaction_dir / "rxn.inp").read_text(encoding="utf-8")
             self.assertIn("nprocs 12", inp_text)
             self.assertIn("%maxcore 2048", inp_text)

@@ -44,15 +44,11 @@ class BackgroundJobProcessStarter(Protocol):
 
 
 @dataclass(frozen=True)
-class QueueWorkerBaseDeps:
+class ChildQueueWorkerDeps:
     POLL_INTERVAL_SECONDS: int
     time: SleepTimer
     _admission_root: Callable[[Any], str]
     _start_background_job_process: BackgroundJobProcessStarter
-
-
-@dataclass(frozen=True)
-class ChildQueueWorkerDeps(QueueWorkerBaseDeps):
     release_slot: SlotReleaser
     reserve_dequeued_entry: DequeuedEntryReserver
     _dequeue_next_entry: QueueEntryDequeuer
@@ -64,7 +60,6 @@ __all__ = [
     "BackgroundJobProcessStarter",
     "DequeuedEntryReserver",
     "QueueEntryDequeuer",
-    "QueueWorkerBaseDeps",
     "SleepTimer",
     "SlotReleaser",
 ]

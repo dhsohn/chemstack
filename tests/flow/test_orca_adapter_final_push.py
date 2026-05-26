@@ -140,8 +140,10 @@ def test_find_queue_entry_covers_target_queue_id_and_not_found(tmp_path: Path) -
             {
                 "queue_id": "q_target",
                 "task_id": "task_target",
-                "run_id": "run_target",
-                "reaction_dir": str(reaction_dir),
+                "metadata": {
+                    "run_id": "run_target",
+                    "reaction_dir": str(reaction_dir),
+                },
             }
         ],
     )

@@ -76,11 +76,8 @@ WORKER_SHUTDOWN_EXIT_CODE = 190
 WORKER_JOB_MODULE = "chemstack.xtb.worker_job"
 
 
-_QueueWorkerDeps = ChildQueueWorkerDeps
-
-
-def _queue_worker_deps() -> _QueueWorkerDeps:
-    return _QueueWorkerDeps(
+def _queue_worker_deps() -> ChildQueueWorkerDeps:
+    return ChildQueueWorkerDeps(
         POLL_INTERVAL_SECONDS=POLL_INTERVAL_SECONDS,
         time=time,
         release_slot=release_slot,

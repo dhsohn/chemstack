@@ -12,22 +12,21 @@ import os
 import signal
 import subprocess
 import time
-from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
+from chemstack.core.queue.engine_execution import coerce_resource_request
 from chemstack.core.queue.worker import (
-    ChildProcessQueueWorker,
+    EngineRunningJob as _RunningJob,
     ManagedProcess as _ManagedProcess,
     QueueWorkerPidFileMixin,
+    QueueWorkerLoop,
     read_worker_pid_file,
     reserve_attached_single_queue_entry,
     reserve_queue_worker_slot,
-    resolve_admission_limit,
     resolve_admission_root,
     terminate_process_group,
 )
-from chemstack.core.queue.dependencies import QueueWorkerBaseDeps
 
 from .admission_store import reconcile_stale_slots, release_slot, reserve_slot, update_slot_metadata
 from .config import AppConfig
@@ -61,33 +60,6 @@ POLL_INTERVAL_SECONDS = 5
 WORKER_PID_FILE = "queue_worker.pid"
 
 
-@dataclass
-class _RunningJob:
-    """Tracks a child process executing a queued job."""
-
-    queue_id: str
-    reaction_dir: str
-    process: _ManagedProcess
-    admission_token: str
-    task_id: str | None = None
-    started_at: float = field(default_factory=time.monotonic)
-
-
-_QueueWorkerDeps = QueueWorkerBaseDeps
-
-
-@dataclass(frozen=True)
-class _AdmissionLimitRuntimeConfig:
-    resolved_admission_limit: int
-    admission_limit: int
-    max_concurrent: int
-
-
-@dataclass(frozen=True)
-class _AdmissionLimitConfig:
-    runtime: _AdmissionLimitRuntimeConfig
-
-
 def _terminate_process(proc: _ManagedProcess) -> None:
     """Terminate the background run process and escalate if it does not stop."""
     terminate_process_group(proc)
@@ -109,35 +81,6 @@ def _start_job_process(
         admission_token=admission_token,
         admission_app_name=admission_app_name,
         admission_task_id=admission_task_id,
-    )
-
-
-def _start_background_job_process(
-    *,
-    config_path: str,
-    queue_root: str | Path,
-    entry: QueueEntry,
-    admission_root: str | Path,
-    admission_token: str,
-    auto_organize: bool,
-) -> BackgroundRunJobProcess:
-    del queue_root, admission_root, auto_organize
-    return _start_job_process(
-        reaction_dir=queue_entry_reaction_dir(entry),
-        config_path=config_path,
-        force=queue_entry_force(entry),
-        admission_token=admission_token,
-        admission_app_name=queue_entry_app_name(entry) or None,
-        admission_task_id=(queue_entry_task_id(entry) or None),
-    )
-
-
-def _queue_worker_deps() -> _QueueWorkerDeps:
-    return _QueueWorkerDeps(
-        POLL_INTERVAL_SECONDS=POLL_INTERVAL_SECONDS,
-        time=time,
-        _admission_root=resolve_admission_root,
-        _start_background_job_process=_start_background_job_process,
     )
 
 
@@ -189,21 +132,7 @@ def _tracking_metadata_from_queue_entry(
         job_type = job_type or derived_job_type
         molecule_key = molecule_key or derived_molecule_key
 
-    def _resource_caps_from_metadata(value: object) -> dict[str, int]:
-        if not isinstance(value, dict):
-            return {}
-        result: dict[str, int] = {}
-        for key, raw in value.items():
-            key_text = str(key).strip()
-            if not key_text:
-                continue
-            try:
-                result[key_text] = int(raw)
-            except (TypeError, ValueError):
-                continue
-        return result
-
-    requested = _resource_caps_from_metadata(metadata.get("resource_request"))
+    requested = coerce_resource_request(metadata.get("resource_request"))
     if not requested and selected_input.lower().endswith(".inp"):
         selected_inp_path = Path(selected_input).expanduser().resolve()
         if selected_inp_path.exists():
@@ -214,7 +143,7 @@ def _tracking_metadata_from_queue_entry(
             cfg.resources.max_memory_gb_per_task,
         )
 
-    actual = _resource_caps_from_metadata(metadata.get("resource_actual")) or dict(requested)
+    actual = coerce_resource_request(metadata.get("resource_actual")) or dict(requested)
     return selected_input, job_type, molecule_key, requested, actual
 
 
@@ -269,18 +198,10 @@ def _worker_admission_limit(cfg: AppConfig, fallback_max_concurrent: int) -> int
         return max(1, int(fallback_max_concurrent))
     if normalized_limit < 1:
         return 1
-    return resolve_admission_limit(
-        _AdmissionLimitConfig(
-            runtime=_AdmissionLimitRuntimeConfig(
-                resolved_admission_limit=normalized_limit,
-                admission_limit=normalized_limit,
-                max_concurrent=fallback_max_concurrent,
-            ),
-        )
-    )
+    return normalized_limit
 
 
-class QueueWorker(QueueWorkerPidFileMixin, ChildProcessQueueWorker):
+class QueueWorker(QueueWorkerPidFileMixin, QueueWorkerLoop):
     """Main worker loop that manages concurrent job execution."""
 
     worker_pid_file_name = WORKER_PID_FILE
@@ -294,12 +215,13 @@ class QueueWorker(QueueWorkerPidFileMixin, ChildProcessQueueWorker):
         auto_organize: bool = False,
     ) -> None:
         super().__init__(
-            cfg,
-            config_path=config_path,
-            auto_organize=auto_organize,
             max_concurrent=max(1, int(max_concurrent)),
-            deps=_queue_worker_deps(),
+            poll_interval_seconds=POLL_INTERVAL_SECONDS,
+            sleep_fn=lambda seconds: time.sleep(seconds),
         )
+        self.cfg = cfg
+        self.config_path = config_path
+        self.auto_organize = bool(auto_organize)
         self.allowed_root = Path(cfg.runtime.allowed_root).expanduser().resolve()
         self.admission_root = Path(resolve_admission_root(cfg)).expanduser().resolve()
         self.admission_limit = _worker_admission_limit(cfg, self.max_concurrent)
@@ -400,93 +322,40 @@ class QueueWorker(QueueWorkerPidFileMixin, ChildProcessQueueWorker):
         mark_failed(self.allowed_root, queue_entry_id(entry), error=error)
         self._release_admission_token(admission_token)
 
-    def _start_job(
-        self,
-        queue_root: Path | QueueEntry,
-        entry: Any | None = None,
-        *,
-        admission_token: str,
-    ) -> None:
-        if entry is None:
-            resolved_queue_root = self.allowed_root
-            queue_entry = cast(QueueEntry, queue_root)
-        else:
-            resolved_queue_root = Path(cast(Path, queue_root))
-            queue_entry = cast(QueueEntry, entry)
-
-        queue_id = queue_entry_id(queue_entry)
-        logger.info("Starting job %s: %s", queue_id, queue_entry_reaction_dir(queue_entry))
-        super()._start_job(resolved_queue_root, queue_entry, admission_token=admission_token)
-
-    def _start_entry_job(self, entry: QueueEntry, *, admission_token: str) -> bool:
+    def _start_job(self, entry: QueueEntry, *, admission_token: str) -> None:
         queue_id = queue_entry_id(entry)
-        self._start_job(entry, admission_token=admission_token)
-        running = self._running.get(queue_id)
-        return running is not None and getattr(running, "admission_token", None) == admission_token
+        logger.info("Starting job %s: %s", queue_id, queue_entry_reaction_dir(entry))
+        try:
+            process = _start_job_process(
+                reaction_dir=queue_entry_reaction_dir(entry),
+                config_path=self.config_path,
+                force=queue_entry_force(entry),
+                admission_token=admission_token,
+                admission_app_name=queue_entry_app_name(entry) or None,
+                admission_task_id=queue_entry_task_id(entry) or None,
+            )
+        except OSError as exc:
+            logger.error("Failed to start job %s: %s", queue_id, exc)
+            self._fail_start(entry, admission_token, error=str(exc))
+            return
 
-    def _handle_worker_start_error(
-        self,
-        queue_root: Path,
-        entry: Any,
-        admission_token: str,
-        exc: OSError,
-    ) -> None:
-        del queue_root
-        logger.error("Failed to start job %s: %s", queue_entry_id(entry), exc)
-        self._fail_start(entry, admission_token, error=str(exc))
-
-    def _on_worker_process_started(
-        self,
-        queue_root: Path,
-        entry: Any,
-        *,
-        process: _ManagedProcess,
-        admission_token: str,
-    ) -> bool:
-        del queue_root, process, admission_token
-        queue_id = queue_entry_id(entry)
         try:
             _upsert_running_job_record(self.cfg, entry)
         except Exception as exc:
             logger.warning("Failed to update running job location for %s: %s", queue_id, exc)
-        return True
 
-    def _running_queue_id(self, entry: Any) -> str:
-        return queue_entry_id(entry)
-
-    def _make_running_job(
-        self,
-        *,
-        queue_root: Path,
-        entry: Any,
-        process: Any,
-        admission_token: str,
-    ) -> _RunningJob:
-        del queue_root
-        return _RunningJob(
-            queue_id=queue_entry_id(entry),
+        self._running[queue_id] = _RunningJob(
+            queue_id=queue_id,
             reaction_dir=queue_entry_reaction_dir(entry),
             task_id=queue_entry_task_id(entry) or None,
             process=process,
             admission_token=admission_token,
         )
 
-    def _register_running_job(
-        self,
-        entry: QueueEntry,
-        *,
-        process: _ManagedProcess,
-        admission_token: str,
-    ) -> None:
-        queue_id = queue_entry_id(entry)
-        self._running[queue_id] = self._make_running_job(
-            queue_root=self.allowed_root,
-            entry=entry,
-            process=process,
-            admission_token=admission_token,
-        )
-
     # -- Monitoring -------------------------------------------------------
+
+    def _poll_job(self, job: _RunningJob) -> int | None:
+        return job.process.poll()
 
     def _finalize_completed_job(self, queue_id: str, job: Any, rc: int) -> None:
         self._finalize_finished_job(queue_id, job, rc=rc)
@@ -556,15 +425,11 @@ class QueueWorker(QueueWorkerPidFileMixin, ChildProcessQueueWorker):
         if not self._running:
             return
         logger.info("Shutting down %d running job(s)...", len(self._running))
-        super()._shutdown_all()
-
-    def _shutdown_running_job(self, queue_id: str, job: Any) -> None:
-        self._requeue_running_job(queue_id, job)
-
-    def _requeue_running_job(self, queue_id: str, job: _RunningJob) -> None:
-        _terminate_process(job.process)
-        requeue_running_entry(self.allowed_root, queue_id)
-        self._release_admission_token(job.admission_token)
+        for queue_id, job in list(self._running.items()):
+            _terminate_process(job.process)
+            requeue_running_entry(self.allowed_root, queue_id)
+            self._release_admission_token(job.admission_token)
+            del self._running[queue_id]
 
     def _install_signal_handlers(self) -> None:
         def _handle_signal(signum: int, frame: object) -> None:

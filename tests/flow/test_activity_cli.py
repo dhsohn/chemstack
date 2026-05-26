@@ -348,31 +348,36 @@ def test_orca_records_merge_queue_entries_and_snapshots(
     orphan_dir = allowed / "orphan"
     orphan_dir.mkdir()
     entries = [
-        {
-            "queue_id": "q-1",
-            "task_id": "task-1",
-            "run_id": "run-1",
-            "reaction_dir": str(reaction_dir),
-            "status": "running",
-            "cancel_requested": False,
-            "task_kind": "orca_run",
-            "priority": 3,
-            "enqueued_at": "2026-04-26T00:00:00+00:00",
-            "started_at": "2026-04-26T00:01:00+00:00",
-            "metadata": {"workflow_id": "wf-1", "job_type": "opt", "selected_inp": "rxn.inp"},
-        },
-        {
-            "queue_id": "q-2",
-            "task_id": "task-2",
-            "run_id": "",
-            "reaction_dir": str(tmp_path / "missing"),
-            "status": "running",
-            "cancel_requested": True,
-            "task_kind": "orca_run",
-            "priority": 4,
-            "enqueued_at": "2026-04-26T00:02:00+00:00",
-            "metadata": {},
-        },
+        QueueEntry(
+            queue_id="q-1",
+            app_name="chemstack_orca",
+            task_id="task-1",
+            task_kind="orca_run",
+            engine="orca",
+            status=QueueStatus.RUNNING,
+            priority=3,
+            enqueued_at="2026-04-26T00:00:00+00:00",
+            started_at="2026-04-26T00:01:00+00:00",
+            metadata={
+                "run_id": "run-1",
+                "reaction_dir": str(reaction_dir),
+                "workflow_id": "wf-1",
+                "job_type": "opt",
+                "selected_inp": "rxn.inp",
+            },
+        ),
+        QueueEntry(
+            queue_id="q-2",
+            app_name="chemstack_orca",
+            task_id="task-2",
+            task_kind="orca_run",
+            engine="orca",
+            status=QueueStatus.RUNNING,
+            priority=4,
+            enqueued_at="2026-04-26T00:02:00+00:00",
+            cancel_requested=True,
+            metadata={"reaction_dir": str(tmp_path / "missing")},
+        ),
     ]
     snapshots = [
         SimpleNamespace(
@@ -409,13 +414,6 @@ def test_orca_records_merge_queue_entries_and_snapshots(
     monkeypatch.setattr(activity, "sibling_runtime_paths", lambda config_path, *, engine: {"allowed_root": allowed})
     monkeypatch.setattr(queue_store, "reconcile_orphaned_running_entries", lambda root: reconciled.append(root))
     monkeypatch.setattr(queue_store, "list_queue", lambda root: entries)
-    monkeypatch.setattr(queue_store, "queue_entry_metadata", lambda entry: entry.get("metadata", {}))
-    monkeypatch.setattr(queue_store, "queue_entry_run_id", lambda entry: entry.get("run_id", ""))
-    monkeypatch.setattr(queue_store, "queue_entry_status", lambda entry: entry.get("status", ""))
-    monkeypatch.setattr(queue_store, "queue_entry_reaction_dir", lambda entry: entry.get("reaction_dir", ""))
-    monkeypatch.setattr(queue_store, "queue_entry_id", lambda entry: entry.get("queue_id", ""))
-    monkeypatch.setattr(queue_store, "queue_entry_task_id", lambda entry: entry.get("task_id", ""))
-    monkeypatch.setattr(queue_store, "queue_entry_priority", lambda entry: entry.get("priority", 0))
     monkeypatch.setattr(run_snapshot, "collect_run_snapshots", lambda root: snapshots)
 
     rows = activity._orca_records(config_path="/tmp/cfg.yaml", repo_root="/tmp/repo")
@@ -437,29 +435,63 @@ def test_orca_matching_helpers_cover_empty_and_active_dir_paths(tmp_path: Path) 
     reaction_dir.mkdir()
     snapshot = SimpleNamespace(run_id="run-1", reaction_dir=reaction_dir)
     queue_store = SimpleNamespace(
-        queue_entry_run_id=lambda entry: entry.get("run_id", ""),
-        queue_entry_status=lambda entry: entry.get("status", ""),
-        queue_entry_reaction_dir=lambda entry: entry.get("reaction_dir", ""),
+        queue_entry_run_id=lambda entry: entry.metadata.get("run_id", ""),
+        queue_entry_status=lambda entry: entry.status.value,
+        queue_entry_reaction_dir=lambda entry: entry.metadata.get("reaction_dir", ""),
     )
 
-    assert activity._orca_snapshot_matches_entry(queue_store, {"run_id": "run-1"}, {"run-1": snapshot}, {}) is snapshot
-    assert activity._orca_snapshot_matches_entry(queue_store, {"status": "completed"}, {}, {}) is None
-    assert activity._orca_snapshot_matches_entry(queue_store, {"status": "running", "reaction_dir": ""}, {}, {}) is None
+    matching = QueueEntry(
+        queue_id="q-1",
+        app_name="chemstack_orca",
+        task_id="task-1",
+        task_kind="orca_run",
+        engine="orca",
+        metadata={"run_id": "run-1"},
+    )
+    completed = QueueEntry(
+        queue_id="q-2",
+        app_name="chemstack_orca",
+        task_id="task-2",
+        task_kind="orca_run",
+        engine="orca",
+        status=QueueStatus.COMPLETED,
+    )
+    blank_dir = QueueEntry(
+        queue_id="q-3",
+        app_name="chemstack_orca",
+        task_id="task-3",
+        task_kind="orca_run",
+        engine="orca",
+        status=QueueStatus.RUNNING,
+    )
+    active_dir = QueueEntry(
+        queue_id="q-4",
+        app_name="chemstack_orca",
+        task_id="task-4",
+        task_kind="orca_run",
+        engine="orca",
+        status=QueueStatus.RUNNING,
+        metadata={"reaction_dir": str(reaction_dir)},
+    )
+
+    assert activity._orca_snapshot_matches_entry(queue_store, matching, {"run-1": snapshot}, {}) is snapshot
+    assert activity._orca_snapshot_matches_entry(queue_store, completed, {}, {}) is None
+    assert activity._orca_snapshot_matches_entry(queue_store, blank_dir, {}, {}) is None
     assert (
         activity._orca_snapshot_matches_entry(
             queue_store,
-            {"status": "running", "reaction_dir": str(reaction_dir)},
+            active_dir,
             {},
             {str(reaction_dir.resolve()): snapshot},
         )
         is snapshot
     )
-    assert activity._orca_queue_represents_snapshot(queue_store, {"run_id": "run-1"}, snapshot) is True
-    assert activity._orca_queue_represents_snapshot(queue_store, {"status": "completed"}, snapshot) is False
+    assert activity._orca_queue_represents_snapshot(queue_store, matching, snapshot) is True
+    assert activity._orca_queue_represents_snapshot(queue_store, completed, snapshot) is False
     assert (
         activity._orca_queue_represents_snapshot(
             queue_store,
-            {"status": "running", "reaction_dir": str(reaction_dir)},
+            active_dir,
             snapshot,
         )
         is True

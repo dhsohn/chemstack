@@ -4,6 +4,10 @@ import json
 from pathlib import Path
 from typing import Any
 
+from chemstack.core.queue.metadata import (
+    mapping_metadata,
+    mapping_metadata_value,
+)
 from chemstack.core.paths import (
     first_existing_named_file,
     iter_existing_dirs,
@@ -63,6 +67,14 @@ def resource_dict_from_any(value: Any) -> dict[str, int]:
         except (TypeError, ValueError):
             continue
     return result
+
+
+def queue_entry_metadata(queue_entry: dict[str, Any] | None) -> dict[str, Any]:
+    return mapping_metadata(queue_entry)
+
+
+def queue_entry_metadata_value(queue_entry: dict[str, Any] | None, key: str) -> Any:
+    return mapping_metadata_value(queue_entry, key)
 
 
 def resolve_artifact_path(path_value: Any, base_dir: Path | None) -> str:

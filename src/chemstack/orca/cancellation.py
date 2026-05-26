@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
+from chemstack.core.queue.types import QueueStatus
+
 from .process_tracking import active_run_lock_pid
 from .queue_store import (
     cancel as queue_cancel,
@@ -18,7 +20,6 @@ from .queue_store import (
     queue_entry_status,
 )
 from .state import STATE_FILE_NAME, load_state
-from .statuses import QueueStatus
 from .types import QueueEntry
 
 logger = logging.getLogger(__name__)

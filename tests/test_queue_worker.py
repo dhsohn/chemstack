@@ -22,6 +22,7 @@ from chemstack.orca.queue_store import (
     enqueue,
     list_queue,
     mark_cancelled,
+    queue_entry_reaction_dir,
     requeue_running_entry,
 )
 from chemstack.orca.queue_worker import (
@@ -207,13 +208,14 @@ class TestQueueWorkerMethods(unittest.TestCase):
         mock_proc = MagicMock()
         mock_proc.pid = 4321
         mock_start_job_process.return_value = mock_proc
-        entry: QueueEntry = {
-            "queue_id": "q_test",
-            "app_name": "chemstack_orca",
-            "task_id": "task_test_123",
-            "reaction_dir": str(self.root / "mol_A"),
-            "force": False,
-        }
+        entry = QueueEntry(
+            queue_id="q_test",
+            app_name="chemstack_orca",
+            task_id="task_test_123",
+            task_kind="orca_run_inp",
+            engine="orca",
+            metadata={"reaction_dir": str(self.root / "mol_A"), "force": False},
+        )
         self.worker._start_job(entry, admission_token="slot_test")
         self.assertIn("q_test", self.worker._running)
         mock_start_job_process.assert_called_once_with(
@@ -244,13 +246,15 @@ class TestQueueWorkerMethods(unittest.TestCase):
         mock_proc = MagicMock()
         mock_proc.pid = 4322
         mock_start_job_process.return_value = mock_proc
-        entry: QueueEntry = {
-            "queue_id": "q_meta",
-            "app_name": "chemstack_orca",
-            "task_id": "task_meta_123",
-            "reaction_dir": str(reaction_dir),
-            "force": False,
-            "metadata": {
+        entry = QueueEntry(
+            queue_id="q_meta",
+            app_name="chemstack_orca",
+            task_id="task_meta_123",
+            task_kind="orca_run_inp",
+            engine="orca",
+            metadata={
+                "reaction_dir": str(reaction_dir),
+                "force": False,
                 "selected_inp": str(selected_inp),
                 "selected_input_xyz": str(selected_inp),
                 "job_type": "opt",
@@ -258,7 +262,7 @@ class TestQueueWorkerMethods(unittest.TestCase):
                 "resource_request": {"max_cores": 4, "max_memory_gb": 12},
                 "resource_actual": {"max_cores": 4, "max_memory_gb": 12},
             },
-        }
+        )
 
         self.worker._start_job(entry, admission_token="slot_meta")
 
@@ -284,13 +288,13 @@ class TestQueueWorkerMethods(unittest.TestCase):
             self.root,
             self.worker.max_concurrent,
             reaction_dir=str(rxn),
-            queue_id=entry["queue_id"],
+            queue_id=entry.queue_id,
             source="queue_worker",
         )
         self.assertIsNotNone(token)
         dequeue_next(self.root)
         self.worker._start_job(entry, admission_token=token or "")
-        self.assertNotIn(entry["queue_id"], self.worker._running)
+        self.assertNotIn(entry.queue_id, self.worker._running)
         self.assertEqual(active_slot_count(self.root), 0)
 
     def test_check_completed_jobs_success(self) -> None:
@@ -303,13 +307,13 @@ class TestQueueWorkerMethods(unittest.TestCase):
             self.root,
             self.worker.max_concurrent,
             reaction_dir=str(rxn),
-            queue_id=entry["queue_id"],
+            queue_id=entry.queue_id,
             source="queue_worker",
         )
         self.assertIsNotNone(token)
         dequeue_next(self.root)
         self.worker._running["q_done"] = _RunningJob(
-            queue_id=entry["queue_id"],
+            queue_id=entry.queue_id,
             reaction_dir=str(rxn),
             process=mock_proc,
             admission_token=token or "",
@@ -326,7 +330,7 @@ class TestQueueWorkerMethods(unittest.TestCase):
         entry = enqueue(self.root, str(rxn))
         dequeue_next(self.root)
         self.worker._running["q_fail"] = _RunningJob(
-            queue_id=entry["queue_id"],
+            queue_id=entry.queue_id,
             reaction_dir=str(rxn),
             process=mock_proc,
             admission_token="slot_fail",
@@ -353,15 +357,15 @@ class TestQueueWorkerMethods(unittest.TestCase):
             self.root,
             self.worker.max_concurrent,
             reaction_dir=str(rxn),
-            queue_id=entry["queue_id"],
+            queue_id=entry.queue_id,
             source="queue_worker",
         )
         self.assertIsNotNone(token)
 
         self.worker._finalize_finished_job(
-            entry["queue_id"],
+            entry.queue_id,
             _RunningJob(
-                queue_id=entry["queue_id"],
+                queue_id=entry.queue_id,
                 reaction_dir=str(rxn),
                 process=MagicMock(),
                 admission_token=token or "",
@@ -375,7 +379,7 @@ class TestQueueWorkerMethods(unittest.TestCase):
             notify_summary=False,
         )
         queue_entries = list_queue(self.root)
-        self.assertEqual(queue_entries[0]["status"], "completed")
+        self.assertEqual(queue_entries[0].status.value, "completed")
         mock_upsert_terminal.assert_called_once()
         self.assertEqual(active_slot_count(self.root), 0)
 
@@ -394,15 +398,15 @@ class TestQueueWorkerMethods(unittest.TestCase):
             self.root,
             self.worker.max_concurrent,
             reaction_dir=str(rxn),
-            queue_id=entry["queue_id"],
+            queue_id=entry.queue_id,
             source="queue_worker",
         )
         self.assertIsNotNone(token)
 
         self.worker._finalize_finished_job(
-            entry["queue_id"],
+            entry.queue_id,
             _RunningJob(
-                queue_id=entry["queue_id"],
+                queue_id=entry.queue_id,
                 reaction_dir=str(rxn),
                 process=MagicMock(),
                 admission_token=token or "",
@@ -429,15 +433,15 @@ class TestQueueWorkerMethods(unittest.TestCase):
             self.root,
             self.worker.max_concurrent,
             reaction_dir=str(rxn),
-            queue_id=entry["queue_id"],
+            queue_id=entry.queue_id,
             source="queue_worker",
         )
         self.assertIsNotNone(token)
 
         self.worker._finalize_finished_job(
-            entry["queue_id"],
+            entry.queue_id,
             _RunningJob(
-                queue_id=entry["queue_id"],
+                queue_id=entry.queue_id,
                 reaction_dir=str(rxn),
                 process=MagicMock(),
                 admission_token=token or "",
@@ -447,7 +451,7 @@ class TestQueueWorkerMethods(unittest.TestCase):
 
         mock_organize.assert_not_called()
         queue_entries = list_queue(self.root)
-        self.assertEqual(queue_entries[0]["status"], "failed")
+        self.assertEqual(queue_entries[0].status.value, "failed")
         mock_upsert_terminal.assert_called_once()
 
     @patch("chemstack.orca.queue_worker._upsert_terminal_job_record")
@@ -462,20 +466,20 @@ class TestQueueWorkerMethods(unittest.TestCase):
         rxn.mkdir()
         entry = enqueue(self.root, str(rxn))
         dequeue_next(self.root)
-        cancel(self.root, entry["queue_id"])
+        cancel(self.root, entry.queue_id)
         token = reserve_slot(
             self.root,
             self.worker.max_concurrent,
             reaction_dir=str(rxn),
-            queue_id=entry["queue_id"],
+            queue_id=entry.queue_id,
             source="queue_worker",
         )
         self.assertIsNotNone(token)
 
         self.worker._finalize_finished_job(
-            entry["queue_id"],
+            entry.queue_id,
             _RunningJob(
-                queue_id=entry["queue_id"],
+                queue_id=entry.queue_id,
                 reaction_dir=str(rxn),
                 process=MagicMock(),
                 admission_token=token or "",
@@ -485,8 +489,8 @@ class TestQueueWorkerMethods(unittest.TestCase):
 
         mock_organize.assert_not_called()
         queue_entries = list_queue(self.root)
-        self.assertEqual(queue_entries[0]["status"], "cancelled")
-        self.assertFalse(queue_entries[0]["cancel_requested"])
+        self.assertEqual(queue_entries[0].status.value, "cancelled")
+        self.assertFalse(queue_entries[0].cancel_requested)
         mock_upsert_terminal.assert_called_once()
         self.assertEqual(active_slot_count(self.root), 0)
 
@@ -505,21 +509,21 @@ class TestQueueWorkerMethods(unittest.TestCase):
         rxn.mkdir()
         entry = enqueue(self.root, str(rxn))
         dequeue_next(self.root)
-        cancel(self.root, entry["queue_id"])
+        cancel(self.root, entry.queue_id)
 
         mock_proc = MagicMock()
         mock_proc.poll.return_value = None
         mock_proc.wait.return_value = 0
-        self.worker._running[entry["queue_id"]] = _RunningJob(
-            queue_id=entry["queue_id"],
+        self.worker._running[entry.queue_id] = _RunningJob(
+            queue_id=entry.queue_id,
             reaction_dir=str(rxn),
             process=mock_proc,
             admission_token="slot_cancel",
         )
         with patch("chemstack.orca.queue_worker._terminate_process"):
             self.worker._check_cancel_requests()
-        self.assertNotIn(entry["queue_id"], self.worker._running)
-        mock_mark_cancelled.assert_called_once_with(self.root, entry["queue_id"])
+        self.assertNotIn(entry.queue_id, self.worker._running)
+        mock_mark_cancelled.assert_called_once_with(self.root, entry.queue_id)
 
     def test_shutdown_all_empty(self) -> None:
         self.worker._shutdown_all()
@@ -534,8 +538,8 @@ class TestQueueWorkerMethods(unittest.TestCase):
 
         mock_proc = MagicMock()
         mock_proc.poll.return_value = None
-        self.worker._running[entry["queue_id"]] = _RunningJob(
-            queue_id=entry["queue_id"],
+        self.worker._running[entry.queue_id] = _RunningJob(
+            queue_id=entry.queue_id,
             reaction_dir=str(rxn),
             process=mock_proc,
             admission_token="slot_shutdown",
@@ -543,7 +547,7 @@ class TestQueueWorkerMethods(unittest.TestCase):
         with patch("chemstack.orca.queue_worker._terminate_process"):
             self.worker._shutdown_all()
         self.assertEqual(len(self.worker._running), 0)
-        mock_requeue.assert_called_once_with(self.root, entry["queue_id"])
+        mock_requeue.assert_called_once_with(self.root, entry.queue_id)
 
     @patch("chemstack.orca.queue_worker.time.sleep", side_effect=KeyboardInterrupt)
     def test_run_keyboard_interrupt(self, mock_sleep: MagicMock) -> None:
@@ -586,9 +590,9 @@ class TestQueueWorkerMethods(unittest.TestCase):
         self.worker._reconcile_orphaned_running()
 
         queue_data = json.loads((self.root / "queue.json").read_text(encoding="utf-8"))
-        found = next(item for item in queue_data if item["queue_id"] == entry["queue_id"])
+        found = next(item for item in queue_data if item["queue_id"] == entry.queue_id)
         self.assertEqual(found["status"], "completed")
-        self.assertEqual(found["run_id"], "run_done_1")
+        self.assertEqual(found["metadata"]["run_id"], "run_done_1")
 
 
 class TestFillSlots(unittest.TestCase):
@@ -627,9 +631,9 @@ class TestFillSlots(unittest.TestCase):
 
             slots = list_slots(root)
             self.assertEqual(len(slots), 1)
-            self.assertEqual(slots[0]["queue_id"], entry["queue_id"])
-            self.assertEqual(slots[0]["app_name"], entry["app_name"])
-            self.assertEqual(slots[0]["task_id"], entry["task_id"])
+            self.assertEqual(slots[0]["queue_id"], entry.queue_id)
+            self.assertEqual(slots[0]["app_name"], entry.app_name)
+            self.assertEqual(slots[0]["task_id"], entry.task_id)
 
     def test_fill_slots_preserves_task_id_across_slot_and_worker_handoff(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -640,7 +644,7 @@ class TestFillSlots(unittest.TestCase):
             rxn = root / "mol_task_identity"
             rxn.mkdir()
             entry = enqueue(root, str(rxn), task_id="orca_task_preserved_123")
-            self.assertNotEqual(entry["queue_id"], entry["task_id"])
+            self.assertNotEqual(entry.queue_id, entry.task_id)
 
             with patch("chemstack.orca.queue_worker._start_job_process") as mock_start_job_process:
                 mock_proc = MagicMock()
@@ -650,8 +654,8 @@ class TestFillSlots(unittest.TestCase):
 
             slots = list_slots(root)
             self.assertEqual(len(slots), 1)
-            self.assertEqual(slots[0]["queue_id"], entry["queue_id"])
-            self.assertEqual(slots[0]["task_id"], entry["task_id"])
+            self.assertEqual(slots[0]["queue_id"], entry.queue_id)
+            self.assertEqual(slots[0]["task_id"], entry.task_id)
             self.assertNotEqual(slots[0]["queue_id"], slots[0]["task_id"])
             self.assertEqual(
                 mock_start_job_process.call_args.kwargs["admission_token"],
@@ -659,11 +663,11 @@ class TestFillSlots(unittest.TestCase):
             )
             self.assertEqual(
                 mock_start_job_process.call_args.kwargs["admission_task_id"],
-                entry["task_id"],
+                entry.task_id,
             )
             self.assertEqual(
                 mock_start_job_process.call_args.kwargs["admission_app_name"],
-                entry["app_name"],
+                entry.app_name,
             )
 
     def test_fill_slots_respects_max_concurrent(self) -> None:
@@ -704,7 +708,8 @@ class TestFillSlots(unittest.TestCase):
                 worker._fill_slots()
 
             queue_by_name = {
-                Path(entry["reaction_dir"]).name: entry["status"] for entry in list_queue(root)
+                Path(queue_entry_reaction_dir(entry)).name: entry.status.value
+                for entry in list_queue(root)
             }
             self.assertEqual(len(worker._running), 3)
             self.assertEqual(mock_start_job_process.call_count, 3)
@@ -739,12 +744,12 @@ class TestFillSlots(unittest.TestCase):
                 root,
                 worker.max_concurrent,
                 reaction_dir=str(first_dir),
-                queue_id=completed_entry["queue_id"],
+                queue_id=completed_entry.queue_id,
                 source="queue_worker",
             )
             self.assertIsNotNone(completion_token)
-            worker._running[completed_entry["queue_id"]] = _RunningJob(
-                queue_id=completed_entry["queue_id"],
+            worker._running[completed_entry.queue_id] = _RunningJob(
+                queue_id=completed_entry.queue_id,
                 reaction_dir=str(first_dir),
                 process=completed_proc,
                 admission_token=completion_token or "",
@@ -756,12 +761,13 @@ class TestFillSlots(unittest.TestCase):
                 worker._fill_slots()
 
             queue_by_name = {
-                Path(entry["reaction_dir"]).name: entry["status"] for entry in list_queue(root)
+                Path(queue_entry_reaction_dir(entry)).name: entry.status.value
+                for entry in list_queue(root)
             }
             self.assertEqual(mock_start_job_process.call_count, 1)
             self.assertEqual(len(worker._running), 1)
-            self.assertIn(pending_entry["queue_id"], worker._running)
-            self.assertNotIn(completed_entry["queue_id"], worker._running)
+            self.assertIn(pending_entry.queue_id, worker._running)
+            self.assertNotIn(completed_entry.queue_id, worker._running)
             self.assertEqual(
                 queue_by_name,
                 {
@@ -883,13 +889,13 @@ class TestQueueStoreWorkerTransitions(unittest.TestCase):
             entry = enqueue(root, str(reaction_dir))
             dequeue_next(root)
 
-            updated = mark_cancelled(root, entry["queue_id"])
+            updated = mark_cancelled(root, entry.queue_id)
 
             self.assertTrue(updated)
             queue_entries = list_queue(root)
-            self.assertEqual(queue_entries[0]["status"], "cancelled")
-            self.assertFalse(queue_entries[0]["cancel_requested"])
-            self.assertIsNotNone(queue_entries[0]["finished_at"])
+            self.assertEqual(queue_entries[0].status.value, "cancelled")
+            self.assertFalse(queue_entries[0].cancel_requested)
+            self.assertIsNotNone(queue_entries[0].finished_at)
 
     def test_requeue_running_entry_returns_job_to_pending(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -899,13 +905,13 @@ class TestQueueStoreWorkerTransitions(unittest.TestCase):
             entry = enqueue(root, str(reaction_dir))
             dequeue_next(root)
 
-            updated = requeue_running_entry(root, entry["queue_id"])
+            updated = requeue_running_entry(root, entry.queue_id)
 
             self.assertTrue(updated)
             queue_entries = list_queue(root)
-            self.assertEqual(queue_entries[0]["status"], "pending")
-            self.assertIsNone(queue_entries[0]["started_at"])
-            self.assertFalse(queue_entries[0]["cancel_requested"])
+            self.assertEqual(queue_entries[0].status.value, "pending")
+            self.assertEqual(queue_entries[0].started_at, "")
+            self.assertFalse(queue_entries[0].cancel_requested)
 
 
 if __name__ == "__main__":

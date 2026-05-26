@@ -1,53 +1,34 @@
-"""Shared admission slot store for enforcing a hard active-run cap."""
+"""ORCA admission helpers layered on the shared core admission store."""
 
 from __future__ import annotations
 
 import logging
-import os
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import asdict
 from pathlib import Path
-from typing import Iterator, List, TypedDict, cast
+from typing import Iterator, TypedDict, cast
 
+from chemstack.core.admission import store as _core_admission
 from chemstack.core.app_ids import CHEMSTACK_ORCA_APP_NAME
-from chemstack.core.utils.lock import file_lock as _core_file_lock
-from chemstack.core.utils.persistence import (
-    atomic_write_json,
-    load_json_list_file,
-    now_utc_iso,
-    timestamped_token,
-)
 
-from .lock_utils import (
-    current_process_start_ticks,
-    is_process_alive,
-    process_start_ticks,
-)
 from .process_tracking import RUN_LOCK_FILE_NAME, active_run_lock_pid
-from . import admission_slot_adapter as _admission_slot_adapter
 
-ADMISSION_FILE_NAME = "admission_slots.json"
-ADMISSION_LOCK_NAME = "admission.lock"
+ADMISSION_FILE_NAME = _core_admission.ADMISSION_FILE_NAME
+ADMISSION_LOCK_NAME = _core_admission.ADMISSION_LOCK_NAME
 ADMISSION_TOKEN_ENV_VAR = "ORCA_AUTO_ADMISSION_TOKEN"
 ADMISSION_APP_NAME_ENV_VAR = "ORCA_AUTO_ADMISSION_APP_NAME"
 ADMISSION_TASK_ID_ENV_VAR = "ORCA_AUTO_ADMISSION_TASK_ID"
 
+AdmissionLimitReachedError = _core_admission.AdmissionLimitReachedError
+AdmissionStoreCorruptError = _core_admission.AdmissionStoreCorruptError
+
 logger = logging.getLogger(__name__)
-
-
-class AdmissionLimitReachedError(RuntimeError):
-    """Raised when the global admission cap is already exhausted."""
-
-
-class AdmissionStoreCorruptError(RuntimeError):
-    """Raised when the admission slot file cannot be safely loaded."""
 
 
 class AdmissionSlot(TypedDict, total=False):
     token: str
     state: str
     work_dir: str | None
-    reaction_dir: str | None
     queue_id: str | None
     owner_pid: int
     process_start_ticks: int | None
@@ -58,282 +39,61 @@ class AdmissionSlot(TypedDict, total=False):
     workflow_id: str | None
 
 
-@dataclass(frozen=True)
-class _AdmissionReservationRequest:
-    root: Path
-    max_concurrent: int
-    reaction_dir: str | None
-    queue_id: str | None
-    source: str
-    owner_pid: int | None
-    exclude_reaction_dirs: set[str] | None
-    app_name: str | None
-    task_id: str | None
-    workflow_id: str | None
-    state: str
-
-    @property
-    def limit(self) -> int:
-        return max(1, int(self.max_concurrent))
-
-    @property
-    def excluded_reaction_dirs(self) -> set[str]:
-        return _normalize_reaction_dir_set(self.exclude_reaction_dirs)
-
-
-@dataclass(frozen=True)
-class _AdmissionActivationRequest:
-    root: Path
-    token: str
-    work_dir: str
-    owner_pid: int
-    source: str
-    queue_id: str | None
-    app_name: str | None
-    task_id: str | None
-    workflow_id: str | None
-
-
-def _admission_path(root: Path) -> Path:
-    return root / ADMISSION_FILE_NAME
-
-
-def _lock_path(root: Path) -> Path:
-    return root / ADMISSION_LOCK_NAME
-
-
-def _resolve_root(root: str | Path) -> Path:
-    return Path(root).expanduser().resolve()
-
-
-@contextmanager
-def _acquire_admission_lock(root: Path, *, timeout_seconds: int = 10) -> Iterator[None]:
-    lock_path = _lock_path(root)
-    with _core_file_lock(lock_path, timeout_seconds=float(timeout_seconds)):
-        logger.debug("Admission lock acquired: %s", lock_path)
-        try:
-            yield
-        finally:
-            logger.debug("Admission lock released: %s", lock_path)
-
-
-def _load_slots(root: Path) -> List[AdmissionSlot]:
-    raw = load_json_list_file(
-        _admission_path(root),
-        corrupt_error=AdmissionStoreCorruptError,
-        description="Admission slot file",
-    )
-    return [cast(AdmissionSlot, slot) for slot in raw if isinstance(slot, dict)]
-
-
-def _save_slots(root: Path, slots: List[AdmissionSlot]) -> None:
-    atomic_write_json(_admission_path(root), slots, ensure_ascii=True, indent=2)
-
-
 def _normalize_work_dir(value: str | Path | None) -> str | None:
-    return _admission_slot_adapter.normalize_work_dir(value)
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        return str(Path(text).expanduser().resolve())
+    except OSError:
+        return text
 
 
-def _normalize_slot(slot: AdmissionSlot) -> AdmissionSlot:
-    return cast(AdmissionSlot, _admission_slot_adapter.normalize_slot(dict(slot)))
+def _slot_payload(slot: _core_admission.AdmissionSlot) -> AdmissionSlot:
+    payload = asdict(slot)
+    payload.pop("reaction_dir", None)
+    return cast(AdmissionSlot, payload)
 
 
-def _slot_reaction_dir(slot: AdmissionSlot) -> str | None:
-    return _admission_slot_adapter.slot_reaction_dir(dict(slot))
-
-
-def _normalize_reaction_dir_set(reaction_dirs: set[str] | None) -> set[str]:
-    return _admission_slot_adapter.normalize_reaction_dir_set(reaction_dirs)
+def _slot_payloads(slots: list[_core_admission.AdmissionSlot]) -> list[AdmissionSlot]:
+    return [_slot_payload(slot) for slot in slots]
 
 
 def _count_external_active_runs(
     root: Path,
-    *,
-    represented_reaction_dirs: set[str],
-    exclude_reaction_dirs: set[str],
+    represented_work_dirs: set[str],
+    exclude_work_dirs: set[str],
 ) -> int:
     if not root.is_dir():
         return 0
 
     count = 0
-    seen_reaction_dirs: set[str] = set()
+    seen_work_dirs: set[str] = set()
     for lock_path in root.rglob(RUN_LOCK_FILE_NAME):
-        reaction_dir = str(lock_path.parent.resolve())
-        if reaction_dir in exclude_reaction_dirs:
+        work_dir = str(lock_path.parent.resolve())
+        if work_dir in exclude_work_dirs:
             continue
-        if reaction_dir in represented_reaction_dirs or reaction_dir in seen_reaction_dirs:
+        if work_dir in represented_work_dirs or work_dir in seen_work_dirs:
             continue
         if active_run_lock_pid(lock_path.parent, logger=logger) is None:
             continue
-        seen_reaction_dirs.add(reaction_dir)
+        seen_work_dirs.add(work_dir)
         count += 1
     return count
 
 
-def _slot_owner_alive(slot: AdmissionSlot) -> bool:
-    pid = slot.get("owner_pid")
-    if not isinstance(pid, int) or pid <= 0:
-        return False
-    if not is_process_alive(pid):
-        return False
-
-    expected_ticks = slot.get("process_start_ticks")
-    if isinstance(expected_ticks, int) and expected_ticks > 0:
-        observed_ticks = process_start_ticks(pid)
-        if observed_ticks is None or observed_ticks != expected_ticks:
-            return False
-    return True
-
-
-def _load_live_slots(root: Path) -> list[AdmissionSlot]:
-    live_slots: list[AdmissionSlot] = []
-    for slot in _load_slots(root):
-        normalized = _normalize_slot(slot)
-        if _slot_owner_alive(normalized):
-            live_slots.append(normalized)
-    return live_slots
-
-
-def _counted_slots(
-    slots: list[AdmissionSlot],
-    *,
-    exclude_reaction_dirs: set[str],
-) -> tuple[list[AdmissionSlot], set[str]]:
-    counted: list[AdmissionSlot] = []
-    represented_reaction_dirs: set[str] = set()
-    for existing_slot in slots:
-        slot_reaction_dir = _slot_reaction_dir(existing_slot)
-        if slot_reaction_dir is not None and slot_reaction_dir in exclude_reaction_dirs:
-            continue
-        counted.append(existing_slot)
-        if slot_reaction_dir is not None:
-            represented_reaction_dirs.add(slot_reaction_dir)
-    return counted, represented_reaction_dirs
-
-
-def _slot_owner_identity(owner_pid: int | None) -> tuple[int, int | None]:
-    resolved_owner_pid = owner_pid if owner_pid is not None else os.getpid()
-    if owner_pid is not None:
-        return resolved_owner_pid, process_start_ticks(resolved_owner_pid)
-    return resolved_owner_pid, current_process_start_ticks()
-
-
-def _build_reserved_slot(
-    *,
-    token: str,
-    reaction_dir: str | None,
-    queue_id: str | None,
-    source: str,
-    owner_pid: int | None,
-    app_name: str | None,
-    task_id: str | None,
-    workflow_id: str | None,
-    state: str,
-) -> AdmissionSlot:
-    resolved_work_dir = _normalize_work_dir(reaction_dir)
-    resolved_owner_pid, resolved_start_ticks = _slot_owner_identity(owner_pid)
-    return _normalize_slot(
-        {
-            "token": token,
-            "state": state,
-            "work_dir": resolved_work_dir,
-            "reaction_dir": resolved_work_dir,
-            "queue_id": queue_id,
-            "owner_pid": resolved_owner_pid,
-            "process_start_ticks": resolved_start_ticks,
-            "source": source,
-            "acquired_at": now_utc_iso(),
-            "app_name": app_name,
-            "task_id": task_id,
-            "workflow_id": workflow_id,
-        }
-    )
-
-
-def _active_count_with_external_runs(
-    root: Path,
-    *,
-    slots: list[AdmissionSlot],
-    exclude_reaction_dirs: set[str],
-) -> int:
-    counted, represented_reaction_dirs = _counted_slots(
-        slots,
-        exclude_reaction_dirs=exclude_reaction_dirs,
-    )
-    return len(counted) + _count_external_active_runs(
-        root,
-        represented_reaction_dirs=represented_reaction_dirs,
-        exclude_reaction_dirs=exclude_reaction_dirs,
-    )
-
-
-def _reservation_has_capacity(
-    request: _AdmissionReservationRequest,
-    *,
-    slots: list[AdmissionSlot],
-) -> bool:
-    active_count = _active_count_with_external_runs(
-        request.root,
-        slots=slots,
-        exclude_reaction_dirs=request.excluded_reaction_dirs,
-    )
-    return active_count < request.limit
-
-
-def _build_slot_for_reservation(
-    token: str,
-    request: _AdmissionReservationRequest,
-) -> AdmissionSlot:
-    return _build_reserved_slot(
-        token=token,
-        reaction_dir=request.reaction_dir,
-        queue_id=request.queue_id,
-        source=request.source,
-        owner_pid=request.owner_pid,
-        app_name=request.app_name,
-        task_id=request.task_id,
-        workflow_id=request.workflow_id,
-        state=request.state,
-    )
-
-
-def _reserve_slot_from_request(request: _AdmissionReservationRequest) -> str | None:
-    with _acquire_admission_lock(request.root):
-        slots = _load_live_slots(request.root)
-        if not _reservation_has_capacity(request, slots=slots):
-            _save_slots(request.root, slots)
-            return None
-
-        token = timestamped_token("slot", token_bytes=4)
-        slots.append(_build_slot_for_reservation(token, request))
-        _save_slots(request.root, slots)
-        return token
-
-
 def reconcile_stale_slots(root: Path) -> int:
-    resolved_root = _resolve_root(root)
-    with _acquire_admission_lock(resolved_root):
-        original_slots = [_normalize_slot(slot) for slot in _load_slots(resolved_root)]
-        kept = _load_live_slots(resolved_root)
-        removed = len(original_slots) - len(kept)
-        if removed:
-            _save_slots(resolved_root, kept)
-    return removed
+    return _core_admission.reconcile_stale_slots(root)
 
 
-def list_slots(root: Path) -> List[AdmissionSlot]:
-    resolved_root = _resolve_root(root)
-    with _acquire_admission_lock(resolved_root):
-        original_slots = [_normalize_slot(slot) for slot in _load_slots(resolved_root)]
-        kept = _load_live_slots(resolved_root)
-        if len(kept) != len(original_slots):
-            _save_slots(resolved_root, kept)
-        return kept
+def list_slots(root: Path) -> list[AdmissionSlot]:
+    return _slot_payloads(_core_admission.list_slots(root))
 
 
 def active_slot_count(root: Path) -> int:
-    resolved_root = _resolve_root(root)
-    return len(list_slots(resolved_root))
+    return len(list_slots(root))
 
 
 def reserve_slot(
@@ -350,85 +110,20 @@ def reserve_slot(
     workflow_id: str | None = None,
     state: str = "reserved",
 ) -> str | None:
-    resolved_root = _resolve_root(root)
-    request = _AdmissionReservationRequest(
-        root=resolved_root,
-        max_concurrent=max_concurrent,
-        reaction_dir=reaction_dir,
-        queue_id=queue_id,
+    return _core_admission.reserve_slot(
+        root,
+        max_concurrent,
         source=source,
-        owner_pid=owner_pid,
-        exclude_reaction_dirs=exclude_reaction_dirs,
-        app_name=app_name,
-        task_id=task_id,
-        workflow_id=workflow_id,
+        app_name=app_name or "",
+        task_id=task_id or "",
+        workflow_id=workflow_id or "",
         state=state,
+        work_dir=reaction_dir or "",
+        queue_id=queue_id or "",
+        owner_pid=owner_pid,
+        exclude_work_dirs=exclude_reaction_dirs,
+        extra_active_count_fn=_count_external_active_runs,
     )
-    return _reserve_slot_from_request(request)
-
-
-def _activation_request(
-    root: Path,
-    token: str,
-    *,
-    reaction_dir: str,
-    source: str,
-    owner_pid: int | None,
-    queue_id: str | None,
-    app_name: str | None,
-    task_id: str | None,
-    workflow_id: str | None,
-) -> _AdmissionActivationRequest:
-    resolved_root = _resolve_root(root)
-    resolved_work_dir = _normalize_work_dir(reaction_dir)
-    if resolved_work_dir is None:
-        raise ValueError("reaction_dir must not be blank.")
-    return _AdmissionActivationRequest(
-        root=resolved_root,
-        token=token,
-        work_dir=resolved_work_dir,
-        owner_pid=owner_pid if owner_pid is not None else os.getpid(),
-        source=source,
-        queue_id=queue_id,
-        app_name=app_name,
-        task_id=task_id,
-        workflow_id=workflow_id,
-    )
-
-
-def _activate_live_slot(
-    slot: AdmissionSlot,
-    request: _AdmissionActivationRequest,
-) -> None:
-    slot["state"] = "active"
-    slot["work_dir"] = request.work_dir
-    slot["reaction_dir"] = request.work_dir
-    if request.queue_id is not None:
-        slot["queue_id"] = request.queue_id
-    slot["owner_pid"] = request.owner_pid
-    slot["process_start_ticks"] = process_start_ticks(request.owner_pid)
-    slot["source"] = request.source
-    if request.app_name is not None:
-        slot["app_name"] = request.app_name
-    if request.task_id is not None:
-        slot["task_id"] = request.task_id
-    if request.workflow_id is not None:
-        slot["workflow_id"] = request.workflow_id
-
-
-def _activate_slot_in_store(
-    request: _AdmissionActivationRequest,
-) -> bool:
-    with _acquire_admission_lock(request.root):
-        slots = _load_live_slots(request.root)
-        for slot in slots:
-            if slot.get("token") != request.token:
-                continue
-            _activate_live_slot(slot, request)
-            _save_slots(request.root, slots)
-            return True
-        _save_slots(request.root, slots)
-    return False
 
 
 def activate_slot(
@@ -443,29 +138,28 @@ def activate_slot(
     task_id: str | None = None,
     workflow_id: str | None = None,
 ) -> bool:
-    request = _activation_request(
-        root,
-        token,
-        reaction_dir=reaction_dir,
-        source=source,
-        owner_pid=owner_pid,
-        queue_id=queue_id,
-        app_name=app_name,
-        task_id=task_id,
-        workflow_id=workflow_id,
+    work_dir = _normalize_work_dir(reaction_dir)
+    if work_dir is None:
+        raise ValueError("reaction_dir must not be blank.")
+    return (
+        _core_admission.activate_reserved_slot(
+            root,
+            token,
+            state="active",
+            work_dir=work_dir,
+            queue_id=queue_id,
+            owner_pid=owner_pid,
+            source=source,
+            app_name=app_name,
+            task_id=task_id,
+            workflow_id=workflow_id,
+        )
+        is not None
     )
-    return _activate_slot_in_store(request)
 
 
 def release_slot(root: Path, token: str) -> bool:
-    resolved_root = _resolve_root(root)
-    with _acquire_admission_lock(resolved_root):
-        slots = _load_live_slots(resolved_root)
-        kept = [slot for slot in slots if slot.get("token") != token]
-        removed = len(kept) != len(slots)
-        if removed:
-            _save_slots(resolved_root, kept)
-        return removed
+    return _core_admission.release_slot(root, token)
 
 
 def update_slot_metadata(
@@ -477,24 +171,17 @@ def update_slot_metadata(
     task_id: str | None = None,
     workflow_id: str | None = None,
 ) -> bool:
-    resolved_root = _resolve_root(root)
-    with _acquire_admission_lock(resolved_root):
-        slots = _load_live_slots(resolved_root)
-        for slot in slots:
-            if slot.get("token") != token:
-                continue
-            if queue_id is not None:
-                slot["queue_id"] = queue_id
-            if app_name is not None:
-                slot["app_name"] = app_name
-            if task_id is not None:
-                slot["task_id"] = task_id
-            if workflow_id is not None:
-                slot["workflow_id"] = workflow_id
-            _save_slots(resolved_root, slots)
-            return True
-        _save_slots(resolved_root, slots)
-    return False
+    return (
+        _core_admission.update_slot_metadata(
+            root,
+            token,
+            queue_id=queue_id,
+            app_name=app_name,
+            task_id=task_id,
+            workflow_id=workflow_id,
+        )
+        is not None
+    )
 
 
 @contextmanager

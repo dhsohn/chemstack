@@ -5,6 +5,10 @@ from pathlib import Path
 from typing import Any
 
 from chemstack.core.indexing import JobLocationRecord
+from chemstack.core.queue.metadata import (
+    mapping_metadata as queue_entry_metadata_impl,
+    mapping_metadata_value as queue_entry_metadata_value_impl,
+)
 from chemstack.core.utils.coercion import normalize_text as _normalize_text
 
 from ._orca_path_helpers import direct_dir_target_impl, resolve_candidate_path_impl
@@ -114,8 +118,10 @@ def _queue_entry_matches(
 ) -> bool:
     entry_queue_id = _normalize_text(entry.get("queue_id"))
     entry_task_id = _normalize_text(entry.get("task_id"))
-    entry_run_id = _normalize_text(entry.get("run_id"))
-    entry_reaction_dir = resolve_candidate_path_impl(_normalize_text(entry.get("reaction_dir")))
+    entry_run_id = _normalize_text(queue_entry_metadata_value_impl(entry, "run_id"))
+    entry_reaction_dir = resolve_candidate_path_impl(
+        _normalize_text(queue_entry_metadata_value_impl(entry, "reaction_dir"))
+    )
 
     return (
         (bool(queue_id) and entry_queue_id == queue_id)
@@ -285,6 +291,8 @@ __all__ = [
     "load_jsonl_records_impl",
     "load_tracked_organized_ref_impl",
     "organized_dir_from_record_impl",
+    "queue_entry_metadata_impl",
+    "queue_entry_metadata_value_impl",
     "record_organized_dir_impl",
     "resolve_job_dir_impl",
 ]

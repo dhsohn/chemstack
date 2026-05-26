@@ -107,9 +107,11 @@ def test_find_queue_entry_matches_reaction_dir_from_file_target(tmp_path: Path) 
             {
                 "queue_id": "q_file_target",
                 "task_id": "job_file_target",
-                "run_id": "run_file_target",
-                "reaction_dir": str(reaction_dir),
                 "status": "running",
+                "metadata": {
+                    "run_id": "run_file_target",
+                    "reaction_dir": str(reaction_dir),
+                },
             }
         ],
     )

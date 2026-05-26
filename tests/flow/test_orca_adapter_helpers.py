@@ -199,12 +199,39 @@ def test_find_queue_entry_matches_multiple_identifier_types(
     _write_json(
         allowed_root / "queue.json",
         [
-            {"queue_id": "q_1", "task_id": "task_1", "run_id": "run_1", "reaction_dir": str(tmp_path / "rxn_1")},
-            {"queue_id": "q_2", "task_id": "task_2", "run_id": "run_2", "reaction_dir": str(tmp_path / "rxn_2")},
-            {"queue_id": "q_3", "task_id": "task_3", "run_id": "run_3", "reaction_dir": str(tmp_path / "rxn_3")},
-            {"queue_id": "q_4", "task_id": "task_4", "run_id": "run_4", "reaction_dir": str(tmp_path / "rxn_4")},
-            {"queue_id": "q_5", "task_id": "task_5", "run_id": "run_5", "reaction_dir": str(tmp_path / "rxn_5")},
-            {"queue_id": "q_6", "task_id": "task_6", "run_id": "run_6", "reaction_dir": str((tmp_path / "rxn_6").resolve())},
+            {
+                "queue_id": "q_1",
+                "task_id": "task_1",
+                "metadata": {"run_id": "run_1", "reaction_dir": str(tmp_path / "rxn_1")},
+            },
+            {
+                "queue_id": "q_2",
+                "task_id": "task_2",
+                "metadata": {"run_id": "run_2", "reaction_dir": str(tmp_path / "rxn_2")},
+            },
+            {
+                "queue_id": "q_3",
+                "task_id": "task_3",
+                "metadata": {"run_id": "run_3", "reaction_dir": str(tmp_path / "rxn_3")},
+            },
+            {
+                "queue_id": "q_4",
+                "task_id": "task_4",
+                "metadata": {"run_id": "run_4", "reaction_dir": str(tmp_path / "rxn_4")},
+            },
+            {
+                "queue_id": "q_5",
+                "task_id": "task_5",
+                "metadata": {"run_id": "run_5", "reaction_dir": str(tmp_path / "rxn_5")},
+            },
+            {
+                "queue_id": "q_6",
+                "task_id": "task_6",
+                "metadata": {
+                    "run_id": "run_6",
+                    "reaction_dir": str((tmp_path / "rxn_6").resolve()),
+                },
+            },
         ],
     )
     if reaction_dir == "__TMP_RXN_6__":

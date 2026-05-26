@@ -8,12 +8,17 @@ from __future__ import annotations
 
 import logging
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any, Iterator, List, Optional, cast
+from typing import Any, Iterator, Optional, Sequence, TypeVar, cast
 
 from chemstack.core.queue import store as _core_queue_store
-from chemstack.core.utils.persistence import atomic_write_json, now_utc_iso, timestamped_token
+from chemstack.core.queue.types import QueueStatus
+from chemstack.core.utils.persistence import (
+    load_json_list_file,
+    now_utc_iso,
+    timestamped_token,
+)
 
 from .lock_utils import (
     acquire_file_lock,
@@ -24,10 +29,8 @@ from .lock_utils import (
 from ..core.app_ids import CHEMSTACK_ORCA_APP_NAME
 from .process_tracking import active_run_lock_pid, current_process_lock_payload, read_pid_file
 from . import queue_entry_model as _queue_entry_model
-from . import queue_backend_adapter as _queue_backend_adapter_module
 from . import queue_reconciliation as _queue_reconciliation
 from .state import load_state, report_json_path
-from .statuses import QueueStatus
 from .types import QueueEntry
 
 logger = logging.getLogger(__name__)
@@ -56,6 +59,7 @@ _ACTIVE_STATUSES = frozenset(
     }
 )
 _UNSET = object()
+_QueueEntryT = TypeVar("_QueueEntryT", bound=QueueEntry)
 
 
 class QueueStoreCorruptError(RuntimeError):
@@ -71,7 +75,11 @@ def _normalize_text(value: object | None) -> str:
 
 
 def _normalize_entry(entry: QueueEntry) -> QueueEntry:
-    return _queue_entry_model.normalize_entry(entry)
+    return entry
+
+
+def _entry_from_json_payload(raw: dict[str, Any]) -> QueueEntry:
+    return _queue_entry_model.entry_from_json_payload(raw)
 
 
 def _entry_metadata(
@@ -131,20 +139,6 @@ def _lock_path(allowed_root: Path) -> Path:
     return allowed_root / QUEUE_LOCK_NAME
 
 
-def _chem_core_queue_module() -> Any | None:
-    return _core_queue_store
-
-
-def _queue_backend_adapter() -> _queue_backend_adapter_module.QueueBackendAdapter:
-    return _queue_backend_adapter_module.QueueBackendAdapter(
-        queue_path=_queue_path,
-        corrupt_error=QueueStoreCorruptError,
-        atomic_write_json=atomic_write_json,
-        backend_module=_chem_core_queue_module,
-        normalize_entry=_normalize_entry,
-    )
-
-
 # -- Lock helpers ---------------------------------------------------------
 
 
@@ -191,12 +185,32 @@ def _acquire_queue_lock(allowed_root: Path, *, timeout_seconds: int = 10) -> Ite
 # -- Low-level persistence ------------------------------------------------
 
 
-def _load_entries(allowed_root: Path) -> List[QueueEntry]:
-    return list(_queue_backend_adapter().load_entries(allowed_root))
+def _load_entries(allowed_root: Path) -> list[QueueEntry]:
+    return _load_core_entries(allowed_root)
 
 
-def _save_entries(allowed_root: Path, entries: List[QueueEntry]) -> None:
-    _queue_backend_adapter().save_entries(allowed_root, entries)
+def _save_entries(
+    allowed_root: Path,
+    entries: Sequence[QueueEntry],
+) -> None:
+    _save_core_entries(allowed_root, list(entries))
+
+
+def _load_core_entries(allowed_root: Path) -> list[QueueEntry]:
+    raw = load_json_list_file(
+        _queue_path(allowed_root),
+        corrupt_error=QueueStoreCorruptError,
+        description="Queue file",
+    )
+    return [
+        _entry_from_json_payload(entry)
+        for entry in raw
+        if isinstance(entry, dict)
+    ]
+
+
+def _save_core_entries(allowed_root: Path, entries: list[QueueEntry]) -> None:
+    _core_queue_store._save_entries(allowed_root, entries)
 
 
 def _active_lock_pid(reaction_dir: Path) -> int | None:
@@ -240,8 +254,8 @@ def _apply_terminal_reconciliation(
     run_id: str | None,
     finished_at: str | None,
     error: str | None = None,
-) -> None:
-    _queue_reconciliation.apply_terminal_reconciliation(
+) -> QueueEntry:
+    return _queue_reconciliation.apply_terminal_reconciliation(
         entry,
         status=status,
         run_id=run_id,
@@ -307,10 +321,14 @@ def reconcile_orphaned_running_entries(
 class DuplicateEntryError(ValueError):
     """Raised when enqueueing a reaction_dir that already has an active entry."""
 
-    def __init__(self, reaction_dir: str, existing: QueueEntry) -> None:
-        self.existing = existing
-        status = existing.get("status", "?")
-        qid = existing.get("queue_id", "?")
+    def __init__(
+        self,
+        reaction_dir: str,
+        existing: QueueEntry,
+    ) -> None:
+        self.existing = _normalize_entry(existing)
+        status = queue_entry_status(self.existing) or "?"
+        qid = queue_entry_id(self.existing) or "?"
         super().__init__(
             f"Reaction directory already queued: {reaction_dir} "
             f"(queue_id={qid}, status={status}). "
@@ -318,7 +336,9 @@ class DuplicateEntryError(ValueError):
         )
 
 
-def _find_active_entry(entries: List[QueueEntry], reaction_dir: str) -> Optional[QueueEntry]:
+def _find_active_entry(
+    entries: Sequence[_QueueEntryT], reaction_dir: str
+) -> Optional[_QueueEntryT]:
     """Find an active (pending/running) entry for the given reaction_dir."""
     for entry in entries:
         if (
@@ -329,7 +349,9 @@ def _find_active_entry(entries: List[QueueEntry], reaction_dir: str) -> Optional
     return None
 
 
-def _find_terminal_entry(entries: List[QueueEntry], reaction_dir: str) -> Optional[QueueEntry]:
+def _find_terminal_entry(
+    entries: Sequence[_QueueEntryT], reaction_dir: str
+) -> Optional[_QueueEntryT]:
     """Find the most recent terminal entry for the given reaction_dir."""
     for entry in reversed(entries):
         if (
@@ -340,7 +362,9 @@ def _find_terminal_entry(entries: List[QueueEntry], reaction_dir: str) -> Option
     return None
 
 
-def _find_entry_by_queue_id(entries: List[QueueEntry], queue_id: str) -> Optional[QueueEntry]:
+def _find_entry_by_queue_id(
+    entries: Sequence[_QueueEntryT], queue_id: str
+) -> Optional[_QueueEntryT]:
     """Find a queue entry by queue_id."""
     for entry in entries:
         if queue_entry_id(entry) == queue_id:
@@ -374,7 +398,7 @@ def enqueue(
     reconcile_orphaned_running_entries(allowed_root)
 
     with _acquire_queue_lock(allowed_root):
-        entries = _load_entries(allowed_root)
+        entries = _load_core_entries(allowed_root)
 
         # Check for active duplicate — always blocked
         active = _find_active_entry(entries, resolved)
@@ -387,39 +411,32 @@ def enqueue(
             if terminal is not None:
                 raise DuplicateEntryError(resolved, terminal)
 
-        entry: QueueEntry = {
-            "queue_id": timestamped_token("q", token_bytes=4),
-            "app_name": QUEUE_APP_NAME,
-            "task_id": _normalize_text(task_id) or timestamped_token("orca", token_bytes=4),
-            "task_kind": _normalize_text(task_kind) or QUEUE_TASK_KIND,
-            "engine": QUEUE_ENGINE,
-            "reaction_dir": resolved,
-            "status": QueueStatus.PENDING.value,
-            "priority": priority,
-            "enqueued_at": _now_iso(),
-            "started_at": None,
-            "finished_at": None,
-            "cancel_requested": False,
-            "run_id": None,
-            "error": None,
-            "force": force,
-            "metadata": _entry_metadata(
+        entry = QueueEntry(
+            queue_id=timestamped_token("q", token_bytes=4),
+            app_name=QUEUE_APP_NAME,
+            task_id=_normalize_text(task_id) or timestamped_token("orca", token_bytes=4),
+            task_kind=_normalize_text(task_kind) or QUEUE_TASK_KIND,
+            engine=QUEUE_ENGINE,
+            status=QueueStatus.PENDING,
+            priority=priority,
+            enqueued_at=_now_iso(),
+            metadata=_entry_metadata(
                 reaction_dir=resolved,
                 force=force,
                 extra=metadata,
             ),
-        }
+        )
         entries.append(entry)
-        _save_entries(allowed_root, entries)
+        _save_core_entries(allowed_root, entries)
 
-    logger.info("Enqueued: %s (queue_id=%s, force=%s)", resolved, entry["queue_id"], force)
+    logger.info("Enqueued: %s (queue_id=%s, force=%s)", resolved, entry.queue_id, force)
     return entry
 
 
 def dequeue_next(allowed_root: Path) -> Optional[QueueEntry]:
     """Return the highest-priority pending entry (lowest priority number) and mark it running."""
     with _acquire_queue_lock(allowed_root):
-        entries = _load_entries(allowed_root)
+        entries = _load_core_entries(allowed_root)
         pending = [
             (i, e)
             for i, e in enumerate(entries)
@@ -431,12 +448,9 @@ def dequeue_next(allowed_root: Path) -> Optional[QueueEntry]:
         # Preserve FIFO order within the same priority using the persisted list order.
         pending.sort(key=lambda t: (queue_entry_priority(t[1]), t[0]))
         idx, entry = pending[0]
-        entry = _normalize_entry(entry)
-
-        entry["status"] = QueueStatus.RUNNING.value
-        entry["started_at"] = _now_iso()
+        entry = replace(entry, status=QueueStatus.RUNNING, started_at=_now_iso())
         entries[idx] = entry
-        _save_entries(allowed_root, entries)
+        _save_core_entries(allowed_root, entries)
 
     logger.info(
         "Dequeued: %s (queue_id=%s)",
@@ -494,27 +508,29 @@ def cancel(allowed_root: Path, queue_id: str) -> Optional[QueueEntry]:
     - terminal → no-op, returns None.
     """
     with _acquire_queue_lock(allowed_root):
-        entries = _load_entries(allowed_root)
+        entries = _load_core_entries(allowed_root)
         for idx, current in enumerate(entries):
-            if current.get("queue_id") != queue_id:
+            if current.queue_id != queue_id:
                 continue
 
-            entry = _normalize_entry(current)
-            status = entry.get("status", "")
-            if status == QueueStatus.PENDING.value:
-                entry = _cancel_pending_entry(entry, finished_at=_now_iso())
+            if current.status == QueueStatus.PENDING:
+                entry = _cancel_pending_entry(current, finished_at=_now_iso())
                 entries[idx] = entry
-                _save_entries(allowed_root, entries)
+                _save_core_entries(allowed_root, entries)
                 logger.info("Cancelled pending entry: %s", queue_id)
                 return entry
-            if status == QueueStatus.RUNNING.value:
-                entry["cancel_requested"] = True
+            if current.status == QueueStatus.RUNNING:
+                entry = replace(current, cancel_requested=True)
                 entries[idx] = entry
-                _save_entries(allowed_root, entries)
+                _save_core_entries(allowed_root, entries)
                 logger.info("Cancel requested for running entry: %s", queue_id)
                 return entry
 
-            logger.debug("Cannot cancel entry in terminal state: %s (%s)", queue_id, status)
+            logger.debug(
+                "Cannot cancel entry in terminal state: %s (%s)",
+                queue_id,
+                current.status.value,
+            )
             return None
         return None
 
@@ -523,14 +539,14 @@ def cancel_all_pending(allowed_root: Path) -> int:
     """Cancel all pending entries. Returns the number cancelled."""
     count = 0
     with _acquire_queue_lock(allowed_root):
-        entries = _load_entries(allowed_root)
+        entries = _load_core_entries(allowed_root)
         now = _now_iso()
         for idx, current in enumerate(entries):
-            if queue_entry_status(current) == QueueStatus.PENDING.value:
+            if current.status == QueueStatus.PENDING:
                 entries[idx] = _cancel_pending_entry(current, finished_at=now)
                 count += 1
         if count:
-            _save_entries(allowed_root, entries)
+            _save_core_entries(allowed_root, entries)
     logger.info("Cancelled %d pending entries", count)
     return count
 
@@ -539,11 +555,10 @@ def list_queue(
     allowed_root: Path,
     *,
     status_filter: str | None = None,
-) -> List[QueueEntry]:
+) -> list[QueueEntry]:
     """List queue entries, optionally filtered by status."""
     with _acquire_queue_lock(allowed_root):
-        entries = _load_entries(allowed_root)
-    entries = [_normalize_entry(entry) for entry in entries]
+        entries = _load_core_entries(allowed_root)
     if status_filter:
         normalized_filter = _normalize_text(status_filter).lower()
         entries = [e for e in entries if queue_entry_status(e) == normalized_filter]
@@ -553,29 +568,29 @@ def list_queue(
 def has_pending_entries(allowed_root: Path) -> bool:
     """Return True when at least one pending entry exists."""
     with _acquire_queue_lock(allowed_root):
-        entries = _load_entries(allowed_root)
-    return any(queue_entry_status(entry) == QueueStatus.PENDING.value for entry in entries)
+        entries = _load_core_entries(allowed_root)
+    return any(entry.status == QueueStatus.PENDING for entry in entries)
 
 
 def get_active_entry_for_reaction_dir(allowed_root: Path, reaction_dir: str) -> QueueEntry | None:
     """Return the active queue entry for a reaction_dir, if one exists."""
     resolved = str(Path(reaction_dir).expanduser().resolve())
     with _acquire_queue_lock(allowed_root):
-        entries = _load_entries(allowed_root)
+        entries = _load_core_entries(allowed_root)
     entry = _find_active_entry(entries, resolved)
     if entry is None:
         return None
-    return _normalize_entry(entry)
+    return entry
 
 
 def get_cancel_requested(allowed_root: Path, queue_id: str) -> bool:
     """Check if a running entry has a cancel request."""
     with _acquire_queue_lock(allowed_root):
-        entries = _load_entries(allowed_root)
+        entries = _load_core_entries(allowed_root)
     entry = _find_entry_by_queue_id(entries, queue_id)
     if entry is None:
         return False
-    return bool(_normalize_entry(entry).get("cancel_requested", False))
+    return bool(entry.cancel_requested)
 
 
 def clear_terminal(allowed_root: Path, *, keep_last: int = 0) -> int:
@@ -584,13 +599,13 @@ def clear_terminal(allowed_root: Path, *, keep_last: int = 0) -> int:
     If keep_last > 0, keeps the N most recent terminal entries.
     """
     with _acquire_queue_lock(allowed_root):
-        entries = _load_entries(allowed_root)
-        active = [e for e in entries if e.get("status") in _ACTIVE_STATUSES]
-        terminal = [e for e in entries if e.get("status") in _TERMINAL_STATUSES]
+        entries = _load_core_entries(allowed_root)
+        active = [e for e in entries if e.status.value in _ACTIVE_STATUSES]
+        terminal = [e for e in entries if e.status.value in _TERMINAL_STATUSES]
 
         if keep_last > 0:
             # Sort terminal by finished_at descending, keep newest
-            terminal.sort(key=lambda e: e.get("finished_at") or "", reverse=True)
+            terminal.sort(key=lambda e: e.finished_at or "", reverse=True)
             kept = terminal[:keep_last]
             removed_count = len(terminal) - len(kept)
             entries = active + kept
@@ -598,7 +613,7 @@ def clear_terminal(allowed_root: Path, *, keep_last: int = 0) -> int:
             removed_count = len(terminal)
             entries = active
 
-        _save_entries(allowed_root, entries)
+        _save_core_entries(allowed_root, entries)
     logger.info("Cleared %d terminal entries", removed_count)
     return removed_count
 
@@ -615,29 +630,33 @@ def _update_terminal(
     run_id: str | None = None,
 ) -> bool:
     with _acquire_queue_lock(allowed_root):
-        entries = _load_entries(allowed_root)
+        entries = _load_core_entries(allowed_root)
         for idx, current in enumerate(entries):
-            if current.get("queue_id") != queue_id:
+            if current.queue_id != queue_id:
                 continue
-            entry = _normalize_entry(current)
-            entry["status"] = status
-            entry["finished_at"] = _now_iso()
+            metadata = dict(current.metadata)
             if error is not None:
-                entry["error"] = error
+                updated_error = error
+            else:
+                updated_error = current.error
             if run_id is not None:
-                entry["run_id"] = run_id
+                metadata["run_id"] = run_id
+            entry = replace(
+                current,
+                status=QueueStatus(status),
+                finished_at=_now_iso(),
+                error=updated_error,
+                metadata=metadata,
+            )
             entries[idx] = entry
-            _save_entries(allowed_root, entries)
+            _save_core_entries(allowed_root, entries)
             logger.info("Entry %s → %s", queue_id, status)
             return True
         return False
 
 
 def _cancel_pending_entry(entry: QueueEntry, *, finished_at: str) -> QueueEntry:
-    normalized = _normalize_entry(entry)
-    normalized["status"] = QueueStatus.CANCELLED.value
-    normalized["finished_at"] = finished_at
-    return normalized
+    return replace(entry, status=QueueStatus.CANCELLED, finished_at=finished_at)
 
 
 def _update_running_entry_state(
@@ -650,22 +669,22 @@ def _update_running_entry_state(
     cancel_requested: bool | None = None,
 ) -> bool:
     with _acquire_queue_lock(allowed_root):
-        entries = _load_entries(allowed_root)
+        entries = _load_core_entries(allowed_root)
         for idx, current in enumerate(entries):
-            if queue_entry_id(current) != queue_id:
+            if current.queue_id != queue_id:
                 continue
-            if queue_entry_status(current) != QueueStatus.RUNNING.value:
+            if current.status != QueueStatus.RUNNING:
                 return False
-            entry = _normalize_entry(current)
-            entry["status"] = status
+            updates: dict[str, Any] = {"status": QueueStatus(status)}
             if started_at is not _UNSET:
-                entry["started_at"] = cast(Optional[str], started_at)
+                updates["started_at"] = cast(str | None, started_at) or ""
             if finished_at is not _UNSET:
-                entry["finished_at"] = cast(Optional[str], finished_at)
+                updates["finished_at"] = cast(str | None, finished_at) or ""
             if cancel_requested is not None:
-                entry["cancel_requested"] = cancel_requested
+                updates["cancel_requested"] = cancel_requested
+            entry = replace(current, **updates)
             entries[idx] = entry
-            _save_entries(allowed_root, entries)
+            _save_core_entries(allowed_root, entries)
             logger.info("Entry %s → %s", queue_id, status)
             return True
         return False

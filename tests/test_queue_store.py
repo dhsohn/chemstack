@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from chemstack.core.queue.types import QueueStatus
 from chemstack.orca.queue_store import (
     DuplicateEntryError,
     QueueStoreCorruptError,
@@ -18,9 +19,11 @@ from chemstack.orca.queue_store import (
     list_queue,
     mark_completed,
     mark_failed,
+    queue_entry_force,
+    queue_entry_reaction_dir,
+    queue_entry_run_id,
     reconcile_orphaned_running_entries,
 )
-from chemstack.orca.statuses import QueueStatus
 from chemstack.orca.types import QueueEntry
 
 
@@ -34,7 +37,7 @@ class TestQueueStore(unittest.TestCase):
 
     def _find_entry(self, queue_id: str) -> QueueEntry | None:
         for entry in list_queue(self.root):
-            if entry["queue_id"] == queue_id:
+            if entry.queue_id == queue_id:
                 return entry
         return None
 
@@ -42,15 +45,15 @@ class TestQueueStore(unittest.TestCase):
 
     def test_enqueue_creates_entry(self) -> None:
         entry = enqueue(self.root, str(self.root / "mol_A"))
-        self.assertEqual(entry["status"], QueueStatus.PENDING.value)
-        self.assertTrue(entry["queue_id"].startswith("q_"))
-        self.assertEqual(entry["app_name"], "chemstack_orca")
-        self.assertTrue(entry["task_id"].startswith("orca_"))
-        self.assertEqual(entry["task_kind"], "orca_run_inp")
-        self.assertEqual(entry["engine"], "orca")
-        self.assertEqual(entry["priority"], 10)
-        self.assertEqual(entry["metadata"]["reaction_dir"], entry["reaction_dir"])
-        self.assertFalse(entry["metadata"]["force"])
+        self.assertEqual(entry.status, QueueStatus.PENDING)
+        self.assertTrue(entry.queue_id.startswith("q_"))
+        self.assertEqual(entry.app_name, "chemstack_orca")
+        self.assertTrue(entry.task_id.startswith("orca_"))
+        self.assertEqual(entry.task_kind, "orca_run_inp")
+        self.assertEqual(entry.engine, "orca")
+        self.assertEqual(entry.priority, 10)
+        self.assertEqual(entry.metadata["reaction_dir"], queue_entry_reaction_dir(entry))
+        self.assertFalse(entry.metadata["force"])
 
     def test_enqueue_writes_queue_file(self) -> None:
         enqueue(self.root, str(self.root / "mol_A"))
@@ -103,17 +106,17 @@ class TestQueueStore(unittest.TestCase):
     def test_duplicate_terminal_without_force_blocked(self) -> None:
         """Completed/failed entries block re-enqueue without --force (accidental)."""
         entry = enqueue(self.root, str(self.root / "mol_A"))
-        mark_completed(self.root, entry["queue_id"])
+        mark_completed(self.root, entry.queue_id)
         with self.assertRaises(DuplicateEntryError):
             enqueue(self.root, str(self.root / "mol_A"))
 
     def test_duplicate_terminal_with_force_allowed(self) -> None:
         """Completed/failed entries allow re-enqueue with --force (intentional retry)."""
         entry = enqueue(self.root, str(self.root / "mol_A"))
-        mark_completed(self.root, entry["queue_id"])
+        mark_completed(self.root, entry.queue_id)
         new_entry = enqueue(self.root, str(self.root / "mol_A"), force=True)
-        self.assertNotEqual(entry["queue_id"], new_entry["queue_id"])
-        self.assertTrue(new_entry.get("force"))
+        self.assertNotEqual(entry.queue_id, new_entry.queue_id)
+        self.assertTrue(queue_entry_force(new_entry))
 
     def test_duplicate_active_blocked_even_with_force(self) -> None:
         """Active (pending/running) entries are always blocked, even with force."""
@@ -131,9 +134,9 @@ class TestQueueStore(unittest.TestCase):
         entry = dequeue_next(self.root)
         self.assertIsNotNone(entry)
         assert entry is not None
-        self.assertIn("high", entry["reaction_dir"])
-        self.assertEqual(entry["status"], QueueStatus.RUNNING.value)
-        self.assertIsNotNone(entry["started_at"])
+        self.assertIn("high", queue_entry_reaction_dir(entry))
+        self.assertEqual(entry.status, QueueStatus.RUNNING)
+        self.assertTrue(entry.started_at)
 
     def test_dequeue_empty_returns_none(self) -> None:
         self.assertIsNone(dequeue_next(self.root))
@@ -142,24 +145,24 @@ class TestQueueStore(unittest.TestCase):
 
     def test_cancel_pending(self) -> None:
         entry = enqueue(self.root, str(self.root / "mol_A"))
-        result = cancel(self.root, entry["queue_id"])
+        result = cancel(self.root, entry.queue_id)
         self.assertIsNotNone(result)
         assert result is not None
-        self.assertEqual(result["status"], QueueStatus.CANCELLED.value)
+        self.assertEqual(result.status, QueueStatus.CANCELLED)
 
     def test_cancel_running_sets_flag(self) -> None:
         entry = enqueue(self.root, str(self.root / "mol_A"))
         dequeue_next(self.root)
-        result = cancel(self.root, entry["queue_id"])
+        result = cancel(self.root, entry.queue_id)
         self.assertIsNotNone(result)
         assert result is not None
-        self.assertTrue(result["cancel_requested"])
-        self.assertTrue(get_cancel_requested(self.root, entry["queue_id"]))
+        self.assertTrue(result.cancel_requested)
+        self.assertTrue(get_cancel_requested(self.root, entry.queue_id))
 
     def test_cancel_terminal_returns_none(self) -> None:
         entry = enqueue(self.root, str(self.root / "mol_A"))
-        mark_completed(self.root, entry["queue_id"])
-        self.assertIsNone(cancel(self.root, entry["queue_id"]))
+        mark_completed(self.root, entry.queue_id)
+        self.assertIsNone(cancel(self.root, entry.queue_id))
 
     def test_cancel_all_pending(self) -> None:
         enqueue(self.root, str(self.root / "a"))
@@ -169,7 +172,7 @@ class TestQueueStore(unittest.TestCase):
         count = cancel_all_pending(self.root)
         self.assertEqual(count, 2)
         # running entry should be unaffected
-        running = [entry for entry in list_queue(self.root) if entry.get("status") == QueueStatus.RUNNING.value]
+        running = [entry for entry in list_queue(self.root) if entry.status == QueueStatus.RUNNING]
         self.assertEqual(len(running), 1)
 
     # -- mark_completed / mark_failed -----------------------------------
@@ -177,20 +180,20 @@ class TestQueueStore(unittest.TestCase):
     def test_mark_completed(self) -> None:
         entry = enqueue(self.root, str(self.root / "mol_A"))
         dequeue_next(self.root)
-        self.assertTrue(mark_completed(self.root, entry["queue_id"], run_id="run_test"))
-        found = self._find_entry(entry["queue_id"])
+        self.assertTrue(mark_completed(self.root, entry.queue_id, run_id="run_test"))
+        found = self._find_entry(entry.queue_id)
         assert found is not None
-        self.assertEqual(found["status"], QueueStatus.COMPLETED.value)
-        self.assertEqual(found["run_id"], "run_test")
+        self.assertEqual(found.status, QueueStatus.COMPLETED)
+        self.assertEqual(queue_entry_run_id(found), "run_test")
 
     def test_mark_failed_with_error(self) -> None:
         entry = enqueue(self.root, str(self.root / "mol_A"))
         dequeue_next(self.root)
-        self.assertTrue(mark_failed(self.root, entry["queue_id"], error="exit_code=1"))
-        found = self._find_entry(entry["queue_id"])
+        self.assertTrue(mark_failed(self.root, entry.queue_id, error="exit_code=1"))
+        found = self._find_entry(entry.queue_id)
         assert found is not None
-        self.assertEqual(found["status"], QueueStatus.FAILED.value)
-        self.assertEqual(found["error"], "exit_code=1")
+        self.assertEqual(found.status, QueueStatus.FAILED)
+        self.assertEqual(found.error, "exit_code=1")
 
     # -- clear / count ---------------------------------------------------
 
@@ -198,20 +201,20 @@ class TestQueueStore(unittest.TestCase):
         e1 = enqueue(self.root, str(self.root / "a"))
         e2 = enqueue(self.root, str(self.root / "b"))
         enqueue(self.root, str(self.root / "c"))  # stays pending
-        mark_completed(self.root, e1["queue_id"])
-        mark_failed(self.root, e2["queue_id"])
+        mark_completed(self.root, e1.queue_id)
+        mark_failed(self.root, e2.queue_id)
         removed = clear_terminal(self.root)
         self.assertEqual(removed, 2)
         remaining = list_queue(self.root)
         self.assertEqual(len(remaining), 1)
-        self.assertEqual(remaining[0]["status"], QueueStatus.PENDING.value)
+        self.assertEqual(remaining[0].status, QueueStatus.PENDING)
 
     def test_list_queue_can_count_running(self) -> None:
         enqueue(self.root, str(self.root / "a"))
         enqueue(self.root, str(self.root / "b"))
         dequeue_next(self.root)
         dequeue_next(self.root)
-        running = [entry for entry in list_queue(self.root) if entry.get("status") == QueueStatus.RUNNING.value]
+        running = [entry for entry in list_queue(self.root) if entry.status == QueueStatus.RUNNING]
         self.assertEqual(len(running), 2)
 
     def test_has_pending_entries_false_when_empty(self) -> None:
@@ -232,7 +235,7 @@ class TestQueueStore(unittest.TestCase):
         found = get_active_entry_for_reaction_dir(self.root, str(reaction_dir))
         self.assertIsNotNone(found)
         assert found is not None
-        self.assertEqual(found["queue_id"], entry["queue_id"])
+        self.assertEqual(found.queue_id, entry.queue_id)
 
     def test_get_active_entry_for_reaction_dir_returns_running(self) -> None:
         reaction_dir = self.root / "running_lookup"
@@ -241,12 +244,12 @@ class TestQueueStore(unittest.TestCase):
         found = get_active_entry_for_reaction_dir(self.root, str(reaction_dir))
         self.assertIsNotNone(found)
         assert found is not None
-        self.assertEqual(found["queue_id"], entry["queue_id"])
+        self.assertEqual(found.queue_id, entry.queue_id)
 
     def test_get_active_entry_for_reaction_dir_ignores_terminal_entry(self) -> None:
         reaction_dir = self.root / "terminal_lookup"
         entry = enqueue(self.root, str(reaction_dir))
-        mark_completed(self.root, entry["queue_id"])
+        mark_completed(self.root, entry.queue_id)
         found = get_active_entry_for_reaction_dir(self.root, str(reaction_dir))
         self.assertIsNone(found)
 
@@ -276,10 +279,10 @@ class TestQueueStore(unittest.TestCase):
 
         entries = list_queue(self.root)
 
-        found = next(item for item in entries if item["queue_id"] == entry["queue_id"])
-        self.assertEqual(found["status"], QueueStatus.COMPLETED.value)
-        self.assertEqual(found["run_id"], "run_done_1")
-        self.assertEqual(found["finished_at"], "2026-03-10T04:59:59+00:00")
+        found = next(item for item in entries if item.queue_id == entry.queue_id)
+        self.assertEqual(found.status, QueueStatus.COMPLETED)
+        self.assertEqual(queue_entry_run_id(found), "run_done_1")
+        self.assertEqual(found.finished_at, "2026-03-10T04:59:59+00:00")
 
     def test_reconcile_skips_when_worker_pid_is_alive(self) -> None:
         reaction_dir = self.root / "mol_done"
@@ -306,18 +309,18 @@ class TestQueueStore(unittest.TestCase):
         changed = reconcile_orphaned_running_entries(self.root)
 
         self.assertEqual(changed, 0)
-        found = self._find_entry(entry["queue_id"])
+        found = self._find_entry(entry.queue_id)
         assert found is not None
-        self.assertEqual(found["status"], QueueStatus.RUNNING.value)
+        self.assertEqual(found.status, QueueStatus.RUNNING)
 
     # -- queue lookup via list ------------------------------------------
 
     def test_lookup_entry_exists(self) -> None:
         entry = enqueue(self.root, str(self.root / "mol_A"))
-        found = self._find_entry(entry["queue_id"])
+        found = self._find_entry(entry.queue_id)
         self.assertIsNotNone(found)
         assert found is not None
-        self.assertEqual(found["queue_id"], entry["queue_id"])
+        self.assertEqual(found.queue_id, entry.queue_id)
 
     def test_lookup_entry_missing(self) -> None:
         self.assertIsNone(self._find_entry("q_nonexistent"))
@@ -329,7 +332,7 @@ class TestQueueStore(unittest.TestCase):
         enqueue(self.root, str(self.root / "second"))
         dequeued = dequeue_next(self.root)
         assert dequeued is not None
-        self.assertEqual(dequeued["queue_id"], e1["queue_id"])
+        self.assertEqual(dequeued.queue_id, e1.queue_id)
 
 
 if __name__ == "__main__":

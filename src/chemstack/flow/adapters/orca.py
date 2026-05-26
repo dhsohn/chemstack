@@ -30,6 +30,7 @@ from ._orca_local_lookup import (
     load_jsonl_records_impl,
     load_tracked_organized_ref_impl,
     organized_dir_from_record_impl,
+    queue_entry_metadata_value_impl,
     record_organized_dir_impl,
     resolve_job_dir_impl,
 )
@@ -92,6 +93,7 @@ _tracked_runtime_context = tracked_runtime_context_impl
 _tracked_contract_payload = load_orca_contract_payload_impl
 _resolve_job_dir = resolve_job_dir_impl
 _find_queue_entry = find_queue_entry_impl
+_queue_entry_metadata_value = queue_entry_metadata_value_impl
 _find_organized_record = find_organized_record_impl
 _organized_dir_from_record = organized_dir_from_record_impl
 _resolve_artifact_path = resolve_artifact_path_impl
@@ -156,6 +158,7 @@ def _contract_loader_deps() -> OrcaContractLoaderDeps:
         tracked_runtime_context_fn=_tracked_runtime_context,
         tracked_artifact_context_fn=_tracked_artifact_context,
         find_queue_entry_fn=_find_queue_entry,
+        queue_entry_metadata_value_fn=_queue_entry_metadata_value,
         resolve_candidate_path_fn=_resolve_candidate_path,
         direct_dir_target_fn=_direct_dir_target,
         record_organized_dir_fn=_record_organized_dir,

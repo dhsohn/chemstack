@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, TypedDict
 
+from chemstack.core.queue.types import QueueEntry as QueueEntry
+
 
 class AttemptRecord(TypedDict, total=False):
     index: int
@@ -88,24 +90,3 @@ class QueueEnqueuedNotification(TypedDict):
     priority: int
     force: bool
     enqueued_at: str
-
-
-class QueueEntry(TypedDict, total=False):
-    """A single item in the task queue."""
-
-    queue_id: str
-    app_name: str
-    task_id: str
-    task_kind: str
-    engine: str
-    reaction_dir: str
-    status: str  # QueueStatus value
-    priority: int
-    enqueued_at: str
-    started_at: Optional[str]
-    finished_at: Optional[str]
-    cancel_requested: bool
-    run_id: Optional[str]
-    error: Optional[str]
-    force: bool
-    metadata: Dict[str, Any]

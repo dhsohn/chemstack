@@ -39,13 +39,13 @@ class TestCancellation(unittest.TestCase):
         reaction_dir.mkdir()
         entry = enqueue(self.root, str(reaction_dir))
 
-        result = cancel_target(self.root, entry["queue_id"])
+        result = cancel_target(self.root, entry.queue_id)
 
         self.assertIsNotNone(result)
         assert result is not None
         self.assertEqual(result.source, "queue")
         self.assertEqual(result.action, "cancelled")
-        self.assertEqual(result.queue_id, entry["queue_id"])
+        self.assertEqual(result.queue_id, entry.queue_id)
 
     def test_cancel_target_running_queue_entry_by_reaction_dir_name(self) -> None:
         reaction_dir = self.root / "mol_A"
@@ -59,7 +59,7 @@ class TestCancellation(unittest.TestCase):
         assert result is not None
         self.assertEqual(result.source, "queue")
         self.assertEqual(result.action, "requested")
-        self.assertTrue(get_cancel_requested(self.root, entry["queue_id"]))
+        self.assertTrue(get_cancel_requested(self.root, entry.queue_id))
 
     @patch("chemstack.orca.cancellation.os.kill")
     @patch("chemstack.orca.process_tracking.is_process_alive", return_value=True)
@@ -137,8 +137,8 @@ class TestCancellation(unittest.TestCase):
         self.assertIsNotNone(result)
         assert result is not None
         self.assertEqual(result.source, "queue")
-        self.assertEqual(result.queue_id, entry["queue_id"])
-        self.assertTrue(get_cancel_requested(self.root, entry["queue_id"]))
+        self.assertEqual(result.queue_id, entry.queue_id)
+        self.assertTrue(get_cancel_requested(self.root, entry.queue_id))
         mock_alive.assert_not_called()
         mock_kill.assert_not_called()
 

@@ -122,6 +122,9 @@ def set_current_dir(
         or context.tracked_dir
         or deps.direct_dir_target_fn(request.target)
         or deps.resolve_candidate_path_fn(request.reaction_dir)
+        or deps.resolve_candidate_path_fn(
+            deps.queue_entry_metadata_value_fn(context.queue_entry, "reaction_dir")
+        )
     )
 
 
@@ -145,7 +148,7 @@ def resolve_run_id(request: LoadRequest, context: LoaderContext, deps: Any) -> s
         or deps.normalize_text_fn(context.state.get("run_id"))
         or deps.normalize_text_fn(context.report.get("run_id"))
         or deps.normalize_text_fn(context.organized_ref.get("run_id"))
-        or deps.normalize_text_fn(queue.get("run_id"))
+        or deps.normalize_text_fn(deps.queue_entry_metadata_value_fn(queue, "run_id"))
     )
 
 

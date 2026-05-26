@@ -9,6 +9,7 @@ from .store import (
     release_slot,
     reserve_slot,
     reserve_slot_or_raise,
+    update_slot_metadata,
 )
 
 __all__ = [
@@ -22,4 +23,5 @@ __all__ = [
     "release_slot",
     "reserve_slot",
     "reserve_slot_or_raise",
+    "update_slot_metadata",
 ]

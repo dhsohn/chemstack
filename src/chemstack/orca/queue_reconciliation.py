@@ -3,10 +3,13 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
-from .statuses import QueueStatus, RunStatus
+from chemstack.core.queue.types import QueueStatus
+
+from .statuses import RunStatus
 from .types import QueueEntry
 
 
@@ -68,15 +71,23 @@ def apply_terminal_reconciliation(
     finished_at: str | None,
     error: str | None = None,
     now_iso_fn: Callable[[], str],
-) -> None:
-    entry["status"] = status
-    entry["finished_at"] = finished_at or entry.get("finished_at") or now_iso_fn()
+) -> QueueEntry:
+    metadata = dict(entry.metadata)
     if run_id is not None:
-        entry["run_id"] = run_id
+        metadata["run_id"] = run_id
     if error is not None:
-        entry["error"] = error
+        updated_error = error
     elif status == QueueStatus.COMPLETED.value:
-        entry["error"] = None
+        updated_error = ""
+    else:
+        updated_error = entry.error
+    return replace(
+        entry,
+        status=QueueStatus(status),
+        finished_at=finished_at or entry.finished_at or now_iso_fn(),
+        error=updated_error,
+        metadata=metadata,
+    )
 
 
 def reconcile_orphaned_running_entries(
@@ -93,10 +104,14 @@ def reconcile_orphaned_running_entries(
     changed = 0
     with deps._acquire_queue_lock(allowed_root):
         entries = deps._load_entries(allowed_root)
-        for entry in entries:
+        for index, entry in enumerate(entries):
             if deps.queue_entry_status(entry) != QueueStatus.RUNNING.value:
                 continue
-            changed += _reconcile_entry(entry, deps=deps, logger=logger)
+            updated = _reconcile_entry(entry, deps=deps, logger=logger)
+            if updated is None:
+                continue
+            entries[index] = updated
+            changed += 1
 
         if changed:
             deps._save_entries(allowed_root, entries)
@@ -108,21 +123,21 @@ def _reconcile_entry(
     *,
     deps: Any,
     logger: logging.Logger,
-) -> int:
+) -> QueueEntry | None:
     rdir = deps.queue_entry_reaction_dir(entry)
     if not rdir:
-        return 0
+        return None
     reaction_dir = Path(rdir)
 
     if deps._active_lock_pid(reaction_dir) is not None:
-        return 0
+        return None
 
     queue_id = deps.queue_entry_id(entry) or "?"
     state = deps.load_state(reaction_dir)
     run_status = str(state.get("status", "")).strip().lower() if state else ""
 
     if state is not None and run_status == RunStatus.COMPLETED.value:
-        _apply_state_terminal(
+        updated = _apply_state_terminal(
             entry,
             state,
             status=QueueStatus.COMPLETED.value,
@@ -130,10 +145,10 @@ def _reconcile_entry(
             deps=deps,
         )
         logger.info("Reconciled orphaned entry %s -> completed", queue_id)
-        return 1
+        return updated
 
     if state is not None and run_status == RunStatus.FAILED.value:
-        _apply_state_terminal(
+        updated = _apply_state_terminal(
             entry,
             state,
             status=QueueStatus.FAILED.value,
@@ -141,12 +156,12 @@ def _reconcile_entry(
             deps=deps,
         )
         logger.info("Reconciled orphaned entry %s -> failed", queue_id)
-        return 1
+        return updated
 
     report_data = deps._terminal_report_data(reaction_dir)
     if report_data is not None:
         status, run_id, finished_at, error = report_data
-        deps._apply_terminal_reconciliation(
+        updated = deps._apply_terminal_reconciliation(
             entry,
             status=status,
             run_id=run_id,
@@ -154,12 +169,11 @@ def _reconcile_entry(
             error=error,
         )
         logger.info("Reconciled orphaned entry %s -> %s (from run_report)", queue_id, status)
-        return 1
+        return updated
 
-    entry["status"] = QueueStatus.PENDING.value
-    entry["started_at"] = None
+    updated = replace(entry, status=QueueStatus.PENDING, started_at="")
     logger.info("Reconciled orphaned entry %s -> pending (re-queue)", queue_id)
-    return 1
+    return updated
 
 
 def _apply_state_terminal(
@@ -169,13 +183,13 @@ def _apply_state_terminal(
     status: str,
     default_error: str | None,
     deps: Any,
-) -> None:
+) -> QueueEntry:
     final_result = state.get("final_result")
     final_dict = final_result if isinstance(final_result, dict) else {}
     error = None
     if default_error is not None:
         error = str(final_dict.get("reason", "")).strip() or default_error
-    deps._apply_terminal_reconciliation(
+    return deps._apply_terminal_reconciliation(
         entry,
         status=status,
         run_id=str(state.get("run_id", "")).strip() or None,

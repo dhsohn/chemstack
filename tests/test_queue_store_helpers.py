@@ -1,17 +1,16 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
-from enum import Enum
 from pathlib import Path
-from types import SimpleNamespace
+from typing import Any
 from unittest.mock import patch
 
 import pytest
 
 import chemstack.orca.queue_store as queue_store
-from chemstack.orca.statuses import QueueStatus, RunStatus
+from chemstack.core.queue.types import QueueStatus
 from chemstack.orca.types import QueueEntry
+from chemstack.orca.statuses import RunStatus
 
 
 def _entry(
@@ -26,20 +25,23 @@ def _entry(
     run_id: str | None = None,
     error: str | None = None,
 ) -> QueueEntry:
-    entry: QueueEntry = {
+    entry: dict[str, Any] = {
         "queue_id": queue_id,
-        "reaction_dir": reaction_dir,
         "status": status,
         "priority": priority,
         "enqueued_at": "2026-03-10T00:00:00+00:00",
         "started_at": started_at,
         "finished_at": finished_at,
         "cancel_requested": cancel_requested,
-        "run_id": run_id,
         "error": error,
-        "force": False,
+        "metadata": {
+            "reaction_dir": reaction_dir,
+            "force": False,
+        },
     }
-    return entry
+    if run_id is not None:
+        entry["metadata"]["run_id"] = run_id
+    return queue_store._entry_from_json_payload(entry)
 
 
 def test_queue_lock_error_builders_and_load_entries_cover_edge_cases(tmp_path: Path) -> None:
@@ -66,7 +68,11 @@ def test_queue_lock_error_builders_and_load_entries_cover_edge_cases(tmp_path: P
         json.dumps([{"queue_id": "q_ok", "status": "pending"}, "bad", []]),
         encoding="utf-8",
     )
-    assert queue_store._load_entries(tmp_path) == [{"queue_id": "q_ok", "status": "pending"}]
+    [entry] = queue_store._load_entries(tmp_path)
+    assert entry.queue_id == "q_ok"
+    assert entry.status == QueueStatus.PENDING
+    assert entry.app_name == "chemstack_orca"
+    assert entry.task_id == "q_ok"
 
 
 def test_report_payload_and_terminal_report_data_cover_missing_invalid_completed_and_failed(
@@ -143,17 +149,17 @@ def test_apply_terminal_reconciliation_updates_fields_and_clears_completed_error
         error="stale_error",
     )
     with patch("chemstack.orca.queue_store._now_iso", return_value="2026-03-10T06:00:00+00:00"):
-        queue_store._apply_terminal_reconciliation(
+        completed_entry = queue_store._apply_terminal_reconciliation(
             completed_entry,
             status=QueueStatus.COMPLETED.value,
             run_id="run_done",
             finished_at=None,
         )
 
-    assert completed_entry["status"] == QueueStatus.COMPLETED.value
-    assert completed_entry["finished_at"] == "2026-03-10T06:00:00+00:00"
-    assert completed_entry["run_id"] == "run_done"
-    assert completed_entry["error"] is None
+    assert completed_entry.status == QueueStatus.COMPLETED
+    assert completed_entry.finished_at == "2026-03-10T06:00:00+00:00"
+    assert queue_store.queue_entry_run_id(completed_entry) == "run_done"
+    assert completed_entry.error == ""
 
     failed_entry = _entry(
         "q_fail",
@@ -161,15 +167,15 @@ def test_apply_terminal_reconciliation_updates_fields_and_clears_completed_error
         QueueStatus.RUNNING.value,
         finished_at="2026-03-10T01:00:00+00:00",
     )
-    queue_store._apply_terminal_reconciliation(
+    failed_entry = queue_store._apply_terminal_reconciliation(
         failed_entry,
         status=QueueStatus.FAILED.value,
         run_id=None,
         finished_at=None,
         error="boom",
     )
-    assert failed_entry["finished_at"] == "2026-03-10T01:00:00+00:00"
-    assert failed_entry["error"] == "boom"
+    assert failed_entry.finished_at == "2026-03-10T01:00:00+00:00"
+    assert failed_entry.error == "boom"
 
 
 def test_find_helpers_cover_active_terminal_and_queue_id_lookup() -> None:
@@ -195,12 +201,16 @@ def test_list_queue_normalizes_common_fields_for_partial_entries(tmp_path: Path)
     queue_store._save_entries(
         root,
         [
-            {
-                "queue_id": "q_partial",
-                "reaction_dir": str(root / "rxn"),
-                "status": QueueStatus.PENDING.value,
-                "force": False,
-            },
+            queue_store._entry_from_json_payload(
+                {
+                    "queue_id": "q_partial",
+                    "status": QueueStatus.PENDING.value,
+                    "metadata": {
+                        "reaction_dir": str(root / "rxn"),
+                        "force": False,
+                    },
+                }
+            ),
         ],
     )
 
@@ -208,16 +218,16 @@ def test_list_queue_normalizes_common_fields_for_partial_entries(tmp_path: Path)
 
     assert len(entries) == 1
     entry = entries[0]
-    assert entry["app_name"] == "chemstack_orca"
-    assert entry["task_id"] == "q_partial"
-    assert entry["task_kind"] == "orca_run_inp"
-    assert entry["engine"] == "orca"
-    assert entry["metadata"]["reaction_dir"] == str(root / "rxn")
-    assert entry["metadata"]["force"] is False
+    assert entry.app_name == "chemstack_orca"
+    assert entry.task_id == "q_partial"
+    assert entry.task_kind == "orca_run_inp"
+    assert entry.engine == "orca"
+    assert entry.metadata["reaction_dir"] == str(root / "rxn")
+    assert entry.metadata["force"] is False
 
 
 def test_queue_entry_accessors_read_common_fields_from_metadata(tmp_path: Path) -> None:
-    entry: QueueEntry = {
+    entry = queue_store._entry_from_json_payload({
         "queue_id": "q_meta",
         "status": "PENDING",
         "priority": 7,
@@ -225,7 +235,7 @@ def test_queue_entry_accessors_read_common_fields_from_metadata(tmp_path: Path) 
             "reaction_dir": str(tmp_path / "rxn"),
             "force": True,
         },
-    }
+    })
 
     assert queue_store.queue_entry_id(entry) == "q_meta"
     assert queue_store.queue_entry_task_id(entry) == "q_meta"
@@ -237,95 +247,41 @@ def test_queue_entry_accessors_read_common_fields_from_metadata(tmp_path: Path) 
     assert queue_store.queue_entry_metadata(entry)["reaction_dir"] == str(tmp_path / "rxn")
 
 
-def test_save_entries_uses_chem_core_queue_serializer_when_available(tmp_path: Path) -> None:
-    class FakeQueueStatus(str, Enum):
-        PENDING = "pending"
-        RUNNING = "running"
-        COMPLETED = "completed"
-        FAILED = "failed"
-        CANCELLED = "cancelled"
-
-    @dataclass(frozen=True)
-    class FakeQueueEntry:
-        queue_id: str
-        app_name: str
-        task_id: str
-        task_kind: str
-        engine: str
-        status: FakeQueueStatus = FakeQueueStatus.PENDING
-        priority: int = 10
-        enqueued_at: str = ""
-        started_at: str = ""
-        finished_at: str = ""
-        cancel_requested: bool = False
-        error: str = ""
-        metadata: dict[str, object] | None = None
-
-    captured: list[FakeQueueEntry] = []
-
-    def _entry_to_dict(entry: FakeQueueEntry) -> dict[str, object]:
-        return {
-            "queue_id": entry.queue_id,
-            "app_name": entry.app_name,
-            "task_id": entry.task_id,
-            "task_kind": entry.task_kind,
-            "engine": entry.engine,
-            "status": entry.status.value,
-            "priority": entry.priority,
-            "enqueued_at": entry.enqueued_at,
-            "started_at": entry.started_at,
-            "finished_at": entry.finished_at,
-            "cancel_requested": entry.cancel_requested,
-            "error": entry.error,
-            "metadata": dict(entry.metadata or {}),
-        }
-
-    def _capture_entry_to_dict(entry: FakeQueueEntry) -> dict[str, object]:
-        captured.append(entry)
-        return _entry_to_dict(entry)
-
-    fake_backend = SimpleNamespace(
-        QueueStatus=FakeQueueStatus,
-        QueueEntry=FakeQueueEntry,
-        entry_to_dict=_capture_entry_to_dict,
-        _entry_to_dict=lambda _entry: pytest.fail("private queue serializer should not be used"),
-    )
-
+def test_save_entries_uses_core_queue_entry_as_storage_model(tmp_path: Path) -> None:
     root = tmp_path / "queue_root"
     root.mkdir()
 
-    with patch("chemstack.orca.queue_store._chem_core_queue_module", return_value=fake_backend):
-        queue_store._save_entries(
-            root,
-            [
+    queue_store._save_entries(
+        root,
+        [
+            queue_store._entry_from_json_payload(
                 {
                     "queue_id": "q_backend",
-                    "reaction_dir": str(root / "rxn"),
                     "status": QueueStatus.RUNNING.value,
-                    "force": True,
-                    "run_id": "run_backend",
+                    "metadata": {
+                        "reaction_dir": str(root / "rxn"),
+                        "force": True,
+                        "run_id": "run_backend",
+                    },
                 }
-            ],
-        )
+            )
+        ],
+    )
 
-    assert len(captured) == 1
-    saved_entry = captured[0]
-    assert saved_entry.queue_id == "q_backend"
-    assert saved_entry.app_name == "chemstack_orca"
-    assert saved_entry.task_id == "q_backend"
-    assert saved_entry.task_kind == "orca_run_inp"
-    assert saved_entry.engine == "orca"
-    assert saved_entry.status == FakeQueueStatus.RUNNING
-    assert saved_entry.metadata == {
+    payload = json.loads((root / queue_store.QUEUE_FILE_NAME).read_text(encoding="utf-8"))
+    assert payload[0]["app_name"] == "chemstack_orca"
+    assert payload[0]["task_id"] == "q_backend"
+    assert payload[0]["task_kind"] == "orca_run_inp"
+    assert payload[0]["engine"] == "orca"
+    assert payload[0]["status"] == QueueStatus.RUNNING.value
+    assert payload[0]["metadata"] == {
         "reaction_dir": str(root / "rxn"),
         "force": True,
         "run_id": "run_backend",
     }
-
-    payload = json.loads((root / queue_store.QUEUE_FILE_NAME).read_text(encoding="utf-8"))
-    assert payload[0]["reaction_dir"] == str(root / "rxn")
-    assert payload[0]["force"] is True
-    assert payload[0]["run_id"] == "run_backend"
+    assert "reaction_dir" not in payload[0]
+    assert "force" not in payload[0]
+    assert "run_id" not in payload[0]
 
 
 def test_reconcile_orphaned_running_entries_covers_state_terminal_paths_and_pending_fallback(
@@ -381,13 +337,13 @@ def test_reconcile_orphaned_running_entries_covers_state_terminal_paths_and_pend
         changed = queue_store.reconcile_orphaned_running_entries(root)
 
     assert changed == 3
-    entries = {entry["queue_id"]: entry for entry in queue_store.list_queue(root)}
-    assert entries["q_done"]["status"] == QueueStatus.COMPLETED.value
-    assert entries["q_done"]["run_id"] == "run_done"
-    assert entries["q_fail"]["status"] == QueueStatus.FAILED.value
-    assert entries["q_fail"]["error"] == "orca_crash"
-    assert entries["q_requeue"]["status"] == QueueStatus.PENDING.value
-    assert entries["q_requeue"]["started_at"] is None
+    entries = {entry.queue_id: entry for entry in queue_store.list_queue(root)}
+    assert entries["q_done"].status == QueueStatus.COMPLETED
+    assert queue_store.queue_entry_run_id(entries["q_done"]) == "run_done"
+    assert entries["q_fail"].status == QueueStatus.FAILED
+    assert entries["q_fail"].error == "orca_crash"
+    assert entries["q_requeue"].status == QueueStatus.PENDING
+    assert entries["q_requeue"].started_at == ""
 
 
 def test_reconcile_orphaned_running_entries_skips_blank_dirs_and_active_locks(tmp_path: Path) -> None:
@@ -411,9 +367,9 @@ def test_reconcile_orphaned_running_entries_skips_blank_dirs_and_active_locks(tm
         changed = queue_store.reconcile_orphaned_running_entries(root)
 
     assert changed == 0
-    entries = {entry["queue_id"]: entry for entry in queue_store.list_queue(root)}
-    assert entries["q_blank"]["status"] == QueueStatus.RUNNING.value
-    assert entries["q_locked"]["status"] == QueueStatus.RUNNING.value
+    entries = {entry.queue_id: entry for entry in queue_store.list_queue(root)}
+    assert entries["q_blank"].status == QueueStatus.RUNNING
+    assert entries["q_locked"].status == QueueStatus.RUNNING
 
 
 def test_mark_cancelled_requeue_cancel_and_update_terminal_cover_missing_and_wrong_statuses(
@@ -434,9 +390,9 @@ def test_mark_cancelled_requeue_cancel_and_update_terminal_cover_missing_and_wro
     assert queue_store.mark_cancelled(root, "q_pending") is False
     assert queue_store.mark_cancelled(root, "q_running") is True
 
-    entries = {entry["queue_id"]: entry for entry in queue_store.list_queue(root)}
-    assert entries["q_running"]["status"] == QueueStatus.CANCELLED.value
-    assert entries["q_running"]["cancel_requested"] is False
+    entries = {entry.queue_id: entry for entry in queue_store.list_queue(root)}
+    assert entries["q_running"].status == QueueStatus.CANCELLED
+    assert entries["q_running"].cancel_requested is False
 
     queue_store._save_entries(
         root,
@@ -449,10 +405,10 @@ def test_mark_cancelled_requeue_cancel_and_update_terminal_cover_missing_and_wro
     assert queue_store.requeue_running_entry(root, "q_terminal") is False
     assert queue_store.requeue_running_entry(root, "q_running") is True
 
-    entries = {entry["queue_id"]: entry for entry in queue_store.list_queue(root)}
-    assert entries["q_running"]["status"] == QueueStatus.PENDING.value
-    assert entries["q_running"]["started_at"] is None
-    assert entries["q_running"]["cancel_requested"] is False
+    entries = {entry.queue_id: entry for entry in queue_store.list_queue(root)}
+    assert entries["q_running"].status == QueueStatus.PENDING
+    assert entries["q_running"].started_at == ""
+    assert entries["q_running"].cancel_requested is False
 
     queue_store._save_entries(
         root,
@@ -467,7 +423,7 @@ def test_mark_cancelled_requeue_cancel_and_update_terminal_cover_missing_and_wro
     assert queue_store.cancel(root, "q_pending") is not None
     running_entry = queue_store.cancel(root, "q_running")
     assert running_entry is not None
-    assert running_entry["cancel_requested"] is True
+    assert running_entry.cancel_requested is True
     assert queue_store.get_cancel_requested(root, "q_running") is True
     assert queue_store.get_cancel_requested(root, "q_missing") is False
 
@@ -505,5 +461,5 @@ def test_clear_terminal_keep_last_keeps_newest_terminal_entries(tmp_path: Path) 
     removed = queue_store.clear_terminal(root, keep_last=2)
 
     assert removed == 1
-    remaining = {entry["queue_id"]: entry for entry in queue_store.list_queue(root)}
+    remaining = {entry.queue_id: entry for entry in queue_store.list_queue(root)}
     assert set(remaining) == {"q_pending", "q_new", "q_mid"}

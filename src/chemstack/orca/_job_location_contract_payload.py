@@ -1,7 +1,19 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+from chemstack.core.queue.metadata import mapping_metadata_value as queue_entry_metadata_value
+
+
+@dataclass(frozen=True)
+class RuntimePayloads:
+    record: Any
+    queue_entry: dict[str, Any]
+    state: dict[str, Any]
+    report: dict[str, Any]
+    organized_ref: dict[str, Any]
 
 
 def runtime_paths(
@@ -24,14 +36,16 @@ def runtime_paths(
     }
 
 
-def runtime_payloads(runtime: Any) -> tuple[Any, dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any]]:
+def runtime_payloads(runtime: Any) -> RuntimePayloads:
     artifact = runtime.artifact
-    return (
-        artifact.record,
-        dict(runtime.queue_entry) if isinstance(runtime.queue_entry, dict) else {},
-        dict(artifact.state) if isinstance(artifact.state, dict) else {},
-        dict(artifact.report) if isinstance(artifact.report, dict) else {},
-        dict(artifact.organized_ref) if isinstance(artifact.organized_ref, dict) else {},
+    return RuntimePayloads(
+        record=artifact.record,
+        queue_entry=dict(runtime.queue_entry) if isinstance(runtime.queue_entry, dict) else {},
+        state=dict(artifact.state) if isinstance(artifact.state, dict) else {},
+        report=dict(artifact.report) if isinstance(artifact.report, dict) else {},
+        organized_ref=dict(artifact.organized_ref)
+        if isinstance(artifact.organized_ref, dict)
+        else {},
     )
 
 
@@ -45,7 +59,7 @@ def runtime_current_dir(
     return (
         runtime.artifact.job_dir
         or deps.resolve_existing_job_dir(reaction_dir)
-        or deps.resolve_existing_job_dir(queue_entry.get("reaction_dir"))
+        or deps.resolve_existing_job_dir(queue_entry_metadata_value(queue_entry, "reaction_dir"))
     )
 
 
@@ -63,7 +77,7 @@ def resolved_run_id(
         or deps.normalize_text(state.get("run_id"))
         or deps.normalize_text(report.get("run_id"))
         or deps.normalize_text(organized_ref.get("run_id"))
-        or deps.normalize_text(queue_entry.get("run_id"))
+        or deps.normalize_text(queue_entry_metadata_value(queue_entry, "run_id"))
     )
 
 
@@ -137,10 +151,10 @@ def runtime_resources(
     deps: Any,
 ) -> tuple[dict[str, int], dict[str, int]]:
     resource_request = deps.resource_dict_from_any(
-        queue_entry.get("resource_request")
+        queue_entry_metadata_value(queue_entry, "resource_request")
     ) or deps.resource_dict_from_any(record.resource_request if record is not None else {})
     resource_actual = (
-        deps.resource_dict_from_any(queue_entry.get("resource_actual"))
+        deps.resource_dict_from_any(queue_entry_metadata_value(queue_entry, "resource_actual"))
         or deps.resource_dict_from_any(record.resource_actual if record is not None else {})
         or dict(resource_request)
     )

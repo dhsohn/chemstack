@@ -85,6 +85,7 @@ class OrcaContractLoaderDeps:
         ..., tuple[Path | None, Any, ContractPayload, ContractPayload, ContractPayload]
     ]
     find_queue_entry_fn: Callable[..., ContractPayload | None]
+    queue_entry_metadata_value_fn: Callable[[ContractPayload | None, str], Any]
     resolve_candidate_path_fn: Callable[[Any], Path | None]
     direct_dir_target_fn: Callable[[str], Path | None]
     record_organized_dir_fn: Callable[[Any], Path | None]
@@ -447,8 +448,8 @@ def _resource_payloads(
     deps: OrcaContractLoaderDeps,
 ) -> tuple[dict[str, int], dict[str, int]]:
     queue = context.queue_entry or {}
-    queue_request = queue.get("resource_request")
-    queue_actual = queue.get("resource_actual")
+    queue_request = deps.queue_entry_metadata_value_fn(queue, "resource_request")
+    queue_actual = deps.queue_entry_metadata_value_fn(queue, "resource_actual")
     resource_request = deps.coerce_resource_dict_fn(
         queue_request if isinstance(queue_request, dict) else {}
     ) or deps.coerce_resource_dict_fn(

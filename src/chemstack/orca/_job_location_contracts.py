@@ -21,6 +21,7 @@ from ._job_location_utils import (
     normalize_bool,
     normalize_text,
     prefer_orca_optimized_xyz,
+    queue_entry_metadata_value,
     resolve_artifact_path,
     resolve_existing_job_dir,
     resource_dict_from_any,
@@ -56,6 +57,7 @@ class _JobLocationDeps:
     resolve_existing_job_dir: Any
     resolve_record_job_dir: Any
     resource_dict_from_any: Any
+    queue_entry_metadata_value: Any
     status_from_payloads: Any
     _find_queue_entry: Any
     _first_artifact_context: Any
@@ -85,6 +87,7 @@ def _job_location_deps() -> _JobLocationDeps:
         resolve_existing_job_dir=resolve_existing_job_dir,
         resolve_record_job_dir=resolve_record_job_dir,
         resource_dict_from_any=resource_dict_from_any,
+        queue_entry_metadata_value=queue_entry_metadata_value,
         status_from_payloads=status_from_payloads,
         _find_queue_entry=_find_queue_entry,
         _first_artifact_context=_first_artifact_context,
@@ -208,8 +211,8 @@ def _queue_entry_matches(
 ) -> bool:
     entry_queue_id = normalize_text(entry.get("queue_id"))
     entry_task_id = normalize_text(entry.get("task_id"))
-    entry_run_id = normalize_text(entry.get("run_id"))
-    entry_reaction_dir = resolve_existing_job_dir(entry.get("reaction_dir"))
+    entry_run_id = normalize_text(queue_entry_metadata_value(entry, "run_id"))
+    entry_reaction_dir = resolve_existing_job_dir(queue_entry_metadata_value(entry, "reaction_dir"))
 
     return (
         (bool(queue_id) and entry_queue_id == queue_id)
@@ -412,13 +415,7 @@ def _runtime_paths(current_dir: Path | None) -> dict[str, str]:
 
 def _runtime_payloads(
     runtime: JobRuntimeContext,
-) -> tuple[
-    JobLocationRecord | None,
-    dict[str, Any],
-    dict[str, Any],
-    dict[str, Any],
-    dict[str, Any],
-]:
+) -> _contract_payload.RuntimePayloads:
     return _contract_payload.runtime_payloads(runtime)
 
 
@@ -559,7 +556,12 @@ def _orca_contract_payload_context(
         run_id=run_id,
         reaction_dir=reaction_dir,
     )
-    record, queue_entry, state, report, organized_ref = _runtime_payloads(runtime)
+    payloads = _runtime_payloads(runtime)
+    record = payloads.record
+    queue_entry = payloads.queue_entry
+    state = payloads.state
+    report = payloads.report
+    organized_ref = payloads.organized_ref
     current_dir = _runtime_current_dir(
         runtime,
         queue_entry=queue_entry,

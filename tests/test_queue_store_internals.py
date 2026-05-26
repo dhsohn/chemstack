@@ -7,9 +7,8 @@ from unittest.mock import patch
 
 import pytest
 
-from chemstack.orca import queue_store
-from chemstack.orca.statuses import QueueStatus
-from chemstack.orca.types import QueueEntry
+from chemstack.core.queue.types import QueueStatus
+import chemstack.orca.queue_store as queue_store
 
 
 def _write_entries(root: Path, entries: list[dict[str, object]]) -> None:
@@ -86,29 +85,36 @@ def test_report_reconciliation_helpers_cover_missing_nonterminal_and_failed_reas
 
 
 def test_apply_terminal_reconciliation_and_duplicate_helpers_cover_branches(tmp_path: Path) -> None:
-    entry: QueueEntry = {
-        "queue_id": "q_1",
-        "reaction_dir": str(tmp_path / "rxn"),
-        "status": QueueStatus.RUNNING.value,
-        "finished_at": None,
-        "run_id": None,
-        "error": "old",
-    }
-    queue_store._apply_terminal_reconciliation(
+    entry = queue_store._entry_from_json_payload(
+        {
+            "queue_id": "q_1",
+            "status": QueueStatus.RUNNING.value,
+            "finished_at": None,
+            "error": "old",
+            "metadata": {"reaction_dir": str(tmp_path / "rxn"), "force": False},
+        }
+    )
+    entry = queue_store._apply_terminal_reconciliation(
         entry,
         status=QueueStatus.COMPLETED.value,
         run_id="run_1",
         finished_at=None,
     )
-    assert entry["status"] == QueueStatus.COMPLETED.value
-    assert entry["run_id"] == "run_1"
-    assert entry["error"] is None
-    assert entry["finished_at"] is not None
+    assert entry.status == QueueStatus.COMPLETED
+    assert queue_store.queue_entry_run_id(entry) == "run_1"
+    assert entry.error == ""
+    assert entry.finished_at
 
-    entries: list[QueueEntry] = [
-        {"reaction_dir": "/tmp/a", "status": QueueStatus.PENDING.value},
-        {"reaction_dir": "/tmp/a", "status": QueueStatus.COMPLETED.value},
-        {"reaction_dir": "/tmp/a", "status": QueueStatus.FAILED.value},
+    entries = [
+        queue_store._entry_from_json_payload(
+            {"metadata": {"reaction_dir": "/tmp/a"}, "status": QueueStatus.PENDING.value}
+        ),
+        queue_store._entry_from_json_payload(
+            {"metadata": {"reaction_dir": "/tmp/a"}, "status": QueueStatus.COMPLETED.value}
+        ),
+        queue_store._entry_from_json_payload(
+            {"metadata": {"reaction_dir": "/tmp/a"}, "status": QueueStatus.FAILED.value}
+        ),
     ]
     assert queue_store._find_active_entry(entries, "/tmp/a") == entries[0]
     assert queue_store._find_terminal_entry(entries, "/tmp/a") == entries[2]
@@ -127,10 +133,26 @@ def test_reconcile_orphaned_running_entries_covers_state_completion_failure_and_
     _write_entries(
         root,
         [
-            {"queue_id": "q_completed", "reaction_dir": str(completed_dir), "status": QueueStatus.RUNNING.value},
-            {"queue_id": "q_failed", "reaction_dir": str(failed_dir), "status": QueueStatus.RUNNING.value},
-            {"queue_id": "q_requeue", "reaction_dir": str(requeue_dir), "status": QueueStatus.RUNNING.value},
-            {"queue_id": "q_blank", "reaction_dir": "   ", "status": QueueStatus.RUNNING.value},
+            {
+                "queue_id": "q_completed",
+                "metadata": {"reaction_dir": str(completed_dir)},
+                "status": QueueStatus.RUNNING.value,
+            },
+            {
+                "queue_id": "q_failed",
+                "metadata": {"reaction_dir": str(failed_dir)},
+                "status": QueueStatus.RUNNING.value,
+            },
+            {
+                "queue_id": "q_requeue",
+                "metadata": {"reaction_dir": str(requeue_dir)},
+                "status": QueueStatus.RUNNING.value,
+            },
+            {
+                "queue_id": "q_blank",
+                "metadata": {"reaction_dir": "   "},
+                "status": QueueStatus.RUNNING.value,
+            },
         ],
     )
 
@@ -161,13 +183,13 @@ def test_reconcile_orphaned_running_entries_covers_state_completion_failure_and_
         changed = queue_store.reconcile_orphaned_running_entries(root)
 
     assert changed == 3
-    entries = {entry["queue_id"]: entry for entry in queue_store._load_entries(root)}
-    assert entries["q_completed"]["status"] == QueueStatus.COMPLETED.value
-    assert entries["q_completed"]["run_id"] == "run_completed"
-    assert entries["q_failed"]["status"] == QueueStatus.FAILED.value
-    assert entries["q_failed"]["error"] == "orca_crash"
-    assert entries["q_requeue"]["status"] == QueueStatus.PENDING.value
-    assert entries["q_requeue"]["started_at"] is None
+    entries = {entry.queue_id: entry for entry in queue_store._load_entries(root)}
+    assert entries["q_completed"].status == QueueStatus.COMPLETED
+    assert queue_store.queue_entry_run_id(entries["q_completed"]) == "run_completed"
+    assert entries["q_failed"].status == QueueStatus.FAILED
+    assert entries["q_failed"].error == "orca_crash"
+    assert entries["q_requeue"].status == QueueStatus.PENDING
+    assert entries["q_requeue"].started_at == ""
 
 
 def test_reconcile_orphaned_running_entries_skips_when_lock_or_worker_is_active(tmp_path: Path) -> None:
@@ -199,21 +221,21 @@ def test_mark_cancelled_requeue_cancel_and_clear_terminal_cover_false_and_keep_l
         [
             {
                 "queue_id": "q_run",
-                "reaction_dir": str(root / "a"),
+                "metadata": {"reaction_dir": str(root / "a")},
                 "status": QueueStatus.RUNNING.value,
                 "finished_at": None,
                 "cancel_requested": False,
             },
             {
                 "queue_id": "q_done_old",
-                "reaction_dir": str(root / "b"),
+                "metadata": {"reaction_dir": str(root / "b")},
                 "status": QueueStatus.COMPLETED.value,
                 "finished_at": "2026-03-22T00:00:00+00:00",
                 "cancel_requested": False,
             },
             {
                 "queue_id": "q_done_new",
-                "reaction_dir": str(root / "c"),
+                "metadata": {"reaction_dir": str(root / "c")},
                 "status": QueueStatus.FAILED.value,
                 "finished_at": "2026-03-22T01:00:00+00:00",
                 "cancel_requested": False,
@@ -231,7 +253,7 @@ def test_mark_cancelled_requeue_cancel_and_clear_terminal_cover_false_and_keep_l
 
         cancelled = queue_store.cancel(root, "q_run")
         assert cancelled is not None
-        assert cancelled["cancel_requested"] is True
+        assert cancelled.cancel_requested is True
         assert queue_store.requeue_running_entry(root, "q_run") is True
         assert queue_store.mark_cancelled(root, "q_run") is False
 
@@ -239,6 +261,8 @@ def test_mark_cancelled_requeue_cancel_and_clear_terminal_cover_false_and_keep_l
 
     assert removed == 1
     remaining = queue_store._load_entries(root)
-    terminal_remaining = [entry for entry in remaining if entry["status"] in {QueueStatus.COMPLETED.value, QueueStatus.FAILED.value}]
+    terminal_remaining = [
+        entry for entry in remaining if entry.status in {QueueStatus.COMPLETED, QueueStatus.FAILED}
+    ]
     assert len(terminal_remaining) == 1
-    assert terminal_remaining[0]["queue_id"] == "q_done_new"
+    assert terminal_remaining[0].queue_id == "q_done_new"

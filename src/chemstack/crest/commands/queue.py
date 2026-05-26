@@ -63,11 +63,8 @@ WORKER_PID_FILE = "queue_worker.pid"
 WORKER_SHUTDOWN_GRACE_SECONDS = 10.0
 
 
-_QueueWorkerDeps = ChildQueueWorkerDeps
-
-
-def _queue_worker_deps() -> _QueueWorkerDeps:
-    return _QueueWorkerDeps(
+def _queue_worker_deps() -> ChildQueueWorkerDeps:
+    return ChildQueueWorkerDeps(
         POLL_INTERVAL_SECONDS=POLL_INTERVAL_SECONDS,
         time=time,
         release_slot=release_slot,

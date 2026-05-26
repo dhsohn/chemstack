@@ -347,10 +347,12 @@ def test_load_job_runtime_context_exposes_queue_entry_and_organized_refresh() ->
                 {
                     "queue_id": "q_hist_4",
                     "task_id": "job_hist_4",
-                    "run_id": "run_hist_4",
-                    "reaction_dir": str(original_dir),
                     "status": "completed",
                     "cancel_requested": False,
+                    "metadata": {
+                        "run_id": "run_hist_4",
+                        "reaction_dir": str(original_dir),
+                    },
                 }
             ],
         )
@@ -483,12 +485,14 @@ def test_load_orca_contract_payload_returns_normalized_runtime_fields() -> None:
                 {
                     "queue_id": "q_hist_5",
                     "task_id": "job_hist_5",
-                    "run_id": "run_hist_5",
-                    "reaction_dir": str(original_dir),
                     "status": "completed",
                     "cancel_requested": False,
-                    "resource_request": {"max_cores": 8, "max_memory_gb": 16},
-                    "resource_actual": {"max_cores": 8, "max_memory_gb": 16},
+                    "metadata": {
+                        "run_id": "run_hist_5",
+                        "reaction_dir": str(original_dir),
+                        "resource_request": {"max_cores": 8, "max_memory_gb": 16},
+                        "resource_actual": {"max_cores": 8, "max_memory_gb": 16},
+                    },
                 }
             ],
         )

@@ -55,7 +55,9 @@ def _initial_artifact_context(
     deps: Any,
 ) -> Any:
     artifact = deps._first_artifact_context(index_root, (target, run_id, reaction_dir))
-    queue_reaction_dir = deps.resolve_existing_job_dir((queue_entry or {}).get("reaction_dir"))
+    queue_reaction_dir = deps.resolve_existing_job_dir(
+        deps.queue_entry_metadata_value(queue_entry, "reaction_dir")
+    )
     if artifact.job_dir is not None or queue_reaction_dir is None:
         return artifact
     return deps._first_artifact_context(
@@ -88,7 +90,7 @@ def _resolved_run_id(
         or deps.normalize_text(state.get("run_id"))
         or deps.normalize_text(report.get("run_id"))
         or deps.normalize_text(organized_ref.get("run_id"))
-        or deps.normalize_text((queue_entry or {}).get("run_id"))
+        or deps.normalize_text(deps.queue_entry_metadata_value(queue_entry, "run_id"))
     )
 
 
@@ -164,7 +166,9 @@ def load_job_runtime_context(
     state_payload = _dict_payload(artifact.state)
     report_payload = _dict_payload(artifact.report)
     organized_ref_payload = _dict_payload(artifact.organized_ref)
-    queue_reaction_dir = deps.resolve_existing_job_dir((queue_entry or {}).get("reaction_dir"))
+    queue_reaction_dir = deps.resolve_existing_job_dir(
+        deps.queue_entry_metadata_value(queue_entry, "reaction_dir")
+    )
     current_dir = artifact.job_dir or deps.resolve_existing_job_dir(reaction_dir) or queue_reaction_dir
 
     resolved_run_id = _resolved_run_id(

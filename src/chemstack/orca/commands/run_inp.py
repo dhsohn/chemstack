@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Type
 
 from chemstack.core.app_ids import CHEMSTACK_ORCA_APP_NAME
+from chemstack.core.queue.types import QueueStatus
 
 from .. import queue_store as _queue_store
 from ..admission_store import (
@@ -25,7 +26,7 @@ from ..out_analyzer import analyze_output
 from ..runtime.run_lock import LOCK_FILE_NAME, acquire_run_lock
 from ..state_machine import RESUMABLE_RUN_STATUSES, load_or_create_state
 from ..state import load_state, save_state
-from ..statuses import AnalyzerStatus, QueueStatus, RunStatus
+from ..statuses import AnalyzerStatus, RunStatus
 from ..telegram_notifier import (
     notify_queue_enqueued_event,
     notify_retry_event,

@@ -317,12 +317,14 @@ def test_load_orca_artifact_contract_propagates_resource_request_and_actual(
             {
                 "queue_id": "q_resources_1",
                 "task_id": "job_resources_1",
-                "run_id": "run_resources_1",
-                "reaction_dir": str(run_dir),
                 "status": "pending",
                 "cancel_requested": False,
-                "resource_request": queue_request,
-                "resource_actual": queue_actual,
+                "metadata": {
+                    "run_id": "run_resources_1",
+                    "reaction_dir": str(run_dir),
+                    "resource_request": queue_request,
+                    "resource_actual": queue_actual,
+                },
             }
         ],
     )
