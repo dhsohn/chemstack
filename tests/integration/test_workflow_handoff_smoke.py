@@ -8,15 +8,11 @@ import yaml
 from chemstack.core.indexing import get_job_location
 from chemstack.core.queue import list_queue
 from chemstack.crest.commands import queue as crest_queue_cmd
-from chemstack.xtb.commands import queue as xtb_queue_cmd
-from chemstack.flow.adapters.xtb import load_xtb_artifact_contract
-from chemstack.flow.operations import (
-    advance_materialized_workflow,
+from chemstack.flow.operations import get_workflow
+from chemstack.flow.orchestration import (
+    advance_workflow,
     create_conformer_screening_workflow,
-    get_workflow,
 )
-from chemstack.flow.submitters import xtb_auto as xtb_submitter
-from chemstack.flow.workflows.reaction_ts_search import build_reaction_ts_search_plan_from_target
 
 
 def _write_xyz(path: Path) -> None:
@@ -111,7 +107,7 @@ def test_conformer_screening_workflow_handoff_smoke(
     assert initial_crest_stages[0]["task"]["status"] == "planned"
     assert _engine_stages(initial_payload, "orca") == []
 
-    submitted_payload = advance_materialized_workflow(
+    submitted_payload = advance_workflow(
         target=workflow_id,
         workflow_root=workflow_root,
         crest_auto_config=str(smoke_workspace.crest_config_path),
@@ -147,7 +143,7 @@ def test_conformer_screening_workflow_handoff_smoke(
     assert f"job_id: {submitted_metadata['child_job_id']}" in worker_output
     assert "status: completed" in worker_output
 
-    handed_off_payload = advance_materialized_workflow(
+    handed_off_payload = advance_workflow(
         target=workflow_id,
         workflow_root=workflow_root,
         crest_auto_config=str(smoke_workspace.crest_config_path),
@@ -192,109 +188,3 @@ def test_conformer_screening_workflow_handoff_smoke(
     assert persisted["summary"]["workflow_id"] == workflow_id
     assert persisted["registry_record"]["stage_count"] == 3
     assert len(_engine_stages(persisted["workflow"], "orca")) == 2
-
-
-def test_xtb_reaction_ts_search_handoff_smoke(
-    smoke_workspace: Any,
-    xtb_path_search_job: Path,
-    capsys: Any,
-) -> None:
-    submission = xtb_submitter.submit_job_dir(
-        job_dir=str(xtb_path_search_job),
-        priority=5,
-        config_path=str(smoke_workspace.xtb_config_path),
-        repo_root=str(smoke_workspace.repo_root),
-    )
-
-    assert submission["status"] == "submitted"
-    assert submission["parsed_stdout"]["status"] == "queued"
-    assert submission["job_id"]
-    assert submission["queue_id"]
-
-    queue_entries = list_queue(smoke_workspace.xtb_allowed_root)
-    assert len(queue_entries) == 1
-    assert queue_entries[0].task_id == submission["job_id"]
-    assert queue_entries[0].queue_id == submission["queue_id"]
-    assert _queue_status(queue_entries[0]) == "pending"
-
-    assert xtb_queue_cmd._process_one(
-        xtb_queue_cmd.load_config(str(smoke_workspace.xtb_config_path)),
-        auto_organize=True,
-    ) == "processed"
-    worker_output = capsys.readouterr().out
-    assert f"queue_id: {submission['queue_id']}" in worker_output
-    assert f"job_id: {submission['job_id']}" in worker_output
-    assert "status: completed" in worker_output
-
-    record = get_job_location(smoke_workspace.xtb_allowed_root, submission["job_id"])
-    assert record is not None
-    assert record.app_name == "xtb_auto"
-    assert record.status == "completed"
-    assert record.organized_output_dir == ""
-
-    artifact_dir = xtb_path_search_job.resolve()
-    assert record.latest_known_path == str(artifact_dir)
-    assert artifact_dir.exists()
-    assert (artifact_dir / "xtbpath_ts.xyz").exists()
-    assert (artifact_dir / "xtbpath_0.xyz").exists()
-    assert not (artifact_dir / "xtbpath_1.xyz").exists()
-    assert not (artifact_dir / "xtbpath.xyz").exists()
-    assert not (xtb_path_search_job / "organized_ref.json").exists()
-
-    contract = load_xtb_artifact_contract(
-        xtb_index_root=smoke_workspace.xtb_allowed_root,
-        target=submission["job_id"],
-    )
-    assert contract.status == "completed"
-    assert contract.job_type == "path_search"
-    assert contract.organized_output_dir == ""
-    assert Path(contract.selected_candidate_paths[0]).name == "xtbpath_ts.xyz"
-    assert any(detail.kind == "ts_guess" for detail in contract.candidate_details)
-    assert any(detail.kind == "selected_path" for detail in contract.candidate_details)
-
-    workflow_root = smoke_workspace.root / "workflow_root_xtb"
-    payload = build_reaction_ts_search_plan_from_target(
-        xtb_index_root=smoke_workspace.xtb_allowed_root,
-        target=submission["job_id"],
-        workspace_root=workflow_root,
-        max_orca_stages=1,
-        max_cores=2,
-        max_memory_gb=2,
-        priority=5,
-    )
-
-    workflow_id = str(payload["workflow_id"])
-    workspace_dir = workflow_root / workflow_id
-    assert payload["template_name"] == "reaction_ts_search"
-    assert payload["source_job_id"] == submission["job_id"]
-    assert payload["metadata"]["source_contract"]["job_id"] == submission["job_id"]
-    assert payload["metadata"]["source_contract"]["organized_output_dir"] == ""
-    assert len(payload["stages"]) == 1
-
-    stage = payload["stages"][0]
-    task = dict(stage.get("task") or {})
-    task_payload = dict(task.get("payload") or {})
-    reaction_dir = Path(task_payload["reaction_dir"])
-    selected_inp = Path(task_payload["selected_inp"])
-    selected_input_xyz = Path(task_payload["selected_input_xyz"])
-    stage_dir = reaction_dir
-
-    assert stage["stage_id"] == "orca_optts_freq_01"
-    assert stage["status"] == "planned"
-    assert task["status"] == "planned"
-    assert stage["metadata"]["candidate_kind"] == "ts_guess"
-    assert Path(stage["input_artifacts"][0]["path"]).name == "xtbpath_ts.xyz"
-    assert reaction_dir.exists()
-    assert selected_inp.exists()
-    assert selected_input_xyz.exists()
-    assert selected_input_xyz.name == "xtbpath_ts.xyz"
-    assert (reaction_dir / "ts_guess.xyz").exists()
-    assert (stage_dir / "source_candidate.json").exists()
-    assert (stage_dir / "enqueue_payload.json").exists()
-    assert (workspace_dir / "workflow.json").exists()
-    assert "OptTS Freq TightSCF" in selected_inp.read_text(encoding="utf-8")
-
-    persisted = get_workflow(target=workflow_id, workflow_root=workflow_root)
-    assert persisted["summary"]["workflow_id"] == workflow_id
-    assert persisted["registry_record"]["stage_count"] == 1
-    assert len(_engine_stages(persisted["workflow"], "orca")) == 1

@@ -7,7 +7,7 @@ from chemstack.core.commands import engine_reindex as _engine_reindex
 
 from ..config import load_config
 from ..state import load_organized_ref, load_report_json, load_state
-from ..tracking import (
+from ..job_locations import (
     index_root_for_cfg as _index_root_for_cfg,
     index_root_for_path,
     record_from_artifacts,

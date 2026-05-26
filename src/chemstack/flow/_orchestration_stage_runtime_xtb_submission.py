@@ -19,7 +19,7 @@ def _record_xtb_submission_attempt(
     trigger_reason: str = "",
     trigger_message: str = "",
 ) -> None:
-    attempt_record = o._xtb_attempt_record(stage, attempt_number=attempt_number)
+    attempt_record = o.stages._xtb_attempt_record(stage, attempt_number=attempt_number)
     attempt_record["submission_status"] = submission.get("status", "")
     attempt_record["submitted_at"] = submission.get("submitted_at", "")
     attempt_record["queue_id"] = submission.get("queue_id", "")
@@ -67,21 +67,21 @@ def _submit_xtb_stage(
     xtb_auto_repo_root: str | None,
     workflow_id: str,
 ) -> None:
-    job_dir = o._ensure_xtb_job_dir(
+    job_dir = o.stages._ensure_xtb_job_dir(
         stage,
         xtb_allowed_root=xtb_runtime_paths["allowed_root"],
         workflow_id=workflow_id,
     )
-    submission = o.submit_xtb_job_dir(
+    submission = o.engines.submit_xtb_job_dir(
         job_dir=job_dir,
         priority=int(task["enqueue_payload"].get("priority", 10) or 10),
         config_path=str(xtb_auto_config),
         executable=xtb_auto_executable,
         repo_root=xtb_auto_repo_root,
     )
-    submission["submitted_at"] = o.now_utc_iso()
+    submission["submitted_at"] = o.persistence.now_utc_iso()
     task["submission_result"] = submission
-    current_attempt = o._xtb_current_attempt_number(stage)
+    current_attempt = o.stages._xtb_current_attempt_number(stage)
     _record_xtb_submission_attempt(o, stage, submission, attempt_number=current_attempt)
     _apply_xtb_submission_result(
         stage,

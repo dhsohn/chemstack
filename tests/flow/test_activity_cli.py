@@ -10,7 +10,7 @@ import pytest
 from chemstack.core.app_ids import CHEMSTACK_CONFIG_ENV_VAR, CHEMSTACK_REPO_ROOT_ENV_VAR
 from chemstack.core.queue.types import QueueEntry, QueueStatus
 
-from chemstack.flow import activity, cli, operations
+from chemstack.flow import activity, cli, cli_activity, operations
 from chemstack.flow import _activity_model
 
 
@@ -59,8 +59,8 @@ def test_list_activities_merges_workflows_and_standalone_sources(monkeypatch) ->
     monkeypatch.setattr(
         activity,
         "sibling_runtime_paths",
-        lambda config_path: {
-            "allowed_root": Path("/tmp/crest_root" if "crest" in config_path else "/tmp/xtb_root"),
+        lambda config_path, *, engine: {
+            "allowed_root": Path("/tmp/crest_root" if engine == "crest" else "/tmp/xtb_root"),
         },
     )
 
@@ -301,15 +301,13 @@ def test_runtime_path_and_engine_root_edges(
 
     def fake_sibling_runtime_paths(config_path: str, *, engine: str | None = None) -> dict[str, Path]:
         calls.append((config_path, engine))
-        if engine == "xtb":
-            raise TypeError("unexpected keyword argument 'engine'")
         if engine == "bad":
             raise TypeError("other type error")
         return {"allowed_root": allowed}
 
     monkeypatch.setattr(activity, "sibling_runtime_paths", fake_sibling_runtime_paths)
     assert activity._runtime_paths_for_engine("/tmp/cfg.yaml", engine="xtb") == {"allowed_root": allowed}
-    assert calls[-1] == ("/tmp/cfg.yaml", None)
+    assert calls[-1] == ("/tmp/cfg.yaml", "xtb")
 
     with pytest.raises(TypeError):
         activity._runtime_paths_for_engine("/tmp/cfg.yaml", engine="bad")
@@ -618,7 +616,7 @@ def test_clear_activities_keeps_cleared_terminal_workflows_hidden_from_listing(
 
 def test_cmd_activity_list_text_output(monkeypatch, capsys) -> None:
     monkeypatch.setattr(
-        cli,
+        cli_activity,
         "list_activities",
         lambda **kwargs: {
             "count": 2,
@@ -641,7 +639,7 @@ def test_cmd_activity_list_text_output(monkeypatch, capsys) -> None:
         },
     )
 
-    assert cli.cmd_activity_list(
+    assert cli_activity.cmd_activity_list(
         SimpleNamespace(
             workflow_root="/tmp/wf",
             limit=0,
@@ -662,7 +660,7 @@ def test_cmd_activity_list_text_output(monkeypatch, capsys) -> None:
 
 def test_cmd_activity_cancel_json_and_error_paths(monkeypatch, capsys) -> None:
     monkeypatch.setattr(
-        cli,
+        cli_activity,
         "cancel_activity",
         lambda **kwargs: {
             "activity_id": "crest-q-1",
@@ -687,17 +685,17 @@ def test_cmd_activity_cancel_json_and_error_paths(monkeypatch, capsys) -> None:
         orca_auto_repo_root=None,
         json=True,
     )
-    assert cli.cmd_activity_cancel(args) == 0
+    assert cli_activity.cmd_activity_cancel(args) == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["status"] == "cancel_requested"
 
     def fake_cancel_activity(**kwargs: Any) -> dict[str, Any]:
         raise LookupError("Activity target not found: missing")
 
-    monkeypatch.setattr(cli, "cancel_activity", fake_cancel_activity)
+    monkeypatch.setattr(cli_activity, "cancel_activity", fake_cancel_activity)
     args.json = False
     args.target = "missing"
-    assert cli.cmd_activity_cancel(args) == 1
+    assert cli_activity.cmd_activity_cancel(args) == 1
     assert "error: Activity target not found: missing" in capsys.readouterr().out
 
 
@@ -717,7 +715,7 @@ def test_build_parser_parses_top_level_activity_commands() -> None:
     assert list_args.command == "list"
     assert list_args.workflow_root == "/tmp/wf"
     assert list_args.chemstack_config == "/tmp/chemstack.yaml"
-    assert list_args.func is cli.cmd_activity_list
+    assert list_args.func is cli_activity.cmd_activity_list
 
     cancel_args = parser.parse_args(
         [
@@ -730,7 +728,7 @@ def test_build_parser_parses_top_level_activity_commands() -> None:
     assert cancel_args.command == "cancel"
     assert cancel_args.target == "xtb-q-1"
     assert cancel_args.chemstack_config == "/tmp/chemstack.yaml"
-    assert cancel_args.func is cli.cmd_activity_cancel
+    assert cancel_args.func is cli_activity.cmd_activity_cancel
 
     with pytest.raises(SystemExit):
         parser.parse_args(
@@ -833,9 +831,9 @@ def test_build_parser_accepts_one_line_activity_commands() -> None:
     list_args = parser.parse_args(["list"])
     assert list_args.command == "list"
     assert list_args.workflow_root is None
-    assert list_args.func is cli.cmd_activity_list
+    assert list_args.func is cli_activity.cmd_activity_list
 
     cancel_args = parser.parse_args(["cancel", "wf-1"])
     assert cancel_args.command == "cancel"
     assert cancel_args.target == "wf-1"
-    assert cancel_args.func is cli.cmd_activity_cancel
+    assert cancel_args.func is cli_activity.cmd_activity_cancel

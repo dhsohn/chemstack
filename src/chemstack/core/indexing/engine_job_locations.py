@@ -13,12 +13,12 @@ from . import engines as _engine_locations
 class EngineJobLocationApi:
     """Shared module-level job-location API for sibling engine packages.
 
-    CREST and xTB expose almost identical historical helpers. This adapter keeps
-    those module-level functions thin while preserving monkeypatchable store
+    CREST and xTB expose almost identical helpers. This adapter keeps those
+    module-level functions thin while preserving monkeypatchable store
     functions through call-time suppliers.
     """
 
-    facade: _engine_locations.EngineLocationFacade
+    service: _engine_locations.EngineLocationService
     module: _engine_locations.EngineLocationModule
     get_job_location_fn: Callable[[], Callable[..., Any]]
     list_job_locations_fn: Callable[[], Callable[..., Any]]
@@ -109,7 +109,7 @@ def build_engine_job_location_api(
     load_state_supplier: Callable[[], Callable[[Path], dict[str, Any] | None]],
     load_report_json_supplier: Callable[[], Callable[[Path], dict[str, Any] | None]],
 ) -> EngineJobLocationApi:
-    facade = _engine_locations.EngineLocationFacade(
+    service = _engine_locations.EngineLocationService(
         engine=engine,
         spec=spec,
         load_state_fn=load_state_fn,
@@ -117,13 +117,13 @@ def build_engine_job_location_api(
         load_organized_ref_fn=load_organized_ref_fn,
     )
     module = _engine_locations.EngineLocationModule(
-        facade=facade,
+        service=service,
         payload_kind_kwarg=payload_kind_kwarg,
         molecule_key_kwarg=molecule_key_kwarg,
         default_payload_kind_kwarg=default_payload_kind_kwarg,
     )
     return EngineJobLocationApi(
-        facade=facade,
+        service=service,
         module=module,
         get_job_location_fn=get_job_location_fn,
         list_job_locations_fn=list_job_locations_fn,

@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from argparse import Namespace
 
-from chemstack import cli as unified_cli
+from chemstack.cli_workers import cmd_queue_worker
 from chemstack.core.app_ids import CHEMSTACK_CONFIG_ENV_VAR
 
 
@@ -25,7 +25,7 @@ def _service_args() -> Namespace:
 
 
 def main() -> int:
-    return int(unified_cli.cmd_queue_worker(_service_args()))
+    return int(cmd_queue_worker(_service_args()))
 
 
 if __name__ == "__main__":

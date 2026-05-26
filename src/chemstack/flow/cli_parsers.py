@@ -1,26 +1,41 @@
 from __future__ import annotations
 
 import argparse
-from typing import Any
+from collections.abc import Callable
 
+from . import cli_activity
+from . import cli_inspect
+from . import cli_run_dir
+from . import cli_workflow
 from .cli_parser_specs import WorkflowParserSpec as _WorkflowParserSpec
 from .cli_parser_specs import add_argument_specs as _add_argument_specs
-from .cli_workflow_plan_parser_specs import (
+from .cli_workflow_creation_parser_specs import (
     workflow_creation_specs as _workflow_creation_specs,
-)
-from .cli_workflow_plan_parser_specs import (
-    workflow_planning_specs as _workflow_planning_specs,
 )
 from .cli_workflow_registry_parser_specs import (
     workflow_registry_specs as _workflow_registry_specs,
 )
 from .cli_workflow_runtime_parser_specs import workflow_runtime_specs as _workflow_runtime_specs
 
+_WORKFLOW_COMMANDS = {
+    "cmd_workflow_list": "cmd_workflow_list",
+    "cmd_workflow_get": "cmd_workflow_get",
+    "cmd_workflow_artifacts": "cmd_workflow_artifacts",
+    "cmd_workflow_cancel": "cmd_workflow_cancel",
+    "cmd_workflow_reindex": "cmd_workflow_reindex",
+    "cmd_workflow_runtime_status": "cmd_workflow_runtime_status",
+    "cmd_workflow_journal": "cmd_workflow_journal",
+    "cmd_workflow_telemetry": "cmd_workflow_telemetry",
+    "cmd_workflow_create_reaction_ts_search": "cmd_workflow_create_reaction_ts_search",
+    "cmd_workflow_create_conformer_screening": "cmd_workflow_create_conformer_screening",
+    "cmd_workflow_advance": "cmd_workflow_advance",
+    "cmd_workflow_worker": "cmd_workflow_worker",
+    "cmd_workflow_submit_reaction_ts_search": "cmd_workflow_submit_reaction_ts_search",
+}
 
-def _commands() -> Any:
-    from chemstack.flow import cli as commands
 
-    return commands
+def _workflow_command(func_name: str) -> Callable[..., object]:
+    return getattr(cli_workflow, _WORKFLOW_COMMANDS[func_name])
 
 
 def _add_json_argument(parser: argparse.ArgumentParser) -> None:
@@ -50,7 +65,6 @@ def _register_workflow_parser_specs(
     workflow_subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
     specs: tuple[_WorkflowParserSpec, ...],
 ) -> None:
-    commands = _commands()
     for spec in specs:
         parser = workflow_subparsers.add_parser(spec.name, help=spec.help)
         if spec.target_help:
@@ -66,13 +80,12 @@ def _register_workflow_parser_specs(
         _add_argument_specs(parser, spec.arguments)
         if spec.json:
             _add_json_argument(parser)
-        parser.set_defaults(func=getattr(commands, spec.func_name))
+        parser.set_defaults(func=_workflow_command(spec.func_name))
 
 
 def _register_run_dir_parser(
     subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
 ) -> None:
-    commands = _commands()
     run_dir_parser = subparsers.add_parser(
         "run-dir",
         help=(
@@ -107,13 +120,12 @@ def _register_run_dir_parser(
         help="Allow restarting an existing workflow workspace outside failed status",
     )
     _add_json_argument(run_dir_parser)
-    run_dir_parser.set_defaults(func=commands.cmd_run_dir)
+    run_dir_parser.set_defaults(func=cli_run_dir.cmd_run_dir)
 
 
 def _register_activity_parsers(
     subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
 ) -> None:
-    commands = _commands()
     activity_list_parser = subparsers.add_parser(
         "list", help="List workflows and standalone engine activities together."
     )
@@ -126,7 +138,7 @@ def _register_activity_parsers(
     )
     _add_chemstack_config_argument(activity_list_parser)
     _add_json_argument(activity_list_parser)
-    activity_list_parser.set_defaults(func=commands.cmd_activity_list)
+    activity_list_parser.set_defaults(func=cli_activity.cmd_activity_list)
 
     activity_cancel_parser = subparsers.add_parser(
         "cancel", help="Cancel a workflow or standalone engine activity."
@@ -137,16 +149,15 @@ def _register_activity_parsers(
     _add_workflow_root_argument(activity_cancel_parser)
     _add_chemstack_config_argument(activity_cancel_parser)
     _add_json_argument(activity_cancel_parser)
-    activity_cancel_parser.set_defaults(func=commands.cmd_activity_cancel)
+    activity_cancel_parser.set_defaults(func=cli_activity.cmd_activity_cancel)
 
     bot_parser = subparsers.add_parser("bot", help="Run the ChemStack flow Telegram bot.")
-    bot_parser.set_defaults(func=commands.cmd_bot)
+    bot_parser.set_defaults(func=cli_workflow.cmd_bot)
 
 
 def _register_engine_inspect_parsers(
     subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
 ) -> None:
-    commands = _commands()
     xtb_parser = subparsers.add_parser("xtb", help="Inspect and adapt xTB artifacts.")
     xtb_subparsers = xtb_parser.add_subparsers(dest="xtb_command", required=True)
 
@@ -158,7 +169,7 @@ def _register_engine_inspect_parsers(
         "--xtb-index-root", required=True, help="xTB index root, usually allowed_root"
     )
     _add_json_argument(inspect_parser)
-    inspect_parser.set_defaults(func=commands.cmd_xtb_inspect)
+    inspect_parser.set_defaults(func=cli_inspect.cmd_xtb_inspect)
 
     candidates_parser = xtb_subparsers.add_parser(
         "candidates", help="Select downstream-ready xTB candidate inputs."
@@ -182,7 +193,7 @@ def _register_engine_inspect_parsers(
         help="Consider non-selected candidate_details when building downstream inputs",
     )
     _add_json_argument(candidates_parser)
-    candidates_parser.set_defaults(func=commands.cmd_xtb_candidates)
+    candidates_parser.set_defaults(func=cli_inspect.cmd_xtb_candidates)
 
     crest_parser = subparsers.add_parser("crest", help="Inspect CREST artifacts.")
     crest_subparsers = crest_parser.add_subparsers(dest="crest_command", required=True)
@@ -194,19 +205,13 @@ def _register_engine_inspect_parsers(
         "--crest-index-root", required=True, help="CREST index root, usually allowed_root"
     )
     _add_json_argument(crest_inspect_parser)
-    crest_inspect_parser.set_defaults(func=commands.cmd_crest_inspect)
+    crest_inspect_parser.set_defaults(func=cli_inspect.cmd_crest_inspect)
 
 
 def _register_workflow_registry_parsers(
     workflow_subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
 ) -> None:
     _register_workflow_parser_specs(workflow_subparsers, _workflow_registry_specs())
-
-
-def _register_workflow_planning_parsers(
-    workflow_subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
-) -> None:
-    _register_workflow_parser_specs(workflow_subparsers, _workflow_planning_specs())
 
 
 def _register_workflow_creation_parsers(
@@ -224,10 +229,9 @@ def _register_workflow_runtime_parsers(
 def _register_workflow_parsers(
     subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
 ) -> None:
-    workflow_parser = subparsers.add_parser("workflow", help="Build chemistry workflow plans.")
+    workflow_parser = subparsers.add_parser("workflow", help="Manage chemistry workflows.")
     workflow_subparsers = workflow_parser.add_subparsers(dest="workflow_command", required=True)
     _register_workflow_registry_parsers(workflow_subparsers)
-    _register_workflow_planning_parsers(workflow_subparsers)
     _register_workflow_creation_parsers(workflow_subparsers)
     _register_workflow_runtime_parsers(workflow_subparsers)
 

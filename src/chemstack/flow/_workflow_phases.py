@@ -12,6 +12,10 @@ WORKFLOW_PHASE_FINISHED_EVENT = "workflow_phase_finished"
 SUPPRESSED_STAGE_NOTIFICATION_ENGINES = frozenset({"crest", "xtb", "orca"})
 TERMINAL_STAGE_STATUSES = STAGE_TERMINAL_STATUSES
 FAILED_STAGE_STATUSES = FAILED_STATUSES
+BASE_PHASE_DEFINITIONS = ({"phase": "crest", "phase_label": "CREST", "engine": "crest"},)
+TEMPLATE_PHASE_DEFINITIONS = {
+    "reaction_ts_search": ({"phase": "xtb", "phase_label": "xTB", "engine": "xtb"},),
+}
 
 
 def _stage_row(stage: Any) -> dict[str, str]:
@@ -184,10 +188,76 @@ def phase_finished(stages: Iterable[Any], *, engine: str) -> bool:
 
 def _phase_definitions(template_name: str) -> tuple[dict[str, str], ...]:
     normalized = _normalize_text(template_name).lower()
-    definitions = [{"phase": "crest", "phase_label": "CREST", "engine": "crest"}]
-    if normalized == "reaction_ts_search":
-        definitions.append({"phase": "xtb", "phase_label": "xTB", "engine": "xtb"})
-    return tuple(definitions)
+    definitions = BASE_PHASE_DEFINITIONS + TEMPLATE_PHASE_DEFINITIONS.get(normalized, ())
+    return tuple(dict(definition) for definition in definitions)
+
+
+def _summary_stage_summaries(summary: dict[str, Any]) -> list[Any]:
+    return list(_coerce_mapping(summary).get("stage_summaries") or [])
+
+
+def _phase_finished_transition_ready(
+    *,
+    previous_phase: dict[str, Any],
+    current_phase: dict[str, Any],
+) -> bool:
+    return bool(
+        current_phase["stage_count"]
+        and current_phase["finished"]
+        and not previous_phase["finished"]
+    )
+
+
+def _phase_previous_status(previous_phase: dict[str, Any]) -> str:
+    if previous_phase["stage_count"] and not previous_phase["finished"]:
+        return "running"
+    return ""
+
+
+def _phase_finished_metadata(
+    *,
+    definition: dict[str, str],
+    current_phase: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "phase": definition["phase"],
+        "phase_label": definition["phase_label"],
+        "engine": definition["engine"],
+        "phase_outcome": _normalize_text(current_phase.get("outcome")),
+        "stage_count": int(current_phase.get("stage_count", 0) or 0),
+        "stage_ids": list(current_phase.get("stage_ids") or []),
+        "stage_statuses": list(current_phase.get("stage_statuses") or []),
+        "terminal_stage_ids": list(current_phase.get("terminal_stage_ids") or []),
+        "stage_status_counts": dict(current_phase.get("status_counts") or {}),
+        "task_status_counts": dict(current_phase.get("task_status_counts") or {}),
+        "reaction_handoff_status_counts": dict(
+            current_phase.get("reaction_handoff_status_counts") or {}
+        ),
+        "failure_reasons": list(current_phase.get("failure_reasons") or []),
+    }
+
+
+def _phase_finished_event_payload(
+    *,
+    definition: dict[str, str],
+    previous_phase: dict[str, Any],
+    current_phase: dict[str, Any],
+    workflow_id: str,
+    template_name: str,
+    worker_session_id: str,
+) -> dict[str, Any]:
+    return {
+        "event_type": WORKFLOW_PHASE_FINISHED_EVENT,
+        "workflow_id": _normalize_text(workflow_id),
+        "template_name": _normalize_text(template_name),
+        "status": _normalize_text(current_phase.get("outcome")),
+        "previous_status": _phase_previous_status(previous_phase),
+        "worker_session_id": _normalize_text(worker_session_id),
+        "metadata": _phase_finished_metadata(
+            definition=definition,
+            current_phase=current_phase,
+        ),
+    }
 
 
 def phase_transition_event_payloads(
@@ -198,46 +268,27 @@ def phase_transition_event_payloads(
     template_name: str,
     worker_session_id: str,
 ) -> list[dict[str, Any]]:
-    previous_stages = list(_coerce_mapping(previous_summary).get("stage_summaries") or [])
-    current_stages = list(_coerce_mapping(current_summary).get("stage_summaries") or [])
+    previous_stages = _summary_stage_summaries(previous_summary)
+    current_stages = _summary_stage_summaries(current_summary)
     event_payloads: list[dict[str, Any]] = []
 
     for definition in _phase_definitions(template_name):
         previous_phase = phase_snapshot(previous_stages, engine=definition["engine"])
         current_phase = phase_snapshot(current_stages, engine=definition["engine"])
-        if (
-            not current_phase["stage_count"]
-            or not current_phase["finished"]
-            or previous_phase["finished"]
+        if not _phase_finished_transition_ready(
+            previous_phase=previous_phase,
+            current_phase=current_phase,
         ):
             continue
         event_payloads.append(
-            {
-                "event_type": WORKFLOW_PHASE_FINISHED_EVENT,
-                "workflow_id": _normalize_text(workflow_id),
-                "template_name": _normalize_text(template_name),
-                "status": _normalize_text(current_phase.get("outcome")),
-                "previous_status": "running"
-                if previous_phase["stage_count"] and not previous_phase["finished"]
-                else "",
-                "worker_session_id": _normalize_text(worker_session_id),
-                "metadata": {
-                    "phase": definition["phase"],
-                    "phase_label": definition["phase_label"],
-                    "engine": definition["engine"],
-                    "phase_outcome": _normalize_text(current_phase.get("outcome")),
-                    "stage_count": int(current_phase.get("stage_count", 0) or 0),
-                    "stage_ids": list(current_phase.get("stage_ids") or []),
-                    "stage_statuses": list(current_phase.get("stage_statuses") or []),
-                    "terminal_stage_ids": list(current_phase.get("terminal_stage_ids") or []),
-                    "stage_status_counts": dict(current_phase.get("status_counts") or {}),
-                    "task_status_counts": dict(current_phase.get("task_status_counts") or {}),
-                    "reaction_handoff_status_counts": dict(
-                        current_phase.get("reaction_handoff_status_counts") or {}
-                    ),
-                    "failure_reasons": list(current_phase.get("failure_reasons") or []),
-                },
-            }
+            _phase_finished_event_payload(
+                definition=definition,
+                previous_phase=previous_phase,
+                current_phase=current_phase,
+                workflow_id=workflow_id,
+                template_name=template_name,
+                worker_session_id=worker_session_id,
+            )
         )
     return event_payloads
 

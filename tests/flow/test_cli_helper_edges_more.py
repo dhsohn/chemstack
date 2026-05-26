@@ -7,7 +7,8 @@ from typing import Any
 
 import pytest
 
-from chemstack.flow import cli
+from chemstack import cli_common
+from chemstack.flow import cli_activity
 from chemstack.flow import cli_run_dir as run_dir_cli
 
 
@@ -18,10 +19,10 @@ def test_cli_path_and_manifest_helper_edges(
     existing_file = tmp_path / "existing.xyz"
     existing_file.write_text("x", encoding="utf-8")
 
-    assert (cli._project_root() / "chemstack").is_dir()
-    assert cli._resolve_existing_path("   ") is None
-    assert cli._resolve_existing_path(str(existing_file)) == existing_file.resolve()
-    assert cli._resolve_existing_path(str(tmp_path / "missing.xyz")) is None
+    assert (cli_common._project_root() / "chemstack").is_dir()
+    assert cli_common._resolve_existing_path("   ") is None
+    assert cli_common._resolve_existing_path(str(existing_file)) == existing_file.resolve()
+    assert cli_common._resolve_existing_path(str(tmp_path / "missing.xyz")) is None
 
     class _ExplodingPath:
         def __init__(self, raw: str) -> None:
@@ -33,14 +34,13 @@ def test_cli_path_and_manifest_helper_edges(
         def resolve(self) -> Path:
             raise OSError(self.raw)
 
-    monkeypatch.setattr(cli, "Path", _ExplodingPath)
-    assert cli._resolve_existing_path("boom") is None
+    assert cli_common._resolve_existing_path("boom", deps=SimpleNamespace(Path=_ExplodingPath)) is None
 
 
 def test_cli_option_and_workflow_root_helpers(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    explicit_workflow_root = cli._discover_workflow_root("~/workflow-root")
+    explicit_workflow_root = cli_common._discover_workflow_root("~/workflow-root")
     assert explicit_workflow_root is not None
     assert explicit_workflow_root.endswith("workflow-root")
 
@@ -51,17 +51,17 @@ def test_cli_option_and_workflow_root_helpers(
         captured_root = repo_root
         return Path("/tmp/chemstack.yaml")
 
-    monkeypatch.setattr(cli, "default_config_path_from_repo_root", fake_default_config_path)
-    monkeypatch.setattr(cli, "shared_workflow_root_from_config", lambda path: f"resolved:{path}")
-    assert cli._discover_workflow_root(None) == "resolved:/tmp/chemstack.yaml"
-    assert captured_root == cli._project_root()
+    monkeypatch.setattr(cli_common, "default_config_path_from_repo_root", fake_default_config_path)
+    monkeypatch.setattr(cli_common, "shared_workflow_root_from_config", lambda path: f"resolved:{path}")
+    assert cli_common._discover_configured_workflow_root(None) == "resolved:/tmp/chemstack.yaml"
+    assert captured_root == cli_common._project_root()
 
     with pytest.raises(ValueError, match="workflow_type must be one of"):
-        cli._normalize_workflow_type("unknown")
+        cli_common._normalize_workflow_type("unknown")
 
-    assert cli._resolve_text_option_with_section("  cli-value  ", {}, "key", {}, "section_key", "fallback") == "cli-value"
-    assert cli._resolve_int_option(7, {}, "key", 1) == 7
-    assert cli._resolve_int_option_with_section(9, {}, "key", {}, "section_key", 1) == 9
+    assert run_dir_cli._resolve_text_option_with_section("  cli-value  ", {}, "key", {}, "section_key", "fallback") == "cli-value"
+    assert run_dir_cli._resolve_int_option(7, {}, "key", 1) == 7
+    assert run_dir_cli._resolve_int_option_with_section(9, {}, "key", {}, "section_key", 1) == 9
 
 
 def test_cli_shared_config_and_worker_root_defaults(
@@ -82,15 +82,15 @@ def test_cli_shared_config_and_worker_root_defaults(
         encoding="utf-8",
     )
 
-    monkeypatch.setattr(cli, "default_config_path_from_repo_root", lambda repo_root: str(config_path))
+    monkeypatch.setattr(cli_common, "default_config_path_from_repo_root", lambda repo_root: str(config_path))
     args = SimpleNamespace(chemstack_config=None, orca_auto_config=None, workflow_root=None)
 
-    assert cli._shared_chemstack_config(args) == str(config_path.resolve())
-    assert cli._workflow_root_from_args(args, config_path=str(config_path)) == str(workflow_root.resolve())
+    assert cli_common._shared_chemstack_config(args) == str(config_path.resolve())
+    assert cli_common._workflow_root_from_args(args, config_path=str(config_path)) == str(workflow_root.resolve())
 
     explicit_config = tmp_path / "explicit.yaml"
     explicit_args = SimpleNamespace(chemstack_config=str(explicit_config), orca_auto_config=None)
-    assert cli._shared_chemstack_config(explicit_args) == str(explicit_config.resolve())
+    assert cli_common._shared_chemstack_config(explicit_args) == str(explicit_config.resolve())
 
 
 def test_cli_run_dir_manifest_and_path_resolution_edges(
@@ -100,23 +100,23 @@ def test_cli_run_dir_manifest_and_path_resolution_edges(
     workflow_dir = tmp_path / "workflow_dir"
     workflow_dir.mkdir()
 
-    monkeypatch.setattr(cli, "WORKFLOW_MANIFEST_FILENAMES", ("flow.json",))
+    monkeypatch.setattr(run_dir_cli, "WORKFLOW_MANIFEST_FILENAMES", ("flow.json",))
 
     (workflow_dir / "flow.json").write_text('{"workflow_type": "reaction_ts_search"}', encoding="utf-8")
-    assert cli._load_run_dir_manifest(workflow_dir) == {"workflow_type": "reaction_ts_search"}
+    assert run_dir_cli._load_run_dir_manifest(workflow_dir) == {"workflow_type": "reaction_ts_search"}
 
     (workflow_dir / "flow.json").write_text("null", encoding="utf-8")
-    assert cli._load_run_dir_manifest(workflow_dir) == {}
+    assert run_dir_cli._load_run_dir_manifest(workflow_dir) == {}
 
     (workflow_dir / "flow.json").write_text("[]", encoding="utf-8")
     with pytest.raises(ValueError, match="Run directory manifest must contain a mapping"):
-        cli._load_run_dir_manifest(workflow_dir)
+        run_dir_cli._load_run_dir_manifest(workflow_dir)
 
-    assert cli._resolve_manifest_file_value(workflow_dir, None) == ""
-    assert cli._resolve_manifest_file_value(workflow_dir, "inputs/input.xyz") == str(
+    assert run_dir_cli._resolve_manifest_file_value(workflow_dir, None) == ""
+    assert run_dir_cli._resolve_manifest_file_value(workflow_dir, "inputs/input.xyz") == str(
         (workflow_dir / "inputs" / "input.xyz").resolve()
     )
-    assert cli._resolve_run_dir_path(
+    assert run_dir_cli._resolve_run_dir_path(
         workflow_dir,
         explicit=None,
         manifest={"input_xyz": "inputs/input.xyz"},
@@ -221,7 +221,7 @@ def test_unique_run_dir_workflow_id_adds_suffix_for_existing_workspace(tmp_path:
     (workflow_root / "wf_reaction_ts_reaction_job").mkdir()
 
     assert (
-        cli._unique_run_dir_workflow_id(
+        run_dir_cli._unique_run_dir_workflow_id(
             workflow_dir,
             workflow_root=workflow_root,
             workflow_type="reaction_ts_search",
@@ -254,13 +254,13 @@ def test_cmd_run_dir_reports_invalid_directory_and_unknown_layout(
         multiplicity=None,
         json=False,
     )
-    assert cli.cmd_run_dir(invalid_args) == 1
+    assert run_dir_cli.cmd_run_dir(invalid_args) == 1
     assert "workflow_dir does not exist or is not a directory" in capsys.readouterr().out
 
     empty_workflow_dir = tmp_path / "empty_workflow"
     empty_workflow_dir.mkdir()
     unknown_args = SimpleNamespace(**{**invalid_args.__dict__, "workflow_dir": str(empty_workflow_dir)})
-    assert cli.cmd_run_dir(unknown_args) == 1
+    assert run_dir_cli.cmd_run_dir(unknown_args) == 1
     assert "workflow run-dir requires flow.yaml" in capsys.readouterr().out
 
 
@@ -290,7 +290,7 @@ def test_cmd_run_dir_for_conformer_uses_nested_crest_section(
     )
     captured: dict[str, Any] = {}
 
-    monkeypatch.setattr(cli, "_discover_workflow_root", lambda explicit: "/tmp/workflow_root")
+    monkeypatch.setattr(cli_common, "_discover_workflow_root", lambda explicit: "/tmp/workflow_root")
 
     def fake_create_conformer_screening_workflow(**kwargs: Any) -> dict[str, Any]:
         captured.update(kwargs)
@@ -300,7 +300,7 @@ def test_cmd_run_dir_for_conformer_uses_nested_crest_section(
             "stages": [{}],
         }
 
-    monkeypatch.setattr(cli, "create_conformer_screening_workflow", fake_create_conformer_screening_workflow)
+    monkeypatch.setattr(run_dir_cli, "create_conformer_screening_workflow", fake_create_conformer_screening_workflow)
 
     args = SimpleNamespace(
         workflow_dir=str(workflow_dir),
@@ -322,7 +322,7 @@ def test_cmd_run_dir_for_conformer_uses_nested_crest_section(
         json=False,
     )
 
-    assert cli.cmd_run_dir(args) == 0
+    assert run_dir_cli.cmd_run_dir(args) == 0
     assert "workflow_id: wf_conformer_nested" in capsys.readouterr().out
     assert captured["crest_mode"] == "nci"
     assert captured["crest_job_manifest"] == {"mode": "nci", "energy_window": 6.0}
@@ -335,7 +335,7 @@ def test_cmd_activity_list_json_and_cancel_text_output(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     monkeypatch.setattr(
-        cli,
+        cli_activity,
         "list_activities",
         lambda **kwargs: {
             "count": 1,
@@ -350,7 +350,7 @@ def test_cmd_activity_list_json_and_cancel_text_output(
             ],
         },
     )
-    assert cli.cmd_activity_list(
+    assert cli_activity.cmd_activity_list(
         SimpleNamespace(
             workflow_root="/tmp/wf",
             limit=0,
@@ -364,7 +364,7 @@ def test_cmd_activity_list_json_and_cancel_text_output(
     assert json.loads(capsys.readouterr().out)["count"] == 1
 
     monkeypatch.setattr(
-        cli,
+        cli_activity,
         "cancel_activity",
         lambda **kwargs: {
             "activity_id": "xtb-q-1",
@@ -375,7 +375,7 @@ def test_cmd_activity_list_json_and_cancel_text_output(
             "cancel_target": "xtb-q-1",
         },
     )
-    assert cli.cmd_activity_cancel(
+    assert cli_activity.cmd_activity_cancel(
         SimpleNamespace(
             target="xtb-q-1",
             workflow_root=None,

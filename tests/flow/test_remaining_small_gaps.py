@@ -7,14 +7,13 @@ from types import SimpleNamespace
 
 import pytest
 
-from chemstack.flow import cli, registry, xyz_utils
+from chemstack.flow import cli_workflow, registry, xyz_utils
 from chemstack.flow.adapters import crest as crest_adapter
 from chemstack.flow.adapters import orca as orca_adapter
 from chemstack.flow.adapters import xtb as xtb_adapter
-from chemstack.flow.contracts import CrestArtifactContract, WorkflowStageInput, orca as orca_contracts
+from chemstack.flow.contracts import orca as orca_contracts
 from chemstack.flow.contracts.xtb import XtbArtifactContract, XtbCandidateArtifact, XtbDownstreamPolicy
 from chemstack.flow.submitters import common
-from chemstack.flow.workflows import conformer_screening
 
 
 def _write_json(path: Path, payload: object) -> None:
@@ -207,40 +206,40 @@ def test_cli_json_paths_worker_sleep_and_common_workflow_id_helpers(
     tmp_path: Path,
 ) -> None:
     payload = {"workflow_id": "wf1", "status": "running", "stages": [{}]}
-    monkeypatch.setattr(cli, "advance_materialized_workflow", lambda **kwargs: payload)
-    assert cli.cmd_workflow_advance(SimpleNamespace(target="wf1", workflow_root="/tmp/wf", json=True, no_submit=False)) == 0
+    monkeypatch.setattr(cli_workflow, "advance_workflow", lambda **kwargs: payload)
+    assert cli_workflow.cmd_workflow_advance(SimpleNamespace(target="wf1", workflow_root="/tmp/wf", json=True, no_submit=False)) == 0
     assert json.loads(capsys.readouterr().out)["workflow_id"] == "wf1"
 
-    monkeypatch.setattr(cli, "get_workflow_runtime_status", lambda **kwargs: {"worker_state": {"status": "running"}})
-    assert cli.cmd_workflow_runtime_status(SimpleNamespace(workflow_root="/tmp/wf", json=True)) == 0
+    monkeypatch.setattr(cli_workflow, "get_workflow_runtime_status", lambda **kwargs: {"worker_state": {"status": "running"}})
+    assert cli_workflow.cmd_workflow_runtime_status(SimpleNamespace(workflow_root="/tmp/wf", json=True)) == 0
     assert json.loads(capsys.readouterr().out)["worker_state"]["status"] == "running"
 
-    monkeypatch.setattr(cli, "get_workflow_journal", lambda **kwargs: {"events": []})
-    assert cli.cmd_workflow_journal(SimpleNamespace(workflow_root="/tmp/wf", limit=1, json=True)) == 0
+    monkeypatch.setattr(cli_workflow, "get_workflow_journal", lambda **kwargs: {"events": []})
+    assert cli_workflow.cmd_workflow_journal(SimpleNamespace(workflow_root="/tmp/wf", limit=1, json=True)) == 0
     assert json.loads(capsys.readouterr().out)["events"] == []
 
-    monkeypatch.setattr(cli, "submit_reaction_ts_search_workflow", lambda **kwargs: {"workflow_id": "wf_submit"})
-    assert cli.cmd_workflow_submit_reaction_ts_search(SimpleNamespace(target="wf1", workflow_root="/tmp/wf", orca_auto_config="/tmp/cfg", orca_auto_executable="orca_auto", orca_auto_repo_root=None, resubmit=False, json=True)) == 0
+    monkeypatch.setattr(cli_workflow, "submit_reaction_ts_search_workflow", lambda **kwargs: {"workflow_id": "wf_submit"})
+    assert cli_workflow.cmd_workflow_submit_reaction_ts_search(SimpleNamespace(target="wf1", workflow_root="/tmp/wf", orca_auto_config="/tmp/cfg", orca_auto_executable="orca_auto", orca_auto_repo_root=None, resubmit=False, json=True)) == 0
     assert json.loads(capsys.readouterr().out)["workflow_id"] == "wf_submit"
 
-    monkeypatch.setattr(cli, "list_workflows", lambda **kwargs: {"count": 0, "workflows": []})
-    assert cli.cmd_workflow_list(SimpleNamespace(workflow_root="/tmp/wf", limit=0, refresh=False, json=True)) == 0
+    monkeypatch.setattr(cli_workflow, "list_workflows", lambda **kwargs: {"count": 0, "workflows": []})
+    assert cli_workflow.cmd_workflow_list(SimpleNamespace(workflow_root="/tmp/wf", limit=0, refresh=False, json=True)) == 0
     assert json.loads(capsys.readouterr().out)["count"] == 0
 
-    monkeypatch.setattr(cli, "get_workflow", lambda **kwargs: {"summary": {"workflow_id": "wf_get"}})
-    assert cli.cmd_workflow_get(SimpleNamespace(target="wf_get", workflow_root="/tmp/wf", json=True)) == 0
+    monkeypatch.setattr(cli_workflow, "get_workflow", lambda **kwargs: {"summary": {"workflow_id": "wf_get"}})
+    assert cli_workflow.cmd_workflow_get(SimpleNamespace(target="wf_get", workflow_root="/tmp/wf", json=True)) == 0
     assert json.loads(capsys.readouterr().out)["summary"]["workflow_id"] == "wf_get"
 
-    monkeypatch.setattr(cli, "get_workflow_artifacts", lambda **kwargs: {"artifact_count": 0})
-    assert cli.cmd_workflow_artifacts(SimpleNamespace(target="wf_art", workflow_root="/tmp/wf", json=True)) == 0
+    monkeypatch.setattr(cli_workflow, "get_workflow_artifacts", lambda **kwargs: {"artifact_count": 0})
+    assert cli_workflow.cmd_workflow_artifacts(SimpleNamespace(target="wf_art", workflow_root="/tmp/wf", json=True)) == 0
     assert json.loads(capsys.readouterr().out)["artifact_count"] == 0
 
-    monkeypatch.setattr(cli, "cancel_workflow", lambda **kwargs: {"workflow_id": "wf_cancel"})
-    assert cli.cmd_workflow_cancel(SimpleNamespace(target="wf_cancel", workflow_root="/tmp/wf", crest_auto_config=None, crest_auto_executable="crest_auto", crest_auto_repo_root=None, xtb_auto_config=None, xtb_auto_executable="xtb_auto", xtb_auto_repo_root=None, orca_auto_config=None, orca_auto_executable="orca_auto", orca_auto_repo_root=None, json=True)) == 0
+    monkeypatch.setattr(cli_workflow, "cancel_workflow", lambda **kwargs: {"workflow_id": "wf_cancel"})
+    assert cli_workflow.cmd_workflow_cancel(SimpleNamespace(target="wf_cancel", workflow_root="/tmp/wf", crest_auto_config=None, crest_auto_executable="crest_auto", crest_auto_repo_root=None, xtb_auto_config=None, xtb_auto_executable="xtb_auto", xtb_auto_repo_root=None, orca_auto_config=None, orca_auto_executable="orca_auto", orca_auto_repo_root=None, json=True)) == 0
     assert json.loads(capsys.readouterr().out)["workflow_id"] == "wf_cancel"
 
-    monkeypatch.setattr(cli, "reindex_workflow_registry", lambda workflow_root: [])
-    assert cli.cmd_workflow_reindex(SimpleNamespace(workflow_root="/tmp/wf", json=True)) == 0
+    monkeypatch.setattr(cli_workflow, "reindex_workflow_registry", lambda workflow_root: [])
+    assert cli_workflow.cmd_workflow_reindex(SimpleNamespace(workflow_root="/tmp/wf", json=True)) == 0
     assert json.loads(capsys.readouterr().out)["count"] == 0
 
     slept: list[float] = []
@@ -249,15 +248,15 @@ def test_cli_json_paths_worker_sleep_and_common_workflow_id_helpers(
     def _lock(path: object, timeout_seconds: float = 0.0):
         yield
 
-    monkeypatch.setattr(cli, "file_lock", _lock)
-    monkeypatch.setattr(cli, "workflow_worker_lock_path", lambda workflow_root: Path("/tmp/lock"))
-    monkeypatch.setattr(cli, "write_workflow_worker_state", lambda *args, **kwargs: None)
-    monkeypatch.setattr(cli, "append_workflow_journal_event", lambda *args, **kwargs: None)
-    monkeypatch.setattr(cli, "advance_workflow_registry_once", lambda **kwargs: {"cycle_started_at": "t", "worker_session_id": "s", "discovered_count": 0, "advanced_count": 0, "skipped_count": 0, "failed_count": 0, "workflow_results": []})
-    monkeypatch.setattr(cli, "_emit_worker_payload", lambda payload, json_mode, single_cycle: None)
-    monkeypatch.setattr(cli, "now_utc_iso", lambda: "2026-04-19T00:00:00+00:00")
-    monkeypatch.setattr(cli.time, "sleep", lambda seconds: slept.append(seconds))
-    assert cli.cmd_workflow_worker(
+    monkeypatch.setattr(cli_workflow, "file_lock", _lock)
+    monkeypatch.setattr(cli_workflow, "workflow_worker_lock_path", lambda workflow_root: Path("/tmp/lock"))
+    monkeypatch.setattr(cli_workflow, "write_workflow_worker_state", lambda *args, **kwargs: None)
+    monkeypatch.setattr(cli_workflow, "append_workflow_journal_event", lambda *args, **kwargs: None)
+    monkeypatch.setattr(cli_workflow, "advance_workflow_registry_once", lambda **kwargs: {"cycle_started_at": "t", "worker_session_id": "s", "discovered_count": 0, "advanced_count": 0, "skipped_count": 0, "failed_count": 0, "workflow_results": []})
+    monkeypatch.setattr(cli_workflow, "_emit_worker_payload", lambda payload, json_mode, single_cycle: None)
+    monkeypatch.setattr(cli_workflow, "now_utc_iso", lambda: "2026-04-19T00:00:00+00:00")
+    monkeypatch.setattr(cli_workflow.time, "sleep", lambda seconds: slept.append(seconds))
+    assert cli_workflow.cmd_workflow_worker(
         SimpleNamespace(
             once=False,
             max_cycles=2,
@@ -284,22 +283,10 @@ def test_cli_json_paths_worker_sleep_and_common_workflow_id_helpers(
     ) == 0
     assert slept == [0.1]
 
-    monkeypatch.setattr(conformer_screening, "timestamped_token", lambda prefix: f"{prefix}_x")
-    assert conformer_screening._workflow_id(
-        CrestArtifactContract(
-            job_id="crest_job",
-            mode="nci",
-            status="done",
-            reason="ok",
-            job_dir="/tmp/job",
-            latest_known_path="/tmp/job",
-        )
-    ) == "wf_conformer_screening_x"
     assert orca_contracts._normalize_text(None) == "None"
 
 
-def test_conformer_screening_common_and_xyz_tail_branches(
-    monkeypatch: pytest.MonkeyPatch,
+def test_sibling_config_common_and_xyz_tail_branches(
     tmp_path: Path,
 ) -> None:
     cfg = tmp_path / "cfg.yaml"
@@ -308,36 +295,6 @@ def test_conformer_screening_common_and_xyz_tail_branches(
         common.sibling_allowed_root(str(cfg))
     with pytest.raises(ValueError, match="Missing runtime section"):
         common.sibling_runtime_paths(str(cfg))
-
-    monkeypatch.setattr(
-        conformer_screening,
-        "select_crest_downstream_inputs",
-        lambda contract, policy: (
-            WorkflowStageInput(
-                source_job_id="crest_job",
-                source_job_type="crest_nci",
-                reaction_key="mol_1",
-                selected_input_xyz="/tmp/conf_1.xyz",
-                rank=1,
-                kind="retained_conformer",
-                artifact_path="/tmp/conf_1.xyz",
-                selected=True,
-                metadata={},
-            ),
-        ),
-    )
-    contract = CrestArtifactContract(
-        job_id="crest_job",
-        mode="nci",
-        status="done",
-        reason="ok",
-        job_dir="/tmp/job",
-        latest_known_path="/tmp/job",
-        molecule_key="mol_1",
-    )
-    payload = conformer_screening.build_conformer_screening_plan(contract, workspace_root=None)
-    assert payload["stages"] == []
-    assert payload["metadata"]["workspace_dir"] == ""
 
     xyz_path = tmp_path / "trail.xyz"
     xyz_path.write_text("2\ncomment\nH 0 0 0\nH 0 0 0.7\n\n\n", encoding="utf-8")

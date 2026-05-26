@@ -12,7 +12,7 @@ import pytest
 
 from chemstack.core.config import TelegramConfig
 
-from chemstack.flow import cli
+from chemstack.flow import cli, cli_workflow
 from chemstack.flow import telegram_bot as bot
 
 
@@ -642,9 +642,9 @@ def test_cmd_bot_and_parser(monkeypatch) -> None:
     import chemstack.flow.telegram_bot as imported_bot
 
     monkeypatch.setattr(imported_bot, "run_bot", lambda: 7)
-    assert cli.cmd_bot(SimpleNamespace()) == 7
+    assert cli_workflow.cmd_bot(SimpleNamespace()) == 7
 
     parser = cli.build_parser()
     args = parser.parse_args(["bot"])
     assert args.command == "bot"
-    assert args.func is cli.cmd_bot
+    assert args.func is cli_workflow.cmd_bot

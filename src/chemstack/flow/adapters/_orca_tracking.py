@@ -27,11 +27,6 @@ def import_orca_auto_module_impl(module_name: str) -> Any | None:
         return None
 
 
-def orca_auto_tracking_module_impl() -> Any | None:
-    o = _orca_module()
-    return o._import_orca_auto_module("chemstack.orca.tracking")
-
-
 def orca_auto_job_locations_module_impl() -> Any | None:
     o = _orca_module()
     return o._import_orca_auto_module("chemstack.orca.job_locations")
@@ -45,8 +40,8 @@ def tracked_artifact_context_impl(
     o = _orca_module()
     if index_root is None:
         return None, None, {}, {}, {}
-    tracking_module = o._orca_auto_tracking_module()
-    if tracking_module is None:
+    job_locations_module = o._orca_auto_job_locations_module()
+    if job_locations_module is None:
         return None, None, {}, {}, {}
 
     for raw_target in targets:
@@ -54,7 +49,7 @@ def tracked_artifact_context_impl(
         if not target:
             continue
         try:
-            context = tracking_module.load_job_artifact_context(index_root, target)
+            context = job_locations_module.load_job_artifact_context(index_root, target)
         except Exception:
             continue
         job_dir = getattr(context, "job_dir", None)
@@ -82,12 +77,12 @@ def tracked_runtime_context_impl(
     o = _orca_module()
     if index_root is None:
         return None
-    tracking_module = o._orca_auto_tracking_module()
-    if tracking_module is None or not hasattr(tracking_module, "load_job_runtime_context"):
+    job_locations_module = o._orca_auto_job_locations_module()
+    if job_locations_module is None or not hasattr(job_locations_module, "load_job_runtime_context"):
         return None
 
     try:
-        context = tracking_module.load_job_runtime_context(
+        context = job_locations_module.load_job_runtime_context(
             index_root,
             target,
             organized_root=organized_root,
@@ -153,7 +148,7 @@ def _contract_payload_loader(module: Any | None) -> Any | None:
     return getattr(module, "load_orca_contract_payload", None) if module is not None else None
 
 
-def canonical_contract_payload_impl(
+def load_orca_contract_payload_impl(
     *,
     index_root: Path | None,
     organized_root: Path | None,
@@ -176,83 +171,11 @@ def canonical_contract_payload_impl(
     )
 
 
-def legacy_tracking_contract_payload_impl(
-    *,
-    index_root: Path | None,
-    organized_root: Path | None,
-    target: str,
-    queue_id: str,
-    run_id: str,
-    reaction_dir: str,
-) -> dict[str, Any] | None:
-    o = _orca_module()
-    if index_root is None:
-        return None
-    return _contract_payload_from_loader(
-        load_payload_fn=_contract_payload_loader(o._orca_auto_tracking_module()),
-        index_root=index_root,
-        organized_root=organized_root,
-        target=target,
-        queue_id=queue_id,
-        run_id=run_id,
-        reaction_dir=reaction_dir,
-    )
-
-
-def load_orca_contract_payload_impl(
-    *,
-    index_root: Path | None,
-    organized_root: Path | None,
-    target: str,
-    queue_id: str,
-    run_id: str,
-    reaction_dir: str,
-) -> dict[str, Any] | None:
-    return canonical_contract_payload_impl(
-        index_root=index_root,
-        organized_root=organized_root,
-        target=target,
-        queue_id=queue_id,
-        run_id=run_id,
-        reaction_dir=reaction_dir,
-    ) or legacy_tracking_contract_payload_impl(
-        index_root=index_root,
-        organized_root=organized_root,
-        target=target,
-        queue_id=queue_id,
-        run_id=run_id,
-        reaction_dir=reaction_dir,
-    )
-
-
-def tracked_contract_payload_impl(
-    *,
-    index_root: Path | None,
-    organized_root: Path | None,
-    target: str,
-    queue_id: str,
-    run_id: str,
-    reaction_dir: str,
-) -> dict[str, Any] | None:
-    return load_orca_contract_payload_impl(
-        index_root=index_root,
-        organized_root=organized_root,
-        target=target,
-        queue_id=queue_id,
-        run_id=run_id,
-        reaction_dir=reaction_dir,
-    )
-
-
 __all__ = [
-    "canonical_contract_payload_impl",
     "import_orca_auto_module_impl",
-    "legacy_tracking_contract_payload_impl",
     "load_orca_contract_payload_impl",
     "orca_auto_job_locations_module_impl",
-    "orca_auto_tracking_module_impl",
     "sibling_orca_auto_repo_root_impl",
     "tracked_artifact_context_impl",
-    "tracked_contract_payload_impl",
     "tracked_runtime_context_impl",
 ]

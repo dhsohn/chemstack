@@ -8,6 +8,7 @@ import pytest
 
 
 from chemstack.flow.contracts import WorkflowStageInput
+from chemstack.flow._orchestration_deps import orchestration_deps
 from chemstack.flow.orchestration import (
     _append_unique_artifact,
     _clear_reaction_xtb_handoff_error_if_recovering,
@@ -98,7 +99,7 @@ def test_latest_child_stage_summary_and_terminal_result_extract_relevant_fields(
     assert _downstream_terminal_result({}, {"status": "running", "stage_summaries": []}) == {}
 
 
-def test_submission_target_and_config_roots_follow_precedence(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_submission_target_and_config_roots_follow_precedence() -> None:
     stage = {
         "metadata": {"queue_id": "q_meta"},
         "task": {"submission_result": {"parsed_stdout": {"job_id": "job_stdout", "queue_id": "q_stdout"}}},
@@ -107,18 +108,35 @@ def test_submission_target_and_config_roots_follow_precedence(monkeypatch: pytes
     assert _submission_target({"task": {"submission_result": {"parsed_stdout": {"job_id": "job_stdout"}}}}) == "job_stdout"
     assert _submission_target({}) == ""
 
-    monkeypatch.setattr(orchestration, "sibling_runtime_paths", lambda path: {"allowed_root": Path("/tmp/allowed"), "organized_root": Path("/tmp/organized")})
-    assert _load_config_root("/tmp/config.yaml") == Path("/tmp/allowed")
-    assert _load_config_organized_root("/tmp/config.yaml") == Path("/tmp/organized")
-    monkeypatch.setattr(orchestration, "sibling_runtime_paths", lambda path: {"allowed_root": Path("/tmp/allowed")})
-    assert _load_config_organized_root("/tmp/config.yaml") == Path("/tmp/allowed")
-    monkeypatch.setattr(orchestration, "sibling_runtime_paths", lambda path: (_ for _ in ()).throw(ValueError("bad")))
-    assert _load_config_root("/tmp/config.yaml") is None
-    assert _load_config_organized_root("/tmp/config.yaml") is None
+    deps = orchestration_deps(
+        overrides={
+            "sibling_runtime_paths": lambda path, **kwargs: {
+                "allowed_root": Path("/tmp/allowed"),
+                "organized_root": Path("/tmp/organized"),
+            }
+        }
+    )
+    assert _load_config_root("/tmp/config.yaml", deps=deps) == Path("/tmp/allowed")
+    assert _load_config_organized_root("/tmp/config.yaml", deps=deps) == Path("/tmp/organized")
+
+    deps = orchestration_deps(
+        overrides={"sibling_runtime_paths": lambda path, **kwargs: {"allowed_root": Path("/tmp/allowed")}}
+    )
+    assert _load_config_organized_root("/tmp/config.yaml", deps=deps) == Path("/tmp/allowed")
+
+    deps = orchestration_deps(
+        overrides={
+            "sibling_runtime_paths": lambda path, **kwargs: (_ for _ in ()).throw(
+                ValueError("bad")
+            )
+        }
+    )
+    assert _load_config_root("/tmp/config.yaml", deps=deps) is None
+    assert _load_config_organized_root("/tmp/config.yaml", deps=deps) is None
     assert _load_config_root(None) is None
 
 
-def test_xtb_handoff_status_and_ts_guess_error_cover_ready_and_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_xtb_handoff_status_and_ts_guess_error_cover_ready_and_failure() -> None:
     ready_input = WorkflowStageInput(
         source_job_id="xtb_job",
         source_job_type="path_search",
@@ -131,8 +149,12 @@ def test_xtb_handoff_status_and_ts_guess_error_cover_ready_and_failure(monkeypat
     )
     contract = SimpleNamespace(candidate_details=())
 
-    monkeypatch.setattr(orchestration, "select_xtb_downstream_inputs", lambda contract, policy, require_geometry: (ready_input,))
-    ready = _xtb_handoff_status(contract)
+    deps = orchestration_deps(
+        overrides={
+            "select_xtb_downstream_inputs": lambda contract, policy, require_geometry: (ready_input,)
+        }
+    )
+    ready = _xtb_handoff_status(contract, deps=deps)
     assert ready == {
         "status": "ready",
         "reason": "",
@@ -141,8 +163,10 @@ def test_xtb_handoff_status_and_ts_guess_error_cover_ready_and_failure(monkeypat
     }
 
     missing_contract = SimpleNamespace(candidate_details=())
-    monkeypatch.setattr(orchestration, "select_xtb_downstream_inputs", lambda contract, policy, require_geometry: ())
-    assert _xtb_handoff_status(missing_contract) == {
+    deps = orchestration_deps(
+        overrides={"select_xtb_downstream_inputs": lambda contract, policy, require_geometry: ()}
+    )
+    assert _xtb_handoff_status(missing_contract, deps=deps) == {
         "status": "failed",
         "reason": "xtb_ts_guess_missing",
         "message": "xTB path_search did not produce a ts_guess candidate (xtbpath_ts.xyz); refusing ORCA handoff.",
@@ -150,8 +174,15 @@ def test_xtb_handoff_status_and_ts_guess_error_cover_ready_and_failure(monkeypat
     }
 
     invalid_contract = SimpleNamespace(candidate_details=(SimpleNamespace(kind="ts_guess", path="/tmp/xtbpath_ts.xyz", rank=1),))
-    monkeypatch.setattr(orchestration, "choose_orca_geometry_frame", lambda path, candidate_kind: ("", {"selection_reason": "ts_guess_requires_single_frame"}))
-    assert _reaction_ts_guess_error(invalid_contract) == {
+    deps = orchestration_deps(
+        overrides={
+            "choose_orca_geometry_frame": lambda path, candidate_kind: (
+                "",
+                {"selection_reason": "ts_guess_requires_single_frame"},
+            )
+        }
+    )
+    assert _reaction_ts_guess_error(invalid_contract, deps=deps) == {
         "reason": "xtb_ts_guess_not_single_geometry",
         "message": "xTB produced xtbpath_ts.xyz but it is not a single-geometry TS guess; refusing ORCA handoff.",
     }
@@ -208,7 +239,7 @@ def test_clear_reaction_xtb_handoff_error_and_unique_artifact_helpers() -> None:
     ]
 
 
-def test_completed_role_and_contract_helpers_use_expected_targets(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_completed_role_and_contract_helpers_use_expected_targets() -> None:
     payload = {
         "stages": [
             {"status": "completed", "metadata": {"input_role": "reactant"}, "task": {"engine": "crest"}},
@@ -224,13 +255,20 @@ def test_completed_role_and_contract_helpers_use_expected_targets(monkeypatch: p
         crest_calls.append({"crest_index_root": crest_index_root, "target": target})
         return "crest_contract"
 
-    monkeypatch.setattr(orchestration, "_load_config_root", lambda path: Path("/tmp/crest_allowed"))
-    monkeypatch.setattr(orchestration, "load_crest_artifact_contract", fake_load_crest_artifact_contract)
     crest_stage = {
         "task": {"payload": {"job_dir": "/tmp/crest_job"}},
         "metadata": {"queue_id": "q_ignore"},
     }
-    assert _completed_crest_stage(crest_stage, crest_auto_config="/tmp/crest.yaml") == "crest_contract"
+    deps = orchestration_deps(
+        overrides={
+            "_load_config_root": lambda path, **kwargs: Path("/tmp/crest_allowed"),
+            "load_crest_artifact_contract": fake_load_crest_artifact_contract,
+        }
+    )
+    assert (
+        _completed_crest_stage(crest_stage, crest_auto_config="/tmp/crest.yaml", deps=deps)
+        == "crest_contract"
+    )
     assert crest_calls == [{"crest_index_root": Path("/tmp/crest_allowed"), "target": "/tmp/crest_job"}]
 
     orca_calls: list[dict[str, Any]] = []
@@ -239,9 +277,6 @@ def test_completed_role_and_contract_helpers_use_expected_targets(monkeypatch: p
         orca_calls.append(kwargs)
         return "orca_contract"
 
-    monkeypatch.setattr(orchestration, "_load_config_root", lambda path: Path("/tmp/orca_allowed"))
-    monkeypatch.setattr(orchestration, "_load_config_organized_root", lambda path: Path("/tmp/orca_organized"))
-    monkeypatch.setattr(orchestration, "load_orca_artifact_contract", fake_load_orca_artifact_contract)
     orca_stage = {
         "metadata": {"run_id": "run_1", "queue_id": "q_1"},
         "task": {
@@ -249,7 +284,17 @@ def test_completed_role_and_contract_helpers_use_expected_targets(monkeypatch: p
             "enqueue_payload": {"reaction_dir": "/tmp/enqueue_dir"},
         },
     }
-    assert _completed_orca_stage(orca_stage, orca_auto_config="/tmp/orca.yaml") == "orca_contract"
+    deps = orchestration_deps(
+        overrides={
+            "_load_config_root": lambda path, **kwargs: Path("/tmp/orca_allowed"),
+            "_load_config_organized_root": lambda path, **kwargs: Path("/tmp/orca_organized"),
+            "load_orca_artifact_contract": fake_load_orca_artifact_contract,
+        }
+    )
+    assert (
+        _completed_orca_stage(orca_stage, orca_auto_config="/tmp/orca.yaml", deps=deps)
+        == "orca_contract"
+    )
     assert orca_calls == [
         {
             "target": "run_1",

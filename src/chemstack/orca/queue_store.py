@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Iterator, List, Optional, cast
 
 from chemstack.core.queue import store as _core_queue_store
+from chemstack.core.utils.persistence import atomic_write_json, now_utc_iso, timestamped_token
 
 from .lock_utils import (
     acquire_file_lock,
@@ -21,12 +22,11 @@ from .lock_utils import (
     process_start_ticks,
 )
 from ..core.app_ids import CHEMSTACK_ORCA_APP_NAME
-from .persistence_utils import atomic_write_json, now_utc_iso, timestamped_token
 from .process_tracking import active_run_lock_pid, current_process_lock_payload, read_pid_file
 from . import queue_entry_model as _queue_entry_model
 from . import queue_backend_adapter as _queue_backend_adapter_module
 from . import queue_reconciliation as _queue_reconciliation
-from .state_store import load_state, report_json_path
+from .state import load_state, report_json_path
 from .statuses import QueueStatus
 from .types import QueueEntry
 
@@ -388,9 +388,9 @@ def enqueue(
                 raise DuplicateEntryError(resolved, terminal)
 
         entry: QueueEntry = {
-            "queue_id": timestamped_token("q"),
+            "queue_id": timestamped_token("q", token_bytes=4),
             "app_name": QUEUE_APP_NAME,
-            "task_id": _normalize_text(task_id) or timestamped_token("orca"),
+            "task_id": _normalize_text(task_id) or timestamped_token("orca", token_bytes=4),
             "task_kind": _normalize_text(task_kind) or QUEUE_TASK_KIND,
             "engine": QUEUE_ENGINE,
             "reaction_dir": resolved,

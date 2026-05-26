@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Generic, TypeVar
 
 import yaml
 
@@ -12,6 +12,8 @@ from .files import (
     workflow_root_from_mapping,
 )
 from .schema import CommonResourceConfig, CommonRuntimeConfig, TelegramConfig
+
+_AppConfigT = TypeVar("_AppConfigT")
 
 
 def as_str(value: Any, default: str = "") -> str:
@@ -191,8 +193,8 @@ def load_workflow_engine_config(
     executable_key: str,
     paths_cls: Callable[..., Any],
     behavior_cls: Callable[..., Any],
-    app_config_cls: Callable[..., Any],
-) -> Any:
+    app_config_cls: Callable[..., _AppConfigT],
+) -> _AppConfigT:
     path = Path(config_path or default_config_path_fn()).expanduser().resolve()
     raw = _load_config_mapping(path)
 
@@ -216,13 +218,13 @@ def load_workflow_engine_config(
 
 
 @dataclass(frozen=True)
-class WorkflowEngineConfigSpec:
+class WorkflowEngineConfigSpec(Generic[_AppConfigT]):
     module_file: str
     env_var: str
     executable_key: str
     paths_cls: Callable[..., Any]
     behavior_cls: Callable[..., Any]
-    app_config_cls: Callable[..., Any]
+    app_config_cls: Callable[..., _AppConfigT]
 
     def default_config_path(self) -> str:
         return default_workflow_engine_config_path(self.module_file, env_var=self.env_var)
@@ -232,7 +234,7 @@ class WorkflowEngineConfigSpec:
         config_path: str | None = None,
         *,
         default_config_path_fn: Callable[[], str] | None = None,
-    ) -> Any:
+    ) -> _AppConfigT:
         return load_workflow_engine_config(
             config_path,
             default_config_path_fn=default_config_path_fn or self.default_config_path,
@@ -249,9 +251,9 @@ def workflow_engine_config_spec(
     executable_key: str,
     paths_cls: Callable[..., Any],
     behavior_cls: Callable[..., Any],
-    app_config_cls: Callable[..., Any],
+    app_config_cls: Callable[..., _AppConfigT],
     env_var: str = "CHEMSTACK_CONFIG",
-) -> WorkflowEngineConfigSpec:
+) -> WorkflowEngineConfigSpec[_AppConfigT]:
     return WorkflowEngineConfigSpec(
         module_file=module_file,
         env_var=env_var,

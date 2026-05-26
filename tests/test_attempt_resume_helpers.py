@@ -5,7 +5,7 @@ from typing import cast
 from unittest.mock import patch
 
 from chemstack.orca import attempt_resume
-from chemstack.orca.state_store import new_state
+from chemstack.orca.state import new_state
 from chemstack.orca.statuses import AnalyzerStatus, RunStatus
 from chemstack.orca.types import AttemptRecord, RunFinishedNotification, RunState
 

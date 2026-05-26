@@ -3,11 +3,12 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-
 from chemstack.flow.operations import (
-    advance_materialized_workflow,
     get_workflow,
     get_workflow_artifacts,
+)
+from chemstack.flow.orchestration import (
+    advance_workflow,
 )
 
 
@@ -203,7 +204,7 @@ def test_orca_contract_freeze_completed_result_survives_public_workflow_sync(tmp
         },
     )
 
-    payload = advance_materialized_workflow(
+    payload = advance_workflow(
         target="wf_contract_freeze",
         workflow_root=workflow_root,
         orca_auto_config=str(config_path),

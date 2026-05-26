@@ -7,8 +7,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from chemstack import cli as unified_cli
-from chemstack.flow import cli as flow_cli
+from chemstack import cli_run_dir
+from chemstack.flow import cli_run_dir as flow_cli
 from chemstack.flow.restart import restart_failed_workflow
 
 
@@ -532,4 +532,4 @@ def test_unified_run_dir_detects_existing_workflow_json_without_flow_yaml(tmp_pa
     workspace = tmp_path / "wf_existing"
     _write_workflow(workspace, {"workflow_id": "wf_existing", "status": "failed", "stages": []})
 
-    assert unified_cli._detect_run_dir_app(Namespace(path=str(workspace))) == "workflow"
+    assert cli_run_dir._detect_run_dir_app(Namespace(path=str(workspace))) == "workflow"

@@ -11,8 +11,7 @@ from chemstack.core.artifacts import (
     RUN_REPORT_MD_FILE,
     RUN_STATE_FILE,
 )
-
-from .persistence_utils import (
+from chemstack.core.utils.persistence import (
     atomic_write_json,
     atomic_write_text as _atomic_write_text,
     now_utc_iso as _now_utc_iso,
@@ -73,7 +72,7 @@ def load_organized_ref(reaction_dir: Path) -> Dict[str, Any] | None:
 
 
 def new_state(reaction_dir: Path, selected_inp: Path, max_retries: int) -> RunState:
-    run_id = timestamped_token("run")
+    run_id = timestamped_token("run", token_bytes=4)
     ts = now_utc_iso()
     return {
         "run_id": run_id,

@@ -4,13 +4,13 @@ import json
 from pathlib import Path
 from typing import Any
 
-from .cli_common import (
+from chemstack.cli_common import (
     _dependency,
     _normalize_text,
     _normalize_workflow_type,
 )
 from . import cli_workflow_output as _workflow_output
-from .operations import create_conformer_screening_workflow, create_reaction_workflow
+from .orchestration import create_conformer_screening_workflow, create_reaction_ts_search_workflow
 from .restart import restart_failed_workflow
 from .run_dir_options import (
     RUN_DIR_COMMON_WORKFLOW_OPTION_FIELDS,
@@ -196,7 +196,7 @@ def _resolve_required_workflow_root(
 ) -> str:
     discover_workflow_root = _dependency(deps, "_discover_workflow_root", None)
     if discover_workflow_root is None:
-        from .cli_common import _discover_workflow_root
+        from chemstack.cli_common import _discover_workflow_root
 
         discover_workflow_root = _discover_workflow_root
 
@@ -594,7 +594,9 @@ def _create_reaction_run_dir_workflow(
         _resolve_run_dir_workflow_option_bundle,
     )
     update_present_kwargs = _dependency(deps, "_update_present_kwargs", _update_present_kwargs)
-    create_workflow = _dependency(deps, "create_reaction_workflow", create_reaction_workflow)
+    create_workflow = _dependency(
+        deps, "create_reaction_ts_search_workflow", create_reaction_ts_search_workflow
+    )
 
     if not config.reactant_xyz or not config.product_xyz:
         raise ValueError(

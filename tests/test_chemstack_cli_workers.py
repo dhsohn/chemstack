@@ -9,8 +9,11 @@ from typing import Any, cast
 
 import pytest
 
-from chemstack import cli as unified_cli
-from chemstack import cli_workers as cli_workers_mod
+from chemstack import cli_common
+from chemstack import cli_run_dir
+from chemstack import cli_workers as unified_cli
+
+cli_workers_mod = unified_cli
 
 
 @pytest.fixture(autouse=True)
@@ -21,7 +24,8 @@ def _isolate_shared_config_discovery(monkeypatch: pytest.MonkeyPatch) -> None:
         return str(Path(explicit).expanduser().resolve())
 
     monkeypatch.setattr(unified_cli, "_discover_shared_config_path", _explicit_shared_config_path)
-    monkeypatch.setattr(unified_cli, "shared_workflow_root_from_config", lambda config_path: None)
+    monkeypatch.setattr(cli_common, "_discover_shared_config_path", _explicit_shared_config_path)
+    monkeypatch.setattr(cli_common, "shared_workflow_root_from_config", lambda config_path: None)
 
 
 class _FakeWorkerProcess:
@@ -118,7 +122,7 @@ def test_build_worker_specs_defaults_to_all_workers_when_workflow_root_is_config
         unified_cli, "_discover_shared_config_path", lambda explicit: "/tmp/chemstack.yaml"
     )
     monkeypatch.setattr(
-        unified_cli, "shared_workflow_root_from_config", lambda config_path: "/tmp/workflows"
+        cli_common, "shared_workflow_root_from_config", lambda config_path: "/tmp/workflows"
     )
 
     def fake_sibling_app_command(
@@ -170,7 +174,7 @@ def test_build_worker_specs_explicit_workflow_app_uses_configured_workflow_root(
         unified_cli, "_discover_shared_config_path", lambda explicit: "/tmp/chemstack.yaml"
     )
     monkeypatch.setattr(
-        unified_cli, "shared_workflow_root_from_config", lambda config_path: "/tmp/workflows"
+        cli_common, "shared_workflow_root_from_config", lambda config_path: "/tmp/workflows"
     )
 
     specs = unified_cli._build_worker_specs(
@@ -188,7 +192,7 @@ def test_workflow_root_for_args_uses_shared_config(monkeypatch: pytest.MonkeyPat
     seen: list[str | None] = []
 
     monkeypatch.setattr(
-        unified_cli, "_discover_shared_config_path", lambda explicit: "/tmp/chemstack.yaml"
+        cli_common, "_discover_shared_config_path", lambda explicit: "/tmp/chemstack.yaml"
     )
 
     def _shared_workflow_root(config_path: str | None) -> str:
@@ -196,12 +200,12 @@ def test_workflow_root_for_args_uses_shared_config(monkeypatch: pytest.MonkeyPat
         return "/tmp/from-config-workflows"
 
     monkeypatch.setattr(
-        unified_cli,
+        cli_common,
         "shared_workflow_root_from_config",
         _shared_workflow_root,
     )
 
-    discovered = unified_cli._workflow_root_for_args(
+    discovered = cli_common._workflow_root_for_args(
         SimpleNamespace(
             workflow_root=None,
             chemstack_config=None,
@@ -218,10 +222,10 @@ def test_engine_config_for_command_uses_discovered_shared_config(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        unified_cli, "_discover_shared_config_path", lambda explicit: "/tmp/chemstack.yaml"
+        cli_common, "_discover_shared_config_path", lambda explicit: "/tmp/chemstack.yaml"
     )
 
-    discovered = unified_cli._engine_config_for_command(
+    discovered = cli_common._engine_config_for_command(
         argparse.Namespace(
             chemstack_config=None,
             config=None,
@@ -241,9 +245,9 @@ def test_cmd_orca_run_dir_uses_discovered_shared_config(
     (target / "job.inp").write_text("! Opt\n", encoding="utf-8")
     captured: list[tuple[str | None, str]] = []
 
-    monkeypatch.setattr(unified_cli, "_configure_orca_logging", lambda args: None)
+    monkeypatch.setattr(cli_run_dir, "_configure_orca_logging", lambda args: None)
     monkeypatch.setattr(
-        unified_cli, "_discover_shared_config_path", lambda explicit: "/tmp/chemstack.yaml"
+        cli_common, "_discover_shared_config_path", lambda explicit: "/tmp/chemstack.yaml"
     )
 
     import chemstack.orca.commands.run_inp as run_inp_cmd
@@ -258,7 +262,7 @@ def test_cmd_orca_run_dir_uses_discovered_shared_config(
         _fake_cmd_run_inp,
     )
 
-    result = unified_cli.cmd_orca_run_dir(
+    result = cli_run_dir.cmd_orca_run_dir(
         argparse.Namespace(
             path=str(target),
             chemstack_config=None,

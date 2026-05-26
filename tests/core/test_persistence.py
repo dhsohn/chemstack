@@ -88,6 +88,16 @@ def test_resolve_root_path_expands_user_and_resolves(tmp_path: Path, monkeypatch
     assert persistence.resolve_root_path(root) == root.resolve()
 
 
+def test_atomic_write_text_success_path(tmp_path: Path) -> None:
+    path = tmp_path / "nested" / "payload.txt"
+
+    persistence.atomic_write_text(path, "hello")
+    persistence.atomic_write_text(path, "updated")
+
+    assert path.parent.exists()
+    assert path.read_text(encoding="utf-8") == "updated"
+
+
 def test_atomic_write_json_success_path(tmp_path: Path) -> None:
     path = tmp_path / "nested" / "payload.json"
 

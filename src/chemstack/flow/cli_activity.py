@@ -4,8 +4,8 @@ import json
 from typing import Any
 
 from chemstack.core.app_ids import CHEMSTACK_EXECUTABLE
+from chemstack.cli_common import _dependency, _shared_chemstack_config
 
-from .cli_common import _dependency, _shared_chemstack_config
 from .operations import cancel_activity, list_activities
 
 

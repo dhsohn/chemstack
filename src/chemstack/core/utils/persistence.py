@@ -48,9 +48,9 @@ def parse_iso_utc(value: Any) -> datetime | None:
     return parsed.astimezone(timezone.utc)
 
 
-def timestamped_token(prefix: str) -> str:
+def timestamped_token(prefix: str, *, token_bytes: int = 3) -> str:
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-    return f"{prefix}_{stamp}_{token_hex(3)}"
+    return f"{prefix}_{stamp}_{token_hex(token_bytes)}"
 
 
 def coerce_int(value: Any, *, default: int = 0) -> int:
@@ -128,19 +128,13 @@ def _fsync_parent_dir(path: Path) -> None:
         os.close(dir_fd)
 
 
-def atomic_write_json(
-    path: Path,
-    payload: Any,
-    *,
-    ensure_ascii: bool = True,
-    indent: int = 2,
-) -> None:
+def atomic_write_text(path: Path, payload: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
     tmp_path = Path(tmp_name)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            json.dump(payload, handle, ensure_ascii=ensure_ascii, indent=indent, sort_keys=False)
+            handle.write(payload)
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(tmp_path, path)
@@ -151,3 +145,16 @@ def atomic_write_json(
                 tmp_path.unlink()
             except OSError:
                 pass
+
+
+def atomic_write_json(
+    path: Path,
+    payload: Any,
+    *,
+    ensure_ascii: bool = True,
+    indent: int | None = 2,
+) -> None:
+    atomic_write_text(
+        path,
+        json.dumps(payload, ensure_ascii=ensure_ascii, indent=indent, sort_keys=False),
+    )

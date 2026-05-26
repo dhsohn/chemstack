@@ -420,23 +420,6 @@ def test_get_workflow_telemetry_aggregates_registry_and_journal_data(monkeypatch
     ("wrapper_name", "impl_name", "call_kwargs", "expected_kwargs", "expected_result"),
     [
         (
-            "create_reaction_workflow",
-            "create_reaction_ts_search_workflow",
-            {
-                "reactant_xyz": "reactant.xyz",
-                "product_xyz": "product.xyz",
-                "workflow_root": "/tmp/workflows",
-                "priority": "high",
-            },
-            {
-                "reactant_xyz": "reactant.xyz",
-                "product_xyz": "product.xyz",
-                "workflow_root": "/tmp/workflows",
-                "priority": "high",
-            },
-            {"workflow_id": "wf-create"},
-        ),
-        (
             "cancel_workflow",
             "cancel_materialized_workflow",
             {
@@ -460,23 +443,6 @@ def test_get_workflow_telemetry_aggregates_registry_and_journal_data(monkeypatch
                 "orca_auto_repo_root": "/opt/orca_auto",
             },
             {"status": "cancel_requested"},
-        ),
-        (
-            "advance_materialized_workflow",
-            "advance_workflow",
-            {
-                "target": "wf-advance",
-                "workflow_root": "/tmp/workflows",
-                "submit_ready": False,
-                "dry_run": True,
-            },
-            {
-                "target": "wf-advance",
-                "workflow_root": "/tmp/workflows",
-                "submit_ready": False,
-                "dry_run": True,
-            },
-            {"status": "advanced"},
         ),
     ],
 )

@@ -7,6 +7,7 @@ from chemstack.flow.contracts import (
     WorkflowTask,
     WorkflowTemplateRequest,
 )
+from chemstack.flow.contracts.workflow import coerce_workflow_plan_payload
 
 
 def test_workflow_plan_to_dict_preserves_nested_stage_task_and_artifact_payloads() -> None:
@@ -106,6 +107,28 @@ def test_workflow_task_from_raw_coerces_resource_request_and_empty_payload_defau
     assert payload["submission_result"] == {}
     assert payload["depends_on"] == ("stage_a", "stage_b")
     assert payload["metadata"] == {}
+
+
+def test_coerce_workflow_plan_payload_preserves_raw_payload_shape() -> None:
+    raw = {
+        "workflow_id": "wf_loaded",
+        "status": "running",
+        "metadata": {"workspace_dir": "/tmp/wf_loaded"},
+        "stages": [
+            {
+                "stage_id": "stage_1",
+                "task": None,
+                "metadata": {"custom": ["kept"]},
+            }
+        ],
+        "custom_top_level": {"kept": True},
+    }
+
+    payload = coerce_workflow_plan_payload(raw)
+
+    assert payload == raw
+    assert payload["stages"] == raw["stages"]
+    assert coerce_workflow_plan_payload(["not", "a", "mapping"]) == {}
 
 
 def test_workflow_template_request_to_dict_serializes_source_artifacts() -> None:

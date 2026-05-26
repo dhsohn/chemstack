@@ -7,19 +7,11 @@ from typing import Any
 
 import pytest
 
-from chemstack import cli as unified_cli
+from chemstack import cli_common
+from chemstack import cli_run_dir
+from chemstack import cli_summary
+from chemstack.core.app_ids import CHEMSTACK_CONFIG_ENV_VAR
 from chemstack.flow.run_dir_layout import WorkflowRunDirLayout, inspect_workflow_run_dir
-
-
-@pytest.fixture(autouse=True)
-def _isolate_shared_config_discovery(monkeypatch: pytest.MonkeyPatch) -> None:
-    def _explicit_shared_config_path(explicit: str | None) -> str | None:
-        if not explicit:
-            return None
-        return str(Path(explicit).expanduser().resolve())
-
-    monkeypatch.setattr(unified_cli, "_discover_shared_config_path", _explicit_shared_config_path)
-    monkeypatch.setattr(unified_cli, "shared_workflow_root_from_config", lambda config_path: None)
 
 
 def test_cmd_summary_dispatches_combined_summary(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -29,10 +21,8 @@ def test_cmd_summary_dispatches_combined_summary(monkeypatch: pytest.MonkeyPatch
         seen.append(args)
         return 29
 
-    monkeypatch.setattr(unified_cli, "_configure_orca_logging", lambda args: None)
-    monkeypatch.setattr(
-        unified_cli, "_engine_config_for_command", lambda args: "/tmp/chemstack.yaml"
-    )
+    monkeypatch.setattr(cli_summary, "_configure_orca_logging", lambda args: None)
+    monkeypatch.setattr(cli_summary, "_engine_config_for_command", lambda args: "/tmp/chemstack.yaml")
     monkeypatch.setattr("chemstack.summary.cmd_summary", _fake_combined_summary)
 
     args = argparse.Namespace(
@@ -45,7 +35,7 @@ def test_cmd_summary_dispatches_combined_summary(monkeypatch: pytest.MonkeyPatch
         log_file=None,
     )
 
-    result = unified_cli.cmd_summary(args)
+    result = cli_summary.cmd_summary(args)
 
     assert result == 29
     assert args.config == "/tmp/chemstack.yaml"
@@ -59,7 +49,7 @@ def test_cmd_summary_dispatches_orca_summary(monkeypatch: pytest.MonkeyPatch) ->
         seen.append(args)
         return 30
 
-    monkeypatch.setattr(unified_cli, "cmd_orca_summary", _fake_orca_summary)
+    monkeypatch.setattr(cli_summary, "cmd_orca_summary", _fake_orca_summary)
 
     args = argparse.Namespace(
         command="summary",
@@ -71,7 +61,7 @@ def test_cmd_summary_dispatches_orca_summary(monkeypatch: pytest.MonkeyPatch) ->
         log_file=None,
     )
 
-    result = unified_cli.cmd_summary(args)
+    result = cli_summary.cmd_summary(args)
 
     assert result == 30
     assert args.config is None
@@ -88,10 +78,8 @@ def test_cmd_orca_summary_configures_logging_and_dispatches(
         seen.append(args)
         return 35
 
-    monkeypatch.setattr(unified_cli, "_configure_orca_logging", configured.append)
-    monkeypatch.setattr(
-        unified_cli, "_engine_config_for_command", lambda args: "/tmp/chemstack.yaml"
-    )
+    monkeypatch.setattr(cli_summary, "_configure_orca_logging", configured.append)
+    monkeypatch.setattr(cli_summary, "_engine_config_for_command", lambda args: "/tmp/chemstack.yaml")
     monkeypatch.setattr("chemstack.orca.commands.summary.cmd_summary", _fake_orca_summary)
 
     args = argparse.Namespace(
@@ -103,7 +91,7 @@ def test_cmd_orca_summary_configures_logging_and_dispatches(
         log_file="/tmp/chemstack.log",
     )
 
-    result = unified_cli.cmd_orca_summary(args)
+    result = cli_summary.cmd_orca_summary(args)
 
     assert result == 35
     assert args.config == "/tmp/chemstack.yaml"
@@ -124,30 +112,30 @@ def test_cli_common_discovers_config_from_explicit_env_and_repo_candidate(
     repo_config.parent.mkdir(parents=True)
     repo_config.write_text("workflow:\n  root: /tmp/workflows\n", encoding="utf-8")
 
-    assert unified_cli._cli_common._discover_shared_config_path(str(explicit_config)) == str(
+    assert cli_common._discover_shared_config_path(str(explicit_config)) == str(
         explicit_config.resolve()
     )
 
-    monkeypatch.setenv(unified_cli.CHEMSTACK_CONFIG_ENV_VAR, str(env_config))
-    assert unified_cli._cli_common._discover_shared_config_path(None) == str(env_config.resolve())
+    monkeypatch.setenv(CHEMSTACK_CONFIG_ENV_VAR, str(env_config))
+    assert cli_common._discover_shared_config_path(None) == str(env_config.resolve())
 
-    monkeypatch.delenv(unified_cli.CHEMSTACK_CONFIG_ENV_VAR)
-    monkeypatch.setattr(unified_cli._cli_common, "_repo_root", lambda: repo_root)
-    assert unified_cli._cli_common._discover_shared_config_path(None) == str(repo_config.resolve())
-    assert unified_cli._cli_common._discover_workflow_root(str(tmp_path / "workflows")) == str(
+    monkeypatch.delenv(CHEMSTACK_CONFIG_ENV_VAR)
+    monkeypatch.setattr(cli_common, "_repo_root", lambda: repo_root)
+    assert cli_common._discover_shared_config_path(None) == str(repo_config.resolve())
+    assert cli_common._discover_workflow_root(str(tmp_path / "workflows")) == str(
         (tmp_path / "workflows").resolve()
     )
-    assert unified_cli._cli_common._discover_workflow_root(" ") is None
+    assert cli_common._discover_workflow_root(" ") is None
 
 
 def test_workflow_root_for_args_prefers_explicit_root(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        unified_cli,
+        cli_common,
         "shared_workflow_root_from_config",
         lambda config_path: (_ for _ in ()).throw(AssertionError("config should not be read")),
     )
 
-    assert unified_cli._workflow_root_for_args(
+    assert cli_common._workflow_root_for_args(
         argparse.Namespace(
             workflow_root="/tmp/explicit-workflows",
             chemstack_config=None,
@@ -174,10 +162,10 @@ def test_cmd_run_dir_dispatches_to_orca_for_inp_directories(
         calls.append(("workflow", args.path))
         return 42
 
-    monkeypatch.setattr(unified_cli, "cmd_orca_run_dir", _fake_orca_run_dir)
-    monkeypatch.setattr(unified_cli, "cmd_workflow_run_dir", _fake_workflow_run_dir)
+    monkeypatch.setattr(cli_run_dir, "cmd_orca_run_dir", _fake_orca_run_dir)
+    monkeypatch.setattr(cli_run_dir, "cmd_workflow_run_dir", _fake_workflow_run_dir)
 
-    result = unified_cli.cmd_run_dir(
+    result = cli_run_dir.cmd_run_dir(
         SimpleNamespace(
             path=str(target),
         )
@@ -205,10 +193,10 @@ def test_cmd_run_dir_dispatches_to_workflow_for_manifest_directories(
         calls.append(("workflow", args.path, getattr(args, "workflow_dir", None)))
         return 42
 
-    monkeypatch.setattr(unified_cli, "cmd_orca_run_dir", _fake_orca_run_dir)
-    monkeypatch.setattr(unified_cli, "cmd_workflow_run_dir", _fake_workflow_run_dir)
+    monkeypatch.setattr(cli_run_dir, "cmd_orca_run_dir", _fake_orca_run_dir)
+    monkeypatch.setattr(cli_run_dir, "cmd_workflow_run_dir", _fake_workflow_run_dir)
 
-    result = unified_cli.cmd_run_dir(
+    result = cli_run_dir.cmd_run_dir(
         SimpleNamespace(
             path=str(target),
         )
@@ -236,10 +224,10 @@ def test_cmd_run_dir_prefers_orca_for_mixed_input_xyz_and_inp_without_manifest(
         calls.append(("workflow", args.path))
         return 42
 
-    monkeypatch.setattr(unified_cli, "cmd_orca_run_dir", _fake_orca_run_dir)
-    monkeypatch.setattr(unified_cli, "cmd_workflow_run_dir", _fake_workflow_run_dir)
+    monkeypatch.setattr(cli_run_dir, "cmd_orca_run_dir", _fake_orca_run_dir)
+    monkeypatch.setattr(cli_run_dir, "cmd_workflow_run_dir", _fake_workflow_run_dir)
 
-    result = unified_cli.cmd_run_dir(
+    result = cli_run_dir.cmd_run_dir(
         SimpleNamespace(
             path=str(target),
         )
@@ -256,7 +244,7 @@ def test_cmd_run_dir_reports_unknown_directory_layout(
     target = tmp_path / "unknown_job"
     target.mkdir()
 
-    result = unified_cli.cmd_run_dir(
+    result = cli_run_dir.cmd_run_dir(
         SimpleNamespace(
             path=str(target),
         )
@@ -274,7 +262,7 @@ def test_cmd_run_dir_requires_manifest_for_workflow_scaffold_directories(
     target.mkdir()
     (target / "input.xyz").write_text("3\nmol\nH 0 0 0\nH 0 0 0.7\nH 0 0 1.4\n", encoding="utf-8")
 
-    result = unified_cli.cmd_run_dir(
+    result = cli_run_dir.cmd_run_dir(
         SimpleNamespace(
             path=str(target),
         )
@@ -289,12 +277,12 @@ def test_cmd_run_dir_reports_missing_and_file_targets(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     missing = tmp_path / "missing"
-    assert unified_cli.cmd_run_dir(SimpleNamespace(path=str(missing))) == 1
+    assert cli_run_dir.cmd_run_dir(SimpleNamespace(path=str(missing))) == 1
     assert f"run-dir target not found: {missing.resolve()}" in capsys.readouterr().out
 
     file_target = tmp_path / "not-a-dir"
     file_target.write_text("not a directory\n", encoding="utf-8")
-    assert unified_cli.cmd_run_dir(SimpleNamespace(path=str(file_target))) == 1
+    assert cli_run_dir.cmd_run_dir(SimpleNamespace(path=str(file_target))) == 1
     assert f"run-dir target is not a directory: {file_target.resolve()}" in capsys.readouterr().out
 
 
@@ -311,11 +299,11 @@ def test_cmd_run_dir_sets_default_orca_priority(
         seen.append(args)
         return 44
 
-    monkeypatch.setattr(unified_cli, "cmd_orca_run_dir", _fake_orca_run_dir)
+    monkeypatch.setattr(cli_run_dir, "cmd_orca_run_dir", _fake_orca_run_dir)
 
     args = SimpleNamespace(path=str(target), priority=None)
 
-    assert unified_cli.cmd_run_dir(args) == 44
+    assert cli_run_dir.cmd_run_dir(args) == 44
     assert args.priority == 10
     assert seen == [args]
 

@@ -97,8 +97,8 @@ def test_import_orca_auto_module_returns_none_for_missing_package(
 
     monkeypatch.setattr(orca_adapter, "import_module", fake_import)
 
-    assert orca_adapter._import_orca_auto_module("chemstack.orca.tracking") is None
-    assert calls == ["chemstack.orca.tracking"]
+    assert orca_adapter._import_orca_auto_module("chemstack.orca.job_locations") is None
+    assert calls == ["chemstack.orca.job_locations"]
 
 
 def test_import_orca_auto_module_reraises_unrelated_import_errors(
@@ -111,7 +111,7 @@ def test_import_orca_auto_module_reraises_unrelated_import_errors(
     )
 
     with pytest.raises(ModuleNotFoundError, match="different_module"):
-        orca_adapter._import_orca_auto_module("chemstack.orca.tracking")
+        orca_adapter._import_orca_auto_module("chemstack.orca.job_locations")
 
 
 def test_tracked_helper_guards_return_empty_for_missing_helpers_and_exceptions(
@@ -142,7 +142,7 @@ def test_tracked_helper_guards_return_empty_for_missing_helpers_and_exceptions(
         is None
     )
 
-    monkeypatch.setattr(orca_adapter, "_orca_auto_tracking_module", lambda: None)
+    monkeypatch.setattr(orca_adapter, "_orca_auto_job_locations_module", lambda: None)
     assert orca_adapter._tracked_artifact_context(index_root=tmp_path, targets=("job_1",)) == (None, None, {}, {}, {})
     assert (
         orca_adapter._tracked_runtime_context(
@@ -164,13 +164,13 @@ def test_tracked_helper_guards_return_empty_for_missing_helpers_and_exceptions(
 
     monkeypatch.setattr(
         orca_adapter,
-        "_orca_auto_tracking_module",
+        "_orca_auto_job_locations_module",
         lambda: SimpleNamespace(load_job_artifact_context=load_job_artifact_context),
     )
     assert orca_adapter._tracked_artifact_context(index_root=tmp_path, targets=("   ", "job_2")) == (None, None, {}, {}, {})
     assert calls == ["job_2"]
 
-    monkeypatch.setattr(orca_adapter, "_orca_auto_tracking_module", lambda: SimpleNamespace())
+    monkeypatch.setattr(orca_adapter, "_orca_auto_job_locations_module", lambda: SimpleNamespace())
     assert (
         orca_adapter._tracked_runtime_context(
             index_root=tmp_path,
@@ -185,7 +185,7 @@ def test_tracked_helper_guards_return_empty_for_missing_helpers_and_exceptions(
 
     monkeypatch.setattr(
         orca_adapter,
-        "_orca_auto_tracking_module",
+        "_orca_auto_job_locations_module",
         lambda: SimpleNamespace(
             load_job_runtime_context=lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("boom"))
         ),
@@ -204,7 +204,7 @@ def test_tracked_helper_guards_return_empty_for_missing_helpers_and_exceptions(
 
     monkeypatch.setattr(
         orca_adapter,
-        "_orca_auto_tracking_module",
+        "_orca_auto_job_locations_module",
         lambda: SimpleNamespace(load_job_runtime_context=lambda *_args, **_kwargs: SimpleNamespace(artifact=None)),
     )
     assert (
@@ -221,7 +221,7 @@ def test_tracked_helper_guards_return_empty_for_missing_helpers_and_exceptions(
 
     monkeypatch.setattr(
         orca_adapter,
-        "_orca_auto_tracking_module",
+        "_orca_auto_job_locations_module",
         lambda: SimpleNamespace(
             load_orca_contract_payload=lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("boom"))
         ),
@@ -382,158 +382,6 @@ def test_status_from_payloads_covers_remaining_fallback_branches(
     assert analyzer_status == ""
     assert reason == ""
     assert completed_at == ""
-
-
-def test_load_orca_artifact_contract_refreshes_from_queue_reaction_dir_tracking_context(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    allowed_root = tmp_path / "orca_runs"
-    reaction_dir = allowed_root / "rxn_refresh"
-    inp = reaction_dir / "job_refresh.inp"
-    source_xyz = reaction_dir / "source.xyz"
-    final_out = reaction_dir / "job_refresh.out"
-    optimized_xyz = reaction_dir / "job_refresh.xyz"
-
-    reaction_dir.mkdir(parents=True)
-    _write_text(inp, "! Opt\n* xyzfile 0 1 source.xyz\n")
-    _write_xyz(source_xyz)
-    _write_text(final_out, "normal termination\n")
-    _write_xyz(optimized_xyz, comment="optimized")
-    _write_json(
-        allowed_root / "queue.json",
-        [
-            {
-                "queue_id": "q_refresh",
-                "task_id": "job_refresh",
-                "reaction_dir": str(reaction_dir),
-                "status": "running",
-            }
-        ],
-    )
-
-    calls: list[tuple[str, ...]] = []
-    record = SimpleNamespace(
-        app_name="chemstack_orca",
-        status="queued",
-        selected_input_xyz="",
-        latest_known_path="",
-        organized_output_dir="",
-        original_run_dir=str(reaction_dir),
-        resource_request={},
-        resource_actual={},
-    )
-
-    def fake_tracked_artifact_context(*, index_root: Path | None, targets: tuple[str, ...]):
-        calls.append(targets)
-        if targets == ("job_refresh", "", ""):
-            return None, None, {}, {}, {}
-        if targets == (str(reaction_dir.resolve()),):
-            return (
-                reaction_dir.resolve(),
-                record,
-                {
-                    "run_id": "run_refresh",
-                    "selected_inp": "job_refresh.inp",
-                    "status": "running",
-                    "final_result": {
-                        "status": "completed",
-                        "analyzer_status": "completed",
-                        "reason": "normal_termination",
-                        "last_out_path": "job_refresh.out",
-                    },
-                },
-                {"attempt_count": "1"},
-                {"selected_input_xyz": "source.xyz"},
-            )
-        return None, None, {}, {}, {}
-
-    monkeypatch.setattr(orca_adapter, "_tracked_contract_payload", lambda **kwargs: None)
-    monkeypatch.setattr(orca_adapter, "_tracked_runtime_context", lambda **kwargs: None)
-    monkeypatch.setattr(orca_adapter, "_tracked_artifact_context", fake_tracked_artifact_context)
-    monkeypatch.setattr(orca_adapter, "_resolve_job_dir", lambda *_args, **_kwargs: (None, None))
-
-    contract = orca_adapter.load_orca_artifact_contract(
-        target="job_refresh",
-        orca_allowed_root=allowed_root,
-    )
-
-    assert calls == [("job_refresh", "", ""), (str(reaction_dir.resolve()),)]
-    assert contract.run_id == "run_refresh"
-    assert contract.status == "completed"
-    assert contract.queue_id == "q_refresh"
-    assert contract.queue_status == "running"
-    assert contract.reaction_dir == str(reaction_dir.resolve())
-    assert contract.selected_inp == str(inp.resolve())
-    assert contract.selected_input_xyz == str(source_xyz.resolve())
-    assert contract.last_out_path == str(final_out.resolve())
-    assert contract.optimized_xyz_path == str(optimized_xyz.resolve())
-
-
-def test_load_orca_artifact_contract_uses_tracked_status_state_fallbacks_and_current_dir_as_organized_output(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    allowed_root = tmp_path / "orca_runs"
-    organized_root = tmp_path / "orca_outputs"
-    current_dir = organized_root / "opt" / "edge_case_run"
-    selected_xyz = current_dir / "edge_source.xyz"
-
-    current_dir.mkdir(parents=True)
-    _write_xyz(selected_xyz)
-    _write_json(
-        current_dir / "run_state.json",
-        {
-            "status": "   ",
-            "attempts": [{"index": 1}],
-            "max_retries": "4",
-            "final_result": {
-                "analyzer_status": "partial",
-                "reason": "state_only_reason",
-            },
-        },
-    )
-    _write_json(current_dir / "organized_ref.json", {"selected_input_xyz": "edge_source.xyz"})
-
-    record = JobLocationRecord(
-        job_id="job_edge_case",
-        app_name="chemstack_orca",
-        job_type="orca_opt",
-        status="submitted",
-        original_run_dir=str(tmp_path / "stub"),
-        selected_input_xyz="",
-        organized_output_dir="",
-        latest_known_path="",
-        resource_request=cast(dict[str, int], {"max_cores": "2"}),
-        resource_actual={},
-    )
-
-    monkeypatch.setattr(orca_adapter, "_tracked_contract_payload", lambda **kwargs: None)
-    monkeypatch.setattr(orca_adapter, "_tracked_runtime_context", lambda **kwargs: None)
-    monkeypatch.setattr(orca_adapter, "_tracked_artifact_context", lambda **kwargs: (None, None, {}, {}, {}))
-    monkeypatch.setattr(orca_adapter, "resolve_job_location", lambda *_args, **_kwargs: record)
-
-    contract = orca_adapter.load_orca_artifact_contract(
-        target=str(current_dir),
-        orca_allowed_root=allowed_root,
-        orca_organized_root=organized_root,
-    )
-
-    assert contract.status == "submitted"
-    assert contract.reason == "state_only_reason"
-    assert contract.analyzer_status == "partial"
-    assert contract.reaction_dir == str(current_dir.resolve())
-    assert contract.latest_known_path == str(current_dir.resolve())
-    assert contract.organized_output_dir == str(current_dir.resolve())
-    assert contract.selected_inp == str(selected_xyz.resolve())
-    assert contract.selected_input_xyz == str(selected_xyz.resolve())
-    assert contract.attempt_count == 1
-    assert contract.max_retries == 4
-    assert contract.final_result == {"analyzer_status": "partial", "reason": "state_only_reason"}
-    assert contract.report_json_path == ""
-    assert contract.report_md_path == ""
-    assert contract.resource_request == {"max_cores": 2}
-    assert contract.resource_actual == {"max_cores": 2}
 
 
 def test_load_orca_artifact_contract_returns_sparse_contract_when_nothing_resolves(

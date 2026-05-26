@@ -9,6 +9,7 @@ import pytest
 
 
 from chemstack.flow import orchestration
+from chemstack.flow._orchestration_deps import orchestration_deps
 
 
 def test_ensure_crest_job_dir_copies_input_and_populates_manifest(tmp_path: Path) -> None:
@@ -56,7 +57,6 @@ def test_ensure_crest_job_dir_copies_input_and_populates_manifest(tmp_path: Path
 
 def test_ensure_xtb_job_dir_returns_existing_or_delegates_to_writer(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     existing_stage = {
         "task": {
@@ -75,16 +75,23 @@ def test_ensure_xtb_job_dir_returns_existing_or_delegates_to_writer(
         }
     }
     calls: list[tuple[str, int]] = []
-    def fake_write_xtb_path_job(stage: dict[str, Any], *, xtb_allowed_root: Path, workflow_id: str, attempt_number: int) -> str:
+    def fake_write_xtb_path_job(
+        stage: dict[str, Any],
+        *,
+        xtb_allowed_root: Path,
+        workflow_id: str,
+        attempt_number: int,
+    ) -> str:
         calls.append((workflow_id, attempt_number))
         return "/tmp/generated_xtb_job"
 
-    monkeypatch.setattr(orchestration, "_write_xtb_path_job", fake_write_xtb_path_job)
+    deps = orchestration_deps(overrides={"_write_xtb_path_job": fake_write_xtb_path_job})
 
     assert orchestration._ensure_xtb_job_dir(
         delegated_stage,
         xtb_allowed_root=tmp_path / "xtb_allowed",
         workflow_id="wf_generated",
+        deps=deps,
     ) == "/tmp/generated_xtb_job"
     assert calls == [("wf_generated", 0)]
 
@@ -118,7 +125,6 @@ def test_sync_crest_stage_ignores_non_dict_task_and_non_crest_engine(tmp_path: P
 
 def test_sync_crest_stage_submits_and_materializes_retained_conformers(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     contract = SimpleNamespace(
         status="completed",
@@ -144,16 +150,21 @@ def test_sync_crest_stage_submits_and_materializes_retained_conformers(
         },
     }
 
-    monkeypatch.setattr(orchestration, "sibling_allowed_root", lambda path: tmp_path / "crest_allowed")
-    monkeypatch.setattr(orchestration, "_load_config_root", lambda path: tmp_path / "crest_allowed")
-    monkeypatch.setattr(orchestration, "_ensure_crest_job_dir", lambda stage, **kwargs: str(tmp_path / "crest_allowed" / "wf_01" / "job_01"))
-    monkeypatch.setattr(
-        orchestration,
-        "submit_crest_job_dir",
-        lambda **kwargs: {"status": "submitted", "queue_id": "q_crest_01", "job_id": "crest_job_01"},
+    deps = orchestration_deps(
+        overrides={
+            "_load_config_root": lambda path, **kwargs: tmp_path / "crest_allowed",
+            "_ensure_crest_job_dir": lambda stage, **kwargs: str(
+                tmp_path / "crest_allowed" / "wf_01" / "job_01"
+            ),
+            "submit_crest_job_dir": lambda **kwargs: {
+                "status": "submitted",
+                "queue_id": "q_crest_01",
+                "job_id": "crest_job_01",
+            },
+            "now_utc_iso": lambda: "2026-04-19T16:20:00+00:00",
+            "load_crest_artifact_contract": lambda **kwargs: contract,
+        }
     )
-    monkeypatch.setattr(orchestration, "now_utc_iso", lambda: "2026-04-19T16:20:00+00:00")
-    monkeypatch.setattr(orchestration, "load_crest_artifact_contract", lambda **kwargs: contract)
 
     orchestration._sync_crest_stage(
         stage,
@@ -163,6 +174,7 @@ def test_sync_crest_stage_submits_and_materializes_retained_conformers(
         submit_ready=True,
         workflow_id="wf_01",
         workspace_dir=tmp_path / "workspace" / "wf_01",
+        deps=deps,
     )
 
     task = cast(dict[str, Any], stage["task"])
@@ -221,7 +233,6 @@ def test_sync_crest_stage_returns_without_target_when_not_submitted_and_no_queue
 
 def test_sync_crest_stage_returns_cleanly_when_contract_lookup_raises(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     stage: dict[str, Any] = {
@@ -236,13 +247,15 @@ def test_sync_crest_stage_returns_cleanly_when_contract_lookup_raises(
         },
     }
 
-    monkeypatch.setattr(orchestration, "_load_config_root", lambda path: tmp_path / "crest_allowed")
-    monkeypatch.setattr(
-        orchestration,
-        "load_crest_artifact_contract",
-        lambda **kwargs: (_ for _ in ()).throw(RuntimeError("boom")),
+    deps = orchestration_deps(
+        overrides={
+            "_load_config_root": lambda path, **kwargs: tmp_path / "crest_allowed",
+            "load_crest_artifact_contract": lambda **kwargs: (_ for _ in ()).throw(
+                RuntimeError("boom")
+            ),
+        }
     )
-    caplog.set_level(logging.DEBUG, logger="chemstack.flow._orchestration_stage_runtime")
+    caplog.set_level(logging.DEBUG, logger="chemstack.flow._orchestration_stage_runtime_shared")
 
     orchestration._sync_crest_stage(
         stage,
@@ -252,6 +265,7 @@ def test_sync_crest_stage_returns_cleanly_when_contract_lookup_raises(
         submit_ready=False,
         workflow_id="wf_03",
         workspace_dir=tmp_path / "workspace" / "wf_03",
+        deps=deps,
     )
 
     assert stage["status"] == "submitted"
@@ -259,7 +273,7 @@ def test_sync_crest_stage_returns_cleanly_when_contract_lookup_raises(
     assert stage["metadata"]["queue_id"] == "q_existing"
     assert "output_artifacts" not in stage
     assert any(
-        record.name == "chemstack.flow._orchestration_stage_runtime"
+        record.name == "chemstack.flow._orchestration_stage_runtime_shared"
         and record.levelno == logging.DEBUG
         and "Failed to load crest artifact contract" in record.getMessage()
         and record.exc_info

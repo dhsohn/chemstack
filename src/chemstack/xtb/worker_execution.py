@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Any, Callable
 
 from chemstack.core.admission import activate_reserved_slot, release_slot
-from chemstack.core.facade import resolve_grouped_attr
 from chemstack.core.queue import (
     list_queue,
     mark_cancelled,
@@ -116,19 +115,6 @@ class WorkerExecutionDependencies:
     tracking: WorkerTrackingDependencies
     runner: WorkerRunnerDependencies
     execute_queue_entry: Callable[..., Any] | None = None
-
-    def __getattr__(self, name: str) -> Any:
-        return resolve_grouped_attr(
-            name,
-            (
-                self.config,
-                self.admission,
-                self.context,
-                self.artifacts,
-                self.tracking,
-                self.runner,
-            ),
-        )
 
 
 def build_worker_execution_dependencies_from_groups(

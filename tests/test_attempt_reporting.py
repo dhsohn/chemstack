@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 
 from chemstack.orca.attempt_reporting import build_final_result, exit_with_result, last_out_path_from_state
-from chemstack.orca.state_store import load_state, new_state
+from chemstack.orca.state import load_state, new_state
 from chemstack.orca.statuses import AnalyzerStatus, RunStatus
 from chemstack.orca.types import RunFinishedNotification
 

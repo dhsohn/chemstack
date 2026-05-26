@@ -11,7 +11,7 @@ from chemstack.core.queue import dequeue_next, enqueue, request_cancel
 
 from chemstack.xtb.commands import list_jobs, summary as summary_cmd
 from chemstack.xtb.config import AppConfig
-from chemstack.xtb.tracking import upsert_job_record
+from chemstack.xtb.job_locations import upsert_job_record
 from chemstack.xtb import state as state_mod
 
 

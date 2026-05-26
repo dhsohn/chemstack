@@ -6,6 +6,7 @@ from typing import Any
 
 import yaml
 
+from ._orchestration_deps import OrchestrationDeps
 from ._orchestration_stage_runtime_shared import (
     _call_engine_aware,
     _clear_submission_deferred_metadata,
@@ -20,23 +21,27 @@ from .state import workflow_workspace_internal_engine_paths
 
 
 def ensure_crest_job_dir_impl(
-    stage: dict[str, Any], *, crest_allowed_root: Path, workflow_id: str
+    stage: dict[str, Any],
+    *,
+    crest_allowed_root: Path,
+    workflow_id: str,
+    deps: OrchestrationDeps | None = None,
 ) -> str:
-    o = _orchestration_context()
+    o = _orchestration_context(deps)
     task = stage["task"]
     payload = task["payload"]
-    existing = o._normalize_text(payload.get("job_dir"))
+    existing = o.stages._normalize_text(payload.get("job_dir"))
     if existing:
         return existing
-    stage_id = o._normalize_text(stage.get("stage_id"))
+    stage_id = o.stages._normalize_text(stage.get("stage_id"))
     job_dir = crest_allowed_root / stage_id
     job_dir.mkdir(parents=True, exist_ok=True)
     input_target = job_dir / "input.xyz"
     shutil.copy2(Path(payload["source_input_xyz"]).expanduser().resolve(), input_target)
     overrides = _manifest_override_mapping(payload.get("job_manifest_overrides"))
-    task_resource_request = o._coerce_mapping(task.get("resource_request"))
+    task_resource_request = o.stages._coerce_mapping(task.get("resource_request"))
     manifest_payload: dict[str, Any] = {
-        "mode": o._normalize_text(payload.get("mode")) or "standard",
+        "mode": o.stages._normalize_text(payload.get("mode")) or "standard",
         "speed": "quick",
         "gfn": 2,
     }
@@ -45,8 +50,8 @@ def ensure_crest_job_dir_impl(
             continue
         manifest_payload[key] = value
     manifest_payload["resources"] = {
-        "max_cores": o._safe_int(task_resource_request.get("max_cores"), default=8),
-        "max_memory_gb": o._safe_int(task_resource_request.get("max_memory_gb"), default=32),
+        "max_cores": o.stages._safe_int(task_resource_request.get("max_cores"), default=8),
+        "max_memory_gb": o.stages._safe_int(task_resource_request.get("max_memory_gb"), default=32),
     }
     manifest_payload["input_xyz"] = "input.xyz"
     (job_dir / "crest_job.yaml").write_text(
@@ -70,19 +75,19 @@ def _submit_crest_stage(
     crest_auto_repo_root: str | None,
     workflow_id: str,
 ) -> None:
-    job_dir = o._ensure_crest_job_dir(
+    job_dir = o.stages._ensure_crest_job_dir(
         stage,
         crest_allowed_root=crest_runtime_paths["allowed_root"],
         workflow_id=workflow_id,
     )
-    submission = o.submit_crest_job_dir(
+    submission = o.engines.submit_crest_job_dir(
         job_dir=job_dir,
         priority=int(task["enqueue_payload"].get("priority", 10) or 10),
         config_path=str(crest_auto_config),
         executable=crest_auto_executable,
         repo_root=crest_auto_repo_root,
     )
-    submission["submitted_at"] = o.now_utc_iso()
+    submission["submitted_at"] = o.persistence.now_utc_iso()
     task["submission_result"] = submission
     stage_metadata = stage.setdefault("metadata", {})
     if not isinstance(stage_metadata, dict):
@@ -110,18 +115,18 @@ def _load_crest_contract(
     crest_runtime_paths: dict[str, Path],
     crest_auto_config: str | None,
 ) -> Any | None:
-    payload = o._task_payload_dict(task)
-    job_dir_target = o._normalize_text(payload.get("job_dir"))
+    payload = o.stages._task_payload_dict(task)
+    job_dir_target = o.stages._normalize_text(payload.get("job_dir"))
     index_root = (
         crest_runtime_paths["allowed_root"]
-        or _call_engine_aware(o._load_config_root, crest_auto_config, engine="crest")
+        or _call_engine_aware(o.stages._load_config_root, crest_auto_config, engine="crest")
         or Path(job_dir_target or ".").resolve().parent
     )
-    target = job_dir_target or o._submission_target(stage)
+    target = job_dir_target or o.stages._submission_target(stage)
     if not target:
         return None
     return _load_contract_or_none(
-        o.load_crest_artifact_contract,
+        o.engines.load_crest_artifact_contract,
         engine="crest",
         target=target,
         stage=stage,
@@ -165,16 +170,17 @@ def sync_crest_stage_impl(
     submit_ready: bool,
     workflow_id: str,
     workspace_dir: Path,
+    deps: OrchestrationDeps | None = None,
 ) -> None:
-    o = _orchestration_context()
+    o = _orchestration_context(deps)
     task = stage.get("task")
-    if not isinstance(task, dict) or o._normalize_text(task.get("engine")) != "crest":
+    if not isinstance(task, dict) or o.stages._normalize_text(task.get("engine")) != "crest":
         return
     crest_runtime_paths = workflow_workspace_internal_engine_paths(workspace_dir, engine="crest")
     if (
-        o._normalize_text(task.get("status")) == "planned"
+        o.stages._normalize_text(task.get("status")) == "planned"
         and submit_ready
-        and o._normalize_text(crest_auto_config)
+        and o.stages._normalize_text(crest_auto_config)
     ):
         _submit_crest_stage(
             o,
@@ -197,27 +203,29 @@ def sync_crest_stage_impl(
         _apply_crest_contract(stage, task, contract)
 
 
-def completed_crest_roles_impl(payload: dict[str, Any]) -> dict[str, dict[str, Any]]:
-    o = _orchestration_context()
+def completed_crest_roles_impl(
+    payload: dict[str, Any], *, deps: OrchestrationDeps | None = None
+) -> dict[str, dict[str, Any]]:
+    o = _orchestration_context(deps)
     latest_by_role: dict[str, dict[str, Any]] = {}
     for stage in payload.get("stages", []):
         if not isinstance(stage, dict):
             continue
         task = stage.get("task")
-        if not isinstance(task, dict) or o._normalize_text(task.get("engine")) != "crest":
+        if not isinstance(task, dict) or o.stages._normalize_text(task.get("engine")) != "crest":
             continue
         task_payload = task.get("payload")
-        role = o._normalize_text((stage.get("metadata") or {}).get("input_role")).lower()
+        role = o.stages._normalize_text((stage.get("metadata") or {}).get("input_role")).lower()
         if not role and isinstance(task_payload, dict):
-            role = o._normalize_text(task_payload.get("input_role")).lower()
+            role = o.stages._normalize_text(task_payload.get("input_role")).lower()
         if role:
             latest_by_role[role] = stage
     rows: dict[str, dict[str, Any]] = {}
     for role, stage in latest_by_role.items():
-        stage_status = o._normalize_text(stage.get("status")).lower()
+        stage_status = o.stages._normalize_text(stage.get("status")).lower()
         task = stage.get("task")
         task_status = (
-            o._normalize_text((task or {}).get("status")).lower() if isinstance(task, dict) else ""
+            o.stages._normalize_text((task or {}).get("status")).lower() if isinstance(task, dict) else ""
         )
         if stage_status == "completed" and task_status in {"", "completed"}:
             rows[role] = stage
@@ -225,28 +233,31 @@ def completed_crest_roles_impl(payload: dict[str, Any]) -> dict[str, dict[str, A
 
 
 def completed_crest_stage_impl(
-    stage: dict[str, Any], *, crest_auto_config: str | None
+    stage: dict[str, Any],
+    *,
+    crest_auto_config: str | None,
+    deps: OrchestrationDeps | None = None,
 ) -> Any | None:
-    o = _orchestration_context()
+    o = _orchestration_context(deps)
     task = stage.get("task")
     if not isinstance(task, dict):
         return None
-    payload = o._task_payload_dict(task)
-    job_dir_target = o._normalize_text(payload.get("job_dir"))
+    payload = o.stages._task_payload_dict(task)
+    job_dir_target = o.stages._normalize_text(payload.get("job_dir"))
     index_root = (
         _workflow_internal_runs_root(job_dir_target, engine="crest")
-        or _call_engine_aware(o._load_config_root, crest_auto_config, engine="crest")
+        or _call_engine_aware(o.stages._load_config_root, crest_auto_config, engine="crest")
         or (
             Path(job_dir_target).expanduser().resolve().parent
             if job_dir_target
             else Path(".").resolve().parent
         )
     )
-    target = job_dir_target or o._submission_target(stage)
+    target = job_dir_target or o.stages._submission_target(stage)
     if not target:
         return None
     return _load_contract_or_none(
-        o.load_crest_artifact_contract,
+        o.engines.load_crest_artifact_contract,
         engine="crest",
         target=target,
         stage=stage,

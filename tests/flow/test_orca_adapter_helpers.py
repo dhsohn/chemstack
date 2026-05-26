@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
@@ -221,44 +220,3 @@ def test_find_queue_entry_matches_multiple_identifier_types(
 
     assert entry is not None
     assert entry["queue_id"] == expected_queue_id
-
-
-def test_load_orca_artifact_contract_rejects_non_orca_index_records(tmp_path: Path) -> None:
-    allowed_root = tmp_path / "orca_runs"
-    reaction_dir = allowed_root / "rxn_wrong_app"
-    reaction_dir.mkdir(parents=True)
-    _write_json(
-        reaction_dir / "run_state.json",
-        {
-            "run_id": "run_wrong_app",
-            "reaction_dir": str(reaction_dir),
-            "status": "running",
-        },
-    )
-    record = SimpleNamespace(
-        job_id="job_wrong_app",
-        app_name="crest_auto",
-        job_type="orca_opt",
-        status="running",
-        original_run_dir=str(reaction_dir),
-        molecule_key="bad",
-        selected_input_xyz="",
-        organized_output_dir="",
-        latest_known_path=str(reaction_dir),
-        resource_request={},
-        resource_actual={},
-    )
-
-    orca_adapter._orca_auto_tracking_module.cache_clear()
-
-    with pytest.MonkeyPatch.context() as monkeypatch:
-        monkeypatch.setattr(orca_adapter, "_tracked_contract_payload", lambda **kwargs: None)
-        monkeypatch.setattr(orca_adapter, "_tracked_runtime_context", lambda **kwargs: None)
-        monkeypatch.setattr(orca_adapter, "_tracked_artifact_context", lambda **kwargs: (None, None, {}, {}, {}))
-        monkeypatch.setattr(orca_adapter, "resolve_job_location", lambda index_root, target: record)
-
-        with pytest.raises(ValueError, match="Expected chemstack_orca index record"):
-            orca_adapter.load_orca_artifact_contract(
-                target="job_wrong_app",
-                orca_allowed_root=allowed_root,
-            )

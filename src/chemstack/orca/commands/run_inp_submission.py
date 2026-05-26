@@ -9,11 +9,12 @@ if TYPE_CHECKING:
 
 
 def build_queue_enqueued_notification(entry: Any, *, deps: Any) -> QueueEnqueuedNotification:
+    submission = deps.submission
     return {
-        "queue_id": deps._queue_store.queue_entry_id(entry),
-        "reaction_dir": deps._queue_store.queue_entry_reaction_dir(entry),
-        "priority": deps._queue_store.queue_entry_priority(entry),
-        "force": deps._queue_store.queue_entry_force(entry),
+        "queue_id": submission._queue_store.queue_entry_id(entry),
+        "reaction_dir": submission._queue_store.queue_entry_reaction_dir(entry),
+        "priority": submission._queue_store.queue_entry_priority(entry),
+        "force": submission._queue_store.queue_entry_force(entry),
         "enqueued_at": entry.get("enqueued_at", ""),
     }
 
@@ -27,7 +28,7 @@ def resource_request_from_selected_inp(
 ) -> dict[str, int]:
     if selected_inp is None:
         raise ValueError("No .inp file selected for ORCA queue submission.")
-    resource_request, actions = deps.ensure_submission_resource_request(
+    resource_request, actions = deps.submission.ensure_submission_resource_request(
         selected_inp,
         default_max_cores=int(cfg.resources.max_cores_per_task),
         default_max_memory_gb=int(cfg.resources.max_memory_gb_per_task),
@@ -63,7 +64,7 @@ def build_queue_metadata(
 
     selected_input = str(selected_inp) if selected_inp is not None else ""
     job_type, molecule_key = resolve_job_metadata(selected_input, reaction_dir)
-    requested = deps._resource_request_from_selected_inp(cfg, selected_inp)
+    requested = deps.submission._resource_request_from_selected_inp(cfg, selected_inp)
     metadata: dict[str, Any] = {
         "submitted_via": "run_inp",
         "max_retries": max(0, int(cfg.runtime.default_max_retries)),
@@ -101,9 +102,9 @@ def upsert_queued_job_record(
     if not isinstance(requested, dict):
         requested = {}
     if not requested and selected_inp is not None and selected_inp.exists():
-        requested = deps.read_resource_request_from_input(selected_inp)
+        requested = deps.submission.read_resource_request_from_input(selected_inp)
     if not requested and selected_inp is not None and selected_inp.exists():
-        requested = deps._resource_request_from_selected_inp(cfg, selected_inp)
+        requested = deps.submission._resource_request_from_selected_inp(cfg, selected_inp)
     actual = metadata.get("resource_actual")
     if not isinstance(actual, dict):
         actual = dict(requested)
@@ -131,14 +132,15 @@ def submit_as_queued(
 ) -> int:
     from ..queue_store import DuplicateEntryError, enqueue
 
+    submission = deps.submission
     allowed_root = Path(cfg.runtime.allowed_root).expanduser().resolve()
     if selected_inp is None:
         try:
-            selected_inp = deps._select_latest_inp(reaction_dir)
+            selected_inp = submission._select_latest_inp(reaction_dir)
         except ValueError:
             selected_inp = None
-    deps._warn_ignored_resource_override_flags(args)
-    queue_metadata = deps._build_queue_metadata(
+    submission._warn_ignored_resource_override_flags(args)
+    queue_metadata = submission._build_queue_metadata(
         cfg,
         reaction_dir=reaction_dir,
         selected_inp=selected_inp,
@@ -156,9 +158,9 @@ def submit_as_queued(
         logger.error("%s", exc)
         return 1
 
-    task_id = deps._queue_store.queue_entry_task_id(entry)
+    task_id = submission._queue_store.queue_entry_task_id(entry)
     if task_id:
-        deps._upsert_queued_job_record(
+        submission._upsert_queued_job_record(
             cfg,
             reaction_dir=reaction_dir,
             selected_inp=selected_inp,
@@ -166,8 +168,8 @@ def submit_as_queued(
             queue_metadata=queue_metadata,
         )
 
-    worker_info = deps._worker_status_for_submission(allowed_root)
-    deps._emit_queued_submission(
+    worker_info = submission._worker_status_for_submission(allowed_root)
+    submission._emit_queued_submission(
         reaction_dir,
         entry,
         worker_status=worker_info.status,
@@ -175,6 +177,6 @@ def submit_as_queued(
         worker_log=worker_info.log_file,
         worker_detail=worker_info.detail,
     )
-    notification = deps._build_queue_enqueued_notification(entry)
-    deps.notify_queue_enqueued_event(cfg.telegram, notification)
+    notification = submission._build_queue_enqueued_notification(entry)
+    deps.notifications.notify_queue_enqueued_event(cfg.telegram, notification)
     return 0

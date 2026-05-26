@@ -14,11 +14,11 @@ from ._orchestration_deps import (
 )
 from .state import workflow_stage_dirnames_for_engine, workflow_workspace_internal_engine_paths
 
-_LOGGER = logging.getLogger("chemstack.flow._orchestration_stage_runtime")
+_LOGGER = logging.getLogger("chemstack.flow._orchestration_stage_runtime_shared")
 
 
-def _orchestration_context() -> OrchestrationDeps:
-    return orchestration_deps()
+def _orchestration_context(deps: OrchestrationDeps | None = None) -> OrchestrationDeps:
+    return deps or orchestration_deps()
 
 
 def _call_engine_aware(func: Any, config_path: str | None, *, engine: str) -> Any:
@@ -149,14 +149,15 @@ def append_unique_artifact_impl(
     path: str,
     selected: bool = False,
     metadata: dict[str, Any] | None = None,
+    deps: OrchestrationDeps | None = None,
 ) -> None:
-    o = _orchestration_context()
-    path_text = o._normalize_text(path)
+    o = _orchestration_context(deps)
+    path_text = o.stages._normalize_text(path)
     if not path_text:
         return
-    key = (o._normalize_text(kind), path_text)
+    key = (o.stages._normalize_text(kind), path_text)
     seen = {
-        (o._normalize_text(item.get("kind")), o._normalize_text(item.get("path")))
+        (o.stages._normalize_text(item.get("kind")), o.stages._normalize_text(item.get("path")))
         for item in rows
         if isinstance(item, dict)
     }
@@ -164,7 +165,7 @@ def append_unique_artifact_impl(
         return
     rows.append(
         {
-            "kind": o._normalize_text(kind) or "artifact",
+            "kind": o.stages._normalize_text(kind) or "artifact",
             "path": path_text,
             "selected": bool(selected),
             "metadata": dict(metadata or {}),

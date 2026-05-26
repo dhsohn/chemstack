@@ -4,10 +4,9 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
 
-import pytest
-
 
 from chemstack.flow import orchestration
+from chemstack.flow._orchestration_deps import orchestration_deps
 
 
 def _write_xyz_ensemble(path: Path, comments: tuple[str, ...]) -> None:
@@ -27,7 +26,6 @@ def _write_xyz_ensemble(path: Path, comments: tuple[str, ...]) -> None:
 
 def test_sync_xtb_stage_submits_initial_attempt_and_records_handoff_metadata(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     contract = SimpleNamespace(
         status="completed",
@@ -62,34 +60,27 @@ def test_sync_xtb_stage_submits_initial_attempt_and_records_handoff_metadata(
         },
     }
 
-    monkeypatch.setattr(
-        orchestration, "sibling_allowed_root", lambda path: tmp_path / "xtb_allowed"
+    deps = orchestration_deps(
+        overrides={
+            "_load_config_root": lambda config_path, **kwargs: tmp_path / "xtb_allowed",
+            "_ensure_xtb_job_dir": lambda stage, **kwargs: str(
+                tmp_path / "xtb_allowed" / "wf_01" / "job_01"
+            ),
+            "submit_xtb_job_dir": lambda **kwargs: {
+                "status": "submitted",
+                "queue_id": "q_xtb_01",
+                "job_id": "xtb_job_01",
+            },
+            "load_xtb_artifact_contract": lambda **kwargs: contract,
+            "_xtb_handoff_status": lambda current_contract: {
+                "status": "ready",
+                "reason": "",
+                "message": "",
+                "artifact_path": "/tmp/xtb_done/ts_guess.xyz",
+            },
+            "now_utc_iso": lambda: "2026-04-19T14:00:00+00:00",
+        }
     )
-    monkeypatch.setattr(
-        orchestration, "_load_config_root", lambda config_path: tmp_path / "xtb_allowed"
-    )
-    monkeypatch.setattr(
-        orchestration,
-        "_ensure_xtb_job_dir",
-        lambda stage, **kwargs: str(tmp_path / "xtb_allowed" / "wf_01" / "job_01"),
-    )
-    monkeypatch.setattr(
-        orchestration,
-        "submit_xtb_job_dir",
-        lambda **kwargs: {"status": "submitted", "queue_id": "q_xtb_01", "job_id": "xtb_job_01"},
-    )
-    monkeypatch.setattr(orchestration, "load_xtb_artifact_contract", lambda **kwargs: contract)
-    monkeypatch.setattr(
-        orchestration,
-        "_xtb_handoff_status",
-        lambda current_contract: {
-            "status": "ready",
-            "reason": "",
-            "message": "",
-            "artifact_path": "/tmp/xtb_done/ts_guess.xyz",
-        },
-    )
-    monkeypatch.setattr(orchestration, "now_utc_iso", lambda: "2026-04-19T14:00:00+00:00")
 
     orchestration._sync_xtb_stage(
         stage,
@@ -99,6 +90,7 @@ def test_sync_xtb_stage_submits_initial_attempt_and_records_handoff_metadata(
         submit_ready=True,
         workflow_id="wf_01",
         workspace_dir=tmp_path / "workspace" / "wf_01",
+        deps=deps,
     )
 
     metadata = stage["metadata"]
@@ -132,7 +124,6 @@ def test_sync_xtb_stage_submits_initial_attempt_and_records_handoff_metadata(
 
 def test_sync_xtb_stage_retries_failed_handoff_when_retry_budget_remains(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     contract = SimpleNamespace(
         status="completed",
@@ -159,35 +150,27 @@ def test_sync_xtb_stage_retries_failed_handoff_when_retry_budget_remains(
     }
     submissions: list[dict[str, Any]] = []
 
-    monkeypatch.setattr(
-        orchestration, "_load_config_root", lambda config_path: tmp_path / "xtb_allowed"
-    )
-    monkeypatch.setattr(
-        orchestration, "sibling_allowed_root", lambda path: tmp_path / "xtb_allowed"
-    )
-    monkeypatch.setattr(orchestration, "load_xtb_artifact_contract", lambda **kwargs: contract)
-    monkeypatch.setattr(
-        orchestration,
-        "_xtb_handoff_status",
-        lambda current_contract: {
-            "status": "failed",
-            "reason": "xtb_ts_guess_missing",
-            "message": "missing ts guess",
-            "artifact_path": "",
-        },
-    )
-    monkeypatch.setattr(
-        orchestration,
-        "_write_xtb_path_job",
-        lambda stage, **kwargs: str(tmp_path / "xtb_allowed" / "wf_02" / "retry_attempt_01"),
-    )
-
     def fake_submit_xtb_job_dir(**kwargs: Any) -> dict[str, str]:
         submissions.append(kwargs)
         return {"status": "submitted", "queue_id": "q_retry_01", "job_id": "xtb_job_retry"}
 
-    monkeypatch.setattr(orchestration, "submit_xtb_job_dir", fake_submit_xtb_job_dir)
-    monkeypatch.setattr(orchestration, "now_utc_iso", lambda: "2026-04-19T14:10:00+00:00")
+    deps = orchestration_deps(
+        overrides={
+            "_load_config_root": lambda config_path, **kwargs: tmp_path / "xtb_allowed",
+            "load_xtb_artifact_contract": lambda **kwargs: contract,
+            "_xtb_handoff_status": lambda current_contract: {
+                "status": "failed",
+                "reason": "xtb_ts_guess_missing",
+                "message": "missing ts guess",
+                "artifact_path": "",
+            },
+            "_write_xtb_path_job": lambda stage, **kwargs: str(
+                tmp_path / "xtb_allowed" / "wf_02" / "retry_attempt_01"
+            ),
+            "submit_xtb_job_dir": fake_submit_xtb_job_dir,
+            "now_utc_iso": lambda: "2026-04-19T14:10:00+00:00",
+        }
+    )
 
     orchestration._sync_xtb_stage(
         stage,
@@ -197,6 +180,7 @@ def test_sync_xtb_stage_retries_failed_handoff_when_retry_budget_remains(
         submit_ready=True,
         workflow_id="wf_02",
         workspace_dir=tmp_path / "workspace" / "wf_02",
+        deps=deps,
     )
 
     metadata = stage["metadata"]
@@ -222,7 +206,6 @@ def test_sync_xtb_stage_retries_failed_handoff_when_retry_budget_remains(
 
 def test_sync_xtb_stage_stops_retrying_after_limit_and_materializes_empty_candidates(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     contract = SimpleNamespace(
         status="failed",
@@ -248,26 +231,20 @@ def test_sync_xtb_stage_stops_retrying_after_limit_and_materializes_empty_candid
         },
     }
 
-    monkeypatch.setattr(
-        orchestration, "_load_config_root", lambda config_path: tmp_path / "xtb_allowed"
-    )
-    monkeypatch.setattr(orchestration, "load_xtb_artifact_contract", lambda **kwargs: contract)
-    monkeypatch.setattr(
-        orchestration,
-        "_xtb_handoff_status",
-        lambda current_contract: {
-            "status": "failed",
-            "reason": "xtb_ts_guess_missing",
-            "message": "missing ts guess",
-            "artifact_path": "",
-        },
-    )
-    monkeypatch.setattr(
-        orchestration,
-        "submit_xtb_job_dir",
-        lambda **kwargs: (_ for _ in ()).throw(
-            AssertionError("should not resubmit once retry limit is exhausted")
-        ),
+    deps = orchestration_deps(
+        overrides={
+            "_load_config_root": lambda config_path, **kwargs: tmp_path / "xtb_allowed",
+            "load_xtb_artifact_contract": lambda **kwargs: contract,
+            "_xtb_handoff_status": lambda current_contract: {
+                "status": "failed",
+                "reason": "xtb_ts_guess_missing",
+                "message": "missing ts guess",
+                "artifact_path": "",
+            },
+            "submit_xtb_job_dir": lambda **kwargs: (_ for _ in ()).throw(
+                AssertionError("should not resubmit once retry limit is exhausted")
+            ),
+        }
     )
 
     orchestration._sync_xtb_stage(
@@ -278,6 +255,7 @@ def test_sync_xtb_stage_stops_retrying_after_limit_and_materializes_empty_candid
         submit_ready=True,
         workflow_id="wf_03",
         workspace_dir=tmp_path / "workspace" / "wf_03",
+        deps=deps,
     )
 
     metadata = stage["metadata"]

@@ -3,7 +3,6 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Callable
 
-from chemstack.core.facade import resolve_dependency
 from chemstack.core.queue import engine_execution as _engine_execution
 from chemstack.core.queue import execution as _queue_execution
 
@@ -11,7 +10,11 @@ from .runner import XtbRunResult
 
 
 def _dependency(deps: Any | None, explicit: Any, name: str) -> Any:
-    return resolve_dependency(deps, explicit, name)
+    if explicit is not None:
+        return explicit
+    if deps is not None:
+        return getattr(deps, name)
+    raise TypeError(f"missing required dependency: {name}")
 
 
 def build_state_payload(

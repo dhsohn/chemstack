@@ -7,22 +7,22 @@ from typing import Any
 from chemstack.core.app_ids import CHEMSTACK_EXECUTABLE
 from chemstack.core.config.files import default_config_path_from_repo_root
 from chemstack.core.utils import file_lock, now_utc_iso, timestamped_token
-
-from .cli_common import (
+from chemstack.cli_common import (
     _dependency,
     _normalize_text,
     _project_root,
     _shared_chemstack_config,
     _workflow_root_from_args,
 )
-from . import cli_workflow_plan_commands as _plan_commands
 from . import cli_workflow_output as _workflow_output
 from .engine_options import WorkflowEngineOptions
-from .operations import (
-    advance_materialized_workflow,
-    cancel_workflow,
+from .orchestration import (
+    advance_workflow,
     create_conformer_screening_workflow,
-    create_reaction_workflow,
+    create_reaction_ts_search_workflow,
+)
+from .operations import (
+    cancel_workflow,
     get_workflow,
     get_workflow_artifacts,
     get_workflow_journal,
@@ -37,40 +37,12 @@ from .registry import (
 )
 from .runtime import advance_workflow_registry_once, workflow_worker_lock_path
 from .submitters import submit_reaction_ts_search_workflow
-from .workflows import (
-    build_conformer_screening_plan_from_target,
-    build_reaction_ts_search_plan_from_target,
-)
-
-
-def cmd_workflow_reaction_ts_search(args: Any, *, deps: Any | None = None) -> int:
-    build_plan = _dependency(
-        deps, "build_reaction_ts_search_plan_from_target", build_reaction_ts_search_plan_from_target
-    )
-    payload = _plan_commands.reaction_ts_search_plan_payload(args, build_plan)
-    return _plan_commands.emit_workflow_plan(
-        payload,
-        json_mode=bool(getattr(args, "json", False)),
-        show_enqueue=True,
-    )
-
-
-def cmd_workflow_conformer_screening(args: Any, *, deps: Any | None = None) -> int:
-    build_plan = _dependency(
-        deps,
-        "build_conformer_screening_plan_from_target",
-        build_conformer_screening_plan_from_target,
-    )
-    payload = _plan_commands.conformer_screening_plan_payload(args, build_plan)
-    return _plan_commands.emit_workflow_plan(
-        payload,
-        json_mode=bool(getattr(args, "json", False)),
-        show_enqueue=False,
-    )
 
 
 def cmd_workflow_create_reaction_ts_search(args: Any, *, deps: Any | None = None) -> int:
-    create_workflow = _dependency(deps, "create_reaction_workflow", create_reaction_workflow)
+    create_workflow = _dependency(
+        deps, "create_reaction_ts_search_workflow", create_reaction_ts_search_workflow
+    )
     print_created_workflow = _dependency(
         deps, "_print_created_workflow", _workflow_output.emit_created_workflow
     )
@@ -118,9 +90,7 @@ def cmd_workflow_advance(args: Any, *, deps: Any | None = None) -> int:
     shared_chemstack_config = _dependency(
         deps, "_shared_chemstack_config", _shared_chemstack_config
     )
-    advance_workflow = _dependency(
-        deps, "advance_materialized_workflow", advance_materialized_workflow
-    )
+    advance_workflow_fn = _dependency(deps, "advance_workflow", advance_workflow)
     emit_advance = _dependency(
         deps,
         "emit_workflow_advance",
@@ -129,7 +99,7 @@ def cmd_workflow_advance(args: Any, *, deps: Any | None = None) -> int:
     executable = _dependency(deps, "CHEMSTACK_EXECUTABLE", CHEMSTACK_EXECUTABLE)
 
     shared_config = shared_chemstack_config(args)
-    payload = advance_workflow(
+    payload = advance_workflow_fn(
         target=getattr(args, "target"),
         workflow_root=getattr(args, "workflow_root"),
         crest_auto_config=shared_config,

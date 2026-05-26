@@ -5,11 +5,10 @@ import argparse
 from chemstack.core.internal_cli import (
     EngineInternalCliSpec,
     build_engine_internal_parser,
-    dispatch_engine_internal_queue_command,
     run_engine_internal_cli,
 )
 
-from .commands import init as scaffold_cmd
+from .commands import init as init_cmd
 from .commands import list_jobs as list_cmd
 from .commands import queue as queue_cmd
 from .commands import reindex as reindex_cmd
@@ -28,55 +27,19 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
 
-def cmd_scaffold(args: argparse.Namespace) -> int:
-    return int(scaffold_cmd.cmd_init(args))
-
-
-def cmd_run_dir(args: argparse.Namespace) -> int:
-    return int(run_dir_cmd.cmd_run_dir(args))
-
-
-def cmd_list(args: argparse.Namespace) -> int:
-    return int(list_cmd.cmd_list(args))
-
-
-def cmd_reindex(args: argparse.Namespace) -> int:
-    return int(reindex_cmd.cmd_reindex(args))
-
-
-def cmd_summary(args: argparse.Namespace) -> int:
-    return int(summary_cmd.cmd_summary(args))
-
-
-def cmd_queue_cancel(args: argparse.Namespace) -> int:
-    return int(queue_cmd.cmd_queue_cancel(args))
-
-
-def cmd_queue_worker(args: argparse.Namespace) -> int:
-    return int(queue_cmd.cmd_queue_worker(args))
-
-
-def _cmd_queue(args: argparse.Namespace) -> int:
-    return dispatch_engine_internal_queue_command(
-        args,
-        queue_worker_handler=cmd_queue_worker,
-        queue_cancel_handler=cmd_queue_cancel,
-    )
-
-
 def main(argv: list[str] | None = None) -> int:
     return run_engine_internal_cli(
         argv,
         build_parser_fn=build_parser,
         command_handlers={
-            "scaffold": cmd_scaffold,
-            "run-dir": cmd_run_dir,
-            "list": cmd_list,
-            "reindex": cmd_reindex,
-            "summary": cmd_summary,
+            "scaffold": init_cmd.cmd_init,
+            "run-dir": run_dir_cmd.cmd_run_dir,
+            "list": list_cmd.cmd_list,
+            "reindex": reindex_cmd.cmd_reindex,
+            "summary": summary_cmd.cmd_summary,
         },
-        queue_worker_handler=cmd_queue_worker,
-        queue_cancel_handler=cmd_queue_cancel,
+        queue_worker_handler=queue_cmd.cmd_queue_worker,
+        queue_cancel_handler=queue_cmd.cmd_queue_cancel,
     )
 
 

@@ -7,9 +7,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
-from chemstack.core.config import engines as _config_engines
 from chemstack.core.commands import queue as _shared_queue
+from chemstack.core.queue import child_execution as _child_execution
+from chemstack.core.queue import engine_execution as _engine_execution
 from chemstack.core.queue import execution as _queue_execution
+from chemstack.core.queue.dependencies import ChildQueueWorkerDeps
 from chemstack.core.admission import (
     activate_reserved_slot,
     reconcile_stale_slots,
@@ -37,12 +39,11 @@ from chemstack.core.queue.worker import (
     request_job_cancellation,
     reserve_dequeued_entry,
     reserve_queue_worker_slot,
-    resolve_admission_limit,
     resolve_admission_root,
     start_background_job_process,
     terminate_process_group,
 )
-from chemstack.core.utils import coerce_list as _shared_coerce_list, now_utc_iso
+from chemstack.core.utils import now_utc_iso
 
 from .. import worker_execution as _worker_execution
 from ..config import default_config_path, load_config
@@ -66,7 +67,6 @@ from ..state import (
     write_state,
 )
 from .. import queue_artifacts as _queue_artifacts
-from .. import queue_dependencies as _queue_deps
 from .. import queue_terminal as _queue_terminal
 
 POLL_INTERVAL_SECONDS = 5
@@ -76,71 +76,19 @@ WORKER_SHUTDOWN_EXIT_CODE = 190
 WORKER_JOB_MODULE = "chemstack.xtb.worker_job"
 
 
-_QueueCommandDeps = _queue_deps.QueueCommandDeps
+_QueueWorkerDeps = ChildQueueWorkerDeps
 
 
-def _queue_command_deps() -> _QueueCommandDeps:
-    return _queue_deps.build_queue_command_deps(
-        timing=_queue_deps.QueueTimingDeps(
-            POLL_INTERVAL_SECONDS=POLL_INTERVAL_SECONDS,
-            time=time,
-            now_utc_iso=now_utc_iso,
-        ),
-        state=_queue_deps.QueueStateDeps(
-            is_recovery_pending=is_recovery_pending,
-            load_organized_ref=load_organized_ref,
-            load_report_json=load_report_json,
-            load_state=load_state,
-            mark_recovery_pending=mark_recovery_pending,
-            write_report_json=write_report_json,
-            write_report_md_lines=write_report_md_lines,
-            write_state=write_state,
-        ),
-        store=_queue_deps.QueueStoreDeps(
-            activate_reserved_slot=activate_reserved_slot,
-            get_cancel_requested=get_cancel_requested,
-            mark_cancelled=mark_cancelled,
-            mark_completed=mark_completed,
-            mark_failed=mark_failed,
-            reconcile_stale_slots=reconcile_stale_slots,
-            release_slot=release_slot,
-            requeue_running_entry=requeue_running_entry,
-            reserve_dequeued_entry=reserve_dequeued_entry,
-        ),
-        job=_queue_deps.QueueJobDeps(
-            finalize_job=finalize_xtb_job,
-            notify_job_finished=notify_job_finished,
-            notify_job_started=notify_job_started,
-            run_followup_job=run_xtb_ranking_job,
-            start_job=start_xtb_job,
-            upsert_job_record=upsert_job_record,
-        ),
-        helpers=_queue_deps.QueueHelperDeps(
-            _admission_root=_admission_root,
-            _build_terminal_result=_build_terminal_result,
-            _coerce_mapping=_coerce_mapping,
-            _dequeue_next_entry=_dequeue_next_entry,
-            _entry_resource_request=_entry_resource_request,
-            _ensure_terminal_queue_status=_ensure_terminal_queue_status,
-            _execute_queue_entry=_execute_queue_entry,
-            _finalize_execution_result=_finalize_execution_result,
-            _input_summary=_input_summary,
-            _job_dir=_job_dir,
-            _job_type=_job_type,
-            _load_terminal_summary=_load_terminal_summary,
-            _mark_recovery_pending_state=_mark_recovery_pending_state,
-            _pid_is_alive=_pid_is_alive,
-            _print_terminal_summary=_print_terminal_summary,
-            _queue_entries_with_roots=_queue_entries_with_roots,
-            _queue_entry_by_id=_queue_entry_by_id,
-            _reaction_key=_reaction_key,
-            _request_job_cancellation=_request_job_cancellation,
-            _selected_xyz=_selected_xyz,
-            _start_background_job_process=_start_background_job_process,
-            _terminate_process=_terminate_process,
-            _try_reserve_admission_slot=_try_reserve_admission_slot,
-            _write_execution_artifacts=_write_execution_artifacts,
-        ),
+def _queue_worker_deps() -> _QueueWorkerDeps:
+    return _QueueWorkerDeps(
+        POLL_INTERVAL_SECONDS=POLL_INTERVAL_SECONDS,
+        time=time,
+        release_slot=release_slot,
+        reserve_dequeued_entry=reserve_dequeued_entry,
+        _admission_root=_admission_root,
+        _dequeue_next_entry=_dequeue_next_entry,
+        _start_background_job_process=_start_background_job_process,
+        _try_reserve_admission_slot=_try_reserve_admission_slot,
     )
 
 
@@ -230,26 +178,23 @@ def _dequeue_next_entry(cfg: Any) -> tuple[Path, Any] | None:
 
 
 def _queue_entry_by_id(queue_root: Path | str, queue_id: str) -> Any | None:
-    for entry in list_queue(queue_root):
-        if entry.queue_id == queue_id:
-            return entry
-    return None
+    return _child_execution.find_queue_entry_by_id(
+        queue_root,
+        queue_id,
+        list_queue_fn=list_queue,
+    )
 
 
 def _job_dir(entry: Any) -> Path:
-    return Path(str(entry.metadata.get("job_dir", ""))).expanduser().resolve()
+    return _engine_execution.entry_metadata_resolved_path(entry, "job_dir")
 
 
 def _selected_xyz(entry: Any) -> Path:
-    return Path(str(entry.metadata.get("selected_input_xyz", ""))).expanduser().resolve()
+    return _engine_execution.entry_metadata_resolved_path(entry, "selected_input_xyz")
 
 
 def _admission_root(cfg: Any) -> str:
     return resolve_admission_root(cfg)
-
-
-def _admission_limit(cfg: Any) -> int:
-    return resolve_admission_limit(cfg)
 
 
 def _pid_is_alive(pid: int) -> bool:
@@ -267,19 +212,15 @@ def cmd_queue_cancel(args: Any) -> int:
 
 
 def _resource_caps(cfg: Any) -> dict[str, int]:
-    return resource_dict(cfg.resources.max_cores_per_task, cfg.resources.max_memory_gb_per_task)
+    return _engine_execution.engine_resource_caps(cfg, resource_dict_fn=resource_dict)
 
 
 def _coerce_resource_dict(value: Any) -> dict[str, int]:
-    return _config_engines.positive_int_mapping(value)
+    return _engine_execution.coerce_resource_request(value)
 
 
 def _coerce_mapping(value: Any) -> dict[str, Any]:
     return _queue_execution.coerce_mapping(value)
-
-
-def _coerce_list(value: Any) -> list[Any]:
-    return _shared_coerce_list(value)
 
 
 def _matching_state(
@@ -303,54 +244,26 @@ def _matching_state(
 
 
 def _entry_resource_request(cfg: Any, entry: Any) -> dict[str, int]:
-    return _coerce_resource_dict(entry.metadata.get("resource_request")) or _resource_caps(cfg)
+    return _engine_execution.entry_resource_request(
+        cfg,
+        entry,
+        resource_caps_fn=_resource_caps,
+        coerce_resource_request_fn=_coerce_resource_dict,
+    )
 
 
 def _job_type(entry: Any) -> str:
-    value = str(entry.metadata.get("job_type", "")).strip().lower()
+    value = _engine_execution.entry_metadata_text(entry, "job_type").lower()
     return value or "path_search"
 
 
 def _reaction_key(entry: Any, job_dir: Path) -> str:
-    value = str(entry.metadata.get("reaction_key", "")).strip()
+    value = _engine_execution.entry_metadata_text(entry, "reaction_key")
     return value or reaction_key_from_job_dir(job_dir)
 
 
 def _input_summary(entry: Any) -> dict[str, Any]:
-    payload = entry.metadata.get("input_summary", {})
-    return dict(payload) if isinstance(payload, dict) else {}
-
-
-def _build_state_payload(
-    entry: Any,
-    result: XtbRunResult,
-    *,
-    previous_state: dict[str, Any] | None = None,
-    resumed: bool = False,
-) -> dict[str, Any]:
-    return _queue_artifacts.build_state_payload(
-        entry,
-        result,
-        previous_state=previous_state,
-        resumed=resumed,
-        coerce_mapping_fn=_coerce_mapping,
-    )
-
-
-def _build_report_payload(
-    entry: Any,
-    result: XtbRunResult,
-    *,
-    previous_state: dict[str, Any] | None = None,
-    resumed: bool = False,
-) -> dict[str, Any]:
-    return _queue_artifacts.build_report_payload(
-        entry,
-        result,
-        previous_state=previous_state,
-        resumed=resumed,
-        coerce_mapping_fn=_coerce_mapping,
-    )
+    return _engine_execution.entry_metadata_dict(entry, "input_summary")
 
 
 def _write_execution_artifacts(
@@ -457,30 +370,6 @@ def _build_terminal_result(
 
 def _print_terminal_summary(summary: _TerminalSummary) -> None:
     _queue_terminal.print_terminal_summary(summary)
-
-
-def _terminal_status(
-    state: dict[str, Any], report: dict[str, Any], refreshed: Any, rc: int | None
-) -> str:
-    return _queue_terminal.terminal_status(state, report, refreshed, rc)
-
-
-def _terminal_reason(
-    state: dict[str, Any], report: dict[str, Any], refreshed: Any, *, status: str, rc: int | None
-) -> str:
-    return _queue_terminal.terminal_reason(
-        state,
-        report,
-        refreshed,
-        status=status,
-        rc=rc,
-    )
-
-
-def _terminal_metadata_update(
-    state: dict[str, Any], report: dict[str, Any], entry: Any
-) -> dict[str, Any]:
-    return _queue_terminal.terminal_metadata_update(state, report, entry)
 
 
 def _load_terminal_summary(
@@ -635,20 +524,99 @@ class QueueWorker(ChildProcessQueueWorker):
             config_path=config_path,
             auto_organize=False,
             max_concurrent=max_concurrent,
-            deps=_queue_command_deps(),
+            deps=_queue_worker_deps(),
         )
         del auto_organize
+
+    def _handle_worker_start_error(
+        self,
+        queue_root: Path,
+        entry: Any,
+        admission_token: str,
+        exc: OSError,
+    ) -> None:
+        release_slot(self.admission_root, admission_token)
+        job_dir = _job_dir(entry)
+        failure = _build_terminal_result(
+            entry,
+            job_dir=job_dir,
+            selected_xyz=_selected_xyz(entry),
+            job_type=_job_type(entry),
+            reaction_key=_reaction_key(entry, job_dir),
+            input_summary=_input_summary(entry),
+            resource_request=_entry_resource_request(self.cfg, entry),
+            status="failed",
+            reason=f"worker_start_error:{exc}",
+        )
+        _finalize_execution_result(
+            self.cfg,
+            queue_root=queue_root,
+            entry=entry,
+            result=failure,
+            auto_organize=self.auto_organize,
+            emit_output=True,
+        )
+
+    def _finalize_completed_job(self, _queue_id: str, job: Any, rc: int) -> None:
+        summary = _load_terminal_summary(job.queue_root, job.entry, rc=rc)
+        _ensure_terminal_queue_status(job.queue_root, job.entry, summary)
+        _print_terminal_summary(summary)
+        release_slot(self.admission_root, job.admission_token)
+
+    def _check_cancel_requests(self) -> None:
+        for job in self._running.values():
+            if job.cancel_requested:
+                continue
+            if get_cancel_requested(str(job.queue_root), job.entry.queue_id):
+                _request_job_cancellation(job.process)
+                job.cancel_requested = True
+
+    def _shutdown_running_job(self, queue_id: str, job: Any) -> None:
+        _terminate_process(job.process)
+        _mark_recovery_pending_state(self.cfg, job.entry, reason="worker_shutdown")
+        requeue_running_entry(str(job.queue_root), queue_id)
+        release_slot(self.admission_root, job.admission_token)
+
+    def _reconcile_worker_state(self) -> None:
+        reconcile_stale_slots(self.admission_root)
+        for queue_root, entry in _queue_entries_with_roots(self.cfg):
+            status = str(getattr(getattr(entry, "status", None), "value", "")).strip().lower()
+            if status != "running":
+                continue
+            summary = _load_terminal_summary(queue_root, entry)
+            if summary.status in {"completed", "failed", "cancelled"}:
+                _ensure_terminal_queue_status(queue_root, entry, summary)
+                continue
+
+            state = load_state(_job_dir(entry)) or {}
+            worker_job_pid = int(state.get("worker_job_pid", 0) or 0)
+            if worker_job_pid and _pid_is_alive(worker_job_pid):
+                continue
+            requeue_running_entry(str(queue_root), entry.queue_id)
+            _mark_recovery_pending_state(self.cfg, entry, reason="crashed_recovery")
 
 
 def _process_one(cfg: Any, *, auto_organize: bool) -> str:
     del auto_organize
-    from chemstack.core.queue.worker import process_one_child_queue
+    slot_token = _try_reserve_admission_slot(cfg)
+    if slot_token is None:
+        return "blocked"
 
-    return process_one_child_queue(
-        cfg,
-        auto_organize=False,
-        deps=_queue_command_deps(),
-    )
+    try:
+        dequeued = _dequeue_next_entry(cfg)
+        if dequeued is None:
+            return "idle"
+        queue_root, entry = dequeued
+        _execute_queue_entry(
+            cfg,
+            queue_root=queue_root,
+            entry=entry,
+            auto_organize=False,
+            emit_output=True,
+        )
+        return "processed"
+    finally:
+        release_slot(_admission_root(cfg), slot_token)
 
 
 def run_worker_job(

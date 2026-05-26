@@ -17,7 +17,7 @@ from .queue_store import (
     queue_entry_reaction_dir,
     queue_entry_status,
 )
-from .state_store import STATE_FILE_NAME, load_state
+from .state import STATE_FILE_NAME, load_state
 from .statuses import QueueStatus
 from .types import QueueEntry
 

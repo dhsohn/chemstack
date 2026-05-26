@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, Mapping
 
-from .state_store import finalize_state, now_utc_iso, state_path, write_report_files
+from .state import finalize_state, now_utc_iso, state_path, write_report_files
 from .statuses import AnalyzerStatus, RunStatus
 from .types import (
     RetryNotification,

@@ -9,7 +9,7 @@ from typing import Any, Dict, Iterator, List, Mapping, Optional
 
 from . import lock_utils
 from .pathing import resolve_artifact_path
-from .state_store import atomic_write_text, load_state, now_utc_iso
+from .state import atomic_write_text, load_state, now_utc_iso
 
 logger = logging.getLogger(__name__)
 

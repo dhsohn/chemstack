@@ -8,11 +8,16 @@ from typing import Any
 import pytest
 
 from chemstack.core.indexing import get_job_location
+from chemstack.core.internal_cli import dispatch_engine_internal_queue_command
 from chemstack.core.queue import list_queue
 
 from chemstack.crest import _internal_cli as cli
+from chemstack.crest.commands import init as init_cmd
+from chemstack.crest.commands import list_jobs as list_cmd
 from chemstack.crest.commands import queue as queue_cmd
+from chemstack.crest.commands import reindex as reindex_cmd
 from chemstack.crest.commands import run_dir as run_dir_cmd
+from chemstack.crest.commands import summary as summary_cmd
 from chemstack.crest.runner import CrestRunResult
 from chemstack.crest.state import load_organized_ref, load_report_json, load_state
 
@@ -75,18 +80,19 @@ def test_build_parser_supports_internal_scaffold_run_dir_and_queue_subcommands()
 
 
 @pytest.mark.parametrize(
-    ("argv", "attr_name", "expected_result"),
+    ("argv", "command_module", "attr_name", "expected_result"),
     [
-        (["scaffold", "--root", "/tmp/job"], "cmd_scaffold", 11),
-        (["run-dir", "/tmp/job"], "cmd_run_dir", 12),
-        (["list"], "cmd_list", 13),
-        (["reindex"], "cmd_reindex", 15),
-        (["summary", "job-123"], "cmd_summary", 16),
+        (["scaffold", "--root", "/tmp/job"], init_cmd, "cmd_init", 11),
+        (["run-dir", "/tmp/job"], run_dir_cmd, "cmd_run_dir", 12),
+        (["list"], list_cmd, "cmd_list", 13),
+        (["reindex"], reindex_cmd, "cmd_reindex", 15),
+        (["summary", "job-123"], summary_cmd, "cmd_summary", 16),
     ],
 )
 def test_main_dispatches_top_level_commands(
     monkeypatch: pytest.MonkeyPatch,
     argv: list[str],
+    command_module: Any,
     attr_name: str,
     expected_result: int,
 ) -> None:
@@ -96,7 +102,7 @@ def test_main_dispatches_top_level_commands(
         seen.append(args)
         return expected_result
 
-    monkeypatch.setattr(cli, attr_name, _stub)
+    monkeypatch.setattr(command_module, attr_name, _stub)
 
     assert cli.main(argv) == expected_result
     assert len(seen) == 1
@@ -114,8 +120,8 @@ def test_main_dispatches_queue_worker_and_cancel(monkeypatch: pytest.MonkeyPatch
         cancel_calls.append(args)
         return 22
 
-    monkeypatch.setattr(cli, "cmd_queue_worker", _worker)
-    monkeypatch.setattr(cli, "cmd_queue_cancel", _cancel)
+    monkeypatch.setattr(queue_cmd, "cmd_queue_worker", _worker)
+    monkeypatch.setattr(queue_cmd, "cmd_queue_cancel", _cancel)
 
     assert cli.main(["queue", "worker"]) == 21
     assert cli.main(["queue", "cancel", "job-123"]) == 22
@@ -128,7 +134,11 @@ def test_main_dispatches_queue_worker_and_cancel(monkeypatch: pytest.MonkeyPatch
 
 def test_cmd_queue_rejects_unknown_subcommand() -> None:
     with pytest.raises(ValueError, match="Unsupported queue subcommand: noop"):
-        cli._cmd_queue(Namespace(queue_command="noop"))
+        dispatch_engine_internal_queue_command(
+            Namespace(queue_command="noop"),
+            queue_worker_handler=lambda args: 0,
+            queue_cancel_handler=lambda args: 0,
+        )
 
 
 def test_main_run_dir_accepts_positional_job_dir(
@@ -144,23 +154,11 @@ def test_main_run_dir_accepts_positional_job_dir(
         captured_args.append(args)
         return 19
 
-    monkeypatch.setattr(cli, "cmd_run_dir", _stub)
+    monkeypatch.setattr(run_dir_cmd, "cmd_run_dir", _stub)
 
     assert cli.main(["--config", str(config_path), "run-dir", str(job_dir)]) == 19
     assert len(captured_args) == 1
     assert captured_args[0].path == str(job_dir)
-
-
-def test_internal_cli_command_helpers_delegate_to_crest_command_modules(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(cli.scaffold_cmd, "cmd_init", lambda args: 27)
-    monkeypatch.setattr(cli.run_dir_cmd, "cmd_run_dir", lambda args: 28)
-    monkeypatch.setattr(cli.summary_cmd, "cmd_summary", lambda args: 30)
-
-    scaffold_rc = cli.cmd_scaffold(Namespace(config="/tmp/chemstack.yaml", root="/tmp/crest-job"))
-    run_rc = cli.cmd_run_dir(Namespace(config="/tmp/chemstack.yaml", path="/tmp/run-job", priority=4))
-    summary_rc = cli.cmd_summary(Namespace(config="/tmp/chemstack.yaml", target="job-123", json=True))
-
-    assert (scaffold_rc, run_rc, summary_rc) == (27, 28, 30)
 
 
 def test_cmd_run_dir_queues_job_updates_state_and_index(

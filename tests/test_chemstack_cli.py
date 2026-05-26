@@ -6,6 +6,11 @@ from typing import Any
 
 import pytest
 
+from chemstack import cli_common
+from chemstack import cli_queue
+from chemstack import cli_run_dir
+from chemstack import cli_summary
+from chemstack import cli_workers
 from chemstack import cli as unified_cli
 
 
@@ -16,8 +21,8 @@ def _isolate_shared_config_discovery(monkeypatch: pytest.MonkeyPatch) -> None:
             return None
         return str(Path(explicit).expanduser().resolve())
 
-    monkeypatch.setattr(unified_cli, "_discover_shared_config_path", _explicit_shared_config_path)
-    monkeypatch.setattr(unified_cli, "shared_workflow_root_from_config", lambda config_path: None)
+    monkeypatch.setattr(cli_common, "_discover_shared_config_path", _explicit_shared_config_path)
+    monkeypatch.setattr(cli_common, "shared_workflow_root_from_config", lambda config_path: None)
 
 
 class _FakeWorkerProcess:
@@ -68,19 +73,19 @@ def test_build_parser_parses_unified_queue_commands() -> None:
     assert list_args.engine == ["xtb"]
     assert list_args.status == ["running"]
     assert list_args.kind == ["job"]
-    assert list_args.func is unified_cli.cmd_queue_list
+    assert list_args.func is cli_queue.cmd_queue_list
 
     clear_args = parser.parse_args(["queue", "list", "clear", "--json"])
     assert clear_args.command == "queue"
     assert clear_args.queue_command == "list"
     assert clear_args.action == "clear"
     assert clear_args.json is True
-    assert clear_args.func is unified_cli.cmd_queue_list
+    assert clear_args.func is cli_queue.cmd_queue_list
 
     cancel_args = parser.parse_args(["queue", "cancel", "xtb-q-1"])
     assert cancel_args.queue_command == "cancel"
     assert cancel_args.target == "xtb-q-1"
-    assert cancel_args.func is unified_cli.cmd_queue_cancel
+    assert cancel_args.func is cli_queue.cmd_queue_cancel
 
 
 def test_build_parser_parses_unified_run_dir_commands() -> None:
@@ -115,12 +120,12 @@ def test_build_parser_parses_unified_run_dir_commands() -> None:
     assert orca_args.force is True
     assert orca_args.max_cores == 12
     assert orca_args.max_memory_gb == 48
-    assert orca_args.func is unified_cli.cmd_run_dir
+    assert orca_args.func is cli_run_dir.cmd_run_dir
 
     assert workflow_args.path == "/tmp/workflow-inputs"
     assert workflow_args.priority == 6
     assert workflow_args.json is True
-    assert workflow_args.func is unified_cli.cmd_run_dir
+    assert workflow_args.func is cli_run_dir.cmd_run_dir
 
 
 def test_build_parser_parses_unified_init_scaffold_organize_and_summary_commands() -> None:
@@ -151,37 +156,37 @@ def test_build_parser_parses_unified_init_scaffold_organize_and_summary_commands
 
     assert init_args.command == "init"
     assert init_args.force is True
-    assert init_args.func is unified_cli.cmd_init
+    assert init_args.func is cli_run_dir.cmd_init
 
     assert ts_scaffold_args.command == "scaffold"
     assert ts_scaffold_args.scaffold_app == "ts_search"
     assert ts_scaffold_args.root == "/tmp/workflow-inputs"
     assert ts_scaffold_args.workflow_type == "reaction_ts_search"
     assert getattr(ts_scaffold_args, "crest_mode", None) is None
-    assert ts_scaffold_args.func is unified_cli.cmd_workflow_scaffold
+    assert ts_scaffold_args.func is cli_run_dir.cmd_workflow_scaffold
 
     assert shortcut_scaffold_args.command == "scaffold"
     assert shortcut_scaffold_args.scaffold_app == "conformer_search"
     assert shortcut_scaffold_args.root == "/tmp/conformer-inputs"
     assert shortcut_scaffold_args.workflow_type == "conformer_screening"
     assert getattr(shortcut_scaffold_args, "crest_mode", None) is None
-    assert shortcut_scaffold_args.func is unified_cli.cmd_workflow_scaffold
+    assert shortcut_scaffold_args.func is cli_run_dir.cmd_workflow_scaffold
 
     assert organize_args.command == "organize"
     assert organize_args.organize_app == "orca"
     assert organize_args.reaction_dir == "/tmp/rxn"
     assert organize_args.apply is True
-    assert organize_args.func is unified_cli.cmd_orca_organize
+    assert organize_args.func is cli_run_dir.cmd_orca_organize
 
     assert summary_args.command == "summary"
     assert summary_args.summary_app == "orca"
     assert summary_args.no_send is True
-    assert summary_args.func is unified_cli.cmd_summary
+    assert summary_args.func is cli_summary.cmd_summary
 
     assert combined_summary_args.command == "summary"
     assert combined_summary_args.summary_app == "combined"
     assert combined_summary_args.no_send is True
-    assert combined_summary_args.func is unified_cli.cmd_summary
+    assert combined_summary_args.func is cli_summary.cmd_summary
 
 
 def test_build_parser_rejects_removed_engine_specific_init_subcommands() -> None:
@@ -291,7 +296,7 @@ def test_main_dispatches_unified_queue_list(monkeypatch: pytest.MonkeyPatch) -> 
         seen.append(args)
         return 17
 
-    monkeypatch.setattr(unified_cli, "cmd_queue_list", fake_cmd)
+    monkeypatch.setattr(cli_queue, "cmd_queue_list", fake_cmd)
 
     result = unified_cli.main(["queue", "list", "--engine", "xtb", "--status", "running"])
 
@@ -309,7 +314,7 @@ def test_main_dispatches_unified_queue_cancel(monkeypatch: pytest.MonkeyPatch) -
         seen.append(args)
         return 18
 
-    monkeypatch.setattr(unified_cli, "cmd_queue_cancel", fake_cmd)
+    monkeypatch.setattr(cli_queue, "cmd_queue_cancel", fake_cmd)
 
     result = unified_cli.main(["queue", "cancel", "crest-q-1", "--json"])
 
@@ -343,7 +348,7 @@ def test_classify_existing_orca_worker_distinguishes_chemstack_and_unknown(
     command_argv: tuple[str, ...],
     expected: str,
 ) -> None:
-    assert unified_cli._classify_existing_orca_worker(command_argv) == expected
+    assert cli_workers._classify_existing_orca_worker(command_argv) == expected
 
 
 @pytest.mark.parametrize(
@@ -413,7 +418,8 @@ def test_main_dispatches_unified_engine_commands(
         seen.append(args)
         return expected_result
 
-    monkeypatch.setattr(unified_cli, attr_name, fake_cmd)
+    target_module = cli_summary if attr_name == "cmd_summary" else cli_run_dir
+    monkeypatch.setattr(target_module, attr_name, fake_cmd)
 
     result = unified_cli.main(argv)
 

@@ -6,7 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from chemstack.orca.attempt_resume import recover_missing_retry_input, resolve_execution_input, resume_terminal_decision
-from chemstack.orca.state_store import new_state
+from chemstack.orca.state import new_state
 from chemstack.orca.types import RunState
 
 

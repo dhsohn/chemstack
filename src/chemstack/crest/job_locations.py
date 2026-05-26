@@ -46,13 +46,13 @@ _LOCATION_API = build_engine_job_location_api(
     load_state_supplier=lambda: load_state,
     load_report_json_supplier=lambda: load_report_json,
 )
-_LOCATION_FACADE = _LOCATION_API.facade
+_LOCATION_SERVICE = _LOCATION_API.service
 
 _normalize_text = _engine_locations.normalize_text
-index_root_for_cfg = _LOCATION_FACADE.index_root_for_cfg
-runtime_roots_for_cfg = _LOCATION_FACADE.runtime_roots_for_cfg
-index_root_for_path = _LOCATION_FACADE.index_root_for_path
-_lookup_roots_for_target = _LOCATION_FACADE.lookup_roots_for_target
+index_root_for_cfg = _LOCATION_SERVICE.index_root_for_cfg
+runtime_roots_for_cfg = _LOCATION_SERVICE.runtime_roots_for_cfg
+index_root_for_path = _LOCATION_SERVICE.index_root_for_path
+_lookup_roots_for_target = _LOCATION_SERVICE.lookup_roots_for_target
 
 
 def list_job_records_for_cfg(cfg: AppConfig) -> list[tuple[Path, JobLocationRecord]]:
@@ -112,7 +112,7 @@ def build_job_location_record(
     )
 
 
-_build_job_location_record_from_kind = _LOCATION_FACADE.build_job_location_record
+_build_job_location_record_from_kind = _LOCATION_SERVICE.build_job_location_record
 
 
 def upsert_job_record(
@@ -182,4 +182,4 @@ def record_from_artifacts(
     )
 
 
-collect_reindex_payload = _LOCATION_FACADE.collect_reindex_payload
+collect_reindex_payload = _LOCATION_SERVICE.collect_reindex_payload

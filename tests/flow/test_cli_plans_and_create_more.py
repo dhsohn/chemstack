@@ -7,7 +7,8 @@ from typing import Any
 
 import pytest
 
-from chemstack.flow import cli
+from chemstack import cli_common
+from chemstack.flow import cli, cli_inspect, cli_run_dir, cli_workflow
 
 
 class _FakeSerializable:
@@ -16,44 +17,6 @@ class _FakeSerializable:
 
     def to_dict(self) -> dict[str, Any]:
         return dict(self.__dict__)
-
-
-def _plan_payload(template_name: str, *, include_source: bool = True) -> dict[str, Any]:
-    payload = {
-        "workflow_id": f"wf_{template_name}",
-        "template_name": template_name,
-        "status": "planned",
-        "reaction_key": "rxn_1",
-        "metadata": {"workspace_dir": "/tmp/workflows/wf_1"},
-        "stages": [
-            {
-                "stage_id": "stage_1",
-                "task": {
-                    "engine": "orca",
-                    "task_kind": "opt",
-                    "payload": {
-                        "selected_input_xyz": "/tmp/input.xyz",
-                        "reaction_dir": "/tmp/reaction_dir",
-                    },
-                    "enqueue_payload": {"command": "python -m chemstack.cli run-dir /tmp/reaction_dir"},
-                },
-            },
-            {
-                "stage_id": "stage_2",
-                "task": {
-                    "engine": "orca",
-                    "task_kind": "freq",
-                    "payload": {
-                        "selected_input_xyz": "/tmp/fallback.xyz",
-                        "suggested_command": "python -m chemstack.cli run-dir /tmp/fallback.xyz",
-                    },
-                },
-            },
-        ],
-    }
-    if include_source:
-        payload["source_job_id"] = "source_1"
-    return payload
 
 
 def _create_payload(template_name: str) -> dict[str, Any]:
@@ -80,16 +43,16 @@ def test_cmd_xtb_inspect_supports_text_and_json(monkeypatch: pytest.MonkeyPatch,
         selected_candidate_paths=["/tmp/selected.xyz"],
         analysis_summary={"status": "ok"},
     )
-    monkeypatch.setattr(cli, "load_xtb_artifact_contract", lambda **kwargs: contract)
+    monkeypatch.setattr(cli_inspect, "load_xtb_artifact_contract", lambda **kwargs: contract)
 
-    assert cli.cmd_xtb_inspect(SimpleNamespace(xtb_index_root="/tmp/xtb", target="xtb-job-1", json=False)) == 0
+    assert cli_inspect.cmd_xtb_inspect(SimpleNamespace(xtb_index_root="/tmp/xtb", target="xtb-job-1", json=False)) == 0
     stdout = capsys.readouterr().out
     assert "job_id: xtb-job-1" in stdout
     assert "candidate_count: 1" in stdout
     assert "selected_candidate_paths: ['/tmp/selected.xyz']" in stdout
     assert "analysis_summary: {'status': 'ok'}" in stdout
 
-    assert cli.cmd_xtb_inspect(SimpleNamespace(xtb_index_root="/tmp/xtb", target="xtb-job-1", json=True)) == 0
+    assert cli_inspect.cmd_xtb_inspect(SimpleNamespace(xtb_index_root="/tmp/xtb", target="xtb-job-1", json=True)) == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["job_id"] == "xtb-job-1"
     assert payload["job_type"] == "path_search"
@@ -110,11 +73,11 @@ def test_cmd_xtb_candidates_json_mode_serializes_candidates(monkeypatch: pytest.
             metadata={},
         )
     ]
-    monkeypatch.setattr(cli, "load_xtb_artifact_contract", lambda **kwargs: contract)
-    monkeypatch.setattr(cli, "select_xtb_downstream_inputs", lambda *args, **kwargs: candidates)
+    monkeypatch.setattr(cli_inspect, "load_xtb_artifact_contract", lambda **kwargs: contract)
+    monkeypatch.setattr(cli_inspect, "select_xtb_downstream_inputs", lambda *args, **kwargs: candidates)
 
     assert (
-        cli.cmd_xtb_candidates(
+        cli_inspect.cmd_xtb_candidates(
             SimpleNamespace(
                 xtb_index_root="/tmp/xtb",
                 target="xtb-job-2",
@@ -146,9 +109,9 @@ def test_cmd_crest_inspect_text_mode_formats_retained_paths(monkeypatch: pytest.
         retained_conformer_count=2,
         retained_conformer_paths=["/tmp/conf-1.xyz", "/tmp/conf-2.xyz"],
     )
-    monkeypatch.setattr(cli, "load_crest_artifact_contract", lambda **kwargs: contract)
+    monkeypatch.setattr(cli_inspect, "load_crest_artifact_contract", lambda **kwargs: contract)
 
-    assert cli.cmd_crest_inspect(SimpleNamespace(crest_index_root="/tmp/crest", target="crest-job-2", json=False)) == 0
+    assert cli_inspect.cmd_crest_inspect(SimpleNamespace(crest_index_root="/tmp/crest", target="crest-job-2", json=False)) == 0
     stdout = capsys.readouterr().out
     assert "job_id: crest-job-2" in stdout
     assert "retained_conformer_count: 2" in stdout
@@ -156,107 +119,11 @@ def test_cmd_crest_inspect_text_mode_formats_retained_paths(monkeypatch: pytest.
 
 
 @pytest.mark.parametrize(
-    ("builder_name", "command", "args", "payload", "expected_texts"),
-    [
-        (
-            "build_reaction_ts_search_plan_from_target",
-            cli.cmd_workflow_reaction_ts_search,
-            {
-                "xtb_index_root": "/tmp/xtb",
-                "target": "xtb-job-1",
-                "max_orca_stages": 2,
-                "include_unselected": False,
-                "workspace_root": "/tmp/workflows",
-                "charge": 0,
-                "multiplicity": 1,
-                "max_cores": 8,
-                "max_memory_gb": 16,
-                "orca_route_line": "! Opt",
-                "priority": 5,
-            },
-            _plan_payload("reaction_ts_search"),
-            [
-                "workflow_id: wf_reaction_ts_search",
-                "source_job_id: source_1",
-                "reaction_dir=/tmp/reaction_dir",
-                "enqueue_command=python -m chemstack.cli run-dir /tmp/reaction_dir",
-                "suggested_command=python -m chemstack.cli run-dir /tmp/fallback.xyz",
-            ],
-        ),
-        (
-            "build_conformer_screening_plan_from_target",
-            cli.cmd_workflow_conformer_screening,
-            {
-                "crest_index_root": "/tmp/crest",
-                "target": "crest-job-2",
-                "max_orca_stages": 2,
-                "workspace_root": "/tmp/workflows",
-                "charge": 0,
-                "multiplicity": 1,
-                "max_cores": 8,
-                "max_memory_gb": 16,
-                "orca_route_line": "! Opt",
-                "priority": 5,
-            },
-            _plan_payload("conformer_screening"),
-            [
-                "workflow_id: wf_conformer_screening",
-                "source_job_id: source_1",
-                "reaction_dir=/tmp/reaction_dir",
-            ],
-        ),
-        (
-            "build_conformer_screening_plan_from_target",
-            cli.cmd_workflow_conformer_screening,
-            {
-                "crest_index_root": "/tmp/crest",
-                "target": "crest-job-nci",
-                "max_orca_stages": 2,
-                "workspace_root": "/tmp/workflows",
-                "charge": 0,
-                "multiplicity": 1,
-                "max_cores": 8,
-                "max_memory_gb": 16,
-                "orca_route_line": "! Opt",
-                "priority": 5,
-            },
-            _plan_payload("conformer_screening"),
-            [
-                "workflow_id: wf_conformer_screening",
-                "source_job_id: source_1",
-                "reaction_dir=/tmp/reaction_dir",
-            ],
-        ),
-    ],
-)
-def test_workflow_plan_commands_render_text_and_json(
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-    builder_name: str,
-    command: Any,
-    args: dict[str, Any],
-    payload: dict[str, Any],
-    expected_texts: list[str],
-) -> None:
-    monkeypatch.setattr(cli, builder_name, lambda **kwargs: payload)
-
-    assert command(SimpleNamespace(json=False, **args)) == 0
-    stdout = capsys.readouterr().out
-    for expected in expected_texts:
-        assert expected in stdout
-
-    assert command(SimpleNamespace(json=True, **args)) == 0
-    json_payload = json.loads(capsys.readouterr().out)
-    assert json_payload["workflow_id"] == payload["workflow_id"]
-    assert json_payload["template_name"] == payload["template_name"]
-
-
-@pytest.mark.parametrize(
     ("factory_name", "command", "args", "payload"),
     [
         (
-            "create_reaction_workflow",
-            cli.cmd_workflow_create_reaction_ts_search,
+            "create_reaction_ts_search_workflow",
+            cli_workflow.cmd_workflow_create_reaction_ts_search,
             {
                 "reactant_xyz": "/tmp/reactant.xyz",
                 "product_xyz": "/tmp/product.xyz",
@@ -276,7 +143,7 @@ def test_workflow_plan_commands_render_text_and_json(
         ),
         (
             "create_conformer_screening_workflow",
-            cli.cmd_workflow_create_conformer_screening,
+            cli_workflow.cmd_workflow_create_conformer_screening,
             {
                 "input_xyz": "/tmp/input.xyz",
                 "workflow_root": "/tmp/workflows",
@@ -293,7 +160,7 @@ def test_workflow_plan_commands_render_text_and_json(
         ),
         (
             "create_conformer_screening_workflow",
-            cli.cmd_workflow_create_conformer_screening,
+            cli_workflow.cmd_workflow_create_conformer_screening,
             {
                 "input_xyz": "/tmp/input.xyz",
                 "workflow_root": "/tmp/workflows",
@@ -318,7 +185,7 @@ def test_workflow_create_commands_render_text_and_json(
     args: dict[str, Any],
     payload: dict[str, Any],
 ) -> None:
-    monkeypatch.setattr(cli, factory_name, lambda **kwargs: payload)
+    monkeypatch.setattr(cli_workflow, factory_name, lambda **kwargs: payload)
 
     assert command(SimpleNamespace(json=False, **args)) == 0
     stdout = capsys.readouterr().out
@@ -343,13 +210,13 @@ def test_cmd_run_dir_reads_manifest_for_reaction_workflow(
     (workflow_dir / "flow.yaml").write_text("workflow_type: reaction_ts_search\n", encoding="utf-8")
     captured: dict[str, Any] = {}
 
-    monkeypatch.setattr(cli, "_discover_workflow_root", lambda explicit: "/tmp/workflow_root")
+    monkeypatch.setattr(cli_common, "_discover_workflow_root", lambda explicit: "/tmp/workflow_root")
 
-    def fake_create_reaction_workflow(**kwargs: Any) -> dict[str, Any]:
+    def fake_create_reaction_ts_search_workflow(**kwargs: Any) -> dict[str, Any]:
         captured.update(kwargs)
         return _create_payload("reaction_ts_search")
 
-    monkeypatch.setattr(cli, "create_reaction_workflow", fake_create_reaction_workflow)
+    monkeypatch.setattr(cli_run_dir, "create_reaction_ts_search_workflow", fake_create_reaction_ts_search_workflow)
 
     args = SimpleNamespace(
         workflow_dir=str(workflow_dir),
@@ -371,7 +238,7 @@ def test_cmd_run_dir_reads_manifest_for_reaction_workflow(
         json=False,
     )
 
-    assert cli.cmd_run_dir(args) == 0
+    assert cli_run_dir.cmd_run_dir(args) == 0
     stdout = capsys.readouterr().out
     assert "workflow_id: wf_create_reaction_ts_search" in stdout
     assert captured == {
@@ -421,13 +288,13 @@ def test_cmd_run_dir_reads_manifest_for_conformer_workflow(
     )
     captured: dict[str, Any] = {}
 
-    monkeypatch.setattr(cli, "_discover_workflow_root", lambda explicit: str(Path(str(explicit)).resolve()) if explicit else None)
+    monkeypatch.setattr(cli_common, "_discover_workflow_root", lambda explicit: str(Path(str(explicit)).resolve()) if explicit else None)
 
     def fake_create_conformer_screening_workflow(**kwargs: Any) -> dict[str, Any]:
         captured.update(kwargs)
         return _create_payload("conformer_screening")
 
-    monkeypatch.setattr(cli, "create_conformer_screening_workflow", fake_create_conformer_screening_workflow)
+    monkeypatch.setattr(cli_run_dir, "create_conformer_screening_workflow", fake_create_conformer_screening_workflow)
 
     args = SimpleNamespace(
         workflow_dir=str(workflow_dir),
@@ -449,7 +316,7 @@ def test_cmd_run_dir_reads_manifest_for_conformer_workflow(
         json=True,
     )
 
-    assert cli.cmd_run_dir(args) == 0
+    assert cli_run_dir.cmd_run_dir(args) == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["workflow_id"] == "wf_create_conformer_screening"
     assert captured == {
@@ -480,8 +347,8 @@ def test_cmd_run_dir_reuses_direct_child_workflow_directory_when_already_under_w
     (workflow_dir / "flow.yaml").write_text("workflow_type: reaction_ts_search\n", encoding="utf-8")
     captured: dict[str, Any] = {}
 
-    monkeypatch.setattr(cli, "_discover_workflow_root", lambda explicit: str(workflow_root.resolve()))
-    monkeypatch.setattr(cli, "create_reaction_workflow", lambda **kwargs: captured.update(kwargs) or _create_payload("reaction_ts_search"))
+    monkeypatch.setattr(cli_common, "_discover_workflow_root", lambda explicit: str(workflow_root.resolve()))
+    monkeypatch.setattr(cli_run_dir, "create_reaction_ts_search_workflow", lambda **kwargs: captured.update(kwargs) or _create_payload("reaction_ts_search"))
 
     args = SimpleNamespace(
         workflow_dir=str(workflow_dir),
@@ -503,7 +370,7 @@ def test_cmd_run_dir_reuses_direct_child_workflow_directory_when_already_under_w
         json=False,
     )
 
-    assert cli.cmd_run_dir(args) == 0
+    assert cli_run_dir.cmd_run_dir(args) == 0
     assert "workflow_id: wf_create_reaction_ts_search" in capsys.readouterr().out
     assert captured["workflow_id"] == "rxn_case"
 
@@ -539,7 +406,7 @@ def test_cmd_run_dir_reports_ambiguous_layout(
         json=False,
     )
 
-    assert cli.cmd_run_dir(args) == 1
+    assert cli_run_dir.cmd_run_dir(args) == 1
     assert "Ambiguous workflow_dir" in capsys.readouterr().out
 
 
@@ -571,7 +438,7 @@ def test_cmd_run_dir_requires_manifest_before_materializing_workflow(
         json=False,
     )
 
-    assert cli.cmd_run_dir(args) == 1
+    assert cli_run_dir.cmd_run_dir(args) == 1
     assert "workflow run-dir requires flow.yaml" in capsys.readouterr().out
 
 
@@ -604,7 +471,7 @@ def test_cmd_run_dir_requires_standard_input_xyz_name_for_conformer_workflow(
         json=False,
     )
 
-    assert cli.cmd_run_dir(args) == 1
+    assert cli_run_dir.cmd_run_dir(args) == 1
     assert "conformer_screening requires input.xyz" in capsys.readouterr().out
 
 
@@ -638,7 +505,7 @@ def test_cmd_run_dir_requires_standard_reaction_xyz_names_for_reaction_workflow(
         json=False,
     )
 
-    assert cli.cmd_run_dir(args) == 1
+    assert cli_run_dir.cmd_run_dir(args) == 1
     assert "reaction_ts_search requires both reactant.xyz and product.xyz" in capsys.readouterr().out
 
 
@@ -654,14 +521,14 @@ def test_cmd_run_dir_requires_workflow_root_for_reaction_workflow(
     (workflow_dir / "flow.yaml").write_text("workflow_type: reaction_ts_search\n", encoding="utf-8")
     create_called = False
 
-    monkeypatch.setattr(cli, "_discover_workflow_root", lambda explicit: None)
+    monkeypatch.setattr(cli_common, "_discover_workflow_root", lambda explicit: None)
 
-    def fake_create_reaction_workflow(**kwargs: Any) -> dict[str, Any]:
+    def fake_create_reaction_ts_search_workflow(**kwargs: Any) -> dict[str, Any]:
         nonlocal create_called
         create_called = True
         return _create_payload("reaction_ts_search")
 
-    monkeypatch.setattr(cli, "create_reaction_workflow", fake_create_reaction_workflow)
+    monkeypatch.setattr(cli_run_dir, "create_reaction_ts_search_workflow", fake_create_reaction_ts_search_workflow)
 
     args = SimpleNamespace(
         workflow_dir=str(workflow_dir),
@@ -683,7 +550,7 @@ def test_cmd_run_dir_requires_workflow_root_for_reaction_workflow(
         json=False,
     )
 
-    assert cli.cmd_run_dir(args) == 1
+    assert cli_run_dir.cmd_run_dir(args) == 1
     assert "workflow_root is not configured" in capsys.readouterr().out
     assert create_called is False
 
@@ -699,14 +566,14 @@ def test_cmd_run_dir_requires_workflow_root_for_conformer_workflow(
     (workflow_dir / "flow.yaml").write_text("workflow_type: conformer_screening\n", encoding="utf-8")
     create_called = False
 
-    monkeypatch.setattr(cli, "_discover_workflow_root", lambda explicit: None)
+    monkeypatch.setattr(cli_common, "_discover_workflow_root", lambda explicit: None)
 
     def fake_create_conformer_screening_workflow(**kwargs: Any) -> dict[str, Any]:
         nonlocal create_called
         create_called = True
         return _create_payload("conformer_screening")
 
-    monkeypatch.setattr(cli, "create_conformer_screening_workflow", fake_create_conformer_screening_workflow)
+    monkeypatch.setattr(cli_run_dir, "create_conformer_screening_workflow", fake_create_conformer_screening_workflow)
 
     args = SimpleNamespace(
         workflow_dir=str(workflow_dir),
@@ -728,7 +595,7 @@ def test_cmd_run_dir_requires_workflow_root_for_conformer_workflow(
         json=False,
     )
 
-    assert cli.cmd_run_dir(args) == 1
+    assert cli_run_dir.cmd_run_dir(args) == 1
     assert "workflow_root is not configured" in capsys.readouterr().out
     assert create_called is False
 
@@ -774,13 +641,13 @@ def test_cmd_run_dir_for_reaction_uses_nested_engine_sections(
     )
     captured: dict[str, Any] = {}
 
-    monkeypatch.setattr(cli, "_discover_workflow_root", lambda explicit: "/tmp/workflow_root")
+    monkeypatch.setattr(cli_common, "_discover_workflow_root", lambda explicit: "/tmp/workflow_root")
 
-    def fake_create_reaction_workflow(**kwargs: Any) -> dict[str, Any]:
+    def fake_create_reaction_ts_search_workflow(**kwargs: Any) -> dict[str, Any]:
         captured.update(kwargs)
         return _create_payload("reaction_ts_search")
 
-    monkeypatch.setattr(cli, "create_reaction_workflow", fake_create_reaction_workflow)
+    monkeypatch.setattr(cli_run_dir, "create_reaction_ts_search_workflow", fake_create_reaction_ts_search_workflow)
 
     args = SimpleNamespace(
         workflow_dir=str(workflow_dir),
@@ -802,7 +669,7 @@ def test_cmd_run_dir_for_reaction_uses_nested_engine_sections(
         json=False,
     )
 
-    assert cli.cmd_run_dir(args) == 0
+    assert cli_run_dir.cmd_run_dir(args) == 0
     assert "workflow_id: wf_create_reaction_ts_search" in capsys.readouterr().out
     assert captured["crest_mode"] == "nci"
     assert captured["orca_route_line"] == "! custom ts"
@@ -861,4 +728,4 @@ def test_build_parser_parses_additional_workflow_commands() -> None:
     assert run_dir_args.workflow_type == "reaction_ts_search"
     assert run_dir_args.crest_mode == "nci"
     assert run_dir_args.json is True
-    assert run_dir_args.func is cli.cmd_run_dir
+    assert run_dir_args.func is cli_run_dir.cmd_run_dir

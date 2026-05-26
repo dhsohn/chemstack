@@ -1,25 +1,34 @@
 from __future__ import annotations
 
-import json
 import logging
-import os
 import signal
-import subprocess
-import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Generic, MutableMapping, TypeVar
 
 from chemstack.core.admission import reserve_slot
-from chemstack.core.utils import process as process_utils
-from chemstack.core.utils.persistence import now_utc_iso
 
+from .child_process import (
+    build_background_worker_command,
+    live_queue_ids_for_slots,
+    reconcile_orphaned_child_queue_entries,
+    request_job_cancellation,
+    shutdown_child_process_with_grace,
+    start_background_job_process,
+    status_matches,
+)
 from .processes import (
     ManagedProcess,
     ShutdownSignalDeps,
+    current_worker_pid_payload,
     install_shutdown_signal_handlers as _install_shutdown_signal_handlers,
+    pid_is_alive,
+    read_worker_pid_file,
+    remove_worker_pid_file,
     terminate_process_group,
+    worker_pid_file_path,
+    write_worker_pid_file,
 )
 
 T = TypeVar("T")
@@ -39,6 +48,7 @@ __all__ = [
     "dequeue_next_across_roots",
     "fill_worker_slots",
     "install_shutdown_signal_handlers",
+    "live_queue_ids_for_slots",
     "pid_is_alive",
     "pop_completed_worker_jobs",
     "process_one_child_queue",
@@ -54,9 +64,11 @@ __all__ = [
     "resolve_worker_auto_organize",
     "shutdown_child_process_with_grace",
     "start_background_job_process",
+    "status_matches",
     "terminate_process_group",
     "worker_pid_file_path",
     "write_worker_pid_file",
+    "current_worker_pid_payload",
 ]
 
 
@@ -261,163 +273,6 @@ def pop_completed_worker_jobs(
         finalize_finished(queue_id, job, rc)
         running.pop(queue_id, None)
     return len(completed)
-
-
-def build_background_worker_command(
-    *,
-    config_path: str,
-    queue_root: str | Path,
-    queue_id: str,
-    worker_job_module: str,
-    admission_root: str | Path | None = None,
-    admission_token: str | None = None,
-    auto_organize: bool = False,
-    include_admission_root: bool = True,
-    auto_organize_before_admission_token: bool = False,
-) -> list[str]:
-    command = [
-        sys.executable,
-        "-m",
-        worker_job_module,
-        "--config",
-        config_path,
-        "--queue-root",
-        str(queue_root),
-        "--queue-id",
-        queue_id,
-    ]
-    if include_admission_root:
-        if admission_root is None:
-            raise ValueError("admission_root is required when include_admission_root is true")
-        command.extend(["--admission-root", str(admission_root)])
-    if auto_organize and auto_organize_before_admission_token:
-        command.append("--auto-organize")
-    if admission_token:
-        command.extend(["--admission-token", admission_token])
-    if auto_organize and not auto_organize_before_admission_token:
-        command.append("--auto-organize")
-    return command
-
-
-def start_background_job_process(
-    *,
-    config_path: str,
-    queue_root: str | Path,
-    entry: Any,
-    worker_job_module: str,
-    admission_root: str | Path | None = None,
-    admission_token: str | None = None,
-    auto_organize: bool = False,
-    include_admission_root: bool = True,
-    auto_organize_before_admission_token: bool = False,
-) -> subprocess.Popen[str]:
-    return subprocess.Popen(
-        build_background_worker_command(
-            config_path=config_path,
-            queue_root=queue_root,
-            queue_id=entry.queue_id,
-            worker_job_module=worker_job_module,
-            admission_root=admission_root,
-            admission_token=admission_token,
-            auto_organize=auto_organize,
-            include_admission_root=include_admission_root,
-            auto_organize_before_admission_token=auto_organize_before_admission_token,
-        ),
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        stdin=subprocess.DEVNULL,
-        start_new_session=True,
-        text=True,
-    )
-
-
-def live_queue_ids_for_slots(
-    admission_root: str | Path,
-    *,
-    list_slots_fn: Callable[[str | Path], list[Any]],
-) -> set[str]:
-    return {
-        str(getattr(slot, "queue_id", "")).strip()
-        for slot in list_slots_fn(admission_root)
-        if str(getattr(slot, "queue_id", "")).strip()
-    }
-
-
-def status_matches(value: Any, expected: Any) -> bool:
-    actual_value = getattr(value, "value", value)
-    expected_value = getattr(expected, "value", expected)
-    return str(actual_value).strip().lower() == str(expected_value).strip().lower()
-
-
-def reconcile_orphaned_child_queue_entries(
-    cfg: Any,
-    *,
-    admission_root: str | Path,
-    queue_roots_fn: Callable[[Any], tuple[Path, ...]],
-    list_queue_fn: Callable[[str | Path], list[Any]],
-    list_slots_fn: Callable[[str | Path], list[Any]],
-    reconcile_stale_slots_fn: Callable[[str | Path], object],
-    running_status: Any,
-    mark_cancelled_fn: Callable[..., object],
-    requeue_running_entry_fn: Callable[..., object],
-    mark_recovery_pending_fn: Callable[[Any, Any], object],
-) -> None:
-    reconcile_stale_slots_fn(admission_root)
-    live_queue_ids = live_queue_ids_for_slots(admission_root, list_slots_fn=list_slots_fn)
-
-    for queue_root in queue_roots_fn(cfg):
-        for entry in list_queue_fn(queue_root):
-            if not status_matches(getattr(entry, "status", None), running_status):
-                continue
-            queue_id = str(getattr(entry, "queue_id", ""))
-            if queue_id in live_queue_ids:
-                continue
-            if getattr(entry, "cancel_requested", False):
-                mark_cancelled_fn(queue_root, queue_id, error="cancel_requested")
-            else:
-                requeue_running_entry_fn(queue_root, queue_id)
-                mark_recovery_pending_fn(cfg, entry)
-
-
-def shutdown_child_process_with_grace(
-    job: Any,
-    *,
-    terminate_process_fn: Callable[[Any], object],
-    finalize_child_exit_fn: Callable[[Any, int], object],
-    grace_seconds: float,
-    sleep_fn: Callable[[float], None],
-) -> None:
-    if job.process.poll() is None:
-        try:
-            job.process.terminate()
-        except Exception:
-            LOGGER.debug("failed to terminate child worker process", exc_info=True)
-
-    deadline = time.monotonic() + grace_seconds
-    while job.process.poll() is None and time.monotonic() < deadline:
-        sleep_fn(0.1)
-
-    if job.process.poll() is None:
-        terminate_process_fn(job.process)
-
-    rc = job.process.poll()
-    finalize_child_exit_fn(job, int(rc) if rc is not None else 0)
-
-
-def request_job_cancellation(
-    proc: Any,
-    *,
-    cancel_signal: int,
-    terminate_process_fn: Callable[[Any], None],
-) -> None:
-    try:
-        send_signal = getattr(proc, "send_signal", None)
-        if callable(send_signal):
-            send_signal(cancel_signal)
-        else:
-            os.kill(proc.pid, cancel_signal)
-    except (OSError, ProcessLookupError, PermissionError):
-        terminate_process_fn(proc)
 
 
 def resolve_worker_auto_organize(cfg: Any, args: Any) -> bool:
@@ -780,67 +635,4 @@ def install_shutdown_signal_handlers(request_shutdown: Callable[[], None]) -> No
             sigint=signal.SIGINT,
             logger=LOGGER,
         ),
-    )
-
-
-def pid_is_alive(pid: int) -> bool:
-    if pid <= 0:
-        return False
-    try:
-        os.kill(pid, 0)
-    except OSError:
-        return False
-    return True
-
-
-def _process_start_ticks(pid: int) -> int | None:
-    return process_utils.process_start_ticks(pid, proc_root=Path("/proc"))
-
-
-def current_worker_pid_payload() -> dict[str, int | str]:
-    return process_utils.current_pid_payload(
-        now_fn=now_utc_iso,
-        process_start_ticks_fn=_process_start_ticks,
-        pid_fn=os.getpid,
-    )
-
-
-def worker_pid_file_path(allowed_root: Path | str, file_name: str = "queue_worker.pid") -> Path:
-    return Path(allowed_root).expanduser().resolve() / file_name
-
-
-def write_worker_pid_file(allowed_root: Path | str, file_name: str = "queue_worker.pid") -> None:
-    payload = current_worker_pid_payload()
-    worker_pid_file_path(allowed_root, file_name).write_text(
-        json.dumps(payload, ensure_ascii=True) + "\n",
-        encoding="utf-8",
-    )
-
-
-def remove_worker_pid_file(allowed_root: Path | str, file_name: str = "queue_worker.pid") -> None:
-    _remove_pid_file(worker_pid_file_path(allowed_root, file_name))
-
-
-def read_worker_pid_file(allowed_root: Path | str, file_name: str = "queue_worker.pid") -> int | None:
-    return read_live_pid_file(worker_pid_file_path(allowed_root, file_name))
-
-
-def _positive_int(value: Any) -> int | None:
-    return process_utils.positive_int(value)
-
-
-def _read_pid_payload(pid_path: Path) -> tuple[int | None, int | None]:
-    return process_utils.read_pid_payload(pid_path)
-
-
-def _remove_pid_file(pid_path: Path) -> None:
-    process_utils.remove_file_silent(pid_path)
-
-
-def read_live_pid_file(pid_path: Path) -> int | None:
-    return process_utils.read_live_pid_file(
-        pid_path,
-        is_process_alive_fn=pid_is_alive,
-        process_start_ticks_fn=_process_start_ticks,
-        remove_file_fn=_remove_pid_file,
     )

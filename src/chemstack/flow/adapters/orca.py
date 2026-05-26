@@ -46,7 +46,6 @@ from ._orca_tracking import (
     import_orca_auto_module_impl,
     load_orca_contract_payload_impl,
     orca_auto_job_locations_module_impl,
-    orca_auto_tracking_module_impl,
     sibling_orca_auto_repo_root_impl,
     tracked_artifact_context_impl,
     tracked_runtime_context_impl,
@@ -86,7 +85,6 @@ _import_orca_auto_module = import_orca_auto_module_impl
 
 
 _orca_auto_job_locations_module = lru_cache(maxsize=1)(orca_auto_job_locations_module_impl)
-_orca_auto_tracking_module = lru_cache(maxsize=1)(orca_auto_tracking_module_impl)
 _resolve_candidate_path = resolve_candidate_path_impl
 _direct_dir_target = direct_dir_target_impl
 _tracked_artifact_context = tracked_artifact_context_impl
@@ -157,13 +155,10 @@ def _contract_loader_deps() -> OrcaContractLoaderDeps:
         safe_int_fn=_safe_int_callback,
         tracked_runtime_context_fn=_tracked_runtime_context,
         tracked_artifact_context_fn=_tracked_artifact_context,
-        resolve_job_dir_fn=_resolve_job_dir,
         find_queue_entry_fn=_find_queue_entry,
         resolve_candidate_path_fn=_resolve_candidate_path,
         direct_dir_target_fn=_direct_dir_target,
         record_organized_dir_fn=_record_organized_dir,
-        find_organized_record_fn=_find_organized_record,
-        organized_dir_from_record_fn=_organized_dir_from_record,
         load_json_dict_fn=_load_json_dict,
         load_tracked_organized_ref_fn=_load_tracked_organized_ref,
         status_from_payloads_fn=_status_from_payloads,

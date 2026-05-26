@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 from chemstack.orca.cancellation import CancelTargetError, cancel_target
 from chemstack.orca.queue_store import dequeue_next, enqueue, get_cancel_requested
-from chemstack.orca.state_store import STATE_FILE_NAME
+from chemstack.orca.state import STATE_FILE_NAME
 
 
 def _write_running_state(reaction_dir: Path, *, run_id: str, pid: int) -> None:

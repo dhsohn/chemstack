@@ -6,7 +6,7 @@ from chemstack.core.commands.engine_summary import EngineSummarySpec
 from chemstack.core.commands.engine_summary import cmd_summary as _cmd_engine_summary
 
 from ..config import load_config
-from ..tracking import load_job_artifacts_for_cfg, resolve_job_location_for_cfg
+from ..job_locations import load_job_artifacts_for_cfg, resolve_job_location_for_cfg
 
 _CREST_SUMMARY_SPEC = EngineSummarySpec(
     key_label="molecule_key",

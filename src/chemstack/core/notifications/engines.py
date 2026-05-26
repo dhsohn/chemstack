@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from .telegram import build_telegram_transport, split_telegram_message
 
@@ -212,6 +212,100 @@ def build_engine_notification_module(
         selected_field_name=selected_field_name,
         detail_field_names=detail_field_names,
         terminal_count_field=terminal_count_field,
+    )
+
+
+@dataclass(frozen=True)
+class EngineJobNotifications:
+    notifications: EngineNotificationModule
+    terminal_count_param_name: str | None = None
+
+    @property
+    def _terminal_count_param(self) -> str:
+        return self.terminal_count_param_name or self.notifications.terminal_count_field
+
+    def _detail_values(self, values: Mapping[str, object]) -> dict[str, object]:
+        return {
+            field_name: values[field_name]
+            for field_name in self.notifications.detail_field_names
+            if field_name in values
+        }
+
+    def _notify_lifecycle(
+        self,
+        cfg: Any,
+        values: Mapping[str, object],
+        *,
+        headline: str,
+    ) -> bool:
+        return self.notifications.notify_lifecycle(
+            cfg,
+            headline=headline,
+            job_id=cast(str, values["job_id"]),
+            queue_id=cast(str, values["queue_id"]),
+            job_dir=cast(Path, values["job_dir"]),
+            selected_xyz=cast(Path, values["selected_xyz"]),
+            detail_values=self._detail_values(values),
+        )
+
+    def notify_job_queued(self, cfg: Any, values: Mapping[str, object]) -> bool:
+        return self._notify_lifecycle(cfg, values, headline="Job queued")
+
+    def notify_job_started(self, cfg: Any, values: Mapping[str, object]) -> bool:
+        return self._notify_lifecycle(cfg, values, headline="Job started")
+
+    def notify_job_terminal(self, cfg: Any, values: Mapping[str, object]) -> bool:
+        return self.notifications.notify_terminal(
+            cfg,
+            headline=cast(str, values["headline"]),
+            job_id=cast(str, values["job_id"]),
+            queue_id=cast(str, values["queue_id"]),
+            status=cast(str, values["status"]),
+            reason=cast(str, values["reason"]),
+            job_dir=cast(Path, values["job_dir"]),
+            selected_xyz=cast(Path, values["selected_xyz"]),
+            count_value=cast(int, values[self._terminal_count_param]),
+            detail_values=self._detail_values(values),
+            extra_lines=cast(list[str] | None, values.get("extra_lines")),
+        )
+
+    def notify_job_finished(self, cfg: Any, values: Mapping[str, object]) -> bool:
+        return self.notifications.notify_finished(
+            cfg,
+            job_id=cast(str, values["job_id"]),
+            queue_id=cast(str, values["queue_id"]),
+            status=cast(str, values["status"]),
+            reason=cast(str, values["reason"]),
+            job_dir=cast(Path, values["job_dir"]),
+            selected_xyz=cast(Path, values["selected_xyz"]),
+            count_value=cast(int, values[self._terminal_count_param]),
+            detail_values=self._detail_values(values),
+            organized_output_dir=cast(Path | None, values.get("organized_output_dir")),
+            resource_request=cast(dict[str, int] | None, values.get("resource_request")),
+            resource_actual=cast(dict[str, int] | None, values.get("resource_actual")),
+        )
+
+
+def build_engine_job_notifications(
+    *,
+    label: str,
+    engine: str,
+    selected_field_name: str,
+    detail_field_names: tuple[str, ...],
+    terminal_count_field: str,
+    send_fn: Callable[[Any, list[str]], bool],
+    terminal_count_param_name: str | None = None,
+) -> EngineJobNotifications:
+    return EngineJobNotifications(
+        notifications=build_engine_notification_module(
+            label=label,
+            engine=engine,
+            selected_field_name=selected_field_name,
+            detail_field_names=detail_field_names,
+            terminal_count_field=terminal_count_field,
+            send_fn=send_fn,
+        ),
+        terminal_count_param_name=terminal_count_param_name,
     )
 
 

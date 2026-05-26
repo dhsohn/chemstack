@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 
-from chemstack.flow import cli
+from chemstack.flow import cli, cli_workflow
 
 
 def test_emit_worker_payload_formats_text_and_json(capsys) -> None:
@@ -31,17 +31,17 @@ def test_emit_worker_payload_formats_text_and_json(capsys) -> None:
         ],
     }
 
-    cli._emit_worker_payload(payload, json_mode=False, single_cycle=False)
+    cli_workflow._emit_worker_payload(payload, json_mode=False, single_cycle=False)
     stdout = capsys.readouterr().out
     assert "cycle_started_at: 2026-04-19T17:00:00+00:00 worker_session_id=worker_1" in stdout
     assert "- wf_1 template=reaction_ts_search previous=planned status=running advanced=yes" in stdout
     assert "reason=submitted" in stdout
 
-    cli._emit_worker_payload(payload, json_mode=True, single_cycle=True)
+    cli_workflow._emit_worker_payload(payload, json_mode=True, single_cycle=True)
     pretty = json.loads(capsys.readouterr().out)
     assert pretty["worker_session_id"] == "worker_1"
 
-    cli._emit_worker_payload(payload, json_mode=True, single_cycle=False)
+    cli_workflow._emit_worker_payload(payload, json_mode=True, single_cycle=False)
     compact = capsys.readouterr().out.strip()
     assert '"workflow_results"' in compact
     assert "\n" not in compact
@@ -49,7 +49,7 @@ def test_emit_worker_payload_formats_text_and_json(capsys) -> None:
 
 def test_cmd_workflow_runtime_status_journal_telemetry_text_and_json(monkeypatch, capsys) -> None:
     monkeypatch.setattr(
-        cli,
+        cli_workflow,
         "get_workflow_runtime_status",
         lambda **kwargs: {
             "worker_state": {
@@ -65,7 +65,7 @@ def test_cmd_workflow_runtime_status_journal_telemetry_text_and_json(monkeypatch
         },
     )
     monkeypatch.setattr(
-        cli,
+        cli_workflow,
         "get_workflow_journal",
         lambda **kwargs: {
             "events": [
@@ -80,7 +80,7 @@ def test_cmd_workflow_runtime_status_journal_telemetry_text_and_json(monkeypatch
         },
     )
     monkeypatch.setattr(
-        cli,
+        cli_workflow,
         "get_workflow_telemetry",
         lambda **kwargs: {
             "workflow_root": "/tmp/wf",
@@ -95,31 +95,31 @@ def test_cmd_workflow_runtime_status_journal_telemetry_text_and_json(monkeypatch
         },
     )
 
-    assert cli.cmd_workflow_runtime_status(SimpleNamespace(workflow_root="/tmp/wf", json=False)) == 0
+    assert cli_workflow.cmd_workflow_runtime_status(SimpleNamespace(workflow_root="/tmp/wf", json=False)) == 0
     stdout = capsys.readouterr().out
     assert "worker_session_id: worker_2" in stdout
     assert "last_cycle_finished_at: finish" in stdout
 
-    assert cli.cmd_workflow_journal(SimpleNamespace(workflow_root="/tmp/wf", limit=5, json=False)) == 0
+    assert cli_workflow.cmd_workflow_journal(SimpleNamespace(workflow_root="/tmp/wf", limit=5, json=False)) == 0
     stdout = capsys.readouterr().out
     assert "event_count: 1" in stdout
     assert "- 2026-04-19T17:10:00+00:00 worker_started workflow_id=wf_journal status=running" in stdout
     assert "reason=startup" in stdout
 
-    assert cli.cmd_workflow_telemetry(SimpleNamespace(workflow_root="/tmp/wf", limit=10, json=False)) == 0
+    assert cli_workflow.cmd_workflow_telemetry(SimpleNamespace(workflow_root="/tmp/wf", limit=10, json=False)) == 0
     stdout = capsys.readouterr().out
     assert "workflow_root: /tmp/wf" in stdout
     assert "recent_failures:" in stdout
     assert "workflow=wf_change planned->running" in stdout
 
-    assert cli.cmd_workflow_telemetry(SimpleNamespace(workflow_root="/tmp/wf", limit=10, json=True)) == 0
+    assert cli_workflow.cmd_workflow_telemetry(SimpleNamespace(workflow_root="/tmp/wf", limit=10, json=True)) == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["registry_count"] == 4
 
 
 def test_cmd_workflow_list_get_and_artifacts_text_output(monkeypatch, capsys) -> None:
     monkeypatch.setattr(
-        cli,
+        cli_workflow,
         "list_workflows",
         lambda **kwargs: {
             "count": 1,
@@ -135,7 +135,7 @@ def test_cmd_workflow_list_get_and_artifacts_text_output(monkeypatch, capsys) ->
         },
     )
     monkeypatch.setattr(
-        cli,
+        cli_workflow,
         "get_workflow",
         lambda **kwargs: {
             "summary": {
@@ -164,7 +164,7 @@ def test_cmd_workflow_list_get_and_artifacts_text_output(monkeypatch, capsys) ->
         },
     )
     monkeypatch.setattr(
-        cli,
+        cli_workflow,
         "get_workflow_artifacts",
         lambda **kwargs: {
             "workflow_id": "wf_art",
@@ -182,10 +182,10 @@ def test_cmd_workflow_list_get_and_artifacts_text_output(monkeypatch, capsys) ->
         },
     )
 
-    assert cli.cmd_workflow_list(SimpleNamespace(workflow_root="/tmp/wf", limit=0, refresh=False, json=False)) == 0
+    assert cli_workflow.cmd_workflow_list(SimpleNamespace(workflow_root="/tmp/wf", limit=0, refresh=False, json=False)) == 0
     assert "- wf_list template=reaction_ts_search status=running stages=3 submitted=2 failed=1" in capsys.readouterr().out
 
-    assert cli.cmd_workflow_get(SimpleNamespace(target="wf_get", workflow_root="/tmp/wf", json=False)) == 0
+    assert cli_workflow.cmd_workflow_get(SimpleNamespace(target="wf_get", workflow_root="/tmp/wf", json=False)) == 0
     stdout = capsys.readouterr().out
     assert "downstream_reaction: wf_child status=running" in stdout
     assert "submission_summary: submitted=1 skipped=0 failed=0" in stdout
@@ -193,7 +193,7 @@ def test_cmd_workflow_list_get_and_artifacts_text_output(monkeypatch, capsys) ->
     assert "queue_id=q_1" in stdout
     assert "selected_inp=/tmp/input.inp" in stdout
 
-    assert cli.cmd_workflow_artifacts(SimpleNamespace(target="wf_art", workflow_root="/tmp/wf", json=False)) == 0
+    assert cli_workflow.cmd_workflow_artifacts(SimpleNamespace(target="wf_art", workflow_root="/tmp/wf", json=False)) == 0
     stdout = capsys.readouterr().out
     assert "artifact_count: 1" in stdout
     assert "- orca_optimized_xyz stage=orca_01 exists=yes selected=yes" in stdout
@@ -202,7 +202,7 @@ def test_cmd_workflow_list_get_and_artifacts_text_output(monkeypatch, capsys) ->
 
 def test_cmd_workflow_cancel_reindex_submit_and_advance_output_paths(monkeypatch, capsys) -> None:
     monkeypatch.setattr(
-        cli,
+        cli_workflow,
         "cancel_workflow",
         lambda **kwargs: {
             "workflow_id": "wf_cancel",
@@ -215,7 +215,7 @@ def test_cmd_workflow_cancel_reindex_submit_and_advance_output_paths(monkeypatch
         },
     )
     monkeypatch.setattr(
-        cli,
+        cli_workflow,
         "reindex_workflow_registry",
         lambda workflow_root: [
             SimpleNamespace(workflow_id="wf_one", status="running", template_name="reaction_ts_search"),
@@ -223,7 +223,7 @@ def test_cmd_workflow_cancel_reindex_submit_and_advance_output_paths(monkeypatch
         ],
     )
     monkeypatch.setattr(
-        cli,
+        cli_workflow,
         "submit_reaction_ts_search_workflow",
         lambda **kwargs: {
             "workflow_id": "wf_submit",
@@ -235,12 +235,12 @@ def test_cmd_workflow_cancel_reindex_submit_and_advance_output_paths(monkeypatch
         },
     )
     monkeypatch.setattr(
-        cli,
-        "advance_materialized_workflow",
+        cli_workflow,
+        "advance_workflow",
         lambda **kwargs: {"workflow_id": "wf_advance", "status": "running", "stages": [{}, {}]},
     )
 
-    assert cli.cmd_workflow_cancel(SimpleNamespace(target="wf_cancel", workflow_root="/tmp/wf", json=False)) == 0
+    assert cli_workflow.cmd_workflow_cancel(SimpleNamespace(target="wf_cancel", workflow_root="/tmp/wf", json=False)) == 0
     stdout = capsys.readouterr().out
     assert "cancelled_count: 1" in stdout
     assert "- cancelled orca_01 queue_id=q_cancel" in stdout
@@ -248,12 +248,12 @@ def test_cmd_workflow_cancel_reindex_submit_and_advance_output_paths(monkeypatch
     assert "- skipped crest_01 reason=already_completed" in stdout
     assert "- failed orca_02 reason=cancel_failed" in stdout
 
-    assert cli.cmd_workflow_reindex(SimpleNamespace(workflow_root="/tmp/wf", json=False)) == 0
+    assert cli_workflow.cmd_workflow_reindex(SimpleNamespace(workflow_root="/tmp/wf", json=False)) == 0
     stdout = capsys.readouterr().out
     assert "workflow_count: 2" in stdout
     assert "- wf_one status=running template=reaction_ts_search" in stdout
 
-    assert cli.cmd_workflow_submit_reaction_ts_search(
+    assert cli_workflow.cmd_workflow_submit_reaction_ts_search(
         SimpleNamespace(
             target="wf_submit",
             workflow_root="/tmp/wf",
@@ -270,7 +270,7 @@ def test_cmd_workflow_cancel_reindex_submit_and_advance_output_paths(monkeypatch
     assert "skipped_count: 1" in stdout
     assert "failed_count: 1" in stdout
 
-    assert cli.cmd_workflow_advance(
+    assert cli_workflow.cmd_workflow_advance(
         SimpleNamespace(
             target="wf_advance",
             workflow_root="/tmp/wf",
@@ -317,7 +317,7 @@ def test_cmd_workflow_worker_handles_negative_cycles_and_lock_timeout(monkeypatc
         orca_auto_executable="orca_auto",
         orca_auto_repo_root=None,
     )
-    assert cli.cmd_workflow_worker(args) == 1
+    assert cli_workflow.cmd_workflow_worker(args) == 1
     assert "--max-cycles must be >= 0" in capsys.readouterr().out
 
     writes: list[dict[str, Any]] = []
@@ -328,15 +328,15 @@ def test_cmd_workflow_worker_handles_negative_cycles_and_lock_timeout(monkeypatc
         raise TimeoutError("already running")
         yield
 
-    monkeypatch.setattr(cli, "file_lock", raising_lock)
-    monkeypatch.setattr(cli, "workflow_worker_lock_path", lambda workflow_root: Path("/tmp/worker.lock"))
-    monkeypatch.setattr(cli, "now_utc_iso", lambda: "2026-04-19T17:20:00+00:00")
-    monkeypatch.setattr(cli, "timestamped_token", lambda prefix: "wf_worker_01")
-    monkeypatch.setattr(cli, "write_workflow_worker_state", lambda workflow_root, **kwargs: writes.append(kwargs))
-    monkeypatch.setattr(cli, "append_workflow_journal_event", lambda workflow_root, **kwargs: events.append(kwargs))
+    monkeypatch.setattr(cli_workflow, "file_lock", raising_lock)
+    monkeypatch.setattr(cli_workflow, "workflow_worker_lock_path", lambda workflow_root: Path("/tmp/worker.lock"))
+    monkeypatch.setattr(cli_workflow, "now_utc_iso", lambda: "2026-04-19T17:20:00+00:00")
+    monkeypatch.setattr(cli_workflow, "timestamped_token", lambda prefix: "wf_worker_01")
+    monkeypatch.setattr(cli_workflow, "write_workflow_worker_state", lambda workflow_root, **kwargs: writes.append(kwargs))
+    monkeypatch.setattr(cli_workflow, "append_workflow_journal_event", lambda workflow_root, **kwargs: events.append(kwargs))
 
     args.max_cycles = 0
-    result = cli.cmd_workflow_worker(args)
+    result = cli_workflow.cmd_workflow_worker(args)
 
     assert result == 1
     assert "worker_lock_error: already running" in capsys.readouterr().out
@@ -352,14 +352,14 @@ def test_cmd_workflow_worker_single_cycle_and_keyboard_interrupt(monkeypatch, ca
     def fake_lock(*args: Any, **kwargs: Any):
         yield
 
-    monkeypatch.setattr(cli, "file_lock", fake_lock)
-    monkeypatch.setattr(cli, "workflow_worker_lock_path", lambda workflow_root: Path("/tmp/worker.lock"))
-    monkeypatch.setattr(cli, "now_utc_iso", lambda: "2026-04-19T17:30:00+00:00")
-    monkeypatch.setattr(cli, "timestamped_token", lambda prefix: "wf_worker_02")
-    monkeypatch.setattr(cli, "write_workflow_worker_state", lambda workflow_root, **kwargs: writes.append(kwargs))
-    monkeypatch.setattr(cli, "append_workflow_journal_event", lambda workflow_root, **kwargs: events.append(kwargs))
+    monkeypatch.setattr(cli_workflow, "file_lock", fake_lock)
+    monkeypatch.setattr(cli_workflow, "workflow_worker_lock_path", lambda workflow_root: Path("/tmp/worker.lock"))
+    monkeypatch.setattr(cli_workflow, "now_utc_iso", lambda: "2026-04-19T17:30:00+00:00")
+    monkeypatch.setattr(cli_workflow, "timestamped_token", lambda prefix: "wf_worker_02")
+    monkeypatch.setattr(cli_workflow, "write_workflow_worker_state", lambda workflow_root, **kwargs: writes.append(kwargs))
+    monkeypatch.setattr(cli_workflow, "append_workflow_journal_event", lambda workflow_root, **kwargs: events.append(kwargs))
     monkeypatch.setattr(
-        cli,
+        cli_workflow,
         "advance_workflow_registry_once",
         lambda **kwargs: {
             "cycle_started_at": "2026-04-19T17:30:00+00:00",
@@ -371,7 +371,7 @@ def test_cmd_workflow_worker_single_cycle_and_keyboard_interrupt(monkeypatch, ca
             "workflow_results": [],
         },
     )
-    monkeypatch.setattr(cli.time, "sleep", lambda seconds: None)
+    monkeypatch.setattr(cli_workflow.time, "sleep", lambda seconds: None)
 
     args = SimpleNamespace(
         once=True,
@@ -397,7 +397,7 @@ def test_cmd_workflow_worker_single_cycle_and_keyboard_interrupt(monkeypatch, ca
         orca_auto_repo_root=None,
     )
 
-    assert cli.cmd_workflow_worker(args) == 0
+    assert cli_workflow.cmd_workflow_worker(args) == 0
     stdout = capsys.readouterr().out
     assert "worker_session_id=wf_worker_02" in stdout
     assert writes[-1]["status"] == "stopped"
@@ -408,12 +408,12 @@ def test_cmd_workflow_worker_single_cycle_and_keyboard_interrupt(monkeypatch, ca
     def raise_keyboard_interrupt(**kwargs: Any) -> dict[str, Any]:
         raise KeyboardInterrupt
 
-    monkeypatch.setattr(cli, "advance_workflow_registry_once", raise_keyboard_interrupt)
+    monkeypatch.setattr(cli_workflow, "advance_workflow_registry_once", raise_keyboard_interrupt)
     writes.clear()
     events.clear()
     args.once = False
     args.max_cycles = 0
-    assert cli.cmd_workflow_worker(args) == 130
+    assert cli_workflow.cmd_workflow_worker(args) == 130
     assert writes[-1]["status"] == "interrupted"
     assert events[-1]["event_type"] == "worker_interrupted"
 
@@ -435,7 +435,7 @@ def test_build_parser_and_main_cover_worker_and_submit_commands(monkeypatch) -> 
     assert worker_args.once is True
     assert worker_args.no_submit is True
     assert worker_args.json is True
-    assert worker_args.func is cli.cmd_workflow_worker
+    assert worker_args.func is cli_workflow.cmd_workflow_worker
 
     with pytest.raises(SystemExit):
         parser.parse_args(
@@ -463,7 +463,7 @@ def test_build_parser_and_main_cover_worker_and_submit_commands(monkeypatch) -> 
     assert submit_args.target == "wf_submit"
     assert submit_args.chemstack_config == "/tmp/chemstack.yaml"
     assert submit_args.resubmit is True
-    assert submit_args.func is cli.cmd_workflow_submit_reaction_ts_search
+    assert submit_args.func is cli_workflow.cmd_workflow_submit_reaction_ts_search
 
     worker_args = parser.parse_args(
         [
@@ -485,7 +485,7 @@ def test_build_parser_and_main_cover_worker_and_submit_commands(monkeypatch) -> 
         captured["json"] = args.json
         return 23
 
-    monkeypatch.setattr(cli, "cmd_workflow_list", fake_cmd_workflow_list)
+    monkeypatch.setattr(cli_workflow, "cmd_workflow_list", fake_cmd_workflow_list)
     result = cli.main(["workflow", "list", "--workflow-root", "/tmp/wf", "--json"])
     assert result == 23
     assert captured == {"workflow_root": "/tmp/wf", "json": True}

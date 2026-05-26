@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 import argparse
-from typing import Any
 
+from chemstack import cli_queue
+from chemstack import cli_run_dir
+from chemstack import cli_summary
 
-def _commands() -> Any:
-    from chemstack import cli as commands
-
-    return commands
+_WORKFLOW_SCAFFOLD_SHORTCUTS = (
+    ("ts_search", "reaction_ts_search", "Create a reaction TS-search scaffold."),
+    ("conformer_search", "conformer_screening", "Create a conformer-screening scaffold."),
+)
 
 
 def _add_workflow_scaffold_shortcut(
@@ -17,11 +19,10 @@ def _add_workflow_scaffold_shortcut(
     workflow_type: str,
     help_text: str,
 ) -> None:
-    commands = _commands()
     parser = scaffold_subparsers.add_parser(name, help=help_text)
     parser.add_argument("root", help="Workflow input directory to create")
     parser.set_defaults(
-        func=commands.cmd_workflow_scaffold,
+        func=cli_run_dir.cmd_workflow_scaffold,
         workflow_type=workflow_type,
     )
 
@@ -65,7 +66,6 @@ def _add_resource_override_arguments(parser: argparse.ArgumentParser) -> None:
 def _add_queue_list_parser(
     queue_subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
 ) -> None:
-    commands = _commands()
     list_parser = queue_subparsers.add_parser(
         "list", help="List workflows and engine activities together."
     )
@@ -104,13 +104,12 @@ def _add_queue_list_parser(
         help="Filter by activity kind; may be passed more than once",
     )
     _add_json_argument(list_parser)
-    list_parser.set_defaults(func=commands.cmd_queue_list)
+    list_parser.set_defaults(func=cli_queue.cmd_queue_list)
 
 
 def _add_queue_cancel_parser(
     queue_subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
 ) -> None:
-    commands = _commands()
     cancel_parser = queue_subparsers.add_parser(
         "cancel", help="Cancel a workflow or engine activity."
     )
@@ -125,7 +124,7 @@ def _add_queue_cancel_parser(
         help="Path to shared chemstack.yaml",
     )
     _add_json_argument(cancel_parser)
-    cancel_parser.set_defaults(func=commands.cmd_queue_cancel)
+    cancel_parser.set_defaults(func=cli_queue.cmd_queue_cancel)
 
 
 def _add_queue_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
@@ -139,7 +138,6 @@ def _add_queue_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentPa
 
 
 def _add_run_dir_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
-    commands = _commands()
     run_dir_parser = subparsers.add_parser(
         "run-dir",
         help="Submit an ORCA job directory or workflow input directory through the unified CLI.",
@@ -160,11 +158,10 @@ def _add_run_dir_parser(subparsers: argparse._SubParsersAction[argparse.Argument
     )
     _add_resource_override_arguments(run_dir_parser)
     _add_json_argument(run_dir_parser, help_text="Print JSON output for workflow submission")
-    run_dir_parser.set_defaults(func=commands.cmd_run_dir)
+    run_dir_parser.set_defaults(func=cli_run_dir.cmd_run_dir)
 
 
 def _add_init_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
-    commands = _commands()
     init_parser = subparsers.add_parser(
         "init",
         help="Interactively create or update the shared chemstack.yaml config.",
@@ -174,18 +171,17 @@ def _add_init_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentPar
     init_parser.add_argument(
         "--force", action="store_true", help="Overwrite existing config without confirmation"
     )
-    init_parser.set_defaults(func=commands.cmd_init)
+    init_parser.set_defaults(func=cli_run_dir.cmd_init)
 
 
 def _add_scaffold_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
-    commands = _commands()
     scaffold_parser = subparsers.add_parser(
         "scaffold",
         help="Create raw input workflow scaffold directories.",
     )
     scaffold_subparsers = scaffold_parser.add_subparsers(dest="scaffold_app", required=True)
 
-    for name, workflow_type, help_text in commands._WORKFLOW_SCAFFOLD_SHORTCUTS:
+    for name, workflow_type, help_text in _WORKFLOW_SCAFFOLD_SHORTCUTS:
         _add_workflow_scaffold_shortcut(
             scaffold_subparsers,
             name=name,
@@ -195,7 +191,6 @@ def _add_scaffold_parser(subparsers: argparse._SubParsersAction[argparse.Argumen
 
 
 def _add_organize_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
-    commands = _commands()
     organize_parser = subparsers.add_parser(
         "organize",
         help="Plan or apply organization of terminal engine outputs.",
@@ -227,11 +222,10 @@ def _add_organize_parser(subparsers: argparse._SubParsersAction[argparse.Argumen
         default=False,
         help="Rebuild JSONL index from organized directories",
     )
-    orca_organize_parser.set_defaults(func=commands.cmd_orca_organize)
+    orca_organize_parser.set_defaults(func=cli_run_dir.cmd_orca_organize)
 
 
 def _add_summary_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
-    commands = _commands()
     summary_parser = subparsers.add_parser(
         "summary",
         help="Show combined ORCA/workflow summaries or send Telegram digests through the unified CLI.",
@@ -251,7 +245,7 @@ def _add_summary_parser(subparsers: argparse._SubParsersAction[argparse.Argument
         default=False,
         help="Print summary without sending Telegram",
     )
-    summary_parser.set_defaults(func=commands.cmd_summary)
+    summary_parser.set_defaults(func=cli_summary.cmd_summary)
 
 
 def build_parser() -> argparse.ArgumentParser:

@@ -27,6 +27,7 @@ from ._orchestration_requests import (
     ConformerScreeningWorkflowRequest,
     ReactionTsSearchWorkflowRequest,
 )
+from ._orchestration_deps import OrchestrationDeps
 from ._orchestration_lifecycle import (
     downstream_terminal_result_impl,
     effective_stage_status_impl,
@@ -41,25 +42,33 @@ from ._orchestration_stage_materialization import (
     append_reaction_orca_stages_impl,
     append_reaction_xtb_stages_impl,
 )
-from ._orchestration_stage_runtime import (
-    append_unique_artifact_impl,
+from ._orchestration_stage_runtime_crest import (
     completed_crest_roles_impl,
     completed_crest_stage_impl,
-    completed_orca_stage_impl,
     ensure_crest_job_dir_impl,
-    ensure_xtb_job_dir_impl,
-    stage_has_xtb_candidates_impl,
     sync_crest_stage_impl,
+)
+from ._orchestration_stage_runtime_orca import (
+    completed_orca_stage_impl,
     sync_orca_stage_impl,
-    sync_xtb_stage_impl,
+)
+from ._orchestration_stage_runtime_shared import append_unique_artifact_impl
+from ._orchestration_stage_runtime_xtb_handoff import (
+    stage_has_xtb_candidates_impl,
+    xtb_handoff_status_impl,
+)
+from ._orchestration_stage_runtime_xtb_path_jobs import (
+    ensure_xtb_job_dir_impl,
     write_xtb_path_job_impl,
+)
+from ._orchestration_stage_runtime_xtb_retry import (
     xtb_attempt_record_impl,
     xtb_attempt_rows_impl,
     xtb_current_attempt_number_impl,
-    xtb_handoff_status_impl,
     xtb_path_retry_limit_impl,
     xtb_retry_recipe_impl,
 )
+from ._orchestration_stage_runtime_xtb_sync import sync_xtb_stage_impl
 from ._orchestration_support import (
     clear_reaction_xtb_handoff_error_if_recovering_impl,
     load_config_organized_root_impl,
@@ -108,7 +117,7 @@ from .submitters.xtb_auto import (
     submit_job_dir as submit_xtb_job_dir,
 )
 from .workflow_notifications import maybe_notify_workflow_phase_summary
-from .workflows.orca_stage_utils import build_materialized_orca_stage, safe_name
+from ._orca_stage_materialization import build_materialized_orca_stage, safe_name
 from .xyz_utils import choose_orca_geometry_frame, load_xyz_atom_sequence
 
 _normalize_text = _shared_normalize_text
@@ -363,6 +372,7 @@ def _append_reaction_orca_stages(
     workspace_dir: Path,
     xtb_auto_config: str | None,
     orca_auto_config: str | None,
+    deps: OrchestrationDeps | None = None,
 ) -> bool:
     if not phase_finished(payload.get("stages", []), engine="xtb"):
         return False
@@ -371,6 +381,7 @@ def _append_reaction_orca_stages(
         workspace_dir=workspace_dir,
         xtb_auto_config=xtb_auto_config,
         orca_auto_config=orca_auto_config,
+        deps=deps,
     )
 
 

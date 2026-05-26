@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from unittest.mock import patch
+from unittest.mock import Mock
 
 
 from chemstack.flow.contracts import OrcaArtifactContract
+from chemstack.flow._orchestration_deps import orchestration_deps
 from chemstack.flow.orchestration import _sync_orca_stage
 
 
@@ -68,14 +69,16 @@ def test_sync_orca_stage_applies_contract_state_metadata_and_artifacts() -> None
         resource_actual={"max_cores": 8, "max_memory_gb": 16},
     )
 
-    with patch("chemstack.flow.orchestration.load_orca_artifact_contract", return_value=contract) as mock_load:
-        _sync_orca_stage(
-            stage,
-            orca_auto_config=None,
-            orca_auto_executable="orca_auto",
-            orca_auto_repo_root=None,
-            submit_ready=False,
-        )
+    mock_load = Mock(return_value=contract)
+    deps = orchestration_deps(overrides={"load_orca_artifact_contract": mock_load})
+    _sync_orca_stage(
+        stage,
+        orca_auto_config=None,
+        orca_auto_executable="orca_auto",
+        orca_auto_repo_root=None,
+        submit_ready=False,
+        deps=deps,
+    )
 
     assert isinstance(stage["task"], dict)
     assert isinstance(stage["metadata"], dict)

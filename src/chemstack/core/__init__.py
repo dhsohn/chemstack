@@ -12,7 +12,8 @@ from .indexing import (
 )
 from .notifications import TelegramSendResult, TelegramTransport, build_telegram_transport
 from .queue.types import QueueEntry, QueueStatus
-from .version import __version__
+
+__version__ = "0.1.0"
 
 __all__ = [
     "__version__",

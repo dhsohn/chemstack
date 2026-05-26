@@ -7,7 +7,7 @@ from chemstack.core.commands import queue as _shared_queue
 from chemstack.core.queue import list_queue
 
 from ..config import load_config
-from ..tracking import runtime_roots_for_cfg
+from ..job_locations import runtime_roots_for_cfg
 
 _XTB_LIST_SPEC = _engine_list.EngineListSpec(
     engine_label="xTB",

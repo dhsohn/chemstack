@@ -1,93 +1,44 @@
 from __future__ import annotations
 
 import argparse
-import logging
-import logging.handlers
-import sys
 from typing import Callable
 
-from chemstack import cli as unified_cli
+from chemstack import cli_queue
 
 from .commands._helpers import default_config_path
+from .commands import init as init_cmd
 from .commands.list_runs import cmd_list as _engine_cmd_list
 from .commands.monitor import cmd_monitor
+from .commands import organize as organize_cmd
 from .commands.queue import cmd_queue_cancel as _engine_cmd_queue_cancel
-
-_CHEMSTACK_HANDLER_ATTR = "_chemstack_managed_handler"
-
-
-def _shared_list_argv(*, config_path: str, engine: str, status: str | None = None) -> list[str]:
-    argv = [
-        "queue",
-        "list",
-        "--engine",
-        engine,
-        "--kind",
-        "job",
-        "--chemstack-config",
-        config_path,
-    ]
-    if status:
-        argv.extend(["--status", status])
-    return argv
-
-
-def _shared_config_argv(config_path: str | None) -> list[str]:
-    if not config_path:
-        return []
-    return ["--chemstack-config", config_path]
-
-
-def _shared_orca_logging_argv(args: argparse.Namespace) -> list[str]:
-    argv: list[str] = []
-    if bool(getattr(args, "verbose", False)):
-        argv.append("--verbose")
-    log_file = getattr(args, "log_file", None)
-    if log_file:
-        argv.extend(["--log-file", str(log_file)])
-    return argv
+from .commands import run_inp as run_inp_cmd
+from .commands import summary as summary_cmd
+from .cli_logging import configure_logging
 
 
 def cmd_init(args: argparse.Namespace) -> int:
-    argv = ["init", *_shared_config_argv(args.config), *_shared_orca_logging_argv(args)]
-    if bool(getattr(args, "force", False)):
-        argv.append("--force")
-    return int(unified_cli.main(argv))
+    return int(init_cmd.cmd_init(args))
 
 
 def cmd_run_inp(args: argparse.Namespace) -> int:
-    argv = [
-        "run-dir",
-        args.path,
-        *_shared_config_argv(args.config),
-        *_shared_orca_logging_argv(args),
-        "--priority",
-        str(args.priority),
-    ]
-    if bool(getattr(args, "force", False)):
-        argv.append("--force")
-    max_cores = getattr(args, "max_cores", None)
-    if max_cores is not None:
-        argv.extend(["--max-cores", str(max_cores)])
-    max_memory_gb = getattr(args, "max_memory_gb", None)
-    if max_memory_gb is not None:
-        argv.extend(["--max-memory-gb", str(max_memory_gb)])
-    return int(unified_cli.main(argv))
-
-
-cmd_run_dir = cmd_run_inp
+    return int(run_inp_cmd.cmd_run_inp(args))
 
 
 def cmd_list(args: argparse.Namespace) -> int:
     if getattr(args, "action", None) == "clear":
         return int(_engine_cmd_list(args))
-    return int(
-        unified_cli.main(
-            _shared_list_argv(
-                config_path=args.config,
-                engine="orca",
-                status=getattr(args, "filter", None),
-            )
+    status = getattr(args, "filter", None)
+    return cli_queue.cmd_queue_list(
+        argparse.Namespace(
+            action=None,
+            workflow_root=None,
+            chemstack_config=args.config,
+            limit=0,
+            refresh=False,
+            engine=["orca"],
+            status=[status] if status else None,
+            kind=["job"],
+            json=False,
         )
     )
 
@@ -96,37 +47,22 @@ def cmd_queue_cancel(args: argparse.Namespace) -> int:
     target = str(getattr(args, "target", "")).strip()
     if target == "all-pending":
         return int(_engine_cmd_queue_cancel(args))
-    return int(
-        unified_cli.main(
-            [
-                "queue",
-                "cancel",
-                target,
-                "--chemstack-config",
-                args.config,
-            ]
+    return cli_queue.cmd_queue_cancel(
+        argparse.Namespace(
+            target=target,
+            workflow_root=None,
+            chemstack_config=args.config,
+            json=False,
         )
     )
 
 
 def cmd_organize(args: argparse.Namespace) -> int:
-    argv = ["organize", "orca", *_shared_config_argv(args.config), *_shared_orca_logging_argv(args)]
-    if getattr(args, "reaction_dir", None):
-        argv.extend(["--reaction-dir", args.reaction_dir])
-    if getattr(args, "root", None):
-        argv.extend(["--root", args.root])
-    if bool(getattr(args, "apply", False)):
-        argv.append("--apply")
-    if bool(getattr(args, "rebuild_index", False)):
-        argv.append("--rebuild-index")
-    return int(unified_cli.main(argv))
+    return int(organize_cmd.cmd_organize(args))
 
 
 def cmd_summary(args: argparse.Namespace) -> int:
-    argv = ["summary", "orca", *_shared_config_argv(args.config), *_shared_orca_logging_argv(args)]
-    if bool(getattr(args, "no_send", False)):
-        argv.append("--no-send")
-    return int(unified_cli.main(argv))
+    return int(summary_cmd.cmd_summary(args))
 
 
 def cmd_queue(args: argparse.Namespace) -> int:
@@ -192,48 +128,11 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _configure_logging(args: argparse.Namespace) -> None:
-    """Set up logging based on CLI flags."""
-    log_level = logging.DEBUG if getattr(args, "verbose", False) else logging.INFO
-    log_file = getattr(args, "log_file", None)
-
-    root_logger = logging.getLogger()
-    root_logger.setLevel(log_level)
-    _remove_managed_handlers(root_logger)
-
-    formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
-
-    if log_file:
-        handler: logging.Handler = logging.handlers.RotatingFileHandler(
-            log_file,
-            maxBytes=10 * 1024 * 1024,  # 10 MB
-            backupCount=5,
-            encoding="utf-8",
-        )
-    else:
-        handler = logging.StreamHandler(sys.stderr)
-
-    handler.setFormatter(formatter)
-    setattr(handler, _CHEMSTACK_HANDLER_ATTR, True)
-    root_logger.addHandler(handler)
-
-
-def _remove_managed_handlers(root_logger: logging.Logger) -> None:
-    for handler in list(root_logger.handlers):
-        if not getattr(handler, _CHEMSTACK_HANDLER_ATTR, False):
-            continue
-        root_logger.removeHandler(handler)
-        try:
-            handler.close()
-        except Exception:
-            pass
-
-
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
 
-    _configure_logging(args)
+    configure_logging(args)
 
     command_map: dict[str, Callable[[argparse.Namespace], int]] = {
         "init": cmd_init,

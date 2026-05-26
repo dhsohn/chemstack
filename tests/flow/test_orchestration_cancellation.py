@@ -8,6 +8,7 @@ import pytest
 
 
 from chemstack.flow import orchestration
+from chemstack.flow._orchestration_deps import orchestration_deps
 
 
 def _write_xyz_ensemble(path: Path, comments: tuple[str, ...]) -> None:
@@ -27,7 +28,6 @@ def _write_xyz_ensemble(path: Path, comments: tuple[str, ...]) -> None:
 
 def test_cancel_materialized_workflow_mixes_local_remote_and_failed_cancellations(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     payload: dict[str, Any] = {
         "workflow_id": "wf_cancel_01",
@@ -64,34 +64,22 @@ def test_cancel_materialized_workflow_mixes_local_remote_and_failed_cancellation
         ],
     }
 
-    monkeypatch.setattr(
-        orchestration,
-        "resolve_workflow_workspace",
-        lambda target, workflow_root: tmp_path / "workspace",
-    )
-    monkeypatch.setattr(
-        orchestration,
-        "acquire_workflow_lock",
-        lambda workspace_dir, timeout_seconds=5.0: nullcontext(),
-    )
-    monkeypatch.setattr(orchestration, "load_workflow_payload", lambda workspace_dir: payload)
-    monkeypatch.setattr(
-        orchestration,
-        "crest_cancel_target",
-        lambda **kwargs: {"status": "cancel_requested", "queue_id": kwargs["target"]},
-    )
-    monkeypatch.setattr(
-        orchestration,
-        "orca_cancel_target",
-        lambda **kwargs: {"status": "cancelled", "queue_id": kwargs["target"]},
-    )
-    monkeypatch.setattr(
-        orchestration, "write_workflow_payload", lambda workspace_dir, current_payload: None
-    )
-    monkeypatch.setattr(
-        orchestration,
-        "sync_workflow_registry",
-        lambda workflow_root, workspace_dir, current_payload: None,
+    deps = orchestration_deps(
+        overrides={
+            "resolve_workflow_workspace": lambda target, workflow_root: tmp_path / "workspace",
+            "acquire_workflow_lock": lambda workspace_dir, timeout_seconds=5.0: nullcontext(),
+            "load_workflow_payload": lambda workspace_dir: payload,
+            "crest_cancel_target": lambda **kwargs: {
+                "status": "cancel_requested",
+                "queue_id": kwargs["target"],
+            },
+            "orca_cancel_target": lambda **kwargs: {
+                "status": "cancelled",
+                "queue_id": kwargs["target"],
+            },
+            "write_workflow_payload": lambda workspace_dir, current_payload: None,
+            "sync_workflow_registry": lambda workflow_root, workspace_dir, current_payload: None,
+        }
     )
 
     result = orchestration.cancel_materialized_workflow(
@@ -99,6 +87,7 @@ def test_cancel_materialized_workflow_mixes_local_remote_and_failed_cancellation
         workflow_root=tmp_path,
         crest_auto_config="/tmp/crest.yaml",
         orca_auto_config="/tmp/orca.yaml",
+        deps=deps,
     )
 
     assert result["status"] == "cancel_requested"
@@ -119,7 +108,6 @@ def test_cancel_materialized_workflow_mixes_local_remote_and_failed_cancellation
 
 def test_cancel_materialized_workflow_reports_cancelled_when_no_remote_request_pending(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     payload: dict[str, Any] = {
         "workflow_id": "wf_cancel_02",
@@ -133,29 +121,20 @@ def test_cancel_materialized_workflow_reports_cancelled_when_no_remote_request_p
         ],
     }
 
-    monkeypatch.setattr(
-        orchestration,
-        "resolve_workflow_workspace",
-        lambda target, workflow_root: tmp_path / "workspace",
-    )
-    monkeypatch.setattr(
-        orchestration,
-        "acquire_workflow_lock",
-        lambda workspace_dir, timeout_seconds=5.0: nullcontext(),
-    )
-    monkeypatch.setattr(orchestration, "load_workflow_payload", lambda workspace_dir: payload)
-    monkeypatch.setattr(
-        orchestration, "write_workflow_payload", lambda workspace_dir, current_payload: None
-    )
-    monkeypatch.setattr(
-        orchestration,
-        "sync_workflow_registry",
-        lambda workflow_root, workspace_dir, current_payload: None,
+    deps = orchestration_deps(
+        overrides={
+            "resolve_workflow_workspace": lambda target, workflow_root: tmp_path / "workspace",
+            "acquire_workflow_lock": lambda workspace_dir, timeout_seconds=5.0: nullcontext(),
+            "load_workflow_payload": lambda workspace_dir: payload,
+            "write_workflow_payload": lambda workspace_dir, current_payload: None,
+            "sync_workflow_registry": lambda workflow_root, workspace_dir, current_payload: None,
+        }
     )
 
     result = orchestration.cancel_materialized_workflow(
         target="wf_cancel_02",
         workflow_root=tmp_path,
+        deps=deps,
     )
 
     assert result["status"] == "cancelled"
@@ -165,7 +144,6 @@ def test_cancel_materialized_workflow_reports_cancelled_when_no_remote_request_p
 
 def test_cancel_materialized_workflow_reports_cancel_failed_when_stage_cancellation_fails(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     payload: dict[str, Any] = {
         "workflow_id": "wf_failed_cancel",
@@ -180,35 +158,25 @@ def test_cancel_materialized_workflow_reports_cancel_failed_when_stage_cancellat
         ],
     }
 
-    monkeypatch.setattr(
-        orchestration,
-        "resolve_workflow_workspace",
-        lambda target, workflow_root: tmp_path / "workspace",
-    )
-    monkeypatch.setattr(
-        orchestration,
-        "acquire_workflow_lock",
-        lambda workspace_dir, timeout_seconds=5.0: nullcontext(),
-    )
-    monkeypatch.setattr(orchestration, "load_workflow_payload", lambda workspace_dir: payload)
-    monkeypatch.setattr(
-        orchestration,
-        "orca_cancel_target",
-        lambda **kwargs: {"status": "failed", "reason": "cancel_command_timeout"},
-    )
-    monkeypatch.setattr(
-        orchestration, "write_workflow_payload", lambda workspace_dir, current_payload: None
-    )
-    monkeypatch.setattr(
-        orchestration,
-        "sync_workflow_registry",
-        lambda workflow_root, workspace_dir, current_payload: None,
+    deps = orchestration_deps(
+        overrides={
+            "resolve_workflow_workspace": lambda target, workflow_root: tmp_path / "workspace",
+            "acquire_workflow_lock": lambda workspace_dir, timeout_seconds=5.0: nullcontext(),
+            "load_workflow_payload": lambda workspace_dir: payload,
+            "orca_cancel_target": lambda **kwargs: {
+                "status": "failed",
+                "reason": "cancel_command_timeout",
+            },
+            "write_workflow_payload": lambda workspace_dir, current_payload: None,
+            "sync_workflow_registry": lambda workflow_root, workspace_dir, current_payload: None,
+        }
     )
 
     result = orchestration.cancel_materialized_workflow(
         target="wf_failed_cancel",
         workflow_root=tmp_path,
         orca_auto_config="/tmp/orca.yaml",
+        deps=deps,
     )
 
     assert result["status"] == "cancel_failed"
@@ -220,18 +188,16 @@ def test_cancel_materialized_workflow_reports_cancel_failed_when_stage_cancellat
 
 def test_cancel_materialized_workflow_reports_busy_lock_timeout(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(
-        orchestration,
-        "resolve_workflow_workspace",
-        lambda target, workflow_root: tmp_path / "workspace",
-    )
-
     def fake_acquire_workflow_lock(workspace_dir, timeout_seconds=5.0):
         raise TimeoutError("Timed out acquiring lock")
 
-    monkeypatch.setattr(orchestration, "acquire_workflow_lock", fake_acquire_workflow_lock)
+    deps = orchestration_deps(
+        overrides={
+            "resolve_workflow_workspace": lambda target, workflow_root: tmp_path / "workspace",
+            "acquire_workflow_lock": fake_acquire_workflow_lock,
+        }
+    )
 
     with pytest.raises(
         ValueError, match="Workflow is busy and could not be locked for cancellation within 5s"
@@ -239,4 +205,5 @@ def test_cancel_materialized_workflow_reports_busy_lock_timeout(
         orchestration.cancel_materialized_workflow(
             target="wf_busy",
             workflow_root=tmp_path,
+            deps=deps,
         )

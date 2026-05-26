@@ -15,14 +15,6 @@ def _write_json(path: Path, payload: object) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=True, indent=2), encoding="utf-8")
 
 
-def _write_jsonl(path: Path, records: list[dict[str, object]]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        "\n".join(json.dumps(item, ensure_ascii=True) for item in records) + "\n",
-        encoding="utf-8",
-    )
-
-
 def _disable_tracking_helpers(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(orca_adapter, "_tracked_contract_payload", lambda **kwargs: None)
     monkeypatch.setattr(orca_adapter, "_tracked_runtime_context", lambda **kwargs: None)
@@ -87,7 +79,7 @@ def test_load_orca_artifact_contract_short_circuits_on_tracked_payload(tmp_path:
     assert contract.resource_actual == {"max_cores": 6, "max_memory_gb": 12}
 
 
-def test_tracked_contract_payload_prefers_job_location_payload_helper(
+def test_tracked_contract_payload_uses_job_location_payload_helper(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -99,16 +91,10 @@ def test_tracked_contract_payload_prefers_job_location_payload_helper(
     job_locations_module = SimpleNamespace(
         load_orca_contract_payload=lambda *_args, **_kwargs: payload
     )
-    tracking_module = SimpleNamespace(
-        load_orca_contract_payload=lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            AssertionError("legacy tracking payload helper should not run")
-        )
-    )
 
     monkeypatch.setattr(
         orca_adapter, "_orca_auto_job_locations_module", lambda: job_locations_module
     )
-    monkeypatch.setattr(orca_adapter, "_orca_auto_tracking_module", lambda: tracking_module)
 
     assert orca_adapter._tracked_contract_payload(
         index_root=tmp_path / "orca_runs",
@@ -120,14 +106,14 @@ def test_tracked_contract_payload_prefers_job_location_payload_helper(
     ) == payload
 
 
-def test_load_orca_artifact_contract_falls_back_from_queue_stub_to_organized_record(
+def test_load_orca_artifact_contract_uses_tracked_record_organized_output(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     allowed_root = tmp_path / "orca_runs"
     organized_root = tmp_path / "orca_outputs"
     stub_dir = allowed_root / "rxn_stub"
-    organized_dir = organized_root / "opt" / "H2" / "run_queue_fallback"
+    organized_dir = organized_root / "opt" / "H2" / "run_tracked_output"
     stub_dir.mkdir(parents=True)
     organized_dir.mkdir(parents=True)
 
@@ -139,22 +125,9 @@ def test_load_orca_artifact_contract_falls_back_from_queue_stub_to_organized_rec
     out.write_text("****ORCA TERMINATED NORMALLY****\n", encoding="utf-8")
 
     _write_json(
-        allowed_root / "queue.json",
-        [
-            {
-                "queue_id": "q_queue_fallback",
-                "task_id": "job_queue_fallback",
-                "run_id": "run_queue_fallback",
-                "reaction_dir": str(stub_dir),
-                "status": "running",
-                "cancel_requested": False,
-            }
-        ],
-    )
-    _write_json(
         organized_dir / "run_state.json",
         {
-            "run_id": "run_queue_fallback",
+            "run_id": "run_tracked_output",
             "reaction_dir": str(organized_dir),
             "selected_inp": str(inp),
             "status": "completed",
@@ -171,7 +144,7 @@ def test_load_orca_artifact_contract_falls_back_from_queue_stub_to_organized_rec
     _write_json(
         organized_dir / "run_report.json",
         {
-            "run_id": "run_queue_fallback",
+            "run_id": "run_tracked_output",
             "status": "completed",
             "selected_inp": str(inp),
             "final_result": {
@@ -183,28 +156,56 @@ def test_load_orca_artifact_contract_falls_back_from_queue_stub_to_organized_rec
             },
         },
     )
-    _write_jsonl(
-        organized_root / "index" / "records.jsonl",
-        [
-            {
-                "run_id": "run_queue_fallback",
-                "organized_path": "opt/H2/run_queue_fallback",
-            }
-        ],
+    tracked_record = SimpleNamespace(
+        app_name="chemstack_orca",
+        status="completed",
+        selected_input_xyz=str(inp),
+        latest_known_path=str(organized_dir),
+        organized_output_dir=str(organized_dir),
+        original_run_dir=str(stub_dir),
+        resource_request={},
+        resource_actual={},
     )
 
-    _disable_tracking_helpers(monkeypatch)
+    monkeypatch.setattr(orca_adapter, "_tracked_contract_payload", lambda **kwargs: None)
+    monkeypatch.setattr(orca_adapter, "_tracked_runtime_context", lambda **kwargs: None)
+    monkeypatch.setattr(
+        orca_adapter,
+        "_tracked_artifact_context",
+        lambda **kwargs: (stub_dir, tracked_record, {}, {}, {}),
+    )
+    monkeypatch.setattr(
+        orca_adapter,
+        "_resolve_job_dir",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("job-dir fallback should not run")
+        ),
+    )
+    monkeypatch.setattr(
+        orca_adapter,
+        "_find_queue_entry",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            AssertionError("queue fallback should not run")
+        ),
+    )
+    monkeypatch.setattr(
+        orca_adapter,
+        "_find_organized_record",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            AssertionError("organized-record fallback should not run")
+        ),
+    )
 
     contract = orca_adapter.load_orca_artifact_contract(
-        target="job_queue_fallback",
+        target="job_tracked_output",
         orca_allowed_root=allowed_root,
         orca_organized_root=organized_root,
     )
 
     assert contract.status == "completed"
-    assert contract.queue_id == "q_queue_fallback"
-    assert contract.queue_status == "running"
-    assert contract.run_id == "run_queue_fallback"
+    assert contract.queue_id == ""
+    assert contract.queue_status == ""
+    assert contract.run_id == "run_tracked_output"
     assert contract.reaction_dir == str(organized_dir.resolve())
     assert contract.latest_known_path == str(organized_dir.resolve())
     assert contract.organized_output_dir == str(organized_dir.resolve())
@@ -237,6 +238,7 @@ def test_load_orca_artifact_contract_resolves_selected_input_and_prefers_last_ou
             "run_id": "run_paths_1",
             "reaction_dir": str(run_dir),
             "status": "completed",
+            "selected_inp": "job_step.inp",
             "final_result": {
                 "status": "completed",
                 "analyzer_status": "completed",
@@ -245,29 +247,18 @@ def test_load_orca_artifact_contract_resolves_selected_input_and_prefers_last_ou
             },
         },
     )
-    _write_json(
-        allowed_root / "job_locations.json",
-        [
-            {
-                "job_id": "job_paths_1",
-                "app_name": "chemstack_orca",
-                "job_type": "orca_opt",
-                "status": "completed",
-                "original_run_dir": str(run_dir),
-                "molecule_key": "H2",
-                "selected_input_xyz": "job_step.inp",
-                "organized_output_dir": "",
-                "latest_known_path": str(run_dir),
-                "resource_request": {},
-                "resource_actual": {},
-            }
-        ],
-    )
 
     _disable_tracking_helpers(monkeypatch)
+    monkeypatch.setattr(
+        orca_adapter,
+        "_resolve_job_dir",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("job-dir fallback should not run")
+        ),
+    )
 
     contract = orca_adapter.load_orca_artifact_contract(
-        target="job_paths_1",
+        target=str(run_dir),
         orca_allowed_root=allowed_root,
     )
 
@@ -335,30 +326,35 @@ def test_load_orca_artifact_contract_propagates_resource_request_and_actual(
             }
         ],
     )
-    _write_json(
-        allowed_root / "job_locations.json",
-        [
-            {
-                "job_id": "job_resources_1",
-                "app_name": "chemstack_orca",
-                "job_type": "orca_opt",
-                "status": "queued",
-                "original_run_dir": str(run_dir),
-                "molecule_key": "H2",
-                "selected_input_xyz": "",
-                "organized_output_dir": "",
-                "latest_known_path": str(run_dir),
-                "resource_request": record_request,
-                "resource_actual": record_actual,
-            }
-        ],
+    tracked_record = SimpleNamespace(
+        app_name="chemstack_orca",
+        status="queued",
+        original_run_dir=str(run_dir),
+        selected_input_xyz="",
+        organized_output_dir="",
+        latest_known_path=str(run_dir),
+        resource_request=record_request,
+        resource_actual=record_actual,
     )
-
-    _disable_tracking_helpers(monkeypatch)
+    monkeypatch.setattr(orca_adapter, "_tracked_contract_payload", lambda **kwargs: None)
+    monkeypatch.setattr(orca_adapter, "_tracked_runtime_context", lambda **kwargs: None)
+    monkeypatch.setattr(
+        orca_adapter,
+        "_tracked_artifact_context",
+        lambda **kwargs: (run_dir, tracked_record, {}, {}, {}),
+    )
+    monkeypatch.setattr(
+        orca_adapter,
+        "_resolve_job_dir",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("job-dir fallback should not run")
+        ),
+    )
 
     contract = orca_adapter.load_orca_artifact_contract(
         target="job_resources_1",
         orca_allowed_root=allowed_root,
+        queue_id="q_resources_1",
     )
 
     assert contract.resource_request == expected_request

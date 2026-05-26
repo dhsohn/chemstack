@@ -10,7 +10,7 @@ from types import SimpleNamespace
 import pytest
 import yaml
 
-from chemstack.xtb import _internal_cli as cli
+from chemstack.core.internal_cli import dispatch_engine_internal_queue_command
 from chemstack.xtb import state as state_mod
 from chemstack.xtb.commands import reindex as reindex_cmd
 from chemstack.xtb.config import CONFIG_ENV_VAR, _as_bool, _as_int, _as_str, default_config_path, load_config
@@ -260,21 +260,34 @@ def test_cmd_reindex_counts_skipped_candidates_when_record_cannot_be_built(
     assert "skipped: 1" in output
 
 
-def test_cli_cmd_queue_dispatches_worker_cancel_and_unknown(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_engine_internal_queue_dispatches_worker_cancel_and_unknown() -> None:
     worker_args = argparse.Namespace(queue_command="worker")
     cancel_args = argparse.Namespace(queue_command="cancel")
     other_args = argparse.Namespace(queue_command="unknown")
 
-    monkeypatch.setattr(cli, "cmd_queue_worker", lambda args: 11)
-    monkeypatch.setattr(cli, "cmd_queue_cancel", lambda args: 17)
-
-    assert cli._cmd_queue(worker_args) == 11
-    assert cli._cmd_queue(cancel_args) == 17
+    assert (
+        dispatch_engine_internal_queue_command(
+            worker_args,
+            queue_worker_handler=lambda args: 11,
+            queue_cancel_handler=lambda args: 17,
+        )
+        == 11
+    )
+    assert (
+        dispatch_engine_internal_queue_command(
+            cancel_args,
+            queue_worker_handler=lambda args: 11,
+            queue_cancel_handler=lambda args: 17,
+        )
+        == 17
+    )
 
     with pytest.raises(ValueError, match="Unsupported queue subcommand: unknown"):
-        cli._cmd_queue(other_args)
+        dispatch_engine_internal_queue_command(
+            other_args,
+            queue_worker_handler=lambda args: 11,
+            queue_cancel_handler=lambda args: 17,
+        )
 
 
 def test_cli_module_main_entrypoint_raises_system_exit(

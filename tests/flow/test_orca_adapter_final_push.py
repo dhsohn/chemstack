@@ -75,8 +75,8 @@ def test_import_and_basic_path_helpers_cover_remaining_low_level_edges(
 
     monkeypatch.setattr(orca_adapter, "import_module", fake_import)
 
-    assert orca_adapter._import_orca_auto_module("chemstack.orca.tracking") is None
-    assert import_calls == ["chemstack.orca.tracking"]
+    assert orca_adapter._import_orca_auto_module("chemstack.orca.job_locations") is None
+    assert import_calls == ["chemstack.orca.job_locations"]
 
     assert orca_adapter._direct_dir_target("   ") is None
 
@@ -369,92 +369,6 @@ def test_prefer_orca_optimized_xyz_handles_source_glob_and_duplicate_fallbacks(
     )
 
     assert chosen == "/tmp/final.xyz"
-
-
-def test_load_orca_artifact_contract_refreshes_from_organized_dir_and_uses_refreshed_record(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    allowed_root = tmp_path / "orca_runs"
-    organized_root = tmp_path / "orca_outputs"
-    organized_dir = organized_root / "opt" / "H2" / "run_refresh"
-    organized_dir.mkdir(parents=True)
-    selected_inp = organized_dir / "job.inp"
-    source_xyz = organized_dir / "source.xyz"
-    last_out = organized_dir / "job.out"
-    selected_inp.write_text("! Opt\n* xyzfile 0 1 source.xyz\n", encoding="utf-8")
-    _write_xyz(source_xyz)
-    last_out.write_text("done\n", encoding="utf-8")
-
-    refreshed_record = JobLocationRecord(
-        job_id="job_refresh",
-        app_name="chemstack_orca",
-        job_type="orca_opt",
-        status="running",
-        original_run_dir="",
-        selected_input_xyz=str(source_xyz),
-        organized_output_dir=str(organized_dir),
-        latest_known_path="",
-        resource_request={},
-        resource_actual={},
-    )
-    contexts = [
-        (None, None, {}, {}, {}),
-        (
-            organized_dir,
-            refreshed_record,
-            {
-                "run_id": "run_refresh",
-                "status": "running",
-                "selected_inp": str(selected_inp),
-            },
-            {
-                "run_id": "run_refresh",
-                "final_result": {
-                    "status": "completed",
-                    "analyzer_status": "completed",
-                    "reason": "normal_termination",
-                    "last_out_path": str(last_out),
-                },
-            },
-            {
-                "run_id": "run_refresh",
-                "organized_output_dir": str(organized_dir),
-                "selected_input_xyz": str(source_xyz),
-            },
-        ),
-    ]
-
-    monkeypatch.setattr(orca_adapter, "_tracked_contract_payload", lambda **_kwargs: None)
-    monkeypatch.setattr(orca_adapter, "_tracked_runtime_context", lambda **_kwargs: None)
-    monkeypatch.setattr(
-        orca_adapter,
-        "_tracked_artifact_context",
-        lambda **_kwargs: contexts.pop(0),
-    )
-    monkeypatch.setattr(orca_adapter, "_resolve_job_dir", lambda *_args, **_kwargs: (None, None))
-    monkeypatch.setattr(orca_adapter, "_find_queue_entry", lambda **_kwargs: None)
-    monkeypatch.setattr(orca_adapter, "_record_organized_dir", lambda _record: None)
-    monkeypatch.setattr(orca_adapter, "_find_organized_record", lambda **_kwargs: {"organized_path": "opt/H2/run_refresh"})
-    monkeypatch.setattr(
-        orca_adapter,
-        "_organized_dir_from_record",
-        lambda _organized_root, _record: organized_dir,
-    )
-
-    contract = orca_adapter.load_orca_artifact_contract(
-        target="job_refresh",
-        orca_allowed_root=allowed_root,
-        orca_organized_root=organized_root,
-    )
-
-    assert contract.run_id == "run_refresh"
-    assert contract.status == "completed"
-    assert contract.reaction_dir == str(organized_dir)
-    assert contract.organized_output_dir == str(organized_dir)
-    assert contract.selected_inp == str(selected_inp)
-    assert contract.selected_input_xyz == str(source_xyz)
-    assert contract.last_out_path == str(last_out)
 
 
 def test_load_orca_artifact_contract_uses_target_when_no_paths_are_resolved(

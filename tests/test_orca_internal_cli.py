@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from argparse import Namespace
 from typing import Any
 
 import pytest
 
 from chemstack.orca import _internal_cli as cli
+from chemstack.orca.commands import queue as queue_cmd
 
 
 def test_build_parser_supports_orca_internal_queue_commands() -> None:
@@ -41,8 +41,8 @@ def test_main_dispatches_orca_internal_queue_commands(monkeypatch: pytest.Monkey
         cancel_calls.append(args)
         return 42
 
-    monkeypatch.setattr(cli, "cmd_queue_worker", _worker)
-    monkeypatch.setattr(cli, "cmd_queue_cancel", _cancel)
+    monkeypatch.setattr(queue_cmd, "cmd_queue_worker", _worker)
+    monkeypatch.setattr(queue_cmd, "cmd_queue_cancel", _cancel)
 
     assert cli.main(["queue", "worker", "--auto-organize"]) == 41
     assert cli.main(["queue", "cancel", "job-123"]) == 42
@@ -53,18 +53,3 @@ def test_main_dispatches_orca_internal_queue_commands(monkeypatch: pytest.Monkey
     assert len(cancel_calls) == 1
     assert cancel_calls[0].queue_command == "cancel"
     assert cancel_calls[0].target == "job-123"
-
-
-def test_orca_internal_queue_helpers_delegate_to_queue_module(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(cli.queue_cmd, "cmd_queue_worker", lambda args: 43)
-    monkeypatch.setattr(cli.queue_cmd, "cmd_queue_cancel", lambda args: 44)
-
-    assert cli.cmd_queue_worker(Namespace(queue_command="worker")) == 43
-    assert cli.cmd_queue_cancel(Namespace(queue_command="cancel")) == 44
-
-
-def test_orca_internal_queue_rejects_unknown_subcommand() -> None:
-    with pytest.raises(ValueError, match="Unsupported queue subcommand: noop"):
-        cli._cmd_queue(Namespace(queue_command="noop"))

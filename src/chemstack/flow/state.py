@@ -23,6 +23,7 @@ from chemstack.core.utils import (
     normalize_text as _normalize_text,
 )
 from chemstack.core.utils.coercion import normalize_bool as _shared_normalize_bool
+from chemstack.flow.contracts.workflow import coerce_workflow_plan_payload
 
 WORKFLOW_LOCK_NAME = "workflow.lock"
 
@@ -86,7 +87,7 @@ def load_workflow_payload(workspace_dir: str | Path) -> dict[str, Any]:
     raw = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(raw, dict):
         raise ValueError(f"workflow file is not a JSON object: {path}")
-    return raw
+    return dict(coerce_workflow_plan_payload(raw))
 
 
 def write_workflow_payload(workspace_dir: str | Path, payload: dict[str, Any]) -> Path:
@@ -204,7 +205,9 @@ def workflow_summary(
     workspace_dir: str | Path, payload: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     workspace = Path(workspace_dir).expanduser().resolve()
-    data = payload if payload is not None else load_workflow_payload(workspace)
+    data = coerce_workflow_plan_payload(
+        payload if payload is not None else load_workflow_payload(workspace)
+    )
     stages = _coerce_sequence(data.get("stages"))
     status_counts, task_status_counts, stage_summaries = _workflow_stage_summary_rows(stages)
 

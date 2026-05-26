@@ -1,14 +1,10 @@
 from __future__ import annotations
 
-import sys
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from chemstack.core.facade import resolve_grouped_attr
-
-_ORCHESTRATION_FACADE_MODULE = "chemstack.flow.orchestration"
 AnyCallable = Callable[..., Any]
 
 
@@ -104,47 +100,34 @@ class OrchestrationDeps:
     stages: OrchestrationStageDeps
     advance: OrchestrationAdvanceDeps
 
-    def __getattr__(self, name: str) -> Any:
-        return resolve_grouped_attr(
-            name,
-            (self.contracts, self.persistence, self.engines, self.stages, self.advance),
-        )
-
 
 @dataclass(frozen=True)
 class OrchestrationOverrideResolver:
     overrides: Mapping[str, Any] | None = None
-    facade_module_name: str = _ORCHESTRATION_FACADE_MODULE
 
     def get(self, name: str, fallback: Any) -> Any:
         if self.overrides is not None and name in self.overrides:
             return self.overrides[name]
-        facade = sys.modules.get(self.facade_module_name)
-        if facade is None:
-            return fallback
-        return getattr(facade, name, fallback)
+        return fallback
 
     def map(self, items: dict[str, Any]) -> dict[str, Any]:
         return {name: self.get(name, fallback) for name, fallback in items.items()}
 
 
-def _override_resolver(
-    overrides: Mapping[str, Any] | None = None,
-    *,
-    facade_module_name: str = _ORCHESTRATION_FACADE_MODULE,
-) -> OrchestrationOverrideResolver:
-    return OrchestrationOverrideResolver(
-        overrides=overrides,
-        facade_module_name=facade_module_name,
-    )
+def _override_resolver(overrides: Mapping[str, Any] | None = None) -> OrchestrationOverrideResolver:
+    return OrchestrationOverrideResolver(overrides=overrides)
 
 
-def _facade_override(name: str, fallback: Any) -> Any:
-    return _override_resolver().get(name, fallback)
+def _deps_for_resolver(resolver: OrchestrationOverrideResolver) -> OrchestrationDeps:
+    return orchestration_deps(overrides=resolver.overrides)
 
 
-def _facade_overrides(items: dict[str, Any]) -> dict[str, Any]:
-    return _override_resolver().map(items)
+def _bind_with_deps(resolver: OrchestrationOverrideResolver, func: AnyCallable) -> AnyCallable:
+    def call(*args: Any, **kwargs: Any) -> Any:
+        kwargs.setdefault("deps", _deps_for_resolver(resolver))
+        return func(*args, **kwargs)
+
+    return call
 
 
 def _coerce_mapping_fallback(value: Any) -> dict[str, Any]:
@@ -335,6 +318,7 @@ def _append_reaction_orca_stages_fallback(
     from ._orchestration_stage_materialization import append_reaction_orca_stages_impl
     from ._workflow_phases import phase_finished
 
+    resolver = resolver or _override_resolver()
     if not phase_finished(payload.get("stages", []), engine="xtb"):
         return False
     return append_reaction_orca_stages_impl(
@@ -342,6 +326,7 @@ def _append_reaction_orca_stages_fallback(
         workspace_dir=workspace_dir,
         xtb_auto_config=xtb_auto_config,
         orca_auto_config=orca_auto_config,
+        deps=_deps_for_resolver(resolver),
     )
 
 
@@ -398,7 +383,7 @@ def _build_engine_deps(resolver: OrchestrationOverrideResolver) -> Orchestration
         cancel_target as xtb_cancel_target,
         submit_job_dir as submit_xtb_job_dir,
     )
-    from .workflows.orca_stage_utils import build_materialized_orca_stage, safe_name
+    from ._orca_stage_materialization import build_materialized_orca_stage, safe_name
     from .xyz_utils import choose_orca_geometry_frame
 
     return OrchestrationEngineDeps(
@@ -433,9 +418,7 @@ def _stage_builder_fallbacks() -> dict[str, Any]:
     }
 
 
-def _stage_materialization_fallbacks(
-    resolver: OrchestrationOverrideResolver,
-) -> dict[str, Any]:
+def _stage_materialization_fallbacks(resolver: OrchestrationOverrideResolver) -> dict[str, Any]:
     from ._orchestration_stage_materialization import (
         append_crest_orca_stages_impl,
         append_reaction_xtb_stages_impl,
@@ -457,51 +440,58 @@ def _stage_materialization_fallbacks(
         )
 
     return {
-        "_append_crest_orca_stages": append_crest_orca_stages_impl,
+        "_append_crest_orca_stages": _bind_with_deps(resolver, append_crest_orca_stages_impl),
         "_append_reaction_orca_stages": append_reaction_orca_stages,
-        "_append_reaction_xtb_stages": append_reaction_xtb_stages_impl,
+        "_append_reaction_xtb_stages": _bind_with_deps(resolver, append_reaction_xtb_stages_impl),
     }
 
 
-def _stage_runtime_fallbacks() -> dict[str, Any]:
-    from ._orchestration_stage_runtime import (
-        append_unique_artifact_impl,
+def _stage_runtime_fallbacks(resolver: OrchestrationOverrideResolver) -> dict[str, Any]:
+    from ._orchestration_stage_runtime_crest import (
         completed_crest_roles_impl,
         completed_crest_stage_impl,
         ensure_crest_job_dir_impl,
-        ensure_xtb_job_dir_impl,
         sync_crest_stage_impl,
-        sync_orca_stage_impl,
-        sync_xtb_stage_impl,
+    )
+    from ._orchestration_stage_runtime_orca import sync_orca_stage_impl
+    from ._orchestration_stage_runtime_shared import append_unique_artifact_impl
+    from ._orchestration_stage_runtime_xtb_handoff import xtb_handoff_status_impl
+    from ._orchestration_stage_runtime_xtb_path_jobs import (
+        ensure_xtb_job_dir_impl,
         write_xtb_path_job_impl,
+    )
+    from ._orchestration_stage_runtime_xtb_retry import (
         xtb_attempt_record_impl,
         xtb_attempt_rows_impl,
         xtb_current_attempt_number_impl,
-        xtb_handoff_status_impl,
         xtb_path_retry_limit_impl,
         xtb_retry_recipe_impl,
     )
+    from ._orchestration_stage_runtime_xtb_sync import sync_xtb_stage_impl
 
     return {
-        "_append_unique_artifact": append_unique_artifact_impl,
-        "_completed_crest_roles": completed_crest_roles_impl,
-        "_completed_crest_stage": completed_crest_stage_impl,
-        "_ensure_crest_job_dir": ensure_crest_job_dir_impl,
-        "_ensure_xtb_job_dir": ensure_xtb_job_dir_impl,
-        "_sync_crest_stage": sync_crest_stage_impl,
-        "_sync_orca_stage": sync_orca_stage_impl,
-        "_sync_xtb_stage": sync_xtb_stage_impl,
-        "_write_xtb_path_job": write_xtb_path_job_impl,
-        "_xtb_attempt_record": xtb_attempt_record_impl,
-        "_xtb_attempt_rows": xtb_attempt_rows_impl,
-        "_xtb_current_attempt_number": xtb_current_attempt_number_impl,
-        "_xtb_handoff_status": xtb_handoff_status_impl,
-        "_xtb_path_retry_limit": xtb_path_retry_limit_impl,
+        "_append_unique_artifact": _bind_with_deps(resolver, append_unique_artifact_impl),
+        "_completed_crest_roles": _bind_with_deps(resolver, completed_crest_roles_impl),
+        "_completed_crest_stage": _bind_with_deps(resolver, completed_crest_stage_impl),
+        "_ensure_crest_job_dir": _bind_with_deps(resolver, ensure_crest_job_dir_impl),
+        "_ensure_xtb_job_dir": _bind_with_deps(resolver, ensure_xtb_job_dir_impl),
+        "_sync_crest_stage": _bind_with_deps(resolver, sync_crest_stage_impl),
+        "_sync_orca_stage": _bind_with_deps(resolver, sync_orca_stage_impl),
+        "_sync_xtb_stage": _bind_with_deps(resolver, sync_xtb_stage_impl),
+        "_write_xtb_path_job": _bind_with_deps(resolver, write_xtb_path_job_impl),
+        "_xtb_attempt_record": _bind_with_deps(resolver, xtb_attempt_record_impl),
+        "_xtb_attempt_rows": _bind_with_deps(resolver, xtb_attempt_rows_impl),
+        "_xtb_current_attempt_number": _bind_with_deps(
+            resolver,
+            xtb_current_attempt_number_impl,
+        ),
+        "_xtb_handoff_status": _bind_with_deps(resolver, xtb_handoff_status_impl),
+        "_xtb_path_retry_limit": _bind_with_deps(resolver, xtb_path_retry_limit_impl),
         "_xtb_retry_recipe": xtb_retry_recipe_impl,
     }
 
 
-def _stage_support_fallbacks() -> dict[str, Any]:
+def _stage_support_fallbacks(resolver: OrchestrationOverrideResolver) -> dict[str, Any]:
     from ._orchestration_support import (
         clear_reaction_xtb_handoff_error_if_recovering_impl,
         load_config_organized_root_impl,
@@ -515,14 +505,20 @@ def _stage_support_fallbacks() -> dict[str, Any]:
 
     return {
         "_clear_reaction_xtb_handoff_error_if_recovering": (
-            clear_reaction_xtb_handoff_error_if_recovering_impl
+            _bind_with_deps(resolver, clear_reaction_xtb_handoff_error_if_recovering_impl)
         ),
-        "_load_config_organized_root": load_config_organized_root_impl,
-        "_load_config_root": load_config_root_impl,
-        "_reaction_orca_source_candidate_path": reaction_orca_source_candidate_path_impl,
-        "_reaction_ts_guess_error": reaction_ts_guess_error_impl,
+        "_load_config_organized_root": _bind_with_deps(
+            resolver,
+            load_config_organized_root_impl,
+        ),
+        "_load_config_root": _bind_with_deps(resolver, load_config_root_impl),
+        "_reaction_orca_source_candidate_path": _bind_with_deps(
+            resolver,
+            reaction_orca_source_candidate_path_impl,
+        ),
+        "_reaction_ts_guess_error": _bind_with_deps(resolver, reaction_ts_guess_error_impl),
         "_stage_metadata": stage_metadata_impl,
-        "_submission_target": submission_target_impl,
+        "_submission_target": _bind_with_deps(resolver, submission_target_impl),
         "_task_payload_dict": task_payload_dict_impl,
     }
 
@@ -586,8 +582,8 @@ def _stage_dep_fallbacks(resolver: OrchestrationOverrideResolver) -> dict[str, A
     for group in (
         _stage_builder_fallbacks(),
         _stage_materialization_fallbacks(resolver),
-        _stage_runtime_fallbacks(),
-        _stage_support_fallbacks(),
+        _stage_runtime_fallbacks(resolver),
+        _stage_support_fallbacks(resolver),
         _stage_workflow_fallbacks(resolver),
     ):
         fallbacks.update(group)
@@ -606,21 +602,17 @@ def _build_advance_deps(resolver: OrchestrationOverrideResolver) -> Orchestratio
     return OrchestrationAdvanceDeps(
         _cancel_active_workflow_stages=resolver.get(
             "_cancel_active_workflow_stages",
-            _orchestration_advance._cancel_active_workflow_stages,
+            _bind_with_deps(resolver, _orchestration_advance._cancel_active_workflow_stages),
         ),
         _cancel_stage_activity=resolver.get(
             "_cancel_stage_activity",
-            _orchestration_advance._cancel_stage_activity,
+            _bind_with_deps(resolver, _orchestration_advance._cancel_stage_activity),
         ),
     )
 
 
-def orchestration_deps(
-    overrides: Mapping[str, Any] | None = None,
-    *,
-    facade_module_name: str = _ORCHESTRATION_FACADE_MODULE,
-) -> OrchestrationDeps:
-    resolver = _override_resolver(overrides, facade_module_name=facade_module_name)
+def orchestration_deps(overrides: Mapping[str, Any] | None = None) -> OrchestrationDeps:
+    resolver = _override_resolver(overrides)
     return OrchestrationDeps(
         contracts=_build_contract_deps(resolver),
         persistence=_build_persistence_deps(resolver),
@@ -631,12 +623,7 @@ def orchestration_deps(
 
 
 def call_engine_aware(func: Any, config_path: str | None, *, engine: str) -> Any:
-    try:
-        return func(config_path, engine=engine)
-    except TypeError as exc:
-        if "engine" not in str(exc):
-            raise
-        return func(config_path)
+    return func(config_path, engine=engine)
 
 
 __all__ = [

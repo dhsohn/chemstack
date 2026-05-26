@@ -1,15 +1,16 @@
 import json
 import os
+import re
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from chemstack.orca import state as state_facade
+from chemstack.orca import state as state_module
 from chemstack.orca.runtime import run_lock
 from chemstack.orca.runtime.run_lock import acquire_run_lock
 
-from chemstack.orca.state_store import (
+from chemstack.orca.state import (
     atomic_write_text,
     load_report_json,
     load_state,
@@ -22,7 +23,7 @@ from chemstack.orca.state_store import (
 )
 
 
-class TestStateStore(unittest.TestCase):
+class TestState(unittest.TestCase):
     def test_recover_stale_lock_with_dead_pid(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             reaction = Path(td)
@@ -111,6 +112,7 @@ class TestStateStore(unittest.TestCase):
             inp = reaction / "rxn.inp"
             inp.write_text("! Opt\n", encoding="utf-8")
             state = new_state(reaction, inp, max_retries=1)
+            self.assertRegex(str(state["run_id"]), re.compile(r"^run_\d{8}_\d{6}_[0-9a-f]{8}$"))
 
             save_state(reaction, state)
             loaded = load_state(reaction)
@@ -135,7 +137,7 @@ class TestStateStore(unittest.TestCase):
             self.assertEqual(target.read_text(encoding="utf-8"), "hello")
             self.assertEqual(list(root.glob("*.tmp.*")), [])
 
-    def test_wave5_state_facade_exposes_write_helpers(self) -> None:
+    def test_state_module_exposes_write_helpers(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             reaction = Path(td)
             inp = reaction / "rxn.inp"
@@ -143,8 +145,8 @@ class TestStateStore(unittest.TestCase):
             state = new_state(reaction, inp, max_retries=2)
 
             saved_path = write_state(reaction, state)
-            self.assertEqual(saved_path, state_facade.state_path(reaction))
-            self.assertIsNotNone(state_facade.load_state(reaction))
+            self.assertEqual(saved_path, state_module.state_path(reaction))
+            self.assertIsNotNone(state_module.load_state(reaction))
 
             report_payload = {
                 "run_id": state["run_id"],
@@ -162,17 +164,17 @@ class TestStateStore(unittest.TestCase):
 
             self.assertEqual(
                 write_report_json(reaction, report_payload),
-                state_facade.report_json_path(reaction),
+                state_module.report_json_path(reaction),
             )
             self.assertEqual(
                 write_report_md(reaction, markdown),
-                state_facade.report_md_path(reaction),
+                state_module.report_md_path(reaction),
             )
             self.assertEqual(
-                state_facade.report_json_path(reaction).read_text(encoding="utf-8"),
+                state_module.report_json_path(reaction).read_text(encoding="utf-8"),
                 json.dumps(report_payload, ensure_ascii=True, indent=2),
             )
-            self.assertEqual(state_facade.report_md_path(reaction).read_text(encoding="utf-8"), markdown)
+            self.assertEqual(state_module.report_md_path(reaction).read_text(encoding="utf-8"), markdown)
 
     def test_write_report_files_json_fields(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -220,7 +222,7 @@ class TestStateStore(unittest.TestCase):
             reaction = Path(td)
             self.assertIsNone(load_report_json(reaction))
 
-            report_path = state_facade.report_json_path(reaction)
+            report_path = state_module.report_json_path(reaction)
             report_path.write_text("not valid json!!!", encoding="utf-8")
             self.assertIsNone(load_report_json(reaction))
 

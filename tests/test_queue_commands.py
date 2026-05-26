@@ -14,7 +14,7 @@ from unittest.mock import MagicMock, patch
 from chemstack.orca.cancellation import CancelResult, CancelTargetError
 from chemstack.orca.commands.queue import cmd_queue_cancel, cmd_queue_worker
 from chemstack.orca.config import AppConfig, RuntimeConfig
-from chemstack.orca.state_store import STATE_FILE_NAME
+from chemstack.orca.state import STATE_FILE_NAME
 
 
 def _make_cfg(tmp: str) -> AppConfig:

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from argparse import Namespace
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -11,7 +10,11 @@ import yaml
 from chemstack.core.queue import DuplicateQueueEntryError
 
 from chemstack.xtb import _internal_cli as cli
+from chemstack.xtb.commands import init as init_cmd
+from chemstack.xtb.commands import list_jobs as list_cmd
+from chemstack.xtb.commands import queue as queue_cmd
 from chemstack.xtb.commands import run_dir
+from chemstack.xtb.commands import summary as summary_cmd
 from chemstack.xtb.state import STATE_FILE_NAME, load_state
 
 
@@ -112,9 +115,9 @@ def test_main_dispatches_list_and_queue_commands(
         cancel_calls.append(args)
         return 33
 
-    monkeypatch.setattr(cli, "cmd_list", fake_list)
-    monkeypatch.setattr(cli, "cmd_queue_worker", fake_worker)
-    monkeypatch.setattr(cli, "cmd_queue_cancel", fake_cancel)
+    monkeypatch.setattr(list_cmd, "cmd_list", fake_list)
+    monkeypatch.setattr(queue_cmd, "cmd_queue_worker", fake_worker)
+    monkeypatch.setattr(queue_cmd, "cmd_queue_cancel", fake_cancel)
 
     assert cli.main(["list"]) == 31
     assert cli.main(["queue", "worker"]) == 32
@@ -384,7 +387,7 @@ def test_cli_main_run_dir_accepts_positional_job_dir(
         captured_args.append(args)
         return 23
 
-    monkeypatch.setattr(cli, "cmd_run_dir", fake_cmd_run_dir)
+    monkeypatch.setattr(run_dir, "cmd_run_dir", fake_cmd_run_dir)
 
     result = cli.main(["--config", str(config_path), "run-dir", str(job_dir)])
 
@@ -394,13 +397,36 @@ def test_cli_main_run_dir_accepts_positional_job_dir(
     assert captured_args[0].priority == 10
 
 
-def test_internal_cli_command_helpers_delegate_to_xtb_command_modules(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(cli.scaffold_cmd, "cmd_init", lambda args: 29)
-    monkeypatch.setattr(cli.run_dir_cmd, "cmd_run_dir", lambda args: 30)
-    monkeypatch.setattr(cli.summary_cmd, "cmd_summary", lambda args: 32)
+def test_main_dispatches_scaffold_run_dir_and_summary_commands(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, Any]] = []
 
-    scaffold_rc = cli.cmd_scaffold(Namespace(config="/tmp/chemstack.yaml", root="/tmp/init-job", job_type="ranking"))
-    run_rc = cli.cmd_run_dir(Namespace(config="/tmp/chemstack.yaml", path="/tmp/run-job", priority=6))
-    summary_rc = cli.cmd_summary(Namespace(config="/tmp/chemstack.yaml", target="job-123", json=True))
+    def fake_init(args: Any) -> int:
+        calls.append(("scaffold", args))
+        return 29
 
-    assert (scaffold_rc, run_rc, summary_rc) == (29, 30, 32)
+    def fake_run_dir(args: Any) -> int:
+        calls.append(("run-dir", args))
+        return 30
+
+    def fake_summary(args: Any) -> int:
+        calls.append(("summary", args))
+        return 32
+
+    monkeypatch.setattr(init_cmd, "cmd_init", fake_init)
+    monkeypatch.setattr(run_dir, "cmd_run_dir", fake_run_dir)
+    monkeypatch.setattr(summary_cmd, "cmd_summary", fake_summary)
+
+    assert cli.main(["scaffold", "--root", "/tmp/init-job", "--job-type", "ranking"]) == 29
+    assert cli.main(["run-dir", "/tmp/run-job", "--priority", "6"]) == 30
+    assert cli.main(["summary", "job-123", "--json"]) == 32
+
+    assert [(name, args.command) for name, args in calls] == [
+        ("scaffold", "scaffold"),
+        ("run-dir", "run-dir"),
+        ("summary", "summary"),
+    ]
+    assert calls[0][1].job_type == "ranking"
+    assert calls[1][1].priority == 6
+    assert calls[2][1].json is True

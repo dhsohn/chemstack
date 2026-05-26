@@ -79,15 +79,15 @@ def test_import_orca_auto_module_returns_none_or_raises_by_error_origin(
         raise ModuleNotFoundError(name=name)
 
     monkeypatch.setattr(orca_adapter, "import_module", missing_then_missing)
-    assert orca_adapter._import_orca_auto_module("chemstack.orca.tracking") is None
-    assert calls == ["chemstack.orca.tracking"]
+    assert orca_adapter._import_orca_auto_module("chemstack.orca.job_locations") is None
+    assert calls == ["chemstack.orca.job_locations"]
 
     def unrelated_missing(name: str) -> object:
         raise ModuleNotFoundError(name="different_module")
 
     monkeypatch.setattr(orca_adapter, "import_module", unrelated_missing)
     with pytest.raises(ModuleNotFoundError) as excinfo:
-        orca_adapter._import_orca_auto_module("chemstack.orca.tracking")
+        orca_adapter._import_orca_auto_module("chemstack.orca.job_locations")
     assert excinfo.value.name == "different_module"
 
 

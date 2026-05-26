@@ -84,13 +84,10 @@ class OrcaContractLoaderDeps:
     tracked_artifact_context_fn: Callable[
         ..., tuple[Path | None, Any, ContractPayload, ContractPayload, ContractPayload]
     ]
-    resolve_job_dir_fn: Callable[[Path | None, str], tuple[Path | None, Any]]
     find_queue_entry_fn: Callable[..., ContractPayload | None]
     resolve_candidate_path_fn: Callable[[Any], Path | None]
     direct_dir_target_fn: Callable[[str], Path | None]
     record_organized_dir_fn: Callable[[Any], Path | None]
-    find_organized_record_fn: Callable[..., ContractPayload | None]
-    organized_dir_from_record_fn: Callable[[Path | None, ContractPayload | None], Path | None]
     load_json_dict_fn: Callable[[Path], ContractPayload]
     load_tracked_organized_ref_fn: Callable[[Any, Path | None], ContractPayload]
     status_from_payloads_fn: Callable[..., StatusTuple]
@@ -244,14 +241,11 @@ def load_orca_artifact_contract_impl(
     )
     roots = _contract_context.resolve_roots(orca_allowed_root, orca_organized_root, deps)
     context = _contract_context.load_context(request, roots, deps)
-    queue_reaction_dir = _contract_context.refresh_context_from_queue_reaction_dir(
-        context, roots, deps
-    )
-    _contract_context.set_current_dir(request, context, queue_reaction_dir, deps)
+    _contract_context.set_current_dir(request, context, deps)
     _contract_context.load_context_payloads(context, deps)
     context.resolved_run_id = _contract_context.resolve_run_id(request, context, deps)
-    _contract_context.resolve_organized_context(request, roots, context, deps)
-    return _contract_from_context(request, roots, context, queue_reaction_dir, deps)
+    _contract_context.resolve_organized_context(request, context, deps)
+    return _contract_from_context(request, roots, context, deps)
 
 
 def contract_from_orca_payload_impl(
@@ -317,11 +311,10 @@ def _contract_from_context(
     request: _LoadRequest,
     roots: _LoadRoots,
     context: _LoaderContext,
-    queue_reaction_dir: Path | None,
     deps: OrcaContractLoaderDeps,
 ) -> Any:
     return _contract_from_payload(
-        _payload_from_context(request, roots, context, queue_reaction_dir, deps),
+        _payload_from_context(request, roots, context, deps),
         request,
         deps,
     )
@@ -331,10 +324,9 @@ def _payload_from_context(
     request: _LoadRequest,
     roots: _LoadRoots,
     context: _LoaderContext,
-    queue_reaction_dir: Path | None,
     deps: OrcaContractLoaderDeps,
 ) -> ContractPayload:
-    latest_known_path = _latest_known_path(request, context, queue_reaction_dir, deps)
+    latest_known_path = _latest_known_path(request, context, deps)
     status = _contract_status(context, deps)
     paths = _artifact_paths(context, latest_known_path, deps)
     resource_request, resource_actual = _resource_payloads(context, deps)
@@ -372,7 +364,6 @@ def _payload_from_context(
 def _latest_known_path(
     request: _LoadRequest,
     context: _LoaderContext,
-    queue_reaction_dir: Path | None,
     deps: OrcaContractLoaderDeps,
 ) -> str:
     record_path = (
@@ -384,8 +375,8 @@ def _latest_known_path(
         return record_path
     if context.organized_dir is not None:
         return str(context.organized_dir)
-    if context.current_dir is not None or queue_reaction_dir is not None:
-        return str(context.current_dir or queue_reaction_dir)
+    if context.current_dir is not None:
+        return str(context.current_dir)
     return deps.normalize_text_fn(request.target)
 
 

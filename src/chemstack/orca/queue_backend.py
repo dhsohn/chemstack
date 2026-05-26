@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from chemstack.core.queue import compat as _core_queue_compat
-
 from . import queue_entry_model as _queue_entry_model
 from .statuses import QueueStatus
 from .types import QueueEntry
@@ -16,17 +14,33 @@ def _normalize_text(value: object | None) -> str:
     return _queue_entry_model.normalize_text(value)
 
 
+def _metadata_with_run_id(metadata: dict[str, Any], run_id: object | None) -> dict[str, Any]:
+    normalized = dict(metadata)
+    run_id_text = _normalize_text(run_id)
+    if run_id_text:
+        normalized.setdefault("run_id", run_id_text)
+    return normalized
+
+
+def _coerce_queue_status(status_cls: Any, value: object | None, *, default: str) -> Any:
+    status_text = _normalize_text(value) or default
+    try:
+        return status_cls(status_text)
+    except ValueError:
+        return status_cls(default)
+
+
 def _normalize_entry(entry: QueueEntry) -> QueueEntry:
     return _queue_entry_model.normalize_entry(entry)
 
 
 def to_core_entry(entry: QueueEntry, *, backend: Any) -> Any:
     normalized = _normalize_entry(entry)
-    metadata = _core_queue_compat.metadata_with_run_id(
+    metadata = _metadata_with_run_id(
         _queue_entry_model.queue_entry_metadata(normalized),
         _queue_entry_model.queue_entry_run_id(normalized),
     )
-    status = _core_queue_compat.coerce_queue_status(
+    status = _coerce_queue_status(
         backend.QueueStatus,
         _queue_entry_model.queue_entry_status(normalized),
         default=QueueStatus.PENDING.value,

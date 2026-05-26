@@ -12,7 +12,7 @@ _ENGINE = "crest"
 
 
 _send = _engine_notifications.telegram_line_sender(lambda: build_telegram_transport)
-_NOTIFICATIONS = _engine_notifications.build_engine_notification_module(
+_JOB_NOTIFICATIONS = _engine_notifications.build_engine_job_notifications(
     label=_LABEL,
     engine=_ENGINE,
     selected_field_name="selected_xyz",
@@ -20,10 +20,6 @@ _NOTIFICATIONS = _engine_notifications.build_engine_notification_module(
     terminal_count_field="retained_conformer_count",
     send_fn=_send,
 )
-
-
-def _detail_values(mode: str) -> dict[str, object]:
-    return {"mode": mode}
 
 
 def notify_job_queued(
@@ -35,15 +31,7 @@ def notify_job_queued(
     mode: str,
     selected_xyz: Path,
 ) -> bool:
-    return _NOTIFICATIONS.notify_lifecycle(
-        cfg,
-        headline="Job queued",
-        job_id=job_id,
-        queue_id=queue_id,
-        job_dir=job_dir,
-        selected_xyz=selected_xyz,
-        detail_values=_detail_values(mode),
-    )
+    return _JOB_NOTIFICATIONS.notify_job_queued(cfg, locals())
 
 
 def notify_job_started(
@@ -55,15 +43,7 @@ def notify_job_started(
     mode: str,
     selected_xyz: Path,
 ) -> bool:
-    return _NOTIFICATIONS.notify_lifecycle(
-        cfg,
-        headline="Job started",
-        job_id=job_id,
-        queue_id=queue_id,
-        job_dir=job_dir,
-        selected_xyz=selected_xyz,
-        detail_values=_detail_values(mode),
-    )
+    return _JOB_NOTIFICATIONS.notify_job_started(cfg, locals())
 
 
 def notify_job_terminal(
@@ -80,19 +60,7 @@ def notify_job_terminal(
     retained_conformer_count: int,
     extra_lines: list[str] | None = None,
 ) -> bool:
-    return _NOTIFICATIONS.notify_terminal(
-        cfg,
-        headline=headline,
-        job_id=job_id,
-        queue_id=queue_id,
-        status=status,
-        reason=reason,
-        job_dir=job_dir,
-        selected_xyz=selected_xyz,
-        count_value=retained_conformer_count,
-        detail_values=_detail_values(mode),
-        extra_lines=extra_lines,
-    )
+    return _JOB_NOTIFICATIONS.notify_job_terminal(cfg, locals())
 
 
 def notify_job_finished(
@@ -110,17 +78,4 @@ def notify_job_finished(
     resource_request: dict[str, int] | None = None,
     resource_actual: dict[str, int] | None = None,
 ) -> bool:
-    return _NOTIFICATIONS.notify_finished(
-        cfg,
-        job_id=job_id,
-        queue_id=queue_id,
-        status=status,
-        reason=reason,
-        job_dir=job_dir,
-        selected_xyz=selected_xyz,
-        count_value=retained_conformer_count,
-        detail_values=_detail_values(mode),
-        organized_output_dir=organized_output_dir,
-        resource_request=resource_request,
-        resource_actual=resource_actual,
-    )
+    return _JOB_NOTIFICATIONS.notify_job_finished(cfg, locals())

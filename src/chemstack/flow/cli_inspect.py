@@ -8,7 +8,7 @@ from .adapters import (
     load_xtb_artifact_contract,
     select_xtb_downstream_inputs,
 )
-from .cli_common import _dependency
+from chemstack.cli_common import _dependency
 from .contracts import XtbDownstreamPolicy
 
 

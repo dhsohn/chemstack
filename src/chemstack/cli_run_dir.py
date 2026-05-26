@@ -103,7 +103,7 @@ def cmd_run_dir(args: Any, *, deps: Any | None = None) -> int:
 
 
 def cmd_workflow_run_dir(args: argparse.Namespace, *, deps: Any | None = None) -> int:
-    from chemstack.flow.cli import cmd_run_dir as _cmd_workflow_run_dir
+    from chemstack.flow.cli_run_dir import cmd_run_dir as _cmd_workflow_run_dir
 
     engine_config_for_command = _dependency(
         deps, "_engine_config_for_command", _engine_config_for_command

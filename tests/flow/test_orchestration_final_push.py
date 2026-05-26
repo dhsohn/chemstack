@@ -12,12 +12,13 @@ import pytest
 
 
 from chemstack.flow import orchestration
+from chemstack.flow._orchestration_deps import orchestration_deps
 from chemstack.flow.contracts import WorkflowStageInput
 
 
 def _has_contract_lookup_log(caplog: pytest.LogCaptureFixture, engine: str) -> bool:
     return any(
-        record.name == "chemstack.flow._orchestration_stage_runtime"
+        record.name == "chemstack.flow._orchestration_stage_runtime_shared"
         and record.levelno == logging.DEBUG
         and f"Failed to load {engine} artifact contract" in record.getMessage()
         and record.exc_info
@@ -107,16 +108,26 @@ def test_metadata_payload_and_retry_helper_edges() -> None:
     assert orchestration._xtb_path_retry_limit({"task": None}) == 2
 
 
-def test_helper_edges_cover_invalid_candidates_and_non_recoverable_status(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_helper_edges_cover_invalid_candidates_and_non_recoverable_status() -> None:
     assert orchestration._stage_has_xtb_candidates({"output_artifacts": None}) is False
     assert orchestration._stage_has_xtb_candidates({"output_artifacts": ["skip", {"kind": "other", "path": "/tmp/other.xyz"}]}) is False
     assert orchestration._stage_failure_is_recoverable({"status": "failed", "task": None}) is False
 
-    monkeypatch.setattr(orchestration, "choose_orca_geometry_frame", lambda path, candidate_kind: ("", {"selection_reason": "invalid_or_empty_xyz"}))
+    deps = orchestration_deps(
+        overrides={
+            "choose_orca_geometry_frame": lambda path, candidate_kind: (
+                "",
+                {"selection_reason": "invalid_or_empty_xyz"},
+            )
+        }
+    )
     error = orchestration._reaction_ts_guess_error(
-        SimpleNamespace(candidate_details=(SimpleNamespace(kind="ts_guess", path="/tmp/xtbpath_ts.xyz", rank=1),))
+        SimpleNamespace(
+            candidate_details=(
+                SimpleNamespace(kind="ts_guess", path="/tmp/xtbpath_ts.xyz", rank=1),
+            )
+        ),
+        deps=deps,
     )
     assert error == {
         "reason": "xtb_ts_guess_invalid",
@@ -134,7 +145,6 @@ def test_helper_edges_cover_invalid_candidates_and_non_recoverable_status(
 
 
 def test_sync_xtb_stage_returns_early_without_target_or_on_contract_lookup_error(
-    monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     no_target_stage = {
@@ -155,7 +165,9 @@ def test_sync_xtb_stage_returns_early_without_target_or_on_contract_lookup_error
         load_calls.append(kwargs)
         return None
 
-    monkeypatch.setattr(orchestration, "load_xtb_artifact_contract", fake_load_xtb_artifact_contract)
+    deps = orchestration_deps(
+        overrides={"load_xtb_artifact_contract": fake_load_xtb_artifact_contract}
+    )
     orchestration._sync_xtb_stage(
         no_target_stage,
         xtb_auto_config=None,
@@ -164,6 +176,7 @@ def test_sync_xtb_stage_returns_early_without_target_or_on_contract_lookup_error
         submit_ready=False,
         workflow_id="wf_01",
         workspace_dir=Path("/tmp/workspaces/wf_01"),
+        deps=deps,
     )
     assert load_calls == []
 
@@ -179,12 +192,14 @@ def test_sync_xtb_stage_returns_early_without_target_or_on_contract_lookup_error
         },
     }
 
-    monkeypatch.setattr(
-        orchestration,
-        "load_xtb_artifact_contract",
-        lambda **kwargs: (_ for _ in ()).throw(RuntimeError("boom")),
+    deps = orchestration_deps(
+        overrides={
+            "load_xtb_artifact_contract": lambda **kwargs: (_ for _ in ()).throw(
+                RuntimeError("boom")
+            )
+        }
     )
-    caplog.set_level(logging.DEBUG, logger="chemstack.flow._orchestration_stage_runtime")
+    caplog.set_level(logging.DEBUG, logger="chemstack.flow._orchestration_stage_runtime_shared")
     orchestration._sync_xtb_stage(
         failing_stage,
         xtb_auto_config=None,
@@ -193,16 +208,16 @@ def test_sync_xtb_stage_returns_early_without_target_or_on_contract_lookup_error
         submit_ready=False,
         workflow_id="wf_01",
         workspace_dir=Path("/tmp/workspaces/wf_01"),
+        deps=deps,
     )
     assert failing_stage["status"] == "completed"
     assert _has_contract_lookup_log(caplog, "xtb")
 
 
 def test_completed_contract_helpers_cover_missing_targets_and_exceptions(
-    monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    caplog.set_level(logging.DEBUG, logger="chemstack.flow._orchestration_stage_runtime")
+    caplog.set_level(logging.DEBUG, logger="chemstack.flow._orchestration_stage_runtime_shared")
     payload: dict[str, Any] = {
         "stages": [
             "skip",
@@ -215,15 +230,18 @@ def test_completed_contract_helpers_cover_missing_targets_and_exceptions(
     assert orchestration._completed_crest_stage({"task": None}, crest_auto_config=None) is None
     assert orchestration._completed_crest_stage({"task": {"payload": {}}, "metadata": {}}, crest_auto_config=None) is None
 
-    monkeypatch.setattr(
-        orchestration,
-        "load_crest_artifact_contract",
-        lambda **kwargs: (_ for _ in ()).throw(RuntimeError("bad crest")),
+    deps = orchestration_deps(
+        overrides={
+            "load_crest_artifact_contract": lambda **kwargs: (_ for _ in ()).throw(
+                RuntimeError("bad crest")
+            )
+        }
     )
     assert (
         orchestration._completed_crest_stage(
             {"task": {"payload": {"job_dir": "/tmp/crest_job"}}, "metadata": {}},
             crest_auto_config=None,
+            deps=deps,
         )
         is None
     )
@@ -238,15 +256,18 @@ def test_completed_contract_helpers_cover_missing_targets_and_exceptions(
         is None
     )
 
-    monkeypatch.setattr(
-        orchestration,
-        "load_orca_artifact_contract",
-        lambda **kwargs: (_ for _ in ()).throw(RuntimeError("bad orca")),
+    deps = orchestration_deps(
+        overrides={
+            "load_orca_artifact_contract": lambda **kwargs: (_ for _ in ()).throw(
+                RuntimeError("bad orca")
+            )
+        }
     )
     assert (
         orchestration._completed_orca_stage(
             {"task": {"payload": {"reaction_dir": "/tmp/rxn"}, "enqueue_payload": {}}, "metadata": {}},
             orca_auto_config=None,
+            deps=deps,
         )
         is None
     )
@@ -255,7 +276,6 @@ def test_completed_contract_helpers_cover_missing_targets_and_exceptions(
 
 def test_append_reaction_xtb_stages_false_branches_and_zero_created(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     assert orchestration._append_reaction_xtb_stages(
         {"stages": [{"task": {"engine": "xtb"}}]},
@@ -263,43 +283,58 @@ def test_append_reaction_xtb_stages_false_branches_and_zero_created(
         crest_auto_config=None,
     ) is False
 
-    monkeypatch.setattr(orchestration, "_completed_crest_roles", lambda payload: {"reactant": {}})
+    deps = orchestration_deps(overrides={"_completed_crest_roles": lambda payload: {"reactant": {}}})
     assert orchestration._append_reaction_xtb_stages(
         {"stages": [], "metadata": {}, "workflow_id": "wf_xtb", "reaction_key": "rxn"},
         workspace_dir=tmp_path,
         crest_auto_config=None,
+        deps=deps,
     ) is False
 
-    monkeypatch.setattr(orchestration, "_completed_crest_roles", lambda payload: {"reactant": {}, "product": {}})
-    monkeypatch.setattr(
-        orchestration,
-        "_completed_crest_stage",
-        lambda stage, **kwargs: None if stage == {} else SimpleNamespace(),
+    deps = orchestration_deps(
+        overrides={
+            "_completed_crest_roles": lambda payload: {"reactant": {}, "product": {}},
+            "_completed_crest_stage": lambda stage, **kwargs: (
+                None if stage == {} else SimpleNamespace()
+            ),
+        }
     )
     payload: dict[str, Any] = {"stages": [], "metadata": {}, "workflow_id": "wf_xtb", "reaction_key": "rxn"}
-    assert orchestration._append_reaction_xtb_stages(payload, workspace_dir=tmp_path, crest_auto_config=None) is False
+    assert (
+        orchestration._append_reaction_xtb_stages(
+            payload,
+            workspace_dir=tmp_path,
+            crest_auto_config=None,
+            deps=deps,
+        )
+        is False
+    )
 
-    monkeypatch.setattr(orchestration, "_completed_crest_stage", lambda stage, **kwargs: SimpleNamespace())
-    monkeypatch.setattr(orchestration, "select_crest_downstream_inputs", lambda contract, policy: ())
-    assert orchestration._append_reaction_xtb_stages(payload, workspace_dir=tmp_path, crest_auto_config=None) is False
+    deps = orchestration_deps(
+        overrides={
+            "_completed_crest_roles": lambda payload: {"reactant": {}, "product": {}},
+            "_completed_crest_stage": lambda stage, **kwargs: SimpleNamespace(),
+            "select_crest_downstream_inputs": lambda contract, policy: (),
+        }
+    )
+    assert (
+        orchestration._append_reaction_xtb_stages(
+            payload,
+            workspace_dir=tmp_path,
+            crest_auto_config=None,
+            deps=deps,
+        )
+        is False
+    )
 
 
 def test_append_reaction_orca_stages_covers_skip_and_first_candidate_path(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(
-        orchestration,
-        "_load_config_root",
-        lambda config: tmp_path / ("xtb_allowed" if config == "xtb.yaml" else "orca_allowed"),
-    )
-
     def fake_load_xtb_artifact_contract(*, target: str, **kwargs: object) -> SimpleNamespace:
         if target == "/tmp/broken_job":
             raise RuntimeError("broken")
         return SimpleNamespace(job_id=f"job:{Path(target).name}", job_type="path_search", candidate_details=())
-
-    monkeypatch.setattr(orchestration, "load_xtb_artifact_contract", fake_load_xtb_artifact_contract)
 
     def fake_select_xtb_downstream_inputs(contract: SimpleNamespace, policy: object, require_geometry: bool) -> tuple[WorkflowStageInput, ...]:
         if contract.job_id == "job:ok_job":
@@ -311,18 +346,27 @@ def test_append_reaction_orca_stages_covers_skip_and_first_candidate_path(
             )
         return ()
 
-    monkeypatch.setattr(orchestration, "select_xtb_downstream_inputs", fake_select_xtb_downstream_inputs)
-    monkeypatch.setattr(
-        orchestration,
-        "build_materialized_orca_stage",
-        lambda **kwargs: _FakeMaterializedStage(
-            {
-                "stage_id": kwargs["stage_id"],
-                "status": "planned",
-                "metadata": {},
-                "task": {"engine": "orca", "status": "planned", "metadata": {"source_candidate_path": kwargs["candidate"].artifact_path}},
-            }
-        ),
+    deps = orchestration_deps(
+        overrides={
+            "_load_config_root": lambda config, **kwargs: tmp_path
+            / ("xtb_allowed" if config == "xtb.yaml" else "orca_allowed"),
+            "load_xtb_artifact_contract": fake_load_xtb_artifact_contract,
+            "select_xtb_downstream_inputs": fake_select_xtb_downstream_inputs,
+            "build_materialized_orca_stage": lambda **kwargs: _FakeMaterializedStage(
+                {
+                    "stage_id": kwargs["stage_id"],
+                    "status": "planned",
+                    "metadata": {},
+                    "task": {
+                        "engine": "orca",
+                        "status": "planned",
+                        "metadata": {
+                            "source_candidate_path": kwargs["candidate"].artifact_path
+                        },
+                    },
+                }
+            ),
+        }
     )
 
     payload: dict[str, Any] = {
@@ -365,6 +409,7 @@ def test_append_reaction_orca_stages_covers_skip_and_first_candidate_path(
         workspace_dir=tmp_path,
         xtb_auto_config="xtb.yaml",
         orca_auto_config="orca.yaml",
+        deps=deps,
     )
 
     assert created is True
@@ -382,7 +427,6 @@ def test_append_reaction_orca_stages_covers_skip_and_first_candidate_path(
 
 def test_append_reaction_orca_stages_false_and_attempted_path_edges(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     assert orchestration._append_reaction_orca_stages(
         {"stages": [], "metadata": {}},
@@ -398,30 +442,69 @@ def test_append_reaction_orca_stages_false_and_attempted_path_edges(
         "metadata": {},
     }
     payload: dict[str, Any] = {"stages": [deepcopy(base_xtb_stage)], "metadata": {"request": {"parameters": {}}}}
-    monkeypatch.setattr(orchestration, "_load_config_root", lambda config: None if config == "xtb.yaml" else tmp_path / "orca")
-    assert orchestration._append_reaction_orca_stages(payload, workspace_dir=tmp_path, xtb_auto_config="xtb.yaml", orca_auto_config="orca.yaml") is False
+    deps = orchestration_deps(
+        overrides={
+            "_load_config_root": lambda config, **kwargs: (
+                None if config == "xtb.yaml" else tmp_path / "orca"
+            )
+        }
+    )
+    assert (
+        orchestration._append_reaction_orca_stages(
+            payload,
+            workspace_dir=tmp_path,
+            xtb_auto_config="xtb.yaml",
+            orca_auto_config="orca.yaml",
+            deps=deps,
+        )
+        is False
+    )
 
-    monkeypatch.setattr(orchestration, "_load_config_root", lambda config: None if config == "orca.yaml" else tmp_path / "xtb")
-    assert orchestration._append_reaction_orca_stages(payload, workspace_dir=tmp_path, xtb_auto_config="xtb.yaml", orca_auto_config="orca.yaml") is False
+    deps = orchestration_deps(
+        overrides={
+            "_load_config_root": lambda config, **kwargs: (
+                None if config == "orca.yaml" else tmp_path / "xtb"
+            )
+        }
+    )
+    assert (
+        orchestration._append_reaction_orca_stages(
+            payload,
+            workspace_dir=tmp_path,
+            xtb_auto_config="xtb.yaml",
+            orca_auto_config="orca.yaml",
+            deps=deps,
+        )
+        is False
+    )
 
-    monkeypatch.setattr(orchestration, "_load_config_root", lambda config: tmp_path / ("xtb" if config == "xtb.yaml" else "orca"))
-    monkeypatch.setattr(orchestration, "load_xtb_artifact_contract", lambda **kwargs: SimpleNamespace(job_id="xtb_job", job_type="path_search", candidate_details=()))
-    monkeypatch.setattr(orchestration, "select_xtb_downstream_inputs", lambda contract, policy, require_geometry: (_candidate("/tmp/already.xyz"),))
-    monkeypatch.setattr(
-        orchestration,
-        "build_materialized_orca_stage",
-        lambda **kwargs: _FakeMaterializedStage(
-            {
-                "stage_id": kwargs["stage_id"],
-                "status": "planned",
-                "metadata": {},
-                "task": {
-                    "engine": "orca",
+    deps = orchestration_deps(
+        overrides={
+            "_load_config_root": lambda config, **kwargs: tmp_path
+            / ("xtb" if config == "xtb.yaml" else "orca"),
+            "load_xtb_artifact_contract": lambda **kwargs: SimpleNamespace(
+                job_id="xtb_job",
+                job_type="path_search",
+                candidate_details=(),
+            ),
+            "select_xtb_downstream_inputs": lambda contract, policy, require_geometry: (
+                _candidate("/tmp/already.xyz"),
+            ),
+            "build_materialized_orca_stage": lambda **kwargs: _FakeMaterializedStage(
+                {
+                    "stage_id": kwargs["stage_id"],
                     "status": "planned",
-                    "metadata": {"source_candidate_path": kwargs["candidate"].artifact_path},
-                },
-            }
-        ),
+                    "metadata": {},
+                    "task": {
+                        "engine": "orca",
+                        "status": "planned",
+                        "metadata": {
+                            "source_candidate_path": kwargs["candidate"].artifact_path
+                        },
+                    },
+                }
+            ),
+        }
     )
 
     active_payload = {
@@ -431,7 +514,16 @@ def test_append_reaction_orca_stages_false_and_attempted_path_edges(
         ],
         "metadata": {"request": {"parameters": {}}},
     }
-    assert orchestration._append_reaction_orca_stages(active_payload, workspace_dir=tmp_path, xtb_auto_config="xtb.yaml", orca_auto_config="orca.yaml") is False
+    assert (
+        orchestration._append_reaction_orca_stages(
+            active_payload,
+            workspace_dir=tmp_path,
+            xtb_auto_config="xtb.yaml",
+            orca_auto_config="orca.yaml",
+            deps=deps,
+        )
+        is False
+    )
 
     completed_payload = {
         "stages": [
@@ -440,7 +532,16 @@ def test_append_reaction_orca_stages_false_and_attempted_path_edges(
         ],
         "metadata": {"request": {"parameters": {}}},
     }
-    assert orchestration._append_reaction_orca_stages(completed_payload, workspace_dir=tmp_path, xtb_auto_config="xtb.yaml", orca_auto_config="orca.yaml") is False
+    assert (
+        orchestration._append_reaction_orca_stages(
+            completed_payload,
+            workspace_dir=tmp_path,
+            xtb_auto_config="xtb.yaml",
+            orca_auto_config="orca.yaml",
+            deps=deps,
+        )
+        is False
+    )
 
     blocked_payload: dict[str, Any] = {
         "stages": [
@@ -454,6 +555,7 @@ def test_append_reaction_orca_stages_false_and_attempted_path_edges(
         workspace_dir=tmp_path,
         xtb_auto_config="xtb.yaml",
         orca_auto_config="orca.yaml",
+        deps=deps,
     )
     assert created is True
     assert blocked_payload["stages"][-1]["stage_id"] == "orca_optts_freq_02"
@@ -476,6 +578,7 @@ def test_append_reaction_orca_stages_false_and_attempted_path_edges(
         workspace_dir=tmp_path,
         xtb_auto_config="xtb.yaml",
         orca_auto_config="orca.yaml",
+        deps=deps,
     )
     assert created is False
     exhausted_stages = cast(list[dict[str, Any]], exhausted_payload["stages"])
@@ -487,7 +590,6 @@ def test_append_reaction_orca_stages_false_and_attempted_path_edges(
 
 def test_append_crest_orca_stage_false_branches(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     payload: dict[str, Any] = {"stages": [{"task": {"engine": "orca"}}], "metadata": {}}
     assert (
@@ -518,8 +620,12 @@ def test_append_crest_orca_stage_false_branches(
     )
 
     payload = {"stages": [{"status": "completed", "task": {"engine": "crest"}}], "metadata": {}}
-    monkeypatch.setattr(orchestration, "_completed_crest_stage", lambda stage, **kwargs: None)
-    monkeypatch.setattr(orchestration, "_load_config_root", lambda config: tmp_path / "orca")
+    deps = orchestration_deps(
+        overrides={
+            "_completed_crest_stage": lambda stage, **kwargs: None,
+            "_load_config_root": lambda config, **kwargs: tmp_path / "orca",
+        }
+    )
     assert (
         orchestration._append_crest_orca_stages(
             payload,
@@ -529,12 +635,17 @@ def test_append_crest_orca_stage_false_branches(
             stage_id_prefix="orca_conformer",
             xyz_filename="guess.xyz",
             inp_filename="guess.inp",
+            deps=deps,
         )
         is False
     )
 
-    monkeypatch.setattr(orchestration, "_completed_crest_stage", lambda stage, **kwargs: SimpleNamespace())
-    monkeypatch.setattr(orchestration, "_load_config_root", lambda config: None)
+    deps = orchestration_deps(
+        overrides={
+            "_completed_crest_stage": lambda stage, **kwargs: SimpleNamespace(),
+            "_load_config_root": lambda config, **kwargs: None,
+        }
+    )
     assert (
         orchestration._append_crest_orca_stages(
             payload,
@@ -544,6 +655,7 @@ def test_append_crest_orca_stage_false_branches(
             stage_id_prefix="orca_conformer",
             xyz_filename="guess.xyz",
             inp_filename="guess.inp",
+            deps=deps,
         )
         is False
     )
@@ -574,7 +686,6 @@ def test_recompute_workflow_status_covers_cancelled_and_cancel_requested_edges()
 )
 def test_advance_workflow_routes_template_specific_appenders(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
     template_name: str,
     expected_call: str,
 ) -> None:
@@ -587,10 +698,6 @@ def test_advance_workflow_routes_template_specific_appenders(
     }
     calls: list[str] = []
 
-    monkeypatch.setattr(orchestration, "resolve_workflow_workspace", lambda target, workflow_root: tmp_path / "workspace")
-    monkeypatch.setattr(orchestration, "acquire_workflow_lock", lambda workspace_dir, timeout_seconds=5.0: nullcontext())
-    monkeypatch.setattr(orchestration, "load_workflow_payload", lambda workspace_dir: deepcopy(payload))
-    monkeypatch.setattr(orchestration, "_workflow_sync_only", lambda current_payload: False)
     def record_sync_crest(stage: dict[str, Any], **kwargs: object) -> None:
         calls.append("sync_crest")
 
@@ -607,25 +714,37 @@ def test_advance_workflow_routes_template_specific_appenders(
         calls.append("append_crest_orca")
         return False
 
-    monkeypatch.setattr(orchestration, "_sync_crest_stage", record_sync_crest)
-    monkeypatch.setattr(orchestration, "_sync_xtb_stage", record_sync_xtb)
-    monkeypatch.setattr(orchestration, "_clear_reaction_xtb_handoff_error_if_recovering", record_clear)
-    monkeypatch.setattr(orchestration, "_sync_orca_stage", record_sync_orca)
-    monkeypatch.setattr(orchestration, "_append_crest_orca_stages", record_append_crest_orca)
-    monkeypatch.setattr(orchestration, "_recompute_workflow_status", lambda current_payload: "planned")
-    monkeypatch.setattr(orchestration, "_workflow_has_active_children", lambda current_payload: False)
-    monkeypatch.setattr(orchestration, "now_utc_iso", lambda: "2026-04-19T03:00:00+00:00")
-    monkeypatch.setattr(orchestration, "write_workflow_payload", lambda workspace_dir, current_payload: None)
-    monkeypatch.setattr(orchestration, "sync_workflow_registry", lambda workflow_root, workspace_dir, current_payload: None)
+    deps = orchestration_deps(
+        overrides={
+            "resolve_workflow_workspace": lambda target, workflow_root: tmp_path / "workspace",
+            "acquire_workflow_lock": lambda workspace_dir, timeout_seconds=5.0: nullcontext(),
+            "load_workflow_payload": lambda workspace_dir: deepcopy(payload),
+            "_workflow_sync_only": lambda current_payload: False,
+            "_sync_crest_stage": record_sync_crest,
+            "_sync_xtb_stage": record_sync_xtb,
+            "_clear_reaction_xtb_handoff_error_if_recovering": record_clear,
+            "_sync_orca_stage": record_sync_orca,
+            "_append_crest_orca_stages": record_append_crest_orca,
+            "_recompute_workflow_status": lambda current_payload: "planned",
+            "_workflow_has_active_children": lambda current_payload: False,
+            "now_utc_iso": lambda: "2026-04-19T03:00:00+00:00",
+            "write_workflow_payload": lambda workspace_dir, current_payload: None,
+            "sync_workflow_registry": lambda workflow_root, workspace_dir, current_payload: None,
+        }
+    )
 
-    orchestration.advance_workflow(target="wf_template", workflow_root=tmp_path, submit_ready=True)
+    orchestration.advance_workflow(
+        target="wf_template",
+        workflow_root=tmp_path,
+        submit_ready=True,
+        deps=deps,
+    )
 
     assert expected_call in calls
 
 
 def test_cancel_materialized_workflow_skips_invalid_rows_and_uses_xtb_remote_cancel(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     payload: dict[str, Any] = {
         "workflow_id": "wf_cancel_xtb",
@@ -642,17 +761,25 @@ def test_cancel_materialized_workflow_skips_invalid_rows_and_uses_xtb_remote_can
         ],
     }
 
-    monkeypatch.setattr(orchestration, "resolve_workflow_workspace", lambda target, workflow_root: tmp_path / "workspace")
-    monkeypatch.setattr(orchestration, "acquire_workflow_lock", lambda workspace_dir, timeout_seconds=5.0: nullcontext())
-    monkeypatch.setattr(orchestration, "load_workflow_payload", lambda workspace_dir: payload)
-    monkeypatch.setattr(orchestration, "xtb_cancel_target", lambda **kwargs: {"status": "cancel_requested", "queue_id": kwargs["target"]})
-    monkeypatch.setattr(orchestration, "write_workflow_payload", lambda workspace_dir, current_payload: None)
-    monkeypatch.setattr(orchestration, "sync_workflow_registry", lambda workflow_root, workspace_dir, current_payload: None)
+    deps = orchestration_deps(
+        overrides={
+            "resolve_workflow_workspace": lambda target, workflow_root: tmp_path / "workspace",
+            "acquire_workflow_lock": lambda workspace_dir, timeout_seconds=5.0: nullcontext(),
+            "load_workflow_payload": lambda workspace_dir: payload,
+            "xtb_cancel_target": lambda **kwargs: {
+                "status": "cancel_requested",
+                "queue_id": kwargs["target"],
+            },
+            "write_workflow_payload": lambda workspace_dir, current_payload: None,
+            "sync_workflow_registry": lambda workflow_root, workspace_dir, current_payload: None,
+        }
+    )
 
     result = orchestration.cancel_materialized_workflow(
         target="wf_cancel_xtb",
         workflow_root=tmp_path,
         xtb_auto_config="xtb.yaml",
+        deps=deps,
     )
 
     assert result["status"] == "cancel_requested"

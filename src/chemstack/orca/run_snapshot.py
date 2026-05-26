@@ -11,7 +11,7 @@ from .job_locations import list_job_location_records, resolve_record_job_dir
 
 from .dft_discovery import _find_latest_out_in_dir
 from .pathing import resolve_artifact_path
-from .state_store import STATE_FILE_NAME, load_state
+from .state import STATE_FILE_NAME, load_state
 
 _STATUS_ICONS = {
     "completed": "\u2705",

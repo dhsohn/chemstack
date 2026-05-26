@@ -7,20 +7,23 @@ import os
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterator, List, TypedDict, cast
+from typing import Iterator, List, TypedDict, cast
 
 from chemstack.core.app_ids import CHEMSTACK_ORCA_APP_NAME
-from chemstack.core.admission import store as _core_admission_store
 from chemstack.core.utils.lock import file_lock as _core_file_lock
+from chemstack.core.utils.persistence import (
+    atomic_write_json,
+    load_json_list_file,
+    now_utc_iso,
+    timestamped_token,
+)
 
 from .lock_utils import (
     current_process_start_ticks,
     is_process_alive,
     process_start_ticks,
 )
-from .persistence_utils import atomic_write_json, now_utc_iso, timestamped_token
 from .process_tracking import RUN_LOCK_FILE_NAME, active_run_lock_pid
-from . import admission_backend_adapter as _admission_backend_adapter_module
 from . import admission_slot_adapter as _admission_slot_adapter
 
 ADMISSION_FILE_NAME = "admission_slots.json"
@@ -90,31 +93,6 @@ class _AdmissionActivationRequest:
     task_id: str | None
     workflow_id: str | None
 
-    @property
-    def has_metadata_update(self) -> bool:
-        return self.app_name is not None or self.task_id is not None or self.workflow_id is not None
-
-
-_AdmissionBackendDeps = _admission_backend_adapter_module.AdmissionBackendAdapter
-
-
-def _admission_backend_adapter() -> _AdmissionBackendDeps:
-    return _admission_backend_adapter_module.AdmissionBackendAdapter(
-        AdmissionStoreCorruptError=AdmissionStoreCorruptError,
-        atomic_write_json=atomic_write_json,
-        _admission_path=_admission_path,
-        _chem_core_admission_module=_chem_core_admission_module,
-        _normalize_slot=_normalize_slot,
-    )
-
-
-def _admission_backend_deps() -> _AdmissionBackendDeps:
-    return _admission_backend_adapter()
-
-
-def _wrap_backend_corruption(exc: Exception) -> None:
-    _admission_backend_adapter()._wrap_backend_corruption(exc)
-
 
 def _admission_path(root: Path) -> Path:
     return root / ADMISSION_FILE_NAME
@@ -140,58 +118,16 @@ def _acquire_admission_lock(root: Path, *, timeout_seconds: int = 10) -> Iterato
 
 
 def _load_slots(root: Path) -> List[AdmissionSlot]:
-    return cast(List[AdmissionSlot], _admission_backend_adapter().load_slots(root))
+    raw = load_json_list_file(
+        _admission_path(root),
+        corrupt_error=AdmissionStoreCorruptError,
+        description="Admission slot file",
+    )
+    return [cast(AdmissionSlot, slot) for slot in raw if isinstance(slot, dict)]
 
 
 def _save_slots(root: Path, slots: List[AdmissionSlot]) -> None:
-    _admission_backend_adapter().save_slots(root, slots)
-
-
-def _chem_core_admission_module() -> Any | None:
-    return _core_admission_store
-
-
-def _call_chem_core_backend(
-    root: Path,
-    function_name: str,
-    *args: Any,
-    convert: Any = None,
-    **kwargs: Any,
-) -> Any | None:
-    return _admission_backend_adapter().call_backend(
-        root,
-        function_name,
-        *args,
-        convert=convert,
-        **kwargs,
-    )
-
-
-def _backend_list_slots(root: Path, *, backend: Any) -> list[AdmissionSlot] | None:
-    return cast(
-        list[AdmissionSlot] | None,
-        _admission_backend_adapter().backend_list_slots(root, backend=backend),
-    )
-
-
-def _backend_reconcile_stale_slots(root: Path, *, backend: Any) -> int | None:
-    return _admission_backend_adapter().backend_reconcile_stale_slots(root, backend=backend)
-
-
-def _backend_active_slot_count(root: Path, *, backend: Any) -> int | None:
-    return _admission_backend_adapter().backend_active_slot_count(root, backend=backend)
-
-
-def _text_field(value: object) -> str:
-    return _admission_backend_adapter().text_field(value)
-
-
-def _to_chem_core_slot(slot: AdmissionSlot, *, backend: Any) -> Any:
-    return _admission_backend_adapter()._to_chem_core_slot(slot, backend=backend)
-
-
-def _from_chem_core_slot(slot: object) -> AdmissionSlot:
-    return cast(AdmissionSlot, _admission_backend_adapter()._from_chem_core_slot(slot))
+    atomic_write_json(_admission_path(root), slots, ensure_ascii=True, indent=2)
 
 
 def _normalize_work_dir(value: str | Path | None) -> str | None:
@@ -296,21 +232,21 @@ def _build_reserved_slot(
 ) -> AdmissionSlot:
     resolved_work_dir = _normalize_work_dir(reaction_dir)
     resolved_owner_pid, resolved_start_ticks = _slot_owner_identity(owner_pid)
-    return cast(
-        AdmissionSlot,
-        _admission_backend_adapter().build_reserved_slot(
-            token=token,
-            work_dir=resolved_work_dir,
-            queue_id=queue_id,
-            source=source,
-            owner_pid=resolved_owner_pid,
-            process_start_ticks=resolved_start_ticks,
-            acquired_at=now_utc_iso(),
-            app_name=app_name,
-            task_id=task_id,
-            workflow_id=workflow_id,
-            state=state,
-        ),
+    return _normalize_slot(
+        {
+            "token": token,
+            "state": state,
+            "work_dir": resolved_work_dir,
+            "reaction_dir": resolved_work_dir,
+            "queue_id": queue_id,
+            "owner_pid": resolved_owner_pid,
+            "process_start_ticks": resolved_start_ticks,
+            "source": source,
+            "acquired_at": now_utc_iso(),
+            "app_name": app_name,
+            "task_id": task_id,
+            "workflow_id": workflow_id,
+        }
     )
 
 
@@ -368,7 +304,7 @@ def _reserve_slot_from_request(request: _AdmissionReservationRequest) -> str | N
             _save_slots(request.root, slots)
             return None
 
-        token = timestamped_token("slot")
+        token = timestamped_token("slot", token_bytes=4)
         slots.append(_build_slot_for_reservation(token, request))
         _save_slots(request.root, slots)
         return token
@@ -376,9 +312,6 @@ def _reserve_slot_from_request(request: _AdmissionReservationRequest) -> str | N
 
 def reconcile_stale_slots(root: Path) -> int:
     resolved_root = _resolve_root(root)
-    delegated = _call_chem_core_backend(resolved_root, "reconcile_stale_slots", convert=int)
-    if delegated is not None:
-        return delegated
     with _acquire_admission_lock(resolved_root):
         original_slots = [_normalize_slot(slot) for slot in _load_slots(resolved_root)]
         kept = _load_live_slots(resolved_root)
@@ -390,13 +323,6 @@ def reconcile_stale_slots(root: Path) -> int:
 
 def list_slots(root: Path) -> List[AdmissionSlot]:
     resolved_root = _resolve_root(root)
-    delegated = _call_chem_core_backend(
-        resolved_root,
-        "list_slots",
-        convert=lambda slots: [_from_chem_core_slot(slot) for slot in slots],
-    )
-    if delegated is not None:
-        return delegated
     with _acquire_admission_lock(resolved_root):
         original_slots = [_normalize_slot(slot) for slot in _load_slots(resolved_root)]
         kept = _load_live_slots(resolved_root)
@@ -407,9 +333,6 @@ def list_slots(root: Path) -> List[AdmissionSlot]:
 
 def active_slot_count(root: Path) -> int:
     resolved_root = _resolve_root(root)
-    delegated = _call_chem_core_backend(resolved_root, "active_slot_count", convert=int)
-    if delegated is not None:
-        return delegated
     return len(list_slots(resolved_root))
 
 
@@ -473,17 +396,6 @@ def _activation_request(
     )
 
 
-def _activate_slot_with_backend(
-    backend: Any,
-    request: _AdmissionActivationRequest,
-) -> bool:
-    return _admission_backend_adapter().activate_reserved_slot(
-        backend,
-        request,
-        update_slot_metadata=update_slot_metadata,
-    )
-
-
 def _activate_live_slot(
     slot: AdmissionSlot,
     request: _AdmissionActivationRequest,
@@ -542,19 +454,11 @@ def activate_slot(
         task_id=task_id,
         workflow_id=workflow_id,
     )
-    backend = _chem_core_admission_module()
-    if backend is not None:
-        return _activate_slot_with_backend(backend, request)
-
     return _activate_slot_in_store(request)
 
 
 def release_slot(root: Path, token: str) -> bool:
     resolved_root = _resolve_root(root)
-    delegated = _call_chem_core_backend(resolved_root, "release_slot", token, convert=bool)
-    if delegated is not None:
-        return delegated
-
     with _acquire_admission_lock(resolved_root):
         slots = _load_live_slots(resolved_root)
         kept = [slot for slot in slots if slot.get("token") != token]

@@ -6,9 +6,9 @@ from pathlib import Path
 from typing import Any, Callable
 
 from chemstack.core.utils import process as process_utils
+from chemstack.core.utils.persistence import now_utc_iso
 
 from .lock_utils import current_process_start_ticks, is_process_alive, parse_lock_info, process_start_ticks
-from .persistence_utils import now_utc_iso
 
 RUN_LOCK_FILE_NAME = "run.lock"
 

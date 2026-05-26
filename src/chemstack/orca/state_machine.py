@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
-from .state_store import load_state, new_state, save_state
+from .state import load_state, new_state, save_state
 from .statuses import AnalyzerStatus, RunStatus
 from .types import RunState
 

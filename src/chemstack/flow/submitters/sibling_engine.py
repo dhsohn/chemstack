@@ -2,7 +2,25 @@ from __future__ import annotations
 
 import subprocess
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any
+
+
+@dataclass(frozen=True)
+class SubmitterDeps:
+    normalize_text: Callable[[Any], str]
+    parse_key_value_lines: Callable[[str], dict[str, str]]
+    queue_submission_status: Callable[..., tuple[str, str]]
+    run_sibling_app: Callable[..., subprocess.CompletedProcess[str]]
+
+
+def submitter_deps(namespace: Any) -> SubmitterDeps:
+    return SubmitterDeps(
+        normalize_text=namespace.normalize_text,
+        parse_key_value_lines=namespace.parse_key_value_lines,
+        queue_submission_status=namespace.queue_submission_status,
+        run_sibling_app=namespace.run_sibling_app,
+    )
 
 
 def command_argv(args: object) -> list[str]:

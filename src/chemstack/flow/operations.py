@@ -11,10 +11,7 @@ from .activity import (
     list_activities as list_activities_impl,
 )
 from .orchestration import (
-    advance_workflow,
     cancel_materialized_workflow,
-    create_conformer_screening_workflow as create_conformer_screening_workflow_impl,
-    create_reaction_ts_search_workflow,
 )
 from .registry import (
     list_workflow_journal,
@@ -283,37 +280,9 @@ def cancel_activity(
     )
 
 
-def create_reaction_workflow(*, reactant_xyz: str, product_xyz: str, workflow_root: str | Path, **kwargs: Any) -> dict[str, Any]:
-    return create_reaction_ts_search_workflow(
-        reactant_xyz=reactant_xyz,
-        product_xyz=product_xyz,
-        workflow_root=workflow_root,
-        **kwargs,
-    )
-
-
-def create_conformer_screening_workflow(*, input_xyz: str, workflow_root: str | Path, **kwargs: Any) -> dict[str, Any]:
-    return create_conformer_screening_workflow_impl(
-        input_xyz=input_xyz,
-        workflow_root=workflow_root,
-        **kwargs,
-    )
-
-def advance_materialized_workflow(
-    *,
-    target: str,
-    workflow_root: str | Path,
-    **kwargs: Any,
-) -> dict[str, Any]:
-    return advance_workflow(target=target, workflow_root=workflow_root, **kwargs)
-
-
 __all__ = [
-    "advance_materialized_workflow",
     "cancel_activity",
     "cancel_workflow",
-    "create_conformer_screening_workflow",
-    "create_reaction_workflow",
     "get_workflow_journal",
     "get_workflow_runtime_status",
     "get_workflow_telemetry",

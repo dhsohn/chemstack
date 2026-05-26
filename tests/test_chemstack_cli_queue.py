@@ -8,7 +8,8 @@ from typing import Any
 
 import pytest
 
-from chemstack import cli as unified_cli
+from chemstack import cli_common
+from chemstack import cli_queue as unified_cli
 
 
 @pytest.fixture(autouse=True)
@@ -18,8 +19,8 @@ def _isolate_shared_config_discovery(monkeypatch: pytest.MonkeyPatch) -> None:
             return None
         return str(Path(explicit).expanduser().resolve())
 
-    monkeypatch.setattr(unified_cli, "_discover_shared_config_path", _explicit_shared_config_path)
-    monkeypatch.setattr(unified_cli, "shared_workflow_root_from_config", lambda config_path: None)
+    monkeypatch.setattr(cli_common, "_discover_shared_config_path", _explicit_shared_config_path)
+    monkeypatch.setattr(cli_common, "shared_workflow_root_from_config", lambda config_path: None)
 
 
 def test_queue_table_lines_align_wide_headers_and_icons(

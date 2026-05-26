@@ -17,7 +17,7 @@ from .inp_rewriter import rewrite_for_retry
 from .orca_runner import WorkerShutdownInterrupt
 from .out_analyzer import OutAnalysis, analyze_output
 from .state_machine import MAX_RETRY_RECIPES, decide_attempt_outcome
-from .state_store import now_utc_iso, save_state
+from .state import now_utc_iso, save_state
 from .statuses import AnalyzerStatus, RunStatus
 from .types import (
     AttemptRecord,

@@ -18,7 +18,7 @@ from ..queue_store import (
     reconcile_orphaned_running_entries,
 )
 from ..run_snapshot import RunSnapshot, collect_run_snapshots, elapsed_text
-from ..state_store import STATE_FILE_NAME
+from ..state import STATE_FILE_NAME
 from ..statuses import QueueStatus, RunStatus
 from ..types import QueueEntry
 from ._helpers import _to_resolved_local

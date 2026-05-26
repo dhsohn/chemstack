@@ -10,10 +10,17 @@ from .coercion import (
     safe_int,
 )
 from .lock import file_lock
-from .persistence import atomic_write_json, now_utc_iso, parse_iso_utc, timestamped_token
+from .persistence import (
+    atomic_write_json,
+    atomic_write_text,
+    now_utc_iso,
+    parse_iso_utc,
+    timestamped_token,
+)
 
 __all__ = [
     "atomic_write_json",
+    "atomic_write_text",
     "coerce_int_mapping",
     "coerce_list",
     "coerce_mapping",

@@ -24,7 +24,7 @@ from ..orca_runner import OrcaRunner
 from ..out_analyzer import analyze_output
 from ..runtime.run_lock import LOCK_FILE_NAME, acquire_run_lock
 from ..state_machine import RESUMABLE_RUN_STATUSES, load_or_create_state
-from ..state_store import load_state, save_state
+from ..state import load_state, save_state
 from ..statuses import AnalyzerStatus, QueueStatus, RunStatus
 from ..telegram_notifier import (
     notify_queue_enqueued_event,
@@ -117,12 +117,6 @@ class _RunInpDeps:
     execution: _RunInpExecutionDeps
     notifications: _RunInpNotificationDeps
     submission: _RunInpSubmissionDeps
-
-    def __getattr__(self, name: str) -> Any:
-        for group in (self.statuses, self.execution, self.notifications, self.submission):
-            if hasattr(group, name):
-                return getattr(group, name)
-        raise AttributeError(name)
 
 
 def _run_inp_deps() -> _RunInpDeps:

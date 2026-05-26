@@ -8,7 +8,7 @@ from types import SimpleNamespace
 
 from chemstack.orca.attempt_engine import _retry_recipe_step, run_attempts
 from chemstack.orca.orca_runner import WorkerShutdownInterrupt
-from chemstack.orca.state_store import new_state, state_path
+from chemstack.orca.state import new_state, state_path
 
 
 class _InterruptRunner:

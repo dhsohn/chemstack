@@ -258,7 +258,7 @@ def test_load_orca_artifact_contract_resolves_run_id_via_orca_tracking_without_r
 
 
 def test_load_orca_artifact_contract_prefers_orca_contract_payload_helper(tmp_path: Path) -> None:
-    tracking_module = SimpleNamespace(
+    job_locations_module = SimpleNamespace(
         load_orca_contract_payload=lambda *_args, **_kwargs: {
             "run_id": "run_helper_1",
             "status": "completed",
@@ -288,7 +288,7 @@ def test_load_orca_artifact_contract_prefers_orca_contract_payload_helper(tmp_pa
         }
     )
 
-    with patch("chemstack.flow.adapters.orca._orca_auto_tracking_module", return_value=tracking_module):
+    with patch("chemstack.flow.adapters.orca._orca_auto_job_locations_module", return_value=job_locations_module):
         contract = load_orca_artifact_contract(
             target="job_helper_1",
             orca_allowed_root=tmp_path / "orca_runs",

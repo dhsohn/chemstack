@@ -157,12 +157,7 @@ def runtime_paths_for_engine(
     engine: str,
     deps: ActivityListDeps,
 ) -> dict[str, Path]:
-    try:
-        return deps.sibling_runtime_paths(config_path, engine=engine)
-    except TypeError as exc:
-        if "engine" not in str(exc):
-            raise
-        return deps.sibling_runtime_paths(config_path)
+    return deps.sibling_runtime_paths(config_path, engine=engine)
 
 
 def engine_queue_roots(

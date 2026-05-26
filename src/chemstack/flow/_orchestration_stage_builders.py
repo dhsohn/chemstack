@@ -4,7 +4,7 @@ from typing import Any
 
 
 def attach_endpoint_pairing_metadata(o: Any, stage: dict[str, Any], endpoint_pair: Any) -> None:
-    stage_metadata = o._stage_metadata(stage)
+    stage_metadata = o.stages._stage_metadata(stage)
     stage_metadata["endpoint_pairing"] = dict(endpoint_pair.metadata)
     task = stage.get("task")
     if not isinstance(task, dict):
@@ -31,7 +31,7 @@ def reaction_xtb_stage_kwargs(
         "max_cores": int(params.get("max_cores", 8) or 8),
         "max_memory_gb": int(params.get("max_memory_gb", 32) or 32),
         "max_handoff_retries": int(params.get("max_xtb_handoff_retries", 2) or 2),
-        "manifest_overrides": o._coerce_mapping(params.get("xtb_job_manifest")),
+        "manifest_overrides": o.stages._coerce_mapping(params.get("xtb_job_manifest")),
     }
 
 
@@ -46,7 +46,7 @@ def append_reaction_xtb_pair_stages(
     created = 0
     for endpoint_pair in endpoint_pairs:
         created += 1
-        stage = o._new_xtb_stage(
+        stage = o.stages._new_xtb_stage(
             **reaction_xtb_stage_kwargs(o, payload, params, endpoint_pair, created)
         )
         if pairing_enabled:
@@ -69,11 +69,11 @@ def append_reaction_orca_candidate_stages(
     starting_index = len(existing)
     for offset, candidate in enumerate(remaining_candidates, start=1):
         next_index = starting_index + offset
-        stage = o.build_materialized_orca_stage(
+        stage = o.engines.build_materialized_orca_stage(
             workflow_id=str(payload.get("workflow_id", "")),
             template_name="reaction_ts_search",
             stage_id=f"orca_optts_freq_{next_index:02d}",
-            stage_key=f"{next_index:02d}_{o.safe_name(candidate.kind, fallback='candidate')}",
+            stage_key=f"{next_index:02d}_{o.engines.safe_name(candidate.kind, fallback='candidate')}",
             stage_root_name="",
             workspace_dir=orca_allowed_root,
             input_artifact_kind="xtb_candidate",
@@ -88,7 +88,7 @@ def append_reaction_orca_candidate_stages(
             xyz_filename="ts_guess.xyz",
             inp_filename="ts_guess.inp",
         ).to_dict()
-        stage_metadata = o._stage_metadata(stage)
+        stage_metadata = o.stages._stage_metadata(stage)
         stage_metadata["reaction_candidate_attempt_index"] = next_index
         stage_metadata["reaction_candidate_pool_size"] = len(ordered_candidates)
         stage_metadata["reaction_remaining_candidates_after_this"] = max(
@@ -114,11 +114,11 @@ def append_crest_orca_candidate_stages(
     created = 0
     for candidate in candidates:
         created += 1
-        stage = o.build_materialized_orca_stage(
+        stage = o.engines.build_materialized_orca_stage(
             workflow_id=str(payload.get("workflow_id", "")),
             template_name=template_name,
             stage_id=f"{stage_id_prefix}_{created:02d}",
-            stage_key=f"{created:02d}_{o.safe_name(candidate.kind, fallback='conformer')}",
+            stage_key=f"{created:02d}_{o.engines.safe_name(candidate.kind, fallback='conformer')}",
             stage_root_name="",
             workspace_dir=orca_allowed_root,
             input_artifact_kind="crest_conformer",

@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import argparse
-from typing import Callable
+
+from chemstack.core.internal_cli import dispatch_engine_internal_queue_command
 
 from .commands import queue as queue_cmd
 from .commands._helpers import default_config_path
@@ -33,30 +34,17 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def cmd_queue_cancel(args: argparse.Namespace) -> int:
-    return int(queue_cmd.cmd_queue_cancel(args))
-
-
-def cmd_queue_worker(args: argparse.Namespace) -> int:
-    return int(queue_cmd.cmd_queue_worker(args))
-
-
-def _cmd_queue(args: argparse.Namespace) -> int:
-    if args.queue_command == "worker":
-        return int(cmd_queue_worker(args))
-    if args.queue_command == "cancel":
-        return int(cmd_queue_cancel(args))
-    raise ValueError(f"Unsupported queue subcommand: {args.queue_command}")
-
-
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
 
-    command_map: dict[str, Callable[[argparse.Namespace], int]] = {
-        "queue": _cmd_queue,
-    }
-    return int(command_map[args.command](args))
+    if args.command == "queue":
+        return dispatch_engine_internal_queue_command(
+            args,
+            queue_worker_handler=queue_cmd.cmd_queue_worker,
+            queue_cancel_handler=queue_cmd.cmd_queue_cancel,
+        )
+    raise ValueError(f"Unsupported command: {args.command}")
 
 
 if __name__ == "__main__":

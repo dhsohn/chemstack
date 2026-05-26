@@ -9,7 +9,9 @@ from typing import Any
 
 import pytest
 
-from chemstack.flow import cli, operations, registry, runtime, state, xyz_utils
+from chemstack import cli_common
+from chemstack.flow import registry, runtime, state, xyz_utils
+from chemstack.flow import _orca_stage_materialization as orca_stage_utils
 from chemstack.flow.adapters import crest as crest_adapter
 from chemstack.flow.adapters import xtb as xtb_adapter
 from chemstack.flow.contracts.crest import CrestArtifactContract, CrestDownstreamPolicy, to_workflow_stage_inputs
@@ -23,7 +25,6 @@ from chemstack.flow.contracts.xtb import (
     _coerce_resource_dict,
 )
 from chemstack.flow.submitters import common
-from chemstack.flow.workflows import orca_stage_utils, reaction_ts_search
 
 
 def _write_json(path: Path, payload: object) -> None:
@@ -39,11 +40,6 @@ def _write_xyz(path: Path, comment: str = "comment") -> None:
 def _append_then_return_failure(calls: list[dict[str, Any]], **kwargs: Any) -> None:
     calls.append(kwargs)
     pytest.fail("unexpected materialization")
-
-
-def _record_call(calls: list[tuple[str, dict[str, Any]]], name: str, **kwargs: Any) -> dict[str, str]:
-    calls.append((name, kwargs))
-    return {"ok": name}
 
 
 def test_materialize_orca_stage_generates_default_input_file(tmp_path: Path) -> None:
@@ -321,14 +317,6 @@ def test_registry_edge_branches_cover_invalid_inputs_and_direct_file_matching(
     assert registry.resolve_workflow_registry_record(tmp_path, str(workflow_file)) is record
 
 
-def test_operations_wrapper_edges_cover_remaining_forwarders(monkeypatch: pytest.MonkeyPatch) -> None:
-    calls: list[tuple[str, dict[str, Any]]] = []
-    monkeypatch.setattr(operations, "create_conformer_screening_workflow_impl", lambda **kwargs: _record_call(calls, "conf", **kwargs))
-
-    assert operations.create_conformer_screening_workflow(input_xyz="i.xyz", workflow_root="/tmp/root") == {"ok": "conf"}
-    assert [name for name, _ in calls] == ["conf"]
-
-
 def test_contract_submitter_common_state_and_xtb_contract_edges(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     task = WorkflowTask.from_raw(task_id=" t1 ", engine=" ", task_kind=" ", resource_request={"": 1, "cores": "bad"})
     assert task.engine == "unknown"
@@ -432,97 +420,6 @@ def test_xyz_reaction_ts_orca_stage_cli_and_mcp_edges(monkeypatch: pytest.Monkey
     assert frame is not None
     assert meta["selected_frame_energy"] == -1.25
 
-    contract = XtbArtifactContract(
-        job_id="job",
-        job_type="path_search",
-        status="completed",
-        reason="ok",
-        job_dir="/tmp/job",
-        latest_known_path="/tmp/job",
-        reaction_key="rxn",
-        selected_input_xyz="/tmp/in.xyz",
-        selected_candidate_paths=(),
-        candidate_details=(),
-    )
-    monkeypatch.setattr(reaction_ts_search, "timestamped_token", lambda prefix: f"{prefix}_x")
-    assert reaction_ts_search._workflow_id(contract) == "wf_reaction_ts_x"
-    assert "did not produce a ts_guess candidate" in reaction_ts_search._reaction_ts_guess_error(contract)
-
-    bad_contract = XtbArtifactContract(
-        job_id="job",
-        job_type="path_search",
-        status="completed",
-        reason="ok",
-        job_dir="/tmp/job",
-        latest_known_path="/tmp/job",
-        reaction_key="rxn",
-        selected_input_xyz="/tmp/in.xyz",
-        selected_candidate_paths=(),
-        candidate_details=(
-            XtbCandidateArtifact(rank=1, kind="ts_guess", path="/tmp/bad.xyz", selected=True),
-        ),
-    )
-    monkeypatch.setattr(
-        reaction_ts_search,
-        "choose_orca_geometry_frame",
-        lambda path, candidate_kind: (None, {"selection_reason": "ts_guess_requires_single_frame"}),
-    )
-    assert "not a single-geometry XYZ file" in reaction_ts_search._reaction_ts_guess_error(bad_contract)
-    monkeypatch.setattr(
-        reaction_ts_search,
-        "choose_orca_geometry_frame",
-        lambda path, candidate_kind: (None, {"selection_reason": "invalid_or_empty_xyz"}),
-    )
-    assert "empty or not a valid XYZ geometry" in reaction_ts_search._reaction_ts_guess_error(bad_contract)
-
-    with pytest.raises(FileNotFoundError, match="xTB candidate artifact not found"):
-        reaction_ts_search._materialize_orca_stage(
-            workspace_dir=tmp_path,
-            index=1,
-            candidate=WorkflowStageInput(
-                source_job_id="job",
-                source_job_type="path_search",
-                reaction_key="rxn",
-                selected_input_xyz="/tmp/in.xyz",
-                rank=1,
-                kind="ts_guess",
-                artifact_path=str(tmp_path / "missing.xyz"),
-                selected=True,
-                metadata={},
-            ),
-            contract=XtbArtifactContract(
-                job_id="job",
-                job_type="path_search",
-                status="completed",
-                reason="ok",
-                job_dir="/tmp/job",
-                latest_known_path="/tmp/job",
-                reaction_key="rxn",
-                selected_input_xyz="/tmp/in.xyz",
-                selected_candidate_paths=(),
-                candidate_details=(),
-            ),
-            orca_payload=reaction_ts_search.OrcaStagePayload(
-                stage_id="s1",
-                engine="orca",
-                task_kind="optts_freq",
-                selected_input_xyz="/tmp/in.xyz",
-                selected_input_label="in.xyz",
-                source_job_id="job",
-                source_job_type="path_search",
-                reaction_key="rxn",
-                workflow_id="wf",
-                template_name="reaction_ts_search",
-                resource_request={},
-                metadata={},
-            ),
-            route_line="! OptTS",
-            charge=0,
-            multiplicity=1,
-            max_cores=1,
-            max_memory_gb=1,
-        )
-
     with pytest.raises(FileNotFoundError, match="ORCA stage source artifact not found"):
         orca_stage_utils.materialize_orca_stage(
             workspace_dir=tmp_path,
@@ -537,7 +434,7 @@ def test_xyz_reaction_ts_orca_stage_cli_and_mcp_edges(monkeypatch: pytest.Monkey
             max_memory_gb=1,
         )
 
-    assert cli._normalize_text(None) == ""
+    assert cli_common._normalize_text(None) == ""
     monkeypatch.setattr(sys, "argv", ["chem_flow", "--help"])
     monkeypatch.delitem(sys.modules, "chemstack.flow.cli", raising=False)
     with pytest.raises(SystemExit) as cli_exit:

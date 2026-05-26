@@ -32,13 +32,15 @@ class AppConfig:
     telegram: TelegramConfig = field(default_factory=TelegramConfig)
 
 
-_CONFIG_SPEC = _engine_config.workflow_engine_config_spec(
-    module_file=__file__,
-    env_var=CONFIG_ENV_VAR,
-    executable_key="crest_executable",
-    paths_cls=PathsConfig,
-    behavior_cls=BehaviorConfig,
-    app_config_cls=AppConfig,
+_CONFIG_SPEC: _engine_config.WorkflowEngineConfigSpec[AppConfig] = (
+    _engine_config.workflow_engine_config_spec(
+        module_file=__file__,
+        env_var=CONFIG_ENV_VAR,
+        executable_key="crest_executable",
+        paths_cls=PathsConfig,
+        behavior_cls=BehaviorConfig,
+        app_config_cls=AppConfig,
+    )
 )
 
 

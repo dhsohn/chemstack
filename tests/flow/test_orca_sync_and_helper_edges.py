@@ -3,16 +3,14 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-import pytest
-
 
 from chemstack.flow.contracts import OrcaArtifactContract
+from chemstack.flow._orchestration_deps import orchestration_deps
 from chemstack.flow.orchestration import (
     _clear_reaction_xtb_handoff_error_if_recovering,
     _reaction_orca_source_candidate_path,
     _sync_orca_stage,
 )
-from chemstack.flow import orchestration
 
 
 def test_reaction_orca_source_candidate_path_uses_metadata_then_artifacts() -> None:
@@ -54,16 +52,16 @@ def test_clear_reaction_xtb_handoff_error_only_clears_recovering_xtb_cases() -> 
     _clear_reaction_xtb_handoff_error_if_recovering({"metadata": None, "stages": []})
 
 
-def test_sync_orca_stage_returns_early_for_non_orca_missing_enqueue_and_missing_target(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_sync_orca_stage_returns_early_for_non_orca_missing_enqueue_and_missing_target() -> None:
     load_calls: list[dict[str, Any]] = []
 
     def fake_load_orca_artifact_contract(**kwargs: Any) -> None:
         load_calls.append(kwargs)
         return None
 
-    monkeypatch.setattr(orchestration, "load_orca_artifact_contract", fake_load_orca_artifact_contract)
+    deps = orchestration_deps(
+        overrides={"load_orca_artifact_contract": fake_load_orca_artifact_contract}
+    )
 
     _sync_orca_stage(
         {"task": {"engine": "xtb"}},
@@ -71,6 +69,7 @@ def test_sync_orca_stage_returns_early_for_non_orca_missing_enqueue_and_missing_
         orca_auto_executable="orca_auto",
         orca_auto_repo_root=None,
         submit_ready=False,
+        deps=deps,
     )
     _sync_orca_stage(
         {"task": {"engine": "orca"}},
@@ -78,6 +77,7 @@ def test_sync_orca_stage_returns_early_for_non_orca_missing_enqueue_and_missing_
         orca_auto_executable="orca_auto",
         orca_auto_repo_root=None,
         submit_ready=False,
+        deps=deps,
     )
     _sync_orca_stage(
         {"task": {"engine": "orca", "enqueue_payload": {}, "payload": {}}, "metadata": {}},
@@ -85,14 +85,13 @@ def test_sync_orca_stage_returns_early_for_non_orca_missing_enqueue_and_missing_
         orca_auto_executable="orca_auto",
         orca_auto_repo_root=None,
         submit_ready=False,
+        deps=deps,
     )
 
     assert load_calls == []
 
 
-def test_sync_orca_stage_submit_path_preserves_submitted_state_for_unknown_contract(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_sync_orca_stage_submit_path_preserves_submitted_state_for_unknown_contract() -> None:
     stage: dict[str, object] = {
         "status": "planned",
         "metadata": {},
@@ -106,15 +105,10 @@ def test_sync_orca_stage_submit_path_preserves_submitted_state_for_unknown_contr
     submit_calls: list[dict[str, object]] = []
     load_calls: list[dict[str, object]] = []
 
-    monkeypatch.setattr(orchestration, "now_utc_iso", lambda: "2026-04-19T01:23:45+00:00")
-
     def fake_submit_reaction_dir(**kwargs: Any) -> dict[str, str]:
         submit_calls.append(kwargs)
         return {"status": "submitted", "queue_id": "q_submitted"}
 
-    monkeypatch.setattr(orchestration, "submit_reaction_dir", fake_submit_reaction_dir)
-    monkeypatch.setattr(orchestration, "_load_config_root", lambda path: Path("/tmp/orca_allowed"))
-    monkeypatch.setattr(orchestration, "_load_config_organized_root", lambda path: Path("/tmp/orca_organized"))
     def fake_load_orca_artifact_contract(**kwargs: Any) -> OrcaArtifactContract:
         load_calls.append(kwargs)
         return OrcaArtifactContract(
@@ -132,7 +126,15 @@ def test_sync_orca_stage_submit_path_preserves_submitted_state_for_unknown_contr
             final_result={},
         )
 
-    monkeypatch.setattr(orchestration, "load_orca_artifact_contract", fake_load_orca_artifact_contract)
+    deps = orchestration_deps(
+        overrides={
+            "now_utc_iso": lambda: "2026-04-19T01:23:45+00:00",
+            "submit_reaction_dir": fake_submit_reaction_dir,
+            "_load_config_root": lambda path, **kwargs: Path("/tmp/orca_allowed"),
+            "_load_config_organized_root": lambda path, **kwargs: Path("/tmp/orca_organized"),
+            "load_orca_artifact_contract": fake_load_orca_artifact_contract,
+        }
+    )
 
     _sync_orca_stage(
         stage,
@@ -140,6 +142,7 @@ def test_sync_orca_stage_submit_path_preserves_submitted_state_for_unknown_contr
         orca_auto_executable="orca_auto",
         orca_auto_repo_root="/tmp/orca_repo",
         submit_ready=True,
+        deps=deps,
     )
 
     assert submit_calls == [
@@ -190,9 +193,7 @@ def test_sync_orca_stage_submit_path_preserves_submitted_state_for_unknown_contr
     ]
 
 
-def test_sync_orca_stage_waiting_for_slot_stays_planned(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_sync_orca_stage_waiting_for_slot_stays_planned() -> None:
     stage: dict[str, object] = {
         "status": "planned",
         "metadata": {},
@@ -204,25 +205,24 @@ def test_sync_orca_stage_waiting_for_slot_stays_planned(
         },
     }
 
-    monkeypatch.setattr(orchestration, "now_utc_iso", lambda: "2026-04-19T01:24:45+00:00")
-    monkeypatch.setattr(
-        orchestration,
-        "submit_reaction_dir",
-        lambda **kwargs: {"status": "blocked", "reason": "admission_limit_reached"},
-    )
-    monkeypatch.setattr(orchestration, "_load_config_root", lambda path: Path("/tmp/orca_allowed"))
-    monkeypatch.setattr(orchestration, "_load_config_organized_root", lambda path: Path("/tmp/orca_organized"))
-    monkeypatch.setattr(
-        orchestration,
-        "load_orca_artifact_contract",
-        lambda **kwargs: OrcaArtifactContract(
-            run_id="",
-            status="unknown",
-            reason="",
-            state_status="",
-            reaction_dir="/tmp/rxn_wait",
-            latest_known_path="/tmp/rxn_wait",
-        ),
+    deps = orchestration_deps(
+        overrides={
+            "now_utc_iso": lambda: "2026-04-19T01:24:45+00:00",
+            "submit_reaction_dir": lambda **kwargs: {
+                "status": "blocked",
+                "reason": "admission_limit_reached",
+            },
+            "_load_config_root": lambda path, **kwargs: Path("/tmp/orca_allowed"),
+            "_load_config_organized_root": lambda path, **kwargs: Path("/tmp/orca_organized"),
+            "load_orca_artifact_contract": lambda **kwargs: OrcaArtifactContract(
+                run_id="",
+                status="unknown",
+                reason="",
+                state_status="",
+                reaction_dir="/tmp/rxn_wait",
+                latest_known_path="/tmp/rxn_wait",
+            ),
+        }
     )
 
     _sync_orca_stage(
@@ -231,6 +231,7 @@ def test_sync_orca_stage_waiting_for_slot_stays_planned(
         orca_auto_executable="orca_auto",
         orca_auto_repo_root="/tmp/orca_repo",
         submit_ready=True,
+        deps=deps,
     )
 
     task = stage["task"]
@@ -251,7 +252,6 @@ def test_sync_orca_stage_waiting_for_slot_stays_planned(
 
 
 def test_sync_orca_stage_prefers_workflow_local_organized_root_for_internal_orca_root(
-    monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     reaction_dir = (
@@ -272,11 +272,6 @@ def test_sync_orca_stage_prefers_workflow_local_organized_root_for_internal_orca
     }
     load_calls: list[dict[str, object]] = []
 
-    monkeypatch.setattr(orchestration, "submit_reaction_dir", lambda **kwargs: {"status": "submitted", "queue_id": "q_local"})
-    monkeypatch.setattr(orchestration, "now_utc_iso", lambda: "2026-04-19T01:23:45+00:00")
-    monkeypatch.setattr(orchestration, "_load_config_root", lambda path: Path("/tmp/orca_allowed"))
-    monkeypatch.setattr(orchestration, "_load_config_organized_root", lambda path: Path("/tmp/orca_organized"))
-
     def fake_load_orca_artifact_contract(**kwargs: object) -> OrcaArtifactContract:
         load_calls.append(dict(kwargs))
         return OrcaArtifactContract(
@@ -294,10 +289,17 @@ def test_sync_orca_stage_prefers_workflow_local_organized_root_for_internal_orca
             final_result={},
         )
 
-    monkeypatch.setattr(
-        orchestration,
-        "load_orca_artifact_contract",
-        fake_load_orca_artifact_contract,
+    deps = orchestration_deps(
+        overrides={
+            "submit_reaction_dir": lambda **kwargs: {
+                "status": "submitted",
+                "queue_id": "q_local",
+            },
+            "now_utc_iso": lambda: "2026-04-19T01:23:45+00:00",
+            "_load_config_root": lambda path, **kwargs: Path("/tmp/orca_allowed"),
+            "_load_config_organized_root": lambda path, **kwargs: Path("/tmp/orca_organized"),
+            "load_orca_artifact_contract": fake_load_orca_artifact_contract,
+        }
     )
 
     _sync_orca_stage(
@@ -306,6 +308,7 @@ def test_sync_orca_stage_prefers_workflow_local_organized_root_for_internal_orca
         orca_auto_executable="orca_auto",
         orca_auto_repo_root="/tmp/orca_repo",
         submit_ready=True,
+        deps=deps,
     )
 
     assert load_calls[0]["orca_allowed_root"] == Path("/tmp/orca_allowed")

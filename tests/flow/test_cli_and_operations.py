@@ -4,7 +4,7 @@ import json
 from types import SimpleNamespace
 from typing import Any
 
-from chemstack.flow import cli
+from chemstack.flow import cli, cli_inspect
 from chemstack.flow.contracts import XtbDownstreamPolicy
 
 
@@ -56,8 +56,8 @@ def test_cmd_xtb_candidates_text_output_builds_policy_and_formats_candidates(
         captured["policy"] = policy
         return candidates
 
-    monkeypatch.setattr(cli, "load_xtb_artifact_contract", fake_load_xtb_artifact_contract)
-    monkeypatch.setattr(cli, "select_xtb_downstream_inputs", fake_select_xtb_downstream_inputs)
+    monkeypatch.setattr(cli_inspect, "load_xtb_artifact_contract", fake_load_xtb_artifact_contract)
+    monkeypatch.setattr(cli_inspect, "select_xtb_downstream_inputs", fake_select_xtb_downstream_inputs)
 
     args = SimpleNamespace(
         xtb_index_root="/tmp/xtb-index",
@@ -68,7 +68,7 @@ def test_cmd_xtb_candidates_text_output_builds_policy_and_formats_candidates(
         json=False,
     )
 
-    assert cli.cmd_xtb_candidates(args) == 0
+    assert cli_inspect.cmd_xtb_candidates(args) == 0
 
     stdout = capsys.readouterr().out
     policy = captured["policy"]
@@ -104,10 +104,10 @@ def test_cmd_crest_inspect_json_output_serializes_contract(monkeypatch, capsys) 
         assert target == "crest-job-1"
         return contract
 
-    monkeypatch.setattr(cli, "load_crest_artifact_contract", fake_load_crest_artifact_contract)
+    monkeypatch.setattr(cli_inspect, "load_crest_artifact_contract", fake_load_crest_artifact_contract)
 
     args = SimpleNamespace(crest_index_root="/tmp/crest-index", target="crest-job-1", json=True)
-    assert cli.cmd_crest_inspect(args) == 0
+    assert cli_inspect.cmd_crest_inspect(args) == 0
 
     payload = json.loads(capsys.readouterr().out)
     assert payload["job_id"] == "crest-job-1"
@@ -148,7 +148,7 @@ def test_build_parser_parses_xtb_candidates_options() -> None:
     assert args.include_unselected is True
     assert args.max_candidates == 5
     assert args.json is True
-    assert args.func is cli.cmd_xtb_candidates
+    assert args.func is cli_inspect.cmd_xtb_candidates
 
 
 def test_main_dispatches_to_selected_cli_handler(monkeypatch) -> None:
@@ -160,7 +160,7 @@ def test_main_dispatches_to_selected_cli_handler(monkeypatch) -> None:
         captured["json"] = args.json
         return 17
 
-    monkeypatch.setattr(cli, "cmd_crest_inspect", fake_cmd_crest_inspect)
+    monkeypatch.setattr(cli_inspect, "cmd_crest_inspect", fake_cmd_crest_inspect)
 
     result = cli.main(["crest", "inspect", "crest-job-9", "--crest-index-root", "/tmp/crest-root"])
 

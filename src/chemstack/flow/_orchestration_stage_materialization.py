@@ -13,8 +13,8 @@ from . import _orchestration_stage_builders as _stage_builders
 from .state import workflow_workspace_internal_engine_paths
 
 
-def _orchestration_context() -> OrchestrationDeps:
-    return orchestration_deps()
+def _orchestration_context(deps: OrchestrationDeps | None = None) -> OrchestrationDeps:
+    return deps or orchestration_deps()
 
 
 @dataclass(frozen=True)
@@ -22,10 +22,10 @@ class WorkflowTaskView:
     raw: dict[str, Any]
 
     def engine(self, o: Any) -> str:
-        return o._normalize_text(self.raw.get("engine")).lower()
+        return o.stages._normalize_text(self.raw.get("engine")).lower()
 
     def status(self, o: Any) -> str:
-        return o._normalize_text(self.raw.get("status")).lower()
+        return o.stages._normalize_text(self.raw.get("status")).lower()
 
 
 @dataclass(frozen=True)
@@ -42,10 +42,10 @@ class WorkflowStageView:
         return WorkflowTaskView(task if isinstance(task, dict) else {})
 
     def stage_id(self, o: Any) -> str:
-        return o._normalize_text(self.raw.get("stage_id"))
+        return o.stages._normalize_text(self.raw.get("stage_id"))
 
     def status(self, o: Any) -> str:
-        return o._normalize_text(self.raw.get("status")).lower()
+        return o.stages._normalize_text(self.raw.get("status")).lower()
 
     def task_engine(self, o: Any) -> str:
         return self.task.engine(o)
@@ -121,16 +121,16 @@ class _CrestOrcaStagePlan:
 
 
 def _request_params(o: Any, payload: dict[str, Any]) -> dict[str, Any]:
-    metadata = o._coerce_mapping(payload.get("metadata"))
-    request = o._coerce_mapping(metadata.get("request"))
-    return o._coerce_mapping(request.get("parameters"))
+    metadata = o.stages._coerce_mapping(payload.get("metadata"))
+    request = o.stages._coerce_mapping(metadata.get("request"))
+    return o.stages._coerce_mapping(request.get("parameters"))
 
 
 def _clear_workflow_error_scope(o: Any, payload_metadata: dict[str, Any], scopes: set[str]) -> None:
     workflow_error = payload_metadata.get("workflow_error")
     if (
         isinstance(workflow_error, dict)
-        and o._normalize_text(workflow_error.get("scope")) in scopes
+        and o.stages._normalize_text(workflow_error.get("scope")) in scopes
     ):
         payload_metadata.pop("workflow_error", None)
 
@@ -172,7 +172,7 @@ def _completed_or_recoverable_xtb_stages(o: Any, payload: dict[str, Any]) -> lis
     return [
         view.raw
         for view in _engine_stage_views(o, payload, "xtb")
-        if view.status(o) == "completed" or o._stage_failure_is_recoverable(view.raw)
+        if view.status(o) == "completed" or o.stages._stage_failure_is_recoverable(view.raw)
     ]
 
 
@@ -182,12 +182,12 @@ def _load_xtb_contract_for_stage(
     view = WorkflowStageView.from_raw(xtb_stage)
     if view is None or not view.task.raw:
         return None
-    payload_dict = o._task_payload_dict(view.task.raw)
-    target = o._normalize_text(payload_dict.get("job_dir")) or o._submission_target(xtb_stage)
+    payload_dict = o.stages._task_payload_dict(view.task.raw)
+    target = o.stages._normalize_text(payload_dict.get("job_dir")) or o.stages._submission_target(xtb_stage)
     if not target:
         return None
     try:
-        return o.load_xtb_artifact_contract(xtb_index_root=xtb_allowed_root, target=target)
+        return o.engines.load_xtb_artifact_contract(xtb_index_root=xtb_allowed_root, target=target)
     except Exception:
         return None
 
@@ -198,9 +198,9 @@ def _xtb_ts_guess_inputs(o: Any, contract: Any) -> list[Any]:
         len(getattr(contract, "candidate_details", ()) or ()),
         len(getattr(contract, "selected_candidate_paths", ()) or ()),
     )
-    return o.select_xtb_downstream_inputs(
+    return o.engines.select_xtb_downstream_inputs(
         contract,
-        policy=o.XtbDownstreamPolicy.build(
+        policy=o.contracts.XtbDownstreamPolicy.build(
             preferred_kinds=("ts_guess",),
             allowed_kinds=("ts_guess",),
             max_candidates=max_candidate_count,
@@ -212,21 +212,21 @@ def _xtb_ts_guess_inputs(o: Any, contract: Any) -> list[Any]:
 
 
 def _record_xtb_handoff_error(o: Any, xtb_stage: dict[str, Any], contract: Any) -> dict[str, str]:
-    stage_metadata = o._stage_metadata(xtb_stage)
-    error = o._reaction_ts_guess_error(contract)
+    stage_metadata = o.stages._stage_metadata(xtb_stage)
+    error = o.stages._reaction_ts_guess_error(contract)
     stage_metadata["reaction_handoff_status"] = "failed"
     stage_metadata["reaction_handoff_reason"] = error["reason"]
     stage_metadata["reaction_handoff_message"] = error["message"]
     return {
         "stage_id": _stage_view(xtb_stage).stage_id(o),
-        "job_id": o._normalize_text(getattr(contract, "job_id", "")),
+        "job_id": o.stages._normalize_text(getattr(contract, "job_id", "")),
         "reason": error["reason"],
         "message": error["message"],
     }
 
 
 def _mark_xtb_handoff_ready(o: Any, xtb_stage: dict[str, Any]) -> None:
-    stage_metadata = o._stage_metadata(xtb_stage)
+    stage_metadata = o.stages._stage_metadata(xtb_stage)
     stage_metadata.pop("reaction_handoff_reason", None)
     stage_metadata.pop("reaction_handoff_message", None)
     stage_metadata["reaction_handoff_status"] = "ready"
@@ -237,22 +237,22 @@ def _reaction_orca_candidate_pool_rows(
 ) -> list[tuple[int, int, str, Any]]:
     rows: list[tuple[int, int, str, Any]] = []
     for candidate in inputs:
-        candidate_path = o._normalize_text(candidate.artifact_path)
+        candidate_path = o.stages._normalize_text(candidate.artifact_path)
         if not candidate_path:
             continue
         candidate_metadata = {
             **dict(candidate.metadata),
             "xtb_stage_id": _stage_view(xtb_stage).stage_id(o),
             "xtb_stage_order": int(stage_order),
-            "xtb_source_job_id": o._normalize_text(getattr(contract, "job_id", "")),
-            "xtb_source_job_type": o._normalize_text(getattr(contract, "job_type", "")),
+            "xtb_source_job_id": o.stages._normalize_text(getattr(contract, "job_id", "")),
+            "xtb_source_job_type": o.stages._normalize_text(getattr(contract, "job_type", "")),
         }
         rows.append(
             (
                 int(stage_order),
                 candidate.rank if candidate.rank > 0 else 10_000,
                 candidate_path,
-                o.WorkflowStageInput(
+                o.contracts.WorkflowStageInput(
                     source_job_id=candidate.source_job_id,
                     source_job_type=candidate.source_job_type,
                     reaction_key=candidate.reaction_key,
@@ -317,14 +317,14 @@ def _remaining_orca_candidates(
     o: Any, existing: list[dict[str, Any]], ordered_candidates: list[Any]
 ) -> list[Any]:
     attempted_paths = {
-        o._reaction_orca_source_candidate_path(stage)
+        o.stages._reaction_orca_source_candidate_path(stage)
         for stage in existing
-        if o._reaction_orca_source_candidate_path(stage)
+        if o.stages._reaction_orca_source_candidate_path(stage)
     }
     return [
         candidate
         for candidate in ordered_candidates
-        if o._normalize_text(candidate.artifact_path) not in attempted_paths
+        if o.stages._normalize_text(candidate.artifact_path) not in attempted_paths
     ]
 
 
@@ -354,13 +354,13 @@ def _completed_reaction_crest_contracts(
     *,
     crest_auto_config: str | None,
 ) -> tuple[Any, Any] | None:
-    roles = o._completed_crest_roles(payload)
+    roles = o.stages._completed_crest_roles(payload)
     if set(roles.keys()) != {"reactant", "product"}:
         return None
-    reactant_contract = o._completed_crest_stage(
+    reactant_contract = o.stages._completed_crest_stage(
         roles["reactant"], crest_auto_config=crest_auto_config
     )
-    product_contract = o._completed_crest_stage(
+    product_contract = o.stages._completed_crest_stage(
         roles["product"], crest_auto_config=crest_auto_config
     )
     if reactant_contract is None or product_contract is None:
@@ -383,23 +383,23 @@ def _reaction_xtb_stage_plan(
         return None
     reactant_contract, product_contract = contracts
     params = _request_params(o, payload)
-    reactant_inputs = o.select_crest_downstream_inputs(
+    reactant_inputs = o.engines.select_crest_downstream_inputs(
         reactant_contract,
-        policy=o.CrestDownstreamPolicy.build(
+        policy=o.contracts.CrestDownstreamPolicy.build(
             max_candidates=int(params.get("max_crest_candidates", 3) or 3)
         ),
     )
-    product_inputs = o.select_crest_downstream_inputs(
+    product_inputs = o.engines.select_crest_downstream_inputs(
         product_contract,
-        policy=o.CrestDownstreamPolicy.build(
+        policy=o.contracts.CrestDownstreamPolicy.build(
             max_candidates=int(params.get("max_crest_candidates", 3) or 3)
         ),
     )
-    pairing_policy = o.EndpointPairingPolicy.from_raw(
+    pairing_policy = o.contracts.EndpointPairingPolicy.from_raw(
         params.get("endpoint_pairing"),
         default_max_pairs=int(params.get("max_xtb_stages", 0) or 0),
     )
-    endpoint_pairs = o.select_endpoint_pairs(
+    endpoint_pairs = o.engines.select_endpoint_pairs(
         reactant_inputs,
         product_inputs,
         policy=pairing_policy,
@@ -423,9 +423,13 @@ def _reaction_xtb_stage_plan(
 
 
 def append_reaction_xtb_stages_impl(
-    payload: dict[str, Any], *, workspace_dir: Path, crest_auto_config: str | None
+    payload: dict[str, Any],
+    *,
+    workspace_dir: Path,
+    crest_auto_config: str | None,
+    deps: OrchestrationDeps | None = None,
 ) -> bool:
-    o = _orchestration_context()
+    o = _orchestration_context(deps)
     if _engine_stages(o, payload, "xtb"):
         return False
     del workspace_dir
@@ -454,10 +458,10 @@ def _reaction_orca_stage_plan(
     xtb_stages = _completed_or_recoverable_xtb_stages(o, payload)
     if not xtb_stages:
         return None
-    xtb_allowed_root = _call_engine_aware(o._load_config_root, xtb_auto_config, engine="xtb")
+    xtb_allowed_root = _call_engine_aware(o.stages._load_config_root, xtb_auto_config, engine="xtb")
     if xtb_allowed_root is None:
         return None
-    if _call_engine_aware(o._load_config_root, orca_auto_config, engine="orca") is None:
+    if _call_engine_aware(o.stages._load_config_root, orca_auto_config, engine="orca") is None:
         return None
     orca_runtime_paths = workflow_workspace_internal_engine_paths(workspace_dir, engine="orca")
     params = _request_params(o, payload)
@@ -489,8 +493,9 @@ def append_reaction_orca_stages_impl(
     workspace_dir: Path,
     xtb_auto_config: str | None,
     orca_auto_config: str | None,
+    deps: OrchestrationDeps | None = None,
 ) -> bool:
-    o = _orchestration_context()
+    o = _orchestration_context(deps)
     plan = _reaction_orca_stage_plan(
         o,
         payload,
@@ -547,7 +552,7 @@ def _completed_crest_stage_for_orca(
     )
     if crest_stage is None:
         return None
-    return o._completed_crest_stage(crest_stage, crest_auto_config=crest_auto_config)
+    return o.stages._completed_crest_stage(crest_stage, crest_auto_config=crest_auto_config)
 
 
 def _crest_orca_stage_plan(
@@ -567,11 +572,11 @@ def _crest_orca_stage_plan(
     )
     if (
         crest_contract is None
-        or _call_engine_aware(o._load_config_root, orca_auto_config, engine="orca") is None
+        or _call_engine_aware(o.stages._load_config_root, orca_auto_config, engine="orca") is None
     ):
         return None
-    payload_metadata = o._coerce_mapping(payload.get("metadata"))
-    workspace_dir_text = o._normalize_text(payload_metadata.get("workspace_dir"))
+    payload_metadata = o.stages._coerce_mapping(payload.get("metadata"))
+    workspace_dir_text = o.stages._normalize_text(payload_metadata.get("workspace_dir"))
     workspace_dir = (
         Path(workspace_dir_text).expanduser().resolve()
         if workspace_dir_text
@@ -584,9 +589,9 @@ def _crest_orca_stage_plan(
         stage_dirname=orca_stage_dirname,
     )
     params = _request_params(o, payload)
-    candidates = o.select_crest_downstream_inputs(
+    candidates = o.engines.select_crest_downstream_inputs(
         crest_contract,
-        policy=o.CrestDownstreamPolicy.build(
+        policy=o.contracts.CrestDownstreamPolicy.build(
             max_candidates=int(params.get("max_orca_stages", 3) or 3)
         ),
     )
@@ -606,8 +611,9 @@ def append_crest_orca_stages_impl(
     stage_id_prefix: str,
     xyz_filename: str,
     inp_filename: str,
+    deps: OrchestrationDeps | None = None,
 ) -> bool:
-    o = _orchestration_context()
+    o = _orchestration_context(deps)
     plan = _crest_orca_stage_plan(
         o,
         payload,

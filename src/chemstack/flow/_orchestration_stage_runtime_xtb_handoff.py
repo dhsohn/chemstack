@@ -2,14 +2,17 @@ from __future__ import annotations
 
 from typing import Any
 
+from ._orchestration_deps import OrchestrationDeps
 from ._orchestration_stage_runtime_shared import _orchestration_context
 
 
-def xtb_handoff_status_impl(contract: Any) -> dict[str, str]:
-    o = _orchestration_context()
-    inputs = o.select_xtb_downstream_inputs(
+def xtb_handoff_status_impl(
+    contract: Any, *, deps: OrchestrationDeps | None = None
+) -> dict[str, str]:
+    o = _orchestration_context(deps)
+    inputs = o.engines.select_xtb_downstream_inputs(
         contract,
-        policy=o.XtbDownstreamPolicy.build(
+        policy=o.contracts.XtbDownstreamPolicy.build(
             preferred_kinds=("ts_guess",),
             allowed_kinds=("ts_guess",),
             max_candidates=1,
@@ -23,9 +26,9 @@ def xtb_handoff_status_impl(contract: Any) -> dict[str, str]:
             "status": "ready",
             "reason": "",
             "message": "",
-            "artifact_path": o._normalize_text(inputs[0].artifact_path),
+            "artifact_path": o.stages._normalize_text(inputs[0].artifact_path),
         }
-    error = o._reaction_ts_guess_error(contract)
+    error = o.stages._reaction_ts_guess_error(contract)
     return {
         "status": "failed",
         "reason": error["reason"],
@@ -34,17 +37,19 @@ def xtb_handoff_status_impl(contract: Any) -> dict[str, str]:
     }
 
 
-def stage_has_xtb_candidates_impl(stage: dict[str, Any]) -> bool:
-    o = _orchestration_context()
+def stage_has_xtb_candidates_impl(
+    stage: dict[str, Any], *, deps: OrchestrationDeps | None = None
+) -> bool:
+    o = _orchestration_context(deps)
     artifacts = stage.get("output_artifacts")
     if not isinstance(artifacts, list):
         return False
     for artifact in artifacts:
         if not isinstance(artifact, dict):
             continue
-        if o._normalize_text(artifact.get("kind")) != "xtb_candidate":
+        if o.stages._normalize_text(artifact.get("kind")) != "xtb_candidate":
             continue
-        if o._normalize_text(artifact.get("path")):
+        if o.stages._normalize_text(artifact.get("path")):
             return True
     return False
 

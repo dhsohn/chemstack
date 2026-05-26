@@ -11,9 +11,9 @@ from chemstack.core.app_ids import (
 )
 from chemstack.core.utils import atomic_write_json
 
-from ..contracts import WorkflowArtifactRef, WorkflowStage, WorkflowStageInput, WorkflowTask
-from ..xyz_utils import write_orca_ready_xyz
-from . import orca_stage_payloads as _orca_stage_payloads
+from . import _orca_stage_payloads
+from .contracts import WorkflowArtifactRef, WorkflowStage, WorkflowStageInput, WorkflowTask
+from .xyz_utils import write_orca_ready_xyz
 
 
 def normalize_text(value: Any) -> str:

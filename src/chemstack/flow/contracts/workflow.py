@@ -86,6 +86,10 @@ class WorkflowPlanPayload(TypedDict, total=False):
     metadata: dict[str, Any]
 
 
+def coerce_workflow_plan_payload(value: Any) -> WorkflowPlanPayload:
+    return cast(WorkflowPlanPayload, _coerce_mapping(value))
+
+
 @dataclass(frozen=True)
 class WorkflowArtifactRef:
     kind: str
@@ -247,4 +251,5 @@ __all__ = [
     "WorkflowTaskPayload",
     "WorkflowTemplateRequest",
     "WorkflowTemplateRequestPayload",
+    "coerce_workflow_plan_payload",
 ]

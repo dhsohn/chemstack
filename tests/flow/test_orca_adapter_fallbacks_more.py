@@ -46,8 +46,8 @@ def test_tracked_artifact_context_skips_invalid_results_and_uses_later_target(
             organized_ref={"run_id": "run_artifact"},
         )
 
-    tracking_module = SimpleNamespace(load_job_artifact_context=load_job_artifact_context)
-    monkeypatch.setattr(orca_adapter, "_orca_auto_tracking_module", lambda: tracking_module)
+    job_locations_module = SimpleNamespace(load_job_artifact_context=load_job_artifact_context)
+    monkeypatch.setattr(orca_adapter, "_orca_auto_job_locations_module", lambda: job_locations_module)
 
     job_dir, tracked_record, state, report, organized_ref = orca_adapter._tracked_artifact_context(
         index_root=tmp_path / "orca_runs",
@@ -74,8 +74,12 @@ def test_tracked_contract_payload_rejects_invalid_returns(
     monkeypatch: pytest.MonkeyPatch,
     payload: object,
 ) -> None:
-    tracking_module = SimpleNamespace(load_orca_contract_payload=lambda *_args, **_kwargs: payload)
-    monkeypatch.setattr(orca_adapter, "_orca_auto_tracking_module", lambda: tracking_module)
+    job_locations_module = SimpleNamespace(
+        load_orca_contract_payload=lambda *_args, **_kwargs: payload
+    )
+    monkeypatch.setattr(
+        orca_adapter, "_orca_auto_job_locations_module", lambda: job_locations_module
+    )
 
     assert (
         orca_adapter._tracked_contract_payload(
@@ -243,7 +247,7 @@ def test_load_orca_artifact_contract_uses_runtime_context_fast_path(
         "status": "pending",
         "cancel_requested": False,
     }
-    tracking_module = SimpleNamespace(
+    job_locations_module = SimpleNamespace(
         load_job_runtime_context=lambda *_args, **_kwargs: SimpleNamespace(
             artifact=SimpleNamespace(
                 job_dir=artifact_dir,
@@ -257,7 +261,7 @@ def test_load_orca_artifact_contract_uses_runtime_context_fast_path(
         )
     )
 
-    monkeypatch.setattr(orca_adapter, "_orca_auto_tracking_module", lambda: tracking_module)
+    monkeypatch.setattr(orca_adapter, "_orca_auto_job_locations_module", lambda: job_locations_module)
     monkeypatch.setattr(
         orca_adapter,
         "_resolve_job_dir",
@@ -345,7 +349,7 @@ def test_load_orca_artifact_contract_falls_back_from_invalid_runtime_context_to_
         },
     )
 
-    tracking_module = SimpleNamespace(
+    job_locations_module = SimpleNamespace(
         load_job_runtime_context=lambda *_args, **_kwargs: SimpleNamespace(
             artifact=SimpleNamespace(
                 job_dir=None,
@@ -358,7 +362,7 @@ def test_load_orca_artifact_contract_falls_back_from_invalid_runtime_context_to_
             organized_dir=None,
         )
     )
-    monkeypatch.setattr(orca_adapter, "_orca_auto_tracking_module", lambda: tracking_module)
+    monkeypatch.setattr(orca_adapter, "_orca_auto_job_locations_module", lambda: job_locations_module)
     monkeypatch.setattr(
         orca_adapter,
         "resolve_job_location",

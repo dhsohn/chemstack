@@ -17,7 +17,7 @@ from chemstack.orca import telegram_bot as bot
 from chemstack.orca.cancellation import CancelTargetError
 from chemstack.orca.config import AppConfig, PathsConfig, RuntimeConfig, TelegramConfig
 from chemstack.orca.queue_store import enqueue, mark_completed
-from chemstack.orca.state_store import STATE_FILE_NAME
+from chemstack.orca.state import STATE_FILE_NAME
 from chemstack.orca.telegram_bot import _handle_cancel, _handle_help, _handle_list
 
 
