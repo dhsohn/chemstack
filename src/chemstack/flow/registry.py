@@ -12,10 +12,11 @@ from chemstack.core.config.schema import TelegramConfig
 from chemstack.core.notifications import build_telegram_transport, load_telegram_config_from_file
 from chemstack.core.utils import (
     atomic_write_json,
-    coerce_mapping as _shared_coerce_mapping,
+    coerce_mapping as _coerce_mapping,
     file_lock,
-    normalize_text as _shared_normalize_text,
+    normalize_text as _normalize_text,
     now_utc_iso,
+    safe_int as _safe_int,
     timestamped_token,
 )
 
@@ -31,6 +32,8 @@ WORKFLOW_REGISTRY_CLEARED_FILE_NAME = "workflow_registry_cleared.json"
 _TERMINAL_WORKFLOW_STATUSES = frozenset(
     {"completed", "failed", "cancelled", "cancel_failed", "submission_failed"}
 )
+
+
 class WorkflowRegistryCorruptError(RuntimeError):
     """Raised when workflow registry state exists but cannot be safely loaded."""
 
@@ -52,10 +55,6 @@ class WorkflowRegistryRecord:
     task_status_counts: dict[str, int] = field(default_factory=dict)
     submission_summary: dict[str, Any] = field(default_factory=dict)
     metadata: dict[str, Any] = field(default_factory=dict)
-
-
-def _normalize_text(value: Any) -> str:
-    return _shared_normalize_text(value)
 
 
 def _event_text(event: dict[str, Any], metadata: dict[str, Any], *keys: str) -> str:
@@ -118,10 +117,6 @@ def _read_existing_json(path: Path, *, description: str, missing_default: Any) -
         raise WorkflowRegistryCorruptError(f"{description} is not valid JSON: {path}") from exc
 
 
-def _coerce_mapping(value: Any) -> dict[str, Any]:
-    return _shared_coerce_mapping(value)
-
-
 def _coerce_counts(value: Any) -> dict[str, int]:
     if not isinstance(value, dict):
         return {}
@@ -130,10 +125,10 @@ def _coerce_counts(value: Any) -> dict[str, int]:
         text = _normalize_text(key)
         if not text:
             continue
-        try:
-            counts[text] = int(item)
-        except (TypeError, ValueError):
+        parsed = _safe_int(item, default=None)
+        if parsed is None:
             continue
+        counts[text] = parsed
     return counts
 
 

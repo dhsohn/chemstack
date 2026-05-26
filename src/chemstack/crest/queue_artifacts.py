@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from chemstack.core.config import engines as _config_engines
+from chemstack.core.queue import engine_execution as _engine_execution
 from chemstack.core.queue import execution as _queue_execution
 
 from .runner import CrestRunResult
@@ -36,7 +36,7 @@ def matching_result_state(
         match_kwargs={
             "selected_input_xyz": result.selected_input_xyz,
             "mode": result.mode,
-            "molecule_key": str(entry.metadata.get("molecule_key", "")).strip(),
+            "molecule_key": _engine_execution.entry_metadata_text(entry, "molecule_key"),
         },
     )
 
@@ -51,9 +51,9 @@ def build_state_payload(
     recovery_reason = _queue_execution.recovery_reason(base_state)
     payload = {
         "job_id": entry.task_id,
-        "job_dir": str(entry.metadata.get("job_dir", "")).strip(),
+        "job_dir": _engine_execution.entry_metadata_text(entry, "job_dir"),
         "selected_input_xyz": result.selected_input_xyz,
-        "molecule_key": str(entry.metadata.get("molecule_key", "")).strip(),
+        "molecule_key": _engine_execution.entry_metadata_text(entry, "molecule_key"),
         "mode": result.mode,
         "status": result.status,
         "reason": result.reason,
@@ -89,7 +89,7 @@ def build_report_payload(
         "reason": result.reason,
         "mode": result.mode,
         "selected_input_xyz": result.selected_input_xyz,
-        "molecule_key": str(entry.metadata.get("molecule_key", "")).strip(),
+        "molecule_key": _engine_execution.entry_metadata_text(entry, "molecule_key"),
         "command": list(result.command),
         "exit_code": result.exit_code,
         "started_at": result.started_at,
@@ -120,7 +120,7 @@ def report_lines(entry: Any, result: CrestRunResult) -> list[str]:
         f"- Reason: `{result.reason}`",
         f"- Mode: `{result.mode}`",
         f"- Selected XYZ: `{Path(result.selected_input_xyz).name}`",
-        f"- Molecule Key: `{str(entry.metadata.get('molecule_key', '')).strip() or '-'}`",
+        f"- Molecule Key: `{_engine_execution.entry_metadata_text(entry, 'molecule_key') or '-'}`",
         f"- Exit Code: `{result.exit_code}`",
         f"- Retained Conformers: `{result.retained_conformer_count}`",
         f"- Resource Request: `{result.resource_request}`",
@@ -145,7 +145,7 @@ def write_execution_artifacts(
     write_report_json_fn: Any = write_report_json,
     write_report_md_lines_fn: Any = write_report_md_lines,
 ) -> None:
-    job_dir_text = str(entry.metadata.get("job_dir", "")).strip()
+    job_dir_text = _engine_execution.entry_metadata_text(entry, "job_dir")
     if not job_dir_text:
         return
 
@@ -177,16 +177,20 @@ def depsafe_now_utc_iso() -> str:
 def resource_caps(cfg: Any) -> dict[str, int]:
     from .job_locations import resource_dict
 
-    return resource_dict(cfg.resources.max_cores_per_task, cfg.resources.max_memory_gb_per_task)
+    return _engine_execution.engine_resource_caps(cfg, resource_dict_fn=resource_dict)
 
 
 def coerce_resource_dict(value: Any) -> dict[str, int]:
-    return _config_engines.positive_int_mapping(value)
+    return _engine_execution.coerce_resource_request(value)
 
 
 def entry_resource_request(cfg: Any, entry: Any) -> dict[str, int]:
-    metadata = getattr(entry, "metadata", {})
-    return coerce_resource_dict(metadata.get("resource_request")) or resource_caps(cfg)
+    return _engine_execution.entry_resource_request(
+        cfg,
+        entry,
+        resource_caps_fn=resource_caps,
+        coerce_resource_request_fn=coerce_resource_dict,
+    )
 
 
 def write_running_state(
@@ -199,7 +203,7 @@ def write_running_state(
     write_state_fn: Any = write_state,
     now_utc_iso_fn: Any = depsafe_now_utc_iso,
 ) -> None:
-    job_dir_text = str(entry.metadata.get("job_dir", "")).strip()
+    job_dir_text = _engine_execution.entry_metadata_text(entry, "job_dir")
     if not job_dir_text:
         return
     job_dir = Path(job_dir_text).expanduser().resolve()
@@ -209,41 +213,39 @@ def write_running_state(
         load_state_fn=load_state_fn,
         state_matches_job_fn=state_matches_job_fn,
         match_kwargs={
-            "selected_input_xyz": str(entry.metadata.get("selected_input_xyz", "")).strip(),
-            "mode": str(entry.metadata.get("mode", "standard")).strip(),
-            "molecule_key": str(entry.metadata.get("molecule_key", "")).strip(),
+            "selected_input_xyz": _engine_execution.entry_metadata_text(
+                entry,
+                "selected_input_xyz",
+            ),
+            "mode": _engine_execution.entry_metadata_text(entry, "mode", "standard"),
+            "molecule_key": _engine_execution.entry_metadata_text(entry, "molecule_key"),
         },
     )
-    resumed = False
-    recovery_reason = ""
-    if previous_state:
-        resumed = (
-            is_recovery_pending_fn(previous_state)
-            or str(previous_state.get("status", "")).strip().lower() == "running"
-        )
-        recovery_reason = _queue_execution.recovery_reason(previous_state)
+    resumed = bool(previous_state) and _engine_execution.is_resumed_state(
+        previous_state,
+        is_recovery_pending_fn=is_recovery_pending_fn,
+    )
     started_at = entry.started_at or now_utc_iso_fn()
     updated_at = now_utc_iso_fn()
     write_state_fn(
         job_dir,
-        {
-            "job_id": entry.task_id,
-            "job_dir": str(job_dir),
-            "selected_input_xyz": str(entry.metadata.get("selected_input_xyz", "")).strip(),
-            "molecule_key": str(entry.metadata.get("molecule_key", "")).strip(),
-            "mode": str(entry.metadata.get("mode", "standard")).strip(),
-            "status": "running",
-            "reason": recovery_reason if resumed else "",
-            "started_at": started_at,
-            "updated_at": updated_at,
-            "resource_request": resource_request,
-            "resource_actual": dict(resource_request),
-            "created_at": _queue_execution.created_at(previous_state) or started_at,
-            "recovery_pending": False,
-            "recovery_count": _queue_execution.recovery_count(previous_state),
-            "resumed": resumed,
-            **({"recovery_reason": recovery_reason} if recovery_reason else {}),
-        },
+        _engine_execution.build_running_state_payload(
+            entry,
+            job_dir=job_dir,
+            selected_input_xyz=_engine_execution.entry_metadata_text(
+                entry,
+                "selected_input_xyz",
+            ),
+            started_at=started_at,
+            updated_at=updated_at,
+            previous_state=previous_state,
+            resumed=resumed,
+            resource_request=resource_request,
+            engine_fields={
+                "molecule_key": _engine_execution.entry_metadata_text(entry, "molecule_key"),
+                "mode": _engine_execution.entry_metadata_text(entry, "mode", "standard"),
+            },
+        ),
     )
 
 

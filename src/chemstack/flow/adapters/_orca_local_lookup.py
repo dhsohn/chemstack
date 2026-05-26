@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from chemstack.core.indexing import JobLocationRecord
+from chemstack.core.utils.coercion import normalize_text as _normalize_text
 
 from ._orca_path_helpers import direct_dir_target_impl, resolve_candidate_path_impl
 
@@ -13,14 +14,11 @@ ORGANIZED_REF_FILE_NAME = "organized_ref.json"
 INDEX_DIR_NAME = "index"
 RECORDS_FILE_NAME = "records.jsonl"
 
-
-def _normalize_text(value: Any) -> str:
-    if value is None:
-        return ""
-    return str(value).strip()
+JsonPayload = dict[str, Any]
+JsonPayloadList = list[JsonPayload]
 
 
-def load_json_dict_impl(path: Path) -> dict[str, Any]:
+def load_json_dict_impl(path: Path) -> JsonPayload:
     if not path.exists():
         return {}
     try:
@@ -30,7 +28,7 @@ def load_json_dict_impl(path: Path) -> dict[str, Any]:
     return raw if isinstance(raw, dict) else {}
 
 
-def load_json_list_impl(path: Path) -> list[dict[str, Any]]:
+def load_json_list_impl(path: Path) -> JsonPayloadList:
     if not path.exists():
         return []
     try:
@@ -42,10 +40,10 @@ def load_json_list_impl(path: Path) -> list[dict[str, Any]]:
     return [item for item in raw if isinstance(item, dict)]
 
 
-def load_jsonl_records_impl(path: Path) -> list[dict[str, Any]]:
+def load_jsonl_records_impl(path: Path) -> JsonPayloadList:
     if not path.exists():
         return []
-    records: list[dict[str, Any]] = []
+    records: JsonPayloadList = []
     try:
         lines = path.read_text(encoding="utf-8").splitlines()
     except OSError:
@@ -106,7 +104,7 @@ def resolve_job_dir_impl(
 
 
 def _queue_entry_matches(
-    entry: dict[str, Any],
+    entry: JsonPayload,
     *,
     target: str,
     queue_id: str,
@@ -137,7 +135,7 @@ def find_queue_entry_impl(
     queue_id: str,
     run_id: str,
     reaction_dir: str,
-) -> dict[str, Any] | None:
+) -> JsonPayload | None:
     if allowed_root is None:
         return None
     entries = load_json_list_impl(allowed_root / QUEUE_FILE_NAME)
@@ -160,7 +158,7 @@ def find_queue_entry_impl(
     return None
 
 
-def _organized_record_dir(organized_root: Path, record: dict[str, Any]) -> Path | None:
+def _organized_record_dir(organized_root: Path, record: JsonPayload) -> Path | None:
     reaction_dir_text = _normalize_text(record.get("reaction_dir"))
     if reaction_dir_text:
         try:
@@ -177,7 +175,7 @@ def _organized_record_dir(organized_root: Path, record: dict[str, Any]) -> Path 
 
 
 def _organized_record_matches(
-    record: dict[str, Any],
+    record: JsonPayload,
     *,
     target: str,
     run_id: str,
@@ -200,7 +198,7 @@ def find_organized_record_impl(
     target: str,
     run_id: str,
     reaction_dir: str,
-) -> dict[str, Any] | None:
+) -> JsonPayload | None:
     if organized_root is None:
         return None
     records = load_jsonl_records_impl(organized_root / INDEX_DIR_NAME / RECORDS_FILE_NAME)
@@ -225,7 +223,7 @@ def find_organized_record_impl(
 
 
 def organized_dir_from_record_impl(
-    organized_root: Path | None, record: dict[str, Any] | None
+    organized_root: Path | None, record: JsonPayload | None
 ) -> Path | None:
     if record is None:
         return None
@@ -264,7 +262,7 @@ def record_organized_dir_impl(record: JobLocationRecord | None) -> Path | None:
 
 def load_tracked_organized_ref_impl(
     record: JobLocationRecord | None, current_dir: Path | None
-) -> dict[str, Any]:
+) -> JsonPayload:
     if record is None:
         return {}
     original_run_dir = _normalize_text(record.original_run_dir)

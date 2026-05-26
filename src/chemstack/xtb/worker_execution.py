@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Any, Callable
 
 from chemstack.core.admission import activate_reserved_slot, release_slot
-from chemstack.core.config import engines as _config_engines
 from chemstack.core.queue import (
     list_queue,
     mark_cancelled,
@@ -15,6 +14,7 @@ from chemstack.core.queue import (
     mark_failed,
 )
 from chemstack.core.queue import child_execution as _child_execution
+from chemstack.core.queue import engine_execution as _engine_execution
 from chemstack.core.queue import execution as _queue_execution
 from chemstack.core.queue.engine_execution import (
     EngineWorkerLifecycle,
@@ -131,38 +131,42 @@ class WorkerExecutionDependencies:
 
 
 def _job_dir(entry: Any) -> Path:
-    return Path(str(entry.metadata.get("job_dir", ""))).expanduser().resolve()
+    return _engine_execution.entry_metadata_resolved_path(entry, "job_dir")
 
 
 def _selected_xyz(entry: Any) -> Path:
-    return Path(str(entry.metadata.get("selected_input_xyz", ""))).expanduser().resolve()
+    return _engine_execution.entry_metadata_resolved_path(entry, "selected_input_xyz")
 
 
 def _job_type(entry: Any) -> str:
-    value = str(entry.metadata.get("job_type", "")).strip().lower()
+    value = _engine_execution.entry_metadata_text(entry, "job_type").lower()
     return value or "path_search"
 
 
 def _reaction_key(entry: Any, job_dir: Path) -> str:
-    value = str(entry.metadata.get("reaction_key", "")).strip()
+    value = _engine_execution.entry_metadata_text(entry, "reaction_key")
     return value or reaction_key_from_job_dir(job_dir)
 
 
 def _input_summary(entry: Any) -> dict[str, Any]:
-    payload = entry.metadata.get("input_summary", {})
-    return dict(payload) if isinstance(payload, dict) else {}
+    return _engine_execution.entry_metadata_dict(entry, "input_summary")
 
 
 def _resource_caps(cfg: Any) -> dict[str, int]:
-    return resource_dict(cfg.resources.max_cores_per_task, cfg.resources.max_memory_gb_per_task)
+    return _engine_execution.engine_resource_caps(cfg, resource_dict_fn=resource_dict)
 
 
 def _coerce_resource_dict(value: Any) -> dict[str, int]:
-    return _config_engines.positive_int_mapping(value)
+    return _engine_execution.coerce_resource_request(value)
 
 
 def _entry_resource_request(cfg: Any, entry: Any) -> dict[str, int]:
-    return _coerce_resource_dict(entry.metadata.get("resource_request")) or _resource_caps(cfg)
+    return _engine_execution.entry_resource_request(
+        cfg,
+        entry,
+        resource_caps_fn=_resource_caps,
+        coerce_resource_request_fn=_coerce_resource_dict,
+    )
 
 
 def _matching_state(
@@ -394,9 +398,9 @@ def _build_execution_context(
         job_type=job_type,
         reaction_key=reaction_key,
     )
-    resumed = (
-        context_deps.is_recovery_pending(previous_state)
-        or str(previous_state.get("status", "")).strip().lower() == "running"
+    resumed = _engine_execution.is_resumed_state(
+        previous_state,
+        is_recovery_pending_fn=context_deps.is_recovery_pending,
     )
     return _XtbExecutionContext(
         entry=entry,

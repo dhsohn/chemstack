@@ -13,6 +13,7 @@ from . import cli_workflow_output as _workflow_output
 from .operations import create_conformer_screening_workflow, create_reaction_workflow
 from .restart import restart_failed_workflow
 from .run_dir_options import (
+    RUN_DIR_COMMON_WORKFLOW_OPTION_FIELDS,
     RunDirManifestSections,
     RunDirWorkflowConfig,
     RunDirWorkflowOptions,
@@ -265,11 +266,10 @@ def _resolve_run_dir_common_workflow_kwargs(
     default_max_orca_stages: int,
     deps: Any | None = None,
 ) -> dict[str, Any]:
-    resolve_run_dir_workflow_options = _dependency(
-        deps, "_resolve_run_dir_workflow_options", _resolve_run_dir_workflow_options
-    )
-    workflow_options_to_common_kwargs = _dependency(
-        deps, "_workflow_options_to_common_kwargs", _workflow_options_to_common_kwargs
+    resolve_run_dir_workflow_option_bundle = _dependency(
+        deps,
+        "_resolve_run_dir_workflow_option_bundle",
+        _resolve_run_dir_workflow_option_bundle,
     )
     sections = _RunDirManifestSections(
         resources=resources_manifest,
@@ -278,14 +278,14 @@ def _resolve_run_dir_common_workflow_kwargs(
         endpoint_pairing={},
         orca=orca_manifest,
     )
-    options = resolve_run_dir_workflow_options(
+    _, common_kwargs = resolve_run_dir_workflow_option_bundle(
         args,
         manifest,
         sections,
         default_orca_route_line=default_orca_route_line,
         default_max_orca_stages=default_max_orca_stages,
     )
-    return workflow_options_to_common_kwargs(options)
+    return common_kwargs
 
 
 _print_created_workflow = _workflow_output.emit_created_workflow
@@ -449,18 +449,49 @@ def _resolve_run_dir_workflow_options(
     )
 
 
+def _resolve_run_dir_workflow_option_bundle(
+    args: Any,
+    manifest: dict[str, Any],
+    sections: _RunDirManifestSections,
+    *,
+    default_orca_route_line: str,
+    default_max_orca_stages: int,
+    default_max_crest_candidates: int = 3,
+    default_max_xtb_stages: int = 3,
+    workflow_root: str | None = None,
+    deps: Any | None = None,
+) -> tuple[_RunDirWorkflowOptions, dict[str, Any]]:
+    resolve_run_dir_workflow_options = _dependency(
+        deps, "_resolve_run_dir_workflow_options", _resolve_run_dir_workflow_options
+    )
+    workflow_options_to_common_kwargs = _dependency(
+        deps, "_workflow_options_to_common_kwargs", _workflow_options_to_common_kwargs
+    )
+
+    options = resolve_run_dir_workflow_options(
+        args,
+        manifest,
+        sections,
+        default_orca_route_line=default_orca_route_line,
+        default_max_orca_stages=default_max_orca_stages,
+        default_max_crest_candidates=default_max_crest_candidates,
+        default_max_xtb_stages=default_max_xtb_stages,
+        workflow_root=workflow_root,
+    )
+    return options, workflow_options_to_common_kwargs(options)
+
+
 def _workflow_options_to_common_kwargs(options: _RunDirWorkflowOptions) -> dict[str, Any]:
-    return {
-        "workflow_root": options.workflow_root,
-        "crest_mode": options.crest_mode,
-        "priority": options.priority,
-        "max_cores": options.max_cores,
-        "max_memory_gb": options.max_memory_gb,
-        "max_orca_stages": options.max_orca_stages,
-        "orca_route_line": options.orca_route_line,
-        "charge": options.charge,
-        "multiplicity": options.multiplicity,
-    }
+    common_kwargs = getattr(options, "common_kwargs", None)
+    if callable(common_kwargs):
+        return common_kwargs()
+    return {name: getattr(options, name) for name in RUN_DIR_COMMON_WORKFLOW_OPTION_FIELDS}
+
+
+def _update_present_kwargs(kwargs: dict[str, Any], values: dict[str, Any]) -> None:
+    for key, value in values.items():
+        if value:
+            kwargs[key] = value
 
 
 def _load_run_dir_workflow_config(
@@ -533,14 +564,13 @@ def _common_run_dir_workflow_kwargs(
     default_max_orca_stages: int,
     deps: Any | None = None,
 ) -> dict[str, Any]:
-    resolve_run_dir_workflow_options = _dependency(
-        deps, "_resolve_run_dir_workflow_options", _resolve_run_dir_workflow_options
-    )
-    workflow_options_to_common_kwargs = _dependency(
-        deps, "_workflow_options_to_common_kwargs", _workflow_options_to_common_kwargs
+    resolve_run_dir_workflow_option_bundle = _dependency(
+        deps,
+        "_resolve_run_dir_workflow_option_bundle",
+        _resolve_run_dir_workflow_option_bundle,
     )
 
-    options = resolve_run_dir_workflow_options(
+    _, common_kwargs = resolve_run_dir_workflow_option_bundle(
         args,
         config.manifest,
         config.sections,
@@ -548,7 +578,7 @@ def _common_run_dir_workflow_kwargs(
         default_max_orca_stages=default_max_orca_stages,
         workflow_root=workflow_root,
     )
-    return workflow_options_to_common_kwargs(options)
+    return common_kwargs
 
 
 def _create_reaction_run_dir_workflow(
@@ -558,12 +588,12 @@ def _create_reaction_run_dir_workflow(
         deps, "_resolve_required_workflow_root", _resolve_required_workflow_root
     )
     run_dir_workflow_id = _dependency(deps, "_run_dir_workflow_id", _run_dir_workflow_id)
-    resolve_run_dir_workflow_options = _dependency(
-        deps, "_resolve_run_dir_workflow_options", _resolve_run_dir_workflow_options
+    resolve_run_dir_workflow_option_bundle = _dependency(
+        deps,
+        "_resolve_run_dir_workflow_option_bundle",
+        _resolve_run_dir_workflow_option_bundle,
     )
-    workflow_options_to_common_kwargs = _dependency(
-        deps, "_workflow_options_to_common_kwargs", _workflow_options_to_common_kwargs
-    )
+    update_present_kwargs = _dependency(deps, "_update_present_kwargs", _update_present_kwargs)
     create_workflow = _dependency(deps, "create_reaction_workflow", create_reaction_workflow)
 
     if not config.reactant_xyz or not config.product_xyz:
@@ -572,7 +602,7 @@ def _create_reaction_run_dir_workflow(
             "(or manifest/CLI overrides)."
         )
     workflow_root = resolve_required_workflow_root(args, config.manifest)
-    options = resolve_run_dir_workflow_options(
+    options, common_kwargs = resolve_run_dir_workflow_option_bundle(
         args,
         config.manifest,
         config.sections,
@@ -584,16 +614,18 @@ def _create_reaction_run_dir_workflow(
         "reactant_xyz": config.reactant_xyz,
         "product_xyz": config.product_xyz,
         "workflow_id": run_dir_workflow_id(config, workflow_root),
-        **workflow_options_to_common_kwargs(options),
+        **common_kwargs,
         "max_crest_candidates": options.max_crest_candidates,
         "max_xtb_stages": options.max_xtb_stages,
     }
-    if config.crest_manifest:
-        reaction_kwargs["crest_job_manifest"] = config.crest_manifest
-    if config.xtb_manifest:
-        reaction_kwargs["xtb_job_manifest"] = config.xtb_manifest
-    if config.endpoint_pairing:
-        reaction_kwargs["endpoint_pairing"] = config.endpoint_pairing
+    update_present_kwargs(
+        reaction_kwargs,
+        {
+            "crest_job_manifest": config.crest_manifest,
+            "xtb_job_manifest": config.xtb_manifest,
+            "endpoint_pairing": config.endpoint_pairing,
+        },
+    )
     return create_workflow(**reaction_kwargs)
 
 
@@ -607,6 +639,7 @@ def _create_conformer_run_dir_workflow(
     common_run_dir_workflow_kwargs = _dependency(
         deps, "_common_run_dir_workflow_kwargs", _common_run_dir_workflow_kwargs
     )
+    update_present_kwargs = _dependency(deps, "_update_present_kwargs", _update_present_kwargs)
     create_workflow = _dependency(
         deps, "create_conformer_screening_workflow", create_conformer_screening_workflow
     )
@@ -625,8 +658,7 @@ def _create_conformer_run_dir_workflow(
             default_max_orca_stages=20,
         ),
     }
-    if config.crest_manifest:
-        conformer_kwargs["crest_job_manifest"] = config.crest_manifest
+    update_present_kwargs(conformer_kwargs, {"crest_job_manifest": config.crest_manifest})
     return create_workflow(**conformer_kwargs)
 
 

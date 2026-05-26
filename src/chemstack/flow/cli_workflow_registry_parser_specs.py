@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from .cli_parser_specs import ArgumentSpec, WorkflowParserSpec
+from .cli_parser_specs import WorkflowParserSpec, int_spec, store_true_spec
 
 
 def workflow_registry_specs() -> tuple[WorkflowParserSpec, ...]:
@@ -13,20 +13,14 @@ def workflow_registry_specs() -> tuple[WorkflowParserSpec, ...]:
             workflow_root=True,
             workflow_root_required=True,
             arguments=(
-                ArgumentSpec(
-                    ("--limit",),
-                    {
-                        "type": int,
-                        "default": 0,
-                        "help": "Optional maximum number of workflows to print",
-                    },
+                int_spec(
+                    "--limit",
+                    default=0,
+                    help="Optional maximum number of workflows to print",
                 ),
-                ArgumentSpec(
-                    ("--refresh",),
-                    {
-                        "action": "store_true",
-                        "help": "Rebuild the registry from workflow workspaces before listing",
-                    },
+                store_true_spec(
+                    "--refresh",
+                    help="Rebuild the registry from workflow workspaces before listing",
                 ),
             ),
         ),
@@ -79,13 +73,10 @@ def workflow_registry_specs() -> tuple[WorkflowParserSpec, ...]:
             workflow_root=True,
             workflow_root_required=True,
             arguments=(
-                ArgumentSpec(
-                    ("--limit",),
-                    {
-                        "type": int,
-                        "default": 50,
-                        "help": "Maximum number of recent events to show",
-                    },
+                int_spec(
+                    "--limit",
+                    default=50,
+                    help="Maximum number of recent events to show",
                 ),
             ),
         ),
@@ -96,13 +87,10 @@ def workflow_registry_specs() -> tuple[WorkflowParserSpec, ...]:
             workflow_root=True,
             workflow_root_required=True,
             arguments=(
-                ArgumentSpec(
-                    ("--limit",),
-                    {
-                        "type": int,
-                        "default": 200,
-                        "help": "Maximum number of recent journal events to summarize",
-                    },
+                int_spec(
+                    "--limit",
+                    default=200,
+                    help="Maximum number of recent journal events to summarize",
                 ),
             ),
         ),

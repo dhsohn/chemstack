@@ -4,22 +4,14 @@ from typing import Any, Iterable
 
 from chemstack.core.statuses import FAILED_STATUSES, STAGE_TERMINAL_STATUSES
 from chemstack.core.utils.coercion import (
-    coerce_mapping as _shared_coerce_mapping,
-    normalize_text as _shared_normalize_text,
+    coerce_mapping as _coerce_mapping,
+    normalize_text as _normalize_text,
 )
 
 WORKFLOW_PHASE_FINISHED_EVENT = "workflow_phase_finished"
 SUPPRESSED_STAGE_NOTIFICATION_ENGINES = frozenset({"crest", "xtb", "orca"})
 TERMINAL_STAGE_STATUSES = STAGE_TERMINAL_STATUSES
 FAILED_STAGE_STATUSES = FAILED_STATUSES
-
-
-def _normalize_text(value: Any) -> str:
-    return _shared_normalize_text(value)
-
-
-def _coerce_mapping(value: Any) -> dict[str, Any]:
-    return _shared_coerce_mapping(value)
 
 
 def _stage_row(stage: Any) -> dict[str, str]:

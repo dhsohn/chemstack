@@ -20,6 +20,7 @@ from chemstack.core.queue import (
     requeue_running_entry,
 )
 from chemstack.core.queue import child_execution as _child_execution
+from chemstack.core.queue import engine_execution as _engine_execution
 from chemstack.core.queue.types import QueueStatus
 from chemstack.core.queue.engine_execution import (
     EngineWorkerLifecycle,
@@ -251,7 +252,7 @@ def _entry_resource_request(cfg: Any, entry: Any) -> dict[str, int]:
 def _molecule_key(entry: Any, selected_xyz: Path, job_dir: Path) -> str:
     from .job_locations import molecule_key_from_selected_xyz
 
-    raw = str(entry.metadata.get("molecule_key", "")).strip()
+    raw = _engine_execution.entry_metadata_text(entry, "molecule_key")
     if raw:
         return raw
     return molecule_key_from_selected_xyz(str(selected_xyz), job_dir)
@@ -264,8 +265,8 @@ def _build_execution_context(
     resource_caps: Callable[[Any], dict[str, int]],
     molecule_key_resolver: Callable[[Any, Path, Path], str],
 ) -> ExecutionContext:
-    job_dir = Path(str(entry.metadata.get("job_dir", ""))).expanduser().resolve()
-    selected_xyz = Path(str(entry.metadata.get("selected_input_xyz", ""))).expanduser().resolve()
+    job_dir = _engine_execution.entry_metadata_resolved_path(entry, "job_dir")
+    selected_xyz = _engine_execution.entry_metadata_resolved_path(entry, "selected_input_xyz")
     return ExecutionContext(
         entry=entry,
         job_dir=job_dir,

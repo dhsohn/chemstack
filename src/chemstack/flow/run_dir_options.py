@@ -4,6 +4,18 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+RUN_DIR_COMMON_WORKFLOW_OPTION_FIELDS = (
+    "workflow_root",
+    "crest_mode",
+    "priority",
+    "max_cores",
+    "max_memory_gb",
+    "max_orca_stages",
+    "orca_route_line",
+    "charge",
+    "multiplicity",
+)
+
 
 @dataclass(frozen=True)
 class RunDirManifestSections:
@@ -27,6 +39,9 @@ class RunDirWorkflowOptions:
     multiplicity: int
     max_crest_candidates: int
     max_xtb_stages: int
+
+    def common_kwargs(self) -> dict[str, Any]:
+        return {name: getattr(self, name) for name in RUN_DIR_COMMON_WORKFLOW_OPTION_FIELDS}
 
 
 @dataclass(frozen=True)
@@ -61,6 +76,7 @@ class RunDirWorkflowConfig:
 
 
 __all__ = [
+    "RUN_DIR_COMMON_WORKFLOW_OPTION_FIELDS",
     "RunDirManifestSections",
     "RunDirWorkflowConfig",
     "RunDirWorkflowOptions",

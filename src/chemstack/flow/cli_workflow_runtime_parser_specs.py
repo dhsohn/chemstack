@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from .cli_parser_specs import ArgumentSpec, WorkflowParserSpec
+from .cli_parser_specs import WorkflowParserSpec, argument_spec, int_spec, store_true_spec
 
 
 def workflow_runtime_specs() -> tuple[WorkflowParserSpec, ...]:
@@ -18,14 +18,9 @@ def workflow_runtime_specs() -> tuple[WorkflowParserSpec, ...]:
             workflow_root_required=True,
             chemstack_config=True,
             arguments=(
-                ArgumentSpec(
-                    ("--no-submit",),
-                    {
-                        "action": "store_true",
-                        "help": (
-                            "Only sync and append stages; do not submit newly actionable stages"
-                        ),
-                    },
+                store_true_spec(
+                    "--no-submit",
+                    help="Only sync and append stages; do not submit newly actionable stages",
                 ),
             ),
         ),
@@ -36,54 +31,38 @@ def workflow_runtime_specs() -> tuple[WorkflowParserSpec, ...]:
             workflow_root=True,
             chemstack_config=True,
             arguments=(
-                ArgumentSpec(
-                    ("--no-submit",),
-                    {
-                        "action": "store_true",
-                        "help": "Only sync/append stages; do not submit newly actionable stages",
-                    },
+                store_true_spec(
+                    "--no-submit",
+                    help="Only sync/append stages; do not submit newly actionable stages",
                 ),
-                ArgumentSpec(
-                    ("--once",),
-                    {"action": "store_true", "help": "Run exactly one orchestration cycle"},
+                store_true_spec(
+                    "--once",
+                    help="Run exactly one orchestration cycle",
                 ),
-                ArgumentSpec(
-                    ("--max-cycles",),
-                    {
-                        "type": int,
-                        "default": 0,
-                        "help": "Optional cycle limit; 0 means run forever",
-                    },
+                int_spec(
+                    "--max-cycles",
+                    default=0,
+                    help="Optional cycle limit; 0 means run forever",
                 ),
-                ArgumentSpec(
-                    ("--interval-seconds",),
-                    {
-                        "type": float,
-                        "default": 30.0,
-                        "help": "Sleep interval between orchestration cycles",
-                    },
+                argument_spec(
+                    "--interval-seconds",
+                    type=float,
+                    default=30.0,
+                    help="Sleep interval between orchestration cycles",
                 ),
-                ArgumentSpec(
-                    ("--lock-timeout-seconds",),
-                    {
-                        "type": float,
-                        "default": 5.0,
-                        "help": "How long to wait for the worker lock",
-                    },
+                argument_spec(
+                    "--lock-timeout-seconds",
+                    type=float,
+                    default=5.0,
+                    help="How long to wait for the worker lock",
                 ),
-                ArgumentSpec(
-                    ("--refresh-registry",),
-                    {
-                        "action": "store_true",
-                        "help": "Reindex the workflow registry before the first cycle",
-                    },
+                store_true_spec(
+                    "--refresh-registry",
+                    help="Reindex the workflow registry before the first cycle",
                 ),
-                ArgumentSpec(
-                    ("--refresh-each-cycle",),
-                    {
-                        "action": "store_true",
-                        "help": "Reindex the workflow registry before every cycle",
-                    },
+                store_true_spec(
+                    "--refresh-each-cycle",
+                    help="Reindex the workflow registry before every cycle",
                 ),
             ),
         ),
@@ -96,9 +75,9 @@ def workflow_runtime_specs() -> tuple[WorkflowParserSpec, ...]:
             chemstack_config=True,
             chemstack_config_required=True,
             arguments=(
-                ArgumentSpec(
-                    ("--resubmit",),
-                    {"action": "store_true", "help": "Retry stages already marked as submitted"},
+                store_true_spec(
+                    "--resubmit",
+                    help="Retry stages already marked as submitted",
                 ),
             ),
         ),

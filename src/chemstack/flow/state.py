@@ -17,26 +17,14 @@ from chemstack.core.paths.workflow import (
 )
 from chemstack.core.utils import (
     atomic_write_json,
-    coerce_list as _shared_coerce_list,
-    coerce_mapping as _shared_coerce_mapping,
+    coerce_list as _coerce_sequence,
+    coerce_mapping as _coerce_mapping,
     file_lock,
-    normalize_text as _shared_normalize_text,
+    normalize_text as _normalize_text,
 )
 from chemstack.core.utils.coercion import normalize_bool as _shared_normalize_bool
 
 WORKFLOW_LOCK_NAME = "workflow.lock"
-
-
-def _normalize_text(value: Any) -> str:
-    return _shared_normalize_text(value)
-
-
-def _coerce_mapping(value: Any) -> dict[str, Any]:
-    return _shared_coerce_mapping(value)
-
-
-def _coerce_sequence(value: Any) -> list[Any]:
-    return _shared_coerce_list(value)
 
 
 def _coerce_bool(value: Any) -> bool:
@@ -111,7 +99,9 @@ def iter_workflow_workspaces(workflow_root: str | Path) -> list[Path]:
     root = workflow_root_dir(workflow_root)
     if not root.exists():
         return []
-    candidates = [item for item in root.iterdir() if item.is_dir() and (item / WORKFLOW_FILE_NAME).exists()]
+    candidates = [
+        item for item in root.iterdir() if item.is_dir() and (item / WORKFLOW_FILE_NAME).exists()
+    ]
     return sorted(candidates, key=lambda item: item.name, reverse=True)
 
 
@@ -124,9 +114,21 @@ def workflow_has_active_downstream(payload: dict[str, Any]) -> bool:
     if _coerce_bool(downstream.get("final_child_sync_pending")):
         return True
     latest_stage = _coerce_mapping(downstream.get("latest_stage"))
-    if _normalize_text(latest_stage.get("status")).lower() in {"planned", "queued", "running", "submitted", "cancel_requested"}:
+    if _normalize_text(latest_stage.get("status")).lower() in {
+        "planned",
+        "queued",
+        "running",
+        "submitted",
+        "cancel_requested",
+    }:
         return True
-    if _normalize_text(latest_stage.get("task_status")).lower() in {"planned", "queued", "running", "submitted", "cancel_requested"}:
+    if _normalize_text(latest_stage.get("task_status")).lower() in {
+        "planned",
+        "queued",
+        "running",
+        "submitted",
+        "cancel_requested",
+    }:
         return True
     return False
 
@@ -146,7 +148,9 @@ def _workflow_stage_summary(stage: dict[str, Any]) -> dict[str, Any]:
         "task_status": task_status,
         "engine": _normalize_text(task.get("engine")),
         "task_kind": _normalize_text(task.get("task_kind")),
-        "input_role": _normalize_text(stage_metadata.get("input_role") or task_payload.get("input_role")),
+        "input_role": _normalize_text(
+            stage_metadata.get("input_role") or task_payload.get("input_role")
+        ),
         "reaction_key": _normalize_text(
             task_payload.get("reaction_key") or enqueue_payload.get("reaction_key")
         ),
@@ -196,7 +200,9 @@ def _workflow_stage_summary_rows(
     return status_counts, task_status_counts, stage_summaries
 
 
-def workflow_summary(workspace_dir: str | Path, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+def workflow_summary(
+    workspace_dir: str | Path, payload: dict[str, Any] | None = None
+) -> dict[str, Any]:
     workspace = Path(workspace_dir).expanduser().resolve()
     data = payload if payload is not None else load_workflow_payload(workspace)
     stages = _coerce_sequence(data.get("stages"))
@@ -374,7 +380,8 @@ def _collect_stage_runtime_artifacts(
     )
     collector.add(
         kind="optimized_xyz_path",
-        path_value=task_payload.get("optimized_xyz_path") or stage_metadata.get("optimized_xyz_path"),
+        path_value=task_payload.get("optimized_xyz_path")
+        or stage_metadata.get("optimized_xyz_path"),
         stage_id=stage_id,
         source="task.payload",
     )

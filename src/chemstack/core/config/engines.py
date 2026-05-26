@@ -119,6 +119,71 @@ def resource_actual_from_request(resource_request: dict[str, int]) -> dict[str, 
     }
 
 
+def _load_config_mapping(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        raise ValueError(
+            f"Config file not found: {path}. Copy config/chemstack.yaml.example to this path and edit the workflow section."
+        )
+
+    with path.open("r", encoding="utf-8") as handle:
+        raw = yaml.safe_load(handle) or {}
+    if not isinstance(raw, dict):
+        raise ValueError(f"Config file is invalid: {path}")
+    return raw
+
+
+def _required_workflow_root(raw: dict[str, Any], path: Path) -> str:
+    workflow_root = workflow_root_from_mapping(raw)
+    if not workflow_root:
+        raise ValueError(f"Config is missing workflow.root: {path}")
+    return workflow_root
+
+
+def _runtime_config_from_scheduler(
+    path: Path,
+    scheduler_raw: dict[str, Any],
+    workflow_root: str,
+) -> CommonRuntimeConfig:
+    max_active = max(1, as_int(scheduler_raw.get("max_active_simulations"), 4))
+    admission_root = as_str(
+        scheduler_raw.get("admission_root"),
+        default_shared_admission_root(path),
+    )
+    return CommonRuntimeConfig(
+        allowed_root=workflow_root,
+        organized_root=workflow_root,
+        max_concurrent=max_active,
+        admission_root=admission_root,
+        admission_limit=max_active,
+    )
+
+
+def _resource_config(resources_raw: dict[str, Any]) -> CommonResourceConfig:
+    return CommonResourceConfig(
+        max_cores_per_task=max(1, as_int(resources_raw.get("max_cores_per_task"), 8)),
+        max_memory_gb_per_task=max(1, as_int(resources_raw.get("max_memory_gb_per_task"), 32)),
+    )
+
+
+def _telegram_config(telegram_raw: dict[str, Any]) -> TelegramConfig:
+    return TelegramConfig(
+        bot_token=as_str(telegram_raw.get("bot_token")),
+        chat_id=as_str(telegram_raw.get("chat_id")),
+        timeout_seconds=max(
+            0.1,
+            as_float(telegram_raw.get("timeout_seconds"), TelegramConfig.timeout_seconds),
+        ),
+        max_attempts=max(1, as_int(telegram_raw.get("max_attempts"), TelegramConfig.max_attempts)),
+        retry_backoff_seconds=max(
+            0.0,
+            as_float(
+                telegram_raw.get("retry_backoff_seconds"),
+                TelegramConfig.retry_backoff_seconds,
+            ),
+        ),
+    )
+
+
 def load_workflow_engine_config(
     config_path: str | None,
     *,
@@ -129,59 +194,24 @@ def load_workflow_engine_config(
     app_config_cls: Callable[..., Any],
 ) -> Any:
     path = Path(config_path or default_config_path_fn()).expanduser().resolve()
-    if not path.exists():
-        raise ValueError(
-            f"Config file not found: {path}. Copy config/chemstack.yaml.example to this path and edit the workflow section."
-        )
-
-    with path.open("r", encoding="utf-8") as handle:
-        raw = yaml.safe_load(handle) or {}
-    if not isinstance(raw, dict):
-        raise ValueError(f"Config file is invalid: {path}")
+    raw = _load_config_mapping(path)
 
     scheduler_raw = mapping_section(raw, "scheduler")
     workflow_raw = mapping_section(raw, "workflow")
     workflow_paths_raw = mapping_section(workflow_raw, "paths")
     resources_raw = mapping_section(raw, "resources")
     telegram_raw = mapping_section(raw, "telegram")
-
-    workflow_root = workflow_root_from_mapping(raw)
-    if not workflow_root:
-        raise ValueError(f"Config is missing workflow.root: {path}")
-
-    max_active = max(1, as_int(scheduler_raw.get("max_active_simulations"), 4))
-    admission_root = as_str(
-        scheduler_raw.get("admission_root"),
-        default_shared_admission_root(path),
-    )
+    workflow_root = _required_workflow_root(raw, path)
 
     return app_config_cls(
-        runtime=CommonRuntimeConfig(
-            allowed_root=workflow_root,
-            organized_root=workflow_root,
-            max_concurrent=max_active,
-            admission_root=admission_root,
-            admission_limit=max_active,
-        ),
+        runtime=_runtime_config_from_scheduler(path, scheduler_raw, workflow_root),
         workflow_root=workflow_root,
         paths=paths_cls(
             **{executable_key: as_str(workflow_paths_raw.get(executable_key))},
         ),
         behavior=behavior_cls(),
-        resources=CommonResourceConfig(
-            max_cores_per_task=max(1, as_int(resources_raw.get("max_cores_per_task"), 8)),
-            max_memory_gb_per_task=max(1, as_int(resources_raw.get("max_memory_gb_per_task"), 32)),
-        ),
-        telegram=TelegramConfig(
-            bot_token=as_str(telegram_raw.get("bot_token")),
-            chat_id=as_str(telegram_raw.get("chat_id")),
-            timeout_seconds=max(0.1, as_float(telegram_raw.get("timeout_seconds"), TelegramConfig.timeout_seconds)),
-            max_attempts=max(1, as_int(telegram_raw.get("max_attempts"), TelegramConfig.max_attempts)),
-            retry_backoff_seconds=max(
-                0.0,
-                as_float(telegram_raw.get("retry_backoff_seconds"), TelegramConfig.retry_backoff_seconds),
-            ),
-        ),
+        resources=_resource_config(resources_raw),
+        telegram=_telegram_config(telegram_raw),
     )
 
 

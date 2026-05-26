@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, overload
 
 
 def normalize_text(value: Any, *, none: str = "") -> str:
@@ -27,7 +27,15 @@ def list_or_empty(value: Any) -> list[Any]:
     return value if isinstance(value, list) else []
 
 
-def safe_int(value: Any, *, default: int = 0) -> int:
+@overload
+def safe_int(value: Any, *, default: int = 0) -> int: ...
+
+
+@overload
+def safe_int(value: Any, *, default: None) -> int | None: ...
+
+
+def safe_int(value: Any, *, default: int | None = 0) -> int | None:
     try:
         return int(value)
     except (TypeError, ValueError):

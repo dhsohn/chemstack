@@ -277,15 +277,42 @@ def _append_stage_transition_events(
     template_name: str,
     worker_session_id: str,
 ) -> None:
-    _runtime_workflow_events.append_stage_transition_events(
+    _append_summary_transition_events(
         workflow_root,
         previous_summary=previous_summary,
         current_summary=current_summary,
         workflow_id=workflow_id,
         template_name=template_name,
         worker_session_id=worker_session_id,
-        stage_transition_event_payloads_fn=_stage_transition_event_payloads,
-        append_workflow_journal_event_fn=append_workflow_journal_event,
+        append_fn=_runtime_workflow_events.append_stage_transition_events,
+        payloads_kwarg="stage_transition_event_payloads_fn",
+        payloads_fn=_stage_transition_event_payloads,
+    )
+
+
+def _append_summary_transition_events(
+    workflow_root: str | Path,
+    *,
+    previous_summary: dict[str, Any],
+    current_summary: dict[str, Any],
+    workflow_id: str,
+    template_name: str,
+    worker_session_id: str,
+    append_fn: Any,
+    payloads_kwarg: str,
+    payloads_fn: Any,
+) -> None:
+    append_fn(
+        workflow_root,
+        previous_summary=previous_summary,
+        current_summary=current_summary,
+        workflow_id=workflow_id,
+        template_name=template_name,
+        worker_session_id=worker_session_id,
+        **{
+            payloads_kwarg: payloads_fn,
+            "append_workflow_journal_event_fn": append_workflow_journal_event,
+        },
     )
 
 
@@ -298,20 +325,25 @@ def _append_phase_transition_events(
     template_name: str,
     worker_session_id: str,
 ) -> None:
-    _runtime_workflow_events.append_phase_transition_events(
+    _append_summary_transition_events(
         workflow_root,
         previous_summary=previous_summary,
         current_summary=current_summary,
         workflow_id=workflow_id,
         template_name=template_name,
         worker_session_id=worker_session_id,
-        phase_transition_event_payloads_fn=phase_transition_event_payloads,
-        append_workflow_journal_event_fn=append_workflow_journal_event,
+        append_fn=_runtime_workflow_events.append_phase_transition_events,
+        payloads_kwarg="phase_transition_event_payloads_fn",
+        payloads_fn=phase_transition_event_payloads,
     )
 
 
 def workflow_worker_lock_path(workflow_root: str | Path) -> Path:
     return Path(workflow_root).expanduser().resolve() / WORKFLOW_WORKER_LOCK_NAME
+
+
+def _workflow_is_terminal_status(status: Any) -> bool:
+    return _normalize_text(status).lower() in TERMINAL_WORKFLOW_STATUSES
 
 
 def _workflow_needs_terminal_sync(workspace_dir: str | Path) -> bool:
@@ -320,6 +352,12 @@ def _workflow_needs_terminal_sync(workspace_dir: str | Path) -> bool:
         load_workflow_payload_fn=load_workflow_payload,
         workflow_has_active_downstream_fn=workflow_has_active_downstream,
         normalize_text_fn=_normalize_text,
+    )
+
+
+def _workflow_needs_terminal_child_sync(record: Any, *, previous_status: str) -> bool:
+    return _workflow_is_terminal_status(previous_status) and _workflow_needs_terminal_sync(
+        record.workspace_dir
     )
 
 
@@ -422,6 +460,20 @@ def _start_workflow_cycle(
     )
 
 
+def _workflow_engine_advance_kwargs(options: WorkflowEngineOptions) -> dict[str, Any]:
+    return {
+        "crest_auto_config": options.crest_auto_config,
+        "crest_auto_executable": options.crest_auto_executable,
+        "crest_auto_repo_root": options.crest_auto_repo_root,
+        "xtb_auto_config": options.xtb_auto_config,
+        "xtb_auto_executable": options.xtb_auto_executable,
+        "xtb_auto_repo_root": options.xtb_auto_repo_root,
+        "orca_auto_config": options.orca_auto_config,
+        "orca_auto_executable": options.orca_auto_executable,
+        "orca_auto_repo_root": options.orca_auto_repo_root,
+    }
+
+
 def _advance_workflow_record(
     *,
     cycle: _WorkflowCycle,
@@ -429,10 +481,11 @@ def _advance_workflow_record(
     options: WorkflowEngineOptions,
 ) -> tuple[str, dict[str, Any]]:
     previous_status = _normalize_text(record.status).lower()
-    terminal_sync = previous_status in TERMINAL_WORKFLOW_STATUSES and _workflow_needs_terminal_sync(
-        record.workspace_dir
+    terminal_sync = _workflow_needs_terminal_child_sync(
+        record,
+        previous_status=previous_status,
     )
-    if previous_status in TERMINAL_WORKFLOW_STATUSES and not terminal_sync:
+    if _workflow_is_terminal_status(previous_status) and not terminal_sync:
         return "skipped", _workflow_skipped_terminal_result(
             record,
             previous_status=previous_status,
@@ -443,15 +496,7 @@ def _advance_workflow_record(
         payload = advance_workflow(
             target=record.workflow_id,
             workflow_root=cycle.root,
-            crest_auto_config=options.crest_auto_config,
-            crest_auto_executable=options.crest_auto_executable,
-            crest_auto_repo_root=options.crest_auto_repo_root,
-            xtb_auto_config=options.xtb_auto_config,
-            xtb_auto_executable=options.xtb_auto_executable,
-            xtb_auto_repo_root=options.xtb_auto_repo_root,
-            orca_auto_config=options.orca_auto_config,
-            orca_auto_executable=options.orca_auto_executable,
-            orca_auto_repo_root=options.orca_auto_repo_root,
+            **_workflow_engine_advance_kwargs(options),
             submit_ready=False if terminal_sync else cycle.cycle_submit_ready,
         )
     except Exception as exc:
@@ -536,6 +581,38 @@ def _finish_workflow_cycle(
     )
 
 
+def _workflow_registry_records(context: WorkflowRuntimeContext) -> list[Any]:
+    if context.refresh_registry:
+        return reindex_workflow_registry(context.root)
+    return list_workflow_registry(context.root)
+
+
+def _workflow_registry_cycle_payload(
+    *,
+    context: WorkflowRuntimeContext,
+    request: WorkflowRegistryAdvanceRequest,
+    cycle: _WorkflowCycle,
+    records: list[Any],
+    progress: _WorkflowCycleProgress,
+    cycle_finished_at: str,
+) -> dict[str, Any]:
+    return {
+        "workflow_root": str(context.root),
+        "worker_session_id": cycle.session_id,
+        "cycle_started_at": cycle.cycle_started_at,
+        "cycle_finished_at": cycle_finished_at,
+        "refresh_registry": bool(request.refresh_registry),
+        "submit_ready": cycle.cycle_submit_ready,
+        "requested_submit_ready": cycle.requested_submit_ready,
+        "admission_blocked": cycle.admission_blocked,
+        "discovered_count": len(records),
+        "advanced_count": progress.advanced_count,
+        "skipped_count": progress.skipped_count,
+        "failed_count": progress.failed_count,
+        "workflow_results": progress.workflow_results,
+    }
+
+
 def advance_workflow_registry_once(
     *,
     workflow_root: str | Path,
@@ -577,11 +654,7 @@ def advance_workflow_registry_once(
 def _advance_workflow_registry_request(request: WorkflowRegistryAdvanceRequest) -> dict[str, Any]:
     runtime_context = request.runtime_context()
     cycle = _start_workflow_cycle(context=runtime_context)
-    records = (
-        reindex_workflow_registry(runtime_context.root)
-        if request.refresh_registry
-        else list_workflow_registry(runtime_context.root)
-    )
+    records = _workflow_registry_records(runtime_context)
     progress = _advance_workflow_records(
         cycle=cycle,
         records=records,
@@ -593,21 +666,14 @@ def _advance_workflow_registry_request(request: WorkflowRegistryAdvanceRequest) 
         progress=progress,
         interval_seconds=request.interval_seconds,
     )
-    return {
-        "workflow_root": str(runtime_context.root),
-        "worker_session_id": cycle.session_id,
-        "cycle_started_at": cycle.cycle_started_at,
-        "cycle_finished_at": cycle_finished_at,
-        "refresh_registry": bool(request.refresh_registry),
-        "submit_ready": cycle.cycle_submit_ready,
-        "requested_submit_ready": cycle.requested_submit_ready,
-        "admission_blocked": cycle.admission_blocked,
-        "discovered_count": len(records),
-        "advanced_count": progress.advanced_count,
-        "skipped_count": progress.skipped_count,
-        "failed_count": progress.failed_count,
-        "workflow_results": progress.workflow_results,
-    }
+    return _workflow_registry_cycle_payload(
+        context=runtime_context,
+        request=request,
+        cycle=cycle,
+        records=records,
+        progress=progress,
+        cycle_finished_at=cycle_finished_at,
+    )
 
 
 __all__ = [

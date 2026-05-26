@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from .cli_parser_specs import ArgumentSpec, WorkflowParserSpec
+from .cli_parser_specs import WorkflowParserSpec, argument_spec, int_spec, store_true_spec
 from .cli_workflow_parser_spec_helpers import orca_materialization_argument_specs
 
 
@@ -12,38 +12,32 @@ def workflow_planning_specs() -> tuple[WorkflowParserSpec, ...]:
             func_name="cmd_workflow_reaction_ts_search",
             target_help="xTB job_id or job directory",
             arguments=(
-                ArgumentSpec(
-                    ("--xtb-index-root",),
-                    {"required": True, "help": "xTB index root, usually allowed_root"},
+                argument_spec(
+                    "--xtb-index-root",
+                    required=True,
+                    help="xTB index root, usually allowed_root",
                 ),
-                ArgumentSpec(
-                    ("--max-orca-stages",),
-                    {
-                        "type": int,
-                        "default": 3,
-                        "help": "Maximum number of ORCA stage payloads to emit",
-                    },
+                int_spec(
+                    "--max-orca-stages",
+                    default=3,
+                    help="Maximum number of ORCA stage payloads to emit",
                 ),
-                ArgumentSpec(
-                    ("--include-unselected",),
-                    {
-                        "action": "store_true",
-                        "help": "Consider non-selected xTB candidate_details when planning",
-                    },
+                store_true_spec(
+                    "--include-unselected",
+                    help="Consider non-selected xTB candidate_details when planning",
                 ),
-                ArgumentSpec(
-                    ("--workspace-root",),
-                    {
-                        "help": (
-                            "If provided, materialize a workflow workspace with ORCA "
-                            "reaction directories and workflow.json"
-                        )
-                    },
+                argument_spec(
+                    "--workspace-root",
+                    help=(
+                        "If provided, materialize a workflow workspace with ORCA "
+                        "reaction directories and workflow.json"
+                    ),
                 ),
                 *orca_materialization_argument_specs("! r2scan-3c OptTS Freq TightSCF"),
-                ArgumentSpec(
-                    ("--priority",),
-                    {"type": int, "default": 10, "help": "Planned queue priority"},
+                int_spec(
+                    "--priority",
+                    default=10,
+                    help="Planned queue priority",
                 ),
             ),
         ),
@@ -56,26 +50,25 @@ def workflow_planning_specs() -> tuple[WorkflowParserSpec, ...]:
             func_name="cmd_workflow_conformer_screening",
             target_help="CREST job_id or job directory",
             arguments=(
-                ArgumentSpec(
-                    ("--crest-index-root",),
-                    {"required": True, "help": "CREST index root, usually allowed_root"},
+                argument_spec(
+                    "--crest-index-root",
+                    required=True,
+                    help="CREST index root, usually allowed_root",
                 ),
-                ArgumentSpec(
-                    ("--max-orca-stages",),
-                    {
-                        "type": int,
-                        "default": 3,
-                        "help": "Maximum number of ORCA stage payloads to emit",
-                    },
+                int_spec(
+                    "--max-orca-stages",
+                    default=3,
+                    help="Maximum number of ORCA stage payloads to emit",
                 ),
-                ArgumentSpec(
-                    ("--workspace-root",),
-                    {"help": "If provided, materialize a workflow workspace"},
+                argument_spec(
+                    "--workspace-root",
+                    help="If provided, materialize a workflow workspace",
                 ),
                 *orca_materialization_argument_specs("! r2scan-3c Opt TightSCF"),
-                ArgumentSpec(
-                    ("--priority",),
-                    {"type": int, "default": 10, "help": "Planned queue priority"},
+                int_spec(
+                    "--priority",
+                    default=10,
+                    help="Planned queue priority",
                 ),
             ),
         ),
@@ -94,29 +87,27 @@ def workflow_creation_specs() -> tuple[WorkflowParserSpec, ...]:
             workflow_root=True,
             workflow_root_required=True,
             arguments=(
-                ArgumentSpec(
-                    ("--reactant-xyz",),
-                    {
-                        "dest": "reactant_xyz",
-                        "required": True,
-                        "help": "Reactant-side precomplex XYZ input",
-                    },
+                argument_spec(
+                    "--reactant-xyz",
+                    dest="reactant_xyz",
+                    required=True,
+                    help="Reactant-side precomplex XYZ input",
                 ),
-                ArgumentSpec(
-                    ("--product-xyz",),
-                    {"dest": "product_xyz", "required": True, "help": "Product-side XYZ input"},
+                argument_spec(
+                    "--product-xyz",
+                    dest="product_xyz",
+                    required=True,
+                    help="Product-side XYZ input",
                 ),
-                ArgumentSpec(
-                    ("--crest-mode",),
-                    {
-                        "default": "standard",
-                        "help": "CREST mode for initial stages (`standard` or `nci`)",
-                    },
+                argument_spec(
+                    "--crest-mode",
+                    default="standard",
+                    help="CREST mode for initial stages (`standard` or `nci`)",
                 ),
-                ArgumentSpec(("--priority",), {"type": int, "default": 10}),
-                ArgumentSpec(("--max-crest-candidates",), {"type": int, "default": 3}),
-                ArgumentSpec(("--max-xtb-stages",), {"type": int, "default": 3}),
-                ArgumentSpec(("--max-orca-stages",), {"type": int, "default": 3}),
+                int_spec("--priority", default=10),
+                int_spec("--max-crest-candidates", default=3),
+                int_spec("--max-xtb-stages", default=3),
+                int_spec("--max-orca-stages", default=3),
                 *orca_materialization_argument_specs("! r2scan-3c OptTS Freq TightSCF"),
             ),
         ),
@@ -130,16 +121,18 @@ def workflow_creation_specs() -> tuple[WorkflowParserSpec, ...]:
             workflow_root=True,
             workflow_root_required=True,
             arguments=(
-                ArgumentSpec(
-                    ("--input-xyz",),
-                    {"required": True, "help": "Input XYZ for the molecule to screen"},
+                argument_spec(
+                    "--input-xyz",
+                    required=True,
+                    help="Input XYZ for the molecule to screen",
                 ),
-                ArgumentSpec(
-                    ("--crest-mode",),
-                    {"default": "standard", "help": "CREST mode for the initial stage"},
+                argument_spec(
+                    "--crest-mode",
+                    default="standard",
+                    help="CREST mode for the initial stage",
                 ),
-                ArgumentSpec(("--priority",), {"type": int, "default": 10}),
-                ArgumentSpec(("--max-orca-stages",), {"type": int, "default": 3}),
+                int_spec("--priority", default=10),
+                int_spec("--max-orca-stages", default=3),
                 *orca_materialization_argument_specs("! r2scan-3c Opt TightSCF"),
             ),
         ),

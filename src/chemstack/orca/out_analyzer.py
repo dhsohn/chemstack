@@ -4,7 +4,7 @@ import logging
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Iterable
+from typing import Any, Iterable, Literal, TypedDict, cast
 
 from .completion_rules import CompletionMode
 from .statuses import AnalyzerStatus
@@ -19,7 +19,40 @@ _DEFAULT_TAIL_BYTES = 64 * 1024
 _TS_TAIL_BYTES = 256 * 1024
 _HEAD_BYTES = 8 * 1024
 
-_MARKER_RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
+BooleanMarkerName = Literal[
+    "terminated_normally",
+    "total_run_time_seen",
+    "irc_marker_found",
+    "opt_converged",
+    "scf_error",
+    "scfgrad_abort",
+    "multiplicity_impossible",
+    "disk_io_error",
+    "generic_error_termination",
+    "ts_failure_marker",
+    "memory_error",
+    "geom_not_converged",
+]
+
+
+class OutMarkers(TypedDict):
+    out_path: str
+    terminated_normally: bool
+    imaginary_frequency_count: int
+    irc_marker_found: bool
+    opt_converged: bool
+    scf_error: bool
+    scfgrad_abort: bool
+    multiplicity_impossible: bool
+    disk_io_error: bool
+    generic_error_termination: bool
+    ts_failure_marker: bool
+    memory_error: bool
+    geom_not_converged: bool
+    total_run_time_seen: bool
+
+
+_MARKER_RULES: tuple[tuple[BooleanMarkerName, tuple[str, ...]], ...] = (
     ("terminated_normally", ("****ORCA TERMINATED NORMALLY****",)),
     ("total_run_time_seen", ("TOTAL RUN TIME",)),
     ("irc_marker_found", ("IRC PATH SUMMARY", "IRC-DRV")),
@@ -41,7 +74,7 @@ _MARKER_RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
 class OutAnalysis:
     status: AnalyzerStatus
     reason: str
-    markers: Dict[str, Any]
+    markers: OutMarkers
 
     @property
     def recoverable(self) -> bool:
@@ -51,7 +84,7 @@ class OutAnalysis:
         }
 
 
-def _default_markers(out_path: Path) -> Dict[str, Any]:
+def _default_markers(out_path: Path) -> OutMarkers:
     return {
         "out_path": str(out_path),
         "terminated_normally": False,
@@ -70,21 +103,33 @@ def _default_markers(out_path: Path) -> Dict[str, Any]:
     }
 
 
-def _scan_line_for_markers(line: str, markers: Dict[str, Any]) -> None:
+def _marker_payload(markers: OutMarkers) -> dict[str, Any]:
+    return cast(dict[str, Any], markers)
+
+
+def _set_marker(markers: OutMarkers, marker_name: BooleanMarkerName) -> None:
+    _marker_payload(markers)[marker_name] = True
+
+
+def _marker_is_set(markers: OutMarkers, marker_name: BooleanMarkerName) -> bool:
+    return bool(_marker_payload(markers).get(marker_name))
+
+
+def _scan_line_for_markers(line: str, markers: OutMarkers) -> None:
     upper = line.upper()
     if "MULTIPLICITY" in upper and "IMPOSSIBLE" in upper:
         markers["multiplicity_impossible"] = True
     for marker_name, needles in _MARKER_RULES:
         if any(needle in upper for needle in needles):
-            markers[marker_name] = True
+            _set_marker(markers, marker_name)
 
 
-def _scan_text_for_markers(text: str, markers: Dict[str, Any]) -> None:
+def _scan_text_for_markers(text: str, markers: OutMarkers) -> None:
     for line in text.splitlines():
         _scan_line_for_markers(line, markers)
 
 
-def _interpret_markers(markers: Dict[str, Any], mode: CompletionMode) -> OutAnalysis:
+def _interpret_markers(markers: OutMarkers, mode: CompletionMode) -> OutAnalysis:
     error_analysis = _marker_error_analysis(markers)
     if error_analysis is not None:
         return error_analysis
@@ -109,8 +154,8 @@ def _interpret_markers(markers: Dict[str, Any], mode: CompletionMode) -> OutAnal
     return OutAnalysis(status=AnalyzerStatus.INCOMPLETE, reason="run_incomplete", markers=markers)
 
 
-def _marker_error_analysis(markers: Dict[str, Any]) -> OutAnalysis | None:
-    checks = (
+def _marker_error_analysis(markers: OutMarkers) -> OutAnalysis | None:
+    checks: tuple[tuple[BooleanMarkerName, AnalyzerStatus, str], ...] = (
         (
             "multiplicity_impossible",
             AnalyzerStatus.ERROR_MULTIPLICITY_IMPOSSIBLE,
@@ -122,7 +167,7 @@ def _marker_error_analysis(markers: Dict[str, Any]) -> OutAnalysis | None:
         ("scf_error", AnalyzerStatus.ERROR_SCF, "scf_not_converged"),
     )
     for marker_name, status, reason in checks:
-        if markers[marker_name]:
+        if _marker_is_set(markers, marker_name):
             return OutAnalysis(status=status, reason=reason, markers=markers)
     if markers["geom_not_converged"] and not markers["terminated_normally"]:
         return OutAnalysis(
@@ -133,7 +178,7 @@ def _marker_error_analysis(markers: Dict[str, Any]) -> OutAnalysis | None:
     return None
 
 
-def _interpret_ts_completion(markers: Dict[str, Any], mode: CompletionMode) -> OutAnalysis:
+def _interpret_ts_completion(markers: OutMarkers, mode: CompletionMode) -> OutAnalysis:
     imag_ok = markers["imaginary_frequency_count"] == 1
     irc_ok = (not mode.require_irc) or bool(markers["irc_marker_found"])
     if imag_ok and irc_ok:
@@ -222,7 +267,7 @@ def analyze_output(out_path: Path, mode: CompletionMode) -> OutAnalysis:
             # Head scan: multiplicity_impossible typically appears near the top.
             if not markers["multiplicity_impossible"]:
                 head_text = _read_head(out_path, encoding, _HEAD_BYTES)
-                head_markers: Dict[str, Any] = _default_markers(out_path)
+                head_markers = _default_markers(out_path)
                 _scan_text_for_markers(head_text, head_markers)
                 if head_markers["multiplicity_impossible"]:
                     markers["multiplicity_impossible"] = True

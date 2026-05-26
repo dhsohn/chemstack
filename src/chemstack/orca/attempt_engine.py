@@ -216,7 +216,7 @@ def _run_and_record_attempt(
         "return_code": run_result.return_code,
         "analyzer_status": analysis.status,
         "analyzer_reason": analysis.reason,
-        "markers": analysis.markers,
+        "markers": dict(analysis.markers),
         "patch_actions": [],
         "started_at": started_at,
         "ended_at": now_utc_iso(),

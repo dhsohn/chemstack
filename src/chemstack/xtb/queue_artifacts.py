@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Callable
 
+from chemstack.core.queue import engine_execution as _engine_execution
 from chemstack.core.queue import execution as _queue_execution
 
 from .runner import XtbRunResult
@@ -33,7 +34,7 @@ def build_state_payload(
     recovery_reason = _queue_execution.recovery_reason(base_state)
     payload = {
         "job_id": entry.task_id,
-        "job_dir": str(entry.metadata.get("job_dir", "")).strip(),
+        "job_dir": _engine_execution.entry_metadata_text(entry, "job_dir"),
         "selected_input_xyz": result.selected_input_xyz,
         "job_type": result.job_type,
         "reaction_key": result.reaction_key,
@@ -119,7 +120,7 @@ def write_execution_artifacts(
     write_report_json_fn: Callable[..., Any] | None = None,
     write_report_md_lines_fn: Callable[..., Any] | None = None,
 ) -> None:
-    job_dir_text = str(entry.metadata.get("job_dir", "")).strip()
+    job_dir_text = _engine_execution.entry_metadata_text(entry, "job_dir")
     if not job_dir_text:
         return
     coerce_mapping = _dependency(deps, coerce_mapping_fn, "_coerce_mapping")
@@ -203,7 +204,7 @@ def write_running_state(
     reaction_key_fn: Callable[[Any, Path], str] | None = None,
     write_state_fn: Callable[..., Any] | None = None,
 ) -> None:
-    job_dir_text = str(entry.metadata.get("job_dir", "")).strip()
+    job_dir_text = _engine_execution.entry_metadata_text(entry, "job_dir")
     if not job_dir_text:
         return
     input_summary = _dependency(deps, input_summary_fn, "_input_summary")
@@ -221,34 +222,30 @@ def write_running_state(
     input_summary_payload = input_summary(entry)
     resource_request = entry_resource_request(cfg, entry)
     base_state = coerce_mapping(previous_state)
-    recovery_reason = _queue_execution.recovery_reason(base_state)
     started_at = entry.started_at or now_utc_iso()
     updated_at = now_utc_iso()
-    payload = {
-        "job_id": entry.task_id,
-        "job_dir": str(job_dir),
-        "selected_input_xyz": str(entry.metadata.get("selected_input_xyz", "")).strip(),
-        "job_type": job_type(entry),
-        "reaction_key": reaction_key(entry, job_dir),
-        "input_summary": input_summary_payload,
-        "status": "running",
-        "reason": recovery_reason if resumed else "",
-        "started_at": started_at,
-        "updated_at": updated_at,
-        "candidate_count": int(input_summary_payload.get("candidate_count", 0) or 0),
-        "candidate_paths": list(input_summary_payload.get("candidate_paths", [])),
-        "selected_candidate_paths": [],
-        "candidate_details": [],
-        "analysis_summary": {},
-        "resource_request": resource_request,
-        "resource_actual": dict(resource_request),
-        "created_at": _queue_execution.created_at(base_state) or started_at,
-        "recovery_pending": False,
-        "recovery_count": _queue_execution.recovery_count(base_state),
-        "resumed": bool(resumed),
-    }
-    if recovery_reason:
-        payload["recovery_reason"] = recovery_reason
+    payload = _engine_execution.build_running_state_payload(
+        entry,
+        job_dir=job_dir,
+        selected_input_xyz=_engine_execution.entry_metadata_text(entry, "selected_input_xyz"),
+        started_at=started_at,
+        updated_at=updated_at,
+        previous_state=base_state,
+        resumed=resumed,
+        resource_request=resource_request,
+        engine_fields={
+            "job_type": job_type(entry),
+            "reaction_key": reaction_key(entry, job_dir),
+            "input_summary": input_summary_payload,
+        },
+        detail_fields={
+            "candidate_count": int(input_summary_payload.get("candidate_count", 0) or 0),
+            "candidate_paths": list(input_summary_payload.get("candidate_paths", [])),
+            "selected_candidate_paths": [],
+            "candidate_details": [],
+            "analysis_summary": {},
+        },
+    )
     if worker_job_pid is not None and worker_job_pid > 0:
         payload["worker_job_pid"] = int(worker_job_pid)
     write_state(job_dir, payload)

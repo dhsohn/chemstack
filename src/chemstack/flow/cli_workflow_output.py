@@ -10,6 +10,15 @@ def emit_json(payload: dict[str, Any], *, pretty: bool) -> None:
     print(json.dumps(payload, ensure_ascii=True, indent=indent))
 
 
+def _emit_json_when_requested(
+    payload: dict[str, Any], *, json_mode: bool, pretty: bool = True
+) -> bool:
+    if not json_mode:
+        return False
+    emit_json(payload, pretty=pretty)
+    return True
+
+
 def emit_error(message: Any) -> None:
     print(f"error: {message}")
 
@@ -18,9 +27,26 @@ def emit_worker_lock_error(message: Any) -> None:
     print(f"worker_lock_error: {message}")
 
 
+def _emit_stage_result_group(
+    payload: dict[str, Any],
+    key: str,
+    *,
+    count_label: str,
+    item_label: str,
+    fields: tuple[str, ...],
+    always: bool = False,
+) -> None:
+    items = payload.get(key, [])
+    if not always and not items:
+        return
+    print(f"{count_label}: {len(items)}")
+    for item in items:
+        details = " ".join(f"{field}={item.get(field, '-')}" for field in fields)
+        print(f"- {item_label} {item.get('stage_id', '-')}" + (f" {details}" if details else ""))
+
+
 def emit_workflow_advance(payload: dict[str, Any], *, json_mode: bool) -> int:
-    if json_mode:
-        emit_json(payload, pretty=True)
+    if _emit_json_when_requested(payload, json_mode=json_mode):
         return 0
 
     print(f"workflow_id: {payload.get('workflow_id', '-')}")
@@ -30,8 +56,7 @@ def emit_workflow_advance(payload: dict[str, Any], *, json_mode: bool) -> int:
 
 
 def emit_created_workflow(payload: dict[str, Any], *, json_mode: bool) -> int:
-    if json_mode:
-        emit_json(payload, pretty=True)
+    if _emit_json_when_requested(payload, json_mode=json_mode):
         return 0
 
     print(f"workflow_id: {payload.get('workflow_id', '-')}")
@@ -42,8 +67,7 @@ def emit_created_workflow(payload: dict[str, Any], *, json_mode: bool) -> int:
 
 
 def emit_restarted_workflow(payload: dict[str, Any], *, json_mode: bool) -> int:
-    if json_mode:
-        emit_json(payload, pretty=True)
+    if _emit_json_when_requested(payload, json_mode=json_mode):
         return 0
 
     print(f"workflow_id: {payload.get('workflow_id', '-')}")
@@ -61,11 +85,8 @@ def emit_restarted_workflow(payload: dict[str, Any], *, json_mode: bool) -> int:
     return 0
 
 
-def emit_worker_payload(
-    payload: dict[str, Any], *, json_mode: bool, single_cycle: bool
-) -> None:
-    if json_mode:
-        emit_json(payload, pretty=single_cycle)
+def emit_worker_payload(payload: dict[str, Any], *, json_mode: bool, single_cycle: bool) -> None:
+    if _emit_json_when_requested(payload, json_mode=json_mode, pretty=single_cycle):
         return
 
     print(
@@ -88,8 +109,7 @@ def emit_worker_payload(
 
 
 def emit_workflow_runtime_status(payload: dict[str, Any], *, json_mode: bool) -> int:
-    if json_mode:
-        emit_json(payload, pretty=True)
+    if _emit_json_when_requested(payload, json_mode=json_mode):
         return 0
 
     state = payload["worker_state"] or {}
@@ -106,8 +126,7 @@ def emit_workflow_runtime_status(payload: dict[str, Any], *, json_mode: bool) ->
 
 def emit_workflow_journal(payload: dict[str, Any], *, json_mode: bool) -> int:
     events = payload["events"]
-    if json_mode:
-        emit_json(payload, pretty=True)
+    if _emit_json_when_requested(payload, json_mode=json_mode):
         return 0
 
     print(f"event_count: {len(events)}")
@@ -123,8 +142,7 @@ def emit_workflow_journal(payload: dict[str, Any], *, json_mode: bool) -> int:
 
 
 def emit_workflow_telemetry(payload: dict[str, Any], *, json_mode: bool) -> int:
-    if json_mode:
-        emit_json(payload, pretty=True)
+    if _emit_json_when_requested(payload, json_mode=json_mode):
         return 0
 
     print(f"workflow_root: {payload.get('workflow_root', '-')}")
@@ -141,33 +159,40 @@ def emit_workflow_telemetry(payload: dict[str, Any], *, json_mode: bool) -> int:
     return 0
 
 
-def emit_workflow_submit_reaction_ts_search(
-    payload: dict[str, Any], *, json_mode: bool
-) -> int:
-    if json_mode:
-        emit_json(payload, pretty=True)
+def emit_workflow_submit_reaction_ts_search(payload: dict[str, Any], *, json_mode: bool) -> int:
+    if _emit_json_when_requested(payload, json_mode=json_mode):
         return 0
 
     print(f"workflow_id: {payload.get('workflow_id', '-')}")
     print(f"workspace_dir: {payload.get('workspace_dir', '-')}")
     print(f"status: {payload.get('status', '-')}")
-    print(f"submitted_count: {len(payload.get('submitted', []))}")
-    for item in payload.get("submitted", []):
-        print(f"- submitted {item.get('stage_id', '-')} queue_id={item.get('queue_id', '-')}")
-    if payload.get("skipped"):
-        print(f"skipped_count: {len(payload.get('skipped', []))}")
-        for item in payload.get("skipped", []):
-            print(f"- skipped {item.get('stage_id', '-')} reason={item.get('reason', '-')}")
-    if payload.get("failed"):
-        print(f"failed_count: {len(payload.get('failed', []))}")
-        for item in payload.get("failed", []):
-            print(f"- failed {item.get('stage_id', '-')} returncode={item.get('returncode', '-')}")
+    _emit_stage_result_group(
+        payload,
+        "submitted",
+        count_label="submitted_count",
+        item_label="submitted",
+        fields=("queue_id",),
+        always=True,
+    )
+    _emit_stage_result_group(
+        payload,
+        "skipped",
+        count_label="skipped_count",
+        item_label="skipped",
+        fields=("reason",),
+    )
+    _emit_stage_result_group(
+        payload,
+        "failed",
+        count_label="failed_count",
+        item_label="failed",
+        fields=("returncode",),
+    )
     return 0
 
 
 def emit_workflow_list(payload: dict[str, Any], *, json_mode: bool) -> int:
-    if json_mode:
-        emit_json(payload, pretty=True)
+    if _emit_json_when_requested(payload, json_mode=json_mode):
         return 0
 
     print(f"workflow_count: {payload.get('count', 0)}")
@@ -187,8 +212,7 @@ def emit_workflow_list(payload: dict[str, Any], *, json_mode: bool) -> int:
 
 def emit_workflow_get(response: dict[str, Any], *, json_mode: bool) -> int:
     summary = response["summary"]
-    if json_mode:
-        emit_json(response, pretty=True)
+    if _emit_json_when_requested(response, json_mode=json_mode):
         return 0
 
     print(f"workflow_id: {summary.get('workflow_id', '-')}")
@@ -227,8 +251,7 @@ def emit_workflow_get(response: dict[str, Any], *, json_mode: bool) -> int:
 
 
 def emit_workflow_artifacts(response: dict[str, Any], *, json_mode: bool) -> int:
-    if json_mode:
-        emit_json(response, pretty=True)
+    if _emit_json_when_requested(response, json_mode=json_mode):
         return 0
 
     print(f"workflow_id: {response.get('workflow_id', '-')}")
@@ -246,38 +269,48 @@ def emit_workflow_artifacts(response: dict[str, Any], *, json_mode: bool) -> int
 
 
 def emit_workflow_cancel(payload: dict[str, Any], *, json_mode: bool) -> int:
-    if json_mode:
-        emit_json(payload, pretty=True)
+    if _emit_json_when_requested(payload, json_mode=json_mode):
         return 0
 
     print(f"workflow_id: {payload.get('workflow_id', '-')}")
     print(f"workspace_dir: {payload.get('workspace_dir', '-')}")
     print(f"status: {payload.get('status', '-')}")
-    print(f"cancelled_count: {len(payload.get('cancelled', []))}")
-    for item in payload.get("cancelled", []):
-        print(f"- cancelled {item.get('stage_id', '-')} queue_id={item.get('queue_id', '-')}")
-    if payload.get("requested"):
-        print(f"requested_count: {len(payload.get('requested', []))}")
-        for item in payload.get("requested", []):
-            print(
-                f"- cancel_requested {item.get('stage_id', '-')} queue_id={item.get('queue_id', '-')}"
-            )
-    if payload.get("skipped"):
-        print(f"skipped_count: {len(payload.get('skipped', []))}")
-        for item in payload.get("skipped", []):
-            print(f"- skipped {item.get('stage_id', '-')} reason={item.get('reason', '-')}")
-    if payload.get("failed"):
-        print(f"failed_count: {len(payload.get('failed', []))}")
-        for item in payload.get("failed", []):
-            print(f"- failed {item.get('stage_id', '-')} reason={item.get('reason', '-')}")
+    _emit_stage_result_group(
+        payload,
+        "cancelled",
+        count_label="cancelled_count",
+        item_label="cancelled",
+        fields=("queue_id",),
+        always=True,
+    )
+    _emit_stage_result_group(
+        payload,
+        "requested",
+        count_label="requested_count",
+        item_label="cancel_requested",
+        fields=("queue_id",),
+    )
+    _emit_stage_result_group(
+        payload,
+        "skipped",
+        count_label="skipped_count",
+        item_label="skipped",
+        fields=("reason",),
+    )
+    _emit_stage_result_group(
+        payload,
+        "failed",
+        count_label="failed_count",
+        item_label="failed",
+        fields=("reason",),
+    )
     return 0
 
 
 def emit_workflow_reindex(
     payload: dict[str, Any], *, records: Sequence[Any], json_mode: bool
 ) -> int:
-    if json_mode:
-        emit_json(payload, pretty=True)
+    if _emit_json_when_requested(payload, json_mode=json_mode):
         return 0
 
     print(f"workflow_count: {len(records)}")

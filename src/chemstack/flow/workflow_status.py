@@ -9,11 +9,7 @@ from chemstack.core.statuses import (
     WORKFLOW_STATUS_ORDER,
     WORKFLOW_TERMINAL_STATUSES,
 )
-from chemstack.core.utils.coercion import normalize_text as _shared_normalize_text
-
-
-def _normalize_text(value: Any) -> str:
-    return _shared_normalize_text(value)
+from chemstack.core.utils.coercion import normalize_text as _normalize_text
 
 
 def normalize_workflow_status(value: Any) -> str:

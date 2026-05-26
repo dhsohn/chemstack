@@ -2,18 +2,11 @@ from __future__ import annotations
 
 from typing import Any
 
-
-def normalize_text(value: Any) -> str:
-    if value is None:
-        return ""
-    return str(value).strip()
+from chemstack.core.utils.coercion import normalize_text, safe_int as _shared_safe_int
 
 
 def safe_int(value: Any) -> int | None:
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return None
+    return _shared_safe_int(value, default=None)
 
 
 def stage_key(stage: dict[str, Any], index: int) -> str:
@@ -90,9 +83,7 @@ def stage_status_event_type(
     return ""
 
 
-def stage_handoff_event_type(
-    previous_stage: dict[str, Any], current_stage: dict[str, Any]
-) -> str:
+def stage_handoff_event_type(previous_stage: dict[str, Any], current_stage: dict[str, Any]) -> str:
     engine = normalize_text(current_stage.get("engine") or previous_stage.get("engine")).lower()
     task_kind = normalize_text(
         current_stage.get("task_kind") or previous_stage.get("task_kind")
@@ -125,9 +116,7 @@ def stage_transition_context(
         "current_handoff_status": normalize_text(
             current_stage.get("reaction_handoff_status")
         ).lower(),
-        "stage_id": normalize_text(
-            current_stage.get("stage_id") or previous_stage.get("stage_id")
-        ),
+        "stage_id": normalize_text(current_stage.get("stage_id") or previous_stage.get("stage_id")),
         "engine": normalize_text(current_stage.get("engine") or previous_stage.get("engine")),
         "task_kind": normalize_text(
             current_stage.get("task_kind") or previous_stage.get("task_kind")

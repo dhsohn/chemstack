@@ -10,12 +10,18 @@ from chemstack.orca import _job_location_contract_payload as _canonical_payload
 from . import _orca_contract_context as _contract_context
 from . import _orca_contract_status as _contract_status_helpers
 
+ContractPayload = dict[str, Any]
+StatusTuple = tuple[str, str, str, str]
+NormalizeTextFn = Callable[[Any], str]
+NormalizeBoolFn = Callable[[Any], bool]
+SafeIntFn = Callable[[Any, int], int]
+
 
 def attempt_count_impl(
-    state: dict[str, Any],
-    report: dict[str, Any],
+    state: ContractPayload,
+    report: ContractPayload,
     *,
-    safe_int_fn: Callable[[Any, int], int],
+    safe_int_fn: SafeIntFn,
 ) -> int:
     return _contract_status_helpers.attempt_count_impl(
         state,
@@ -25,10 +31,10 @@ def attempt_count_impl(
 
 
 def max_retries_impl(
-    state: dict[str, Any],
-    report: dict[str, Any],
+    state: ContractPayload,
+    report: ContractPayload,
     *,
-    safe_int_fn: Callable[[Any, int], int],
+    safe_int_fn: SafeIntFn,
 ) -> int:
     return _contract_status_helpers.max_retries_impl(
         state,
@@ -38,12 +44,12 @@ def max_retries_impl(
 
 
 def coerce_attempts_impl(
-    state: dict[str, Any],
-    report: dict[str, Any],
+    state: ContractPayload,
+    report: ContractPayload,
     *,
-    normalize_text_fn: Callable[[Any], str],
-    safe_int_fn: Callable[[Any, int], int],
-) -> tuple[dict[str, Any], ...]:
+    normalize_text_fn: NormalizeTextFn,
+    safe_int_fn: SafeIntFn,
+) -> tuple[ContractPayload, ...]:
     return _contract_status_helpers.coerce_attempts_impl(
         state,
         report,
@@ -52,51 +58,51 @@ def coerce_attempts_impl(
     )
 
 
-def final_result_payload_impl(state: dict[str, Any], report: dict[str, Any]) -> dict[str, Any]:
+def final_result_payload_impl(state: ContractPayload, report: ContractPayload) -> ContractPayload:
     return _contract_status_helpers.final_result_payload_impl(state, report)
 
 
 @dataclass(frozen=True)
 class OrcaContractLoaderDeps:
     path_type: type[Path]
-    normalize_text_fn: Callable[[Any], str]
-    normalize_bool_fn: Callable[[Any], bool]
-    safe_int_fn: Callable[[Any, int], int]
+    normalize_text_fn: NormalizeTextFn
+    normalize_bool_fn: NormalizeBoolFn
+    safe_int_fn: SafeIntFn
     tracked_runtime_context_fn: Callable[
         ...,
         tuple[
             Path | None,
             Any,
-            dict[str, Any],
-            dict[str, Any],
-            dict[str, Any],
-            dict[str, Any] | None,
+            ContractPayload,
+            ContractPayload,
+            ContractPayload,
+            ContractPayload | None,
             Path | None,
         ]
         | None,
     ]
     tracked_artifact_context_fn: Callable[
-        ..., tuple[Path | None, Any, dict[str, Any], dict[str, Any], dict[str, Any]]
+        ..., tuple[Path | None, Any, ContractPayload, ContractPayload, ContractPayload]
     ]
     resolve_job_dir_fn: Callable[[Path | None, str], tuple[Path | None, Any]]
-    find_queue_entry_fn: Callable[..., dict[str, Any] | None]
+    find_queue_entry_fn: Callable[..., ContractPayload | None]
     resolve_candidate_path_fn: Callable[[Any], Path | None]
     direct_dir_target_fn: Callable[[str], Path | None]
     record_organized_dir_fn: Callable[[Any], Path | None]
-    find_organized_record_fn: Callable[..., dict[str, Any] | None]
-    organized_dir_from_record_fn: Callable[[Path | None, dict[str, Any] | None], Path | None]
-    load_json_dict_fn: Callable[[Path], dict[str, Any]]
-    load_tracked_organized_ref_fn: Callable[[Any, Path | None], dict[str, Any]]
-    status_from_payloads_fn: Callable[..., tuple[str, str, str, str]]
+    find_organized_record_fn: Callable[..., ContractPayload | None]
+    organized_dir_from_record_fn: Callable[[Path | None, ContractPayload | None], Path | None]
+    load_json_dict_fn: Callable[[Path], ContractPayload]
+    load_tracked_organized_ref_fn: Callable[[Any, Path | None], ContractPayload]
+    status_from_payloads_fn: Callable[..., StatusTuple]
     resolve_artifact_path_fn: Callable[[Any, Path | None], str]
     derive_selected_input_xyz_fn: Callable[[str], str]
     prefer_orca_optimized_xyz_fn: Callable[..., str]
     is_subpath_fn: Callable[[Path, Path | None], bool]
     coerce_resource_dict_fn: Callable[[Any], dict[str, int]]
-    attempt_count_fn: Callable[[dict[str, Any], dict[str, Any]], int]
-    max_retries_fn: Callable[[dict[str, Any], dict[str, Any]], int]
-    coerce_attempts_fn: Callable[[dict[str, Any], dict[str, Any]], tuple[dict[str, Any], ...]]
-    final_result_payload_fn: Callable[[dict[str, Any], dict[str, Any]], dict[str, Any]]
+    attempt_count_fn: Callable[[ContractPayload, ContractPayload], int]
+    max_retries_fn: Callable[[ContractPayload, ContractPayload], int]
+    coerce_attempts_fn: Callable[[ContractPayload, ContractPayload], tuple[ContractPayload, ...]]
+    final_result_payload_fn: Callable[[ContractPayload, ContractPayload], ContractPayload]
     contract_cls: type
 
 
@@ -124,14 +130,14 @@ class _ContractPayloadContext:
     latest_known_path: str
     organized_output_dir: str
     optimized_xyz_path: str
-    queue_entry: dict[str, Any]
+    queue_entry: ContractPayload
     selected_inp: str
     selected_input_xyz: str
     analyzer_status: str
     completed_at: str
     last_out_path: str
-    state: dict[str, Any]
-    report: dict[str, Any]
+    state: ContractPayload
+    report: ContractPayload
     resource_request: dict[str, int]
     resource_actual: dict[str, int]
 
@@ -149,18 +155,20 @@ class _ContractPayloadDeps:
     def _runtime_paths(self, current_dir: Path | None) -> dict[str, str]:
         return _metadata_paths(current_dir)
 
-    def attempt_count(self, state: dict[str, Any], report: dict[str, Any]) -> int:
+    def attempt_count(self, state: ContractPayload, report: ContractPayload) -> int:
         return self._deps.attempt_count_fn(state, report)
 
-    def max_retries(self, state: dict[str, Any], report: dict[str, Any]) -> int:
+    def max_retries(self, state: ContractPayload, report: ContractPayload) -> int:
         return self._deps.max_retries_fn(state, report)
 
     def coerce_attempts(
-        self, state: dict[str, Any], report: dict[str, Any]
-    ) -> tuple[dict[str, Any], ...]:
+        self, state: ContractPayload, report: ContractPayload
+    ) -> tuple[ContractPayload, ...]:
         return self._deps.coerce_attempts_fn(state, report)
 
-    def final_result_payload(self, state: dict[str, Any], report: dict[str, Any]) -> dict[str, Any]:
+    def final_result_payload(
+        self, state: ContractPayload, report: ContractPayload
+    ) -> ContractPayload:
         return self._deps.final_result_payload_fn(state, report)
 
 
@@ -169,12 +177,12 @@ _StatusPayload = _contract_status_helpers.StatusPayload
 
 def status_from_payloads_impl(
     *,
-    queue_entry: dict[str, Any] | None,
-    state: dict[str, Any],
-    report: dict[str, Any],
-    normalize_text_fn: Callable[[Any], str],
-    normalize_bool_fn: Callable[[Any], bool],
-) -> tuple[str, str, str, str]:
+    queue_entry: ContractPayload | None,
+    state: ContractPayload,
+    report: ContractPayload,
+    normalize_text_fn: NormalizeTextFn,
+    normalize_bool_fn: NormalizeBoolFn,
+) -> StatusTuple:
     return _contract_status_helpers.status_from_payloads_impl(
         queue_entry=queue_entry,
         state=state,
@@ -186,11 +194,11 @@ def status_from_payloads_impl(
 
 def _status_payload(
     *,
-    queue_entry: dict[str, Any] | None,
-    state: dict[str, Any],
-    report: dict[str, Any],
-    normalize_text_fn: Callable[[Any], str],
-    normalize_bool_fn: Callable[[Any], bool],
+    queue_entry: ContractPayload | None,
+    state: ContractPayload,
+    report: ContractPayload,
+    normalize_text_fn: NormalizeTextFn,
+    normalize_bool_fn: NormalizeBoolFn,
 ) -> _StatusPayload:
     return _contract_status_helpers.status_payload(
         queue_entry=queue_entry,
@@ -201,7 +209,7 @@ def _status_payload(
     )
 
 
-def _final_status_source(state: dict[str, Any], report: dict[str, Any]) -> dict[str, Any]:
+def _final_status_source(state: ContractPayload, report: ContractPayload) -> ContractPayload:
     return _contract_status_helpers.final_status_source(state, report)
 
 
@@ -248,7 +256,7 @@ def load_orca_artifact_contract_impl(
 
 def contract_from_orca_payload_impl(
     *,
-    payload: dict[str, Any],
+    payload: ContractPayload,
     target: str,
     queue_id: str,
     run_id: str,
@@ -262,7 +270,7 @@ def contract_from_orca_payload_impl(
 
 
 def _contract_from_payload(
-    payload: dict[str, Any],
+    payload: ContractPayload,
     request: _LoadRequest,
     deps: OrcaContractLoaderDeps,
 ) -> Any:
@@ -298,7 +306,7 @@ def _contract_from_payload(
     )
 
 
-def _payload_attempts(payload: dict[str, Any]) -> tuple[dict[str, Any], ...]:
+def _payload_attempts(payload: ContractPayload) -> tuple[ContractPayload, ...]:
     attempts_payload = payload.get("attempts")
     if not isinstance(attempts_payload, (list, tuple)):
         return ()
@@ -325,7 +333,7 @@ def _payload_from_context(
     context: _LoaderContext,
     queue_reaction_dir: Path | None,
     deps: OrcaContractLoaderDeps,
-) -> dict[str, Any]:
+) -> ContractPayload:
     latest_known_path = _latest_known_path(request, context, queue_reaction_dir, deps)
     status = _contract_status(context, deps)
     paths = _artifact_paths(context, latest_known_path, deps)

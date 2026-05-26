@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from typing import Any, cast
 
+from chemstack.core.utils import normalize_bool as _normalize_bool
+from chemstack.core.utils import normalize_text as _normalize_text
+
 from ..core.app_ids import CHEMSTACK_ORCA_APP_NAME
 from .types import QueueEntry
 
@@ -11,17 +14,13 @@ QUEUE_TASK_KIND = "orca_run_inp"
 
 
 def normalize_text(value: object | None) -> str:
-    if value is None:
-        return ""
-    return str(value).strip()
+    return _normalize_text(value)
 
 
 def normalize_bool(value: object) -> bool:
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, str):
-        return value.strip().lower() in {"1", "true", "yes", "on"}
-    return bool(value)
+    if not isinstance(value, (bool, str)) and value is not None:
+        return bool(value)
+    return _normalize_bool(value)
 
 
 def normalize_priority(value: object, *, default: int = 10) -> int:

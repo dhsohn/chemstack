@@ -26,6 +26,23 @@ class WorkflowParserSpec:
     arguments: tuple[ArgumentSpec, ...] = ()
 
 
+def argument_spec(*flags: str, **kwargs: Any) -> ArgumentSpec:
+    return ArgumentSpec(tuple(flags), dict(kwargs))
+
+
+def store_true_spec(flag: str, *, help: str) -> ArgumentSpec:
+    return argument_spec(flag, action="store_true", help=help)
+
+
+def int_spec(flag: str, *, default: int | None = None, help: str = "") -> ArgumentSpec:
+    kwargs: dict[str, Any] = {"type": int}
+    if default is not None:
+        kwargs["default"] = default
+    if help:
+        kwargs["help"] = help
+    return argument_spec(flag, **kwargs)
+
+
 def add_argument_specs(
     parser: argparse.ArgumentParser,
     specs: tuple[ArgumentSpec, ...],

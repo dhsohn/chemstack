@@ -9,6 +9,8 @@ from pathlib import Path
 from secrets import token_hex
 from typing import Any
 
+from .coercion import safe_int as _safe_int
+
 
 _DIR_FSYNC_UNSUPPORTED_ERRNOS = {
     code
@@ -52,17 +54,11 @@ def timestamped_token(prefix: str) -> str:
 
 
 def coerce_int(value: Any, *, default: int = 0) -> int:
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return default
+    return _safe_int(value, default=default)
 
 
 def coerce_optional_int(value: Any) -> int | None:
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return None
+    return _safe_int(value, default=None)
 
 
 def coerce_bool(value: Any, *, default: bool = False) -> bool:

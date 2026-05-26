@@ -11,31 +11,17 @@ from chemstack.core.notifications import (
     split_telegram_message,
 )
 from chemstack.core.utils import (
-    list_or_empty as _shared_list_or_empty,
-    mapping_or_empty as _shared_mapping_or_empty,
-    normalize_text as _shared_normalize_text,
+    list_or_empty as _coerce_sequence,
+    mapping_or_empty as _coerce_mapping,
+    normalize_text as _normalize_text,
     now_utc_iso,
-    safe_int as _shared_safe_int,
+    safe_int as _safe_int,
 )
 from chemstack.flow.workflow_status import workflow_status_is_terminal
 
-_ACTIVE_STATUSES = frozenset({"planned", "queued", "running", "submitted", "cancel_requested", "retrying"})
-
-
-def _normalize_text(value: Any) -> str:
-    return _shared_normalize_text(value)
-
-
-def _coerce_mapping(value: Any) -> dict[str, Any]:
-    return _shared_mapping_or_empty(value)
-
-
-def _coerce_sequence(value: Any) -> list[Any]:
-    return _shared_list_or_empty(value)
-
-
-def _safe_int(value: Any, *, default: int = 0) -> int:
-    return _shared_safe_int(value, default=default)
+_ACTIVE_STATUSES = frozenset(
+    {"planned", "queued", "running", "submitted", "cancel_requested", "retrying"}
+)
 
 
 def _load_telegram_config(config_path: str | None) -> TelegramConfig:
@@ -112,7 +98,10 @@ def _stage_result_bucket(
     metadata = _stage_metadata(stage)
     if stage_failure_is_recoverable_fn is not None and stage_failure_is_recoverable_fn(stage):
         return "completed"
-    if phase_engine == "xtb" and _normalize_text(metadata.get("reaction_handoff_status")).lower() == "ready":
+    if (
+        phase_engine == "xtb"
+        and _normalize_text(metadata.get("reaction_handoff_status")).lower() == "ready"
+    ):
         return "completed"
     if status == "completed":
         return "completed"
@@ -122,12 +111,16 @@ def _stage_result_bucket(
 
 
 def _count_output_artifacts(stage: dict[str, Any]) -> int:
-    return len([item for item in _coerce_sequence(stage.get("output_artifacts")) if isinstance(item, dict)])
+    return len(
+        [item for item in _coerce_sequence(stage.get("output_artifacts")) if isinstance(item, dict)]
+    )
 
 
 def _xtb_candidate_count(stage: dict[str, Any]) -> int:
     metadata = _stage_metadata(stage)
-    attempts = [item for item in _coerce_sequence(metadata.get("xtb_attempts")) if isinstance(item, dict)]
+    attempts = [
+        item for item in _coerce_sequence(metadata.get("xtb_attempts")) if isinstance(item, dict)
+    ]
     if attempts:
         latest = attempts[-1]
         return _safe_int(latest.get("candidate_count"), default=0)
@@ -208,7 +201,9 @@ def _extra_lines_section(extra_lines: list[str] | None) -> str | None:
             normalized_key = _normalize_text(key)
             normalized_value = _normalize_text(value) or "-"
             if normalized_key:
-                rows.append(f"<b>{_escape_html(normalized_key)}</b>: {_metric_code(normalized_value)}")
+                rows.append(
+                    f"<b>{_escape_html(normalized_key)}</b>: {_metric_code(normalized_value)}"
+                )
                 continue
         rows.append(_escape_html(line))
     if not rows:
@@ -246,7 +241,8 @@ def _format_phase_summary_message(
         ready_count = sum(
             1
             for stage in stages
-            if _normalize_text(_stage_metadata(stage).get("reaction_handoff_status")).lower() == "ready"
+            if _normalize_text(_stage_metadata(stage).get("reaction_handoff_status")).lower()
+            == "ready"
         )
         overview.append(f"<b>Ready for ORCA</b>: {_metric_code(ready_count)}")
 

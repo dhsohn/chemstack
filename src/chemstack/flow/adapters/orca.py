@@ -6,6 +6,11 @@ from pathlib import Path
 from typing import Any
 
 from chemstack.core.indexing import JobLocationRecord, resolve_job_location
+from chemstack.core.utils.coercion import (
+    normalize_bool as _shared_normalize_bool,
+    normalize_text as _shared_normalize_text,
+    safe_int as _shared_safe_int,
+)
 
 from ._orca_contract_assembly import (
     OrcaContractLoaderDeps,
@@ -58,213 +63,53 @@ RECORDS_FILE_NAME = "records.jsonl"
 
 
 def _normalize_text(value: Any) -> str:
-    if value is None:
-        return ""
-    return str(value).strip()
+    return _shared_normalize_text(value)
 
 
 def _normalize_bool(value: Any) -> bool:
-    if isinstance(value, bool):
-        return value
-    return _normalize_text(value).lower() in {"1", "true", "yes", "y", "on"}
+    return _shared_normalize_bool(value)
 
 
 def _safe_int(value: Any, *, default: int = 0) -> int:
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return default
+    return _shared_safe_int(value, default=default)
 
 
-def _load_json_dict(path: Path) -> dict[str, Any]:
-    return load_json_dict_impl(path)
+def _safe_int_callback(value: Any, default: int = 0) -> int:
+    return _shared_safe_int(value, default=default)
 
 
-def _load_json_list(path: Path) -> list[dict[str, Any]]:
-    return load_json_list_impl(path)
+_load_json_dict = load_json_dict_impl
+_load_json_list = load_json_list_impl
+_load_jsonl_records = load_jsonl_records_impl
+_sibling_orca_auto_repo_root = sibling_orca_auto_repo_root_impl
+_import_orca_auto_module = import_orca_auto_module_impl
 
 
-def _load_jsonl_records(path: Path) -> list[dict[str, Any]]:
-    return load_jsonl_records_impl(path)
-
-
-def _sibling_orca_auto_repo_root() -> Path:
-    return sibling_orca_auto_repo_root_impl()
-
-
-def _import_orca_auto_module(module_name: str) -> Any | None:
-    return import_orca_auto_module_impl(module_name)
-
-
-@lru_cache(maxsize=1)
-def _orca_auto_job_locations_module() -> Any | None:
-    return orca_auto_job_locations_module_impl()
-
-
-@lru_cache(maxsize=1)
-def _orca_auto_tracking_module() -> Any | None:
-    return orca_auto_tracking_module_impl()
-
-
-def _resolve_candidate_path(path_text: Any) -> Path | None:
-    return resolve_candidate_path_impl(path_text)
-
-
-def _direct_dir_target(target: str) -> Path | None:
-    return direct_dir_target_impl(target)
-
-
-def _tracked_artifact_context(
-    *,
-    index_root: Path | None,
-    targets: tuple[str, ...],
-) -> tuple[Path | None, JobLocationRecord | None, dict[str, Any], dict[str, Any], dict[str, Any]]:
-    return tracked_artifact_context_impl(index_root=index_root, targets=targets)
-
-
-def _tracked_runtime_context(
-    *,
-    index_root: Path | None,
-    organized_root: Path | None,
-    target: str,
-    queue_id: str,
-    run_id: str,
-    reaction_dir: str,
-) -> (
-    tuple[
-        Path | None,
-        JobLocationRecord | None,
-        dict[str, Any],
-        dict[str, Any],
-        dict[str, Any],
-        dict[str, Any] | None,
-        Path | None,
-    ]
-    | None
-):
-    return tracked_runtime_context_impl(
-        index_root=index_root,
-        organized_root=organized_root,
-        target=target,
-        queue_id=queue_id,
-        run_id=run_id,
-        reaction_dir=reaction_dir,
-    )
-
-
-def _tracked_contract_payload(
-    *,
-    index_root: Path | None,
-    organized_root: Path | None,
-    target: str,
-    queue_id: str,
-    run_id: str,
-    reaction_dir: str,
-) -> dict[str, Any] | None:
-    return load_orca_contract_payload_impl(
-        index_root=index_root,
-        organized_root=organized_root,
-        target=target,
-        queue_id=queue_id,
-        run_id=run_id,
-        reaction_dir=reaction_dir,
-    )
-
-
-def _resolve_job_dir(
-    index_root: Path | None, target: str
-) -> tuple[Path | None, JobLocationRecord | None]:
-    return resolve_job_dir_impl(index_root, target)
-
-
-def _find_queue_entry(
-    *,
-    allowed_root: Path | None,
-    target: str,
-    queue_id: str,
-    run_id: str,
-    reaction_dir: str,
-) -> dict[str, Any] | None:
-    return find_queue_entry_impl(
-        allowed_root=allowed_root,
-        target=target,
-        queue_id=queue_id,
-        run_id=run_id,
-        reaction_dir=reaction_dir,
-    )
-
-
-def _find_organized_record(
-    *,
-    organized_root: Path | None,
-    target: str,
-    run_id: str,
-    reaction_dir: str,
-) -> dict[str, Any] | None:
-    return find_organized_record_impl(
-        organized_root=organized_root,
-        target=target,
-        run_id=run_id,
-        reaction_dir=reaction_dir,
-    )
-
-
-def _organized_dir_from_record(
-    organized_root: Path | None, record: dict[str, Any] | None
-) -> Path | None:
-    return organized_dir_from_record_impl(organized_root, record)
-
-
-def _resolve_artifact_path(path_value: Any, base_dir: Path | None) -> str:
-    return resolve_artifact_path_impl(path_value, base_dir)
-
-
-def _record_organized_dir(record: JobLocationRecord | None) -> Path | None:
-    return record_organized_dir_impl(record)
-
-
-def _load_tracked_organized_ref(
-    record: JobLocationRecord | None, current_dir: Path | None
-) -> dict[str, Any]:
-    return load_tracked_organized_ref_impl(record, current_dir)
-
-
-def _derive_selected_input_xyz(selected_inp: str) -> str:
-    return derive_selected_input_xyz_impl(selected_inp)
-
-
-def _iter_existing_dirs(*candidates: Path | None) -> list[Path]:
-    return iter_existing_dirs_impl(*candidates)
-
-
-def _is_subpath(candidate: Path, root: Path | None) -> bool:
-    return is_subpath_impl(candidate, root)
-
-
-def _prefer_orca_optimized_xyz(
-    *,
-    selected_inp: str,
-    selected_input_xyz: str,
-    current_dir: Path | None,
-    organized_dir: Path | None,
-    latest_known_path: str,
-    last_out_path: str,
-) -> str:
-    return prefer_orca_optimized_xyz_impl(
-        selected_inp=selected_inp,
-        selected_input_xyz=selected_input_xyz,
-        current_dir=current_dir,
-        organized_dir=organized_dir,
-        latest_known_path=latest_known_path,
-        last_out_path=last_out_path,
-    )
+_orca_auto_job_locations_module = lru_cache(maxsize=1)(orca_auto_job_locations_module_impl)
+_orca_auto_tracking_module = lru_cache(maxsize=1)(orca_auto_tracking_module_impl)
+_resolve_candidate_path = resolve_candidate_path_impl
+_direct_dir_target = direct_dir_target_impl
+_tracked_artifact_context = tracked_artifact_context_impl
+_tracked_runtime_context = tracked_runtime_context_impl
+_tracked_contract_payload = load_orca_contract_payload_impl
+_resolve_job_dir = resolve_job_dir_impl
+_find_queue_entry = find_queue_entry_impl
+_find_organized_record = find_organized_record_impl
+_organized_dir_from_record = organized_dir_from_record_impl
+_resolve_artifact_path = resolve_artifact_path_impl
+_record_organized_dir = record_organized_dir_impl
+_load_tracked_organized_ref = load_tracked_organized_ref_impl
+_derive_selected_input_xyz = derive_selected_input_xyz_impl
+_iter_existing_dirs = iter_existing_dirs_impl
+_is_subpath = is_subpath_impl
+_prefer_orca_optimized_xyz = prefer_orca_optimized_xyz_impl
 
 
 def _attempt_count(state: dict[str, Any], report: dict[str, Any]) -> int:
     return attempt_count_impl(
         state,
         report,
-        safe_int_fn=lambda value, default: _safe_int(value, default=default),
+        safe_int_fn=_safe_int_callback,
     )
 
 
@@ -272,7 +117,7 @@ def _max_retries(state: dict[str, Any], report: dict[str, Any]) -> int:
     return max_retries_impl(
         state,
         report,
-        safe_int_fn=lambda value, default: _safe_int(value, default=default),
+        safe_int_fn=_safe_int_callback,
     )
 
 
@@ -281,7 +126,7 @@ def _coerce_attempts(state: dict[str, Any], report: dict[str, Any]) -> tuple[dic
         state,
         report,
         normalize_text_fn=_normalize_text,
-        safe_int_fn=lambda value, default: _safe_int(value, default=default),
+        safe_int_fn=_safe_int_callback,
     )
 
 
@@ -309,7 +154,7 @@ def _contract_loader_deps() -> OrcaContractLoaderDeps:
         path_type=Path,
         normalize_text_fn=_normalize_text,
         normalize_bool_fn=_normalize_bool,
-        safe_int_fn=lambda value, default: _safe_int(value, default=default),
+        safe_int_fn=_safe_int_callback,
         tracked_runtime_context_fn=_tracked_runtime_context,
         tracked_artifact_context_fn=_tracked_artifact_context,
         resolve_job_dir_fn=_resolve_job_dir,
