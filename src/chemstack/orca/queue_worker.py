@@ -64,13 +64,17 @@ def _queue_worker_deps() -> ChildQueueWorkerDeps:
     return ChildQueueWorkerDeps(
         poll_interval_seconds=POLL_INTERVAL_SECONDS,
         time=time,
-        release_slot=release_slot,
+        release_slot=_release_worker_slot,
         reserve_dequeued_entry=reserve_dequeued_entry,
         admission_root=_admission_root_for_cfg,
         dequeue_next_entry=_dequeue_next_entry,
         start_background_job_process=_start_background_job_process,
         try_reserve_admission_slot=_try_reserve_admission_slot,
     )
+
+
+def _release_worker_slot(root: str | Path, token: str) -> bool:
+    return release_slot(Path(root), token)
 
 
 def _admission_root_for_cfg(cfg: AppConfig) -> str:

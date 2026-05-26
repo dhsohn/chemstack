@@ -42,12 +42,16 @@ def test_load_child_queue_job_resolves_paths_and_entry(tmp_path: Path) -> None:
     entry = SimpleNamespace(queue_id="q-wanted", status="running")
     seen_roots: list[Path] = []
 
+    def find_entry(root: Path, _queue_id: str) -> SimpleNamespace:
+        seen_roots.append(root)
+        return entry
+
     job = child_execution.load_child_queue_job(
         config_path="/tmp/chemstack.yaml",
         queue_root=tmp_path / "queue",
         queue_id="q-wanted",
         load_config_fn=lambda _path: cfg,
-        find_queue_entry_fn=lambda root, _queue_id: seen_roots.append(root) or entry,
+        find_queue_entry_fn=find_entry,
         entry_ready_fn=lambda item: item.status == "running",
     )
 

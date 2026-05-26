@@ -160,7 +160,7 @@ def test_queue_worker_starts_up_to_max_concurrent_children(
 
     slots = iter(["slot-1", "slot-2"])
     dequeued = iter(entries)
-    started: list[tuple[str, str, str, bool]] = []
+    started: list[tuple[str, str, str]] = []
 
     class _Process:
         def __init__(self, pid: int) -> None:
