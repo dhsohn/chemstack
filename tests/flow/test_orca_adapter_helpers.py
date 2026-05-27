@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -117,8 +118,8 @@ def test_prefer_orca_optimized_xyz_falls_back_to_latest_non_source_xyz(tmp_path:
     newer_xyz = current_dir / "newer.xyz"
     older_xyz.write_text("2\nolder\nH 0 0 0\nH 0 0 0.75\n", encoding="utf-8")
     newer_xyz.write_text("2\nnewer\nH 0 0 0\nH 0 0 0.76\n", encoding="utf-8")
-    older_xyz.touch()
-    newer_xyz.touch()
+    os.utime(older_xyz, (1_700_000_000, 1_700_000_000))
+    os.utime(newer_xyz, (1_700_000_010, 1_700_000_010))
 
     chosen = orca_adapter._prefer_orca_optimized_xyz(
         selected_inp="",
