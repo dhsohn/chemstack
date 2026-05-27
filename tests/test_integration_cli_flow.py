@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from chemstack.orca.queue_store import (
+from chemstack.orca.queue_adapter import (
     list_queue,
     queue_entry_force,
     queue_entry_reaction_dir,
@@ -149,7 +149,7 @@ class TestIntegrationCliFlow(unittest.TestCase):
         self.assertTrue(queue_entry_force(queue_entries[0]))
         self.assertFalse(counter.exists())
 
-    def test_existing_completed_output_shortcuts_without_enqueuing(self) -> None:
+    def test_existing_completed_output_is_queued_for_worker_reconciliation(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             allowed = root / "orca_runs"
@@ -180,10 +180,8 @@ class TestIntegrationCliFlow(unittest.TestCase):
                 for entry in list_queue(allowed)
                 if queue_entry_reaction_dir(entry) == str(reaction.resolve())
             ]
-            state = json.loads((reaction / "run_state.json").read_text(encoding="utf-8"))
 
         self.assertEqual(rc, 0)
         self.assertFalse(counter.exists())
-        self.assertEqual(queue_entries, [])
-        self.assertEqual(state["status"], "completed")
-        self.assertEqual(state["final_result"]["reason"], "existing_out_completed")
+        self.assertEqual(len(queue_entries), 1)
+        self.assertFalse((reaction / "run_state.json").exists())

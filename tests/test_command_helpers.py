@@ -80,7 +80,7 @@ class TestCommandPathValidators(unittest.TestCase):
             workflow_root = root / "workflow_root"
             allowed = root / "allowed"
             organized = root / "organized"
-            reaction = workflow_root / "wf_example" / "02_orca" / "job_01"
+            reaction = workflow_root / "wf_example" / "03_orca" / "job_01"
             allowed.mkdir()
             organized.mkdir()
             reaction.mkdir(parents=True)

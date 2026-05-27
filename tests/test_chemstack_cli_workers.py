@@ -108,8 +108,7 @@ def test_build_worker_specs_defaults_to_engine_workers(monkeypatch: pytest.Monke
     )
 
     assert [spec.app for spec in specs] == ["orca"]
-    assert specs[0].argv[-3:] == ("queue", "engine-worker", "orca")
-    assert str(specs[0].argv[2]) == "chemstack.cli"
+    assert str(specs[0].argv[2]) == "chemstack.orca.runtime.queue_worker"
     assert specs[0].env is not None
     assert specs[0].env[unified_cli._DIRECT_ENGINE_WORKER_ENV_VAR] == "1"
 
@@ -141,10 +140,8 @@ def test_build_worker_specs_defaults_to_all_workers_when_workflow_root_is_config
     )
 
     assert [spec.app for spec in specs] == ["orca", "crest", "xtb", "workflow"]
-    assert str(specs[1].argv[2]) == "chemstack.cli"
-    assert specs[1].argv[-3:] == ("queue", "engine-worker", "crest")
-    assert str(specs[2].argv[2]) == "chemstack.cli"
-    assert specs[2].argv[-3:] == ("queue", "engine-worker", "xtb")
+    assert str(specs[1].argv[2]) == "chemstack.crest.queue_runtime"
+    assert str(specs[2].argv[2]) == "chemstack.xtb.queue_runtime"
     assert specs[-1].argv[1:3] == (
         "-m",
         "chemstack.flow.cli_workflow",
@@ -180,10 +177,8 @@ def test_build_worker_specs_explicit_workflow_app_uses_configured_workflow_root(
     )
 
     assert [spec.app for spec in specs] == ["crest", "xtb", "workflow"]
-    assert str(specs[0].argv[2]) == "chemstack.cli"
-    assert specs[0].argv[-3:] == ("queue", "engine-worker", "crest")
-    assert str(specs[1].argv[2]) == "chemstack.cli"
-    assert specs[1].argv[-3:] == ("queue", "engine-worker", "xtb")
+    assert str(specs[0].argv[2]) == "chemstack.crest.queue_runtime"
+    assert str(specs[1].argv[2]) == "chemstack.xtb.queue_runtime"
     assert "--workflow-root" in specs[2].argv
     assert "/tmp/workflows" in specs[2].argv
 
@@ -281,7 +276,7 @@ def test_cmd_queue_worker_delegates_to_supervisor(monkeypatch: pytest.MonkeyPatc
     specs = [
         unified_cli.WorkerSpec(
             app="orca",
-            argv=("python", "-m", "chemstack.cli", "queue", "engine-worker", "orca"),
+            argv=("python", "-m", "chemstack.orca.runtime.queue_worker"),
         )
     ]
     monkeypatch.setattr(unified_cli, "_build_worker_specs", lambda args: specs)
@@ -303,7 +298,7 @@ def test_cmd_queue_worker_reports_existing_chemstack_orca_worker_conflict(
     specs = [
         unified_cli.WorkerSpec(
             app="orca",
-            argv=("python", "-m", "chemstack.cli", "queue", "engine-worker", "orca"),
+            argv=("python", "-m", "chemstack.orca.runtime.queue_worker"),
         )
     ]
     monkeypatch.setattr(unified_cli, "_build_worker_specs", lambda args: specs)
@@ -315,7 +310,7 @@ def test_cmd_queue_worker_reports_existing_chemstack_orca_worker_conflict(
             pid=3589996,
             allowed_root="/home/user/orca_runs",
             source="chemstack",
-            command="/home/user/chemstack/.venv/bin/python -m chemstack.cli --config /tmp/chemstack.yaml queue engine-worker orca",
+            command="/home/user/chemstack/.venv/bin/python -m chemstack.orca.runtime.queue_worker --config /tmp/chemstack.yaml",
         ),
     )
     monkeypatch.setattr(unified_cli, "_run_worker_supervisor", lambda built_specs: 99)
@@ -525,7 +520,7 @@ def test_cmd_queue_worker_json_outputs_commands(
 def test_worker_spec_to_dict_redacts_unrelated_environment_keys() -> None:
     spec = unified_cli.WorkerSpec(
         app="orca",
-        argv=("python", "-m", "chemstack.cli", "queue", "engine-worker", "orca"),
+        argv=("python", "-m", "chemstack.orca.runtime.queue_worker"),
         cwd="/tmp/chemstack",
         env={
             "PYTHONPATH": "/tmp/chemstack/src:/tmp/chemstack",
@@ -541,7 +536,7 @@ def test_worker_spec_to_dict_redacts_unrelated_environment_keys() -> None:
 def test_worker_spec_to_dict_omits_empty_allowed_environment() -> None:
     spec = unified_cli.WorkerSpec(
         app="orca",
-        argv=("python", "-m", "chemstack.cli", "queue", "engine-worker", "orca"),
+        argv=("python", "-m", "chemstack.orca.runtime.queue_worker"),
         env={"SECRET_TOKEN": "do-not-print"},
     )
 
@@ -571,11 +566,11 @@ def test_worker_tail_and_workflow_spec_include_optional_flags() -> None:
     assert unified_cli._engine_worker_tail_argv(
         app="orca",
         args=argparse.Namespace(auto_organize=True, no_auto_organize=False),
-    ) == ["queue", "engine-worker", "orca", "--auto-organize"]
+    ) == ["--auto-organize"]
     assert unified_cli._engine_worker_tail_argv(
         app="orca",
         args=argparse.Namespace(auto_organize=False, no_auto_organize=True),
-    ) == ["queue", "engine-worker", "orca", "--no-auto-organize"]
+    ) == ["--no-auto-organize"]
 
     spec = unified_cli._workflow_worker_spec(
         workflow_root="/tmp/workflows",

@@ -6,7 +6,7 @@ from typing import Any
 
 from chemstack.core.indexing import get_job_location
 from chemstack.core.queue import list_queue
-from chemstack.xtb.commands import queue as xtb_queue_cmd
+from chemstack.xtb import queue_runtime as xtb_queue_cmd
 from chemstack.flow.adapters.xtb import load_xtb_artifact_contract
 from chemstack.flow.submitters import xtb as xtb_submitter
 

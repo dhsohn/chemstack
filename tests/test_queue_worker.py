@@ -10,13 +10,13 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from chemstack.core.admission.orca import (
-    acquire_direct_slot,
     active_slot_count,
     list_slots,
+    release_slot,
     reserve_slot,
 )
 from chemstack.orca.config import AppConfig, RuntimeConfig
-from chemstack.orca.queue_store import (
+from chemstack.orca.queue_adapter import (
     cancel,
     dequeue_next,
     enqueue,
@@ -39,11 +39,6 @@ from chemstack.orca.types import QueueEntry
 
 def _make_cfg(tmp: str) -> AppConfig:
     return AppConfig(runtime=RuntimeConfig(allowed_root=tmp))
-
-
-def _write_active_lock(reaction_dir: Path, *, pid: int) -> None:
-    reaction_dir.mkdir(parents=True, exist_ok=True)
-    (reaction_dir / "run.lock").write_text(json.dumps({"pid": pid}), encoding="utf-8")
 
 
 class TestStartJobProcess(unittest.TestCase):
@@ -780,31 +775,6 @@ class TestFillSlots(unittest.TestCase):
                 },
             )
 
-    @patch("chemstack.core.utils.process_tracking.process_lock.is_process_alive", return_value=True)
-    def test_fill_slots_counts_external_active_runs(self, mock_alive: MagicMock) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            cfg = _make_cfg(tmp)
-            worker = QueueWorker(cfg, str(root / "config.yaml"), max_concurrent=4)
-
-            for idx in range(3):
-                _write_active_lock(root / f"direct_{idx}", pid=4000 + idx)
-
-            for name in ("queued_a", "queued_b"):
-                d = root / name
-                d.mkdir()
-                enqueue(root, str(d))
-
-            with patch("chemstack.orca.queue_worker._start_job_process") as mock_start_job_process:
-                mock_proc = MagicMock()
-                mock_proc.pid = 4107
-                mock_start_job_process.return_value = mock_proc
-                worker._fill_slots()
-
-            self.assertEqual(len(worker._running), 1)
-            self.assertEqual(mock_start_job_process.call_count, 1)
-            self.assertGreaterEqual(mock_alive.call_count, 3)
-
     def test_fill_slots_respects_admission_slots_without_run_lock(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -815,46 +785,31 @@ class TestFillSlots(unittest.TestCase):
             queued.mkdir()
             enqueue(root, str(queued))
 
-            with acquire_direct_slot(
-                root, max_concurrent=1, reaction_dir=str(root / "direct_hold")
-            ):
+            token = reserve_slot(
+                root,
+                1,
+                reaction_dir=str(root / "reserved_hold"),
+                source="queue_worker",
+            )
+            self.assertIsNotNone(token)
+            try:
                 with patch(
                     "chemstack.orca.queue_worker._start_job_process"
                 ) as mock_start_job_process:
                     worker._fill_slots()
+            finally:
+                release_slot(root, token or "")
 
             self.assertEqual(len(worker._running), 0)
             mock_start_job_process.assert_not_called()
 
-    @patch("chemstack.core.utils.process_tracking.process_lock.is_process_alive", return_value=True)
-    def test_fill_slots_stops_when_global_limit_reached(self, mock_alive: MagicMock) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            cfg = _make_cfg(tmp)
-            worker = QueueWorker(cfg, str(root / "config.yaml"), max_concurrent=3)
-
-            for idx in range(3):
-                _write_active_lock(root / f"direct_{idx}", pid=5000 + idx)
-
-            queued = root / "queued_only"
-            queued.mkdir()
-            enqueue(root, str(queued))
-
-            with patch("chemstack.orca.queue_worker._start_job_process") as mock_start_job_process:
-                worker._fill_slots()
-
-            self.assertEqual(len(worker._running), 0)
-            mock_start_job_process.assert_not_called()
-            self.assertEqual(mock_alive.call_count, 3)
-
-    def test_fill_slots_does_not_double_count_worker_jobs_with_lock(self) -> None:
+    def test_fill_slots_counts_existing_worker_admission_slot_once(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             cfg = _make_cfg(tmp)
             worker = QueueWorker(cfg, str(root / "config.yaml"), max_concurrent=2)
 
             active_dir = root / "already_running"
-            _write_active_lock(active_dir, pid=6001)
             token = reserve_slot(
                 root,
                 worker.max_concurrent,

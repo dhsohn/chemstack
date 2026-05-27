@@ -13,6 +13,7 @@ from unittest.mock import MagicMock, patch
 from chemstack import cli as unified_cli
 from chemstack import cli_handlers as cli_run_dir
 from chemstack import cli_handlers as cli_summary
+from chemstack.core.admission.orca import reserve_slot
 from chemstack.orca.commands._helpers import CONFIG_ENV_VAR, _emit, default_config_path
 from chemstack.orca.commands.run_inp import _cmd_run_inp_execute, _retry_inp_path, _select_latest_inp
 from chemstack.orca.cli_logging import (
@@ -49,12 +50,20 @@ class TestCli(unittest.TestCase):
         return config
 
     def _run_internal_execute(self, config: Path, reaction_dir: Path, *, force: bool = False) -> int:
+        token = reserve_slot(
+            reaction_dir.parent,
+            1,
+            reaction_dir=str(reaction_dir),
+            source="queue_worker",
+        )
+        self.assertIsNotNone(token)
         return _cmd_run_inp_execute(
             Namespace(
                 config=str(config),
                 reaction_dir=str(reaction_dir),
                 force=force,
-            )
+            ),
+            reservation_token=token,
         )
 
     def test_rejects_outside_allowed_root(self) -> None:
@@ -289,7 +298,7 @@ class TestCli(unittest.TestCase):
         self.assertIn(unmanaged, root_logger.handlers)
         self.assertNotIn(managed, root_logger.handlers)
 
-    def test_skips_when_existing_out_is_completed(self) -> None:
+    def test_run_dir_queues_existing_completed_out_for_worker_reconciliation(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             reaction = root / "orca_runs" / "rxn1"
@@ -301,12 +310,10 @@ class TestCli(unittest.TestCase):
 
             rc = main(["--config", str(config), "run-dir", str(reaction)])
 
-            state = json.loads((reaction / "run_state.json").read_text(encoding="utf-8"))
         self.assertEqual(rc, 0)
-        self.assertEqual(state["status"], "completed")
-        self.assertEqual(state["final_result"]["reason"], "existing_out_completed")
+        self.assertFalse((reaction / "run_state.json").exists())
 
-    def test_skips_when_existing_retry_out_is_completed(self) -> None:
+    def test_run_dir_queues_existing_completed_retry_out_for_worker_reconciliation(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             reaction = root / "orca_runs" / "rxn1_retry_done"
@@ -322,11 +329,8 @@ class TestCli(unittest.TestCase):
             with patch("chemstack.orca.commands.run_inp.OrcaRunner.run") as run_mock:
                 rc = main(["--config", str(config), "run-dir", str(reaction)])
             self.assertFalse(run_mock.called)
-            state = json.loads((reaction / "run_state.json").read_text(encoding="utf-8"))
         self.assertEqual(rc, 0)
-        self.assertEqual(state["status"], "completed")
-        self.assertEqual(state["final_result"]["reason"], "existing_out_completed")
-        self.assertEqual(state["final_result"]["last_out_path"], str(reaction / "rxn.retry01.out"))
+        self.assertFalse((reaction / "run_state.json").exists())
 
     def test_skip_existing_completed_out_still_respects_run_lock(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -347,7 +351,7 @@ class TestCli(unittest.TestCase):
         self.assertEqual(rc, 1)
         self.assertFalse((reaction / "run_state.json").exists())
 
-    def test_skip_existing_completed_out_reuses_worker_shutdown_run_id(self) -> None:
+    def test_run_dir_preserves_existing_state_until_worker_reconciles_completed_output(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             reaction = root / "orca_runs" / "rxn1_resume_skip"
@@ -396,9 +400,8 @@ class TestCli(unittest.TestCase):
 
         self.assertEqual(rc, 0)
         self.assertEqual(saved["run_id"], "run_resume_skip_existing_out")
-        self.assertEqual(saved["status"], "completed")
-        self.assertEqual(saved["final_result"]["reason"], "existing_out_completed")
-        self.assertTrue(saved["final_result"]["resumed"])
+        self.assertEqual(saved["status"], "failed")
+        self.assertEqual(saved["final_result"]["reason"], "worker_shutdown")
 
     def test_worker_shutdown_stops_run_and_finalizes_state(self) -> None:
         with tempfile.TemporaryDirectory() as td:

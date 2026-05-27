@@ -9,7 +9,7 @@ from typing import Any
 
 from chemstack.core.config.engines import WorkflowEngineAppConfig as AppConfig
 
-from .commands._helpers import MANIFEST_FILE_NAME
+from .job_inputs import MANIFEST_FILE_NAME
 
 
 @dataclass(frozen=True)

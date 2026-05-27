@@ -8,7 +8,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from chemstack.cli import main
-from chemstack.orca.queue_store import dequeue_next, enqueue, mark_completed
+from chemstack.orca.queue_adapter import dequeue_next, enqueue, mark_completed
 
 
 class _ListTestBase(unittest.TestCase):

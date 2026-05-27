@@ -14,13 +14,13 @@ def command_argv(args: object) -> list[str]:
     return list(args) if isinstance(args, (list, tuple)) else [str(args)]
 
 
-def api_command_argv(
+def internal_call_argv(
     *,
     api_name: str,
     config_path: str,
-    tail_argv: list[str],
+    args: list[str],
 ) -> list[str]:
-    return ["python-api", api_name, "--config", config_path, *tail_argv]
+    return [api_name, "--config", config_path, *args]
 
 
 def _stderr_with_exception(stderr: str, exc: Exception) -> str:
@@ -109,14 +109,14 @@ def submit_job_dir_direct(
     config_path: str,
     extra_fields: Callable[[dict[str, str]], dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    tail_argv = ["run-dir", job_dir, "--priority", str(int(priority))]
+    call_args = [job_dir, "--priority", str(int(priority))]
     result = run_python_command_handler(
         handler=run_dir_handler,
         args=Namespace(config=config_path, path=job_dir, priority=int(priority)),
-        command_argv=api_command_argv(
+        command_argv=internal_call_argv(
             api_name=api_name,
             config_path=config_path,
-            tail_argv=tail_argv,
+            args=call_args,
         ),
     )
     parsed = parse_key_value_lines(result.stdout)
@@ -150,14 +150,14 @@ def cancel_target_direct(
     target: str,
     config_path: str,
 ) -> dict[str, Any]:
-    tail_argv = ["queue", "cancel", target]
+    call_args = [target]
     result = run_python_command_handler(
         handler=cancel_handler,
         args=Namespace(config=config_path, target=target),
-        command_argv=api_command_argv(
+        command_argv=internal_call_argv(
             api_name=api_name,
             config_path=config_path,
-            tail_argv=tail_argv,
+            args=call_args,
         ),
     )
     parsed = parse_key_value_lines(result.stdout)

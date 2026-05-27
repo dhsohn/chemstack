@@ -5,7 +5,7 @@ import os
 import signal
 from typing import Any
 
-from .commands import queue as queue_cmd
+from . import queue_runtime as queue_cmd
 
 
 def build_parser() -> argparse.ArgumentParser:

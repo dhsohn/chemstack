@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from chemstack.crest.commands import run_dir as run_dir_cmd
+from chemstack.crest import submission as run_dir_cmd
 
 
 def _write_config(tmp_path: Path) -> Path:

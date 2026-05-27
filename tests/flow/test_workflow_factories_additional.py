@@ -48,17 +48,16 @@ def test_new_crest_stage_builds_expected_payload_and_metadata() -> None:
     assert task["payload"]["input_role"] == "reactant"
     assert task["payload"]["mode"] == "nci"
     assert task["enqueue_payload"]["priority"] == 7
-    assert task["enqueue_payload"]["submitter"] == "chemstack_crest_api"
+    assert task["enqueue_payload"]["submitter"] == "chemstack_crest"
     assert task["enqueue_payload"]["command_argv"][:3] == [
-        "python-api",
-        "chemstack.crest.commands.run_dir.cmd_run_dir",
+        "chemstack.crest.submission.cmd_run_dir",
         "--config",
-    ]
-    assert task["enqueue_payload"]["command_argv"][3:7] == [
         "<crest_config>",
-        "run-dir",
+    ]
+    assert task["enqueue_payload"]["command_argv"][3:6] == [
         "<job_dir>",
         "--priority",
+        "7",
     ]
     assert task["metadata"] == {"input_role": "reactant", "mode": "nci"}
     assert stage["metadata"] == {"input_role": "reactant", "mode": "nci"}

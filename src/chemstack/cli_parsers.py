@@ -193,23 +193,6 @@ def _add_queue_worker_parser(
     worker_parser.set_defaults(func=cli_workers.cmd_queue_worker)
 
 
-def _add_queue_engine_worker_parser(
-    queue_subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
-) -> None:
-    worker_parser = queue_subparsers.add_parser("engine-worker", help=argparse.SUPPRESS)
-    worker_parser.add_argument("engine", choices=["orca", "xtb", "crest"])
-    worker_parser.add_argument(
-        "--chemstack-config",
-        "--config",
-        dest="chemstack_config",
-        help="Path to shared chemstack.yaml",
-    )
-    auto_group = worker_parser.add_mutually_exclusive_group()
-    auto_group.add_argument("--auto-organize", action="store_true")
-    auto_group.add_argument("--no-auto-organize", action="store_true")
-    worker_parser.set_defaults(func=cli_workers.cmd_queue_engine_worker)
-
-
 def _add_queue_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     queue_parser = subparsers.add_parser(
         "queue",
@@ -219,7 +202,6 @@ def _add_queue_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentPa
     _add_queue_list_parser(queue_subparsers)
     _add_queue_cancel_parser(queue_subparsers)
     _add_queue_worker_parser(queue_subparsers)
-    _add_queue_engine_worker_parser(queue_subparsers)
 
 
 def _add_run_dir_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:

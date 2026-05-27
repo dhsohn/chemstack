@@ -8,10 +8,10 @@ from typing import Any
 from chemstack.core.admission import AdmissionSlot, active_slot_count, list_slots
 from chemstack.core.indexing import get_job_location
 from chemstack.core.queue import list_queue
-from chemstack.crest.commands import queue as crest_queue_cmd
+from chemstack.crest import queue_runtime as crest_queue_cmd
 from chemstack.flow.submitters import crest as crest_submitter
 from chemstack.flow.submitters import xtb as xtb_submitter
-from chemstack.xtb.commands import queue as xtb_queue_cmd
+from chemstack.xtb import queue_runtime as xtb_queue_cmd
 
 
 def _queue_status(entry: Any) -> str:

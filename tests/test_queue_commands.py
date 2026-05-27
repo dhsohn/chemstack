@@ -59,7 +59,7 @@ class TestCmdQueueCancel(unittest.TestCase):
     @patch("chemstack.orca.commands.queue.load_config")
     def test_cancel_all_pending(self, mock_load: MagicMock) -> None:
         mock_load.return_value = self.cfg
-        from chemstack.orca.queue_store import enqueue
+        from chemstack.orca.queue_adapter import enqueue
 
         for name in ("a", "b", "c"):
             reaction_dir = self.root / name
@@ -77,7 +77,7 @@ class TestCmdQueueCancel(unittest.TestCase):
     @patch("chemstack.orca.commands.queue.load_config")
     def test_cancel_specific_pending(self, mock_load: MagicMock) -> None:
         mock_load.return_value = self.cfg
-        from chemstack.orca.queue_store import enqueue
+        from chemstack.orca.queue_adapter import enqueue
 
         reaction_dir = self.root / "mol_A"
         reaction_dir.mkdir()
@@ -93,7 +93,7 @@ class TestCmdQueueCancel(unittest.TestCase):
     @patch("chemstack.orca.commands.queue.load_config")
     def test_cancel_running_entry(self, mock_load: MagicMock) -> None:
         mock_load.return_value = self.cfg
-        from chemstack.orca.queue_store import dequeue_next, enqueue
+        from chemstack.orca.queue_adapter import dequeue_next, enqueue
 
         reaction_dir = self.root / "mol_A"
         reaction_dir.mkdir()

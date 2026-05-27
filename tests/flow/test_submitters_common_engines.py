@@ -57,19 +57,17 @@ def test_sibling_app_command_without_repo_root_uses_module_execution() -> None:
     argv, cwd, env = common.sibling_app_command(
         config_path="/tmp/config.yaml",
         repo_root=None,
-        module_name="chemstack.cli",
-        tail_argv=["queue", "engine-worker", "orca"],
+        module_name="chemstack.orca.runtime.queue_worker",
+        tail_argv=["--no-auto-organize"],
     )
 
     assert argv == [
         sys.executable,
         "-m",
-        "chemstack.cli",
+        "chemstack.orca.runtime.queue_worker",
         "--config",
         "/tmp/config.yaml",
-        "queue",
-        "engine-worker",
-        "orca",
+        "--no-auto-organize",
     ]
     assert cwd is None
     assert env is None
@@ -316,13 +314,11 @@ def test_submit_job_dir_maps_success_and_failure(
     assert result["status"] == expected["status"]
     assert result["returncode"] == returncode
     assert result["command_argv"] == [
-        "python-api",
-        "chemstack.xtb.commands.run_dir.cmd_run_dir"
+        "chemstack.xtb.submission.cmd_run_dir"
         if module is xtb_submitter
-        else "chemstack.crest.commands.run_dir.cmd_run_dir",
+        else "chemstack.crest.submission.cmd_run_dir",
         "--config",
         "/tmp/config.yaml",
-        "run-dir",
         job_dir,
         "--priority",
         str(priority),
@@ -383,14 +379,11 @@ def test_cancel_target_maps_status_from_stdout_and_returncode(
     assert result["status"] == expected_status
     assert result["returncode"] == returncode
     assert result["command_argv"] == [
-        "python-api",
-        "chemstack.xtb.commands.queue.cmd_queue_cancel"
+        "chemstack.xtb.queue_runtime.cmd_queue_cancel"
         if module is xtb_submitter
-        else "chemstack.crest.commands.queue.cmd_queue_cancel",
+        else "chemstack.crest.queue_runtime.cmd_queue_cancel",
         "--config",
         "/tmp/config.yaml",
-        "queue",
-        "cancel",
         target,
     ]
     assert result["stdout"] == stdout

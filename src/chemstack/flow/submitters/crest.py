@@ -2,13 +2,13 @@ from __future__ import annotations
 
 from typing import Any
 
-from chemstack.crest.commands.queue import cmd_queue_cancel as cmd_queue_cancel
-from chemstack.crest.commands.run_dir import cmd_run_dir as cmd_run_dir
+from chemstack.crest.queue_runtime import cmd_queue_cancel as cmd_queue_cancel
+from chemstack.crest.submission import cmd_run_dir as cmd_run_dir
 
 from . import sibling_engine as _sibling_engine
 
-_RUN_DIR_API_NAME = "chemstack.crest.commands.run_dir.cmd_run_dir"
-_CANCEL_API_NAME = "chemstack.crest.commands.queue.cmd_queue_cancel"
+_RUN_DIR_API_NAME = "chemstack.crest.submission.cmd_run_dir"
+_CANCEL_API_NAME = "chemstack.crest.queue_runtime.cmd_queue_cancel"
 
 
 def submit_job_dir(

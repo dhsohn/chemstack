@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any, Sequence
 
 from chemstack.core.admission import active_slot_count
+from chemstack.core.paths.workflow import WORKFLOW_STAGE_DIRNAMES
 from chemstack.flow.submitters.common import normalize_text
 from chemstack.flow.submitters.common import sibling_runtime_paths
 
@@ -11,6 +12,7 @@ ACTIVE_SIMULATION_STATUSES = frozenset({"running", "retrying", "cancel_requested
 DEFAULT_COMBINED_WORKFLOW_CHILD_ENGINES = frozenset({"orca"})
 ActivityItem = dict[str, Any]
 TopLevelToken = tuple[str, str | int]
+WORKFLOW_STAGE_DIRNAME_SET = frozenset(WORKFLOW_STAGE_DIRNAMES.values())
 
 
 def workflow_parent_id_from_activity(item: dict[str, Any]) -> str:
@@ -25,9 +27,9 @@ def workflow_parent_id_from_activity(item: dict[str, Any]) -> str:
         if not path_text:
             continue
         parts = [part for part in path_text.replace("\\", "/").split("/") if part]
-        for index, part in enumerate(parts[:-1]):
-            if part == "workflow_jobs" and index + 1 < len(parts):
-                return normalize_text(parts[index + 1])
+        for index, part in enumerate(parts):
+            if index > 0 and part in WORKFLOW_STAGE_DIRNAME_SET:
+                return normalize_text(parts[index - 1])
     return ""
 
 

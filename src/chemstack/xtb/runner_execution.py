@@ -9,7 +9,7 @@ from typing import Any
 
 import yaml
 
-from .commands._helpers import MANIFEST_FILE_NAME
+from .job_inputs import MANIFEST_FILE_NAME
 
 
 def run_candidate_sp_job(

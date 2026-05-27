@@ -10,7 +10,6 @@ from chemstack.core.admission.orca import (
     AdmissionStoreCorruptError,
     activate_slot,
     activate_reserved_slot,
-    acquire_direct_slot,
     active_slot_count,
     list_slots,
     reconcile_stale_slots,
@@ -33,57 +32,6 @@ class TestAdmissionStore(unittest.TestCase):
                 with self.assertRaises(AdmissionStoreCorruptError):
                     reserve_slot(root, 1, source="queue_worker")
                 self.assertEqual(path.read_text(encoding="utf-8"), bad_payload)
-
-    def test_acquire_direct_slot_tracks_and_releases_slot(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            reaction_dir = root / "rxn"
-            reaction_dir.mkdir()
-
-            with acquire_direct_slot(
-                root, max_concurrent=2, reaction_dir=str(reaction_dir)
-            ) as token:
-                slots = list_slots(root)
-                self.assertEqual(len(slots), 1)
-                self.assertEqual(slots[0].token, token)
-                self.assertEqual(slots[0].work_dir, str(reaction_dir))
-
-            self.assertEqual(active_slot_count(root), 0)
-
-    def test_acquire_direct_slot_ignores_same_reaction_run_lock(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            reaction_dir = root / "rxn_with_lock"
-            reaction_dir.mkdir()
-            (reaction_dir / "run.lock").write_text(
-                json.dumps({"pid": os.getpid()}),
-                encoding="utf-8",
-            )
-
-            with acquire_direct_slot(
-                root, max_concurrent=1, reaction_dir=str(reaction_dir)
-            ) as token:
-                slots = list_slots(root)
-                self.assertEqual(len(slots), 1)
-                self.assertEqual(slots[0].token, token)
-                self.assertEqual(slots[0].work_dir, str(reaction_dir))
-
-            self.assertEqual(active_slot_count(root), 0)
-
-    def test_acquire_direct_slot_raises_when_limit_reached(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            first = root / "first"
-            second = root / "second"
-            first.mkdir()
-            second.mkdir()
-
-            with acquire_direct_slot(root, max_concurrent=1, reaction_dir=str(first)):
-                with self.assertRaises(RuntimeError) as ctx:
-                    with acquire_direct_slot(root, max_concurrent=1, reaction_dir=str(second)):
-                        pass
-
-            self.assertIn("Global admission limit reached", str(ctx.exception))
 
     def test_reserved_slot_activates_and_releases(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -246,25 +194,6 @@ class TestAdmissionStore(unittest.TestCase):
             self.assertEqual(slots[0].work_dir, str(reaction_dir))
             self.assertEqual(slots[0].task_id, "task_123")
             mock_alive.assert_called()
-
-    def test_reserve_slot_keeps_external_run_limit(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            direct_dir = root / "direct_active"
-            direct_dir.mkdir()
-            (direct_dir / "run.lock").write_text(json.dumps({"pid": os.getpid()}), encoding="utf-8")
-
-            token = reserve_slot(
-                root,
-                1,
-                reaction_dir=str(root / "queued"),
-                source="queue_worker",
-            )
-
-            self.assertIsNone(token)
-            self.assertEqual(
-                json.loads((root / ADMISSION_FILE_NAME).read_text(encoding="utf-8")), []
-            )
 
     def test_update_slot_metadata_populates_reserved_slot_identity(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

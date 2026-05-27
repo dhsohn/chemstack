@@ -238,12 +238,7 @@ def test_main_dispatches_unified_queue_cancel(monkeypatch: pytest.MonkeyPatch) -
             (
                 "/home/user/chemstack/.venv/bin/python",
                 "-m",
-                "chemstack.cli",
-                "--config",
-                "/tmp/chemstack.yaml",
-                "queue",
-                "engine-worker",
-                "orca",
+                "chemstack.orca.runtime.queue_worker",
             ),
             "chemstack",
         ),

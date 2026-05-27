@@ -5,7 +5,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from chemstack.orca.cancellation import CancelTargetError, cancel_target
-from chemstack.orca.queue_store import dequeue_next, enqueue, get_cancel_requested
+from chemstack.orca.queue_adapter import dequeue_next, enqueue, get_cancel_requested
 from chemstack.orca.state import STATE_FILE_NAME
 
 

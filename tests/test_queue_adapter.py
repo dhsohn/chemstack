@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 
 from chemstack.core.queue.types import QueueStatus
-from chemstack.orca.queue_store import (
+from chemstack.orca.queue_adapter import (
     DuplicateEntryError,
     QueueStoreCorruptError,
     cancel,

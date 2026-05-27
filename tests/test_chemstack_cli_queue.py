@@ -333,7 +333,7 @@ def test_cmd_queue_list_shows_all_workflow_child_jobs(
             "updated_at": "2026-04-26T02:00:00+00:00",
             "metadata": {
                 "task_kind": "optts_freq",
-                "reaction_dir": f"/tmp/orca/workflow_jobs/wf-1/03_orca/case_{index:03d}",
+                "reaction_dir": f"/tmp/orca/wf-1/03_orca/case_{index:03d}",
             },
         }
         for index in range(1, 10)

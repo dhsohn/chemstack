@@ -6,7 +6,7 @@ from typing import Any
 
 from chemstack.core.indexing import get_job_location
 from chemstack.core.queue import list_queue
-from chemstack.crest.commands import queue as crest_queue_cmd
+from chemstack.crest import queue_runtime as crest_queue_cmd
 from chemstack.flow.adapters.crest import load_crest_artifact_contract
 from chemstack.flow.submitters import crest as crest_submitter
 

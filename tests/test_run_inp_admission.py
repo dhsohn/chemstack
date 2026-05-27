@@ -11,7 +11,6 @@ from chemstack.core.admission.orca import (
     ADMISSION_TASK_ID_ENV_VAR,
     ADMISSION_TOKEN_ENV_VAR,
     AdmissionSlot,
-    acquire_direct_slot,
     active_slot_count,
     list_slots,
     reserve_slot,
@@ -54,7 +53,7 @@ def _make_args(root: Path, reaction_dir: Path, **overrides) -> SimpleNamespace:
 class TestRunInpAdmission(unittest.TestCase):
     @patch("chemstack.orca.commands.run_inp.load_config")
     @patch("chemstack.orca.commands.run_inp.run_attempts", return_value=0)
-    def test_internal_run_rejects_when_global_limit_reached(
+    def test_internal_run_rejects_without_queue_reservation(
         self,
         mock_run_attempts: MagicMock,
         mock_load_config: MagicMock,
@@ -64,12 +63,9 @@ class TestRunInpAdmission(unittest.TestCase):
             cfg = _make_cfg(tmp)
             mock_load_config.return_value = cfg
             reaction_dir = root / "rxn"
-            other_dir = root / "other"
             _write_inp(reaction_dir)
-            other_dir.mkdir()
 
-            with acquire_direct_slot(root, max_concurrent=1, reaction_dir=str(other_dir)):
-                rc = _cmd_run_inp_execute(_make_args(root, reaction_dir))
+            rc = _cmd_run_inp_execute(_make_args(root, reaction_dir))
 
             self.assertEqual(rc, 1)
             self.assertFalse(mock_run_attempts.called)
@@ -92,7 +88,14 @@ class TestRunInpAdmission(unittest.TestCase):
                 observed_counts.append(active_slot_count(root))
                 return 0
 
-            with patch("chemstack.orca.commands.run_inp.run_attempts", new=_fake_run_attempts):
+            token = reserve_slot(root, 1, queue_id="q_test", source="queue_worker")
+            self.assertIsNotNone(token)
+
+            with patch("chemstack.orca.commands.run_inp.run_attempts", new=_fake_run_attempts), patch.dict(
+                os.environ,
+                {ADMISSION_TOKEN_ENV_VAR: token or ""},
+                clear=False,
+            ):
                 rc = _cmd_run_inp_execute(_make_args(root, reaction_dir))
 
             self.assertEqual(rc, 0)

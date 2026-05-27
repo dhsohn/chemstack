@@ -12,7 +12,7 @@ from typing import Literal
 from chemstack.core.queue.types import QueueStatus
 from chemstack.core.utils.process_tracking import active_run_lock_pid
 
-from .queue_store import (
+from .queue_adapter import (
     cancel as queue_cancel,
     list_queue,
     queue_entry_id,

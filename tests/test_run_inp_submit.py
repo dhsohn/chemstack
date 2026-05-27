@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 
 from chemstack.orca.commands.run_inp import _submit_as_queued, cmd_run_inp
 from chemstack.orca.config import AppConfig, CommonResourceConfig, PathsConfig, RuntimeConfig
-from chemstack.orca.queue_store import enqueue, list_queue, queue_entry_metadata
+from chemstack.orca.queue_adapter import enqueue, list_queue, queue_entry_metadata
 
 
 def _make_cfg(tmp: str, *, max_cores: int = 8, max_memory_gb: int = 32) -> AppConfig:
@@ -121,7 +121,7 @@ class TestRunInpSubmit(unittest.TestCase):
     @patch("chemstack.orca.commands.run_inp.load_config")
     @patch("chemstack.orca.commands.run_inp._submit_as_queued", return_value=0)
     @patch("chemstack.orca.commands.run_inp._cmd_run_inp_execute", return_value=0)
-    def test_submit_uses_completed_output_shortcut_before_enqueue(
+    def test_submit_queues_completed_output_for_worker_reconciliation(
         self,
         mock_execute: MagicMock,
         mock_submit_as_queued: MagicMock,
@@ -137,8 +137,8 @@ class TestRunInpSubmit(unittest.TestCase):
             rc = cmd_run_inp(_make_args(root, reaction_dir))
 
         self.assertEqual(rc, 0)
-        mock_execute.assert_called_once()
-        mock_submit_as_queued.assert_not_called()
+        mock_execute.assert_not_called()
+        mock_submit_as_queued.assert_called_once()
 
     @patch("chemstack.orca.commands.run_inp.notify_queue_enqueued_event", return_value=True)
     @patch("chemstack.orca.queue_worker.read_worker_pid", return_value=None)

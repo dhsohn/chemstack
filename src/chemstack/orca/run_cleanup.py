@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from .queue_store import clear_terminal
+from .queue_adapter import clear_terminal
 from .run_snapshot import collect_run_snapshots
 from .state import STATE_FILE_NAME
 from .statuses import RunStatus

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import signal
 import subprocess
 import time
@@ -53,14 +54,14 @@ from chemstack.core.queue.worker import (
 )
 from chemstack.core.utils import now_utc_iso
 
-from .. import worker_execution as _worker_execution
-from ..job_locations import (
+from . import worker_execution as _worker_execution
+from .job_locations import (
     reaction_key_from_job_dir,
     runtime_roots_for_cfg,
     upsert_job_record,
 )
-from ..runner import XtbRunResult, finalize_xtb_job, run_xtb_ranking_job, start_xtb_job
-from ..state import (
+from .runner import XtbRunResult, finalize_xtb_job, run_xtb_ranking_job, start_xtb_job
+from .state import (
     is_recovery_pending,
     load_organized_ref,
     load_report_json,
@@ -71,8 +72,8 @@ from ..state import (
     write_report_md_lines,
     write_state,
 )
-from .. import queue_artifacts as _queue_artifacts
-from .. import queue_terminal as _queue_terminal
+from . import queue_artifacts as _queue_artifacts
+from . import queue_terminal as _queue_terminal
 
 POLL_INTERVAL_SECONDS = 5
 CANCEL_CHECK_INTERVAL_SECONDS = 1
@@ -616,3 +617,19 @@ def cmd_queue_worker(args: Any) -> int:
         config_path=_config_path_for_worker(args),
     )
     return worker.run()
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="python -m chemstack.xtb.queue_runtime")
+    parser.add_argument("--config", required=True)
+    parser.add_argument("--auto-organize", action="store_true")
+    parser.add_argument("--no-auto-organize", action="store_true")
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    return cmd_queue_worker(build_parser().parse_args(argv))
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

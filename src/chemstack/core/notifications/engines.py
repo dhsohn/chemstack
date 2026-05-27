@@ -10,8 +10,6 @@ from .telegram import build_telegram_transport, split_telegram_message
 
 def is_workflow_child(job_dir: Path, *, engine: str) -> bool:
     parts = tuple(part for part in job_dir.parts if part)
-    if "workflow_jobs" in parts:
-        return True
     return any(part.endswith(f"_{engine}") for part in parts)
 
 

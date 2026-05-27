@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from chemstack.xtb.commands import queue as queue_cmd
+from chemstack.xtb import queue_runtime as queue_cmd
 from chemstack.xtb import state as state_mod
 
 

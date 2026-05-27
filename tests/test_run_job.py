@@ -4,12 +4,12 @@ from argparse import Namespace
 import pytest
 from unittest.mock import MagicMock, patch
 
-from chemstack.orca.commands.run_job import cmd_run_job, execute_run_job
 from chemstack.orca.orca_runner import OrcaRunner
 from chemstack.orca.runtime import worker_job
+from chemstack.orca.runtime.worker_job import cmd_run_job, execute_run_job
 
 
-@patch("chemstack.orca.commands.run_job._cmd_run_inp_execute", return_value=7)
+@patch("chemstack.orca.runtime.worker_job._cmd_run_inp_execute", return_value=7)
 def test_execute_run_job_forwards_explicit_execution_identity(mock_execute: MagicMock) -> None:
     rc = execute_run_job(
         "/tmp/config.yaml",
@@ -30,7 +30,7 @@ def test_execute_run_job_forwards_explicit_execution_identity(mock_execute: Magi
     assert mock_execute.call_args.kwargs["admission_task_id"] == "task_123"
 
 
-@patch("chemstack.orca.commands.run_job.execute_run_job", return_value=3)
+@patch("chemstack.orca.runtime.worker_job.execute_run_job", return_value=3)
 def test_cmd_run_job_uses_execute_run_job_helper(mock_execute: MagicMock) -> None:
     rc = cmd_run_job(Namespace(config="/tmp/config.yaml", reaction_dir="/tmp/rxn", force=True))
 
@@ -101,7 +101,7 @@ def test_start_background_run_job_rejects_custom_runner_cls() -> None:
         )
 
 
-@patch("chemstack.orca.commands.run_job.execute_run_job", return_value=0)
+@patch("chemstack.orca.runtime.worker_job.execute_run_job", return_value=0)
 def test_worker_job_main_delegates_to_execute_run_job(mock_execute: MagicMock) -> None:
     rc = worker_job.main(
         [

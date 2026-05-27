@@ -10,7 +10,7 @@ from chemstack.core.queue.worker import resolve_worker_auto_organize
 
 from ..cancellation import CancelTargetError, cancel_target
 from ..config import load_config
-from ..queue_store import cancel_all_pending
+from ..queue_adapter import cancel_all_pending
 from ..queue_worker import QueueWorker, read_worker_pid
 
 logger = logging.getLogger(__name__)

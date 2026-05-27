@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Any
 
 from chemstack.core.paths.workflow import (
-    WORKFLOW_ENGINE_STAGE_ALIASES,
     WORKFLOW_FILE_NAME,
     WORKFLOW_STAGE_DIRNAMES,
     iter_workflow_runtime_workspaces,
@@ -475,7 +474,6 @@ def workflow_artifacts(
 
 __all__ = [
     "WORKFLOW_FILE_NAME",
-    "WORKFLOW_ENGINE_STAGE_ALIASES",
     "WORKFLOW_STAGE_DIRNAMES",
     "WORKFLOW_LOCK_NAME",
     "acquire_workflow_lock",

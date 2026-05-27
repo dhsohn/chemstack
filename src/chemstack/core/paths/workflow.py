@@ -11,9 +11,6 @@ WORKFLOW_STAGE_DIRNAMES = {
     "xtb": "02_xtb",
     "orca": "03_orca",
 }
-WORKFLOW_ENGINE_STAGE_ALIASES = {
-    "orca": ("02_orca", "03_orca"),
-}
 
 
 def workflow_root_dir(workflow_root: str | Path) -> Path:
@@ -46,13 +43,7 @@ def workflow_stage_dirnames_for_engine(engine: str) -> tuple[str, ...]:
     engine_text = normalize_text(engine).lower()
     if not engine_text:
         return ()
-    primary = WORKFLOW_STAGE_DIRNAMES.get(engine_text) or f"stage_{engine_text}"
-    aliases = WORKFLOW_ENGINE_STAGE_ALIASES.get(engine_text, ())
-    ordered: list[str] = []
-    for item in (*aliases, primary):
-        if item and item not in ordered:
-            ordered.append(item)
-    return tuple(ordered)
+    return (WORKFLOW_STAGE_DIRNAMES.get(engine_text) or f"stage_{engine_text}",)
 
 
 def workflow_workspace_internal_engine_paths_from_path(
@@ -152,7 +143,6 @@ def iter_workflow_runtime_workspaces(
 
 
 __all__ = [
-    "WORKFLOW_ENGINE_STAGE_ALIASES",
     "WORKFLOW_FILE_NAME",
     "WORKFLOW_STAGE_DIRNAMES",
     "iter_workflow_runtime_workspaces",

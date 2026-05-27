@@ -6,15 +6,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, Type
 
-from chemstack.core.app_ids import CHEMSTACK_ORCA_APP_NAME
 from chemstack.core.queue.types import QueueStatus
 from chemstack.core.utils.process_lock import is_process_alive, parse_lock_info, process_start_ticks
 
-from .. import queue_store as _queue_store
+from .. import queue_adapter as _queue_adapter
 from chemstack.core.admission.orca import (
     AdmissionLimitReachedError,
     activate_reserved_slot,
-    acquire_direct_slot,
     release_slot,
 )
 from ..attempt_engine import _exit_with_result, run_attempts
@@ -102,7 +100,7 @@ class _RunInpSubmissionDeps:
     _build_queue_enqueued_notification: Any
     _build_queue_metadata: Any
     _emit_queued_submission: Any
-    _queue_store: Any
+    _queue_adapter: Any
     _resource_request_from_selected_inp: Any
     _select_latest_inp: Any
     _submit_as_queued: Any
@@ -158,7 +156,7 @@ def _run_inp_deps() -> _RunInpDeps:
             _build_queue_enqueued_notification=_build_queue_enqueued_notification,
             _build_queue_metadata=_build_queue_metadata,
             _emit_queued_submission=_emit_queued_submission,
-            _queue_store=_queue_store,
+            _queue_adapter=_queue_adapter,
             _resource_request_from_selected_inp=_resource_request_from_selected_inp,
             _select_latest_inp=_select_latest_inp,
             _submit_as_queued=_submit_as_queued,
@@ -282,15 +280,15 @@ def _active_direct_run_error(reaction_dir: Path) -> str | None:
 
 
 def _active_queue_entry(allowed_root: Path, reaction_dir: Path) -> QueueEntry | None:
-    helper = getattr(_queue_store, "get_active_entry_for_reaction_dir", None)
+    helper = getattr(_queue_adapter, "get_active_entry_for_reaction_dir", None)
     if callable(helper):
         return helper(allowed_root, str(reaction_dir))
 
     resolved = str(reaction_dir.expanduser().resolve())
-    for entry in _queue_store.list_queue(allowed_root):
-        if _queue_store.queue_entry_reaction_dir(entry) != resolved:
+    for entry in _queue_adapter.list_queue(allowed_root):
+        if _queue_adapter.queue_entry_reaction_dir(entry) != resolved:
             continue
-        if _queue_store.queue_entry_status(entry) in {
+        if _queue_adapter.queue_entry_status(entry) in {
             QueueStatus.PENDING.value,
             QueueStatus.RUNNING.value,
         }:
@@ -303,8 +301,8 @@ def _find_submission_conflict(allowed_root: Path, reaction_dir: Path) -> str | N
     if active_entry is not None:
         return (
             "Job directory already queued: "
-            f"{reaction_dir} (queue_id={_queue_store.queue_entry_id(active_entry)}, "
-            f"status={_queue_store.queue_entry_status(active_entry)})"
+            f"{reaction_dir} (queue_id={_queue_adapter.queue_entry_id(active_entry)}, "
+            f"status={_queue_adapter.queue_entry_status(active_entry)})"
         )
     return _active_direct_run_error(reaction_dir)
 
@@ -320,12 +318,12 @@ def _emit_queued_submission(
 ) -> None:
     print("status: queued")
     print(f"job_dir: {reaction_dir}")
-    print(f"queue_id: {_queue_store.queue_entry_id(entry)}")
-    task_id = _queue_store.queue_entry_task_id(entry)
+    print(f"queue_id: {_queue_adapter.queue_entry_id(entry)}")
+    task_id = _queue_adapter.queue_entry_task_id(entry)
     if task_id:
         print(f"job_id: {task_id}")
-    print(f"priority: {_queue_store.queue_entry_priority(entry)}")
-    if _queue_store.queue_entry_force(entry):
+    print(f"priority: {_queue_adapter.queue_entry_priority(entry)}")
+    if _queue_adapter.queue_entry_force(entry):
         print("force: true")
     if worker_status:
         print(f"worker: {worker_status}")
@@ -420,12 +418,9 @@ def _admission_context(
             app_name=admission_app_name,
             task_id=admission_task_id,
         )
-    return acquire_direct_slot(
-        admission_root,
-        max_concurrent=admission_limit,
-        reaction_dir=str(reaction_dir),
-        app_name=admission_app_name or CHEMSTACK_ORCA_APP_NAME,
-        task_id=admission_task_id,
+    raise AdmissionLimitReachedError(
+        "ORCA execution requires a queue admission reservation. "
+        "Submit the directory with `chemstack run-dir` and let the queue worker execute it."
     )
 
 
@@ -543,15 +538,8 @@ def _existing_completed_submit_exit(
     *,
     runner_cls: Type[OrcaRunner],
 ) -> int | None:
-    if getattr(args, "force", False) or not _existing_completed_out(context.selected_inp):
-        return None
-    return _cmd_run_inp_execute(
-        args,
-        runner_cls=runner_cls,
-        cfg=context.cfg,
-        reaction_dir=context.reaction_dir,
-        selected_inp=context.selected_inp,
-    )
+    del args, context, runner_cls
+    return None
 
 
 def _execute_locked_run(

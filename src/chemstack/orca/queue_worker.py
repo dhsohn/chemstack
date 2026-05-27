@@ -31,7 +31,7 @@ from chemstack.core.queue.worker import (
 from chemstack.core.admission.orca import reconcile_stale_slots, release_slot, reserve_slot, update_slot_metadata
 from .config import AppConfig
 from .inp_rewriter import read_resource_request_from_input
-from .queue_store import (
+from .queue_adapter import (
     dequeue_next,
     get_cancel_requested,
     mark_cancelled,

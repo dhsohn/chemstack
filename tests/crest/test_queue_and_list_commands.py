@@ -9,7 +9,7 @@ import pytest
 from chemstack.core.queue import dequeue_next, enqueue, list_queue, request_cancel
 from chemstack.core.queue.types import QueueStatus
 
-from chemstack.crest.commands import queue as queue_cmd
+from chemstack.crest import queue_runtime as queue_cmd
 
 
 @pytest.fixture

@@ -3,7 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-WORKFLOW_MANIFEST_FILENAMES = ("flow.yaml",)
+from .manifest import FLOW_MANIFEST_FILENAMES as WORKFLOW_MANIFEST_FILENAMES
+
 STANDARD_REACTION_REACTANT_FILENAME = "reactant.xyz"
 STANDARD_REACTION_PRODUCT_FILENAME = "product.xyz"
 STANDARD_CONFORMER_INPUT_FILENAME = "input.xyz"

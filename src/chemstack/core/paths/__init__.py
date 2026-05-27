@@ -13,7 +13,6 @@ from .validation import (
     validate_job_dir,
 )
 from .workflow import (
-    WORKFLOW_ENGINE_STAGE_ALIASES,
     WORKFLOW_FILE_NAME,
     WORKFLOW_STAGE_DIRNAMES,
     iter_workflow_runtime_workspaces,
@@ -24,7 +23,6 @@ from .workflow import (
 )
 
 __all__ = [
-    "WORKFLOW_ENGINE_STAGE_ALIASES",
     "WORKFLOW_FILE_NAME",
     "WORKFLOW_STAGE_DIRNAMES",
     "ensure_directory",

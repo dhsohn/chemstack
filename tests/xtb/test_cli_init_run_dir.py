@@ -9,7 +9,7 @@ import yaml
 
 from chemstack.core.queue import DuplicateQueueEntryError
 
-from chemstack.xtb.commands import run_dir
+from chemstack.xtb import submission as run_dir
 from chemstack.xtb.state import STATE_FILE_NAME, load_state
 
 

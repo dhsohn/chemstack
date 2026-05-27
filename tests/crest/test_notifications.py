@@ -242,7 +242,7 @@ def test_workflow_child_notifications_are_suppressed(
     cfg = _cfg(tmp_path)
     _, messages = _patch_transport(monkeypatch, sent=True)
     workflow_job_dirs = [
-        tmp_path / "workflow_jobs" / "wf-1" / "01_crest" / "job-queued",
+        tmp_path / "wf-1" / "01_crest" / "job-queued",
         tmp_path / "wf-1" / "01_crest" / "crest_reactant_01",
     ]
 

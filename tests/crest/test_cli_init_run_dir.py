@@ -10,8 +10,8 @@ import pytest
 from chemstack.core.indexing import get_job_location
 from chemstack.core.queue import list_queue
 
-from chemstack.crest.commands import queue as queue_cmd
-from chemstack.crest.commands import run_dir as run_dir_cmd
+from chemstack.crest import queue_runtime as queue_cmd
+from chemstack.crest import submission as run_dir_cmd
 from chemstack.crest.runner import CrestRunResult
 from chemstack.crest.state import load_organized_ref, load_report_json, load_state
 

@@ -7,7 +7,7 @@ from typing import Any, cast
 import pytest
 
 from chemstack.core.queue import processes as queue_processes_mod
-from chemstack.xtb.commands import queue as queue_cmd
+from chemstack.xtb import queue_runtime as queue_cmd
 from chemstack.xtb import state as state_mod
 
 

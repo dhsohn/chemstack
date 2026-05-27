@@ -11,10 +11,10 @@ if TYPE_CHECKING:
 def build_queue_enqueued_notification(entry: Any, *, deps: Any) -> QueueEnqueuedNotification:
     submission = deps.submission
     return {
-        "queue_id": submission._queue_store.queue_entry_id(entry),
-        "reaction_dir": submission._queue_store.queue_entry_reaction_dir(entry),
-        "priority": submission._queue_store.queue_entry_priority(entry),
-        "force": submission._queue_store.queue_entry_force(entry),
+        "queue_id": submission._queue_adapter.queue_entry_id(entry),
+        "reaction_dir": submission._queue_adapter.queue_entry_reaction_dir(entry),
+        "priority": submission._queue_adapter.queue_entry_priority(entry),
+        "force": submission._queue_adapter.queue_entry_force(entry),
         "enqueued_at": getattr(entry, "enqueued_at", ""),
     }
 
@@ -130,7 +130,7 @@ def submit_as_queued(
     deps: Any,
     logger: logging.Logger,
 ) -> int:
-    from ..queue_store import DuplicateEntryError, enqueue
+    from ..queue_adapter import DuplicateEntryError, enqueue
 
     submission = deps.submission
     allowed_root = Path(cfg.runtime.allowed_root).expanduser().resolve()
@@ -158,7 +158,7 @@ def submit_as_queued(
         logger.error("%s", exc)
         return 1
 
-    task_id = submission._queue_store.queue_entry_task_id(entry)
+    task_id = submission._queue_adapter.queue_entry_task_id(entry)
     if task_id:
         submission._upsert_queued_job_record(
             cfg,

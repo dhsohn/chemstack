@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from chemstack.xtb.commands import _helpers
+from chemstack.xtb import job_inputs as _helpers
 
 
 def _write_xyz(path: Path, comment: str) -> Path:

@@ -4,8 +4,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import yaml
-
 from chemstack.core.app_ids import is_orca_submitter
 from chemstack.core.utils import (
     mapping_or_empty as _shared_mapping_or_empty,
@@ -16,6 +14,12 @@ from chemstack.core.utils import (
 from ._orchestration_builders import (
     _REACTION_TS_SEARCH_CREST_MANIFEST_DEFAULTS,
     _merge_manifest_defaults,
+)
+from .manifest import (
+    load_flow_manifest as _load_flow_manifest,
+    manifest_mapping as _manifest_mapping,
+    resolve_endpoint_pairing_manifest as _resolve_endpoint_pairing_manifest,
+    resolve_engine_manifest_with_presence as _resolve_engine_manifest,
 )
 from .registry import append_workflow_journal_event, sync_workflow_registry
 from .state import (
@@ -79,7 +83,6 @@ _REMATERIALIZED_ENGINES = frozenset({"crest", "xtb"})
 _REMATERIALIZED_TASK_PAYLOAD_KEYS = frozenset(
     {"job_dir", "selected_input_xyz", "secondary_input_xyz"}
 )
-_FLOW_MANIFEST_FILENAMES = ("flow.yaml",)
 
 
 @dataclass(frozen=True)
@@ -246,61 +249,6 @@ def _clear_phase_notification_state(
         restarted_stages,
         deps=_restart_stage_deps(),
     )
-
-
-def _manifest_mapping(value: Any) -> dict[str, Any]:
-    if not isinstance(value, dict):
-        return {}
-    return {str(key): item for key, item in value.items() if _normalize_text(key)}
-
-
-def _load_flow_manifest(workspace: Path) -> dict[str, Any]:
-    for name in _FLOW_MANIFEST_FILENAMES:
-        candidate = workspace / name
-        if not candidate.is_file():
-            continue
-        parsed = yaml.safe_load(candidate.read_text(encoding="utf-8")) or {}
-        if not isinstance(parsed, dict):
-            raise ValueError(f"Workflow manifest must contain a mapping: {candidate}")
-        return dict(parsed)
-    return {}
-
-
-def _resolve_manifest_file_value(workspace: Path, value: Any) -> str:
-    text = _normalize_text(value)
-    if not text:
-        return ""
-    candidate = Path(text).expanduser()
-    if not candidate.is_absolute():
-        candidate = workspace / candidate
-    return str(candidate.resolve())
-
-
-def _resolve_engine_manifest(
-    workspace: Path,
-    manifest: dict[str, Any],
-    key: str,
-) -> tuple[bool, dict[str, Any]]:
-    if not isinstance(manifest.get(key), dict):
-        return False, {}
-    resolved = _manifest_mapping(manifest.get(key))
-    if "xcontrol_file" in resolved:
-        resolved["xcontrol_file"] = _resolve_manifest_file_value(
-            workspace,
-            resolved.get("xcontrol_file"),
-        )
-    return True, resolved
-
-
-def _resolve_endpoint_pairing_manifest(
-    manifest: dict[str, Any],
-    xtb_manifest: dict[str, Any],
-) -> dict[str, Any]:
-    xtb_section = _manifest_mapping(xtb_manifest.pop("endpoint_pairing", None))
-    top_level = _manifest_mapping(manifest.get("endpoint_pairing"))
-    resolved = dict(xtb_section)
-    resolved.update(top_level)
-    return resolved
 
 
 def _positive_int(value: Any) -> int | None:

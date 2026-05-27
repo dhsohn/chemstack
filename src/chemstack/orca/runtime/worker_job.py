@@ -3,12 +3,14 @@ from __future__ import annotations
 import argparse
 import subprocess
 import sys
+from argparse import Namespace
 from pathlib import Path
-from typing import Type
+from typing import Any, Type
 
 from chemstack.core.app_ids import CHEMSTACK_ORCA_APP_NAME
 
 from ..orca_runner import OrcaRunner
+from ..commands.run_inp import _cmd_run_inp_execute
 
 BackgroundRunJobProcess = subprocess.Popen
 
@@ -81,6 +83,38 @@ def start_background_run_job(
     )
 
 
+def execute_run_job(
+    config_path: str,
+    reaction_dir: str,
+    *,
+    force: bool = False,
+    reservation_token: str | None = None,
+    admission_app_name: str | None = None,
+    admission_task_id: str | None = None,
+    runner_cls: Type[OrcaRunner] = OrcaRunner,
+) -> int:
+    return _cmd_run_inp_execute(
+        Namespace(
+            config=config_path,
+            reaction_dir=reaction_dir,
+            force=force,
+        ),
+        runner_cls=runner_cls,
+        reservation_token=reservation_token,
+        admission_app_name=_canonical_admission_app_name(admission_app_name),
+        admission_task_id=admission_task_id,
+    )
+
+
+def cmd_run_job(args: Any, *, runner_cls: Type[OrcaRunner] = OrcaRunner) -> int:
+    return execute_run_job(
+        args.config,
+        args.reaction_dir,
+        force=bool(getattr(args, "force", False)),
+        runner_cls=runner_cls,
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="python -m chemstack.orca.runtime.worker_job")
     parser.add_argument("--config", required=True)
@@ -93,8 +127,6 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
-    from ..commands.run_job import execute_run_job
-
     args = build_parser().parse_args(argv)
     return execute_run_job(
         args.config,

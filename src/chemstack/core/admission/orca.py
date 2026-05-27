@@ -1,4 +1,4 @@
-"""Admission helpers that count existing run locks with shared admission slots."""
+"""ORCA admission helpers backed by the shared admission store."""
 
 from __future__ import annotations
 
@@ -9,7 +9,6 @@ from typing import Iterator
 
 from chemstack.core.admission import store as _core_admission
 from chemstack.core.app_ids import CHEMSTACK_ORCA_APP_NAME
-from chemstack.core.utils.process_tracking import RUN_LOCK_FILE_NAME, active_run_lock_pid
 
 ADMISSION_FILE_NAME = _core_admission.ADMISSION_FILE_NAME
 ADMISSION_LOCK_NAME = _core_admission.ADMISSION_LOCK_NAME
@@ -38,29 +37,6 @@ def _normalize_work_dir(value: str | Path | None) -> str | None:
         return text
 
 
-def _count_external_active_runs(
-    root: Path,
-    represented_work_dirs: set[str],
-    exclude_work_dirs: set[str],
-) -> int:
-    if not root.is_dir():
-        return 0
-
-    count = 0
-    seen_work_dirs: set[str] = set()
-    for lock_path in root.rglob(RUN_LOCK_FILE_NAME):
-        work_dir = str(lock_path.parent.resolve())
-        if work_dir in exclude_work_dirs:
-            continue
-        if work_dir in represented_work_dirs or work_dir in seen_work_dirs:
-            continue
-        if active_run_lock_pid(lock_path.parent, logger=logger) is None:
-            continue
-        seen_work_dirs.add(work_dir)
-        count += 1
-    return count
-
-
 def reconcile_stale_slots(root: Path) -> int:
     return _core_admission.reconcile_stale_slots(root)
 
@@ -81,7 +57,6 @@ def reserve_slot(
     queue_id: str | None = None,
     source: str,
     owner_pid: int | None = None,
-    exclude_reaction_dirs: set[str] | None = None,
     app_name: str | None = CHEMSTACK_ORCA_APP_NAME,
     task_id: str | None = None,
     workflow_id: str | None = None,
@@ -98,8 +73,6 @@ def reserve_slot(
         work_dir=reaction_dir or "",
         queue_id=queue_id or "",
         owner_pid=owner_pid,
-        exclude_work_dirs=exclude_reaction_dirs,
-        extra_active_count_fn=_count_external_active_runs,
     )
 
 
@@ -159,55 +132,6 @@ def update_slot_metadata(
         )
         is not None
     )
-
-
-@contextmanager
-def acquire_direct_slot(
-    root: Path,
-    max_concurrent: int,
-    *,
-    reaction_dir: str,
-    source: str = "direct_run",
-    app_name: str | None = CHEMSTACK_ORCA_APP_NAME,
-    task_id: str | None = None,
-    workflow_id: str | None = None,
-) -> Iterator[str]:
-    resolved_reaction_dir = str(Path(reaction_dir).expanduser().resolve())
-    token = reserve_slot(
-        root,
-        max_concurrent,
-        reaction_dir=resolved_reaction_dir,
-        exclude_reaction_dirs={resolved_reaction_dir},
-        source=source,
-        app_name=app_name,
-        task_id=task_id,
-        workflow_id=workflow_id,
-        state="reserved",
-    )
-    if token is None:
-        raise AdmissionLimitReachedError(
-            f"Global admission limit reached under {root} (max_concurrent={max(1, int(max_concurrent))})."
-        )
-
-    activated = activate_slot(
-        root,
-        token,
-        reaction_dir=resolved_reaction_dir,
-        source=source,
-        app_name=app_name,
-        task_id=task_id,
-        workflow_id=workflow_id,
-    )
-    if not activated:
-        release_slot(root, token)
-        raise AdmissionLimitReachedError(
-            f"Failed to activate admission slot for {resolved_reaction_dir}."
-        )
-
-    try:
-        yield token
-    finally:
-        release_slot(root, token)
 
 
 @contextmanager

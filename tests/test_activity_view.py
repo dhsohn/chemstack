@@ -62,7 +62,7 @@ def test_activity_with_parent_hint_extracts_workflow_id_from_runtime_path() -> N
     item = {
         "activity_id": "xtb_child",
         "kind": "job",
-        "metadata": {"job_dir": "/tmp/root/workflow_jobs/wf_path/.chemstack/xtb/jobs/job_1"},
+        "metadata": {"job_dir": "/tmp/root/wf_path/02_xtb/job_1"},
     }
 
     assert activity_view.activity_with_parent_hint(item)["parent_workflow_id"] == "wf_path"

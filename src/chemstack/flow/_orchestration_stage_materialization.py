@@ -603,11 +603,9 @@ def _crest_orca_stage_plan(
         if workspace_dir_text
         else Path(".").resolve()
     )
-    orca_stage_dirname = "02_orca" if template_name == "conformer_screening" else None
     orca_runtime_paths = workflow_workspace_internal_engine_paths(
         workspace_dir,
         engine="orca",
-        stage_dirname=orca_stage_dirname,
     )
     params = _request_params(o, payload)
     candidates = o.engines.select_crest_downstream_inputs(

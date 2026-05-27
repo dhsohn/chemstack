@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import subprocess
 import time
 from pathlib import Path
@@ -48,9 +49,9 @@ from chemstack.core.queue.worker import (
 from chemstack.core.queue.dependencies import ChildQueueWorkerDeps
 from chemstack.core.utils import now_utc_iso
 
-from ..job_locations import runtime_roots_for_cfg, upsert_job_record
-from ..runner import finalize_crest_job, start_crest_job
-from ..worker_execution import (
+from .job_locations import runtime_roots_for_cfg, upsert_job_record
+from .runner import finalize_crest_job, start_crest_job
+from .worker_execution import (
     WorkerExecutionDependencies,
     _mark_recovery_pending_entry,
     _molecule_key,
@@ -344,3 +345,19 @@ def cmd_queue_worker(args: Any) -> int:
         max_concurrent=max(1, int(getattr(cfg.runtime, "max_concurrent", 1))),
     )
     return worker.run()
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="python -m chemstack.crest.queue_runtime")
+    parser.add_argument("--config", required=True)
+    parser.add_argument("--auto-organize", action="store_true")
+    parser.add_argument("--no-auto-organize", action="store_true")
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    return cmd_queue_worker(build_parser().parse_args(argv))
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

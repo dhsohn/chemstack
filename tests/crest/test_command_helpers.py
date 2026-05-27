@@ -7,7 +7,7 @@ import pytest
 
 from chemstack.core.config.schema import CommonRuntimeConfig
 
-from chemstack.crest.commands import _helpers
+from chemstack.crest import job_inputs as _helpers
 from chemstack.core.config.engines import WorkflowEngineAppConfig as AppConfig
 
 

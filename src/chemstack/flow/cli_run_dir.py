@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any
 
@@ -12,6 +11,14 @@ from chemstack.cli_common import (
 from . import cli_workflow_output as _workflow_output
 from .orchestration import create_conformer_screening_workflow, create_reaction_ts_search_workflow
 from .restart import restart_failed_workflow
+from .manifest import (
+    FLOW_MANIFEST_FILENAMES as WORKFLOW_MANIFEST_FILENAMES,
+    load_flow_manifest as _shared_load_flow_manifest,
+    manifest_mapping as _shared_manifest_mapping,
+    resolve_endpoint_pairing_manifest as _shared_resolve_endpoint_pairing_manifest,
+    resolve_engine_manifest as _shared_resolve_engine_manifest,
+    resolve_manifest_file_value as _shared_resolve_manifest_file_value,
+)
 from .run_dir_options import (
     RUN_DIR_COMMON_WORKFLOW_OPTION_FIELDS,
     RunDirManifestSections,
@@ -22,7 +29,6 @@ from .run_dir_layout import (
     STANDARD_CONFORMER_INPUT_FILENAME,
     STANDARD_REACTION_PRODUCT_FILENAME,
     STANDARD_REACTION_REACTANT_FILENAME,
-    WORKFLOW_MANIFEST_FILENAMES,
     inspect_workflow_run_dir,
 )
 
@@ -31,61 +37,37 @@ def _load_run_dir_manifest(workflow_dir: Path, *, deps: Any | None = None) -> di
     manifest_filenames = _dependency(
         deps, "WORKFLOW_MANIFEST_FILENAMES", WORKFLOW_MANIFEST_FILENAMES
     )
-    for name in manifest_filenames:
-        candidate = workflow_dir / name
-        if not candidate.exists():
-            continue
-        if candidate.suffix == ".json":
-            payload = json.loads(candidate.read_text(encoding="utf-8"))
-        else:
-            import yaml  # type: ignore[import-untyped]
-
-            payload = yaml.safe_load(candidate.read_text(encoding="utf-8"))
-        if payload is None:
-            return {}
-        if not isinstance(payload, dict):
-            raise ValueError(f"Run directory manifest must contain a mapping: {candidate}")
-        return dict(payload)
-    return {}
+    return _shared_load_flow_manifest(
+        workflow_dir,
+        filenames=tuple(manifest_filenames),
+        description="Run directory manifest",
+    )
 
 
 def _manifest_mapping(value: Any, *, deps: Any | None = None) -> dict[str, Any]:
-    normalize_text = _dependency(deps, "_normalize_text", _normalize_text)
-    if not isinstance(value, dict):
-        return {}
-    return {str(key): item for key, item in value.items() if normalize_text(key)}
+    del deps
+    return _shared_manifest_mapping(value)
 
 
-def _resolve_manifest_file_value(workflow_dir: Path, value: Any, *, deps: Any | None = None) -> str:
-    normalize_text = _dependency(deps, "_normalize_text", _normalize_text)
-    path_cls = _dependency(deps, "Path", Path)
-
-    text = normalize_text(value)
-    if not text:
-        return ""
-    candidate = path_cls(text).expanduser()
-    if not candidate.is_absolute():
-        candidate = workflow_dir / candidate
-    return str(candidate.resolve())
+def _resolve_manifest_file_value(
+    workflow_dir: Path,
+    value: Any,
+    *,
+    deps: Any | None = None,
+) -> str:
+    del deps
+    return _shared_resolve_manifest_file_value(workflow_dir, value)
 
 
 def _resolve_engine_manifest(
-    workflow_dir: Path, manifest: dict[str, Any], key: str, *, deps: Any | None = None
+    workflow_dir: Path,
+    manifest: dict[str, Any],
+    key: str,
+    *,
+    deps: Any | None = None,
 ) -> dict[str, Any]:
-    manifest_mapping = _dependency(deps, "_manifest_mapping", _manifest_mapping)
-    resolve_manifest_file_value = _dependency(
-        deps, "_resolve_manifest_file_value", _resolve_manifest_file_value
-    )
-
-    section = manifest_mapping(manifest.get(key))
-    if not section:
-        return {}
-    resolved = dict(section)
-    if "xcontrol_file" in resolved:
-        resolved["xcontrol_file"] = resolve_manifest_file_value(
-            workflow_dir, resolved.get("xcontrol_file")
-        )
-    return resolved
+    del deps
+    return _shared_resolve_engine_manifest(workflow_dir, manifest, key)
 
 
 def _resolve_endpoint_pairing_manifest(
@@ -94,13 +76,8 @@ def _resolve_endpoint_pairing_manifest(
     *,
     deps: Any | None = None,
 ) -> dict[str, Any]:
-    manifest_mapping = _dependency(deps, "_manifest_mapping", _manifest_mapping)
-
-    xtb_section = manifest_mapping(xtb_manifest.pop("endpoint_pairing", None))
-    top_level = manifest_mapping(manifest.get("endpoint_pairing"))
-    resolved = dict(xtb_section)
-    resolved.update(top_level)
-    return resolved
+    del deps
+    return _shared_resolve_endpoint_pairing_manifest(manifest, xtb_manifest)
 
 
 def _resolve_run_dir_path(

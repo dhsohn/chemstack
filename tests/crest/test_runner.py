@@ -8,7 +8,7 @@ import pytest
 
 from chemstack.core.config.schema import CommonResourceConfig, CommonRuntimeConfig, TelegramConfig
 
-from chemstack.crest.commands._helpers import MANIFEST_FILE_NAME
+from chemstack.crest.job_inputs import MANIFEST_FILE_NAME
 from chemstack.core.config.engines import (
     WorkflowEngineAppConfig as AppConfig,
     WorkflowEngineBehaviorConfig as BehaviorConfig,

@@ -7,7 +7,7 @@ import yaml
 
 from chemstack.core.indexing import get_job_location
 from chemstack.core.queue import list_queue
-from chemstack.crest.commands import queue as crest_queue_cmd
+from chemstack.crest import queue_runtime as crest_queue_cmd
 from chemstack.flow.orchestration import (
     advance_workflow,
     create_conformer_screening_workflow,
@@ -177,7 +177,7 @@ def test_conformer_screening_workflow_handoff_smoke(
         assert stage["status"] == "planned"
         assert task["status"] == "planned"
         assert reaction_dir.exists()
-        assert reaction_dir.is_relative_to(workspace_dir / "02_orca")
+        assert reaction_dir.is_relative_to(workspace_dir / "03_orca")
         assert selected_inp.exists()
         assert selected_input_xyz.exists()
         assert (reaction_dir / selected_inp.name).exists()

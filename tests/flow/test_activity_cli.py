@@ -418,11 +418,11 @@ def test_orca_records_merge_queue_entries_and_snapshots(
     ]
     reconciled: list[Path] = []
 
-    from chemstack.orca import queue_store, run_snapshot
+    from chemstack.orca import queue_adapter, run_snapshot
 
     monkeypatch.setattr(activity, "sibling_runtime_paths", lambda config_path, *, engine: {"allowed_root": allowed})
-    monkeypatch.setattr(queue_store, "reconcile_orphaned_running_entries", lambda root: reconciled.append(root))
-    monkeypatch.setattr(queue_store, "list_queue", lambda root: entries)
+    monkeypatch.setattr(queue_adapter, "reconcile_orphaned_running_entries", lambda root: reconciled.append(root))
+    monkeypatch.setattr(queue_adapter, "list_queue", lambda root: entries)
     monkeypatch.setattr(run_snapshot, "collect_run_snapshots", lambda root: snapshots)
 
     rows = _activity_orca.orca_records(

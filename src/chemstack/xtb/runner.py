@@ -13,7 +13,7 @@ from chemstack.core.engine_process import start_logged_process
 from chemstack.core.utils import now_utc_iso
 from chemstack.core.utils import process as process_utils
 
-from .commands._helpers import (
+from .job_inputs import (
     MANIFEST_FILE_NAME,
     load_job_manifest,
     resolve_job_inputs,
