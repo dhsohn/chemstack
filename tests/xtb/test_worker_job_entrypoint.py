@@ -5,7 +5,7 @@ from typing import Any
 
 import pytest
 
-from chemstack.xtb import worker_job
+from chemstack.xtb import worker_execution as worker_job
 
 
 def test_worker_job_main_delegates_to_queue_runner(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -25,7 +25,7 @@ def test_worker_job_main_delegates_to_queue_runner(monkeypatch: pytest.MonkeyPat
         kwargs["register_running_job"](None)
         return 37
 
-    monkeypatch.setattr(worker_job.queue_cmd, "run_worker_job", _fake_run_worker_job)
+    monkeypatch.setattr(worker_job, "run_worker_job", _fake_run_worker_job)
 
     result = worker_job.main(
         [
@@ -49,7 +49,7 @@ def test_worker_job_main_delegates_to_queue_runner(monkeypatch: pytest.MonkeyPat
     assert captured["admission_root"] == "/tmp/admission"
     assert captured["admission_token"] == "slot-1"
     assert [signum for signum, _handler in signal_calls] == [
-        worker_job.queue_cmd.WORKER_CANCEL_SIGNAL,
+        worker_job.WORKER_CANCEL_SIGNAL,
         worker_job.signal.SIGTERM,
         worker_job.signal.SIGINT,
     ]
@@ -63,8 +63,8 @@ def test_worker_job_signal_controller_cancel_and_shutdown(
     controller = worker_job._SignalController()
 
     monkeypatch.setattr(
-        worker_job.queue_cmd,
-        "_terminate_process",
+        worker_job,
+        "terminate_process_group",
         lambda running_process: terminated.append(running_process),
     )
     monkeypatch.setattr(
@@ -82,7 +82,7 @@ def test_worker_job_signal_controller_cancel_and_shutdown(
     with pytest.raises(SystemExit) as exc_info:
         controller._handle_shutdown(0, None)
 
-    assert exc_info.value.code == worker_job.queue_cmd.WORKER_SHUTDOWN_EXIT_CODE
+    assert exc_info.value.code == worker_job.WORKER_SHUTDOWN_EXIT_CODE
     assert terminated == [process, process]
 
 

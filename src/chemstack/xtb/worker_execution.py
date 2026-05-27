@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import argparse
 import os
+import signal
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -40,6 +42,10 @@ from .state import (
     write_report_md_lines,
     write_state,
 )
+
+WORKER_JOB_MODULE = "chemstack.xtb.worker_execution"
+WORKER_CANCEL_SIGNAL = getattr(signal, "SIGUSR1", signal.SIGTERM)
+WORKER_SHUTDOWN_EXIT_CODE = 190
 
 
 @dataclass(frozen=True)
@@ -644,7 +650,7 @@ def run_worker_job(
             admission_token,
             work_dir=deps.context.job_dir(entry),
             queue_id=entry.queue_id,
-            source="chemstack.xtb.worker_job",
+            source=WORKER_JOB_MODULE,
             activate_reserved_slot_fn=deps.admission.activate_reserved_slot,
         ):
             return 1
@@ -680,9 +686,68 @@ def run_worker_job(
         )
 
 
+def build_worker_job_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog=f"python -m {WORKER_JOB_MODULE}")
+    parser.add_argument("--config", required=True)
+    parser.add_argument("--queue-root", required=True)
+    parser.add_argument("--queue-id", required=True)
+    parser.add_argument("--admission-root", required=True)
+    parser.add_argument("--admission-token", default=None)
+    return parser
+
+
+class _SignalController:
+    def __init__(self) -> None:
+        self._cancel_requested = False
+        self._process: Any | None = None
+
+    def should_cancel(self) -> bool:
+        return self._cancel_requested
+
+    def set_running_job(self, value: Any | None) -> None:
+        if value is None:
+            self._process = None
+            return
+        self._process = getattr(value, "process", value)
+
+    def install(self) -> None:
+        try:
+            signal.signal(WORKER_CANCEL_SIGNAL, self._handle_cancel)
+            signal.signal(signal.SIGTERM, self._handle_shutdown)
+            signal.signal(signal.SIGINT, self._handle_shutdown)
+        except ValueError:
+            pass
+
+    def _handle_cancel(self, _signum: int, _frame: object) -> None:
+        self._cancel_requested = True
+        if self._process is not None:
+            terminate_process_group(self._process)
+
+    def _handle_shutdown(self, _signum: int, _frame: object) -> None:
+        if self._process is not None:
+            terminate_process_group(self._process)
+        os._exit(WORKER_SHUTDOWN_EXIT_CODE)
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_worker_job_parser().parse_args(argv)
+    controller = _SignalController()
+    controller.install()
+    return run_worker_job(
+        config_path=args.config,
+        queue_root=args.queue_root,
+        queue_id=args.queue_id,
+        admission_root=args.admission_root,
+        admission_token=str(args.admission_token).strip() or None,
+        should_cancel=controller.should_cancel,
+        register_running_job=controller.set_running_job,
+    )
+
+
 __all__ = [
     "build_worker_execution_dependencies",
     "build_worker_execution_dependencies_from_groups",
+    "build_worker_job_parser",
     "WorkerAdmissionDependencies",
     "WorkerArtifactDependencies",
     "WorkerConfigDependencies",
@@ -693,5 +758,13 @@ __all__ = [
     "WorkerTrackingDependencies",
     "default_worker_execution_dependencies",
     "execute_queue_entry",
+    "main",
     "run_worker_job",
+    "WORKER_CANCEL_SIGNAL",
+    "WORKER_JOB_MODULE",
+    "WORKER_SHUTDOWN_EXIT_CODE",
 ]
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

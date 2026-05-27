@@ -9,12 +9,13 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from chemstack.core.admission.orca import (
+from chemstack.core.admission import (
     active_slot_count,
     list_slots,
     release_slot,
     reserve_slot,
 )
+from chemstack.core.queue.types import QueueEntry
 from chemstack.orca.config import AppConfig, RuntimeConfig
 from chemstack.orca.queue_adapter import (
     cancel,
@@ -34,8 +35,6 @@ from chemstack.orca.queue_worker import (
     _terminate_process,
     read_worker_pid,
 )
-from chemstack.orca.types import QueueEntry
-
 
 def _make_cfg(tmp: str) -> AppConfig:
     return AppConfig(runtime=RuntimeConfig(allowed_root=tmp))
@@ -211,7 +210,12 @@ class TestQueueWorkerMethods(unittest.TestCase):
             engine="orca",
             metadata={"reaction_dir": str(self.root / "mol_A"), "force": False},
         )
-        token = reserve_slot(self.root, self.worker.max_concurrent, source="queue_worker")
+        token = reserve_slot(
+            self.root,
+            self.worker.max_concurrent,
+            source="queue_worker",
+            state="reserved",
+        )
         self.assertIsNotNone(token)
         self.worker._start_job(self.root, entry, admission_token=token or "")
         self.assertIn("q_test", self.worker._running)
@@ -261,7 +265,12 @@ class TestQueueWorkerMethods(unittest.TestCase):
             },
         )
 
-        token = reserve_slot(self.root, self.worker.max_concurrent, source="queue_worker")
+        token = reserve_slot(
+            self.root,
+            self.worker.max_concurrent,
+            source="queue_worker",
+            state="reserved",
+        )
         self.assertIsNotNone(token)
         self.worker._start_job(self.root, entry, admission_token=token or "")
 
@@ -286,9 +295,10 @@ class TestQueueWorkerMethods(unittest.TestCase):
         token = reserve_slot(
             self.root,
             self.worker.max_concurrent,
-            reaction_dir=str(rxn),
+            work_dir=str(rxn),
             queue_id=entry.queue_id,
             source="queue_worker",
+            state="reserved",
         )
         self.assertIsNotNone(token)
         dequeue_next(self.root)
@@ -305,9 +315,10 @@ class TestQueueWorkerMethods(unittest.TestCase):
         token = reserve_slot(
             self.root,
             self.worker.max_concurrent,
-            reaction_dir=str(rxn),
+            work_dir=str(rxn),
             queue_id=entry.queue_id,
             source="queue_worker",
+            state="reserved",
         )
         self.assertIsNotNone(token)
         dequeue_next(self.root)
@@ -355,9 +366,10 @@ class TestQueueWorkerMethods(unittest.TestCase):
         token = reserve_slot(
             self.root,
             self.worker.max_concurrent,
-            reaction_dir=str(rxn),
+            work_dir=str(rxn),
             queue_id=entry.queue_id,
             source="queue_worker",
+            state="reserved",
         )
         self.assertIsNotNone(token)
 
@@ -396,9 +408,10 @@ class TestQueueWorkerMethods(unittest.TestCase):
         token = reserve_slot(
             self.root,
             self.worker.max_concurrent,
-            reaction_dir=str(rxn),
+            work_dir=str(rxn),
             queue_id=entry.queue_id,
             source="queue_worker",
+            state="reserved",
         )
         self.assertIsNotNone(token)
 
@@ -431,9 +444,10 @@ class TestQueueWorkerMethods(unittest.TestCase):
         token = reserve_slot(
             self.root,
             self.worker.max_concurrent,
-            reaction_dir=str(rxn),
+            work_dir=str(rxn),
             queue_id=entry.queue_id,
             source="queue_worker",
+            state="reserved",
         )
         self.assertIsNotNone(token)
 
@@ -469,9 +483,10 @@ class TestQueueWorkerMethods(unittest.TestCase):
         token = reserve_slot(
             self.root,
             self.worker.max_concurrent,
-            reaction_dir=str(rxn),
+            work_dir=str(rxn),
             queue_id=entry.queue_id,
             source="queue_worker",
+            state="reserved",
         )
         self.assertIsNotNone(token)
 
@@ -742,9 +757,10 @@ class TestFillSlots(unittest.TestCase):
             completion_token = reserve_slot(
                 root,
                 worker.max_concurrent,
-                reaction_dir=str(first_dir),
+                work_dir=str(first_dir),
                 queue_id=completed_entry.queue_id,
                 source="queue_worker",
+                state="reserved",
             )
             self.assertIsNotNone(completion_token)
             worker._running[completed_entry.queue_id] = _RunningJob(
@@ -788,8 +804,9 @@ class TestFillSlots(unittest.TestCase):
             token = reserve_slot(
                 root,
                 1,
-                reaction_dir=str(root / "reserved_hold"),
+                work_dir=str(root / "reserved_hold"),
                 source="queue_worker",
+                state="reserved",
             )
             self.assertIsNotNone(token)
             try:
@@ -813,9 +830,10 @@ class TestFillSlots(unittest.TestCase):
             token = reserve_slot(
                 root,
                 worker.max_concurrent,
-                reaction_dir=str(active_dir),
+                work_dir=str(active_dir),
                 queue_id="q_existing",
                 source="queue_worker",
+                state="reserved",
             )
             self.assertIsNotNone(token)
             worker._running["q_existing"] = _RunningJob(

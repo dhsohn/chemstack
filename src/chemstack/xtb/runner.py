@@ -2,10 +2,14 @@ from __future__ import annotations
 
 import os
 import resource
+import shutil
 import subprocess
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, TextIO
+
+import yaml
 
 from chemstack.core import engine_runner as _engine_runner
 from chemstack.core.config.engines import WorkflowEngineAppConfig as AppConfig
@@ -19,8 +23,6 @@ from .job_inputs import (
     resolve_job_inputs,
     resource_request_from_manifest,
 )
-from . import runner_execution as _runner_execution
-from . import runner_finalize as _runner_finalize
 from . import runner_ranking as _runner_ranking
 from .runner_artifacts import (
     _collect_opt_candidates,
@@ -28,27 +30,6 @@ from .runner_artifacts import (
     _collect_sp_candidates,
     _extract_sp_energy,
 )
-
-
-@dataclass(frozen=True)
-class _RunnerDeps:
-    finalize_xtb_job: Any
-    now_utc_iso: Any
-    start_xtb_job: Any
-    _collect_opt_candidates: Any
-    _collect_path_search_candidates: Any
-    _collect_sp_candidates: Any
-
-
-def _runner_deps() -> _RunnerDeps:
-    return _RunnerDeps(
-        finalize_xtb_job=finalize_xtb_job,
-        now_utc_iso=now_utc_iso,
-        start_xtb_job=start_xtb_job,
-        _collect_opt_candidates=_collect_opt_candidates,
-        _collect_path_search_candidates=_collect_path_search_candidates,
-        _collect_sp_candidates=_collect_sp_candidates,
-    )
 
 
 @dataclass(frozen=True)
@@ -208,16 +189,72 @@ def _run_candidate_sp_job(
     on_running_job: Callable[[XtbRunningJob | None], None] | None = None,
     terminate_process: Callable[[subprocess.Popen[str]], None] | None = None,
 ) -> XtbRunResult:
-    return _runner_execution.run_candidate_sp_job(
-        cfg,
-        candidate_xyz=candidate_xyz,
-        candidate_run_dir=candidate_run_dir,
-        manifest=manifest,
-        should_cancel=should_cancel,
-        on_running_job=on_running_job,
-        terminate_process=terminate_process,
-        deps=_runner_deps(),
+    candidate_run_dir.mkdir(parents=True, exist_ok=True)
+    candidate_input = candidate_run_dir / "input.xyz"
+    shutil.copy2(candidate_xyz, candidate_input)
+    candidate_manifest = dict(manifest)
+    candidate_manifest["job_type"] = "sp"
+    candidate_manifest["input_xyz"] = "input.xyz"
+    candidate_manifest_path = candidate_run_dir / MANIFEST_FILE_NAME
+    candidate_manifest_path.write_text(
+        yaml.safe_dump(candidate_manifest, sort_keys=False), encoding="utf-8"
     )
+    running = start_xtb_job(
+        cfg,
+        job_dir=candidate_run_dir,
+        selected_input_xyz=candidate_input,
+    )
+    if on_running_job is not None:
+        on_running_job(running)
+    try:
+        return _wait_for_candidate_sp_result(
+            running,
+            should_cancel=should_cancel,
+            on_cancel=terminate_process,
+        )
+    finally:
+        if on_running_job is not None:
+            on_running_job(None)
+
+
+def _wait_for_candidate_sp_result(
+    running: Any,
+    *,
+    should_cancel: Callable[[], bool] | None,
+    on_cancel: Callable[[subprocess.Popen[str]], None] | None,
+    sleep_fn: Callable[[float], None] = time.sleep,
+    poll_interval_seconds: float = 1.0,
+) -> XtbRunResult:
+    process = getattr(running, "process", None)
+    if process is None:
+        return finalize_xtb_job(running)
+    while True:
+        if should_cancel is not None and should_cancel():
+            _request_candidate_process_stop(process, on_cancel=on_cancel)
+            return finalize_xtb_job(
+                running,
+                forced_status="cancelled",
+                forced_reason="cancel_requested",
+            )
+        if process.poll() is not None:
+            return finalize_xtb_job(running)
+        sleep_fn(poll_interval_seconds)
+
+
+def _request_candidate_process_stop(
+    process: subprocess.Popen[str],
+    *,
+    on_cancel: Callable[[subprocess.Popen[str]], None] | None,
+) -> None:
+    if process.poll() is not None:
+        return
+    if on_cancel is not None:
+        on_cancel(process)
+        return
+    try:
+        process.terminate()
+    except Exception:
+        pass
 
 
 def _ranking_deps() -> _runner_ranking.RankingDeps:
@@ -317,10 +354,65 @@ def finalize_xtb_job(
     forced_status: str | None = None,
     forced_reason: str | None = None,
 ) -> XtbRunResult:
-    return _runner_finalize.finalize_xtb_job(
-        running,
-        forced_status=forced_status,
-        forced_reason=forced_reason,
-        result_cls=XtbRunResult,
-        deps=_runner_deps(),
+    try:
+        running.stdout_handle.flush()
+        running.stderr_handle.flush()
+    finally:
+        running.stdout_handle.close()
+        running.stderr_handle.close()
+
+    exit_code = running.process.poll()
+    if exit_code is None:
+        exit_code = running.process.wait()
+    finished_at = now_utc_iso()
+
+    status = forced_status if forced_status is not None else _status_from_exit_code(exit_code)
+    reason = forced_reason if forced_reason is not None else _reason_from_exit_code(exit_code)
+    candidate_count, candidate_paths, candidate_details, analysis_summary = _collect_candidates(
+        running
     )
+
+    return XtbRunResult(
+        status=status,
+        reason=reason,
+        command=running.command,
+        exit_code=int(exit_code),
+        started_at=running.started_at,
+        finished_at=finished_at,
+        stdout_log=running.stdout_log,
+        stderr_log=running.stderr_log,
+        selected_input_xyz=running.selected_input_xyz,
+        job_type=running.job_type,
+        reaction_key=running.reaction_key,
+        input_summary=dict(running.input_summary),
+        candidate_count=candidate_count,
+        selected_candidate_paths=candidate_paths,
+        candidate_details=candidate_details,
+        analysis_summary=analysis_summary,
+        manifest_path=running.manifest_path,
+        resource_request=running.resource_request,
+        resource_actual=running.resource_actual,
+    )
+
+
+def _status_from_exit_code(exit_code: int) -> str:
+    return "completed" if exit_code == 0 else "failed"
+
+
+def _reason_from_exit_code(exit_code: int) -> str:
+    return "completed" if exit_code == 0 else f"xtb_exit_code_{exit_code}"
+
+
+def _collect_candidates(
+    running: XtbRunningJob,
+) -> tuple[int, tuple[str, ...], tuple[dict[str, Any], ...], dict[str, Any]]:
+    if running.job_type == "path_search":
+        return _collect_path_search_candidates(
+            Path(running.job_dir),
+            running.stdout_log,
+        )
+    if running.job_type == "opt":
+        return _collect_opt_candidates(Path(running.job_dir))
+    if running.job_type == "sp":
+        return _collect_sp_candidates(Path(running.job_dir))
+    return 0, (), (), {}

@@ -7,7 +7,8 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any, Optional, cast
 
-from chemstack.core.queue.types import QueueStatus
+from chemstack.core.queue import store as _queue_store
+from chemstack.core.queue.types import QueueEntry, QueueStatus
 from chemstack.core.utils.persistence import now_utc_iso, timestamped_token
 
 from .queue_entries import (
@@ -17,6 +18,7 @@ from .queue_entries import (
     QUEUE_FILE_NAME,
     QUEUE_TASK_KIND,
     TERMINAL_STATUSES,
+    entry_from_json_payload,
     entry_metadata,
     find_active_entry,
     find_entry_by_queue_id,
@@ -33,9 +35,6 @@ from .queue_entries import (
     queue_entry_task_id,
 )
 from .queue_orphans import reconcile_orphaned_running_entries
-from .queue_persistence import QueueStoreCorruptError, mutate_entries
-from .types import QueueEntry
-
 logger = logging.getLogger(__name__)
 
 _UNSET = object()
@@ -47,7 +46,6 @@ __all__ = [
     "QUEUE_ENGINE",
     "QUEUE_FILE_NAME",
     "QUEUE_TASK_KIND",
-    "QueueStoreCorruptError",
     "TERMINAL_STATUSES",
     "cancel",
     "cancel_pending_entry",
@@ -79,6 +77,26 @@ __all__ = [
 
 def _now_iso() -> str:
     return now_utc_iso()
+
+
+def _load_entries(allowed_root: Path) -> list[QueueEntry]:
+    return _queue_store.load_entries(
+        allowed_root,
+        entry_from_dict_fn=entry_from_json_payload,
+        corrupt_error=_queue_store.QueueStoreCorruptError,
+    )
+
+
+def _mutate_entries(
+    allowed_root: Path,
+    mutator: Any,
+) -> Any:
+    return _queue_store.mutate_entries(
+        allowed_root,
+        mutator,
+        load_entries_fn=_load_entries,
+        save_entries_fn=_queue_store.save_entries,
+    )
 
 
 class DuplicateEntryError(ValueError):
@@ -141,7 +159,7 @@ def enqueue(
         entries.append(entry)
         return entry, True
 
-    entry = cast(QueueEntry, mutate_entries(allowed_root, append_entry))
+    entry = cast(QueueEntry, _mutate_entries(allowed_root, append_entry))
     logger.info("Enqueued: %s (queue_id=%s, force=%s)", resolved, entry.queue_id, force)
     return entry
 
@@ -164,7 +182,7 @@ def dequeue_next(allowed_root: Path) -> Optional[QueueEntry]:
         entries[idx] = entry
         return entry, True
 
-    entry = cast(QueueEntry | None, mutate_entries(allowed_root, dequeue))
+    entry = cast(QueueEntry | None, _mutate_entries(allowed_root, dequeue))
     if entry is None:
         return None
     logger.info(
@@ -242,7 +260,7 @@ def cancel(allowed_root: Path, queue_id: str) -> Optional[QueueEntry]:
             return None, False
         return None, False
 
-    return cast(QueueEntry | None, mutate_entries(allowed_root, cancel_entry))
+    return cast(QueueEntry | None, _mutate_entries(allowed_root, cancel_entry))
 
 
 def list_queue(
@@ -251,7 +269,10 @@ def list_queue(
     status_filter: str | None = None,
 ) -> list[QueueEntry]:
     """List queue entries, optionally filtered by status."""
-    entries = cast(list[QueueEntry], mutate_entries(allowed_root, lambda entries: (entries, False)))
+    entries = cast(
+        list[QueueEntry],
+        _mutate_entries(allowed_root, lambda entries: (entries, False)),
+    )
     if status_filter:
         normalized_filter = normalize_text(status_filter).lower()
         entries = [e for e in entries if queue_entry_status(e) == normalized_filter]
@@ -261,7 +282,7 @@ def list_queue(
 def has_pending_entries(allowed_root: Path) -> bool:
     """Return True when at least one pending entry exists."""
     return bool(
-        mutate_entries(
+        _mutate_entries(
             allowed_root,
             lambda entries: (
                 any(entry.status == QueueStatus.PENDING for entry in entries),
@@ -276,7 +297,7 @@ def get_active_entry_for_reaction_dir(allowed_root: Path, reaction_dir: str) -> 
     resolved = str(Path(reaction_dir).expanduser().resolve())
     return cast(
         QueueEntry | None,
-        mutate_entries(
+        _mutate_entries(
             allowed_root,
             lambda entries: (find_active_entry(entries, resolved), False),
         ),
@@ -286,7 +307,7 @@ def get_active_entry_for_reaction_dir(allowed_root: Path, reaction_dir: str) -> 
 def get_cancel_requested(allowed_root: Path, queue_id: str) -> bool:
     """Check if a running entry has a cancel request."""
     return bool(
-        mutate_entries(
+        _mutate_entries(
             allowed_root,
             lambda entries: (
                 bool(entry.cancel_requested)
@@ -316,7 +337,7 @@ def clear_terminal(allowed_root: Path, *, keep_last: int = 0) -> int:
             entries[:] = next_entries
         return removed_count, removed_count > 0
 
-    removed_count = int(mutate_entries(allowed_root, clear_in_place))
+    removed_count = int(_mutate_entries(allowed_root, clear_in_place))
     logger.info("Cleared %d terminal entries", removed_count)
     return removed_count
 
@@ -352,7 +373,7 @@ def update_terminal(
             return True, True
         return False, False
 
-    return bool(mutate_entries(allowed_root, update))
+    return bool(_mutate_entries(allowed_root, update))
 
 
 def cancel_pending_entry(entry: QueueEntry, *, finished_at: str) -> QueueEntry:
@@ -387,4 +408,4 @@ def update_running_entry_state(
             return True, True
         return False, False
 
-    return bool(mutate_entries(allowed_root, update))
+    return bool(_mutate_entries(allowed_root, update))

@@ -5,168 +5,13 @@ from typing import Any
 
 from chemstack.cli_common import (
     _dependency,
-    _normalize_text as _normalize_text,
-    _normalize_workflow_type as _normalize_workflow_type,
-    _workflow_root_from_args as _cli_workflow_root_from_args,
+    _normalize_text,
 )
 from . import cli_workflow_output as _workflow_output
 from . import run_dir_manifest as _run_dir_manifest
 from . import run_dir_options as _run_dir_options
 from .orchestration import create_conformer_screening_workflow, create_reaction_ts_search_workflow
 from .restart import restart_failed_workflow
-from .run_dir_manifest import WORKFLOW_MANIFEST_FILENAMES as WORKFLOW_MANIFEST_FILENAMES
-from .run_dir_options import (
-    RUN_DIR_COMMON_WORKFLOW_OPTION_FIELDS as RUN_DIR_COMMON_WORKFLOW_OPTION_FIELDS,
-    RunDirManifestSections,
-    RunDirWorkflowConfig,
-    RunDirWorkflowOptions,
-)
-from .run_dir_layout import (
-    STANDARD_CONFORMER_INPUT_FILENAME as STANDARD_CONFORMER_INPUT_FILENAME,
-    STANDARD_REACTION_PRODUCT_FILENAME as STANDARD_REACTION_PRODUCT_FILENAME,
-    STANDARD_REACTION_REACTANT_FILENAME as STANDARD_REACTION_REACTANT_FILENAME,
-    inspect_workflow_run_dir as inspect_workflow_run_dir,
-)
-
-
-class _CliRunDirDeps:
-    def __init__(self, deps: Any | None) -> None:
-        self._deps = deps
-
-    def __getattr__(self, name: str) -> Any:
-        if self._deps is not None and hasattr(self._deps, name):
-            return getattr(self._deps, name)
-        if name == "_workflow_root_from_args":
-            return _cli_workflow_root_from_args
-        try:
-            return globals()[name]
-        except KeyError:
-            raise AttributeError(name) from None
-
-
-def _cli_run_dir_deps(deps: Any | None) -> _CliRunDirDeps:
-    return _CliRunDirDeps(deps)
-
-
-def _load_run_dir_manifest(workflow_dir: Path, *, deps: Any | None = None) -> dict[str, Any]:
-    return _run_dir_manifest._load_run_dir_manifest(
-        workflow_dir, deps=_cli_run_dir_deps(deps)
-    )
-
-
-def _manifest_mapping(value: Any, *, deps: Any | None = None) -> dict[str, Any]:
-    return _run_dir_manifest._manifest_mapping(value, deps=_cli_run_dir_deps(deps))
-
-
-def _resolve_manifest_file_value(
-    workflow_dir: Path,
-    value: Any,
-    *,
-    deps: Any | None = None,
-) -> str:
-    return _run_dir_manifest._resolve_manifest_file_value(
-        workflow_dir, value, deps=_cli_run_dir_deps(deps)
-    )
-
-
-def _resolve_engine_manifest(
-    workflow_dir: Path,
-    manifest: dict[str, Any],
-    key: str,
-    *,
-    deps: Any | None = None,
-) -> dict[str, Any]:
-    return _run_dir_manifest._resolve_engine_manifest(
-        workflow_dir, manifest, key, deps=_cli_run_dir_deps(deps)
-    )
-
-
-def _resolve_endpoint_pairing_manifest(
-    manifest: dict[str, Any],
-    xtb_manifest: dict[str, Any],
-    *,
-    deps: Any | None = None,
-) -> dict[str, Any]:
-    return _run_dir_manifest._resolve_endpoint_pairing_manifest(
-        manifest, xtb_manifest, deps=_cli_run_dir_deps(deps)
-    )
-
-
-def _resolve_run_dir_path(
-    workflow_dir: Path,
-    *,
-    explicit: Any,
-    manifest: dict[str, Any],
-    key: str,
-    default_names: tuple[str, ...],
-    deps: Any | None = None,
-) -> str:
-    return _run_dir_manifest._resolve_run_dir_path(
-        workflow_dir,
-        explicit=explicit,
-        manifest=manifest,
-        key=key,
-        default_names=default_names,
-        deps=_cli_run_dir_deps(deps),
-    )
-
-
-def _resolve_text_option_with_section(
-    explicit: Any,
-    manifest: dict[str, Any],
-    key: str,
-    section: dict[str, Any],
-    section_key: str,
-    default: str,
-    *,
-    deps: Any | None = None,
-) -> str:
-    return _run_dir_options._resolve_text_option_with_section(
-        explicit,
-        manifest,
-        key,
-        section,
-        section_key,
-        default,
-        deps=_cli_run_dir_deps(deps),
-    )
-
-
-def _resolve_int_option(
-    explicit: Any, manifest: dict[str, Any], key: str, default: int, *, deps: Any | None = None
-) -> int:
-    return _run_dir_options._resolve_int_option(
-        explicit, manifest, key, default, deps=_cli_run_dir_deps(deps)
-    )
-
-
-def _resolve_int_option_with_section(
-    explicit: Any,
-    manifest: dict[str, Any],
-    key: str,
-    section: dict[str, Any],
-    section_key: str,
-    default: int,
-    *,
-    deps: Any | None = None,
-) -> int:
-    return _run_dir_options._resolve_int_option_with_section(
-        explicit,
-        manifest,
-        key,
-        section,
-        section_key,
-        default,
-        deps=_cli_run_dir_deps(deps),
-    )
-
-
-def _resolve_required_workflow_root(
-    args: Any, manifest: dict[str, Any], *, deps: Any | None = None
-) -> str:
-    return _run_dir_options._resolve_required_workflow_root(
-        args, manifest, deps=_cli_run_dir_deps(deps)
-    )
 
 
 def _safe_workflow_name(value: Any, *, fallback: str, deps: Any | None = None) -> str:
@@ -228,140 +73,27 @@ def _workflow_root_for_existing_run_dir(
     return workflow_dir.parent
 
 
-def _resolve_run_dir_workflow_type(
-    args: Any, manifest: dict[str, Any], workflow_layout: Any, *, deps: Any | None = None
-) -> str:
-    return _run_dir_manifest._resolve_run_dir_workflow_type(
-        args, manifest, workflow_layout, deps=_cli_run_dir_deps(deps)
-    )
-
-
-def _resolve_run_dir_manifest_sections(
-    workflow_dir: Path, manifest: dict[str, Any], *, deps: Any | None = None
-) -> RunDirManifestSections:
-    return _run_dir_manifest._resolve_run_dir_manifest_sections(
-        workflow_dir, manifest, deps=_cli_run_dir_deps(deps)
-    )
-
-
-def _resolve_run_dir_workflow_options(
-    args: Any,
-    manifest: dict[str, Any],
-    sections: RunDirManifestSections,
-    *,
-    default_orca_route_line: str,
-    default_max_orca_stages: int,
-    default_max_crest_candidates: int = 3,
-    default_max_xtb_stages: int = 3,
-    workflow_root: str | None = None,
-    deps: Any | None = None,
-) -> RunDirWorkflowOptions:
-    return _run_dir_options._resolve_run_dir_workflow_options(
-        args,
-        manifest,
-        sections,
-        default_orca_route_line=default_orca_route_line,
-        default_max_orca_stages=default_max_orca_stages,
-        default_max_crest_candidates=default_max_crest_candidates,
-        default_max_xtb_stages=default_max_xtb_stages,
-        workflow_root=workflow_root,
-        deps=_cli_run_dir_deps(deps),
-    )
-
-
-def _resolve_run_dir_workflow_option_bundle(
-    args: Any,
-    manifest: dict[str, Any],
-    sections: RunDirManifestSections,
-    *,
-    default_orca_route_line: str,
-    default_max_orca_stages: int,
-    default_max_crest_candidates: int = 3,
-    default_max_xtb_stages: int = 3,
-    workflow_root: str | None = None,
-    deps: Any | None = None,
-) -> tuple[RunDirWorkflowOptions, dict[str, Any]]:
-    return _run_dir_options._resolve_run_dir_workflow_option_bundle(
-        args,
-        manifest,
-        sections,
-        default_orca_route_line=default_orca_route_line,
-        default_max_orca_stages=default_max_orca_stages,
-        default_max_crest_candidates=default_max_crest_candidates,
-        default_max_xtb_stages=default_max_xtb_stages,
-        workflow_root=workflow_root,
-        deps=_cli_run_dir_deps(deps),
-    )
-
-
-def _workflow_options_to_common_kwargs(options: RunDirWorkflowOptions) -> dict[str, Any]:
-    return _run_dir_options._workflow_options_to_common_kwargs(options)
-
-
 def _update_present_kwargs(kwargs: dict[str, Any], values: dict[str, Any]) -> None:
     for key, value in values.items():
         if value:
             kwargs[key] = value
 
 
-def _load_run_dir_workflow_config(
-    args: Any, workflow_dir: Path, *, deps: Any | None = None
-) -> RunDirWorkflowConfig:
-    return _run_dir_manifest._load_run_dir_workflow_config(
-        args, workflow_dir, deps=_cli_run_dir_deps(deps)
+def _create_reaction_run_dir_workflow(
+    args: Any, config: _run_dir_options.RunDirWorkflowConfig, *, deps: Any | None = None
+) -> dict[str, Any]:
+    resolve_required_workflow_root = _dependency(
+        deps,
+        "_resolve_required_workflow_root",
+        _run_dir_options._resolve_required_workflow_root,
     )
-
-
-def _run_dir_workflow_id(
-    config: RunDirWorkflowConfig, workflow_root: str, *, deps: Any | None = None
-) -> str:
     unique_run_dir_workflow_id = _dependency(
         deps, "_unique_run_dir_workflow_id", _unique_run_dir_workflow_id
     )
-    return unique_run_dir_workflow_id(
-        config.workflow_dir,
-        workflow_root=workflow_root,
-        workflow_type=config.workflow_type,
-    )
-
-
-def _common_run_dir_workflow_kwargs(
-    args: Any,
-    config: RunDirWorkflowConfig,
-    *,
-    workflow_root: str,
-    default_orca_route_line: str,
-    default_max_orca_stages: int,
-    deps: Any | None = None,
-) -> dict[str, Any]:
     resolve_run_dir_workflow_option_bundle = _dependency(
         deps,
         "_resolve_run_dir_workflow_option_bundle",
-        _resolve_run_dir_workflow_option_bundle,
-    )
-
-    _, common_kwargs = resolve_run_dir_workflow_option_bundle(
-        args,
-        config.manifest,
-        config.sections,
-        default_orca_route_line=default_orca_route_line,
-        default_max_orca_stages=default_max_orca_stages,
-        workflow_root=workflow_root,
-    )
-    return common_kwargs
-
-
-def _create_reaction_run_dir_workflow(
-    args: Any, config: RunDirWorkflowConfig, *, deps: Any | None = None
-) -> dict[str, Any]:
-    resolve_required_workflow_root = _dependency(
-        deps, "_resolve_required_workflow_root", _resolve_required_workflow_root
-    )
-    run_dir_workflow_id = _dependency(deps, "_run_dir_workflow_id", _run_dir_workflow_id)
-    resolve_run_dir_workflow_option_bundle = _dependency(
-        deps,
-        "_resolve_run_dir_workflow_option_bundle",
-        _resolve_run_dir_workflow_option_bundle,
+        _run_dir_options._resolve_run_dir_workflow_option_bundle,
     )
     update_present_kwargs = _dependency(deps, "_update_present_kwargs", _update_present_kwargs)
     create_workflow = _dependency(
@@ -385,7 +117,11 @@ def _create_reaction_run_dir_workflow(
     reaction_kwargs: dict[str, Any] = {
         "reactant_xyz": config.reactant_xyz,
         "product_xyz": config.product_xyz,
-        "workflow_id": run_dir_workflow_id(config, workflow_root),
+        "workflow_id": unique_run_dir_workflow_id(
+            config.workflow_dir,
+            workflow_root=workflow_root,
+            workflow_type=config.workflow_type,
+        ),
         **common_kwargs,
         "max_crest_candidates": options.max_crest_candidates,
         "max_xtb_stages": options.max_xtb_stages,
@@ -402,14 +138,20 @@ def _create_reaction_run_dir_workflow(
 
 
 def _create_conformer_run_dir_workflow(
-    args: Any, config: RunDirWorkflowConfig, *, deps: Any | None = None
+    args: Any, config: _run_dir_options.RunDirWorkflowConfig, *, deps: Any | None = None
 ) -> dict[str, Any]:
     resolve_required_workflow_root = _dependency(
-        deps, "_resolve_required_workflow_root", _resolve_required_workflow_root
+        deps,
+        "_resolve_required_workflow_root",
+        _run_dir_options._resolve_required_workflow_root,
     )
-    run_dir_workflow_id = _dependency(deps, "_run_dir_workflow_id", _run_dir_workflow_id)
-    common_run_dir_workflow_kwargs = _dependency(
-        deps, "_common_run_dir_workflow_kwargs", _common_run_dir_workflow_kwargs
+    unique_run_dir_workflow_id = _dependency(
+        deps, "_unique_run_dir_workflow_id", _unique_run_dir_workflow_id
+    )
+    resolve_run_dir_workflow_option_bundle = _dependency(
+        deps,
+        "_resolve_run_dir_workflow_option_bundle",
+        _run_dir_options._resolve_run_dir_workflow_option_bundle,
     )
     update_present_kwargs = _dependency(deps, "_update_present_kwargs", _update_present_kwargs)
     create_workflow = _dependency(
@@ -419,16 +161,22 @@ def _create_conformer_run_dir_workflow(
     if not config.input_xyz:
         raise ValueError("conformer_screening requires input.xyz (or manifest/CLI override).")
     workflow_root = resolve_required_workflow_root(args, config.manifest)
+    _, common_kwargs = resolve_run_dir_workflow_option_bundle(
+        args,
+        config.manifest,
+        config.sections,
+        default_orca_route_line="! r2scan-3c Opt TightSCF",
+        default_max_orca_stages=20,
+        workflow_root=workflow_root,
+    )
     conformer_kwargs: dict[str, Any] = {
         "input_xyz": config.input_xyz,
-        "workflow_id": run_dir_workflow_id(config, workflow_root),
-        **common_run_dir_workflow_kwargs(
-            args,
-            config,
+        "workflow_id": unique_run_dir_workflow_id(
+            config.workflow_dir,
             workflow_root=workflow_root,
-            default_orca_route_line="! r2scan-3c Opt TightSCF",
-            default_max_orca_stages=20,
+            workflow_type=config.workflow_type,
         ),
+        **common_kwargs,
     }
     update_present_kwargs(conformer_kwargs, {"crest_job_manifest": config.crest_manifest})
     return create_workflow(**conformer_kwargs)
@@ -438,7 +186,7 @@ def _create_run_dir_workflow(
     args: Any, workflow_dir: Path, *, deps: Any | None = None
 ) -> dict[str, Any]:
     load_run_dir_workflow_config = _dependency(
-        deps, "_load_run_dir_workflow_config", _load_run_dir_workflow_config
+        deps, "_load_run_dir_workflow_config", _run_dir_manifest._load_run_dir_workflow_config
     )
     create_reaction_run_dir_workflow = _dependency(
         deps, "_create_reaction_run_dir_workflow", _create_reaction_run_dir_workflow

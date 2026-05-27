@@ -3,12 +3,10 @@ from __future__ import annotations
 import os
 from datetime import datetime, timezone
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Literal
 from unittest.mock import patch
 
-from chemstack.orca.commands import summary
-from chemstack.orca.config import AppConfig, PathsConfig, RuntimeConfig, TelegramConfig
+from chemstack.orca import summary
 from chemstack.orca.run_snapshot import RunSnapshot
 
 
@@ -70,22 +68,6 @@ class _FakeBinaryHandle:
         return self.raw
 
 
-def _cfg(allowed_root: Path, *, telegram_enabled: bool = True) -> AppConfig:
-    telegram = (
-        TelegramConfig(bot_token="token", chat_id="1234")
-        if telegram_enabled
-        else TelegramConfig()
-    )
-    return AppConfig(
-        runtime=RuntimeConfig(
-            allowed_root=str(allowed_root),
-            organized_root=str(allowed_root.parent / "outputs"),
-        ),
-        paths=PathsConfig(orca_executable="/opt/orca/orca"),
-        telegram=telegram,
-    )
-
-
 def _snapshot(
     reaction_dir: Path,
     *,
@@ -123,7 +105,7 @@ def test_human_duration_elapsed_and_updated_text_cover_formatting_branches(tmp_p
     for path in (recent, hourly, daily):
         path.write_text("x", encoding="utf-8")
 
-    with patch("chemstack.orca.commands.summary.datetime", _FrozenDateTime):
+    with patch("chemstack.orca.summary.datetime", _FrozenDateTime):
         os.utime(recent, (0, _FrozenDateTime.frozen_now().timestamp() - 30 * 60))
         os.utime(hourly, (0, _FrozenDateTime.frozen_now().timestamp() - (2 * 3600 + 5 * 60)))
         os.utime(daily, (0, _FrozenDateTime.frozen_now().timestamp() - (2 * 86400 + 3 * 3600)))
@@ -165,7 +147,7 @@ def test_scan_cwd_process_counts_handles_proc_absence_and_filters(tmp_path: Path
         Path,
         "iterdir",
         return_value=entries,
-    ), patch("chemstack.orca.commands.summary.os.readlink", side_effect=_readlink):
+    ), patch("chemstack.orca.summary.os.readlink", side_effect=_readlink):
         counts = summary._scan_cwd_process_counts(allowed_root)
 
     assert counts == {inside.resolve(): 1}
@@ -201,7 +183,7 @@ def test_extract_geometry_maxiter_and_eta_summary_cover_remaining_time_branches(
         encoding="utf-8",
     )
 
-    with patch("chemstack.orca.commands.summary.datetime", _FrozenDateTime):
+    with patch("chemstack.orca.summary.datetime", _FrozenDateTime):
         assert summary._extract_geometry_maxiter(out_path) == 174
         assert summary._extract_geometry_maxiter(tmp_path / "missing.out") is None
         assert summary._eta_summary(cycle=None, maxiter=10, started_at="2026-01-10T10:00:00+00:00") == "n/a"
@@ -227,8 +209,8 @@ def test_build_progress_snapshot_handles_missing_outputs_and_parser_failure(tmp_
     )
     running_run = _snapshot(out_path.parent, latest_out_path=out_path, started_at="2026-01-10T10:00:00+00:00")
 
-    with patch("chemstack.orca.commands.summary.parse_opt_progress", side_effect=RuntimeError("bad parse")), patch(
-        "chemstack.orca.commands.summary._updated_ago_text",
+    with patch("chemstack.orca.summary.parse_opt_progress", side_effect=RuntimeError("bad parse")), patch(
+        "chemstack.orca.summary._updated_ago_text",
         return_value="5m",
     ):
         progress_snapshot = summary._build_progress_snapshot(running_run, {})
@@ -237,30 +219,6 @@ def test_build_progress_snapshot_handles_missing_outputs_and_parser_failure(tmp_
     assert progress_snapshot.cycle is None
     assert progress_snapshot.updated_text == "5m ago"
     assert progress_snapshot.tail_text == "SCF still running"
-
-
-def test_matches_orca_process_and_count_active_orca_processes_cover_matching_paths() -> None:
-    assert summary._matches_orca_process("  ", "/opt/orca/orca") is False
-    assert summary._matches_orca_process("/opt/orca/orca job.inp", "/opt/orca/orca") is True
-    assert summary._matches_orca_process("/usr/bin/orca job.inp", "/opt/orca/orca") is True
-    assert summary._matches_orca_process("/usr/bin/python worker.py", "/opt/orca/orca") is False
-    assert summary._count_active_orca_processes("") == 0
-
-    completed = SimpleNamespace(
-        stdout="\n".join(
-            [
-                "",
-                "  /opt/orca/orca rxn1.inp",
-                "/usr/bin/python runner.py",
-                "/usr/local/bin/orca rxn2.inp",
-            ]
-        )
-    )
-    with patch("chemstack.orca.commands.summary.subprocess.run", return_value=completed):
-        assert summary._count_active_orca_processes("/opt/orca/orca") == 2
-
-    with patch("chemstack.orca.commands.summary.subprocess.run", side_effect=OSError("ps missing")):
-        assert summary._count_active_orca_processes("/opt/orca/orca") == 0
 
 
 def test_section_formatters_cover_empty_and_truncated_sections(tmp_path: Path) -> None:
@@ -285,7 +243,7 @@ def test_section_formatters_cover_empty_and_truncated_sections(tmp_path: Path) -
         eta_text="45m (maxiter=10, rate=6.00 cyc/h)",
         tail_text="still running",
     )
-    with patch("chemstack.orca.commands.summary._build_progress_snapshot", return_value=fake_progress):
+    with patch("chemstack.orca.summary._build_progress_snapshot", return_value=fake_progress):
         running_text = summary._format_running_section(active, {})
 
     attention_text = summary._format_attention_section(attention, [])
@@ -294,37 +252,3 @@ def test_section_formatters_cover_empty_and_truncated_sections(tmp_path: Path) -
     assert "run.lock present" in running_text
     assert attention_text is not None
     assert "showing 8/9" in attention_text
-
-
-def test_run_summary_and_cmd_summary_cover_send_paths(tmp_path: Path, capsys) -> None:
-    allowed_root = tmp_path / "allowed"
-    allowed_root.mkdir()
-
-    disabled_cfg = _cfg(allowed_root, telegram_enabled=False)
-    enabled_cfg = _cfg(allowed_root, telegram_enabled=True)
-
-    with patch("chemstack.orca.commands.summary._build_summary_message", return_value="summary payload"):
-        assert summary._run_summary(disabled_cfg, send=True) == 1
-        assert "summary payload" in capsys.readouterr().out
-
-    with patch("chemstack.orca.commands.summary._build_summary_message", return_value="summary payload"), patch(
-        "chemstack.orca.commands.summary.send_message",
-        return_value=True,
-    ):
-        assert summary._run_summary(enabled_cfg, send=True) == 0
-
-    with patch("chemstack.orca.commands.summary._build_summary_message", return_value="summary payload"), patch(
-        "chemstack.orca.commands.summary.send_message",
-        return_value=False,
-    ):
-        assert summary._run_summary(enabled_cfg, send=True) == 1
-
-    args = SimpleNamespace(config="config.yml", no_send=True)
-    with patch("chemstack.orca.commands.summary.load_config", return_value=enabled_cfg) as mocked_load, patch(
-        "chemstack.orca.commands.summary._run_summary",
-        return_value=7,
-    ) as mocked_run:
-        assert summary.cmd_summary(args) == 7
-
-    mocked_load.assert_called_once_with("config.yml")
-    mocked_run.assert_called_once_with(enabled_cfg, send=False)

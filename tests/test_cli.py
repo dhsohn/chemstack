@@ -13,7 +13,7 @@ from unittest.mock import MagicMock, patch
 from chemstack import cli as unified_cli
 from chemstack import cli_handlers as cli_run_dir
 from chemstack import cli_handlers as cli_summary
-from chemstack.core.admission.orca import reserve_slot
+from chemstack.core.admission import reserve_slot
 from chemstack.orca.commands._helpers import CONFIG_ENV_VAR, _emit, default_config_path
 from chemstack.orca.commands.run_inp import (
     _cmd_run_inp_execute,
@@ -64,8 +64,9 @@ class TestCli(unittest.TestCase):
         token = reserve_slot(
             reaction_dir.parent,
             1,
-            reaction_dir=str(reaction_dir),
+            work_dir=str(reaction_dir),
             source="queue_worker",
+            state="reserved",
         )
         self.assertIsNotNone(token)
         return _cmd_run_inp_execute(
@@ -231,9 +232,7 @@ class TestCli(unittest.TestCase):
             patch(
                 "chemstack.orca.commands.organize.cmd_organize", side_effect=_record("organize", 43)
             ),
-            patch(
-                "chemstack.orca.commands.summary.cmd_summary", side_effect=_record("summary", 44)
-            ),
+            patch("chemstack.summary.cmd_summary", side_effect=_record("summary", 44)),
         ):
             init_args = Namespace(
                 config="/tmp/chemstack.yaml",
@@ -258,7 +257,7 @@ class TestCli(unittest.TestCase):
             )
             init_rc = cli_run_dir.cmd_init(init_args)
             organize_rc = cli_run_dir.cmd_orca_organize(organize_args)
-            summary_rc = cli_summary.cmd_orca_summary(summary_args)
+            summary_rc = cli_summary.cmd_summary(summary_args)
 
         self.assertEqual((init_rc, organize_rc, summary_rc), (42, 43, 44))
         self.assertEqual(

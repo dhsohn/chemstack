@@ -6,13 +6,11 @@ from collections.abc import Sequence
 from typing import Any, TypeVar
 
 from chemstack.core.queue import store as _core_queue
-from chemstack.core.queue.types import QueueStatus
+from chemstack.core.queue.types import QueueEntry, QueueStatus
 from chemstack.core.utils import normalize_bool as _shared_normalize_bool
 from chemstack.core.utils import normalize_text as _shared_normalize_text
 
 from ..core.app_ids import CHEMSTACK_ORCA_APP_NAME
-from .types import QueueEntry
-
 QUEUE_FILE_NAME = "queue.json"
 WORKER_PID_FILE_NAME = "queue_worker.pid"
 QUEUE_APP_NAME = CHEMSTACK_ORCA_APP_NAME

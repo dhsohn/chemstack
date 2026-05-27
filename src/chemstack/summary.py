@@ -18,7 +18,7 @@ from chemstack.flow.workflow_status import (
 )
 from chemstack.flow.activity import list_activities
 from chemstack.flow.state import list_workflow_summaries
-from chemstack.orca.commands import summary as orca_summary
+from chemstack.orca import summary as orca_summary
 from chemstack.orca.config import AppConfig, load_config
 from chemstack.orca.telegram_notifier import escape_html, send_message
 

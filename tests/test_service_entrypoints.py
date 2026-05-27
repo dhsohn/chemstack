@@ -101,5 +101,4 @@ def test_summary_direct_cli_runs_combined_summary(monkeypatch) -> None:
     assert result == 13
     args = captured["args"]
     assert isinstance(args, Namespace)
-    assert args.summary_app == "combined"
     assert args.no_send is False

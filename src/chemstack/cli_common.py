@@ -44,30 +44,6 @@ def _discover_workflow_root(explicit: str | Path | None) -> str | None:
     return None
 
 
-def _discover_configured_workflow_root(
-    explicit: str | Path | None,
-    *,
-    config_path: str | Path | None = None,
-    deps: Any | None = None,
-) -> str | None:
-    normalize = _dependency(deps, "_normalize_text", _normalize_text)
-    path_cls = _dependency(deps, "Path", Path)
-    workflow_root_from_config = _dependency(
-        deps, "shared_workflow_root_from_config", shared_workflow_root_from_config
-    )
-    discover_config_path = _dependency(
-        deps, "_discover_shared_config_path", _discover_shared_config_path
-    )
-
-    explicit_text = normalize(explicit)
-    if explicit_text:
-        return str(path_cls(explicit_text).expanduser().resolve())
-    config_text = normalize(config_path)
-    if config_text:
-        return workflow_root_from_config(config_text)
-    return workflow_root_from_config(discover_config_path(None))
-
-
 def _effective_shared_config_text(args: argparse.Namespace) -> str:
     return (
         _normalize_text(getattr(args, "chemstack_config", None))
@@ -125,10 +101,22 @@ def _shared_chemstack_config(args: Any, *, deps: Any | None = None) -> str | Non
 def _workflow_root_from_args(
     args: Any, *, config_path: str | None = None, deps: Any | None = None
 ) -> str | None:
-    discover_workflow_root = _dependency(
-        deps, "_discover_configured_workflow_root", _discover_configured_workflow_root
+    discover_workflow_root = _dependency(deps, "_discover_workflow_root", _discover_workflow_root)
+    normalize = _dependency(deps, "_normalize_text", _normalize_text)
+    workflow_root_from_config = _dependency(
+        deps, "shared_workflow_root_from_config", shared_workflow_root_from_config
     )
-    return discover_workflow_root(getattr(args, "workflow_root", None), config_path=config_path)
+    discover_config_path = _dependency(
+        deps, "_discover_shared_config_path", _discover_shared_config_path
+    )
+
+    explicit_root = discover_workflow_root(getattr(args, "workflow_root", None))
+    if explicit_root:
+        return explicit_root
+    config_text = normalize(config_path)
+    if not config_text:
+        config_text = discover_config_path(None)
+    return workflow_root_from_config(config_text)
 
 
 def _normalize_workflow_type(value: Any, *, deps: Any | None = None) -> str:

@@ -14,7 +14,6 @@ from chemstack.core.config import CommonResourceConfig, CommonRuntimeConfig, Tel
 
 from chemstack.xtb import runner as runner_mod
 from chemstack.xtb import runner_artifacts
-from chemstack.xtb import runner_execution as runner_execution_mod
 from chemstack.xtb import runner_ranking
 from chemstack.core.config.engines import (
     WorkflowEngineAppConfig as AppConfig,
@@ -423,17 +422,19 @@ def test_run_candidate_sp_job_writes_scaffold_and_finalizes_result(
     assert manifest["input_xyz"] == "input.xyz"
 
 
-def test_wait_for_candidate_sp_result_handles_non_process_and_exit_paths() -> None:
+def test_wait_for_candidate_sp_result_handles_non_process_and_exit_paths(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     expected_result = object()
     deps = _CandidateSpDeps(expected_result)
+    monkeypatch.setattr(runner_mod, "finalize_xtb_job", deps.finalize_xtb_job)
     no_process_running = SimpleNamespace(process=None)
 
     assert (
-        runner_execution_mod._wait_for_candidate_sp_result(
+        runner_mod._wait_for_candidate_sp_result(
             no_process_running,
             should_cancel=None,
             on_cancel=None,
-            deps=deps,
         )
         is expected_result
     )
@@ -443,11 +444,10 @@ def test_wait_for_candidate_sp_result_handles_non_process_and_exit_paths() -> No
     sleeps: list[float] = []
 
     assert (
-        runner_execution_mod._wait_for_candidate_sp_result(
+        runner_mod._wait_for_candidate_sp_result(
             running,
             should_cancel=lambda: False,
             on_cancel=None,
-            deps=deps,
             sleep_fn=sleeps.append,
             poll_interval_seconds=0.25,
         )
@@ -463,6 +463,7 @@ def test_wait_for_candidate_sp_result_handles_non_process_and_exit_paths() -> No
 
 def test_run_candidate_sp_job_cancels_process_and_clears_running_callback(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     cfg = _cfg(tmp_path)
     candidate_xyz = _write_xyz(tmp_path / "input-candidates" / "rank 2.xyz")
@@ -484,12 +485,14 @@ def test_run_candidate_sp_job_cancels_process_and_clears_running_callback(
         assert forced_reason == "cancel_requested"
         return expected_result
 
-    deps = SimpleNamespace(
-        start_xtb_job=lambda cfg_obj, *, job_dir, selected_input_xyz: running,
-        finalize_xtb_job=fake_finalize_xtb_job,
+    monkeypatch.setattr(
+        runner_mod,
+        "start_xtb_job",
+        lambda cfg_obj, *, job_dir, selected_input_xyz: running,
     )
+    monkeypatch.setattr(runner_mod, "finalize_xtb_job", fake_finalize_xtb_job)
 
-    result = runner_execution_mod.run_candidate_sp_job(
+    result = runner_mod._run_candidate_sp_job(
         cfg,
         candidate_xyz=candidate_xyz,
         candidate_run_dir=candidate_run_dir,
@@ -497,7 +500,6 @@ def test_run_candidate_sp_job_cancels_process_and_clears_running_callback(
         should_cancel=lambda: True,
         on_running_job=running_callbacks.append,
         terminate_process=stopped_processes.append,
-        deps=deps,
     )
 
     manifest = yaml.safe_load((candidate_run_dir / "xtb_job.yaml").read_text(encoding="utf-8"))
@@ -511,21 +513,21 @@ def test_run_candidate_sp_job_cancels_process_and_clears_running_callback(
 
 def test_request_candidate_process_stop_terminates_or_ignores_errors() -> None:
     process = _FakeCandidateProcess([None])
-    runner_execution_mod._request_candidate_process_stop(
+    runner_mod._request_candidate_process_stop(
         cast(subprocess.Popen[str], process),
         on_cancel=None,
     )
     assert process.terminate_calls == 1
 
     exited = _FakeCandidateProcess([0])
-    runner_execution_mod._request_candidate_process_stop(
+    runner_mod._request_candidate_process_stop(
         cast(subprocess.Popen[str], exited),
         on_cancel=None,
     )
     assert exited.terminate_calls == 0
 
     raising = _FakeCandidateProcess([None], terminate_raises=True)
-    runner_execution_mod._request_candidate_process_stop(
+    runner_mod._request_candidate_process_stop(
         cast(subprocess.Popen[str], raising),
         on_cancel=None,
     )

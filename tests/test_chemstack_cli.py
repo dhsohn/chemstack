@@ -148,9 +148,6 @@ def test_build_parser_parses_unified_init_scaffold_organize_summary_and_monitor_
             "--apply",
         ]
     )
-    summary_args = parser.parse_args(
-        ["summary", "orca", "--chemstack-config", "/tmp/chemstack.yaml", "--no-send"]
-    )
     combined_summary_args = parser.parse_args(
         ["summary", "--chemstack-config", "/tmp/chemstack.yaml", "--no-send"]
     )
@@ -180,13 +177,7 @@ def test_build_parser_parses_unified_init_scaffold_organize_summary_and_monitor_
     assert organize_args.apply is True
     assert organize_args.func is cli_run_dir.cmd_orca_organize
 
-    assert summary_args.command == "summary"
-    assert summary_args.summary_app == "orca"
-    assert summary_args.no_send is True
-    assert summary_args.func is cli_summary.cmd_summary
-
     assert combined_summary_args.command == "summary"
-    assert combined_summary_args.summary_app == "combined"
     assert combined_summary_args.no_send is True
     assert combined_summary_args.func is cli_summary.cmd_summary
 
@@ -294,15 +285,9 @@ def test_classify_existing_orca_worker_distinguishes_chemstack_and_unknown(
             25,
         ),
         (
-            ["summary", "orca", "--chemstack-config", "/tmp/chemstack.yaml", "--no-send"],
-            "cmd_summary",
-            {"command": "summary", "summary_app": "orca", "no_send": True},
-            27,
-        ),
-        (
             ["summary", "--chemstack-config", "/tmp/chemstack.yaml", "--no-send"],
             "cmd_summary",
-            {"command": "summary", "summary_app": "combined", "no_send": True},
+            {"command": "summary", "no_send": True},
             28,
         ),
         (

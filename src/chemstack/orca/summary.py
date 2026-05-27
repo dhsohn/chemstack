@@ -3,17 +3,15 @@ from __future__ import annotations
 import logging
 import os
 import re
-import subprocess
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from html import unescape
 from pathlib import Path
 from typing import Any
 
-from ..config import AppConfig, load_config
-from ..orca_parser import parse_opt_progress
 from chemstack.core.paths import is_subpath
-from ..run_snapshot import (
+from .orca_parser import parse_opt_progress
+from .run_snapshot import (
     RunSnapshot,
     collect_run_snapshots,
     parse_iso_utc,
@@ -21,10 +19,18 @@ from ..run_snapshot import (
     sort_snapshots_by_started,
     status_icon,
 )
-from ..runtime.run_lock import LOCK_FILE_NAME
-from ..telegram_notifier import escape_html, send_message
+from .runtime.run_lock import LOCK_FILE_NAME
+from .telegram_notifier import escape_html
 
 logger = logging.getLogger(__name__)
+
+__all__ = [
+    "RunSnapshot",
+    "collect_run_snapshots",
+    "sort_snapshots_by_completed",
+    "sort_snapshots_by_started",
+    "status_icon",
+]
 
 _ENERGY_RE = re.compile(r"FINAL SINGLE POINT ENERGY\s+([-\d.]+)")
 _MAX_CYCLES_RE = re.compile(r"Max\.\s+no of cycles\s+MaxIter\s+\.\.\.\.\s+(\d+)", re.IGNORECASE)
@@ -250,63 +256,6 @@ def _build_progress_snapshot(
     )
 
 
-def _matches_orca_process(proc_args: str, orca_executable: str) -> bool:
-    stripped = proc_args.strip()
-    if not stripped:
-        return False
-
-    exe_path = str(Path(orca_executable).expanduser())
-    exe_name = Path(exe_path).name
-    first_token = stripped.split(maxsplit=1)[0]
-    return exe_path in stripped or first_token.endswith(f"/{exe_name}")
-
-
-def _count_active_orca_processes(orca_executable: str) -> int:
-    if not orca_executable.strip():
-        return 0
-
-    try:
-        proc = subprocess.run(
-            ["ps", "-eo", "args="],
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-    except OSError as exc:
-        logger.warning("summary_process_count_failed: %s", exc)
-        return 0
-
-    count = 0
-    for line in proc.stdout.splitlines():
-        if _matches_orca_process(line, orca_executable):
-            count += 1
-    return count
-
-
-def _format_overview_section(
-    active: list[RunSnapshot],
-    failed: list[RunSnapshot],
-    other: list[RunSnapshot],
-    active_simulations: int,
-) -> str:
-    running_count = sum(1 for snapshot in active if snapshot.status == "running")
-    retrying_count = sum(1 for snapshot in active if snapshot.status == "retrying")
-    parts: list[str] = []
-    for status, count in [
-        ("running", running_count),
-        ("retrying", retrying_count),
-        ("failed", len(failed)),
-    ]:
-        if count > 0:
-            parts.append(f"{status_icon(status)} {status} {count}")
-    if other:
-        parts.append(f"\u2753 other {len(other)}")
-
-    summary_line = " | ".join(parts) if parts else "No active or attention-needed runs"
-    active_line = f"\U0001f517 Active simulations: {active_simulations}"
-    return f"\U0001f4ca <b>Current State</b>\n{summary_line}\n{active_line}"
-
-
 def _format_running_section(
     active: list[RunSnapshot],
     process_counts: dict[Path, int],
@@ -379,71 +328,5 @@ def _format_attention_section(
     return header + "\n\n" + "\n\n".join(lines)
 
 
-def _build_summary_message(cfg: AppConfig) -> str:
-    allowed_root = Path(cfg.runtime.allowed_root).expanduser().resolve()
-    snapshots = collect_run_snapshots(allowed_root)
-    process_counts = _scan_cwd_process_counts(allowed_root)
-
-    active = sort_snapshots_by_started(
-        snapshot for snapshot in snapshots if snapshot.status in {"running", "retrying"}
-    )
-    failed = sort_snapshots_by_completed(
-        snapshot for snapshot in snapshots if snapshot.status == "failed"
-    )
-    other = [
-        snapshot
-        for snapshot in snapshots
-        if snapshot.status not in {"running", "retrying", "completed", "failed"}
-    ]
-
-    now = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M %Z")
-    header = f"\U0001f4ca <b>chemstack summary</b>  <code>{escape_html(now)}</code>"
-    divider = "\u2500" * 28
-    scope = (
-        "\U0001f50e <b>Scope</b>\n"
-        "Current-state digest only. Active runs and current blockers are shown; completed history is omitted."
-    )
-
-    sections: list[str] = [header, divider]
-    sections.append(scope)
-    sections.append(_format_overview_section(active, failed, other, len(active)))
-
-    running = _format_running_section(active, process_counts)
-    if running:
-        sections.append(running)
-
-    attention = _format_attention_section(failed, other)
-    if attention:
-        sections.append(attention)
-
-    sections.append(divider)
-
-    return "\n\n".join(sections)
-
-
 def _html_to_plain_text(message: str) -> str:
     return unescape(_HTML_TAG_RE.sub("", message))
-
-
-def _run_summary(cfg: AppConfig, *, send: bool = True) -> int:
-    summary_message = _build_summary_message(cfg)
-    print(_html_to_plain_text(summary_message))
-
-    if not send:
-        return 0
-
-    if not cfg.telegram.enabled:
-        logger.error("Telegram is not configured.")
-        return 1
-
-    if send_message(cfg.telegram, summary_message):
-        logger.info("Telegram summary sent successfully")
-        return 0
-
-    logger.error("Failed to send Telegram summary")
-    return 1
-
-
-def cmd_summary(args: Any) -> int:
-    cfg = load_config(args.config)
-    return _run_summary(cfg, send=not getattr(args, "no_send", False))

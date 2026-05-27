@@ -1,18 +1,18 @@
 from __future__ import annotations
 
 import logging
-from contextlib import AbstractContextManager
+from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, Type
 
-from chemstack.core.queue.types import QueueStatus
+from chemstack.core.queue.types import QueueEntry, QueueStatus
 from chemstack.core.utils.process_lock import is_process_alive, parse_lock_info, process_start_ticks
 
 from .. import queue_adapter as _queue_adapter
-from chemstack.core.admission.orca import (
+from chemstack.core.admission import (
     AdmissionLimitReachedError,
-    activate_reserved_slot,
+    activate_reserved_slot as _activate_reserved_slot,
     release_slot,
 )
 from ..attempt_engine import _exit_with_result, run_attempts
@@ -33,7 +33,6 @@ from ..telegram_notifier import (
 )
 from ..types import (
     QueueEnqueuedNotification,
-    QueueEntry,
     RetryNotification,
     RunFinishedNotification,
     RunStartedNotification,
@@ -410,10 +409,10 @@ def _admission_context(
     admission_task_id: str | None,
 ) -> AbstractContextManager[str]:
     if reservation_token is not None:
-        return activate_reserved_slot(
+        return _activated_reserved_slot_context(
             admission_root,
             reservation_token,
-            reaction_dir=str(reaction_dir),
+            reaction_dir=reaction_dir,
             source="queue_run",
             app_name=admission_app_name,
             task_id=admission_task_id,
@@ -426,6 +425,37 @@ def _admission_context(
 
 def _release_reservation_if_needed(admission_root: Path, reservation_token: str | None) -> None:
     if reservation_token is not None:
+        release_slot(admission_root, reservation_token)
+
+
+@contextmanager
+def _activated_reserved_slot_context(
+    admission_root: Path,
+    reservation_token: str,
+    *,
+    reaction_dir: Path,
+    source: str,
+    app_name: str | None,
+    task_id: str | None,
+) -> Any:
+    activated = _activate_reserved_slot(
+        admission_root,
+        reservation_token,
+        state="active",
+        work_dir=reaction_dir,
+        source=source,
+        app_name=app_name,
+        task_id=task_id,
+    )
+    if activated is None:
+        release_slot(admission_root, reservation_token)
+        raise AdmissionLimitReachedError(
+            f"Failed to activate reserved admission slot for {reaction_dir}."
+        )
+
+    try:
+        yield reservation_token
+    finally:
         release_slot(admission_root, reservation_token)
 
 
@@ -532,16 +562,6 @@ def _submit_as_queued(
     )
 
 
-def _existing_completed_submit_exit(
-    args: Any,
-    context: RunSubmissionContext,
-    *,
-    runner_cls: Type[OrcaRunner],
-) -> int | None:
-    del args, context, runner_cls
-    return None
-
-
 def _execute_locked_run(
     args: Any,
     context: RunExecutionContext,
@@ -590,10 +610,6 @@ def _cmd_run_inp_submit(args: Any, *, runner_cls: Type[OrcaRunner] = OrcaRunner)
     if conflict_error is not None:
         logger.error("%s", conflict_error)
         return 1
-
-    existing_completed_exit = _existing_completed_submit_exit(args, context, runner_cls=runner_cls)
-    if existing_completed_exit is not None:
-        return existing_completed_exit
 
     return _submit_as_queued(
         context.cfg,

@@ -141,9 +141,6 @@ def test_build_summary_message_includes_workflow_sections(tmp_path: Path) -> Non
         "chemstack.summary.count_global_active_simulations",
         return_value=4,
     ), patch(
-        "chemstack.summary.orca_summary._count_active_orca_processes",
-        return_value=7,
-    ), patch(
         "chemstack.summary.orca_summary._format_running_section",
         return_value="⏳ <b>Active Runs</b>\n\nmocked running section",
     ), patch(
@@ -224,9 +221,6 @@ def test_build_summary_message_uses_active_run_fallback_without_workflow_root(tm
     ), patch(
         "chemstack.summary.shared_workflow_root_from_config",
         return_value=None,
-    ), patch(
-        "chemstack.summary.orca_summary._count_active_orca_processes",
-        return_value=2,
     ), patch(
         "chemstack.summary.count_global_active_simulations"
     ) as mocked_active_simulations, patch(
@@ -344,9 +338,6 @@ def test_build_summary_message_omits_empty_workflow_sections(tmp_path: Path) -> 
     ), patch(
         "chemstack.summary._activity_rows",
         return_value=[],
-    ), patch(
-        "chemstack.summary.orca_summary._count_active_orca_processes",
-        return_value=0,
     ), patch(
         "chemstack.summary.orca_summary._format_running_section",
         return_value=None,

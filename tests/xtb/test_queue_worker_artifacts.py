@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import signal
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
@@ -9,6 +10,7 @@ import pytest
 from chemstack.core.queue import processes as queue_processes_mod
 from chemstack.xtb import queue_runtime as queue_cmd
 from chemstack.xtb import state as state_mod
+from chemstack.xtb import worker_execution as worker_exec
 from chemstack.xtb.worker_execution import WorkerExecutionOutcome
 
 
@@ -252,8 +254,8 @@ def test_terminate_process_uses_fallback_terminate_and_kill(
     queue_cmd._terminate_process(cast(Any, proc))
 
     assert killpg_calls == [
-        (4321, queue_cmd.signal.SIGTERM),
-        (4321, queue_cmd.signal.SIGKILL),
+        (4321, signal.SIGTERM),
+        (4321, signal.SIGKILL),
     ]
     assert proc.terminate_called is True
     assert proc.kill_called is True
@@ -324,8 +326,8 @@ def test_run_worker_job_activates_reserved_slot_and_releases_it(
     activated: list[tuple[str, str, str, str, str]] = []
     released: list[tuple[str, str]] = []
 
-    monkeypatch.setattr(queue_cmd, "load_config", lambda _path=None: cfg)
-    monkeypatch.setattr(queue_cmd, "list_queue", lambda _root: [entry])
+    monkeypatch.setattr(worker_exec, "load_config", lambda _path=None: cfg)
+    monkeypatch.setattr(worker_exec, "list_queue", lambda _root: [entry])
 
     def fake_activate_reserved_slot(
         root: str,
@@ -339,22 +341,22 @@ def test_run_worker_job_activates_reserved_slot_and_releases_it(
         return object()
 
     monkeypatch.setattr(
-        queue_cmd,
+        worker_exec,
         "activate_reserved_slot",
         fake_activate_reserved_slot,
     )
     monkeypatch.setattr(
-        queue_cmd, "release_slot", lambda root, token: released.append((root, token))
+        worker_exec, "release_slot", lambda root, token: released.append((root, token))
     )
     monkeypatch.setattr(
-        queue_cmd,
-        "_execute_queue_entry",
+        worker_exec,
+        "execute_queue_entry",
         lambda *args, **kwargs: WorkerExecutionOutcome(
             result=_make_result(selected_xyz, status="completed", reason="completed")
         ),
     )
 
-    exit_code = queue_cmd.run_worker_job(
+    exit_code = worker_exec.run_worker_job(
         config_path="/tmp/chemstack.yaml",
         queue_root=queue_root,
         queue_id=entry.queue_id,
@@ -371,7 +373,7 @@ def test_run_worker_job_activates_reserved_slot_and_releases_it(
             "slot-1",
             str(job_dir.resolve()),
             "queue-1",
-            "chemstack.xtb.worker_job",
+            worker_exec.WORKER_JOB_MODULE,
         )
     ]
     assert released == [(cfg.runtime.admission_root, "slot-1")]

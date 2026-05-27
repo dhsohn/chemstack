@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from chemstack.core.admission.orca import reserve_slot
+from chemstack.core.admission import reserve_slot
 from chemstack.orca.completion_rules import CompletionMode
 from chemstack.orca.commands.run_inp import _cmd_run_inp_execute
 from chemstack.orca.inp_rewriter import rewrite_for_retry
@@ -241,8 +241,9 @@ class TestCrashRecovery(unittest.TestCase):
                 token = reserve_slot(
                     reaction.parent,
                     1,
-                    reaction_dir=str(reaction),
+                    work_dir=str(reaction),
                     source="queue_worker",
+                    state="reserved",
                 )
                 rc = _cmd_run_inp_execute(
                     type(

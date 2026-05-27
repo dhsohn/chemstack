@@ -9,6 +9,7 @@ import pytest
 
 from chemstack import cli_common
 from chemstack.flow import cli_run_dir
+from chemstack.flow import run_dir_options
 
 
 def _create_payload(template_name: str) -> dict[str, Any]:
@@ -346,7 +347,9 @@ def test_cmd_run_dir_requires_workflow_root_for_reaction_workflow(
     create_called = False
 
     monkeypatch.setattr(cli_common, "_discover_workflow_root", lambda explicit: None)
-    monkeypatch.setattr(cli_run_dir, "_cli_workflow_root_from_args", lambda args, *, config_path=None: None)
+    monkeypatch.setattr(
+        run_dir_options, "_cli_workflow_root_from_args", lambda args, *, config_path=None: None
+    )
 
     def fake_create_reaction_ts_search_workflow(**kwargs: Any) -> dict[str, Any]:
         nonlocal create_called
@@ -393,7 +396,9 @@ def test_cmd_run_dir_requires_workflow_root_for_conformer_workflow(
     create_called = False
 
     monkeypatch.setattr(cli_common, "_discover_workflow_root", lambda explicit: None)
-    monkeypatch.setattr(cli_run_dir, "_cli_workflow_root_from_args", lambda args, *, config_path=None: None)
+    monkeypatch.setattr(
+        run_dir_options, "_cli_workflow_root_from_args", lambda args, *, config_path=None: None
+    )
 
     def fake_create_conformer_screening_workflow(**kwargs: Any) -> dict[str, Any]:
         nonlocal create_called

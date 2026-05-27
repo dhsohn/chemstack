@@ -7,25 +7,34 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from chemstack.core.queue import store as _queue_store
+from chemstack.core.queue.types import QueueEntry
 from chemstack.core.utils.persistence import now_utc_iso
 from chemstack.core.utils.process_tracking import active_run_lock_pid, read_pid_file
 
 from . import queue_reconciliation as _queue_reconciliation
 from .queue_entries import (
     WORKER_PID_FILE_NAME,
+    entry_from_json_payload,
     queue_entry_id,
     queue_entry_reaction_dir,
     queue_entry_status,
 )
-from .queue_persistence import load_entries, queue_lock, save_entries
 from .state import load_state, report_json_path
-from .types import QueueEntry
 
 logger = logging.getLogger(__name__)
 
 
 def _now_iso() -> str:
     return now_utc_iso()
+
+
+def _load_entries(allowed_root: Path) -> list[QueueEntry]:
+    return _queue_store.load_entries(
+        allowed_root,
+        entry_from_dict_fn=entry_from_json_payload,
+        corrupt_error=_queue_store.QueueStoreCorruptError,
+    )
 
 
 def active_lock_pid(reaction_dir: Path) -> int | None:
@@ -102,11 +111,11 @@ def queue_reconciliation_deps() -> QueueReconciliationDeps:
         queue_entry_reaction_dir=queue_entry_reaction_dir,
         queue_entry_status=queue_entry_status,
         active_lock_pid=active_lock_pid,
-        queue_lock=queue_lock,
+        queue_lock=_queue_store.queue_lock,
         apply_terminal_reconciliation=apply_terminal_reconciliation,
-        load_entries=load_entries,
+        load_entries=_load_entries,
         read_worker_pid=read_worker_pid,
-        save_entries=save_entries,
+        save_entries=_queue_store.save_entries,
         terminal_report_data=terminal_report_data,
     )
 

@@ -93,7 +93,7 @@ commands:
 - `init`
 - `scaffold <ts_search|conformer_search>`
 - `organize orca`
-- `summary orca`
+- `summary`
 - `monitor`
 Activate `.venv` first, or call `.venv/bin/chemstack ...` directly.
 By default, config is resolved from `CHEMSTACK_CONFIG`, then `<repo_root>/config/chemstack.yaml`, then `~/chemstack/config/chemstack.yaml`.
@@ -279,12 +279,12 @@ Options:
 ### 7.6 `summary`
 
 ```bash
-chemstack summary orca --no-send
+chemstack summary --no-send
 ```
 
 Behavior:
 
-- `summary orca` prints or sends the ORCA Telegram digest
+- `summary` prints or sends the unified ORCA/workflow Telegram digest
 
 ### 7.7 `monitor`
 

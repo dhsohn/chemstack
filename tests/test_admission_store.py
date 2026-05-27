@@ -5,10 +5,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from chemstack.core.admission.orca import (
-    ADMISSION_FILE_NAME,
+from chemstack.core.admission import (
     AdmissionStoreCorruptError,
-    activate_slot,
     activate_reserved_slot,
     active_slot_count,
     list_slots,
@@ -17,6 +15,7 @@ from chemstack.core.admission.orca import (
     reserve_slot,
     update_slot_metadata as admission_update_slot_metadata,
 )
+from chemstack.core.admission.store import ADMISSION_FILE_NAME
 
 
 class TestAdmissionStore(unittest.TestCase):
@@ -44,24 +43,27 @@ class TestAdmissionStore(unittest.TestCase):
                 1,
                 queue_id="q_test",
                 source="queue_worker",
+                state="reserved",
             )
             self.assertIsNotNone(token)
             self.assertEqual(active_slot_count(root), 1)
 
-            with activate_reserved_slot(
+            activated = activate_reserved_slot(
                 root,
                 token or "",
-                reaction_dir=str(reaction_dir),
+                work_dir=reaction_dir,
                 source="queue_run",
                 queue_id="q_test",
-            ):
-                slots = list_slots(root)
-                self.assertEqual(len(slots), 1)
-                self.assertEqual(slots[0].state, "active")
-                self.assertEqual(slots[0].work_dir, str(reaction_dir))
-                self.assertEqual(slots[0].queue_id, "q_test")
-                self.assertEqual(slots[0].source, "queue_run")
+            )
+            self.assertIsNotNone(activated)
+            slots = list_slots(root)
+            self.assertEqual(len(slots), 1)
+            self.assertEqual(slots[0].state, "active")
+            self.assertEqual(slots[0].work_dir, str(reaction_dir))
+            self.assertEqual(slots[0].queue_id, "q_test")
+            self.assertEqual(slots[0].source, "queue_run")
 
+            release_slot(root, token or "")
             self.assertEqual(active_slot_count(root), 0)
 
     def test_reserved_slot_activation_can_attach_app_and_task_metadata(self) -> None:
@@ -75,30 +77,33 @@ class TestAdmissionStore(unittest.TestCase):
                 1,
                 queue_id="q_meta",
                 source="queue_worker",
+                state="reserved",
             )
             self.assertIsNotNone(token)
 
-            with activate_reserved_slot(
+            activated = activate_reserved_slot(
                 root,
                 token or "",
-                reaction_dir=str(reaction_dir),
+                work_dir=reaction_dir,
                 source="queue_run",
                 queue_id="q_meta",
                 app_name="chemstack_orca",
                 task_id="task_meta_123",
-            ):
-                slots = list_slots(root)
-                self.assertEqual(len(slots), 1)
+            )
+            self.assertIsNotNone(activated)
+            slots = list_slots(root)
+            self.assertEqual(len(slots), 1)
             self.assertEqual(slots[0].app_name, "chemstack_orca")
             self.assertEqual(slots[0].task_id, "task_meta_123")
             self.assertEqual(slots[0].work_dir, str(reaction_dir))
 
+            release_slot(root, token or "")
             self.assertEqual(active_slot_count(root), 0)
 
     def test_reserve_slot_is_reserved_before_activation(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            token = reserve_slot(root, 1, source="queue_worker")
+            token = reserve_slot(root, 1, source="queue_worker", state="reserved")
 
             self.assertIsNotNone(token)
             slots = list_slots(root)
@@ -110,7 +115,7 @@ class TestAdmissionStore(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
 
-            token = reserve_slot(root, 1, source="queue_worker")
+            token = reserve_slot(root, 1, source="queue_worker", state="reserved")
 
             self.assertIsNotNone(token)
             self.assertTrue((token or "").startswith("slot_"))
@@ -198,7 +203,7 @@ class TestAdmissionStore(unittest.TestCase):
     def test_update_slot_metadata_populates_reserved_slot_identity(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            token = reserve_slot(root, 1, source="queue_worker")
+            token = reserve_slot(root, 1, source="queue_worker", state="reserved")
             self.assertIsNotNone(token)
 
             updated = admission_update_slot_metadata(
@@ -225,10 +230,10 @@ class TestAdmissionStore(unittest.TestCase):
             self.assertIsNotNone(token)
 
             self.assertFalse(
-                activate_slot(
+                activate_reserved_slot(
                     root,
                     "slot_missing",
-                    reaction_dir=str(root / "rxn"),
+                    work_dir=root / "rxn",
                     source="queue_run",
                 )
             )
@@ -236,13 +241,14 @@ class TestAdmissionStore(unittest.TestCase):
             self.assertFalse(
                 admission_update_slot_metadata(root, "slot_missing", queue_id="q_missing")
             )
-            with self.assertRaisesRegex(ValueError, "reaction_dir must not be blank"):
-                activate_slot(
-                    root,
-                    token or "",
-                    reaction_dir="   ",
-                    source="queue_run",
-                )
+            activated = activate_reserved_slot(
+                root,
+                token or "",
+                work_dir="   ",
+                source="queue_run",
+            )
+            self.assertIsNotNone(activated)
+            self.assertEqual(activated.work_dir if activated is not None else None, "")
 
     def test_reserve_slot_with_explicit_owner_pid_records_observed_start_ticks(self) -> None:
         with (

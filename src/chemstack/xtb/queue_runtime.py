@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import signal
 import subprocess
 import time
 from pathlib import Path
@@ -74,9 +73,9 @@ from . import queue_terminal as _queue_terminal
 
 POLL_INTERVAL_SECONDS = 5
 CANCEL_CHECK_INTERVAL_SECONDS = 1
-WORKER_CANCEL_SIGNAL = getattr(signal, "SIGUSR1", signal.SIGTERM)
-WORKER_SHUTDOWN_EXIT_CODE = 190
-WORKER_JOB_MODULE = "chemstack.xtb.worker_job"
+WORKER_CANCEL_SIGNAL = _worker_execution.WORKER_CANCEL_SIGNAL
+WORKER_SHUTDOWN_EXIT_CODE = _worker_execution.WORKER_SHUTDOWN_EXIT_CODE
+WORKER_JOB_MODULE = _worker_execution.WORKER_JOB_MODULE
 
 
 def _queue_worker_deps() -> Any:
@@ -537,28 +536,6 @@ def _process_one(cfg: Any) -> str:
         admission_root_fn=_admission_root,
         execute_entry_fn=execute,
         release_slot_fn=release_slot,
-    )
-
-
-def run_worker_job(
-    *,
-    config_path: str,
-    queue_root: str | Path,
-    queue_id: str,
-    admission_root: str,
-    admission_token: str | None,
-    should_cancel: Callable[[], bool] | None = None,
-    register_running_job: Callable[[Any | None], None] | None = None,
-) -> int:
-    return _worker_execution.run_worker_job(
-        config_path=config_path,
-        queue_root=queue_root,
-        queue_id=queue_id,
-        admission_root=admission_root,
-        admission_token=admission_token,
-        should_cancel=should_cancel,
-        register_running_job=register_running_job,
-        dependencies=_worker_execution_dependencies(),
     )
 
 

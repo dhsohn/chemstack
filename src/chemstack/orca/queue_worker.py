@@ -14,6 +14,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from chemstack.core.queue.types import QueueEntry
 from chemstack.core.queue.engine_execution import coerce_resource_request
 from chemstack.core.queue.worker import (
     ChildProcessQueueWorker,
@@ -28,7 +29,12 @@ from chemstack.core.queue.worker import (
     terminate_process_group,
 )
 
-from chemstack.core.admission.orca import reconcile_stale_slots, release_slot, reserve_slot, update_slot_metadata
+from chemstack.core.admission import (
+    reconcile_stale_slots,
+    release_slot,
+    reserve_slot,
+    update_slot_metadata,
+)
 from .config import AppConfig
 from .inp_rewriter import read_resource_request_from_input
 from .queue_adapter import (
@@ -49,7 +55,6 @@ from .queue_adapter import (
 from .runtime.worker_job import BackgroundRunJobProcess, start_background_run_job
 from .state import load_organized_ref, load_report_json, load_state
 from .job_locations import record_from_artifacts, resolve_job_metadata, resource_dict, upsert_job_record
-from .types import QueueEntry
 
 logger = logging.getLogger(__name__)
 
@@ -93,6 +98,7 @@ def _try_reserve_admission_slot(cfg: AppConfig) -> str | None:
         reserve_slot_fn=lambda root, limit, **kwargs: reserve_slot(
             Path(root),
             limit,
+            state="reserved",
             **kwargs,
         ),
     )

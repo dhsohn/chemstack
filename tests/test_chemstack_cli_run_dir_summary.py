@@ -27,7 +27,6 @@ def test_cmd_summary_dispatches_combined_summary(monkeypatch: pytest.MonkeyPatch
 
     args = argparse.Namespace(
         command="summary",
-        summary_app="combined",
         chemstack_config="/tmp/chemstack.yaml",
         config=None,
         no_send=True,
@@ -39,63 +38,6 @@ def test_cmd_summary_dispatches_combined_summary(monkeypatch: pytest.MonkeyPatch
 
     assert result == 29
     assert args.config == "/tmp/chemstack.yaml"
-    assert seen == [args]
-
-
-def test_cmd_summary_dispatches_orca_summary(monkeypatch: pytest.MonkeyPatch) -> None:
-    seen: list[argparse.Namespace] = []
-
-    def _fake_orca_summary(args: argparse.Namespace) -> int:
-        seen.append(args)
-        return 30
-
-    monkeypatch.setattr(cli_summary, "cmd_orca_summary", _fake_orca_summary)
-
-    args = argparse.Namespace(
-        command="summary",
-        summary_app="orca",
-        chemstack_config="/tmp/chemstack.yaml",
-        config=None,
-        no_send=True,
-        verbose=False,
-        log_file=None,
-    )
-
-    result = cli_summary.cmd_summary(args)
-
-    assert result == 30
-    assert args.config is None
-    assert seen == [args]
-
-
-def test_cmd_orca_summary_configures_logging_and_dispatches(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    seen: list[argparse.Namespace] = []
-    configured: list[argparse.Namespace] = []
-
-    def _fake_orca_summary(args: argparse.Namespace) -> int:
-        seen.append(args)
-        return 35
-
-    monkeypatch.setattr(cli_summary, "_configure_orca_logging", configured.append)
-    monkeypatch.setattr(cli_summary, "_engine_config_for_command", lambda args: "/tmp/chemstack.yaml")
-    monkeypatch.setattr("chemstack.orca.commands.summary.cmd_summary", _fake_orca_summary)
-
-    args = argparse.Namespace(
-        command="summary",
-        summary_app="orca",
-        chemstack_config="/tmp/chemstack.yaml",
-        config=None,
-        verbose=True,
-        log_file="/tmp/chemstack.log",
-    )
-
-    result = cli_summary.cmd_orca_summary(args)
-
-    assert result == 35
-    assert args.config == "/tmp/chemstack.yaml"
-    assert configured == [args]
     assert seen == [args]
 
 

@@ -6,14 +6,16 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-from chemstack.core.admission.orca import (
-    ADMISSION_APP_NAME_ENV_VAR,
-    ADMISSION_TASK_ID_ENV_VAR,
-    ADMISSION_TOKEN_ENV_VAR,
+from chemstack.core.admission import (
     AdmissionSlot,
     active_slot_count,
     list_slots,
     reserve_slot,
+)
+from chemstack.orca.admission_env import (
+    ADMISSION_APP_NAME_ENV_VAR,
+    ADMISSION_TASK_ID_ENV_VAR,
+    ADMISSION_TOKEN_ENV_VAR,
 )
 from chemstack.orca.commands.run_inp import _cmd_run_inp_execute
 from chemstack.orca.config import AppConfig, PathsConfig, RuntimeConfig
@@ -88,7 +90,9 @@ class TestRunInpAdmission(unittest.TestCase):
                 observed_counts.append(active_slot_count(root))
                 return 0
 
-            token = reserve_slot(root, 1, queue_id="q_test", source="queue_worker")
+            token = reserve_slot(
+                root, 1, queue_id="q_test", source="queue_worker", state="reserved"
+            )
             self.assertIsNotNone(token)
 
             with patch("chemstack.orca.commands.run_inp.run_attempts", new=_fake_run_attempts), patch.dict(
@@ -116,7 +120,9 @@ class TestRunInpAdmission(unittest.TestCase):
             reaction_dir = root / "rxn"
             _write_inp(reaction_dir)
 
-            token = reserve_slot(root, 1, queue_id="q_test", source="queue_worker")
+            token = reserve_slot(
+                root, 1, queue_id="q_test", source="queue_worker", state="reserved"
+            )
             self.assertIsNotNone(token)
 
             with patch.dict(os.environ, {ADMISSION_TOKEN_ENV_VAR: token or ""}, clear=False):
@@ -138,7 +144,9 @@ class TestRunInpAdmission(unittest.TestCase):
             reaction_dir = root / "rxn_meta"
             _write_inp(reaction_dir)
 
-            token = reserve_slot(root, 1, queue_id="q_meta", source="queue_worker")
+            token = reserve_slot(
+                root, 1, queue_id="q_meta", source="queue_worker", state="reserved"
+            )
             self.assertIsNotNone(token)
             observed_slots: list[AdmissionSlot] = []
 
@@ -181,7 +189,9 @@ class TestRunInpAdmission(unittest.TestCase):
             _write_inp(reaction_dir)
             (reaction_dir / "rxn.out").write_text("****ORCA TERMINATED NORMALLY****\n", encoding="utf-8")
 
-            token = reserve_slot(root, 1, queue_id="q_skip", source="queue_worker")
+            token = reserve_slot(
+                root, 1, queue_id="q_skip", source="queue_worker", state="reserved"
+            )
             self.assertIsNotNone(token)
 
             with patch.dict(os.environ, {ADMISSION_TOKEN_ENV_VAR: token or ""}, clear=False):
@@ -206,7 +216,9 @@ class TestRunInpAdmission(unittest.TestCase):
             reaction_dir = root / "rxn_error"
             _write_inp(reaction_dir)
 
-            token = reserve_slot(root, 1, queue_id="q_error", source="queue_worker")
+            token = reserve_slot(
+                root, 1, queue_id="q_error", source="queue_worker", state="reserved"
+            )
             self.assertIsNotNone(token)
 
             with patch.dict(os.environ, {ADMISSION_TOKEN_ENV_VAR: token or ""}, clear=False):

@@ -4,10 +4,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from chemstack.core.queue.types import QueueStatus
+from chemstack.core.queue import store as queue_store
+from chemstack.core.queue.types import QueueEntry, QueueStatus
 from chemstack.orca.queue_adapter import (
     DuplicateEntryError,
-    QueueStoreCorruptError,
     cancel,
     clear_terminal,
     dequeue_next,
@@ -23,8 +23,6 @@ from chemstack.orca.queue_adapter import (
     queue_entry_run_id,
     reconcile_orphaned_running_entries,
 )
-from chemstack.orca.types import QueueEntry
-
 
 class TestQueueStore(unittest.TestCase):
     def setUp(self) -> None:
@@ -68,7 +66,7 @@ class TestQueueStore(unittest.TestCase):
         qp = self.root / "queue.json"
         qp.write_text("{not valid json", encoding="utf-8")
 
-        with self.assertRaises(QueueStoreCorruptError):
+        with self.assertRaises(queue_store.QueueStoreCorruptError):
             list_queue(self.root)
 
     def test_enqueue_rejects_corrupt_queue_file_without_overwriting(self) -> None:
@@ -76,7 +74,7 @@ class TestQueueStore(unittest.TestCase):
         corrupt_text = "{not valid json"
         qp.write_text(corrupt_text, encoding="utf-8")
 
-        with self.assertRaises(QueueStoreCorruptError):
+        with self.assertRaises(queue_store.QueueStoreCorruptError):
             enqueue(self.root, str(self.root / "mol_A"))
 
         self.assertEqual(qp.read_text(encoding="utf-8"), corrupt_text)

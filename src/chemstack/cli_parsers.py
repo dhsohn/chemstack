@@ -293,17 +293,10 @@ def _add_organize_parser(subparsers: argparse._SubParsersAction[argparse.Argumen
 def _add_summary_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     summary_parser = subparsers.add_parser(
         "summary",
-        help="Show combined ORCA/workflow summaries or send Telegram digests through the unified CLI.",
+        help="Show the ORCA/workflow summary or send its Telegram digest.",
     )
     _add_engine_config_argument(summary_parser)
     _add_orca_logging_arguments(summary_parser)
-    summary_parser.add_argument(
-        "summary_app",
-        nargs="?",
-        choices=("combined", "orca"),
-        default="combined",
-        help="Summary mode. Defaults to combined.",
-    )
     summary_parser.add_argument(
         "--no-send",
         action="store_true",

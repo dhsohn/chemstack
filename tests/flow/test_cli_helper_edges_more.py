@@ -8,6 +8,7 @@ import pytest
 
 from chemstack import cli_common
 from chemstack.flow import cli_run_dir as run_dir_cli
+from chemstack.flow import run_dir_manifest, run_dir_options
 
 
 def test_cli_option_and_workflow_root_helpers(
@@ -19,14 +20,22 @@ def test_cli_option_and_workflow_root_helpers(
 
     monkeypatch.setattr(cli_common, "_discover_shared_config_path", lambda explicit: "/tmp/chemstack.yaml")
     monkeypatch.setattr(cli_common, "shared_workflow_root_from_config", lambda path: f"resolved:{path}")
-    assert cli_common._discover_configured_workflow_root(None) == "resolved:/tmp/chemstack.yaml"
+    assert (
+        cli_common._workflow_root_from_args(SimpleNamespace(workflow_root=None))
+        == "resolved:/tmp/chemstack.yaml"
+    )
 
     with pytest.raises(ValueError, match="workflow_type must be one of"):
         cli_common._normalize_workflow_type("unknown")
 
-    assert run_dir_cli._resolve_text_option_with_section("  cli-value  ", {}, "key", {}, "section_key", "fallback") == "cli-value"
-    assert run_dir_cli._resolve_int_option(7, {}, "key", 1) == 7
-    assert run_dir_cli._resolve_int_option_with_section(9, {}, "key", {}, "section_key", 1) == 9
+    assert (
+        run_dir_options._resolve_text_option_with_section(
+            "  cli-value  ", {}, "key", {}, "section_key", "fallback"
+        )
+        == "cli-value"
+    )
+    assert run_dir_options._resolve_int_option(7, {}, "key", 1) == 7
+    assert run_dir_options._resolve_int_option_with_section(9, {}, "key", {}, "section_key", 1) == 9
 
 
 def test_cli_shared_config_and_worker_root_defaults(
@@ -65,23 +74,23 @@ def test_cli_run_dir_manifest_and_path_resolution_edges(
     workflow_dir = tmp_path / "workflow_dir"
     workflow_dir.mkdir()
 
-    monkeypatch.setattr(run_dir_cli, "WORKFLOW_MANIFEST_FILENAMES", ("flow.json",))
+    monkeypatch.setattr(run_dir_manifest, "WORKFLOW_MANIFEST_FILENAMES", ("flow.json",))
 
     (workflow_dir / "flow.json").write_text('{"workflow_type": "reaction_ts_search"}', encoding="utf-8")
-    assert run_dir_cli._load_run_dir_manifest(workflow_dir) == {"workflow_type": "reaction_ts_search"}
+    assert run_dir_manifest._load_run_dir_manifest(workflow_dir) == {"workflow_type": "reaction_ts_search"}
 
     (workflow_dir / "flow.json").write_text("null", encoding="utf-8")
-    assert run_dir_cli._load_run_dir_manifest(workflow_dir) == {}
+    assert run_dir_manifest._load_run_dir_manifest(workflow_dir) == {}
 
     (workflow_dir / "flow.json").write_text("[]", encoding="utf-8")
     with pytest.raises(ValueError, match="Run directory manifest must contain a mapping"):
-        run_dir_cli._load_run_dir_manifest(workflow_dir)
+        run_dir_manifest._load_run_dir_manifest(workflow_dir)
 
-    assert run_dir_cli._resolve_manifest_file_value(workflow_dir, None) == ""
-    assert run_dir_cli._resolve_manifest_file_value(workflow_dir, "inputs/input.xyz") == str(
+    assert run_dir_manifest._resolve_manifest_file_value(workflow_dir, None) == ""
+    assert run_dir_manifest._resolve_manifest_file_value(workflow_dir, "inputs/input.xyz") == str(
         (workflow_dir / "inputs" / "input.xyz").resolve()
     )
-    assert run_dir_cli._resolve_run_dir_path(
+    assert run_dir_manifest._resolve_run_dir_path(
         workflow_dir,
         explicit=None,
         manifest={"input_xyz": "inputs/input.xyz"},
@@ -105,7 +114,7 @@ def test_run_dir_workflow_options_apply_cli_manifest_section_default_precedence(
         max_crest_candidates=None,
         max_xtb_stages=None,
     )
-    sections = run_dir_cli.RunDirManifestSections(
+    sections = run_dir_options.RunDirManifestSections(
         resources={"max_cores": 12, "max_memory_gb": 48},
         crest={"mode": "section_nci"},
         xtb={},
@@ -113,7 +122,7 @@ def test_run_dir_workflow_options_apply_cli_manifest_section_default_precedence(
         orca={"route_line": "! section", "charge": -2, "multiplicity": 3},
     )
 
-    options = run_dir_cli._resolve_run_dir_workflow_options(
+    options = run_dir_options._resolve_run_dir_workflow_options(
         args,
         {
             "crest_mode": "manifest_nci",
@@ -152,7 +161,7 @@ def test_run_dir_manifest_sections_resolve_paths_and_merge_endpoint_pairing(
     (workflow_dir / "controls").mkdir()
     (workflow_dir / "controls" / "path.inp").write_text("$path\n$end\n", encoding="utf-8")
 
-    sections = run_dir_cli._resolve_run_dir_manifest_sections(
+    sections = run_dir_manifest._resolve_run_dir_manifest_sections(
         workflow_dir,
         {
             "xtb": {

@@ -7,11 +7,10 @@ from unittest.mock import patch
 
 import pytest
 
-from chemstack.core.queue.types import QueueStatus
-from chemstack.orca import queue_adapter, queue_entries, queue_orphans, queue_persistence
+from chemstack.core.queue import store as queue_store
+from chemstack.core.queue.types import QueueEntry, QueueStatus
+from chemstack.orca import queue_adapter, queue_entries, queue_orphans
 from chemstack.orca.statuses import RunStatus
-from chemstack.orca.types import QueueEntry
-
 
 def _entry(
     queue_id: str,
@@ -44,23 +43,35 @@ def _entry(
     return queue_entries.entry_from_json_payload(entry)
 
 
+def _load_entries(root: Path) -> list[QueueEntry]:
+    return queue_store.load_entries(
+        root,
+        entry_from_dict_fn=queue_entries.entry_from_json_payload,
+        corrupt_error=queue_store.QueueStoreCorruptError,
+    )
+
+
+def _save_entries(root: Path, entries: list[QueueEntry]) -> None:
+    queue_store.save_entries(root, entries)
+
+
 def test_load_entries_cover_edge_cases(tmp_path: Path) -> None:
-    assert queue_persistence.load_entries(tmp_path) == []
+    assert _load_entries(tmp_path) == []
 
     queue_path = tmp_path / queue_entries.QUEUE_FILE_NAME
     queue_path.write_text("{not-json", encoding="utf-8")
-    with pytest.raises(queue_persistence.QueueStoreCorruptError):
-        queue_persistence.load_entries(tmp_path)
+    with pytest.raises(queue_store.QueueStoreCorruptError):
+        _load_entries(tmp_path)
 
     queue_path.write_text(json.dumps({"status": "bad"}), encoding="utf-8")
-    with pytest.raises(queue_persistence.QueueStoreCorruptError):
-        queue_persistence.load_entries(tmp_path)
+    with pytest.raises(queue_store.QueueStoreCorruptError):
+        _load_entries(tmp_path)
 
     queue_path.write_text(
         json.dumps([{"queue_id": "q_ok", "status": "pending"}, "bad", []]),
         encoding="utf-8",
     )
-    [entry] = queue_persistence.load_entries(tmp_path)
+    [entry] = _load_entries(tmp_path)
     assert entry.queue_id == "q_ok"
     assert entry.status == QueueStatus.PENDING
     assert entry.app_name == "chemstack_orca"
@@ -190,7 +201,7 @@ def test_find_helpers_cover_active_terminal_and_queue_id_lookup() -> None:
 def test_list_queue_normalizes_common_fields_for_partial_entries(tmp_path: Path) -> None:
     root = tmp_path / "queue_root"
     root.mkdir()
-    queue_persistence.save_entries(
+    _save_entries(
         root,
         [
             queue_entries.entry_from_json_payload(
@@ -243,7 +254,7 @@ def test_save_entries_uses_core_queue_entry_as_storage_model(tmp_path: Path) -> 
     root = tmp_path / "queue_root"
     root.mkdir()
 
-    queue_persistence.save_entries(
+    _save_entries(
         root,
         [
             queue_entries.entry_from_json_payload(
@@ -287,7 +298,7 @@ def test_reconcile_orphaned_running_entries_covers_state_terminal_paths_and_pend
     for path in (completed_dir, failed_dir, pending_dir):
         path.mkdir()
 
-    queue_persistence.save_entries(
+    _save_entries(
         root,
         [
             _entry("q_done", str(completed_dir), QueueStatus.RUNNING.value, started_at="2026-03-10T00:10:00+00:00"),
@@ -344,7 +355,7 @@ def test_reconcile_orphaned_running_entries_skips_blank_dirs_and_active_locks(tm
     locked_dir = root / "locked"
     locked_dir.mkdir()
 
-    queue_persistence.save_entries(
+    _save_entries(
         root,
         [
             _entry("q_blank", "", QueueStatus.RUNNING.value),
@@ -369,7 +380,7 @@ def test_mark_cancelled_requeue_cancel_and_update_terminal_cover_missing_and_wro
 ) -> None:
     root = tmp_path / "queue_root"
     root.mkdir()
-    queue_persistence.save_entries(
+    _save_entries(
         root,
         [
             _entry("q_pending", str(root / "pending"), QueueStatus.PENDING.value),
@@ -386,7 +397,7 @@ def test_mark_cancelled_requeue_cancel_and_update_terminal_cover_missing_and_wro
     assert entries["q_running"].status == QueueStatus.CANCELLED
     assert entries["q_running"].cancel_requested is False
 
-    queue_persistence.save_entries(
+    _save_entries(
         root,
         [
             _entry("q_running", str(root / "running"), QueueStatus.RUNNING.value, cancel_requested=True),
@@ -402,7 +413,7 @@ def test_mark_cancelled_requeue_cancel_and_update_terminal_cover_missing_and_wro
     assert entries["q_running"].started_at == ""
     assert entries["q_running"].cancel_requested is False
 
-    queue_persistence.save_entries(
+    _save_entries(
         root,
         [
             _entry("q_pending", str(root / "pending"), QueueStatus.PENDING.value),
@@ -425,7 +436,7 @@ def test_mark_cancelled_requeue_cancel_and_update_terminal_cover_missing_and_wro
 def test_clear_terminal_keep_last_keeps_newest_terminal_entries(tmp_path: Path) -> None:
     root = tmp_path / "queue_root"
     root.mkdir()
-    queue_persistence.save_entries(
+    _save_entries(
         root,
         [
             _entry("q_pending", str(root / "pending"), QueueStatus.PENDING.value),

@@ -7,10 +7,9 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
-from chemstack.core.queue.types import QueueStatus
+from chemstack.core.queue.types import QueueEntry, QueueStatus
 
 from .statuses import RunStatus
-from .types import QueueEntry
 
 
 def load_report_payload(
