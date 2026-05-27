@@ -613,38 +613,38 @@ def _engine_worker_command_args(args: Any, *, config_path: str) -> argparse.Name
 def cmd_queue_engine_worker(args: Any, *, deps: Any | None = None) -> int:
     engine = normalize_text(getattr(args, "engine", "")).lower()
     if engine == "orca":
-        from chemstack.orca.commands import queue as queue_cmd
+        from chemstack.orca.commands import queue as orca_queue_cmd
         from chemstack.orca.commands._helpers import default_config_path
 
         config_path = _engine_worker_config_path(
             args, default_config_path_fn=default_config_path, deps=deps
         )
         return int(
-            queue_cmd.cmd_queue_worker(
+            orca_queue_cmd.cmd_queue_worker(
                 _engine_worker_command_args(args, config_path=config_path)
             )
         )
     if engine == "xtb":
         from chemstack.core.config.engines import default_xtb_config_path
-        from chemstack.xtb.commands import queue as queue_cmd
+        from chemstack.xtb.commands import queue as xtb_queue_cmd
 
         config_path = _engine_worker_config_path(
             args, default_config_path_fn=default_xtb_config_path, deps=deps
         )
         return int(
-            queue_cmd.cmd_queue_worker(
+            xtb_queue_cmd.cmd_queue_worker(
                 _engine_worker_command_args(args, config_path=config_path)
             )
         )
     if engine == "crest":
         from chemstack.core.config.engines import default_crest_config_path
-        from chemstack.crest.commands import queue as queue_cmd
+        from chemstack.crest.commands import queue as crest_queue_cmd
 
         config_path = _engine_worker_config_path(
             args, default_config_path_fn=default_crest_config_path, deps=deps
         )
         return int(
-            queue_cmd.cmd_queue_worker(
+            crest_queue_cmd.cmd_queue_worker(
                 _engine_worker_command_args(args, config_path=config_path)
             )
         )
