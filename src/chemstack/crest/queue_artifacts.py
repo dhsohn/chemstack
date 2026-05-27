@@ -17,8 +17,18 @@ from .state import (
 )
 
 
-def coerce_mapping(value: Any) -> dict[str, Any]:
-    return _queue_execution.coerce_mapping(value)
+def _engine_fields(entry: Any, result: CrestRunResult) -> dict[str, Any]:
+    return {
+        "molecule_key": _engine_execution.entry_metadata_text(entry, "molecule_key"),
+        "mode": result.mode,
+    }
+
+
+def _detail_fields(result: CrestRunResult) -> dict[str, Any]:
+    return {
+        "retained_conformer_count": result.retained_conformer_count,
+        "retained_conformer_paths": list(result.retained_conformer_paths),
+    }
 
 
 def matching_result_state(
@@ -41,73 +51,21 @@ def matching_result_state(
     )
 
 
-def build_state_payload(
-    entry: Any,
-    result: CrestRunResult,
-    *,
-    previous_state: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    base_state = coerce_mapping(previous_state)
-    return _engine_execution.build_terminal_state_payload(
-        entry,
-        result,
-        job_dir_text=_engine_execution.entry_metadata_text(entry, "job_dir"),
-        selected_input_xyz=result.selected_input_xyz,
-        previous_state=base_state,
-        resumed=bool(base_state.get("resumed", False)),
-        engine_fields={
-            "molecule_key": _engine_execution.entry_metadata_text(entry, "molecule_key"),
-            "mode": result.mode,
-        },
-        detail_fields={
-            "retained_conformer_count": result.retained_conformer_count,
-            "retained_conformer_paths": list(result.retained_conformer_paths),
-        },
-    )
-
-
-def build_report_payload(
-    entry: Any,
-    result: CrestRunResult,
-    *,
-    previous_state: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    base_state = coerce_mapping(previous_state)
-    return _engine_execution.build_terminal_report_payload(
-        entry,
-        result,
-        selected_input_xyz=result.selected_input_xyz,
-        previous_state=base_state,
-        resumed=bool(base_state.get("resumed", False)),
-        engine_fields={
-            "mode": result.mode,
-            "molecule_key": _engine_execution.entry_metadata_text(entry, "molecule_key"),
-        },
-        detail_fields={
-            "retained_conformer_count": result.retained_conformer_count,
-            "retained_conformer_paths": list(result.retained_conformer_paths),
-        },
-    )
-
-
 def report_lines(entry: Any, result: CrestRunResult) -> list[str]:
-    lines = [
-        "# ChemStack CREST Report",
-        "",
-        f"- Job ID: `{entry.task_id}`",
-        f"- Queue ID: `{entry.queue_id}`",
-        f"- Status: `{result.status}`",
-        f"- Reason: `{result.reason}`",
-        f"- Mode: `{result.mode}`",
-        f"- Selected XYZ: `{Path(result.selected_input_xyz).name}`",
-        f"- Molecule Key: `{_engine_execution.entry_metadata_text(entry, 'molecule_key') or '-'}`",
-        f"- Exit Code: `{result.exit_code}`",
-        f"- Retained Conformers: `{result.retained_conformer_count}`",
-        f"- Resource Request: `{result.resource_request}`",
-        f"- Resource Actual: `{result.resource_actual}`",
-        f"- Stdout Log: `{result.stdout_log}`",
-        f"- Stderr Log: `{result.stderr_log}`",
-    ]
+    lines = _engine_execution.terminal_report_lines(
+        entry,
+        result,
+        title="ChemStack CREST Report",
+        selected_input_label="Selected XYZ",
+        selected_input_xyz=result.selected_input_xyz,
+        engine_lines=[
+            f"- Mode: `{result.mode}`",
+            f"- Molecule Key: `{_engine_execution.entry_metadata_text(entry, 'molecule_key') or '-'}`",
+        ],
+        detail_lines=[
+            f"- Retained Conformers: `{result.retained_conformer_count}`",
+        ],
+    )
     if result.retained_conformer_paths:
         lines.append("- Retained Files:")
         for path in result.retained_conformer_paths:
@@ -137,10 +95,16 @@ def write_execution_artifacts(
         load_state_fn=load_state_fn,
         state_matches_job_fn=state_matches_job_fn,
     )
-    _queue_execution.write_result_artifacts(
-        job_dir_text,
-        state_payload=build_state_payload(entry, result, previous_state=previous_state),
-        report_payload=build_report_payload(entry, result, previous_state=previous_state),
+    base_state = _queue_execution.coerce_mapping(previous_state)
+    _engine_execution.write_terminal_execution_artifacts(
+        entry,
+        result,
+        job_dir_text=job_dir_text,
+        selected_input_xyz=result.selected_input_xyz,
+        previous_state=base_state,
+        resumed=bool(base_state.get("resumed", False)),
+        engine_fields=_engine_fields(entry, result),
+        detail_fields=_detail_fields(result),
         report_lines=report_lines(entry, result),
         write_state_fn=write_state_fn,
         write_report_json_fn=write_report_json_fn,
@@ -160,16 +124,11 @@ def resource_caps(cfg: Any) -> dict[str, int]:
     return _engine_execution.engine_resource_caps(cfg, resource_dict_fn=resource_dict)
 
 
-def coerce_resource_dict(value: Any) -> dict[str, int]:
-    return _engine_execution.coerce_resource_request(value)
-
-
 def entry_resource_request(cfg: Any, entry: Any) -> dict[str, int]:
     return _engine_execution.entry_resource_request(
         cfg,
         entry,
         resource_caps_fn=resource_caps,
-        coerce_resource_request_fn=coerce_resource_dict,
     )
 
 
@@ -207,31 +166,62 @@ def write_running_state(
     )
     started_at = entry.started_at or now_utc_iso_fn()
     updated_at = now_utc_iso_fn()
-    write_state_fn(
-        job_dir,
-        _engine_execution.build_running_state_payload(
+    _engine_execution.write_running_state_artifact(
+        entry,
+        job_dir_text=job_dir_text,
+        selected_input_xyz=_engine_execution.entry_metadata_text(
             entry,
-            job_dir=job_dir,
-            selected_input_xyz=_engine_execution.entry_metadata_text(
-                entry,
-                "selected_input_xyz",
-            ),
-            started_at=started_at,
-            updated_at=updated_at,
-            previous_state=previous_state,
-            resumed=resumed,
-            resource_request=resource_request,
-            engine_fields={
-                "molecule_key": _engine_execution.entry_metadata_text(entry, "molecule_key"),
-                "mode": _engine_execution.entry_metadata_text(entry, "mode", "standard"),
-            },
+            "selected_input_xyz",
         ),
+        started_at=started_at,
+        updated_at=updated_at,
+        previous_state=previous_state,
+        resumed=resumed,
+        resource_request=resource_request,
+        write_state_fn=write_state_fn,
+        engine_fields={
+            "molecule_key": _engine_execution.entry_metadata_text(entry, "molecule_key"),
+            "mode": _engine_execution.entry_metadata_text(entry, "mode", "standard"),
+        },
+    )
+
+
+def build_terminal_result(
+    entry: Any,
+    *,
+    job_dir: Path,
+    selected_xyz: Path,
+    mode: str,
+    resource_request: dict[str, int],
+    status: str,
+    reason: str,
+    exit_code: int = 1,
+    command: tuple[str, ...] = (),
+    now_utc_iso_fn: Any = depsafe_now_utc_iso,
+) -> CrestRunResult:
+    return _engine_execution.build_terminal_result(
+        CrestRunResult,
+        entry,
+        job_dir=job_dir,
+        selected_xyz=selected_xyz,
+        log_prefix="crest",
+        manifest_filename="crest_job.yaml",
+        resource_request=resource_request,
+        status=status,
+        reason=reason,
+        now_utc_iso_fn=now_utc_iso_fn,
+        command=command,
+        exit_code=exit_code,
+        engine_fields={"mode": mode},
+        detail_fields={
+            "retained_conformer_count": 0,
+            "retained_conformer_paths": (),
+        },
     )
 
 
 __all__ = [
-    "build_report_payload",
-    "build_state_payload",
+    "build_terminal_result",
     "entry_resource_request",
     "matching_result_state",
     "resource_caps",

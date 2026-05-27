@@ -8,7 +8,6 @@ import yaml
 
 from ._orchestration_deps import OrchestrationDeps
 from ._orchestration_stage_runtime_shared import (
-    _call_engine_aware,
     _clear_submission_deferred_metadata,
     _load_contract_or_none,
     _manifest_override_mapping,
@@ -115,7 +114,7 @@ def _load_crest_contract(
     job_dir_target = o.stages._normalize_text(payload.get("job_dir"))
     index_root = (
         crest_runtime_paths["allowed_root"]
-        or _call_engine_aware(o.stages._load_config_root, crest_config, engine="crest")
+        or o.stages._load_config_root(crest_config, engine="crest")
         or Path(job_dir_target or ".").resolve().parent
     )
     target = job_dir_target or o.stages._submission_target(stage)
@@ -238,7 +237,7 @@ def completed_crest_stage_impl(
     job_dir_target = o.stages._normalize_text(payload.get("job_dir"))
     index_root = (
         _workflow_internal_runs_root(job_dir_target, engine="crest")
-        or _call_engine_aware(o.stages._load_config_root, crest_config, engine="crest")
+        or o.stages._load_config_root(crest_config, engine="crest")
         or (
             Path(job_dir_target).expanduser().resolve().parent
             if job_dir_target

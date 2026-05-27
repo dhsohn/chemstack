@@ -495,7 +495,6 @@ def test_process_dequeued_entry_polls_sleeps_and_completes(
     result = _result(job_dir, selected_xyz, reason="ok")
 
     sleeps: list[int] = []
-    resource_caps_calls: list[Any] = []
     molecule_key_calls: list[tuple[SimpleNamespace, Path, Path]] = []
     cancel_checks: list[tuple[str, str]] = []
     finalize_kwargs: list[dict[str, Any]] = []
@@ -510,10 +509,6 @@ def test_process_dequeued_entry_polls_sleeps_and_completes(
     finished_notifications: list[dict[str, Any]] = []
 
     monkeypatch.setattr(worker_execution.time, "sleep", lambda seconds: sleeps.append(seconds))
-
-    def fake_resource_caps(actual_cfg: Any) -> dict[str, int]:
-        resource_caps_calls.append(actual_cfg)
-        return {"max_cores": 4, "max_memory_gb": 16}
 
     def fake_molecule_key(actual_entry: Any, actual_selected_xyz: Path, actual_job_dir: Path) -> str:
         molecule_key_calls.append((actual_entry, actual_selected_xyz, actual_job_dir))
@@ -554,7 +549,6 @@ def test_process_dequeued_entry_polls_sleeps_and_completes(
     outcome = worker_execution.process_dequeued_entry(
         cfg,
         entry,
-        resource_caps=fake_resource_caps,
         molecule_key_resolver=fake_molecule_key,
         dependencies=deps,
     )
@@ -564,7 +558,6 @@ def test_process_dequeued_entry_polls_sleeps_and_completes(
     assert outcome.selected_xyz == selected_xyz.resolve()
     assert outcome.molecule_key == "derived-key"
     assert outcome.organized_output_dir is None
-    assert resource_caps_calls == []
     assert molecule_key_calls == [(entry, selected_xyz.resolve(), job_dir.resolve())]
     assert cancel_checks == [(cfg.runtime.allowed_root, entry.queue_id)]
     assert sleeps == [worker_execution.CANCEL_CHECK_INTERVAL_SECONDS]
@@ -629,7 +622,6 @@ def test_process_dequeued_entry_terminates_and_forces_cancelled_result(
     outcome = worker_execution.process_dequeued_entry(
         cfg,
         entry,
-        resource_caps=lambda cfg: {"max_cores": 4, "max_memory_gb": 16},
         molecule_key_resolver=lambda entry, selected_xyz, job_dir: "cancel-key",
         dependencies=deps,
     )
@@ -665,17 +657,12 @@ def test_process_dequeued_entry_builds_failed_result_when_runner_raises(
     failure_time = "2026-04-19T11:30:00+00:00"
 
     sleeps: list[int] = []
-    resource_caps_calls: list[Any] = []
     artifact_results: list[CrestRunResult] = []
     mark_failed_calls: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
     upsert_calls: list[dict[str, Any]] = []
     finished_notifications: list[dict[str, Any]] = []
 
     monkeypatch.setattr(worker_execution.time, "sleep", lambda seconds: sleeps.append(seconds))
-
-    def fake_resource_caps(actual_cfg: Any) -> dict[str, int]:
-        resource_caps_calls.append(actual_cfg)
-        return {"max_cores": 4, "max_memory_gb": 16}
 
     def fake_notify_finished(cfg: Any, **kwargs: Any) -> bool:
         finished_notifications.append(kwargs)
@@ -696,7 +683,6 @@ def test_process_dequeued_entry_builds_failed_result_when_runner_raises(
     outcome = worker_execution.process_dequeued_entry(
         cfg,
         entry,
-        resource_caps=fake_resource_caps,
         molecule_key_resolver=lambda entry, selected_xyz, job_dir: "failure-key",
         dependencies=deps,
     )
@@ -713,7 +699,6 @@ def test_process_dequeued_entry_builds_failed_result_when_runner_raises(
     assert result.manifest_path == str(manifest_path.resolve())
     assert result.resource_request == {"max_cores": 4, "max_memory_gb": 16}
     assert result.resource_actual == {"max_cores": 4, "max_memory_gb": 16}
-    assert resource_caps_calls == []
     assert sleeps == []
     assert artifact_results == [result]
     assert [call["status"] for call in upsert_calls] == ["running", "failed"]
@@ -745,7 +730,6 @@ def test_process_dequeued_entry_raises_worker_shutdown_requested_before_start(
         worker_execution.process_dequeued_entry(
             cfg,
             entry,
-            resource_caps=lambda cfg: {"max_cores": 4, "max_memory_gb": 16},
             molecule_key_resolver=lambda entry, selected_xyz, job_dir: "shutdown-key",
             dependencies=deps,
             shutdown_requested=lambda: True,
@@ -790,7 +774,6 @@ def test_process_dequeued_entry_raises_worker_shutdown_requested_after_start(
         worker_execution.process_dequeued_entry(
             cfg,
             entry,
-            resource_caps=lambda cfg: {"max_cores": 4, "max_memory_gb": 16},
             molecule_key_resolver=lambda entry, selected_xyz, job_dir: "shutdown-key",
             dependencies=deps,
             shutdown_requested=lambda: next(shutdown_checks),

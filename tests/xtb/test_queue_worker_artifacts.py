@@ -9,6 +9,7 @@ import pytest
 from chemstack.core.queue import processes as queue_processes_mod
 from chemstack.xtb import queue_runtime as queue_cmd
 from chemstack.xtb import state as state_mod
+from chemstack.xtb.worker_execution import WorkerExecutionOutcome
 
 
 def _make_cfg(tmp_path: Path) -> SimpleNamespace:
@@ -348,7 +349,7 @@ def test_run_worker_job_activates_reserved_slot_and_releases_it(
     monkeypatch.setattr(
         queue_cmd,
         "_execute_queue_entry",
-        lambda *args, **kwargs: queue_cmd.QueueExecutionOutcome(
+        lambda *args, **kwargs: WorkerExecutionOutcome(
             result=_make_result(selected_xyz, status="completed", reason="completed")
         ),
     )

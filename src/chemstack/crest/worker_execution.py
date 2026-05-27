@@ -161,10 +161,6 @@ class WorkerShutdownRequested(RuntimeError):
         self.context = context
 
 
-class _ShutdownController(_child_execution.ChildWorkerShutdownController):
-    pass
-
-
 def default_worker_execution_dependencies() -> WorkerExecutionDependencies:
     return build_worker_execution_dependencies(
         now_utc_iso_fn=now_utc_iso,
@@ -183,10 +179,6 @@ def default_worker_execution_dependencies() -> WorkerExecutionDependencies:
     )
 
 
-def _coerce_mapping(value: Any) -> dict[str, Any]:
-    return _queue_artifacts.coerce_mapping(value)
-
-
 def build_worker_child_command(
     *,
     config_path: str,
@@ -202,15 +194,6 @@ def build_worker_child_command(
         admission_token=admission_token,
         include_admission_root=False,
     )
-
-
-def _build_report_payload(
-    entry: Any,
-    result: CrestRunResult,
-    *,
-    previous_state: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    return _queue_artifacts.build_report_payload(entry, result, previous_state=previous_state)
 
 
 def _write_execution_artifacts(entry: Any, result: CrestRunResult) -> None:
@@ -233,12 +216,8 @@ def _write_running_state(cfg: Any, entry: Any) -> None:
         state_matches_job_fn=state_matches_job,
         is_recovery_pending_fn=is_recovery_pending,
         write_state_fn=write_state,
-        now_utc_iso_fn=depsafe_now_utc_iso,
+        now_utc_iso_fn=_queue_artifacts.depsafe_now_utc_iso,
     )
-
-
-def depsafe_now_utc_iso() -> str:
-    return _queue_artifacts.depsafe_now_utc_iso()
 
 
 def _terminate_process(proc: subprocess.Popen[str]) -> None:
@@ -248,18 +227,6 @@ def _terminate_process(proc: subprocess.Popen[str]) -> None:
         sigterm=signal.SIGTERM,
         sigkill=signal.SIGKILL,
     )
-
-
-def _resource_caps(cfg: Any) -> dict[str, int]:
-    return _queue_artifacts.resource_caps(cfg)
-
-
-def _coerce_resource_dict(value: Any) -> dict[str, int]:
-    return _queue_artifacts.coerce_resource_dict(value)
-
-
-def _entry_resource_request(cfg: Any, entry: Any) -> dict[str, int]:
-    return _queue_artifacts.entry_resource_request(cfg, entry)
 
 
 def _molecule_key(entry: Any, selected_xyz: Path, job_dir: Path) -> str:
@@ -275,7 +242,6 @@ def _build_execution_context(
     cfg: Any,
     entry: Any,
     *,
-    resource_caps: Callable[[Any], dict[str, int]],
     molecule_key_resolver: Callable[[Any, Path, Path], str],
 ) -> ExecutionContext:
     job_dir = _engine_execution.entry_metadata_resolved_path(entry, "job_dir")
@@ -286,31 +252,28 @@ def _build_execution_context(
         selected_xyz=selected_xyz,
         molecule_key=molecule_key_resolver(entry, selected_xyz, job_dir),
         mode=str(entry.metadata.get("mode", "standard")),
-        resource_request=_entry_resource_request(cfg, entry),
+        resource_request=_queue_artifacts.entry_resource_request(cfg, entry),
     )
 
 
 def _mark_recovery_pending_context(cfg: Any, context: ExecutionContext, *, reason: str) -> None:
-    mark_recovery_pending(
-        context.job_dir,
-        job_id=str(context.entry.task_id),
-        selected_input_xyz=str(context.selected_xyz),
-        mode=context.mode,
-        molecule_key=context.molecule_key,
-        resource_request=context.resource_request,
-        resource_actual=context.resource_request,
-        reason=reason,
-    )
-    upsert_job_record(
+    _engine_execution.mark_recovery_pending_and_record(
         cfg,
-        job_id=context.entry.task_id,
-        status="pending",
+        entry=context.entry,
         job_dir=context.job_dir,
-        mode=context.mode,
-        selected_input_xyz=str(context.selected_xyz),
-        molecule_key=context.molecule_key,
+        selected_input_xyz=context.selected_xyz,
+        reason=reason,
         resource_request=context.resource_request,
-        resource_actual=dict(context.resource_request),
+        mark_recovery_pending_fn=mark_recovery_pending,
+        upsert_job_record_fn=upsert_job_record,
+        state_identity_fields={
+            "mode": context.mode,
+            "molecule_key": context.molecule_key,
+        },
+        record_identity_fields={
+            "mode": context.mode,
+            "molecule_key": context.molecule_key,
+        },
     )
 
 
@@ -318,7 +281,6 @@ def _mark_recovery_pending_entry(cfg: Any, entry: Any, *, reason: str) -> None:
     context = _build_execution_context(
         cfg,
         entry,
-        resource_caps=_resource_caps,
         molecule_key_resolver=_molecule_key,
     )
     _mark_recovery_pending_context(cfg, context, reason=reason)
@@ -387,25 +349,22 @@ def _mark_job_running(
 ) -> None:
     artifact_deps = dependencies.artifacts
     tracking_deps = dependencies.tracking
-    artifact_deps.write_running_state(cfg, context.entry)
-    tracking_deps.upsert_job_record(
+    _engine_execution.mark_engine_job_running(
         cfg,
-        job_id=context.entry.task_id,
-        status="running",
+        entry=context.entry,
         job_dir=context.job_dir,
-        mode=context.mode,
-        selected_input_xyz=str(context.selected_xyz),
-        molecule_key=context.molecule_key,
-        resource_request=context.resource_request,
-        resource_actual=context.resource_request,
-    )
-    tracking_deps.notify_job_started(
-        cfg,
-        job_id=context.entry.task_id,
-        queue_id=context.entry.queue_id,
-        job_dir=context.job_dir,
-        mode=context.mode,
         selected_xyz=context.selected_xyz,
+        resource_request=context.resource_request,
+        write_running_state_fn=artifact_deps.write_running_state,
+        upsert_job_record_fn=tracking_deps.upsert_job_record,
+        notify_job_started_fn=tracking_deps.notify_job_started,
+        record_fields={
+            "mode": context.mode,
+            "molecule_key": context.molecule_key,
+        },
+        notify_fields={
+            "mode": context.mode,
+        },
     )
 
 
@@ -415,27 +374,16 @@ def _failed_result_from_exception(
     exc: Exception,
     failure_time: str,
 ) -> CrestRunResult:
-    resource_request = context.resource_request
-    return CrestRunResult(
+    return _queue_artifacts.build_terminal_result(
+        context.entry,
+        job_dir=context.job_dir,
+        selected_xyz=context.selected_xyz,
+        mode=context.mode,
+        resource_request=context.resource_request,
         status="failed",
         reason=f"runner_error:{exc}",
-        command=(),
         exit_code=1,
-        started_at=context.entry.started_at or failure_time,
-        finished_at=failure_time,
-        stdout_log=str((context.job_dir / "crest.stdout.log").resolve()),
-        stderr_log=str((context.job_dir / "crest.stderr.log").resolve()),
-        selected_input_xyz=str(context.selected_xyz),
-        mode=context.mode,
-        retained_conformer_count=0,
-        retained_conformer_paths=(),
-        manifest_path=(
-            str((context.job_dir / "crest_job.yaml").resolve())
-            if (context.job_dir / "crest_job.yaml").exists()
-            else ""
-        ),
-        resource_request=resource_request,
-        resource_actual=dict(resource_request),
+        now_utc_iso_fn=lambda: failure_time,
     )
 
 
@@ -538,7 +486,6 @@ def process_dequeued_entry(
     entry: Any,
     *,
     queue_root: Path | None = None,
-    resource_caps: Callable[[Any], dict[str, int]],
     molecule_key_resolver: Callable[[Any, Path, Path], str],
     dependencies: WorkerExecutionDependencies,
     shutdown_requested: Callable[[], bool] | None = None,
@@ -547,7 +494,6 @@ def process_dequeued_entry(
         build_context=lambda cfg_obj, entry_obj: _build_execution_context(
             cfg_obj,
             entry_obj,
-            resource_caps=resource_caps,
             molecule_key_resolver=molecule_key_resolver,
         ),
         check_shutdown=lambda context: _raise_if_shutdown_requested(
@@ -603,7 +549,9 @@ def _find_queue_entry(queue_root: Path, queue_id: str) -> Any | None:
     )
 
 
-def _install_shutdown_signal_handlers(controller: _ShutdownController) -> None:
+def _install_shutdown_signal_handlers(
+    controller: _child_execution.ChildWorkerShutdownController,
+) -> None:
     _child_execution.install_shutdown_request_handlers(
         controller,
         install_signal_handlers_fn=install_shutdown_signal_handlers,
@@ -634,7 +582,7 @@ def run_worker_child_job(
     queue_root_path = job.queue_root
     entry = job.entry
 
-    controller = _ShutdownController()
+    controller = _child_execution.ChildWorkerShutdownController()
     _install_shutdown_signal_handlers(controller)
 
     try:
@@ -642,7 +590,6 @@ def run_worker_child_job(
             cfg,
             entry,
             queue_root=queue_root_path,
-            resource_caps=_resource_caps,
             molecule_key_resolver=_molecule_key,
             dependencies=default_worker_execution_dependencies(),
             shutdown_requested=controller.is_requested,

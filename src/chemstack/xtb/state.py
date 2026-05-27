@@ -18,16 +18,18 @@ REPORT_JSON_FILE_NAME = JOB_REPORT_JSON_FILE
 REPORT_MD_FILE_NAME = JOB_REPORT_MD_FILE
 ORGANIZED_REF_FILE_NAME = ORGANIZED_REF_FILE
 RECOVERY_PENDING_REASONS = _engine_state.RECOVERY_PENDING_REASONS
-_STATE_FILES = _engine_state.EngineStateFiles(
+_STATE_ACCESS = _engine_state.create_engine_state_access(
     state_file_name=STATE_FILE_NAME,
     report_json_file_name=REPORT_JSON_FILE_NAME,
     report_md_file_name=REPORT_MD_FILE_NAME,
     organized_ref_file_name=ORGANIZED_REF_FILE_NAME,
-)
-_STATE_ACCESS = _engine_state.EngineStateAccess(
-    files=_STATE_FILES,
     report_title="ChemStack xTB Report",
     selected_input_label="Selected Input",
+    now_fn=lambda: now_utc_iso(),
+)
+_RECOVERY_PENDING = _engine_state.EngineRecoveryPendingWriter(
+    access=_STATE_ACCESS,
+    manifest_filename=XTB_JOB_MANIFEST_FILE,
     now_fn=lambda: now_utc_iso(),
 )
 write_state = _STATE_ACCESS.write_state
@@ -38,9 +40,6 @@ load_state = _STATE_ACCESS.load_state
 load_report_json = _STATE_ACCESS.load_report_json
 load_organized_ref = _STATE_ACCESS.load_organized_ref
 write_report_md = _STATE_ACCESS.write_report_md
-_normalize_text = _engine_state.normalize_text
-_coerce_dict = _engine_state.coerce_dict
-_coerce_list = _engine_state.coerce_list
 
 
 def state_matches_job(
@@ -63,6 +62,24 @@ def state_matches_job(
 is_recovery_pending = _engine_state.is_recovery_pending_state
 
 
+def _recovery_retained_fields(
+    existing: dict[str, Any],
+    input_summary_payload: dict[str, Any],
+) -> dict[str, Any]:
+    candidate_paths = _engine_state.coerce_list(existing.get("candidate_paths"))
+    if not candidate_paths:
+        candidate_paths = _engine_state.coerce_list(input_summary_payload.get("candidate_paths"))
+    return {
+        "candidate_count": int(existing.get("candidate_count", 0) or 0),
+        "candidate_paths": candidate_paths,
+        "selected_candidate_paths": _engine_state.coerce_list(
+            existing.get("selected_candidate_paths")
+        ),
+        "candidate_details": _engine_state.coerce_list(existing.get("candidate_details")),
+        "analysis_summary": _engine_state.coerce_dict(existing.get("analysis_summary")),
+    }
+
+
 def mark_recovery_pending(
     job_dir: Path,
     *,
@@ -75,37 +92,18 @@ def mark_recovery_pending(
     resource_actual: dict[str, Any] | None,
     reason: str,
 ) -> dict[str, Any]:
-    now = now_utc_iso()
-    existing = load_state(job_dir) or {}
-    input_summary_payload = _coerce_dict(input_summary)
-    candidate_paths = _coerce_list(existing.get("candidate_paths")) or _coerce_list(
-        input_summary_payload.get("candidate_paths")
-    )
-    selected_candidate_paths = _coerce_list(existing.get("selected_candidate_paths"))
-    candidate_details = _coerce_list(existing.get("candidate_details"))
-    analysis_summary = _coerce_dict(existing.get("analysis_summary"))
-    payload = _engine_state.recovery_pending_payload(
+    input_summary_payload = _engine_state.coerce_dict(input_summary)
+    return _RECOVERY_PENDING.write(
         job_dir,
-        existing=existing,
         job_id=job_id,
         selected_input_xyz=selected_input_xyz,
         reason=reason,
-        now=now,
-        manifest_filename=XTB_JOB_MANIFEST_FILE,
         identity_fields={
-            "job_type": _normalize_text(job_type),
-            "reaction_key": _normalize_text(reaction_key),
+            "job_type": _engine_state.normalize_text(job_type),
+            "reaction_key": _engine_state.normalize_text(reaction_key),
             "input_summary": input_summary_payload,
         },
-        retained_fields={
-            "candidate_count": int(existing.get("candidate_count", 0) or 0),
-            "candidate_paths": candidate_paths,
-            "selected_candidate_paths": selected_candidate_paths,
-            "candidate_details": candidate_details,
-            "analysis_summary": analysis_summary,
-        },
+        retained_fields=lambda existing: _recovery_retained_fields(existing, input_summary_payload),
         resource_request=resource_request,
         resource_actual=resource_actual,
     )
-    write_state(job_dir, payload)
-    return payload

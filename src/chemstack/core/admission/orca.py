@@ -108,7 +108,7 @@ def activate_slot(
     )
 
 
-def release_slot(root: Path, token: str) -> bool:
+def release_slot(root: str | Path, token: str) -> bool:
     return _core_admission.release_slot(root, token)
 
 

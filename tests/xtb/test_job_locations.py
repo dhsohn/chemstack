@@ -7,6 +7,7 @@ import pytest
 import chemstack.xtb.job_locations as job_locations_module
 from chemstack.core.config import CommonRuntimeConfig
 from chemstack.core.indexing import JobLocationRecord, get_job_location, upsert_job_location
+from chemstack.core.indexing import engine_job_locations as shared_job_locations
 from chemstack.core.indexing.engines import resource_dict
 from chemstack.flow.state import write_workflow_payload
 
@@ -239,7 +240,7 @@ def test_resolve_latest_job_dir_skips_blank_and_unresolvable_indexed_candidates(
     real_resolve = Path.resolve
 
     monkeypatch.setattr(
-        job_locations_module,
+        shared_job_locations,
         "resolve_job_location",
         lambda root, target: JobLocationRecord(
             job_id="job-124",
@@ -277,7 +278,7 @@ def test_resolve_latest_job_dir_returns_none_when_indexed_candidates_are_unusabl
     real_resolve = Path.resolve
 
     monkeypatch.setattr(
-        job_locations_module,
+        shared_job_locations,
         "resolve_job_location",
         lambda root, target: JobLocationRecord(
             job_id="job-404",

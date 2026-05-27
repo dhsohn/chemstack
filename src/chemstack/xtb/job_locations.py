@@ -2,13 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from chemstack.core.indexing import (
-    get_job_location,
-    list_job_locations,
-    resolve_job_location,
-    upsert_job_location,
-)
-from chemstack.core.indexing.engine_job_locations import build_engine_job_location_api
+from chemstack.core.indexing.engine_job_locations import build_store_backed_engine_job_location_api
 from chemstack.core.indexing import engines as _engine_locations
 
 from .state import load_organized_ref, load_report_json, load_state
@@ -24,7 +18,7 @@ _LOCATION_SPEC = _engine_locations.EngineLocationSpec(
     payload_kind_default="path_search",
     molecule_key_name="reaction_key",
 )
-_LOCATION_API = build_engine_job_location_api(
+_LOCATION_API = build_store_backed_engine_job_location_api(
     engine=_ENGINE,
     spec=_LOCATION_SPEC,
     load_state_fn=load_state,
@@ -33,12 +27,6 @@ _LOCATION_API = build_engine_job_location_api(
     payload_kind_kwarg="job_type",
     molecule_key_kwarg="reaction_key",
     default_payload_kind_kwarg="default_job_type",
-    get_job_location_fn=lambda: get_job_location,
-    list_job_locations_fn=lambda: list_job_locations,
-    resolve_job_location_fn=lambda: resolve_job_location,
-    upsert_job_location_fn=lambda: upsert_job_location,
-    load_state_supplier=lambda: load_state,
-    load_report_json_supplier=lambda: load_report_json,
 )
 _LOCATION_SERVICE = _LOCATION_API.service
 

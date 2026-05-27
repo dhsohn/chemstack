@@ -15,12 +15,12 @@ from pathlib import Path
 from typing import Any
 
 from chemstack.core.queue.engine_execution import coerce_resource_request
-from chemstack.core.queue.dependencies import ChildQueueWorkerDeps
 from chemstack.core.queue.worker import (
     ChildProcessQueueWorker,
     EngineRunningJob as _RunningJob,
     ManagedProcess as _ManagedProcess,
     QueueWorkerPidFileMixin,
+    make_child_queue_worker_deps,
     read_worker_pid_file,
     reserve_dequeued_entry,
     reserve_queue_worker_slot,
@@ -60,21 +60,17 @@ POLL_INTERVAL_SECONDS = 5
 WORKER_PID_FILE = "queue_worker.pid"
 
 
-def _queue_worker_deps() -> ChildQueueWorkerDeps:
-    return ChildQueueWorkerDeps(
+def _queue_worker_deps() -> Any:
+    return make_child_queue_worker_deps(
         poll_interval_seconds=POLL_INTERVAL_SECONDS,
-        time=time,
-        release_slot=_release_worker_slot,
-        reserve_dequeued_entry=reserve_dequeued_entry,
-        admission_root=_admission_root_for_cfg,
-        dequeue_next_entry=_dequeue_next_entry,
-        start_background_job_process=_start_background_job_process,
-        try_reserve_admission_slot=_try_reserve_admission_slot,
+        time_module=time,
+        release_slot_fn=release_slot,
+        reserve_dequeued_entry_fn=reserve_dequeued_entry,
+        admission_root_fn=_admission_root_for_cfg,
+        dequeue_next_entry_fn=_dequeue_next_entry,
+        start_background_job_process_fn=_start_background_job_process,
+        try_reserve_admission_slot_fn=_try_reserve_admission_slot,
     )
-
-
-def _release_worker_slot(root: str | Path, token: str) -> bool:
-    return release_slot(Path(root), token)
 
 
 def _admission_root_for_cfg(cfg: AppConfig) -> str:

@@ -5,7 +5,6 @@ from typing import Any
 
 from ._orchestration_deps import OrchestrationDeps
 from ._orchestration_stage_runtime_shared import (
-    _call_engine_aware,
     _load_contract_or_none,
     _orchestration_context,
     _submission_is_deferred,
@@ -33,7 +32,7 @@ def _load_xtb_contract(
     job_dir_target = o.stages._normalize_text(task_payload.get("job_dir"))
     index_root = (
         xtb_runtime_paths["allowed_root"]
-        or _call_engine_aware(o.stages._load_config_root, xtb_config, engine="xtb")
+        or o.stages._load_config_root(xtb_config, engine="xtb")
         or Path(job_dir_target or ".").resolve().parent
     )
     target = job_dir_target or o.stages._submission_target(stage)

@@ -7,6 +7,7 @@ from typing import Any, Callable
 
 import pytest
 
+from chemstack.core.artifacts import CREST_JOB_MANIFEST_FILE
 from chemstack.core.config import engines as config_mod
 from chemstack.crest import state as state_mod
 
@@ -321,3 +322,53 @@ def test_write_report_md_lines_writes_lines_with_trailing_newline(tmp_path: Path
 
     assert path == job_dir / state_mod.REPORT_MD_FILE_NAME
     assert path.read_text(encoding="utf-8") == "# Custom Report\n\n- Item: `value`\n"
+
+
+def test_mark_recovery_pending_preserves_crest_schema_fields(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    job_dir = tmp_path / "job-recovery"
+    job_dir.mkdir()
+    manifest = job_dir / CREST_JOB_MANIFEST_FILE
+    manifest.write_text("job_id: crest-old\n", encoding="utf-8")
+    monkeypatch.setattr(state_mod, "now_utc_iso", lambda: "2026-04-20T01:02:03Z")
+
+    state_mod.write_state(
+        job_dir,
+        {
+            "job_id": "crest-old",
+            "created_at": "2026-04-19T00:00:00Z",
+            "started_at": "2026-04-19T00:01:00Z",
+            "retained_conformer_count": 2,
+            "retained_conformer_paths": ["/tmp/conf-a.xyz", "/tmp/conf-b.xyz"],
+            "resource_request": {"cores": 16},
+            "resource_actual": {"cores": 8},
+            "recovery_count": 1,
+        },
+    )
+
+    payload = state_mod.mark_recovery_pending(
+        job_dir,
+        job_id="crest-new",
+        selected_input_xyz=job_dir / "selected.xyz",
+        mode=" standard ",
+        molecule_key=" mol-1 ",
+        resource_request={"cores": 4},
+        resource_actual=None,
+        reason=" crashed_recovery ",
+    )
+
+    assert state_mod.load_state(job_dir) == payload
+    assert payload["job_id"] == "crest-old"
+    assert payload["mode"] == "standard"
+    assert payload["molecule_key"] == "mol-1"
+    assert payload["retained_conformer_count"] == 2
+    assert payload["retained_conformer_paths"] == ["/tmp/conf-a.xyz", "/tmp/conf-b.xyz"]
+    assert "candidate_paths" not in payload
+    assert "input_summary" not in payload
+    assert payload["manifest_path"] == str(manifest.resolve())
+    assert payload["resource_request"] == {"cores": 4}
+    assert payload["resource_actual"] == {"cores": 8}
+    assert payload["recovery_count"] == 2
+    assert payload["recovery_pending"] is True

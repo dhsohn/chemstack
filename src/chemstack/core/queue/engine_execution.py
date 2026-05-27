@@ -28,6 +28,12 @@ class TerminalSyncActions:
     emit_output: Callable[[Any], Any] | None = None
 
 
+@dataclass(frozen=True)
+class TerminalArtifactPayloads:
+    state: dict[str, Any]
+    report: dict[str, Any]
+
+
 def sync_terminal_result(
     actions: TerminalSyncActions,
     *,
@@ -139,6 +145,41 @@ def build_running_state_payload(
     return payload
 
 
+def write_running_state_artifact(
+    entry: Any,
+    *,
+    job_dir_text: str,
+    selected_input_xyz: str,
+    started_at: str,
+    updated_at: str,
+    previous_state: dict[str, Any] | None,
+    resumed: bool,
+    resource_request: dict[str, int],
+    write_state_fn: Callable[..., Any],
+    engine_fields: dict[str, Any] | None = None,
+    detail_fields: dict[str, Any] | None = None,
+    worker_job_pid: int | None = None,
+) -> None:
+    if not job_dir_text:
+        return
+    job_dir = Path(job_dir_text).expanduser().resolve()
+    payload = build_running_state_payload(
+        entry,
+        job_dir=job_dir,
+        selected_input_xyz=selected_input_xyz,
+        started_at=started_at,
+        updated_at=updated_at,
+        previous_state=previous_state,
+        resumed=resumed,
+        resource_request=resource_request,
+        engine_fields=engine_fields,
+        detail_fields=detail_fields,
+    )
+    if worker_job_pid is not None and worker_job_pid > 0:
+        payload["worker_job_pid"] = int(worker_job_pid)
+    write_state_fn(job_dir, payload)
+
+
 def build_terminal_state_payload(
     entry: Any,
     result: Any,
@@ -209,6 +250,213 @@ def build_terminal_report_payload(
     if recovery_reason:
         payload["recovery_reason"] = recovery_reason
     return payload
+
+
+def build_terminal_artifact_payloads(
+    entry: Any,
+    result: Any,
+    *,
+    job_dir_text: str,
+    selected_input_xyz: str,
+    previous_state: dict[str, Any] | None,
+    resumed: bool,
+    engine_fields: dict[str, Any] | None = None,
+    detail_fields: dict[str, Any] | None = None,
+) -> TerminalArtifactPayloads:
+    return TerminalArtifactPayloads(
+        state=build_terminal_state_payload(
+            entry,
+            result,
+            job_dir_text=job_dir_text,
+            selected_input_xyz=selected_input_xyz,
+            previous_state=previous_state,
+            resumed=resumed,
+            engine_fields=engine_fields,
+            detail_fields=detail_fields,
+        ),
+        report=build_terminal_report_payload(
+            entry,
+            result,
+            selected_input_xyz=selected_input_xyz,
+            previous_state=previous_state,
+            resumed=resumed,
+            engine_fields=engine_fields,
+            detail_fields=detail_fields,
+        ),
+    )
+
+
+def write_terminal_execution_artifacts(
+    entry: Any,
+    result: Any,
+    *,
+    job_dir_text: str,
+    selected_input_xyz: str,
+    previous_state: dict[str, Any] | None,
+    resumed: bool,
+    engine_fields: dict[str, Any] | None,
+    detail_fields: dict[str, Any] | None,
+    report_lines: list[str],
+    write_state_fn: Callable[..., Any],
+    write_report_json_fn: Callable[..., Any],
+    write_report_md_lines_fn: Callable[..., Any],
+) -> None:
+    if not job_dir_text:
+        return
+    payloads = build_terminal_artifact_payloads(
+        entry,
+        result,
+        job_dir_text=job_dir_text,
+        selected_input_xyz=selected_input_xyz,
+        previous_state=previous_state,
+        resumed=resumed,
+        engine_fields=engine_fields,
+        detail_fields=detail_fields,
+    )
+    _queue_execution.write_result_artifacts(
+        job_dir_text,
+        state_payload=payloads.state,
+        report_payload=payloads.report,
+        report_lines=report_lines,
+        write_state_fn=write_state_fn,
+        write_report_json_fn=write_report_json_fn,
+        write_report_md_lines_fn=write_report_md_lines_fn,
+    )
+
+
+def terminal_report_lines(
+    entry: Any,
+    result: Any,
+    *,
+    title: str,
+    selected_input_label: str,
+    selected_input_xyz: str,
+    engine_lines: list[str] | None = None,
+    detail_lines: list[str] | None = None,
+) -> list[str]:
+    return [
+        f"# {title}",
+        "",
+        f"- Job ID: `{entry.task_id}`",
+        f"- Queue ID: `{entry.queue_id}`",
+        f"- Status: `{result.status}`",
+        f"- Reason: `{result.reason}`",
+        *list(engine_lines or []),
+        f"- {selected_input_label}: `{Path(selected_input_xyz).name}`",
+        f"- Exit Code: `{result.exit_code}`",
+        *list(detail_lines or []),
+        f"- Resource Request: `{result.resource_request}`",
+        f"- Resource Actual: `{result.resource_actual}`",
+        f"- Stdout Log: `{result.stdout_log}`",
+        f"- Stderr Log: `{result.stderr_log}`",
+    ]
+
+
+def mark_engine_job_running(
+    cfg: Any,
+    *,
+    entry: Any,
+    job_dir: Path,
+    selected_xyz: Path,
+    resource_request: dict[str, int],
+    write_running_state_fn: Callable[..., Any],
+    upsert_job_record_fn: Callable[..., Any],
+    notify_job_started_fn: Callable[..., Any],
+    record_fields: dict[str, Any] | None = None,
+    notify_fields: dict[str, Any] | None = None,
+    write_running_state_kwargs: dict[str, Any] | None = None,
+) -> None:
+    write_running_state_fn(cfg, entry, **dict(write_running_state_kwargs or {}))
+    upsert_job_record_fn(
+        cfg,
+        job_id=entry.task_id,
+        status="running",
+        job_dir=job_dir,
+        selected_input_xyz=str(selected_xyz),
+        **dict(record_fields or {}),
+        resource_request=resource_request,
+        resource_actual=dict(resource_request),
+    )
+    notify_job_started_fn(
+        cfg,
+        job_id=entry.task_id,
+        queue_id=entry.queue_id,
+        job_dir=job_dir,
+        selected_xyz=selected_xyz,
+        **dict(notify_fields or {}),
+    )
+
+
+def mark_recovery_pending_and_record(
+    cfg: Any,
+    *,
+    entry: Any,
+    job_dir: Path,
+    selected_input_xyz: Path | str,
+    reason: str,
+    resource_request: dict[str, int],
+    mark_recovery_pending_fn: Callable[..., Any],
+    upsert_job_record_fn: Callable[..., Any],
+    state_identity_fields: dict[str, Any] | None = None,
+    record_identity_fields: dict[str, Any] | None = None,
+) -> None:
+    selected_input_xyz_text = str(selected_input_xyz)
+    mark_recovery_pending_fn(
+        job_dir,
+        job_id=str(entry.task_id),
+        selected_input_xyz=selected_input_xyz_text,
+        **dict(state_identity_fields or {}),
+        resource_request=resource_request,
+        resource_actual=dict(resource_request),
+        reason=reason,
+    )
+    upsert_job_record_fn(
+        cfg,
+        job_id=entry.task_id,
+        status="pending",
+        job_dir=job_dir,
+        selected_input_xyz=selected_input_xyz_text,
+        **dict(record_identity_fields or {}),
+        resource_request=resource_request,
+        resource_actual=dict(resource_request),
+    )
+
+
+def build_terminal_result(
+    result_cls: type,
+    entry: Any,
+    *,
+    job_dir: Path,
+    selected_xyz: Path,
+    log_prefix: str,
+    manifest_filename: str,
+    resource_request: dict[str, int],
+    status: str,
+    reason: str,
+    now_utc_iso_fn: Callable[[], str],
+    command: tuple[str, ...] = (),
+    exit_code: int = 1,
+    engine_fields: dict[str, Any] | None = None,
+    detail_fields: dict[str, Any] | None = None,
+) -> Any:
+    terminal_time = now_utc_iso_fn()
+    manifest_path = (job_dir / manifest_filename).resolve()
+    return result_cls(
+        status=status,
+        reason=reason,
+        command=command,
+        exit_code=exit_code,
+        started_at=entry.started_at or terminal_time,
+        finished_at=terminal_time,
+        stdout_log=str((job_dir / f"{log_prefix}.stdout.log").resolve()),
+        stderr_log=str((job_dir / f"{log_prefix}.stderr.log").resolve()),
+        selected_input_xyz=str(selected_xyz.resolve()),
+        **dict(engine_fields or {}),
+        **dict(detail_fields or {}),
+        manifest_path=str(manifest_path) if manifest_path.exists() else "",
+        resource_request=resource_request,
+        resource_actual=dict(resource_request),
+    )
 
 
 def run_engine_worker_lifecycle(

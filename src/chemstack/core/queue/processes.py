@@ -141,14 +141,6 @@ def read_worker_pid_file(allowed_root: Path | str, file_name: str = "queue_worke
     return read_live_pid_file(worker_pid_file_path(allowed_root, file_name))
 
 
-def _positive_int(value: object) -> int | None:
-    return process_utils.positive_int(value)
-
-
-def _read_pid_payload(pid_path: Path) -> tuple[int | None, int | None]:
-    return process_utils.read_pid_payload(pid_path)
-
-
 def _remove_pid_file(pid_path: Path) -> None:
     process_utils.remove_file_silent(pid_path)
 
@@ -166,8 +158,6 @@ __all__ = [
     "ManagedProcess",
     "ProcessGroupTerminationDeps",
     "ShutdownSignalDeps",
-    "_positive_int",
-    "_read_pid_payload",
     "_remove_pid_file",
     "current_worker_pid_payload",
     "install_shutdown_signal_handlers",

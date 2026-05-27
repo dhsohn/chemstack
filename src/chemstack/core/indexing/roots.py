@@ -10,7 +10,6 @@ from chemstack.core.paths.workflow import (
     workflow_workspace_internal_engine_paths,
     workflow_workspace_internal_engine_paths_from_path,
 )
-from chemstack.core.statuses import TERMINAL_STATUSES
 from chemstack.core.utils.coercion import normalize_text as _shared_normalize_text
 
 from .location import JobLocationRecord
@@ -178,15 +177,10 @@ def load_job_artifacts_for_cfg(
     return None, None, None, resolved_record
 
 
-def is_terminal_status(status: str) -> bool:
-    return normalize_text(status).lower() in TERMINAL_STATUSES
-
-
 __all__ = [
     "append_unique_root",
     "index_root_for_cfg",
     "index_root_for_path",
-    "is_terminal_status",
     "list_job_records_for_cfg",
     "load_job_artifacts",
     "load_job_artifacts_for_cfg",

@@ -39,14 +39,14 @@ from chemstack.core.queue.worker import (
     QueueWorkerPidFileMixin,
     config_path_for_worker,
     dequeue_next_across_roots,
+    make_child_queue_worker_deps,
     read_worker_pid_file,
     reconcile_orphaned_child_queue_entries,
     reserve_dequeued_entry,
-    reserve_queue_worker_slot,
+    reserve_engine_queue_worker_slot,
     resolve_admission_root,
     shutdown_child_process_with_grace,
 )
-from chemstack.core.queue.dependencies import ChildQueueWorkerDeps
 from chemstack.core.utils import now_utc_iso
 
 from .job_locations import runtime_roots_for_cfg, upsert_job_record
@@ -55,7 +55,6 @@ from .worker_execution import (
     WorkerExecutionDependencies,
     _mark_recovery_pending_entry,
     _molecule_key,
-    _resource_caps,
     _terminate_process,
     _write_execution_artifacts,
     _write_running_state,
@@ -69,40 +68,38 @@ WORKER_PID_FILE = "queue_worker.pid"
 WORKER_SHUTDOWN_GRACE_SECONDS = 10.0
 
 
-def _queue_worker_deps() -> ChildQueueWorkerDeps:
-    return ChildQueueWorkerDeps(
+def _queue_worker_deps() -> Any:
+    return make_child_queue_worker_deps(
         poll_interval_seconds=POLL_INTERVAL_SECONDS,
-        time=time,
-        release_slot=release_slot,
-        reserve_dequeued_entry=reserve_dequeued_entry,
-        admission_root=_admission_root_for_cfg,
-        dequeue_next_entry=_dequeue_next_entry,
-        start_background_job_process=_start_background_job_process,
-        try_reserve_admission_slot=_try_reserve_admission_slot,
+        time_module=time,
+        release_slot_fn=release_slot,
+        reserve_dequeued_entry_fn=reserve_dequeued_entry,
+        admission_root_fn=_admission_root_for_cfg,
+        dequeue_next_entry_fn=dequeue_next_entry,
+        start_background_job_process_fn=_start_background_job_process,
+        try_reserve_admission_slot_fn=_try_reserve_admission_slot,
     )
 
 
-def _display_status(entry: Any) -> str:
-    return _shared_queue.display_status(entry)
+_queue_runtime = _shared_queue.QueueRuntime(
+    load_config_fn=lambda path: load_config(path),
+    runtime_roots_for_cfg_fn=lambda cfg: runtime_roots_for_cfg(cfg),
+    list_queue_fn=lambda root: list_queue(root),
+    dequeue_next_fn=lambda root: dequeue_next(root),
+    dequeue_next_across_roots_fn=lambda roots, **kwargs: dequeue_next_across_roots(
+        roots,
+        **kwargs,
+    ),
+    request_cancel_fn=lambda root, queue_id: request_cancel(root, queue_id),
+)
 
 
-def _find_entry_by_target(entries: list[Any], target: str) -> Any | None:
-    return _shared_queue.find_entry_by_target(entries, target)
+def queue_roots(cfg: Any) -> tuple[Path, ...]:
+    return _queue_runtime.queue_roots(cfg)
 
 
-def _queue_roots(cfg: Any) -> tuple[Path, ...]:
-    return _shared_queue.queue_roots(
-        cfg,
-        runtime_roots_for_cfg_fn=runtime_roots_for_cfg,
-    )
-
-
-def _queue_entries_with_roots(cfg: Any) -> list[tuple[Path, Any]]:
-    return _shared_queue.queue_entries_with_roots(
-        cfg,
-        queue_roots_fn=_queue_roots,
-        list_queue_fn=list_queue,
-    )
+def queue_entries_with_roots(cfg: Any) -> list[tuple[Path, Any]]:
+    return _queue_runtime.queue_entries_with_roots(cfg)
 
 
 def _find_queue_entry(queue_root: Path, queue_id: str) -> Any | None:
@@ -112,14 +109,8 @@ def _find_queue_entry(queue_root: Path, queue_id: str) -> Any | None:
     return None
 
 
-def _dequeue_next_entry(cfg: Any) -> tuple[Path, Any] | None:
-    return _shared_queue.dequeue_next_entry(
-        cfg,
-        queue_roots_fn=_queue_roots,
-        list_queue_fn=list_queue,
-        dequeue_next_fn=dequeue_next,
-        dequeue_next_across_roots_fn=dequeue_next_across_roots,
-    )
+def dequeue_next_entry(cfg: Any) -> tuple[Path, Any] | None:
+    return _queue_runtime.dequeue_next_entry(cfg)
 
 
 def _admission_root_for_cfg(cfg: Any) -> str:
@@ -127,10 +118,9 @@ def _admission_root_for_cfg(cfg: Any) -> str:
 
 
 def _try_reserve_admission_slot(cfg: Any) -> str | None:
-    return reserve_queue_worker_slot(
+    return reserve_engine_queue_worker_slot(
         cfg,
-        source="chemstack.crest.queue_worker",
-        app_name="chemstack_crest",
+        engine="crest",
         reserve_slot_fn=reserve_slot,
     )
 
@@ -154,13 +144,7 @@ def _worker_dependencies() -> WorkerExecutionDependencies:
 
 
 def cmd_queue_cancel(args: Any) -> int:
-    return _shared_queue.cmd_queue_cancel(
-        args,
-        load_config_fn=load_config,
-        queue_entries_with_roots_fn=_queue_entries_with_roots,
-        request_cancel_fn=request_cancel,
-        display_status_fn=_display_status,
-    )
+    return _queue_runtime.cmd_queue_cancel(args)
 
 
 def _process_one(cfg: Any) -> str:
@@ -169,7 +153,6 @@ def _process_one(cfg: Any) -> str:
             cfg,
             entry,
             queue_root=queue_root,
-            resource_caps=_resource_caps,
             molecule_key_resolver=_molecule_key,
             dependencies=_worker_dependencies(),
         )
@@ -180,11 +163,10 @@ def _process_one(cfg: Any) -> str:
         print(f"status: {outcome.result.status}")
         print(f"reason: {outcome.result.reason}")
 
-    return _shared_queue.process_one_entry(
+    return _queue_runtime.process_one(
         cfg,
         reserve_slot_fn=_try_reserve_admission_slot,
         admission_root_fn=_admission_root_for_cfg,
-        dequeue_next_entry_fn=_dequeue_next_entry,
         execute_entry_fn=execute,
         after_execute_fn=print_outcome,
         release_slot_fn=release_slot,
@@ -249,7 +231,7 @@ class QueueWorker(QueueWorkerPidFileMixin, ChildProcessQueueWorker):
         reconcile_orphaned_child_queue_entries(
             self.cfg,
             admission_root=self.admission_root,
-            queue_roots_fn=_queue_roots,
+            queue_roots_fn=queue_roots,
             list_queue_fn=list_queue,
             list_slots_fn=list_slots,
             reconcile_stale_slots_fn=reconcile_stale_slots,
@@ -297,9 +279,6 @@ class QueueWorker(QueueWorkerPidFileMixin, ChildProcessQueueWorker):
             return False
         return True
 
-    def _check_cancel_requests(self) -> None:
-        return None
-
     def _finalize_completed_job(self, _queue_id: str, job: Any, rc: int) -> None:
         self._finalize_child_exit(job, rc=rc)
 
@@ -332,19 +311,23 @@ class QueueWorker(QueueWorkerPidFileMixin, ChildProcessQueueWorker):
 
 
 def cmd_queue_worker(args: Any) -> int:
-    cfg = load_config(getattr(args, "config", None))
-
-    existing_pid = read_worker_pid(Path(str(cfg.runtime.allowed_root)).expanduser().resolve())
-    if existing_pid is not None:
-        print(f"error: queue worker already running (pid={existing_pid})")
-        return 1
-
-    worker = QueueWorker(
-        cfg,
-        config_path_for_worker(args, default_config_path_fn=default_config_path),
-        max_concurrent=max(1, int(getattr(cfg.runtime, "max_concurrent", 1))),
+    return _shared_queue.run_queue_worker_command(
+        args,
+        load_config_fn=lambda path: load_config(path),
+        config_path_fn=lambda worker_args: config_path_for_worker(
+            worker_args,
+            default_config_path_fn=default_config_path,
+        ),
+        existing_pid_fn=lambda cfg: read_worker_pid(
+            Path(str(cfg.runtime.allowed_root)).expanduser().resolve(),
+        ),
+        max_concurrent_fn=lambda cfg: max(1, int(getattr(cfg.runtime, "max_concurrent", 1))),
+        worker_factory=lambda cfg, config_path, **kwargs: QueueWorker(
+            cfg,
+            config_path,
+            **kwargs,
+        ),
     )
-    return worker.run()
 
 
 def build_parser() -> argparse.ArgumentParser:

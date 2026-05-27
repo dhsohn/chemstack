@@ -4,12 +4,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from ._orchestration_deps import (
-    OrchestrationDeps,
-    call_engine_aware as _call_engine_aware,
-    orchestration_deps,
-)
+from ._orchestration_deps import OrchestrationDeps, orchestration_deps
 from .state import workflow_workspace_internal_engine_paths
+from ._workflow_phases import phase_finished
 
 
 def _orchestration_context(deps: OrchestrationDeps | None = None) -> OrchestrationDeps:
@@ -455,10 +452,10 @@ def _reaction_orca_stage_plan(
     xtb_stages = _completed_or_recoverable_xtb_stages(o, payload)
     if not xtb_stages:
         return None
-    xtb_allowed_root = _call_engine_aware(o.stages._load_config_root, xtb_config, engine="xtb")
+    xtb_allowed_root = o.stages._load_config_root(xtb_config, engine="xtb")
     if xtb_allowed_root is None:
         return None
-    if _call_engine_aware(o.stages._load_config_root, orca_config, engine="orca") is None:
+    if o.stages._load_config_root(orca_config, engine="orca") is None:
         return None
     orca_runtime_paths = workflow_workspace_internal_engine_paths(workspace_dir, engine="orca")
     params = _request_params(o, payload)
@@ -493,6 +490,8 @@ def append_reaction_orca_stages_impl(
     deps: OrchestrationDeps | None = None,
 ) -> bool:
     o = _orchestration_context(deps)
+    if not phase_finished(payload.get("stages", []), engine="xtb"):
+        return False
     plan = _reaction_orca_stage_plan(
         o,
         payload,
@@ -593,7 +592,7 @@ def _crest_orca_stage_plan(
     )
     if (
         crest_contract is None
-        or _call_engine_aware(o.stages._load_config_root, orca_config, engine="orca") is None
+        or o.stages._load_config_root(orca_config, engine="orca") is None
     ):
         return None
     payload_metadata = o.stages._coerce_mapping(payload.get("metadata"))

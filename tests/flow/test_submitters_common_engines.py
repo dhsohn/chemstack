@@ -3,6 +3,7 @@ from __future__ import annotations
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -236,71 +237,92 @@ def test_sibling_runtime_paths_derives_internal_engine_roots_from_workflow_root(
 
 
 @pytest.mark.parametrize(
-    ("module", "job_dir", "priority", "stdout", "returncode", "stderr", "expected"),
+    ("module", "engine", "job_dir", "priority", "job_id", "queue_id", "extras"),
     [
         (
             xtb_submitter,
+            "xtb",
             "/jobs/xtb-1",
             7,
-            "\n".join(
-                [
-                    "status: queued",
-                    "job_id: xtb-job-1",
-                    "queue_id: q-xtb-1",
-                    "job_dir: /organized/xtb-1",
-                    "job_type: path",
-                    "reaction_key: rxn-1",
-                ]
-            ),
-            0,
-            "",
-            {
-                "status": "submitted",
-                "job_id": "xtb-job-1",
-                "queue_id": "q-xtb-1",
-                "job_dir": "/organized/xtb-1",
-                "job_type": "path",
-                "reaction_key": "rxn-1",
-                "parsed_status": "queued",
-            },
+            "xtb-job-1",
+            "q-xtb-1",
+            {"job_type": "path", "reaction_key": "rxn-1"},
         ),
         (
             crest_submitter,
+            "crest",
             "/jobs/crest-1",
             3,
-            "status: failed\nqueue_id: q-crest-1",
-            1,
-            "boom",
-            {
-                "status": "failed",
-                "job_id": "",
-                "queue_id": "q-crest-1",
-                "job_dir": "/jobs/crest-1",
-                "parsed_status": "failed",
-            },
+            "crest-job-1",
+            "q-crest-1",
+            {},
         ),
     ],
 )
-def test_submit_job_dir_maps_success_and_failure(
+def test_submit_job_dir_uses_structured_engine_dependencies(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
     module: Any,
+    engine: str,
     job_dir: str,
     priority: int,
-    stdout: str,
-    returncode: int,
-    stderr: str,
-    expected: dict[str, str],
+    job_id: str,
+    queue_id: str,
+    extras: dict[str, str],
 ) -> None:
     captured: dict[str, Any] = {}
+    cfg = SimpleNamespace(name=f"{engine}-config")
+    resolved_job_dir = tmp_path / engine / "organized-job"
+    manifest = {"manifest": True}
 
-    def fake_cmd_run_dir(args: Any) -> int:
-        captured["args"] = args
-        print(stdout, end="")
-        if stderr:
-            print(stderr, end="", file=sys.stderr)
-        return returncode
+    def fake_load_config(config_path: str) -> Any:
+        captured["config_path"] = config_path
+        return cfg
 
-    monkeypatch.setattr(module, "cmd_run_dir", fake_cmd_run_dir)
+    def fake_resolve_job_dir(cfg_arg: Any, raw_job_dir: str) -> Path:
+        captured["resolve"] = (cfg_arg, raw_job_dir)
+        return resolved_job_dir
+
+    def fake_load_manifest(job_dir_arg: Path) -> dict[str, Any]:
+        captured["manifest_job_dir"] = job_dir_arg
+        return manifest
+
+    def fake_build_submission(
+        cfg_arg: Any,
+        job_dir_arg: Path,
+        manifest_arg: dict[str, Any],
+        args: Any,
+    ) -> Any:
+        captured["build"] = (cfg_arg, job_dir_arg, manifest_arg, args)
+        metadata = {"job_dir": str(job_dir_arg), **extras}
+        return SimpleNamespace(
+            queue_root=tmp_path / engine / "queue",
+            app_name=f"chemstack_{engine}",
+            task_id=job_id,
+            task_kind=f"{engine}_job",
+            engine=engine,
+            priority=int(args.priority),
+            metadata=metadata,
+            context={},
+        )
+
+    def fake_enqueue(root: Path, **kwargs: Any) -> Any:
+        captured["enqueue"] = (root, kwargs)
+        return SimpleNamespace(
+            queue_id=queue_id,
+            task_id=kwargs["task_id"],
+            priority=kwargs["priority"],
+        )
+
+    def fake_record_queued(cfg_arg: Any, submission: Any, entry: Any) -> None:
+        captured["record"] = (cfg_arg, submission, entry)
+
+    monkeypatch.setattr(module, "load_config", fake_load_config)
+    monkeypatch.setattr(module, "resolve_job_dir", fake_resolve_job_dir)
+    monkeypatch.setattr(module, "load_job_manifest", fake_load_manifest)
+    monkeypatch.setattr(module, "build_submission", fake_build_submission)
+    monkeypatch.setattr(module, "enqueue", fake_enqueue)
+    monkeypatch.setattr(module, "record_queued", fake_record_queued)
 
     result = module.submit_job_dir(
         job_dir=job_dir,
@@ -308,101 +330,160 @@ def test_submit_job_dir_maps_success_and_failure(
         config_path="/tmp/config.yaml",
     )
 
-    assert captured["args"].config == "/tmp/config.yaml"
-    assert captured["args"].path == job_dir
-    assert captured["args"].priority == priority
-    assert result["status"] == expected["status"]
-    assert result["returncode"] == returncode
+    build_args = captured["build"][3]
+    assert captured["config_path"] == "/tmp/config.yaml"
+    assert captured["resolve"] == (cfg, job_dir)
+    assert captured["manifest_job_dir"] == resolved_job_dir
+    assert build_args.config == "/tmp/config.yaml"
+    assert build_args.path == job_dir
+    assert build_args.priority == priority
+    assert captured["enqueue"][1]["metadata"] == {"job_dir": str(resolved_job_dir), **extras}
+    assert captured["record"][0] is cfg
+    assert result["status"] == "submitted"
+    assert result["returncode"] == 0
     assert result["command_argv"] == [
-        "chemstack.xtb.submission.cmd_run_dir"
-        if module is xtb_submitter
-        else "chemstack.crest.submission.cmd_run_dir",
-        "--config",
-        "/tmp/config.yaml",
-        job_dir,
-        "--priority",
-        str(priority),
+        f"chemstack.{engine}.submission.direct_enqueue",
+        "config=/tmp/config.yaml",
+        f"job_dir={job_dir}",
+        f"priority={priority}",
     ]
-    assert result["stdout"] == stdout
-    assert result["stderr"] == stderr
-    assert result["parsed_stdout"]["status"] == expected["parsed_status"]
-    assert result["job_id"] == expected["job_id"]
-    assert result["queue_id"] == expected["queue_id"]
-    assert result["job_dir"] == expected["job_dir"]
+    assert result["stdout"].startswith("status: queued\n")
+    assert result["stderr"] == ""
+    assert result["parsed_stdout"]["status"] == "queued"
+    assert result["job_id"] == job_id
+    assert result["queue_id"] == queue_id
+    assert result["job_dir"] == str(resolved_job_dir)
     if module is xtb_submitter:
-        assert result["job_type"] == expected["job_type"]
-        assert result["reaction_key"] == expected["reaction_key"]
+        assert result["job_type"] == extras["job_type"]
+        assert result["reaction_key"] == extras["reaction_key"]
+        assert result["parsed_stdout"]["job_type"] == extras["job_type"]
+        assert result["parsed_stdout"]["reaction_key"] == extras["reaction_key"]
+
+
+@pytest.mark.parametrize("module", [xtb_submitter, crest_submitter])
+def test_submit_job_dir_reports_structured_error(
+    monkeypatch: pytest.MonkeyPatch,
+    module: Any,
+) -> None:
+    def fake_load_config(_config_path: str) -> Any:
+        raise RuntimeError("submission failed")
+
+    monkeypatch.setattr(module, "load_config", fake_load_config)
+
+    result = module.submit_job_dir(
+        job_dir="/jobs/job-1",
+        priority=4,
+        config_path="/tmp/config.yaml",
+    )
+
+    assert result["status"] == "failed"
+    assert result["returncode"] == 1
+    assert result["stdout"] == ""
+    assert result["stderr"] == "RuntimeError: submission failed\n"
+    assert result["parsed_stdout"] == {}
+    assert result["job_id"] == ""
+    assert result["queue_id"] == ""
 
 
 @pytest.mark.parametrize(
-    ("module", "target", "stdout", "returncode", "expected_status", "expected_queue_id", "expected_job_id"),
+    ("module", "engine", "target", "displayed_status", "expected_status", "queue_id", "job_id"),
     [
-        (xtb_submitter, "xtb-job-1", "status: cancel_requested\nqueue_id: q-1\njob_id: xtb-job-1", 0, "cancel_requested", "q-1", "xtb-job-1"),
-        (xtb_submitter, "xtb-job-2", "Cancel requested for queue entry q-2", 0, "cancel_requested", "", ""),
-        (xtb_submitter, "xtb-job-3", "queue_id: q-3", 0, "cancelled", "q-3", ""),
-        (xtb_submitter, "xtb-job-4", "status: cancelled\njob_id: xtb-job-4", 0, "cancelled", "", "xtb-job-4"),
-        (xtb_submitter, "xtb-job-5", "status: cancel_requested", 2, "failed", "", ""),
-        (crest_submitter, "crest-job-1", "status: cancel_requested\nqueue_id: c-1\njob_id: crest-job-1", 0, "cancel_requested", "c-1", "crest-job-1"),
-        (crest_submitter, "crest-job-2", "Cancel requested for queue entry c-2", 0, "cancel_requested", "", ""),
-        (crest_submitter, "crest-job-3", "queue_id: c-3", 0, "cancelled", "c-3", ""),
-        (crest_submitter, "crest-job-4", "status: cancelled\njob_id: crest-job-4", 0, "cancelled", "", "crest-job-4"),
-        (crest_submitter, "crest-job-5", "status: cancel_requested", 3, "failed", "", ""),
+        (xtb_submitter, "xtb", "xtb-job-1", "cancel_requested", "cancel_requested", "q-1", "xtb-job-1"),
+        (xtb_submitter, "xtb", "xtb-job-2", "cancelled", "cancelled", "q-2", "xtb-job-2"),
+        (
+            crest_submitter,
+            "crest",
+            "crest-job-1",
+            "cancel_requested",
+            "cancel_requested",
+            "c-1",
+            "crest-job-1",
+        ),
+        (crest_submitter, "crest", "crest-job-2", "cancelled", "cancelled", "c-2", "crest-job-2"),
     ],
 )
-def test_cancel_target_maps_status_from_stdout_and_returncode(
+def test_cancel_target_uses_structured_queue_update(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
     module: Any,
+    engine: str,
     target: str,
-    stdout: str,
-    returncode: int,
+    displayed_status: str,
     expected_status: str,
-    expected_queue_id: str,
-    expected_job_id: str,
+    queue_id: str,
+    job_id: str,
 ) -> None:
     captured: dict[str, Any] = {}
+    queue_root = tmp_path / "queue"
+    cfg = SimpleNamespace(name=f"{engine}-queue-config")
+    original_entry = SimpleNamespace(queue_id=queue_id, task_id=job_id)
 
-    def fake_cmd_queue_cancel(args: Any) -> int:
-        captured["args"] = args
-        print(stdout, end="")
-        print("stderr text", end="", file=sys.stderr)
-        return returncode
+    def fake_load_queue_config(config_path: str) -> Any:
+        captured["config_path"] = config_path
+        return cfg
 
-    monkeypatch.setattr(module, "cmd_queue_cancel", fake_cmd_queue_cancel)
+    def fake_queue_entries_with_roots(cfg_arg: Any) -> list[tuple[Path, Any]]:
+        captured["listed_cfg"] = cfg_arg
+        return [(queue_root, original_entry)]
+
+    def fake_request_cancel(root: Path, requested_queue_id: str) -> Any:
+        captured["request_cancel"] = (root, requested_queue_id)
+        return SimpleNamespace(
+            queue_id=requested_queue_id,
+            task_id=job_id,
+            cancel_requested=displayed_status == "cancel_requested",
+            status=SimpleNamespace(value="running" if displayed_status == "cancel_requested" else "cancelled"),
+        )
+
+    def fake_display_status(entry: Any) -> str:
+        captured["display_entry"] = entry
+        return displayed_status
+
+    monkeypatch.setattr(module, "load_queue_config", fake_load_queue_config)
+    monkeypatch.setattr(module, "queue_entries_with_roots", fake_queue_entries_with_roots)
+    monkeypatch.setattr(module, "request_cancel", fake_request_cancel)
+    monkeypatch.setattr(module, "display_status", fake_display_status)
 
     result = module.cancel_target(
         target=target,
         config_path="/tmp/config.yaml",
     )
 
-    assert captured["args"].config == "/tmp/config.yaml"
-    assert captured["args"].target == target
+    assert captured["config_path"] == "/tmp/config.yaml"
+    assert captured["listed_cfg"] is cfg
+    assert captured["request_cancel"] == (queue_root, queue_id)
     assert result["status"] == expected_status
-    assert result["returncode"] == returncode
+    assert result["returncode"] == 0
     assert result["command_argv"] == [
-        "chemstack.xtb.queue_runtime.cmd_queue_cancel"
-        if module is xtb_submitter
-        else "chemstack.crest.queue_runtime.cmd_queue_cancel",
-        "--config",
-        "/tmp/config.yaml",
-        target,
+        f"chemstack.{engine}.queue_runtime.direct_cancel",
+        "config=/tmp/config.yaml",
+        f"target={target}",
     ]
-    assert result["stdout"] == stdout
-    assert result["stderr"] == "stderr text"
-    assert result["queue_id"] == expected_queue_id
-    assert result["job_id"] == expected_job_id
+    assert result["stdout"] == f"status: {expected_status}\nqueue_id: {queue_id}\njob_id: {job_id}"
+    assert result["stderr"] == ""
+    assert result["parsed_stdout"]["status"] == expected_status
+    assert result["queue_id"] == queue_id
+    assert result["job_id"] == job_id
 
 
 @pytest.mark.parametrize("module", [xtb_submitter, crest_submitter])
-def test_cancel_target_reports_handler_error(
+def test_cancel_target_reports_structured_error(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
     module: Any,
 ) -> None:
-    def fake_cmd_queue_cancel(args: Any) -> int:
-        del args
-        print("partial", end="")
+    def fake_load_queue_config(_config_path: str) -> Any:
+        return object()
+
+    def fake_queue_entries_with_roots(_cfg: Any) -> list[tuple[Path, Any]]:
+        return [(tmp_path / "queue", SimpleNamespace(queue_id="q-1", task_id="job-1"))]
+
+    def fake_request_cancel(_root: Path, _queue_id: str) -> Any:
         raise RuntimeError("cancel failed")
 
-    monkeypatch.setattr(module, "cmd_queue_cancel", fake_cmd_queue_cancel)
+    monkeypatch.setattr(module, "load_queue_config", fake_load_queue_config)
+    monkeypatch.setattr(module, "queue_entries_with_roots", fake_queue_entries_with_roots)
+    monkeypatch.setattr(module, "request_cancel", fake_request_cancel)
 
     result = module.cancel_target(
         target="job-1",
@@ -412,5 +493,5 @@ def test_cancel_target_reports_handler_error(
     assert result["status"] == "failed"
     assert result["reason"] == "cancel_command_failed"
     assert result["returncode"] == 1
-    assert result["stdout"] == "partial"
+    assert result["stdout"] == ""
     assert result["stderr"] == "RuntimeError: cancel failed\n"

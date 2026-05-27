@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+from chemstack.core.artifacts import XTB_JOB_MANIFEST_FILE
 from chemstack.core.config.engines import (
     CONFIG_ENV_VAR,
     as_bool,
@@ -206,3 +207,59 @@ def test_state_loaders_return_none_for_missing_invalid_and_non_mapping_payloads(
         assert loader(job_dir) is None
         path.write_text(json.dumps(["not", "a", "mapping"]), encoding="utf-8")
         assert loader(job_dir) is None
+
+
+def test_mark_recovery_pending_preserves_xtb_schema_fields(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    job_dir = tmp_path / "job-003"
+    job_dir.mkdir()
+    manifest = job_dir / XTB_JOB_MANIFEST_FILE
+    manifest.write_text("job_id: old-job\n", encoding="utf-8")
+    monkeypatch.setattr(state_mod, "now_utc_iso", lambda: "2026-04-20T01:02:03Z")
+
+    state_mod.write_state(
+        job_dir,
+        {
+            "job_id": "old-job",
+            "created_at": "2026-04-19T00:00:00Z",
+            "started_at": "2026-04-19T00:01:00Z",
+            "candidate_count": 2,
+            "candidate_paths": ["/tmp/old-a.xyz"],
+            "selected_candidate_paths": ["/tmp/old-best.xyz"],
+            "candidate_details": [{"path": "/tmp/old-a.xyz"}],
+            "analysis_summary": {"best": "/tmp/old-best.xyz"},
+            "resource_request": {"cores": 8},
+            "resource_actual": {"cores": 4},
+            "recovery_count": 3,
+        },
+    )
+
+    payload = state_mod.mark_recovery_pending(
+        job_dir,
+        job_id="new-job",
+        selected_input_xyz=job_dir / "selected.xyz",
+        job_type=" path_search ",
+        reaction_key=" rxn-1 ",
+        input_summary={"candidate_paths": ["/tmp/from-summary.xyz"]},
+        resource_request=None,
+        resource_actual={"cores": 1},
+        reason=" worker_shutdown ",
+    )
+
+    assert state_mod.load_state(job_dir) == payload
+    assert payload["job_id"] == "old-job"
+    assert payload["job_type"] == "path_search"
+    assert payload["reaction_key"] == "rxn-1"
+    assert payload["input_summary"] == {"candidate_paths": ["/tmp/from-summary.xyz"]}
+    assert payload["candidate_count"] == 2
+    assert payload["candidate_paths"] == ["/tmp/old-a.xyz"]
+    assert payload["selected_candidate_paths"] == ["/tmp/old-best.xyz"]
+    assert payload["candidate_details"] == [{"path": "/tmp/old-a.xyz"}]
+    assert payload["analysis_summary"] == {"best": "/tmp/old-best.xyz"}
+    assert payload["manifest_path"] == str(manifest.resolve())
+    assert payload["resource_request"] == {"cores": 8}
+    assert payload["resource_actual"] == {"cores": 1}
+    assert payload["recovery_count"] == 4
+    assert payload["recovery_pending"] is True

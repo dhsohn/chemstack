@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from chemstack.core.commands import queue as shared_queue_cmd
 from chemstack.xtb import queue_runtime as queue_cmd
 from chemstack.xtb import state as state_mod
 
@@ -134,16 +135,16 @@ def _record_finished_call(
     ],
 )
 def test_queue_display_status(entry: object, expected: str) -> None:
-    assert queue_cmd._display_status(entry) == expected
+    assert shared_queue_cmd.display_status(entry) == expected
 
 
 def test_find_entry_by_target_matches_queue_id_and_job_id() -> None:
     first = SimpleNamespace(queue_id="q-1", task_id="job-1")
     second = SimpleNamespace(queue_id="q-2", task_id="job-2")
 
-    assert queue_cmd._find_entry_by_target([first, second], "q-2") is second
-    assert queue_cmd._find_entry_by_target([first, second], "job-1") is first
-    assert queue_cmd._find_entry_by_target([first, second], "missing") is None
+    assert shared_queue_cmd.find_entry_by_target([first, second], "q-2") is second
+    assert shared_queue_cmd.find_entry_by_target([first, second], "job-1") is first
+    assert shared_queue_cmd.find_entry_by_target([first, second], "missing") is None
 
 
 def test_execute_queue_entry_processes_completed_job(

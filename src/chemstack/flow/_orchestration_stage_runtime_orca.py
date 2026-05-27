@@ -4,7 +4,6 @@ from typing import Any
 
 from ._orchestration_deps import OrchestrationDeps
 from ._orchestration_stage_runtime_shared import (
-    _call_engine_aware,
     _clear_submission_deferred_metadata,
     _coerce_bool,
     _load_contract_or_none,
@@ -71,10 +70,10 @@ def _load_orca_contract(
     reaction_dir_hint: str,
     orca_config: str | None,
 ) -> Any | None:
-    allowed_root = _call_engine_aware(o.stages._load_config_root, orca_config, engine="orca")
+    allowed_root = o.stages._load_config_root(orca_config, engine="orca")
     organized_root = _workflow_internal_organized_root(
         reaction_dir_hint, engine="orca"
-    ) or _call_engine_aware(o.stages._load_config_organized_root, orca_config, engine="orca")
+    ) or o.stages._load_config_organized_root(orca_config, engine="orca")
     target = (
         o.stages._normalize_text(stage_metadata.get("run_id"))
         or reaction_dir_hint
@@ -294,10 +293,10 @@ def completed_orca_stage_impl(
         engine="orca",
         target=target,
         stage=stage,
-        orca_allowed_root=_call_engine_aware(o.stages._load_config_root, orca_config, engine="orca"),
+        orca_allowed_root=o.stages._load_config_root(orca_config, engine="orca"),
         orca_organized_root=(
             _workflow_internal_organized_root(reaction_dir_hint, engine="orca")
-            or _call_engine_aware(o.stages._load_config_organized_root, orca_config, engine="orca")
+            or o.stages._load_config_organized_root(orca_config, engine="orca")
         ),
         queue_id=o.stages._normalize_text(stage_metadata.get("queue_id")),
         run_id=o.stages._normalize_text(stage_metadata.get("run_id")),

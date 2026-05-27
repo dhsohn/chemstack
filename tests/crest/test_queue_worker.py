@@ -7,6 +7,7 @@ from typing import Any, cast
 
 import pytest
 
+from chemstack.core.commands.queue import find_entry_by_target
 from chemstack.core.config import CommonResourceConfig, CommonRuntimeConfig
 from chemstack.core.indexing import get_job_location, list_job_locations
 from chemstack.core.queue import enqueue, list_queue, request_cancel
@@ -441,7 +442,7 @@ def test_queue_worker_shutdown_requeues_running_children(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     job = _enqueue_job(queue_env, task_id="pool-shutdown-001")
-    queue_root, entry = queue_cmd._dequeue_next_entry(queue_env.cfg) or pytest.fail("expected dequeued entry")
+    queue_root, entry = queue_cmd.dequeue_next_entry(queue_env.cfg) or pytest.fail("expected dequeued entry")
     released: list[tuple[Path, str]] = []
     child = FakeChildProcess(6201, None)
 
@@ -458,7 +459,7 @@ def test_queue_worker_shutdown_requeues_running_children(
 
     worker._shutdown_all()
 
-    updated = queue_cmd._find_entry_by_target(list_queue(queue_env.allowed_root), job.entry.queue_id)
+    updated = find_entry_by_target(list_queue(queue_env.allowed_root), job.entry.queue_id)
     assert updated is not None
     assert updated.status == QueueStatus.PENDING
     assert updated.cancel_requested is False
@@ -477,8 +478,8 @@ def test_queue_worker_reconcile_orphaned_running_requeues_entry_without_live_slo
 ) -> None:
     orphan_job = _enqueue_job(queue_env, task_id="orphan-running")
     live_job = _enqueue_job(queue_env, task_id="live-running")
-    orphan_root, orphan_entry = queue_cmd._dequeue_next_entry(queue_env.cfg) or pytest.fail("expected orphan entry")
-    live_root, live_entry = queue_cmd._dequeue_next_entry(queue_env.cfg) or pytest.fail("expected live entry")
+    orphan_root, orphan_entry = queue_cmd.dequeue_next_entry(queue_env.cfg) or pytest.fail("expected orphan entry")
+    live_root, live_entry = queue_cmd.dequeue_next_entry(queue_env.cfg) or pytest.fail("expected live entry")
 
     monkeypatch.setattr(queue_cmd, "reconcile_stale_slots", lambda root: 0)
     monkeypatch.setattr(queue_cmd, "list_slots", lambda root: [SimpleNamespace(queue_id=live_entry.queue_id)])
@@ -486,8 +487,8 @@ def test_queue_worker_reconcile_orphaned_running_requeues_entry_without_live_slo
     worker = queue_cmd.QueueWorker(queue_env.cfg, "/tmp/chemstack.yaml", max_concurrent=2)
     worker._reconcile_orphaned_running()
 
-    orphan_updated = queue_cmd._find_entry_by_target(list_queue(queue_env.allowed_root), orphan_job.entry.queue_id)
-    live_updated = queue_cmd._find_entry_by_target(list_queue(queue_env.allowed_root), live_job.entry.queue_id)
+    orphan_updated = find_entry_by_target(list_queue(queue_env.allowed_root), orphan_job.entry.queue_id)
+    live_updated = find_entry_by_target(list_queue(queue_env.allowed_root), live_job.entry.queue_id)
     assert orphan_root == live_root
     assert orphan_updated is not None
     assert live_updated is not None
@@ -505,7 +506,7 @@ def test_queue_worker_reconcile_orphaned_cancel_requested_marks_cancelled(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     job = _enqueue_job(queue_env, task_id="orphan-cancelled")
-    queue_root, entry = queue_cmd._dequeue_next_entry(queue_env.cfg) or pytest.fail("expected dequeued entry")
+    queue_root, entry = queue_cmd.dequeue_next_entry(queue_env.cfg) or pytest.fail("expected dequeued entry")
     request_cancel(queue_root, entry.queue_id)
 
     monkeypatch.setattr(queue_cmd, "reconcile_stale_slots", lambda root: 0)
@@ -514,7 +515,7 @@ def test_queue_worker_reconcile_orphaned_cancel_requested_marks_cancelled(
     worker = queue_cmd.QueueWorker(queue_env.cfg, "/tmp/chemstack.yaml", max_concurrent=2)
     worker._reconcile_orphaned_running()
 
-    updated = queue_cmd._find_entry_by_target(list_queue(queue_env.allowed_root), job.entry.queue_id)
+    updated = find_entry_by_target(list_queue(queue_env.allowed_root), job.entry.queue_id)
     assert updated is not None
     assert updated.status == QueueStatus.CANCELLED
     assert updated.error == "cancel_requested"

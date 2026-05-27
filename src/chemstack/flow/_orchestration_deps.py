@@ -199,10 +199,7 @@ def _workflow_has_active_children_fallback(
     return workflow_has_active_children_impl(
         payload,
         normalize_text_fn=_normalize_text_override(resolver),
-        workflow_has_active_downstream_fn=resolver.get(
-            "workflow_has_active_downstream",
-            workflow_has_active_downstream,
-        ),
+        workflow_has_active_downstream_fn=workflow_has_active_downstream,
     )
 
 
@@ -220,35 +217,21 @@ def _stage_failure_is_recoverable_fallback(
     )
 
 
-def _effective_stage_status_fallback(
-    stage: dict[str, Any],
-    *,
-    resolver: OrchestrationOverrideResolver | None = None,
-) -> str:
-    from ._orchestration_lifecycle import effective_stage_status_impl
-
-    resolver = resolver or _override_resolver()
-    stage_failure_is_recoverable = _stage_failure_is_recoverable_override(resolver)
-    return effective_stage_status_impl(
-        stage,
-        normalize_text_fn=_normalize_text_override(resolver),
-        stage_failure_is_recoverable_fn=stage_failure_is_recoverable,
-    )
-
-
 def _recompute_workflow_status_fallback(
     payload: dict[str, Any],
     *,
     resolver: OrchestrationOverrideResolver | None = None,
 ) -> str:
-    from ._orchestration_lifecycle import recompute_workflow_status_impl
+    from ._orchestration_lifecycle import effective_stage_status_impl, recompute_workflow_status_impl
 
     resolver = resolver or _override_resolver()
-    effective_stage_status = resolver.get("_effective_stage_status", None)
-    if effective_stage_status is None:
 
-        def effective_stage_status(stage: dict[str, Any]) -> str:
-            return _effective_stage_status_fallback(stage, resolver=resolver)
+    def effective_stage_status(stage: dict[str, Any]) -> str:
+        return effective_stage_status_impl(
+            stage,
+            normalize_text_fn=_normalize_text_override(resolver),
+            stage_failure_is_recoverable_fn=_stage_failure_is_recoverable_override(resolver),
+        )
 
     return recompute_workflow_status_impl(
         payload,
@@ -304,29 +287,6 @@ def _maybe_notify_workflow_phase_summary_fallback(
         phase_engine=phase_engine,
         stage_failure_is_recoverable_fn=_stage_failure_is_recoverable_override(resolver),
         extra_lines=extra_lines,
-    )
-
-
-def _append_reaction_orca_stages_fallback(
-    payload: dict[str, Any],
-    *,
-    workspace_dir: Path,
-    xtb_config: str | None,
-    orca_config: str | None,
-    resolver: OrchestrationOverrideResolver | None = None,
-) -> bool:
-    from ._orchestration_stage_materialization import append_reaction_orca_stages_impl
-    from ._workflow_phases import phase_finished
-
-    resolver = resolver or _override_resolver()
-    if not phase_finished(payload.get("stages", []), engine="xtb"):
-        return False
-    return append_reaction_orca_stages_impl(
-        payload,
-        workspace_dir=workspace_dir,
-        xtb_config=xtb_config,
-        orca_config=orca_config,
-        deps=_deps_for_resolver(resolver),
     )
 
 
@@ -421,27 +381,13 @@ def _stage_builder_fallbacks() -> dict[str, Any]:
 def _stage_materialization_fallbacks(resolver: OrchestrationOverrideResolver) -> dict[str, Any]:
     from ._orchestration_stage_materialization import (
         append_crest_orca_stages_impl,
+        append_reaction_orca_stages_impl,
         append_reaction_xtb_stages_impl,
     )
 
-    def append_reaction_orca_stages(
-        payload: dict[str, Any],
-        *,
-        workspace_dir: Path,
-        xtb_config: str | None,
-        orca_config: str | None,
-    ) -> bool:
-        return _append_reaction_orca_stages_fallback(
-            payload,
-            workspace_dir=workspace_dir,
-            xtb_config=xtb_config,
-            orca_config=orca_config,
-            resolver=resolver,
-        )
-
     return {
         "_append_crest_orca_stages": _bind_with_deps(resolver, append_crest_orca_stages_impl),
-        "_append_reaction_orca_stages": append_reaction_orca_stages,
+        "_append_reaction_orca_stages": _bind_with_deps(resolver, append_reaction_orca_stages_impl),
         "_append_reaction_xtb_stages": _bind_with_deps(resolver, append_reaction_xtb_stages_impl),
     }
 
@@ -622,10 +568,6 @@ def orchestration_deps(overrides: Mapping[str, Any] | None = None) -> Orchestrat
     )
 
 
-def call_engine_aware(func: Any, config_path: str | None, *, engine: str) -> Any:
-    return func(config_path, engine=engine)
-
-
 __all__ = [
     "OrchestrationAdvanceDeps",
     "OrchestrationContractDeps",
@@ -634,6 +576,5 @@ __all__ = [
     "OrchestrationOverrideResolver",
     "OrchestrationPersistenceDeps",
     "OrchestrationStageDeps",
-    "call_engine_aware",
     "orchestration_deps",
 ]

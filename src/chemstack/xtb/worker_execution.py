@@ -21,7 +21,6 @@ from chemstack.core.queue.engine_execution import (
     run_engine_worker_lifecycle,
 )
 from chemstack.core.config.engines import load_xtb_config as load_config
-from chemstack.core.indexing.engines import resource_dict
 from chemstack.core.notifications.engines import (
     notify_xtb_job_finished as notify_job_finished,
     notify_xtb_job_started as notify_job_started,
@@ -164,23 +163,6 @@ def _input_summary(entry: Any) -> dict[str, Any]:
     return _engine_execution.entry_metadata_dict(entry, "input_summary")
 
 
-def _resource_caps(cfg: Any) -> dict[str, int]:
-    return _engine_execution.engine_resource_caps(cfg, resource_dict_fn=resource_dict)
-
-
-def _coerce_resource_dict(value: Any) -> dict[str, int]:
-    return _engine_execution.coerce_resource_request(value)
-
-
-def _entry_resource_request(cfg: Any, entry: Any) -> dict[str, int]:
-    return _engine_execution.entry_resource_request(
-        cfg,
-        entry,
-        resource_caps_fn=_resource_caps,
-        coerce_resource_request_fn=_coerce_resource_dict,
-    )
-
-
 def _matching_state(
     entry: Any,
     *,
@@ -224,7 +206,7 @@ def _write_running_state(
         previous_state=previous_state,
         resumed=resumed,
         input_summary_fn=_input_summary,
-        entry_resource_request_fn=_entry_resource_request,
+        entry_resource_request_fn=_queue_artifacts.entry_resource_request,
         coerce_mapping_fn=_queue_execution.coerce_mapping,
         now_utc_iso_fn=now_utc_iso,
         job_type_fn=_job_type,
@@ -375,7 +357,7 @@ def default_worker_execution_dependencies() -> WorkerExecutionDependencies:
             job_type=_job_type,
             reaction_key=_reaction_key,
             input_summary=_input_summary,
-            entry_resource_request=_entry_resource_request,
+            entry_resource_request=_queue_artifacts.entry_resource_request,
             matching_state=_matching_state,
             is_recovery_pending=is_recovery_pending,
         ),
@@ -446,32 +428,28 @@ def _mark_job_running(
 ) -> None:
     artifact_deps = dependencies.artifacts
     tracking_deps = dependencies.tracking
-    artifact_deps.write_running_state(
+    _engine_execution.mark_engine_job_running(
         cfg,
-        context.entry,
-        worker_job_pid=worker_job_pid,
-        previous_state=context.previous_state,
-        resumed=context.resumed,
-    )
-    tracking_deps.upsert_job_record(
-        cfg,
-        job_id=context.entry.task_id,
-        status="running",
+        entry=context.entry,
         job_dir=context.job_dir,
-        job_type=context.job_type,
-        selected_input_xyz=str(context.selected_xyz),
-        reaction_key=context.reaction_key,
-        resource_request=context.resource_request,
-        resource_actual=context.resource_request,
-    )
-    tracking_deps.notify_job_started(
-        cfg,
-        job_id=context.entry.task_id,
-        queue_id=context.entry.queue_id,
-        job_dir=context.job_dir,
-        job_type=context.job_type,
-        reaction_key=context.reaction_key,
         selected_xyz=context.selected_xyz,
+        resource_request=context.resource_request,
+        write_running_state_fn=artifact_deps.write_running_state,
+        upsert_job_record_fn=tracking_deps.upsert_job_record,
+        notify_job_started_fn=tracking_deps.notify_job_started,
+        record_fields={
+            "job_type": context.job_type,
+            "reaction_key": context.reaction_key,
+        },
+        notify_fields={
+            "job_type": context.job_type,
+            "reaction_key": context.reaction_key,
+        },
+        write_running_state_kwargs={
+            "worker_job_pid": worker_job_pid,
+            "previous_state": context.previous_state,
+            "resumed": context.resumed,
+        },
     )
 
 

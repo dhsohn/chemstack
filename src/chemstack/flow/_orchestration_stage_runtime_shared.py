@@ -9,7 +9,6 @@ from chemstack.core.utils import normalize_bool as _shared_normalize_bool
 
 from ._orchestration_deps import (
     OrchestrationDeps,
-    call_engine_aware,
     orchestration_deps,
 )
 from .state import workflow_stage_dirnames_for_engine, workflow_workspace_internal_engine_paths
@@ -19,10 +18,6 @@ _LOGGER = logging.getLogger("chemstack.flow._orchestration_stage_runtime_shared"
 
 def _orchestration_context(deps: OrchestrationDeps | None = None) -> OrchestrationDeps:
     return deps or orchestration_deps()
-
-
-def _call_engine_aware(func: Any, config_path: str | None, *, engine: str) -> Any:
-    return call_engine_aware(func, config_path, engine=engine)
 
 
 def _stage_id_for_log(stage: dict[str, Any] | None) -> str:

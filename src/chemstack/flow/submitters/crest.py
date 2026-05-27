@@ -2,13 +2,26 @@ from __future__ import annotations
 
 from typing import Any
 
-from chemstack.crest.queue_runtime import cmd_queue_cancel as cmd_queue_cancel
-from chemstack.crest.submission import cmd_run_dir as cmd_run_dir
+from chemstack.core.commands.queue import display_status
+from chemstack.core.queue import enqueue
+from chemstack.crest import queue_runtime as _queue_runtime
+from chemstack.crest import submission as _submission
 
 from . import sibling_engine as _sibling_engine
 
-_RUN_DIR_API_NAME = "chemstack.crest.submission.cmd_run_dir"
-_CANCEL_API_NAME = "chemstack.crest.queue_runtime.cmd_queue_cancel"
+cmd_queue_cancel = _queue_runtime.cmd_queue_cancel
+cmd_run_dir = _submission.cmd_run_dir
+build_submission = _submission._build_submission
+load_config = _submission.load_config
+load_job_manifest = _submission.load_job_manifest
+load_queue_config = _queue_runtime.load_config
+queue_entries_with_roots = _queue_runtime.queue_entries_with_roots
+record_queued = _submission._record_queued
+request_cancel = _queue_runtime.request_cancel
+resolve_job_dir = _submission.resolve_job_dir
+
+_RUN_DIR_API_NAME = "chemstack.crest.submission.direct_enqueue"
+_CANCEL_API_NAME = "chemstack.crest.queue_runtime.direct_cancel"
 
 
 def submit_job_dir(
@@ -17,8 +30,13 @@ def submit_job_dir(
     priority: int,
     config_path: str,
 ) -> dict[str, Any]:
-    return _sibling_engine.submit_job_dir_direct(
-        run_dir_handler=cmd_run_dir,
+    return _sibling_engine.submit_internal_engine_job_dir(
+        load_config_fn=load_config,
+        resolve_job_dir_fn=resolve_job_dir,
+        load_manifest_fn=load_job_manifest,
+        build_submission_fn=build_submission,
+        record_queued_fn=record_queued,
+        enqueue_fn=enqueue,
         api_name=_RUN_DIR_API_NAME,
         config_path=config_path,
         job_dir=job_dir,
@@ -31,8 +49,11 @@ def cancel_target(
     target: str,
     config_path: str,
 ) -> dict[str, Any]:
-    return _sibling_engine.cancel_target_direct(
-        cancel_handler=cmd_queue_cancel,
+    return _sibling_engine.cancel_internal_engine_target(
+        load_config_fn=load_queue_config,
+        queue_entries_with_roots_fn=queue_entries_with_roots,
+        request_cancel_fn=request_cancel,
+        display_status_fn=display_status,
         api_name=_CANCEL_API_NAME,
         config_path=config_path,
         target=target,

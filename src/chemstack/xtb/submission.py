@@ -3,9 +3,11 @@ from __future__ import annotations
 from typing import Any
 
 from chemstack.core.commands.run_dir import (
+    EngineQueuedRecord,
     EngineRunDirSubmission,
-    cmd_engine_run_dir,
+    cmd_engine_run_dir_from_module_globals,
     print_queued_common,
+    record_queued_common,
 )
 from chemstack.core.config.engines import load_xtb_config as load_config
 from chemstack.core.notifications.engines import notify_xtb_job_queued as notify_job_queued
@@ -21,6 +23,14 @@ from .job_inputs import (
     resolve_job_inputs,
     resource_request_from_manifest,
 )
+
+__all__ = [
+    "cmd_run_dir",
+    "enqueue",
+    "load_config",
+    "load_job_manifest",
+    "resolve_job_dir",
+]
 
 
 def _build_submission(
@@ -61,14 +71,13 @@ def _build_submission(
     )
 
 
-def _record_queued(cfg: Any, submission: EngineRunDirSubmission, entry: Any) -> None:
+def _queued_record(submission: EngineRunDirSubmission, _entry: Any) -> EngineQueuedRecord:
     job = submission.context["job"]
     job_dir = submission.context["job_dir"]
     input_summary = submission.context["input_summary"]
     resource_request = submission.context["resource_request"]
-    write_state(
-        job_dir,
-        queued_state_payload(
+    return EngineQueuedRecord(
+        state_payload=queued_state_payload(
             job_id=submission.task_id,
             job_dir=job_dir,
             selected_input_xyz=job["selected_input_xyz"],
@@ -76,49 +85,46 @@ def _record_queued(cfg: Any, submission: EngineRunDirSubmission, entry: Any) -> 
             reaction_key=str(job["reaction_key"]),
             input_summary=input_summary,
             resource_request=resource_request,
-        )
+        ),
+        index_fields={
+            "job_type": str(job["job_type"]),
+            "selected_input_xyz": str(job["selected_input_xyz"]),
+            "reaction_key": str(job["reaction_key"]),
+            "resource_request": resource_request,
+            "resource_actual": resource_request,
+        },
+        notification_fields={
+            "job_type": str(job["job_type"]),
+            "reaction_key": str(job["reaction_key"]),
+            "selected_xyz": job["selected_input_xyz"],
+        },
     )
-    upsert_job_record(
+
+
+def _record_queued(cfg: Any, submission: EngineRunDirSubmission, entry: Any) -> None:
+    record_queued_common(
         cfg,
-        job_id=submission.task_id,
-        status="queued",
-        job_dir=job_dir,
-        job_type=str(job["job_type"]),
-        selected_input_xyz=str(job["selected_input_xyz"]),
-        reaction_key=str(job["reaction_key"]),
-        resource_request=resource_request,
-        resource_actual=resource_request,
-    )
-    notify_job_queued(
-        cfg,
-        job_id=submission.task_id,
-        queue_id=entry.queue_id,
-        job_dir=job_dir,
-        job_type=str(job["job_type"]),
-        reaction_key=str(job["reaction_key"]),
-        selected_xyz=job["selected_input_xyz"],
+        submission,
+        entry,
+        build_record_fn=_queued_record,
+        write_state_fn=write_state,
+        upsert_job_record_fn=upsert_job_record,
+        notify_job_queued_fn=notify_job_queued,
     )
 
 
 def _print_queued(submission: EngineRunDirSubmission, entry: Any) -> None:
     job = submission.context["job"]
     job_dir = submission.context["job_dir"]
-    print_queued_common(submission, entry, job_dir=job_dir)
-    print(f"job_type: {job['job_type']}")
-    print(f"reaction_key: {job['reaction_key']}")
-    print(f"selected_input_xyz: {job['selected_input_xyz'].name}")
+    extra_fields = [
+        ("job_type", job["job_type"]),
+        ("reaction_key", job["reaction_key"]),
+        ("selected_input_xyz", job["selected_input_xyz"].name),
+    ]
     if job["job_type"] == "ranking":
-        print(f"candidate_count: {job['input_summary'].get('candidate_count', 0)}")
+        extra_fields.append(("candidate_count", job["input_summary"].get("candidate_count", 0)))
+    print_queued_common(submission, entry, job_dir=job_dir, extra_fields=extra_fields)
 
 
 def cmd_run_dir(args: Any) -> int:
-    return cmd_engine_run_dir(
-        args,
-        load_config_fn=load_config,
-        resolve_job_dir_fn=resolve_job_dir,
-        load_manifest_fn=load_job_manifest,
-        build_submission_fn=_build_submission,
-        record_queued_fn=_record_queued,
-        print_queued_fn=_print_queued,
-        enqueue_fn=enqueue,
-    )
+    return cmd_engine_run_dir_from_module_globals(args, globals())

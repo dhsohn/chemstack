@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
@@ -131,6 +132,29 @@ class EngineStateAccess:
         return self.files.load_organized_ref(job_dir)
 
 
+def create_engine_state_access(
+    *,
+    state_file_name: str,
+    report_json_file_name: str,
+    report_md_file_name: str,
+    organized_ref_file_name: str,
+    report_title: str,
+    selected_input_label: str,
+    now_fn: Callable[[], str] = now_utc_iso,
+) -> EngineStateAccess:
+    return EngineStateAccess(
+        files=EngineStateFiles(
+            state_file_name=state_file_name,
+            report_json_file_name=report_json_file_name,
+            report_md_file_name=report_md_file_name,
+            organized_ref_file_name=organized_ref_file_name,
+        ),
+        report_title=report_title,
+        selected_input_label=selected_input_label,
+        now_fn=now_fn,
+    )
+
+
 def state_matches_fields(state: dict[str, Any] | None, fields: dict[str, Any]) -> bool:
     if not isinstance(state, dict):
         return False
@@ -161,6 +185,19 @@ def manifest_path_from_existing(
         return manifest_path
     manifest = (job_dir / manifest_filename).resolve()
     return str(manifest) if manifest.exists() else ""
+
+
+RecoveryFieldMap = Mapping[str, Any] | Callable[[dict[str, Any]], Mapping[str, Any]]
+
+
+def _resolve_recovery_fields(
+    fields: RecoveryFieldMap | None,
+    existing: dict[str, Any],
+) -> dict[str, Any]:
+    if fields is None:
+        return {}
+    resolved = fields(existing) if callable(fields) else fields
+    return {str(key): value for key, value in resolved.items()}
 
 
 def recovery_pending_payload(
@@ -196,3 +233,39 @@ def recovery_pending_payload(
         "recovery_count": int(existing.get("recovery_count", 0) or 0) + 1,
     }
     return payload
+
+
+@dataclass(frozen=True)
+class EngineRecoveryPendingWriter:
+    access: EngineStateAccess
+    manifest_filename: str
+    now_fn: Callable[[], str] = now_utc_iso
+
+    def write(
+        self,
+        job_dir: Path,
+        *,
+        job_id: str,
+        selected_input_xyz: str | Path,
+        reason: str,
+        identity_fields: RecoveryFieldMap,
+        resource_request: dict[str, Any] | None,
+        resource_actual: dict[str, Any] | None,
+        retained_fields: RecoveryFieldMap | None = None,
+    ) -> dict[str, Any]:
+        existing = self.access.load_state(job_dir) or {}
+        payload = recovery_pending_payload(
+            job_dir,
+            existing=existing,
+            job_id=job_id,
+            selected_input_xyz=selected_input_xyz,
+            reason=reason,
+            now=self.now_fn(),
+            manifest_filename=self.manifest_filename,
+            identity_fields=_resolve_recovery_fields(identity_fields, existing),
+            retained_fields=_resolve_recovery_fields(retained_fields, existing),
+            resource_request=resource_request,
+            resource_actual=resource_actual,
+        )
+        self.access.write_state(job_dir, payload)
+        return payload

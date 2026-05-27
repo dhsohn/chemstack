@@ -102,10 +102,6 @@ def load_entries(
     return [entry_from_dict_fn(item) for item in raw if isinstance(item, dict)]
 
 
-def _load_entries(root: Path) -> list[QueueEntry]:
-    return load_entries(root)
-
-
 def save_entries(root: str | Path, entries: Sequence[QueueEntry]) -> None:
     resolved_root = resolve_root_path(root)
     atomic_write_json(
@@ -116,14 +112,10 @@ def save_entries(root: str | Path, entries: Sequence[QueueEntry]) -> None:
     )
 
 
-def _save_entries(root: Path, entries: list[QueueEntry]) -> None:
-    save_entries(root, entries)
-
-
 def list_queue(root: str | Path) -> list[QueueEntry]:
     resolved_root = resolve_root_path(root)
     with queue_lock(resolved_root):
-        return _load_entries(resolved_root)
+        return load_entries(resolved_root)
 
 
 def mutate_entries(
@@ -134,8 +126,8 @@ def mutate_entries(
     save_entries_fn: Callable[[Path, Sequence[Any]], Any] | None = None,
 ) -> Any:
     resolved_root = resolve_root_path(root)
-    loader = load_entries_fn or _load_entries
-    saver = save_entries_fn or _save_entries
+    loader = load_entries_fn or load_entries
+    saver = save_entries_fn or save_entries
     with queue_lock(resolved_root):
         entries = loader(resolved_root)
         result, changed = mutator(entries)
@@ -154,7 +146,7 @@ def clear_terminal(root: str | Path, *, keep_last: int = 0) -> int:
         return 0
 
     with queue_lock(resolved_root):
-        entries = _load_entries(resolved_root)
+        entries = load_entries(resolved_root)
         terminal_entries = [entry for entry in entries if entry.status in _TERMINAL_STATUSES]
         if not terminal_entries:
             return 0
@@ -175,7 +167,7 @@ def clear_terminal(root: str | Path, *, keep_last: int = 0) -> int:
         ]
         removed_count = len(entries) - len(kept_entries)
         if removed_count > 0:
-            _save_entries(resolved_root, kept_entries)
+            save_entries(resolved_root, kept_entries)
         return removed_count
 
 
@@ -202,7 +194,7 @@ def enqueue(
     )
 
     with queue_lock(resolved_root):
-        entries = _load_entries(resolved_root)
+        entries = load_entries(resolved_root)
         for existing in entries:
             if existing.app_name != entry.app_name or existing.task_id != entry.task_id:
                 continue
@@ -211,14 +203,14 @@ def enqueue(
                     f"Active queue entry already exists for app={entry.app_name} task_id={entry.task_id}"
                 )
         entries.append(entry)
-        _save_entries(resolved_root, entries)
+        save_entries(resolved_root, entries)
     return entry
 
 
 def dequeue_next(root: str | Path) -> QueueEntry | None:
     resolved_root = resolve_root_path(root)
     with queue_lock(resolved_root):
-        entries = _load_entries(resolved_root)
+        entries = load_entries(resolved_root)
         pending = [
             (entry.priority, entry.enqueued_at, index, entry)
             for index, entry in enumerate(entries)
@@ -229,14 +221,14 @@ def dequeue_next(root: str | Path) -> QueueEntry | None:
         _, _, index, current = min(pending, key=lambda item: (item[0], item[1], item[2]))
         updated = replace(current, status=QueueStatus.RUNNING, started_at=now_utc_iso())
         entries[index] = updated
-        _save_entries(resolved_root, entries)
+        save_entries(resolved_root, entries)
         return updated
 
 
 def request_cancel(root: str | Path, queue_id: str) -> QueueEntry | None:
     resolved_root = resolve_root_path(root)
     with queue_lock(resolved_root):
-        entries = _load_entries(resolved_root)
+        entries = load_entries(resolved_root)
         for index, entry in enumerate(entries):
             if entry.queue_id != queue_id:
                 continue
@@ -252,7 +244,7 @@ def request_cancel(root: str | Path, queue_id: str) -> QueueEntry | None:
             else:
                 return None
             entries[index] = updated
-            _save_entries(resolved_root, entries)
+            save_entries(resolved_root, entries)
             return updated
     return None
 
@@ -260,7 +252,7 @@ def request_cancel(root: str | Path, queue_id: str) -> QueueEntry | None:
 def get_cancel_requested(root: str | Path, queue_id: str) -> bool:
     resolved_root = resolve_root_path(root)
     with queue_lock(resolved_root):
-        entries = _load_entries(resolved_root)
+        entries = load_entries(resolved_root)
         for entry in entries:
             if entry.queue_id == queue_id:
                 return bool(entry.cancel_requested)
@@ -270,7 +262,7 @@ def get_cancel_requested(root: str | Path, queue_id: str) -> bool:
 def requeue_running_entry(root: str | Path, queue_id: str) -> QueueEntry | None:
     resolved_root = resolve_root_path(root)
     with queue_lock(resolved_root):
-        entries = _load_entries(resolved_root)
+        entries = load_entries(resolved_root)
         for index, entry in enumerate(entries):
             if entry.queue_id != queue_id or entry.status != QueueStatus.RUNNING:
                 continue
@@ -282,7 +274,7 @@ def requeue_running_entry(root: str | Path, queue_id: str) -> QueueEntry | None:
                 error="",
             )
             entries[index] = updated
-            _save_entries(resolved_root, entries)
+            save_entries(resolved_root, entries)
             return updated
     return None
 
@@ -297,7 +289,7 @@ def _mark_status(
 ) -> QueueEntry | None:
     resolved_root = resolve_root_path(root)
     with queue_lock(resolved_root):
-        entries = _load_entries(resolved_root)
+        entries = load_entries(resolved_root)
         for index, entry in enumerate(entries):
             if entry.queue_id != queue_id:
                 continue
@@ -312,7 +304,7 @@ def _mark_status(
                 metadata=merged,
             )
             entries[index] = updated
-            _save_entries(resolved_root, entries)
+            save_entries(resolved_root, entries)
             return updated
     return None
 

@@ -12,8 +12,7 @@ from .queue_entries import entry_from_json_payload
 from .types import QueueEntry
 
 
-class QueueStoreCorruptError(RuntimeError):
-    """Raised when the queue file exists but cannot be safely loaded."""
+QueueStoreCorruptError = _core_queue.QueueStoreCorruptError
 
 
 def load_entries(allowed_root: Path) -> list[QueueEntry]:

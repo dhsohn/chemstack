@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 from argparse import Namespace
-from contextlib import redirect_stderr, redirect_stdout
-from io import StringIO
 import subprocess
 from collections.abc import Callable
 from typing import Any
 
-from .common import normalize_text, parse_key_value_lines, queue_submission_status
+from chemstack.core.queue import DuplicateQueueEntryError
+
+from .common import normalize_text, queue_submission_status
 
 
 def command_argv(args: object) -> list[str]:
@@ -18,9 +18,13 @@ def internal_call_argv(
     *,
     api_name: str,
     config_path: str,
-    args: list[str],
+    kwargs: dict[str, Any],
 ) -> list[str]:
-    return [api_name, "--config", config_path, *args]
+    return [
+        api_name,
+        f"config={config_path}",
+        *[f"{key}={value}" for key, value in kwargs.items()],
+    ]
 
 
 def _stderr_with_exception(stderr: str, exc: Exception) -> str:
@@ -29,32 +33,6 @@ def _stderr_with_exception(stderr: str, exc: Exception) -> str:
         pieces[-1] += "\n"
     pieces.append(f"{exc.__class__.__name__}: {exc}\n")
     return "".join(pieces)
-
-
-def run_python_command_handler(
-    *,
-    handler: Callable[[Any], int],
-    args: Any,
-    command_argv: list[str],
-) -> subprocess.CompletedProcess[str]:
-    stdout_buffer = StringIO()
-    stderr_buffer = StringIO()
-    try:
-        with redirect_stdout(stdout_buffer), redirect_stderr(stderr_buffer):
-            returncode = int(handler(args))
-    except Exception as exc:
-        return subprocess.CompletedProcess(
-            args=command_argv,
-            returncode=1,
-            stdout=stdout_buffer.getvalue(),
-            stderr=_stderr_with_exception(stderr_buffer.getvalue(), exc),
-        )
-    return subprocess.CompletedProcess(
-        args=command_argv,
-        returncode=returncode,
-        stdout=stdout_buffer.getvalue(),
-        stderr=stderr_buffer.getvalue(),
-    )
 
 
 def timeout_result(exc: subprocess.TimeoutExpired) -> dict[str, Any]:
@@ -68,27 +46,6 @@ def timeout_result(exc: subprocess.TimeoutExpired) -> dict[str, Any]:
     }
 
 
-def queue_cancel_status(
-    *,
-    returncode: int,
-    parsed_stdout: dict[str, str],
-    stdout: str,
-    normalize_text: Callable[[Any], str],
-) -> str:
-    status = "failed"
-    if int(returncode) == 0:
-        parsed_status = normalize_text(parsed_stdout.get("status")).lower()
-        if parsed_status == "cancel_requested":
-            status = "cancel_requested"
-        elif parsed_status == "cancelled":
-            status = "cancelled"
-        elif "cancel requested" in stdout.lower():
-            status = "cancel_requested"
-        else:
-            status = "cancelled"
-    return status
-
-
 def cli_cancel_status(*, returncode: int, stdout: str) -> str:
     if int(returncode) != 0:
         return "failed"
@@ -100,80 +57,225 @@ def cli_cancel_status(*, returncode: int, stdout: str) -> str:
     return "cancelled"
 
 
-def submit_job_dir_direct(
+def _key_value_stdout(fields: dict[str, str]) -> str:
+    return "\n".join(f"{key}: {value}" for key, value in fields.items() if value)
+
+
+def _text_fields(fields: dict[str, Any]) -> dict[str, str]:
+    return {key: text for key, value in fields.items() if (text := normalize_text(value))}
+
+
+def _submission_failure_payload(
     *,
-    run_dir_handler: Callable[[Any], int],
-    api_name: str,
+    command_trace: list[str],
     job_dir: str,
-    priority: int,
-    config_path: str,
-    extra_fields: Callable[[dict[str, str]], dict[str, Any]] | None = None,
+    stderr: str,
+    extra_fields: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    call_args = [job_dir, "--priority", str(int(priority))]
-    result = run_python_command_handler(
-        handler=run_dir_handler,
-        args=Namespace(config=config_path, path=job_dir, priority=int(priority)),
-        command_argv=internal_call_argv(
-            api_name=api_name,
-            config_path=config_path,
-            args=call_args,
-        ),
-    )
-    parsed = parse_key_value_lines(result.stdout)
+    parsed: dict[str, str] = {}
     status, reason = queue_submission_status(
-        returncode=int(result.returncode),
+        returncode=1,
         parsed_stdout=parsed,
-        stdout=result.stdout,
-        stderr=result.stderr,
+        stdout="",
+        stderr=stderr,
     )
     payload = {
         "status": status,
         "reason": reason,
-        "returncode": int(result.returncode),
-        "command_argv": command_argv(result.args),
-        "stdout": result.stdout,
-        "stderr": result.stderr,
+        "returncode": 1,
+        "command_argv": command_trace,
+        "stdout": "",
+        "stderr": stderr,
         "parsed_stdout": parsed,
-        "job_id": parsed.get("job_id", ""),
-        "queue_id": parsed.get("queue_id", ""),
-        "job_dir": parsed.get("job_dir", job_dir),
+        "job_id": "",
+        "queue_id": "",
+        "job_dir": job_dir,
     }
-    if extra_fields is not None:
-        payload.update(extra_fields(parsed))
+    if extra_fields:
+        payload.update(extra_fields)
     return payload
 
 
-def cancel_target_direct(
+def submit_internal_engine_job_dir(
     *,
-    cancel_handler: Callable[[Any], int],
+    load_config_fn: Callable[[Any], Any],
+    resolve_job_dir_fn: Callable[[Any, str], Any],
+    load_manifest_fn: Callable[[Any], dict[str, Any]],
+    build_submission_fn: Callable[[Any, Any, dict[str, Any], Any], Any],
+    record_queued_fn: Callable[[Any, Any, Any], Any],
+    enqueue_fn: Callable[..., Any],
+    api_name: str,
+    job_dir: str,
+    priority: int,
+    config_path: str,
+    extra_fields_fn: Callable[[Any | None, Any | None], dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    command_trace = internal_call_argv(
+        api_name=api_name,
+        config_path=config_path,
+        kwargs={"job_dir": job_dir, "priority": int(priority)},
+    )
+    args = Namespace(config=config_path, path=job_dir, priority=int(priority))
+    submission = None
+    entry = None
+    resolved_job_dir = job_dir
+    try:
+        cfg = load_config_fn(config_path)
+        resolved_job_dir = resolve_job_dir_fn(cfg, job_dir)
+        manifest = load_manifest_fn(resolved_job_dir)
+        submission = build_submission_fn(cfg, resolved_job_dir, manifest, args)
+        entry = enqueue_fn(
+            submission.queue_root,
+            app_name=submission.app_name,
+            task_id=submission.task_id,
+            task_kind=submission.task_kind,
+            engine=submission.engine,
+            priority=submission.priority,
+            metadata=dict(submission.metadata),
+        )
+        record_queued_fn(cfg, submission, entry)
+    except DuplicateQueueEntryError as exc:
+        extras = extra_fields_fn(submission, entry) if extra_fields_fn is not None else {}
+        return _submission_failure_payload(
+            command_trace=command_trace,
+            job_dir=normalize_text(resolved_job_dir) or job_dir,
+            stderr=_stderr_with_exception("", exc),
+            extra_fields=extras,
+        )
+    except Exception as exc:
+        extras = extra_fields_fn(submission, entry) if extra_fields_fn is not None else {}
+        return _submission_failure_payload(
+            command_trace=command_trace,
+            job_dir=normalize_text(resolved_job_dir) or job_dir,
+            stderr=_stderr_with_exception("", exc),
+            extra_fields=extras,
+        )
+
+    extras = extra_fields_fn(submission, entry) if extra_fields_fn is not None else {}
+    parsed = _text_fields(
+        {
+            "status": "queued",
+            "job_dir": resolved_job_dir,
+            "job_id": getattr(entry, "task_id", "") or submission.task_id,
+            "queue_id": getattr(entry, "queue_id", ""),
+            "priority": getattr(entry, "priority", submission.priority),
+            **extras,
+        }
+    )
+    return {
+        "status": "submitted",
+        "reason": "",
+        "returncode": 0,
+        "command_argv": command_trace,
+        "stdout": _key_value_stdout(parsed),
+        "stderr": "",
+        "parsed_stdout": parsed,
+        "job_id": parsed.get("job_id", ""),
+        "queue_id": parsed.get("queue_id", ""),
+        "job_dir": parsed.get("job_dir", normalize_text(resolved_job_dir) or job_dir),
+        **extras,
+    }
+
+
+def _queue_entry_status_text(entry: Any) -> str:
+    status_value = getattr(getattr(entry, "status", None), "value", None)
+    return normalize_text(status_value or getattr(entry, "status", ""))
+
+
+def _direct_cancel_status(entry: Any, displayed_status: str) -> str:
+    normalized_display = normalize_text(displayed_status).lower()
+    if normalized_display == "cancel_requested":
+        return "cancel_requested"
+    if normalized_display == "cancelled":
+        return "cancelled"
+    if _queue_entry_status_text(entry).lower() == "running" and getattr(
+        entry, "cancel_requested", False
+    ):
+        return "cancel_requested"
+    return "cancelled"
+
+
+def _cancel_failure_payload(
+    *,
+    command_trace: list[str],
+    stderr: str,
+) -> dict[str, Any]:
+    return {
+        "status": "failed",
+        "reason": "cancel_command_failed",
+        "returncode": 1,
+        "command_argv": command_trace,
+        "stdout": "",
+        "stderr": stderr,
+        "parsed_stdout": {},
+        "queue_id": "",
+        "job_id": "",
+    }
+
+
+def cancel_internal_engine_target(
+    *,
+    load_config_fn: Callable[[Any], Any],
+    queue_entries_with_roots_fn: Callable[[Any], list[tuple[Any, Any]]],
+    request_cancel_fn: Callable[[Any, str], Any | None],
+    display_status_fn: Callable[[Any], str],
     api_name: str,
     target: str,
     config_path: str,
 ) -> dict[str, Any]:
-    call_args = [target]
-    result = run_python_command_handler(
-        handler=cancel_handler,
-        args=Namespace(config=config_path, target=target),
-        command_argv=internal_call_argv(
-            api_name=api_name,
-            config_path=config_path,
-            args=call_args,
-        ),
+    command_trace = internal_call_argv(
+        api_name=api_name,
+        config_path=config_path,
+        kwargs={"target": target},
     )
-    parsed = parse_key_value_lines(result.stdout)
-    status = queue_cancel_status(
-        returncode=int(result.returncode),
-        parsed_stdout=parsed,
-        stdout=result.stdout,
-        normalize_text=normalize_text,
+    normalized_target = normalize_text(target)
+    if not normalized_target:
+        return _cancel_failure_payload(
+            command_trace=command_trace,
+            stderr="queue cancel requires a queue_id or job_id\n",
+        )
+
+    try:
+        cfg = load_config_fn(config_path)
+        entry_with_root = None
+        for queue_root, entry in queue_entries_with_roots_fn(cfg):
+            if entry.queue_id == normalized_target or entry.task_id == normalized_target:
+                entry_with_root = (queue_root, entry)
+                break
+        if entry_with_root is None:
+            return _cancel_failure_payload(
+                command_trace=command_trace,
+                stderr=f"queue target not found: {normalized_target}\n",
+            )
+
+        queue_root, entry = entry_with_root
+        updated = request_cancel_fn(queue_root, entry.queue_id)
+        if updated is None:
+            return _cancel_failure_payload(
+                command_trace=command_trace,
+                stderr=f"queue target already terminal: {normalized_target}\n",
+            )
+        status = _direct_cancel_status(updated, display_status_fn(updated))
+    except Exception as exc:
+        return _cancel_failure_payload(
+            command_trace=command_trace,
+            stderr=_stderr_with_exception("", exc),
+        )
+
+    parsed = _text_fields(
+        {
+            "status": status,
+            "queue_id": getattr(updated, "queue_id", ""),
+            "job_id": getattr(updated, "task_id", ""),
+        }
     )
     return {
         "status": status,
-        "reason": "" if status != "failed" else "cancel_command_failed",
-        "returncode": int(result.returncode),
-        "command_argv": command_argv(result.args),
-        "stdout": result.stdout,
-        "stderr": result.stderr,
+        "reason": "",
+        "returncode": 0,
+        "command_argv": command_trace,
+        "stdout": _key_value_stdout(parsed),
+        "stderr": "",
         "parsed_stdout": parsed,
         "queue_id": parsed.get("queue_id", ""),
         "job_id": parsed.get("job_id", ""),

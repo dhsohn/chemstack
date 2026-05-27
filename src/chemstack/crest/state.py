@@ -18,16 +18,18 @@ REPORT_JSON_FILE_NAME = JOB_REPORT_JSON_FILE
 REPORT_MD_FILE_NAME = JOB_REPORT_MD_FILE
 ORGANIZED_REF_FILE_NAME = ORGANIZED_REF_FILE
 RECOVERY_PENDING_REASONS = _engine_state.RECOVERY_PENDING_REASONS
-_STATE_FILES = _engine_state.EngineStateFiles(
+_STATE_ACCESS = _engine_state.create_engine_state_access(
     state_file_name=STATE_FILE_NAME,
     report_json_file_name=REPORT_JSON_FILE_NAME,
     report_md_file_name=REPORT_MD_FILE_NAME,
     organized_ref_file_name=ORGANIZED_REF_FILE_NAME,
-)
-_STATE_ACCESS = _engine_state.EngineStateAccess(
-    files=_STATE_FILES,
     report_title="ChemStack CREST Report",
     selected_input_label="Selected XYZ",
+    now_fn=lambda: now_utc_iso(),
+)
+_RECOVERY_PENDING = _engine_state.EngineRecoveryPendingWriter(
+    access=_STATE_ACCESS,
+    manifest_filename=CREST_JOB_MANIFEST_FILE,
     now_fn=lambda: now_utc_iso(),
 )
 write_state = _STATE_ACCESS.write_state
@@ -51,11 +53,6 @@ def write_report_md(
     )
 
 
-_normalize_text = _engine_state.normalize_text
-_coerce_dict = _engine_state.coerce_dict
-_coerce_list = _engine_state.coerce_list
-
-
 def state_matches_job(
     state: dict[str, Any] | None,
     *,
@@ -76,6 +73,15 @@ def state_matches_job(
 is_recovery_pending = _engine_state.is_recovery_pending_state
 
 
+def _recovery_retained_fields(existing: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "retained_conformer_count": int(existing.get("retained_conformer_count", 0) or 0),
+        "retained_conformer_paths": _engine_state.coerce_list(
+            existing.get("retained_conformer_paths")
+        ),
+    }
+
+
 def mark_recovery_pending(
     job_dir: Path,
     *,
@@ -87,27 +93,16 @@ def mark_recovery_pending(
     resource_actual: dict[str, Any] | None,
     reason: str,
 ) -> dict[str, Any]:
-    now = now_utc_iso()
-    existing = load_state(job_dir) or {}
-    retained_paths = _coerce_list(existing.get("retained_conformer_paths"))
-    payload = _engine_state.recovery_pending_payload(
+    return _RECOVERY_PENDING.write(
         job_dir,
-        existing=existing,
         job_id=job_id,
         selected_input_xyz=selected_input_xyz,
         reason=reason,
-        now=now,
-        manifest_filename=CREST_JOB_MANIFEST_FILE,
         identity_fields={
-            "molecule_key": _normalize_text(molecule_key),
-            "mode": _normalize_text(mode),
+            "molecule_key": _engine_state.normalize_text(molecule_key),
+            "mode": _engine_state.normalize_text(mode),
         },
-        retained_fields={
-            "retained_conformer_count": int(existing.get("retained_conformer_count", 0) or 0),
-            "retained_conformer_paths": retained_paths,
-        },
+        retained_fields=_recovery_retained_fields,
         resource_request=resource_request,
         resource_actual=resource_actual,
     )
-    write_state(job_dir, payload)
-    return payload

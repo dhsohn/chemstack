@@ -4,9 +4,9 @@ from pathlib import Path
 
 import pytest
 
-import chemstack.crest.job_locations as job_locations_module
 from chemstack.core.config import CommonRuntimeConfig
 from chemstack.core.indexing import JobLocationRecord, get_job_location, upsert_job_location
+from chemstack.core.indexing import engine_job_locations as shared_job_locations
 
 from chemstack.core.config.engines import WorkflowEngineAppConfig as AppConfig
 from chemstack.crest.job_locations import (
@@ -175,7 +175,7 @@ def test_resolve_latest_job_dir_skips_blank_and_unresolvable_indexed_candidates(
     real_resolve = Path.resolve
 
     monkeypatch.setattr(
-        job_locations_module,
+        shared_job_locations,
         "resolve_job_location",
         lambda root, target: JobLocationRecord(
             job_id="job-124",
@@ -213,7 +213,7 @@ def test_resolve_latest_job_dir_returns_none_when_indexed_candidates_are_unusabl
     real_resolve = Path.resolve
 
     monkeypatch.setattr(
-        job_locations_module,
+        shared_job_locations,
         "resolve_job_location",
         lambda root, target: JobLocationRecord(
             job_id="job-404",

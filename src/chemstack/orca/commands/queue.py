@@ -6,6 +6,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from chemstack.core.commands.queue import run_queue_worker_command
 from chemstack.core.queue.worker import resolve_worker_auto_organize
 
 from ..cancellation import CancelTargetError, cancel_target
@@ -53,24 +54,22 @@ def cmd_queue_cancel(args: Any) -> int:
 
 
 def cmd_queue_worker(args: Any) -> int:
-    cfg = load_config(args.config)
-    allowed_root = Path(cfg.runtime.allowed_root).expanduser().resolve()
-    configured_max_concurrent = max(1, int(cfg.runtime.max_concurrent))
-    auto_organize = resolve_worker_auto_organize(cfg, args)
-
-    # Check if a worker is already running
-    existing_pid = read_worker_pid(allowed_root)
-    if existing_pid is not None:
-        logger.error(
+    return run_queue_worker_command(
+        args,
+        load_config_fn=load_config,
+        config_path_fn=lambda worker_args: str(worker_args.config),
+        existing_pid_fn=lambda cfg: read_worker_pid(
+            Path(cfg.runtime.allowed_root).expanduser().resolve()
+        ),
+        existing_pid_report_fn=lambda pid: logger.error(
             "Worker already running (pid=%d). Check the active systemd service.",
-            existing_pid,
-        )
-        return 1
-
-    worker = QueueWorker(
-        cfg,
-        args.config,
-        max_concurrent=configured_max_concurrent,
-        auto_organize=auto_organize,
+            pid,
+        ),
+        max_concurrent_fn=lambda cfg: max(1, int(cfg.runtime.max_concurrent)),
+        worker_factory=lambda cfg, config_path, **kwargs: QueueWorker(
+            cfg,
+            config_path,
+            auto_organize=resolve_worker_auto_organize(cfg, args),
+            **kwargs,
+        ),
     )
-    return worker.run()

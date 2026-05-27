@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import os
 from pathlib import Path
-from typing import Any, Callable
+from typing import Callable
 
 from chemstack.core.utils import process as process_utils
 from chemstack.core.utils import process_lock
@@ -18,14 +18,6 @@ def current_process_lock_payload() -> dict[str, int | str]:
         process_start_ticks_fn=lambda _pid: process_lock.current_process_start_ticks(),
         pid_fn=os.getpid,
     )
-
-
-def _positive_int(value: Any) -> int | None:
-    return process_utils.positive_int(value)
-
-
-def _read_pid_payload(pid_path: Path) -> tuple[int | None, int | None]:
-    return process_utils.read_pid_payload(pid_path)
 
 
 def _remove_pid_file(pid_path: Path) -> None:

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Generic, TypeVar
+from typing import Any, Callable, TypeVar
 
 import yaml
 
@@ -69,11 +69,6 @@ def positive_int_mapping(raw: object) -> dict[str, int]:
         if parsed is not None:
             result[key_text] = parsed
     return result
-
-
-def default_workflow_engine_config_path(module_file: str, *, env_var: str) -> str:
-    repo_root = Path(module_file).resolve().parents[3]
-    return default_config_path_from_repo_root(repo_root, env_var=env_var)
 
 
 def default_xtb_config_path() -> str:
@@ -246,51 +241,4 @@ def load_crest_config(config_path: str | None = None) -> WorkflowEngineAppConfig
         paths_cls=WorkflowEnginePathsConfig,
         behavior_cls=WorkflowEngineBehaviorConfig,
         app_config_cls=WorkflowEngineAppConfig,
-    )
-
-
-@dataclass(frozen=True)
-class WorkflowEngineConfigSpec(Generic[_AppConfigT]):
-    module_file: str
-    env_var: str
-    executable_key: str
-    paths_cls: Callable[..., Any]
-    behavior_cls: Callable[..., Any]
-    app_config_cls: Callable[..., _AppConfigT]
-
-    def default_config_path(self) -> str:
-        return default_workflow_engine_config_path(self.module_file, env_var=self.env_var)
-
-    def load_config(
-        self,
-        config_path: str | None = None,
-        *,
-        default_config_path_fn: Callable[[], str] | None = None,
-    ) -> _AppConfigT:
-        return load_workflow_engine_config(
-            config_path,
-            default_config_path_fn=default_config_path_fn or self.default_config_path,
-            executable_key=self.executable_key,
-            paths_cls=self.paths_cls,
-            behavior_cls=self.behavior_cls,
-            app_config_cls=self.app_config_cls,
-        )
-
-
-def workflow_engine_config_spec(
-    *,
-    module_file: str,
-    executable_key: str,
-    paths_cls: Callable[..., Any],
-    behavior_cls: Callable[..., Any],
-    app_config_cls: Callable[..., _AppConfigT],
-    env_var: str = "CHEMSTACK_CONFIG",
-) -> WorkflowEngineConfigSpec[_AppConfigT]:
-    return WorkflowEngineConfigSpec(
-        module_file=module_file,
-        env_var=env_var,
-        executable_key=executable_key,
-        paths_cls=paths_cls,
-        behavior_cls=behavior_cls,
-        app_config_cls=app_config_cls,
     )

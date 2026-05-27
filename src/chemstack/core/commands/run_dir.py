@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -22,6 +22,13 @@ class EngineRunDirSubmission:
     priority: int
     metadata: dict[str, Any]
     context: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class EngineQueuedRecord:
+    state_payload: dict[str, Any]
+    index_fields: dict[str, Any]
+    notification_fields: dict[str, Any]
 
 
 def load_yaml_job_manifest(
@@ -76,12 +83,57 @@ def print_queued_common(
     entry: Any,
     *,
     job_dir: Path,
+    extra_fields: Iterable[tuple[str, Any]] | None = None,
 ) -> None:
     print("status: queued")
     print(f"job_dir: {job_dir}")
     print(f"job_id: {submission.task_id}")
     print(f"queue_id: {entry.queue_id}")
     print(f"priority: {entry.priority}")
+    for key, value in extra_fields or ():
+        print(f"{key}: {value}")
+
+
+def record_queued_common(
+    cfg: Any,
+    submission: EngineRunDirSubmission,
+    entry: Any,
+    *,
+    build_record_fn: Callable[[EngineRunDirSubmission, Any], EngineQueuedRecord],
+    write_state_fn: Callable[[Path, dict[str, Any]], Any],
+    upsert_job_record_fn: Callable[..., Any],
+    notify_job_queued_fn: Callable[..., Any],
+) -> None:
+    job_dir = submission.context["job_dir"]
+    record = build_record_fn(submission, entry)
+    write_state_fn(job_dir, record.state_payload)
+    upsert_job_record_fn(
+        cfg,
+        job_id=submission.task_id,
+        status="queued",
+        job_dir=job_dir,
+        **record.index_fields,
+    )
+    notify_job_queued_fn(
+        cfg,
+        job_id=submission.task_id,
+        queue_id=entry.queue_id,
+        job_dir=job_dir,
+        **record.notification_fields,
+    )
+
+
+def cmd_engine_run_dir_from_module_globals(args: Any, module_globals: Mapping[str, Any]) -> int:
+    return cmd_engine_run_dir(
+        args,
+        load_config_fn=module_globals["load_config"],
+        resolve_job_dir_fn=module_globals["resolve_job_dir"],
+        load_manifest_fn=module_globals["load_job_manifest"],
+        build_submission_fn=module_globals["_build_submission"],
+        record_queued_fn=module_globals["_record_queued"],
+        print_queued_fn=module_globals["_print_queued"],
+        enqueue_fn=module_globals["enqueue"],
+    )
 
 
 def cmd_engine_run_dir(

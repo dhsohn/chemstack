@@ -9,6 +9,7 @@ from typing import Any, Callable, Generic, MutableMapping, TypeVar
 
 from chemstack.core.admission import reserve_slot
 
+from .dependencies import ChildQueueWorkerDeps
 from .child_process import (
     build_background_worker_command,
     live_queue_ids_for_slots,
@@ -55,8 +56,10 @@ __all__ = [
     "read_worker_pid_file",
     "reconcile_orphaned_child_queue_entries",
     "remove_worker_pid_file",
+    "make_child_queue_worker_deps",
     "request_job_cancellation",
     "reserve_dequeued_entry",
+    "reserve_engine_queue_worker_slot",
     "reserve_queue_worker_slot",
     "resolve_admission_limit",
     "resolve_admission_root",
@@ -153,6 +156,21 @@ def reserve_queue_worker_slot(
     )
 
 
+def reserve_engine_queue_worker_slot(
+    cfg: Any,
+    *,
+    engine: str,
+    reserve_slot_fn: Callable[..., str | None] = reserve_slot,
+) -> str | None:
+    engine_slug = str(engine).strip().replace("-", "_")
+    return reserve_queue_worker_slot(
+        cfg,
+        source=f"chemstack.{engine_slug}.queue_worker",
+        app_name=f"chemstack_{engine_slug}",
+        reserve_slot_fn=reserve_slot_fn,
+    )
+
+
 def dequeue_next_across_roots(
     roots: tuple[Path, ...],
     *,
@@ -218,6 +236,29 @@ def reserve_dequeued_entry(
             entry=entry,
             admission_token=admission_token,
         ),
+    )
+
+
+def make_child_queue_worker_deps(
+    *,
+    poll_interval_seconds: int,
+    time_module: Any,
+    release_slot_fn: Callable[[str | Path, str], object],
+    admission_root_fn: Callable[[Any], str],
+    dequeue_next_entry_fn: Callable[[Any], tuple[Path, Any] | None],
+    start_background_job_process_fn: Callable[..., Any],
+    try_reserve_admission_slot_fn: Callable[[Any], str | None],
+    reserve_dequeued_entry_fn: Callable[..., tuple[str, Any | None]] = reserve_dequeued_entry,
+) -> ChildQueueWorkerDeps:
+    return ChildQueueWorkerDeps(
+        poll_interval_seconds=poll_interval_seconds,
+        time=time_module,
+        release_slot=release_slot_fn,
+        reserve_dequeued_entry=reserve_dequeued_entry_fn,
+        admission_root=admission_root_fn,
+        dequeue_next_entry=dequeue_next_entry_fn,
+        start_background_job_process=start_background_job_process_fn,
+        try_reserve_admission_slot=try_reserve_admission_slot_fn,
     )
 
 
@@ -517,9 +558,6 @@ class ChildProcessQueueWorker(QueueWorkerLoop):
         return job.process.poll()
 
     def _finalize_completed_job(self, _queue_id: str, job: Any, rc: int) -> None:
-        raise NotImplementedError
-
-    def _check_cancel_requests(self) -> None:
         raise NotImplementedError
 
     def _shutdown_all(self) -> None:
