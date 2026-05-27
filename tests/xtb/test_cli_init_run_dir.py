@@ -9,8 +9,6 @@ import yaml
 
 from chemstack.core.queue import DuplicateQueueEntryError
 
-from chemstack.xtb import _internal_cli as cli
-from chemstack.xtb.commands import queue as queue_cmd
 from chemstack.xtb.commands import run_dir
 from chemstack.xtb.state import STATE_FILE_NAME, load_state
 
@@ -62,51 +60,6 @@ def _write_config(tmp_path: Path) -> tuple[Path, Path, Path]:
         encoding="utf-8",
     )
     return config_path, allowed_root, organized_root
-
-
-def test_build_parser_supports_worker_only_internal_queue_command() -> None:
-    parser = cli.build_parser()
-
-    worker_args = parser.parse_args(["queue", "worker"])
-
-    assert worker_args.command == "queue"
-    assert worker_args.queue_command == "worker"
-    assert not hasattr(worker_args, "auto_organize")
-    assert not hasattr(worker_args, "no_auto_organize")
-
-    with pytest.raises(SystemExit):
-        parser.parse_args(["queue", "worker", "--auto-organize"])
-
-    with pytest.raises(SystemExit):
-        parser.parse_args(["queue", "worker", "--once"])
-
-    for argv in (
-        ["run-dir", "/tmp/job", "--priority", "7"],
-        ["queue", "cancel", "q-123"],
-        ["scaffold", "--root", "/tmp/job", "--job-type", "ranking"],
-        ["list"],
-        ["reindex"],
-        ["summary", "job-123"],
-    ):
-        with pytest.raises(SystemExit):
-            parser.parse_args(argv)
-
-
-def test_main_dispatches_queue_worker_only(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    worker_calls: list[Any] = []
-
-    def fake_worker(args: Any) -> int:
-        worker_calls.append(args)
-        return 32
-
-    monkeypatch.setattr(queue_cmd, "cmd_queue_worker", fake_worker)
-
-    assert cli.main(["queue", "worker"]) == 32
-
-    assert len(worker_calls) == 1
-    assert worker_calls[0].queue_command == "worker"
 
 
 def test_cmd_run_dir_path_search_submits_and_writes_state(
@@ -326,12 +279,3 @@ def test_cmd_run_dir_requires_job_dir_argument(
         run_dir.cmd_run_dir(
             SimpleNamespace(config=str(config_path), path=None, priority=5)
         )
-
-
-def test_internal_cli_rejects_run_dir_surface(tmp_path: Path) -> None:
-    config_path, allowed_root, _ = _write_config(tmp_path)
-    job_dir = allowed_root / "positional_job"
-    job_dir.mkdir()
-
-    with pytest.raises(SystemExit):
-        cli.main(["--config", str(config_path), "run-dir", str(job_dir)])

@@ -8,7 +8,7 @@ import pytest
 from chemstack.core.config.schema import CommonRuntimeConfig
 
 from chemstack.crest.commands import _helpers
-from chemstack.crest.config import AppConfig
+from chemstack.core.config.engines import WorkflowEngineAppConfig as AppConfig
 
 
 def _cfg(tmp_path: Path) -> AppConfig:

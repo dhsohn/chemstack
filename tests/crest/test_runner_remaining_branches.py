@@ -8,7 +8,11 @@ import pytest
 
 from chemstack.core.config.schema import CommonResourceConfig, CommonRuntimeConfig, TelegramConfig
 
-from chemstack.crest.config import AppConfig, BehaviorConfig, PathsConfig
+from chemstack.core.config.engines import (
+    WorkflowEngineAppConfig as AppConfig,
+    WorkflowEngineBehaviorConfig as BehaviorConfig,
+    WorkflowEnginePathsConfig as PathsConfig,
+)
 from chemstack.crest.runner import CrestRunResult, _build_command, _preexec_with_limits
 from chemstack.crest import runner as runner_module
 from chemstack.crest import worker_execution

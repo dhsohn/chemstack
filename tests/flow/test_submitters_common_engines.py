@@ -57,18 +57,19 @@ def test_sibling_app_command_without_repo_root_uses_module_execution() -> None:
     argv, cwd, env = common.sibling_app_command(
         config_path="/tmp/config.yaml",
         repo_root=None,
-        module_name="chemstack.orca._internal_cli",
-        tail_argv=["queue", "worker"],
+        module_name="chemstack.cli",
+        tail_argv=["queue", "engine-worker", "orca"],
     )
 
     assert argv == [
         sys.executable,
         "-m",
-        "chemstack.orca._internal_cli",
+        "chemstack.cli",
         "--config",
         "/tmp/config.yaml",
         "queue",
-        "worker",
+        "engine-worker",
+        "orca",
     ]
     assert cwd is None
     assert env is None
@@ -85,14 +86,14 @@ def test_sibling_app_command_with_repo_root_uses_module_execution_and_prepends_p
     argv, cwd, env = common.sibling_app_command(
         config_path="/tmp/config.yaml",
         repo_root=str(repo_root),
-        module_name="chemstack.orca._internal_cli",
+        module_name="chemstack.cli",
         tail_argv=["queue", "cancel", "job-1"],
     )
 
     assert argv == [
         sys.executable,
         "-m",
-        "chemstack.orca._internal_cli",
+        "chemstack.cli",
         "--config",
         "/tmp/config.yaml",
         "queue",

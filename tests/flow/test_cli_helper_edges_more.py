@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -8,7 +7,6 @@ from typing import Any
 import pytest
 
 from chemstack import cli_common
-from chemstack.flow import cli_activity
 from chemstack.flow import cli_run_dir as run_dir_cli
 
 
@@ -328,66 +326,3 @@ def test_cmd_run_dir_for_conformer_uses_nested_crest_section(
     assert captured["crest_job_manifest"] == {"mode": "nci", "energy_window": 6.0}
     assert captured["max_cores"] == 10
     assert captured["orca_route_line"] == "! opt"
-
-
-def test_cmd_activity_list_json_and_cancel_text_output(
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    monkeypatch.setattr(
-        cli_activity,
-        "list_activities",
-        lambda **kwargs: {
-            "count": 1,
-            "activities": [
-                {
-                    "activity_id": "wf-1",
-                    "engine": "xtb",
-                    "status": "running",
-                    "label": "rxn-a",
-                    "source": "chemstack_flow",
-                }
-            ],
-        },
-    )
-    assert cli_activity.cmd_activity_list(
-        SimpleNamespace(
-            workflow_root="/tmp/wf",
-            limit=0,
-            refresh=False,
-            chemstack_config="/tmp/chemstack.yaml",
-            orca_config=None,
-            orca_repo_root=None,
-            json=True,
-        )
-    ) == 0
-    assert json.loads(capsys.readouterr().out)["count"] == 1
-
-    monkeypatch.setattr(
-        cli_activity,
-        "cancel_activity",
-        lambda **kwargs: {
-            "activity_id": "xtb-q-1",
-            "engine": "xtb",
-            "source": "chemstack_xtb",
-            "label": "rxn-a",
-            "status": "cancel_requested",
-            "cancel_target": "xtb-q-1",
-        },
-    )
-    assert cli_activity.cmd_activity_cancel(
-        SimpleNamespace(
-            target="xtb-q-1",
-            workflow_root=None,
-            chemstack_config="/tmp/chemstack.yaml",
-            orca_repo_root=None,
-            json=False,
-        )
-    ) == 0
-    stdout = capsys.readouterr().out
-    assert "activity_id: xtb-q-1" in stdout
-    assert "engine: xtb" in stdout
-    assert "source: chemstack_xtb" in stdout
-    assert "label: rxn-a" in stdout
-    assert "status: cancel_requested" in stdout
-    assert "cancel_target: xtb-q-1" in stdout

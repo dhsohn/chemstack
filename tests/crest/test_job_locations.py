@@ -8,7 +8,7 @@ import chemstack.crest.job_locations as job_locations_module
 from chemstack.core.config import CommonRuntimeConfig
 from chemstack.core.indexing import JobLocationRecord, get_job_location, upsert_job_location
 
-from chemstack.crest.config import AppConfig
+from chemstack.core.config.engines import WorkflowEngineAppConfig as AppConfig
 from chemstack.crest.job_locations import (
     build_job_location_record,
     load_job_artifacts,

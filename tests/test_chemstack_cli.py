@@ -7,10 +7,10 @@ from typing import Any
 import pytest
 
 from chemstack import cli_common
-from chemstack import cli_monitor
+from chemstack import cli_handlers as cli_monitor
 from chemstack import cli_queue
-from chemstack import cli_run_dir
-from chemstack import cli_summary
+from chemstack import cli_handlers as cli_run_dir
+from chemstack import cli_handlers as cli_summary
 from chemstack import cli_workers
 from chemstack import cli as unified_cli
 
@@ -238,11 +238,12 @@ def test_main_dispatches_unified_queue_cancel(monkeypatch: pytest.MonkeyPatch) -
             (
                 "/home/user/chemstack/.venv/bin/python",
                 "-m",
-                "chemstack.orca._internal_cli",
+                "chemstack.cli",
                 "--config",
                 "/tmp/chemstack.yaml",
                 "queue",
-                "worker",
+                "engine-worker",
+                "orca",
             ),
             "chemstack",
         ),

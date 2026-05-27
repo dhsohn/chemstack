@@ -62,7 +62,7 @@ class TestCancellation(unittest.TestCase):
         self.assertTrue(get_cancel_requested(self.root, entry.queue_id))
 
     @patch("chemstack.orca.cancellation.os.kill")
-    @patch("chemstack.orca.process_tracking.process_lock.is_process_alive", return_value=True)
+    @patch("chemstack.core.utils.process_tracking.process_lock.is_process_alive", return_value=True)
     def test_cancel_target_direct_run_by_relative_dir(
         self,
         mock_alive,
@@ -83,7 +83,7 @@ class TestCancellation(unittest.TestCase):
         mock_kill.assert_called_once()
 
     @patch("chemstack.orca.cancellation.os.kill")
-    @patch("chemstack.orca.process_tracking.process_lock.is_process_alive", return_value=True)
+    @patch("chemstack.core.utils.process_tracking.process_lock.is_process_alive", return_value=True)
     def test_cancel_target_direct_run_by_run_id(
         self,
         mock_alive,
@@ -102,7 +102,7 @@ class TestCancellation(unittest.TestCase):
         mock_kill.assert_called_once()
 
     @patch("chemstack.orca.cancellation.os.kill")
-    @patch("chemstack.orca.process_tracking.process_lock.is_process_alive", return_value=True)
+    @patch("chemstack.core.utils.process_tracking.process_lock.is_process_alive", return_value=True)
     def test_cancel_target_ambiguous_direct_basename(
         self,
         mock_alive,
@@ -120,7 +120,7 @@ class TestCancellation(unittest.TestCase):
         mock_kill.assert_not_called()
 
     @patch("chemstack.orca.cancellation.os.kill")
-    @patch("chemstack.orca.process_tracking.process_lock.is_process_alive", return_value=True)
+    @patch("chemstack.core.utils.process_tracking.process_lock.is_process_alive", return_value=True)
     def test_cancel_target_prefers_queue_for_worker_managed_run(
         self,
         mock_alive,

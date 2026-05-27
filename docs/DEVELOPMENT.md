@@ -9,7 +9,7 @@ This repository now uses a monorepo-style package layout under `src/chemstack`.
 - Workflow orchestration: `chemstack.flow.*`
 - Engine packages: `chemstack.xtb.*`, `chemstack.crest.*`
 
-Pre-monorepo top-level packages were removed. New code, tests, and docs should import from `chemstack.*`.
+New code, tests, and docs should import from `chemstack.*`.
 
 ## Current Package Layout
 
@@ -49,31 +49,8 @@ them only through the `systemd/` units.
 Engine-specific CLI modules are runtime-only worker entrypoints. Do not add new
 user-facing commands there.
 
-`chemstack.flow.cli` is not part of the public CLI surface. Do not document it
-in `README.md`, `docs/REFERENCE.md`, or user-facing setup guides.
-
-## Internal Developer Tools
-
-`python -m chemstack.flow.cli ...` is an internal developer tool for workflow
-debugging, registry inspection, low-level orchestration, and test support. It
-may expose options that are intentionally hidden or removed from the public
-`chemstack.cli` interface.
-
-Typical internal examples:
-
-```bash
-python -m chemstack.flow.cli workflow worker --workflow-root /tmp/workflows --once
-python -m chemstack.flow.cli workflow list --workflow-root /tmp/workflows
-python -m chemstack.flow.cli workflow get wf_001 --workflow-root /tmp/workflows --json
-python -m chemstack.flow.cli xtb inspect xtb_job_001 --xtb-index-root /tmp/xtb_runs --json
-python -m chemstack.flow.cli crest inspect crest_job_001 --crest-index-root /tmp/crest_runs --json
-```
-
-Guideline:
-
-- Treat `chemstack.flow.cli` as developer-only and unstable compared with `chemstack.cli`
-- Prefer `chemstack.cli` whenever a public command exists
-- Keep low-level `chemstack.flow.cli` flags out of public documentation unless they graduate into the public surface intentionally
+Flow internals are not public CLI modules. Keep examples on `chemstack ...`
+and avoid module-level `python -m` examples for flow internals.
 
 ## Practical Import Map
 
@@ -89,12 +66,12 @@ from chemstack.core.admission import reserve_slot
 from chemstack.core.indexing import get_job_location
 ```
 
-Do not reintroduce removed pre-monorepo import paths or compatibility aliases.
+Keep imports under `chemstack.*`; avoid top-level aliases or compatibility shims.
 
 ## Test Layout
 
 - `tests/flow/`: flow unit and contract tests
-- `tests/integration/`: in-repo integration smoke tests replacing the older cross-repo harness
+- `tests/integration/`: in-repo integration smoke tests
 - `tests/core/`, `tests/xtb/`, `tests/crest/`: absorbed package-specific suites
 - top-level `tests/test_*.py`: ORCA-focused regression tests
 
@@ -111,7 +88,7 @@ pytest tests/integration -q
 - `chemstack.orca` is the only implementation source of truth
 - All supported package imports live under `src/chemstack`
 - If a new feature requires code changes in ORCA logic, make them under `src/chemstack/orca`
-- Do not reintroduce top-level alias packages or old-format runtime readers
+- Keep top-level alias packages and alternate runtime readers out of the codebase
 
 ## Related Docs
 

@@ -5,6 +5,7 @@ from typing import Any
 from chemstack.core.app_ids import CHEMSTACK_ORCA_SOURCE
 
 from ._activity_model import ActivityCancelRequest, ActivityRecord, ResolvedActivitySources
+from .orchestration import cancel_materialized_workflow
 from .submitters.common import normalize_text
 
 
@@ -60,11 +61,9 @@ def cancel_workflow_activity(
     resolved: ResolvedActivitySources,
     request: ActivityCancelRequest,
 ) -> dict[str, Any]:
-    from .operations import cancel_workflow
-
-    return cancel_workflow(
+    return cancel_materialized_workflow(
         target=record.cancel_target,
-        workflow_root=resolved.workflow_root,
+        workflow_root=resolved.workflow_root or "",
         crest_config=resolved.crest_config,
         xtb_config=resolved.xtb_config,
         orca_config=resolved.orca_config,

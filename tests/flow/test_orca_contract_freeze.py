@@ -3,12 +3,15 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from chemstack.flow.operations import (
-    get_workflow,
-    get_workflow_artifacts,
-)
 from chemstack.flow.orchestration import (
     advance_workflow,
+)
+from chemstack.flow.registry import sync_workflow_registry
+from chemstack.flow.state import (
+    load_workflow_payload,
+    resolve_workflow_workspace,
+    workflow_artifacts,
+    workflow_summary,
 )
 
 
@@ -212,23 +215,21 @@ def test_orca_contract_freeze_completed_result_survives_public_workflow_sync(tmp
         orca_config=str(config_path),
         submit_ready=False,
     )
-    workflow = get_workflow(
+    workflow_workspace = resolve_workflow_workspace(
         target="wf_contract_freeze",
         workflow_root=workflow_root,
-        sync_registry=True,
     )
-    artifacts = get_workflow_artifacts(
-        target="wf_contract_freeze",
-        workflow_root=workflow_root,
-        sync_registry=True,
-    )
+    workflow_payload = load_workflow_payload(workflow_workspace)
+    sync_workflow_registry(workflow_root, workflow_workspace, workflow_payload)
+    workflow_summary_payload = workflow_summary(workflow_workspace, workflow_payload)
+    artifacts = workflow_artifacts(workflow_workspace, workflow_payload)
 
     stage = payload["stages"][0]
     stage_metadata = stage["metadata"]
     task = stage["task"]
     task_payload = task["payload"]
-    stage_summary = workflow["summary"]["stage_summaries"][0]
-    artifact_kinds = {item["kind"] for item in artifacts["artifacts"]}
+    stage_summary = workflow_summary_payload["stage_summaries"][0]
+    artifact_kinds = {item["kind"] for item in artifacts}
 
     assert payload["status"] == "completed"
     assert stage["status"] == "completed"
@@ -257,7 +258,7 @@ def test_orca_contract_freeze_completed_result_survives_public_workflow_sync(tmp
     assert stage_summary["orca_attempt_count"] == 1
     assert stage_summary["orca_max_retries"] == 3
 
-    assert artifacts["artifact_count"] >= 6
+    assert len(artifacts) >= 6
     assert {
         "orca_selected_inp",
         "orca_selected_input_xyz",

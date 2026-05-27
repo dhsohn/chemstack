@@ -32,12 +32,15 @@ from chemstack.core.queue.worker import (
     resolve_admission_root,
     terminate_process_group,
 )
+from chemstack.core.config.engines import load_crest_config as load_config
+from chemstack.core.notifications.engines import (
+    notify_crest_job_finished as notify_job_finished,
+    notify_crest_job_started as notify_job_started,
+)
 from chemstack.core.utils import now_utc_iso
 
 from . import queue_artifacts as _queue_artifacts
-from .config import load_config
 from .job_locations import upsert_job_record
-from .notifications import notify_job_finished, notify_job_started
 from .runner import CrestRunResult, finalize_crest_job, start_crest_job
 from .state import mark_recovery_pending
 

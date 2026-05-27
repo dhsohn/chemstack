@@ -207,46 +207,8 @@ def test_registry_notification_and_resolution_remaining_edges(
 
 def test_cli_json_paths_worker_sleep_and_common_workflow_id_helpers(
     monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
     tmp_path: Path,
 ) -> None:
-    payload = {"workflow_id": "wf1", "status": "running", "stages": [{}]}
-    monkeypatch.setattr(cli_workflow, "advance_workflow", lambda **kwargs: payload)
-    assert cli_workflow.cmd_workflow_advance(SimpleNamespace(target="wf1", workflow_root="/tmp/wf", json=True, no_submit=False)) == 0
-    assert json.loads(capsys.readouterr().out)["workflow_id"] == "wf1"
-
-    monkeypatch.setattr(cli_workflow, "get_workflow_runtime_status", lambda **kwargs: {"worker_state": {"status": "running"}})
-    assert cli_workflow.cmd_workflow_runtime_status(SimpleNamespace(workflow_root="/tmp/wf", json=True)) == 0
-    assert json.loads(capsys.readouterr().out)["worker_state"]["status"] == "running"
-
-    monkeypatch.setattr(cli_workflow, "get_workflow_journal", lambda **kwargs: {"events": []})
-    assert cli_workflow.cmd_workflow_journal(SimpleNamespace(workflow_root="/tmp/wf", limit=1, json=True)) == 0
-    assert json.loads(capsys.readouterr().out)["events"] == []
-
-    monkeypatch.setattr(cli_workflow, "submit_reaction_ts_search_workflow", lambda **kwargs: {"workflow_id": "wf_submit"})
-    assert cli_workflow.cmd_workflow_submit_reaction_ts_search(SimpleNamespace(target="wf1", workflow_root="/tmp/wf", orca_config="/tmp/cfg", orca_repo_root=None, resubmit=False, json=True)) == 0
-    assert json.loads(capsys.readouterr().out)["workflow_id"] == "wf_submit"
-
-    monkeypatch.setattr(cli_workflow, "list_workflows", lambda **kwargs: {"count": 0, "workflows": []})
-    assert cli_workflow.cmd_workflow_list(SimpleNamespace(workflow_root="/tmp/wf", limit=0, refresh=False, json=True)) == 0
-    assert json.loads(capsys.readouterr().out)["count"] == 0
-
-    monkeypatch.setattr(cli_workflow, "get_workflow", lambda **kwargs: {"summary": {"workflow_id": "wf_get"}})
-    assert cli_workflow.cmd_workflow_get(SimpleNamespace(target="wf_get", workflow_root="/tmp/wf", json=True)) == 0
-    assert json.loads(capsys.readouterr().out)["summary"]["workflow_id"] == "wf_get"
-
-    monkeypatch.setattr(cli_workflow, "get_workflow_artifacts", lambda **kwargs: {"artifact_count": 0})
-    assert cli_workflow.cmd_workflow_artifacts(SimpleNamespace(target="wf_art", workflow_root="/tmp/wf", json=True)) == 0
-    assert json.loads(capsys.readouterr().out)["artifact_count"] == 0
-
-    monkeypatch.setattr(cli_workflow, "cancel_workflow", lambda **kwargs: {"workflow_id": "wf_cancel"})
-    assert cli_workflow.cmd_workflow_cancel(SimpleNamespace(target="wf_cancel", workflow_root="/tmp/wf", crest_config=None, xtb_config=None, orca_config=None, orca_repo_root=None, json=True)) == 0
-    assert json.loads(capsys.readouterr().out)["workflow_id"] == "wf_cancel"
-
-    monkeypatch.setattr(cli_workflow, "reindex_workflow_registry", lambda workflow_root: [])
-    assert cli_workflow.cmd_workflow_reindex(SimpleNamespace(workflow_root="/tmp/wf", json=True)) == 0
-    assert json.loads(capsys.readouterr().out)["count"] == 0
-
     slept: list[float] = []
 
     @contextmanager

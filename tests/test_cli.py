@@ -11,8 +11,8 @@ from typing import Callable
 from unittest.mock import MagicMock, patch
 
 from chemstack import cli as unified_cli
-from chemstack import cli_run_dir
-from chemstack import cli_summary
+from chemstack import cli_handlers as cli_run_dir
+from chemstack import cli_handlers as cli_summary
 from chemstack.orca.commands._helpers import CONFIG_ENV_VAR, _emit, default_config_path
 from chemstack.orca.commands.run_inp import _cmd_run_inp_execute, _retry_inp_path, _select_latest_inp
 from chemstack.orca.cli_logging import (
@@ -117,7 +117,7 @@ class TestCli(unittest.TestCase):
             parser.parse_args(["run-dir", "/tmp/rxn", "--foreground"])
         self.assertEqual(exc.exception.code, 2)
 
-    @patch("chemstack.cli_run_dir.cmd_run_dir", return_value=8)
+    @patch("chemstack.cli_handlers.cmd_run_dir", return_value=8)
     def test_main_dispatches_run_dir_command(self, mock_cmd_run_dir: MagicMock) -> None:
         rc = main(["run-dir", "/tmp/rxn"])
 

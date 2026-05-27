@@ -2,14 +2,15 @@ from __future__ import annotations
 
 from argparse import Namespace
 
+from chemstack import cli as chemstack_cli
+from chemstack import cli_handlers
+from chemstack import cli_workers
 from chemstack.core.app_ids import CHEMSTACK_CONFIG_ENV_VAR
-from chemstack.services import bot as bot_service
-from chemstack.services import queue_worker as queue_worker_service
-from chemstack.services import summary as summary_service
-from chemstack.services import workflow_worker as workflow_worker_service
+from chemstack.flow import cli_workflow
+from chemstack.flow import telegram_bot
 
 
-def test_bot_service_main_uses_shared_config(monkeypatch) -> None:
+def test_bot_module_main_uses_shared_config(monkeypatch) -> None:
     sentinel = object()
     captured: dict[str, object | None] = {}
 
@@ -19,15 +20,15 @@ def test_bot_service_main_uses_shared_config(monkeypatch) -> None:
         captured["config_path"] = config_path
         return sentinel
 
-    monkeypatch.setattr(bot_service, "settings_from_config", _fake_settings)
+    monkeypatch.setattr(telegram_bot, "settings_from_config", _fake_settings)
 
     def _fake_run_bot(settings=None):
         captured["settings"] = settings
         return 7
 
-    monkeypatch.setattr(bot_service, "run_bot", _fake_run_bot)
+    monkeypatch.setattr(telegram_bot, "run_bot", _fake_run_bot)
 
-    result = bot_service.main()
+    result = telegram_bot.main()
 
     assert result == 7
     assert captured == {
@@ -36,28 +37,26 @@ def test_bot_service_main_uses_shared_config(monkeypatch) -> None:
     }
 
 
-def test_queue_worker_service_main_uses_default_apps(monkeypatch) -> None:
+def test_queue_worker_direct_cli_uses_default_apps(monkeypatch) -> None:
     captured: dict[str, object] = {}
-
-    monkeypatch.setenv(CHEMSTACK_CONFIG_ENV_VAR, "/tmp/chemstack.yaml")
 
     def _fake_cmd_queue_worker(args: Namespace) -> int:
         captured["args"] = args
         return 11
 
-    monkeypatch.setattr(queue_worker_service, "cmd_queue_worker", _fake_cmd_queue_worker)
+    monkeypatch.setattr(cli_workers, "cmd_queue_worker", _fake_cmd_queue_worker)
 
-    result = queue_worker_service.main()
+    result = chemstack_cli.main(["--config", "/tmp/chemstack.yaml", "queue", "worker"])
 
     assert result == 11
     args = captured["args"]
     assert isinstance(args, Namespace)
     assert args.app is None
-    assert args.chemstack_config == "/tmp/chemstack.yaml"
+    assert args.global_config == "/tmp/chemstack.yaml"
     assert args.json is False
 
 
-def test_workflow_worker_service_main_uses_dedicated_parser(monkeypatch) -> None:
+def test_workflow_worker_module_main_uses_dedicated_parser(monkeypatch) -> None:
     captured: dict[str, object] = {}
 
     def _fake_cmd_workflow_worker(args: Namespace) -> int:
@@ -65,12 +64,12 @@ def test_workflow_worker_service_main_uses_dedicated_parser(monkeypatch) -> None
         return 17
 
     monkeypatch.setattr(
-        workflow_worker_service,
+        cli_workflow,
         "cmd_workflow_worker",
         _fake_cmd_workflow_worker,
     )
 
-    result = workflow_worker_service.main(
+    result = cli_workflow.main(
         [
             "--workflow-root",
             "/tmp/workflows",
@@ -88,16 +87,16 @@ def test_workflow_worker_service_main_uses_dedicated_parser(monkeypatch) -> None
     assert args.once is True
 
 
-def test_summary_service_main_runs_combined_summary(monkeypatch) -> None:
+def test_summary_direct_cli_runs_combined_summary(monkeypatch) -> None:
     captured: dict[str, object | None] = {}
 
     def _fake_cmd_summary(args: Namespace) -> int:
         captured["args"] = args
         return 13
 
-    monkeypatch.setattr(summary_service, "cmd_summary", _fake_cmd_summary)
+    monkeypatch.setattr(cli_handlers, "cmd_summary", _fake_cmd_summary)
 
-    result = summary_service.main()
+    result = chemstack_cli.main(["summary"])
 
     assert result == 13
     args = captured["args"]

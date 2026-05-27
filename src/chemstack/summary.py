@@ -16,7 +16,7 @@ from chemstack.flow.workflow_status import (
     workflow_status_is_active,
     workflow_status_needs_attention,
 )
-from chemstack.flow.operations import list_activities
+from chemstack.flow.activity import list_activities
 from chemstack.flow.state import list_workflow_summaries
 from chemstack.orca.commands import summary as orca_summary
 from chemstack.orca.config import AppConfig, load_config

@@ -8,11 +8,11 @@ from pathlib import Path
 from typing import Any, TextIO
 
 from chemstack.core import engine_runner as _engine_runner
+from chemstack.core.config.engines import WorkflowEngineAppConfig as AppConfig
 from chemstack.core.engine_process import start_logged_process
 from chemstack.core.utils import now_utc_iso
 from chemstack.core.utils import process as process_utils
 
-from .config import AppConfig
 from .commands._helpers import (
     MANIFEST_FILE_NAME,
     job_mode,

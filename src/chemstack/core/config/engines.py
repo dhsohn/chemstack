@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Generic, TypeVar
 
 import yaml
 
 from .files import (
+    CHEMSTACK_CONFIG_ENV_VAR,
     default_config_path_from_repo_root,
     default_shared_admission_root,
     workflow_root_from_mapping,
@@ -14,6 +15,7 @@ from .files import (
 from .schema import (
     CommonResourceConfig,
     CommonRuntimeConfig,
+    EmptyBehaviorConfig,
     TelegramConfig,
     as_bool as as_bool,
     as_float as as_float,
@@ -27,7 +29,27 @@ from .schema import (
     resolved_admission_limit as resolved_admission_limit,
 )
 
+CONFIG_ENV_VAR = CHEMSTACK_CONFIG_ENV_VAR
 _AppConfigT = TypeVar("_AppConfigT")
+
+
+@dataclass(frozen=True)
+class WorkflowEnginePathsConfig:
+    xtb_executable: str = ""
+    crest_executable: str = ""
+
+
+WorkflowEngineBehaviorConfig = EmptyBehaviorConfig
+
+
+@dataclass(frozen=True)
+class WorkflowEngineAppConfig:
+    runtime: CommonRuntimeConfig
+    workflow_root: str = ""
+    paths: WorkflowEnginePathsConfig = field(default_factory=WorkflowEnginePathsConfig)
+    behavior: WorkflowEngineBehaviorConfig = field(default_factory=WorkflowEngineBehaviorConfig)
+    resources: CommonResourceConfig = field(default_factory=CommonResourceConfig)
+    telegram: TelegramConfig = field(default_factory=TelegramConfig)
 
 
 def mapping_section(raw: dict[str, Any], key: str) -> dict[str, Any]:
@@ -52,6 +74,19 @@ def positive_int_mapping(raw: object) -> dict[str, int]:
 def default_workflow_engine_config_path(module_file: str, *, env_var: str) -> str:
     repo_root = Path(module_file).resolve().parents[3]
     return default_config_path_from_repo_root(repo_root, env_var=env_var)
+
+
+def default_xtb_config_path() -> str:
+    return _default_engine_config_path_from_core()
+
+
+def default_crest_config_path() -> str:
+    return _default_engine_config_path_from_core()
+
+
+def _default_engine_config_path_from_core() -> str:
+    repo_root = Path(__file__).resolve().parents[4]
+    return default_config_path_from_repo_root(repo_root, env_var=CONFIG_ENV_VAR)
 
 
 def resource_request_from_manifest(cfg: Any, manifest: dict[str, Any]) -> dict[str, int]:
@@ -189,6 +224,28 @@ def load_workflow_engine_config(
         behavior=behavior_cls(),
         resources=_resource_config(resources_raw),
         telegram=_telegram_config(telegram_raw),
+    )
+
+
+def load_xtb_config(config_path: str | None = None) -> WorkflowEngineAppConfig:
+    return load_workflow_engine_config(
+        config_path,
+        default_config_path_fn=default_xtb_config_path,
+        executable_key="xtb_executable",
+        paths_cls=WorkflowEnginePathsConfig,
+        behavior_cls=WorkflowEngineBehaviorConfig,
+        app_config_cls=WorkflowEngineAppConfig,
+    )
+
+
+def load_crest_config(config_path: str | None = None) -> WorkflowEngineAppConfig:
+    return load_workflow_engine_config(
+        config_path,
+        default_config_path_fn=default_crest_config_path,
+        executable_key="crest_executable",
+        paths_cls=WorkflowEnginePathsConfig,
+        behavior_cls=WorkflowEngineBehaviorConfig,
+        app_config_cls=WorkflowEngineAppConfig,
     )
 
 

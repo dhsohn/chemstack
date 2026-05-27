@@ -7,11 +7,11 @@ from chemstack.core.commands.run_dir import (
     cmd_engine_run_dir,
     print_queued_common,
 )
+from chemstack.core.config.engines import load_xtb_config as load_config
+from chemstack.core.notifications.engines import notify_xtb_job_queued as notify_job_queued
 from chemstack.core.queue import enqueue
 
-from ..config import load_config
 from ..job_locations import index_root_for_path, upsert_job_record
-from ..notifications import notify_job_queued
 from ..state import write_state
 from ._helpers import (
     load_job_manifest,

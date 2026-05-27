@@ -71,7 +71,7 @@ local time and sends the combined digest through the shared Telegram settings in
 
 Use `chemstack-queue-worker@.service` as the default worker service. It starts the unified worker supervisor through:
 
-- `python -m chemstack.services.queue_worker`
+- `python -m chemstack.cli queue worker`
 
 Common assumptions:
 

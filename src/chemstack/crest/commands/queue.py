@@ -6,6 +6,14 @@ from pathlib import Path
 from typing import Any
 
 from chemstack.core.commands import queue as _shared_queue
+from chemstack.core.config.engines import (
+    default_crest_config_path as default_config_path,
+    load_crest_config as load_config,
+)
+from chemstack.core.notifications.engines import (
+    notify_crest_job_finished as notify_job_finished,
+    notify_crest_job_started as notify_job_started,
+)
 from chemstack.core.admission import (
     activate_reserved_slot,
     list_slots,
@@ -40,9 +48,7 @@ from chemstack.core.queue.worker import (
 from chemstack.core.queue.dependencies import ChildQueueWorkerDeps
 from chemstack.core.utils import now_utc_iso
 
-from ..config import default_config_path, load_config
 from ..job_locations import runtime_roots_for_cfg, upsert_job_record
-from ..notifications import notify_job_finished, notify_job_started
 from ..runner import finalize_crest_job, start_crest_job
 from ..worker_execution import (
     WorkerExecutionDependencies,

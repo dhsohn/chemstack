@@ -19,6 +19,7 @@ from chemstack.activity_view import (
     queue_list_display_rows,
 )
 from chemstack.core.app_ids import (
+    CHEMSTACK_CONFIG_ENV_VAR,
     CHEMSTACK_REPO_ROOT_ENV_VAR,
 )
 from chemstack.core.config import TelegramConfig
@@ -31,7 +32,7 @@ from chemstack.core.notifications import (
 from chemstack.core.notifications.telegram import urlopen_with_ipv4_fallback
 
 from . import _activity_sources
-from .operations import cancel_activity, clear_activities, list_activities
+from .activity import cancel_activity, clear_activities, list_activities
 
 logger = logging.getLogger(__name__)
 
@@ -332,7 +333,7 @@ def _handle_help(settings: TelegramBotSettings, args: str) -> str:
         "/list clear — Remove completed/failed/cancelled entries\n"
         "/list running — Running activities only\n"
         "/list failed — Failed activities only\n"
-        "/cancel &lt;target&gt; — Cancel a workflow or standalone job\n"
+        "/cancel &lt;target&gt; — Cancel a workflow or queued job\n"
         "/help — This help message"
     )
 
@@ -458,10 +459,20 @@ def run_bot(settings: TelegramBotSettings | None = None) -> int:
             time.sleep(5)
 
 
+def main() -> int:
+    config_path = str(os.getenv(CHEMSTACK_CONFIG_ENV_VAR, "")).strip() or None
+    return int(run_bot(settings_from_config(config_path)))
+
+
 __all__ = [
     "TelegramBotSettings",
     "escape_html",
+    "main",
     "run_bot",
     "settings_from_config",
     "settings_from_env",
 ]
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

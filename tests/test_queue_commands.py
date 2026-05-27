@@ -135,7 +135,7 @@ class TestCmdQueueCancel(unittest.TestCase):
         mock_error.assert_called_once()
 
     @patch("chemstack.orca.cancellation.os.kill")
-    @patch("chemstack.orca.process_tracking.process_lock.is_process_alive", return_value=True)
+    @patch("chemstack.core.utils.process_tracking.process_lock.is_process_alive", return_value=True)
     @patch("chemstack.orca.commands.queue.load_config")
     def test_cancel_direct_running_simulation(
         self,

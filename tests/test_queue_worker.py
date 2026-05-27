@@ -9,7 +9,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from chemstack.orca.admission_store import (
+from chemstack.core.admission.orca import (
     acquire_direct_slot,
     active_slot_count,
     list_slots,
@@ -780,7 +780,7 @@ class TestFillSlots(unittest.TestCase):
                 },
             )
 
-    @patch("chemstack.orca.process_tracking.process_lock.is_process_alive", return_value=True)
+    @patch("chemstack.core.utils.process_tracking.process_lock.is_process_alive", return_value=True)
     def test_fill_slots_counts_external_active_runs(self, mock_alive: MagicMock) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -826,7 +826,7 @@ class TestFillSlots(unittest.TestCase):
             self.assertEqual(len(worker._running), 0)
             mock_start_job_process.assert_not_called()
 
-    @patch("chemstack.orca.process_tracking.process_lock.is_process_alive", return_value=True)
+    @patch("chemstack.core.utils.process_tracking.process_lock.is_process_alive", return_value=True)
     def test_fill_slots_stops_when_global_limit_reached(self, mock_alive: MagicMock) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

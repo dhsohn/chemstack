@@ -16,7 +16,10 @@ from chemstack.xtb import runner as runner_mod
 from chemstack.xtb import runner_artifacts
 from chemstack.xtb import runner_execution as runner_execution_mod
 from chemstack.xtb import runner_ranking
-from chemstack.xtb.config import AppConfig, PathsConfig
+from chemstack.core.config.engines import (
+    WorkflowEngineAppConfig as AppConfig,
+    WorkflowEnginePathsConfig as PathsConfig,
+)
 
 
 def _cfg(tmp_path: Path, *, xtb_executable: str = "") -> AppConfig:

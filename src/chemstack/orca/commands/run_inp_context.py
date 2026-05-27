@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
-from ..admission_store import (
+from chemstack.core.admission.orca import (
     ADMISSION_APP_NAME_ENV_VAR,
     ADMISSION_TASK_ID_ENV_VAR,
     ADMISSION_TOKEN_ENV_VAR,

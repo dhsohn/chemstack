@@ -10,8 +10,8 @@ from pathlib import Path
 from typing import Literal
 
 from chemstack.core.queue.types import QueueStatus
+from chemstack.core.utils.process_tracking import active_run_lock_pid
 
-from .process_tracking import active_run_lock_pid
 from .queue_store import (
     cancel as queue_cancel,
     list_queue,

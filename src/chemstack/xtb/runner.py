@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Callable, TextIO
 
 from chemstack.core import engine_runner as _engine_runner
+from chemstack.core.config.engines import WorkflowEngineAppConfig as AppConfig
 from chemstack.core.engine_process import start_logged_process
 from chemstack.core.utils import now_utc_iso
 from chemstack.core.utils import process as process_utils
@@ -18,7 +19,6 @@ from .commands._helpers import (
     resolve_job_inputs,
     resource_request_from_manifest,
 )
-from .config import AppConfig
 from . import runner_execution as _runner_execution
 from . import runner_finalize as _runner_finalize
 from . import runner_ranking as _runner_ranking

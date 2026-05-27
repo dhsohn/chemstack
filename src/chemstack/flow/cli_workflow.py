@@ -1,111 +1,26 @@
 from __future__ import annotations
 
+import argparse
+import os
 import time
 from dataclasses import dataclass
 from typing import Any
 
-from chemstack.core.config.files import default_config_path_from_repo_root
+from chemstack.core.app_ids import CHEMSTACK_CONFIG_ENV_VAR
 from chemstack.core.utils import file_lock, now_utc_iso, timestamped_token
 from chemstack.cli_common import (
     _dependency,
     _normalize_text,
-    _project_root,
     _shared_chemstack_config,
     _workflow_root_from_args,
 )
 from . import cli_workflow_output as _workflow_output
 from .engine_options import WorkflowEngineOptions
-from .orchestration import (
-    advance_workflow,
-    create_conformer_screening_workflow,
-    create_reaction_ts_search_workflow,
-)
-from .operations import (
-    cancel_workflow,
-    get_workflow,
-    get_workflow_artifacts,
-    get_workflow_journal,
-    get_workflow_runtime_status,
-    get_workflow_telemetry,
-    list_workflows,
-)
 from .registry import (
     append_workflow_journal_event,
-    reindex_workflow_registry,
     write_workflow_worker_state,
 )
 from .runtime import advance_workflow_registry_once, workflow_worker_lock_path
-from .submitters import submit_reaction_ts_search_workflow
-
-
-def cmd_workflow_create_reaction_ts_search(args: Any, *, deps: Any | None = None) -> int:
-    create_workflow = _dependency(
-        deps, "create_reaction_ts_search_workflow", create_reaction_ts_search_workflow
-    )
-    print_created_workflow = _dependency(
-        deps, "_print_created_workflow", _workflow_output.emit_created_workflow
-    )
-    payload = create_workflow(
-        reactant_xyz=getattr(args, "reactant_xyz"),
-        product_xyz=getattr(args, "product_xyz"),
-        workflow_root=getattr(args, "workflow_root"),
-        crest_mode=str(getattr(args, "crest_mode", "standard") or "standard"),
-        priority=int(getattr(args, "priority", 10) or 10),
-        max_cores=int(getattr(args, "max_cores", 8) or 8),
-        max_memory_gb=int(getattr(args, "max_memory_gb", 32) or 32),
-        max_crest_candidates=int(getattr(args, "max_crest_candidates", 3) or 3),
-        max_xtb_stages=int(getattr(args, "max_xtb_stages", 3) or 3),
-        max_orca_stages=int(getattr(args, "max_orca_stages", 3) or 3),
-        orca_route_line=str(getattr(args, "orca_route_line", "") or ""),
-        charge=int(getattr(args, "charge", 0) or 0),
-        multiplicity=int(getattr(args, "multiplicity", 1) or 1),
-    )
-    return print_created_workflow(payload, json_mode=bool(getattr(args, "json", False)))
-
-
-def cmd_workflow_create_conformer_screening(args: Any, *, deps: Any | None = None) -> int:
-    create_workflow = _dependency(
-        deps, "create_conformer_screening_workflow", create_conformer_screening_workflow
-    )
-    print_created_workflow = _dependency(
-        deps, "_print_created_workflow", _workflow_output.emit_created_workflow
-    )
-    payload = create_workflow(
-        input_xyz=getattr(args, "input_xyz"),
-        workflow_root=getattr(args, "workflow_root"),
-        crest_mode=str(getattr(args, "crest_mode", "standard") or "standard"),
-        priority=int(getattr(args, "priority", 10) or 10),
-        max_cores=int(getattr(args, "max_cores", 8) or 8),
-        max_memory_gb=int(getattr(args, "max_memory_gb", 32) or 32),
-        max_orca_stages=int(getattr(args, "max_orca_stages", 20) or 20),
-        orca_route_line=str(getattr(args, "orca_route_line", "") or ""),
-        charge=int(getattr(args, "charge", 0) or 0),
-        multiplicity=int(getattr(args, "multiplicity", 1) or 1),
-    )
-    return print_created_workflow(payload, json_mode=bool(getattr(args, "json", False)))
-
-
-def cmd_workflow_advance(args: Any, *, deps: Any | None = None) -> int:
-    shared_chemstack_config = _dependency(
-        deps, "_shared_chemstack_config", _shared_chemstack_config
-    )
-    advance_workflow_fn = _dependency(deps, "advance_workflow", advance_workflow)
-    emit_advance = _dependency(
-        deps,
-        "emit_workflow_advance",
-        _workflow_output.emit_workflow_advance,
-    )
-    shared_config = shared_chemstack_config(args)
-    payload = advance_workflow_fn(
-        target=getattr(args, "target"),
-        workflow_root=getattr(args, "workflow_root"),
-        crest_config=shared_config,
-        xtb_config=shared_config,
-        orca_config=shared_config,
-        orca_repo_root=getattr(args, "orca_repo_root", None),
-        submit_ready=not bool(getattr(args, "no_submit", False)),
-    )
-    return emit_advance(payload, json_mode=bool(getattr(args, "json", False)))
 
 
 def _emit_worker_payload(
@@ -448,161 +363,59 @@ def cmd_workflow_worker(args: Any, *, deps: Any | None = None) -> int:
     return _run_workflow_worker_loop(runtime, options)
 
 
-def cmd_workflow_runtime_status(args: Any, *, deps: Any | None = None) -> int:
-    get_status = _dependency(deps, "get_workflow_runtime_status", get_workflow_runtime_status)
-    emit_status = _dependency(
-        deps,
-        "emit_workflow_runtime_status",
-        _workflow_output.emit_workflow_runtime_status,
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="python -m chemstack.flow.cli_workflow")
+    parser.add_argument(
+        "--workflow-root",
+        required=True,
+        help="Root that directly contains workflow workspaces.",
     )
-    payload = get_status(workflow_root=getattr(args, "workflow_root"))
-    return emit_status(payload, json_mode=bool(getattr(args, "json", False)))
+    parser.add_argument(
+        "--chemstack-config",
+        default=str(os.getenv(CHEMSTACK_CONFIG_ENV_VAR, "")).strip() or None,
+        help="Path to shared chemstack.yaml.",
+    )
+    parser.add_argument(
+        "--no-submit",
+        action="store_true",
+        help="Only sync/append stages; do not submit newly actionable stages.",
+    )
+    parser.add_argument("--once", action="store_true", help="Run exactly one orchestration cycle.")
+    parser.add_argument(
+        "--max-cycles",
+        type=int,
+        default=0,
+        help="Optional cycle limit; 0 means run forever.",
+    )
+    parser.add_argument(
+        "--interval-seconds",
+        type=float,
+        default=30.0,
+        help="Sleep interval between orchestration cycles.",
+    )
+    parser.add_argument(
+        "--lock-timeout-seconds",
+        type=float,
+        default=5.0,
+        help="How long to wait for the worker lock.",
+    )
+    parser.add_argument(
+        "--refresh-registry",
+        action="store_true",
+        help="Reindex the workflow registry before the first cycle.",
+    )
+    parser.add_argument(
+        "--refresh-each-cycle",
+        action="store_true",
+        help="Reindex the workflow registry before every cycle.",
+    )
+    parser.add_argument("--json", action="store_true", help="Print JSON output.")
+    return parser
 
 
-def cmd_workflow_journal(args: Any, *, deps: Any | None = None) -> int:
-    get_journal = _dependency(deps, "get_workflow_journal", get_workflow_journal)
-    emit_journal = _dependency(
-        deps,
-        "emit_workflow_journal",
-        _workflow_output.emit_workflow_journal,
-    )
-    payload = get_journal(
-        workflow_root=getattr(args, "workflow_root"),
-        limit=int(getattr(args, "limit", 50) or 0),
-    )
-    return emit_journal(payload, json_mode=bool(getattr(args, "json", False)))
+def main(argv: list[str] | None = None) -> int:
+    return int(cmd_workflow_worker(build_parser().parse_args(argv)))
 
 
-def cmd_workflow_telemetry(args: Any, *, deps: Any | None = None) -> int:
-    get_telemetry = _dependency(deps, "get_workflow_telemetry", get_workflow_telemetry)
-    emit_telemetry = _dependency(
-        deps,
-        "emit_workflow_telemetry",
-        _workflow_output.emit_workflow_telemetry,
-    )
-    payload = get_telemetry(
-        workflow_root=getattr(args, "workflow_root"),
-        limit=int(getattr(args, "limit", 200) or 0),
-    )
-    return emit_telemetry(payload, json_mode=bool(getattr(args, "json", False)))
-
-
-def cmd_workflow_submit_reaction_ts_search(args: Any, *, deps: Any | None = None) -> int:
-    shared_chemstack_config = _dependency(
-        deps, "_shared_chemstack_config", _shared_chemstack_config
-    )
-    default_config_path = _dependency(
-        deps, "default_config_path_from_repo_root", default_config_path_from_repo_root
-    )
-    project_root = _dependency(deps, "_project_root", _project_root)
-    submit_workflow = _dependency(
-        deps, "submit_reaction_ts_search_workflow", submit_reaction_ts_search_workflow
-    )
-    emit_submission = _dependency(
-        deps,
-        "emit_workflow_submit_reaction_ts_search",
-        _workflow_output.emit_workflow_submit_reaction_ts_search,
-    )
-    shared_config = shared_chemstack_config(args) or default_config_path(project_root())
-    payload = submit_workflow(
-        workflow_target=getattr(args, "target"),
-        workflow_root=getattr(args, "workflow_root", None),
-        orca_config=shared_config,
-        orca_repo_root=getattr(args, "orca_repo_root", None),
-        skip_submitted=not bool(getattr(args, "resubmit", False)),
-    )
-    return emit_submission(payload, json_mode=bool(getattr(args, "json", False)))
-
-
-def cmd_bot(args: Any, *, deps: Any | None = None) -> int:
-    from .telegram_bot import run_bot
-
-    return int(run_bot())
-
-
-def cmd_workflow_list(args: Any, *, deps: Any | None = None) -> int:
-    list_workflows_fn = _dependency(deps, "list_workflows", list_workflows)
-    emit_list = _dependency(
-        deps,
-        "emit_workflow_list",
-        _workflow_output.emit_workflow_list,
-    )
-    payload = list_workflows_fn(
-        workflow_root=getattr(args, "workflow_root"),
-        limit=int(getattr(args, "limit", 0) or 0),
-        refresh=bool(getattr(args, "refresh", False)),
-    )
-    return emit_list(payload, json_mode=bool(getattr(args, "json", False)))
-
-
-def cmd_workflow_get(args: Any, *, deps: Any | None = None) -> int:
-    get_workflow_fn = _dependency(deps, "get_workflow", get_workflow)
-    emit_get = _dependency(
-        deps,
-        "emit_workflow_get",
-        _workflow_output.emit_workflow_get,
-    )
-    response = get_workflow_fn(
-        target=getattr(args, "target"),
-        workflow_root=getattr(args, "workflow_root", None),
-        sync_registry=True,
-    )
-    return emit_get(response, json_mode=bool(getattr(args, "json", False)))
-
-
-def cmd_workflow_artifacts(args: Any, *, deps: Any | None = None) -> int:
-    get_artifacts = _dependency(deps, "get_workflow_artifacts", get_workflow_artifacts)
-    emit_artifacts = _dependency(
-        deps,
-        "emit_workflow_artifacts",
-        _workflow_output.emit_workflow_artifacts,
-    )
-    response = get_artifacts(
-        target=getattr(args, "target"),
-        workflow_root=getattr(args, "workflow_root", None),
-        sync_registry=True,
-    )
-    return emit_artifacts(response, json_mode=bool(getattr(args, "json", False)))
-
-
-def cmd_workflow_cancel(args: Any, *, deps: Any | None = None) -> int:
-    cancel_workflow_fn = _dependency(deps, "cancel_workflow", cancel_workflow)
-    emit_cancel = _dependency(
-        deps,
-        "emit_workflow_cancel",
-        _workflow_output.emit_workflow_cancel,
-    )
-    emit_error = _dependency(deps, "emit_error", _workflow_output.emit_error)
-    try:
-        payload = cancel_workflow_fn(
-            target=getattr(args, "target"),
-            workflow_root=getattr(args, "workflow_root", None),
-            crest_config=getattr(args, "crest_config", None),
-            xtb_config=getattr(args, "xtb_config", None),
-            orca_config=getattr(args, "orca_config", None),
-            orca_repo_root=getattr(args, "orca_repo_root", None),
-        )
-    except (ValueError, TimeoutError) as exc:
-        emit_error(exc)
-        return 1
-    return emit_cancel(payload, json_mode=bool(getattr(args, "json", False)))
-
-
-def cmd_workflow_reindex(args: Any, *, deps: Any | None = None) -> int:
-    reindex = _dependency(deps, "reindex_workflow_registry", reindex_workflow_registry)
-    emit_reindex = _dependency(
-        deps,
-        "emit_workflow_reindex",
-        _workflow_output.emit_workflow_reindex,
-    )
-    records = reindex(getattr(args, "workflow_root"))
-    payload = {
-        "workflow_root": str(getattr(args, "workflow_root")),
-        "count": len(records),
-        "workflow_ids": [record.workflow_id for record in records],
-    }
-    return emit_reindex(
-        payload,
-        records=records,
-        json_mode=bool(getattr(args, "json", False)),
-    )
+if __name__ == "__main__":
+    raise SystemExit(main())

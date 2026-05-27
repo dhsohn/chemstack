@@ -11,7 +11,7 @@ from chemstack.core.queue.types import QueueStatus
 from chemstack.core.utils.process_lock import is_process_alive, parse_lock_info, process_start_ticks
 
 from .. import queue_store as _queue_store
-from ..admission_store import (
+from chemstack.core.admission.orca import (
     AdmissionLimitReachedError,
     activate_reserved_slot,
     acquire_direct_slot,

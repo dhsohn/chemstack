@@ -8,8 +8,8 @@ from typing import Any
 import pytest
 
 from chemstack import cli_common
-from chemstack import cli_run_dir
-from chemstack import cli_summary
+from chemstack import cli_handlers as cli_run_dir
+from chemstack import cli_handlers as cli_summary
 from chemstack.core.app_ids import CHEMSTACK_CONFIG_ENV_VAR
 from chemstack.flow.run_dir_layout import WorkflowRunDirLayout, inspect_workflow_run_dir
 

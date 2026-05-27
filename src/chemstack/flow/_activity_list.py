@@ -185,7 +185,7 @@ def engine_queue_roots(
     return tuple(roots)
 
 
-def standalone_queue_records(
+def engine_queue_records(
     *,
     app_name: str,
     engine: str,
@@ -291,7 +291,7 @@ def collect_child_queue_activity(
         or (not include_all_children and engine not in include_children)
     ):
         return []
-    return standalone_queue_records(
+    return engine_queue_records(
         app_name=app_name,
         engine=engine,
         config_path=str(config_path),

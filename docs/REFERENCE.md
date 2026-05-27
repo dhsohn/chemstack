@@ -1,6 +1,6 @@
 # ChemStack Detailed Reference
 
-ChemStack is a queue-first executor for ORCA and workflow orchestration. xTB and CREST remain part of the runtime, but they are now used internally for workflow stages rather than as standalone public CLI surfaces. This reference standardizes the shared public CLI and keeps the deeper ORCA runtime behavior documented in one place, since ORCA still has the richest retry, reporting, and monitoring surface.
+ChemStack is a queue-first executor for ORCA and workflow orchestration. xTB and CREST run as internal workflow-stage engines. This reference standardizes the shared public CLI and keeps the deeper ORCA runtime behavior documented in one place, since ORCA still has the richest retry, reporting, and monitoring surface.
 
 Current developer-facing package rule:
 
@@ -25,8 +25,7 @@ Current intended semantics:
 - If an already-completed output is detected, `run-dir` returns completion without relaunching ORCA
 - Successful queue submission returns `status: queued`
 - Public `run-dir` does not launch ORCA directly for new work
-- App-managed background execution has been removed
-- The queue worker runs under external supervision
+- Background execution is managed by externally supervised queue workers
 - On WSL, the recommended supervisor is `systemd`
 
 Operational consequences:
@@ -157,7 +156,7 @@ Field descriptions for the `orca` section:
 - `workflow.root`: Workflow root for workflow creation, activity inspection, and the integrated workflow worker
 - `workflow.paths.xtb_executable`: xTB executable path used by workflow-managed internal stages
 - `workflow.paths.crest_executable`: CREST executable path used by workflow-managed internal stages
-- Internal xTB/CREST runtimes no longer use a shared `workflow.root/internal/<engine>/...` root
+- Internal xTB/CREST runtimes are scoped to each workflow
 - Workflow-managed xTB/CREST job dirs, per-workflow queues/indexes, and outputs are stored only under `workflow.root/<workflow_id>/internal/<engine>/{runs,outputs}`
 - `paths.orca_executable`: ORCA executable path
 
@@ -171,10 +170,10 @@ Notes:
 All public queue, submission, scaffold, organization, and summary commands
 should be documented through `chemstack ...`.
 
-Compatibility note:
+Public command surface:
 
-- ORCA public commands are exposed through `chemstack ...`; the old ORCA module CLI was removed.
-- Standalone xTB and CREST CLI commands were removed. xTB and CREST now run as internal workflow/runtime engines.
+- ORCA public commands are exposed through `chemstack ...`
+- xTB and CREST run as internal workflow/runtime engines; submit their work through workflow `run-dir` requests
 
 ### 7.1 `init`
 
@@ -259,7 +258,7 @@ with `Status`, `Job ID`, `Detail`, and `Elapsed` columns, where the detail field
 workflow or job intent such as `ts_search(nci)`, `IRC`, or `NEB`. By default, only ORCA child
 jobs are expanded beneath workflow parents; internal xTB/CREST child jobs stay hidden in the
 combined text view to reduce noise, but remain available through `--engine ... --kind job`
-filters and `--json`. Standalone ORCA jobs remain top-level entries. The
+filters and `--json`. Top-level ORCA jobs remain top-level entries. The
 `active_simulations` line counts only the currently running
 simulations that consume the shared `scheduler.max_active_simulations` slots.
 The integrated Telegram bot `/list` command renders the same table layout and default
@@ -377,8 +376,7 @@ If you only want unattended execution without the Telegram bot, enable
 `chemstack-queue-worker@$(whoami)` directly instead of the combined runtime
 target.
 
-The previous dedicated flow workflow-worker unit has been removed; workflow
-supervision now belongs to `chemstack-queue-worker@.service`.
+Workflow supervision belongs to `chemstack-queue-worker@.service`.
 
 ## 9) Completion Determination Rules
 

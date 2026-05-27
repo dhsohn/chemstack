@@ -1,4 +1,4 @@
-"""ORCA admission helpers layered on the shared core admission store."""
+"""Admission helpers that count existing run locks with shared admission slots."""
 
 from __future__ import annotations
 
@@ -9,8 +9,7 @@ from typing import Iterator
 
 from chemstack.core.admission import store as _core_admission
 from chemstack.core.app_ids import CHEMSTACK_ORCA_APP_NAME
-
-from .process_tracking import RUN_LOCK_FILE_NAME, active_run_lock_pid
+from chemstack.core.utils.process_tracking import RUN_LOCK_FILE_NAME, active_run_lock_pid
 
 ADMISSION_FILE_NAME = _core_admission.ADMISSION_FILE_NAME
 ADMISSION_LOCK_NAME = _core_admission.ADMISSION_LOCK_NAME

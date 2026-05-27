@@ -14,7 +14,7 @@ from chemstack.core.app_ids import (
 )
 from chemstack.core.queue.types import QueueEntry, QueueStatus
 
-from chemstack.flow import activity, cli, cli_activity, operations
+from chemstack.flow import activity
 from chemstack.flow import _activity_cancel, _activity_list, _activity_orca, _activity_sources
 from chemstack.flow import _activity_model
 
@@ -220,8 +220,8 @@ def test_cancel_activity_routes_workflow_targets(monkeypatch) -> None:
         ],
     )
     monkeypatch.setattr(
-        operations,
-        "cancel_workflow",
+        _activity_cancel,
+        "cancel_materialized_workflow",
         lambda **kwargs: {"workflow_id": "wf-9", "status": "cancelled", "cancelled": []},
     )
 
@@ -598,132 +598,6 @@ def test_clear_activities_keeps_cleared_terminal_workflows_hidden_from_listing(
     assert after_clear["activities"] == []
 
 
-def test_cmd_activity_list_text_output(monkeypatch, capsys) -> None:
-    monkeypatch.setattr(
-        cli_activity,
-        "list_activities",
-        lambda **kwargs: {
-            "count": 2,
-            "activities": [
-                {
-                    "activity_id": "wf-1",
-                    "engine": "xtb",
-                    "status": "running",
-                    "label": "rxn-a",
-                    "source": "chemstack_flow",
-                },
-                {
-                    "activity_id": "xtb-q-1",
-                    "engine": "xtb",
-                    "status": "pending",
-                    "label": "rxn-b",
-                    "source": "chemstack_xtb",
-                },
-            ],
-        },
-    )
-
-    assert cli_activity.cmd_activity_list(
-        SimpleNamespace(
-            workflow_root="/tmp/wf",
-            limit=0,
-            refresh=False,
-            crest_config=None,
-            xtb_config="/tmp/xtb.yaml",
-            orca_config=None,
-            orca_repo_root=None,
-            json=False,
-        )
-    ) == 0
-
-    stdout = capsys.readouterr().out
-    assert "activity_count: 2" in stdout
-    assert "- wf-1 engine=xtb status=running label=rxn-a source=chemstack_flow" in stdout
-    assert "- xtb-q-1 engine=xtb status=pending label=rxn-b source=chemstack_xtb" in stdout
-
-
-def test_cmd_activity_cancel_json_and_error_paths(monkeypatch, capsys) -> None:
-    monkeypatch.setattr(
-        cli_activity,
-        "cancel_activity",
-        lambda **kwargs: {
-            "activity_id": "crest-q-1",
-            "engine": "crest",
-            "source": "chemstack_crest",
-            "label": "mol-a",
-            "status": "cancel_requested",
-            "cancel_target": "crest-q-1",
-        },
-    )
-    args = SimpleNamespace(
-        target="crest-q-1",
-        workflow_root=None,
-        crest_config="/tmp/crest.yaml",
-        xtb_config=None,
-        orca_config=None,
-        orca_repo_root=None,
-        json=True,
-    )
-    assert cli_activity.cmd_activity_cancel(args) == 0
-    payload = json.loads(capsys.readouterr().out)
-    assert payload["status"] == "cancel_requested"
-
-    def fake_cancel_activity(**kwargs: Any) -> dict[str, Any]:
-        raise LookupError("Activity target not found: missing")
-
-    monkeypatch.setattr(cli_activity, "cancel_activity", fake_cancel_activity)
-    args.json = False
-    args.target = "missing"
-    assert cli_activity.cmd_activity_cancel(args) == 1
-    assert "error: Activity target not found: missing" in capsys.readouterr().out
-
-
-def test_build_parser_parses_top_level_activity_commands() -> None:
-    parser = cli.build_parser()
-
-    list_args = parser.parse_args(
-        [
-            "list",
-            "--workflow-root",
-            "/tmp/wf",
-            "--chemstack-config",
-            "/tmp/chemstack.yaml",
-            "--json",
-        ]
-    )
-    assert list_args.command == "list"
-    assert list_args.workflow_root == "/tmp/wf"
-    assert list_args.chemstack_config == "/tmp/chemstack.yaml"
-    assert list_args.func is cli_activity.cmd_activity_list
-
-    cancel_args = parser.parse_args(
-        [
-            "cancel",
-            "xtb-q-1",
-            "--chemstack-config",
-            "/tmp/chemstack.yaml",
-        ]
-    )
-    assert cancel_args.command == "cancel"
-    assert cancel_args.target == "xtb-q-1"
-    assert cancel_args.chemstack_config == "/tmp/chemstack.yaml"
-    assert cancel_args.func is cli_activity.cmd_activity_cancel
-
-    with pytest.raises(SystemExit):
-        parser.parse_args(
-            [
-                "cancel",
-                "xtb-q-1",
-                "--crest-executable",
-                "crest-bin",
-                "--xtb-executable",
-                "xtb-bin",
-                "--orca-executable",
-                "orca-auto-bin",
-            ]
-        )
-
-
 def test_list_activities_autodiscovers_defaults_when_no_args(monkeypatch) -> None:
     monkeypatch.setattr(_activity_sources, "discover_workflow_root", lambda workflow_root: "/tmp/workflow_root")
     monkeypatch.setattr(
@@ -786,7 +660,7 @@ def test_cancel_activity_autodiscovers_defaults(monkeypatch) -> None:
         captured.update(kwargs)
         return {"workflow_id": "wf-77", "status": "cancelled"}
 
-    monkeypatch.setattr(operations, "cancel_workflow", fake_cancel_workflow)
+    monkeypatch.setattr(_activity_cancel, "cancel_materialized_workflow", fake_cancel_workflow)
 
     payload = activity.cancel_activity(target="wf-77")
 
@@ -795,17 +669,3 @@ def test_cancel_activity_autodiscovers_defaults(monkeypatch) -> None:
     assert captured["crest_config"] == "/tmp/chemstack.yaml"
     assert captured["xtb_config"] == "/tmp/chemstack.yaml"
     assert captured["orca_config"] == "/tmp/chemstack.yaml"
-
-
-def test_build_parser_accepts_one_line_activity_commands() -> None:
-    parser = cli.build_parser()
-
-    list_args = parser.parse_args(["list"])
-    assert list_args.command == "list"
-    assert list_args.workflow_root is None
-    assert list_args.func is cli_activity.cmd_activity_list
-
-    cancel_args = parser.parse_args(["cancel", "wf-1"])
-    assert cancel_args.command == "cancel"
-    assert cancel_args.target == "wf-1"
-    assert cancel_args.func is cli_activity.cmd_activity_cancel

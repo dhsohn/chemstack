@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from chemstack.orca.admission_store import (
+from chemstack.core.admission.orca import (
     ADMISSION_FILE_NAME,
     AdmissionStoreCorruptError,
     activate_slot,

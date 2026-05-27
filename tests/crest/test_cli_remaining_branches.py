@@ -1,13 +1,10 @@
 from __future__ import annotations
 
-import runpy
-import warnings
 from argparse import Namespace
 from pathlib import Path
 
 import pytest
 
-from chemstack.crest.commands import queue as queue_cmd
 from chemstack.crest.commands import run_dir as run_dir_cmd
 
 
@@ -30,31 +27,6 @@ def _write_config(tmp_path: Path) -> Path:
         encoding="utf-8",
     )
     return config_path
-
-
-def test_cli_module_main_raises_system_exit_with_main_return_code(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    config_path = _write_config(tmp_path)
-    monkeypatch.setattr(queue_cmd, "cmd_queue_worker", lambda args: 0)
-    monkeypatch.setattr(
-        "sys.argv",
-        ["chemstack_crest", "--config", str(config_path), "queue", "worker"],
-    )
-
-    with warnings.catch_warnings():
-        warnings.filterwarnings(
-            "ignore",
-            message=r"'chemstack\.crest\._internal_cli' found in sys\.modules .* prior to execution of 'chemstack\.crest\._internal_cli'",
-            category=RuntimeWarning,
-        )
-        with pytest.raises(SystemExit) as exc_info:
-            runpy.run_module("chemstack.crest._internal_cli", run_name="__main__")
-
-    assert exc_info.value.code == 0
-    assert capsys.readouterr().out == ""
 
 
 @pytest.mark.parametrize(

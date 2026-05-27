@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import runpy
 import sys
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
@@ -436,8 +435,3 @@ def test_xyz_reaction_ts_orca_stage_cli_and_mcp_edges(monkeypatch: pytest.Monkey
         )
 
     assert cli_common._normalize_text(None) == ""
-    monkeypatch.setattr(sys, "argv", ["chemstack_flow", "--help"])
-    monkeypatch.delitem(sys.modules, "chemstack.flow.cli", raising=False)
-    with pytest.raises(SystemExit) as cli_exit:
-        runpy.run_module("chemstack.flow.cli", run_name="__main__")
-    assert cli_exit.value.code == 0

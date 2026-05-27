@@ -8,10 +8,8 @@ from typing import Any
 import pytest
 
 from chemstack.core.indexing import get_job_location
-from chemstack.core.internal_cli import dispatch_engine_internal_queue_command
 from chemstack.core.queue import list_queue
 
-from chemstack.crest import _internal_cli as cli
 from chemstack.crest.commands import queue as queue_cmd
 from chemstack.crest.commands import run_dir as run_dir_cmd
 from chemstack.crest.runner import CrestRunResult
@@ -43,67 +41,6 @@ def _write_config(tmp_path: Path) -> tuple[Path, Path, Path]:
 def _write_xyz(path: Path, label: str = "sample") -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(f"1\n{label}\nH 0.0 0.0 0.0\n", encoding="utf-8")
-
-
-def test_build_parser_supports_worker_only_internal_queue_command() -> None:
-    parser = cli.build_parser()
-
-    worker_args = parser.parse_args(["queue", "worker"])
-
-    assert worker_args.command == "queue"
-    assert worker_args.queue_command == "worker"
-    assert not hasattr(worker_args, "auto_organize")
-    assert not hasattr(worker_args, "no_auto_organize")
-
-    with pytest.raises(SystemExit):
-        parser.parse_args(["queue", "worker", "--auto-organize"])
-
-    with pytest.raises(SystemExit):
-        parser.parse_args(["queue", "worker", "--once"])
-
-    for argv in (
-        ["run-dir", "jobs/demo", "--priority", "3"],
-        ["queue", "cancel", "q-123"],
-        ["scaffold", "--root", "/tmp/job"],
-        ["list"],
-        ["reindex"],
-        ["summary", "job-123"],
-    ):
-        with pytest.raises(SystemExit):
-            parser.parse_args(argv)
-
-
-def test_main_dispatches_queue_worker_only(monkeypatch: pytest.MonkeyPatch) -> None:
-    worker_calls: list[Any] = []
-
-    def _worker(args: Any) -> int:
-        worker_calls.append(args)
-        return 21
-
-    monkeypatch.setattr(queue_cmd, "cmd_queue_worker", _worker)
-
-    assert cli.main(["queue", "worker"]) == 21
-
-    assert len(worker_calls) == 1
-    assert not hasattr(worker_calls[0], "no_auto_organize")
-
-
-def test_cmd_queue_rejects_unknown_subcommand() -> None:
-    with pytest.raises(ValueError, match="Unsupported queue subcommand: noop"):
-        dispatch_engine_internal_queue_command(
-            Namespace(queue_command="noop"),
-            queue_worker_handler=lambda args: 0,
-            queue_cancel_handler=lambda args: 0,
-        )
-
-
-def test_internal_cli_rejects_run_dir_surface(tmp_path: Path) -> None:
-    config_path, allowed_root, _ = _write_config(tmp_path)
-    job_dir = allowed_root / "job-cli"
-    job_dir.mkdir(parents=True)
-
-    with pytest.raises(SystemExit):
-        cli.main(["--config", str(config_path), "run-dir", str(job_dir)])
 
 
 def test_cmd_run_dir_queues_job_updates_state_and_index(

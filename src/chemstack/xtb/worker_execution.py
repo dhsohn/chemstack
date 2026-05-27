@@ -20,15 +20,18 @@ from chemstack.core.queue.engine_execution import (
     EngineWorkerLifecycle,
     run_engine_worker_lifecycle,
 )
+from chemstack.core.config.engines import load_xtb_config as load_config
 from chemstack.core.indexing.engines import resource_dict
+from chemstack.core.notifications.engines import (
+    notify_xtb_job_finished as notify_job_finished,
+    notify_xtb_job_started as notify_job_started,
+)
 from chemstack.core.queue.worker import terminate_process_group
 from chemstack.core.utils import now_utc_iso
 
 from . import queue_artifacts as _queue_artifacts
 from . import queue_terminal as _queue_terminal
-from .config import load_config
 from .job_locations import reaction_key_from_job_dir, upsert_job_record
-from .notifications import notify_job_finished, notify_job_started
 from .runner import XtbRunResult, finalize_xtb_job, run_xtb_ranking_job, start_xtb_job
 from .state import (
     is_recovery_pending,

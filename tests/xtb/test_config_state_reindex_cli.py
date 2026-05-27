@@ -1,19 +1,20 @@
 from __future__ import annotations
 
-import argparse
 import json
-import runpy
-import warnings
 from pathlib import Path
 
 import pytest
 import yaml
 
-from chemstack.core.internal_cli import dispatch_engine_internal_queue_command
-from chemstack.core.config.engines import as_bool, as_int, as_str
+from chemstack.core.config.engines import (
+    CONFIG_ENV_VAR,
+    as_bool,
+    as_int,
+    as_str,
+    default_xtb_config_path as default_config_path,
+    load_xtb_config as load_config,
+)
 from chemstack.xtb import state as state_mod
-from chemstack.xtb.commands import queue as queue_cmd
-from chemstack.xtb.config import CONFIG_ENV_VAR, default_config_path, load_config
 
 
 def test_default_config_path_prefers_env(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -205,75 +206,3 @@ def test_state_loaders_return_none_for_missing_invalid_and_non_mapping_payloads(
         assert loader(job_dir) is None
         path.write_text(json.dumps(["not", "a", "mapping"]), encoding="utf-8")
         assert loader(job_dir) is None
-
-
-def test_engine_internal_queue_dispatches_worker_cancel_and_unknown() -> None:
-    worker_args = argparse.Namespace(queue_command="worker")
-    cancel_args = argparse.Namespace(queue_command="cancel")
-    other_args = argparse.Namespace(queue_command="unknown")
-
-    assert (
-        dispatch_engine_internal_queue_command(
-            worker_args,
-            queue_worker_handler=lambda args: 11,
-            queue_cancel_handler=lambda args: 17,
-        )
-        == 11
-    )
-    assert (
-        dispatch_engine_internal_queue_command(
-            cancel_args,
-            queue_worker_handler=lambda args: 11,
-            queue_cancel_handler=lambda args: 17,
-        )
-        == 17
-    )
-
-    with pytest.raises(ValueError, match="Unsupported queue subcommand: unknown"):
-        dispatch_engine_internal_queue_command(
-            other_args,
-            queue_worker_handler=lambda args: 11,
-            queue_cancel_handler=lambda args: 17,
-        )
-
-
-def test_cli_module_main_entrypoint_raises_system_exit(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    config_path = tmp_path / "chemstack.yaml"
-    workflow_root = tmp_path / "workflow_root"
-    allowed_root = workflow_root / "wf_001" / "02_xtb"
-    allowed_root.mkdir(parents=True)
-    config_path.write_text(
-        yaml.safe_dump(
-            {
-                "workflow": {
-                    "root": str(workflow_root),
-                }
-            },
-            sort_keys=False,
-        ),
-        encoding="utf-8",
-    )
-
-    del allowed_root
-
-    monkeypatch.setattr(queue_cmd, "cmd_queue_worker", lambda args: 0)
-    monkeypatch.setattr(
-        "sys.argv",
-        ["chemstack_xtb", "--config", str(config_path), "queue", "worker"],
-    )
-
-    with warnings.catch_warnings():
-        warnings.filterwarnings(
-            "ignore",
-            message=r"'chemstack\.xtb\._internal_cli' found in sys\.modules .* prior to execution of 'chemstack\.xtb\._internal_cli'",
-            category=RuntimeWarning,
-        )
-        with pytest.raises(SystemExit) as exc_info:
-            runpy.run_module("chemstack.xtb._internal_cli", run_name="__main__")
-
-    assert exc_info.value.code == 0
-    assert capsys.readouterr().out == ""

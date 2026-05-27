@@ -13,7 +13,7 @@ from chemstack.core.queue import enqueue, list_queue, request_cancel
 from chemstack.core.queue.types import QueueStatus
 
 from chemstack.crest.commands import queue as queue_cmd
-from chemstack.crest.config import AppConfig
+from chemstack.core.config.engines import WorkflowEngineAppConfig as AppConfig
 from chemstack.crest.runner import CrestRunResult
 from chemstack.crest.state import REPORT_JSON_FILE_NAME, REPORT_MD_FILE_NAME, STATE_FILE_NAME, load_state
 

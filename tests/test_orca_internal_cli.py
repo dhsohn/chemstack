@@ -1,55 +1,37 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
-import pytest
-
-from chemstack.orca import _internal_cli as cli
+from chemstack import cli as chemstack_cli
 from chemstack.orca.commands import queue as queue_cmd
 
 
-def test_build_parser_supports_orca_internal_queue_commands() -> None:
-    parser = cli.build_parser()
-
-    worker_args = parser.parse_args(
-        ["--config", "/tmp/chemstack.yaml", "queue", "worker", "--no-auto-organize"]
-    )
-    cancel_args = parser.parse_args(
-        ["--config", "/tmp/chemstack.yaml", "queue", "cancel", "q-123"]
-    )
-
-    assert worker_args.command == "queue"
-    assert worker_args.queue_command == "worker"
-    assert worker_args.auto_organize is False
-    assert worker_args.no_auto_organize is True
-    assert cancel_args.queue_command == "cancel"
-    assert cancel_args.target == "q-123"
-
-    with pytest.raises(SystemExit):
-        parser.parse_args(["queue", "worker", "--auto-organize", "--no-auto-organize"])
-
-
-def test_main_dispatches_orca_internal_queue_commands(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_queue_engine_worker_dispatches_orca_worker(monkeypatch) -> None:
     worker_calls: list[Any] = []
-    cancel_calls: list[Any] = []
 
     def _worker(args: Any) -> int:
         worker_calls.append(args)
         return 41
 
-    def _cancel(args: Any) -> int:
-        cancel_calls.append(args)
-        return 42
-
     monkeypatch.setattr(queue_cmd, "cmd_queue_worker", _worker)
-    monkeypatch.setattr(queue_cmd, "cmd_queue_cancel", _cancel)
 
-    assert cli.main(["queue", "worker", "--auto-organize"]) == 41
-    assert cli.main(["queue", "cancel", "job-123"]) == 42
+    assert (
+        chemstack_cli.main(
+            [
+                "--config",
+                "/tmp/chemstack.yaml",
+                "queue",
+                "engine-worker",
+                "orca",
+                "--no-auto-organize",
+            ]
+        )
+        == 41
+    )
 
     assert len(worker_calls) == 1
-    assert worker_calls[0].queue_command == "worker"
-    assert worker_calls[0].auto_organize is True
-    assert len(cancel_calls) == 1
-    assert cancel_calls[0].queue_command == "cancel"
-    assert cancel_calls[0].target == "job-123"
+    assert worker_calls[0].engine == "orca"
+    assert worker_calls[0].config == str(Path("/tmp/chemstack.yaml").resolve())
+    assert worker_calls[0].auto_organize is False
+    assert worker_calls[0].no_auto_organize is True

@@ -11,12 +11,12 @@ def test_queue_list_default_visible_items_hides_xtb_crest_children_but_keeps_orc
         {"activity_id": "crest_1", "kind": "job", "engine": "crest", "metadata": {"workflow_id": "wf_1"}},
         {"activity_id": "xtb_1", "kind": "job", "engine": "xtb", "metadata": {"workflow_id": "wf_1"}},
         {"activity_id": "orca_1", "kind": "job", "engine": "orca", "metadata": {"workflow_id": "wf_1"}},
-        {"activity_id": "standalone", "kind": "job", "engine": "xtb", "metadata": {}},
+        {"activity_id": "engine_job", "kind": "job", "engine": "xtb", "metadata": {}},
     ]
 
     visible = activity_view.queue_list_default_visible_items(items)
 
-    assert [item["activity_id"] for item in visible] == ["wf_1", "orca_1", "standalone"]
+    assert [item["activity_id"] for item in visible] == ["wf_1", "orca_1", "engine_job"]
     assert visible[1]["parent_workflow_id"] == "wf_1"
 
 
@@ -40,7 +40,7 @@ def test_queue_list_display_rows_groups_children_under_workflow_once() -> None:
             "engine": "orca",
             "metadata": {"workflow_id": "wf_1"},
         },
-        {"activity_id": "standalone", "kind": "job", "engine": "crest", "metadata": {}},
+        {"activity_id": "engine_job", "kind": "job", "engine": "crest", "metadata": {}},
     ]
 
     rows = activity_view.queue_list_display_rows(
@@ -54,7 +54,7 @@ def test_queue_list_display_rows_groups_children_under_workflow_once() -> None:
         (0, "wf_1"),
         (1, "orca_1"),
         (1, "orca_2"),
-        (0, "standalone"),
+        (0, "engine_job"),
     ]
 
 

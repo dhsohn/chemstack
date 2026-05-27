@@ -21,11 +21,9 @@ from chemstack.cli_common import (
     _workflow_root_for_args,
 )
 from chemstack.core.app_ids import (
+    CHEMSTACK_CLI_MODULE,
     CHEMSTACK_CONFIG_ENV_VAR,
-    CHEMSTACK_CREST_MODULE,
-    CHEMSTACK_ORCA_INTERNAL_MODULE,
-    CHEMSTACK_WORKFLOW_WORKER_SERVICE_MODULE,
-    CHEMSTACK_XTB_MODULE,
+    CHEMSTACK_WORKFLOW_WORKER_MODULE,
 )
 from chemstack.flow.submitters.common import normalize_text, sibling_app_command
 
@@ -123,7 +121,6 @@ def _classify_existing_orca_worker(command_argv: Sequence[str]) -> str:
     program_name = _command_program_name(command_argv)
     if (
         program_name == "chemstack"
-        or _command_invokes_module(command_argv, "chemstack.orca._internal_cli")
         or _command_invokes_module(command_argv, "chemstack.cli")
     ):
         return "chemstack"
@@ -225,7 +222,7 @@ def _selected_worker_apps(values: Sequence[str] | None) -> list[str]:
 
 
 def _engine_worker_tail_argv(*, app: str, args: argparse.Namespace) -> list[str]:
-    tail_argv = ["queue", "worker"]
+    tail_argv = ["queue", "engine-worker", app]
     if bool(getattr(args, "auto_organize", False)):
         tail_argv.append("--auto-organize")
     elif bool(getattr(args, "no_auto_organize", False)):
@@ -240,11 +237,6 @@ def _engine_worker_spec(
     args: argparse.Namespace,
     deps: Any | None = None,
 ) -> WorkerSpec:
-    module_name = {
-        "orca": CHEMSTACK_ORCA_INTERNAL_MODULE,
-        "xtb": CHEMSTACK_XTB_MODULE,
-        "crest": CHEMSTACK_CREST_MODULE,
-    }[app]
     build_sibling_command = _dependency(deps, "sibling_app_command", sibling_app_command)
     repo_root_for_subprocess = _dependency(
         deps, "_repo_root_for_subprocess", _repo_root_for_subprocess
@@ -252,7 +244,7 @@ def _engine_worker_spec(
     argv, cwd, env = build_sibling_command(
         config_path=config_path,
         repo_root=repo_root_for_subprocess(),
-        module_name=module_name,
+        module_name=CHEMSTACK_CLI_MODULE,
         tail_argv=_engine_worker_tail_argv(app=app, args=args),
     )
     env_payload = dict(env) if isinstance(env, dict) else dict(os.environ)
@@ -269,7 +261,7 @@ def _workflow_worker_spec(
     argv = [
         sys.executable,
         "-m",
-        CHEMSTACK_WORKFLOW_WORKER_SERVICE_MODULE,
+        CHEMSTACK_WORKFLOW_WORKER_MODULE,
         "--workflow-root",
         str(Path(workflow_root).expanduser().resolve()),
     ]
@@ -592,6 +584,72 @@ def _run_worker_supervisor(
 def _emit_supervisor_specs_json(*, key: str, specs: Sequence[WorkerSpec]) -> int:
     print(json.dumps({key: [spec.to_dict() for spec in specs]}, ensure_ascii=True, indent=2))
     return 0
+
+
+def _engine_worker_config_path(
+    args: Any,
+    *,
+    default_config_path_fn: Any,
+    deps: Any | None = None,
+) -> str:
+    discover_shared_config_path = _dependency(
+        deps, "_discover_shared_config_path", _discover_shared_config_path
+    )
+    effective_shared_config_text = _dependency(
+        deps, "_effective_shared_config_text", _effective_shared_config_text
+    )
+    discovered = normalize_text(discover_shared_config_path(effective_shared_config_text(args)))
+    if discovered:
+        return discovered
+    return str(default_config_path_fn())
+
+
+def _engine_worker_command_args(args: Any, *, config_path: str) -> argparse.Namespace:
+    values = dict(vars(args)) if hasattr(args, "__dict__") else {}
+    values["config"] = config_path
+    return argparse.Namespace(**values)
+
+
+def cmd_queue_engine_worker(args: Any, *, deps: Any | None = None) -> int:
+    engine = normalize_text(getattr(args, "engine", "")).lower()
+    if engine == "orca":
+        from chemstack.orca.commands import queue as queue_cmd
+        from chemstack.orca.commands._helpers import default_config_path
+
+        config_path = _engine_worker_config_path(
+            args, default_config_path_fn=default_config_path, deps=deps
+        )
+        return int(
+            queue_cmd.cmd_queue_worker(
+                _engine_worker_command_args(args, config_path=config_path)
+            )
+        )
+    if engine == "xtb":
+        from chemstack.core.config.engines import default_xtb_config_path
+        from chemstack.xtb.commands import queue as queue_cmd
+
+        config_path = _engine_worker_config_path(
+            args, default_config_path_fn=default_xtb_config_path, deps=deps
+        )
+        return int(
+            queue_cmd.cmd_queue_worker(
+                _engine_worker_command_args(args, config_path=config_path)
+            )
+        )
+    if engine == "crest":
+        from chemstack.core.config.engines import default_crest_config_path
+        from chemstack.crest.commands import queue as queue_cmd
+
+        config_path = _engine_worker_config_path(
+            args, default_config_path_fn=default_crest_config_path, deps=deps
+        )
+        return int(
+            queue_cmd.cmd_queue_worker(
+                _engine_worker_command_args(args, config_path=config_path)
+            )
+        )
+    print(f"error: unsupported engine worker: {engine or '<empty>'}")
+    return 1
 
 
 def cmd_queue_worker(args: Any, *, deps: Any | None = None) -> int:

@@ -2,10 +2,9 @@ from __future__ import annotations
 
 import argparse
 
+from chemstack import cli_handlers
 from chemstack import cli_queue
-from chemstack import cli_run_dir
-from chemstack import cli_monitor
-from chemstack import cli_summary
+from chemstack import cli_workers
 
 _WORKFLOW_SCAFFOLD_SHORTCUTS = (
     ("ts_search", "reaction_ts_search", "Create a reaction TS-search scaffold."),
@@ -23,7 +22,7 @@ def _add_workflow_scaffold_shortcut(
     parser = scaffold_subparsers.add_parser(name, help=help_text)
     parser.add_argument("root", help="Workflow input directory to create")
     parser.set_defaults(
-        func=cli_run_dir.cmd_workflow_scaffold,
+        func=cli_handlers.cmd_workflow_scaffold,
         workflow_type=workflow_type,
     )
 
@@ -128,6 +127,89 @@ def _add_queue_cancel_parser(
     cancel_parser.set_defaults(func=cli_queue.cmd_queue_cancel)
 
 
+def _add_queue_worker_options(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--app",
+        action="append",
+        choices=["orca", "workflow"],
+        help="Worker app to supervise; may be passed more than once",
+    )
+    parser.add_argument("--workflow-root", help="Workflow root for workflow supervision")
+    parser.add_argument(
+        "--chemstack-config",
+        "--config",
+        dest="chemstack_config",
+        help="Path to shared chemstack.yaml",
+    )
+    auto_group = parser.add_mutually_exclusive_group()
+    auto_group.add_argument(
+        "--auto-organize",
+        action="store_true",
+        help="Enable ORCA auto-organization in the supervised worker",
+    )
+    auto_group.add_argument(
+        "--no-auto-organize",
+        action="store_true",
+        help="Disable ORCA auto-organization in the supervised worker",
+    )
+    parser.add_argument(
+        "--no-submit",
+        action="store_true",
+        help="Only sync/append workflow stages; do not submit newly actionable stages",
+    )
+    parser.add_argument(
+        "--refresh-registry",
+        action="store_true",
+        help="Reindex the workflow registry before the first worker cycle",
+    )
+    parser.add_argument(
+        "--refresh-each-cycle",
+        action="store_true",
+        help="Reindex the workflow registry before every worker cycle",
+    )
+    parser.add_argument("--max-cycles", type=int, default=0, help="Workflow cycle limit")
+    parser.add_argument(
+        "--interval-seconds",
+        type=float,
+        default=0.0,
+        help="Workflow worker sleep interval",
+    )
+    parser.add_argument(
+        "--lock-timeout-seconds",
+        type=float,
+        default=0.0,
+        help="Workflow worker lock timeout",
+    )
+    _add_json_argument(parser, help_text="Print worker commands as JSON without starting them")
+
+
+def _add_queue_worker_parser(
+    queue_subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
+    worker_parser = queue_subparsers.add_parser(
+        "worker", help="Run the unified worker supervisor."
+    )
+    _add_queue_worker_options(worker_parser)
+    worker_parser.set_defaults(func=cli_workers.cmd_queue_worker)
+
+
+def _add_queue_engine_worker_parser(
+    queue_subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
+    worker_parser = queue_subparsers.add_parser("engine-worker", help=argparse.SUPPRESS)
+    worker_parser.add_argument("engine", choices=["orca", "xtb", "crest"])
+    worker_parser.add_argument(
+        "--chemstack-config",
+        "--config",
+        dest="chemstack_config",
+        help="Path to shared chemstack.yaml",
+    )
+    auto_group = worker_parser.add_mutually_exclusive_group()
+    auto_group.add_argument("--auto-organize", action="store_true")
+    auto_group.add_argument("--no-auto-organize", action="store_true")
+    worker_parser.set_defaults(func=cli_workers.cmd_queue_engine_worker)
+
+
 def _add_queue_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     queue_parser = subparsers.add_parser(
         "queue",
@@ -136,6 +218,8 @@ def _add_queue_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentPa
     queue_subparsers = queue_parser.add_subparsers(dest="queue_command", required=True)
     _add_queue_list_parser(queue_subparsers)
     _add_queue_cancel_parser(queue_subparsers)
+    _add_queue_worker_parser(queue_subparsers)
+    _add_queue_engine_worker_parser(queue_subparsers)
 
 
 def _add_run_dir_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
@@ -159,7 +243,7 @@ def _add_run_dir_parser(subparsers: argparse._SubParsersAction[argparse.Argument
     )
     _add_resource_override_arguments(run_dir_parser)
     _add_json_argument(run_dir_parser, help_text="Print JSON output for workflow submission")
-    run_dir_parser.set_defaults(func=cli_run_dir.cmd_run_dir)
+    run_dir_parser.set_defaults(func=cli_handlers.cmd_run_dir)
 
 
 def _add_init_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
@@ -172,7 +256,7 @@ def _add_init_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentPar
     init_parser.add_argument(
         "--force", action="store_true", help="Overwrite existing config without confirmation"
     )
-    init_parser.set_defaults(func=cli_run_dir.cmd_init)
+    init_parser.set_defaults(func=cli_handlers.cmd_init)
 
 
 def _add_scaffold_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
@@ -223,7 +307,7 @@ def _add_organize_parser(subparsers: argparse._SubParsersAction[argparse.Argumen
         default=False,
         help="Rebuild JSONL index from organized directories",
     )
-    orca_organize_parser.set_defaults(func=cli_run_dir.cmd_orca_organize)
+    orca_organize_parser.set_defaults(func=cli_handlers.cmd_orca_organize)
 
 
 def _add_summary_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
@@ -246,7 +330,7 @@ def _add_summary_parser(subparsers: argparse._SubParsersAction[argparse.Argument
         default=False,
         help="Print summary without sending Telegram",
     )
-    summary_parser.set_defaults(func=cli_summary.cmd_summary)
+    summary_parser.set_defaults(func=cli_handlers.cmd_summary)
 
 
 def _add_monitor_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
@@ -256,7 +340,7 @@ def _add_monitor_parser(subparsers: argparse._SubParsersAction[argparse.Argument
     )
     _add_engine_config_argument(monitor_parser)
     _add_orca_logging_arguments(monitor_parser)
-    monitor_parser.set_defaults(func=cli_monitor.cmd_orca_monitor)
+    monitor_parser.set_defaults(func=cli_handlers.cmd_orca_monitor)
 
 
 def build_parser() -> argparse.ArgumentParser:

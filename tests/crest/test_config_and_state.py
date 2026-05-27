@@ -7,8 +7,7 @@ from typing import Any, Callable
 
 import pytest
 
-from chemstack.core.config import engines as engine_config
-from chemstack.crest import config as config_mod
+from chemstack.core.config import engines as config_mod
 from chemstack.crest import state as state_mod
 
 JsonWriter = Callable[[Path, dict[str, Any]], Path]
@@ -23,7 +22,7 @@ def _write_config(path: Path, contents: str) -> Path:
 def test_default_config_path_prefers_env_var(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv(config_mod.CONFIG_ENV_VAR, "  ~/custom-config.yaml  ")
 
-    assert config_mod.default_config_path() == "~/custom-config.yaml"
+    assert config_mod.default_crest_config_path() == "~/custom-config.yaml"
 
 
 @pytest.mark.parametrize("env_value", [None, "   "], ids=["unset", "blank"])
@@ -36,9 +35,9 @@ def test_default_config_path_falls_back_to_repo_config(
     else:
         monkeypatch.setenv(config_mod.CONFIG_ENV_VAR, env_value)
 
-    expected = str(Path(config_mod.__file__).resolve().parents[3] / "config" / "chemstack.yaml")
+    expected = str(Path(config_mod.__file__).resolve().parents[4] / "config" / "chemstack.yaml")
 
-    assert config_mod.default_config_path() == expected
+    assert config_mod.default_crest_config_path() == expected
 
 
 @pytest.mark.parametrize(
@@ -50,7 +49,7 @@ def test_default_config_path_falls_back_to_repo_config(
     ],
 )
 def test_as_str_normalizes_values(value: object, default: str, expected: str) -> None:
-    assert engine_config.as_str(value, default) == expected
+    assert config_mod.as_str(value, default) == expected
 
 
 @pytest.mark.parametrize(
@@ -63,7 +62,7 @@ def test_as_str_normalizes_values(value: object, default: str, expected: str) ->
     ],
 )
 def test_as_int_returns_default_for_invalid_values(value: object, default: int, expected: int) -> None:
-    assert engine_config.as_int(value, default) == expected
+    assert config_mod.as_int(value, default) == expected
 
 
 @pytest.mark.parametrize(
@@ -81,7 +80,7 @@ def test_as_bool_normalizes_truthy_and_falsy_strings(
     default: bool,
     expected: bool,
 ) -> None:
-    assert engine_config.as_bool(value, default) is expected
+    assert config_mod.as_bool(value, default) is expected
 
 
 def test_load_config_reads_and_normalizes_all_sections(
@@ -110,9 +109,9 @@ def test_load_config_reads_and_normalizes_all_sections(
           chat_id: " 4567 "
         """,
     )
-    monkeypatch.setattr(config_mod, "default_config_path", lambda: str(config_path))
+    monkeypatch.setattr(config_mod, "default_crest_config_path", lambda: str(config_path))
 
-    cfg = config_mod.load_config()
+    cfg = config_mod.load_crest_config()
 
     assert cfg.runtime.allowed_root == str(workflow_root.resolve())
     assert cfg.runtime.organized_root == str(workflow_root.resolve())
@@ -151,7 +150,7 @@ def test_load_config_no_longer_supports_top_level_runtime_and_paths_shape(tmp_pa
     )
 
     with pytest.raises(ValueError, match=r"Config is missing workflow\.root"):
-        config_mod.load_config(str(config_path))
+        config_mod.load_crest_config(str(config_path))
 
 
 def test_load_config_applies_defaults_for_missing_or_invalid_sections(tmp_path: Path) -> None:
@@ -171,7 +170,7 @@ def test_load_config_applies_defaults_for_missing_or_invalid_sections(tmp_path: 
         """,
     )
 
-    cfg = config_mod.load_config(str(config_path))
+    cfg = config_mod.load_crest_config(str(config_path))
 
     assert cfg.runtime.allowed_root == str(workflow_root.resolve())
     assert cfg.runtime.organized_root == str(workflow_root.resolve())
@@ -190,7 +189,7 @@ def test_load_config_rejects_missing_file(tmp_path: Path) -> None:
     missing_path = tmp_path / "missing.yaml"
 
     with pytest.raises(ValueError, match="Config file not found"):
-        config_mod.load_config(str(missing_path))
+        config_mod.load_crest_config(str(missing_path))
 
 
 def test_load_config_rejects_non_mapping_yaml(tmp_path: Path) -> None:
@@ -204,7 +203,7 @@ def test_load_config_rejects_non_mapping_yaml(tmp_path: Path) -> None:
     )
 
     with pytest.raises(ValueError, match="Config file is invalid"):
-        config_mod.load_config(str(config_path))
+        config_mod.load_crest_config(str(config_path))
 
 
 def test_load_config_requires_workflow_root(tmp_path: Path) -> None:
@@ -218,7 +217,7 @@ def test_load_config_requires_workflow_root(tmp_path: Path) -> None:
     )
 
     with pytest.raises(ValueError, match=r"Config is missing workflow\.root"):
-        config_mod.load_config(str(config_path))
+        config_mod.load_crest_config(str(config_path))
 
 
 @pytest.mark.parametrize(

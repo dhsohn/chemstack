@@ -10,7 +10,7 @@ from chemstack.core.indexing import JobLocationRecord, get_job_location, upsert_
 from chemstack.core.indexing.engines import resource_dict
 from chemstack.flow.state import write_workflow_payload
 
-from chemstack.xtb.config import AppConfig
+from chemstack.core.config.engines import WorkflowEngineAppConfig as AppConfig
 from chemstack.xtb.job_locations import (
     build_job_location_record,
     normalize_key,

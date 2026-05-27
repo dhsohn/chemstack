@@ -5,14 +5,12 @@ import json
 import urllib.error
 from email.message import Message
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
 
 import pytest
 
 from chemstack.core.config import TelegramConfig
 
-from chemstack.flow import cli, cli_workflow
 from chemstack.flow import telegram_bot as bot
 
 
@@ -73,7 +71,7 @@ def test_handle_list_formats_unified_activity_rows(monkeypatch) -> None:
                     "updated_at": "2026-04-26T01:20:00+00:00",
                     "metadata": {
                         "task_kind": "irc",
-                        "reaction_dir": "/tmp/orca/standalone/ts-1",
+                        "reaction_dir": "/tmp/orca/runs/ts-1",
                     },
                 },
             ]
@@ -636,15 +634,3 @@ def test_run_bot_processes_known_unknown_and_handler_error_updates(monkeypatch) 
     assert any("Unknown command: /unknown" in text for text, _mode in sent)
     assert any(text == "list body" and mode == "HTML" for text, mode in sent)
     assert any("Error: bad &lt;boom&gt;" in text for text, _mode in sent)
-
-
-def test_cmd_bot_and_parser(monkeypatch) -> None:
-    import chemstack.flow.telegram_bot as imported_bot
-
-    monkeypatch.setattr(imported_bot, "run_bot", lambda: 7)
-    assert cli_workflow.cmd_bot(SimpleNamespace()) == 7
-
-    parser = cli.build_parser()
-    args = parser.parse_args(["bot"])
-    assert args.command == "bot"
-    assert args.func is cli_workflow.cmd_bot

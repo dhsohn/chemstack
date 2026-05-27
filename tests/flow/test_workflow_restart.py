@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from chemstack import cli_run_dir
+from chemstack import cli_handlers as cli_run_dir
 from chemstack.flow import cli_run_dir as flow_cli
 from chemstack.flow.restart import restart_failed_workflow
 

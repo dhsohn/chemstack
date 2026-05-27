@@ -6,13 +6,12 @@ from typing import Any
 
 from chemstack.core.commands import run_dir as _shared_run_dir
 from chemstack.core.config.engines import (
+    WorkflowEngineAppConfig as AppConfig,
     resource_request_from_manifest as _shared_resource_request_from_manifest,
 )
 from chemstack.core.paths import validate_job_dir
 from chemstack.core.paths.workflow import workflow_workspace_internal_engine_paths_from_path
 from chemstack.core.utils import now_utc_iso, timestamped_token
-
-from ..config import AppConfig
 
 _PREFERRED_EXCLUDE_RE = re.compile(r"(?:^crest_|^struc|^coord)", re.IGNORECASE)
 MANIFEST_FILE_NAME = "crest_job.yaml"

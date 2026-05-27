@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterator
 
 from chemstack.core.utils import process_lock
-from ..process_tracking import RUN_LOCK_FILE_NAME, current_process_lock_payload
+from chemstack.core.utils.process_tracking import RUN_LOCK_FILE_NAME, current_process_lock_payload
 
 logger = logging.getLogger(__name__)
 

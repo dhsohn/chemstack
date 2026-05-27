@@ -8,8 +8,8 @@ import pytest
 from chemstack.core.config import CommonRuntimeConfig, TelegramConfig
 from chemstack.core.notifications import TelegramSendResult
 
-from chemstack.xtb.config import AppConfig
-from chemstack.xtb import notifications
+from chemstack.core.config.engines import WorkflowEngineAppConfig as AppConfig
+from chemstack.core.notifications import engines as notifications
 
 
 class _FakeTransport:
@@ -43,7 +43,7 @@ def _make_cfg(tmp_path: Path, *, enabled: bool = False) -> AppConfig:
 def test_send_returns_true_when_real_transport_skips_disabled_telegram(tmp_path: Path) -> None:
     cfg = _make_cfg(tmp_path, enabled=False)
 
-    assert notifications._send(cfg, ["line 1", "line 2"])
+    assert notifications.send_lines(cfg, ["line 1", "line 2"])
 
 
 @pytest.mark.parametrize(
@@ -64,7 +64,11 @@ def test_send_joins_lines_and_maps_transport_result(
     transport = _FakeTransport(result)
     monkeypatch.setattr(notifications, "build_telegram_transport", lambda _cfg: transport)
 
-    sent = notifications._send(cfg, ["line 1", "line 2"])
+    sent = notifications.send_lines(
+        cfg,
+        ["line 1", "line 2"],
+        build_transport=notifications.build_telegram_transport,
+    )
 
     assert sent is expected
     assert transport.messages == ["line 1\nline 2"]
@@ -80,7 +84,7 @@ def test_notify_job_queued_and_started_render_expected_fields(
     job_dir = tmp_path / "job-001"
     selected_xyz = tmp_path / "inputs" / "reactant.xyz"
 
-    assert notifications.notify_job_queued(
+    assert notifications.notify_xtb_job_queued(
         cfg,
         job_id="job-001",
         queue_id="queue-001",
@@ -89,7 +93,7 @@ def test_notify_job_queued_and_started_render_expected_fields(
         reaction_key="rxn-1",
         selected_xyz=selected_xyz,
     )
-    assert notifications.notify_job_started(
+    assert notifications.notify_xtb_job_started(
         cfg,
         job_id="job-001",
         queue_id="queue-001",
@@ -133,7 +137,7 @@ def test_notify_job_terminal_includes_extra_lines(
     transport = _FakeTransport(TelegramSendResult(sent=True))
     monkeypatch.setattr(notifications, "build_telegram_transport", lambda _cfg: transport)
 
-    assert notifications.notify_job_terminal(
+    assert notifications.notify_xtb_job_terminal(
         cfg,
         headline="Job failed",
         job_id="job-002",
@@ -194,7 +198,7 @@ def test_notify_job_finished_maps_headlines_and_optional_fields(
         resource_request = {"max_cores": 8, "max_memory_gb": 16}
         resource_actual = {"max_cores": 6, "max_memory_gb": 12}
 
-    assert notifications.notify_job_finished(
+    assert notifications.notify_xtb_job_finished(
         cfg,
         job_id="job-003",
         queue_id="queue-003",
@@ -240,7 +244,7 @@ def test_workflow_child_notifications_are_suppressed(
     ]
 
     for workflow_job_dir in workflow_job_dirs:
-        assert notifications.notify_job_queued(
+        assert notifications.notify_xtb_job_queued(
             cfg,
             job_id="job-004",
             queue_id="queue-004",
@@ -249,7 +253,7 @@ def test_workflow_child_notifications_are_suppressed(
             reaction_key="rxn-4",
             selected_xyz=workflow_job_dir / "ts.xyz",
         )
-        assert notifications.notify_job_finished(
+        assert notifications.notify_xtb_job_finished(
             cfg,
             job_id="job-004",
             queue_id="queue-004",

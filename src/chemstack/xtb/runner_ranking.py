@@ -7,8 +7,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from chemstack.core.config.engines import WorkflowEngineAppConfig as AppConfig
+
 from .commands._helpers import MANIFEST_FILE_NAME
-from .config import AppConfig
 
 
 @dataclass(frozen=True)

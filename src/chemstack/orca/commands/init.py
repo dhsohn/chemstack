@@ -228,8 +228,7 @@ def _prompt_crest_runtime() -> dict[str, str]:
 
 
 def _validate_generated_config(config_path: str) -> None:
-    from chemstack.crest.config import load_config as load_crest_config
-    from chemstack.xtb.config import load_config as load_xtb_config
+    from chemstack.core.config.engines import load_crest_config, load_xtb_config
 
     load_config(config_path)
     load_xtb_config(config_path)

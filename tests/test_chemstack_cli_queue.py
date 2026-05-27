@@ -56,7 +56,7 @@ def test_queue_table_lines_align_wide_headers_and_icons(
                     "kind": "job",
                     "engine": "orca",
                     "status": "retrying",
-                    "label": "standalone-ts",
+                    "label": "queued-ts",
                     "source": "chemstack_orca",
                     "submitted_at": "2026-04-26T02:00:00+00:00",
                     "updated_at": "2026-04-26T02:20:00+00:00",
@@ -269,17 +269,17 @@ def test_cmd_queue_list_hides_non_orca_workflow_children_in_default_text_output(
                     },
                 },
                 {
-                    "activity_id": "orca-q-standalone",
+                    "activity_id": "orca-q-engine-job",
                     "kind": "job",
                     "engine": "orca",
                     "status": "running",
-                    "label": "standalone-ts",
+                    "label": "queued-ts",
                     "source": "chemstack_orca",
                     "submitted_at": "2026-04-26T00:30:00+00:00",
                     "updated_at": "2026-04-26T01:30:00+00:00",
                     "metadata": {
                         "job_type": "neb",
-                        "reaction_dir": "/tmp/orca/standalone/case_002",
+                        "reaction_dir": "/tmp/orca/runs/case_002",
                     },
                 },
             ],
@@ -310,7 +310,7 @@ def test_cmd_queue_list_hides_non_orca_workflow_children_in_default_text_output(
     assert "crest-q-1" not in stdout
     assert "orca-q-1" in stdout
     assert "OptTS+Freq" in stdout
-    assert "orca-q-standalone" in stdout
+    assert "orca-q-engine-job" in stdout
     assert "NEB" in stdout
 
 

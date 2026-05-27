@@ -5,7 +5,6 @@ from typing import Any
 
 from chemstack.core.app_ids import (
     CHEMSTACK_CLI_MODULE,
-    CHEMSTACK_ORCA_INTERNAL_MODULE,
 )
 from chemstack.core.utils import now_utc_iso
 
@@ -23,7 +22,7 @@ from .common import (
 )
 
 _SUBMIT_MODULE_NAME = CHEMSTACK_CLI_MODULE
-_CANCEL_MODULE_NAME = CHEMSTACK_ORCA_INTERNAL_MODULE
+_CANCEL_MODULE_NAME = CHEMSTACK_CLI_MODULE
 _CANCEL_TIMEOUT_SECONDS = 5.0
 
 _ensure_submission_metadata = _models.ensure_submission_metadata

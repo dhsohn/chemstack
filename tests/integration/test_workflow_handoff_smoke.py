@@ -8,11 +8,12 @@ import yaml
 from chemstack.core.indexing import get_job_location
 from chemstack.core.queue import list_queue
 from chemstack.crest.commands import queue as crest_queue_cmd
-from chemstack.flow.operations import get_workflow
 from chemstack.flow.orchestration import (
     advance_workflow,
     create_conformer_screening_workflow,
 )
+from chemstack.flow.registry import sync_workflow_registry
+from chemstack.flow.state import load_workflow_payload, resolve_workflow_workspace, workflow_summary
 
 
 def _write_xyz(path: Path) -> None:
@@ -100,7 +101,9 @@ def test_conformer_screening_workflow_handoff_smoke(
     workspace_dir = workflow_root / workflow_id
     crest_root = workspace_dir / "01_crest"
 
-    initial_payload = get_workflow(target=workflow_id, workflow_root=workflow_root)["workflow"]
+    initial_payload = load_workflow_payload(
+        resolve_workflow_workspace(target=workflow_id, workflow_root=workflow_root)
+    )
     initial_crest_stages = _engine_stages(initial_payload, "crest")
     assert len(initial_crest_stages) == 1
     assert initial_crest_stages[0]["status"] == "planned"
@@ -182,7 +185,10 @@ def test_conformer_screening_workflow_handoff_smoke(
         assert (reaction_dir / "enqueue_payload.json").exists()
         assert "r2scan-3c Opt TightSCF" in selected_inp.read_text(encoding="utf-8")
 
-    persisted = get_workflow(target=workflow_id, workflow_root=workflow_root)
-    assert persisted["summary"]["workflow_id"] == workflow_id
-    assert persisted["registry_record"]["stage_count"] == 3
-    assert len(_engine_stages(persisted["workflow"], "orca")) == 2
+    persisted_workspace = resolve_workflow_workspace(target=workflow_id, workflow_root=workflow_root)
+    persisted_payload = load_workflow_payload(persisted_workspace)
+    persisted_summary = workflow_summary(persisted_workspace, persisted_payload)
+    persisted_record = sync_workflow_registry(workflow_root, persisted_workspace, persisted_payload)
+    assert persisted_summary["workflow_id"] == workflow_id
+    assert persisted_record.stage_count == 3
+    assert len(_engine_stages(persisted_payload, "orca")) == 2

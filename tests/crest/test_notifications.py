@@ -7,8 +7,8 @@ import pytest
 
 from chemstack.core.config import CommonRuntimeConfig, TelegramConfig
 
-from chemstack.crest.config import AppConfig
-from chemstack.crest import notifications
+from chemstack.core.config.engines import WorkflowEngineAppConfig as AppConfig
+from chemstack.core.notifications import engines as notifications
 
 
 def _cfg(tmp_path: Path) -> AppConfig:
@@ -61,7 +61,11 @@ def test_send_joins_lines_and_maps_transport_result(
     cfg = _cfg(tmp_path)
     build_calls, messages = _patch_transport(monkeypatch, sent=sent, skipped=skipped)
 
-    result = notifications._send(cfg, ["first line", "second line"])
+    result = notifications.send_lines(
+        cfg,
+        ["first line", "second line"],
+        build_transport=notifications.build_telegram_transport,
+    )
 
     assert result is expected
     assert build_calls == [cfg.telegram]
@@ -77,7 +81,7 @@ def test_notify_job_queued_sends_expected_message(
     job_dir = tmp_path / "runs" / "job-001"
     selected_xyz = job_dir / "picked.xyz"
 
-    result = notifications.notify_job_queued(
+    result = notifications.notify_crest_job_queued(
         cfg,
         job_id="job-001",
         queue_id="queue-001",
@@ -110,7 +114,7 @@ def test_notify_job_started_sends_expected_message(
     job_dir = tmp_path / "runs" / "job-002"
     selected_xyz = job_dir / "selected_input.xyz"
 
-    result = notifications.notify_job_started(
+    result = notifications.notify_crest_job_started(
         cfg,
         job_id="job-002",
         queue_id="queue-002",
@@ -153,7 +157,7 @@ def test_notify_job_finished_maps_terminal_headlines(
     job_dir = tmp_path / "runs" / f"job-{status}"
     selected_xyz = job_dir / "input.xyz"
 
-    result = notifications.notify_job_finished(
+    result = notifications.notify_crest_job_finished(
         cfg,
         job_id=f"job-{status}",
         queue_id=f"queue-{status}",
@@ -195,7 +199,7 @@ def test_notify_job_finished_includes_optional_extra_lines(
     resource_request = {"max_cores": 6, "max_memory_gb": 14}
     resource_actual = {"assigned_cores": 4, "memory_limit_gb": 12}
 
-    result = notifications.notify_job_finished(
+    result = notifications.notify_crest_job_finished(
         cfg,
         job_id="job-complete",
         queue_id="queue-complete",
@@ -243,7 +247,7 @@ def test_workflow_child_notifications_are_suppressed(
     ]
 
     for workflow_job_dir in workflow_job_dirs:
-        assert notifications.notify_job_queued(
+        assert notifications.notify_crest_job_queued(
             cfg,
             job_id="job-queued",
             queue_id="queue-queued",
@@ -251,7 +255,7 @@ def test_workflow_child_notifications_are_suppressed(
             mode="standard",
             selected_xyz=workflow_job_dir / "input.xyz",
         )
-        assert notifications.notify_job_finished(
+        assert notifications.notify_crest_job_finished(
             cfg,
             job_id="job-queued",
             queue_id="queue-queued",
