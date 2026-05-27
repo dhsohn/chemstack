@@ -1,228 +1,28 @@
 from __future__ import annotations
 
-import argparse
 import json
 import logging
 import signal
 import subprocess
-import sys
 import time
 from dataclasses import dataclass
 from typing import Any, Sequence
 
-from chemstack import cli_worker_conflicts as _worker_conflicts
-from chemstack import cli_worker_specs as _worker_specs
-from chemstack.cli_common import (
-    _dependency,
-    _discover_shared_config_path,
-    _effective_shared_config_text,
-    _repo_root_for_subprocess,
-    _workflow_root_for_args,
+from chemstack.cli_common import _dependency
+from chemstack.cli_worker_conflicts import (
+    _detect_existing_orca_worker_conflict,
+    _emit_existing_orca_worker_conflict,
+    _quoted_command,
 )
-from chemstack.cli_worker_conflicts import _ExistingWorkerConflict
 from chemstack.cli_worker_specs import (
-    _DEFAULT_WORKER_APPS,
-    _DIRECT_ENGINE_WORKER_ENV_VAR,
-    _ENGINE_APPS,
-    _ENGINE_WORKER_MODULES,
-    _KNOWN_WORKER_APPS,
-    _WORKFLOW_ENGINE_APPS,
     WorkerSpec,
+    _build_worker_specs,
 )
-from chemstack.core.app_ids import (
-    CHEMSTACK_CONFIG_ENV_VAR,
-    CHEMSTACK_WORKFLOW_WORKER_MODULE,
-)
-from chemstack.flow.submitters.common import normalize_text, sibling_app_command
 
 _WORKER_POLL_INTERVAL_SECONDS = 1.0
 _WORKER_STARTUP_FAILURE_WINDOW_SECONDS = 5.0
 _WORKER_MAX_STARTUP_FAILURES = 2
 LOGGER = logging.getLogger(__name__)
-
-__all__ = [
-    "CHEMSTACK_CONFIG_ENV_VAR",
-    "CHEMSTACK_WORKFLOW_WORKER_MODULE",
-    "LOGGER",
-    "WorkerSpec",
-    "_DEFAULT_WORKER_APPS",
-    "_DIRECT_ENGINE_WORKER_ENV_VAR",
-    "_ENGINE_APPS",
-    "_ENGINE_WORKER_MODULES",
-    "_ExistingWorkerConflict",
-    "_KNOWN_WORKER_APPS",
-    "_WORKFLOW_ENGINE_APPS",
-    "_add_workflow_worker_spec",
-    "_build_worker_specs",
-    "_classify_existing_orca_worker",
-    "_command_invokes_module",
-    "_command_program_name",
-    "_dependency",
-    "_detect_existing_orca_worker_conflict",
-    "_discover_shared_config_path",
-    "_effective_shared_config_text",
-    "_emit_existing_orca_worker_conflict",
-    "_emit_supervisor_specs_json",
-    "_engine_worker_spec",
-    "_engine_worker_tail_argv",
-    "_format_command_argv",
-    "_quoted_command",
-    "_read_process_command",
-    "_repo_root_for_subprocess",
-    "_run_worker_supervisor",
-    "_selected_worker_apps",
-    "_terminate_process",
-    "_validate_engine_worker_config",
-    "_worker_engine_apps",
-    "_workflow_only_worker_flag_error",
-    "_workflow_root_for_args",
-    "_workflow_worker_spec",
-    "cmd_queue_worker",
-    "normalize_text",
-    "sibling_app_command",
-]
-
-
-class _WorkerDependencyProxy:
-    def __init__(self, explicit: Any | None) -> None:
-        self._explicit = explicit
-        self._module = sys.modules[__name__]
-
-    def __getattr__(self, name: str) -> Any:
-        explicit = self._explicit
-        if explicit is not None:
-            try:
-                return getattr(explicit, name)
-            except AttributeError:
-                pass
-        return getattr(self._module, name)
-
-
-def _worker_deps(deps: Any | None) -> Any:
-    if isinstance(deps, _WorkerDependencyProxy):
-        return deps
-    return _WorkerDependencyProxy(deps)
-
-
-def _read_process_command(pid: int) -> tuple[str, ...]:
-    return _worker_conflicts._read_process_command(pid)
-
-
-def _command_invokes_module(command_argv: Sequence[str], module_name: str) -> bool:
-    return _worker_conflicts._command_invokes_module(command_argv, module_name)
-
-
-def _command_program_name(command_argv: Sequence[str]) -> str:
-    return _worker_conflicts._command_program_name(command_argv)
-
-
-def _classify_existing_orca_worker(command_argv: Sequence[str]) -> str:
-    return _worker_conflicts._classify_existing_orca_worker(command_argv)
-
-
-def _format_command_argv(command_argv: Sequence[str]) -> str:
-    return _worker_conflicts._format_command_argv(command_argv)
-
-
-def _quoted_command(command_argv: Sequence[str]) -> str:
-    return _worker_conflicts._quoted_command(command_argv)
-
-
-def _detect_existing_orca_worker_conflict(
-    specs: Sequence[WorkerSpec],
-    *,
-    args: argparse.Namespace,
-    deps: Any | None = None,
-) -> _ExistingWorkerConflict | None:
-    return _worker_conflicts._detect_existing_orca_worker_conflict(
-        specs,
-        args=args,
-        deps=_worker_deps(deps),
-    )
-
-
-def _emit_existing_orca_worker_conflict(
-    conflict: _ExistingWorkerConflict,
-    *,
-    command_name: str,
-) -> int:
-    return _worker_conflicts._emit_existing_orca_worker_conflict(
-        conflict,
-        command_name=command_name,
-    )
-
-
-def _selected_worker_apps(values: Sequence[str] | None) -> list[str]:
-    return _worker_specs._selected_worker_apps(values)
-
-
-def _engine_worker_tail_argv(*, app: str, args: argparse.Namespace) -> list[str]:
-    return _worker_specs._engine_worker_tail_argv(app=app, args=args)
-
-
-def _engine_worker_spec(
-    *,
-    app: str,
-    config_path: str,
-    args: argparse.Namespace,
-    deps: Any | None = None,
-) -> WorkerSpec:
-    return _worker_specs._engine_worker_spec(
-        app=app,
-        config_path=config_path,
-        args=args,
-        deps=_worker_deps(deps),
-    )
-
-
-def _workflow_worker_spec(
-    *,
-    workflow_root: str,
-    config_path: str | None,
-    args: argparse.Namespace,
-) -> WorkerSpec:
-    return _worker_specs._workflow_worker_spec(
-        workflow_root=workflow_root,
-        config_path=config_path,
-        args=args,
-    )
-
-
-def _worker_engine_apps(apps: Sequence[str], *, workflow_enabled: bool) -> list[str]:
-    return _worker_specs._worker_engine_apps(apps, workflow_enabled=workflow_enabled)
-
-
-def _validate_engine_worker_config(engine_apps: Sequence[str], config_path: str | None) -> None:
-    _worker_specs._validate_engine_worker_config(engine_apps, config_path)
-
-
-def _workflow_only_worker_flag_error(args: Any) -> str | None:
-    return _worker_specs._workflow_only_worker_flag_error(args)
-
-
-def _add_workflow_worker_spec(
-    specs: list[WorkerSpec],
-    *,
-    apps: Sequence[str],
-    explicit_app_selection: bool,
-    workflow_root: str | None,
-    config_path: str | None,
-    args: argparse.Namespace,
-    deps: Any | None = None,
-) -> None:
-    _worker_specs._add_workflow_worker_spec(
-        specs,
-        apps=apps,
-        explicit_app_selection=explicit_app_selection,
-        workflow_root=workflow_root,
-        config_path=config_path,
-        args=args,
-        deps=_worker_deps(deps),
-    )
-
-
-def _build_worker_specs(args: Any, *, deps: Any | None = None) -> list[WorkerSpec]:
-    return _worker_specs._build_worker_specs(args, deps=_worker_deps(deps))
 
 
 @dataclass

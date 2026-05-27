@@ -23,7 +23,7 @@ def _write_config(path: Path, contents: str) -> Path:
 def test_default_config_path_prefers_env_var(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv(config_mod.CONFIG_ENV_VAR, "  ~/custom-config.yaml  ")
 
-    assert config_mod.default_crest_config_path() == "~/custom-config.yaml"
+    assert config_mod.default_shared_config_path() == "~/custom-config.yaml"
 
 
 @pytest.mark.parametrize("env_value", [None, "   "], ids=["unset", "blank"])
@@ -38,7 +38,7 @@ def test_default_config_path_falls_back_to_repo_config(
 
     expected = str(Path(config_mod.__file__).resolve().parents[4] / "config" / "chemstack.yaml")
 
-    assert config_mod.default_crest_config_path() == expected
+    assert config_mod.default_shared_config_path() == expected
 
 
 @pytest.mark.parametrize(
@@ -62,7 +62,9 @@ def test_as_str_normalizes_values(value: object, default: str, expected: str) ->
         (None, 4, 4),
     ],
 )
-def test_as_int_returns_default_for_invalid_values(value: object, default: int, expected: int) -> None:
+def test_as_int_returns_default_for_invalid_values(
+    value: object, default: int, expected: int
+) -> None:
     assert config_mod.as_int(value, default) == expected
 
 
@@ -110,7 +112,7 @@ def test_load_config_reads_and_normalizes_all_sections(
           chat_id: " 4567 "
         """,
     )
-    monkeypatch.setattr(config_mod, "default_crest_config_path", lambda: str(config_path))
+    monkeypatch.setattr(config_mod, "default_shared_config_path", lambda: str(config_path))
 
     cfg = config_mod.load_crest_config()
 
@@ -266,7 +268,9 @@ def test_json_state_helpers_round_trip(
     [
         pytest.param(state_mod.load_state, state_mod.STATE_FILE_NAME, id="state"),
         pytest.param(state_mod.load_report_json, state_mod.REPORT_JSON_FILE_NAME, id="report-json"),
-        pytest.param(state_mod.load_organized_ref, state_mod.ORGANIZED_REF_FILE_NAME, id="organized-ref"),
+        pytest.param(
+            state_mod.load_organized_ref, state_mod.ORGANIZED_REF_FILE_NAME, id="organized-ref"
+        ),
     ],
 )
 def test_json_state_helpers_return_none_for_missing_invalid_and_non_object_payloads(

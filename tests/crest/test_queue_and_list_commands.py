@@ -33,6 +33,19 @@ def test_queue_display_status(entry: object, expected: str) -> None:
     assert shared_queue_cmd.display_status(entry) == expected
 
 
+def test_queue_worker_parser_has_no_organize_flags() -> None:
+    args = queue_cmd.build_parser().parse_args(["--config", "/tmp/chemstack.yaml"])
+
+    assert args.config == "/tmp/chemstack.yaml"
+    assert not hasattr(args, "auto_organize")
+    assert not hasattr(args, "no_auto_organize")
+
+    with pytest.raises(SystemExit):
+        queue_cmd.build_parser().parse_args(
+            ["--config", "/tmp/chemstack.yaml", "--no-auto-organize"]
+        )
+
+
 def test_cmd_queue_worker_constructs_crest_worker_without_organize_flags(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -99,7 +112,9 @@ def test_process_one_returns_idle_and_releases_reserved_slot(
 
     monkeypatch.setattr(queue_cmd, "_try_reserve_admission_slot", lambda cfg_obj: "slot-1")
     monkeypatch.setattr(queue_cmd, "dequeue_next", lambda root: None)
-    monkeypatch.setattr(queue_cmd, "release_slot", lambda root, token: released.append((root, token)))
+    monkeypatch.setattr(
+        queue_cmd, "release_slot", lambda root, token: released.append((root, token))
+    )
 
     assert queue_cmd._process_one(cfg) == "idle"
     assert released == [(cfg.runtime.allowed_root, "slot-1")]

@@ -115,6 +115,7 @@ def _activity_clear_deps() -> _activity_clear.ActivityClearDeps:
 def list_activities(
     *,
     workflow_root: str | Path | None = None,
+    shared_config: str | None = None,
     refresh: bool = False,
     limit: int = 0,
     crest_config: str | None = None,
@@ -124,6 +125,7 @@ def list_activities(
 ) -> dict[str, Any]:
     return _activity_list.list_activities(
         workflow_root=workflow_root,
+        shared_config=shared_config,
         refresh=refresh,
         limit=limit,
         crest_config=crest_config,
@@ -137,12 +139,14 @@ def list_activities(
 def clear_activities(
     *,
     workflow_root: str | Path | None = None,
+    shared_config: str | None = None,
     crest_config: str | None = None,
     xtb_config: str | None = None,
     orca_config: str | None = None,
 ) -> dict[str, Any]:
     return _activity_clear.clear_activities(
         workflow_root=workflow_root,
+        shared_config=shared_config,
         crest_config=crest_config,
         xtb_config=xtb_config,
         orca_config=orca_config,
@@ -155,6 +159,7 @@ def cancel_activity(
     *,
     target: str,
     workflow_root: str | Path | None = None,
+    shared_config: str | None = None,
     crest_config: str | None = None,
     xtb_config: str | None = None,
     orca_config: str | None = None,
@@ -164,11 +169,13 @@ def cancel_activity(
         target=target,
         sources=ActivitySourceRequest(
             workflow_root=workflow_root,
+            shared_config=shared_config,
             crest_config=crest_config,
             xtb_config=xtb_config,
             orca_config=orca_config,
         ),
         engine_options=WorkflowEngineOptions.from_values(
+            shared_config=shared_config,
             crest_config=crest_config,
             xtb_config=xtb_config,
             orca_config=orca_config,

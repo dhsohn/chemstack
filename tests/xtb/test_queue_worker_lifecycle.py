@@ -114,6 +114,17 @@ def _record_finished_call(
     return True
 
 
+def test_queue_worker_parser_has_no_organize_flags() -> None:
+    args = queue_cmd.build_parser().parse_args(["--config", "/tmp/chemstack.yaml"])
+
+    assert args.config == "/tmp/chemstack.yaml"
+    assert not hasattr(args, "auto_organize")
+    assert not hasattr(args, "no_auto_organize")
+
+    with pytest.raises(SystemExit):
+        queue_cmd.build_parser().parse_args(["--config", "/tmp/chemstack.yaml", "--auto-organize"])
+
+
 def test_process_one_returns_blocked_when_no_admission_slot(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

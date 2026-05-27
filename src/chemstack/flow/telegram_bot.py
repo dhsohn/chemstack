@@ -72,7 +72,7 @@ def _status_icon(status: str) -> str:
 
 
 def settings_from_env() -> TelegramBotSettings:
-    shared_config = _activity_sources.discover_sibling_config(None, app_name="chemstack")
+    shared_config = _activity_sources.discover_shared_config(None)
     return TelegramBotSettings(
         telegram=TelegramConfig(
             bot_token=os.getenv("CHEMSTACK_FLOW_TELEGRAM_BOT_TOKEN", "").strip(),
@@ -97,7 +97,7 @@ def _telegram_from_config_path(config_path: str | None) -> TelegramConfig:
 
 
 def settings_from_config(config_path: str | None = None) -> TelegramBotSettings:
-    shared_config = _activity_sources.discover_sibling_config(config_path, app_name="chemstack")
+    shared_config = _activity_sources.discover_shared_config(config_path)
     telegram = _telegram_from_config_path(shared_config)
     if not telegram.enabled:
         telegram = TelegramConfig(

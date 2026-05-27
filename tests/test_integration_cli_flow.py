@@ -34,12 +34,14 @@ def _write_config(
                 "scheduler": {
                     "max_active_simulations": max_concurrent,
                 },
-                "runtime": {
-                    "allowed_root": str(allowed_root),
-                    "organized_root": str(organized_root),
-                    "default_max_retries": 2,
+                "orca": {
+                    "runtime": {
+                        "allowed_root": str(allowed_root),
+                        "organized_root": str(organized_root),
+                        "default_max_retries": 2,
+                    },
+                    "paths": {"orca_executable": str(orca_executable)},
                 },
-                "paths": {"orca_executable": str(orca_executable)},
             }
         ),
         encoding="utf-8",
@@ -165,7 +167,9 @@ class TestIntegrationCliFlow(unittest.TestCase):
 
             inp = reaction / "rxn.inp"
             inp.write_text("! Opt\n* xyz 0 1\nH 0 0 0\nH 0 0 0.74\n*\n", encoding="utf-8")
-            (reaction / "rxn.out").write_text("****ORCA TERMINATED NORMALLY****\n", encoding="utf-8")
+            (reaction / "rxn.out").write_text(
+                "****ORCA TERMINATED NORMALLY****\n", encoding="utf-8"
+            )
 
             rc = _run_main(
                 [

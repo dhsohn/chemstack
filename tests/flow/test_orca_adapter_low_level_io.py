@@ -19,7 +19,9 @@ def test_normalize_bool_and_safe_int_cover_string_and_default_paths() -> None:
     assert orca_adapter._safe_int(None, default=9) == 9
 
 
-def test_load_json_dict_and_list_handle_missing_invalid_and_type_filtered_payloads(tmp_path: Path) -> None:
+def test_load_json_dict_and_list_handle_missing_invalid_and_type_filtered_payloads(
+    tmp_path: Path,
+) -> None:
     missing = tmp_path / "missing.json"
     assert orca_adapter._load_json_dict(missing) == {}
     assert orca_adapter._load_json_list(missing) == []
@@ -40,10 +42,17 @@ def test_load_json_dict_and_list_handle_missing_invalid_and_type_filtered_payloa
     assert orca_adapter._load_json_list(dict_payload) == []
 
 
-def test_load_jsonl_records_skips_blank_invalid_and_non_dict_rows(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_load_jsonl_records_skips_blank_invalid_and_non_dict_rows(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     records_path = tmp_path / "records.jsonl"
-    records_path.write_text('\n{"queue_id":"q1"}\n42\nnot-json\n{"queue_id":"q2"}\n', encoding="utf-8")
-    assert orca_adapter._load_jsonl_records(records_path) == [{"queue_id": "q1"}, {"queue_id": "q2"}]
+    records_path.write_text(
+        '\n{"queue_id":"q1"}\n42\nnot-json\n{"queue_id":"q2"}\n', encoding="utf-8"
+    )
+    assert orca_adapter._load_jsonl_records(records_path) == [
+        {"queue_id": "q1"},
+        {"queue_id": "q2"},
+    ]
 
     class _BrokenPath:
         def exists(self) -> bool:
@@ -66,29 +75,10 @@ def test_load_jsonl_records_skips_blank_invalid_and_non_dict_rows(tmp_path: Path
             },
         )(),
     )
-    assert orca_adapter._load_jsonl_records(records_path) == [{"queue_id": "q1"}, {"queue_id": "q2"}]
-
-
-def test_import_orca_module_returns_none_or_raises_by_error_origin(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    calls: list[str] = []
-
-    def missing_then_missing(name: str) -> object:
-        calls.append(name)
-        raise ModuleNotFoundError(name=name)
-
-    monkeypatch.setattr(orca_adapter, "import_module", missing_then_missing)
-    assert orca_adapter._import_orca_module("chemstack.orca.job_locations") is None
-    assert calls == ["chemstack.orca.job_locations"]
-
-    def unrelated_missing(name: str) -> object:
-        raise ModuleNotFoundError(name="different_module")
-
-    monkeypatch.setattr(orca_adapter, "import_module", unrelated_missing)
-    with pytest.raises(ModuleNotFoundError) as excinfo:
-        orca_adapter._import_orca_module("chemstack.orca.job_locations")
-    assert excinfo.value.name == "different_module"
+    assert orca_adapter._load_jsonl_records(records_path) == [
+        {"queue_id": "q1"},
+        {"queue_id": "q2"},
+    ]
 
 
 def test_resolve_candidate_path_and_direct_dir_target_cover_existing_and_oserror_paths(

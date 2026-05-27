@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 
-from chemstack.flow.adapters import orca as orca_adapter
+from chemstack.flow.adapters import _orca_tracking, orca as orca_adapter
 
 
 def _write_json(path: Path, payload: object) -> None:
@@ -18,10 +18,14 @@ def _write_json(path: Path, payload: object) -> None:
 def _disable_tracking_helpers(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(orca_adapter, "_tracked_contract_payload", lambda **kwargs: None)
     monkeypatch.setattr(orca_adapter, "_tracked_runtime_context", lambda **kwargs: None)
-    monkeypatch.setattr(orca_adapter, "_tracked_artifact_context", lambda **kwargs: (None, None, {}, {}, {}))
+    monkeypatch.setattr(
+        orca_adapter, "_tracked_artifact_context", lambda **kwargs: (None, None, {}, {}, {})
+    )
 
 
-def test_load_orca_artifact_contract_short_circuits_on_tracked_payload(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_load_orca_artifact_contract_short_circuits_on_tracked_payload(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     payload = {
         "run_id": " run_payload_1 ",
         "status": " completed ",
@@ -54,12 +58,16 @@ def test_load_orca_artifact_contract_short_circuits_on_tracked_payload(tmp_path:
     monkeypatch.setattr(
         orca_adapter,
         "_tracked_runtime_context",
-        lambda **kwargs: (_ for _ in ()).throw(AssertionError("tracked runtime fallback should not run")),
+        lambda **kwargs: (_ for _ in ()).throw(
+            AssertionError("tracked runtime fallback should not run")
+        ),
     )
     monkeypatch.setattr(
         orca_adapter,
         "_resolve_job_dir",
-        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("job-location fallback should not run")),
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("job-location fallback should not run")
+        ),
     )
 
     contract = orca_adapter.load_orca_artifact_contract(
@@ -88,22 +96,23 @@ def test_tracked_contract_payload_uses_job_location_payload_helper(
         "status": "completed",
         "reaction_dir": str(tmp_path / "rxn"),
     }
-    job_locations_module = SimpleNamespace(
-        load_orca_contract_payload=lambda *_args, **_kwargs: payload
-    )
-
     monkeypatch.setattr(
-        orca_adapter, "_orca_job_locations_module", lambda: job_locations_module
+        _orca_tracking,
+        "load_orca_contract_payload",
+        lambda *_args, **_kwargs: payload,
     )
 
-    assert orca_adapter._tracked_contract_payload(
-        index_root=tmp_path / "orca_runs",
-        organized_root=tmp_path / "orca_outputs",
-        target="job_location_helper",
-        queue_id="",
-        run_id="",
-        reaction_dir="",
-    ) == payload
+    assert (
+        orca_adapter._tracked_contract_payload(
+            index_root=tmp_path / "orca_runs",
+            organized_root=tmp_path / "orca_outputs",
+            target="job_location_helper",
+            queue_id="",
+            run_id="",
+            reaction_dir="",
+        )
+        == payload
+    )
 
 
 def test_load_orca_artifact_contract_uses_tracked_record_organized_output(
@@ -184,9 +193,7 @@ def test_load_orca_artifact_contract_uses_tracked_record_organized_output(
     monkeypatch.setattr(
         orca_adapter,
         "_find_queue_entry",
-        lambda **_kwargs: (_ for _ in ()).throw(
-            AssertionError("queue fallback should not run")
-        ),
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("queue fallback should not run")),
     )
     monkeypatch.setattr(
         orca_adapter,
@@ -269,7 +276,14 @@ def test_load_orca_artifact_contract_resolves_selected_input_and_prefers_last_ou
 
 
 @pytest.mark.parametrize(
-    ("queue_request", "queue_actual", "record_request", "record_actual", "expected_request", "expected_actual"),
+    (
+        "queue_request",
+        "queue_actual",
+        "record_request",
+        "record_actual",
+        "expected_request",
+        "expected_actual",
+    ),
     [
         (
             {"max_cores": "8", "max_memory_gb": "16"},

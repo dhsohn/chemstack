@@ -46,9 +46,9 @@ def workflow_elapsed_metadata(
     summary: dict[str, Any],
     deps: ActivityListDeps,
 ) -> dict[str, Any]:
-    restart_summary = deps._coerce_mapping(record_metadata.get("restart_summary")) or deps._coerce_mapping(
-        summary.get("restart_summary")
-    )
+    restart_summary = deps._coerce_mapping(
+        record_metadata.get("restart_summary")
+    ) or deps._coerce_mapping(summary.get("restart_summary"))
     last_restarted_at = (
         normalize_text(record_metadata.get("last_restarted_at"))
         or normalize_text(summary.get("last_restarted_at"))
@@ -70,7 +70,9 @@ def workflow_records(
     deps: ActivityListDeps,
 ) -> list[ActivityRecord]:
     root = Path(workflow_root).expanduser().resolve()
-    registry_records = deps.reindex_workflow_registry(root) if refresh else deps.list_workflow_registry(root)
+    registry_records = (
+        deps.reindex_workflow_registry(root) if refresh else deps.list_workflow_registry(root)
+    )
     summary_by_id = {
         normalize_text(summary.get("workflow_id")): summary
         for summary in deps.list_workflow_summaries(root)
@@ -116,9 +118,7 @@ def workflow_records(
                 aliases=aliases,
                 metadata={
                     "template_name": normalize_text(record.template_name),
-                    "request_parameters": deps._coerce_mapping(
-                        summary.get("request_parameters")
-                    ),
+                    "request_parameters": deps._coerce_mapping(summary.get("request_parameters")),
                     "workspace_dir": normalize_text(record.workspace_dir),
                     "workflow_file": normalize_text(record.workflow_file),
                     "stage_count": int(record.stage_count),
@@ -396,6 +396,7 @@ def collect_activity_records_from_request(
 def collect_activity_records(
     *,
     workflow_root: str | Path | None = None,
+    shared_config: str | None = None,
     refresh: bool = False,
     crest_config: str | None = None,
     xtb_config: str | None = None,
@@ -407,6 +408,7 @@ def collect_activity_records(
         ActivityListRequest(
             sources=ActivitySourceRequest(
                 workflow_root=workflow_root,
+                shared_config=shared_config,
                 crest_config=crest_config,
                 xtb_config=xtb_config,
                 orca_config=orca_config,
@@ -421,6 +423,7 @@ def collect_activity_records(
 def list_activities(
     *,
     workflow_root: str | Path | None = None,
+    shared_config: str | None = None,
     refresh: bool = False,
     limit: int = 0,
     crest_config: str | None = None,
@@ -432,6 +435,7 @@ def list_activities(
     request = ActivityListRequest(
         sources=ActivitySourceRequest(
             workflow_root=workflow_root,
+            shared_config=shared_config,
             crest_config=crest_config,
             xtb_config=xtb_config,
             orca_config=orca_config,

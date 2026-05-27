@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from types import SimpleNamespace
 from unittest.mock import patch
 
 
@@ -162,7 +161,9 @@ def test_load_orca_artifact_contract_matches_queue_task_id(tmp_path: Path) -> No
     assert contract.selected_inp == str(inp.resolve())
 
 
-def test_load_orca_artifact_contract_resolves_run_id_via_orca_tracking_without_records_jsonl(tmp_path: Path) -> None:
+def test_load_orca_artifact_contract_resolves_run_id_via_orca_tracking_without_records_jsonl(
+    tmp_path: Path,
+) -> None:
     allowed_root = tmp_path / "orca_runs"
     organized_root = tmp_path / "orca_outputs"
     original_dir = allowed_root / "rxn_original"
@@ -258,8 +259,9 @@ def test_load_orca_artifact_contract_resolves_run_id_via_orca_tracking_without_r
 
 
 def test_load_orca_artifact_contract_prefers_orca_contract_payload_helper(tmp_path: Path) -> None:
-    job_locations_module = SimpleNamespace(
-        load_orca_contract_payload=lambda *_args, **_kwargs: {
+    with patch(
+        "chemstack.flow.adapters._orca_tracking.load_orca_contract_payload",
+        lambda *_args, **_kwargs: {
             "run_id": "run_helper_1",
             "status": "completed",
             "reason": "normal_termination",
@@ -267,28 +269,36 @@ def test_load_orca_artifact_contract_prefers_orca_contract_payload_helper(tmp_pa
             "reaction_dir": str((tmp_path / "rxn_helper").resolve()),
             "latest_known_path": str((tmp_path / "rxn_helper").resolve()),
             "organized_output_dir": str((tmp_path / "outputs" / "run_helper_1").resolve()),
-            "optimized_xyz_path": str((tmp_path / "outputs" / "run_helper_1" / "rxn.xyz").resolve()),
+            "optimized_xyz_path": str(
+                (tmp_path / "outputs" / "run_helper_1" / "rxn.xyz").resolve()
+            ),
             "queue_id": "q_helper_1",
             "queue_status": "completed",
             "cancel_requested": False,
             "selected_inp": str((tmp_path / "outputs" / "run_helper_1" / "rxn.inp").resolve()),
-            "selected_input_xyz": str((tmp_path / "outputs" / "run_helper_1" / "rxn.xyz").resolve()),
+            "selected_input_xyz": str(
+                (tmp_path / "outputs" / "run_helper_1" / "rxn.xyz").resolve()
+            ),
             "analyzer_status": "completed",
             "completed_at": "2026-04-19T00:10:00+00:00",
             "last_out_path": str((tmp_path / "outputs" / "run_helper_1" / "rxn.out").resolve()),
-            "run_state_path": str((tmp_path / "outputs" / "run_helper_1" / "run_state.json").resolve()),
-            "report_json_path": str((tmp_path / "outputs" / "run_helper_1" / "run_report.json").resolve()),
-            "report_md_path": str((tmp_path / "outputs" / "run_helper_1" / "run_report.md").resolve()),
+            "run_state_path": str(
+                (tmp_path / "outputs" / "run_helper_1" / "run_state.json").resolve()
+            ),
+            "report_json_path": str(
+                (tmp_path / "outputs" / "run_helper_1" / "run_report.json").resolve()
+            ),
+            "report_md_path": str(
+                (tmp_path / "outputs" / "run_helper_1" / "run_report.md").resolve()
+            ),
             "attempt_count": 2,
             "max_retries": 3,
             "attempts": [{"attempt_number": 1, "analyzer_status": "completed"}],
             "final_result": {"reason": "normal_termination"},
             "resource_request": {"max_cores": 8, "max_memory_gb": 16},
             "resource_actual": {"max_cores": 8, "max_memory_gb": 16},
-        }
-    )
-
-    with patch("chemstack.flow.adapters.orca._orca_job_locations_module", return_value=job_locations_module):
+        },
+    ):
         contract = load_orca_artifact_contract(
             target="job_helper_1",
             orca_allowed_root=tmp_path / "orca_runs",

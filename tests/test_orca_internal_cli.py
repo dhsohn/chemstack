@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from chemstack.orca.runtime import queue_worker as queue_worker_entrypoint
+from chemstack.orca.commands import queue as queue_worker_entrypoint
 
 
 def test_orca_queue_worker_entrypoint_dispatches_worker(monkeypatch) -> None:

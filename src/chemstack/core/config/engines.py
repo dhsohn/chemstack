@@ -72,15 +72,7 @@ def positive_int_mapping(raw: object) -> dict[str, int]:
     return result
 
 
-def default_xtb_config_path() -> str:
-    return _default_engine_config_path_from_core()
-
-
-def default_crest_config_path() -> str:
-    return _default_engine_config_path_from_core()
-
-
-def _default_engine_config_path_from_core() -> str:
+def default_shared_config_path() -> str:
     repo_root = Path(__file__).resolve().parents[4]
     return default_config_path_from_repo_root(repo_root, env_var=CONFIG_ENV_VAR)
 
@@ -207,7 +199,7 @@ def load_workflow_engine_config(
 def load_xtb_config(config_path: str | None = None) -> WorkflowEngineAppConfig:
     return load_workflow_engine_config(
         config_path,
-        default_config_path_fn=default_xtb_config_path,
+        default_config_path_fn=default_shared_config_path,
         executable_key="xtb_executable",
         paths_cls=WorkflowEnginePathsConfig,
         behavior_cls=WorkflowEngineBehaviorConfig,
@@ -218,7 +210,7 @@ def load_xtb_config(config_path: str | None = None) -> WorkflowEngineAppConfig:
 def load_crest_config(config_path: str | None = None) -> WorkflowEngineAppConfig:
     return load_workflow_engine_config(
         config_path,
-        default_config_path_fn=default_crest_config_path,
+        default_config_path_fn=default_shared_config_path,
         executable_key="crest_executable",
         paths_cls=WorkflowEnginePathsConfig,
         behavior_cls=WorkflowEngineBehaviorConfig,

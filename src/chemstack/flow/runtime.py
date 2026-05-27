@@ -462,6 +462,7 @@ def _workflow_registry_cycle_payload(
 def advance_workflow_registry_once(
     *,
     workflow_root: str | Path,
+    shared_config: str | None = None,
     crest_config: str | None = None,
     xtb_config: str | None = None,
     orca_config: str | None = None,
@@ -474,6 +475,7 @@ def advance_workflow_registry_once(
 ) -> WorkflowRegistryCyclePayload:
     request = WorkflowRegistryAdvanceRequest.from_values(
         workflow_root=workflow_root,
+        shared_config=shared_config,
         crest_config=crest_config,
         xtb_config=xtb_config,
         orca_config=orca_config,

@@ -15,6 +15,7 @@ class ActivitySourceRequest:
     crest_config: str | None = None
     xtb_config: str | None = None
     orca_config: str | None = None
+    shared_config: str | None = None
 
 
 @dataclass(frozen=True)
@@ -38,6 +39,14 @@ class ResolvedActivitySources:
     crest_config: str | None
     xtb_config: str | None
     orca_config: str | None
+
+    @property
+    def shared_config(self) -> str | None:
+        for config in (self.crest_config, self.xtb_config, self.orca_config):
+            text = normalize_text(config)
+            if text:
+                return text
+        return None
 
     def as_tuple(self) -> tuple[str | None, str | None, str | None, str | None]:
         return (

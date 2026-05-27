@@ -140,7 +140,9 @@ def test_list_activities_merges_workflows_and_standalone_sources(monkeypatch) ->
     assert xtb_item["metadata"]["elapsed_started_at"] == "2026-04-20T10:03:00+00:00"
 
 
-def test_list_activities_treats_submission_failed_stage_as_terminal_for_current_stage(monkeypatch) -> None:
+def test_list_activities_treats_submission_failed_stage_as_terminal_for_current_stage(
+    monkeypatch,
+) -> None:
     workflow_record = SimpleNamespace(
         workflow_id="wf-3",
         template_name="reaction_ts_search",
@@ -275,12 +277,21 @@ def test_activity_helper_edges_and_discovery_paths(
     existing = tmp_path / "config.yaml"
     existing.write_text("workflow:\n  root: /tmp/wf\n", encoding="utf-8")
 
-    assert _activity_sources.discover_workflow_root(tmp_path / "wf") == str((tmp_path / "wf").resolve())
-    monkeypatch.setenv(CHEMSTACK_CONFIG_ENV_VAR, str(existing))
-    assert _activity_sources.discover_sibling_config(None, app_name="chemstack_xtb") == str(existing.resolve())
-    assert _activity_sources.discover_sibling_config(str(existing), app_name="chemstack_crest") == str(
-        existing.resolve()
+    assert _activity_sources.discover_workflow_root(tmp_path / "wf") == str(
+        (tmp_path / "wf").resolve()
     )
+    monkeypatch.setenv(CHEMSTACK_CONFIG_ENV_VAR, str(existing))
+    assert _activity_sources.discover_shared_config(None) == str(existing.resolve())
+    assert _activity_sources.discover_shared_config(str(existing)) == str(existing.resolve())
+    resolved = _activity_sources.resolve_activity_source_request(
+        _activity_model.ActivitySourceRequest(
+            workflow_root=tmp_path / "wf",
+            shared_config=str(existing),
+        )
+    )
+    assert resolved.crest_config == str(existing.resolve())
+    assert resolved.xtb_config == str(existing.resolve())
+    assert resolved.orca_config == str(existing.resolve())
 
     monkeypatch.setenv(CHEMSTACK_REPO_ROOT_ENV_VAR, str(tmp_path / "repo"))
     assert _activity_sources.discover_orca_repo_root(None) == str((tmp_path / "repo").resolve())
@@ -288,7 +299,9 @@ def test_activity_helper_edges_and_discovery_paths(
         (tmp_path / "explicit").resolve()
     )
 
-    assert _activity_sources.shared_config_hint("", None, " /tmp/shared.yaml ") == "/tmp/shared.yaml"
+    assert (
+        _activity_sources.shared_config_hint("", None, " /tmp/shared.yaml ") == "/tmp/shared.yaml"
+    )
     assert _activity_model.parse_iso("") < _activity_model.parse_iso("2026-04-26T00:00:00Z")
     assert _activity_model.parse_iso("bad") < _activity_model.parse_iso("2026-04-26T00:00:00+09:00")
     assert _activity_model.parse_iso("2026-04-26T00:00:00").tzinfo is not None
@@ -303,7 +316,9 @@ def test_runtime_path_and_engine_root_edges(
 ) -> None:
     allowed = tmp_path / "allowed"
 
-    def fake_sibling_runtime_paths(config_path: str, *, engine: str | None = None) -> dict[str, Path]:
+    def fake_sibling_runtime_paths(
+        config_path: str, *, engine: str | None = None
+    ) -> dict[str, Path]:
         del config_path
         return {"allowed_root": allowed}
 
@@ -324,7 +339,9 @@ def test_runtime_path_and_engine_root_edges(
     workspace_b = tmp_path / "wf" / "b"
     runtime_a = tmp_path / "runtime-a"
     runtime_b = tmp_path / "runtime-b"
-    monkeypatch.setattr(activity, "shared_workflow_root_from_config", lambda config_path: str(tmp_path / "wf"))
+    monkeypatch.setattr(
+        activity, "shared_workflow_root_from_config", lambda config_path: str(tmp_path / "wf")
+    )
     monkeypatch.setattr(
         activity,
         "iter_workflow_runtime_workspaces",
@@ -418,8 +435,12 @@ def test_orca_records_merge_queue_entries_and_snapshots(
 
     from chemstack.orca import queue_adapter, run_snapshot
 
-    monkeypatch.setattr(activity, "sibling_runtime_paths", lambda config_path, *, engine: {"allowed_root": allowed})
-    monkeypatch.setattr(queue_adapter, "reconcile_orphaned_running_entries", lambda root: reconciled.append(root))
+    monkeypatch.setattr(
+        activity, "sibling_runtime_paths", lambda config_path, *, engine: {"allowed_root": allowed}
+    )
+    monkeypatch.setattr(
+        queue_adapter, "reconcile_orphaned_running_entries", lambda root: reconciled.append(root)
+    )
     monkeypatch.setattr(queue_adapter, "list_queue", lambda root: entries)
     monkeypatch.setattr(run_snapshot, "collect_run_snapshots", lambda root: snapshots)
 
@@ -442,8 +463,12 @@ def test_orca_records_merge_queue_entries_and_snapshots(
 
 def test_match_activity_record_and_cancel_error_edges(monkeypatch: pytest.MonkeyPatch) -> None:
     records = [
-        activity.ActivityRecord("a", "job", "xtb", "running", "A", "chemstack_xtb", "", "", "target", aliases=("same",)),
-        activity.ActivityRecord("b", "job", "xtb", "running", "B", "chemstack_xtb", "", "", "target", aliases=("same",)),
+        activity.ActivityRecord(
+            "a", "job", "xtb", "running", "A", "chemstack_xtb", "", "", "target", aliases=("same",)
+        ),
+        activity.ActivityRecord(
+            "b", "job", "xtb", "running", "B", "chemstack_xtb", "", "", "target", aliases=("same",)
+        ),
     ]
     with pytest.raises(ValueError, match="empty"):
         _activity_cancel.match_activity_record(records, "")
@@ -463,32 +488,56 @@ def test_match_activity_record_and_cancel_error_edges(monkeypatch: pytest.Monkey
         lambda request: _activity_model.ResolvedActivitySources(None, None, None, None),
     )
 
-    collect_one(activity.ActivityRecord("crest", "job", "crest", "running", "C", "chemstack_crest", "", "", "crest-q"))
+    collect_one(
+        activity.ActivityRecord(
+            "crest", "job", "crest", "running", "C", "chemstack_crest", "", "", "crest-q"
+        )
+    )
     with pytest.raises(ValueError, match="crest_config"):
         activity.cancel_activity(target="crest-q")
 
-    collect_one(activity.ActivityRecord("xtb", "job", "xtb", "running", "X", "chemstack_xtb", "", "", "xtb-q"))
+    collect_one(
+        activity.ActivityRecord(
+            "xtb", "job", "xtb", "running", "X", "chemstack_xtb", "", "", "xtb-q"
+        )
+    )
     with pytest.raises(ValueError, match="xtb_config"):
         activity.cancel_activity(target="xtb-q")
 
-    collect_one(activity.ActivityRecord("orca", "job", "orca", "running", "O", CHEMSTACK_ORCA_SOURCE, "", "", "orca-q"))
+    collect_one(
+        activity.ActivityRecord(
+            "orca", "job", "orca", "running", "O", CHEMSTACK_ORCA_SOURCE, "", "", "orca-q"
+        )
+    )
     with pytest.raises(ValueError, match="chemstack_config"):
         activity.cancel_activity(target="orca-q")
 
-    collect_one(activity.ActivityRecord("bad", "job", "x", "running", "B", "unknown", "", "", "bad-q"))
+    collect_one(
+        activity.ActivityRecord("bad", "job", "x", "running", "B", "unknown", "", "", "bad-q")
+    )
     with pytest.raises(ValueError, match="Unsupported activity source"):
         activity.cancel_activity(target="bad-q")
 
 
 def test_cancel_activity_routes_crest_and_orca_targets(monkeypatch: pytest.MonkeyPatch) -> None:
     records = {
-        "crest-q": activity.ActivityRecord("crest-q", "job", "crest", "running", "C", "chemstack_crest", "", "", "crest-q"),
-        "orca-q": activity.ActivityRecord("orca-q", "job", "orca", "running", "O", CHEMSTACK_ORCA_SOURCE, "", "", "orca-q"),
+        "crest-q": activity.ActivityRecord(
+            "crest-q", "job", "crest", "running", "C", "chemstack_crest", "", "", "crest-q"
+        ),
+        "orca-q": activity.ActivityRecord(
+            "orca-q", "job", "orca", "running", "O", CHEMSTACK_ORCA_SOURCE, "", "", "orca-q"
+        ),
     }
-    monkeypatch.setattr(_activity_list, "collect_activity_records", lambda **kwargs: list(records.values()))
-    monkeypatch.setattr(activity, "cancel_crest_target", lambda **kwargs: {"status": "cancel_requested", **kwargs})
+    monkeypatch.setattr(
+        _activity_list, "collect_activity_records", lambda **kwargs: list(records.values())
+    )
+    monkeypatch.setattr(
+        activity, "cancel_crest_target", lambda **kwargs: {"status": "cancel_requested", **kwargs}
+    )
     monkeypatch.setattr(activity, "cancel_orca_target", lambda **kwargs: {"status": "", **kwargs})
-    monkeypatch.setattr(_activity_sources, "discover_orca_repo_root", lambda explicit: "/tmp/orca-repo")
+    monkeypatch.setattr(
+        _activity_sources, "discover_orca_repo_root", lambda explicit: "/tmp/orca-repo"
+    )
 
     crest_payload = activity.cancel_activity(target="crest-q", crest_config="/tmp/crest.yaml")
     orca_payload = activity.cancel_activity(target="orca-q", orca_config="/tmp/orca.yaml")
@@ -509,7 +558,9 @@ def test_clear_activities_clears_workflow_and_engine_terminal_sources(monkeypatc
         captured_statuses = tuple(sorted(statuses or ()))
         return 2
 
-    monkeypatch.setattr(activity, "clear_terminal_workflow_registry", fake_clear_terminal_workflow_registry)
+    monkeypatch.setattr(
+        activity, "clear_terminal_workflow_registry", fake_clear_terminal_workflow_registry
+    )
     monkeypatch.setattr(
         _activity_list,
         "engine_queue_roots",
@@ -597,11 +648,13 @@ def test_clear_activities_keeps_cleared_terminal_workflows_hidden_from_listing(
 
 
 def test_list_activities_autodiscovers_defaults_when_no_args(monkeypatch) -> None:
-    monkeypatch.setattr(_activity_sources, "discover_workflow_root", lambda workflow_root: "/tmp/workflow_root")
+    monkeypatch.setattr(
+        _activity_sources, "discover_workflow_root", lambda workflow_root: "/tmp/workflow_root"
+    )
     monkeypatch.setattr(
         _activity_sources,
-        "discover_sibling_config",
-        lambda explicit, *, app_name: "/tmp/chemstack.yaml",
+        "discover_shared_config",
+        lambda explicit: "/tmp/chemstack.yaml",
     )
     captured: dict[str, Any] = {}
 
@@ -627,11 +680,13 @@ def test_list_activities_autodiscovers_defaults_when_no_args(monkeypatch) -> Non
 
 
 def test_cancel_activity_autodiscovers_defaults(monkeypatch) -> None:
-    monkeypatch.setattr(_activity_sources, "discover_workflow_root", lambda workflow_root: "/tmp/workflow_root")
+    monkeypatch.setattr(
+        _activity_sources, "discover_workflow_root", lambda workflow_root: "/tmp/workflow_root"
+    )
     monkeypatch.setattr(
         _activity_sources,
-        "discover_sibling_config",
-        lambda explicit, *, app_name: "/tmp/chemstack.yaml",
+        "discover_shared_config",
+        lambda explicit: "/tmp/chemstack.yaml",
     )
     monkeypatch.setattr(
         _activity_list,

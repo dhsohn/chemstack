@@ -43,7 +43,8 @@ def _missing_config_error(path: Path) -> ValueError:
     return ValueError(
         "Config file not found: "
         f"{path}. Copy {template_path} to {path} and set explicit Linux paths for "
-        "runtime.allowed_root, runtime.organized_root, and paths.orca_executable."
+        "orca.runtime.allowed_root, orca.runtime.organized_root, and "
+        "orca.paths.orca_executable."
     )
 
 
@@ -140,9 +141,9 @@ def _required_runtime_paths(
     orca_executable = _config_engines.as_nonempty_str(paths_raw.get("orca_executable"), "")
     missing_keys: list[str] = []
     if not allowed_root:
-        missing_keys.append("runtime.allowed_root")
+        missing_keys.append("orca.runtime.allowed_root")
     if not orca_executable:
-        missing_keys.append("paths.orca_executable")
+        missing_keys.append("orca.paths.orca_executable")
     if missing_keys:
         raise _missing_required_settings_error(path, missing_keys)
     return allowed_root, orca_executable
@@ -171,11 +172,11 @@ def _scheduler_runtime_settings(
 def _placeholder_keys(cfg: AppConfig) -> list[str]:
     placeholder_keys: list[str] = []
     if cfg.runtime.allowed_root == _TEMPLATE_ALLOWED_ROOT:
-        placeholder_keys.append("runtime.allowed_root")
+        placeholder_keys.append("orca.runtime.allowed_root")
     if cfg.runtime.organized_root == _TEMPLATE_ORGANIZED_ROOT:
-        placeholder_keys.append("runtime.organized_root")
+        placeholder_keys.append("orca.runtime.organized_root")
     if cfg.paths.orca_executable == _TEMPLATE_ORCA_EXECUTABLE:
-        placeholder_keys.append("paths.orca_executable")
+        placeholder_keys.append("orca.paths.orca_executable")
     return placeholder_keys
 
 

@@ -70,10 +70,7 @@ def queue_roots(
     *,
     runtime_roots_for_cfg_fn: Callable[[Any], tuple[Path, ...]],
 ) -> tuple[Path, ...]:
-    try:
-        return tuple(runtime_roots_for_cfg_fn(cfg))
-    except Exception:
-        return (Path(cfg.runtime.allowed_root).expanduser().resolve(),)
+    return tuple(runtime_roots_for_cfg_fn(cfg))
 
 
 def queue_entries_with_roots(

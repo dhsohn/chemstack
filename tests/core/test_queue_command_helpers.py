@@ -8,6 +8,17 @@ import pytest
 from chemstack.core.commands import queue as queue_cmd
 
 
+def test_queue_roots_propagates_runtime_root_errors() -> None:
+    def broken_runtime_roots(_cfg: object) -> tuple[Any, ...]:
+        raise RuntimeError("bad runtime roots")
+
+    with pytest.raises(RuntimeError, match="bad runtime roots"):
+        queue_cmd.queue_roots(
+            SimpleNamespace(runtime=SimpleNamespace(allowed_root="/tmp/fallback")),
+            runtime_roots_for_cfg_fn=broken_runtime_roots,
+        )
+
+
 def test_run_queue_worker_command_uses_existing_pid_reporter(
     capsys: pytest.CaptureFixture[str],
 ) -> None:

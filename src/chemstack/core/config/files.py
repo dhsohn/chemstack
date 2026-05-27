@@ -57,7 +57,7 @@ def engine_config_mapping(
 ) -> dict[str, Any]:
     section = raw.get(engine)
     if not isinstance(section, dict):
-        return raw
+        return {}
 
     resolved = dict(section)
     for key in inherit_keys:

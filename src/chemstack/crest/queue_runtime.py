@@ -8,7 +8,7 @@ from typing import Any
 
 from chemstack.core.commands import queue as _shared_queue
 from chemstack.core.config.engines import (
-    default_crest_config_path as default_config_path,
+    default_shared_config_path as default_config_path,
     load_crest_config as load_config,
 )
 from chemstack.core.notifications.engines import (
@@ -327,8 +327,6 @@ def cmd_queue_worker(args: Any) -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="python -m chemstack.crest.queue_runtime")
     parser.add_argument("--config", required=True)
-    parser.add_argument("--auto-organize", action="store_true")
-    parser.add_argument("--no-auto-organize", action="store_true")
     return parser
 
 

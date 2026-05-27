@@ -96,7 +96,13 @@ def test_handle_list_formats_unified_activity_rows(monkeypatch) -> None:
     text = bot._handle_list(_settings(), "")
 
     assert "active_simulations: 2" in text
-    assert "Status" in text and "Name" in text and "Detail" in text and "ID" in text and "Elapsed" in text
+    assert (
+        "Status" in text
+        and "Name" in text
+        and "Detail" in text
+        and "ID" in text
+        and "Elapsed" in text
+    )
     assert "wf-a" in text
     assert "ts_search(nci)" in text
     assert "crest-q-1" not in text
@@ -269,7 +275,9 @@ def test_handle_list_clear_uses_shared_clear_activity_control(monkeypatch) -> No
 
 def test_handle_list_reports_empty_activity_results(monkeypatch) -> None:
     monkeypatch.setattr(bot, "list_activities", lambda **kwargs: {"activities": []})
-    monkeypatch.setattr(bot, "count_global_active_simulations", lambda items, *, config_path=None: 0)
+    monkeypatch.setattr(
+        bot, "count_global_active_simulations", lambda items, *, config_path=None: 0
+    )
 
     text = bot._handle_list(_settings(), "running")
 
@@ -327,7 +335,9 @@ def test_send_response_returns_false_when_all_send_attempts_fail(monkeypatch) ->
     assert bot._send_response(_settings().telegram, "<b>hello</b>", parse_mode="HTML") is False
 
 
-def test_send_preformatted_response_falls_back_to_plain_text_and_reports_failure(monkeypatch) -> None:
+def test_send_preformatted_response_falls_back_to_plain_text_and_reports_failure(
+    monkeypatch,
+) -> None:
     sent_modes: list[str | None] = []
 
     def fake_send(text: str, parse_mode: str | None) -> bool:
@@ -491,7 +501,11 @@ def test_set_bot_commands_delegates_to_api_call(monkeypatch) -> None:
 
     assert captured["token"] == "bot-token"
     assert captured["method"] == "setMyCommands"
-    assert [item["command"] for item in captured["payload"]["commands"]] == ["list", "cancel", "help"]
+    assert [item["command"] for item in captured["payload"]["commands"]] == [
+        "list",
+        "cancel",
+        "help",
+    ]
 
 
 def test_settings_from_env_uses_autodiscovery(monkeypatch) -> None:
@@ -500,8 +514,8 @@ def test_settings_from_env_uses_autodiscovery(monkeypatch) -> None:
     monkeypatch.setattr(bot._activity_sources, "discover_workflow_root", lambda explicit: "/tmp/wf")
     monkeypatch.setattr(
         bot._activity_sources,
-        "discover_sibling_config",
-        lambda explicit, *, app_name: "/tmp/chemstack.yaml",
+        "discover_shared_config",
+        lambda explicit: "/tmp/chemstack.yaml",
     )
 
     settings = bot.settings_from_env()
@@ -604,7 +618,9 @@ def test_run_bot_processes_known_unknown_and_handler_error_updates(monkeypatch) 
     sent: list[tuple[str, str | None]] = []
     calls = {"polls": 0}
 
-    def fake_api_call(token: str, method: str, payload: dict[str, Any] | None = None, **kwargs: Any) -> Any:
+    def fake_api_call(
+        token: str, method: str, payload: dict[str, Any] | None = None, **kwargs: Any
+    ) -> Any:
         if method == "setMyCommands":
             return True
         if method == "getUpdates":

@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from chemstack.core.config.files import shared_workflow_root_from_config, workflow_root_from_mapping
+from chemstack.core.config.files import (
+    engine_config_mapping,
+    shared_workflow_root_from_config,
+    workflow_root_from_mapping,
+)
 
 
 def test_workflow_root_from_mapping_accepts_only_canonical_root_key(tmp_path: Path) -> None:
@@ -19,9 +23,18 @@ def test_shared_workflow_root_from_config_ignores_removed_workflow_root_alias(
 ) -> None:
     config_path = tmp_path / "chemstack.yaml"
     config_path.write_text(
-        "workflow:\n"
-        f"  workflow_root: {tmp_path / 'legacy-workflows'}\n",
+        f"workflow:\n  workflow_root: {tmp_path / 'legacy-workflows'}\n",
         encoding="utf-8",
     )
 
     assert shared_workflow_root_from_config(config_path) is None
+
+
+def test_engine_config_mapping_requires_engine_section() -> None:
+    raw = {
+        "runtime": {"allowed_root": "/tmp/legacy"},
+        "paths": {"orca_executable": "/tmp/orca"},
+        "scheduler": {"max_active_simulations": 4},
+    }
+
+    assert engine_config_mapping(raw, "orca", inherit_keys=("scheduler",)) == {}

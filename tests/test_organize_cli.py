@@ -13,13 +13,17 @@ from chemstack.orca.organize_index import records_path
 def _write_config(root: Path, allowed_root: Path, organized_root: Path) -> Path:
     config_path = root / "chemstack.yaml"
     config_path.write_text(
-        json.dumps({
-            "runtime": {
-                "allowed_root": str(allowed_root),
-                "organized_root": str(organized_root),
-            },
-            "paths": {"orca_executable": "/usr/bin/true"},
-        }),
+        json.dumps(
+            {
+                "orca": {
+                    "runtime": {
+                        "allowed_root": str(allowed_root),
+                        "organized_root": str(organized_root),
+                    },
+                    "paths": {"orca_executable": "/usr/bin/true"},
+                },
+            }
+        ),
         encoding="utf-8",
     )
     return config_path
@@ -49,14 +53,14 @@ def _make_completed_reaction(reaction_dir: Path) -> None:
         },
     }
     (reaction_dir / "run_state.json").write_text(
-        json.dumps(state, ensure_ascii=True, indent=2), encoding="utf-8",
+        json.dumps(state, ensure_ascii=True, indent=2),
+        encoding="utf-8",
     )
     (reaction_dir / "run_report.json").write_text("{}", encoding="utf-8")
     (reaction_dir / "run_report.md").write_text("# Report\n", encoding="utf-8")
 
 
 class TestOrganizeDryRun(unittest.TestCase):
-
     def test_dry_run_single_dir(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -69,12 +73,16 @@ class TestOrganizeDryRun(unittest.TestCase):
             _make_completed_reaction(rxn)
 
             config = _write_config(root, allowed, organized)
-            rc = main([
-                "--config", str(config),
-                "organize",
-                "orca",
-                "--reaction-dir", str(rxn),
-            ])
+            rc = main(
+                [
+                    "--config",
+                    str(config),
+                    "organize",
+                    "orca",
+                    "--reaction-dir",
+                    str(rxn),
+                ]
+            )
             self.assertEqual(rc, 0)
 
     def test_dry_run_does_not_move_files(self) -> None:
@@ -112,17 +120,20 @@ class TestOrganizeDryRun(unittest.TestCase):
             )
 
             config = _write_config(root, allowed, organized)
-            rc = main([
-                "--config", str(config),
-                "organize",
-                "orca",
-                "--reaction-dir", str(rxn),
-            ])
+            rc = main(
+                [
+                    "--config",
+                    str(config),
+                    "organize",
+                    "orca",
+                    "--reaction-dir",
+                    str(rxn),
+                ]
+            )
             self.assertEqual(rc, 0)
 
 
 class TestOrganizeApply(unittest.TestCase):
-
     def test_apply_moves_directory(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -135,16 +146,25 @@ class TestOrganizeApply(unittest.TestCase):
             _make_completed_reaction(rxn)
 
             config = _write_config(root, allowed, organized)
-            rc = main([
-                "--config", str(config),
-                "organize",
-                "orca",
-                "--reaction-dir", str(rxn),
-                "--apply",
-            ])
+            rc = main(
+                [
+                    "--config",
+                    str(config),
+                    "organize",
+                    "orca",
+                    "--reaction-dir",
+                    str(rxn),
+                    "--apply",
+                ]
+            )
             self.assertEqual(rc, 0)
-            self.assertTrue(rxn.exists(), "Original run directory should remain as an organized_ref stub")
-            self.assertTrue((rxn / "organized_ref.json").exists(), "organized_ref should be written in original run directory")
+            self.assertTrue(
+                rxn.exists(), "Original run directory should remain as an organized_ref stub"
+            )
+            self.assertTrue(
+                (rxn / "organized_ref.json").exists(),
+                "organized_ref should be written in original run directory",
+            )
 
             rp = records_path(organized)
             self.assertTrue(rp.exists(), "Index should be created")
@@ -169,7 +189,9 @@ class TestOrganizeApply(unittest.TestCase):
             organized_ref = json.loads((rxn / "organized_ref.json").read_text(encoding="utf-8"))
             self.assertEqual(organized_ref["run_id"], rec["run_id"])
             self.assertEqual(organized_ref["organized_output_dir"], str(target_dir))
-            tracking_records = json.loads((allowed / "job_locations.json").read_text(encoding="utf-8"))
+            tracking_records = json.loads(
+                (allowed / "job_locations.json").read_text(encoding="utf-8")
+            )
             self.assertEqual(len(tracking_records), 1)
             self.assertEqual(tracking_records[0]["job_id"], rec["run_id"])
             self.assertEqual(tracking_records[0]["original_run_dir"], str(rxn.resolve()))
@@ -191,22 +213,31 @@ class TestOrganizeApply(unittest.TestCase):
             _make_completed_reaction(rxn)
 
             config = _write_config(root, allowed, organized)
-            with patch("chemstack.orca.commands.organize.append_record", side_effect=RuntimeError("index write failed")):
-                rc = main([
-                    "--config", str(config),
-                    "organize",
-                    "orca",
-                    "--reaction-dir", str(rxn),
-                    "--apply",
-                ])
+            with patch(
+                "chemstack.orca.commands.organize.append_record",
+                side_effect=RuntimeError("index write failed"),
+            ):
+                rc = main(
+                    [
+                        "--config",
+                        str(config),
+                        "organize",
+                        "orca",
+                        "--reaction-dir",
+                        str(rxn),
+                        "--apply",
+                    ]
+                )
 
             self.assertEqual(rc, 1)
             self.assertTrue(rxn.exists(), "Source should be restored after rollback")
-            self.assertFalse((rxn / "organized_ref.json").exists(), "organized_ref stub should be cleaned up on rollback")
+            self.assertFalse(
+                (rxn / "organized_ref.json").exists(),
+                "organized_ref stub should be cleaned up on rollback",
+            )
 
             moved_state_files = [
-                p for p in organized.rglob("run_state.json")
-                if "index" not in p.parts
+                p for p in organized.rglob("run_state.json") if "index" not in p.parts
             ]
             self.assertEqual(moved_state_files, [])
 
@@ -216,9 +247,7 @@ class TestOrganizeApply(unittest.TestCase):
             self.assertEqual(state["final_result"]["last_out_path"], str(rxn / "rxn.out"))
 
 
-
 class TestOrganizeRootScan(unittest.TestCase):
-
     def test_root_scan_dry_run(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -231,12 +260,16 @@ class TestOrganizeRootScan(unittest.TestCase):
             _make_completed_reaction(allowed / "rxn2")
 
             config = _write_config(root, allowed, organized)
-            rc = main([
-                "--config", str(config),
-                "organize",
-                "orca",
-                "--root", str(allowed),
-            ])
+            rc = main(
+                [
+                    "--config",
+                    str(config),
+                    "organize",
+                    "orca",
+                    "--root",
+                    str(allowed),
+                ]
+            )
             self.assertEqual(rc, 0)
 
     def test_root_scan_apply_includes_nested_dirs(self) -> None:
@@ -253,13 +286,17 @@ class TestOrganizeRootScan(unittest.TestCase):
             _make_completed_reaction(nested_b)
 
             config = _write_config(root, allowed, organized)
-            rc = main([
-                "--config", str(config),
-                "organize",
-                "orca",
-                "--root", str(allowed),
-                "--apply",
-            ])
+            rc = main(
+                [
+                    "--config",
+                    str(config),
+                    "organize",
+                    "orca",
+                    "--root",
+                    str(allowed),
+                    "--apply",
+                ]
+            )
             self.assertEqual(rc, 0)
             self.assertTrue((nested_a / "organized_ref.json").exists())
             self.assertTrue((nested_b / "organized_ref.json").exists())
@@ -283,17 +320,20 @@ class TestOrganizeRootScan(unittest.TestCase):
             (allowed / "batch1").mkdir()
 
             config = _write_config(root, allowed, organized)
-            rc = main([
-                "--config", str(config),
-                "organize",
-                "orca",
-                "--root", str(allowed / "batch1"),
-            ])
+            rc = main(
+                [
+                    "--config",
+                    str(config),
+                    "organize",
+                    "orca",
+                    "--root",
+                    str(allowed / "batch1"),
+                ]
+            )
             self.assertEqual(rc, 1)
 
 
 class TestOrganizeMutualExclusion(unittest.TestCase):
-
     def test_both_reaction_dir_and_root_fails(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -303,13 +343,18 @@ class TestOrganizeMutualExclusion(unittest.TestCase):
             organized.mkdir()
 
             config = _write_config(root, allowed, organized)
-            rc = main([
-                "--config", str(config),
-                "organize",
-                "orca",
-                "--reaction-dir", str(allowed / "rxn1"),
-                "--root", str(allowed),
-            ])
+            rc = main(
+                [
+                    "--config",
+                    str(config),
+                    "organize",
+                    "orca",
+                    "--reaction-dir",
+                    str(allowed / "rxn1"),
+                    "--root",
+                    str(allowed),
+                ]
+            )
             self.assertEqual(rc, 1)
 
     def test_neither_option_fails(self) -> None:
@@ -321,16 +366,18 @@ class TestOrganizeMutualExclusion(unittest.TestCase):
             organized.mkdir()
 
             config = _write_config(root, allowed, organized)
-            rc = main([
-                "--config", str(config),
-                "organize",
-                "orca",
-            ])
+            rc = main(
+                [
+                    "--config",
+                    str(config),
+                    "organize",
+                    "orca",
+                ]
+            )
             self.assertEqual(rc, 1)
 
 
 class TestOrganizeRebuildIndex(unittest.TestCase):
-
     def test_rebuild_index(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -340,10 +387,13 @@ class TestOrganizeRebuildIndex(unittest.TestCase):
             organized.mkdir()
 
             config = _write_config(root, allowed, organized)
-            rc = main([
-                "--config", str(config),
-                "organize",
-                "orca",
-                "--rebuild-index",
-            ])
+            rc = main(
+                [
+                    "--config",
+                    str(config),
+                    "organize",
+                    "orca",
+                    "--rebuild-index",
+                ]
+            )
             self.assertEqual(rc, 0)

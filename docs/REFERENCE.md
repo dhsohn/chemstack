@@ -146,9 +146,9 @@ orca:
 
 Field descriptions for the `orca` section:
 
-- `runtime.allowed_root`: Root directory permitted for execution
-- `runtime.organized_root`: Root for organized outputs
-- `runtime.default_max_retries`: Maximum retry count after the initial attempt
+- `orca.runtime.allowed_root`: Root directory permitted for execution
+- `orca.runtime.organized_root`: Root for organized outputs
+- `orca.runtime.default_max_retries`: Maximum retry count after the initial attempt
 - `scheduler.max_active_simulations`: Shared total active-run cap across ORCA, internal xTB stages, and internal CREST stages
 - `scheduler.admission_root`: Shared admission root for machine-wide slot coordination
 - `workflow.root`: Workflow root for workflow creation, activity inspection, and the integrated workflow worker
@@ -156,7 +156,7 @@ Field descriptions for the `orca` section:
 - `workflow.paths.crest_executable`: CREST executable path used by workflow-managed internal stages
 - Internal xTB/CREST runtimes are scoped to each workflow
 - Workflow-managed xTB/CREST job dirs, per-workflow queues/indexes, and outputs are stored only under `workflow.root/<workflow_id>/internal/<engine>/{runs,outputs}`
-- `paths.orca_executable`: ORCA executable path
+- `orca.paths.orca_executable`: ORCA executable path
 
 Notes:
 

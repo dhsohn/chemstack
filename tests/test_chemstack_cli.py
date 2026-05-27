@@ -11,7 +11,7 @@ from chemstack import cli_handlers as cli_monitor
 from chemstack import cli_queue
 from chemstack import cli_handlers as cli_run_dir
 from chemstack import cli_handlers as cli_summary
-from chemstack import cli_workers
+from chemstack import cli_worker_conflicts
 from chemstack import cli as unified_cli
 
 
@@ -238,7 +238,7 @@ def test_main_dispatches_unified_queue_cancel(monkeypatch: pytest.MonkeyPatch) -
             (
                 "/home/user/chemstack/.venv/bin/python",
                 "-m",
-                "chemstack.orca.runtime.queue_worker",
+                "chemstack.orca.commands.queue",
             ),
             "chemstack",
         ),
@@ -250,7 +250,7 @@ def test_classify_existing_orca_worker_distinguishes_chemstack_and_unknown(
     command_argv: tuple[str, ...],
     expected: str,
 ) -> None:
-    assert cli_workers._classify_existing_orca_worker(command_argv) == expected
+    assert cli_worker_conflicts._classify_existing_orca_worker(command_argv) == expected
 
 
 @pytest.mark.parametrize(

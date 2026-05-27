@@ -1,16 +1,34 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
+
+import pytest
 
 from chemstack import activity_view
 
 
-def test_queue_list_default_visible_items_hides_xtb_crest_children_but_keeps_orca_children() -> None:
+def test_default_visible_items_hide_internal_workflow_children() -> None:
     items: list[dict[str, Any]] = [
         {"activity_id": "wf_1", "kind": "workflow"},
-        {"activity_id": "crest_1", "kind": "job", "engine": "crest", "metadata": {"workflow_id": "wf_1"}},
-        {"activity_id": "xtb_1", "kind": "job", "engine": "xtb", "metadata": {"workflow_id": "wf_1"}},
-        {"activity_id": "orca_1", "kind": "job", "engine": "orca", "metadata": {"workflow_id": "wf_1"}},
+        {
+            "activity_id": "crest_1",
+            "kind": "job",
+            "engine": "crest",
+            "metadata": {"workflow_id": "wf_1"},
+        },
+        {
+            "activity_id": "xtb_1",
+            "kind": "job",
+            "engine": "xtb",
+            "metadata": {"workflow_id": "wf_1"},
+        },
+        {
+            "activity_id": "orca_1",
+            "kind": "job",
+            "engine": "orca",
+            "metadata": {"workflow_id": "wf_1"},
+        },
         {"activity_id": "engine_job", "kind": "job", "engine": "xtb", "metadata": {}},
     ]
 
@@ -66,3 +84,27 @@ def test_activity_with_parent_hint_extracts_workflow_id_from_runtime_path() -> N
     }
 
     assert activity_view.activity_with_parent_hint(item)["parent_workflow_id"] == "wf_path"
+
+
+def test_count_global_active_simulations_uses_orca_runtime_paths(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, str | None]] = []
+    admission_root = Path("/tmp/chemstack-admission")
+
+    def fake_sibling_runtime_paths(
+        config_path: str, *, engine: str | None = None
+    ) -> dict[str, Path]:
+        calls.append((config_path, engine))
+        return {"admission_root": admission_root}
+
+    monkeypatch.setattr(activity_view, "sibling_runtime_paths", fake_sibling_runtime_paths)
+    monkeypatch.setattr(activity_view, "active_slot_count", lambda root: 5)
+
+    assert (
+        activity_view.count_global_active_simulations(
+            [{"activity_id": "running_1"}], config_path="/tmp/chemstack.yaml"
+        )
+        == 5
+    )
+    assert calls == [("/tmp/chemstack.yaml", "orca")]

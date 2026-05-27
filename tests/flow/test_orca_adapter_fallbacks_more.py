@@ -9,7 +9,7 @@ import pytest
 
 from chemstack.core.indexing import JobLocationRecord
 
-from chemstack.flow.adapters import orca as orca_adapter
+from chemstack.flow.adapters import _orca_tracking, orca as orca_adapter
 
 
 def _write_json(path: Path, payload: object) -> None:
@@ -46,8 +46,11 @@ def test_tracked_artifact_context_skips_invalid_results_and_uses_later_target(
             organized_ref={"run_id": "run_artifact"},
         )
 
-    job_locations_module = SimpleNamespace(load_job_artifact_context=load_job_artifact_context)
-    monkeypatch.setattr(orca_adapter, "_orca_job_locations_module", lambda: job_locations_module)
+    monkeypatch.setattr(
+        _orca_tracking,
+        "load_job_artifact_context",
+        load_job_artifact_context,
+    )
 
     job_dir, tracked_record, state, report, organized_ref = orca_adapter._tracked_artifact_context(
         index_root=tmp_path / "orca_runs",
@@ -74,11 +77,10 @@ def test_tracked_contract_payload_rejects_invalid_returns(
     monkeypatch: pytest.MonkeyPatch,
     payload: object,
 ) -> None:
-    job_locations_module = SimpleNamespace(
-        load_orca_contract_payload=lambda *_args, **_kwargs: payload
-    )
     monkeypatch.setattr(
-        orca_adapter, "_orca_job_locations_module", lambda: job_locations_module
+        _orca_tracking,
+        "load_orca_contract_payload",
+        lambda *_args, **_kwargs: payload,
     )
 
     assert (
@@ -162,7 +164,9 @@ def test_find_organized_record_and_dir_resolution_support_file_targets(tmp_path:
     )
 
 
-def test_load_tracked_organized_ref_reads_stub_only_when_current_dir_differs(tmp_path: Path) -> None:
+def test_load_tracked_organized_ref_reads_stub_only_when_current_dir_differs(
+    tmp_path: Path,
+) -> None:
     stub_dir = tmp_path / "rxn_stub"
     organized_dir = tmp_path / "organized" / "run_stub"
     stub_dir.mkdir(parents=True)
@@ -249,8 +253,10 @@ def test_load_orca_artifact_contract_uses_runtime_context_fast_path(
         "status": "pending",
         "cancel_requested": False,
     }
-    job_locations_module = SimpleNamespace(
-        load_job_runtime_context=lambda *_args, **_kwargs: SimpleNamespace(
+    monkeypatch.setattr(
+        _orca_tracking,
+        "load_job_runtime_context",
+        lambda *_args, **_kwargs: SimpleNamespace(
             artifact=SimpleNamespace(
                 job_dir=artifact_dir,
                 record=tracked_record,
@@ -260,29 +266,35 @@ def test_load_orca_artifact_contract_uses_runtime_context_fast_path(
             ),
             queue_entry=queue_entry,
             organized_dir=organized_dir,
-        )
+        ),
     )
-
-    monkeypatch.setattr(orca_adapter, "_orca_job_locations_module", lambda: job_locations_module)
     monkeypatch.setattr(
         orca_adapter,
         "_resolve_job_dir",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("job-dir fallback should not run")),
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("job-dir fallback should not run")
+        ),
     )
     monkeypatch.setattr(
         orca_adapter,
         "_find_queue_entry",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("queue fallback should not run")),
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("queue fallback should not run")
+        ),
     )
     monkeypatch.setattr(
         orca_adapter,
         "_tracked_artifact_context",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("artifact-context fallback should not run")),
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("artifact-context fallback should not run")
+        ),
     )
     monkeypatch.setattr(
         orca_adapter,
         "_find_organized_record",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("organized-record fallback should not run")),
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("organized-record fallback should not run")
+        ),
     )
 
     contract = orca_adapter.load_orca_artifact_contract(
@@ -351,8 +363,10 @@ def test_load_orca_artifact_contract_falls_back_from_invalid_runtime_context_to_
         },
     )
 
-    job_locations_module = SimpleNamespace(
-        load_job_runtime_context=lambda *_args, **_kwargs: SimpleNamespace(
+    monkeypatch.setattr(
+        _orca_tracking,
+        "load_job_runtime_context",
+        lambda *_args, **_kwargs: SimpleNamespace(
             artifact=SimpleNamespace(
                 job_dir=None,
                 record=None,
@@ -362,9 +376,8 @@ def test_load_orca_artifact_contract_falls_back_from_invalid_runtime_context_to_
             ),
             queue_entry="bad",
             organized_dir=None,
-        )
+        ),
     )
-    monkeypatch.setattr(orca_adapter, "_orca_job_locations_module", lambda: job_locations_module)
     monkeypatch.setattr(
         orca_adapter,
         "resolve_job_location",

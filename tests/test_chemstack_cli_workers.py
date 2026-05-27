@@ -10,10 +10,10 @@ from typing import Any, cast
 import pytest
 
 from chemstack import cli_common
+from chemstack import cli_worker_conflicts as worker_conflicts
+from chemstack import cli_worker_specs as worker_specs
 from chemstack import cli_handlers as cli_run_dir
 from chemstack import cli_workers as unified_cli
-
-cli_workers_mod = unified_cli
 
 
 @pytest.fixture(autouse=True)
@@ -23,7 +23,10 @@ def _isolate_shared_config_discovery(monkeypatch: pytest.MonkeyPatch) -> None:
             return None
         return str(Path(explicit).expanduser().resolve())
 
-    monkeypatch.setattr(unified_cli, "_discover_shared_config_path", _explicit_shared_config_path)
+    monkeypatch.setattr(worker_specs, "_discover_shared_config_path", _explicit_shared_config_path)
+    monkeypatch.setattr(
+        worker_conflicts, "_discover_shared_config_path", _explicit_shared_config_path
+    )
     monkeypatch.setattr(cli_common, "_discover_shared_config_path", _explicit_shared_config_path)
     monkeypatch.setattr(cli_common, "shared_workflow_root_from_config", lambda config_path: None)
 
@@ -88,7 +91,7 @@ class _FakeTime:
 
 def test_build_worker_specs_defaults_to_engine_workers(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        unified_cli, "_discover_shared_config_path", lambda explicit: "/tmp/chemstack.yaml"
+        worker_specs, "_discover_shared_config_path", lambda explicit: "/tmp/chemstack.yaml"
     )
 
     def fake_sibling_app_command(
@@ -101,23 +104,23 @@ def test_build_worker_specs_defaults_to_engine_workers(monkeypatch: pytest.Monke
         del repo_root
         return (["python", "-m", module_name, "--config", config_path, *tail_argv], None, {})
 
-    monkeypatch.setattr(unified_cli, "sibling_app_command", fake_sibling_app_command)
+    monkeypatch.setattr(worker_specs, "sibling_app_command", fake_sibling_app_command)
 
-    specs = unified_cli._build_worker_specs(
+    specs = worker_specs._build_worker_specs(
         SimpleNamespace(app=None, workflow_root=None, chemstack_config=None)
     )
 
     assert [spec.app for spec in specs] == ["orca"]
-    assert str(specs[0].argv[2]) == "chemstack.orca.runtime.queue_worker"
+    assert str(specs[0].argv[2]) == "chemstack.orca.commands.queue"
     assert specs[0].env is not None
-    assert specs[0].env[unified_cli._DIRECT_ENGINE_WORKER_ENV_VAR] == "1"
+    assert specs[0].env == {}
 
 
 def test_build_worker_specs_defaults_to_all_workers_when_workflow_root_is_configured(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        unified_cli, "_discover_shared_config_path", lambda explicit: "/tmp/chemstack.yaml"
+        worker_specs, "_discover_shared_config_path", lambda explicit: "/tmp/chemstack.yaml"
     )
     monkeypatch.setattr(
         cli_common, "shared_workflow_root_from_config", lambda config_path: "/tmp/workflows"
@@ -133,9 +136,9 @@ def test_build_worker_specs_defaults_to_all_workers_when_workflow_root_is_config
         del repo_root
         return (["python", "-m", module_name, "--config", config_path, *tail_argv], None, {})
 
-    monkeypatch.setattr(unified_cli, "sibling_app_command", fake_sibling_app_command)
+    monkeypatch.setattr(worker_specs, "sibling_app_command", fake_sibling_app_command)
 
-    specs = unified_cli._build_worker_specs(
+    specs = worker_specs._build_worker_specs(
         SimpleNamespace(app=None, workflow_root=None, chemstack_config=None)
     )
 
@@ -152,12 +155,12 @@ def test_build_worker_specs_defaults_to_all_workers_when_workflow_root_is_config
 
 def test_build_worker_specs_requires_workflow_root(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        unified_cli, "_discover_shared_config_path", lambda explicit: "/tmp/chemstack.yaml"
+        worker_specs, "_discover_shared_config_path", lambda explicit: "/tmp/chemstack.yaml"
     )
     with pytest.raises(
         ValueError, match="workflow worker requires workflow.root in chemstack.yaml"
     ):
-        unified_cli._build_worker_specs(
+        worker_specs._build_worker_specs(
             SimpleNamespace(app=["workflow"], workflow_root=None, chemstack_config=None)
         )
 
@@ -166,13 +169,13 @@ def test_build_worker_specs_explicit_workflow_app_uses_configured_workflow_root(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        unified_cli, "_discover_shared_config_path", lambda explicit: "/tmp/chemstack.yaml"
+        worker_specs, "_discover_shared_config_path", lambda explicit: "/tmp/chemstack.yaml"
     )
     monkeypatch.setattr(
         cli_common, "shared_workflow_root_from_config", lambda config_path: "/tmp/workflows"
     )
 
-    specs = unified_cli._build_worker_specs(
+    specs = worker_specs._build_worker_specs(
         SimpleNamespace(app=["workflow"], workflow_root=None, chemstack_config=None)
     )
 
@@ -276,7 +279,7 @@ def test_cmd_queue_worker_delegates_to_supervisor(monkeypatch: pytest.MonkeyPatc
     specs = [
         unified_cli.WorkerSpec(
             app="orca",
-            argv=("python", "-m", "chemstack.orca.runtime.queue_worker"),
+            argv=("python", "-m", "chemstack.orca.commands.queue"),
         )
     ]
     monkeypatch.setattr(unified_cli, "_build_worker_specs", lambda args: specs)
@@ -298,19 +301,19 @@ def test_cmd_queue_worker_reports_existing_chemstack_orca_worker_conflict(
     specs = [
         unified_cli.WorkerSpec(
             app="orca",
-            argv=("python", "-m", "chemstack.orca.runtime.queue_worker"),
+            argv=("python", "-m", "chemstack.orca.commands.queue"),
         )
     ]
     monkeypatch.setattr(unified_cli, "_build_worker_specs", lambda args: specs)
     monkeypatch.setattr(
         unified_cli,
         "_detect_existing_orca_worker_conflict",
-        lambda built_specs, args: unified_cli._ExistingWorkerConflict(
+        lambda built_specs, args: worker_conflicts._ExistingWorkerConflict(
             app="orca",
             pid=3589996,
             allowed_root="/home/user/orca_runs",
             source="chemstack",
-            command="/home/user/chemstack/.venv/bin/python -m chemstack.orca.runtime.queue_worker --config /tmp/chemstack.yaml",
+            command="/home/user/chemstack/.venv/bin/python -m chemstack.orca.commands.queue --config /tmp/chemstack.yaml",
         ),
     )
     monkeypatch.setattr(unified_cli, "_run_worker_supervisor", lambda built_specs: 99)
@@ -520,7 +523,7 @@ def test_cmd_queue_worker_json_outputs_commands(
 def test_worker_spec_to_dict_redacts_unrelated_environment_keys() -> None:
     spec = unified_cli.WorkerSpec(
         app="orca",
-        argv=("python", "-m", "chemstack.orca.runtime.queue_worker"),
+        argv=("python", "-m", "chemstack.orca.commands.queue"),
         cwd="/tmp/chemstack",
         env={
             "PYTHONPATH": "/tmp/chemstack/src:/tmp/chemstack",
@@ -536,7 +539,7 @@ def test_worker_spec_to_dict_redacts_unrelated_environment_keys() -> None:
 def test_worker_spec_to_dict_omits_empty_allowed_environment() -> None:
     spec = unified_cli.WorkerSpec(
         app="orca",
-        argv=("python", "-m", "chemstack.orca.runtime.queue_worker"),
+        argv=("python", "-m", "chemstack.orca.commands.queue"),
         env={"SECRET_TOKEN": "do-not-print"},
     )
 
@@ -544,35 +547,44 @@ def test_worker_spec_to_dict_omits_empty_allowed_environment() -> None:
 
 
 def test_worker_command_and_selection_helpers_cover_edges() -> None:
-    assert unified_cli._read_process_command(999999999) == ()
-    assert unified_cli._command_invokes_module(("python", "-m", "chemstack.cli"), "chemstack.cli")
-    assert not unified_cli._command_invokes_module(("python", "-m"), "chemstack.cli")
-    assert not unified_cli._command_invokes_module(("python", "-m", "chemstack.cli"), "")
-    assert unified_cli._command_program_name(()) == ""
-    assert unified_cli._format_command_argv(()) == "<unavailable>"
-    assert unified_cli._format_command_argv(("python", "-m", "chemstack.cli")) == (
+    assert worker_conflicts._read_process_command(999999999) == ()
+    assert worker_conflicts._command_invokes_module(
+        ("python", "-m", "chemstack.cli"), "chemstack.cli"
+    )
+    assert not worker_conflicts._command_invokes_module(("python", "-m"), "chemstack.cli")
+    assert not worker_conflicts._command_invokes_module(("python", "-m", "chemstack.cli"), "")
+    assert worker_conflicts._command_program_name(()) == ""
+    assert worker_conflicts._format_command_argv(()) == "<unavailable>"
+    assert worker_conflicts._format_command_argv(("python", "-m", "chemstack.cli")) == (
         "python -m chemstack.cli"
     )
-    assert unified_cli._selected_worker_apps(["orca", "orca", "workflow", ""]) == [
+    assert worker_specs._selected_worker_apps(["orca", "orca", "workflow", ""]) == [
         "orca",
         "workflow",
     ]
 
     with pytest.raises(ValueError, match="Unsupported worker app"):
-        unified_cli._selected_worker_apps(["bad-app"])
+        worker_specs._selected_worker_apps(["bad-app"])
 
 
 def test_worker_tail_and_workflow_spec_include_optional_flags() -> None:
-    assert unified_cli._engine_worker_tail_argv(
+    assert worker_specs._engine_worker_tail_argv(
         app="orca",
         args=argparse.Namespace(auto_organize=True, no_auto_organize=False),
     ) == ["--auto-organize"]
-    assert unified_cli._engine_worker_tail_argv(
+    assert worker_specs._engine_worker_tail_argv(
         app="orca",
         args=argparse.Namespace(auto_organize=False, no_auto_organize=True),
     ) == ["--no-auto-organize"]
+    assert (
+        worker_specs._engine_worker_tail_argv(
+            app="xtb",
+            args=argparse.Namespace(auto_organize=True, no_auto_organize=False),
+        )
+        == []
+    )
 
-    spec = unified_cli._workflow_worker_spec(
+    spec = worker_specs._workflow_worker_spec(
         workflow_root="/tmp/workflows",
         config_path="/tmp/chemstack.yaml",
         args=argparse.Namespace(
@@ -608,7 +620,7 @@ def test_worker_tail_and_workflow_spec_include_optional_flags() -> None:
 
 def test_workflow_only_worker_flags_require_workflow_app() -> None:
     with pytest.raises(ValueError, match="workflow-only worker flags require --app workflow"):
-        unified_cli._workflow_only_worker_flag_error(
+        worker_specs._workflow_only_worker_flag_error(
             SimpleNamespace(
                 no_submit=True,
                 refresh_registry=False,
@@ -619,23 +631,26 @@ def test_workflow_only_worker_flags_require_workflow_app() -> None:
             )
         )
 
-    assert unified_cli._workflow_only_worker_flag_error(
-        SimpleNamespace(
-            no_submit=False,
-            refresh_registry=False,
-            refresh_each_cycle=False,
-            max_cycles=2,
-            interval_seconds=0,
-            lock_timeout_seconds=0,
+    assert (
+        worker_specs._workflow_only_worker_flag_error(
+            SimpleNamespace(
+                no_submit=False,
+                refresh_registry=False,
+                refresh_each_cycle=False,
+                max_cycles=2,
+                interval_seconds=0,
+                lock_timeout_seconds=0,
+            )
         )
-    ) == "--max-cycles requires --app workflow"
+        == "--max-cycles requires --app workflow"
+    )
 
 
 def test_terminate_process_kills_after_grace_period() -> None:
     process = _HangingWorkerProcess()
     fake_time = _FakeTime()
 
-    cli_workers_mod._terminate_process(
+    unified_cli._terminate_process(
         cast(Any, process),
         deps=SimpleNamespace(time=fake_time),
     )
@@ -670,14 +685,14 @@ def test_detect_existing_orca_worker_conflict_edges(
 
     args = argparse.Namespace(chemstack_config="/tmp/chemstack.yaml")
     deps = SimpleNamespace(
-        _discover_shared_config_path=lambda explicit: str(Path(explicit).resolve())
-        if explicit
-        else None,
+        _discover_shared_config_path=lambda explicit: (
+            str(Path(explicit).resolve()) if explicit else None
+        ),
         _effective_shared_config_text=lambda parsed_args: parsed_args.chemstack_config,
     )
 
     assert (
-        cli_workers_mod._detect_existing_orca_worker_conflict(
+        worker_conflicts._detect_existing_orca_worker_conflict(
             [unified_cli.WorkerSpec(app="workflow", argv=("workflow", "worker"))],
             args=args,
             deps=deps,
@@ -685,9 +700,11 @@ def test_detect_existing_orca_worker_conflict_edges(
         is None
     )
 
-    monkeypatch.setattr(orca_config, "load_config", lambda path: (_ for _ in ()).throw(RuntimeError("boom")))
+    monkeypatch.setattr(
+        orca_config, "load_config", lambda path: (_ for _ in ()).throw(RuntimeError("boom"))
+    )
     assert (
-        cli_workers_mod._detect_existing_orca_worker_conflict(
+        worker_conflicts._detect_existing_orca_worker_conflict(
             [unified_cli.WorkerSpec(app="orca", argv=("orca", "worker"))],
             args=args,
             deps=deps,
@@ -704,7 +721,7 @@ def test_detect_existing_orca_worker_conflict_edges(
     )
     monkeypatch.setattr(orca_queue_worker, "read_worker_pid", lambda root: None)
     assert (
-        cli_workers_mod._detect_existing_orca_worker_conflict(
+        worker_conflicts._detect_existing_orca_worker_conflict(
             [unified_cli.WorkerSpec(app="orca", argv=("orca", "worker"))],
             args=args,
             deps=deps,
@@ -713,14 +730,16 @@ def test_detect_existing_orca_worker_conflict_edges(
     )
 
     monkeypatch.setattr(orca_queue_worker, "read_worker_pid", lambda root: 43210)
-    monkeypatch.setattr(cli_workers_mod, "_read_process_command", lambda pid: ("python", "worker.py"))
-    conflict = cli_workers_mod._detect_existing_orca_worker_conflict(
+    monkeypatch.setattr(
+        worker_conflicts, "_read_process_command", lambda pid: ("python", "worker.py")
+    )
+    conflict = worker_conflicts._detect_existing_orca_worker_conflict(
         [unified_cli.WorkerSpec(app="orca", argv=("orca", "worker"))],
         args=args,
         deps=deps,
     )
 
-    assert conflict == unified_cli._ExistingWorkerConflict(
+    assert conflict == worker_conflicts._ExistingWorkerConflict(
         app="orca",
         pid=43210,
         allowed_root=str(allowed_root.resolve()),

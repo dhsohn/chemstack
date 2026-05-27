@@ -15,7 +15,11 @@ from chemstack import cli_handlers as cli_run_dir
 from chemstack import cli_handlers as cli_summary
 from chemstack.core.admission.orca import reserve_slot
 from chemstack.orca.commands._helpers import CONFIG_ENV_VAR, _emit, default_config_path
-from chemstack.orca.commands.run_inp import _cmd_run_inp_execute, _retry_inp_path, _select_latest_inp
+from chemstack.orca.commands.run_inp import (
+    _cmd_run_inp_execute,
+    _retry_inp_path,
+    _select_latest_inp,
+)
 from chemstack.orca.cli_logging import (
     configure_logging as _configure_logging,
     remove_managed_handlers as _remove_managed_handlers,
@@ -25,17 +29,22 @@ from chemstack.orca.orca_runner import RunResult, WorkerShutdownInterrupt
 build_parser = unified_cli.build_parser
 main = unified_cli.main
 
+
 class TestCli(unittest.TestCase):
-    def _write_config(self, root: Path, allowed_root: Path, *, telegram_enabled: bool = False) -> Path:
+    def _write_config(
+        self, root: Path, allowed_root: Path, *, telegram_enabled: bool = False
+    ) -> Path:
         fake_orca = root / "fake_orca"
         fake_orca.touch()
         fake_orca.chmod(0o755)
         payload = {
-            "runtime": {
-                "allowed_root": str(allowed_root),
-                "default_max_retries": 2,
+            "orca": {
+                "runtime": {
+                    "allowed_root": str(allowed_root),
+                    "default_max_retries": 2,
+                },
+                "paths": {"orca_executable": str(fake_orca)},
             },
-            "paths": {"orca_executable": str(fake_orca)},
         }
         if telegram_enabled:
             payload["telegram"] = {
@@ -49,7 +58,9 @@ class TestCli(unittest.TestCase):
         )
         return config
 
-    def _run_internal_execute(self, config: Path, reaction_dir: Path, *, force: bool = False) -> int:
+    def _run_internal_execute(
+        self, config: Path, reaction_dir: Path, *, force: bool = False
+    ) -> int:
         token = reserve_slot(
             reaction_dir.parent,
             1,
@@ -73,7 +84,9 @@ class TestCli(unittest.TestCase):
             outside = root / "outside"
             allowed.mkdir()
             outside.mkdir()
-            (outside / "a.inp").write_text("! Opt\n* xyz 0 1\nH 0 0 0\nH 0 0 0.74\n*\n", encoding="utf-8")
+            (outside / "a.inp").write_text(
+                "! Opt\n* xyz 0 1\nH 0 0 0\nH 0 0 0.74\n*\n", encoding="utf-8"
+            )
             config = self._write_config(root, allowed)
 
             rc = main(["--config", str(config), "run-dir", str(outside)])
@@ -154,7 +167,8 @@ class TestCli(unittest.TestCase):
             _configure_logging(Namespace(verbose=True, log_file=None))
 
             managed_handlers = [
-                handler for handler in root_logger.handlers
+                handler
+                for handler in root_logger.handlers
                 if getattr(handler, "_chemstack_managed_handler", False)
             ]
             self.assertEqual(len(managed_handlers), 1)
@@ -214,8 +228,12 @@ class TestCli(unittest.TestCase):
 
         with (
             patch("chemstack.orca.commands.init.cmd_init", side_effect=_record("init", 42)),
-            patch("chemstack.orca.commands.organize.cmd_organize", side_effect=_record("organize", 43)),
-            patch("chemstack.orca.commands.summary.cmd_summary", side_effect=_record("summary", 44)),
+            patch(
+                "chemstack.orca.commands.organize.cmd_organize", side_effect=_record("organize", 43)
+            ),
+            patch(
+                "chemstack.orca.commands.summary.cmd_summary", side_effect=_record("summary", 44)
+            ),
         ):
             init_args = Namespace(
                 config="/tmp/chemstack.yaml",
@@ -239,9 +257,7 @@ class TestCli(unittest.TestCase):
                 no_send=True,
             )
             init_rc = cli_run_dir.cmd_init(init_args)
-            organize_rc = cli_run_dir.cmd_orca_organize(
-                organize_args
-            )
+            organize_rc = cli_run_dir.cmd_orca_organize(organize_args)
             summary_rc = cli_summary.cmd_orca_summary(summary_args)
 
         self.assertEqual((init_rc, organize_rc, summary_rc), (42, 43, 44))
@@ -305,7 +321,9 @@ class TestCli(unittest.TestCase):
             reaction.mkdir(parents=True)
             inp = reaction / "rxn.inp"
             inp.write_text("! Opt\n* xyz 0 1\nH 0 0 0\nH 0 0 0.74\n*\n", encoding="utf-8")
-            (reaction / "rxn.out").write_text("****ORCA TERMINATED NORMALLY****\n", encoding="utf-8")
+            (reaction / "rxn.out").write_text(
+                "****ORCA TERMINATED NORMALLY****\n", encoding="utf-8"
+            )
             config = self._write_config(root, root / "orca_runs")
 
             rc = main(["--config", str(config), "run-dir", str(reaction)])
@@ -323,7 +341,9 @@ class TestCli(unittest.TestCase):
             inp.write_text("! Opt\n* xyz 0 1\nH 0 0 0\nH 0 0 0.74\n*\n", encoding="utf-8")
             retry_inp.write_text("! Opt\n* xyzfile 0 1 rxn.xyz\n", encoding="utf-8")
             (reaction / "rxn.out").write_text("SCF NOT CONVERGED\n", encoding="utf-8")
-            (reaction / "rxn.retry01.out").write_text("****ORCA TERMINATED NORMALLY****\n", encoding="utf-8")
+            (reaction / "rxn.retry01.out").write_text(
+                "****ORCA TERMINATED NORMALLY****\n", encoding="utf-8"
+            )
             config = self._write_config(root, root / "orca_runs")
 
             with patch("chemstack.orca.commands.run_inp.OrcaRunner.run") as run_mock:
@@ -339,7 +359,9 @@ class TestCli(unittest.TestCase):
             reaction.mkdir(parents=True)
             inp = reaction / "rxn.inp"
             inp.write_text("! Opt\n* xyz 0 1\nH 0 0 0\nH 0 0 0.74\n*\n", encoding="utf-8")
-            (reaction / "rxn.out").write_text("****ORCA TERMINATED NORMALLY****\n", encoding="utf-8")
+            (reaction / "rxn.out").write_text(
+                "****ORCA TERMINATED NORMALLY****\n", encoding="utf-8"
+            )
             (reaction / "run.lock").write_text(
                 json.dumps({"pid": os.getpid(), "started_at": "2026-02-24T00:00:00+00:00"}) + "\n",
                 encoding="utf-8",
@@ -351,7 +373,9 @@ class TestCli(unittest.TestCase):
         self.assertEqual(rc, 1)
         self.assertFalse((reaction / "run_state.json").exists())
 
-    def test_run_dir_preserves_existing_state_until_worker_reconciles_completed_output(self) -> None:
+    def test_run_dir_preserves_existing_state_until_worker_reconciles_completed_output(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             reaction = root / "orca_runs" / "rxn1_resume_skip"
@@ -431,7 +455,9 @@ class TestCli(unittest.TestCase):
             reaction = root / "orca_runs" / "rxn2"
             reaction.mkdir(parents=True)
             inp = reaction / "rxn.inp"
-            inp.write_text("! OptTS Freq IRC\n* xyz 0 1\nH 0 0 0\nH 0 0 0.74\n*\n", encoding="utf-8")
+            inp.write_text(
+                "! OptTS Freq IRC\n* xyz 0 1\nH 0 0 0\nH 0 0 0.74\n*\n", encoding="utf-8"
+            )
             config = self._write_config(root, root / "orca_runs")
 
             calls = {"n": 0}
@@ -440,7 +466,9 @@ class TestCli(unittest.TestCase):
                 calls["n"] += 1
                 out = inp_path.with_suffix(".out")
                 if calls["n"] == 1:
-                    out.write_text("ORCA finished by error termination in SCF gradient\n", encoding="utf-8")
+                    out.write_text(
+                        "ORCA finished by error termination in SCF gradient\n", encoding="utf-8"
+                    )
                     return RunResult(out_path=str(out), return_code=55)
                 out.write_text(
                     "\n".join(
@@ -466,7 +494,9 @@ class TestCli(unittest.TestCase):
         self.assertEqual(len(state["attempts"]), 2)
 
     @patch("chemstack.orca.commands.run_inp.notify_retry_event", return_value=True)
-    def test_retry_flow_sends_telegram_notification_when_configured(self, mock_notify: MagicMock) -> None:
+    def test_retry_flow_sends_telegram_notification_when_configured(
+        self, mock_notify: MagicMock
+    ) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             reaction = root / "orca_runs" / "rxn_notify"
@@ -552,11 +582,13 @@ class TestCli(unittest.TestCase):
             config.write_text(
                 json.dumps(
                     {
-                        "runtime": {
-                            "allowed_root": str(root / "orca_runs"),
-                            "default_max_retries": 6,
+                        "orca": {
+                            "runtime": {
+                                "allowed_root": str(root / "orca_runs"),
+                                "default_max_retries": 6,
+                            },
+                            "paths": {"orca_executable": str(fake_orca)},
                         },
-                        "paths": {"orca_executable": str(fake_orca)},
                     }
                 ),
                 encoding="utf-8",
@@ -593,11 +625,13 @@ class TestCli(unittest.TestCase):
             config.write_text(
                 json.dumps(
                     {
-                        "runtime": {
-                            "allowed_root": str(root / "orca_runs"),
-                            "default_max_retries": 0,
+                        "orca": {
+                            "runtime": {
+                                "allowed_root": str(root / "orca_runs"),
+                                "default_max_retries": 0,
+                            },
+                            "paths": {"orca_executable": str(fake_orca)},
                         },
-                        "paths": {"orca_executable": str(fake_orca)},
                     }
                 ),
                 encoding="utf-8",
@@ -700,7 +734,9 @@ class TestCli(unittest.TestCase):
         self.assertEqual(saved["status"], "completed")
         self.assertEqual(len(saved["attempts"]), 2)
         actions = saved["attempts"][0].get("patch_actions", [])
-        self.assertTrue(any("resume_recreated_missing_input:rxn.retry01.inp" in action for action in actions))
+        self.assertTrue(
+            any("resume_recreated_missing_input:rxn.retry01.inp" in action for action in actions)
+        )
 
     def test_resume_interrupted_failure_keeps_run_id_and_continues(self) -> None:
         with tempfile.TemporaryDirectory() as td:

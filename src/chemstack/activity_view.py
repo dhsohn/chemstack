@@ -80,7 +80,7 @@ def count_global_active_simulations(
     config_text = normalize_text(config_path)
     if config_text:
         try:
-            runtime_paths = sibling_runtime_paths(config_text)
+            runtime_paths = sibling_runtime_paths(config_text, engine="orca")
         except Exception:
             runtime_paths = {}
         admission_root = runtime_paths.get("admission_root")

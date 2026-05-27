@@ -148,10 +148,10 @@ def sibling_allowed_root(config_path: str, *, engine: str | None = None) -> Path
         raw = engine_config_mapping(raw, engine, inherit_keys=("workflow",))
     runtime = raw.get("runtime")
     if not isinstance(runtime, dict):
-        raise ValueError(f"Missing runtime section in config: {path}")
+        raise ValueError(f"Missing {_runtime_section_label(engine)} section in config: {path}")
     allowed_root = normalize_text(runtime.get("allowed_root"))
     if not allowed_root:
-        raise ValueError(f"Missing runtime.allowed_root in config: {path}")
+        raise ValueError(f"Missing {_runtime_allowed_root_label(engine)} in config: {path}")
     return Path(allowed_root).expanduser().resolve()
 
 
@@ -173,6 +173,14 @@ def _mapping_section(raw: dict[str, Any], key: str) -> dict[str, Any]:
 def _resolve_configured_path(value: Any) -> Path | None:
     text = normalize_text(value)
     return Path(text).expanduser().resolve() if text else None
+
+
+def _runtime_section_label(engine: str | None) -> str:
+    return f"{engine}.runtime" if engine else "runtime"
+
+
+def _runtime_allowed_root_label(engine: str | None) -> str:
+    return f"{_runtime_section_label(engine)}.allowed_root"
 
 
 def _internal_engine_runtime_paths(path: Path, raw: dict[str, Any]) -> dict[str, Path]:
@@ -206,10 +214,12 @@ def _runtime_admission_root(
     return admission_root
 
 
-def _configured_runtime_paths(path: Path, raw: dict[str, Any]) -> dict[str, Path]:
+def _configured_runtime_paths(
+    path: Path, raw: dict[str, Any], *, engine: str | None = None
+) -> dict[str, Path]:
     runtime = raw.get("runtime")
     if not isinstance(runtime, dict):
-        raise ValueError(f"Missing runtime section in config: {path}")
+        raise ValueError(f"Missing {_runtime_section_label(engine)} section in config: {path}")
     scheduler = _mapping_section(raw, "scheduler")
 
     resolved_runtime_paths: dict[str, Path] = {}
@@ -219,7 +229,7 @@ def _configured_runtime_paths(path: Path, raw: dict[str, Any]) -> dict[str, Path
             resolved_runtime_paths[key] = resolved_path
 
     if "allowed_root" not in resolved_runtime_paths:
-        raise ValueError(f"Missing runtime.allowed_root in config: {path}")
+        raise ValueError(f"Missing {_runtime_allowed_root_label(engine)} in config: {path}")
 
     admission_root = _runtime_admission_root(path, runtime, scheduler)
     if admission_root is not None:
@@ -234,7 +244,7 @@ def sibling_runtime_paths(config_path: str, *, engine: str | None = None) -> dic
 
     if engine:
         raw = engine_config_mapping(raw, engine, inherit_keys=("scheduler", "workflow"))
-    return _configured_runtime_paths(path, raw)
+    return _configured_runtime_paths(path, raw, engine=engine)
 
 
 __all__ = [

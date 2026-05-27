@@ -20,22 +20,31 @@ class _ListTestBase(unittest.TestCase):
         fake_orca.chmod(0o755)
         config = root / "chemstack.yaml"
         config.write_text(
-            json.dumps({
-                "runtime": {
-                    "allowed_root": str(allowed_root),
-                    "default_max_retries": 2,
-                },
-                "paths": {"orca_executable": str(fake_orca)},
-            }),
+            json.dumps(
+                {
+                    "orca": {
+                        "runtime": {
+                            "allowed_root": str(allowed_root),
+                            "default_max_retries": 2,
+                        },
+                        "paths": {"orca_executable": str(fake_orca)},
+                    },
+                }
+            ),
             encoding="utf-8",
         )
         return config
 
-    def _make_run(self, reaction_dir: Path, *, status: str = "completed",
-                  started_at: str = "2026-03-01T00:00:00+00:00",
-                  updated_at: str = "2026-03-01T01:00:00+00:00",
-                  inp_name: str = "rxn.inp",
-                  run_id: str | None = None) -> None:
+    def _make_run(
+        self,
+        reaction_dir: Path,
+        *,
+        status: str = "completed",
+        started_at: str = "2026-03-01T00:00:00+00:00",
+        updated_at: str = "2026-03-01T01:00:00+00:00",
+        inp_name: str = "rxn.inp",
+        run_id: str | None = None,
+    ) -> None:
         reaction_dir.mkdir(parents=True, exist_ok=True)
         state = {
             "run_id": run_id or f"run_{reaction_dir.name}",
@@ -61,7 +70,9 @@ class TestListEmpty(_ListTestBase):
 
             captured = io.StringIO()
             with patch("sys.stdout", captured):
-                rc = main(["--config", str(config), "queue", "list", "--engine", "orca", "--kind", "job"])
+                rc = main(
+                    ["--config", str(config), "queue", "list", "--engine", "orca", "--kind", "job"]
+                )
 
         self.assertEqual(rc, 0)
         output = captured.getvalue()
@@ -77,13 +88,16 @@ class TestListStandaloneRuns(_ListTestBase):
             root = Path(td)
             allowed = root / "orca_runs"
             self._make_run(allowed / "rxn1", status="completed")
-            self._make_run(allowed / "rxn2", status="running",
-                           started_at="2026-03-02T00:00:00+00:00")
+            self._make_run(
+                allowed / "rxn2", status="running", started_at="2026-03-02T00:00:00+00:00"
+            )
             config = self._write_config(root, allowed)
 
             captured = io.StringIO()
             with patch("sys.stdout", captured):
-                rc = main(["--config", str(config), "queue", "list", "--engine", "orca", "--kind", "job"])
+                rc = main(
+                    ["--config", str(config), "queue", "list", "--engine", "orca", "--kind", "job"]
+                )
 
         self.assertEqual(rc, 0)
         output = captured.getvalue()
@@ -98,8 +112,9 @@ class TestListStandaloneRuns(_ListTestBase):
             root = Path(td)
             allowed = root / "orca_runs"
             self._make_run(allowed / "rxn1", status="completed")
-            self._make_run(allowed / "rxn2", status="running",
-                           started_at="2026-03-02T00:00:00+00:00")
+            self._make_run(
+                allowed / "rxn2", status="running", started_at="2026-03-02T00:00:00+00:00"
+            )
             config = self._write_config(root, allowed)
 
             captured = io.StringIO()
@@ -135,7 +150,9 @@ class TestListStandaloneRuns(_ListTestBase):
 
             captured = io.StringIO()
             with patch("sys.stdout", captured):
-                rc = main(["--config", str(config), "queue", "list", "--engine", "orca", "--kind", "job"])
+                rc = main(
+                    ["--config", str(config), "queue", "list", "--engine", "orca", "--kind", "job"]
+                )
 
         self.assertEqual(rc, 0)
         output = captured.getvalue()
@@ -192,7 +209,9 @@ class TestListStandaloneRuns(_ListTestBase):
 
             captured = io.StringIO()
             with patch("sys.stdout", captured):
-                rc = main(["--config", str(config), "queue", "list", "--engine", "orca", "--kind", "job"])
+                rc = main(
+                    ["--config", str(config), "queue", "list", "--engine", "orca", "--kind", "job"]
+                )
 
         self.assertEqual(rc, 0)
         output = captured.getvalue()
@@ -217,7 +236,9 @@ class TestListQueueEntries(_ListTestBase):
 
             captured = io.StringIO()
             with patch("sys.stdout", captured):
-                rc = main(["--config", str(config), "queue", "list", "--engine", "orca", "--kind", "job"])
+                rc = main(
+                    ["--config", str(config), "queue", "list", "--engine", "orca", "--kind", "job"]
+                )
 
         self.assertEqual(rc, 0)
         output = captured.getvalue()
@@ -274,13 +295,18 @@ class TestListQueueEntries(_ListTestBase):
             rxn_dir.mkdir()
             entry = enqueue(allowed, str(rxn_dir))
             # Create a run_state for the same directory
-            self._make_run(rxn_dir, status="running",
-                           started_at="2026-03-02T00:00:00+00:00",
-                           inp_name="opt.inp")
+            self._make_run(
+                rxn_dir,
+                status="running",
+                started_at="2026-03-02T00:00:00+00:00",
+                inp_name="opt.inp",
+            )
 
             captured = io.StringIO()
             with patch("sys.stdout", captured):
-                rc = main(["--config", str(config), "queue", "list", "--engine", "orca", "--kind", "job"])
+                rc = main(
+                    ["--config", str(config), "queue", "list", "--engine", "orca", "--kind", "job"]
+                )
 
         self.assertEqual(rc, 0)
         output = captured.getvalue()
@@ -317,7 +343,9 @@ class TestListQueueEntries(_ListTestBase):
 
             captured = io.StringIO()
             with patch("sys.stdout", captured):
-                rc = main(["--config", str(config), "queue", "list", "--engine", "orca", "--kind", "job"])
+                rc = main(
+                    ["--config", str(config), "queue", "list", "--engine", "orca", "--kind", "job"]
+                )
 
         self.assertEqual(rc, 0)
         output = captured.getvalue()
@@ -353,8 +381,9 @@ class TestListClear(_ListTestBase):
             root = Path(td)
             allowed = root / "orca_runs"
             self._make_run(allowed / "rxn1", status="completed")
-            self._make_run(allowed / "rxn2", status="running",
-                           started_at="2026-03-02T00:00:00+00:00")
+            self._make_run(
+                allowed / "rxn2", status="running", started_at="2026-03-02T00:00:00+00:00"
+            )
             config = self._write_config(root, allowed)
 
             captured = io.StringIO()

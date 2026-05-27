@@ -24,12 +24,13 @@ def _write_orca_config(path: Path, *, allowed_root: Path, organized_root: Path) 
     path.write_text(
         "\n".join(
             [
-                "runtime:",
-                f"  allowed_root: {json.dumps(str(allowed_root.resolve()))}",
-                f"  organized_root: {json.dumps(str(organized_root.resolve()))}",
+                "orca:",
+                "  runtime:",
+                f"    allowed_root: {json.dumps(str(allowed_root.resolve()))}",
+                f"    organized_root: {json.dumps(str(organized_root.resolve()))}",
                 "",
-                "paths:",
-                f"  orca_executable: {json.dumps('/opt/orca/orca')}",
+                "  paths:",
+                f"    orca_executable: {json.dumps('/opt/orca/orca')}",
                 "",
             ]
         ),
@@ -37,7 +38,9 @@ def _write_orca_config(path: Path, *, allowed_root: Path, organized_root: Path) 
     )
 
 
-def test_orca_contract_freeze_completed_result_survives_public_workflow_sync(tmp_path: Path) -> None:
+def test_orca_contract_freeze_completed_result_survives_public_workflow_sync(
+    tmp_path: Path,
+) -> None:
     workflow_root = tmp_path / "workflow_root"
     workflow_workspace = workflow_root / "wf_contract_freeze"
     orca_allowed_root = tmp_path / "orca_runs"

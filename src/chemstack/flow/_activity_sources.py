@@ -26,15 +26,10 @@ def discover_workflow_root(explicit: str | Path | None) -> str | None:
     explicit_text = normalize_text(explicit)
     if explicit_text:
         return str(Path(explicit_text).expanduser().resolve())
-    return shared_workflow_root_from_config(discover_sibling_config(None, app_name="chemstack"))
+    return shared_workflow_root_from_config(discover_shared_config(None))
 
 
-def discover_sibling_config(
-    explicit: str | None,
-    *,
-    app_name: str,
-) -> str | None:
-    del app_name
+def discover_shared_config(explicit: str | None) -> str | None:
     return discover_shared_config_path(
         explicit,
         project_root(),
@@ -43,10 +38,7 @@ def discover_sibling_config(
 
 
 def discover_orca_config(explicit: str | None) -> str | None:
-    return discover_sibling_config(
-        explicit,
-        app_name="chemstack",
-    )
+    return discover_shared_config(explicit)
 
 
 def shared_config_hint(*configs: str | None) -> str | None:
@@ -61,6 +53,7 @@ def resolve_activity_source_request(
     request: ActivitySourceRequest,
 ) -> ResolvedActivitySources:
     shared_hint = shared_config_hint(
+        request.shared_config,
         request.orca_config,
         request.crest_config,
         request.xtb_config,
@@ -73,16 +66,21 @@ def resolve_activity_source_request(
         resolved_workflow_root = shared_workflow_root_from_config(shared_hint)
     else:
         resolved_workflow_root = discover_workflow_root(None)
-    resolved_crest_config = discover_sibling_config(
-        request.crest_config or shared_hint,
-        app_name="chemstack_crest",
+    resolved_shared_config = discover_shared_config(shared_hint)
+    resolved_crest_config = (
+        discover_shared_config(request.crest_config)
+        if normalize_text(request.crest_config)
+        else resolved_shared_config
     )
-    resolved_xtb_config = discover_sibling_config(
-        request.xtb_config or shared_hint,
-        app_name="chemstack_xtb",
+    resolved_xtb_config = (
+        discover_shared_config(request.xtb_config)
+        if normalize_text(request.xtb_config)
+        else resolved_shared_config
     )
-    resolved_orca_config = discover_orca_config(
-        request.orca_config or shared_hint
+    resolved_orca_config = (
+        discover_orca_config(request.orca_config)
+        if normalize_text(request.orca_config)
+        else resolved_shared_config
     )
     return ResolvedActivitySources(
         workflow_root=resolved_workflow_root,

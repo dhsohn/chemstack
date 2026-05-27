@@ -4,27 +4,16 @@ from pathlib import Path
 from typing import Any
 
 from chemstack.core.indexing import JobLocationRecord
+from chemstack.core.utils.coercion import normalize_text
+from chemstack.orca.job_locations import (
+    load_job_artifact_context,
+    load_job_runtime_context,
+    load_orca_contract_payload,
+)
 
 
-def _orca_module():
-    from . import orca as o
-
-    return o
-
-
-def import_orca_module_impl(module_name: str) -> Any | None:
-    o = _orca_module()
-    try:
-        return o.import_module(module_name)
-    except ModuleNotFoundError as exc:
-        if exc.name not in {"chemstack", "chemstack.orca", module_name}:
-            raise
-        return None
-
-
-def orca_job_locations_module_impl() -> Any | None:
-    o = _orca_module()
-    return o._import_orca_module("chemstack.orca.job_locations")
+def _dict_payload(value: Any) -> dict[str, Any]:
+    return dict(value) if isinstance(value, dict) else {}
 
 
 def tracked_artifact_context_impl(
@@ -32,19 +21,15 @@ def tracked_artifact_context_impl(
     index_root: Path | None,
     targets: tuple[str, ...],
 ) -> tuple[Path | None, JobLocationRecord | None, dict[str, Any], dict[str, Any], dict[str, Any]]:
-    o = _orca_module()
     if index_root is None:
-        return None, None, {}, {}, {}
-    job_locations_module = o._orca_job_locations_module()
-    if job_locations_module is None:
         return None, None, {}, {}, {}
 
     for raw_target in targets:
-        target = o._normalize_text(raw_target)
+        target = normalize_text(raw_target)
         if not target:
             continue
         try:
-            context = job_locations_module.load_job_artifact_context(index_root, target)
+            context = load_job_artifact_context(index_root, target)
         except Exception:
             continue
         job_dir = getattr(context, "job_dir", None)
@@ -53,9 +38,9 @@ def tracked_artifact_context_impl(
         return (
             job_dir,
             getattr(context, "record", None),
-            dict(context.state) if isinstance(getattr(context, "state", None), dict) else {},
-            dict(context.report) if isinstance(getattr(context, "report", None), dict) else {},
-            dict(context.organized_ref) if isinstance(getattr(context, "organized_ref", None), dict) else {},
+            _dict_payload(getattr(context, "state", None)),
+            _dict_payload(getattr(context, "report", None)),
+            _dict_payload(getattr(context, "organized_ref", None)),
         )
     return None, None, {}, {}, {}
 
@@ -68,16 +53,23 @@ def tracked_runtime_context_impl(
     queue_id: str,
     run_id: str,
     reaction_dir: str,
-) -> tuple[Path | None, JobLocationRecord | None, dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any] | None, Path | None] | None:
-    o = _orca_module()
+) -> (
+    tuple[
+        Path | None,
+        JobLocationRecord | None,
+        dict[str, Any],
+        dict[str, Any],
+        dict[str, Any],
+        dict[str, Any] | None,
+        Path | None,
+    ]
+    | None
+):
     if index_root is None:
-        return None
-    job_locations_module = o._orca_job_locations_module()
-    if job_locations_module is None or not hasattr(job_locations_module, "load_job_runtime_context"):
         return None
 
     try:
-        context = job_locations_module.load_job_runtime_context(
+        context = load_job_runtime_context(
             index_root,
             target,
             organized_root=organized_root,
@@ -96,9 +88,9 @@ def tracked_runtime_context_impl(
     return (
         getattr(artifact, "job_dir", None),
         getattr(artifact, "record", None),
-        dict(getattr(artifact, "state", {})) if isinstance(getattr(artifact, "state", None), dict) else {},
-        dict(getattr(artifact, "report", {})) if isinstance(getattr(artifact, "report", None), dict) else {},
-        dict(getattr(artifact, "organized_ref", {})) if isinstance(getattr(artifact, "organized_ref", None), dict) else {},
+        _dict_payload(getattr(artifact, "state", None)),
+        _dict_payload(getattr(artifact, "report", None)),
+        _dict_payload(getattr(artifact, "organized_ref", None)),
         dict(queue_entry) if isinstance(queue_entry, dict) else None,
         getattr(context, "organized_dir", None),
     )
@@ -106,7 +98,6 @@ def tracked_runtime_context_impl(
 
 def _contract_payload_from_loader(
     *,
-    load_payload_fn: Any | None,
     index_root: Path,
     organized_root: Path | None,
     target: str,
@@ -114,12 +105,8 @@ def _contract_payload_from_loader(
     run_id: str,
     reaction_dir: str,
 ) -> dict[str, Any] | None:
-    o = _orca_module()
-    if load_payload_fn is None:
-        return None
-
     try:
-        payload = load_payload_fn(
+        payload = load_orca_contract_payload(
             index_root,
             target,
             organized_root=organized_root,
@@ -132,15 +119,11 @@ def _contract_payload_from_loader(
     if not isinstance(payload, dict):
         return None
     if not any(
-        o._normalize_text(payload.get(key))
+        normalize_text(payload.get(key))
         for key in ("run_id", "reaction_dir", "latest_known_path", "status", "queue_id")
     ):
         return None
     return {str(key): value for key, value in payload.items()}
-
-
-def _contract_payload_loader(module: Any | None) -> Any | None:
-    return getattr(module, "load_orca_contract_payload", None) if module is not None else None
 
 
 def load_orca_contract_payload_impl(
@@ -152,11 +135,9 @@ def load_orca_contract_payload_impl(
     run_id: str,
     reaction_dir: str,
 ) -> dict[str, Any] | None:
-    o = _orca_module()
     if index_root is None:
         return None
     return _contract_payload_from_loader(
-        load_payload_fn=_contract_payload_loader(o._orca_job_locations_module()),
         index_root=index_root,
         organized_root=organized_root,
         target=target,
@@ -167,9 +148,7 @@ def load_orca_contract_payload_impl(
 
 
 __all__ = [
-    "import_orca_module_impl",
     "load_orca_contract_payload_impl",
-    "orca_job_locations_module_impl",
     "tracked_artifact_context_impl",
     "tracked_runtime_context_impl",
 ]

@@ -112,7 +112,9 @@ def _workflow_worker_runtime(deps: Any | None) -> _WorkflowWorkerRuntime:
     )
 
 
-def _workflow_worker_options(args: Any, *, runtime: _WorkflowWorkerRuntime) -> _WorkflowWorkerOptions:
+def _workflow_worker_options(
+    args: Any, *, runtime: _WorkflowWorkerRuntime
+) -> _WorkflowWorkerOptions:
     once = bool(getattr(args, "once", False))
     max_cycles = int(getattr(args, "max_cycles", 0) or 0)
     if once:
@@ -149,9 +151,7 @@ def _workflow_worker_options(args: Any, *, runtime: _WorkflowWorkerRuntime) -> _
         ),
         submit_ready=not bool(getattr(args, "no_submit", False)),
         engines=WorkflowEngineOptions.from_values(
-            crest_config=shared_config,
-            xtb_config=shared_config,
-            orca_config=shared_config,
+            shared_config=shared_config,
             orca_repo_root=getattr(args, "orca_repo_root", None),
         ),
     )
@@ -199,9 +199,7 @@ def _advance_workflow_worker_cycle(
     engines = options.engines
     return runtime.advance_registry_once(
         workflow_root=options.workflow_root_text,
-        crest_config=engines.crest.config,
-        xtb_config=engines.xtb.config,
-        orca_config=engines.orca.config,
+        shared_config=engines.shared_config,
         orca_repo_root=engines.orca.repo_root,
         submit_ready=options.submit_ready,
         refresh_registry=options.refresh_each_cycle

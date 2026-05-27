@@ -31,7 +31,9 @@ class TestMemoryErrorDetection(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             out = Path(td) / "calc.out"
             out.write_text(text, encoding="utf-8")
-            result = analyze_output(out, CompletionMode(kind="opt", require_irc=False, route_line="! Opt"))
+            result = analyze_output(
+                out, CompletionMode(kind="opt", require_irc=False, route_line="! Opt")
+            )
         return result.status
 
     def test_out_of_memory(self) -> None:
@@ -53,7 +55,9 @@ class TestGeomNotConvergedDetection(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             out = Path(td) / "calc.out"
             out.write_text(text, encoding="utf-8")
-            result = analyze_output(out, CompletionMode(kind="opt", require_irc=False, route_line="! Opt"))
+            result = analyze_output(
+                out, CompletionMode(kind="opt", require_irc=False, route_line="! Opt")
+            )
         return result.status
 
     def test_optimization_did_not_converge(self) -> None:
@@ -158,11 +162,13 @@ class TestCrashRecovery(unittest.TestCase):
         config.write_text(
             json.dumps(
                 {
-                    "runtime": {
-                        "allowed_root": str(allowed_root),
-                        "default_max_retries": 4,
+                    "orca": {
+                        "runtime": {
+                            "allowed_root": str(allowed_root),
+                            "default_max_retries": 4,
+                        },
+                        "paths": {"orca_executable": str(fake_orca)},
                     },
-                    "paths": {"orca_executable": str(fake_orca)},
                 }
             ),
             encoding="utf-8",

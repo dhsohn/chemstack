@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -23,13 +22,12 @@ from chemstack.flow.submitters.common import normalize_text, sibling_app_command
 _WORKFLOW_ENGINE_APPS = ("crest", "xtb")
 _ENGINE_APPS = ("orca",)
 _ENGINE_WORKER_MODULES = {
-    "orca": "chemstack.orca.runtime.queue_worker",
+    "orca": "chemstack.orca.commands.queue",
     "crest": "chemstack.crest.queue_runtime",
     "xtb": "chemstack.xtb.queue_runtime",
 }
 _KNOWN_WORKER_APPS = (*_ENGINE_APPS, "workflow")
 _DEFAULT_WORKER_APPS = _ENGINE_APPS
-_DIRECT_ENGINE_WORKER_ENV_VAR = "CHEMSTACK_QUEUE_WORKER_DIRECT"
 
 
 @dataclass(frozen=True)
@@ -77,7 +75,8 @@ def _selected_worker_apps(values: Sequence[str] | None) -> list[str]:
 
 
 def _engine_worker_tail_argv(*, app: str, args: argparse.Namespace) -> list[str]:
-    del app
+    if app != "orca":
+        return []
     tail_argv: list[str] = []
     if bool(getattr(args, "auto_organize", False)):
         tail_argv.append("--auto-organize")
@@ -106,8 +105,7 @@ def _engine_worker_spec(
         module_name=_ENGINE_WORKER_MODULES[app],
         tail_argv=engine_worker_tail_argv(app=app, args=args),
     )
-    env_payload = dict(env) if isinstance(env, dict) else dict(os.environ)
-    env_payload[_DIRECT_ENGINE_WORKER_ENV_VAR] = "1"
+    env_payload = dict(env) if isinstance(env, dict) else None
     return WorkerSpec(app=app, argv=tuple(argv), cwd=cwd, env=env_payload)
 
 

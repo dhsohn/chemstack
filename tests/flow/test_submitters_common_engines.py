@@ -18,7 +18,9 @@ def _completed_process(
     stdout: str,
     stderr: str = "",
 ) -> subprocess.CompletedProcess[str]:
-    return subprocess.CompletedProcess(args=args, returncode=returncode, stdout=stdout, stderr=stderr)
+    return subprocess.CompletedProcess(
+        args=args, returncode=returncode, stdout=stdout, stderr=stderr
+    )
 
 
 def test_parse_key_value_lines_ignores_invalid_lines_and_keeps_last_value() -> None:
@@ -58,14 +60,14 @@ def test_sibling_app_command_without_repo_root_uses_module_execution() -> None:
     argv, cwd, env = common.sibling_app_command(
         config_path="/tmp/config.yaml",
         repo_root=None,
-        module_name="chemstack.orca.runtime.queue_worker",
+        module_name="chemstack.orca.commands.queue",
         tail_argv=["--no-auto-organize"],
     )
 
     assert argv == [
         sys.executable,
         "-m",
-        "chemstack.orca.runtime.queue_worker",
+        "chemstack.orca.commands.queue",
         "--config",
         "/tmp/config.yaml",
         "--no-auto-organize",
@@ -108,7 +110,9 @@ def test_run_sibling_app_forwards_command_to_subprocess(monkeypatch: pytest.Monk
     captured: dict[str, Any] = {}
     expected_result = _completed_process(args=["cmd"], returncode=0, stdout="ok")
 
-    def fake_sibling_app_command(**kwargs: Any) -> tuple[list[str], str | None, dict[str, str] | None]:
+    def fake_sibling_app_command(
+        **kwargs: Any,
+    ) -> tuple[list[str], str | None, dict[str, str] | None]:
         captured["command_kwargs"] = kwargs
         return ["cmd", "--flag"], "/tmp/work", {"PYTHONPATH": "/tmp/work"}
 
@@ -181,6 +185,14 @@ def test_sibling_allowed_root_requires_runtime_allowed_root(tmp_path: Path) -> N
         common.sibling_allowed_root(str(config_path))
 
 
+def test_sibling_allowed_root_reports_engine_scoped_runtime_keys(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("orca:\n  runtime: {}\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match=r"Missing orca\.runtime\.allowed_root"):
+        common.sibling_allowed_root(str(config_path), engine="orca")
+
+
 def test_sibling_runtime_paths_requires_workflow_root_for_xtb(tmp_path: Path) -> None:
     admission_root = tmp_path / "admission"
     config_path = tmp_path / "config.yaml"
@@ -210,7 +222,17 @@ def test_sibling_runtime_paths_requires_runtime_allowed_root(tmp_path: Path) -> 
         common.sibling_runtime_paths(str(config_path))
 
 
-def test_sibling_runtime_paths_derives_internal_engine_roots_from_workflow_root(tmp_path: Path) -> None:
+def test_sibling_runtime_paths_reports_engine_scoped_runtime_section(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("orca:\n  paths: {}\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match=r"Missing orca\.runtime section"):
+        common.sibling_runtime_paths(str(config_path), engine="orca")
+
+
+def test_sibling_runtime_paths_derives_internal_engine_roots_from_workflow_root(
+    tmp_path: Path,
+) -> None:
     workflow_root = tmp_path / "workflow_root"
     admission_root = tmp_path / "admission"
     config_path = tmp_path / "config.yaml"
@@ -388,7 +410,15 @@ def test_submit_job_dir_reports_structured_error(
 @pytest.mark.parametrize(
     ("module", "engine", "target", "displayed_status", "expected_status", "queue_id", "job_id"),
     [
-        (xtb_submitter, "xtb", "xtb-job-1", "cancel_requested", "cancel_requested", "q-1", "xtb-job-1"),
+        (
+            xtb_submitter,
+            "xtb",
+            "xtb-job-1",
+            "cancel_requested",
+            "cancel_requested",
+            "q-1",
+            "xtb-job-1",
+        ),
         (xtb_submitter, "xtb", "xtb-job-2", "cancelled", "cancelled", "q-2", "xtb-job-2"),
         (
             crest_submitter,
@@ -432,7 +462,9 @@ def test_cancel_target_uses_structured_queue_update(
             queue_id=requested_queue_id,
             task_id=job_id,
             cancel_requested=displayed_status == "cancel_requested",
-            status=SimpleNamespace(value="running" if displayed_status == "cancel_requested" else "cancelled"),
+            status=SimpleNamespace(
+                value="running" if displayed_status == "cancel_requested" else "cancelled"
+            ),
         )
 
     def fake_display_status(entry: Any) -> str:

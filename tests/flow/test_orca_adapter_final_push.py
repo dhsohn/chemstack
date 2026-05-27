@@ -41,12 +41,6 @@ def _write_xyz(path: Path) -> None:
     )
 
 
-def _module_not_found(name: str) -> ModuleNotFoundError:
-    error = ModuleNotFoundError(f"No module named '{name}'")
-    error.name = name
-    return error
-
-
 def _patch_resolve_for_names(
     monkeypatch: pytest.MonkeyPatch,
     sample_path: Path,
@@ -63,21 +57,10 @@ def _patch_resolve_for_names(
     monkeypatch.setattr(path_type, "resolve", fake_resolve)
 
 
-def test_import_and_basic_path_helpers_cover_remaining_low_level_edges(
+def test_basic_path_helpers_cover_remaining_low_level_edges(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import_calls: list[str] = []
-
-    def fake_import(module_name: str) -> object:
-        import_calls.append(module_name)
-        raise _module_not_found("chemstack")
-
-    monkeypatch.setattr(orca_adapter, "import_module", fake_import)
-
-    assert orca_adapter._import_orca_module("chemstack.orca.job_locations") is None
-    assert import_calls == ["chemstack.orca.job_locations"]
-
     assert orca_adapter._direct_dir_target("   ") is None
 
     class ExplodingResolvePath:
@@ -247,7 +230,9 @@ def test_directory_and_artifact_path_helpers_cover_oserror_fallbacks(
 
     bad_abs = tmp_path / "bad_abs.txt"
     assert orca_adapter._resolve_artifact_path(str(bad_abs), None) == str(bad_abs)
-    assert orca_adapter._resolve_artifact_path("bad_rel.txt", tmp_path) == str(tmp_path / "bad_rel.txt")
+    assert orca_adapter._resolve_artifact_path("bad_rel.txt", tmp_path) == str(
+        tmp_path / "bad_rel.txt"
+    )
 
     assert (
         orca_adapter._load_tracked_organized_ref(
@@ -378,7 +363,9 @@ def test_load_orca_artifact_contract_uses_target_when_no_paths_are_resolved(
 ) -> None:
     monkeypatch.setattr(orca_adapter, "_tracked_contract_payload", lambda **kwargs: None)
     monkeypatch.setattr(orca_adapter, "_tracked_runtime_context", lambda **kwargs: None)
-    monkeypatch.setattr(orca_adapter, "_tracked_artifact_context", lambda **kwargs: (None, None, {}, {}, {}))
+    monkeypatch.setattr(
+        orca_adapter, "_tracked_artifact_context", lambda **kwargs: (None, None, {}, {}, {})
+    )
     monkeypatch.setattr(orca_adapter, "_resolve_job_dir", lambda index_root, target: (None, None))
     monkeypatch.setattr(orca_adapter, "_find_queue_entry", lambda **kwargs: None)
     monkeypatch.setattr(orca_adapter, "_direct_dir_target", lambda target: None)

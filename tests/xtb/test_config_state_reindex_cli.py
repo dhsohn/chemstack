@@ -12,7 +12,7 @@ from chemstack.core.config.engines import (
     as_bool,
     as_int,
     as_str,
-    default_xtb_config_path as default_config_path,
+    default_shared_config_path as default_config_path,
     load_xtb_config as load_config,
 )
 from chemstack.xtb import state as state_mod
@@ -87,7 +87,9 @@ def test_load_config_reports_missing_file_invalid_payload_and_requires_workflow_
         load_config(str(invalid_path))
 
     missing_workflow_root_path = tmp_path / "missing-workflow-root.yaml"
-    missing_workflow_root_path.write_text(yaml.safe_dump({"xtb": {"runtime": {}}}), encoding="utf-8")
+    missing_workflow_root_path.write_text(
+        yaml.safe_dump({"xtb": {"runtime": {}}}), encoding="utf-8"
+    )
     with pytest.raises(ValueError, match=r"Config is missing workflow\.root"):
         load_config(str(missing_workflow_root_path))
 
@@ -176,7 +178,9 @@ def test_state_helpers_write_and_load_round_trip(
         selected_input="input.xyz",
     )
     report_lines_path = state_mod.write_report_md_lines(job_dir, ["# heading", "", "- done"])
-    organized_ref_path = state_mod.write_organized_ref(job_dir, {"organized_output_dir": "/tmp/out"})
+    organized_ref_path = state_mod.write_organized_ref(
+        job_dir, {"organized_output_dir": "/tmp/out"}
+    )
 
     assert state_path == job_dir / state_mod.STATE_FILE_NAME
     assert report_json_path == job_dir / state_mod.REPORT_JSON_FILE_NAME
@@ -186,10 +190,14 @@ def test_state_helpers_write_and_load_round_trip(
     assert state_mod.load_state(job_dir) == {"status": "queued"}
     assert state_mod.load_report_json(job_dir) == {"status": "completed"}
     assert state_mod.load_organized_ref(job_dir) == {"organized_output_dir": "/tmp/out"}
-    assert (job_dir / state_mod.REPORT_MD_FILE_NAME).read_text(encoding="utf-8") == "# heading\n\n- done\n"
+    assert (job_dir / state_mod.REPORT_MD_FILE_NAME).read_text(
+        encoding="utf-8"
+    ) == "# heading\n\n- done\n"
 
 
-def test_state_loaders_return_none_for_missing_invalid_and_non_mapping_payloads(tmp_path: Path) -> None:
+def test_state_loaders_return_none_for_missing_invalid_and_non_mapping_payloads(
+    tmp_path: Path,
+) -> None:
     job_dir = tmp_path / "job-002"
     job_dir.mkdir()
 
