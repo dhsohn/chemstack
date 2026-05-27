@@ -271,11 +271,9 @@ def test_activity_helper_edges_and_discovery_paths(
 ) -> None:
     assert _activity_sources.coerce_mapping({"a": 1}) == {"a": 1}
     assert _activity_sources.coerce_mapping(["not", "mapping"]) == {}
-    assert _activity_sources.resolve_existing_path("") is None
 
     existing = tmp_path / "config.yaml"
     existing.write_text("workflow:\n  root: /tmp/wf\n", encoding="utf-8")
-    assert _activity_sources.resolve_existing_path(str(existing)) == existing.resolve()
 
     assert _activity_sources.discover_workflow_root(tmp_path / "wf") == str((tmp_path / "wf").resolve())
     monkeypatch.setenv(CHEMSTACK_CONFIG_ENV_VAR, str(existing))

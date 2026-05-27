@@ -13,11 +13,9 @@ from urllib.request import Request, urlopen
 
 import yaml
 
-from chemstack.core.config.schema import TelegramConfig
+from chemstack.core.config.schema import TelegramConfig, telegram_config_from_mapping
 from chemstack.core.utils.coercion import (
     normalize_text as _coerce_normalize_text,
-    safe_float as _coerce_safe_float,
-    safe_int as _coerce_safe_int,
 )
 
 DEFAULT_TELEGRAM_BASE_URL = "https://api.telegram.org"
@@ -118,15 +116,6 @@ def _normalize_text(value: Any) -> str:
     return _coerce_normalize_text(value)
 
 
-def _safe_float(value: Any, *, default: float) -> float:
-    coerced = _coerce_safe_float(value, default=default)
-    return default if coerced is None else coerced
-
-
-def _safe_int(value: Any, *, default: int) -> int:
-    return _coerce_safe_int(value, default=default)
-
-
 def escape_html(value: Any) -> str:
     text = _normalize_text(value)
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
@@ -219,35 +208,7 @@ def load_telegram_config_from_file(config_path: str | Path | None) -> TelegramCo
     if not isinstance(raw, dict):
         return TelegramConfig()
 
-    telegram_raw = raw.get("telegram")
-    if not isinstance(telegram_raw, dict):
-        return TelegramConfig()
-
-    return TelegramConfig(
-        bot_token=_normalize_text(telegram_raw.get("bot_token")),
-        chat_id=_normalize_text(telegram_raw.get("chat_id")),
-        timeout_seconds=max(
-            0.1,
-            _safe_float(
-                telegram_raw.get("timeout_seconds"),
-                default=TelegramConfig.timeout_seconds,
-            ),
-        ),
-        max_attempts=max(
-            1,
-            _safe_int(
-                telegram_raw.get("max_attempts"),
-                default=TelegramConfig.max_attempts,
-            ),
-        ),
-        retry_backoff_seconds=max(
-            0.0,
-            _safe_float(
-                telegram_raw.get("retry_backoff_seconds"),
-                default=TelegramConfig.retry_backoff_seconds,
-            ),
-        ),
-    )
+    return telegram_config_from_mapping(raw.get("telegram"))
 
 
 @contextmanager

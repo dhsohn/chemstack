@@ -88,12 +88,15 @@ def test_cmd_run_dir_reads_manifest_for_conformer_workflow(
 ) -> None:
     workflow_dir = tmp_path / "conformer_job"
     workflow_dir.mkdir()
+    workflow_root = tmp_path / "workflow_root"
+    workflow_root.mkdir()
+    config_path = tmp_path / "chemstack.yaml"
+    config_path.write_text(f"workflow:\n  root: {workflow_root}\n", encoding="utf-8")
     (workflow_dir / "input.xyz").write_text("2\nmol\nH 0 0 0\nH 0 0 0.74\n", encoding="utf-8")
     (workflow_dir / "flow.yaml").write_text(
         "\n".join(
             [
                 "workflow_type: conformer_screening",
-                "workflow_root: /tmp/from_manifest",
                 "crest_mode: nci",
                 "priority: 7",
                 "resources:",
@@ -109,8 +112,6 @@ def test_cmd_run_dir_reads_manifest_for_conformer_workflow(
         encoding="utf-8",
     )
     captured: dict[str, Any] = {}
-
-    monkeypatch.setattr(cli_common, "_discover_workflow_root", lambda explicit: str(Path(str(explicit)).resolve()) if explicit else None)
 
     def fake_create_conformer_screening_workflow(**kwargs: Any) -> dict[str, Any]:
         captured.update(kwargs)
@@ -135,6 +136,7 @@ def test_cmd_run_dir_reads_manifest_for_conformer_workflow(
         orca_route_line=None,
         charge=None,
         multiplicity=None,
+        chemstack_config=str(config_path),
         json=True,
     )
 
@@ -144,7 +146,7 @@ def test_cmd_run_dir_reads_manifest_for_conformer_workflow(
     assert captured == {
         "input_xyz": str((workflow_dir / "input.xyz").resolve()),
         "workflow_id": "wf_conformer_screening_conformer_job",
-        "workflow_root": str(Path("/tmp/from_manifest").resolve()),
+        "workflow_root": str(workflow_root.resolve()),
         "crest_mode": "nci",
         "priority": 7,
         "max_cores": 12,
@@ -344,6 +346,7 @@ def test_cmd_run_dir_requires_workflow_root_for_reaction_workflow(
     create_called = False
 
     monkeypatch.setattr(cli_common, "_discover_workflow_root", lambda explicit: None)
+    monkeypatch.setattr(cli_run_dir, "_cli_workflow_root_from_args", lambda args, *, config_path=None: None)
 
     def fake_create_reaction_ts_search_workflow(**kwargs: Any) -> dict[str, Any]:
         nonlocal create_called
@@ -369,6 +372,7 @@ def test_cmd_run_dir_requires_workflow_root_for_reaction_workflow(
         orca_route_line=None,
         charge=None,
         multiplicity=None,
+        chemstack_config=None,
         json=False,
     )
 
@@ -389,6 +393,7 @@ def test_cmd_run_dir_requires_workflow_root_for_conformer_workflow(
     create_called = False
 
     monkeypatch.setattr(cli_common, "_discover_workflow_root", lambda explicit: None)
+    monkeypatch.setattr(cli_run_dir, "_cli_workflow_root_from_args", lambda args, *, config_path=None: None)
 
     def fake_create_conformer_screening_workflow(**kwargs: Any) -> dict[str, Any]:
         nonlocal create_called
@@ -414,6 +419,7 @@ def test_cmd_run_dir_requires_workflow_root_for_conformer_workflow(
         orca_route_line=None,
         charge=None,
         multiplicity=None,
+        chemstack_config=None,
         json=False,
     )
 

@@ -31,6 +31,24 @@ def default_config_path_from_repo_root(
     return str(repo_default)
 
 
+def discover_shared_config_path(
+    explicit: str | Path | None,
+    repo_root: Path,
+    *,
+    env_var: str = CHEMSTACK_CONFIG_ENV_VAR,
+) -> str | None:
+    explicit_text = str(explicit or "").strip()
+    if explicit_text:
+        return str(Path(explicit_text).expanduser().resolve())
+
+    discovered = default_config_path_from_repo_root(repo_root, env_var=env_var)
+    if os.getenv(env_var, "").strip():
+        return str(Path(discovered).expanduser().resolve())
+
+    path = Path(discovered).expanduser().resolve()
+    return str(path) if path.exists() else None
+
+
 def engine_config_mapping(
     raw: dict[str, Any],
     engine: str,
@@ -61,11 +79,7 @@ def workflow_root_from_mapping(raw: dict[str, Any] | None) -> str:
     if not isinstance(workflow_raw, dict):
         return ""
 
-    root_text = str(
-        workflow_raw.get("root")
-        or workflow_raw.get("workflow_root")
-        or ""
-    ).strip()
+    root_text = str(workflow_raw.get("root") or "").strip()
     if not root_text:
         return ""
     return str(Path(root_text).expanduser().resolve())

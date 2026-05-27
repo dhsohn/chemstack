@@ -3,16 +3,15 @@ from __future__ import annotations
 import argparse
 import json
 import logging
-import os
-import shlex
 import signal
 import subprocess
 import sys
 import time
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any, Sequence
 
+from chemstack import cli_worker_conflicts as _worker_conflicts
+from chemstack import cli_worker_specs as _worker_specs
 from chemstack.cli_common import (
     _dependency,
     _discover_shared_config_path,
@@ -20,126 +19,113 @@ from chemstack.cli_common import (
     _repo_root_for_subprocess,
     _workflow_root_for_args,
 )
+from chemstack.cli_worker_conflicts import _ExistingWorkerConflict
+from chemstack.cli_worker_specs import (
+    _DEFAULT_WORKER_APPS,
+    _DIRECT_ENGINE_WORKER_ENV_VAR,
+    _ENGINE_APPS,
+    _ENGINE_WORKER_MODULES,
+    _KNOWN_WORKER_APPS,
+    _WORKFLOW_ENGINE_APPS,
+    WorkerSpec,
+)
 from chemstack.core.app_ids import (
     CHEMSTACK_CONFIG_ENV_VAR,
     CHEMSTACK_WORKFLOW_WORKER_MODULE,
 )
 from chemstack.flow.submitters.common import normalize_text, sibling_app_command
 
-_WORKFLOW_ENGINE_APPS = ("crest", "xtb")
-_ENGINE_APPS = ("orca",)
-_ENGINE_WORKER_MODULES = {
-    "orca": "chemstack.orca.runtime.queue_worker",
-    "crest": "chemstack.crest.queue_runtime",
-    "xtb": "chemstack.xtb.queue_runtime",
-}
-_KNOWN_WORKER_APPS = (*_ENGINE_APPS, "workflow")
-_DEFAULT_WORKER_APPS = _ENGINE_APPS
 _WORKER_POLL_INTERVAL_SECONDS = 1.0
 _WORKER_STARTUP_FAILURE_WINDOW_SECONDS = 5.0
 _WORKER_MAX_STARTUP_FAILURES = 2
-_DIRECT_ENGINE_WORKER_ENV_VAR = "CHEMSTACK_QUEUE_WORKER_DIRECT"
 LOGGER = logging.getLogger(__name__)
 
+__all__ = [
+    "CHEMSTACK_CONFIG_ENV_VAR",
+    "CHEMSTACK_WORKFLOW_WORKER_MODULE",
+    "LOGGER",
+    "WorkerSpec",
+    "_DEFAULT_WORKER_APPS",
+    "_DIRECT_ENGINE_WORKER_ENV_VAR",
+    "_ENGINE_APPS",
+    "_ENGINE_WORKER_MODULES",
+    "_ExistingWorkerConflict",
+    "_KNOWN_WORKER_APPS",
+    "_WORKFLOW_ENGINE_APPS",
+    "_add_workflow_worker_spec",
+    "_build_worker_specs",
+    "_classify_existing_orca_worker",
+    "_command_invokes_module",
+    "_command_program_name",
+    "_dependency",
+    "_detect_existing_orca_worker_conflict",
+    "_discover_shared_config_path",
+    "_effective_shared_config_text",
+    "_emit_existing_orca_worker_conflict",
+    "_emit_supervisor_specs_json",
+    "_engine_worker_spec",
+    "_engine_worker_tail_argv",
+    "_format_command_argv",
+    "_quoted_command",
+    "_read_process_command",
+    "_repo_root_for_subprocess",
+    "_run_worker_supervisor",
+    "_selected_worker_apps",
+    "_terminate_process",
+    "_validate_engine_worker_config",
+    "_worker_engine_apps",
+    "_workflow_only_worker_flag_error",
+    "_workflow_root_for_args",
+    "_workflow_worker_spec",
+    "cmd_queue_worker",
+    "normalize_text",
+    "sibling_app_command",
+]
 
-@dataclass(frozen=True)
-class WorkerSpec:
-    app: str
-    argv: tuple[str, ...]
-    cwd: str | None = None
-    env: dict[str, str] | None = None
 
-    def to_dict(self) -> dict[str, Any]:
-        env_payload: dict[str, str] | None = None
-        if isinstance(self.env, dict):
-            allowed_env_keys = (CHEMSTACK_CONFIG_ENV_VAR, "PYTHONPATH")
-            env_payload = {}
-            for key in allowed_env_keys:
-                value = normalize_text(self.env.get(key))
-                if value:
-                    env_payload[key] = value
-            if not env_payload:
-                env_payload = None
-        return {
-            "app": self.app,
-            "argv": list(self.argv),
-            "cwd": self.cwd or "",
-            "env": env_payload,
-        }
+class _WorkerDependencyProxy:
+    def __init__(self, explicit: Any | None) -> None:
+        self._explicit = explicit
+        self._module = sys.modules[__name__]
+
+    def __getattr__(self, name: str) -> Any:
+        explicit = self._explicit
+        if explicit is not None:
+            try:
+                return getattr(explicit, name)
+            except AttributeError:
+                pass
+        return getattr(self._module, name)
 
 
-@dataclass
-class _SupervisedWorker:
-    spec: WorkerSpec
-    process: subprocess.Popen[Any]
-    started_at_monotonic: float
-    startup_failure_count: int = 0
-
-
-@dataclass(frozen=True)
-class _ExistingWorkerConflict:
-    app: str
-    pid: int
-    allowed_root: str
-    source: str
-    command: str
-
-
-@dataclass
-class _SupervisorShutdown:
-    requested: bool = False
+def _worker_deps(deps: Any | None) -> Any:
+    if isinstance(deps, _WorkerDependencyProxy):
+        return deps
+    return _WorkerDependencyProxy(deps)
 
 
 def _read_process_command(pid: int) -> tuple[str, ...]:
-    cmdline_path = Path("/proc") / str(pid) / "cmdline"
-    try:
-        raw = cmdline_path.read_bytes()
-    except OSError:
-        return ()
-    parts = [part.decode("utf-8", errors="replace") for part in raw.split(b"\0") if part]
-    return tuple(parts)
+    return _worker_conflicts._read_process_command(pid)
 
 
 def _command_invokes_module(command_argv: Sequence[str], module_name: str) -> bool:
-    target = normalize_text(module_name).lower()
-    if not target:
-        return False
-
-    normalized = [normalize_text(part).lower() for part in command_argv]
-    for index, part in enumerate(normalized[:-1]):
-        if part == "-m" and normalized[index + 1] == target:
-            return True
-    return False
+    return _worker_conflicts._command_invokes_module(command_argv, module_name)
 
 
 def _command_program_name(command_argv: Sequence[str]) -> str:
-    if not command_argv:
-        return ""
-    raw = normalize_text(command_argv[0])
-    if not raw:
-        return ""
-    return Path(raw).stem.lower()
+    return _worker_conflicts._command_program_name(command_argv)
 
 
 def _classify_existing_orca_worker(command_argv: Sequence[str]) -> str:
-    program_name = _command_program_name(command_argv)
-    if (
-        program_name == "chemstack"
-        or _command_invokes_module(command_argv, "chemstack.cli")
-        or _command_invokes_module(command_argv, _ENGINE_WORKER_MODULES["orca"])
-    ):
-        return "chemstack"
-    return "unknown"
+    return _worker_conflicts._classify_existing_orca_worker(command_argv)
 
 
 def _format_command_argv(command_argv: Sequence[str]) -> str:
-    if not command_argv:
-        return "<unavailable>"
-    return _quoted_command(command_argv)
+    return _worker_conflicts._format_command_argv(command_argv)
 
 
 def _quoted_command(command_argv: Sequence[str]) -> str:
-    return " ".join(shlex.quote(part) for part in command_argv)
+    return _worker_conflicts._quoted_command(command_argv)
 
 
 def _detect_existing_orca_worker_conflict(
@@ -148,41 +134,10 @@ def _detect_existing_orca_worker_conflict(
     args: argparse.Namespace,
     deps: Any | None = None,
 ) -> _ExistingWorkerConflict | None:
-    if not any(spec.app == "orca" for spec in specs):
-        return None
-
-    discover_shared_config_path = _dependency(
-        deps, "_discover_shared_config_path", _discover_shared_config_path
-    )
-    effective_shared_config_text = _dependency(
-        deps, "_effective_shared_config_text", _effective_shared_config_text
-    )
-    config_path = discover_shared_config_path(effective_shared_config_text(args))
-    if not normalize_text(config_path):
-        return None
-
-    try:
-        from chemstack.orca.config import load_config as _load_orca_config
-        from chemstack.orca.queue_worker import read_worker_pid as _read_orca_worker_pid
-
-        cfg = _load_orca_config(str(config_path))
-    except Exception:
-        LOGGER.debug("failed to inspect existing ORCA worker config", exc_info=True)
-        return None
-
-    allowed_root = Path(cfg.runtime.allowed_root).expanduser().resolve()
-    existing_pid = _read_orca_worker_pid(allowed_root)
-    if existing_pid is None:
-        return None
-
-    command_argv = _read_process_command(existing_pid)
-    source = _classify_existing_orca_worker(command_argv)
-    return _ExistingWorkerConflict(
-        app="orca",
-        pid=existing_pid,
-        allowed_root=str(allowed_root),
-        source=source,
-        command=_format_command_argv(command_argv),
+    return _worker_conflicts._detect_existing_orca_worker_conflict(
+        specs,
+        args=args,
+        deps=_worker_deps(deps),
     )
 
 
@@ -191,48 +146,18 @@ def _emit_existing_orca_worker_conflict(
     *,
     command_name: str,
 ) -> int:
-    print(
-        f"error: existing ORCA queue worker detected for allowed_root {conflict.allowed_root} "
-        f"(pid={conflict.pid})."
+    return _worker_conflicts._emit_existing_orca_worker_conflict(
+        conflict,
+        command_name=command_name,
     )
-    if conflict.source == "chemstack":
-        print("source: chemstack queue worker")
-        print("This queue root is already being managed by a running chemstack worker.")
-    else:
-        print("source: existing queue worker")
-    print(f"command: {conflict.command}")
-    if conflict.source == "chemstack":
-        print("Stop the existing queue-worker service before starting another worker.")
-    else:
-        print("Stop the existing worker before starting another worker.")
-    return 1
 
 
 def _selected_worker_apps(values: Sequence[str] | None) -> list[str]:
-    selected = list(values or [])
-    if not selected:
-        return list(_DEFAULT_WORKER_APPS)
-
-    ordered: list[str] = []
-    seen: set[str] = set()
-    for value in selected:
-        text = normalize_text(value).lower()
-        if not text or text in seen:
-            continue
-        if text not in _KNOWN_WORKER_APPS:
-            raise ValueError(f"Unsupported worker app: {text}")
-        seen.add(text)
-        ordered.append(text)
-    return ordered
+    return _worker_specs._selected_worker_apps(values)
 
 
 def _engine_worker_tail_argv(*, app: str, args: argparse.Namespace) -> list[str]:
-    tail_argv: list[str] = []
-    if bool(getattr(args, "auto_organize", False)):
-        tail_argv.append("--auto-organize")
-    elif bool(getattr(args, "no_auto_organize", False)):
-        tail_argv.append("--no-auto-organize")
-    return tail_argv
+    return _worker_specs._engine_worker_tail_argv(app=app, args=args)
 
 
 def _engine_worker_spec(
@@ -242,19 +167,12 @@ def _engine_worker_spec(
     args: argparse.Namespace,
     deps: Any | None = None,
 ) -> WorkerSpec:
-    build_sibling_command = _dependency(deps, "sibling_app_command", sibling_app_command)
-    repo_root_for_subprocess = _dependency(
-        deps, "_repo_root_for_subprocess", _repo_root_for_subprocess
-    )
-    argv, cwd, env = build_sibling_command(
+    return _worker_specs._engine_worker_spec(
+        app=app,
         config_path=config_path,
-        repo_root=repo_root_for_subprocess(),
-        module_name=_ENGINE_WORKER_MODULES[app],
-        tail_argv=_engine_worker_tail_argv(app=app, args=args),
+        args=args,
+        deps=_worker_deps(deps),
     )
-    env_payload = dict(env) if isinstance(env, dict) else dict(os.environ)
-    env_payload[_DIRECT_ENGINE_WORKER_ENV_VAR] = "1"
-    return WorkerSpec(app=app, argv=tuple(argv), cwd=cwd, env=env_payload)
 
 
 def _workflow_worker_spec(
@@ -263,69 +181,23 @@ def _workflow_worker_spec(
     config_path: str | None,
     args: argparse.Namespace,
 ) -> WorkerSpec:
-    argv = [
-        sys.executable,
-        "-m",
-        CHEMSTACK_WORKFLOW_WORKER_MODULE,
-        "--workflow-root",
-        str(Path(workflow_root).expanduser().resolve()),
-    ]
-    if normalize_text(config_path):
-        argv.extend(["--chemstack-config", str(Path(str(config_path)).expanduser().resolve())])
-    if bool(getattr(args, "no_submit", False)):
-        argv.append("--no-submit")
-    if bool(getattr(args, "once", False)):
-        argv.append("--once")
-    if bool(getattr(args, "refresh_registry", False)):
-        argv.append("--refresh-registry")
-    if bool(getattr(args, "refresh_each_cycle", False)):
-        argv.append("--refresh-each-cycle")
-
-    max_cycles = int(getattr(args, "max_cycles", 0) or 0)
-    if max_cycles > 0:
-        argv.extend(["--max-cycles", str(max_cycles)])
-
-    interval_seconds = float(getattr(args, "interval_seconds", 0.0) or 0.0)
-    if interval_seconds > 0:
-        argv.extend(["--interval-seconds", str(interval_seconds)])
-
-    lock_timeout_seconds = float(getattr(args, "lock_timeout_seconds", 0.0) or 0.0)
-    if lock_timeout_seconds > 0:
-        argv.extend(["--lock-timeout-seconds", str(lock_timeout_seconds)])
-    return WorkerSpec(app="workflow", argv=tuple(argv))
+    return _worker_specs._workflow_worker_spec(
+        workflow_root=workflow_root,
+        config_path=config_path,
+        args=args,
+    )
 
 
 def _worker_engine_apps(apps: Sequence[str], *, workflow_enabled: bool) -> list[str]:
-    engine_apps = [app for app in apps if app in _ENGINE_APPS]
-    if workflow_enabled:
-        for app in _WORKFLOW_ENGINE_APPS:
-            if app not in engine_apps:
-                engine_apps.append(app)
-    return engine_apps
+    return _worker_specs._worker_engine_apps(apps, workflow_enabled=workflow_enabled)
 
 
 def _validate_engine_worker_config(engine_apps: Sequence[str], config_path: str | None) -> None:
-    if engine_apps and not normalize_text(config_path):
-        raise ValueError(
-            "Could not discover chemstack.yaml for engine workers. Pass --chemstack-config or set CHEMSTACK_CONFIG."
-        )
+    _worker_specs._validate_engine_worker_config(engine_apps, config_path)
 
 
 def _workflow_only_worker_flag_error(args: Any) -> str | None:
-    if any(
-        bool(getattr(args, attr, False))
-        for attr in ("no_submit", "refresh_registry", "refresh_each_cycle")
-    ):
-        raise ValueError("workflow-only worker flags require --app workflow")
-    numeric_flags = (
-        ("max_cycles", int, "--max-cycles"),
-        ("interval_seconds", float, "--interval-seconds"),
-        ("lock_timeout_seconds", float, "--lock-timeout-seconds"),
-    )
-    for attr, caster, option in numeric_flags:
-        if caster(getattr(args, attr, 0) or 0) > 0:
-            return f"{option} requires --app workflow"
-    return None
+    return _worker_specs._workflow_only_worker_flag_error(args)
 
 
 def _add_workflow_worker_spec(
@@ -336,52 +208,34 @@ def _add_workflow_worker_spec(
     workflow_root: str | None,
     config_path: str | None,
     args: argparse.Namespace,
+    deps: Any | None = None,
 ) -> None:
-    if "workflow" in apps and not workflow_root:
-        raise ValueError("workflow worker requires workflow.root in chemstack.yaml")
-
-    should_add_workflow = "workflow" in apps or (not explicit_app_selection and bool(workflow_root))
-    if should_add_workflow and workflow_root:
-        specs.append(
-            _workflow_worker_spec(workflow_root=workflow_root, config_path=config_path, args=args)
-        )
-        return
-
-    flag_error = _workflow_only_worker_flag_error(args)
-    if flag_error:
-        raise ValueError(flag_error)
-
-
-def _build_worker_specs(args: Any, *, deps: Any | None = None) -> list[WorkerSpec]:
-    explicit_apps = list(getattr(args, "app", None) or [])
-    apps = _selected_worker_apps(explicit_apps)
-    explicit_app_selection = bool(explicit_apps)
-    discover_shared_config_path = _dependency(
-        deps, "_discover_shared_config_path", _discover_shared_config_path
-    )
-    effective_shared_config_text = _dependency(
-        deps, "_effective_shared_config_text", _effective_shared_config_text
-    )
-    workflow_root_for_args = _dependency(deps, "_workflow_root_for_args", _workflow_root_for_args)
-    config_path = discover_shared_config_path(effective_shared_config_text(args))
-    workflow_root = workflow_root_for_args(args)
-    workflow_enabled = "workflow" in apps or (not explicit_app_selection and bool(workflow_root))
-    engine_apps = _worker_engine_apps(apps, workflow_enabled=workflow_enabled)
-    _validate_engine_worker_config(engine_apps, config_path)
-
-    specs = [
-        _engine_worker_spec(app=app, config_path=str(config_path), args=args, deps=deps)
-        for app in engine_apps
-    ]
-    _add_workflow_worker_spec(
+    _worker_specs._add_workflow_worker_spec(
         specs,
         apps=apps,
         explicit_app_selection=explicit_app_selection,
         workflow_root=workflow_root,
         config_path=config_path,
         args=args,
+        deps=_worker_deps(deps),
     )
-    return specs
+
+
+def _build_worker_specs(args: Any, *, deps: Any | None = None) -> list[WorkerSpec]:
+    return _worker_specs._build_worker_specs(args, deps=_worker_deps(deps))
+
+
+@dataclass
+class _SupervisedWorker:
+    spec: WorkerSpec
+    process: subprocess.Popen[Any]
+    started_at_monotonic: float
+    startup_failure_count: int = 0
+
+
+@dataclass
+class _SupervisorShutdown:
+    requested: bool = False
 
 
 def _terminate_process(proc: subprocess.Popen[Any], *, deps: Any | None = None) -> None:

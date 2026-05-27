@@ -11,6 +11,7 @@ from chemstack.core.config.schema import (
     normalize_admission_limit,
     normalize_default_max_retries,
     normalize_max_concurrent,
+    telegram_config_from_mapping,
 )
 
 
@@ -147,3 +148,25 @@ def test_telegram_config_enabled(bot_token: str, chat_id: str, expected: bool) -
     config = TelegramConfig(bot_token=bot_token, chat_id=chat_id)
 
     assert config.enabled is expected
+
+
+def test_telegram_config_from_mapping_normalizes_delivery_settings() -> None:
+    config = telegram_config_from_mapping(
+        {
+            "bot_token": " token ",
+            "chat_id": 1234,
+            "timeout_seconds": "0",
+            "max_attempts": "0",
+            "retry_backoff_seconds": "-2",
+        }
+    )
+
+    assert config.bot_token == "token"
+    assert config.chat_id == "1234"
+    assert config.timeout_seconds == 0.1
+    assert config.max_attempts == 1
+    assert config.retry_backoff_seconds == 0.0
+
+
+def test_telegram_config_from_mapping_uses_defaults_for_non_mapping() -> None:
+    assert telegram_config_from_mapping(None) == TelegramConfig()

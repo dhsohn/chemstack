@@ -271,7 +271,7 @@ def test_cmd_init_success_writes_config_and_prints_summary(tmp_path: Path, capsy
     validate_generated_config.assert_called_once_with(str(config_path.resolve()))
     output = capsys.readouterr().out
     assert "Config created successfully." in output
-    assert "workflow_root" in output
+    assert "workflow.root" in output
     assert "orca_allowed_root" in output
     assert "xtb_executable" in output
     assert "crest_executable" in output

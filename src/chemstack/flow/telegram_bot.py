@@ -26,8 +26,10 @@ from chemstack.core.config import TelegramConfig
 from chemstack.core.config.files import shared_workflow_root_from_config
 from chemstack.core.notifications import (
     MAX_TELEGRAM_MESSAGE_LENGTH,
+    build_telegram_transport,
     escape_html,
     load_telegram_config_from_file,
+    split_telegram_message,
 )
 from chemstack.core.notifications.telegram import urlopen_with_ipv4_fallback
 
@@ -148,58 +150,36 @@ def _api_call(
         return None
 
 
-def _send_message(token: str, chat_id: str, text: str, *, parse_mode: str | None = "HTML") -> bool:
-    payload: dict[str, Any] = {"chat_id": chat_id, "text": text[:_MAX_MESSAGE_LENGTH]}
-    if parse_mode:
-        payload["parse_mode"] = parse_mode
-    return _api_call(token, "sendMessage", payload) is not None
+def _send_text_once(transport: Any, text: str, *, parse_mode: str | None) -> bool:
+    result = transport.send_text(text, parse_mode=parse_mode)
+    return bool(result.sent)
 
 
-def _message_chunks(text: str, *, limit: int = _MAX_MESSAGE_LENGTH) -> list[str]:
-    if limit <= 0:
-        raise ValueError("message chunk limit must be positive")
-
-    if len(text) <= limit:
-        return [text]
-
-    chunks: list[str] = []
-    current = ""
-    for line in text.splitlines(keepends=True):
-        if len(line) > limit:
-            if current:
-                chunks.append(current.rstrip("\n"))
-                current = ""
-            remaining = line
-            while remaining:
-                piece = remaining[:limit]
-                chunks.append(piece.rstrip("\n"))
-                remaining = remaining[len(piece) :]
-            continue
-        if current and len(current) + len(line) > limit:
-            chunks.append(current.rstrip("\n"))
-            current = line
-            continue
-        current += line
-
-    if current:
-        chunks.append(current.rstrip("\n"))
-    return [chunk for chunk in chunks if chunk]
+def _send_text_with_parse_fallback(
+    transport: Any,
+    text: str,
+    *,
+    parse_mode: str | None,
+) -> bool:
+    result = transport.send_text(text, parse_mode=parse_mode)
+    if result.sent:
+        return True
+    if not parse_mode:
+        return False
+    return bool(transport.send_text(text, parse_mode=None).sent)
 
 
 def _send_response(
-    token: str,
-    chat_id: str,
+    config: TelegramConfig,
     text: str,
     *,
     parse_mode: str | None = "HTML",
     limit: int = _MAX_MESSAGE_LENGTH,
 ) -> bool:
+    transport = build_telegram_transport(config)
     sent_any = False
-    for chunk in _message_chunks(text, limit=limit):
-        if _send_message(token, chat_id, chunk, parse_mode=parse_mode):
-            sent_any = True
-            continue
-        if parse_mode and _send_message(token, chat_id, chunk, parse_mode=None):
+    for chunk in split_telegram_message(text, limit=limit):
+        if _send_text_with_parse_fallback(transport, chunk, parse_mode=parse_mode):
             sent_any = True
             continue
         return False
@@ -207,8 +187,7 @@ def _send_response(
 
 
 def _send_preformatted_response(
-    token: str,
-    chat_id: str,
+    config: TelegramConfig,
     text: str,
     *,
     limit: int = _MAX_MESSAGE_LENGTH,
@@ -219,16 +198,16 @@ def _send_preformatted_response(
     if limit <= wrapper_overhead:
         raise ValueError("preformatted message limit must exceed wrapper size")
 
+    transport = build_telegram_transport(config)
     sent_any = False
-    for chunk in _message_chunks(text, limit=limit - wrapper_overhead):
+    for chunk in split_telegram_message(text, limit=limit - wrapper_overhead):
         wrapped = f"{wrapper_prefix}{escape_html(chunk)}{wrapper_suffix}"
-        if _send_message(token, chat_id, wrapped, parse_mode="HTML"):
+        if _send_text_once(transport, wrapped, parse_mode="HTML"):
             sent_any = True
             continue
-        if _send_message(token, chat_id, chunk, parse_mode=None):
-            sent_any = True
-            continue
-        return False
+        if not _send_text_once(transport, chunk, parse_mode=None):
+            return False
+        sent_any = True
     return sent_any
 
 
@@ -410,12 +389,10 @@ def _response_for_command(
 
 
 def _send_bot_response(settings: TelegramBotSettings, response: str, *, preformatted: bool) -> None:
-    token = settings.telegram.bot_token
-    chat_id = settings.telegram.chat_id
     if preformatted:
-        _send_preformatted_response(token, chat_id, response)
+        _send_preformatted_response(settings.telegram, response)
     else:
-        _send_response(token, chat_id, response)
+        _send_response(settings.telegram, response)
 
 
 def _dispatch_update(settings: TelegramBotSettings, update: Any) -> int | None:

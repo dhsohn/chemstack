@@ -27,6 +27,7 @@ from .schema import (
     normalize_max_concurrent as normalize_max_concurrent,
     positive_int as positive_int,
     resolved_admission_limit as resolved_admission_limit,
+    telegram_config_from_mapping as telegram_config_from_mapping,
 )
 
 CONFIG_ENV_VAR = CHEMSTACK_CONFIG_ENV_VAR
@@ -172,25 +173,6 @@ def _resource_config(resources_raw: dict[str, Any]) -> CommonResourceConfig:
     return resource_config_from_mapping(resources_raw)
 
 
-def _telegram_config(telegram_raw: dict[str, Any]) -> TelegramConfig:
-    return TelegramConfig(
-        bot_token=as_str(telegram_raw.get("bot_token")),
-        chat_id=as_str(telegram_raw.get("chat_id")),
-        timeout_seconds=max(
-            0.1,
-            as_float(telegram_raw.get("timeout_seconds"), TelegramConfig.timeout_seconds),
-        ),
-        max_attempts=max(1, as_int(telegram_raw.get("max_attempts"), TelegramConfig.max_attempts)),
-        retry_backoff_seconds=max(
-            0.0,
-            as_float(
-                telegram_raw.get("retry_backoff_seconds"),
-                TelegramConfig.retry_backoff_seconds,
-            ),
-        ),
-    )
-
-
 def load_workflow_engine_config(
     config_path: str | None,
     *,
@@ -218,7 +200,7 @@ def load_workflow_engine_config(
         ),
         behavior=behavior_cls(),
         resources=_resource_config(resources_raw),
-        telegram=_telegram_config(telegram_raw),
+        telegram=telegram_config_from_mapping(telegram_raw),
     )
 
 

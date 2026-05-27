@@ -5,48 +5,57 @@ from typing import Any
 
 from chemstack.cli_common import (
     _dependency,
-    _normalize_text,
-    _normalize_workflow_type,
+    _normalize_text as _normalize_text,
+    _normalize_workflow_type as _normalize_workflow_type,
+    _workflow_root_from_args as _cli_workflow_root_from_args,
 )
 from . import cli_workflow_output as _workflow_output
+from . import run_dir_manifest as _run_dir_manifest
+from . import run_dir_options as _run_dir_options
 from .orchestration import create_conformer_screening_workflow, create_reaction_ts_search_workflow
 from .restart import restart_failed_workflow
-from .manifest import (
-    FLOW_MANIFEST_FILENAMES as WORKFLOW_MANIFEST_FILENAMES,
-    load_flow_manifest as _shared_load_flow_manifest,
-    manifest_mapping as _shared_manifest_mapping,
-    resolve_endpoint_pairing_manifest as _shared_resolve_endpoint_pairing_manifest,
-    resolve_engine_manifest as _shared_resolve_engine_manifest,
-    resolve_manifest_file_value as _shared_resolve_manifest_file_value,
-)
+from .run_dir_manifest import WORKFLOW_MANIFEST_FILENAMES as WORKFLOW_MANIFEST_FILENAMES
 from .run_dir_options import (
-    RUN_DIR_COMMON_WORKFLOW_OPTION_FIELDS,
+    RUN_DIR_COMMON_WORKFLOW_OPTION_FIELDS as RUN_DIR_COMMON_WORKFLOW_OPTION_FIELDS,
     RunDirManifestSections,
     RunDirWorkflowConfig,
     RunDirWorkflowOptions,
 )
 from .run_dir_layout import (
-    STANDARD_CONFORMER_INPUT_FILENAME,
-    STANDARD_REACTION_PRODUCT_FILENAME,
-    STANDARD_REACTION_REACTANT_FILENAME,
-    inspect_workflow_run_dir,
+    STANDARD_CONFORMER_INPUT_FILENAME as STANDARD_CONFORMER_INPUT_FILENAME,
+    STANDARD_REACTION_PRODUCT_FILENAME as STANDARD_REACTION_PRODUCT_FILENAME,
+    STANDARD_REACTION_REACTANT_FILENAME as STANDARD_REACTION_REACTANT_FILENAME,
+    inspect_workflow_run_dir as inspect_workflow_run_dir,
 )
 
 
+class _CliRunDirDeps:
+    def __init__(self, deps: Any | None) -> None:
+        self._deps = deps
+
+    def __getattr__(self, name: str) -> Any:
+        if self._deps is not None and hasattr(self._deps, name):
+            return getattr(self._deps, name)
+        if name == "_workflow_root_from_args":
+            return _cli_workflow_root_from_args
+        try:
+            return globals()[name]
+        except KeyError:
+            raise AttributeError(name) from None
+
+
+def _cli_run_dir_deps(deps: Any | None) -> _CliRunDirDeps:
+    return _CliRunDirDeps(deps)
+
+
 def _load_run_dir_manifest(workflow_dir: Path, *, deps: Any | None = None) -> dict[str, Any]:
-    manifest_filenames = _dependency(
-        deps, "WORKFLOW_MANIFEST_FILENAMES", WORKFLOW_MANIFEST_FILENAMES
-    )
-    return _shared_load_flow_manifest(
-        workflow_dir,
-        filenames=tuple(manifest_filenames),
-        description="Run directory manifest",
+    return _run_dir_manifest._load_run_dir_manifest(
+        workflow_dir, deps=_cli_run_dir_deps(deps)
     )
 
 
 def _manifest_mapping(value: Any, *, deps: Any | None = None) -> dict[str, Any]:
-    del deps
-    return _shared_manifest_mapping(value)
+    return _run_dir_manifest._manifest_mapping(value, deps=_cli_run_dir_deps(deps))
 
 
 def _resolve_manifest_file_value(
@@ -55,8 +64,9 @@ def _resolve_manifest_file_value(
     *,
     deps: Any | None = None,
 ) -> str:
-    del deps
-    return _shared_resolve_manifest_file_value(workflow_dir, value)
+    return _run_dir_manifest._resolve_manifest_file_value(
+        workflow_dir, value, deps=_cli_run_dir_deps(deps)
+    )
 
 
 def _resolve_engine_manifest(
@@ -66,8 +76,9 @@ def _resolve_engine_manifest(
     *,
     deps: Any | None = None,
 ) -> dict[str, Any]:
-    del deps
-    return _shared_resolve_engine_manifest(workflow_dir, manifest, key)
+    return _run_dir_manifest._resolve_engine_manifest(
+        workflow_dir, manifest, key, deps=_cli_run_dir_deps(deps)
+    )
 
 
 def _resolve_endpoint_pairing_manifest(
@@ -76,8 +87,9 @@ def _resolve_endpoint_pairing_manifest(
     *,
     deps: Any | None = None,
 ) -> dict[str, Any]:
-    del deps
-    return _shared_resolve_endpoint_pairing_manifest(manifest, xtb_manifest)
+    return _run_dir_manifest._resolve_endpoint_pairing_manifest(
+        manifest, xtb_manifest, deps=_cli_run_dir_deps(deps)
+    )
 
 
 def _resolve_run_dir_path(
@@ -89,23 +101,14 @@ def _resolve_run_dir_path(
     default_names: tuple[str, ...],
     deps: Any | None = None,
 ) -> str:
-    normalize_text = _dependency(deps, "_normalize_text", _normalize_text)
-    path_cls = _dependency(deps, "Path", Path)
-
-    candidate_text = normalize_text(explicit)
-    if not candidate_text:
-        candidate_text = normalize_text(manifest.get(key))
-    if candidate_text:
-        candidate = path_cls(candidate_text).expanduser()
-        if not candidate.is_absolute():
-            candidate = workflow_dir / candidate
-        return str(candidate.resolve())
-
-    for name in default_names:
-        candidate = workflow_dir / name
-        if candidate.exists():
-            return str(candidate.resolve())
-    return ""
+    return _run_dir_manifest._resolve_run_dir_path(
+        workflow_dir,
+        explicit=explicit,
+        manifest=manifest,
+        key=key,
+        default_names=default_names,
+        deps=_cli_run_dir_deps(deps),
+    )
 
 
 def _resolve_text_option_with_section(
@@ -118,31 +121,23 @@ def _resolve_text_option_with_section(
     *,
     deps: Any | None = None,
 ) -> str:
-    normalize_text = _dependency(deps, "_normalize_text", _normalize_text)
-
-    explicit_text = normalize_text(explicit)
-    if explicit_text:
-        return explicit_text
-    manifest_text = normalize_text(manifest.get(key))
-    if manifest_text:
-        return manifest_text
-    section_text = normalize_text(section.get(section_key))
-    if section_text:
-        return section_text
-    return default
+    return _run_dir_options._resolve_text_option_with_section(
+        explicit,
+        manifest,
+        key,
+        section,
+        section_key,
+        default,
+        deps=_cli_run_dir_deps(deps),
+    )
 
 
 def _resolve_int_option(
     explicit: Any, manifest: dict[str, Any], key: str, default: int, *, deps: Any | None = None
 ) -> int:
-    normalize_text = _dependency(deps, "_normalize_text", _normalize_text)
-
-    if explicit is not None:
-        return int(explicit)
-    manifest_value = manifest.get(key)
-    if manifest_value is None or normalize_text(manifest_value) == "":
-        return default
-    return int(manifest_value)
+    return _run_dir_options._resolve_int_option(
+        explicit, manifest, key, default, deps=_cli_run_dir_deps(deps)
+    )
 
 
 def _resolve_int_option_with_section(
@@ -155,34 +150,23 @@ def _resolve_int_option_with_section(
     *,
     deps: Any | None = None,
 ) -> int:
-    normalize_text = _dependency(deps, "_normalize_text", _normalize_text)
-
-    if explicit is not None:
-        return int(explicit)
-    manifest_value = manifest.get(key)
-    if manifest_value is not None and normalize_text(manifest_value) != "":
-        return int(manifest_value)
-    section_value = section.get(section_key)
-    if section_value is None or normalize_text(section_value) == "":
-        return default
-    return int(section_value)
+    return _run_dir_options._resolve_int_option_with_section(
+        explicit,
+        manifest,
+        key,
+        section,
+        section_key,
+        default,
+        deps=_cli_run_dir_deps(deps),
+    )
 
 
 def _resolve_required_workflow_root(
     args: Any, manifest: dict[str, Any], *, deps: Any | None = None
 ) -> str:
-    discover_workflow_root = _dependency(deps, "_discover_workflow_root", None)
-    if discover_workflow_root is None:
-        from chemstack.cli_common import _discover_workflow_root
-
-        discover_workflow_root = _discover_workflow_root
-
-    resolved_workflow_root = discover_workflow_root(
-        getattr(args, "workflow_root", None) or manifest.get("workflow_root")
+    return _run_dir_options._resolve_required_workflow_root(
+        args, manifest, deps=_cli_run_dir_deps(deps)
     )
-    if not resolved_workflow_root:
-        raise ValueError("workflow_root is not configured. Set workflow.root in chemstack.yaml.")
-    return resolved_workflow_root
 
 
 def _safe_workflow_name(value: Any, *, fallback: str, deps: Any | None = None) -> str:
@@ -247,48 +231,16 @@ def _workflow_root_for_existing_run_dir(
 def _resolve_run_dir_workflow_type(
     args: Any, manifest: dict[str, Any], workflow_layout: Any, *, deps: Any | None = None
 ) -> str:
-    normalize_text = _dependency(deps, "_normalize_text", _normalize_text)
-    normalize_workflow_type = _dependency(
-        deps, "_normalize_workflow_type", _normalize_workflow_type
-    )
-
-    workflow_type_text = normalize_text(getattr(args, "workflow_type", None))
-    if not workflow_type_text:
-        workflow_type_text = normalize_text(manifest.get("workflow_type"))
-    if workflow_type_text:
-        return normalize_workflow_type(workflow_type_text)
-    if workflow_layout.is_ambiguous:
-        raise ValueError(
-            "Ambiguous workflow_dir: found both reaction inputs and conformer input. "
-            "Pass --workflow-type to choose one."
-        )
-    inferred_workflow_type = workflow_layout.inferred_workflow_type
-    if inferred_workflow_type:
-        return inferred_workflow_type
-    raise ValueError(
-        "Could not infer workflow type from workflow_dir. "
-        "Expected reactant.xyz + product.xyz or input.xyz."
+    return _run_dir_manifest._resolve_run_dir_workflow_type(
+        args, manifest, workflow_layout, deps=_cli_run_dir_deps(deps)
     )
 
 
 def _resolve_run_dir_manifest_sections(
     workflow_dir: Path, manifest: dict[str, Any], *, deps: Any | None = None
 ) -> RunDirManifestSections:
-    manifest_mapping = _dependency(deps, "_manifest_mapping", _manifest_mapping)
-    resolve_engine_manifest = _dependency(
-        deps, "_resolve_engine_manifest", _resolve_engine_manifest
-    )
-    resolve_endpoint_pairing_manifest = _dependency(
-        deps, "_resolve_endpoint_pairing_manifest", _resolve_endpoint_pairing_manifest
-    )
-
-    xtb_manifest = resolve_engine_manifest(workflow_dir, manifest, "xtb")
-    return RunDirManifestSections(
-        resources=manifest_mapping(manifest.get("resources")),
-        crest=resolve_engine_manifest(workflow_dir, manifest, "crest"),
-        xtb=xtb_manifest,
-        endpoint_pairing=resolve_endpoint_pairing_manifest(manifest, xtb_manifest),
-        orca=resolve_engine_manifest(workflow_dir, manifest, "orca"),
+    return _run_dir_manifest._resolve_run_dir_manifest_sections(
+        workflow_dir, manifest, deps=_cli_run_dir_deps(deps)
     )
 
 
@@ -304,81 +256,16 @@ def _resolve_run_dir_workflow_options(
     workflow_root: str | None = None,
     deps: Any | None = None,
 ) -> RunDirWorkflowOptions:
-    resolve_required_workflow_root = _dependency(
-        deps, "_resolve_required_workflow_root", _resolve_required_workflow_root
-    )
-    resolve_text_option_with_section = _dependency(
-        deps, "_resolve_text_option_with_section", _resolve_text_option_with_section
-    )
-    resolve_int_option = _dependency(deps, "_resolve_int_option", _resolve_int_option)
-    resolve_int_option_with_section = _dependency(
-        deps, "_resolve_int_option_with_section", _resolve_int_option_with_section
-    )
-
-    return RunDirWorkflowOptions(
-        workflow_root=workflow_root or resolve_required_workflow_root(args, manifest),
-        crest_mode=resolve_text_option_with_section(
-            getattr(args, "crest_mode", None),
-            manifest,
-            "crest_mode",
-            sections.crest,
-            "mode",
-            "standard",
-        ),
-        priority=resolve_int_option(getattr(args, "priority", None), manifest, "priority", 10),
-        max_cores=resolve_int_option_with_section(
-            getattr(args, "max_cores", None),
-            manifest,
-            "max_cores",
-            sections.resources,
-            "max_cores",
-            8,
-        ),
-        max_memory_gb=resolve_int_option_with_section(
-            getattr(args, "max_memory_gb", None),
-            manifest,
-            "max_memory_gb",
-            sections.resources,
-            "max_memory_gb",
-            32,
-        ),
-        max_orca_stages=resolve_int_option(
-            getattr(args, "max_orca_stages", None),
-            manifest,
-            "max_orca_stages",
-            default_max_orca_stages,
-        ),
-        orca_route_line=resolve_text_option_with_section(
-            getattr(args, "orca_route_line", None),
-            manifest,
-            "orca_route_line",
-            sections.orca,
-            "route_line",
-            default_orca_route_line,
-        ),
-        charge=resolve_int_option_with_section(
-            getattr(args, "charge", None), manifest, "charge", sections.orca, "charge", 0
-        ),
-        multiplicity=resolve_int_option_with_section(
-            getattr(args, "multiplicity", None),
-            manifest,
-            "multiplicity",
-            sections.orca,
-            "multiplicity",
-            1,
-        ),
-        max_crest_candidates=resolve_int_option(
-            getattr(args, "max_crest_candidates", None),
-            manifest,
-            "max_crest_candidates",
-            default_max_crest_candidates,
-        ),
-        max_xtb_stages=resolve_int_option(
-            getattr(args, "max_xtb_stages", None),
-            manifest,
-            "max_xtb_stages",
-            default_max_xtb_stages,
-        ),
+    return _run_dir_options._resolve_run_dir_workflow_options(
+        args,
+        manifest,
+        sections,
+        default_orca_route_line=default_orca_route_line,
+        default_max_orca_stages=default_max_orca_stages,
+        default_max_crest_candidates=default_max_crest_candidates,
+        default_max_xtb_stages=default_max_xtb_stages,
+        workflow_root=workflow_root,
+        deps=_cli_run_dir_deps(deps),
     )
 
 
@@ -394,14 +281,7 @@ def _resolve_run_dir_workflow_option_bundle(
     workflow_root: str | None = None,
     deps: Any | None = None,
 ) -> tuple[RunDirWorkflowOptions, dict[str, Any]]:
-    resolve_run_dir_workflow_options = _dependency(
-        deps, "_resolve_run_dir_workflow_options", _resolve_run_dir_workflow_options
-    )
-    workflow_options_to_common_kwargs = _dependency(
-        deps, "_workflow_options_to_common_kwargs", _workflow_options_to_common_kwargs
-    )
-
-    options = resolve_run_dir_workflow_options(
+    return _run_dir_options._resolve_run_dir_workflow_option_bundle(
         args,
         manifest,
         sections,
@@ -410,15 +290,12 @@ def _resolve_run_dir_workflow_option_bundle(
         default_max_crest_candidates=default_max_crest_candidates,
         default_max_xtb_stages=default_max_xtb_stages,
         workflow_root=workflow_root,
+        deps=_cli_run_dir_deps(deps),
     )
-    return options, workflow_options_to_common_kwargs(options)
 
 
 def _workflow_options_to_common_kwargs(options: RunDirWorkflowOptions) -> dict[str, Any]:
-    common_kwargs = getattr(options, "common_kwargs", None)
-    if callable(common_kwargs):
-        return common_kwargs()
-    return {name: getattr(options, name) for name in RUN_DIR_COMMON_WORKFLOW_OPTION_FIELDS}
+    return _run_dir_options._workflow_options_to_common_kwargs(options)
 
 
 def _update_present_kwargs(kwargs: dict[str, Any], values: dict[str, Any]) -> None:
@@ -430,48 +307,8 @@ def _update_present_kwargs(kwargs: dict[str, Any], values: dict[str, Any]) -> No
 def _load_run_dir_workflow_config(
     args: Any, workflow_dir: Path, *, deps: Any | None = None
 ) -> RunDirWorkflowConfig:
-    inspect_run_dir = _dependency(deps, "inspect_workflow_run_dir", inspect_workflow_run_dir)
-    load_run_dir_manifest = _dependency(deps, "_load_run_dir_manifest", _load_run_dir_manifest)
-    resolve_run_dir_manifest_sections = _dependency(
-        deps, "_resolve_run_dir_manifest_sections", _resolve_run_dir_manifest_sections
-    )
-    resolve_run_dir_path = _dependency(deps, "_resolve_run_dir_path", _resolve_run_dir_path)
-    resolve_run_dir_workflow_type = _dependency(
-        deps, "_resolve_run_dir_workflow_type", _resolve_run_dir_workflow_type
-    )
-
-    workflow_layout = inspect_run_dir(workflow_dir)
-    if not workflow_layout.has_manifest:
-        raise ValueError("workflow run-dir requires flow.yaml in workflow_dir.")
-
-    manifest = load_run_dir_manifest(workflow_dir)
-    sections = resolve_run_dir_manifest_sections(workflow_dir, manifest)
-    return RunDirWorkflowConfig(
-        workflow_dir=workflow_dir,
-        manifest=manifest,
-        sections=sections,
-        reactant_xyz=resolve_run_dir_path(
-            workflow_dir,
-            explicit=getattr(args, "reactant_xyz", None),
-            manifest=manifest,
-            key="reactant_xyz",
-            default_names=(STANDARD_REACTION_REACTANT_FILENAME,),
-        ),
-        product_xyz=resolve_run_dir_path(
-            workflow_dir,
-            explicit=getattr(args, "product_xyz", None),
-            manifest=manifest,
-            key="product_xyz",
-            default_names=(STANDARD_REACTION_PRODUCT_FILENAME,),
-        ),
-        input_xyz=resolve_run_dir_path(
-            workflow_dir,
-            explicit=getattr(args, "input_xyz", None),
-            manifest=manifest,
-            key="input_xyz",
-            default_names=(STANDARD_CONFORMER_INPUT_FILENAME,),
-        ),
-        workflow_type=resolve_run_dir_workflow_type(args, manifest, workflow_layout),
+    return _run_dir_manifest._load_run_dir_workflow_config(
+        args, workflow_dir, deps=_cli_run_dir_deps(deps)
     )
 
 

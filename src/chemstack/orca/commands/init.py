@@ -319,7 +319,7 @@ def cmd_init(args: Any) -> int:
 
     print("Config created successfully.")
     print(f"  config: {config_path}")
-    print(f"  workflow_root: {workflow_root}")
+    print(f"  workflow.root: {workflow_root}")
     print(f"  max_active_simulations: {max_active_simulations}")
     print(f"  orca_allowed_root: {orca_runtime['allowed_root']}")
     print(f"  xtb_executable: {xtb_runtime['executable']}")

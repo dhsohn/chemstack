@@ -10,31 +10,6 @@ from chemstack import cli_common
 from chemstack.flow import cli_run_dir as run_dir_cli
 
 
-def test_cli_path_and_manifest_helper_edges(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    existing_file = tmp_path / "existing.xyz"
-    existing_file.write_text("x", encoding="utf-8")
-
-    assert (cli_common._project_root() / "chemstack").is_dir()
-    assert cli_common._resolve_existing_path("   ") is None
-    assert cli_common._resolve_existing_path(str(existing_file)) == existing_file.resolve()
-    assert cli_common._resolve_existing_path(str(tmp_path / "missing.xyz")) is None
-
-    class _ExplodingPath:
-        def __init__(self, raw: str) -> None:
-            self.raw = raw
-
-        def expanduser(self) -> "_ExplodingPath":
-            return self
-
-        def resolve(self) -> Path:
-            raise OSError(self.raw)
-
-    assert cli_common._resolve_existing_path("boom", deps=SimpleNamespace(Path=_ExplodingPath)) is None
-
-
 def test_cli_option_and_workflow_root_helpers(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -42,17 +17,9 @@ def test_cli_option_and_workflow_root_helpers(
     assert explicit_workflow_root is not None
     assert explicit_workflow_root.endswith("workflow-root")
 
-    captured_root: Path | None = None
-
-    def fake_default_config_path(repo_root: Path) -> Path:
-        nonlocal captured_root
-        captured_root = repo_root
-        return Path("/tmp/chemstack.yaml")
-
-    monkeypatch.setattr(cli_common, "default_config_path_from_repo_root", fake_default_config_path)
+    monkeypatch.setattr(cli_common, "_discover_shared_config_path", lambda explicit: "/tmp/chemstack.yaml")
     monkeypatch.setattr(cli_common, "shared_workflow_root_from_config", lambda path: f"resolved:{path}")
     assert cli_common._discover_configured_workflow_root(None) == "resolved:/tmp/chemstack.yaml"
-    assert captured_root == cli_common._project_root()
 
     with pytest.raises(ValueError, match="workflow_type must be one of"):
         cli_common._normalize_workflow_type("unknown")
@@ -80,7 +47,7 @@ def test_cli_shared_config_and_worker_root_defaults(
         encoding="utf-8",
     )
 
-    monkeypatch.setattr(cli_common, "default_config_path_from_repo_root", lambda repo_root: str(config_path))
+    monkeypatch.setattr(cli_common, "_discover_shared_config_path", lambda explicit: str(config_path.resolve()))
     args = SimpleNamespace(chemstack_config=None, orca_config=None, workflow_root=None)
 
     assert cli_common._shared_chemstack_config(args) == str(config_path.resolve())
@@ -149,7 +116,6 @@ def test_run_dir_workflow_options_apply_cli_manifest_section_default_precedence(
     options = run_dir_cli._resolve_run_dir_workflow_options(
         args,
         {
-            "workflow_root": "/tmp/manifest_root",
             "crest_mode": "manifest_nci",
             "priority": 7,
             "max_cores": 20,
@@ -161,9 +127,7 @@ def test_run_dir_workflow_options_apply_cli_manifest_section_default_precedence(
         default_orca_route_line="! default",
         default_max_orca_stages=3,
         deps=SimpleNamespace(
-            _resolve_required_workflow_root=lambda args, manifest: (
-                getattr(args, "workflow_root", None) or manifest.get("workflow_root")
-            )
+            _resolve_required_workflow_root=lambda args, manifest: getattr(args, "workflow_root", None)
         ),
     )
 

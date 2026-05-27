@@ -5,6 +5,7 @@ import json
 import urllib.error
 from email.message import Message
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -23,6 +24,20 @@ def _settings() -> bot.TelegramBotSettings:
         orca_config="/tmp/chemstack.yaml",
         orca_repo_root=None,
     )
+
+
+def _patch_send_transport(monkeypatch: pytest.MonkeyPatch, sender) -> None:
+    class FakeTransport:
+        def send_text(
+            self,
+            text: str,
+            *,
+            parse_mode: str | None = None,
+            **kwargs: Any,
+        ) -> SimpleNamespace:
+            return SimpleNamespace(sent=bool(sender(text, parse_mode)))
+
+    monkeypatch.setattr(bot, "build_telegram_transport", lambda _config: FakeTransport())
 
 
 def test_handle_list_formats_unified_activity_rows(monkeypatch) -> None:
@@ -285,50 +300,50 @@ def test_activity_counter_config_path_falls_back_to_settings() -> None:
 def test_send_preformatted_response_wraps_chunks_in_pre(monkeypatch) -> None:
     sent: list[tuple[str, str | None]] = []
 
-    def fake_send(token: str, chat_id: str, text: str, *, parse_mode: str | None = "HTML") -> bool:
+    def fake_send(text: str, parse_mode: str | None) -> bool:
         sent.append((text, parse_mode))
         return True
 
-    monkeypatch.setattr(bot, "_send_message", fake_send)
+    _patch_send_transport(monkeypatch, fake_send)
 
     text = "\n".join(f"line-{index} {'x' * 20}" for index in range(8))
 
-    assert bot._send_preformatted_response("bot-token", "chat-id", text, limit=80)
+    assert bot._send_preformatted_response(_settings().telegram, text, limit=80)
     assert len(sent) > 1
     assert all(mode == "HTML" for _chunk, mode in sent)
     assert all(chunk.startswith("<pre>") and chunk.endswith("</pre>") for chunk, _mode in sent)
 
 
-def test_message_chunks_rejects_non_positive_limit_and_splits_long_line() -> None:
+def test_split_telegram_message_rejects_non_positive_limit_and_splits_long_line() -> None:
     with pytest.raises(ValueError, match="positive"):
-        bot._message_chunks("hello", limit=0)
+        bot.split_telegram_message("hello", limit=0)
 
-    assert bot._message_chunks("abcdef", limit=2) == ["ab", "cd", "ef"]
+    assert bot.split_telegram_message("abcdef", limit=2) == ["ab", "cd", "ef"]
 
 
 def test_send_response_returns_false_when_all_send_attempts_fail(monkeypatch) -> None:
-    monkeypatch.setattr(bot, "_send_message", lambda *args, **kwargs: False)
+    _patch_send_transport(monkeypatch, lambda _text, _parse_mode: False)
 
-    assert bot._send_response("bot-token", "chat-id", "<b>hello</b>", parse_mode="HTML") is False
+    assert bot._send_response(_settings().telegram, "<b>hello</b>", parse_mode="HTML") is False
 
 
 def test_send_preformatted_response_falls_back_to_plain_text_and_reports_failure(monkeypatch) -> None:
     sent_modes: list[str | None] = []
 
-    def fake_send(token: str, chat_id: str, text: str, *, parse_mode: str | None = "HTML") -> bool:
+    def fake_send(text: str, parse_mode: str | None) -> bool:
         sent_modes.append(parse_mode)
         return parse_mode is None
 
-    monkeypatch.setattr(bot, "_send_message", fake_send)
+    _patch_send_transport(monkeypatch, fake_send)
 
-    assert bot._send_preformatted_response("bot-token", "chat-id", "hello")
+    assert bot._send_preformatted_response(_settings().telegram, "hello")
     assert sent_modes == ["HTML", None]
 
-    monkeypatch.setattr(bot, "_send_message", lambda *args, **kwargs: False)
-    assert bot._send_preformatted_response("bot-token", "chat-id", "hello") is False
+    _patch_send_transport(monkeypatch, lambda _text, _parse_mode: False)
+    assert bot._send_preformatted_response(_settings().telegram, "hello") is False
 
     with pytest.raises(ValueError, match="exceed wrapper"):
-        bot._send_preformatted_response("bot-token", "chat-id", "hello", limit=10)
+        bot._send_preformatted_response(_settings().telegram, "hello", limit=10)
 
 
 def test_handle_cancel_routes_through_activity_control(monkeypatch) -> None:
@@ -373,15 +388,15 @@ def test_handle_help_mentions_only_supported_commands() -> None:
 def test_send_response_splits_long_messages(monkeypatch) -> None:
     sent: list[tuple[str, str | None]] = []
 
-    def fake_send(token: str, chat_id: str, text: str, *, parse_mode: str | None = "HTML") -> bool:
+    def fake_send(text: str, parse_mode: str | None) -> bool:
         sent.append((text, parse_mode))
         return True
 
-    monkeypatch.setattr(bot, "_send_message", fake_send)
+    _patch_send_transport(monkeypatch, fake_send)
 
     text = "\n".join(f"<code>line-{index}</code> {'x' * 28}" for index in range(8))
 
-    assert bot._send_response("bot-token", "chat-id", text, parse_mode="HTML", limit=80)
+    assert bot._send_response(_settings().telegram, text, parse_mode="HTML", limit=80)
     assert len(sent) > 1
     assert all(len(chunk) <= 80 for chunk, _mode in sent)
     assert all(mode == "HTML" for _chunk, mode in sent)
@@ -390,31 +405,29 @@ def test_send_response_splits_long_messages(monkeypatch) -> None:
 def test_send_response_falls_back_to_plain_text_when_html_send_fails(monkeypatch) -> None:
     sent_modes: list[str | None] = []
 
-    def fake_send(token: str, chat_id: str, text: str, *, parse_mode: str | None = "HTML") -> bool:
+    def fake_send(text: str, parse_mode: str | None) -> bool:
         sent_modes.append(parse_mode)
         return parse_mode is None
 
-    monkeypatch.setattr(bot, "_send_message", fake_send)
+    _patch_send_transport(monkeypatch, fake_send)
 
-    assert bot._send_response("bot-token", "chat-id", "<b>hello</b>", parse_mode="HTML")
+    assert bot._send_response(_settings().telegram, "<b>hello</b>", parse_mode="HTML")
     assert sent_modes == ["HTML", None]
 
 
-def test_send_message_truncates_text_and_omits_parse_mode_when_none(monkeypatch) -> None:
-    captured: dict[str, Any] = {}
+def test_send_response_splits_text_and_omits_parse_mode_when_none(monkeypatch) -> None:
+    sent: list[tuple[str, str | None]] = []
 
-    def fake_api_call(token: str, method: str, payload: dict[str, Any], **kwargs: Any) -> object:
-        captured.update({"token": token, "method": method, "payload": payload})
-        return {"message_id": 1}
+    def fake_send(text: str, parse_mode: str | None) -> bool:
+        sent.append((text, parse_mode))
+        return True
 
-    monkeypatch.setattr(bot, "_api_call", fake_api_call)
+    _patch_send_transport(monkeypatch, fake_send)
 
-    assert bot._send_message("bot-token", "chat-id", "x" * 5000, parse_mode=None)
-    assert captured["token"] == "bot-token"
-    assert captured["method"] == "sendMessage"
-    assert captured["payload"]["chat_id"] == "chat-id"
-    assert len(captured["payload"]["text"]) == bot._MAX_MESSAGE_LENGTH
-    assert "parse_mode" not in captured["payload"]
+    assert bot._send_response(_settings().telegram, "x" * 5000, parse_mode=None)
+    assert len(sent) == 2
+    assert len(sent[0][0]) == bot._MAX_MESSAGE_LENGTH
+    assert all(mode is None for _text, mode in sent)
 
 
 def test_api_call_handles_success_api_error_http_error_and_generic_error(monkeypatch) -> None:
@@ -610,8 +623,7 @@ def test_run_bot_processes_known_unknown_and_handler_error_updates(monkeypatch) 
         return None
 
     def fake_send_response(
-        token: str,
-        chat_id: str,
+        config: TelegramConfig,
         text: str,
         *,
         parse_mode: str | None = "HTML",

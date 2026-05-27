@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from typing import Any, TypeVar, cast
 
@@ -136,3 +137,23 @@ class TelegramConfig:
     @property
     def enabled(self) -> bool:
         return bool(self.bot_token and self.chat_id)
+
+
+def telegram_config_from_mapping(raw: object) -> TelegramConfig:
+    telegram_raw = raw if isinstance(raw, Mapping) else {}
+    return TelegramConfig(
+        bot_token=as_str(telegram_raw.get("bot_token")),
+        chat_id=as_str(telegram_raw.get("chat_id")),
+        timeout_seconds=max(
+            0.1,
+            as_float(telegram_raw.get("timeout_seconds"), TelegramConfig.timeout_seconds),
+        ),
+        max_attempts=max(1, as_int(telegram_raw.get("max_attempts"), TelegramConfig.max_attempts)),
+        retry_backoff_seconds=max(
+            0.0,
+            as_float(
+                telegram_raw.get("retry_backoff_seconds"),
+                TelegramConfig.retry_backoff_seconds,
+            ),
+        ),
+    )

@@ -9,7 +9,7 @@ import yaml
 
 from chemstack.core.config import CommonResourceConfig, TelegramConfig
 from chemstack.core.config import engines as _config_engines
-from chemstack.core.config.schema import RuntimeAdmissionMixin
+from chemstack.core.config.schema import RuntimeAdmissionMixin, telegram_config_from_mapping
 from chemstack.core.config.files import (
     default_shared_admission_root,
     engine_config_mapping,
@@ -168,24 +168,6 @@ def _scheduler_runtime_settings(
     return shared_max_active_simulations, shared_admission_root, admission_limit
 
 
-def _build_telegram_config(telegram_raw: Dict[str, Any]) -> TelegramConfig:
-    return TelegramConfig(
-        bot_token=_config_engines.as_nonempty_str(telegram_raw.get("bot_token"), ""),
-        chat_id=str(telegram_raw.get("chat_id", "")).strip(),
-        timeout_seconds=_config_engines.as_float(
-            telegram_raw.get("timeout_seconds"), TelegramConfig.timeout_seconds
-        ),
-        max_attempts=_config_engines.as_int(
-            telegram_raw.get("max_attempts"),
-            TelegramConfig.max_attempts,
-        ),
-        retry_backoff_seconds=_config_engines.as_float(
-            telegram_raw.get("retry_backoff_seconds"),
-            TelegramConfig.retry_backoff_seconds,
-        ),
-    )
-
-
 def _placeholder_keys(cfg: AppConfig) -> list[str]:
     placeholder_keys: list[str] = []
     if cfg.runtime.allowed_root == _TEMPLATE_ALLOWED_ROOT:
@@ -225,7 +207,7 @@ def load_config(config_path: str) -> AppConfig:
         scheduler_raw,
         allowed_root,
     )
-    telegram_cfg = _build_telegram_config(telegram_raw)
+    telegram_cfg = telegram_config_from_mapping(telegram_raw)
 
     cfg = AppConfig(
         runtime=CommonRuntimeConfig(

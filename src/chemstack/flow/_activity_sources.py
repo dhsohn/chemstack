@@ -6,7 +6,7 @@ from typing import Any
 
 from chemstack.core.app_ids import CHEMSTACK_CONFIG_ENV_VAR, CHEMSTACK_REPO_ROOT_ENV_VAR
 from chemstack.core.config.files import (
-    default_config_path_from_repo_root,
+    discover_shared_config_path,
     shared_workflow_root_from_config,
 )
 
@@ -22,22 +22,11 @@ def project_root() -> Path:
     return Path(__file__).resolve().parents[3]
 
 
-def resolve_existing_path(path_text: str) -> Path | None:
-    text = normalize_text(path_text)
-    if not text:
-        return None
-    try:
-        candidate = Path(text).expanduser().resolve()
-    except OSError:
-        return None
-    return candidate if candidate.exists() else None
-
-
 def discover_workflow_root(explicit: str | Path | None) -> str | None:
     explicit_text = normalize_text(explicit)
     if explicit_text:
         return str(Path(explicit_text).expanduser().resolve())
-    return shared_workflow_root_from_config(default_config_path_from_repo_root(project_root()))
+    return shared_workflow_root_from_config(discover_sibling_config(None, app_name="chemstack"))
 
 
 def discover_sibling_config(
@@ -46,24 +35,11 @@ def discover_sibling_config(
     app_name: str,
 ) -> str | None:
     del app_name
-    explicit_text = normalize_text(explicit)
-    if explicit_text:
-        return str(Path(explicit_text).expanduser().resolve())
-
-    env_text = normalize_text(os.getenv(CHEMSTACK_CONFIG_ENV_VAR))
-    if env_text:
-        return str(Path(env_text).expanduser().resolve())
-
-    root = project_root()
-    candidates = [
-        root / "config" / "chemstack.yaml",
-        Path.home() / "chemstack" / "config" / "chemstack.yaml",
-    ]
-    for candidate in candidates:
-        resolved = resolve_existing_path(str(candidate))
-        if resolved is not None:
-            return str(resolved)
-    return None
+    return discover_shared_config_path(
+        explicit,
+        project_root(),
+        env_var=CHEMSTACK_CONFIG_ENV_VAR,
+    )
 
 
 def discover_orca_config(explicit: str | None) -> str | None:

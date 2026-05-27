@@ -75,7 +75,6 @@ def _add_queue_list_parser(
         choices=["clear"],
         help="Remove completed/failed/cancelled entries from the unified activity list",
     )
-    list_parser.add_argument("--workflow-root", help=argparse.SUPPRESS)
     list_parser.add_argument(
         "--chemstack-config",
         "--config",
@@ -116,7 +115,6 @@ def _add_queue_cancel_parser(
     cancel_parser.add_argument(
         "target", help="Activity id, workflow id, queue id, run id, or known path alias"
     )
-    cancel_parser.add_argument("--workflow-root", help=argparse.SUPPRESS)
     cancel_parser.add_argument(
         "--chemstack-config",
         "--config",
