@@ -30,7 +30,6 @@ from chemstack.core.queue import (
     mark_completed,
     mark_failed,
     requeue_running_entry,
-    request_cancel,
 )
 from chemstack.core.queue.types import QueueStatus
 from chemstack.core.queue.worker import (
@@ -90,7 +89,6 @@ _queue_runtime = _shared_queue.QueueRuntime(
         roots,
         **kwargs,
     ),
-    request_cancel_fn=lambda root, queue_id: request_cancel(root, queue_id),
 )
 
 
@@ -141,10 +139,6 @@ def _worker_dependencies() -> WorkerExecutionDependencies:
         notify_job_started_fn=notify_job_started,
         notify_job_finished_fn=notify_job_finished,
     )
-
-
-def cmd_queue_cancel(args: Any) -> int:
-    return _queue_runtime.cmd_queue_cancel(args)
 
 
 def _process_one(cfg: Any) -> str:

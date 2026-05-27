@@ -5,8 +5,6 @@ from typing import Any
 from chemstack.core.commands.run_dir import (
     EngineQueuedRecord,
     EngineRunDirSubmission,
-    cmd_engine_run_dir_from_module_globals,
-    print_queued_common,
     record_queued_common,
 )
 from chemstack.core.config.engines import load_xtb_config as load_config
@@ -25,7 +23,6 @@ from .job_inputs import (
 )
 
 __all__ = [
-    "cmd_run_dir",
     "enqueue",
     "load_config",
     "load_job_manifest",
@@ -111,20 +108,3 @@ def _record_queued(cfg: Any, submission: EngineRunDirSubmission, entry: Any) -> 
         upsert_job_record_fn=upsert_job_record,
         notify_job_queued_fn=notify_job_queued,
     )
-
-
-def _print_queued(submission: EngineRunDirSubmission, entry: Any) -> None:
-    job = submission.context["job"]
-    job_dir = submission.context["job_dir"]
-    extra_fields = [
-        ("job_type", job["job_type"]),
-        ("reaction_key", job["reaction_key"]),
-        ("selected_input_xyz", job["selected_input_xyz"].name),
-    ]
-    if job["job_type"] == "ranking":
-        extra_fields.append(("candidate_count", job["input_summary"].get("candidate_count", 0)))
-    print_queued_common(submission, entry, job_dir=job_dir, extra_fields=extra_fields)
-
-
-def cmd_run_dir(args: Any) -> int:
-    return cmd_engine_run_dir_from_module_globals(args, globals())

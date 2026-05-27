@@ -50,7 +50,6 @@ __all__ = [
     "QueueStoreCorruptError",
     "TERMINAL_STATUSES",
     "cancel",
-    "cancel_all_pending",
     "cancel_pending_entry",
     "clear_terminal",
     "dequeue_next",
@@ -244,23 +243,6 @@ def cancel(allowed_root: Path, queue_id: str) -> Optional[QueueEntry]:
         return None, False
 
     return cast(QueueEntry | None, mutate_entries(allowed_root, cancel_entry))
-
-
-def cancel_all_pending(allowed_root: Path) -> int:
-    """Cancel all pending entries. Returns the number cancelled."""
-
-    def cancel_pending(entries: list[QueueEntry]) -> tuple[int, bool]:
-        count = 0
-        now = _now_iso()
-        for idx, current in enumerate(entries):
-            if current.status == QueueStatus.PENDING:
-                entries[idx] = cancel_pending_entry(current, finished_at=now)
-                count += 1
-        return count, count > 0
-
-    count = int(mutate_entries(allowed_root, cancel_pending))
-    logger.info("Cancelled %d pending entries", count)
-    return count
 
 
 def list_queue(

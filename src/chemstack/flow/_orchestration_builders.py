@@ -24,8 +24,8 @@ from .contracts import (
 )
 
 _REACTION_TS_SEARCH_CREST_MANIFEST_DEFAULTS: dict[str, Any] = {"rthr": 0.3}
-_CREST_RUN_DIR_API_NAME = "chemstack.crest.submission.cmd_run_dir"
-_XTB_RUN_DIR_API_NAME = "chemstack.xtb.submission.cmd_run_dir"
+_CREST_RUN_DIR_API_NAME = "chemstack.crest.submission.direct_enqueue"
+_XTB_RUN_DIR_API_NAME = "chemstack.xtb.submission.direct_enqueue"
 
 
 @dataclass(frozen=True)
@@ -108,21 +108,17 @@ def _engine_enqueue_payload(
     priority: int,
     extra: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    command_argv = [
+        submit_api_name,
+        f"config={config_placeholder}",
+        "job_dir=<job_dir>",
+        f"priority={int(priority)}",
+    ]
     payload: dict[str, Any] = {
         "submitter": submitter,
         "app_name": app_name,
-        "command": (
-            f"{submit_api_name} --config {config_placeholder} "
-            f"'<job_dir>' --priority {int(priority)}"
-        ),
-        "command_argv": [
-            submit_api_name,
-            "--config",
-            config_placeholder,
-            "<job_dir>",
-            "--priority",
-            str(int(priority)),
-        ],
+        "command": " ".join(command_argv),
+        "command_argv": command_argv,
         "requires_config": True,
         "config_argument_placeholder": config_placeholder,
         "job_dir": "",

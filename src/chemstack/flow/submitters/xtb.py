@@ -3,21 +3,18 @@ from __future__ import annotations
 from typing import Any
 
 from chemstack.core.commands.queue import display_status
-from chemstack.core.queue import enqueue
+from chemstack.core.queue import enqueue, request_cancel
 from chemstack.xtb import queue_runtime as _queue_runtime
 from chemstack.xtb import submission as _submission
 
 from . import sibling_engine as _sibling_engine
 
-cmd_queue_cancel = _queue_runtime.cmd_queue_cancel
-cmd_run_dir = _submission.cmd_run_dir
 build_submission = _submission._build_submission
 load_config = _submission.load_config
 load_job_manifest = _submission.load_job_manifest
 load_queue_config = _queue_runtime.load_config
 queue_entries_with_roots = _queue_runtime.queue_entries_with_roots
 record_queued = _submission._record_queued
-request_cancel = _queue_runtime.request_cancel
 resolve_job_dir = _submission.resolve_job_dir
 
 _RUN_DIR_API_NAME = "chemstack.xtb.submission.direct_enqueue"

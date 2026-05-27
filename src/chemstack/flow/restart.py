@@ -338,10 +338,20 @@ def _apply_priority(task: dict[str, Any], priority: int | None) -> None:
     enqueue_payload = _enqueue_payload(task)
     enqueue_payload["priority"] = priority
     argv = enqueue_payload.get("command_argv")
+    updated_argv = False
     if isinstance(argv, list) and "--priority" in argv:
         index = argv.index("--priority")
         if index + 1 < len(argv):
             argv[index + 1] = str(priority)
+            updated_argv = True
+    elif isinstance(argv, list):
+        for index, part in enumerate(argv):
+            if isinstance(part, str) and part.startswith("priority="):
+                argv[index] = f"priority={priority}"
+                updated_argv = True
+                break
+    if updated_argv and isinstance(argv, list) and isinstance(enqueue_payload.get("command"), str):
+        enqueue_payload["command"] = " ".join(str(part) for part in argv)
 
 
 def _request_parameters(payload: dict[str, Any]) -> dict[str, Any] | None:

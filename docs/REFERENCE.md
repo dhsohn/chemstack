@@ -46,11 +46,9 @@ Operational consequences:
       xtb/                # xTB engine package
       crest/              # CREST engine package
       orca/               # Canonical ORCA implementation
-        cli.py
         commands/
         runtime/
         state.py
-        tracking.py
         ...
   systemd/
     chemstack-runtime@.target

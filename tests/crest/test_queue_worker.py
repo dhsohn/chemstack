@@ -7,7 +7,6 @@ from typing import Any, cast
 
 import pytest
 
-from chemstack.core.commands.queue import find_entry_by_target
 from chemstack.core.config import CommonResourceConfig, CommonRuntimeConfig
 from chemstack.core.indexing import get_job_location, list_job_locations
 from chemstack.core.queue import enqueue, list_queue, request_cancel
@@ -17,6 +16,13 @@ from chemstack.crest import queue_runtime as queue_cmd
 from chemstack.core.config.engines import WorkflowEngineAppConfig as AppConfig
 from chemstack.crest.runner import CrestRunResult
 from chemstack.crest.state import REPORT_JSON_FILE_NAME, REPORT_MD_FILE_NAME, STATE_FILE_NAME, load_state
+
+
+def _find_entry_by_target(entries: list[Any], target: str) -> Any | None:
+    for entry in entries:
+        if entry.queue_id == target or entry.task_id == target:
+            return entry
+    return None
 
 
 class FakeProcess:
@@ -459,7 +465,7 @@ def test_queue_worker_shutdown_requeues_running_children(
 
     worker._shutdown_all()
 
-    updated = find_entry_by_target(list_queue(queue_env.allowed_root), job.entry.queue_id)
+    updated = _find_entry_by_target(list_queue(queue_env.allowed_root), job.entry.queue_id)
     assert updated is not None
     assert updated.status == QueueStatus.PENDING
     assert updated.cancel_requested is False
@@ -487,8 +493,8 @@ def test_queue_worker_reconcile_orphaned_running_requeues_entry_without_live_slo
     worker = queue_cmd.QueueWorker(queue_env.cfg, "/tmp/chemstack.yaml", max_concurrent=2)
     worker._reconcile_orphaned_running()
 
-    orphan_updated = find_entry_by_target(list_queue(queue_env.allowed_root), orphan_job.entry.queue_id)
-    live_updated = find_entry_by_target(list_queue(queue_env.allowed_root), live_job.entry.queue_id)
+    orphan_updated = _find_entry_by_target(list_queue(queue_env.allowed_root), orphan_job.entry.queue_id)
+    live_updated = _find_entry_by_target(list_queue(queue_env.allowed_root), live_job.entry.queue_id)
     assert orphan_root == live_root
     assert orphan_updated is not None
     assert live_updated is not None
@@ -515,7 +521,7 @@ def test_queue_worker_reconcile_orphaned_cancel_requested_marks_cancelled(
     worker = queue_cmd.QueueWorker(queue_env.cfg, "/tmp/chemstack.yaml", max_concurrent=2)
     worker._reconcile_orphaned_running()
 
-    updated = find_entry_by_target(list_queue(queue_env.allowed_root), job.entry.queue_id)
+    updated = _find_entry_by_target(list_queue(queue_env.allowed_root), job.entry.queue_id)
     assert updated is not None
     assert updated.status == QueueStatus.CANCELLED
     assert updated.error == "cancel_requested"

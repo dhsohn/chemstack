@@ -138,15 +138,6 @@ def test_queue_display_status(entry: object, expected: str) -> None:
     assert shared_queue_cmd.display_status(entry) == expected
 
 
-def test_find_entry_by_target_matches_queue_id_and_job_id() -> None:
-    first = SimpleNamespace(queue_id="q-1", task_id="job-1")
-    second = SimpleNamespace(queue_id="q-2", task_id="job-2")
-
-    assert shared_queue_cmd.find_entry_by_target([first, second], "q-2") is second
-    assert shared_queue_cmd.find_entry_by_target([first, second], "job-1") is first
-    assert shared_queue_cmd.find_entry_by_target([first, second], "missing") is None
-
-
 def test_execute_queue_entry_processes_completed_job(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -501,87 +492,3 @@ def test_execute_queue_entry_processes_ranking_job_without_auto_organizing(
     assert outcome.result.status == "completed"
     assert outcome.organized_output_dir == ""
     assert finished_calls and finished_calls[0]["organized_output_dir"] is None
-
-
-def test_cmd_queue_cancel_accepts_job_id_target(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    cfg = _make_cfg(tmp_path)
-    entry = SimpleNamespace(
-        queue_id="queue-1",
-        task_id="job-1",
-        status=SimpleNamespace(value="running"),
-        cancel_requested=False,
-    )
-    updated = SimpleNamespace(
-        queue_id="queue-1",
-        task_id="job-1",
-        status=SimpleNamespace(value="running"),
-        cancel_requested=True,
-    )
-
-    monkeypatch.setattr(queue_cmd, "load_config", lambda _path=None: cfg)
-    monkeypatch.setattr(queue_cmd, "list_queue", lambda _root: [entry])
-    monkeypatch.setattr(queue_cmd, "request_cancel", lambda _root, _queue_id: updated)
-
-    exit_code = queue_cmd.cmd_queue_cancel(SimpleNamespace(config=None, target="job-1"))
-
-    captured = capsys.readouterr().out
-    assert exit_code == 0
-    assert "status: cancel_requested" in captured
-    assert "queue_id: queue-1" in captured
-    assert "job_id: job-1" in captured
-
-
-def test_cmd_queue_cancel_requires_non_blank_target(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    cfg = _make_cfg(tmp_path)
-    monkeypatch.setattr(queue_cmd, "load_config", lambda _path=None: cfg)
-
-    exit_code = queue_cmd.cmd_queue_cancel(SimpleNamespace(config=None, target="   "))
-
-    assert exit_code == 1
-    assert capsys.readouterr().out == "error: queue cancel requires a queue_id or job_id\n"
-
-
-def test_cmd_queue_cancel_reports_missing_target(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    cfg = _make_cfg(tmp_path)
-    monkeypatch.setattr(queue_cmd, "load_config", lambda _path=None: cfg)
-    monkeypatch.setattr(queue_cmd, "list_queue", lambda _root: [])
-
-    exit_code = queue_cmd.cmd_queue_cancel(SimpleNamespace(config=None, target="job-missing"))
-
-    assert exit_code == 1
-    assert capsys.readouterr().out == "error: queue target not found: job-missing\n"
-
-
-def test_cmd_queue_cancel_rejects_terminal_entry(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    cfg = _make_cfg(tmp_path)
-    entry = SimpleNamespace(
-        queue_id="queue-1",
-        task_id="job-1",
-        status=SimpleNamespace(value="failed"),
-        cancel_requested=False,
-    )
-
-    monkeypatch.setattr(queue_cmd, "load_config", lambda _path=None: cfg)
-    monkeypatch.setattr(queue_cmd, "list_queue", lambda _root: [entry])
-    monkeypatch.setattr(queue_cmd, "request_cancel", lambda _root, _queue_id: None)
-
-    exit_code = queue_cmd.cmd_queue_cancel(SimpleNamespace(config=None, target="queue-1"))
-
-    assert exit_code == 1
-    assert capsys.readouterr().out == "error: queue target already terminal: queue-1\n"

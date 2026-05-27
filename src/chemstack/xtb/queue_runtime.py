@@ -33,7 +33,6 @@ from chemstack.core.queue import (
     mark_completed,
     mark_failed,
     requeue_running_entry,
-    request_cancel,
 )
 from chemstack.core.queue.worker import (
     BackgroundRunningJob,
@@ -147,7 +146,6 @@ _queue_runtime = _shared_queue.QueueRuntime(
         roots,
         **kwargs,
     ),
-    request_cancel_fn=lambda root, queue_id: request_cancel(root, queue_id),
 )
 
 
@@ -185,10 +183,6 @@ def _admission_root(cfg: Any) -> str:
 
 def _pid_is_alive(pid: int) -> bool:
     return worker_pid_is_alive(pid)
-
-
-def cmd_queue_cancel(args: Any) -> int:
-    return _queue_runtime.cmd_queue_cancel(args)
 
 
 def _coerce_mapping(value: Any) -> dict[str, Any]:

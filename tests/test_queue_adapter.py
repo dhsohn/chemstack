@@ -9,7 +9,6 @@ from chemstack.orca.queue_adapter import (
     DuplicateEntryError,
     QueueStoreCorruptError,
     cancel,
-    cancel_all_pending,
     clear_terminal,
     dequeue_next,
     enqueue,
@@ -163,17 +162,6 @@ class TestQueueStore(unittest.TestCase):
         entry = enqueue(self.root, str(self.root / "mol_A"))
         mark_completed(self.root, entry.queue_id)
         self.assertIsNone(cancel(self.root, entry.queue_id))
-
-    def test_cancel_all_pending(self) -> None:
-        enqueue(self.root, str(self.root / "a"))
-        enqueue(self.root, str(self.root / "b"))
-        enqueue(self.root, str(self.root / "c"))
-        dequeue_next(self.root)  # a → running
-        count = cancel_all_pending(self.root)
-        self.assertEqual(count, 2)
-        # running entry should be unaffected
-        running = [entry for entry in list_queue(self.root) if entry.status == QueueStatus.RUNNING]
-        self.assertEqual(len(running), 1)
 
     # -- mark_completed / mark_failed -----------------------------------
 

@@ -380,7 +380,16 @@ def test_restart_failed_workflow_reloads_xtb_orca_and_endpoint_manifest_settings
                         "enqueue_payload": {
                             "job_dir": str(workspace / "old_xtb"),
                             "priority": 10,
-                            "command_argv": ["xtb", "--priority", "10", "--run"],
+                            "command": (
+                                "chemstack.xtb.submission.direct_enqueue "
+                                "config=<xtb_config> job_dir=<job_dir> priority=10"
+                            ),
+                            "command_argv": [
+                                "chemstack.xtb.submission.direct_enqueue",
+                                "config=<xtb_config>",
+                                "job_dir=<job_dir>",
+                                "priority=10",
+                            ],
                         },
                     },
                     "metadata": {"queue_id": "q_xtb"},
@@ -422,7 +431,16 @@ def test_restart_failed_workflow_reloads_xtb_orca_and_endpoint_manifest_settings
     assert saved["metadata"]["restart_summary"]["flow_manifest_applied"] is True
     assert xtb_task["resource_request"] == {"max_cores": 7, "max_memory_gb": 21}
     assert xtb_task["enqueue_payload"]["priority"] == 5
-    assert xtb_task["enqueue_payload"]["command_argv"] == ["xtb", "--priority", "5", "--run"]
+    assert xtb_task["enqueue_payload"]["command"] == (
+        "chemstack.xtb.submission.direct_enqueue "
+        "config=<xtb_config> job_dir=<job_dir> priority=5"
+    )
+    assert xtb_task["enqueue_payload"]["command_argv"] == [
+        "chemstack.xtb.submission.direct_enqueue",
+        "config=<xtb_config>",
+        "job_dir=<job_dir>",
+        "priority=5",
+    ]
     assert xtb_task["enqueue_payload"]["job_dir"] == ""
     assert xtb_task["payload"]["job_dir"] == ""
     assert xtb_task["payload"]["selected_input_xyz"] == ""

@@ -14,27 +14,6 @@ def display_status(entry: Any) -> str:
     return normalized
 
 
-def entry_matches_target(entry: Any, target: str) -> bool:
-    return entry.queue_id == target or entry.task_id == target
-
-
-def find_entry_by_target(entries: list[Any], target: str) -> Any | None:
-    for entry in entries:
-        if entry_matches_target(entry, target):
-            return entry
-    return None
-
-
-def find_entry_with_root_by_target(
-    entries_with_roots: list[tuple[Path, Any]],
-    target: str,
-) -> tuple[Path, Any] | None:
-    for queue_root, entry in entries_with_roots:
-        if entry_matches_target(entry, target):
-            return queue_root, entry
-    return None
-
-
 @dataclass(frozen=True)
 class QueueRuntime:
     load_config_fn: Callable[[Any], Any]
@@ -42,8 +21,6 @@ class QueueRuntime:
     list_queue_fn: Callable[[Path], list[Any]]
     dequeue_next_fn: Callable[[Path], Any | None]
     dequeue_next_across_roots_fn: Callable[..., tuple[Path, Any] | None]
-    request_cancel_fn: Callable[[Path, str], Any | None]
-    display_status_fn: Callable[[Any], str] = display_status
 
     def queue_roots(self, cfg: Any) -> tuple[Path, ...]:
         return queue_roots(
@@ -85,15 +62,6 @@ class QueueRuntime:
             execute_entry_fn=execute_entry_fn,
             release_slot_fn=release_slot_fn,
             after_execute_fn=after_execute_fn,
-        )
-
-    def cmd_queue_cancel(self, args: Any) -> int:
-        return cmd_queue_cancel(
-            args,
-            load_config_fn=self.load_config_fn,
-            queue_entries_with_roots_fn=self.queue_entries_with_roots,
-            request_cancel_fn=self.request_cancel_fn,
-            display_status_fn=self.display_status_fn,
         )
 
 
@@ -161,38 +129,6 @@ def process_one_entry(
         return "processed"
     finally:
         release_slot_fn(admission_root_fn(cfg), slot_token)
-
-
-def cmd_queue_cancel(
-    args: Any,
-    *,
-    load_config_fn: Callable[[Any], Any],
-    queue_entries_with_roots_fn: Callable[[Any], list[tuple[Path, Any]]],
-    request_cancel_fn: Callable[[Path, str], Any | None],
-    display_status_fn: Callable[[Any], str],
-) -> int:
-    cfg = load_config_fn(getattr(args, "config", None))
-    target = str(getattr(args, "target", "")).strip()
-    if not target:
-        print("error: queue cancel requires a queue_id or job_id")
-        return 1
-
-    entries_with_roots = queue_entries_with_roots_fn(cfg)
-    entry_with_root = find_entry_with_root_by_target(entries_with_roots, target)
-    if entry_with_root is None:
-        print(f"error: queue target not found: {target}")
-        return 1
-    queue_root, entry = entry_with_root
-
-    updated = request_cancel_fn(queue_root, entry.queue_id)
-    if updated is None:
-        print(f"error: queue target already terminal: {target}")
-        return 1
-
-    print(f"status: {display_status_fn(updated)}")
-    print(f"queue_id: {updated.queue_id}")
-    print(f"job_id: {updated.task_id}")
-    return 0
 
 
 def run_queue_worker_command(

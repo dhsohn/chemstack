@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from argparse import Namespace
 from pathlib import Path
 from typing import Any
 
@@ -11,9 +10,10 @@ from chemstack.core.indexing import get_job_location
 from chemstack.core.queue import list_queue
 
 from chemstack.crest import queue_runtime as queue_cmd
-from chemstack.crest import submission as run_dir_cmd
+from chemstack.crest import submission as crest_submission
 from chemstack.crest.runner import CrestRunResult
 from chemstack.crest.state import load_organized_ref, load_report_json, load_state
+from chemstack.flow.submitters import crest as crest_submitter
 
 
 def _write_config(tmp_path: Path) -> tuple[Path, Path, Path]:
@@ -59,33 +59,29 @@ def test_cmd_run_dir_queues_job_updates_state_and_index(
     )
 
     notifications: list[dict[str, Any]] = []
-    monkeypatch.setattr(run_dir_cmd, "new_job_id", lambda: "crest-fixed-id")
+    monkeypatch.setattr(crest_submission, "new_job_id", lambda: "crest-fixed-id")
 
     def fake_notify_job_queued(cfg: Any, **kwargs: Any) -> bool:
         notifications.append(kwargs)
         return True
 
-    monkeypatch.setattr(run_dir_cmd, "notify_job_queued", fake_notify_job_queued)
+    monkeypatch.setattr(crest_submission, "notify_job_queued", fake_notify_job_queued)
 
-    rc = run_dir_cmd.cmd_run_dir(
-        Namespace(
-            config=str(config_path),
-            path=str(job_dir),
-            priority=4,
-        )
+    submission = crest_submitter.submit_job_dir(
+        job_dir=str(job_dir),
+        priority=4,
+        config_path=str(config_path),
     )
 
-    output = capsys.readouterr().out
+    capsys.readouterr()
     queue_entries = list_queue(allowed_root)
     state = load_state(job_dir)
     record = get_job_location(allowed_root, "crest-fixed-id")
 
-    assert rc == 0
-    assert "status: queued" in output
-    assert f"job_dir: {job_dir.resolve()}" in output
-    assert "job_id: crest-fixed-id" in output
-    assert "priority: 4" in output
-    assert "selected_input_xyz: preferred.xyz" in output
+    assert submission["status"] == "submitted"
+    assert submission["job_id"] == "crest-fixed-id"
+    assert submission["parsed_stdout"]["status"] == "queued"
+    assert submission["parsed_stdout"]["priority"] == "4"
 
     assert len(queue_entries) == 1
     entry = queue_entries[0]
@@ -143,39 +139,37 @@ def test_cmd_run_dir_reports_duplicate_queue_entries(
     _write_xyz(job_dir / "input.xyz", "input")
 
     notifications: list[dict[str, Any]] = []
-    monkeypatch.setattr(run_dir_cmd, "new_job_id", lambda: "crest-duplicate-id")
+    monkeypatch.setattr(crest_submission, "new_job_id", lambda: "crest-duplicate-id")
 
     def fake_notify_job_queued(cfg: Any, **kwargs: Any) -> bool:
         notifications.append(kwargs)
         return True
 
-    monkeypatch.setattr(run_dir_cmd, "notify_job_queued", fake_notify_job_queued)
+    monkeypatch.setattr(crest_submission, "notify_job_queued", fake_notify_job_queued)
 
-    first_rc = run_dir_cmd.cmd_run_dir(
-        Namespace(
-            config=str(config_path),
-            path=str(job_dir),
-            priority=10,
-        )
+    first_submission = crest_submitter.submit_job_dir(
+        job_dir=str(job_dir),
+        priority=10,
+        config_path=str(config_path),
     )
-    first_output = capsys.readouterr().out
+    capsys.readouterr()
 
-    second_rc = run_dir_cmd.cmd_run_dir(
-        Namespace(
-            config=str(config_path),
-            path=str(job_dir),
-            priority=10,
-        )
+    second_submission = crest_submitter.submit_job_dir(
+        job_dir=str(job_dir),
+        priority=10,
+        config_path=str(config_path),
     )
-    second_output = capsys.readouterr().out
+    capsys.readouterr()
 
     queue_entries = list_queue(allowed_root)
     state = load_state(job_dir)
 
-    assert first_rc == 0
-    assert "status: queued" in first_output
-    assert second_rc == 1
-    assert "error: Active queue entry already exists for app=chemstack_crest task_id=crest-duplicate-id" in second_output
+    assert first_submission["status"] == "submitted"
+    assert second_submission["status"] == "failed"
+    assert (
+        "Active queue entry already exists for app=chemstack_crest task_id=crest-duplicate-id"
+        in second_submission["stderr"]
+    )
 
     assert len(queue_entries) == 1
     assert queue_entries[0].task_id == "crest-duplicate-id"
@@ -195,7 +189,7 @@ def test_cli_end_to_end_smoke_path_submission_worker_and_index(
     started_notifications: list[dict[str, Any]] = []
     finished_notifications: list[dict[str, Any]] = []
 
-    monkeypatch.setattr(run_dir_cmd, "new_job_id", lambda: "crest-e2e-001")
+    monkeypatch.setattr(crest_submission, "new_job_id", lambda: "crest-e2e-001")
 
     def fake_notify_job_queued(cfg: Any, **kwargs: Any) -> bool:
         queued_notifications.append(kwargs)
@@ -209,7 +203,7 @@ def test_cli_end_to_end_smoke_path_submission_worker_and_index(
         finished_notifications.append(kwargs)
         return True
 
-    monkeypatch.setattr(run_dir_cmd, "notify_job_queued", fake_notify_job_queued)
+    monkeypatch.setattr(crest_submission, "notify_job_queued", fake_notify_job_queued)
     monkeypatch.setattr(queue_cmd, "notify_job_started", fake_notify_job_started)
     monkeypatch.setattr(queue_cmd, "notify_job_finished", fake_notify_job_finished)
 
@@ -253,15 +247,14 @@ def test_cli_end_to_end_smoke_path_submission_worker_and_index(
     _write_xyz(job_dir / "input.xyz", "input")
     (job_dir / "crest_job.yaml").write_text("mode: standard\ninput_xyz: input.xyz\n", encoding="utf-8")
 
-    assert (
-        run_dir_cmd.cmd_run_dir(
-            Namespace(config=str(config_path), path=str(job_dir), priority=2)
-        )
-        == 0
+    submission = crest_submitter.submit_job_dir(
+        job_dir=str(job_dir),
+        priority=2,
+        config_path=str(config_path),
     )
-    run_output = capsys.readouterr().out
-    assert "status: queued" in run_output
-    assert "job_id: crest-e2e-001" in run_output
+    capsys.readouterr()
+    assert submission["status"] == "submitted"
+    assert submission["job_id"] == "crest-e2e-001"
 
     assert queue_cmd._process_one(
         queue_cmd.load_config(str(config_path))

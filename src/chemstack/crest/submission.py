@@ -5,8 +5,6 @@ from typing import Any
 from chemstack.core.commands.run_dir import (
     EngineQueuedRecord,
     EngineRunDirSubmission,
-    cmd_engine_run_dir_from_module_globals,
-    print_queued_common,
     record_queued_common,
 )
 from chemstack.core.config.engines import load_crest_config as load_config
@@ -28,7 +26,6 @@ from .job_inputs import (
 )
 
 __all__ = [
-    "cmd_run_dir",
     "enqueue",
     "load_config",
     "load_job_manifest",
@@ -112,18 +109,3 @@ def _record_queued(cfg: Any, submission: EngineRunDirSubmission, entry: Any) -> 
         upsert_job_record_fn=upsert_job_record,
         notify_job_queued_fn=notify_job_queued,
     )
-
-
-def _print_queued(submission: EngineRunDirSubmission, entry: Any) -> None:
-    job_dir = submission.context["job_dir"]
-    selected_xyz = submission.context["selected_xyz"]
-    print_queued_common(
-        submission,
-        entry,
-        job_dir=job_dir,
-        extra_fields=[("selected_input_xyz", selected_xyz.name)],
-    )
-
-
-def cmd_run_dir(args: Any) -> int:
-    return cmd_engine_run_dir_from_module_globals(args, globals())
