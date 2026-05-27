@@ -100,8 +100,6 @@ def _maybe_retry_xtb_handoff(
     *,
     xtb_runtime_paths: dict[str, Path],
     xtb_config: str | None,
-    xtb_executable: str,
-    xtb_repo_root: str | None,
     submit_ready: bool,
     workflow_id: str,
 ) -> bool:
@@ -130,8 +128,6 @@ def _maybe_retry_xtb_handoff(
         job_dir=retry_job_dir,
         priority=int(task["enqueue_payload"].get("priority", 10) or 10),
         config_path=str(xtb_config),
-        executable=xtb_executable,
-        repo_root=xtb_repo_root,
     )
     submission["submitted_at"] = o.persistence.now_utc_iso()
     task["submission_result"] = submission
@@ -179,8 +175,6 @@ def sync_xtb_stage_impl(
     stage: dict[str, Any],
     *,
     xtb_config: str | None,
-    xtb_executable: str,
-    xtb_repo_root: str | None,
     submit_ready: bool,
     workflow_id: str,
     workspace_dir: Path,
@@ -205,8 +199,6 @@ def sync_xtb_stage_impl(
             stage_metadata,
             xtb_runtime_paths=xtb_runtime_paths,
             xtb_config=xtb_config,
-            xtb_executable=xtb_executable,
-            xtb_repo_root=xtb_repo_root,
             workflow_id=workflow_id,
         )
     contract = _load_xtb_contract(
@@ -227,8 +219,6 @@ def sync_xtb_stage_impl(
         handoff,
         xtb_runtime_paths=xtb_runtime_paths,
         xtb_config=xtb_config,
-        xtb_executable=xtb_executable,
-        xtb_repo_root=xtb_repo_root,
         submit_ready=submit_ready,
         workflow_id=workflow_id,
     ):

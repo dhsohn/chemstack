@@ -35,7 +35,7 @@ class OrchestrationEngineDeps:
     load_orca_artifact_contract: AnyCallable
     load_xtb_artifact_contract: AnyCallable
     orca_cancel_target: AnyCallable
-    safe_name: Callable[[Any], str]
+    safe_name: AnyCallable
     select_crest_downstream_inputs: AnyCallable
     select_endpoint_pairs: AnyCallable
     select_xtb_downstream_inputs: AnyCallable

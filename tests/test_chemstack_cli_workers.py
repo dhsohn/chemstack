@@ -93,13 +93,12 @@ def test_build_worker_specs_defaults_to_engine_workers(monkeypatch: pytest.Monke
 
     def fake_sibling_app_command(
         *,
-        executable: str,
         config_path: str,
         repo_root: str | None,
         module_name: str,
         tail_argv: list[str],
     ) -> tuple[list[str], str | None, dict[str, str] | None]:
-        del executable, repo_root
+        del repo_root
         return (["python", "-m", module_name, "--config", config_path, *tail_argv], None, {})
 
     monkeypatch.setattr(unified_cli, "sibling_app_command", fake_sibling_app_command)
@@ -127,13 +126,12 @@ def test_build_worker_specs_defaults_to_all_workers_when_workflow_root_is_config
 
     def fake_sibling_app_command(
         *,
-        executable: str,
         config_path: str,
         repo_root: str | None,
         module_name: str,
         tail_argv: list[str],
     ) -> tuple[list[str], str | None, dict[str, str] | None]:
-        del executable, repo_root
+        del repo_root
         return (["python", "-m", module_name, "--config", config_path, *tail_argv], None, {})
 
     monkeypatch.setattr(unified_cli, "sibling_app_command", fake_sibling_app_command)
@@ -145,11 +143,9 @@ def test_build_worker_specs_defaults_to_all_workers_when_workflow_root_is_config
     assert [spec.app for spec in specs] == ["orca", "crest", "xtb", "workflow"]
     assert str(specs[1].argv[2]) == "chemstack.crest._internal_cli"
     assert str(specs[2].argv[2]) == "chemstack.xtb._internal_cli"
-    assert specs[-1].argv[1:5] == (
+    assert specs[-1].argv[1:3] == (
         "-m",
-        "chemstack.flow.cli",
-        "workflow",
-        "worker",
+        "chemstack.services.workflow_worker",
     )
     assert "--workflow-root" in specs[-1].argv
     assert "/tmp/workflows" in specs[-1].argv
@@ -500,9 +496,7 @@ def test_cmd_queue_worker_json_outputs_commands(
             argv=(
                 "python",
                 "-m",
-                "chemstack.flow.cli",
-                "workflow",
-                "worker",
+                "chemstack.services.workflow_worker",
                 "--workflow-root",
                 "/tmp/workflows",
             ),
@@ -519,7 +513,7 @@ def test_cmd_queue_worker_json_outputs_commands(
     assert result == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["workers"][0]["app"] == "workflow"
-    assert payload["workers"][0]["argv"][2] == "chemstack.flow.cli"
+    assert payload["workers"][0]["argv"][2] == "chemstack.services.workflow_worker"
 
 
 def test_worker_spec_to_dict_redacts_unrelated_environment_keys() -> None:
@@ -593,9 +587,7 @@ def test_worker_tail_and_workflow_spec_include_optional_flags() -> None:
 
     assert spec.argv[1:] == (
         "-m",
-        "chemstack.flow.cli",
-        "workflow",
-        "worker",
+        "chemstack.services.workflow_worker",
         "--workflow-root",
         str(Path("/tmp/workflows").resolve()),
         "--chemstack-config",

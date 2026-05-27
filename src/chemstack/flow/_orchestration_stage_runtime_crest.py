@@ -71,8 +71,6 @@ def _submit_crest_stage(
     *,
     crest_runtime_paths: dict[str, Path],
     crest_config: str | None,
-    crest_executable: str,
-    crest_repo_root: str | None,
     workflow_id: str,
 ) -> None:
     job_dir = o.stages._ensure_crest_job_dir(
@@ -84,8 +82,6 @@ def _submit_crest_stage(
         job_dir=job_dir,
         priority=int(task["enqueue_payload"].get("priority", 10) or 10),
         config_path=str(crest_config),
-        executable=crest_executable,
-        repo_root=crest_repo_root,
     )
     submission["submitted_at"] = o.persistence.now_utc_iso()
     task["submission_result"] = submission
@@ -165,8 +161,6 @@ def sync_crest_stage_impl(
     stage: dict[str, Any],
     *,
     crest_config: str | None,
-    crest_executable: str,
-    crest_repo_root: str | None,
     submit_ready: bool,
     workflow_id: str,
     workspace_dir: Path,
@@ -188,8 +182,6 @@ def sync_crest_stage_impl(
             task,
             crest_runtime_paths=crest_runtime_paths,
             crest_config=crest_config,
-            crest_executable=crest_executable,
-            crest_repo_root=crest_repo_root,
             workflow_id=workflow_id,
         )
     contract = _load_crest_contract(

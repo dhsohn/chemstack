@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from chemstack.core.app_ids import CHEMSTACK_EXECUTABLE
 from chemstack.cli_common import _dependency, _shared_chemstack_config
 
 from .operations import cancel_activity, list_activities
@@ -23,7 +22,6 @@ def cmd_activity_list(args: Any, *, deps: Any | None = None) -> int:
         crest_config=shared_config,
         xtb_config=shared_config,
         orca_config=shared_config,
-        orca_repo_root=getattr(args, "orca_repo_root", None),
     )
     if bool(getattr(args, "json", False)):
         print(json.dumps(payload, ensure_ascii=True, indent=2))
@@ -46,21 +44,14 @@ def cmd_activity_cancel(args: Any, *, deps: Any | None = None) -> int:
         deps, "_shared_chemstack_config", _shared_chemstack_config
     )
     cancel_activity_fn = _dependency(deps, "cancel_activity", cancel_activity)
-    executable = _dependency(deps, "CHEMSTACK_EXECUTABLE", CHEMSTACK_EXECUTABLE)
-
     shared_config = shared_chemstack_config(args)
     try:
         payload = cancel_activity_fn(
             target=getattr(args, "target"),
             workflow_root=getattr(args, "workflow_root", None),
             crest_config=shared_config,
-            crest_executable=getattr(args, "crest_executable", "chemstack_crest"),
-            crest_repo_root=getattr(args, "crest_repo_root", None),
             xtb_config=shared_config,
-            xtb_executable=getattr(args, "xtb_executable", "chemstack_xtb"),
-            xtb_repo_root=getattr(args, "xtb_repo_root", None),
             orca_config=shared_config,
-            orca_executable=getattr(args, "orca_executable", executable),
             orca_repo_root=getattr(args, "orca_repo_root", None),
         )
     except (LookupError, ValueError) as exc:

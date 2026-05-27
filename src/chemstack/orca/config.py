@@ -9,17 +9,14 @@ import yaml
 
 from chemstack.core.config import CommonResourceConfig, TelegramConfig
 from chemstack.core.config import engines as _config_engines
+from chemstack.core.config.schema import RuntimeAdmissionMixin
 from chemstack.core.config.files import (
     default_shared_admission_root,
     engine_config_mapping,
     workflow_root_from_mapping,
 )
 
-from .config_validation import (
-    _as_int,
-    _as_str,
-    _validate_config,
-)
+from .config_validation import _validate_config
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +24,7 @@ _CONFIG_TEMPLATE_RELATIVE_PATH = Path("config") / "chemstack.yaml.example"
 _TEMPLATE_ALLOWED_ROOT = "/path/to/orca_runs"
 _TEMPLATE_ORGANIZED_ROOT = "/path/to/orca_outputs"
 _TEMPLATE_ORCA_EXECUTABLE = "/path/to/orca/orca"
+
 
 def _config_template_path() -> Path:
     repo_root = Path(__file__).resolve().parents[3]
@@ -67,54 +65,31 @@ def _placeholder_settings_error(path: Path, placeholder_keys: list[str]) -> Valu
 
 
 @dataclass
-class CommonRuntimeConfig:
+class CommonRuntimeConfig(RuntimeAdmissionMixin):
     allowed_root: str = ""
     organized_root: str = ""
     # max retry count, not total execution count
     default_max_retries: int = 2
     max_concurrent: int = 4
-    admission_root: str = ""
+    admission_root: str | None = ""
     admission_limit: int | None = None
 
     def __post_init__(self) -> None:
-        self.default_max_retries = max(0, _as_int(self.default_max_retries, 2))
-        self.max_concurrent = max(1, _as_int(self.max_concurrent, 4))
+        self.default_max_retries = _config_engines.normalize_default_max_retries(
+            self.default_max_retries,
+            2,
+        )
+        self.max_concurrent = _config_engines.normalize_max_concurrent(
+            self.max_concurrent,
+            4,
+        )
         if not self.organized_root and self.allowed_root:
             self.organized_root = _default_organized_root(self.allowed_root)
         if not self.admission_root and self.allowed_root:
             self.admission_root = self.allowed_root
-        if self.admission_limit is not None:
-            try:
-                if isinstance(self.admission_limit, bool):
-                    normalized_limit = int(self.admission_limit)
-                elif isinstance(self.admission_limit, (int, str)):
-                    normalized_limit = int(self.admission_limit)
-                else:
-                    raise TypeError("Unsupported admission_limit type")
-            except (TypeError, ValueError):
-                normalized_limit = self.max_concurrent
-            self.admission_limit = normalized_limit
-            if self.admission_limit < 1:
-                self.admission_limit = max(1, self.max_concurrent)
-
-    @property
-    def resolved_admission_root(self) -> str:
-        return self.admission_root or self.allowed_root
-
-    @property
-    def resolved_admission_limit(self) -> int:
-        if self.admission_limit is not None:
-            return max(1, int(self.admission_limit))
-        return max(1, int(self.max_concurrent))
-
-    def to_common_runtime_config(self) -> CommonRuntimeConfig:
-        return CommonRuntimeConfig(
-            allowed_root=self.allowed_root,
-            organized_root=self.organized_root,
-            default_max_retries=self.default_max_retries,
-            max_concurrent=self.max_concurrent,
-            admission_root=self.admission_root,
-            admission_limit=self.admission_limit,
+        self.admission_limit = _config_engines.normalize_admission_limit(
+            self.admission_limit,
+            self.max_concurrent,
         )
 
 
@@ -161,8 +136,8 @@ def _required_runtime_paths(
     runtime_raw: Dict[str, Any],
     paths_raw: Dict[str, Any],
 ) -> tuple[str, str]:
-    allowed_root = _as_str(runtime_raw.get("allowed_root"), "")
-    orca_executable = _as_str(paths_raw.get("orca_executable"), "")
+    allowed_root = _config_engines.as_nonempty_str(runtime_raw.get("allowed_root"), "")
+    orca_executable = _config_engines.as_nonempty_str(paths_raw.get("orca_executable"), "")
     missing_keys: list[str] = []
     if not allowed_root:
         missing_keys.append("runtime.allowed_root")
@@ -179,13 +154,13 @@ def _scheduler_runtime_settings(
     allowed_root: str,
 ) -> tuple[int, str, int | None]:
     scheduler_enabled = bool(scheduler_raw)
-    shared_max_active_simulations = _as_int(
+    shared_max_active_simulations = _config_engines.as_int(
         scheduler_raw.get("max_active_simulations"),
         RuntimeConfig.max_concurrent,
     )
     if shared_max_active_simulations < 1:
         raise ValueError("scheduler.max_active_simulations must be an integer >= 1.")
-    shared_admission_root = _as_str(
+    shared_admission_root = _config_engines.as_nonempty_str(
         scheduler_raw.get("admission_root"),
         default_shared_admission_root(path) if scheduler_enabled else allowed_root,
     )
@@ -195,12 +170,15 @@ def _scheduler_runtime_settings(
 
 def _build_telegram_config(telegram_raw: Dict[str, Any]) -> TelegramConfig:
     return TelegramConfig(
-        bot_token=_as_str(telegram_raw.get("bot_token"), ""),
+        bot_token=_config_engines.as_nonempty_str(telegram_raw.get("bot_token"), ""),
         chat_id=str(telegram_raw.get("chat_id", "")).strip(),
         timeout_seconds=_config_engines.as_float(
             telegram_raw.get("timeout_seconds"), TelegramConfig.timeout_seconds
         ),
-        max_attempts=_as_int(telegram_raw.get("max_attempts"), TelegramConfig.max_attempts),
+        max_attempts=_config_engines.as_int(
+            telegram_raw.get("max_attempts"),
+            TelegramConfig.max_attempts,
+        ),
         retry_backoff_seconds=_config_engines.as_float(
             telegram_raw.get("retry_backoff_seconds"),
             TelegramConfig.retry_backoff_seconds,
@@ -222,7 +200,7 @@ def _placeholder_keys(cfg: AppConfig) -> list[str]:
 def load_config(config_path: str) -> AppConfig:
     path = Path(config_path).expanduser().resolve()
     raw = _load_raw_config(path)
-    workflow_root = _as_str(workflow_root_from_mapping(raw), "")
+    workflow_root = _config_engines.as_nonempty_str(workflow_root_from_mapping(raw), "")
     raw = engine_config_mapping(
         raw, "orca", inherit_keys=("behavior", "resources", "telegram", "scheduler")
     )
@@ -234,11 +212,11 @@ def load_config(config_path: str) -> AppConfig:
     resources_raw = _section_mapping(raw, "resources")
 
     allowed_root, orca_executable = _required_runtime_paths(path, runtime_raw, paths_raw)
-    organized_root = _as_str(
+    organized_root = _config_engines.as_nonempty_str(
         runtime_raw.get("organized_root"),
         _default_organized_root(allowed_root),
     )
-    default_max_retries = _as_int(
+    default_max_retries = _config_engines.as_int(
         runtime_raw.get("default_max_retries"),
         RuntimeConfig.default_max_retries,
     )
@@ -268,10 +246,7 @@ def load_config(config_path: str) -> AppConfig:
                 False,
             ),
         ),
-        resources=CommonResourceConfig(
-            max_cores_per_task=max(1, _as_int(resources_raw.get("max_cores_per_task"), 8)),
-            max_memory_gb_per_task=max(1, _as_int(resources_raw.get("max_memory_gb_per_task"), 32)),
-        ),
+        resources=_config_engines.resource_config_from_mapping(resources_raw),
         telegram=telegram_cfg,
     )
     placeholder_keys = _placeholder_keys(cfg)

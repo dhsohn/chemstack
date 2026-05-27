@@ -3,9 +3,6 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from chemstack.core.app_ids import (
-    CHEMSTACK_EXECUTABLE,
-)
 from chemstack.core.config.files import (
     shared_workflow_root_from_config,
 )
@@ -71,10 +68,9 @@ def _activity_cancel_deps() -> _ActivityCancelDeps:
 
 
 def _activity_list_deps() -> _activity_list.ActivityListDeps:
-    def orca_records(*, config_path: str, repo_root: str | None = None) -> list[ActivityRecord]:
+    def orca_records(*, config_path: str) -> list[ActivityRecord]:
         return _activity_orca.orca_records(
             config_path=config_path,
-            repo_root=repo_root,
             deps=_orca_activity_deps(),
         )
 
@@ -124,7 +120,6 @@ def list_activities(
     crest_config: str | None = None,
     xtb_config: str | None = None,
     orca_config: str | None = None,
-    orca_repo_root: str | None = None,
     child_job_engines: tuple[str, ...] | None = None,
 ) -> dict[str, Any]:
     return _activity_list.list_activities(
@@ -134,7 +129,6 @@ def list_activities(
         crest_config=crest_config,
         xtb_config=xtb_config,
         orca_config=orca_config,
-        orca_repo_root=orca_repo_root,
         child_job_engines=child_job_engines,
         deps=_activity_list_deps(),
     )
@@ -146,14 +140,12 @@ def clear_activities(
     crest_config: str | None = None,
     xtb_config: str | None = None,
     orca_config: str | None = None,
-    orca_repo_root: str | None = None,
 ) -> dict[str, Any]:
     return _activity_clear.clear_activities(
         workflow_root=workflow_root,
         crest_config=crest_config,
         xtb_config=xtb_config,
         orca_config=orca_config,
-        orca_repo_root=orca_repo_root,
         clearable_terminal_statuses=_ACTIVITY_CLEARABLE_TERMINAL_STATUSES,
         deps=_activity_clear_deps(),
     )
@@ -164,13 +156,8 @@ def cancel_activity(
     target: str,
     workflow_root: str | Path | None = None,
     crest_config: str | None = None,
-    crest_executable: str = "chemstack_crest",
-    crest_repo_root: str | None = None,
     xtb_config: str | None = None,
-    xtb_executable: str = "chemstack_xtb",
-    xtb_repo_root: str | None = None,
     orca_config: str | None = None,
-    orca_executable: str = CHEMSTACK_EXECUTABLE,
     orca_repo_root: str | None = None,
 ) -> dict[str, Any]:
     request = ActivityCancelRequest(
@@ -180,17 +167,11 @@ def cancel_activity(
             crest_config=crest_config,
             xtb_config=xtb_config,
             orca_config=orca_config,
-            orca_repo_root=orca_repo_root,
         ),
         engine_options=WorkflowEngineOptions.from_values(
             crest_config=crest_config,
-            crest_executable=crest_executable,
-            crest_repo_root=crest_repo_root,
             xtb_config=xtb_config,
-            xtb_executable=xtb_executable,
-            xtb_repo_root=xtb_repo_root,
             orca_config=orca_config,
-            orca_executable=orca_executable,
             orca_repo_root=orca_repo_root,
         ),
     )
@@ -202,7 +183,6 @@ def cancel_activity(
             crest_config=resolved.crest_config,
             xtb_config=resolved.xtb_config,
             orca_config=resolved.orca_config,
-            orca_repo_root=request.engine_options.orca.repo_root,
             deps=_activity_list_deps(),
         ),
         request.target,

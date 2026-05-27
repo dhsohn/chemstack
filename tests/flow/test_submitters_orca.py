@@ -137,13 +137,11 @@ def test_submit_reaction_dir_maps_queue_status(
         reaction_dir="/tmp/rxn_input",
         priority=12,
         config_path=" /tmp/orca.yaml ",
-        executable=" chemstack_orca_bin ",
         repo_root=" /tmp/orca_repo ",
     )
 
     assert sibling_calls == [
         {
-            "executable": "chemstack_orca_bin",
             "config_path": "/tmp/orca.yaml",
             "repo_root": "/tmp/orca_repo",
             "module_name": "chemstack.cli",
@@ -197,12 +195,10 @@ def test_submit_reaction_dir_passes_resource_override_flags(
         config_path="/tmp/orca.yaml",
         max_cores=16,
         max_memory_gb=64,
-        executable="chemstack_orca_bin",
     )
 
     assert sibling_calls == [
         {
-            "executable": "chemstack_orca_bin",
             "config_path": "/tmp/orca.yaml",
             "repo_root": None,
             "module_name": "chemstack.cli",
@@ -285,13 +281,11 @@ def test_cancel_target_maps_cli_cancel_status(
     result = orca_submitter.cancel_target(
         target="q_123",
         config_path=" /tmp/orca.yaml ",
-        executable=" chemstack_orca_bin ",
         repo_root=" /tmp/orca_repo ",
     )
 
     assert sibling_calls == [
         {
-            "executable": "chemstack_orca_bin",
             "config_path": "/tmp/orca.yaml",
             "repo_root": "/tmp/orca_repo",
             "module_name": "chemstack.orca._internal_cli",
@@ -315,7 +309,6 @@ def test_cancel_target_reports_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
     result = orca_submitter.cancel_target(
         target="q_123",
         config_path="/tmp/orca.yaml",
-        executable="chemstack_orca_bin",
         repo_root="/tmp/orca_repo",
     )
 
@@ -416,7 +409,6 @@ def test_submit_reaction_ts_search_workflow_updates_skip_failure_and_submit_bran
         workflow_target="wf_submit",
         workflow_root=workflow_root,
         orca_config=" /tmp/orca.yaml ",
-        orca_executable=" chemstack_orca_bin ",
         orca_repo_root=" /tmp/orca_repo ",
     )
 
@@ -425,7 +417,6 @@ def test_submit_reaction_ts_search_workflow_updates_skip_failure_and_submit_bran
             "reaction_dir": "/tmp/rxn_submit",
             "priority": 8,
             "config_path": "/tmp/orca.yaml",
-            "executable": "chemstack_orca_bin",
             "repo_root": "/tmp/orca_repo",
         }
     ]
@@ -723,7 +714,6 @@ def test_cancel_reaction_ts_search_workflow_records_requested_and_cancelled_stat
         workflow_target="wf_cancel_remote",
         workflow_root=workflow_root,
         orca_config=" /tmp/orca.yaml ",
-        orca_executable=" chemstack_orca_bin ",
         orca_repo_root=" /tmp/orca_repo ",
     )
 
@@ -731,13 +721,11 @@ def test_cancel_reaction_ts_search_workflow_records_requested_and_cancelled_stat
         {
             "target": "q_request",
             "config_path": "/tmp/orca.yaml",
-            "executable": "chemstack_orca_bin",
             "repo_root": "/tmp/orca_repo",
         },
         {
             "target": "/tmp/rxn_cancel",
             "config_path": "/tmp/orca.yaml",
-            "executable": "chemstack_orca_bin",
             "repo_root": "/tmp/orca_repo",
         },
     ]

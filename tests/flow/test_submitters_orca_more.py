@@ -135,7 +135,6 @@ def test_submit_reaction_ts_search_workflow_ignores_invalid_stages_and_sets_subm
         workflow_target="wf_submit_only",
         workflow_root=None,
         orca_config=" /tmp/orca.yaml ",
-        orca_executable=" chemstack_orca_bin ",
         orca_repo_root=" /tmp/orca_repo ",
     )
 
@@ -144,7 +143,6 @@ def test_submit_reaction_ts_search_workflow_ignores_invalid_stages_and_sets_subm
             "reaction_dir": "/tmp/rxn_submit",
             "priority": 7,
             "config_path": "/tmp/orca.yaml",
-            "executable": "chemstack_orca_bin",
             "repo_root": "/tmp/orca_repo",
             "max_cores": 24,
             "max_memory_gb": 96,
@@ -351,7 +349,6 @@ def test_submit_reaction_ts_search_workflow_records_failed_only_summary(
             "reaction_dir": "/tmp/rxn_failed",
             "priority": 11,
             "config_path": "/tmp/orca.yaml",
-            "executable": "chemstack",
             "repo_root": None,
         }
     ]
@@ -507,7 +504,6 @@ def test_cancel_reaction_ts_search_workflow_records_failed_only_summary_for_edge
         {
             "target": "q_fail",
             "config_path": "/tmp/orca.yaml",
-            "executable": "chemstack",
             "repo_root": None,
         }
     ]

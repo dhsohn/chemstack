@@ -42,11 +42,9 @@ def clear_activities(
     crest_config: str | None = None,
     xtb_config: str | None = None,
     orca_config: str | None = None,
-    orca_repo_root: str | None = None,
     clearable_terminal_statuses: Iterable[str],
     deps: ActivityClearDeps,
 ) -> dict[str, Any]:
-    del orca_repo_root
     source_request = ActivitySourceRequest(
         workflow_root=workflow_root,
         crest_config=crest_config,

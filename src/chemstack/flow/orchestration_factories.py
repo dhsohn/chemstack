@@ -19,6 +19,7 @@ from ._orchestration_requests import (
     ReactionTsSearchWorkflowRequest,
     WorkflowCreationContext,
 )
+from .contracts import WorkflowStageWithTaskPayload
 from .registry import sync_workflow_registry
 from .state import write_workflow_payload
 from .xyz_utils import load_xyz_atom_sequence
@@ -42,8 +43,8 @@ class WorkflowFactoryDeps:
     workflow_id_factory: Callable[[str], str] = timestamped_token
     copy_input_fn: Callable[[str, Path], str] = _copy_input_impl
     now_utc_iso_fn: Callable[[], str] = now_utc_iso
-    new_crest_stage_fn: Callable[..., dict[str, Any]] = cast(
-        Callable[..., dict[str, Any]],
+    new_crest_stage_fn: Callable[..., WorkflowStageWithTaskPayload] = cast(
+        Callable[..., WorkflowStageWithTaskPayload],
         new_crest_stage_impl,
     )
     write_workflow_payload_fn: Callable[[Path, dict[str, Any]], None] = _write_workflow_payload

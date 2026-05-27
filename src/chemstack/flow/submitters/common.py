@@ -80,14 +80,11 @@ def queue_submission_status(
 
 def sibling_app_command(
     *,
-    executable: str,
     config_path: str,
     repo_root: str | None,
     module_name: str,
     tail_argv: list[str],
 ) -> tuple[list[str], str | None, dict[str, str] | None]:
-    del executable
-
     argv = [sys.executable, "-m", module_name, "--config", config_path, *tail_argv]
     if repo_root is None:
         return argv, None, None
@@ -110,7 +107,6 @@ def sibling_app_command(
 
 def run_sibling_app(
     *,
-    executable: str,
     config_path: str,
     repo_root: str | None,
     module_name: str,
@@ -118,7 +114,6 @@ def run_sibling_app(
     timeout_seconds: float | None = None,
 ) -> subprocess.CompletedProcess[str]:
     argv, cwd, env = sibling_app_command(
-        executable=executable,
         config_path=config_path,
         repo_root=repo_root,
         module_name=module_name,

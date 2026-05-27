@@ -111,7 +111,6 @@ def test_conformer_screening_workflow_handoff_smoke(
         target=workflow_id,
         workflow_root=workflow_root,
         crest_config=str(smoke_workspace.crest_config_path),
-        crest_repo_root=str(smoke_workspace.repo_root),
         submit_ready=True,
     )
 

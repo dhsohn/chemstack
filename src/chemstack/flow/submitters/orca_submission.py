@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
-from chemstack.core.app_ids import CHEMSTACK_EXECUTABLE, ORCA_SUBMITTERS
+from chemstack.core.app_ids import ORCA_SUBMITTERS
 
 from .orca_models import (
     RecordedStageTransition,
@@ -345,13 +345,11 @@ def orca_submitter_matches(
 def submission_config(
     *,
     orca_config: str,
-    orca_executable: str,
     orca_repo_root: str | None,
     normalize_text: Callable[[Any], str],
 ) -> SiblingSubmitterConfig:
     return SiblingSubmitterConfig(
         config_path=normalize_text(orca_config),
-        executable=normalize_text(orca_executable) or CHEMSTACK_EXECUTABLE,
         repo_root=normalize_text(orca_repo_root) or None,
     )
 
@@ -408,7 +406,6 @@ def submission_stage_outcome(
         reaction_dir=reaction_dir,
         priority=int(enqueue_payload.get("priority", 10) or 10),
         config_path=submitter_config.config_path,
-        executable=submitter_config.executable,
         repo_root=submitter_config.repo_root,
         **submission_kwargs(enqueue_payload),
     )
@@ -450,7 +447,6 @@ def submit_reaction_ts_search_workflow(
     workflow_target: str,
     workflow_root: str | Path | None,
     orca_config: str,
-    orca_executable: str = CHEMSTACK_EXECUTABLE,
     orca_repo_root: str | None = None,
     skip_submitted: bool = True,
     deps: SubmissionDeps,
@@ -463,7 +459,6 @@ def submit_reaction_ts_search_workflow(
     buckets = WorkflowBuckets()
     submitter_config = submission_config(
         orca_config=orca_config,
-        orca_executable=orca_executable,
         orca_repo_root=orca_repo_root,
         normalize_text=deps.normalize_text,
     )

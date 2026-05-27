@@ -64,16 +64,10 @@ def _write_config(tmp_path: Path) -> tuple[Path, Path, Path]:
     return config_path, allowed_root, organized_root
 
 
-def test_build_parser_supports_internal_run_dir_and_queue_commands() -> None:
+def test_build_parser_supports_worker_only_internal_queue_command() -> None:
     parser = cli.build_parser()
 
-    run_dir_args = parser.parse_args(["run-dir", "/tmp/job", "--priority", "7"])
     worker_args = parser.parse_args(["queue", "worker"])
-    cancel_args = parser.parse_args(["queue", "cancel", "q-123"])
-
-    assert run_dir_args.command == "run-dir"
-    assert run_dir_args.path == "/tmp/job"
-    assert run_dir_args.priority == 7
 
     assert worker_args.command == "queue"
     assert worker_args.queue_command == "worker"
@@ -87,6 +81,8 @@ def test_build_parser_supports_internal_run_dir_and_queue_commands() -> None:
         parser.parse_args(["queue", "worker", "--once"])
 
     for argv in (
+        ["run-dir", "/tmp/job", "--priority", "7"],
+        ["queue", "cancel", "q-123"],
         ["scaffold", "--root", "/tmp/job", "--job-type", "ranking"],
         ["list"],
         ["reindex"],
@@ -95,45 +91,22 @@ def test_build_parser_supports_internal_run_dir_and_queue_commands() -> None:
         with pytest.raises(SystemExit):
             parser.parse_args(argv)
 
-    assert cancel_args.command == "queue"
-    assert cancel_args.queue_command == "cancel"
-    assert cancel_args.target == "q-123"
 
-
-def test_main_dispatches_run_dir_and_queue_commands(
+def test_main_dispatches_queue_worker_only(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    run_dir_calls: list[Any] = []
     worker_calls: list[Any] = []
-    cancel_calls: list[Any] = []
-
-    def fake_run_dir(args: Any) -> int:
-        run_dir_calls.append(args)
-        return 31
 
     def fake_worker(args: Any) -> int:
         worker_calls.append(args)
         return 32
 
-    def fake_cancel(args: Any) -> int:
-        cancel_calls.append(args)
-        return 33
-
-    monkeypatch.setattr(run_dir, "cmd_run_dir", fake_run_dir)
     monkeypatch.setattr(queue_cmd, "cmd_queue_worker", fake_worker)
-    monkeypatch.setattr(queue_cmd, "cmd_queue_cancel", fake_cancel)
 
-    assert cli.main(["run-dir", "/tmp/job"]) == 31
     assert cli.main(["queue", "worker"]) == 32
-    assert cli.main(["queue", "cancel", "job-123"]) == 33
 
-    assert len(run_dir_calls) == 1
-    assert run_dir_calls[0].command == "run-dir"
     assert len(worker_calls) == 1
     assert worker_calls[0].queue_command == "worker"
-    assert len(cancel_calls) == 1
-    assert cancel_calls[0].queue_command == "cancel"
-    assert cancel_calls[0].target == "job-123"
 
 
 def test_cmd_run_dir_path_search_submits_and_writes_state(
@@ -355,43 +328,10 @@ def test_cmd_run_dir_requires_job_dir_argument(
         )
 
 
-def test_cli_main_run_dir_accepts_positional_job_dir(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_internal_cli_rejects_run_dir_surface(tmp_path: Path) -> None:
     config_path, allowed_root, _ = _write_config(tmp_path)
     job_dir = allowed_root / "positional_job"
     job_dir.mkdir()
 
-    captured_args: list[SimpleNamespace] = []
-
-    def fake_cmd_run_dir(args: SimpleNamespace) -> int:
-        captured_args.append(args)
-        return 23
-
-    monkeypatch.setattr(run_dir, "cmd_run_dir", fake_cmd_run_dir)
-
-    result = cli.main(["--config", str(config_path), "run-dir", str(job_dir)])
-
-    assert result == 23
-    assert len(captured_args) == 1
-    assert captured_args[0].path == str(job_dir)
-    assert captured_args[0].priority == 10
-
-
-def test_main_dispatches_run_dir_command(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    calls: list[tuple[str, Any]] = []
-
-    def fake_run_dir(args: Any) -> int:
-        calls.append(("run-dir", args))
-        return 30
-
-    monkeypatch.setattr(run_dir, "cmd_run_dir", fake_run_dir)
-
-    assert cli.main(["run-dir", "/tmp/run-job", "--priority", "6"]) == 30
-
-    assert [(name, args.command) for name, args in calls] == [
-        ("run-dir", "run-dir"),
-    ]
-    assert calls[0][1].priority == 6
+    with pytest.raises(SystemExit):
+        cli.main(["--config", str(config_path), "run-dir", str(job_dir)])

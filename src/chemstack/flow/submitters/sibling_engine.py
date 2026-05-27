@@ -1,30 +1,60 @@
 from __future__ import annotations
 
+from argparse import Namespace
+from contextlib import redirect_stderr, redirect_stdout
+from io import StringIO
 import subprocess
 from collections.abc import Callable
-from dataclasses import dataclass
 from typing import Any
 
-
-@dataclass(frozen=True)
-class SubmitterDeps:
-    normalize_text: Callable[[Any], str]
-    parse_key_value_lines: Callable[[str], dict[str, str]]
-    queue_submission_status: Callable[..., tuple[str, str]]
-    run_sibling_app: Callable[..., subprocess.CompletedProcess[str]]
-
-
-def submitter_deps(namespace: Any) -> SubmitterDeps:
-    return SubmitterDeps(
-        normalize_text=namespace.normalize_text,
-        parse_key_value_lines=namespace.parse_key_value_lines,
-        queue_submission_status=namespace.queue_submission_status,
-        run_sibling_app=namespace.run_sibling_app,
-    )
+from .common import normalize_text, parse_key_value_lines, queue_submission_status
 
 
 def command_argv(args: object) -> list[str]:
     return list(args) if isinstance(args, (list, tuple)) else [str(args)]
+
+
+def api_command_argv(
+    *,
+    api_name: str,
+    config_path: str,
+    tail_argv: list[str],
+) -> list[str]:
+    return ["python-api", api_name, "--config", config_path, *tail_argv]
+
+
+def _stderr_with_exception(stderr: str, exc: Exception) -> str:
+    pieces = [stderr] if stderr else []
+    if pieces and not pieces[-1].endswith("\n"):
+        pieces[-1] += "\n"
+    pieces.append(f"{exc.__class__.__name__}: {exc}\n")
+    return "".join(pieces)
+
+
+def run_python_command_handler(
+    *,
+    handler: Callable[[Any], int],
+    args: Any,
+    command_argv: list[str],
+) -> subprocess.CompletedProcess[str]:
+    stdout_buffer = StringIO()
+    stderr_buffer = StringIO()
+    try:
+        with redirect_stdout(stdout_buffer), redirect_stderr(stderr_buffer):
+            returncode = int(handler(args))
+    except Exception as exc:
+        return subprocess.CompletedProcess(
+            args=command_argv,
+            returncode=1,
+            stdout=stdout_buffer.getvalue(),
+            stderr=_stderr_with_exception(stderr_buffer.getvalue(), exc),
+        )
+    return subprocess.CompletedProcess(
+        args=command_argv,
+        returncode=returncode,
+        stdout=stdout_buffer.getvalue(),
+        stderr=stderr_buffer.getvalue(),
+    )
 
 
 def timeout_result(exc: subprocess.TimeoutExpired) -> dict[str, Any]:
@@ -70,31 +100,27 @@ def cli_cancel_status(*, returncode: int, stdout: str) -> str:
     return "cancelled"
 
 
-def submit_job_dir(
+def submit_job_dir_direct(
     *,
-    deps: Any,
+    run_dir_handler: Callable[[Any], int],
+    api_name: str,
     job_dir: str,
     priority: int,
     config_path: str,
-    executable: str,
-    repo_root: str | None,
-    module_name: str,
     extra_fields: Callable[[dict[str, str]], dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    result = deps.run_sibling_app(
-        executable=deps.normalize_text(executable),
-        config_path=deps.normalize_text(config_path),
-        repo_root=deps.normalize_text(repo_root) or None,
-        module_name=module_name,
-        tail_argv=[
-            "run-dir",
-            job_dir,
-            "--priority",
-            str(int(priority)),
-        ],
+    tail_argv = ["run-dir", job_dir, "--priority", str(int(priority))]
+    result = run_python_command_handler(
+        handler=run_dir_handler,
+        args=Namespace(config=config_path, path=job_dir, priority=int(priority)),
+        command_argv=api_command_argv(
+            api_name=api_name,
+            config_path=config_path,
+            tail_argv=tail_argv,
+        ),
     )
-    parsed = deps.parse_key_value_lines(result.stdout)
-    status, reason = deps.queue_submission_status(
+    parsed = parse_key_value_lines(result.stdout)
+    status, reason = queue_submission_status(
         returncode=int(result.returncode),
         parsed_stdout=parsed,
         stdout=result.stdout,
@@ -117,38 +143,29 @@ def submit_job_dir(
     return payload
 
 
-def cancel_target(
+def cancel_target_direct(
     *,
-    deps: Any,
+    cancel_handler: Callable[[Any], int],
+    api_name: str,
     target: str,
     config_path: str,
-    executable: str,
-    repo_root: str | None,
-    module_name: str,
-    timeout_seconds: float,
 ) -> dict[str, Any]:
-    try:
-        result = deps.run_sibling_app(
-            executable=deps.normalize_text(executable),
-            config_path=deps.normalize_text(config_path),
-            repo_root=deps.normalize_text(repo_root) or None,
-            module_name=module_name,
-            tail_argv=["queue", "cancel", target],
-            timeout_seconds=timeout_seconds,
-        )
-    except subprocess.TimeoutExpired as exc:
-        return {
-            **timeout_result(exc),
-            "parsed_stdout": {},
-            "queue_id": "",
-            "job_id": "",
-        }
-    parsed = deps.parse_key_value_lines(result.stdout)
+    tail_argv = ["queue", "cancel", target]
+    result = run_python_command_handler(
+        handler=cancel_handler,
+        args=Namespace(config=config_path, target=target),
+        command_argv=api_command_argv(
+            api_name=api_name,
+            config_path=config_path,
+            tail_argv=tail_argv,
+        ),
+    )
+    parsed = parse_key_value_lines(result.stdout)
     status = queue_cancel_status(
         returncode=int(result.returncode),
         parsed_stdout=parsed,
         stdout=result.stdout,
-        normalize_text=deps.normalize_text,
+        normalize_text=normalize_text,
     )
     return {
         "status": status,
@@ -165,19 +182,18 @@ def cancel_target(
 
 def orca_cancel_target(
     *,
-    deps: Any,
+    normalize_text_fn: Callable[[Any], str],
+    run_sibling_app: Callable[..., subprocess.CompletedProcess[str]],
     target: str,
     config_path: str,
-    executable: str,
     repo_root: str | None,
     module_name: str,
     timeout_seconds: float,
 ) -> dict[str, Any]:
     try:
-        result = deps.run_sibling_app(
-            executable=deps._normalize_text(executable),
-            config_path=deps._normalize_text(config_path),
-            repo_root=deps._normalize_text(repo_root) or None,
+        result = run_sibling_app(
+            config_path=normalize_text_fn(config_path),
+            repo_root=normalize_text_fn(repo_root) or None,
             module_name=module_name,
             tail_argv=["queue", "cancel", target],
             timeout_seconds=timeout_seconds,

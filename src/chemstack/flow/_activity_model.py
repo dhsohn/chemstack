@@ -15,7 +15,6 @@ class ActivitySourceRequest:
     crest_config: str | None = None
     xtb_config: str | None = None
     orca_config: str | None = None
-    orca_repo_root: str | None = None
 
 
 @dataclass(frozen=True)

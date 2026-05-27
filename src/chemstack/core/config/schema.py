@@ -1,15 +1,97 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from typing import Any, TypeVar, cast
+
+_RuntimeAdmissionConfigT = TypeVar("_RuntimeAdmissionConfigT", bound="RuntimeAdmissionMixin")
 
 
-@dataclass(frozen=True)
-class CommonRuntimeConfig:
+def as_str(value: Any, default: str = "") -> str:
+    if value is None:
+        return default
+    return str(value).strip()
+
+
+def as_nonempty_str(value: Any, default: str = "") -> str:
+    if isinstance(value, str) and value.strip():
+        return value
+    return default
+
+
+def as_int(value: Any, default: int) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def as_bool(value: Any, default: bool = False) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    text = str(value).strip().lower()
+    if text in {"1", "true", "yes", "on"}:
+        return True
+    if text in {"0", "false", "no", "off"}:
+        return False
+    return default
+
+
+def as_float(value: Any, default: float) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def positive_int(value: Any) -> int | None:
+    if value in (None, ""):
+        return None
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
+
+
+def normalize_default_max_retries(value: Any, default: int = 2) -> int:
+    return max(0, as_int(value, default))
+
+
+def normalize_max_concurrent(value: Any, default: int = 4) -> int:
+    return max(1, as_int(value, default))
+
+
+def normalize_admission_limit(value: Any, max_concurrent: int) -> int | None:
+    if value is None:
+        return None
+    try:
+        if isinstance(value, bool):
+            normalized_limit = int(value)
+        elif isinstance(value, (int, str)):
+            normalized_limit = int(value)
+        else:
+            raise TypeError("Unsupported admission_limit type")
+    except (TypeError, ValueError):
+        normalized_limit = max_concurrent
+    if normalized_limit < 1:
+        return max(1, max_concurrent)
+    return normalized_limit
+
+
+def resolved_admission_limit(admission_limit: Any, max_concurrent: Any) -> int:
+    if admission_limit is not None:
+        return max(1, int(admission_limit))
+    return max(1, int(max_concurrent))
+
+
+class RuntimeAdmissionMixin:
     allowed_root: str
     organized_root: str
-    max_concurrent: int = 4
-    admission_root: str | None = None
-    admission_limit: int | None = None
+    max_concurrent: int
+    admission_root: str | None
+    admission_limit: int | None
 
     @property
     def resolved_admission_root(self) -> str:
@@ -17,9 +99,19 @@ class CommonRuntimeConfig:
 
     @property
     def resolved_admission_limit(self) -> int:
-        if self.admission_limit is not None:
-            return max(1, int(self.admission_limit))
-        return max(1, int(self.max_concurrent))
+        return resolved_admission_limit(self.admission_limit, self.max_concurrent)
+
+    def to_common_runtime_config(self: _RuntimeAdmissionConfigT) -> _RuntimeAdmissionConfigT:
+        return cast(_RuntimeAdmissionConfigT, replace(cast(Any, self)))
+
+
+@dataclass(frozen=True)
+class CommonRuntimeConfig(RuntimeAdmissionMixin):
+    allowed_root: str
+    organized_root: str
+    max_concurrent: int = 4
+    admission_root: str | None = None
+    admission_limit: int | None = None
 
 
 @dataclass(frozen=True)

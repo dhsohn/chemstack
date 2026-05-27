@@ -3,8 +3,6 @@ from __future__ import annotations
 from chemstack.core.notifications import build_telegram_transport
 from chemstack.core.notifications import engines as _engine_notifications
 
-from .config import AppConfig
-
 _LABEL = "chemstack_crest"
 _ENGINE = "crest"
 
@@ -19,30 +17,7 @@ _JOB_NOTIFICATIONS = _engine_notifications.build_engine_job_notifications(
     send_fn=_send,
 )
 
-
-def notify_job_queued(
-    cfg: AppConfig,
-    **values: object,
-) -> bool:
-    return _JOB_NOTIFICATIONS.notify_job_queued(cfg, values)
-
-
-def notify_job_started(
-    cfg: AppConfig,
-    **values: object,
-) -> bool:
-    return _JOB_NOTIFICATIONS.notify_job_started(cfg, values)
-
-
-def notify_job_terminal(
-    cfg: AppConfig,
-    **values: object,
-) -> bool:
-    return _JOB_NOTIFICATIONS.notify_job_terminal(cfg, values)
-
-
-def notify_job_finished(
-    cfg: AppConfig,
-    **values: object,
-) -> bool:
-    return _JOB_NOTIFICATIONS.notify_job_finished(cfg, values)
+notify_job_queued = _JOB_NOTIFICATIONS.notify_job_queued
+notify_job_started = _JOB_NOTIFICATIONS.notify_job_started
+notify_job_terminal = _JOB_NOTIFICATIONS.notify_job_terminal
+notify_job_finished = _JOB_NOTIFICATIONS.notify_job_finished

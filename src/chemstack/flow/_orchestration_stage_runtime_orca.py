@@ -36,14 +36,12 @@ def _submit_orca_stage(
     stage_metadata: dict[str, Any],
     *,
     orca_config: str | None,
-    orca_executable: str,
     orca_repo_root: str | None,
 ) -> None:
     submission = o.engines.submit_reaction_dir(
         reaction_dir=str(enqueue_payload.get("reaction_dir", "")),
         priority=int(enqueue_payload.get("priority", 10) or 10),
         config_path=str(orca_config),
-        executable=orca_executable,
         repo_root=orca_repo_root,
         **_orca_submission_resource_kwargs(o, enqueue_payload),
     )
@@ -226,7 +224,6 @@ def sync_orca_stage_impl(
     stage: dict[str, Any],
     *,
     orca_config: str | None,
-    orca_executable: str,
     orca_repo_root: str | None,
     submit_ready: bool,
     deps: OrchestrationDeps | None = None,
@@ -255,7 +252,6 @@ def sync_orca_stage_impl(
             enqueue_payload,
             stage_metadata,
             orca_config=orca_config,
-            orca_executable=orca_executable,
             orca_repo_root=orca_repo_root,
         )
     contract = _load_orca_contract(

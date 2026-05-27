@@ -7,7 +7,6 @@ from typing import Any
 @dataclass(frozen=True)
 class SiblingSubmitterConfig:
     config_path: str
-    executable: str
     repo_root: str | None
 
 

@@ -11,52 +11,23 @@ from .files import (
     default_shared_admission_root,
     workflow_root_from_mapping,
 )
-from .schema import CommonResourceConfig, CommonRuntimeConfig, TelegramConfig
+from .schema import (
+    CommonResourceConfig,
+    CommonRuntimeConfig,
+    TelegramConfig,
+    as_bool as as_bool,
+    as_float as as_float,
+    as_int as as_int,
+    as_nonempty_str as as_nonempty_str,
+    as_str as as_str,
+    normalize_admission_limit as normalize_admission_limit,
+    normalize_default_max_retries as normalize_default_max_retries,
+    normalize_max_concurrent as normalize_max_concurrent,
+    positive_int as positive_int,
+    resolved_admission_limit as resolved_admission_limit,
+)
 
 _AppConfigT = TypeVar("_AppConfigT")
-
-
-def as_str(value: Any, default: str = "") -> str:
-    if value is None:
-        return default
-    return str(value).strip()
-
-
-def as_int(value: Any, default: int) -> int:
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return default
-
-
-def as_bool(value: Any, default: bool = False) -> bool:
-    if value is None:
-        return default
-    if isinstance(value, bool):
-        return value
-    text = str(value).strip().lower()
-    if text in {"1", "true", "yes", "on"}:
-        return True
-    if text in {"0", "false", "no", "off"}:
-        return False
-    return default
-
-
-def as_float(value: Any, default: float) -> float:
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return default
-
-
-def positive_int(value: Any) -> int | None:
-    if value in (None, ""):
-        return None
-    try:
-        parsed = int(value)
-    except (TypeError, ValueError):
-        return None
-    return parsed if parsed > 0 else None
 
 
 def mapping_section(raw: dict[str, Any], key: str) -> dict[str, Any]:
@@ -146,7 +117,7 @@ def _runtime_config_from_scheduler(
     scheduler_raw: dict[str, Any],
     workflow_root: str,
 ) -> CommonRuntimeConfig:
-    max_active = max(1, as_int(scheduler_raw.get("max_active_simulations"), 4))
+    max_active = normalize_max_concurrent(scheduler_raw.get("max_active_simulations"), 4)
     admission_root = as_str(
         scheduler_raw.get("admission_root"),
         default_shared_admission_root(path),
@@ -160,11 +131,15 @@ def _runtime_config_from_scheduler(
     )
 
 
-def _resource_config(resources_raw: dict[str, Any]) -> CommonResourceConfig:
+def resource_config_from_mapping(resources_raw: dict[str, Any]) -> CommonResourceConfig:
     return CommonResourceConfig(
         max_cores_per_task=max(1, as_int(resources_raw.get("max_cores_per_task"), 8)),
         max_memory_gb_per_task=max(1, as_int(resources_raw.get("max_memory_gb_per_task"), 32)),
     )
+
+
+def _resource_config(resources_raw: dict[str, Any]) -> CommonResourceConfig:
+    return resource_config_from_mapping(resources_raw)
 
 
 def _telegram_config(telegram_raw: dict[str, Any]) -> TelegramConfig:

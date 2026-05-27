@@ -427,7 +427,6 @@ def test_orca_records_merge_queue_entries_and_snapshots(
 
     rows = _activity_orca.orca_records(
         config_path="/tmp/cfg.yaml",
-        repo_root="/tmp/repo",
         deps=activity._orca_activity_deps(),
     )
 
@@ -660,13 +659,8 @@ def test_cmd_activity_cancel_json_and_error_paths(monkeypatch, capsys) -> None:
         target="crest-q-1",
         workflow_root=None,
         crest_config="/tmp/crest.yaml",
-        crest_executable="chemstack_crest",
-        crest_repo_root=None,
         xtb_config=None,
-        xtb_executable="chemstack_xtb",
-        xtb_repo_root=None,
         orca_config=None,
-        orca_executable="chemstack",
         orca_repo_root=None,
         json=True,
     )

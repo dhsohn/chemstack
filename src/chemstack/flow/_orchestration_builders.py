@@ -5,13 +5,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
-from chemstack.core.app_ids import (
-    CHEMSTACK_CREST_COMMAND,
-    CHEMSTACK_CREST_MODULE,
-    CHEMSTACK_XTB_COMMAND,
-    CHEMSTACK_XTB_MODULE,
-)
-
 from ._orchestration_requests import (
     ConformerScreeningWorkflowRequest,
     ReactionTsSearchWorkflowCreationContext,
@@ -31,6 +24,8 @@ from .contracts import (
 )
 
 _REACTION_TS_SEARCH_CREST_MANIFEST_DEFAULTS: dict[str, Any] = {"rthr": 0.3}
+_CREST_RUN_DIR_API_NAME = "chemstack.crest.commands.run_dir.cmd_run_dir"
+_XTB_RUN_DIR_API_NAME = "chemstack.xtb.commands.run_dir.cmd_run_dir"
 
 
 @dataclass(frozen=True)
@@ -108,8 +103,7 @@ def _engine_enqueue_payload(
     *,
     submitter: str,
     app_name: str,
-    command_name: str,
-    module_name: str,
+    run_dir_api_name: str,
     config_placeholder: str,
     priority: int,
     extra: dict[str, Any] | None = None,
@@ -117,11 +111,13 @@ def _engine_enqueue_payload(
     payload: dict[str, Any] = {
         "submitter": submitter,
         "app_name": app_name,
-        "command": f"{command_name} --config {config_placeholder} run-dir '<job_dir>' --priority {int(priority)}",
+        "command": (
+            f"python-api {run_dir_api_name} --config {config_placeholder} "
+            f"run-dir '<job_dir>' --priority {int(priority)}"
+        ),
         "command_argv": [
-            "python",
-            "-m",
-            module_name,
+            "python-api",
+            run_dir_api_name,
             "--config",
             config_placeholder,
             "run-dir",
@@ -176,10 +172,9 @@ def new_crest_stage_impl(
         resource_request=_resource_request(max_cores, max_memory_gb),
         payload=sections.task_payload,
         enqueue_payload=_engine_enqueue_payload(
-            submitter="chemstack_crest_cli",
+            submitter="chemstack_crest_api",
             app_name="chemstack_crest",
-            command_name=CHEMSTACK_CREST_COMMAND,
-            module_name=CHEMSTACK_CREST_MODULE,
+            run_dir_api_name=_CREST_RUN_DIR_API_NAME,
             config_placeholder=config_placeholder,
             priority=priority,
         ),
@@ -247,10 +242,9 @@ def new_xtb_stage_impl(
         resource_request=_resource_request(max_cores, max_memory_gb),
         payload=sections.task_payload,
         enqueue_payload=_engine_enqueue_payload(
-            submitter="chemstack_xtb_cli",
+            submitter="chemstack_xtb_api",
             app_name="chemstack_xtb",
-            command_name=CHEMSTACK_XTB_COMMAND,
-            module_name=CHEMSTACK_XTB_MODULE,
+            run_dir_api_name=_XTB_RUN_DIR_API_NAME,
             config_placeholder=config_placeholder,
             priority=priority,
             extra={"reaction_key": reaction_key},

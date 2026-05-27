@@ -5,8 +5,8 @@ from types import SimpleNamespace
 from typing import Any, cast
 
 
-from chemstack.flow import orchestration
 from chemstack.flow._orchestration_deps import orchestration_deps
+from chemstack.flow._orchestration_stage_runtime_xtb_sync import sync_xtb_stage_impl
 
 
 def _write_xyz_ensemble(path: Path, comments: tuple[str, ...]) -> None:
@@ -82,11 +82,9 @@ def test_sync_xtb_stage_submits_initial_attempt_and_records_handoff_metadata(
         }
     )
 
-    orchestration._sync_xtb_stage(
+    sync_xtb_stage_impl(
         stage,
         xtb_config="/tmp/xtb.yaml",
-        xtb_executable="chemstack_xtb",
-        xtb_repo_root="/tmp/xtb_repo",
         submit_ready=True,
         workflow_id="wf_01",
         workspace_dir=tmp_path / "workspace" / "wf_01",
@@ -172,11 +170,9 @@ def test_sync_xtb_stage_retries_failed_handoff_when_retry_budget_remains(
         }
     )
 
-    orchestration._sync_xtb_stage(
+    sync_xtb_stage_impl(
         stage,
         xtb_config="/tmp/xtb.yaml",
-        xtb_executable="chemstack_xtb",
-        xtb_repo_root="/tmp/xtb_repo",
         submit_ready=True,
         workflow_id="wf_02",
         workspace_dir=tmp_path / "workspace" / "wf_02",
@@ -247,11 +243,9 @@ def test_sync_xtb_stage_stops_retrying_after_limit_and_materializes_empty_candid
         }
     )
 
-    orchestration._sync_xtb_stage(
+    sync_xtb_stage_impl(
         stage,
         xtb_config="/tmp/xtb.yaml",
-        xtb_executable="chemstack_xtb",
-        xtb_repo_root="/tmp/xtb_repo",
         submit_ready=True,
         workflow_id="wf_03",
         workspace_dir=tmp_path / "workspace" / "wf_03",

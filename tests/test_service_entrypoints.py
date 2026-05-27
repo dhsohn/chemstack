@@ -6,6 +6,7 @@ from chemstack.core.app_ids import CHEMSTACK_CONFIG_ENV_VAR
 from chemstack.services import bot as bot_service
 from chemstack.services import queue_worker as queue_worker_service
 from chemstack.services import summary as summary_service
+from chemstack.services import workflow_worker as workflow_worker_service
 
 
 def test_bot_service_main_uses_shared_config(monkeypatch) -> None:
@@ -54,6 +55,37 @@ def test_queue_worker_service_main_uses_default_apps(monkeypatch) -> None:
     assert args.app is None
     assert args.chemstack_config == "/tmp/chemstack.yaml"
     assert args.json is False
+
+
+def test_workflow_worker_service_main_uses_dedicated_parser(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    def _fake_cmd_workflow_worker(args: Namespace) -> int:
+        captured["args"] = args
+        return 17
+
+    monkeypatch.setattr(
+        workflow_worker_service,
+        "cmd_workflow_worker",
+        _fake_cmd_workflow_worker,
+    )
+
+    result = workflow_worker_service.main(
+        [
+            "--workflow-root",
+            "/tmp/workflows",
+            "--chemstack-config",
+            "/tmp/chemstack.yaml",
+            "--once",
+        ]
+    )
+
+    assert result == 17
+    args = captured["args"]
+    assert isinstance(args, Namespace)
+    assert args.workflow_root == "/tmp/workflows"
+    assert args.chemstack_config == "/tmp/chemstack.yaml"
+    assert args.once is True
 
 
 def test_summary_service_main_runs_combined_summary(monkeypatch) -> None:

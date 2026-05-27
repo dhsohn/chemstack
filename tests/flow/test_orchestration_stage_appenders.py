@@ -4,9 +4,12 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
-
-from chemstack.flow import orchestration
 from chemstack.flow._orchestration_deps import orchestration_deps
+from chemstack.flow._orchestration_stage_materialization import (
+    append_crest_orca_stages_impl,
+    append_reaction_orca_stages_impl,
+    append_reaction_xtb_stages_impl,
+)
 from chemstack.flow.contracts import WorkflowStageInput
 
 
@@ -80,8 +83,18 @@ def test_append_reaction_xtb_stages_creates_full_cartesian_product(tmp_path: Pat
     payload: dict[str, Any] = {
         "workflow_id": "wf_reaction_01",
         "stages": [
-            {"stage_id": "crest_reactant", "status": "completed", "metadata": {"input_role": "reactant"}, "task": {"engine": "crest"}},
-            {"stage_id": "crest_product", "status": "completed", "metadata": {"input_role": "product"}, "task": {"engine": "crest"}},
+            {
+                "stage_id": "crest_reactant",
+                "status": "completed",
+                "metadata": {"input_role": "reactant"},
+                "task": {"engine": "crest"},
+            },
+            {
+                "stage_id": "crest_product",
+                "status": "completed",
+                "metadata": {"input_role": "product"},
+                "task": {"engine": "crest"},
+            },
         ],
         "metadata": {
             "request": {
@@ -94,12 +107,40 @@ def test_append_reaction_xtb_stages_creates_full_cartesian_product(tmp_path: Pat
         },
     }
     reactant_inputs = [
-        _candidate("/tmp/reactant_a.xyz", source_job_id="crest_r", source_job_type="crest", reaction_key="rxn_r_a", rank=1, kind="conformer"),
-        _candidate("/tmp/reactant_b.xyz", source_job_id="crest_r", source_job_type="crest", reaction_key="rxn_r_b", rank=2, kind="conformer"),
+        _candidate(
+            "/tmp/reactant_a.xyz",
+            source_job_id="crest_r",
+            source_job_type="crest",
+            reaction_key="rxn_r_a",
+            rank=1,
+            kind="conformer",
+        ),
+        _candidate(
+            "/tmp/reactant_b.xyz",
+            source_job_id="crest_r",
+            source_job_type="crest",
+            reaction_key="rxn_r_b",
+            rank=2,
+            kind="conformer",
+        ),
     ]
     product_inputs = [
-        _candidate("/tmp/product_a.xyz", source_job_id="crest_p", source_job_type="crest", reaction_key="rxn_p_a", rank=1, kind="conformer"),
-        _candidate("/tmp/product_b.xyz", source_job_id="crest_p", source_job_type="crest", reaction_key="rxn_p_b", rank=2, kind="conformer"),
+        _candidate(
+            "/tmp/product_a.xyz",
+            source_job_id="crest_p",
+            source_job_type="crest",
+            reaction_key="rxn_p_a",
+            rank=1,
+            kind="conformer",
+        ),
+        _candidate(
+            "/tmp/product_b.xyz",
+            source_job_id="crest_p",
+            source_job_type="crest",
+            reaction_key="rxn_p_b",
+            rank=2,
+            kind="conformer",
+        ),
     ]
 
     deps = orchestration_deps(
@@ -115,14 +156,16 @@ def test_append_reaction_xtb_stages_creates_full_cartesian_product(tmp_path: Pat
         }
     )
 
-    created = orchestration._append_reaction_xtb_stages(
+    created = append_reaction_xtb_stages_impl(
         payload,
         workspace_dir=tmp_path,
         crest_config="/tmp/crest.yaml",
         deps=deps,
     )
 
-    xtb_stages = [stage for stage in payload["stages"] if stage.get("task", {}).get("engine") == "xtb"]
+    xtb_stages = [
+        stage for stage in payload["stages"] if stage.get("task", {}).get("engine") == "xtb"
+    ]
     assert created is True
     assert [stage["stage_id"] for stage in xtb_stages] == [
         "xtb_path_search_01",
@@ -139,8 +182,18 @@ def test_append_reaction_xtb_stages_filters_endpoint_pairs(
     payload: dict[str, Any] = {
         "workflow_id": "wf_reaction_pairing",
         "stages": [
-            {"stage_id": "crest_reactant", "status": "completed", "metadata": {"input_role": "reactant"}, "task": {"engine": "crest"}},
-            {"stage_id": "crest_product", "status": "completed", "metadata": {"input_role": "product"}, "task": {"engine": "crest"}},
+            {
+                "stage_id": "crest_reactant",
+                "status": "completed",
+                "metadata": {"input_role": "reactant"},
+                "task": {"engine": "crest"},
+            },
+            {
+                "stage_id": "crest_product",
+                "status": "completed",
+                "metadata": {"input_role": "product"},
+                "task": {"engine": "crest"},
+            },
         ],
         "metadata": {
             "request": {
@@ -173,12 +226,40 @@ def test_append_reaction_xtb_stages_filters_endpoint_pairs(
         [("H", 0, 0, 0), ("H", 2, 0, 0), ("H", 0, 2, 0)],
     )
     reactant_inputs = [
-        _candidate(r_a, source_job_id="crest_r", source_job_type="crest", reaction_key="rxn_r_a", rank=1, kind="conformer"),
-        _candidate(r_b, source_job_id="crest_r", source_job_type="crest", reaction_key="rxn_r_b", rank=2, kind="conformer"),
+        _candidate(
+            r_a,
+            source_job_id="crest_r",
+            source_job_type="crest",
+            reaction_key="rxn_r_a",
+            rank=1,
+            kind="conformer",
+        ),
+        _candidate(
+            r_b,
+            source_job_id="crest_r",
+            source_job_type="crest",
+            reaction_key="rxn_r_b",
+            rank=2,
+            kind="conformer",
+        ),
     ]
     product_inputs = [
-        _candidate(p_a, source_job_id="crest_p", source_job_type="crest", reaction_key="rxn_p_a", rank=1, kind="conformer"),
-        _candidate(p_b, source_job_id="crest_p", source_job_type="crest", reaction_key="rxn_p_b", rank=2, kind="conformer"),
+        _candidate(
+            p_a,
+            source_job_id="crest_p",
+            source_job_type="crest",
+            reaction_key="rxn_p_a",
+            rank=1,
+            kind="conformer",
+        ),
+        _candidate(
+            p_b,
+            source_job_id="crest_p",
+            source_job_type="crest",
+            reaction_key="rxn_p_b",
+            rank=2,
+            kind="conformer",
+        ),
     ]
 
     deps = orchestration_deps(
@@ -194,14 +275,16 @@ def test_append_reaction_xtb_stages_filters_endpoint_pairs(
         }
     )
 
-    created = orchestration._append_reaction_xtb_stages(
+    created = append_reaction_xtb_stages_impl(
         payload,
         workspace_dir=tmp_path,
         crest_config="/tmp/crest.yaml",
         deps=deps,
     )
 
-    xtb_stages = [stage for stage in payload["stages"] if stage.get("task", {}).get("engine") == "xtb"]
+    xtb_stages = [
+        stage for stage in payload["stages"] if stage.get("task", {}).get("engine") == "xtb"
+    ]
     assert created is True
     assert len(xtb_stages) == 1
     assert xtb_stages[0]["task"]["payload"]["reactant_source"]["artifact_path"] == r_a
@@ -219,8 +302,18 @@ def test_append_reaction_xtb_stages_can_exclude_moving_atoms(
     payload: dict[str, Any] = {
         "workflow_id": "wf_reaction_pairing_exclude",
         "stages": [
-            {"stage_id": "crest_reactant", "status": "completed", "metadata": {"input_role": "reactant"}, "task": {"engine": "crest"}},
-            {"stage_id": "crest_product", "status": "completed", "metadata": {"input_role": "product"}, "task": {"engine": "crest"}},
+            {
+                "stage_id": "crest_reactant",
+                "status": "completed",
+                "metadata": {"input_role": "reactant"},
+                "task": {"engine": "crest"},
+            },
+            {
+                "stage_id": "crest_product",
+                "status": "completed",
+                "metadata": {"input_role": "product"},
+                "task": {"engine": "crest"},
+            },
         ],
         "metadata": {
             "request": {
@@ -253,12 +346,40 @@ def test_append_reaction_xtb_stages_can_exclude_moving_atoms(
         [("C", 0, 0, 0), ("C", 3, 0, 0), ("C", 0, 3, 0), ("H", 0, 0, 2)],
     )
     reactant_inputs = [
-        _candidate(r_a, source_job_id="crest_r", source_job_type="crest", reaction_key="rxn_r_a", rank=1, kind="conformer"),
-        _candidate(r_b, source_job_id="crest_r", source_job_type="crest", reaction_key="rxn_r_b", rank=2, kind="conformer"),
+        _candidate(
+            r_a,
+            source_job_id="crest_r",
+            source_job_type="crest",
+            reaction_key="rxn_r_a",
+            rank=1,
+            kind="conformer",
+        ),
+        _candidate(
+            r_b,
+            source_job_id="crest_r",
+            source_job_type="crest",
+            reaction_key="rxn_r_b",
+            rank=2,
+            kind="conformer",
+        ),
     ]
     product_inputs = [
-        _candidate(p_a, source_job_id="crest_p", source_job_type="crest", reaction_key="rxn_p_a", rank=1, kind="conformer"),
-        _candidate(p_b, source_job_id="crest_p", source_job_type="crest", reaction_key="rxn_p_b", rank=2, kind="conformer"),
+        _candidate(
+            p_a,
+            source_job_id="crest_p",
+            source_job_type="crest",
+            reaction_key="rxn_p_a",
+            rank=1,
+            kind="conformer",
+        ),
+        _candidate(
+            p_b,
+            source_job_id="crest_p",
+            source_job_type="crest",
+            reaction_key="rxn_p_b",
+            rank=2,
+            kind="conformer",
+        ),
     ]
 
     deps = orchestration_deps(
@@ -274,14 +395,16 @@ def test_append_reaction_xtb_stages_can_exclude_moving_atoms(
         }
     )
 
-    created = orchestration._append_reaction_xtb_stages(
+    created = append_reaction_xtb_stages_impl(
         payload,
         workspace_dir=tmp_path,
         crest_config="/tmp/crest.yaml",
         deps=deps,
     )
 
-    xtb_stages = [stage for stage in payload["stages"] if stage.get("task", {}).get("engine") == "xtb"]
+    xtb_stages = [
+        stage for stage in payload["stages"] if stage.get("task", {}).get("engine") == "xtb"
+    ]
     assert created is True
     assert len(xtb_stages) == 1
     assert xtb_stages[0]["task"]["payload"]["reactant_source"]["artifact_path"] == r_a
@@ -298,9 +421,24 @@ def test_append_reaction_xtb_stages_waits_for_latest_product_crest_stage(
     payload: dict[str, Any] = {
         "workflow_id": "wf_reaction_wait",
         "stages": [
-            {"stage_id": "crest_reactant", "status": "completed", "metadata": {"input_role": "reactant"}, "task": {"engine": "crest", "status": "completed"}},
-            {"stage_id": "crest_product_old", "status": "completed", "metadata": {"input_role": "product"}, "task": {"engine": "crest", "status": "completed"}},
-            {"stage_id": "crest_product_new", "status": "running", "metadata": {"input_role": "product"}, "task": {"engine": "crest", "status": "running"}},
+            {
+                "stage_id": "crest_reactant",
+                "status": "completed",
+                "metadata": {"input_role": "reactant"},
+                "task": {"engine": "crest", "status": "completed"},
+            },
+            {
+                "stage_id": "crest_product_old",
+                "status": "completed",
+                "metadata": {"input_role": "product"},
+                "task": {"engine": "crest", "status": "completed"},
+            },
+            {
+                "stage_id": "crest_product_new",
+                "status": "running",
+                "metadata": {"input_role": "product"},
+                "task": {"engine": "crest", "status": "running"},
+            },
         ],
         "metadata": {"request": {"parameters": {"max_crest_candidates": 2}}},
     }
@@ -313,7 +451,7 @@ def test_append_reaction_xtb_stages_waits_for_latest_product_crest_stage(
         }
     )
 
-    created = orchestration._append_reaction_xtb_stages(
+    created = append_reaction_xtb_stages_impl(
         payload,
         workspace_dir=tmp_path,
         crest_config="/tmp/crest.yaml",
@@ -346,8 +484,9 @@ def test_append_reaction_orca_stages_sets_xtb_handoff_workflow_error_when_no_can
 
     deps = orchestration_deps(
         overrides={
-            "_load_config_root": lambda path, **kwargs: tmp_path
-            / ("xtb" if "xtb" in str(path) else "orca"),
+            "_load_config_root": lambda path, **kwargs: (
+                tmp_path / ("xtb" if "xtb" in str(path) else "orca")
+            ),
             "load_xtb_artifact_contract": lambda **kwargs: contract,
             "select_xtb_downstream_inputs": lambda *args, **kwargs: (),
             "_reaction_ts_guess_error": lambda current_contract: {
@@ -357,7 +496,7 @@ def test_append_reaction_orca_stages_sets_xtb_handoff_workflow_error_when_no_can
         }
     )
 
-    created = orchestration._append_reaction_orca_stages(
+    created = append_reaction_orca_stages_impl(
         payload,
         workspace_dir=tmp_path,
         xtb_config="/tmp/xtb.yaml",
@@ -389,13 +528,21 @@ def test_append_reaction_orca_stages_waits_for_all_xtb_children_to_finish(
                 "stage_id": "xtb_path_search_01",
                 "status": "completed",
                 "metadata": {},
-                "task": {"engine": "xtb", "status": "completed", "payload": {"job_dir": "/tmp/xtb_done"}},
+                "task": {
+                    "engine": "xtb",
+                    "status": "completed",
+                    "payload": {"job_dir": "/tmp/xtb_done"},
+                },
             },
             {
                 "stage_id": "xtb_path_search_02",
                 "status": "queued",
                 "metadata": {},
-                "task": {"engine": "xtb", "status": "submitted", "payload": {"job_dir": "/tmp/xtb_queued"}},
+                "task": {
+                    "engine": "xtb",
+                    "status": "submitted",
+                    "payload": {"job_dir": "/tmp/xtb_queued"},
+                },
             },
         ],
     }
@@ -408,7 +555,7 @@ def test_append_reaction_orca_stages_waits_for_all_xtb_children_to_finish(
         }
     )
 
-    created = orchestration._append_reaction_orca_stages(
+    created = append_reaction_orca_stages_impl(
         payload,
         workspace_dir=tmp_path,
         xtb_config="/tmp/xtb.yaml",
@@ -480,8 +627,9 @@ def test_append_reaction_orca_stages_appends_unattempted_candidate_without_mutat
 
     deps = orchestration_deps(
         overrides={
-            "_load_config_root": lambda path, **kwargs: tmp_path
-            / ("xtb" if "xtb" in str(path) else "orca"),
+            "_load_config_root": lambda path, **kwargs: (
+                tmp_path / ("xtb" if "xtb" in str(path) else "orca")
+            ),
             "load_xtb_artifact_contract": lambda **kwargs: contract,
             "select_xtb_downstream_inputs": lambda *args, **kwargs: (
                 first_candidate,
@@ -492,7 +640,7 @@ def test_append_reaction_orca_stages_appends_unattempted_candidate_without_mutat
         }
     )
 
-    created = orchestration._append_reaction_orca_stages(
+    created = append_reaction_orca_stages_impl(
         payload,
         workspace_dir=tmp_path,
         xtb_config="/tmp/xtb.yaml",
@@ -556,7 +704,7 @@ def test_append_reaction_orca_stages_materializes_under_workflow_orca_stage_root
         }
     )
 
-    created = orchestration._append_reaction_orca_stages(
+    created = append_reaction_orca_stages_impl(
         payload,
         workspace_dir=tmp_path / "wf_reaction_local",
         xtb_config="/tmp/xtb.yaml",
@@ -601,7 +749,7 @@ def test_append_crest_orca_stages_materializes_orca_stages_from_completed_crest(
         }
     )
 
-    created = orchestration._append_crest_orca_stages(
+    created = append_crest_orca_stages_impl(
         payload,
         template_name="conformer_screening",
         crest_config="/tmp/crest.yaml",
@@ -652,7 +800,7 @@ def test_append_crest_orca_stages_materializes_twenty_orca_children(
         }
     )
 
-    created = orchestration._append_crest_orca_stages(
+    created = append_crest_orca_stages_impl(
         payload,
         template_name="conformer_screening",
         crest_config="/tmp/crest.yaml",
@@ -663,7 +811,9 @@ def test_append_crest_orca_stages_materializes_twenty_orca_children(
         deps=deps,
     )
 
-    orca_stages = [stage for stage in payload["stages"] if stage.get("task", {}).get("engine") == "orca"]
+    orca_stages = [
+        stage for stage in payload["stages"] if stage.get("task", {}).get("engine") == "orca"
+    ]
     assert created is True
     assert len(orca_stages) == 20
     assert orca_stages[0]["stage_id"] == "orca_conformer_01"

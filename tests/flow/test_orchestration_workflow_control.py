@@ -10,6 +10,13 @@ import yaml
 
 from chemstack.flow import orchestration
 from chemstack.flow._orchestration_deps import orchestration_deps
+from chemstack.flow._orchestration_stage_runtime_crest import ensure_crest_job_dir_impl
+from chemstack.flow._orchestration_stage_runtime_xtb_path_jobs import write_xtb_path_job_impl
+from chemstack.flow._orchestration_stage_runtime_xtb_retry import (
+    xtb_current_attempt_number_impl,
+    xtb_path_retry_limit_impl,
+    xtb_retry_recipe_impl,
+)
 
 
 def _write_xyz_ensemble(path: Path, comments: tuple[str, ...]) -> None:
@@ -50,12 +57,12 @@ def test_xtb_retry_helpers_and_job_writer_materialize_attempt_files(tmp_path: Pa
         },
     }
 
-    assert orchestration._xtb_path_retry_limit(stage) == 3
-    assert orchestration._xtb_current_attempt_number(stage) == 0
-    assert orchestration._xtb_retry_recipe(1)["recipe_id"] == "path_input_recommended"
-    assert orchestration._xtb_retry_recipe(2)["xcontrol_name"] == "path_retry_02.inp"
+    assert xtb_path_retry_limit_impl(stage) == 3
+    assert xtb_current_attempt_number_impl(stage) == 0
+    assert xtb_retry_recipe_impl(1)["recipe_id"] == "path_input_recommended"
+    assert xtb_retry_recipe_impl(2)["xcontrol_name"] == "path_retry_02.inp"
 
-    job_dir = orchestration._write_xtb_path_job(
+    job_dir = write_xtb_path_job_impl(
         stage,
         xtb_allowed_root=tmp_path / "xtb_allowed",
         workflow_id="wf_01",
@@ -85,7 +92,7 @@ def test_xtb_retry_helpers_and_job_writer_materialize_attempt_files(tmp_path: Pa
     assert attempt["namespace"] == "retry_02"
 
     metadata["xtb_active_attempt_number"] = 4
-    assert orchestration._xtb_current_attempt_number(stage) == 4
+    assert xtb_current_attempt_number_impl(stage) == 4
 
 
 def test_xtb_job_writer_materializes_ranked_multiframe_inputs(tmp_path: Path) -> None:
@@ -116,7 +123,7 @@ def test_xtb_job_writer_materializes_ranked_multiframe_inputs(tmp_path: Path) ->
         },
     }
 
-    job_dir = orchestration._write_xtb_path_job(
+    job_dir = write_xtb_path_job_impl(
         stage,
         xtb_allowed_root=tmp_path / "xtb_ranked",
         workflow_id="wf_ranked",
@@ -155,7 +162,7 @@ def test_job_dir_writers_apply_manifest_overrides(tmp_path: Path) -> None:
             "enqueue_payload": {},
         },
     }
-    crest_job_dir = orchestration._ensure_crest_job_dir(
+    crest_job_dir = ensure_crest_job_dir_impl(
         crest_stage,
         crest_allowed_root=tmp_path / "crest_allowed",
         workflow_id="wf_crest",
@@ -199,7 +206,7 @@ def test_job_dir_writers_apply_manifest_overrides(tmp_path: Path) -> None:
             "enqueue_payload": {},
         },
     }
-    xtb_job_dir = orchestration._write_xtb_path_job(
+    xtb_job_dir = write_xtb_path_job_impl(
         xtb_stage,
         xtb_allowed_root=tmp_path / "xtb_allowed_override",
         workflow_id="wf_xtb",
@@ -623,8 +630,6 @@ def test_advance_workflow_auto_cancels_active_siblings_after_failure(
         {
             "target": "q_reactant",
             "config_path": "crest.yaml",
-            "executable": "chemstack_crest",
-            "repo_root": None,
         }
     ]
     assert result["stages"][1]["status"] == "cancel_requested"

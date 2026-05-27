@@ -1,10 +1,8 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 from chemstack.core.indexing import (
-    JobLocationRecord,
     get_job_location,
     list_job_locations,
     resolve_job_location,
@@ -13,7 +11,6 @@ from chemstack.core.indexing import (
 from chemstack.core.indexing.engine_job_locations import build_engine_job_location_api
 from chemstack.core.indexing import engines as _engine_locations
 
-from .config import AppConfig
 from .state import load_organized_ref, load_report_json, load_state
 
 _APP_NAME = "chemstack_crest"
@@ -52,17 +49,8 @@ _normalize_text = _engine_locations.normalize_text
 index_root_for_cfg = _LOCATION_SERVICE.index_root_for_cfg
 runtime_roots_for_cfg = _LOCATION_SERVICE.runtime_roots_for_cfg
 index_root_for_path = _LOCATION_SERVICE.index_root_for_path
-
-
-def list_job_records_for_cfg(cfg: AppConfig) -> list[tuple[Path, JobLocationRecord]]:
-    return _LOCATION_API.list_job_records_for_cfg(cfg)
-
-
-def resolve_job_location_for_cfg(
-    cfg: AppConfig,
-    target: str,
-) -> tuple[Path | None, JobLocationRecord | None]:
-    return _LOCATION_API.resolve_job_location_for_cfg(cfg, target)
+list_job_records_for_cfg = _LOCATION_API.list_job_records_for_cfg
+resolve_job_location_for_cfg = _LOCATION_API.resolve_job_location_for_cfg
 
 
 def job_type_for_mode(mode: str) -> str:
@@ -81,90 +69,9 @@ def molecule_key_from_selected_xyz(selected_input_xyz: str, job_dir: Path) -> st
     return normalize_molecule_key(stem)
 
 
-def build_job_location_record(
-    *,
-    existing: JobLocationRecord | None = None,
-    job_id: str,
-    status: str,
-    job_dir: Path,
-    mode: str,
-    selected_input_xyz: str,
-    organized_output_dir: Path | None = None,
-    molecule_key: str = "",
-    resource_request: dict[str, int] | None = None,
-    resource_actual: dict[str, int] | None = None,
-) -> JobLocationRecord:
-    return _LOCATION_API.build_job_location_record(
-        existing=existing,
-        job_id=job_id,
-        status=status,
-        job_dir=job_dir,
-        mode=mode,
-        selected_input_xyz=selected_input_xyz,
-        organized_output_dir=organized_output_dir,
-        molecule_key=molecule_key,
-        resource_request=resource_request,
-        resource_actual=resource_actual,
-    )
-
-def upsert_job_record(
-    cfg: AppConfig,
-    *,
-    job_id: str,
-    status: str,
-    job_dir: Path,
-    mode: str,
-    selected_input_xyz: str,
-    organized_output_dir: Path | None = None,
-    molecule_key: str = "",
-    resource_request: dict[str, int] | None = None,
-    resource_actual: dict[str, int] | None = None,
-) -> JobLocationRecord:
-    return _LOCATION_API.upsert_job_record(
-        cfg,
-        job_id=job_id,
-        status=status,
-        job_dir=job_dir,
-        mode=mode,
-        selected_input_xyz=selected_input_xyz,
-        organized_output_dir=organized_output_dir,
-        molecule_key=molecule_key,
-        resource_request=resource_request,
-        resource_actual=resource_actual,
-    )
-
-
-def resolve_latest_job_dir(index_root: str | Path, target: str) -> Path | None:
-    return _LOCATION_API.resolve_latest_job_dir(index_root, target)
-
-
-def load_job_artifacts(
-    index_root: str | Path,
-    target: str,
-) -> tuple[Path | None, dict[str, Any] | None, dict[str, Any] | None]:
-    return _LOCATION_API.load_job_artifacts(index_root, target)
-
-
-def load_job_artifacts_for_cfg(
-    cfg: AppConfig,
-    target: str,
-) -> tuple[Path | None, dict[str, Any] | None, dict[str, Any] | None, JobLocationRecord | None]:
-    return _LOCATION_API.load_job_artifacts_for_cfg(cfg, target)
-
-def record_from_artifacts(
-    *,
-    job_dir: Path,
-    state: dict[str, Any] | None,
-    report: dict[str, Any] | None,
-    organized_ref: dict[str, Any] | None,
-    existing: JobLocationRecord | None = None,
-    default_mode: str = "standard",
-) -> JobLocationRecord | None:
-    return _LOCATION_API.record_from_artifacts(
-        job_dir=job_dir,
-        state=state,
-        report=report,
-        organized_ref=organized_ref,
-        existing=existing,
-        default_mode=default_mode,
-    )
+build_job_location_record = _LOCATION_API.build_job_location_record
+upsert_job_record = _LOCATION_API.upsert_job_record
+resolve_latest_job_dir = _LOCATION_API.resolve_latest_job_dir
+load_job_artifacts = _LOCATION_API.load_job_artifacts
+load_job_artifacts_for_cfg = _LOCATION_API.load_job_artifacts_for_cfg
+record_from_artifacts = _LOCATION_API.record_from_artifacts

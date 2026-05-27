@@ -45,16 +45,10 @@ def _write_xyz(path: Path, label: str = "sample") -> None:
     path.write_text(f"1\n{label}\nH 0.0 0.0 0.0\n", encoding="utf-8")
 
 
-def test_build_parser_supports_internal_run_dir_and_queue_subcommands() -> None:
+def test_build_parser_supports_worker_only_internal_queue_command() -> None:
     parser = cli.build_parser()
 
-    run_dir_args = parser.parse_args(["run-dir", "jobs/demo", "--priority", "3"])
     worker_args = parser.parse_args(["queue", "worker"])
-    cancel_args = parser.parse_args(["queue", "cancel", "q-123"])
-
-    assert run_dir_args.command == "run-dir"
-    assert run_dir_args.path == "jobs/demo"
-    assert run_dir_args.priority == 3
 
     assert worker_args.command == "queue"
     assert worker_args.queue_command == "worker"
@@ -68,6 +62,8 @@ def test_build_parser_supports_internal_run_dir_and_queue_subcommands() -> None:
         parser.parse_args(["queue", "worker", "--once"])
 
     for argv in (
+        ["run-dir", "jobs/demo", "--priority", "3"],
+        ["queue", "cancel", "q-123"],
         ["scaffold", "--root", "/tmp/job"],
         ["list"],
         ["reindex"],
@@ -76,58 +72,20 @@ def test_build_parser_supports_internal_run_dir_and_queue_subcommands() -> None:
         with pytest.raises(SystemExit):
             parser.parse_args(argv)
 
-    assert cancel_args.command == "queue"
-    assert cancel_args.queue_command == "cancel"
-    assert cancel_args.target == "q-123"
 
-
-@pytest.mark.parametrize(
-    ("argv", "command_module", "attr_name", "expected_result"),
-    [
-        (["run-dir", "/tmp/job"], run_dir_cmd, "cmd_run_dir", 12),
-    ],
-)
-def test_main_dispatches_top_level_commands(
-    monkeypatch: pytest.MonkeyPatch,
-    argv: list[str],
-    command_module: Any,
-    attr_name: str,
-    expected_result: int,
-) -> None:
-    seen: list[Any] = []
-
-    def _stub(args: Any) -> int:
-        seen.append(args)
-        return expected_result
-
-    monkeypatch.setattr(command_module, attr_name, _stub)
-
-    assert cli.main(argv) == expected_result
-    assert len(seen) == 1
-
-
-def test_main_dispatches_queue_worker_and_cancel(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_main_dispatches_queue_worker_only(monkeypatch: pytest.MonkeyPatch) -> None:
     worker_calls: list[Any] = []
-    cancel_calls: list[Any] = []
 
     def _worker(args: Any) -> int:
         worker_calls.append(args)
         return 21
 
-    def _cancel(args: Any) -> int:
-        cancel_calls.append(args)
-        return 22
-
     monkeypatch.setattr(queue_cmd, "cmd_queue_worker", _worker)
-    monkeypatch.setattr(queue_cmd, "cmd_queue_cancel", _cancel)
 
     assert cli.main(["queue", "worker"]) == 21
-    assert cli.main(["queue", "cancel", "job-123"]) == 22
 
     assert len(worker_calls) == 1
     assert not hasattr(worker_calls[0], "no_auto_organize")
-    assert len(cancel_calls) == 1
-    assert cancel_calls[0].target == "job-123"
 
 
 def test_cmd_queue_rejects_unknown_subcommand() -> None:
@@ -139,24 +97,13 @@ def test_cmd_queue_rejects_unknown_subcommand() -> None:
         )
 
 
-def test_main_run_dir_accepts_positional_job_dir(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_internal_cli_rejects_run_dir_surface(tmp_path: Path) -> None:
     config_path, allowed_root, _ = _write_config(tmp_path)
     job_dir = allowed_root / "job-cli"
     job_dir.mkdir(parents=True)
 
-    captured_args: list[Any] = []
-
-    def _stub(args: Any) -> int:
-        captured_args.append(args)
-        return 19
-
-    monkeypatch.setattr(run_dir_cmd, "cmd_run_dir", _stub)
-
-    assert cli.main(["--config", str(config_path), "run-dir", str(job_dir)]) == 19
-    assert len(captured_args) == 1
-    assert captured_args[0].path == str(job_dir)
+    with pytest.raises(SystemExit):
+        cli.main(["--config", str(config_path), "run-dir", str(job_dir)])
 
 
 def test_cmd_run_dir_queues_job_updates_state_and_index(
@@ -369,7 +316,12 @@ def test_cli_end_to_end_smoke_path_submission_worker_and_index(
     _write_xyz(job_dir / "input.xyz", "input")
     (job_dir / "crest_job.yaml").write_text("mode: standard\ninput_xyz: input.xyz\n", encoding="utf-8")
 
-    assert cli.main(["--config", str(config_path), "run-dir", str(job_dir), "--priority", "2"]) == 0
+    assert (
+        run_dir_cmd.cmd_run_dir(
+            Namespace(config=str(config_path), path=str(job_dir), priority=2)
+        )
+        == 0
+    )
     run_output = capsys.readouterr().out
     assert "status: queued" in run_output
     assert "job_id: crest-e2e-001" in run_output

@@ -66,13 +66,8 @@ def cancel_workflow_activity(
         target=record.cancel_target,
         workflow_root=resolved.workflow_root,
         crest_config=resolved.crest_config,
-        crest_executable=request.engine_options.crest.executable,
-        crest_repo_root=request.engine_options.crest.repo_root,
         xtb_config=resolved.xtb_config,
-        xtb_executable=request.engine_options.xtb.executable,
-        xtb_repo_root=request.engine_options.xtb.repo_root,
         orca_config=resolved.orca_config,
-        orca_executable=request.engine_options.orca.executable,
         orca_repo_root=request.engine_options.orca.repo_root,
     )
 
@@ -90,8 +85,6 @@ def cancel_crest_activity(
     return deps.cancel_crest_target(
         target=record.cancel_target,
         config_path=config_path,
-        executable=request.engine_options.crest.executable,
-        repo_root=request.engine_options.crest.repo_root,
     )
 
 
@@ -108,8 +101,6 @@ def cancel_xtb_activity(
     return deps.cancel_xtb_target(
         target=record.cancel_target,
         config_path=config_path,
-        executable=request.engine_options.xtb.executable,
-        repo_root=request.engine_options.xtb.repo_root,
     )
 
 
@@ -126,7 +117,6 @@ def cancel_orca_activity(
     return deps.cancel_orca_target(
         target=record.cancel_target,
         config_path=config_path,
-        executable=request.engine_options.orca.executable,
         repo_root=deps._discover_orca_repo_root(request.engine_options.orca.repo_root),
     )
 

@@ -380,11 +380,6 @@ def test_cmd_activity_list_json_and_cancel_text_output(
             target="xtb-q-1",
             workflow_root=None,
             chemstack_config="/tmp/chemstack.yaml",
-            crest_executable="chemstack_crest",
-            crest_repo_root=None,
-            xtb_executable="chemstack_xtb",
-            xtb_repo_root=None,
-            orca_executable="chemstack",
             orca_repo_root=None,
             json=False,
         )

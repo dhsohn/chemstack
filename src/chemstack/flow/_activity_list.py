@@ -341,7 +341,6 @@ def collect_orca_activity(
         return []
     return deps._orca_records(
         config_path=str(resolved.orca_config),
-        repo_root=request.sources.orca_repo_root,
     )
 
 
@@ -401,7 +400,6 @@ def collect_activity_records(
     crest_config: str | None = None,
     xtb_config: str | None = None,
     orca_config: str | None = None,
-    orca_repo_root: str | None = None,
     child_job_engines: tuple[str, ...] | None = None,
     deps: ActivityListDeps,
 ) -> list[ActivityRecord]:
@@ -412,7 +410,6 @@ def collect_activity_records(
                 crest_config=crest_config,
                 xtb_config=xtb_config,
                 orca_config=orca_config,
-                orca_repo_root=orca_repo_root,
             ),
             refresh=refresh,
             child_job_engines=child_job_engines,
@@ -429,7 +426,6 @@ def list_activities(
     crest_config: str | None = None,
     xtb_config: str | None = None,
     orca_config: str | None = None,
-    orca_repo_root: str | None = None,
     child_job_engines: tuple[str, ...] | None = None,
     deps: ActivityListDeps,
 ) -> dict[str, Any]:
@@ -439,7 +435,6 @@ def list_activities(
             crest_config=crest_config,
             xtb_config=xtb_config,
             orca_config=orca_config,
-            orca_repo_root=orca_repo_root,
         ),
         refresh=refresh,
         limit=limit,
@@ -452,7 +447,6 @@ def list_activities(
         crest_config=resolved.crest_config,
         xtb_config=resolved.xtb_config,
         orca_config=resolved.orca_config,
-        orca_repo_root=request.sources.orca_repo_root,
         child_job_engines=request.child_job_engines,
         deps=deps,
     )

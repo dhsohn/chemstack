@@ -9,7 +9,6 @@ from chemstack.core.internal_cli import (
 )
 
 from .commands import queue as queue_cmd
-from .commands import run_dir as run_dir_cmd
 from .config import default_config_path
 
 
@@ -27,11 +26,7 @@ def main(argv: list[str] | None = None) -> int:
     return run_engine_internal_cli(
         argv,
         build_parser_fn=build_parser,
-        command_handlers={
-            "run-dir": run_dir_cmd.cmd_run_dir,
-        },
         queue_worker_handler=queue_cmd.cmd_queue_worker,
-        queue_cancel_handler=queue_cmd.cmd_queue_cancel,
     )
 
 

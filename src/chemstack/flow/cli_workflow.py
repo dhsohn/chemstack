@@ -4,7 +4,6 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
-from chemstack.core.app_ids import CHEMSTACK_EXECUTABLE
 from chemstack.core.config.files import default_config_path_from_repo_root
 from chemstack.core.utils import file_lock, now_utc_iso, timestamped_token
 from chemstack.cli_common import (
@@ -96,20 +95,13 @@ def cmd_workflow_advance(args: Any, *, deps: Any | None = None) -> int:
         "emit_workflow_advance",
         _workflow_output.emit_workflow_advance,
     )
-    executable = _dependency(deps, "CHEMSTACK_EXECUTABLE", CHEMSTACK_EXECUTABLE)
-
     shared_config = shared_chemstack_config(args)
     payload = advance_workflow_fn(
         target=getattr(args, "target"),
         workflow_root=getattr(args, "workflow_root"),
         crest_config=shared_config,
-        crest_executable=getattr(args, "crest_executable", "chemstack_crest"),
-        crest_repo_root=getattr(args, "crest_repo_root", None),
         xtb_config=shared_config,
-        xtb_executable=getattr(args, "xtb_executable", "chemstack_xtb"),
-        xtb_repo_root=getattr(args, "xtb_repo_root", None),
         orca_config=shared_config,
-        orca_executable=getattr(args, "orca_executable", executable),
         orca_repo_root=getattr(args, "orca_repo_root", None),
         submit_ready=not bool(getattr(args, "no_submit", False)),
     )
@@ -142,7 +134,6 @@ class _WorkflowWorkerRuntime:
     emit_error: Any
     emit_worker_lock_error: Any
     emit_worker_payload: Any
-    executable: str
     time_module: Any
 
 
@@ -202,7 +193,6 @@ def _workflow_worker_runtime(deps: Any | None) -> _WorkflowWorkerRuntime:
             _workflow_output.emit_worker_lock_error,
         ),
         emit_worker_payload=_dependency(deps, "_emit_worker_payload", _emit_worker_payload),
-        executable=_dependency(deps, "CHEMSTACK_EXECUTABLE", CHEMSTACK_EXECUTABLE),
         time_module=_dependency(deps, "time", time),
     )
 
@@ -245,13 +235,8 @@ def _workflow_worker_options(args: Any, *, runtime: _WorkflowWorkerRuntime) -> _
         submit_ready=not bool(getattr(args, "no_submit", False)),
         engines=WorkflowEngineOptions.from_values(
             crest_config=shared_config,
-            crest_executable=getattr(args, "crest_executable", "chemstack_crest"),
-            crest_repo_root=getattr(args, "crest_repo_root", None),
             xtb_config=shared_config,
-            xtb_executable=getattr(args, "xtb_executable", "chemstack_xtb"),
-            xtb_repo_root=getattr(args, "xtb_repo_root", None),
             orca_config=shared_config,
-            orca_executable=getattr(args, "orca_executable", runtime.executable),
             orca_repo_root=getattr(args, "orca_repo_root", None),
         ),
     )
@@ -300,13 +285,8 @@ def _advance_workflow_worker_cycle(
     return runtime.advance_registry_once(
         workflow_root=options.workflow_root_text,
         crest_config=engines.crest.config,
-        crest_executable=engines.crest.executable,
-        crest_repo_root=engines.crest.repo_root,
         xtb_config=engines.xtb.config,
-        xtb_executable=engines.xtb.executable,
-        xtb_repo_root=engines.xtb.repo_root,
         orca_config=engines.orca.config,
-        orca_executable=engines.orca.executable,
         orca_repo_root=engines.orca.repo_root,
         submit_ready=options.submit_ready,
         refresh_registry=options.refresh_each_cycle
@@ -523,14 +503,11 @@ def cmd_workflow_submit_reaction_ts_search(args: Any, *, deps: Any | None = None
         "emit_workflow_submit_reaction_ts_search",
         _workflow_output.emit_workflow_submit_reaction_ts_search,
     )
-    executable = _dependency(deps, "CHEMSTACK_EXECUTABLE", CHEMSTACK_EXECUTABLE)
-
     shared_config = shared_chemstack_config(args) or default_config_path(project_root())
     payload = submit_workflow(
         workflow_target=getattr(args, "target"),
         workflow_root=getattr(args, "workflow_root", None),
         orca_config=shared_config,
-        orca_executable=getattr(args, "orca_executable", executable),
         orca_repo_root=getattr(args, "orca_repo_root", None),
         skip_submitted=not bool(getattr(args, "resubmit", False)),
     )
@@ -596,19 +573,13 @@ def cmd_workflow_cancel(args: Any, *, deps: Any | None = None) -> int:
         _workflow_output.emit_workflow_cancel,
     )
     emit_error = _dependency(deps, "emit_error", _workflow_output.emit_error)
-    executable = _dependency(deps, "CHEMSTACK_EXECUTABLE", CHEMSTACK_EXECUTABLE)
     try:
         payload = cancel_workflow_fn(
             target=getattr(args, "target"),
             workflow_root=getattr(args, "workflow_root", None),
             crest_config=getattr(args, "crest_config", None),
-            crest_executable=getattr(args, "crest_executable", "chemstack_crest"),
-            crest_repo_root=getattr(args, "crest_repo_root", None),
             xtb_config=getattr(args, "xtb_config", None),
-            xtb_executable=getattr(args, "xtb_executable", "chemstack_xtb"),
-            xtb_repo_root=getattr(args, "xtb_repo_root", None),
             orca_config=getattr(args, "orca_config", None),
-            orca_executable=getattr(args, "orca_executable", executable),
             orca_repo_root=getattr(args, "orca_repo_root", None),
         )
     except (ValueError, TimeoutError) as exc:

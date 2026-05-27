@@ -13,44 +13,100 @@ from chemstack.flow._orchestration_lifecycle import (
     downstream_terminal_result_impl,
     effective_stage_status_impl,
     latest_child_stage_summary_impl,
+    recompute_workflow_status_impl,
+    stage_failure_is_recoverable_impl,
+    workflow_has_active_children_impl,
+    workflow_sync_only_impl,
 )
-from chemstack.flow.orchestration import (
-    _append_unique_artifact,
-    _clear_reaction_xtb_handoff_error_if_recovering,
-    _completed_crest_roles,
-    _completed_crest_stage,
-    _completed_orca_stage,
-    _load_config_organized_root,
-    _load_config_root,
-    _reaction_orca_allows_next_candidate,
-    _reaction_ts_guess_error,
-    _recompute_workflow_status,
-    _stage_failure_is_recoverable,
-    _stage_has_xtb_candidates,
-    _submission_target,
-    _workflow_has_active_children,
-    _workflow_sync_only,
-    _xtb_handoff_status,
+from chemstack.flow._orchestration_stage_runtime_crest import (
+    completed_crest_roles_impl as _completed_crest_roles,
+    completed_crest_stage_impl as _completed_crest_stage,
 )
-from chemstack.flow import orchestration
+from chemstack.flow._orchestration_stage_runtime_orca import (
+    completed_orca_stage_impl as _completed_orca_stage,
+)
+from chemstack.flow._orchestration_stage_runtime_shared import (
+    append_unique_artifact_impl as _append_unique_artifact,
+)
+from chemstack.flow._orchestration_stage_runtime_xtb_handoff import (
+    stage_has_xtb_candidates_impl as _stage_has_xtb_candidates,
+    xtb_handoff_status_impl as _xtb_handoff_status,
+)
+from chemstack.flow._orchestration_support import (
+    clear_reaction_xtb_handoff_error_if_recovering_impl as _clear_reaction_xtb_handoff_error_if_recovering,
+    load_config_organized_root_impl as _load_config_organized_root,
+    load_config_root_impl as _load_config_root,
+    reaction_orca_allows_next_candidate_impl as _reaction_orca_allows_next_candidate,
+    reaction_ts_guess_error_impl as _reaction_ts_guess_error,
+    stage_metadata_impl as _stage_metadata,
+    submission_target_impl as _submission_target,
+)
 
 
 def _normalize_text(value: Any) -> str:
     return str(value or "").strip()
 
 
-def test_workflow_sync_only_and_active_children_cover_stage_task_and_downstream(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def _workflow_sync_only(payload: dict[str, Any]) -> bool:
+    return workflow_sync_only_impl(payload, normalize_text_fn=_normalize_text)
+
+
+def _workflow_has_active_children(
+    payload: dict[str, Any],
+    *,
+    active_downstream: bool = False,
+) -> bool:
+    return workflow_has_active_children_impl(
+        payload,
+        normalize_text_fn=_normalize_text,
+        workflow_has_active_downstream_fn=lambda current_payload: active_downstream,
+    )
+
+
+def _stage_failure_is_recoverable(stage: dict[str, Any]) -> bool:
+    return stage_failure_is_recoverable_impl(
+        stage,
+        normalize_text_fn=_normalize_text,
+        stage_metadata_fn=_stage_metadata,
+    )
+
+
+def _recompute_workflow_status(payload: dict[str, Any]) -> str:
+    return recompute_workflow_status_impl(
+        payload,
+        normalize_text_fn=_normalize_text,
+        effective_stage_status_fn=lambda stage: effective_stage_status_impl(
+            stage,
+            normalize_text_fn=_normalize_text,
+            stage_failure_is_recoverable_fn=_stage_failure_is_recoverable,
+        ),
+    )
+
+
+def test_workflow_sync_only_and_active_children_cover_stage_task_and_downstream() -> None:
     assert _workflow_sync_only({"status": "completed"}) is True
     assert _workflow_sync_only({"status": "planned"}) is False
 
-    monkeypatch.setattr(orchestration, "workflow_has_active_downstream", lambda payload: True)
-    assert _workflow_has_active_children({"stages": [{"status": "completed", "task": {"status": "completed"}}]}) is True
-    monkeypatch.setattr(orchestration, "workflow_has_active_downstream", lambda payload: False)
+    assert (
+        _workflow_has_active_children(
+            {"stages": [{"status": "completed", "task": {"status": "completed"}}]},
+            active_downstream=True,
+        )
+        is True
+    )
     assert _workflow_has_active_children({"stages": [{"status": "running"}]}) is True
-    assert _workflow_has_active_children({"stages": [{"status": "completed", "task": {"status": "submitted"}}]}) is True
-    assert _workflow_has_active_children({"stages": [{"status": "completed", "task": {"status": "completed"}}]}) is False
+    assert (
+        _workflow_has_active_children(
+            {"stages": [{"status": "completed", "task": {"status": "submitted"}}]}
+        )
+        is True
+    )
+    assert (
+        _workflow_has_active_children(
+            {"stages": [{"status": "completed", "task": {"status": "completed"}}]}
+        )
+        is False
+    )
 
 
 def test_latest_child_stage_summary_and_terminal_result_extract_relevant_fields() -> None:
@@ -71,7 +127,12 @@ def test_latest_child_stage_summary_and_terminal_result_extract_relevant_fields(
             "organized_output_dir": "/tmp/out",
             "completed_at": "2026-04-19T00:10:00+00:00",
         },
-        {"stage_id": "s3", "status": "queued", "task_status": "queued", "completed_at": "2026-04-19T00:05:00+00:00"},
+        {
+            "stage_id": "s3",
+            "status": "queued",
+            "task_status": "queued",
+            "completed_at": "2026-04-19T00:05:00+00:00",
+        },
     ]
 
     summary = latest_child_stage_summary_impl(stage_summaries, normalize_text_fn=_normalize_text)
@@ -103,20 +164,30 @@ def test_latest_child_stage_summary_and_terminal_result_extract_relevant_fields(
         "failure_reason": "boom",
         "failure_scope": "orca",
     }
-    assert downstream_terminal_result_impl(
-        {},
-        {"status": "running", "stage_summaries": []},
-        normalize_text_fn=_normalize_text,
-    ) == {}
+    assert (
+        downstream_terminal_result_impl(
+            {},
+            {"status": "running", "stage_summaries": []},
+            normalize_text_fn=_normalize_text,
+        )
+        == {}
+    )
 
 
 def test_submission_target_and_config_roots_follow_precedence() -> None:
     stage = {
         "metadata": {"queue_id": "q_meta"},
-        "task": {"submission_result": {"parsed_stdout": {"job_id": "job_stdout", "queue_id": "q_stdout"}}},
+        "task": {
+            "submission_result": {"parsed_stdout": {"job_id": "job_stdout", "queue_id": "q_stdout"}}
+        },
     }
     assert _submission_target(stage) == "q_meta"
-    assert _submission_target({"task": {"submission_result": {"parsed_stdout": {"job_id": "job_stdout"}}}}) == "job_stdout"
+    assert (
+        _submission_target(
+            {"task": {"submission_result": {"parsed_stdout": {"job_id": "job_stdout"}}}}
+        )
+        == "job_stdout"
+    )
     assert _submission_target({}) == ""
 
     deps = orchestration_deps(
@@ -131,15 +202,15 @@ def test_submission_target_and_config_roots_follow_precedence() -> None:
     assert _load_config_organized_root("/tmp/config.yaml", deps=deps) == Path("/tmp/organized")
 
     deps = orchestration_deps(
-        overrides={"sibling_runtime_paths": lambda path, **kwargs: {"allowed_root": Path("/tmp/allowed")}}
+        overrides={
+            "sibling_runtime_paths": lambda path, **kwargs: {"allowed_root": Path("/tmp/allowed")}
+        }
     )
     assert _load_config_organized_root("/tmp/config.yaml", deps=deps) == Path("/tmp/allowed")
 
     deps = orchestration_deps(
         overrides={
-            "sibling_runtime_paths": lambda path, **kwargs: (_ for _ in ()).throw(
-                ValueError("bad")
-            )
+            "sibling_runtime_paths": lambda path, **kwargs: (_ for _ in ()).throw(ValueError("bad"))
         }
     )
     assert _load_config_root("/tmp/config.yaml", deps=deps) is None
@@ -162,7 +233,9 @@ def test_xtb_handoff_status_and_ts_guess_error_cover_ready_and_failure() -> None
 
     deps = orchestration_deps(
         overrides={
-            "select_xtb_downstream_inputs": lambda contract, policy, require_geometry: (ready_input,)
+            "select_xtb_downstream_inputs": lambda contract, policy, require_geometry: (
+                ready_input,
+            )
         }
     )
     ready = _xtb_handoff_status(contract, deps=deps)
@@ -184,7 +257,9 @@ def test_xtb_handoff_status_and_ts_guess_error_cover_ready_and_failure() -> None
         "artifact_path": "",
     }
 
-    invalid_contract = SimpleNamespace(candidate_details=(SimpleNamespace(kind="ts_guess", path="/tmp/xtbpath_ts.xyz", rank=1),))
+    invalid_contract = SimpleNamespace(
+        candidate_details=(SimpleNamespace(kind="ts_guess", path="/tmp/xtbpath_ts.xyz", rank=1),)
+    )
     deps = orchestration_deps(
         overrides={
             "choose_orca_geometry_frame": lambda path, candidate_kind: (
@@ -200,25 +275,47 @@ def test_xtb_handoff_status_and_ts_guess_error_cover_ready_and_failure() -> None
 
 
 def test_stage_candidate_and_failure_helpers_cover_recoverable_paths() -> None:
-    assert _stage_has_xtb_candidates({"output_artifacts": [{"kind": "xtb_candidate", "path": "/tmp/candidate.xyz"}]}) is True
-    assert _stage_has_xtb_candidates({"output_artifacts": [{"kind": "xtb_candidate", "path": ""}]}) is False
+    assert (
+        _stage_has_xtb_candidates(
+            {"output_artifacts": [{"kind": "xtb_candidate", "path": "/tmp/candidate.xyz"}]}
+        )
+        is True
+    )
+    assert (
+        _stage_has_xtb_candidates({"output_artifacts": [{"kind": "xtb_candidate", "path": ""}]})
+        is False
+    )
 
-    xtb_stage = {"status": "failed", "task": {"engine": "xtb"}, "metadata": {"reaction_handoff_status": "ready"}}
-    orca_stage = {"status": "cancel_failed", "task": {"engine": "orca"}, "metadata": {"reaction_candidate_status": "superseded"}}
+    xtb_stage = {
+        "status": "failed",
+        "task": {"engine": "xtb"},
+        "metadata": {"reaction_handoff_status": "ready"},
+    }
+    orca_stage = {
+        "status": "cancel_failed",
+        "task": {"engine": "orca"},
+        "metadata": {"reaction_candidate_status": "superseded"},
+    }
     plain_stage = {"status": "failed", "task": {"engine": "crest"}, "metadata": {}}
     assert _stage_failure_is_recoverable(xtb_stage) is True
     assert _stage_failure_is_recoverable(orca_stage) is True
     assert _stage_failure_is_recoverable(plain_stage) is False
-    assert effective_stage_status_impl(
-        xtb_stage,
-        normalize_text_fn=_normalize_text,
-        stage_failure_is_recoverable_fn=_stage_failure_is_recoverable,
-    ) == "completed"
-    assert effective_stage_status_impl(
-        {"status": "running"},
-        normalize_text_fn=_normalize_text,
-        stage_failure_is_recoverable_fn=_stage_failure_is_recoverable,
-    ) == "running"
+    assert (
+        effective_stage_status_impl(
+            xtb_stage,
+            normalize_text_fn=_normalize_text,
+            stage_failure_is_recoverable_fn=_stage_failure_is_recoverable,
+        )
+        == "completed"
+    )
+    assert (
+        effective_stage_status_impl(
+            {"status": "running"},
+            normalize_text_fn=_normalize_text,
+            stage_failure_is_recoverable_fn=_stage_failure_is_recoverable,
+        )
+        == "running"
+    )
 
     failing_orca: dict[str, Any] = {
         "status": "failed",
@@ -251,7 +348,9 @@ def test_clear_reaction_xtb_handoff_error_and_unique_artifact_helpers() -> None:
 
     rows = [{"kind": "artifact", "path": "/tmp/a.xyz"}]
     _append_unique_artifact(rows, kind="artifact", path="/tmp/a.xyz")
-    _append_unique_artifact(rows, kind="artifact", path="/tmp/b.xyz", selected=True, metadata={"rank": 2})
+    _append_unique_artifact(
+        rows, kind="artifact", path="/tmp/b.xyz", selected=True, metadata={"rank": 2}
+    )
     assert rows == [
         {"kind": "artifact", "path": "/tmp/a.xyz"},
         {"kind": "artifact", "path": "/tmp/b.xyz", "selected": True, "metadata": {"rank": 2}},
@@ -261,9 +360,21 @@ def test_clear_reaction_xtb_handoff_error_and_unique_artifact_helpers() -> None:
 def test_completed_role_and_contract_helpers_use_expected_targets() -> None:
     payload = {
         "stages": [
-            {"status": "completed", "metadata": {"input_role": "reactant"}, "task": {"engine": "crest"}},
-            {"status": "running", "metadata": {"input_role": "product"}, "task": {"engine": "crest"}},
-            {"status": "completed", "metadata": {"input_role": "product"}, "task": {"engine": "crest"}},
+            {
+                "status": "completed",
+                "metadata": {"input_role": "reactant"},
+                "task": {"engine": "crest"},
+            },
+            {
+                "status": "running",
+                "metadata": {"input_role": "product"},
+                "task": {"engine": "crest"},
+            },
+            {
+                "status": "completed",
+                "metadata": {"input_role": "product"},
+                "task": {"engine": "crest"},
+            },
         ]
     }
     assert set(_completed_crest_roles(payload).keys()) == {"reactant", "product"}
@@ -288,7 +399,9 @@ def test_completed_role_and_contract_helpers_use_expected_targets() -> None:
         _completed_crest_stage(crest_stage, crest_config="/tmp/crest.yaml", deps=deps)
         == "crest_contract"
     )
-    assert crest_calls == [{"crest_index_root": Path("/tmp/crest_allowed"), "target": "/tmp/crest_job"}]
+    assert crest_calls == [
+        {"crest_index_root": Path("/tmp/crest_allowed"), "target": "/tmp/crest_job"}
+    ]
 
     orca_calls: list[dict[str, Any]] = []
 
@@ -329,9 +442,21 @@ def test_completed_role_and_contract_helpers_use_expected_targets() -> None:
 def test_completed_crest_roles_ignore_stale_completed_stage_when_newer_stage_is_active() -> None:
     payload = {
         "stages": [
-            {"status": "completed", "metadata": {"input_role": "reactant"}, "task": {"engine": "crest", "status": "completed"}},
-            {"status": "completed", "metadata": {"input_role": "product"}, "task": {"engine": "crest", "status": "completed"}},
-            {"status": "running", "metadata": {"input_role": "product"}, "task": {"engine": "crest", "status": "running"}},
+            {
+                "status": "completed",
+                "metadata": {"input_role": "reactant"},
+                "task": {"engine": "crest", "status": "completed"},
+            },
+            {
+                "status": "completed",
+                "metadata": {"input_role": "product"},
+                "task": {"engine": "crest", "status": "completed"},
+            },
+            {
+                "status": "running",
+                "metadata": {"input_role": "product"},
+                "task": {"engine": "crest", "status": "running"},
+            },
         ]
     }
 
@@ -352,77 +477,100 @@ def test_completed_crest_roles_ignore_stale_completed_stage_when_newer_stage_is_
         ({"stages": []}, "planned"),
     ],
 )
-def test_recompute_workflow_status_covers_major_branches(payload: dict[str, Any], expected: str) -> None:
+def test_recompute_workflow_status_covers_major_branches(
+    payload: dict[str, Any], expected: str
+) -> None:
     assert _recompute_workflow_status(payload) == expected
 
 
 def test_recompute_workflow_status_treats_child_failures_by_engine_role() -> None:
-    assert _recompute_workflow_status(
-        {
-            "template_name": "reaction_ts_search",
-            "stages": [
-                {"status": "failed", "task": {"engine": "crest"}},
-                {"status": "running", "task": {"engine": "xtb"}},
-            ],
-        }
-    ) == "failed"
+    assert (
+        _recompute_workflow_status(
+            {
+                "template_name": "reaction_ts_search",
+                "stages": [
+                    {"status": "failed", "task": {"engine": "crest"}},
+                    {"status": "running", "task": {"engine": "xtb"}},
+                ],
+            }
+        )
+        == "failed"
+    )
 
-    assert _recompute_workflow_status(
-        {
-            "template_name": "reaction_ts_search",
-            "stages": [
-                {"status": "failed", "task": {"engine": "xtb"}},
-                {"status": "planned", "task": {"engine": "orca"}},
-            ],
-        }
-    ) == "running"
+    assert (
+        _recompute_workflow_status(
+            {
+                "template_name": "reaction_ts_search",
+                "stages": [
+                    {"status": "failed", "task": {"engine": "xtb"}},
+                    {"status": "planned", "task": {"engine": "orca"}},
+                ],
+            }
+        )
+        == "running"
+    )
 
-    assert _recompute_workflow_status(
-        {
-            "template_name": "reaction_ts_search",
-            "stages": [
-                {"status": "failed", "task": {"engine": "xtb"}},
-                {"status": "failed", "task": {"engine": "orca"}},
-            ],
-        }
-    ) == "completed"
+    assert (
+        _recompute_workflow_status(
+            {
+                "template_name": "reaction_ts_search",
+                "stages": [
+                    {"status": "failed", "task": {"engine": "xtb"}},
+                    {"status": "failed", "task": {"engine": "orca"}},
+                ],
+            }
+        )
+        == "completed"
+    )
 
-    assert _recompute_workflow_status(
-        {
-            "template_name": "conformer_screening",
-            "stages": [
-                {"status": "cancel_requested", "task": {"engine": "orca"}},
-                {"status": "completed", "task": {"engine": "orca"}},
-            ],
-        }
-    ) == "running"
+    assert (
+        _recompute_workflow_status(
+            {
+                "template_name": "conformer_screening",
+                "stages": [
+                    {"status": "cancel_requested", "task": {"engine": "orca"}},
+                    {"status": "completed", "task": {"engine": "orca"}},
+                ],
+            }
+        )
+        == "running"
+    )
 
-    assert _recompute_workflow_status(
-        {
-            "template_name": "conformer_screening",
-            "stages": [
-                {"status": "cancelled", "task": {"engine": "orca"}},
-                {"status": "completed", "task": {"engine": "orca"}},
-            ],
-        }
-    ) == "completed"
+    assert (
+        _recompute_workflow_status(
+            {
+                "template_name": "conformer_screening",
+                "stages": [
+                    {"status": "cancelled", "task": {"engine": "orca"}},
+                    {"status": "completed", "task": {"engine": "orca"}},
+                ],
+            }
+        )
+        == "completed"
+    )
 
-    assert _recompute_workflow_status(
-        {
-            "template_name": "conformer_screening",
-            "stages": [
-                {"status": "completed", "task": {"engine": "orca"}},
-                {"status": "running", "task": {"engine": "orca"}},
-            ],
-        }
-    ) == "running"
+    assert (
+        _recompute_workflow_status(
+            {
+                "template_name": "conformer_screening",
+                "stages": [
+                    {"status": "completed", "task": {"engine": "orca"}},
+                    {"status": "running", "task": {"engine": "orca"}},
+                ],
+            }
+        )
+        == "running"
+    )
 
-    assert _recompute_workflow_status(
-        {
-            "template_name": "conformer_screening",
-            "stages": [
-                {"status": "failed", "task": {"engine": "orca"}},
-                {"status": "completed", "task": {"engine": "orca"}},
-            ],
-        }
-    ) == "completed"
+    assert (
+        _recompute_workflow_status(
+            {
+                "template_name": "conformer_screening",
+                "stages": [
+                    {"status": "failed", "task": {"engine": "orca"}},
+                    {"status": "completed", "task": {"engine": "orca"}},
+                ],
+            }
+        )
+        == "completed"
+    )

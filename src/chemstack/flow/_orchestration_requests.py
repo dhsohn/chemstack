@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
+from .contracts.workflow import WorkflowStageWithTaskPayload
+
 
 @dataclass(frozen=True)
 class ReactionTsSearchWorkflowRequest:
@@ -50,7 +52,7 @@ class WorkflowCreationContext:
     workflow_id_factory: Callable[[str], str]
     copy_input_fn: Callable[[str, Path], str]
     now_utc_iso_fn: Callable[[], str]
-    new_crest_stage_fn: Callable[..., dict[str, Any]]
+    new_crest_stage_fn: Callable[..., WorkflowStageWithTaskPayload]
     write_workflow_payload_fn: Callable[[Path, dict[str, Any]], None]
     sync_workflow_registry_fn: Callable[[Path, Path, dict[str, Any]], None]
 

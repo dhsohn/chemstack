@@ -11,19 +11,6 @@ from typing import Any
 from chemstack.core.paths import is_rejected_windows_path, is_subpath
 
 
-def _as_int(value: Any, default: int) -> int:
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return default
-
-
-def _as_str(value: Any, default: str) -> str:
-    if isinstance(value, str) and value.strip():
-        return value
-    return default
-
-
 def _validate_config(cfg: Any) -> None:
     """Validate core path constraints on an AppConfig instance."""
     for label, path_val in [

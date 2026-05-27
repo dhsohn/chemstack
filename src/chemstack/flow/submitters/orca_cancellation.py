@@ -4,8 +4,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
-from chemstack.core.app_ids import CHEMSTACK_EXECUTABLE
-
 from .orca_models import (
     CancelStageContext,
     SiblingSubmitterConfig,
@@ -32,13 +30,11 @@ class CancellationDeps:
 def cancel_config(
     *,
     orca_config: str | None,
-    orca_executable: str,
     orca_repo_root: str | None,
     normalize_text: Callable[[Any], str],
 ) -> SiblingSubmitterConfig:
     return SiblingSubmitterConfig(
         config_path=normalize_text(orca_config),
-        executable=normalize_text(orca_executable) or CHEMSTACK_EXECUTABLE,
         repo_root=normalize_text(orca_repo_root) or None,
     )
 
@@ -250,7 +246,6 @@ def record_remote_cancel(
     cancel_record = deps.cancel_target(
         target=cancel_identifier,
         config_path=submitter_config.config_path,
-        executable=submitter_config.executable,
         repo_root=submitter_config.repo_root,
     )
     cancel_status = str(cancel_record.get("status", "failed"))
@@ -319,7 +314,6 @@ def cancel_reaction_ts_search_workflow(
     workflow_target: str,
     workflow_root: str | Path | None,
     orca_config: str | None = None,
-    orca_executable: str = CHEMSTACK_EXECUTABLE,
     orca_repo_root: str | None = None,
     deps: CancellationDeps,
 ) -> dict[str, Any]:
@@ -331,7 +325,6 @@ def cancel_reaction_ts_search_workflow(
     buckets = WorkflowBuckets()
     submitter_config = cancel_config(
         orca_config=orca_config,
-        orca_executable=orca_executable,
         orca_repo_root=orca_repo_root,
         normalize_text=deps.normalize_text,
     )

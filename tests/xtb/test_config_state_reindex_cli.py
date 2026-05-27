@@ -12,7 +12,7 @@ import yaml
 from chemstack.core.internal_cli import dispatch_engine_internal_queue_command
 from chemstack.core.config.engines import as_bool, as_int, as_str
 from chemstack.xtb import state as state_mod
-from chemstack.xtb.commands import run_dir as run_dir_cmd
+from chemstack.xtb.commands import queue as queue_cmd
 from chemstack.xtb.config import CONFIG_ENV_VAR, default_config_path, load_config
 
 
@@ -258,12 +258,12 @@ def test_cli_module_main_entrypoint_raises_system_exit(
         encoding="utf-8",
     )
 
-    job_dir = allowed_root / "job"
-    job_dir.mkdir()
-    monkeypatch.setattr(run_dir_cmd, "cmd_run_dir", lambda args: 0)
+    del allowed_root
+
+    monkeypatch.setattr(queue_cmd, "cmd_queue_worker", lambda args: 0)
     monkeypatch.setattr(
         "sys.argv",
-        ["chemstack_xtb", "--config", str(config_path), "run-dir", str(job_dir)],
+        ["chemstack_xtb", "--config", str(config_path), "queue", "worker"],
     )
 
     with warnings.catch_warnings():

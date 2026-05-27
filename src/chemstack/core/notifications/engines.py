@@ -248,13 +248,13 @@ class EngineJobNotifications:
             detail_values=self._detail_values(values),
         )
 
-    def notify_job_queued(self, cfg: Any, values: Mapping[str, object]) -> bool:
+    def notify_job_queued(self, cfg: Any, **values: object) -> bool:
         return self._notify_lifecycle(cfg, values, headline="Job queued")
 
-    def notify_job_started(self, cfg: Any, values: Mapping[str, object]) -> bool:
+    def notify_job_started(self, cfg: Any, **values: object) -> bool:
         return self._notify_lifecycle(cfg, values, headline="Job started")
 
-    def notify_job_terminal(self, cfg: Any, values: Mapping[str, object]) -> bool:
+    def notify_job_terminal(self, cfg: Any, **values: object) -> bool:
         return self.notifications.notify_terminal(
             cfg,
             headline=cast(str, values["headline"]),
@@ -269,7 +269,7 @@ class EngineJobNotifications:
             extra_lines=cast(list[str] | None, values.get("extra_lines")),
         )
 
-    def notify_job_finished(self, cfg: Any, values: Mapping[str, object]) -> bool:
+    def notify_job_finished(self, cfg: Any, **values: object) -> bool:
         return self.notifications.notify_finished(
             cfg,
             job_id=cast(str, values["job_id"]),

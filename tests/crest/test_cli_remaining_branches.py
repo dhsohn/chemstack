@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from chemstack.crest.commands import queue as queue_cmd
 from chemstack.crest.commands import run_dir as run_dir_cmd
 
 
@@ -37,12 +38,10 @@ def test_cli_module_main_raises_system_exit_with_main_return_code(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     config_path = _write_config(tmp_path)
-    job_dir = tmp_path / "workflow_root" / "wf_001" / "01_crest" / "job"
-    job_dir.mkdir()
-    monkeypatch.setattr(run_dir_cmd, "cmd_run_dir", lambda args: 0)
+    monkeypatch.setattr(queue_cmd, "cmd_queue_worker", lambda args: 0)
     monkeypatch.setattr(
         "sys.argv",
-        ["chemstack_crest", "--config", str(config_path), "run-dir", str(job_dir)],
+        ["chemstack_crest", "--config", str(config_path), "queue", "worker"],
     )
 
     with warnings.catch_warnings():

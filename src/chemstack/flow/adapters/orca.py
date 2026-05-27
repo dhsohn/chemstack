@@ -49,7 +49,6 @@ from ._orca_tracking import (
     import_orca_module_impl,
     load_orca_contract_payload_impl,
     orca_job_locations_module_impl,
-    sibling_orca_repo_root_impl,
     tracked_artifact_context_impl,
     tracked_runtime_context_impl,
 )
@@ -83,7 +82,6 @@ def _safe_int_callback(value: Any, default: int = 0) -> int:
 _load_json_dict = load_json_dict_impl
 _load_json_list = load_json_list_impl
 _load_jsonl_records = load_jsonl_records_impl
-_sibling_orca_repo_root = sibling_orca_repo_root_impl
 _import_orca_module = import_orca_module_impl
 
 

@@ -161,7 +161,6 @@ def test_submit_reaction_ts_search_workflow_covers_continue_and_failed_only_path
         workflow_target="wf_submit_edges",
         workflow_root=None,
         orca_config=" /tmp/orca.yaml ",
-        orca_executable=" chemstack_orca_bin ",
         orca_repo_root=" /tmp/orca_repo ",
         skip_submitted=False,
     )
@@ -171,7 +170,6 @@ def test_submit_reaction_ts_search_workflow_covers_continue_and_failed_only_path
             "reaction_dir": "/tmp/fail",
             "priority": 6,
             "config_path": "/tmp/orca.yaml",
-            "executable": "chemstack_orca_bin",
             "repo_root": "/tmp/orca_repo",
         }
     ]
@@ -360,7 +358,6 @@ def test_cancel_reaction_ts_search_workflow_covers_terminal_missing_target_and_f
         workflow_target="wf_cancel_edges",
         workflow_root=None,
         orca_config="/tmp/orca.yaml",
-        orca_executable="chemstack_orca_bin",
         orca_repo_root="/tmp/orca_repo",
     )
 
@@ -368,7 +365,6 @@ def test_cancel_reaction_ts_search_workflow_covers_terminal_missing_target_and_f
         {
             "target": "q_fail",
             "config_path": "/tmp/orca.yaml",
-            "executable": "chemstack_orca_bin",
             "repo_root": "/tmp/orca_repo",
         }
     ]

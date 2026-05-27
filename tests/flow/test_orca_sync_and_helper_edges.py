@@ -6,22 +6,22 @@ from typing import Any
 
 from chemstack.flow.contracts import OrcaArtifactContract
 from chemstack.flow._orchestration_deps import orchestration_deps
-from chemstack.flow.orchestration import (
-    _clear_reaction_xtb_handoff_error_if_recovering,
-    _reaction_orca_source_candidate_path,
-    _sync_orca_stage,
+from chemstack.flow._orchestration_stage_runtime_orca import sync_orca_stage_impl
+from chemstack.flow._orchestration_support import (
+    clear_reaction_xtb_handoff_error_if_recovering_impl,
+    reaction_orca_source_candidate_path_impl,
 )
 
 
 def test_reaction_orca_source_candidate_path_uses_metadata_then_artifacts() -> None:
     assert (
-        _reaction_orca_source_candidate_path(
+        reaction_orca_source_candidate_path_impl(
             {"task": {"metadata": {"source_candidate_path": "/tmp/from-task.xyz"}}}
         )
         == "/tmp/from-task.xyz"
     )
     assert (
-        _reaction_orca_source_candidate_path(
+        reaction_orca_source_candidate_path_impl(
             {
                 "input_artifacts": [
                     {"kind": "other", "path": "/tmp/skip.xyz"},
@@ -31,7 +31,9 @@ def test_reaction_orca_source_candidate_path_uses_metadata_then_artifacts() -> N
         )
         == "/tmp/from-artifact.xyz"
     )
-    assert _reaction_orca_source_candidate_path({"input_artifacts": ["skip", {"kind": "xtb_candidate", "path": ""}]}) == ""
+    assert reaction_orca_source_candidate_path_impl(
+        {"input_artifacts": ["skip", {"kind": "xtb_candidate", "path": ""}]}
+    ) == ""
 
 
 def test_clear_reaction_xtb_handoff_error_only_clears_recovering_xtb_cases() -> None:
@@ -39,17 +41,17 @@ def test_clear_reaction_xtb_handoff_error_only_clears_recovering_xtb_cases() -> 
         "metadata": {"workflow_error": {"scope": "different_scope"}},
         "stages": [{"status": "completed", "task": {"engine": "xtb"}, "metadata": {"reaction_handoff_status": "failed"}}],
     }
-    _clear_reaction_xtb_handoff_error_if_recovering(payload)
+    clear_reaction_xtb_handoff_error_if_recovering_impl(payload)
     assert payload["metadata"]["workflow_error"] == {"scope": "different_scope"}
 
     recovering_payload: dict[str, Any] = {
         "metadata": {"workflow_error": {"scope": "reaction_ts_search_xtb_handoff"}},
         "stages": [{"status": "completed", "task": {"engine": "orca"}, "metadata": {"reaction_handoff_status": "retrying"}}],
     }
-    _clear_reaction_xtb_handoff_error_if_recovering(recovering_payload)
+    clear_reaction_xtb_handoff_error_if_recovering_impl(recovering_payload)
     assert recovering_payload["metadata"]["workflow_error"] == {"scope": "reaction_ts_search_xtb_handoff"}
 
-    _clear_reaction_xtb_handoff_error_if_recovering({"metadata": None, "stages": []})
+    clear_reaction_xtb_handoff_error_if_recovering_impl({"metadata": None, "stages": []})
 
 
 def test_sync_orca_stage_returns_early_for_non_orca_missing_enqueue_and_missing_target() -> None:
@@ -63,26 +65,23 @@ def test_sync_orca_stage_returns_early_for_non_orca_missing_enqueue_and_missing_
         overrides={"load_orca_artifact_contract": fake_load_orca_artifact_contract}
     )
 
-    _sync_orca_stage(
+    sync_orca_stage_impl(
         {"task": {"engine": "xtb"}},
         orca_config=None,
-        orca_executable="chemstack",
         orca_repo_root=None,
         submit_ready=False,
         deps=deps,
     )
-    _sync_orca_stage(
+    sync_orca_stage_impl(
         {"task": {"engine": "orca"}},
         orca_config=None,
-        orca_executable="chemstack",
         orca_repo_root=None,
         submit_ready=False,
         deps=deps,
     )
-    _sync_orca_stage(
+    sync_orca_stage_impl(
         {"task": {"engine": "orca", "enqueue_payload": {}, "payload": {}}, "metadata": {}},
         orca_config=None,
-        orca_executable="chemstack",
         orca_repo_root=None,
         submit_ready=False,
         deps=deps,
@@ -136,10 +135,9 @@ def test_sync_orca_stage_submit_path_preserves_submitted_state_for_unknown_contr
         }
     )
 
-    _sync_orca_stage(
+    sync_orca_stage_impl(
         stage,
         orca_config="/tmp/orca.yaml",
-        orca_executable="chemstack",
         orca_repo_root="/tmp/orca_repo",
         submit_ready=True,
         deps=deps,
@@ -150,7 +148,6 @@ def test_sync_orca_stage_submit_path_preserves_submitted_state_for_unknown_contr
             "reaction_dir": "/tmp/rxn_from_enqueue",
             "priority": 7,
             "config_path": "/tmp/orca.yaml",
-            "executable": "chemstack",
             "repo_root": "/tmp/orca_repo",
         }
     ]
@@ -225,10 +222,9 @@ def test_sync_orca_stage_waiting_for_slot_stays_planned() -> None:
         }
     )
 
-    _sync_orca_stage(
+    sync_orca_stage_impl(
         stage,
         orca_config="/tmp/orca.yaml",
-        orca_executable="chemstack",
         orca_repo_root="/tmp/orca_repo",
         submit_ready=True,
         deps=deps,
@@ -302,10 +298,9 @@ def test_sync_orca_stage_prefers_workflow_local_organized_root_for_internal_orca
         }
     )
 
-    _sync_orca_stage(
+    sync_orca_stage_impl(
         stage,
         orca_config="/tmp/orca.yaml",
-        orca_executable="chemstack",
         orca_repo_root="/tmp/orca_repo",
         submit_ready=True,
         deps=deps,

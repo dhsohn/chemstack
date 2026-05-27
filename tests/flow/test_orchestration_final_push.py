@@ -16,7 +16,40 @@ from chemstack.flow._orchestration_deps import orchestration_deps
 from chemstack.flow._orchestration_builders import _copy_input_impl
 from chemstack.flow._orchestration_lifecycle import (
     downstream_terminal_result_impl,
+    effective_stage_status_impl,
     latest_child_stage_summary_impl,
+    recompute_workflow_status_impl,
+    stage_failure_is_recoverable_impl,
+    workflow_has_active_children_impl,
+)
+from chemstack.flow._orchestration_stage_materialization import (
+    append_crest_orca_stages_impl as _append_crest_orca_stages,
+    append_reaction_orca_stages_impl as _append_reaction_orca_stages,
+    append_reaction_xtb_stages_impl as _append_reaction_xtb_stages,
+)
+from chemstack.flow._orchestration_stage_runtime_crest import (
+    completed_crest_roles_impl as _completed_crest_roles,
+    completed_crest_stage_impl as _completed_crest_stage,
+)
+from chemstack.flow._orchestration_stage_runtime_orca import (
+    completed_orca_stage_impl as _completed_orca_stage,
+)
+from chemstack.flow._orchestration_stage_runtime_xtb_handoff import (
+    stage_has_xtb_candidates_impl as _stage_has_xtb_candidates,
+)
+from chemstack.flow._orchestration_stage_runtime_xtb_retry import (
+    xtb_path_retry_limit_impl as _xtb_path_retry_limit,
+    xtb_retry_recipe_impl as _xtb_retry_recipe,
+)
+from chemstack.flow._orchestration_stage_runtime_xtb_sync import (
+    sync_xtb_stage_impl as _sync_xtb_stage,
+)
+from chemstack.flow._orchestration_support import (
+    clear_reaction_xtb_handoff_error_if_recovering_impl as _clear_reaction_xtb_handoff_error_if_recovering,
+    reaction_orca_allows_next_candidate_impl as _reaction_orca_allows_next_candidate,
+    reaction_ts_guess_error_impl as _reaction_ts_guess_error,
+    stage_metadata_impl as _stage_metadata,
+    task_payload_dict_impl as _task_payload_dict,
 )
 from chemstack.flow.contracts import WorkflowStageInput
 
@@ -39,7 +72,9 @@ class _FakeMaterializedStage:
         return dict(self._data)
 
 
-def _candidate(path: str, *, rank: int = 1, kind: str = "ts_guess", metadata: dict[str, object] | None = None) -> WorkflowStageInput:
+def _candidate(
+    path: str, *, rank: int = 1, kind: str = "ts_guess", metadata: dict[str, object] | None = None
+) -> WorkflowStageInput:
     return WorkflowStageInput(
         source_job_id="job_01",
         source_job_type="path_search",
@@ -54,20 +89,55 @@ def _candidate(path: str, *, rank: int = 1, kind: str = "ts_guess", metadata: di
     )
 
 
-def test_misc_helper_edges_cover_missing_inputs_and_non_dict_rows(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def _normalize_text(value: object) -> str:
+    return str(value or "").strip()
+
+
+def _stage_failure_is_recoverable(stage: dict[str, Any]) -> bool:
+    return stage_failure_is_recoverable_impl(
+        stage,
+        normalize_text_fn=_normalize_text,
+        stage_metadata_fn=_stage_metadata,
+    )
+
+
+def _recompute_workflow_status(payload: dict[str, Any]) -> str:
+    return recompute_workflow_status_impl(
+        payload,
+        normalize_text_fn=_normalize_text,
+        effective_stage_status_fn=lambda stage: effective_stage_status_impl(
+            stage,
+            normalize_text_fn=_normalize_text,
+            stage_failure_is_recoverable_fn=_stage_failure_is_recoverable,
+        ),
+    )
+
+
+def test_misc_helper_edges_cover_missing_inputs_and_non_dict_rows(tmp_path: Path) -> None:
     with pytest.raises(FileNotFoundError, match="Input XYZ not found"):
         _copy_input_impl(str(tmp_path / "missing.xyz"), tmp_path / "out.xyz")
 
-    monkeypatch.setattr(orchestration, "workflow_has_active_downstream", lambda payload: False)
-    assert orchestration._workflow_has_active_children({"stages": ["skip", {"status": "completed", "task": "bad"}]}) is False
-    assert latest_child_stage_summary_impl([], normalize_text_fn=lambda value: str(value or "").strip()) == {}
+    assert (
+        workflow_has_active_children_impl(
+            {"stages": ["skip", {"status": "completed", "task": "bad"}]},
+            normalize_text_fn=_normalize_text,
+            workflow_has_active_downstream_fn=lambda payload: False,
+        )
+        is False
+    )
+    assert (
+        latest_child_stage_summary_impl(
+            [], normalize_text_fn=lambda value: str(value or "").strip()
+        )
+        == {}
+    )
 
     terminal = downstream_terminal_result_impl(
         {},
-        {"status": "completed", "stage_summaries": ["skip", {"completed_at": "2026-04-19T00:00:00+00:00"}]},
+        {
+            "status": "completed",
+            "stage_summaries": ["skip", {"completed_at": "2026-04-19T00:00:00+00:00"}],
+        },
         normalize_text_fn=lambda value: str(value or "").strip(),
     )
     assert terminal["status"] == "completed"
@@ -88,9 +158,18 @@ def test_create_reaction_ts_search_standard_and_barrier_sequence_validation(
         "load_xyz_atom_sequence",
         lambda path: ("H", "H") if Path(path).name != "ts_guess.xyz" else ("H", "O"),
     )
-    monkeypatch.setattr(orchestration, "_copy_input_impl", lambda source, target: str(target))
-    monkeypatch.setattr(orchestration, "write_workflow_payload", lambda workspace_dir, payload: writes.append(deepcopy(payload)))
-    monkeypatch.setattr(orchestration, "sync_workflow_registry", lambda workflow_root, workspace_dir, payload: syncs.append(deepcopy(payload)))
+    monkeypatch.setattr(
+        orchestration,
+        "write_workflow_payload",
+        lambda workspace_dir, payload: writes.append(deepcopy(payload)),
+    )
+    monkeypatch.setattr(
+        orchestration,
+        "sync_workflow_registry",
+        lambda workflow_root, workspace_dir, payload: syncs.append(deepcopy(payload)),
+    )
+    (tmp_path / "reactant.xyz").write_text("2\nreactant\nH 0 0 0\nH 0 0 0.74\n", encoding="utf-8")
+    (tmp_path / "product.xyz").write_text("2\nproduct\nH 0 0 0\nH 0 0 0.80\n", encoding="utf-8")
 
     payload = orchestration.create_reaction_ts_search_workflow(
         reactant_xyz=str(tmp_path / "reactant.xyz"),
@@ -99,25 +178,34 @@ def test_create_reaction_ts_search_standard_and_barrier_sequence_validation(
         crest_mode="standard",
     )
 
-    assert [stage["stage_id"] for stage in payload["stages"]] == ["crest_reactant_01", "crest_product_01"]
+    assert [stage["stage_id"] for stage in payload["stages"]] == [
+        "crest_reactant_01",
+        "crest_product_01",
+    ]
     assert writes and syncs
+
 
 def test_metadata_payload_and_retry_helper_edges() -> None:
     stage: dict[str, object] = {}
     task: dict[str, object] = {}
 
-    assert orchestration._stage_metadata(stage) == {}
+    assert _stage_metadata(stage) == {}
     assert stage["metadata"] == {}
-    assert orchestration._task_payload_dict(task) == {}
+    assert _task_payload_dict(task) == {}
     assert task["payload"] == {}
-    assert orchestration._xtb_retry_recipe(0)["recipe_id"] == "baseline"
-    assert orchestration._xtb_path_retry_limit({"task": None}) == 2
+    assert _xtb_retry_recipe(0)["recipe_id"] == "baseline"
+    assert _xtb_path_retry_limit({"task": None}) == 2
 
 
 def test_helper_edges_cover_invalid_candidates_and_non_recoverable_status() -> None:
-    assert orchestration._stage_has_xtb_candidates({"output_artifacts": None}) is False
-    assert orchestration._stage_has_xtb_candidates({"output_artifacts": ["skip", {"kind": "other", "path": "/tmp/other.xyz"}]}) is False
-    assert orchestration._stage_failure_is_recoverable({"status": "failed", "task": None}) is False
+    assert _stage_has_xtb_candidates({"output_artifacts": None}) is False
+    assert (
+        _stage_has_xtb_candidates(
+            {"output_artifacts": ["skip", {"kind": "other", "path": "/tmp/other.xyz"}]}
+        )
+        is False
+    )
+    assert _stage_failure_is_recoverable({"status": "failed", "task": None}) is False
 
     deps = orchestration_deps(
         overrides={
@@ -127,7 +215,7 @@ def test_helper_edges_cover_invalid_candidates_and_non_recoverable_status() -> N
             )
         }
     )
-    error = orchestration._reaction_ts_guess_error(
+    error = _reaction_ts_guess_error(
         SimpleNamespace(
             candidate_details=(
                 SimpleNamespace(kind="ts_guess", path="/tmp/xtbpath_ts.xyz", rank=1),
@@ -140,13 +228,13 @@ def test_helper_edges_cover_invalid_candidates_and_non_recoverable_status() -> N
         "message": "xTB produced xtbpath_ts.xyz but it is empty or not a valid XYZ geometry; refusing ORCA handoff.",
     }
 
-    assert orchestration._reaction_orca_allows_next_candidate({"status": "completed"}) is False
+    assert _reaction_orca_allows_next_candidate({"status": "completed"}) is False
 
     payload: dict[str, Any] = {
         "metadata": {"workflow_error": {"scope": "reaction_ts_search_xtb_handoff"}},
         "stages": ["skip"],
     }
-    orchestration._clear_reaction_xtb_handoff_error_if_recovering(payload)
+    _clear_reaction_xtb_handoff_error_if_recovering(payload)
     assert payload["metadata"]["workflow_error"]["scope"] == "reaction_ts_search_xtb_handoff"
 
 
@@ -174,11 +262,9 @@ def test_sync_xtb_stage_returns_early_without_target_or_on_contract_lookup_error
     deps = orchestration_deps(
         overrides={"load_xtb_artifact_contract": fake_load_xtb_artifact_contract}
     )
-    orchestration._sync_xtb_stage(
+    _sync_xtb_stage(
         no_target_stage,
         xtb_config=None,
-        xtb_executable="chemstack_xtb",
-        xtb_repo_root=None,
         submit_ready=False,
         workflow_id="wf_01",
         workspace_dir=Path("/tmp/workspaces/wf_01"),
@@ -206,11 +292,9 @@ def test_sync_xtb_stage_returns_early_without_target_or_on_contract_lookup_error
         }
     )
     caplog.set_level(logging.DEBUG, logger="chemstack.flow._orchestration_stage_runtime_shared")
-    orchestration._sync_xtb_stage(
+    _sync_xtb_stage(
         failing_stage,
         xtb_config=None,
-        xtb_executable="chemstack_xtb",
-        xtb_repo_root=None,
         submit_ready=False,
         workflow_id="wf_01",
         workspace_dir=Path("/tmp/workspaces/wf_01"),
@@ -228,13 +312,19 @@ def test_completed_contract_helpers_cover_missing_targets_and_exceptions(
         "stages": [
             "skip",
             {"status": "completed", "task": {"engine": "xtb"}},
-            {"status": "completed", "task": {"engine": "crest"}, "metadata": {"input_role": "reactant"}},
+            {
+                "status": "completed",
+                "task": {"engine": "crest"},
+                "metadata": {"input_role": "reactant"},
+            },
         ]
     }
-    assert set(orchestration._completed_crest_roles(payload).keys()) == {"reactant"}
+    assert set(_completed_crest_roles(payload).keys()) == {"reactant"}
 
-    assert orchestration._completed_crest_stage({"task": None}, crest_config=None) is None
-    assert orchestration._completed_crest_stage({"task": {"payload": {}}, "metadata": {}}, crest_config=None) is None
+    assert _completed_crest_stage({"task": None}, crest_config=None) is None
+    assert (
+        _completed_crest_stage({"task": {"payload": {}}, "metadata": {}}, crest_config=None) is None
+    )
 
     deps = orchestration_deps(
         overrides={
@@ -244,7 +334,7 @@ def test_completed_contract_helpers_cover_missing_targets_and_exceptions(
         }
     )
     assert (
-        orchestration._completed_crest_stage(
+        _completed_crest_stage(
             {"task": {"payload": {"job_dir": "/tmp/crest_job"}}, "metadata": {}},
             crest_config=None,
             deps=deps,
@@ -253,9 +343,9 @@ def test_completed_contract_helpers_cover_missing_targets_and_exceptions(
     )
     assert _has_contract_lookup_log(caplog, "crest")
 
-    assert orchestration._completed_orca_stage({"task": None}, orca_config=None) is None
+    assert _completed_orca_stage({"task": None}, orca_config=None) is None
     assert (
-        orchestration._completed_orca_stage(
+        _completed_orca_stage(
             {"task": {"payload": {}, "enqueue_payload": {}}, "metadata": {}},
             orca_config=None,
         )
@@ -270,8 +360,11 @@ def test_completed_contract_helpers_cover_missing_targets_and_exceptions(
         }
     )
     assert (
-        orchestration._completed_orca_stage(
-            {"task": {"payload": {"reaction_dir": "/tmp/rxn"}, "enqueue_payload": {}}, "metadata": {}},
+        _completed_orca_stage(
+            {
+                "task": {"payload": {"reaction_dir": "/tmp/rxn"}, "enqueue_payload": {}},
+                "metadata": {},
+            },
             orca_config=None,
             deps=deps,
         )
@@ -283,19 +376,27 @@ def test_completed_contract_helpers_cover_missing_targets_and_exceptions(
 def test_append_reaction_xtb_stages_false_branches_and_zero_created(
     tmp_path: Path,
 ) -> None:
-    assert orchestration._append_reaction_xtb_stages(
-        {"stages": [{"task": {"engine": "xtb"}}]},
-        workspace_dir=tmp_path,
-        crest_config=None,
-    ) is False
+    assert (
+        _append_reaction_xtb_stages(
+            {"stages": [{"task": {"engine": "xtb"}}]},
+            workspace_dir=tmp_path,
+            crest_config=None,
+        )
+        is False
+    )
 
-    deps = orchestration_deps(overrides={"_completed_crest_roles": lambda payload: {"reactant": {}}})
-    assert orchestration._append_reaction_xtb_stages(
-        {"stages": [], "metadata": {}, "workflow_id": "wf_xtb", "reaction_key": "rxn"},
-        workspace_dir=tmp_path,
-        crest_config=None,
-        deps=deps,
-    ) is False
+    deps = orchestration_deps(
+        overrides={"_completed_crest_roles": lambda payload: {"reactant": {}}}
+    )
+    assert (
+        _append_reaction_xtb_stages(
+            {"stages": [], "metadata": {}, "workflow_id": "wf_xtb", "reaction_key": "rxn"},
+            workspace_dir=tmp_path,
+            crest_config=None,
+            deps=deps,
+        )
+        is False
+    )
 
     deps = orchestration_deps(
         overrides={
@@ -305,9 +406,14 @@ def test_append_reaction_xtb_stages_false_branches_and_zero_created(
             ),
         }
     )
-    payload: dict[str, Any] = {"stages": [], "metadata": {}, "workflow_id": "wf_xtb", "reaction_key": "rxn"}
+    payload: dict[str, Any] = {
+        "stages": [],
+        "metadata": {},
+        "workflow_id": "wf_xtb",
+        "reaction_key": "rxn",
+    }
     assert (
-        orchestration._append_reaction_xtb_stages(
+        _append_reaction_xtb_stages(
             payload,
             workspace_dir=tmp_path,
             crest_config=None,
@@ -324,7 +430,7 @@ def test_append_reaction_xtb_stages_false_branches_and_zero_created(
         }
     )
     assert (
-        orchestration._append_reaction_xtb_stages(
+        _append_reaction_xtb_stages(
             payload,
             workspace_dir=tmp_path,
             crest_config=None,
@@ -340,9 +446,13 @@ def test_append_reaction_orca_stages_covers_skip_and_first_candidate_path(
     def fake_load_xtb_artifact_contract(*, target: str, **kwargs: object) -> SimpleNamespace:
         if target == "/tmp/broken_job":
             raise RuntimeError("broken")
-        return SimpleNamespace(job_id=f"job:{Path(target).name}", job_type="path_search", candidate_details=())
+        return SimpleNamespace(
+            job_id=f"job:{Path(target).name}", job_type="path_search", candidate_details=()
+        )
 
-    def fake_select_xtb_downstream_inputs(contract: SimpleNamespace, policy: object, require_geometry: bool) -> tuple[WorkflowStageInput, ...]:
+    def fake_select_xtb_downstream_inputs(
+        contract: SimpleNamespace, policy: object, require_geometry: bool
+    ) -> tuple[WorkflowStageInput, ...]:
         if contract.job_id == "job:ok_job":
             return (
                 _candidate("", rank=1),
@@ -354,8 +464,9 @@ def test_append_reaction_orca_stages_covers_skip_and_first_candidate_path(
 
     deps = orchestration_deps(
         overrides={
-            "_load_config_root": lambda config, **kwargs: tmp_path
-            / ("xtb_allowed" if config == "xtb.yaml" else "orca_allowed"),
+            "_load_config_root": lambda config, **kwargs: (
+                tmp_path / ("xtb_allowed" if config == "xtb.yaml" else "orca_allowed")
+            ),
             "load_xtb_artifact_contract": fake_load_xtb_artifact_contract,
             "select_xtb_downstream_inputs": fake_select_xtb_downstream_inputs,
             "build_materialized_orca_stage": lambda **kwargs: _FakeMaterializedStage(
@@ -366,9 +477,7 @@ def test_append_reaction_orca_stages_covers_skip_and_first_candidate_path(
                     "task": {
                         "engine": "orca",
                         "status": "planned",
-                        "metadata": {
-                            "source_candidate_path": kwargs["candidate"].artifact_path
-                        },
+                        "metadata": {"source_candidate_path": kwargs["candidate"].artifact_path},
                     },
                 }
             ),
@@ -410,7 +519,7 @@ def test_append_reaction_orca_stages_covers_skip_and_first_candidate_path(
         },
     }
 
-    created = orchestration._append_reaction_orca_stages(
+    created = _append_reaction_orca_stages(
         payload,
         workspace_dir=tmp_path,
         xtb_config="xtb.yaml",
@@ -422,24 +531,29 @@ def test_append_reaction_orca_stages_covers_skip_and_first_candidate_path(
     assert "workflow_error" not in payload["metadata"]
     appended = payload["stages"][-2:]
     assert [stage["stage_id"] for stage in appended] == ["orca_optts_freq_01", "orca_optts_freq_02"]
-    assert [
-        stage["task"]["metadata"]["source_candidate_path"]
-        for stage in appended
-    ] == ["/tmp/candidate_a.xyz", "/tmp/candidate_b.xyz"]
+    assert [stage["task"]["metadata"]["source_candidate_path"] for stage in appended] == [
+        "/tmp/candidate_a.xyz",
+        "/tmp/candidate_b.xyz",
+    ]
     assert [stage["metadata"]["reaction_candidate_pool_size"] for stage in appended] == [2, 2]
-    assert [stage["metadata"]["reaction_remaining_candidates_after_this"] for stage in appended] == [1, 0]
+    assert [
+        stage["metadata"]["reaction_remaining_candidates_after_this"] for stage in appended
+    ] == [1, 0]
     assert payload["stages"][3]["metadata"]["reaction_handoff_status"] == "ready"
 
 
 def test_append_reaction_orca_stages_false_and_attempted_path_edges(
     tmp_path: Path,
 ) -> None:
-    assert orchestration._append_reaction_orca_stages(
-        {"stages": [], "metadata": {}},
-        workspace_dir=tmp_path,
-        xtb_config="xtb.yaml",
-        orca_config="orca.yaml",
-    ) is False
+    assert (
+        _append_reaction_orca_stages(
+            {"stages": [], "metadata": {}},
+            workspace_dir=tmp_path,
+            xtb_config="xtb.yaml",
+            orca_config="orca.yaml",
+        )
+        is False
+    )
 
     base_xtb_stage = {
         "stage_id": "xtb_01",
@@ -447,7 +561,10 @@ def test_append_reaction_orca_stages_false_and_attempted_path_edges(
         "task": {"engine": "xtb", "payload": {"job_dir": "/tmp/xtb_job"}},
         "metadata": {},
     }
-    payload: dict[str, Any] = {"stages": [deepcopy(base_xtb_stage)], "metadata": {"request": {"parameters": {}}}}
+    payload: dict[str, Any] = {
+        "stages": [deepcopy(base_xtb_stage)],
+        "metadata": {"request": {"parameters": {}}},
+    }
     deps = orchestration_deps(
         overrides={
             "_load_config_root": lambda config, **kwargs: (
@@ -456,7 +573,7 @@ def test_append_reaction_orca_stages_false_and_attempted_path_edges(
         }
     )
     assert (
-        orchestration._append_reaction_orca_stages(
+        _append_reaction_orca_stages(
             payload,
             workspace_dir=tmp_path,
             xtb_config="xtb.yaml",
@@ -474,7 +591,7 @@ def test_append_reaction_orca_stages_false_and_attempted_path_edges(
         }
     )
     assert (
-        orchestration._append_reaction_orca_stages(
+        _append_reaction_orca_stages(
             payload,
             workspace_dir=tmp_path,
             xtb_config="xtb.yaml",
@@ -486,8 +603,9 @@ def test_append_reaction_orca_stages_false_and_attempted_path_edges(
 
     deps = orchestration_deps(
         overrides={
-            "_load_config_root": lambda config, **kwargs: tmp_path
-            / ("xtb" if config == "xtb.yaml" else "orca"),
+            "_load_config_root": lambda config, **kwargs: (
+                tmp_path / ("xtb" if config == "xtb.yaml" else "orca")
+            ),
             "load_xtb_artifact_contract": lambda **kwargs: SimpleNamespace(
                 job_id="xtb_job",
                 job_type="path_search",
@@ -504,9 +622,7 @@ def test_append_reaction_orca_stages_false_and_attempted_path_edges(
                     "task": {
                         "engine": "orca",
                         "status": "planned",
-                        "metadata": {
-                            "source_candidate_path": kwargs["candidate"].artifact_path
-                        },
+                        "metadata": {"source_candidate_path": kwargs["candidate"].artifact_path},
                     },
                 }
             ),
@@ -516,12 +632,19 @@ def test_append_reaction_orca_stages_false_and_attempted_path_edges(
     active_payload = {
         "stages": [
             deepcopy(base_xtb_stage),
-            {"status": "queued", "task": {"engine": "orca", "metadata": {"source_candidate_path": "/tmp/already.xyz"}}, "metadata": {}},
+            {
+                "status": "queued",
+                "task": {
+                    "engine": "orca",
+                    "metadata": {"source_candidate_path": "/tmp/already.xyz"},
+                },
+                "metadata": {},
+            },
         ],
         "metadata": {"request": {"parameters": {}}},
     }
     assert (
-        orchestration._append_reaction_orca_stages(
+        _append_reaction_orca_stages(
             active_payload,
             workspace_dir=tmp_path,
             xtb_config="xtb.yaml",
@@ -534,12 +657,19 @@ def test_append_reaction_orca_stages_false_and_attempted_path_edges(
     completed_payload = {
         "stages": [
             deepcopy(base_xtb_stage),
-            {"status": "completed", "task": {"engine": "orca", "metadata": {"source_candidate_path": "/tmp/already.xyz"}}, "metadata": {}},
+            {
+                "status": "completed",
+                "task": {
+                    "engine": "orca",
+                    "metadata": {"source_candidate_path": "/tmp/already.xyz"},
+                },
+                "metadata": {},
+            },
         ],
         "metadata": {"request": {"parameters": {}}},
     }
     assert (
-        orchestration._append_reaction_orca_stages(
+        _append_reaction_orca_stages(
             completed_payload,
             workspace_dir=tmp_path,
             xtb_config="xtb.yaml",
@@ -552,11 +682,16 @@ def test_append_reaction_orca_stages_false_and_attempted_path_edges(
     blocked_payload: dict[str, Any] = {
         "stages": [
             deepcopy(base_xtb_stage),
-            {"stage_id": "orca_failed", "status": "failed", "task": {"engine": "orca", "metadata": {"source_candidate_path": "/tmp/other.xyz"}}, "metadata": {}},
+            {
+                "stage_id": "orca_failed",
+                "status": "failed",
+                "task": {"engine": "orca", "metadata": {"source_candidate_path": "/tmp/other.xyz"}},
+                "metadata": {},
+            },
         ],
         "metadata": {"request": {"parameters": {}}},
     }
-    created = orchestration._append_reaction_orca_stages(
+    created = _append_reaction_orca_stages(
         blocked_payload,
         workspace_dir=tmp_path,
         xtb_config="xtb.yaml",
@@ -565,7 +700,10 @@ def test_append_reaction_orca_stages_false_and_attempted_path_edges(
     )
     assert created is True
     assert blocked_payload["stages"][-1]["stage_id"] == "orca_optts_freq_02"
-    assert blocked_payload["stages"][-1]["task"]["metadata"]["source_candidate_path"] == "/tmp/already.xyz"
+    assert (
+        blocked_payload["stages"][-1]["task"]["metadata"]["source_candidate_path"]
+        == "/tmp/already.xyz"
+    )
 
     exhausted_payload: dict[str, Any] = {
         "stages": [
@@ -573,13 +711,16 @@ def test_append_reaction_orca_stages_false_and_attempted_path_edges(
             {
                 "stage_id": "orca_failed",
                 "status": "failed",
-                "task": {"engine": "orca", "metadata": {"source_candidate_path": "/tmp/already.xyz"}},
+                "task": {
+                    "engine": "orca",
+                    "metadata": {"source_candidate_path": "/tmp/already.xyz"},
+                },
                 "metadata": {},
             },
         ],
         "metadata": {"request": {"parameters": {}}},
     }
-    created = orchestration._append_reaction_orca_stages(
+    created = _append_reaction_orca_stages(
         exhausted_payload,
         workspace_dir=tmp_path,
         xtb_config="xtb.yaml",
@@ -599,7 +740,7 @@ def test_append_crest_orca_stage_false_branches(
 ) -> None:
     payload: dict[str, Any] = {"stages": [{"task": {"engine": "orca"}}], "metadata": {}}
     assert (
-        orchestration._append_crest_orca_stages(
+        _append_crest_orca_stages(
             payload,
             template_name="conformer_screening",
             crest_config=None,
@@ -613,7 +754,7 @@ def test_append_crest_orca_stage_false_branches(
 
     payload = {"stages": [], "metadata": {}}
     assert (
-        orchestration._append_crest_orca_stages(
+        _append_crest_orca_stages(
             payload,
             template_name="conformer_screening",
             crest_config=None,
@@ -633,7 +774,7 @@ def test_append_crest_orca_stage_false_branches(
         }
     )
     assert (
-        orchestration._append_crest_orca_stages(
+        _append_crest_orca_stages(
             payload,
             template_name="conformer_screening",
             crest_config="crest.yaml",
@@ -653,7 +794,7 @@ def test_append_crest_orca_stage_false_branches(
         }
     )
     assert (
-        orchestration._append_crest_orca_stages(
+        _append_crest_orca_stages(
             payload,
             template_name="conformer_screening",
             crest_config="crest.yaml",
@@ -668,10 +809,18 @@ def test_append_crest_orca_stage_false_branches(
 
 
 def test_recompute_workflow_status_covers_cancelled_and_cancel_requested_edges() -> None:
-    assert orchestration._recompute_workflow_status({"status": "cancelled", "stages": []}) == "cancelled"
-    assert orchestration._recompute_workflow_status({"status": "planned", "stages": [{"status": "cancel_requested", "task": {"engine": "crest"}}]}) == "running"
+    assert _recompute_workflow_status({"status": "cancelled", "stages": []}) == "cancelled"
     assert (
-        orchestration._recompute_workflow_status(
+        _recompute_workflow_status(
+            {
+                "status": "planned",
+                "stages": [{"status": "cancel_requested", "task": {"engine": "crest"}}],
+            }
+        )
+        == "running"
+    )
+    assert (
+        _recompute_workflow_status(
             {
                 "status": "planned",
                 "stages": [
@@ -699,7 +848,15 @@ def test_advance_workflow_routes_template_specific_appenders(
         "workflow_id": "wf_template",
         "template_name": template_name,
         "status": "planned",
-        "stages": ["skip", {"stage_id": "stage_01", "status": "planned", "task": {"engine": "crest", "status": "planned"}, "metadata": {}}],
+        "stages": [
+            "skip",
+            {
+                "stage_id": "stage_01",
+                "status": "planned",
+                "task": {"engine": "crest", "status": "planned"},
+                "metadata": {},
+            },
+        ],
         "metadata": {},
     }
     calls: list[str] = []

@@ -7,9 +7,12 @@ from typing import Any, cast
 
 import pytest
 
-
-from chemstack.flow import orchestration
 from chemstack.flow._orchestration_deps import orchestration_deps
+from chemstack.flow._orchestration_stage_runtime_crest import (
+    ensure_crest_job_dir_impl,
+    sync_crest_stage_impl,
+)
+from chemstack.flow._orchestration_stage_runtime_xtb_path_jobs import ensure_xtb_job_dir_impl
 
 
 def test_ensure_crest_job_dir_copies_input_and_populates_manifest(tmp_path: Path) -> None:
@@ -30,7 +33,7 @@ def test_ensure_crest_job_dir_copies_input_and_populates_manifest(tmp_path: Path
         },
     }
 
-    job_dir = orchestration._ensure_crest_job_dir(
+    job_dir = ensure_crest_job_dir_impl(
         stage,
         crest_allowed_root=tmp_path / "crest_allowed",
         workflow_id="wf_ensure_crest",
@@ -48,7 +51,7 @@ def test_ensure_crest_job_dir_copies_input_and_populates_manifest(tmp_path: Path
     assert stage["task"]["payload"]["selected_input_xyz"] == str(job_path / "input.xyz")
     assert stage["task"]["enqueue_payload"]["job_dir"] == str(job_path)
 
-    assert orchestration._ensure_crest_job_dir(
+    assert ensure_crest_job_dir_impl(
         stage,
         crest_allowed_root=tmp_path / "crest_allowed",
         workflow_id="wf_ensure_crest",
@@ -63,11 +66,14 @@ def test_ensure_xtb_job_dir_returns_existing_or_delegates_to_writer(
             "payload": {"job_dir": "/tmp/already_there"},
         }
     }
-    assert orchestration._ensure_xtb_job_dir(
-        existing_stage,
-        xtb_allowed_root=tmp_path / "xtb_allowed",
-        workflow_id="wf_existing",
-    ) == "/tmp/already_there"
+    assert (
+        ensure_xtb_job_dir_impl(
+            existing_stage,
+            xtb_allowed_root=tmp_path / "xtb_allowed",
+            workflow_id="wf_existing",
+        )
+        == "/tmp/already_there"
+    )
 
     delegated_stage = {
         "task": {
@@ -75,6 +81,7 @@ def test_ensure_xtb_job_dir_returns_existing_or_delegates_to_writer(
         }
     }
     calls: list[tuple[str, int]] = []
+
     def fake_write_xtb_path_job(
         stage: dict[str, Any],
         *,
@@ -87,12 +94,15 @@ def test_ensure_xtb_job_dir_returns_existing_or_delegates_to_writer(
 
     deps = orchestration_deps(overrides={"_write_xtb_path_job": fake_write_xtb_path_job})
 
-    assert orchestration._ensure_xtb_job_dir(
-        delegated_stage,
-        xtb_allowed_root=tmp_path / "xtb_allowed",
-        workflow_id="wf_generated",
-        deps=deps,
-    ) == "/tmp/generated_xtb_job"
+    assert (
+        ensure_xtb_job_dir_impl(
+            delegated_stage,
+            xtb_allowed_root=tmp_path / "xtb_allowed",
+            workflow_id="wf_generated",
+            deps=deps,
+        )
+        == "/tmp/generated_xtb_job"
+    )
     assert calls == [("wf_generated", 0)]
 
 
@@ -100,20 +110,16 @@ def test_sync_crest_stage_ignores_non_dict_task_and_non_crest_engine(tmp_path: P
     stage_without_task = {"task": "bad"}
     stage_xtb = {"task": {"engine": "xtb", "status": "planned"}}
 
-    orchestration._sync_crest_stage(
+    sync_crest_stage_impl(
         stage_without_task,
         crest_config="/tmp/crest.yaml",
-        crest_executable="chemstack_crest",
-        crest_repo_root="/tmp/crest_repo",
         submit_ready=True,
         workflow_id="wf_01",
         workspace_dir=tmp_path / "workspace" / "wf_01",
     )
-    orchestration._sync_crest_stage(
+    sync_crest_stage_impl(
         stage_xtb,
         crest_config="/tmp/crest.yaml",
-        crest_executable="chemstack_crest",
-        crest_repo_root="/tmp/crest_repo",
         submit_ready=True,
         workflow_id="wf_01",
         workspace_dir=tmp_path / "workspace" / "wf_01",
@@ -166,11 +172,9 @@ def test_sync_crest_stage_submits_and_materializes_retained_conformers(
         }
     )
 
-    orchestration._sync_crest_stage(
+    sync_crest_stage_impl(
         stage,
         crest_config="/tmp/crest.yaml",
-        crest_executable="chemstack_crest",
-        crest_repo_root="/tmp/crest_repo",
         submit_ready=True,
         workflow_id="wf_01",
         workspace_dir=tmp_path / "workspace" / "wf_01",
@@ -204,7 +208,9 @@ def test_sync_crest_stage_submits_and_materializes_retained_conformers(
     ]
 
 
-def test_sync_crest_stage_returns_without_target_when_not_submitted_and_no_queue_id(tmp_path: Path) -> None:
+def test_sync_crest_stage_returns_without_target_when_not_submitted_and_no_queue_id(
+    tmp_path: Path,
+) -> None:
     stage: dict[str, Any] = {
         "stage_id": "crest_nci_02",
         "status": "planned",
@@ -216,11 +222,9 @@ def test_sync_crest_stage_returns_without_target_when_not_submitted_and_no_queue
         },
     }
 
-    orchestration._sync_crest_stage(
+    sync_crest_stage_impl(
         stage,
         crest_config=None,
-        crest_executable="chemstack_crest",
-        crest_repo_root=None,
         submit_ready=False,
         workflow_id="wf_02",
         workspace_dir=tmp_path / "workspace" / "wf_02",
@@ -257,11 +261,9 @@ def test_sync_crest_stage_returns_cleanly_when_contract_lookup_raises(
     )
     caplog.set_level(logging.DEBUG, logger="chemstack.flow._orchestration_stage_runtime_shared")
 
-    orchestration._sync_crest_stage(
+    sync_crest_stage_impl(
         stage,
         crest_config="/tmp/crest.yaml",
-        crest_executable="chemstack_crest",
-        crest_repo_root="/tmp/crest_repo",
         submit_ready=False,
         workflow_id="wf_03",
         workspace_dir=tmp_path / "workspace" / "wf_03",

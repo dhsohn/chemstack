@@ -1,13 +1,10 @@
 from __future__ import annotations
 
-from collections.abc import Callable
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from chemstack.core.app_ids import (
     CHEMSTACK_CLI_MODULE,
-    CHEMSTACK_EXECUTABLE,
     CHEMSTACK_ORCA_INTERNAL_MODULE,
 )
 from chemstack.core.utils import now_utc_iso
@@ -31,23 +28,6 @@ _CANCEL_TIMEOUT_SECONDS = 5.0
 
 _ensure_submission_metadata = _models.ensure_submission_metadata
 _submission_summary_state = _submission.submission_summary_state
-
-
-@dataclass(frozen=True)
-class _OrcaSubmitterDeps:
-    _normalize_text: Callable[[Any], str]
-    run_sibling_app: Callable[..., Any]
-    parse_key_value_lines: Callable[[str], dict[str, str]]
-    queue_submission_status: Callable[..., tuple[str, str]]
-
-
-def _submitter_deps() -> _OrcaSubmitterDeps:
-    return _OrcaSubmitterDeps(
-        _normalize_text=_normalize_text,
-        run_sibling_app=run_sibling_app,
-        parse_key_value_lines=_parse_key_value_lines,
-        queue_submission_status=_queue_submission_status,
-    )
 
 
 def _submission_tail_argv(
@@ -81,14 +61,11 @@ def submit_reaction_dir(
     max_cores: int | None = None,
     max_memory_gb: int | None = None,
     force: bool = False,
-    executable: str = CHEMSTACK_EXECUTABLE,
     repo_root: str | None = None,
 ) -> dict[str, Any]:
-    deps = _submitter_deps()
-    result = deps.run_sibling_app(
-        executable=deps._normalize_text(executable) or CHEMSTACK_EXECUTABLE,
-        config_path=deps._normalize_text(config_path),
-        repo_root=deps._normalize_text(repo_root) or None,
+    result = run_sibling_app(
+        config_path=_normalize_text(config_path),
+        repo_root=_normalize_text(repo_root) or None,
         module_name=_SUBMIT_MODULE_NAME,
         tail_argv=_submission_tail_argv(
             reaction_dir=reaction_dir,
@@ -98,8 +75,8 @@ def submit_reaction_dir(
             force=force,
         ),
     )
-    parsed = deps.parse_key_value_lines(result.stdout)
-    status, reason = deps.queue_submission_status(
+    parsed = _parse_key_value_lines(result.stdout)
+    status, reason = _queue_submission_status(
         returncode=int(result.returncode),
         parsed_stdout=parsed,
         stdout=result.stdout,
@@ -125,13 +102,11 @@ def cancel_target(
     *,
     target: str,
     config_path: str,
-    executable: str = CHEMSTACK_EXECUTABLE,
     repo_root: str | None = None,
 ) -> dict[str, Any]:
-    deps = _submitter_deps()
     return sibling_engine.orca_cancel_target(
-        deps=deps,
-        executable=deps._normalize_text(executable) or CHEMSTACK_EXECUTABLE,
+        normalize_text_fn=_normalize_text,
+        run_sibling_app=run_sibling_app,
         target=target,
         config_path=config_path,
         repo_root=repo_root,
@@ -157,7 +132,6 @@ def submit_reaction_ts_search_workflow(
     workflow_target: str,
     workflow_root: str | Path | None,
     orca_config: str,
-    orca_executable: str = CHEMSTACK_EXECUTABLE,
     orca_repo_root: str | None = None,
     skip_submitted: bool = True,
 ) -> dict[str, Any]:
@@ -165,7 +139,6 @@ def submit_reaction_ts_search_workflow(
         workflow_target=workflow_target,
         workflow_root=workflow_root,
         orca_config=orca_config,
-        orca_executable=orca_executable,
         orca_repo_root=orca_repo_root,
         skip_submitted=skip_submitted,
         deps=_submission_deps(),
@@ -189,14 +162,12 @@ def cancel_reaction_ts_search_workflow(
     workflow_target: str,
     workflow_root: str | Path | None,
     orca_config: str | None = None,
-    orca_executable: str = CHEMSTACK_EXECUTABLE,
     orca_repo_root: str | None = None,
 ) -> dict[str, Any]:
     return _cancellation.cancel_reaction_ts_search_workflow(
         workflow_target=workflow_target,
         workflow_root=workflow_root,
         orca_config=orca_config,
-        orca_executable=orca_executable,
         orca_repo_root=orca_repo_root,
         deps=_cancellation_deps(),
     )

@@ -40,8 +40,7 @@ _CONFIG_SPEC: _engine_config.WorkflowEngineConfigSpec[AppConfig] = (
 )
 
 
-def default_config_path() -> str:
-    return _CONFIG_SPEC.default_config_path()
+default_config_path = _CONFIG_SPEC.default_config_path
 
 
 def load_config(config_path: str | None = None) -> AppConfig:

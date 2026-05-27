@@ -37,30 +37,10 @@ write_organized_ref = _STATE_ACCESS.write_organized_ref
 load_state = _STATE_ACCESS.load_state
 load_report_json = _STATE_ACCESS.load_report_json
 load_organized_ref = _STATE_ACCESS.load_organized_ref
-
-
-def write_report_md(
-    job_dir: Path, *, job_id: str, status: str, reason: str, selected_input: str
-) -> Path:
-    return _STATE_ACCESS.write_report_md(
-        job_dir,
-        job_id=job_id,
-        status=status,
-        reason=reason,
-        selected_input=selected_input,
-    )
-
-
-def _normalize_text(value: Any) -> str:
-    return _engine_state.normalize_text(value)
-
-
-def _coerce_dict(value: Any) -> dict[str, Any]:
-    return _engine_state.coerce_dict(value)
-
-
-def _coerce_list(value: Any) -> list[Any]:
-    return _engine_state.coerce_list(value)
+write_report_md = _STATE_ACCESS.write_report_md
+_normalize_text = _engine_state.normalize_text
+_coerce_dict = _engine_state.coerce_dict
+_coerce_list = _engine_state.coerce_list
 
 
 def state_matches_job(
@@ -80,8 +60,7 @@ def state_matches_job(
     )
 
 
-def is_recovery_pending(state: dict[str, Any] | None) -> bool:
-    return _engine_state.is_recovery_pending_state(state)
+is_recovery_pending = _engine_state.is_recovery_pending_state
 
 
 def mark_recovery_pending(

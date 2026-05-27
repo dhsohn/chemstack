@@ -12,11 +12,6 @@ def _orca_module():
     return o
 
 
-def sibling_orca_repo_root_impl() -> Path:
-    o = _orca_module()
-    return o.Path(__file__).resolve().parents[4]
-
-
 def import_orca_module_impl(module_name: str) -> Any | None:
     o = _orca_module()
     try:
@@ -175,7 +170,6 @@ __all__ = [
     "import_orca_module_impl",
     "load_orca_contract_payload_impl",
     "orca_job_locations_module_impl",
-    "sibling_orca_repo_root_impl",
     "tracked_artifact_context_impl",
     "tracked_runtime_context_impl",
 ]

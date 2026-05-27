@@ -24,7 +24,6 @@ def test_crest_submitter_roundtrip_smoke(
         job_dir=str(crest_job),
         priority=5,
         config_path=str(smoke_workspace.crest_config_path),
-        repo_root=str(smoke_workspace.repo_root),
     )
 
     assert submission["status"] == "submitted"

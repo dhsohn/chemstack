@@ -51,16 +51,9 @@ def write_report_md(
     )
 
 
-def _normalize_text(value: Any) -> str:
-    return _engine_state.normalize_text(value)
-
-
-def _coerce_dict(value: Any) -> dict[str, Any]:
-    return _engine_state.coerce_dict(value)
-
-
-def _coerce_list(value: Any) -> list[Any]:
-    return _engine_state.coerce_list(value)
+_normalize_text = _engine_state.normalize_text
+_coerce_dict = _engine_state.coerce_dict
+_coerce_list = _engine_state.coerce_list
 
 
 def state_matches_job(
@@ -80,8 +73,7 @@ def state_matches_job(
     )
 
 
-def is_recovery_pending(state: dict[str, Any] | None) -> bool:
-    return _engine_state.is_recovery_pending_state(state)
+is_recovery_pending = _engine_state.is_recovery_pending_state
 
 
 def mark_recovery_pending(

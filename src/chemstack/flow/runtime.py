@@ -4,7 +4,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from chemstack.core.app_ids import CHEMSTACK_EXECUTABLE
 from chemstack.core.admission import active_slot_count
 from chemstack.core.utils import now_utc_iso, timestamped_token
 from chemstack.flow.submitters.common import sibling_runtime_paths
@@ -67,13 +66,8 @@ class WorkflowRegistryAdvanceRequest:
         *,
         workflow_root: str | Path,
         crest_config: str | None = None,
-        crest_executable: str = "chemstack_crest",
-        crest_repo_root: str | None = None,
         xtb_config: str | None = None,
-        xtb_executable: str = "chemstack_xtb",
-        xtb_repo_root: str | None = None,
         orca_config: str | None = None,
-        orca_executable: str = CHEMSTACK_EXECUTABLE,
         orca_repo_root: str | None = None,
         submit_ready: bool = True,
         refresh_registry: bool = False,
@@ -85,13 +79,8 @@ class WorkflowRegistryAdvanceRequest:
             workflow_root=workflow_root,
             options=WorkflowEngineOptions.from_values(
                 crest_config=crest_config,
-                crest_executable=crest_executable,
-                crest_repo_root=crest_repo_root,
                 xtb_config=xtb_config,
-                xtb_executable=xtb_executable,
-                xtb_repo_root=xtb_repo_root,
                 orca_config=orca_config,
-                orca_executable=orca_executable,
                 orca_repo_root=orca_repo_root,
             ),
             submit_ready=submit_ready,
@@ -402,13 +391,8 @@ def advance_workflow_registry_once(
     *,
     workflow_root: str | Path,
     crest_config: str | None = None,
-    crest_executable: str = "chemstack_crest",
-    crest_repo_root: str | None = None,
     xtb_config: str | None = None,
-    xtb_executable: str = "chemstack_xtb",
-    xtb_repo_root: str | None = None,
     orca_config: str | None = None,
-    orca_executable: str = CHEMSTACK_EXECUTABLE,
     orca_repo_root: str | None = None,
     submit_ready: bool = True,
     refresh_registry: bool = False,
@@ -419,13 +403,8 @@ def advance_workflow_registry_once(
     request = WorkflowRegistryAdvanceRequest.from_values(
         workflow_root=workflow_root,
         crest_config=crest_config,
-        crest_executable=crest_executable,
-        crest_repo_root=crest_repo_root,
         xtb_config=xtb_config,
-        xtb_executable=xtb_executable,
-        xtb_repo_root=xtb_repo_root,
         orca_config=orca_config,
-        orca_executable=orca_executable,
         orca_repo_root=orca_repo_root,
         submit_ready=submit_ready,
         refresh_registry=refresh_registry,

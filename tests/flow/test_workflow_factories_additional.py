@@ -6,6 +6,7 @@ import pytest
 
 
 from chemstack.flow import orchestration
+from chemstack.flow._orchestration_builders import new_crest_stage_impl
 
 
 def _write_xyz(path: Path, atoms: list[tuple[str, float, float, float]]) -> None:
@@ -17,7 +18,7 @@ def _write_xyz(path: Path, atoms: list[tuple[str, float, float, float]]) -> None
 
 
 def test_new_crest_stage_builds_expected_payload_and_metadata() -> None:
-    stage = orchestration._new_crest_stage(
+    stage = new_crest_stage_impl(
         workflow_id="wf_crest_01",
         template_name="reaction_ts_search",
         stage_id="crest_reactant_01",
@@ -47,13 +48,13 @@ def test_new_crest_stage_builds_expected_payload_and_metadata() -> None:
     assert task["payload"]["input_role"] == "reactant"
     assert task["payload"]["mode"] == "nci"
     assert task["enqueue_payload"]["priority"] == 7
-    assert task["enqueue_payload"]["command_argv"][:4] == [
-        "python",
-        "-m",
-        "chemstack.crest._internal_cli",
+    assert task["enqueue_payload"]["submitter"] == "chemstack_crest_api"
+    assert task["enqueue_payload"]["command_argv"][:3] == [
+        "python-api",
+        "chemstack.crest.commands.run_dir.cmd_run_dir",
         "--config",
     ]
-    assert task["enqueue_payload"]["command_argv"][4:8] == [
+    assert task["enqueue_payload"]["command_argv"][3:7] == [
         "<crest_config>",
         "run-dir",
         "<job_dir>",
@@ -106,7 +107,11 @@ def test_create_reaction_ts_search_workflow_materializes_two_crest_stages(
 
     monkeypatch.setattr(orchestration, "timestamped_token", lambda prefix: "wf_reaction_extra")
     monkeypatch.setattr(orchestration, "now_utc_iso", lambda: "2026-04-19T16:10:00+00:00")
-    monkeypatch.setattr(orchestration, "sync_workflow_registry", lambda workflow_root, workspace_dir, payload: sync_calls.append(payload["workflow_id"]))
+    monkeypatch.setattr(
+        orchestration,
+        "sync_workflow_registry",
+        lambda workflow_root, workspace_dir, payload: sync_calls.append(payload["workflow_id"]),
+    )
 
     payload = orchestration.create_reaction_ts_search_workflow(
         reactant_xyz=str(reactant_xyz),
@@ -123,7 +128,10 @@ def test_create_reaction_ts_search_workflow_materializes_two_crest_stages(
     workspace_dir = tmp_path / "wf_reaction_extra"
     request = payload["metadata"]["request"]
     assert payload["template_name"] == "reaction_ts_search"
-    assert [stage["stage_id"] for stage in payload["stages"]] == ["crest_reactant_01", "crest_product_01"]
+    assert [stage["stage_id"] for stage in payload["stages"]] == [
+        "crest_reactant_01",
+        "crest_product_01",
+    ]
     assert [stage["metadata"]["mode"] for stage in payload["stages"]] == [crest_mode, crest_mode]
     assert request["parameters"]["crest_mode"] == crest_mode
     assert request["parameters"]["crest_job_manifest"] == {"rthr": 0.3}
@@ -161,7 +169,11 @@ def test_single_input_crest_workflow_factories_materialize_expected_stage(
 
     monkeypatch.setattr(orchestration, "timestamped_token", lambda prefix: workflow_id)
     monkeypatch.setattr(orchestration, "now_utc_iso", lambda: "2026-04-19T16:20:00+00:00")
-    monkeypatch.setattr(orchestration, "sync_workflow_registry", lambda workflow_root, workspace_dir, payload: sync_calls.append(payload["workflow_id"]))
+    monkeypatch.setattr(
+        orchestration,
+        "sync_workflow_registry",
+        lambda workflow_root, workspace_dir, payload: sync_calls.append(payload["workflow_id"]),
+    )
 
     payload = getattr(orchestration, factory)(
         input_xyz=str(input_xyz),
@@ -199,7 +211,11 @@ def test_create_conformer_screening_nci_workflow_writes_expected_request_shape(
 
     monkeypatch.setattr(orchestration, "timestamped_token", lambda prefix: "wf_conf_nci_extra")
     monkeypatch.setattr(orchestration, "now_utc_iso", lambda: "2026-04-19T16:30:00+00:00")
-    monkeypatch.setattr(orchestration, "sync_workflow_registry", lambda workflow_root, workspace_dir, payload: sync_calls.append(payload["workflow_id"]))
+    monkeypatch.setattr(
+        orchestration,
+        "sync_workflow_registry",
+        lambda workflow_root, workspace_dir, payload: sync_calls.append(payload["workflow_id"]),
+    )
 
     payload = orchestration.create_conformer_screening_workflow(
         input_xyz=str(input_xyz),
@@ -221,7 +237,7 @@ def test_create_conformer_screening_nci_workflow_writes_expected_request_shape(
     assert payload["metadata"]["request"]["source_artifacts"] == [
         {
             "kind": "input_xyz",
-                "path": str((tmp_path / "wf_conf_nci_extra" / "inputs" / input_xyz.name).resolve()),
+            "path": str((tmp_path / "wf_conf_nci_extra" / "inputs" / input_xyz.name).resolve()),
             "selected": True,
             "metadata": {},
         }
@@ -248,7 +264,9 @@ def test_create_conformer_screening_workflow_defaults_to_twenty_orca_children(
 
     monkeypatch.setattr(orchestration, "timestamped_token", lambda prefix: "wf_conf_default_20")
     monkeypatch.setattr(orchestration, "now_utc_iso", lambda: "2026-04-22T10:00:00+00:00")
-    monkeypatch.setattr(orchestration, "sync_workflow_registry", lambda workflow_root, workspace_dir, payload: None)
+    monkeypatch.setattr(
+        orchestration, "sync_workflow_registry", lambda workflow_root, workspace_dir, payload: None
+    )
 
     payload = orchestration.create_conformer_screening_workflow(
         input_xyz=str(input_xyz),
@@ -269,7 +287,9 @@ def test_create_reaction_ts_search_workflow_uses_explicit_workflow_id(
 
     monkeypatch.setattr(orchestration, "timestamped_token", lambda prefix: "wf_should_not_be_used")
     monkeypatch.setattr(orchestration, "now_utc_iso", lambda: "2026-04-24T00:00:00+00:00")
-    monkeypatch.setattr(orchestration, "sync_workflow_registry", lambda workflow_root, workspace_dir, payload: None)
+    monkeypatch.setattr(
+        orchestration, "sync_workflow_registry", lambda workflow_root, workspace_dir, payload: None
+    )
 
     payload = orchestration.create_reaction_ts_search_workflow(
         reactant_xyz=str(reactant_xyz),
@@ -293,9 +313,13 @@ def test_workflow_factories_preserve_engine_manifest_overrides(
     _write_xyz(product_xyz, [("H", 0.1, 0.0, 0.0), ("O", 0.0, 0.0, 0.96)])
     _write_xyz(input_xyz, [("H", 0.0, 0.0, 0.0), ("H", 0.0, 0.0, 0.74)])
 
-    monkeypatch.setattr(orchestration, "timestamped_token", lambda prefix: f"{prefix}_with_manifest")
+    monkeypatch.setattr(
+        orchestration, "timestamped_token", lambda prefix: f"{prefix}_with_manifest"
+    )
     monkeypatch.setattr(orchestration, "now_utc_iso", lambda: "2026-04-19T17:00:00+00:00")
-    monkeypatch.setattr(orchestration, "sync_workflow_registry", lambda workflow_root, workspace_dir, payload: None)
+    monkeypatch.setattr(
+        orchestration, "sync_workflow_registry", lambda workflow_root, workspace_dir, payload: None
+    )
 
     reaction_payload = orchestration.create_reaction_ts_search_workflow(
         reactant_xyz=str(reactant_xyz),

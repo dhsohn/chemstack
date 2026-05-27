@@ -23,8 +23,8 @@ from chemstack.cli_common import (
 from chemstack.core.app_ids import (
     CHEMSTACK_CONFIG_ENV_VAR,
     CHEMSTACK_CREST_MODULE,
-    CHEMSTACK_FLOW_MODULE,
     CHEMSTACK_ORCA_INTERNAL_MODULE,
+    CHEMSTACK_WORKFLOW_WORKER_SERVICE_MODULE,
     CHEMSTACK_XTB_MODULE,
 )
 from chemstack.flow.submitters.common import normalize_text, sibling_app_command
@@ -250,7 +250,6 @@ def _engine_worker_spec(
         deps, "_repo_root_for_subprocess", _repo_root_for_subprocess
     )
     argv, cwd, env = build_sibling_command(
-        executable="",
         config_path=config_path,
         repo_root=repo_root_for_subprocess(),
         module_name=module_name,
@@ -270,9 +269,7 @@ def _workflow_worker_spec(
     argv = [
         sys.executable,
         "-m",
-        CHEMSTACK_FLOW_MODULE,
-        "workflow",
-        "worker",
+        CHEMSTACK_WORKFLOW_WORKER_SERVICE_MODULE,
         "--workflow-root",
         str(Path(workflow_root).expanduser().resolve()),
     ]

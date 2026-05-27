@@ -55,21 +55,20 @@ def test_queue_submission_status_treats_admission_wait_as_blocked() -> None:
 
 def test_sibling_app_command_without_repo_root_uses_module_execution() -> None:
     argv, cwd, env = common.sibling_app_command(
-        executable="chemstack_xtb",
         config_path="/tmp/config.yaml",
         repo_root=None,
-        module_name="chemstack.xtb._internal_cli",
-        tail_argv=["run-dir", "/tmp/job"],
+        module_name="chemstack.orca._internal_cli",
+        tail_argv=["queue", "worker"],
     )
 
     assert argv == [
         sys.executable,
         "-m",
-        "chemstack.xtb._internal_cli",
+        "chemstack.orca._internal_cli",
         "--config",
         "/tmp/config.yaml",
-        "run-dir",
-        "/tmp/job",
+        "queue",
+        "worker",
     ]
     assert cwd is None
     assert env is None
@@ -84,17 +83,16 @@ def test_sibling_app_command_with_repo_root_uses_module_execution_and_prepends_p
     monkeypatch.setenv("PYTHONPATH", "/existing/site-packages")
 
     argv, cwd, env = common.sibling_app_command(
-        executable="ignored",
         config_path="/tmp/config.yaml",
         repo_root=str(repo_root),
-        module_name="chemstack.xtb._internal_cli",
+        module_name="chemstack.orca._internal_cli",
         tail_argv=["queue", "cancel", "job-1"],
     )
 
     assert argv == [
         sys.executable,
         "-m",
-        "chemstack.xtb._internal_cli",
+        "chemstack.orca._internal_cli",
         "--config",
         "/tmp/config.yaml",
         "queue",
@@ -139,20 +137,18 @@ def test_run_sibling_app_forwards_command_to_subprocess(monkeypatch: pytest.Monk
     monkeypatch.setattr(common.subprocess, "run", fake_run)
 
     result = common.run_sibling_app(
-        executable="chemstack_xtb",
         config_path="/tmp/config.yaml",
         repo_root="/tmp/repo",
-        module_name="chemstack.xtb._internal_cli",
+        module_name="chemstack.cli",
         tail_argv=["run-dir", "/tmp/job"],
         timeout_seconds=7.5,
     )
 
     assert result is expected_result
     assert captured["command_kwargs"] == {
-        "executable": "chemstack_xtb",
         "config_path": "/tmp/config.yaml",
         "repo_root": "/tmp/repo",
-        "module_name": "chemstack.xtb._internal_cli",
+        "module_name": "chemstack.cli",
         "tail_argv": ["run-dir", "/tmp/job"],
     }
     assert captured["run_kwargs"] == {
@@ -241,12 +237,10 @@ def test_sibling_runtime_paths_derives_internal_engine_roots_from_workflow_root(
 
 
 @pytest.mark.parametrize(
-    ("module", "executable", "repo_root", "job_dir", "priority", "stdout", "returncode", "stderr", "expected"),
+    ("module", "job_dir", "priority", "stdout", "returncode", "stderr", "expected"),
     [
         (
             xtb_submitter,
-            "xtb_custom",
-            "/repo/xtb",
             "/jobs/xtb-1",
             7,
             "\n".join(
@@ -273,8 +267,6 @@ def test_sibling_runtime_paths_derives_internal_engine_roots_from_workflow_root(
         ),
         (
             crest_submitter,
-            "crest_custom",
-            None,
             "/jobs/crest-1",
             3,
             "status: failed\nqueue_id: q-crest-1",
@@ -293,8 +285,6 @@ def test_sibling_runtime_paths_derives_internal_engine_roots_from_workflow_root(
 def test_submit_job_dir_maps_success_and_failure(
     monkeypatch: pytest.MonkeyPatch,
     module: Any,
-    executable: str,
-    repo_root: str | None,
     job_dir: str,
     priority: int,
     stdout: str,
@@ -303,45 +293,39 @@ def test_submit_job_dir_maps_success_and_failure(
     expected: dict[str, str],
 ) -> None:
     captured: dict[str, Any] = {}
-    completed = _completed_process(
-        args=[
-            "python",
-            "-m",
-            "chemstack.xtb._internal_cli" if module is xtb_submitter else "chemstack.crest._internal_cli",
-            "--config",
-            "/tmp/config.yaml",
-            "run-dir",
-            job_dir,
-        ],
-        returncode=returncode,
-        stdout=stdout,
-        stderr=stderr,
-    )
 
-    def fake_run_sibling_app(**kwargs: Any) -> subprocess.CompletedProcess[str]:
-        captured["kwargs"] = kwargs
-        return completed
+    def fake_cmd_run_dir(args: Any) -> int:
+        captured["args"] = args
+        print(stdout, end="")
+        if stderr:
+            print(stderr, end="", file=sys.stderr)
+        return returncode
 
-    monkeypatch.setattr(module, "run_sibling_app", fake_run_sibling_app)
+    monkeypatch.setattr(module, "cmd_run_dir", fake_cmd_run_dir)
 
     result = module.submit_job_dir(
         job_dir=job_dir,
         priority=priority,
         config_path="/tmp/config.yaml",
-        executable=executable,
-        repo_root=repo_root,
     )
 
-    assert captured["kwargs"] == {
-        "executable": executable,
-        "config_path": "/tmp/config.yaml",
-        "repo_root": repo_root,
-        "module_name": "chemstack.xtb._internal_cli" if module is xtb_submitter else "chemstack.crest._internal_cli",
-        "tail_argv": ["run-dir", job_dir, "--priority", str(priority)],
-    }
+    assert captured["args"].config == "/tmp/config.yaml"
+    assert captured["args"].path == job_dir
+    assert captured["args"].priority == priority
     assert result["status"] == expected["status"]
     assert result["returncode"] == returncode
-    assert result["command_argv"] == completed.args
+    assert result["command_argv"] == [
+        "python-api",
+        "chemstack.xtb.commands.run_dir.cmd_run_dir"
+        if module is xtb_submitter
+        else "chemstack.crest.commands.run_dir.cmd_run_dir",
+        "--config",
+        "/tmp/config.yaml",
+        "run-dir",
+        job_dir,
+        "--priority",
+        str(priority),
+    ]
     assert result["stdout"] == stdout
     assert result["stderr"] == stderr
     assert result["parsed_stdout"]["status"] == expected["parsed_status"]
@@ -379,37 +363,35 @@ def test_cancel_target_maps_status_from_stdout_and_returncode(
     expected_job_id: str,
 ) -> None:
     captured: dict[str, Any] = {}
-    completed = _completed_process(
-        args=["tool", "--config", "/tmp/config.yaml", "queue", "cancel", target],
-        returncode=returncode,
-        stdout=stdout,
-        stderr="stderr text",
-    )
 
-    def fake_run_sibling_app(**kwargs: Any) -> subprocess.CompletedProcess[str]:
-        captured["kwargs"] = kwargs
-        return completed
+    def fake_cmd_queue_cancel(args: Any) -> int:
+        captured["args"] = args
+        print(stdout, end="")
+        print("stderr text", end="", file=sys.stderr)
+        return returncode
 
-    monkeypatch.setattr(module, "run_sibling_app", fake_run_sibling_app)
+    monkeypatch.setattr(module, "cmd_queue_cancel", fake_cmd_queue_cancel)
 
     result = module.cancel_target(
         target=target,
         config_path="/tmp/config.yaml",
-        executable="tool",
-        repo_root="/tmp/repo",
     )
 
-    assert captured["kwargs"] == {
-        "executable": "tool",
-        "config_path": "/tmp/config.yaml",
-        "repo_root": "/tmp/repo",
-        "module_name": "chemstack.cli" if module is xtb_submitter else "chemstack.crest._internal_cli",
-        "tail_argv": ["queue", "cancel", target],
-        "timeout_seconds": 5.0,
-    }
+    assert captured["args"].config == "/tmp/config.yaml"
+    assert captured["args"].target == target
     assert result["status"] == expected_status
     assert result["returncode"] == returncode
-    assert result["command_argv"] == completed.args
+    assert result["command_argv"] == [
+        "python-api",
+        "chemstack.xtb.commands.queue.cmd_queue_cancel"
+        if module is xtb_submitter
+        else "chemstack.crest.commands.queue.cmd_queue_cancel",
+        "--config",
+        "/tmp/config.yaml",
+        "queue",
+        "cancel",
+        target,
+    ]
     assert result["stdout"] == stdout
     assert result["stderr"] == "stderr text"
     assert result["queue_id"] == expected_queue_id
@@ -417,21 +399,24 @@ def test_cancel_target_maps_status_from_stdout_and_returncode(
 
 
 @pytest.mark.parametrize("module", [xtb_submitter, crest_submitter])
-def test_cancel_target_reports_timeout(monkeypatch: pytest.MonkeyPatch, module: Any) -> None:
-    def fake_run_sibling_app(**kwargs: Any) -> subprocess.CompletedProcess[str]:
-        raise subprocess.TimeoutExpired(cmd=["tool", "queue", "cancel", "job-1"], timeout=5.0, output="slow", stderr="timeout")
+def test_cancel_target_reports_handler_error(
+    monkeypatch: pytest.MonkeyPatch,
+    module: Any,
+) -> None:
+    def fake_cmd_queue_cancel(args: Any) -> int:
+        del args
+        print("partial", end="")
+        raise RuntimeError("cancel failed")
 
-    monkeypatch.setattr(module, "run_sibling_app", fake_run_sibling_app)
+    monkeypatch.setattr(module, "cmd_queue_cancel", fake_cmd_queue_cancel)
 
     result = module.cancel_target(
         target="job-1",
         config_path="/tmp/config.yaml",
-        executable="tool",
-        repo_root="/tmp/repo",
     )
 
     assert result["status"] == "failed"
-    assert result["reason"] == "cancel_command_timeout"
-    assert result["returncode"] == 124
-    assert result["stdout"] == "slow"
-    assert result["stderr"] == "timeout"
+    assert result["reason"] == "cancel_command_failed"
+    assert result["returncode"] == 1
+    assert result["stdout"] == "partial"
+    assert result["stderr"] == "RuntimeError: cancel failed\n"

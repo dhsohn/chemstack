@@ -54,13 +54,11 @@ exit 0
         job_dir=str(xtb_opt_job),
         priority=5,
         config_path=str(smoke_workspace.xtb_config_path),
-        repo_root=str(smoke_workspace.repo_root),
     )
     crest_submission = crest_submitter.submit_job_dir(
         job_dir=str(crest_job),
         priority=5,
         config_path=str(smoke_workspace.crest_config_path),
-        repo_root=str(smoke_workspace.repo_root),
     )
 
     assert xtb_submission["status"] == "submitted"

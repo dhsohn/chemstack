@@ -4,8 +4,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from chemstack.core.app_ids import CHEMSTACK_EXECUTABLE
-
 from ._orchestration_deps import OrchestrationDeps, orchestration_deps
 from ._workflow_phases import phase_finished
 from .engine_options import WorkflowEngineOptions
@@ -61,8 +59,6 @@ def _sync_crest_phase(
         o.stages._sync_crest_stage(
             stage,
             crest_config=config.crest_config,
-            crest_executable=config.crest_executable,
-            crest_repo_root=config.crest_repo_root,
             submit_ready=context.submit_ready,
             workflow_id=context.workflow_id,
             workspace_dir=context.workspace_dir,
@@ -101,8 +97,6 @@ def _sync_xtb_phase(
         o.stages._sync_xtb_stage(
             stage,
             xtb_config=config.xtb_config,
-            xtb_executable=config.xtb_executable,
-            xtb_repo_root=config.xtb_repo_root,
             submit_ready=context.submit_ready,
             workflow_id=context.workflow_id,
             workspace_dir=context.workspace_dir,
@@ -184,7 +178,6 @@ def _sync_orca_phase(
         o.stages._sync_orca_stage(
             stage,
             orca_config=config.orca_config,
-            orca_executable=config.orca_executable,
             orca_repo_root=config.orca_repo_root,
             submit_ready=context.submit_ready,
         )
@@ -276,39 +269,30 @@ def _cancel_stage_activity(
         stage["status"] = "cancelled"
         return {"status": "cancelled", "mode": "local"}
 
-    engine_options = config.for_engine(engine)
     if (
         engine == "crest"
-        and engine_options is not None
-        and o.stages._normalize_text(engine_options.config)
+        and o.stages._normalize_text(config.crest.config)
     ):
         result = o.engines.crest_cancel_target(
             target=cancel_target,
-            config_path=str(engine_options.config),
-            executable=engine_options.executable,
-            repo_root=engine_options.repo_root,
+            config_path=str(config.crest.config),
         )
     elif (
         engine == "xtb"
-        and engine_options is not None
-        and o.stages._normalize_text(engine_options.config)
+        and o.stages._normalize_text(config.xtb.config)
     ):
         result = o.engines.xtb_cancel_target(
             target=cancel_target,
-            config_path=str(engine_options.config),
-            executable=engine_options.executable,
-            repo_root=engine_options.repo_root,
+            config_path=str(config.xtb.config),
         )
     elif (
         engine == "orca"
-        and engine_options is not None
-        and o.stages._normalize_text(engine_options.config)
+        and o.stages._normalize_text(config.orca.config)
     ):
         result = o.engines.orca_cancel_target(
             target=cancel_target,
-            config_path=str(engine_options.config),
-            executable=engine_options.executable,
-            repo_root=engine_options.repo_root,
+            config_path=str(config.orca.config),
+            repo_root=config.orca.repo_root,
         )
     else:
         result = {"status": "failed", "reason": "missing_engine_config"}
@@ -373,13 +357,8 @@ def advance_workflow(
     target: str,
     workflow_root: str | Path,
     crest_config: str | None = None,
-    crest_executable: str = "chemstack_crest",
-    crest_repo_root: str | None = None,
     xtb_config: str | None = None,
-    xtb_executable: str = "chemstack_xtb",
-    xtb_repo_root: str | None = None,
     orca_config: str | None = None,
-    orca_executable: str = CHEMSTACK_EXECUTABLE,
     orca_repo_root: str | None = None,
     engine_options: WorkflowEngineOptions | None = None,
     submit_ready: bool = True,
@@ -393,13 +372,8 @@ def advance_workflow(
         sync_only = o.stages._workflow_sync_only(payload)
         config = engine_options or WorkflowEngineOptions.from_values(
             crest_config=crest_config,
-            crest_executable=crest_executable,
-            crest_repo_root=crest_repo_root,
             xtb_config=xtb_config,
-            xtb_executable=xtb_executable,
-            xtb_repo_root=xtb_repo_root,
             orca_config=orca_config,
-            orca_executable=orca_executable,
             orca_repo_root=orca_repo_root,
         )
         context = _AdvanceContext(
@@ -425,13 +399,8 @@ def cancel_materialized_workflow(
     target: str,
     workflow_root: str | Path,
     crest_config: str | None = None,
-    crest_executable: str = "chemstack_crest",
-    crest_repo_root: str | None = None,
     xtb_config: str | None = None,
-    xtb_executable: str = "chemstack_xtb",
-    xtb_repo_root: str | None = None,
     orca_config: str | None = None,
-    orca_executable: str = CHEMSTACK_EXECUTABLE,
     orca_repo_root: str | None = None,
     engine_options: WorkflowEngineOptions | None = None,
     deps: OrchestrationDeps | None = None,
@@ -445,13 +414,8 @@ def cancel_materialized_workflow(
             payload = o.persistence.load_workflow_payload(workspace_dir)
             config = engine_options or WorkflowEngineOptions.from_values(
                 crest_config=crest_config,
-                crest_executable=crest_executable,
-                crest_repo_root=crest_repo_root,
                 xtb_config=xtb_config,
-                xtb_executable=xtb_executable,
-                xtb_repo_root=xtb_repo_root,
                 orca_config=orca_config,
-                orca_executable=orca_executable,
                 orca_repo_root=orca_repo_root,
             )
             cancellation = o.advance._cancel_active_workflow_stages(payload, config=config)

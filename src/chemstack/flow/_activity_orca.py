@@ -196,10 +196,8 @@ def snapshot_record(snapshot: Any, *, allowed_root: Path, deps: Any) -> Activity
 def orca_records(
     *,
     config_path: str,
-    repo_root: str | None = None,
     deps: Any,
 ) -> list[ActivityRecord]:
-    del repo_root
     from chemstack.orca import queue_store, run_snapshot
 
     runtime_paths = deps.sibling_runtime_paths(config_path, engine="orca")

@@ -241,7 +241,6 @@ def _activity_payload(
         crest_config=settings.crest_config,
         xtb_config=settings.xtb_config,
         orca_config=settings.orca_config,
-        orca_repo_root=settings.orca_repo_root,
         child_job_engines=child_job_engines,
     )
 
@@ -272,7 +271,6 @@ def _handle_list(settings: TelegramBotSettings, args: str) -> str:
             crest_config=settings.crest_config,
             xtb_config=settings.xtb_config,
             orca_config=settings.orca_config,
-            orca_repo_root=settings.orca_repo_root,
         )
         return "\n".join(queue_clear_lines(payload))
 

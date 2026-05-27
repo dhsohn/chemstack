@@ -3,11 +3,11 @@ from __future__ import annotations
 CHEMSTACK_ORCA_INTERNAL_MODULE = "chemstack.orca._internal_cli"
 CHEMSTACK_XTB_MODULE = "chemstack.xtb._internal_cli"
 CHEMSTACK_CREST_MODULE = "chemstack.crest._internal_cli"
-CHEMSTACK_FLOW_MODULE = "chemstack.flow.cli"
+CHEMSTACK_WORKFLOW_WORKER_SERVICE_MODULE = "chemstack.services.workflow_worker"
 
-CHEMSTACK_XTB_COMMAND = f"python -m {CHEMSTACK_XTB_MODULE}"
-CHEMSTACK_CREST_COMMAND = f"python -m {CHEMSTACK_CREST_MODULE}"
-CHEMSTACK_FLOW_COMMAND = f"python -m {CHEMSTACK_FLOW_MODULE}"
+CHEMSTACK_WORKFLOW_WORKER_SERVICE_COMMAND = (
+    f"python -m {CHEMSTACK_WORKFLOW_WORKER_SERVICE_MODULE}"
+)
 CHEMSTACK_CLI_MODULE = "chemstack.cli"
 CHEMSTACK_CLI_COMMAND = f"python -m {CHEMSTACK_CLI_MODULE}"
 
