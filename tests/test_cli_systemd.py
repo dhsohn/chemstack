@@ -167,3 +167,141 @@ def test_full_runtime_warns_when_telegram_is_not_configured(tmp_path: Path) -> N
 
     assert plan.enabled_unit == "chemstack-queue-worker@alice.service"
     assert any("Telegram is not fully configured" in warning for warning in plan.warnings)
+
+
+def test_cmd_service_status_prints_compact_systemd_state(capsys: Any) -> None:
+    states = {
+        ("is-active", "chemstack-runtime@alice.target"): "active",
+        ("is-enabled", "chemstack-runtime@alice.target"): "enabled",
+        ("is-active", "chemstack-queue-worker@alice.service"): "active",
+        ("is-enabled", "chemstack-queue-worker@alice.service"): "enabled",
+        ("is-active", "chemstack-bot@alice.service"): "inactive",
+        ("is-enabled", "chemstack-bot@alice.service"): "disabled",
+        ("is-active", "chemstack-summary@alice.timer"): "active",
+        ("is-enabled", "chemstack-summary@alice.timer"): "enabled",
+    }
+
+    def _fake_run(
+        argv: list[str],
+        check: bool = False,
+        stdout: Any = None,
+        stderr: Any = None,
+        text: bool = False,
+    ) -> subprocess.CompletedProcess[str]:
+        del check, stdout, stderr, text
+        value = states[(argv[1], argv[2])]
+        return subprocess.CompletedProcess(argv, 0, stdout=f"{value}\n", stderr="")
+
+    result = cli_systemd.cmd_service_status(
+        Namespace(target_user=None),
+        deps=Namespace(
+            _default_service_user=lambda: "alice",
+            run=_fake_run,
+            which=lambda name: "/bin/systemctl" if name == "systemctl" else None,
+        ),
+    )
+
+    assert result == 0
+    output = capsys.readouterr().out
+    assert "ChemStack service status for alice:" in output
+    assert "worker" in output
+    assert "chemstack-queue-worker@alice.service" in output
+    assert "inactive" in output
+
+
+def test_cmd_service_status_fails_when_systemctl_is_missing(capsys: Any) -> None:
+    result = cli_systemd.cmd_service_status(
+        Namespace(target_user=None),
+        deps=Namespace(which=lambda name: None),
+    )
+
+    assert result == 1
+    assert "systemctl is not available" in capsys.readouterr().out
+
+
+def test_cmd_service_restart_prefers_runtime_when_enabled(capsys: Any) -> None:
+    commands: list[tuple[str, ...]] = []
+
+    def _fake_run(
+        argv: list[str],
+        check: bool = False,
+        stdout: Any = None,
+        stderr: Any = None,
+        text: bool = False,
+    ) -> subprocess.CompletedProcess[str]:
+        del check, stdout, stderr, text
+        commands.append(tuple(argv))
+        if argv[1] == "is-active":
+            return subprocess.CompletedProcess(argv, 3, stdout="inactive\n", stderr="")
+        if argv[1] == "is-enabled":
+            return subprocess.CompletedProcess(argv, 0, stdout="enabled\n", stderr="")
+        return subprocess.CompletedProcess(argv, 0, stdout="", stderr="")
+
+    result = cli_systemd.cmd_service_restart(
+        Namespace(target_user=None),
+        deps=Namespace(
+            _default_service_user=lambda: "alice",
+            is_root=lambda: True,
+            run=_fake_run,
+            which=lambda name: "/bin/systemctl" if name == "systemctl" else None,
+        ),
+    )
+
+    assert result == 0
+    assert commands[-1] == ("systemctl", "restart", "chemstack-runtime@alice.target")
+    assert "Restarting chemstack-runtime@alice.target" in capsys.readouterr().out
+
+
+def test_cmd_service_restart_falls_back_to_worker_when_runtime_is_disabled() -> None:
+    commands: list[tuple[str, ...]] = []
+
+    def _fake_run(
+        argv: list[str],
+        check: bool = False,
+        stdout: Any = None,
+        stderr: Any = None,
+        text: bool = False,
+    ) -> subprocess.CompletedProcess[str]:
+        del check, stdout, stderr, text
+        commands.append(tuple(argv))
+        if argv[1] == "is-active":
+            return subprocess.CompletedProcess(argv, 3, stdout="inactive\n", stderr="")
+        if argv[1] == "is-enabled":
+            return subprocess.CompletedProcess(argv, 1, stdout="disabled\n", stderr="")
+        return subprocess.CompletedProcess(argv, 0, stdout="", stderr="")
+
+    result = cli_systemd.cmd_service_restart(
+        Namespace(target_user=None),
+        deps=Namespace(
+            _default_service_user=lambda: "alice",
+            is_root=lambda: True,
+            run=_fake_run,
+            which=lambda name: "/bin/systemctl" if name == "systemctl" else None,
+        ),
+    )
+
+    assert result == 0
+    assert commands[-1] == ("systemctl", "restart", "chemstack-queue-worker@alice.service")
+
+
+def test_cmd_service_restart_uses_sudo_for_non_root_user() -> None:
+    commands: list[tuple[str, ...]] = []
+
+    def _fake_run(argv: list[str], check: bool = False) -> subprocess.CompletedProcess[str]:
+        del check
+        commands.append(tuple(argv))
+        return subprocess.CompletedProcess(argv, 0)
+
+    result = cli_systemd.cmd_service_restart(
+        Namespace(target_user=None),
+        deps=Namespace(
+            _default_service_user=lambda: "alice",
+            _restart_unit_for_user=lambda target_user, run: f"chemstack-runtime@{target_user}.target",
+            is_root=lambda: False,
+            run=_fake_run,
+            which=lambda name: f"/usr/bin/{name}" if name in {"systemctl", "sudo"} else None,
+        ),
+    )
+
+    assert result == 0
+    assert commands == [("sudo", "systemctl", "restart", "chemstack-runtime@alice.target")]

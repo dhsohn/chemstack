@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import getpass
 import os
 import shutil
 import subprocess
@@ -25,6 +26,13 @@ SYSTEMD_UNIT_NAMES = (
 
 DEFAULT_SYSTEMD_UNIT_DIR = Path("/etc/systemd/system")
 
+SERVICE_UNIT_ORDER = (
+    ("runtime", "chemstack-runtime@{user}.target"),
+    ("worker", "chemstack-queue-worker@{user}.service"),
+    ("bot", "chemstack-bot@{user}.service"),
+    ("summary", "chemstack-summary@{user}.timer"),
+)
+
 
 @dataclass(frozen=True)
 class RenderedUnit:
@@ -44,6 +52,14 @@ class SystemdInstallPlan:
     enabled_unit: str | None
     use_sudo: bool
     warnings: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class ServiceUnitStatus:
+    label: str
+    unit: str
+    active: str
+    enabled: str
 
 
 def _is_root() -> bool:
@@ -253,6 +269,99 @@ def _format_command(command: Sequence[str], *, use_sudo: bool) -> str:
     return " ".join(parts)
 
 
+def _default_service_user() -> str:
+    return getpass.getuser()
+
+
+def _service_units_for_user(target_user: str) -> tuple[tuple[str, str], ...]:
+    user_text = normalize_text(target_user)
+    if not user_text:
+        raise ValueError("service user is required")
+    return tuple((label, template.format(user=user_text)) for label, template in SERVICE_UNIT_ORDER)
+
+
+def _single_line_command_output(completed: subprocess.CompletedProcess[Any]) -> str:
+    output = normalize_text(getattr(completed, "stdout", ""))
+    if not output:
+        output = normalize_text(getattr(completed, "stderr", ""))
+    if not output:
+        output = f"exit {completed.returncode}"
+    return output.splitlines()[0]
+
+
+def _query_systemctl(
+    action: str,
+    unit: str,
+    *,
+    run: Callable[..., subprocess.CompletedProcess[Any]] = subprocess.run,
+) -> str:
+    try:
+        completed = run(
+            ["systemctl", action, unit],
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+    except OSError as exc:
+        return f"error: {exc}"
+    return _single_line_command_output(completed)
+
+
+def collect_service_status(
+    target_user: str,
+    *,
+    run: Callable[..., subprocess.CompletedProcess[Any]] = subprocess.run,
+) -> tuple[ServiceUnitStatus, ...]:
+    return tuple(
+        ServiceUnitStatus(
+            label=label,
+            unit=unit,
+            active=_query_systemctl("is-active", unit, run=run),
+            enabled=_query_systemctl("is-enabled", unit, run=run),
+        )
+        for label, unit in _service_units_for_user(target_user)
+    )
+
+
+def _print_service_status(target_user: str, statuses: Sequence[ServiceUnitStatus]) -> None:
+    print(f"ChemStack service status for {target_user}:")
+    print(f"{'Name':<10} {'Active':<14} {'Enabled':<14} Unit")
+    for status in statuses:
+        print(
+            f"{status.label:<10} {status.active:<14} {status.enabled:<14} {status.unit}"
+        )
+
+
+def _systemctl_available(*, which: Callable[[str], str | None] = shutil.which) -> bool:
+    return which("systemctl") is not None
+
+
+def _sudo_available(*, which: Callable[[str], str | None] = shutil.which) -> bool:
+    return which("sudo") is not None
+
+
+def _runtime_unit_for_user(target_user: str) -> str:
+    return f"chemstack-runtime@{target_user}.target"
+
+
+def _worker_unit_for_user(target_user: str) -> str:
+    return f"chemstack-queue-worker@{target_user}.service"
+
+
+def _restart_unit_for_user(
+    target_user: str,
+    *,
+    run: Callable[..., subprocess.CompletedProcess[Any]] = subprocess.run,
+) -> str:
+    runtime_unit = _runtime_unit_for_user(target_user)
+    runtime_active = _query_systemctl("is-active", runtime_unit, run=run)
+    runtime_enabled = _query_systemctl("is-enabled", runtime_unit, run=run)
+    if runtime_active == "active" or runtime_enabled == "enabled":
+        return runtime_unit
+    return _worker_unit_for_user(target_user)
+
+
 def _print_plan(plan: SystemdInstallPlan) -> None:
     print("systemd install plan:")
     print(f"  user: {plan.target_user}")
@@ -386,12 +495,68 @@ def cmd_systemd_install(args: argparse.Namespace, *, deps: Any | None = None) ->
     return int(apply_plan(plan, run=run))
 
 
+def _service_target_user(args: argparse.Namespace, *, deps: Any | None = None) -> str:
+    default_user = _dependency(deps, "_default_service_user", _default_service_user)
+    return normalize_text(getattr(args, "target_user", None)) or normalize_text(default_user())
+
+
+def cmd_service_status(args: argparse.Namespace, *, deps: Any | None = None) -> int:
+    which = _dependency(deps, "which", shutil.which)
+    collect_status = _dependency(deps, "collect_service_status", collect_service_status)
+    if not _systemctl_available(which=which):
+        print("error: systemctl is not available in this environment")
+        return 1
+
+    target_user = _service_target_user(args, deps=deps)
+    try:
+        statuses = collect_status(target_user, run=_dependency(deps, "run", subprocess.run))
+    except ValueError as exc:
+        print(f"error: {exc}")
+        return 1
+    _print_service_status(target_user, statuses)
+    return 1 if any(status.active == "failed" for status in statuses) else 0
+
+
+def cmd_service_restart(args: argparse.Namespace, *, deps: Any | None = None) -> int:
+    which = _dependency(deps, "which", shutil.which)
+    run = _dependency(deps, "run", subprocess.run)
+    is_root = _dependency(deps, "is_root", _is_root)
+    restart_unit_for_user = _dependency(deps, "_restart_unit_for_user", _restart_unit_for_user)
+
+    if not _systemctl_available(which=which):
+        print("error: systemctl is not available in this environment")
+        return 1
+    use_sudo = not is_root()
+    if use_sudo and not _sudo_available(which=which):
+        print("error: sudo is required to restart system services; rerun as root")
+        return 1
+
+    target_user = _service_target_user(args, deps=deps)
+    try:
+        unit = restart_unit_for_user(target_user, run=run)
+    except ValueError as exc:
+        print(f"error: {exc}")
+        return 1
+
+    print(f"Restarting {unit}")
+    rc = _run_command(("systemctl", "restart", unit), use_sudo=use_sudo, run=run)
+    if rc == 0:
+        print("Restart requested successfully.")
+        print("Check status with: chemstack service status")
+    return rc
+
+
 __all__ = [
     "DEFAULT_SYSTEMD_UNIT_DIR",
+    "SERVICE_UNIT_ORDER",
     "SYSTEMD_UNIT_NAMES",
     "RenderedUnit",
+    "ServiceUnitStatus",
     "SystemdInstallPlan",
     "apply_systemd_install_plan",
     "build_systemd_install_plan",
+    "cmd_service_restart",
+    "cmd_service_status",
     "cmd_systemd_install",
+    "collect_service_status",
 ]

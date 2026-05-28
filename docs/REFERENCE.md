@@ -337,10 +337,7 @@ Recommended always-on runtime install flow when Telegram is configured:
 ```bash
 cd <repo_root>
 chemstack systemd install --user "$(whoami)" --repo "$(pwd)"
-systemctl status "chemstack-runtime@$(whoami).target"
-systemctl status "chemstack-queue-worker@$(whoami)"
-systemctl status "chemstack-bot@$(whoami)"
-systemctl status "chemstack-summary@$(whoami).timer"
+chemstack service status
 journalctl -u "chemstack-summary@$(whoami).service" -n 50
 journalctl -u "chemstack-queue-worker@$(whoami)" -f
 journalctl -u "chemstack-bot@$(whoami)" -f

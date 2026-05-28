@@ -212,6 +212,21 @@ def test_build_parser_parses_systemd_install_command() -> None:
     assert args.func is cli_systemd.cmd_systemd_install
 
 
+def test_build_parser_parses_service_commands() -> None:
+    parser = unified_cli.build_parser()
+
+    status_args = parser.parse_args(["service", "status"])
+    restart_args = parser.parse_args(["service", "restart"])
+
+    assert status_args.command == "service"
+    assert status_args.service_command == "status"
+    assert status_args.func is cli_systemd.cmd_service_status
+
+    assert restart_args.command == "service"
+    assert restart_args.service_command == "restart"
+    assert restart_args.func is cli_systemd.cmd_service_restart
+
+
 def test_main_dispatches_unified_queue_list(monkeypatch: pytest.MonkeyPatch) -> None:
     seen: list[SimpleNamespace] = []
 

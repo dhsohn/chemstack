@@ -6,6 +6,7 @@ ChemStack is a queue-first interface for ORCA and workflow orchestration on Linu
 
 ## Docs
 
+- Quickstart: [docs/QUICKSTART.md](docs/QUICKSTART.md)
 - Runtime and command reference: [docs/REFERENCE.md](docs/REFERENCE.md)
 - WSL and `systemd` runtime setup: [systemd/README.md](systemd/README.md)
 - Package layout and development notes: [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)
@@ -102,6 +103,8 @@ chemstack run-dir '/home/user/workflow_inputs/reaction_case'
 chemstack queue list --engine orca
 chemstack queue list clear
 chemstack queue cancel <target>
+chemstack service status
+chemstack service restart
 chemstack organize orca --root '/home/user/orca_runs' --apply
 chemstack summary --no-send
 chemstack monitor
@@ -124,10 +127,7 @@ both the worker and the bot automatically:
 ```bash
 cd <repo_root>
 chemstack systemd install --user "$(whoami)" --repo "$(pwd)"
-sudo systemctl status "chemstack-runtime@$(whoami).target"
-sudo systemctl status "chemstack-queue-worker@$(whoami)"
-sudo systemctl status "chemstack-bot@$(whoami)"
-sudo systemctl status "chemstack-summary@$(whoami).timer"
+chemstack service status
 ```
 
 If Telegram is not configured yet, the installer enables only the queue worker.
@@ -137,12 +137,7 @@ Run the same command again after setting `telegram.bot_token` and
 Restart examples:
 
 ```bash
-# restart the combined runtime target (worker + Telegram bot)
-sudo systemctl restart "chemstack-runtime@$(whoami).target"
-
-# restart only one service when needed
-sudo systemctl restart "chemstack-queue-worker@$(whoami)"
-sudo systemctl restart "chemstack-bot@$(whoami)"
+chemstack service restart
 ```
 
 The combined runtime target also starts a summary timer that runs `chemstack summary`

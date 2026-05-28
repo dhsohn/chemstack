@@ -48,10 +48,7 @@ enables only the queue worker; run the same command again after setting
 Monitor the combined runtime target:
 
 ```bash
-systemctl status "chemstack-runtime@$(whoami).target"
-systemctl status "chemstack-queue-worker@$(whoami)"
-systemctl status "chemstack-bot@$(whoami)"
-systemctl status "chemstack-summary@$(whoami).timer"
+chemstack service status
 journalctl -u "chemstack-summary@$(whoami).service" -n 50
 journalctl -u "chemstack-queue-worker@$(whoami)" -f
 journalctl -u "chemstack-bot@$(whoami)" -f
@@ -60,7 +57,7 @@ journalctl -u "chemstack-bot@$(whoami)" -f
 Maintain the combined runtime target:
 
 ```bash
-sudo systemctl restart "chemstack-runtime@$(whoami).target"
+chemstack service restart
 sudo systemctl stop "chemstack-runtime@$(whoami).target"
 ```
 
@@ -96,14 +93,14 @@ mode automatically while Telegram settings are empty.
 Monitor the unified engine worker:
 
 ```bash
-systemctl status "chemstack-queue-worker@$(whoami)"
+chemstack service status
 journalctl -u "chemstack-queue-worker@$(whoami)" -f
 ```
 
 Maintain the unified engine worker:
 
 ```bash
-sudo systemctl restart "chemstack-queue-worker@$(whoami)"
+chemstack service restart
 sudo systemctl stop "chemstack-queue-worker@$(whoami)"
 ```
 

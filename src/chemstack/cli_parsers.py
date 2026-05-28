@@ -377,6 +377,26 @@ def _add_systemd_parser(subparsers: argparse._SubParsersAction[argparse.Argument
     install_parser.set_defaults(func=cli_systemd.cmd_systemd_install)
 
 
+def _add_service_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
+    service_parser = subparsers.add_parser(
+        "service",
+        help="Check or restart ChemStack systemd services.",
+    )
+    service_subparsers = service_parser.add_subparsers(dest="service_command", required=True)
+
+    status_parser = service_subparsers.add_parser(
+        "status",
+        help="Show ChemStack service status.",
+    )
+    status_parser.set_defaults(func=cli_systemd.cmd_service_status)
+
+    restart_parser = service_subparsers.add_parser(
+        "restart",
+        help="Restart the ChemStack runtime or queue worker service.",
+    )
+    restart_parser.set_defaults(func=cli_systemd.cmd_service_restart)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="chemstack")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -388,4 +408,5 @@ def build_parser() -> argparse.ArgumentParser:
     _add_summary_parser(subparsers)
     _add_monitor_parser(subparsers)
     _add_systemd_parser(subparsers)
+    _add_service_parser(subparsers)
     return parser
