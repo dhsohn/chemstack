@@ -39,6 +39,21 @@ class RankingCollectedResults:
     command_summary: list[list[str]]
 
 
+@dataclass(frozen=True)
+class RankingLogPaths:
+    stdout: Path
+    stderr: Path
+
+
+@dataclass(frozen=True)
+class RankingSelection:
+    candidate_details: list[dict[str, Any]]
+    selected_paths: list[str]
+    selected: list[dict[str, Any]]
+    failed_count: int
+    best: dict[str, Any]
+
+
 def ranking_top_n(manifest: dict[str, Any]) -> int:
     raw = manifest.get("top_n", 3)
     try:
@@ -217,6 +232,61 @@ def ranking_failure_analysis(
     }
 
 
+def _ranking_manifest_path(context: RankingRunContext) -> str:
+    return str((context.job_dir / MANIFEST_FILE_NAME).resolve())
+
+
+def write_ranking_terminal_logs(
+    job_dir: Path,
+    *,
+    stdout_text: str,
+    stderr_text: str,
+) -> RankingLogPaths:
+    summary_stdout = job_dir / "ranking.stdout.log"
+    summary_stderr = job_dir / "ranking.stderr.log"
+    _write_text(summary_stdout, stdout_text)
+    _write_text(summary_stderr, stderr_text)
+    return RankingLogPaths(stdout=summary_stdout, stderr=summary_stderr)
+
+
+def ranking_result_payload(
+    context: RankingRunContext,
+    *,
+    status: str,
+    reason: str,
+    command: tuple[str, ...],
+    exit_code: int,
+    logs: RankingLogPaths,
+    finished_at: str,
+    selected_input_xyz: str,
+    candidate_count: int,
+    selected_candidate_paths: tuple[str, ...],
+    candidate_details: tuple[dict[str, Any], ...],
+    analysis_summary: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "status": status,
+        "reason": reason,
+        "command": command,
+        "exit_code": exit_code,
+        "started_at": context.started_at,
+        "finished_at": finished_at,
+        "stdout_log": str(logs.stdout.resolve()),
+        "stderr_log": str(logs.stderr.resolve()),
+        "selected_input_xyz": selected_input_xyz,
+        "job_type": "ranking",
+        "reaction_key": str(context.inputs["reaction_key"]),
+        "input_summary": dict(context.inputs["input_summary"]),
+        "candidate_count": candidate_count,
+        "selected_candidate_paths": selected_candidate_paths,
+        "candidate_details": candidate_details,
+        "analysis_summary": analysis_summary,
+        "manifest_path": _ranking_manifest_path(context),
+        "resource_request": context.resource_request,
+        "resource_actual": context.resource_actual,
+    }
+
+
 def ranking_terminal_result(
     context: RankingRunContext,
     *,
@@ -228,23 +298,20 @@ def ranking_terminal_result(
     candidate_results: list[dict[str, Any]],
     deps: RankingDeps,
 ) -> Any:
-    summary_stdout = context.job_dir / "ranking.stdout.log"
-    summary_stderr = context.job_dir / "ranking.stderr.log"
-    _write_text(summary_stdout, stdout_text)
-    _write_text(summary_stderr, stderr_text)
-    return deps.result_cls(
+    logs = write_ranking_terminal_logs(
+        context.job_dir,
+        stdout_text=stdout_text,
+        stderr_text=stderr_text,
+    )
+    payload = ranking_result_payload(
+        context,
         status=status,
         reason=reason,
         command=command,
         exit_code=1,
-        started_at=context.started_at,
+        logs=logs,
         finished_at=deps.now_utc_iso(),
-        stdout_log=str(summary_stdout.resolve()),
-        stderr_log=str(summary_stderr.resolve()),
         selected_input_xyz=str(context.candidate_paths[0].resolve()),
-        job_type="ranking",
-        reaction_key=str(context.inputs["reaction_key"]),
-        input_summary=dict(context.inputs["input_summary"]),
         candidate_count=len(context.candidate_paths),
         selected_candidate_paths=(),
         candidate_details=tuple(
@@ -255,10 +322,8 @@ def ranking_terminal_result(
             top_n=context.top_n,
             failure_reason=reason,
         ),
-        manifest_path=str((context.job_dir / MANIFEST_FILE_NAME).resolve()),
-        resource_request=context.resource_request,
-        resource_actual=context.resource_actual,
     )
+    return deps.result_cls(**payload)
 
 
 def rank_usable_candidates(
@@ -299,7 +364,7 @@ def write_ranking_success_logs(
     usable_count: int,
     failed_count: int,
     best: dict[str, Any],
-) -> tuple[Path, Path]:
+) -> RankingLogPaths:
     summary_stdout = job_dir / "ranking.stdout.log"
     summary_stderr = job_dir / "ranking.stderr.log"
     stdout_lines = [
@@ -312,7 +377,7 @@ def write_ranking_success_logs(
     stdout_lines.append(f"usable_candidates: {usable_count}")
     _write_text(summary_stdout, "\n".join(stdout_lines) + "\n")
     _write_text(summary_stderr, "")
-    return summary_stdout, summary_stderr
+    return RankingLogPaths(stdout=summary_stdout, stderr=summary_stderr)
 
 
 def ranking_was_cancelled(
@@ -408,6 +473,25 @@ def ranking_success_command(
     return tuple()
 
 
+def ranking_success_selection(
+    context: RankingRunContext,
+    collected: RankingCollectedResults,
+    usable: list[dict[str, Any]],
+) -> RankingSelection:
+    ranked, candidate_details, selected_paths = rank_usable_candidates(
+        usable,
+        top_n=context.top_n,
+    )
+    selected = ranked[: context.top_n]
+    return RankingSelection(
+        candidate_details=candidate_details,
+        selected_paths=selected_paths,
+        selected=selected,
+        failed_count=len(collected.candidate_results) - len(usable),
+        best=ranked[0],
+    )
+
+
 def ranking_completed_result(
     context: RankingRunContext,
     collected: RankingCollectedResults,
@@ -415,53 +499,41 @@ def ranking_completed_result(
     usable: list[dict[str, Any]],
     deps: RankingDeps,
 ) -> Any:
-    ranked, candidate_details, selected_paths = rank_usable_candidates(
-        usable,
-        top_n=context.top_n,
-    )
-    selected = ranked[: context.top_n]
-    failed_count = len(collected.candidate_results) - len(usable)
-    best = ranked[0]
-    summary_stdout, summary_stderr = write_ranking_success_logs(
+    selection = ranking_success_selection(context, collected, usable)
+    logs = write_ranking_success_logs(
         context.job_dir,
         candidate_results=collected.candidate_results,
-        selected_paths=selected_paths,
+        selected_paths=selection.selected_paths,
         usable_count=len(usable),
-        failed_count=failed_count,
-        best=best,
+        failed_count=selection.failed_count,
+        best=selection.best,
     )
-    return deps.result_cls(
+    payload = ranking_result_payload(
+        context,
         status="completed",
         reason="completed",
         command=ranking_success_command(
-            selected=selected,
+            selected=selection.selected,
             command_summary=collected.command_summary,
         ),
         exit_code=0,
-        started_at=context.started_at,
+        logs=logs,
         finished_at=deps.now_utc_iso(),
-        stdout_log=str(summary_stdout.resolve()),
-        stderr_log=str(summary_stderr.resolve()),
-        selected_input_xyz=str(best["candidate_path"]),
-        job_type="ranking",
-        reaction_key=str(context.inputs["reaction_key"]),
-        input_summary=dict(context.inputs["input_summary"]),
+        selected_input_xyz=str(selection.best["candidate_path"]),
         candidate_count=len(collected.candidate_results),
-        selected_candidate_paths=tuple(selected_paths),
-        candidate_details=tuple(candidate_details),
+        selected_candidate_paths=tuple(selection.selected_paths),
+        candidate_details=tuple(selection.candidate_details),
         analysis_summary=ranking_success_analysis(
             candidate_results=collected.candidate_results,
             usable_count=len(usable),
-            failed_count=failed_count,
-            best=best,
+            failed_count=selection.failed_count,
+            best=selection.best,
             top_n=context.top_n,
-            selected_paths=selected_paths,
+            selected_paths=selection.selected_paths,
             command_summary=collected.command_summary,
         ),
-        manifest_path=str((context.job_dir / MANIFEST_FILE_NAME).resolve()),
-        resource_request=context.resource_request,
-        resource_actual=context.resource_actual,
     )
+    return deps.result_cls(**payload)
 
 
 def run_ranking_job(

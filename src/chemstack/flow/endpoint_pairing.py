@@ -6,11 +6,11 @@ from pathlib import Path
 from typing import Any
 
 from chemstack.core.utils.coercion import (
-    coerce_mapping as _shared_coerce_mapping,
+    coerce_mapping as _coerce_mapping,
     normalize_bool as _shared_normalize_bool,
-    normalize_text as _shared_normalize_text,
+    normalize_text as _normalize_text,
     safe_float as _shared_safe_float,
-    safe_int as _shared_safe_int,
+    safe_int as _safe_int,
 )
 
 from .contracts import WorkflowStageInput
@@ -33,10 +33,6 @@ def _endpoint_pairing_deps() -> _EndpointPairingDeps:
     )
 
 
-def _normalize_text(value: Any) -> str:
-    return _shared_normalize_text(value)
-
-
 def _as_bool(value: Any, *, default: bool = False) -> bool:
     if value is None or _normalize_text(value) == "":
         return default
@@ -49,7 +45,7 @@ def _as_bool(value: Any, *, default: bool = False) -> bool:
 
 
 def _as_positive_int(value: Any, *, default: int = 0) -> int:
-    parsed = _shared_safe_int(value, default=max(0, int(default)))
+    parsed = _safe_int(value, default=max(0, int(default)))
     return max(0, parsed)
 
 
@@ -80,10 +76,6 @@ def _coerce_atom_indices(value: Any) -> tuple[int, ...]:
         indices.append(index)
         seen.add(index)
     return tuple(indices)
-
-
-def _coerce_mapping(value: Any) -> dict[str, Any]:
-    return _shared_coerce_mapping(value)
 
 
 @dataclass(frozen=True)

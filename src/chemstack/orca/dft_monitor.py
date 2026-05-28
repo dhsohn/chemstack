@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -21,6 +22,7 @@ from .orca_parser import parse_orca_output
 logger = logging.getLogger(__name__)
 
 FileSignature = tuple[float, int | None, str]
+TargetSignature = tuple[str, str, str, FileSignature]
 
 
 @dataclass
@@ -55,6 +57,23 @@ class ScanReport:
     baseline_seeded: bool = False
 
 
+@dataclass
+class _ScanAccumulator:
+    new_results: list[MonitorResult] = field(default_factory=list)
+    failures: list[ParseFailure] = field(default_factory=list)
+    scanned_signatures: dict[str, FileSignature] = field(default_factory=dict)
+    processed_this_scan: set[str] = field(default_factory=set)
+    state_dirty: bool = False
+
+    def report(self, *, baseline_seeded: bool = False) -> ScanReport:
+        return ScanReport(
+            new_results=self.new_results,
+            failures=self.failures,
+            scanned_files=len(self.scanned_signatures),
+            baseline_seeded=baseline_seeded,
+        )
+
+
 class DFTMonitor:
     """DFT calculation file change detection and automatic indexing."""
 
@@ -79,78 +98,78 @@ class DFTMonitor:
     ) -> ScanReport:
         """Detect new/changed ORCA files in kb_dirs and index them."""
         max_bytes = max_file_size_mb * 1024 * 1024
-        new_results: list[MonitorResult] = []
-        failures: list[ParseFailure] = []
-        scanned_signatures: dict[str, FileSignature] = {}
-        processed_this_scan: set[str] = set()
-        state_dirty = False
+        scan_state = _ScanAccumulator()
 
         for target_info in _iter_target_signatures(
             self._kb_dirs,
             max_bytes=max_bytes,
             recent_completed_window_minutes=recent_completed_window_minutes,
         ):
-            spath, canonical, status_override, signature = target_info
-            scanned_signatures[canonical] = signature
+            self._scan_target(target_info, scan_state)
 
-            if not self._should_process(canonical, signature, processed_this_scan):
-                continue
-            processed_this_scan.add(canonical)
-
-            try:
-                result = parse_orca_output(spath)
-                effective_status = status_override or result.status
-                if not self._record_scan_result(spath, canonical, signature, effective_status):
-                    continue
-                state_dirty = True
-                new_results.append(_monitor_result_from_orca(result, effective_status, canonical))
-                logger.info(
-                    "dft_monitor_new_calc: path=%s formula=%s method=%s status=%s",
-                    spath,
-                    result.formula,
-                    result.method,
-                    effective_status,
-                )
-            except Exception as exc:
-                failures.append(_parse_failure(canonical, exc))
-                logger.warning("dft_monitor_parse_error: path=%s error=%s", spath, exc)
-
-        # Save baseline on first run
         if not self._baseline_seeded:
-            self._last_seen.clear()
-            self._last_seen.update(scanned_signatures)
-            self._baseline_seeded = True
-            if self._state_file:
-                _save_state(self._state_file, self._last_seen)
-            logger.info("dft_monitor_baseline_seeded: file_count=%d", len(self._last_seen))
-            return ScanReport(
-                failures=failures,
-                scanned_files=len(scanned_signatures),
-                baseline_seeded=True,
-            )
+            return self._seed_baseline(scan_state)
 
-        # Clean up cache for deleted files
-        stale_paths = set(self._last_seen) - set(scanned_signatures)
-        if stale_paths:
-            for stale in stale_paths:
-                self._last_seen.pop(stale, None)
-            state_dirty = True
+        stale_paths = self._remove_stale_signatures(scan_state.scanned_signatures)
+        state_dirty = scan_state.state_dirty or bool(stale_paths)
 
         if state_dirty and self._state_file:
             _save_state(self._state_file, self._last_seen)
 
         logger.info(
             "dft_monitor_scan_complete: scanned=%d new=%d stale_removed=%d",
-            len(scanned_signatures),
-            len(new_results),
+            len(scan_state.scanned_signatures),
+            len(scan_state.new_results),
             len(stale_paths),
         )
 
-        return ScanReport(
-            new_results=new_results,
-            failures=failures,
-            scanned_files=len(scanned_signatures),
-        )
+        return scan_state.report()
+
+    def _scan_target(self, target_info: TargetSignature, scan_state: _ScanAccumulator) -> None:
+        spath, canonical, status_override, signature = target_info
+        scan_state.scanned_signatures[canonical] = signature
+
+        if not self._should_process(canonical, signature, scan_state.processed_this_scan):
+            return
+        scan_state.processed_this_scan.add(canonical)
+
+        try:
+            result = parse_orca_output(spath)
+            effective_status = status_override or result.status
+            if not self._record_scan_result(spath, canonical, signature, effective_status):
+                return
+            scan_state.state_dirty = True
+            scan_state.new_results.append(
+                _monitor_result_from_orca(result, effective_status, canonical)
+            )
+            logger.info(
+                "dft_monitor_new_calc: path=%s formula=%s method=%s status=%s",
+                spath,
+                result.formula,
+                result.method,
+                effective_status,
+            )
+        except Exception as exc:
+            scan_state.failures.append(_parse_failure(canonical, exc))
+            logger.warning("dft_monitor_parse_error: path=%s error=%s", spath, exc)
+
+    def _seed_baseline(self, scan_state: _ScanAccumulator) -> ScanReport:
+        self._last_seen.clear()
+        self._last_seen.update(scan_state.scanned_signatures)
+        self._baseline_seeded = True
+        if self._state_file:
+            _save_state(self._state_file, self._last_seen)
+        logger.info("dft_monitor_baseline_seeded: file_count=%d", len(self._last_seen))
+        return scan_state.report(baseline_seeded=True)
+
+    def _remove_stale_signatures(
+        self,
+        scanned_signatures: dict[str, FileSignature],
+    ) -> set[str]:
+        stale_paths = set(self._last_seen) - set(scanned_signatures)
+        for stale in stale_paths:
+            self._last_seen.pop(stale, None)
+        return stale_paths
 
     def _should_process(
         self,
@@ -185,7 +204,7 @@ def _iter_target_signatures(
     *,
     max_bytes: int,
     recent_completed_window_minutes: int,
-) -> Any:
+) -> Iterator[TargetSignature]:
     for kb_dir in kb_dirs:
         kb_path = Path(kb_dir)
         if not kb_path.is_dir():

@@ -11,17 +11,12 @@ from chemstack.core.config.engines import (
 )
 from chemstack.core.paths import validate_job_dir
 from chemstack.core.paths.workflow import workflow_workspace_internal_engine_paths_from_path
-from chemstack.core.utils import now_utc_iso, timestamped_token
+from chemstack.core.utils import normalize_text as _normalize_text
+from chemstack.core.utils import now_utc_iso, safe_int as _safe_int, timestamped_token
 
 MANIFEST_FILE_NAME = "xtb_job.yaml"
 SUPPORTED_JOB_TYPES = {"path_search", "opt", "sp", "ranking"}
 _EXCLUDE_RE = re.compile(r"(?:^xtb_|^struc|^coord)", re.IGNORECASE)
-
-
-def _normalize_text(value: Any) -> str:
-    if value is None:
-        return ""
-    return str(value).strip()
 
 
 def _normalize_key(value: str) -> str:
@@ -30,10 +25,7 @@ def _normalize_key(value: str) -> str:
 
 
 def _as_int(value: Any, default: int) -> int:
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return default
+    return _safe_int(value, default=default)
 
 
 def load_job_manifest(job_dir: Path) -> dict[str, Any]:
@@ -76,65 +68,85 @@ def _choose_root_xyz(job_dir: Path, explicit_name: str) -> Path:
     return _choose_xyz(job_dir, explicit_name, label="input")
 
 
-def resolve_job_inputs(job_dir: Path, manifest: dict[str, Any]) -> dict[str, Any]:
-    resolved_job_dir = job_dir.expanduser().resolve()
-    resolved_type = job_type(manifest)
+def _resolve_path_search_inputs(
+    resolved_job_dir: Path,
+    manifest: dict[str, Any],
+) -> dict[str, Any]:
+    reaction_key = _normalize_key(
+        _normalize_text(manifest.get("reaction_key")) or resolved_job_dir.name
+    )
 
-    if resolved_type == "path_search":
-        reaction_key = _normalize_key(_normalize_text(manifest.get("reaction_key")) or resolved_job_dir.name)
+    reactants_dir = resolved_job_dir / "reactants"
+    products_dir = resolved_job_dir / "products"
+    if not reactants_dir.exists() or not reactants_dir.is_dir():
+        raise ValueError(f"Missing reactants directory: {reactants_dir}")
+    if not products_dir.exists() or not products_dir.is_dir():
+        raise ValueError(f"Missing products directory: {products_dir}")
 
-        reactants_dir = resolved_job_dir / "reactants"
-        products_dir = resolved_job_dir / "products"
-        if not reactants_dir.exists() or not reactants_dir.is_dir():
-            raise ValueError(f"Missing reactants directory: {reactants_dir}")
-        if not products_dir.exists() or not products_dir.is_dir():
-            raise ValueError(f"Missing products directory: {products_dir}")
+    reactant_xyz = _choose_xyz(
+        reactants_dir,
+        _normalize_text(manifest.get("reactant_xyz")),
+        label="reactant",
+    )
+    product_xyz = _choose_xyz(
+        products_dir,
+        _normalize_text(manifest.get("product_xyz")),
+        label="product",
+    )
 
-        reactant_xyz = _choose_xyz(reactants_dir, _normalize_text(manifest.get("reactant_xyz")), label="reactant")
-        product_xyz = _choose_xyz(products_dir, _normalize_text(manifest.get("product_xyz")), label="product")
+    input_summary = {
+        "reactant_xyz": str(reactant_xyz),
+        "product_xyz": str(product_xyz),
+        "reactant_count": len(_xyz_files(reactants_dir)),
+        "product_count": len(_xyz_files(products_dir)),
+    }
+    return {
+        "job_type": "path_search",
+        "reaction_key": reaction_key,
+        "selected_input_xyz": reactant_xyz,
+        "secondary_input_xyz": product_xyz,
+        "input_summary": input_summary,
+    }
 
-        input_summary = {
-            "reactant_xyz": str(reactant_xyz),
-            "product_xyz": str(product_xyz),
-            "reactant_count": len(_xyz_files(reactants_dir)),
-            "product_count": len(_xyz_files(products_dir)),
-        }
-        return {
-            "job_type": resolved_type,
-            "reaction_key": reaction_key,
-            "selected_input_xyz": reactant_xyz,
-            "secondary_input_xyz": product_xyz,
-            "input_summary": input_summary,
-        }
 
-    if resolved_type == "ranking":
-        candidates_dir_name = _normalize_text(manifest.get("candidates_dir", "candidates")) or "candidates"
-        candidates_dir = (resolved_job_dir / candidates_dir_name).resolve()
-        if not candidates_dir.exists() or not candidates_dir.is_dir():
-            raise ValueError(f"Missing ranking candidates directory: {candidates_dir}")
-        candidate_paths = _xyz_files(candidates_dir)
-        if not candidate_paths:
-            raise ValueError(f"No .xyz candidates found in ranking directory: {candidates_dir}")
-        molecule_key = _normalize_key(
-            _normalize_text(manifest.get("molecule_key"))
-            or _normalize_text(manifest.get("reaction_key"))
-            or resolved_job_dir.name
-        )
-        top_n = max(1, _as_int(manifest.get("top_n", 3), 3))
-        input_summary = {
-            "candidates_dir": str(candidates_dir),
-            "candidate_count": len(candidate_paths),
-            "candidate_paths": [str(path) for path in candidate_paths],
-            "top_n": top_n,
-        }
-        return {
-            "job_type": resolved_type,
-            "reaction_key": molecule_key,
-            "selected_input_xyz": candidate_paths[0],
-            "secondary_input_xyz": None,
-            "input_summary": input_summary,
-        }
+def _resolve_ranking_inputs(
+    resolved_job_dir: Path,
+    manifest: dict[str, Any],
+) -> dict[str, Any]:
+    candidates_dir_name = _normalize_text(manifest.get("candidates_dir", "candidates")) or "candidates"
+    candidates_dir = (resolved_job_dir / candidates_dir_name).resolve()
+    if not candidates_dir.exists() or not candidates_dir.is_dir():
+        raise ValueError(f"Missing ranking candidates directory: {candidates_dir}")
+    candidate_paths = _xyz_files(candidates_dir)
+    if not candidate_paths:
+        raise ValueError(f"No .xyz candidates found in ranking directory: {candidates_dir}")
+    molecule_key = _normalize_key(
+        _normalize_text(manifest.get("molecule_key"))
+        or _normalize_text(manifest.get("reaction_key"))
+        or resolved_job_dir.name
+    )
+    top_n = max(1, _as_int(manifest.get("top_n", 3), 3))
+    input_summary = {
+        "candidates_dir": str(candidates_dir),
+        "candidate_count": len(candidate_paths),
+        "candidate_paths": [str(path) for path in candidate_paths],
+        "top_n": top_n,
+    }
+    return {
+        "job_type": "ranking",
+        "reaction_key": molecule_key,
+        "selected_input_xyz": candidate_paths[0],
+        "secondary_input_xyz": None,
+        "input_summary": input_summary,
+    }
 
+
+def _resolve_single_input_job_inputs(
+    resolved_job_dir: Path,
+    manifest: dict[str, Any],
+    *,
+    resolved_type: str,
+) -> dict[str, Any]:
     input_xyz = _choose_root_xyz(resolved_job_dir, _normalize_text(manifest.get("input_xyz")))
     molecule_key = _normalize_key(
         _normalize_text(manifest.get("molecule_key"))
@@ -152,6 +164,21 @@ def resolve_job_inputs(job_dir: Path, manifest: dict[str, Any]) -> dict[str, Any
             "input_count": 1,
         },
     }
+
+
+def resolve_job_inputs(job_dir: Path, manifest: dict[str, Any]) -> dict[str, Any]:
+    resolved_job_dir = job_dir.expanduser().resolve()
+    resolved_type = job_type(manifest)
+
+    if resolved_type == "path_search":
+        return _resolve_path_search_inputs(resolved_job_dir, manifest)
+    if resolved_type == "ranking":
+        return _resolve_ranking_inputs(resolved_job_dir, manifest)
+    return _resolve_single_input_job_inputs(
+        resolved_job_dir,
+        manifest,
+        resolved_type=resolved_type,
+    )
 
 
 def resolve_job_dir(cfg: AppConfig, raw_job_dir: str) -> Path:

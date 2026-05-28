@@ -4,32 +4,16 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from chemstack.core.utils.coercion import (
-    coerce_int_mapping,
-    normalize_bool as _shared_normalize_bool,
+    coerce_int_mapping as _coerce_resource_dict,
+    normalize_bool as _normalize_bool,
     normalize_text as _shared_normalize_text,
-    safe_float as _shared_safe_float,
-    safe_int as _shared_safe_int,
+    safe_float as _safe_float,
+    safe_int as _safe_int,
 )
 
 
 def _normalize_text(value: Any) -> str:
     return _shared_normalize_text(value, none="None")
-
-
-def _normalize_bool(value: Any) -> bool:
-    return _shared_normalize_bool(value)
-
-
-def _safe_int(value: Any, *, default: int = 0) -> int:
-    return _shared_safe_int(value, default=default)
-
-
-def _safe_float(value: Any) -> float | None:
-    return _shared_safe_float(value)
-
-
-def _coerce_resource_dict(value: Any) -> dict[str, int]:
-    return coerce_int_mapping(value, default=0)
 
 
 @dataclass(frozen=True)

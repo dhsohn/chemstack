@@ -4,22 +4,14 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, TypedDict, cast
 
 from chemstack.core.utils.coercion import (
-    coerce_mapping as _shared_coerce_mapping,
+    coerce_mapping as _coerce_mapping,
     normalize_text as _shared_normalize_text,
-    safe_int as _shared_safe_int,
+    safe_int as _safe_int,
 )
 
 
 def _normalize_text(value: Any) -> str:
     return _shared_normalize_text(value, none="None")
-
-
-def _safe_int(value: Any, *, default: int = 0) -> int:
-    return _shared_safe_int(value, default=default)
-
-
-def _coerce_mapping(value: Any) -> dict[str, Any]:
-    return _shared_coerce_mapping(value)
 
 
 class WorkflowArtifactRefPayload(TypedDict, total=False):

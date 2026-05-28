@@ -461,7 +461,7 @@ class QueueWorker(ChildProcessQueueWorker):
         admission_token: str,
         exc: OSError,
     ) -> None:
-        release_slot(self.admission_root, admission_token)
+        self._release_admission_slot(admission_token)
         job_dir = _job_dir(entry)
         failure = _build_terminal_result(
             entry,
@@ -486,10 +486,10 @@ class QueueWorker(ChildProcessQueueWorker):
         summary = _load_terminal_summary(job.queue_root, job.entry, rc=rc)
         _ensure_terminal_queue_status(job.queue_root, job.entry, summary)
         _print_terminal_summary(summary)
-        release_slot(self.admission_root, job.admission_token)
+        self._release_admission_slot(job.admission_token)
 
     def _check_cancel_requests(self) -> None:
-        for job in self._running.values():
+        for _queue_id, job in self._running_jobs():
             if job.cancel_requested:
                 continue
             if get_cancel_requested(str(job.queue_root), job.entry.queue_id):
@@ -500,7 +500,7 @@ class QueueWorker(ChildProcessQueueWorker):
         _terminate_process(job.process)
         _mark_recovery_pending_state(self.cfg, job.entry, reason="worker_shutdown")
         requeue_running_entry(str(job.queue_root), queue_id)
-        release_slot(self.admission_root, job.admission_token)
+        self._release_admission_slot(job.admission_token)
 
     def _reconcile_worker_state(self) -> None:
         reconcile_stale_slots(self.admission_root)

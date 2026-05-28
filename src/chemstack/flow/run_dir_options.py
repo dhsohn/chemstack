@@ -81,6 +81,22 @@ class RunDirWorkflowConfig:
         return self.sections.orca
 
 
+@dataclass(frozen=True)
+class _RunDirWorkflowOptionDefaults:
+    orca_route_line: str
+    max_orca_stages: int
+    max_crest_candidates: int
+    max_xtb_stages: int
+
+
+@dataclass(frozen=True)
+class _RunDirWorkflowOptionResolvers:
+    resolve_required_workflow_root: Any
+    resolve_text_option_with_section: Any
+    resolve_int_option: Any
+    resolve_int_option_with_section: Any
+
+
 def _resolve_text_option_with_section(
     explicit: Any,
     manifest: dict[str, Any],
@@ -167,6 +183,153 @@ def _resolve_required_workflow_root(
     return resolved_workflow_root
 
 
+def _run_dir_workflow_option_defaults(
+    *,
+    default_orca_route_line: str,
+    default_max_orca_stages: int,
+    default_max_crest_candidates: int,
+    default_max_xtb_stages: int,
+) -> _RunDirWorkflowOptionDefaults:
+    return _RunDirWorkflowOptionDefaults(
+        orca_route_line=default_orca_route_line,
+        max_orca_stages=default_max_orca_stages,
+        max_crest_candidates=default_max_crest_candidates,
+        max_xtb_stages=default_max_xtb_stages,
+    )
+
+
+def _run_dir_workflow_option_resolvers(deps: Any | None) -> _RunDirWorkflowOptionResolvers:
+    return _RunDirWorkflowOptionResolvers(
+        resolve_required_workflow_root=_dependency(
+            deps, "_resolve_required_workflow_root", _resolve_required_workflow_root
+        ),
+        resolve_text_option_with_section=_dependency(
+            deps, "_resolve_text_option_with_section", _resolve_text_option_with_section
+        ),
+        resolve_int_option=_dependency(deps, "_resolve_int_option", _resolve_int_option),
+        resolve_int_option_with_section=_dependency(
+            deps, "_resolve_int_option_with_section", _resolve_int_option_with_section
+        ),
+    )
+
+
+def _resolve_run_dir_core_options(
+    args: Any,
+    manifest: dict[str, Any],
+    sections: RunDirManifestSections,
+    *,
+    workflow_root: str | None,
+    resolvers: _RunDirWorkflowOptionResolvers,
+) -> dict[str, Any]:
+    return {
+        "workflow_root": workflow_root
+        or resolvers.resolve_required_workflow_root(args, manifest),
+        "crest_mode": resolvers.resolve_text_option_with_section(
+            getattr(args, "crest_mode", None),
+            manifest,
+            "crest_mode",
+            sections.crest,
+            "mode",
+            "standard",
+        ),
+        "priority": resolvers.resolve_int_option(
+            getattr(args, "priority", None), manifest, "priority", 10
+        ),
+    }
+
+
+def _resolve_run_dir_resource_options(
+    args: Any,
+    manifest: dict[str, Any],
+    sections: RunDirManifestSections,
+    *,
+    resolvers: _RunDirWorkflowOptionResolvers,
+) -> dict[str, Any]:
+    return {
+        "max_cores": resolvers.resolve_int_option_with_section(
+            getattr(args, "max_cores", None),
+            manifest,
+            "max_cores",
+            sections.resources,
+            "max_cores",
+            8,
+        ),
+        "max_memory_gb": resolvers.resolve_int_option_with_section(
+            getattr(args, "max_memory_gb", None),
+            manifest,
+            "max_memory_gb",
+            sections.resources,
+            "max_memory_gb",
+            32,
+        ),
+    }
+
+
+def _resolve_run_dir_orca_options(
+    args: Any,
+    manifest: dict[str, Any],
+    sections: RunDirManifestSections,
+    *,
+    defaults: _RunDirWorkflowOptionDefaults,
+    resolvers: _RunDirWorkflowOptionResolvers,
+) -> dict[str, Any]:
+    return {
+        "max_orca_stages": resolvers.resolve_int_option(
+            getattr(args, "max_orca_stages", None),
+            manifest,
+            "max_orca_stages",
+            defaults.max_orca_stages,
+        ),
+        "orca_route_line": resolvers.resolve_text_option_with_section(
+            getattr(args, "orca_route_line", None),
+            manifest,
+            "orca_route_line",
+            sections.orca,
+            "route_line",
+            defaults.orca_route_line,
+        ),
+        "charge": resolvers.resolve_int_option_with_section(
+            getattr(args, "charge", None),
+            manifest,
+            "charge",
+            sections.orca,
+            "charge",
+            0,
+        ),
+        "multiplicity": resolvers.resolve_int_option_with_section(
+            getattr(args, "multiplicity", None),
+            manifest,
+            "multiplicity",
+            sections.orca,
+            "multiplicity",
+            1,
+        ),
+    }
+
+
+def _resolve_run_dir_stage_options(
+    args: Any,
+    manifest: dict[str, Any],
+    *,
+    defaults: _RunDirWorkflowOptionDefaults,
+    resolvers: _RunDirWorkflowOptionResolvers,
+) -> dict[str, Any]:
+    return {
+        "max_crest_candidates": resolvers.resolve_int_option(
+            getattr(args, "max_crest_candidates", None),
+            manifest,
+            "max_crest_candidates",
+            defaults.max_crest_candidates,
+        ),
+        "max_xtb_stages": resolvers.resolve_int_option(
+            getattr(args, "max_xtb_stages", None),
+            manifest,
+            "max_xtb_stages",
+            defaults.max_xtb_stages,
+        ),
+    }
+
+
 def _resolve_run_dir_workflow_options(
     args: Any,
     manifest: dict[str, Any],
@@ -179,80 +342,40 @@ def _resolve_run_dir_workflow_options(
     workflow_root: str | None = None,
     deps: Any | None = None,
 ) -> RunDirWorkflowOptions:
-    resolve_required_workflow_root = _dependency(
-        deps, "_resolve_required_workflow_root", _resolve_required_workflow_root
+    defaults = _run_dir_workflow_option_defaults(
+        default_orca_route_line=default_orca_route_line,
+        default_max_orca_stages=default_max_orca_stages,
+        default_max_crest_candidates=default_max_crest_candidates,
+        default_max_xtb_stages=default_max_xtb_stages,
     )
-    resolve_text_option_with_section = _dependency(
-        deps, "_resolve_text_option_with_section", _resolve_text_option_with_section
-    )
-    resolve_int_option = _dependency(deps, "_resolve_int_option", _resolve_int_option)
-    resolve_int_option_with_section = _dependency(
-        deps, "_resolve_int_option_with_section", _resolve_int_option_with_section
-    )
+    resolvers = _run_dir_workflow_option_resolvers(deps)
 
     return RunDirWorkflowOptions(
-        workflow_root=workflow_root or resolve_required_workflow_root(args, manifest),
-        crest_mode=resolve_text_option_with_section(
-            getattr(args, "crest_mode", None),
+        **_resolve_run_dir_core_options(
+            args,
             manifest,
-            "crest_mode",
-            sections.crest,
-            "mode",
-            "standard",
+            sections,
+            workflow_root=workflow_root,
+            resolvers=resolvers,
         ),
-        priority=resolve_int_option(getattr(args, "priority", None), manifest, "priority", 10),
-        max_cores=resolve_int_option_with_section(
-            getattr(args, "max_cores", None),
+        **_resolve_run_dir_resource_options(
+            args,
             manifest,
-            "max_cores",
-            sections.resources,
-            "max_cores",
-            8,
+            sections,
+            resolvers=resolvers,
         ),
-        max_memory_gb=resolve_int_option_with_section(
-            getattr(args, "max_memory_gb", None),
+        **_resolve_run_dir_orca_options(
+            args,
             manifest,
-            "max_memory_gb",
-            sections.resources,
-            "max_memory_gb",
-            32,
+            sections,
+            defaults=defaults,
+            resolvers=resolvers,
         ),
-        max_orca_stages=resolve_int_option(
-            getattr(args, "max_orca_stages", None),
+        **_resolve_run_dir_stage_options(
+            args,
             manifest,
-            "max_orca_stages",
-            default_max_orca_stages,
-        ),
-        orca_route_line=resolve_text_option_with_section(
-            getattr(args, "orca_route_line", None),
-            manifest,
-            "orca_route_line",
-            sections.orca,
-            "route_line",
-            default_orca_route_line,
-        ),
-        charge=resolve_int_option_with_section(
-            getattr(args, "charge", None), manifest, "charge", sections.orca, "charge", 0
-        ),
-        multiplicity=resolve_int_option_with_section(
-            getattr(args, "multiplicity", None),
-            manifest,
-            "multiplicity",
-            sections.orca,
-            "multiplicity",
-            1,
-        ),
-        max_crest_candidates=resolve_int_option(
-            getattr(args, "max_crest_candidates", None),
-            manifest,
-            "max_crest_candidates",
-            default_max_crest_candidates,
-        ),
-        max_xtb_stages=resolve_int_option(
-            getattr(args, "max_xtb_stages", None),
-            manifest,
-            "max_xtb_stages",
-            default_max_xtb_stages,
+            defaults=defaults,
+            resolvers=resolvers,
         ),
     )
 

@@ -11,14 +11,10 @@ from chemstack.core.utils import (
     coerce_list as _shared_coerce_list,
     mapping_or_empty,
     now_utc_iso,
-    normalize_text as _shared_normalize_text,
+    normalize_text,
 )
 
 RECOVERY_PENDING_REASONS = frozenset({"worker_shutdown", "crashed_recovery"})
-
-
-def normalize_text(value: Any) -> str:
-    return _shared_normalize_text(value)
 
 
 def coerce_dict(value: Any) -> dict[str, Any]:

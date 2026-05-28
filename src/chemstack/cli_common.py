@@ -9,11 +9,7 @@ from chemstack.core.config.files import (
     discover_shared_config_path,
     shared_workflow_root_from_config,
 )
-from chemstack.core.utils.coercion import normalize_text as _coerce_text
-
-
-def _normalize_text(value: Any) -> str:
-    return _coerce_text(value)
+from chemstack.core.utils.coercion import normalize_text as _normalize_text
 
 
 def _dependency(deps: Any | None, name: str, fallback: Any) -> Any:

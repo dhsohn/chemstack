@@ -300,7 +300,7 @@ class QueueWorker(QueueWorkerPidFileMixin, ChildProcessQueueWorker):
 
     def _before_run(self) -> None:
         self._write_pid_file()
-        self._reconcile_orphaned_running()
+        super()._before_run()
         logger.info(
             "Queue worker started (pid=%d, max_concurrent=%d, admission_root=%s, admission_limit=%d, auto_organize=%s)",
             os.getpid(),
@@ -322,6 +322,9 @@ class QueueWorker(QueueWorkerPidFileMixin, ChildProcessQueueWorker):
             raise
 
     # -- Orphan reconciliation --------------------------------------------
+
+    def _reconcile_worker_state(self) -> None:
+        self._reconcile_orphaned_running()
 
     def _reconcile_orphaned_running(self) -> None:
         """Fix queue entries stuck as 'running' from a previous worker crash.
@@ -355,8 +358,13 @@ class QueueWorker(QueueWorkerPidFileMixin, ChildProcessQueueWorker):
                 queue_entry_id(entry),
             )
             _terminate_process(process)
-            mark_failed(queue_root, queue_entry_id(entry), error="admission_slot_missing")
-            release_slot(self.admission_root, admission_token)
+            self._mark_entry_failed_and_release(
+                queue_root,
+                entry,
+                admission_token,
+                error="admission_slot_missing",
+                mark_failed_fn=mark_failed,
+            )
             return False
 
         try:
@@ -378,8 +386,13 @@ class QueueWorker(QueueWorkerPidFileMixin, ChildProcessQueueWorker):
     ) -> None:
         queue_id = queue_entry_id(entry)
         logger.error("Failed to start job %s: %s", queue_id, exc)
-        mark_failed(queue_root, queue_id, error=str(exc))
-        release_slot(self.admission_root, admission_token)
+        self._mark_entry_failed_and_release(
+            queue_root,
+            entry,
+            admission_token,
+            error=str(exc),
+            mark_failed_fn=mark_failed,
+        )
 
     def _running_queue_id(self, entry: Any) -> str:
         return queue_entry_id(entry)
@@ -430,7 +443,7 @@ class QueueWorker(QueueWorkerPidFileMixin, ChildProcessQueueWorker):
             _upsert_terminal_job_record(self.cfg, job.reaction_dir, fallback_job_id=job.task_id)
         except Exception as exc:
             logger.warning("Failed to update terminal job location for %s: %s", queue_id, exc)
-        release_slot(self.admission_root, job.admission_token)
+        self._release_admission_slot(job.admission_token)
 
     def _auto_organize_terminal_job(self, job: _RunningJob) -> None:
         if not self.auto_organize:
@@ -452,10 +465,10 @@ class QueueWorker(QueueWorkerPidFileMixin, ChildProcessQueueWorker):
 
     def _check_cancel_requests(self) -> None:
         """Check if any running jobs have been requested to cancel."""
-        for queue_id, job in list(self._running.items()):
+        for queue_id, job in self._running_jobs():
             if get_cancel_requested(self.allowed_root, queue_id):
                 self._cancel_running_job(queue_id, job)
-                del self._running[queue_id]
+                self._discard_running_job(queue_id)
 
     def _cancel_running_job(self, queue_id: str, job: _RunningJob) -> None:
         logger.info("Cancelling running job: %s", queue_id)
@@ -465,20 +478,17 @@ class QueueWorker(QueueWorkerPidFileMixin, ChildProcessQueueWorker):
         except subprocess.TimeoutExpired:
             pass
         mark_cancelled(self.allowed_root, queue_id)
-        release_slot(self.admission_root, job.admission_token)
+        self._release_admission_slot(job.admission_token)
 
     # -- Shutdown ---------------------------------------------------------
 
-    def _shutdown_all(self) -> None:
-        """Terminate all running jobs on worker shutdown."""
-        if not self._running:
-            return
-        logger.info("Shutting down %d running job(s)...", len(self._running))
-        for queue_id, job in list(self._running.items()):
-            _terminate_process(job.process)
-            requeue_running_entry(self.allowed_root, queue_id)
-            release_slot(self.admission_root, job.admission_token)
-            del self._running[queue_id]
+    def _before_shutdown_all(self, running_count: int) -> None:
+        logger.info("Shutting down %d running job(s)...", running_count)
+
+    def _shutdown_running_job(self, queue_id: str, job: Any) -> None:
+        _terminate_process(job.process)
+        requeue_running_entry(self.allowed_root, queue_id)
+        self._release_admission_slot(job.admission_token)
 
 
 def read_worker_pid(allowed_root: Path) -> int | None:

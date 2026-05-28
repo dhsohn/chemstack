@@ -6,8 +6,8 @@ from typing import Any
 
 from chemstack.core.app_ids import is_orca_submitter
 from chemstack.core.utils import (
-    mapping_or_empty as _shared_mapping_or_empty,
-    normalize_text as _shared_normalize_text,
+    mapping_or_empty as _coerce_mapping,
+    normalize_text as _normalize_text,
     now_utc_iso,
 )
 
@@ -120,14 +120,6 @@ def _restart_stage_deps() -> _RestartStageDeps:
         _task_is_orca=_task_is_orca,
         _task_payload=_task_payload,
     )
-
-
-def _normalize_text(value: Any) -> str:
-    return _shared_normalize_text(value)
-
-
-def _coerce_mapping(value: Any) -> dict[str, Any]:
-    return _shared_mapping_or_empty(value)
 
 
 @dataclass(frozen=True)
@@ -570,46 +562,134 @@ def _reset_stage_for_restart(
     )
 
 
-def restart_failed_workflow(
+def _restart_paths(
     *,
     workspace_dir: str | Path,
-    workflow_root: str | Path | None = None,
-    force: bool = False,
-) -> dict[str, Any]:
+    workflow_root: str | Path | None,
+) -> tuple[Path, Path]:
     workspace = Path(workspace_dir).expanduser().resolve()
     root = (
         Path(workflow_root).expanduser().resolve()
         if workflow_root is not None
         else workspace.parent
     )
+    return workspace, root
+
+
+def _validate_restart_request(
+    payload: dict[str, Any],
+    *,
+    workspace: Path,
+    force: bool,
+) -> tuple[str, str]:
+    previous_status = _normalize_text(payload.get("status")).lower()
+    workflow_id = _normalize_text(payload.get("workflow_id")) or workspace.name
+    if previous_status not in _RESTARTABLE_WORKFLOW_STATUSES and not force:
+        raise ValueError(
+            f"workflow is not failed or cancelled: {payload.get('workflow_id', workspace.name)} "
+            f"(status={previous_status or 'unknown'})"
+        )
+
+    active_stages = _active_stage_rows(payload)
+    if active_stages:
+        raise _active_restart_error(workflow_id, active_stages)
+    return previous_status, workflow_id
+
+
+def _reset_restartable_stages(
+    payload: dict[str, Any],
+    *,
+    flow_settings: dict[str, Any],
+) -> list[dict[str, str]]:
+    restarted_stages: list[dict[str, str]] = []
+    for raw_stage in payload.get("stages", []):
+        if not isinstance(raw_stage, dict) or not _stage_needs_restart(raw_stage):
+            continue
+        _apply_flow_restart_settings(raw_stage, flow_settings)
+        restarted_stages.append(
+            _reset_stage_for_restart(
+                raw_stage,
+                rematerialize=_stage_should_rematerialize(raw_stage, flow_settings),
+            )
+        )
+    return restarted_stages
+
+
+def _restart_metadata(payload: dict[str, Any]) -> dict[str, Any]:
+    metadata = payload.get("metadata")
+    if isinstance(metadata, dict):
+        return metadata
+    metadata = {}
+    payload["metadata"] = metadata
+    return metadata
+
+
+def _apply_restart_summary(
+    payload: dict[str, Any],
+    *,
+    previous_status: str,
+    restarted_at: str,
+    restarted_stages: list[dict[str, str]],
+    flow_settings: dict[str, Any],
+) -> None:
+    payload["status"] = "planned"
+    metadata = _restart_metadata(payload)
+    metadata.pop("workflow_error", None)
+    _clear_phase_notification_state(metadata, restarted_stages)
+    metadata["final_child_sync_pending"] = False
+    metadata["final_child_sync_completed_at"] = ""
+    metadata["last_restarted_at"] = restarted_at
+    metadata["restart_summary"] = {
+        "status": "restarted",
+        "previous_status": previous_status,
+        "restarted_at": restarted_at,
+        "restarted_count": len(restarted_stages),
+        "flow_manifest_applied": bool(flow_settings.get("applied")),
+        "stages": restarted_stages,
+    }
+
+
+def _build_restart_mutation(
+    *,
+    root: Path,
+    workspace: Path,
+    payload: dict[str, Any],
+    previous_status: str,
+    restarted_at: str,
+    restarted_stages: list[dict[str, str]],
+    flow_settings: dict[str, Any],
+) -> WorkflowRestartMutation:
+    write_workflow_payload(workspace, payload)
+    sync_workflow_registry(root, workspace, payload)
+    return WorkflowRestartMutation(
+        root=root,
+        workspace=workspace,
+        payload=payload,
+        previous_status=previous_status,
+        restarted_at=restarted_at,
+        restarted_stages=restarted_stages,
+        flow_manifest_applied=bool(flow_settings.get("applied")),
+        summary=workflow_summary(workspace, payload),
+    )
+
+
+def restart_failed_workflow(
+    *,
+    workspace_dir: str | Path,
+    workflow_root: str | Path | None = None,
+    force: bool = False,
+) -> dict[str, Any]:
+    workspace, root = _restart_paths(workspace_dir=workspace_dir, workflow_root=workflow_root)
 
     with acquire_workflow_lock(workspace):
         payload = load_workflow_payload(workspace)
-        previous_status = _normalize_text(payload.get("status")).lower()
-        force_restart = bool(force)
-        if previous_status not in _RESTARTABLE_WORKFLOW_STATUSES and not force_restart:
-            raise ValueError(
-                f"workflow is not failed or cancelled: {payload.get('workflow_id', workspace.name)} "
-                f"(status={previous_status or 'unknown'})"
-            )
-        workflow_id = _normalize_text(payload.get("workflow_id")) or workspace.name
-
-        active_stages = _active_stage_rows(payload)
-        if active_stages:
-            raise _active_restart_error(workflow_id, active_stages)
-
+        previous_status, workflow_id = _validate_restart_request(
+            payload,
+            workspace=workspace,
+            force=bool(force),
+        )
         flow_settings = _flow_restart_settings(workspace, payload)
-        restarted_stages: list[dict[str, str]] = []
-        for raw_stage in payload.get("stages", []):
-            if not isinstance(raw_stage, dict) or not _stage_needs_restart(raw_stage):
-                continue
-            _apply_flow_restart_settings(raw_stage, flow_settings)
-            restarted_stages.append(
-                _reset_stage_for_restart(
-                    raw_stage,
-                    rematerialize=_stage_should_rematerialize(raw_stage, flow_settings),
-                )
-            )
+        restarted_stages = _reset_restartable_stages(payload, flow_settings=flow_settings)
 
         if not restarted_stages:
             raise ValueError(
@@ -617,37 +697,21 @@ def restart_failed_workflow(
             )
 
         restarted_at = now_utc_iso()
-        payload["status"] = "planned"
-        metadata = payload.get("metadata")
-        if not isinstance(metadata, dict):
-            metadata = {}
-            payload["metadata"] = metadata
-        metadata.pop("workflow_error", None)
-        _clear_phase_notification_state(metadata, restarted_stages)
-        metadata["final_child_sync_pending"] = False
-        metadata["final_child_sync_completed_at"] = ""
-        metadata["last_restarted_at"] = restarted_at
-        metadata["restart_summary"] = {
-            "status": "restarted",
-            "previous_status": previous_status,
-            "restarted_at": restarted_at,
-            "restarted_count": len(restarted_stages),
-            "flow_manifest_applied": bool(flow_settings.get("applied")),
-            "stages": restarted_stages,
-        }
-
-        write_workflow_payload(workspace, payload)
-        sync_workflow_registry(root, workspace, payload)
-        summary = workflow_summary(workspace, payload)
-        mutation = WorkflowRestartMutation(
+        _apply_restart_summary(
+            payload,
+            previous_status=previous_status,
+            restarted_at=restarted_at,
+            restarted_stages=restarted_stages,
+            flow_settings=flow_settings,
+        )
+        mutation = _build_restart_mutation(
             root=root,
             workspace=workspace,
             payload=payload,
             previous_status=previous_status,
             restarted_at=restarted_at,
             restarted_stages=restarted_stages,
-            flow_manifest_applied=bool(flow_settings.get("applied")),
-            summary=summary,
+            flow_settings=flow_settings,
         )
 
     append_workflow_journal_event(

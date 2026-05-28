@@ -2,20 +2,18 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Any
 
 from chemstack.core.app_ids import CHEMSTACK_CONFIG_ENV_VAR, CHEMSTACK_REPO_ROOT_ENV_VAR
 from chemstack.core.config.files import (
     discover_shared_config_path,
     shared_workflow_root_from_config,
 )
+from chemstack.core.utils import mapping_or_empty
 
 from ._activity_model import ActivitySourceRequest, ResolvedActivitySources
 from .submitters.common import normalize_text
 
-
-def coerce_mapping(value: Any) -> dict[str, Any]:
-    return value if isinstance(value, dict) else {}
+coerce_mapping = mapping_or_empty
 
 
 def project_root() -> Path:

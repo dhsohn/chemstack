@@ -3,13 +3,9 @@ from __future__ import annotations
 from typing import Any
 
 from chemstack.core.utils.coercion import (
-    normalize_text as _shared_normalize_text,
+    normalize_text as normalize_text,
     safe_int as _shared_safe_int,
 )
-
-
-def normalize_text(value: Any) -> str:
-    return _shared_normalize_text(value)
 
 
 def safe_int(value: Any) -> int | None:

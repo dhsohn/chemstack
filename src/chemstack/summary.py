@@ -8,7 +8,7 @@ from typing import Any
 
 from chemstack.activity_view import count_global_active_simulations
 from chemstack.core.config.files import shared_workflow_root_from_config
-from chemstack.core.utils.coercion import normalize_text as _coerce_normalize_text
+from chemstack.core.utils.coercion import normalize_text as _normalize_text
 from chemstack.flow.workflow_status import (
     WORKFLOW_STATUS_ORDER,
     normalize_workflow_status,
@@ -25,10 +25,6 @@ from chemstack.orca.telegram_notifier import escape_html, send_message
 logger = logging.getLogger(__name__)
 
 _WORKFLOW_SHOW_LIMIT = 6
-
-
-def _normalize_text(value: Any) -> str:
-    return _coerce_normalize_text(value)
 
 
 def _workflow_status_icon(status: str) -> str:

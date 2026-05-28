@@ -63,6 +63,91 @@ def workflow_elapsed_metadata(
     return metadata
 
 
+def _workflow_summary_by_id(root: Path, deps: ActivityListDeps) -> dict[str, dict[str, Any]]:
+    return {
+        normalize_text(summary.get("workflow_id")): summary
+        for summary in deps.list_workflow_summaries(root)
+        if normalize_text(summary.get("workflow_id"))
+    }
+
+
+def _workflow_record_label(
+    record: Any,
+    *,
+    workflow_id: str,
+    current_stage: dict[str, Any],
+    deps: ActivityListDeps,
+) -> str:
+    return (
+        deps._mapping_text(current_stage, "reaction_dir")
+        or normalize_text(record.reaction_key)
+        or normalize_text(record.source_job_id)
+        or normalize_text(record.template_name)
+        or workflow_id
+    )
+
+
+def _workflow_record_aliases(record: Any, workflow_id: str, deps: ActivityListDeps) -> tuple[str, ...]:
+    workspace_dir = normalize_text(record.workspace_dir)
+    return deps._unique_texts(
+        [
+            workflow_id,
+            workspace_dir,
+            normalize_text(record.workflow_file),
+            Path(workspace_dir).name if workspace_dir else "",
+        ]
+    )
+
+
+def _workflow_activity_record(
+    record: Any,
+    *,
+    summary: dict[str, Any],
+    deps: ActivityListDeps,
+) -> ActivityRecord:
+    workflow_id = normalize_text(record.workflow_id)
+    record_metadata = deps._coerce_mapping(getattr(record, "metadata", {}))
+    current_stage = deps.select_current_stage(summary.get("stage_summaries") or [])
+    current_engine = deps._mapping_text(current_stage, "engine") or "workflow"
+    current_stage_id = deps._mapping_text(current_stage, "stage_id")
+    return ActivityRecord(
+        activity_id=workflow_id,
+        kind="workflow",
+        engine="workflow",
+        status=normalize_text(record.status) or "unknown",
+        label=_workflow_record_label(
+            record,
+            workflow_id=workflow_id,
+            current_stage=current_stage,
+            deps=deps,
+        ),
+        source="chemstack_flow",
+        submitted_at=normalize_text(record.requested_at),
+        updated_at=normalize_text(record.updated_at) or normalize_text(record.requested_at),
+        cancel_target=workflow_id,
+        aliases=_workflow_record_aliases(record, workflow_id, deps),
+        metadata={
+            "template_name": normalize_text(record.template_name),
+            "request_parameters": deps._coerce_mapping(summary.get("request_parameters")),
+            "workspace_dir": normalize_text(record.workspace_dir),
+            "workflow_file": normalize_text(record.workflow_file),
+            "stage_count": int(record.stage_count),
+            "reaction_key": normalize_text(record.reaction_key),
+            "source_job_id": normalize_text(record.source_job_id),
+            "source_job_type": normalize_text(record.source_job_type),
+            "current_engine": current_engine,
+            "current_stage_id": current_stage_id,
+            "current_stage_status": deps._mapping_text(current_stage, "status"),
+            "current_task_status": deps._mapping_text(current_stage, "task_status"),
+            **workflow_elapsed_metadata(
+                record_metadata=record_metadata,
+                summary=summary,
+                deps=deps,
+            ),
+        },
+    )
+
+
 def workflow_records(
     *,
     workflow_root: str | Path,
@@ -73,68 +158,16 @@ def workflow_records(
     registry_records = (
         deps.reindex_workflow_registry(root) if refresh else deps.list_workflow_registry(root)
     )
-    summary_by_id = {
-        normalize_text(summary.get("workflow_id")): summary
-        for summary in deps.list_workflow_summaries(root)
-        if normalize_text(summary.get("workflow_id"))
-    }
+    summary_by_id = _workflow_summary_by_id(root, deps)
 
     rows: list[ActivityRecord] = []
     for record in registry_records:
         workflow_id = normalize_text(record.workflow_id)
-        summary = summary_by_id.get(workflow_id, {})
-        record_metadata = deps._coerce_mapping(getattr(record, "metadata", {}))
-        current_stage = deps.select_current_stage(summary.get("stage_summaries") or [])
-        current_engine = deps._mapping_text(current_stage, "engine") or "workflow"
-        current_stage_id = deps._mapping_text(current_stage, "stage_id")
-        label = (
-            deps._mapping_text(current_stage, "reaction_dir")
-            or normalize_text(record.reaction_key)
-            or normalize_text(record.source_job_id)
-            or normalize_text(record.template_name)
-            or workflow_id
-        )
-        aliases = deps._unique_texts(
-            [
-                workflow_id,
-                normalize_text(record.workspace_dir),
-                normalize_text(record.workflow_file),
-                Path(normalize_text(record.workspace_dir)).name
-                if normalize_text(record.workspace_dir)
-                else "",
-            ]
-        )
         rows.append(
-            ActivityRecord(
-                activity_id=workflow_id,
-                kind="workflow",
-                engine="workflow",
-                status=normalize_text(record.status) or "unknown",
-                label=label,
-                source="chemstack_flow",
-                submitted_at=normalize_text(record.requested_at),
-                updated_at=normalize_text(record.updated_at) or normalize_text(record.requested_at),
-                cancel_target=workflow_id,
-                aliases=aliases,
-                metadata={
-                    "template_name": normalize_text(record.template_name),
-                    "request_parameters": deps._coerce_mapping(summary.get("request_parameters")),
-                    "workspace_dir": normalize_text(record.workspace_dir),
-                    "workflow_file": normalize_text(record.workflow_file),
-                    "stage_count": int(record.stage_count),
-                    "reaction_key": normalize_text(record.reaction_key),
-                    "source_job_id": normalize_text(record.source_job_id),
-                    "source_job_type": normalize_text(record.source_job_type),
-                    "current_engine": current_engine,
-                    "current_stage_id": current_stage_id,
-                    "current_stage_status": deps._mapping_text(current_stage, "status"),
-                    "current_task_status": deps._mapping_text(current_stage, "task_status"),
-                    **workflow_elapsed_metadata(
-                        record_metadata=record_metadata,
-                        summary=summary,
-                        deps=deps,
-                    ),
-                },
+            _workflow_activity_record(
+                record,
+                summary=summary_by_id.get(workflow_id, {}),
+                deps=deps,
             )
         )
     return rows
@@ -185,6 +218,84 @@ def engine_queue_roots(
     return tuple(roots)
 
 
+def _queue_record_label(entry: QueueEntry, metadata: dict[str, Any], path_text: str) -> str:
+    return (
+        normalize_text(metadata.get("reaction_key"))
+        or normalize_text(metadata.get("molecule_key"))
+        or normalize_text(Path(path_text).name if path_text else "")
+        or normalize_text(entry.task_id)
+        or normalize_text(entry.queue_id)
+    )
+
+
+def _queue_record_aliases(
+    entry: QueueEntry,
+    path_text: str,
+    *,
+    allowed_root: Path,
+    deps: ActivityListDeps,
+) -> tuple[str, ...]:
+    return deps._unique_texts(
+        [
+            normalize_text(entry.queue_id),
+            normalize_text(entry.task_id),
+            *list(deps._path_aliases(path_text, root=allowed_root)),
+        ]
+    )
+
+
+def _engine_queue_record(
+    entry: QueueEntry,
+    *,
+    app_name: str,
+    engine: str,
+    allowed_root: Path,
+    deps: ActivityListDeps,
+) -> ActivityRecord:
+    metadata = dict(entry.metadata)
+    workflow_id = normalize_text(metadata.get("workflow_id"))
+    path_text = normalize_text(metadata.get("job_dir")) or normalize_text(
+        metadata.get("reaction_dir")
+    )
+    enqueued_at = normalize_text(entry.enqueued_at)
+    started_at = normalize_text(entry.started_at)
+    finished_at = normalize_text(entry.finished_at)
+    updated_at = finished_at or started_at or enqueued_at
+    return ActivityRecord(
+        activity_id=normalize_text(entry.queue_id) or normalize_text(entry.task_id),
+        kind="job",
+        engine=engine,
+        status=queue_entry_status(entry),
+        label=_queue_record_label(entry, metadata, path_text),
+        source=app_name,
+        submitted_at=enqueued_at,
+        updated_at=updated_at,
+        cancel_target=normalize_text(entry.queue_id),
+        aliases=_queue_record_aliases(
+            entry,
+            path_text,
+            allowed_root=allowed_root,
+            deps=deps,
+        ),
+        metadata={
+            "queue_id": normalize_text(entry.queue_id),
+            "task_id": normalize_text(entry.task_id),
+            "task_kind": normalize_text(entry.task_kind),
+            "mode": normalize_text(metadata.get("mode")),
+            "job_type": normalize_text(metadata.get("job_type")),
+            "workflow_id": workflow_id,
+            "job_dir": path_text,
+            "allowed_root": str(allowed_root),
+            "priority": int(entry.priority),
+            **deps._timestamp_metadata(
+                enqueued_at=enqueued_at,
+                started_at=started_at,
+                finished_at=finished_at,
+            ),
+        },
+    )
+
+
 def engine_queue_records(
     *,
     app_name: str,
@@ -195,57 +306,13 @@ def engine_queue_records(
     rows: list[ActivityRecord] = []
     for allowed_root in engine_queue_roots(config_path, engine=engine, deps=deps):
         for entry in deps.list_queue(allowed_root):
-            metadata = dict(entry.metadata)
-            workflow_id = normalize_text(metadata.get("workflow_id"))
-            path_text = normalize_text(metadata.get("job_dir")) or normalize_text(
-                metadata.get("reaction_dir")
-            )
-            label = (
-                normalize_text(metadata.get("reaction_key"))
-                or normalize_text(metadata.get("molecule_key"))
-                or normalize_text(Path(path_text).name if path_text else "")
-                or normalize_text(entry.task_id)
-                or normalize_text(entry.queue_id)
-            )
-            aliases = deps._unique_texts(
-                [
-                    normalize_text(entry.queue_id),
-                    normalize_text(entry.task_id),
-                    *list(deps._path_aliases(path_text, root=allowed_root)),
-                ]
-            )
-            enqueued_at = normalize_text(entry.enqueued_at)
-            started_at = normalize_text(entry.started_at)
-            finished_at = normalize_text(entry.finished_at)
-            updated_at = finished_at or started_at or enqueued_at
             rows.append(
-                ActivityRecord(
-                    activity_id=normalize_text(entry.queue_id) or normalize_text(entry.task_id),
-                    kind="job",
+                _engine_queue_record(
+                    entry,
+                    app_name=app_name,
                     engine=engine,
-                    status=queue_entry_status(entry),
-                    label=label,
-                    source=app_name,
-                    submitted_at=enqueued_at,
-                    updated_at=updated_at,
-                    cancel_target=normalize_text(entry.queue_id),
-                    aliases=aliases,
-                    metadata={
-                        "queue_id": normalize_text(entry.queue_id),
-                        "task_id": normalize_text(entry.task_id),
-                        "task_kind": normalize_text(entry.task_kind),
-                        "mode": normalize_text(metadata.get("mode")),
-                        "job_type": normalize_text(metadata.get("job_type")),
-                        "workflow_id": workflow_id,
-                        "job_dir": path_text,
-                        "allowed_root": str(allowed_root),
-                        "priority": int(entry.priority),
-                        **deps._timestamp_metadata(
-                            enqueued_at=enqueued_at,
-                            started_at=started_at,
-                            finished_at=finished_at,
-                        ),
-                    },
+                    allowed_root=allowed_root,
+                    deps=deps,
                 )
             )
     return rows

@@ -11,11 +11,7 @@ from chemstack.core.config.files import (
     engine_config_mapping,
     workflow_root_from_mapping,
 )
-from chemstack.core.utils.coercion import normalize_text as _normalize_text
-
-
-def normalize_text(value: Any) -> str:
-    return _normalize_text(value)
+from chemstack.core.utils.coercion import normalize_text as normalize_text
 
 
 def parse_key_value_lines(text: str) -> dict[str, str]:

@@ -411,6 +411,12 @@ class QueueWorkerLoop:
             finalize_finished=self._finalize_completed_job,
         )
 
+    def _running_jobs(self) -> list[tuple[str, Any]]:
+        return list(self._running.items())
+
+    def _discard_running_job(self, queue_id: str) -> None:
+        self._running.pop(queue_id, None)
+
     def _check_cancel_requests(self) -> None:
         return None
 
@@ -557,15 +563,34 @@ class ChildProcessQueueWorker(QueueWorkerLoop):
     def _poll_job(self, job: Any) -> int | None:
         return job.process.poll()
 
+    def _release_admission_slot(self, admission_token: str) -> object:
+        return self.deps.release_slot(self.admission_root, admission_token)
+
+    def _mark_entry_failed_and_release(
+        self,
+        queue_root: Path,
+        entry: Any,
+        admission_token: str,
+        *,
+        error: str,
+        mark_failed_fn: Callable[..., Any],
+    ) -> None:
+        mark_failed_fn(queue_root, self._running_queue_id(entry), error=error)
+        self._release_admission_slot(admission_token)
+
     def _finalize_completed_job(self, _queue_id: str, job: Any, rc: int) -> None:
         raise NotImplementedError
 
     def _shutdown_all(self) -> None:
         if not self._running:
             return
-        for queue_id, job in list(self._running.items()):
+        self._before_shutdown_all(len(self._running))
+        for queue_id, job in self._running_jobs():
             self._shutdown_running_job(queue_id, job)
-            del self._running[queue_id]
+            self._discard_running_job(queue_id)
+
+    def _before_shutdown_all(self, running_count: int) -> None:
+        del running_count
 
     def _shutdown_running_job(self, queue_id: str, job: Any) -> None:
         raise NotImplementedError

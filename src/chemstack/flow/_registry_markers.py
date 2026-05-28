@@ -3,11 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-
-def normalize_text(value: Any) -> str:
-    if value is None:
-        return ""
-    return str(value).strip()
+from chemstack.core.utils import normalize_text
 
 
 def normal_path_key(value: str) -> str:

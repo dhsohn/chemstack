@@ -216,10 +216,13 @@ class QueueWorker(QueueWorkerPidFileMixin, ChildProcessQueueWorker):
 
     def _before_run(self) -> None:
         self._write_pid_file()
-        self._reconcile_orphaned_running()
+        super()._before_run()
 
     def _after_run(self) -> None:
         self._remove_pid_file()
+
+    def _reconcile_worker_state(self) -> None:
+        self._reconcile_orphaned_running()
 
     def _reconcile_orphaned_running(self) -> None:
         reconcile_orphaned_child_queue_entries(
@@ -246,8 +249,13 @@ class QueueWorker(QueueWorkerPidFileMixin, ChildProcessQueueWorker):
         admission_token: str,
         exc: OSError,
     ) -> None:
-        mark_failed(queue_root, entry.queue_id, error=str(exc))
-        release_slot(self.admission_root, admission_token)
+        self._mark_entry_failed_and_release(
+            queue_root,
+            entry,
+            admission_token,
+            error=str(exc),
+            mark_failed_fn=mark_failed,
+        )
 
     def _on_worker_process_started(
         self,
@@ -268,8 +276,13 @@ class QueueWorker(QueueWorkerPidFileMixin, ChildProcessQueueWorker):
         )
         if attached is None:
             _terminate_process(process)
-            mark_failed(queue_root, entry.queue_id, error="admission_slot_missing")
-            release_slot(self.admission_root, admission_token)
+            self._mark_entry_failed_and_release(
+                queue_root,
+                entry,
+                admission_token,
+                error="admission_slot_missing",
+                mark_failed_fn=mark_failed,
+            )
             return False
         return True
 
@@ -289,7 +302,7 @@ class QueueWorker(QueueWorkerPidFileMixin, ChildProcessQueueWorker):
                 mark_cancelled(job.queue_root, current.queue_id, error="cancel_requested")
             else:
                 mark_failed(job.queue_root, current.queue_id, error=f"worker_child_exit_code={rc}")
-        release_slot(self.admission_root, job.admission_token)
+        self._release_admission_slot(job.admission_token)
 
     def _shutdown_running_job(self, _queue_id: str, job: Any) -> None:
         shutdown_child_process_with_grace(

@@ -15,29 +15,11 @@ from chemstack.core.paths import (
     resolved_path_text,
     safe_is_subpath,
 )
+from chemstack.core.utils import normalize_bool, normalize_text, safe_int
 from chemstack.core.statuses import TERMINAL_STATUSES as TERMINAL_STATUSES
 
 QUEUE_FILE_NAME = "queue.json"
 INDEX_DIR_NAME = "index"
-
-
-def normalize_text(value: Any) -> str:
-    if value is None:
-        return ""
-    return str(value).strip()
-
-
-def normalize_bool(value: Any) -> bool:
-    if isinstance(value, bool):
-        return value
-    return normalize_text(value).lower() in {"1", "true", "yes", "y", "on"}
-
-
-def safe_int(value: Any, *, default: int = 0) -> int:
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return default
 
 
 def normalize_path_text(value: Any) -> str:

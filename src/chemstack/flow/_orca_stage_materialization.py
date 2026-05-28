@@ -9,17 +9,11 @@ from chemstack.core.app_ids import (
     CHEMSTACK_CLI_MODULE,
     CHEMSTACK_ORCA_SUBMITTER,
 )
-from chemstack.core.utils import atomic_write_json
+from chemstack.core.utils import atomic_write_json, normalize_text
 
 from . import _orca_stage_payloads
 from .contracts import WorkflowArtifactRef, WorkflowStage, WorkflowStageInput, WorkflowTask
 from .xyz_utils import write_orca_ready_xyz
-
-
-def normalize_text(value: Any) -> str:
-    if value is None:
-        return ""
-    return str(value).strip()
 
 
 def safe_name(value: str, *, fallback: str) -> str:

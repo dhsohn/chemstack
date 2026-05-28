@@ -15,7 +15,7 @@ import yaml
 
 from chemstack.core.config.schema import TelegramConfig, telegram_config_from_mapping
 from chemstack.core.utils.coercion import (
-    normalize_text as _coerce_normalize_text,
+    normalize_text as _normalize_text,
 )
 
 DEFAULT_TELEGRAM_BASE_URL = "https://api.telegram.org"
@@ -110,10 +110,6 @@ def _should_retry_url_error(exc: BaseException) -> bool:
 
 def _is_retryable_http_status(status_code: int | None) -> bool:
     return status_code in {429, 500, 502, 503, 504}
-
-
-def _normalize_text(value: Any) -> str:
-    return _coerce_normalize_text(value)
 
 
 def escape_html(value: Any) -> str:

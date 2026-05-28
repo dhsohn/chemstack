@@ -12,6 +12,7 @@ from chemstack.core.notifications import (
     html_code,
     load_telegram_config_from_file,
 )
+from chemstack.core.utils import coerce_mapping, normalize_text
 
 from ._workflow_phases import SUPPRESSED_STAGE_NOTIFICATION_ENGINES, WORKFLOW_PHASE_FINISHED_EVENT
 
@@ -42,18 +43,6 @@ STAGE_HANDOFF_EVENT_TYPES = frozenset(
         "workflow_stage_reaction_handoff_status_changed",
     }
 )
-
-
-def normalize_text(value: Any) -> str:
-    if value is None:
-        return ""
-    return str(value).strip()
-
-
-def coerce_mapping(value: Any) -> dict[str, Any]:
-    if not isinstance(value, dict):
-        return {}
-    return {str(key): item for key, item in value.items()}
 
 
 def event_text(event: dict[str, Any], metadata: dict[str, Any], *keys: str) -> str:

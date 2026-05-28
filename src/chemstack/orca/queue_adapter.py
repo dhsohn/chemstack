@@ -99,6 +99,35 @@ def _mutate_entries(
     )
 
 
+def _entry_index(entries: list[QueueEntry], queue_id: str) -> int | None:
+    for idx, current in enumerate(entries):
+        if current.queue_id == queue_id:
+            return idx
+    return None
+
+
+def _mutate_entry(
+    allowed_root: Path,
+    queue_id: str,
+    updater: Any,
+    *,
+    missing_result: Any,
+) -> Any:
+    def mutate(entries: list[QueueEntry]) -> tuple[Any, bool]:
+        idx = _entry_index(entries, queue_id)
+        if idx is None:
+            return missing_result, False
+
+        result, updated_entry = updater(entries[idx])
+        if updated_entry is None:
+            return result, False
+
+        entries[idx] = updated_entry
+        return result, True
+
+    return _mutate_entries(allowed_root, mutate)
+
+
 class DuplicateEntryError(ValueError):
     """Raised when enqueueing a reaction_dir that already has an active entry."""
 
@@ -236,31 +265,27 @@ def requeue_running_entry(allowed_root: Path, queue_id: str) -> bool:
 def cancel(allowed_root: Path, queue_id: str) -> Optional[QueueEntry]:
     """Cancel a queue entry."""
 
-    def cancel_entry(entries: list[QueueEntry]) -> tuple[QueueEntry | None, bool]:
-        for idx, current in enumerate(entries):
-            if current.queue_id != queue_id:
-                continue
+    def cancel_entry(current: QueueEntry) -> tuple[QueueEntry | None, QueueEntry | None]:
+        if current.status == QueueStatus.PENDING:
+            entry = cancel_pending_entry(current, finished_at=_now_iso())
+            logger.info("Cancelled pending entry: %s", queue_id)
+            return entry, entry
+        if current.status == QueueStatus.RUNNING:
+            entry = replace(current, cancel_requested=True)
+            logger.info("Cancel requested for running entry: %s", queue_id)
+            return entry, entry
 
-            if current.status == QueueStatus.PENDING:
-                entry = cancel_pending_entry(current, finished_at=_now_iso())
-                entries[idx] = entry
-                logger.info("Cancelled pending entry: %s", queue_id)
-                return entry, True
-            if current.status == QueueStatus.RUNNING:
-                entry = replace(current, cancel_requested=True)
-                entries[idx] = entry
-                logger.info("Cancel requested for running entry: %s", queue_id)
-                return entry, True
+        logger.debug(
+            "Cannot cancel entry in terminal state: %s (%s)",
+            queue_id,
+            current.status.value,
+        )
+        return None, None
 
-            logger.debug(
-                "Cannot cancel entry in terminal state: %s (%s)",
-                queue_id,
-                current.status.value,
-            )
-            return None, False
-        return None, False
-
-    return cast(QueueEntry | None, _mutate_entries(allowed_root, cancel_entry))
+    return cast(
+        QueueEntry | None,
+        _mutate_entry(allowed_root, queue_id, cancel_entry, missing_result=None),
+    )
 
 
 def list_queue(
@@ -350,30 +375,21 @@ def update_terminal(
     error: str | None = None,
     run_id: str | None = None,
 ) -> bool:
-    def update(entries: list[QueueEntry]) -> tuple[bool, bool]:
-        for idx, current in enumerate(entries):
-            if current.queue_id != queue_id:
-                continue
-            metadata = dict(current.metadata)
-            if error is not None:
-                updated_error = error
-            else:
-                updated_error = current.error
-            if run_id is not None:
-                metadata["run_id"] = run_id
-            entry = replace(
-                current,
-                status=QueueStatus(status),
-                finished_at=_now_iso(),
-                error=updated_error,
-                metadata=metadata,
-            )
-            entries[idx] = entry
-            logger.info("Entry %s -> %s", queue_id, status)
-            return True, True
-        return False, False
+    def update(current: QueueEntry) -> tuple[bool, QueueEntry]:
+        metadata = dict(current.metadata)
+        if run_id is not None:
+            metadata["run_id"] = run_id
+        entry = replace(
+            current,
+            status=QueueStatus(status),
+            finished_at=_now_iso(),
+            error=error if error is not None else current.error,
+            metadata=metadata,
+        )
+        logger.info("Entry %s -> %s", queue_id, status)
+        return True, entry
 
-    return bool(_mutate_entries(allowed_root, update))
+    return bool(_mutate_entry(allowed_root, queue_id, update, missing_result=False))
 
 
 def cancel_pending_entry(entry: QueueEntry, *, finished_at: str) -> QueueEntry:
@@ -389,23 +405,18 @@ def update_running_entry_state(
     finished_at: object = _UNSET,
     cancel_requested: bool | None = None,
 ) -> bool:
-    def update(entries: list[QueueEntry]) -> tuple[bool, bool]:
-        for idx, current in enumerate(entries):
-            if current.queue_id != queue_id:
-                continue
-            if current.status != QueueStatus.RUNNING:
-                return False, False
-            updates: dict[str, Any] = {"status": QueueStatus(status)}
-            if started_at is not _UNSET:
-                updates["started_at"] = cast(str | None, started_at) or ""
-            if finished_at is not _UNSET:
-                updates["finished_at"] = cast(str | None, finished_at) or ""
-            if cancel_requested is not None:
-                updates["cancel_requested"] = cancel_requested
-            entry = replace(current, **updates)
-            entries[idx] = entry
-            logger.info("Entry %s -> %s", queue_id, status)
-            return True, True
-        return False, False
+    def update(current: QueueEntry) -> tuple[bool, QueueEntry | None]:
+        if current.status != QueueStatus.RUNNING:
+            return False, None
+        updates: dict[str, Any] = {"status": QueueStatus(status)}
+        if started_at is not _UNSET:
+            updates["started_at"] = cast(str | None, started_at) or ""
+        if finished_at is not _UNSET:
+            updates["finished_at"] = cast(str | None, finished_at) or ""
+        if cancel_requested is not None:
+            updates["cancel_requested"] = cancel_requested
+        entry = replace(current, **updates)
+        logger.info("Entry %s -> %s", queue_id, status)
+        return True, entry
 
-    return bool(_mutate_entries(allowed_root, update))
+    return bool(_mutate_entry(allowed_root, queue_id, update, missing_result=False))

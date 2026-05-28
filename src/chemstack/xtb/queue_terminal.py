@@ -254,87 +254,119 @@ def _terminal_metadata(result: XtbRunResult) -> dict[str, Any]:
     }
 
 
+def _mark_queue_terminal(
+    request: XtbTerminalFinalizationRequest,
+    dependencies: XtbTerminalDependencies,
+) -> None:
+    result = request.result
+    _queue_execution.mark_terminal_status(
+        request.queue_root,
+        request.entry.queue_id,
+        status=result.status,
+        reason=result.reason,
+        metadata_update=_terminal_metadata(result),
+        mark_completed_fn=dependencies.mark_completed,
+        mark_cancelled_fn=dependencies.mark_cancelled,
+        mark_failed_fn=dependencies.mark_failed,
+    )
+
+
+def _sync_job_record(
+    request: XtbTerminalFinalizationRequest,
+    paths: _XtbTerminalPaths,
+    dependencies: XtbTerminalDependencies,
+) -> str:
+    result = request.result
+    entry = request.entry
+    dependencies.upsert_job_record(
+        request.cfg,
+        job_id=entry.task_id,
+        status=result.status,
+        job_dir=paths.job_dir,
+        job_type=result.job_type,
+        selected_input_xyz=str(paths.selected_xyz),
+        reaction_key=result.reaction_key,
+        resource_request=result.resource_request,
+        resource_actual=result.resource_actual,
+    )
+    return ""
+
+
+def _notify_terminal_finished(
+    request: XtbTerminalFinalizationRequest,
+    paths: _XtbTerminalPaths,
+    dependencies: XtbTerminalDependencies,
+    sync_result: str,
+) -> None:
+    result = request.result
+    entry = request.entry
+    dependencies.notify_job_finished(
+        request.cfg,
+        job_id=entry.task_id,
+        queue_id=entry.queue_id,
+        status=result.status,
+        reason=result.reason,
+        job_type=result.job_type,
+        reaction_key=result.reaction_key,
+        job_dir=paths.job_dir,
+        selected_xyz=paths.selected_xyz,
+        candidate_count=result.candidate_count,
+        organized_output_dir=Path(sync_result) if sync_result else None,
+        resource_request=result.resource_request,
+        resource_actual=result.resource_actual,
+    )
+
+
+def _emit_terminal_summary(request: XtbTerminalFinalizationRequest, sync_result: str) -> None:
+    result = request.result
+    entry = request.entry
+    print_terminal_summary(
+        TerminalSummary(
+            queue_id=entry.queue_id,
+            job_id=entry.task_id,
+            status=result.status,
+            reason=result.reason,
+            organized_output_dir=sync_result,
+        )
+    )
+
+
+def _terminal_sync_actions(
+    request: XtbTerminalFinalizationRequest,
+    paths: _XtbTerminalPaths,
+    dependencies: XtbTerminalDependencies,
+) -> _engine_execution.TerminalSyncActions:
+    return _engine_execution.TerminalSyncActions(
+        write_artifacts=lambda: dependencies.write_execution_artifacts(
+            request.entry,
+            request.result,
+            previous_state=request.previous_state,
+            resumed=request.resumed,
+        ),
+        mark_queue_terminal=lambda: _mark_queue_terminal(request, dependencies),
+        sync_job_record=lambda: _sync_job_record(request, paths, dependencies),
+        notify_finished=lambda sync_result: _notify_terminal_finished(
+            request,
+            paths,
+            dependencies,
+            sync_result,
+        ),
+        emit_output=lambda sync_result: _emit_terminal_summary(request, sync_result),
+        build_outcome=lambda sync_result: request.outcome_cls(
+            result=request.result,
+            organized_output_dir=sync_result,
+        ),
+    )
+
+
 def finalize_terminal_result(
     request: XtbTerminalFinalizationRequest,
     *,
     dependencies: XtbTerminalDependencies,
 ) -> Any:
     paths = _terminal_paths(request, dependencies)
-    result = request.result
-    entry = request.entry
-    organized_target = ""
-
-    def mark_queue_terminal() -> None:
-        _queue_execution.mark_terminal_status(
-            request.queue_root,
-            entry.queue_id,
-            status=result.status,
-            reason=result.reason,
-            metadata_update=_terminal_metadata(result),
-            mark_completed_fn=dependencies.mark_completed,
-            mark_cancelled_fn=dependencies.mark_cancelled,
-            mark_failed_fn=dependencies.mark_failed,
-        )
-
-    def sync_job_record() -> str:
-        dependencies.upsert_job_record(
-            request.cfg,
-            job_id=entry.task_id,
-            status=result.status,
-            job_dir=paths.job_dir,
-            job_type=result.job_type,
-            selected_input_xyz=str(paths.selected_xyz),
-            reaction_key=result.reaction_key,
-            resource_request=result.resource_request,
-            resource_actual=result.resource_actual,
-        )
-        return organized_target
-
-    def notify_finished(sync_result: str) -> None:
-        dependencies.notify_job_finished(
-            request.cfg,
-            job_id=entry.task_id,
-            queue_id=entry.queue_id,
-            status=result.status,
-            reason=result.reason,
-            job_type=result.job_type,
-            reaction_key=result.reaction_key,
-            job_dir=paths.job_dir,
-            selected_xyz=paths.selected_xyz,
-            candidate_count=result.candidate_count,
-            organized_output_dir=Path(sync_result) if sync_result else None,
-            resource_request=result.resource_request,
-            resource_actual=result.resource_actual,
-        )
-
-    def emit_terminal_summary(sync_result: str) -> None:
-        print_terminal_summary(
-            TerminalSummary(
-                queue_id=entry.queue_id,
-                job_id=entry.task_id,
-                status=result.status,
-                reason=result.reason,
-                organized_output_dir=sync_result,
-            )
-        )
-
     return _engine_execution.sync_terminal_result(
-        _engine_execution.TerminalSyncActions(
-            write_artifacts=lambda: dependencies.write_execution_artifacts(
-                entry,
-                result,
-                previous_state=request.previous_state,
-                resumed=request.resumed,
-            ),
-            mark_queue_terminal=mark_queue_terminal,
-            sync_job_record=sync_job_record,
-            notify_finished=notify_finished,
-            emit_output=emit_terminal_summary,
-            build_outcome=lambda sync_result: request.outcome_cls(
-                result=result,
-                organized_output_dir=sync_result,
-            ),
-        ),
+        _terminal_sync_actions(request, paths, dependencies),
         emit_output=request.emit_output,
     )
 
