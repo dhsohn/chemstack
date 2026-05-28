@@ -14,7 +14,7 @@ ChemStack is a queue-first interface for ORCA and workflow orchestration on Linu
 
 Requirements:
 
-- Python 3.10+
+- Python 3.11+
 - Linux or WSL2
 - ORCA installed at an absolute Linux path if you use ORCA
 - xTB and CREST installed at absolute Linux paths if you use workflow stages that depend on them
@@ -123,18 +123,16 @@ both the worker and the bot automatically:
 
 ```bash
 cd <repo_root>
-sudo cp systemd/chemstack-queue-worker@.service /etc/systemd/system/
-sudo cp systemd/chemstack-bot@.service /etc/systemd/system/
-sudo cp systemd/chemstack-summary@.service /etc/systemd/system/
-sudo cp systemd/chemstack-summary@.timer /etc/systemd/system/
-sudo cp systemd/chemstack-runtime@.target /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now "chemstack-runtime@$(whoami).target"
+chemstack systemd install --user "$(whoami)" --repo "$(pwd)"
 sudo systemctl status "chemstack-runtime@$(whoami).target"
 sudo systemctl status "chemstack-queue-worker@$(whoami)"
 sudo systemctl status "chemstack-bot@$(whoami)"
 sudo systemctl status "chemstack-summary@$(whoami).timer"
 ```
+
+If Telegram is not configured yet, the installer enables only the queue worker.
+Run the same command again after setting `telegram.bot_token` and
+`telegram.chat_id` to enable the full runtime target.
 
 Restart examples:
 

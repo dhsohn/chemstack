@@ -19,6 +19,30 @@ fi
 
 chmod +x "$ROOT/scripts/"*.sh
 
+PYTHON_BIN="${PYTHON_BIN:-}"
+if [[ -z "$PYTHON_BIN" ]]; then
+  for candidate in python3.13 python3.12 python3.11 python3; do
+    if command -v "$candidate" >/dev/null 2>&1 && "$candidate" - <<'PY' >/dev/null 2>&1; then
+import sys
+raise SystemExit(0 if sys.version_info >= (3, 11) else 1)
+PY
+      PYTHON_BIN="$candidate"
+      break
+    fi
+  done
+fi
+
+if [[ -z "$PYTHON_BIN" ]] || ! "$PYTHON_BIN" - <<'PY' >/dev/null 2>&1; then
+import sys
+raise SystemExit(0 if sys.version_info >= (3, 11) else 1)
+PY
+  echo "[bootstrap] ERROR: ChemStack requires Python 3.11 or newer."
+  echo "[bootstrap] Install Python 3.11+ or rerun with PYTHON_BIN=/path/to/python3.11."
+  exit 1
+fi
+
+echo "[bootstrap] Using Python: $("$PYTHON_BIN" -c 'import sys; print(sys.executable)')"
+
 echo "[bootstrap] Checking ORCA Linux binary..."
 ORCA_BIN="${ORCA_BIN:-$HOME/opt/orca/orca}"
 if [[ -x "$ORCA_BIN" ]]; then
@@ -30,10 +54,10 @@ else
 fi
 
 echo "[bootstrap] Preparing Python virtual environment..."
-if ! python3 -m venv .venv >/dev/null 2>&1; then
-  echo "[bootstrap] python3 -m venv unavailable, falling back to virtualenv..."
-  python3 -m pip install --user virtualenv
-  python3 -m virtualenv .venv
+if ! "$PYTHON_BIN" -m venv .venv >/dev/null 2>&1; then
+  echo "[bootstrap] $PYTHON_BIN -m venv unavailable, falling back to virtualenv..."
+  "$PYTHON_BIN" -m pip install --user virtualenv
+  "$PYTHON_BIN" -m virtualenv .venv
 fi
 source .venv/bin/activate
 python -m pip install --upgrade pip

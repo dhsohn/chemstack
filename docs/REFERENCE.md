@@ -68,7 +68,7 @@ Operational consequences:
 - Linux (WSL2 or native Linux)
 - Access to an ORCA Linux binary path such as `/opt/orca/orca`
 - ORCA runtime dependencies such as OpenMPI and BLAS/LAPACK
-- Python 3.10+
+- Python 3.11+
 - An input root on a Linux filesystem
 
 ## 5) Installation and Initial Setup
@@ -336,13 +336,7 @@ Recommended always-on runtime install flow when Telegram is configured:
 
 ```bash
 cd <repo_root>
-sudo cp systemd/chemstack-bot@.service /etc/systemd/system/
-sudo cp systemd/chemstack-queue-worker@.service /etc/systemd/system/
-sudo cp systemd/chemstack-summary@.service /etc/systemd/system/
-sudo cp systemd/chemstack-summary@.timer /etc/systemd/system/
-sudo cp systemd/chemstack-runtime@.target /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now "chemstack-runtime@$(whoami).target"
+chemstack systemd install --user "$(whoami)" --repo "$(pwd)"
 systemctl status "chemstack-runtime@$(whoami).target"
 systemctl status "chemstack-queue-worker@$(whoami)"
 systemctl status "chemstack-bot@$(whoami)"
@@ -370,8 +364,9 @@ xTB workers. The shared `scheduler.max_active_simulations` setting still limits
 the combined number of active simulations across ORCA and workflow-managed
 internal engine stages.
 
-If you only want unattended execution without the Telegram bot, enable
-`chemstack-queue-worker@$(whoami)` directly instead of the combined runtime
+If Telegram is not configured yet, `chemstack systemd install` enables
+`chemstack-queue-worker@$(whoami)` directly. Run the same command again after
+setting `telegram.bot_token` and `telegram.chat_id` to enable the full runtime
 target.
 
 Workflow supervision belongs to `chemstack-queue-worker@.service`.

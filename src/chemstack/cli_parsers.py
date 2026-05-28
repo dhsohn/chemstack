@@ -4,6 +4,7 @@ import argparse
 
 from chemstack import cli_handlers
 from chemstack import cli_queue
+from chemstack import cli_systemd
 from chemstack import cli_workers
 
 _WORKFLOW_SCAFFOLD_SHORTCUTS = (
@@ -316,6 +317,66 @@ def _add_monitor_parser(subparsers: argparse._SubParsersAction[argparse.Argument
     monitor_parser.set_defaults(func=cli_handlers.cmd_orca_monitor)
 
 
+def _add_systemd_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
+    systemd_parser = subparsers.add_parser(
+        "systemd",
+        help="Install ChemStack systemd runtime units.",
+    )
+    systemd_subparsers = systemd_parser.add_subparsers(dest="systemd_command", required=True)
+
+    install_parser = systemd_subparsers.add_parser(
+        "install",
+        help="Render, install, reload, and optionally enable ChemStack systemd units.",
+    )
+    install_parser.add_argument(
+        "--user",
+        dest="target_user",
+        required=True,
+        help="Linux user name used for the templated systemd instance",
+    )
+    install_parser.add_argument(
+        "--repo",
+        required=True,
+        help="Absolute path to the ChemStack repository checkout",
+    )
+    install_parser.add_argument(
+        "--config",
+        default=None,
+        help=argparse.SUPPRESS,
+    )
+    install_parser.add_argument(
+        "--unit-dir",
+        default=str(cli_systemd.DEFAULT_SYSTEMD_UNIT_DIR),
+        help=argparse.SUPPRESS,
+    )
+    install_parser.add_argument(
+        "--worker-only",
+        action="store_true",
+        help=argparse.SUPPRESS,
+    )
+    install_parser.add_argument(
+        "--no-enable",
+        action="store_true",
+        help=argparse.SUPPRESS,
+    )
+    install_parser.add_argument(
+        "--no-start",
+        action="store_true",
+        help=argparse.SUPPRESS,
+    )
+    install_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help=argparse.SUPPRESS,
+    )
+    install_parser.add_argument(
+        "--no-sudo",
+        action="store_true",
+        help=argparse.SUPPRESS,
+    )
+    install_parser.set_defaults(func=cli_systemd.cmd_systemd_install)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="chemstack")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -326,4 +387,5 @@ def build_parser() -> argparse.ArgumentParser:
     _add_organize_parser(subparsers)
     _add_summary_parser(subparsers)
     _add_monitor_parser(subparsers)
+    _add_systemd_parser(subparsers)
     return parser

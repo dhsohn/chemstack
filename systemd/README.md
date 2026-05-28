@@ -36,14 +36,14 @@ Install the combined runtime target:
 
 ```bash
 cd <repo_root>
-sudo cp systemd/chemstack-queue-worker@.service /etc/systemd/system/
-sudo cp systemd/chemstack-bot@.service /etc/systemd/system/
-sudo cp systemd/chemstack-summary@.service /etc/systemd/system/
-sudo cp systemd/chemstack-summary@.timer /etc/systemd/system/
-sudo cp systemd/chemstack-runtime@.target /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now "chemstack-runtime@$(whoami).target"
+chemstack systemd install --user "$(whoami)" --repo "$(pwd)"
 ```
+
+The installer renders the unit files with the repository path, writes them to
+`/etc/systemd/system`, runs `systemctl daemon-reload`, and enables/starts the
+right runtime for the current config. If Telegram is not configured yet, it
+enables only the queue worker; run the same command again after setting
+`telegram.bot_token` and `telegram.chat_id` to enable the full runtime target.
 
 Monitor the combined runtime target:
 
@@ -86,13 +86,12 @@ Install the unified engine worker:
 
 ```bash
 cd <repo_root>
-sudo cp systemd/chemstack-queue-worker@.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now "chemstack-queue-worker@$(whoami)"
+chemstack systemd install --user "$(whoami)" --repo "$(pwd)"
 ```
 
 Use the worker-only service when you do not want the Telegram bot managed by
-systemd, or when Telegram is not configured yet.
+systemd, or when Telegram is not configured yet. The installer chooses that
+mode automatically while Telegram settings are empty.
 
 Monitor the unified engine worker:
 

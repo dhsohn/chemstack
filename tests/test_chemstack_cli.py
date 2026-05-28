@@ -11,6 +11,7 @@ from chemstack import cli_handlers as cli_monitor
 from chemstack import cli_queue
 from chemstack import cli_handlers as cli_run_dir
 from chemstack import cli_handlers as cli_summary
+from chemstack import cli_systemd
 from chemstack import cli_worker_conflicts
 from chemstack import cli as unified_cli
 
@@ -184,6 +185,31 @@ def test_build_parser_parses_unified_init_scaffold_organize_summary_and_monitor_
     assert monitor_args.command == "monitor"
     assert monitor_args.config == "/tmp/chemstack.yaml"
     assert monitor_args.func is cli_monitor.cmd_orca_monitor
+
+
+def test_build_parser_parses_systemd_install_command() -> None:
+    parser = unified_cli.build_parser()
+
+    args = parser.parse_args(
+        [
+            "systemd",
+            "install",
+            "--user",
+            "daehyupsohn",
+            "--repo",
+            "/home/daehyupsohn/chemstack",
+            "--worker-only",
+            "--dry-run",
+        ]
+    )
+
+    assert args.command == "systemd"
+    assert args.systemd_command == "install"
+    assert args.target_user == "daehyupsohn"
+    assert args.repo == "/home/daehyupsohn/chemstack"
+    assert args.worker_only is True
+    assert args.dry_run is True
+    assert args.func is cli_systemd.cmd_systemd_install
 
 
 def test_main_dispatches_unified_queue_list(monkeypatch: pytest.MonkeyPatch) -> None:
