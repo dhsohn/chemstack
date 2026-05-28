@@ -8,6 +8,8 @@ import pytest
 
 
 from chemstack.flow.submitters import orca as orca_submitter
+from chemstack.flow.submitters.orca_models import ensure_submission_metadata
+from chemstack.flow.submitters.orca_submission import submission_summary_state
 
 
 def _install_workflow_io(
@@ -58,7 +60,7 @@ def test_ensure_submission_metadata_reuses_existing_mappings() -> None:
     stage = {"metadata": {"queue_id": "q_existing"}}
     task = {"metadata": {"note": "keep"}}
 
-    stage_metadata = orca_submitter._ensure_submission_metadata(stage, task)
+    stage_metadata = ensure_submission_metadata(stage, task)
 
     assert stage_metadata is stage["metadata"]
     assert stage["metadata"] == {"queue_id": "q_existing"}
@@ -82,7 +84,7 @@ def test_submission_summary_state_helper(
     expected: tuple[str | None, str],
 ) -> None:
     assert (
-        orca_submitter._submission_summary_state(
+        submission_summary_state(
             submitted=submitted,
             skipped=skipped,
             failed=failed,

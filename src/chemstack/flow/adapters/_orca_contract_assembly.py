@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Protocol
 
 from chemstack.core.app_ids import CHEMSTACK_ORCA_APP_NAME
 from chemstack.orca import _job_location_contract_payload as _canonical_payload
@@ -14,7 +14,10 @@ ContractPayload = dict[str, Any]
 StatusTuple = tuple[str, str, str, str]
 NormalizeTextFn = Callable[[Any], str]
 NormalizeBoolFn = Callable[[Any], bool]
-SafeIntFn = Callable[[Any, int], int]
+
+
+class SafeIntFn(Protocol):
+    def __call__(self, value: Any, *, default: int = 0) -> int: ...
 
 
 @dataclass(frozen=True)
@@ -57,11 +60,6 @@ class OrcaContractLoaderDeps:
     coerce_attempts_fn: Callable[[ContractPayload, ContractPayload], tuple[ContractPayload, ...]]
     final_result_payload_fn: Callable[[ContractPayload, ContractPayload], ContractPayload]
     contract_cls: type
-
-
-_LoadRequest = _contract_context.LoadRequest
-_LoadRoots = _contract_context.LoadRoots
-_LoaderContext = _contract_context.LoaderContext
 
 
 @dataclass(frozen=True)
@@ -164,7 +162,7 @@ def contract_from_orca_payload_impl(
 
 def _contract_from_payload(
     payload: ContractPayload,
-    request: _LoadRequest,
+    request: _contract_context.LoadRequest,
     deps: OrcaContractLoaderDeps,
 ) -> Any:
     final_result = payload.get("final_result")
@@ -190,8 +188,8 @@ def _contract_from_payload(
         run_state_path=deps.normalize_text_fn(payload.get("run_state_path")),
         report_json_path=deps.normalize_text_fn(payload.get("report_json_path")),
         report_md_path=deps.normalize_text_fn(payload.get("report_md_path")),
-        attempt_count=deps.safe_int_fn(payload.get("attempt_count"), 0),
-        max_retries=deps.safe_int_fn(payload.get("max_retries"), 0),
+        attempt_count=deps.safe_int_fn(payload.get("attempt_count"), default=0),
+        max_retries=deps.safe_int_fn(payload.get("max_retries"), default=0),
         attempts=_payload_attempts(payload),
         final_result=dict(final_result) if isinstance(final_result, dict) else {},
         resource_request=deps.coerce_resource_dict_fn(payload.get("resource_request")),
@@ -207,9 +205,9 @@ def _payload_attempts(payload: ContractPayload) -> tuple[ContractPayload, ...]:
 
 
 def _contract_from_context(
-    request: _LoadRequest,
-    roots: _LoadRoots,
-    context: _LoaderContext,
+    request: _contract_context.LoadRequest,
+    roots: _contract_context.LoadRoots,
+    context: _contract_context.LoaderContext,
     deps: OrcaContractLoaderDeps,
 ) -> Any:
     return _contract_from_payload(
@@ -220,9 +218,9 @@ def _contract_from_context(
 
 
 def _payload_from_context(
-    request: _LoadRequest,
-    roots: _LoadRoots,
-    context: _LoaderContext,
+    request: _contract_context.LoadRequest,
+    roots: _contract_context.LoadRoots,
+    context: _contract_context.LoaderContext,
     deps: OrcaContractLoaderDeps,
 ) -> ContractPayload:
     latest_known_path = _latest_known_path(request, context, deps)
@@ -261,8 +259,8 @@ def _payload_from_context(
 
 
 def _latest_known_path(
-    request: _LoadRequest,
-    context: _LoaderContext,
+    request: _contract_context.LoadRequest,
+    context: _contract_context.LoaderContext,
     deps: OrcaContractLoaderDeps,
 ) -> str:
     record_path = (
@@ -279,7 +277,9 @@ def _latest_known_path(
     return deps.normalize_text_fn(request.target)
 
 
-def _contract_status(context: _LoaderContext, deps: OrcaContractLoaderDeps) -> StatusPayload:
+def _contract_status(
+    context: _contract_context.LoaderContext, deps: OrcaContractLoaderDeps
+) -> StatusPayload:
     status, analyzer_status, reason, completed_at = deps.status_from_payloads_fn(
         queue_entry=context.queue_entry,
         state=context.state,
@@ -294,7 +294,9 @@ def _contract_status(context: _LoaderContext, deps: OrcaContractLoaderDeps) -> S
 
 
 def _artifact_paths(
-    context: _LoaderContext, latest_known_path: str, deps: OrcaContractLoaderDeps
+    context: _contract_context.LoaderContext,
+    latest_known_path: str,
+    deps: OrcaContractLoaderDeps,
 ) -> _ArtifactPaths:
     selected_inp = deps.resolve_artifact_path_fn(
         _selected_input_source(context), context.current_dir
@@ -317,7 +319,7 @@ def _artifact_paths(
     return _ArtifactPaths(selected_inp, selected_input_xyz, optimized_xyz_path, last_out_path)
 
 
-def _selected_input_source(context: _LoaderContext) -> Any:
+def _selected_input_source(context: _contract_context.LoaderContext) -> Any:
     return (
         context.state.get("selected_inp")
         or context.report.get("selected_inp")
@@ -327,13 +329,13 @@ def _selected_input_source(context: _LoaderContext) -> Any:
     )
 
 
-def _selected_xyz_source(context: _LoaderContext) -> Any:
+def _selected_xyz_source(context: _contract_context.LoaderContext) -> Any:
     return context.organized_ref.get("selected_input_xyz") or (
         context.tracked_record.selected_input_xyz if context.tracked_record is not None else ""
     )
 
 
-def _last_out_source(context: _LoaderContext) -> Any:
+def _last_out_source(context: _contract_context.LoaderContext) -> Any:
     state_final = context.state.get("final_result")
     report_final = context.report.get("final_result")
     state_final_payload = state_final if isinstance(state_final, dict) else {}
@@ -342,7 +344,7 @@ def _last_out_source(context: _LoaderContext) -> Any:
 
 
 def _resource_payloads(
-    context: _LoaderContext,
+    context: _contract_context.LoaderContext,
     deps: OrcaContractLoaderDeps,
 ) -> tuple[dict[str, int], dict[str, int]]:
     queue = context.queue_entry or {}
@@ -371,7 +373,9 @@ def _ensure_orca_record(tracked_record: Any) -> None:
 
 
 def _organized_output_dir(
-    context: _LoaderContext, roots: _LoadRoots, deps: OrcaContractLoaderDeps
+    context: _contract_context.LoaderContext,
+    roots: _contract_context.LoadRoots,
+    deps: OrcaContractLoaderDeps,
 ) -> str:
     record_output = (
         context.tracked_record.organized_output_dir if context.tracked_record is not None else ""

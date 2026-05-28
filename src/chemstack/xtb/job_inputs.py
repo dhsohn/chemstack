@@ -5,10 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from chemstack.core.commands import run_dir as _shared_run_dir
-from chemstack.core.config.engines import (
-    WorkflowEngineAppConfig as AppConfig,
-    resource_request_from_manifest as _shared_resource_request_from_manifest,
-)
+from chemstack.core.config.engines import WorkflowEngineAppConfig as AppConfig
 from chemstack.core.paths import validate_job_dir
 from chemstack.core.paths.workflow import workflow_workspace_internal_engine_paths_from_path
 from chemstack.core.utils import normalize_text as _normalize_text
@@ -193,10 +190,6 @@ def resolve_job_dir(cfg: AppConfig, raw_job_dir: str) -> Path:
         validate_job_dir_fn=validate_job_dir,
         workflow_paths_from_path_fn=workflow_workspace_internal_engine_paths_from_path,
     )
-
-
-def resource_request_from_manifest(cfg: AppConfig, manifest: dict[str, Any]) -> dict[str, int]:
-    return _shared_resource_request_from_manifest(cfg, manifest)
 
 
 def new_job_id() -> str:

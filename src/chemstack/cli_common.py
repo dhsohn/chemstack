@@ -9,7 +9,7 @@ from chemstack.core.config.files import (
     discover_shared_config_path,
     shared_workflow_root_from_config,
 )
-from chemstack.core.utils.coercion import normalize_text as _normalize_text
+from chemstack.core.utils.coercion import normalize_text
 
 
 def _dependency(deps: Any | None, name: str, fallback: Any) -> Any:
@@ -34,7 +34,7 @@ def _discover_shared_config_path(explicit: str | None) -> str | None:
 
 
 def _discover_workflow_root(explicit: str | Path | None) -> str | None:
-    explicit_text = _normalize_text(explicit)
+    explicit_text = normalize_text(explicit)
     if explicit_text:
         return str(Path(explicit_text).expanduser().resolve())
     return None
@@ -42,9 +42,9 @@ def _discover_workflow_root(explicit: str | Path | None) -> str | None:
 
 def _effective_shared_config_text(args: argparse.Namespace) -> str:
     return (
-        _normalize_text(getattr(args, "chemstack_config", None))
-        or _normalize_text(getattr(args, "config", None))
-        or _normalize_text(getattr(args, "global_config", None))
+        normalize_text(getattr(args, "chemstack_config", None))
+        or normalize_text(getattr(args, "config", None))
+        or normalize_text(getattr(args, "global_config", None))
     )
 
 
@@ -82,7 +82,7 @@ def _engine_config_for_command(args: argparse.Namespace, *, deps: Any | None = N
 
 
 def _shared_chemstack_config(args: Any, *, deps: Any | None = None) -> str | None:
-    normalize = _dependency(deps, "_normalize_text", _normalize_text)
+    normalize = _dependency(deps, "_normalize_text", normalize_text)
     path_cls = _dependency(deps, "Path", Path)
     discover_config_path = _dependency(
         deps, "_discover_shared_config_path", _discover_shared_config_path
@@ -98,7 +98,7 @@ def _workflow_root_from_args(
     args: Any, *, config_path: str | None = None, deps: Any | None = None
 ) -> str | None:
     discover_workflow_root = _dependency(deps, "_discover_workflow_root", _discover_workflow_root)
-    normalize = _dependency(deps, "_normalize_text", _normalize_text)
+    normalize = _dependency(deps, "_normalize_text", normalize_text)
     workflow_root_from_config = _dependency(
         deps, "shared_workflow_root_from_config", shared_workflow_root_from_config
     )
@@ -116,7 +116,7 @@ def _workflow_root_from_args(
 
 
 def _normalize_workflow_type(value: Any, *, deps: Any | None = None) -> str:
-    normalize = _dependency(deps, "_normalize_text", _normalize_text)
+    normalize = _dependency(deps, "_normalize_text", normalize_text)
     text = normalize(value).lower()
     if text in {"reaction_ts_search", "conformer_screening"}:
         return text

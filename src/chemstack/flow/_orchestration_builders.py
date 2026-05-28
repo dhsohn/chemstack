@@ -619,7 +619,6 @@ def create_conformer_screening_workflow_impl(
 
 
 __all__ = [
-    "_copy_input_impl",
     "create_conformer_screening_workflow_impl",
     "create_reaction_ts_search_workflow_impl",
     "new_crest_stage_impl",

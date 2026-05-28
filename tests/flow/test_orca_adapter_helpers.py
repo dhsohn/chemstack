@@ -7,7 +7,8 @@ from pathlib import Path
 import pytest
 
 
-from chemstack.flow.adapters import orca as orca_adapter
+from chemstack.core.utils.coercion import normalize_bool, normalize_text, safe_int
+from chemstack.flow.adapters import _orca_contract_status, _orca_local_lookup, _orca_path_helpers
 
 
 def _write_json(path: Path, payload: object) -> None:
@@ -75,7 +76,16 @@ def test_status_from_payloads_covers_priority_order(
     report: dict[str, object],
     expected: tuple[str, str, str, str],
 ) -> None:
-    assert orca_adapter._status_from_payloads(queue_entry=queue_entry, state=state, report=report) == expected
+    assert (
+        _orca_contract_status.status_from_payloads_impl(
+            queue_entry=queue_entry,
+            state=state,
+            report=report,
+            normalize_text_fn=normalize_text,
+            normalize_bool_fn=normalize_bool,
+        )
+        == expected
+    )
 
 
 def test_derive_selected_input_xyz_reads_xyzfile_reference(tmp_path: Path) -> None:
@@ -84,7 +94,7 @@ def test_derive_selected_input_xyz_reads_xyzfile_reference(tmp_path: Path) -> No
     xyz.write_text("2\ncomment\nH 0 0 0\nH 0 0 0.74\n", encoding="utf-8")
     inp.write_text("! Opt\n* xyzfile 0 1 rxn.xyz\n", encoding="utf-8")
 
-    assert orca_adapter._derive_selected_input_xyz(str(inp)) == str(xyz.resolve())
+    assert _orca_path_helpers.derive_selected_input_xyz_impl(str(inp)) == str(xyz.resolve())
 
 
 def test_prefer_orca_optimized_xyz_prefers_matching_input_stem(tmp_path: Path) -> None:
@@ -97,7 +107,7 @@ def test_prefer_orca_optimized_xyz_prefers_matching_input_stem(tmp_path: Path) -
     selected_xyz.write_text("2\ncomment\nH 0 0 0\nH 0 0 0.74\n", encoding="utf-8")
     preferred_xyz.write_text("2\noptimized\nH 0 0 0\nH 0 0 0.75\n", encoding="utf-8")
 
-    chosen = orca_adapter._prefer_orca_optimized_xyz(
+    chosen = _orca_path_helpers.prefer_orca_optimized_xyz_impl(
         selected_inp=str(selected_inp),
         selected_input_xyz=str(selected_xyz),
         current_dir=current_dir,
@@ -121,7 +131,7 @@ def test_prefer_orca_optimized_xyz_falls_back_to_latest_non_source_xyz(tmp_path:
     os.utime(older_xyz, (1_700_000_000, 1_700_000_000))
     os.utime(newer_xyz, (1_700_000_010, 1_700_000_010))
 
-    chosen = orca_adapter._prefer_orca_optimized_xyz(
+    chosen = _orca_path_helpers.prefer_orca_optimized_xyz_impl(
         selected_inp="",
         selected_input_xyz=str(source_xyz),
         current_dir=current_dir,
@@ -157,10 +167,15 @@ def test_attempt_helpers_prefer_report_values_and_coerce_attempt_rows() -> None:
         "max_retries": "7",
     }
 
-    attempts = orca_adapter._coerce_attempts(state, report)
+    attempts = _orca_contract_status.coerce_attempts_impl(
+        state,
+        report,
+        normalize_text_fn=normalize_text,
+        safe_int_fn=safe_int,
+    )
 
-    assert orca_adapter._attempt_count(state, report) == 3
-    assert orca_adapter._max_retries(state, report) == 7
+    assert _orca_contract_status.attempt_count_impl(state, report, safe_int_fn=safe_int) == 3
+    assert _orca_contract_status.max_retries_impl(state, report, safe_int_fn=safe_int) == 7
     assert attempts == (
         {
             "index": 2,
@@ -238,7 +253,7 @@ def test_find_queue_entry_matches_multiple_identifier_types(
     if reaction_dir == "__TMP_RXN_6__":
         reaction_dir = f" {tmp_path / 'rxn_6'} "
 
-    entry = orca_adapter._find_queue_entry(
+    entry = _orca_local_lookup.find_queue_entry_impl(
         allowed_root=allowed_root,
         target=target,
         queue_id=queue_id,

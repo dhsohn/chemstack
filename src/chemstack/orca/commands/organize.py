@@ -209,12 +209,6 @@ def _restore_tracking_after_rollback(
     )
 
 
-_ORGANIZE_RESULT_LIMIT = _organize_notifications._ORGANIZE_RESULT_LIMIT
-_ORGANIZE_FAILURE_LIMIT = _organize_notifications._ORGANIZE_FAILURE_LIMIT
-_ORGANIZE_SKIP_LIMIT = _organize_notifications._ORGANIZE_SKIP_LIMIT
-_PlanApplyResult = _organize_apply._PlanApplyResult
-
-
 def _organize_summary_parts(
     organized_count: int, skipped_count: int, failed_count: int
 ) -> list[str]:
@@ -376,7 +370,7 @@ def _apply_dependencies() -> _organize_apply.OrganizeApplyDependencies:
 def _plan_conflict_result(
     plan: OrganizePlan,
     index: Dict[str, Dict[str, Any]],
-) -> _PlanApplyResult | None:
+) -> _organize_apply._PlanApplyResult | None:
     return _organize_apply._plan_conflict_result(
         plan,
         index,
@@ -389,7 +383,7 @@ def _bookkeep_successful_move(
     *,
     organized_root: Path,
     plan: OrganizePlan,
-) -> _PlanApplyResult:
+) -> _organize_apply._PlanApplyResult:
     return _organize_apply._bookkeep_successful_move(
         cfg,
         organized_root=organized_root,
@@ -433,7 +427,7 @@ def _apply_one_organize_plan(
     *,
     organized_root: Path,
     plan: OrganizePlan,
-) -> _PlanApplyResult:
+) -> _organize_apply._PlanApplyResult:
     deps = _apply_dependencies()
     return _organize_apply._apply_one_organize_plan(
         cfg,

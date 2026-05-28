@@ -8,10 +8,11 @@ from typing import Any
 
 import pytest
 
-from chemstack import cli_common
+from chemstack.core.utils.coercion import coerce_int_mapping, normalize_text
 from chemstack.flow import _registry_notifications as registry_notifications
 from chemstack.flow import registry, runtime, state, xyz_utils
 from chemstack.flow import _orca_stage_materialization as orca_stage_utils
+from chemstack.flow.adapters import _engine_adapter_helpers as adapter_helpers
 from chemstack.flow.adapters import crest as crest_adapter
 from chemstack.flow.adapters import xtb as xtb_adapter
 from chemstack.flow.contracts.crest import CrestArtifactContract, CrestDownstreamPolicy, to_workflow_stage_inputs
@@ -22,7 +23,6 @@ from chemstack.flow.contracts.xtb import (
     XtbArtifactContract,
     XtbCandidateArtifact,
     XtbDownstreamPolicy,
-    _coerce_resource_dict,
 )
 from chemstack.flow.submitters import common
 
@@ -105,18 +105,16 @@ def test_build_orca_enqueue_payload_includes_resource_override_flags() -> None:
 
 
 def test_crest_and_xtb_adapter_helper_edges(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    assert crest_adapter._direct_path_target("   ") is None
+    assert adapter_helpers.direct_dir_target("   ") is None
 
     class _BrokenPath:
         def expanduser(self) -> "_BrokenPath":
             raise OSError("bad")
 
-    monkeypatch.setattr(crest_adapter, "Path", lambda raw: _BrokenPath())
-    assert crest_adapter._direct_path_target("/tmp/ignored") is None
-    monkeypatch.undo()
+    assert adapter_helpers.direct_dir_target("/tmp/ignored", path_factory=lambda raw: _BrokenPath()) is None
 
-    assert crest_adapter._retained_paths({"retained_conformer_paths": "bad"}) == ()
-    assert crest_adapter._retained_paths({"retained_conformer_paths": ["", "  ", "/tmp/conf.xyz"]}) == ("/tmp/conf.xyz",)
+    assert adapter_helpers.normalized_text_sequence("bad") == ()
+    assert adapter_helpers.normalized_text_sequence(["", "  ", "/tmp/conf.xyz"]) == ("/tmp/conf.xyz",)
 
     index_root = tmp_path / "crest_index"
     _write_json(
@@ -136,12 +134,7 @@ def test_crest_and_xtb_adapter_helper_edges(tmp_path: Path, monkeypatch: pytest.
         crest_adapter.load_crest_artifact_contract(crest_index_root=index_root, target="crest_missing_payload")
 
     assert xtb_adapter._job_type_from_record(None, "fallback") == "fallback"
-    assert xtb_adapter._load_json_dict(tmp_path / "missing_xtb.json") == {}
-    assert xtb_adapter._direct_path_target("   ") is None
-
-    monkeypatch.setattr(xtb_adapter, "Path", lambda raw: _BrokenPath())
-    assert xtb_adapter._direct_path_target("/tmp/ignored") is None
-    monkeypatch.undo()
+    assert adapter_helpers.load_json_dict(tmp_path / "missing_xtb.json") == {}
 
     xtb_index = tmp_path / "xtb_index"
     _write_json(
@@ -353,7 +346,7 @@ def test_contract_submitter_common_state_and_xtb_contract_edges(tmp_path: Path, 
     candidate = XtbCandidateArtifact.from_raw({"path": "/tmp/cand.xyz", "score": "bad"})
     assert candidate.score is None
     assert candidate.to_dict()["metadata"] == {}
-    assert _coerce_resource_dict("bad") == {}
+    assert coerce_int_mapping("bad") == {}
     stage_input = WorkflowStageInput(
         source_job_id="job",
         source_job_type="xtb",
@@ -434,4 +427,4 @@ def test_xyz_reaction_ts_orca_stage_cli_and_mcp_edges(monkeypatch: pytest.Monkey
             max_memory_gb=1,
         )
 
-    assert cli_common._normalize_text(None) == ""
+    assert normalize_text(None) == ""

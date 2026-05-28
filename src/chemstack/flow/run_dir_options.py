@@ -6,9 +6,9 @@ from typing import Any
 
 from chemstack.cli_common import (
     _dependency,
-    _normalize_text,
     _workflow_root_from_args as _cli_workflow_root_from_args,
 )
+from chemstack.core.utils.coercion import normalize_text
 
 RUN_DIR_COMMON_WORKFLOW_OPTION_FIELDS = (
     "workflow_root",
@@ -107,15 +107,15 @@ def _resolve_text_option_with_section(
     *,
     deps: Any | None = None,
 ) -> str:
-    normalize_text = _dependency(deps, "_normalize_text", _normalize_text)
+    normalize = _dependency(deps, "_normalize_text", normalize_text)
 
-    explicit_text = normalize_text(explicit)
+    explicit_text = normalize(explicit)
     if explicit_text:
         return explicit_text
-    manifest_text = normalize_text(manifest.get(key))
+    manifest_text = normalize(manifest.get(key))
     if manifest_text:
         return manifest_text
-    section_text = normalize_text(section.get(section_key))
+    section_text = normalize(section.get(section_key))
     if section_text:
         return section_text
     return default
@@ -124,12 +124,12 @@ def _resolve_text_option_with_section(
 def _resolve_int_option(
     explicit: Any, manifest: dict[str, Any], key: str, default: int, *, deps: Any | None = None
 ) -> int:
-    normalize_text = _dependency(deps, "_normalize_text", _normalize_text)
+    normalize = _dependency(deps, "_normalize_text", normalize_text)
 
     if explicit is not None:
         return int(explicit)
     manifest_value = manifest.get(key)
-    if manifest_value is None or normalize_text(manifest_value) == "":
+    if manifest_value is None or normalize(manifest_value) == "":
         return default
     return int(manifest_value)
 
@@ -144,15 +144,15 @@ def _resolve_int_option_with_section(
     *,
     deps: Any | None = None,
 ) -> int:
-    normalize_text = _dependency(deps, "_normalize_text", _normalize_text)
+    normalize = _dependency(deps, "_normalize_text", normalize_text)
 
     if explicit is not None:
         return int(explicit)
     manifest_value = manifest.get(key)
-    if manifest_value is not None and normalize_text(manifest_value) != "":
+    if manifest_value is not None and normalize(manifest_value) != "":
         return int(manifest_value)
     section_value = section.get(section_key)
-    if section_value is None or normalize_text(section_value) == "":
+    if section_value is None or normalize(section_value) == "":
         return default
     return int(section_value)
 
@@ -424,11 +424,4 @@ __all__ = [
     "RunDirManifestSections",
     "RunDirWorkflowConfig",
     "RunDirWorkflowOptions",
-    "_resolve_int_option",
-    "_resolve_int_option_with_section",
-    "_resolve_required_workflow_root",
-    "_resolve_run_dir_workflow_option_bundle",
-    "_resolve_run_dir_workflow_options",
-    "_resolve_text_option_with_section",
-    "_workflow_options_to_common_kwargs",
 ]

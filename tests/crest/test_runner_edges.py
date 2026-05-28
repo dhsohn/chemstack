@@ -5,6 +5,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from chemstack.core import engine_runner
 from chemstack.core.config.schema import CommonResourceConfig, CommonRuntimeConfig, TelegramConfig
 
 from chemstack.core.config.engines import (
@@ -14,10 +15,8 @@ from chemstack.core.config.engines import (
 )
 from chemstack.crest.runner import (
     CrestRunningJob,
-    _bool_flag,
     _build_command,
     _count_xyz_structures,
-    _manifest_int,
     _resolve_crest_executable,
     _retained_outputs,
     finalize_crest_job,
@@ -135,7 +134,7 @@ def test_bool_flag_handles_bool_and_string_edge_values(
     manifest: dict[str, object],
     expected: bool,
 ) -> None:
-    assert _bool_flag(manifest, "dry_run") is expected
+    assert engine_runner.bool_flag(manifest, "dry_run") is expected
 
 
 @pytest.mark.parametrize(
@@ -154,12 +153,12 @@ def test_manifest_int_handles_empty_and_numeric_like_values(
     value: object,
     expected: int | None,
 ) -> None:
-    assert _manifest_int({"charge": value}, "charge") == expected
+    assert engine_runner.manifest_int({"charge": value}, "charge", zero_is_absent=True) == expected
 
 
 def test_manifest_int_rejects_non_integer_compatible_values() -> None:
     with pytest.raises(ValueError, match="must be an integer-compatible value"):
-        _manifest_int({"charge": object()}, "charge")
+        engine_runner.manifest_int({"charge": object()}, "charge", zero_is_absent=True)
 
 
 def test_build_command_omits_unsupported_gfn_and_solvent_model(

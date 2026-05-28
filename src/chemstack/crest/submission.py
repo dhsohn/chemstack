@@ -7,7 +7,10 @@ from chemstack.core.commands.run_dir import (
     EngineRunDirSubmission,
     record_queued_common,
 )
-from chemstack.core.config.engines import load_crest_config as load_config
+from chemstack.core.config.engines import (
+    load_crest_config as load_config,
+    resource_request_from_manifest,
+)
 from chemstack.core.notifications.engines import (
     notify_crest_job_queued as notify_job_queued,
 )
@@ -20,7 +23,6 @@ from .job_inputs import (
     load_job_manifest,
     new_job_id,
     queued_state_payload,
-    resource_request_from_manifest,
     resolve_job_dir,
     select_input_xyz,
 )

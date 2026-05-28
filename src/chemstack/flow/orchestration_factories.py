@@ -25,18 +25,6 @@ from .state import write_workflow_payload
 from .xyz_utils import load_xyz_atom_sequence
 
 
-def _write_workflow_payload(workspace_dir: Path, payload: dict[str, Any]) -> None:
-    write_workflow_payload(workspace_dir, payload)
-
-
-def _sync_workflow_registry(
-    workflow_root: Path,
-    workspace_dir: Path,
-    payload: dict[str, Any],
-) -> None:
-    sync_workflow_registry(workflow_root, workspace_dir, payload)
-
-
 @dataclass(frozen=True)
 class WorkflowFactoryDeps:
     normalize_text: Callable[[Any], str]
@@ -47,8 +35,8 @@ class WorkflowFactoryDeps:
         Callable[..., WorkflowStageWithTaskPayload],
         new_crest_stage_impl,
     )
-    write_workflow_payload_fn: Callable[[Path, dict[str, Any]], None] = _write_workflow_payload
-    sync_workflow_registry_fn: Callable[[Path, Path, dict[str, Any]], None] = _sync_workflow_registry
+    write_workflow_payload_fn: Callable[[Path, dict[str, Any]], Any] = write_workflow_payload
+    sync_workflow_registry_fn: Callable[[Path, Path, dict[str, Any]], Any] = sync_workflow_registry
     load_xyz_atom_sequence_fn: Callable[[str], tuple[str, ...]] = load_xyz_atom_sequence
 
     def workflow_context(self) -> WorkflowCreationContext:

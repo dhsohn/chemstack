@@ -4,14 +4,10 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, TypedDict, cast
 
 from chemstack.core.utils.coercion import (
-    coerce_mapping as _coerce_mapping,
-    normalize_text as _shared_normalize_text,
-    safe_int as _safe_int,
+    coerce_mapping,
+    normalize_text,
+    safe_int,
 )
-
-
-def _normalize_text(value: Any) -> str:
-    return _shared_normalize_text(value, none="None")
 
 
 class WorkflowArtifactRefPayload(TypedDict, total=False):
@@ -79,7 +75,7 @@ class WorkflowPlanPayload(TypedDict, total=False):
 
 
 def coerce_workflow_plan_payload(value: Any) -> WorkflowPlanPayload:
-    return cast(WorkflowPlanPayload, _coerce_mapping(value))
+    return cast(WorkflowPlanPayload, coerce_mapping(value))
 
 
 @dataclass(frozen=True)
@@ -126,22 +122,24 @@ class WorkflowTask:
     ) -> "WorkflowTask":
         request = resource_request or {}
         return cls(
-            task_id=_normalize_text(task_id),
-            engine=_normalize_text(engine) or "unknown",
-            task_kind=_normalize_text(task_kind) or "task",
-            status=_normalize_text(status) or "planned",
+            task_id=normalize_text(task_id, none="None"),
+            engine=normalize_text(engine, none="None") or "unknown",
+            task_kind=normalize_text(task_kind, none="None") or "task",
+            status=normalize_text(status, none="None") or "planned",
             resource_request={
-                str(key): _safe_int(value, default=0)
+                str(key): safe_int(value, default=0)
                 for key, value in request.items()
-                if _normalize_text(key)
+                if normalize_text(key, none="None")
             },
-            payload=_coerce_mapping(payload),
-            enqueue_payload=_coerce_mapping(enqueue_payload),
-            submission_result=_coerce_mapping(submission_result),
+            payload=coerce_mapping(payload),
+            enqueue_payload=coerce_mapping(enqueue_payload),
+            submission_result=coerce_mapping(submission_result),
             depends_on=tuple(
-                _normalize_text(item) for item in (depends_on or ()) if _normalize_text(item)
+                text
+                for item in (depends_on or ())
+                if (text := normalize_text(item, none="None"))
             ),
-            metadata=_coerce_mapping(metadata),
+            metadata=coerce_mapping(metadata),
         )
 
     def to_dict(self) -> WorkflowTaskPayload:

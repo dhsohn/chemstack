@@ -3,7 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from chemstack.cli_common import _dependency, _normalize_text, _normalize_workflow_type
+from chemstack.cli_common import _dependency, _normalize_workflow_type
+from chemstack.core.utils.coercion import normalize_text
 
 from .manifest import (
     FLOW_MANIFEST_FILENAMES as WORKFLOW_MANIFEST_FILENAMES,
@@ -78,12 +79,12 @@ def _resolve_run_dir_path(
     default_names: tuple[str, ...],
     deps: Any | None = None,
 ) -> str:
-    normalize_text = _dependency(deps, "_normalize_text", _normalize_text)
+    normalize = _dependency(deps, "_normalize_text", normalize_text)
     path_cls = _dependency(deps, "Path", Path)
 
-    candidate_text = normalize_text(explicit)
+    candidate_text = normalize(explicit)
     if not candidate_text:
-        candidate_text = normalize_text(manifest.get(key))
+        candidate_text = normalize(manifest.get(key))
     if candidate_text:
         candidate = path_cls(candidate_text).expanduser()
         if not candidate.is_absolute():
@@ -100,14 +101,14 @@ def _resolve_run_dir_path(
 def _resolve_run_dir_workflow_type(
     args: Any, manifest: dict[str, Any], workflow_layout: Any, *, deps: Any | None = None
 ) -> str:
-    normalize_text = _dependency(deps, "_normalize_text", _normalize_text)
+    normalize = _dependency(deps, "_normalize_text", normalize_text)
     normalize_workflow_type = _dependency(
         deps, "_normalize_workflow_type", _normalize_workflow_type
     )
 
-    workflow_type_text = normalize_text(getattr(args, "workflow_type", None))
+    workflow_type_text = normalize(getattr(args, "workflow_type", None))
     if not workflow_type_text:
-        workflow_type_text = normalize_text(manifest.get("workflow_type"))
+        workflow_type_text = normalize(manifest.get("workflow_type"))
     if workflow_type_text:
         return normalize_workflow_type(workflow_type_text)
     if workflow_layout.is_ambiguous:
@@ -204,13 +205,4 @@ def _load_run_dir_workflow_config(
 
 __all__ = [
     "WORKFLOW_MANIFEST_FILENAMES",
-    "_load_run_dir_manifest",
-    "_load_run_dir_workflow_config",
-    "_manifest_mapping",
-    "_resolve_endpoint_pairing_manifest",
-    "_resolve_engine_manifest",
-    "_resolve_manifest_file_value",
-    "_resolve_run_dir_manifest_sections",
-    "_resolve_run_dir_path",
-    "_resolve_run_dir_workflow_type",
 ]

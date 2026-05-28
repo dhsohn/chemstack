@@ -7,44 +7,14 @@ from chemstack.core.indexing import engines as _engine_locations
 
 from .state import load_organized_ref, load_report_json, load_state
 
-_APP_NAME = "chemstack_xtb"
-_ENGINE = "xtb"
-_UNKNOWN_KEY = "unknown_key"
-_LOCATION_SPEC = _engine_locations.EngineLocationSpec(
-    app_name=_APP_NAME,
-    job_type_from_payload=lambda job_type: job_type_identifier(job_type),
-    default_molecule_key=lambda original_run_dir, _selected: reaction_key_from_job_dir(original_run_dir),
-    payload_kind_key="job_type",
-    payload_kind_default="path_search",
-    molecule_key_name="reaction_key",
-)
-_LOCATION_API = build_store_backed_engine_job_location_api(
-    engine=_ENGINE,
-    spec=_LOCATION_SPEC,
-    load_state_fn=load_state,
-    load_report_json_fn=load_report_json,
-    load_organized_ref_fn=load_organized_ref,
-    payload_kind_kwarg="job_type",
-    molecule_key_kwarg="reaction_key",
-    default_payload_kind_kwarg="default_job_type",
-)
-_LOCATION_SERVICE = _LOCATION_API.service
-
-_normalize_text = _engine_locations.normalize_text
-index_root_for_cfg = _LOCATION_SERVICE.index_root_for_cfg
-runtime_roots_for_cfg = _LOCATION_SERVICE.runtime_roots_for_cfg
-index_root_for_path = _LOCATION_SERVICE.index_root_for_path
-list_job_records_for_cfg = _LOCATION_API.list_job_records_for_cfg
-resolve_job_location_for_cfg = _LOCATION_API.resolve_job_location_for_cfg
-
 
 def job_type_identifier(job_type: str) -> str:
-    normalized = _normalize_text(job_type).lower() or "unknown"
+    normalized = _engine_locations.normalize_text(job_type).lower() or "unknown"
     return f"xtb_{normalized}"
 
 
 def normalize_key(value: str) -> str:
-    return _engine_locations.normalize_identifier(value, default=_UNKNOWN_KEY)
+    return _engine_locations.normalize_identifier(value, default="unknown_key")
 
 
 def reaction_key_from_job_dir(job_dir: Path) -> str:
@@ -52,13 +22,39 @@ def reaction_key_from_job_dir(job_dir: Path) -> str:
 
 
 def reaction_key_from_selected_xyz(selected_input_xyz: str, job_dir: Path) -> str:
-    raw = _normalize_text(selected_input_xyz)
+    raw = _engine_locations.normalize_text(selected_input_xyz)
     if raw:
         stem = Path(raw).stem.strip()
         if stem and stem.lower() not in {"r1", "reactant", "input"}:
             return normalize_key(stem)
     return reaction_key_from_job_dir(job_dir)
 
+
+_LOCATION_API = build_store_backed_engine_job_location_api(
+    engine="xtb",
+    spec=_engine_locations.EngineLocationSpec(
+        app_name="chemstack_xtb",
+        job_type_from_payload=job_type_identifier,
+        default_molecule_key=lambda original_run_dir, _selected: reaction_key_from_job_dir(
+            original_run_dir
+        ),
+        payload_kind_key="job_type",
+        payload_kind_default="path_search",
+        molecule_key_name="reaction_key",
+    ),
+    load_state_fn=load_state,
+    load_report_json_fn=load_report_json,
+    load_organized_ref_fn=load_organized_ref,
+    payload_kind_kwarg="job_type",
+    molecule_key_kwarg="reaction_key",
+    default_payload_kind_kwarg="default_job_type",
+)
+
+index_root_for_cfg = _LOCATION_API.service.index_root_for_cfg
+runtime_roots_for_cfg = _LOCATION_API.service.runtime_roots_for_cfg
+index_root_for_path = _LOCATION_API.service.index_root_for_path
+list_job_records_for_cfg = _LOCATION_API.list_job_records_for_cfg
+resolve_job_location_for_cfg = _LOCATION_API.resolve_job_location_for_cfg
 
 build_job_location_record = _LOCATION_API.build_job_location_record
 upsert_job_record = _LOCATION_API.upsert_job_record

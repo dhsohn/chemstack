@@ -7,7 +7,10 @@ from chemstack.core.commands.run_dir import (
     EngineRunDirSubmission,
     record_queued_common,
 )
-from chemstack.core.config.engines import load_xtb_config as load_config
+from chemstack.core.config.engines import (
+    load_xtb_config as load_config,
+    resource_request_from_manifest,
+)
 from chemstack.core.notifications.engines import notify_xtb_job_queued as notify_job_queued
 from chemstack.core.queue import enqueue
 
@@ -19,7 +22,6 @@ from .job_inputs import (
     queued_state_payload,
     resolve_job_dir,
     resolve_job_inputs,
-    resource_request_from_manifest,
 )
 
 __all__ = [

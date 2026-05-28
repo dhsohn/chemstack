@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 
-from chemstack.flow.adapters import crest as crest_adapter
+from chemstack.flow.adapters import _engine_adapter_helpers as adapter_helpers
 from chemstack.flow.adapters.crest import load_crest_artifact_contract, select_crest_downstream_inputs
 from chemstack.flow.contracts.crest import CrestDownstreamPolicy
 from chemstack.flow.state import (
@@ -562,13 +562,13 @@ def test_crest_artifact_helpers_cover_empty_missing_and_oserror_paths(
                 raise OSError("boom")
             return Path(self.raw)
 
-    monkeypatch.setattr(crest_adapter, "Path", FakePath)
+    path_factory = FakePath
 
-    roots = crest_adapter._artifact_roots(job_dir, "bad-path")
+    roots = adapter_helpers.artifact_roots(job_dir, "bad-path", path_factory=path_factory)
 
     assert roots == (job_dir.resolve(),)
-    assert crest_adapter._resolve_artifact_path("", roots=roots) == ""
-    assert crest_adapter._resolve_artifact_path("bad-path", roots=roots) == "bad-path"
-    assert crest_adapter._resolve_artifact_path(str(tmp_path / "missing.xyz"), roots=roots) == str(
+    assert adapter_helpers.resolve_artifact_path("", roots=roots) == ""
+    assert adapter_helpers.resolve_artifact_path("bad-path", roots=roots, path_factory=path_factory) == "bad-path"
+    assert adapter_helpers.resolve_artifact_path(str(tmp_path / "missing.xyz"), roots=roots) == str(
         (tmp_path / "missing.xyz").resolve()
     )

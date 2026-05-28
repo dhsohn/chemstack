@@ -9,7 +9,11 @@ import pytest
 
 from chemstack.core.indexing import JobLocationRecord
 
-from chemstack.flow.adapters import _orca_tracking, orca as orca_adapter
+from chemstack.flow.adapters import (
+    _orca_local_lookup,
+    _orca_tracking,
+    orca as orca_adapter,
+)
 
 
 def _write_json(path: Path, payload: object) -> None:
@@ -52,9 +56,11 @@ def test_tracked_artifact_context_skips_invalid_results_and_uses_later_target(
         load_job_artifact_context,
     )
 
-    job_dir, tracked_record, state, report, organized_ref = orca_adapter._tracked_artifact_context(
-        index_root=tmp_path / "orca_runs",
-        targets=("raise", "invalid", "good"),
+    job_dir, tracked_record, state, report, organized_ref = (
+        _orca_tracking.tracked_artifact_context_impl(
+            index_root=tmp_path / "orca_runs",
+            targets=("raise", "invalid", "good"),
+        )
     )
 
     assert job_dir == artifact_dir.resolve()
@@ -84,7 +90,7 @@ def test_tracked_contract_payload_rejects_invalid_returns(
     )
 
     assert (
-        orca_adapter._tracked_contract_payload(
+        _orca_tracking.load_orca_contract_payload_impl(
             index_root=tmp_path / "orca_runs",
             organized_root=tmp_path / "orca_outputs",
             target="job_invalid_payload",
@@ -118,7 +124,7 @@ def test_find_queue_entry_matches_reaction_dir_from_file_target(tmp_path: Path) 
         ],
     )
 
-    entry = orca_adapter._find_queue_entry(
+    entry = _orca_local_lookup.find_queue_entry_impl(
         allowed_root=allowed_root,
         target=str(inp),
         queue_id="",
@@ -143,7 +149,7 @@ def test_find_organized_record_and_dir_resolution_support_file_targets(tmp_path:
     }
     _write_jsonl(organized_root / "index" / "records.jsonl", [record])
 
-    found = orca_adapter._find_organized_record(
+    found = _orca_local_lookup.find_organized_record_impl(
         organized_root=organized_root,
         target=str(inp),
         run_id="",
@@ -151,9 +157,11 @@ def test_find_organized_record_and_dir_resolution_support_file_targets(tmp_path:
     )
 
     assert found == record
-    assert orca_adapter._organized_dir_from_record(organized_root, found) == organized_dir.resolve()
+    assert _orca_local_lookup.organized_dir_from_record_impl(
+        organized_root, found
+    ) == organized_dir.resolve()
     assert (
-        orca_adapter._organized_dir_from_record(
+        _orca_local_lookup.organized_dir_from_record_impl(
             organized_root,
             {
                 "reaction_dir": str(organized_dir),
@@ -187,8 +195,8 @@ def test_load_tracked_organized_ref_reads_stub_only_when_current_dir_differs(
         original_run_dir=str(stub_dir),
     )
 
-    assert orca_adapter._load_tracked_organized_ref(record, organized_dir) == payload
-    assert orca_adapter._load_tracked_organized_ref(record, stub_dir) == {}
+    assert _orca_local_lookup.load_tracked_organized_ref_impl(record, organized_dir) == payload
+    assert _orca_local_lookup.load_tracked_organized_ref_impl(record, stub_dir) == {}
 
 
 def test_load_orca_artifact_contract_uses_runtime_context_fast_path(
@@ -269,29 +277,29 @@ def test_load_orca_artifact_contract_uses_runtime_context_fast_path(
         ),
     )
     monkeypatch.setattr(
-        orca_adapter,
-        "_resolve_job_dir",
+        _orca_local_lookup,
+        "resolve_job_dir_impl",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(
             AssertionError("job-dir fallback should not run")
         ),
     )
     monkeypatch.setattr(
-        orca_adapter,
-        "_find_queue_entry",
+        _orca_local_lookup,
+        "find_queue_entry_impl",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(
             AssertionError("queue fallback should not run")
         ),
     )
     monkeypatch.setattr(
-        orca_adapter,
-        "_tracked_artifact_context",
+        _orca_tracking,
+        "tracked_artifact_context_impl",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(
             AssertionError("artifact-context fallback should not run")
         ),
     )
     monkeypatch.setattr(
-        orca_adapter,
-        "_find_organized_record",
+        _orca_local_lookup,
+        "find_organized_record_impl",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(
             AssertionError("organized-record fallback should not run")
         ),
@@ -379,7 +387,7 @@ def test_load_orca_artifact_contract_falls_back_from_invalid_runtime_context_to_
         ),
     )
     monkeypatch.setattr(
-        orca_adapter,
+        _orca_local_lookup,
         "resolve_job_location",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("skip index")),
     )

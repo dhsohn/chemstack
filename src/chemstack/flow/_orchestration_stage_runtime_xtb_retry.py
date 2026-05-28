@@ -128,7 +128,6 @@ def _xtb_path_job_dir(xtb_allowed_root: Path, stage_id: str, attempt_number: int
 
 
 __all__ = [
-    "_xtb_path_job_dir",
     "xtb_attempt_record_impl",
     "xtb_attempt_rows_impl",
     "xtb_current_attempt_number_impl",

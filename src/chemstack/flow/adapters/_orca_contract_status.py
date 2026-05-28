@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any, Callable, Protocol
+
+
+class SafeIntFn(Protocol):
+    def __call__(self, value: Any, *, default: int = 0) -> int: ...
 
 
 @dataclass(frozen=True)
@@ -16,9 +20,9 @@ def attempt_count_impl(
     state: dict[str, Any],
     report: dict[str, Any],
     *,
-    safe_int_fn: Callable[[Any, int], int],
+    safe_int_fn: SafeIntFn,
 ) -> int:
-    report_count = safe_int_fn(report.get("attempt_count"), -1)
+    report_count = safe_int_fn(report.get("attempt_count"), default=-1)
     if report_count >= 0:
         return report_count
     attempts = state.get("attempts")
@@ -31,12 +35,12 @@ def max_retries_impl(
     state: dict[str, Any],
     report: dict[str, Any],
     *,
-    safe_int_fn: Callable[[Any, int], int],
+    safe_int_fn: SafeIntFn,
 ) -> int:
-    report_value = safe_int_fn(report.get("max_retries"), -1)
+    report_value = safe_int_fn(report.get("max_retries"), default=-1)
     if report_value >= 0:
         return report_value
-    return safe_int_fn(state.get("max_retries"), 0)
+    return safe_int_fn(state.get("max_retries"), default=0)
 
 
 def coerce_attempts_impl(
@@ -44,7 +48,7 @@ def coerce_attempts_impl(
     report: dict[str, Any],
     *,
     normalize_text_fn: Callable[[Any], str],
-    safe_int_fn: Callable[[Any, int], int],
+    safe_int_fn: SafeIntFn,
 ) -> tuple[dict[str, Any], ...]:
     raw_attempts = report.get("attempts")
     if not isinstance(raw_attempts, list):
@@ -56,7 +60,7 @@ def coerce_attempts_impl(
     for raw in raw_attempts:
         if not isinstance(raw, dict):
             continue
-        index = safe_int_fn(raw.get("index"), 0)
+        index = safe_int_fn(raw.get("index"), default=0)
         attempt_number = max(0, index - 1) if index > 0 else 0
         attempts.append(
             {
@@ -64,7 +68,7 @@ def coerce_attempts_impl(
                 "attempt_number": attempt_number,
                 "inp_path": normalize_text_fn(raw.get("inp_path")),
                 "out_path": normalize_text_fn(raw.get("out_path")),
-                "return_code": safe_int_fn(raw.get("return_code"), 0),
+                "return_code": safe_int_fn(raw.get("return_code"), default=0),
                 "analyzer_status": normalize_text_fn(raw.get("analyzer_status")),
                 "analyzer_reason": normalize_text_fn(raw.get("analyzer_reason")),
                 "markers": list(raw["markers"]) if isinstance(raw.get("markers"), list) else [],

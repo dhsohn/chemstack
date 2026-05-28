@@ -4,12 +4,12 @@ import json
 from pathlib import Path
 from typing import Any
 
-from chemstack.core.indexing import JobLocationRecord
+from chemstack.core.indexing import JobLocationRecord, resolve_job_location
 from chemstack.core.queue.metadata import (
     mapping_metadata as queue_entry_metadata_impl,
     mapping_metadata_value as queue_entry_metadata_value_impl,
 )
-from chemstack.core.utils.coercion import normalize_text as _normalize_text
+from chemstack.core.utils.coercion import normalize_text
 
 from ._orca_path_helpers import direct_dir_target_impl, resolve_candidate_path_impl
 
@@ -68,7 +68,7 @@ def load_jsonl_records_impl(path: Path) -> JsonPayloadList:
 def _record_candidate_dirs(record: JobLocationRecord) -> list[Path]:
     rows: list[Path] = []
     for value in (record.latest_known_path, record.organized_output_dir, record.original_run_dir):
-        raw = _normalize_text(value)
+        raw = normalize_text(value)
         if not raw:
             continue
         try:
@@ -81,10 +81,8 @@ def _record_candidate_dirs(record: JobLocationRecord) -> list[Path]:
 def _resolve_record_for_target(index_root: Path | None, target: str) -> JobLocationRecord | None:
     if index_root is None:
         return None
-    from . import orca as o
-
     try:
-        return o.resolve_job_location(index_root, target)
+        return resolve_job_location(index_root, target)
     except Exception:
         return None
 
@@ -116,11 +114,11 @@ def _queue_entry_matches(
     direct_target: Path | None,
     resolved_reaction_dir: Path | None,
 ) -> bool:
-    entry_queue_id = _normalize_text(entry.get("queue_id"))
-    entry_task_id = _normalize_text(entry.get("task_id"))
-    entry_run_id = _normalize_text(queue_entry_metadata_value_impl(entry, "run_id"))
+    entry_queue_id = normalize_text(entry.get("queue_id"))
+    entry_task_id = normalize_text(entry.get("task_id"))
+    entry_run_id = normalize_text(queue_entry_metadata_value_impl(entry, "run_id"))
     entry_reaction_dir = resolve_candidate_path_impl(
-        _normalize_text(queue_entry_metadata_value_impl(entry, "reaction_dir"))
+        normalize_text(queue_entry_metadata_value_impl(entry, "reaction_dir"))
     )
 
     return (
@@ -165,13 +163,13 @@ def find_queue_entry_impl(
 
 
 def _organized_record_dir(organized_root: Path, record: JsonPayload) -> Path | None:
-    reaction_dir_text = _normalize_text(record.get("reaction_dir"))
+    reaction_dir_text = normalize_text(record.get("reaction_dir"))
     if reaction_dir_text:
         try:
             return Path(reaction_dir_text).expanduser().resolve()
         except OSError:
             pass
-    organized_path = _normalize_text(record.get("organized_path"))
+    organized_path = normalize_text(record.get("organized_path"))
     if organized_path:
         try:
             return (organized_root / organized_path).expanduser().resolve()
@@ -189,7 +187,7 @@ def _organized_record_matches(
     resolved_reaction_dir: Path | None,
     record_dir: Path | None,
 ) -> bool:
-    record_run_id = _normalize_text(record.get("run_id"))
+    record_run_id = normalize_text(record.get("run_id"))
     return (
         (bool(run_id) and record_run_id == run_id)
         or (bool(target) and record_run_id == target)
@@ -233,7 +231,7 @@ def organized_dir_from_record_impl(
 ) -> Path | None:
     if record is None:
         return None
-    reaction_dir_text = _normalize_text(record.get("reaction_dir"))
+    reaction_dir_text = normalize_text(record.get("reaction_dir"))
     if reaction_dir_text:
         try:
             candidate = Path(reaction_dir_text).expanduser().resolve()
@@ -241,7 +239,7 @@ def organized_dir_from_record_impl(
             candidate = None
         if candidate is not None:
             return candidate
-    organized_path = _normalize_text(record.get("organized_path"))
+    organized_path = normalize_text(record.get("organized_path"))
     if organized_root is None or not organized_path:
         return None
     try:
@@ -254,7 +252,7 @@ def record_organized_dir_impl(record: JobLocationRecord | None) -> Path | None:
     if record is None:
         return None
     for value in (record.latest_known_path, record.organized_output_dir):
-        raw = _normalize_text(value)
+        raw = normalize_text(value)
         if not raw:
             continue
         try:
@@ -271,7 +269,7 @@ def load_tracked_organized_ref_impl(
 ) -> JsonPayload:
     if record is None:
         return {}
-    original_run_dir = _normalize_text(record.original_run_dir)
+    original_run_dir = normalize_text(record.original_run_dir)
     if not original_run_dir:
         return {}
     try:

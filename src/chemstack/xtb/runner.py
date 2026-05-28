@@ -12,7 +12,10 @@ from typing import Any, Callable, TextIO
 import yaml
 
 from chemstack.core import engine_runner as _engine_runner
-from chemstack.core.config.engines import WorkflowEngineAppConfig as AppConfig
+from chemstack.core.config.engines import (
+    WorkflowEngineAppConfig as AppConfig,
+    resource_request_from_manifest,
+)
 from chemstack.core.engine_process import start_logged_process
 from chemstack.core.utils import now_utc_iso
 from chemstack.core.utils import process as process_utils
@@ -21,7 +24,6 @@ from .job_inputs import (
     MANIFEST_FILE_NAME,
     load_job_manifest,
     resolve_job_inputs,
-    resource_request_from_manifest,
 )
 from . import runner_ranking as _runner_ranking
 from .runner_artifacts import (
@@ -83,35 +85,15 @@ def _resolve_xtb_executable(cfg: AppConfig) -> str:
     )
 
 
-def _resource_request_dict(cfg: AppConfig, manifest: dict[str, Any]) -> dict[str, int]:
-    return resource_request_from_manifest(cfg, manifest)
-
-
-def _resource_actual_dict(resource_request: dict[str, int]) -> dict[str, int]:
-    return _engine_runner.resource_actual_dict(resource_request)
-
-
-def _bool_flag(manifest: dict[str, Any], key: str) -> bool:
-    return _engine_runner.bool_flag(manifest, key)
-
-
-def _manifest_int(manifest: dict[str, Any], key: str) -> int | None:
-    return _engine_runner.manifest_int(manifest, key)
-
-
 def _append_xtb_scalar_options(command: list[str], manifest: dict[str, Any]) -> None:
     gfn = str(manifest.get("gfn", "2")).strip()
     if gfn:
         command.extend(["--gfn", gfn])
 
     for manifest_key, option in (("charge", "--chrg"), ("uhf", "--uhf")):
-        value = _manifest_int(manifest, manifest_key)
+        value = _engine_runner.manifest_int(manifest, manifest_key)
         if value is not None:
             command.extend([option, str(value)])
-
-
-def _append_xtb_solvent_option(command: list[str], manifest: dict[str, Any]) -> None:
-    _engine_runner.append_solvent_option(command, manifest)
 
 
 def _append_xtb_optional_text_options(command: list[str], manifest: dict[str, Any]) -> None:
@@ -154,7 +136,7 @@ def _build_command(
     secondary_input_xyz: Path | None,
     job_type: str,
 ) -> list[str]:
-    resource_request = _resource_request_dict(cfg, manifest)
+    resource_request = resource_request_from_manifest(cfg, manifest)
     command = [
         _resolve_xtb_executable(cfg),
         str(selected_input_xyz),
@@ -164,7 +146,7 @@ def _build_command(
     ]
 
     _append_xtb_scalar_options(command, manifest)
-    _append_xtb_solvent_option(command, manifest)
+    _engine_runner.append_solvent_option(command, manifest)
     _append_xtb_optional_text_options(command, manifest)
     _append_xtb_job_type_options(
         command,
@@ -173,7 +155,7 @@ def _build_command(
         job_type=job_type,
     )
 
-    if _bool_flag(manifest, "dry_run"):
+    if _engine_runner.bool_flag(manifest, "dry_run"):
         command.append("--define")
 
     return command
@@ -260,8 +242,8 @@ def _request_candidate_process_stop(
 def _ranking_deps() -> _runner_ranking.RankingDeps:
     return _runner_ranking.RankingDeps(
         now_utc_iso=now_utc_iso,
-        resource_request_dict=_resource_request_dict,
-        resource_actual_dict=_resource_actual_dict,
+        resource_request_dict=resource_request_from_manifest,
+        resource_actual_dict=_engine_runner.resource_actual_dict,
         run_candidate_sp_job=_run_candidate_sp_job,
         extract_sp_energy=_extract_sp_energy,
         result_cls=XtbRunResult,
@@ -300,8 +282,8 @@ def _preexec_with_limits(max_memory_gb: int):
 
 def start_xtb_job(cfg: AppConfig, *, job_dir: Path, selected_input_xyz: Path) -> XtbRunningJob:
     manifest = load_job_manifest(job_dir)
-    resource_request = _resource_request_dict(cfg, manifest)
-    resource_actual = _resource_actual_dict(resource_request)
+    resource_request = resource_request_from_manifest(cfg, manifest)
+    resource_actual = _engine_runner.resource_actual_dict(resource_request)
     inputs = resolve_job_inputs(job_dir, manifest)
     secondary_raw = inputs.get("secondary_input_xyz")
     secondary_input_xyz = None

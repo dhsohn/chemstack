@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -10,21 +11,20 @@ from chemstack.core.paths import (
     resolved_path_text,
     safe_is_subpath,
 )
+from chemstack.core.utils.coercion import normalize_text
 
 
-def _orca_module():
-    from . import orca as o
-
-    return o
-
-
-def resolve_candidate_path_impl(path_text: Any) -> Path | None:
-    o = _orca_module()
-    raw = o._normalize_text(path_text)
+def resolve_candidate_path_impl(
+    path_text: Any,
+    *,
+    path_factory: Callable[[str], Any] | None = None,
+) -> Path | None:
+    raw = normalize_text(path_text)
     if not raw:
         return None
+    factory = path_factory or Path
     try:
-        candidate = o.Path(raw).expanduser()
+        candidate = factory(raw).expanduser()
     except OSError:
         return None
     try:
@@ -33,13 +33,17 @@ def resolve_candidate_path_impl(path_text: Any) -> Path | None:
         return None
 
 
-def direct_dir_target_impl(target: str) -> Path | None:
-    o = _orca_module()
-    raw = o._normalize_text(target)
+def direct_dir_target_impl(
+    target: str,
+    *,
+    path_factory: Callable[[str], Any] | None = None,
+) -> Path | None:
+    raw = normalize_text(target)
     if not raw:
         return None
+    factory = path_factory or Path
     try:
-        candidate = o.Path(raw).expanduser().resolve()
+        candidate = factory(raw).expanduser().resolve()
     except OSError:
         return None
     if not candidate.exists():
@@ -47,13 +51,18 @@ def direct_dir_target_impl(target: str) -> Path | None:
     return candidate.parent if candidate.is_file() else candidate
 
 
-def resolve_artifact_path_impl(path_value: Any, base_dir: Path | None) -> str:
-    o = _orca_module()
-    raw = o._normalize_text(path_value)
+def resolve_artifact_path_impl(
+    path_value: Any,
+    base_dir: Path | None,
+    *,
+    path_factory: Callable[[str], Any] | None = None,
+) -> str:
+    raw = normalize_text(path_value)
     if not raw:
         return ""
+    factory = path_factory or Path
     try:
-        candidate = o.Path(raw).expanduser()
+        candidate = factory(raw).expanduser()
     except OSError:
         return raw
     if candidate.is_absolute():
@@ -70,8 +79,7 @@ def resolve_artifact_path_impl(path_value: Any, base_dir: Path | None) -> str:
 
 
 def derive_selected_input_xyz_impl(selected_inp: str) -> str:
-    o = _orca_module()
-    inp_path = o._resolve_candidate_path(selected_inp)
+    inp_path = resolve_candidate_path_impl(selected_inp)
     if inp_path is None:
         return ""
     try:
@@ -86,7 +94,7 @@ def derive_selected_input_xyz_impl(selected_inp: str) -> str:
             continue
         parts = stripped.split()
         if len(parts) >= 5:
-            return o._resolve_artifact_path(parts[-1], inp_path.parent)
+            return resolve_artifact_path_impl(parts[-1], inp_path.parent)
     return ""
 
 
@@ -133,16 +141,15 @@ def prefer_orca_optimized_xyz_impl(
     latest_known_path: str,
     last_out_path: str,
 ) -> str:
-    o = _orca_module()
-    selected_inp_path = o._resolve_candidate_path(selected_inp)
-    selected_input_xyz_path = o._resolve_candidate_path(selected_input_xyz)
-    last_out = o._resolve_candidate_path(last_out_path)
+    selected_inp_path = resolve_candidate_path_impl(selected_inp)
+    selected_input_xyz_path = resolve_candidate_path_impl(selected_input_xyz)
+    last_out = resolve_candidate_path_impl(last_out_path)
 
-    search_dirs = o._iter_existing_dirs(
+    search_dirs = iter_existing_dirs_impl(
         _parent_if_present(selected_inp_path),
         current_dir,
         organized_dir,
-        _path_or_parent(o._resolve_candidate_path(latest_known_path)),
+        _path_or_parent(resolve_candidate_path_impl(latest_known_path)),
         _parent_if_present(last_out),
     )
     preferred_match = _first_existing_named_file(

@@ -6,40 +6,41 @@ from typing import cast
 
 import pytest
 
-from chemstack.flow.adapters import _orca_local_lookup, orca as orca_adapter
+from chemstack.core.utils.coercion import normalize_bool, safe_int
+from chemstack.flow.adapters import _orca_local_lookup, _orca_path_helpers
 
 
 def test_normalize_bool_and_safe_int_cover_string_and_default_paths() -> None:
-    assert orca_adapter._normalize_bool(True) is True
-    assert orca_adapter._normalize_bool(" yes ") is True
-    assert orca_adapter._normalize_bool("off") is False
+    assert normalize_bool(True) is True
+    assert normalize_bool(" yes ") is True
+    assert normalize_bool("off") is False
 
-    assert orca_adapter._safe_int("12") == 12
-    assert orca_adapter._safe_int("bad", default=7) == 7
-    assert orca_adapter._safe_int(None, default=9) == 9
+    assert safe_int("12") == 12
+    assert safe_int("bad", default=7) == 7
+    assert safe_int(None, default=9) == 9
 
 
 def test_load_json_dict_and_list_handle_missing_invalid_and_type_filtered_payloads(
     tmp_path: Path,
 ) -> None:
     missing = tmp_path / "missing.json"
-    assert orca_adapter._load_json_dict(missing) == {}
-    assert orca_adapter._load_json_list(missing) == []
+    assert _orca_local_lookup.load_json_dict_impl(missing) == {}
+    assert _orca_local_lookup.load_json_list_impl(missing) == []
 
     invalid = tmp_path / "invalid.json"
     invalid.write_text("{not-json", encoding="utf-8")
-    assert orca_adapter._load_json_dict(invalid) == {}
-    assert orca_adapter._load_json_list(invalid) == []
+    assert _orca_local_lookup.load_json_dict_impl(invalid) == {}
+    assert _orca_local_lookup.load_json_list_impl(invalid) == []
 
     wrong_type = tmp_path / "wrong-type.json"
     wrong_type.write_text(json.dumps(["x", {"ok": True}]), encoding="utf-8")
-    assert orca_adapter._load_json_dict(wrong_type) == {}
-    assert orca_adapter._load_json_list(wrong_type) == [{"ok": True}]
+    assert _orca_local_lookup.load_json_dict_impl(wrong_type) == {}
+    assert _orca_local_lookup.load_json_list_impl(wrong_type) == [{"ok": True}]
 
     dict_payload = tmp_path / "dict.json"
     dict_payload.write_text(json.dumps({"status": "ok"}), encoding="utf-8")
-    assert orca_adapter._load_json_dict(dict_payload) == {"status": "ok"}
-    assert orca_adapter._load_json_list(dict_payload) == []
+    assert _orca_local_lookup.load_json_dict_impl(dict_payload) == {"status": "ok"}
+    assert _orca_local_lookup.load_json_list_impl(dict_payload) == []
 
 
 def test_load_jsonl_records_skips_blank_invalid_and_non_dict_rows(
@@ -49,7 +50,7 @@ def test_load_jsonl_records_skips_blank_invalid_and_non_dict_rows(
     records_path.write_text(
         '\n{"queue_id":"q1"}\n42\nnot-json\n{"queue_id":"q2"}\n', encoding="utf-8"
     )
-    assert orca_adapter._load_jsonl_records(records_path) == [
+    assert _orca_local_lookup.load_jsonl_records_impl(records_path) == [
         {"queue_id": "q1"},
         {"queue_id": "q2"},
     ]
@@ -61,7 +62,7 @@ def test_load_jsonl_records_skips_blank_invalid_and_non_dict_rows(
         def read_text(self, encoding: str = "utf-8") -> str:
             raise OSError("boom")
 
-    assert orca_adapter._load_jsonl_records(cast(Path, _BrokenPath())) == []
+    assert _orca_local_lookup.load_jsonl_records_impl(cast(Path, _BrokenPath())) == []
 
     monkeypatch.setattr(
         _orca_local_lookup,
@@ -75,7 +76,7 @@ def test_load_jsonl_records_skips_blank_invalid_and_non_dict_rows(
             },
         )(),
     )
-    assert orca_adapter._load_jsonl_records(records_path) == [
+    assert _orca_local_lookup.load_jsonl_records_impl(records_path) == [
         {"queue_id": "q1"},
         {"queue_id": "q2"},
     ]
@@ -87,16 +88,16 @@ def test_resolve_candidate_path_and_direct_dir_target_cover_existing_and_oserror
 ) -> None:
     xyz_path = tmp_path / "candidate.xyz"
     xyz_path.write_text("2\ncomment\nH 0 0 0\nH 0 0 0.7\n", encoding="utf-8")
-    assert orca_adapter._resolve_candidate_path(str(xyz_path)) == xyz_path.resolve()
-    assert orca_adapter._resolve_candidate_path("   ") is None
-    assert orca_adapter._direct_dir_target(str(xyz_path)) == xyz_path.parent.resolve()
-    assert orca_adapter._direct_dir_target(str(tmp_path)) == tmp_path.resolve()
-    assert orca_adapter._direct_dir_target(str(tmp_path / "missing")) is None
+    assert _orca_path_helpers.resolve_candidate_path_impl(str(xyz_path)) == xyz_path.resolve()
+    assert _orca_path_helpers.resolve_candidate_path_impl("   ") is None
+    assert _orca_path_helpers.direct_dir_target_impl(str(xyz_path)) == xyz_path.parent.resolve()
+    assert _orca_path_helpers.direct_dir_target_impl(str(tmp_path)) == tmp_path.resolve()
+    assert _orca_path_helpers.direct_dir_target_impl(str(tmp_path / "missing")) is None
 
     class _ExpandUserBroken:
         def expanduser(self) -> "_ExpandUserBroken":
             raise OSError("bad path")
 
-    monkeypatch.setattr(orca_adapter, "Path", lambda raw: _ExpandUserBroken())
-    assert orca_adapter._resolve_candidate_path("/tmp/ignored") is None
-    assert orca_adapter._direct_dir_target("/tmp/ignored") is None
+    monkeypatch.setattr(_orca_path_helpers, "Path", lambda raw: _ExpandUserBroken())
+    assert _orca_path_helpers.resolve_candidate_path_impl("/tmp/ignored") is None
+    assert _orca_path_helpers.direct_dir_target_impl("/tmp/ignored") is None

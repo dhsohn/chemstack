@@ -134,15 +134,11 @@ def write_worker_pid_file(allowed_root: Path | str, file_name: str = "queue_work
 
 
 def remove_worker_pid_file(allowed_root: Path | str, file_name: str = "queue_worker.pid") -> None:
-    _remove_pid_file(worker_pid_file_path(allowed_root, file_name))
+    process_utils.remove_file_silent(worker_pid_file_path(allowed_root, file_name))
 
 
 def read_worker_pid_file(allowed_root: Path | str, file_name: str = "queue_worker.pid") -> int | None:
     return read_live_pid_file(worker_pid_file_path(allowed_root, file_name))
-
-
-def _remove_pid_file(pid_path: Path) -> None:
-    process_utils.remove_file_silent(pid_path)
 
 
 def read_live_pid_file(pid_path: Path) -> int | None:
@@ -150,7 +146,7 @@ def read_live_pid_file(pid_path: Path) -> int | None:
         pid_path,
         is_process_alive_fn=pid_is_alive,
         process_start_ticks_fn=_process_start_ticks,
-        remove_file_fn=_remove_pid_file,
+        remove_file_fn=process_utils.remove_file_silent,
     )
 
 
@@ -158,7 +154,6 @@ __all__ = [
     "ManagedProcess",
     "ProcessGroupTerminationDeps",
     "ShutdownSignalDeps",
-    "_remove_pid_file",
     "current_worker_pid_payload",
     "install_shutdown_signal_handlers",
     "pid_is_alive",

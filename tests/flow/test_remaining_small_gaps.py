@@ -7,12 +7,14 @@ from types import SimpleNamespace
 
 import pytest
 
+from chemstack.core.indexing import JobLocationRecord
+from chemstack.core.utils.coercion import normalize_text
 from chemstack.flow import _registry_notifications as registry_notifications
 from chemstack.flow import cli_workflow, registry, xyz_utils
-from chemstack.flow.adapters import crest as crest_adapter
+from chemstack.flow.adapters import _engine_adapter_helpers as adapter_helpers
+from chemstack.flow.adapters import _orca_local_lookup, _orca_path_helpers, _orca_tracking
 from chemstack.flow.adapters import orca as orca_adapter
 from chemstack.flow.adapters import xtb as xtb_adapter
-from chemstack.flow.contracts import orca as orca_contracts
 from chemstack.flow.contracts.xtb import XtbArtifactContract, XtbCandidateArtifact, XtbDownstreamPolicy
 from chemstack.flow.submitters import common
 
@@ -22,10 +24,8 @@ def _write_json(path: Path, payload: object) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=True, indent=2), encoding="utf-8")
 
 
-def test_crest_and_xtb_resolve_job_dir_edge_branches(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
+@pytest.mark.parametrize("missing_label", ["CREST", "xTB"])
+def test_resolve_indexed_job_dir_edge_branches(tmp_path: Path, missing_label: str) -> None:
     valid_dir = tmp_path / "valid"
     valid_dir.mkdir()
 
@@ -41,32 +41,43 @@ def test_crest_and_xtb_resolve_job_dir_edge_branches(
                 raise OSError("bad")
             return Path(self.raw).resolve()
 
-    record = SimpleNamespace(latest_known_path="bad", organized_output_dir=str(valid_dir), original_run_dir="")
-    monkeypatch.setattr(crest_adapter, "resolve_job_location", lambda index_root, target: record)
-    monkeypatch.setattr(crest_adapter, "Path", _PathProxy)
-    resolved_dir, resolved_record = crest_adapter._resolve_job_dir(tmp_path, "job_1")
+    record = JobLocationRecord(
+        job_id="job_1",
+        app_name="chemstack_test",
+        job_type="test",
+        status="running",
+        original_run_dir="",
+        organized_output_dir=str(valid_dir),
+        latest_known_path="bad",
+    )
+    resolved_dir, resolved_record = adapter_helpers.resolve_indexed_job_dir(
+        tmp_path,
+        "job_1",
+        resolve_job_location_fn=lambda index_root, target: record,
+        direct_path_target_fn=lambda raw: adapter_helpers.direct_dir_target(
+            raw, path_factory=_PathProxy
+        ),
+        missing_label=missing_label,
+        path_factory=_PathProxy,
+    )
     assert resolved_dir == valid_dir.resolve()
     assert resolved_record is record
 
-    monkeypatch.setattr(crest_adapter, "resolve_job_location", lambda index_root, target: None)
-    monkeypatch.setattr(crest_adapter, "_direct_path_target", lambda target: None)
-    with pytest.raises(FileNotFoundError, match="CREST job directory not found"):
-        crest_adapter._resolve_job_dir(tmp_path, "missing")
-
-    monkeypatch.setattr(xtb_adapter, "resolve_job_location", lambda index_root, target: record)
-    monkeypatch.setattr(xtb_adapter, "Path", _PathProxy)
-    resolved_dir, resolved_record = xtb_adapter._resolve_job_dir(tmp_path, "job_2")
-    assert resolved_dir == valid_dir.resolve()
-    assert resolved_record is record
+    with pytest.raises(FileNotFoundError, match=f"{missing_label} job directory not found"):
+        adapter_helpers.resolve_indexed_job_dir(
+            tmp_path,
+            "missing",
+            resolve_job_location_fn=lambda index_root, target: None,
+            direct_path_target_fn=lambda raw: adapter_helpers.direct_dir_target(
+                raw, path_factory=_PathProxy
+            ),
+            missing_label=missing_label,
+            path_factory=_PathProxy,
+        )
 
     bad_json = tmp_path / "bad.json"
     bad_json.write_text("{broken", encoding="utf-8")
-    assert xtb_adapter._load_json_dict(bad_json) == {}
-
-    monkeypatch.setattr(xtb_adapter, "resolve_job_location", lambda index_root, target: None)
-    monkeypatch.setattr(xtb_adapter, "_direct_path_target", lambda target: None)
-    with pytest.raises(FileNotFoundError, match="xTB job directory not found"):
-        xtb_adapter._resolve_job_dir(tmp_path, "missing")
+    assert adapter_helpers.load_json_dict(bad_json) == {}
 
     contract = XtbArtifactContract(
         job_id="xtb_job",
@@ -245,7 +256,7 @@ def test_cli_json_paths_worker_sleep_and_common_workflow_id_helpers(
     ) == 0
     assert slept == [0.1]
 
-    assert orca_contracts._normalize_text(None) == "None"
+    assert normalize_text(None, none="None") == "None"
 
 
 def test_sibling_config_common_and_xyz_tail_branches(
@@ -271,13 +282,17 @@ def test_load_orca_artifact_contract_falls_back_to_plain_target_when_no_path_res
     allowed_root = tmp_path / "orca_runs"
     queue_dir = allowed_root / "queued_only"
 
-    monkeypatch.setattr(orca_adapter, "_tracked_contract_payload", lambda **kwargs: None)
-    monkeypatch.setattr(orca_adapter, "_tracked_runtime_context", lambda **kwargs: None)
-    monkeypatch.setattr(orca_adapter, "_tracked_artifact_context", lambda **kwargs: (None, None, {}, {}, {}))
-    monkeypatch.setattr(orca_adapter, "_resolve_job_dir", lambda *_args, **_kwargs: (None, None))
+    monkeypatch.setattr(_orca_tracking, "load_orca_contract_payload_impl", lambda **kwargs: None)
+    monkeypatch.setattr(_orca_tracking, "tracked_runtime_context_impl", lambda **kwargs: None)
     monkeypatch.setattr(
-        orca_adapter,
-        "_find_queue_entry",
+        _orca_tracking,
+        "tracked_artifact_context_impl",
+        lambda **kwargs: (None, None, {}, {}, {}),
+    )
+    monkeypatch.setattr(_orca_local_lookup, "resolve_job_dir_impl", lambda *_args, **_kwargs: (None, None))
+    monkeypatch.setattr(
+        _orca_local_lookup,
+        "find_queue_entry_impl",
         lambda **kwargs: {
             "queue_id": "q_01",
             "task_id": "job_01",
@@ -285,13 +300,19 @@ def test_load_orca_artifact_contract_falls_back_to_plain_target_when_no_path_res
             "status": "queued",
         },
     )
-    monkeypatch.setattr(orca_adapter, "_resolve_candidate_path", lambda raw: None)
-    monkeypatch.setattr(orca_adapter, "_direct_dir_target", lambda target: None)
-    monkeypatch.setattr(orca_adapter, "_find_organized_record", lambda **kwargs: None)
-    monkeypatch.setattr(orca_adapter, "_record_organized_dir", lambda record: None)
-    monkeypatch.setattr(orca_adapter, "_organized_dir_from_record", lambda organized_root, record: None)
-    monkeypatch.setattr(orca_adapter, "_load_json_dict", lambda path: {})
-    monkeypatch.setattr(orca_adapter, "_load_tracked_organized_ref", lambda tracked_record, current_dir: {})
+    monkeypatch.setattr(_orca_path_helpers, "resolve_candidate_path_impl", lambda raw: None)
+    monkeypatch.setattr(_orca_path_helpers, "direct_dir_target_impl", lambda target: None)
+    monkeypatch.setattr(_orca_local_lookup, "find_organized_record_impl", lambda **kwargs: None)
+    monkeypatch.setattr(_orca_local_lookup, "record_organized_dir_impl", lambda record: None)
+    monkeypatch.setattr(
+        _orca_local_lookup, "organized_dir_from_record_impl", lambda organized_root, record: None
+    )
+    monkeypatch.setattr(_orca_local_lookup, "load_json_dict_impl", lambda path: {})
+    monkeypatch.setattr(
+        _orca_local_lookup,
+        "load_tracked_organized_ref_impl",
+        lambda tracked_record, current_dir: {},
+    )
 
     contract = orca_adapter.load_orca_artifact_contract(
         target="job_01",

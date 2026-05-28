@@ -9,8 +9,15 @@ import pytest
 
 
 from chemstack.core.indexing import JobLocationRecord
+from chemstack.core.utils.coercion import normalize_bool, normalize_text, safe_int
 
-from chemstack.flow.adapters import _orca_tracking, orca as orca_adapter
+from chemstack.flow.adapters import (
+    _orca_contract_status,
+    _orca_local_lookup,
+    _orca_path_helpers,
+    _orca_tracking,
+    orca as orca_adapter,
+)
 
 
 def _write_json(path: Path, payload: object) -> None:
@@ -40,9 +47,9 @@ def _write_xyz(path: Path, *, comment: str = "comment") -> None:
 
 
 def test_json_loader_helpers_handle_missing_invalid_and_filtered_inputs(tmp_path: Path) -> None:
-    assert orca_adapter._load_json_dict(tmp_path / "missing.json") == {}
-    assert orca_adapter._load_json_list(tmp_path / "missing_list.json") == []
-    assert orca_adapter._load_jsonl_records(tmp_path / "missing_records.jsonl") == []
+    assert _orca_local_lookup.load_json_dict_impl(tmp_path / "missing.json") == {}
+    assert _orca_local_lookup.load_json_list_impl(tmp_path / "missing_list.json") == []
+    assert _orca_local_lookup.load_jsonl_records_impl(tmp_path / "missing_records.jsonl") == []
 
     invalid_dict = tmp_path / "invalid_dict.json"
     invalid_list = tmp_path / "invalid_list.json"
@@ -61,12 +68,15 @@ def test_json_loader_helpers_handle_missing_invalid_and_filtered_inputs(tmp_path
         '\n{"run_id": "run_1"}\nnot-json\n["skip"]\n{"run_id": "run_2"}\n',
     )
 
-    assert orca_adapter._load_json_dict(invalid_dict) == {}
-    assert orca_adapter._load_json_dict(non_dict) == {}
-    assert orca_adapter._load_json_list(invalid_list) == []
-    assert orca_adapter._load_json_list(non_list) == []
-    assert orca_adapter._load_json_list(list_path) == [{"queue_id": "q1"}, {"queue_id": "q2"}]
-    assert orca_adapter._load_jsonl_records(jsonl_path) == [
+    assert _orca_local_lookup.load_json_dict_impl(invalid_dict) == {}
+    assert _orca_local_lookup.load_json_dict_impl(non_dict) == {}
+    assert _orca_local_lookup.load_json_list_impl(invalid_list) == []
+    assert _orca_local_lookup.load_json_list_impl(non_list) == []
+    assert _orca_local_lookup.load_json_list_impl(list_path) == [
+        {"queue_id": "q1"},
+        {"queue_id": "q2"},
+    ]
+    assert _orca_local_lookup.load_jsonl_records_impl(jsonl_path) == [
         {"run_id": "run_1"},
         {"run_id": "run_2"},
     ]
@@ -80,14 +90,14 @@ def test_load_jsonl_records_returns_empty_on_read_error() -> None:
         def read_text(self, encoding: str = "utf-8") -> str:
             raise OSError("read failure")
 
-    assert orca_adapter._load_jsonl_records(cast(Path, ExplodingPath())) == []
+    assert _orca_local_lookup.load_jsonl_records_impl(cast(Path, ExplodingPath())) == []
 
 
 def test_tracked_helper_guards_return_empty_for_missing_helpers_and_exceptions(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    assert orca_adapter._tracked_artifact_context(index_root=None, targets=("job_1",)) == (
+    assert _orca_tracking.tracked_artifact_context_impl(index_root=None, targets=("job_1",)) == (
         None,
         None,
         {},
@@ -95,7 +105,7 @@ def test_tracked_helper_guards_return_empty_for_missing_helpers_and_exceptions(
         {},
     )
     assert (
-        orca_adapter._tracked_runtime_context(
+        _orca_tracking.tracked_runtime_context_impl(
             index_root=None,
             organized_root=None,
             target="job_1",
@@ -106,7 +116,7 @@ def test_tracked_helper_guards_return_empty_for_missing_helpers_and_exceptions(
         is None
     )
     assert (
-        orca_adapter._tracked_contract_payload(
+        _orca_tracking.load_orca_contract_payload_impl(
             index_root=None,
             organized_root=None,
             target="job_1",
@@ -128,7 +138,7 @@ def test_tracked_helper_guards_return_empty_for_missing_helpers_and_exceptions(
         "load_job_artifact_context",
         load_job_artifact_context,
     )
-    assert orca_adapter._tracked_artifact_context(
+    assert _orca_tracking.tracked_artifact_context_impl(
         index_root=tmp_path, targets=("   ", "job_2")
     ) == (None, None, {}, {}, {})
     assert calls == ["job_2"]
@@ -139,7 +149,7 @@ def test_tracked_helper_guards_return_empty_for_missing_helpers_and_exceptions(
         lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("boom")),
     )
     assert (
-        orca_adapter._tracked_runtime_context(
+        _orca_tracking.tracked_runtime_context_impl(
             index_root=tmp_path,
             organized_root=None,
             target="job_4",
@@ -156,7 +166,7 @@ def test_tracked_helper_guards_return_empty_for_missing_helpers_and_exceptions(
         lambda *_args, **_kwargs: SimpleNamespace(artifact=None),
     )
     assert (
-        orca_adapter._tracked_runtime_context(
+        _orca_tracking.tracked_runtime_context_impl(
             index_root=tmp_path,
             organized_root=None,
             target="job_5",
@@ -173,7 +183,7 @@ def test_tracked_helper_guards_return_empty_for_missing_helpers_and_exceptions(
         lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("boom")),
     )
     assert (
-        orca_adapter._tracked_contract_payload(
+        _orca_tracking.load_orca_contract_payload_impl(
             index_root=tmp_path,
             organized_root=None,
             target="job_6",
@@ -205,22 +215,22 @@ def test_path_and_record_helpers_cover_relative_deduped_and_subpath_cases(tmp_pa
         latest_known_path=str(tmp_path / "missing_latest"),
     )
 
-    assert orca_adapter._resolve_artifact_path("", base_dir) == ""
-    assert orca_adapter._resolve_artifact_path("relative.xyz", None) == "relative.xyz"
-    assert orca_adapter._resolve_artifact_path("relative.xyz", base_dir) == str(
+    assert _orca_path_helpers.resolve_artifact_path_impl("", base_dir) == ""
+    assert _orca_path_helpers.resolve_artifact_path_impl("relative.xyz", None) == "relative.xyz"
+    assert _orca_path_helpers.resolve_artifact_path_impl("relative.xyz", base_dir) == str(
         (base_dir / "relative.xyz").resolve()
     )
-    assert orca_adapter._record_organized_dir(None) is None
-    assert orca_adapter._record_organized_dir(record) == organized_dir.resolve()
-    assert orca_adapter._iter_existing_dirs(
+    assert _orca_local_lookup.record_organized_dir_impl(None) is None
+    assert _orca_local_lookup.record_organized_dir_impl(record) == organized_dir.resolve()
+    assert _orca_path_helpers.iter_existing_dirs_impl(
         None, organized_dir, organized_dir, file_path, other_dir
     ) == [
         organized_dir.resolve(),
         other_dir.resolve(),
     ]
-    assert orca_adapter._is_subpath(organized_dir, tmp_path) is True
-    assert orca_adapter._is_subpath(organized_dir, None) is False
-    assert orca_adapter._is_subpath(tmp_path / "outside", organized_dir) is False
+    assert _orca_path_helpers.is_subpath_impl(organized_dir, tmp_path) is True
+    assert _orca_path_helpers.is_subpath_impl(organized_dir, None) is False
+    assert _orca_path_helpers.is_subpath_impl(tmp_path / "outside", organized_dir) is False
 
 
 def test_derive_selected_input_xyz_and_attempt_helpers_fall_back_safely(tmp_path: Path) -> None:
@@ -249,12 +259,17 @@ def test_derive_selected_input_xyz_and_attempt_helpers_fall_back_safely(tmp_path
         "final_result": "bad",
     }
 
-    assert orca_adapter._derive_selected_input_xyz(str(missing_inp)) == ""
-    assert orca_adapter._derive_selected_input_xyz(str(no_xyzfile_inp)) == ""
-    assert orca_adapter._attempt_count(state, report) == 2
-    assert orca_adapter._attempt_count({}, {}) == 0
-    assert orca_adapter._max_retries(state, report) == 4
-    assert orca_adapter._coerce_attempts(state, report) == (
+    assert _orca_path_helpers.derive_selected_input_xyz_impl(str(missing_inp)) == ""
+    assert _orca_path_helpers.derive_selected_input_xyz_impl(str(no_xyzfile_inp)) == ""
+    assert _orca_contract_status.attempt_count_impl(state, report, safe_int_fn=safe_int) == 2
+    assert _orca_contract_status.attempt_count_impl({}, {}, safe_int_fn=safe_int) == 0
+    assert _orca_contract_status.max_retries_impl(state, report, safe_int_fn=safe_int) == 4
+    assert _orca_contract_status.coerce_attempts_impl(
+        state,
+        report,
+        normalize_text_fn=normalize_text,
+        safe_int_fn=safe_int,
+    ) == (
         {
             "index": 0,
             "attempt_number": 0,
@@ -269,12 +284,20 @@ def test_derive_selected_input_xyz_and_attempt_helpers_fall_back_safely(tmp_path
             "ended_at": "",
         },
     )
-    assert orca_adapter._coerce_attempts({}, {}) == ()
-    assert orca_adapter._final_result_payload(state, report) == {
+    assert (
+        _orca_contract_status.coerce_attempts_impl(
+            {},
+            {},
+            normalize_text_fn=normalize_text,
+            safe_int_fn=safe_int,
+        )
+        == ()
+    )
+    assert _orca_contract_status.final_result_payload_impl(state, report) == {
         "status": "failed",
         "reason": "state_failed",
     }
-    assert orca_adapter._final_result_payload({}, {}) == {}
+    assert _orca_contract_status.final_result_payload_impl({}, {}) == {}
 
 
 def test_prefer_orca_optimized_xyz_uses_latest_known_file_parent_and_empty_fallback(
@@ -290,7 +313,7 @@ def test_prefer_orca_optimized_xyz_uses_latest_known_file_parent_and_empty_fallb
     _write_text(last_out, "orca output")
     _write_xyz(preferred_xyz, comment="optimized")
 
-    chosen = orca_adapter._prefer_orca_optimized_xyz(
+    chosen = _orca_path_helpers.prefer_orca_optimized_xyz_impl(
         selected_inp="",
         selected_input_xyz="",
         current_dir=None,
@@ -299,7 +322,7 @@ def test_prefer_orca_optimized_xyz_uses_latest_known_file_parent_and_empty_fallb
         last_out_path=str(last_out),
     )
 
-    empty = orca_adapter._prefer_orca_optimized_xyz(
+    empty = _orca_path_helpers.prefer_orca_optimized_xyz_impl(
         selected_inp="",
         selected_input_xyz="",
         current_dir=None,
@@ -327,10 +350,12 @@ def test_status_from_payloads_covers_remaining_fallback_branches(
     report: dict[str, object],
     expected_status: str,
 ) -> None:
-    status, analyzer_status, reason, completed_at = orca_adapter._status_from_payloads(
+    status, analyzer_status, reason, completed_at = _orca_contract_status.status_from_payloads_impl(
         queue_entry=queue_entry,
         state=state,
         report=report,
+        normalize_text_fn=normalize_text,
+        normalize_bool_fn=normalize_bool,
     )
 
     assert status == expected_status
@@ -342,12 +367,14 @@ def test_status_from_payloads_covers_remaining_fallback_branches(
 def test_load_orca_artifact_contract_returns_sparse_contract_when_nothing_resolves(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(orca_adapter, "_tracked_contract_payload", lambda **kwargs: None)
-    monkeypatch.setattr(orca_adapter, "_tracked_runtime_context", lambda **kwargs: None)
+    monkeypatch.setattr(_orca_tracking, "load_orca_contract_payload_impl", lambda **kwargs: None)
+    monkeypatch.setattr(_orca_tracking, "tracked_runtime_context_impl", lambda **kwargs: None)
     monkeypatch.setattr(
-        orca_adapter, "_tracked_artifact_context", lambda **kwargs: (None, None, {}, {}, {})
+        _orca_tracking,
+        "tracked_artifact_context_impl",
+        lambda **kwargs: (None, None, {}, {}, {}),
     )
-    monkeypatch.setattr(orca_adapter, "_resolve_job_dir", lambda *_args, **_kwargs: (None, None))
+    monkeypatch.setattr(_orca_local_lookup, "resolve_job_dir_impl", lambda *_args, **_kwargs: (None, None))
 
     contract = orca_adapter.load_orca_artifact_contract(
         target="  missing-target  ",

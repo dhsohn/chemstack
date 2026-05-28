@@ -11,7 +11,6 @@ from chemstack.core.utils import now_utc_iso
 from ..registry import sync_workflow_registry
 from ..state import load_workflow_payload, resolve_workflow_workspace, write_workflow_payload
 from . import orca_cancellation as _cancellation
-from . import orca_models as _models
 from . import orca_submission as _submission
 from . import sibling_engine
 from .common import (
@@ -24,9 +23,6 @@ from .common import (
 _SUBMIT_MODULE_NAME = CHEMSTACK_CLI_MODULE
 _CANCEL_MODULE_NAME = CHEMSTACK_CLI_MODULE
 _CANCEL_TIMEOUT_SECONDS = 5.0
-
-_ensure_submission_metadata = _models.ensure_submission_metadata
-_submission_summary_state = _submission.submission_summary_state
 
 
 def _submission_tail_argv(

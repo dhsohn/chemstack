@@ -80,8 +80,6 @@ def _update_xtb_handoff_metadata(stage_metadata: dict[str, Any], handoff: dict[s
 
 
 __all__ = [
-    "_empty_xtb_handoff",
-    "_update_xtb_handoff_metadata",
     "stage_has_xtb_candidates_impl",
     "xtb_handoff_status_impl",
 ]

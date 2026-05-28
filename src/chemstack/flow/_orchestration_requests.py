@@ -53,8 +53,8 @@ class WorkflowCreationContext:
     copy_input_fn: Callable[[str, Path], str]
     now_utc_iso_fn: Callable[[], str]
     new_crest_stage_fn: Callable[..., WorkflowStageWithTaskPayload]
-    write_workflow_payload_fn: Callable[[Path, dict[str, Any]], None]
-    sync_workflow_registry_fn: Callable[[Path, Path, dict[str, Any]], None]
+    write_workflow_payload_fn: Callable[[Path, dict[str, Any]], Any]
+    sync_workflow_registry_fn: Callable[[Path, Path, dict[str, Any]], Any]
 
 
 @dataclass(frozen=True)

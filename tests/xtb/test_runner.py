@@ -284,9 +284,9 @@ def test_runner_helper_functions_cover_invalid_and_fallback_paths(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    assert runner_mod._manifest_int({"charge": "   "}, "charge") is None
+    assert engine_runner.manifest_int({"charge": "   "}, "charge") is None
     with pytest.raises(ValueError, match="must be an integer-compatible value"):
-        runner_mod._manifest_int({"charge": object()}, "charge")
+        engine_runner.manifest_int({"charge": object()}, "charge")
 
     assert runner_artifacts._safe_float("not-a-number") is None
     assert runner_ranking.ranking_top_n({"top_n": "bad"}) == 3

@@ -8,9 +8,9 @@ from typing import Any
 
 from chemstack.core.app_ids import CHEMSTACK_CONFIG_ENV_VAR
 from chemstack.core.utils import file_lock, now_utc_iso, timestamped_token
+from chemstack.core.utils.coercion import normalize_text
 from chemstack.cli_common import (
     _dependency,
-    _normalize_text,
     _shared_chemstack_config,
     _workflow_root_from_args,
 )
@@ -71,7 +71,7 @@ class _WorkflowWorkerOptions:
 
 def _workflow_worker_runtime(deps: Any | None) -> _WorkflowWorkerRuntime:
     return _WorkflowWorkerRuntime(
-        normalize_text=_dependency(deps, "_normalize_text", _normalize_text),
+        normalize_text=_dependency(deps, "_normalize_text", normalize_text),
         shared_chemstack_config=_dependency(
             deps,
             "_shared_chemstack_config",

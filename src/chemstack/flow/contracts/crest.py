@@ -3,12 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from .xtb import WorkflowStageInput, _coerce_resource_dict
+from chemstack.core.utils.coercion import normalize_text
+
+from .xtb import WorkflowStageInput
 from ..xyz_utils import load_xyz_frames
-
-
-def _normalize_text(value: Any) -> str:
-    return str(value).strip()
 
 
 @dataclass(frozen=True)
@@ -63,7 +61,7 @@ def to_workflow_stage_inputs(
     rows: list[WorkflowStageInput] = []
     next_rank = 1
     for path in contract.retained_conformer_paths:
-        text = _normalize_text(path)
+        text = normalize_text(path, none="None")
         if not text:
             continue
         frames = load_xyz_frames(text)
@@ -121,6 +119,5 @@ __all__ = [
     "CrestArtifactContract",
     "CrestDownstreamPolicy",
     "WorkflowStageInput",
-    "_coerce_resource_dict",
     "to_workflow_stage_inputs",
 ]

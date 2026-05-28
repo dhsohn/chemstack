@@ -4,16 +4,11 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from chemstack.core.utils.coercion import (
-    coerce_int_mapping as _coerce_resource_dict,
-    normalize_bool as _normalize_bool,
-    normalize_text as _shared_normalize_text,
-    safe_float as _safe_float,
-    safe_int as _safe_int,
+    normalize_bool,
+    normalize_text,
+    safe_float,
+    safe_int,
 )
-
-
-def _normalize_text(value: Any) -> str:
-    return _shared_normalize_text(value, none="None")
 
 
 @dataclass(frozen=True)
@@ -33,11 +28,11 @@ class XtbCandidateArtifact:
             if str(key) not in {"rank", "kind", "path", "selected", "score"}
         }
         return cls(
-            rank=max(0, _safe_int(raw.get("rank"), default=0)),
-            kind=_normalize_text(raw.get("kind")) or "candidate",
-            path=_normalize_text(raw.get("path")),
-            selected=_normalize_bool(raw.get("selected")),
-            score=_safe_float(raw.get("score")),
+            rank=max(0, safe_int(raw.get("rank"), default=0)),
+            kind=normalize_text(raw.get("kind"), none="None") or "candidate",
+            path=normalize_text(raw.get("path"), none="None"),
+            selected=normalize_bool(raw.get("selected")),
+            score=safe_float(raw.get("score")),
             metadata=metadata,
         )
 
@@ -110,12 +105,14 @@ class XtbDownstreamPolicy:
         allowed_kinds: list[str] | tuple[str, ...] | None = None,
     ) -> "XtbDownstreamPolicy":
         kinds = tuple(
-            _normalize_text(item)
+            text
             for item in (preferred_kinds or cls().preferred_kinds)
-            if _normalize_text(item)
+            if (text := normalize_text(item, none="None"))
         )
         filtered_kinds = tuple(
-            _normalize_text(item) for item in (allowed_kinds or ()) if _normalize_text(item)
+            text
+            for item in (allowed_kinds or ())
+            if (text := normalize_text(item, none="None"))
         )
         return cls(
             preferred_kinds=kinds or cls().preferred_kinds,
@@ -153,5 +150,4 @@ __all__ = [
     "XtbArtifactContract",
     "XtbCandidateArtifact",
     "XtbDownstreamPolicy",
-    "_coerce_resource_dict",
 ]

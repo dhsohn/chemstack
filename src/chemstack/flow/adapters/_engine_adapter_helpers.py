@@ -195,14 +195,18 @@ def latest_known_path(record: JobLocationRecord | None, job_dir: Path) -> str:
     return normalize_text((record.latest_known_path if record is not None else "") or str(job_dir))
 
 
-def artifact_roots(job_dir: Path, *values: Any) -> tuple[Path, ...]:
+def artifact_roots(
+    job_dir: Path,
+    *values: Any,
+    path_factory: Callable[[str], Any] = Path,
+) -> tuple[Path, ...]:
     roots: list[Path] = []
     for candidate in (*values, str(job_dir)):
         text = normalize_scalar_text(candidate)
         if not text:
             continue
         try:
-            resolved = Path(text).expanduser().resolve()
+            resolved = path_factory(text).expanduser().resolve()
         except OSError:
             continue
         if resolved not in roots:
@@ -210,12 +214,17 @@ def artifact_roots(job_dir: Path, *values: Any) -> tuple[Path, ...]:
     return tuple(roots)
 
 
-def resolve_artifact_path(value: Any, *, roots: tuple[Path, ...]) -> str:
+def resolve_artifact_path(
+    value: Any,
+    *,
+    roots: tuple[Path, ...],
+    path_factory: Callable[[str], Any] = Path,
+) -> str:
     text = normalize_scalar_text(value)
     if not text:
         return ""
     try:
-        resolved = Path(text).expanduser().resolve()
+        resolved = path_factory(text).expanduser().resolve()
     except OSError:
         return text
     if resolved.exists():
@@ -231,7 +240,7 @@ def load_contract_artifact_bundle(
     *,
     index_root: str | Path,
     target: str,
-    resolve_job_dir_fn: Callable[[Path, str], tuple[Path, JobLocationRecord | None]],
+    resolve_job_location_fn: Callable[[Path, str], JobLocationRecord | None],
     load_json_dict_fn: Callable[[Path], dict[str, Any]],
     report_filename: str,
     state_filename: str,
@@ -243,9 +252,17 @@ def load_contract_artifact_bundle(
         [dict[str, Any], dict[str, Any], dict[str, Any]], dict[str, Any]
     ]
     | None = None,
+    path_factory: Callable[[str], Any] = Path,
 ) -> ContractArtifactBundle:
     resolved_index_root = Path(index_root).expanduser().resolve()
-    job_dir, record = resolve_job_dir_fn(resolved_index_root, target)
+    job_dir, record = resolve_indexed_job_dir(
+        resolved_index_root,
+        target,
+        resolve_job_location_fn=resolve_job_location_fn,
+        direct_path_target_fn=lambda raw: direct_dir_target(raw, path_factory=path_factory),
+        missing_label=missing_label,
+        path_factory=path_factory,
+    )
     loaded = load_artifact_files(
         job_dir=job_dir,
         record=record,

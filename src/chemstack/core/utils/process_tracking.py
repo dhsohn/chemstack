@@ -20,10 +20,6 @@ def current_process_lock_payload() -> dict[str, int | str]:
     )
 
 
-def _remove_pid_file(pid_path: Path) -> None:
-    process_utils.remove_file_silent(pid_path)
-
-
 def active_run_lock_pid(
     reaction_dir: Path,
     *,
@@ -62,5 +58,5 @@ def read_pid_file(pid_path: Path) -> int | None:
         pid_path,
         is_process_alive_fn=process_lock.is_process_alive,
         process_start_ticks_fn=process_lock.process_start_ticks,
-        remove_file_fn=_remove_pid_file,
+        remove_file_fn=process_utils.remove_file_silent,
     )

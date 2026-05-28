@@ -9,7 +9,12 @@ import pytest
 
 from chemstack.core.indexing import JobLocationRecord
 
-from chemstack.flow.adapters import orca as orca_adapter
+from chemstack.flow.adapters import (
+    _orca_local_lookup,
+    _orca_path_helpers,
+    _orca_tracking,
+    orca as orca_adapter,
+)
 
 
 def _write_json(path: Path, payload: object) -> None:
@@ -61,7 +66,7 @@ def test_basic_path_helpers_cover_remaining_low_level_edges(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    assert orca_adapter._direct_dir_target("   ") is None
+    assert _orca_path_helpers.direct_dir_target_impl("   ") is None
 
     class ExplodingResolvePath:
         def expanduser(self) -> ExplodingResolvePath:
@@ -71,8 +76,8 @@ def test_basic_path_helpers_cover_remaining_low_level_edges(
             raise OSError("resolve failed")
 
     with monkeypatch.context() as inner:
-        inner.setattr(orca_adapter, "Path", lambda _raw: ExplodingResolvePath())
-        assert orca_adapter._resolve_candidate_path("broken") is None
+        inner.setattr(_orca_path_helpers, "Path", lambda _raw: ExplodingResolvePath())
+        assert _orca_path_helpers.resolve_candidate_path_impl("broken") is None
 
     class ExplodingExpanduserPath:
         def __init__(self, raw: str) -> None:
@@ -82,8 +87,11 @@ def test_basic_path_helpers_cover_remaining_low_level_edges(
             raise OSError("expand failed")
 
     with monkeypatch.context() as inner:
-        inner.setattr(orca_adapter, "Path", lambda raw: ExplodingExpanduserPath(raw))
-        assert orca_adapter._resolve_artifact_path("relative.txt", tmp_path) == "relative.txt"
+        inner.setattr(_orca_path_helpers, "Path", lambda raw: ExplodingExpanduserPath(raw))
+        assert (
+            _orca_path_helpers.resolve_artifact_path_impl("relative.txt", tmp_path)
+            == "relative.txt"
+        )
 
 
 def test_resolve_job_dir_and_record_organized_dir_skip_oserror_candidates(
@@ -103,14 +111,18 @@ def test_resolve_job_dir_and_record_organized_dir_skip_oserror_candidates(
         latest_known_path=str(bad_latest),
     )
 
-    monkeypatch.setattr(orca_adapter, "resolve_job_location", lambda _index_root, _target: record)
+    monkeypatch.setattr(
+        _orca_local_lookup, "resolve_job_location", lambda _index_root, _target: record
+    )
     _patch_resolve_for_names(monkeypatch, valid_dir, {"bad_latest"})
 
-    resolved_dir, resolved_record = orca_adapter._resolve_job_dir(tmp_path, "job_refresh")
+    resolved_dir, resolved_record = _orca_local_lookup.resolve_job_dir_impl(
+        tmp_path, "job_refresh"
+    )
 
     assert resolved_record is record
     assert resolved_dir == valid_dir.resolve()
-    assert orca_adapter._record_organized_dir(record) == valid_dir.resolve()
+    assert _orca_local_lookup.record_organized_dir_impl(record) == valid_dir.resolve()
 
 
 def test_find_queue_entry_covers_target_queue_id_and_not_found(tmp_path: Path) -> None:
@@ -118,7 +130,7 @@ def test_find_queue_entry_covers_target_queue_id_and_not_found(tmp_path: Path) -
     reaction_dir = tmp_path / "rxn_queue"
     reaction_dir.mkdir()
     _write_json(
-        allowed_root / orca_adapter.QUEUE_FILE_NAME,
+        allowed_root / _orca_local_lookup.QUEUE_FILE_NAME,
         [
             {
                 "queue_id": "q_target",
@@ -131,7 +143,7 @@ def test_find_queue_entry_covers_target_queue_id_and_not_found(tmp_path: Path) -
         ],
     )
 
-    entry = orca_adapter._find_queue_entry(
+    entry = _orca_local_lookup.find_queue_entry_impl(
         allowed_root=allowed_root,
         target="q_target",
         queue_id="",
@@ -142,7 +154,7 @@ def test_find_queue_entry_covers_target_queue_id_and_not_found(tmp_path: Path) -
     assert entry is not None
     assert entry["queue_id"] == "q_target"
     assert (
-        orca_adapter._find_queue_entry(
+        _orca_local_lookup.find_queue_entry_impl(
             allowed_root=allowed_root,
             target="missing",
             queue_id="",
@@ -164,7 +176,7 @@ def test_find_organized_record_covers_bad_paths_target_match_reaction_dir_and_no
     reaction_dir.mkdir()
 
     _write_jsonl(
-        organized_root / "index" / orca_adapter.RECORDS_FILE_NAME,
+        organized_root / "index" / _orca_local_lookup.RECORDS_FILE_NAME,
         [
             {"run_id": "bad_reaction", "reaction_dir": str(tmp_path / "bad_reaction")},
             {"run_id": "bad_organized", "organized_path": "bad_organized"},
@@ -174,7 +186,7 @@ def test_find_organized_record_covers_bad_paths_target_match_reaction_dir_and_no
     )
     _patch_resolve_for_names(monkeypatch, organized_root, {"bad_reaction", "bad_organized"})
 
-    found_target = orca_adapter._find_organized_record(
+    found_target = _orca_local_lookup.find_organized_record_impl(
         organized_root=organized_root,
         target="target_run",
         run_id="",
@@ -183,7 +195,7 @@ def test_find_organized_record_covers_bad_paths_target_match_reaction_dir_and_no
     assert found_target is not None
     assert found_target["run_id"] == "target_run"
 
-    found_reaction = orca_adapter._find_organized_record(
+    found_reaction = _orca_local_lookup.find_organized_record_impl(
         organized_root=organized_root,
         target="missing",
         run_id="",
@@ -193,7 +205,7 @@ def test_find_organized_record_covers_bad_paths_target_match_reaction_dir_and_no
     assert found_reaction["run_id"] == "reaction_run"
 
     assert (
-        orca_adapter._find_organized_record(
+        _orca_local_lookup.find_organized_record_impl(
             organized_root=organized_root,
             target="missing",
             run_id="",
@@ -214,14 +226,14 @@ def test_directory_and_artifact_path_helpers_cover_oserror_fallbacks(
     )
 
     assert (
-        orca_adapter._organized_dir_from_record(
+        _orca_local_lookup.organized_dir_from_record_impl(
             tmp_path,
             {"reaction_dir": str(tmp_path / "bad_reaction_dir")},
         )
         is None
     )
     assert (
-        orca_adapter._organized_dir_from_record(
+        _orca_local_lookup.organized_dir_from_record_impl(
             tmp_path,
             {"organized_path": "bad_organized_dir"},
         )
@@ -229,13 +241,13 @@ def test_directory_and_artifact_path_helpers_cover_oserror_fallbacks(
     )
 
     bad_abs = tmp_path / "bad_abs.txt"
-    assert orca_adapter._resolve_artifact_path(str(bad_abs), None) == str(bad_abs)
-    assert orca_adapter._resolve_artifact_path("bad_rel.txt", tmp_path) == str(
+    assert _orca_path_helpers.resolve_artifact_path_impl(str(bad_abs), None) == str(bad_abs)
+    assert _orca_path_helpers.resolve_artifact_path_impl("bad_rel.txt", tmp_path) == str(
         tmp_path / "bad_rel.txt"
     )
 
     assert (
-        orca_adapter._load_tracked_organized_ref(
+        _orca_local_lookup.load_tracked_organized_ref_impl(
             JobLocationRecord(
                 job_id="job_stub_empty",
                 app_name="chemstack_orca",
@@ -248,7 +260,7 @@ def test_directory_and_artifact_path_helpers_cover_oserror_fallbacks(
         == {}
     )
     assert (
-        orca_adapter._load_tracked_organized_ref(
+        _orca_local_lookup.load_tracked_organized_ref_impl(
             JobLocationRecord(
                 job_id="job_stub_bad",
                 app_name="chemstack_orca",
@@ -272,7 +284,7 @@ def test_iter_existing_dirs_skips_oserror_candidates(
     bad_dir.mkdir()
     _patch_resolve_for_names(monkeypatch, good_dir, {"bad_dir"})
 
-    assert orca_adapter._iter_existing_dirs(bad_dir, good_dir) == [good_dir.resolve()]
+    assert _orca_path_helpers.iter_existing_dirs_impl(bad_dir, good_dir) == [good_dir.resolve()]
 
 
 def test_prefer_orca_optimized_xyz_returns_unresolved_preferred_candidate_on_resolve_error(
@@ -287,7 +299,7 @@ def test_prefer_orca_optimized_xyz_returns_unresolved_preferred_candidate_on_res
     _write_xyz(preferred_xyz)
     _patch_resolve_for_names(monkeypatch, current_dir, {"job.xyz"})
 
-    chosen = orca_adapter._prefer_orca_optimized_xyz(
+    chosen = _orca_path_helpers.prefer_orca_optimized_xyz_impl(
         selected_inp=str(selected_inp),
         selected_input_xyz="",
         current_dir=current_dir,
@@ -336,17 +348,17 @@ def test_prefer_orca_optimized_xyz_handles_source_glob_and_duplicate_fallbacks(
     source_path = ExplodingSourcePath()
     candidate = ExplodingResolveItem("/tmp/final.xyz")
     monkeypatch.setattr(
-        orca_adapter,
-        "_resolve_candidate_path",
+        _orca_path_helpers,
+        "resolve_candidate_path_impl",
         lambda value: source_path if value == "selected_source" else None,
     )
     monkeypatch.setattr(
-        orca_adapter,
-        "_iter_existing_dirs",
+        _orca_path_helpers,
+        "iter_existing_dirs_impl",
         lambda *_args: [GlobErrorDir(), DuplicateDir(candidate)],
     )
 
-    chosen = orca_adapter._prefer_orca_optimized_xyz(
+    chosen = _orca_path_helpers.prefer_orca_optimized_xyz_impl(
         selected_inp="",
         selected_input_xyz="selected_source",
         current_dir=None,
@@ -361,15 +373,19 @@ def test_prefer_orca_optimized_xyz_handles_source_glob_and_duplicate_fallbacks(
 def test_load_orca_artifact_contract_uses_target_when_no_paths_are_resolved(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(orca_adapter, "_tracked_contract_payload", lambda **kwargs: None)
-    monkeypatch.setattr(orca_adapter, "_tracked_runtime_context", lambda **kwargs: None)
+    monkeypatch.setattr(_orca_tracking, "load_orca_contract_payload_impl", lambda **kwargs: None)
+    monkeypatch.setattr(_orca_tracking, "tracked_runtime_context_impl", lambda **kwargs: None)
     monkeypatch.setattr(
-        orca_adapter, "_tracked_artifact_context", lambda **kwargs: (None, None, {}, {}, {})
+        _orca_tracking,
+        "tracked_artifact_context_impl",
+        lambda **kwargs: (None, None, {}, {}, {}),
     )
-    monkeypatch.setattr(orca_adapter, "_resolve_job_dir", lambda index_root, target: (None, None))
-    monkeypatch.setattr(orca_adapter, "_find_queue_entry", lambda **kwargs: None)
-    monkeypatch.setattr(orca_adapter, "_direct_dir_target", lambda target: None)
-    monkeypatch.setattr(orca_adapter, "_resolve_candidate_path", lambda value: None)
+    monkeypatch.setattr(
+        _orca_local_lookup, "resolve_job_dir_impl", lambda index_root, target: (None, None)
+    )
+    monkeypatch.setattr(_orca_local_lookup, "find_queue_entry_impl", lambda **kwargs: None)
+    monkeypatch.setattr(_orca_path_helpers, "direct_dir_target_impl", lambda target: None)
+    monkeypatch.setattr(_orca_path_helpers, "resolve_candidate_path_impl", lambda value: None)
 
     contract = orca_adapter.load_orca_artifact_contract(target="dangling_target")
 

@@ -3,10 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from chemstack.cli_common import (
-    _dependency,
-    _normalize_text,
-)
+from chemstack.cli_common import _dependency
+from chemstack.core.utils.coercion import normalize_text
 from . import cli_workflow_output as _workflow_output
 from . import run_dir_manifest as _run_dir_manifest
 from . import run_dir_options as _run_dir_options
@@ -15,10 +13,10 @@ from .restart import restart_failed_workflow
 
 
 def _safe_workflow_name(value: Any, *, fallback: str, deps: Any | None = None) -> str:
-    normalize_text = _dependency(deps, "_normalize_text", _normalize_text)
+    normalize = _dependency(deps, "_normalize_text", normalize_text)
 
     cleaned = "".join(
-        ch if ch.isalnum() or ch in {"_", "-", "."} else "_" for ch in normalize_text(value)
+        ch if ch.isalnum() or ch in {"_", "-", "."} else "_" for ch in normalize(value)
     )
     cleaned = cleaned.strip("._-").lower()
     return cleaned or fallback
@@ -64,10 +62,10 @@ def _unique_run_dir_workflow_id(
 def _workflow_root_for_existing_run_dir(
     args: Any, workflow_dir: Path, *, deps: Any | None = None
 ) -> Path:
-    normalize_text = _dependency(deps, "_normalize_text", _normalize_text)
+    normalize = _dependency(deps, "_normalize_text", normalize_text)
     path_cls = _dependency(deps, "Path", Path)
 
-    raw_root = normalize_text(getattr(args, "workflow_root", None))
+    raw_root = normalize(getattr(args, "workflow_root", None))
     if raw_root:
         return path_cls(raw_root).expanduser().resolve()
     return workflow_dir.parent

@@ -4,10 +4,10 @@ import unittest
 from pathlib import Path
 
 from chemstack.orca.commands.organize import (
-    _ORGANIZE_RESULT_LIMIT,
     _build_index_record,
     _build_organize_message,
 )
+from chemstack.orca.commands.organize_notifications import _ORGANIZE_RESULT_LIMIT
 from chemstack.orca.result_organizer import OrganizePlan, SkipReason
 
 

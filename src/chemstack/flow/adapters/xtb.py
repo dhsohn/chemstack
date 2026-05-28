@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from chemstack.core.indexing import JobLocationRecord, resolve_job_location
+from chemstack.core.utils.coercion import coerce_int_mapping
 
 from . import _engine_adapter_helpers as _adapter_helpers
 from ..contracts.xtb import (
@@ -11,45 +12,17 @@ from ..contracts.xtb import (
     XtbArtifactContract,
     XtbCandidateArtifact,
     XtbDownstreamPolicy,
-    _coerce_resource_dict,
 )
 from ..xyz_utils import has_xyz_geometry
-
-REPORT_JSON_FILE_NAME = "job_report.json"
-STATE_FILE_NAME = "job_state.json"
-ORGANIZED_REF_FILE_NAME = "organized_ref.json"
-
-
-def _normalize_text(value: Any) -> str:
-    return _adapter_helpers.normalize_text(value)
 
 
 def _job_type_from_record(record: JobLocationRecord | None, fallback: str) -> str:
     if record is None:
         return fallback
-    value = _normalize_text(record.job_type)
+    value = _adapter_helpers.normalize_text(record.job_type)
     if value.startswith("xtb_"):
         value = value[4:]
     return value or fallback
-
-
-def _load_json_dict(path: Path) -> dict[str, Any]:
-    return _adapter_helpers.load_json_dict(path)
-
-
-def _direct_path_target(target: str) -> Path | None:
-    return _adapter_helpers.direct_dir_target(target, path_factory=Path)
-
-
-def _resolve_job_dir(index_root: Path, target: str) -> tuple[Path, JobLocationRecord | None]:
-    return _adapter_helpers.resolve_indexed_job_dir(
-        index_root,
-        target,
-        resolve_job_location_fn=resolve_job_location,
-        direct_path_target_fn=_direct_path_target,
-        missing_label="xTB",
-        path_factory=Path,
-    )
 
 
 def _load_candidate_details(payload: dict[str, Any]) -> tuple[XtbCandidateArtifact, ...]:
@@ -170,14 +143,14 @@ def load_xtb_artifact_contract(*, xtb_index_root: str | Path, target: str) -> Xt
     bundle = _adapter_helpers.load_contract_artifact_bundle(
         index_root=xtb_index_root,
         target=target,
-        resolve_job_dir_fn=_resolve_job_dir,
-        load_json_dict_fn=_load_json_dict,
-        report_filename=REPORT_JSON_FILE_NAME,
-        state_filename=STATE_FILE_NAME,
-        organized_ref_filename=ORGANIZED_REF_FILE_NAME,
+        resolve_job_location_fn=resolve_job_location,
+        load_json_dict_fn=_adapter_helpers.load_json_dict,
+        report_filename="job_report.json",
+        state_filename="job_state.json",
+        organized_ref_filename="organized_ref.json",
         missing_label="xTB",
         expected_app_name="chemstack_xtb",
-        coerce_resource_dict_fn=_coerce_resource_dict,
+        coerce_resource_dict_fn=coerce_int_mapping,
     )
     job_dir = bundle.job_dir
     record = bundle.record
@@ -199,7 +172,7 @@ def load_xtb_artifact_contract(*, xtb_index_root: str | Path, target: str) -> Xt
         record.status if record is not None else "",
         default="unknown",
     )
-    reason = _normalize_text(payload.get("reason"))
+    reason = _adapter_helpers.normalize_text(payload.get("reason"))
     job_id = _adapter_helpers.first_normalized_text(
         payload.get("job_id"),
         record.job_id if record is not None else "",

@@ -25,18 +25,6 @@ from .state import write_workflow_payload
 from .xyz_utils import load_xyz_atom_sequence
 
 
-def _write_workflow_payload_side_effect(workspace_dir: Path, payload: dict[str, Any]) -> None:
-    write_workflow_payload(workspace_dir, payload)
-
-
-def _sync_workflow_registry_side_effect(
-    workflow_root: Path,
-    workspace_dir: Path,
-    payload: dict[str, Any],
-) -> None:
-    sync_workflow_registry(workflow_root, workspace_dir, payload)
-
-
 def _workflow_factory_deps() -> WorkflowFactoryDeps:
     return WorkflowFactoryDeps(
         normalize_text=normalize_text,
@@ -44,8 +32,8 @@ def _workflow_factory_deps() -> WorkflowFactoryDeps:
         copy_input_fn=_stage_builders._copy_input_impl,
         now_utc_iso_fn=now_utc_iso,
         new_crest_stage_fn=_stage_builders.new_crest_stage_impl,
-        write_workflow_payload_fn=_write_workflow_payload_side_effect,
-        sync_workflow_registry_fn=_sync_workflow_registry_side_effect,
+        write_workflow_payload_fn=write_workflow_payload,
+        sync_workflow_registry_fn=sync_workflow_registry,
         load_xyz_atom_sequence_fn=load_xyz_atom_sequence,
     )
 

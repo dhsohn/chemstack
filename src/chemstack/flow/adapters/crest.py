@@ -1,109 +1,33 @@
 from __future__ import annotations
 
+from functools import partial
 from pathlib import Path
-from typing import Any
 
-from chemstack.core.indexing import JobLocationRecord, resolve_job_location
+from chemstack.core.indexing import resolve_job_location
+from chemstack.core.utils.coercion import coerce_int_mapping
 
 from . import _engine_adapter_helpers as _adapter_helpers
-from ..contracts.crest import CrestArtifactContract, CrestDownstreamPolicy, _coerce_resource_dict, to_workflow_stage_inputs
+from ..contracts.crest import CrestArtifactContract, CrestDownstreamPolicy, to_workflow_stage_inputs
 from ..contracts.xtb import WorkflowStageInput
 
-REPORT_JSON_FILE_NAME = "job_report.json"
-STATE_FILE_NAME = "job_state.json"
-ORGANIZED_REF_FILE_NAME = "organized_ref.json"
 _ACTIVE_PAYLOAD_STATUSES = frozenset({"queued", "running", "submitted", "cancel_requested", "retrying"})
-
-
-def _normalize_text(value: Any) -> str:
-    return _adapter_helpers.normalize_text(value)
-
-
-def _load_json_dict(path: Path) -> dict[str, Any]:
-    return _adapter_helpers.load_json_dict(path)
-
-
-def _select_artifact_payload(
-    *,
-    report: dict[str, Any],
-    state: dict[str, Any],
-    organized_ref: dict[str, Any],
-) -> dict[str, Any]:
-    return _adapter_helpers.select_active_artifact_payload(
-        report,
-        state,
-        organized_ref,
-        active_statuses=_ACTIVE_PAYLOAD_STATUSES,
-    )
-
-
-def _direct_path_target(target: str) -> Path | None:
-    return _adapter_helpers.direct_dir_target(target, path_factory=Path)
-
-
-def _resolve_job_dir(index_root: Path, target: str) -> tuple[Path, JobLocationRecord | None]:
-    return _adapter_helpers.resolve_indexed_job_dir(
-        index_root,
-        target,
-        resolve_job_location_fn=resolve_job_location,
-        direct_path_target_fn=_direct_path_target,
-        missing_label="CREST",
-        path_factory=Path,
-    )
-
-
-def _retained_paths(payload: dict[str, Any]) -> tuple[str, ...]:
-    return _adapter_helpers.normalized_text_sequence(payload.get("retained_conformer_paths"))
-
-
-def _artifact_roots(job_dir: Path, *values: Any) -> tuple[Path, ...]:
-    roots: list[Path] = []
-    for candidate in (*values, str(job_dir)):
-        text = _adapter_helpers.normalize_scalar_text(candidate)
-        if not text:
-            continue
-        try:
-            resolved = Path(text).expanduser().resolve()
-        except OSError:
-            continue
-        if resolved not in roots:
-            roots.append(resolved)
-    return tuple(roots)
-
-
-def _resolve_artifact_path(value: Any, *, roots: tuple[Path, ...]) -> str:
-    text = _adapter_helpers.normalize_scalar_text(value)
-    if not text:
-        return ""
-    try:
-        resolved = Path(text).expanduser().resolve()
-    except OSError:
-        return text
-    if resolved.exists():
-        return str(resolved)
-    for root in roots:
-        remapped = root / resolved.name
-        if remapped.exists():
-            return str(remapped.resolve())
-    return str(resolved)
 
 
 def load_crest_artifact_contract(*, crest_index_root: str | Path, target: str) -> CrestArtifactContract:
     bundle = _adapter_helpers.load_contract_artifact_bundle(
         index_root=crest_index_root,
         target=target,
-        resolve_job_dir_fn=_resolve_job_dir,
-        load_json_dict_fn=_load_json_dict,
-        report_filename=REPORT_JSON_FILE_NAME,
-        state_filename=STATE_FILE_NAME,
-        organized_ref_filename=ORGANIZED_REF_FILE_NAME,
+        resolve_job_location_fn=resolve_job_location,
+        load_json_dict_fn=_adapter_helpers.load_json_dict,
+        report_filename="job_report.json",
+        state_filename="job_state.json",
+        organized_ref_filename="organized_ref.json",
         missing_label="CREST",
         expected_app_name="chemstack_crest",
-        coerce_resource_dict_fn=_coerce_resource_dict,
-        select_payload_fn=lambda report, state, organized_ref: _select_artifact_payload(
-            report=report,
-            state=state,
-            organized_ref=organized_ref,
+        coerce_resource_dict_fn=coerce_int_mapping,
+        select_payload_fn=partial(
+            _adapter_helpers.select_active_artifact_payload,
+            active_statuses=_ACTIVE_PAYLOAD_STATUSES,
         ),
     )
     job_dir = bundle.job_dir
@@ -111,14 +35,16 @@ def load_crest_artifact_contract(*, crest_index_root: str | Path, target: str) -
     organized_ref = bundle.organized_ref
     payload = bundle.payload
 
-    retained_paths = _retained_paths(payload)
+    retained_paths = _adapter_helpers.normalized_text_sequence(
+        payload.get("retained_conformer_paths")
+    )
     retained_count = int(payload.get("retained_conformer_count", len(retained_paths)) or len(retained_paths))
     status = _adapter_helpers.first_normalized_text(
         payload.get("status"),
         record.status if record is not None else "",
         default="unknown",
     )
-    reason = _normalize_text(payload.get("reason"))
+    reason = _adapter_helpers.normalize_text(payload.get("reason"))
     job_id = _adapter_helpers.first_normalized_text(
         payload.get("job_id"),
         record.job_id if record is not None else "",
@@ -141,11 +67,13 @@ def load_crest_artifact_contract(*, crest_index_root: str | Path, target: str) -
         organized_ref.get("organized_output_dir"),
         record.organized_output_dir if record is not None else "",
     )
-    artifact_roots = _artifact_roots(job_dir, organized_output_dir)
-    selected_input_xyz = _resolve_artifact_path(selected_input_xyz, roots=artifact_roots)
+    artifact_roots = _adapter_helpers.artifact_roots(job_dir, organized_output_dir)
+    selected_input_xyz = _adapter_helpers.resolve_artifact_path(
+        selected_input_xyz, roots=artifact_roots
+    )
     remapped_retained_paths: list[str] = []
     for path in retained_paths:
-        remapped = _resolve_artifact_path(path, roots=artifact_roots)
+        remapped = _adapter_helpers.resolve_artifact_path(path, roots=artifact_roots)
         if remapped:
             remapped_retained_paths.append(remapped)
     retained_paths = tuple(remapped_retained_paths)
