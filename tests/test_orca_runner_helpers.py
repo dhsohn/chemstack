@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import signal
+import subprocess
 import tempfile
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 from chemstack.orca.orca_runner import OrcaRunner
 
@@ -34,7 +35,7 @@ def test_terminate_subprocess_tree_falls_back_to_terminate_when_sigterm_group_ki
     proc.pid = 4242
     proc.wait.return_value = 0
 
-    with patch("chemstack.orca.orca_runner.os.killpg", side_effect=Exception("no pg")):
+    with patch("chemstack.orca.orca_runner.os.killpg", side_effect=ProcessLookupError("no pg")):
         runner._terminate_subprocess_tree(proc)
 
     proc.terminate.assert_called_once()
@@ -45,12 +46,38 @@ def test_terminate_subprocess_tree_falls_back_to_proc_kill_when_sigkill_group_ki
     proc = MagicMock()
     proc.poll.return_value = None
     proc.pid = 4343
-    proc.wait.side_effect = Exception("timeout")
+    proc.wait.side_effect = [
+        subprocess.TimeoutExpired(cmd="orca", timeout=3),
+        0,
+    ]
 
-    with patch("chemstack.orca.orca_runner.os.killpg", side_effect=[None, Exception("no pg kill")]):
+    with patch(
+        "chemstack.orca.orca_runner.os.killpg",
+        side_effect=[None, ProcessLookupError("no pg kill")],
+    ):
         runner._terminate_subprocess_tree(proc)
 
     proc.kill.assert_called_once()
+
+
+def test_terminate_subprocess_tree_waits_after_sigkill() -> None:
+    runner = OrcaRunner("/opt/orca/orca")
+    proc = MagicMock()
+    proc.poll.return_value = None
+    proc.pid = 4646
+    proc.wait.side_effect = [
+        subprocess.TimeoutExpired(cmd="orca", timeout=3),
+        0,
+    ]
+
+    with patch("chemstack.orca.orca_runner.os.killpg") as killpg:
+        runner._terminate_subprocess_tree(proc)
+
+    assert killpg.mock_calls == [
+        call(4646, signal.SIGTERM),
+        call(4646, signal.SIGKILL),
+    ]
+    assert proc.wait.mock_calls == [call(timeout=3), call(timeout=5)]
 
 
 def test_terminate_subprocess_tree_ignores_terminate_failure_when_sigterm_group_kill_fails() -> None:
@@ -61,7 +88,7 @@ def test_terminate_subprocess_tree_ignores_terminate_failure_when_sigterm_group_
     proc.terminate.side_effect = Exception("terminate failed")
     proc.wait.return_value = 0
 
-    with patch("chemstack.orca.orca_runner.os.killpg", side_effect=Exception("no pg")):
+    with patch("chemstack.orca.orca_runner.os.killpg", side_effect=ProcessLookupError("no pg")):
         runner._terminate_subprocess_tree(proc)
 
     proc.terminate.assert_called_once()
@@ -72,10 +99,16 @@ def test_terminate_subprocess_tree_ignores_proc_kill_failure_when_sigkill_group_
     proc = MagicMock()
     proc.poll.return_value = None
     proc.pid = 4545
-    proc.wait.side_effect = Exception("timeout")
+    proc.wait.side_effect = [
+        subprocess.TimeoutExpired(cmd="orca", timeout=3),
+        subprocess.TimeoutExpired(cmd="orca", timeout=5),
+    ]
     proc.kill.side_effect = Exception("kill failed")
 
-    with patch("chemstack.orca.orca_runner.os.killpg", side_effect=[None, Exception("no pg kill")]):
+    with patch(
+        "chemstack.orca.orca_runner.os.killpg",
+        side_effect=[None, ProcessLookupError("no pg kill")],
+    ):
         runner._terminate_subprocess_tree(proc)
 
     proc.kill.assert_called_once()

@@ -1,4 +1,5 @@
 import signal
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -43,7 +44,10 @@ class TestOrcaRunnerTermination(unittest.TestCase):
         mock_proc = MagicMock()
         mock_proc.poll.return_value = None
         mock_proc.pid = 99999
-        mock_proc.wait.side_effect = Exception("timeout")
+        mock_proc.wait.side_effect = [
+            subprocess.TimeoutExpired(cmd="orca", timeout=3),
+            subprocess.TimeoutExpired(cmd="orca", timeout=5),
+        ]
 
         runner._terminate_subprocess_tree(mock_proc)
         self.assertEqual(

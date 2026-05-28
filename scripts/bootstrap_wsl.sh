@@ -45,6 +45,8 @@ if [[ ! -f "$CONFIG" ]]; then
   echo "[bootstrap] Created config/chemstack.yaml from example template."
   echo "[bootstrap] Edit config/chemstack.yaml and replace /path/to/... placeholders before first run."
 fi
+chmod 600 "$CONFIG"
+echo "[bootstrap] Secured config/chemstack.yaml permissions to 600."
 
 echo "[bootstrap] Done."
 echo "[bootstrap] Next: source .venv/bin/activate"

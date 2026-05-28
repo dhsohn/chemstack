@@ -20,22 +20,28 @@ def _orca_config(payload: dict[str, object]) -> dict[str, object]:
     return normalized
 
 
+def _write_fake_executable(path: Path) -> Path:
+    path.write_text("#!/bin/sh\n", encoding="utf-8")
+    path.chmod(0o755)
+    return path
+
+
+def _write_orca_config(config_path: Path, payload: dict[str, object]) -> Path:
+    config_path.write_text(json.dumps(_orca_config(payload)), encoding="utf-8")
+    return config_path
+
+
 class TestConfigValidation(unittest.TestCase):
     def test_windows_allowed_root_raises(self) -> None:
         with tempfile.TemporaryDirectory() as td:
-            cfg_path = Path(td) / "chemstack.yaml"
-            cfg_path.write_text(
-                json.dumps(
-                    _orca_config(
-                        {
-                            "runtime": {
-                                "allowed_root": "C:\\orca_runs",
-                            },
-                            "paths": {"orca_executable": "/opt/orca/orca"},
-                        }
-                    )
-                ),
-                encoding="utf-8",
+            cfg_path = _write_orca_config(
+                Path(td) / "chemstack.yaml",
+                {
+                    "runtime": {
+                        "allowed_root": "C:\\orca_runs",
+                    },
+                    "paths": {"orca_executable": "/opt/orca/orca"},
+                },
             )
             with self.assertRaises(ValueError) as ctx:
                 load_config(str(cfg_path))
@@ -43,19 +49,14 @@ class TestConfigValidation(unittest.TestCase):
 
     def test_windows_mount_allowed_root_raises(self) -> None:
         with tempfile.TemporaryDirectory() as td:
-            cfg_path = Path(td) / "chemstack.yaml"
-            cfg_path.write_text(
-                json.dumps(
-                    _orca_config(
-                        {
-                            "runtime": {
-                                "allowed_root": "/mnt/c/orca_runs",
-                            },
-                            "paths": {"orca_executable": "/home/user/opt/orca/orca"},
-                        }
-                    )
-                ),
-                encoding="utf-8",
+            cfg_path = _write_orca_config(
+                Path(td) / "chemstack.yaml",
+                {
+                    "runtime": {
+                        "allowed_root": "/mnt/c/orca_runs",
+                    },
+                    "paths": {"orca_executable": "/home/user/opt/orca/orca"},
+                },
             )
             with self.assertRaises(ValueError) as ctx:
                 load_config(str(cfg_path))
@@ -63,19 +64,14 @@ class TestConfigValidation(unittest.TestCase):
 
     def test_relative_paths_raise(self) -> None:
         with tempfile.TemporaryDirectory() as td:
-            cfg_path = Path(td) / "chemstack.yaml"
-            cfg_path.write_text(
-                json.dumps(
-                    _orca_config(
-                        {
-                            "runtime": {
-                                "allowed_root": "./orca_runs",
-                            },
-                            "paths": {"orca_executable": "./opt/orca/orca"},
-                        }
-                    )
-                ),
-                encoding="utf-8",
+            cfg_path = _write_orca_config(
+                Path(td) / "chemstack.yaml",
+                {
+                    "runtime": {
+                        "allowed_root": "./orca_runs",
+                    },
+                    "paths": {"orca_executable": "./opt/orca/orca"},
+                },
             )
             with self.assertRaises(ValueError) as ctx:
                 load_config(str(cfg_path))
@@ -83,19 +79,14 @@ class TestConfigValidation(unittest.TestCase):
 
     def test_windows_orca_executable_raises(self) -> None:
         with tempfile.TemporaryDirectory() as td:
-            cfg_path = Path(td) / "chemstack.yaml"
-            cfg_path.write_text(
-                json.dumps(
-                    _orca_config(
-                        {
-                            "runtime": {
-                                "allowed_root": "/home/user/orca_runs",
-                            },
-                            "paths": {"orca_executable": "C:\\Orca\\orca.exe"},
-                        }
-                    )
-                ),
-                encoding="utf-8",
+            cfg_path = _write_orca_config(
+                Path(td) / "chemstack.yaml",
+                {
+                    "runtime": {
+                        "allowed_root": "/home/user/orca_runs",
+                    },
+                    "paths": {"orca_executable": "C:\\Orca\\orca.exe"},
+                },
             )
             with self.assertRaises(ValueError) as ctx:
                 load_config(str(cfg_path))
@@ -103,19 +94,14 @@ class TestConfigValidation(unittest.TestCase):
 
     def test_exe_suffix_orca_executable_raises(self) -> None:
         with tempfile.TemporaryDirectory() as td:
-            cfg_path = Path(td) / "chemstack.yaml"
-            cfg_path.write_text(
-                json.dumps(
-                    _orca_config(
-                        {
-                            "runtime": {
-                                "allowed_root": "/home/user/orca_runs",
-                            },
-                            "paths": {"orca_executable": "/home/user/opt/orca/orca.exe"},
-                        }
-                    )
-                ),
-                encoding="utf-8",
+            cfg_path = _write_orca_config(
+                Path(td) / "chemstack.yaml",
+                {
+                    "runtime": {
+                        "allowed_root": "/home/user/orca_runs",
+                    },
+                    "paths": {"orca_executable": "/home/user/opt/orca/orca.exe"},
+                },
             )
             with self.assertRaises(ValueError) as ctx:
                 load_config(str(cfg_path))
@@ -127,21 +113,16 @@ class TestConfigValidation(unittest.TestCase):
             allowed = root / "orca_runs"
             allowed.mkdir()
             fake_orca = root / "orca"
-            fake_orca.write_text("#!/bin/sh\n", encoding="utf-8")
+            _write_fake_executable(fake_orca)
 
-            cfg_path = root / "chemstack.yaml"
-            cfg_path.write_text(
-                json.dumps(
-                    _orca_config(
-                        {
-                            "runtime": {
-                                "allowed_root": str(allowed),
-                            },
-                            "paths": {"orca_executable": str(fake_orca)},
-                        }
-                    )
-                ),
-                encoding="utf-8",
+            cfg_path = _write_orca_config(
+                root / "chemstack.yaml",
+                {
+                    "runtime": {
+                        "allowed_root": str(allowed),
+                    },
+                    "paths": {"orca_executable": str(fake_orca)},
+                },
             )
             cfg = load_config(str(cfg_path))
             self.assertEqual(cfg.runtime.allowed_root, str(allowed))
@@ -153,28 +134,23 @@ class TestConfigValidation(unittest.TestCase):
             allowed = root / "orca_runs"
             allowed.mkdir()
             fake_orca = root / "orca"
-            fake_orca.write_text("#!/bin/sh\n", encoding="utf-8")
+            _write_fake_executable(fake_orca)
 
-            cfg_path = root / "chemstack.yaml"
-            cfg_path.write_text(
-                json.dumps(
-                    _orca_config(
-                        {
-                            "runtime": {
-                                "allowed_root": str(allowed),
-                            },
-                            "paths": {"orca_executable": str(fake_orca)},
-                            "telegram": {
-                                "bot_token": "token",
-                                "chat_id": "chat",
-                                "timeout_seconds": 3.5,
-                                "max_attempts": 4,
-                                "retry_backoff_seconds": 0.25,
-                            },
-                        }
-                    )
-                ),
-                encoding="utf-8",
+            cfg_path = _write_orca_config(
+                root / "chemstack.yaml",
+                {
+                    "runtime": {
+                        "allowed_root": str(allowed),
+                    },
+                    "paths": {"orca_executable": str(fake_orca)},
+                    "telegram": {
+                        "bot_token": "token",
+                        "chat_id": "chat",
+                        "timeout_seconds": 3.5,
+                        "max_attempts": 4,
+                        "retry_backoff_seconds": 0.25,
+                    },
+                },
             )
 
             cfg = load_config(str(cfg_path))
@@ -193,26 +169,21 @@ class TestConfigValidation(unittest.TestCase):
             allowed = root / "orca_runs"
             allowed.mkdir()
             fake_orca = root / "orca"
-            fake_orca.write_text("#!/bin/sh\n", encoding="utf-8")
+            _write_fake_executable(fake_orca)
 
-            cfg_path = root / "chemstack.yaml"
-            cfg_path.write_text(
-                json.dumps(
-                    _orca_config(
-                        {
-                            "workflow": {
-                                "root": str(workflow_root),
-                            },
-                            "orca": {
-                                "runtime": {
-                                    "allowed_root": str(allowed),
-                                },
-                                "paths": {"orca_executable": str(fake_orca)},
-                            },
-                        }
-                    )
-                ),
-                encoding="utf-8",
+            cfg_path = _write_orca_config(
+                root / "chemstack.yaml",
+                {
+                    "workflow": {
+                        "root": str(workflow_root),
+                    },
+                    "orca": {
+                        "runtime": {
+                            "allowed_root": str(allowed),
+                        },
+                        "paths": {"orca_executable": str(fake_orca)},
+                    },
+                },
             )
 
             cfg = load_config(str(cfg_path))
@@ -227,22 +198,17 @@ class TestConfigValidation(unittest.TestCase):
             allowed = root / "orca_runs"
             allowed.mkdir()
             fake_orca = root / "orca"
-            fake_orca.write_text("#!/bin/sh\n", encoding="utf-8")
+            _write_fake_executable(fake_orca)
 
-            cfg_path = root / "chemstack.yaml"
-            cfg_path.write_text(
-                json.dumps(
-                    _orca_config(
-                        {
-                            "runtime": {
-                                "allowed_root": str(allowed),
-                                "default_max_retries": 9,
-                            },
-                            "paths": {"orca_executable": str(fake_orca)},
-                        }
-                    )
-                ),
-                encoding="utf-8",
+            cfg_path = _write_orca_config(
+                root / "chemstack.yaml",
+                {
+                    "runtime": {
+                        "allowed_root": str(allowed),
+                        "default_max_retries": 9,
+                    },
+                    "paths": {"orca_executable": str(fake_orca)},
+                },
             )
             cfg = load_config(str(cfg_path))
             self.assertEqual(cfg.runtime.default_max_retries, 9)
@@ -254,28 +220,23 @@ class TestConfigValidation(unittest.TestCase):
             allowed = root / "orca_runs"
             allowed.mkdir()
             fake_orca = root / "orca"
-            fake_orca.write_text("#!/bin/sh\n", encoding="utf-8")
+            _write_fake_executable(fake_orca)
 
-            cfg_path = root / "chemstack.yaml"
-            cfg_path.write_text(
-                json.dumps(
-                    _orca_config(
-                        {
-                            "scheduler": {
-                                "max_active_simulations": 6,
-                            },
-                            "runtime": {
-                                "allowed_root": str(allowed),
-                            },
-                            "paths": {"orca_executable": str(fake_orca)},
-                            "resources": {
-                                "max_cores_per_task": 12,
-                                "max_memory_gb_per_task": 48,
-                            },
-                        }
-                    )
-                ),
-                encoding="utf-8",
+            cfg_path = _write_orca_config(
+                root / "chemstack.yaml",
+                {
+                    "scheduler": {
+                        "max_active_simulations": 6,
+                    },
+                    "runtime": {
+                        "allowed_root": str(allowed),
+                    },
+                    "paths": {"orca_executable": str(fake_orca)},
+                    "resources": {
+                        "max_cores_per_task": 12,
+                        "max_memory_gb_per_task": 48,
+                    },
+                },
             )
             cfg = load_config(str(cfg_path))
 
@@ -294,24 +255,19 @@ class TestConfigValidation(unittest.TestCase):
             allowed = root / "orca_runs"
             allowed.mkdir()
             fake_orca = root / "orca"
-            fake_orca.write_text("#!/bin/sh\n", encoding="utf-8")
+            _write_fake_executable(fake_orca)
 
-            cfg_path = root / "chemstack.yaml"
-            cfg_path.write_text(
-                json.dumps(
-                    _orca_config(
-                        {
-                            "runtime": {
-                                "allowed_root": str(allowed),
-                            },
-                            "paths": {"orca_executable": str(fake_orca)},
-                            "behavior": {
-                                "auto_organize_on_terminal": True,
-                            },
-                        }
-                    )
-                ),
-                encoding="utf-8",
+            cfg_path = _write_orca_config(
+                root / "chemstack.yaml",
+                {
+                    "runtime": {
+                        "allowed_root": str(allowed),
+                    },
+                    "paths": {"orca_executable": str(fake_orca)},
+                    "behavior": {
+                        "auto_organize_on_terminal": True,
+                    },
+                },
             )
             cfg = load_config(str(cfg_path))
             self.assertTrue(cfg.behavior.auto_organize_on_terminal)
@@ -346,21 +302,16 @@ class TestConfigValidation(unittest.TestCase):
             allowed = root / "orca_runs"
             allowed.mkdir()
             fake_orca = root / "orca"
-            fake_orca.write_text("#!/bin/sh\n", encoding="utf-8")
+            _write_fake_executable(fake_orca)
 
-            cfg_path = root / "chemstack.yaml"
-            cfg_path.write_text(
-                json.dumps(
-                    _orca_config(
-                        {
-                            "runtime": {
-                                "allowed_root": str(allowed),
-                            },
-                            "paths": {"orca_executable": str(fake_orca)},
-                        }
-                    )
-                ),
-                encoding="utf-8",
+            cfg_path = _write_orca_config(
+                root / "chemstack.yaml",
+                {
+                    "runtime": {
+                        "allowed_root": str(allowed),
+                    },
+                    "paths": {"orca_executable": str(fake_orca)},
+                },
             )
             cfg = load_config(str(cfg_path))
             self.assertEqual(cfg.runtime.organized_root, str(root / "orca_outputs"))
@@ -369,20 +320,15 @@ class TestConfigValidation(unittest.TestCase):
 
     def test_template_placeholder_paths_are_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as td:
-            cfg_path = Path(td) / "chemstack.yaml"
-            cfg_path.write_text(
-                json.dumps(
-                    _orca_config(
-                        {
-                            "runtime": {
-                                "allowed_root": "/path/to/orca_runs",
-                                "organized_root": "/path/to/orca_outputs",
-                            },
-                            "paths": {"orca_executable": "/path/to/orca/orca"},
-                        }
-                    )
-                ),
-                encoding="utf-8",
+            cfg_path = _write_orca_config(
+                Path(td) / "chemstack.yaml",
+                {
+                    "runtime": {
+                        "allowed_root": "/path/to/orca_runs",
+                        "organized_root": "/path/to/orca_outputs",
+                    },
+                    "paths": {"orca_executable": "/path/to/orca/orca"},
+                },
             )
             with self.assertRaises(ValueError) as ctx:
                 load_config(str(cfg_path))
@@ -393,20 +339,15 @@ class TestConfigValidation(unittest.TestCase):
 
     def test_windows_organized_root_raises(self) -> None:
         with tempfile.TemporaryDirectory() as td:
-            cfg_path = Path(td) / "chemstack.yaml"
-            cfg_path.write_text(
-                json.dumps(
-                    _orca_config(
-                        {
-                            "runtime": {
-                                "allowed_root": "/home/user/orca_runs",
-                                "organized_root": "C:\\orca_outputs",
-                            },
-                            "paths": {"orca_executable": "/opt/orca/orca"},
-                        }
-                    )
-                ),
-                encoding="utf-8",
+            cfg_path = _write_orca_config(
+                Path(td) / "chemstack.yaml",
+                {
+                    "runtime": {
+                        "allowed_root": "/home/user/orca_runs",
+                        "organized_root": "C:\\orca_outputs",
+                    },
+                    "paths": {"orca_executable": "/opt/orca/orca"},
+                },
             )
             with self.assertRaises(ValueError) as ctx:
                 load_config(str(cfg_path))
@@ -414,20 +355,15 @@ class TestConfigValidation(unittest.TestCase):
 
     def test_relative_organized_root_raises(self) -> None:
         with tempfile.TemporaryDirectory() as td:
-            cfg_path = Path(td) / "chemstack.yaml"
-            cfg_path.write_text(
-                json.dumps(
-                    _orca_config(
-                        {
-                            "runtime": {
-                                "allowed_root": "/home/user/orca_runs",
-                                "organized_root": "./outputs",
-                            },
-                            "paths": {"orca_executable": "/opt/orca/orca"},
-                        }
-                    )
-                ),
-                encoding="utf-8",
+            cfg_path = _write_orca_config(
+                Path(td) / "chemstack.yaml",
+                {
+                    "runtime": {
+                        "allowed_root": "/home/user/orca_runs",
+                        "organized_root": "./outputs",
+                    },
+                    "paths": {"orca_executable": "/opt/orca/orca"},
+                },
             )
             with self.assertRaises(ValueError) as ctx:
                 load_config(str(cfg_path))
@@ -441,21 +377,16 @@ class TestConfigValidation(unittest.TestCase):
             allowed.mkdir()
             organized.mkdir()
             fake_orca = root / "orca"
-            fake_orca.write_text("#!/bin/sh\n", encoding="utf-8")
-            cfg_path = root / "chemstack.yaml"
-            cfg_path.write_text(
-                json.dumps(
-                    _orca_config(
-                        {
-                            "runtime": {
-                                "allowed_root": str(allowed),
-                                "organized_root": str(organized),
-                            },
-                            "paths": {"orca_executable": str(fake_orca)},
-                        }
-                    )
-                ),
-                encoding="utf-8",
+            _write_fake_executable(fake_orca)
+            cfg_path = _write_orca_config(
+                root / "chemstack.yaml",
+                {
+                    "runtime": {
+                        "allowed_root": str(allowed),
+                        "organized_root": str(organized),
+                    },
+                    "paths": {"orca_executable": str(fake_orca)},
+                },
             )
             with self.assertRaises(ValueError) as ctx:
                 load_config(str(cfg_path))
@@ -469,22 +400,17 @@ class TestConfigValidation(unittest.TestCase):
             organized = root / "orca_outputs"
             organized.mkdir()
             fake_orca = root / "orca"
-            fake_orca.write_text("#!/bin/sh\n", encoding="utf-8")
+            _write_fake_executable(fake_orca)
 
-            cfg_path = root / "chemstack.yaml"
-            cfg_path.write_text(
-                json.dumps(
-                    _orca_config(
-                        {
-                            "runtime": {
-                                "allowed_root": str(allowed),
-                                "organized_root": str(organized),
-                            },
-                            "paths": {"orca_executable": str(fake_orca)},
-                        }
-                    )
-                ),
-                encoding="utf-8",
+            cfg_path = _write_orca_config(
+                root / "chemstack.yaml",
+                {
+                    "runtime": {
+                        "allowed_root": str(allowed),
+                        "organized_root": str(organized),
+                    },
+                    "paths": {"orca_executable": str(fake_orca)},
+                },
             )
             cfg = load_config(str(cfg_path))
             self.assertEqual(cfg.runtime.organized_root, str(organized))
@@ -494,38 +420,47 @@ class TestConfigValidation(unittest.TestCase):
             root = Path(td)
             allowed = root / "orca_runs"
             allowed.mkdir()
-            cfg_path = root / "chemstack.yaml"
-            cfg_path.write_text(
-                json.dumps(
-                    _orca_config(
-                        {
-                            "runtime": {"allowed_root": str(allowed)},
-                            "paths": {"orca_executable": str(root / "nonexistent_orca")},
-                        }
-                    )
-                ),
-                encoding="utf-8",
+            cfg_path = _write_orca_config(
+                root / "chemstack.yaml",
+                {
+                    "runtime": {"allowed_root": str(allowed)},
+                    "paths": {"orca_executable": str(root / "nonexistent_orca")},
+                },
             )
             with self.assertRaises(ValueError) as ctx:
                 load_config(str(cfg_path))
             self.assertIn("orca_executable not found", str(ctx.exception))
 
+    def test_non_executable_orca_executable_raises(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            allowed = root / "orca_runs"
+            allowed.mkdir()
+            fake_orca = root / "orca"
+            fake_orca.write_text("#!/bin/sh\n", encoding="utf-8")
+            fake_orca.chmod(0o644)
+            cfg_path = _write_orca_config(
+                root / "chemstack.yaml",
+                {
+                    "runtime": {"allowed_root": str(allowed)},
+                    "paths": {"orca_executable": str(fake_orca)},
+                },
+            )
+            with self.assertRaises(ValueError) as ctx:
+                load_config(str(cfg_path))
+            self.assertIn("orca_executable is not executable", str(ctx.exception))
+
     def test_nonexistent_allowed_root_raises(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             fake_orca = root / "orca"
-            fake_orca.write_text("#!/bin/sh\n", encoding="utf-8")
-            cfg_path = root / "chemstack.yaml"
-            cfg_path.write_text(
-                json.dumps(
-                    _orca_config(
-                        {
-                            "runtime": {"allowed_root": str(root / "nonexistent_dir")},
-                            "paths": {"orca_executable": str(fake_orca)},
-                        }
-                    )
-                ),
-                encoding="utf-8",
+            _write_fake_executable(fake_orca)
+            cfg_path = _write_orca_config(
+                root / "chemstack.yaml",
+                {
+                    "runtime": {"allowed_root": str(root / "nonexistent_dir")},
+                    "paths": {"orca_executable": str(fake_orca)},
+                },
             )
             with self.assertRaises(ValueError) as ctx:
                 load_config(str(cfg_path))
@@ -537,18 +472,13 @@ class TestConfigValidation(unittest.TestCase):
             not_a_dir = root / "orca_runs"
             not_a_dir.write_text("oops", encoding="utf-8")
             fake_orca = root / "orca"
-            fake_orca.write_text("#!/bin/sh\n", encoding="utf-8")
-            cfg_path = root / "chemstack.yaml"
-            cfg_path.write_text(
-                json.dumps(
-                    _orca_config(
-                        {
-                            "runtime": {"allowed_root": str(not_a_dir)},
-                            "paths": {"orca_executable": str(fake_orca)},
-                        }
-                    )
-                ),
-                encoding="utf-8",
+            _write_fake_executable(fake_orca)
+            cfg_path = _write_orca_config(
+                root / "chemstack.yaml",
+                {
+                    "runtime": {"allowed_root": str(not_a_dir)},
+                    "paths": {"orca_executable": str(fake_orca)},
+                },
             )
             with self.assertRaises(ValueError) as ctx:
                 load_config(str(cfg_path))

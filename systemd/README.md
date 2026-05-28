@@ -30,6 +30,7 @@ Before enabling the combined runtime target:
 
 - Set `telegram.bot_token` and `telegram.chat_id` in `chemstack.yaml`
 - Set `workflow.root` in `chemstack.yaml` if you want workflow supervision too
+- Restrict local config permissions with `chmod 600 config/chemstack.yaml`
 
 Install the combined runtime target:
 

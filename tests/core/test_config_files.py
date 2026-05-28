@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import stat
 from pathlib import Path
 
 from chemstack.core.config.files import (
     engine_config_mapping,
+    secure_config_file_permissions,
     shared_workflow_root_from_config,
     workflow_root_from_mapping,
 )
@@ -38,3 +40,13 @@ def test_engine_config_mapping_requires_engine_section() -> None:
     }
 
     assert engine_config_mapping(raw, "orca", inherit_keys=("scheduler",)) == {}
+
+
+def test_secure_config_file_permissions_sets_owner_only_mode(tmp_path: Path) -> None:
+    config_path = tmp_path / "chemstack.yaml"
+    config_path.write_text("telegram:\n  bot_token: token\n", encoding="utf-8")
+    config_path.chmod(0o644)
+
+    secure_config_file_permissions(config_path)
+
+    assert stat.S_IMODE(config_path.stat().st_mode) == 0o600

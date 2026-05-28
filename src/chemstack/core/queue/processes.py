@@ -53,7 +53,11 @@ def terminate_process_group(
     if proc.poll() is not None:
         return
     active_deps = deps or ProcessGroupTerminationDeps()
-    active_killpg = killpg_fn or active_deps.killpg or os.killpg
+    active_killpg = killpg_fn
+    if active_killpg is None:
+        active_killpg = active_deps.killpg
+    if active_killpg is None:
+        active_killpg = os.killpg
     active_sigterm = active_deps.sigterm if sigterm is None else sigterm
     active_sigkill = active_deps.sigkill if sigkill is None else sigkill
     logger = active_deps.logger

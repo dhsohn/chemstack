@@ -9,6 +9,8 @@ from pathlib import Path
 from types import FrameType
 from typing import List
 
+from chemstack.core.queue.processes import ProcessGroupTerminationDeps, terminate_process_group
+
 logger = logging.getLogger(__name__)
 
 
@@ -30,27 +32,15 @@ class OrcaRunner:
         if proc.poll() is not None:
             return
         logger.warning("Terminating ORCA process tree (pid=%d)", proc.pid)
-        try:
-            os.killpg(proc.pid, signal.SIGTERM)
-        except Exception:
-            logger.debug("failed to signal ORCA process group with SIGTERM", exc_info=True)
-            try:
-                proc.terminate()
-            except Exception:
-                logger.debug("failed to terminate ORCA subprocess fallback", exc_info=True)
-
-        try:
-            proc.wait(timeout=3)
-        except Exception:
-            logger.debug("ORCA subprocess did not exit after SIGTERM", exc_info=True)
-            try:
-                os.killpg(proc.pid, signal.SIGKILL)
-            except Exception:
-                logger.debug("failed to signal ORCA process group with SIGKILL", exc_info=True)
-                try:
-                    proc.kill()
-                except Exception:
-                    logger.debug("failed to kill ORCA subprocess fallback", exc_info=True)
+        terminate_process_group(
+            proc,
+            graceful_timeout=3,
+            kill_timeout=5,
+            killpg_fn=os.killpg,
+            sigterm=signal.SIGTERM,
+            sigkill=signal.SIGKILL,
+            deps=ProcessGroupTerminationDeps(logger=logger),
+        )
 
     @staticmethod
     def _ensure_trailing_newline(path: Path) -> None:

@@ -9,6 +9,15 @@ import yaml
 CHEMSTACK_CONFIG_ENV_VAR = "CHEMSTACK_CONFIG"
 DEFAULT_CONFIG_FILENAME = "chemstack.yaml"
 DEFAULT_SHARED_ADMISSION_DIRNAME = "admission"
+SECURE_CONFIG_FILE_MODE = 0o600
+
+
+def secure_config_file_permissions(
+    config_path: str | Path,
+    *,
+    mode: int = SECURE_CONFIG_FILE_MODE,
+) -> None:
+    Path(config_path).chmod(mode)
 
 
 def default_config_path_from_repo_root(

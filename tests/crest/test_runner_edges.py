@@ -94,9 +94,20 @@ def test_resolve_crest_executable_raises_for_missing_configured_path(tmp_path: P
 def test_resolve_crest_executable_returns_resolved_configured_file(tmp_path: Path) -> None:
     crest_path = tmp_path / "crest"
     crest_path.write_text("#!/bin/sh\n", encoding="utf-8")
+    crest_path.chmod(0o755)
     cfg = _cfg(tmp_path, crest_executable=str(crest_path))
 
     assert _resolve_crest_executable(cfg) == str(crest_path.resolve())
+
+
+def test_resolve_crest_executable_rejects_non_executable_file(tmp_path: Path) -> None:
+    crest_path = tmp_path / "crest"
+    crest_path.write_text("#!/bin/sh\n", encoding="utf-8")
+    crest_path.chmod(0o644)
+    cfg = _cfg(tmp_path, crest_executable=str(crest_path))
+
+    with pytest.raises(ValueError, match="Configured CREST executable is not executable"):
+        _resolve_crest_executable(cfg)
 
 
 def test_resolve_crest_executable_falls_back_to_path_lookup(

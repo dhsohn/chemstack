@@ -148,6 +148,7 @@ def test_resolve_xtb_executable_uses_configured_and_path_lookup(
     executable = tmp_path / "bin" / "xtb"
     executable.parent.mkdir(parents=True)
     executable.write_text("#!/bin/sh\n", encoding="utf-8")
+    executable.chmod(0o755)
 
     assert runner_mod._resolve_xtb_executable(
         _cfg(tmp_path, xtb_executable=str(executable))
@@ -156,6 +157,14 @@ def test_resolve_xtb_executable_uses_configured_and_path_lookup(
     with pytest.raises(ValueError, match="Configured xTB executable not found"):
         runner_mod._resolve_xtb_executable(
             _cfg(tmp_path, xtb_executable=str(tmp_path / "missing-xtb"))
+        )
+
+    not_executable = tmp_path / "bin" / "xtb-not-executable"
+    not_executable.write_text("#!/bin/sh\n", encoding="utf-8")
+    not_executable.chmod(0o644)
+    with pytest.raises(ValueError, match="Configured xTB executable is not executable"):
+        runner_mod._resolve_xtb_executable(
+            _cfg(tmp_path, xtb_executable=str(not_executable))
         )
 
     monkeypatch.setattr(

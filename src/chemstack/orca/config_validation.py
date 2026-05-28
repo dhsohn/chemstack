@@ -8,6 +8,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from chemstack.core.engine_runner import validate_executable_file
 from chemstack.core.paths import is_rejected_windows_path, is_subpath
 
 
@@ -35,16 +36,19 @@ def _validate_config(cfg: Any) -> None:
             f"orca_executable must point to Linux ORCA binary, not Windows executable: {cfg.paths.orca_executable!r}"
         )
 
-    orca_path = Path(cfg.paths.orca_executable)
-    if not orca_path.exists():
-        raise ValueError(
+    validate_executable_file(
+        cfg.paths.orca_executable,
+        missing_message=lambda _resolved: (
             f"orca_executable not found: {cfg.paths.orca_executable!r}. "
             "Verify the path points to an existing ORCA binary."
-        )
-    if not orca_path.is_file():
-        raise ValueError(
+        ),
+        not_file_message=lambda _resolved: (
             f"orca_executable is not a file: {cfg.paths.orca_executable!r}"
-        )
+        ),
+        not_executable_message=lambda _resolved: (
+            f"orca_executable is not executable: {cfg.paths.orca_executable!r}"
+        ),
+    )
 
     allowed_root = Path(cfg.runtime.allowed_root)
     if not allowed_root.exists():
