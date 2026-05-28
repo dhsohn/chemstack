@@ -46,13 +46,13 @@ def test_queue_worker_direct_cli_uses_default_apps(monkeypatch) -> None:
 
     monkeypatch.setattr(cli_workers, "cmd_queue_worker", _fake_cmd_queue_worker)
 
-    result = chemstack_cli.main(["--config", "/tmp/chemstack.yaml", "queue", "worker"])
+    result = chemstack_cli.main(["queue", "worker", "--config", "/tmp/chemstack.yaml"])
 
     assert result == 11
     args = captured["args"]
     assert isinstance(args, Namespace)
     assert args.app is None
-    assert args.global_config == "/tmp/chemstack.yaml"
+    assert args.chemstack_config == "/tmp/chemstack.yaml"
     assert args.json is False
 
 

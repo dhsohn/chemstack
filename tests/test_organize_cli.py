@@ -75,10 +75,10 @@ class TestOrganizeDryRun(unittest.TestCase):
             config = _write_config(root, allowed, organized)
             rc = main(
                 [
-                    "--config",
-                    str(config),
                     "organize",
                     "orca",
+                    "--config",
+                    str(config),
                     "--reaction-dir",
                     str(rxn),
                 ]
@@ -97,7 +97,7 @@ class TestOrganizeDryRun(unittest.TestCase):
             _make_completed_reaction(rxn)
 
             config = _write_config(root, allowed, organized)
-            main(["--config", str(config), "organize", "orca", "--reaction-dir", str(rxn)])
+            main(["organize", "orca", "--config", str(config), "--reaction-dir", str(rxn)])
             self.assertTrue(rxn.exists(), "Source should still exist after dry-run")
             self.assertFalse(
                 any(organized.iterdir()),
@@ -122,10 +122,10 @@ class TestOrganizeDryRun(unittest.TestCase):
             config = _write_config(root, allowed, organized)
             rc = main(
                 [
-                    "--config",
-                    str(config),
                     "organize",
                     "orca",
+                    "--config",
+                    str(config),
                     "--reaction-dir",
                     str(rxn),
                 ]
@@ -148,10 +148,10 @@ class TestOrganizeApply(unittest.TestCase):
             config = _write_config(root, allowed, organized)
             rc = main(
                 [
-                    "--config",
-                    str(config),
                     "organize",
                     "orca",
+                    "--config",
+                    str(config),
                     "--reaction-dir",
                     str(rxn),
                     "--apply",
@@ -219,10 +219,10 @@ class TestOrganizeApply(unittest.TestCase):
             ):
                 rc = main(
                     [
-                        "--config",
-                        str(config),
                         "organize",
                         "orca",
+                        "--config",
+                        str(config),
                         "--reaction-dir",
                         str(rxn),
                         "--apply",
@@ -262,10 +262,10 @@ class TestOrganizeRootScan(unittest.TestCase):
             config = _write_config(root, allowed, organized)
             rc = main(
                 [
-                    "--config",
-                    str(config),
                     "organize",
                     "orca",
+                    "--config",
+                    str(config),
                     "--root",
                     str(allowed),
                 ]
@@ -288,10 +288,10 @@ class TestOrganizeRootScan(unittest.TestCase):
             config = _write_config(root, allowed, organized)
             rc = main(
                 [
-                    "--config",
-                    str(config),
                     "organize",
                     "orca",
+                    "--config",
+                    str(config),
                     "--root",
                     str(allowed),
                     "--apply",
@@ -322,10 +322,10 @@ class TestOrganizeRootScan(unittest.TestCase):
             config = _write_config(root, allowed, organized)
             rc = main(
                 [
-                    "--config",
-                    str(config),
                     "organize",
                     "orca",
+                    "--config",
+                    str(config),
                     "--root",
                     str(allowed / "batch1"),
                 ]
@@ -345,10 +345,10 @@ class TestOrganizeMutualExclusion(unittest.TestCase):
             config = _write_config(root, allowed, organized)
             rc = main(
                 [
-                    "--config",
-                    str(config),
                     "organize",
                     "orca",
+                    "--config",
+                    str(config),
                     "--reaction-dir",
                     str(allowed / "rxn1"),
                     "--root",
@@ -368,10 +368,10 @@ class TestOrganizeMutualExclusion(unittest.TestCase):
             config = _write_config(root, allowed, organized)
             rc = main(
                 [
-                    "--config",
-                    str(config),
                     "organize",
                     "orca",
+                    "--config",
+                    str(config),
                 ]
             )
             self.assertEqual(rc, 1)
@@ -389,10 +389,10 @@ class TestOrganizeRebuildIndex(unittest.TestCase):
             config = _write_config(root, allowed, organized)
             rc = main(
                 [
-                    "--config",
-                    str(config),
                     "organize",
                     "orca",
+                    "--config",
+                    str(config),
                     "--rebuild-index",
                 ]
             )

@@ -318,13 +318,6 @@ def _add_monitor_parser(subparsers: argparse._SubParsersAction[argparse.Argument
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="chemstack")
-    parser.add_argument(
-        "--chemstack-config",
-        "--config",
-        dest="global_config",
-        default=None,
-        help=argparse.SUPPRESS,
-    )
     subparsers = parser.add_subparsers(dest="command", required=True)
     _add_queue_parser(subparsers)
     _add_run_dir_parser(subparsers)

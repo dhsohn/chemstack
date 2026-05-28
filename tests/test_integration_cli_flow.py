@@ -90,10 +90,10 @@ class TestIntegrationCliFlow(unittest.TestCase):
             with patch("sys.stdout", run_stdout):
                 rc = _run_main(
                     [
-                        "--config",
-                        str(config),
                         "run-dir",
                         str(reaction),
+                        "--config",
+                        str(config),
                     ]
                 )
 
@@ -131,10 +131,10 @@ class TestIntegrationCliFlow(unittest.TestCase):
             with patch("sys.stdout", run_stdout):
                 rc = _run_main(
                     [
-                        "--config",
-                        str(config),
                         "run-dir",
                         str(reaction),
+                        "--config",
+                        str(config),
                         "--force",
                     ]
                 )
@@ -173,10 +173,10 @@ class TestIntegrationCliFlow(unittest.TestCase):
 
             rc = _run_main(
                 [
-                    "--config",
-                    str(config),
                     "run-dir",
                     str(reaction),
+                    "--config",
+                    str(config),
                 ]
             )
             queue_entries = [

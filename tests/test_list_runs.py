@@ -71,7 +71,7 @@ class TestListEmpty(_ListTestBase):
             captured = io.StringIO()
             with patch("sys.stdout", captured):
                 rc = main(
-                    ["--config", str(config), "queue", "list", "--engine", "orca", "--kind", "job"]
+                    ["queue", "list", "--config", str(config), "--engine", "orca", "--kind", "job"]
                 )
 
         self.assertEqual(rc, 0)
@@ -96,7 +96,7 @@ class TestListStandaloneRuns(_ListTestBase):
             captured = io.StringIO()
             with patch("sys.stdout", captured):
                 rc = main(
-                    ["--config", str(config), "queue", "list", "--engine", "orca", "--kind", "job"]
+                    ["queue", "list", "--config", str(config), "--engine", "orca", "--kind", "job"]
                 )
 
         self.assertEqual(rc, 0)
@@ -121,10 +121,10 @@ class TestListStandaloneRuns(_ListTestBase):
             with patch("sys.stdout", captured):
                 rc = main(
                     [
-                        "--config",
-                        str(config),
                         "queue",
                         "list",
+                        "--config",
+                        str(config),
                         "--engine",
                         "orca",
                         "--kind",
@@ -151,7 +151,7 @@ class TestListStandaloneRuns(_ListTestBase):
             captured = io.StringIO()
             with patch("sys.stdout", captured):
                 rc = main(
-                    ["--config", str(config), "queue", "list", "--engine", "orca", "--kind", "job"]
+                    ["queue", "list", "--config", str(config), "--engine", "orca", "--kind", "job"]
                 )
 
         self.assertEqual(rc, 0)
@@ -210,7 +210,7 @@ class TestListStandaloneRuns(_ListTestBase):
             captured = io.StringIO()
             with patch("sys.stdout", captured):
                 rc = main(
-                    ["--config", str(config), "queue", "list", "--engine", "orca", "--kind", "job"]
+                    ["queue", "list", "--config", str(config), "--engine", "orca", "--kind", "job"]
                 )
 
         self.assertEqual(rc, 0)
@@ -237,7 +237,7 @@ class TestListQueueEntries(_ListTestBase):
             captured = io.StringIO()
             with patch("sys.stdout", captured):
                 rc = main(
-                    ["--config", str(config), "queue", "list", "--engine", "orca", "--kind", "job"]
+                    ["queue", "list", "--config", str(config), "--engine", "orca", "--kind", "job"]
                 )
 
         self.assertEqual(rc, 0)
@@ -264,10 +264,10 @@ class TestListQueueEntries(_ListTestBase):
             with patch("sys.stdout", captured):
                 rc = main(
                     [
-                        "--config",
-                        str(config),
                         "queue",
                         "list",
+                        "--config",
+                        str(config),
                         "--engine",
                         "orca",
                         "--kind",
@@ -305,7 +305,7 @@ class TestListQueueEntries(_ListTestBase):
             captured = io.StringIO()
             with patch("sys.stdout", captured):
                 rc = main(
-                    ["--config", str(config), "queue", "list", "--engine", "orca", "--kind", "job"]
+                    ["queue", "list", "--config", str(config), "--engine", "orca", "--kind", "job"]
                 )
 
         self.assertEqual(rc, 0)
@@ -344,7 +344,7 @@ class TestListQueueEntries(_ListTestBase):
             captured = io.StringIO()
             with patch("sys.stdout", captured):
                 rc = main(
-                    ["--config", str(config), "queue", "list", "--engine", "orca", "--kind", "job"]
+                    ["queue", "list", "--config", str(config), "--engine", "orca", "--kind", "job"]
                 )
 
         self.assertEqual(rc, 0)
@@ -371,7 +371,7 @@ class TestListClear(_ListTestBase):
 
             captured = io.StringIO()
             with patch("sys.stdout", captured):
-                rc = main(["--config", str(config), "queue", "list", "clear"])
+                rc = main(["queue", "list", "--config", str(config), "clear"])
 
         self.assertEqual(rc, 0)
         self.assertIn("Cleared", captured.getvalue())
@@ -388,7 +388,7 @@ class TestListClear(_ListTestBase):
 
             captured = io.StringIO()
             with patch("sys.stdout", captured):
-                rc = main(["--config", str(config), "queue", "list", "clear"])
+                rc = main(["queue", "list", "--config", str(config), "clear"])
 
             self.assertEqual(rc, 0)
             # rxn1 (completed) should be cleared
@@ -405,7 +405,7 @@ class TestListClear(_ListTestBase):
 
             captured = io.StringIO()
             with patch("sys.stdout", captured):
-                rc = main(["--config", str(config), "queue", "list", "clear"])
+                rc = main(["queue", "list", "--config", str(config), "clear"])
 
         self.assertEqual(rc, 0)
         self.assertIn("Nothing to clear.", captured.getvalue())

@@ -90,7 +90,7 @@ class TestCli(unittest.TestCase):
             )
             config = self._write_config(root, allowed)
 
-            rc = main(["--config", str(config), "run-dir", str(outside)])
+            rc = main(["run-dir", "--config", str(config), str(outside)])
         self.assertEqual(rc, 1)
 
     def test_select_latest_inp_prefers_base_input(self) -> None:
@@ -325,7 +325,7 @@ class TestCli(unittest.TestCase):
             )
             config = self._write_config(root, root / "orca_runs")
 
-            rc = main(["--config", str(config), "run-dir", str(reaction)])
+            rc = main(["run-dir", "--config", str(config), str(reaction)])
 
         self.assertEqual(rc, 0)
         self.assertFalse((reaction / "run_state.json").exists())
@@ -346,7 +346,7 @@ class TestCli(unittest.TestCase):
             config = self._write_config(root, root / "orca_runs")
 
             with patch("chemstack.orca.commands.run_inp.OrcaRunner.run") as run_mock:
-                rc = main(["--config", str(config), "run-dir", str(reaction)])
+                rc = main(["run-dir", "--config", str(config), str(reaction)])
             self.assertFalse(run_mock.called)
         self.assertEqual(rc, 0)
         self.assertFalse((reaction / "run_state.json").exists())
@@ -367,7 +367,7 @@ class TestCli(unittest.TestCase):
             )
             config = self._write_config(root, root / "orca_runs")
 
-            rc = main(["--config", str(config), "run-dir", str(reaction)])
+            rc = main(["run-dir", "--config", str(config), str(reaction)])
 
         self.assertEqual(rc, 1)
         self.assertFalse((reaction / "run_state.json").exists())
@@ -417,7 +417,7 @@ class TestCli(unittest.TestCase):
             (reaction / "run_state.json").write_text(json.dumps(state), encoding="utf-8")
 
             with patch("chemstack.orca.commands.run_inp.OrcaRunner.run") as run_mock:
-                rc = main(["--config", str(config), "run-dir", str(reaction)])
+                rc = main(["run-dir", "--config", str(config), str(reaction)])
             self.assertFalse(run_mock.called)
             saved = json.loads((reaction / "run_state.json").read_text(encoding="utf-8"))
 
@@ -920,7 +920,7 @@ class TestCli(unittest.TestCase):
             captured_stderr = io.StringIO()
             captured_stdout = io.StringIO()
             with patch("sys.stderr", captured_stderr), patch("sys.stdout", captured_stdout):
-                rc = main(["--config", str(config), "run-dir", str(outside)])
+                rc = main(["run-dir", "--config", str(config), str(outside)])
         self.assertEqual(rc, 1)
         # Error should go to stderr (via logger.error), not stdout
         self.assertNotIn("allowed root", captured_stdout.getvalue())

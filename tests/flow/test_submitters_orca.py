@@ -12,7 +12,6 @@ from chemstack.flow.submitters import orca as orca_submitter
 from chemstack.orca import config as orca_config
 from chemstack.orca import queue_adapter
 from chemstack.orca.commands import run_inp as run_inp_cmd
-from chemstack.orca.commands import run_inp_submission as run_inp_submission_cmd
 
 
 def _queue_entry(
@@ -120,55 +119,28 @@ def test_submit_reaction_dir_uses_direct_submission_api(
     )
     captured: dict[str, Any] = {}
 
-    def fake_resolve_submission_context(args: Any) -> Any:
+    def fake_submit_reaction_dir_to_queue(args: Any) -> Any:
         captured["args"] = args
-        return SimpleNamespace(
+        context = SimpleNamespace(
             cfg=cfg,
             reaction_dir=reaction_dir,
             selected_inp=selected_inp,
             allowed_root=allowed_root,
         )
-
-    def fake_find_submission_conflict(allowed_root_arg: Path, reaction_dir_arg: Path) -> None:
-        captured["conflict_check"] = (allowed_root_arg, reaction_dir_arg)
-        return None
-
-    def fake_create_queued_submission(
-        cfg_arg: Any,
-        args_arg: Any,
-        reaction_dir_arg: Path,
-        *,
-        selected_inp: Path | None,
-        deps: Any,
-    ) -> Any:
-        captured["create"] = {
-            "cfg": cfg_arg,
-            "args": args_arg,
-            "reaction_dir": reaction_dir_arg,
-            "selected_inp": selected_inp,
-            "deps": deps,
-        }
-        return queued_result
-
-    def fake_notify_queued_submission(cfg_arg: Any, result: Any, *, deps: Any) -> None:
-        captured["notify"] = (cfg_arg, result, deps)
+        captured["context"] = context
+        captured["deps"] = deps
+        return SimpleNamespace(
+            status="submitted",
+            reason="",
+            stderr="",
+            context=context,
+            queued_result=queued_result,
+        )
 
     monkeypatch.setattr(
         run_inp_cmd,
-        "_resolve_submission_context",
-        fake_resolve_submission_context,
-    )
-    monkeypatch.setattr(run_inp_cmd, "_find_submission_conflict", fake_find_submission_conflict)
-    monkeypatch.setattr(run_inp_cmd, "_run_inp_deps", lambda: deps)
-    monkeypatch.setattr(
-        run_inp_submission_cmd,
-        "create_queued_submission",
-        fake_create_queued_submission,
-    )
-    monkeypatch.setattr(
-        run_inp_submission_cmd,
-        "notify_queued_submission",
-        fake_notify_queued_submission,
+        "submit_reaction_dir_to_queue",
+        fake_submit_reaction_dir_to_queue,
     )
 
     result = orca_submitter.submit_reaction_dir(
@@ -188,15 +160,7 @@ def test_submit_reaction_dir_uses_direct_submission_api(
     assert args.force is True
     assert args.max_cores == 16
     assert args.max_memory_gb == 64
-    assert captured["conflict_check"] == (allowed_root, reaction_dir)
-    assert captured["create"] == {
-        "cfg": cfg,
-        "args": args,
-        "reaction_dir": reaction_dir,
-        "selected_inp": selected_inp,
-        "deps": deps,
-    }
-    assert captured["notify"] == (cfg, queued_result, deps)
+    assert captured["context"].allowed_root == allowed_root
     assert result["status"] == "submitted"
     assert result["queue_id"] == "q_123"
     assert result["job_id"] == "orca_job_123"
@@ -229,7 +193,17 @@ def test_submit_reaction_dir_reports_resolution_conflict_and_submission_failures
     tmp_path: Path,
 ) -> None:
     reaction_dir = tmp_path / "rxn_input"
-    monkeypatch.setattr(run_inp_cmd, "_resolve_submission_context", lambda _args: None)
+    monkeypatch.setattr(
+        run_inp_cmd,
+        "submit_reaction_dir_to_queue",
+        lambda _args: SimpleNamespace(
+            status="failed",
+            reason="invalid_submission_target",
+            stderr="failed to resolve ORCA submission target",
+            context=None,
+            queued_result=None,
+        ),
+    )
 
     result = orca_submitter.submit_reaction_dir(
         reaction_dir=str(reaction_dir),
@@ -247,11 +221,16 @@ def test_submit_reaction_dir_reports_resolution_conflict_and_submission_failures
         selected_inp=reaction_dir / "job.inp",
         allowed_root=tmp_path,
     )
-    monkeypatch.setattr(run_inp_cmd, "_resolve_submission_context", lambda _args: context)
     monkeypatch.setattr(
         run_inp_cmd,
-        "_find_submission_conflict",
-        lambda _root, _reaction_dir: "already running",
+        "submit_reaction_dir_to_queue",
+        lambda _args: SimpleNamespace(
+            status="failed",
+            reason="submission_conflict",
+            stderr="already running",
+            context=context,
+            queued_result=None,
+        ),
     )
 
     result = orca_submitter.submit_reaction_dir(
@@ -264,15 +243,12 @@ def test_submit_reaction_dir_reports_resolution_conflict_and_submission_failures
     assert result["reason"] == "submission_conflict"
     assert result["stderr"] == "already running\n"
 
-    monkeypatch.setattr(run_inp_cmd, "_find_submission_conflict", lambda _root, _reaction_dir: None)
-    monkeypatch.setattr(run_inp_cmd, "_run_inp_deps", lambda: object())
-
     def raise_submission_error(*_args: Any, **_kwargs: Any) -> None:
         raise RuntimeError("queue boom")
 
     monkeypatch.setattr(
-        run_inp_submission_cmd,
-        "create_queued_submission",
+        run_inp_cmd,
+        "submit_reaction_dir_to_queue",
         raise_submission_error,
     )
     result = orca_submitter.submit_reaction_dir(

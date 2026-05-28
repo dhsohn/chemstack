@@ -175,7 +175,6 @@ def _resolve_required_workflow_root(
         config_path = (
             getattr(args, "chemstack_config", None)
             or getattr(args, "config", None)
-            or getattr(args, "global_config", None)
         )
         resolved_workflow_root = resolve_workflow_root_for_args(args, config_path=config_path)
     if not resolved_workflow_root:

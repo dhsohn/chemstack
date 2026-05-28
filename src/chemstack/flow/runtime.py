@@ -32,9 +32,6 @@ _WorkflowCycle = runtime_models._WorkflowCycle
 _WorkflowCycleProgress = runtime_models._WorkflowCycleProgress
 
 submission_admission_limit_from_config = runtime_admission.submission_admission_limit_from_config
-_mapping_section = runtime_admission._mapping_section
-_resolve_configured_path = runtime_admission._resolve_configured_path
-_submission_admission_root_from_config = runtime_admission._submission_admission_root_from_config
 submission_admission_has_capacity = runtime_admission.submission_admission_has_capacity
 workflow_submission_has_capacity = runtime_admission.workflow_submission_has_capacity
 
@@ -50,7 +47,6 @@ stage_transition_context = runtime_events.stage_transition_context
 stage_transition_metadata = runtime_events.stage_transition_metadata
 status_transition_event_payload = runtime_events.status_transition_event_payload
 handoff_transition_event_payload = runtime_events.handoff_transition_event_payload
-stage_transition_event_payloads = runtime_events.stage_transition_event_payloads
 append_stage_transition_events = runtime_events.append_stage_transition_events
 append_phase_transition_events = runtime_events.append_phase_transition_events
 append_workflow_advance_failed_event = runtime_events.append_workflow_advance_failed_event
@@ -204,7 +200,7 @@ def _append_stage_transition_events(
         worker_session_id=worker_session_id,
         append_fn=append_stage_transition_events,
         payloads_kwarg="stage_transition_event_payloads_fn",
-        payloads_fn=stage_transition_event_payloads,
+        payloads_fn=runtime_events.stage_transition_event_payloads,
     )
 
 

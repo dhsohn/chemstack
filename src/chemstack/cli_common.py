@@ -44,7 +44,6 @@ def _effective_shared_config_text(args: argparse.Namespace) -> str:
     return (
         normalize_text(getattr(args, "chemstack_config", None))
         or normalize_text(getattr(args, "config", None))
-        or normalize_text(getattr(args, "global_config", None))
     )
 
 

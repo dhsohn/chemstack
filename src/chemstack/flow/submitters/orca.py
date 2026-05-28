@@ -122,7 +122,6 @@ def submit_reaction_dir(
     )
     try:
         from chemstack.orca.commands import run_inp as _run_inp
-        from chemstack.orca.commands import run_inp_submission as _run_inp_submission
 
         args = Namespace(
             config=normalized_config,
@@ -132,31 +131,30 @@ def submit_reaction_dir(
             max_cores=max_cores,
             max_memory_gb=max_memory_gb,
         )
-        context = _run_inp._resolve_submission_context(args)
-        if context is None:
+        submission = _run_inp.submit_reaction_dir_to_queue(args)
+        if submission.reason == "invalid_submission_target":
             return _failure_payload(
                 command_argv=command_argv,
                 reaction_dir=reaction_dir,
-                stderr="failed to resolve ORCA submission target",
+                stderr=submission.stderr,
                 reason="invalid_submission_target",
             )
-        conflict = _run_inp._find_submission_conflict(context.allowed_root, context.reaction_dir)
-        if conflict is not None:
+        context = submission.context
+        if submission.reason == "submission_conflict":
             return _failure_payload(
                 command_argv=command_argv,
-                reaction_dir=str(context.reaction_dir),
-                stderr=conflict,
+                reaction_dir=str(context.reaction_dir) if context is not None else reaction_dir,
+                stderr=submission.stderr,
                 reason="submission_conflict",
             )
-        deps = _run_inp._run_inp_deps()
-        queued = _run_inp_submission.create_queued_submission(
-            context.cfg,
-            args,
-            context.reaction_dir,
-            selected_inp=context.selected_inp,
-            deps=deps,
-        )
-        _run_inp_submission.notify_queued_submission(context.cfg, queued, deps=deps)
+        if submission.status != "submitted" or submission.queued_result is None:
+            return _failure_payload(
+                command_argv=command_argv,
+                reaction_dir=str(context.reaction_dir) if context is not None else reaction_dir,
+                stderr=submission.stderr or "failed to submit ORCA queue entry",
+                reason=submission.reason or "submission_failed",
+            )
+        queued = submission.queued_result
     except Exception as exc:
         return _failure_payload(
             command_argv=command_argv,

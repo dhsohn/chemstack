@@ -82,7 +82,6 @@ def test_workflow_root_for_args_prefers_explicit_root(monkeypatch: pytest.Monkey
             workflow_root="/tmp/explicit-workflows",
             chemstack_config=None,
             config=None,
-            global_config=None,
         )
     ) == str(Path("/tmp/explicit-workflows").resolve())
 

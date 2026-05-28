@@ -208,7 +208,6 @@ def test_workflow_root_for_args_uses_shared_config(monkeypatch: pytest.MonkeyPat
             workflow_root=None,
             chemstack_config=None,
             config=None,
-            global_config=None,
         )
     )
 
@@ -227,7 +226,6 @@ def test_engine_config_for_command_uses_discovered_shared_config(
         argparse.Namespace(
             chemstack_config=None,
             config=None,
-            global_config=None,
         )
     )
 
@@ -265,7 +263,6 @@ def test_cmd_orca_run_dir_uses_discovered_shared_config(
             path=str(target),
             chemstack_config=None,
             config=None,
-            global_config=None,
             verbose=False,
             log_file=None,
         )

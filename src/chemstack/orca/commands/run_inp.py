@@ -98,11 +98,9 @@ class _RunInpSubmissionDeps:
     read_resource_request_from_input: Any
     _build_queue_enqueued_notification: Any
     _build_queue_metadata: Any
-    _emit_queued_submission: Any
     _queue_adapter: Any
     _resource_request_from_selected_inp: Any
     _select_latest_inp: Any
-    _submit_as_queued: Any
     _upsert_queued_job_record: Any
     _warn_ignored_resource_override_flags: Any
     _worker_status_for_submission: Any
@@ -114,6 +112,15 @@ class _RunInpDeps:
     execution: _RunInpExecutionDeps
     notifications: _RunInpNotificationDeps
     submission: _RunInpSubmissionDeps
+
+
+@dataclass(frozen=True)
+class DirectQueueSubmission:
+    status: str
+    reason: str = ""
+    stderr: str = ""
+    context: RunSubmissionContext | None = None
+    queued_result: Any | None = None
 
 
 def _run_inp_deps() -> _RunInpDeps:
@@ -154,11 +161,9 @@ def _run_inp_deps() -> _RunInpDeps:
             read_resource_request_from_input=read_resource_request_from_input,
             _build_queue_enqueued_notification=_build_queue_enqueued_notification,
             _build_queue_metadata=_build_queue_metadata,
-            _emit_queued_submission=_emit_queued_submission,
             _queue_adapter=_queue_adapter,
             _resource_request_from_selected_inp=_resource_request_from_selected_inp,
             _select_latest_inp=_select_latest_inp,
-            _submit_as_queued=_submit_as_queued,
             _upsert_queued_job_record=_upsert_queued_job_record,
             _warn_ignored_resource_override_flags=_warn_ignored_resource_override_flags,
             _worker_status_for_submission=_worker_status_for_submission,
@@ -545,23 +550,6 @@ def _upsert_queued_job_record(
     )
 
 
-def _submit_as_queued(
-    cfg: Any,
-    args: Any,
-    reaction_dir: Path,
-    *,
-    selected_inp: Path | None = None,
-) -> int:
-    return _run_inp_submission.submit_as_queued(
-        cfg,
-        args,
-        reaction_dir,
-        selected_inp=selected_inp,
-        deps=_run_inp_deps(),
-        logger=logger,
-    )
-
-
 def _execute_locked_run(
     args: Any,
     context: RunExecutionContext,
@@ -602,21 +590,68 @@ def _cmd_run_inp_execute(
 
 
 def _cmd_run_inp_submit(args: Any, *, runner_cls: Type[OrcaRunner] = OrcaRunner) -> int:
+    del runner_cls
+    submission = submit_reaction_dir_to_queue(args)
+    if submission.status != "submitted":
+        if submission.stderr:
+            logger.error("%s", submission.stderr.rstrip())
+        return 1
+
+    result = submission.queued_result
+    context = submission.context
+    if result is None or context is None:
+        logger.error("ORCA queue submission did not return a queued result.")
+        return 1
+    worker_info = result.worker_info
+    _emit_queued_submission(
+        context.reaction_dir,
+        result.entry,
+        worker_status=worker_info.status,
+        worker_pid=worker_info.pid,
+        worker_log=worker_info.log_file,
+        worker_detail=worker_info.detail,
+    )
+    return 0
+
+
+def submit_reaction_dir_to_queue(args: Any) -> DirectQueueSubmission:
     context = _resolve_submission_context(args)
     if context is None:
-        return 1
+        return DirectQueueSubmission(
+            status="failed",
+            reason="invalid_submission_target",
+            stderr="failed to resolve ORCA submission target",
+        )
 
     conflict_error = _find_submission_conflict(context.allowed_root, context.reaction_dir)
     if conflict_error is not None:
-        logger.error("%s", conflict_error)
-        return 1
+        return DirectQueueSubmission(
+            status="failed",
+            reason="submission_conflict",
+            stderr=conflict_error,
+            context=context,
+        )
 
-    return _submit_as_queued(
-        context.cfg,
-        args,
-        context.reaction_dir,
-        selected_inp=context.selected_inp,
-    )
+    try:
+        from ..queue_adapter import DuplicateEntryError
+
+        deps = _run_inp_deps()
+        queued = _run_inp_submission.create_queued_submission(
+            context.cfg,
+            args,
+            context.reaction_dir,
+            selected_inp=context.selected_inp,
+            deps=deps,
+        )
+        _run_inp_submission.notify_queued_submission(context.cfg, queued, deps=deps)
+    except DuplicateEntryError as exc:
+        return DirectQueueSubmission(
+            status="failed",
+            reason="submission_conflict",
+            stderr=str(exc),
+            context=context,
+        )
+    return DirectQueueSubmission(status="submitted", context=context, queued_result=queued)
 
 
 def cmd_run_inp(args: Any, *, runner_cls: Type[OrcaRunner] = OrcaRunner) -> int:
