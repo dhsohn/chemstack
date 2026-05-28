@@ -12,7 +12,7 @@ from . import engines as _engine_locations
 
 @dataclass(frozen=True)
 class EngineJobLocationApi:
-    """Shared module-level job-location API for sibling engine packages.
+    """Shared module-level job-location API for engine packages.
 
     CREST and xTB expose almost identical helpers. This adapter keeps those
     module-level functions thin while preserving monkeypatchable store

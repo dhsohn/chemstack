@@ -92,13 +92,13 @@ def test_count_global_active_simulations_uses_orca_runtime_paths(
     calls: list[tuple[str, str | None]] = []
     admission_root = Path("/tmp/chemstack-admission")
 
-    def fake_sibling_runtime_paths(
+    def fake_engine_runtime_paths(
         config_path: str, *, engine: str | None = None
     ) -> dict[str, Path]:
         calls.append((config_path, engine))
         return {"admission_root": admission_root}
 
-    monkeypatch.setattr(activity_view, "sibling_runtime_paths", fake_sibling_runtime_paths)
+    monkeypatch.setattr(activity_view, "engine_runtime_paths", fake_engine_runtime_paths)
     monkeypatch.setattr(activity_view, "active_slot_count", lambda root: 5)
 
     assert (

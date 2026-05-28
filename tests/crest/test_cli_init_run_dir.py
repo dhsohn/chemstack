@@ -14,6 +14,7 @@ from chemstack.crest import submission as crest_submission
 from chemstack.crest.runner import CrestRunResult
 from chemstack.crest.state import load_organized_ref, load_report_json, load_state
 from chemstack.flow.submitters import crest as crest_submitter
+from tests.engine_process_helpers import process_one_crest_for_test
 
 
 def _write_config(tmp_path: Path) -> tuple[Path, Path, Path]:
@@ -256,8 +257,9 @@ def test_cli_end_to_end_smoke_path_submission_worker_and_index(
     assert submission["status"] == "submitted"
     assert submission["job_id"] == "crest-e2e-001"
 
-    assert queue_cmd._process_one(
-        queue_cmd.load_config(str(config_path))
+    assert process_one_crest_for_test(
+        queue_cmd,
+        queue_cmd.load_config(str(config_path)),
     ) == "processed"
     worker_output = capsys.readouterr().out
     assert "organized_output_dir:" not in worker_output

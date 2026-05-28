@@ -7,7 +7,7 @@ from chemstack.core.queue import enqueue, request_cancel
 from chemstack.xtb import queue_runtime as _queue_runtime
 from chemstack.xtb import submission as _submission
 
-from . import sibling_engine as _sibling_engine
+from . import internal_engine as _internal_engine
 
 build_submission = _submission._build_submission
 load_config = _submission.load_config
@@ -24,8 +24,8 @@ _CANCEL_API_NAME = "chemstack.xtb.queue_runtime.direct_cancel"
 def _extra_fields(submission: Any | None, _entry: Any | None) -> dict[str, Any]:
     metadata = getattr(submission, "metadata", {}) if submission is not None else {}
     return {
-        "job_type": _sibling_engine.normalize_text(metadata.get("job_type")),
-        "reaction_key": _sibling_engine.normalize_text(metadata.get("reaction_key")),
+        "job_type": _internal_engine.normalize_text(metadata.get("job_type")),
+        "reaction_key": _internal_engine.normalize_text(metadata.get("reaction_key")),
     }
 
 
@@ -35,7 +35,7 @@ def submit_job_dir(
     priority: int,
     config_path: str,
 ) -> dict[str, Any]:
-    return _sibling_engine.submit_internal_engine_job_dir(
+    return _internal_engine.submit_internal_engine_job_dir(
         load_config_fn=load_config,
         resolve_job_dir_fn=resolve_job_dir,
         load_manifest_fn=load_job_manifest,
@@ -55,7 +55,7 @@ def cancel_target(
     target: str,
     config_path: str,
 ) -> dict[str, Any]:
-    return _sibling_engine.cancel_internal_engine_target(
+    return _internal_engine.cancel_internal_engine_target(
         load_config_fn=load_queue_config,
         queue_entries_with_roots_fn=queue_entries_with_roots,
         request_cancel_fn=request_cancel,

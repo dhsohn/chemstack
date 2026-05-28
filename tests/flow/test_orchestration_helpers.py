@@ -192,7 +192,7 @@ def test_submission_target_and_config_roots_follow_precedence() -> None:
 
     deps = orchestration_deps(
         overrides={
-            "sibling_runtime_paths": lambda path, **kwargs: {
+            "engine_runtime_paths": lambda path, **kwargs: {
                 "allowed_root": Path("/tmp/allowed"),
                 "organized_root": Path("/tmp/organized"),
             }
@@ -203,14 +203,14 @@ def test_submission_target_and_config_roots_follow_precedence() -> None:
 
     deps = orchestration_deps(
         overrides={
-            "sibling_runtime_paths": lambda path, **kwargs: {"allowed_root": Path("/tmp/allowed")}
+            "engine_runtime_paths": lambda path, **kwargs: {"allowed_root": Path("/tmp/allowed")}
         }
     )
     assert _load_config_organized_root("/tmp/config.yaml", deps=deps) == Path("/tmp/allowed")
 
     deps = orchestration_deps(
         overrides={
-            "sibling_runtime_paths": lambda path, **kwargs: (_ for _ in ()).throw(ValueError("bad"))
+            "engine_runtime_paths": lambda path, **kwargs: (_ for _ in ()).throw(ValueError("bad"))
         }
     )
     assert _load_config_root("/tmp/config.yaml", deps=deps) is None

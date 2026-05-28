@@ -16,7 +16,7 @@ from chemstack.flow.adapters import _orca_local_lookup, _orca_path_helpers, _orc
 from chemstack.flow.adapters import orca as orca_adapter
 from chemstack.flow.adapters import xtb as xtb_adapter
 from chemstack.flow.contracts.xtb import XtbArtifactContract, XtbCandidateArtifact, XtbDownstreamPolicy
-from chemstack.flow.submitters import common
+from chemstack.flow import engine_runtime
 
 
 def _write_json(path: Path, payload: object) -> None:
@@ -259,15 +259,13 @@ def test_cli_json_paths_worker_sleep_and_common_workflow_id_helpers(
     assert normalize_text(None, none="None") == "None"
 
 
-def test_sibling_config_common_and_xyz_tail_branches(
+def test_engine_config_common_and_xyz_tail_branches(
     tmp_path: Path,
 ) -> None:
     cfg = tmp_path / "cfg.yaml"
     cfg.write_text("allowed_root: /tmp/no_runtime\n", encoding="utf-8")
     with pytest.raises(ValueError, match="Missing runtime section"):
-        common.sibling_allowed_root(str(cfg))
-    with pytest.raises(ValueError, match="Missing runtime section"):
-        common.sibling_runtime_paths(str(cfg))
+        engine_runtime.engine_runtime_paths(str(cfg))
 
     xyz_path = tmp_path / "trail.xyz"
     xyz_path.write_text("2\ncomment\nH 0 0 0\nH 0 0 0.7\n\n\n", encoding="utf-8")

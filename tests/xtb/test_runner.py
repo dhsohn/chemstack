@@ -894,22 +894,6 @@ def test_collect_opt_and_sp_candidates_return_expected_metadata(tmp_path: Path) 
     )
 
 
-def test_preexec_with_limits_sets_address_space_limit(monkeypatch: pytest.MonkeyPatch) -> None:
-    calls: list[tuple[int, tuple[int, int]]] = []
-    monkeypatch.setattr(
-        runner_mod.resource, "setrlimit", lambda kind, limits: calls.append((kind, limits))
-    )
-
-    runner_mod._preexec_with_limits(3)()
-
-    assert calls == [
-        (
-            runner_mod.resource.RLIMIT_AS,
-            (3 * 1024 * 1024 * 1024, 3 * 1024 * 1024 * 1024),
-        )
-    ]
-
-
 def test_start_xtb_job_passes_expected_subprocess_options(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

@@ -11,7 +11,7 @@ from chemstack.core.notifications import (
     split_telegram_message,
 )
 from chemstack.core.utils import (
-    list_or_empty as _coerce_sequence,
+    coerce_list as _coerce_sequence,
     mapping_or_empty as _coerce_mapping,
     normalize_text as _normalize_text,
     now_utc_iso,

@@ -17,7 +17,7 @@ def _runtime_paths_for_engine(
     deps: OrchestrationDeps | None = None,
 ) -> dict[str, Path]:
     o = _orchestration_context(deps)
-    return o.engines.sibling_runtime_paths(config_path, engine=engine)
+    return o.engines.engine_runtime_paths(config_path, engine=engine)
 
 
 def submission_target_impl(

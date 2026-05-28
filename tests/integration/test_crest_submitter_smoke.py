@@ -9,6 +9,7 @@ from chemstack.core.queue import list_queue
 from chemstack.crest import queue_runtime as crest_queue_cmd
 from chemstack.flow.adapters.crest import load_crest_artifact_contract
 from chemstack.flow.submitters import crest as crest_submitter
+from tests.engine_process_helpers import process_one_crest_for_test
 
 
 def _queue_status(entry: Any) -> str:
@@ -37,8 +38,9 @@ def test_crest_submitter_roundtrip_smoke(
     assert queue_entries[0].queue_id == submission["queue_id"]
     assert _queue_status(queue_entries[0]) == "pending"
 
-    assert crest_queue_cmd._process_one(
-        crest_queue_cmd.load_config(str(smoke_workspace.crest_config_path))
+    assert process_one_crest_for_test(
+        crest_queue_cmd,
+        crest_queue_cmd.load_config(str(smoke_workspace.crest_config_path)),
     ) == "processed"
     worker_output = capsys.readouterr().out
     assert f"queue_id: {submission['queue_id']}" in worker_output

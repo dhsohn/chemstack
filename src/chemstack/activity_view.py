@@ -5,8 +5,8 @@ from typing import Any, Sequence
 
 from chemstack.core.admission import active_slot_count
 from chemstack.core.paths.workflow import WORKFLOW_STAGE_DIRNAMES
-from chemstack.flow.submitters.common import normalize_text
-from chemstack.flow.submitters.common import sibling_runtime_paths
+from chemstack.core.utils import normalize_text
+from chemstack.flow.engine_runtime import engine_runtime_paths
 
 ACTIVE_SIMULATION_STATUSES = frozenset({"running", "retrying", "cancel_requested"})
 DEFAULT_COMBINED_WORKFLOW_CHILD_ENGINES = frozenset({"orca"})
@@ -80,7 +80,7 @@ def count_global_active_simulations(
     config_text = normalize_text(config_path)
     if config_text:
         try:
-            runtime_paths = sibling_runtime_paths(config_text, engine="orca")
+            runtime_paths = engine_runtime_paths(config_text, engine="orca")
         except Exception:
             runtime_paths = {}
         admission_root = runtime_paths.get("admission_root")

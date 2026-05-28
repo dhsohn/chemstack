@@ -8,6 +8,7 @@ import pytest
 from chemstack.core.commands import queue as shared_queue_cmd
 
 from chemstack.crest import queue_runtime as queue_cmd
+from tests.engine_process_helpers import process_one_crest_for_test
 
 
 @pytest.mark.parametrize(
@@ -94,7 +95,7 @@ def test_process_one_returns_blocked_when_no_admission_slot(
 
     monkeypatch.setattr(queue_cmd, "_try_reserve_admission_slot", lambda cfg_obj: None)
 
-    assert queue_cmd._process_one(cfg) == "blocked"
+    assert process_one_crest_for_test(queue_cmd, cfg) == "blocked"
 
 
 def test_process_one_returns_idle_and_releases_reserved_slot(
@@ -116,7 +117,7 @@ def test_process_one_returns_idle_and_releases_reserved_slot(
         queue_cmd, "release_slot", lambda root, token: released.append((root, token))
     )
 
-    assert queue_cmd._process_one(cfg) == "idle"
+    assert process_one_crest_for_test(queue_cmd, cfg) == "idle"
     assert released == [(cfg.runtime.allowed_root, "slot-1")]
 
 

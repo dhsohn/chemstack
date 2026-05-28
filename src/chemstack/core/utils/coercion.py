@@ -23,10 +23,6 @@ def coerce_list(value: Any) -> list[Any]:
     return list(value) if isinstance(value, list) else []
 
 
-def list_or_empty(value: Any) -> list[Any]:
-    return value if isinstance(value, list) else []
-
-
 @overload
 def safe_int(value: Any, *, default: int = 0) -> int: ...
 
@@ -84,7 +80,6 @@ __all__ = [
     "coerce_int_mapping",
     "coerce_list",
     "coerce_mapping",
-    "list_or_empty",
     "mapping_or_empty",
     "normalize_bool",
     "normalize_text",

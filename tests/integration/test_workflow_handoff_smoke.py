@@ -14,6 +14,7 @@ from chemstack.flow.orchestration import (
 )
 from chemstack.flow.registry import sync_workflow_registry
 from chemstack.flow.state import load_workflow_payload, resolve_workflow_workspace, workflow_summary
+from tests.engine_process_helpers import process_one_crest_for_test
 
 
 def _write_xyz(path: Path) -> None:
@@ -136,8 +137,9 @@ def test_conformer_screening_workflow_handoff_smoke(
     assert queue_entries[0].queue_id == submitted_metadata["queue_id"]
     assert _queue_status(queue_entries[0]) == "pending"
 
-    assert crest_queue_cmd._process_one(
-        crest_queue_cmd.load_config(str(smoke_workspace.crest_config_path))
+    assert process_one_crest_for_test(
+        crest_queue_cmd,
+        crest_queue_cmd.load_config(str(smoke_workspace.crest_config_path)),
     ) == "processed"
     worker_output = capsys.readouterr().out
     assert f"queue_id: {submitted_metadata['queue_id']}" in worker_output

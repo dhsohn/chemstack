@@ -12,7 +12,7 @@ from chemstack.core.utils.coercion import normalize_text
 from chemstack.cli_common import (
     _dependency,
     _shared_chemstack_config,
-    _workflow_root_from_args,
+    _workflow_root_for_args,
 )
 from . import cli_workflow_output as _workflow_output
 from .engine_options import WorkflowEngineOptions
@@ -79,8 +79,8 @@ def _workflow_worker_runtime(deps: Any | None) -> _WorkflowWorkerRuntime:
         ),
         workflow_root_from_args=_dependency(
             deps,
-            "_workflow_root_from_args",
-            _workflow_root_from_args,
+            "_workflow_root_for_args",
+            _workflow_root_for_args,
         ),
         token_factory=_dependency(deps, "timestamped_token", timestamped_token),
         lock_factory=_dependency(deps, "file_lock", file_lock),

@@ -17,7 +17,7 @@ from chemstack.cli_common import (
     _workflow_root_for_args,
 )
 from chemstack.flow.activity import cancel_activity, clear_activities, list_activities
-from chemstack.flow.submitters.common import normalize_text
+from chemstack.core.utils import normalize_text
 
 _DEFAULT_QUEUE_TABLE_NOW = _activity_rendering._queue_table_now
 

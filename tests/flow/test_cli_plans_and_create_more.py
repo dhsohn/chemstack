@@ -348,7 +348,7 @@ def test_cmd_run_dir_requires_workflow_root_for_reaction_workflow(
 
     monkeypatch.setattr(cli_common, "_discover_workflow_root", lambda explicit: None)
     monkeypatch.setattr(
-        run_dir_options, "_cli_workflow_root_from_args", lambda args, *, config_path=None: None
+        run_dir_options, "_cli_workflow_root_for_args", lambda args, *, config_path=None: None
     )
 
     def fake_create_reaction_ts_search_workflow(**kwargs: Any) -> dict[str, Any]:
@@ -397,7 +397,7 @@ def test_cmd_run_dir_requires_workflow_root_for_conformer_workflow(
 
     monkeypatch.setattr(cli_common, "_discover_workflow_root", lambda explicit: None)
     monkeypatch.setattr(
-        run_dir_options, "_cli_workflow_root_from_args", lambda args, *, config_path=None: None
+        run_dir_options, "_cli_workflow_root_for_args", lambda args, *, config_path=None: None
     )
 
     def fake_create_conformer_screening_workflow(**kwargs: Any) -> dict[str, Any]:

@@ -24,7 +24,7 @@ from chemstack.flow.contracts.xtb import (
     XtbCandidateArtifact,
     XtbDownstreamPolicy,
 )
-from chemstack.flow.submitters import common
+from chemstack.flow import engine_runtime
 
 
 def _write_json(path: Path, payload: object) -> None:
@@ -358,13 +358,11 @@ def test_contract_submitter_common_state_and_xtb_contract_edges(tmp_path: Path, 
     )
     assert "score" not in stage_input.to_dict()
 
-    assert common.normalize_text(None) == ""
+    assert normalize_text(None) == ""
     cfg = tmp_path / "bad.yaml"
     cfg.write_text("- x\n", encoding="utf-8")
-    with pytest.raises(ValueError, match="Invalid sibling app config file"):
-        common.sibling_allowed_root(str(cfg))
-    with pytest.raises(ValueError, match="Invalid sibling app config file"):
-        common.sibling_runtime_paths(str(cfg))
+    with pytest.raises(ValueError, match="Invalid engine config file"):
+        engine_runtime.engine_runtime_paths(str(cfg))
 
     missing_wf = tmp_path / "missing"
     with pytest.raises(FileNotFoundError, match="workflow file not found"):

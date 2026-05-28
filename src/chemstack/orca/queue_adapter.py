@@ -21,7 +21,6 @@ from .queue_entries import (
     entry_from_json_payload,
     entry_metadata,
     find_active_entry,
-    find_entry_by_queue_id,
     find_terminal_entry,
     normalize_text,
     queue_entry_app_name,
@@ -195,23 +194,11 @@ def enqueue(
 
 def dequeue_next(allowed_root: Path) -> Optional[QueueEntry]:
     """Return the highest-priority pending entry and mark it running."""
-
-    def dequeue(entries: list[QueueEntry]) -> tuple[QueueEntry | None, bool]:
-        pending = [
-            (i, e)
-            for i, e in enumerate(entries)
-            if queue_entry_status(e) == QueueStatus.PENDING.value
-        ]
-        if not pending:
-            return None, False
-
-        pending.sort(key=lambda t: (queue_entry_priority(t[1]), t[0]))
-        idx, entry = pending[0]
-        entry = replace(entry, status=QueueStatus.RUNNING, started_at=_now_iso())
-        entries[idx] = entry
-        return entry, True
-
-    entry = cast(QueueEntry | None, _mutate_entries(allowed_root, dequeue))
+    entry = _queue_store.dequeue_next(
+        allowed_root,
+        load_entries_fn=_load_entries,
+        save_entries_fn=_queue_store.save_entries,
+    )
     if entry is None:
         return None
     logger.info(
@@ -224,7 +211,17 @@ def dequeue_next(allowed_root: Path) -> Optional[QueueEntry]:
 
 def mark_completed(allowed_root: Path, queue_id: str, *, run_id: str | None = None) -> bool:
     """Mark a queue entry as completed."""
-    return update_terminal(allowed_root, queue_id, QueueStatus.COMPLETED.value, run_id=run_id)
+    metadata_update = {"run_id": run_id} if run_id is not None else None
+    return (
+        _queue_store.mark_completed(
+            allowed_root,
+            queue_id,
+            metadata_update=metadata_update,
+            load_entries_fn=_load_entries,
+            save_entries_fn=_queue_store.save_entries,
+        )
+        is not None
+    )
 
 
 def mark_failed(
@@ -235,8 +232,17 @@ def mark_failed(
     run_id: str | None = None,
 ) -> bool:
     """Mark a queue entry as failed."""
-    return update_terminal(
-        allowed_root, queue_id, QueueStatus.FAILED.value, error=error, run_id=run_id
+    metadata_update = {"run_id": run_id} if run_id is not None else None
+    return (
+        _queue_store.mark_failed(
+            allowed_root,
+            queue_id,
+            error=error or "",
+            metadata_update=metadata_update,
+            load_entries_fn=_load_entries,
+            save_entries_fn=_queue_store.save_entries,
+        )
+        is not None
     )
 
 
@@ -253,12 +259,14 @@ def mark_cancelled(allowed_root: Path, queue_id: str) -> bool:
 
 def requeue_running_entry(allowed_root: Path, queue_id: str) -> bool:
     """Return a running queue entry back to pending during worker shutdown."""
-    return update_running_entry_state(
-        allowed_root,
-        queue_id,
-        status=QueueStatus.PENDING.value,
-        started_at=None,
-        cancel_requested=False,
+    return (
+        _queue_store.requeue_running_entry(
+            allowed_root,
+            queue_id,
+            load_entries_fn=_load_entries,
+            save_entries_fn=_queue_store.save_entries,
+        )
+        is not None
     )
 
 
@@ -294,10 +302,7 @@ def list_queue(
     status_filter: str | None = None,
 ) -> list[QueueEntry]:
     """List queue entries, optionally filtered by status."""
-    entries = cast(
-        list[QueueEntry],
-        _mutate_entries(allowed_root, lambda entries: (entries, False)),
-    )
+    entries = _queue_store.list_queue(allowed_root, load_entries_fn=_load_entries)
     if status_filter:
         normalized_filter = normalize_text(status_filter).lower()
         entries = [e for e in entries if queue_entry_status(e) == normalized_filter]
@@ -306,63 +311,32 @@ def list_queue(
 
 def has_pending_entries(allowed_root: Path) -> bool:
     """Return True when at least one pending entry exists."""
-    return bool(
-        _mutate_entries(
-            allowed_root,
-            lambda entries: (
-                any(entry.status == QueueStatus.PENDING for entry in entries),
-                False,
-            ),
-        )
-    )
+    return any(entry.status == QueueStatus.PENDING for entry in list_queue(allowed_root))
 
 
 def get_active_entry_for_reaction_dir(allowed_root: Path, reaction_dir: str) -> QueueEntry | None:
     """Return the active queue entry for a reaction_dir, if one exists."""
     resolved = str(Path(reaction_dir).expanduser().resolve())
-    return cast(
-        QueueEntry | None,
-        _mutate_entries(
-            allowed_root,
-            lambda entries: (find_active_entry(entries, resolved), False),
-        ),
-    )
+    return find_active_entry(list_queue(allowed_root), resolved)
 
 
 def get_cancel_requested(allowed_root: Path, queue_id: str) -> bool:
     """Check if a running entry has a cancel request."""
-    return bool(
-        _mutate_entries(
-            allowed_root,
-            lambda entries: (
-                bool(entry.cancel_requested)
-                if (entry := find_entry_by_queue_id(entries, queue_id)) is not None
-                else False,
-                False,
-            ),
-        )
+    return _queue_store.get_cancel_requested(
+        allowed_root,
+        queue_id,
+        load_entries_fn=_load_entries,
     )
 
 
 def clear_terminal(allowed_root: Path, *, keep_last: int = 0) -> int:
     """Remove completed/failed/cancelled entries. Returns count removed."""
-
-    def clear_in_place(entries: list[QueueEntry]) -> tuple[int, bool]:
-        active = [e for e in entries if e.status.value in ACTIVE_STATUSES]
-        terminal = [e for e in entries if e.status.value in TERMINAL_STATUSES]
-        if keep_last > 0:
-            terminal.sort(key=lambda e: e.finished_at or "", reverse=True)
-            kept = terminal[:keep_last]
-            removed_count = len(terminal) - len(kept)
-            next_entries = active + kept
-        else:
-            removed_count = len(terminal)
-            next_entries = active
-        if removed_count:
-            entries[:] = next_entries
-        return removed_count, removed_count > 0
-
-    removed_count = int(_mutate_entries(allowed_root, clear_in_place))
+    removed_count = _queue_store.clear_terminal(
+        allowed_root,
+        keep_last=keep_last,
+        load_entries_fn=_load_entries,
+        save_entries_fn=_queue_store.save_entries,
+    )
     logger.info("Cleared %d terminal entries", removed_count)
     return removed_count
 

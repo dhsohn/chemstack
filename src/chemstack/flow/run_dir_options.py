@@ -6,7 +6,7 @@ from typing import Any
 
 from chemstack.cli_common import (
     _dependency,
-    _workflow_root_from_args as _cli_workflow_root_from_args,
+    _workflow_root_for_args as _cli_workflow_root_for_args,
 )
 from chemstack.core.utils.coercion import normalize_text
 
@@ -169,15 +169,15 @@ def _resolve_required_workflow_root(
 
     resolved_workflow_root = discover_workflow_root(getattr(args, "workflow_root", None))
     if not resolved_workflow_root:
-        resolve_workflow_root_from_args = _dependency(
-            deps, "_workflow_root_from_args", _cli_workflow_root_from_args
+        resolve_workflow_root_for_args = _dependency(
+            deps, "_workflow_root_for_args", _cli_workflow_root_for_args
         )
         config_path = (
             getattr(args, "chemstack_config", None)
             or getattr(args, "config", None)
             or getattr(args, "global_config", None)
         )
-        resolved_workflow_root = resolve_workflow_root_from_args(args, config_path=config_path)
+        resolved_workflow_root = resolve_workflow_root_for_args(args, config_path=config_path)
     if not resolved_workflow_root:
         raise ValueError("workflow_root is not configured. Set workflow.root in chemstack.yaml.")
     return resolved_workflow_root

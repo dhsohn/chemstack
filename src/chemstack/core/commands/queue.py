@@ -44,26 +44,6 @@ class QueueRuntime:
             dequeue_next_across_roots_fn=self.dequeue_next_across_roots_fn,
         )
 
-    def process_one(
-        self,
-        cfg: Any,
-        *,
-        reserve_slot_fn: Callable[[Any], str | None],
-        admission_root_fn: Callable[[Any], str | Path],
-        execute_entry_fn: Callable[[Path, Any], Any],
-        release_slot_fn: Callable[[str | Path, str], Any],
-        after_execute_fn: Callable[[Any, Any], Any] | None = None,
-    ) -> str:
-        return process_one_entry(
-            cfg,
-            reserve_slot_fn=reserve_slot_fn,
-            admission_root_fn=admission_root_fn,
-            dequeue_next_entry_fn=self.dequeue_next_entry,
-            execute_entry_fn=execute_entry_fn,
-            release_slot_fn=release_slot_fn,
-            after_execute_fn=after_execute_fn,
-        )
-
 
 def queue_roots(
     cfg: Any,
@@ -99,33 +79,6 @@ def dequeue_next_entry(
         list_queue_fn=list_queue_fn,
         dequeue_next_fn=dequeue_next_fn,
     )
-
-
-def process_one_entry(
-    cfg: Any,
-    *,
-    reserve_slot_fn: Callable[[Any], str | None],
-    admission_root_fn: Callable[[Any], str | Path],
-    dequeue_next_entry_fn: Callable[[Any], tuple[Path, Any] | None],
-    execute_entry_fn: Callable[[Path, Any], Any],
-    release_slot_fn: Callable[[str | Path, str], Any],
-    after_execute_fn: Callable[[Any, Any], Any] | None = None,
-) -> str:
-    slot_token = reserve_slot_fn(cfg)
-    if slot_token is None:
-        return "blocked"
-
-    try:
-        dequeued = dequeue_next_entry_fn(cfg)
-        if dequeued is None:
-            return "idle"
-        queue_root, entry = dequeued
-        outcome = execute_entry_fn(queue_root, entry)
-        if after_execute_fn is not None:
-            after_execute_fn(entry, outcome)
-        return "processed"
-    finally:
-        release_slot_fn(admission_root_fn(cfg), slot_token)
 
 
 def run_queue_worker_command(

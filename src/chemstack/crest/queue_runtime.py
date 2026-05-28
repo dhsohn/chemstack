@@ -53,13 +53,11 @@ from .runner import finalize_crest_job, start_crest_job
 from .worker_execution import (
     WorkerExecutionDependencies,
     _mark_recovery_pending_entry,
-    _molecule_key,
     _terminate_process,
     _write_execution_artifacts,
     _write_running_state,
     build_worker_execution_dependencies,
     build_worker_child_command,
-    process_dequeued_entry,
 )
 
 POLL_INTERVAL_SECONDS = 5
@@ -81,8 +79,8 @@ def _queue_worker_deps() -> Any:
 
 
 _queue_runtime = _shared_queue.QueueRuntime(
-    load_config_fn=lambda path: load_config(path),
-    runtime_roots_for_cfg_fn=lambda cfg: runtime_roots_for_cfg(cfg),
+    load_config_fn=load_config,
+    runtime_roots_for_cfg_fn=runtime_roots_for_cfg,
     list_queue_fn=lambda root: list_queue(root),
     dequeue_next_fn=lambda root: dequeue_next(root),
     dequeue_next_across_roots_fn=lambda roots, **kwargs: dequeue_next_across_roots(
@@ -138,32 +136,6 @@ def _worker_dependencies() -> WorkerExecutionDependencies:
         upsert_job_record_fn=upsert_job_record,
         notify_job_started_fn=notify_job_started,
         notify_job_finished_fn=notify_job_finished,
-    )
-
-
-def _process_one(cfg: Any) -> str:
-    def execute(queue_root: Path, entry: Any) -> Any:
-        return process_dequeued_entry(
-            cfg,
-            entry,
-            queue_root=queue_root,
-            molecule_key_resolver=_molecule_key,
-            dependencies=_worker_dependencies(),
-        )
-
-    def print_outcome(entry: Any, outcome: Any) -> None:
-        print(f"queue_id: {entry.queue_id}")
-        print(f"job_id: {entry.task_id}")
-        print(f"status: {outcome.result.status}")
-        print(f"reason: {outcome.result.reason}")
-
-    return _queue_runtime.process_one(
-        cfg,
-        reserve_slot_fn=_try_reserve_admission_slot,
-        admission_root_fn=_admission_root_for_cfg,
-        execute_entry_fn=execute,
-        after_execute_fn=print_outcome,
-        release_slot_fn=release_slot,
     )
 
 
@@ -320,7 +292,7 @@ class QueueWorker(QueueWorkerPidFileMixin, ChildProcessQueueWorker):
 def cmd_queue_worker(args: Any) -> int:
     return _shared_queue.run_queue_worker_command(
         args,
-        load_config_fn=lambda path: load_config(path),
+        load_config_fn=load_config,
         config_path_fn=lambda worker_args: config_path_for_worker(
             worker_args,
             default_config_path_fn=default_config_path,

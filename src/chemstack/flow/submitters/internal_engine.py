@@ -1,17 +1,12 @@
 from __future__ import annotations
 
 from argparse import Namespace
-import subprocess
 from collections.abc import Callable
 from typing import Any
 
 from chemstack.core.queue import DuplicateQueueEntryError
 
-from .common import normalize_text, queue_submission_status
-
-
-def command_argv(args: object) -> list[str]:
-    return list(args) if isinstance(args, (list, tuple)) else [str(args)]
+from chemstack.core.utils import normalize_text
 
 
 def internal_call_argv(
@@ -35,26 +30,51 @@ def _stderr_with_exception(stderr: str, exc: Exception) -> str:
     return "".join(pieces)
 
 
-def timeout_result(exc: subprocess.TimeoutExpired) -> dict[str, Any]:
-    return {
-        "status": "failed",
-        "reason": "cancel_command_timeout",
-        "returncode": 124,
-        "command_argv": command_argv(exc.cmd),
-        "stdout": exc.stdout or "",
-        "stderr": exc.stderr or "",
-    }
+def transient_submission_block_reason(
+    *, parsed_stdout: dict[str, str], stdout: str, stderr: str
+) -> str:
+    parsed_status = normalize_text(parsed_stdout.get("status")).lower()
+    if parsed_status in {"waiting_for_slot", "admission_blocked", "admission_limit_reached"}:
+        return parsed_status
+
+    combined = f"{stdout}\n{stderr}".lower()
+    if parsed_status == "blocked" and any(
+        token in combined for token in ("admission", "slot", "limit")
+    ):
+        return "waiting_for_slot"
+
+    patterns = (
+        ("admission limit reached", "admission_limit_reached"),
+        ("admission slots are full", "admission_limit_reached"),
+        ("waiting_for_slot", "waiting_for_slot"),
+        ("waiting for slot", "waiting_for_slot"),
+        ("no admission slot", "waiting_for_slot"),
+        ("active simulation limit", "admission_limit_reached"),
+        ("max_active_simulations", "admission_limit_reached"),
+    )
+    for pattern, reason in patterns:
+        if pattern in combined:
+            return reason
+    return ""
 
 
-def cli_cancel_status(*, returncode: int, stdout: str) -> str:
-    if int(returncode) != 0:
-        return "failed"
-    text = stdout.strip()
-    if text.startswith("Cancelled:"):
-        return "cancelled"
-    if "Cancel requested" in text:
-        return "cancel_requested"
-    return "cancelled"
+def queue_submission_status(
+    *,
+    returncode: int,
+    parsed_stdout: dict[str, str],
+    stdout: str,
+    stderr: str,
+) -> tuple[str, str]:
+    if int(returncode) == 0 and normalize_text(parsed_stdout.get("status")).lower() == "queued":
+        return "submitted", ""
+    blocked_reason = transient_submission_block_reason(
+        parsed_stdout=parsed_stdout,
+        stdout=stdout,
+        stderr=stderr,
+    )
+    if blocked_reason:
+        return "blocked", blocked_reason
+    return "failed", ""
 
 
 def _key_value_stdout(fields: dict[str, str]) -> str:
@@ -279,33 +299,4 @@ def cancel_internal_engine_target(
         "parsed_stdout": parsed,
         "queue_id": parsed.get("queue_id", ""),
         "job_id": parsed.get("job_id", ""),
-    }
-
-
-def orca_cancel_target(
-    *,
-    normalize_text_fn: Callable[[Any], str],
-    run_sibling_app: Callable[..., subprocess.CompletedProcess[str]],
-    target: str,
-    config_path: str,
-    repo_root: str | None,
-    module_name: str,
-    timeout_seconds: float,
-) -> dict[str, Any]:
-    try:
-        result = run_sibling_app(
-            config_path=normalize_text_fn(config_path),
-            repo_root=normalize_text_fn(repo_root) or None,
-            module_name=module_name,
-            tail_argv=["queue", "cancel", target],
-            timeout_seconds=timeout_seconds,
-        )
-    except subprocess.TimeoutExpired as exc:
-        return timeout_result(exc)
-    return {
-        "status": cli_cancel_status(returncode=int(result.returncode), stdout=result.stdout),
-        "returncode": int(result.returncode),
-        "command_argv": command_argv(result.args),
-        "stdout": result.stdout,
-        "stderr": result.stderr,
     }

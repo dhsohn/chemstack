@@ -40,7 +40,7 @@ class OrchestrationEngineDeps:
     select_crest_downstream_inputs: AnyCallable
     select_endpoint_pairs: AnyCallable
     select_xtb_downstream_inputs: AnyCallable
-    sibling_runtime_paths: AnyCallable
+    engine_runtime_paths: AnyCallable
     submit_crest_job_dir: AnyCallable
     submit_reaction_dir: AnyCallable
     submit_xtb_job_dir: AnyCallable

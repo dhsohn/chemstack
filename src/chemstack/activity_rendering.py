@@ -12,7 +12,7 @@ from chemstack.core.statuses import (
     STATUS_RUNNING,
     WORKFLOW_FAILED_STATUSES,
 )
-from chemstack.flow.submitters.common import normalize_text
+from chemstack.core.utils import normalize_text
 
 
 def _queue_table_now() -> datetime:

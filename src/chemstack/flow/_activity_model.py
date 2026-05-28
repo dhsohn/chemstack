@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from .engine_options import WorkflowEngineOptions
-from .submitters.common import normalize_text
+from chemstack.core.utils import normalize_text
 
 
 @dataclass(frozen=True)

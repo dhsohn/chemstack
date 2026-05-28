@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from ._activity_model import ActivitySourceRequest, ResolvedActivitySources
-from .submitters.common import normalize_text
+from chemstack.core.utils import normalize_text
 
 
 @dataclass(frozen=True)
@@ -17,7 +17,7 @@ class ActivityClearDeps:
     clear_terminal_workflow_registry: Callable[..., int]
     clear_queue_terminal: Callable[..., int]
     _engine_queue_roots: Callable[..., tuple[Path, ...]]
-    sibling_runtime_paths: Callable[..., dict[str, Path]]
+    engine_runtime_paths: Callable[..., dict[str, Path]]
 
 
 def _clear_engine_queue(
@@ -83,7 +83,7 @@ def clear_activities(
             clear_terminal_entries as clear_orca_terminal_entries,
         )
 
-        allowed_root = deps.sibling_runtime_paths(str(resolved.orca_config), engine="orca")[
+        allowed_root = deps.engine_runtime_paths(str(resolved.orca_config), engine="orca")[
             "allowed_root"
         ]
         queue_count, run_count = clear_orca_terminal_entries(allowed_root)

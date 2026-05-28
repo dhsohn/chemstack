@@ -199,14 +199,6 @@ def _retained_outputs(job_dir: Path) -> tuple[int, tuple[str, ...]]:
     return count, tuple(found)
 
 
-def _preexec_with_limits(max_memory_gb: int):
-    return process_utils.memory_limit_preexec(
-        max_memory_gb,
-        setrlimit_fn=resource.setrlimit,
-        limit_resource=resource.RLIMIT_AS,
-    )
-
-
 def start_crest_job(cfg: AppConfig, *, job_dir: Path, selected_xyz: Path) -> CrestRunningJob:
     manifest = load_job_manifest(job_dir)
     resource_request = resource_request_from_manifest(cfg, manifest)
@@ -225,7 +217,11 @@ def start_crest_job(cfg: AppConfig, *, job_dir: Path, selected_xyz: Path) -> Cre
         now_utc_iso_fn=now_utc_iso,
         popen_fn=subprocess.Popen,
         stdin_value=subprocess.DEVNULL,
-        preexec_fn=_preexec_with_limits(resource_request["max_memory_gb"]),
+        preexec_fn=process_utils.memory_limit_preexec(
+            resource_request["max_memory_gb"],
+            setrlimit_fn=resource.setrlimit,
+            limit_resource=resource.RLIMIT_AS,
+        ),
     )
     return CrestRunningJob(
         process=launched.process,

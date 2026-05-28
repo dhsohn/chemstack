@@ -63,7 +63,7 @@ def test_list_activities_merges_workflows_and_standalone_sources(monkeypatch) ->
     )
     monkeypatch.setattr(
         activity,
-        "sibling_runtime_paths",
+        "engine_runtime_paths",
         lambda config_path, *, engine: {
             "allowed_root": Path("/tmp/crest_root" if engine == "crest" else "/tmp/xtb_root"),
         },
@@ -316,13 +316,13 @@ def test_runtime_path_and_engine_root_edges(
 ) -> None:
     allowed = tmp_path / "allowed"
 
-    def fake_sibling_runtime_paths(
+    def fake_engine_runtime_paths(
         config_path: str, *, engine: str | None = None
     ) -> dict[str, Path]:
         del config_path
         return {"allowed_root": allowed}
 
-    monkeypatch.setattr(activity, "sibling_runtime_paths", fake_sibling_runtime_paths)
+    monkeypatch.setattr(activity, "engine_runtime_paths", fake_engine_runtime_paths)
     assert _activity_list.engine_queue_roots(
         "/tmp/cfg.yaml",
         engine="orca",
@@ -436,7 +436,7 @@ def test_orca_records_merge_queue_entries_and_snapshots(
     from chemstack.orca import queue_adapter, run_snapshot
 
     monkeypatch.setattr(
-        activity, "sibling_runtime_paths", lambda config_path, *, engine: {"allowed_root": allowed}
+        activity, "engine_runtime_paths", lambda config_path, *, engine: {"allowed_root": allowed}
     )
     monkeypatch.setattr(
         queue_adapter, "reconcile_orphaned_running_entries", lambda root: reconciled.append(root)
@@ -584,7 +584,7 @@ def test_clear_activities_clears_workflow_and_engine_terminal_sources(monkeypatc
     monkeypatch.setattr(activity, "clear_queue_terminal", fake_clear_queue_terminal)
     monkeypatch.setattr(
         activity,
-        "sibling_runtime_paths",
+        "engine_runtime_paths",
         lambda config_path, *, engine="orca": {"allowed_root": Path("/tmp/orca_root")},
     )
     monkeypatch.setattr(orca_run_cleanup, "clear_terminal_entries", lambda allowed_root: (4, 5))

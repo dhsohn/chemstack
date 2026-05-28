@@ -6,7 +6,7 @@ from chemstack.core.app_ids import CHEMSTACK_ORCA_SOURCE
 
 from ._activity_model import ActivityCancelRequest, ActivityRecord, ResolvedActivitySources
 from .orchestration import cancel_materialized_workflow
-from .submitters.common import normalize_text
+from chemstack.core.utils import normalize_text
 
 
 def match_activity_record(records: list[ActivityRecord], target: str) -> ActivityRecord:

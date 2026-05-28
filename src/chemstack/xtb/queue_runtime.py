@@ -137,8 +137,8 @@ _RunningJob = BackgroundRunningJob
 _TerminalSummary = _queue_terminal.TerminalSummary
 
 _queue_runtime = _shared_queue.QueueRuntime(
-    load_config_fn=lambda path: load_config(path),
-    runtime_roots_for_cfg_fn=lambda cfg: runtime_roots_for_cfg(cfg),
+    load_config_fn=load_config,
+    runtime_roots_for_cfg_fn=runtime_roots_for_cfg,
     list_queue_fn=lambda root: list_queue(root),
     dequeue_next_fn=lambda root: dequeue_next(root),
     dequeue_next_across_roots_fn=lambda roots, **kwargs: dequeue_next_across_roots(
@@ -521,28 +521,10 @@ class QueueWorker(ChildProcessQueueWorker):
             _mark_recovery_pending_state(self.cfg, entry, reason="crashed_recovery")
 
 
-def _process_one(cfg: Any) -> str:
-    def execute(queue_root: Path, entry: Any) -> _worker_execution.WorkerExecutionOutcome:
-        return _execute_queue_entry(
-            cfg,
-            queue_root=queue_root,
-            entry=entry,
-            emit_output=True,
-        )
-
-    return _queue_runtime.process_one(
-        cfg,
-        reserve_slot_fn=_try_reserve_admission_slot,
-        admission_root_fn=_admission_root,
-        execute_entry_fn=execute,
-        release_slot_fn=release_slot,
-    )
-
-
 def cmd_queue_worker(args: Any) -> int:
     return _shared_queue.run_queue_worker_command(
         args,
-        load_config_fn=lambda path: load_config(path),
+        load_config_fn=load_config,
         config_path_fn=_config_path_for_worker,
         worker_factory=lambda cfg, config_path, **kwargs: QueueWorker(
             cfg,

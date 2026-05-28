@@ -84,7 +84,7 @@ def submission_admission_has_capacity(
     submission_admission_limit_from_config_fn: Callable[[str | Path], int | None]
     = submission_admission_limit_from_config,
     active_slot_count_fn: Callable[[Path], int] = active_slot_count,
-    sibling_runtime_paths_fn: Callable[..., dict[str, Any]] | None = None,
+    engine_runtime_paths_fn: Callable[..., dict[str, Any]] | None = None,
 ) -> bool | None:
     limit = submission_admission_limit_from_config_fn(config_path)
     if limit is None:
@@ -92,10 +92,10 @@ def submission_admission_has_capacity(
     admission_root: Path | None = None
     for engine in (None, "xtb", "crest", "orca"):
         try:
-            if sibling_runtime_paths_fn is None:
+            if engine_runtime_paths_fn is None:
                 candidate = _submission_admission_root_from_config(config_path, engine=engine)
             else:
-                runtime_paths = sibling_runtime_paths_fn(str(config_path), engine=engine)
+                runtime_paths = engine_runtime_paths_fn(str(config_path), engine=engine)
                 candidate = runtime_paths.get("admission_root")
         except Exception:
             continue

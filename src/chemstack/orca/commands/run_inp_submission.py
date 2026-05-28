@@ -1,11 +1,22 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from ..types import QueueEnqueuedNotification
+    from .run_inp_context import WorkerStatusInfo
+
+
+@dataclass(frozen=True)
+class QueuedSubmissionResult:
+    entry: Any
+    reaction_dir: Path
+    selected_inp: Path | None
+    queue_metadata: dict[str, Any]
+    worker_info: WorkerStatusInfo
 
 
 def build_queue_enqueued_notification(entry: Any, *, deps: Any) -> QueueEnqueuedNotification:
@@ -121,16 +132,15 @@ def upsert_queued_job_record(
     )
 
 
-def submit_as_queued(
+def create_queued_submission(
     cfg: Any,
     args: Any,
     reaction_dir: Path,
     *,
     selected_inp: Path | None = None,
     deps: Any,
-    logger: logging.Logger,
-) -> int:
-    from ..queue_adapter import DuplicateEntryError, enqueue
+) -> QueuedSubmissionResult:
+    from ..queue_adapter import enqueue
 
     submission = deps.submission
     allowed_root = Path(cfg.runtime.allowed_root).expanduser().resolve()
@@ -146,17 +156,13 @@ def submit_as_queued(
         selected_inp=selected_inp,
         args=args,
     )
-    try:
-        entry = enqueue(
-            allowed_root,
-            str(reaction_dir),
-            priority=int(getattr(args, "priority", 10)),
-            force=bool(getattr(args, "force", False)),
-            metadata=queue_metadata,
-        )
-    except DuplicateEntryError as exc:
-        logger.error("%s", exc)
-        return 1
+    entry = enqueue(
+        allowed_root,
+        str(reaction_dir),
+        priority=int(getattr(args, "priority", 10)),
+        force=bool(getattr(args, "force", False)),
+        metadata=queue_metadata,
+    )
 
     task_id = submission._queue_adapter.queue_entry_task_id(entry)
     if task_id:
@@ -169,6 +175,51 @@ def submit_as_queued(
         )
 
     worker_info = submission._worker_status_for_submission(allowed_root)
+    return QueuedSubmissionResult(
+        entry=entry,
+        reaction_dir=reaction_dir,
+        selected_inp=selected_inp,
+        queue_metadata=queue_metadata,
+        worker_info=worker_info,
+    )
+
+
+def notify_queued_submission(
+    cfg: Any,
+    result: QueuedSubmissionResult,
+    *,
+    deps: Any,
+) -> None:
+    notification = deps.submission._build_queue_enqueued_notification(result.entry)
+    deps.notifications.notify_queue_enqueued_event(cfg.telegram, notification)
+
+
+def submit_as_queued(
+    cfg: Any,
+    args: Any,
+    reaction_dir: Path,
+    *,
+    selected_inp: Path | None = None,
+    deps: Any,
+    logger: logging.Logger,
+) -> int:
+    from ..queue_adapter import DuplicateEntryError
+
+    try:
+        result = create_queued_submission(
+            cfg,
+            args,
+        reaction_dir,
+        selected_inp=selected_inp,
+        deps=deps,
+    )
+    except DuplicateEntryError as exc:
+        logger.error("%s", exc)
+        return 1
+
+    worker_info = result.worker_info
+    entry = result.entry
+    submission = deps.submission
     submission._emit_queued_submission(
         reaction_dir,
         entry,
@@ -177,6 +228,5 @@ def submit_as_queued(
         worker_log=worker_info.log_file,
         worker_detail=worker_info.detail,
     )
-    notification = submission._build_queue_enqueued_notification(entry)
-    deps.notifications.notify_queue_enqueued_event(cfg.telegram, notification)
+    notify_queued_submission(cfg, result, deps=deps)
     return 0

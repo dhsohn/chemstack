@@ -9,6 +9,7 @@ from chemstack.core.queue import list_queue
 from chemstack.xtb import queue_runtime as xtb_queue_cmd
 from chemstack.flow.adapters.xtb import load_xtb_artifact_contract
 from chemstack.flow.submitters import xtb as xtb_submitter
+from tests.engine_process_helpers import process_one_xtb_for_test
 
 
 def _queue_status(entry: Any) -> str:
@@ -37,8 +38,9 @@ def test_xtb_submitter_roundtrip_smoke(
     assert queue_entries[0].queue_id == submission["queue_id"]
     assert _queue_status(queue_entries[0]) == "pending"
 
-    assert xtb_queue_cmd._process_one(
-        xtb_queue_cmd.load_config(str(smoke_workspace.xtb_config_path))
+    assert process_one_xtb_for_test(
+        xtb_queue_cmd,
+        xtb_queue_cmd.load_config(str(smoke_workspace.xtb_config_path)),
     ) == "processed"
     worker_output = capsys.readouterr().out
     assert f"queue_id: {submission['queue_id']}" in worker_output

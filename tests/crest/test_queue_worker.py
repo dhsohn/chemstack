@@ -16,6 +16,7 @@ from chemstack.crest import queue_runtime as queue_cmd
 from chemstack.core.config.engines import WorkflowEngineAppConfig as AppConfig
 from chemstack.crest.runner import CrestRunResult
 from chemstack.crest.state import REPORT_JSON_FILE_NAME, REPORT_MD_FILE_NAME, STATE_FILE_NAME, load_state
+from tests.engine_process_helpers import process_one_crest_for_test
 
 
 def _find_entry_by_target(entries: list[Any], target: str) -> Any | None:
@@ -200,7 +201,7 @@ def test_process_one_completed_updates_queue_artifacts_index_without_organizing(
     )
     monkeypatch.setattr(queue_cmd, "finalize_crest_job", lambda running: completed_result)
 
-    outcome = queue_cmd._process_one(queue_env.cfg)
+    outcome = process_one_crest_for_test(queue_cmd, queue_env.cfg)
 
     assert outcome == "processed"
     entry = list_queue(queue_env.allowed_root)[0]
@@ -266,7 +267,7 @@ def test_process_one_runner_failure_marks_failed_and_writes_failure_artifacts(
 
     monkeypatch.setattr(queue_cmd, "start_crest_job", boom)
 
-    outcome = queue_cmd._process_one(queue_env.cfg)
+    outcome = process_one_crest_for_test(queue_cmd, queue_env.cfg)
 
     assert outcome == "processed"
     entry = list_queue(queue_env.allowed_root)[0]
@@ -348,7 +349,7 @@ def test_process_one_cancel_requested_terminates_and_marks_cancelled(
     monkeypatch.setattr(queue_cmd, "_terminate_process", lambda proc: terminate_calls.append(proc))
     monkeypatch.setattr(queue_cmd, "finalize_crest_job", fake_finalize)
 
-    outcome = queue_cmd._process_one(queue_env.cfg)
+    outcome = process_one_crest_for_test(queue_cmd, queue_env.cfg)
 
     assert outcome == "processed"
     entry = list_queue(queue_env.allowed_root)[0]

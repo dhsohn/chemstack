@@ -6,7 +6,7 @@ from typing import Any
 from chemstack.core.app_ids import CHEMSTACK_ORCA_SOURCE
 
 from ._activity_model import ActivityRecord
-from .submitters.common import normalize_text
+from chemstack.core.utils import normalize_text
 
 _ORCA_ACTIVE_QUEUE_STATUSES = frozenset({"pending", "running"})
 
@@ -200,7 +200,7 @@ def orca_records(
 ) -> list[ActivityRecord]:
     from chemstack.orca import queue_adapter, run_snapshot
 
-    runtime_paths = deps.sibling_runtime_paths(config_path, engine="orca")
+    runtime_paths = deps.engine_runtime_paths(config_path, engine="orca")
     allowed_root = runtime_paths["allowed_root"]
     reconcile = getattr(queue_adapter, "reconcile_orphaned_running_entries", None)
     if callable(reconcile):

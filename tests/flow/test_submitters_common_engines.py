@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import subprocess
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -8,44 +7,17 @@ from typing import Any
 
 import pytest
 
-from chemstack.flow.submitters import common, crest as crest_submitter, xtb as xtb_submitter
-
-
-def _completed_process(
-    *,
-    args: Any,
-    returncode: int,
-    stdout: str,
-    stderr: str = "",
-) -> subprocess.CompletedProcess[str]:
-    return subprocess.CompletedProcess(
-        args=args, returncode=returncode, stdout=stdout, stderr=stderr
-    )
-
-
-def test_parse_key_value_lines_ignores_invalid_lines_and_keeps_last_value() -> None:
-    parsed = common.parse_key_value_lines(
-        "\n".join(
-            [
-                "status: queued",
-                "job_id: job-1",
-                "no separator here",
-                " : ignored",
-                "detail: part one: part two",
-                "status: updated",
-            ]
-        )
-    )
-
-    assert parsed == {
-        "status": "updated",
-        "job_id": "job-1",
-        "detail": "part one: part two",
-    }
+from chemstack import cli_worker_specs
+from chemstack.flow import engine_runtime
+from chemstack.flow.submitters import (
+    crest as crest_submitter,
+    internal_engine,
+    xtb as xtb_submitter,
+)
 
 
 def test_queue_submission_status_treats_admission_wait_as_blocked() -> None:
-    status, reason = common.queue_submission_status(
+    status, reason = internal_engine.queue_submission_status(
         returncode=1,
         parsed_stdout={"status": "waiting_for_slot"},
         stdout="status: waiting_for_slot\n",
@@ -56,8 +28,8 @@ def test_queue_submission_status_treats_admission_wait_as_blocked() -> None:
     assert reason == "waiting_for_slot"
 
 
-def test_sibling_app_command_without_repo_root_uses_module_execution() -> None:
-    argv, cwd, env = common.sibling_app_command(
+def test_worker_module_command_without_repo_root_uses_module_execution() -> None:
+    argv, cwd, env = cli_worker_specs.worker_module_command(
         config_path="/tmp/config.yaml",
         repo_root=None,
         module_name="chemstack.orca.commands.queue",
@@ -76,7 +48,7 @@ def test_sibling_app_command_without_repo_root_uses_module_execution() -> None:
     assert env is None
 
 
-def test_sibling_app_command_with_repo_root_uses_module_execution_and_prepends_pythonpath(
+def test_worker_module_command_with_repo_root_uses_module_execution_and_prepends_pythonpath(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -84,7 +56,7 @@ def test_sibling_app_command_with_repo_root_uses_module_execution_and_prepends_p
     repo_root.mkdir()
     monkeypatch.setenv("PYTHONPATH", "/existing/site-packages")
 
-    argv, cwd, env = common.sibling_app_command(
+    argv, cwd, env = cli_worker_specs.worker_module_command(
         config_path="/tmp/config.yaml",
         repo_root=str(repo_root),
         module_name="chemstack.cli",
@@ -106,67 +78,7 @@ def test_sibling_app_command_with_repo_root_uses_module_execution_and_prepends_p
     assert env["PYTHONPATH"] == f"{repo_root.resolve()}:/existing/site-packages"
 
 
-def test_run_sibling_app_forwards_command_to_subprocess(monkeypatch: pytest.MonkeyPatch) -> None:
-    captured: dict[str, Any] = {}
-    expected_result = _completed_process(args=["cmd"], returncode=0, stdout="ok")
-
-    def fake_sibling_app_command(
-        **kwargs: Any,
-    ) -> tuple[list[str], str | None, dict[str, str] | None]:
-        captured["command_kwargs"] = kwargs
-        return ["cmd", "--flag"], "/tmp/work", {"PYTHONPATH": "/tmp/work"}
-
-    def fake_run(
-        argv: list[str],
-        *,
-        cwd: str | None,
-        env: dict[str, str] | None,
-        capture_output: bool,
-        text: bool,
-        check: bool,
-        timeout: float | None,
-    ) -> subprocess.CompletedProcess[str]:
-        captured["run_kwargs"] = {
-            "argv": argv,
-            "cwd": cwd,
-            "env": env,
-            "capture_output": capture_output,
-            "text": text,
-            "check": check,
-            "timeout": timeout,
-        }
-        return expected_result
-
-    monkeypatch.setattr(common, "sibling_app_command", fake_sibling_app_command)
-    monkeypatch.setattr(common.subprocess, "run", fake_run)
-
-    result = common.run_sibling_app(
-        config_path="/tmp/config.yaml",
-        repo_root="/tmp/repo",
-        module_name="chemstack.cli",
-        tail_argv=["run-dir", "/tmp/job"],
-        timeout_seconds=7.5,
-    )
-
-    assert result is expected_result
-    assert captured["command_kwargs"] == {
-        "config_path": "/tmp/config.yaml",
-        "repo_root": "/tmp/repo",
-        "module_name": "chemstack.cli",
-        "tail_argv": ["run-dir", "/tmp/job"],
-    }
-    assert captured["run_kwargs"] == {
-        "argv": ["cmd", "--flag"],
-        "cwd": "/tmp/work",
-        "env": {"PYTHONPATH": "/tmp/work"},
-        "capture_output": True,
-        "text": True,
-        "check": False,
-        "timeout": 7.5,
-    }
-
-
-def test_sibling_allowed_root_reads_runtime_allowed_root(tmp_path: Path) -> None:
+def test_engine_runtime_paths_reads_runtime_allowed_root(tmp_path: Path) -> None:
     allowed_root = tmp_path / "allowed"
     config_path = tmp_path / "config.yaml"
     config_path.write_text(
@@ -174,26 +86,26 @@ def test_sibling_allowed_root_reads_runtime_allowed_root(tmp_path: Path) -> None
         encoding="utf-8",
     )
 
-    assert common.sibling_allowed_root(str(config_path)) == allowed_root.resolve()
+    assert engine_runtime.engine_runtime_paths(str(config_path))["allowed_root"] == allowed_root.resolve()
 
 
-def test_sibling_allowed_root_requires_runtime_allowed_root(tmp_path: Path) -> None:
+def test_engine_runtime_paths_requires_runtime_allowed_root_alias_case(tmp_path: Path) -> None:
     config_path = tmp_path / "config.yaml"
     config_path.write_text("runtime: {}\n", encoding="utf-8")
 
     with pytest.raises(ValueError, match="Missing runtime.allowed_root"):
-        common.sibling_allowed_root(str(config_path))
+        engine_runtime.engine_runtime_paths(str(config_path))
 
 
-def test_sibling_allowed_root_reports_engine_scoped_runtime_keys(tmp_path: Path) -> None:
+def test_engine_runtime_paths_reports_engine_scoped_runtime_keys(tmp_path: Path) -> None:
     config_path = tmp_path / "config.yaml"
     config_path.write_text("orca:\n  runtime: {}\n", encoding="utf-8")
 
     with pytest.raises(ValueError, match=r"Missing orca\.runtime\.allowed_root"):
-        common.sibling_allowed_root(str(config_path), engine="orca")
+        engine_runtime.engine_runtime_paths(str(config_path), engine="orca")
 
 
-def test_sibling_runtime_paths_requires_workflow_root_for_xtb(tmp_path: Path) -> None:
+def test_engine_runtime_paths_requires_workflow_root_for_xtb(tmp_path: Path) -> None:
     admission_root = tmp_path / "admission"
     config_path = tmp_path / "config.yaml"
     config_path.write_text(
@@ -211,26 +123,26 @@ def test_sibling_runtime_paths_requires_workflow_root_for_xtb(tmp_path: Path) ->
     )
 
     with pytest.raises(ValueError, match=r"Missing workflow\.root in config"):
-        common.sibling_runtime_paths(str(config_path), engine="xtb")
+        engine_runtime.engine_runtime_paths(str(config_path), engine="xtb")
 
 
-def test_sibling_runtime_paths_requires_runtime_allowed_root(tmp_path: Path) -> None:
+def test_engine_runtime_paths_requires_runtime_allowed_root(tmp_path: Path) -> None:
     config_path = tmp_path / "config.yaml"
     config_path.write_text("runtime:\n  organized_root: /tmp/organized\n", encoding="utf-8")
 
     with pytest.raises(ValueError, match="Missing runtime.allowed_root"):
-        common.sibling_runtime_paths(str(config_path))
+        engine_runtime.engine_runtime_paths(str(config_path))
 
 
-def test_sibling_runtime_paths_reports_engine_scoped_runtime_section(tmp_path: Path) -> None:
+def test_engine_runtime_paths_reports_engine_scoped_runtime_section(tmp_path: Path) -> None:
     config_path = tmp_path / "config.yaml"
     config_path.write_text("orca:\n  paths: {}\n", encoding="utf-8")
 
     with pytest.raises(ValueError, match=r"Missing orca\.runtime section"):
-        common.sibling_runtime_paths(str(config_path), engine="orca")
+        engine_runtime.engine_runtime_paths(str(config_path), engine="orca")
 
 
-def test_sibling_runtime_paths_derives_internal_engine_roots_from_workflow_root(
+def test_engine_runtime_paths_derives_internal_engine_roots_from_workflow_root(
     tmp_path: Path,
 ) -> None:
     workflow_root = tmp_path / "workflow_root"
@@ -249,13 +161,15 @@ def test_sibling_runtime_paths_derives_internal_engine_roots_from_workflow_root(
         encoding="utf-8",
     )
 
-    assert common.sibling_runtime_paths(str(config_path), engine="xtb") == {
+    assert engine_runtime.engine_runtime_paths(str(config_path), engine="xtb") == {
         "workflow_root": workflow_root.resolve(),
         "allowed_root": workflow_root.resolve(),
         "organized_root": workflow_root.resolve(),
         "admission_root": admission_root.resolve(),
     }
-    assert common.sibling_allowed_root(str(config_path), engine="crest") == workflow_root.resolve()
+    assert engine_runtime.engine_runtime_paths(str(config_path), engine="crest")[
+        "allowed_root"
+    ] == workflow_root.resolve()
 
 
 @pytest.mark.parametrize(

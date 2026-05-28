@@ -12,6 +12,7 @@ from chemstack.crest import queue_runtime as crest_queue_cmd
 from chemstack.flow.submitters import crest as crest_submitter
 from chemstack.flow.submitters import xtb as xtb_submitter
 from chemstack.xtb import queue_runtime as xtb_queue_cmd
+from tests.engine_process_helpers import process_one_crest_for_test, process_one_xtb_for_test
 
 
 def _queue_status(entry: Any) -> str:
@@ -72,8 +73,9 @@ exit 0
     def _run_xtb_process_one() -> None:
         try:
             xtb_outcomes.append(
-                xtb_queue_cmd._process_one(
-                    xtb_queue_cmd.load_config(str(smoke_workspace.xtb_config_path))
+                process_one_xtb_for_test(
+                    xtb_queue_cmd,
+                    xtb_queue_cmd.load_config(str(smoke_workspace.xtb_config_path)),
                 )
             )
         except BaseException as exc:
@@ -87,8 +89,9 @@ exit 0
     assert slots[0].app_name == "chemstack_xtb"
     assert slots[0].source == "chemstack.xtb.queue_worker"
 
-    assert crest_queue_cmd._process_one(
-        crest_queue_cmd.load_config(str(smoke_workspace.crest_config_path))
+    assert process_one_crest_for_test(
+        crest_queue_cmd,
+        crest_queue_cmd.load_config(str(smoke_workspace.crest_config_path)),
     ) == "blocked"
     assert active_slot_count(smoke_workspace.admission_root) == 1
     assert len(list_slots(smoke_workspace.admission_root)) == 1
@@ -112,8 +115,9 @@ exit 0
     assert xtb_record.latest_known_path == str(xtb_opt_job.resolve())
     assert Path(xtb_record.latest_known_path).exists()
 
-    assert crest_queue_cmd._process_one(
-        crest_queue_cmd.load_config(str(smoke_workspace.crest_config_path))
+    assert process_one_crest_for_test(
+        crest_queue_cmd,
+        crest_queue_cmd.load_config(str(smoke_workspace.crest_config_path)),
     ) == "processed"
     crest_stdout = capsys.readouterr().out
     assert f"queue_id: {crest_submission['queue_id']}" in crest_stdout

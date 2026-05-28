@@ -7,14 +7,19 @@ from typing import Any, Callable
 from chemstack.core.app_ids import CHEMSTACK_ORCA_SOURCE
 from chemstack.core.queue.types import QueueEntry
 
-from ._activity_deps import ActivityListProvider
 from ._activity_model import (
     ActivityListRequest,
     ActivityRecord,
     ActivitySourceRequest,
     ResolvedActivitySources,
 )
-from .submitters.common import normalize_text
+from chemstack.core.utils import normalize_text
+
+
+@dataclass(frozen=True)
+class ActivityListProvider:
+    source: str
+    collect: Callable[[ResolvedActivitySources, ActivityListRequest], list[ActivityRecord]]
 
 
 @dataclass(frozen=True)
@@ -27,7 +32,7 @@ class ActivityListDeps:
     shared_workflow_root_from_config: Callable[..., Any]
     iter_workflow_runtime_workspaces: Callable[..., Any]
     workflow_workspace_internal_engine_paths: Callable[..., Any]
-    sibling_runtime_paths: Callable[..., Any]
+    engine_runtime_paths: Callable[..., Any]
     _coerce_mapping: Callable[..., dict[str, Any]]
     _mapping_text: Callable[..., str]
     _path_aliases: Callable[..., tuple[str, ...]]
@@ -189,7 +194,7 @@ def runtime_paths_for_engine(
     engine: str,
     deps: ActivityListDeps,
 ) -> dict[str, Path]:
-    return deps.sibling_runtime_paths(config_path, engine=engine)
+    return deps.engine_runtime_paths(config_path, engine=engine)
 
 
 def engine_queue_roots(

@@ -246,7 +246,7 @@ def _build_engine_deps(overrides: Mapping[str, Any] | None) -> OrchestrationEngi
     from .adapters.orca import load_orca_artifact_contract
     from .adapters.xtb import load_xtb_artifact_contract, select_xtb_downstream_inputs
     from .endpoint_pairing import select_endpoint_pairs
-    from .submitters.common import sibling_runtime_paths
+    from .engine_runtime import engine_runtime_paths
     from .submitters.crest import (
         cancel_target as crest_cancel_target,
         submit_job_dir as submit_crest_job_dir,
@@ -274,7 +274,7 @@ def _build_engine_deps(overrides: Mapping[str, Any] | None) -> OrchestrationEngi
                 "select_crest_downstream_inputs": select_crest_downstream_inputs,
                 "select_endpoint_pairs": select_endpoint_pairs,
                 "select_xtb_downstream_inputs": select_xtb_downstream_inputs,
-                "sibling_runtime_paths": sibling_runtime_paths,
+                "engine_runtime_paths": engine_runtime_paths,
                 "submit_crest_job_dir": submit_crest_job_dir,
                 "submit_reaction_dir": submit_reaction_dir,
                 "submit_xtb_job_dir": submit_xtb_job_dir,

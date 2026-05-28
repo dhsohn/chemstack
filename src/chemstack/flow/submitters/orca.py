@@ -1,51 +1,102 @@
 from __future__ import annotations
 
+from argparse import Namespace
 from pathlib import Path
 from typing import Any
 
-from chemstack.core.app_ids import (
-    CHEMSTACK_CLI_MODULE,
-)
+from chemstack.core.commands.queue import display_status
+from chemstack.core.utils import normalize_text as _normalize_text
 from chemstack.core.utils import now_utc_iso
 
 from ..registry import sync_workflow_registry
 from ..state import load_workflow_payload, resolve_workflow_workspace, write_workflow_payload
 from . import orca_cancellation as _cancellation
 from . import orca_submission as _submission
-from . import sibling_engine
-from .common import (
-    normalize_text as _normalize_text,
-    parse_key_value_lines as _parse_key_value_lines,
-    queue_submission_status as _queue_submission_status,
-    run_sibling_app,
-)
-
-_SUBMIT_MODULE_NAME = CHEMSTACK_CLI_MODULE
-_CANCEL_MODULE_NAME = CHEMSTACK_CLI_MODULE
-_CANCEL_TIMEOUT_SECONDS = 5.0
+_SUBMIT_API_NAME = "chemstack.orca.direct_submit"
+_CANCEL_API_NAME = "chemstack.orca.direct_cancel"
 
 
-def _submission_tail_argv(
-    *,
-    reaction_dir: str,
-    priority: int,
-    max_cores: int | None = None,
-    max_memory_gb: int | None = None,
-    force: bool = False,
-) -> list[str]:
-    argv = [
-        "run-dir",
-        reaction_dir,
-        "--priority",
-        str(int(priority)),
+def _trace_argv(*, api_name: str, config_path: str, kwargs: dict[str, Any]) -> list[str]:
+    return [
+        api_name,
+        f"config={config_path}",
+        *[f"{key}={value}" for key, value in kwargs.items()],
     ]
+
+
+def _key_value_stdout(fields: dict[str, Any]) -> str:
+    return "\n".join(
+        f"{key}: {value}" for key, raw in fields.items() if (value := _normalize_text(raw))
+    )
+
+
+def _failure_payload(
+    *,
+    command_argv: list[str],
+    stderr: str,
+    reaction_dir: str = "",
+    reason: str = "",
+) -> dict[str, Any]:
+    if stderr and not stderr.endswith("\n"):
+        stderr += "\n"
+    return {
+        "status": "failed",
+        "reason": reason,
+        "returncode": 1,
+        "command_argv": command_argv,
+        "stdout": "",
+        "stderr": stderr,
+        "parsed_stdout": {},
+        "queue_id": "",
+        "job_id": "",
+        "reaction_dir": reaction_dir,
+        "priority": 0,
+        "force": False,
+    }
+
+
+def _queued_payload(
+    *,
+    command_argv: list[str],
+    result: Any,
+    priority: int,
+    force: bool,
+) -> dict[str, Any]:
+    from chemstack.orca import queue_adapter
+
+    entry = result.entry
+    parsed = {
+        "status": "queued",
+        "job_dir": result.reaction_dir,
+        "queue_id": queue_adapter.queue_entry_id(entry),
+        "job_id": queue_adapter.queue_entry_task_id(entry),
+        "priority": priority,
+    }
     if force:
-        argv.append("--force")
-    if max_cores is not None and int(max_cores) > 0:
-        argv.extend(["--max-cores", str(int(max_cores))])
-    if max_memory_gb is not None and int(max_memory_gb) > 0:
-        argv.extend(["--max-memory-gb", str(int(max_memory_gb))])
-    return argv
+        parsed["force"] = "true"
+    if result.worker_info.status:
+        parsed["worker"] = result.worker_info.status
+    if result.worker_info.pid is not None:
+        parsed["worker_pid"] = result.worker_info.pid
+    if result.worker_info.log_file:
+        parsed["worker_log"] = result.worker_info.log_file
+    if result.worker_info.detail:
+        parsed["worker_detail"] = result.worker_info.detail
+    parsed_stdout = {key: _normalize_text(value) for key, value in parsed.items() if _normalize_text(value)}
+    return {
+        "status": "submitted",
+        "reason": "",
+        "returncode": 0,
+        "command_argv": command_argv,
+        "stdout": _key_value_stdout(parsed_stdout),
+        "stderr": "",
+        "parsed_stdout": parsed_stdout,
+        "queue_id": parsed_stdout.get("queue_id", ""),
+        "job_id": parsed_stdout.get("job_id", ""),
+        "reaction_dir": parsed_stdout.get("job_dir", _normalize_text(result.reaction_dir)),
+        "priority": int(priority),
+        "force": bool(force),
+    }
 
 
 def submit_reaction_dir(
@@ -58,39 +109,67 @@ def submit_reaction_dir(
     force: bool = False,
     repo_root: str | None = None,
 ) -> dict[str, Any]:
-    result = run_sibling_app(
-        config_path=_normalize_text(config_path),
-        repo_root=_normalize_text(repo_root) or None,
-        module_name=_SUBMIT_MODULE_NAME,
-        tail_argv=_submission_tail_argv(
-            reaction_dir=reaction_dir,
-            priority=priority,
+    del repo_root
+    normalized_config = _normalize_text(config_path)
+    command_argv = _trace_argv(
+        api_name=_SUBMIT_API_NAME,
+        config_path=normalized_config,
+        kwargs={
+            "reaction_dir": reaction_dir,
+            "priority": int(priority),
+            "force": bool(force),
+        },
+    )
+    try:
+        from chemstack.orca.commands import run_inp as _run_inp
+        from chemstack.orca.commands import run_inp_submission as _run_inp_submission
+
+        args = Namespace(
+            config=normalized_config,
+            path=reaction_dir,
+            priority=int(priority),
+            force=bool(force),
             max_cores=max_cores,
             max_memory_gb=max_memory_gb,
-            force=force,
-        ),
+        )
+        context = _run_inp._resolve_submission_context(args)
+        if context is None:
+            return _failure_payload(
+                command_argv=command_argv,
+                reaction_dir=reaction_dir,
+                stderr="failed to resolve ORCA submission target",
+                reason="invalid_submission_target",
+            )
+        conflict = _run_inp._find_submission_conflict(context.allowed_root, context.reaction_dir)
+        if conflict is not None:
+            return _failure_payload(
+                command_argv=command_argv,
+                reaction_dir=str(context.reaction_dir),
+                stderr=conflict,
+                reason="submission_conflict",
+            )
+        deps = _run_inp._run_inp_deps()
+        queued = _run_inp_submission.create_queued_submission(
+            context.cfg,
+            args,
+            context.reaction_dir,
+            selected_inp=context.selected_inp,
+            deps=deps,
+        )
+        _run_inp_submission.notify_queued_submission(context.cfg, queued, deps=deps)
+    except Exception as exc:
+        return _failure_payload(
+            command_argv=command_argv,
+            reaction_dir=reaction_dir,
+            stderr=f"{exc.__class__.__name__}: {exc}",
+            reason="submission_failed",
+        )
+    return _queued_payload(
+        command_argv=command_argv,
+        result=queued,
+        priority=int(priority),
+        force=bool(force),
     )
-    parsed = _parse_key_value_lines(result.stdout)
-    status, reason = _queue_submission_status(
-        returncode=int(result.returncode),
-        parsed_stdout=parsed,
-        stdout=result.stdout,
-        stderr=result.stderr,
-    )
-    argv = list(result.args) if isinstance(result.args, (list, tuple)) else [str(result.args)]
-    return {
-        "status": status,
-        "reason": reason,
-        "returncode": int(result.returncode),
-        "command_argv": argv,
-        "stdout": result.stdout,
-        "stderr": result.stderr,
-        "parsed_stdout": parsed,
-        "queue_id": parsed.get("queue_id", ""),
-        "reaction_dir": parsed.get("job_dir") or parsed.get("reaction_dir", reaction_dir),
-        "priority": int(priority),
-        "force": bool(force),
-    }
 
 
 def cancel_target(
@@ -99,15 +178,78 @@ def cancel_target(
     config_path: str,
     repo_root: str | None = None,
 ) -> dict[str, Any]:
-    return sibling_engine.orca_cancel_target(
-        normalize_text_fn=_normalize_text,
-        run_sibling_app=run_sibling_app,
-        target=target,
-        config_path=config_path,
-        repo_root=repo_root,
-        module_name=_CANCEL_MODULE_NAME,
-        timeout_seconds=_CANCEL_TIMEOUT_SECONDS,
+    del repo_root
+    normalized_config = _normalize_text(config_path)
+    normalized_target = _normalize_text(target)
+    command_argv = _trace_argv(
+        api_name=_CANCEL_API_NAME,
+        config_path=normalized_config,
+        kwargs={"target": normalized_target},
     )
+    if not normalized_target:
+        return _failure_payload(command_argv=command_argv, stderr="queue cancel requires a target")
+
+    try:
+        from chemstack.orca.config import load_config
+        from chemstack.orca import queue_adapter
+
+        cfg = load_config(normalized_config)
+        allowed_root = Path(cfg.runtime.allowed_root).expanduser().resolve()
+        target_path = None
+        try:
+            target_path = str(Path(normalized_target).expanduser().resolve())
+        except OSError:
+            target_path = None
+        matched = None
+        for entry in queue_adapter.list_queue(allowed_root):
+            aliases = {
+                queue_adapter.queue_entry_id(entry),
+                queue_adapter.queue_entry_task_id(entry),
+                queue_adapter.queue_entry_run_id(entry),
+                queue_adapter.queue_entry_reaction_dir(entry),
+            }
+            if target_path:
+                aliases.add(target_path)
+            if normalized_target in aliases:
+                matched = entry
+                break
+        if matched is None:
+            return _failure_payload(
+                command_argv=command_argv,
+                stderr=f"queue target not found: {normalized_target}",
+                reason="target_not_found",
+            )
+        updated = queue_adapter.cancel(allowed_root, queue_adapter.queue_entry_id(matched))
+        if updated is None:
+            return _failure_payload(
+                command_argv=command_argv,
+                stderr=f"queue target already terminal: {normalized_target}",
+                reason="already_terminal",
+            )
+        status = display_status(updated)
+        parsed_stdout = {
+            "status": status,
+            "queue_id": queue_adapter.queue_entry_id(updated),
+            "job_id": queue_adapter.queue_entry_task_id(updated),
+        }
+    except Exception as exc:
+        return _failure_payload(
+            command_argv=command_argv,
+            stderr=f"{exc.__class__.__name__}: {exc}",
+            reason="cancel_failed",
+        )
+
+    return {
+        "status": status,
+        "reason": "",
+        "returncode": 0,
+        "command_argv": command_argv,
+        "stdout": _key_value_stdout(parsed_stdout),
+        "stderr": "",
+        "parsed_stdout": parsed_stdout,
+        "queue_id": parsed_stdout.get("queue_id", ""),
+        "job_id": parsed_stdout.get("job_id", ""),
+    }
 
 
 def _submission_deps() -> _submission.SubmissionDeps:

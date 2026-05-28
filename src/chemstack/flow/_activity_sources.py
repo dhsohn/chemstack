@@ -11,7 +11,7 @@ from chemstack.core.config.files import (
 from chemstack.core.utils import mapping_or_empty
 
 from ._activity_model import ActivitySourceRequest, ResolvedActivitySources
-from .submitters.common import normalize_text
+from chemstack.core.utils import normalize_text
 
 coerce_mapping = mapping_or_empty
 

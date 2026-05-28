@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -25,17 +26,13 @@ from ._activity_model import (
     timestamp_metadata as _timestamp_metadata,
     unique_texts as _unique_texts,
 )
-from ._activity_deps import (
-    ActivityCancelDeps as _ActivityCancelDeps,
-    OrcaActivityDeps as _OrcaActivityDeps,
-)
 from .state import (
     iter_workflow_runtime_workspaces,
     list_workflow_summaries,
     workflow_workspace_internal_engine_paths,
 )
 from .engine_options import WorkflowEngineOptions
-from .submitters.common import sibling_runtime_paths
+from .engine_runtime import engine_runtime_paths
 from .submitters.crest import cancel_target as cancel_crest_target
 from .submitters.orca import cancel_target as cancel_orca_target
 from .submitters.xtb import cancel_target as cancel_xtb_target
@@ -49,9 +46,25 @@ from . import _activity_cancel
 _ACTIVITY_CLEARABLE_TERMINAL_STATUSES = WORKFLOW_TERMINAL_STATUSES
 
 
+@dataclass(frozen=True)
+class _OrcaActivityDeps:
+    engine_runtime_paths: Any
+    _unique_texts: Any
+    _path_aliases: Any
+    _timestamp_metadata: Any
+
+
+@dataclass(frozen=True)
+class _ActivityCancelDeps:
+    cancel_crest_target: Any
+    cancel_xtb_target: Any
+    cancel_orca_target: Any
+    _discover_orca_repo_root: Any
+
+
 def _orca_activity_deps() -> _OrcaActivityDeps:
     return _OrcaActivityDeps(
-        sibling_runtime_paths=sibling_runtime_paths,
+        engine_runtime_paths=engine_runtime_paths,
         _unique_texts=_unique_texts,
         _path_aliases=_path_aliases,
         _timestamp_metadata=_timestamp_metadata,
@@ -83,7 +96,7 @@ def _activity_list_deps() -> _activity_list.ActivityListDeps:
         shared_workflow_root_from_config=shared_workflow_root_from_config,
         iter_workflow_runtime_workspaces=iter_workflow_runtime_workspaces,
         workflow_workspace_internal_engine_paths=workflow_workspace_internal_engine_paths,
-        sibling_runtime_paths=sibling_runtime_paths,
+        engine_runtime_paths=engine_runtime_paths,
         _coerce_mapping=_activity_sources.coerce_mapping,
         _mapping_text=_mapping_text,
         _path_aliases=_path_aliases,
@@ -108,7 +121,7 @@ def _activity_clear_deps() -> _activity_clear.ActivityClearDeps:
         clear_terminal_workflow_registry=clear_terminal_workflow_registry,
         clear_queue_terminal=clear_queue_terminal,
         _engine_queue_roots=engine_queue_roots,
-        sibling_runtime_paths=sibling_runtime_paths,
+        engine_runtime_paths=engine_runtime_paths,
     )
 
 

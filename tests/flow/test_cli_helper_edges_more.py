@@ -21,7 +21,7 @@ def test_cli_option_and_workflow_root_helpers(
     monkeypatch.setattr(cli_common, "_discover_shared_config_path", lambda explicit: "/tmp/chemstack.yaml")
     monkeypatch.setattr(cli_common, "shared_workflow_root_from_config", lambda path: f"resolved:{path}")
     assert (
-        cli_common._workflow_root_from_args(SimpleNamespace(workflow_root=None))
+        cli_common._workflow_root_for_args(SimpleNamespace(workflow_root=None))
         == "resolved:/tmp/chemstack.yaml"
     )
 
@@ -60,7 +60,7 @@ def test_cli_shared_config_and_worker_root_defaults(
     args = SimpleNamespace(chemstack_config=None, orca_config=None, workflow_root=None)
 
     assert cli_common._shared_chemstack_config(args) == str(config_path.resolve())
-    assert cli_common._workflow_root_from_args(args, config_path=str(config_path)) == str(workflow_root.resolve())
+    assert cli_common._workflow_root_for_args(args, config_path=str(config_path)) == str(workflow_root.resolve())
 
     explicit_config = tmp_path / "explicit.yaml"
     explicit_args = SimpleNamespace(chemstack_config=str(explicit_config), orca_config=None)

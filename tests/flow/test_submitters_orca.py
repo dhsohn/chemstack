@@ -1,29 +1,43 @@
 from __future__ import annotations
 
 from copy import deepcopy
-import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
 
-
+from chemstack.core.queue.types import QueueEntry, QueueStatus
 from chemstack.flow.submitters import orca as orca_submitter
+from chemstack.orca import config as orca_config
+from chemstack.orca import queue_adapter
+from chemstack.orca.commands import run_inp as run_inp_cmd
+from chemstack.orca.commands import run_inp_submission as run_inp_submission_cmd
 
 
-def _completed_process(
+def _queue_entry(
     *,
-    returncode: int,
-    stdout: str,
-    stderr: str = "",
-    args: Any,
-) -> SimpleNamespace:
-    return SimpleNamespace(
-        returncode=returncode,
-        stdout=stdout,
-        stderr=stderr,
-        args=args,
+    queue_id: str = "q_123",
+    task_id: str = "orca_job_123",
+    status: QueueStatus = QueueStatus.PENDING,
+    priority: int = 10,
+    reaction_dir: str = "/tmp/rxn",
+    cancel_requested: bool = False,
+    run_id: str | None = None,
+) -> QueueEntry:
+    metadata: dict[str, Any] = {"reaction_dir": reaction_dir, "force": False}
+    if run_id is not None:
+        metadata["run_id"] = run_id
+    return QueueEntry(
+        queue_id=queue_id,
+        app_name="chemstack_orca",
+        task_id=task_id,
+        task_kind="orca_run_inp",
+        engine="orca",
+        status=status,
+        priority=priority,
+        cancel_requested=cancel_requested,
+        metadata=metadata,
     )
 
 
@@ -76,254 +90,316 @@ def _install_timestamps(monkeypatch: pytest.MonkeyPatch, *timestamps: str) -> No
     monkeypatch.setattr(orca_submitter, "now_utc_iso", lambda: next(values))
 
 
-@pytest.mark.parametrize(
-    ("returncode", "stdout", "expected_status", "expected_reaction_dir"),
-    [
-        (
-            0,
-            "status: queued\nqueue_id: q_123\njob_dir: /tmp/rxn_stdout\n",
-            "submitted",
-            "/tmp/rxn_stdout",
-        ),
-        (
-            0,
-            "status: running\nqueue_id: q_123\n",
-            "failed",
-            "/tmp/rxn_input",
-        ),
-        (
-            3,
-            "status: queued\nqueue_id: q_123\n",
-            "failed",
-            "/tmp/rxn_input",
-        ),
-        (
-            1,
-            "status: waiting_for_slot\nqueue_id: q_123\n",
-            "blocked",
-            "/tmp/rxn_input",
-        ),
-    ],
-)
-def test_submit_reaction_dir_maps_queue_status(
+def test_submit_reaction_dir_uses_direct_submission_api(
     monkeypatch: pytest.MonkeyPatch,
-    returncode: int,
-    stdout: str,
-    expected_status: str,
-    expected_reaction_dir: str,
+    tmp_path: Path,
 ) -> None:
-    sibling_calls: list[dict[str, Any]] = []
+    allowed_root = tmp_path / "allowed"
+    reaction_dir = tmp_path / "rxn_input"
+    selected_inp = reaction_dir / "job.inp"
+    cfg = SimpleNamespace(runtime=SimpleNamespace(allowed_root=str(allowed_root)))
+    deps = object()
+    entry = _queue_entry(
+        queue_id="q_123",
+        task_id="orca_job_123",
+        priority=12,
+        reaction_dir=str(reaction_dir),
+    )
+    worker_info = SimpleNamespace(
+        status="running",
+        pid=4321,
+        log_file=tmp_path / "worker.log",
+        detail="healthy",
+    )
+    queued_result = SimpleNamespace(
+        entry=entry,
+        reaction_dir=reaction_dir,
+        selected_inp=selected_inp,
+        queue_metadata={"source": "test"},
+        worker_info=worker_info,
+    )
+    captured: dict[str, Any] = {}
 
-    def fake_run_sibling_app(**kwargs: Any) -> SimpleNamespace:
-        sibling_calls.append(kwargs)
-        return _completed_process(
-            returncode=returncode,
-            stdout=stdout,
-            stderr="stderr text",
-            args=(
-                "python",
-                "-m",
-                "chemstack.cli",
-                "--config",
-                "/tmp/orca.yaml",
-                "run-dir",
-                "/tmp/rxn_input",
-            ),
+    def fake_resolve_submission_context(args: Any) -> Any:
+        captured["args"] = args
+        return SimpleNamespace(
+            cfg=cfg,
+            reaction_dir=reaction_dir,
+            selected_inp=selected_inp,
+            allowed_root=allowed_root,
         )
 
-    monkeypatch.setattr(orca_submitter, "run_sibling_app", fake_run_sibling_app)
+    def fake_find_submission_conflict(allowed_root_arg: Path, reaction_dir_arg: Path) -> None:
+        captured["conflict_check"] = (allowed_root_arg, reaction_dir_arg)
+        return None
+
+    def fake_create_queued_submission(
+        cfg_arg: Any,
+        args_arg: Any,
+        reaction_dir_arg: Path,
+        *,
+        selected_inp: Path | None,
+        deps: Any,
+    ) -> Any:
+        captured["create"] = {
+            "cfg": cfg_arg,
+            "args": args_arg,
+            "reaction_dir": reaction_dir_arg,
+            "selected_inp": selected_inp,
+            "deps": deps,
+        }
+        return queued_result
+
+    def fake_notify_queued_submission(cfg_arg: Any, result: Any, *, deps: Any) -> None:
+        captured["notify"] = (cfg_arg, result, deps)
+
+    monkeypatch.setattr(
+        run_inp_cmd,
+        "_resolve_submission_context",
+        fake_resolve_submission_context,
+    )
+    monkeypatch.setattr(run_inp_cmd, "_find_submission_conflict", fake_find_submission_conflict)
+    monkeypatch.setattr(run_inp_cmd, "_run_inp_deps", lambda: deps)
+    monkeypatch.setattr(
+        run_inp_submission_cmd,
+        "create_queued_submission",
+        fake_create_queued_submission,
+    )
+    monkeypatch.setattr(
+        run_inp_submission_cmd,
+        "notify_queued_submission",
+        fake_notify_queued_submission,
+    )
 
     result = orca_submitter.submit_reaction_dir(
-        reaction_dir="/tmp/rxn_input",
+        reaction_dir=str(reaction_dir),
         priority=12,
         config_path=" /tmp/orca.yaml ",
-        repo_root=" /tmp/orca_repo ",
-    )
-
-    assert sibling_calls == [
-        {
-            "config_path": "/tmp/orca.yaml",
-            "repo_root": "/tmp/orca_repo",
-            "module_name": "chemstack.cli",
-            "tail_argv": ["run-dir", "/tmp/rxn_input", "--priority", "12"],
-        }
-    ]
-    assert result["status"] == expected_status
-    assert result["queue_id"] == "q_123"
-    assert result["reaction_dir"] == expected_reaction_dir
-    assert result["priority"] == 12
-    assert result["parsed_stdout"]["status"] == stdout.splitlines()[0].split(": ", 1)[1]
-    assert result["command_argv"] == [
-        "python",
-        "-m",
-        "chemstack.cli",
-        "--config",
-        "/tmp/orca.yaml",
-        "run-dir",
-        "/tmp/rxn_input",
-    ]
-    assert result["stderr"] == "stderr text"
-
-
-def test_submit_reaction_dir_passes_resource_override_flags(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    sibling_calls: list[dict[str, Any]] = []
-
-    def fake_run_sibling_app(**kwargs: Any) -> SimpleNamespace:
-        sibling_calls.append(kwargs)
-        return _completed_process(
-            returncode=0,
-            stdout="status: queued\nqueue_id: q_456\n",
-            stderr="",
-            args=(
-                "python",
-                "-m",
-                "chemstack.cli",
-                "--config",
-                "/tmp/orca.yaml",
-                "run-dir",
-                "/tmp/rxn_input",
-            ),
-        )
-
-    monkeypatch.setattr(orca_submitter, "run_sibling_app", fake_run_sibling_app)
-
-    result = orca_submitter.submit_reaction_dir(
-        reaction_dir="/tmp/rxn_input",
-        priority=4,
-        config_path="/tmp/orca.yaml",
         max_cores=16,
         max_memory_gb=64,
-    )
-
-    assert sibling_calls == [
-        {
-            "config_path": "/tmp/orca.yaml",
-            "repo_root": None,
-            "module_name": "chemstack.cli",
-            "tail_argv": [
-                "run-dir",
-                "/tmp/rxn_input",
-                "--priority",
-                "4",
-                "--max-cores",
-                "16",
-                "--max-memory-gb",
-                "64",
-            ],
-        }
-    ]
-    assert result["status"] == "submitted"
-
-
-def test_submit_reaction_dir_passes_force_flag(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    sibling_calls: list[dict[str, Any]] = []
-
-    def fake_run_sibling_app(**kwargs: Any) -> SimpleNamespace:
-        sibling_calls.append(kwargs)
-        return _completed_process(
-            returncode=0,
-            stdout="status: queued\nqueue_id: q_force\n",
-            stderr="",
-            args=("python", "-m", "chemstack.cli", "run-dir", "/tmp/rxn_input", "--force"),
-        )
-
-    monkeypatch.setattr(orca_submitter, "run_sibling_app", fake_run_sibling_app)
-
-    result = orca_submitter.submit_reaction_dir(
-        reaction_dir="/tmp/rxn_input",
-        priority=4,
-        config_path="/tmp/orca.yaml",
         force=True,
-    )
-
-    assert sibling_calls[0]["tail_argv"] == [
-        "run-dir",
-        "/tmp/rxn_input",
-        "--priority",
-        "4",
-        "--force",
-    ]
-    assert result["force"] is True
-
-
-@pytest.mark.parametrize(
-    ("returncode", "stdout", "expected_status"),
-    [
-        (0, "Cancelled: q_123\n", "cancelled"),
-        (0, "Cancel requested for q_123\n", "cancel_requested"),
-        (0, "Request accepted\n", "cancelled"),
-        (2, "Cancelled: q_123\n", "failed"),
-    ],
-)
-def test_cancel_target_maps_cli_cancel_status(
-    monkeypatch: pytest.MonkeyPatch,
-    returncode: int,
-    stdout: str,
-    expected_status: str,
-) -> None:
-    sibling_calls: list[dict[str, Any]] = []
-
-    def fake_run_sibling_app(**kwargs: Any) -> SimpleNamespace:
-        sibling_calls.append(kwargs)
-        return _completed_process(
-            returncode=returncode,
-            stdout=stdout,
-            stderr="cancel stderr",
-            args="python -m chemstack.cli --config /tmp/orca.yaml queue cancel q_123",
-        )
-
-    monkeypatch.setattr(orca_submitter, "run_sibling_app", fake_run_sibling_app)
-
-    result = orca_submitter.cancel_target(
-        target="q_123",
-        config_path=" /tmp/orca.yaml ",
         repo_root=" /tmp/orca_repo ",
     )
 
-    assert sibling_calls == [
-        {
-            "config_path": "/tmp/orca.yaml",
-            "repo_root": "/tmp/orca_repo",
-            "module_name": "chemstack.cli",
-            "tail_argv": ["queue", "cancel", "q_123"],
-            "timeout_seconds": 5.0,
-        }
-    ]
-    assert result["status"] == expected_status
-    assert result["returncode"] == returncode
-    assert result["stdout"] == stdout
-    assert result["stderr"] == "cancel stderr"
+    args = captured["args"]
+    assert args.config == "/tmp/orca.yaml"
+    assert args.path == str(reaction_dir)
+    assert args.priority == 12
+    assert args.force is True
+    assert args.max_cores == 16
+    assert args.max_memory_gb == 64
+    assert captured["conflict_check"] == (allowed_root, reaction_dir)
+    assert captured["create"] == {
+        "cfg": cfg,
+        "args": args,
+        "reaction_dir": reaction_dir,
+        "selected_inp": selected_inp,
+        "deps": deps,
+    }
+    assert captured["notify"] == (cfg, queued_result, deps)
+    assert result["status"] == "submitted"
+    assert result["queue_id"] == "q_123"
+    assert result["job_id"] == "orca_job_123"
+    assert result["reaction_dir"] == str(reaction_dir)
+    assert result["priority"] == 12
     assert result["command_argv"] == [
-        "python -m chemstack.cli --config /tmp/orca.yaml queue cancel q_123"
+        "chemstack.orca.direct_submit",
+        "config=/tmp/orca.yaml",
+        f"reaction_dir={reaction_dir}",
+        "priority=12",
+        "force=True",
     ]
+    assert result["parsed_stdout"] == {
+        "status": "queued",
+        "job_dir": str(reaction_dir),
+        "queue_id": "q_123",
+        "job_id": "orca_job_123",
+        "priority": "12",
+        "force": "true",
+        "worker": "running",
+        "worker_pid": "4321",
+        "worker_log": str(tmp_path / "worker.log"),
+        "worker_detail": "healthy",
+    }
+    assert "worker_pid: 4321" in result["stdout"]
 
 
-def test_cancel_target_reports_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
-    def fake_run_sibling_app(**kwargs: Any) -> SimpleNamespace:
-        raise subprocess.TimeoutExpired(
-            cmd=["python", "-m", "chemstack.cli", "queue", "cancel", "q_123"],
-            timeout=5.0,
-            output="slow",
-            stderr="timeout",
-        )
+def test_submit_reaction_dir_reports_resolution_conflict_and_submission_failures(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    reaction_dir = tmp_path / "rxn_input"
+    monkeypatch.setattr(run_inp_cmd, "_resolve_submission_context", lambda _args: None)
 
-    monkeypatch.setattr(orca_submitter, "run_sibling_app", fake_run_sibling_app)
-
-    result = orca_submitter.cancel_target(
-        target="q_123",
+    result = orca_submitter.submit_reaction_dir(
+        reaction_dir=str(reaction_dir),
+        priority=4,
         config_path="/tmp/orca.yaml",
-        repo_root="/tmp/orca_repo",
     )
 
     assert result["status"] == "failed"
-    assert result["reason"] == "cancel_command_timeout"
-    assert result["returncode"] == 124
-    assert result["stdout"] == "slow"
-    assert result["stderr"] == "timeout"
+    assert result["reason"] == "invalid_submission_target"
+    assert result["stderr"] == "failed to resolve ORCA submission target\n"
+
+    context = SimpleNamespace(
+        cfg=SimpleNamespace(runtime=SimpleNamespace(allowed_root=str(tmp_path))),
+        reaction_dir=reaction_dir,
+        selected_inp=reaction_dir / "job.inp",
+        allowed_root=tmp_path,
+    )
+    monkeypatch.setattr(run_inp_cmd, "_resolve_submission_context", lambda _args: context)
+    monkeypatch.setattr(
+        run_inp_cmd,
+        "_find_submission_conflict",
+        lambda _root, _reaction_dir: "already running",
+    )
+
+    result = orca_submitter.submit_reaction_dir(
+        reaction_dir=str(reaction_dir),
+        priority=4,
+        config_path="/tmp/orca.yaml",
+    )
+
+    assert result["status"] == "failed"
+    assert result["reason"] == "submission_conflict"
+    assert result["stderr"] == "already running\n"
+
+    monkeypatch.setattr(run_inp_cmd, "_find_submission_conflict", lambda _root, _reaction_dir: None)
+    monkeypatch.setattr(run_inp_cmd, "_run_inp_deps", lambda: object())
+
+    def raise_submission_error(*_args: Any, **_kwargs: Any) -> None:
+        raise RuntimeError("queue boom")
+
+    monkeypatch.setattr(
+        run_inp_submission_cmd,
+        "create_queued_submission",
+        raise_submission_error,
+    )
+    result = orca_submitter.submit_reaction_dir(
+        reaction_dir=str(reaction_dir),
+        priority=4,
+        config_path="/tmp/orca.yaml",
+    )
+
+    assert result["status"] == "failed"
+    assert result["reason"] == "submission_failed"
+    assert result["stderr"] == "RuntimeError: queue boom\n"
+
+
+@pytest.mark.parametrize(
+    ("target", "updated_entry", "expected_status"),
+    [
+        (
+            "orca_job_123",
+            _queue_entry(
+                queue_id="q_123",
+                task_id="orca_job_123",
+                status=QueueStatus.RUNNING,
+                cancel_requested=True,
+                reaction_dir="/tmp/rxn_input",
+                run_id="run_123",
+            ),
+            "cancel_requested",
+        ),
+        (
+            "run_123",
+            _queue_entry(
+                queue_id="q_123",
+                task_id="orca_job_123",
+                status=QueueStatus.CANCELLED,
+                reaction_dir="/tmp/rxn_input",
+                run_id="run_123",
+            ),
+            "cancelled",
+        ),
+    ],
+)
+def test_cancel_target_uses_direct_queue_adapter(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    target: str,
+    updated_entry: QueueEntry,
+    expected_status: str,
+) -> None:
+    allowed_root = tmp_path / "allowed"
+    original_entry = _queue_entry(
+        queue_id="q_123",
+        task_id="orca_job_123",
+        status=QueueStatus.RUNNING,
+        reaction_dir="/tmp/rxn_input",
+        run_id="run_123",
+    )
+    captured: dict[str, Any] = {}
+    monkeypatch.setattr(
+        orca_config,
+        "load_config",
+        lambda _config_path: SimpleNamespace(
+            runtime=SimpleNamespace(allowed_root=str(allowed_root))
+        ),
+    )
+
+    def fake_list_queue(root: Path) -> list[QueueEntry]:
+        captured["list_root"] = root
+        return [original_entry]
+
+    def fake_cancel(root: Path, queue_id: str) -> QueueEntry:
+        captured["cancel"] = (root, queue_id)
+        return updated_entry
+
+    monkeypatch.setattr(queue_adapter, "list_queue", fake_list_queue)
+    monkeypatch.setattr(queue_adapter, "cancel", fake_cancel)
+
+    result = orca_submitter.cancel_target(
+        target=target,
+        config_path=" /tmp/orca.yaml ",
+        repo_root=" /tmp/orca_repo ",
+    )
+
+    resolved_allowed_root = allowed_root.resolve()
+    assert captured["list_root"] == resolved_allowed_root
+    assert captured["cancel"] == (resolved_allowed_root, "q_123")
+    assert result["status"] == expected_status
+    assert result["returncode"] == 0
+    assert result["queue_id"] == "q_123"
+    assert result["job_id"] == "orca_job_123"
+    assert result["command_argv"] == [
+        "chemstack.orca.direct_cancel",
+        "config=/tmp/orca.yaml",
+        f"target={target}",
+    ]
+    assert result["stdout"] == (
+        f"status: {expected_status}\nqueue_id: q_123\njob_id: orca_job_123"
+    )
+
+
+def test_cancel_target_reports_missing_and_empty_targets(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    result = orca_submitter.cancel_target(target=" ", config_path="/tmp/orca.yaml")
+
+    assert result["status"] == "failed"
+    assert result["reason"] == ""
+    assert result["stderr"] == "queue cancel requires a target\n"
+
+    allowed_root = tmp_path / "allowed"
+    monkeypatch.setattr(
+        orca_config,
+        "load_config",
+        lambda _config_path: SimpleNamespace(
+            runtime=SimpleNamespace(allowed_root=str(allowed_root))
+        )
+    )
+    monkeypatch.setattr(queue_adapter, "list_queue", lambda _root: [])
+
+    result = orca_submitter.cancel_target(
+        target="missing",
+        config_path="/tmp/orca.yaml",
+    )
+
+    assert result["status"] == "failed"
+    assert result["reason"] == "target_not_found"
+    assert result["stderr"] == "queue target not found: missing\n"
 
 
 def test_submit_reaction_ts_search_workflow_updates_skip_failure_and_submit_branches(

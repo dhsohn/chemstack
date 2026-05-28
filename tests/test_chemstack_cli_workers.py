@@ -94,7 +94,7 @@ def test_build_worker_specs_defaults_to_engine_workers(monkeypatch: pytest.Monke
         worker_specs, "_discover_shared_config_path", lambda explicit: "/tmp/chemstack.yaml"
     )
 
-    def fake_sibling_app_command(
+    def fake_worker_module_command(
         *,
         config_path: str,
         repo_root: str | None,
@@ -104,7 +104,7 @@ def test_build_worker_specs_defaults_to_engine_workers(monkeypatch: pytest.Monke
         del repo_root
         return (["python", "-m", module_name, "--config", config_path, *tail_argv], None, {})
 
-    monkeypatch.setattr(worker_specs, "sibling_app_command", fake_sibling_app_command)
+    monkeypatch.setattr(worker_specs, "worker_module_command", fake_worker_module_command)
 
     specs = worker_specs._build_worker_specs(
         SimpleNamespace(app=None, workflow_root=None, chemstack_config=None)
@@ -126,7 +126,7 @@ def test_build_worker_specs_defaults_to_all_workers_when_workflow_root_is_config
         cli_common, "shared_workflow_root_from_config", lambda config_path: "/tmp/workflows"
     )
 
-    def fake_sibling_app_command(
+    def fake_worker_module_command(
         *,
         config_path: str,
         repo_root: str | None,
@@ -136,7 +136,7 @@ def test_build_worker_specs_defaults_to_all_workers_when_workflow_root_is_config
         del repo_root
         return (["python", "-m", module_name, "--config", config_path, *tail_argv], None, {})
 
-    monkeypatch.setattr(worker_specs, "sibling_app_command", fake_sibling_app_command)
+    monkeypatch.setattr(worker_specs, "worker_module_command", fake_worker_module_command)
 
     specs = worker_specs._build_worker_specs(
         SimpleNamespace(app=None, workflow_root=None, chemstack_config=None)

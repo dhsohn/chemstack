@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -17,7 +18,7 @@ from chemstack.core.app_ids import (
     CHEMSTACK_CONFIG_ENV_VAR,
     CHEMSTACK_WORKFLOW_WORKER_MODULE,
 )
-from chemstack.flow.submitters.common import normalize_text, sibling_app_command
+from chemstack.core.utils import normalize_text
 
 _WORKFLOW_ENGINE_APPS = ("crest", "xtb")
 _ENGINE_APPS = ("orca",)
@@ -85,6 +86,29 @@ def _engine_worker_tail_argv(*, app: str, args: argparse.Namespace) -> list[str]
     return tail_argv
 
 
+def worker_module_command(
+    *,
+    config_path: str,
+    repo_root: str | None,
+    module_name: str,
+    tail_argv: list[str],
+) -> tuple[list[str], str | None, dict[str, str] | None]:
+    argv = [sys.executable, "-m", module_name, "--config", config_path, *tail_argv]
+    if repo_root is None:
+        return argv, None, None
+
+    root_path = Path(repo_root).expanduser().resolve()
+    env = dict(os.environ)
+    existing = env.get("PYTHONPATH", "")
+    candidates = [str(root_path)]
+    src_root = root_path / "src"
+    if src_root.is_dir():
+        candidates.insert(0, str(src_root))
+    pythonpath = ":".join(candidates)
+    env["PYTHONPATH"] = pythonpath if not existing else f"{pythonpath}:{existing}"
+    return argv, str(root_path), env
+
+
 def _engine_worker_spec(
     *,
     app: str,
@@ -92,14 +116,14 @@ def _engine_worker_spec(
     args: argparse.Namespace,
     deps: Any | None = None,
 ) -> WorkerSpec:
-    build_sibling_command = _dependency(deps, "sibling_app_command", sibling_app_command)
+    build_worker_command = _dependency(deps, "worker_module_command", worker_module_command)
     repo_root_for_subprocess = _dependency(
         deps, "_repo_root_for_subprocess", _repo_root_for_subprocess
     )
     engine_worker_tail_argv = _dependency(
         deps, "_engine_worker_tail_argv", _engine_worker_tail_argv
     )
-    argv, cwd, env = build_sibling_command(
+    argv, cwd, env = build_worker_command(
         config_path=config_path,
         repo_root=repo_root_for_subprocess(),
         module_name=_ENGINE_WORKER_MODULES[app],

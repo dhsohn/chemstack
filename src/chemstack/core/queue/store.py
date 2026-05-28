@@ -112,10 +112,15 @@ def save_entries(root: str | Path, entries: Sequence[QueueEntry]) -> None:
     )
 
 
-def list_queue(root: str | Path) -> list[QueueEntry]:
+def list_queue(
+    root: str | Path,
+    *,
+    load_entries_fn: Callable[[Path], list[QueueEntry]] | None = None,
+) -> list[QueueEntry]:
     resolved_root = resolve_root_path(root)
+    loader = load_entries_fn or load_entries
     with queue_lock(resolved_root):
-        return load_entries(resolved_root)
+        return loader(resolved_root)
 
 
 def mutate_entries(
@@ -140,13 +145,21 @@ def _entry_timestamp(entry: QueueEntry) -> str:
     return entry.finished_at or entry.started_at or entry.enqueued_at
 
 
-def clear_terminal(root: str | Path, *, keep_last: int = 0) -> int:
+def clear_terminal(
+    root: str | Path,
+    *,
+    keep_last: int = 0,
+    load_entries_fn: Callable[[Path], list[QueueEntry]] | None = None,
+    save_entries_fn: Callable[[Path, Sequence[QueueEntry]], Any] | None = None,
+) -> int:
     resolved_root = resolve_root_path(root)
     if not _queue_path(resolved_root).exists():
         return 0
+    loader = load_entries_fn or load_entries
+    saver = save_entries_fn or save_entries
 
     with queue_lock(resolved_root):
-        entries = load_entries(resolved_root)
+        entries = loader(resolved_root)
         terminal_entries = [entry for entry in entries if entry.status in _TERMINAL_STATUSES]
         if not terminal_entries:
             return 0
@@ -167,7 +180,7 @@ def clear_terminal(root: str | Path, *, keep_last: int = 0) -> int:
         ]
         removed_count = len(entries) - len(kept_entries)
         if removed_count > 0:
-            save_entries(resolved_root, kept_entries)
+            saver(resolved_root, kept_entries)
         return removed_count
 
 
@@ -207,10 +220,17 @@ def enqueue(
     return entry
 
 
-def dequeue_next(root: str | Path) -> QueueEntry | None:
+def dequeue_next(
+    root: str | Path,
+    *,
+    load_entries_fn: Callable[[Path], list[QueueEntry]] | None = None,
+    save_entries_fn: Callable[[Path, Sequence[QueueEntry]], Any] | None = None,
+) -> QueueEntry | None:
     resolved_root = resolve_root_path(root)
+    loader = load_entries_fn or load_entries
+    saver = save_entries_fn or save_entries
     with queue_lock(resolved_root):
-        entries = load_entries(resolved_root)
+        entries = loader(resolved_root)
         pending = [
             (entry.priority, entry.enqueued_at, index, entry)
             for index, entry in enumerate(entries)
@@ -221,14 +241,22 @@ def dequeue_next(root: str | Path) -> QueueEntry | None:
         _, _, index, current = min(pending, key=lambda item: (item[0], item[1], item[2]))
         updated = replace(current, status=QueueStatus.RUNNING, started_at=now_utc_iso())
         entries[index] = updated
-        save_entries(resolved_root, entries)
+        saver(resolved_root, entries)
         return updated
 
 
-def request_cancel(root: str | Path, queue_id: str) -> QueueEntry | None:
+def request_cancel(
+    root: str | Path,
+    queue_id: str,
+    *,
+    load_entries_fn: Callable[[Path], list[QueueEntry]] | None = None,
+    save_entries_fn: Callable[[Path, Sequence[QueueEntry]], Any] | None = None,
+) -> QueueEntry | None:
     resolved_root = resolve_root_path(root)
+    loader = load_entries_fn or load_entries
+    saver = save_entries_fn or save_entries
     with queue_lock(resolved_root):
-        entries = load_entries(resolved_root)
+        entries = loader(resolved_root)
         for index, entry in enumerate(entries):
             if entry.queue_id != queue_id:
                 continue
@@ -244,25 +272,39 @@ def request_cancel(root: str | Path, queue_id: str) -> QueueEntry | None:
             else:
                 return None
             entries[index] = updated
-            save_entries(resolved_root, entries)
+            saver(resolved_root, entries)
             return updated
     return None
 
 
-def get_cancel_requested(root: str | Path, queue_id: str) -> bool:
+def get_cancel_requested(
+    root: str | Path,
+    queue_id: str,
+    *,
+    load_entries_fn: Callable[[Path], list[QueueEntry]] | None = None,
+) -> bool:
     resolved_root = resolve_root_path(root)
+    loader = load_entries_fn or load_entries
     with queue_lock(resolved_root):
-        entries = load_entries(resolved_root)
+        entries = loader(resolved_root)
         for entry in entries:
             if entry.queue_id == queue_id:
                 return bool(entry.cancel_requested)
     return False
 
 
-def requeue_running_entry(root: str | Path, queue_id: str) -> QueueEntry | None:
+def requeue_running_entry(
+    root: str | Path,
+    queue_id: str,
+    *,
+    load_entries_fn: Callable[[Path], list[QueueEntry]] | None = None,
+    save_entries_fn: Callable[[Path, Sequence[QueueEntry]], Any] | None = None,
+) -> QueueEntry | None:
     resolved_root = resolve_root_path(root)
+    loader = load_entries_fn or load_entries
+    saver = save_entries_fn or save_entries
     with queue_lock(resolved_root):
-        entries = load_entries(resolved_root)
+        entries = loader(resolved_root)
         for index, entry in enumerate(entries):
             if entry.queue_id != queue_id or entry.status != QueueStatus.RUNNING:
                 continue
@@ -274,7 +316,7 @@ def requeue_running_entry(root: str | Path, queue_id: str) -> QueueEntry | None:
                 error="",
             )
             entries[index] = updated
-            save_entries(resolved_root, entries)
+            saver(resolved_root, entries)
             return updated
     return None
 
@@ -286,10 +328,14 @@ def _mark_status(
     status: QueueStatus,
     error: str = "",
     metadata_update: dict[str, Any] | None = None,
+    load_entries_fn: Callable[[Path], list[QueueEntry]] | None = None,
+    save_entries_fn: Callable[[Path, Sequence[QueueEntry]], Any] | None = None,
 ) -> QueueEntry | None:
     resolved_root = resolve_root_path(root)
+    loader = load_entries_fn or load_entries
+    saver = save_entries_fn or save_entries
     with queue_lock(resolved_root):
-        entries = load_entries(resolved_root)
+        entries = loader(resolved_root)
         for index, entry in enumerate(entries):
             if entry.queue_id != queue_id:
                 continue
@@ -304,16 +350,26 @@ def _mark_status(
                 metadata=merged,
             )
             entries[index] = updated
-            save_entries(resolved_root, entries)
+            saver(resolved_root, entries)
             return updated
     return None
 
 
 def mark_completed(
-    root: str | Path, queue_id: str, *, metadata_update: dict[str, Any] | None = None
+    root: str | Path,
+    queue_id: str,
+    *,
+    metadata_update: dict[str, Any] | None = None,
+    load_entries_fn: Callable[[Path], list[QueueEntry]] | None = None,
+    save_entries_fn: Callable[[Path, Sequence[QueueEntry]], Any] | None = None,
 ) -> QueueEntry | None:
     return _mark_status(
-        root, queue_id, status=QueueStatus.COMPLETED, metadata_update=metadata_update
+        root,
+        queue_id,
+        status=QueueStatus.COMPLETED,
+        metadata_update=metadata_update,
+        load_entries_fn=load_entries_fn,
+        save_entries_fn=save_entries_fn,
     )
 
 
@@ -323,9 +379,17 @@ def mark_failed(
     *,
     error: str,
     metadata_update: dict[str, Any] | None = None,
+    load_entries_fn: Callable[[Path], list[QueueEntry]] | None = None,
+    save_entries_fn: Callable[[Path, Sequence[QueueEntry]], Any] | None = None,
 ) -> QueueEntry | None:
     return _mark_status(
-        root, queue_id, status=QueueStatus.FAILED, error=error, metadata_update=metadata_update
+        root,
+        queue_id,
+        status=QueueStatus.FAILED,
+        error=error,
+        metadata_update=metadata_update,
+        load_entries_fn=load_entries_fn,
+        save_entries_fn=save_entries_fn,
     )
 
 
@@ -335,7 +399,15 @@ def mark_cancelled(
     *,
     error: str = "",
     metadata_update: dict[str, Any] | None = None,
+    load_entries_fn: Callable[[Path], list[QueueEntry]] | None = None,
+    save_entries_fn: Callable[[Path, Sequence[QueueEntry]], Any] | None = None,
 ) -> QueueEntry | None:
     return _mark_status(
-        root, queue_id, status=QueueStatus.CANCELLED, error=error, metadata_update=metadata_update
+        root,
+        queue_id,
+        status=QueueStatus.CANCELLED,
+        error=error,
+        metadata_update=metadata_update,
+        load_entries_fn=load_entries_fn,
+        save_entries_fn=save_entries_fn,
     )

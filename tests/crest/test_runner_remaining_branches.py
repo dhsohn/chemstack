@@ -13,8 +13,7 @@ from chemstack.core.config.engines import (
     WorkflowEngineBehaviorConfig as BehaviorConfig,
     WorkflowEnginePathsConfig as PathsConfig,
 )
-from chemstack.crest.runner import CrestRunResult, _build_command, _preexec_with_limits
-from chemstack.crest import runner as runner_module
+from chemstack.crest.runner import CrestRunResult, _build_command
 from chemstack.crest import worker_execution
 
 
@@ -122,25 +121,6 @@ def test_build_command_emits_single_step_gfn_variants(
     )
 
     assert expected_flag in command
-
-
-def test_preexec_with_limits_applies_address_space_limit(monkeypatch: pytest.MonkeyPatch) -> None:
-    calls: list[tuple[int, tuple[int, int]]] = []
-
-    monkeypatch.setattr(
-        runner_module.resource,
-        "setrlimit",
-        lambda limit, bounds: calls.append((limit, bounds)),
-    )
-
-    _preexec_with_limits(3)()
-
-    assert calls == [
-        (
-            runner_module.resource.RLIMIT_AS,
-            (3 * 1024 * 1024 * 1024, 3 * 1024 * 1024 * 1024),
-        )
-    ]
 
 
 def test_sync_job_tracking_omits_organized_output_for_crest(
