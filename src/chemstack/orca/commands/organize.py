@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Mapping
 
@@ -38,6 +36,8 @@ from ._helpers import (
     _validate_root_scan_dir,
     finalize_batch_apply,
 )
+from . import organize_apply as _organize_apply
+from . import organize_notifications as _organize_notifications
 
 logger = logging.getLogger(__name__)
 
@@ -209,94 +209,49 @@ def _restore_tracking_after_rollback(
     )
 
 
-_ORGANIZE_RESULT_LIMIT = 10
-_ORGANIZE_FAILURE_LIMIT = 5
-_ORGANIZE_SKIP_LIMIT = 5
-
-
-@dataclass(frozen=True)
-class _PlanApplyResult:
-    run_id: str
-    action: str
-    reason: str = ""
-    plan: OrganizePlan | None = None
-
-    def to_result_payload(self) -> Dict[str, Any]:
-        payload: Dict[str, Any] = {"run_id": self.run_id, "action": self.action}
-        if self.reason:
-            payload["reason"] = self.reason
-        if self.plan is not None:
-            payload["_plan"] = self.plan
-        return payload
-
-    def to_failure_payload(self) -> Dict[str, Any]:
-        return {"run_id": self.run_id, "reason": self.reason}
+_ORGANIZE_RESULT_LIMIT = _organize_notifications._ORGANIZE_RESULT_LIMIT
+_ORGANIZE_FAILURE_LIMIT = _organize_notifications._ORGANIZE_FAILURE_LIMIT
+_ORGANIZE_SKIP_LIMIT = _organize_notifications._ORGANIZE_SKIP_LIMIT
+_PlanApplyResult = _organize_apply._PlanApplyResult
 
 
 def _organize_summary_parts(
     organized_count: int, skipped_count: int, failed_count: int
 ) -> list[str]:
-    summary_parts: list[str] = []
-    if organized_count > 0:
-        summary_parts.append(f"\u2705 Organized: {organized_count}")
-    if skipped_count > 0:
-        summary_parts.append(f"\u23ed Skipped: {skipped_count}")
-    if failed_count > 0:
-        summary_parts.append(f"\u274c Failed: {failed_count}")
-    return summary_parts
+    return _organize_notifications._organize_summary_parts(
+        organized_count,
+        skipped_count,
+        failed_count,
+    )
 
 
 def _format_organized_line(item: Dict[str, Any]) -> str:
-    plan = item.get("_plan")
-    if plan is None:
-        return f"\u2705 <b>{escape_html(item.get('run_id', '?'))}</b>"
-
-    job_label = plan.job_type.upper() if plan.job_type else "-"
-    mol_label = plan.molecule_key or "-"
-    return (
-        f"\u2705 <b>{escape_html(plan.run_id[:12])}</b>\n"
-        f"   \U0001f4c2 {escape_html(str(plan.source_dir.name))} \u2192 {escape_html(plan.target_rel_path)}\n"
-        f"   \U0001f3f7 {escape_html(job_label)} | {escape_html(mol_label)}"
+    return _organize_notifications._format_organized_line(
+        item,
+        escape_html_fn=escape_html,
     )
 
 
 def _organized_section(organized: list[Dict[str, Any]]) -> str | None:
-    organized_count = len(organized)
-    if organized_count == 0:
-        return None
-
-    lines = [_format_organized_line(item) for item in organized[:_ORGANIZE_RESULT_LIMIT]]
-    detail_header = f"\u2705 <b>Organized</b>  ({organized_count})"
-    if organized_count > _ORGANIZE_RESULT_LIMIT:
-        detail_header += f"  showing {_ORGANIZE_RESULT_LIMIT}/{organized_count}"
-    return detail_header + "\n\n" + "\n\n".join(lines)
+    return _organize_notifications._organized_section(
+        organized,
+        escape_html_fn=escape_html,
+    )
 
 
 def _failure_section(failures: list[Dict[str, Any]]) -> str | None:
-    failed_count = len(failures)
-    if failed_count == 0:
-        return None
-
-    lines = [
-        f"\u274c <b>{escape_html(item.get('run_id', '?'))}</b>\n"
-        f"   \U0001f4ac {escape_html(item.get('reason', 'unknown'))}"
-        for item in failures[:_ORGANIZE_FAILURE_LIMIT]
-    ]
-    return f"\u274c <b>Failed</b>  ({failed_count})\n\n" + "\n\n".join(lines)
+    return _organize_notifications._failure_section(
+        failures,
+        escape_html_fn=escape_html,
+    )
 
 
 def _skip_section(skips: list[SkipReason], skipped_count: int) -> str | None:
-    if not skips:
-        return None
-
-    skip_lines = [
-        f"\u23ed {escape_html(skip.reaction_dir)}\n   \U0001f4ac {escape_html(skip.reason)}"
-        for skip in skips[:_ORGANIZE_SKIP_LIMIT]
-    ]
-    skip_header = f"\u23ed <b>Skipped</b>  ({skipped_count})"
-    if skipped_count > _ORGANIZE_SKIP_LIMIT:
-        skip_header += f"  showing {_ORGANIZE_SKIP_LIMIT}/{skipped_count}"
-    return skip_header + "\n\n" + "\n\n".join(skip_lines)
+    return _organize_notifications._skip_section(
+        skips,
+        skipped_count,
+        escape_html_fn=escape_html,
+    )
 
 
 def _build_organize_message(
@@ -305,37 +260,13 @@ def _build_organize_message(
     failures: list[Dict[str, Any]],
     skips: list[SkipReason],
 ) -> str | None:
-    """Compose a Telegram HTML message for organize results.
-
-    Returns None if there is nothing to report.
-    """
-    organized_count = len(organized)
-    skipped_count = len(skipped) + len(skips)
-    failed_count = len(failures)
-
-    if organized_count == 0 and skipped_count == 0 and failed_count == 0:
-        return None
-
-    now = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M %Z")
-    header = f"\U0001f4c1 <b>chemstack organize</b>  <code>{escape_html(now)}</code>"
-    divider = "\u2500" * 28
-
-    sections: list[str] = [header, divider]
-
-    summary_parts = _organize_summary_parts(organized_count, skipped_count, failed_count)
-    sections.append(f"\U0001f4ca <b>Summary</b>\n{' | '.join(summary_parts)}")
-
-    for detail_section in (
-        _organized_section(organized),
-        _failure_section(failures),
-        _skip_section(skips, skipped_count),
-    ):
-        if detail_section is not None:
-            sections.append(detail_section)
-
-    sections.append(divider)
-
-    return "\n\n".join(sections)
+    return _organize_notifications._build_organize_message(
+        organized,
+        skipped,
+        failures,
+        skips,
+        escape_html_fn=escape_html,
+    )
 
 
 def _send_organize_notification(
@@ -346,16 +277,16 @@ def _send_organize_notification(
     failures: list[Dict[str, Any]],
     skips: list[SkipReason],
 ) -> None:
-    if not cfg.telegram.enabled:
-        return
-
-    message = _build_organize_message(organized, skipped_results, failures, skips)
-    if message is None:
-        return
-    if send_message(cfg.telegram, message):
-        logger.info("Telegram organize notification sent successfully")
-    else:
-        logger.warning("Failed to send Telegram organize notification")
+    return _organize_notifications._send_organize_notification(
+        cfg,
+        organized=organized,
+        skipped_results=skipped_results,
+        failures=failures,
+        skips=skips,
+        build_message_fn=_build_organize_message,
+        send_message_fn=send_message,
+        log=logger,
+    )
 
 
 def _resolve_organize_scope(
@@ -416,16 +347,41 @@ def _cmd_organize_apply(
     )
 
 
+def _apply_dependencies() -> _organize_apply.OrganizeApplyDependencies:
+    return _organize_apply.OrganizeApplyDependencies(
+        acquire_index_lock=acquire_index_lock,
+        append_failed_rollback=append_failed_rollback,
+        append_record=append_record,
+        build_index_record=_build_index_record,
+        check_conflict=check_conflict,
+        cleanup_organized_ref_stub=_cleanup_organized_ref_stub,
+        execute_move=execute_move,
+        load_index=load_index,
+        now_utc_iso=now_utc_iso,
+        rollback_move=rollback_move,
+        send_organize_notification=_send_organize_notification,
+        sync_state_after_move=sync_state_after_move,
+        sync_state_after_rollback=sync_state_after_rollback,
+        write_tracking_after_move=_write_tracking_after_move,
+        restore_tracking_after_rollback=_restore_tracking_after_rollback,
+        log=logger,
+        plan_conflict_result=_plan_conflict_result,
+        bookkeep_successful_move=_bookkeep_successful_move,
+        bookkeep_rollback_failure=_bookkeep_rollback_failure,
+        rollback_after_apply_failure=_rollback_after_apply_failure,
+        apply_one_organize_plan=_apply_one_organize_plan,
+    )
+
+
 def _plan_conflict_result(
     plan: OrganizePlan,
     index: Dict[str, Dict[str, Any]],
 ) -> _PlanApplyResult | None:
-    conflict = check_conflict(plan, index)
-    if conflict == "already_organized":
-        return _PlanApplyResult(plan.run_id, "skipped", conflict)
-    if conflict:
-        return _PlanApplyResult(plan.run_id, "failed", conflict)
-    return None
+    return _organize_apply._plan_conflict_result(
+        plan,
+        index,
+        deps=_apply_dependencies(),
+    )
 
 
 def _bookkeep_successful_move(
@@ -434,10 +390,12 @@ def _bookkeep_successful_move(
     organized_root: Path,
     plan: OrganizePlan,
 ) -> _PlanApplyResult:
-    state_after_move = sync_state_after_move(plan)
-    _write_tracking_after_move(cfg, plan=plan, state_after_move=state_after_move)
-    append_record(organized_root, _build_index_record(plan, state_after_move))
-    return _PlanApplyResult(plan.run_id, "moved", plan=plan)
+    return _organize_apply._bookkeep_successful_move(
+        cfg,
+        organized_root=organized_root,
+        plan=plan,
+        deps=_apply_dependencies(),
+    )
 
 
 def _bookkeep_rollback_failure(
@@ -446,15 +404,11 @@ def _bookkeep_rollback_failure(
     plan: OrganizePlan,
     rollback_exc: Exception,
 ) -> None:
-    logger.error("Rollback failed for %s: %s", plan.run_id, rollback_exc)
-    append_failed_rollback(
+    return _organize_apply._bookkeep_rollback_failure(
         organized_root,
-        {
-            "run_id": plan.run_id,
-            "target_path": str(plan.target_abs_path),
-            "error": str(rollback_exc),
-            "timestamp": now_utc_iso(),
-        },
+        plan=plan,
+        rollback_exc=rollback_exc,
+        deps=_apply_dependencies(),
     )
 
 
@@ -465,21 +419,13 @@ def _rollback_after_apply_failure(
     plan: OrganizePlan,
     failure_reason: str,
 ) -> str:
-    try:
-        _cleanup_organized_ref_stub(plan)
-        rollback_move(plan)
-        state_after_rollback = sync_state_after_rollback(plan)
-        _restore_tracking_after_rollback(
-            cfg, plan=plan, state_after_rollback=state_after_rollback
-        )
-        return f"{failure_reason}; rolled_back=true"
-    except Exception as rollback_exc:
-        _bookkeep_rollback_failure(
-            organized_root,
-            plan=plan,
-            rollback_exc=rollback_exc,
-        )
-        return f"{failure_reason}; rollback_failed: {rollback_exc}"
+    return _organize_apply._rollback_after_apply_failure(
+        cfg,
+        organized_root=organized_root,
+        plan=plan,
+        failure_reason=failure_reason,
+        deps=_apply_dependencies(),
+    )
 
 
 def _apply_one_organize_plan(
@@ -488,32 +434,13 @@ def _apply_one_organize_plan(
     organized_root: Path,
     plan: OrganizePlan,
 ) -> _PlanApplyResult:
-    moved = False
-    try:
-        with acquire_index_lock(organized_root):
-            index = load_index(organized_root)
-            conflict_result = _plan_conflict_result(plan, index)
-            if conflict_result is not None:
-                return conflict_result
-
-            execute_move(plan)
-            moved = True
-            return _bookkeep_successful_move(
-                cfg,
-                organized_root=organized_root,
-                plan=plan,
-            )
-    except Exception as exc:
-        logger.error("Organize apply failed for %s: %s", plan.run_id, exc)
-        failure_reason = f"apply_failed: {exc}"
-        if moved:
-            failure_reason = _rollback_after_apply_failure(
-                cfg,
-                organized_root=organized_root,
-                plan=plan,
-                failure_reason=failure_reason,
-            )
-        return _PlanApplyResult(plan.run_id, "failed", failure_reason)
+    deps = _apply_dependencies()
+    return _organize_apply._apply_one_organize_plan(
+        cfg,
+        organized_root=organized_root,
+        plan=plan,
+        deps=deps,
+    )
 
 
 def _build_apply_summary(
@@ -522,19 +449,11 @@ def _build_apply_summary(
     failures: list[Dict[str, Any]],
     skips: list[SkipReason],
 ) -> Dict[str, Any]:
-    organized = [r for r in results if r.get("action") == "moved"]
-    skipped_results = [r for r in results if r.get("action") == "skipped"]
-
-    return {
-        "action": "apply",
-        "organized": len(organized),
-        "skipped": len(skips) + len(skipped_results),
-        "failed": len(failures),
-        "failures": failures,
-        "_organized_results": organized,
-        "_skipped_results": skipped_results,
-        "_skip_reasons": skips,
-    }
+    return _organize_apply._build_apply_summary(
+        results=results,
+        failures=failures,
+        skips=skips,
+    )
 
 
 def _apply_organize_plans(
@@ -545,28 +464,14 @@ def _apply_organize_plans(
     *,
     notify_summary: bool,
 ) -> Dict[str, Any]:
-    results: list[Dict[str, Any]] = []
-    failures: list[Dict[str, Any]] = []
-
-    for plan in plans:
-        result = _apply_one_organize_plan(cfg, organized_root=organized_root, plan=plan)
-        if result.action == "failed":
-            failures.append(result.to_failure_payload())
-        else:
-            results.append(result.to_result_payload())
-
-    summary = _build_apply_summary(results=results, failures=failures, skips=skips)
-
-    if notify_summary:
-        _send_organize_notification(
-            cfg,
-            organized=summary["_organized_results"],
-            skipped_results=summary["_skipped_results"],
-            failures=failures,
-            skips=skips,
-        )
-
-    return summary
+    return _organize_apply._apply_organize_plans(
+        plans,
+        skips,
+        organized_root,
+        cfg,
+        notify_summary=notify_summary,
+        deps=_apply_dependencies(),
+    )
 
 
 def organize_reaction_dir(

@@ -4,12 +4,11 @@ from typing import Any
 
 from ._orchestration_deps import OrchestrationDeps
 from ._orchestration_stage_runtime_shared import (
-    _clear_submission_deferred_metadata,
+    _apply_contract_status,
+    _apply_submission_result,
     _coerce_bool,
     _load_contract_or_none,
-    _mark_submission_deferred,
     _orchestration_context,
-    _submission_is_deferred,
     _workflow_internal_organized_root,
 )
 
@@ -46,21 +45,17 @@ def _submit_orca_stage(
     )
     submission["submitted_at"] = o.persistence.now_utc_iso()
     task["submission_result"] = submission
-    if _submission_is_deferred(submission):
-        _mark_submission_deferred(
-            stage=stage,
-            task=task,
-            stage_metadata=stage_metadata,
-            submission=submission,
-        )
-        return
-
-    task["status"] = "submitted" if submission["status"] == "submitted" else "submission_failed"
-    stage["status"] = "queued" if submission["status"] == "submitted" else "submission_failed"
-    stage_metadata["queue_id"] = submission.get("queue_id", "")
-    stage_metadata["submission_status"] = submission.get("status", "")
-    stage_metadata["submitted_at"] = submission.get("submitted_at", "")
-    _clear_submission_deferred_metadata(stage_metadata)
+    _apply_submission_result(
+        stage=stage,
+        task=task,
+        stage_metadata=stage_metadata,
+        submission=submission,
+        metadata_fields=(
+            ("queue_id", "queue_id"),
+            ("submission_status", "status"),
+            ("submitted_at", "submitted_at"),
+        ),
+    )
 
 
 def _load_orca_contract(
@@ -121,9 +116,7 @@ def _apply_orca_contract(
     stage_metadata: dict[str, Any],
     contract: Any,
 ) -> None:
-    if contract.status != "unknown":
-        task["status"] = contract.status
-        stage["status"] = contract.status
+    _apply_contract_status(stage, task, contract.status)
 
     task_payload["selected_inp"] = contract.selected_inp or o.stages._normalize_text(
         task_payload.get("selected_inp")

@@ -8,12 +8,12 @@ import yaml
 
 from ._orchestration_deps import OrchestrationDeps
 from ._orchestration_stage_runtime_shared import (
-    _clear_submission_deferred_metadata,
+    _apply_contract_status,
+    _apply_submission_result,
+    _engine_job_dir_contract_lookup,
     _load_contract_or_none,
     _manifest_override_mapping,
-    _mark_submission_deferred,
     _orchestration_context,
-    _submission_is_deferred,
     _workflow_internal_runs_root,
 )
 from .state import workflow_workspace_internal_engine_paths
@@ -87,19 +87,13 @@ def _submit_crest_stage(
     stage_metadata = stage.setdefault("metadata", {})
     if not isinstance(stage_metadata, dict):
         return
-    if _submission_is_deferred(submission):
-        _mark_submission_deferred(
-            stage=stage,
-            task=task,
-            stage_metadata=stage_metadata,
-            submission=submission,
-        )
-        return
-    task["status"] = "submitted" if submission["status"] == "submitted" else "submission_failed"
-    stage["status"] = "queued" if submission["status"] == "submitted" else "submission_failed"
-    stage_metadata["queue_id"] = submission.get("queue_id", "")
-    stage_metadata["child_job_id"] = submission.get("job_id", "")
-    _clear_submission_deferred_metadata(stage_metadata)
+    _apply_submission_result(
+        stage=stage,
+        task=task,
+        stage_metadata=stage_metadata,
+        submission=submission,
+        metadata_fields=(("queue_id", "queue_id"), ("child_job_id", "job_id")),
+    )
 
 
 def _load_crest_contract(
@@ -111,15 +105,17 @@ def _load_crest_contract(
     crest_config: str | None,
 ) -> Any | None:
     payload = o.stages._task_payload_dict(task)
-    job_dir_target = o.stages._normalize_text(payload.get("job_dir"))
-    index_root = (
-        crest_runtime_paths["allowed_root"]
-        or o.stages._load_config_root(crest_config, engine="crest")
-        or Path(job_dir_target or ".").resolve().parent
+    lookup = _engine_job_dir_contract_lookup(
+        o,
+        stage,
+        payload,
+        runtime_paths=crest_runtime_paths,
+        config_path=crest_config,
+        engine="crest",
     )
-    target = job_dir_target or o.stages._submission_target(stage)
-    if not target:
+    if lookup is None:
         return None
+    target, index_root = lookup
     return _load_contract_or_none(
         o.engines.load_crest_artifact_contract,
         engine="crest",
@@ -134,9 +130,7 @@ def _apply_crest_contract(
     task: dict[str, Any],
     contract: Any,
 ) -> None:
-    if contract.status != "unknown":
-        task["status"] = contract.status
-        stage["status"] = contract.status
+    _apply_contract_status(stage, task, contract.status)
     stage_metadata = stage.setdefault("metadata", {})
     if isinstance(stage_metadata, dict):
         stage_metadata["child_job_id"] = contract.job_id

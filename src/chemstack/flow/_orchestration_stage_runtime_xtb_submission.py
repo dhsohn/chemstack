@@ -4,8 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from ._orchestration_stage_runtime_shared import (
-    _clear_submission_deferred_metadata,
-    _mark_submission_deferred,
+    _apply_submission_result,
     _submission_is_deferred,
 )
 
@@ -38,21 +37,15 @@ def _apply_xtb_submission_result(
     deferred_handoff_status: str,
     active_handoff_status: str,
 ) -> None:
-    if _submission_is_deferred(submission):
-        _mark_submission_deferred(
-            stage=stage,
-            task=task,
-            stage_metadata=stage_metadata,
-            submission=submission,
-        )
-        stage_metadata["xtb_handoff_status"] = deferred_handoff_status
-        return
-
-    task["status"] = "submitted" if submission["status"] == "submitted" else "submission_failed"
-    stage["status"] = "queued" if submission["status"] == "submitted" else "submission_failed"
-    stage_metadata["queue_id"] = submission.get("queue_id", "")
-    stage_metadata["xtb_handoff_status"] = active_handoff_status
-    _clear_submission_deferred_metadata(stage_metadata)
+    _apply_submission_result(
+        stage=stage,
+        task=task,
+        stage_metadata=stage_metadata,
+        submission=submission,
+        deferred_metadata={"xtb_handoff_status": deferred_handoff_status},
+        active_metadata={"xtb_handoff_status": active_handoff_status},
+        metadata_fields=(("queue_id", "queue_id"),),
+    )
 
 
 def _submit_xtb_stage(

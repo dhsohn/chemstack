@@ -97,6 +97,63 @@ def _clear_submission_deferred_metadata(stage_metadata: dict[str, Any]) -> None:
     stage_metadata.pop("last_submission_attempt_at", None)
 
 
+def _apply_submission_result(
+    *,
+    stage: dict[str, Any],
+    task: dict[str, Any],
+    stage_metadata: dict[str, Any],
+    submission: dict[str, Any],
+    deferred_metadata: dict[str, Any] | None = None,
+    active_metadata: dict[str, Any] | None = None,
+    metadata_fields: tuple[tuple[str, str], ...] = (),
+) -> bool:
+    if _submission_is_deferred(submission):
+        _mark_submission_deferred(
+            stage=stage,
+            task=task,
+            stage_metadata=stage_metadata,
+            submission=submission,
+        )
+        stage_metadata.update(deferred_metadata or {})
+        return False
+
+    submitted = _submission_status(submission) == "submitted"
+    task["status"] = "submitted" if submitted else "submission_failed"
+    stage["status"] = "queued" if submitted else "submission_failed"
+    for metadata_key, submission_key in metadata_fields:
+        stage_metadata[metadata_key] = submission.get(submission_key, "")
+    stage_metadata.update(active_metadata or {})
+    _clear_submission_deferred_metadata(stage_metadata)
+    return True
+
+
+def _apply_contract_status(stage: dict[str, Any], task: dict[str, Any], status: str) -> None:
+    if status != "unknown":
+        task["status"] = status
+        stage["status"] = status
+
+
+def _engine_job_dir_contract_lookup(
+    o: Any,
+    stage: dict[str, Any],
+    task_payload: dict[str, Any],
+    *,
+    runtime_paths: dict[str, Path],
+    config_path: str | None,
+    engine: str,
+) -> tuple[str, Path] | None:
+    job_dir_target = o.stages._normalize_text(task_payload.get("job_dir"))
+    index_root = (
+        runtime_paths["allowed_root"]
+        or o.stages._load_config_root(config_path, engine=engine)
+        or Path(job_dir_target or ".").resolve().parent
+    )
+    target = job_dir_target or o.stages._submission_target(stage)
+    if not target:
+        return None
+    return target, index_root
+
+
 def _workflow_internal_runs_root(path_text: str, *, engine: str) -> Path | None:
     text = str(path_text).strip()
     if not text:

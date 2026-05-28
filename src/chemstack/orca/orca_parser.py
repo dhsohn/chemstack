@@ -12,9 +12,27 @@ from __future__ import annotations
 
 import hashlib
 import os
-import re
-from collections import Counter
 from dataclasses import dataclass, field
+
+from .orca_chemistry import build_formula as _build_formula
+from .orca_opt_progress import OptProgress, OptStep, parse_opt_progress
+from .orca_parser_extractors import (
+    parse_coordinates as _parse_coordinates,
+    parse_frequencies as _parse_frequencies,
+    parse_input_line as _parse_input_line,
+    parse_wall_time as _parse_wall_time,
+)
+from .orca_parser_io import read_orca_text as _read_orca_text
+from .orca_parser_patterns import (
+    _CHARGE_MULT_RE,
+    _ENERGY_RE,
+    _ENTHALPY_RE,
+    _ERROR_TERMINATION_RE,
+    _GIBBS_RE,
+    _NORMAL_TERMINATION_RE,
+    _OPT_CONVERGED_RE,
+    _OPT_NOT_CONVERGED_RE,
+)
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -23,255 +41,14 @@ from dataclasses import dataclass, field
 HARTREE_TO_EV = 27.211386245988
 HARTREE_TO_KCALMOL = 627.5094740631
 
-# Element symbol -> atomic number order (for chemical formula sorting)
-_ELEMENT_ORDER: dict[str, int] = {
-    "H": 1,
-    "He": 2,
-    "Li": 3,
-    "Be": 4,
-    "B": 5,
-    "C": 6,
-    "N": 7,
-    "O": 8,
-    "F": 9,
-    "Ne": 10,
-    "Na": 11,
-    "Mg": 12,
-    "Al": 13,
-    "Si": 14,
-    "P": 15,
-    "S": 16,
-    "Cl": 17,
-    "Ar": 18,
-    "K": 19,
-    "Ca": 20,
-    "Sc": 21,
-    "Ti": 22,
-    "V": 23,
-    "Cr": 24,
-    "Mn": 25,
-    "Fe": 26,
-    "Co": 27,
-    "Ni": 28,
-    "Cu": 29,
-    "Zn": 30,
-    "Ga": 31,
-    "Ge": 32,
-    "As": 33,
-    "Se": 34,
-    "Br": 35,
-    "Kr": 36,
-    "Rb": 37,
-    "Sr": 38,
-    "Y": 39,
-    "Zr": 40,
-    "Nb": 41,
-    "Mo": 42,
-    "Tc": 43,
-    "Ru": 44,
-    "Rh": 45,
-    "Pd": 46,
-    "Ag": 47,
-    "Cd": 48,
-    "In": 49,
-    "Sn": 50,
-    "Sb": 51,
-    "Te": 52,
-    "I": 53,
-    "Xe": 54,
-    "Cs": 55,
-    "Ba": 56,
-    "La": 57,
-    "Ce": 58,
-    "Pr": 59,
-    "Nd": 60,
-    "Pm": 61,
-    "Sm": 62,
-    "Eu": 63,
-    "Gd": 64,
-    "Tb": 65,
-    "Dy": 66,
-    "Ho": 67,
-    "Er": 68,
-    "Tm": 69,
-    "Yb": 70,
-    "Lu": 71,
-    "Hf": 72,
-    "Ta": 73,
-    "W": 74,
-    "Re": 75,
-    "Os": 76,
-    "Ir": 77,
-    "Pt": 78,
-    "Au": 79,
-    "Hg": 80,
-    "Tl": 81,
-    "Pb": 82,
-    "Bi": 83,
-    "Po": 84,
-    "At": 85,
-    "Rn": 86,
-}
-
-# ---------------------------------------------------------------------------
-# Regex patterns
-# ---------------------------------------------------------------------------
-
-# Input line: "! B3LYP def2-TZVP Opt Freq ..." or "|  1> ! B3LYP ..."
-_INPUT_LINE_RE = re.compile(r"^(?:\s*\|\s*\d+>\s*)?!\s*(.+)$", re.MULTILINE)
-
-# Energy
-_ENERGY_RE = re.compile(r"FINAL SINGLE POINT ENERGY\s+([-\d.]+)")
-
-# Optimization convergence
-_OPT_CONVERGED_RE = re.compile(r"THE OPTIMIZATION HAS CONVERGED")
-_OPT_NOT_CONVERGED_RE = re.compile(
-    r"ORCA GEOMETRY OPTIMIZATION.*(?:DID NOT CONVERGE|NOT CONVERGED)|"
-    r"The optimization did not converge",
-    re.IGNORECASE,
-)
-
-# Coordinate section (element + xyz)
-_COORD_SECTION_RE = re.compile(
-    r"CARTESIAN COORDINATES \(ANGSTROEM\)\s*\n"
-    r"-+\s*\n"
-    r"((?:\s*[A-Z][a-z]?\s+[-\d.]+\s+[-\d.]+\s+[-\d.]+\s*\n)+)",
-)
-_COORD_LINE_RE = re.compile(r"^\s*([A-Z][a-z]?)\s+[-\d.]+\s+[-\d.]+\s+[-\d.]+", re.MULTILINE)
-
-# Vibrational frequencies
-_FREQ_SECTION_RE = re.compile(
-    r"VIBRATIONAL FREQUENCIES\s*\n"
-    r"-+\s*\n"
-    r"([\s\S]*?)(?:\n\s*\n|\n-{20,})",
-)
-_FREQ_VALUE_RE = re.compile(r"^\s*\d+:\s+([-\d.]+)\s+cm\*\*-1", re.MULTILINE)
-
-# Thermodynamics
-_ENTHALPY_RE = re.compile(r"Total (?:E|e)nthalpy\s*\.{3,}\s*([-\d.]+)\s*Eh")
-_GIBBS_RE = re.compile(r"Final Gibbs free energy\s*\.{3,}\s*([-\d.]+)\s*Eh")
-
-# Runtime
-_RUNTIME_RE = re.compile(
-    r"TOTAL RUN TIME:\s*(\d+)\s*days?\s+(\d+)\s*hours?\s+"
-    r"(\d+)\s*minutes?\s+(\d+)\s*seconds?",
-)
-
-# charge / multiplicity: "* xyz 0 1" or "|  2> * xyz 0 1"
-_CHARGE_MULT_RE = re.compile(r"(?:\|\s*\d+>\s*)?\*\s*xyz\s+([-\d]+)\s+(\d+)")
-
-# Optimization cycle header
-_OPT_CYCLE_RE = re.compile(r"Geometry Optimization Cycle\s+(\d+)", re.IGNORECASE)
-
-# Convergence table items (Energy change, MAX gradient, RMS gradient, MAX step, RMS step)
-_CONVERGENCE_ITEM_RE = re.compile(
-    r"^\s*(Energy change|MAX gradient|RMS gradient|MAX step|RMS step)"
-    r"\s+([-\d.eE+]+)\s+[-\d.eE+]+\s+(YES|NO)\s*$",
-    re.MULTILINE,
-)
-
-# Normal termination marker
-_NORMAL_TERMINATION_RE = re.compile(r"ORCA TERMINATED NORMALLY")
-_ERROR_TERMINATION_RE = re.compile(
-    r"ORCA\s+finished\s+by\s+error\s+termination|"
-    r"aborting the run|"
-    r"ended prematurely and may have crashed|"
-    r"FATAL ERROR",
-    re.IGNORECASE,
-)
-
-# Known calculation type keywords (searched in input line)
-_CALC_TYPE_KEYWORDS: dict[str, str] = {
-    "OPTTS": "ts",
-    "TS": "ts",
-    "OPT": "opt",
-    "FREQ": "freq",
-    "MD": "md",
-    "COPT": "opt",
-    "NEB": "neb",
-    "NEB-TS": "neb",
-    "NEB-CI": "neb",
-    "ZOOM-NEB": "neb",
-    "ZOOM-NEB-TS": "neb",
-    "ZOOM-NEB-CI": "neb",
-    "SCAN": "scan",
-    "IRC": "irc",
-}
-
-# Known method keywords
-_METHOD_KEYWORDS: list[str] = [
-    "CCSD(T)",
-    "CCSD",
-    "MP2",
-    "RI-MP2",
-    "DLPNO-CCSD(T)",
-    "B3LYP",
-    "PBE0",
-    "PBE",
-    "BP86",
-    "TPSS",
-    "M06-2X",
-    "M06",
-    "ωB97X-D3",
-    "wB97X-D3",
-    "ωB97X-D",
-    "wB97X-D",
-    "ωB97X",
-    "wB97X",
-    "ωB97M-V",
-    "wB97M-V",
-    "ωB97M-D4",
-    "wB97M-D4",
-    "B2PLYP",
-    "REVPBE",
-    "BLYP",
-    "CAM-B3LYP",
-    "LC-BLYP",
-    "BHandHLYP",
-    "HF",
-    "RHF",
-    "UHF",
-    "ROHF",
-    "CASSCF",
-    "NEVPT2",
-    "MRCI",
-    "B97-3c",
-    "r2SCAN-3c",
-    "PBEh-3c",
-]
-
-# Known basis set keywords
-_BASIS_KEYWORDS: list[str] = [
-    "def2-QZVPP",
-    "def2-QZVP",
-    "def2-TZVPP",
-    "def2-TZVP",
-    "def2-SVP",
-    "def2-SV(P)",
-    "ma-def2-TZVPP",
-    "ma-def2-TZVP",
-    "ma-def2-SVP",
-    "cc-pVQZ",
-    "cc-pVTZ",
-    "cc-pVDZ",
-    "aug-cc-pVQZ",
-    "aug-cc-pVTZ",
-    "aug-cc-pVDZ",
-    "6-311++G(d,p)",
-    "6-311+G(d,p)",
-    "6-311G(d,p)",
-    "6-311++G(d)",
-    "6-311+G(d)",
-    "6-311G(d)",
-    "6-31++G(d,p)",
-    "6-31+G(d,p)",
-    "6-31G(d,p)",
-    "6-31++G(d)",
-    "6-31+G(d)",
-    "6-31G(d)",
-    "6-31G*",
-    "6-31G**",
-    "STO-3G",
+__all__ = [
+    "HARTREE_TO_EV",
+    "HARTREE_TO_KCALMOL",
+    "OptProgress",
+    "OptStep",
+    "OrcaResult",
+    "parse_opt_progress",
+    "parse_orca_output",
 ]
 
 
@@ -308,158 +85,9 @@ class OrcaResult:
     elements: list[str] = field(default_factory=list)
 
 
-@dataclass
-class OptStep:
-    """Convergence data for a single optimization cycle."""
-
-    cycle: int
-    energy_hartree: float
-    energy_change: float | None = None
-    max_gradient: float | None = None
-    rms_gradient: float | None = None
-    max_step: float | None = None
-    rms_step: float | None = None
-    converged_flags: dict[str, bool] = field(default_factory=dict)
-
-
-@dataclass
-class OptProgress:
-    """Summary of optimization progress."""
-
-    source_path: str
-    formula: str = ""
-    method: str = ""
-    basis_set: str = ""
-    calc_type: str = ""
-    steps: list[OptStep] = field(default_factory=list)
-    is_converged: bool = False
-    is_running: bool = False
-
-
 # ---------------------------------------------------------------------------
 # Parser functions
 # ---------------------------------------------------------------------------
-
-
-def _build_formula(elements: list[str]) -> str:
-    """Build a Hill system chemical formula from a list of element symbols."""
-    counts = Counter(elements)
-    if not counts:
-        return ""
-
-    # Hill system: C first, H next, then remaining in alphabetical order
-    parts: list[str] = []
-    for sym in ("C", "H"):
-        if sym in counts:
-            parts.append(sym if counts[sym] == 1 else f"{sym}{counts[sym]}")
-            del counts[sym]
-
-    for sym in sorted(counts, key=lambda s: _ELEMENT_ORDER.get(s, 999)):
-        parts.append(sym if counts[sym] == 1 else f"{sym}{counts[sym]}")
-
-    return "".join(parts)
-
-
-def _parse_input_line(text: str) -> tuple[str, str, str, list[str]]:
-    """Extract calc_type, method, and basis_set from the input line.
-
-    Returns:
-        (calc_type, method, basis_set, all_input_tokens)
-    """
-    matches = _INPUT_LINE_RE.findall(text)
-    if not matches:
-        return ("sp", "", "", [])
-
-    # There may be multiple input lines — merge them
-    all_tokens: list[str] = []
-    for line in matches:
-        all_tokens.extend(line.strip().split())
-
-    calc_type = _calc_type_from_tokens(all_tokens)
-    method = _first_known_token(all_tokens, _METHOD_KEYWORDS)
-    basis_set = _first_known_token(all_tokens, _BASIS_KEYWORDS)
-
-    return (calc_type, method, basis_set, all_tokens)
-
-
-def _calc_type_from_tokens(tokens: list[str]) -> str:
-    calc_types = [
-        calc_type
-        for token in tokens
-        for keyword, calc_type in _CALC_TYPE_KEYWORDS.items()
-        if token.upper() == keyword
-    ]
-    if not calc_types:
-        return "sp"
-    if "opt" in calc_types and "freq" in calc_types:
-        return "opt+freq"
-    if "ts" in calc_types and "freq" in calc_types:
-        return "ts+freq"
-    return calc_types[0]
-
-
-def _first_known_token(tokens: list[str], known_tokens: list[str]) -> str:
-    token_set = {token.upper() for token in tokens}
-    for known in known_tokens:
-        if known.upper() in token_set:
-            return known
-    return ""
-
-
-def _parse_coordinates(text: str) -> tuple[list[str], int]:
-    """Extract element symbols from the coordinate section.
-
-    Returns:
-        (elements, n_atoms)
-    """
-    # Use the last coordinate section (final coordinates after optimization)
-    sections = list(_COORD_SECTION_RE.finditer(text))
-    if not sections:
-        return ([], 0)
-
-    last_section = sections[-1].group(1)
-    elements = _COORD_LINE_RE.findall(last_section)
-    return (elements, len(elements))
-
-
-def _parse_frequencies(text: str) -> tuple[bool | None, float | None]:
-    """Extract imaginary frequency status and lowest frequency from the vibrational frequency section.
-
-    Returns:
-        (has_imaginary_freq, lowest_freq_cm1)
-    """
-    section_match = _FREQ_SECTION_RE.search(text)
-    if section_match is None:
-        return (None, None)
-
-    section = section_match.group(1)
-    freq_values = [float(v) for v in _FREQ_VALUE_RE.findall(section)]
-
-    if not freq_values:
-        return (None, None)
-
-    # Exclude translational/rotational modes near 0.0 cm^-1 (absolute value < 10 cm^-1)
-    real_freqs = [f for f in freq_values if abs(f) > 10.0]
-    if not real_freqs:
-        return (False, None)
-
-    lowest = min(real_freqs)
-    has_imaginary = lowest < 0.0
-    return (has_imaginary, lowest)
-
-
-def _parse_wall_time(text: str) -> int | None:
-    """Convert runtime to seconds."""
-    m = _RUNTIME_RE.search(text)
-    if m is None:
-        return None
-    days, hours, minutes, seconds = (
-        int(m.group(1)),
-        int(m.group(2)),
-        int(m.group(3)),
-        int(m.group(4)),
-    )
-    return days * 86400 + hours * 3600 + minutes * 60 + seconds
 
 
 def _compute_file_hash(file_path: str) -> str:
@@ -469,36 +97,6 @@ def _compute_file_hash(file_path: str) -> str:
         for chunk in iter(lambda: f.read(65536), b""):
             h.update(chunk)
     return h.hexdigest()[:16]
-
-
-def _read_orca_text(file_path: str) -> str:
-    """Read an ORCA output file with automatic encoding detection."""
-    with open(file_path, "rb") as f:
-        raw = f.read()
-
-    if not raw:
-        return ""
-
-    # Use BOM if present
-    if raw.startswith((b"\xff\xfe", b"\xfe\xff")):
-        return raw.decode("utf-16", errors="replace")
-    if raw.startswith(b"\xef\xbb\xbf"):
-        return raw.decode("utf-8-sig", errors="replace")
-
-    # UTF-16LE/BE (without BOM) heuristic: high null byte ratio
-    nul_ratio = raw.count(0) / len(raw)
-    if nul_ratio > 0.20:
-        for enc in ("utf-16-le", "utf-16-be"):
-            try:
-                return raw.decode(enc)
-            except UnicodeDecodeError:
-                continue
-
-    # Default UTF-8, fallback with replacement
-    try:
-        return raw.decode("utf-8")
-    except UnicodeDecodeError:
-        return raw.decode("utf-8", errors="replace")
 
 
 def parse_orca_output(file_path: str) -> OrcaResult:
@@ -591,88 +189,3 @@ def _parse_status(text: str, result: OrcaResult) -> str:
     if result.wall_time_seconds is not None:
         return "failed"
     return "running"
-
-
-def parse_opt_progress(file_path: str) -> OptProgress:
-    """Extract per-cycle energy/convergence data from an ORCA optimization output.
-
-    Args:
-        file_path: Path to the ORCA output file
-
-    Returns:
-        Optimization progress summary
-
-    Raises:
-        FileNotFoundError: If the file does not exist
-    """
-    text = _read_orca_text(file_path)
-
-    # Basic metadata (reuse existing helpers)
-    calc_type, method, basis_set, _ = _parse_input_line(text)
-    elements, _ = _parse_coordinates(text)
-    formula = _build_formula(elements)
-
-    progress = OptProgress(
-        source_path=file_path,
-        formula=formula,
-        method=method,
-        basis_set=basis_set,
-        calc_type=calc_type,
-    )
-
-    # Index cycle positions
-    cycle_positions = [(m.start(), int(m.group(1))) for m in _OPT_CYCLE_RE.finditer(text)]
-    if not cycle_positions:
-        return progress
-
-    # Index energy positions
-    energy_positions = [(m.start(), float(m.group(1))) for m in _ENERGY_RE.finditer(text)]
-
-    for i, (cycle_start, cycle_num) in enumerate(cycle_positions):
-        # Determine text range for this cycle
-        cycle_end = cycle_positions[i + 1][0] if i + 1 < len(cycle_positions) else len(text)
-        cycle_text = text[cycle_start:cycle_end]
-
-        # Find the last energy within this cycle's range
-        energy: float | None = None
-        for epos, eval_ in energy_positions:
-            if cycle_start <= epos < cycle_end:
-                energy = eval_
-
-        if energy is None:
-            continue
-
-        step = _parse_opt_step(cycle_num, energy, cycle_text)
-
-        progress.steps.append(step)
-
-    # Status determination
-    progress.is_converged = bool(_OPT_CONVERGED_RE.search(text))
-    progress.is_running = (
-        not _NORMAL_TERMINATION_RE.search(text)
-        and not _ERROR_TERMINATION_RE.search(text)
-        and _parse_wall_time(text) is None
-    )
-
-    return progress
-
-
-_OPT_STEP_ATTRS = {
-    "Energy change": "energy_change",
-    "MAX gradient": "max_gradient",
-    "RMS gradient": "rms_gradient",
-    "MAX step": "max_step",
-    "RMS step": "rms_step",
-}
-
-
-def _parse_opt_step(cycle_num: int, energy: float, cycle_text: str) -> OptStep:
-    step = OptStep(cycle=cycle_num, energy_hartree=energy)
-    for item_match in _CONVERGENCE_ITEM_RE.finditer(cycle_text):
-        name = item_match.group(1)
-        value = float(item_match.group(2))
-        step.converged_flags[name] = item_match.group(3) == "YES"
-        attr_name = _OPT_STEP_ATTRS.get(name)
-        if attr_name is not None:
-            setattr(step, attr_name, value)
-    return step

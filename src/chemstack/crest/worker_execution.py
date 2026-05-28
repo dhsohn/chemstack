@@ -19,6 +19,7 @@ from chemstack.core.queue import (
     mark_failed,
     requeue_running_entry,
 )
+from chemstack.core.queue import child_entrypoint as _child_entrypoint
 from chemstack.core.queue import child_execution as _child_execution
 from chemstack.core.queue import engine_execution as _engine_execution
 from chemstack.core.queue.types import QueueStatus
@@ -542,7 +543,7 @@ def _admission_root_for_cfg(cfg: Any) -> str:
 
 
 def _find_queue_entry(queue_root: Path, queue_id: str) -> Any | None:
-    return _child_execution.find_queue_entry_by_id(
+    return _child_entrypoint.queue_entry_by_id(
         queue_root,
         queue_id,
         list_queue_fn=list_queue,
@@ -565,7 +566,7 @@ def run_worker_child_job(
     queue_id: str,
     admission_token: str | None = None,
 ) -> int:
-    job = _child_execution.load_child_queue_job(
+    job = _child_entrypoint.load_child_worker_entrypoint_job(
         config_path=config_path,
         queue_root=queue_root,
         queue_id=queue_id,
@@ -601,8 +602,8 @@ def run_worker_child_job(
         return 0
     finally:
         if admission_token:
-            _child_execution.release_child_admission_token(
-                _admission_root_for_cfg(cfg),
+            _child_entrypoint.release_child_worker_admission(
+                job,
                 admission_token,
                 release_slot_fn=release_slot,
             )

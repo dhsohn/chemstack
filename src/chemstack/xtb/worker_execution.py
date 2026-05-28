@@ -15,7 +15,7 @@ from chemstack.core.queue import (
     mark_completed,
     mark_failed,
 )
-from chemstack.core.queue import child_execution as _child_execution
+from chemstack.core.queue import child_entrypoint as _child_entrypoint
 from chemstack.core.queue import engine_execution as _engine_execution
 from chemstack.core.queue import execution as _queue_execution
 from chemstack.core.queue.engine_execution import (
@@ -190,7 +190,7 @@ def _matching_state(
 
 
 def _queue_entry_by_id(queue_root: Path | str, queue_id: str) -> Any | None:
-    return _child_execution.find_queue_entry_by_id(
+    return _child_entrypoint.queue_entry_by_id(
         queue_root,
         queue_id,
         list_queue_fn=list_queue,
@@ -628,7 +628,7 @@ def run_worker_job(
     dependencies: WorkerExecutionDependencies | None = None,
 ) -> int:
     deps = dependencies or default_worker_execution_dependencies()
-    job = _child_execution.load_child_queue_job(
+    job = _child_entrypoint.load_child_worker_entrypoint_job(
         config_path=config_path,
         queue_root=queue_root,
         queue_id=queue_id,
@@ -645,8 +645,8 @@ def run_worker_job(
     entry = job.entry
 
     if admission_token:
-        if not _child_execution.activate_child_admission_token(
-            admission_root,
+        if not _child_entrypoint.activate_child_worker_admission(
+            job,
             admission_token,
             work_dir=deps.context.job_dir(entry),
             queue_id=entry.queue_id,
@@ -679,8 +679,8 @@ def run_worker_job(
             )
         return 0 if outcome.result.status in {"completed", "cancelled"} else 1
     finally:
-        _child_execution.release_child_admission_token(
-            admission_root,
+        _child_entrypoint.release_child_worker_admission(
+            job,
             admission_token,
             release_slot_fn=deps.admission.release_slot,
         )
