@@ -40,6 +40,41 @@ def _detail_fields(result: XtbRunResult) -> dict[str, Any]:
     }
 
 
+def _result_artifact_fields(result: XtbRunResult) -> _engine_execution.EngineArtifactFields:
+    return _engine_execution.EngineArtifactFields(
+        selected_input_xyz=result.selected_input_xyz,
+        engine_fields=_engine_fields(result),
+        detail_fields=_detail_fields(result),
+    )
+
+
+def _running_artifact_fields(
+    entry: Any,
+    *,
+    input_summary_payload: dict[str, Any],
+    job_type: str,
+    reaction_key: str,
+) -> _engine_execution.EngineArtifactFields:
+    return _engine_execution.EngineArtifactFields(
+        selected_input_xyz=_engine_execution.entry_metadata_text(
+            entry,
+            "selected_input_xyz",
+        ),
+        engine_fields={
+            "job_type": job_type,
+            "reaction_key": reaction_key,
+            "input_summary": input_summary_payload,
+        },
+        detail_fields={
+            "candidate_count": int(input_summary_payload.get("candidate_count", 0) or 0),
+            "candidate_paths": list(input_summary_payload.get("candidate_paths", [])),
+            "selected_candidate_paths": [],
+            "candidate_details": [],
+            "analysis_summary": {},
+        },
+    )
+
+
 def report_lines(entry: Any, result: XtbRunResult) -> list[str]:
     lines = _engine_execution.terminal_report_lines(
         entry,
@@ -97,19 +132,19 @@ def write_execution_artifacts(
     )
 
     base_state = coerce_mapping(previous_state)
-    _engine_execution.write_terminal_execution_artifacts(
+    _engine_execution.write_terminal_engine_artifacts(
         entry,
         result,
         job_dir_text=job_dir_text,
-        selected_input_xyz=result.selected_input_xyz,
         previous_state=base_state,
         resumed=resumed,
-        engine_fields=_engine_fields(result),
-        detail_fields=_detail_fields(result),
+        artifact_fields=_result_artifact_fields(result),
         report_lines=report_lines(entry, result),
-        write_state_fn=write_state,
-        write_report_json_fn=write_report_json,
-        write_report_md_lines_fn=write_report_md_lines,
+        writers=_engine_execution.TerminalArtifactWriters(
+            write_state=write_state,
+            write_report_json=write_report_json,
+            write_report_md_lines=write_report_md_lines,
+        ),
     )
 
 
@@ -147,28 +182,23 @@ def write_running_state(
     base_state = coerce_mapping(previous_state)
     started_at = entry.started_at or now_utc_iso()
     updated_at = now_utc_iso()
-    _engine_execution.write_running_state_artifact(
+    job_type_value = job_type(entry)
+    reaction_key_value = reaction_key(entry, job_dir)
+    _engine_execution.write_running_engine_state_artifact(
         entry,
         job_dir_text=job_dir_text,
-        selected_input_xyz=_engine_execution.entry_metadata_text(entry, "selected_input_xyz"),
         started_at=started_at,
         updated_at=updated_at,
         previous_state=base_state,
         resumed=resumed,
         resource_request=resource_request,
         write_state_fn=write_state,
-        engine_fields={
-            "job_type": job_type(entry),
-            "reaction_key": reaction_key(entry, job_dir),
-            "input_summary": input_summary_payload,
-        },
-        detail_fields={
-            "candidate_count": int(input_summary_payload.get("candidate_count", 0) or 0),
-            "candidate_paths": list(input_summary_payload.get("candidate_paths", [])),
-            "selected_candidate_paths": [],
-            "candidate_details": [],
-            "analysis_summary": {},
-        },
+        artifact_fields=_running_artifact_fields(
+            entry,
+            input_summary_payload=input_summary_payload,
+            job_type=job_type_value,
+            reaction_key=reaction_key_value,
+        ),
         worker_job_pid=worker_job_pid,
     )
 

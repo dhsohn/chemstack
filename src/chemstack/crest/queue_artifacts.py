@@ -31,6 +31,30 @@ def _detail_fields(result: CrestRunResult) -> dict[str, Any]:
     }
 
 
+def _result_artifact_fields(
+    entry: Any,
+    result: CrestRunResult,
+) -> _engine_execution.EngineArtifactFields:
+    return _engine_execution.EngineArtifactFields(
+        selected_input_xyz=result.selected_input_xyz,
+        engine_fields=_engine_fields(entry, result),
+        detail_fields=_detail_fields(result),
+    )
+
+
+def _running_artifact_fields(entry: Any) -> _engine_execution.EngineArtifactFields:
+    return _engine_execution.EngineArtifactFields(
+        selected_input_xyz=_engine_execution.entry_metadata_text(
+            entry,
+            "selected_input_xyz",
+        ),
+        engine_fields={
+            "molecule_key": _engine_execution.entry_metadata_text(entry, "molecule_key"),
+            "mode": _engine_execution.entry_metadata_text(entry, "mode", "standard"),
+        },
+    )
+
+
 def matching_result_state(
     entry: Any,
     result: CrestRunResult,
@@ -96,19 +120,19 @@ def write_execution_artifacts(
         state_matches_job_fn=state_matches_job_fn,
     )
     base_state = _queue_execution.coerce_mapping(previous_state)
-    _engine_execution.write_terminal_execution_artifacts(
+    _engine_execution.write_terminal_engine_artifacts(
         entry,
         result,
         job_dir_text=job_dir_text,
-        selected_input_xyz=result.selected_input_xyz,
         previous_state=base_state,
         resumed=bool(base_state.get("resumed", False)),
-        engine_fields=_engine_fields(entry, result),
-        detail_fields=_detail_fields(result),
+        artifact_fields=_result_artifact_fields(entry, result),
         report_lines=report_lines(entry, result),
-        write_state_fn=write_state_fn,
-        write_report_json_fn=write_report_json_fn,
-        write_report_md_lines_fn=write_report_md_lines_fn,
+        writers=_engine_execution.TerminalArtifactWriters(
+            write_state=write_state_fn,
+            write_report_json=write_report_json_fn,
+            write_report_md_lines=write_report_md_lines_fn,
+        ),
     )
 
 
@@ -166,23 +190,16 @@ def write_running_state(
     )
     started_at = entry.started_at or now_utc_iso_fn()
     updated_at = now_utc_iso_fn()
-    _engine_execution.write_running_state_artifact(
+    _engine_execution.write_running_engine_state_artifact(
         entry,
         job_dir_text=job_dir_text,
-        selected_input_xyz=_engine_execution.entry_metadata_text(
-            entry,
-            "selected_input_xyz",
-        ),
         started_at=started_at,
         updated_at=updated_at,
         previous_state=previous_state,
         resumed=resumed,
         resource_request=resource_request,
         write_state_fn=write_state_fn,
-        engine_fields={
-            "molecule_key": _engine_execution.entry_metadata_text(entry, "molecule_key"),
-            "mode": _engine_execution.entry_metadata_text(entry, "mode", "standard"),
-        },
+        artifact_fields=_running_artifact_fields(entry),
     )
 
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +26,43 @@ def _stage_id_for_log(stage: dict[str, Any] | None) -> str:
         return ""
     value = stage.get("stage_id")
     return "" if value is None else str(value).strip()
+
+
+@dataclass(frozen=True)
+class EngineStageSyncContext:
+    o: OrchestrationDeps
+    stage: dict[str, Any]
+    task: dict[str, Any]
+    task_payload: dict[str, Any]
+    stage_metadata: dict[str, Any]
+    engine: str
+
+    def should_submit(self, *, submit_ready: bool, config_path: str | None) -> bool:
+        return (
+            self.o.stages._normalize_text(self.task.get("status")) == "planned"
+            and submit_ready
+            and bool(self.o.stages._normalize_text(config_path))
+        )
+
+
+def _engine_stage_sync_context(
+    stage: dict[str, Any],
+    *,
+    engine: str,
+    deps: OrchestrationDeps | None = None,
+) -> EngineStageSyncContext | None:
+    o = _orchestration_context(deps)
+    task = stage.get("task")
+    if not isinstance(task, dict) or o.stages._normalize_text(task.get("engine")) != engine:
+        return None
+    return EngineStageSyncContext(
+        o=o,
+        stage=stage,
+        task=task,
+        task_payload=o.stages._task_payload_dict(task),
+        stage_metadata=o.stages._stage_metadata(stage),
+        engine=engine,
+    )
 
 
 def _load_contract_or_none(

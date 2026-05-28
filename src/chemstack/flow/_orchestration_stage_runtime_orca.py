@@ -7,6 +7,7 @@ from ._orchestration_stage_runtime_shared import (
     _apply_contract_status,
     _apply_submission_result,
     _coerce_bool,
+    _engine_stage_sync_context,
     _load_contract_or_none,
     _orchestration_context,
     _workflow_internal_organized_root,
@@ -220,41 +221,43 @@ def sync_orca_stage_impl(
     submit_ready: bool,
     deps: OrchestrationDeps | None = None,
 ) -> None:
-    o = _orchestration_context(deps)
-    task = stage.get("task")
-    if not isinstance(task, dict) or o.stages._normalize_text(task.get("engine")) != "orca":
+    context = _engine_stage_sync_context(stage, engine="orca", deps=deps)
+    if context is None:
         return
+    o = context.o
+    task = context.task
     enqueue_payload = task.get("enqueue_payload")
     if not isinstance(enqueue_payload, dict):
         return
-    stage_metadata = o.stages._stage_metadata(stage)
-    task_payload = o.stages._task_payload_dict(task)
     reaction_dir_hint = o.stages._normalize_text(
-        task_payload.get("reaction_dir") or enqueue_payload.get("reaction_dir")
+        context.task_payload.get("reaction_dir") or enqueue_payload.get("reaction_dir")
     )
-    if (
-        o.stages._normalize_text(task.get("status")) == "planned"
-        and submit_ready
-        and o.stages._normalize_text(orca_config)
-    ):
+    if context.should_submit(submit_ready=submit_ready, config_path=orca_config):
         _submit_orca_stage(
             o,
             stage,
             task,
             enqueue_payload,
-            stage_metadata,
+            context.stage_metadata,
             orca_config=orca_config,
             orca_repo_root=orca_repo_root,
         )
     contract = _load_orca_contract(
         o,
-        stage_metadata,
+        context.stage_metadata,
         reaction_dir_hint=reaction_dir_hint,
         orca_config=orca_config,
     )
     if contract is None:
         return
-    _apply_orca_contract(o, stage, task, task_payload, stage_metadata, contract)
+    _apply_orca_contract(
+        o,
+        stage,
+        task,
+        context.task_payload,
+        context.stage_metadata,
+        contract,
+    )
     stage["output_artifacts"] = _orca_output_artifacts(o, contract)
 
 

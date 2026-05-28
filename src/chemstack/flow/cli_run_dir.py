@@ -8,8 +8,20 @@ from chemstack.core.utils.coercion import normalize_text
 from . import cli_workflow_output as _workflow_output
 from . import run_dir_manifest as _run_dir_manifest
 from . import run_dir_options as _run_dir_options
-from .orchestration import create_conformer_screening_workflow, create_reaction_ts_search_workflow
+from ._orchestration_requests import (
+    ConformerScreeningWorkflowRequest,
+    ReactionTsSearchWorkflowRequest,
+)
+from .orchestration import (
+    create_conformer_screening_workflow,
+    create_conformer_screening_workflow_from_request,
+    create_reaction_ts_search_workflow,
+    create_reaction_ts_search_workflow_from_request,
+)
 from .restart import restart_failed_workflow
+
+_DEFAULT_CREATE_REACTION_TS_SEARCH_WORKFLOW = create_reaction_ts_search_workflow
+_DEFAULT_CREATE_CONFORMER_SCREENING_WORKFLOW = create_conformer_screening_workflow
 
 
 def _safe_workflow_name(value: Any, *, fallback: str, deps: Any | None = None) -> str:
@@ -94,8 +106,16 @@ def _create_reaction_run_dir_workflow(
         _run_dir_options._resolve_run_dir_workflow_option_bundle,
     )
     update_present_kwargs = _dependency(deps, "_update_present_kwargs", _update_present_kwargs)
-    create_workflow = _dependency(
-        deps, "create_reaction_ts_search_workflow", create_reaction_ts_search_workflow
+    create_workflow = _dependency(deps, "create_reaction_ts_search_workflow", None)
+    if (
+        create_workflow is None
+        and create_reaction_ts_search_workflow is not _DEFAULT_CREATE_REACTION_TS_SEARCH_WORKFLOW
+    ):
+        create_workflow = create_reaction_ts_search_workflow
+    create_workflow_from_request = _dependency(
+        deps,
+        "create_reaction_ts_search_workflow_from_request",
+        create_reaction_ts_search_workflow_from_request,
     )
 
     if not config.reactant_xyz or not config.product_xyz:
@@ -132,7 +152,9 @@ def _create_reaction_run_dir_workflow(
             "endpoint_pairing": config.endpoint_pairing,
         },
     )
-    return create_workflow(**reaction_kwargs)
+    if create_workflow is not None:
+        return create_workflow(**reaction_kwargs)
+    return create_workflow_from_request(ReactionTsSearchWorkflowRequest(**reaction_kwargs))
 
 
 def _create_conformer_run_dir_workflow(
@@ -152,8 +174,16 @@ def _create_conformer_run_dir_workflow(
         _run_dir_options._resolve_run_dir_workflow_option_bundle,
     )
     update_present_kwargs = _dependency(deps, "_update_present_kwargs", _update_present_kwargs)
-    create_workflow = _dependency(
-        deps, "create_conformer_screening_workflow", create_conformer_screening_workflow
+    create_workflow = _dependency(deps, "create_conformer_screening_workflow", None)
+    if (
+        create_workflow is None
+        and create_conformer_screening_workflow is not _DEFAULT_CREATE_CONFORMER_SCREENING_WORKFLOW
+    ):
+        create_workflow = create_conformer_screening_workflow
+    create_workflow_from_request = _dependency(
+        deps,
+        "create_conformer_screening_workflow_from_request",
+        create_conformer_screening_workflow_from_request,
     )
 
     if not config.input_xyz:
@@ -177,7 +207,9 @@ def _create_conformer_run_dir_workflow(
         **common_kwargs,
     }
     update_present_kwargs(conformer_kwargs, {"crest_job_manifest": config.crest_manifest})
-    return create_workflow(**conformer_kwargs)
+    if create_workflow is not None:
+        return create_workflow(**conformer_kwargs)
+    return create_workflow_from_request(ConformerScreeningWorkflowRequest(**conformer_kwargs))
 
 
 def _create_run_dir_workflow(

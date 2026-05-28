@@ -6,9 +6,9 @@ from typing import Any
 from ._orchestration_deps import OrchestrationDeps
 from ._orchestration_stage_runtime_shared import (
     _apply_contract_status,
+    _engine_stage_sync_context,
     _engine_job_dir_contract_lookup,
     _load_contract_or_none,
-    _orchestration_context,
     _submission_is_deferred,
 )
 from ._orchestration_stage_runtime_xtb_handoff import (
@@ -181,23 +181,18 @@ def sync_xtb_stage_impl(
     workspace_dir: Path,
     deps: OrchestrationDeps | None = None,
 ) -> None:
-    o = _orchestration_context(deps)
-    task = stage.get("task")
-    if not isinstance(task, dict) or o.stages._normalize_text(task.get("engine")) != "xtb":
+    context = _engine_stage_sync_context(stage, engine="xtb", deps=deps)
+    if context is None:
         return
-    stage_metadata = o.stages._stage_metadata(stage)
-    task_payload = o.stages._task_payload_dict(task)
+    o = context.o
+    task = context.task
     xtb_runtime_paths = workflow_workspace_internal_engine_paths(workspace_dir, engine="xtb")
-    if (
-        o.stages._normalize_text(task.get("status")) == "planned"
-        and submit_ready
-        and o.stages._normalize_text(xtb_config)
-    ):
+    if context.should_submit(submit_ready=submit_ready, config_path=xtb_config):
         _submit_xtb_stage(
             o,
             stage,
             task,
-            stage_metadata,
+            context.stage_metadata,
             xtb_runtime_paths=xtb_runtime_paths,
             xtb_config=xtb_config,
             workflow_id=workflow_id,
@@ -205,18 +200,25 @@ def sync_xtb_stage_impl(
     contract = _load_xtb_contract(
         o,
         stage,
-        task_payload,
+        context.task_payload,
         xtb_runtime_paths=xtb_runtime_paths,
         xtb_config=xtb_config,
     )
     if contract is None:
         return
-    handoff = _apply_xtb_contract(o, stage, task, task_payload, stage_metadata, contract)
+    handoff = _apply_xtb_contract(
+        o,
+        stage,
+        task,
+        context.task_payload,
+        context.stage_metadata,
+        contract,
+    )
     if _maybe_retry_xtb_handoff(
         o,
         stage,
         task,
-        stage_metadata,
+        context.stage_metadata,
         handoff,
         xtb_runtime_paths=xtb_runtime_paths,
         xtb_config=xtb_config,
@@ -224,10 +226,10 @@ def sync_xtb_stage_impl(
         workflow_id=workflow_id,
     ):
         return
-    stage_metadata["xtb_handoff_retries_used"] = o.stages._safe_int(
-        stage_metadata.get("xtb_handoff_retries_used"), default=0
+    context.stage_metadata["xtb_handoff_retries_used"] = o.stages._safe_int(
+        context.stage_metadata.get("xtb_handoff_retries_used"), default=0
     )
-    stage_metadata["xtb_handoff_retry_limit"] = o.stages._xtb_path_retry_limit(stage)
+    context.stage_metadata["xtb_handoff_retry_limit"] = o.stages._xtb_path_retry_limit(stage)
     stage["output_artifacts"] = _xtb_output_artifacts(contract)
 
 

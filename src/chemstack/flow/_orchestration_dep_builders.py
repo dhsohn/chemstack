@@ -427,11 +427,89 @@ def _stage_dep_fallbacks(overrides: Mapping[str, Any] | None) -> dict[str, Any]:
 
 
 def _build_stage_deps(overrides: Mapping[str, Any] | None) -> OrchestrationStageDeps:
-    from ._orchestration_deps import OrchestrationStageDeps
+    from ._orchestration_deps import (
+        OrchestrationStageBuilderDeps,
+        OrchestrationStageDeps,
+        OrchestrationStageMaterializationDeps,
+        OrchestrationStageRuntimeDeps,
+        OrchestrationStageSupportDeps,
+        OrchestrationStageWorkflowDeps,
+    )
 
     resolved = _apply_overrides(overrides, _stage_dep_fallbacks(overrides))
     resolved["_stage_failure_is_recoverable"] = _stage_failure_is_recoverable_override(overrides)
-    return OrchestrationStageDeps(**resolved)
+
+    def pick(names: tuple[str, ...]) -> dict[str, Any]:
+        return {name: resolved[name] for name in names}
+
+    return OrchestrationStageDeps(
+        builders=OrchestrationStageBuilderDeps(
+            **pick(
+                (
+                    "_new_xtb_stage",
+                )
+            )
+        ),
+        materialization=OrchestrationStageMaterializationDeps(
+            **pick(
+                (
+                    "_append_crest_orca_stages",
+                    "_append_reaction_orca_stages",
+                    "_append_reaction_xtb_stages",
+                )
+            )
+        ),
+        runtime=OrchestrationStageRuntimeDeps(
+            **pick(
+                (
+                    "_append_unique_artifact",
+                    "_completed_crest_roles",
+                    "_completed_crest_stage",
+                    "_ensure_crest_job_dir",
+                    "_ensure_xtb_job_dir",
+                    "_sync_crest_stage",
+                    "_sync_orca_stage",
+                    "_sync_xtb_stage",
+                    "_write_xtb_path_job",
+                    "_xtb_attempt_record",
+                    "_xtb_attempt_rows",
+                    "_xtb_current_attempt_number",
+                    "_xtb_handoff_status",
+                    "_xtb_path_retry_limit",
+                    "_xtb_retry_recipe",
+                )
+            )
+        ),
+        support=OrchestrationStageSupportDeps(
+            **pick(
+                (
+                    "_clear_reaction_xtb_handoff_error_if_recovering",
+                    "_coerce_mapping",
+                    "_load_config_organized_root",
+                    "_load_config_root",
+                    "_normalize_text",
+                    "_reaction_orca_source_candidate_path",
+                    "_reaction_ts_guess_error",
+                    "_safe_int",
+                    "_stage_metadata",
+                    "_submission_target",
+                    "_task_payload_dict",
+                )
+            )
+        ),
+        workflow=OrchestrationStageWorkflowDeps(
+            **pick(
+                (
+                    "_maybe_notify_workflow_phase_summary",
+                    "_persist_workflow_progress",
+                    "_recompute_workflow_status",
+                    "_stage_failure_is_recoverable",
+                    "_workflow_has_active_children",
+                    "_workflow_sync_only",
+                )
+            )
+        ),
+    )
 
 
 def _build_advance_deps(overrides: Mapping[str, Any] | None) -> OrchestrationAdvanceDeps:

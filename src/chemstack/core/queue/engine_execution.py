@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -32,6 +32,26 @@ class TerminalSyncActions:
 class TerminalArtifactPayloads:
     state: dict[str, Any]
     report: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class EngineArtifactFields:
+    selected_input_xyz: str
+    engine_fields: Mapping[str, Any] | None = None
+    detail_fields: Mapping[str, Any] | None = None
+
+    def engine_payload(self) -> dict[str, Any]:
+        return dict(self.engine_fields or {})
+
+    def detail_payload(self) -> dict[str, Any]:
+        return dict(self.detail_fields or {})
+
+
+@dataclass(frozen=True)
+class TerminalArtifactWriters:
+    write_state: Callable[..., Any]
+    write_report_json: Callable[..., Any]
+    write_report_md_lines: Callable[..., Any]
 
 
 def sync_terminal_result(
@@ -180,6 +200,35 @@ def write_running_state_artifact(
     write_state_fn(job_dir, payload)
 
 
+def write_running_engine_state_artifact(
+    entry: Any,
+    *,
+    job_dir_text: str,
+    started_at: str,
+    updated_at: str,
+    previous_state: dict[str, Any] | None,
+    resumed: bool,
+    resource_request: dict[str, int],
+    artifact_fields: EngineArtifactFields,
+    write_state_fn: Callable[..., Any],
+    worker_job_pid: int | None = None,
+) -> None:
+    write_running_state_artifact(
+        entry,
+        job_dir_text=job_dir_text,
+        selected_input_xyz=artifact_fields.selected_input_xyz,
+        started_at=started_at,
+        updated_at=updated_at,
+        previous_state=previous_state,
+        resumed=resumed,
+        resource_request=resource_request,
+        write_state_fn=write_state_fn,
+        engine_fields=artifact_fields.engine_payload(),
+        detail_fields=artifact_fields.detail_payload(),
+        worker_job_pid=worker_job_pid,
+    )
+
+
 def build_terminal_state_payload(
     entry: Any,
     result: Any,
@@ -301,26 +350,57 @@ def write_terminal_execution_artifacts(
     write_report_json_fn: Callable[..., Any],
     write_report_md_lines_fn: Callable[..., Any],
 ) -> None:
+    write_terminal_engine_artifacts(
+        entry,
+        result,
+        job_dir_text=job_dir_text,
+        previous_state=previous_state,
+        resumed=resumed,
+        artifact_fields=EngineArtifactFields(
+            selected_input_xyz=selected_input_xyz,
+            engine_fields=engine_fields,
+            detail_fields=detail_fields,
+        ),
+        report_lines=report_lines,
+        writers=TerminalArtifactWriters(
+            write_state=write_state_fn,
+            write_report_json=write_report_json_fn,
+            write_report_md_lines=write_report_md_lines_fn,
+        ),
+    )
+
+
+def write_terminal_engine_artifacts(
+    entry: Any,
+    result: Any,
+    *,
+    job_dir_text: str,
+    previous_state: dict[str, Any] | None,
+    resumed: bool,
+    artifact_fields: EngineArtifactFields,
+    report_lines: list[str],
+    writers: TerminalArtifactWriters,
+) -> None:
     if not job_dir_text:
         return
     payloads = build_terminal_artifact_payloads(
         entry,
         result,
         job_dir_text=job_dir_text,
-        selected_input_xyz=selected_input_xyz,
+        selected_input_xyz=artifact_fields.selected_input_xyz,
         previous_state=previous_state,
         resumed=resumed,
-        engine_fields=engine_fields,
-        detail_fields=detail_fields,
+        engine_fields=artifact_fields.engine_payload(),
+        detail_fields=artifact_fields.detail_payload(),
     )
     _queue_execution.write_result_artifacts(
         job_dir_text,
         state_payload=payloads.state,
         report_payload=payloads.report,
         report_lines=report_lines,
-        write_state_fn=write_state_fn,
-        write_report_json_fn=write_report_json_fn,
-        write_report_md_lines_fn=write_report_md_lines_fn,
+        write_state_fn=writers.write_state,
+        write_report_json_fn=writers.write_report_json,
+        write_report_md_lines_fn=writers.write_report_md_lines,
     )
 
 

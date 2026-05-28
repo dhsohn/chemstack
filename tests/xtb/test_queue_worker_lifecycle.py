@@ -285,26 +285,35 @@ def test_queue_worker_shutdown_requeues_running_entries(
     selected_xyz.write_text("3\ncandidate\nH 0 0 0\n", encoding="utf-8")
     entry = _make_entry(job_dir, selected_xyz)
 
-    terminated: list[int] = []
+    graceful_terminated: list[int] = []
+    hard_terminated: list[int] = []
     requeued: list[tuple[str, str]] = []
     released: list[tuple[str, str]] = []
 
     class _Process:
         pid = 9001
 
-        def poll(self) -> None:
-            return None
+        def __init__(self) -> None:
+            self._terminated = False
+
+        def poll(self) -> int | None:
+            return 0 if self._terminated else None
 
         def wait(self, timeout: float | None = None) -> int:
             return 0
 
         def terminate(self) -> None:
-            return None
+            graceful_terminated.append(self.pid)
+            self._terminated = True
 
         def kill(self) -> None:
             return None
 
-    monkeypatch.setattr(queue_cmd, "_terminate_process", lambda proc: terminated.append(proc.pid))
+    monkeypatch.setattr(
+        queue_cmd,
+        "_terminate_process",
+        lambda proc: hard_terminated.append(proc.pid),
+    )
     monkeypatch.setattr(
         queue_cmd, "requeue_running_entry", lambda root, queue_id: requeued.append((root, queue_id))
     )
@@ -322,7 +331,8 @@ def test_queue_worker_shutdown_requeues_running_entries(
 
     worker._shutdown_all()
 
-    assert terminated == [9001]
+    assert graceful_terminated == [9001]
+    assert hard_terminated == []
     assert requeued == [(str(queue_root), "queue-1")]
     assert released == [(cfg.runtime.admission_root, "slot-1")]
     assert worker._running == {}

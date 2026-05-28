@@ -10,6 +10,7 @@ from ._orchestration_deps import OrchestrationDeps
 from ._orchestration_stage_runtime_shared import (
     _apply_contract_status,
     _apply_submission_result,
+    _engine_stage_sync_context,
     _engine_job_dir_contract_lookup,
     _load_contract_or_none,
     _manifest_override_mapping,
@@ -159,16 +160,13 @@ def sync_crest_stage_impl(
     workspace_dir: Path,
     deps: OrchestrationDeps | None = None,
 ) -> None:
-    o = _orchestration_context(deps)
-    task = stage.get("task")
-    if not isinstance(task, dict) or o.stages._normalize_text(task.get("engine")) != "crest":
+    context = _engine_stage_sync_context(stage, engine="crest", deps=deps)
+    if context is None:
         return
+    o = context.o
+    task = context.task
     crest_runtime_paths = workflow_workspace_internal_engine_paths(workspace_dir, engine="crest")
-    if (
-        o.stages._normalize_text(task.get("status")) == "planned"
-        and submit_ready
-        and o.stages._normalize_text(crest_config)
-    ):
+    if context.should_submit(submit_ready=submit_ready, config_path=crest_config):
         _submit_crest_stage(
             o,
             stage,

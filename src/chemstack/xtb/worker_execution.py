@@ -37,6 +37,7 @@ from .runner import XtbRunResult, finalize_xtb_job, run_xtb_ranking_job, start_x
 from .state import (
     is_recovery_pending,
     load_state,
+    mark_recovery_pending,
     state_matches_job,
     write_report_json,
     write_report_md_lines,
@@ -457,6 +458,42 @@ def _mark_job_running(
             "resumed": context.resumed,
         },
     )
+
+
+def _mark_recovery_pending_context(
+    cfg: Any,
+    context: _XtbExecutionContext,
+    *,
+    reason: str,
+) -> None:
+    _engine_execution.mark_recovery_pending_and_record(
+        cfg,
+        entry=context.entry,
+        job_dir=context.job_dir,
+        selected_input_xyz=context.selected_xyz,
+        reason=reason,
+        resource_request=context.resource_request,
+        mark_recovery_pending_fn=mark_recovery_pending,
+        upsert_job_record_fn=upsert_job_record,
+        state_identity_fields={
+            "job_type": context.job_type,
+            "reaction_key": context.reaction_key,
+            "input_summary": context.input_summary,
+        },
+        record_identity_fields={
+            "job_type": context.job_type,
+            "reaction_key": context.reaction_key,
+        },
+    )
+
+
+def _mark_recovery_pending_entry(cfg: Any, entry: Any, *, reason: str) -> None:
+    context = _build_execution_context(
+        cfg,
+        entry,
+        dependencies=default_worker_execution_dependencies(),
+    )
+    _mark_recovery_pending_context(cfg, context, reason=reason)
 
 
 def _cancelled_before_start_result(
