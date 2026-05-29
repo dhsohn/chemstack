@@ -12,6 +12,7 @@ from typing import Any, Callable
 from chemstack.activity_rendering import queue_clear_lines, queue_list_text_lines
 from chemstack.core.activity_icons import activity_status_icon
 from chemstack.activity_view import (
+    activity_counter_config_path,
     count_global_active_simulations,
     queue_list_default_visible_items,
     queue_list_display_rows,
@@ -178,17 +179,10 @@ def _activity_counter_config_path(
     *,
     settings: TelegramBotSettings,
 ) -> str | None:
-    sources = payload.get("sources")
-    if isinstance(sources, dict):
-        for key in ("orca_config", "crest_config", "xtb_config"):
-            source_text = str(sources.get(key, "")).strip()
-            if source_text:
-                return source_text
-    for value in (settings.orca_config, settings.crest_config, settings.xtb_config):
-        text = str(value or "").strip()
-        if text:
-            return text
-    return None
+    return activity_counter_config_path(
+        payload,
+        config_hints=(settings.orca_config, settings.crest_config, settings.xtb_config),
+    )
 
 
 def _handle_list(settings: TelegramBotSettings, args: str) -> str:

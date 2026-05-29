@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import signal
 import subprocess
+from dataclasses import dataclass, field
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Callable, cast
@@ -170,6 +171,84 @@ class FakeProcess:
         if len(self._poll_values) > 1:
             return self._poll_values.pop(0)
         return self._poll_values[0]
+
+
+@dataclass
+class ProcessDequeuedEntrySpy:
+    running: Any
+    result: CrestRunResult
+    sleeps: list[int] = field(default_factory=list)
+    molecule_key_calls: list[tuple[SimpleNamespace, Path, Path]] = field(default_factory=list)
+    cancel_checks: list[tuple[str, str]] = field(default_factory=list)
+    finalize_kwargs: list[dict[str, Any]] = field(default_factory=list)
+    terminate_calls: list[Any] = field(default_factory=list)
+    running_state_calls: list[str] = field(default_factory=list)
+    artifact_results: list[CrestRunResult] = field(default_factory=list)
+    mark_completed_calls: list[tuple[tuple[Any, ...], dict[str, Any]]] = field(
+        default_factory=list
+    )
+    mark_cancelled_calls: list[tuple[tuple[Any, ...], dict[str, Any]]] = field(
+        default_factory=list
+    )
+    mark_failed_calls: list[tuple[tuple[Any, ...], dict[str, Any]]] = field(
+        default_factory=list
+    )
+    upsert_calls: list[dict[str, Any]] = field(default_factory=list)
+    started_notifications: list[dict[str, Any]] = field(default_factory=list)
+    finished_notifications: list[dict[str, Any]] = field(default_factory=list)
+
+    def sleep(self, seconds: int) -> None:
+        self.sleeps.append(seconds)
+
+    def molecule_key(
+        self,
+        actual_entry: SimpleNamespace,
+        actual_selected_xyz: Path,
+        actual_job_dir: Path,
+    ) -> str:
+        self.molecule_key_calls.append((actual_entry, actual_selected_xyz, actual_job_dir))
+        return "derived-key"
+
+    def finalize(self, running_job: Any, **kwargs: Any) -> CrestRunResult:
+        self.finalize_kwargs.append(kwargs)
+        assert running_job is self.running
+        return self.result
+
+    def get_cancel_requested(self, root: str, queue_id: str) -> bool:
+        self.cancel_checks.append((root, queue_id))
+        return False
+
+    def notify_started(self, cfg: Any, **kwargs: Any) -> bool:
+        self.started_notifications.append(kwargs)
+        return True
+
+    def notify_finished(self, cfg: Any, **kwargs: Any) -> bool:
+        self.finished_notifications.append(kwargs)
+        return True
+
+    def dependencies(self) -> worker_execution.WorkerExecutionDependencies:
+        return _dependencies(
+            get_cancel_requested=self.get_cancel_requested,
+            start_crest_job=lambda cfg, *, job_dir, selected_xyz: self.running,
+            finalize_crest_job=self.finalize,
+            terminate_process=lambda proc: self.terminate_calls.append(proc),
+            write_running_state=lambda cfg, actual_entry: self.running_state_calls.append(
+                actual_entry.task_id
+            ),
+            write_execution_artifacts=lambda actual_entry, actual_result: (
+                self.artifact_results.append(actual_result)
+            ),
+            mark_completed=lambda *args, **kwargs: self.mark_completed_calls.append(
+                (args, kwargs)
+            ),
+            mark_cancelled=lambda *args, **kwargs: self.mark_cancelled_calls.append(
+                (args, kwargs)
+            ),
+            mark_failed=lambda *args, **kwargs: self.mark_failed_calls.append((args, kwargs)),
+            upsert_job_record=lambda cfg, **kwargs: self.upsert_calls.append(kwargs),
+            notify_job_started=self.notify_started,
+            notify_job_finished=self.notify_finished,
+        )
 
 
 def test_write_execution_artifacts_returns_early_without_job_dir(
@@ -509,64 +588,15 @@ def test_process_dequeued_entry_polls_sleeps_and_completes(
     proc = FakeProcess(None, 0)
     running = SimpleNamespace(process=proc)
     result = _result(job_dir, selected_xyz, reason="ok")
+    spy = ProcessDequeuedEntrySpy(running=running, result=result)
 
-    sleeps: list[int] = []
-    molecule_key_calls: list[tuple[SimpleNamespace, Path, Path]] = []
-    cancel_checks: list[tuple[str, str]] = []
-    finalize_kwargs: list[dict[str, Any]] = []
-    terminate_calls: list[FakeProcess] = []
-    running_state_calls: list[str] = []
-    artifact_results: list[CrestRunResult] = []
-    mark_completed_calls: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
-    mark_cancelled_calls: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
-    mark_failed_calls: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
-    upsert_calls: list[dict[str, Any]] = []
-    started_notifications: list[dict[str, Any]] = []
-    finished_notifications: list[dict[str, Any]] = []
-
-    monkeypatch.setattr(worker_execution.time, "sleep", lambda seconds: sleeps.append(seconds))
-
-    def fake_molecule_key(actual_entry: Any, actual_selected_xyz: Path, actual_job_dir: Path) -> str:
-        molecule_key_calls.append((actual_entry, actual_selected_xyz, actual_job_dir))
-        return "derived-key"
-
-    def fake_finalize(running_job: Any, **kwargs: Any) -> CrestRunResult:
-        finalize_kwargs.append(kwargs)
-        assert running_job is running
-        return result
-
-    def fake_get_cancel_requested(root: str, queue_id: str) -> bool:
-        cancel_checks.append((root, queue_id))
-        return False
-
-    def fake_notify_started(cfg: Any, **kwargs: Any) -> bool:
-        started_notifications.append(kwargs)
-        return True
-
-    def fake_notify_finished(cfg: Any, **kwargs: Any) -> bool:
-        finished_notifications.append(kwargs)
-        return True
-
-    deps = _dependencies(
-        get_cancel_requested=fake_get_cancel_requested,
-        start_crest_job=lambda cfg, *, job_dir, selected_xyz: running,
-        finalize_crest_job=fake_finalize,
-        terminate_process=lambda proc: terminate_calls.append(proc),
-        write_running_state=lambda cfg, actual_entry: running_state_calls.append(actual_entry.task_id),
-        write_execution_artifacts=lambda actual_entry, actual_result: artifact_results.append(actual_result),
-        mark_completed=lambda *args, **kwargs: mark_completed_calls.append((args, kwargs)),
-        mark_cancelled=lambda *args, **kwargs: mark_cancelled_calls.append((args, kwargs)),
-        mark_failed=lambda *args, **kwargs: mark_failed_calls.append((args, kwargs)),
-        upsert_job_record=lambda cfg, **kwargs: upsert_calls.append(kwargs),
-        notify_job_started=fake_notify_started,
-        notify_job_finished=fake_notify_finished,
-    )
+    monkeypatch.setattr(worker_execution.time, "sleep", spy.sleep)
 
     outcome = worker_execution.process_dequeued_entry(
         cfg,
         entry,
-        molecule_key_resolver=fake_molecule_key,
-        dependencies=deps,
+        molecule_key_resolver=spy.molecule_key,
+        dependencies=spy.dependencies(),
     )
 
     assert outcome.result == result
@@ -574,25 +604,28 @@ def test_process_dequeued_entry_polls_sleeps_and_completes(
     assert outcome.selected_xyz == selected_xyz.resolve()
     assert outcome.molecule_key == "derived-key"
     assert outcome.organized_output_dir is None
-    assert molecule_key_calls == [(entry, selected_xyz.resolve(), job_dir.resolve())]
-    assert cancel_checks == [(cfg.runtime.allowed_root, entry.queue_id)]
-    assert sleeps == [worker_execution.CANCEL_CHECK_INTERVAL_SECONDS]
-    assert finalize_kwargs == [{}]
-    assert terminate_calls == []
-    assert running_state_calls == [entry.task_id]
-    assert artifact_results == [result]
-    assert [call["status"] for call in upsert_calls] == ["running", "completed"]
-    assert len(mark_completed_calls) == 1
-    assert mark_completed_calls[0][0] == (cfg.runtime.allowed_root, entry.queue_id)
-    assert mark_completed_calls[0][1]["metadata_update"] == {
+    assert spy.molecule_key_calls == [(entry, selected_xyz.resolve(), job_dir.resolve())]
+    assert spy.cancel_checks == [(cfg.runtime.allowed_root, entry.queue_id)]
+    assert spy.sleeps == [worker_execution.CANCEL_CHECK_INTERVAL_SECONDS]
+    assert spy.finalize_kwargs == [{}]
+    assert spy.terminate_calls == []
+    assert spy.running_state_calls == [entry.task_id]
+    assert spy.artifact_results == [result]
+    assert [call["status"] for call in spy.upsert_calls] == ["running", "completed"]
+    assert len(spy.mark_completed_calls) == 1
+    assert spy.mark_completed_calls[0][0] == (cfg.runtime.allowed_root, entry.queue_id)
+    assert spy.mark_completed_calls[0][1]["metadata_update"] == {
         "retained_conformer_count": result.retained_conformer_count,
         "mode": result.mode,
     }
-    assert mark_cancelled_calls == []
-    assert mark_failed_calls == []
-    assert started_notifications[0]["selected_xyz"] == selected_xyz.resolve()
-    assert finished_notifications[0]["status"] == "completed"
-    assert finished_notifications[0]["resource_request"] == {"max_cores": 4, "max_memory_gb": 16}
+    assert spy.mark_cancelled_calls == []
+    assert spy.mark_failed_calls == []
+    assert spy.started_notifications[0]["selected_xyz"] == selected_xyz.resolve()
+    assert spy.finished_notifications[0]["status"] == "completed"
+    assert spy.finished_notifications[0]["resource_request"] == {
+        "max_cores": 4,
+        "max_memory_gb": 16,
+    }
 
 
 def test_process_dequeued_entry_terminates_and_forces_cancelled_result(

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import getpass
 import logging
 import sys
 from dataclasses import dataclass
@@ -10,8 +11,9 @@ import yaml
 
 from chemstack.core.config.files import secure_config_file_permissions
 from chemstack.core.engine_runner import validate_executable_file
-from ..config import _default_organized_root, load_config
 from chemstack.core.paths import is_rejected_windows_path, is_subpath
+
+from ..config import _default_organized_root, load_config
 from ._helpers import default_config_path
 
 logger = logging.getLogger(__name__)
@@ -54,6 +56,10 @@ def _prompt_text(label: str, default: str | None = None) -> str:
     if value:
         return value
     return default or ""
+
+
+def _prompt_secret_text(label: str) -> str:
+    return getpass.getpass(f"{label}: ").strip()
 
 
 def _prompt_yes_no(label: str, *, default: bool) -> bool:
@@ -188,7 +194,7 @@ def _prompt_telegram_config() -> dict[str, str]:
         return {"bot_token": "", "chat_id": ""}
 
     while True:
-        bot_token = _prompt_text("Telegram bot token")
+        bot_token = _prompt_secret_text("Telegram bot token")
         chat_id = _prompt_text("Telegram chat id")
         if bot_token and chat_id:
             return {"bot_token": bot_token, "chat_id": chat_id}

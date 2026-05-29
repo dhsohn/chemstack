@@ -72,6 +72,34 @@ def count_active_simulations(items: Sequence[dict[str, Any]]) -> int:
     return total
 
 
+def activity_counter_config_path(
+    payload: dict[str, Any],
+    *,
+    config_hints: Sequence[str | None] = (),
+    prefer_hints: bool = False,
+) -> str | None:
+    def first_source_config() -> str | None:
+        sources = payload.get("sources")
+        if not isinstance(sources, dict):
+            return None
+        for key in ("orca_config", "crest_config", "xtb_config"):
+            source_text = normalize_text(sources.get(key))
+            if source_text:
+                return source_text
+        return None
+
+    def first_hint_config() -> str | None:
+        for value in config_hints:
+            text = normalize_text(value)
+            if text:
+                return text
+        return None
+
+    if prefer_hints:
+        return first_hint_config() or first_source_config()
+    return first_source_config() or first_hint_config()
+
+
 def count_global_active_simulations(
     items: Sequence[dict[str, Any]],
     *,

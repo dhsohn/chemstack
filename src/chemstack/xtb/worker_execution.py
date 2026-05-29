@@ -13,6 +13,7 @@ from chemstack.core.queue import (
     list_queue,
 )
 from chemstack.core.queue import child_entrypoint as _child_entrypoint
+from chemstack.core.queue.dependencies import dependency_group
 from chemstack.core.queue import engine_execution as _engine_execution
 from chemstack.core.queue import execution as _queue_execution
 from chemstack.core.queue.engine_execution import (
@@ -208,25 +209,13 @@ def build_worker_execution_dependencies(
     runner: WorkerRunnerDependencies | None = None,
     execute_queue_entry_fn: Callable[..., Any] | None = None,
 ) -> WorkerExecutionDependencies:
-    if config is None:
-        config = _default_config_dependencies()
-    if admission is None:
-        admission = _default_admission_dependencies()
-    if context is None:
-        context = _default_context_dependencies()
-    if artifacts is None:
-        artifacts = _default_artifact_dependencies()
-    if tracking is None:
-        tracking = _default_tracking_dependencies()
-    if runner is None:
-        runner = _default_runner_dependencies()
     return build_worker_execution_dependencies_from_groups(
-        config=config,
-        admission=admission,
-        context=context,
-        artifacts=artifacts,
-        tracking=tracking,
-        runner=runner,
+        config=dependency_group(config, _default_config_dependencies),
+        admission=dependency_group(admission, _default_admission_dependencies),
+        context=dependency_group(context, _default_context_dependencies),
+        artifacts=dependency_group(artifacts, _default_artifact_dependencies),
+        tracking=dependency_group(tracking, _default_tracking_dependencies),
+        runner=dependency_group(runner, _default_runner_dependencies),
         execute_queue_entry_fn=execute_queue_entry_fn,
     )
 

@@ -9,6 +9,7 @@ from typing import Any
 import pytest
 
 from chemstack.core.queue import child_process as child_process_helpers
+from chemstack.core.queue.dependencies import dependency_group
 from chemstack.core.queue import processes as process_helpers
 from chemstack.core.queue import worker as worker_common
 
@@ -39,6 +40,20 @@ def _entry(
         queue_id=queue_id,
         cancel_requested=cancel_requested,
     )
+
+
+def test_dependency_group_prefers_explicit_value_and_lazily_builds_default() -> None:
+    calls = 0
+
+    def default_factory() -> str:
+        nonlocal calls
+        calls += 1
+        return "default"
+
+    assert dependency_group("explicit", default_factory) == "explicit"
+    assert calls == 0
+    assert dependency_group(None, default_factory) == "default"
+    assert calls == 1
 
 
 def test_resolve_admission_root_and_limit_prefer_resolved_values() -> None:

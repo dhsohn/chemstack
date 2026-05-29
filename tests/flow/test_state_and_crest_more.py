@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -166,6 +167,81 @@ def test_workflow_has_active_downstream_covers_status_and_latest_stage_branches(
     assert workflow_has_active_downstream(payload) is expected
 
 
+def _artifact_rows(artifacts: list[dict[str, Any]], kind: str) -> list[dict[str, Any]]:
+    return [row for row in artifacts if row["kind"] == kind]
+
+
+def _assert_workflow_summary_branches(summary: dict[str, Any], workspace: Path) -> None:
+    assert summary["workspace_dir"] == str(workspace.resolve())
+    assert summary["stage_count"] == 2
+    assert summary["stage_status_counts"] == {"completed": 1, "unknown": 1}
+    assert summary["task_status_counts"] == {"running": 1, "unknown": 1}
+    assert summary["submission_summary"] == {"submitted": 1}
+    assert summary["final_child_sync_pending"] is True
+    assert summary["downstream_reaction_workflow"]["workflow_id"] == "child_wf"
+    assert summary["precomplex_handoff"]["reactant_xyz"] == "inputs/reactant.xyz"
+    assert summary["parent_workflow"] == {"workflow_id": "wf_grandparent"}
+    assert summary["last_restarted_at"] == "2026-04-19T12:30:00+00:00"
+    assert summary["restart_summary"]["status"] == "restarted"
+    assert summary["stage_summaries"][0]["queue_id"] == "queue_01"
+    assert summary["stage_summaries"][0]["reaction_dir"] == "jobs/reaction_dir"
+    assert summary["stage_summaries"][0]["selected_inp"] == "inputs/reaction.inp"
+    assert summary["stage_summaries"][0]["optimized_xyz_path"] == "outputs/optimized.xyz"
+    assert summary["stage_summaries"][0]["output_artifact_count"] == 2
+    assert summary["stage_summaries"][1]["status"] == "unknown"
+
+
+def _assert_workflow_artifact_branches(
+    artifacts: list[dict[str, Any]],
+    *,
+    source_xyz: Path,
+    report_json: Path,
+    selected_inp: Path,
+    optimized_xyz: Path,
+    downstream_workspace: Path,
+) -> None:
+    source_rows = _artifact_rows(artifacts, "source_xyz")
+    report_rows = _artifact_rows(artifacts, "report")
+    precomplex_rows = _artifact_rows(artifacts, "precomplex_handoff_xyz")
+    downstream_file_rows = _artifact_rows(artifacts, "downstream_workflow_file")
+    selected_inp_rows = _artifact_rows(artifacts, "selected_inp")
+    optimized_rows = _artifact_rows(artifacts, "optimized_xyz_path")
+
+    assert len(source_rows) == 1
+    assert source_rows[0]["selected"] is True
+    assert source_rows[0]["metadata"] == {"role": "seed"}
+    assert source_rows[0]["resolved_path"] == str(source_xyz.resolve())
+
+    assert len(report_rows) == 1
+    assert report_rows[0]["exists"] is True
+    assert report_rows[0]["resolved_path"] == str(report_json.resolve())
+
+    assert len(precomplex_rows) == 2
+    assert {row["metadata"]["role"] for row in precomplex_rows} == {"reactant", "product"}
+    assert all(row["selected"] is True for row in precomplex_rows)
+
+    assert len(selected_inp_rows) == 1
+    assert selected_inp_rows[0]["path"] == "inputs/reaction.inp"
+    assert selected_inp_rows[0]["source"] == "task.payload"
+    assert selected_inp_rows[0]["resolved_path"] == str(selected_inp.resolve())
+
+    assert len(optimized_rows) == 1
+    assert optimized_rows[0]["path"] == "outputs/optimized.xyz"
+    assert optimized_rows[0]["source"] == "task.payload"
+    assert optimized_rows[0]["resolved_path"] == str(optimized_xyz.resolve())
+
+    assert len(downstream_file_rows) == 1
+    assert downstream_file_rows[0]["exists"] is True
+    assert downstream_file_rows[0]["resolved_path"] == str(
+        (downstream_workspace / WORKFLOW_FILE_NAME).resolve()
+    )
+
+    downstream_latest_rows = _artifact_rows(artifacts, "downstream_latest_known_path")
+    assert len(downstream_latest_rows) == 1
+    assert downstream_latest_rows[0]["metadata"] == {"stage_id": "child_stage_01"}
+    assert downstream_latest_rows[0]["is_dir"] is True
+
+
 def test_workflow_summary_and_artifacts_cover_enqueue_precomplex_and_downstream_branches(
     tmp_path: Path,
 ) -> None:
@@ -288,62 +364,15 @@ def test_workflow_summary_and_artifacts_cover_enqueue_precomplex_and_downstream_
     summary = workflow_summary(workspace, payload)
     artifacts = workflow_artifacts(workspace, payload)
 
-    assert summary["workspace_dir"] == str(workspace.resolve())
-    assert summary["stage_count"] == 2
-    assert summary["stage_status_counts"] == {"completed": 1, "unknown": 1}
-    assert summary["task_status_counts"] == {"running": 1, "unknown": 1}
-    assert summary["submission_summary"] == {"submitted": 1}
-    assert summary["final_child_sync_pending"] is True
-    assert summary["downstream_reaction_workflow"]["workflow_id"] == "child_wf"
-    assert summary["precomplex_handoff"]["reactant_xyz"] == "inputs/reactant.xyz"
-    assert summary["parent_workflow"] == {"workflow_id": "wf_grandparent"}
-    assert summary["last_restarted_at"] == "2026-04-19T12:30:00+00:00"
-    assert summary["restart_summary"]["status"] == "restarted"
-    assert summary["stage_summaries"][0]["queue_id"] == "queue_01"
-    assert summary["stage_summaries"][0]["reaction_dir"] == "jobs/reaction_dir"
-    assert summary["stage_summaries"][0]["selected_inp"] == "inputs/reaction.inp"
-    assert summary["stage_summaries"][0]["optimized_xyz_path"] == "outputs/optimized.xyz"
-    assert summary["stage_summaries"][0]["output_artifact_count"] == 2
-    assert summary["stage_summaries"][1]["status"] == "unknown"
-
-    source_rows = [row for row in artifacts if row["kind"] == "source_xyz"]
-    report_rows = [row for row in artifacts if row["kind"] == "report"]
-    precomplex_rows = [row for row in artifacts if row["kind"] == "precomplex_handoff_xyz"]
-    downstream_file_rows = [row for row in artifacts if row["kind"] == "downstream_workflow_file"]
-    selected_inp_rows = [row for row in artifacts if row["kind"] == "selected_inp"]
-    optimized_rows = [row for row in artifacts if row["kind"] == "optimized_xyz_path"]
-
-    assert len(source_rows) == 1
-    assert source_rows[0]["selected"] is True
-    assert source_rows[0]["metadata"] == {"role": "seed"}
-    assert source_rows[0]["resolved_path"] == str(source_xyz.resolve())
-
-    assert len(report_rows) == 1
-    assert report_rows[0]["exists"] is True
-    assert report_rows[0]["resolved_path"] == str(report_json.resolve())
-
-    assert len(precomplex_rows) == 2
-    assert {row["metadata"]["role"] for row in precomplex_rows} == {"reactant", "product"}
-    assert all(row["selected"] is True for row in precomplex_rows)
-
-    assert len(selected_inp_rows) == 1
-    assert selected_inp_rows[0]["path"] == "inputs/reaction.inp"
-    assert selected_inp_rows[0]["source"] == "task.payload"
-    assert selected_inp_rows[0]["resolved_path"] == str(selected_inp.resolve())
-
-    assert len(optimized_rows) == 1
-    assert optimized_rows[0]["path"] == "outputs/optimized.xyz"
-    assert optimized_rows[0]["source"] == "task.payload"
-    assert optimized_rows[0]["resolved_path"] == str(optimized_xyz.resolve())
-
-    assert len(downstream_file_rows) == 1
-    assert downstream_file_rows[0]["exists"] is True
-    assert downstream_file_rows[0]["resolved_path"] == str((downstream_workspace / WORKFLOW_FILE_NAME).resolve())
-
-    downstream_latest_rows = [row for row in artifacts if row["kind"] == "downstream_latest_known_path"]
-    assert len(downstream_latest_rows) == 1
-    assert downstream_latest_rows[0]["metadata"] == {"stage_id": "child_stage_01"}
-    assert downstream_latest_rows[0]["is_dir"] is True
+    _assert_workflow_summary_branches(summary, workspace)
+    _assert_workflow_artifact_branches(
+        artifacts,
+        source_xyz=source_xyz,
+        report_json=report_json,
+        selected_inp=selected_inp,
+        optimized_xyz=optimized_xyz,
+        downstream_workspace=downstream_workspace,
+    )
 
 
 def test_load_crest_artifact_contract_uses_state_and_index_fallbacks_for_resources_and_selection(

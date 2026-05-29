@@ -19,6 +19,13 @@ def test_prompt_text_returns_value_or_default() -> None:
         assert init._prompt_text("label") == ""
 
 
+def test_prompt_secret_text_uses_hidden_input() -> None:
+    with patch("chemstack.orca.commands.init.getpass.getpass", return_value="  token  ") as prompt:
+        assert init._prompt_secret_text("Telegram bot token") == "token"
+
+    prompt.assert_called_once_with("Telegram bot token: ")
+
+
 def test_prompt_yes_no_handles_defaults_and_reprompts(capsys) -> None:
     with patch("builtins.input", return_value=""):
         assert init._prompt_yes_no("Proceed?", default=True) is True
@@ -133,9 +140,9 @@ def test_prompt_telegram_config_covers_skip_and_retry(capsys) -> None:
         assert init._prompt_telegram_config() == {"bot_token": "", "chat_id": ""}
 
     with patch("chemstack.orca.commands.init._prompt_yes_no", return_value=True), patch(
-        "chemstack.orca.commands.init._prompt_text",
-        side_effect=["token-only", "", "token", "123"],
-    ):
+        "chemstack.orca.commands.init._prompt_secret_text",
+        side_effect=["token-only", "token"],
+    ), patch("chemstack.orca.commands.init._prompt_text", side_effect=["", "123"]):
         assert init._prompt_telegram_config() == {"bot_token": "token", "chat_id": "123"}
 
     assert "Both Telegram bot token and chat id are required" in capsys.readouterr().out

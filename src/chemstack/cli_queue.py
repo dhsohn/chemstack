@@ -9,6 +9,7 @@ from chemstack import activity_rendering as _activity_rendering
 from chemstack import cli_style
 from chemstack.cli_errors import emit_error
 from chemstack.activity_view import (
+    activity_counter_config_path,
     activity_with_parent_hint,
     count_global_active_simulations,
     queue_list_default_visible_items,
@@ -87,17 +88,11 @@ def _activity_counter_config_path(
     payload: dict[str, Any],
     config_hint: str | None,
 ) -> str | None:
-    config_text = normalize_text(config_hint)
-    if config_text:
-        return config_text
-    sources = payload.get("sources")
-    if not isinstance(sources, dict):
-        return None
-    for key in ("orca_config", "crest_config", "xtb_config"):
-        source_text = normalize_text(sources.get(key))
-        if source_text:
-            return source_text
-    return None
+    return activity_counter_config_path(
+        payload,
+        config_hints=(config_hint,),
+        prefer_hints=True,
+    )
 
 
 def _queue_table_now() -> Any:

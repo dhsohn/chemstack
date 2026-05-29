@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 import threading
-import time
 from pathlib import Path
 from typing import Any
 
-from chemstack.core.admission import AdmissionSlot, active_slot_count, list_slots
+from chemstack.core.admission import active_slot_count, list_slots
 from chemstack.core.indexing import get_job_location
 from chemstack.core.queue import list_queue
 from chemstack.crest import queue_runtime as crest_queue_cmd
@@ -13,29 +12,15 @@ from chemstack.flow.submitters import crest as crest_submitter
 from chemstack.flow.submitters import xtb as xtb_submitter
 from chemstack.xtb import queue_runtime as xtb_queue_cmd
 from tests.engine_process_helpers import process_one_crest_for_test, process_one_xtb_for_test
+from tests.integration.conftest import wait_for_active_slots
 
 
 def _queue_status(entry: Any) -> str:
     return str(getattr(getattr(entry, "status", None), "value", "")).strip()
 
 
-def _wait_for_active_slots(root: Path, *, expected: int, timeout: float = 5.0) -> list[AdmissionSlot]:
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        slots = list_slots(root)
-        if len(slots) == expected:
-            return slots
-        time.sleep(0.05)
-    raise AssertionError(f"Timed out waiting for {expected} active admission slot(s)")
-
-
-def test_xtb_and_crest_share_single_admission_slot(
-    smoke_workspace: Any,
-    xtb_opt_job: Path,
-    crest_job: Path,
-    capsys: Any,
-) -> None:
-    smoke_workspace.fake_xtb.write_text(
+def _write_slow_fake_xtb(path: Path) -> None:
+    path.write_text(
         """#!/usr/bin/env bash
 set -euo pipefail
 sleep 1.5
@@ -49,24 +34,25 @@ exit 0
 """,
         encoding="utf-8",
     )
-    smoke_workspace.fake_xtb.chmod(0o755)
+    path.chmod(0o755)
 
-    xtb_submission = xtb_submitter.submit_job_dir(
-        job_dir=str(xtb_opt_job),
-        priority=5,
-        config_path=str(smoke_workspace.xtb_config_path),
+
+def _submit_manual_jobs(smoke_workspace: Any, xtb_opt_job: Path, crest_job: Path) -> tuple[Any, Any]:
+    return (
+        xtb_submitter.submit_job_dir(
+            job_dir=str(xtb_opt_job),
+            priority=5,
+            config_path=str(smoke_workspace.xtb_config_path),
+        ),
+        crest_submitter.submit_job_dir(
+            job_dir=str(crest_job),
+            priority=5,
+            config_path=str(smoke_workspace.crest_config_path),
+        ),
     )
-    crest_submission = crest_submitter.submit_job_dir(
-        job_dir=str(crest_job),
-        priority=5,
-        config_path=str(smoke_workspace.crest_config_path),
-    )
 
-    assert xtb_submission["status"] == "submitted"
-    assert crest_submission["status"] == "submitted"
-    assert _queue_status(list_queue(smoke_workspace.xtb_allowed_root)[0]) == "pending"
-    assert _queue_status(list_queue(smoke_workspace.crest_allowed_root)[0]) == "pending"
 
+def _start_xtb_worker_thread(smoke_workspace: Any) -> tuple[threading.Thread, list[str], list[BaseException]]:
     xtb_outcomes: list[str] = []
     xtb_errors: list[BaseException] = []
 
@@ -83,8 +69,36 @@ exit 0
 
     xtb_thread = threading.Thread(target=_run_xtb_process_one)
     xtb_thread.start()
+    return xtb_thread, xtb_outcomes, xtb_errors
 
-    slots = _wait_for_active_slots(smoke_workspace.admission_root, expected=1)
+
+def _assert_job_record(root: Path, job_id: str, job_dir: Path) -> None:
+    record = get_job_location(root, job_id)
+    assert record is not None
+    assert record.status == "completed"
+    assert record.organized_output_dir == ""
+    assert record.latest_known_path == str(job_dir.resolve())
+    assert Path(record.latest_known_path).exists()
+
+
+def test_xtb_and_crest_share_single_admission_slot(
+    smoke_workspace: Any,
+    xtb_opt_job: Path,
+    crest_job: Path,
+    capsys: Any,
+) -> None:
+    _write_slow_fake_xtb(smoke_workspace.fake_xtb)
+    xtb_submission, crest_submission = _submit_manual_jobs(
+        smoke_workspace, xtb_opt_job, crest_job
+    )
+
+    assert xtb_submission["status"] == "submitted"
+    assert crest_submission["status"] == "submitted"
+    assert _queue_status(list_queue(smoke_workspace.xtb_allowed_root)[0]) == "pending"
+    assert _queue_status(list_queue(smoke_workspace.crest_allowed_root)[0]) == "pending"
+
+    xtb_thread, xtb_outcomes, xtb_errors = _start_xtb_worker_thread(smoke_workspace)
+    slots = wait_for_active_slots(smoke_workspace.admission_root, expected=1)
     assert active_slot_count(smoke_workspace.admission_root) == 1
     assert slots[0].app_name == "chemstack_xtb"
     assert slots[0].source == "chemstack.xtb.queue_worker"
@@ -107,13 +121,7 @@ exit 0
     assert "status: completed" in xtb_stdout
 
     assert list_slots(smoke_workspace.admission_root) == []
-
-    xtb_record = get_job_location(smoke_workspace.xtb_allowed_root, xtb_submission["job_id"])
-    assert xtb_record is not None
-    assert xtb_record.status == "completed"
-    assert xtb_record.organized_output_dir == ""
-    assert xtb_record.latest_known_path == str(xtb_opt_job.resolve())
-    assert Path(xtb_record.latest_known_path).exists()
+    _assert_job_record(smoke_workspace.xtb_allowed_root, xtb_submission["job_id"], xtb_opt_job)
 
     assert process_one_crest_for_test(
         crest_queue_cmd,
@@ -123,13 +131,7 @@ exit 0
     assert f"queue_id: {crest_submission['queue_id']}" in crest_stdout
     assert f"job_id: {crest_submission['job_id']}" in crest_stdout
     assert "status: completed" in crest_stdout
-
-    crest_record = get_job_location(smoke_workspace.crest_allowed_root, crest_submission["job_id"])
-    assert crest_record is not None
-    assert crest_record.status == "completed"
-    assert crest_record.organized_output_dir == ""
-    assert crest_record.latest_known_path == str(crest_job.resolve())
-    assert Path(crest_record.latest_known_path).exists()
+    _assert_job_record(smoke_workspace.crest_allowed_root, crest_submission["job_id"], crest_job)
 
     assert _queue_status(list_queue(smoke_workspace.xtb_allowed_root)[0]) == "completed"
     assert _queue_status(list_queue(smoke_workspace.crest_allowed_root)[0]) == "completed"

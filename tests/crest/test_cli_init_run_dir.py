@@ -44,6 +44,77 @@ def _write_xyz(path: Path, label: str = "sample") -> None:
     path.write_text(f"1\n{label}\nH 0.0 0.0 0.0\n", encoding="utf-8")
 
 
+def _patch_crest_e2e_notifications(
+    monkeypatch: pytest.MonkeyPatch,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+    queued_notifications: list[dict[str, Any]] = []
+    started_notifications: list[dict[str, Any]] = []
+    finished_notifications: list[dict[str, Any]] = []
+
+    def fake_notify_job_queued(cfg: Any, **kwargs: Any) -> bool:
+        queued_notifications.append(kwargs)
+        return True
+
+    def fake_notify_job_started(cfg: Any, **kwargs: Any) -> bool:
+        started_notifications.append(kwargs)
+        return True
+
+    def fake_notify_job_finished(cfg: Any, **kwargs: Any) -> bool:
+        finished_notifications.append(kwargs)
+        return True
+
+    monkeypatch.setattr(crest_submission, "notify_job_queued", fake_notify_job_queued)
+    monkeypatch.setattr(queue_cmd, "notify_job_started", fake_notify_job_started)
+    monkeypatch.setattr(queue_cmd, "notify_job_finished", fake_notify_job_finished)
+    return queued_notifications, started_notifications, finished_notifications
+
+
+def _patch_crest_e2e_runner(monkeypatch: pytest.MonkeyPatch, job_dir: Path) -> None:
+    class _FakeProcess:
+        def poll(self) -> int | None:
+            return 0
+
+    def fake_start_crest_job(cfg: Any, *, job_dir: Path, selected_xyz: Path) -> Any:
+        return type("Running", (), {"process": _FakeProcess()})()
+
+    def fake_finalize_crest_job(running: Any) -> CrestRunResult:
+        selected_xyz = job_dir / "input.xyz"
+        stdout_log = job_dir / "crest.stdout.log"
+        stderr_log = job_dir / "crest.stderr.log"
+        retained_path = job_dir / "crest_best.xyz"
+        stdout_log.write_text("stdout\n", encoding="utf-8")
+        stderr_log.write_text("stderr\n", encoding="utf-8")
+        retained_path.write_text("1\nretained\nH 0.0 0.0 0.0\n", encoding="utf-8")
+        return CrestRunResult(
+            status="completed",
+            reason="ok",
+            command=("crest", selected_xyz.name, "--T", "6"),
+            exit_code=0,
+            started_at="2026-04-20T00:00:00+00:00",
+            finished_at="2026-04-20T00:05:00+00:00",
+            stdout_log=str(stdout_log.resolve()),
+            stderr_log=str(stderr_log.resolve()),
+            selected_input_xyz=str(selected_xyz.resolve()),
+            mode="standard",
+            retained_conformer_count=1,
+            retained_conformer_paths=(str(retained_path.resolve()),),
+            manifest_path=str((job_dir / "crest_job.yaml").resolve()),
+            resource_request={"max_cores": 6, "max_memory_gb": 14},
+            resource_actual={"assigned_cores": 6, "memory_limit_gb": 14},
+        )
+
+    monkeypatch.setattr(queue_cmd, "start_crest_job", fake_start_crest_job)
+    monkeypatch.setattr(queue_cmd, "finalize_crest_job", fake_finalize_crest_job)
+
+
+def _prepare_crest_e2e_job(job_dir: Path) -> None:
+    job_dir.mkdir(parents=True)
+    _write_xyz(job_dir / "input.xyz", "input")
+    (job_dir / "crest_job.yaml").write_text(
+        "mode: standard\ninput_xyz: input.xyz\n", encoding="utf-8"
+    )
+
+
 def test_cmd_run_dir_queues_job_updates_state_and_index(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -186,67 +257,12 @@ def test_cli_end_to_end_smoke_path_submission_worker_and_index(
 ) -> None:
     config_path, allowed_root, _ = _write_config(tmp_path)
     job_dir = allowed_root / "job-e2e"
-    queued_notifications: list[dict[str, Any]] = []
-    started_notifications: list[dict[str, Any]] = []
-    finished_notifications: list[dict[str, Any]] = []
-
     monkeypatch.setattr(crest_submission, "new_job_id", lambda: "crest-e2e-001")
-
-    def fake_notify_job_queued(cfg: Any, **kwargs: Any) -> bool:
-        queued_notifications.append(kwargs)
-        return True
-
-    def fake_notify_job_started(cfg: Any, **kwargs: Any) -> bool:
-        started_notifications.append(kwargs)
-        return True
-
-    def fake_notify_job_finished(cfg: Any, **kwargs: Any) -> bool:
-        finished_notifications.append(kwargs)
-        return True
-
-    monkeypatch.setattr(crest_submission, "notify_job_queued", fake_notify_job_queued)
-    monkeypatch.setattr(queue_cmd, "notify_job_started", fake_notify_job_started)
-    monkeypatch.setattr(queue_cmd, "notify_job_finished", fake_notify_job_finished)
-
-    class _FakeProcess:
-        def poll(self) -> int | None:
-            return 0
-
-    def fake_start_crest_job(cfg: Any, *, job_dir: Path, selected_xyz: Path) -> Any:
-        return type("Running", (), {"process": _FakeProcess()})()
-
-    def fake_finalize_crest_job(running: Any) -> CrestRunResult:
-        selected_xyz = job_dir / "input.xyz"
-        stdout_log = job_dir / "crest.stdout.log"
-        stderr_log = job_dir / "crest.stderr.log"
-        retained_path = job_dir / "crest_best.xyz"
-        stdout_log.write_text("stdout\n", encoding="utf-8")
-        stderr_log.write_text("stderr\n", encoding="utf-8")
-        retained_path.write_text("1\nretained\nH 0.0 0.0 0.0\n", encoding="utf-8")
-        return CrestRunResult(
-            status="completed",
-            reason="ok",
-            command=("crest", selected_xyz.name, "--T", "6"),
-            exit_code=0,
-            started_at="2026-04-20T00:00:00+00:00",
-            finished_at="2026-04-20T00:05:00+00:00",
-            stdout_log=str(stdout_log.resolve()),
-            stderr_log=str(stderr_log.resolve()),
-            selected_input_xyz=str(selected_xyz.resolve()),
-            mode="standard",
-            retained_conformer_count=1,
-            retained_conformer_paths=(str(retained_path.resolve()),),
-            manifest_path=str((job_dir / "crest_job.yaml").resolve()),
-            resource_request={"max_cores": 6, "max_memory_gb": 14},
-            resource_actual={"assigned_cores": 6, "memory_limit_gb": 14},
-        )
-
-    monkeypatch.setattr(queue_cmd, "start_crest_job", fake_start_crest_job)
-    monkeypatch.setattr(queue_cmd, "finalize_crest_job", fake_finalize_crest_job)
-
-    job_dir.mkdir(parents=True)
-    _write_xyz(job_dir / "input.xyz", "input")
-    (job_dir / "crest_job.yaml").write_text("mode: standard\ninput_xyz: input.xyz\n", encoding="utf-8")
+    queued_notifications, started_notifications, finished_notifications = (
+        _patch_crest_e2e_notifications(monkeypatch)
+    )
+    _patch_crest_e2e_runner(monkeypatch, job_dir)
+    _prepare_crest_e2e_job(job_dir)
 
     submission = crest_submitter.submit_job_dir(
         job_dir=str(job_dir),

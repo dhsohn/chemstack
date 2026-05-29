@@ -21,6 +21,7 @@ from chemstack.core.queue import (
 )
 from chemstack.core.queue import child_entrypoint as _child_entrypoint
 from chemstack.core.queue import child_execution as _child_execution
+from chemstack.core.queue.dependencies import dependency_group
 from chemstack.core.queue import engine_execution as _engine_execution
 from chemstack.core.queue.engine_execution import (
     CancellableProcessExecution,
@@ -178,22 +179,12 @@ def build_worker_execution_dependencies(
     artifacts: WorkerArtifactDependencies | None = None,
     tracking: WorkerTrackingDependencies | None = None,
 ) -> WorkerExecutionDependencies:
-    if timing is None:
-        timing = _default_timing_dependencies()
-    if queue is None:
-        queue = _default_queue_dependencies()
-    if runner is None:
-        runner = _default_runner_dependencies()
-    if artifacts is None:
-        artifacts = _default_artifact_dependencies()
-    if tracking is None:
-        tracking = _default_tracking_dependencies()
     return build_worker_execution_dependencies_from_groups(
-        timing=timing,
-        queue=queue,
-        runner=runner,
-        artifacts=artifacts,
-        tracking=tracking,
+        timing=dependency_group(timing, _default_timing_dependencies),
+        queue=dependency_group(queue, _default_queue_dependencies),
+        runner=dependency_group(runner, _default_runner_dependencies),
+        artifacts=dependency_group(artifacts, _default_artifact_dependencies),
+        tracking=dependency_group(tracking, _default_tracking_dependencies),
     )
 
 

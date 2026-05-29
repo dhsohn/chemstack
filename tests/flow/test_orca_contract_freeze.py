@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from pathlib import Path
 
 from chemstack.flow.orchestration import (
@@ -38,9 +39,17 @@ def _write_orca_config(path: Path, *, allowed_root: Path, organized_root: Path) 
     )
 
 
-def test_orca_contract_freeze_completed_result_survives_public_workflow_sync(
-    tmp_path: Path,
-) -> None:
+@dataclass(frozen=True)
+class OrcaContractFreezeFixture:
+    workflow_root: Path
+    config_path: Path
+    organized_dir: Path
+    inp: Path
+    xyz: Path
+    out: Path
+
+
+def _prepare_orca_contract_freeze_fixture(tmp_path: Path) -> OrcaContractFreezeFixture:
     workflow_root = tmp_path / "workflow_root"
     workflow_workspace = workflow_root / "wf_contract_freeze"
     orca_allowed_root = tmp_path / "orca_runs"
@@ -211,19 +220,33 @@ def test_orca_contract_freeze_completed_result_survives_public_workflow_sync(
             ],
         },
     )
+    return OrcaContractFreezeFixture(
+        workflow_root=workflow_root,
+        config_path=config_path,
+        organized_dir=organized_dir,
+        inp=inp,
+        xyz=xyz,
+        out=out,
+    )
+
+
+def test_orca_contract_freeze_completed_result_survives_public_workflow_sync(
+    tmp_path: Path,
+) -> None:
+    fixture = _prepare_orca_contract_freeze_fixture(tmp_path)
 
     payload = advance_workflow(
         target="wf_contract_freeze",
-        workflow_root=workflow_root,
-        orca_config=str(config_path),
+        workflow_root=fixture.workflow_root,
+        orca_config=str(fixture.config_path),
         submit_ready=False,
     )
     workflow_workspace = resolve_workflow_workspace(
         target="wf_contract_freeze",
-        workflow_root=workflow_root,
+        workflow_root=fixture.workflow_root,
     )
     workflow_payload = load_workflow_payload(workflow_workspace)
-    sync_workflow_registry(workflow_root, workflow_workspace, workflow_payload)
+    sync_workflow_registry(fixture.workflow_root, workflow_workspace, workflow_payload)
     workflow_summary_payload = workflow_summary(workflow_workspace, workflow_payload)
     artifacts = workflow_artifacts(workflow_workspace, workflow_payload)
 
@@ -239,23 +262,23 @@ def test_orca_contract_freeze_completed_result_survives_public_workflow_sync(
     assert task["status"] == "completed"
     assert stage_metadata["queue_id"] == "q_hist_1"
     assert stage_metadata["run_id"] == "run_hist_1"
-    assert stage_metadata["latest_known_path"] == str(organized_dir.resolve())
-    assert stage_metadata["organized_output_dir"] == str(organized_dir.resolve())
-    assert stage_metadata["optimized_xyz_path"] == str(xyz.resolve())
+    assert stage_metadata["latest_known_path"] == str(fixture.organized_dir.resolve())
+    assert stage_metadata["organized_output_dir"] == str(fixture.organized_dir.resolve())
+    assert stage_metadata["optimized_xyz_path"] == str(fixture.xyz.resolve())
     assert stage_metadata["analyzer_status"] == "completed"
     assert stage_metadata["reason"] == "normal_termination"
     assert stage_metadata["attempt_count"] == 1
     assert stage_metadata["max_retries"] == 3
-    assert task_payload["selected_inp"] == str(inp.resolve())
-    assert task_payload["selected_input_xyz"] == str(xyz.resolve())
-    assert task_payload["last_out_path"] == str(out.resolve())
+    assert task_payload["selected_inp"] == str(fixture.inp.resolve())
+    assert task_payload["selected_input_xyz"] == str(fixture.xyz.resolve())
+    assert task_payload["last_out_path"] == str(fixture.out.resolve())
 
     assert stage_summary["queue_id"] == "q_hist_1"
     assert stage_summary["run_id"] == "run_hist_1"
-    assert stage_summary["latest_known_path"] == str(organized_dir.resolve())
-    assert stage_summary["organized_output_dir"] == str(organized_dir.resolve())
-    assert stage_summary["optimized_xyz_path"] == str(xyz.resolve())
-    assert stage_summary["last_out_path"] == str(out.resolve())
+    assert stage_summary["latest_known_path"] == str(fixture.organized_dir.resolve())
+    assert stage_summary["organized_output_dir"] == str(fixture.organized_dir.resolve())
+    assert stage_summary["optimized_xyz_path"] == str(fixture.xyz.resolve())
+    assert stage_summary["last_out_path"] == str(fixture.out.resolve())
     assert stage_summary["analyzer_status"] == "completed"
     assert stage_summary["reason"] == "normal_termination"
     assert stage_summary["orca_attempt_count"] == 1

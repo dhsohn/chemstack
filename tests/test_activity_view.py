@@ -108,3 +108,30 @@ def test_count_global_active_simulations_uses_orca_runtime_paths(
         == 5
     )
     assert calls == [("/tmp/chemstack.yaml", "orca")]
+
+
+def test_activity_counter_config_path_prioritizes_sources_or_hints() -> None:
+    payload = {
+        "sources": {
+            "orca_config": " ",
+            "crest_config": " /tmp/crest.yaml ",
+            "xtb_config": "/tmp/xtb.yaml",
+        }
+    }
+
+    assert activity_view.activity_counter_config_path(payload) == "/tmp/crest.yaml"
+    assert (
+        activity_view.activity_counter_config_path(
+            payload,
+            config_hints=("/tmp/hint.yaml",),
+            prefer_hints=True,
+        )
+        == "/tmp/hint.yaml"
+    )
+    assert (
+        activity_view.activity_counter_config_path(
+            {"sources": {}},
+            config_hints=(None, "  ", "/tmp/fallback.yaml"),
+        )
+        == "/tmp/fallback.yaml"
+    )

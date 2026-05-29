@@ -3,7 +3,9 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Protocol, TypeVar
+
+T = TypeVar("T")
 
 
 class SleepTimer(Protocol):
@@ -54,10 +56,15 @@ class ChildQueueWorkerDeps:
     try_reserve_admission_slot: AdmissionReserver
 
 
+def dependency_group(value: T | None, default_factory: Callable[[], T]) -> T:
+    return value if value is not None else default_factory()
+
+
 __all__ = [
     "ChildQueueWorkerDeps",
     "BackgroundJobProcessStarter",
     "DequeuedEntryReserver",
+    "dependency_group",
     "QueueEntryDequeuer",
     "SleepTimer",
     "SlotReleaser",

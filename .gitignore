@@ -32,8 +32,13 @@ htmlcov/
 *.log
 logs/
 
-# Config (실제 설정 — 템플릿은 chemstack.yaml.example)
-config/chemstack.yaml
+# Config (actual local settings; commit only explicit examples)
+config/*.yaml
+config/*.yml
+!config/*.example.yaml
+!config/*.example.yml
+!config/*.yaml.example
+!config/*.yml.example
 
 # Runtime artifacts
 *.pid
