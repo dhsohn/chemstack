@@ -13,7 +13,8 @@ from ._orchestration_advance import (
     advance_workflow,
     cancel_materialized_workflow,
 )
-from . import _orchestration_builders as _stage_builders
+from . import _orchestration_stage_builders as _stage_builders
+from . import _orchestration_workflow_builders as _workflow_builders
 from . import orchestration_factories as _workflow_factories
 from .orchestration_factories import WorkflowFactoryDeps
 from ._orchestration_requests import (
@@ -29,7 +30,7 @@ def _workflow_factory_deps() -> WorkflowFactoryDeps:
     return WorkflowFactoryDeps(
         normalize_text=normalize_text,
         workflow_id_factory=timestamped_token,
-        copy_input_fn=_stage_builders._copy_input_impl,
+        copy_input_fn=_workflow_builders._copy_input_impl,
         now_utc_iso_fn=now_utc_iso,
         new_crest_stage_fn=_stage_builders.new_crest_stage_impl,
         write_workflow_payload_fn=write_workflow_payload,

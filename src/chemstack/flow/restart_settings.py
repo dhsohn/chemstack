@@ -8,7 +8,7 @@ from chemstack.core.utils import (
     normalize_text as _normalize_text,
 )
 
-from ._orchestration_builders import (
+from ._orchestration_workflow_builders import (
     _REACTION_TS_SEARCH_CREST_MANIFEST_DEFAULTS,
     _merge_manifest_defaults,
 )

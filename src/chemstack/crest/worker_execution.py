@@ -23,12 +23,10 @@ from chemstack.core.queue import child_entrypoint as _child_entrypoint
 from chemstack.core.queue import child_execution as _child_execution
 from chemstack.core.queue import engine_execution as _engine_execution
 from chemstack.core.queue.dependencies import LegacyDependencyOverrides
-from chemstack.core.queue.types import QueueStatus
 from chemstack.core.queue.engine_execution import (
     CancellableProcessExecution,
 )
 from chemstack.core.queue.worker import (
-    build_background_worker_command,
     install_shutdown_signal_handlers,
     resolve_admission_root,
     terminate_process_group,
@@ -41,9 +39,24 @@ from chemstack.core.notifications.engines import (
 from chemstack.core.utils import now_utc_iso
 
 from . import queue_artifacts as _queue_artifacts
+from . import worker_child as _worker_child
 from .job_locations import upsert_job_record
 from .runner import CrestRunResult, finalize_crest_job, start_crest_job
 from .state import mark_recovery_pending
+from .worker_context import (
+    ExecutionContext,
+    build_execution_context as _build_execution_context,
+    molecule_key as _molecule_key,
+)
+from .worker_terminal import (
+    WorkerExecutionOutcome,
+    finalize_processed_entry as _terminal_finalize_processed_entry,
+    mark_job_running as _terminal_mark_job_running,
+    mark_queue_terminal as _terminal_mark_queue_terminal,
+    sync_job_tracking as _terminal_sync_job_tracking,
+    write_execution_artifacts as _terminal_write_execution_artifacts,
+    write_running_state as _terminal_write_running_state,
+)
 
 CANCEL_CHECK_INTERVAL_SECONDS = 1
 is_recovery_pending = _queue_artifacts.is_recovery_pending
@@ -52,25 +65,7 @@ state_matches_job = _queue_artifacts.state_matches_job
 write_report_json = _queue_artifacts.write_report_json
 write_report_md_lines = _queue_artifacts.write_report_md_lines
 write_state = _queue_artifacts.write_state
-
-
-@dataclass(frozen=True)
-class ExecutionContext:
-    entry: Any
-    job_dir: Path
-    selected_xyz: Path
-    molecule_key: str
-    mode: str
-    resource_request: dict[str, int]
-
-
-@dataclass(frozen=True)
-class WorkerExecutionOutcome:
-    result: CrestRunResult
-    job_dir: Path
-    selected_xyz: Path
-    molecule_key: str
-    organized_output_dir: Path | None
+WorkerShutdownRequested = _worker_child.WorkerShutdownRequested
 
 
 @dataclass(frozen=True)
@@ -236,12 +231,6 @@ def build_worker_execution_dependencies(
     )
 
 
-class WorkerShutdownRequested(RuntimeError):
-    def __init__(self, context: ExecutionContext):
-        super().__init__("worker_shutdown")
-        self.context = context
-
-
 def default_worker_execution_dependencies() -> WorkerExecutionDependencies:
     return build_worker_execution_dependencies()
 
@@ -253,18 +242,16 @@ def build_worker_child_command(
     queue_id: str,
     admission_token: str | None = None,
 ) -> list[str]:
-    return build_background_worker_command(
+    return _worker_child.build_worker_child_command(
         config_path=config_path,
-        queue_root=Path(queue_root),
+        queue_root=queue_root,
         queue_id=queue_id,
-        worker_job_module="chemstack.crest.worker_execution",
         admission_token=admission_token,
-        include_admission_root=False,
     )
 
 
 def _write_execution_artifacts(entry: Any, result: CrestRunResult) -> None:
-    _queue_artifacts.write_execution_artifacts(
+    _terminal_write_execution_artifacts(
         entry,
         result,
         load_state_fn=load_state,
@@ -276,7 +263,7 @@ def _write_execution_artifacts(entry: Any, result: CrestRunResult) -> None:
 
 
 def _write_running_state(cfg: Any, entry: Any) -> None:
-    _queue_artifacts.write_running_state(
+    _terminal_write_running_state(
         cfg,
         entry,
         load_state_fn=load_state,
@@ -293,33 +280,6 @@ def _terminate_process(proc: subprocess.Popen[str]) -> None:
         killpg_fn=os.killpg,
         sigterm=signal.SIGTERM,
         sigkill=signal.SIGKILL,
-    )
-
-
-def _molecule_key(entry: Any, selected_xyz: Path, job_dir: Path) -> str:
-    from .job_locations import molecule_key_from_selected_xyz
-
-    raw = _engine_execution.entry_metadata_text(entry, "molecule_key")
-    if raw:
-        return raw
-    return molecule_key_from_selected_xyz(str(selected_xyz), job_dir)
-
-
-def _build_execution_context(
-    cfg: Any,
-    entry: Any,
-    *,
-    molecule_key_resolver: Callable[[Any, Path, Path], str],
-) -> ExecutionContext:
-    job_dir = _engine_execution.entry_metadata_resolved_path(entry, "job_dir")
-    selected_xyz = _engine_execution.entry_metadata_resolved_path(entry, "selected_input_xyz")
-    return ExecutionContext(
-        entry=entry,
-        job_dir=job_dir,
-        selected_xyz=selected_xyz,
-        molecule_key=molecule_key_resolver(entry, selected_xyz, job_dir),
-        mode=str(entry.metadata.get("mode", "standard")),
-        resource_request=_queue_artifacts.entry_resource_request(cfg, entry),
     )
 
 
@@ -360,20 +320,11 @@ def _mark_queue_terminal(
     *,
     dependencies: WorkerExecutionDependencies,
 ) -> None:
-    queue_deps = dependencies.queue
-    metadata_update = {
-        "retained_conformer_count": result.retained_conformer_count,
-        "mode": result.mode,
-    }
-    _queue_execution.mark_terminal_status(
+    _terminal_mark_queue_terminal(
         queue_root,
-        context.entry.queue_id,
-        status=result.status,
-        reason=result.reason,
-        metadata_update=metadata_update,
-        mark_completed_fn=queue_deps.mark_completed,
-        mark_cancelled_fn=queue_deps.mark_cancelled,
-        mark_failed_fn=queue_deps.mark_failed,
+        context,
+        result,
+        queue_deps=dependencies.queue,
     )
 
 
@@ -384,20 +335,12 @@ def _sync_job_tracking(
     *,
     dependencies: WorkerExecutionDependencies,
 ) -> Path | None:
-    tracking_deps = dependencies.tracking
-    tracking_deps.upsert_job_record(
+    return _terminal_sync_job_tracking(
         cfg,
-        job_id=context.entry.task_id,
-        status=result.status,
-        job_dir=context.job_dir,
-        mode=result.mode,
-        selected_input_xyz=str(context.selected_xyz),
-        molecule_key=context.molecule_key,
-        resource_request=result.resource_request,
-        resource_actual=result.resource_actual,
+        context,
+        result,
+        tracking_deps=dependencies.tracking,
     )
-
-    return None
 
 
 def _raise_if_shutdown_requested(
@@ -414,24 +357,11 @@ def _mark_job_running(
     *,
     dependencies: WorkerExecutionDependencies,
 ) -> None:
-    artifact_deps = dependencies.artifacts
-    tracking_deps = dependencies.tracking
-    _engine_execution.mark_engine_job_running(
+    _terminal_mark_job_running(
         cfg,
-        entry=context.entry,
-        job_dir=context.job_dir,
-        selected_xyz=context.selected_xyz,
-        resource_request=context.resource_request,
-        write_running_state_fn=artifact_deps.write_running_state,
-        upsert_job_record_fn=tracking_deps.upsert_job_record,
-        notify_job_started_fn=tracking_deps.notify_job_started,
-        record_fields={
-            "mode": context.mode,
-            "molecule_key": context.molecule_key,
-        },
-        notify_fields={
-            "mode": context.mode,
-        },
+        context,
+        artifact_deps=dependencies.artifacts,
+        tracking_deps=dependencies.tracking,
     )
 
 
@@ -507,46 +437,12 @@ def _finalize_processed_entry(
     queue_root: Path,
     dependencies: WorkerExecutionDependencies,
 ) -> Path | None:
-    artifact_deps = dependencies.artifacts
-    tracking_deps = dependencies.tracking
-
-    def notify_finished(organized_output_dir: Path | None) -> None:
-        tracking_deps.notify_job_finished(
-            cfg,
-            job_id=context.entry.task_id,
-            queue_id=context.entry.queue_id,
-            status=result.status,
-            reason=result.reason,
-            mode=result.mode,
-            job_dir=context.job_dir,
-            selected_xyz=context.selected_xyz,
-            retained_conformer_count=result.retained_conformer_count,
-            organized_output_dir=organized_output_dir,
-            resource_request=context.resource_request,
-            resource_actual=result.resource_actual,
-        )
-
-    return _engine_execution.sync_terminal_result(
-        _engine_execution.TerminalSyncActions(
-            write_artifacts=lambda: artifact_deps.write_execution_artifacts(
-                context.entry,
-                result,
-            ),
-            mark_queue_terminal=lambda: _mark_queue_terminal(
-                queue_root,
-                context,
-                result,
-                dependencies=dependencies,
-            ),
-            sync_job_record=lambda: _sync_job_tracking(
-                cfg,
-                context,
-                result,
-                dependencies=dependencies,
-            ),
-            notify_finished=notify_finished,
-            build_outcome=lambda organized_output_dir: organized_output_dir,
-        ),
+    return _terminal_finalize_processed_entry(
+        cfg,
+        context,
+        result,
+        queue_root=queue_root,
+        dependencies=dependencies,
     )
 
 
@@ -618,7 +514,7 @@ def _find_queue_entry(queue_root: Path, queue_id: str) -> Any | None:
 def _install_shutdown_signal_handlers(
     controller: _child_execution.ChildWorkerShutdownController,
 ) -> None:
-    _child_execution.install_shutdown_request_handlers(
+    _worker_child.install_shutdown_signal_handlers(
         controller,
         install_signal_handlers_fn=install_shutdown_signal_handlers,
     )
@@ -631,54 +527,26 @@ def run_worker_child_job(
     queue_id: str,
     admission_token: str | None = None,
 ) -> int:
-    job = _child_entrypoint.load_child_worker_entrypoint_job(
+    return _worker_child.run_worker_child_job(
         config_path=config_path,
         queue_root=queue_root,
         queue_id=queue_id,
+        admission_token=admission_token,
         load_config_fn=load_config,
         find_queue_entry_fn=_find_queue_entry,
-        entry_ready_fn=lambda entry: getattr(entry, "status", None) == QueueStatus.RUNNING,
-        admission_token=admission_token,
         admission_root_fn=_admission_root_for_cfg,
         release_slot_fn=release_slot,
+        install_signal_handlers_fn=_install_shutdown_signal_handlers,
+        process_dequeued_entry_fn=process_dequeued_entry,
+        dependencies_fn=default_worker_execution_dependencies,
+        molecule_key_resolver=_molecule_key,
+        requeue_running_entry_fn=requeue_running_entry,
+        mark_recovery_pending_context_fn=_mark_recovery_pending_context,
     )
-    if job is None:
-        return 1
-    cfg = job.cfg
-    queue_root_path = job.queue_root
-    entry = job.entry
-
-    controller = _child_execution.ChildWorkerShutdownController()
-    _install_shutdown_signal_handlers(controller)
-
-    with _child_entrypoint.child_worker_admission_scope(
-        job,
-        admission_token,
-        release_slot_fn=release_slot,
-    ):
-        try:
-            process_dequeued_entry(
-                cfg,
-                entry,
-                queue_root=queue_root_path,
-                molecule_key_resolver=_molecule_key,
-                dependencies=default_worker_execution_dependencies(),
-                shutdown_requested=controller.is_requested,
-            )
-            return 0
-        except WorkerShutdownRequested as exc:
-            requeue_running_entry(queue_root_path, queue_id)
-            _mark_recovery_pending_context(cfg, exc.context, reason="worker_shutdown")
-            return 0
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="python -m chemstack.crest.worker_execution")
-    parser.add_argument("--config", required=True)
-    parser.add_argument("--queue-root", required=True)
-    parser.add_argument("--queue-id", required=True)
-    parser.add_argument("--admission-token", default=None)
-    return parser
+    return _worker_child.build_parser()
 
 
 def main(argv: list[str] | None = None) -> int:

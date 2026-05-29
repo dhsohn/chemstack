@@ -31,7 +31,6 @@ from chemstack.core.queue import (
     mark_failed,
     requeue_running_entry,
 )
-from chemstack.core.queue.types import QueueStatus
 from chemstack.core.queue.worker import (
     BackgroundRunningJob as _RunningJob,
     PidFileChildProcessQueueWorker,
@@ -41,7 +40,6 @@ from chemstack.core.queue.worker import (
     read_worker_pid_file,
     reconcile_orphaned_child_queue_entries,
     reserve_dequeued_entry,
-    reserve_engine_queue_worker_slot,
     resolve_admission_root,
     shutdown_child_process_with_grace,
     start_background_process,
@@ -49,6 +47,8 @@ from chemstack.core.queue.worker import (
 )
 from chemstack.core.utils import now_utc_iso
 
+from . import queue_admission as _queue_admission
+from . import queue_lifecycle as _queue_lifecycle
 from .job_locations import runtime_roots_for_cfg, upsert_job_record
 from .runner import finalize_crest_job, start_crest_job
 from .worker_execution import (
@@ -112,9 +112,8 @@ def _admission_root_for_cfg(cfg: Any) -> str:
 
 
 def _try_reserve_admission_slot(cfg: Any) -> str | None:
-    return reserve_engine_queue_worker_slot(
+    return _queue_admission.reserve_admission_slot(
         cfg,
-        engine="crest",
         reserve_slot_fn=reserve_slot,
     )
 
@@ -149,14 +148,14 @@ def _start_background_job_process(
     admission_root: str | Path,
     admission_token: str,
 ) -> subprocess.Popen[str]:
-    del admission_root
-    return start_background_process(
-        build_worker_child_command(
-            config_path=config_path,
-            queue_root=queue_root,
-            queue_id=entry.queue_id,
-            admission_token=admission_token,
-        )
+    return _queue_admission.start_background_job_process(
+        config_path=config_path,
+        queue_root=queue_root,
+        entry=entry,
+        admission_root=admission_root,
+        admission_token=admission_token,
+        start_background_process_fn=start_background_process,
+        build_worker_child_command_fn=build_worker_child_command,
     )
 
 
@@ -182,21 +181,17 @@ class QueueWorker(PidFileChildProcessQueueWorker):
         self._reconcile_orphaned_running()
 
     def _reconcile_orphaned_running(self) -> None:
-        reconcile_orphaned_child_queue_entries(
+        _queue_lifecycle.reconcile_orphaned_running(
             self.cfg,
             admission_root=self.admission_root,
             queue_roots_fn=queue_roots,
             list_queue_fn=list_queue,
             list_slots_fn=list_slots,
             reconcile_stale_slots_fn=reconcile_stale_slots,
-            running_status=QueueStatus.RUNNING,
+            reconcile_orphaned_child_queue_entries_fn=reconcile_orphaned_child_queue_entries,
             mark_cancelled_fn=mark_cancelled,
             requeue_running_entry_fn=requeue_running_entry,
-            mark_recovery_pending_fn=lambda cfg, entry: _mark_recovery_pending_entry(
-                cfg,
-                entry,
-                reason="crashed_recovery",
-            ),
+            mark_recovery_pending_fn=_mark_recovery_pending_entry,
         )
 
     def _handle_worker_start_error(
@@ -206,11 +201,12 @@ class QueueWorker(PidFileChildProcessQueueWorker):
         admission_token: str,
         exc: OSError,
     ) -> None:
-        self._mark_entry_failed_and_release(
-            queue_root,
-            entry,
-            admission_token,
-            error=str(exc),
+        _queue_admission.mark_worker_start_error(
+            queue_root=queue_root,
+            entry=entry,
+            admission_token=admission_token,
+            exc=exc,
+            mark_entry_failed_and_release_fn=self._mark_entry_failed_and_release,
             mark_failed_fn=mark_failed,
         )
 
@@ -222,48 +218,39 @@ class QueueWorker(PidFileChildProcessQueueWorker):
         process: subprocess.Popen[str],
         admission_token: str,
     ) -> bool:
-        job_dir_text = str(getattr(entry, "metadata", {}).get("job_dir", "")).strip()
-        attached = activate_reserved_slot(
-            self.admission_root,
-            admission_token,
-            owner_pid=process.pid,
-            source="chemstack.crest.queue_worker.child",
-            queue_id=entry.queue_id,
-            work_dir=job_dir_text or None,
+        return _queue_admission.attach_started_process(
+            admission_root=self.admission_root,
+            queue_root=queue_root,
+            entry=entry,
+            process=process,
+            admission_token=admission_token,
+            activate_reserved_slot_fn=activate_reserved_slot,
+            terminate_process_fn=_terminate_process,
+            mark_entry_failed_and_release_fn=self._mark_entry_failed_and_release,
+            mark_failed_fn=mark_failed,
         )
-        if attached is None:
-            _terminate_process(process)
-            self._mark_entry_failed_and_release(
-                queue_root,
-                entry,
-                admission_token,
-                error="admission_slot_missing",
-                mark_failed_fn=mark_failed,
-            )
-            return False
-        return True
 
     def _finalize_completed_job(self, _queue_id: str, job: Any, rc: int) -> None:
         self._finalize_child_exit(job, rc=rc)
 
     def _finalize_child_exit(self, job: _RunningJob, *, rc: int) -> None:
-        current = _find_queue_entry(job.queue_root, job.entry.queue_id)
-        if current is not None and getattr(current, "status", None) == QueueStatus.RUNNING:
-            if self._shutdown_requested:
-                if getattr(current, "cancel_requested", False):
-                    mark_cancelled(job.queue_root, current.queue_id, error="cancel_requested")
-                else:
-                    requeue_running_entry(job.queue_root, current.queue_id)
-                    _mark_recovery_pending_entry(self.cfg, job.entry, reason="worker_shutdown")
-            elif getattr(current, "cancel_requested", False):
-                mark_cancelled(job.queue_root, current.queue_id, error="cancel_requested")
-            else:
-                mark_failed(job.queue_root, current.queue_id, error=f"worker_child_exit_code={rc}")
-        self._release_admission_slot(job.admission_token)
+        _queue_lifecycle.finalize_child_exit(
+            self.cfg,
+            job,
+            rc=rc,
+            shutdown_requested=self._shutdown_requested,
+            find_queue_entry_fn=_find_queue_entry,
+            mark_cancelled_fn=mark_cancelled,
+            requeue_running_entry_fn=requeue_running_entry,
+            mark_failed_fn=mark_failed,
+            mark_recovery_pending_fn=_mark_recovery_pending_entry,
+            release_admission_slot_fn=self._release_admission_slot,
+        )
 
     def _shutdown_running_job(self, _queue_id: str, job: Any) -> None:
-        shutdown_child_process_with_grace(
+        _queue_lifecycle.shutdown_running_job(
             job,
+            shutdown_child_process_with_grace_fn=shutdown_child_process_with_grace,
             terminate_process_fn=_terminate_process,
             finalize_child_exit_fn=lambda current_job, rc: self._finalize_child_exit(
                 current_job,

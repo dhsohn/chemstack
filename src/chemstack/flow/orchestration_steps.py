@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from ._orchestration_builders import _copy_input_impl as copy_input_impl
+from ._orchestration_workflow_builders import _copy_input_impl as copy_input_impl
 from ._orchestration_deps import orchestration_deps
 from ._orchestration_lifecycle import (
     downstream_terminal_result_impl,
@@ -59,4 +59,3 @@ __all__ = [
     "xtb_path_retry_limit_impl",
     "xtb_retry_recipe_impl",
 ]
-

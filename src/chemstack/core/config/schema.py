@@ -5,13 +5,15 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, ClassVar, TypeVar, cast
 
+from chemstack.core.utils.coercion import normalize_bool, normalize_text, safe_float, safe_int
+
 _RuntimeAdmissionConfigT = TypeVar("_RuntimeAdmissionConfigT", bound="RuntimeAdmissionMixin")
+_CONFIG_TRUE_VALUES = frozenset({"1", "true", "yes", "on"})
+_CONFIG_FALSE_VALUES = frozenset({"0", "false", "no", "off"})
 
 
 def as_str(value: Any, default: str = "") -> str:
-    if value is None:
-        return default
-    return str(value).strip()
+    return normalize_text(value, none=default)
 
 
 def as_nonempty_str(value: Any, default: str = "") -> str:
@@ -21,38 +23,26 @@ def as_nonempty_str(value: Any, default: str = "") -> str:
 
 
 def as_int(value: Any, default: int) -> int:
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return default
+    return safe_int(value, default=default)
 
 
 def as_bool(value: Any, default: bool = False) -> bool:
-    if value is None:
-        return default
-    if isinstance(value, bool):
-        return value
-    text = str(value).strip().lower()
-    if text in {"1", "true", "yes", "on"}:
-        return True
-    if text in {"0", "false", "no", "off"}:
-        return False
-    return default
+    return normalize_bool(
+        value,
+        default=default,
+        true_values=_CONFIG_TRUE_VALUES,
+        false_values=_CONFIG_FALSE_VALUES,
+    )
 
 
 def as_float(value: Any, default: float) -> float:
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return default
+    parsed = safe_float(value, default=default)
+    return default if parsed is None else parsed
 
 
 def positive_int(value: Any) -> int | None:
-    if value in (None, ""):
-        return None
-    try:
-        parsed = int(value)
-    except (TypeError, ValueError):
+    parsed = safe_int(value, default=None)
+    if parsed is None:
         return None
     return parsed if parsed > 0 else None
 

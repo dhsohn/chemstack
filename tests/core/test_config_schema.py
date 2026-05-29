@@ -10,10 +10,15 @@ from chemstack.core.config.schema import (
     CommonRuntimeConfig,
     RetryRuntimeConfig,
     TelegramConfig,
+    as_bool,
+    as_float,
+    as_int,
     as_nonempty_str,
+    as_str,
     normalize_admission_limit,
     normalize_default_max_retries,
     normalize_max_concurrent,
+    positive_int,
     telegram_config_from_mapping,
 )
 
@@ -113,6 +118,80 @@ def test_as_nonempty_str_preserves_existing_string_behavior(
     expected: str,
 ) -> None:
     assert as_nonempty_str(value, default) == expected
+
+
+@pytest.mark.parametrize(
+    ("value", "default", "expected"),
+    [
+        (None, "fallback", "fallback"),
+        ("  value  ", "fallback", "value"),
+        (123, "", "123"),
+    ],
+)
+def test_as_str_normalizes_config_text(value: object, default: str, expected: str) -> None:
+    assert as_str(value, default) == expected
+
+
+@pytest.mark.parametrize(
+    ("value", "default", "expected"),
+    [
+        ("9", 2, 9),
+        ("bad", 2, 2),
+        (None, 2, 2),
+    ],
+)
+def test_as_int_returns_config_default_for_invalid_values(
+    value: object,
+    default: int,
+    expected: int,
+) -> None:
+    assert as_int(value, default) == expected
+
+
+@pytest.mark.parametrize(
+    ("value", "default", "expected"),
+    [
+        (None, True, True),
+        (" yes ", False, True),
+        ("OFF", True, False),
+        ("maybe", True, True),
+    ],
+)
+def test_as_bool_uses_config_boolean_vocabulary(
+    value: object,
+    default: bool,
+    expected: bool,
+) -> None:
+    assert as_bool(value, default) is expected
+
+
+@pytest.mark.parametrize(
+    ("value", "default", "expected"),
+    [
+        ("1.25", 2.0, 1.25),
+        ("bad", 2.0, 2.0),
+        (None, 2.0, 2.0),
+    ],
+)
+def test_as_float_returns_config_default_for_invalid_values(
+    value: object,
+    default: float,
+    expected: float,
+) -> None:
+    assert as_float(value, default) == expected
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("7", 7),
+        ("0", None),
+        ("bad", None),
+        (None, None),
+    ],
+)
+def test_positive_int_accepts_only_positive_values(value: object, expected: int | None) -> None:
+    assert positive_int(value) == expected
 
 
 @pytest.mark.parametrize(

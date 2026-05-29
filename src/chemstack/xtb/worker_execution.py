@@ -11,12 +11,8 @@ from typing import Any, Callable
 from chemstack.core.admission import activate_reserved_slot, release_slot
 from chemstack.core.queue import (
     list_queue,
-    mark_cancelled,
-    mark_completed,
-    mark_failed,
 )
 from chemstack.core.queue import child_entrypoint as _child_entrypoint
-from chemstack.core.queue import child_execution as _child_execution
 from chemstack.core.queue import engine_execution as _engine_execution
 from chemstack.core.queue import execution as _queue_execution
 from chemstack.core.queue.dependencies import LegacyDependencyOverrides
@@ -25,48 +21,40 @@ from chemstack.core.queue.engine_execution import (
 )
 from chemstack.core.config.engines import load_xtb_config as load_config
 from chemstack.core.notifications.engines import (
-    notify_xtb_job_finished as notify_job_finished,
     notify_xtb_job_started as notify_job_started,
 )
-from chemstack.core.queue.worker import build_background_worker_command, terminate_process_group
-from chemstack.core.utils import now_utc_iso
+from chemstack.core.queue.worker import terminate_process_group
 
 from . import queue_artifacts as _queue_artifacts
-from . import queue_terminal as _queue_terminal
-from .job_locations import reaction_key_from_job_dir, upsert_job_record
-from .runner import XtbRunResult, finalize_xtb_job, run_xtb_ranking_job, start_xtb_job
+from . import worker_child as _worker_child
+from .job_locations import upsert_job_record
+from .runner import finalize_xtb_job, run_xtb_ranking_job, start_xtb_job
 from .state import (
     is_recovery_pending,
-    load_state,
     mark_recovery_pending,
-    state_matches_job,
-    write_report_json,
-    write_report_md_lines,
-    write_state,
+)
+from .worker_context import (
+    WorkerExecutionHooks,
+    XtbExecutionContext as _XtbExecutionContext,
+    build_execution_context as _build_worker_execution_context,
+    default_worker_execution_hooks,
+    input_summary as _input_summary,
+    job_dir as _job_dir,
+    job_type as _job_type,
+    matching_state as _matching_state,
+    reaction_key as _reaction_key,
+    selected_xyz as _selected_xyz,
+)
+from .worker_terminal import (
+    WorkerExecutionOutcome,
+    build_terminal_result as _build_terminal_result,
+    finalize_execution_result as _finalize_execution_result,
+    write_running_state as _write_running_state,
 )
 
-WORKER_JOB_MODULE = "chemstack.xtb.worker_execution"
-WORKER_CANCEL_SIGNAL = getattr(signal, "SIGUSR1", signal.SIGTERM)
-WORKER_SHUTDOWN_EXIT_CODE = 190
-
-
-@dataclass(frozen=True)
-class _XtbExecutionContext:
-    entry: Any
-    job_dir: Path
-    selected_xyz: Path
-    job_type: str
-    reaction_key: str
-    input_summary: dict[str, Any]
-    resource_request: dict[str, int]
-    previous_state: dict[str, Any]
-    resumed: bool
-
-
-@dataclass(frozen=True)
-class WorkerExecutionOutcome:
-    result: XtbRunResult
-    organized_output_dir: str = ""
+WORKER_JOB_MODULE = _worker_child.WORKER_JOB_MODULE
+WORKER_CANCEL_SIGNAL = _worker_child.WORKER_CANCEL_SIGNAL
+WORKER_SHUTDOWN_EXIT_CODE = _worker_child.WORKER_SHUTDOWN_EXIT_CODE
 
 
 @dataclass(frozen=True)
@@ -128,16 +116,6 @@ class WorkerExecutionDependencies:
     execute_queue_entry: Callable[..., Any] | None = None
 
 
-@dataclass(frozen=True)
-class WorkerExecutionHooks:
-    job_dir: Callable[[Any], Path]
-    selected_xyz: Callable[[Any], Path]
-    job_type: Callable[[Any], str]
-    reaction_key: Callable[[Any, Path], str]
-    input_summary: Callable[[Any], dict[str, Any]]
-    matching_state: Callable[..., dict[str, Any]]
-
-
 def build_worker_execution_dependencies_from_groups(
     *,
     config: WorkerConfigDependencies,
@@ -159,145 +137,11 @@ def build_worker_execution_dependencies_from_groups(
     )
 
 
-def _job_dir(entry: Any) -> Path:
-    return _engine_execution.entry_metadata_resolved_path(entry, "job_dir")
-
-
-def _selected_xyz(entry: Any) -> Path:
-    return _engine_execution.entry_metadata_resolved_path(entry, "selected_input_xyz")
-
-
-def _job_type(entry: Any) -> str:
-    value = _engine_execution.entry_metadata_text(entry, "job_type").lower()
-    return value or "path_search"
-
-
-def _reaction_key(entry: Any, job_dir: Path) -> str:
-    value = _engine_execution.entry_metadata_text(entry, "reaction_key")
-    return value or reaction_key_from_job_dir(job_dir)
-
-
-def _input_summary(entry: Any) -> dict[str, Any]:
-    return _engine_execution.entry_metadata_dict(entry, "input_summary")
-
-
-def _matching_state(
-    entry: Any,
-    *,
-    job_dir: Path,
-    selected_xyz: Path,
-    job_type: str,
-    reaction_key: str,
-) -> dict[str, Any]:
-    return _queue_execution.load_matching_state(
-        job_dir,
-        load_state_fn=load_state,
-        state_matches_job_fn=state_matches_job,
-        match_kwargs={
-            "selected_input_xyz": str(selected_xyz),
-            "job_type": job_type,
-            "reaction_key": reaction_key,
-        },
-    )
-
-
-def default_worker_execution_hooks() -> WorkerExecutionHooks:
-    return WorkerExecutionHooks(
-        job_dir=_job_dir,
-        selected_xyz=_selected_xyz,
-        job_type=_job_type,
-        reaction_key=_reaction_key,
-        input_summary=_input_summary,
-        matching_state=_matching_state,
-    )
-
-
 def _queue_entry_by_id(queue_root: Path | str, queue_id: str) -> Any | None:
     return _child_entrypoint.queue_entry_by_id(
         queue_root,
         queue_id,
         list_queue_fn=list_queue,
-    )
-
-
-def _write_running_state(
-    cfg: Any,
-    entry: Any,
-    *,
-    worker_job_pid: int | None = None,
-    previous_state: dict[str, Any] | None = None,
-    resumed: bool = False,
-) -> None:
-    _queue_artifacts.write_running_state(
-        cfg,
-        entry,
-        worker_job_pid=worker_job_pid,
-        previous_state=previous_state,
-        resumed=resumed,
-        input_summary_fn=_input_summary,
-        entry_resource_request_fn=_queue_artifacts.entry_resource_request,
-        coerce_mapping_fn=_queue_execution.coerce_mapping,
-        now_utc_iso_fn=now_utc_iso,
-        job_type_fn=_job_type,
-        reaction_key_fn=_reaction_key,
-        write_state_fn=write_state,
-    )
-
-
-def _write_execution_artifacts(
-    entry: Any,
-    result: XtbRunResult,
-    *,
-    previous_state: dict[str, Any] | None = None,
-    resumed: bool = False,
-) -> None:
-    _queue_artifacts.write_execution_artifacts(
-        entry,
-        result,
-        previous_state=previous_state,
-        resumed=resumed,
-        coerce_mapping_fn=_queue_execution.coerce_mapping,
-        write_state_fn=write_state,
-        write_report_json_fn=write_report_json,
-        write_report_md_lines_fn=write_report_md_lines,
-    )
-
-
-def _build_terminal_result(entry: Any, **kwargs: Any) -> XtbRunResult:
-    return _queue_artifacts.build_terminal_result(
-        entry,
-        **kwargs,
-        now_utc_iso_fn=now_utc_iso,
-    )
-
-
-def _finalize_execution_result(
-    cfg: Any,
-    *,
-    queue_root: Path,
-    entry: Any,
-    result: XtbRunResult,
-    emit_output: bool,
-    previous_state: dict[str, Any] | None = None,
-    resumed: bool = False,
-) -> WorkerExecutionOutcome:
-    return _queue_terminal.finalize_execution_result(
-        cfg,
-        queue_root=queue_root,
-        entry=entry,
-        result=result,
-        emit_output=emit_output,
-        previous_state=previous_state,
-        resumed=resumed,
-        outcome_cls=WorkerExecutionOutcome,
-        write_execution_artifacts_fn=_write_execution_artifacts,
-        selected_xyz_fn=_selected_xyz,
-        job_dir_fn=_job_dir,
-        mark_completed_fn=mark_completed,
-        mark_cancelled_fn=mark_cancelled,
-        mark_failed_fn=mark_failed,
-        upsert_job_record_fn=upsert_job_record,
-        notify_job_finished_fn=notify_job_finished,
     )
 
 
@@ -438,34 +282,10 @@ def _build_execution_context(
     *,
     dependencies: WorkerExecutionDependencies,
 ) -> _XtbExecutionContext:
-    context_deps = dependencies.context
-    job_dir = context_deps.job_dir(entry)
-    selected_xyz = context_deps.selected_xyz(entry)
-    job_type = context_deps.job_type(entry)
-    reaction_key = context_deps.reaction_key(entry, job_dir)
-    input_summary = context_deps.input_summary(entry)
-    resource_request = context_deps.entry_resource_request(cfg, entry)
-    previous_state = context_deps.matching_state(
+    return _build_worker_execution_context(
+        cfg,
         entry,
-        job_dir=job_dir,
-        selected_xyz=selected_xyz,
-        job_type=job_type,
-        reaction_key=reaction_key,
-    )
-    resumed = _engine_execution.is_resumed_state(
-        previous_state,
-        is_recovery_pending_fn=context_deps.is_recovery_pending,
-    )
-    return _XtbExecutionContext(
-        entry=entry,
-        job_dir=job_dir,
-        selected_xyz=selected_xyz,
-        job_type=job_type,
-        reaction_key=reaction_key,
-        input_summary=input_summary,
-        resource_request=resource_request,
-        previous_state=previous_state,
-        resumed=resumed,
+        context_deps=dependencies.context,
     )
 
 
@@ -707,60 +527,19 @@ def run_worker_job(
     dependencies: WorkerExecutionDependencies | None = None,
 ) -> int:
     deps = dependencies or default_worker_execution_dependencies()
-    job = _child_entrypoint.load_child_worker_entrypoint_job(
+    return _worker_child.run_worker_job(
         config_path=config_path,
         queue_root=queue_root,
         queue_id=queue_id,
-        load_config_fn=deps.config.load_config,
-        find_queue_entry_fn=deps.config.queue_entry_by_id,
+        admission_root=admission_root,
         admission_token=admission_token,
-        admission_root_fn=lambda _cfg: admission_root,
-        release_slot_fn=deps.admission.release_slot,
+        dependencies=deps,
+        execute_queue_entry_fn=execute_queue_entry,
+        should_cancel=should_cancel,
+        register_running_job=register_running_job,
+        getpid_fn=os.getpid,
+        worker_job_module=WORKER_JOB_MODULE,
     )
-    if job is None:
-        return 1
-    cfg = job.cfg
-    resolved_queue_root = job.queue_root
-    entry = job.entry
-
-    if admission_token:
-        if not _child_entrypoint.activate_child_worker_admission(
-            job,
-            admission_token,
-            work_dir=deps.context.job_dir(entry),
-            queue_id=entry.queue_id,
-            source=WORKER_JOB_MODULE,
-            activate_reserved_slot_fn=deps.admission.activate_reserved_slot,
-        ):
-            return 1
-
-    with _child_entrypoint.child_worker_admission_scope(
-        job,
-        admission_token,
-        release_slot_fn=deps.admission.release_slot,
-    ):
-        if deps.execute_queue_entry is None:
-            outcome = execute_queue_entry(
-                cfg,
-                queue_root=resolved_queue_root,
-                entry=entry,
-                should_cancel=should_cancel,
-                register_running_job=register_running_job,
-                emit_output=False,
-                worker_job_pid=os.getpid(),
-                dependencies=deps,
-            )
-        else:
-            outcome = deps.execute_queue_entry(
-                cfg,
-                queue_root=resolved_queue_root,
-                entry=entry,
-                should_cancel=should_cancel,
-                register_running_job=register_running_job,
-                emit_output=False,
-                worker_job_pid=os.getpid(),
-            )
-        return 0 if outcome.result.status in {"completed", "cancelled"} else 1
 
 
 def build_worker_child_command(
@@ -771,27 +550,20 @@ def build_worker_child_command(
     admission_root: str | Path,
     admission_token: str | None = None,
 ) -> list[str]:
-    return build_background_worker_command(
+    return _worker_child.build_worker_child_command(
         config_path=config_path,
-        queue_root=Path(queue_root),
+        queue_root=queue_root,
         queue_id=queue_id,
-        worker_job_module=WORKER_JOB_MODULE,
         admission_root=admission_root,
         admission_token=admission_token,
     )
 
 
 def build_worker_job_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog=f"python -m {WORKER_JOB_MODULE}")
-    parser.add_argument("--config", required=True)
-    parser.add_argument("--queue-root", required=True)
-    parser.add_argument("--queue-id", required=True)
-    parser.add_argument("--admission-root", required=True)
-    parser.add_argument("--admission-token", default=None)
-    return parser
+    return _worker_child.build_worker_job_parser()
 
 
-class _SignalController(_child_execution.CancellableChildWorkerController):
+class _SignalController(_worker_child.SignalController):
     def __init__(self) -> None:
         super().__init__(
             cancel_signal=WORKER_CANCEL_SIGNAL,

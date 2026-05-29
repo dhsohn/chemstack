@@ -9,6 +9,7 @@ from .files import (
     default_config_path_from_repo_root,
     default_shared_admission_root,
     load_required_yaml_mapping,
+    mapping_section,
     workflow_root_from_mapping,
 )
 from .schema import (
@@ -57,11 +58,6 @@ class SchedulerRuntimeSettings:
     max_active: int
     admission_root: str
     admission_limit: int | None
-
-
-def mapping_section(raw: dict[str, Any], key: str) -> dict[str, Any]:
-    value = raw.get(key, {})
-    return value if isinstance(value, dict) else {}
 
 
 def positive_int_mapping(raw: object) -> dict[str, int]:
