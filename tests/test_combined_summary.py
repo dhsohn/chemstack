@@ -241,7 +241,7 @@ def test_build_summary_message_uses_active_run_fallback_without_workflow_root(tm
 def test_overview_and_workflow_sections_cover_remaining_branches() -> None:
     assert workflow_status_helpers.normalize_workflow_status(None) == ""
     assert combined_summary._workflow_status_icon("mystery") == "•"
-    assert combined_summary._workflow_template_label("other-template") == "other-template"
+    assert combined_summary.workflow_template_label("other-template") == "other-template"
 
     other_snapshot = _snapshot(Path("/tmp/summary-other"), name="OTHER01", status="queued")
     overview = combined_summary._format_overview_section(

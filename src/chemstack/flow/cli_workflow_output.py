@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import json
-import sys
 from typing import Any
 
 from chemstack.cli_errors import emit_error as _emit_error
+from chemstack.cli_errors import emit_prefixed_error
 
 
 def emit_json(payload: dict[str, Any], *, pretty: bool) -> None:
@@ -26,7 +26,7 @@ def emit_error(message: Any, *, hint: str | None = None) -> None:
 
 
 def emit_worker_lock_error(message: Any) -> None:
-    print(f"worker_lock_error: {message}", file=sys.stderr)
+    emit_prefixed_error("worker_lock_error", message)
 
 
 def emit_created_workflow(payload: dict[str, Any], *, json_mode: bool) -> int:

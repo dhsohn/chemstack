@@ -79,3 +79,11 @@ def test_emit_error_without_hint(capsys) -> None:
     cli_errors.emit_error("bare message")
     captured = capsys.readouterr()
     assert captured.err == "error: bare message\n"
+
+
+def test_emit_prefixed_error_uses_shared_stderr_format(capsys) -> None:
+    cli_style.set_color_override(False)
+    cli_errors.emit_prefixed_error("worker_lock_error", "already running")
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == "worker_lock_error: already running\n"

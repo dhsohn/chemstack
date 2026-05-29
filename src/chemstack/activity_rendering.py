@@ -77,10 +77,6 @@ def _queue_status_icon(item: dict[str, Any]) -> str:
     return activity_status_icon(item.get("status"))
 
 
-def _queue_template_label(template_name: Any) -> str:
-    return workflow_template_label(template_name)
-
-
 def _queue_task_label(task_kind: Any) -> str:
     normalized = normalize_text(task_kind).lower()
     return {
@@ -123,7 +119,7 @@ def _infer_orca_detail_from_metadata(metadata: dict[str, Any]) -> str:
 
 
 def _workflow_detail_text(metadata: dict[str, Any]) -> str:
-    base = _queue_template_label(metadata.get("template_name"))
+    base = workflow_template_label(metadata.get("template_name"))
     request_parameters = metadata.get("request_parameters")
     request_parameters = request_parameters if isinstance(request_parameters, dict) else {}
     crest_mode = normalize_text(request_parameters.get("crest_mode"))
@@ -273,9 +269,11 @@ def _queue_pad_right(value: str, width: int) -> str:
     return _queue_text(value) + (" " * padding)
 
 
-def queue_table_lines(rows: Sequence[tuple[int, dict[str, Any]]]) -> list[str]:
+def queue_table_lines(
+    rows: Sequence[tuple[int, dict[str, Any]]], *, now: datetime | None = None
+) -> list[str]:
     prepared: list[dict[str, str]] = []
-    now = _queue_table_now()
+    resolved_now = now or _queue_table_now()
     for indent, item in rows:
         name = _queue_name_text(item)
         if int(indent) > 0:
@@ -287,7 +285,7 @@ def queue_table_lines(rows: Sequence[tuple[int, dict[str, Any]]]) -> list[str]:
                 "name": name,
                 "detail": _queue_detail_text(item),
                 "id": item_id,
-                "elapsed": _queue_elapsed_text(item, now=now),
+                "elapsed": _queue_elapsed_text(item, now=resolved_now),
             }
         )
 
@@ -337,6 +335,21 @@ def queue_table_lines(rows: Sequence[tuple[int, dict[str, Any]]]) -> list[str]:
             f"{_queue_pad_right(row['id'], id_width)}  "
             f"{_queue_pad_right(row['elapsed'], elapsed_width)}"
         )
+    return lines
+
+
+def queue_list_text_lines(
+    rows: Sequence[tuple[int, dict[str, Any]]],
+    *,
+    active_simulations: int,
+    now: datetime | None = None,
+    empty_message: str = "No matching activities.",
+) -> list[str]:
+    lines = [f"active_simulations: {int(active_simulations)}"]
+    if not rows:
+        lines.append(empty_message)
+        return lines
+    lines.extend(queue_table_lines(rows, now=now))
     return lines
 
 

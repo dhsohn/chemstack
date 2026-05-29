@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
-from chemstack.activity_rendering import queue_clear_lines, queue_table_lines
+from chemstack.activity_rendering import queue_clear_lines, queue_list_text_lines
 from chemstack.core.activity_icons import activity_status_icon
 from chemstack.activity_view import (
     count_global_active_simulations,
@@ -20,7 +20,6 @@ from chemstack.core.app_ids import (
     CHEMSTACK_CONFIG_ENV_VAR,
     CHEMSTACK_REPO_ROOT_ENV_VAR,
 )
-from chemstack.core.statuses import QUEUE_ACTIVE_STATUSES
 from chemstack.core.config import TelegramConfig
 from chemstack.core.config.files import shared_workflow_root_from_config
 from chemstack.core.notifications import (
@@ -34,15 +33,12 @@ from chemstack.core.notifications import (
 )
 
 from . import _activity_sources
+from . import telegram_interactive as _interactive
 from .activity import cancel_activity, clear_activities, list_activities
 from .telegram_keyboards import (
-    _CB_CANCEL_ASK,
-    _CB_CANCEL_DO,
-    _CB_CANCEL_NO,
-    _CB_REFRESH,
     _MAX_LIST_CANCEL_BUTTONS as _MAX_LIST_CANCEL_BUTTONS,
-    _cancel_confirm_keyboard,
-    _list_action_keyboard,
+    _cancel_confirm_keyboard as _cancel_confirm_keyboard,
+    _list_action_keyboard as _list_action_keyboard,
 )
 
 logger = logging.getLogger(__name__)
@@ -226,14 +222,13 @@ def _handle_list(settings: TelegramBotSettings, args: str) -> str:
         show_workflow_context=True,
         visible_workflow_child_engines=("orca",) if not filter_status else None,
     )
-    lines = [
-        f"active_simulations: {count_global_active_simulations(all_rows, config_path=_activity_counter_config_path(payload, settings=settings))}"
-    ]
-    if not display_rows:
-        lines.append("No matching activities.")
-        return "\n".join(lines)
-    lines.extend(queue_table_lines(display_rows))
-    return "\n".join(lines)
+    active_simulations = count_global_active_simulations(
+        all_rows,
+        config_path=_activity_counter_config_path(payload, settings=settings),
+    )
+    return "\n".join(
+        queue_list_text_lines(display_rows, active_simulations=active_simulations)
+    )
 
 
 def _handle_cancel(settings: TelegramBotSettings, args: str) -> str:
@@ -343,60 +338,39 @@ def _answer_callback(settings: TelegramBotSettings, callback_id: Any) -> Any | N
 
 
 def _send_cancel_confirmation(settings: TelegramBotSettings, target: str) -> None:
-    target = target.strip()
-    if not target:
-        _send_response(settings.telegram, "Usage: /cancel &lt;target&gt;")
-        return
-    keyboard = _cancel_confirm_keyboard(target)
-    if keyboard is None:
-        # Identifier too long for an inline button; cancel directly.
-        _send_response(settings.telegram, _handle_cancel(settings, target))
-        return
-    _send_message(
+    _interactive.send_cancel_confirmation(
         settings,
-        f"⚠️ Cancel <code>{escape_html(target)}</code>?",
-        reply_markup=keyboard,
+        target,
+        send_response=_send_response,
+        send_message=_send_message,
+        handle_cancel=_handle_cancel,
     )
 
 
 def _callback_response(settings: TelegramBotSettings, data: str) -> str:
-    if data == _CB_CANCEL_NO:
-        return "✖ Cancellation dismissed."
-    if data.startswith(_CB_CANCEL_DO):
-        return _handle_cancel(settings, data[len(_CB_CANCEL_DO) :])
-    return "Unknown action."
+    return _interactive.callback_response(settings, data, handle_cancel=_handle_cancel)
 
 
 def _active_cancel_targets(settings: TelegramBotSettings) -> list[dict[str, Any]]:
-    """Default-view activities that are still cancellable (active status)."""
-
-    payload = _activity_payload(settings, child_job_engines=("orca",))
-    items = [item for item in payload.get("activities", []) if isinstance(item, dict)]
-    visible = queue_list_default_visible_items(items)
-    return [
-        item
-        for item in visible
-        if str(item.get("status", "")).strip().lower() in QUEUE_ACTIVE_STATUSES
-    ]
+    return _interactive.active_cancel_targets(settings, activity_payload=_activity_payload)
 
 
 def _send_list_actions(settings: TelegramBotSettings) -> None:
-    """Send a short action message with per-activity cancel + refresh buttons.
-
-    Kept separate from the (multi-chunk, preformatted) table so an inline
-    keyboard attaches cleanly. Never raises: action buttons are best-effort.
-    """
-
-    try:
-        active = _active_cancel_targets(settings)
-        _send_message(settings, "🔧 Actions:", reply_markup=_list_action_keyboard(active))
-    except Exception:
-        logger.exception("telegram_bot_list_actions_error")
+    _interactive.send_list_actions(
+        settings,
+        active_cancel_targets_fn=_active_cancel_targets,
+        send_message=_send_message,
+        logger=logger,
+    )
 
 
 def _send_list_response(settings: TelegramBotSettings) -> None:
-    _send_preformatted_response(settings.telegram, _handle_list(settings, ""))
-    _send_list_actions(settings)
+    _interactive.send_list_response(
+        settings,
+        send_preformatted_response=_send_preformatted_response,
+        handle_list=_handle_list,
+        send_list_actions_fn=_send_list_actions,
+    )
 
 
 def _poll_updates(token: str, offset: int) -> list[Any]:
@@ -465,36 +439,16 @@ def _send_bot_response(settings: TelegramBotSettings, response: str, *, preforma
 
 
 def _dispatch_callback_query(settings: TelegramBotSettings, update: dict[str, Any]) -> int | None:
-    update_id = int(update.get("update_id", 0) or 0)
-    callback = update.get("callback_query")
-    if not isinstance(callback, dict):
-        return update_id
-
-    message = callback.get("message")
-    message = message if isinstance(message, dict) else {}
-    chat = message.get("chat")
-    chat = chat if isinstance(chat, dict) else {}
-    if str(chat.get("id", "")).strip() != settings.telegram.chat_id:
-        _answer_callback(settings, callback.get("id"))
-        return update_id
-
-    data = str(callback.get("data") or "")
-    _answer_callback(settings, callback.get("id"))
-
-    if data == _CB_REFRESH:
-        _send_list_response(settings)
-        return update_id
-    if data.startswith(_CB_CANCEL_ASK):
-        _send_cancel_confirmation(settings, data[len(_CB_CANCEL_ASK) :])
-        return update_id
-
-    response = _callback_response(settings, data)
-    message_id = message.get("message_id")
-    if message_id is not None:
-        _edit_message(settings, chat_id=chat.get("id"), message_id=message_id, text=response)
-    else:
-        _send_response(settings.telegram, response)
-    return update_id
+    return _interactive.dispatch_callback_query(
+        settings,
+        update,
+        answer_callback=_answer_callback,
+        send_list_response_fn=_send_list_response,
+        send_cancel_confirmation_fn=_send_cancel_confirmation,
+        callback_response_fn=_callback_response,
+        edit_message=_edit_message,
+        send_response=_send_response,
+    )
 
 
 def _dispatch_update(settings: TelegramBotSettings, update: Any) -> int | None:

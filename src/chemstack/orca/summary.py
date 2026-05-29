@@ -27,6 +27,10 @@ logger = logging.getLogger(__name__)
 __all__ = [
     "RunSnapshot",
     "collect_run_snapshots",
+    "format_attention_section",
+    "format_running_section",
+    "html_to_plain_text",
+    "scan_cwd_process_counts",
     "sort_snapshots_by_completed",
     "sort_snapshots_by_started",
     "status_icon",
@@ -117,6 +121,12 @@ def _scan_cwd_process_counts(allowed_root: Path, proc_root: Path | None = None) 
             continue
         counts[cwd] = counts.get(cwd, 0) + 1
     return counts
+
+
+def scan_cwd_process_counts(
+    allowed_root: Path, proc_root: Path | None = None
+) -> dict[Path, int]:
+    return _scan_cwd_process_counts(allowed_root, proc_root=proc_root)
 
 
 def _read_tail_text(path: Path, max_bytes: int = 16384) -> str:
@@ -301,6 +311,13 @@ def _format_running_section(
     return header + "\n\n" + "\n\n".join(lines)
 
 
+def format_running_section(
+    active: list[RunSnapshot],
+    process_counts: dict[Path, int],
+) -> str | None:
+    return _format_running_section(active, process_counts)
+
+
 def _format_attention_section(
     failed: list[RunSnapshot],
     other: list[RunSnapshot],
@@ -328,5 +345,16 @@ def _format_attention_section(
     return header + "\n\n" + "\n\n".join(lines)
 
 
+def format_attention_section(
+    failed: list[RunSnapshot],
+    other: list[RunSnapshot],
+) -> str | None:
+    return _format_attention_section(failed, other)
+
+
 def _html_to_plain_text(message: str) -> str:
     return unescape(_HTML_TAG_RE.sub("", message))
+
+
+def html_to_plain_text(message: str) -> str:
+    return _html_to_plain_text(message)

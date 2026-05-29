@@ -21,8 +21,6 @@ from chemstack.cli_common import (
 from chemstack.flow.activity import cancel_activity, clear_activities, list_activities
 from chemstack.core.utils import normalize_text
 
-_DEFAULT_QUEUE_TABLE_NOW = _activity_rendering._queue_table_now
-
 
 @dataclass(frozen=True)
 class _QueueListRequest:
@@ -102,7 +100,7 @@ def _activity_counter_config_path(
 
 
 def _queue_table_now() -> Any:
-    return _DEFAULT_QUEUE_TABLE_NOW()
+    return _activity_rendering._queue_table_now()
 
 
 def _queue_elapsed_text(item: dict[str, Any], *, now: Any | None = None) -> str:
@@ -119,12 +117,21 @@ def _queue_table_lines(
     deps: Any | None = None,
 ) -> list[str]:
     queue_table_now = _dependency(deps, "_queue_table_now", _queue_table_now)
-    original = _activity_rendering._queue_table_now
-    _activity_rendering._queue_table_now = queue_table_now
-    try:
-        return _activity_rendering.queue_table_lines(rows)
-    finally:
-        _activity_rendering._queue_table_now = original
+    return _activity_rendering.queue_table_lines(rows, now=queue_table_now())
+
+
+def _queue_list_text_lines(
+    rows: Sequence[tuple[int, dict[str, Any]]],
+    *,
+    active_simulations: int,
+    deps: Any | None = None,
+) -> list[str]:
+    queue_table_now = _dependency(deps, "_queue_table_now", _queue_table_now)
+    return _activity_rendering.queue_list_text_lines(
+        rows,
+        active_simulations=active_simulations,
+        now=queue_table_now(),
+    )
 
 
 def _queue_clear_lines(payload: dict[str, Any]) -> list[str]:
@@ -255,23 +262,26 @@ def _print_queue_list_text(
     request: _QueueListRequest,
     deps: Any | None = None,
 ) -> int:
-    table_lines = _dependency(deps, "_queue_table_lines", _queue_table_lines)
+    render_lines = _dependency(deps, "_queue_list_text_lines", _queue_list_text_lines)
     display_rows = _queue_list_display_rows(
         payload=payload,
         filtered_activities=filtered_activities,
         request=request,
     )
-    print(f"active_simulations: {filtered_payload['active_simulations']}")
+    lines = render_lines(
+        display_rows,
+        active_simulations=filtered_payload["active_simulations"],
+    )
+    print(lines[0])
     if not display_rows:
-        print("No matching activities.")
+        print(lines[1])
         return 0
-    lines = table_lines(display_rows)
-    # lines[0] is the header, lines[1] the divider, and the rest map one-to-one
+    # lines[1] is the header, lines[2] the divider, and the rest map one-to-one
     # onto display_rows so each data row can be tinted by its status. Colors are
     # a no-op when stdout is not a TTY, so piped/`--json` output is unaffected.
-    print(cli_style.paint(lines[0], cli_style.BOLD))
-    print(lines[1])
-    for (_indent, item), line in zip(display_rows, lines[2:]):
+    print(cli_style.paint(lines[1], cli_style.BOLD))
+    print(lines[2])
+    for (_indent, item), line in zip(display_rows, lines[3:]):
         color = cli_style.status_color(item.get("status"))
         print(cli_style.paint(line, color) if color else line)
     return 0

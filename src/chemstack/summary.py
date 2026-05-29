@@ -33,10 +33,6 @@ def _workflow_status_icon(status: str) -> str:
     return activity_status_icon(status)
 
 
-def _workflow_template_label(template_name: Any) -> str:
-    return workflow_template_label(template_name)
-
-
 def _workflow_summary_rows(config_path: str | None) -> tuple[str | None, list[dict[str, Any]]]:
     workflow_root = shared_workflow_root_from_config(config_path)
     if not workflow_root:
@@ -109,7 +105,7 @@ def _format_overview_section(
 
 def _workflow_detail_block(summary: dict[str, Any]) -> str:
     workflow_id = _normalize_text(summary.get("workflow_id")) or "-"
-    template = _workflow_template_label(summary.get("template_name"))
+    template = workflow_template_label(summary.get("template_name"))
     status = normalize_workflow_status(summary.get("status")) or "unknown"
     current_stage = select_current_stage(summary.get("stage_summaries") or [])
     current_engine = _normalize_text(current_stage.get("engine")) or "workflow"
@@ -173,7 +169,7 @@ def _format_attention_workflows_section(workflow_summaries: list[dict[str, Any]]
 def _build_summary_message(cfg: AppConfig, *, config_path: str | None) -> str:
     allowed_root = Path(cfg.runtime.allowed_root).expanduser().resolve()
     snapshots = orca_summary.collect_run_snapshots(allowed_root)
-    process_counts = orca_summary._scan_cwd_process_counts(allowed_root)
+    process_counts = orca_summary.scan_cwd_process_counts(allowed_root)
 
     active_runs = orca_summary.sort_snapshots_by_started(
         snapshot for snapshot in snapshots if snapshot.status in {"running", "retrying"}
@@ -216,7 +212,7 @@ def _build_summary_message(cfg: AppConfig, *, config_path: str | None) -> str:
         )
     )
 
-    running = orca_summary._format_running_section(active_runs, process_counts)
+    running = orca_summary.format_running_section(active_runs, process_counts)
     if running:
         sections.append(running)
 
@@ -224,7 +220,7 @@ def _build_summary_message(cfg: AppConfig, *, config_path: str | None) -> str:
     if workflow_active:
         sections.append(workflow_active)
 
-    attention = orca_summary._format_attention_section(failed_runs, other_runs)
+    attention = orca_summary.format_attention_section(failed_runs, other_runs)
     workflow_attention = _format_attention_workflows_section(workflow_summaries)
     if attention:
         sections.append(attention)
@@ -237,7 +233,7 @@ def _build_summary_message(cfg: AppConfig, *, config_path: str | None) -> str:
 
 def _run_summary(cfg: AppConfig, *, config_path: str | None, send: bool = True) -> int:
     summary_message = _build_summary_message(cfg, config_path=config_path)
-    print(orca_summary._html_to_plain_text(summary_message))
+    print(orca_summary.html_to_plain_text(summary_message))
 
     if not send:
         return 0

@@ -25,4 +25,11 @@ def emit_error(message: Any, *, hint: str | None = None) -> None:
         )
 
 
-__all__ = ["emit_error"]
+def emit_prefixed_error(prefix: str, message: Any) -> None:
+    """Print ``<prefix>: <message>`` to stderr using the shared error styling."""
+
+    styled_prefix = cli_style.paint(f"{prefix}:", cli_style.RED, stream=sys.stderr)
+    print(f"{styled_prefix} {message}", file=sys.stderr)
+
+
+__all__ = ["emit_error", "emit_prefixed_error"]
