@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from chemstack.core.statuses import STATUS_COMPLETED, STATUS_FAILED, status_in
+
 from ._orchestration_deps import OrchestrationDeps
 from ._orchestration_stage_runtime_shared import (
     _apply_contract_status,
@@ -108,8 +110,8 @@ def _maybe_retry_xtb_handoff(
         submit_ready
         and o.stages._normalize_text(xtb_config)
         and o.stages._normalize_text(task.get("task_kind")) == "path_search"
-        and handoff["status"] == "failed"
-        and o.stages._normalize_text(stage.get("status")).lower() in {"completed", "failed"}
+        and handoff["status"] == STATUS_FAILED
+        and status_in(stage.get("status"), {STATUS_COMPLETED, STATUS_FAILED})
     ):
         return False
 

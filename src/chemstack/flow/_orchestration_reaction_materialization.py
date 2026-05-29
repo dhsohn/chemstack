@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from chemstack.core.statuses import is_queue_active_status
+
 from ._orchestration_deps import OrchestrationDeps
 from ._orchestration_stage_views import (
     WorkflowStageView,
@@ -209,10 +211,9 @@ def _unique_ordered_candidates(candidate_pool: list[tuple[int, int, str, Any]]) 
 
 
 def _has_pending_xtb_stage(o: Any, payload: dict[str, Any]) -> bool:
-    active_xtb_statuses = {"planned", "queued", "running", "submitted", "cancel_requested"}
     return any(
         view.task_engine(o) == "xtb"
-        and (view.status(o) or view.task_status(o)) in active_xtb_statuses
+        and (is_queue_active_status(view.status(o)) or is_queue_active_status(view.task_status(o)))
         for view in _stage_views(payload)
     )
 
@@ -358,13 +359,11 @@ def append_reaction_xtb_stages_impl(
         )
         if plan.pairing_enabled:
             pairing_metadata = dict(endpoint_pair.metadata)
-            stage_metadata = o.stages._stage_metadata(stage)
+            stage_view = WorkflowStageView(stage)
+            stage_metadata = stage_view.metadata(o)
             stage_metadata["endpoint_pairing"] = pairing_metadata
-            task = stage.get("task")
-            if isinstance(task, dict):
-                task_metadata = task.setdefault("metadata", {})
-                if isinstance(task_metadata, dict):
-                    task_metadata["endpoint_pairing"] = pairing_metadata
+            if stage_view.has_task:
+                stage_view.task.metadata(o)["endpoint_pairing"] = pairing_metadata
         payload.setdefault("stages", []).append(stage)
     return created > 0
 

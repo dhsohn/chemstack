@@ -30,6 +30,70 @@ class ContractArtifactBundle:
     resource_actual: dict[str, int]
 
 
+@dataclass(frozen=True)
+class ContractFieldReader:
+    bundle: ContractArtifactBundle
+
+    @property
+    def job_dir(self) -> Path:
+        return self.bundle.job_dir
+
+    @property
+    def record(self) -> JobLocationRecord | None:
+        return self.bundle.record
+
+    @property
+    def payload(self) -> dict[str, Any]:
+        return self.bundle.payload
+
+    @property
+    def organized_ref(self) -> dict[str, Any]:
+        return self.bundle.organized_ref
+
+    def record_value(self, attr: str) -> Any:
+        return getattr(self.record, attr) if self.record is not None else ""
+
+    def payload_sequence(self, key: str) -> tuple[str, ...]:
+        return normalized_text_sequence(self.payload.get(key))
+
+    def payload_record_text(
+        self,
+        payload_key: str,
+        record_attr: str,
+        *,
+        default: str = "",
+    ) -> str:
+        return first_normalized_text(
+            self.payload.get(payload_key),
+            self.record_value(record_attr),
+            default=default,
+        )
+
+    def payload_ref_record_text(
+        self,
+        payload_key: str,
+        organized_ref_key: str,
+        record_attr: str,
+        *,
+        default: str = "",
+    ) -> str:
+        return first_normalized_text(
+            self.payload.get(payload_key),
+            self.organized_ref.get(organized_ref_key),
+            self.record_value(record_attr),
+            default=default,
+        )
+
+    def artifact_roots(self, *values: Any) -> tuple[Path, ...]:
+        return artifact_roots(self.job_dir, *values)
+
+    def resolved_path(self, value: Any, *, roots: tuple[Path, ...]) -> str:
+        return resolve_artifact_path(value, roots=roots)
+
+    def resolved_paths(self, values: Iterable[Any], *, roots: tuple[Path, ...]) -> tuple[str, ...]:
+        return tuple(path for value in values if (path := self.resolved_path(value, roots=roots)))
+
+
 def normalize_text(value: Any) -> str:
     return str(value).strip()
 

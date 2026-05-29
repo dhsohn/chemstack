@@ -2,7 +2,14 @@ from __future__ import annotations
 
 from typing import Any, Iterable
 
-from chemstack.core.statuses import FAILED_STATUSES, STAGE_TERMINAL_STATUSES
+from chemstack.core.statuses import (
+    STAGE_TERMINAL_STATUSES,
+    STATUS_CANCELLED,
+    STATUS_COMPLETED,
+    STATUS_FAILED,
+    is_failed_status,
+    is_stage_terminal_status,
+)
 from chemstack.core.utils.coercion import (
     coerce_mapping as _coerce_mapping,
     normalize_text as _normalize_text,
@@ -11,7 +18,6 @@ from chemstack.core.utils.coercion import (
 WORKFLOW_PHASE_FINISHED_EVENT = "workflow_phase_finished"
 SUPPRESSED_STAGE_NOTIFICATION_ENGINES = frozenset({"crest", "xtb", "orca"})
 TERMINAL_STAGE_STATUSES = STAGE_TERMINAL_STATUSES
-FAILED_STAGE_STATUSES = FAILED_STATUSES
 BASE_PHASE_DEFINITIONS = ({"phase": "crest", "phase_label": "CREST", "engine": "crest"},)
 TEMPLATE_PHASE_DEFINITIONS = {
     "reaction_ts_search": ({"phase": "xtb", "phase_label": "xTB", "engine": "xtb"},),
@@ -104,7 +110,7 @@ def _row_is_terminal(row: dict[str, str]) -> bool:
     ]
     if not statuses:
         return False
-    return all(value in TERMINAL_STAGE_STATUSES for value in statuses)
+    return all(is_stage_terminal_status(value) for value in statuses)
 
 
 def _phase_outcome(rows: list[dict[str, str]]) -> str:
@@ -113,31 +119,31 @@ def _phase_outcome(rows: list[dict[str, str]]) -> str:
         if handoff_status:
             return handoff_status == "ready"
         return (
-            _normalize_text(row.get("status")).lower() == "completed"
-            or _normalize_text(row.get("task_status")).lower() == "completed"
+            _normalize_text(row.get("status")).lower() == STATUS_COMPLETED
+            or _normalize_text(row.get("task_status")).lower() == STATUS_COMPLETED
         )
 
     has_failure = any(
-        _normalize_text(row.get("status")).lower() in FAILED_STAGE_STATUSES
-        or _normalize_text(row.get("task_status")).lower() in FAILED_STAGE_STATUSES
-        or _normalize_text(row.get("reaction_handoff_status")).lower() == "failed"
+        is_failed_status(row.get("status"))
+        or is_failed_status(row.get("task_status"))
+        or _normalize_text(row.get("reaction_handoff_status")).lower() == STATUS_FAILED
         for row in rows
     )
     has_cancel = any(
-        _normalize_text(row.get("status")).lower() == "cancelled"
-        or _normalize_text(row.get("task_status")).lower() == "cancelled"
+        _normalize_text(row.get("status")).lower() == STATUS_CANCELLED
+        or _normalize_text(row.get("task_status")).lower() == STATUS_CANCELLED
         for row in rows
     )
     has_success = any(_row_success(row) for row in rows)
     if has_failure and has_success:
         return "mixed"
     if has_failure:
-        return "failed"
+        return STATUS_FAILED
     if has_cancel and has_success:
         return "mixed"
     if has_cancel:
-        return "cancelled"
-    return "completed"
+        return STATUS_CANCELLED
+    return STATUS_COMPLETED
 
 
 def phase_snapshot(stages: Iterable[Any], *, engine: str) -> dict[str, Any]:

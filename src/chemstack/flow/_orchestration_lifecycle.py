@@ -2,18 +2,23 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
-from .workflow_status import WORKFLOW_FAILED_STATUSES, WORKFLOW_TERMINAL_STATUSES
+from chemstack.core.statuses import (
+    STATUS_CANCEL_REQUESTED,
+    STATUS_CANCELLED,
+    STATUS_COMPLETED,
+    STATUS_PLANNED,
+    STATUS_RUNNING,
+    WORKFLOW_FAILED_STATUSES,
+    is_queue_active_status,
+    is_stage_terminal_status,
+    is_sync_only_workflow_status,
+)
 
 
 def workflow_sync_only_impl(
     payload: dict[str, Any], *, normalize_text_fn: Callable[[Any], str]
 ) -> bool:
-    return normalize_text_fn(payload.get("status")).lower() in {
-        "completed",
-        "cancel_requested",
-        "cancelled",
-        "cancel_failed",
-    }
+    return is_sync_only_workflow_status(normalize_text_fn(payload.get("status")))
 
 
 def workflow_has_active_children_impl(
@@ -22,18 +27,17 @@ def workflow_has_active_children_impl(
     normalize_text_fn: Callable[[Any], str],
     workflow_has_active_downstream_fn: Callable[[dict[str, Any]], bool],
 ) -> bool:
-    active_statuses = {"queued", "running", "submitted", "cancel_requested"}
     for raw_stage in payload.get("stages", []):
         if not isinstance(raw_stage, dict):
             continue
         stage_status = normalize_text_fn(raw_stage.get("status")).lower()
-        if stage_status in active_statuses:
+        if is_queue_active_status(stage_status):
             return True
         task = raw_stage.get("task")
         if not isinstance(task, dict):
             continue
         task_status = normalize_text_fn(task.get("status")).lower()
-        if task_status in active_statuses:
+        if is_queue_active_status(task_status):
             return True
     return workflow_has_active_downstream_fn(payload)
 
@@ -85,7 +89,7 @@ def downstream_terminal_result_impl(
     normalize_text_fn: Callable[[Any], str],
 ) -> dict[str, Any]:
     status = normalize_text_fn(child_summary.get("status")).lower()
-    if status not in WORKFLOW_TERMINAL_STATUSES:
+    if not is_stage_terminal_status(status):
         return {}
     metadata = child_payload.get("metadata")
     workflow_error: dict[str, Any] = {}
@@ -166,25 +170,23 @@ def _workflow_status_from_stage_statuses(
     statuses: list[str],
     current_status: str,
 ) -> str:
-    active_statuses = {"queued", "running", "submitted", "cancel_requested"}
-
-    if current_status == "cancelled":
-        return "cancelled"
-    if current_status == "cancel_requested":
+    if current_status == STATUS_CANCELLED:
+        return STATUS_CANCELLED
+    if current_status == STATUS_CANCEL_REQUESTED:
         return (
-            "cancel_requested"
-            if any(status in active_statuses for status in statuses)
-            else "cancelled"
+            STATUS_CANCEL_REQUESTED
+            if any(is_queue_active_status(status) for status in statuses)
+            else STATUS_CANCELLED
         )
-    if any(status in active_statuses for status in statuses):
-        return "running"
-    if any(status == "planned" for status in statuses):
-        return "running"
-    if stages and all(status in WORKFLOW_TERMINAL_STATUSES for status in statuses):
-        return "completed"
-    if any(status == "completed" for status in statuses):
-        return "running"
-    return "planned"
+    if any(is_queue_active_status(status) for status in statuses):
+        return STATUS_RUNNING
+    if any(status == STATUS_PLANNED for status in statuses):
+        return STATUS_RUNNING
+    if stages and all(is_stage_terminal_status(status) for status in statuses):
+        return STATUS_COMPLETED
+    if any(status == STATUS_COMPLETED for status in statuses):
+        return STATUS_RUNNING
+    return STATUS_PLANNED
 
 
 def recompute_workflow_status_impl(

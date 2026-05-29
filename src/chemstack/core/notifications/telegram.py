@@ -7,7 +7,7 @@ import logging
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Protocol
+from typing import Any, Callable, Iterable, Protocol
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urlsplit
 from urllib.request import Request, urlopen
@@ -413,6 +413,54 @@ class TelegramTransport:
 TelegramTransportFactory = Callable[[TelegramConfigLike], Any]
 
 
+@dataclass(frozen=True)
+class _TelegramChunkSendRequest:
+    primary_text: str
+    primary_parse_mode: str | None
+    fallback_text: str
+
+
+def _telegram_transport_or_none(
+    config: TelegramConfigLike,
+    *,
+    logger: logging.Logger | None,
+    transport_factory: TelegramTransportFactory | None,
+) -> Any | None:
+    if config.enabled:
+        return (transport_factory or build_telegram_transport)(config)
+    if logger is not None:
+        logger.debug("telegram_notifier_disabled")
+    return None
+
+
+def _send_telegram_chunks(
+    chunks: Iterable[_TelegramChunkSendRequest],
+    *,
+    transport: Any,
+    skipped_ok: bool = False,
+    logger: logging.Logger | None = None,
+) -> bool:
+    sent_any = False
+    for chunk in chunks:
+        result = transport.send_text(
+            chunk.primary_text,
+            parse_mode=chunk.primary_parse_mode,
+        )
+        if telegram_send_result_ok(result, skipped_ok=skipped_ok):
+            sent_any = True
+            continue
+        if chunk.primary_parse_mode:
+            fallback_result = transport.send_text(chunk.fallback_text, parse_mode=None)
+            if telegram_send_result_ok(fallback_result, skipped_ok=skipped_ok):
+                sent_any = True
+                continue
+            result = fallback_result
+        if logger is not None:
+            log_telegram_send_failure(logger, result)
+        return False
+    return sent_any
+
+
 def send_telegram_message(
     config: TelegramConfigLike,
     text: str,
@@ -424,29 +472,31 @@ def send_telegram_message(
     transport_factory: TelegramTransportFactory | None = None,
 ) -> bool:
     """Send a chunked Telegram message with parse-mode fallback."""
-    if not config.enabled:
-        if logger is not None:
-            logger.debug("telegram_notifier_disabled")
+    transport = _telegram_transport_or_none(
+        config,
+        logger=logger,
+        transport_factory=transport_factory,
+    )
+    if transport is None:
         return False
 
     chunks = split_telegram_message(text, limit=limit)
     if not chunks:
         return False
 
-    transport = (transport_factory or build_telegram_transport)(config)
-    for chunk in chunks:
-        result = transport.send_text(chunk, parse_mode=parse_mode)
-        if telegram_send_result_ok(result, skipped_ok=skipped_ok):
-            continue
-        if parse_mode:
-            fallback_result = transport.send_text(chunk, parse_mode=None)
-            if telegram_send_result_ok(fallback_result, skipped_ok=skipped_ok):
-                continue
-            result = fallback_result
-        if logger is not None:
-            log_telegram_send_failure(logger, result)
-        return False
-    return True
+    return _send_telegram_chunks(
+        (
+            _TelegramChunkSendRequest(
+                primary_text=chunk,
+                primary_parse_mode=parse_mode,
+                fallback_text=chunk,
+            )
+            for chunk in chunks
+        ),
+        transport=transport,
+        skipped_ok=skipped_ok,
+        logger=logger,
+    )
 
 
 def send_preformatted_telegram_message(
@@ -463,26 +513,27 @@ def send_preformatted_telegram_message(
     wrapper_overhead = len(wrapper_prefix) + len(wrapper_suffix)
     if limit <= wrapper_overhead:
         raise ValueError("preformatted message limit must exceed wrapper size")
-    if not config.enabled:
-        if logger is not None:
-            logger.debug("telegram_notifier_disabled")
+    transport = _telegram_transport_or_none(
+        config,
+        logger=logger,
+        transport_factory=transport_factory,
+    )
+    if transport is None:
         return False
 
-    transport = (transport_factory or build_telegram_transport)(config)
-    sent_any = False
-    for chunk in split_telegram_message(text, limit=limit - wrapper_overhead):
-        wrapped = f"{wrapper_prefix}{escape_html(chunk)}{wrapper_suffix}"
-        result = transport.send_text(wrapped, parse_mode="HTML")
-        if telegram_send_result_ok(result):
-            sent_any = True
-            continue
-        fallback_result = transport.send_text(chunk, parse_mode=None)
-        if not telegram_send_result_ok(fallback_result):
-            if logger is not None:
-                log_telegram_send_failure(logger, fallback_result)
-            return False
-        sent_any = True
-    return sent_any
+    chunks = split_telegram_message(text, limit=limit - wrapper_overhead)
+    return _send_telegram_chunks(
+        (
+            _TelegramChunkSendRequest(
+                primary_text=f"{wrapper_prefix}{escape_html(chunk)}{wrapper_suffix}",
+                primary_parse_mode="HTML",
+                fallback_text=chunk,
+            )
+            for chunk in chunks
+        ),
+        transport=transport,
+        logger=logger,
+    )
 
 
 @dataclass(frozen=True)

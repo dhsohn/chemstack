@@ -14,11 +14,27 @@ def _orchestration_context(deps: OrchestrationDeps | None = None) -> Orchestrati
 class WorkflowTaskView:
     raw: dict[str, Any]
 
+    def payload(self, o: Any) -> dict[str, Any]:
+        return o.stages._coerce_mapping(self.raw.get("payload"))
+
+    def metadata(self, o: Any) -> dict[str, Any]:
+        metadata = self.raw.setdefault("metadata", {})
+        if not isinstance(metadata, dict):
+            metadata = {}
+            self.raw["metadata"] = metadata
+        return metadata
+
     def engine(self, o: Any) -> str:
         return o.stages._normalize_text(self.raw.get("engine")).lower()
 
+    def kind(self, o: Any) -> str:
+        return o.stages._normalize_text(self.raw.get("task_kind")).lower()
+
     def status(self, o: Any) -> str:
         return o.stages._normalize_text(self.raw.get("status")).lower()
+
+    def set_status(self, status: str) -> None:
+        self.raw["status"] = status
 
 
 @dataclass(frozen=True)
@@ -34,14 +50,27 @@ class WorkflowStageView:
         task = self.raw.get("task")
         return WorkflowTaskView(task if isinstance(task, dict) else {})
 
+    @property
+    def has_task(self) -> bool:
+        return isinstance(self.raw.get("task"), dict)
+
+    def metadata(self, o: Any) -> dict[str, Any]:
+        return o.stages._stage_metadata(self.raw)
+
     def stage_id(self, o: Any) -> str:
         return o.stages._normalize_text(self.raw.get("stage_id"))
 
     def status(self, o: Any) -> str:
         return o.stages._normalize_text(self.raw.get("status")).lower()
 
+    def set_status(self, status: str) -> None:
+        self.raw["status"] = status
+
     def task_engine(self, o: Any) -> str:
         return self.task.engine(o)
+
+    def task_kind(self, o: Any) -> str:
+        return self.task.kind(o)
 
     def task_status(self, o: Any) -> str:
         return self.task.status(o)

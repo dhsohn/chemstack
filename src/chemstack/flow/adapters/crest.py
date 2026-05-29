@@ -30,53 +30,25 @@ def load_crest_artifact_contract(*, crest_index_root: str | Path, target: str) -
             active_statuses=_ACTIVE_PAYLOAD_STATUSES,
         ),
     )
-    job_dir = bundle.job_dir
-    record = bundle.record
-    organized_ref = bundle.organized_ref
-    payload = bundle.payload
+    fields = _adapter_helpers.ContractFieldReader(bundle)
+    payload = fields.payload
 
-    retained_paths = _adapter_helpers.normalized_text_sequence(
-        payload.get("retained_conformer_paths")
-    )
+    retained_paths = fields.payload_sequence("retained_conformer_paths")
     retained_count = int(payload.get("retained_conformer_count", len(retained_paths)) or len(retained_paths))
-    status = _adapter_helpers.first_normalized_text(
-        payload.get("status"),
-        record.status if record is not None else "",
-        default="unknown",
-    )
+    status = fields.payload_record_text("status", "status", default="unknown")
     reason = _adapter_helpers.normalize_text(payload.get("reason"))
-    job_id = _adapter_helpers.first_normalized_text(
-        payload.get("job_id"),
-        record.job_id if record is not None else "",
+    job_id = fields.payload_record_text("job_id", "job_id")
+    mode = fields.payload_record_text("mode", "job_type", default="standard")
+    molecule_key = fields.payload_record_text("molecule_key", "molecule_key")
+    selected_input_xyz = fields.payload_record_text("selected_input_xyz", "selected_input_xyz")
+    organized_output_dir = fields.payload_ref_record_text(
+        "organized_output_dir",
+        "organized_output_dir",
+        "organized_output_dir",
     )
-    mode = _adapter_helpers.first_normalized_text(
-        payload.get("mode"),
-        record.job_type if record is not None else "",
-        default="standard",
-    )
-    molecule_key = _adapter_helpers.first_normalized_text(
-        payload.get("molecule_key"),
-        record.molecule_key if record is not None else "",
-    )
-    selected_input_xyz = _adapter_helpers.first_normalized_text(
-        payload.get("selected_input_xyz"),
-        record.selected_input_xyz if record is not None else "",
-    )
-    organized_output_dir = _adapter_helpers.first_normalized_text(
-        payload.get("organized_output_dir"),
-        organized_ref.get("organized_output_dir"),
-        record.organized_output_dir if record is not None else "",
-    )
-    artifact_roots = _adapter_helpers.artifact_roots(job_dir, organized_output_dir)
-    selected_input_xyz = _adapter_helpers.resolve_artifact_path(
-        selected_input_xyz, roots=artifact_roots
-    )
-    remapped_retained_paths: list[str] = []
-    for path in retained_paths:
-        remapped = _adapter_helpers.resolve_artifact_path(path, roots=artifact_roots)
-        if remapped:
-            remapped_retained_paths.append(remapped)
-    retained_paths = tuple(remapped_retained_paths)
+    artifact_roots = fields.artifact_roots(organized_output_dir)
+    selected_input_xyz = fields.resolved_path(selected_input_xyz, roots=artifact_roots)
+    retained_paths = fields.resolved_paths(retained_paths, roots=artifact_roots)
     latest_known_path = bundle.latest_known_path
 
     return CrestArtifactContract(
@@ -84,7 +56,7 @@ def load_crest_artifact_contract(*, crest_index_root: str | Path, target: str) -
         mode=mode,
         status=status,
         reason=reason,
-        job_dir=str(job_dir),
+        job_dir=str(fields.job_dir),
         latest_known_path=latest_known_path,
         organized_output_dir=organized_output_dir,
         molecule_key=molecule_key,

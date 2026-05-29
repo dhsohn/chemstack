@@ -1,10 +1,22 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from chemstack.core.statuses import (
+    STATUS_CANCEL_FAILED,
+    STATUS_CANCEL_REQUESTED,
+    STATUS_CANCELLED,
+    STATUS_FAILED,
+    is_cancel_ack_status,
+    is_stage_cancellable_status,
+    is_stage_terminal_status,
+)
+
 from ._orchestration_deps import OrchestrationDeps, orchestration_deps
+from ._orchestration_stage_views import WorkflowStageView
 from ._workflow_phases import phase_finished
 from .engine_options import WorkflowEngineOptions
 
@@ -20,6 +32,73 @@ class _AdvanceContext:
     submit_ready: bool
 
 
+_CancelTargetHandler = Callable[
+    [OrchestrationDeps, str, WorkflowEngineOptions],
+    dict[str, Any],
+]
+
+
+def _missing_engine_config_cancel_result() -> dict[str, Any]:
+    return {"status": STATUS_FAILED, "reason": "missing_engine_config"}
+
+
+def _cancel_crest_target(
+    deps: OrchestrationDeps,
+    target: str,
+    config: WorkflowEngineOptions,
+) -> dict[str, Any]:
+    config_path = deps.stages._normalize_text(config.crest.config)
+    if not config_path:
+        return _missing_engine_config_cancel_result()
+    return deps.engines.crest_cancel_target(target=target, config_path=config_path)
+
+
+def _cancel_xtb_target(
+    deps: OrchestrationDeps,
+    target: str,
+    config: WorkflowEngineOptions,
+) -> dict[str, Any]:
+    config_path = deps.stages._normalize_text(config.xtb.config)
+    if not config_path:
+        return _missing_engine_config_cancel_result()
+    return deps.engines.xtb_cancel_target(target=target, config_path=config_path)
+
+
+def _cancel_orca_target(
+    deps: OrchestrationDeps,
+    target: str,
+    config: WorkflowEngineOptions,
+) -> dict[str, Any]:
+    config_path = deps.stages._normalize_text(config.orca.config)
+    if not config_path:
+        return _missing_engine_config_cancel_result()
+    return deps.engines.orca_cancel_target(
+        target=target,
+        config_path=config_path,
+        repo_root=config.orca.repo_root,
+    )
+
+
+_CANCEL_TARGET_HANDLERS: dict[str, _CancelTargetHandler] = {
+    "crest": _cancel_crest_target,
+    "xtb": _cancel_xtb_target,
+    "orca": _cancel_orca_target,
+}
+
+
+def _cancel_engine_target(
+    *,
+    deps: OrchestrationDeps,
+    engine: str,
+    target: str,
+    config: WorkflowEngineOptions,
+) -> dict[str, Any]:
+    handler = _CANCEL_TARGET_HANDLERS.get(engine)
+    if handler is None:
+        return _missing_engine_config_cancel_result()
+    return handler(deps, target, config)
+
+
 def _workflow_stage_dicts(payload: dict[str, Any]) -> list[dict[str, Any]]:
     return [stage for stage in payload.get("stages", []) if isinstance(stage, dict)]
 
@@ -31,7 +110,7 @@ def _checkpoint_advance_phase(
 ) -> None:
     if payload == previous_payload:
         return
-    context.deps.stages._persist_workflow_progress(
+    context.deps.stages.workflow._persist_workflow_progress(
         context.workflow_root_path,
         context.workspace_dir,
         payload,
@@ -54,9 +133,9 @@ def _run_advance_phase(
 def _sync_crest_phase(
     payload: dict[str, Any], context: _AdvanceContext, config: WorkflowEngineOptions
 ) -> None:
-    o = context.deps
+    runtime = context.deps.stages.runtime
     for stage in _workflow_stage_dicts(payload):
-        o.stages._sync_crest_stage(
+        runtime._sync_crest_stage(
             stage,
             crest_config=config.crest_config,
             submit_ready=context.submit_ready,
@@ -70,7 +149,7 @@ def _append_reaction_xtb_phase(
 ) -> None:
     if context.sync_only or context.template_name != "reaction_ts_search":
         return
-    context.deps.stages._append_reaction_xtb_stages(
+    context.deps.stages.materialization._append_reaction_xtb_stages(
         payload,
         workspace_dir=context.workspace_dir,
         crest_config=config.crest_config,
@@ -82,7 +161,7 @@ def _notify_crest_phase(
 ) -> None:
     if context.sync_only:
         return
-    context.deps.stages._maybe_notify_workflow_phase_summary(
+    context.deps.stages.workflow._maybe_notify_workflow_phase_summary(
         payload,
         config_path=config.crest_config,
         phase_engine="crest",
@@ -92,9 +171,9 @@ def _notify_crest_phase(
 def _sync_xtb_phase(
     payload: dict[str, Any], context: _AdvanceContext, config: WorkflowEngineOptions
 ) -> None:
-    o = context.deps
+    runtime = context.deps.stages.runtime
     for stage in _workflow_stage_dicts(payload):
-        o.stages._sync_xtb_stage(
+        runtime._sync_xtb_stage(
             stage,
             xtb_config=config.xtb_config,
             submit_ready=context.submit_ready,
@@ -106,7 +185,7 @@ def _sync_xtb_phase(
 def _clear_xtb_handoff_phase(
     payload: dict[str, Any], context: _AdvanceContext, _config: WorkflowEngineOptions
 ) -> None:
-    context.deps.stages._clear_reaction_xtb_handoff_error_if_recovering(payload)
+    context.deps.stages.support._clear_reaction_xtb_handoff_error_if_recovering(payload)
 
 
 def _reaction_orca_ready(payload: dict[str, Any], context: _AdvanceContext) -> bool:
@@ -122,7 +201,7 @@ def _append_reaction_orca_phase(
 ) -> None:
     if not _reaction_orca_ready(payload, context):
         return
-    context.deps.stages._append_reaction_orca_stages(
+    context.deps.stages.materialization._append_reaction_orca_stages(
         payload,
         workspace_dir=context.workspace_dir,
         xtb_config=config.xtb_config,
@@ -146,7 +225,7 @@ def _notify_xtb_phase(
 ) -> None:
     if not _reaction_orca_ready(payload, context):
         return
-    context.deps.stages._maybe_notify_workflow_phase_summary(
+    context.deps.stages.workflow._maybe_notify_workflow_phase_summary(
         payload,
         config_path=config.xtb_config,
         phase_engine="xtb",
@@ -159,7 +238,7 @@ def _append_conformer_orca_phase(
 ) -> None:
     if context.sync_only or context.template_name != "conformer_screening":
         return
-    context.deps.stages._append_crest_orca_stages(
+    context.deps.stages.materialization._append_crest_orca_stages(
         payload,
         template_name="conformer_screening",
         crest_config=config.crest_config,
@@ -173,9 +252,9 @@ def _append_conformer_orca_phase(
 def _sync_orca_phase(
     payload: dict[str, Any], context: _AdvanceContext, config: WorkflowEngineOptions
 ) -> None:
-    o = context.deps
+    runtime = context.deps.stages.runtime
     for stage in _workflow_stage_dicts(payload):
-        o.stages._sync_orca_stage(
+        runtime._sync_orca_stage(
             stage,
             orca_config=config.orca_config,
             orca_repo_root=config.orca_repo_root,
@@ -204,23 +283,21 @@ def _finalize_advanced_workflow(
     payload: dict[str, Any], context: _AdvanceContext, config: WorkflowEngineOptions
 ) -> None:
     o = context.deps
-    payload["status"] = o.stages._recompute_workflow_status(payload)
-    if o.stages._normalize_text(payload.get("status")).lower() == "failed":
+    payload["status"] = o.stages.workflow._recompute_workflow_status(payload)
+    if o.stages._normalize_text(payload.get("status")).lower() == STATUS_FAILED:
         o.advance._cancel_active_workflow_stages(payload, config=config)
-        payload["status"] = o.stages._recompute_workflow_status(payload)
+        payload["status"] = o.stages.workflow._recompute_workflow_status(payload)
 
     metadata = payload.setdefault("metadata", {})
     if not isinstance(metadata, dict):
         return
     metadata["last_advanced_at"] = o.persistence.now_utc_iso()
     metadata["sync_only"] = bool(context.sync_only)
-    final_child_sync_pending = o.stages._normalize_text(payload.get("status")).lower() in {
-        "completed",
-        "failed",
-        "cancel_requested",
-        "cancelled",
-        "cancel_failed",
-    } and o.stages._workflow_has_active_children(payload)
+    final_child_sync_pending = (
+        is_stage_terminal_status(payload.get("status"))
+        or o.stages._normalize_text(payload.get("status")).lower()
+        in {STATUS_CANCEL_REQUESTED, STATUS_CANCEL_FAILED}
+    ) and o.stages.workflow._workflow_has_active_children(payload)
     metadata["final_child_sync_pending"] = final_child_sync_pending
     if final_child_sync_pending:
         metadata["final_child_sync_completed_at"] = ""
@@ -235,76 +312,44 @@ def _cancel_stage_activity(
     deps: OrchestrationDeps | None = None,
 ) -> dict[str, Any]:
     o = deps or orchestration_deps()
-    task = stage.get("task")
-    if not isinstance(task, dict):
+    stage_view = WorkflowStageView.from_raw(stage)
+    if stage_view is None or not stage_view.has_task:
         return {"status": "skipped", "reason": "missing_task"}
+    task = stage_view.task.raw
 
-    terminal_statuses = {
-        "completed",
-        "failed",
-        "cancelled",
-        "cancel_failed",
-        "submission_failed",
-    }
-    cancellable_statuses = {
-        "planned",
-        "queued",
-        "running",
-        "submitted",
-    }
-
-    stage_status = o.stages._normalize_text(stage.get("status")).lower()
-    task_status = o.stages._normalize_text(task.get("status")).lower()
-    if stage_status == "cancel_requested" or task_status == "cancel_requested":
+    stage_status = stage_view.status(o)
+    task_status = stage_view.task_status(o)
+    if stage_status == STATUS_CANCEL_REQUESTED or task_status == STATUS_CANCEL_REQUESTED:
         return {"status": "skipped", "reason": "cancel_requested"}
-    if stage_status in terminal_statuses or task_status in terminal_statuses:
+    if is_stage_terminal_status(stage_status) or is_stage_terminal_status(task_status):
         return {"status": "skipped", "reason": "terminal"}
-    if stage_status not in cancellable_statuses and task_status not in cancellable_statuses:
+    if not (
+        is_stage_cancellable_status(stage_status) or is_stage_cancellable_status(task_status)
+    ):
         return {"status": "skipped", "reason": "not_cancellable"}
 
-    engine = o.stages._normalize_text(task.get("engine"))
+    engine = stage_view.task_engine(o)
     cancel_target = o.stages._submission_target(stage)
     if not cancel_target:
-        task["status"] = "cancelled"
-        stage["status"] = "cancelled"
-        return {"status": "cancelled", "mode": "local"}
+        stage_view.task.set_status(STATUS_CANCELLED)
+        stage_view.set_status(STATUS_CANCELLED)
+        return {"status": STATUS_CANCELLED, "mode": "local"}
 
-    if (
-        engine == "crest"
-        and o.stages._normalize_text(config.crest.config)
-    ):
-        result = o.engines.crest_cancel_target(
-            target=cancel_target,
-            config_path=str(config.crest.config),
-        )
-    elif (
-        engine == "xtb"
-        and o.stages._normalize_text(config.xtb.config)
-    ):
-        result = o.engines.xtb_cancel_target(
-            target=cancel_target,
-            config_path=str(config.xtb.config),
-        )
-    elif (
-        engine == "orca"
-        and o.stages._normalize_text(config.orca.config)
-    ):
-        result = o.engines.orca_cancel_target(
-            target=cancel_target,
-            config_path=str(config.orca.config),
-            repo_root=config.orca.repo_root,
-        )
-    else:
-        result = {"status": "failed", "reason": "missing_engine_config"}
+    result = _cancel_engine_target(
+        deps=o,
+        engine=engine,
+        target=cancel_target,
+        config=config,
+    )
 
     task["cancel_result"] = result
-    if result.get("status") in {"cancelled", "cancel_requested"}:
+    if is_cancel_ack_status(result.get("status")):
         task["status"] = result["status"]
         stage["status"] = result["status"]
         return {"status": result["status"]}
     return {
-        "status": "failed",
-        "reason": o.stages._normalize_text(result.get("reason")) or "cancel_failed",
+        "status": STATUS_FAILED,
+        "reason": o.stages._normalize_text(result.get("reason")) or STATUS_CANCEL_FAILED,
     }
 
 
@@ -322,7 +367,7 @@ def _cancel_active_workflow_stages(
         if not isinstance(stage, dict):
             continue
         outcome = o.advance._cancel_stage_activity(stage, config=config)
-        if outcome.get("status") in {"cancelled", "cancel_requested"}:
+        if is_cancel_ack_status(outcome.get("status")):
             if outcome.get("mode"):
                 cancelled.append(
                     {
@@ -338,11 +383,11 @@ def _cancel_active_workflow_stages(
                     }
                 )
             continue
-        if outcome.get("status") == "failed":
+        if outcome.get("status") == STATUS_FAILED:
             failed.append(
                 {
                     "stage_id": stage.get("stage_id", ""),
-                    "reason": outcome.get("reason", "cancel_failed"),
+                    "reason": outcome.get("reason", STATUS_CANCEL_FAILED),
                 }
             )
 
@@ -423,11 +468,11 @@ def cancel_materialized_workflow(
             failed = cancellation["failed"]
 
             payload["status"] = (
-                "cancel_requested"
-                if any(item.get("status") == "cancel_requested" for item in cancelled)
-                else "cancel_failed"
+                STATUS_CANCEL_REQUESTED
+                if any(item.get("status") == STATUS_CANCEL_REQUESTED for item in cancelled)
+                else STATUS_CANCEL_FAILED
                 if failed
-                else "cancelled"
+                else STATUS_CANCELLED
             )
             o.persistence.write_workflow_payload(workspace_dir, payload)
             o.persistence.sync_workflow_registry(workflow_root_path, workspace_dir, payload)

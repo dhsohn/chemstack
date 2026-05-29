@@ -8,16 +8,18 @@ from chemstack.core.statuses import (
     WORKFLOW_FAILED_STATUSES,
     WORKFLOW_STATUS_ORDER,
     WORKFLOW_TERMINAL_STATUSES,
+    is_workflow_active_status,
+    is_workflow_terminal_status,
+    normalize_status,
 )
-from chemstack.core.utils.coercion import normalize_text as _normalize_text
 
 
 def normalize_workflow_status(value: Any) -> str:
-    return _normalize_text(value).lower()
+    return normalize_status(value)
 
 
 def workflow_status_is_active(value: Any) -> bool:
-    return normalize_workflow_status(value) in WORKFLOW_ACTIVE_STATUSES
+    return is_workflow_active_status(value)
 
 
 def workflow_status_needs_attention(value: Any) -> bool:
@@ -25,7 +27,7 @@ def workflow_status_needs_attention(value: Any) -> bool:
 
 
 def workflow_status_is_terminal(value: Any) -> bool:
-    return normalize_workflow_status(value) in WORKFLOW_TERMINAL_STATUSES
+    return is_workflow_terminal_status(value)
 
 
 def workflow_stage_is_terminal(stage_summary: dict[str, Any]) -> bool:
