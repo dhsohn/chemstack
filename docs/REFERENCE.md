@@ -94,7 +94,7 @@ commands:
 - `scaffold <ts_search|conformer_search>`
 - `organize orca`
 - `summary`
-- `monitor`
+- `scan-notify` (alias: `monitor`)
 Activate `.venv` first, or call `.venv/bin/chemstack ...` directly.
 By default, config is resolved from `CHEMSTACK_CONFIG`, then `<repo_root>/config/chemstack.yaml`, then `~/chemstack/config/chemstack.yaml`.
 Add `--config <path>` only when you want to override default config discovery.
@@ -286,15 +286,17 @@ Behavior:
 
 - `summary` prints or sends the unified ORCA/workflow Telegram digest
 
-### 7.7 `monitor`
+### 7.7 `scan-notify` (alias: `monitor`)
 
 ```bash
-chemstack monitor
+chemstack scan-notify
 ```
 
 Behavior:
 
-- `monitor` scans the configured ORCA root and sends Telegram discovery alerts
+- `scan-notify` runs a one-shot scan of the configured ORCA root and sends
+  Telegram discovery alerts, then exits. It is not a live monitor.
+- `monitor` is a backward-compatible alias for `scan-notify`.
 
 ### 7.8 Long-Running Services
 

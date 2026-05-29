@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shutil
 import unicodedata
 from datetime import datetime, timezone
 from typing import Any, Sequence
@@ -269,8 +270,64 @@ def _queue_pad_right(value: str, width: int) -> str:
     return _queue_text(value) + (" " * padding)
 
 
+# Gap rendered between adjacent table columns.
+_QUEUE_COLUMN_GAP = "  "
+
+# Smallest width each flexible column may shrink to under terminal-width
+# pressure, and the order in which columns surrender space (least essential
+# first). ``id`` shrinks last because it doubles as the ``queue cancel`` target.
+_QUEUE_MIN_WIDTHS = {"detail": 6, "name": 8, "id": 8}
+_QUEUE_SHRINK_ORDER = ("detail", "name", "id")
+
+
+def _terminal_max_width() -> int | None:
+    """Return the usable terminal width, or ``None`` when it cannot be detected.
+
+    ``shutil.get_terminal_size`` honors ``COLUMNS`` first, then queries the
+    attached terminal. When output is piped (no terminal) the fallback of ``0``
+    is returned here as ``None`` so piped/redirected output keeps full-width
+    columns and stays stable for downstream scripts.
+    """
+
+    try:
+        columns = shutil.get_terminal_size(fallback=(0, 0)).columns
+    except (ValueError, OSError):
+        return None
+    return columns if columns > 0 else None
+
+
+def _fit_queue_widths(widths: dict[str, int], *, max_total: int | None) -> dict[str, int]:
+    """Shrink flexible columns so the rendered row fits ``max_total`` columns.
+
+    Columns are reduced in ``_QUEUE_SHRINK_ORDER`` down to ``_QUEUE_MIN_WIDTHS``;
+    if the row still overflows after every column hits its floor the widths are
+    left at their minimums (the row may wrap, but never silently misaligns).
+    """
+
+    if max_total is None:
+        return widths
+    gaps = _QUEUE_COLUMN_GAP * (len(widths) - 1)
+    overflow = sum(widths.values()) + _queue_display_width(gaps) - max_total
+    if overflow <= 0:
+        return widths
+    adjusted = dict(widths)
+    for key in _QUEUE_SHRINK_ORDER:
+        if overflow <= 0:
+            break
+        reducible = adjusted[key] - _QUEUE_MIN_WIDTHS[key]
+        if reducible <= 0:
+            continue
+        cut = min(reducible, overflow)
+        adjusted[key] -= cut
+        overflow -= cut
+    return adjusted
+
+
 def queue_table_lines(
-    rows: Sequence[tuple[int, dict[str, Any]]], *, now: datetime | None = None
+    rows: Sequence[tuple[int, dict[str, Any]]],
+    *,
+    now: datetime | None = None,
+    max_width: int | None = None,
 ) -> list[str]:
     prepared: list[dict[str, str]] = []
     resolved_now = now or _queue_table_now()
@@ -319,20 +376,32 @@ def queue_table_lines(
     )
     elapsed_width = max(_queue_display_width(elapsed_header), 8)
 
+    # ``status`` and ``elapsed`` are intrinsically narrow and fixed, so the three
+    # flexible text columns absorb any terminal-width shortfall.
+    fixed_width = status_width + elapsed_width + _queue_display_width(_QUEUE_COLUMN_GAP) * 4
+    flexible = _fit_queue_widths(
+        {"detail": detail_width, "name": name_width, "id": id_width},
+        max_total=None if max_width is None else max(0, max_width - fixed_width),
+    )
+    name_width = flexible["name"]
+    detail_width = flexible["detail"]
+    id_width = flexible["id"]
+
+    gap = _QUEUE_COLUMN_GAP
     lines = [
-        f"{_queue_pad_right(status_header, status_width)}  "
-        f"{_queue_pad_right(name_header, name_width)}  "
-        f"{_queue_pad_right(detail_header, detail_width)}  "
-        f"{_queue_pad_right(id_header, id_width)}  "
+        f"{_queue_pad_right(_queue_truncate(status_header, max_width=status_width), status_width)}{gap}"
+        f"{_queue_pad_right(_queue_truncate(name_header, max_width=name_width), name_width)}{gap}"
+        f"{_queue_pad_right(_queue_truncate(detail_header, max_width=detail_width), detail_width)}{gap}"
+        f"{_queue_pad_right(_queue_truncate(id_header, max_width=id_width), id_width)}{gap}"
         f"{_queue_pad_right(elapsed_header, elapsed_width)}",
         "─" * (status_width + name_width + detail_width + id_width + elapsed_width + 8),
     ]
     for row in prepared:
         lines.append(
-            f"{_queue_pad_right(row['status'], status_width)}  "
-            f"{_queue_pad_right(_queue_truncate(row['name'], max_width=name_width), name_width)}  "
-            f"{_queue_pad_right(_queue_truncate(row['detail'], max_width=detail_width), detail_width)}  "
-            f"{_queue_pad_right(row['id'], id_width)}  "
+            f"{_queue_pad_right(row['status'], status_width)}{gap}"
+            f"{_queue_pad_right(_queue_truncate(row['name'], max_width=name_width), name_width)}{gap}"
+            f"{_queue_pad_right(_queue_truncate(row['detail'], max_width=detail_width), detail_width)}{gap}"
+            f"{_queue_pad_right(_queue_truncate(row['id'], max_width=id_width), id_width)}{gap}"
             f"{_queue_pad_right(row['elapsed'], elapsed_width)}"
         )
     return lines
@@ -343,13 +412,14 @@ def queue_list_text_lines(
     *,
     active_simulations: int,
     now: datetime | None = None,
+    max_width: int | None = None,
     empty_message: str = "No matching activities.",
 ) -> list[str]:
     lines = [f"active_simulations: {int(active_simulations)}"]
     if not rows:
         lines.append(empty_message)
         return lines
-    lines.extend(queue_table_lines(rows, now=now))
+    lines.extend(queue_table_lines(rows, now=now, max_width=max_width))
     return lines
 
 

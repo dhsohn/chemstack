@@ -41,7 +41,7 @@ User-facing docs should standardize on these command forms:
 - `chemstack scaffold <ts_search|conformer_search> <path>`
 - `chemstack organize orca ...`
 - `chemstack summary ...`
-- `chemstack monitor`
+- `chemstack scan-notify` (alias: `chemstack monitor`)
 
 Long-running services are not part of the public CLI surface. Users should run
 them only through the `systemd/` units.

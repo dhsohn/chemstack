@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import argparse
 from importlib import metadata
+from typing import cast
 
+from chemstack.cli_argparse import ChemStackArgumentParser
 from chemstack.cli_parser_commands import (
     add_init_parser,
     add_monitor_parser,
@@ -34,7 +36,7 @@ examples:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
+    parser = ChemStackArgumentParser(
         prog="chemstack",
         epilog=_EXAMPLES_EPILOG,
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -50,8 +52,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Disable ANSI color in terminal output (also honors NO_COLOR)",
     )
     # Not required: a bare ``chemstack`` invocation prints help (handled in
-    # ``cli.main``) instead of raising an argparse usage error.
-    subparsers = parser.add_subparsers(dest="command", required=False)
+    # ``cli.main``) instead of raising an argparse usage error. ``add_subparsers``
+    # defaults ``parser_class`` to ``ChemStackArgumentParser``, so nested
+    # subparsers inherit the styled error handling at runtime; the cast just
+    # reconciles the invariant generic with the ``add_*_parser`` helper signatures.
+    subparsers = cast(
+        "argparse._SubParsersAction[argparse.ArgumentParser]",
+        parser.add_subparsers(dest="command", required=False),
+    )
     add_queue_parser(subparsers)
     add_run_dir_parser(subparsers)
     add_init_parser(subparsers)

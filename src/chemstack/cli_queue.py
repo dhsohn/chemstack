@@ -107,13 +107,20 @@ def _queue_display_width(value: str) -> int:
     return _activity_rendering._queue_display_width(value)
 
 
+def _queue_terminal_width() -> int | None:
+    return _activity_rendering._terminal_max_width()
+
+
 def _queue_table_lines(
     rows: Sequence[tuple[int, dict[str, Any]]],
     *,
     deps: Any | None = None,
 ) -> list[str]:
     queue_table_now = _dependency(deps, "_queue_table_now", _queue_table_now)
-    return _activity_rendering.queue_table_lines(rows, now=queue_table_now())
+    terminal_width = _dependency(deps, "_queue_terminal_width", _queue_terminal_width)
+    return _activity_rendering.queue_table_lines(
+        rows, now=queue_table_now(), max_width=terminal_width()
+    )
 
 
 def _queue_list_text_lines(
@@ -123,10 +130,12 @@ def _queue_list_text_lines(
     deps: Any | None = None,
 ) -> list[str]:
     queue_table_now = _dependency(deps, "_queue_table_now", _queue_table_now)
+    terminal_width = _dependency(deps, "_queue_terminal_width", _queue_terminal_width)
     return _activity_rendering.queue_list_text_lines(
         rows,
         active_simulations=active_simulations,
         now=queue_table_now(),
+        max_width=terminal_width(),
     )
 
 

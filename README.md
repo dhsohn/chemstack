@@ -107,11 +107,12 @@ chemstack service status
 chemstack service restart
 chemstack organize orca --root '/home/user/orca_runs' --apply
 chemstack summary --no-send
-chemstack monitor
+chemstack scan-notify
 ```
 
-`queue list` prints a compact table with `Status`, `Job ID`, `Detail`, and `Elapsed`
-columns. Workflow child simulations stay grouped under their parent workflow with indentation.
+`queue list` prints a compact table with `Status`, `Name`, `Detail`, `ID`, and `Elapsed`
+columns that adapt to the terminal width (long values are truncated with `...`).
+Workflow child simulations stay grouped under their parent workflow with indentation.
 By default, only ORCA child jobs are expanded in the combined text view; internal xTB/CREST
 workflow children stay hidden unless you ask for them with filters or `--json`.
 Use `chemstack queue list clear` to prune completed, failed, and cancelled entries from

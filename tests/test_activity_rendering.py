@@ -72,3 +72,74 @@ def test_queue_table_lines_truncates_wide_unicode_without_column_drift(monkeypat
     assert len(set(widths)) == 1
     assert "..." in "\n".join(lines)
     assert "매우긴워크플로우" in "\n".join(lines)
+
+
+def _basic_rows() -> list[tuple[int, dict[str, object]]]:
+    return [
+        (
+            0,
+            {
+                "activity_id": "orca_a_very_long_activity_identifier_value",
+                "kind": "job",
+                "engine": "orca",
+                "status": "running",
+                "label": "a_reasonably_long_reaction_name_here",
+                "updated_at": "2026-05-20T00:00:00+00:00",
+                "metadata": {"job_type": "opt"},
+            },
+        )
+    ]
+
+
+def test_queue_table_lines_fits_within_max_width(monkeypatch) -> None:
+    monkeypatch.setattr(
+        rendering,
+        "_queue_table_now",
+        lambda: datetime(2026, 5, 20, 0, 10, 0, tzinfo=timezone.utc),
+    )
+
+    lines = rendering.queue_table_lines(_basic_rows(), max_width=50)
+    widths = [rendering._queue_display_width(line) for line in lines]
+
+    assert len(set(widths)) == 1
+    assert widths[0] <= 50
+
+
+def test_queue_table_lines_shrinks_detail_before_id(monkeypatch) -> None:
+    monkeypatch.setattr(
+        rendering,
+        "_queue_table_now",
+        lambda: datetime(2026, 5, 20, 0, 10, 0, tzinfo=timezone.utc),
+    )
+
+    rows = [
+        (
+            0,
+            {
+                "activity_id": "orca_keep_this_id",
+                "kind": "job",
+                "engine": "orca",
+                "status": "running",
+                "label": "a_really_really_long_reaction_name_value_here",
+                "updated_at": "2026-05-20T00:00:00+00:00",
+                "metadata": {"job_type": "opt"},
+            },
+        )
+    ]
+
+    # Tight enough to force the name column to shrink, but the ID — which doubles
+    # as the `queue cancel` target — is the last column to give up space.
+    lines = rendering.queue_table_lines(rows, max_width=60)
+
+    assert "orca_keep_this_id" in "\n".join(lines)
+
+
+def test_terminal_max_width_returns_none_without_terminal(monkeypatch) -> None:
+    monkeypatch.delenv("COLUMNS", raising=False)
+    monkeypatch.setattr(
+        rendering.shutil,
+        "get_terminal_size",
+        lambda fallback=(0, 0): __import__("os").terminal_size((0, 0)),
+    )
+
+    assert rendering._terminal_max_width() is None
