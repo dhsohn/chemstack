@@ -68,7 +68,7 @@ from .worker_execution import (
 )
 
 POLL_INTERVAL_SECONDS = 5
-WORKER_PID_FILE = "queue_worker.pid"
+WORKER_PID_FILE = "crest_queue_worker.pid"
 WORKER_SHUTDOWN_GRACE_SECONDS = 10.0
 
 

@@ -93,20 +93,10 @@ _SERVICE_ACTIVE_COLORS = {
     "inactive": cli_style.DIM,
     "dead": cli_style.DIM,
 }
-_SERVICE_ENABLED_COLORS = {
-    "enabled": cli_style.GREEN,
-    "disabled": cli_style.DIM,
-    "static": cli_style.DIM,
-    "masked": cli_style.RED,
-}
 
 
 def _service_active_color(value: str) -> str:
     return _SERVICE_ACTIVE_COLORS.get(value.strip().lower(), cli_style.YELLOW)
-
-
-def _service_enabled_color(value: str) -> str | None:
-    return _SERVICE_ENABLED_COLORS.get(value.strip().lower())
 
 
 def _paint_field(text: str, width: int, color: str | None) -> str:
@@ -116,11 +106,10 @@ def _paint_field(text: str, width: int, color: str | None) -> str:
 
 def _print_service_status(target_user: str, statuses: Sequence[ServiceUnitStatus]) -> None:
     print(f"ChemStack service status for {target_user}:")
-    print(cli_style.paint(f"{'Name':<10} {'Active':<14} {'Enabled':<14} Unit", cli_style.BOLD))
+    print(cli_style.paint(f"{'Name':<10} {'Active':<14} Unit", cli_style.BOLD))
     for status in statuses:
         active = _paint_field(status.active, 14, _service_active_color(status.active))
-        enabled = _paint_field(status.enabled, 14, _service_enabled_color(status.enabled))
-        print(f"{status.label:<10} {active} {enabled} {status.unit}")
+        print(f"{status.label:<10} {active} {status.unit}")
 
 
 def _service_status_payload(

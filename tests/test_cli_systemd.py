@@ -207,9 +207,59 @@ def test_cmd_service_status_prints_compact_systemd_state(capsys: Any) -> None:
     assert result == 0
     output = capsys.readouterr().out
     assert "ChemStack service status for alice:" in output
+    assert "Active" in output
+    assert "Startup" not in output
+    assert "Enabled" not in output
     assert "worker" in output
     assert "chemstack-queue-worker@alice.service" in output
     assert "inactive" in output
+
+
+def test_cmd_service_status_hides_runtime_managed_enabled_noise(
+    capsys: Any,
+) -> None:
+    statuses = (
+        cli_systemd.ServiceUnitStatus(
+            label="runtime",
+            unit="chemstack-runtime@alice.target",
+            active="active",
+            enabled="enabled",
+        ),
+        cli_systemd.ServiceUnitStatus(
+            label="worker",
+            unit="chemstack-queue-worker@alice.service",
+            active="active",
+            enabled="disabled",
+        ),
+        cli_systemd.ServiceUnitStatus(
+            label="bot",
+            unit="chemstack-bot@alice.service",
+            active="active",
+            enabled="disabled",
+        ),
+        cli_systemd.ServiceUnitStatus(
+            label="summary",
+            unit="chemstack-summary@alice.timer",
+            active="active",
+            enabled="disabled",
+        ),
+    )
+
+    result = cli_systemd.cmd_service_status(
+        Namespace(target_user="alice"),
+        deps=Namespace(
+            collect_service_status=lambda target_user, run: statuses,
+            run=lambda *args, **kwargs: subprocess.CompletedProcess(args[0], 0),
+            which=lambda name: "/bin/systemctl" if name == "systemctl" else None,
+        ),
+    )
+
+    assert result == 0
+    output = capsys.readouterr().out
+    assert "Startup" not in output
+    assert "Enabled" not in output
+    assert "via runtime" not in output
+    assert "disabled" not in output
 
 
 def test_cmd_service_status_emits_json(capsys: Any) -> None:

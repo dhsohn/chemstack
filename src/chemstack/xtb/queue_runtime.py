@@ -74,7 +74,7 @@ from . import queue_terminal as _queue_terminal
 
 POLL_INTERVAL_SECONDS = 5
 CANCEL_CHECK_INTERVAL_SECONDS = 1
-WORKER_PID_FILE = "queue_worker.pid"
+WORKER_PID_FILE = "xtb_queue_worker.pid"
 WORKER_SHUTDOWN_GRACE_SECONDS = 10.0
 WORKER_CANCEL_SIGNAL = _worker_execution.WORKER_CANCEL_SIGNAL
 WORKER_SHUTDOWN_EXIT_CODE = _worker_execution.WORKER_SHUTDOWN_EXIT_CODE
