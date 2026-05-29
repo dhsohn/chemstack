@@ -257,7 +257,9 @@ filters and `--json`. Top-level ORCA jobs remain top-level entries. The
 `active_simulations` line counts only the currently running
 simulations that consume the shared `scheduler.max_active_simulations` slots.
 The integrated Telegram bot `/list` command renders the same table layout and default
-workflow-child visibility policy.
+workflow-child visibility policy, except it omits the `ID` column so each row fits on a
+single line on narrow mobile screens. Its actions message offers per-activity cancel
+buttons plus refresh and "clear finished" buttons (the latter equivalent to `/list clear`).
 
 ### 7.5 `organize`
 

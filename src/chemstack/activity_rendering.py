@@ -328,6 +328,7 @@ def queue_table_lines(
     *,
     now: datetime | None = None,
     max_width: int | None = None,
+    include_id: bool = True,
 ) -> list[str]:
     prepared: list[dict[str, str]] = []
     resolved_now = now or _queue_table_now()
@@ -346,64 +347,53 @@ def queue_table_lines(
             }
         )
 
-    status_header = "Status"
-    name_header = "Name"
-    detail_header = "Detail"
-    id_header = "ID"
-    elapsed_header = "Elapsed"
+    headers = {
+        "status": "Status",
+        "name": "Name",
+        "detail": "Detail",
+        "id": "ID",
+        "elapsed": "Elapsed",
+    }
+    # ``id`` is dropped for narrow surfaces (e.g. the Telegram ``/list``) where a
+    # full activity id would wrap each row onto a second line.
+    columns = ["status", "name", "detail"] + (["id"] if include_id else []) + ["elapsed"]
 
-    detail_width = max(
-        _queue_display_width(detail_header),
-        min(
-            36,
-            max((_queue_display_width(row["detail"]) for row in prepared), default=0),
-        ),
-    )
-    status_width = max(
-        _queue_display_width(status_header),
-        max((_queue_display_width(row["status"]) for row in prepared), default=0),
-    )
-    name_width = max(
-        _queue_display_width(name_header),
-        min(
-            32,
-            max((_queue_display_width(row["name"]) for row in prepared), default=0),
-        ),
-    )
-    id_width = max(
-        _queue_display_width(id_header),
-        max((_queue_display_width(row["id"]) for row in prepared), default=0),
-    )
-    elapsed_width = max(_queue_display_width(elapsed_header), 8)
+    def header_width(key: str) -> int:
+        return max(
+            _queue_display_width(headers[key]),
+            max((_queue_display_width(row[key]) for row in prepared), default=0),
+        )
 
-    # ``status`` and ``elapsed`` are intrinsically narrow and fixed, so the three
+    # Soft caps keep wide values from dominating before terminal-fit shrinking.
+    widths = {key: header_width(key) for key in columns}
+    widths["detail"] = max(_queue_display_width(headers["detail"]), min(36, widths["detail"]))
+    widths["name"] = max(_queue_display_width(headers["name"]), min(32, widths["name"]))
+    widths["elapsed"] = max(_queue_display_width(headers["elapsed"]), 8)
+
+    # ``status`` and ``elapsed`` are intrinsically narrow and fixed, so the
     # flexible text columns absorb any terminal-width shortfall.
-    fixed_width = status_width + elapsed_width + _queue_display_width(_QUEUE_COLUMN_GAP) * 4
+    gap_width = _queue_display_width(_QUEUE_COLUMN_GAP) * (len(columns) - 1)
+    fixed_width = widths["status"] + widths["elapsed"] + gap_width
+    flexible_keys = [key for key in _QUEUE_SHRINK_ORDER if key in widths]
     flexible = _fit_queue_widths(
-        {"detail": detail_width, "name": name_width, "id": id_width},
+        {key: widths[key] for key in flexible_keys},
         max_total=None if max_width is None else max(0, max_width - fixed_width),
     )
-    name_width = flexible["name"]
-    detail_width = flexible["detail"]
-    id_width = flexible["id"]
+    widths.update(flexible)
 
     gap = _QUEUE_COLUMN_GAP
-    lines = [
-        f"{_queue_pad_right(_queue_truncate(status_header, max_width=status_width), status_width)}{gap}"
-        f"{_queue_pad_right(_queue_truncate(name_header, max_width=name_width), name_width)}{gap}"
-        f"{_queue_pad_right(_queue_truncate(detail_header, max_width=detail_width), detail_width)}{gap}"
-        f"{_queue_pad_right(_queue_truncate(id_header, max_width=id_width), id_width)}{gap}"
-        f"{_queue_pad_right(elapsed_header, elapsed_width)}",
-        "─" * (status_width + name_width + detail_width + id_width + elapsed_width + 8),
-    ]
-    for row in prepared:
-        lines.append(
-            f"{_queue_pad_right(row['status'], status_width)}{gap}"
-            f"{_queue_pad_right(_queue_truncate(row['name'], max_width=name_width), name_width)}{gap}"
-            f"{_queue_pad_right(_queue_truncate(row['detail'], max_width=detail_width), detail_width)}{gap}"
-            f"{_queue_pad_right(_queue_truncate(row['id'], max_width=id_width), id_width)}{gap}"
-            f"{_queue_pad_right(row['elapsed'], elapsed_width)}"
+
+    def render_row(values: dict[str, str]) -> str:
+        return gap.join(
+            _queue_pad_right(_queue_truncate(values[key], max_width=widths[key]), widths[key])
+            for key in columns
         )
+
+    lines = [
+        render_row(headers),
+        "─" * (sum(widths[key] for key in columns) + gap_width),
+    ]
+    lines.extend(render_row(row) for row in prepared)
     return lines
 
 
@@ -413,13 +403,14 @@ def queue_list_text_lines(
     active_simulations: int,
     now: datetime | None = None,
     max_width: int | None = None,
+    include_id: bool = True,
     empty_message: str = "No matching activities.",
 ) -> list[str]:
     lines = [f"active_simulations: {int(active_simulations)}"]
     if not rows:
         lines.append(empty_message)
         return lines
-    lines.extend(queue_table_lines(rows, now=now, max_width=max_width))
+    lines.extend(queue_table_lines(rows, now=now, max_width=max_width, include_id=include_id))
     return lines
 
 

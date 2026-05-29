@@ -13,6 +13,7 @@ from .telegram_keyboards import (
     _CB_CANCEL_ASK,
     _CB_CANCEL_DO,
     _CB_CANCEL_NO,
+    _CB_CLEAR,
     _CB_REFRESH,
     _MAX_LIST_CANCEL_BUTTONS,
     _cancel_confirm_keyboard,
@@ -116,6 +117,7 @@ def dispatch_callback_query(
     callback_response_fn: Callable[[Any, str], str],
     edit_message: Callable[..., Any],
     send_response: Callable[..., Any],
+    clear_finished_fn: Callable[[Any], None],
 ) -> int | None:
     update_id = int(update.get("update_id", 0) or 0)
     callback = update.get("callback_query")
@@ -134,6 +136,12 @@ def dispatch_callback_query(
     answer_callback(settings, callback.get("id"))
 
     if data == _CB_REFRESH:
+        send_list_response_fn(settings)
+        return update_id
+    if data == _CB_CLEAR:
+        # Same effect as ``/list clear``: prune finished entries, report the
+        # result, then refresh so the list and action buttons reflect it.
+        clear_finished_fn(settings)
         send_list_response_fn(settings)
         return update_id
     if data.startswith(_CB_CANCEL_ASK):

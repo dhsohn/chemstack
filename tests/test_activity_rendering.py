@@ -91,6 +91,24 @@ def _basic_rows() -> list[tuple[int, dict[str, object]]]:
     ]
 
 
+def test_queue_table_lines_omits_id_column_when_disabled(monkeypatch) -> None:
+    monkeypatch.setattr(
+        rendering,
+        "_queue_table_now",
+        lambda: datetime(2026, 5, 20, 0, 10, 0, tzinfo=timezone.utc),
+    )
+
+    lines = rendering.queue_table_lines(_basic_rows(), include_id=False)
+    joined = "\n".join(lines)
+    widths = [rendering._queue_display_width(line) for line in lines]
+
+    assert len(set(widths)) == 1
+    assert "ID" not in lines[0]
+    assert "orca_a_very_long_activity_identifier_value" not in joined
+    # Other columns still render.
+    assert "Status" in lines[0] and "Name" in lines[0] and "Elapsed" in lines[0]
+
+
 def test_queue_table_lines_fits_within_max_width(monkeypatch) -> None:
     monkeypatch.setattr(
         rendering,

@@ -220,8 +220,14 @@ def _handle_list(settings: TelegramBotSettings, args: str) -> str:
         all_rows,
         config_path=_activity_counter_config_path(payload, settings=settings),
     )
+    # Telegram renders on narrow mobile screens; the activity id is omitted so
+    # each row fits on a single line (the cancel buttons cover per-item actions).
     return "\n".join(
-        queue_list_text_lines(display_rows, active_simulations=active_simulations)
+        queue_list_text_lines(
+            display_rows,
+            active_simulations=active_simulations,
+            include_id=False,
+        )
     )
 
 
@@ -413,6 +419,10 @@ def _send_bot_response(settings: TelegramBotSettings, response: str, *, preforma
         _send_response(settings.telegram, response)
 
 
+def _clear_finished(settings: TelegramBotSettings) -> None:
+    _send_response(settings.telegram, _handle_list(settings, "clear"))
+
+
 def _dispatch_callback_query(settings: TelegramBotSettings, update: dict[str, Any]) -> int | None:
     return _interactive.dispatch_callback_query(
         settings,
@@ -423,6 +433,7 @@ def _dispatch_callback_query(settings: TelegramBotSettings, update: dict[str, An
         callback_response_fn=_callback_response,
         edit_message=_edit_message,
         send_response=_send_response,
+        clear_finished_fn=_clear_finished,
     )
 
 

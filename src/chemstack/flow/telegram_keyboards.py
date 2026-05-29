@@ -10,6 +10,7 @@ _CB_CANCEL_DO = "cxl:y:"
 _CB_CANCEL_NO = "cxl:n"
 _CB_CANCEL_ASK = "cxl:a:"
 _CB_REFRESH = "lst"
+_CB_CLEAR = "lst:clr"
 _CALLBACK_DATA_LIMIT = 64
 _MAX_LIST_CANCEL_BUTTONS = 8
 _LIST_BUTTON_LABEL_WIDTH = 30
@@ -52,6 +53,11 @@ def _list_action_keyboard(active_items: list[dict[str, Any]]) -> dict[str, Any]:
         if len(data.encode("utf-8")) > _CALLBACK_DATA_LIMIT:
             continue
         rows.append([_button(_list_button_label(item), data)])
-    rows.append([_button("🔄 Refresh", _CB_REFRESH)])
+    rows.append(
+        [
+            _button("🔄 Refresh", _CB_REFRESH),
+            _button("🧹 Clear finished", _CB_CLEAR),
+        ]
+    )
     return _inline_keyboard(rows)
 

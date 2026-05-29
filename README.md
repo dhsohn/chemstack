@@ -115,8 +115,9 @@ Workflow child simulations stay grouped under their parent workflow with indenta
 By default, only ORCA child jobs are expanded in the combined text view; internal xTB/CREST
 workflow children stay hidden unless you ask for them with filters or `--json`.
 Use `chemstack queue list clear` to prune completed, failed, and cancelled entries from
-the unified list. The Telegram bot uses the same `/list` table layout and supports the same
-cleanup via `/list clear`.
+the unified list. The Telegram bot uses the same `/list` table layout (minus the `ID`
+column, so each row fits on one line on mobile) and supports the same cleanup via
+`/list clear`.
 The `active_simulations` line counts only simulations that currently consume the shared
 `scheduler.max_active_simulations` slots.
 
@@ -133,10 +134,11 @@ emits machine-readable output for scripting.
 
 The Telegram bot supports `/cancel <target>` with confirmation via inline buttons before cancelling.
 `/list` follows the table with an actions message carrying a per-activity cancel button
-for each active item plus a refresh button, so cancellation and refresh are one tap
+for each active item plus refresh and "clear finished" buttons, so cancellation, refresh,
+and pruning completed/failed/cancelled entries (the same as `/list clear`) are each one tap
 (the cancel button still routes through the confirmation step); when more than eight
 activities are cancellable the actions message notes how many are shown, and executing a
-cancel auto-refreshes the list.
+cancel or clear auto-refreshes the list.
 
 Long-running services are managed through `systemd` only. After `chemstack.yaml`
 is configured, enable the combined runtime target once and let `systemd` start
