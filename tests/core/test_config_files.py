@@ -3,8 +3,15 @@ from __future__ import annotations
 import stat
 from pathlib import Path
 
+import pytest
+
 from chemstack.core.config.files import (
     engine_config_mapping,
+    load_yaml_mapping,
+    mapping_section,
+    resolve_configured_path,
+    runtime_admission_root,
+    scheduler_admission_root,
     secure_config_file_permissions,
     shared_workflow_root_from_config,
     workflow_root_from_mapping,
@@ -18,6 +25,7 @@ def test_workflow_root_from_mapping_accepts_only_canonical_root_key(tmp_path: Pa
         workflow_root.resolve()
     )
     assert workflow_root_from_mapping({"workflow": {"workflow_root": str(workflow_root)}}) == ""
+    assert workflow_root_from_mapping({"workflow": {"root": 0}}) == ""
 
 
 def test_shared_workflow_root_from_config_ignores_removed_workflow_root_alias(
@@ -40,6 +48,50 @@ def test_engine_config_mapping_requires_engine_section() -> None:
     }
 
     assert engine_config_mapping(raw, "orca", inherit_keys=("scheduler",)) == {}
+
+
+def test_yaml_mapping_and_section_helpers(tmp_path: Path) -> None:
+    config_path = tmp_path / "chemstack.yaml"
+    config_path.write_text("scheduler:\n  max_active_simulations: 4\n", encoding="utf-8")
+
+    path, raw = load_yaml_mapping(config_path)
+
+    assert path == config_path.resolve()
+    assert mapping_section(raw, "scheduler") == {"max_active_simulations": 4}
+    assert mapping_section(raw, "missing") == {}
+
+    invalid_path = tmp_path / "invalid.yaml"
+    invalid_path.write_text("- no\n- mapping\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="top-level is not a mapping"):
+        load_yaml_mapping(invalid_path)
+
+
+def test_configured_path_and_admission_root_helpers(tmp_path: Path) -> None:
+    config_path = tmp_path / "config" / "chemstack.yaml"
+    runtime_root = tmp_path / "runtime-admission"
+    scheduler_root = tmp_path / "scheduler-admission"
+
+    assert resolve_configured_path("  ") is None
+    assert resolve_configured_path(runtime_root) == runtime_root.resolve()
+    assert (
+        runtime_admission_root(
+            config_path,
+            {"admission_root": runtime_root},
+            {"admission_root": scheduler_root},
+        )
+        == runtime_root.resolve()
+    )
+    assert (
+        runtime_admission_root(
+            config_path,
+            {},
+            {"admission_root": scheduler_root},
+        )
+        == scheduler_root.resolve()
+    )
+    assert scheduler_admission_root(config_path, {}, default_when_missing=True) == (
+        config_path.resolve().parent / "admission"
+    )
 
 
 def test_secure_config_file_permissions_sets_owner_only_mode(tmp_path: Path) -> None:

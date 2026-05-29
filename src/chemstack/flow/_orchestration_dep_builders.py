@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from functools import partial
+from functools import partial, wraps
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -9,12 +9,29 @@ if TYPE_CHECKING:
     from ._orchestration_deps import (
         OrchestrationAdvanceDeps,
         OrchestrationContractDeps,
+        OrchestrationDeps,
         OrchestrationEngineDeps,
         OrchestrationPersistenceDeps,
         OrchestrationStageDeps,
     )
 
 AnyCallable = Callable[..., Any]
+
+
+class _LazyOrchestrationDeps:
+    def __init__(self, overrides: Mapping[str, Any] | None) -> None:
+        self._overrides = overrides
+        self._deps: OrchestrationDeps | None = None
+
+    def resolve_to(self, deps: OrchestrationDeps) -> None:
+        self._deps = deps
+
+    def get(self) -> OrchestrationDeps:
+        if self._deps is None:
+            from ._orchestration_deps import orchestration_deps
+
+            self._deps = orchestration_deps(overrides=self._overrides)
+        return self._deps
 
 
 def _override(overrides: Mapping[str, Any] | None, name: str, fallback: Any) -> Any:
@@ -30,11 +47,18 @@ def _apply_overrides(
     return {name: _override(overrides, name, fallback) for name, fallback in items.items()}
 
 
-def _bind_with_deps(overrides: Mapping[str, Any] | None, func: AnyCallable) -> AnyCallable:
-    def call(*args: Any, **kwargs: Any) -> Any:
-        from ._orchestration_deps import orchestration_deps
+def _deps_provider(
+    overrides: Mapping[str, Any] | None,
+    deps_provider: _LazyOrchestrationDeps | None,
+) -> _LazyOrchestrationDeps:
+    return deps_provider or _LazyOrchestrationDeps(overrides)
 
-        kwargs.setdefault("deps", orchestration_deps(overrides=overrides))
+
+def _bind_with_deps(deps_provider: _LazyOrchestrationDeps, func: AnyCallable) -> AnyCallable:
+    @wraps(func)
+    def call(*args: Any, **kwargs: Any) -> Any:
+        if "deps" not in kwargs:
+            kwargs["deps"] = deps_provider.get()
         return func(*args, **kwargs)
 
     return call
@@ -292,7 +316,9 @@ def _stage_builder_fallbacks() -> dict[str, Any]:
     }
 
 
-def _stage_materialization_fallbacks(overrides: Mapping[str, Any] | None) -> dict[str, Any]:
+def _stage_materialization_fallbacks(
+    deps_provider: _LazyOrchestrationDeps,
+) -> dict[str, Any]:
     from ._orchestration_stage_materialization import (
         append_crest_orca_stages_impl,
         append_reaction_orca_stages_impl,
@@ -300,16 +326,22 @@ def _stage_materialization_fallbacks(overrides: Mapping[str, Any] | None) -> dic
     )
 
     return {
-        "_append_crest_orca_stages": _bind_with_deps(overrides, append_crest_orca_stages_impl),
+        "_append_crest_orca_stages": _bind_with_deps(
+            deps_provider,
+            append_crest_orca_stages_impl,
+        ),
         "_append_reaction_orca_stages": _bind_with_deps(
-            overrides,
+            deps_provider,
             append_reaction_orca_stages_impl,
         ),
-        "_append_reaction_xtb_stages": _bind_with_deps(overrides, append_reaction_xtb_stages_impl),
+        "_append_reaction_xtb_stages": _bind_with_deps(
+            deps_provider,
+            append_reaction_xtb_stages_impl,
+        ),
     }
 
 
-def _stage_runtime_fallbacks(overrides: Mapping[str, Any] | None) -> dict[str, Any]:
+def _stage_runtime_fallbacks(deps_provider: _LazyOrchestrationDeps) -> dict[str, Any]:
     from ._orchestration_stage_runtime_crest import (
         completed_crest_roles_impl,
         completed_crest_stage_impl,
@@ -333,28 +365,28 @@ def _stage_runtime_fallbacks(overrides: Mapping[str, Any] | None) -> dict[str, A
     from ._orchestration_stage_runtime_xtb_sync import sync_xtb_stage_impl
 
     return {
-        "_append_unique_artifact": _bind_with_deps(overrides, append_unique_artifact_impl),
-        "_completed_crest_roles": _bind_with_deps(overrides, completed_crest_roles_impl),
-        "_completed_crest_stage": _bind_with_deps(overrides, completed_crest_stage_impl),
-        "_ensure_crest_job_dir": _bind_with_deps(overrides, ensure_crest_job_dir_impl),
-        "_ensure_xtb_job_dir": _bind_with_deps(overrides, ensure_xtb_job_dir_impl),
-        "_sync_crest_stage": _bind_with_deps(overrides, sync_crest_stage_impl),
-        "_sync_orca_stage": _bind_with_deps(overrides, sync_orca_stage_impl),
-        "_sync_xtb_stage": _bind_with_deps(overrides, sync_xtb_stage_impl),
-        "_write_xtb_path_job": _bind_with_deps(overrides, write_xtb_path_job_impl),
-        "_xtb_attempt_record": _bind_with_deps(overrides, xtb_attempt_record_impl),
-        "_xtb_attempt_rows": _bind_with_deps(overrides, xtb_attempt_rows_impl),
+        "_append_unique_artifact": _bind_with_deps(deps_provider, append_unique_artifact_impl),
+        "_completed_crest_roles": _bind_with_deps(deps_provider, completed_crest_roles_impl),
+        "_completed_crest_stage": _bind_with_deps(deps_provider, completed_crest_stage_impl),
+        "_ensure_crest_job_dir": _bind_with_deps(deps_provider, ensure_crest_job_dir_impl),
+        "_ensure_xtb_job_dir": _bind_with_deps(deps_provider, ensure_xtb_job_dir_impl),
+        "_sync_crest_stage": _bind_with_deps(deps_provider, sync_crest_stage_impl),
+        "_sync_orca_stage": _bind_with_deps(deps_provider, sync_orca_stage_impl),
+        "_sync_xtb_stage": _bind_with_deps(deps_provider, sync_xtb_stage_impl),
+        "_write_xtb_path_job": _bind_with_deps(deps_provider, write_xtb_path_job_impl),
+        "_xtb_attempt_record": _bind_with_deps(deps_provider, xtb_attempt_record_impl),
+        "_xtb_attempt_rows": _bind_with_deps(deps_provider, xtb_attempt_rows_impl),
         "_xtb_current_attempt_number": _bind_with_deps(
-            overrides,
+            deps_provider,
             xtb_current_attempt_number_impl,
         ),
-        "_xtb_handoff_status": _bind_with_deps(overrides, xtb_handoff_status_impl),
-        "_xtb_path_retry_limit": _bind_with_deps(overrides, xtb_path_retry_limit_impl),
+        "_xtb_handoff_status": _bind_with_deps(deps_provider, xtb_handoff_status_impl),
+        "_xtb_path_retry_limit": _bind_with_deps(deps_provider, xtb_path_retry_limit_impl),
         "_xtb_retry_recipe": xtb_retry_recipe_impl,
     }
 
 
-def _stage_support_fallbacks(overrides: Mapping[str, Any] | None) -> dict[str, Any]:
+def _stage_support_fallbacks(deps_provider: _LazyOrchestrationDeps) -> dict[str, Any]:
     from ._orchestration_support import (
         clear_reaction_xtb_handoff_error_if_recovering_impl,
         load_config_organized_root_impl,
@@ -368,20 +400,23 @@ def _stage_support_fallbacks(overrides: Mapping[str, Any] | None) -> dict[str, A
 
     return {
         "_clear_reaction_xtb_handoff_error_if_recovering": (
-            _bind_with_deps(overrides, clear_reaction_xtb_handoff_error_if_recovering_impl)
+            _bind_with_deps(
+                deps_provider,
+                clear_reaction_xtb_handoff_error_if_recovering_impl,
+            )
         ),
         "_load_config_organized_root": _bind_with_deps(
-            overrides,
+            deps_provider,
             load_config_organized_root_impl,
         ),
-        "_load_config_root": _bind_with_deps(overrides, load_config_root_impl),
+        "_load_config_root": _bind_with_deps(deps_provider, load_config_root_impl),
         "_reaction_orca_source_candidate_path": _bind_with_deps(
-            overrides,
+            deps_provider,
             reaction_orca_source_candidate_path_impl,
         ),
-        "_reaction_ts_guess_error": _bind_with_deps(overrides, reaction_ts_guess_error_impl),
+        "_reaction_ts_guess_error": _bind_with_deps(deps_provider, reaction_ts_guess_error_impl),
         "_stage_metadata": stage_metadata_impl,
-        "_submission_target": _bind_with_deps(overrides, submission_target_impl),
+        "_submission_target": _bind_with_deps(deps_provider, submission_target_impl),
         "_task_payload_dict": task_payload_dict_impl,
     }
 
@@ -413,21 +448,29 @@ def _stage_workflow_fallbacks(
     }
 
 
-def _stage_dep_fallbacks(overrides: Mapping[str, Any] | None) -> dict[str, Any]:
+def _stage_dep_fallbacks(
+    overrides: Mapping[str, Any] | None,
+    deps_provider: _LazyOrchestrationDeps,
+) -> dict[str, Any]:
     fallbacks: dict[str, Any] = {}
     for group in (
         _stage_builder_fallbacks(),
-        _stage_materialization_fallbacks(overrides),
-        _stage_runtime_fallbacks(overrides),
-        _stage_support_fallbacks(overrides),
+        _stage_materialization_fallbacks(deps_provider),
+        _stage_runtime_fallbacks(deps_provider),
+        _stage_support_fallbacks(deps_provider),
         _stage_workflow_fallbacks(overrides),
     ):
         fallbacks.update(group)
     return fallbacks
 
 
-def _build_stage_deps(overrides: Mapping[str, Any] | None) -> OrchestrationStageDeps:
+def _build_stage_deps(
+    overrides: Mapping[str, Any] | None,
+    *,
+    deps_provider: _LazyOrchestrationDeps | None = None,
+) -> OrchestrationStageDeps:
     from ._orchestration_deps import (
+        _ORCHESTRATION_STAGE_DEP_GROUPS,
         OrchestrationStageBuilderDeps,
         OrchestrationStageDeps,
         OrchestrationStageMaterializationDeps,
@@ -436,95 +479,40 @@ def _build_stage_deps(overrides: Mapping[str, Any] | None) -> OrchestrationStage
         OrchestrationStageWorkflowDeps,
     )
 
-    resolved = _apply_overrides(overrides, _stage_dep_fallbacks(overrides))
+    provider = _deps_provider(overrides, deps_provider)
+    resolved = _apply_overrides(overrides, _stage_dep_fallbacks(overrides, provider))
     resolved["_stage_failure_is_recoverable"] = _stage_failure_is_recoverable_override(overrides)
 
-    def pick(names: tuple[str, ...]) -> dict[str, Any]:
-        return {name: resolved[name] for name in names}
+    def pick(group_name: str) -> dict[str, Any]:
+        return {name: resolved[name] for name in _ORCHESTRATION_STAGE_DEP_GROUPS[group_name]}
 
     return OrchestrationStageDeps(
-        builders=OrchestrationStageBuilderDeps(
-            **pick(
-                (
-                    "_new_xtb_stage",
-                )
-            )
-        ),
-        materialization=OrchestrationStageMaterializationDeps(
-            **pick(
-                (
-                    "_append_crest_orca_stages",
-                    "_append_reaction_orca_stages",
-                    "_append_reaction_xtb_stages",
-                )
-            )
-        ),
-        runtime=OrchestrationStageRuntimeDeps(
-            **pick(
-                (
-                    "_append_unique_artifact",
-                    "_completed_crest_roles",
-                    "_completed_crest_stage",
-                    "_ensure_crest_job_dir",
-                    "_ensure_xtb_job_dir",
-                    "_sync_crest_stage",
-                    "_sync_orca_stage",
-                    "_sync_xtb_stage",
-                    "_write_xtb_path_job",
-                    "_xtb_attempt_record",
-                    "_xtb_attempt_rows",
-                    "_xtb_current_attempt_number",
-                    "_xtb_handoff_status",
-                    "_xtb_path_retry_limit",
-                    "_xtb_retry_recipe",
-                )
-            )
-        ),
-        support=OrchestrationStageSupportDeps(
-            **pick(
-                (
-                    "_clear_reaction_xtb_handoff_error_if_recovering",
-                    "_coerce_mapping",
-                    "_load_config_organized_root",
-                    "_load_config_root",
-                    "_normalize_text",
-                    "_reaction_orca_source_candidate_path",
-                    "_reaction_ts_guess_error",
-                    "_safe_int",
-                    "_stage_metadata",
-                    "_submission_target",
-                    "_task_payload_dict",
-                )
-            )
-        ),
-        workflow=OrchestrationStageWorkflowDeps(
-            **pick(
-                (
-                    "_maybe_notify_workflow_phase_summary",
-                    "_persist_workflow_progress",
-                    "_recompute_workflow_status",
-                    "_stage_failure_is_recoverable",
-                    "_workflow_has_active_children",
-                    "_workflow_sync_only",
-                )
-            )
-        ),
+        builders=OrchestrationStageBuilderDeps(**pick("builders")),
+        materialization=OrchestrationStageMaterializationDeps(**pick("materialization")),
+        runtime=OrchestrationStageRuntimeDeps(**pick("runtime")),
+        support=OrchestrationStageSupportDeps(**pick("support")),
+        workflow=OrchestrationStageWorkflowDeps(**pick("workflow")),
     )
 
 
-def _build_advance_deps(overrides: Mapping[str, Any] | None) -> OrchestrationAdvanceDeps:
+def _build_advance_deps(
+    overrides: Mapping[str, Any] | None,
+    *,
+    deps_provider: _LazyOrchestrationDeps | None = None,
+) -> OrchestrationAdvanceDeps:
     from . import _orchestration_advance
     from ._orchestration_deps import OrchestrationAdvanceDeps
 
+    provider = _deps_provider(overrides, deps_provider)
     return OrchestrationAdvanceDeps(
         _cancel_active_workflow_stages=_override(
             overrides,
             "_cancel_active_workflow_stages",
-            _bind_with_deps(overrides, _orchestration_advance._cancel_active_workflow_stages),
+            _bind_with_deps(provider, _orchestration_advance._cancel_active_workflow_stages),
         ),
         _cancel_stage_activity=_override(
             overrides,
             "_cancel_stage_activity",
-            _bind_with_deps(overrides, _orchestration_advance._cancel_stage_activity),
+            _bind_with_deps(provider, _orchestration_advance._cancel_stage_activity),
         ),
     )

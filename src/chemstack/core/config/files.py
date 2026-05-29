@@ -6,6 +6,8 @@ from typing import Any, Iterable
 
 import yaml
 
+from chemstack.core.utils.coercion import normalize_text
+
 CHEMSTACK_CONFIG_ENV_VAR = "CHEMSTACK_CONFIG"
 DEFAULT_CONFIG_FILENAME = "chemstack.yaml"
 DEFAULT_SHARED_ADMISSION_DIRNAME = "admission"
@@ -58,6 +60,29 @@ def discover_shared_config_path(
     return str(path) if path.exists() else None
 
 
+def load_yaml_mapping(
+    config_path: str | Path,
+    *,
+    invalid_message: str = "YAML top-level is not a mapping: {path}",
+) -> tuple[Path, dict[str, Any]]:
+    path = Path(config_path).expanduser().resolve()
+    with path.open("r", encoding="utf-8") as handle:
+        parsed = yaml.safe_load(handle) or {}
+    if not isinstance(parsed, dict):
+        raise ValueError(invalid_message.format(path=path))
+    return path, parsed
+
+
+def mapping_section(raw: dict[str, Any] | None, key: str) -> dict[str, Any]:
+    section = raw.get(key) if isinstance(raw, dict) else None
+    return section if isinstance(section, dict) else {}
+
+
+def resolve_configured_path(value: Any) -> Path | None:
+    text = normalize_text(value)
+    return Path(text).expanduser().resolve() if text else None
+
+
 def engine_config_mapping(
     raw: dict[str, Any],
     engine: str,
@@ -80,15 +105,42 @@ def default_shared_admission_root(config_path: Path) -> str:
     return str(config_path.expanduser().resolve().parent / DEFAULT_SHARED_ADMISSION_DIRNAME)
 
 
+def scheduler_admission_root(
+    config_path: str | Path,
+    scheduler: dict[str, Any] | None,
+    *,
+    default_when_missing: bool = False,
+) -> Path | None:
+    scheduler_raw = scheduler if isinstance(scheduler, dict) else {}
+    admission_root = resolve_configured_path(scheduler_raw.get("admission_root"))
+    if admission_root is None and default_when_missing:
+        admission_root = resolve_configured_path(default_shared_admission_root(Path(config_path)))
+    return admission_root
+
+
+def runtime_admission_root(
+    config_path: str | Path,
+    runtime: dict[str, Any] | None,
+    scheduler: dict[str, Any] | None,
+    *,
+    default_when_scheduler_present: bool = True,
+) -> Path | None:
+    runtime_raw = runtime if isinstance(runtime, dict) else {}
+    admission_root = resolve_configured_path(runtime_raw.get("admission_root"))
+    if admission_root is not None:
+        return admission_root
+
+    scheduler_raw = scheduler if isinstance(scheduler, dict) else {}
+    return scheduler_admission_root(
+        config_path,
+        scheduler_raw,
+        default_when_missing=default_when_scheduler_present and bool(scheduler_raw),
+    )
+
+
 def workflow_root_from_mapping(raw: dict[str, Any] | None) -> str:
-    if not isinstance(raw, dict):
-        return ""
-
-    workflow_raw = raw.get("workflow", {})
-    if not isinstance(workflow_raw, dict):
-        return ""
-
-    root_text = str(workflow_raw.get("root") or "").strip()
+    workflow_raw = mapping_section(raw, "workflow")
+    root_text = normalize_text(workflow_raw.get("root") or "")
     if not root_text:
         return ""
     return str(Path(root_text).expanduser().resolve())
@@ -106,11 +158,8 @@ def shared_workflow_root_from_config(config_path: str | Path | None) -> str | No
         return None
 
     try:
-        with path.open("r", encoding="utf-8") as handle:
-            parsed = yaml.safe_load(handle) or {}
+        _, parsed = load_yaml_mapping(path)
     except Exception:
-        return None
-    if not isinstance(parsed, dict):
         return None
 
     root_text = workflow_root_from_mapping(parsed)

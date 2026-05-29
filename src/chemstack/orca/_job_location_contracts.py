@@ -1,14 +1,21 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-from chemstack.core.indexing import JobLocationRecord, resolve_job_location
+from chemstack.core.indexing import JobLocationRecord
 
+from . import _job_location_artifacts as _artifacts
 from . import _job_location_contract_payload as _contract_payload
 from . import _job_location_runtime_context as _runtime_context
 from ._job_location_records import list_job_location_records, resolve_record_job_dir
+from ._job_location_models import (
+    JobArtifactContext,
+    JobRuntimeContext,
+    OrcaContractPayloadContext,
+    OrcaContractResolvedFields as _OrcaContractResolvedFields,
+)
 from ._job_location_utils import (
     QUEUE_FILE_NAME,
     attempt_count,
@@ -98,107 +105,12 @@ def _job_location_deps() -> _JobLocationDeps:
     )
 
 
-@dataclass(frozen=True)
-class JobArtifactContext:
-    record: JobLocationRecord | None = None
-    job_dir: Path | None = None
-    state: dict[str, Any] | None = None
-    report: dict[str, Any] | None = None
-    organized_ref: dict[str, Any] | None = None
-
-
-@dataclass(frozen=True)
-class JobRuntimeContext:
-    artifact: JobArtifactContext = field(default_factory=JobArtifactContext)
-    queue_entry: dict[str, Any] | None = None
-    organized_dir: Path | None = None
-
-
-@dataclass(frozen=True)
-class OrcaContractPayloadContext:
-    runtime: JobRuntimeContext
-    target: str
-    reaction_dir: str
-    record: JobLocationRecord | None
-    queue_entry: dict[str, Any]
-    state: dict[str, Any]
-    report: dict[str, Any]
-    organized_ref: dict[str, Any]
-    current_dir: Path | None
-    resolved_run_id: str
-    latest_known_path: str
-    state_status: str
-    status: str
-    analyzer_status: str
-    reason: str
-    completed_at: str
-    selected_inp: str
-    selected_input_xyz: str
-    last_out_path: str
-    optimized_xyz_path: str
-    organized_output_dir: str
-    resource_request: dict[str, int]
-    resource_actual: dict[str, int]
-
-    @property
-    def missing(self) -> bool:
-        return self.record is None and self.current_dir is None and not self.queue_entry
-
-
-@dataclass(frozen=True)
-class _OrcaContractResolvedFields:
-    resolved_run_id: str
-    latest_known_path: str
-    state_status: str
-    status: str
-    analyzer_status: str
-    reason: str
-    completed_at: str
-    selected_inp: str
-    selected_input_xyz: str
-    last_out_path: str
-    optimized_xyz_path: str
-    organized_output_dir: str
-    resource_request: dict[str, int]
-    resource_actual: dict[str, int]
-
-
-def _record_matches_job_dir(record: JobLocationRecord, job_dir: Path) -> bool:
-    resolved_job_dir = job_dir.expanduser().resolve()
-    for value in (record.latest_known_path, record.organized_output_dir, record.original_run_dir):
-        raw = normalize_text(value)
-        if not raw:
-            continue
-        try:
-            resolved = Path(raw).expanduser().resolve()
-        except OSError:
-            continue
-        if resolved == resolved_job_dir:
-            return True
-    return False
-
-
 def _first_artifact_context(index_root: str | Path, targets: tuple[str, ...]) -> JobArtifactContext:
-    for raw_target in targets:
-        target = normalize_text(raw_target)
-        if not target:
-            continue
-        context = load_job_artifact_context(index_root, target)
-        if context.job_dir is not None:
-            return context
-    return JobArtifactContext()
+    return _artifacts.first_artifact_context(index_root, targets)
 
 
 def _hydrated_organized_ref(context: JobArtifactContext) -> dict[str, Any] | None:
-    payload = dict(context.organized_ref) if isinstance(context.organized_ref, dict) else None
-    if payload:
-        return payload
-    if context.record is None:
-        return payload
-    original_dir = resolve_existing_job_dir(context.record.original_run_dir)
-    if original_dir is None or original_dir == context.job_dir:
-        return payload
-    return load_organized_ref(original_dir)
+    return _artifacts.hydrated_organized_ref(context)
 
 
 def _job_artifact_context(
@@ -209,12 +121,12 @@ def _job_artifact_context(
     report: dict[str, Any] | None,
     organized_ref: dict[str, Any] | None,
 ) -> JobArtifactContext:
-    return JobArtifactContext(
+    return _artifacts.job_artifact_context(
         record=record,
         job_dir=job_dir,
-        state=dict(state) if isinstance(state, dict) else None,
-        report=dict(report) if isinstance(report, dict) else None,
-        organized_ref=dict(organized_ref) if isinstance(organized_ref, dict) else None,
+        state=state,
+        report=report,
+        organized_ref=organized_ref,
     )
 
 
@@ -272,134 +184,18 @@ def _find_queue_entry(
 
 
 def _record_organized_dir(record: JobLocationRecord | None) -> Path | None:
-    if record is None:
-        return None
-    organized_candidate = resolve_existing_job_dir(record.organized_output_dir)
-    if organized_candidate is not None and organized_candidate.is_dir():
-        return organized_candidate
-    latest_known_candidate = resolve_existing_job_dir(record.latest_known_path)
-    original_candidate = resolve_existing_job_dir(record.original_run_dir)
-    if (
-        latest_known_candidate is not None
-        and latest_known_candidate.is_dir()
-        and latest_known_candidate != original_candidate
-    ):
-        return latest_known_candidate
-    return None
-
-
-def _organized_job_dir(job_dir: Path) -> Path | None:
-    organized_ref = load_organized_ref(job_dir)
-    if not organized_ref:
-        return None
-    organized_dir = resolve_existing_job_dir(organized_ref.get("organized_output_dir"))
-    if organized_dir is None or not organized_dir.is_dir():
-        return None
-    return organized_dir
-
-
-def _matching_tracked_job_dirs(index_root: str | Path, target: str) -> list[Path]:
-    return _runtime_context.matching_tracked_job_dirs(
-        index_root,
-        target,
-        deps=_job_location_deps(),
-    )
-
-
-def _job_dir_candidates(index_root: str | Path, target: str) -> list[Path]:
-    record = resolve_job_location(index_root, target)
-    raw_candidates: list[Any] = []
-    if record is not None:
-        raw_candidates.extend(
-            [record.latest_known_path, record.organized_output_dir, record.original_run_dir]
-        )
-    raw_candidates.append(target)
-
-    candidates: list[Path] = []
-    seen: set[Path] = set()
-    for value in raw_candidates:
-        candidate = resolve_existing_job_dir(value)
-        if candidate is None or not candidate.is_dir():
-            continue
-        for resolved in (_organized_job_dir(candidate), candidate):
-            if resolved is None or resolved in seen:
-                continue
-            seen.add(resolved)
-            candidates.append(resolved)
-
-    for candidate in _matching_tracked_job_dirs(index_root, target):
-        if candidate in seen:
-            continue
-        seen.add(candidate)
-        candidates.append(candidate)
-    return candidates
+    return _artifacts.record_organized_dir(record)
 
 
 def resolve_latest_job_dir(index_root: str | Path, target: str) -> Path | None:
-    candidates = _job_dir_candidates(index_root, target)
-    return candidates[0] if candidates else None
-
-
-def _record_for_job_dir(
-    index_root: str | Path, target: str, job_dir: Path
-) -> JobLocationRecord | None:
-    record = resolve_job_location(index_root, target)
-    if record is not None:
-        return record
-    for candidate_record in list_job_location_records(index_root):
-        if _record_matches_job_dir(candidate_record, job_dir):
-            return candidate_record
-    return None
-
-
-def _first_state_report(
-    candidates: list[Path],
-) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
-    state_payload: dict[str, Any] | None = None
-    report_payload: dict[str, Any] | None = None
-    for job_dir in candidates:
-        if state_payload is None:
-            state = load_state(job_dir)
-            state_payload = dict(state) if state is not None else None
-        if report_payload is None:
-            report_payload = load_report_json(job_dir)
-        if state_payload is not None and report_payload is not None:
-            break
-    return state_payload, report_payload
-
-
-def _organized_ref_for_primary_dir(
-    record: JobLocationRecord | None, primary_dir: Path
-) -> dict[str, Any] | None:
-    organized_ref_payload = load_organized_ref(primary_dir)
-    if organized_ref_payload or record is None:
-        return organized_ref_payload
-    original_dir = resolve_existing_job_dir(record.original_run_dir)
-    if original_dir is None or original_dir == primary_dir:
-        return organized_ref_payload
-    return load_organized_ref(original_dir)
+    return _artifacts.resolve_latest_job_dir(index_root, target)
 
 
 def load_job_artifact_context(
     index_root: str | Path,
     target: str,
 ) -> JobArtifactContext:
-    candidates = _job_dir_candidates(index_root, target)
-    if not candidates:
-        return JobArtifactContext()
-
-    primary_dir = candidates[0]
-    record = _record_for_job_dir(index_root, target, primary_dir)
-    state_payload, report_payload = _first_state_report(candidates)
-    organized_ref_payload = _organized_ref_for_primary_dir(record, primary_dir)
-
-    return JobArtifactContext(
-        record=record,
-        job_dir=primary_dir,
-        state=state_payload,
-        report=report_payload,
-        organized_ref=organized_ref_payload,
-    )
+    return _artifacts.load_job_artifact_context(index_root, target)
 
 
 def load_job_runtime_context(
@@ -706,5 +502,4 @@ def load_job_artifacts(
     index_root: str | Path,
     target: str,
 ) -> tuple[Path | None, dict[str, Any] | None, dict[str, Any] | None]:
-    context = load_job_artifact_context(index_root, target)
-    return context.job_dir, context.state, context.report
+    return _artifacts.load_job_artifacts(index_root, target)

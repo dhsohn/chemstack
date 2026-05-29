@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Collection, Sequence
 from contextlib import contextmanager
 from dataclasses import asdict, replace
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Iterator, TypeVar
 
 from chemstack.core.artifacts import QUEUE_FILE
 
@@ -24,6 +24,10 @@ QUEUE_FILE_NAME = QUEUE_FILE
 QUEUE_LOCK_NAME = "queue.lock"
 _ACTIVE_STATUSES = frozenset({QueueStatus.PENDING, QueueStatus.RUNNING})
 _TERMINAL_STATUSES = frozenset({QueueStatus.COMPLETED, QueueStatus.FAILED, QueueStatus.CANCELLED})
+_QueueEntryT = TypeVar("_QueueEntryT", bound=QueueEntry)
+
+QueueDuplicatePolicy = Callable[[Sequence[QueueEntry], QueueEntry], None]
+DuplicateErrorFactory = Callable[[str, QueueEntry], Exception]
 
 
 class DuplicateQueueEntryError(RuntimeError):
@@ -78,6 +82,93 @@ def _entry_from_dict(raw: dict[str, Any]) -> QueueEntry:
 
 def entry_from_dict(raw: dict[str, Any]) -> QueueEntry:
     return _entry_from_dict(raw)
+
+
+def _status_value(status: QueueStatus | str) -> str:
+    if isinstance(status, QueueStatus):
+        return status.value
+    return str(status).strip().lower()
+
+
+def _status_values(statuses: Collection[QueueStatus | str]) -> set[str]:
+    return {_status_value(status) for status in statuses}
+
+
+def find_entry_by_key(
+    entries: Sequence[_QueueEntryT],
+    key: str,
+    *,
+    key_fn: Callable[[_QueueEntryT], str],
+    statuses: Collection[QueueStatus | str],
+    reverse: bool = False,
+) -> _QueueEntryT | None:
+    """Find the first entry matching a duplicate key and status set."""
+    status_values = _status_values(statuses)
+    candidates = reversed(entries) if reverse else entries
+    for entry in candidates:
+        if key_fn(entry) == key and _status_value(entry.status) in status_values:
+            return entry
+    return None
+
+
+def _default_duplicate_key_error(key: str, existing: QueueEntry) -> DuplicateQueueEntryError:
+    status = _status_value(existing.status) or "?"
+    qid = existing.queue_id or "?"
+    return DuplicateQueueEntryError(
+        f"Queue entry already exists for key={key} (queue_id={qid}, status={status})"
+    )
+
+
+def reject_duplicate_entry_key(
+    entries: Sequence[QueueEntry],
+    *,
+    key: str,
+    key_fn: Callable[[QueueEntry], str],
+    force: bool = False,
+    active_statuses: Collection[QueueStatus | str] = _ACTIVE_STATUSES,
+    terminal_statuses: Collection[QueueStatus | str] = _TERMINAL_STATUSES,
+    error_factory: DuplicateErrorFactory | None = None,
+) -> None:
+    """Reject duplicate active entries and, unless forced, terminal entries.
+
+    This helper lets adapters define duplicate identity by any stable key while
+    sharing the active/terminal/force policy used by queue-backed workloads.
+    """
+    make_error = error_factory or _default_duplicate_key_error
+    active = find_entry_by_key(
+        entries,
+        key,
+        key_fn=key_fn,
+        statuses=active_statuses,
+    )
+    if active is not None:
+        raise make_error(key, active)
+
+    if force:
+        return
+
+    terminal = find_entry_by_key(
+        entries,
+        key,
+        key_fn=key_fn,
+        statuses=terminal_statuses,
+        reverse=True,
+    )
+    if terminal is not None:
+        raise make_error(key, terminal)
+
+
+def reject_active_task_duplicate(
+    entries: Sequence[QueueEntry],
+    entry: QueueEntry,
+) -> None:
+    for existing in entries:
+        if existing.app_name != entry.app_name or existing.task_id != entry.task_id:
+            continue
+        if existing.status in _ACTIVE_STATUSES:
+            raise DuplicateQueueEntryError(
+                f"Active queue entry already exists for app={entry.app_name} task_id={entry.task_id}"
+            )
 
 
 @contextmanager
@@ -184,6 +275,27 @@ def clear_terminal(
         return removed_count
 
 
+def enqueue_entry(
+    root: str | Path,
+    entry: QueueEntry,
+    *,
+    duplicate_policy: QueueDuplicatePolicy | None = None,
+    load_entries_fn: Callable[[Path], list[QueueEntry]] | None = None,
+    save_entries_fn: Callable[[Path, Sequence[QueueEntry]], Any] | None = None,
+) -> QueueEntry:
+    resolved_root = resolve_root_path(root)
+    loader = load_entries_fn or load_entries
+    saver = save_entries_fn or save_entries
+    reject_duplicate = duplicate_policy or reject_active_task_duplicate
+
+    with queue_lock(resolved_root):
+        entries = loader(resolved_root)
+        reject_duplicate(entries, entry)
+        entries.append(entry)
+        saver(resolved_root, entries)
+    return entry
+
+
 def enqueue(
     root: str | Path,
     *,
@@ -205,19 +317,7 @@ def enqueue(
         enqueued_at=now_utc_iso(),
         metadata=dict(metadata or {}),
     )
-
-    with queue_lock(resolved_root):
-        entries = load_entries(resolved_root)
-        for existing in entries:
-            if existing.app_name != entry.app_name or existing.task_id != entry.task_id:
-                continue
-            if existing.status in _ACTIVE_STATUSES:
-                raise DuplicateQueueEntryError(
-                    f"Active queue entry already exists for app={entry.app_name} task_id={entry.task_id}"
-                )
-        entries.append(entry)
-        save_entries(resolved_root, entries)
-    return entry
+    return enqueue_entry(resolved_root, entry)
 
 
 def dequeue_next(

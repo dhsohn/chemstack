@@ -44,6 +44,41 @@ class AdmissionSlot:
     queue_id: str = ""
 
 
+@dataclass(frozen=True)
+class AdmissionReservationRequest:
+    limit: int
+    source: str
+    app_name: str = ""
+    task_id: str = ""
+    workflow_id: str = ""
+    state: str = "active"
+    work_dir: str | Path = ""
+    queue_id: str = ""
+    owner_pid: int | None = None
+    exclude_work_dirs: set[str] | None = None
+    extra_active_count_fn: Callable[[Path, set[str], set[str]], int] | None = None
+
+
+@dataclass(frozen=True)
+class AdmissionSlotActivation:
+    state: str = "active"
+    work_dir: str | Path | None = None
+    queue_id: str | None = None
+    owner_pid: int | None = None
+    source: str | None = None
+    app_name: str | None = None
+    task_id: str | None = None
+    workflow_id: str | None = None
+
+
+@dataclass(frozen=True)
+class AdmissionSlotMetadataUpdate:
+    queue_id: str | None = None
+    app_name: str | None = None
+    task_id: str | None = None
+    workflow_id: str | None = None
+
+
 def _admission_path(root: Path) -> Path:
     return root / ADMISSION_FILE_NAME
 
@@ -144,6 +179,67 @@ def _counted_slots(
     return counted, represented_work_dirs
 
 
+def _reservation_limit_reached(
+    resolved_root: Path,
+    slots: list[AdmissionSlot],
+    request: AdmissionReservationRequest,
+) -> bool:
+    excluded = _normalize_work_dir_set(request.exclude_work_dirs)
+    counted, represented_work_dirs = _counted_slots(slots, exclude_work_dirs=excluded)
+    extra_active_count = (
+        request.extra_active_count_fn(resolved_root, represented_work_dirs, excluded)
+        if request.extra_active_count_fn is not None
+        else 0
+    )
+    return len(counted) + extra_active_count >= max(1, int(request.limit))
+
+
+def _slot_from_reservation_request(request: AdmissionReservationRequest) -> AdmissionSlot:
+    resolved_owner_pid = request.owner_pid if request.owner_pid is not None else os.getpid()
+    return AdmissionSlot(
+        token=timestamped_token("slot"),
+        owner_pid=resolved_owner_pid,
+        process_start_ticks=_process_start_ticks(resolved_owner_pid),
+        source=request.source.strip(),
+        acquired_at=now_utc_iso(),
+        app_name=request.app_name.strip(),
+        task_id=request.task_id.strip(),
+        workflow_id=request.workflow_id.strip(),
+        state=request.state.strip() or "active",
+        work_dir=_normalize_work_dir(request.work_dir),
+        queue_id=request.queue_id.strip(),
+    )
+
+
+def _activated_slot(slot: AdmissionSlot, update: AdmissionSlotActivation) -> AdmissionSlot:
+    resolved_owner_pid = update.owner_pid if update.owner_pid is not None else os.getpid()
+    return replace(
+        slot,
+        state=update.state.strip() or slot.state or "active",
+        work_dir=slot.work_dir if update.work_dir is None else _normalize_work_dir(update.work_dir),
+        queue_id=slot.queue_id if update.queue_id is None else update.queue_id.strip(),
+        owner_pid=resolved_owner_pid,
+        process_start_ticks=_process_start_ticks(resolved_owner_pid),
+        source=slot.source if update.source is None else update.source.strip(),
+        app_name=slot.app_name if update.app_name is None else update.app_name.strip(),
+        task_id=slot.task_id if update.task_id is None else update.task_id.strip(),
+        workflow_id=slot.workflow_id if update.workflow_id is None else update.workflow_id.strip(),
+    )
+
+
+def _metadata_updated_slot(
+    slot: AdmissionSlot,
+    update: AdmissionSlotMetadataUpdate,
+) -> AdmissionSlot:
+    return replace(
+        slot,
+        queue_id=slot.queue_id if update.queue_id is None else update.queue_id.strip(),
+        app_name=slot.app_name if update.app_name is None else update.app_name.strip(),
+        task_id=slot.task_id if update.task_id is None else update.task_id.strip(),
+        workflow_id=slot.workflow_id if update.workflow_id is None else update.workflow_id.strip(),
+    )
+
+
 def reconcile_stale_slots(root: str | Path) -> int:
     resolved_root = resolve_root_path(root)
     with file_lock(_lock_path(resolved_root)):
@@ -184,39 +280,39 @@ def reserve_slot(
     exclude_work_dirs: set[str] | None = None,
     extra_active_count_fn: Callable[[Path, set[str], set[str]], int] | None = None,
 ) -> str | None:
+    return reserve_slot_from_request(
+        root,
+        AdmissionReservationRequest(
+            limit=limit,
+            source=source,
+            app_name=app_name,
+            task_id=task_id,
+            workflow_id=workflow_id,
+            state=state,
+            work_dir=work_dir,
+            queue_id=queue_id,
+            owner_pid=owner_pid,
+            exclude_work_dirs=exclude_work_dirs,
+            extra_active_count_fn=extra_active_count_fn,
+        ),
+    )
+
+
+def reserve_slot_from_request(
+    root: str | Path,
+    request: AdmissionReservationRequest,
+) -> str | None:
     resolved_root = resolve_root_path(root)
     with file_lock(_lock_path(resolved_root)):
         slots = _live_slots(resolved_root)
-        excluded = _normalize_work_dir_set(exclude_work_dirs)
-        counted, represented_work_dirs = _counted_slots(slots, exclude_work_dirs=excluded)
-        extra_active_count = (
-            extra_active_count_fn(resolved_root, represented_work_dirs, excluded)
-            if extra_active_count_fn is not None
-            else 0
-        )
-        if len(counted) + extra_active_count >= max(1, int(limit)):
+        if _reservation_limit_reached(resolved_root, slots, request):
             _save_slots(resolved_root, slots)
             return None
 
-        token = timestamped_token("slot")
-        resolved_owner_pid = owner_pid if owner_pid is not None else os.getpid()
-        slots.append(
-            AdmissionSlot(
-                token=token,
-                owner_pid=resolved_owner_pid,
-                process_start_ticks=_process_start_ticks(resolved_owner_pid),
-                source=source.strip(),
-                acquired_at=now_utc_iso(),
-                app_name=app_name.strip(),
-                task_id=task_id.strip(),
-                workflow_id=workflow_id.strip(),
-                state=state.strip() or "active",
-                work_dir=_normalize_work_dir(work_dir),
-                queue_id=queue_id.strip(),
-            )
-        )
+        slot = _slot_from_reservation_request(request)
+        slots.append(slot)
         _save_slots(resolved_root, slots)
-        return token
+        return slot.token
 
 
 def reserve_slot_or_raise(
@@ -266,25 +362,34 @@ def activate_reserved_slot(
     task_id: str | None = None,
     workflow_id: str | None = None,
 ) -> AdmissionSlot | None:
+    return activate_reserved_slot_with_update(
+        root,
+        token,
+        AdmissionSlotActivation(
+            state=state,
+            work_dir=work_dir,
+            queue_id=queue_id,
+            owner_pid=owner_pid,
+            source=source,
+            app_name=app_name,
+            task_id=task_id,
+            workflow_id=workflow_id,
+        ),
+    )
+
+
+def activate_reserved_slot_with_update(
+    root: str | Path,
+    token: str,
+    update: AdmissionSlotActivation,
+) -> AdmissionSlot | None:
     resolved_root = resolve_root_path(root)
     with file_lock(_lock_path(resolved_root)):
         slots = _live_slots(resolved_root)
         for index, slot in enumerate(slots):
             if slot.token != token:
                 continue
-            resolved_owner_pid = owner_pid if owner_pid is not None else os.getpid()
-            updated = replace(
-                slot,
-                state=state.strip() or slot.state or "active",
-                work_dir=slot.work_dir if work_dir is None else _normalize_work_dir(work_dir),
-                queue_id=slot.queue_id if queue_id is None else queue_id.strip(),
-                owner_pid=resolved_owner_pid,
-                process_start_ticks=_process_start_ticks(resolved_owner_pid),
-                source=slot.source if source is None else source.strip(),
-                app_name=slot.app_name if app_name is None else app_name.strip(),
-                task_id=slot.task_id if task_id is None else task_id.strip(),
-                workflow_id=slot.workflow_id if workflow_id is None else workflow_id.strip(),
-            )
+            updated = _activated_slot(slot, update)
             slots[index] = updated
             _save_slots(resolved_root, slots)
             return updated
@@ -311,19 +416,30 @@ def update_slot_metadata(
     task_id: str | None = None,
     workflow_id: str | None = None,
 ) -> AdmissionSlot | None:
+    return update_slot_metadata_with_update(
+        root,
+        token,
+        AdmissionSlotMetadataUpdate(
+            queue_id=queue_id,
+            app_name=app_name,
+            task_id=task_id,
+            workflow_id=workflow_id,
+        ),
+    )
+
+
+def update_slot_metadata_with_update(
+    root: str | Path,
+    token: str,
+    update: AdmissionSlotMetadataUpdate,
+) -> AdmissionSlot | None:
     resolved_root = resolve_root_path(root)
     with file_lock(_lock_path(resolved_root)):
         slots = _live_slots(resolved_root)
         for index, slot in enumerate(slots):
             if slot.token != token:
                 continue
-            updated = replace(
-                slot,
-                queue_id=slot.queue_id if queue_id is None else queue_id.strip(),
-                app_name=slot.app_name if app_name is None else app_name.strip(),
-                task_id=slot.task_id if task_id is None else task_id.strip(),
-                workflow_id=slot.workflow_id if workflow_id is None else workflow_id.strip(),
-            )
+            updated = _metadata_updated_slot(slot, update)
             slots[index] = updated
             _save_slots(resolved_root, slots)
             return updated

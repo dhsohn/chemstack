@@ -51,7 +51,6 @@ from chemstack.core.queue.worker import (
     reserve_engine_queue_worker_slot,
     resolve_admission_root,
     shutdown_child_process_with_grace,
-    start_background_job_process,
     terminate_process_group,
 )
 from chemstack.core.utils import now_utc_iso
@@ -368,13 +367,19 @@ def _start_background_job_process(
     admission_root: str,
     admission_token: str,
 ) -> subprocess.Popen[str]:
-    return start_background_job_process(
-        config_path=config_path,
-        queue_root=queue_root,
-        entry=entry,
-        admission_root=admission_root,
-        admission_token=admission_token,
-        worker_job_module=WORKER_JOB_MODULE,
+    return subprocess.Popen(
+        _worker_execution.build_worker_child_command(
+            config_path=config_path,
+            queue_root=queue_root,
+            queue_id=entry.queue_id,
+            admission_root=admission_root,
+            admission_token=admission_token,
+        ),
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        stdin=subprocess.DEVNULL,
+        start_new_session=True,
+        text=True,
     )
 
 

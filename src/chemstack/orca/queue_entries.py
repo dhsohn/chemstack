@@ -162,25 +162,24 @@ def queue_entry_app_name(entry: QueueEntry) -> str:
 def find_active_entry(
     entries: Sequence[_QueueEntryT], reaction_dir: str
 ) -> _QueueEntryT | None:
-    for entry in entries:
-        if (
-            queue_entry_reaction_dir(entry) == reaction_dir
-            and queue_entry_status(entry) in ACTIVE_STATUSES
-        ):
-            return entry
-    return None
+    return _core_queue.find_entry_by_key(
+        entries,
+        reaction_dir,
+        key_fn=queue_entry_reaction_dir,
+        statuses=ACTIVE_STATUSES,
+    )
 
 
 def find_terminal_entry(
     entries: Sequence[_QueueEntryT], reaction_dir: str
 ) -> _QueueEntryT | None:
-    for entry in reversed(entries):
-        if (
-            queue_entry_reaction_dir(entry) == reaction_dir
-            and queue_entry_status(entry) in TERMINAL_STATUSES
-        ):
-            return entry
-    return None
+    return _core_queue.find_entry_by_key(
+        entries,
+        reaction_dir,
+        key_fn=queue_entry_reaction_dir,
+        statuses=TERMINAL_STATUSES,
+        reverse=True,
+    )
 
 
 def find_entry_by_queue_id(

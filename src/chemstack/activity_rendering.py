@@ -14,6 +14,20 @@ from chemstack.core.statuses import (
 )
 from chemstack.core.utils import normalize_text
 
+_QUEUE_STATUS_ICONS = {
+    STATUS_COMPLETED: "✅",
+    STATUS_RETRYING: "🔄",
+    STATUS_CANCEL_REQUESTED: "⏹",
+    STATUS_RUNNING: "▶",
+}
+_ORCA_SELECTED_INP_HINTS = (
+    ("neb", "NEB"),
+    ("irc", "IRC"),
+    ("ts", "TS"),
+    ("opt", "Opt"),
+    ("freq", "Freq"),
+)
+
 
 def _queue_table_now() -> datetime:
     return datetime.now(timezone.utc)
@@ -72,19 +86,12 @@ def _queue_elapsed_text(item: dict[str, Any], *, now: datetime | None = None) ->
 
 def _queue_status_icon(item: dict[str, Any]) -> str:
     status = normalize_text(item.get("status")).lower()
-    if status == STATUS_COMPLETED:
-        return "✅"
-    if status == STATUS_RETRYING:
-        return "🔄"
     if status in WORKFLOW_FAILED_STATUSES or status == "cancelled":
         return "❌"
-    if status == STATUS_CANCEL_REQUESTED:
-        return "⏹"
-    if status == STATUS_RUNNING:
-        return "▶"
-    if status in QUEUE_ACTIVE_STATUSES:
-        return "⏳"
-    return "•"
+    return _QUEUE_STATUS_ICONS.get(
+        status,
+        "⏳" if status in QUEUE_ACTIVE_STATUSES else "•",
+    )
 
 
 def _queue_template_label(template_name: Any) -> str:
@@ -130,17 +137,39 @@ def _infer_orca_detail_from_metadata(metadata: dict[str, Any]) -> str:
         metadata.get("selected_inp_name") or metadata.get("selected_inp")
     )
     lowered = selected_inp_name.lower()
-    if "neb" in lowered:
-        return "NEB"
-    if "irc" in lowered:
-        return "IRC"
-    if "ts" in lowered:
-        return "TS"
-    if "opt" in lowered:
-        return "Opt"
-    if "freq" in lowered:
-        return "Freq"
+    for marker, label in _ORCA_SELECTED_INP_HINTS:
+        if marker in lowered:
+            return label
     return "ORCA"
+
+
+def _workflow_detail_text(metadata: dict[str, Any]) -> str:
+    base = _queue_template_label(metadata.get("template_name"))
+    request_parameters = metadata.get("request_parameters")
+    request_parameters = request_parameters if isinstance(request_parameters, dict) else {}
+    crest_mode = normalize_text(request_parameters.get("crest_mode"))
+    return f"{base}({crest_mode})" if crest_mode else base
+
+
+def _crest_detail_text(metadata: dict[str, Any]) -> str:
+    base = _queue_task_label(metadata.get("task_kind")) or "conformer_search"
+    mode = normalize_text(metadata.get("mode"))
+    return f"{base}({mode})" if mode else base
+
+
+def _xtb_detail_text(metadata: dict[str, Any]) -> str:
+    return (
+        _queue_task_label(metadata.get("task_kind"))
+        or _queue_task_label(metadata.get("job_type"))
+        or "xTB"
+    )
+
+
+_QUEUE_ENGINE_DETAIL_TEXT = {
+    "crest": _crest_detail_text,
+    "xtb": _xtb_detail_text,
+    "orca": _infer_orca_detail_from_metadata,
+}
 
 
 def _queue_detail_text(item: dict[str, Any]) -> str:
@@ -150,27 +179,9 @@ def _queue_detail_text(item: dict[str, Any]) -> str:
     metadata = metadata if isinstance(metadata, dict) else {}
 
     if kind == "workflow":
-        base = _queue_template_label(metadata.get("template_name"))
-        request_parameters = metadata.get("request_parameters")
-        request_parameters = request_parameters if isinstance(request_parameters, dict) else {}
-        crest_mode = normalize_text(request_parameters.get("crest_mode"))
-        if crest_mode:
-            return f"{base}({crest_mode})"
-        return base
-    if engine == "crest":
-        base = _queue_task_label(metadata.get("task_kind")) or "conformer_search"
-        mode = normalize_text(metadata.get("mode"))
-        if mode:
-            return f"{base}({mode})"
-        return base
-    if engine == "xtb":
-        return (
-            _queue_task_label(metadata.get("task_kind"))
-            or _queue_task_label(metadata.get("job_type"))
-            or "xTB"
-        )
-    if engine == "orca":
-        return _infer_orca_detail_from_metadata(metadata)
+        return _workflow_detail_text(metadata)
+    if detail_text := _QUEUE_ENGINE_DETAIL_TEXT.get(engine):
+        return detail_text(metadata)
     return normalize_text(item.get("label")) or normalize_text(item.get("source")) or "-"
 
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, ClassVar
 
 from . import _orchestration_dep_builders as _dep_builders
 
@@ -103,6 +103,60 @@ class OrchestrationStageWorkflowDeps:
     _workflow_sync_only: Callable[[dict[str, Any]], bool]
 
 
+_ORCHESTRATION_STAGE_DEP_GROUPS: Mapping[str, tuple[str, ...]] = {
+    "builders": ("_new_xtb_stage",),
+    "materialization": (
+        "_append_crest_orca_stages",
+        "_append_reaction_orca_stages",
+        "_append_reaction_xtb_stages",
+    ),
+    "runtime": (
+        "_append_unique_artifact",
+        "_completed_crest_roles",
+        "_completed_crest_stage",
+        "_ensure_crest_job_dir",
+        "_ensure_xtb_job_dir",
+        "_sync_crest_stage",
+        "_sync_orca_stage",
+        "_sync_xtb_stage",
+        "_write_xtb_path_job",
+        "_xtb_attempt_record",
+        "_xtb_attempt_rows",
+        "_xtb_current_attempt_number",
+        "_xtb_handoff_status",
+        "_xtb_path_retry_limit",
+        "_xtb_retry_recipe",
+    ),
+    "support": (
+        "_clear_reaction_xtb_handoff_error_if_recovering",
+        "_coerce_mapping",
+        "_load_config_organized_root",
+        "_load_config_root",
+        "_normalize_text",
+        "_reaction_orca_source_candidate_path",
+        "_reaction_ts_guess_error",
+        "_safe_int",
+        "_stage_metadata",
+        "_submission_target",
+        "_task_payload_dict",
+    ),
+    "workflow": (
+        "_maybe_notify_workflow_phase_summary",
+        "_persist_workflow_progress",
+        "_recompute_workflow_status",
+        "_stage_failure_is_recoverable",
+        "_workflow_has_active_children",
+        "_workflow_sync_only",
+    ),
+}
+
+_ORCHESTRATION_STAGE_DEP_TARGETS: Mapping[str, str] = {
+    dep_name: group_name
+    for group_name, dep_names in _ORCHESTRATION_STAGE_DEP_GROUPS.items()
+    for dep_name in dep_names
+}
+
+
 @dataclass(frozen=True)
 class OrchestrationStageDeps:
     builders: OrchestrationStageBuilderDeps
@@ -111,149 +165,13 @@ class OrchestrationStageDeps:
     support: OrchestrationStageSupportDeps
     workflow: OrchestrationStageWorkflowDeps
 
-    @property
-    def _append_unique_artifact(self) -> AnyCallable:
-        return self.runtime._append_unique_artifact
+    _PASSTHROUGH_TARGETS: ClassVar[Mapping[str, str]] = _ORCHESTRATION_STAGE_DEP_TARGETS
 
-    @property
-    def _append_crest_orca_stages(self) -> AnyCallable:
-        return self.materialization._append_crest_orca_stages
-
-    @property
-    def _append_reaction_orca_stages(self) -> AnyCallable:
-        return self.materialization._append_reaction_orca_stages
-
-    @property
-    def _append_reaction_xtb_stages(self) -> AnyCallable:
-        return self.materialization._append_reaction_xtb_stages
-
-    @property
-    def _clear_reaction_xtb_handoff_error_if_recovering(self) -> AnyCallable:
-        return self.support._clear_reaction_xtb_handoff_error_if_recovering
-
-    @property
-    def _coerce_mapping(self) -> Callable[[Any], dict[str, Any]]:
-        return self.support._coerce_mapping
-
-    @property
-    def _completed_crest_roles(self) -> AnyCallable:
-        return self.runtime._completed_crest_roles
-
-    @property
-    def _completed_crest_stage(self) -> AnyCallable:
-        return self.runtime._completed_crest_stage
-
-    @property
-    def _ensure_crest_job_dir(self) -> AnyCallable:
-        return self.runtime._ensure_crest_job_dir
-
-    @property
-    def _ensure_xtb_job_dir(self) -> AnyCallable:
-        return self.runtime._ensure_xtb_job_dir
-
-    @property
-    def _load_config_organized_root(self) -> AnyCallable:
-        return self.support._load_config_organized_root
-
-    @property
-    def _load_config_root(self) -> AnyCallable:
-        return self.support._load_config_root
-
-    @property
-    def _maybe_notify_workflow_phase_summary(self) -> AnyCallable:
-        return self.workflow._maybe_notify_workflow_phase_summary
-
-    @property
-    def _new_xtb_stage(self) -> AnyCallable:
-        return self.builders._new_xtb_stage
-
-    @property
-    def _normalize_text(self) -> Callable[[Any], str]:
-        return self.support._normalize_text
-
-    @property
-    def _persist_workflow_progress(self) -> AnyCallable:
-        return self.workflow._persist_workflow_progress
-
-    @property
-    def _reaction_orca_source_candidate_path(self) -> AnyCallable:
-        return self.support._reaction_orca_source_candidate_path
-
-    @property
-    def _reaction_ts_guess_error(self) -> AnyCallable:
-        return self.support._reaction_ts_guess_error
-
-    @property
-    def _recompute_workflow_status(self) -> Callable[[dict[str, Any]], str]:
-        return self.workflow._recompute_workflow_status
-
-    @property
-    def _safe_int(self) -> AnyCallable:
-        return self.support._safe_int
-
-    @property
-    def _stage_failure_is_recoverable(self) -> Callable[[dict[str, Any]], bool]:
-        return self.workflow._stage_failure_is_recoverable
-
-    @property
-    def _stage_metadata(self) -> Callable[[dict[str, Any]], dict[str, Any]]:
-        return self.support._stage_metadata
-
-    @property
-    def _submission_target(self) -> AnyCallable:
-        return self.support._submission_target
-
-    @property
-    def _sync_crest_stage(self) -> AnyCallable:
-        return self.runtime._sync_crest_stage
-
-    @property
-    def _sync_orca_stage(self) -> AnyCallable:
-        return self.runtime._sync_orca_stage
-
-    @property
-    def _sync_xtb_stage(self) -> AnyCallable:
-        return self.runtime._sync_xtb_stage
-
-    @property
-    def _task_payload_dict(self) -> AnyCallable:
-        return self.support._task_payload_dict
-
-    @property
-    def _workflow_has_active_children(self) -> Callable[[dict[str, Any]], bool]:
-        return self.workflow._workflow_has_active_children
-
-    @property
-    def _workflow_sync_only(self) -> Callable[[dict[str, Any]], bool]:
-        return self.workflow._workflow_sync_only
-
-    @property
-    def _write_xtb_path_job(self) -> AnyCallable:
-        return self.runtime._write_xtb_path_job
-
-    @property
-    def _xtb_attempt_record(self) -> AnyCallable:
-        return self.runtime._xtb_attempt_record
-
-    @property
-    def _xtb_attempt_rows(self) -> AnyCallable:
-        return self.runtime._xtb_attempt_rows
-
-    @property
-    def _xtb_current_attempt_number(self) -> AnyCallable:
-        return self.runtime._xtb_current_attempt_number
-
-    @property
-    def _xtb_handoff_status(self) -> AnyCallable:
-        return self.runtime._xtb_handoff_status
-
-    @property
-    def _xtb_path_retry_limit(self) -> AnyCallable:
-        return self.runtime._xtb_path_retry_limit
-
-    @property
-    def _xtb_retry_recipe(self) -> AnyCallable:
-        return self.runtime._xtb_retry_recipe
+    def __getattr__(self, name: str) -> Any:
+        group_name = self._PASSTHROUGH_TARGETS.get(name)
+        if group_name is None:
+            raise AttributeError(f"{type(self).__name__!s} has no attribute {name!r}")
+        return getattr(getattr(self, group_name), name)
 
 
 @dataclass(frozen=True)
@@ -272,13 +190,16 @@ class OrchestrationDeps:
 
 
 def orchestration_deps(overrides: Mapping[str, Any] | None = None) -> OrchestrationDeps:
-    return OrchestrationDeps(
+    deps_provider = _dep_builders._LazyOrchestrationDeps(overrides)
+    deps = OrchestrationDeps(
         contracts=_dep_builders._build_contract_deps(overrides),
         persistence=_dep_builders._build_persistence_deps(overrides),
         engines=_dep_builders._build_engine_deps(overrides),
-        stages=_dep_builders._build_stage_deps(overrides),
-        advance=_dep_builders._build_advance_deps(overrides),
+        stages=_dep_builders._build_stage_deps(overrides, deps_provider=deps_provider),
+        advance=_dep_builders._build_advance_deps(overrides, deps_provider=deps_provider),
     )
+    deps_provider.resolve_to(deps)
+    return deps
 
 
 __all__ = [

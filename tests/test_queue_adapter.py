@@ -90,9 +90,16 @@ class TestQueueStore(unittest.TestCase):
 
     def test_duplicate_active_entry_blocked(self) -> None:
         """Pending/running entries for the same dir are always blocked."""
-        enqueue(self.root, str(self.root / "mol_A"))
-        with self.assertRaises(DuplicateEntryError):
-            enqueue(self.root, str(self.root / "mol_A"))
+        reaction_dir = str(self.root / "mol_A")
+        entry = enqueue(self.root, reaction_dir)
+        with self.assertRaises(DuplicateEntryError) as ctx:
+            enqueue(self.root, reaction_dir)
+        self.assertEqual(
+            str(ctx.exception),
+            f"Reaction directory already queued: {queue_entry_reaction_dir(entry)} "
+            f"(queue_id={entry.queue_id}, status=pending). "
+            "Use --force to re-enqueue a completed/failed job, or cancel the existing entry first.",
+        )
 
     def test_duplicate_running_entry_blocked(self) -> None:
         enqueue(self.root, str(self.root / "mol_A"))

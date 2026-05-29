@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from contextlib import nullcontext
 from itertools import count
 from pathlib import Path
@@ -179,6 +180,66 @@ def test_enqueue_blocks_active_duplicates_and_allows_reenqueue_after_terminal_st
     entries = store.list_queue(tmp_path)
     assert [entry.status for entry in entries] == [QueueStatus.COMPLETED, QueueStatus.PENDING]
     assert second.queue_id != first.queue_id
+
+
+def test_enqueue_entry_supports_key_duplicate_policy_with_force(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _install_deterministic_helpers(monkeypatch)
+    reaction_dir = str(tmp_path / "rxn")
+
+    def reaction_key(entry: store.QueueEntry) -> str:
+        return str(entry.metadata.get("reaction_dir", ""))
+
+    def reject_duplicate_reaction(
+        entries: Sequence[store.QueueEntry],
+        entry: store.QueueEntry,
+    ) -> None:
+        store.reject_duplicate_entry_key(
+            entries,
+            key=reaction_key(entry),
+            key_fn=reaction_key,
+            force=bool(entry.metadata.get("force", False)),
+        )
+
+    def entry(queue_id: str, status: QueueStatus, *, force: bool = False) -> store.QueueEntry:
+        return store.QueueEntry(
+            queue_id=queue_id,
+            app_name="app",
+            task_id=f"task-{queue_id}",
+            task_kind="kind",
+            engine="engine",
+            status=status,
+            metadata={"reaction_dir": reaction_dir, "force": force},
+        )
+
+    store.enqueue_entry(
+        tmp_path,
+        entry("q-terminal", QueueStatus.COMPLETED),
+        duplicate_policy=reject_duplicate_reaction,
+    )
+
+    with pytest.raises(store.DuplicateQueueEntryError):
+        store.enqueue_entry(
+            tmp_path,
+            entry("q-unforced", QueueStatus.PENDING),
+            duplicate_policy=reject_duplicate_reaction,
+        )
+
+    forced = store.enqueue_entry(
+        tmp_path,
+        entry("q-forced", QueueStatus.PENDING, force=True),
+        duplicate_policy=reject_duplicate_reaction,
+    )
+    assert forced.queue_id == "q-forced"
+
+    with pytest.raises(store.DuplicateQueueEntryError):
+        store.enqueue_entry(
+            tmp_path,
+            entry("q-active-forced", QueueStatus.PENDING, force=True),
+            duplicate_policy=reject_duplicate_reaction,
+        )
 
 
 def test_dequeue_next_respects_priority_time_and_insertion_order(

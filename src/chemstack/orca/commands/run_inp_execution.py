@@ -2,7 +2,131 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any, Type
+from typing import Any, Dict, Type
+
+from chemstack.core.utils.process_lock import is_process_alive, parse_lock_info, process_start_ticks
+
+from ..completion_rules import detect_completion_mode
+from ..out_analyzer import analyze_output
+from ..runtime.run_lock import LOCK_FILE_NAME
+from ..state import load_state
+from ..state_machine import RESUMABLE_RUN_STATUSES
+from ..statuses import AnalyzerStatus, RunStatus
+from ._helpers import ORCA_GENERATED_INP_RE, RETRY_INP_RE
+
+
+def select_latest_inp(reaction_dir: Path) -> Path:
+    all_candidates = list(reaction_dir.glob("*.inp"))
+    if not all_candidates:
+        raise ValueError(f"No .inp file found in: {reaction_dir}")
+    # Prefer user-authored base inputs over generated retry/intermediate files.
+    candidates = [
+        p
+        for p in all_candidates
+        if not RETRY_INP_RE.search(p.stem) and not ORCA_GENERATED_INP_RE.search(p.stem)
+    ]
+    if not candidates:
+        candidates = all_candidates
+    candidates.sort(key=lambda p: (p.stat().st_mtime_ns, p.name.lower()), reverse=True)
+    return candidates[0]
+
+
+def retry_inp_path(selected_inp: Path, retry_number: int) -> Path:
+    base_stem = RETRY_INP_RE.sub("", selected_inp.stem)
+    if not base_stem:
+        base_stem = selected_inp.stem
+    return selected_inp.with_name(f"{base_stem}.retry{retry_number:02d}.inp")
+
+
+def existing_completed_out(selected_inp: Path) -> Dict[str, Any] | None:
+    base_stem = RETRY_INP_RE.sub("", selected_inp.stem)
+    if not base_stem:
+        base_stem = selected_inp.stem
+
+    out_candidates = list(selected_inp.parent.glob(f"{base_stem}.out"))
+    out_candidates.extend(selected_inp.parent.glob(f"{base_stem}.retry*.out"))
+    out_candidates.sort(key=lambda p: (p.stat().st_mtime_ns, p.name.lower()), reverse=True)
+
+    seen: set[Path] = set()
+    for out_path in out_candidates:
+        resolved = out_path.resolve()
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+
+        mode_inp = out_path.with_suffix(".inp")
+        if not mode_inp.exists():
+            mode_inp = selected_inp
+        mode = detect_completion_mode(mode_inp)
+        analysis = analyze_output(out_path, mode)
+        if analysis.status != AnalyzerStatus.COMPLETED:
+            continue
+        return {
+            "out_path": str(out_path),
+            "analysis": analysis,
+        }
+    return None
+
+
+def recover_crashed_state(reaction_dir: Path, *, logger: logging.Logger) -> bool:
+    """Detect and recover from a crashed run (status=running/retrying but no active lock)."""
+    state = load_state(reaction_dir)
+    if not state:
+        return False
+
+    status = str(state.get("status", "")).strip()
+    if status not in RESUMABLE_RUN_STATUSES:
+        return False
+
+    lock_path = reaction_dir / LOCK_FILE_NAME
+    if lock_path.exists():
+        lock_info = parse_lock_info(lock_path)
+        lock_pid = lock_info.get("pid")
+        if isinstance(lock_pid, int) and is_process_alive(lock_pid):
+            return False
+
+    logger.warning(
+        "Detected crashed run in %s (status=%s, no active lock). Recovering state.",
+        reaction_dir,
+        status,
+    )
+    state["status"] = RunStatus.FAILED.value
+    state["final_result"] = {
+        "status": RunStatus.FAILED.value,
+        "reason": "crashed_recovery",
+        "analyzer_status": AnalyzerStatus.INCOMPLETE.value,
+    }
+    from ..state import save_state
+
+    save_state(reaction_dir, state)
+    return True
+
+
+def active_direct_run_error(reaction_dir: Path, *, logger: logging.Logger) -> str | None:
+    lock_info = parse_lock_info(reaction_dir / LOCK_FILE_NAME)
+    lock_pid = lock_info.get("pid")
+    if not isinstance(lock_pid, int) or not is_process_alive(lock_pid):
+        return None
+
+    expected_ticks = lock_info.get("process_start_ticks")
+    if isinstance(expected_ticks, int) and expected_ticks > 0:
+        observed_ticks = process_start_ticks(lock_pid)
+        if observed_ticks is None or observed_ticks != expected_ticks:
+            logger.info(
+                "Ignoring stale run.lock due to PID reuse: reaction_dir=%s pid=%d expected=%d observed=%s",
+                reaction_dir,
+                lock_pid,
+                expected_ticks,
+                observed_ticks,
+            )
+            return None
+
+    started_at = lock_info.get("started_at")
+    started = started_at if isinstance(started_at, str) and started_at else "unknown"
+    return (
+        "Another chemstack instance is already running in this directory "
+        f"(pid={lock_pid}, started_at={started}). Lock file: {reaction_dir / LOCK_FILE_NAME}"
+    )
 
 
 def notification_callbacks(cfg: Any, *, deps: Any) -> tuple[Any, Any, Any]:

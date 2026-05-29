@@ -10,9 +10,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Sequence
 
-import yaml
-
 from chemstack.cli_common import _dependency, _repo_root
+from chemstack.core.config.files import load_yaml_mapping
 from chemstack.core.utils.coercion import normalize_text
 
 
@@ -67,6 +66,20 @@ def _is_root() -> bool:
     if geteuid is None:
         return False
     return int(geteuid()) == 0
+
+
+@dataclass(frozen=True)
+class SystemdInstallOptions:
+    target_user: str
+    repo: Path
+    config: Path
+    unit_dir: Path
+    worker_only: bool = False
+    no_enable: bool = False
+    no_start: bool = False
+    no_sudo: bool = False
+    repo_root: Path | None = None
+    is_root: Callable[[], bool] = _is_root
 
 
 def _existing_parent(path: Path) -> Path:
@@ -126,19 +139,37 @@ def _systemctl_enable_command(enabled_unit: str, *, no_start: bool) -> tuple[str
     return ("systemctl", "enable", "--now", enabled_unit)
 
 
+def _telegram_mapping(config: Path) -> dict[str, Any]:
+    _, parsed = load_yaml_mapping(
+        config,
+        invalid_message=(
+            "could not read Telegram settings from {path}: top-level YAML is not a mapping"
+        ),
+    )
+    telegram = parsed.get("telegram") or {}
+    if not isinstance(telegram, dict):
+        raise ValueError(
+            f"could not read Telegram settings from {config}: telegram section is not a mapping"
+        )
+    return telegram
+
+
+def _telegram_credentials_configured(telegram: dict[str, Any]) -> bool:
+    return bool(
+        normalize_text(telegram.get("bot_token")) and normalize_text(telegram.get("chat_id"))
+    )
+
+
 def _telegram_runtime_warning(config: Path, *, worker_only: bool) -> str | None:
     if worker_only or not config.exists():
         return None
     try:
-        parsed = yaml.safe_load(config.read_text(encoding="utf-8")) or {}
+        telegram = _telegram_mapping(config)
+    except ValueError as exc:
+        return str(exc)
     except Exception as exc:
         return f"could not read Telegram settings from {config}: {exc}"
-    if not isinstance(parsed, dict):
-        return f"could not read Telegram settings from {config}: top-level YAML is not a mapping"
-    telegram = parsed.get("telegram") or {}
-    if not isinstance(telegram, dict):
-        return f"could not read Telegram settings from {config}: telegram section is not a mapping"
-    if not normalize_text(telegram.get("bot_token")) or not normalize_text(telegram.get("chat_id")):
+    if not _telegram_credentials_configured(telegram):
         return (
             "full runtime target includes the Telegram bot, but telegram.bot_token or "
             "telegram.chat_id is empty; use --worker-only if Telegram is not ready"
@@ -150,15 +181,10 @@ def _telegram_configured(config: Path) -> bool:
     if not config.exists():
         return False
     try:
-        parsed = yaml.safe_load(config.read_text(encoding="utf-8")) or {}
+        telegram = _telegram_mapping(config)
     except Exception:
         return False
-    if not isinstance(parsed, dict):
-        return False
-    telegram = parsed.get("telegram") or {}
-    if not isinstance(telegram, dict):
-        return False
-    return bool(normalize_text(telegram.get("bot_token")) and normalize_text(telegram.get("chat_id")))
+    return _telegram_credentials_configured(telegram)
 
 
 def _auto_worker_only(config: Path, *, worker_only: bool, no_enable: bool) -> bool:
@@ -197,6 +223,55 @@ def _collect_warnings(
     return tuple(warnings)
 
 
+def _build_systemd_install_plan(options: SystemdInstallOptions) -> SystemdInstallPlan:
+    template_root = _template_dir(options.repo_root or _repo_root())
+    units = tuple(
+        RenderedUnit(
+            name=name,
+            destination=options.unit_dir / name,
+            content=_render_unit_template(
+                _read_unit_template(template_root, name),
+                repo=options.repo,
+                config=options.config,
+            ),
+        )
+        for name in SYSTEMD_UNIT_NAMES
+    )
+
+    effective_worker_only = _auto_worker_only(
+        options.config,
+        worker_only=options.worker_only,
+        no_enable=options.no_enable,
+    )
+    enabled_unit = _enabled_unit_for_args(
+        target_user=options.target_user,
+        worker_only=effective_worker_only,
+        no_enable=options.no_enable,
+    )
+    commands: list[tuple[str, ...]] = [("systemctl", "daemon-reload")]
+    if enabled_unit:
+        commands.append(_systemctl_enable_command(enabled_unit, no_start=options.no_start))
+
+    return SystemdInstallPlan(
+        target_user=options.target_user,
+        repo=options.repo,
+        config=options.config,
+        unit_dir=options.unit_dir,
+        units=units,
+        commands=tuple(commands),
+        enabled_unit=enabled_unit,
+        use_sudo=False
+        if options.no_sudo
+        else _needs_sudo(options.unit_dir, is_root=options.is_root),
+        warnings=_collect_warnings(
+            options.repo,
+            options.config,
+            worker_only=options.worker_only,
+            auto_selected_worker_only=effective_worker_only,
+        ),
+    )
+
+
 def build_systemd_install_plan(
     *,
     target_user: str,
@@ -215,53 +290,19 @@ def build_systemd_install_plan(
         raise ValueError("--user is required")
 
     repo_path = _normalize_path(repo)
-    config_path = _normalize_path(config or _default_config_for_repo(repo_path))
-    unit_dir_path = _normalize_path(unit_dir)
-    template_root = _template_dir(repo_root or _repo_root())
-
-    units = tuple(
-        RenderedUnit(
-            name=name,
-            destination=unit_dir_path / name,
-            content=_render_unit_template(
-                _read_unit_template(template_root, name),
-                repo=repo_path,
-                config=config_path,
-            ),
-        )
-        for name in SYSTEMD_UNIT_NAMES
-    )
-
-    effective_worker_only = _auto_worker_only(
-        config_path,
-        worker_only=worker_only,
-        no_enable=no_enable,
-    )
-    enabled_unit = _enabled_unit_for_args(
-        target_user=user_text,
-        worker_only=effective_worker_only,
-        no_enable=no_enable,
-    )
-    commands: list[tuple[str, ...]] = [("systemctl", "daemon-reload")]
-    if enabled_unit:
-        commands.append(_systemctl_enable_command(enabled_unit, no_start=no_start))
-
-    return SystemdInstallPlan(
+    options = SystemdInstallOptions(
         target_user=user_text,
         repo=repo_path,
-        config=config_path,
-        unit_dir=unit_dir_path,
-        units=units,
-        commands=tuple(commands),
-        enabled_unit=enabled_unit,
-        use_sudo=False if no_sudo else _needs_sudo(unit_dir_path, is_root=is_root),
-        warnings=_collect_warnings(
-            repo_path,
-            config_path,
-            worker_only=worker_only,
-            auto_selected_worker_only=effective_worker_only,
-        ),
+        config=_normalize_path(config or _default_config_for_repo(repo_path)),
+        unit_dir=_normalize_path(unit_dir),
+        worker_only=worker_only,
+        no_enable=no_enable,
+        no_start=no_start,
+        no_sudo=no_sudo,
+        repo_root=repo_root,
+        is_root=is_root,
     )
+    return _build_systemd_install_plan(options)
 
 
 def _format_command(command: Sequence[str], *, use_sudo: bool) -> str:
@@ -328,9 +369,7 @@ def _print_service_status(target_user: str, statuses: Sequence[ServiceUnitStatus
     print(f"ChemStack service status for {target_user}:")
     print(f"{'Name':<10} {'Active':<14} {'Enabled':<14} Unit")
     for status in statuses:
-        print(
-            f"{status.label:<10} {status.active:<14} {status.enabled:<14} {status.unit}"
-        )
+        print(f"{status.label:<10} {status.active:<14} {status.enabled:<14} {status.unit}")
 
 
 def _systemctl_available(*, which: Callable[[str], str | None] = shutil.which) -> bool:
@@ -552,6 +591,7 @@ __all__ = [
     "SYSTEMD_UNIT_NAMES",
     "RenderedUnit",
     "ServiceUnitStatus",
+    "SystemdInstallOptions",
     "SystemdInstallPlan",
     "apply_systemd_install_plan",
     "build_systemd_install_plan",

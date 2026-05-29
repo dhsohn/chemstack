@@ -4,31 +4,21 @@ from pathlib import Path
 from typing import Any
 
 from chemstack.core.config.files import (
-    default_shared_admission_root,
     engine_config_mapping,
+    load_yaml_mapping,
+    mapping_section,
+    resolve_configured_path,
+    runtime_admission_root,
+    scheduler_admission_root,
     workflow_root_from_mapping,
 )
-from chemstack.core.utils.coercion import normalize_text as normalize_text
 
 
 def _load_engine_config(config_path: str) -> tuple[Path, dict[str, Any]]:
-    import yaml  # type: ignore[import-untyped]
-
-    path = Path(config_path).expanduser().resolve()
-    raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    if not isinstance(raw, dict):
-        raise ValueError(f"Invalid engine config file: {path}")
-    return path, raw
-
-
-def _mapping_section(raw: dict[str, Any], key: str) -> dict[str, Any]:
-    section = raw.get(key)
-    return section if isinstance(section, dict) else {}
-
-
-def _resolve_configured_path(value: Any) -> Path | None:
-    text = normalize_text(value)
-    return Path(text).expanduser().resolve() if text else None
+    return load_yaml_mapping(
+        config_path,
+        invalid_message="Invalid engine config file: {path}",
+    )
 
 
 def _runtime_section_label(engine: str | None) -> str:
@@ -49,25 +39,14 @@ def _internal_engine_runtime_paths(path: Path, raw: dict[str, Any]) -> dict[str,
         "allowed_root": resolved_workflow_root,
         "organized_root": resolved_workflow_root,
     }
-    admission_root = _resolve_configured_path(
-        _mapping_section(raw, "scheduler").get("admission_root")
+    admission_root = scheduler_admission_root(
+        path,
+        mapping_section(raw, "scheduler"),
+        default_when_missing=True,
     )
-    if admission_root is None:
-        admission_root = _resolve_configured_path(default_shared_admission_root(path))
     if admission_root is not None:
         resolved["admission_root"] = admission_root
     return resolved
-
-
-def _runtime_admission_root(
-    path: Path, runtime: dict[str, Any], scheduler: dict[str, Any]
-) -> Path | None:
-    admission_root = _resolve_configured_path(runtime.get("admission_root"))
-    if admission_root is None:
-        admission_root = _resolve_configured_path(scheduler.get("admission_root"))
-    if admission_root is None and scheduler:
-        admission_root = _resolve_configured_path(default_shared_admission_root(path))
-    return admission_root
 
 
 def _configured_runtime_paths(
@@ -76,18 +55,18 @@ def _configured_runtime_paths(
     runtime = raw.get("runtime")
     if not isinstance(runtime, dict):
         raise ValueError(f"Missing {_runtime_section_label(engine)} section in config: {path}")
-    scheduler = _mapping_section(raw, "scheduler")
+    scheduler = mapping_section(raw, "scheduler")
 
     resolved_runtime_paths: dict[str, Path] = {}
     for key in ("allowed_root", "organized_root"):
-        resolved_path = _resolve_configured_path(runtime.get(key))
+        resolved_path = resolve_configured_path(runtime.get(key))
         if resolved_path is not None:
             resolved_runtime_paths[key] = resolved_path
 
     if "allowed_root" not in resolved_runtime_paths:
         raise ValueError(f"Missing {_runtime_allowed_root_label(engine)} in config: {path}")
 
-    admission_root = _runtime_admission_root(path, runtime, scheduler)
+    admission_root = runtime_admission_root(path, runtime, scheduler)
     if admission_root is not None:
         resolved_runtime_paths["admission_root"] = admission_root
     return resolved_runtime_paths

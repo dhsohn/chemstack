@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import signal
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
@@ -15,6 +17,52 @@ class ChildWorkerShutdownController:
 
     def is_requested(self) -> bool:
         return self.requested
+
+
+class CancellableChildWorkerController:
+    def __init__(
+        self,
+        *,
+        cancel_signal: int,
+        shutdown_exit_code: int,
+        terminate_process_fn: Callable[[Any], Any],
+        signal_module: Any = signal,
+        os_exit_fn: Callable[[int], Any] = os._exit,
+    ) -> None:
+        self._cancel_signal = cancel_signal
+        self._shutdown_exit_code = shutdown_exit_code
+        self._terminate_process = terminate_process_fn
+        self._signal = signal_module
+        self._os_exit = os_exit_fn
+        self._cancel_requested = False
+        self._process: Any | None = None
+
+    def should_cancel(self) -> bool:
+        return self._cancel_requested
+
+    def set_running_job(self, value: Any | None) -> None:
+        if value is None:
+            self._process = None
+            return
+        self._process = getattr(value, "process", value)
+
+    def install(self) -> None:
+        try:
+            self._signal.signal(self._cancel_signal, self._handle_cancel)
+            self._signal.signal(signal.SIGTERM, self._handle_shutdown)
+            self._signal.signal(signal.SIGINT, self._handle_shutdown)
+        except ValueError:
+            pass
+
+    def _handle_cancel(self, _signum: int, _frame: object) -> None:
+        self._cancel_requested = True
+        if self._process is not None:
+            self._terminate_process(self._process)
+
+    def _handle_shutdown(self, _signum: int, _frame: object) -> None:
+        if self._process is not None:
+            self._terminate_process(self._process)
+        self._os_exit(self._shutdown_exit_code)
 
 
 @dataclass(frozen=True)
@@ -103,6 +151,7 @@ def install_shutdown_request_handlers(
 
 
 __all__ = [
+    "CancellableChildWorkerController",
     "ChildQueueJob",
     "ChildWorkerShutdownController",
     "activate_child_admission_token",

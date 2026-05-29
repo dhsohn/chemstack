@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from dataclasses import replace
 from pathlib import Path
 from typing import Any, Optional, cast
@@ -21,7 +22,6 @@ from .queue_entries import (
     entry_from_json_payload,
     entry_metadata,
     find_active_entry,
-    find_terminal_entry,
     normalize_text,
     queue_entry_app_name,
     queue_entry_force,
@@ -145,6 +145,21 @@ class DuplicateEntryError(ValueError):
         )
 
 
+def _reject_duplicate_reaction_dir(
+    entries: Sequence[QueueEntry],
+    entry: QueueEntry,
+) -> None:
+    _queue_store.reject_duplicate_entry_key(
+        entries,
+        key=queue_entry_reaction_dir(entry),
+        key_fn=queue_entry_reaction_dir,
+        force=queue_entry_force(entry),
+        active_statuses=ACTIVE_STATUSES,
+        terminal_statuses=TERMINAL_STATUSES,
+        error_factory=DuplicateEntryError,
+    )
+
+
 def enqueue(
     allowed_root: Path,
     reaction_dir: str,
@@ -159,35 +174,28 @@ def enqueue(
     resolved = str(Path(reaction_dir).expanduser().resolve())
     reconcile_orphaned_running_entries(allowed_root)
 
-    def append_entry(entries: list[QueueEntry]) -> tuple[QueueEntry, bool]:
-        active = find_active_entry(entries, resolved)
-        if active is not None:
-            raise DuplicateEntryError(resolved, active)
-
-        if not force:
-            terminal = find_terminal_entry(entries, resolved)
-            if terminal is not None:
-                raise DuplicateEntryError(resolved, terminal)
-
-        entry = QueueEntry(
-            queue_id=timestamped_token("q", token_bytes=4),
-            app_name=QUEUE_APP_NAME,
-            task_id=normalize_text(task_id) or timestamped_token("orca", token_bytes=4),
-            task_kind=normalize_text(task_kind) or QUEUE_TASK_KIND,
-            engine=QUEUE_ENGINE,
-            status=QueueStatus.PENDING,
-            priority=priority,
-            enqueued_at=_now_iso(),
-            metadata=entry_metadata(
-                reaction_dir=resolved,
-                force=force,
-                extra=metadata,
-            ),
-        )
-        entries.append(entry)
-        return entry, True
-
-    entry = cast(QueueEntry, _mutate_entries(allowed_root, append_entry))
+    entry = QueueEntry(
+        queue_id=timestamped_token("q", token_bytes=4),
+        app_name=QUEUE_APP_NAME,
+        task_id=normalize_text(task_id) or timestamped_token("orca", token_bytes=4),
+        task_kind=normalize_text(task_kind) or QUEUE_TASK_KIND,
+        engine=QUEUE_ENGINE,
+        status=QueueStatus.PENDING,
+        priority=priority,
+        enqueued_at=_now_iso(),
+        metadata=entry_metadata(
+            reaction_dir=resolved,
+            force=force,
+            extra=metadata,
+        ),
+    )
+    entry = _queue_store.enqueue_entry(
+        allowed_root,
+        entry,
+        duplicate_policy=_reject_duplicate_reaction_dir,
+        load_entries_fn=_load_entries,
+        save_entries_fn=_queue_store.save_entries,
+    )
     logger.info("Enqueued: %s (queue_id=%s, force=%s)", resolved, entry.queue_id, force)
     return entry
 

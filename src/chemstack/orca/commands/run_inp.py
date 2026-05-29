@@ -6,8 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, Type
 
-from chemstack.core.queue.types import QueueEntry, QueueStatus
-from chemstack.core.utils.process_lock import is_process_alive, parse_lock_info, process_start_ticks
+from chemstack.core.queue.types import QueueEntry
 
 from .. import queue_adapter as _queue_adapter
 from chemstack.core.admission import (
@@ -16,14 +15,12 @@ from chemstack.core.admission import (
     release_slot,
 )
 from ..attempt_engine import _exit_with_result, run_attempts
-from ..completion_rules import detect_completion_mode
 from ..config import load_config
 from ..inp_rewriter import ensure_submission_resource_request, read_resource_request_from_input
 from ..orca_runner import OrcaRunner
-from ..out_analyzer import analyze_output
-from ..runtime.run_lock import LOCK_FILE_NAME, acquire_run_lock
-from ..state_machine import RESUMABLE_RUN_STATUSES, load_or_create_state
-from ..state import load_state, save_state
+from ..runtime.run_lock import acquire_run_lock
+from ..state_machine import load_or_create_state
+from ..state import save_state
 from ..statuses import AnalyzerStatus, RunStatus
 from ..telegram_notifier import (
     notify_queue_enqueued_event,
@@ -38,8 +35,6 @@ from ..types import (
     RunStartedNotification,
 )
 from ._helpers import (
-    ORCA_GENERATED_INP_RE,
-    RETRY_INP_RE,
     _emit,
     _to_resolved_local,
 )
@@ -96,11 +91,17 @@ class _RunInpNotificationDeps:
 class _RunInpSubmissionDeps:
     ensure_submission_resource_request: Any
     read_resource_request_from_input: Any
+    _active_direct_run_error: Any
+    _active_queue_entry: Any
     _build_queue_enqueued_notification: Any
     _build_queue_metadata: Any
+    _emit_queued_submission: Any
+    _find_submission_conflict: Any
     _queue_adapter: Any
     _resource_request_from_selected_inp: Any
+    _resolve_submission_context: Any
     _select_latest_inp: Any
+    _submit_reaction_dir_to_queue: Any
     _upsert_queued_job_record: Any
     _warn_ignored_resource_override_flags: Any
     _worker_status_for_submission: Any
@@ -114,13 +115,7 @@ class _RunInpDeps:
     submission: _RunInpSubmissionDeps
 
 
-@dataclass(frozen=True)
-class DirectQueueSubmission:
-    status: str
-    reason: str = ""
-    stderr: str = ""
-    context: RunSubmissionContext | None = None
-    queued_result: Any | None = None
+DirectQueueSubmission = _run_inp_submission.DirectQueueSubmission
 
 
 def _run_inp_deps() -> _RunInpDeps:
@@ -159,11 +154,17 @@ def _run_inp_deps() -> _RunInpDeps:
         submission=_RunInpSubmissionDeps(
             ensure_submission_resource_request=ensure_submission_resource_request,
             read_resource_request_from_input=read_resource_request_from_input,
+            _active_direct_run_error=_active_direct_run_error,
+            _active_queue_entry=_active_queue_entry,
             _build_queue_enqueued_notification=_build_queue_enqueued_notification,
             _build_queue_metadata=_build_queue_metadata,
+            _emit_queued_submission=_emit_queued_submission,
+            _find_submission_conflict=_find_submission_conflict,
             _queue_adapter=_queue_adapter,
             _resource_request_from_selected_inp=_resource_request_from_selected_inp,
+            _resolve_submission_context=_resolve_submission_context,
             _select_latest_inp=_select_latest_inp,
+            _submit_reaction_dir_to_queue=submit_reaction_dir_to_queue,
             _upsert_queued_job_record=_upsert_queued_job_record,
             _warn_ignored_resource_override_flags=_warn_ignored_resource_override_flags,
             _worker_status_for_submission=_worker_status_for_submission,
@@ -172,143 +173,39 @@ def _run_inp_deps() -> _RunInpDeps:
 
 
 def _select_latest_inp(reaction_dir: Path) -> Path:
-    all_candidates = list(reaction_dir.glob("*.inp"))
-    if not all_candidates:
-        raise ValueError(f"No .inp file found in: {reaction_dir}")
-    # Prefer user-authored base inputs over generated retry/intermediate files.
-    candidates = [
-        p
-        for p in all_candidates
-        if not RETRY_INP_RE.search(p.stem) and not ORCA_GENERATED_INP_RE.search(p.stem)
-    ]
-    if not candidates:
-        candidates = all_candidates
-    candidates.sort(key=lambda p: (p.stat().st_mtime_ns, p.name.lower()), reverse=True)
-    return candidates[0]
+    return _run_inp_execution.select_latest_inp(reaction_dir)
 
 
 def _retry_inp_path(selected_inp: Path, retry_number: int) -> Path:
-    base_stem = RETRY_INP_RE.sub("", selected_inp.stem)
-    if not base_stem:
-        base_stem = selected_inp.stem
-    return selected_inp.with_name(f"{base_stem}.retry{retry_number:02d}.inp")
+    return _run_inp_execution.retry_inp_path(selected_inp, retry_number)
 
 
 def _existing_completed_out(selected_inp: Path) -> Dict[str, Any] | None:
-    base_stem = RETRY_INP_RE.sub("", selected_inp.stem)
-    if not base_stem:
-        base_stem = selected_inp.stem
-
-    out_candidates = list(selected_inp.parent.glob(f"{base_stem}.out"))
-    out_candidates.extend(selected_inp.parent.glob(f"{base_stem}.retry*.out"))
-    out_candidates.sort(key=lambda p: (p.stat().st_mtime_ns, p.name.lower()), reverse=True)
-
-    seen: set[Path] = set()
-    for out_path in out_candidates:
-        resolved = out_path.resolve()
-        if resolved in seen:
-            continue
-        seen.add(resolved)
-
-        mode_inp = out_path.with_suffix(".inp")
-        if not mode_inp.exists():
-            mode_inp = selected_inp
-        mode = detect_completion_mode(mode_inp)
-        analysis = analyze_output(out_path, mode)
-        if analysis.status != AnalyzerStatus.COMPLETED:
-            continue
-        return {
-            "out_path": str(out_path),
-            "analysis": analysis,
-        }
-    return None
+    return _run_inp_execution.existing_completed_out(selected_inp)
 
 
 def _recover_crashed_state(reaction_dir: Path) -> bool:
-    """Detect and recover from a crashed run (status=running/retrying but no active lock)."""
-    state = load_state(reaction_dir)
-    if not state:
-        return False
-
-    status = str(state.get("status", "")).strip()
-    if status not in RESUMABLE_RUN_STATUSES:
-        return False
-
-    lock_path = reaction_dir / LOCK_FILE_NAME
-    if lock_path.exists():
-        lock_info = parse_lock_info(lock_path)
-        lock_pid = lock_info.get("pid")
-        if isinstance(lock_pid, int) and is_process_alive(lock_pid):
-            return False
-
-    logger.warning(
-        "Detected crashed run in %s (status=%s, no active lock). Recovering state.",
-        reaction_dir,
-        status,
-    )
-    state["status"] = RunStatus.FAILED.value
-    state["final_result"] = {
-        "status": RunStatus.FAILED.value,
-        "reason": "crashed_recovery",
-        "analyzer_status": AnalyzerStatus.INCOMPLETE.value,
-    }
-    save_state(reaction_dir, state)
-    return True
+    return _run_inp_execution.recover_crashed_state(reaction_dir, logger=logger)
 
 
 def _active_direct_run_error(reaction_dir: Path) -> str | None:
-    lock_info = parse_lock_info(reaction_dir / LOCK_FILE_NAME)
-    lock_pid = lock_info.get("pid")
-    if not isinstance(lock_pid, int) or not is_process_alive(lock_pid):
-        return None
-
-    expected_ticks = lock_info.get("process_start_ticks")
-    if isinstance(expected_ticks, int) and expected_ticks > 0:
-        observed_ticks = process_start_ticks(lock_pid)
-        if observed_ticks is None or observed_ticks != expected_ticks:
-            logger.info(
-                "Ignoring stale run.lock due to PID reuse: reaction_dir=%s pid=%d expected=%d observed=%s",
-                reaction_dir,
-                lock_pid,
-                expected_ticks,
-                observed_ticks,
-            )
-            return None
-
-    started_at = lock_info.get("started_at")
-    started = started_at if isinstance(started_at, str) and started_at else "unknown"
-    return (
-        "Another chemstack instance is already running in this directory "
-        f"(pid={lock_pid}, started_at={started}). Lock file: {reaction_dir / LOCK_FILE_NAME}"
-    )
+    return _run_inp_execution.active_direct_run_error(reaction_dir, logger=logger)
 
 
 def _active_queue_entry(allowed_root: Path, reaction_dir: Path) -> QueueEntry | None:
-    helper = getattr(_queue_adapter, "get_active_entry_for_reaction_dir", None)
-    if callable(helper):
-        return helper(allowed_root, str(reaction_dir))
-
-    resolved = str(reaction_dir.expanduser().resolve())
-    for entry in _queue_adapter.list_queue(allowed_root):
-        if _queue_adapter.queue_entry_reaction_dir(entry) != resolved:
-            continue
-        if _queue_adapter.queue_entry_status(entry) in {
-            QueueStatus.PENDING.value,
-            QueueStatus.RUNNING.value,
-        }:
-            return entry
-    return None
+    return _run_inp_submission.active_queue_entry(
+        allowed_root,
+        reaction_dir,
+        deps=_run_inp_deps(),
+    )
 
 
 def _find_submission_conflict(allowed_root: Path, reaction_dir: Path) -> str | None:
-    active_entry = _active_queue_entry(allowed_root, reaction_dir)
-    if active_entry is not None:
-        return (
-            "Job directory already queued: "
-            f"{reaction_dir} (queue_id={_queue_adapter.queue_entry_id(active_entry)}, "
-            f"status={_queue_adapter.queue_entry_status(active_entry)})"
-        )
-    return _active_direct_run_error(reaction_dir)
+    return _run_inp_submission.find_submission_conflict(
+        allowed_root,
+        reaction_dir,
+        deps=_run_inp_deps(),
+    )
 
 
 def _emit_queued_submission(
@@ -320,32 +217,19 @@ def _emit_queued_submission(
     worker_log: str | Path | None,
     worker_detail: str | None = None,
 ) -> None:
-    print("status: queued")
-    print(f"job_dir: {reaction_dir}")
-    print(f"queue_id: {_queue_adapter.queue_entry_id(entry)}")
-    task_id = _queue_adapter.queue_entry_task_id(entry)
-    if task_id:
-        print(f"job_id: {task_id}")
-    print(f"priority: {_queue_adapter.queue_entry_priority(entry)}")
-    if _queue_adapter.queue_entry_force(entry):
-        print("force: true")
-    if worker_status:
-        print(f"worker: {worker_status}")
-    if worker_pid is not None:
-        print(f"worker_pid: {worker_pid}")
-    if worker_log:
-        print(f"worker_log: {worker_log}")
-    if worker_detail:
-        print(f"worker_detail: {worker_detail}")
+    _run_inp_submission.emit_queued_submission(
+        reaction_dir,
+        entry,
+        worker_status=worker_status,
+        worker_pid=worker_pid,
+        worker_log=worker_log,
+        worker_detail=worker_detail,
+        deps=_run_inp_deps(),
+    )
 
 
 def _worker_status_for_submission(allowed_root: Path) -> WorkerStatusInfo:
-    from ..queue_worker import read_worker_pid
-
-    pid = read_worker_pid(allowed_root)
-    if pid is None:
-        return WorkerStatusInfo(status="inactive")
-    return WorkerStatusInfo(status="running", pid=pid)
+    return _run_inp_submission.worker_status_for_submission(allowed_root)
 
 
 def _existing_completed_exit(
@@ -590,68 +474,16 @@ def _cmd_run_inp_execute(
 
 
 def _cmd_run_inp_submit(args: Any, *, runner_cls: Type[OrcaRunner] = OrcaRunner) -> int:
-    del runner_cls
-    submission = submit_reaction_dir_to_queue(args)
-    if submission.status != "submitted":
-        if submission.stderr:
-            logger.error("%s", submission.stderr.rstrip())
-        return 1
-
-    result = submission.queued_result
-    context = submission.context
-    if result is None or context is None:
-        logger.error("ORCA queue submission did not return a queued result.")
-        return 1
-    worker_info = result.worker_info
-    _emit_queued_submission(
-        context.reaction_dir,
-        result.entry,
-        worker_status=worker_info.status,
-        worker_pid=worker_info.pid,
-        worker_log=worker_info.log_file,
-        worker_detail=worker_info.detail,
+    return _run_inp_submission.cmd_run_inp_submit(
+        args,
+        runner_cls=runner_cls,
+        deps=_run_inp_deps(),
+        logger=logger,
     )
-    return 0
 
 
 def submit_reaction_dir_to_queue(args: Any) -> DirectQueueSubmission:
-    context = _resolve_submission_context(args)
-    if context is None:
-        return DirectQueueSubmission(
-            status="failed",
-            reason="invalid_submission_target",
-            stderr="failed to resolve ORCA submission target",
-        )
-
-    conflict_error = _find_submission_conflict(context.allowed_root, context.reaction_dir)
-    if conflict_error is not None:
-        return DirectQueueSubmission(
-            status="failed",
-            reason="submission_conflict",
-            stderr=conflict_error,
-            context=context,
-        )
-
-    try:
-        from ..queue_adapter import DuplicateEntryError
-
-        deps = _run_inp_deps()
-        queued = _run_inp_submission.create_queued_submission(
-            context.cfg,
-            args,
-            context.reaction_dir,
-            selected_inp=context.selected_inp,
-            deps=deps,
-        )
-        _run_inp_submission.notify_queued_submission(context.cfg, queued, deps=deps)
-    except DuplicateEntryError as exc:
-        return DirectQueueSubmission(
-            status="failed",
-            reason="submission_conflict",
-            stderr=str(exc),
-            context=context,
-        )
-    return DirectQueueSubmission(status="submitted", context=context, queued_result=queued)
+    return _run_inp_submission.submit_reaction_dir_to_queue(args, deps=_run_inp_deps())
 
 
 def cmd_run_inp(args: Any, *, runner_cls: Type[OrcaRunner] = OrcaRunner) -> int:

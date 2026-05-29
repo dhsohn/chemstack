@@ -13,7 +13,6 @@ from ..organize_index import (
     append_record,
     load_index,
     rebuild_index,
-    to_reaction_relative_path,
 )
 from ..result_organizer import (
     OrganizePlan,
@@ -26,9 +25,8 @@ from ..result_organizer import (
     sync_state_after_move,
     sync_state_after_rollback,
 )
-from ..state import ORGANIZED_REF_NAME, now_utc_iso
-from ..job_locations import reindex_job_locations, resource_dict, upsert_job_record
-from ..state import write_organized_ref
+from ..state import now_utc_iso
+from ..job_locations import reindex_job_locations
 from ..telegram_notifier import escape_html, send_message
 from ..types import RunState
 from ._helpers import (
@@ -38,6 +36,8 @@ from ._helpers import (
 )
 from . import organize_apply as _organize_apply
 from . import organize_notifications as _organize_notifications
+from . import organize_output as _organize_output
+from . import organize_tracking as _organize_tracking
 
 logger = logging.getLogger(__name__)
 
@@ -61,79 +61,23 @@ def _resolved_organized_root(cfg: AppConfig, reaction_dir: str | Path) -> Path:
 
 
 def _emit_organize(payload: Dict[str, Any]) -> None:
-    for key in [
-        "action",
-        "to_organize",
-        "skipped",
-        "organized",
-        "failed",
-        "records_count",
-        "job_locations_count",
-    ]:
-        if key in payload:
-            print(f"{key}: {payload[key]}")
-    for p in payload.get("plans", []):
-        print(f"  {p['source_dir']} -> {p['target_rel_path']}")
-    for s in payload.get("skip_reasons", []):
-        print(f"  SKIP {s['reaction_dir']}: {s['reason']}")
-    for f in payload.get("failures", []):
-        print(f"  FAIL {f['run_id']}: {f['reason']}")
-    for key in ["run_id", "job_type", "molecule_key", "organized_path", "count"]:
-        if key in payload:
-            print(f"{key}: {payload[key]}")
-    for r in payload.get("results", []):
-        print(f"  {r.get('run_id', '?')}: {r.get('organized_path', '?')}")
+    _organize_output.emit_organize(payload)
 
 
 def _plan_to_dict(plan: OrganizePlan) -> Dict[str, Any]:
-    return {
-        "run_id": plan.run_id,
-        "source_dir": str(plan.source_dir),
-        "target_rel_path": plan.target_rel_path,
-        "target_abs_path": str(plan.target_abs_path),
-        "job_type": plan.job_type,
-        "molecule_key": plan.molecule_key,
-    }
+    return _organize_output.plan_to_dict(plan)
 
 
 def _build_index_record(plan: OrganizePlan, state: Mapping[str, Any]) -> Dict[str, Any]:
-    final_result = state.get("final_result")
-    if not isinstance(final_result, dict):
-        final_result = {}
-
-    attempts = state.get("attempts")
-    attempt_count = len(attempts) if isinstance(attempts, list) else 0
-
-    return {
-        "run_id": plan.run_id,
-        "reaction_dir": str(plan.target_abs_path),
-        "status": state.get("status", ""),
-        "analyzer_status": final_result.get("analyzer_status", ""),
-        "reason": final_result.get("reason", ""),
-        "job_type": plan.job_type,
-        "molecule_key": plan.molecule_key,
-        "selected_inp": to_reaction_relative_path(
-            state.get("selected_inp", ""), plan.target_abs_path
-        ),
-        "last_out_path": to_reaction_relative_path(
-            final_result.get("last_out_path", ""), plan.target_abs_path
-        ),
-        "attempt_count": attempt_count,
-        "completed_at": final_result.get("completed_at", ""),
-        "organized_at": now_utc_iso(),
-        "organized_path": plan.target_rel_path,
-    }
+    return _organize_tracking.build_index_record(plan, state)
 
 
 def _tracking_resources(cfg: AppConfig) -> dict[str, int]:
-    return resource_dict(
-        cfg.resources.max_cores_per_task,
-        cfg.resources.max_memory_gb_per_task,
-    )
+    return _organize_tracking.tracking_resources(cfg)
 
 
 def _tracking_job_id(plan: OrganizePlan, state: RunState) -> str:
-    return str(state.get("job_id") or state.get("run_id") or plan.run_id).strip()
+    return _organize_tracking.tracking_job_id(plan, state)
 
 
 def _write_tracking_after_move(
@@ -142,50 +86,15 @@ def _write_tracking_after_move(
     plan: OrganizePlan,
     state_after_move: RunState,
 ) -> None:
-    job_id = _tracking_job_id(plan, state_after_move)
-    requested = _tracking_resources(cfg)
-    selected_inp = str(state_after_move.get("selected_inp") or "").strip()
-
-    plan.source_dir.mkdir(parents=True, exist_ok=True)
-    write_organized_ref(
-        plan.source_dir,
-        {
-            "job_id": job_id,
-            "run_id": plan.run_id,
-            "original_run_dir": str(plan.source_dir),
-            "organized_output_dir": str(plan.target_abs_path),
-            "organized_at": now_utc_iso(),
-            "status": str(state_after_move.get("status") or "completed"),
-            "job_type": plan.job_type,
-            "selected_inp": selected_inp,
-            "selected_input_xyz": selected_inp,
-            "molecule_key": plan.molecule_key,
-            "resource_request": requested,
-            "resource_actual": requested,
-        },
-    )
-    upsert_job_record(
+    _organize_tracking.write_tracking_after_move(
         cfg,
-        job_id=job_id,
-        status=str(state_after_move.get("status") or "completed"),
-        job_dir=plan.source_dir,
-        job_type=plan.job_type,
-        selected_input_xyz=selected_inp,
-        organized_output_dir=plan.target_abs_path,
-        molecule_key=plan.molecule_key,
-        resource_request=requested,
-        resource_actual=requested,
+        plan=plan,
+        state_after_move=state_after_move,
     )
 
 
 def _cleanup_organized_ref_stub(plan: OrganizePlan) -> None:
-    organized_ref_path = plan.source_dir / ORGANIZED_REF_NAME
-    if organized_ref_path.exists():
-        organized_ref_path.unlink()
-    try:
-        plan.source_dir.rmdir()
-    except OSError:
-        pass
+    _organize_tracking.cleanup_organized_ref_stub(plan)
 
 
 def _restore_tracking_after_rollback(
@@ -194,18 +103,10 @@ def _restore_tracking_after_rollback(
     plan: OrganizePlan,
     state_after_rollback: RunState,
 ) -> None:
-    job_id = _tracking_job_id(plan, state_after_rollback)
-    requested = _tracking_resources(cfg)
-    upsert_job_record(
+    _organize_tracking.restore_tracking_after_rollback(
         cfg,
-        job_id=job_id,
-        status=str(state_after_rollback.get("status") or "completed"),
-        job_dir=plan.source_dir,
-        job_type=plan.job_type,
-        selected_input_xyz=str(state_after_rollback.get("selected_inp") or "").strip(),
-        molecule_key=plan.molecule_key,
-        resource_request=requested,
-        resource_actual=requested,
+        plan=plan,
+        state_after_rollback=state_after_rollback,
     )
 
 
@@ -312,13 +213,7 @@ def _build_dry_run_summary(
     plans: list[OrganizePlan],
     skips_list: list[SkipReason],
 ) -> Dict[str, Any]:
-    return {
-        "action": "dry_run",
-        "to_organize": len(plans),
-        "skipped": len(skips_list),
-        "plans": [_plan_to_dict(p) for p in plans],
-        "skip_reasons": [{"reaction_dir": s.reaction_dir, "reason": s.reason} for s in skips_list],
-    }
+    return _organize_output.build_dry_run_summary(plans, skips_list)
 
 
 def _cmd_organize_apply(

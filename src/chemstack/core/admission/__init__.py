@@ -1,6 +1,9 @@
 from .store import (
     AdmissionLimitReachedError,
+    AdmissionReservationRequest,
     AdmissionSlot,
+    AdmissionSlotActivation,
+    AdmissionSlotMetadataUpdate,
     AdmissionStoreCorruptError,
     activate_reserved_slot,
     active_slot_count,
@@ -8,13 +11,19 @@ from .store import (
     reconcile_stale_slots,
     release_slot,
     reserve_slot,
+    reserve_slot_from_request,
     reserve_slot_or_raise,
     update_slot_metadata,
+    update_slot_metadata_with_update,
+    activate_reserved_slot_with_update,
 )
 
 __all__ = [
     "AdmissionLimitReachedError",
+    "AdmissionReservationRequest",
     "AdmissionSlot",
+    "AdmissionSlotActivation",
+    "AdmissionSlotMetadataUpdate",
     "AdmissionStoreCorruptError",
     "activate_reserved_slot",
     "active_slot_count",
@@ -22,6 +31,9 @@ __all__ = [
     "reconcile_stale_slots",
     "release_slot",
     "reserve_slot",
+    "reserve_slot_from_request",
     "reserve_slot_or_raise",
     "update_slot_metadata",
+    "update_slot_metadata_with_update",
+    "activate_reserved_slot_with_update",
 ]
