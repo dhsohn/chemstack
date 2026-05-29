@@ -5,6 +5,8 @@ from argparse import Namespace
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from chemstack import cli_systemd
 
 
@@ -305,3 +307,110 @@ def test_cmd_service_restart_uses_sudo_for_non_root_user() -> None:
 
     assert result == 0
     assert commands == [("sudo", "systemctl", "restart", "chemstack-runtime@alice.target")]
+
+
+def _single_unit_plan(
+    tmp_path: Path,
+    *,
+    use_sudo: bool = False,
+    commands: tuple[tuple[str, ...], ...] = (),
+) -> cli_systemd.SystemdInstallPlan:
+    return cli_systemd.SystemdInstallPlan(
+        target_user="alice",
+        repo=tmp_path,
+        config=tmp_path / "config" / "chemstack.yaml",
+        unit_dir=tmp_path / "units",
+        units=(
+            cli_systemd.RenderedUnit(
+                name="chemstack-test.service",
+                destination=tmp_path / "units" / "chemstack-test.service",
+                content="[Unit]\nDescription=Test\n",
+            ),
+        ),
+        commands=commands,
+        enabled_unit=None,
+        use_sudo=use_sudo,
+        warnings=(),
+    )
+
+
+def test_apply_systemd_install_plan_reports_direct_write_failure(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    plan = _single_unit_plan(tmp_path)
+    plan.unit_dir.write_text("not a directory", encoding="utf-8")
+
+    assert cli_systemd.apply_systemd_install_plan(plan) == 1
+    assert "failed to write systemd units" in capsys.readouterr().err
+
+
+def test_apply_systemd_install_plan_requires_sudo_when_plan_uses_sudo(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("chemstack.cli_systemd_apply.shutil.which", lambda name: None)
+
+    assert cli_systemd.apply_systemd_install_plan(_single_unit_plan(tmp_path, use_sudo=True)) == 1
+    assert "sudo is required to write system units" in capsys.readouterr().err
+
+
+def test_apply_systemd_install_plan_stops_when_sudo_write_command_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    commands: list[tuple[str, ...]] = []
+    monkeypatch.setattr(
+        "chemstack.cli_systemd_apply.shutil.which",
+        lambda name: "/usr/bin/sudo" if name == "sudo" else None,
+    )
+
+    def fake_run(argv: list[str], check: bool = False) -> subprocess.CompletedProcess[str]:
+        del check
+        commands.append(tuple(argv))
+        return subprocess.CompletedProcess(argv, 7)
+
+    result = cli_systemd.apply_systemd_install_plan(
+        _single_unit_plan(tmp_path, use_sudo=True),
+        run=fake_run,
+    )
+
+    assert result == 7
+    assert commands == [("sudo", "mkdir", "-p", str(tmp_path / "units"))]
+
+
+def test_cmd_service_status_returns_failure_when_any_unit_failed(capsys: Any) -> None:
+    statuses = (
+        cli_systemd.ServiceUnitStatus(
+            label="runtime",
+            unit="chemstack-runtime@alice.target",
+            active="failed",
+            enabled="enabled",
+        ),
+    )
+
+    result = cli_systemd.cmd_service_status(
+        Namespace(target_user="alice"),
+        deps=Namespace(
+            collect_service_status=lambda target_user, run: statuses,
+            run=lambda *args, **kwargs: subprocess.CompletedProcess(args[0], 0),
+            which=lambda name: "/bin/systemctl" if name == "systemctl" else None,
+        ),
+    )
+
+    assert result == 1
+    assert "failed" in capsys.readouterr().out
+
+
+def test_cmd_service_restart_requires_sudo_for_non_root_user(capsys: Any) -> None:
+    result = cli_systemd.cmd_service_restart(
+        Namespace(target_user="alice"),
+        deps=Namespace(
+            is_root=lambda: False,
+            which=lambda name: "/bin/systemctl" if name == "systemctl" else None,
+        ),
+    )
+
+    assert result == 1
+    assert "sudo is required to restart system services" in capsys.readouterr().err

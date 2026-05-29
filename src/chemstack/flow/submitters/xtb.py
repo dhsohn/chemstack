@@ -29,24 +29,40 @@ def _extra_fields(submission: Any | None, _entry: Any | None) -> dict[str, Any]:
     }
 
 
-def submit_job_dir(
-    *,
-    job_dir: str,
-    priority: int,
-    config_path: str,
-) -> dict[str, Any]:
-    return _internal_engine.submit_internal_engine_job_dir(
+_SUBMITTER_SPEC = _internal_engine.InternalEngineSubmitterSpec(
+    run_dir_api_name=_RUN_DIR_API_NAME,
+    cancel_api_name=_CANCEL_API_NAME,
+    extra_fields_fn=_extra_fields,
+)
+
+
+def _submitter_deps() -> _internal_engine.InternalEngineSubmitterDeps:
+    return _internal_engine.InternalEngineSubmitterDeps(
         load_config_fn=load_config,
         resolve_job_dir_fn=resolve_job_dir,
         load_manifest_fn=load_job_manifest,
         build_submission_fn=build_submission,
         record_queued_fn=record_queued,
         enqueue_fn=enqueue,
-        api_name=_RUN_DIR_API_NAME,
+        load_queue_config_fn=load_queue_config,
+        queue_entries_with_roots_fn=queue_entries_with_roots,
+        request_cancel_fn=request_cancel,
+        display_status_fn=display_status,
+    )
+
+
+def submit_job_dir(
+    *,
+    job_dir: str,
+    priority: int,
+    config_path: str,
+) -> dict[str, Any]:
+    return _internal_engine.submit_engine_job_dir(
+        spec=_SUBMITTER_SPEC,
+        deps=_submitter_deps(),
         config_path=config_path,
         job_dir=job_dir,
         priority=priority,
-        extra_fields_fn=_extra_fields,
     )
 
 
@@ -55,12 +71,9 @@ def cancel_target(
     target: str,
     config_path: str,
 ) -> dict[str, Any]:
-    return _internal_engine.cancel_internal_engine_target(
-        load_config_fn=load_queue_config,
-        queue_entries_with_roots_fn=queue_entries_with_roots,
-        request_cancel_fn=request_cancel,
-        display_status_fn=display_status,
-        api_name=_CANCEL_API_NAME,
+    return _internal_engine.cancel_engine_target(
+        spec=_SUBMITTER_SPEC,
+        deps=_submitter_deps(),
         config_path=config_path,
         target=target,
     )

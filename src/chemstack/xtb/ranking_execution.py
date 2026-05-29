@@ -1,0 +1,112 @@
+from __future__ import annotations
+
+import subprocess
+from collections.abc import Callable
+from pathlib import Path
+from typing import Any
+
+from chemstack.core.config.engines import WorkflowEngineAppConfig as AppConfig
+
+from .ranking_inputs import ranking_candidate_run_dir
+from .ranking_models import RankingDeps
+
+
+def _run_ranking_candidate(
+    cfg: AppConfig,
+    *,
+    candidate_path: Path,
+    candidate_run_dir: Path,
+    manifest: dict[str, Any],
+    should_cancel: Callable[[], bool] | None,
+    on_running_job: Callable[[Any | None], None] | None,
+    terminate_process: Callable[[subprocess.Popen[str]], None] | None,
+    deps: RankingDeps,
+) -> Any:
+    if should_cancel is None and on_running_job is None and terminate_process is None:
+        return deps.run_candidate_sp_job(
+            cfg,
+            candidate_xyz=candidate_path,
+            candidate_run_dir=candidate_run_dir,
+            manifest=manifest,
+        )
+    return deps.run_candidate_sp_job(
+        cfg,
+        candidate_xyz=candidate_path,
+        candidate_run_dir=candidate_run_dir,
+        manifest=manifest,
+        should_cancel=should_cancel,
+        on_running_job=on_running_job,
+        terminate_process=terminate_process,
+    )
+
+
+def ranking_candidate_result(
+    *,
+    candidate_path: Path,
+    candidate_run_dir: Path,
+    result: Any,
+    energy: float | None,
+    energy_source: str,
+) -> dict[str, Any]:
+    return {
+        "candidate_path": str(candidate_path.resolve()),
+        "candidate_run_dir_path": str(candidate_run_dir.resolve()),
+        "status": result.status,
+        "reason": result.reason,
+        "exit_code": result.exit_code,
+        "selected_input_xyz": result.selected_input_xyz,
+        "total_energy": energy,
+        "energy_source": energy_source,
+        "command": list(result.command),
+        "analysis_summary": dict(result.analysis_summary),
+    }
+
+
+def collect_ranking_candidate_results(
+    cfg: AppConfig,
+    *,
+    ranking_root: Path,
+    manifest: dict[str, Any],
+    candidate_paths: list[Path],
+    should_cancel: Callable[[], bool] | None,
+    on_running_job: Callable[[Any | None], None] | None,
+    terminate_process: Callable[[subprocess.Popen[str]], None] | None,
+    deps: RankingDeps,
+) -> tuple[list[dict[str, Any]], list[list[str]]]:
+    candidate_results: list[dict[str, Any]] = []
+    command_summary: list[list[str]] = []
+    for index, candidate_path in enumerate(candidate_paths, start=1):
+        if should_cancel is not None and should_cancel():
+            break
+        candidate_run_dir = ranking_candidate_run_dir(ranking_root, index, candidate_path)
+        result = _run_ranking_candidate(
+            cfg,
+            candidate_path=candidate_path,
+            candidate_run_dir=candidate_run_dir,
+            manifest=manifest,
+            should_cancel=should_cancel,
+            on_running_job=on_running_job,
+            terminate_process=terminate_process,
+            deps=deps,
+        )
+        energy, energy_source = deps.extract_sp_energy(candidate_run_dir, candidate_path)
+        command_summary.append(list(result.command))
+        candidate_results.append(
+            ranking_candidate_result(
+                candidate_path=candidate_path,
+                candidate_run_dir=candidate_run_dir,
+                result=result,
+                energy=energy,
+                energy_source=energy_source,
+            )
+        )
+        if result.status == "cancelled":
+            break
+    return candidate_results, command_summary
+
+
+__all__ = [
+    "_run_ranking_candidate",
+    "collect_ranking_candidate_results",
+    "ranking_candidate_result",
+]

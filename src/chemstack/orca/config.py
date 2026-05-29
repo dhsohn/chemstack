@@ -3,11 +3,15 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, ClassVar, Dict
 
 from chemstack.core.config import CommonResourceConfig, TelegramConfig
 from chemstack.core.config import engines as _config_engines
-from chemstack.core.config.schema import RuntimeAdmissionMixin, telegram_config_from_mapping
+from chemstack.core.config.schema import (
+    RetryRuntimeConfig,
+    default_sibling_organized_root,
+    telegram_config_from_mapping,
+)
 from chemstack.core.config.files import (
     default_shared_admission_root,
     engine_config_mapping,
@@ -31,10 +35,7 @@ def _config_template_path() -> Path:
 
 
 def _default_organized_root(allowed_root: str) -> str:
-    allowed = Path(allowed_root).expanduser()
-    if not allowed.is_absolute():
-        return ""
-    return str(allowed.parent / "orca_outputs")
+    return default_sibling_organized_root(allowed_root, "orca_outputs")
 
 
 def _missing_config_error(path: Path) -> ValueError:
@@ -65,32 +66,9 @@ def _placeholder_settings_error(path: Path, placeholder_keys: list[str]) -> Valu
 
 
 @dataclass
-class CommonRuntimeConfig(RuntimeAdmissionMixin):
-    allowed_root: str = ""
-    organized_root: str = ""
+class CommonRuntimeConfig(RetryRuntimeConfig):
     # max retry count, not total execution count
-    default_max_retries: int = 2
-    max_concurrent: int = 4
-    admission_root: str | None = ""
-    admission_limit: int | None = None
-
-    def __post_init__(self) -> None:
-        self.default_max_retries = _config_engines.normalize_default_max_retries(
-            self.default_max_retries,
-            2,
-        )
-        self.max_concurrent = _config_engines.normalize_max_concurrent(
-            self.max_concurrent,
-            4,
-        )
-        if not self.organized_root and self.allowed_root:
-            self.organized_root = _default_organized_root(self.allowed_root)
-        if not self.admission_root and self.allowed_root:
-            self.admission_root = self.allowed_root
-        self.admission_limit = _config_engines.normalize_admission_limit(
-            self.admission_limit,
-            self.max_concurrent,
-        )
+    default_organized_root_name: ClassVar[str] = "orca_outputs"
 
 
 RuntimeConfig = CommonRuntimeConfig

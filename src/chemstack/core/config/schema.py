@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
-from typing import Any, TypeVar, cast
+from pathlib import Path
+from typing import Any, ClassVar, TypeVar, cast
 
 _RuntimeAdmissionConfigT = TypeVar("_RuntimeAdmissionConfigT", bound="RuntimeAdmissionMixin")
 
@@ -106,6 +107,13 @@ class RuntimeAdmissionMixin:
         return cast(_RuntimeAdmissionConfigT, replace(cast(Any, self)))
 
 
+def default_sibling_organized_root(allowed_root: str, dirname: str) -> str:
+    allowed = Path(allowed_root).expanduser()
+    if not allowed.is_absolute():
+        return ""
+    return str(allowed.parent / dirname)
+
+
 @dataclass(frozen=True)
 class CommonRuntimeConfig(RuntimeAdmissionMixin):
     allowed_root: str
@@ -113,6 +121,39 @@ class CommonRuntimeConfig(RuntimeAdmissionMixin):
     max_concurrent: int = 4
     admission_root: str | None = None
     admission_limit: int | None = None
+
+
+@dataclass
+class RetryRuntimeConfig(RuntimeAdmissionMixin):
+    allowed_root: str = ""
+    organized_root: str = ""
+    default_max_retries: int = 2
+    max_concurrent: int = 4
+    admission_root: str | None = ""
+    admission_limit: int | None = None
+
+    default_organized_root_name: ClassVar[str] = ""
+
+    def __post_init__(self) -> None:
+        self.default_max_retries = normalize_default_max_retries(
+            self.default_max_retries,
+            2,
+        )
+        self.max_concurrent = normalize_max_concurrent(
+            self.max_concurrent,
+            4,
+        )
+        if not self.organized_root and self.allowed_root and self.default_organized_root_name:
+            self.organized_root = default_sibling_organized_root(
+                self.allowed_root,
+                self.default_organized_root_name,
+            )
+        if not self.admission_root and self.allowed_root:
+            self.admission_root = self.allowed_root
+        self.admission_limit = normalize_admission_limit(
+            self.admission_limit,
+            self.max_concurrent,
+        )
 
 
 @dataclass(frozen=True)

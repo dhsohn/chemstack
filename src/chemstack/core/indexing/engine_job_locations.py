@@ -93,6 +93,37 @@ class EngineJobLocationApi:
         return self.module.record_from_artifacts(**kwargs)
 
 
+@dataclass(frozen=True)
+class EngineJobLocationApiExports:
+    index_root_for_cfg: Callable[..., Any]
+    runtime_roots_for_cfg: Callable[..., Any]
+    index_root_for_path: Callable[..., Any]
+    list_job_records_for_cfg: Callable[..., Any]
+    resolve_job_location_for_cfg: Callable[..., Any]
+    build_job_location_record: Callable[..., Any]
+    upsert_job_record: Callable[..., Any]
+    resolve_latest_job_dir: Callable[..., Any]
+    load_job_artifacts: Callable[..., Any]
+    load_job_artifacts_for_cfg: Callable[..., Any]
+    record_from_artifacts: Callable[..., Any]
+
+
+def engine_job_location_api_exports(api: EngineJobLocationApi) -> EngineJobLocationApiExports:
+    return EngineJobLocationApiExports(
+        index_root_for_cfg=api.service.index_root_for_cfg,
+        runtime_roots_for_cfg=api.service.runtime_roots_for_cfg,
+        index_root_for_path=api.service.index_root_for_path,
+        list_job_records_for_cfg=api.list_job_records_for_cfg,
+        resolve_job_location_for_cfg=api.resolve_job_location_for_cfg,
+        build_job_location_record=api.build_job_location_record,
+        upsert_job_record=api.upsert_job_record,
+        resolve_latest_job_dir=api.resolve_latest_job_dir,
+        load_job_artifacts=api.load_job_artifacts,
+        load_job_artifacts_for_cfg=api.load_job_artifacts_for_cfg,
+        record_from_artifacts=api.record_from_artifacts,
+    )
+
+
 def build_engine_job_location_api(
     *,
     engine: str,
@@ -166,6 +197,8 @@ def build_store_backed_engine_job_location_api(
 
 __all__ = [
     "EngineJobLocationApi",
+    "EngineJobLocationApiExports",
     "build_engine_job_location_api",
     "build_store_backed_engine_job_location_api",
+    "engine_job_location_api_exports",
 ]

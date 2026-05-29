@@ -2,11 +2,33 @@ from __future__ import annotations
 
 from argparse import Namespace
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any
 
 from chemstack.core.queue import DuplicateQueueEntryError
 
 from chemstack.core.utils import normalize_text
+
+
+@dataclass(frozen=True)
+class InternalEngineSubmitterSpec:
+    run_dir_api_name: str
+    cancel_api_name: str
+    extra_fields_fn: Callable[[Any | None, Any | None], dict[str, Any]] | None = None
+
+
+@dataclass(frozen=True)
+class InternalEngineSubmitterDeps:
+    load_config_fn: Callable[[Any], Any]
+    resolve_job_dir_fn: Callable[[Any, str], Any]
+    load_manifest_fn: Callable[[Any], dict[str, Any]]
+    build_submission_fn: Callable[[Any, Any, dict[str, Any], Any], Any]
+    record_queued_fn: Callable[[Any, Any, Any], Any]
+    enqueue_fn: Callable[..., Any]
+    load_queue_config_fn: Callable[[Any], Any]
+    queue_entries_with_roots_fn: Callable[[Any], list[tuple[Any, Any]]]
+    request_cancel_fn: Callable[[Any, str], Any | None]
+    display_status_fn: Callable[[Any], str]
 
 
 def internal_call_argv(
@@ -197,6 +219,29 @@ def submit_internal_engine_job_dir(
     }
 
 
+def submit_engine_job_dir(
+    *,
+    spec: InternalEngineSubmitterSpec,
+    deps: InternalEngineSubmitterDeps,
+    job_dir: str,
+    priority: int,
+    config_path: str,
+) -> dict[str, Any]:
+    return submit_internal_engine_job_dir(
+        load_config_fn=deps.load_config_fn,
+        resolve_job_dir_fn=deps.resolve_job_dir_fn,
+        load_manifest_fn=deps.load_manifest_fn,
+        build_submission_fn=deps.build_submission_fn,
+        record_queued_fn=deps.record_queued_fn,
+        enqueue_fn=deps.enqueue_fn,
+        api_name=spec.run_dir_api_name,
+        config_path=config_path,
+        job_dir=job_dir,
+        priority=priority,
+        extra_fields_fn=spec.extra_fields_fn,
+    )
+
+
 def _queue_entry_status_text(entry: Any) -> str:
     status_value = getattr(getattr(entry, "status", None), "value", None)
     return normalize_text(status_value or getattr(entry, "status", ""))
@@ -300,3 +345,21 @@ def cancel_internal_engine_target(
         "queue_id": parsed.get("queue_id", ""),
         "job_id": parsed.get("job_id", ""),
     }
+
+
+def cancel_engine_target(
+    *,
+    spec: InternalEngineSubmitterSpec,
+    deps: InternalEngineSubmitterDeps,
+    target: str,
+    config_path: str,
+) -> dict[str, Any]:
+    return cancel_internal_engine_target(
+        load_config_fn=deps.load_queue_config_fn,
+        queue_entries_with_roots_fn=deps.queue_entries_with_roots_fn,
+        request_cancel_fn=deps.request_cancel_fn,
+        display_status_fn=deps.display_status_fn,
+        api_name=spec.cancel_api_name,
+        config_path=config_path,
+        target=target,
+    )

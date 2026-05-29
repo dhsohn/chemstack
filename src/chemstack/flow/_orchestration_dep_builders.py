@@ -47,6 +47,22 @@ def _apply_overrides(
     return {name: _override(overrides, name, fallback) for name, fallback in items.items()}
 
 
+def _build_dep_dataclass(
+    deps_type: type[Any],
+    overrides: Mapping[str, Any] | None,
+    fallbacks: dict[str, Any],
+) -> Any:
+    return deps_type(**_apply_overrides(overrides, fallbacks))
+
+
+def _build_dep_group(
+    deps_type: type[Any],
+    dep_names: tuple[str, ...],
+    resolved: Mapping[str, Any],
+) -> Any:
+    return deps_type(**{name: resolved[name] for name in dep_names})
+
+
 def _deps_provider(
     overrides: Mapping[str, Any] | None,
     deps_provider: _LazyOrchestrationDeps | None,
@@ -232,16 +248,15 @@ def _build_contract_deps(overrides: Mapping[str, Any] | None) -> OrchestrationCo
     from .contracts import CrestDownstreamPolicy, WorkflowStageInput, XtbDownstreamPolicy
     from .endpoint_pairing import EndpointPairingPolicy
 
-    return OrchestrationContractDeps(
-        **_apply_overrides(
-            overrides,
-            {
-                "CrestDownstreamPolicy": CrestDownstreamPolicy,
-                "EndpointPairingPolicy": EndpointPairingPolicy,
-                "WorkflowStageInput": WorkflowStageInput,
-                "XtbDownstreamPolicy": XtbDownstreamPolicy,
-            },
-        )
+    return _build_dep_dataclass(
+        OrchestrationContractDeps,
+        overrides,
+        {
+            "CrestDownstreamPolicy": CrestDownstreamPolicy,
+            "EndpointPairingPolicy": EndpointPairingPolicy,
+            "WorkflowStageInput": WorkflowStageInput,
+            "XtbDownstreamPolicy": XtbDownstreamPolicy,
+        },
     )
 
 
@@ -255,18 +270,17 @@ def _build_persistence_deps(
     from .state import acquire_workflow_lock, load_workflow_payload
     from .state import resolve_workflow_workspace, write_workflow_payload
 
-    return OrchestrationPersistenceDeps(
-        **_apply_overrides(
-            overrides,
-            {
-                "acquire_workflow_lock": acquire_workflow_lock,
-                "load_workflow_payload": load_workflow_payload,
-                "now_utc_iso": now_utc_iso,
-                "resolve_workflow_workspace": resolve_workflow_workspace,
-                "sync_workflow_registry": sync_workflow_registry,
-                "write_workflow_payload": write_workflow_payload,
-            },
-        )
+    return _build_dep_dataclass(
+        OrchestrationPersistenceDeps,
+        overrides,
+        {
+            "acquire_workflow_lock": acquire_workflow_lock,
+            "load_workflow_payload": load_workflow_payload,
+            "now_utc_iso": now_utc_iso,
+            "resolve_workflow_workspace": resolve_workflow_workspace,
+            "sync_workflow_registry": sync_workflow_registry,
+            "write_workflow_payload": write_workflow_payload,
+        },
     )
 
 
@@ -290,28 +304,27 @@ def _build_engine_deps(overrides: Mapping[str, Any] | None) -> OrchestrationEngi
     )
     from .xyz_utils import choose_orca_geometry_frame
 
-    return OrchestrationEngineDeps(
-        **_apply_overrides(
-            overrides,
-            {
-                "build_materialized_orca_stage": build_materialized_orca_stage,
-                "choose_orca_geometry_frame": choose_orca_geometry_frame,
-                "crest_cancel_target": crest_cancel_target,
-                "load_crest_artifact_contract": load_crest_artifact_contract,
-                "load_orca_artifact_contract": load_orca_artifact_contract,
-                "load_xtb_artifact_contract": load_xtb_artifact_contract,
-                "orca_cancel_target": orca_cancel_target,
-                "safe_name": safe_name,
-                "select_crest_downstream_inputs": select_crest_downstream_inputs,
-                "select_endpoint_pairs": select_endpoint_pairs,
-                "select_xtb_downstream_inputs": select_xtb_downstream_inputs,
-                "engine_runtime_paths": engine_runtime_paths,
-                "submit_crest_job_dir": submit_crest_job_dir,
-                "submit_reaction_dir": submit_reaction_dir,
-                "submit_xtb_job_dir": submit_xtb_job_dir,
-                "xtb_cancel_target": xtb_cancel_target,
-            },
-        )
+    return _build_dep_dataclass(
+        OrchestrationEngineDeps,
+        overrides,
+        {
+            "build_materialized_orca_stage": build_materialized_orca_stage,
+            "choose_orca_geometry_frame": choose_orca_geometry_frame,
+            "crest_cancel_target": crest_cancel_target,
+            "load_crest_artifact_contract": load_crest_artifact_contract,
+            "load_orca_artifact_contract": load_orca_artifact_contract,
+            "load_xtb_artifact_contract": load_xtb_artifact_contract,
+            "orca_cancel_target": orca_cancel_target,
+            "safe_name": safe_name,
+            "select_crest_downstream_inputs": select_crest_downstream_inputs,
+            "select_endpoint_pairs": select_endpoint_pairs,
+            "select_xtb_downstream_inputs": select_xtb_downstream_inputs,
+            "engine_runtime_paths": engine_runtime_paths,
+            "submit_crest_job_dir": submit_crest_job_dir,
+            "submit_reaction_dir": submit_reaction_dir,
+            "submit_xtb_job_dir": submit_xtb_job_dir,
+            "xtb_cancel_target": xtb_cancel_target,
+        },
     )
 
 
@@ -477,12 +490,9 @@ def _build_stage_deps(
     resolved = _apply_overrides(overrides, _stage_dep_fallbacks(overrides, provider))
     resolved["_stage_failure_is_recoverable"] = _stage_failure_is_recoverable_override(overrides)
 
-    def build_group(dep_names: tuple[str, ...], deps_type: type[Any]) -> Any:
-        return deps_type(**{name: resolved[name] for name in dep_names})
-
     return OrchestrationStageDeps(
         **{
-            group.name: build_group(group.dep_names, group.deps_type)
+            group.name: _build_dep_group(group.deps_type, group.dep_names, resolved)
             for group in _ORCHESTRATION_STAGE_DEP_REGISTRY
         },
     )
@@ -497,15 +507,17 @@ def _build_advance_deps(
     from ._orchestration_deps import OrchestrationAdvanceDeps
 
     provider = _deps_provider(overrides, deps_provider)
-    return OrchestrationAdvanceDeps(
-        _cancel_active_workflow_stages=_override(
-            overrides,
-            "_cancel_active_workflow_stages",
-            _bind_with_deps(provider, _orchestration_advance._cancel_active_workflow_stages),
-        ),
-        _cancel_stage_activity=_override(
-            overrides,
-            "_cancel_stage_activity",
-            _bind_with_deps(provider, _orchestration_advance._cancel_stage_activity),
-        ),
+    return _build_dep_dataclass(
+        OrchestrationAdvanceDeps,
+        overrides,
+        {
+            "_cancel_active_workflow_stages": _bind_with_deps(
+                provider,
+                _orchestration_advance._cancel_active_workflow_stages,
+            ),
+            "_cancel_stage_activity": _bind_with_deps(
+                provider,
+                _orchestration_advance._cancel_stage_activity,
+            ),
+        },
     )

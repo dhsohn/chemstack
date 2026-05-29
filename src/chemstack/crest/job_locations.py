@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from chemstack.core.indexing.engine_job_locations import build_store_backed_engine_job_location_api
+from chemstack.core.indexing.engine_job_locations import (
+    build_store_backed_engine_job_location_api,
+    engine_job_location_api_exports,
+)
 from chemstack.core.indexing import engines as _engine_locations
 
 from .state import load_organized_ref, load_report_json, load_state
@@ -45,15 +48,15 @@ _LOCATION_API = build_store_backed_engine_job_location_api(
     default_payload_kind_kwarg="default_mode",
 )
 
-index_root_for_cfg = _LOCATION_API.service.index_root_for_cfg
-runtime_roots_for_cfg = _LOCATION_API.service.runtime_roots_for_cfg
-index_root_for_path = _LOCATION_API.service.index_root_for_path
-list_job_records_for_cfg = _LOCATION_API.list_job_records_for_cfg
-resolve_job_location_for_cfg = _LOCATION_API.resolve_job_location_for_cfg
-
-build_job_location_record = _LOCATION_API.build_job_location_record
-upsert_job_record = _LOCATION_API.upsert_job_record
-resolve_latest_job_dir = _LOCATION_API.resolve_latest_job_dir
-load_job_artifacts = _LOCATION_API.load_job_artifacts
-load_job_artifacts_for_cfg = _LOCATION_API.load_job_artifacts_for_cfg
-record_from_artifacts = _LOCATION_API.record_from_artifacts
+_LOCATION_EXPORTS = engine_job_location_api_exports(_LOCATION_API)
+index_root_for_cfg = _LOCATION_EXPORTS.index_root_for_cfg
+runtime_roots_for_cfg = _LOCATION_EXPORTS.runtime_roots_for_cfg
+index_root_for_path = _LOCATION_EXPORTS.index_root_for_path
+list_job_records_for_cfg = _LOCATION_EXPORTS.list_job_records_for_cfg
+resolve_job_location_for_cfg = _LOCATION_EXPORTS.resolve_job_location_for_cfg
+build_job_location_record = _LOCATION_EXPORTS.build_job_location_record
+upsert_job_record = _LOCATION_EXPORTS.upsert_job_record
+resolve_latest_job_dir = _LOCATION_EXPORTS.resolve_latest_job_dir
+load_job_artifacts = _LOCATION_EXPORTS.load_job_artifacts
+load_job_artifacts_for_cfg = _LOCATION_EXPORTS.load_job_artifacts_for_cfg
+record_from_artifacts = _LOCATION_EXPORTS.record_from_artifacts

@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+from typing import Any, ClassVar, cast
+
 
 import pytest
 
 
 from chemstack.core.config.schema import (
     CommonRuntimeConfig,
+    RetryRuntimeConfig,
     TelegramConfig,
     as_nonempty_str,
     normalize_admission_limit,
@@ -13,6 +16,10 @@ from chemstack.core.config.schema import (
     normalize_max_concurrent,
     telegram_config_from_mapping,
 )
+
+
+class SiblingRetryRuntimeConfig(RetryRuntimeConfig):
+    default_organized_root_name: ClassVar[str] = "engine_outputs"
 
 
 @pytest.mark.parametrize(
@@ -74,6 +81,21 @@ def test_common_runtime_config_can_copy_common_fields() -> None:
 
     assert copied == config
     assert copied is not config
+
+
+def test_retry_runtime_config_normalizes_shared_runtime_fields() -> None:
+    config = SiblingRetryRuntimeConfig(
+        allowed_root="/runs/engine",
+        default_max_retries=cast(Any, "-2"),
+        max_concurrent=cast(Any, "0"),
+        admission_limit=cast(Any, "bad"),
+    )
+
+    assert config.organized_root == "/runs/engine_outputs"
+    assert config.default_max_retries == 0
+    assert config.max_concurrent == 1
+    assert config.admission_root == "/runs/engine"
+    assert config.admission_limit == 1
 
 
 @pytest.mark.parametrize(
