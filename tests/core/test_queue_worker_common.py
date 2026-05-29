@@ -216,10 +216,14 @@ def test_start_background_job_process_builds_child_command(
     commands: list[list[str]] = []
     expected = object()
 
+    def fake_start_background_process(command: list[str]) -> object:
+        commands.append(list(command))
+        return expected
+
     monkeypatch.setattr(
         child_process_helpers,
         "start_background_process",
-        lambda command: commands.append(list(command)) or expected,
+        fake_start_background_process,
     )
 
     result = child_process_helpers.start_background_job_process(
@@ -494,9 +498,13 @@ def test_shutdown_child_process_with_grace_forces_after_deadline(
 
     monkeypatch.setattr(child_process_helpers.time, "monotonic", lambda: next(monotonic_values))
 
+    def force_terminate(proc: Process) -> None:
+        calls.append("force")
+        proc.rc = 9
+
     child_process_helpers.shutdown_child_process_with_grace(
         job,
-        terminate_process_fn=lambda proc: calls.append("force") or setattr(proc, "rc", 9),
+        terminate_process_fn=force_terminate,
         finalize_child_exit_fn=lambda job_arg, rc: finalized.append((job_arg, rc)),
         grace_seconds=0.1,
         sleep_fn=lambda seconds: calls.append(f"sleep:{seconds}"),

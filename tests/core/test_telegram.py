@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from email.message import Message
 from io import BytesIO
 import json
 from pathlib import Path
@@ -440,7 +441,7 @@ def test_telegram_api_client_logs_non_ok_and_transport_failures(
                 url="https://api.telegram.org/botbot-token/sendMessage",
                 code=429,
                 msg="Too Many Requests",
-                hdrs=None,
+                hdrs=Message(),
                 fp=BytesIO(b"retry later"),
             ),
             RuntimeError("socket closed"),
