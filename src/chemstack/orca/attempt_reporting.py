@@ -16,6 +16,7 @@ from .types import (
 )
 
 logger = logging.getLogger(__name__)
+FINISHED_NOTIFICATION_SENT_AT_KEY = "telegram_finished_notification_sent_at"
 
 
 @dataclass(frozen=True)
@@ -76,7 +77,7 @@ class FinalizeAndEmitRequest:
     final_result: RunFinalResult
     exit_code: int
     emit: Callable[[Dict[str, Any]], None]
-    notify_finished: Callable[[RunFinishedNotification], None] | None = None
+    notify_finished: Callable[[RunFinishedNotification], Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -92,7 +93,7 @@ class ExitResultRequest:
     exit_code: int
     emit: Callable[[Dict[str, Any]], None]
     extra: Mapping[str, object] | None = None
-    notify_finished: Callable[[RunFinishedNotification], None] | None = None
+    notify_finished: Callable[[RunFinishedNotification], Any] | None = None
 
 
 def run_status_text(status: RunStatus | str) -> str:
@@ -295,6 +296,33 @@ def _build_run_finished_notification(
     }
 
 
+def finished_notification_already_sent(state: Mapping[str, Any]) -> bool:
+    final_result = state.get("final_result")
+    if not isinstance(final_result, Mapping):
+        return False
+    return bool(str(final_result.get(FINISHED_NOTIFICATION_SENT_AT_KEY) or "").strip())
+
+
+def mark_finished_notification_sent(
+    reaction_dir: Path,
+    state: RunState,
+    *,
+    sent_at: str | None = None,
+) -> None:
+    final_result = state.get("final_result")
+    if not isinstance(final_result, dict):
+        return
+    final_result["telegram_finished_notification_sent_at"] = sent_at or now_utc_iso()
+    state["final_result"] = final_result
+    finalize_state(
+        reaction_dir,
+        state,
+        status=str(state.get("status") or final_result.get("status") or ""),
+        final_result=final_result,
+    )
+    write_report_files(reaction_dir, state)
+
+
 def finalize_and_emit(
     reaction_dir: Path,
     state: RunState,
@@ -305,7 +333,7 @@ def finalize_and_emit(
     final_result: RunFinalResult,
     exit_code: int,
     emit: Callable[[Dict[str, Any]], None],
-    notify_finished: Callable[[RunFinishedNotification], None] | None = None,
+    notify_finished: Callable[[RunFinishedNotification], Any] | None = None,
 ) -> int:
     return _finalize_and_emit(
         FinalizeAndEmitRequest(
@@ -329,16 +357,12 @@ def _finalize_and_emit(request: FinalizeAndEmitRequest) -> int:
         status=run_status_text(request.status),
         final_result=request.final_result,
     )
-    reports = write_report_files(request.reaction_dir, request.state)
-    attempts = request.state.get("attempts")
-    payload = {
+    payload: Dict[str, Any] = {
         "status": run_status_text(request.status),
         "reason": request.reason,
         "reaction_dir": str(request.reaction_dir),
         "selected_inp": str(request.selected_inp),
-        "attempt_count": len(attempts) if isinstance(attempts, list) else 0,
         "run_state": str(state_path(request.reaction_dir)),
-        **reports,
     }
     if request.notify_finished is not None:
         notification = build_run_finished_notification(
@@ -349,13 +373,24 @@ def _finalize_and_emit(request: FinalizeAndEmitRequest) -> int:
             final_result=request.final_result,
         )
         try:
-            request.notify_finished(notification)
+            notify_result = request.notify_finished(notification)
         except Exception:
             logger.warning(
                 "Finished notification callback failed for reaction_dir=%s",
                 request.reaction_dir,
                 exc_info=True,
             )
+        else:
+            if bool(notify_result):
+                mark_finished_notification_sent(request.reaction_dir, request.state)
+    reports = write_report_files(request.reaction_dir, request.state)
+    attempts = request.state.get("attempts")
+    payload.update(
+        {
+            "attempt_count": len(attempts) if isinstance(attempts, list) else 0,
+            **reports,
+        }
+    )
     request.emit(payload)
     return request.exit_code
 
@@ -373,7 +408,7 @@ def exit_with_result(
     exit_code: int,
     emit: Callable[[Dict[str, Any]], None],
     extra: Mapping[str, object] | None = None,
-    notify_finished: Callable[[RunFinishedNotification], None] | None = None,
+    notify_finished: Callable[[RunFinishedNotification], Any] | None = None,
 ) -> int:
     return _exit_with_result(
         ExitResultRequest(

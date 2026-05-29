@@ -96,14 +96,6 @@ def cmd_workflow_run_dir(args: argparse.Namespace) -> int:
     return int(_cmd_workflow_run_dir(args))
 
 
-def cmd_summary(args: argparse.Namespace) -> int:
-    from chemstack.summary import cmd_summary as _cmd_combined_summary
-
-    _configure_orca_logging(args)
-    args.config = _engine_config_for_command(args)
-    return int(_cmd_combined_summary(args))
-
-
 def cmd_orca_monitor(args: argparse.Namespace) -> int:
     from chemstack.orca.commands.monitor import cmd_monitor as _cmd_orca_monitor
 

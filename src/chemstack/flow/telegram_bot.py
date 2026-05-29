@@ -246,21 +246,6 @@ def _handle_cancel(settings: TelegramBotSettings, args: str) -> str:
     return f"{_status_icon(status)} <b>{label}</b>\nstatus: <code>{status}</code>"
 
 
-def _handle_summary(settings: TelegramBotSettings, args: str) -> str:
-    from chemstack import summary as combined_summary
-    from chemstack.orca.config import load_config
-
-    config_path = settings.orca_config
-    if not config_path:
-        return "Error building summary: no chemstack config is configured."
-    try:
-        cfg = load_config(config_path)
-        return combined_summary._build_summary_message(cfg, config_path=config_path)
-    except Exception as exc:
-        logger.exception("telegram_bot_summary_error")
-        return f"Error building summary: {escape_html(str(exc))}"
-
-
 def _handle_help(settings: TelegramBotSettings, args: str) -> str:
     return (
         "<b>chemstack_flow bot commands</b>\n\n"
@@ -268,7 +253,6 @@ def _handle_help(settings: TelegramBotSettings, args: str) -> str:
         "/list clear — Remove completed/failed/cancelled entries\n"
         "/list running — Running activities only\n"
         "/list failed — Failed activities only\n"
-        "/summary — Current-state digest of ORCA runs and workflows\n"
         "/cancel &lt;target&gt; — Cancel a workflow or queued job (asks to confirm)\n"
         "/help — This help message"
     )
@@ -277,8 +261,6 @@ def _handle_help(settings: TelegramBotSettings, args: str) -> str:
 _HANDLERS: dict[str, Callable[[TelegramBotSettings, str], str]] = {
     "list": _handle_list,
     "cancel": _handle_cancel,
-    "summary": _handle_summary,
-    "status": _handle_summary,
     "help": _handle_help,
     "start": _handle_help,
 }
@@ -287,7 +269,6 @@ _HANDLERS: dict[str, Callable[[TelegramBotSettings, str], str]] = {
 def _set_bot_commands(token: str) -> None:
     commands = [
         {"command": "list", "description": "Show unified activity list"},
-        {"command": "summary", "description": "Current-state digest"},
         {"command": "cancel", "description": "Cancel a workflow or job"},
         {"command": "help", "description": "Help"},
     ]

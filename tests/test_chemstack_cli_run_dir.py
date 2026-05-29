@@ -9,36 +9,8 @@ import pytest
 
 from chemstack import cli_common
 from chemstack import cli_handlers as cli_run_dir
-from chemstack import cli_handlers as cli_summary
 from chemstack.core.app_ids import CHEMSTACK_CONFIG_ENV_VAR
 from chemstack.flow.run_dir_layout import WorkflowRunDirLayout, inspect_workflow_run_dir
-
-
-def test_cmd_summary_dispatches_combined_summary(monkeypatch: pytest.MonkeyPatch) -> None:
-    seen: list[argparse.Namespace] = []
-
-    def _fake_combined_summary(args: argparse.Namespace) -> int:
-        seen.append(args)
-        return 29
-
-    monkeypatch.setattr(cli_summary, "_configure_orca_logging", lambda args: None)
-    monkeypatch.setattr(cli_summary, "_engine_config_for_command", lambda args: "/tmp/chemstack.yaml")
-    monkeypatch.setattr("chemstack.summary.cmd_summary", _fake_combined_summary)
-
-    args = argparse.Namespace(
-        command="summary",
-        chemstack_config="/tmp/chemstack.yaml",
-        config=None,
-        no_send=True,
-        verbose=False,
-        log_file=None,
-    )
-
-    result = cli_summary.cmd_summary(args)
-
-    assert result == 29
-    assert args.config == "/tmp/chemstack.yaml"
-    assert seen == [args]
 
 
 def test_cli_common_discovers_config_from_explicit_env_and_repo_candidate(

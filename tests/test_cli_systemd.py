@@ -180,8 +180,6 @@ def test_cmd_service_status_prints_compact_systemd_state(capsys: Any) -> None:
         ("is-enabled", "chemstack-queue-worker@alice.service"): "enabled",
         ("is-active", "chemstack-bot@alice.service"): "inactive",
         ("is-enabled", "chemstack-bot@alice.service"): "disabled",
-        ("is-active", "chemstack-summary@alice.timer"): "active",
-        ("is-enabled", "chemstack-summary@alice.timer"): "enabled",
     }
 
     def _fake_run(
@@ -237,12 +235,6 @@ def test_cmd_service_status_hides_runtime_managed_enabled_noise(
             active="active",
             enabled="disabled",
         ),
-        cli_systemd.ServiceUnitStatus(
-            label="summary",
-            unit="chemstack-summary@alice.timer",
-            active="active",
-            enabled="disabled",
-        ),
     )
 
     result = cli_systemd.cmd_service_status(
@@ -270,8 +262,6 @@ def test_cmd_service_status_emits_json(capsys: Any) -> None:
         ("is-enabled", "chemstack-queue-worker@alice.service"): "enabled",
         ("is-active", "chemstack-bot@alice.service"): "inactive",
         ("is-enabled", "chemstack-bot@alice.service"): "disabled",
-        ("is-active", "chemstack-summary@alice.timer"): "active",
-        ("is-enabled", "chemstack-summary@alice.timer"): "enabled",
     }
 
     def _fake_run(

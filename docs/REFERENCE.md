@@ -54,8 +54,6 @@ Operational consequences:
     chemstack-runtime@.target
     chemstack-queue-worker@.service
     chemstack-bot@.service
-    chemstack-summary@.service
-    chemstack-summary@.timer
   scripts/*.sh / *.py
   tests/
     integration/
@@ -93,7 +91,6 @@ commands:
 - `init`
 - `scaffold <ts_search|conformer_search>`
 - `organize orca`
-- `summary`
 - `scan-notify` (alias: `monitor`)
 Activate `.venv` first, or call `.venv/bin/chemstack ...` directly.
 By default, config is resolved from `CHEMSTACK_CONFIG`, then `<repo_root>/config/chemstack.yaml`, then `~/chemstack/config/chemstack.yaml`.
@@ -165,8 +162,8 @@ Notes:
 
 ## 7) CLI Usage
 
-All public queue, submission, scaffold, organization, and summary commands
-should be documented through `chemstack ...`.
+All public queue, submission, scaffold, and organization commands should be
+documented through `chemstack ...`.
 
 Public command surface:
 
@@ -276,17 +273,7 @@ Options:
 - `organize orca --rebuild-index`: Rebuild the ORCA JSONL index
 - `--apply`: Perform actual moves; otherwise the command is a dry run
 
-### 7.6 `summary`
-
-```bash
-chemstack summary --no-send
-```
-
-Behavior:
-
-- `summary` prints or sends the unified ORCA/workflow Telegram digest
-
-### 7.7 `scan-notify` (alias: `monitor`)
+### 7.6 `scan-notify` (alias: `monitor`)
 
 ```bash
 chemstack scan-notify
@@ -298,7 +285,7 @@ Behavior:
   Telegram discovery alerts, then exits. It is not a live monitor.
 - `monitor` is a backward-compatible alias for `scan-notify`.
 
-### 7.8 Long-Running Services
+### 7.7 Long-Running Services
 
 Long-running worker and Telegram bot processes are managed through `systemd`
 only. Public CLI commands do not start those services directly.
@@ -331,8 +318,6 @@ This repository includes service assets under `systemd/`:
 - [`systemd/chemstack-runtime@.target`](/home/daehyupsohn/chemstack/systemd/chemstack-runtime@.target)
 - [`systemd/chemstack-queue-worker@.service`](/home/daehyupsohn/chemstack/systemd/chemstack-queue-worker@.service)
 - [`systemd/chemstack-bot@.service`](/home/daehyupsohn/chemstack/systemd/chemstack-bot@.service)
-- [`systemd/chemstack-summary@.service`](/home/daehyupsohn/chemstack/systemd/chemstack-summary@.service)
-- [`systemd/chemstack-summary@.timer`](/home/daehyupsohn/chemstack/systemd/chemstack-summary@.timer)
 
 Recommended always-on runtime install flow when Telegram is configured:
 
@@ -340,7 +325,6 @@ Recommended always-on runtime install flow when Telegram is configured:
 cd <repo_root>
 chemstack systemd install --user "$(whoami)" --repo "$(pwd)"
 chemstack service status
-journalctl -u "chemstack-summary@$(whoami).service" -n 50
 journalctl -u "chemstack-queue-worker@$(whoami)" -f
 journalctl -u "chemstack-bot@$(whoami)" -f
 ```

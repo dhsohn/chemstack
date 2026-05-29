@@ -24,6 +24,7 @@ class RunFinalResult(TypedDict, total=False):
     resumed: bool
     skipped_execution: bool
     runner_error: str
+    telegram_finished_notification_sent_at: str
 
 
 class RunState(TypedDict, total=False):

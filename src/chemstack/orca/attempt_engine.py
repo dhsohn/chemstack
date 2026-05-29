@@ -50,9 +50,9 @@ class AttemptRunContext:
     retry_inp_path: Callable[[Path, int], Path]
     to_resolved_local: Callable[[str], Path]
     emit: Callable[[Dict[str, Any]], None]
-    notify_started: Callable[[RunStartedNotification], None] | None
-    notify_finished: Callable[[RunFinishedNotification], None] | None
-    notify_retry: Callable[[RetryNotification], None] | None
+    notify_started: Callable[[RunStartedNotification], Any] | None
+    notify_finished: Callable[[RunFinishedNotification], Any] | None
+    notify_retry: Callable[[RetryNotification], Any] | None
 
 
 @dataclass(frozen=True)
@@ -440,9 +440,9 @@ def run_attempts(
     retry_inp_path: Callable[[Path, int], Path],
     to_resolved_local: Callable[[str], Path],
     emit: Callable[[Dict[str, Any]], None],
-    notify_started: Callable[[RunStartedNotification], None] | None = None,
-    notify_finished: Callable[[RunFinishedNotification], None] | None = None,
-    notify_retry: Callable[[RetryNotification], None] | None = None,
+    notify_started: Callable[[RunStartedNotification], Any] | None = None,
+    notify_finished: Callable[[RunFinishedNotification], Any] | None = None,
+    notify_retry: Callable[[RetryNotification], Any] | None = None,
 ) -> int:
     ctx = AttemptRunContext(
         reaction_dir=reaction_dir,

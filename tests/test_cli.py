@@ -12,7 +12,6 @@ from unittest.mock import MagicMock, patch
 
 from chemstack import cli as unified_cli
 from chemstack import cli_handlers as cli_run_dir
-from chemstack import cli_handlers as cli_summary
 from chemstack.core.admission import reserve_slot
 from chemstack.orca.commands._helpers import CONFIG_ENV_VAR, _emit, default_config_path
 from chemstack.orca.commands.run_inp import (
@@ -232,7 +231,6 @@ class TestCli(unittest.TestCase):
             patch(
                 "chemstack.orca.commands.organize.cmd_organize", side_effect=_record("organize", 43)
             ),
-            patch("chemstack.summary.cmd_summary", side_effect=_record("summary", 44)),
         ):
             init_args = Namespace(
                 config="/tmp/chemstack.yaml",
@@ -249,23 +247,15 @@ class TestCli(unittest.TestCase):
                 apply=True,
                 rebuild_index=False,
             )
-            summary_args = Namespace(
-                config="/tmp/chemstack.yaml",
-                verbose=False,
-                log_file=None,
-                no_send=True,
-            )
             init_rc = cli_run_dir.cmd_init(init_args)
             organize_rc = cli_run_dir.cmd_orca_organize(organize_args)
-            summary_rc = cli_summary.cmd_summary(summary_args)
 
-        self.assertEqual((init_rc, organize_rc, summary_rc), (42, 43, 44))
+        self.assertEqual((init_rc, organize_rc), (42, 43))
         self.assertEqual(
             seen,
             [
                 ("init", init_args),
                 ("organize", organize_args),
-                ("summary", summary_args),
             ],
         )
 

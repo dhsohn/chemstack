@@ -386,34 +386,9 @@ def test_handle_help_mentions_only_supported_commands() -> None:
 
     assert "/list" in text
     assert "/list clear" in text
-    assert "/summary" in text
     assert "/cancel" in text
     assert "/help" in text
     assert "/cron" not in text
-
-
-def test_handle_summary_builds_digest(monkeypatch) -> None:
-    monkeypatch.setattr("chemstack.orca.config.load_config", lambda config_path: "cfg")
-    monkeypatch.setattr(
-        "chemstack.summary._build_summary_message",
-        lambda cfg, *, config_path: f"digest for {cfg} @ {config_path}",
-    )
-
-    text = bot._handle_summary(_settings(), "")
-
-    assert text == "digest for cfg @ /tmp/chemstack.yaml"
-
-
-def test_handle_summary_reports_build_errors(monkeypatch) -> None:
-    def _boom(config_path):
-        raise RuntimeError("no config <here>")
-
-    monkeypatch.setattr("chemstack.orca.config.load_config", _boom)
-
-    text = bot._handle_summary(_settings(), "")
-
-    assert "Error building summary" in text
-    assert "no config &lt;here&gt;" in text
 
 
 def test_cancel_confirm_keyboard_structure_and_overflow_guard() -> None:
@@ -783,7 +758,6 @@ def test_set_bot_commands_delegates_to_api_call(monkeypatch) -> None:
     assert captured["method"] == "setMyCommands"
     assert [item["command"] for item in captured["payload"]["commands"]] == [
         "list",
-        "summary",
         "cancel",
         "help",
     ]

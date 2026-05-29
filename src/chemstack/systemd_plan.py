@@ -13,8 +13,6 @@ from chemstack.core.utils.coercion import normalize_text
 SYSTEMD_UNIT_NAMES = (
     "chemstack-queue-worker@.service",
     "chemstack-bot@.service",
-    "chemstack-summary@.service",
-    "chemstack-summary@.timer",
     "chemstack-runtime@.target",
 )
 

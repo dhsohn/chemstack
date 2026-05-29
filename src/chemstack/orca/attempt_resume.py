@@ -48,7 +48,7 @@ class ResumeTerminalDecisionRequest:
     last_out_path_from_state: Callable[[RunState], str | None]
     exit_with_result: Callable[..., int]
     emit: Callable[[Dict[str, Any]], None]
-    notify_finished: Callable[[RunFinishedNotification], None] | None = None
+    notify_finished: Callable[[RunFinishedNotification], Any] | None = None
 
 
 def _ensure_patch_actions_list(attempt: AttemptRecord) -> list[str]:
@@ -204,7 +204,7 @@ def resume_terminal_decision(
     last_out_path_from_state: Callable[[RunState], str | None],
     exit_with_result: Callable[..., int],
     emit: Callable[[Dict[str, Any]], None],
-    notify_finished: Callable[[RunFinishedNotification], None] | None = None,
+    notify_finished: Callable[[RunFinishedNotification], Any] | None = None,
 ) -> int | None:
     return _resume_terminal_decision(
         ResumeTerminalDecisionRequest(

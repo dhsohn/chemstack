@@ -3,7 +3,6 @@ from __future__ import annotations
 from argparse import Namespace
 
 from chemstack import cli as chemstack_cli
-from chemstack import cli_handlers
 from chemstack import cli_workers
 from chemstack.core.app_ids import CHEMSTACK_CONFIG_ENV_VAR
 from chemstack.flow import cli_workflow
@@ -86,19 +85,3 @@ def test_workflow_worker_module_main_uses_dedicated_parser(monkeypatch) -> None:
     assert args.chemstack_config == "/tmp/chemstack.yaml"
     assert args.once is True
 
-
-def test_summary_direct_cli_runs_combined_summary(monkeypatch) -> None:
-    captured: dict[str, object | None] = {}
-
-    def _fake_cmd_summary(args: Namespace) -> int:
-        captured["args"] = args
-        return 13
-
-    monkeypatch.setattr(cli_handlers, "cmd_summary", _fake_cmd_summary)
-
-    result = chemstack_cli.main(["summary"])
-
-    assert result == 13
-    args = captured["args"]
-    assert isinstance(args, Namespace)
-    assert args.no_send is False

@@ -40,9 +40,9 @@ chemstack service status
 chemstack service restart
 ```
 
-`service status` shows the runtime target, queue worker, Telegram bot, and
-summary timer. `service restart` restarts the full runtime target when it is
-enabled; otherwise it restarts the queue worker.
+`service status` shows the runtime target, queue worker, and Telegram bot.
+`service restart` restarts the full runtime target when it is enabled; otherwise
+it restarts the queue worker.
 
 ## 5) Submit Work
 
@@ -71,7 +71,6 @@ cancelled entries from the unified activity list.
 chemstack service status
 chemstack service restart
 chemstack queue list --refresh
-chemstack summary --no-send
 ```
 
 If a service still does not behave as expected, use the deeper systemd commands

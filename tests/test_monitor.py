@@ -97,9 +97,8 @@ class TestBuildMessage:
         assert "\u2500" in message
         assert "Filesystem discovery only" in message
         assert "run-dir alerts" in message
-        assert "summary" in message
 
-    def test_header_uses_local_timezone_like_summary(self) -> None:
+    def test_header_uses_local_timezone(self) -> None:
         from datetime import datetime
         from zoneinfo import ZoneInfo
 

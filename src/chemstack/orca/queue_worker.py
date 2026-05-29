@@ -34,6 +34,11 @@ from chemstack.core.admission import (
     reserve_slot,
     update_slot_metadata,
 )
+from .attempt_reporting import (
+    build_run_finished_notification,
+    finished_notification_already_sent,
+    mark_finished_notification_sent,
+)
 from .config import AppConfig
 from .inp_rewriter import read_resource_request_from_input
 from .queue_adapter import (
@@ -53,6 +58,7 @@ from .queue_adapter import (
 )
 from .runtime.worker_job import BackgroundRunJobProcess, start_background_run_job
 from .state import load_organized_ref, load_report_json, load_state
+from .telegram_notifier import notify_run_finished_event
 from .job_locations import record_from_artifacts, resolve_job_metadata, resource_dict, upsert_job_record
 
 logger = logging.getLogger(__name__)
@@ -252,6 +258,46 @@ def _upsert_terminal_job_record(
     )
 
 
+def _notify_terminal_job_from_state(cfg: AppConfig, reaction_dir: str) -> bool:
+    if not cfg.telegram.enabled:
+        return False
+
+    job_dir = Path(reaction_dir).expanduser().resolve()
+    state = load_state(job_dir)
+    if not state:
+        logger.warning("Skipping terminal Telegram notification; state missing for %s", job_dir)
+        return False
+    if finished_notification_already_sent(state):
+        return False
+
+    final_result = state.get("final_result")
+    if not isinstance(final_result, dict):
+        logger.warning(
+            "Skipping terminal Telegram notification; final_result missing for %s",
+            job_dir,
+        )
+        return False
+
+    selected_inp_text = str(state.get("selected_inp") or "").strip()
+    selected_inp = Path(selected_inp_text) if selected_inp_text else job_dir / "-"
+    status = str(final_result.get("status") or state.get("status") or "").strip()
+    notification = build_run_finished_notification(
+        reaction_dir=job_dir,
+        selected_inp=selected_inp,
+        state=state,
+        status=status,
+        final_result=final_result,
+    )
+    sent = notify_run_finished_event(cfg.telegram, notification)
+    if sent:
+        mark_finished_notification_sent(job_dir, state)
+        logger.info("Terminal Telegram notification sent by queue worker: %s", job_dir)
+        return True
+
+    logger.warning("Terminal Telegram notification failed in queue worker: %s", job_dir)
+    return False
+
+
 def _worker_admission_limit(cfg: AppConfig, fallback_max_concurrent: int) -> int:
     raw_admission_limit: object | None = getattr(cfg.runtime, "admission_limit", None)
     if raw_admission_limit is None or raw_admission_limit == "":
@@ -440,6 +486,10 @@ class QueueWorker(PidFileChildProcessQueueWorker):
             _upsert_terminal_job_record(self.cfg, job.reaction_dir, fallback_job_id=job.task_id)
         except Exception as exc:
             logger.warning("Failed to update terminal job location for %s: %s", queue_id, exc)
+        try:
+            _notify_terminal_job_from_state(self.cfg, job.reaction_dir)
+        except Exception as exc:
+            logger.warning("Failed to send terminal notification for %s: %s", queue_id, exc)
         self._release_admission_slot(job.admission_token)
 
     def _auto_organize_terminal_job(self, job: _RunningJob) -> None:

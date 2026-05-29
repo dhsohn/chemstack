@@ -134,14 +134,14 @@ def notification_callbacks(cfg: Any, *, deps: Any) -> tuple[Any, Any, Any]:
         return None, None, None
     notifications = deps.notifications
 
-    def notify_started(event: Any) -> None:
-        notifications.notify_run_started_event(cfg.telegram, event)
+    def notify_started(event: Any) -> bool:
+        return notifications.notify_run_started_event(cfg.telegram, event)
 
-    def notify_finished(event: Any) -> None:
-        notifications.notify_run_finished_event(cfg.telegram, event)
+    def notify_finished(event: Any) -> bool:
+        return notifications.notify_run_finished_event(cfg.telegram, event)
 
-    def notify_retry(event: Any) -> None:
-        notifications.notify_retry_event(cfg.telegram, event)
+    def notify_retry(event: Any) -> bool:
+        return notifications.notify_retry_event(cfg.telegram, event)
 
     return notify_started, notify_finished, notify_retry
 

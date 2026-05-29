@@ -5,15 +5,11 @@ This directory is the single home for long-running ChemStack service assets.
 ## Included units
 
 - `chemstack-runtime@.target`
-  - recommended combined runtime target for the unified queue worker, Telegram bot, and scheduled summary timer
+  - recommended combined runtime target for the unified queue worker and Telegram bot
 - `chemstack-queue-worker@.service`
   - recommended unified queue worker template
 - `chemstack-bot@.service`
   - unified Telegram bot template
-- `chemstack-summary@.service`
-  - oneshot sender for the combined ORCA/workflow Telegram summary
-- `chemstack-summary@.timer`
-  - runs the combined summary every 6 hours
 
 ## Combined runtime target
 
@@ -24,7 +20,6 @@ It pulls in:
 
 - `chemstack-queue-worker@.service`
 - `chemstack-bot@.service`
-- `chemstack-summary@.timer`
 
 Before enabling the combined runtime target:
 
@@ -49,7 +44,6 @@ Monitor the combined runtime target:
 
 ```bash
 chemstack service status
-journalctl -u "chemstack-summary@$(whoami).service" -n 50
 journalctl -u "chemstack-queue-worker@$(whoami)" -f
 journalctl -u "chemstack-bot@$(whoami)" -f
 ```
@@ -60,10 +54,6 @@ Maintain the combined runtime target:
 chemstack service restart
 sudo systemctl stop "chemstack-runtime@$(whoami).target"
 ```
-
-The summary timer runs `chemstack summary` at `00:00`, `06:00`, `12:00`, and `18:00`
-local time and sends the combined digest through the shared Telegram settings in
-`chemstack.yaml`.
 
 ## Engine queue workers
 

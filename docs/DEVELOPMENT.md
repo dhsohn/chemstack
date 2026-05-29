@@ -40,7 +40,6 @@ User-facing docs should standardize on these command forms:
 - `chemstack init`
 - `chemstack scaffold <ts_search|conformer_search> <path>`
 - `chemstack organize orca ...`
-- `chemstack summary ...`
 - `chemstack scan-notify` (alias: `chemstack monitor`)
 
 Long-running services are not part of the public CLI surface. Users should run

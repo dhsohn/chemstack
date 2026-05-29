@@ -106,7 +106,6 @@ chemstack queue cancel <target>
 chemstack service status
 chemstack service restart
 chemstack organize orca --root '/home/user/orca_runs' --apply
-chemstack summary --no-send
 chemstack scan-notify
 ```
 
@@ -125,15 +124,14 @@ CLI table output is colorized by status when stdout is a terminal; color is disa
 automatically when piped or when `NO_COLOR` is set, and can be forced off with
 `--no-color` (e.g. `chemstack --no-color queue list`). `chemstack --version` prints the
 installed version, and running `chemstack` with no command prints help. Errors and
-recovery hints are written to stderr. The `summary`, `queue cancel`, `run-dir`, and
-`service status` outputs colorize status fields the same way.
+recovery hints are written to stderr. The `queue cancel`, `run-dir`, and `service status`
+outputs colorize status fields the same way.
 
 `chemstack queue list --watch` continuously refreshes the list until interrupted
-(`--interval` sets the refresh seconds, default 2.0). `chemstack summary --json` and
-`chemstack service status --json` emit machine-readable output for scripting.
+(`--interval` sets the refresh seconds, default 2.0). `chemstack service status --json`
+emits machine-readable output for scripting.
 
-The Telegram bot also supports `/summary` for an on-demand current-state digest, and
-`/cancel <target>` now asks for confirmation with inline buttons before cancelling.
+The Telegram bot supports `/cancel <target>` with confirmation via inline buttons before cancelling.
 `/list` follows the table with an actions message carrying a per-activity cancel button
 for each active item plus a refresh button, so cancellation and refresh are one tap
 (the cancel button still routes through the confirmation step); when more than eight
@@ -159,9 +157,6 @@ Restart examples:
 ```bash
 chemstack service restart
 ```
-
-The combined runtime target also starts a summary timer that runs `chemstack summary`
-every 6 hours and sends the digest through the shared Telegram configuration.
 
 If you edited files under `systemd/`, run `sudo systemctl daemon-reload` before restarting.
 

@@ -7,15 +7,15 @@ from chemstack.cli_argparse import _suggestion_hint
 
 
 def test_suggestion_hint_offers_close_match() -> None:
-    message = "argument command: invalid choice: 'queu' (choose from 'queue', 'summary')"
+    message = "argument command: invalid choice: 'queu' (choose from 'queue', 'run-dir')"
     assert _suggestion_hint(message) == "did you mean `queue`?"
 
 
 def test_suggestion_hint_lists_choices_when_no_close_match() -> None:
-    message = "argument command: invalid choice: 'zzz' (choose from 'queue', 'summary')"
+    message = "argument command: invalid choice: 'zzz' (choose from 'queue', 'run-dir')"
     hint = _suggestion_hint(message)
     assert hint is not None
-    assert "valid choices: queue, summary" == hint
+    assert "valid choices: queue, run-dir" == hint
 
 
 def test_suggestion_hint_ignores_unrelated_messages() -> None:

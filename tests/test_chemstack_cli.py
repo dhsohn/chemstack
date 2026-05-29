@@ -10,7 +10,6 @@ from chemstack import cli_common
 from chemstack import cli_handlers as cli_monitor
 from chemstack import cli_queue
 from chemstack import cli_handlers as cli_run_dir
-from chemstack import cli_handlers as cli_summary
 from chemstack import cli_systemd
 from chemstack import cli_worker_conflicts
 from chemstack import cli as unified_cli
@@ -138,7 +137,7 @@ def test_build_parser_parses_unified_run_dir_commands() -> None:
     assert workflow_args.func is cli_run_dir.cmd_run_dir
 
 
-def test_build_parser_parses_unified_init_scaffold_organize_summary_and_monitor_commands() -> None:
+def test_build_parser_parses_unified_init_scaffold_organize_and_monitor_commands() -> None:
     parser = unified_cli.build_parser()
 
     init_args = parser.parse_args(["init", "--chemstack-config", "/tmp/chemstack.yaml", "--force"])
@@ -156,9 +155,6 @@ def test_build_parser_parses_unified_init_scaffold_organize_summary_and_monitor_
             "/tmp/rxn",
             "--apply",
         ]
-    )
-    combined_summary_args = parser.parse_args(
-        ["summary", "--chemstack-config", "/tmp/chemstack.yaml", "--no-send"]
     )
     monitor_args = parser.parse_args(["monitor", "--chemstack-config", "/tmp/chemstack.yaml"])
 
@@ -185,10 +181,6 @@ def test_build_parser_parses_unified_init_scaffold_organize_summary_and_monitor_
     assert organize_args.reaction_dir == "/tmp/rxn"
     assert organize_args.apply is True
     assert organize_args.func is cli_run_dir.cmd_orca_organize
-
-    assert combined_summary_args.command == "summary"
-    assert combined_summary_args.no_send is True
-    assert combined_summary_args.func is cli_summary.cmd_summary
 
     assert monitor_args.command == "monitor"
     assert monitor_args.config == "/tmp/chemstack.yaml"
@@ -334,12 +326,6 @@ def test_classify_existing_orca_worker_distinguishes_chemstack_and_unknown(
             25,
         ),
         (
-            ["summary", "--chemstack-config", "/tmp/chemstack.yaml", "--no-send"],
-            "cmd_summary",
-            {"command": "summary", "no_send": True},
-            28,
-        ),
-        (
             ["monitor", "--chemstack-config", "/tmp/chemstack.yaml"],
             "cmd_orca_monitor",
             {"command": "monitor", "config": "/tmp/chemstack.yaml"},
@@ -361,9 +347,7 @@ def test_main_dispatches_unified_engine_commands(
         return expected_result
 
     target_module: ModuleType
-    if attr_name == "cmd_summary":
-        target_module = cli_summary
-    elif attr_name == "cmd_orca_monitor":
+    if attr_name == "cmd_orca_monitor":
         target_module = cli_monitor
     else:
         target_module = cli_run_dir

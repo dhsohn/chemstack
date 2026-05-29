@@ -1,8 +1,8 @@
 """Single source of truth for status icons across every surface.
 
-The unified queue table (``activity_rendering``), the Telegram bot, the summary
-digest, ORCA run snapshots (``chemstack.orca.run_snapshot``), and ORCA Telegram
-notifications (``chemstack.orca.telegram_notifier``) all route through
+The unified queue table (``activity_rendering``), the Telegram bot, ORCA run
+snapshots (``chemstack.orca.run_snapshot``), and ORCA Telegram notifications
+(``chemstack.orca.telegram_notifier``) all route through
 :func:`activity_status_icon` so a given status always looks the same everywhere.
 """
 

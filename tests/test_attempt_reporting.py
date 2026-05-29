@@ -50,6 +50,10 @@ class TestAttemptReporting(unittest.TestCase):
             emitted_payloads: list[dict] = []
             finished_notifications: list[RunFinishedNotification] = []
 
+            def notify_finished(payload: RunFinishedNotification) -> bool:
+                finished_notifications.append(payload)
+                return True
+
             rc = exit_with_result(
                 reaction_dir,
                 state,
@@ -62,7 +66,7 @@ class TestAttemptReporting(unittest.TestCase):
                 exit_code=0,
                 emit=lambda payload: emitted_payloads.append(payload),
                 extra={"skipped_execution": True},
-                notify_finished=lambda payload: finished_notifications.append(payload),
+                notify_finished=notify_finished,
             )
 
             saved = load_state(reaction_dir)
@@ -80,6 +84,11 @@ class TestAttemptReporting(unittest.TestCase):
         self.assertEqual(emitted_payloads[0]["report_json"], str(reaction_dir / "run_report.json"))
         self.assertEqual(emitted_payloads[0]["report_md"], str(reaction_dir / "run_report.md"))
         self.assertEqual(report_json["final_result"]["status"], "completed")
+        self.assertIn("telegram_finished_notification_sent_at", saved["final_result"])
+        self.assertIn(
+            "telegram_finished_notification_sent_at",
+            report_json["final_result"],
+        )
         self.assertEqual(len(finished_notifications), 1)
         self.assertTrue(finished_notifications[0]["resumed"])
         self.assertTrue(finished_notifications[0]["skipped_execution"])

@@ -20,7 +20,6 @@ SERVICE_UNIT_ORDER = (
     ("runtime", "chemstack-runtime@{user}.target"),
     ("worker", "chemstack-queue-worker@{user}.service"),
     ("bot", "chemstack-bot@{user}.service"),
-    ("summary", "chemstack-summary@{user}.timer"),
 )
 
 

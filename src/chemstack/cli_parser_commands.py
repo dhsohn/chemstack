@@ -116,23 +116,6 @@ def add_organize_parser(subparsers: argparse._SubParsersAction[argparse.Argument
     orca_organize_parser.set_defaults(func=cli_handlers.cmd_orca_organize)
 
 
-def add_summary_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
-    summary_parser = subparsers.add_parser(
-        "summary",
-        help="Show the ORCA/workflow summary or send its Telegram digest.",
-    )
-    add_engine_config_argument(summary_parser)
-    add_orca_logging_arguments(summary_parser)
-    summary_parser.add_argument(
-        "--no-send",
-        action="store_true",
-        default=False,
-        help="Print summary without sending Telegram",
-    )
-    add_json_argument(summary_parser, help_text="Print summary as JSON")
-    summary_parser.set_defaults(func=cli_handlers.cmd_summary)
-
-
 def add_monitor_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     # ``scan-notify`` is the canonical name; this command performs a single
     # filesystem scan and sends Telegram alerts, then exits. ``monitor`` is kept
@@ -157,5 +140,4 @@ __all__ = [
     "add_organize_parser",
     "add_run_dir_parser",
     "add_scaffold_parser",
-    "add_summary_parser",
 ]

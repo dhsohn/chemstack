@@ -11,7 +11,6 @@ from chemstack.cli_parser_commands import (
     add_organize_parser,
     add_run_dir_parser,
     add_scaffold_parser,
-    add_summary_parser,
 )
 from chemstack.cli_parser_queue import add_queue_parser
 from chemstack.cli_parser_systemd import add_service_parser, add_systemd_parser
@@ -30,7 +29,6 @@ examples:
   chemstack run-dir /home/user/orca_runs/sample_rxn
   chemstack queue list --engine orca
   chemstack queue cancel <target>
-  chemstack summary --no-send
   chemstack service status
 """
 
@@ -65,7 +63,6 @@ def build_parser() -> argparse.ArgumentParser:
     add_init_parser(subparsers)
     add_scaffold_parser(subparsers)
     add_organize_parser(subparsers)
-    add_summary_parser(subparsers)
     add_monitor_parser(subparsers)
     add_systemd_parser(subparsers)
     add_service_parser(subparsers)

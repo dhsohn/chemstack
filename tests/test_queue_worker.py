@@ -16,7 +16,8 @@ from chemstack.core.admission import (
     reserve_slot,
 )
 from chemstack.core.queue.types import QueueEntry
-from chemstack.orca.config import AppConfig, RuntimeConfig
+from chemstack.orca.attempt_reporting import build_final_result
+from chemstack.orca.config import AppConfig, RuntimeConfig, TelegramConfig
 from chemstack.orca.queue_adapter import (
     cancel,
     dequeue_next,
@@ -31,13 +32,49 @@ from chemstack.orca.queue_worker import (
     QueueWorker,
     _RunningJob,
     _get_run_id_from_state,
+    _notify_terminal_job_from_state,
     _start_job_process,
     _terminate_process,
     read_worker_pid,
 )
+from chemstack.orca.state import finalize_state, load_state, new_state
+from chemstack.orca.statuses import AnalyzerStatus, RunStatus
 
 def _make_cfg(tmp: str) -> AppConfig:
     return AppConfig(runtime=RuntimeConfig(allowed_root=tmp))
+
+
+def _write_completed_run_state(reaction_dir: Path) -> None:
+    selected_inp = reaction_dir / "rxn.inp"
+    selected_inp.write_text("! Opt\n", encoding="utf-8")
+    state = new_state(reaction_dir, selected_inp, max_retries=2)
+    state["job_id"] = "task_terminal_123"
+    state["attempts"].append(
+        {
+            "index": 1,
+            "inp_path": str(selected_inp),
+            "out_path": str(reaction_dir / "rxn.out"),
+            "return_code": 0,
+            "analyzer_status": "completed",
+            "analyzer_reason": "normal_termination",
+            "markers": {},
+            "patch_actions": [],
+            "started_at": "2026-05-29T12:00:00+00:00",
+            "ended_at": "2026-05-29T12:01:00+00:00",
+        }
+    )
+    finalize_state(
+        reaction_dir,
+        state,
+        status=RunStatus.COMPLETED.value,
+        final_result=build_final_result(
+            status=RunStatus.COMPLETED,
+            analyzer_status=AnalyzerStatus.COMPLETED,
+            reason="normal_termination",
+            last_out_path=str(reaction_dir / "rxn.out"),
+            resumed=False,
+        ),
+    )
 
 
 class TestStartJobProcess(unittest.TestCase):
@@ -428,6 +465,74 @@ class TestQueueWorkerMethods(unittest.TestCase):
 
         mock_organize.assert_not_called()
         mock_upsert_terminal.assert_called_once()
+
+    @patch("chemstack.orca.queue_worker._upsert_terminal_job_record")
+    @patch("chemstack.orca.queue_worker.notify_run_finished_event", return_value=True)
+    def test_finalize_finished_job_sends_parent_terminal_notification_when_unmarked(
+        self,
+        mock_notify: MagicMock,
+        mock_upsert_terminal: MagicMock,
+    ) -> None:
+        cfg = AppConfig(
+            runtime=RuntimeConfig(allowed_root=str(self.root)),
+            telegram=TelegramConfig(bot_token="token", chat_id="chat"),
+        )
+        worker = QueueWorker(cfg, str(self.root / "config.yaml"), max_concurrent=2)
+        rxn = self.root / "mol_terminal_notify"
+        rxn.mkdir()
+        _write_completed_run_state(rxn)
+        entry = enqueue(self.root, str(rxn))
+        dequeue_next(self.root)
+        token = reserve_slot(
+            self.root,
+            worker.max_concurrent,
+            work_dir=str(rxn),
+            queue_id=entry.queue_id,
+            source="queue_worker",
+            state="reserved",
+        )
+        self.assertIsNotNone(token)
+
+        worker._finalize_finished_job(
+            entry.queue_id,
+            _RunningJob(
+                queue_id=entry.queue_id,
+                reaction_dir=str(rxn),
+                process=MagicMock(),
+                admission_token=token or "",
+            ),
+            rc=0,
+        )
+
+        mock_upsert_terminal.assert_called_once()
+        mock_notify.assert_called_once()
+        saved = load_state(rxn)
+        assert saved is not None
+        final_result = saved["final_result"]
+        assert final_result is not None
+        self.assertIn("telegram_finished_notification_sent_at", final_result)
+
+    @patch("chemstack.orca.queue_worker.notify_run_finished_event", return_value=True)
+    def test_terminal_notification_skips_when_state_already_marked(
+        self,
+        mock_notify: MagicMock,
+    ) -> None:
+        cfg = AppConfig(
+            runtime=RuntimeConfig(allowed_root=str(self.root)),
+            telegram=TelegramConfig(bot_token="token", chat_id="chat"),
+        )
+        rxn = self.root / "mol_terminal_already_marked"
+        rxn.mkdir()
+        _write_completed_run_state(rxn)
+        state = load_state(rxn)
+        assert state is not None
+        final_result = state["final_result"]
+        assert final_result is not None
+        final_result["telegram_finished_notification_sent_at"] = "2026-05-29T12:02:00+00:00"
+        finalize_state(rxn, state, status="completed", final_result=final_result)
+
+        self.assertFalse(_notify_terminal_job_from_state(cfg, str(rxn)))
+        mock_notify.assert_not_called()
 
     @patch("chemstack.orca.queue_worker._upsert_terminal_job_record")
     @patch("chemstack.orca.commands.organize.organize_reaction_dir")
