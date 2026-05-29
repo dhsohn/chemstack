@@ -5,6 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from chemstack import cli_style
 from chemstack import summary as combined_summary
 from chemstack.flow import workflow_status as workflow_status_helpers
 from chemstack.orca.config import AppConfig, PathsConfig, RuntimeConfig, TelegramConfig
@@ -391,4 +392,59 @@ def test_run_summary_and_cmd_summary_cover_send_paths(tmp_path: Path, capsys) ->
         assert combined_summary.cmd_summary(args) == 7
 
     mocked_load.assert_called_once_with("config.yml")
-    mocked_run.assert_called_once_with(enabled_cfg, config_path="config.yml", send=False)
+    mocked_run.assert_called_once_with(
+        enabled_cfg, config_path="config.yml", send=False, json_output=False
+    )
+
+
+def test_render_summary_for_terminal_strips_tags_without_color() -> None:
+    cli_style.set_color_override(False)
+    try:
+        rendered = combined_summary._render_summary_for_terminal(
+            "📊 <b>Title</b>  <code>val</code>"
+        )
+    finally:
+        cli_style.set_color_override(None)
+    assert "<b>" not in rendered and "<code>" not in rendered
+    assert "Title" in rendered and "val" in rendered
+    assert "\033[" not in rendered
+
+
+def test_render_summary_for_terminal_uses_ansi_when_color_enabled() -> None:
+    cli_style.set_color_override(True)
+    try:
+        rendered = combined_summary._render_summary_for_terminal("<b>Title</b> <code>val</code>")
+    finally:
+        cli_style.set_color_override(None)
+    assert "<b>" not in rendered
+    assert "\033[1m" in rendered  # bold opener for <b>
+    assert "\033[36m" in rendered  # cyan opener for <code>
+
+
+def test_build_summary_payload_shapes_structured_output(monkeypatch) -> None:
+    data = combined_summary._SummaryData(
+        active_runs=[
+            _snapshot(Path("/tmp/r1"), name="R1", status="running"),
+            _snapshot(Path("/tmp/r2"), name="R2", status="retrying"),
+        ],
+        failed_runs=[_snapshot(Path("/tmp/f1"), name="F1", status="failed")],
+        other_runs=[],
+        process_counts={},
+        workflow_root="/tmp/workflows",
+        workflow_summaries=[
+            {"workflow_id": "wf-run", "template_name": "reaction_ts_search", "status": "running"},
+            {"workflow_id": "wf-fail", "template_name": "reaction_ts_search", "status": "failed"},
+        ],
+        active_simulations=3,
+    )
+    monkeypatch.setattr(
+        combined_summary, "_collect_summary_data", lambda cfg, *, config_path: data
+    )
+
+    payload = combined_summary._build_summary_payload(object(), config_path="cfg")  # type: ignore[arg-type]
+
+    assert payload["active_simulations"] == 3
+    assert payload["orca"] == {"running": 1, "retrying": 1, "failed": 1, "other": 0}
+    assert payload["workflows"]["root"] == "/tmp/workflows"
+    assert {wf["workflow_id"] for wf in payload["workflows"]["active"]} == {"wf-run"}
+    assert {wf["workflow_id"] for wf in payload["workflows"]["attention"]} == {"wf-fail"}

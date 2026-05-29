@@ -92,8 +92,39 @@ def paint(text: str, *codes: str, stream: IO[str] | None = None) -> str:
 
     if not codes or not text or not color_enabled(stream):
         return text
-    prefix = "\033[" + ";".join(codes) + "m"
-    return f"{prefix}{text}{_RESET}"
+    return f"{sgr(*codes)}{text}{_RESET}"
+
+
+def sgr(*codes: str) -> str:
+    """Return the opening SGR escape sequence for ``codes`` (no reset)."""
+
+    return "\033[" + ";".join(codes) + "m"
+
+
+# Public alias so callers can append a reset after a raw :func:`sgr` opener.
+RESET = _RESET
+
+
+def label(text: str, *, stream: IO[str] | None = None) -> str:
+    """Dim a field label (e.g. ``workflow_id:``) for key/value output."""
+
+    return paint(text, DIM, stream=stream)
+
+
+def status_text(status: object, *, stream: IO[str] | None = None) -> str:
+    """Return the status string tinted by its activity color (no-op if none)."""
+
+    text = "" if status is None else str(status)
+    color = status_color(status)
+    return paint(text, color, stream=stream) if color else text
+
+
+def clear_screen() -> None:
+    """Clear the terminal and home the cursor (only when output is a TTY)."""
+
+    if color_enabled():
+        sys.stdout.write("\033[2J\033[3J\033[H")
+        sys.stdout.flush()
 
 
 __all__ = [
@@ -104,9 +135,14 @@ __all__ = [
     "GREEN",
     "MAGENTA",
     "RED",
+    "RESET",
     "YELLOW",
+    "clear_screen",
     "color_enabled",
+    "label",
     "paint",
     "set_color_override",
+    "sgr",
     "status_color",
+    "status_text",
 ]

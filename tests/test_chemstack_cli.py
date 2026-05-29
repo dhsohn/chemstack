@@ -55,6 +55,14 @@ class _FakeWorkerProcess:
         self._terminal_returncode = -9
 
 
+def test_main_without_command_prints_help(capsys) -> None:
+    result = unified_cli.main([])
+
+    assert result == 0
+    out = capsys.readouterr().out
+    assert "usage: chemstack" in out
+
+
 def test_build_parser_parses_unified_queue_commands() -> None:
     parser = unified_cli.build_parser()
 

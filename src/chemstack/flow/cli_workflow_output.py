@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from chemstack import cli_style
 from chemstack.cli_errors import emit_error as _emit_error
 from chemstack.cli_errors import emit_prefixed_error
 
@@ -33,10 +34,13 @@ def emit_created_workflow(payload: dict[str, Any], *, json_mode: bool) -> int:
     if _emit_json_when_requested(payload, json_mode=json_mode):
         return 0
 
-    print(f"workflow_id: {payload.get('workflow_id', '-')}")
-    print(f"template_name: {payload.get('template_name', '-')}")
-    print(f"workspace_dir: {(payload.get('metadata') or {}).get('workspace_dir', '-')}")
-    print(f"stage_count: {len(payload.get('stages', []))}")
+    print(f"{cli_style.label('workflow_id:')} {payload.get('workflow_id', '-')}")
+    print(f"{cli_style.label('template_name:')} {payload.get('template_name', '-')}")
+    print(
+        f"{cli_style.label('workspace_dir:')} "
+        f"{(payload.get('metadata') or {}).get('workspace_dir', '-')}"
+    )
+    print(f"{cli_style.label('stage_count:')} {len(payload.get('stages', []))}")
     return 0
 
 
@@ -44,12 +48,18 @@ def emit_restarted_workflow(payload: dict[str, Any], *, json_mode: bool) -> int:
     if _emit_json_when_requested(payload, json_mode=json_mode):
         return 0
 
-    print(f"workflow_id: {payload.get('workflow_id', '-')}")
-    print(f"status: {payload.get('status', '-')}")
-    print(f"workflow_status: {payload.get('workflow_status', '-')}")
-    print(f"previous_status: {payload.get('previous_status', '-')}")
-    print(f"workspace_dir: {payload.get('workspace_dir', '-')}")
-    print(f"restarted_count: {payload.get('restarted_count', 0)}")
+    print(f"{cli_style.label('workflow_id:')} {payload.get('workflow_id', '-')}")
+    print(f"{cli_style.label('status:')} {cli_style.status_text(payload.get('status', '-'))}")
+    print(
+        f"{cli_style.label('workflow_status:')} "
+        f"{cli_style.status_text(payload.get('workflow_status', '-'))}"
+    )
+    print(
+        f"{cli_style.label('previous_status:')} "
+        f"{cli_style.status_text(payload.get('previous_status', '-'))}"
+    )
+    print(f"{cli_style.label('workspace_dir:')} {payload.get('workspace_dir', '-')}")
+    print(f"{cli_style.label('restarted_count:')} {payload.get('restarted_count', 0)}")
     for item in payload.get("restarted_stages", []):
         print(
             f"- restarted {item.get('stage_id', '-')}"

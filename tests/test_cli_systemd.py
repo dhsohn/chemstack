@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import subprocess
 from argparse import Namespace
 from pathlib import Path
@@ -209,6 +210,46 @@ def test_cmd_service_status_prints_compact_systemd_state(capsys: Any) -> None:
     assert "worker" in output
     assert "chemstack-queue-worker@alice.service" in output
     assert "inactive" in output
+
+
+def test_cmd_service_status_emits_json(capsys: Any) -> None:
+    states = {
+        ("is-active", "chemstack-runtime@alice.target"): "active",
+        ("is-enabled", "chemstack-runtime@alice.target"): "enabled",
+        ("is-active", "chemstack-queue-worker@alice.service"): "failed",
+        ("is-enabled", "chemstack-queue-worker@alice.service"): "enabled",
+        ("is-active", "chemstack-bot@alice.service"): "inactive",
+        ("is-enabled", "chemstack-bot@alice.service"): "disabled",
+        ("is-active", "chemstack-summary@alice.timer"): "active",
+        ("is-enabled", "chemstack-summary@alice.timer"): "enabled",
+    }
+
+    def _fake_run(
+        argv: list[str],
+        check: bool = False,
+        stdout: Any = None,
+        stderr: Any = None,
+        text: bool = False,
+    ) -> subprocess.CompletedProcess[str]:
+        del check, stdout, stderr, text
+        return subprocess.CompletedProcess(argv, 0, stdout=f"{states[(argv[1], argv[2])]}\n", stderr="")
+
+    result = cli_systemd.cmd_service_status(
+        Namespace(target_user=None, json=True),
+        deps=Namespace(
+            _default_service_user=lambda: "alice",
+            run=_fake_run,
+            which=lambda name: "/bin/systemctl" if name == "systemctl" else None,
+        ),
+    )
+
+    # A failed unit yields a non-zero exit even in JSON mode.
+    assert result == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["target_user"] == "alice"
+    assert payload["ok"] is False
+    worker = next(s for s in payload["services"] if s["label"] == "worker")
+    assert worker["active"] == "failed"
 
 
 def test_cmd_service_status_fails_when_systemctl_is_missing(capsys: Any) -> None:

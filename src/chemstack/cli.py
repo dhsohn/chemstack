@@ -16,6 +16,9 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if getattr(args, "no_color", False):
         cli_style.set_color_override(False)
+    if not getattr(args, "func", None):
+        parser.print_help()
+        return 0
     return int(args.func(args))
 
 

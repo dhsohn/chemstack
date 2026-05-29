@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import json
 import logging
 from collections import Counter
+from dataclasses import dataclass
 from datetime import datetime
+from html import unescape
 from pathlib import Path
 from typing import Any
 
+from chemstack import cli_style
 from chemstack.activity_view import count_global_active_simulations
 from chemstack.core.activity_icons import activity_status_icon
 from chemstack.core.config.files import shared_workflow_root_from_config
@@ -166,7 +170,18 @@ def _format_attention_workflows_section(workflow_summaries: list[dict[str, Any]]
     return header + "\n\n" + "\n\n".join(_workflow_detail_block(item) for item in shown)
 
 
-def _build_summary_message(cfg: AppConfig, *, config_path: str | None) -> str:
+@dataclass(frozen=True)
+class _SummaryData:
+    active_runs: list[orca_summary.RunSnapshot]
+    failed_runs: list[orca_summary.RunSnapshot]
+    other_runs: list[orca_summary.RunSnapshot]
+    process_counts: dict[Path, int]
+    workflow_root: str | None
+    workflow_summaries: list[dict[str, Any]]
+    active_simulations: int
+
+
+def _collect_summary_data(cfg: AppConfig, *, config_path: str | None) -> _SummaryData:
     allowed_root = Path(cfg.runtime.allowed_root).expanduser().resolve()
     snapshots = orca_summary.collect_run_snapshots(allowed_root)
     process_counts = orca_summary.scan_cwd_process_counts(allowed_root)
@@ -190,6 +205,76 @@ def _build_summary_message(cfg: AppConfig, *, config_path: str | None) -> str:
         if activity_rows
         else len(active_runs)
     )
+    return _SummaryData(
+        active_runs=active_runs,
+        failed_runs=failed_runs,
+        other_runs=other_runs,
+        process_counts=process_counts,
+        workflow_root=workflow_root,
+        workflow_summaries=workflow_summaries,
+        active_simulations=active_simulations,
+    )
+
+
+def _workflow_detail_dict(summary: dict[str, Any]) -> dict[str, Any]:
+    current_stage = select_current_stage(summary.get("stage_summaries") or [])
+    return {
+        "workflow_id": _normalize_text(summary.get("workflow_id")) or None,
+        "template": workflow_template_label(summary.get("template_name")),
+        "status": normalize_workflow_status(summary.get("status")) or "unknown",
+        "current_engine": _normalize_text(current_stage.get("engine")) or "workflow",
+        "current_task": (
+            _normalize_text(current_stage.get("task_kind"))
+            or _normalize_text(current_stage.get("stage_kind"))
+            or None
+        ),
+        "current_stage_id": _normalize_text(current_stage.get("stage_id")) or None,
+        "stage_count": int(summary.get("stage_count", 0) or 0),
+    }
+
+
+def _build_summary_payload(cfg: AppConfig, *, config_path: str | None) -> dict[str, Any]:
+    data = _collect_summary_data(cfg, config_path=config_path)
+    running = sum(1 for snapshot in data.active_runs if snapshot.status == "running")
+    retrying = sum(1 for snapshot in data.active_runs if snapshot.status == "retrying")
+    workflow_counts = Counter(
+        normalize_workflow_status(item.get("status")) or "unknown"
+        for item in data.workflow_summaries
+    )
+    active_workflows = [
+        item for item in data.workflow_summaries if workflow_status_is_active(item.get("status"))
+    ]
+    attention_workflows = [
+        item
+        for item in data.workflow_summaries
+        if workflow_status_needs_attention(item.get("status"))
+    ]
+    return {
+        "active_simulations": data.active_simulations,
+        "orca": {
+            "running": running,
+            "retrying": retrying,
+            "failed": len(data.failed_runs),
+            "other": len(data.other_runs),
+        },
+        "workflows": {
+            "root": data.workflow_root,
+            "status_counts": dict(workflow_counts),
+            "active": [_workflow_detail_dict(item) for item in active_workflows],
+            "attention": [_workflow_detail_dict(item) for item in attention_workflows],
+        },
+    }
+
+
+def _build_summary_message(cfg: AppConfig, *, config_path: str | None) -> str:
+    data = _collect_summary_data(cfg, config_path=config_path)
+    active_runs = data.active_runs
+    failed_runs = data.failed_runs
+    other_runs = data.other_runs
+    process_counts = data.process_counts
+    workflow_root = data.workflow_root
+    workflow_summaries = data.workflow_summaries
+    active_simulations = data.active_simulations
 
     now = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M %Z")
     header = f"📊 <b>chemstack summary</b>  <code>{escape_html(now)}</code>"
@@ -231,9 +316,41 @@ def _build_summary_message(cfg: AppConfig, *, config_path: str | None) -> str:
     return "\n\n".join(sections)
 
 
-def _run_summary(cfg: AppConfig, *, config_path: str | None, send: bool = True) -> int:
+def _render_summary_for_terminal(message: str) -> str:
+    """Render the HTML summary for the terminal.
+
+    With color enabled, ``<b>`` becomes bold and ``<code>`` becomes cyan so the
+    emphasis the Telegram digest already encodes survives on the CLI. Without
+    color (piped output, ``NO_COLOR``, ``--no-color``) it falls back to the
+    plain-text stripping used for non-TTY output.
+    """
+
+    if not cli_style.color_enabled():
+        return orca_summary.html_to_plain_text(message)
+    rendered = (
+        message.replace("<b>", cli_style.sgr(cli_style.BOLD))
+        .replace("</b>", cli_style.RESET)
+        .replace("<code>", cli_style.sgr(cli_style.CYAN))
+        .replace("</code>", cli_style.RESET)
+        .replace("<pre>", "")
+        .replace("</pre>", "")
+    )
+    return unescape(rendered)
+
+
+def _run_summary(
+    cfg: AppConfig,
+    *,
+    config_path: str | None,
+    send: bool = True,
+    json_output: bool = False,
+) -> int:
     summary_message = _build_summary_message(cfg, config_path=config_path)
-    print(orca_summary.html_to_plain_text(summary_message))
+    if json_output:
+        payload = _build_summary_payload(cfg, config_path=config_path)
+        print(json.dumps(payload, ensure_ascii=True, indent=2))
+    else:
+        print(_render_summary_for_terminal(summary_message))
 
     if not send:
         return 0
@@ -256,6 +373,7 @@ def cmd_summary(args: Any) -> int:
         cfg,
         config_path=args.config,
         send=not getattr(args, "no_send", False),
+        json_output=bool(getattr(args, "json", False)),
     )
 
 

@@ -123,13 +123,21 @@ The `active_simulations` line counts only simulations that currently consume the
 CLI table output is colorized by status when stdout is a terminal; color is disabled
 automatically when piped or when `NO_COLOR` is set, and can be forced off with
 `--no-color` (e.g. `chemstack --no-color queue list`). `chemstack --version` prints the
-installed version. Errors and recovery hints are written to stderr.
+installed version, and running `chemstack` with no command prints help. Errors and
+recovery hints are written to stderr. The `summary`, `queue cancel`, `run-dir`, and
+`service status` outputs colorize status fields the same way.
+
+`chemstack queue list --watch` continuously refreshes the list until interrupted
+(`--interval` sets the refresh seconds, default 2.0). `chemstack summary --json` and
+`chemstack service status --json` emit machine-readable output for scripting.
 
 The Telegram bot also supports `/summary` for an on-demand current-state digest, and
 `/cancel <target>` now asks for confirmation with inline buttons before cancelling.
 `/list` follows the table with an actions message carrying a per-activity cancel button
 for each active item plus a refresh button, so cancellation and refresh are one tap
-(the cancel button still routes through the confirmation step).
+(the cancel button still routes through the confirmation step); when more than eight
+activities are cancellable the actions message notes how many are shown, and executing a
+cancel auto-refreshes the list.
 
 Long-running services are managed through `systemd` only. After `chemstack.yaml`
 is configured, enable the combined runtime target once and let `systemd` start

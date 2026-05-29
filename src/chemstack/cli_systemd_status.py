@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import argparse
 import getpass
+import json
 import shutil
 import subprocess
 from dataclasses import dataclass
 from typing import Any, Callable, Sequence
 
+from chemstack import cli_style
 from chemstack.cli_common import _dependency
 from chemstack.cli_errors import emit_error
 from chemstack.core.utils.coercion import normalize_text
@@ -85,11 +87,58 @@ def collect_service_status(
     )
 
 
+_SERVICE_ACTIVE_COLORS = {
+    "active": cli_style.GREEN,
+    "failed": cli_style.RED,
+    "inactive": cli_style.DIM,
+    "dead": cli_style.DIM,
+}
+_SERVICE_ENABLED_COLORS = {
+    "enabled": cli_style.GREEN,
+    "disabled": cli_style.DIM,
+    "static": cli_style.DIM,
+    "masked": cli_style.RED,
+}
+
+
+def _service_active_color(value: str) -> str:
+    return _SERVICE_ACTIVE_COLORS.get(value.strip().lower(), cli_style.YELLOW)
+
+
+def _service_enabled_color(value: str) -> str | None:
+    return _SERVICE_ENABLED_COLORS.get(value.strip().lower())
+
+
+def _paint_field(text: str, width: int, color: str | None) -> str:
+    padded = f"{text:<{width}}"
+    return cli_style.paint(padded, color) if color else padded
+
+
 def _print_service_status(target_user: str, statuses: Sequence[ServiceUnitStatus]) -> None:
     print(f"ChemStack service status for {target_user}:")
-    print(f"{'Name':<10} {'Active':<14} {'Enabled':<14} Unit")
+    print(cli_style.paint(f"{'Name':<10} {'Active':<14} {'Enabled':<14} Unit", cli_style.BOLD))
     for status in statuses:
-        print(f"{status.label:<10} {status.active:<14} {status.enabled:<14} {status.unit}")
+        active = _paint_field(status.active, 14, _service_active_color(status.active))
+        enabled = _paint_field(status.enabled, 14, _service_enabled_color(status.enabled))
+        print(f"{status.label:<10} {active} {enabled} {status.unit}")
+
+
+def _service_status_payload(
+    target_user: str, statuses: Sequence[ServiceUnitStatus]
+) -> dict[str, Any]:
+    return {
+        "target_user": target_user,
+        "ok": not any(status.active == "failed" for status in statuses),
+        "services": [
+            {
+                "label": status.label,
+                "unit": status.unit,
+                "active": status.active,
+                "enabled": status.enabled,
+            }
+            for status in statuses
+        ],
+    }
 
 
 def _systemctl_available(*, which: Callable[[str], str | None] = shutil.which) -> bool:
@@ -139,7 +188,10 @@ def cmd_service_status(args: argparse.Namespace, *, deps: Any | None = None) -> 
     except ValueError as exc:
         emit_error(exc)
         return 1
-    _print_service_status(target_user, statuses)
+    if bool(getattr(args, "json", False)):
+        print(json.dumps(_service_status_payload(target_user, statuses), ensure_ascii=True, indent=2))
+    else:
+        _print_service_status(target_user, statuses)
     return 1 if any(status.active == "failed" for status in statuses) else 0
 
 

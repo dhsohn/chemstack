@@ -129,6 +129,7 @@ def add_summary_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentP
         default=False,
         help="Print summary without sending Telegram",
     )
+    add_json_argument(summary_parser, help_text="Print summary as JSON")
     summary_parser.set_defaults(func=cli_handlers.cmd_summary)
 
 

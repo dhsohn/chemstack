@@ -14,6 +14,7 @@ from .telegram_keyboards import (
     _CB_CANCEL_DO,
     _CB_CANCEL_NO,
     _CB_REFRESH,
+    _MAX_LIST_CANCEL_BUTTONS,
     _cancel_confirm_keyboard,
     _list_action_keyboard,
 )
@@ -84,7 +85,12 @@ def send_list_actions(
 
     try:
         active = active_cancel_targets_fn(settings)
-        send_message(settings, "🔧 Actions:", reply_markup=_list_action_keyboard(active))
+        total = len(active)
+        if total > _MAX_LIST_CANCEL_BUTTONS:
+            text = f"🔧 Actions (showing {_MAX_LIST_CANCEL_BUTTONS} of {total} cancellable):"
+        else:
+            text = "🔧 Actions:"
+        send_message(settings, text, reply_markup=_list_action_keyboard(active))
     except Exception:
         logger.exception("telegram_bot_list_actions_error")
 
@@ -140,4 +146,8 @@ def dispatch_callback_query(
         edit_message(settings, chat_id=chat.get("id"), message_id=message_id, text=response)
     else:
         send_response(settings.telegram, response)
+    if data.startswith(_CB_CANCEL_DO):
+        # A cancellation was just executed; refresh the list so the actions
+        # message reflects the new state.
+        send_list_response_fn(settings)
     return update_id

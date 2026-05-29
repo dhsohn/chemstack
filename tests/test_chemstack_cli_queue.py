@@ -12,6 +12,35 @@ from chemstack import cli_common
 from chemstack import cli_queue as unified_cli
 
 
+def test_cmd_queue_list_watch_loops_until_interrupt() -> None:
+    calls = {"emit": 0}
+
+    def _emit_once(args: Any, request: Any, *, deps: Any | None = None) -> int:
+        calls["emit"] += 1
+        return 0
+
+    def _sleep(_interval: float) -> None:
+        raise KeyboardInterrupt
+
+    args = SimpleNamespace(
+        action=None,
+        chemstack_config=None,
+        limit=0,
+        refresh=False,
+        engine=None,
+        status=None,
+        kind=None,
+        json=False,
+        watch=True,
+        interval=2.0,
+    )
+    deps = SimpleNamespace(_emit_queue_list_once=_emit_once, sleep=_sleep)
+
+    assert unified_cli.cmd_queue_list(args, deps=deps) == 0
+    # One render happened before the (mocked) sleep raised KeyboardInterrupt.
+    assert calls["emit"] == 1
+
+
 @pytest.fixture(autouse=True)
 def _isolate_shared_config_discovery(monkeypatch: pytest.MonkeyPatch) -> None:
     def _explicit_shared_config_path(explicit: str | None) -> str | None:

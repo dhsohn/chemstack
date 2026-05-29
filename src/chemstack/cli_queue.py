@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from dataclasses import dataclass
 from typing import Any, Sequence
 
@@ -287,12 +288,7 @@ def _print_queue_list_text(
     return 0
 
 
-def cmd_queue_list(args: Any, *, deps: Any | None = None) -> int:
-    request = _queue_list_request(args, deps=deps)
-    if normalize_text(getattr(args, "action", None)).lower() == "clear":
-        clear_cmd = _dependency(deps, "_cmd_queue_list_clear", _cmd_queue_list_clear)
-        return clear_cmd(args, request)
-
+def _emit_queue_list_once(args: Any, request: _QueueListRequest, *, deps: Any | None = None) -> int:
     payload_fn = _dependency(deps, "_queue_list_payload", _queue_list_payload)
     filtered_fn = _dependency(deps, "_filtered_queue_payload", _filtered_queue_payload)
     payload = payload_fn(args, request)
@@ -307,6 +303,36 @@ def cmd_queue_list(args: Any, *, deps: Any | None = None) -> int:
         filtered_activities=filtered_activities,
         request=request,
     )
+
+
+def _watch_queue_list(args: Any, request: _QueueListRequest, *, deps: Any | None = None) -> int:
+    interval = max(0.5, float(getattr(args, "interval", 2.0) or 2.0))
+    emit_once = _dependency(deps, "_emit_queue_list_once", _emit_queue_list_once)
+    sleep = _dependency(deps, "sleep", time.sleep)
+    banner = f"chemstack queue list — refresh every {interval:g}s · Ctrl-C to exit"
+    try:
+        while True:
+            cli_style.clear_screen()
+            print(cli_style.label(banner))
+            emit_once(args, request, deps=deps)
+            sleep(interval)
+    except KeyboardInterrupt:
+        print()
+        return 0
+
+
+def cmd_queue_list(args: Any, *, deps: Any | None = None) -> int:
+    request = _queue_list_request(args, deps=deps)
+    if normalize_text(getattr(args, "action", None)).lower() == "clear":
+        clear_cmd = _dependency(deps, "_cmd_queue_list_clear", _cmd_queue_list_clear)
+        return clear_cmd(args, request)
+
+    if bool(getattr(args, "watch", False)) and not request.json_output:
+        watch = _dependency(deps, "_watch_queue_list", _watch_queue_list)
+        return watch(args, request, deps=deps)
+
+    emit_once = _dependency(deps, "_emit_queue_list_once", _emit_queue_list_once)
+    return emit_once(args, request, deps=deps)
 
 
 def cmd_queue_cancel(args: Any, *, deps: Any | None = None) -> int:
@@ -332,11 +358,11 @@ def cmd_queue_cancel(args: Any, *, deps: Any | None = None) -> int:
         print(json.dumps(payload, ensure_ascii=True, indent=2))
         return 0
 
-    print(f"activity_id: {payload.get('activity_id', '-')}")
-    print(f"kind: {payload.get('kind', '-')}")
-    print(f"engine: {payload.get('engine', '-')}")
-    print(f"source: {payload.get('source', '-')}")
-    print(f"label: {payload.get('label', '-')}")
-    print(f"status: {payload.get('status', '-')}")
-    print(f"cancel_target: {payload.get('cancel_target', '-')}")
+    print(f"{cli_style.label('activity_id:')} {payload.get('activity_id', '-')}")
+    print(f"{cli_style.label('kind:')} {payload.get('kind', '-')}")
+    print(f"{cli_style.label('engine:')} {payload.get('engine', '-')}")
+    print(f"{cli_style.label('source:')} {payload.get('source', '-')}")
+    print(f"{cli_style.label('label:')} {payload.get('label', '-')}")
+    print(f"{cli_style.label('status:')} {cli_style.status_text(payload.get('status', '-'))}")
+    print(f"{cli_style.label('cancel_target:')} {payload.get('cancel_target', '-')}")
     return 0

@@ -4,6 +4,8 @@ import argparse
 
 from chemstack import cli_systemd
 
+from .cli_parser_common import add_json_argument
+
 
 def add_systemd_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     systemd_parser = subparsers.add_parser(
@@ -76,6 +78,7 @@ def add_service_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentP
         "status",
         help="Show ChemStack service status.",
     )
+    add_json_argument(status_parser, help_text="Print service status as JSON")
     status_parser.set_defaults(func=cli_systemd.cmd_service_status)
 
     restart_parser = service_subparsers.add_parser(

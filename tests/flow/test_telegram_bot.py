@@ -474,6 +474,10 @@ def test_dispatch_callback_query_answers_and_edits(monkeypatch) -> None:
 
     monkeypatch.setattr(bot, "_api_call", fake_api_call)
     monkeypatch.setattr(bot, "_handle_cancel", lambda settings, target: f"done {target}")
+    refreshed: dict[str, Any] = {}
+    monkeypatch.setattr(
+        bot, "_send_list_response", lambda settings: refreshed.setdefault("done", True)
+    )
 
     update = {
         "update_id": 7,
@@ -490,6 +494,8 @@ def test_dispatch_callback_query_answers_and_edits(monkeypatch) -> None:
     edit = next(payload for method, payload in calls if method == "editMessageText")
     assert edit["message_id"] == 99
     assert edit["text"] == "done wf-a"
+    # Executing a cancel refreshes the list so the actions reflect new state.
+    assert refreshed.get("done") is True
 
 
 def test_list_action_keyboard_builds_cancel_and_refresh_buttons() -> None:
@@ -571,6 +577,42 @@ def test_send_list_actions_sends_keyboard_and_is_exception_safe(monkeypatch) -> 
     monkeypatch.setattr(bot, "_active_cancel_targets", _boom)
     # Must not raise even when the activity source fails.
     bot._send_list_actions(_settings())
+
+
+def test_send_list_actions_announces_cap_when_truncated(monkeypatch) -> None:
+    sent: list[tuple[str, Any]] = []
+
+    def _fake_send_message(settings, text, *, reply_markup=None, parse_mode="HTML"):
+        sent.append((text, reply_markup))
+
+    monkeypatch.setattr(bot, "_send_message", _fake_send_message)
+    items = [{"activity_id": f"wf-{index}", "status": "running"} for index in range(12)]
+    monkeypatch.setattr(bot, "_active_cancel_targets", lambda settings: items)
+
+    bot._send_list_actions(_settings())
+
+    assert f"showing {bot._MAX_LIST_CANCEL_BUTTONS} of 12" in sent[0][0]
+
+
+def test_dispatch_callback_query_dismiss_does_not_refresh(monkeypatch) -> None:
+    refreshed: dict[str, Any] = {}
+    monkeypatch.setattr(bot, "_api_call", lambda *a, **k: None)
+    monkeypatch.setattr(
+        bot, "_send_list_response", lambda settings: refreshed.setdefault("done", True)
+    )
+
+    update = {
+        "update_id": 11,
+        "callback_query": {
+            "id": "cb-5",
+            "data": "cxl:n",
+            "message": {"message_id": 2, "chat": {"id": "chat-id"}},
+        },
+    }
+
+    assert bot._dispatch_callback_query(_settings(), update) == 11
+    # Dismissing must not refresh the list.
+    assert "done" not in refreshed
 
 
 def test_dispatch_callback_query_refresh_resends_list(monkeypatch) -> None:

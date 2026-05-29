@@ -49,7 +49,9 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Disable ANSI color in terminal output (also honors NO_COLOR)",
     )
-    subparsers = parser.add_subparsers(dest="command", required=True)
+    # Not required: a bare ``chemstack`` invocation prints help (handled in
+    # ``cli.main``) instead of raising an argparse usage error.
+    subparsers = parser.add_subparsers(dest="command", required=False)
     add_queue_parser(subparsers)
     add_run_dir_parser(subparsers)
     add_init_parser(subparsers)
