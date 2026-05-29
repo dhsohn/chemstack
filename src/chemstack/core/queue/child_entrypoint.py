@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 from chemstack.core.queue import child_execution as _child_execution
 
@@ -111,9 +112,27 @@ def release_child_worker_admission(
     )
 
 
+@contextmanager
+def child_worker_admission_scope(
+    job: ChildWorkerEntrypointJob,
+    admission_token: str | None,
+    *,
+    release_slot_fn: Callable[[str | Path, str], Any],
+) -> Iterator[None]:
+    try:
+        yield
+    finally:
+        release_child_worker_admission(
+            job,
+            admission_token,
+            release_slot_fn=release_slot_fn,
+        )
+
+
 __all__ = [
     "ChildWorkerEntrypointJob",
     "activate_child_worker_admission",
+    "child_worker_admission_scope",
     "load_child_worker_entrypoint_job",
     "queue_entry_by_id",
     "release_child_worker_admission",

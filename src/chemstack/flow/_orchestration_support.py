@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from ._orchestration_deps import OrchestrationDeps, orchestration_deps
+from .contracts.workflow import workflow_stage_metadata, workflow_task_payload_dict
 
 
 def _orchestration_context(deps: OrchestrationDeps | None = None) -> OrchestrationDeps:
@@ -79,19 +80,11 @@ def load_config_organized_root_impl(
 
 
 def stage_metadata_impl(stage: dict[str, Any]) -> dict[str, Any]:
-    metadata = stage.get("metadata")
-    if not isinstance(metadata, dict):
-        metadata = {}
-        stage["metadata"] = metadata
-    return metadata
+    return workflow_stage_metadata(stage)
 
 
 def task_payload_dict_impl(task: dict[str, Any]) -> dict[str, Any]:
-    payload = task.get("payload")
-    if not isinstance(payload, dict):
-        payload = {}
-        task["payload"] = payload
-    return payload
+    return workflow_task_payload_dict(task)
 
 
 def reaction_ts_guess_error_impl(

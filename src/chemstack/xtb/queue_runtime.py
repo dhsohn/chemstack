@@ -37,9 +37,8 @@ from chemstack.core.queue import (
 from chemstack.core.queue.types import QueueStatus
 from chemstack.core.queue.worker import (
     BackgroundRunningJob,
-    ChildProcessQueueWorker,
     ManagedProcess as _ManagedProcess,
-    QueueWorkerPidFileMixin,
+    PidFileChildProcessQueueWorker,
     config_path_for_worker,
     dequeue_next_across_roots,
     make_child_queue_worker_deps,
@@ -402,7 +401,7 @@ def _entry_status_is_running(entry: Any) -> bool:
     return str(value).strip().lower() == QueueStatus.RUNNING.value
 
 
-class QueueWorker(QueueWorkerPidFileMixin, ChildProcessQueueWorker):
+class QueueWorker(PidFileChildProcessQueueWorker):
     worker_pid_file_name = WORKER_PID_FILE
 
     def __init__(
@@ -418,14 +417,6 @@ class QueueWorker(QueueWorkerPidFileMixin, ChildProcessQueueWorker):
             max_concurrent=max_concurrent,
             deps=_queue_worker_deps(),
         )
-        self.allowed_root = Path(str(cfg.runtime.allowed_root)).expanduser().resolve()
-
-    def _before_run(self) -> None:
-        self._write_pid_file()
-        super()._before_run()
-
-    def _after_run(self) -> None:
-        self._remove_pid_file()
 
     def _handle_worker_start_error(
         self,

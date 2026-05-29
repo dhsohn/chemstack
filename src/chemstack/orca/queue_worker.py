@@ -17,10 +17,9 @@ from typing import Any
 from chemstack.core.queue.types import QueueEntry
 from chemstack.core.queue.engine_execution import coerce_resource_request
 from chemstack.core.queue.worker import (
-    ChildProcessQueueWorker,
     EngineRunningJob as _RunningJob,
     ManagedProcess as _ManagedProcess,
-    QueueWorkerPidFileMixin,
+    PidFileChildProcessQueueWorker,
     make_child_queue_worker_deps,
     read_worker_pid_file,
     reserve_dequeued_entry,
@@ -271,7 +270,7 @@ def _worker_admission_limit(cfg: AppConfig, fallback_max_concurrent: int) -> int
     return normalized_limit
 
 
-class QueueWorker(QueueWorkerPidFileMixin, ChildProcessQueueWorker):
+class QueueWorker(PidFileChildProcessQueueWorker):
     """Main worker loop that manages concurrent job execution."""
 
     worker_pid_file_name = WORKER_PID_FILE
@@ -292,14 +291,12 @@ class QueueWorker(QueueWorkerPidFileMixin, ChildProcessQueueWorker):
             config_path=config_path,
             max_concurrent=configured_max,
             deps=_queue_worker_deps(),
+            admission_root=resolve_admission_root(cfg),
         )
         self.auto_organize = bool(auto_organize)
-        self.allowed_root = Path(cfg.runtime.allowed_root).expanduser().resolve()
-        self.admission_root = Path(resolve_admission_root(cfg)).expanduser().resolve()
         self.admission_limit = _worker_admission_limit(cfg, self.max_concurrent)
 
     def _before_run(self) -> None:
-        self._write_pid_file()
         super()._before_run()
         logger.info(
             "Queue worker started (pid=%d, max_concurrent=%d, admission_root=%s, admission_limit=%d, auto_organize=%s)",
@@ -311,7 +308,7 @@ class QueueWorker(QueueWorkerPidFileMixin, ChildProcessQueueWorker):
         )
 
     def _after_run(self) -> None:
-        self._remove_pid_file()
+        super()._after_run()
         logger.info("Queue worker stopped")
 
     def _run_iteration(self) -> None:

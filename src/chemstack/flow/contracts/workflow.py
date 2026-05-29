@@ -78,6 +78,29 @@ def coerce_workflow_plan_payload(value: Any) -> WorkflowPlanPayload:
     return cast(WorkflowPlanPayload, coerce_mapping(value))
 
 
+def workflow_stage_dicts(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    stages = payload.get("stages")
+    if not isinstance(stages, list):
+        return []
+    return [stage for stage in stages if isinstance(stage, dict)]
+
+
+def workflow_stage_metadata(stage: dict[str, Any]) -> dict[str, Any]:
+    metadata = stage.get("metadata")
+    if not isinstance(metadata, dict):
+        metadata = {}
+        stage["metadata"] = metadata
+    return metadata
+
+
+def workflow_task_payload_dict(task: dict[str, Any]) -> dict[str, Any]:
+    payload = task.get("payload")
+    if not isinstance(payload, dict):
+        payload = {}
+        task["payload"] = payload
+    return payload
+
+
 @dataclass(frozen=True)
 class WorkflowArtifactRef:
     kind: str

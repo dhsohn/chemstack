@@ -18,6 +18,7 @@ from chemstack.core.statuses import (
 from ._orchestration_deps import OrchestrationDeps, orchestration_deps
 from ._orchestration_stage_views import WorkflowStageView
 from ._workflow_phases import phase_finished
+from .contracts.workflow import workflow_stage_dicts
 from .engine_options import WorkflowEngineOptions
 
 
@@ -99,10 +100,6 @@ def _cancel_engine_target(
     return handler(deps, target, config)
 
 
-def _workflow_stage_dicts(payload: dict[str, Any]) -> list[dict[str, Any]]:
-    return [stage for stage in payload.get("stages", []) if isinstance(stage, dict)]
-
-
 def _checkpoint_advance_phase(
     payload: dict[str, Any],
     previous_payload: dict[str, Any],
@@ -134,7 +131,7 @@ def _sync_crest_phase(
     payload: dict[str, Any], context: _AdvanceContext, config: WorkflowEngineOptions
 ) -> None:
     runtime = context.deps.stages.runtime
-    for stage in _workflow_stage_dicts(payload):
+    for stage in workflow_stage_dicts(payload):
         runtime._sync_crest_stage(
             stage,
             crest_config=config.crest_config,
@@ -172,7 +169,7 @@ def _sync_xtb_phase(
     payload: dict[str, Any], context: _AdvanceContext, config: WorkflowEngineOptions
 ) -> None:
     runtime = context.deps.stages.runtime
-    for stage in _workflow_stage_dicts(payload):
+    for stage in workflow_stage_dicts(payload):
         runtime._sync_xtb_stage(
             stage,
             xtb_config=config.xtb_config,
@@ -215,7 +212,7 @@ def _orca_stage_count(
     o = deps or orchestration_deps()
     return sum(
         1
-        for stage in _workflow_stage_dicts(payload)
+        for stage in workflow_stage_dicts(payload)
         if o.stages._normalize_text((stage.get("task") or {}).get("engine")).lower() == "orca"
     )
 
@@ -253,7 +250,7 @@ def _sync_orca_phase(
     payload: dict[str, Any], context: _AdvanceContext, config: WorkflowEngineOptions
 ) -> None:
     runtime = context.deps.stages.runtime
-    for stage in _workflow_stage_dicts(payload):
+    for stage in workflow_stage_dicts(payload):
         runtime._sync_orca_stage(
             stage,
             orca_config=config.orca_config,

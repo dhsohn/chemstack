@@ -4,12 +4,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, TypeVar
 
-import yaml
-
 from .files import (
     CHEMSTACK_CONFIG_ENV_VAR,
     default_config_path_from_repo_root,
     default_shared_admission_root,
+    load_required_yaml_mapping,
     workflow_root_from_mapping,
 )
 from .schema import (
@@ -51,6 +50,13 @@ class WorkflowEngineAppConfig:
     behavior: WorkflowEngineBehaviorConfig = field(default_factory=WorkflowEngineBehaviorConfig)
     resources: CommonResourceConfig = field(default_factory=CommonResourceConfig)
     telegram: TelegramConfig = field(default_factory=TelegramConfig)
+
+
+@dataclass(frozen=True)
+class SchedulerRuntimeSettings:
+    max_active: int
+    admission_root: str
+    admission_limit: int | None
 
 
 def mapping_section(raw: dict[str, Any], key: str) -> dict[str, Any]:
@@ -116,16 +122,38 @@ def resource_actual_from_request(resource_request: dict[str, int]) -> dict[str, 
 
 
 def _load_config_mapping(path: Path) -> dict[str, Any]:
-    if not path.exists():
-        raise ValueError(
-            f"Config file not found: {path}. Copy config/chemstack.yaml.example to this path and edit the workflow section."
-        )
-
-    with path.open("r", encoding="utf-8") as handle:
-        raw = yaml.safe_load(handle) or {}
-    if not isinstance(raw, dict):
-        raise ValueError(f"Config file is invalid: {path}")
+    _, raw = load_required_yaml_mapping(
+        path,
+        missing_error=lambda missing: ValueError(
+            "Config file not found: "
+            f"{missing}. Copy config/chemstack.yaml.example to this path and edit the workflow section."
+        ),
+        invalid_message="Config file is invalid: {path}",
+    )
     return raw
+
+
+def scheduler_runtime_settings(
+    scheduler_raw: dict[str, Any],
+    *,
+    default_max_active: int,
+    default_admission_root: str,
+    admission_limit_enabled: bool,
+    reject_nonpositive: bool = False,
+) -> SchedulerRuntimeSettings:
+    raw_max_active = as_int(scheduler_raw.get("max_active_simulations"), default_max_active)
+    if reject_nonpositive and raw_max_active < 1:
+        raise ValueError("scheduler.max_active_simulations must be an integer >= 1.")
+    max_active = max(1, raw_max_active)
+    admission_root = as_str(
+        scheduler_raw.get("admission_root"),
+        default_admission_root,
+    )
+    return SchedulerRuntimeSettings(
+        max_active=max_active,
+        admission_root=admission_root,
+        admission_limit=max_active if admission_limit_enabled else None,
+    )
 
 
 def _required_workflow_root(raw: dict[str, Any], path: Path) -> str:
@@ -140,17 +168,18 @@ def _runtime_config_from_scheduler(
     scheduler_raw: dict[str, Any],
     workflow_root: str,
 ) -> CommonRuntimeConfig:
-    max_active = normalize_max_concurrent(scheduler_raw.get("max_active_simulations"), 4)
-    admission_root = as_str(
-        scheduler_raw.get("admission_root"),
-        default_shared_admission_root(path),
+    scheduler = scheduler_runtime_settings(
+        scheduler_raw,
+        default_max_active=4,
+        default_admission_root=default_shared_admission_root(path),
+        admission_limit_enabled=True,
     )
     return CommonRuntimeConfig(
         allowed_root=workflow_root,
         organized_root=workflow_root,
-        max_concurrent=max_active,
-        admission_root=admission_root,
-        admission_limit=max_active,
+        max_concurrent=scheduler.max_active,
+        admission_root=scheduler.admission_root,
+        admission_limit=scheduler.admission_limit,
     )
 
 

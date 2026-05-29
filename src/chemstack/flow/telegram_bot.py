@@ -35,23 +35,21 @@ from chemstack.core.notifications import (
 
 from . import _activity_sources
 from .activity import cancel_activity, clear_activities, list_activities
+from .telegram_keyboards import (
+    _CB_CANCEL_ASK,
+    _CB_CANCEL_DO,
+    _CB_CANCEL_NO,
+    _CB_REFRESH,
+    _MAX_LIST_CANCEL_BUTTONS as _MAX_LIST_CANCEL_BUTTONS,
+    _cancel_confirm_keyboard,
+    _list_action_keyboard,
+)
 
 logger = logging.getLogger(__name__)
 
 _API_BASE = "https://api.telegram.org/bot{token}"
 _POLL_TIMEOUT_SECONDS = 30
 _MAX_MESSAGE_LENGTH = MAX_TELEGRAM_MESSAGE_LENGTH
-
-# Callback-query data tokens. Telegram caps callback_data at 64 bytes, so the
-# prefixes are kept short and target ids are guarded against overflow.
-_CB_CANCEL_DO = "cxl:y:"
-_CB_CANCEL_NO = "cxl:n"
-_CB_CANCEL_ASK = "cxl:a:"
-_CB_REFRESH = "lst"
-_CALLBACK_DATA_LIMIT = 64
-_MAX_LIST_CANCEL_BUTTONS = 8
-_LIST_BUTTON_LABEL_WIDTH = 30
-
 
 @dataclass(frozen=True)
 class TelegramBotSettings:
@@ -307,26 +305,6 @@ def _set_bot_commands(token: str) -> None:
     _api_call(token, "setMyCommands", {"commands": commands})
 
 
-def _inline_keyboard(rows: list[list[dict[str, str]]]) -> dict[str, Any]:
-    return {"inline_keyboard": rows}
-
-
-def _button(text: str, callback_data: str) -> dict[str, str]:
-    return {"text": text, "callback_data": callback_data}
-
-
-def _cancel_confirm_keyboard(target: str) -> dict[str, Any] | None:
-    """Build the [Yes, cancel] / [Keep] keyboard, or ``None`` if the target id
-    is too long to fit Telegram's 64-byte callback_data budget."""
-
-    confirm_data = f"{_CB_CANCEL_DO}{target}"
-    if len(confirm_data.encode("utf-8")) > _CALLBACK_DATA_LIMIT:
-        return None
-    return _inline_keyboard(
-        [[_button("⛔ Yes, cancel", confirm_data), _button("✖ Keep", _CB_CANCEL_NO)]]
-    )
-
-
 def _send_message(
     settings: TelegramBotSettings,
     text: str,
@@ -400,28 +378,6 @@ def _active_cancel_targets(settings: TelegramBotSettings) -> list[dict[str, Any]
         for item in visible
         if str(item.get("status", "")).strip().lower() in QUEUE_ACTIVE_STATUSES
     ]
-
-
-def _list_button_label(item: dict[str, Any]) -> str:
-    icon = _status_icon(str(item.get("status", "")))
-    name = str(item.get("label") or item.get("activity_id") or "?").strip()
-    if len(name) > _LIST_BUTTON_LABEL_WIDTH:
-        name = name[: _LIST_BUTTON_LABEL_WIDTH - 1] + "…"
-    return f"⛔ {icon} {name}"
-
-
-def _list_action_keyboard(active_items: list[dict[str, Any]]) -> dict[str, Any]:
-    rows: list[list[dict[str, str]]] = []
-    for item in active_items[:_MAX_LIST_CANCEL_BUTTONS]:
-        activity_id = str(item.get("activity_id") or "").strip()
-        if not activity_id:
-            continue
-        data = f"{_CB_CANCEL_ASK}{activity_id}"
-        if len(data.encode("utf-8")) > _CALLBACK_DATA_LIMIT:
-            continue
-        rows.append([_button(_list_button_label(item), data)])
-    rows.append([_button("🔄 Refresh", _CB_REFRESH)])
-    return _inline_keyboard(rows)
 
 
 def _send_list_actions(settings: TelegramBotSettings) -> None:

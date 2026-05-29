@@ -4,7 +4,7 @@ from collections.abc import Callable
 from pathlib import Path
 from types import SimpleNamespace
 
-from chemstack.core.queue import child_execution
+from chemstack.core.queue import child_entrypoint, child_execution
 
 
 def test_child_worker_shutdown_controller_tracks_request() -> None:
@@ -134,6 +134,26 @@ def test_child_admission_token_activation_and_release_are_conditional(tmp_path: 
         release_slot_fn=lambda _root, token: calls.append(("release", token)),
     )
     assert calls == [("release", "token")]
+
+
+def test_child_worker_admission_scope_releases_on_exit(tmp_path: Path) -> None:
+    cfg = SimpleNamespace(admission_root=tmp_path / "admission")
+    job = child_entrypoint.ChildWorkerEntrypointJob(
+        cfg=cfg,
+        queue_root=tmp_path / "queue",
+        entry=SimpleNamespace(queue_id="q-1"),
+        _admission_root_fn=lambda loaded_cfg: loaded_cfg.admission_root,
+    )
+    released: list[tuple[Path, str]] = []
+
+    with child_entrypoint.child_worker_admission_scope(
+        job,
+        "slot-1",
+        release_slot_fn=lambda root, token: released.append((Path(root), token)),
+    ):
+        assert released == []
+
+    assert released == [(cfg.admission_root, "slot-1")]
 
 
 def test_install_shutdown_request_handlers_wires_controller() -> None:

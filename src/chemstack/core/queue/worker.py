@@ -42,6 +42,7 @@ __all__ = [
     "ChildProcessQueueWorker",
     "EngineRunningJob",
     "ManagedProcess",
+    "PidFileChildProcessQueueWorker",
     "QueueWorkerLoop",
     "QueueWorkerPidFileMixin",
     "ReservedQueueEntry",
@@ -614,6 +615,38 @@ class ChildProcessQueueWorker(QueueWorkerLoop):
 
     def _reconcile_worker_state(self) -> None:
         raise NotImplementedError
+
+
+class PidFileChildProcessQueueWorker(QueueWorkerPidFileMixin, ChildProcessQueueWorker):
+    """Child-process queue worker with standard ChemStack pid-file lifecycle."""
+
+    def __init__(
+        self,
+        cfg: Any,
+        *,
+        config_path: str,
+        max_concurrent: int | None = None,
+        deps: Any,
+        allowed_root: str | Path | None = None,
+        admission_root: str | Path | None = None,
+    ) -> None:
+        super().__init__(
+            cfg,
+            config_path=config_path,
+            max_concurrent=max_concurrent,
+            deps=deps,
+        )
+        raw_allowed_root = allowed_root if allowed_root is not None else cfg.runtime.allowed_root
+        self.allowed_root = Path(str(raw_allowed_root)).expanduser().resolve()
+        if admission_root is not None:
+            self.admission_root = Path(str(admission_root)).expanduser().resolve()
+
+    def _before_run(self) -> None:
+        self._write_pid_file()
+        super()._before_run()
+
+    def _after_run(self) -> None:
+        self._remove_pid_file()
 
 
 def install_shutdown_signal_handlers(request_shutdown: Callable[[], None]) -> None:

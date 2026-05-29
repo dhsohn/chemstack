@@ -12,44 +12,30 @@ import pytest
 
 
 from chemstack.flow import orchestration
-from chemstack.flow._orchestration_deps import orchestration_deps
-from chemstack.flow._orchestration_builders import _copy_input_impl
-from chemstack.flow._orchestration_lifecycle import (
-    downstream_terminal_result_impl,
-    effective_stage_status_impl,
-    latest_child_stage_summary_impl,
-    recompute_workflow_status_impl,
-    stage_failure_is_recoverable_impl,
-    workflow_has_active_children_impl,
-)
-from chemstack.flow._orchestration_stage_materialization import (
+from chemstack.flow.orchestration_steps import (
     append_crest_orca_stages_impl as _append_crest_orca_stages,
     append_reaction_orca_stages_impl as _append_reaction_orca_stages,
     append_reaction_xtb_stages_impl as _append_reaction_xtb_stages,
-)
-from chemstack.flow._orchestration_stage_runtime_crest import (
+    clear_reaction_xtb_handoff_error_if_recovering_impl as _clear_reaction_xtb_handoff_error_if_recovering,
     completed_crest_roles_impl as _completed_crest_roles,
     completed_crest_stage_impl as _completed_crest_stage,
-)
-from chemstack.flow._orchestration_stage_runtime_orca import (
     completed_orca_stage_impl as _completed_orca_stage,
-)
-from chemstack.flow._orchestration_stage_runtime_xtb_handoff import (
-    stage_has_xtb_candidates_impl as _stage_has_xtb_candidates,
-)
-from chemstack.flow._orchestration_stage_runtime_xtb_retry import (
-    xtb_path_retry_limit_impl as _xtb_path_retry_limit,
-    xtb_retry_recipe_impl as _xtb_retry_recipe,
-)
-from chemstack.flow._orchestration_stage_runtime_xtb_sync import (
-    sync_xtb_stage_impl as _sync_xtb_stage,
-)
-from chemstack.flow._orchestration_support import (
-    clear_reaction_xtb_handoff_error_if_recovering_impl as _clear_reaction_xtb_handoff_error_if_recovering,
+    copy_input_impl as _copy_input_impl,
+    downstream_terminal_result_impl,
+    effective_stage_status_impl,
+    latest_child_stage_summary_impl,
+    orchestration_deps,
     reaction_orca_allows_next_candidate_impl as _reaction_orca_allows_next_candidate,
     reaction_ts_guess_error_impl as _reaction_ts_guess_error,
+    recompute_workflow_status_impl,
+    stage_failure_is_recoverable_impl,
+    stage_has_xtb_candidates_impl as _stage_has_xtb_candidates,
     stage_metadata_impl as _stage_metadata,
+    sync_xtb_stage_impl as _sync_xtb_stage,
     task_payload_dict_impl as _task_payload_dict,
+    workflow_has_active_children_impl,
+    xtb_path_retry_limit_impl as _xtb_path_retry_limit,
+    xtb_retry_recipe_impl as _xtb_retry_recipe,
 )
 from chemstack.flow.contracts import WorkflowStageInput
 

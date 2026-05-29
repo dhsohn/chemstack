@@ -5,14 +5,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict
 
-import yaml
-
 from chemstack.core.config import CommonResourceConfig, TelegramConfig
 from chemstack.core.config import engines as _config_engines
 from chemstack.core.config.schema import RuntimeAdmissionMixin, telegram_config_from_mapping
 from chemstack.core.config.files import (
     default_shared_admission_root,
     engine_config_mapping,
+    load_required_yaml_mapping,
     workflow_root_from_mapping,
 )
 
@@ -118,13 +117,12 @@ class AppConfig:
 
 
 def _load_raw_config(path: Path) -> Dict[str, Any]:
-    if path.exists():
-        with path.open("r", encoding="utf-8") as handle:
-            parsed = yaml.safe_load(handle) or {}
-            if isinstance(parsed, dict):
-                return parsed
-        return {}
-    raise _missing_config_error(path)
+    _, parsed = load_required_yaml_mapping(
+        path,
+        missing_error=_missing_config_error,
+        invalid_message="Config file is invalid: {path}",
+    )
+    return parsed
 
 
 def _section_mapping(raw: Dict[str, Any], key: str) -> Dict[str, Any]:
@@ -155,18 +153,16 @@ def _scheduler_runtime_settings(
     allowed_root: str,
 ) -> tuple[int, str, int | None]:
     scheduler_enabled = bool(scheduler_raw)
-    shared_max_active_simulations = _config_engines.as_int(
-        scheduler_raw.get("max_active_simulations"),
-        RuntimeConfig.max_concurrent,
+    settings = _config_engines.scheduler_runtime_settings(
+        scheduler_raw,
+        default_max_active=RuntimeConfig.max_concurrent,
+        default_admission_root=default_shared_admission_root(path)
+        if scheduler_enabled
+        else allowed_root,
+        admission_limit_enabled=scheduler_enabled,
+        reject_nonpositive=True,
     )
-    if shared_max_active_simulations < 1:
-        raise ValueError("scheduler.max_active_simulations must be an integer >= 1.")
-    shared_admission_root = _config_engines.as_nonempty_str(
-        scheduler_raw.get("admission_root"),
-        default_shared_admission_root(path) if scheduler_enabled else allowed_root,
-    )
-    admission_limit = shared_max_active_simulations if scheduler_enabled else None
-    return shared_max_active_simulations, shared_admission_root, admission_limit
+    return settings.max_active, settings.admission_root, settings.admission_limit
 
 
 def _placeholder_keys(cfg: AppConfig) -> list[str]:

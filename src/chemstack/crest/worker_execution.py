@@ -651,27 +651,25 @@ def run_worker_child_job(
     controller = _child_execution.ChildWorkerShutdownController()
     _install_shutdown_signal_handlers(controller)
 
-    try:
-        process_dequeued_entry(
-            cfg,
-            entry,
-            queue_root=queue_root_path,
-            molecule_key_resolver=_molecule_key,
-            dependencies=default_worker_execution_dependencies(),
-            shutdown_requested=controller.is_requested,
-        )
-        return 0
-    except WorkerShutdownRequested as exc:
-        requeue_running_entry(queue_root_path, queue_id)
-        _mark_recovery_pending_context(cfg, exc.context, reason="worker_shutdown")
-        return 0
-    finally:
-        if admission_token:
-            _child_entrypoint.release_child_worker_admission(
-                job,
-                admission_token,
-                release_slot_fn=release_slot,
+    with _child_entrypoint.child_worker_admission_scope(
+        job,
+        admission_token,
+        release_slot_fn=release_slot,
+    ):
+        try:
+            process_dequeued_entry(
+                cfg,
+                entry,
+                queue_root=queue_root_path,
+                molecule_key_resolver=_molecule_key,
+                dependencies=default_worker_execution_dependencies(),
+                shutdown_requested=controller.is_requested,
             )
+            return 0
+        except WorkerShutdownRequested as exc:
+            requeue_running_entry(queue_root_path, queue_id)
+            _mark_recovery_pending_context(cfg, exc.context, reason="worker_shutdown")
+            return 0
 
 
 def build_parser() -> argparse.ArgumentParser:

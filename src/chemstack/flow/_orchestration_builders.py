@@ -36,6 +36,17 @@ class _StagePayloadSections:
 
 
 @dataclass(frozen=True)
+class _EngineStageSpec:
+    engine: str
+    task_kind: str
+    stage_kind: str
+    submitter: str
+    app_name: str
+    submit_api_name: str
+    config_placeholder: str
+
+
+@dataclass(frozen=True)
 class _WorkflowWorkspace:
     workflow_id: str
     workflow_root_path: Path
@@ -183,6 +194,64 @@ def _planned_stage_payload(
     return cast(WorkflowStageWithTaskPayload, stage.to_dict())
 
 
+def _planned_engine_stage_payload(
+    *,
+    workflow_id: str,
+    stage_id: str,
+    spec: _EngineStageSpec,
+    priority: int,
+    max_cores: int,
+    max_memory_gb: int,
+    sections: _StagePayloadSections,
+    input_artifacts: tuple[WorkflowArtifactRef, ...],
+    enqueue_extra: dict[str, Any] | None = None,
+) -> WorkflowStageWithTaskPayload:
+    task = _workflow_task(
+        workflow_id=workflow_id,
+        stage_id=stage_id,
+        engine=spec.engine,
+        task_kind=spec.task_kind,
+        max_cores=max_cores,
+        max_memory_gb=max_memory_gb,
+        task_payload=sections.task_payload,
+        task_metadata=sections.task_metadata,
+        submitter=spec.submitter,
+        app_name=spec.app_name,
+        submit_api_name=spec.submit_api_name,
+        config_placeholder=spec.config_placeholder,
+        priority=priority,
+        enqueue_extra=enqueue_extra,
+    )
+    return _planned_stage_payload(
+        stage_id=stage_id,
+        stage_kind=spec.stage_kind,
+        input_artifacts=input_artifacts,
+        task=task,
+        metadata=sections.stage_metadata,
+    )
+
+
+_CREST_STAGE_SPEC = _EngineStageSpec(
+    engine="crest",
+    task_kind="conformer_search",
+    stage_kind="crest_stage",
+    submitter="chemstack_crest",
+    app_name="chemstack_crest",
+    submit_api_name=_CREST_RUN_DIR_API_NAME,
+    config_placeholder="<crest_config>",
+)
+
+_XTB_STAGE_SPEC = _EngineStageSpec(
+    engine="xtb",
+    task_kind="path_search",
+    stage_kind="xtb_stage",
+    submitter="chemstack_xtb",
+    app_name="chemstack_xtb",
+    submit_api_name=_XTB_RUN_DIR_API_NAME,
+    config_placeholder="<xtb_config>",
+)
+
+
 def new_crest_stage_impl(
     *,
     workflow_id: str,
@@ -196,7 +265,6 @@ def new_crest_stage_impl(
     max_memory_gb: int,
     manifest_overrides: dict[str, Any] | None = None,
 ) -> WorkflowStageWithTaskPayload:
-    config_placeholder = "<crest_config>"
     sections = _stage_payload_sections(
         task_payload={
             "workflow_id": workflow_id,
@@ -214,24 +282,14 @@ def new_crest_stage_impl(
         stage_metadata={"input_role": input_role, "mode": mode},
         manifest_overrides=manifest_overrides,
     )
-    task = _workflow_task(
+    return _planned_engine_stage_payload(
         workflow_id=workflow_id,
         stage_id=stage_id,
-        engine="crest",
-        task_kind="conformer_search",
+        spec=_CREST_STAGE_SPEC,
+        priority=priority,
         max_cores=max_cores,
         max_memory_gb=max_memory_gb,
-        task_payload=sections.task_payload,
-        task_metadata=sections.task_metadata,
-        submitter="chemstack_crest",
-        app_name="chemstack_crest",
-        submit_api_name=_CREST_RUN_DIR_API_NAME,
-        config_placeholder=config_placeholder,
-        priority=priority,
-    )
-    return _planned_stage_payload(
-        stage_id=stage_id,
-        stage_kind="crest_stage",
+        sections=sections,
         input_artifacts=(
             WorkflowArtifactRef(
                 kind="input_xyz",
@@ -240,8 +298,6 @@ def new_crest_stage_impl(
                 metadata={"input_role": input_role},
             ),
         ),
-        task=task,
-        metadata=sections.stage_metadata,
     )
 
 
@@ -258,7 +314,6 @@ def new_xtb_stage_impl(
     max_handoff_retries: int = 2,
     manifest_overrides: dict[str, Any] | None = None,
 ) -> WorkflowStageWithTaskPayload:
-    config_placeholder = "<xtb_config>"
     retry_limit = max(0, int(max_handoff_retries))
     sections = _stage_payload_sections(
         task_payload={
@@ -281,25 +336,15 @@ def new_xtb_stage_impl(
         },
         manifest_overrides=manifest_overrides,
     )
-    task = _workflow_task(
+    return _planned_engine_stage_payload(
         workflow_id=workflow_id,
         stage_id=stage_id,
-        engine="xtb",
-        task_kind="path_search",
+        spec=_XTB_STAGE_SPEC,
+        priority=priority,
         max_cores=max_cores,
         max_memory_gb=max_memory_gb,
-        task_payload=sections.task_payload,
-        task_metadata=sections.task_metadata,
-        submitter="chemstack_xtb",
-        app_name="chemstack_xtb",
-        submit_api_name=_XTB_RUN_DIR_API_NAME,
-        config_placeholder=config_placeholder,
-        priority=priority,
+        sections=sections,
         enqueue_extra={"reaction_key": reaction_key},
-    )
-    return _planned_stage_payload(
-        stage_id=stage_id,
-        stage_kind="xtb_stage",
         input_artifacts=(
             WorkflowArtifactRef(
                 kind="crest_conformer",
@@ -314,8 +359,6 @@ def new_xtb_stage_impl(
                 metadata={"role": "product", "source_job_id": product_input["source_job_id"]},
             ),
         ),
-        task=task,
-        metadata=sections.stage_metadata,
     )
 
 

@@ -734,7 +734,11 @@ def run_worker_job(
         ):
             return 1
 
-    try:
+    with _child_entrypoint.child_worker_admission_scope(
+        job,
+        admission_token,
+        release_slot_fn=deps.admission.release_slot,
+    ):
         if deps.execute_queue_entry is None:
             outcome = execute_queue_entry(
                 cfg,
@@ -757,12 +761,6 @@ def run_worker_job(
                 worker_job_pid=os.getpid(),
             )
         return 0 if outcome.result.status in {"completed", "cancelled"} else 1
-    finally:
-        _child_entrypoint.release_child_worker_admission(
-            job,
-            admission_token,
-            release_slot_fn=deps.admission.release_slot,
-        )
 
 
 def build_worker_child_command(

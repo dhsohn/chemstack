@@ -34,8 +34,7 @@ from chemstack.core.queue import (
 from chemstack.core.queue.types import QueueStatus
 from chemstack.core.queue.worker import (
     BackgroundRunningJob as _RunningJob,
-    ChildProcessQueueWorker,
-    QueueWorkerPidFileMixin,
+    PidFileChildProcessQueueWorker,
     config_path_for_worker,
     dequeue_next_across_roots,
     make_child_queue_worker_deps,
@@ -161,7 +160,7 @@ def _start_background_job_process(
     )
 
 
-class QueueWorker(QueueWorkerPidFileMixin, ChildProcessQueueWorker):
+class QueueWorker(PidFileChildProcessQueueWorker):
     worker_pid_file_name = WORKER_PID_FILE
 
     def __init__(
@@ -176,16 +175,8 @@ class QueueWorker(QueueWorkerPidFileMixin, ChildProcessQueueWorker):
             config_path=str(config_path).strip() or default_config_path(),
             max_concurrent=max(1, int(max_concurrent)),
             deps=_queue_worker_deps(),
+            admission_root=_admission_root_for_cfg(cfg),
         )
-        self.allowed_root = Path(str(cfg.runtime.allowed_root)).expanduser().resolve()
-        self.admission_root = Path(_admission_root_for_cfg(cfg)).expanduser().resolve()
-
-    def _before_run(self) -> None:
-        self._write_pid_file()
-        super()._before_run()
-
-    def _after_run(self) -> None:
-        self._remove_pid_file()
 
     def _reconcile_worker_state(self) -> None:
         self._reconcile_orphaned_running()

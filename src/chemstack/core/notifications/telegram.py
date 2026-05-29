@@ -12,8 +12,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urlsplit
 from urllib.request import Request, urlopen
 
-import yaml
-
+from chemstack.core.config.files import load_yaml_mapping
 from chemstack.core.config.schema import TelegramConfig, telegram_config_from_mapping
 from chemstack.core.utils.coercion import (
     normalize_text as _normalize_text,
@@ -198,11 +197,9 @@ def load_telegram_config_from_file(config_path: str | Path | None) -> TelegramCo
         return TelegramConfig()
 
     try:
-        raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        _, raw = load_yaml_mapping(path)
     except Exception:
         LOGGER.debug("failed to load telegram config file: %s", path, exc_info=True)
-        return TelegramConfig()
-    if not isinstance(raw, dict):
         return TelegramConfig()
 
     return telegram_config_from_mapping(raw.get("telegram"))

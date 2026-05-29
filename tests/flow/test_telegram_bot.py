@@ -14,17 +14,11 @@ from chemstack.core.config import TelegramConfig
 from chemstack.core.notifications import telegram as telegram_mod
 
 from chemstack.flow import telegram_bot as bot
+from tests.flow_factories import telegram_bot_settings
 
 
 def _settings() -> bot.TelegramBotSettings:
-    return bot.TelegramBotSettings(
-        telegram=TelegramConfig(bot_token="bot-token", chat_id="chat-id"),
-        workflow_root="/tmp/workflow_root",
-        crest_config="/tmp/chemstack.yaml",
-        xtb_config="/tmp/chemstack.yaml",
-        orca_config="/tmp/chemstack.yaml",
-        orca_repo_root=None,
-    )
+    return telegram_bot_settings()
 
 
 def _patch_send_transport(monkeypatch: pytest.MonkeyPatch, sender) -> None:

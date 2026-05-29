@@ -7,6 +7,7 @@ import pytest
 
 from chemstack.core.config.files import (
     engine_config_mapping,
+    load_required_yaml_mapping,
     load_yaml_mapping,
     mapping_section,
     resolve_configured_path,
@@ -64,6 +65,16 @@ def test_yaml_mapping_and_section_helpers(tmp_path: Path) -> None:
     invalid_path.write_text("- no\n- mapping\n", encoding="utf-8")
     with pytest.raises(ValueError, match="top-level is not a mapping"):
         load_yaml_mapping(invalid_path)
+
+
+def test_required_yaml_mapping_uses_custom_missing_error(tmp_path: Path) -> None:
+    missing = tmp_path / "missing.yaml"
+
+    with pytest.raises(ValueError, match="missing config"):
+        load_required_yaml_mapping(
+            missing,
+            missing_error=lambda path: ValueError(f"missing config: {path.name}"),
+        )
 
 
 def test_configured_path_and_admission_root_helpers(tmp_path: Path) -> None:
