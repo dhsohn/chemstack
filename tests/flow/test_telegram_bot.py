@@ -390,9 +390,241 @@ def test_handle_help_mentions_only_supported_commands() -> None:
 
     assert "/list" in text
     assert "/list clear" in text
+    assert "/summary" in text
     assert "/cancel" in text
     assert "/help" in text
     assert "/cron" not in text
+
+
+def test_handle_summary_builds_digest(monkeypatch) -> None:
+    monkeypatch.setattr("chemstack.orca.config.load_config", lambda config_path: "cfg")
+    monkeypatch.setattr(
+        "chemstack.summary._build_summary_message",
+        lambda cfg, *, config_path: f"digest for {cfg} @ {config_path}",
+    )
+
+    text = bot._handle_summary(_settings(), "")
+
+    assert text == "digest for cfg @ /tmp/chemstack.yaml"
+
+
+def test_handle_summary_reports_build_errors(monkeypatch) -> None:
+    def _boom(config_path):
+        raise RuntimeError("no config <here>")
+
+    monkeypatch.setattr("chemstack.orca.config.load_config", _boom)
+
+    text = bot._handle_summary(_settings(), "")
+
+    assert "Error building summary" in text
+    assert "no config &lt;here&gt;" in text
+
+
+def test_cancel_confirm_keyboard_structure_and_overflow_guard() -> None:
+    keyboard = bot._cancel_confirm_keyboard("wf-a")
+    assert keyboard is not None
+    row = keyboard["inline_keyboard"][0]
+    assert row[0]["callback_data"] == "cxl:y:wf-a"
+    assert row[1]["callback_data"] == "cxl:n"
+
+    # An over-long identifier cannot fit Telegram's 64-byte callback budget.
+    assert bot._cancel_confirm_keyboard("x" * 80) is None
+
+
+def test_send_cancel_confirmation_paths(monkeypatch) -> None:
+    sends: list[tuple[str, Any]] = []
+    monkeypatch.setattr(
+        bot,
+        "_send_message",
+        lambda settings, text, *, reply_markup=None, parse_mode="HTML": sends.append(
+            (text, reply_markup)
+        ),
+    )
+    plain: list[str] = []
+
+    def _fake_send_response(config, text, **kwargs):
+        plain.append(text)
+        return True
+
+    monkeypatch.setattr(bot, "_send_response", _fake_send_response)
+
+    bot._send_cancel_confirmation(_settings(), "")
+    assert "Usage:" in plain[0]
+
+    bot._send_cancel_confirmation(_settings(), "wf-a")
+    assert "Cancel" in sends[0][0]
+    assert sends[0][1]["inline_keyboard"][0][0]["callback_data"] == "cxl:y:wf-a"
+
+    # Over-long target falls back to a direct cancel via _handle_cancel.
+    monkeypatch.setattr(bot, "_handle_cancel", lambda settings, target: f"cancelled {target[:3]}")
+    bot._send_cancel_confirmation(_settings(), "y" * 80)
+    assert plain[-1].startswith("cancelled yyy")
+
+
+def test_callback_response_dispatch(monkeypatch) -> None:
+    monkeypatch.setattr(bot, "_handle_cancel", lambda settings, target: f"did {target}")
+
+    assert bot._callback_response(_settings(), "cxl:n") == "✖ Cancellation dismissed."
+    assert bot._callback_response(_settings(), "cxl:y:wf-a") == "did wf-a"
+    assert bot._callback_response(_settings(), "bogus") == "Unknown action."
+
+
+def test_dispatch_callback_query_answers_and_edits(monkeypatch) -> None:
+    calls: list[tuple[str, dict[str, Any]]] = []
+
+    def fake_api_call(token, method, payload=None, **kwargs):
+        calls.append((method, payload or {}))
+        return None
+
+    monkeypatch.setattr(bot, "_api_call", fake_api_call)
+    monkeypatch.setattr(bot, "_handle_cancel", lambda settings, target: f"done {target}")
+
+    update = {
+        "update_id": 7,
+        "callback_query": {
+            "id": "cb-1",
+            "data": "cxl:y:wf-a",
+            "message": {"message_id": 99, "chat": {"id": "chat-id"}},
+        },
+    }
+
+    assert bot._dispatch_callback_query(_settings(), update) == 7
+    methods = [method for method, _payload in calls]
+    assert "answerCallbackQuery" in methods
+    edit = next(payload for method, payload in calls if method == "editMessageText")
+    assert edit["message_id"] == 99
+    assert edit["text"] == "done wf-a"
+
+
+def test_list_action_keyboard_builds_cancel_and_refresh_buttons() -> None:
+    items = [
+        {"activity_id": "wf-a", "label": "wf-a", "status": "running"},
+        {"activity_id": "z" * 80, "label": "too-long", "status": "running"},
+    ]
+    keyboard = bot._list_action_keyboard(items)
+    rows = keyboard["inline_keyboard"]
+
+    assert rows[0][0]["callback_data"] == "cxl:a:wf-a"
+    # The over-long id is skipped; only the wf-a cancel and the refresh remain.
+    assert len(rows) == 2
+    assert rows[-1][0]["callback_data"] == "lst"
+
+
+def test_list_action_keyboard_caps_cancel_buttons() -> None:
+    items = [
+        {"activity_id": f"wf-{index}", "status": "running"} for index in range(20)
+    ]
+    rows = bot._list_action_keyboard(items)["inline_keyboard"]
+    # 8 cancel buttons (cap) + 1 refresh row.
+    assert len(rows) == bot._MAX_LIST_CANCEL_BUTTONS + 1
+    assert rows[-1][0]["callback_data"] == "lst"
+
+
+def test_active_cancel_targets_filters_to_active(monkeypatch) -> None:
+    monkeypatch.setattr(
+        bot,
+        "list_activities",
+        lambda **kwargs: {
+            "activities": [
+                {"activity_id": "wf-run", "kind": "workflow", "engine": "workflow",
+                 "status": "running"},
+                {"activity_id": "wf-done", "kind": "workflow", "engine": "workflow",
+                 "status": "completed"},
+                {"activity_id": "wf-pend", "kind": "workflow", "engine": "workflow",
+                 "status": "pending"},
+            ]
+        },
+    )
+
+    active = bot._active_cancel_targets(_settings())
+
+    assert {item["activity_id"] for item in active} == {"wf-run", "wf-pend"}
+
+
+def test_send_list_actions_sends_keyboard_and_is_exception_safe(monkeypatch) -> None:
+    sent: list[tuple[str, Any]] = []
+
+    def _fake_send_message(settings, text, *, reply_markup=None, parse_mode="HTML"):
+        sent.append((text, reply_markup))
+
+    monkeypatch.setattr(bot, "_send_message", _fake_send_message)
+    monkeypatch.setattr(
+        bot,
+        "_active_cancel_targets",
+        lambda settings: [{"activity_id": "wf-a", "label": "wf-a", "status": "running"}],
+    )
+
+    bot._send_list_actions(_settings())
+
+    assert sent[0][0] == "🔧 Actions:"
+    assert sent[0][1]["inline_keyboard"][0][0]["callback_data"] == "cxl:a:wf-a"
+
+    def _boom(settings):
+        raise RuntimeError("activity source down")
+
+    monkeypatch.setattr(bot, "_active_cancel_targets", _boom)
+    # Must not raise even when the activity source fails.
+    bot._send_list_actions(_settings())
+
+
+def test_dispatch_callback_query_refresh_resends_list(monkeypatch) -> None:
+    calls: dict[str, Any] = {}
+    monkeypatch.setattr(bot, "_api_call", lambda *a, **k: None)
+    monkeypatch.setattr(
+        bot, "_send_list_response", lambda settings: calls.setdefault("refresh", True)
+    )
+
+    update = {
+        "update_id": 9,
+        "callback_query": {
+            "id": "cb-3",
+            "data": "lst",
+            "message": {"message_id": 1, "chat": {"id": "chat-id"}},
+        },
+    }
+
+    assert bot._dispatch_callback_query(_settings(), update) == 9
+    assert calls.get("refresh") is True
+
+
+def test_dispatch_callback_query_ask_shows_confirmation(monkeypatch) -> None:
+    calls: dict[str, Any] = {}
+    monkeypatch.setattr(bot, "_api_call", lambda *a, **k: None)
+    monkeypatch.setattr(
+        bot, "_send_cancel_confirmation", lambda settings, target: calls.setdefault("ask", target)
+    )
+
+    update = {
+        "update_id": 10,
+        "callback_query": {
+            "id": "cb-4",
+            "data": "cxl:a:wf-a",
+            "message": {"message_id": 1, "chat": {"id": "chat-id"}},
+        },
+    }
+
+    assert bot._dispatch_callback_query(_settings(), update) == 10
+    assert calls.get("ask") == "wf-a"
+
+
+def test_dispatch_callback_query_ignores_other_chats(monkeypatch) -> None:
+    calls: list[str] = []
+    monkeypatch.setattr(
+        bot, "_api_call", lambda token, method, payload=None, **kwargs: calls.append(method)
+    )
+
+    update = {
+        "update_id": 8,
+        "callback_query": {
+            "id": "cb-2",
+            "data": "cxl:y:wf-a",
+            "message": {"message_id": 5, "chat": {"id": "intruder"}},
+        },
+    }
+
+    assert bot._dispatch_callback_query(_settings(), update) == 8
+    # Only the callback is acknowledged; no edit/cancel is performed.
+    assert "editMessageText" not in calls
 
 
 def test_send_response_splits_long_messages(monkeypatch) -> None:
@@ -503,6 +735,7 @@ def test_set_bot_commands_delegates_to_api_call(monkeypatch) -> None:
     assert captured["method"] == "setMyCommands"
     assert [item["command"] for item in captured["payload"]["commands"]] == [
         "list",
+        "summary",
         "cancel",
         "help",
     ]

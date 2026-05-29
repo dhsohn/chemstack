@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from chemstack.activity_view import count_global_active_simulations
+from chemstack.core.activity_icons import activity_status_icon
 from chemstack.core.config.files import shared_workflow_root_from_config
 from chemstack.core.utils.coercion import normalize_text as _normalize_text
 from chemstack.flow.workflow_status import (
@@ -28,21 +29,7 @@ _WORKFLOW_SHOW_LIMIT = 6
 
 
 def _workflow_status_icon(status: str) -> str:
-    return {
-        "created": "🆕",
-        "planned": "⏳",
-        "pending": "⏳",
-        "queued": "⏳",
-        "submitted": "📤",
-        "running": "▶",
-        "retrying": "🔄",
-        "cancel_requested": "⏹",
-        "completed": "✅",
-        "failed": "❌",
-        "cancel_failed": "❌",
-        "submission_failed": "❌",
-        "cancelled": "⛔",
-    }.get(_normalize_text(status).lower(), "•")
+    return activity_status_icon(status)
 
 
 def _workflow_template_label(template_name: Any) -> str:

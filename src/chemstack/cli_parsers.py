@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from importlib import metadata
 
 from chemstack import cli_handlers
 from chemstack import cli_queue
@@ -397,8 +398,40 @@ def _add_service_parser(subparsers: argparse._SubParsersAction[argparse.Argument
     restart_parser.set_defaults(func=cli_systemd.cmd_service_restart)
 
 
+def _chemstack_version() -> str:
+    try:
+        return metadata.version("chemstack")
+    except metadata.PackageNotFoundError:
+        return "0.0.0+unknown"
+
+
+_EXAMPLES_EPILOG = """\
+examples:
+  chemstack init
+  chemstack run-dir /home/user/orca_runs/sample_rxn
+  chemstack queue list --engine orca
+  chemstack queue cancel <target>
+  chemstack summary --no-send
+  chemstack service status
+"""
+
+
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="chemstack")
+    parser = argparse.ArgumentParser(
+        prog="chemstack",
+        epilog=_EXAMPLES_EPILOG,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {_chemstack_version()}",
+    )
+    parser.add_argument(
+        "--no-color",
+        action="store_true",
+        help="Disable ANSI color in terminal output (also honors NO_COLOR)",
+    )
     subparsers = parser.add_subparsers(dest="command", required=True)
     _add_queue_parser(subparsers)
     _add_run_dir_parser(subparsers)

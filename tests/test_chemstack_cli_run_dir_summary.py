@@ -192,7 +192,7 @@ def test_cmd_run_dir_reports_unknown_directory_layout(
     )
 
     assert result == 1
-    assert "Could not infer run-dir target type from directory" in capsys.readouterr().out
+    assert "Could not infer run-dir target type from directory" in capsys.readouterr().err
 
 
 def test_cmd_run_dir_requires_manifest_for_workflow_scaffold_directories(
@@ -210,7 +210,7 @@ def test_cmd_run_dir_requires_manifest_for_workflow_scaffold_directories(
     )
 
     assert result == 1
-    assert "Could not infer run-dir target type from directory" in capsys.readouterr().out
+    assert "Could not infer run-dir target type from directory" in capsys.readouterr().err
 
 
 def test_cmd_run_dir_reports_missing_and_file_targets(
@@ -219,12 +219,12 @@ def test_cmd_run_dir_reports_missing_and_file_targets(
 ) -> None:
     missing = tmp_path / "missing"
     assert cli_run_dir.cmd_run_dir(SimpleNamespace(path=str(missing))) == 1
-    assert f"run-dir target not found: {missing.resolve()}" in capsys.readouterr().out
+    assert f"run-dir target not found: {missing.resolve()}" in capsys.readouterr().err
 
     file_target = tmp_path / "not-a-dir"
     file_target.write_text("not a directory\n", encoding="utf-8")
     assert cli_run_dir.cmd_run_dir(SimpleNamespace(path=str(file_target))) == 1
-    assert f"run-dir target is not a directory: {file_target.resolve()}" in capsys.readouterr().out
+    assert f"run-dir target is not a directory: {file_target.resolve()}" in capsys.readouterr().err
 
 
 def test_cmd_run_dir_sets_default_orca_priority(

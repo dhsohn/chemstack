@@ -7,6 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from chemstack.core.activity_icons import activity_status_icon
 from chemstack.core.notifications import (
     MAX_TELEGRAM_MESSAGE_LENGTH,
     build_telegram_transport,
@@ -304,14 +305,7 @@ def notify_run_finished_event(config: TelegramConfig, event: RunFinishedNotifica
 
 
 def _status_icon(status: str) -> str:
-    icons = {
-        "completed": "\u2705",
-        "running": "\u23f3",
-        "retrying": "\U0001f504",
-        "failed": "\u274c",
-        "error": "\u274c",
-    }
-    return icons.get(status, "\u2753")
+    return activity_status_icon(status)
 
 
 def _format_patch_actions(actions: list[str]) -> str | None:

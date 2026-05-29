@@ -65,7 +65,7 @@ def test_cmd_workflow_worker_handles_negative_cycles_and_lock_timeout(monkeypatc
         orca_repo_root=None,
     )
     assert cli_workflow.cmd_workflow_worker(args) == 1
-    assert "--max-cycles must be >= 0" in capsys.readouterr().out
+    assert "--max-cycles must be >= 0" in capsys.readouterr().err
 
     writes: list[dict[str, Any]] = []
     events: list[dict[str, Any]] = []
@@ -86,7 +86,7 @@ def test_cmd_workflow_worker_handles_negative_cycles_and_lock_timeout(monkeypatc
     result = cli_workflow.cmd_workflow_worker(args)
 
     assert result == 1
-    assert "worker_lock_error: already running" in capsys.readouterr().out
+    assert "worker_lock_error: already running" in capsys.readouterr().err
     assert writes[-1]["status"] == "lock_error"
     assert events[-1]["event_type"] == "worker_lock_error"
 

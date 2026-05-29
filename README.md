@@ -120,6 +120,17 @@ cleanup via `/list clear`.
 The `active_simulations` line counts only simulations that currently consume the shared
 `scheduler.max_active_simulations` slots.
 
+CLI table output is colorized by status when stdout is a terminal; color is disabled
+automatically when piped or when `NO_COLOR` is set, and can be forced off with
+`--no-color` (e.g. `chemstack --no-color queue list`). `chemstack --version` prints the
+installed version. Errors and recovery hints are written to stderr.
+
+The Telegram bot also supports `/summary` for an on-demand current-state digest, and
+`/cancel <target>` now asks for confirmation with inline buttons before cancelling.
+`/list` follows the table with an actions message carrying a per-activity cancel button
+for each active item plus a refresh button, so cancellation and refresh are one tap
+(the cancel button still routes through the confirmation step).
+
 Long-running services are managed through `systemd` only. After `chemstack.yaml`
 is configured, enable the combined runtime target once and let `systemd` start
 both the worker and the bot automatically:

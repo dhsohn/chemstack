@@ -4,6 +4,8 @@ import shlex
 from pathlib import Path
 from typing import Any
 
+from chemstack.cli_errors import emit_error
+
 _WORKFLOW_TYPES = frozenset({"reaction_ts_search", "conformer_screening"})
 _CREST_MODE_ALIASES = {
     "std": "standard",
@@ -145,22 +147,22 @@ def _readme(root: Path, workflow_type: str) -> str:
 def cmd_scaffold(args: Any) -> int:
     raw_root = str(getattr(args, "root", "")).strip()
     if not raw_root:
-        print("error: scaffold requires --root")
+        emit_error("scaffold requires --root")
         return 1
 
     workflow_type = str(getattr(args, "workflow_type", "")).strip().lower()
     if workflow_type not in _WORKFLOW_TYPES:
-        print(f"error: unsupported workflow scaffold type: {workflow_type}")
+        emit_error(f"unsupported workflow scaffold type: {workflow_type}")
         return 1
 
     crest_mode = _normalize_crest_mode(getattr(args, "crest_mode", "standard"))
     if not crest_mode:
-        print(f"error: unsupported crest_mode: {getattr(args, 'crest_mode', '')}")
+        emit_error(f"unsupported crest_mode: {getattr(args, 'crest_mode', '')}")
         return 1
 
     root = Path(raw_root).expanduser().resolve()
     if root.exists() and not root.is_dir():
-        print(f"error: scaffold root is not a directory: {root}")
+        emit_error(f"scaffold root is not a directory: {root}")
         return 1
     root.mkdir(parents=True, exist_ok=True)
 

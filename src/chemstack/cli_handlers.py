@@ -9,6 +9,7 @@ from chemstack.cli_common import (
     _dependency,
     _engine_config_for_command,
 )
+from chemstack.cli_errors import emit_error
 from chemstack.flow.run_dir_layout import inspect_workflow_run_dir
 from chemstack.core.utils import normalize_text
 
@@ -88,7 +89,7 @@ def cmd_run_dir(args: Any, *, deps: Any | None = None) -> int:
     try:
         run_dir_app = detect_run_dir_app(args)
     except ValueError as exc:
-        print(f"error: {exc}")
+        emit_error(exc)
         return 1
 
     args.run_dir_app = run_dir_app

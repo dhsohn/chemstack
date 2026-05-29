@@ -232,7 +232,7 @@ def test_cmd_run_dir_reports_ambiguous_layout(
     )
 
     assert cli_run_dir.cmd_run_dir(args) == 1
-    assert "Ambiguous workflow_dir" in capsys.readouterr().out
+    assert "Ambiguous workflow_dir" in capsys.readouterr().err
 
 
 def test_cmd_run_dir_requires_manifest_before_materializing_workflow(
@@ -264,7 +264,7 @@ def test_cmd_run_dir_requires_manifest_before_materializing_workflow(
     )
 
     assert cli_run_dir.cmd_run_dir(args) == 1
-    assert "workflow run-dir requires flow.yaml" in capsys.readouterr().out
+    assert "workflow run-dir requires flow.yaml" in capsys.readouterr().err
 
 
 def test_cmd_run_dir_requires_standard_input_xyz_name_for_conformer_workflow(
@@ -297,7 +297,7 @@ def test_cmd_run_dir_requires_standard_input_xyz_name_for_conformer_workflow(
     )
 
     assert cli_run_dir.cmd_run_dir(args) == 1
-    assert "conformer_screening requires input.xyz" in capsys.readouterr().out
+    assert "conformer_screening requires input.xyz" in capsys.readouterr().err
 
 
 def test_cmd_run_dir_requires_standard_reaction_xyz_names_for_reaction_workflow(
@@ -331,7 +331,7 @@ def test_cmd_run_dir_requires_standard_reaction_xyz_names_for_reaction_workflow(
     )
 
     assert cli_run_dir.cmd_run_dir(args) == 1
-    assert "reaction_ts_search requires both reactant.xyz and product.xyz" in capsys.readouterr().out
+    assert "reaction_ts_search requires both reactant.xyz and product.xyz" in capsys.readouterr().err
 
 
 def test_cmd_run_dir_requires_workflow_root_for_reaction_workflow(
@@ -380,7 +380,7 @@ def test_cmd_run_dir_requires_workflow_root_for_reaction_workflow(
     )
 
     assert cli_run_dir.cmd_run_dir(args) == 1
-    assert "workflow_root is not configured" in capsys.readouterr().out
+    assert "workflow_root is not configured" in capsys.readouterr().err
     assert create_called is False
 
 
@@ -429,7 +429,7 @@ def test_cmd_run_dir_requires_workflow_root_for_conformer_workflow(
     )
 
     assert cli_run_dir.cmd_run_dir(args) == 1
-    assert "workflow_root is not configured" in capsys.readouterr().out
+    assert "workflow_root is not configured" in capsys.readouterr().err
     assert create_called is False
 
 

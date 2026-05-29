@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from typing import Any, Sequence
 
 from chemstack import activity_rendering as _activity_rendering
+from chemstack import cli_style
+from chemstack.cli_errors import emit_error
 from chemstack.activity_view import (
     activity_with_parent_hint,
     count_global_active_simulations,
@@ -153,8 +155,9 @@ def _cmd_queue_list_clear(
         any(getattr(args, field, None) for field in ("engine", "status", "kind"))
         or request.limit > 0
     ):
-        print(
-            "error: `chemstack queue list clear` does not support --engine/--status/--kind/--limit filters."
+        emit_error(
+            "`chemstack queue list clear` does not support "
+            "--engine/--status/--kind/--limit filters."
         )
         return 1
 
@@ -262,8 +265,15 @@ def _print_queue_list_text(
     if not display_rows:
         print("No matching activities.")
         return 0
-    for line in table_lines(display_rows):
-        print(line)
+    lines = table_lines(display_rows)
+    # lines[0] is the header, lines[1] the divider, and the rest map one-to-one
+    # onto display_rows so each data row can be tinted by its status. Colors are
+    # a no-op when stdout is not a TTY, so piped/`--json` output is unaffected.
+    print(cli_style.paint(lines[0], cli_style.BOLD))
+    print(lines[1])
+    for (_indent, item), line in zip(display_rows, lines[2:]):
+        color = cli_style.status_color(item.get("status"))
+        print(cli_style.paint(line, color) if color else line)
     return 0
 
 
@@ -305,7 +315,7 @@ def cmd_queue_cancel(args: Any, *, deps: Any | None = None) -> int:
             orca_config=shared_config,
         )
     except (LookupError, ValueError, TimeoutError) as exc:
-        print(f"error: {exc}")
+        emit_error(exc, hint="Run `chemstack queue list` to see valid targets.")
         return 1
 
     if bool(getattr(args, "json", False)):

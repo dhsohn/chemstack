@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -99,7 +100,10 @@ def run_queue_worker_command(
             if existing_pid_report_fn is not None:
                 existing_pid_report_fn(existing_pid)
             else:
-                print(f"error: queue worker already running (pid={existing_pid})")
+                print(
+                    f"error: queue worker already running (pid={existing_pid})",
+                    file=sys.stderr,
+                )
             return 1
 
     worker_kwargs: dict[str, Any] = {}

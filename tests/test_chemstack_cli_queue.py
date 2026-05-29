@@ -729,7 +729,7 @@ def test_cmd_queue_list_clear_rejects_filters(
 
     assert result == 1
     assert (
-        capsys.readouterr().out
+        capsys.readouterr().err
         == "error: `chemstack queue list clear` does not support --engine/--status/--kind/--limit filters.\n"
     )
 
@@ -753,7 +753,10 @@ def test_cmd_queue_cancel_reports_lookup_error(
     )
 
     assert result == 1
-    assert capsys.readouterr().out == "error: Activity target not found: missing\n"
+    assert capsys.readouterr().err == (
+        "error: Activity target not found: missing\n"
+        "hint: Run `chemstack queue list` to see valid targets.\n"
+    )
 
 
 def test_cmd_queue_cancel_reports_timeout_error(
@@ -777,9 +780,9 @@ def test_cmd_queue_cancel_reports_timeout_error(
     )
 
     assert result == 1
-    assert (
-        capsys.readouterr().out
-        == "error: Workflow is busy and could not be locked for cancellation within 5s: /tmp/wf_busy\n"
+    assert capsys.readouterr().err == (
+        "error: Workflow is busy and could not be locked for cancellation within 5s: /tmp/wf_busy\n"
+        "hint: Run `chemstack queue list` to see valid targets.\n"
     )
 
 

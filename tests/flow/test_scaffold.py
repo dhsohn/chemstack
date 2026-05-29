@@ -98,6 +98,6 @@ def test_cmd_scaffold_rejects_invalid_crest_mode(tmp_path: Path, capsys: pytest.
         )
     )
 
-    output = capsys.readouterr().out
+    output = capsys.readouterr().err
     assert rc == 1
     assert "error: unsupported crest_mode: fast" in output

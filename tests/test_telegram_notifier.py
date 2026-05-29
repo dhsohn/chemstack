@@ -120,12 +120,13 @@ class TestEscapeHtml:
 class TestStatusIcon:
     def test_known_statuses(self) -> None:
         assert _status_icon("completed") == "\u2705"
-        assert _status_icon("running") == "\u23f3"
+        assert _status_icon("running") == "\u25b6"
         assert _status_icon("retrying") == "\U0001f504"
         assert _status_icon("failed") == "\u274c"
+        assert _status_icon("error") == "\u274c"
 
     def test_unknown_status(self) -> None:
-        assert _status_icon("unknown") == "\u2753"
+        assert _status_icon("unknown") == "\u2022"
 
 
 class TestMonitorFormatting:

@@ -226,13 +226,13 @@ def test_cmd_run_dir_reports_invalid_directory_and_unknown_layout(
         json=False,
     )
     assert run_dir_cli.cmd_run_dir(invalid_args) == 1
-    assert "workflow_dir does not exist or is not a directory" in capsys.readouterr().out
+    assert "workflow_dir does not exist or is not a directory" in capsys.readouterr().err
 
     empty_workflow_dir = tmp_path / "empty_workflow"
     empty_workflow_dir.mkdir()
     unknown_args = SimpleNamespace(**{**invalid_args.__dict__, "workflow_dir": str(empty_workflow_dir)})
     assert run_dir_cli.cmd_run_dir(unknown_args) == 1
-    assert "workflow run-dir requires flow.yaml" in capsys.readouterr().out
+    assert "workflow run-dir requires flow.yaml" in capsys.readouterr().err
 
 
 def test_cmd_run_dir_for_conformer_uses_nested_crest_section(

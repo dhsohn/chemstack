@@ -4,22 +4,10 @@ import unicodedata
 from datetime import datetime, timezone
 from typing import Any, Sequence
 
-from chemstack.core.statuses import (
-    QUEUE_ACTIVE_STATUSES,
-    STATUS_CANCEL_REQUESTED,
-    STATUS_COMPLETED,
-    STATUS_RETRYING,
-    STATUS_RUNNING,
-    WORKFLOW_FAILED_STATUSES,
-)
+from chemstack.core.activity_icons import activity_status_icon
+from chemstack.core.statuses import QUEUE_ACTIVE_STATUSES
 from chemstack.core.utils import normalize_text
 
-_QUEUE_STATUS_ICONS = {
-    STATUS_COMPLETED: "✅",
-    STATUS_RETRYING: "🔄",
-    STATUS_CANCEL_REQUESTED: "⏹",
-    STATUS_RUNNING: "▶",
-}
 _ORCA_SELECTED_INP_HINTS = (
     ("neb", "NEB"),
     ("irc", "IRC"),
@@ -85,13 +73,7 @@ def _queue_elapsed_text(item: dict[str, Any], *, now: datetime | None = None) ->
 
 
 def _queue_status_icon(item: dict[str, Any]) -> str:
-    status = normalize_text(item.get("status")).lower()
-    if status in WORKFLOW_FAILED_STATUSES or status == "cancelled":
-        return "❌"
-    return _QUEUE_STATUS_ICONS.get(
-        status,
-        "⏳" if status in QUEUE_ACTIVE_STATUSES else "•",
-    )
+    return activity_status_icon(item.get("status"))
 
 
 def _queue_template_label(template_name: Any) -> str:

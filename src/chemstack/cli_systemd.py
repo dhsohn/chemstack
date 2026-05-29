@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, Callable, Sequence
 
 from chemstack.cli_common import _dependency, _repo_root
+from chemstack.cli_errors import emit_error
 from chemstack.core.config.files import load_yaml_mapping
 from chemstack.core.utils.coercion import normalize_text
 
@@ -478,7 +479,7 @@ def apply_systemd_install_plan(
     run: Callable[..., subprocess.CompletedProcess[Any]] = subprocess.run,
 ) -> int:
     if plan.use_sudo and shutil.which("sudo") is None:
-        print("error: sudo is required to write system units; rerun as root or use --no-sudo")
+        emit_error("sudo is required to write system units; rerun as root or use --no-sudo")
         return 1
 
     if plan.use_sudo:
@@ -487,7 +488,7 @@ def apply_systemd_install_plan(
         try:
             _write_units_direct(plan)
         except OSError as exc:
-            print(f"error: failed to write systemd units: {exc}")
+            emit_error(f"failed to write systemd units: {exc}")
             return 1
         rc = 0
     if rc != 0:
@@ -524,7 +525,7 @@ def cmd_systemd_install(args: argparse.Namespace, *, deps: Any | None = None) ->
             is_root=is_root,
         )
     except (OSError, ValueError) as exc:
-        print(f"error: {exc}")
+        emit_error(exc)
         return 1
 
     _print_warnings(plan)
@@ -543,14 +544,14 @@ def cmd_service_status(args: argparse.Namespace, *, deps: Any | None = None) -> 
     which = _dependency(deps, "which", shutil.which)
     collect_status = _dependency(deps, "collect_service_status", collect_service_status)
     if not _systemctl_available(which=which):
-        print("error: systemctl is not available in this environment")
+        emit_error("systemctl is not available in this environment")
         return 1
 
     target_user = _service_target_user(args, deps=deps)
     try:
         statuses = collect_status(target_user, run=_dependency(deps, "run", subprocess.run))
     except ValueError as exc:
-        print(f"error: {exc}")
+        emit_error(exc)
         return 1
     _print_service_status(target_user, statuses)
     return 1 if any(status.active == "failed" for status in statuses) else 0
@@ -563,18 +564,18 @@ def cmd_service_restart(args: argparse.Namespace, *, deps: Any | None = None) ->
     restart_unit_for_user = _dependency(deps, "_restart_unit_for_user", _restart_unit_for_user)
 
     if not _systemctl_available(which=which):
-        print("error: systemctl is not available in this environment")
+        emit_error("systemctl is not available in this environment")
         return 1
     use_sudo = not is_root()
     if use_sudo and not _sudo_available(which=which):
-        print("error: sudo is required to restart system services; rerun as root")
+        emit_error("sudo is required to restart system services; rerun as root")
         return 1
 
     target_user = _service_target_user(args, deps=deps)
     try:
         unit = restart_unit_for_user(target_user, run=run)
     except ValueError as exc:
-        print(f"error: {exc}")
+        emit_error(exc)
         return 1
 
     print(f"Restarting {unit}")

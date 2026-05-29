@@ -271,7 +271,7 @@ def cmd_run_dir(args: Any, *, deps: Any | None = None) -> int:
 
         payload = create_run_dir_workflow(args, workflow_dir)
     except ValueError as exc:
-        print(f"error: {exc}")
+        _workflow_output.emit_error(exc)
         return 1
 
     return print_created_workflow(payload, json_mode=bool(getattr(args, "json", False)))

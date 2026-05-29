@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
+from chemstack.core.activity_icons import activity_status_icon
 from chemstack.core.utils import parse_iso_utc as _parse_iso_utc
 
 from .job_locations import list_job_location_records, resolve_record_job_dir
@@ -12,14 +13,6 @@ from .job_locations import list_job_location_records, resolve_record_job_dir
 from .dft_discovery import _find_latest_out_in_dir
 from chemstack.core.paths import resolve_artifact_path
 from .state import STATE_FILE_NAME, load_state
-
-_STATUS_ICONS = {
-    "completed": "\u2705",
-    "running": "\u23f3",
-    "failed": "\u274c",
-    "retrying": "\U0001f504",
-    "created": "\U0001f195",
-}
 
 
 @dataclass(frozen=True)
@@ -41,7 +34,7 @@ class RunSnapshot:
 
 
 def status_icon(status: str) -> str:
-    return _STATUS_ICONS.get(status, "\u2753")
+    return activity_status_icon(status)
 
 
 def parse_iso_utc(value: Any) -> datetime | None:

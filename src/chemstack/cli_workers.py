@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from typing import Any, Sequence
 
 from chemstack.cli_common import _dependency
+from chemstack.cli_errors import emit_error
 from chemstack.cli_worker_conflicts import (
     _detect_existing_orca_worker_conflict,
     _emit_existing_orca_worker_conflict,
@@ -225,7 +226,7 @@ def _run_worker_supervisor(
     deps: Any | None = None,
 ) -> int:
     if not specs:
-        print("error: no workers selected")
+        emit_error("no workers selected")
         return 1
 
     processes: list[_SupervisedWorker] = []
@@ -250,7 +251,7 @@ def cmd_queue_worker(args: Any, *, deps: Any | None = None) -> int:
     try:
         specs = build_worker_specs(args)
     except ValueError as exc:
-        print(f"error: {exc}")
+        emit_error(exc)
         return 1
 
     if bool(getattr(args, "json", False)):

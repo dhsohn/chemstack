@@ -670,7 +670,7 @@ def test_cmd_queue_worker_reports_spec_build_errors(
     result = unified_cli.cmd_queue_worker(SimpleNamespace(json=False))
 
     assert result == 1
-    assert capsys.readouterr().out == "error: bad worker flags\n"
+    assert capsys.readouterr().err == "error: bad worker flags\n"
 
 
 def test_detect_existing_orca_worker_conflict_edges(

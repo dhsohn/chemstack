@@ -10,8 +10,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    from chemstack import cli_style
+
     parser = build_parser()
     args = parser.parse_args(argv)
+    if getattr(args, "no_color", False):
+        cli_style.set_color_override(False)
     return int(args.func(args))
 
 

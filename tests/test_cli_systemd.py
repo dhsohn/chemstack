@@ -216,7 +216,7 @@ def test_cmd_service_status_fails_when_systemctl_is_missing(capsys: Any) -> None
     )
 
     assert result == 1
-    assert "systemctl is not available" in capsys.readouterr().out
+    assert "systemctl is not available" in capsys.readouterr().err
 
 
 def test_cmd_service_restart_prefers_runtime_when_enabled(capsys: Any) -> None:
