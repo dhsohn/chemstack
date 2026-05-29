@@ -4,10 +4,13 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .manifest import FLOW_MANIFEST_FILENAMES as WORKFLOW_MANIFEST_FILENAMES
-
-STANDARD_REACTION_REACTANT_FILENAME = "reactant.xyz"
-STANDARD_REACTION_PRODUCT_FILENAME = "product.xyz"
-STANDARD_CONFORMER_INPUT_FILENAME = "input.xyz"
+from .templates import (
+    CONFORMER_SCREENING_TEMPLATE_ID,
+    REACTION_TS_SEARCH_TEMPLATE_ID,
+    STANDARD_CONFORMER_INPUT_FILENAME,
+    STANDARD_REACTION_PRODUCT_FILENAME,
+    STANDARD_REACTION_REACTANT_FILENAME,
+)
 
 
 @dataclass(frozen=True)
@@ -25,9 +28,9 @@ class WorkflowRunDirLayout:
         if self.is_ambiguous:
             return None
         if self.has_reaction_inputs:
-            return "reaction_ts_search"
+            return REACTION_TS_SEARCH_TEMPLATE_ID
         if self.has_conformer_input:
-            return "conformer_screening"
+            return CONFORMER_SCREENING_TEMPLATE_ID
         return None
 
     @property
@@ -38,10 +41,9 @@ class WorkflowRunDirLayout:
 def inspect_workflow_run_dir(path: str | Path) -> WorkflowRunDirLayout:
     target = Path(path).expanduser().resolve()
     has_manifest = any((target / name).is_file() for name in WORKFLOW_MANIFEST_FILENAMES)
-    has_reaction_inputs = (
-        (target / STANDARD_REACTION_REACTANT_FILENAME).is_file()
-        and (target / STANDARD_REACTION_PRODUCT_FILENAME).is_file()
-    )
+    has_reaction_inputs = (target / STANDARD_REACTION_REACTANT_FILENAME).is_file() and (
+        target / STANDARD_REACTION_PRODUCT_FILENAME
+    ).is_file()
     has_conformer_input = (target / STANDARD_CONFORMER_INPUT_FILENAME).is_file()
     return WorkflowRunDirLayout(
         has_manifest=has_manifest,

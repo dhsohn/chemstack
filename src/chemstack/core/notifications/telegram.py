@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import json
 import socket
 import time
 import logging
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Callable, Protocol
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urlsplit
 from urllib.request import Request, urlopen
@@ -256,6 +257,29 @@ class TelegramSendResult:
     payload: dict[str, Any] = field(default_factory=dict)
 
 
+def telegram_send_result_ok(result: Any, *, skipped_ok: bool = False) -> bool:
+    return bool(
+        getattr(result, "sent", False) or (skipped_ok and getattr(result, "skipped", False))
+    )
+
+
+def log_telegram_send_failure(logger: logging.Logger, result: Any) -> None:
+    status_code = getattr(result, "status_code", None)
+    error = getattr(result, "error", "")
+    response_text = getattr(result, "response_text", "")
+    if status_code is not None:
+        logger.warning(
+            "telegram_send_failed: status=%s error=%s body=%s",
+            status_code,
+            error,
+            response_text,
+        )
+    elif error:
+        logger.warning("telegram_send_failed: %s", error)
+    else:
+        logger.warning("telegram_send_failed: unknown_error")
+
+
 @dataclass(frozen=True)
 class TelegramTransport:
     config: TelegramConfigLike
@@ -384,6 +408,192 @@ class TelegramTransport:
             method="POST",
         )
         return self._retry_send_text(request, payload)
+
+
+TelegramTransportFactory = Callable[[TelegramConfigLike], Any]
+
+
+def send_telegram_message(
+    config: TelegramConfigLike,
+    text: str,
+    *,
+    parse_mode: str | None = "HTML",
+    limit: int = MAX_TELEGRAM_MESSAGE_LENGTH,
+    skipped_ok: bool = False,
+    logger: logging.Logger | None = None,
+    transport_factory: TelegramTransportFactory | None = None,
+) -> bool:
+    """Send a chunked Telegram message with parse-mode fallback."""
+    if not config.enabled:
+        if logger is not None:
+            logger.debug("telegram_notifier_disabled")
+        return False
+
+    chunks = split_telegram_message(text, limit=limit)
+    if not chunks:
+        return False
+
+    transport = (transport_factory or build_telegram_transport)(config)
+    for chunk in chunks:
+        result = transport.send_text(chunk, parse_mode=parse_mode)
+        if telegram_send_result_ok(result, skipped_ok=skipped_ok):
+            continue
+        if parse_mode:
+            fallback_result = transport.send_text(chunk, parse_mode=None)
+            if telegram_send_result_ok(fallback_result, skipped_ok=skipped_ok):
+                continue
+            result = fallback_result
+        if logger is not None:
+            log_telegram_send_failure(logger, result)
+        return False
+    return True
+
+
+def send_preformatted_telegram_message(
+    config: TelegramConfigLike,
+    text: str,
+    *,
+    limit: int = MAX_TELEGRAM_MESSAGE_LENGTH,
+    logger: logging.Logger | None = None,
+    transport_factory: TelegramTransportFactory | None = None,
+) -> bool:
+    """Send text as HTML ``<pre>`` chunks, falling back to plain text per chunk."""
+    wrapper_prefix = "<pre>"
+    wrapper_suffix = "</pre>"
+    wrapper_overhead = len(wrapper_prefix) + len(wrapper_suffix)
+    if limit <= wrapper_overhead:
+        raise ValueError("preformatted message limit must exceed wrapper size")
+    if not config.enabled:
+        if logger is not None:
+            logger.debug("telegram_notifier_disabled")
+        return False
+
+    transport = (transport_factory or build_telegram_transport)(config)
+    sent_any = False
+    for chunk in split_telegram_message(text, limit=limit - wrapper_overhead):
+        wrapped = f"{wrapper_prefix}{escape_html(chunk)}{wrapper_suffix}"
+        result = transport.send_text(wrapped, parse_mode="HTML")
+        if telegram_send_result_ok(result):
+            sent_any = True
+            continue
+        fallback_result = transport.send_text(chunk, parse_mode=None)
+        if not telegram_send_result_ok(fallback_result):
+            if logger is not None:
+                log_telegram_send_failure(logger, fallback_result)
+            return False
+        sent_any = True
+    return sent_any
+
+
+@dataclass(frozen=True)
+class TelegramApiClient:
+    token: str
+    timeout: float = DEFAULT_TIMEOUT_SECONDS
+    base_url: str = DEFAULT_TELEGRAM_BASE_URL
+    logger: logging.Logger = LOGGER
+
+    def api_call(
+        self,
+        method: str,
+        payload: dict[str, Any] | None = None,
+        *,
+        timeout: float | None = None,
+    ) -> Any | None:
+        token = str(self.token).strip()
+        if not token:
+            return None
+
+        url = f"{self.base_url.rstrip('/')}/bot{token}/{method}"
+        data = json.dumps(payload or {}).encode("utf-8")
+        request = Request(
+            url,
+            data=data,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urlopen_with_ipv4_fallback(
+                request,
+                timeout=float(timeout if timeout is not None else self.timeout),
+            ) as response:
+                result = json.loads(response.read().decode("utf-8"))
+                if result.get("ok"):
+                    return result.get("result")
+                self.logger.warning(
+                    "telegram_api_error: method=%s response=%s",
+                    method,
+                    result,
+                )
+                return None
+        except HTTPError as exc:
+            body = _read_http_error_body(exc)
+            self.logger.warning(
+                "telegram_api_http_error: method=%s status=%d body=%s",
+                method,
+                exc.code,
+                body,
+            )
+            return None
+        except Exception as exc:
+            self.logger.warning("telegram_api_failed: method=%s error=%s", method, exc)
+            return None
+
+    def get_updates(
+        self,
+        *,
+        offset: int,
+        poll_timeout_seconds: int,
+        allowed_updates: list[str] | None = None,
+        timeout: float | None = None,
+    ) -> list[Any]:
+        updates = self.api_call(
+            "getUpdates",
+            {
+                "offset": offset,
+                "timeout": poll_timeout_seconds,
+                "allowed_updates": allowed_updates or ["message", "callback_query"],
+            },
+            timeout=timeout,
+        )
+        return updates if isinstance(updates, list) else []
+
+    def set_my_commands(self, commands: list[dict[str, Any]]) -> Any | None:
+        return self.api_call("setMyCommands", {"commands": commands})
+
+    def send_message(
+        self,
+        *,
+        chat_id: Any,
+        text: str,
+        parse_mode: str | None = "HTML",
+        reply_markup: dict[str, Any] | None = None,
+    ) -> Any | None:
+        payload: dict[str, Any] = {"chat_id": chat_id, "text": text}
+        if parse_mode:
+            payload["parse_mode"] = parse_mode
+        if reply_markup is not None:
+            payload["reply_markup"] = reply_markup
+        return self.api_call("sendMessage", payload)
+
+    def edit_message_text(
+        self,
+        *,
+        chat_id: Any,
+        message_id: Any,
+        text: str,
+        parse_mode: str | None = "HTML",
+    ) -> Any | None:
+        payload: dict[str, Any] = {
+            "chat_id": chat_id,
+            "message_id": message_id,
+            "text": text,
+        }
+        if parse_mode:
+            payload["parse_mode"] = parse_mode
+        return self.api_call("editMessageText", payload)
+
+    def answer_callback_query(self, callback_query_id: Any) -> Any | None:
+        return self.api_call("answerCallbackQuery", {"callback_query_id": callback_query_id})
 
 
 def _read_http_error_body(exc: HTTPError) -> str:

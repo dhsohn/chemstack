@@ -45,6 +45,8 @@ from chemstack.core.queue.worker import (
     reserve_engine_queue_worker_slot,
     resolve_admission_root,
     shutdown_child_process_with_grace,
+    start_background_process,
+    queue_entry_by_id as common_queue_entry_by_id,
 )
 from chemstack.core.utils import now_utc_iso
 
@@ -99,10 +101,7 @@ def queue_entries_with_roots(cfg: Any) -> list[tuple[Path, Any]]:
 
 
 def _find_queue_entry(queue_root: Path, queue_id: str) -> Any | None:
-    for entry in list_queue(queue_root):
-        if entry.queue_id == queue_id:
-            return entry
-    return None
+    return common_queue_entry_by_id(queue_root, queue_id, list_queue_fn=list_queue)
 
 
 def dequeue_next_entry(cfg: Any) -> tuple[Path, Any] | None:
@@ -152,18 +151,13 @@ def _start_background_job_process(
     admission_token: str,
 ) -> subprocess.Popen[str]:
     del admission_root
-    return subprocess.Popen(
+    return start_background_process(
         build_worker_child_command(
             config_path=config_path,
             queue_root=queue_root,
             queue_id=entry.queue_id,
             admission_token=admission_token,
-        ),
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        stdin=subprocess.DEVNULL,
-        start_new_session=True,
-        text=True,
+        )
     )
 
 

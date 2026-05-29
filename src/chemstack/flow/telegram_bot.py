@@ -2,12 +2,9 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import time
-import urllib.error
-import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
@@ -28,12 +25,13 @@ from chemstack.core.config import TelegramConfig
 from chemstack.core.config.files import shared_workflow_root_from_config
 from chemstack.core.notifications import (
     MAX_TELEGRAM_MESSAGE_LENGTH,
+    TelegramApiClient,
     build_telegram_transport,
     escape_html,
     load_telegram_config_from_file,
-    split_telegram_message,
+    send_preformatted_telegram_message,
+    send_telegram_message,
 )
-from chemstack.core.notifications.telegram import urlopen_with_ipv4_fallback
 
 from . import _activity_sources
 from .activity import cancel_activity, clear_activities, list_activities
@@ -126,49 +124,13 @@ def _api_call(
     *,
     timeout: int = _POLL_TIMEOUT_SECONDS + 5,
 ) -> Any | None:
-    url = f"{_API_BASE.format(token=token)}/{method}"
-    data = json.dumps(payload or {}).encode("utf-8")
-    request = urllib.request.Request(
-        url,
-        data=data,
-        headers={"Content-Type": "application/json"},
-        method="POST",
+    client = TelegramApiClient(
+        token=token,
+        timeout=timeout,
+        base_url=_API_BASE.removesuffix("/bot{token}"),
+        logger=logger,
     )
-    try:
-        with urlopen_with_ipv4_fallback(request, timeout=timeout) as response:
-            result = json.loads(response.read().decode("utf-8"))
-            if result.get("ok"):
-                return result.get("result")
-            logger.warning("telegram_api_error: method=%s response=%s", method, result)
-            return None
-    except urllib.error.HTTPError as exc:
-        body = exc.read().decode("utf-8", errors="replace") if exc.fp else ""
-        logger.warning(
-            "telegram_api_http_error: method=%s status=%d body=%s", method, exc.code, body
-        )
-        return None
-    except Exception as exc:
-        logger.warning("telegram_api_failed: method=%s error=%s", method, exc)
-        return None
-
-
-def _send_text_once(transport: Any, text: str, *, parse_mode: str | None) -> bool:
-    result = transport.send_text(text, parse_mode=parse_mode)
-    return bool(result.sent)
-
-
-def _send_text_with_parse_fallback(
-    transport: Any,
-    text: str,
-    *,
-    parse_mode: str | None,
-) -> bool:
-    result = transport.send_text(text, parse_mode=parse_mode)
-    if result.sent:
-        return True
-    if not parse_mode:
-        return False
-    return bool(transport.send_text(text, parse_mode=None).sent)
+    return client.api_call(method, payload, timeout=timeout)
 
 
 def _send_response(
@@ -178,14 +140,14 @@ def _send_response(
     parse_mode: str | None = "HTML",
     limit: int = _MAX_MESSAGE_LENGTH,
 ) -> bool:
-    transport = build_telegram_transport(config)
-    sent_any = False
-    for chunk in split_telegram_message(text, limit=limit):
-        if _send_text_with_parse_fallback(transport, chunk, parse_mode=parse_mode):
-            sent_any = True
-            continue
-        return False
-    return sent_any
+    return send_telegram_message(
+        config,
+        text,
+        parse_mode=parse_mode,
+        limit=limit,
+        logger=logger,
+        transport_factory=build_telegram_transport,
+    )
 
 
 def _send_preformatted_response(
@@ -194,23 +156,13 @@ def _send_preformatted_response(
     *,
     limit: int = _MAX_MESSAGE_LENGTH,
 ) -> bool:
-    wrapper_prefix = "<pre>"
-    wrapper_suffix = "</pre>"
-    wrapper_overhead = len(wrapper_prefix) + len(wrapper_suffix)
-    if limit <= wrapper_overhead:
-        raise ValueError("preformatted message limit must exceed wrapper size")
-
-    transport = build_telegram_transport(config)
-    sent_any = False
-    for chunk in split_telegram_message(text, limit=limit - wrapper_overhead):
-        wrapped = f"{wrapper_prefix}{escape_html(chunk)}{wrapper_suffix}"
-        if _send_text_once(transport, wrapped, parse_mode="HTML"):
-            sent_any = True
-            continue
-        if not _send_text_once(transport, chunk, parse_mode=None):
-            return False
-        sent_any = True
-    return sent_any
+    return send_preformatted_telegram_message(
+        config,
+        text,
+        limit=limit,
+        logger=logger,
+        transport_factory=build_telegram_transport,
+    )
 
 
 def _activity_payload(
@@ -433,7 +385,7 @@ def _callback_response(settings: TelegramBotSettings, data: str) -> str:
     if data == _CB_CANCEL_NO:
         return "✖ Cancellation dismissed."
     if data.startswith(_CB_CANCEL_DO):
-        return _handle_cancel(settings, data[len(_CB_CANCEL_DO):])
+        return _handle_cancel(settings, data[len(_CB_CANCEL_DO) :])
     return "Unknown action."
 
 
@@ -577,7 +529,7 @@ def _dispatch_callback_query(settings: TelegramBotSettings, update: dict[str, An
         _send_list_response(settings)
         return update_id
     if data.startswith(_CB_CANCEL_ASK):
-        _send_cancel_confirmation(settings, data[len(_CB_CANCEL_ASK):])
+        _send_cancel_confirmation(settings, data[len(_CB_CANCEL_ASK) :])
         return update_id
 
     response = _callback_response(settings, data)

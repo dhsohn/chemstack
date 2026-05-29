@@ -7,7 +7,7 @@ import sys
 import time
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 LOGGER = logging.getLogger(__name__)
 
@@ -52,7 +52,7 @@ def start_background_job_process(
     admission_token: str | None = None,
     include_admission_root: bool = True,
 ) -> subprocess.Popen[str]:
-    return subprocess.Popen(
+    return start_background_process(
         build_background_worker_command(
             config_path=config_path,
             queue_root=queue_root,
@@ -61,7 +61,13 @@ def start_background_job_process(
             admission_root=admission_root,
             admission_token=admission_token,
             include_admission_root=include_admission_root,
-        ),
+        )
+    )
+
+
+def start_background_process(command: Sequence[str]) -> subprocess.Popen[str]:
+    return subprocess.Popen(
+        list(command),
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         stdin=subprocess.DEVNULL,
@@ -165,6 +171,7 @@ __all__ = [
     "reconcile_orphaned_child_queue_entries",
     "request_job_cancellation",
     "shutdown_child_process_with_grace",
+    "start_background_process",
     "start_background_job_process",
     "status_matches",
 ]

@@ -11,6 +11,7 @@ from typing import Any
 import pytest
 
 from chemstack.core.config import TelegramConfig
+from chemstack.core.notifications import telegram as telegram_mod
 
 from chemstack.flow import telegram_bot as bot
 
@@ -324,9 +325,9 @@ def test_send_preformatted_response_wraps_chunks_in_pre(monkeypatch) -> None:
 
 def test_split_telegram_message_rejects_non_positive_limit_and_splits_long_line() -> None:
     with pytest.raises(ValueError, match="positive"):
-        bot.split_telegram_message("hello", limit=0)
+        telegram_mod.split_telegram_message("hello", limit=0)
 
-    assert bot.split_telegram_message("abcdef", limit=2) == ["ab", "cd", "ef"]
+    assert telegram_mod.split_telegram_message("abcdef", limit=2) == ["ab", "cd", "ef"]
 
 
 def test_send_response_returns_false_when_all_send_attempts_fail(monkeypatch) -> None:
@@ -511,9 +512,7 @@ def test_list_action_keyboard_builds_cancel_and_refresh_buttons() -> None:
 
 
 def test_list_action_keyboard_caps_cancel_buttons() -> None:
-    items = [
-        {"activity_id": f"wf-{index}", "status": "running"} for index in range(20)
-    ]
+    items = [{"activity_id": f"wf-{index}", "status": "running"} for index in range(20)]
     rows = bot._list_action_keyboard(items)["inline_keyboard"]
     # 8 cancel buttons (cap) + 1 refresh row.
     assert len(rows) == bot._MAX_LIST_CANCEL_BUTTONS + 1
@@ -526,12 +525,24 @@ def test_active_cancel_targets_filters_to_active(monkeypatch) -> None:
         "list_activities",
         lambda **kwargs: {
             "activities": [
-                {"activity_id": "wf-run", "kind": "workflow", "engine": "workflow",
-                 "status": "running"},
-                {"activity_id": "wf-done", "kind": "workflow", "engine": "workflow",
-                 "status": "completed"},
-                {"activity_id": "wf-pend", "kind": "workflow", "engine": "workflow",
-                 "status": "pending"},
+                {
+                    "activity_id": "wf-run",
+                    "kind": "workflow",
+                    "engine": "workflow",
+                    "status": "running",
+                },
+                {
+                    "activity_id": "wf-done",
+                    "kind": "workflow",
+                    "engine": "workflow",
+                    "status": "completed",
+                },
+                {
+                    "activity_id": "wf-pend",
+                    "kind": "workflow",
+                    "engine": "workflow",
+                    "status": "pending",
+                },
             ]
         },
     )
@@ -687,14 +698,14 @@ def test_api_call_handles_success_api_error_http_error_and_generic_error(monkeyp
             return json.dumps(self.payload).encode("utf-8")
 
     monkeypatch.setattr(
-        bot,
+        telegram_mod,
         "urlopen_with_ipv4_fallback",
         lambda request, *, timeout: Response({"ok": True, "result": {"id": 1}}),
     )
     assert bot._api_call("token", "method") == {"id": 1}
 
     monkeypatch.setattr(
-        bot,
+        telegram_mod,
         "urlopen_with_ipv4_fallback",
         lambda request, *, timeout: Response({"ok": False, "description": "bad"}),
     )
@@ -710,11 +721,11 @@ def test_api_call_handles_success_api_error_http_error_and_generic_error(monkeyp
             fp=io.BytesIO(b"rate limited"),
         )
 
-    monkeypatch.setattr(bot, "urlopen_with_ipv4_fallback", raise_http_error)
+    monkeypatch.setattr(telegram_mod, "urlopen_with_ipv4_fallback", raise_http_error)
     assert bot._api_call("token", "method") is None
 
     monkeypatch.setattr(
-        bot,
+        telegram_mod,
         "urlopen_with_ipv4_fallback",
         lambda request, *, timeout: (_ for _ in ()).throw(RuntimeError("offline")),
     )

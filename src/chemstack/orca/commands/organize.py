@@ -4,8 +4,6 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, Mapping
 
-from chemstack.core.paths.workflow import workflow_workspace_internal_engine_paths_from_path
-
 from ..config import AppConfig, load_config
 from ..organize_index import (
     acquire_index_lock,
@@ -37,27 +35,18 @@ from ._helpers import (
 from . import organize_apply as _organize_apply
 from . import organize_notifications as _organize_notifications
 from . import organize_output as _organize_output
+from . import organize_service as _organize_service
 from . import organize_tracking as _organize_tracking
 
 logger = logging.getLogger(__name__)
 
 
 def _workflow_runtime_paths(cfg: AppConfig, path: str | Path) -> dict[str, Path] | None:
-    workflow_root = str(getattr(cfg, "workflow_root", "")).strip()
-    if not workflow_root:
-        return None
-    return workflow_workspace_internal_engine_paths_from_path(
-        path,
-        workflow_root=workflow_root,
-        engine="orca",
-    )
+    return _organize_service.workflow_runtime_paths(cfg, path)
 
 
 def _resolved_organized_root(cfg: AppConfig, reaction_dir: str | Path) -> Path:
-    runtime_paths = _workflow_runtime_paths(cfg, reaction_dir)
-    if runtime_paths is not None:
-        return runtime_paths["organized_root"].expanduser().resolve()
-    return Path(cfg.runtime.organized_root).resolve()
+    return _organize_service.resolved_organized_root(cfg, reaction_dir)
 
 
 def _emit_organize(payload: Dict[str, Any]) -> None:
@@ -191,22 +180,17 @@ def _resolve_organize_scope(
     reaction_dir_raw: str | None,
     root_raw: str | None,
 ) -> tuple[list[OrganizePlan], list[SkipReason]] | None:
-    if reaction_dir_raw:
-        try:
-            reaction_dir = _validate_reaction_dir(cfg, reaction_dir_raw)
-        except ValueError as exc:
-            logger.error("%s", exc)
-            return None
-        plan, skip = plan_single(reaction_dir, organized_root)
-        return ([plan] if plan else []), ([skip] if skip else [])
-
-    try:
-        assert isinstance(root_raw, str)
-        root = _validate_root_scan_dir(cfg, root_raw)
-    except ValueError as exc:
-        logger.error("%s", exc)
-        return None
-    return plan_root_scan(root, organized_root)
+    return _organize_service.resolve_organize_scope(
+        cfg,
+        organized_root=organized_root,
+        reaction_dir_raw=reaction_dir_raw,
+        root_raw=root_raw,
+        validate_reaction_dir_fn=_validate_reaction_dir,
+        validate_root_scan_dir_fn=_validate_root_scan_dir,
+        plan_single_fn=plan_single,
+        plan_root_scan_fn=plan_root_scan,
+        log=logger,
+    )
 
 
 def _build_dry_run_summary(
@@ -222,43 +206,40 @@ def _cmd_organize_apply(
     organized_root: Path,
     cfg: AppConfig,
 ) -> int:
-    summary = _apply_organize_plans(
+    return _organize_service.cmd_organize_apply(
         plans,
         skips,
         organized_root,
         cfg,
-        notify_summary=True,
-    )
-    return finalize_batch_apply(
-        summary,
-        _emit_organize,
-        summary["failures"],
+        apply_plans_fn=_apply_organize_plans,
+        finalize_batch_apply_fn=finalize_batch_apply,
+        emit_organize_fn=_emit_organize,
     )
 
 
 def _apply_dependencies() -> _organize_apply.OrganizeApplyDependencies:
-    return _organize_apply.OrganizeApplyDependencies(
-        acquire_index_lock=acquire_index_lock,
-        append_failed_rollback=append_failed_rollback,
-        append_record=append_record,
-        build_index_record=_build_index_record,
-        check_conflict=check_conflict,
-        cleanup_organized_ref_stub=_cleanup_organized_ref_stub,
-        execute_move=execute_move,
-        load_index=load_index,
-        now_utc_iso=now_utc_iso,
-        rollback_move=rollback_move,
-        send_organize_notification=_send_organize_notification,
-        sync_state_after_move=sync_state_after_move,
-        sync_state_after_rollback=sync_state_after_rollback,
-        write_tracking_after_move=_write_tracking_after_move,
-        restore_tracking_after_rollback=_restore_tracking_after_rollback,
+    return _organize_service.build_apply_dependencies(
+        acquire_index_lock_fn=acquire_index_lock,
+        append_failed_rollback_fn=append_failed_rollback,
+        append_record_fn=append_record,
+        build_index_record_fn=_build_index_record,
+        check_conflict_fn=check_conflict,
+        cleanup_organized_ref_stub_fn=_cleanup_organized_ref_stub,
+        execute_move_fn=execute_move,
+        load_index_fn=load_index,
+        now_utc_iso_fn=now_utc_iso,
+        rollback_move_fn=rollback_move,
+        send_organize_notification_fn=_send_organize_notification,
+        sync_state_after_move_fn=sync_state_after_move,
+        sync_state_after_rollback_fn=sync_state_after_rollback,
+        write_tracking_after_move_fn=_write_tracking_after_move,
+        restore_tracking_after_rollback_fn=_restore_tracking_after_rollback,
         log=logger,
-        plan_conflict_result=_plan_conflict_result,
-        bookkeep_successful_move=_bookkeep_successful_move,
-        bookkeep_rollback_failure=_bookkeep_rollback_failure,
-        rollback_after_apply_failure=_rollback_after_apply_failure,
-        apply_one_organize_plan=_apply_one_organize_plan,
+        plan_conflict_result_fn=_plan_conflict_result,
+        bookkeep_successful_move_fn=_bookkeep_successful_move,
+        bookkeep_rollback_failure_fn=_bookkeep_rollback_failure,
+        rollback_after_apply_failure_fn=_rollback_after_apply_failure,
+        apply_one_organize_plan_fn=_apply_one_organize_plan,
     )
 
 
@@ -364,47 +345,15 @@ def _apply_organize_plans(
 
 
 def _organize_no_plan_result(reaction_dir: Path, skips: list[SkipReason]) -> Dict[str, Any]:
-    if skips:
-        first_skip = skips[0]
-        return {
-            "action": "skipped",
-            "reaction_dir": first_skip.reaction_dir,
-            "reason": first_skip.reason,
-        }
-    return {
-        "action": "skipped",
-        "reaction_dir": str(reaction_dir),
-        "reason": "nothing_to_organize",
-    }
+    return _organize_service.organize_no_plan_result(reaction_dir, skips)
 
 
 def _organize_failure_result(reaction_dir: Path, summary: Dict[str, Any]) -> Dict[str, Any]:
-    failure = next(
-        (item for item in summary["failures"] if isinstance(item, dict)),
-        {},
-    )
-    return {
-        "action": "failed",
-        "reaction_dir": str(reaction_dir),
-        "reason": str(failure.get("reason") or "organize_failed"),
-        "run_id": str(failure.get("run_id") or ""),
-    }
+    return _organize_service.organize_failure_result(reaction_dir, summary)
 
 
 def _organize_success_result(organized: list[Any]) -> Dict[str, Any] | None:
-    if not organized:
-        return None
-    plan = organized[0].get("_plan") if isinstance(organized[0], dict) else None
-    if not isinstance(plan, OrganizePlan):
-        return None
-    return {
-        "action": "organized",
-        "reaction_dir": str(plan.source_dir),
-        "run_id": plan.run_id,
-        "target_dir": str(plan.target_abs_path),
-        "job_type": plan.job_type,
-        "molecule_key": plan.molecule_key,
-    }
+    return _organize_service.organize_success_result(organized)
 
 
 def _organize_skipped_result(
@@ -413,15 +362,11 @@ def _organize_skipped_result(
     skipped_results: list[Any],
     skips: list[SkipReason],
 ) -> Dict[str, Any]:
-    if skipped_results:
-        skipped_item = skipped_results[0]
-        return {
-            "action": "skipped",
-            "reaction_dir": str(reaction_dir),
-            "reason": str(skipped_item.get("reason") or "skipped"),
-            "run_id": str(skipped_item.get("run_id") or ""),
-        }
-    return _organize_no_plan_result(reaction_dir, skips)
+    return _organize_service.organize_skipped_result(
+        reaction_dir,
+        skipped_results=skipped_results,
+        skips=skips,
+    )
 
 
 def organize_reaction_dir(
@@ -430,91 +375,26 @@ def organize_reaction_dir(
     *,
     notify_summary: bool = True,
 ) -> Dict[str, Any]:
-    organized_root = _resolved_organized_root(cfg, reaction_dir)
-    scope = _resolve_organize_scope(
+    return _organize_service.organize_reaction_dir(
         cfg,
-        organized_root=organized_root,
-        reaction_dir_raw=str(reaction_dir),
-        root_raw=None,
-    )
-    if scope is None:
-        return {
-            "action": "failed",
-            "reaction_dir": str(reaction_dir),
-            "reason": "invalid_reaction_dir",
-        }
-
-    plans, skips = scope
-    if not plans:
-        return _organize_no_plan_result(reaction_dir, skips)
-
-    summary = _apply_organize_plans(
-        plans,
-        skips,
-        organized_root,
-        cfg,
-        notify_summary=notify_summary,
-    )
-    organized = summary.get("_organized_results", [])
-    skipped_results = summary.get("_skipped_results", [])
-
-    if summary.get("failed"):
-        return _organize_failure_result(reaction_dir, summary)
-
-    organized_result = _organize_success_result(organized)
-    if organized_result is not None:
-        return organized_result
-    return _organize_skipped_result(
         reaction_dir,
-        skipped_results=skipped_results,
-        skips=skips,
+        notify_summary=notify_summary,
+        resolved_organized_root_fn=_resolved_organized_root,
+        resolve_scope_fn=_resolve_organize_scope,
+        apply_plans_fn=_apply_organize_plans,
     )
 
 
 def cmd_organize(args: Any) -> int:
-    cfg = load_config(args.config)
-    organized_root = Path(cfg.runtime.organized_root).resolve()
-
-    if getattr(args, "rebuild_index", False):
-        count = rebuild_index(organized_root)
-        tracking_count = reindex_job_locations(cfg)
-        _emit_organize(
-            {
-                "action": "rebuild_index",
-                "records_count": count,
-                "job_locations_count": tracking_count,
-            }
-        )
-        return 0
-
-    reaction_dir_raw = getattr(args, "reaction_dir", None)
-    root_raw = getattr(args, "root", None)
-
-    if reaction_dir_raw and root_raw:
-        logger.error("--reaction-dir and --root are mutually exclusive")
-        return 1
-
-    if not reaction_dir_raw and not root_raw:
-        logger.error("Either --reaction-dir or --root is required")
-        return 1
-
-    if reaction_dir_raw:
-        organized_root = _resolved_organized_root(cfg, str(reaction_dir_raw))
-
-    apply_mode = getattr(args, "apply", False)
-
-    scope = _resolve_organize_scope(
-        cfg,
-        organized_root=organized_root,
-        reaction_dir_raw=reaction_dir_raw,
-        root_raw=root_raw,
+    return _organize_service.cmd_organize(
+        args,
+        load_config_fn=load_config,
+        rebuild_index_fn=rebuild_index,
+        reindex_job_locations_fn=reindex_job_locations,
+        emit_organize_fn=_emit_organize,
+        resolved_organized_root_fn=_resolved_organized_root,
+        resolve_scope_fn=_resolve_organize_scope,
+        build_dry_run_summary_fn=_build_dry_run_summary,
+        cmd_apply_fn=_cmd_organize_apply,
+        log=logger,
     )
-    if scope is None:
-        return 1
-    plans, skips_list = scope
-
-    if not apply_mode:
-        _emit_organize(_build_dry_run_summary(plans, skips_list))
-        return 0
-
-    return _cmd_organize_apply(plans, skips_list, organized_root, cfg)

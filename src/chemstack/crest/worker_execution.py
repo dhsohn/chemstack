@@ -24,6 +24,7 @@ from chemstack.core.queue import child_execution as _child_execution
 from chemstack.core.queue import engine_execution as _engine_execution
 from chemstack.core.queue.types import QueueStatus
 from chemstack.core.queue.engine_execution import (
+    CancellableProcessExecution,
     EngineWorkerLifecycle,
     run_engine_worker_lifecycle,
 )
@@ -91,6 +92,9 @@ class WorkerRunnerDependencies:
     start_crest_job: Callable[..., Any]
     finalize_crest_job: Callable[..., CrestRunResult]
     terminate_process: Callable[[subprocess.Popen[str]], None]
+    wait_for_cancellable_process: Callable[..., Any]
+    sleep: Callable[[float], None]
+    cancel_check_interval_seconds: float
 
 
 @dataclass(frozen=True)
@@ -115,44 +119,114 @@ class WorkerExecutionDependencies:
     tracking: WorkerTrackingDependencies
 
 
-def build_worker_execution_dependencies(
+def build_worker_execution_dependencies_from_groups(
     *,
-    now_utc_iso_fn: Callable[[], str],
-    get_cancel_requested_fn: Callable[[str, str], bool],
-    start_crest_job_fn: Callable[..., Any],
-    finalize_crest_job_fn: Callable[..., CrestRunResult],
-    terminate_process_fn: Callable[[subprocess.Popen[str]], None],
-    write_running_state_fn: Callable[[Any, Any], None],
-    write_execution_artifacts_fn: Callable[[Any, CrestRunResult], None],
-    mark_completed_fn: Callable[..., Any],
-    mark_cancelled_fn: Callable[..., Any],
-    mark_failed_fn: Callable[..., Any],
-    upsert_job_record_fn: Callable[..., Any],
-    notify_job_started_fn: Callable[..., bool],
-    notify_job_finished_fn: Callable[..., bool],
+    timing: WorkerTimingDependencies,
+    queue: WorkerQueueDependencies,
+    runner: WorkerRunnerDependencies,
+    artifacts: WorkerArtifactDependencies,
+    tracking: WorkerTrackingDependencies,
 ) -> WorkerExecutionDependencies:
     return WorkerExecutionDependencies(
-        timing=WorkerTimingDependencies(now_utc_iso=now_utc_iso_fn),
-        queue=WorkerQueueDependencies(
-            get_cancel_requested=get_cancel_requested_fn,
-            mark_completed=mark_completed_fn,
-            mark_cancelled=mark_cancelled_fn,
-            mark_failed=mark_failed_fn,
-        ),
-        runner=WorkerRunnerDependencies(
-            start_crest_job=start_crest_job_fn,
-            finalize_crest_job=finalize_crest_job_fn,
-            terminate_process=terminate_process_fn,
-        ),
-        artifacts=WorkerArtifactDependencies(
-            write_running_state=write_running_state_fn,
-            write_execution_artifacts=write_execution_artifacts_fn,
-        ),
-        tracking=WorkerTrackingDependencies(
-            upsert_job_record=upsert_job_record_fn,
-            notify_job_started=notify_job_started_fn,
-            notify_job_finished=notify_job_finished_fn,
-        ),
+        timing=timing,
+        queue=queue,
+        runner=runner,
+        artifacts=artifacts,
+        tracking=tracking,
+    )
+
+
+def _legacy_dependency(legacy: dict[str, Any], key: str, default: Any) -> Any:
+    return legacy.pop(key, default)
+
+
+def build_worker_execution_dependencies(
+    *,
+    timing: WorkerTimingDependencies | None = None,
+    queue: WorkerQueueDependencies | None = None,
+    runner: WorkerRunnerDependencies | None = None,
+    artifacts: WorkerArtifactDependencies | None = None,
+    tracking: WorkerTrackingDependencies | None = None,
+    **legacy: Any,
+) -> WorkerExecutionDependencies:
+    if timing is None:
+        timing = WorkerTimingDependencies(
+            now_utc_iso=_legacy_dependency(legacy, "now_utc_iso_fn", now_utc_iso),
+        )
+    if queue is None:
+        queue = WorkerQueueDependencies(
+            get_cancel_requested=_legacy_dependency(
+                legacy,
+                "get_cancel_requested_fn",
+                get_cancel_requested,
+            ),
+            mark_completed=_legacy_dependency(legacy, "mark_completed_fn", mark_completed),
+            mark_cancelled=_legacy_dependency(legacy, "mark_cancelled_fn", mark_cancelled),
+            mark_failed=_legacy_dependency(legacy, "mark_failed_fn", mark_failed),
+        )
+    if runner is None:
+        runner = WorkerRunnerDependencies(
+            start_crest_job=_legacy_dependency(legacy, "start_crest_job_fn", start_crest_job),
+            finalize_crest_job=_legacy_dependency(
+                legacy,
+                "finalize_crest_job_fn",
+                finalize_crest_job,
+            ),
+            terminate_process=_legacy_dependency(
+                legacy,
+                "terminate_process_fn",
+                _terminate_process,
+            ),
+            wait_for_cancellable_process=_legacy_dependency(
+                legacy,
+                "wait_for_cancellable_process_fn",
+                _queue_execution.wait_for_cancellable_process,
+            ),
+            sleep=_legacy_dependency(legacy, "sleep_fn", time.sleep),
+            cancel_check_interval_seconds=float(
+                _legacy_dependency(
+                    legacy,
+                    "cancel_check_interval_seconds",
+                    CANCEL_CHECK_INTERVAL_SECONDS,
+                )
+            ),
+        )
+    if artifacts is None:
+        artifacts = WorkerArtifactDependencies(
+            write_running_state=_legacy_dependency(
+                legacy,
+                "write_running_state_fn",
+                _write_running_state,
+            ),
+            write_execution_artifacts=_legacy_dependency(
+                legacy,
+                "write_execution_artifacts_fn",
+                _write_execution_artifacts,
+            ),
+        )
+    if tracking is None:
+        tracking = WorkerTrackingDependencies(
+            upsert_job_record=_legacy_dependency(legacy, "upsert_job_record_fn", upsert_job_record),
+            notify_job_started=_legacy_dependency(
+                legacy,
+                "notify_job_started_fn",
+                notify_job_started,
+            ),
+            notify_job_finished=_legacy_dependency(
+                legacy,
+                "notify_job_finished_fn",
+                notify_job_finished,
+            ),
+        )
+    if legacy:
+        names = ", ".join(sorted(legacy))
+        raise TypeError(f"unexpected dependency override(s): {names}")
+    return build_worker_execution_dependencies_from_groups(
+        timing=timing,
+        queue=queue,
+        runner=runner,
+        artifacts=artifacts,
+        tracking=tracking,
     )
 
 
@@ -163,21 +237,7 @@ class WorkerShutdownRequested(RuntimeError):
 
 
 def default_worker_execution_dependencies() -> WorkerExecutionDependencies:
-    return build_worker_execution_dependencies(
-        now_utc_iso_fn=now_utc_iso,
-        get_cancel_requested_fn=get_cancel_requested,
-        start_crest_job_fn=start_crest_job,
-        finalize_crest_job_fn=finalize_crest_job,
-        terminate_process_fn=_terminate_process,
-        write_running_state_fn=_write_running_state,
-        write_execution_artifacts_fn=_write_execution_artifacts,
-        mark_completed_fn=mark_completed,
-        mark_cancelled_fn=mark_cancelled,
-        mark_failed_fn=mark_failed,
-        upsert_job_record_fn=upsert_job_record,
-        notify_job_started_fn=notify_job_started,
-        notify_job_finished_fn=notify_job_finished,
-    )
+    return build_worker_execution_dependencies()
 
 
 def build_worker_child_command(
@@ -398,37 +458,39 @@ def _run_crest_job_for_entry(
 ) -> CrestRunResult:
     queue_deps = dependencies.queue
     runner_deps = dependencies.runner
-    try:
-        running = runner_deps.start_crest_job(
-            cfg,
-            job_dir=context.job_dir,
-            selected_xyz=context.selected_xyz,
-        )
 
-        def raise_shutdown(_running: Any) -> None:
-            raise WorkerShutdownRequested(context)
+    def raise_shutdown(_running: Any) -> None:
+        raise WorkerShutdownRequested(context)
 
-        return _queue_execution.wait_for_cancellable_process(
-            running,
-            finalize_fn=runner_deps.finalize_crest_job,
-            terminate_process_fn=runner_deps.terminate_process,
+    return _engine_execution.run_cancellable_process_execution(
+        CancellableProcessExecution(
+            start_job=lambda: runner_deps.start_crest_job(
+                cfg,
+                job_dir=context.job_dir,
+                selected_xyz=context.selected_xyz,
+            ),
+            finalize_job=runner_deps.finalize_crest_job,
+            terminate_process=runner_deps.terminate_process,
+            build_failure_result=lambda exc: _failed_result_from_exception(
+                context,
+                exc=exc,
+                failure_time=dependencies.timing.now_utc_iso(),
+            ),
+            wait_for_cancellable_process=runner_deps.wait_for_cancellable_process,
             should_cancel=lambda: queue_deps.get_cancel_requested(
                 str(queue_root),
                 context.entry.queue_id,
             ),
             shutdown_requested=shutdown_requested,
             on_shutdown=raise_shutdown,
-            sleep_fn=time.sleep,
-            poll_interval_seconds=CANCEL_CHECK_INTERVAL_SECONDS,
+            sleep=runner_deps.sleep,
+            poll_interval_seconds=runner_deps.cancel_check_interval_seconds,
+            should_reraise_exception=lambda exc: isinstance(
+                exc,
+                WorkerShutdownRequested,
+            ),
         )
-    except Exception as exc:
-        if isinstance(exc, WorkerShutdownRequested):
-            raise
-        return _failed_result_from_exception(
-            context,
-            exc=exc,
-            failure_time=dependencies.timing.now_utc_iso(),
-        )
+    )
 
 
 def _finalize_processed_entry(

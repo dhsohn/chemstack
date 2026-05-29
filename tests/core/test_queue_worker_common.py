@@ -8,6 +8,7 @@ from typing import Any
 
 import pytest
 
+from chemstack.core.queue import child_process as child_process_helpers
 from chemstack.core.queue import processes as process_helpers
 from chemstack.core.queue import worker as worker_common
 
@@ -53,7 +54,10 @@ def test_resolve_admission_root_and_limit_prefer_resolved_values() -> None:
 
 
 def test_resolve_admission_limit_falls_back_and_handles_invalid_values() -> None:
-    assert worker_common.resolve_admission_limit(_cfg(resolved_admission_limit=0, max_concurrent=7)) == 7
+    assert (
+        worker_common.resolve_admission_limit(_cfg(resolved_admission_limit=0, max_concurrent=7))
+        == 7
+    )
     assert worker_common.resolve_admission_limit(_cfg(resolved_admission_limit="bad")) == 1
 
 
@@ -130,6 +134,52 @@ def test_dequeue_next_across_roots_returns_none_when_selected_root_dequeues_empt
         )
         is None
     )
+
+
+def test_queue_entry_by_id_scans_queue_with_injected_lister(tmp_path: Path) -> None:
+    entries = [_entry("q-1"), _entry("q-2")]
+
+    assert (
+        worker_common.queue_entry_by_id(
+            tmp_path,
+            "q-2",
+            list_queue_fn=lambda root: entries if root == tmp_path else [],
+        )
+        is entries[1]
+    )
+    assert (
+        worker_common.queue_entry_by_id(
+            tmp_path,
+            "missing",
+            list_queue_fn=lambda _root: entries,
+        )
+        is None
+    )
+
+
+def test_start_background_process_uses_detached_devnull_popen(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[dict[str, object]] = []
+    expected = object()
+
+    def fake_popen(command: list[str], **kwargs: object) -> object:
+        calls.append({"command": command, **kwargs})
+        return expected
+
+    monkeypatch.setattr(child_process_helpers.subprocess, "Popen", fake_popen)
+
+    assert worker_common.start_background_process(("python", "-m", "worker")) is expected
+    assert calls == [
+        {
+            "command": ["python", "-m", "worker"],
+            "stdout": child_process_helpers.subprocess.DEVNULL,
+            "stderr": child_process_helpers.subprocess.DEVNULL,
+            "stdin": child_process_helpers.subprocess.DEVNULL,
+            "start_new_session": True,
+            "text": True,
+        }
+    ]
 
 
 def test_fill_worker_slots_starts_until_capacity_and_reports_processed() -> None:
@@ -292,7 +342,9 @@ def test_pid_helpers_handle_alive_missing_and_stale_pids(
     assert process_helpers.read_live_pid_file(json_pid_path) == 123
 
     reused_pid_path = tmp_path / "reused-worker.pid"
-    reused_pid_path.write_text(json.dumps({"pid": 123, "process_start_ticks": 111}), encoding="utf-8")
+    reused_pid_path.write_text(
+        json.dumps({"pid": 123, "process_start_ticks": 111}), encoding="utf-8"
+    )
     monkeypatch.setattr(process_helpers, "_process_start_ticks", lambda _pid: 222)
     assert process_helpers.read_live_pid_file(reused_pid_path) is None
     assert not reused_pid_path.exists()

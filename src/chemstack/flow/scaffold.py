@@ -5,16 +5,21 @@ from pathlib import Path
 from typing import Any
 
 from chemstack.cli_errors import emit_error
+from chemstack.flow.templates import (
+    CONFORMER_SCREENING_SHORTCUT,
+    CONFORMER_SCREENING_TEMPLATE_ID,
+    REACTION_TS_SEARCH_TEMPLATE_ID,
+    STANDARD_CONFORMER_INPUT_FILENAME,
+    STANDARD_REACTION_PRODUCT_FILENAME,
+    STANDARD_REACTION_REACTANT_FILENAME,
+    WORKFLOW_TEMPLATE_IDS,
+    workflow_template_shortcut,
+)
 
-_WORKFLOW_TYPES = frozenset({"reaction_ts_search", "conformer_screening"})
 _CREST_MODE_ALIASES = {
     "std": "standard",
     "standard": "standard",
     "nci": "nci",
-}
-_SHORTCUT_NAMES = {
-    "reaction_ts_search": "ts_search",
-    "conformer_screening": "conformer_search",
 }
 
 
@@ -44,15 +49,15 @@ def _normalize_crest_mode(value: object) -> str:
 
 
 def _shortcut_name(workflow_type: str) -> str:
-    return _SHORTCUT_NAMES.get(workflow_type, "workflow")
+    return workflow_template_shortcut(workflow_type)
 
 
 def _manifest(workflow_type: str, crest_mode: str) -> str:
-    if workflow_type == "reaction_ts_search":
+    if workflow_type == REACTION_TS_SEARCH_TEMPLATE_ID:
         return "\n".join(
             [
                 "# chemstack workflow scaffold manifest",
-                "workflow_type: reaction_ts_search",
+                f"workflow_type: {REACTION_TS_SEARCH_TEMPLATE_ID}",
                 "# Change to `nci` when you want NCI-mode CREST stages.",
                 f"crest_mode: {crest_mode}",
                 "# Optional CREST job overrides; uncomment when GFN2 pre-opt changes topology.",
@@ -79,11 +84,11 @@ def _manifest(workflow_type: str, crest_mode: str) -> str:
                 "",
             ]
         )
-    if workflow_type == "conformer_screening":
+    if workflow_type == CONFORMER_SCREENING_TEMPLATE_ID:
         return "\n".join(
             [
                 "# chemstack workflow scaffold manifest",
-                "workflow_type: conformer_screening",
+                f"workflow_type: {CONFORMER_SCREENING_TEMPLATE_ID}",
                 "# Change to `nci` when you want NCI-mode CREST stages.",
                 f"crest_mode: {crest_mode}",
                 "# Optional CREST job overrides; uncomment when GFN2 pre-opt changes topology.",
@@ -107,24 +112,24 @@ def _manifest(workflow_type: str, crest_mode: str) -> str:
 
 
 def _readme(root: Path, workflow_type: str) -> str:
-    if workflow_type == "reaction_ts_search":
+    if workflow_type == REACTION_TS_SEARCH_TEMPLATE_ID:
         lines = [
-            "- Replace `reactant.xyz` and `product.xyz` with your precomplex inputs.",
+            f"- Replace `{STANDARD_REACTION_REACTANT_FILENAME}` and `{STANDARD_REACTION_PRODUCT_FILENAME}` with your precomplex inputs.",
             "- Adjust `flow.yaml` before materializing the workflow.",
             "- Change `crest_mode: standard` to `crest_mode: nci` when you want NCI-mode CREST stages.",
             "- Put CREST overrides under `crest:` in `flow.yaml`, for example "
             "`gfn: ff` or `no_preopt: true` when GFN2 pre-opt changes topology.",
             "- Use `endpoint_pairing:` when multiple CREST conformers create bad reactant/product pairings before xTB.",
-            "- reaction_ts_search expands all selected reactant x product CREST pairs into xTB path searches, waits for the xTB phase to finish, and then batches matching ORCA OptTS child jobs from retained ts_guess artifacts.",
+            f"- {REACTION_TS_SEARCH_TEMPLATE_ID} expands all selected reactant x product CREST pairs into xTB path searches, waits for the xTB phase to finish, and then batches matching ORCA OptTS child jobs from retained ts_guess artifacts.",
         ]
-    elif workflow_type == "conformer_screening":
+    elif workflow_type == CONFORMER_SCREENING_TEMPLATE_ID:
         lines = [
-            "- Replace `input.xyz` with the molecule you want to screen.",
+            f"- Replace `{STANDARD_CONFORMER_INPUT_FILENAME}` with the molecule you want to screen.",
             "- Adjust `flow.yaml` before materializing the workflow.",
             "- Change `crest_mode: standard` to `crest_mode: nci` when you want NCI-mode CREST stages.",
             "- Put CREST overrides under `crest:` in `flow.yaml`, for example "
             "`gfn: ff` or `no_preopt: true` when GFN2 pre-opt changes topology.",
-            "- conformer_search hands off up to 20 retained CREST conformers to ORCA child jobs by default.",
+            f"- {CONFORMER_SCREENING_SHORTCUT} hands off up to 20 retained CREST conformers to ORCA child jobs by default.",
         ]
     else:
         raise ValueError(f"Unsupported workflow scaffold type: {workflow_type}")
@@ -151,7 +156,7 @@ def cmd_scaffold(args: Any) -> int:
         return 1
 
     workflow_type = str(getattr(args, "workflow_type", "")).strip().lower()
-    if workflow_type not in _WORKFLOW_TYPES:
+    if workflow_type not in WORKFLOW_TEMPLATE_IDS:
         emit_error(f"unsupported workflow scaffold type: {workflow_type}")
         return 1
 
@@ -169,16 +174,28 @@ def cmd_scaffold(args: Any) -> int:
     created: list[str] = []
     skipped: list[str] = []
     targets: list[tuple[Path, str, str]]
-    if workflow_type == "reaction_ts_search":
+    if workflow_type == REACTION_TS_SEARCH_TEMPLATE_ID:
         targets = [
-            (root / "reactant.xyz", _xyz("chemstack workflow scaffold reactant"), "reactant.xyz"),
-            (root / "product.xyz", _xyz("chemstack workflow scaffold product", delta=0.05), "product.xyz"),
+            (
+                root / STANDARD_REACTION_REACTANT_FILENAME,
+                _xyz("chemstack workflow scaffold reactant"),
+                STANDARD_REACTION_REACTANT_FILENAME,
+            ),
+            (
+                root / STANDARD_REACTION_PRODUCT_FILENAME,
+                _xyz("chemstack workflow scaffold product", delta=0.05),
+                STANDARD_REACTION_PRODUCT_FILENAME,
+            ),
             (root / "flow.yaml", _manifest(workflow_type, crest_mode), "flow.yaml"),
             (root / "README.md", _readme(root, workflow_type), "README.md"),
         ]
     else:
         targets = [
-            (root / "input.xyz", _xyz("chemstack workflow scaffold input"), "input.xyz"),
+            (
+                root / STANDARD_CONFORMER_INPUT_FILENAME,
+                _xyz("chemstack workflow scaffold input"),
+                STANDARD_CONFORMER_INPUT_FILENAME,
+            ),
             (root / "flow.yaml", _manifest(workflow_type, crest_mode), "flow.yaml"),
             (root / "README.md", _readme(root, workflow_type), "README.md"),
         ]

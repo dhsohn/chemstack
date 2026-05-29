@@ -51,7 +51,9 @@ from chemstack.core.queue.worker import (
     reserve_engine_queue_worker_slot,
     resolve_admission_root,
     shutdown_child_process_with_grace,
+    start_background_process,
     terminate_process_group,
+    queue_entry_by_id as common_queue_entry_by_id,
 )
 from chemstack.core.utils import now_utc_iso
 
@@ -161,10 +163,7 @@ def dequeue_next_entry(cfg: Any) -> tuple[Path, Any] | None:
 
 
 def _queue_entry_by_id(queue_root: Path | str, queue_id: str) -> Any | None:
-    for entry in list_queue(queue_root):
-        if entry.queue_id == queue_id:
-            return entry
-    return None
+    return common_queue_entry_by_id(queue_root, queue_id, list_queue_fn=list_queue)
 
 
 def _admission_root(cfg: Any) -> str:
@@ -179,12 +178,12 @@ def _coerce_mapping(value: Any) -> dict[str, Any]:
     return _queue_execution.coerce_mapping(value)
 
 
-_job_dir = _worker_execution._job_dir
-_selected_xyz = _worker_execution._selected_xyz
-_matching_state = _worker_execution._matching_state
-_job_type = _worker_execution._job_type
-_reaction_key = _worker_execution._reaction_key
-_input_summary = _worker_execution._input_summary
+_worker_execution_hooks = _worker_execution.default_worker_execution_hooks()
+_job_dir = _worker_execution_hooks.job_dir
+_selected_xyz = _worker_execution_hooks.selected_xyz
+_job_type = _worker_execution_hooks.job_type
+_reaction_key = _worker_execution_hooks.reaction_key
+_input_summary = _worker_execution_hooks.input_summary
 
 
 def _write_execution_artifacts(
@@ -367,19 +366,14 @@ def _start_background_job_process(
     admission_root: str,
     admission_token: str,
 ) -> subprocess.Popen[str]:
-    return subprocess.Popen(
+    return start_background_process(
         _worker_execution.build_worker_child_command(
             config_path=config_path,
             queue_root=queue_root,
             queue_id=entry.queue_id,
             admission_root=admission_root,
             admission_token=admission_token,
-        ),
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        stdin=subprocess.DEVNULL,
-        start_new_session=True,
-        text=True,
+        )
     )
 
 

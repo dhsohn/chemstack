@@ -7,6 +7,7 @@ from typing import Any, Sequence
 from chemstack.core.activity_icons import activity_status_icon
 from chemstack.core.statuses import QUEUE_ACTIVE_STATUSES
 from chemstack.core.utils import normalize_text
+from chemstack.flow.templates import workflow_template_label
 
 _ORCA_SELECTED_INP_HINTS = (
     ("neb", "NEB"),
@@ -77,11 +78,7 @@ def _queue_status_icon(item: dict[str, Any]) -> str:
 
 
 def _queue_template_label(template_name: Any) -> str:
-    normalized = normalize_text(template_name).lower()
-    return {
-        "reaction_ts_search": "ts_search",
-        "conformer_screening": "conformer_search",
-    }.get(normalized, normalize_text(template_name) or "workflow")
+    return workflow_template_label(template_name)
 
 
 def _queue_task_label(task_kind: Any) -> str:

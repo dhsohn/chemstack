@@ -9,6 +9,7 @@ from typing import Any, Callable, Generic, MutableMapping, TypeVar
 
 from chemstack.core.admission import reserve_slot
 
+from .child_execution import find_queue_entry_by_id
 from .dependencies import ChildQueueWorkerDeps
 from .child_process import (
     build_background_worker_command,
@@ -16,6 +17,7 @@ from .child_process import (
     reconcile_orphaned_child_queue_entries,
     request_job_cancellation,
     shutdown_child_process_with_grace,
+    start_background_process,
     start_background_job_process,
     status_matches,
 )
@@ -53,6 +55,7 @@ __all__ = [
     "live_queue_ids_for_slots",
     "pid_is_alive",
     "pop_completed_worker_jobs",
+    "queue_entry_by_id",
     "read_worker_pid_file",
     "reconcile_orphaned_child_queue_entries",
     "remove_worker_pid_file",
@@ -65,6 +68,7 @@ __all__ = [
     "resolve_admission_root",
     "resolve_worker_auto_organize",
     "shutdown_child_process_with_grace",
+    "start_background_process",
     "start_background_job_process",
     "status_matches",
     "terminate_process_group",
@@ -209,6 +213,19 @@ def dequeue_next_across_roots(
     if entry is None:
         return None
     return selected_root, entry
+
+
+def queue_entry_by_id(
+    queue_root: str | Path,
+    queue_id: str,
+    *,
+    list_queue_fn: Callable[[str | Path], Any],
+) -> Any | None:
+    return find_queue_entry_by_id(
+        queue_root,
+        queue_id,
+        list_queue_fn=list_queue_fn,
+    )
 
 
 def reserve_dequeued_entry(
@@ -597,6 +614,7 @@ class ChildProcessQueueWorker(QueueWorkerLoop):
 
     def _reconcile_worker_state(self) -> None:
         raise NotImplementedError
+
 
 def install_shutdown_signal_handlers(request_shutdown: Callable[[], None]) -> None:
     _install_shutdown_signal_handlers(

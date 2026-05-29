@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import fields
 from pathlib import Path
 from typing import Any
 
@@ -9,7 +10,11 @@ import pytest
 from chemstack.flow import orchestration
 from chemstack.flow import _orchestration_dep_builders as dep_builders
 from chemstack.flow._orchestration_builders import _copy_input_impl
-from chemstack.flow._orchestration_deps import orchestration_deps
+from chemstack.flow._orchestration_deps import (
+    _ORCHESTRATION_STAGE_DEP_REGISTRY,
+    OrchestrationStageDeps,
+    orchestration_deps,
+)
 
 
 def test_copy_input_impl_copies_file_and_raises_for_missing_source(tmp_path: Path) -> None:
@@ -35,7 +40,9 @@ def test_orchestration_deps_use_explicit_overrides_not_public_module_fallback(
     monkeypatch.setattr(orchestration, "now_utc_iso", fake_now)
 
     assert orchestration_deps().persistence.now_utc_iso is not fake_now
-    assert orchestration_deps(overrides={"now_utc_iso": fake_now}).persistence.now_utc_iso is fake_now
+    assert (
+        orchestration_deps(overrides={"now_utc_iso": fake_now}).persistence.now_utc_iso is fake_now
+    )
 
 
 def test_orchestration_stage_deps_passthroughs_delegate_to_grouped_deps() -> None:
@@ -49,6 +56,14 @@ def test_orchestration_stage_deps_passthroughs_delegate_to_grouped_deps() -> Non
     assert deps.stages._append_unique_artifact is deps.stages.runtime._append_unique_artifact
     with pytest.raises(AttributeError, match="OrchestrationStageDeps"):
         getattr(deps.stages, "_not_a_stage_dep")
+
+
+def test_stage_dep_registry_matches_group_dataclasses() -> None:
+    stage_group_names = {field.name for field in fields(OrchestrationStageDeps)}
+
+    for group in _ORCHESTRATION_STAGE_DEP_REGISTRY:
+        assert group.name in stage_group_names
+        assert tuple(field.name for field in fields(group.deps_type)) == group.dep_names
 
 
 def test_bound_stage_deps_reuse_lazy_orchestration_context(

@@ -10,6 +10,7 @@ from chemstack.core.config.files import (
     shared_workflow_root_from_config,
 )
 from chemstack.core.utils.coercion import normalize_text
+from chemstack.flow.templates import normalize_workflow_template_id
 
 
 def _dependency(deps: Any | None, name: str, fallback: Any) -> Any:
@@ -41,9 +42,8 @@ def _discover_workflow_root(explicit: str | Path | None) -> str | None:
 
 
 def _effective_shared_config_text(args: argparse.Namespace) -> str:
-    return (
-        normalize_text(getattr(args, "chemstack_config", None))
-        or normalize_text(getattr(args, "config", None))
+    return normalize_text(getattr(args, "chemstack_config", None)) or normalize_text(
+        getattr(args, "config", None)
     )
 
 
@@ -99,10 +99,7 @@ def _shared_chemstack_config(args: Any, *, deps: Any | None = None) -> str | Non
 
 def _normalize_workflow_type(value: Any, *, deps: Any | None = None) -> str:
     normalize = _dependency(deps, "_normalize_text", normalize_text)
-    text = normalize(value).lower()
-    if text in {"reaction_ts_search", "conformer_screening"}:
-        return text
-    raise ValueError("workflow_type must be one of: reaction_ts_search, conformer_screening")
+    return normalize_workflow_template_id(normalize(value))
 
 
 def _configure_orca_logging(args: argparse.Namespace) -> None:

@@ -64,6 +64,13 @@ def _bind_with_deps(deps_provider: _LazyOrchestrationDeps, func: AnyCallable) ->
     return call
 
 
+def _bind_many_with_deps(
+    deps_provider: _LazyOrchestrationDeps,
+    items: Mapping[str, AnyCallable],
+) -> dict[str, AnyCallable]:
+    return {name: _bind_with_deps(deps_provider, fallback) for name, fallback in items.items()}
+
+
 def _coerce_mapping_fallback(value: Any) -> dict[str, Any]:
     from chemstack.core.utils import mapping_or_empty
 
@@ -325,20 +332,14 @@ def _stage_materialization_fallbacks(
         append_reaction_xtb_stages_impl,
     )
 
-    return {
-        "_append_crest_orca_stages": _bind_with_deps(
-            deps_provider,
-            append_crest_orca_stages_impl,
-        ),
-        "_append_reaction_orca_stages": _bind_with_deps(
-            deps_provider,
-            append_reaction_orca_stages_impl,
-        ),
-        "_append_reaction_xtb_stages": _bind_with_deps(
-            deps_provider,
-            append_reaction_xtb_stages_impl,
-        ),
-    }
+    return _bind_many_with_deps(
+        deps_provider,
+        {
+            "_append_crest_orca_stages": append_crest_orca_stages_impl,
+            "_append_reaction_orca_stages": append_reaction_orca_stages_impl,
+            "_append_reaction_xtb_stages": append_reaction_xtb_stages_impl,
+        },
+    )
 
 
 def _stage_runtime_fallbacks(deps_provider: _LazyOrchestrationDeps) -> dict[str, Any]:
@@ -365,23 +366,25 @@ def _stage_runtime_fallbacks(deps_provider: _LazyOrchestrationDeps) -> dict[str,
     from ._orchestration_stage_runtime_xtb_sync import sync_xtb_stage_impl
 
     return {
-        "_append_unique_artifact": _bind_with_deps(deps_provider, append_unique_artifact_impl),
-        "_completed_crest_roles": _bind_with_deps(deps_provider, completed_crest_roles_impl),
-        "_completed_crest_stage": _bind_with_deps(deps_provider, completed_crest_stage_impl),
-        "_ensure_crest_job_dir": _bind_with_deps(deps_provider, ensure_crest_job_dir_impl),
-        "_ensure_xtb_job_dir": _bind_with_deps(deps_provider, ensure_xtb_job_dir_impl),
-        "_sync_crest_stage": _bind_with_deps(deps_provider, sync_crest_stage_impl),
-        "_sync_orca_stage": _bind_with_deps(deps_provider, sync_orca_stage_impl),
-        "_sync_xtb_stage": _bind_with_deps(deps_provider, sync_xtb_stage_impl),
-        "_write_xtb_path_job": _bind_with_deps(deps_provider, write_xtb_path_job_impl),
-        "_xtb_attempt_record": _bind_with_deps(deps_provider, xtb_attempt_record_impl),
-        "_xtb_attempt_rows": _bind_with_deps(deps_provider, xtb_attempt_rows_impl),
-        "_xtb_current_attempt_number": _bind_with_deps(
+        **_bind_many_with_deps(
             deps_provider,
-            xtb_current_attempt_number_impl,
+            {
+                "_append_unique_artifact": append_unique_artifact_impl,
+                "_completed_crest_roles": completed_crest_roles_impl,
+                "_completed_crest_stage": completed_crest_stage_impl,
+                "_ensure_crest_job_dir": ensure_crest_job_dir_impl,
+                "_ensure_xtb_job_dir": ensure_xtb_job_dir_impl,
+                "_sync_crest_stage": sync_crest_stage_impl,
+                "_sync_orca_stage": sync_orca_stage_impl,
+                "_sync_xtb_stage": sync_xtb_stage_impl,
+                "_write_xtb_path_job": write_xtb_path_job_impl,
+                "_xtb_attempt_record": xtb_attempt_record_impl,
+                "_xtb_attempt_rows": xtb_attempt_rows_impl,
+                "_xtb_current_attempt_number": xtb_current_attempt_number_impl,
+                "_xtb_handoff_status": xtb_handoff_status_impl,
+                "_xtb_path_retry_limit": xtb_path_retry_limit_impl,
+            },
         ),
-        "_xtb_handoff_status": _bind_with_deps(deps_provider, xtb_handoff_status_impl),
-        "_xtb_path_retry_limit": _bind_with_deps(deps_provider, xtb_path_retry_limit_impl),
         "_xtb_retry_recipe": xtb_retry_recipe_impl,
     }
 
@@ -399,24 +402,20 @@ def _stage_support_fallbacks(deps_provider: _LazyOrchestrationDeps) -> dict[str,
     )
 
     return {
-        "_clear_reaction_xtb_handoff_error_if_recovering": (
-            _bind_with_deps(
-                deps_provider,
-                clear_reaction_xtb_handoff_error_if_recovering_impl,
-            )
-        ),
-        "_load_config_organized_root": _bind_with_deps(
+        **_bind_many_with_deps(
             deps_provider,
-            load_config_organized_root_impl,
+            {
+                "_clear_reaction_xtb_handoff_error_if_recovering": (
+                    clear_reaction_xtb_handoff_error_if_recovering_impl
+                ),
+                "_load_config_organized_root": load_config_organized_root_impl,
+                "_load_config_root": load_config_root_impl,
+                "_reaction_orca_source_candidate_path": reaction_orca_source_candidate_path_impl,
+                "_reaction_ts_guess_error": reaction_ts_guess_error_impl,
+                "_submission_target": submission_target_impl,
+            },
         ),
-        "_load_config_root": _bind_with_deps(deps_provider, load_config_root_impl),
-        "_reaction_orca_source_candidate_path": _bind_with_deps(
-            deps_provider,
-            reaction_orca_source_candidate_path_impl,
-        ),
-        "_reaction_ts_guess_error": _bind_with_deps(deps_provider, reaction_ts_guess_error_impl),
         "_stage_metadata": stage_metadata_impl,
-        "_submission_target": _bind_with_deps(deps_provider, submission_target_impl),
         "_task_payload_dict": task_payload_dict_impl,
     }
 
@@ -470,28 +469,22 @@ def _build_stage_deps(
     deps_provider: _LazyOrchestrationDeps | None = None,
 ) -> OrchestrationStageDeps:
     from ._orchestration_deps import (
-        _ORCHESTRATION_STAGE_DEP_GROUPS,
-        OrchestrationStageBuilderDeps,
+        _ORCHESTRATION_STAGE_DEP_REGISTRY,
         OrchestrationStageDeps,
-        OrchestrationStageMaterializationDeps,
-        OrchestrationStageRuntimeDeps,
-        OrchestrationStageSupportDeps,
-        OrchestrationStageWorkflowDeps,
     )
 
     provider = _deps_provider(overrides, deps_provider)
     resolved = _apply_overrides(overrides, _stage_dep_fallbacks(overrides, provider))
     resolved["_stage_failure_is_recoverable"] = _stage_failure_is_recoverable_override(overrides)
 
-    def pick(group_name: str) -> dict[str, Any]:
-        return {name: resolved[name] for name in _ORCHESTRATION_STAGE_DEP_GROUPS[group_name]}
+    def build_group(dep_names: tuple[str, ...], deps_type: type[Any]) -> Any:
+        return deps_type(**{name: resolved[name] for name in dep_names})
 
     return OrchestrationStageDeps(
-        builders=OrchestrationStageBuilderDeps(**pick("builders")),
-        materialization=OrchestrationStageMaterializationDeps(**pick("materialization")),
-        runtime=OrchestrationStageRuntimeDeps(**pick("runtime")),
-        support=OrchestrationStageSupportDeps(**pick("support")),
-        workflow=OrchestrationStageWorkflowDeps(**pick("workflow")),
+        **{
+            group.name: build_group(group.dep_names, group.deps_type)
+            for group in _ORCHESTRATION_STAGE_DEP_REGISTRY
+        },
     )
 
 

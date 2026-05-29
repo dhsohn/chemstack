@@ -106,3 +106,71 @@ def test_sync_terminal_result_runs_common_terminal_sequence() -> None:
 
     assert calls == ["write", "mark", "sync", "notify:organized", "emit:organized"]
     assert outcome == ("outcome", "organized")
+
+
+def test_run_cancellable_process_execution_waits_and_clears_running_job() -> None:
+    running = SimpleNamespace(process=SimpleNamespace())
+    registered: list[Any | None] = []
+    wait_calls: list[tuple[Any, dict[str, Any]]] = []
+
+    def wait_for_process(actual_running: Any, **kwargs: Any) -> str:
+        wait_calls.append((actual_running, kwargs))
+        return "completed"
+
+    outcome = engine_execution.run_cancellable_process_execution(
+        engine_execution.CancellableProcessExecution(
+            start_job=lambda: running,
+            finalize_job=lambda *_args, **_kwargs: "finalized",
+            terminate_process=lambda _proc: None,
+            build_failure_result=lambda exc: f"failed:{exc}",
+            wait_for_cancellable_process=wait_for_process,
+            should_cancel=lambda: False,
+            sleep=lambda _seconds: None,
+            poll_interval_seconds=0.25,
+            check_cancel_before_poll=True,
+            register_running_job=registered.append,
+        )
+    )
+
+    assert outcome == "completed"
+    assert registered == [running, None]
+    assert wait_calls[0][0] is running
+    assert wait_calls[0][1]["check_cancel_before_poll"] is True
+    assert wait_calls[0][1]["poll_interval_seconds"] == 0.25
+
+
+def test_run_cancellable_process_execution_builds_failure_result() -> None:
+    outcome = engine_execution.run_cancellable_process_execution(
+        engine_execution.CancellableProcessExecution(
+            start_job=lambda: (_ for _ in ()).throw(RuntimeError("boom")),
+            finalize_job=lambda *_args, **_kwargs: "finalized",
+            terminate_process=lambda _proc: None,
+            build_failure_result=lambda exc: f"failed:{exc}",
+        )
+    )
+
+    assert outcome == "failed:boom"
+
+
+def test_run_cancellable_process_execution_can_reraise_policy_exceptions() -> None:
+    class ShutdownRequested(RuntimeError):
+        pass
+
+    def wait_for_process(_running: Any, **_kwargs: Any) -> str:
+        raise ShutdownRequested("shutdown")
+
+    try:
+        engine_execution.run_cancellable_process_execution(
+            engine_execution.CancellableProcessExecution(
+                start_job=lambda: SimpleNamespace(process=SimpleNamespace()),
+                finalize_job=lambda *_args, **_kwargs: "finalized",
+                terminate_process=lambda _proc: None,
+                build_failure_result=lambda exc: f"failed:{exc}",
+                wait_for_cancellable_process=wait_for_process,
+                should_reraise_exception=lambda exc: isinstance(exc, ShutdownRequested),
+            )
+        )
+    except ShutdownRequested as exc:
+        assert str(exc) == "shutdown"
+    else:
+        raise AssertionError("expected shutdown")

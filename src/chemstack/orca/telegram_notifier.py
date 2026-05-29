@@ -5,45 +5,26 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from chemstack.core.activity_icons import activity_status_icon
 from chemstack.core.notifications import (
-    MAX_TELEGRAM_MESSAGE_LENGTH,
     build_telegram_transport,
     escape_html,
-    split_telegram_message,
+    send_telegram_message,
 )
 
 if TYPE_CHECKING:
     from .config import TelegramConfig
     from .dft_monitor import ScanReport
-    from .types import QueueEnqueuedNotification, RetryNotification, RunFinishedNotification, RunStartedNotification
+    from .types import (
+        QueueEnqueuedNotification,
+        RetryNotification,
+        RunFinishedNotification,
+        RunStartedNotification,
+    )
 
 logger = logging.getLogger(__name__)
-
-_MAX_MESSAGE_LENGTH = MAX_TELEGRAM_MESSAGE_LENGTH
-
-
-def _send_result_ok(result: Any) -> bool:
-    return bool(getattr(result, "sent", False) or getattr(result, "skipped", False))
-
-
-def _log_send_failure(result: Any) -> None:
-    status_code = getattr(result, "status_code", None)
-    error = getattr(result, "error", "")
-    response_text = getattr(result, "response_text", "")
-    if status_code is not None:
-        logger.warning(
-            "telegram_send_failed: status=%s error=%s body=%s",
-            status_code,
-            error,
-            response_text,
-        )
-    elif error:
-        logger.warning("telegram_send_failed: %s", error)
-    else:
-        logger.warning("telegram_send_failed: unknown_error")
 
 
 def send_message(
@@ -53,27 +34,14 @@ def send_message(
     parse_mode: str | None = "HTML",
 ) -> bool:
     """Send a Telegram message. Returns True on success."""
-    if not config.enabled:
-        logger.debug("telegram_notifier_disabled")
-        return False
-
-    chunks = split_telegram_message(text, limit=_MAX_MESSAGE_LENGTH)
-    if not chunks:
-        return False
-
-    transport = build_telegram_transport(config)
-    for chunk in chunks:
-        result = transport.send_text(chunk, parse_mode=parse_mode)
-        if _send_result_ok(result):
-            continue
-        if parse_mode:
-            fallback_result = transport.send_text(chunk, parse_mode=None)
-            if _send_result_ok(fallback_result):
-                continue
-            result = fallback_result
-        _log_send_failure(result)
-        return False
-    return True
+    return send_telegram_message(
+        config,
+        text,
+        parse_mode=parse_mode,
+        skipped_ok=True,
+        logger=logger,
+        transport_factory=build_telegram_transport,
+    )
 
 
 def has_monitor_updates(report: ScanReport) -> bool:
@@ -82,9 +50,7 @@ def has_monitor_updates(report: ScanReport) -> bool:
 
 def _notifiable_monitor_results(report: ScanReport) -> list:
     return [
-        result
-        for result in report.new_results
-        if str(result.status).strip().lower() != "running"
+        result for result in report.new_results if str(result.status).strip().lower() != "running"
     ]
 
 

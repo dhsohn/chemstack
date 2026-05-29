@@ -1,0 +1,56 @@
+from __future__ import annotations
+
+from collections.abc import Callable
+from pathlib import Path
+from typing import Any
+
+from ._engine_rendering import EngineEventField, event_lines, organize_summary_lines
+
+
+def is_workflow_child(job_dir: Path, *, engine: str) -> bool:
+    parts = tuple(part for part in job_dir.parts if part)
+    return any(part.endswith(f"_{engine}") for part in parts)
+
+
+def send_job_event(
+    cfg: Any,
+    *,
+    label: str,
+    engine: str,
+    job_dir: Path,
+    headline: str,
+    fields: list[EngineEventField],
+    send_fn: Callable[[Any, list[str]], bool],
+    extra_lines: list[str] | None = None,
+) -> bool:
+    if is_workflow_child(job_dir, engine=engine):
+        return True
+    return send_fn(
+        cfg,
+        event_lines(
+            label=label,
+            headline=headline,
+            fields=fields,
+            extra_lines=extra_lines,
+        ),
+    )
+
+
+def send_organize_summary(
+    cfg: Any,
+    *,
+    label: str,
+    organized_count: int,
+    skipped_count: int,
+    root: Path,
+    send_fn: Callable[[Any, list[str]], bool],
+) -> bool:
+    return send_fn(
+        cfg,
+        organize_summary_lines(
+            label=label,
+            organized_count=organized_count,
+            skipped_count=skipped_count,
+            root=root,
+        ),
+    )

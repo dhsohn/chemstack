@@ -7,11 +7,7 @@ from chemstack import cli_handlers
 from chemstack import cli_queue
 from chemstack import cli_systemd
 from chemstack import cli_workers
-
-_WORKFLOW_SCAFFOLD_SHORTCUTS = (
-    ("ts_search", "reaction_ts_search", "Create a reaction TS-search scaffold."),
-    ("conformer_search", "conformer_screening", "Create a conformer-screening scaffold."),
-)
+from chemstack.flow.templates import WORKFLOW_SCAFFOLD_SHORTCUTS
 
 
 def _add_workflow_scaffold_shortcut(
@@ -46,7 +42,9 @@ def _add_orca_logging_arguments(parser: argparse.ArgumentParser) -> None:
     )
 
 
-def _add_json_argument(parser: argparse.ArgumentParser, *, help_text: str = "Print JSON output") -> None:
+def _add_json_argument(
+    parser: argparse.ArgumentParser, *, help_text: str = "Print JSON output"
+) -> None:
     parser.add_argument("--json", action="store_true", help=help_text)
 
 
@@ -186,9 +184,7 @@ def _add_queue_worker_options(parser: argparse.ArgumentParser) -> None:
 def _add_queue_worker_parser(
     queue_subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
 ) -> None:
-    worker_parser = queue_subparsers.add_parser(
-        "worker", help="Run the unified worker supervisor."
-    )
+    worker_parser = queue_subparsers.add_parser("worker", help="Run the unified worker supervisor.")
     _add_queue_worker_options(worker_parser)
     worker_parser.set_defaults(func=cli_workers.cmd_queue_worker)
 
@@ -248,7 +244,7 @@ def _add_scaffold_parser(subparsers: argparse._SubParsersAction[argparse.Argumen
     )
     scaffold_subparsers = scaffold_parser.add_subparsers(dest="scaffold_app", required=True)
 
-    for name, workflow_type, help_text in _WORKFLOW_SCAFFOLD_SHORTCUTS:
+    for name, workflow_type, help_text in WORKFLOW_SCAFFOLD_SHORTCUTS:
         _add_workflow_scaffold_shortcut(
             scaffold_subparsers,
             name=name,

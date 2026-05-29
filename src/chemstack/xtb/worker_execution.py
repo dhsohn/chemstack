@@ -20,6 +20,7 @@ from chemstack.core.queue import child_execution as _child_execution
 from chemstack.core.queue import engine_execution as _engine_execution
 from chemstack.core.queue import execution as _queue_execution
 from chemstack.core.queue.engine_execution import (
+    CancellableProcessExecution,
     EngineWorkerLifecycle,
     run_engine_worker_lifecycle,
 )
@@ -128,6 +129,16 @@ class WorkerExecutionDependencies:
     execute_queue_entry: Callable[..., Any] | None = None
 
 
+@dataclass(frozen=True)
+class WorkerExecutionHooks:
+    job_dir: Callable[[Any], Path]
+    selected_xyz: Callable[[Any], Path]
+    job_type: Callable[[Any], str]
+    reaction_key: Callable[[Any, Path], str]
+    input_summary: Callable[[Any], dict[str, Any]]
+    matching_state: Callable[..., dict[str, Any]]
+
+
 def build_worker_execution_dependencies_from_groups(
     *,
     config: WorkerConfigDependencies,
@@ -188,6 +199,17 @@ def _matching_state(
             "job_type": job_type,
             "reaction_key": reaction_key,
         },
+    )
+
+
+def default_worker_execution_hooks() -> WorkerExecutionHooks:
+    return WorkerExecutionHooks(
+        job_dir=_job_dir,
+        selected_xyz=_selected_xyz,
+        job_type=_job_type,
+        reaction_key=_reaction_key,
+        input_summary=_input_summary,
+        matching_state=_matching_state,
     )
 
 
@@ -298,7 +320,9 @@ def build_worker_execution_dependencies(
     if config is None:
         config = WorkerConfigDependencies(
             load_config=_legacy_dependency(legacy, "load_config_fn", load_config),
-            queue_entry_by_id=_legacy_dependency(legacy, "queue_entry_by_id_fn", _queue_entry_by_id),
+            queue_entry_by_id=_legacy_dependency(
+                legacy, "queue_entry_by_id_fn", _queue_entry_by_id
+            ),
         )
     if admission is None:
         admission = WorkerAdmissionDependencies(
@@ -569,26 +593,28 @@ def _run_xtb_job_for_entry(
                 terminate_process=runner_deps.terminate_process,
             )
 
-        running = runner_deps.start_xtb_job(
-            cfg,
-            job_dir=context.job_dir,
-            selected_input_xyz=context.selected_xyz,
-        )
-        if register_running_job is not None:
-            register_running_job(running)
-        try:
-            return runner_deps.wait_for_cancellable_process(
-                running,
-                finalize_fn=runner_deps.finalize_xtb_job,
-                terminate_process_fn=runner_deps.terminate_process,
+        return _engine_execution.run_cancellable_process_execution(
+            CancellableProcessExecution(
+                start_job=lambda: runner_deps.start_xtb_job(
+                    cfg,
+                    job_dir=context.job_dir,
+                    selected_input_xyz=context.selected_xyz,
+                ),
+                finalize_job=runner_deps.finalize_xtb_job,
+                terminate_process=runner_deps.terminate_process,
+                build_failure_result=lambda exc: _failed_result_from_exception(
+                    context,
+                    exc,
+                    dependencies=dependencies,
+                ),
+                wait_for_cancellable_process=runner_deps.wait_for_cancellable_process,
                 should_cancel=should_cancel,
-                sleep_fn=runner_deps.sleep,
+                sleep=runner_deps.sleep,
                 poll_interval_seconds=runner_deps.cancel_check_interval_seconds,
                 check_cancel_before_poll=True,
+                register_running_job=register_running_job,
             )
-        finally:
-            if register_running_job is not None:
-                register_running_job(None)
+        )
     except Exception as exc:
         return _failed_result_from_exception(context, exc, dependencies=dependencies)
 
@@ -799,9 +825,11 @@ __all__ = [
     "WorkerConfigDependencies",
     "WorkerContextDependencies",
     "WorkerExecutionDependencies",
+    "WorkerExecutionHooks",
     "WorkerExecutionOutcome",
     "WorkerRunnerDependencies",
     "WorkerTrackingDependencies",
+    "default_worker_execution_hooks",
     "default_worker_execution_dependencies",
     "execute_queue_entry",
     "main",

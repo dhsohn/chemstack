@@ -7,6 +7,8 @@ from argparse import Namespace
 from pathlib import Path
 from typing import Any, Type
 
+from chemstack.core.queue.worker import start_background_process
+
 from chemstack.core.app_ids import CHEMSTACK_ORCA_APP_NAME
 
 from ..orca_runner import OrcaRunner
@@ -66,7 +68,7 @@ def start_background_run_job(
 ) -> BackgroundRunJobProcess[str]:
     if runner_cls is not OrcaRunner:
         raise ValueError("start_background_run_job only supports the default OrcaRunner")
-    return subprocess.Popen(
+    return start_background_process(
         _build_background_run_job_command(
             config_path=config_path,
             reaction_dir=str(Path(reaction_dir)),
@@ -74,12 +76,7 @@ def start_background_run_job(
             admission_token=admission_token,
             admission_app_name=admission_app_name,
             admission_task_id=admission_task_id,
-        ),
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        stdin=subprocess.DEVNULL,
-        start_new_session=True,
-        text=True,
+        )
     )
 
 
@@ -133,7 +130,9 @@ def main(argv: list[str] | None = None) -> int:
         args.reaction_dir,
         force=bool(args.force),
         reservation_token=str(args.admission_token).strip() or None,
-        admission_app_name=_canonical_admission_app_name(str(args.admission_app_name).strip() or None),
+        admission_app_name=_canonical_admission_app_name(
+            str(args.admission_app_name).strip() or None
+        ),
         admission_task_id=str(args.admission_task_id).strip() or None,
     )
 

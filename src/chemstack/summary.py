@@ -19,6 +19,7 @@ from chemstack.flow.workflow_status import (
 )
 from chemstack.flow.activity import list_activities
 from chemstack.flow.state import list_workflow_summaries
+from chemstack.flow.templates import workflow_template_label
 from chemstack.orca import summary as orca_summary
 from chemstack.orca.config import AppConfig, load_config
 from chemstack.orca.telegram_notifier import escape_html, send_message
@@ -33,11 +34,7 @@ def _workflow_status_icon(status: str) -> str:
 
 
 def _workflow_template_label(template_name: Any) -> str:
-    normalized = _normalize_text(template_name).lower()
-    return {
-        "reaction_ts_search": "ts_search",
-        "conformer_screening": "conformer_search",
-    }.get(normalized, _normalize_text(template_name) or "workflow")
+    return workflow_template_label(template_name)
 
 
 def _workflow_summary_rows(config_path: str | None) -> tuple[str | None, list[dict[str, Any]]]:
