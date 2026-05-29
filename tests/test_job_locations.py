@@ -6,12 +6,14 @@ from pathlib import Path
 
 from chemstack.orca.config import AppConfig, CommonResourceConfig, PathsConfig, RuntimeConfig
 from chemstack.orca.job_locations import (
+    collect_reindex_payload,
     index_root_for_cfg,
     load_job_artifact_context,
     load_job_artifacts,
     load_orca_contract_payload,
     load_job_runtime_context,
     record_from_artifacts,
+    reindex_job_locations,
     resolve_latest_job_dir,
     upsert_job_record,
 )
@@ -567,3 +569,89 @@ def test_job_locations_uses_core_indexing_backend() -> None:
         loaded = _load_job_locations(index_root_for_cfg(cfg))
         assert len(loaded) == 1
         assert loaded[0]["job_id"] == "job_core_1"
+
+
+def test_collect_reindex_payload_reads_artifact_identity_and_paths() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        original_dir = root / "runs" / "rxn_reindex"
+        organized_dir = root / "outputs" / "sp" / "H2" / "job_reindex_1"
+        original_dir.mkdir(parents=True)
+        organized_dir.mkdir(parents=True)
+        inp = original_dir / "rxn.inp"
+        inp.write_text("! SP\n* xyz 0 1\nH 0 0 0\nH 0 0 0.74\n*\n", encoding="utf-8")
+
+        _write_json(
+            original_dir / "run_state.json",
+            {
+                "job_id": "job_reindex_1",
+                "status": "completed",
+                "selected_inp": str(inp),
+                "resource_request": {"max_cores": 4, "max_memory_gb": 8},
+            },
+        )
+        _write_json(
+            original_dir / "run_report.json",
+            {
+                "job_type": "single_point",
+                "molecule_key": "H2",
+                "resource_actual": {"max_cores": 4, "max_memory_gb": 8},
+            },
+        )
+        _write_json(
+            original_dir / "organized_ref.json",
+            {
+                "original_run_dir": str(original_dir),
+                "organized_output_dir": str(organized_dir),
+            },
+        )
+
+        payload = collect_reindex_payload(original_dir)
+
+        assert payload == {
+            "job_id": "job_reindex_1",
+            "status": "completed",
+            "job_type": "orca_single_point",
+            "job_dir": str(original_dir.resolve()),
+            "selected_input_xyz": str(inp.resolve()),
+            "molecule_key": "H2",
+            "organized_output_dir": str(organized_dir.resolve()),
+            "resource_request": {"max_cores": 4, "max_memory_gb": 8},
+            "resource_actual": {"max_cores": 4, "max_memory_gb": 8},
+        }
+
+
+def test_reindex_job_locations_handles_missing_root_and_skips_unidentifiable_artifacts() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        cfg = _make_cfg(root)
+
+        assert reindex_job_locations(cfg) == 0
+
+        allowed_root = Path(cfg.runtime.allowed_root)
+        bad_dir = allowed_root / "bad"
+        good_dir = allowed_root / "good"
+        bad_dir.mkdir(parents=True)
+        good_dir.mkdir(parents=True)
+        selected_inp = good_dir / "good.inp"
+        selected_inp.write_text("! Opt\n* xyz 0 1\nH 0 0 0\nH 0 0 0.74\n*\n", encoding="utf-8")
+
+        _write_json(bad_dir / "run_state.json", {"status": "completed"})
+        _write_json(
+            good_dir / "run_state.json",
+            {
+                "job_id": "job_reindex_good",
+                "status": "running",
+                "selected_inp": str(selected_inp),
+                "job_type": "opt",
+                "molecule_key": "H2",
+                "resource_request": {"max_cores": 2, "max_memory_gb": 4},
+            },
+        )
+
+        assert reindex_job_locations(cfg) == 1
+        loaded = _load_job_locations(index_root_for_cfg(cfg))
+        assert len(loaded) == 1
+        assert loaded[0]["job_id"] == "job_reindex_good"
+        assert loaded[0]["job_type"] == "orca_opt"
+        assert loaded[0]["original_run_dir"] == str(good_dir.resolve())

@@ -110,7 +110,7 @@ def test_load_xtb_artifact_contract_parses_candidate_details_from_direct_path_ta
     assert stage_inputs[0].metadata == {"source": "scan"}
 
 
-def test_load_xtb_artifact_contract_falls_back_to_selected_candidate_paths(tmp_path: Path) -> None:
+def test_load_xtb_artifact_contract_preserves_selected_candidate_paths_without_details(tmp_path: Path) -> None:
     index_root = tmp_path / "xtb_index"
     job_dir = tmp_path / "xtb_job_fallback"
     selected_input_xyz = job_dir / "input.xyz"
@@ -155,11 +155,10 @@ def test_load_xtb_artifact_contract_falls_back_to_selected_candidate_paths(tmp_p
     assert contract.selected_candidate_paths == (str(candidate_one), str(candidate_two))
     assert contract.resource_request == {"max_cores": 8}
     assert contract.resource_actual == {"max_cores": 8}
-    assert [detail.path for detail in contract.candidate_details] == [str(candidate_one), str(candidate_two)]
-    assert all(detail.kind == "candidate" and detail.selected for detail in contract.candidate_details)
+    assert contract.candidate_details == ()
 
 
-def test_load_xtb_artifact_contract_ignores_malformed_candidate_fallback_entries(
+def test_load_xtb_artifact_contract_ignores_malformed_candidate_details(
     tmp_path: Path,
 ) -> None:
     job_dir = tmp_path / "xtb_malformed_fallback"
@@ -189,13 +188,10 @@ def test_load_xtb_artifact_contract_ignores_malformed_candidate_fallback_entries
     contract = load_xtb_artifact_contract(xtb_index_root=tmp_path, target=str(job_dir))
 
     assert contract.selected_candidate_paths == (str(candidate_one), str(candidate_two))
-    assert [detail.path for detail in contract.candidate_details] == [
-        str(candidate_one),
-        str(candidate_two),
-    ]
+    assert contract.candidate_details == ()
 
 
-def test_select_xtb_downstream_inputs_uses_selected_path_fallback_when_details_are_empty(tmp_path: Path) -> None:
+def test_select_xtb_downstream_inputs_ignores_selected_paths_when_details_are_empty(tmp_path: Path) -> None:
     invalid_candidate = tmp_path / "candidate.txt"
     valid_candidate = tmp_path / "candidate.xyz"
 
@@ -221,11 +217,7 @@ def test_select_xtb_downstream_inputs_uses_selected_path_fallback_when_details_a
         require_geometry=True,
     )
 
-    assert len(stage_inputs) == 1
-    assert stage_inputs[0].artifact_path == str(valid_candidate)
-    assert stage_inputs[0].rank == 1
-    assert stage_inputs[0].kind == "candidate"
-    assert stage_inputs[0].selected is True
+    assert stage_inputs == ()
 
 
 def test_load_xtb_artifact_contract_rejects_non_xtb_index_records(tmp_path: Path) -> None:

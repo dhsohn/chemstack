@@ -182,6 +182,75 @@ def test_start_background_process_uses_detached_devnull_popen(
     ]
 
 
+def test_child_worker_command_requires_admission_root_when_included() -> None:
+    with pytest.raises(ValueError, match="admission_root is required"):
+        child_process_helpers.build_background_worker_command(
+            config_path="/tmp/chemstack.yaml",
+            queue_root="/tmp/queue",
+            queue_id="queue-1",
+            worker_job_module="chemstack.worker",
+        )
+
+    assert child_process_helpers.build_background_worker_command(
+        config_path="/tmp/chemstack.yaml",
+        queue_root="/tmp/queue",
+        queue_id="queue-1",
+        worker_job_module="chemstack.worker",
+        include_admission_root=False,
+    ) == [
+        child_process_helpers.sys.executable,
+        "-m",
+        "chemstack.worker",
+        "--config",
+        "/tmp/chemstack.yaml",
+        "--queue-root",
+        "/tmp/queue",
+        "--queue-id",
+        "queue-1",
+    ]
+
+
+def test_start_background_job_process_builds_child_command(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    commands: list[list[str]] = []
+    expected = object()
+
+    monkeypatch.setattr(
+        child_process_helpers,
+        "start_background_process",
+        lambda command: commands.append(list(command)) or expected,
+    )
+
+    result = child_process_helpers.start_background_job_process(
+        config_path="/tmp/chemstack.yaml",
+        queue_root="/tmp/queue",
+        entry=SimpleNamespace(queue_id="queue-1"),
+        worker_job_module="chemstack.worker",
+        admission_root="/tmp/admission",
+        admission_token="slot-1",
+    )
+
+    assert result is expected
+    assert commands == [
+        [
+            child_process_helpers.sys.executable,
+            "-m",
+            "chemstack.worker",
+            "--config",
+            "/tmp/chemstack.yaml",
+            "--queue-root",
+            "/tmp/queue",
+            "--queue-id",
+            "queue-1",
+            "--admission-root",
+            "/tmp/admission",
+            "--admission-token",
+            "slot-1",
+        ]
+    ]
+
+
 def test_fill_worker_slots_starts_until_capacity_and_reports_processed() -> None:
     running: list[str] = []
     reservations = iter(
@@ -364,3 +433,133 @@ def test_pid_helpers_handle_alive_missing_and_stale_pids(
     invalid = tmp_path / "invalid.pid"
     invalid.write_text("not-a-pid\n", encoding="utf-8")
     assert process_helpers.read_live_pid_file(invalid) is None
+
+
+def test_reconcile_orphaned_child_queue_entries_cancels_or_requeues_only_orphans(
+    tmp_path: Path,
+) -> None:
+    queue_root = tmp_path / "queue"
+    entries = [
+        _entry("live", status="running"),
+        _entry("cancelled", status="running", cancel_requested=True),
+        _entry("orphaned", status="running"),
+        _entry("pending", status="pending"),
+    ]
+    stale_reconciled: list[str] = []
+    cancelled: list[tuple[str, str, str]] = []
+    requeued: list[tuple[str, str]] = []
+    recovery_pending: list[str] = []
+
+    child_process_helpers.reconcile_orphaned_child_queue_entries(
+        _cfg(),
+        admission_root="/tmp/admission",
+        queue_roots_fn=lambda _cfg: (queue_root,),
+        list_queue_fn=lambda _queue_root: entries,
+        list_slots_fn=lambda _admission_root: [SimpleNamespace(queue_id="live")],
+        reconcile_stale_slots_fn=lambda admission_root: stale_reconciled.append(
+            str(admission_root)
+        ),
+        running_status=SimpleNamespace(value="running"),
+        mark_cancelled_fn=lambda root, queue_id, *, error: cancelled.append(
+            (str(root), queue_id, error)
+        ),
+        requeue_running_entry_fn=lambda root, queue_id: requeued.append((str(root), queue_id)),
+        mark_recovery_pending_fn=lambda _cfg, entry: recovery_pending.append(entry.queue_id),
+    )
+
+    assert stale_reconciled == ["/tmp/admission"]
+    assert cancelled == [(str(queue_root), "cancelled", "cancel_requested")]
+    assert requeued == [(str(queue_root), "orphaned")]
+    assert recovery_pending == ["orphaned"]
+
+
+def test_shutdown_child_process_with_grace_forces_after_deadline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+    monotonic_values = iter([0.0, 0.05, 0.2])
+
+    class Process:
+        rc: int | None = None
+
+        def poll(self) -> int | None:
+            return self.rc
+
+        def terminate(self) -> None:
+            calls.append("terminate")
+
+    process = Process()
+    job = SimpleNamespace(process=process)
+    finalized: list[tuple[object, int]] = []
+
+    monkeypatch.setattr(child_process_helpers.time, "monotonic", lambda: next(monotonic_values))
+
+    child_process_helpers.shutdown_child_process_with_grace(
+        job,
+        terminate_process_fn=lambda proc: calls.append("force") or setattr(proc, "rc", 9),
+        finalize_child_exit_fn=lambda job_arg, rc: finalized.append((job_arg, rc)),
+        grace_seconds=0.1,
+        sleep_fn=lambda seconds: calls.append(f"sleep:{seconds}"),
+    )
+
+    assert calls == ["terminate", "sleep:0.1", "force"]
+    assert finalized == [(job, 9)]
+
+
+def test_shutdown_child_process_with_grace_continues_when_terminate_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Process:
+        rc: int | None = None
+
+        def poll(self) -> int | None:
+            return self.rc
+
+        def terminate(self) -> None:
+            raise RuntimeError("cannot terminate")
+
+    process = Process()
+    job = SimpleNamespace(process=process)
+    finalized: list[int] = []
+
+    monkeypatch.setattr(child_process_helpers.time, "monotonic", lambda: 0.0)
+
+    child_process_helpers.shutdown_child_process_with_grace(
+        job,
+        terminate_process_fn=lambda proc: setattr(proc, "rc", 9),
+        finalize_child_exit_fn=lambda _job, rc: finalized.append(rc),
+        grace_seconds=0.0,
+        sleep_fn=lambda _seconds: pytest.fail("sleep should not run after deadline"),
+    )
+
+    assert finalized == [9]
+
+
+def test_request_job_cancellation_uses_signal_then_kill_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sent_signals: list[int] = []
+    child_process_helpers.request_job_cancellation(
+        SimpleNamespace(send_signal=lambda signal_value: sent_signals.append(signal_value)),
+        cancel_signal=15,
+        terminate_process_fn=lambda _proc: pytest.fail("send_signal should be enough"),
+    )
+    assert sent_signals == [15]
+
+    killed: list[tuple[int, int]] = []
+    terminated: list[int] = []
+
+    def fake_kill(pid: int, signal_value: int) -> None:
+        killed.append((pid, signal_value))
+        raise ProcessLookupError("missing process")
+
+    monkeypatch.setattr(child_process_helpers.os, "kill", fake_kill)
+
+    child_process_helpers.request_job_cancellation(
+        SimpleNamespace(pid=4242),
+        cancel_signal=2,
+        terminate_process_fn=lambda proc: terminated.append(proc.pid),
+    )
+
+    assert killed == [(4242, 2)]
+    assert terminated == [4242]

@@ -112,12 +112,15 @@ def _notify_ok(*args: Any, **kwargs: Any) -> bool:
 
 
 def _dependencies(**overrides: Callable[..., Any]) -> worker_execution.WorkerExecutionDependencies:
-    defaults: dict[str, Callable[..., Any]] = {
+    defaults: dict[str, Any] = {
         "now_utc_iso": lambda: "2026-04-19T09:15:00+00:00",
         "get_cancel_requested": lambda *args, **kwargs: False,
         "start_crest_job": _noop,
         "finalize_crest_job": _noop,
         "terminate_process": _noop,
+        "wait_for_cancellable_process": worker_execution._queue_execution.wait_for_cancellable_process,
+        "sleep": worker_execution.time.sleep,
+        "cancel_check_interval_seconds": worker_execution.CANCEL_CHECK_INTERVAL_SECONDS,
         "write_running_state": _noop,
         "write_execution_artifacts": _noop,
         "mark_completed": _noop,
@@ -129,19 +132,32 @@ def _dependencies(**overrides: Callable[..., Any]) -> worker_execution.WorkerExe
     }
     defaults.update(overrides)
     return worker_execution.build_worker_execution_dependencies(
-        now_utc_iso_fn=defaults["now_utc_iso"],
-        get_cancel_requested_fn=defaults["get_cancel_requested"],
-        start_crest_job_fn=defaults["start_crest_job"],
-        finalize_crest_job_fn=defaults["finalize_crest_job"],
-        terminate_process_fn=defaults["terminate_process"],
-        write_running_state_fn=defaults["write_running_state"],
-        write_execution_artifacts_fn=defaults["write_execution_artifacts"],
-        mark_completed_fn=defaults["mark_completed"],
-        mark_cancelled_fn=defaults["mark_cancelled"],
-        mark_failed_fn=defaults["mark_failed"],
-        upsert_job_record_fn=defaults["upsert_job_record"],
-        notify_job_started_fn=defaults["notify_job_started"],
-        notify_job_finished_fn=defaults["notify_job_finished"],
+        timing=worker_execution.WorkerTimingDependencies(
+            now_utc_iso=defaults["now_utc_iso"],
+        ),
+        queue=worker_execution.WorkerQueueDependencies(
+            get_cancel_requested=defaults["get_cancel_requested"],
+            mark_completed=defaults["mark_completed"],
+            mark_cancelled=defaults["mark_cancelled"],
+            mark_failed=defaults["mark_failed"],
+        ),
+        runner=worker_execution.WorkerRunnerDependencies(
+            start_crest_job=defaults["start_crest_job"],
+            finalize_crest_job=defaults["finalize_crest_job"],
+            terminate_process=defaults["terminate_process"],
+            wait_for_cancellable_process=defaults["wait_for_cancellable_process"],
+            sleep=defaults["sleep"],
+            cancel_check_interval_seconds=defaults["cancel_check_interval_seconds"],
+        ),
+        artifacts=worker_execution.WorkerArtifactDependencies(
+            write_running_state=defaults["write_running_state"],
+            write_execution_artifacts=defaults["write_execution_artifacts"],
+        ),
+        tracking=worker_execution.WorkerTrackingDependencies(
+            upsert_job_record=defaults["upsert_job_record"],
+            notify_job_started=defaults["notify_job_started"],
+            notify_job_finished=defaults["notify_job_finished"],
+        ),
     )
 
 

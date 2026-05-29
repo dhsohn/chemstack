@@ -54,25 +54,10 @@ class ChildQueueWorkerDeps:
     try_reserve_admission_slot: AdmissionReserver
 
 
-class LegacyDependencyOverrides:
-    def __init__(self, values: dict[str, Any]) -> None:
-        self._values = values
-
-    def take(self, key: str, default: Any) -> Any:
-        return self._values.pop(key, default)
-
-    def raise_if_any(self) -> None:
-        if not self._values:
-            return
-        names = ", ".join(sorted(self._values))
-        raise TypeError(f"unexpected dependency override(s): {names}")
-
-
 __all__ = [
     "ChildQueueWorkerDeps",
     "BackgroundJobProcessStarter",
     "DequeuedEntryReserver",
-    "LegacyDependencyOverrides",
     "QueueEntryDequeuer",
     "SleepTimer",
     "SlotReleaser",

@@ -12,6 +12,7 @@ import pytest
 
 from chemstack.core.config import TelegramConfig
 from chemstack.core.notifications import telegram as telegram_mod
+from chemstack.core.notifications import telegram_api as telegram_api_mod
 
 from chemstack.flow import telegram_bot as bot
 from tests.flow_factories import telegram_bot_settings
@@ -692,15 +693,15 @@ def test_api_call_handles_success_api_error_http_error_and_generic_error(monkeyp
             return json.dumps(self.payload).encode("utf-8")
 
     monkeypatch.setattr(
-        telegram_mod,
-        "urlopen_with_ipv4_fallback",
+        telegram_api_mod,
+        "urlopen",
         lambda request, *, timeout: Response({"ok": True, "result": {"id": 1}}),
     )
     assert bot._api_call("token", "method") == {"id": 1}
 
     monkeypatch.setattr(
-        telegram_mod,
-        "urlopen_with_ipv4_fallback",
+        telegram_api_mod,
+        "urlopen",
         lambda request, *, timeout: Response({"ok": False, "description": "bad"}),
     )
     assert bot._api_call("token", "method") is None
@@ -715,12 +716,12 @@ def test_api_call_handles_success_api_error_http_error_and_generic_error(monkeyp
             fp=io.BytesIO(b"rate limited"),
         )
 
-    monkeypatch.setattr(telegram_mod, "urlopen_with_ipv4_fallback", raise_http_error)
+    monkeypatch.setattr(telegram_api_mod, "urlopen", raise_http_error)
     assert bot._api_call("token", "method") is None
 
     monkeypatch.setattr(
-        telegram_mod,
-        "urlopen_with_ipv4_fallback",
+        telegram_api_mod,
+        "urlopen",
         lambda request, *, timeout: (_ for _ in ()).throw(RuntimeError("offline")),
     )
     assert bot._api_call("token", "method") is None

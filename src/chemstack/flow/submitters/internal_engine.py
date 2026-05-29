@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from argparse import Namespace
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -29,6 +29,55 @@ class InternalEngineSubmitterDeps:
     queue_entries_with_roots_fn: Callable[[Any], list[tuple[Any, Any]]]
     request_cancel_fn: Callable[[Any, str], Any | None]
     display_status_fn: Callable[[Any], str]
+
+
+@dataclass(frozen=True)
+class InternalEngineSubmitter:
+    spec: InternalEngineSubmitterSpec
+    deps_factory: Callable[[], InternalEngineSubmitterDeps]
+
+    def submit_job_dir(
+        self,
+        *,
+        job_dir: str,
+        priority: int,
+        config_path: str,
+    ) -> dict[str, Any]:
+        return submit_engine_job_dir(
+            spec=self.spec,
+            deps=self.deps_factory(),
+            config_path=config_path,
+            job_dir=job_dir,
+            priority=priority,
+        )
+
+    def cancel_target(
+        self,
+        *,
+        target: str,
+        config_path: str,
+    ) -> dict[str, Any]:
+        return cancel_engine_target(
+            spec=self.spec,
+            deps=self.deps_factory(),
+            config_path=config_path,
+            target=target,
+        )
+
+
+def submitter_deps_from_namespace(namespace: Mapping[str, Any]) -> InternalEngineSubmitterDeps:
+    return InternalEngineSubmitterDeps(
+        load_config_fn=namespace["load_config"],
+        resolve_job_dir_fn=namespace["resolve_job_dir"],
+        load_manifest_fn=namespace["load_job_manifest"],
+        build_submission_fn=namespace["build_submission"],
+        record_queued_fn=namespace["record_queued"],
+        enqueue_fn=namespace["enqueue"],
+        load_queue_config_fn=namespace["load_queue_config"],
+        queue_entries_with_roots_fn=namespace["queue_entries_with_roots"],
+        request_cancel_fn=namespace["request_cancel"],
+        display_status_fn=namespace["display_status"],
+    )
 
 
 def internal_call_argv(

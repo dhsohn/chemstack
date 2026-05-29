@@ -24,6 +24,7 @@ from chemstack.core.admission import (
 )
 from chemstack.core.queue import (
     dequeue_next,
+    execution as _queue_execution,
     get_cancel_requested,
     list_queue,
     mark_cancelled,
@@ -52,7 +53,12 @@ from . import queue_lifecycle as _queue_lifecycle
 from .job_locations import runtime_roots_for_cfg, upsert_job_record
 from .runner import finalize_crest_job, start_crest_job
 from .worker_execution import (
+    WorkerArtifactDependencies,
     WorkerExecutionDependencies,
+    WorkerQueueDependencies,
+    WorkerRunnerDependencies,
+    WorkerTimingDependencies,
+    WorkerTrackingDependencies,
     _mark_recovery_pending_entry,
     _terminate_process,
     _write_execution_artifacts,
@@ -120,19 +126,30 @@ def _try_reserve_admission_slot(cfg: Any) -> str | None:
 
 def _worker_dependencies() -> WorkerExecutionDependencies:
     return build_worker_execution_dependencies(
-        now_utc_iso_fn=now_utc_iso,
-        get_cancel_requested_fn=get_cancel_requested,
-        start_crest_job_fn=start_crest_job,
-        finalize_crest_job_fn=finalize_crest_job,
-        terminate_process_fn=_terminate_process,
-        write_running_state_fn=_write_running_state,
-        write_execution_artifacts_fn=_write_execution_artifacts,
-        mark_completed_fn=mark_completed,
-        mark_cancelled_fn=mark_cancelled,
-        mark_failed_fn=mark_failed,
-        upsert_job_record_fn=upsert_job_record,
-        notify_job_started_fn=notify_job_started,
-        notify_job_finished_fn=notify_job_finished,
+        timing=WorkerTimingDependencies(now_utc_iso=now_utc_iso),
+        queue=WorkerQueueDependencies(
+            get_cancel_requested=get_cancel_requested,
+            mark_completed=mark_completed,
+            mark_cancelled=mark_cancelled,
+            mark_failed=mark_failed,
+        ),
+        runner=WorkerRunnerDependencies(
+            start_crest_job=start_crest_job,
+            finalize_crest_job=finalize_crest_job,
+            terminate_process=_terminate_process,
+            wait_for_cancellable_process=_queue_execution.wait_for_cancellable_process,
+            sleep=time.sleep,
+            cancel_check_interval_seconds=1,
+        ),
+        artifacts=WorkerArtifactDependencies(
+            write_running_state=_write_running_state,
+            write_execution_artifacts=_write_execution_artifacts,
+        ),
+        tracking=WorkerTrackingDependencies(
+            upsert_job_record=upsert_job_record,
+            notify_job_started=notify_job_started,
+            notify_job_finished=notify_job_finished,
+        ),
     )
 
 

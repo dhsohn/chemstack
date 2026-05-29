@@ -5,17 +5,21 @@ from typing import Any
 from chemstack.core.commands.run_dir import (
     EngineQueuedRecord,
     EngineRunDirSubmission,
-    record_queued_common,
+    build_engine_run_dir_submission,
+    engine_resource_fields,
+    manifest_present_text,
+    record_queued_common_from_namespace,
 )
 from chemstack.core.config.engines import (
     load_xtb_config as load_config,
     resource_request_from_manifest,
 )
-from chemstack.core.notifications.engines import notify_xtb_job_queued as notify_job_queued
+from chemstack.core.notifications import engines as _notification_engines
 from chemstack.core.queue import enqueue
 
-from .job_locations import index_root_for_path, upsert_job_record
-from .state import write_state
+from . import job_locations as _job_locations
+from . import state as _state
+from .job_locations import index_root_for_path
 from .job_inputs import (
     load_job_manifest,
     new_job_id,
@@ -23,6 +27,10 @@ from .job_inputs import (
     resolve_job_dir,
     resolve_job_inputs,
 )
+
+notify_job_queued = _notification_engines.notify_xtb_job_queued
+upsert_job_record = _job_locations.upsert_job_record
+write_state = _state.write_state
 
 __all__ = [
     "enqueue",
@@ -41,14 +49,15 @@ def _build_submission(
     job = resolve_job_inputs(job_dir, manifest)
     job_id = new_job_id()
     resource_request = resource_request_from_manifest(cfg, manifest)
+    resource_fields = engine_resource_fields(resource_request)
     input_summary = dict(job["input_summary"])
-    return EngineRunDirSubmission(
+    return build_engine_run_dir_submission(
         queue_root=index_root_for_path(cfg, job_dir),
         app_name="chemstack_xtb",
         task_id=job_id,
         task_kind=f"xtb_{job['job_type']}",
         engine="xtb",
-        priority=int(getattr(args, "priority", 10)),
+        args=args,
         metadata={
             "job_dir": str(job_dir),
             "selected_input_xyz": str(job["selected_input_xyz"]),
@@ -56,16 +65,15 @@ def _build_submission(
             "job_type": str(job["job_type"]),
             "reaction_key": str(job["reaction_key"]),
             "input_summary": input_summary,
-            "manifest_present": "true" if manifest else "false",
+            "manifest_present": manifest_present_text(manifest),
             "candidate_paths": list(input_summary.get("candidate_paths", [])),
-            "resource_request": dict(resource_request),
-            "resource_actual": dict(resource_request),
+            **resource_fields,
         },
         context={
             "job": job,
             "job_dir": job_dir,
             "input_summary": input_summary,
-            "resource_request": resource_request,
+            "resource_request": resource_fields["resource_request"],
         },
     )
 
@@ -101,12 +109,4 @@ def _queued_record(submission: EngineRunDirSubmission, _entry: Any) -> EngineQue
 
 
 def _record_queued(cfg: Any, submission: EngineRunDirSubmission, entry: Any) -> None:
-    record_queued_common(
-        cfg,
-        submission,
-        entry,
-        build_record_fn=_queued_record,
-        write_state_fn=write_state,
-        upsert_job_record_fn=upsert_job_record,
-        notify_job_queued_fn=notify_job_queued,
-    )
+    record_queued_common_from_namespace(cfg, submission, entry, namespace=globals())

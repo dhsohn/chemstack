@@ -17,7 +17,6 @@ def xtb_handoff_status_impl(
             allowed_kinds=("ts_guess",),
             max_candidates=1,
             selected_only=False,
-            fallback_to_selected_paths=False,
         ),
         require_geometry=True,
     )

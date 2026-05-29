@@ -11,6 +11,7 @@ import pytest
 from chemstack.core.utils.coercion import coerce_int_mapping, normalize_text
 from chemstack.flow import _registry_notifications as registry_notifications
 from chemstack.flow import registry, runtime, state, xyz_utils
+from chemstack.flow import registry_store, workflow_journal
 from chemstack.flow import _orca_stage_materialization as orca_stage_utils
 from chemstack.flow.adapters import _engine_adapter_helpers as adapter_helpers
 from chemstack.flow.adapters import crest as crest_adapter
@@ -170,12 +171,10 @@ def test_crest_and_xtb_adapter_helper_edges(tmp_path: Path, monkeypatch: pytest.
         max_candidates=1,
         selected_only=False,
         allowed_kinds=("ts_guess",),
-        fallback_to_selected_paths=True,
     )
     monkeypatch.setattr(xtb_adapter, "has_xyz_geometry", lambda path: path.endswith("fallback.xyz"))
     rows = xtb_adapter.select_xtb_downstream_inputs(contract, policy=policy, require_geometry=True)
-    assert len(rows) == 1
-    assert rows[0].artifact_path == "/tmp/fallback.xyz"
+    assert rows == ()
 
 
 def test_runtime_edge_branches_cover_normalize_invalid_stage_and_lease_paths(
@@ -243,8 +242,8 @@ def test_registry_edge_branches_cover_invalid_inputs_and_direct_file_matching(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    assert registry._coerce_counts("bad") == {}
-    assert registry._coerce_counts({"": 1, "ok": "2", "bad": "x"}) == {"ok": 2}
+    assert registry_store._coerce_counts("bad") == {}
+    assert registry_store._coerce_counts({"": 1, "ok": "2", "bad": "x"}) == {"ok": 2}
 
     monkeypatch.delenv("CHEMSTACK_FLOW_NOTIFY_EVENT_TYPES", raising=False)
     assert registry_notifications.notification_event_types_from_env()
@@ -261,7 +260,7 @@ def test_registry_edge_branches_cover_invalid_inputs_and_direct_file_matching(
             sent.append(text)
 
     monkeypatch.setattr(registry_notifications, "telegram_transport_from_env", lambda: _TelegramTransport())
-    registry._maybe_notify_journal_event({"event_type": "worker_started"}, tmp_path)
+    workflow_journal._maybe_notify_journal_event({"event_type": "worker_started"}, tmp_path)
     assert sent and "worker_started" in sent[0]
 
     class _BrokenTelegramTransport:
@@ -269,16 +268,16 @@ def test_registry_edge_branches_cover_invalid_inputs_and_direct_file_matching(
             raise RuntimeError("boom")
 
     monkeypatch.setattr(registry_notifications, "telegram_transport_from_env", lambda: _BrokenTelegramTransport())
-    registry._maybe_notify_journal_event({"event_type": "worker_started"}, tmp_path)
+    workflow_journal._maybe_notify_journal_event({"event_type": "worker_started"}, tmp_path)
 
-    reg_path = registry._registry_path(tmp_path)
+    reg_path = registry_store._registry_path(tmp_path)
     reg_path.parent.mkdir(parents=True, exist_ok=True)
     reg_path.write_text("{broken", encoding="utf-8")
     with pytest.raises(registry.WorkflowRegistryCorruptError):
-        registry._load_records(tmp_path)
+        registry_store._load_records(tmp_path)
     reg_path.write_text(json.dumps({"bad": True}), encoding="utf-8")
     with pytest.raises(registry.WorkflowRegistryCorruptError):
-        registry._load_records(tmp_path)
+        registry_store._load_records(tmp_path)
 
     assert registry.list_workflow_journal(tmp_path, limit=0) == []
     state_path = registry.workflow_worker_state_path(tmp_path)
@@ -306,7 +305,7 @@ def test_registry_edge_branches_cover_invalid_inputs_and_direct_file_matching(
         workspace_dir=str(workflow_file.parent),
         workflow_file=str(workflow_file),
     )
-    monkeypatch.setattr(registry, "list_workflow_registry", lambda workflow_root: [record])
+    monkeypatch.setattr(registry_store, "list_workflow_registry", lambda workflow_root: [record])
     assert registry.resolve_workflow_registry_record(tmp_path, str(workflow_file)) is record
 
 

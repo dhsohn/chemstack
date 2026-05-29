@@ -22,7 +22,6 @@ from chemstack.core.queue import (
 from chemstack.core.queue import child_entrypoint as _child_entrypoint
 from chemstack.core.queue import child_execution as _child_execution
 from chemstack.core.queue import engine_execution as _engine_execution
-from chemstack.core.queue.dependencies import LegacyDependencyOverrides
 from chemstack.core.queue.engine_execution import (
     CancellableProcessExecution,
 )
@@ -130,73 +129,44 @@ def build_worker_execution_dependencies_from_groups(
     )
 
 
-_LegacyTake = Callable[[str, Any], Any]
-
-
-def _default_timing_dependencies(take: _LegacyTake) -> WorkerTimingDependencies:
+def _default_timing_dependencies() -> WorkerTimingDependencies:
     return WorkerTimingDependencies(
-        now_utc_iso=take("now_utc_iso_fn", now_utc_iso),
+        now_utc_iso=now_utc_iso,
     )
 
 
-def _default_queue_dependencies(take: _LegacyTake) -> WorkerQueueDependencies:
+def _default_queue_dependencies() -> WorkerQueueDependencies:
     return WorkerQueueDependencies(
-        get_cancel_requested=take(
-            "get_cancel_requested_fn",
-            get_cancel_requested,
-        ),
-        mark_completed=take("mark_completed_fn", mark_completed),
-        mark_cancelled=take("mark_cancelled_fn", mark_cancelled),
-        mark_failed=take("mark_failed_fn", mark_failed),
+        get_cancel_requested=get_cancel_requested,
+        mark_completed=mark_completed,
+        mark_cancelled=mark_cancelled,
+        mark_failed=mark_failed,
     )
 
 
-def _default_runner_dependencies(take: _LegacyTake) -> WorkerRunnerDependencies:
+def _default_runner_dependencies() -> WorkerRunnerDependencies:
     return WorkerRunnerDependencies(
-        start_crest_job=take("start_crest_job_fn", start_crest_job),
-        finalize_crest_job=take(
-            "finalize_crest_job_fn",
-            finalize_crest_job,
-        ),
-        terminate_process=take(
-            "terminate_process_fn",
-            _terminate_process,
-        ),
-        wait_for_cancellable_process=take(
-            "wait_for_cancellable_process_fn",
-            _queue_execution.wait_for_cancellable_process,
-        ),
-        sleep=take("sleep_fn", time.sleep),
-        cancel_check_interval_seconds=float(
-            take("cancel_check_interval_seconds", CANCEL_CHECK_INTERVAL_SECONDS)
-        ),
+        start_crest_job=start_crest_job,
+        finalize_crest_job=finalize_crest_job,
+        terminate_process=_terminate_process,
+        wait_for_cancellable_process=_queue_execution.wait_for_cancellable_process,
+        sleep=time.sleep,
+        cancel_check_interval_seconds=CANCEL_CHECK_INTERVAL_SECONDS,
     )
 
 
-def _default_artifact_dependencies(take: _LegacyTake) -> WorkerArtifactDependencies:
+def _default_artifact_dependencies() -> WorkerArtifactDependencies:
     return WorkerArtifactDependencies(
-        write_running_state=take(
-            "write_running_state_fn",
-            _write_running_state,
-        ),
-        write_execution_artifacts=take(
-            "write_execution_artifacts_fn",
-            _write_execution_artifacts,
-        ),
+        write_running_state=_write_running_state,
+        write_execution_artifacts=_write_execution_artifacts,
     )
 
 
-def _default_tracking_dependencies(take: _LegacyTake) -> WorkerTrackingDependencies:
+def _default_tracking_dependencies() -> WorkerTrackingDependencies:
     return WorkerTrackingDependencies(
-        upsert_job_record=take("upsert_job_record_fn", upsert_job_record),
-        notify_job_started=take(
-            "notify_job_started_fn",
-            notify_job_started,
-        ),
-        notify_job_finished=take(
-            "notify_job_finished_fn",
-            notify_job_finished,
-        ),
+        upsert_job_record=upsert_job_record,
+        notify_job_started=notify_job_started,
+        notify_job_finished=notify_job_finished,
     )
 
 
@@ -207,21 +177,17 @@ def build_worker_execution_dependencies(
     runner: WorkerRunnerDependencies | None = None,
     artifacts: WorkerArtifactDependencies | None = None,
     tracking: WorkerTrackingDependencies | None = None,
-    **legacy: Any,
 ) -> WorkerExecutionDependencies:
-    legacy_overrides = LegacyDependencyOverrides(legacy)
-    take = legacy_overrides.take
     if timing is None:
-        timing = _default_timing_dependencies(take)
+        timing = _default_timing_dependencies()
     if queue is None:
-        queue = _default_queue_dependencies(take)
+        queue = _default_queue_dependencies()
     if runner is None:
-        runner = _default_runner_dependencies(take)
+        runner = _default_runner_dependencies()
     if artifacts is None:
-        artifacts = _default_artifact_dependencies(take)
+        artifacts = _default_artifact_dependencies()
     if tracking is None:
-        tracking = _default_tracking_dependencies(take)
-    legacy_overrides.raise_if_any()
+        tracking = _default_tracking_dependencies()
     return build_worker_execution_dependencies_from_groups(
         timing=timing,
         queue=queue,

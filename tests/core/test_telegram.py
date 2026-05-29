@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from io import BytesIO
+import json
 from pathlib import Path
 from typing import Any, Literal
 from urllib.error import HTTPError, URLError
@@ -12,6 +13,8 @@ import pytest
 
 from chemstack.core.config.schema import TelegramConfig
 from chemstack.core.notifications import telegram as telegram_mod
+from chemstack.core.notifications import telegram_api as telegram_api_mod
+from chemstack.core.notifications import telegram_transport as telegram_transport_mod
 
 
 @dataclass
@@ -68,7 +71,7 @@ def test_disabled_transport_skips_without_calling_urlopen(monkeypatch: pytest.Mo
         called = True
         raise AssertionError("urlopen should not be called for disabled transport")
 
-    monkeypatch.setattr(telegram_mod, "urlopen", fake_urlopen)
+    monkeypatch.setattr(telegram_transport_mod, "urlopen", fake_urlopen)
 
     transport = _make_transport(bot_token="", chat_id="chat-id")
 
@@ -90,7 +93,7 @@ def test_empty_message_skips_without_calling_urlopen(monkeypatch: pytest.MonkeyP
         called = True
         raise AssertionError("urlopen should not be called for empty messages")
 
-    monkeypatch.setattr(telegram_mod, "urlopen", fake_urlopen)
+    monkeypatch.setattr(telegram_transport_mod, "urlopen", fake_urlopen)
 
     transport = _make_transport()
 
@@ -114,7 +117,7 @@ def test_incomplete_config_skips_without_calling_urlopen(
         called = True
         raise AssertionError("urlopen should not be called for incomplete config")
 
-    monkeypatch.setattr(telegram_mod, "urlopen", fake_urlopen)
+    monkeypatch.setattr(telegram_transport_mod, "urlopen", fake_urlopen)
 
     transport = _make_transport()
 
@@ -138,7 +141,7 @@ def test_successful_send_path_uses_urlopen_and_returns_payload(
         seen["timeout"] = timeout
         return _FakeResponse(body='{"ok":true}', status=200)
 
-    monkeypatch.setattr(telegram_mod, "urlopen", fake_urlopen)
+    monkeypatch.setattr(telegram_transport_mod, "urlopen", fake_urlopen)
 
     transport = _make_transport(timeout=7.5, base_url="https://api.telegram.org/")
 
@@ -181,7 +184,7 @@ def test_non_2xx_response_status_sets_http_error_and_preserves_body(
     def fake_urlopen(request, timeout):
         return _FakeResponse(body="service unavailable", status=503)
 
-    monkeypatch.setattr(telegram_mod, "urlopen", fake_urlopen)
+    monkeypatch.setattr(telegram_transport_mod, "urlopen", fake_urlopen)
 
     transport = _make_transport()
 
@@ -204,7 +207,7 @@ def test_http_error_handling_reads_error_body(monkeypatch: pytest.MonkeyPatch) -
             fp=BytesIO(b"bad token"),
         )
 
-    monkeypatch.setattr(telegram_mod, "urlopen", fake_urlopen)
+    monkeypatch.setattr(telegram_transport_mod, "urlopen", fake_urlopen)
 
     transport = _make_transport()
 
@@ -236,7 +239,7 @@ def test_http_error_handling_leaves_response_text_empty_when_read_fails(
             fp=_BrokenErrorBody(),
         )
 
-    monkeypatch.setattr(telegram_mod, "urlopen", fake_urlopen)
+    monkeypatch.setattr(telegram_transport_mod, "urlopen", fake_urlopen)
 
     transport = _make_transport()
 
@@ -253,7 +256,7 @@ def test_url_error_handling_returns_url_error(monkeypatch: pytest.MonkeyPatch) -
     def fake_urlopen(request, timeout):
         raise URLError("temporary DNS failure")
 
-    monkeypatch.setattr(telegram_mod, "urlopen", fake_urlopen)
+    monkeypatch.setattr(telegram_transport_mod, "urlopen", fake_urlopen)
 
     transport = _make_transport()
 
@@ -275,7 +278,7 @@ def test_network_unreachable_retries_with_ipv4_fallback(monkeypatch: pytest.Monk
             raise URLError(OSError(101, "Network is unreachable"))
         return _FakeResponse(body='{"ok":true}', status=200)
 
-    monkeypatch.setattr(telegram_mod, "urlopen", fake_urlopen)
+    monkeypatch.setattr(telegram_transport_mod, "urlopen", fake_urlopen)
 
     transport = _make_transport(base_url="https://api.telegram.org/")
 
@@ -340,7 +343,7 @@ def test_timeout_error_is_retried_and_can_succeed(monkeypatch: pytest.MonkeyPatc
             raise URLError(TimeoutError("timed out"))
         return _FakeResponse(body='{"ok":true}', status=200)
 
-    monkeypatch.setattr(telegram_mod, "urlopen", fake_urlopen)
+    monkeypatch.setattr(telegram_transport_mod, "urlopen", fake_urlopen)
 
     transport = _make_transport(base_url="https://api.telegram.org/")
 
@@ -365,7 +368,7 @@ def test_retryable_http_error_is_retried_and_can_succeed(monkeypatch: pytest.Mon
             )
         return _FakeResponse(body='{"ok":true}', status=200)
 
-    monkeypatch.setattr(telegram_mod, "urlopen", fake_urlopen)
+    monkeypatch.setattr(telegram_transport_mod, "urlopen", fake_urlopen)
 
     transport = _make_transport(base_url="https://api.telegram.org/")
 
@@ -373,3 +376,172 @@ def test_retryable_http_error_is_retried_and_can_succeed(monkeypatch: pytest.Mon
 
     assert result.sent is True
     assert len(calls) == 2
+
+
+def test_telegram_api_client_skips_empty_token_without_transport(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        telegram_api_mod,
+        "urlopen",
+        lambda *_args, **_kwargs: pytest.fail("transport should not run without a token"),
+    )
+
+    assert telegram_mod.TelegramApiClient(token="  ").api_call("getMe") is None
+
+
+def test_telegram_api_client_posts_json_and_returns_result(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen: dict[str, Any] = {}
+
+    def fake_open(request, *, timeout: float):
+        seen["url"] = request.full_url
+        seen["timeout"] = timeout
+        seen["content_type"] = request.get_header("Content-type")
+        seen["payload"] = json.loads((request.data or b"{}").decode("utf-8"))
+        return _FakeResponse(body='{"ok": true, "result": {"message_id": 7}}', status=200)
+
+    monkeypatch.setattr(telegram_api_mod, "urlopen", fake_open)
+
+    client = telegram_mod.TelegramApiClient(
+        token=" bot-token ",
+        timeout=2.5,
+        base_url="https://api.telegram.org/",
+    )
+
+    assert client.api_call("sendMessage", {"chat_id": 1, "text": "hello"}, timeout=8.0) == {
+        "message_id": 7
+    }
+    assert seen == {
+        "url": "https://api.telegram.org/botbot-token/sendMessage",
+        "timeout": 8.0,
+        "content_type": "application/json",
+        "payload": {"chat_id": 1, "text": "hello"},
+    }
+
+
+def test_telegram_api_client_logs_non_ok_and_transport_failures(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    warnings: list[tuple[str, tuple[Any, ...]]] = []
+
+    class FakeLogger:
+        def warning(self, message: str, *args: Any) -> None:
+            warnings.append((message, args))
+
+    responses = iter(
+        [
+            _FakeResponse(
+                body='{"ok": false, "description": "chat not found"}',
+                status=200,
+            ),
+            HTTPError(
+                url="https://api.telegram.org/botbot-token/sendMessage",
+                code=429,
+                msg="Too Many Requests",
+                hdrs=None,
+                fp=BytesIO(b"retry later"),
+            ),
+            RuntimeError("socket closed"),
+        ]
+    )
+
+    def fake_open(request, *, timeout: float):
+        response = next(responses)
+        if isinstance(response, Exception):
+            raise response
+        return response
+
+    monkeypatch.setattr(telegram_api_mod, "urlopen", fake_open)
+    client = telegram_mod.TelegramApiClient(token="bot-token", logger=FakeLogger())  # type: ignore[arg-type]
+
+    assert client.api_call("sendMessage", {"text": "hello"}) is None
+    assert client.api_call("sendMessage", {"text": "hello"}) is None
+    assert client.api_call("sendMessage", {"text": "hello"}) is None
+
+    assert [item[0] for item in warnings] == [
+        "telegram_api_error: method=%s response=%s",
+        "telegram_api_http_error: method=%s status=%d body=%s",
+        "telegram_api_failed: method=%s error=%s",
+    ]
+    assert warnings[1][1] == ("sendMessage", 429, "retry later")
+
+
+def test_telegram_api_client_wrapper_methods_build_expected_payloads() -> None:
+    calls: list[tuple[str, dict[str, Any], float | None]] = []
+    results = iter(
+        [
+            [{"update_id": 1}],
+            {"message_id": 2},
+            True,
+            {"edited": True},
+            True,
+            {"unexpected": "shape"},
+        ]
+    )
+
+    class CapturingClient(telegram_mod.TelegramApiClient):
+        def api_call(
+            self,
+            method: str,
+            payload: dict[str, Any] | None = None,
+            *,
+            timeout: float | None = None,
+        ) -> Any | None:
+            calls.append((method, dict(payload or {}), timeout))
+            return next(results)
+
+    client = CapturingClient(token="bot-token")
+
+    assert client.get_updates(offset=3, poll_timeout_seconds=12, timeout=4.0) == [
+        {"update_id": 1}
+    ]
+    assert client.send_message(
+        chat_id="chat-id",
+        text="hello",
+        reply_markup={"inline_keyboard": []},
+    ) == {"message_id": 2}
+    assert client.set_my_commands([{"command": "start", "description": "Start"}]) is True
+    assert client.edit_message_text(
+        chat_id="chat-id",
+        message_id=2,
+        text="updated",
+        parse_mode=None,
+    ) == {"edited": True}
+    assert client.answer_callback_query("callback-1") is True
+    assert client.get_updates(offset=4, poll_timeout_seconds=1, allowed_updates=["message"]) == []
+
+    assert calls == [
+        (
+            "getUpdates",
+            {
+                "offset": 3,
+                "timeout": 12,
+                "allowed_updates": ["message", "callback_query"],
+            },
+            4.0,
+        ),
+        (
+            "sendMessage",
+            {
+                "chat_id": "chat-id",
+                "text": "hello",
+                "parse_mode": "HTML",
+                "reply_markup": {"inline_keyboard": []},
+            },
+            None,
+        ),
+        (
+            "setMyCommands",
+            {"commands": [{"command": "start", "description": "Start"}]},
+            None,
+        ),
+        (
+            "editMessageText",
+            {"chat_id": "chat-id", "message_id": 2, "text": "updated"},
+            None,
+        ),
+        ("answerCallbackQuery", {"callback_query_id": "callback-1"}, None),
+        ("getUpdates", {"offset": 4, "timeout": 1, "allowed_updates": ["message"]}, None),
+    ]

@@ -8,115 +8,18 @@ from typing import Any, cast
 import pytest
 
 from chemstack.core.queue import processes as queue_processes_mod
+from chemstack.xtb import queue_artifacts as artifacts_mod
 from chemstack.xtb import queue_runtime as queue_cmd
+from chemstack.xtb import queue_terminal as terminal_mod
 from chemstack.xtb import state as state_mod
 from chemstack.xtb import worker_execution as worker_exec
 from chemstack.xtb.worker_execution import WorkerExecutionOutcome
-
-
-def _make_cfg(tmp_path: Path) -> SimpleNamespace:
-    allowed_root = tmp_path / "allowed"
-    organized_root = tmp_path / "organized"
-    admission_root = tmp_path / "admission"
-    allowed_root.mkdir()
-    organized_root.mkdir()
-    admission_root.mkdir()
-    return SimpleNamespace(
-        runtime=SimpleNamespace(
-            allowed_root=str(allowed_root),
-            organized_root=str(organized_root),
-            max_concurrent=2,
-            admission_root=str(admission_root),
-            admission_limit=2,
-        ),
-        resources=SimpleNamespace(max_cores_per_task=4, max_memory_gb_per_task=8),
-        telegram=SimpleNamespace(bot_token="", chat_id=""),
-        paths=SimpleNamespace(xtb_executable=""),
-    )
-
-
-def _make_entry(
-    job_dir: Path,
-    selected_input_xyz: Path,
-    *,
-    queue_id: str = "queue-1",
-    job_id: str = "job-1",
-    job_type: str = "path_search",
-    reaction_key: str = "reaction-1",
-    input_summary: dict[str, object] | None = None,
-    status: str = "running",
-    cancel_requested: bool = False,
-) -> SimpleNamespace:
-    return SimpleNamespace(
-        queue_id=queue_id,
-        task_id=job_id,
-        metadata={
-            "job_dir": str(job_dir),
-            "selected_input_xyz": str(selected_input_xyz),
-            "job_type": job_type,
-            "reaction_key": reaction_key,
-            "input_summary": dict(input_summary or {}),
-        },
-        started_at="2026-04-20T00:00:00Z",
-        status=SimpleNamespace(value=status),
-        cancel_requested=cancel_requested,
-        error="",
-    )
-
-
-def _make_result(
-    selected_input_xyz: Path,
-    *,
-    status: str,
-    reason: str,
-    job_type: str = "path_search",
-    reaction_key: str = "reaction-1",
-    candidate_paths: tuple[str, ...] = (),
-) -> queue_cmd.XtbRunResult:
-    resource_request = {"max_cores": 4, "max_memory_gb": 8}
-    resource_actual = {"assigned_cores": 4, "memory_limit_gb": 8}
-    return queue_cmd.XtbRunResult(
-        status=status,
-        reason=reason,
-        command=("xtb", str(selected_input_xyz)),
-        exit_code=0 if status == "completed" else 1,
-        started_at="2026-04-20T00:00:00Z",
-        finished_at="2026-04-20T00:05:00Z",
-        stdout_log=str((selected_input_xyz.parent / "xtb.stdout.log").resolve()),
-        stderr_log=str((selected_input_xyz.parent / "xtb.stderr.log").resolve()),
-        selected_input_xyz=str(selected_input_xyz),
-        job_type=job_type,
-        reaction_key=reaction_key,
-        input_summary={
-            "candidate_count": len(candidate_paths),
-            "candidate_paths": list(candidate_paths),
-        },
-        candidate_count=len(candidate_paths),
-        selected_candidate_paths=candidate_paths,
-        candidate_details=tuple({"path": path} for path in candidate_paths),
-        analysis_summary={"candidate_paths": list(candidate_paths)},
-        manifest_path="",
-        resource_request=resource_request,
-        resource_actual=resource_actual,
-    )
-
-
-def _fake_reserve_slot(
-    calls: list[tuple[str, int, str, str]],
-    root: str,
-    limit: int,
-    source: str,
-    app_name: str,
-) -> str:
-    calls.append((root, limit, source, app_name))
-    return "slot-1"
-
-
-def _record_finished_call(
-    finished_calls: list[dict[str, object]], kwargs: dict[str, object]
-) -> bool:
-    finished_calls.append(kwargs)
-    return True
+from tests.xtb.factories import (
+    fake_reserve_slot as _fake_reserve_slot,
+    make_cfg as _make_cfg,
+    make_entry as _make_entry,
+    make_result as _make_result,
+)
 
 
 def test_write_execution_artifacts_skips_without_job_dir(
@@ -377,3 +280,184 @@ def test_run_worker_job_activates_reserved_slot_and_releases_it(
         )
     ]
     assert released == [(cfg.runtime.admission_root, "slot-1")]
+
+
+def test_terminal_summary_helpers_cover_status_reason_and_metadata(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    job_dir = tmp_path / "job"
+    job_dir.mkdir()
+    selected_xyz = job_dir / "input.xyz"
+    selected_xyz.write_text("3\ncandidate\nH 0 0 0\n", encoding="utf-8")
+    entry = _make_entry(job_dir, selected_xyz, job_type="path_search")
+    deps = SimpleNamespace(
+        _job_dir=lambda _entry: job_dir,
+        load_state=lambda _job_dir: {"candidate_count": "bad"},
+        load_report_json=lambda _job_dir: {"job_type": "ranking"},
+        load_organized_ref=lambda _job_dir: {"organized_output_dir": str(tmp_path / "organized")},
+        _queue_entry_by_id=lambda _root, _queue_id: SimpleNamespace(
+            status=SimpleNamespace(value="cancelled"),
+            error="",
+        ),
+    )
+
+    summary = terminal_mod.load_terminal_summary(tmp_path, entry, rc=None, deps=deps)
+
+    assert summary == terminal_mod.TerminalSummary(
+        queue_id="queue-1",
+        job_id="job-1",
+        status="cancelled",
+        reason="cancel_requested",
+        organized_output_dir=str(tmp_path / "organized"),
+        metadata_update={"job_type": "ranking"},
+    )
+    assert terminal_mod.terminal_status({}, {}, None, 0) == "completed"
+    assert terminal_mod.terminal_status({}, {}, None, 1) == "failed"
+    assert terminal_mod.terminal_status({}, {"status": "running"}, None, 1) == "failed"
+    assert terminal_mod.terminal_reason({}, {}, None, status="completed", rc=None) == "completed"
+    assert (
+        terminal_mod.terminal_reason({}, {}, None, status="failed", rc=17)
+        == "worker_exit_code_17"
+    )
+
+    terminal_mod.print_terminal_summary(summary)
+    output = capsys.readouterr().out
+    assert f"organized_output_dir: {tmp_path / 'organized'}" in output
+    assert "status: cancelled" in output
+
+
+def test_terminal_summary_requires_explicit_or_grouped_dependencies(tmp_path: Path) -> None:
+    with pytest.raises(TypeError, match="_job_dir"):
+        terminal_mod.load_terminal_summary(
+            tmp_path,
+            SimpleNamespace(queue_id="queue-1", task_id="job-1", metadata={}),
+        )
+
+
+def test_ensure_terminal_queue_status_skips_terminal_and_marks_nonterminal(
+    tmp_path: Path,
+) -> None:
+    entry = SimpleNamespace(queue_id="queue-1")
+    summary = terminal_mod.TerminalSummary(
+        queue_id="queue-1",
+        job_id="job-1",
+        status="failed",
+        reason="worker_exit_code_1",
+        metadata_update={"job_type": "ranking"},
+    )
+    calls: list[tuple[str, str, str, dict[str, object] | None]] = []
+
+    terminal_mod.ensure_terminal_queue_status(
+        tmp_path,
+        entry,
+        summary,
+        queue_entry_by_id_fn=lambda _root, _queue_id: SimpleNamespace(
+            status=SimpleNamespace(value="completed")
+        ),
+        mark_completed_fn=lambda *_args, **_kwargs: pytest.fail("terminal entry should be skipped"),
+        mark_cancelled_fn=lambda *_args, **_kwargs: pytest.fail("terminal entry should be skipped"),
+        mark_failed_fn=lambda *_args, **_kwargs: pytest.fail("terminal entry should be skipped"),
+    )
+
+    terminal_mod.ensure_terminal_queue_status(
+        tmp_path,
+        entry,
+        summary,
+        queue_entry_by_id_fn=lambda _root, _queue_id: SimpleNamespace(
+            status=SimpleNamespace(value="running")
+        ),
+        mark_completed_fn=lambda *_args, **_kwargs: pytest.fail("should mark failed"),
+        mark_cancelled_fn=lambda *_args, **_kwargs: pytest.fail("should mark failed"),
+        mark_failed_fn=lambda root, queue_id, *, error, metadata_update: calls.append(
+            (root, queue_id, error, metadata_update)
+        ),
+    )
+
+    assert calls == [
+        (
+            str(tmp_path),
+            "queue-1",
+            "worker_exit_code_1",
+            {"job_type": "ranking"},
+        )
+    ]
+
+
+def test_mark_recovery_pending_state_requires_dependencies(tmp_path: Path) -> None:
+    cfg = _make_cfg(tmp_path)
+    entry = SimpleNamespace(task_id="job-1")
+
+    with pytest.raises(TypeError, match="job_dir_fn"):
+        artifacts_mod.mark_recovery_pending_state(cfg, entry, reason="worker_lost")
+
+
+def test_mark_recovery_pending_state_records_recovery_payload(tmp_path: Path) -> None:
+    cfg = _make_cfg(tmp_path)
+    job_dir = Path(cfg.runtime.allowed_root) / "job-1"
+    job_dir.mkdir()
+    selected_xyz = job_dir / "input.xyz"
+    selected_xyz.write_text("3\ncandidate\nH 0 0 0\n", encoding="utf-8")
+    entry = _make_entry(
+        job_dir,
+        selected_xyz,
+        job_type="ranking",
+        reaction_key="rxn-1",
+        input_summary={"candidate_count": 1, "candidate_paths": [str(selected_xyz)]},
+    )
+    recovery_calls: list[tuple[Path, dict[str, object]]] = []
+    upsert_calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
+    resource_request = {"max_cores": 4, "max_memory_gb": 8}
+
+    artifacts_mod.mark_recovery_pending_state(
+        cfg,
+        entry,
+        reason="worker_lost",
+        job_dir_fn=lambda _entry: job_dir,
+        selected_xyz_fn=lambda _entry: selected_xyz,
+        job_type_fn=lambda _entry: "ranking",
+        reaction_key_fn=lambda _entry, _job_dir: "rxn-1",
+        input_summary_fn=lambda _entry: {
+            "candidate_count": 1,
+            "candidate_paths": [str(selected_xyz)],
+        },
+        entry_resource_request_fn=lambda _cfg, _entry: resource_request,
+        mark_recovery_pending_fn=lambda job_dir_arg, **kwargs: recovery_calls.append(
+            (job_dir_arg, kwargs)
+        ),
+        upsert_job_record_fn=lambda *args, **kwargs: upsert_calls.append((args, kwargs)),
+    )
+
+    assert recovery_calls == [
+        (
+            job_dir,
+            {
+                "job_id": "job-1",
+                "selected_input_xyz": str(selected_xyz),
+                "job_type": "ranking",
+                "reaction_key": "rxn-1",
+                "input_summary": {
+                    "candidate_count": 1,
+                    "candidate_paths": [str(selected_xyz)],
+                },
+                "resource_request": resource_request,
+                "resource_actual": resource_request,
+                "reason": "worker_lost",
+            },
+        )
+    ]
+    assert upsert_calls == [
+        (
+            (cfg,),
+            {
+                "job_id": "job-1",
+                "status": "pending",
+                "job_dir": job_dir,
+                "selected_input_xyz": str(selected_xyz),
+                "job_type": "ranking",
+                "reaction_key": "rxn-1",
+                "resource_request": resource_request,
+                "resource_actual": resource_request,
+            },
+        )
+    ]

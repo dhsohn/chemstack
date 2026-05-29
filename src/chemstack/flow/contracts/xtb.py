@@ -91,7 +91,6 @@ class XtbDownstreamPolicy:
     )
     max_candidates: int = 3
     selected_only: bool = True
-    fallback_to_selected_paths: bool = True
     allowed_kinds: tuple[str, ...] = ()
 
     @classmethod
@@ -101,7 +100,6 @@ class XtbDownstreamPolicy:
         preferred_kinds: list[str] | tuple[str, ...] | None = None,
         max_candidates: int = 3,
         selected_only: bool = True,
-        fallback_to_selected_paths: bool = True,
         allowed_kinds: list[str] | tuple[str, ...] | None = None,
     ) -> "XtbDownstreamPolicy":
         kinds = tuple(
@@ -118,7 +116,6 @@ class XtbDownstreamPolicy:
             preferred_kinds=kinds or cls().preferred_kinds,
             max_candidates=max(1, int(max_candidates)),
             selected_only=bool(selected_only),
-            fallback_to_selected_paths=bool(fallback_to_selected_paths),
             allowed_kinds=filtered_kinds,
         )
 

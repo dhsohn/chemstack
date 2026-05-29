@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
 from .telegram_api import TelegramApiClient
@@ -31,6 +30,7 @@ from .telegram_network import (
     _iter_exception_chain,
     _read_http_error_body,
     _should_retry_url_error,
+    urlopen_with_ipv4_fallback as _network_urlopen_with_ipv4_fallback,
 )
 from .telegram_transport import (
     TelegramSendResult,
@@ -51,16 +51,7 @@ LOGGER = logging.getLogger(__name__)
 
 
 def urlopen_with_ipv4_fallback(request: Request, *, timeout: float):
-    try:
-        return urlopen(request, timeout=timeout)
-    except BaseException as exc:
-        if not _is_network_unreachable_error(exc):
-            raise
-        hostname = urlsplit(getattr(request, "full_url", "")).hostname or ""
-        if not hostname:
-            raise
-        with _force_ipv4_resolution(hostname):
-            return urlopen(request, timeout=timeout)
+    return _network_urlopen_with_ipv4_fallback(request, timeout=timeout, urlopen_fn=urlopen)
 
 __all__ = [
     "DEFAULT_MAX_ATTEMPTS",

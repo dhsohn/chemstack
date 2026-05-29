@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
-from urllib.request import Request
+from urllib.request import Request, urlopen
 
 from .telegram_config import (
     DEFAULT_MAX_ATTEMPTS,
@@ -27,11 +27,11 @@ from .telegram_network import (
 
 
 def _open_telegram_request(request: Request, *, timeout: float):
-    try:
-        from . import telegram as telegram_facade
-    except Exception:
-        return _network_urlopen_with_ipv4_fallback(request, timeout=timeout)
-    return telegram_facade.urlopen_with_ipv4_fallback(request, timeout=timeout)
+    return _network_urlopen_with_ipv4_fallback(
+        request,
+        timeout=timeout,
+        urlopen_fn=urlopen,
+    )
 
 
 @dataclass(frozen=True)

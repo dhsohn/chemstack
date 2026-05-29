@@ -111,7 +111,6 @@ def _xtb_ts_guess_inputs(o: Any, contract: Any) -> list[Any]:
             allowed_kinds=("ts_guess",),
             max_candidates=max_candidate_count,
             selected_only=False,
-            fallback_to_selected_paths=False,
         ),
         require_geometry=True,
     )

@@ -10,6 +10,9 @@ import pytest
 
 from chemstack.flow import registry
 from chemstack.flow import _registry_notifications as registry_notifications
+from chemstack.flow import registry_store
+from chemstack.flow import worker_state_store
+from chemstack.flow import workflow_journal
 
 
 @contextmanager
@@ -17,10 +20,22 @@ def _no_lock(*args: Any, **kwargs: Any):
     yield
 
 
-def test_record_from_summary_coerces_counts_and_nested_metadata(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(registry, "now_utc_iso", lambda: "2026-04-19T00:00:00+00:00")
+def _patch_file_locks(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(registry_store, "file_lock", _no_lock)
+    monkeypatch.setattr(workflow_journal, "file_lock", _no_lock)
+    monkeypatch.setattr(worker_state_store, "file_lock", _no_lock)
 
-    record = registry._record_from_summary(
+
+def _patch_now_utc_iso(monkeypatch: pytest.MonkeyPatch, now_utc_iso) -> None:
+    monkeypatch.setattr(registry_store, "now_utc_iso", now_utc_iso)
+    monkeypatch.setattr(workflow_journal, "now_utc_iso", now_utc_iso)
+    monkeypatch.setattr(worker_state_store, "now_utc_iso", now_utc_iso)
+
+
+def test_record_from_summary_coerces_counts_and_nested_metadata(monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_now_utc_iso(monkeypatch, lambda: "2026-04-19T00:00:00+00:00")
+
+    record = registry_store._record_from_summary(
         {
             "workflow_id": "wf_1",
             "template_name": "reaction_ts_search",
@@ -335,8 +350,8 @@ def test_maybe_notify_journal_event_sends_message_and_swallows_transport_errors(
 
     monkeypatch.setattr(registry_notifications, "journal_notification_enabled", lambda event_type: True)
     monkeypatch.setattr(registry_notifications, "telegram_transport_from_env", lambda: FakeTransport(fail=False))
-    registry._maybe_notify_journal_event(event, tmp_path)
-    registry._maybe_notify_journal_event(
+    workflow_journal._maybe_notify_journal_event(event, tmp_path)
+    workflow_journal._maybe_notify_journal_event(
         {
             "event_type": "workflow_stage_submitted",
             "workflow_id": "wf_notify",
@@ -348,7 +363,7 @@ def test_maybe_notify_journal_event_sends_message_and_swallows_transport_errors(
         },
         tmp_path,
     )
-    registry._maybe_notify_journal_event(
+    workflow_journal._maybe_notify_journal_event(
         {
             "event_type": "workflow_stage_submitted",
             "workflow_id": "wf_notify",
@@ -360,7 +375,7 @@ def test_maybe_notify_journal_event_sends_message_and_swallows_transport_errors(
         },
         tmp_path,
     )
-    registry._maybe_notify_journal_event(
+    workflow_journal._maybe_notify_journal_event(
         {
             "event_type": "workflow_phase_finished",
             "workflow_id": "wf_notify",
@@ -382,7 +397,7 @@ def test_maybe_notify_journal_event_sends_message_and_swallows_transport_errors(
     assert "<b>Phase</b>: <code>xTB</code>" in sent_messages[1]
 
     monkeypatch.setattr(registry_notifications, "telegram_transport_from_env", lambda: FakeTransport(fail=True))
-    registry._maybe_notify_journal_event(event, tmp_path)
+    workflow_journal._maybe_notify_journal_event(event, tmp_path)
     assert len(sent_messages) == 2
 
 
@@ -390,7 +405,7 @@ def test_clear_terminal_workflow_registry_removes_only_terminal_rows(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    monkeypatch.setattr(registry, "file_lock", _no_lock)
+    _patch_file_locks(monkeypatch)
 
     records = [
         registry.WorkflowRegistryRecord(
@@ -427,7 +442,7 @@ def test_clear_terminal_workflow_registry_removes_only_terminal_rows(
             workflow_file="/tmp/wf-cancelled/workflow.json",
         ),
     ]
-    registry._save_records(tmp_path, records)
+    registry_store._save_records(tmp_path, records)
 
     assert registry.clear_terminal_workflow_registry(tmp_path) == 2
     remaining = registry.list_workflow_registry(tmp_path, reindex_if_missing=False)
@@ -439,8 +454,8 @@ def test_clear_terminal_workflow_registry_prevents_reindex_resurrection(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    monkeypatch.setattr(registry, "file_lock", _no_lock)
-    monkeypatch.setattr(registry, "now_utc_iso", lambda: "2026-04-19T00:20:00+00:00")
+    _patch_file_locks(monkeypatch)
+    _patch_now_utc_iso(monkeypatch, lambda: "2026-04-19T00:20:00+00:00")
 
     completed_workspace = tmp_path / "wf-completed"
     running_workspace = tmp_path / "wf-running"
@@ -502,8 +517,8 @@ def test_sync_skips_cleared_terminal_workflow_until_it_becomes_active(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    monkeypatch.setattr(registry, "file_lock", _no_lock)
-    monkeypatch.setattr(registry, "now_utc_iso", lambda: "2026-04-19T00:20:00+00:00")
+    _patch_file_locks(monkeypatch)
+    _patch_now_utc_iso(monkeypatch, lambda: "2026-04-19T00:20:00+00:00")
 
     workspace = tmp_path / "wf-completed"
     workspace.mkdir()
@@ -537,7 +552,7 @@ def test_workflow_cleared_markers_corrupt_payload_blocks_writes(
     tmp_path: Path,
     markers_payload: str,
 ) -> None:
-    monkeypatch.setattr(registry, "file_lock", _no_lock)
+    _patch_file_locks(monkeypatch)
     record = registry.WorkflowRegistryRecord(
         workflow_id="wf_completed",
         template_name="reaction_ts_search",
@@ -549,9 +564,9 @@ def test_workflow_cleared_markers_corrupt_payload_blocks_writes(
         workspace_dir=str(tmp_path / "wf_completed"),
         workflow_file=str(tmp_path / "wf_completed" / "workflow.json"),
     )
-    registry._save_records(tmp_path, [record])
-    registry_text = registry._registry_path(tmp_path).read_text(encoding="utf-8")
-    registry._cleared_path(tmp_path).write_text(markers_payload, encoding="utf-8")
+    registry_store._save_records(tmp_path, [record])
+    registry_text = registry_store._registry_path(tmp_path).read_text(encoding="utf-8")
+    registry_store._cleared_path(tmp_path).write_text(markers_payload, encoding="utf-8")
 
     with pytest.raises(registry.WorkflowRegistryCorruptError):
         registry.clear_terminal_workflow_registry(tmp_path)
@@ -559,23 +574,75 @@ def test_workflow_cleared_markers_corrupt_payload_blocks_writes(
         registry.upsert_workflow_registry_record(tmp_path, record)
     with pytest.raises(registry.WorkflowRegistryCorruptError):
         registry.reindex_workflow_registry(tmp_path)
-    assert registry._registry_path(tmp_path).read_text(encoding="utf-8") == registry_text
-    assert registry._cleared_path(tmp_path).read_text(encoding="utf-8") == markers_payload
+    assert registry_store._registry_path(tmp_path).read_text(encoding="utf-8") == registry_text
+    assert registry_store._cleared_path(tmp_path).read_text(encoding="utf-8") == markers_payload
 
 
 def test_list_workflow_registry_does_not_reindex_valid_empty_registry(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    monkeypatch.setattr(registry, "file_lock", _no_lock)
-    registry._save_records(tmp_path, [])
+    _patch_file_locks(monkeypatch)
+    registry_store._save_records(tmp_path, [])
 
     def fake_reindex_workflow_registry(root: str | Path) -> list[registry.WorkflowRegistryRecord]:
         raise AssertionError(f"unexpected reindex for {root}")
 
-    monkeypatch.setattr(registry, "reindex_workflow_registry", fake_reindex_workflow_registry)
+    monkeypatch.setattr(registry_store, "reindex_workflow_registry", fake_reindex_workflow_registry)
 
     assert registry.list_workflow_registry(tmp_path) == []
+
+
+def test_list_workflow_registry_missing_without_reindex_returns_empty(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _patch_file_locks(monkeypatch)
+
+    assert registry.list_workflow_registry(tmp_path, reindex_if_missing=False) == []
+    assert not registry_store._registry_path(tmp_path).exists()
+
+
+def test_clear_terminal_workflow_registry_empty_status_filter_is_noop(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _patch_file_locks(monkeypatch)
+    record = registry.WorkflowRegistryRecord(
+        workflow_id="wf-completed",
+        template_name="reaction_ts_search",
+        status="completed",
+        source_job_id="job-1",
+        source_job_type="xtb_path",
+        reaction_key="rxn-1",
+        requested_at="2026-04-19T00:00:00+00:00",
+        workspace_dir=str(tmp_path / "wf-completed"),
+        workflow_file=str(tmp_path / "wf-completed" / "workflow.json"),
+    )
+    registry_store._save_records(tmp_path, [record])
+
+    assert registry.clear_terminal_workflow_registry(tmp_path, statuses={"", "  "}) == 0
+    assert registry.list_workflow_registry(tmp_path, reindex_if_missing=False) == [record]
+    assert not registry_store._cleared_path(tmp_path).exists()
+
+
+def test_registry_read_os_error_raises_corrupt_error() -> None:
+    class BrokenPath:
+        def exists(self) -> bool:
+            return True
+
+        def read_text(self, *, encoding: str) -> str:
+            raise OSError("permission denied")
+
+        def __str__(self) -> str:
+            return "/broken/workflow_registry.json"
+
+    with pytest.raises(registry.WorkflowRegistryCorruptError, match="cannot be read"):
+        registry_store._read_existing_json(
+            BrokenPath(),  # type: ignore[arg-type]
+            description="Workflow registry file",
+            missing_default=[],
+        )
 
 
 @pytest.mark.parametrize("payload", ["{invalid", json.dumps({"workflow_id": "wf-bad"})])
@@ -584,20 +651,20 @@ def test_list_workflow_registry_rejects_corrupt_existing_registry(
     tmp_path: Path,
     payload: str,
 ) -> None:
-    monkeypatch.setattr(registry, "file_lock", _no_lock)
-    registry._registry_path(tmp_path).write_text(payload, encoding="utf-8")
+    _patch_file_locks(monkeypatch)
+    registry_store._registry_path(tmp_path).write_text(payload, encoding="utf-8")
     reindex_calls: list[Path] = []
 
     def fake_reindex_workflow_registry(root: str | Path) -> list[registry.WorkflowRegistryRecord]:
         reindex_calls.append(Path(root).resolve())
         return []
 
-    monkeypatch.setattr(registry, "reindex_workflow_registry", fake_reindex_workflow_registry)
+    monkeypatch.setattr(registry_store, "reindex_workflow_registry", fake_reindex_workflow_registry)
 
     with pytest.raises(registry.WorkflowRegistryCorruptError):
         registry.list_workflow_registry(tmp_path)
     assert reindex_calls == []
-    assert registry._registry_path(tmp_path).read_text(encoding="utf-8") == payload
+    assert registry_store._registry_path(tmp_path).read_text(encoding="utf-8") == payload
 
 
 @pytest.mark.parametrize("registry_payload", ["{invalid", json.dumps({"workflow_id": "wf-bad"})])
@@ -606,8 +673,8 @@ def test_workflow_registry_writes_reject_corrupt_existing_registry(
     tmp_path: Path,
     registry_payload: str,
 ) -> None:
-    monkeypatch.setattr(registry, "file_lock", _no_lock)
-    registry._registry_path(tmp_path).write_text(registry_payload, encoding="utf-8")
+    _patch_file_locks(monkeypatch)
+    registry_store._registry_path(tmp_path).write_text(registry_payload, encoding="utf-8")
     record = registry.WorkflowRegistryRecord(
         workflow_id="wf_safe",
         template_name="reaction_ts_search",
@@ -624,7 +691,7 @@ def test_workflow_registry_writes_reject_corrupt_existing_registry(
         registry.upsert_workflow_registry_record(tmp_path, record)
     with pytest.raises(registry.WorkflowRegistryCorruptError):
         registry.reindex_workflow_registry(tmp_path)
-    assert registry._registry_path(tmp_path).read_text(encoding="utf-8") == registry_payload
+    assert registry_store._registry_path(tmp_path).read_text(encoding="utf-8") == registry_payload
 
 
 def test_append_workflow_journal_event_writes_jsonl_and_returns_event(
@@ -641,11 +708,11 @@ def test_append_workflow_journal_event_writes_jsonl_and_returns_event(
         ]
     )
 
-    monkeypatch.setattr(registry, "file_lock", _no_lock)
-    monkeypatch.setattr(registry, "timestamped_token", lambda prefix: next(token_values))
-    monkeypatch.setattr(registry, "now_utc_iso", lambda: next(time_values))
+    _patch_file_locks(monkeypatch)
+    monkeypatch.setattr(workflow_journal, "timestamped_token", lambda prefix: next(token_values))
+    _patch_now_utc_iso(monkeypatch, lambda: next(time_values))
     monkeypatch.setattr(
-        registry,
+        workflow_journal,
         "_maybe_notify_journal_event",
         lambda event, workflow_root: notifications.append(
             {"event": dict(event), "workflow_root": str(Path(workflow_root).resolve())}
@@ -732,7 +799,7 @@ def test_list_workflow_journal_sorts_descending_and_applies_limit(
         ),
         encoding="utf-8",
     )
-    monkeypatch.setattr(registry, "file_lock", _no_lock)
+    _patch_file_locks(monkeypatch)
 
     result = registry.list_workflow_journal(tmp_path, limit=2)
 
@@ -743,10 +810,10 @@ def test_write_and_load_workflow_worker_state_round_trip(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    monkeypatch.setattr(registry, "file_lock", _no_lock)
-    monkeypatch.setattr(registry.os, "getpid", lambda: 4242)
-    monkeypatch.setattr(registry.socket, "gethostname", lambda: "host-1")
-    monkeypatch.setattr(registry, "now_utc_iso", lambda: "2026-04-19T02:00:00+00:00")
+    _patch_file_locks(monkeypatch)
+    monkeypatch.setattr(worker_state_store.os, "getpid", lambda: 4242)
+    monkeypatch.setattr(worker_state_store.socket, "gethostname", lambda: "host-1")
+    _patch_now_utc_iso(monkeypatch, lambda: "2026-04-19T02:00:00+00:00")
 
     written = registry.write_workflow_worker_state(
         tmp_path,
@@ -783,7 +850,7 @@ def test_workflow_worker_state_corrupt_payload_raises_and_write_does_not_overwri
     tmp_path: Path,
     state_payload: str,
 ) -> None:
-    monkeypatch.setattr(registry, "file_lock", _no_lock)
+    _patch_file_locks(monkeypatch)
     state_path = registry.workflow_worker_state_path(tmp_path)
     state_path.parent.mkdir(parents=True, exist_ok=True)
     state_path.write_text(state_payload, encoding="utf-8")
@@ -803,7 +870,7 @@ def test_upsert_list_get_and_resolve_workflow_registry_record(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    monkeypatch.setattr(registry, "file_lock", _no_lock)
+    _patch_file_locks(monkeypatch)
     record_older = registry.WorkflowRegistryRecord(
         workflow_id="wf_a",
         template_name="reaction_ts_search",
@@ -859,7 +926,7 @@ def test_list_workflow_registry_reindexes_when_missing_and_reindex_skips_bad_wor
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    monkeypatch.setattr(registry, "file_lock", _no_lock)
+    _patch_file_locks(monkeypatch)
     original_reindex = registry.reindex_workflow_registry
 
     list_result = [registry.WorkflowRegistryRecord(
@@ -879,10 +946,10 @@ def test_list_workflow_registry_reindexes_when_missing_and_reindex_skips_bad_wor
         reindex_calls.append(Path(root).resolve())
         return list_result
 
-    monkeypatch.setattr(registry, "reindex_workflow_registry", fake_reindex_workflow_registry)
+    monkeypatch.setattr(registry_store, "reindex_workflow_registry", fake_reindex_workflow_registry)
     assert registry.list_workflow_registry(tmp_path) == list_result
     assert reindex_calls == [tmp_path.resolve()]
-    monkeypatch.setattr(registry, "reindex_workflow_registry", original_reindex)
+    monkeypatch.setattr(registry_store, "reindex_workflow_registry", original_reindex)
 
     good_workspace = tmp_path / "wf_good"
     bad_workspace = tmp_path / "wf_bad"
@@ -914,10 +981,10 @@ def test_list_workflow_registry_reindexes_when_missing_and_reindex_skips_bad_wor
     def fake_workflow_summary(workspace_dir: Path, payload: dict[str, Any]) -> dict[str, Any]:
         return summaries[workspace_dir]
 
-    monkeypatch.setattr(registry, "iter_workflow_workspaces", fake_iter_workflow_workspaces)
-    monkeypatch.setattr(registry, "load_workflow_payload", fake_load_workflow_payload)
-    monkeypatch.setattr(registry, "workflow_summary", fake_workflow_summary)
-    monkeypatch.setattr(registry, "now_utc_iso", lambda: "2026-04-19T00:20:00+00:00")
+    monkeypatch.setattr(registry_store, "iter_workflow_workspaces", fake_iter_workflow_workspaces)
+    monkeypatch.setattr(registry_store, "load_workflow_payload", fake_load_workflow_payload)
+    monkeypatch.setattr(registry_store, "workflow_summary", fake_workflow_summary)
+    _patch_now_utc_iso(monkeypatch, lambda: "2026-04-19T00:20:00+00:00")
 
     records = registry.reindex_workflow_registry(tmp_path)
 

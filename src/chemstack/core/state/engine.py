@@ -151,6 +151,42 @@ def create_engine_state_access(
     )
 
 
+@dataclass(frozen=True)
+class EngineStateBindings:
+    access: EngineStateAccess
+    recovery_pending: EngineRecoveryPendingWriter
+
+
+def create_engine_state_bindings(
+    *,
+    state_file_name: str,
+    report_json_file_name: str,
+    report_md_file_name: str,
+    organized_ref_file_name: str,
+    manifest_file_name: str,
+    report_title: str,
+    selected_input_label: str,
+    now_fn: Callable[[], str] = now_utc_iso,
+) -> EngineStateBindings:
+    access = create_engine_state_access(
+        state_file_name=state_file_name,
+        report_json_file_name=report_json_file_name,
+        report_md_file_name=report_md_file_name,
+        organized_ref_file_name=organized_ref_file_name,
+        report_title=report_title,
+        selected_input_label=selected_input_label,
+        now_fn=now_fn,
+    )
+    return EngineStateBindings(
+        access=access,
+        recovery_pending=EngineRecoveryPendingWriter(
+            access=access,
+            manifest_filename=manifest_file_name,
+            now_fn=now_fn,
+        ),
+    )
+
+
 def state_matches_fields(state: dict[str, Any] | None, fields: dict[str, Any]) -> bool:
     if not isinstance(state, dict):
         return False

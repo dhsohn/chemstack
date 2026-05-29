@@ -39,25 +39,6 @@ def _load_candidate_details(payload: dict[str, Any]) -> tuple[XtbCandidateArtifa
     return tuple(details)
 
 
-def _fallback_details_from_paths(
-    contract_payload: dict[str, Any],
-) -> tuple[XtbCandidateArtifact, ...]:
-    details: list[XtbCandidateArtifact] = []
-    for index, path in enumerate(
-        _adapter_helpers.normalized_text_sequence(contract_payload.get("selected_candidate_paths")),
-        start=1,
-    ):
-        details.append(
-            XtbCandidateArtifact(
-                rank=index,
-                kind="candidate",
-                path=path,
-                selected=True,
-            )
-        )
-    return tuple(details)
-
-
 def _ordered_xtb_candidate_details(
     contract: XtbArtifactContract,
     policy: XtbDownstreamPolicy,
@@ -109,36 +90,6 @@ def _stage_input_from_xtb_candidate(
     )
 
 
-def _fallback_xtb_downstream_inputs(
-    contract: XtbArtifactContract,
-    policy: XtbDownstreamPolicy,
-    *,
-    require_geometry: bool,
-) -> tuple[WorkflowStageInput, ...]:
-    fallback_paths = contract.selected_candidate_paths
-    if require_geometry:
-        fallback_paths = tuple(path for path in fallback_paths if has_xyz_geometry(path))
-
-    fallback: list[WorkflowStageInput] = []
-    for index, path in enumerate(fallback_paths, start=1):
-        fallback.append(
-            WorkflowStageInput(
-                source_job_id=contract.job_id,
-                source_job_type=contract.job_type,
-                reaction_key=contract.reaction_key,
-                selected_input_xyz=contract.selected_input_xyz,
-                rank=index,
-                kind="candidate",
-                artifact_path=path,
-                selected=True,
-                metadata={},
-            )
-        )
-        if len(fallback) >= policy.max_candidates:
-            break
-    return tuple(fallback)
-
-
 def load_xtb_artifact_contract(*, xtb_index_root: str | Path, target: str) -> XtbArtifactContract:
     bundle = _adapter_helpers.load_contract_artifact_bundle(
         index_root=xtb_index_root,
@@ -155,7 +106,7 @@ def load_xtb_artifact_contract(*, xtb_index_root: str | Path, target: str) -> Xt
     fields = _adapter_helpers.ContractFieldReader(bundle)
     payload = fields.payload
 
-    candidate_details = _load_candidate_details(payload) or _fallback_details_from_paths(payload)
+    candidate_details = _load_candidate_details(payload)
 
     selected_candidate_paths = fields.payload_sequence("selected_candidate_paths") or tuple(
         item.path for item in candidate_details if item.selected
@@ -216,11 +167,7 @@ def select_xtb_downstream_inputs(
         if len(selected_inputs) >= active_policy.max_candidates:
             break
 
-    if selected_inputs or not active_policy.fallback_to_selected_paths:
-        return tuple(selected_inputs)
-    return _fallback_xtb_downstream_inputs(
-        contract, active_policy, require_geometry=require_geometry
-    )
+    return tuple(selected_inputs)
 
 
 __all__ = [

@@ -11,6 +11,7 @@ from chemstack.core.indexing import JobLocationRecord
 from chemstack.core.utils.coercion import normalize_text
 from chemstack.flow import _registry_notifications as registry_notifications
 from chemstack.flow import cli_workflow, registry, xyz_utils
+from chemstack.flow import registry_store, workflow_journal
 from chemstack.flow.adapters import _engine_adapter_helpers as adapter_helpers
 from chemstack.flow.adapters import _orca_local_lookup, _orca_path_helpers, _orca_tracking
 from chemstack.flow.adapters import orca as orca_adapter
@@ -91,10 +92,14 @@ def test_resolve_indexed_job_dir_edge_branches(tmp_path: Path, missing_label: st
         selected_candidate_paths=("/tmp/c1.xyz", "/tmp/c2.xyz"),
         candidate_details=(),
     )
-    policy = XtbDownstreamPolicy(preferred_kinds=(), max_candidates=1, selected_only=False, allowed_kinds=(), fallback_to_selected_paths=True)
+    policy = XtbDownstreamPolicy(
+        preferred_kinds=(),
+        max_candidates=1,
+        selected_only=False,
+        allowed_kinds=(),
+    )
     rows = xtb_adapter.select_xtb_downstream_inputs(contract, policy=policy, require_geometry=False)
-    assert len(rows) == 1
-    assert rows[0].artifact_path == "/tmp/c1.xyz"
+    assert rows == ()
 
 
 def test_xtb_select_downstream_inputs_breaks_after_max_candidates() -> None:
@@ -113,7 +118,12 @@ def test_xtb_select_downstream_inputs_breaks_after_max_candidates() -> None:
             XtbCandidateArtifact(rank=2, kind="path", path="/tmp/second.xyz", selected=False, score=-0.5),
         ),
     )
-    policy = XtbDownstreamPolicy(preferred_kinds=(), max_candidates=1, selected_only=False, allowed_kinds=(), fallback_to_selected_paths=False)
+    policy = XtbDownstreamPolicy(
+        preferred_kinds=(),
+        max_candidates=1,
+        selected_only=False,
+        allowed_kinds=(),
+    )
 
     rows = xtb_adapter.select_xtb_downstream_inputs(contract, policy=policy, require_geometry=False)
 
@@ -151,12 +161,12 @@ def test_registry_notification_and_resolution_remaining_edges(
         "telegram_transport_from_env",
         lambda: SimpleNamespace(send_text=lambda text: sent.append(text)),
     )
-    registry._maybe_notify_journal_event({"event_type": "worker_started"}, tmp_path)
+    workflow_journal._maybe_notify_journal_event({"event_type": "worker_started"}, tmp_path)
     assert sent == []
 
     monkeypatch.setattr(registry_notifications, "journal_notification_enabled", lambda event_type: True)
     monkeypatch.setattr(registry_notifications, "telegram_transport_from_env", lambda: None)
-    registry._maybe_notify_journal_event({"event_type": "worker_started"}, tmp_path)
+    workflow_journal._maybe_notify_journal_event({"event_type": "worker_started"}, tmp_path)
     assert sent == []
 
     journal_path = registry.workflow_journal_path(tmp_path)
@@ -166,7 +176,7 @@ def test_registry_notification_and_resolution_remaining_edges(
     assert len(rows) == 2
 
     monkeypatch.setattr(
-        registry,
+        registry_store,
         "list_workflow_registry",
         lambda workflow_root: [
             registry.WorkflowRegistryRecord(
@@ -195,9 +205,9 @@ def test_registry_notification_and_resolution_remaining_edges(
         def resolve(self) -> Path:
             raise OSError("bad")
 
-    monkeypatch.setattr(registry, "Path", _BrokenPath)
+    monkeypatch.setattr(registry_store, "Path", _BrokenPath)
     monkeypatch.setattr(
-        registry,
+        registry_store,
         "list_workflow_registry",
         lambda workflow_root: [
             registry.WorkflowRegistryRecord(

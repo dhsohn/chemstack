@@ -2,13 +2,16 @@ from __future__ import annotations
 
 from typing import Any
 
-from chemstack.core.commands.queue import display_status
-from chemstack.core.queue import enqueue, request_cancel
+from chemstack.core import queue as _queue_store
+from chemstack.core.commands import queue as _queue_commands
 from chemstack.xtb import queue_runtime as _queue_runtime
 from chemstack.xtb import submission as _submission
 
 from . import internal_engine as _internal_engine
 
+display_status = _queue_commands.display_status
+enqueue = _queue_store.enqueue
+request_cancel = _queue_store.request_cancel
 build_submission = _submission._build_submission
 load_config = _submission.load_config
 load_job_manifest = _submission.load_job_manifest
@@ -37,46 +40,15 @@ _SUBMITTER_SPEC = _internal_engine.InternalEngineSubmitterSpec(
 
 
 def _submitter_deps() -> _internal_engine.InternalEngineSubmitterDeps:
-    return _internal_engine.InternalEngineSubmitterDeps(
-        load_config_fn=load_config,
-        resolve_job_dir_fn=resolve_job_dir,
-        load_manifest_fn=load_job_manifest,
-        build_submission_fn=build_submission,
-        record_queued_fn=record_queued,
-        enqueue_fn=enqueue,
-        load_queue_config_fn=load_queue_config,
-        queue_entries_with_roots_fn=queue_entries_with_roots,
-        request_cancel_fn=request_cancel,
-        display_status_fn=display_status,
-    )
+    return _internal_engine.submitter_deps_from_namespace(globals())
 
 
-def submit_job_dir(
-    *,
-    job_dir: str,
-    priority: int,
-    config_path: str,
-) -> dict[str, Any]:
-    return _internal_engine.submit_engine_job_dir(
-        spec=_SUBMITTER_SPEC,
-        deps=_submitter_deps(),
-        config_path=config_path,
-        job_dir=job_dir,
-        priority=priority,
-    )
-
-
-def cancel_target(
-    *,
-    target: str,
-    config_path: str,
-) -> dict[str, Any]:
-    return _internal_engine.cancel_engine_target(
-        spec=_SUBMITTER_SPEC,
-        deps=_submitter_deps(),
-        config_path=config_path,
-        target=target,
-    )
+_SUBMITTER = _internal_engine.InternalEngineSubmitter(
+    spec=_SUBMITTER_SPEC,
+    deps_factory=_submitter_deps,
+)
+submit_job_dir = _SUBMITTER.submit_job_dir
+cancel_target = _SUBMITTER.cancel_target
 
 
 __all__ = [

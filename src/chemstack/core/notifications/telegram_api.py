@@ -5,7 +5,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 from urllib.error import HTTPError
-from urllib.request import Request
+from urllib.request import Request, urlopen
 
 from .telegram_config import DEFAULT_TELEGRAM_BASE_URL, DEFAULT_TIMEOUT_SECONDS
 from .telegram_network import (
@@ -17,11 +17,11 @@ LOGGER = logging.getLogger(__name__)
 
 
 def _open_telegram_request(request: Request, *, timeout: float):
-    try:
-        from . import telegram as telegram_facade
-    except Exception:
-        return _network_urlopen_with_ipv4_fallback(request, timeout=timeout)
-    return telegram_facade.urlopen_with_ipv4_fallback(request, timeout=timeout)
+    return _network_urlopen_with_ipv4_fallback(
+        request,
+        timeout=timeout,
+        urlopen_fn=urlopen,
+    )
 
 
 @dataclass(frozen=True)

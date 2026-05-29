@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import socket
+from collections.abc import Callable
 from contextlib import contextmanager
 from urllib.error import HTTPError
 from urllib.parse import urlsplit
@@ -102,9 +103,14 @@ def _force_ipv4_resolution(hostname: str):
         setattr(socket, "getaddrinfo", original_getaddrinfo)
 
 
-def urlopen_with_ipv4_fallback(request: Request, *, timeout: float):
+def urlopen_with_ipv4_fallback(
+    request: Request,
+    *,
+    timeout: float,
+    urlopen_fn: Callable[..., object] = urlopen,
+):
     try:
-        return urlopen(request, timeout=timeout)
+        return urlopen_fn(request, timeout=timeout)
     except BaseException as exc:
         if not _is_network_unreachable_error(exc):
             raise
@@ -112,7 +118,7 @@ def urlopen_with_ipv4_fallback(request: Request, *, timeout: float):
         if not hostname:
             raise
         with _force_ipv4_resolution(hostname):
-            return urlopen(request, timeout=timeout)
+            return urlopen_fn(request, timeout=timeout)
 
 
 def _read_http_error_body(exc: HTTPError) -> str:

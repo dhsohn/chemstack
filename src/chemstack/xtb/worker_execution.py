@@ -15,7 +15,6 @@ from chemstack.core.queue import (
 from chemstack.core.queue import child_entrypoint as _child_entrypoint
 from chemstack.core.queue import engine_execution as _engine_execution
 from chemstack.core.queue import execution as _queue_execution
-from chemstack.core.queue.dependencies import LegacyDependencyOverrides
 from chemstack.core.queue.engine_execution import (
     CancellableProcessExecution,
 )
@@ -145,93 +144,57 @@ def _queue_entry_by_id(queue_root: Path | str, queue_id: str) -> Any | None:
     )
 
 
-_LegacyTake = Callable[[str, Any], Any]
-
-
-def _default_config_dependencies(take: _LegacyTake) -> WorkerConfigDependencies:
+def _default_config_dependencies() -> WorkerConfigDependencies:
     return WorkerConfigDependencies(
-        load_config=take("load_config_fn", load_config),
-        queue_entry_by_id=take("queue_entry_by_id_fn", _queue_entry_by_id),
+        load_config=load_config,
+        queue_entry_by_id=_queue_entry_by_id,
     )
 
 
-def _default_admission_dependencies(take: _LegacyTake) -> WorkerAdmissionDependencies:
+def _default_admission_dependencies() -> WorkerAdmissionDependencies:
     return WorkerAdmissionDependencies(
-        activate_reserved_slot=take(
-            "activate_reserved_slot_fn",
-            activate_reserved_slot,
-        ),
-        release_slot=take("release_slot_fn", release_slot),
+        activate_reserved_slot=activate_reserved_slot,
+        release_slot=release_slot,
     )
 
 
-def _default_context_dependencies(take: _LegacyTake) -> WorkerContextDependencies:
+def _default_context_dependencies() -> WorkerContextDependencies:
     return WorkerContextDependencies(
-        job_dir=take("job_dir_fn", _job_dir),
-        selected_xyz=take("selected_xyz_fn", _selected_xyz),
-        job_type=take("job_type_fn", _job_type),
-        reaction_key=take("reaction_key_fn", _reaction_key),
-        input_summary=take("input_summary_fn", _input_summary),
-        entry_resource_request=take(
-            "entry_resource_request_fn",
-            _queue_artifacts.entry_resource_request,
-        ),
-        matching_state=take("matching_state_fn", _matching_state),
-        is_recovery_pending=take(
-            "is_recovery_pending_fn",
-            is_recovery_pending,
-        ),
+        job_dir=_job_dir,
+        selected_xyz=_selected_xyz,
+        job_type=_job_type,
+        reaction_key=_reaction_key,
+        input_summary=_input_summary,
+        entry_resource_request=_queue_artifacts.entry_resource_request,
+        matching_state=_matching_state,
+        is_recovery_pending=is_recovery_pending,
     )
 
 
-def _default_artifact_dependencies(take: _LegacyTake) -> WorkerArtifactDependencies:
+def _default_artifact_dependencies() -> WorkerArtifactDependencies:
     return WorkerArtifactDependencies(
-        write_running_state=take(
-            "write_running_state_fn",
-            _write_running_state,
-        ),
-        build_terminal_result=take(
-            "build_terminal_result_fn",
-            _build_terminal_result,
-        ),
-        finalize_execution_result=take(
-            "finalize_execution_result_fn",
-            _finalize_execution_result,
-        ),
+        write_running_state=_write_running_state,
+        build_terminal_result=_build_terminal_result,
+        finalize_execution_result=_finalize_execution_result,
     )
 
 
-def _default_tracking_dependencies(take: _LegacyTake) -> WorkerTrackingDependencies:
+def _default_tracking_dependencies() -> WorkerTrackingDependencies:
     return WorkerTrackingDependencies(
-        upsert_job_record=take("upsert_job_record_fn", upsert_job_record),
-        notify_job_started=take(
-            "notify_job_started_fn",
-            notify_job_started,
-        ),
+        upsert_job_record=upsert_job_record,
+        notify_job_started=notify_job_started,
     )
 
 
-def _default_runner_dependencies(take: _LegacyTake) -> WorkerRunnerDependencies:
+def _default_runner_dependencies() -> WorkerRunnerDependencies:
     return WorkerRunnerDependencies(
-        run_xtb_ranking_job=take(
-            "run_xtb_ranking_job_fn",
-            run_xtb_ranking_job,
-        ),
-        start_xtb_job=take("start_xtb_job_fn", start_xtb_job),
-        finalize_xtb_job=take(
-            "finalize_xtb_job_fn",
-            finalize_xtb_job,
-        ),
-        terminate_process=take(
-            "terminate_process_fn",
-            terminate_process_group,
-        ),
-        wait_for_cancellable_process=take(
-            "wait_for_cancellable_process_fn",
-            _queue_execution.wait_for_cancellable_process,
-        ),
-        sleep=take("sleep_fn", time.sleep),
-        cancel_check_interval_seconds=float(take("cancel_check_interval_seconds", 1)),
+        run_xtb_ranking_job=run_xtb_ranking_job,
+        start_xtb_job=start_xtb_job,
+        finalize_xtb_job=finalize_xtb_job,
+        terminate_process=terminate_process_group,
+        wait_for_cancellable_process=_queue_execution.wait_for_cancellable_process,
+        sleep=time.sleep,
+        cancel_check_interval_seconds=1,
     )
 
 
@@ -244,23 +207,19 @@ def build_worker_execution_dependencies(
     tracking: WorkerTrackingDependencies | None = None,
     runner: WorkerRunnerDependencies | None = None,
     execute_queue_entry_fn: Callable[..., Any] | None = None,
-    **legacy: Any,
 ) -> WorkerExecutionDependencies:
-    legacy_overrides = LegacyDependencyOverrides(legacy)
-    take = legacy_overrides.take
     if config is None:
-        config = _default_config_dependencies(take)
+        config = _default_config_dependencies()
     if admission is None:
-        admission = _default_admission_dependencies(take)
+        admission = _default_admission_dependencies()
     if context is None:
-        context = _default_context_dependencies(take)
+        context = _default_context_dependencies()
     if artifacts is None:
-        artifacts = _default_artifact_dependencies(take)
+        artifacts = _default_artifact_dependencies()
     if tracking is None:
-        tracking = _default_tracking_dependencies(take)
+        tracking = _default_tracking_dependencies()
     if runner is None:
-        runner = _default_runner_dependencies(take)
-    legacy_overrides.raise_if_any()
+        runner = _default_runner_dependencies()
     return build_worker_execution_dependencies_from_groups(
         config=config,
         admission=admission,
