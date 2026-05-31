@@ -143,17 +143,11 @@ def depsafe_now_utc_iso() -> str:
 
 
 def resource_caps(cfg: Any) -> dict[str, int]:
-    from chemstack.core.indexing.engines import resource_dict
-
-    return _engine_execution.engine_resource_caps(cfg, resource_dict_fn=resource_dict)
+    return _engine_execution.default_engine_resource_caps(cfg)
 
 
 def entry_resource_request(cfg: Any, entry: Any) -> dict[str, int]:
-    return _engine_execution.entry_resource_request(
-        cfg,
-        entry,
-        resource_caps_fn=resource_caps,
-    )
+    return _engine_execution.default_entry_resource_request(cfg, entry)
 
 
 def write_running_state(

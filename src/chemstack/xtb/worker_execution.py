@@ -16,9 +16,6 @@ from chemstack.core.queue import child_entrypoint as _child_entrypoint
 from chemstack.core.queue.dependencies import dependency_group
 from chemstack.core.queue import engine_execution as _engine_execution
 from chemstack.core.queue import execution as _queue_execution
-from chemstack.core.queue.engine_execution import (
-    CancellableProcessExecution,
-)
 from chemstack.core.config.engines import load_xtb_config as load_config
 from chemstack.core.notifications.engines import (
     notify_xtb_job_started as notify_job_started,
@@ -368,27 +365,25 @@ def _run_xtb_job_for_entry(
                 terminate_process=runner_deps.terminate_process,
             )
 
-        return _engine_execution.run_cancellable_process_execution(
-            CancellableProcessExecution(
-                start_job=lambda: runner_deps.start_xtb_job(
-                    cfg,
-                    job_dir=context.job_dir,
-                    selected_input_xyz=context.selected_xyz,
-                ),
-                finalize_job=runner_deps.finalize_xtb_job,
-                terminate_process=runner_deps.terminate_process,
-                build_failure_result=lambda exc: _failed_result_from_exception(
-                    context,
-                    exc,
-                    dependencies=dependencies,
-                ),
-                wait_for_cancellable_process=runner_deps.wait_for_cancellable_process,
-                should_cancel=should_cancel,
-                sleep=runner_deps.sleep,
-                poll_interval_seconds=runner_deps.cancel_check_interval_seconds,
-                check_cancel_before_poll=True,
-                register_running_job=register_running_job,
-            )
+        return _engine_execution.run_cancellable_engine_process(
+            start_job=lambda: runner_deps.start_xtb_job(
+                cfg,
+                job_dir=context.job_dir,
+                selected_input_xyz=context.selected_xyz,
+            ),
+            finalize_job=runner_deps.finalize_xtb_job,
+            terminate_process=runner_deps.terminate_process,
+            build_failure_result=lambda exc: _failed_result_from_exception(
+                context,
+                exc,
+                dependencies=dependencies,
+            ),
+            wait_for_cancellable_process=runner_deps.wait_for_cancellable_process,
+            should_cancel=should_cancel,
+            sleep=runner_deps.sleep,
+            poll_interval_seconds=runner_deps.cancel_check_interval_seconds,
+            check_cancel_before_poll=True,
+            register_running_job=register_running_job,
         )
     except Exception as exc:
         return _failed_result_from_exception(context, exc, dependencies=dependencies)

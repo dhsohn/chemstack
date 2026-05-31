@@ -51,4 +51,46 @@ def run_cancellable_process_execution(actions: CancellableProcessExecution) -> A
         return actions.build_failure_result(exc)
 
 
-__all__ = ["CancellableProcessExecution", "run_cancellable_process_execution"]
+def run_cancellable_engine_process(
+    *,
+    start_job: Callable[[], Any],
+    finalize_job: Callable[..., Any],
+    terminate_process: Callable[[Any], Any],
+    build_failure_result: Callable[[Exception], Any],
+    wait_for_cancellable_process: Callable[..., Any] | None = None,
+    should_cancel: Callable[[], bool] | None = None,
+    shutdown_requested: Callable[[], bool] | None = None,
+    on_shutdown: Callable[[Any], Any] | None = None,
+    sleep: Callable[[float], None] | None = None,
+    poll_interval_seconds: float = 1.0,
+    check_cancel_before_poll: bool = False,
+    register_running_job: Callable[[Any | None], None] | None = None,
+    should_reraise_exception: Callable[[Exception], bool] | None = None,
+) -> Any:
+    kwargs: dict[str, Any] = {}
+    if wait_for_cancellable_process is not None:
+        kwargs["wait_for_cancellable_process"] = wait_for_cancellable_process
+    return run_cancellable_process_execution(
+        CancellableProcessExecution(
+            start_job=start_job,
+            finalize_job=finalize_job,
+            terminate_process=terminate_process,
+            build_failure_result=build_failure_result,
+            should_cancel=should_cancel,
+            shutdown_requested=shutdown_requested,
+            on_shutdown=on_shutdown,
+            sleep=sleep,
+            poll_interval_seconds=poll_interval_seconds,
+            check_cancel_before_poll=check_cancel_before_poll,
+            register_running_job=register_running_job,
+            should_reraise_exception=should_reraise_exception,
+            **kwargs,
+        )
+    )
+
+
+__all__ = [
+    "CancellableProcessExecution",
+    "run_cancellable_engine_process",
+    "run_cancellable_process_execution",
+]

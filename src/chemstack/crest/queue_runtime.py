@@ -36,16 +36,13 @@ from chemstack.core.queue.worker import (
     BackgroundRunningJob as _RunningJob,
     PidFileChildProcessQueueWorker,
     config_path_for_worker,
-    dequeue_next_across_roots,
     make_child_queue_worker_deps,
-    read_worker_pid_file,
     reconcile_orphaned_child_queue_entries,
     reserve_dequeued_entry,
-    resolve_admission_root,
     shutdown_child_process_with_grace,
     start_background_process,
-    queue_entry_by_id as common_queue_entry_by_id,
 )
+from chemstack.core.queue.engine_runtime import EngineQueueRuntime
 from chemstack.core.utils import now_utc_iso
 
 from . import queue_admission as _queue_admission
@@ -85,36 +82,33 @@ def _queue_worker_deps() -> Any:
     )
 
 
-_queue_runtime = _shared_queue.QueueRuntime(
-    load_config_fn=load_config,
-    runtime_roots_for_cfg_fn=runtime_roots_for_cfg,
-    list_queue_fn=lambda root: list_queue(root),
-    dequeue_next_fn=lambda root: dequeue_next(root),
-    dequeue_next_across_roots_fn=lambda roots, **kwargs: dequeue_next_across_roots(
-        roots,
-        **kwargs,
-    ),
+_engine_runtime = EngineQueueRuntime(
+    load_config=load_config,
+    runtime_roots_for_cfg=runtime_roots_for_cfg,
+    list_queue=lambda root: list_queue(root),
+    dequeue_next=lambda root: dequeue_next(root),
+    worker_pid_file_name=WORKER_PID_FILE,
 )
 
 
 def queue_roots(cfg: Any) -> tuple[Path, ...]:
-    return _queue_runtime.queue_roots(cfg)
+    return _engine_runtime.queue_roots(cfg)
 
 
 def queue_entries_with_roots(cfg: Any) -> list[tuple[Path, Any]]:
-    return _queue_runtime.queue_entries_with_roots(cfg)
+    return _engine_runtime.queue_entries_with_roots(cfg)
 
 
 def _find_queue_entry(queue_root: Path, queue_id: str) -> Any | None:
-    return common_queue_entry_by_id(queue_root, queue_id, list_queue_fn=list_queue)
+    return _engine_runtime.queue_entry_by_id(queue_root, queue_id)
 
 
 def dequeue_next_entry(cfg: Any) -> tuple[Path, Any] | None:
-    return _queue_runtime.dequeue_next_entry(cfg)
+    return _engine_runtime.dequeue_next_entry(cfg)
 
 
 def _admission_root_for_cfg(cfg: Any) -> str:
-    return resolve_admission_root(cfg)
+    return _engine_runtime.admission_root(cfg)
 
 
 def _try_reserve_admission_slot(cfg: Any) -> str | None:
@@ -154,7 +148,7 @@ def _worker_dependencies() -> WorkerExecutionDependencies:
 
 
 def read_worker_pid(allowed_root: Path) -> int | None:
-    return read_worker_pid_file(allowed_root, WORKER_PID_FILE)
+    return _engine_runtime.read_worker_pid(allowed_root)
 
 
 def _start_background_job_process(

@@ -10,6 +10,7 @@ import pytest
 
 from chemstack.core.queue import child_process as child_process_helpers
 from chemstack.core.queue.dependencies import dependency_group
+from chemstack.core.queue import lifecycle as lifecycle_helpers
 from chemstack.core.queue import processes as process_helpers
 from chemstack.core.queue import worker as worker_common
 from tests.process_helpers import FakeManagedProcess, recording_killpg
@@ -483,6 +484,71 @@ def test_reconcile_orphaned_child_queue_entries_cancels_or_requeues_only_orphans
     assert cancelled == [(str(queue_root), "cancelled", "cancel_requested")]
     assert requeued == [(str(queue_root), "orphaned")]
     assert recovery_pending == ["orphaned"]
+
+
+def test_finalize_child_exit_with_policy_applies_engine_specific_options(
+    tmp_path: Path,
+) -> None:
+    cfg = object()
+    current = _entry("current", status="running")
+    job = SimpleNamespace(
+        queue_root=tmp_path / "queue",
+        entry=_entry("job-entry", status="running"),
+        admission_token="slot-1",
+    )
+    requeued: list[tuple[str, str]] = []
+    recovery: list[tuple[object, str, str]] = []
+    released: list[str] = []
+
+    lifecycle_helpers.finalize_child_exit_with_policy(
+        cfg,
+        job,
+        policy=lifecycle_helpers.ChildExitPolicy(
+            coerce_root_to_str=True,
+            recovery_entry_fn=lambda _current, current_job: current_job.entry,
+        ),
+        find_queue_entry_fn=lambda _root, _queue_id: current,
+        mark_cancelled_fn=lambda *args, **kwargs: None,
+        requeue_running_entry_fn=lambda root, queue_id: requeued.append((root, queue_id)),
+        mark_recovery_pending_fn=lambda cfg_obj, entry, *, reason: recovery.append(
+            (cfg_obj, entry.queue_id, reason)
+        ),
+        release_admission_slot_fn=released.append,
+    )
+
+    assert requeued == [(str(tmp_path / "queue"), "current")]
+    assert recovery == [(cfg, "job-entry", "worker_shutdown")]
+    assert released == ["slot-1"]
+
+
+def test_reconcile_orphaned_running_with_policy_coerces_roots_and_reason(
+    tmp_path: Path,
+) -> None:
+    queue_root = tmp_path / "queue"
+    entry = _entry("orphan", status="running")
+    requeued: list[tuple[str, str]] = []
+    recovery: list[tuple[str, str]] = []
+
+    lifecycle_helpers.reconcile_orphaned_running_with_policy(
+        _cfg(),
+        policy=lifecycle_helpers.OrphanedRunningPolicy(
+            coerce_root_to_str=True,
+            recovery_reason="custom_recovery",
+        ),
+        admission_root="/tmp/admission",
+        queue_roots_fn=lambda _cfg: (queue_root,),
+        list_queue_fn=lambda _root: [entry],
+        list_slots_fn=lambda _root: [],
+        reconcile_stale_slots_fn=lambda _root: None,
+        mark_cancelled_fn=lambda *args, **kwargs: None,
+        requeue_running_entry_fn=lambda root, queue_id: requeued.append((root, queue_id)),
+        mark_recovery_pending_fn=lambda _cfg, current, *, reason: recovery.append(
+            (current.queue_id, reason)
+        ),
+    )
+
+    assert requeued == [(str(queue_root), "orphan")]
+    assert recovery == [("orphan", "custom_recovery")]
 
 
 def test_shutdown_child_process_with_grace_forces_after_deadline(

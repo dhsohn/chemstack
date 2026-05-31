@@ -7,10 +7,14 @@ from typing import Any
 
 from chemstack.core.queue import child_entrypoint as _child_entrypoint
 from chemstack.core.queue import child_execution as _child_execution
+from chemstack.core.queue import engine_child as _engine_child
 from chemstack.core.queue.types import QueueStatus
-from chemstack.core.queue.worker import build_background_worker_command
 
 WORKER_JOB_MODULE = "chemstack.crest.worker_execution"
+_COMMAND_SPEC = _engine_child.WorkerChildCommandSpec(
+    worker_job_module=WORKER_JOB_MODULE,
+    include_admission_root=False,
+)
 
 
 class WorkerShutdownRequested(RuntimeError):
@@ -26,13 +30,12 @@ def build_worker_child_command(
     queue_id: str,
     admission_token: str | None = None,
 ) -> list[str]:
-    return build_background_worker_command(
+    return _engine_child.build_engine_worker_child_command(
+        spec=_COMMAND_SPEC,
         config_path=config_path,
-        queue_root=Path(queue_root),
+        queue_root=queue_root,
         queue_id=queue_id,
-        worker_job_module=WORKER_JOB_MODULE,
         admission_token=admission_token,
-        include_admission_root=False,
     )
 
 
@@ -67,7 +70,7 @@ def run_worker_child_job(
     requeue_running_entry_fn: Callable[[Path, str], Any],
     mark_recovery_pending_context_fn: Callable[..., Any],
 ) -> int:
-    job = _child_entrypoint.load_child_worker_entrypoint_job(
+    job = _engine_child.load_engine_child_job(
         config_path=config_path,
         queue_root=queue_root,
         queue_id=queue_id,
@@ -87,11 +90,7 @@ def run_worker_child_job(
     controller = _child_execution.ChildWorkerShutdownController()
     install_signal_handlers_fn(controller)
 
-    with _child_entrypoint.child_worker_admission_scope(
-        job,
-        admission_token,
-        release_slot_fn=release_slot_fn,
-    ):
+    def run_loaded_job(_job: _child_entrypoint.ChildWorkerEntrypointJob) -> int:
         try:
             process_dequeued_entry_fn(
                 cfg,
@@ -106,6 +105,13 @@ def run_worker_child_job(
             requeue_running_entry_fn(queue_root_path, queue_id)
             mark_recovery_pending_context_fn(cfg, exc.context, reason="worker_shutdown")
             return 0
+
+    return _engine_child.run_child_job_with_admission_scope(
+        job,
+        admission_token,
+        release_slot_fn=release_slot_fn,
+        run_job_fn=run_loaded_job,
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:

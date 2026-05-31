@@ -9,11 +9,15 @@ from typing import Any, Protocol
 
 from chemstack.core.queue import child_entrypoint as _child_entrypoint
 from chemstack.core.queue import child_execution as _child_execution
-from chemstack.core.queue.worker import build_background_worker_command
+from chemstack.core.queue import engine_child as _engine_child
 
 WORKER_JOB_MODULE = "chemstack.xtb.worker_execution"
 WORKER_CANCEL_SIGNAL = getattr(signal, "SIGUSR1", signal.SIGTERM)
 WORKER_SHUTDOWN_EXIT_CODE = 190
+_COMMAND_SPEC = _engine_child.WorkerChildCommandSpec(
+    worker_job_module=WORKER_JOB_MODULE,
+    include_admission_root=True,
+)
 
 
 class WorkerChildConfigDependencies(Protocol):
@@ -78,11 +82,11 @@ def build_worker_child_command(
     admission_root: str | Path,
     admission_token: str | None = None,
 ) -> list[str]:
-    return build_background_worker_command(
+    return _engine_child.build_engine_worker_child_command(
+        spec=_COMMAND_SPEC,
         config_path=config_path,
-        queue_root=Path(queue_root),
+        queue_root=queue_root,
         queue_id=queue_id,
-        worker_job_module=WORKER_JOB_MODULE,
         admission_root=admission_root,
         admission_token=admission_token,
     )
@@ -102,7 +106,7 @@ def run_worker_job(
     getpid_fn: Callable[[], int] = os.getpid,
     worker_job_module: str = WORKER_JOB_MODULE,
 ) -> int:
-    job = _child_entrypoint.load_child_worker_entrypoint_job(
+    job = _engine_child.load_engine_child_job(
         config_path=config_path,
         queue_root=queue_root,
         queue_id=queue_id,
@@ -129,11 +133,7 @@ def run_worker_job(
         ):
             return 1
 
-    with _child_entrypoint.child_worker_admission_scope(
-        job,
-        admission_token,
-        release_slot_fn=dependencies.admission.release_slot,
-    ):
+    def run_loaded_job(_job: _child_entrypoint.ChildWorkerEntrypointJob) -> int:
         if dependencies.execute_queue_entry is None:
             outcome = execute_queue_entry_fn(
                 cfg,
@@ -155,8 +155,14 @@ def run_worker_job(
                 emit_output=False,
                 worker_job_pid=getpid_fn(),
             )
-        status = str(getattr(outcome.result, "status", "")).strip().lower()
-        return 0 if status in {"completed", "cancelled"} else 1
+        return _engine_child.outcome_exit_code(outcome)
+
+    return _engine_child.run_child_job_with_admission_scope(
+        job,
+        admission_token,
+        release_slot_fn=dependencies.admission.release_slot,
+        run_job_fn=run_loaded_job,
+    )
 
 
 def build_worker_job_parser() -> argparse.ArgumentParser:

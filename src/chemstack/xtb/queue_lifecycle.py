@@ -11,6 +11,15 @@ request_pending_cancellations = _queue_lifecycle.request_pending_cancellations
 shutdown_running_job = _queue_lifecycle.shutdown_running_job
 sync_terminal_running_entries = _queue_lifecycle.sync_terminal_running_entries
 
+_CHILD_EXIT_POLICY = _queue_lifecycle.ChildExitPolicy(
+    shutdown_requested=True,
+    use_entry_fallback=True,
+    coerce_root_to_str=True,
+)
+_ORPHANED_RUNNING_POLICY = _queue_lifecycle.OrphanedRunningPolicy(
+    coerce_root_to_str=True,
+)
+
 
 def finalize_child_exit(
     cfg: Any,
@@ -22,17 +31,15 @@ def finalize_child_exit(
     mark_recovery_pending_fn: Callable[..., Any],
     release_admission_slot_fn: Callable[[str], Any],
 ) -> None:
-    _queue_lifecycle.finalize_child_worker_exit(
+    _queue_lifecycle.finalize_child_exit_with_policy(
         cfg,
         job,
+        policy=_CHILD_EXIT_POLICY,
         find_queue_entry_fn=queue_entry_by_id_fn,
         mark_cancelled_fn=mark_cancelled_fn,
         requeue_running_entry_fn=requeue_running_entry_fn,
         mark_recovery_pending_fn=mark_recovery_pending_fn,
         release_admission_slot_fn=release_admission_slot_fn,
-        shutdown_requested=True,
-        use_entry_fallback=True,
-        coerce_root_to_str=True,
     )
 
 
@@ -49,8 +56,9 @@ def reconcile_orphaned_running(
     requeue_running_entry_fn: Callable[..., Any],
     mark_recovery_pending_fn: Callable[..., Any],
 ) -> None:
-    _queue_lifecycle.reconcile_orphaned_running(
+    _queue_lifecycle.reconcile_orphaned_running_with_policy(
         cfg,
+        policy=_ORPHANED_RUNNING_POLICY,
         admission_root=admission_root,
         queue_roots_fn=queue_roots_fn,
         list_queue_fn=list_queue_fn,
@@ -59,7 +67,6 @@ def reconcile_orphaned_running(
         mark_cancelled_fn=mark_cancelled_fn,
         requeue_running_entry_fn=requeue_running_entry_fn,
         mark_recovery_pending_fn=mark_recovery_pending_fn,
-        coerce_root_to_str=True,
         reconcile_orphaned_child_queue_entries_fn=reconcile_orphaned_child_queue_entries_fn,
     )
 

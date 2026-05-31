@@ -70,16 +70,15 @@ def mark_queue_terminal(
     *,
     queue_deps: Any,
 ) -> None:
-    metadata_update = {
-        "retained_conformer_count": result.retained_conformer_count,
-        "mode": result.mode,
-    }
-    _queue_execution.mark_terminal_status(
+    _engine_execution.mark_result_terminal_status(
         queue_root,
         context.entry.queue_id,
-        status=result.status,
-        reason=result.reason,
-        metadata_update=metadata_update,
+        result,
+        metadata_update={
+            "retained_conformer_count": result.retained_conformer_count,
+            "mode": result.mode,
+        },
+        mark_terminal_status_fn=_queue_execution.mark_terminal_status,
         mark_completed_fn=queue_deps.mark_completed,
         mark_cancelled_fn=queue_deps.mark_cancelled,
         mark_failed_fn=queue_deps.mark_failed,

@@ -258,13 +258,12 @@ def _mark_queue_terminal(
     request: XtbTerminalFinalizationRequest,
     dependencies: XtbTerminalDependencies,
 ) -> None:
-    result = request.result
-    _queue_execution.mark_terminal_status(
+    _engine_execution.mark_result_terminal_status(
         request.queue_root,
         request.entry.queue_id,
-        status=result.status,
-        reason=result.reason,
-        metadata_update=_terminal_metadata(result),
+        request.result,
+        metadata_update=_terminal_metadata(request.result),
+        mark_terminal_status_fn=_queue_execution.mark_terminal_status,
         mark_completed_fn=dependencies.mark_completed,
         mark_cancelled_fn=dependencies.mark_cancelled,
         mark_failed_fn=dependencies.mark_failed,

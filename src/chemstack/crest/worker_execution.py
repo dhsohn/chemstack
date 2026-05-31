@@ -23,9 +23,6 @@ from chemstack.core.queue import child_entrypoint as _child_entrypoint
 from chemstack.core.queue import child_execution as _child_execution
 from chemstack.core.queue.dependencies import dependency_group
 from chemstack.core.queue import engine_execution as _engine_execution
-from chemstack.core.queue.engine_execution import (
-    CancellableProcessExecution,
-)
 from chemstack.core.queue.worker import (
     install_shutdown_signal_handlers,
     resolve_admission_root,
@@ -355,34 +352,32 @@ def _run_crest_job_for_entry(
     def raise_shutdown(_running: Any) -> None:
         raise WorkerShutdownRequested(context)
 
-    return _engine_execution.run_cancellable_process_execution(
-        CancellableProcessExecution(
-            start_job=lambda: runner_deps.start_crest_job(
-                cfg,
-                job_dir=context.job_dir,
-                selected_xyz=context.selected_xyz,
-            ),
-            finalize_job=runner_deps.finalize_crest_job,
-            terminate_process=runner_deps.terminate_process,
-            build_failure_result=lambda exc: _failed_result_from_exception(
-                context,
-                exc=exc,
-                failure_time=dependencies.timing.now_utc_iso(),
-            ),
-            wait_for_cancellable_process=runner_deps.wait_for_cancellable_process,
-            should_cancel=lambda: queue_deps.get_cancel_requested(
-                str(queue_root),
-                context.entry.queue_id,
-            ),
-            shutdown_requested=shutdown_requested,
-            on_shutdown=raise_shutdown,
-            sleep=runner_deps.sleep,
-            poll_interval_seconds=runner_deps.cancel_check_interval_seconds,
-            should_reraise_exception=lambda exc: isinstance(
-                exc,
-                WorkerShutdownRequested,
-            ),
-        )
+    return _engine_execution.run_cancellable_engine_process(
+        start_job=lambda: runner_deps.start_crest_job(
+            cfg,
+            job_dir=context.job_dir,
+            selected_xyz=context.selected_xyz,
+        ),
+        finalize_job=runner_deps.finalize_crest_job,
+        terminate_process=runner_deps.terminate_process,
+        build_failure_result=lambda exc: _failed_result_from_exception(
+            context,
+            exc=exc,
+            failure_time=dependencies.timing.now_utc_iso(),
+        ),
+        wait_for_cancellable_process=runner_deps.wait_for_cancellable_process,
+        should_cancel=lambda: queue_deps.get_cancel_requested(
+            str(queue_root),
+            context.entry.queue_id,
+        ),
+        shutdown_requested=shutdown_requested,
+        on_shutdown=raise_shutdown,
+        sleep=runner_deps.sleep,
+        poll_interval_seconds=runner_deps.cancel_check_interval_seconds,
+        should_reraise_exception=lambda exc: isinstance(
+            exc,
+            WorkerShutdownRequested,
+        ),
     )
 
 

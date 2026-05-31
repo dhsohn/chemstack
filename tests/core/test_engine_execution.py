@@ -108,6 +108,44 @@ def test_sync_terminal_result_runs_common_terminal_sequence() -> None:
     assert outcome == ("outcome", "organized")
 
 
+def test_mark_result_terminal_status_delegates_result_fields() -> None:
+    calls: list[dict[str, Any]] = []
+
+    engine_execution.mark_result_terminal_status(
+        "/tmp/queue",
+        "queue-1",
+        SimpleNamespace(status="completed", reason="ok"),
+        metadata_update={"kind": "demo"},
+        mark_terminal_status_fn=lambda *args, **kwargs: calls.append(
+            {"args": args, "kwargs": kwargs}
+        ),
+        mark_completed_fn=lambda *args, **kwargs: None,
+        mark_cancelled_fn=lambda *args, **kwargs: None,
+        mark_failed_fn=lambda *args, **kwargs: None,
+    )
+
+    assert calls[0]["args"] == ("/tmp/queue", "queue-1")
+    assert calls[0]["kwargs"]["status"] == "completed"
+    assert calls[0]["kwargs"]["reason"] == "ok"
+    assert calls[0]["kwargs"]["metadata_update"] == {"kind": "demo"}
+    assert callable(calls[0]["kwargs"]["mark_completed_fn"])
+    assert callable(calls[0]["kwargs"]["mark_cancelled_fn"])
+    assert callable(calls[0]["kwargs"]["mark_failed_fn"])
+
+
+def test_default_entry_resource_request_uses_common_resource_caps() -> None:
+    cfg = SimpleNamespace(
+        resources=SimpleNamespace(max_cores_per_task=8, max_memory_gb_per_task=32),
+    )
+    entry = SimpleNamespace(metadata={"resource_request": {"max_cores": "4"}})
+
+    assert engine_execution.default_engine_resource_caps(cfg) == {
+        "max_cores": 8,
+        "max_memory_gb": 32,
+    }
+    assert engine_execution.default_entry_resource_request(cfg, entry) == {"max_cores": 4}
+
+
 def test_run_cancellable_process_execution_waits_and_clears_running_job() -> None:
     running = SimpleNamespace(process=SimpleNamespace())
     registered: list[Any | None] = []
@@ -174,3 +212,32 @@ def test_run_cancellable_process_execution_can_reraise_policy_exceptions() -> No
         assert str(exc) == "shutdown"
     else:
         raise AssertionError("expected shutdown")
+
+
+def test_run_cancellable_engine_process_builds_common_execution_actions() -> None:
+    running = SimpleNamespace(process=SimpleNamespace())
+    registered: list[Any | None] = []
+    wait_kwargs: list[dict[str, Any]] = []
+
+    def wait_for_process(actual_running: Any, **kwargs: Any) -> str:
+        assert actual_running is running
+        wait_kwargs.append(kwargs)
+        return "done"
+
+    outcome = engine_execution.run_cancellable_engine_process(
+        start_job=lambda: running,
+        finalize_job=lambda *_args, **_kwargs: "finalized",
+        terminate_process=lambda _proc: None,
+        build_failure_result=lambda exc: f"failed:{exc}",
+        wait_for_cancellable_process=wait_for_process,
+        should_cancel=lambda: False,
+        sleep=lambda _seconds: None,
+        poll_interval_seconds=0.5,
+        check_cancel_before_poll=True,
+        register_running_job=registered.append,
+    )
+
+    assert outcome == "done"
+    assert registered == [running, None]
+    assert wait_kwargs[0]["poll_interval_seconds"] == 0.5
+    assert wait_kwargs[0]["check_cancel_before_poll"] is True

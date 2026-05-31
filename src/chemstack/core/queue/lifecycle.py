@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from types import SimpleNamespace
 from typing import Any, Callable, Iterable
 
@@ -17,6 +18,21 @@ def entry_status_is(entry: Any, expected: Any) -> bool:
 
 def entry_status_is_running(entry: Any) -> bool:
     return entry_status_is(entry, QueueStatus.RUNNING)
+
+
+@dataclass(frozen=True)
+class ChildExitPolicy:
+    shutdown_requested: bool = True
+    fail_unexpected_exit: bool = False
+    use_entry_fallback: bool = True
+    coerce_root_to_str: bool = False
+    recovery_entry_fn: Callable[[Any, Any], Any] | None = None
+
+
+@dataclass(frozen=True)
+class OrphanedRunningPolicy:
+    coerce_root_to_str: bool = False
+    recovery_reason: str = "crashed_recovery"
 
 
 def request_pending_cancellations(
@@ -90,6 +106,37 @@ def finalize_child_worker_exit(
             mark_failed_fn(root, queue_id, error=f"worker_child_exit_code={int(rc or 0)}")
 
     release_admission_slot_fn(job.admission_token)
+
+
+def finalize_child_exit_with_policy(
+    cfg: Any,
+    job: Any,
+    *,
+    policy: ChildExitPolicy,
+    find_queue_entry_fn: Callable[[Any, str], Any | None],
+    mark_cancelled_fn: Callable[..., Any],
+    requeue_running_entry_fn: Callable[..., Any],
+    mark_recovery_pending_fn: Callable[..., Any],
+    release_admission_slot_fn: Callable[[str], Any],
+    mark_failed_fn: Callable[..., Any] | None = None,
+    rc: int | None = None,
+) -> None:
+    finalize_child_worker_exit(
+        cfg,
+        job,
+        find_queue_entry_fn=find_queue_entry_fn,
+        mark_cancelled_fn=mark_cancelled_fn,
+        requeue_running_entry_fn=requeue_running_entry_fn,
+        mark_recovery_pending_fn=mark_recovery_pending_fn,
+        release_admission_slot_fn=release_admission_slot_fn,
+        mark_failed_fn=mark_failed_fn,
+        rc=rc,
+        shutdown_requested=policy.shutdown_requested,
+        fail_unexpected_exit=policy.fail_unexpected_exit,
+        use_entry_fallback=policy.use_entry_fallback,
+        coerce_root_to_str=policy.coerce_root_to_str,
+        recovery_entry_fn=policy.recovery_entry_fn,
+    )
 
 
 def sync_terminal_running_entries(
@@ -172,12 +219,48 @@ def reconcile_orphaned_running(
     )
 
 
+def reconcile_orphaned_running_with_policy(
+    cfg: Any,
+    *,
+    policy: OrphanedRunningPolicy,
+    admission_root: Any,
+    queue_roots_fn: Callable[[Any], tuple[Any, ...]],
+    list_queue_fn: Callable[[Any], list[Any]],
+    list_slots_fn: Callable[[Any], list[Any]],
+    reconcile_stale_slots_fn: Callable[[Any], Any],
+    mark_cancelled_fn: Callable[..., Any],
+    requeue_running_entry_fn: Callable[..., Any],
+    mark_recovery_pending_fn: Callable[..., Any],
+    reconcile_orphaned_child_queue_entries_fn: Callable[
+        ..., Any
+    ] = reconcile_orphaned_child_queue_entries,
+) -> None:
+    reconcile_orphaned_running(
+        cfg,
+        admission_root=admission_root,
+        queue_roots_fn=queue_roots_fn,
+        list_queue_fn=list_queue_fn,
+        list_slots_fn=list_slots_fn,
+        reconcile_stale_slots_fn=reconcile_stale_slots_fn,
+        mark_cancelled_fn=mark_cancelled_fn,
+        requeue_running_entry_fn=requeue_running_entry_fn,
+        mark_recovery_pending_fn=mark_recovery_pending_fn,
+        coerce_root_to_str=policy.coerce_root_to_str,
+        recovery_reason=policy.recovery_reason,
+        reconcile_orphaned_child_queue_entries_fn=reconcile_orphaned_child_queue_entries_fn,
+    )
+
+
 __all__ = [
+    "ChildExitPolicy",
+    "OrphanedRunningPolicy",
     "entry_status_is",
     "entry_status_is_running",
+    "finalize_child_exit_with_policy",
     "finalize_child_worker_exit",
     "live_worker_pid_slots",
     "reconcile_orphaned_running",
+    "reconcile_orphaned_running_with_policy",
     "request_pending_cancellations",
     "shutdown_running_job",
     "sync_terminal_running_entries",

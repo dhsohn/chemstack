@@ -30,6 +30,29 @@ def sync_terminal_result(
     return actions.build_outcome(sync_result)
 
 
+def mark_result_terminal_status(
+    queue_root: str | Path,
+    queue_id: str,
+    result: Any,
+    *,
+    metadata_update: dict[str, Any] | None,
+    mark_terminal_status_fn: Callable[..., Any],
+    mark_completed_fn: Callable[..., Any],
+    mark_cancelled_fn: Callable[..., Any],
+    mark_failed_fn: Callable[..., Any],
+) -> None:
+    mark_terminal_status_fn(
+        queue_root,
+        queue_id,
+        status=result.status,
+        reason=result.reason,
+        metadata_update=metadata_update,
+        mark_completed_fn=mark_completed_fn,
+        mark_cancelled_fn=mark_cancelled_fn,
+        mark_failed_fn=mark_failed_fn,
+    )
+
+
 def mark_engine_job_running(
     cfg: Any,
     *,
@@ -104,5 +127,6 @@ __all__ = [
     "TerminalSyncActions",
     "mark_engine_job_running",
     "mark_recovery_pending_and_record",
+    "mark_result_terminal_status",
     "sync_terminal_result",
 ]

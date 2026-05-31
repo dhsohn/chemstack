@@ -45,6 +45,24 @@ def is_resumed_state(
     )
 
 
+def default_engine_resource_caps(cfg: Any) -> dict[str, int]:
+    from chemstack.core.indexing.engines import resource_dict
+
+    from .resource_requests import engine_resource_caps
+
+    return engine_resource_caps(cfg, resource_dict_fn=resource_dict)
+
+
+def default_entry_resource_request(cfg: Any, entry: Any) -> dict[str, int]:
+    from .resource_requests import entry_resource_request
+
+    return entry_resource_request(
+        cfg,
+        entry,
+        resource_caps_fn=default_engine_resource_caps,
+    )
+
+
 def build_running_state_payload(
     entry: Any,
     *,
@@ -394,6 +412,8 @@ __all__ = [
     "build_terminal_report_payload",
     "build_terminal_result",
     "build_terminal_state_payload",
+    "default_engine_resource_caps",
+    "default_entry_resource_request",
     "is_resumed_state",
     "terminal_report_lines",
     "write_running_engine_state_artifact",
