@@ -143,6 +143,21 @@ def _snapshot_organized_output_dir(
 
 
 @dataclass(frozen=True)
+class EngineArtifactSnapshotRequest:
+    spec: Any
+    job_dir: Path
+    state: dict[str, Any]
+    report: dict[str, Any]
+    organized_ref: dict[str, Any]
+    job_status_sources: tuple[dict[str, Any], ...]
+    detail_sources: tuple[dict[str, Any], ...]
+    use_existing_fallback: bool
+    organized_output_sources: tuple[dict[str, Any], ...]
+    existing: JobLocationRecord | None = None
+    fallback_payload_kind: str | None = None
+
+
+@dataclass(frozen=True)
 class EngineArtifactSnapshot:
     job_id: str
     status: str
@@ -169,6 +184,60 @@ class EngineArtifactSnapshot:
         )
 
     @classmethod
+    def from_request(cls, request: EngineArtifactSnapshotRequest) -> EngineArtifactSnapshot:
+        existing_record = _existing_artifact_record(
+            request.existing,
+            use_existing_fallback=request.use_existing_fallback,
+        )
+        job_id = _snapshot_job_id(request.job_status_sources, existing_record)
+        if not job_id:
+            return cls.empty()
+
+        payload_kind_default = request.fallback_payload_kind or request.spec.payload_kind_default
+        selected_input_xyz = _snapshot_detail_text(
+            request.detail_sources,
+            "selected_input_xyz",
+            existing=existing_record,
+            existing_value=existing_record.selected_input_xyz if existing_record else "",
+        )
+        original_run_dir = _snapshot_original_run_dir(
+            request.detail_sources,
+            existing=existing_record,
+            job_dir=request.job_dir,
+        )
+        molecule_key = _snapshot_molecule_key(
+            request.detail_sources,
+            spec=request.spec,
+            existing=existing_record,
+            original_run_dir=original_run_dir,
+            selected_input_xyz=selected_input_xyz,
+        )
+        resource_request, resource_actual = artifact_resources(
+            state=request.state,
+            report=request.report,
+            organized_ref=request.organized_ref,
+            existing=existing_record,
+        )
+        return cls(
+            job_id=job_id,
+            status=_snapshot_status(request.job_status_sources, existing_record),
+            payload_kind=_snapshot_payload_kind(
+                request.detail_sources,
+                spec=request.spec,
+                default=payload_kind_default,
+            ),
+            selected_input_xyz=selected_input_xyz,
+            molecule_key=molecule_key,
+            original_run_dir=original_run_dir,
+            organized_output_dir=_snapshot_organized_output_dir(
+                request.organized_output_sources,
+                existing_record,
+            ),
+            resource_request=resource_request,
+            resource_actual=resource_actual,
+        )
+
+    @classmethod
     def from_artifacts(
         cls,
         *,
@@ -184,56 +253,20 @@ class EngineArtifactSnapshot:
         use_existing_fallback: bool,
         organized_output_sources: tuple[dict[str, Any], ...],
     ) -> EngineArtifactSnapshot:
-        existing_record = _existing_artifact_record(
-            existing,
-            use_existing_fallback=use_existing_fallback,
-        )
-        job_id = _snapshot_job_id(job_status_sources, existing_record)
-        if not job_id:
-            return cls.empty()
-
-        payload_kind_default = fallback_payload_kind or spec.payload_kind_default
-        selected_input_xyz = _snapshot_detail_text(
-            detail_sources,
-            "selected_input_xyz",
-            existing=existing_record,
-            existing_value=existing_record.selected_input_xyz if existing_record else "",
-        )
-        original_run_dir = _snapshot_original_run_dir(
-            detail_sources,
-            existing=existing_record,
-            job_dir=job_dir,
-        )
-        molecule_key = _snapshot_molecule_key(
-            detail_sources,
-            spec=spec,
-            existing=existing_record,
-            original_run_dir=original_run_dir,
-            selected_input_xyz=selected_input_xyz,
-        )
-        resource_request, resource_actual = artifact_resources(
-            state=state,
-            report=report,
-            organized_ref=organized_ref,
-            existing=existing_record,
-        )
-        return cls(
-            job_id=job_id,
-            status=_snapshot_status(job_status_sources, existing_record),
-            payload_kind=_snapshot_payload_kind(
-                detail_sources,
+        return cls.from_request(
+            EngineArtifactSnapshotRequest(
                 spec=spec,
-                default=payload_kind_default,
-            ),
-            selected_input_xyz=selected_input_xyz,
-            molecule_key=molecule_key,
-            original_run_dir=original_run_dir,
-            organized_output_dir=_snapshot_organized_output_dir(
-                organized_output_sources,
-                existing_record,
-            ),
-            resource_request=resource_request,
-            resource_actual=resource_actual,
+                job_dir=job_dir,
+                state=state,
+                report=report,
+                organized_ref=organized_ref,
+                existing=existing,
+                fallback_payload_kind=fallback_payload_kind,
+                job_status_sources=job_status_sources,
+                detail_sources=detail_sources,
+                use_existing_fallback=use_existing_fallback,
+                organized_output_sources=organized_output_sources,
+            )
         )
 
 
@@ -284,18 +317,20 @@ def engine_record_from_artifacts(
     organized_ref = organized_ref or {}
     fallback_payload_kind = default_payload_kind or spec.payload_kind_default
 
-    snapshot = EngineArtifactSnapshot.from_artifacts(
-        spec=spec,
-        job_dir=job_dir,
-        state=state,
-        report=report,
-        organized_ref=organized_ref,
-        existing=existing,
-        fallback_payload_kind=fallback_payload_kind,
-        job_status_sources=(report, state, organized_ref),
-        detail_sources=(report, state, organized_ref),
-        use_existing_fallback=True,
-        organized_output_sources=(report, state, organized_ref),
+    snapshot = EngineArtifactSnapshot.from_request(
+        EngineArtifactSnapshotRequest(
+            spec=spec,
+            job_dir=job_dir,
+            state=state,
+            report=report,
+            organized_ref=organized_ref,
+            existing=existing,
+            fallback_payload_kind=fallback_payload_kind,
+            job_status_sources=(report, state, organized_ref),
+            detail_sources=(report, state, organized_ref),
+            use_existing_fallback=True,
+            organized_output_sources=(report, state, organized_ref),
+        )
     )
     if not snapshot.job_id:
         return None
@@ -328,17 +363,19 @@ def collect_engine_reindex_payload(
     report = report or {}
     organized_ref = organized_ref or {}
 
-    snapshot = EngineArtifactSnapshot.from_artifacts(
-        spec=spec,
-        job_dir=job_dir,
-        state=state,
-        report=report,
-        organized_ref=organized_ref,
-        existing=None,
-        job_status_sources=(report, state, organized_ref),
-        detail_sources=(report, state),
-        use_existing_fallback=False,
-        organized_output_sources=(organized_ref, report, state),
+    snapshot = EngineArtifactSnapshot.from_request(
+        EngineArtifactSnapshotRequest(
+            spec=spec,
+            job_dir=job_dir,
+            state=state,
+            report=report,
+            organized_ref=organized_ref,
+            existing=None,
+            job_status_sources=(report, state, organized_ref),
+            detail_sources=(report, state),
+            use_existing_fallback=False,
+            organized_output_sources=(organized_ref, report, state),
+        )
     )
     if not snapshot.job_id:
         return None

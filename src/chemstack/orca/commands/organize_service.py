@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict
 
@@ -11,6 +12,26 @@ from ..result_organizer import OrganizePlan, SkipReason
 from . import organize_apply as _organize_apply
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class OrganizeApplyDependencyGroups:
+    index: _organize_apply.OrganizeApplyIndexDeps
+    move: _organize_apply.OrganizeApplyMoveDeps
+    tracking: _organize_apply.OrganizeApplyTrackingDeps
+    notifications: _organize_apply.OrganizeApplyNotificationDeps
+    extensions: _organize_apply.OrganizeApplyExtensionDeps = field(
+        default_factory=_organize_apply.OrganizeApplyExtensionDeps
+    )
+
+    def to_dependencies(self) -> _organize_apply.OrganizeApplyDependencies:
+        return _organize_apply.OrganizeApplyDependencies(
+            index=self.index,
+            move=self.move,
+            tracking=self.tracking,
+            notifications=self.notifications,
+            extensions=self.extensions,
+        )
 
 
 def workflow_runtime_paths(cfg: AppConfig, path: str | Path) -> dict[str, Path] | None:
@@ -85,7 +106,7 @@ def build_apply_dependencies(
     rollback_after_apply_failure_fn: Any = None,
     apply_one_organize_plan_fn: Any = None,
 ) -> _organize_apply.OrganizeApplyDependencies:
-    return build_apply_dependencies_from_groups(
+    groups = OrganizeApplyDependencyGroups(
         index=_organize_apply.OrganizeApplyIndexDeps(
             acquire_index_lock=acquire_index_lock_fn,
             append_failed_rollback=append_failed_rollback_fn,
@@ -118,6 +139,7 @@ def build_apply_dependencies(
             apply_one_organize_plan=apply_one_organize_plan_fn,
         ),
     )
+    return groups.to_dependencies()
 
 
 def build_apply_dependencies_from_groups(
@@ -128,13 +150,13 @@ def build_apply_dependencies_from_groups(
     notifications: _organize_apply.OrganizeApplyNotificationDeps,
     extensions: _organize_apply.OrganizeApplyExtensionDeps | None = None,
 ) -> _organize_apply.OrganizeApplyDependencies:
-    return _organize_apply.OrganizeApplyDependencies(
+    return OrganizeApplyDependencyGroups(
         index=index,
         move=move,
         tracking=tracking,
         notifications=notifications,
         extensions=extensions or _organize_apply.OrganizeApplyExtensionDeps(),
-    )
+    ).to_dependencies()
 
 
 def cmd_organize_apply(

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import shlex
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +22,22 @@ _CREST_MODE_ALIASES = {
     "standard": "standard",
     "nci": "nci",
 }
+
+
+@dataclass(frozen=True)
+class ScaffoldTarget:
+    path: Path
+    content: str
+    label: str
+
+
+@dataclass(frozen=True)
+class ScaffoldWriteSummary:
+    root: Path
+    workflow_type: str
+    crest_mode: str
+    created: list[str]
+    skipped: list[str]
 
 
 def _write_if_missing(path: Path, content: str) -> bool:
@@ -149,6 +166,69 @@ def _readme(root: Path, workflow_type: str) -> str:
     )
 
 
+def _scaffold_targets(root: Path, workflow_type: str, crest_mode: str) -> list[ScaffoldTarget]:
+    common = [
+        ScaffoldTarget(root / "flow.yaml", _manifest(workflow_type, crest_mode), "flow.yaml"),
+        ScaffoldTarget(root / "README.md", _readme(root, workflow_type), "README.md"),
+    ]
+    if workflow_type == REACTION_TS_SEARCH_TEMPLATE_ID:
+        return [
+            ScaffoldTarget(
+                root / STANDARD_REACTION_REACTANT_FILENAME,
+                _xyz("chemstack workflow scaffold reactant"),
+                STANDARD_REACTION_REACTANT_FILENAME,
+            ),
+            ScaffoldTarget(
+                root / STANDARD_REACTION_PRODUCT_FILENAME,
+                _xyz("chemstack workflow scaffold product", delta=0.05),
+                STANDARD_REACTION_PRODUCT_FILENAME,
+            ),
+            *common,
+        ]
+    return [
+        ScaffoldTarget(
+            root / STANDARD_CONFORMER_INPUT_FILENAME,
+            _xyz("chemstack workflow scaffold input"),
+            STANDARD_CONFORMER_INPUT_FILENAME,
+        ),
+        *common,
+    ]
+
+
+def _write_scaffold_targets(
+    *,
+    root: Path,
+    workflow_type: str,
+    crest_mode: str,
+) -> ScaffoldWriteSummary:
+    created: list[str] = []
+    skipped: list[str] = []
+    for target in _scaffold_targets(root, workflow_type, crest_mode):
+        if _write_if_missing(target.path, target.content):
+            created.append(target.label)
+        else:
+            skipped.append(target.label)
+    return ScaffoldWriteSummary(
+        root=root,
+        workflow_type=workflow_type,
+        crest_mode=crest_mode,
+        created=created,
+        skipped=skipped,
+    )
+
+
+def _emit_scaffold_summary(summary: ScaffoldWriteSummary) -> None:
+    print(f"workflow_dir: {summary.root}")
+    print(f"workflow_type: {summary.workflow_type}")
+    print(f"crest_mode: {summary.crest_mode}")
+    print(f"created: {len(summary.created)}")
+    print(f"skipped: {len(summary.skipped)}")
+    for name in summary.created:
+        print(f"created_file: {name}")
+    for name in summary.skipped:
+        print(f"skipped_file: {name}")
+
+
 def cmd_scaffold(args: Any) -> int:
     raw_root = str(getattr(args, "root", "")).strip()
     if not raw_root:
@@ -171,48 +251,11 @@ def cmd_scaffold(args: Any) -> int:
         return 1
     root.mkdir(parents=True, exist_ok=True)
 
-    created: list[str] = []
-    skipped: list[str] = []
-    targets: list[tuple[Path, str, str]]
-    if workflow_type == REACTION_TS_SEARCH_TEMPLATE_ID:
-        targets = [
-            (
-                root / STANDARD_REACTION_REACTANT_FILENAME,
-                _xyz("chemstack workflow scaffold reactant"),
-                STANDARD_REACTION_REACTANT_FILENAME,
-            ),
-            (
-                root / STANDARD_REACTION_PRODUCT_FILENAME,
-                _xyz("chemstack workflow scaffold product", delta=0.05),
-                STANDARD_REACTION_PRODUCT_FILENAME,
-            ),
-            (root / "flow.yaml", _manifest(workflow_type, crest_mode), "flow.yaml"),
-            (root / "README.md", _readme(root, workflow_type), "README.md"),
-        ]
-    else:
-        targets = [
-            (
-                root / STANDARD_CONFORMER_INPUT_FILENAME,
-                _xyz("chemstack workflow scaffold input"),
-                STANDARD_CONFORMER_INPUT_FILENAME,
-            ),
-            (root / "flow.yaml", _manifest(workflow_type, crest_mode), "flow.yaml"),
-            (root / "README.md", _readme(root, workflow_type), "README.md"),
-        ]
-
-    for path, content, label in targets:
-        if _write_if_missing(path, content):
-            created.append(label)
-        else:
-            skipped.append(label)
-
-    print(f"workflow_dir: {root}")
-    print(f"workflow_type: {workflow_type}")
-    print(f"crest_mode: {crest_mode}")
-    print(f"created: {len(created)}")
-    print(f"skipped: {len(skipped)}")
-    for name in created:
-        print(f"created_file: {name}")
-    for name in skipped:
-        print(f"skipped_file: {name}")
+    _emit_scaffold_summary(
+        _write_scaffold_targets(
+            root=root,
+            workflow_type=workflow_type,
+            crest_mode=crest_mode,
+        )
+    )
     return 0

@@ -378,54 +378,57 @@ def _workflow_advance_deps() -> WorkflowAdvanceDeps:
     )
 
 
-def _advance_workflow_record_outcome(
+def _skipped_terminal_workflow_outcome(
+    record: Any,
+    *,
+    previous_status: str,
+    deps: WorkflowAdvanceDeps,
+) -> WorkflowAdvanceOutcome:
+    return WorkflowAdvanceOutcome(
+        "skipped",
+        deps.workflow_skipped_terminal_result_fn(
+            record,
+            previous_status=previous_status,
+        ),
+    )
+
+
+def _failed_workflow_advance_outcome(
     *,
     cycle: _WorkflowCycle,
     record: Any,
-    options: WorkflowEngineOptions,
+    previous_status: str,
+    reason: str,
     deps: WorkflowAdvanceDeps,
 ) -> WorkflowAdvanceOutcome:
-    previous_status = deps.normalize_text_fn(record.status).lower()
-    terminal_sync = deps.workflow_needs_terminal_child_sync_fn(
-        record,
+    deps.append_workflow_advance_failed_event_fn(
+        cycle.root,
         previous_status=previous_status,
+        reason=reason,
+        worker_session_id=cycle.session_id,
+        record=record,
+        append_workflow_journal_event_fn=append_workflow_journal_event,
     )
-    if deps.workflow_is_terminal_status_fn(previous_status) and not terminal_sync:
-        return WorkflowAdvanceOutcome(
-            "skipped",
-            deps.workflow_skipped_terminal_result_fn(
-                record,
-                previous_status=previous_status,
-            ),
-        )
-
-    previous_summary = deps.safe_workflow_summary_fn(record.workspace_dir)
-    try:
-        payload = deps.advance_workflow_fn(
-            target=record.workflow_id,
-            workflow_root=cycle.root,
-            engine_options=options,
-            submit_ready=False if terminal_sync else cycle.cycle_submit_ready,
-        )
-    except Exception as exc:
-        reason = f"terminal_child_sync_failed: {exc}" if terminal_sync else str(exc)
-        deps.append_workflow_advance_failed_event_fn(
-            cycle.root,
+    return WorkflowAdvanceOutcome(
+        "failed",
+        deps.workflow_advance_failed_result_fn(
+            record,
             previous_status=previous_status,
             reason=reason,
-            worker_session_id=cycle.session_id,
-            record=record,
-            append_workflow_journal_event_fn=append_workflow_journal_event,
-        )
-        return WorkflowAdvanceOutcome(
-            "failed",
-            deps.workflow_advance_failed_result_fn(
-                record,
-                previous_status=previous_status,
-                reason=reason,
-            ),
-        )
+        ),
+    )
 
+
+def _advanced_workflow_outcome(
+    *,
+    cycle: _WorkflowCycle,
+    record: Any,
+    payload: dict[str, Any],
+    previous_status: str,
+    previous_summary: dict[str, Any],
+    terminal_sync: bool,
+    deps: WorkflowAdvanceDeps,
+) -> WorkflowAdvanceOutcome:
     status = deps.normalize_text_fn(payload.get("status")).lower()
     current_summary = deps.safe_workflow_summary_fn(record.workspace_dir, payload=payload)
     reason = "terminal_child_sync" if terminal_sync else ""
@@ -453,6 +456,54 @@ def _advance_workflow_record_outcome(
             reason=reason,
             normalize_text_fn=deps.normalize_text_fn,
         ),
+    )
+
+
+def _advance_workflow_record_outcome(
+    *,
+    cycle: _WorkflowCycle,
+    record: Any,
+    options: WorkflowEngineOptions,
+    deps: WorkflowAdvanceDeps,
+) -> WorkflowAdvanceOutcome:
+    previous_status = deps.normalize_text_fn(record.status).lower()
+    terminal_sync = deps.workflow_needs_terminal_child_sync_fn(
+        record,
+        previous_status=previous_status,
+    )
+    if deps.workflow_is_terminal_status_fn(previous_status) and not terminal_sync:
+        return _skipped_terminal_workflow_outcome(
+            record,
+            previous_status=previous_status,
+            deps=deps,
+        )
+
+    previous_summary = deps.safe_workflow_summary_fn(record.workspace_dir)
+    try:
+        payload = deps.advance_workflow_fn(
+            target=record.workflow_id,
+            workflow_root=cycle.root,
+            engine_options=options,
+            submit_ready=False if terminal_sync else cycle.cycle_submit_ready,
+        )
+    except Exception as exc:
+        reason = f"terminal_child_sync_failed: {exc}" if terminal_sync else str(exc)
+        return _failed_workflow_advance_outcome(
+            cycle=cycle,
+            record=record,
+            previous_status=previous_status,
+            reason=reason,
+            deps=deps,
+        )
+
+    return _advanced_workflow_outcome(
+        cycle=cycle,
+        record=record,
+        payload=payload,
+        previous_status=previous_status,
+        previous_summary=previous_summary,
+        terminal_sync=terminal_sync,
+        deps=deps,
     )
 
 

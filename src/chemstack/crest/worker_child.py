@@ -5,7 +5,6 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from chemstack.core.queue import child_entrypoint as _child_entrypoint
 from chemstack.core.queue import child_execution as _child_execution
 from chemstack.core.queue import engine_child as _engine_child
 from chemstack.core.queue.types import QueueStatus
@@ -70,27 +69,16 @@ def run_worker_child_job(
     requeue_running_entry_fn: Callable[[Path, str], Any],
     mark_recovery_pending_context_fn: Callable[..., Any],
 ) -> int:
-    job = _engine_child.load_engine_child_job(
-        config_path=config_path,
-        queue_root=queue_root,
-        queue_id=queue_id,
-        load_config_fn=load_config_fn,
-        find_queue_entry_fn=find_queue_entry_fn,
-        entry_ready_fn=lambda entry: getattr(entry, "status", None) == QueueStatus.RUNNING,
-        admission_token=admission_token,
-        admission_root_fn=admission_root_fn,
-        release_slot_fn=release_slot_fn,
-    )
-    if job is None:
-        return 1
-    cfg = job.cfg
-    queue_root_path = job.queue_root
-    entry = job.entry
-
     controller = _child_execution.ChildWorkerShutdownController()
-    install_signal_handlers_fn(controller)
 
-    def run_loaded_job(_job: _child_entrypoint.ChildWorkerEntrypointJob) -> int:
+    def prepare_loaded_job(_job: _engine_child.ChildWorkerEntrypointJob) -> bool:
+        install_signal_handlers_fn(controller)
+        return True
+
+    def run_loaded_job(job: _engine_child.ChildWorkerEntrypointJob) -> int:
+        cfg = job.cfg
+        queue_root_path = job.queue_root
+        entry = job.entry
         try:
             process_dequeued_entry_fn(
                 cfg,
@@ -106,10 +94,17 @@ def run_worker_child_job(
             mark_recovery_pending_context_fn(cfg, exc.context, reason="worker_shutdown")
             return 0
 
-    return _engine_child.run_child_job_with_admission_scope(
-        job,
-        admission_token,
+    return _engine_child.run_loaded_engine_child_job(
+        config_path=config_path,
+        queue_root=queue_root,
+        queue_id=queue_id,
+        load_config_fn=load_config_fn,
+        find_queue_entry_fn=find_queue_entry_fn,
+        entry_ready_fn=lambda entry: getattr(entry, "status", None) == QueueStatus.RUNNING,
+        admission_root_fn=admission_root_fn,
         release_slot_fn=release_slot_fn,
+        admission_token=admission_token,
+        prepare_job_fn=prepare_loaded_job,
         run_job_fn=run_loaded_job,
     )
 

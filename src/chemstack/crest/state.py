@@ -18,31 +18,32 @@ REPORT_JSON_FILE_NAME = JOB_REPORT_JSON_FILE
 REPORT_MD_FILE_NAME = JOB_REPORT_MD_FILE
 ORGANIZED_REF_FILE_NAME = ORGANIZED_REF_FILE
 RECOVERY_PENDING_REASONS = _engine_state.RECOVERY_PENDING_REASONS
-_STATE_BINDINGS = _engine_state.create_engine_state_bindings(
-    state_file_name=STATE_FILE_NAME,
-    report_json_file_name=REPORT_JSON_FILE_NAME,
-    report_md_file_name=REPORT_MD_FILE_NAME,
-    organized_ref_file_name=ORGANIZED_REF_FILE_NAME,
-    manifest_file_name=CREST_JOB_MANIFEST_FILE,
-    report_title="ChemStack CREST Report",
-    selected_input_label="Selected XYZ",
-    now_fn=lambda: now_utc_iso(),
+_STATE_EXPORTS = _engine_state.engine_state_module_exports(
+    _engine_state.create_engine_state_bindings(
+        state_file_name=STATE_FILE_NAME,
+        report_json_file_name=REPORT_JSON_FILE_NAME,
+        report_md_file_name=REPORT_MD_FILE_NAME,
+        organized_ref_file_name=ORGANIZED_REF_FILE_NAME,
+        manifest_file_name=CREST_JOB_MANIFEST_FILE,
+        report_title="ChemStack CREST Report",
+        selected_input_label="Selected XYZ",
+        now_fn=lambda: now_utc_iso(),
+    )
 )
-_STATE_ACCESS = _STATE_BINDINGS.access
-_RECOVERY_PENDING = _STATE_BINDINGS.recovery_pending
-write_state = _STATE_ACCESS.write_state
-write_report_json = _STATE_ACCESS.write_report_json
-write_report_md_lines = _STATE_ACCESS.write_report_md_lines
-write_organized_ref = _STATE_ACCESS.write_organized_ref
-load_state = _STATE_ACCESS.load_state
-load_report_json = _STATE_ACCESS.load_report_json
-load_organized_ref = _STATE_ACCESS.load_organized_ref
+_RECOVERY_PENDING = _STATE_EXPORTS.recovery_pending
+write_state = _STATE_EXPORTS.write_state
+write_report_json = _STATE_EXPORTS.write_report_json
+write_report_md_lines = _STATE_EXPORTS.write_report_md_lines
+write_organized_ref = _STATE_EXPORTS.write_organized_ref
+load_state = _STATE_EXPORTS.load_state
+load_report_json = _STATE_EXPORTS.load_report_json
+load_organized_ref = _STATE_EXPORTS.load_organized_ref
 
 
 def write_report_md(
     job_dir: Path, *, job_id: str, status: str, reason: str, selected_xyz: str
 ) -> Path:
-    return _STATE_ACCESS.write_report_md(
+    return _STATE_EXPORTS.write_report_md(
         job_dir,
         job_id=job_id,
         status=status,

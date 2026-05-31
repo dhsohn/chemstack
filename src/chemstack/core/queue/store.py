@@ -25,6 +25,7 @@ QUEUE_LOCK_NAME = "queue.lock"
 _ACTIVE_STATUSES = frozenset({QueueStatus.PENDING, QueueStatus.RUNNING})
 _TERMINAL_STATUSES = frozenset({QueueStatus.COMPLETED, QueueStatus.FAILED, QueueStatus.CANCELLED})
 _QueueEntryT = TypeVar("_QueueEntryT", bound=QueueEntry)
+_MutationResultT = TypeVar("_MutationResultT")
 
 QueueDuplicatePolicy = Callable[[Sequence[QueueEntry], QueueEntry], None]
 DuplicateErrorFactory = Callable[[str, QueueEntry], Exception]
@@ -230,6 +231,34 @@ def mutate_entries(
         if changed:
             saver(resolved_root, entries)
         return result
+
+
+def mutate_entry_by_id(
+    root: str | Path,
+    queue_id: str,
+    updater: Callable[[QueueEntry], tuple[_MutationResultT, QueueEntry | None]],
+    *,
+    missing_result: _MutationResultT,
+    load_entries_fn: Callable[[Path], list[QueueEntry]] | None = None,
+    save_entries_fn: Callable[[Path, Sequence[QueueEntry]], Any] | None = None,
+) -> _MutationResultT:
+    def mutate(entries: list[QueueEntry]) -> tuple[_MutationResultT, bool]:
+        for index, entry in enumerate(entries):
+            if entry.queue_id != queue_id:
+                continue
+            result, updated_entry = updater(entry)
+            if updated_entry is None:
+                return result, False
+            entries[index] = updated_entry
+            return result, True
+        return missing_result, False
+
+    return mutate_entries(
+        root,
+        mutate,
+        load_entries_fn=load_entries_fn,
+        save_entries_fn=save_entries_fn,
+    )
 
 
 def _entry_timestamp(entry: QueueEntry) -> str:

@@ -10,24 +10,24 @@ from chemstack.core.utils import now_utc_iso
 
 from ..registry import sync_workflow_registry
 from ..state import load_workflow_payload, resolve_workflow_workspace, write_workflow_payload
+from . import internal_engine as _internal_engine
 from . import orca_cancellation as _cancellation
 from . import orca_submission as _submission
+
 _SUBMIT_API_NAME = "chemstack.orca.direct_submit"
 _CANCEL_API_NAME = "chemstack.orca.direct_cancel"
 
 
 def _trace_argv(*, api_name: str, config_path: str, kwargs: dict[str, Any]) -> list[str]:
-    return [
-        api_name,
-        f"config={config_path}",
-        *[f"{key}={value}" for key, value in kwargs.items()],
-    ]
+    return _internal_engine.internal_call_argv(
+        api_name=api_name,
+        config_path=config_path,
+        kwargs=kwargs,
+    )
 
 
 def _key_value_stdout(fields: dict[str, Any]) -> str:
-    return "\n".join(
-        f"{key}: {value}" for key, raw in fields.items() if (value := _normalize_text(raw))
-    )
+    return _internal_engine._key_value_stdout(_internal_engine._text_fields(fields))
 
 
 def _failure_payload(
@@ -39,20 +39,18 @@ def _failure_payload(
 ) -> dict[str, Any]:
     if stderr and not stderr.endswith("\n"):
         stderr += "\n"
-    return {
-        "status": "failed",
-        "reason": reason,
-        "returncode": 1,
-        "command_argv": command_argv,
-        "stdout": "",
-        "stderr": stderr,
-        "parsed_stdout": {},
-        "queue_id": "",
-        "job_id": "",
-        "reaction_dir": reaction_dir,
-        "priority": 0,
-        "force": False,
-    }
+    return _internal_engine.InternalEngineCommandResult(
+        status="failed",
+        reason=reason,
+        returncode=1,
+        command_argv=command_argv,
+        stderr=stderr,
+        extra_fields={
+            "reaction_dir": reaction_dir,
+            "priority": 0,
+            "force": False,
+        },
+    ).to_payload()
 
 
 def _queued_payload(
@@ -82,21 +80,22 @@ def _queued_payload(
         parsed["worker_log"] = result.worker_info.log_file
     if result.worker_info.detail:
         parsed["worker_detail"] = result.worker_info.detail
-    parsed_stdout = {key: _normalize_text(value) for key, value in parsed.items() if _normalize_text(value)}
-    return {
-        "status": "submitted",
-        "reason": "",
-        "returncode": 0,
-        "command_argv": command_argv,
-        "stdout": _key_value_stdout(parsed_stdout),
-        "stderr": "",
-        "parsed_stdout": parsed_stdout,
-        "queue_id": parsed_stdout.get("queue_id", ""),
-        "job_id": parsed_stdout.get("job_id", ""),
-        "reaction_dir": parsed_stdout.get("job_dir", _normalize_text(result.reaction_dir)),
-        "priority": int(priority),
-        "force": bool(force),
-    }
+    parsed_stdout = _internal_engine._text_fields(parsed)
+    return _internal_engine.InternalEngineCommandResult(
+        status="submitted",
+        reason="",
+        returncode=0,
+        command_argv=command_argv,
+        stdout=_key_value_stdout(parsed_stdout),
+        parsed_stdout=parsed_stdout,
+        queue_id=parsed_stdout.get("queue_id", ""),
+        job_id=parsed_stdout.get("job_id", ""),
+        extra_fields={
+            "reaction_dir": parsed_stdout.get("job_dir", _normalize_text(result.reaction_dir)),
+            "priority": int(priority),
+            "force": bool(force),
+        },
+    ).to_payload()
 
 
 def submit_reaction_dir(
@@ -211,11 +210,11 @@ def cancel_target(
                 reason="already_terminal",
             )
         status = display_status(updated)
-        parsed_stdout = {
+        parsed_stdout = _internal_engine._text_fields({
             "status": status,
             "queue_id": queue_adapter.queue_entry_id(updated),
             "job_id": queue_adapter.queue_entry_task_id(updated),
-        }
+        })
     except Exception as exc:
         return _failure_payload(
             command_argv=command_argv,
@@ -223,17 +222,16 @@ def cancel_target(
             reason="cancel_failed",
         )
 
-    return {
-        "status": status,
-        "reason": "",
-        "returncode": 0,
-        "command_argv": command_argv,
-        "stdout": _key_value_stdout(parsed_stdout),
-        "stderr": "",
-        "parsed_stdout": parsed_stdout,
-        "queue_id": parsed_stdout.get("queue_id", ""),
-        "job_id": parsed_stdout.get("job_id", ""),
-    }
+    return _internal_engine.InternalEngineCommandResult(
+        status=status,
+        reason="",
+        returncode=0,
+        command_argv=command_argv,
+        stdout=_key_value_stdout(parsed_stdout),
+        parsed_stdout=parsed_stdout,
+        queue_id=parsed_stdout.get("queue_id", ""),
+        job_id=parsed_stdout.get("job_id", ""),
+    ).to_payload()
 
 
 def _submission_deps() -> _submission.SubmissionDeps:

@@ -12,6 +12,7 @@ from typing import Any, Callable
 from chemstack.activity_rendering import queue_clear_lines, queue_list_text_lines
 from chemstack.activity_presenter import (
     QueueListPresentationDeps,
+    QueueListPresentationRequest,
     queue_list_text_presentation,
 )
 from chemstack.core.activity_icons import activity_status_icon
@@ -213,12 +214,14 @@ def _handle_list(settings: TelegramBotSettings, args: str) -> str:
         ]
     presentation = queue_list_text_presentation(
         payload,
-        visible_items=rows,
-        config_hints=(settings.orca_config, settings.crest_config, settings.xtb_config),
-        default_visible_items=not filter_status,
-        show_workflow_context=True,
-        visible_workflow_child_engines=("orca",) if not filter_status else None,
-        include_id=False,
+        request=QueueListPresentationRequest(
+            visible_items=rows,
+            config_hints=(settings.orca_config, settings.crest_config, settings.xtb_config),
+            default_visible_items=not filter_status,
+            show_workflow_context=True,
+            visible_workflow_child_engines=("orca",) if not filter_status else None,
+            include_id=False,
+        ),
         deps=QueueListPresentationDeps(
             activity_counter_config_path=activity_counter_config_path,
             count_global_active_simulations=count_global_active_simulations,

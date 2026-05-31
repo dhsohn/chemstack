@@ -3,8 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from chemstack.core.indexing.engine_job_locations import (
-    build_store_backed_engine_job_location_api,
-    engine_job_location_api_exports,
+    build_store_backed_engine_job_location_exports,
 )
 from chemstack.core.indexing import engines as _engine_locations
 
@@ -33,7 +32,7 @@ def reaction_key_from_selected_xyz(selected_input_xyz: str, job_dir: Path) -> st
     return reaction_key_from_job_dir(job_dir)
 
 
-_LOCATION_API = build_store_backed_engine_job_location_api(
+_LOCATION_EXPORTS = build_store_backed_engine_job_location_exports(
     engine="xtb",
     spec=_engine_locations.EngineLocationSpec(
         app_name="chemstack_xtb",
@@ -53,7 +52,6 @@ _LOCATION_API = build_store_backed_engine_job_location_api(
     default_payload_kind_kwarg="default_job_type",
 )
 
-_LOCATION_EXPORTS = engine_job_location_api_exports(_LOCATION_API)
 index_root_for_cfg = _LOCATION_EXPORTS.index_root_for_cfg
 runtime_roots_for_cfg = _LOCATION_EXPORTS.runtime_roots_for_cfg
 index_root_for_path = _LOCATION_EXPORTS.index_root_for_path

@@ -195,10 +195,36 @@ def build_store_backed_engine_job_location_api(
     )
 
 
+def build_store_backed_engine_job_location_exports(
+    *,
+    engine: str,
+    spec: _engine_locations.EngineLocationSpec,
+    load_state_fn: Callable[[Path], dict[str, Any] | None],
+    load_report_json_fn: Callable[[Path], dict[str, Any] | None],
+    load_organized_ref_fn: Callable[[Path], dict[str, Any] | None],
+    payload_kind_kwarg: str,
+    molecule_key_kwarg: str,
+    default_payload_kind_kwarg: str,
+) -> EngineJobLocationApiExports:
+    return engine_job_location_api_exports(
+        build_store_backed_engine_job_location_api(
+            engine=engine,
+            spec=spec,
+            load_state_fn=load_state_fn,
+            load_report_json_fn=load_report_json_fn,
+            load_organized_ref_fn=load_organized_ref_fn,
+            payload_kind_kwarg=payload_kind_kwarg,
+            molecule_key_kwarg=molecule_key_kwarg,
+            default_payload_kind_kwarg=default_payload_kind_kwarg,
+        )
+    )
+
+
 __all__ = [
     "EngineJobLocationApi",
     "EngineJobLocationApiExports",
     "build_engine_job_location_api",
     "build_store_backed_engine_job_location_api",
+    "build_store_backed_engine_job_location_exports",
     "engine_job_location_api_exports",
 ]

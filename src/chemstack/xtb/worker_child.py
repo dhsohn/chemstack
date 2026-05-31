@@ -7,7 +7,6 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Protocol
 
-from chemstack.core.queue import child_entrypoint as _child_entrypoint
 from chemstack.core.queue import child_execution as _child_execution
 from chemstack.core.queue import engine_child as _engine_child
 
@@ -106,34 +105,22 @@ def run_worker_job(
     getpid_fn: Callable[[], int] = os.getpid,
     worker_job_module: str = WORKER_JOB_MODULE,
 ) -> int:
-    job = _engine_child.load_engine_child_job(
-        config_path=config_path,
-        queue_root=queue_root,
-        queue_id=queue_id,
-        load_config_fn=dependencies.config.load_config,
-        find_queue_entry_fn=dependencies.config.queue_entry_by_id,
-        admission_token=admission_token,
-        admission_root_fn=lambda _cfg: admission_root,
-        release_slot_fn=dependencies.admission.release_slot,
-    )
-    if job is None:
-        return 1
-    cfg = job.cfg
-    resolved_queue_root = job.queue_root
-    entry = job.entry
-
-    if admission_token:
-        if not _child_entrypoint.activate_child_worker_admission(
+    def prepare_loaded_job(job: _engine_child.ChildWorkerEntrypointJob) -> bool:
+        if not admission_token:
+            return True
+        return _engine_child.activate_child_worker_admission(
             job,
             admission_token,
-            work_dir=dependencies.context.job_dir(entry),
-            queue_id=entry.queue_id,
+            work_dir=dependencies.context.job_dir(job.entry),
+            queue_id=job.entry.queue_id,
             source=worker_job_module,
             activate_reserved_slot_fn=dependencies.admission.activate_reserved_slot,
-        ):
-            return 1
+        )
 
-    def run_loaded_job(_job: _child_entrypoint.ChildWorkerEntrypointJob) -> int:
+    def run_loaded_job(job: _engine_child.ChildWorkerEntrypointJob) -> int:
+        cfg = job.cfg
+        resolved_queue_root = job.queue_root
+        entry = job.entry
         if dependencies.execute_queue_entry is None:
             outcome = execute_queue_entry_fn(
                 cfg,
@@ -157,10 +144,16 @@ def run_worker_job(
             )
         return _engine_child.outcome_exit_code(outcome)
 
-    return _engine_child.run_child_job_with_admission_scope(
-        job,
-        admission_token,
+    return _engine_child.run_loaded_engine_child_job(
+        config_path=config_path,
+        queue_root=queue_root,
+        queue_id=queue_id,
+        load_config_fn=dependencies.config.load_config,
+        find_queue_entry_fn=dependencies.config.queue_entry_by_id,
+        admission_root_fn=lambda _cfg: admission_root,
         release_slot_fn=dependencies.admission.release_slot,
+        admission_token=admission_token,
+        prepare_job_fn=prepare_loaded_job,
         run_job_fn=run_loaded_job,
     )
 

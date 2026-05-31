@@ -101,35 +101,6 @@ def _mutate_entries(
     )
 
 
-def _entry_index(entries: list[QueueEntry], queue_id: str) -> int | None:
-    for idx, current in enumerate(entries):
-        if current.queue_id == queue_id:
-            return idx
-    return None
-
-
-def _mutate_entry(
-    allowed_root: Path,
-    queue_id: str,
-    updater: Any,
-    *,
-    missing_result: Any,
-) -> Any:
-    def mutate(entries: list[QueueEntry]) -> tuple[Any, bool]:
-        idx = _entry_index(entries, queue_id)
-        if idx is None:
-            return missing_result, False
-
-        result, updated_entry = updater(entries[idx])
-        if updated_entry is None:
-            return result, False
-
-        entries[idx] = updated_entry
-        return result, True
-
-    return _mutate_entries(allowed_root, mutate)
-
-
 class DuplicateEntryError(ValueError):
     """Raised when enqueueing a reaction_dir that already has an active entry."""
 
@@ -312,7 +283,14 @@ def cancel(allowed_root: Path, queue_id: str) -> Optional[QueueEntry]:
 
     return cast(
         QueueEntry | None,
-        _mutate_entry(allowed_root, queue_id, cancel_entry, missing_result=None),
+        _queue_store.mutate_entry_by_id(
+            allowed_root,
+            queue_id,
+            cancel_entry,
+            missing_result=None,
+            load_entries_fn=_load_entries,
+            save_entries_fn=_queue_store.save_entries,
+        ),
     )
 
 
@@ -383,7 +361,16 @@ def update_terminal(
         logger.info("Entry %s -> %s", queue_id, status)
         return True, entry
 
-    return bool(_mutate_entry(allowed_root, queue_id, update, missing_result=False))
+    return bool(
+        _queue_store.mutate_entry_by_id(
+            allowed_root,
+            queue_id,
+            update,
+            missing_result=False,
+            load_entries_fn=_load_entries,
+            save_entries_fn=_queue_store.save_entries,
+        )
+    )
 
 
 def cancel_pending_entry(entry: QueueEntry, *, finished_at: str) -> QueueEntry:
@@ -413,4 +400,13 @@ def update_running_entry_state(
         logger.info("Entry %s -> %s", queue_id, status)
         return True, entry
 
-    return bool(_mutate_entry(allowed_root, queue_id, update, missing_result=False))
+    return bool(
+        _queue_store.mutate_entry_by_id(
+            allowed_root,
+            queue_id,
+            update,
+            missing_result=False,
+            load_entries_fn=_load_entries,
+            save_entries_fn=_queue_store.save_entries,
+        )
+    )

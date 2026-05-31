@@ -10,6 +10,7 @@ from chemstack import cli_style
 from chemstack.cli_errors import emit_error
 from chemstack.activity_presenter import (
     QueueListPresentationDeps,
+    QueueListPresentationRequest,
     queue_list_text_presentation,
 )
 from chemstack.activity_view import (
@@ -282,18 +283,20 @@ def _print_queue_list_text(
     terminal_width = _dependency(deps, "_queue_terminal_width", _queue_terminal_width)
     presentation = queue_list_text_presentation(
         payload,
-        visible_items=filtered_activities,
-        config_hints=(request.shared_config,),
-        prefer_config_hints=True,
-        default_visible_items=request.default_combined_text_view,
-        limit=request.limit,
-        show_workflow_context=set(request.kind_values) != {"job"},
-        visible_workflow_child_engines=(
-            ("orca",) if request.default_combined_text_view else None
+        request=QueueListPresentationRequest(
+            visible_items=filtered_activities,
+            config_hints=(request.shared_config,),
+            prefer_config_hints=True,
+            default_visible_items=request.default_combined_text_view,
+            limit=request.limit,
+            show_workflow_context=set(request.kind_values) != {"job"},
+            visible_workflow_child_engines=(
+                ("orca",) if request.default_combined_text_view else None
+            ),
+            active_simulations=filtered_payload["active_simulations"],
+            now=queue_table_now(),
+            max_width=terminal_width(),
         ),
-        active_simulations=filtered_payload["active_simulations"],
-        now=queue_table_now(),
-        max_width=terminal_width(),
         deps=QueueListPresentationDeps(
             activity_counter_config_path=activity_counter_config_path,
             count_global_active_simulations=count_global_active_simulations,

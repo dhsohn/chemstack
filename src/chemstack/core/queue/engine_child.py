@@ -36,6 +36,25 @@ def build_engine_worker_child_command(
     )
 
 
+def activate_child_worker_admission(
+    job: ChildWorkerEntrypointJob,
+    admission_token: str | None,
+    *,
+    work_dir: str | Path,
+    queue_id: str,
+    source: str,
+    activate_reserved_slot_fn: Callable[..., Any],
+) -> bool:
+    return _child_entrypoint.activate_child_worker_admission(
+        job,
+        admission_token,
+        work_dir=work_dir,
+        queue_id=queue_id,
+        source=source,
+        activate_reserved_slot_fn=activate_reserved_slot_fn,
+    )
+
+
 def load_engine_child_job(
     *,
     config_path: str,
@@ -76,6 +95,45 @@ def run_child_job_with_admission_scope(
         return run_job_fn(job)
 
 
+def run_loaded_engine_child_job(
+    *,
+    config_path: str,
+    queue_root: str | Path,
+    queue_id: str,
+    load_config_fn: Callable[[str], Any],
+    find_queue_entry_fn: Callable[[Path, str], Any | None],
+    admission_root_fn: Callable[[Any], str | Path],
+    release_slot_fn: Callable[[str | Path, str], Any],
+    run_job_fn: Callable[[ChildWorkerEntrypointJob], int],
+    admission_token: str | None = None,
+    entry_ready_fn: Callable[[Any], bool] | None = None,
+    prepare_job_fn: Callable[[ChildWorkerEntrypointJob], bool] | None = None,
+    missing_exit_code: int = 1,
+    prepare_failed_exit_code: int = 1,
+) -> int:
+    job = load_engine_child_job(
+        config_path=config_path,
+        queue_root=queue_root,
+        queue_id=queue_id,
+        load_config_fn=load_config_fn,
+        find_queue_entry_fn=find_queue_entry_fn,
+        entry_ready_fn=entry_ready_fn,
+        admission_token=admission_token,
+        admission_root_fn=admission_root_fn,
+        release_slot_fn=release_slot_fn,
+    )
+    if job is None:
+        return missing_exit_code
+    if prepare_job_fn is not None and not prepare_job_fn(job):
+        return prepare_failed_exit_code
+    return run_child_job_with_admission_scope(
+        job,
+        admission_token,
+        release_slot_fn=release_slot_fn,
+        run_job_fn=run_job_fn,
+    )
+
+
 def outcome_exit_code(
     outcome: Any,
     *,
@@ -87,8 +145,10 @@ def outcome_exit_code(
 
 __all__ = [
     "WorkerChildCommandSpec",
+    "activate_child_worker_admission",
     "build_engine_worker_child_command",
     "load_engine_child_job",
     "outcome_exit_code",
     "run_child_job_with_admission_scope",
+    "run_loaded_engine_child_job",
 ]

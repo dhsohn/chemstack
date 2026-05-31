@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any, Callable
 
 from chemstack.core.config import TelegramConfig
@@ -22,6 +23,15 @@ from chemstack.flow.workflow_status import workflow_status_is_terminal
 _ACTIVE_STATUSES = frozenset(
     {"planned", "queued", "running", "submitted", "cancel_requested", "retrying"}
 )
+
+
+@dataclass(frozen=True)
+class _PhaseSummary:
+    engine: str
+    state_key: str
+    stages: list[dict[str, Any]]
+    counts: dict[str, int]
+    stage_buckets: dict[int, str]
 
 
 def _load_telegram_config(config_path: str | None) -> TelegramConfig:
@@ -264,55 +274,62 @@ def _format_phase_summary_message(
     return "\n\n".join(sections)
 
 
-def maybe_notify_workflow_phase_summary(
+def _phase_summary_counts(
+    stages: list[dict[str, Any]],
     *,
-    payload: dict[str, Any],
-    config_path: str | None,
     phase_engine: str,
-    stage_failure_is_recoverable_fn: Callable[[dict[str, Any]], bool] | None = None,
-    extra_lines: list[str] | None = None,
-) -> bool:
-    normalized_engine = _normalize_text(phase_engine).lower()
-    if normalized_engine not in {"crest", "xtb"}:
-        return False
-
-    stages = _terminal_phase_stages(
-        payload,
-        phase_engine=normalized_engine,
-        stage_failure_is_recoverable_fn=stage_failure_is_recoverable_fn,
-    )
-    if not stages:
-        return False
-
-    notification_state = _phase_notification_state(payload)
-    state_key = f"{normalized_engine}_summary"
-    previous_state = _coerce_mapping(notification_state.get(state_key))
-    if previous_state.get("sent_at"):
-        return False
-
-    telegram = _load_telegram_config(config_path)
-    if not telegram.enabled:
-        return False
-
+    stage_failure_is_recoverable_fn: Callable[[dict[str, Any]], bool] | None,
+) -> tuple[dict[str, int], dict[int, str]]:
     counts = {"completed": 0, "failed": 0, "cancelled": 0}
     stage_buckets: dict[int, str] = {}
     for stage in stages:
         bucket = _stage_result_bucket(
             stage,
-            phase_engine=normalized_engine,
+            phase_engine=phase_engine,
             stage_failure_is_recoverable_fn=stage_failure_is_recoverable_fn,
         )
         counts[bucket] += 1
         stage_buckets[id(stage)] = bucket
+    return counts, stage_buckets
 
-    message = _format_phase_summary_message(
-        payload=payload,
-        phase_engine=normalized_engine,
+
+def _phase_summary(
+    payload: dict[str, Any],
+    *,
+    phase_engine: str,
+    stage_failure_is_recoverable_fn: Callable[[dict[str, Any]], bool] | None,
+) -> _PhaseSummary | None:
+    stages = _terminal_phase_stages(
+        payload,
+        phase_engine=phase_engine,
+        stage_failure_is_recoverable_fn=stage_failure_is_recoverable_fn,
+    )
+    if not stages:
+        return None
+    counts, stage_buckets = _phase_summary_counts(
+        stages,
+        phase_engine=phase_engine,
+        stage_failure_is_recoverable_fn=stage_failure_is_recoverable_fn,
+    )
+    return _PhaseSummary(
+        engine=phase_engine,
+        state_key=f"{phase_engine}_summary",
         stages=stages,
         counts=counts,
         stage_buckets=stage_buckets,
-        extra_lines=extra_lines,
     )
+
+
+def _phase_summary_already_sent(
+    notification_state: dict[str, Any],
+    *,
+    state_key: str,
+) -> bool:
+    previous_state = _coerce_mapping(notification_state.get(state_key))
+    return bool(previous_state.get("sent_at"))
+
+
+def _send_phase_summary_message(telegram: TelegramConfig, message: str) -> bool:
     chunks = split_telegram_message(message)
     if not chunks:
         return False
@@ -325,11 +342,65 @@ def maybe_notify_workflow_phase_summary(
         fallback_result = transport.send_text(chunk, parse_mode=None)
         if not (fallback_result.sent or fallback_result.skipped):
             return False
+    return True
 
+
+def _mark_phase_summary_sent(
+    notification_state: dict[str, Any],
+    *,
+    state_key: str,
+    stage_count: int,
+) -> None:
     notification_state[state_key] = {
         "sent_at": now_utc_iso(),
-        "stage_count": len(stages),
+        "stage_count": stage_count,
     }
+
+
+def maybe_notify_workflow_phase_summary(
+    *,
+    payload: dict[str, Any],
+    config_path: str | None,
+    phase_engine: str,
+    stage_failure_is_recoverable_fn: Callable[[dict[str, Any]], bool] | None = None,
+    extra_lines: list[str] | None = None,
+) -> bool:
+    normalized_engine = _normalize_text(phase_engine).lower()
+    if normalized_engine not in {"crest", "xtb"}:
+        return False
+
+    summary = _phase_summary(
+        payload,
+        phase_engine=normalized_engine,
+        stage_failure_is_recoverable_fn=stage_failure_is_recoverable_fn,
+    )
+    if summary is None:
+        return False
+
+    notification_state = _phase_notification_state(payload)
+    if _phase_summary_already_sent(notification_state, state_key=summary.state_key):
+        return False
+
+    telegram = _load_telegram_config(config_path)
+    if not telegram.enabled:
+        return False
+
+    message = _format_phase_summary_message(
+        payload=payload,
+        phase_engine=summary.engine,
+        stages=summary.stages,
+        counts=summary.counts,
+        stage_buckets=summary.stage_buckets,
+        extra_lines=extra_lines,
+    )
+    if not _send_phase_summary_message(telegram, message):
+        return False
+
+    _mark_phase_summary_sent(
+        notification_state,
+        state_key=summary.state_key,
+        stage_count=len(summary.stages),
+    )
     return True
 
 

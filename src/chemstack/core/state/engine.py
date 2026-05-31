@@ -301,3 +301,33 @@ class EngineRecoveryPendingWriter:
         )
         self.access.write_state(job_dir, payload)
         return payload
+
+
+@dataclass(frozen=True)
+class EngineStateModuleExports:
+    access: EngineStateAccess
+    recovery_pending: EngineRecoveryPendingWriter
+    write_state: Callable[[Path, dict[str, Any]], Path]
+    write_report_json: Callable[[Path, dict[str, Any]], Path]
+    write_report_md_lines: Callable[[Path, list[str]], Path]
+    write_organized_ref: Callable[[Path, dict[str, Any]], Path]
+    load_state: Callable[[Path], dict[str, Any] | None]
+    load_report_json: Callable[[Path], dict[str, Any] | None]
+    load_organized_ref: Callable[[Path], dict[str, Any] | None]
+    write_report_md: Callable[..., Path]
+
+
+def engine_state_module_exports(bindings: EngineStateBindings) -> EngineStateModuleExports:
+    access = bindings.access
+    return EngineStateModuleExports(
+        access=access,
+        recovery_pending=bindings.recovery_pending,
+        write_state=access.write_state,
+        write_report_json=access.write_report_json,
+        write_report_md_lines=access.write_report_md_lines,
+        write_organized_ref=access.write_organized_ref,
+        load_state=access.load_state,
+        load_report_json=access.load_report_json,
+        load_organized_ref=access.load_organized_ref,
+        write_report_md=access.write_report_md,
+    )
