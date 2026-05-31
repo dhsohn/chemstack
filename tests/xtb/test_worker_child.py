@@ -12,7 +12,7 @@ def test_run_worker_child_job_processes_loaded_entry_and_releases_slot(
     tmp_path: Path,
 ) -> None:
     cfg = SimpleNamespace(name="cfg")
-    entry = SimpleNamespace(queue_id="queue-1", status=QueueStatus.RUNNING)
+    entry = SimpleNamespace(queue_id="queue-1", status=" RUNNING ")
     dependencies = object()
     installed: list[Any] = []
     released: list[tuple[str, str]] = []
@@ -41,6 +41,7 @@ def test_run_worker_child_job_processes_loaded_entry_and_releases_slot(
     assert released == [("/tmp/admission", "slot-1")]
     assert processed[0]["args"] == (cfg, entry)
     assert processed[0]["kwargs"]["queue_root"] == (tmp_path / "queue").resolve()
+    assert "molecule_key_resolver" not in processed[0]["kwargs"]
     assert processed[0]["kwargs"]["dependencies"] is dependencies
     assert processed[0]["kwargs"]["shutdown_requested"]() is False
 

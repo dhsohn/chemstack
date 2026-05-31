@@ -41,10 +41,12 @@ __all__ = [
     "BackgroundRunningJob",
     "ChildProcessQueueWorker",
     "EngineRunningJob",
+    "HookedPidFileChildProcessQueueWorker",
     "ManagedProcess",
     "PidFileChildProcessQueueWorker",
     "QueueWorkerLoop",
     "QueueWorkerPidFileMixin",
+    "PidFileChildProcessQueueWorkerHooks",
     "ReservedQueueEntry",
     "SlotFillResult",
     "ShutdownSignalDeps",
@@ -110,6 +112,16 @@ class EngineRunningJob:
     admission_token: str
     task_id: str | None = None
     started_at: float = field(default_factory=time.monotonic)
+
+
+@dataclass(frozen=True)
+class PidFileChildProcessQueueWorkerHooks:
+    handle_worker_start_error: Callable[[Any, Path, Any, str, OSError], None]
+    on_worker_process_started: Callable[[Any, Path, Any, Any, str], bool]
+    finalize_completed_job: Callable[[Any, str, Any, int], None]
+    shutdown_running_job: Callable[[Any, str, Any], None]
+    reconcile_worker_state: Callable[[Any], None]
+    before_shutdown_all: Callable[[Any, int], None] | None = None
 
 
 class QueueWorkerPidFileMixin:
@@ -647,6 +659,78 @@ class PidFileChildProcessQueueWorker(QueueWorkerPidFileMixin, ChildProcessQueueW
 
     def _after_run(self) -> None:
         self._remove_pid_file()
+
+
+class HookedPidFileChildProcessQueueWorker(PidFileChildProcessQueueWorker):
+    """Pid-file queue worker whose engine-specific behavior is supplied as hooks."""
+
+    def __init__(
+        self,
+        cfg: Any,
+        *,
+        config_path: str,
+        max_concurrent: int | None = None,
+        deps: Any,
+        hooks: PidFileChildProcessQueueWorkerHooks,
+        worker_pid_file_name: str | None = None,
+        allowed_root: str | Path | None = None,
+        admission_root: str | Path | None = None,
+    ) -> None:
+        if worker_pid_file_name is not None:
+            self.worker_pid_file_name = worker_pid_file_name
+        self.hooks = hooks
+        super().__init__(
+            cfg,
+            config_path=config_path,
+            max_concurrent=max_concurrent,
+            deps=deps,
+            allowed_root=allowed_root,
+            admission_root=admission_root,
+        )
+
+    def _handle_worker_start_error(
+        self,
+        queue_root: Path,
+        entry: Any,
+        admission_token: str,
+        exc: OSError,
+    ) -> None:
+        self.hooks.handle_worker_start_error(
+            self,
+            queue_root,
+            entry,
+            admission_token,
+            exc,
+        )
+
+    def _on_worker_process_started(
+        self,
+        queue_root: Path,
+        entry: Any,
+        *,
+        process: Any,
+        admission_token: str,
+    ) -> bool:
+        return self.hooks.on_worker_process_started(
+            self,
+            queue_root,
+            entry,
+            process,
+            admission_token,
+        )
+
+    def _finalize_completed_job(self, queue_id: str, job: Any, rc: int) -> None:
+        self.hooks.finalize_completed_job(self, queue_id, job, rc)
+
+    def _before_shutdown_all(self, running_count: int) -> None:
+        if self.hooks.before_shutdown_all is not None:
+            self.hooks.before_shutdown_all(self, running_count)
+
+    def _shutdown_running_job(self, queue_id: str, job: Any) -> None:
+        self.hooks.shutdown_running_job(self, queue_id, job)
+
+    def _reconcile_worker_state(self) -> None:
+        self.hooks.reconcile_worker_state(self)
 
 
 def install_shutdown_signal_handlers(request_shutdown: Callable[[], None]) -> None:

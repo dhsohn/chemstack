@@ -18,6 +18,9 @@ def test_run_worker_child_job_processes_loaded_entry_and_releases_slot(
     released: list[tuple[str, str]] = []
     processed: list[dict[str, Any]] = []
 
+    def molecule_key_resolver(*_args: Any) -> str:
+        return "mol-1"
+
     rc = worker_child.run_worker_child_job(
         config_path="/tmp/chemstack.yaml",
         queue_root=tmp_path / "queue",
@@ -32,7 +35,7 @@ def test_run_worker_child_job_processes_loaded_entry_and_releases_slot(
             {"args": args, "kwargs": kwargs}
         ),
         dependencies_fn=lambda: dependencies,
-        molecule_key_resolver=lambda *_args: "mol-1",
+        molecule_key_resolver=molecule_key_resolver,
         requeue_running_entry_fn=lambda *_args: None,
         mark_recovery_pending_context_fn=lambda *_args, **_kwargs: None,
     )
@@ -42,6 +45,7 @@ def test_run_worker_child_job_processes_loaded_entry_and_releases_slot(
     assert released == [("/tmp/admission", "slot-1")]
     assert processed[0]["args"] == (cfg, entry)
     assert processed[0]["kwargs"]["queue_root"] == (tmp_path / "queue").resolve()
+    assert processed[0]["kwargs"]["molecule_key_resolver"] is molecule_key_resolver
     assert processed[0]["kwargs"]["dependencies"] is dependencies
     assert processed[0]["kwargs"]["shutdown_requested"]() is False
 

@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from . import child_entrypoint as _child_entrypoint
 from .child_entrypoint import ChildWorkerEntrypointJob
+from .child_execution import ChildWorkerShutdownController
 from .worker import build_background_worker_command
 
 
@@ -14,6 +15,17 @@ from .worker import build_background_worker_command
 class WorkerChildCommandSpec:
     worker_job_module: str
     include_admission_root: bool = True
+
+
+def _shutdown_exception_context(exc: BaseException) -> Any:
+    return getattr(exc, "context")
+
+
+@dataclass(frozen=True)
+class WorkerChildRunSpec:
+    shutdown_exception_type: type[BaseException]
+    entry_ready_fn: Callable[[Any], bool] | None = None
+    shutdown_context_fn: Callable[[BaseException], Any] = _shutdown_exception_context
 
 
 def build_engine_worker_child_command(
@@ -134,6 +146,69 @@ def run_loaded_engine_child_job(
     )
 
 
+def run_engine_worker_child_job(
+    *,
+    spec: WorkerChildRunSpec,
+    config_path: str,
+    queue_root: str | Path,
+    queue_id: str,
+    load_config_fn: Callable[[str], Any],
+    find_queue_entry_fn: Callable[[Path, str], Any | None],
+    admission_root_fn: Callable[[Any], str | Path],
+    release_slot_fn: Callable[[str | Path, str], Any],
+    install_signal_handlers_fn: Callable[[ChildWorkerShutdownController], Any],
+    process_dequeued_entry_fn: Callable[..., Any],
+    dependencies_fn: Callable[[], Any],
+    requeue_running_entry_fn: Callable[[Path, str], Any],
+    mark_recovery_pending_context_fn: Callable[..., Any],
+    admission_token: str | None = None,
+    process_dequeued_entry_kwargs: Mapping[str, Any] | None = None,
+) -> int:
+    controller = ChildWorkerShutdownController()
+    extra_process_kwargs = dict(process_dequeued_entry_kwargs or {})
+
+    def prepare_loaded_job(_job: ChildWorkerEntrypointJob) -> bool:
+        install_signal_handlers_fn(controller)
+        return True
+
+    def run_loaded_job(job: ChildWorkerEntrypointJob) -> int:
+        cfg = job.cfg
+        queue_root_path = job.queue_root
+        entry = job.entry
+        try:
+            process_dequeued_entry_fn(
+                cfg,
+                entry,
+                queue_root=queue_root_path,
+                **extra_process_kwargs,
+                dependencies=dependencies_fn(),
+                shutdown_requested=controller.is_requested,
+            )
+            return 0
+        except spec.shutdown_exception_type as exc:
+            requeue_running_entry_fn(queue_root_path, queue_id)
+            mark_recovery_pending_context_fn(
+                cfg,
+                spec.shutdown_context_fn(exc),
+                reason="worker_shutdown",
+            )
+            return 0
+
+    return run_loaded_engine_child_job(
+        config_path=config_path,
+        queue_root=queue_root,
+        queue_id=queue_id,
+        load_config_fn=load_config_fn,
+        find_queue_entry_fn=find_queue_entry_fn,
+        entry_ready_fn=spec.entry_ready_fn,
+        admission_root_fn=admission_root_fn,
+        release_slot_fn=release_slot_fn,
+        admission_token=admission_token,
+        prepare_job_fn=prepare_loaded_job,
+        run_job_fn=run_loaded_job,
+    )
+
+
 def outcome_exit_code(
     outcome: Any,
     *,
@@ -145,10 +220,12 @@ def outcome_exit_code(
 
 __all__ = [
     "WorkerChildCommandSpec",
+    "WorkerChildRunSpec",
     "activate_child_worker_admission",
     "build_engine_worker_child_command",
     "load_engine_child_job",
     "outcome_exit_code",
     "run_child_job_with_admission_scope",
+    "run_engine_worker_child_job",
     "run_loaded_engine_child_job",
 ]

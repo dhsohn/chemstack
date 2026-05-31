@@ -33,8 +33,9 @@ from chemstack.core.queue import (
 )
 from chemstack.core.queue.worker import (
     BackgroundRunningJob,
+    HookedPidFileChildProcessQueueWorker,
     ManagedProcess as _ManagedProcess,
-    PidFileChildProcessQueueWorker,
+    PidFileChildProcessQueueWorkerHooks,
     config_path_for_worker,
     pid_is_alive as worker_pid_is_alive,
     reconcile_orphaned_child_queue_entries,
@@ -375,7 +376,149 @@ def _entry_status_is_running(entry: Any) -> bool:
     return _queue_lifecycle.entry_status_is_running(entry)
 
 
-class QueueWorker(PidFileChildProcessQueueWorker):
+def _handle_worker_start_error(
+    worker: Any,
+    queue_root: Path,
+    entry: Any,
+    admission_token: str,
+    exc: OSError,
+) -> None:
+    _queue_admission.finalize_worker_start_error(
+        worker.cfg,
+        queue_root=queue_root,
+        entry=entry,
+        admission_token=admission_token,
+        exc=exc,
+        release_admission_slot_fn=worker._release_admission_slot,
+        build_terminal_result_fn=_build_terminal_result,
+        finalize_execution_result_fn=_finalize_execution_result,
+        job_dir_fn=_job_dir,
+        selected_xyz_fn=_selected_xyz,
+        job_type_fn=_job_type,
+        reaction_key_fn=_reaction_key,
+        input_summary_fn=_input_summary,
+        entry_resource_request_fn=_queue_artifacts.entry_resource_request,
+    )
+
+
+def _on_worker_process_started(
+    worker: Any,
+    queue_root: Path,
+    entry: Any,
+    process: subprocess.Popen[str],
+    admission_token: str,
+) -> bool:
+    return _queue_admission.attach_started_process(
+        admission_root=worker.admission_root,
+        queue_root=queue_root,
+        entry=entry,
+        process=process,
+        admission_token=admission_token,
+        activate_reserved_slot_fn=activate_reserved_slot,
+        terminate_process_fn=_terminate_process,
+        mark_entry_failed_and_release_fn=worker._mark_entry_failed_and_release,
+        mark_failed_fn=mark_failed,
+    )
+
+
+def _finalize_completed_job(worker: Any, _queue_id: str, job: Any, rc: int) -> None:
+    summary = _load_terminal_summary(job.queue_root, job.entry, rc=rc)
+    _ensure_terminal_queue_status(job.queue_root, job.entry, summary)
+    _print_terminal_summary(summary)
+    worker._release_admission_slot(job.admission_token)
+
+
+def _finalize_child_exit(worker: Any, job: _RunningJob, *, rc: int) -> None:
+    _queue_lifecycle.finalize_child_exit(
+        worker.cfg,
+        job,
+        rc=rc,
+        shutdown_requested=worker._shutdown_requested,
+        queue_entry_by_id_fn=_queue_entry_by_id,
+        mark_cancelled_fn=mark_cancelled,
+        requeue_running_entry_fn=requeue_running_entry,
+        mark_failed_fn=mark_failed,
+        mark_recovery_pending_fn=_mark_recovery_pending_state,
+        release_admission_slot_fn=worker._release_admission_slot,
+    )
+
+
+def _shutdown_running_job(worker: Any, _queue_id: str, job: Any) -> None:
+    _queue_lifecycle.shutdown_running_job(
+        job,
+        shutdown_child_process_with_grace_fn=shutdown_child_process_with_grace,
+        terminate_process_fn=_terminate_process,
+        finalize_child_exit_fn=lambda current_job, rc: _finalize_child_exit(
+            worker,
+            current_job,
+            rc=rc,
+        ),
+        grace_seconds=WORKER_SHUTDOWN_GRACE_SECONDS,
+        sleep_fn=time.sleep,
+    )
+
+
+def _sync_terminal_running_entries(worker: Any) -> None:
+    _queue_lifecycle.sync_terminal_running_entries(
+        queue_entries_with_roots(worker.cfg),
+        load_terminal_summary_fn=_load_terminal_summary,
+        ensure_terminal_queue_status_fn=_ensure_terminal_queue_status,
+    )
+
+
+def _live_worker_pid_slots(worker: Any) -> list[Any]:
+    return _queue_lifecycle.live_worker_pid_slots(
+        queue_entries_with_roots(worker.cfg),
+        load_state_fn=load_state,
+        job_dir_fn=_job_dir,
+        pid_is_alive_fn=_pid_is_alive,
+    )
+
+
+def _list_slots_preserving_live_worker_pids(
+    worker: Any,
+    admission_root: str | Path,
+) -> list[Any]:
+    return [
+        *list_slots(admission_root),
+        *_live_worker_pid_slots(worker),
+    ]
+
+
+def _reconcile_orphaned_running(worker: Any) -> None:
+    _queue_lifecycle.reconcile_orphaned_running(
+        worker.cfg,
+        admission_root=worker.admission_root,
+        queue_roots_fn=queue_roots,
+        list_queue_fn=list_queue,
+        list_slots_fn=lambda admission_root: _list_slots_preserving_live_worker_pids(
+            worker,
+            admission_root,
+        ),
+        reconcile_stale_slots_fn=reconcile_stale_slots,
+        reconcile_orphaned_child_queue_entries_fn=reconcile_orphaned_child_queue_entries,
+        mark_cancelled_fn=mark_cancelled,
+        requeue_running_entry_fn=requeue_running_entry,
+        mark_recovery_pending_fn=_mark_recovery_pending_state,
+    )
+
+
+def _reconcile_worker_state(worker: Any) -> None:
+    _sync_terminal_running_entries(worker)
+    _reconcile_orphaned_running(worker)
+
+
+def _queue_worker_hooks() -> PidFileChildProcessQueueWorkerHooks:
+    return PidFileChildProcessQueueWorkerHooks(
+        handle_worker_start_error=_handle_worker_start_error,
+        on_worker_process_started=_on_worker_process_started,
+        finalize_completed_job=_finalize_completed_job,
+        shutdown_running_job=_shutdown_running_job,
+        reconcile_worker_state=_reconcile_worker_state,
+    )
+
+
+class QueueWorker(HookedPidFileChildProcessQueueWorker):
     worker_pid_file_name = WORKER_PID_FILE
 
     def __init__(
@@ -390,124 +533,9 @@ class QueueWorker(PidFileChildProcessQueueWorker):
             config_path=config_path,
             max_concurrent=max_concurrent,
             deps=_queue_worker_deps(),
+            hooks=_queue_worker_hooks(),
+            worker_pid_file_name=WORKER_PID_FILE,
             admission_root=_admission_root(cfg),
-        )
-
-    def _handle_worker_start_error(
-        self,
-        queue_root: Path,
-        entry: Any,
-        admission_token: str,
-        exc: OSError,
-    ) -> None:
-        _queue_admission.finalize_worker_start_error(
-            self.cfg,
-            queue_root=queue_root,
-            entry=entry,
-            admission_token=admission_token,
-            exc=exc,
-            release_admission_slot_fn=self._release_admission_slot,
-            build_terminal_result_fn=_build_terminal_result,
-            finalize_execution_result_fn=_finalize_execution_result,
-            job_dir_fn=_job_dir,
-            selected_xyz_fn=_selected_xyz,
-            job_type_fn=_job_type,
-            reaction_key_fn=_reaction_key,
-            input_summary_fn=_input_summary,
-            entry_resource_request_fn=_queue_artifacts.entry_resource_request,
-        )
-
-    def _on_worker_process_started(
-        self,
-        queue_root: Path,
-        entry: Any,
-        *,
-        process: subprocess.Popen[str],
-        admission_token: str,
-    ) -> bool:
-        return _queue_admission.attach_started_process(
-            admission_root=self.admission_root,
-            queue_root=queue_root,
-            entry=entry,
-            process=process,
-            admission_token=admission_token,
-            activate_reserved_slot_fn=activate_reserved_slot,
-            terminate_process_fn=_terminate_process,
-            mark_entry_failed_and_release_fn=self._mark_entry_failed_and_release,
-            mark_failed_fn=mark_failed,
-        )
-
-    def _finalize_completed_job(self, _queue_id: str, job: Any, rc: int) -> None:
-        summary = _load_terminal_summary(job.queue_root, job.entry, rc=rc)
-        _ensure_terminal_queue_status(job.queue_root, job.entry, summary)
-        _print_terminal_summary(summary)
-        self._release_admission_slot(job.admission_token)
-
-    def _finalize_child_exit(self, job: _RunningJob, *, rc: int) -> None:
-        _queue_lifecycle.finalize_child_exit(
-            self.cfg,
-            job,
-            rc=rc,
-            shutdown_requested=self._shutdown_requested,
-            queue_entry_by_id_fn=_queue_entry_by_id,
-            mark_cancelled_fn=mark_cancelled,
-            requeue_running_entry_fn=requeue_running_entry,
-            mark_failed_fn=mark_failed,
-            mark_recovery_pending_fn=_mark_recovery_pending_state,
-            release_admission_slot_fn=self._release_admission_slot,
-        )
-
-    def _shutdown_running_job(self, queue_id: str, job: Any) -> None:
-        del queue_id
-        _queue_lifecycle.shutdown_running_job(
-            job,
-            shutdown_child_process_with_grace_fn=shutdown_child_process_with_grace,
-            terminate_process_fn=_terminate_process,
-            finalize_child_exit_fn=lambda current_job, rc: self._finalize_child_exit(
-                current_job,
-                rc=rc,
-            ),
-            grace_seconds=WORKER_SHUTDOWN_GRACE_SECONDS,
-            sleep_fn=time.sleep,
-        )
-
-    def _reconcile_worker_state(self) -> None:
-        self._sync_terminal_running_entries()
-        self._reconcile_orphaned_running()
-
-    def _sync_terminal_running_entries(self) -> None:
-        _queue_lifecycle.sync_terminal_running_entries(
-            queue_entries_with_roots(self.cfg),
-            load_terminal_summary_fn=_load_terminal_summary,
-            ensure_terminal_queue_status_fn=_ensure_terminal_queue_status,
-        )
-
-    def _live_worker_pid_slots(self) -> list[Any]:
-        return _queue_lifecycle.live_worker_pid_slots(
-            queue_entries_with_roots(self.cfg),
-            load_state_fn=load_state,
-            job_dir_fn=_job_dir,
-            pid_is_alive_fn=_pid_is_alive,
-        )
-
-    def _list_slots_preserving_live_worker_pids(self, admission_root: str | Path) -> list[Any]:
-        return [
-            *list_slots(admission_root),
-            *self._live_worker_pid_slots(),
-        ]
-
-    def _reconcile_orphaned_running(self) -> None:
-        _queue_lifecycle.reconcile_orphaned_running(
-            self.cfg,
-            admission_root=self.admission_root,
-            queue_roots_fn=queue_roots,
-            list_queue_fn=list_queue,
-            list_slots_fn=self._list_slots_preserving_live_worker_pids,
-            reconcile_stale_slots_fn=reconcile_stale_slots,
-            reconcile_orphaned_child_queue_entries_fn=reconcile_orphaned_child_queue_entries,
-            mark_cancelled_fn=mark_cancelled,
-            requeue_running_entry_fn=requeue_running_entry,
-            mark_recovery_pending_fn=_mark_recovery_pending_state,
         )
 
 

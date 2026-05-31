@@ -453,6 +453,63 @@ def _finalize_processed_entry(
     )
 
 
+def _run_worker_entry_lifecycle(
+    cfg: Any,
+    entry: Any,
+    *,
+    queue_root: Path | None,
+    dependencies: WorkerExecutionDependencies,
+    should_cancel_factory: Callable[
+        [Path, _XtbExecutionContext],
+        Callable[[], bool] | None,
+    ],
+    shutdown_requested: Callable[[], bool] | None = None,
+    register_running_job: Callable[[Any | None], None] | None = None,
+    worker_job_pid: int | None = None,
+    emit_output: bool = False,
+) -> Any:
+    return _engine_execution.run_engine_worker_entry(
+        cfg,
+        entry,
+        queue_root=queue_root,
+        build_context=lambda cfg_obj, entry_obj: _build_execution_context(
+            cfg_obj,
+            entry_obj,
+            dependencies=dependencies,
+        ),
+        mark_running=lambda cfg_obj, context: _mark_job_running(
+            cfg_obj,
+            context,
+            worker_job_pid=worker_job_pid,
+            dependencies=dependencies,
+        ),
+        check_shutdown=lambda context: _raise_if_shutdown_requested(
+            context,
+            shutdown_requested,
+        ),
+        run_job=lambda cfg_obj, context, active_queue_root: _run_xtb_job_for_entry(
+            cfg_obj,
+            context,
+            active_queue_root,
+            dependencies=dependencies,
+            should_cancel=should_cancel_factory(active_queue_root, context),
+            shutdown_requested=shutdown_requested,
+            register_running_job=register_running_job,
+        ),
+        finalize_entry=lambda cfg_obj, context, result, active_queue_root: (
+            _finalize_processed_entry(
+                cfg_obj,
+                context,
+                result,
+                active_queue_root,
+                emit_output=emit_output,
+                dependencies=dependencies,
+            )
+        ),
+        build_outcome=lambda _context, _result, outcome: outcome,
+    )
+
+
 def execute_queue_entry(
     cfg: Any,
     *,
@@ -466,45 +523,16 @@ def execute_queue_entry(
     dependencies: WorkerExecutionDependencies | None = None,
 ) -> Any:
     deps = dependencies or default_worker_execution_dependencies()
-    return _engine_execution.run_engine_worker_entry(
+    return _run_worker_entry_lifecycle(
         cfg,
         entry,
         queue_root=queue_root,
-        build_context=lambda cfg_obj, entry_obj: _build_execution_context(
-            cfg_obj,
-            entry_obj,
-            dependencies=deps,
-        ),
-        mark_running=lambda cfg_obj, context: _mark_job_running(
-            cfg_obj,
-            context,
-            worker_job_pid=worker_job_pid,
-            dependencies=deps,
-        ),
-        check_shutdown=lambda context: _raise_if_shutdown_requested(
-            context,
-            shutdown_requested,
-        ),
-        run_job=lambda cfg_obj, context, active_queue_root: _run_xtb_job_for_entry(
-            cfg_obj,
-            context,
-            active_queue_root,
-            dependencies=deps,
-            should_cancel=should_cancel,
-            shutdown_requested=shutdown_requested,
-            register_running_job=register_running_job,
-        ),
-        finalize_entry=lambda cfg_obj, context, result, active_queue_root: (
-            _finalize_processed_entry(
-                cfg_obj,
-                context,
-                result,
-                active_queue_root,
-                emit_output=emit_output,
-                dependencies=deps,
-            )
-        ),
-        build_outcome=lambda _context, _result, outcome: outcome,
+        dependencies=deps,
+        should_cancel_factory=lambda _active_queue_root, _context: should_cancel,
+        shutdown_requested=shutdown_requested,
+        register_running_job=register_running_job,
+        worker_job_pid=worker_job_pid,
+        emit_output=emit_output,
     )
 
 
@@ -517,47 +545,18 @@ def process_dequeued_entry(
     shutdown_requested: Callable[[], bool] | None = None,
 ) -> WorkerExecutionOutcome:
     deps = dependencies or default_worker_execution_dependencies()
-    return _engine_execution.run_engine_worker_entry(
+    return _run_worker_entry_lifecycle(
         cfg,
         entry,
         queue_root=queue_root,
-        build_context=lambda cfg_obj, entry_obj: _build_execution_context(
-            cfg_obj,
-            entry_obj,
-            dependencies=deps,
-        ),
-        check_shutdown=lambda context: _raise_if_shutdown_requested(
-            context,
-            shutdown_requested,
-        ),
-        mark_running=lambda cfg_obj, context: _mark_job_running(
-            cfg_obj,
-            context,
-            dependencies=deps,
-        ),
-        run_job=lambda cfg_obj, context, active_queue_root: _run_xtb_job_for_entry(
-            cfg_obj,
-            context,
-            active_queue_root,
-            dependencies=deps,
-            should_cancel=lambda: get_cancel_requested(
+        dependencies=deps,
+        should_cancel_factory=lambda active_queue_root, context: (
+            lambda: get_cancel_requested(
                 str(active_queue_root),
                 context.entry.queue_id,
             ),
-            shutdown_requested=shutdown_requested,
-            register_running_job=None,
         ),
-        finalize_entry=lambda cfg_obj, context, result, active_queue_root: (
-            _finalize_processed_entry(
-                cfg_obj,
-                context,
-                result,
-                active_queue_root,
-                emit_output=False,
-                dependencies=deps,
-            )
-        ),
-        build_outcome=lambda _context, _result, outcome: outcome,
+        shutdown_requested=shutdown_requested,
     )
 
 

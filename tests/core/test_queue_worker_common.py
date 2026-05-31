@@ -325,6 +325,76 @@ def test_start_background_job_process_builds_child_command(
     ]
 
 
+def test_hooked_pidfile_child_worker_delegates_engine_hooks(tmp_path: Path) -> None:
+    calls: list[tuple[str, tuple[object, ...]]] = []
+    cfg = _cfg(allowed_root=str(tmp_path), admission_root=str(tmp_path / "admission"))
+    deps = SimpleNamespace(
+        poll_interval_seconds=1,
+        time=SimpleNamespace(sleep=lambda _seconds: None),
+        admission_root=lambda _cfg: str(tmp_path / "admission"),
+        release_slot=lambda _root, _token: None,
+        reserve_dequeued_entry=lambda *args, **kwargs: ("idle", None),
+        dequeue_next_entry=lambda _cfg: None,
+        start_background_job_process=lambda **_kwargs: None,
+        try_reserve_admission_slot=lambda _cfg: None,
+    )
+
+    hooks = worker_common.PidFileChildProcessQueueWorkerHooks(
+        handle_worker_start_error=lambda worker, root, entry, token, exc: calls.append(
+            ("start_error", (worker, root, entry, token, str(exc)))
+        ),
+        on_worker_process_started=lambda worker, root, entry, process, token: (
+            calls.append(("started", (worker, root, entry, process, token))) or True
+        ),
+        finalize_completed_job=lambda worker, queue_id, job, rc: calls.append(
+            ("finalize", (worker, queue_id, job, rc))
+        ),
+        shutdown_running_job=lambda worker, queue_id, job: calls.append(
+            ("shutdown", (worker, queue_id, job))
+        ),
+        reconcile_worker_state=lambda worker: calls.append(("reconcile", (worker,))),
+        before_shutdown_all=lambda worker, running_count: calls.append(
+            ("before_shutdown", (worker, running_count))
+        ),
+    )
+
+    worker = worker_common.HookedPidFileChildProcessQueueWorker(
+        cfg,
+        config_path="/tmp/config.yaml",
+        max_concurrent=1,
+        deps=deps,
+        hooks=hooks,
+        worker_pid_file_name="engine.pid",
+    )
+    entry = _entry("queue-1")
+    root = tmp_path / "queue"
+    process = SimpleNamespace(pid=1234)
+    job = SimpleNamespace()
+
+    worker._handle_worker_start_error(root, entry, "slot-1", OSError("boom"))
+    assert worker._on_worker_process_started(
+        root,
+        entry,
+        process=process,
+        admission_token="slot-1",
+    )
+    worker._finalize_completed_job("queue-1", job, 0)
+    worker._before_shutdown_all(2)
+    worker._shutdown_running_job("queue-1", job)
+    worker._reconcile_worker_state()
+
+    assert worker.worker_pid_file_name == "engine.pid"
+    assert [name for name, _args in calls] == [
+        "start_error",
+        "started",
+        "finalize",
+        "before_shutdown",
+        "shutdown",
+        "reconcile",
+    ]
+    assert all(args[0] is worker for _name, args in calls)
+
+
 def test_fill_worker_slots_starts_until_capacity_and_reports_processed() -> None:
     running: list[str] = []
     reservations = iter(

@@ -22,6 +22,16 @@ class WorkerShutdownRequested(RuntimeError):
         self.context = context
 
 
+def _entry_status_is_running(entry: Any) -> bool:
+    return getattr(entry, "status", None) == QueueStatus.RUNNING
+
+
+_RUN_SPEC = _engine_child.WorkerChildRunSpec(
+    shutdown_exception_type=WorkerShutdownRequested,
+    entry_ready_fn=_entry_status_is_running,
+)
+
+
 def build_worker_child_command(
     *,
     config_path: str,
@@ -69,43 +79,22 @@ def run_worker_child_job(
     requeue_running_entry_fn: Callable[[Path, str], Any],
     mark_recovery_pending_context_fn: Callable[..., Any],
 ) -> int:
-    controller = _child_execution.ChildWorkerShutdownController()
-
-    def prepare_loaded_job(_job: _engine_child.ChildWorkerEntrypointJob) -> bool:
-        install_signal_handlers_fn(controller)
-        return True
-
-    def run_loaded_job(job: _engine_child.ChildWorkerEntrypointJob) -> int:
-        cfg = job.cfg
-        queue_root_path = job.queue_root
-        entry = job.entry
-        try:
-            process_dequeued_entry_fn(
-                cfg,
-                entry,
-                queue_root=queue_root_path,
-                molecule_key_resolver=molecule_key_resolver,
-                dependencies=dependencies_fn(),
-                shutdown_requested=controller.is_requested,
-            )
-            return 0
-        except WorkerShutdownRequested as exc:
-            requeue_running_entry_fn(queue_root_path, queue_id)
-            mark_recovery_pending_context_fn(cfg, exc.context, reason="worker_shutdown")
-            return 0
-
-    return _engine_child.run_loaded_engine_child_job(
+    return _engine_child.run_engine_worker_child_job(
+        spec=_RUN_SPEC,
         config_path=config_path,
         queue_root=queue_root,
         queue_id=queue_id,
         load_config_fn=load_config_fn,
         find_queue_entry_fn=find_queue_entry_fn,
-        entry_ready_fn=lambda entry: getattr(entry, "status", None) == QueueStatus.RUNNING,
         admission_root_fn=admission_root_fn,
         release_slot_fn=release_slot_fn,
         admission_token=admission_token,
-        prepare_job_fn=prepare_loaded_job,
-        run_job_fn=run_loaded_job,
+        install_signal_handlers_fn=install_signal_handlers_fn,
+        process_dequeued_entry_fn=process_dequeued_entry_fn,
+        dependencies_fn=dependencies_fn,
+        requeue_running_entry_fn=requeue_running_entry_fn,
+        mark_recovery_pending_context_fn=mark_recovery_pending_context_fn,
+        process_dequeued_entry_kwargs={"molecule_key_resolver": molecule_key_resolver},
     )
 
 
