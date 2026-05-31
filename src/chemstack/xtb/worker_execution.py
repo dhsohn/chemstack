@@ -10,6 +10,9 @@ from chemstack.core.admission import activate_reserved_slot, release_slot
 from chemstack.core.queue import (
     get_cancel_requested,
     list_queue,
+    mark_cancelled,
+    mark_completed,
+    mark_failed,
     requeue_running_entry,
 )
 from chemstack.core.queue import child_entrypoint as _child_entrypoint
@@ -21,6 +24,7 @@ from chemstack.core.config.engines import load_xtb_config as load_config
 from chemstack.core.notifications.engines import (
     notify_xtb_job_started as notify_job_started,
 )
+from chemstack.core.utils import now_utc_iso
 from chemstack.core.queue.worker import (
     install_shutdown_signal_handlers,
     resolve_admission_root,
@@ -71,6 +75,16 @@ class WorkerAdmissionDependencies:
 
 
 @dataclass(frozen=True)
+class WorkerTimingDependencies(_engine_execution.InternalWorkerTimingDependencies):
+    pass
+
+
+@dataclass(frozen=True)
+class WorkerQueueDependencies(_engine_execution.InternalWorkerQueueDependencies):
+    pass
+
+
+@dataclass(frozen=True)
 class WorkerContextDependencies:
     job_dir: Callable[[Any], Path]
     selected_xyz: Callable[[Any], Path]
@@ -96,20 +110,18 @@ class WorkerTrackingDependencies:
 
 
 @dataclass(frozen=True)
-class WorkerRunnerDependencies:
+class WorkerRunnerDependencies(_engine_execution.InternalWorkerProcessDependencies):
     run_xtb_ranking_job: Callable[..., Any]
     start_xtb_job: Callable[..., Any]
     finalize_xtb_job: Callable[..., Any]
-    terminate_process: Callable[[Any], Any]
-    wait_for_cancellable_process: Callable[..., Any]
-    sleep: Callable[[float], None]
-    cancel_check_interval_seconds: float
 
 
 @dataclass(frozen=True)
 class WorkerExecutionDependencies:
     config: WorkerConfigDependencies
     admission: WorkerAdmissionDependencies
+    timing: WorkerTimingDependencies
+    queue: WorkerQueueDependencies
     context: WorkerContextDependencies
     artifacts: WorkerArtifactDependencies
     tracking: WorkerTrackingDependencies
@@ -121,6 +133,8 @@ def build_worker_execution_dependencies_from_groups(
     *,
     config: WorkerConfigDependencies,
     admission: WorkerAdmissionDependencies,
+    timing: WorkerTimingDependencies,
+    queue: WorkerQueueDependencies,
     context: WorkerContextDependencies,
     artifacts: WorkerArtifactDependencies,
     tracking: WorkerTrackingDependencies,
@@ -130,6 +144,8 @@ def build_worker_execution_dependencies_from_groups(
     return WorkerExecutionDependencies(
         config=config,
         admission=admission,
+        timing=timing,
+        queue=queue,
         context=context,
         artifacts=artifacts,
         tracking=tracking,
@@ -157,6 +173,19 @@ def _default_admission_dependencies() -> WorkerAdmissionDependencies:
     return WorkerAdmissionDependencies(
         activate_reserved_slot=activate_reserved_slot,
         release_slot=release_slot,
+    )
+
+
+def _default_timing_dependencies() -> WorkerTimingDependencies:
+    return WorkerTimingDependencies(now_utc_iso=now_utc_iso)
+
+
+def _default_queue_dependencies() -> WorkerQueueDependencies:
+    return WorkerQueueDependencies(
+        get_cancel_requested=get_cancel_requested,
+        mark_completed=mark_completed,
+        mark_cancelled=mark_cancelled,
+        mark_failed=mark_failed,
     )
 
 
@@ -204,6 +233,8 @@ def build_worker_execution_dependencies(
     *,
     config: WorkerConfigDependencies | None = None,
     admission: WorkerAdmissionDependencies | None = None,
+    timing: WorkerTimingDependencies | None = None,
+    queue: WorkerQueueDependencies | None = None,
     context: WorkerContextDependencies | None = None,
     artifacts: WorkerArtifactDependencies | None = None,
     tracking: WorkerTrackingDependencies | None = None,
@@ -215,6 +246,8 @@ def build_worker_execution_dependencies(
         {
             "config": config,
             "admission": admission,
+            "timing": timing,
+            "queue": queue,
             "context": context,
             "artifacts": artifacts,
             "tracking": tracking,
@@ -223,6 +256,8 @@ def build_worker_execution_dependencies(
         {
             "config": _default_config_dependencies,
             "admission": _default_admission_dependencies,
+            "timing": _default_timing_dependencies,
+            "queue": _default_queue_dependencies,
             "context": _default_context_dependencies,
             "artifacts": _default_artifact_dependencies,
             "tracking": _default_tracking_dependencies,
@@ -406,9 +441,10 @@ def _run_xtb_job_for_entry(
             _raise_if_shutdown_requested(context, shutdown_requested)
             return result
 
-        return _engine_execution.run_internal_cancellable_engine_process(
+        return _engine_execution.run_internal_worker_process_job(
             context,
             options=options,
+            process_deps=runner_deps,
             shutdown_exception_type=WorkerShutdownRequested,
             start_job=lambda: runner_deps.start_xtb_job(
                 cfg,
@@ -416,15 +452,11 @@ def _run_xtb_job_for_entry(
                 selected_input_xyz=context.selected_xyz,
             ),
             finalize_job=runner_deps.finalize_xtb_job,
-            terminate_process=runner_deps.terminate_process,
             build_failure_result=lambda exc: _failed_result_from_exception(
                 context,
                 exc,
                 dependencies=dependencies,
             ),
-            wait_for_cancellable_process=runner_deps.wait_for_cancellable_process,
-            sleep=runner_deps.sleep,
-            poll_interval_seconds=runner_deps.cancel_check_interval_seconds,
             check_cancel_before_poll=True,
         )
     except Exception as exc:
@@ -461,7 +493,7 @@ def build_worker_adapter(
         Callable[[], bool] | None,
     ],
 ) -> _engine_execution.InternalEngineWorkerAdapter:
-    return _engine_execution.InternalEngineWorkerAdapter(
+    return _engine_execution.build_internal_engine_worker_adapter(
         build_context=lambda cfg_obj, entry_obj: _build_execution_context(
             cfg_obj,
             entry_obj,
@@ -473,11 +505,7 @@ def build_worker_adapter(
             worker_job_pid=options.worker_job_pid,
             dependencies=dependencies,
         ),
-        check_shutdown=lambda context, options: _engine_execution.raise_if_shutdown_requested(
-            context,
-            options,
-            shutdown_exception_type=WorkerShutdownRequested,
-        ),
+        shutdown_exception_type=WorkerShutdownRequested,
         run_job=lambda cfg_obj, context, active_queue_root, options: _run_xtb_job_for_entry(
             cfg_obj,
             context,
@@ -572,9 +600,12 @@ def process_dequeued_entry(
         entry,
         queue_root=queue_root,
         dependencies=deps,
-        should_cancel_factory=lambda active_queue_root, context: lambda: get_cancel_requested(
-            str(active_queue_root),
-            context.entry.queue_id,
+        should_cancel_factory=lambda active_queue_root, context: (
+            _engine_execution.queue_cancel_callback(
+                deps.queue,
+                active_queue_root,
+                context.entry,
+            )
         ),
         shutdown_requested=shutdown_requested,
     )
@@ -660,7 +691,9 @@ __all__ = [
     "WorkerExecutionDependencies",
     "WorkerExecutionHooks",
     "WorkerExecutionOutcome",
+    "WorkerQueueDependencies",
     "WorkerRunnerDependencies",
+    "WorkerTimingDependencies",
     "WorkerTrackingDependencies",
     "default_worker_execution_hooks",
     "default_worker_execution_dependencies",

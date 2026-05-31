@@ -148,6 +148,39 @@ def test_run_internal_engine_worker_entry_passes_worker_options(
     ]
 
 
+def test_build_internal_engine_worker_adapter_installs_shutdown_check(tmp_path: Path) -> None:
+    class ShutdownRequested(RuntimeError):
+        def __init__(self, context: Any) -> None:
+            super().__init__("shutdown")
+            self.context = context
+
+    cfg = SimpleNamespace(runtime=SimpleNamespace(allowed_root=str(tmp_path / "allowed")))
+    entry = SimpleNamespace(queue_id="q-1")
+    context = SimpleNamespace(entry=entry)
+    adapter = engine_execution.build_internal_engine_worker_adapter(
+        build_context=lambda _cfg, _entry: context,
+        mark_running=lambda *_args: None,
+        run_job=lambda *_args: "result",
+        finalize_entry=lambda *_args: "finalized",
+        shutdown_exception_type=ShutdownRequested,
+    )
+
+    try:
+        engine_execution.run_internal_engine_worker_entry(
+            cfg,
+            entry,
+            queue_root=tmp_path / "queue",
+            adapter=adapter,
+            options=engine_execution.InternalWorkerOptions(
+                shutdown_requested=lambda: True,
+            ),
+        )
+    except ShutdownRequested as exc:
+        assert exc.context is context
+    else:
+        raise AssertionError("expected shutdown")
+
+
 def test_raise_if_shutdown_requested_uses_engine_context() -> None:
     class ShutdownRequested(RuntimeError):
         def __init__(self, context: Any) -> None:
@@ -166,6 +199,30 @@ def test_raise_if_shutdown_requested_uses_engine_context() -> None:
         assert exc.context is context
     else:
         raise AssertionError("expected shutdown")
+
+
+def test_queue_cancel_callback_uses_normalized_queue_root_and_entry_id() -> None:
+    calls: list[tuple[str, str]] = []
+
+    def get_cancel_requested(root: str, queue_id: str) -> bool:
+        calls.append((root, queue_id))
+        return True
+
+    queue_deps = engine_execution.InternalWorkerQueueDependencies(
+        get_cancel_requested=get_cancel_requested,
+        mark_completed=lambda *args, **kwargs: None,
+        mark_cancelled=lambda *args, **kwargs: None,
+        mark_failed=lambda *args, **kwargs: None,
+    )
+
+    callback = engine_execution.queue_cancel_callback(
+        queue_deps,
+        Path("/tmp/queue"),
+        SimpleNamespace(queue_id="queue-1"),
+    )
+
+    assert callback() is True
+    assert calls == [("/tmp/queue", "queue-1")]
 
 
 def test_sync_terminal_result_runs_common_terminal_sequence() -> None:
@@ -271,6 +328,43 @@ def test_run_cancellable_process_execution_builds_failure_result() -> None:
     )
 
     assert outcome == "failed:boom"
+
+
+def test_run_internal_worker_process_job_uses_process_dependency_group() -> None:
+    running = SimpleNamespace(process=SimpleNamespace(pid=123))
+    registered: list[Any | None] = []
+    wait_kwargs: list[dict[str, Any]] = []
+
+    def wait_for_cancellable_process(actual_running: Any, **kwargs: Any) -> str:
+        assert actual_running is running
+        wait_kwargs.append(kwargs)
+        return "done"
+
+    process_deps = engine_execution.InternalWorkerProcessDependencies(
+        terminate_process=lambda _proc: None,
+        wait_for_cancellable_process=wait_for_cancellable_process,
+        sleep=lambda _seconds: None,
+        cancel_check_interval_seconds=0.75,
+    )
+
+    result = engine_execution.run_internal_worker_process_job(
+        SimpleNamespace(job_dir="/tmp/job"),
+        options=engine_execution.InternalWorkerOptions(
+            should_cancel=lambda: False,
+            register_running_job=registered.append,
+        ),
+        process_deps=process_deps,
+        shutdown_exception_type=RuntimeError,
+        start_job=lambda: running,
+        finalize_job=lambda *_args, **_kwargs: "finalized",
+        build_failure_result=lambda exc: f"failed:{exc}",
+        check_cancel_before_poll=True,
+    )
+
+    assert result == "done"
+    assert registered == [running, None]
+    assert wait_kwargs[0]["poll_interval_seconds"] == 0.75
+    assert wait_kwargs[0]["check_cancel_before_poll"] is True
 
 
 def test_run_cancellable_process_execution_can_reraise_policy_exceptions() -> None:

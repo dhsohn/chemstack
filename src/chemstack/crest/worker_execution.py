@@ -66,26 +66,19 @@ WorkerShutdownRequested = _worker_child.WorkerShutdownRequested
 
 
 @dataclass(frozen=True)
-class WorkerTimingDependencies:
-    now_utc_iso: Callable[[], str]
+class WorkerTimingDependencies(_engine_execution.InternalWorkerTimingDependencies):
+    pass
 
 
 @dataclass(frozen=True)
-class WorkerQueueDependencies:
-    get_cancel_requested: Callable[[str, str], bool]
-    mark_completed: Callable[..., Any]
-    mark_cancelled: Callable[..., Any]
-    mark_failed: Callable[..., Any]
+class WorkerQueueDependencies(_engine_execution.InternalWorkerQueueDependencies):
+    pass
 
 
 @dataclass(frozen=True)
-class WorkerRunnerDependencies:
+class WorkerRunnerDependencies(_engine_execution.InternalWorkerProcessDependencies):
     start_crest_job: Callable[..., Any]
     finalize_crest_job: Callable[..., CrestRunResult]
-    terminate_process: Callable[[subprocess.Popen[str]], None]
-    wait_for_cancellable_process: Callable[..., Any]
-    sleep: Callable[[float], None]
-    cancel_check_interval_seconds: float
 
 
 @dataclass(frozen=True)
@@ -362,15 +355,17 @@ def _run_crest_job_for_entry(
     queue_deps = dependencies.queue
     runner_deps = dependencies.runner
 
-    return _engine_execution.run_internal_cancellable_engine_process(
+    return _engine_execution.run_internal_worker_process_job(
         context,
         options=_engine_execution.InternalWorkerOptions(
-            should_cancel=lambda: queue_deps.get_cancel_requested(
-                str(queue_root),
-                context.entry.queue_id,
+            should_cancel=_engine_execution.queue_cancel_callback(
+                queue_deps,
+                queue_root,
+                context.entry,
             ),
             shutdown_requested=shutdown_requested,
         ),
+        process_deps=runner_deps,
         shutdown_exception_type=WorkerShutdownRequested,
         start_job=lambda: runner_deps.start_crest_job(
             cfg,
@@ -378,15 +373,11 @@ def _run_crest_job_for_entry(
             selected_xyz=context.selected_xyz,
         ),
         finalize_job=runner_deps.finalize_crest_job,
-        terminate_process=runner_deps.terminate_process,
         build_failure_result=lambda exc: _failed_result_from_exception(
             context,
             exc=exc,
             failure_time=dependencies.timing.now_utc_iso(),
         ),
-        wait_for_cancellable_process=runner_deps.wait_for_cancellable_process,
-        sleep=runner_deps.sleep,
-        poll_interval_seconds=runner_deps.cancel_check_interval_seconds,
     )
 
 
@@ -412,17 +403,13 @@ def build_worker_adapter(
     molecule_key_resolver: Callable[[Any, Path, Path], str],
     dependencies: WorkerExecutionDependencies,
 ) -> _engine_execution.InternalEngineWorkerAdapter:
-    return _engine_execution.InternalEngineWorkerAdapter(
+    return _engine_execution.build_internal_engine_worker_adapter(
         build_context=lambda cfg_obj, entry_obj: _build_execution_context(
             cfg_obj,
             entry_obj,
             molecule_key_resolver=molecule_key_resolver,
         ),
-        check_shutdown=lambda context, options: _engine_execution.raise_if_shutdown_requested(
-            context,
-            options,
-            shutdown_exception_type=WorkerShutdownRequested,
-        ),
+        shutdown_exception_type=WorkerShutdownRequested,
         mark_running=lambda cfg_obj, context, _options: _mark_job_running(
             cfg_obj,
             context,
