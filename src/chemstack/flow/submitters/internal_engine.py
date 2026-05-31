@@ -113,6 +113,24 @@ def submitter_deps_from_namespace(namespace: Mapping[str, Any]) -> InternalEngin
     )
 
 
+def build_internal_engine_submitter(
+    *,
+    namespace: Mapping[str, Any],
+    run_dir_api_name: str,
+    cancel_api_name: str,
+    extra_fields_fn: Callable[[Any | None, Any | None], dict[str, Any]] | None = None,
+) -> tuple[Callable[..., dict[str, Any]], Callable[..., dict[str, Any]]]:
+    submitter = InternalEngineSubmitter(
+        spec=InternalEngineSubmitterSpec(
+            run_dir_api_name=run_dir_api_name,
+            cancel_api_name=cancel_api_name,
+            extra_fields_fn=extra_fields_fn,
+        ),
+        deps_factory=lambda: submitter_deps_from_namespace(namespace),
+    )
+    return submitter.submit_job_dir, submitter.cancel_target
+
+
 def internal_call_argv(
     *,
     api_name: str,
