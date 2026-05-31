@@ -47,6 +47,20 @@ class _UnusedRunner:
         raise AssertionError("runner.run() should not be called for terminal resumed attempts")
 
 
+class _CaptureSuccessRunner:
+    def __init__(self) -> None:
+        self.seen: list[Path] = []
+
+    def run(self, inp_path: Path):
+        self.seen.append(inp_path)
+        out_path = inp_path.with_suffix(".out")
+        out_path.write_text(
+            "****ORCA TERMINATED NORMALLY****\nTOTAL RUN TIME: 0 days 0 hours 0 minutes 1 seconds 0 msec\n",
+            encoding="utf-8",
+        )
+        return SimpleNamespace(out_path=str(out_path), return_code=0)
+
+
 def _retry_inp_path(selected_inp: Path, retry_number: int) -> Path:
     return selected_inp.parent / f"{selected_inp.stem}.retry{retry_number:02d}.inp"
 
@@ -233,6 +247,43 @@ class TestAttemptEngine(unittest.TestCase):
         self.assertEqual(finished_notifications[0]["status"], "completed")
         self.assertTrue(finished_notifications[0]["resumed"])
         self.assertEqual(finished_notifications[0]["last_out_path"], str(out_path))
+
+    def test_resumed_run_uses_gbw_checkpoint_restart_input(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            reaction_dir = Path(td)
+            selected_inp = reaction_dir / "rxn.inp"
+            selected_inp.write_text("! Opt\n* xyz 0 1\nH 0 0 0\nH 0 0 0.74\n*\n", encoding="utf-8")
+            selected_inp.with_suffix(".gbw").write_bytes(b"checkpoint")
+            selected_inp.with_suffix(".xyz").write_text(
+                "2\nresume geometry\nH 0 0 0\nH 0 0 0.75\n",
+                encoding="utf-8",
+            )
+            state = new_state(reaction_dir, selected_inp, max_retries=2)
+            runner = _CaptureSuccessRunner()
+
+            rc = run_attempts(
+                reaction_dir,
+                selected_inp,
+                state,
+                resumed=True,
+                runner=runner,
+                max_retries=2,
+                retry_inp_path=_retry_inp_path,
+                to_resolved_local=lambda raw: Path(raw),
+                emit=lambda _payload: None,
+            )
+
+            saved = json.loads(state_path(reaction_dir).read_text(encoding="utf-8"))
+            resume_inp = reaction_dir / "rxn.resume.inp"
+            resume_text = resume_inp.read_text(encoding="utf-8")
+
+        self.assertEqual(rc, 0)
+        self.assertEqual(runner.seen, [resume_inp])
+        self.assertIn('%moinp "rxn.gbw"', resume_text)
+        self.assertIn("MORead", resume_text)
+        self.assertEqual(saved["attempts"][0]["inp_path"], str(resume_inp))
+        self.assertIn("resume_checkpoint_restart_from_rxn.gbw", saved["attempts"][0]["patch_actions"])
+        self.assertIn("resume_geometry_restart_from_rxn.xyz", saved["attempts"][0]["patch_actions"])
 
 
 class TestRetryRecipeStep(unittest.TestCase):

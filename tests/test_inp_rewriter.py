@@ -3,7 +3,12 @@ import time
 import unittest
 from pathlib import Path
 
-from chemstack.orca.inp_rewriter import ensure_submission_resource_request, read_resource_request_from_input, rewrite_for_retry
+from chemstack.orca.inp_rewriter import (
+    ensure_submission_resource_request,
+    prepare_checkpoint_restart_input,
+    read_resource_request_from_input,
+    rewrite_for_retry,
+)
 
 
 BASE_INP = """! OptTS Freq IRC
@@ -88,6 +93,43 @@ class TestInpRewriter(unittest.TestCase):
         self.assertIn("%scf", out)
         self.assertIn("MaxIter 300", out)
         self.assertIn("geometry_restart_from_rxn.xyz", actions)
+        self.assertIn("* xyzfile 0 1 rxn.xyz", out)
+
+    def test_retry_uses_matching_gbw_checkpoint_when_available(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            src = root / "rxn.inp"
+            dst = root / "rxn.retry01.inp"
+            src.write_text(BASE_INP, encoding="utf-8")
+            (root / "rxn.gbw").write_bytes(b"checkpoint")
+            actions = rewrite_for_retry(src, dst, root, step=1)
+            out = dst.read_text(encoding="utf-8")
+
+        self.assertIn("checkpoint_restart_from_rxn.gbw", actions)
+        self.assertIn("route_add_moread", actions)
+        self.assertIn("moinp_set", actions)
+        self.assertIn("MORead", out)
+        self.assertIn('%moinp "rxn.gbw"', out)
+
+    def test_prepare_checkpoint_restart_input_keeps_original_input_untouched(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            src = root / "rxn.inp"
+            dst = root / "rxn.resume.inp"
+            src.write_text(BASE_INP, encoding="utf-8")
+            original = src.read_text(encoding="utf-8")
+            (root / "rxn.gbw").write_bytes(b"checkpoint")
+            (root / "rxn.xyz").write_text("2\n\nH 0 0 0\nH 0 0 0.75\n", encoding="utf-8")
+
+            prepared, actions = prepare_checkpoint_restart_input(src, dst, root)
+            out = dst.read_text(encoding="utf-8")
+            unchanged = src.read_text(encoding="utf-8")
+
+        self.assertEqual(prepared, dst)
+        self.assertEqual(unchanged, original)
+        self.assertIn("checkpoint_restart_from_rxn.gbw", actions)
+        self.assertIn("geometry_restart_from_rxn.xyz", actions)
+        self.assertIn('%moinp "rxn.gbw"', out)
         self.assertIn("* xyzfile 0 1 rxn.xyz", out)
 
     def test_step3_reserved_still_replaces_geometry_with_previous_attempt_xyz(self) -> None:

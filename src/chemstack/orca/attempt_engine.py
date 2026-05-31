@@ -13,7 +13,7 @@ from .attempt_reporting import (
 )
 from .attempt_resume import resolve_execution_input, resume_terminal_decision
 from .completion_rules import detect_completion_mode
-from .inp_rewriter import rewrite_for_retry
+from .inp_rewriter import prepare_checkpoint_restart_input, rewrite_for_retry
 from .orca_runner import WorkerShutdownInterrupt
 from .out_analyzer import OutAnalysis, analyze_output
 from .state_machine import MAX_RETRY_RECIPES, decide_attempt_outcome
@@ -88,6 +88,13 @@ class AttemptLoopState:
         self.execution_index += 1
 
 
+@dataclass(frozen=True)
+class ResolvedAttemptInput:
+    inp_path: Path | None
+    missing_reason: str | None
+    patch_actions: list[str]
+
+
 def _retry_recipe_step(retry_number: int) -> int:
     """Map retry number to available recipe steps.
 
@@ -146,6 +153,7 @@ def _run_and_record_attempt(
     execution_index: int,
     started_at: str,
     runner: RunnerLike,
+    patch_actions: list[str] | None = None,
 ) -> tuple[Path, OutAnalysis]:
     logger.info("Attempt %d starting: %s", execution_index, current_inp)
     run_result = runner.run(current_inp)
@@ -161,7 +169,7 @@ def _run_and_record_attempt(
         "analyzer_status": analysis.status,
         "analyzer_reason": analysis.reason,
         "markers": dict(analysis.markers),
-        "patch_actions": [],
+        "patch_actions": list(patch_actions or []),
         "started_at": started_at,
         "ended_at": now_utc_iso(),
     }
@@ -220,8 +228,8 @@ def _resume_attempts_if_terminal(ctx: AttemptRunContext) -> int | None:
 def _resolve_current_attempt_input(
     ctx: AttemptRunContext,
     loop: AttemptLoopState,
-) -> tuple[Path | None, str | None]:
-    return resolve_execution_input(
+) -> ResolvedAttemptInput:
+    current_inp, missing_reason = resolve_execution_input(
         reaction_dir=ctx.reaction_dir,
         selected_inp=ctx.selected_inp,
         state=ctx.state,
@@ -232,6 +240,34 @@ def _resolve_current_attempt_input(
         to_resolved_local=ctx.to_resolved_local,
         save_state=save_state,
     )
+    if current_inp is None:
+        return ResolvedAttemptInput(None, missing_reason, [])
+
+    resume_inp, patch_actions = _prepare_resumed_checkpoint_input(ctx, current_inp)
+    if resume_inp is not None:
+        return ResolvedAttemptInput(resume_inp, None, patch_actions)
+    return ResolvedAttemptInput(current_inp, None, [])
+
+
+def _resume_checkpoint_inp_path(current_inp: Path) -> Path:
+    return current_inp.with_name(f"{current_inp.stem}.resume.inp")
+
+
+def _prepare_resumed_checkpoint_input(
+    ctx: AttemptRunContext,
+    current_inp: Path,
+) -> tuple[Path | None, list[str]]:
+    if not ctx.resumed:
+        return None, []
+    target_inp = _resume_checkpoint_inp_path(current_inp)
+    prepared, actions = prepare_checkpoint_restart_input(
+        current_inp,
+        target_inp,
+        ctx.reaction_dir,
+    )
+    if prepared is None:
+        return None, []
+    return prepared, [f"resume_{action}" for action in actions]
 
 
 def _finish_missing_attempt_input(
@@ -323,9 +359,14 @@ def _run_attempt_cycle(ctx: AttemptRunContext, loop: AttemptLoopState) -> int | 
             exit_code=1,
         )
 
-    current_inp, missing_reason = _resolve_current_attempt_input(ctx, loop)
+    resolved_input = _resolve_current_attempt_input(ctx, loop)
+    current_inp = resolved_input.inp_path
     if current_inp is None:
-        return _finish_missing_attempt_input(ctx, loop, missing_reason=missing_reason)
+        return _finish_missing_attempt_input(
+            ctx,
+            loop,
+            missing_reason=resolved_input.missing_reason,
+        )
 
     started_at = _mark_and_notify_attempt_started(ctx, loop, current_inp)
     try:
@@ -336,6 +377,7 @@ def _run_attempt_cycle(ctx: AttemptRunContext, loop: AttemptLoopState) -> int | 
             execution_index=loop.execution_index,
             started_at=started_at,
             runner=ctx.runner,
+            patch_actions=resolved_input.patch_actions,
         )
     except (WorkerShutdownInterrupt, KeyboardInterrupt, Exception) as exc:
         return _finish_attempt_exception(ctx, loop, current_inp, exc)

@@ -8,6 +8,7 @@ from typing import List, Optional, Tuple
 
 GEOM_HEADER_RE = re.compile(r"^\s*\*\s+(xyzfile|xyz)\s+(-?\d+)\s+(\d+)(?:\s+(.*))?$", re.IGNORECASE)
 BLOCK_START_RE = re.compile(r"^\s*%([A-Za-z0-9_\-]+)")
+MOINP_RE = re.compile(r"^\s*%moinp\b", re.IGNORECASE)
 
 
 def rewrite_for_retry(
@@ -17,10 +18,27 @@ def rewrite_for_retry(
     actions: List[str] = []
 
     actions.extend(_apply_retry_recipe(lines, step))
+    _apply_checkpoint_restart(lines, actions, source_inp, target_inp)
     _apply_geometry_restart(lines, actions, source_inp, target_inp, reaction_dir)
 
     target_inp.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
     return actions
+
+
+def prepare_checkpoint_restart_input(
+    source_inp: Path,
+    target_inp: Path,
+    reaction_dir: Path,
+) -> tuple[Path | None, List[str]]:
+    """Create a restart input that reads orbitals from a matching ORCA .gbw file."""
+    lines = source_inp.read_text(encoding="utf-8", errors="ignore").splitlines()
+    actions: List[str] = []
+    if not _apply_checkpoint_restart(lines, actions, source_inp, target_inp):
+        return None, []
+
+    _apply_geometry_restart(lines, actions, source_inp, target_inp, reaction_dir)
+    target_inp.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+    return target_inp, actions
 
 
 def _apply_retry_recipe(lines: List[str], step: int) -> List[str]:
@@ -28,6 +46,37 @@ def _apply_retry_recipe(lines: List[str], step: int) -> List[str]:
     if recipe is None:
         return ["no_recipe_applied"]
     return recipe(lines)
+
+
+def _apply_checkpoint_restart(
+    lines: List[str],
+    actions: List[str],
+    source_inp: Path,
+    target_inp: Path,
+) -> bool:
+    checkpoint = _matching_checkpoint_gbw(source_inp)
+    if checkpoint is None:
+        return False
+    if checkpoint.resolve() == target_inp.with_suffix(".gbw").resolve():
+        actions.append(f"checkpoint_restart_skipped_same_basename:{checkpoint.name}")
+        return False
+
+    actions.append(f"checkpoint_restart_from_{checkpoint.name}")
+    if _ensure_route_keywords(lines, ["MORead"]):
+        actions.append("route_add_moread")
+    if _set_moinp(lines, checkpoint, target_inp.parent):
+        actions.append("moinp_set")
+    return True
+
+
+def _matching_checkpoint_gbw(source_inp: Path) -> Path | None:
+    candidate = source_inp.with_suffix(".gbw")
+    try:
+        if candidate.exists() and candidate.stat().st_size > 0:
+            return candidate
+    except OSError:
+        return None
+    return None
 
 
 def _retry_step_1(lines: List[str]) -> List[str]:
@@ -180,6 +229,39 @@ def _set_block_key_value(lines: List[str], block_name: str, key: str, value: str
         lines.insert(end, f"  {key} {value}")
         changed = True
     return changed
+
+
+def _format_relative_or_absolute(path: Path, base_dir: Path) -> str:
+    resolved = path.resolve()
+    base_resolved = base_dir.resolve()
+    try:
+        ref = resolved.relative_to(base_resolved)
+    except ValueError:
+        ref = resolved
+    return str(ref).replace("\\", "/")
+
+
+def _quote_orca_path(path_text: str) -> str:
+    escaped = path_text.replace('"', '\\"')
+    return f'"{escaped}"'
+
+
+def _set_moinp(lines: List[str], checkpoint: Path, base_dir: Path) -> bool:
+    ref = _quote_orca_path(_format_relative_or_absolute(checkpoint, base_dir))
+    new_line = f"%moinp {ref}"
+    for idx, line in enumerate(lines):
+        if not MOINP_RE.match(line):
+            continue
+        if lines[idx].strip() == new_line:
+            return False
+        lines[idx] = new_line
+        return True
+
+    insert_at = _find_geometry_start(lines)
+    if insert_at is None:
+        insert_at = len(lines)
+    lines.insert(insert_at, new_line)
+    return True
 
 
 _MAXCORE_RE = re.compile(r"^\s*%maxcore\s+(\d+)", re.IGNORECASE)

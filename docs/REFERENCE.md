@@ -15,6 +15,7 @@ Current developer-facing package rule:
 - Submit work durably through the queue
 - Let a supervised worker execute queued jobs
 - Retry conservatively on recognized failures without overwriting the original input
+- Use matching non-empty ORCA `.gbw` files for retry/resume restart inputs when available
 - Record execution status and results alongside the calculation
 
 ## 2) Runtime Model
@@ -213,6 +214,9 @@ ORCA-specific notes:
 - Chooses the latest `*.inp` when execution actually starts
 - `--force` re-runs even if completed output already exists
 - `--max-cores` and `--max-memory-gb` override recorded resource limits for that queued run
+- Retry inputs and resumed worker-shutdown inputs add `MORead` plus `%moinp`
+  when the source input has a matching non-empty `.gbw` checkpoint. Resumed
+  inputs are written as `*.resume.inp` so the original user input is not mutated.
 
 Workflow notes:
 
