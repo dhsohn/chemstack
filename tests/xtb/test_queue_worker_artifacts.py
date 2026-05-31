@@ -215,7 +215,7 @@ def test_try_reserve_admission_slot_uses_resolved_values(
     ]
 
 
-def test_run_worker_job_activates_reserved_slot_and_releases_it(
+def test_run_worker_job_processes_loaded_entry_and_releases_slot(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -226,37 +226,26 @@ def test_run_worker_job_activates_reserved_slot_and_releases_it(
     selected_xyz = job_dir / "input.xyz"
     selected_xyz.write_text("3\ncandidate\nH 0 0 0\n", encoding="utf-8")
     entry = _make_entry(job_dir, selected_xyz)
-    activated: list[tuple[str, str, str, str, str]] = []
     released: list[tuple[str, str]] = []
+    processed: list[dict[str, Any]] = []
 
     monkeypatch.setattr(worker_exec, "load_config", lambda _path=None: cfg)
     monkeypatch.setattr(worker_exec, "list_queue", lambda _root: [entry])
-
-    def fake_activate_reserved_slot(
-        root: str,
-        token: str,
-        *,
-        work_dir: object,
-        queue_id: str,
-        source: str,
-    ) -> object:
-        activated.append((root, token, str(work_dir), queue_id, source))
-        return object()
-
-    monkeypatch.setattr(
-        worker_exec,
-        "activate_reserved_slot",
-        fake_activate_reserved_slot,
-    )
     monkeypatch.setattr(
         worker_exec, "release_slot", lambda root, token: released.append((root, token))
     )
+    monkeypatch.setattr(worker_exec, "_install_shutdown_signal_handlers", lambda _controller: None)
+
+    def fake_process_dequeued_entry(*args: object, **kwargs: object) -> WorkerExecutionOutcome:
+        processed.append({"args": args, "kwargs": kwargs})
+        return WorkerExecutionOutcome(
+            result=_make_result(selected_xyz, status="completed", reason="completed")
+        )
+
     monkeypatch.setattr(
         worker_exec,
-        "execute_queue_entry",
-        lambda *args, **kwargs: WorkerExecutionOutcome(
-            result=_make_result(selected_xyz, status="completed", reason="completed")
-        ),
+        "process_dequeued_entry",
+        fake_process_dequeued_entry,
     )
 
     exit_code = worker_exec.run_worker_job(
@@ -265,20 +254,11 @@ def test_run_worker_job_activates_reserved_slot_and_releases_it(
         queue_id=entry.queue_id,
         admission_root=cfg.runtime.admission_root,
         admission_token="slot-1",
-        should_cancel=lambda: False,
-        register_running_job=lambda _value: None,
     )
 
     assert exit_code == 0
-    assert activated == [
-        (
-            cfg.runtime.admission_root,
-            "slot-1",
-            str(job_dir.resolve()),
-            "queue-1",
-            worker_exec.WORKER_JOB_MODULE,
-        )
-    ]
+    assert processed[0]["args"] == (cfg, entry)
+    assert processed[0]["kwargs"]["queue_root"] == queue_root.resolve()
     assert released == [(cfg.runtime.admission_root, "slot-1")]
 
 

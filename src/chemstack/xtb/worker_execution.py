@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import os
-import signal
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -10,9 +8,12 @@ from typing import Any, Callable
 
 from chemstack.core.admission import activate_reserved_slot, release_slot
 from chemstack.core.queue import (
+    get_cancel_requested,
     list_queue,
+    requeue_running_entry,
 )
 from chemstack.core.queue import child_entrypoint as _child_entrypoint
+from chemstack.core.queue import child_execution as _child_execution
 from chemstack.core.queue.dependencies import build_dependency_container
 from chemstack.core.queue import engine_execution as _engine_execution
 from chemstack.core.queue import execution as _queue_execution
@@ -20,7 +21,11 @@ from chemstack.core.config.engines import load_xtb_config as load_config
 from chemstack.core.notifications.engines import (
     notify_xtb_job_started as notify_job_started,
 )
-from chemstack.core.queue.worker import terminate_process_group
+from chemstack.core.queue.worker import (
+    install_shutdown_signal_handlers,
+    resolve_admission_root,
+    terminate_process_group,
+)
 
 from . import queue_artifacts as _queue_artifacts
 from . import worker_child as _worker_child
@@ -50,8 +55,7 @@ from .worker_terminal import (
 )
 
 WORKER_JOB_MODULE = _worker_child.WORKER_JOB_MODULE
-WORKER_CANCEL_SIGNAL = _worker_child.WORKER_CANCEL_SIGNAL
-WORKER_SHUTDOWN_EXIT_CODE = _worker_child.WORKER_SHUTDOWN_EXIT_CODE
+WorkerShutdownRequested = _worker_child.WorkerShutdownRequested
 
 
 @dataclass(frozen=True)
@@ -249,7 +253,7 @@ def _mark_job_running(
     cfg: Any,
     context: _XtbExecutionContext,
     *,
-    worker_job_pid: int | None,
+    worker_job_pid: int | None = None,
     dependencies: WorkerExecutionDependencies,
 ) -> None:
     artifact_deps = dependencies.artifacts
@@ -277,6 +281,14 @@ def _mark_job_running(
             "resumed": context.resumed,
         },
     )
+
+
+def _raise_if_shutdown_requested(
+    context: _XtbExecutionContext,
+    shutdown_requested: Callable[[], bool] | None,
+) -> None:
+    if shutdown_requested is not None and shutdown_requested():
+        raise WorkerShutdownRequested(context)
 
 
 def _mark_recovery_pending_context(
@@ -357,24 +369,37 @@ def _failed_result_from_exception(
 def _run_xtb_job_for_entry(
     cfg: Any,
     context: _XtbExecutionContext,
-    _queue_root: Path,
+    queue_root: Path,
     *,
     dependencies: WorkerExecutionDependencies,
     should_cancel: Callable[[], bool] | None,
+    shutdown_requested: Callable[[], bool] | None = None,
     register_running_job: Callable[[Any | None], None] | None,
 ) -> Any:
     runner_deps = dependencies.runner
+
+    def should_stop_ranking() -> bool:
+        return (should_cancel is not None and should_cancel()) or (
+            shutdown_requested is not None and shutdown_requested()
+        )
+
+    def raise_shutdown(_running: Any) -> None:
+        raise WorkerShutdownRequested(context)
+
     try:
         if should_cancel is not None and should_cancel():
             return _cancelled_before_start_result(context, dependencies=dependencies)
+        _raise_if_shutdown_requested(context, shutdown_requested)
         if context.job_type == "ranking":
-            return runner_deps.run_xtb_ranking_job(
+            result = runner_deps.run_xtb_ranking_job(
                 cfg,
                 job_dir=context.job_dir,
-                should_cancel=should_cancel,
+                should_cancel=should_stop_ranking,
                 on_running_job=register_running_job,
                 terminate_process=runner_deps.terminate_process,
             )
+            _raise_if_shutdown_requested(context, shutdown_requested)
+            return result
 
         return _engine_execution.run_cancellable_engine_process(
             start_job=lambda: runner_deps.start_xtb_job(
@@ -391,12 +416,20 @@ def _run_xtb_job_for_entry(
             ),
             wait_for_cancellable_process=runner_deps.wait_for_cancellable_process,
             should_cancel=should_cancel,
+            shutdown_requested=shutdown_requested,
+            on_shutdown=raise_shutdown,
             sleep=runner_deps.sleep,
             poll_interval_seconds=runner_deps.cancel_check_interval_seconds,
             check_cancel_before_poll=True,
             register_running_job=register_running_job,
+            should_reraise_exception=lambda exc: isinstance(
+                exc,
+                WorkerShutdownRequested,
+            ),
         )
     except Exception as exc:
+        if isinstance(exc, WorkerShutdownRequested):
+            raise
         return _failed_result_from_exception(context, exc, dependencies=dependencies)
 
 
@@ -426,6 +459,7 @@ def execute_queue_entry(
     queue_root: Path,
     entry: Any,
     should_cancel: Callable[[], bool] | None = None,
+    shutdown_requested: Callable[[], bool] | None = None,
     register_running_job: Callable[[Any | None], None] | None = None,
     worker_job_pid: int | None = None,
     emit_output: bool = False,
@@ -447,12 +481,17 @@ def execute_queue_entry(
             worker_job_pid=worker_job_pid,
             dependencies=deps,
         ),
+        check_shutdown=lambda context: _raise_if_shutdown_requested(
+            context,
+            shutdown_requested,
+        ),
         run_job=lambda cfg_obj, context, active_queue_root: _run_xtb_job_for_entry(
             cfg_obj,
             context,
             active_queue_root,
             dependencies=deps,
             should_cancel=should_cancel,
+            shutdown_requested=shutdown_requested,
             register_running_job=register_running_job,
         ),
         finalize_entry=lambda cfg_obj, context, result, active_queue_root: (
@@ -469,30 +508,82 @@ def execute_queue_entry(
     )
 
 
+def process_dequeued_entry(
+    cfg: Any,
+    entry: Any,
+    *,
+    queue_root: Path | None = None,
+    dependencies: WorkerExecutionDependencies | None = None,
+    shutdown_requested: Callable[[], bool] | None = None,
+) -> WorkerExecutionOutcome:
+    deps = dependencies or default_worker_execution_dependencies()
+    return _engine_execution.run_engine_worker_entry(
+        cfg,
+        entry,
+        queue_root=queue_root,
+        build_context=lambda cfg_obj, entry_obj: _build_execution_context(
+            cfg_obj,
+            entry_obj,
+            dependencies=deps,
+        ),
+        check_shutdown=lambda context: _raise_if_shutdown_requested(
+            context,
+            shutdown_requested,
+        ),
+        mark_running=lambda cfg_obj, context: _mark_job_running(
+            cfg_obj,
+            context,
+            dependencies=deps,
+        ),
+        run_job=lambda cfg_obj, context, active_queue_root: _run_xtb_job_for_entry(
+            cfg_obj,
+            context,
+            active_queue_root,
+            dependencies=deps,
+            should_cancel=lambda: get_cancel_requested(
+                str(active_queue_root),
+                context.entry.queue_id,
+            ),
+            shutdown_requested=shutdown_requested,
+            register_running_job=None,
+        ),
+        finalize_entry=lambda cfg_obj, context, result, active_queue_root: (
+            _finalize_processed_entry(
+                cfg_obj,
+                context,
+                result,
+                active_queue_root,
+                emit_output=False,
+                dependencies=deps,
+            )
+        ),
+        build_outcome=lambda _context, _result, outcome: outcome,
+    )
+
+
 def run_worker_job(
     *,
     config_path: str,
     queue_root: str | Path,
     queue_id: str,
-    admission_root: str,
-    admission_token: str | None,
-    should_cancel: Callable[[], bool] | None = None,
-    register_running_job: Callable[[Any | None], None] | None = None,
-    dependencies: WorkerExecutionDependencies | None = None,
+    admission_token: str | None = None,
+    admission_root: str | Path | None = None,
 ) -> int:
-    deps = dependencies or default_worker_execution_dependencies()
-    return _worker_child.run_worker_job(
+    del admission_root
+    return _worker_child.run_worker_child_job(
         config_path=config_path,
         queue_root=queue_root,
         queue_id=queue_id,
-        admission_root=admission_root,
         admission_token=admission_token,
-        dependencies=deps,
-        execute_queue_entry_fn=execute_queue_entry,
-        should_cancel=should_cancel,
-        register_running_job=register_running_job,
-        getpid_fn=os.getpid,
-        worker_job_module=WORKER_JOB_MODULE,
+        load_config_fn=load_config,
+        find_queue_entry_fn=_queue_entry_by_id,
+        admission_root_fn=resolve_admission_root,
+        release_slot_fn=release_slot,
+        install_signal_handlers_fn=_install_shutdown_signal_handlers,
+        process_dequeued_entry_fn=process_dequeued_entry,
+        dependencies_fn=default_worker_execution_dependencies,
+        requeue_running_entry_fn=requeue_running_entry,
+        mark_recovery_pending_context_fn=_mark_recovery_pending_context,
     )
 
 
@@ -501,45 +592,39 @@ def build_worker_child_command(
     config_path: str,
     queue_root: str | Path,
     queue_id: str,
-    admission_root: str | Path,
+    admission_root: str | Path | None = None,
     admission_token: str | None = None,
 ) -> list[str]:
+    del admission_root
     return _worker_child.build_worker_child_command(
         config_path=config_path,
         queue_root=queue_root,
         queue_id=queue_id,
-        admission_root=admission_root,
         admission_token=admission_token,
     )
 
 
 def build_worker_job_parser() -> argparse.ArgumentParser:
-    return _worker_child.build_worker_job_parser()
+    return _worker_child.build_parser()
 
 
-class _SignalController(_worker_child.SignalController):
-    def __init__(self) -> None:
-        super().__init__(
-            cancel_signal=WORKER_CANCEL_SIGNAL,
-            shutdown_exit_code=WORKER_SHUTDOWN_EXIT_CODE,
-            terminate_process_fn=lambda proc: terminate_process_group(proc),
-            signal_module=signal,
-            os_exit_fn=lambda code: os._exit(code),
-        )
+def _install_shutdown_signal_handlers(
+    controller: _child_execution.ChildWorkerShutdownController,
+) -> None:
+    _worker_child.install_shutdown_signal_handlers(
+        controller,
+        install_signal_handlers_fn=install_shutdown_signal_handlers,
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_worker_job_parser().parse_args(argv)
-    controller = _SignalController()
-    controller.install()
     return run_worker_job(
         config_path=args.config,
         queue_root=args.queue_root,
         queue_id=args.queue_id,
-        admission_root=args.admission_root,
         admission_token=str(args.admission_token).strip() or None,
-        should_cancel=controller.should_cancel,
-        register_running_job=controller.set_running_job,
+        admission_root=getattr(args, "admission_root", None),
     )
 
 
@@ -561,10 +646,9 @@ __all__ = [
     "default_worker_execution_dependencies",
     "execute_queue_entry",
     "main",
+    "process_dequeued_entry",
     "run_worker_job",
-    "WORKER_CANCEL_SIGNAL",
     "WORKER_JOB_MODULE",
-    "WORKER_SHUTDOWN_EXIT_CODE",
 ]
 
 

@@ -25,7 +25,6 @@ from chemstack.core.admission import (
 )
 from chemstack.core.queue import (
     dequeue_next,
-    get_cancel_requested,
     list_queue,
     mark_cancelled,
     mark_completed,
@@ -39,7 +38,6 @@ from chemstack.core.queue.worker import (
     config_path_for_worker,
     pid_is_alive as worker_pid_is_alive,
     reconcile_orphaned_child_queue_entries,
-    request_job_cancellation,
     shutdown_child_process_with_grace,
     start_background_process,
     terminate_process_group,
@@ -70,8 +68,6 @@ POLL_INTERVAL_SECONDS = 5
 CANCEL_CHECK_INTERVAL_SECONDS = 1
 WORKER_PID_FILE = "xtb_queue_worker.pid"
 WORKER_SHUTDOWN_GRACE_SECONDS = 10.0
-WORKER_CANCEL_SIGNAL = _worker_execution.WORKER_CANCEL_SIGNAL
-WORKER_SHUTDOWN_EXIT_CODE = _worker_execution.WORKER_SHUTDOWN_EXIT_CODE
 WORKER_JOB_MODULE = _worker_execution.WORKER_JOB_MODULE
 
 
@@ -349,7 +345,7 @@ def _start_background_job_process(
     config_path: str,
     queue_root: Path,
     entry: Any,
-    admission_root: str,
+    admission_root: str | Path,
     admission_token: str,
 ) -> subprocess.Popen[str]:
     return _engine_runtime.start_child_process(
@@ -360,15 +356,7 @@ def _start_background_job_process(
         admission_token=admission_token,
         start_background_process_fn=start_background_process,
         build_worker_child_command_fn=_worker_execution.build_worker_child_command,
-        include_admission_root=True,
-    )
-
-
-def _request_job_cancellation(proc: _ManagedProcess) -> None:
-    request_job_cancellation(
-        proc,
-        cancel_signal=WORKER_CANCEL_SIGNAL,
-        terminate_process_fn=_terminate_process,
+        include_admission_root=False,
     )
 
 
@@ -402,6 +390,7 @@ class QueueWorker(PidFileChildProcessQueueWorker):
             config_path=config_path,
             max_concurrent=max_concurrent,
             deps=_queue_worker_deps(),
+            admission_root=_admission_root(cfg),
         )
 
     def _handle_worker_start_error(
@@ -428,27 +417,42 @@ class QueueWorker(PidFileChildProcessQueueWorker):
             entry_resource_request_fn=_queue_artifacts.entry_resource_request,
         )
 
+    def _on_worker_process_started(
+        self,
+        queue_root: Path,
+        entry: Any,
+        *,
+        process: subprocess.Popen[str],
+        admission_token: str,
+    ) -> bool:
+        return _queue_admission.attach_started_process(
+            admission_root=self.admission_root,
+            queue_root=queue_root,
+            entry=entry,
+            process=process,
+            admission_token=admission_token,
+            activate_reserved_slot_fn=activate_reserved_slot,
+            terminate_process_fn=_terminate_process,
+            mark_entry_failed_and_release_fn=self._mark_entry_failed_and_release,
+            mark_failed_fn=mark_failed,
+        )
+
     def _finalize_completed_job(self, _queue_id: str, job: Any, rc: int) -> None:
         summary = _load_terminal_summary(job.queue_root, job.entry, rc=rc)
         _ensure_terminal_queue_status(job.queue_root, job.entry, summary)
         _print_terminal_summary(summary)
         self._release_admission_slot(job.admission_token)
 
-    def _check_cancel_requests(self) -> None:
-        _queue_lifecycle.request_pending_cancellations(
-            self._running_jobs(),
-            get_cancel_requested_fn=get_cancel_requested,
-            request_job_cancellation_fn=_request_job_cancellation,
-        )
-
     def _finalize_child_exit(self, job: _RunningJob, *, rc: int) -> None:
-        del rc
         _queue_lifecycle.finalize_child_exit(
             self.cfg,
             job,
+            rc=rc,
+            shutdown_requested=self._shutdown_requested,
             queue_entry_by_id_fn=_queue_entry_by_id,
             mark_cancelled_fn=mark_cancelled,
             requeue_running_entry_fn=requeue_running_entry,
+            mark_failed_fn=mark_failed,
             mark_recovery_pending_fn=_mark_recovery_pending_state,
             release_admission_slot_fn=self._release_admission_slot,
         )

@@ -46,7 +46,7 @@ def test_process_one_returns_idle_and_releases_reserved_slot(
     monkeypatch.setattr(queue_cmd, "_try_reserve_admission_slot", lambda _cfg: "slot-1")
     monkeypatch.setattr(queue_cmd, "dequeue_next", lambda _root: None)
     monkeypatch.setattr(
-        queue_cmd, "release_slot", lambda root, token: released.append((root, token))
+        queue_cmd, "release_slot", lambda root, token: released.append((str(root), token))
     )
 
     assert process_one_xtb_for_test(queue_cmd, cfg) == "idle"
@@ -91,6 +91,7 @@ def test_queue_worker_starts_up_to_max_concurrent_children(
 
     monkeypatch.setattr(queue_cmd, "_try_reserve_admission_slot", lambda _cfg: next(slots))
     monkeypatch.setattr(queue_cmd, "dequeue_next", lambda _root: next(dequeued))
+    monkeypatch.setattr(queue_cmd, "activate_reserved_slot", lambda *args, **kwargs: object())
 
     def fake_start_background_job_process(
         *,
@@ -123,9 +124,8 @@ def test_queue_worker_starts_up_to_max_concurrent_children(
     ]
 
 
-def test_queue_worker_check_cancel_requests_signals_each_job_once(
+def test_queue_worker_check_cancel_requests_is_child_side_noop(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     cfg = _make_cfg(tmp_path)
     queue_root = Path(cfg.runtime.allowed_root)
@@ -155,8 +155,6 @@ def test_queue_worker_check_cancel_requests_signals_each_job_once(
         def send_signal(self, signum: int) -> None:
             signals.append(signum)
 
-    monkeypatch.setattr(queue_cmd, "get_cancel_requested", lambda _root, _queue_id: True)
-
     worker = queue_cmd.QueueWorker(cfg, config_path="/tmp/cfg.yaml")
     worker._running[entry.queue_id] = queue_cmd._RunningJob(
         queue_root=queue_root,
@@ -168,8 +166,8 @@ def test_queue_worker_check_cancel_requests_signals_each_job_once(
     worker._check_cancel_requests()
     worker._check_cancel_requests()
 
-    assert signals == [queue_cmd.WORKER_CANCEL_SIGNAL]
-    assert worker._running[entry.queue_id].cancel_requested is True
+    assert signals == []
+    assert worker._running[entry.queue_id].cancel_requested is False
 
 
 def test_queue_worker_shutdown_requeues_running_entries(
@@ -216,11 +214,13 @@ def test_queue_worker_shutdown_requeues_running_entries(
     monkeypatch.setattr(
         queue_cmd, "requeue_running_entry", lambda root, queue_id: requeued.append((root, queue_id))
     )
+    monkeypatch.setattr(queue_cmd, "_queue_entry_by_id", lambda _root, _queue_id: entry)
     monkeypatch.setattr(
-        queue_cmd, "release_slot", lambda root, token: released.append((root, token))
+        queue_cmd, "release_slot", lambda root, token: released.append((str(root), token))
     )
 
     worker = queue_cmd.QueueWorker(cfg, config_path="/tmp/cfg.yaml")
+    worker._shutdown_requested = True
     worker._running[entry.queue_id] = queue_cmd._RunningJob(
         queue_root=queue_root,
         entry=entry,
@@ -278,6 +278,7 @@ def test_queue_worker_run_once_waits_for_child_completion_and_prints_summary(
     monkeypatch.setattr(queue_cmd, "list_queue", lambda _root: [])
     monkeypatch.setattr(queue_cmd, "_try_reserve_admission_slot", lambda _cfg: "slot-1")
     monkeypatch.setattr(queue_cmd, "dequeue_next", lambda _root: entry)
+    monkeypatch.setattr(queue_cmd, "activate_reserved_slot", lambda *args, **kwargs: object())
     monkeypatch.setattr(
         queue_cmd,
         "_start_background_job_process",
@@ -297,7 +298,7 @@ def test_queue_worker_run_once_waits_for_child_completion_and_prints_summary(
         queue_cmd, "_ensure_terminal_queue_status", lambda queue_root, entry, summary: None
     )
     monkeypatch.setattr(
-        queue_cmd, "release_slot", lambda root, token: released.append((root, token))
+        queue_cmd, "release_slot", lambda root, token: released.append((str(root), token))
     )
     monkeypatch.setattr(queue_cmd.time, "sleep", lambda seconds: sleep_calls.append(seconds))
 

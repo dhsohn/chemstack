@@ -23,7 +23,7 @@ def start_background_job_process(
     config_path: str,
     queue_root: Path,
     entry: Any,
-    admission_root: str,
+    admission_root: str | Path,
     admission_token: str,
     start_background_process_fn: Callable[[list[str]], Any],
     build_worker_child_command_fn: Callable[..., list[str]],
@@ -36,7 +36,34 @@ def start_background_job_process(
         admission_token=admission_token,
         start_background_process_fn=start_background_process_fn,
         build_worker_child_command_fn=build_worker_child_command_fn,
-        include_admission_root=True,
+        include_admission_root=False,
+    )
+
+
+def attach_started_process(
+    *,
+    admission_root: str | Path,
+    queue_root: Path,
+    entry: Any,
+    process: Any,
+    admission_token: str,
+    activate_reserved_slot_fn: Callable[..., Any],
+    terminate_process_fn: Callable[[Any], Any],
+    mark_entry_failed_and_release_fn: Callable[..., Any],
+    mark_failed_fn: Callable[..., Any],
+    source: str = "chemstack.xtb.queue_worker.child",
+) -> bool:
+    return _engine_admission.attach_started_process(
+        admission_root=admission_root,
+        queue_root=queue_root,
+        entry=entry,
+        process=process,
+        admission_token=admission_token,
+        activate_reserved_slot_fn=activate_reserved_slot_fn,
+        terminate_process_fn=terminate_process_fn,
+        mark_entry_failed_and_release_fn=mark_entry_failed_and_release_fn,
+        mark_failed_fn=mark_failed_fn,
+        source=source,
     )
 
 
@@ -76,6 +103,7 @@ def finalize_worker_start_error(
 
 
 __all__ = [
+    "attach_started_process",
     "finalize_worker_start_error",
     "reserve_admission_slot",
     "start_background_job_process",

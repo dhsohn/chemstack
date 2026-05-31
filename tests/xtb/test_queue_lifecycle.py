@@ -20,32 +20,6 @@ def _entry(
     )
 
 
-def test_request_pending_cancellations_signals_each_job_once(tmp_path: Path) -> None:
-    entry = _entry()
-    process = object()
-    job = SimpleNamespace(
-        queue_root=tmp_path / "queue",
-        entry=entry,
-        process=process,
-        cancel_requested=False,
-    )
-    cancellations: list[object] = []
-
-    queue_lifecycle.request_pending_cancellations(
-        [("queue-1", job)],
-        get_cancel_requested_fn=lambda _root, _queue_id: True,
-        request_job_cancellation_fn=lambda running: cancellations.append(running),
-    )
-    queue_lifecycle.request_pending_cancellations(
-        [("queue-1", job)],
-        get_cancel_requested_fn=lambda _root, _queue_id: True,
-        request_job_cancellation_fn=lambda running: cancellations.append(running),
-    )
-
-    assert cancellations == [process]
-    assert job.cancel_requested is True
-
-
 def test_finalize_child_exit_requeues_running_job_and_marks_recovery(tmp_path: Path) -> None:
     cfg = object()
     entry = _entry()
@@ -61,9 +35,12 @@ def test_finalize_child_exit_requeues_running_job_and_marks_recovery(tmp_path: P
     queue_lifecycle.finalize_child_exit(
         cfg,
         job,
+        rc=0,
+        shutdown_requested=True,
         queue_entry_by_id_fn=lambda _root, _queue_id: entry,
         mark_cancelled_fn=lambda *args, **kwargs: None,
         requeue_running_entry_fn=lambda root, queue_id: requeued.append((root, queue_id)),
+        mark_failed_fn=lambda *args, **kwargs: None,
         mark_recovery_pending_fn=lambda cfg_obj, entry_obj, *, reason: recovery.append(
             (cfg_obj, entry_obj, reason)
         ),
@@ -90,14 +67,45 @@ def test_finalize_child_exit_marks_cancelled_when_cancel_requested(tmp_path: Pat
     queue_lifecycle.finalize_child_exit(
         object(),
         job,
+        rc=0,
+        shutdown_requested=False,
         queue_entry_by_id_fn=lambda _root, _queue_id: entry,
         mark_cancelled_fn=mark_cancelled,
         requeue_running_entry_fn=lambda *args, **kwargs: None,
+        mark_failed_fn=lambda *args, **kwargs: None,
         mark_recovery_pending_fn=lambda *args, **kwargs: None,
         release_admission_slot_fn=lambda _token: None,
     )
 
     assert cancelled == [(str(tmp_path / "queue"), "queue-1", "cancel_requested")]
+
+
+def test_finalize_child_exit_marks_failed_on_unexpected_child_exit(tmp_path: Path) -> None:
+    entry = _entry()
+    job = SimpleNamespace(
+        queue_root=tmp_path / "queue",
+        entry=entry,
+        admission_token="slot-1",
+    )
+    failed: list[tuple[str, str, str]] = []
+
+    def mark_failed(root: str, queue_id: str, *, error: str) -> None:
+        failed.append((root, queue_id, error))
+
+    queue_lifecycle.finalize_child_exit(
+        object(),
+        job,
+        rc=9,
+        shutdown_requested=False,
+        queue_entry_by_id_fn=lambda _root, _queue_id: entry,
+        mark_cancelled_fn=lambda *args, **kwargs: None,
+        requeue_running_entry_fn=lambda *args, **kwargs: None,
+        mark_failed_fn=mark_failed,
+        mark_recovery_pending_fn=lambda *args, **kwargs: None,
+        release_admission_slot_fn=lambda _token: None,
+    )
+
+    assert failed == [(str(tmp_path / "queue"), "queue-1", "worker_child_exit_code=9")]
 
 
 def test_live_worker_pid_slots_keeps_only_running_live_worker_pids(tmp_path: Path) -> None:

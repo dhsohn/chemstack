@@ -4,147 +4,126 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
-import pytest
-
+from chemstack.core.queue.types import QueueStatus
 from chemstack.xtb import worker_child
 
 
-def test_run_worker_job_activates_admission_delegates_and_releases(
+def test_run_worker_child_job_processes_loaded_entry_and_releases_slot(
     tmp_path: Path,
 ) -> None:
     cfg = SimpleNamespace(name="cfg")
-    entry = SimpleNamespace(queue_id="queue-1")
-    job_dir = tmp_path / "job"
-    activated: list[tuple[str, str, str, str, str]] = []
+    entry = SimpleNamespace(queue_id="queue-1", status=QueueStatus.RUNNING)
+    dependencies = object()
+    installed: list[Any] = []
     released: list[tuple[str, str]] = []
-    executed: list[dict[str, Any]] = []
+    processed: list[dict[str, Any]] = []
 
-    def activate_reserved_slot(root: str, token: str, **kwargs: Any) -> object:
-        activated.append(
-            (
-                str(root),
-                token,
-                str(kwargs["work_dir"]),
-                kwargs["queue_id"],
-                kwargs["source"],
-            )
-        )
-        return object()
-
-    deps = SimpleNamespace(
-        config=SimpleNamespace(
-            load_config=lambda _path: cfg,
-            queue_entry_by_id=lambda _root, _queue_id: entry,
-        ),
-        admission=SimpleNamespace(
-            activate_reserved_slot=activate_reserved_slot,
-            release_slot=lambda root, token: released.append((str(root), token)),
-        ),
-        context=SimpleNamespace(job_dir=lambda _entry: job_dir),
-        execute_queue_entry=None,
-    )
-
-    def execute_queue_entry(*args: Any, **kwargs: Any) -> SimpleNamespace:
-        executed.append({"args": args, "kwargs": kwargs})
-        return SimpleNamespace(result=SimpleNamespace(status="completed"))
-
-    rc = worker_child.run_worker_job(
+    rc = worker_child.run_worker_child_job(
         config_path="/tmp/chemstack.yaml",
         queue_root=tmp_path / "queue",
         queue_id="queue-1",
-        admission_root="/tmp/admission",
         admission_token="slot-1",
-        dependencies=deps,
-        execute_queue_entry_fn=execute_queue_entry,
-        should_cancel=lambda: False,
-        register_running_job=lambda _value: None,
-        getpid_fn=lambda: 12345,
-        worker_job_module="chemstack.xtb.worker_execution",
+        load_config_fn=lambda _path: cfg,
+        find_queue_entry_fn=lambda _root, _queue_id: entry,
+        admission_root_fn=lambda _cfg: "/tmp/admission",
+        release_slot_fn=lambda root, token: released.append((str(root), token)),
+        install_signal_handlers_fn=lambda controller: installed.append(controller),
+        process_dequeued_entry_fn=lambda *args, **kwargs: processed.append(
+            {"args": args, "kwargs": kwargs}
+        ),
+        dependencies_fn=lambda: dependencies,
+        requeue_running_entry_fn=lambda *_args: None,
+        mark_recovery_pending_context_fn=lambda *_args, **_kwargs: None,
     )
 
     assert rc == 0
-    assert activated == [
-        (
-            "/tmp/admission",
-            "slot-1",
-            str(job_dir),
-            "queue-1",
-            "chemstack.xtb.worker_execution",
-        )
-    ]
+    assert len(installed) == 1
     assert released == [("/tmp/admission", "slot-1")]
-    assert executed[0]["args"] == (cfg,)
-    assert executed[0]["kwargs"]["queue_root"] == (tmp_path / "queue").resolve()
-    assert executed[0]["kwargs"]["entry"] is entry
-    assert executed[0]["kwargs"]["worker_job_pid"] == 12345
-    assert executed[0]["kwargs"]["dependencies"] is deps
+    assert processed[0]["args"] == (cfg, entry)
+    assert processed[0]["kwargs"]["queue_root"] == (tmp_path / "queue").resolve()
+    assert processed[0]["kwargs"]["dependencies"] is dependencies
+    assert processed[0]["kwargs"]["shutdown_requested"]() is False
 
 
-def test_run_worker_job_uses_injected_execute_queue_entry(tmp_path: Path) -> None:
+def test_run_worker_child_job_requeues_and_marks_recovery_on_shutdown(
+    tmp_path: Path,
+) -> None:
     cfg = SimpleNamespace(name="cfg")
-    entry = SimpleNamespace(queue_id="queue-1")
-    injected_calls: list[dict[str, Any]] = []
+    entry = SimpleNamespace(queue_id="queue-1", status=QueueStatus.RUNNING)
+    context = SimpleNamespace(job_dir=tmp_path / "job")
+    requeued: list[tuple[Path, str]] = []
+    recovery: list[tuple[object, object, str]] = []
+    released: list[tuple[str, str]] = []
 
-    def injected_execute(*args: Any, **kwargs: Any) -> SimpleNamespace:
-        injected_calls.append({"args": args, "kwargs": kwargs})
-        return SimpleNamespace(result=SimpleNamespace(status="failed"))
+    def raise_shutdown(*_args: Any, **_kwargs: Any) -> None:
+        raise worker_child.WorkerShutdownRequested(context)
 
-    deps = SimpleNamespace(
-        config=SimpleNamespace(
-            load_config=lambda _path: cfg,
-            queue_entry_by_id=lambda _root, _queue_id: entry,
-        ),
-        admission=SimpleNamespace(
-            activate_reserved_slot=lambda *args, **kwargs: pytest.fail("unexpected activation"),
-            release_slot=lambda *args: pytest.fail("unexpected release"),
-        ),
-        context=SimpleNamespace(job_dir=lambda _entry: tmp_path / "job"),
-        execute_queue_entry=injected_execute,
-    )
-
-    rc = worker_child.run_worker_job(
+    rc = worker_child.run_worker_child_job(
         config_path="/tmp/chemstack.yaml",
         queue_root=tmp_path / "queue",
         queue_id="queue-1",
-        admission_root="/tmp/admission",
-        admission_token=None,
-        dependencies=deps,
-        execute_queue_entry_fn=lambda *args, **kwargs: pytest.fail("unexpected default execute"),
-        getpid_fn=lambda: 777,
+        admission_token="slot-1",
+        load_config_fn=lambda _path: cfg,
+        find_queue_entry_fn=lambda _root, _queue_id: entry,
+        admission_root_fn=lambda _cfg: "/tmp/admission",
+        release_slot_fn=lambda root, token: released.append((str(root), token)),
+        install_signal_handlers_fn=lambda _controller: None,
+        process_dequeued_entry_fn=raise_shutdown,
+        dependencies_fn=lambda: object(),
+        requeue_running_entry_fn=lambda root, queue_id: requeued.append((root, queue_id)),
+        mark_recovery_pending_context_fn=lambda cfg_obj, context_obj, *, reason: recovery.append(
+            (cfg_obj, context_obj, reason)
+        ),
+    )
+
+    assert rc == 0
+    assert requeued == [((tmp_path / "queue").resolve(), "queue-1")]
+    assert recovery == [(cfg, context, "worker_shutdown")]
+    assert released == [("/tmp/admission", "slot-1")]
+
+
+def test_run_worker_child_job_returns_failure_when_entry_is_not_running(
+    tmp_path: Path,
+) -> None:
+    cfg = SimpleNamespace(name="cfg")
+    entry = SimpleNamespace(queue_id="queue-1", status=QueueStatus.PENDING)
+    released: list[tuple[str, str]] = []
+
+    rc = worker_child.run_worker_child_job(
+        config_path="/tmp/chemstack.yaml",
+        queue_root=tmp_path / "queue",
+        queue_id="queue-1",
+        admission_token="slot-1",
+        load_config_fn=lambda _path: cfg,
+        find_queue_entry_fn=lambda _root, _queue_id: entry,
+        admission_root_fn=lambda _cfg: "/tmp/admission",
+        release_slot_fn=lambda root, token: released.append((str(root), token)),
+        install_signal_handlers_fn=lambda _controller: None,
+        process_dequeued_entry_fn=lambda *args, **kwargs: None,
+        dependencies_fn=lambda: object(),
+        requeue_running_entry_fn=lambda *_args: None,
+        mark_recovery_pending_context_fn=lambda *_args, **_kwargs: None,
     )
 
     assert rc == 1
-    assert injected_calls[0]["args"] == (cfg,)
-    assert injected_calls[0]["kwargs"]["worker_job_pid"] == 777
+    assert released == [("/tmp/admission", "slot-1")]
 
 
-def test_signal_controller_installs_cancel_and_shutdown_handlers() -> None:
-    handlers: dict[int, Any] = {}
-    terminated: list[object] = []
-    process = object()
-
-    signal_module = SimpleNamespace(
-        SIGTERM=15,
-        SIGINT=2,
-        signal=lambda signum, handler: handlers.__setitem__(signum, handler),
-    )
-    controller = worker_child.SignalController(
-        cancel_signal=10,
-        shutdown_exit_code=190,
-        terminate_process_fn=lambda running: terminated.append(running),
-        signal_module=signal_module,
-        os_exit_fn=lambda code: (_ for _ in ()).throw(SystemExit(code)),
+def test_build_parser_accepts_legacy_admission_root_argument() -> None:
+    args = worker_child.build_parser().parse_args(
+        [
+            "--config",
+            "/tmp/chemstack.yaml",
+            "--queue-root",
+            "/tmp/queue",
+            "--queue-id",
+            "queue-1",
+            "--admission-root",
+            "/tmp/admission",
+            "--admission-token",
+            "slot-1",
+        ]
     )
 
-    controller.install()
-    controller.set_running_job(SimpleNamespace(process=process))
-    handlers[10](10, None)
-
-    assert controller.should_cancel() is True
-    assert terminated == [process]
-
-    with pytest.raises(SystemExit) as exc_info:
-        handlers[15](15, None)
-
-    assert exc_info.value.code == 190
-    assert terminated == [process, process]
+    assert args.admission_root == "/tmp/admission"
+    assert args.admission_token == "slot-1"

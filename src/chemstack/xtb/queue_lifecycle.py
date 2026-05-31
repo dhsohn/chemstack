@@ -7,15 +7,9 @@ from chemstack.core.queue import lifecycle as _queue_lifecycle
 
 entry_status_is_running = _queue_lifecycle.entry_status_is_running
 live_worker_pid_slots = _queue_lifecycle.live_worker_pid_slots
-request_pending_cancellations = _queue_lifecycle.request_pending_cancellations
 shutdown_running_job = _queue_lifecycle.shutdown_running_job
 sync_terminal_running_entries = _queue_lifecycle.sync_terminal_running_entries
 
-_CHILD_EXIT_POLICY = _queue_lifecycle.ChildExitPolicy(
-    shutdown_requested=True,
-    use_entry_fallback=True,
-    coerce_root_to_str=True,
-)
 _ORPHANED_RUNNING_POLICY = _queue_lifecycle.OrphanedRunningPolicy(
     coerce_root_to_str=True,
 )
@@ -25,21 +19,32 @@ def finalize_child_exit(
     cfg: Any,
     job: Any,
     *,
+    rc: int,
+    shutdown_requested: bool,
     queue_entry_by_id_fn: Callable[[Any, str], Any | None],
     mark_cancelled_fn: Callable[..., Any],
     requeue_running_entry_fn: Callable[..., Any],
+    mark_failed_fn: Callable[..., Any],
     mark_recovery_pending_fn: Callable[..., Any],
     release_admission_slot_fn: Callable[[str], Any],
 ) -> None:
     _queue_lifecycle.finalize_child_exit_with_policy(
         cfg,
         job,
-        policy=_CHILD_EXIT_POLICY,
+        policy=_queue_lifecycle.ChildExitPolicy(
+            shutdown_requested=shutdown_requested,
+            fail_unexpected_exit=True,
+            use_entry_fallback=False,
+            coerce_root_to_str=True,
+            recovery_entry_fn=lambda _current, current_job: current_job.entry,
+        ),
         find_queue_entry_fn=queue_entry_by_id_fn,
         mark_cancelled_fn=mark_cancelled_fn,
         requeue_running_entry_fn=requeue_running_entry_fn,
         mark_recovery_pending_fn=mark_recovery_pending_fn,
         release_admission_slot_fn=release_admission_slot_fn,
+        mark_failed_fn=mark_failed_fn,
+        rc=rc,
     )
 
 
@@ -76,7 +81,6 @@ __all__ = [
     "finalize_child_exit",
     "live_worker_pid_slots",
     "reconcile_orphaned_running",
-    "request_pending_cancellations",
     "shutdown_running_job",
     "sync_terminal_running_entries",
 ]

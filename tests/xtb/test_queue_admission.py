@@ -38,7 +38,6 @@ def test_start_background_job_process_builds_xtb_child_command(tmp_path: Path) -
             "config_path": "/tmp/chemstack.yaml",
             "queue_root": tmp_path / "queue",
             "queue_id": "queue-1",
-            "admission_root": "/tmp/admission",
             "admission_token": "slot-1",
         }
         return ["python", "-m", "chemstack.xtb.worker_execution"]
@@ -60,6 +59,45 @@ def test_start_background_job_process_builds_xtb_child_command(tmp_path: Path) -
         is process
     )
     assert commands == [["python", "-m", "chemstack.xtb.worker_execution"]]
+
+
+def test_attach_started_process_records_owner_and_marks_missing_slot(tmp_path: Path) -> None:
+    entry = SimpleNamespace(queue_id="queue-1", metadata={"job_dir": str(tmp_path / "job")})
+    terminated: list[Any] = []
+    failed: list[dict[str, Any]] = []
+    process = SimpleNamespace(pid=1234)
+
+    assert queue_admission.attach_started_process(
+        admission_root="/tmp/admission",
+        queue_root=tmp_path / "queue",
+        entry=entry,
+        process=process,
+        admission_token="slot-1",
+        activate_reserved_slot_fn=lambda *args, **kwargs: object(),
+        terminate_process_fn=lambda proc: terminated.append(proc),
+        mark_entry_failed_and_release_fn=lambda *args, **kwargs: failed.append(
+            {"args": args, "kwargs": kwargs}
+        ),
+        mark_failed_fn=lambda *_args, **_kwargs: None,
+    )
+    assert terminated == []
+    assert failed == []
+
+    assert not queue_admission.attach_started_process(
+        admission_root="/tmp/admission",
+        queue_root=tmp_path / "queue",
+        entry=entry,
+        process=process,
+        admission_token="slot-2",
+        activate_reserved_slot_fn=lambda *args, **kwargs: None,
+        terminate_process_fn=lambda proc: terminated.append(proc),
+        mark_entry_failed_and_release_fn=lambda *args, **kwargs: failed.append(
+            {"args": args, "kwargs": kwargs}
+        ),
+        mark_failed_fn=lambda *_args, **_kwargs: None,
+    )
+    assert terminated == [process]
+    assert failed[0]["kwargs"]["error"] == "admission_slot_missing"
 
 
 def test_finalize_worker_start_error_releases_slot_and_writes_failure(
