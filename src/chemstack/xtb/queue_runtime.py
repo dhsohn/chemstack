@@ -59,6 +59,8 @@ from .state import (
 from . import queue_artifacts as _queue_artifacts
 from . import queue_terminal as _queue_terminal
 
+# Keep queue_runtime.subprocess available for tests/callers that patch Popen.
+_SUBPROCESS_MODULE = subprocess
 POLL_INTERVAL_SECONDS = 5
 CANCEL_CHECK_INTERVAL_SECONDS = 1
 WORKER_PID_FILE = "xtb_queue_worker.pid"
@@ -74,12 +76,11 @@ _ENGINE_SPEC = InternalEngineSpec(
 
 
 def _queue_worker_deps() -> Any:
-    return _engine_runtime.child_worker_deps(
+    return _engine_runtime.child_worker_deps_from_namespace(
+        namespace=globals(),
         poll_interval_seconds=POLL_INTERVAL_SECONDS,
         time_module=time,
         release_slot_fn=release_slot,
-        start_background_job_process_fn=_start_background_job_process,
-        try_reserve_admission_slot_fn=_try_reserve_admission_slot,
     )
 
 
@@ -136,25 +137,11 @@ _engine_runtime = InternalEngineQueueRuntime.create(
     dequeue_next=lambda root: dequeue_next(root),
 )
 
-
-def queue_roots(cfg: Any) -> tuple[Path, ...]:
-    return _engine_runtime.queue_roots(cfg)
-
-
-def queue_entries_with_roots(cfg: Any) -> list[tuple[Path, Any]]:
-    return _engine_runtime.queue_entries_with_roots(cfg)
-
-
-def dequeue_next_entry(cfg: Any) -> tuple[Path, Any] | None:
-    return _engine_runtime.dequeue_next_entry(cfg)
-
-
-def _queue_entry_by_id(queue_root: Path | str, queue_id: str) -> Any | None:
-    return _engine_runtime.queue_entry_by_id(queue_root, queue_id)
-
-
-def _admission_root(cfg: Any) -> str:
-    return _engine_runtime.admission_root(cfg)
+queue_roots = _engine_runtime.queue_roots
+queue_entries_with_roots = _engine_runtime.queue_entries_with_roots
+dequeue_next_entry = _engine_runtime.dequeue_next_entry
+_queue_entry_by_id = _engine_runtime.queue_entry_by_id
+_admission_root = _engine_runtime.admission_root
 
 
 def _pid_is_alive(pid: int) -> bool:
@@ -181,11 +168,9 @@ def _terminate_process(proc: _ManagedProcess) -> None:
     terminate_process_group(proc)
 
 
-def _try_reserve_admission_slot(cfg: Any) -> str | None:
-    return _engine_runtime.reserve_admission_slot(
-        cfg,
-        reserve_slot_fn=reserve_slot,
-    )
+_try_reserve_admission_slot = _engine_runtime.reserve_admission_slot_fn(
+    lambda *args, **kwargs: reserve_slot(*args, **kwargs),
+)
 
 
 def _print_terminal_summary(summary: _TerminalSummary) -> None:
@@ -271,34 +256,15 @@ def _execute_queue_entry(
     )
 
 
-def _start_background_job_process(
-    *,
-    config_path: str,
-    queue_root: Path,
-    entry: Any,
-    admission_root: str | Path,
-    admission_token: str,
-) -> subprocess.Popen[str]:
-    return _engine_runtime.start_child_process(
-        config_path=config_path,
-        queue_root=queue_root,
-        entry=entry,
-        admission_root=admission_root,
-        admission_token=admission_token,
-        start_background_process_fn=start_background_process,
-        build_worker_child_command_fn=_worker_execution.build_worker_child_command,
-    )
-
-
-def _config_path_for_worker(args: Any) -> str:
-    return config_path_for_worker(
-        args,
-        default_config_path_fn=default_config_path,
-    )
-
-
-def read_worker_pid(allowed_root: Path) -> int | None:
-    return _engine_runtime.read_worker_pid(allowed_root)
+_start_background_job_process = _engine_runtime.start_background_job_process_fn(
+    start_background_process_fn=start_background_process,
+    build_worker_child_command_fn=_worker_execution.build_worker_child_command,
+)
+_config_path_for_worker = _engine_runtime.config_path_for_worker_fn(
+    config_path_for_worker_fn=config_path_for_worker,
+    default_config_path_fn=lambda: default_config_path(),
+)
+read_worker_pid = _engine_runtime.read_worker_pid
 
 
 def _entry_status_is_running(entry: Any) -> bool:
@@ -403,11 +369,8 @@ def _reconcile_worker_state(worker: Any) -> None:
 
 
 def _queue_worker_hooks() -> Any:
-    return _engine_runtime.child_worker_hooks(
-        handle_worker_start_error_fn=_handle_worker_start_error,
-        finalize_completed_job_fn=_finalize_completed_job,
-        finalize_child_exit_fn=_finalize_child_exit,
-        reconcile_worker_state_fn=_reconcile_worker_state,
+    return _engine_runtime.child_worker_hooks_from_namespace(
+        namespace=globals(),
         activate_reserved_slot_fn=lambda *args, **kwargs: activate_reserved_slot(
             *args,
             **kwargs,
@@ -441,16 +404,10 @@ class QueueWorker(HookedPidFileChildProcessQueueWorker):
 
 
 def cmd_queue_worker(args: Any) -> int:
-    return _engine_runtime.run_pidfile_worker_command(
+    return _engine_runtime.run_pidfile_worker_command_from_namespace(
         args,
+        namespace=globals(),
         config_path_fn=_config_path_for_worker,
-        load_config_fn=load_config,
-        read_worker_pid_fn=read_worker_pid,
-        worker_factory=lambda cfg, config_path, **kwargs: QueueWorker(
-            cfg,
-            config_path=config_path,
-            **kwargs,
-        ),
     )
 
 

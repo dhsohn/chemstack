@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
-from chemstack.core.queue.internal_engine import InternalEngineSpec
+from chemstack.core.queue.internal_engine import InternalEngineQueueRuntime, InternalEngineSpec
 from chemstack.core.queue.types import QueueStatus
 
 
@@ -90,3 +90,51 @@ def test_internal_engine_admission_uses_engine_identity() -> None:
     assert calls == [
         ("/tmp/admission", 2, "chemstack.demo_engine.queue_worker", "chemstack_demo_engine")
     ]
+
+
+def test_internal_engine_queue_runtime_worker_command_uses_late_bound_namespace(
+    tmp_path: Path,
+) -> None:
+    cfg = SimpleNamespace(
+        runtime=SimpleNamespace(
+            allowed_root=str(tmp_path),
+            max_concurrent=3,
+        )
+    )
+    runtime = InternalEngineQueueRuntime.create(
+        spec=InternalEngineSpec(engine="demo", worker_pid_file_name="demo_worker.pid"),
+        load_config=lambda _path: cfg,
+        runtime_roots_for_cfg=lambda _cfg: (),
+        list_queue=lambda _root: [],
+        dequeue_next=lambda _root: None,
+    )
+    seen: list[tuple[object, str, int]] = []
+
+    class Worker:
+        def __init__(
+            self,
+            cfg_arg: object,
+            *,
+            config_path: str,
+            max_concurrent: int,
+        ) -> None:
+            seen.append((cfg_arg, config_path, max_concurrent))
+
+        def run(self) -> int:
+            return 19
+
+    namespace = {
+        "load_config": lambda _path: cfg,
+        "read_worker_pid": lambda _root: None,
+        "QueueWorker": object,
+    }
+    namespace["QueueWorker"] = Worker
+
+    result = runtime.run_pidfile_worker_command_from_namespace(
+        SimpleNamespace(config="/tmp/demo.yaml"),
+        namespace=namespace,
+        config_path_fn=lambda args: args.config,
+    )
+
+    assert result == 19
+    assert seen == [(cfg, "/tmp/demo.yaml", 3)]
