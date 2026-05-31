@@ -24,6 +24,16 @@ class XYZFrame:
         return "\n".join(lines) + "\n"
 
 
+@dataclass(frozen=True)
+class XYZParseResult:
+    frames: tuple[XYZFrame, ...] = ()
+    error_reason: str = ""
+
+    @property
+    def ok(self) -> bool:
+        return bool(self.frames) and not self.error_reason
+
+
 def _parse_energy(comment: str) -> float | None:
     for pattern in _ENERGY_PATTERNS:
         match = pattern.search(comment)
@@ -49,14 +59,21 @@ def _line_has_xyz_tokens(line: str) -> bool:
     return True
 
 
-def load_xyz_frames(path: str | Path) -> tuple[XYZFrame, ...]:
-    xyz_path = Path(path).expanduser().resolve()
+def _xyz_parse_error(reason: str) -> XYZParseResult:
+    return XYZParseResult(error_reason=reason)
+
+
+def parse_xyz_file(path: str | Path) -> XYZParseResult:
+    try:
+        xyz_path = Path(path).expanduser().resolve()
+    except OSError:
+        return _xyz_parse_error("path_error")
     if not xyz_path.exists() or not xyz_path.is_file():
-        return ()
+        return _xyz_parse_error("missing_or_not_file")
     try:
         raw_lines = xyz_path.read_text(encoding="utf-8", errors="ignore").splitlines()
     except OSError:
-        return ()
+        return _xyz_parse_error("read_error")
     frames: list[XYZFrame] = []
     index = 0
     cursor = 0
@@ -68,15 +85,15 @@ def load_xyz_frames(path: str | Path) -> tuple[XYZFrame, ...]:
         try:
             natoms = int(raw_lines[cursor].strip())
         except ValueError:
-            return ()
+            return _xyz_parse_error("invalid_atom_count")
         if natoms <= 0:
-            return ()
+            return _xyz_parse_error("non_positive_atom_count")
         if cursor + 2 + natoms > len(raw_lines):
-            return ()
+            return _xyz_parse_error("truncated_frame")
         comment = raw_lines[cursor + 1]
         atom_lines = tuple(raw_lines[cursor + 2 : cursor + 2 + natoms])
         if len(atom_lines) != natoms or any(not _line_has_xyz_tokens(line) for line in atom_lines):
-            return ()
+            return _xyz_parse_error("invalid_atom_line")
         index += 1
         frames.append(
             XYZFrame(
@@ -88,7 +105,13 @@ def load_xyz_frames(path: str | Path) -> tuple[XYZFrame, ...]:
             )
         )
         cursor += 2 + natoms
-    return tuple(frames)
+    if not frames:
+        return _xyz_parse_error("empty_xyz")
+    return XYZParseResult(frames=tuple(frames))
+
+
+def load_xyz_frames(path: str | Path) -> tuple[XYZFrame, ...]:
+    return parse_xyz_file(path).frames
 
 
 def has_xyz_geometry(path: str | Path) -> bool:
@@ -107,13 +130,16 @@ def load_xyz_atom_sequence(path: str | Path) -> tuple[str, ...]:
 
 def choose_orca_geometry_frame(path: str | Path, *, candidate_kind: str = "") -> tuple[XYZFrame | None, dict[str, object]]:
     xyz_path = Path(path).expanduser().resolve()
-    frames = load_xyz_frames(xyz_path)
+    parse_result = parse_xyz_file(xyz_path)
+    frames = parse_result.frames
     metadata: dict[str, object] = {
         "source_artifact_path": str(xyz_path),
         "frame_count": len(frames),
         "candidate_kind": str(candidate_kind).strip(),
         "source_size_bytes": int(xyz_path.stat().st_size) if xyz_path.exists() and xyz_path.is_file() else 0,
     }
+    if parse_result.error_reason:
+        metadata["parse_error"] = parse_result.error_reason
     if not frames:
         metadata["selection_reason"] = "invalid_or_empty_xyz"
         return None, metadata
@@ -168,9 +194,11 @@ def write_orca_ready_xyz(
 
 __all__ = [
     "XYZFrame",
+    "XYZParseResult",
     "choose_orca_geometry_frame",
     "has_xyz_geometry",
     "load_xyz_frames",
     "load_xyz_atom_sequence",
+    "parse_xyz_file",
     "write_orca_ready_xyz",
 ]

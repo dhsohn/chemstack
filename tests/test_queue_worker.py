@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import signal
 import subprocess
 import tempfile
 import unittest
@@ -39,6 +40,7 @@ from chemstack.orca.queue_worker import (
 )
 from chemstack.orca.state import finalize_state, load_state, new_state
 from chemstack.orca.statuses import AnalyzerStatus, RunStatus
+from tests.process_helpers import patch_missing_process_group, preserved_signal_handlers
 
 def _make_cfg(tmp: str) -> AppConfig:
     return AppConfig(runtime=RuntimeConfig(allowed_root=tmp))
@@ -104,6 +106,15 @@ class TestStartJobProcess(unittest.TestCase):
 
 
 class TestTerminateProcess(unittest.TestCase):
+    def setUp(self) -> None:
+        self._killpg_patcher = patch_missing_process_group(
+            "chemstack.core.queue.processes.os.killpg"
+        )
+        self._killpg_patcher.start()
+
+    def tearDown(self) -> None:
+        self._killpg_patcher.stop()
+
     def test_already_terminated(self) -> None:
         proc = MagicMock()
         proc.poll.return_value = 0
@@ -200,12 +211,15 @@ class TestQueueWorkerInit(unittest.TestCase):
 
 class TestQueueWorkerMethods(unittest.TestCase):
     def setUp(self) -> None:
+        self._signal_guard = preserved_signal_handlers(signal.SIGTERM, signal.SIGINT)
+        self._signal_guard.__enter__()
         self._tmpdir = tempfile.TemporaryDirectory()
         self.root = Path(self._tmpdir.name)
         self.cfg = _make_cfg(self._tmpdir.name)
         self.worker = QueueWorker(self.cfg, str(self.root / "config.yaml"), max_concurrent=2)
 
     def tearDown(self) -> None:
+        self._signal_guard.__exit__(None, None, None)
         self._tmpdir.cleanup()
 
     def test_pid_file_write_and_remove(self) -> None:
@@ -227,8 +241,8 @@ class TestQueueWorkerMethods(unittest.TestCase):
         self.assertEqual(path.parent, self.root)
 
     def test_install_signal_handlers(self) -> None:
-        # Should not raise
-        self.worker._install_signal_handlers()
+        with patch("chemstack.core.queue.worker.signal.signal"):
+            self.worker._install_signal_handlers()
 
     def test_fill_slots_empty_queue(self) -> None:
         self.worker._fill_slots()
@@ -668,21 +682,33 @@ class TestQueueWorkerMethods(unittest.TestCase):
         self.assertEqual(len(self.worker._running), 0)
         mock_requeue.assert_called_once_with(self.root, entry.queue_id)
 
+    @patch("chemstack.core.queue.worker.signal.signal")
     @patch("chemstack.orca.queue_worker.time.sleep", side_effect=KeyboardInterrupt)
-    def test_run_keyboard_interrupt(self, mock_sleep: MagicMock) -> None:
+    def test_run_keyboard_interrupt(
+        self,
+        mock_sleep: MagicMock,
+        mock_signal: MagicMock,
+    ) -> None:
         rc = self.worker.run()
         self.assertEqual(rc, 0)
+        self.assertGreaterEqual(mock_signal.call_count, 2)
         # PID file should be cleaned up
         self.assertFalse(self.worker._pid_file_path().exists())
 
+    @patch("chemstack.core.queue.worker.signal.signal")
     @patch("chemstack.orca.queue_worker.time.sleep")
-    def test_run_shutdown_flag(self, mock_sleep: MagicMock) -> None:
+    def test_run_shutdown_flag(
+        self,
+        mock_sleep: MagicMock,
+        mock_signal: MagicMock,
+    ) -> None:
         def set_shutdown(*a):
             self.worker._shutdown_requested = True
 
         mock_sleep.side_effect = set_shutdown
         rc = self.worker.run()
         self.assertEqual(rc, 0)
+        self.assertGreaterEqual(mock_signal.call_count, 2)
 
     def test_reconcile_orphaned_running_uses_run_report_even_with_worker_pid_file(self) -> None:
         rxn = self.root / "mol_done"

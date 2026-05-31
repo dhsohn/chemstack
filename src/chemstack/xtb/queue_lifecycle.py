@@ -22,14 +22,18 @@ def finalize_child_exit(
     mark_recovery_pending_fn: Callable[..., Any],
     release_admission_slot_fn: Callable[[str], Any],
 ) -> None:
-    current = queue_entry_by_id_fn(job.queue_root, job.entry.queue_id) or job.entry
-    if current is not None and entry_status_is_running(current):
-        if getattr(current, "cancel_requested", False):
-            mark_cancelled_fn(str(job.queue_root), current.queue_id, error="cancel_requested")
-        else:
-            requeue_running_entry_fn(str(job.queue_root), current.queue_id)
-            mark_recovery_pending_fn(cfg, current, reason="worker_shutdown")
-    release_admission_slot_fn(job.admission_token)
+    _queue_lifecycle.finalize_child_worker_exit(
+        cfg,
+        job,
+        find_queue_entry_fn=queue_entry_by_id_fn,
+        mark_cancelled_fn=mark_cancelled_fn,
+        requeue_running_entry_fn=requeue_running_entry_fn,
+        mark_recovery_pending_fn=mark_recovery_pending_fn,
+        release_admission_slot_fn=release_admission_slot_fn,
+        shutdown_requested=True,
+        use_entry_fallback=True,
+        coerce_root_to_str=True,
+    )
 
 
 def reconcile_orphaned_running(

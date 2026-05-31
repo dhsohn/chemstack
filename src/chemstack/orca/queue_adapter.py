@@ -25,6 +25,7 @@ from .queue_entries import (
     normalize_text,
     queue_entry_app_name,
     queue_entry_force,
+    queue_entry_matches_target,
     queue_entry_id,
     queue_entry_metadata,
     queue_entry_priority,
@@ -54,10 +55,12 @@ __all__ = [
     "get_active_entry_for_reaction_dir",
     "get_cancel_requested",
     "has_pending_entries",
+    "find_entry_by_target",
     "list_queue",
     "mark_cancelled",
     "mark_completed",
     "mark_failed",
+    "queue_entry_matches_target",
     "queue_entry_app_name",
     "queue_entry_force",
     "queue_entry_id",
@@ -215,6 +218,15 @@ def dequeue_next(allowed_root: Path) -> Optional[QueueEntry]:
         queue_entry_id(entry),
     )
     return entry
+
+
+def find_entry_by_target(entries: Sequence[QueueEntry], target: str) -> QueueEntry | None:
+    """Return the first entry matching a user-facing queue cancel target."""
+
+    for entry in entries:
+        if queue_entry_matches_target(entry, target):
+            return entry
+    return None
 
 
 def mark_completed(allowed_root: Path, queue_id: str, *, run_id: str | None = None) -> bool:

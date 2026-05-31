@@ -52,6 +52,84 @@ class CrestDownstreamPolicy:
         return cls(max_candidates=max(1, int(max_candidates)))
 
 
+def _crest_stage_input(
+    contract: CrestArtifactContract,
+    *,
+    rank: int,
+    artifact_path: str,
+    metadata: dict[str, Any],
+) -> WorkflowStageInput:
+    return WorkflowStageInput(
+        source_job_id=contract.job_id,
+        source_job_type=f"crest_{contract.mode}",
+        reaction_key=contract.molecule_key,
+        selected_input_xyz=contract.selected_input_xyz,
+        rank=rank,
+        kind="crest_conformer",
+        artifact_path=artifact_path,
+        selected=rank == 1,
+        metadata=metadata,
+    )
+
+
+def _crest_frame_metadata(
+    *,
+    contract: CrestArtifactContract,
+    artifact_path: str,
+    frame: Any,
+    frame_count: int,
+) -> dict[str, Any]:
+    metadata: dict[str, Any] = {
+        "mode": contract.mode,
+        "source_artifact_path": artifact_path,
+        "source_frame_index": frame.index,
+        "source_frame_count": frame_count,
+    }
+    if frame.energy is not None:
+        metadata["source_frame_energy"] = frame.energy
+    return metadata
+
+
+def _crest_conformer_inputs_for_path(
+    contract: CrestArtifactContract,
+    *,
+    artifact_path: str,
+    start_rank: int,
+    max_candidates: int,
+) -> tuple[WorkflowStageInput, ...]:
+    frames = load_xyz_frames(artifact_path)
+    if len(frames) <= 1:
+        return (
+            _crest_stage_input(
+                contract,
+                rank=start_rank,
+                artifact_path=artifact_path,
+                metadata={"mode": contract.mode},
+            ),
+        )
+
+    rows: list[WorkflowStageInput] = []
+    frame_count = len(frames)
+    for offset, frame in enumerate(frames):
+        rank = start_rank + offset
+        rows.append(
+            _crest_stage_input(
+                contract,
+                rank=rank,
+                artifact_path=artifact_path,
+                metadata=_crest_frame_metadata(
+                    contract=contract,
+                    artifact_path=artifact_path,
+                    frame=frame,
+                    frame_count=frame_count,
+                ),
+            )
+        )
+        if len(rows) >= max_candidates:
+            break
+    return tuple(rows)
+
+
 def to_workflow_stage_inputs(
     contract: CrestArtifactContract,
     *,
@@ -64,49 +142,13 @@ def to_workflow_stage_inputs(
         text = normalize_text(path, none="None")
         if not text:
             continue
-        frames = load_xyz_frames(text)
-        if len(frames) <= 1:
-            rows.append(
-                WorkflowStageInput(
-                    source_job_id=contract.job_id,
-                    source_job_type=f"crest_{contract.mode}",
-                    reaction_key=contract.molecule_key,
-                    selected_input_xyz=contract.selected_input_xyz,
-                    rank=next_rank,
-                    kind="crest_conformer",
-                    artifact_path=text,
-                    selected=next_rank == 1,
-                    metadata={"mode": contract.mode},
-                )
-            )
-            next_rank += 1
-            if len(rows) >= active_policy.max_candidates:
-                break
-            continue
-
-        frame_count = len(frames)
-        for frame in frames:
-            metadata: dict[str, Any] = {
-                "mode": contract.mode,
-                "source_artifact_path": text,
-                "source_frame_index": frame.index,
-                "source_frame_count": frame_count,
-            }
-            if frame.energy is not None:
-                metadata["source_frame_energy"] = frame.energy
-            rows.append(
-                WorkflowStageInput(
-                    source_job_id=contract.job_id,
-                    source_job_type=f"crest_{contract.mode}",
-                    reaction_key=contract.molecule_key,
-                    selected_input_xyz=contract.selected_input_xyz,
-                    rank=next_rank,
-                    kind="crest_conformer",
-                    artifact_path=text,
-                    selected=next_rank == 1,
-                    metadata=metadata,
-                )
-            )
+        for stage_input in _crest_conformer_inputs_for_path(
+            contract,
+            artifact_path=text,
+            start_rank=next_rank,
+            max_candidates=active_policy.max_candidates - len(rows),
+        ):
+            rows.append(stage_input)
             next_rank += 1
             if len(rows) >= active_policy.max_candidates:
                 break

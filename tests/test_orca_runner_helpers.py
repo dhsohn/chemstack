@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, call, patch
 
 from chemstack.orca.orca_runner import OrcaRunner
+from tests.process_helpers import patch_missing_process_group
 
 
 def test_ensure_trailing_newline_only_appends_when_needed(tmp_path: Path) -> None:
@@ -35,7 +36,7 @@ def test_terminate_subprocess_tree_falls_back_to_terminate_when_sigterm_group_ki
     proc.pid = 4242
     proc.wait.return_value = 0
 
-    with patch("chemstack.orca.orca_runner.os.killpg", side_effect=ProcessLookupError("no pg")):
+    with patch_missing_process_group("chemstack.orca.orca_runner.os.killpg"):
         runner._terminate_subprocess_tree(proc)
 
     proc.terminate.assert_called_once()
@@ -88,7 +89,7 @@ def test_terminate_subprocess_tree_ignores_terminate_failure_when_sigterm_group_
     proc.terminate.side_effect = Exception("terminate failed")
     proc.wait.return_value = 0
 
-    with patch("chemstack.orca.orca_runner.os.killpg", side_effect=ProcessLookupError("no pg")):
+    with patch_missing_process_group("chemstack.orca.orca_runner.os.killpg"):
         runner._terminate_subprocess_tree(proc)
 
     proc.terminate.assert_called_once()

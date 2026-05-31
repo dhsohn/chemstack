@@ -7,6 +7,7 @@ import json
 import os
 import time
 from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterator, NoReturn, Optional
 
@@ -206,6 +207,99 @@ def current_process_start_ticks() -> Optional[int]:
     return process_start_ticks(os.getpid())
 
 
+@dataclass(frozen=True)
+class FileLockOptions:
+    lock_path: Path
+    lock_payload_obj: Dict[str, Any]
+    timeout_seconds: Optional[int] = None
+    poll_interval_seconds: float = 0.5
+
+
+@dataclass(frozen=True)
+class FileLockDeps:
+    parse_lock_info: Callable[[Path], Dict[str, Any]]
+    is_process_alive: Callable[[int], bool]
+    process_start_ticks: Callable[[int], Optional[int]]
+    logger: logging.Logger
+
+
+@dataclass(frozen=True)
+class FileLockMessages:
+    acquired_log_template: str
+    released_log_template: str
+    stale_pid_reuse_log_template: str
+    stale_lock_log_template: str
+
+
+@dataclass(frozen=True)
+class FileLockErrorBuilders:
+    active_lock_error_builder: Callable[[int, Dict[str, Any], Path], RuntimeError] | None = None
+    unreadable_lock_error_builder: Callable[[Path], RuntimeError] | None = None
+    timeout_error_builder: Callable[[Path, int], RuntimeError] | None = None
+    stale_remove_error_builder: Callable[[int, Path, OSError], RuntimeError] | None = None
+
+
+@contextmanager
+def acquire_file_lock_from_options(
+    *,
+    options: FileLockOptions,
+    deps: FileLockDeps,
+    messages: FileLockMessages,
+    errors: FileLockErrorBuilders | None = None,
+) -> Iterator[None]:
+    """Acquire an exclusive lock file using grouped options/dependencies."""
+
+    active_errors = errors or FileLockErrorBuilders()
+    lock_path = options.lock_path
+    timeout_seconds = options.timeout_seconds
+    lock_payload = json.dumps(options.lock_payload_obj, ensure_ascii=True)
+    deadline = time.monotonic() + timeout_seconds if timeout_seconds is not None else None
+
+    while True:
+        if _write_lock_payload(lock_path, lock_payload):
+            deps.logger.debug(messages.acquired_log_template, lock_path)
+            break
+
+        lock_info = deps.parse_lock_info(lock_path)
+        if _handle_existing_lock(
+            lock_path=lock_path,
+            lock_info=lock_info,
+            is_process_alive_fn=deps.is_process_alive,
+            process_start_ticks_fn=deps.process_start_ticks,
+            logger=deps.logger,
+            stale_pid_reuse_log_template=messages.stale_pid_reuse_log_template,
+            stale_lock_log_template=messages.stale_lock_log_template,
+            deadline=deadline,
+            active_lock_error_builder=active_errors.active_lock_error_builder,
+            unreadable_lock_error_builder=active_errors.unreadable_lock_error_builder,
+            stale_remove_error_builder=active_errors.stale_remove_error_builder,
+        ):
+            continue
+
+        if deadline is None:
+            _raise_lock_timeout(
+                timeout_seconds=timeout_seconds,
+                lock_path=lock_path,
+                timeout_error_builder=active_errors.timeout_error_builder,
+            )
+        if time.monotonic() >= deadline:
+            _raise_lock_timeout(
+                timeout_seconds=timeout_seconds,
+                lock_path=lock_path,
+                timeout_error_builder=active_errors.timeout_error_builder,
+            )
+        time.sleep(options.poll_interval_seconds)
+
+    try:
+        yield
+    finally:
+        try:
+            lock_path.unlink()
+            deps.logger.debug(messages.released_log_template, lock_path)
+        except OSError:
+            pass
+
+
 @contextmanager
 def acquire_file_lock(
     *,
@@ -232,50 +326,30 @@ def acquire_file_lock(
     immediately via the corresponding builders.
     If ``timeout_seconds`` is set, lock acquisition retries until timeout.
     """
-
-    lock_payload = json.dumps(lock_payload_obj, ensure_ascii=True)
-    deadline = time.monotonic() + timeout_seconds if timeout_seconds is not None else None
-
-    while True:
-        if _write_lock_payload(lock_path, lock_payload):
-            logger.debug(acquired_log_template, lock_path)
-            break
-
-        lock_info = parse_lock_info_fn(lock_path)
-        if _handle_existing_lock(
+    with acquire_file_lock_from_options(
+        options=FileLockOptions(
             lock_path=lock_path,
-            lock_info=lock_info,
-            is_process_alive_fn=is_process_alive_fn,
-            process_start_ticks_fn=process_start_ticks_fn,
+            lock_payload_obj=lock_payload_obj,
+            timeout_seconds=timeout_seconds,
+            poll_interval_seconds=poll_interval_seconds,
+        ),
+        deps=FileLockDeps(
+            parse_lock_info=parse_lock_info_fn,
+            is_process_alive=is_process_alive_fn,
+            process_start_ticks=process_start_ticks_fn,
             logger=logger,
+        ),
+        messages=FileLockMessages(
+            acquired_log_template=acquired_log_template,
+            released_log_template=released_log_template,
             stale_pid_reuse_log_template=stale_pid_reuse_log_template,
             stale_lock_log_template=stale_lock_log_template,
-            deadline=deadline,
+        ),
+        errors=FileLockErrorBuilders(
             active_lock_error_builder=active_lock_error_builder,
             unreadable_lock_error_builder=unreadable_lock_error_builder,
+            timeout_error_builder=timeout_error_builder,
             stale_remove_error_builder=stale_remove_error_builder,
-        ):
-            continue
-
-        if deadline is None:
-            _raise_lock_timeout(
-                timeout_seconds=timeout_seconds,
-                lock_path=lock_path,
-                timeout_error_builder=timeout_error_builder,
-            )
-        if time.monotonic() >= deadline:
-            _raise_lock_timeout(
-                timeout_seconds=timeout_seconds,
-                lock_path=lock_path,
-                timeout_error_builder=timeout_error_builder,
-            )
-        time.sleep(poll_interval_seconds)
-
-    try:
+        ),
+    ):
         yield
-    finally:
-        try:
-            lock_path.unlink()
-            logger.debug(released_log_template, lock_path)
-        except OSError:
-            pass

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from typing import Any, ClassVar
 
 from . import _orchestration_dep_builders as _dep_builders
@@ -110,67 +110,20 @@ class _OrchestrationStageDepGroup:
     dep_names: tuple[str, ...]
 
 
+def _stage_dep_group(name: str, deps_type: type[Any]) -> _OrchestrationStageDepGroup:
+    return _OrchestrationStageDepGroup(
+        name=name,
+        deps_type=deps_type,
+        dep_names=tuple(field.name for field in fields(deps_type)),
+    )
+
+
 _ORCHESTRATION_STAGE_DEP_REGISTRY: tuple[_OrchestrationStageDepGroup, ...] = (
-    _OrchestrationStageDepGroup("builders", OrchestrationStageBuilderDeps, ("_new_xtb_stage",)),
-    _OrchestrationStageDepGroup(
-        "materialization",
-        OrchestrationStageMaterializationDeps,
-        (
-            "_append_crest_orca_stages",
-            "_append_reaction_orca_stages",
-            "_append_reaction_xtb_stages",
-        ),
-    ),
-    _OrchestrationStageDepGroup(
-        "runtime",
-        OrchestrationStageRuntimeDeps,
-        (
-            "_append_unique_artifact",
-            "_completed_crest_roles",
-            "_completed_crest_stage",
-            "_ensure_crest_job_dir",
-            "_ensure_xtb_job_dir",
-            "_sync_crest_stage",
-            "_sync_orca_stage",
-            "_sync_xtb_stage",
-            "_write_xtb_path_job",
-            "_xtb_attempt_record",
-            "_xtb_attempt_rows",
-            "_xtb_current_attempt_number",
-            "_xtb_handoff_status",
-            "_xtb_path_retry_limit",
-            "_xtb_retry_recipe",
-        ),
-    ),
-    _OrchestrationStageDepGroup(
-        "support",
-        OrchestrationStageSupportDeps,
-        (
-            "_clear_reaction_xtb_handoff_error_if_recovering",
-            "_coerce_mapping",
-            "_load_config_organized_root",
-            "_load_config_root",
-            "_normalize_text",
-            "_reaction_orca_source_candidate_path",
-            "_reaction_ts_guess_error",
-            "_safe_int",
-            "_stage_metadata",
-            "_submission_target",
-            "_task_payload_dict",
-        ),
-    ),
-    _OrchestrationStageDepGroup(
-        "workflow",
-        OrchestrationStageWorkflowDeps,
-        (
-            "_maybe_notify_workflow_phase_summary",
-            "_persist_workflow_progress",
-            "_recompute_workflow_status",
-            "_stage_failure_is_recoverable",
-            "_workflow_has_active_children",
-            "_workflow_sync_only",
-        ),
-    ),
+    _stage_dep_group("builders", OrchestrationStageBuilderDeps),
+    _stage_dep_group("materialization", OrchestrationStageMaterializationDeps),
+    _stage_dep_group("runtime", OrchestrationStageRuntimeDeps),
+    _stage_dep_group("support", OrchestrationStageSupportDeps),
+    _stage_dep_group("workflow", OrchestrationStageWorkflowDeps),
 )
 
 _ORCHESTRATION_STAGE_DEP_GROUPS: Mapping[str, tuple[str, ...]] = {

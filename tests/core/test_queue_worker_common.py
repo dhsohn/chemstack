@@ -12,6 +12,7 @@ from chemstack.core.queue import child_process as child_process_helpers
 from chemstack.core.queue.dependencies import dependency_group
 from chemstack.core.queue import processes as process_helpers
 from chemstack.core.queue import worker as worker_common
+from tests.process_helpers import FakeManagedProcess, recording_killpg
 
 
 def _cfg(**runtime_overrides: object) -> SimpleNamespace:
@@ -344,33 +345,22 @@ def test_terminate_process_group_handles_finished_process() -> None:
 
 
 def test_terminate_process_group_falls_back_to_proc_methods() -> None:
-    calls: list[str] = []
-
-    class Process:
-        pid = 123
-
-        def poll(self) -> None:
-            return None
-
-        def terminate(self) -> None:
-            calls.append("terminate")
-
-        def kill(self) -> None:
-            calls.append("kill")
-
-        def wait(self, timeout: float | None = None) -> int:
-            calls.append(f"wait:{timeout}")
-            raise subprocess.TimeoutExpired(
-                cmd="worker",
-                timeout=float(timeout if timeout is not None else 0),
-            )
-
-    def killpg(_pid: int, _signal: int) -> None:
-        calls.append("killpg")
-        raise ProcessLookupError("missing")
+    proc = FakeManagedProcess(
+        pid=123,
+        wait_side_effects=[
+            subprocess.TimeoutExpired(cmd="worker", timeout=1),
+            subprocess.TimeoutExpired(cmd="worker", timeout=2),
+        ],
+    )
+    killpg, killpg_calls = recording_killpg(
+        side_effects=[
+            ProcessLookupError("missing"),
+            ProcessLookupError("missing"),
+        ],
+    )
 
     worker_common.terminate_process_group(
-        Process(),
+        proc,
         graceful_timeout=1,
         kill_timeout=2,
         killpg_fn=killpg,
@@ -378,7 +368,10 @@ def test_terminate_process_group_falls_back_to_proc_methods() -> None:
         sigkill=9,
     )
 
-    assert calls == ["killpg", "terminate", "wait:1", "killpg", "kill", "wait:2"]
+    assert killpg_calls == [(123, 15), (123, 9)]
+    assert proc.terminate_calls == 1
+    assert proc.kill_calls == 1
+    assert proc.wait_calls == [1, 2]
 
 
 def test_install_shutdown_signal_handlers_invokes_callback(

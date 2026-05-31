@@ -10,16 +10,12 @@ from chemstack.core.paths.workflow import (
     workflow_workspace_internal_engine_paths,
     workflow_workspace_internal_engine_paths_from_path,
 )
-from chemstack.core.utils.coercion import normalize_text as _shared_normalize_text
 
 from .location import JobLocationRecord
 from .store import list_job_locations, resolve_job_location
+from .text import normalize_index_text as normalize_text
 
 _KEY_RE = re.compile(r"[^A-Za-z0-9._-]+")
-
-
-def normalize_text(value: Any) -> str:
-    return _shared_normalize_text(value, none="None")
 
 
 def normalize_identifier(value: str, *, default: str) -> str:

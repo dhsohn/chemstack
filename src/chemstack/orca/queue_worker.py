@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import logging
 import os
-import subprocess
 import time
 from pathlib import Path
 from typing import Any
@@ -60,6 +59,12 @@ from .runtime.worker_job import BackgroundRunJobProcess, start_background_run_jo
 from .state import load_organized_ref, load_report_json, load_state
 from .telegram_notifier import notify_run_finished_event
 from .job_locations import record_from_artifacts, resolve_job_metadata, resource_dict, upsert_job_record
+from ._queue_worker_lifecycle import (
+    OrcaQueueWorkerLifecycleHooks,
+    attach_started_orca_process,
+    cancel_orca_running_job,
+    finalize_orca_finished_job,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -316,6 +321,24 @@ def _worker_admission_limit(cfg: AppConfig, fallback_max_concurrent: int) -> int
     return normalized_limit
 
 
+def _orca_worker_lifecycle_hooks() -> OrcaQueueWorkerLifecycleHooks:
+    return OrcaQueueWorkerLifecycleHooks(
+        queue_entry_id_fn=queue_entry_id,
+        queue_entry_app_name_fn=queue_entry_app_name,
+        queue_entry_task_id_fn=queue_entry_task_id,
+        update_slot_metadata_fn=update_slot_metadata,
+        terminate_process_fn=_terminate_process,
+        mark_failed_fn=mark_failed,
+        upsert_running_job_record_fn=_upsert_running_job_record,
+        get_run_id_from_state_fn=_get_run_id_from_state,
+        get_cancel_requested_fn=get_cancel_requested,
+        mark_cancelled_fn=mark_cancelled,
+        mark_completed_fn=mark_completed,
+        upsert_terminal_job_record_fn=_upsert_terminal_job_record,
+        notify_terminal_job_from_state_fn=_notify_terminal_job_from_state,
+    )
+
+
 class QueueWorker(PidFileChildProcessQueueWorker):
     """Main worker loop that manages concurrent job execution."""
 
@@ -387,38 +410,14 @@ class QueueWorker(PidFileChildProcessQueueWorker):
         process: BackgroundRunJobProcess,
         admission_token: str,
     ) -> bool:
-        attached = update_slot_metadata(
-            self.admission_root,
-            admission_token,
-            queue_id=queue_entry_id(entry),
-            app_name=queue_entry_app_name(entry),
-            task_id=queue_entry_task_id(entry),
+        return attach_started_orca_process(
+            self,
+            queue_root,
+            entry,
+            process=process,
+            admission_token=admission_token,
+            hooks=_orca_worker_lifecycle_hooks(),
         )
-        if not attached:
-            logger.error(
-                "Failed to attach queue identity to admission slot %s for job %s",
-                admission_token,
-                queue_entry_id(entry),
-            )
-            _terminate_process(process)
-            self._mark_entry_failed_and_release(
-                queue_root,
-                entry,
-                admission_token,
-                error="admission_slot_missing",
-                mark_failed_fn=mark_failed,
-            )
-            return False
-
-        try:
-            _upsert_running_job_record(self.cfg, entry)
-        except Exception as exc:
-            logger.warning(
-                "Failed to update running job location for %s: %s",
-                queue_entry_id(entry),
-                exc,
-            )
-        return True
 
     def _handle_worker_start_error(
         self,
@@ -466,31 +465,13 @@ class QueueWorker(PidFileChildProcessQueueWorker):
         self._finalize_finished_job(queue_id, job, rc=rc)
 
     def _finalize_finished_job(self, queue_id: str, job: _RunningJob, *, rc: int) -> None:
-        run_id = _get_run_id_from_state(job.reaction_dir)
-        if get_cancel_requested(self.allowed_root, queue_id):
-            logger.info("Job cancelled: %s (rc=%d)", queue_id, rc)
-            mark_cancelled(self.allowed_root, queue_id)
-        elif rc == 0:
-            logger.info("Job completed: %s (rc=%d)", queue_id, rc)
-            mark_completed(self.allowed_root, queue_id, run_id=run_id)
-            self._auto_organize_terminal_job(job)
-        else:
-            logger.warning("Job failed: %s (rc=%d)", queue_id, rc)
-            mark_failed(
-                self.allowed_root,
-                queue_id,
-                error=f"exit_code={rc}",
-                run_id=run_id,
-            )
-        try:
-            _upsert_terminal_job_record(self.cfg, job.reaction_dir, fallback_job_id=job.task_id)
-        except Exception as exc:
-            logger.warning("Failed to update terminal job location for %s: %s", queue_id, exc)
-        try:
-            _notify_terminal_job_from_state(self.cfg, job.reaction_dir)
-        except Exception as exc:
-            logger.warning("Failed to send terminal notification for %s: %s", queue_id, exc)
-        self._release_admission_slot(job.admission_token)
+        finalize_orca_finished_job(
+            self,
+            queue_id,
+            job,
+            rc=rc,
+            hooks=_orca_worker_lifecycle_hooks(),
+        )
 
     def _auto_organize_terminal_job(self, job: _RunningJob) -> None:
         if not self.auto_organize:
@@ -518,14 +499,12 @@ class QueueWorker(PidFileChildProcessQueueWorker):
                 self._discard_running_job(queue_id)
 
     def _cancel_running_job(self, queue_id: str, job: _RunningJob) -> None:
-        logger.info("Cancelling running job: %s", queue_id)
-        _terminate_process(job.process)
-        try:
-            job.process.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            pass
-        mark_cancelled(self.allowed_root, queue_id)
-        self._release_admission_slot(job.admission_token)
+        cancel_orca_running_job(
+            self,
+            queue_id,
+            job,
+            hooks=_orca_worker_lifecycle_hooks(),
+        )
 
     # -- Shutdown ---------------------------------------------------------
 

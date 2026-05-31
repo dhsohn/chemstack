@@ -193,24 +193,10 @@ def cancel_target(
 
         cfg = load_config(normalized_config)
         allowed_root = Path(cfg.runtime.allowed_root).expanduser().resolve()
-        target_path = None
-        try:
-            target_path = str(Path(normalized_target).expanduser().resolve())
-        except OSError:
-            target_path = None
-        matched = None
-        for entry in queue_adapter.list_queue(allowed_root):
-            aliases = {
-                queue_adapter.queue_entry_id(entry),
-                queue_adapter.queue_entry_task_id(entry),
-                queue_adapter.queue_entry_run_id(entry),
-                queue_adapter.queue_entry_reaction_dir(entry),
-            }
-            if target_path:
-                aliases.add(target_path)
-            if normalized_target in aliases:
-                matched = entry
-                break
+        matched = queue_adapter.find_entry_by_target(
+            queue_adapter.list_queue(allowed_root),
+            normalized_target,
+        )
         if matched is None:
             return _failure_payload(
                 command_argv=command_argv,

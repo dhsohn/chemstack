@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from argparse import Namespace
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from chemstack.core.queue import DuplicateQueueEntryError
@@ -29,6 +29,38 @@ class InternalEngineSubmitterDeps:
     queue_entries_with_roots_fn: Callable[[Any], list[tuple[Any, Any]]]
     request_cancel_fn: Callable[[Any, str], Any | None]
     display_status_fn: Callable[[Any], str]
+
+
+@dataclass(frozen=True)
+class InternalEngineCommandResult:
+    status: str
+    command_argv: list[str]
+    returncode: int
+    reason: str = ""
+    stdout: str = ""
+    stderr: str = ""
+    parsed_stdout: dict[str, str] = field(default_factory=dict)
+    job_id: str = ""
+    queue_id: str = ""
+    job_dir: str = ""
+    extra_fields: dict[str, Any] = field(default_factory=dict)
+
+    def to_payload(self) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "status": self.status,
+            "reason": self.reason,
+            "returncode": self.returncode,
+            "command_argv": list(self.command_argv),
+            "stdout": self.stdout,
+            "stderr": self.stderr,
+            "parsed_stdout": dict(self.parsed_stdout),
+            "job_id": self.job_id,
+            "queue_id": self.queue_id,
+        }
+        if self.job_dir:
+            payload["job_dir"] = self.job_dir
+        payload.update(self.extra_fields)
+        return payload
 
 
 @dataclass(frozen=True)
@@ -170,21 +202,36 @@ def _submission_failure_payload(
         stdout="",
         stderr=stderr,
     )
-    payload = {
-        "status": status,
-        "reason": reason,
-        "returncode": 1,
-        "command_argv": command_trace,
-        "stdout": "",
-        "stderr": stderr,
-        "parsed_stdout": parsed,
-        "job_id": "",
-        "queue_id": "",
-        "job_dir": job_dir,
-    }
-    if extra_fields:
-        payload.update(extra_fields)
-    return payload
+    return InternalEngineCommandResult(
+        status=status,
+        reason=reason,
+        returncode=1,
+        command_argv=command_trace,
+        stderr=stderr,
+        parsed_stdout=parsed,
+        job_dir=job_dir,
+        extra_fields=dict(extra_fields or {}),
+    ).to_payload()
+
+
+def _submission_success_payload(
+    *,
+    command_trace: list[str],
+    parsed: dict[str, str],
+    job_dir: str,
+    extra_fields: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    return InternalEngineCommandResult(
+        status="submitted",
+        returncode=0,
+        command_argv=command_trace,
+        stdout=_key_value_stdout(parsed),
+        parsed_stdout=parsed,
+        job_id=parsed.get("job_id", ""),
+        queue_id=parsed.get("queue_id", ""),
+        job_dir=parsed.get("job_dir", job_dir),
+        extra_fields=dict(extra_fields or {}),
+    ).to_payload()
 
 
 def submit_internal_engine_job_dir(
@@ -253,19 +300,12 @@ def submit_internal_engine_job_dir(
             **extras,
         }
     )
-    return {
-        "status": "submitted",
-        "reason": "",
-        "returncode": 0,
-        "command_argv": command_trace,
-        "stdout": _key_value_stdout(parsed),
-        "stderr": "",
-        "parsed_stdout": parsed,
-        "job_id": parsed.get("job_id", ""),
-        "queue_id": parsed.get("queue_id", ""),
-        "job_dir": parsed.get("job_dir", normalize_text(resolved_job_dir) or job_dir),
-        **extras,
-    }
+    return _submission_success_payload(
+        command_trace=command_trace,
+        parsed=parsed,
+        job_dir=normalize_text(resolved_job_dir) or job_dir,
+        extra_fields=extras,
+    )
 
 
 def submit_engine_job_dir(
@@ -314,17 +354,30 @@ def _cancel_failure_payload(
     command_trace: list[str],
     stderr: str,
 ) -> dict[str, Any]:
-    return {
-        "status": "failed",
-        "reason": "cancel_command_failed",
-        "returncode": 1,
-        "command_argv": command_trace,
-        "stdout": "",
-        "stderr": stderr,
-        "parsed_stdout": {},
-        "queue_id": "",
-        "job_id": "",
-    }
+    return InternalEngineCommandResult(
+        status="failed",
+        reason="cancel_command_failed",
+        returncode=1,
+        command_argv=command_trace,
+        stderr=stderr,
+    ).to_payload()
+
+
+def _cancel_success_payload(
+    *,
+    command_trace: list[str],
+    status: str,
+    parsed: dict[str, str],
+) -> dict[str, Any]:
+    return InternalEngineCommandResult(
+        status=status,
+        returncode=0,
+        command_argv=command_trace,
+        stdout=_key_value_stdout(parsed),
+        parsed_stdout=parsed,
+        queue_id=parsed.get("queue_id", ""),
+        job_id=parsed.get("job_id", ""),
+    ).to_payload()
 
 
 def cancel_internal_engine_target(
@@ -383,17 +436,11 @@ def cancel_internal_engine_target(
             "job_id": getattr(updated, "task_id", ""),
         }
     )
-    return {
-        "status": status,
-        "reason": "",
-        "returncode": 0,
-        "command_argv": command_trace,
-        "stdout": _key_value_stdout(parsed),
-        "stderr": "",
-        "parsed_stdout": parsed,
-        "queue_id": parsed.get("queue_id", ""),
-        "job_id": parsed.get("job_id", ""),
-    }
+    return _cancel_success_payload(
+        command_trace=command_trace,
+        status=status,
+        parsed=parsed,
+    )
 
 
 def cancel_engine_target(

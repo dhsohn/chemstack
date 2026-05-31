@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from functools import cached_property
 from pathlib import Path
 from typing import Any
 
@@ -81,7 +82,7 @@ def build_engine_notifier(
 
 
 @dataclass(frozen=True)
-class EngineNotificationModule:
+class EngineNotificationDelivery:
     notifier: EngineNotifier
     selected_field_name: str
     detail_field_names: tuple[str, ...]
@@ -94,11 +95,7 @@ class EngineNotificationModule:
             if field_name in values
         ]
 
-    def notify_lifecycle_request(
-        self,
-        cfg: Any,
-        request: EngineJobLifecycleRequest,
-    ) -> bool:
+    def deliver_lifecycle(self, cfg: Any, request: EngineJobLifecycleRequest) -> bool:
         return send_lifecycle_event(
             self.notifier,
             cfg,
@@ -110,6 +107,72 @@ class EngineNotificationModule:
             selected_field_name=self.selected_field_name,
             detail_fields=self.detail_fields(request.detail_values),
         )
+
+    def deliver_terminal(self, cfg: Any, request: EngineJobTerminalRequest) -> bool:
+        return send_terminal_event(
+            self.notifier,
+            cfg,
+            headline=request.headline,
+            job_id=request.job_id,
+            queue_id=request.queue_id,
+            status=request.status,
+            reason=request.reason,
+            job_dir=request.job_dir,
+            selected_xyz=request.selected_xyz,
+            selected_field_name=self.selected_field_name,
+            detail_fields=self.detail_fields(request.detail_values),
+            count_field=(self.terminal_count_field, request.count_value),
+            extra_lines=request.extra_lines,
+        )
+
+    def deliver_finished(self, cfg: Any, request: EngineJobFinishedRequest) -> bool:
+        extra_lines = optional_terminal_lines(
+            organized_output_dir=request.organized_output_dir,
+            resource_request=request.resource_request,
+            resource_actual=request.resource_actual,
+        )
+        return self.deliver_terminal(
+            cfg,
+            EngineJobTerminalRequest(
+                headline=terminal_headline(request.status),
+                job_id=request.job_id,
+                queue_id=request.queue_id,
+                status=request.status,
+                reason=request.reason,
+                job_dir=request.job_dir,
+                selected_xyz=request.selected_xyz,
+                count_value=request.count_value,
+                detail_values=request.detail_values,
+                extra_lines=extra_lines or None,
+            ),
+        )
+
+
+@dataclass(frozen=True)
+class EngineNotificationModule:
+    notifier: EngineNotifier
+    selected_field_name: str
+    detail_field_names: tuple[str, ...]
+    terminal_count_field: str
+
+    @cached_property
+    def delivery(self) -> EngineNotificationDelivery:
+        return EngineNotificationDelivery(
+            notifier=self.notifier,
+            selected_field_name=self.selected_field_name,
+            detail_field_names=self.detail_field_names,
+            terminal_count_field=self.terminal_count_field,
+        )
+
+    def detail_fields(self, values: Mapping[str, object]) -> list[EngineEventField]:
+        return self.delivery.detail_fields(values)
+
+    def notify_lifecycle_request(
+        self,
+        cfg: Any,
+        request: EngineJobLifecycleRequest,
+    ) -> bool:
+        return self.delivery.deliver_lifecycle(cfg, request)
 
     def notify_lifecycle(
         self,
@@ -139,21 +202,7 @@ class EngineNotificationModule:
         cfg: Any,
         request: EngineJobTerminalRequest,
     ) -> bool:
-        return send_terminal_event(
-            self.notifier,
-            cfg,
-            headline=request.headline,
-            job_id=request.job_id,
-            queue_id=request.queue_id,
-            status=request.status,
-            reason=request.reason,
-            job_dir=request.job_dir,
-            selected_xyz=request.selected_xyz,
-            selected_field_name=self.selected_field_name,
-            detail_fields=self.detail_fields(request.detail_values),
-            count_field=(self.terminal_count_field, request.count_value),
-            extra_lines=request.extra_lines,
-        )
+        return self.delivery.deliver_terminal(cfg, request)
 
     def notify_terminal(
         self,
@@ -191,26 +240,7 @@ class EngineNotificationModule:
         cfg: Any,
         request: EngineJobFinishedRequest,
     ) -> bool:
-        extra_lines = optional_terminal_lines(
-            organized_output_dir=request.organized_output_dir,
-            resource_request=request.resource_request,
-            resource_actual=request.resource_actual,
-        )
-        return self.notify_terminal_request(
-            cfg,
-            EngineJobTerminalRequest(
-                headline=terminal_headline(request.status),
-                job_id=request.job_id,
-                queue_id=request.queue_id,
-                status=request.status,
-                reason=request.reason,
-                job_dir=request.job_dir,
-                selected_xyz=request.selected_xyz,
-                count_value=request.count_value,
-                detail_values=request.detail_values,
-                extra_lines=extra_lines or None,
-            ),
-        )
+        return self.delivery.deliver_finished(cfg, request)
 
     def notify_finished(
         self,
@@ -264,22 +294,23 @@ def build_engine_notification_module(
 
 
 @dataclass(frozen=True)
-class EngineJobNotifications:
-    notifications: EngineNotificationModule
+class EngineNotificationRequestFactory:
+    detail_field_names: tuple[str, ...]
+    terminal_count_field: str
     terminal_count_param_name: str | None = None
 
     @property
-    def _terminal_count_param(self) -> str:
-        return self.terminal_count_param_name or self.notifications.terminal_count_field
+    def terminal_count_param(self) -> str:
+        return self.terminal_count_param_name or self.terminal_count_field
 
-    def _detail_values(self, values: Mapping[str, object]) -> dict[str, object]:
+    def detail_values(self, values: Mapping[str, object]) -> dict[str, object]:
         return {
             field_name: values[field_name]
-            for field_name in self.notifications.detail_field_names
+            for field_name in self.detail_field_names
             if field_name in values
         }
 
-    def _lifecycle_request(
+    def lifecycle_request(
         self,
         values: Mapping[str, object],
         headline: str,
@@ -290,13 +321,10 @@ class EngineJobNotifications:
             queue_id=_required_str(values, "queue_id"),
             job_dir=_required_path(values, "job_dir"),
             selected_xyz=_required_path(values, "selected_xyz"),
-            detail_values=self._detail_values(values),
+            detail_values=self.detail_values(values),
         )
 
-    def _terminal_request(
-        self,
-        values: Mapping[str, object],
-    ) -> EngineJobTerminalRequest:
+    def terminal_request(self, values: Mapping[str, object]) -> EngineJobTerminalRequest:
         return EngineJobTerminalRequest(
             headline=_required_str(values, "headline"),
             job_id=_required_str(values, "job_id"),
@@ -305,15 +333,12 @@ class EngineJobNotifications:
             reason=_required_str(values, "reason"),
             job_dir=_required_path(values, "job_dir"),
             selected_xyz=_required_path(values, "selected_xyz"),
-            count_value=_required_int(values, self._terminal_count_param),
-            detail_values=self._detail_values(values),
+            count_value=_required_int(values, self.terminal_count_param),
+            detail_values=self.detail_values(values),
             extra_lines=_optional_lines(values, "extra_lines"),
         )
 
-    def _finished_request(
-        self,
-        values: Mapping[str, object],
-    ) -> EngineJobFinishedRequest:
+    def finished_request(self, values: Mapping[str, object]) -> EngineJobFinishedRequest:
         return EngineJobFinishedRequest(
             job_id=_required_str(values, "job_id"),
             queue_id=_required_str(values, "queue_id"),
@@ -321,12 +346,48 @@ class EngineJobNotifications:
             reason=_required_str(values, "reason"),
             job_dir=_required_path(values, "job_dir"),
             selected_xyz=_required_path(values, "selected_xyz"),
-            count_value=_required_int(values, self._terminal_count_param),
-            detail_values=self._detail_values(values),
+            count_value=_required_int(values, self.terminal_count_param),
+            detail_values=self.detail_values(values),
             organized_output_dir=_optional_path(values, "organized_output_dir"),
             resource_request=_optional_int_dict(values, "resource_request"),
             resource_actual=_optional_int_dict(values, "resource_actual"),
         )
+
+
+@dataclass(frozen=True)
+class EngineJobNotifications:
+    notifications: EngineNotificationModule
+    terminal_count_param_name: str | None = None
+
+    @cached_property
+    def request_factory(self) -> EngineNotificationRequestFactory:
+        return EngineNotificationRequestFactory(
+            detail_field_names=self.notifications.detail_field_names,
+            terminal_count_field=self.notifications.terminal_count_field,
+            terminal_count_param_name=self.terminal_count_param_name,
+        )
+
+    def _detail_values(self, values: Mapping[str, object]) -> dict[str, object]:
+        return self.request_factory.detail_values(values)
+
+    def _lifecycle_request(
+        self,
+        values: Mapping[str, object],
+        headline: str,
+    ) -> EngineJobLifecycleRequest:
+        return self.request_factory.lifecycle_request(values, headline)
+
+    def _terminal_request(
+        self,
+        values: Mapping[str, object],
+    ) -> EngineJobTerminalRequest:
+        return self.request_factory.terminal_request(values)
+
+    def _finished_request(
+        self,
+        values: Mapping[str, object],
+    ) -> EngineJobFinishedRequest:
+        return self.request_factory.finished_request(values)
 
     def notify_job_queued(self, cfg: Any, **values: object) -> bool:
         return self.notifications.notify_lifecycle_request(
@@ -434,7 +495,9 @@ def send_terminal_event(
 
 __all__ = [
     "EngineJobNotifications",
+    "EngineNotificationDelivery",
     "EngineNotificationModule",
+    "EngineNotificationRequestFactory",
     "EngineNotifier",
     "build_engine_job_notifications",
     "build_engine_notification_module",

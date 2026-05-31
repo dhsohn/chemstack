@@ -278,6 +278,13 @@ _QUEUE_COLUMN_GAP = "  "
 # first). ``id`` shrinks last because it doubles as the ``queue cancel`` target.
 _QUEUE_MIN_WIDTHS = {"detail": 6, "name": 8, "id": 8}
 _QUEUE_SHRINK_ORDER = ("detail", "name", "id")
+_QUEUE_HEADERS = {
+    "status": "Status",
+    "name": "Name",
+    "detail": "Detail",
+    "id": "ID",
+    "elapsed": "Elapsed",
+}
 
 
 def _terminal_max_width() -> int | None:
@@ -323,13 +330,11 @@ def _fit_queue_widths(widths: dict[str, int], *, max_total: int | None) -> dict[
     return adjusted
 
 
-def queue_table_lines(
+def _prepare_queue_table_rows(
     rows: Sequence[tuple[int, dict[str, Any]]],
     *,
     now: datetime | None = None,
-    max_width: int | None = None,
-    include_id: bool = True,
-) -> list[str]:
+) -> list[dict[str, str]]:
     prepared: list[dict[str, str]] = []
     resolved_now = now or _queue_table_now()
     for indent, item in rows:
@@ -346,29 +351,33 @@ def queue_table_lines(
                 "elapsed": _queue_elapsed_text(item, now=resolved_now),
             }
         )
+    return prepared
 
-    headers = {
-        "status": "Status",
-        "name": "Name",
-        "detail": "Detail",
-        "id": "ID",
-        "elapsed": "Elapsed",
-    }
+
+def _queue_table_columns(*, include_id: bool) -> list[str]:
     # ``id`` is dropped for narrow surfaces (e.g. the Telegram ``/list``) where a
     # full activity id would wrap each row onto a second line.
-    columns = ["status", "name", "detail"] + (["id"] if include_id else []) + ["elapsed"]
+    return ["status", "name", "detail"] + (["id"] if include_id else []) + ["elapsed"]
 
-    def header_width(key: str) -> int:
-        return max(
-            _queue_display_width(headers[key]),
-            max((_queue_display_width(row[key]) for row in prepared), default=0),
-        )
 
+def _queue_table_header_width(key: str, prepared: Sequence[dict[str, str]]) -> int:
+    return max(
+        _queue_display_width(_QUEUE_HEADERS[key]),
+        max((_queue_display_width(row[key]) for row in prepared), default=0),
+    )
+
+
+def _queue_table_widths(
+    prepared: Sequence[dict[str, str]],
+    columns: Sequence[str],
+    *,
+    max_width: int | None = None,
+) -> dict[str, int]:
     # Soft caps keep wide values from dominating before terminal-fit shrinking.
-    widths = {key: header_width(key) for key in columns}
-    widths["detail"] = max(_queue_display_width(headers["detail"]), min(36, widths["detail"]))
-    widths["name"] = max(_queue_display_width(headers["name"]), min(32, widths["name"]))
-    widths["elapsed"] = max(_queue_display_width(headers["elapsed"]), 8)
+    widths = {key: _queue_table_header_width(key, prepared) for key in columns}
+    widths["detail"] = max(_queue_display_width(_QUEUE_HEADERS["detail"]), min(36, widths["detail"]))
+    widths["name"] = max(_queue_display_width(_QUEUE_HEADERS["name"]), min(32, widths["name"]))
+    widths["elapsed"] = max(_queue_display_width(_QUEUE_HEADERS["elapsed"]), 8)
 
     # ``status`` and ``elapsed`` are intrinsically narrow and fixed, so the
     # flexible text columns absorb any terminal-width shortfall.
@@ -380,17 +389,38 @@ def queue_table_lines(
         max_total=None if max_width is None else max(0, max_width - fixed_width),
     )
     widths.update(flexible)
+    return widths
 
-    gap = _QUEUE_COLUMN_GAP
+
+def _render_queue_table_row(
+    values: dict[str, str],
+    *,
+    columns: Sequence[str],
+    widths: dict[str, int],
+) -> str:
+    return _QUEUE_COLUMN_GAP.join(
+        _queue_pad_right(_queue_truncate(values[key], max_width=widths[key]), widths[key])
+        for key in columns
+    )
+
+
+def queue_table_lines(
+    rows: Sequence[tuple[int, dict[str, Any]]],
+    *,
+    now: datetime | None = None,
+    max_width: int | None = None,
+    include_id: bool = True,
+) -> list[str]:
+    prepared = _prepare_queue_table_rows(rows, now=now)
+    columns = _queue_table_columns(include_id=include_id)
+    widths = _queue_table_widths(prepared, columns, max_width=max_width)
+    gap_width = _queue_display_width(_QUEUE_COLUMN_GAP) * (len(columns) - 1)
 
     def render_row(values: dict[str, str]) -> str:
-        return gap.join(
-            _queue_pad_right(_queue_truncate(values[key], max_width=widths[key]), widths[key])
-            for key in columns
-        )
+        return _render_queue_table_row(values, columns=columns, widths=widths)
 
     lines = [
-        render_row(headers),
+        render_row(_QUEUE_HEADERS),
         "─" * (sum(widths[key] for key in columns) + gap_width),
     ]
     lines.extend(render_row(row) for row in prepared)

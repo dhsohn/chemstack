@@ -5,10 +5,10 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
-from ..utils.coercion import normalize_text as _coerce_normalize_text
 from ..utils.lock import file_lock
 from ..utils.persistence import atomic_write_json, coerce_int, resolve_root_path
 from .location import JobLocationRecord
+from .text import normalize_index_text as _normalize_text
 
 JOB_LOCATION_INDEX_FILE_NAME = "job_locations.json"
 JOB_LOCATION_INDEX_LOCK_NAME = "job_locations.lock"
@@ -28,10 +28,6 @@ def _index_path(root: Path) -> Path:
 
 def _lock_path(root: Path) -> Path:
     return root / JOB_LOCATION_INDEX_LOCK_NAME
-
-
-def _normalize_text(value: Any) -> str:
-    return _coerce_normalize_text(value, none="None")
 
 
 def _record_to_dict(record: JobLocationRecord) -> dict[str, Any]:

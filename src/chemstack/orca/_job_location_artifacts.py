@@ -7,6 +7,8 @@ from chemstack.core.indexing import JobLocationRecord, resolve_job_location
 
 from ._job_location_models import JobArtifactContext
 from ._job_location_records import list_job_location_records, resolve_record_job_dir
+from ._job_location_tracking import TrackedJobDirDeps
+from ._job_location_tracking import matching_tracked_job_dirs as _matching_tracked_job_dirs
 from ._job_location_utils import normalize_text, resolve_existing_job_dir
 from .state import load_organized_ref, load_report_json, load_state
 
@@ -94,40 +96,19 @@ def organized_job_dir(job_dir: Path) -> Path | None:
 
 
 def matching_tracked_job_dirs(index_root: str | Path, target: str) -> list[Path]:
-    target_text = normalize_text(target)
-    if not target_text:
-        return []
-
-    candidates: list[Path] = []
-    seen: set[Path] = set()
-    for record in list_job_location_records(index_root):
-        job_dir = resolve_record_job_dir(record)
-        if job_dir is None or job_dir in seen:
-            continue
-
-        state = load_state(job_dir)
-        report = load_report_json(job_dir) or {}
-        organized_ref = load_organized_ref(job_dir) or {}
-
-        if not organized_ref:
-            original_dir = resolve_existing_job_dir(record.original_run_dir)
-            if original_dir is not None and original_dir != job_dir:
-                organized_ref = load_organized_ref(original_dir) or {}
-
-        lookup_values = (
-            record.job_id,
-            report.get("job_id"),
-            (state or {}).get("job_id"),
-            organized_ref.get("job_id"),
-            report.get("run_id"),
-            (state or {}).get("run_id"),
-            organized_ref.get("run_id"),
-        )
-        if any(normalize_text(value) == target_text for value in lookup_values):
-            seen.add(job_dir)
-            candidates.append(job_dir)
-
-    return candidates
+    return _matching_tracked_job_dirs(
+        index_root,
+        target,
+        deps=TrackedJobDirDeps(
+            normalize_text=normalize_text,
+            list_job_location_records=list_job_location_records,
+            resolve_record_job_dir=resolve_record_job_dir,
+            load_state=load_state,
+            load_report_json=load_report_json,
+            load_organized_ref=load_organized_ref,
+            resolve_existing_job_dir=resolve_existing_job_dir,
+        ),
+    )
 
 
 def job_dir_candidates(index_root: str | Path, target: str) -> list[Path]:

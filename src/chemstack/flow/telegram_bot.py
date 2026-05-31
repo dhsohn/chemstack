@@ -10,6 +10,10 @@ from pathlib import Path
 from typing import Any, Callable
 
 from chemstack.activity_rendering import queue_clear_lines, queue_list_text_lines
+from chemstack.activity_presenter import (
+    QueueListPresentationDeps,
+    queue_list_text_presentation,
+)
 from chemstack.core.activity_icons import activity_status_icon
 from chemstack.activity_view import (
     activity_counter_config_path,
@@ -207,28 +211,23 @@ def _handle_list(settings: TelegramBotSettings, args: str) -> str:
         rows = [
             item for item in rows if str(item.get("status", "")).strip().lower() == filter_status
         ]
-    else:
-        rows = queue_list_default_visible_items(rows)
-
-    display_rows = queue_list_display_rows(
-        all_items=all_rows,
+    presentation = queue_list_text_presentation(
+        payload,
         visible_items=rows,
+        config_hints=(settings.orca_config, settings.crest_config, settings.xtb_config),
+        default_visible_items=not filter_status,
         show_workflow_context=True,
         visible_workflow_child_engines=("orca",) if not filter_status else None,
+        include_id=False,
+        deps=QueueListPresentationDeps(
+            activity_counter_config_path=activity_counter_config_path,
+            count_global_active_simulations=count_global_active_simulations,
+            queue_list_default_visible_items=queue_list_default_visible_items,
+            queue_list_display_rows=queue_list_display_rows,
+            queue_list_text_lines=queue_list_text_lines,
+        ),
     )
-    active_simulations = count_global_active_simulations(
-        all_rows,
-        config_path=_activity_counter_config_path(payload, settings=settings),
-    )
-    # Telegram renders on narrow mobile screens; the activity id is omitted so
-    # each row fits on a single line (the cancel buttons cover per-item actions).
-    return "\n".join(
-        queue_list_text_lines(
-            display_rows,
-            active_simulations=active_simulations,
-            include_id=False,
-        )
-    )
+    return "\n".join(presentation.lines)
 
 
 def _handle_cancel(settings: TelegramBotSettings, args: str) -> str:

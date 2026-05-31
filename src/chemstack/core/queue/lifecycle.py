@@ -54,6 +54,44 @@ def shutdown_running_job(
     )
 
 
+def finalize_child_worker_exit(
+    cfg: Any,
+    job: Any,
+    *,
+    find_queue_entry_fn: Callable[[Any, str], Any | None],
+    mark_cancelled_fn: Callable[..., Any],
+    requeue_running_entry_fn: Callable[..., Any],
+    mark_recovery_pending_fn: Callable[..., Any],
+    release_admission_slot_fn: Callable[[str], Any],
+    mark_failed_fn: Callable[..., Any] | None = None,
+    rc: int | None = None,
+    shutdown_requested: bool = True,
+    fail_unexpected_exit: bool = False,
+    use_entry_fallback: bool = True,
+    coerce_root_to_str: bool = False,
+    recovery_entry_fn: Callable[[Any, Any], Any] | None = None,
+) -> None:
+    root = str(job.queue_root) if coerce_root_to_str else job.queue_root
+    current = find_queue_entry_fn(job.queue_root, job.entry.queue_id)
+    if current is None and use_entry_fallback:
+        current = job.entry
+
+    if current is not None and entry_status_is_running(current):
+        queue_id = current.queue_id
+        if getattr(current, "cancel_requested", False):
+            mark_cancelled_fn(root, queue_id, error="cancel_requested")
+        elif shutdown_requested:
+            requeue_running_entry_fn(root, queue_id)
+            recovery_entry = (
+                recovery_entry_fn(current, job) if recovery_entry_fn is not None else current
+            )
+            mark_recovery_pending_fn(cfg, recovery_entry, reason="worker_shutdown")
+        elif fail_unexpected_exit and mark_failed_fn is not None:
+            mark_failed_fn(root, queue_id, error=f"worker_child_exit_code={int(rc or 0)}")
+
+    release_admission_slot_fn(job.admission_token)
+
+
 def sync_terminal_running_entries(
     queue_entries: Iterable[tuple[Any, Any]],
     *,
@@ -137,6 +175,7 @@ def reconcile_orphaned_running(
 __all__ = [
     "entry_status_is",
     "entry_status_is_running",
+    "finalize_child_worker_exit",
     "live_worker_pid_slots",
     "reconcile_orphaned_running",
     "request_pending_cancellations",

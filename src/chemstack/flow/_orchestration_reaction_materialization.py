@@ -407,6 +407,108 @@ def _reaction_orca_stage_plan(
     )
 
 
+def _clear_reaction_orca_handoff_errors(o: Any, payload_metadata: dict[str, Any]) -> None:
+    if not isinstance(payload_metadata.get("workflow_error"), dict):
+        return
+    _clear_workflow_error_scope(
+        o,
+        payload_metadata,
+        {"reaction_ts_search_xtb_handoff", "reaction_ts_search_orca_candidate_exhausted"},
+    )
+
+
+def _build_reaction_orca_stage(
+    o: Any,
+    payload: dict[str, Any],
+    plan: _ReactionOrcaStagePlan,
+    *,
+    candidate: Any,
+    next_index: int,
+) -> dict[str, Any]:
+    return o.engines.build_materialized_orca_stage(
+        workflow_id=str(payload.get("workflow_id", "")),
+        template_name="reaction_ts_search",
+        stage_id=f"orca_optts_freq_{next_index:02d}",
+        stage_key=f"{next_index:02d}_{o.engines.safe_name(candidate.kind, fallback='candidate')}",
+        stage_root_name="",
+        workspace_dir=plan.orca_allowed_root,
+        input_artifact_kind="xtb_candidate",
+        candidate=candidate,
+        task_kind="optts_freq",
+        route_line=str(plan.params.get("orca_route_line", "! r2scan-3c OptTS Freq TightSCF")),
+        charge=int(plan.params.get("charge", 0) or 0),
+        multiplicity=int(plan.params.get("multiplicity", 1) or 1),
+        max_cores=int(plan.params.get("max_cores", 8) or 8),
+        max_memory_gb=int(plan.params.get("max_memory_gb", 32) or 32),
+        priority=int(plan.params.get("priority", 10) or 10),
+        xyz_filename="ts_guess.xyz",
+        inp_filename="ts_guess.inp",
+    ).to_dict()
+
+
+def _annotate_reaction_orca_stage(
+    o: Any,
+    stage: dict[str, Any],
+    plan: _ReactionOrcaStagePlan,
+    *,
+    next_index: int,
+    offset: int,
+) -> None:
+    stage_metadata = o.stages._stage_metadata(stage)
+    stage_metadata["reaction_candidate_attempt_index"] = next_index
+    stage_metadata["reaction_candidate_pool_size"] = len(plan.ordered_candidates)
+    stage_metadata["reaction_remaining_candidates_after_this"] = max(
+        0,
+        len(plan.remaining_candidates) - offset,
+    )
+
+
+def _append_reaction_orca_candidate_stage(
+    o: Any,
+    payload: dict[str, Any],
+    plan: _ReactionOrcaStagePlan,
+    *,
+    candidate: Any,
+    next_index: int,
+    offset: int,
+) -> None:
+    stage = _build_reaction_orca_stage(
+        o,
+        payload,
+        plan,
+        candidate=candidate,
+        next_index=next_index,
+    )
+    _annotate_reaction_orca_stage(
+        o,
+        stage,
+        plan,
+        next_index=next_index,
+        offset=offset,
+    )
+    payload.setdefault("stages", []).append(stage)
+
+
+def _append_reaction_orca_candidate_stages(
+    o: Any,
+    payload: dict[str, Any],
+    plan: _ReactionOrcaStagePlan,
+) -> int:
+    created = 0
+    starting_index = len(plan.existing_stages)
+    for offset, candidate in enumerate(plan.remaining_candidates, start=1):
+        _append_reaction_orca_candidate_stage(
+            o,
+            payload,
+            plan,
+            candidate=candidate,
+            next_index=starting_index + offset,
+            offset=offset,
+        )
+        created += 1
+    return created
+
+
 def append_reaction_orca_stages_impl(
     payload: dict[str, Any],
     *,
@@ -437,46 +539,6 @@ def append_reaction_orca_stages_impl(
         )
         return False
 
-    if isinstance(plan.payload_metadata, dict) and isinstance(
-        plan.payload_metadata.get("workflow_error"), dict
-    ):
-        _clear_workflow_error_scope(
-            o,
-            plan.payload_metadata,
-            {"reaction_ts_search_xtb_handoff", "reaction_ts_search_orca_candidate_exhausted"},
-        )
-
-    created = 0
-    starting_index = len(plan.existing_stages)
-    for offset, candidate in enumerate(plan.remaining_candidates, start=1):
-        next_index = starting_index + offset
-        stage = o.engines.build_materialized_orca_stage(
-            workflow_id=str(payload.get("workflow_id", "")),
-            template_name="reaction_ts_search",
-            stage_id=f"orca_optts_freq_{next_index:02d}",
-            stage_key=f"{next_index:02d}_{o.engines.safe_name(candidate.kind, fallback='candidate')}",
-            stage_root_name="",
-            workspace_dir=plan.orca_allowed_root,
-            input_artifact_kind="xtb_candidate",
-            candidate=candidate,
-            task_kind="optts_freq",
-            route_line=str(
-                plan.params.get("orca_route_line", "! r2scan-3c OptTS Freq TightSCF")
-            ),
-            charge=int(plan.params.get("charge", 0) or 0),
-            multiplicity=int(plan.params.get("multiplicity", 1) or 1),
-            max_cores=int(plan.params.get("max_cores", 8) or 8),
-            max_memory_gb=int(plan.params.get("max_memory_gb", 32) or 32),
-            priority=int(plan.params.get("priority", 10) or 10),
-            xyz_filename="ts_guess.xyz",
-            inp_filename="ts_guess.inp",
-        ).to_dict()
-        stage_metadata = o.stages._stage_metadata(stage)
-        stage_metadata["reaction_candidate_attempt_index"] = next_index
-        stage_metadata["reaction_candidate_pool_size"] = len(plan.ordered_candidates)
-        stage_metadata["reaction_remaining_candidates_after_this"] = max(
-            0, len(plan.remaining_candidates) - offset
-        )
-        payload.setdefault("stages", []).append(stage)
-        created += 1
+    _clear_reaction_orca_handoff_errors(o, plan.payload_metadata)
+    created = _append_reaction_orca_candidate_stages(o, payload, plan)
     return created > 0

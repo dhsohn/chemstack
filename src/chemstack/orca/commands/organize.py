@@ -218,28 +218,38 @@ def _cmd_organize_apply(
 
 
 def _apply_dependencies() -> _organize_apply.OrganizeApplyDependencies:
-    return _organize_service.build_apply_dependencies(
-        acquire_index_lock_fn=acquire_index_lock,
-        append_failed_rollback_fn=append_failed_rollback,
-        append_record_fn=append_record,
-        build_index_record_fn=_build_index_record,
-        check_conflict_fn=check_conflict,
-        cleanup_organized_ref_stub_fn=_cleanup_organized_ref_stub,
-        execute_move_fn=execute_move,
-        load_index_fn=load_index,
-        now_utc_iso_fn=now_utc_iso,
-        rollback_move_fn=rollback_move,
-        send_organize_notification_fn=_send_organize_notification,
-        sync_state_after_move_fn=sync_state_after_move,
-        sync_state_after_rollback_fn=sync_state_after_rollback,
-        write_tracking_after_move_fn=_write_tracking_after_move,
-        restore_tracking_after_rollback_fn=_restore_tracking_after_rollback,
-        log=logger,
-        plan_conflict_result_fn=_plan_conflict_result,
-        bookkeep_successful_move_fn=_bookkeep_successful_move,
-        bookkeep_rollback_failure_fn=_bookkeep_rollback_failure,
-        rollback_after_apply_failure_fn=_rollback_after_apply_failure,
-        apply_one_organize_plan_fn=_apply_one_organize_plan,
+    return _organize_service.build_apply_dependencies_from_groups(
+        index=_organize_apply.OrganizeApplyIndexDeps(
+            acquire_index_lock=acquire_index_lock,
+            append_failed_rollback=append_failed_rollback,
+            append_record=append_record,
+            build_index_record=_build_index_record,
+            check_conflict=check_conflict,
+            load_index=load_index,
+            now_utc_iso=now_utc_iso,
+        ),
+        move=_organize_apply.OrganizeApplyMoveDeps(
+            cleanup_organized_ref_stub=_cleanup_organized_ref_stub,
+            execute_move=execute_move,
+            rollback_move=rollback_move,
+        ),
+        tracking=_organize_apply.OrganizeApplyTrackingDeps(
+            sync_state_after_move=sync_state_after_move,
+            sync_state_after_rollback=sync_state_after_rollback,
+            write_tracking_after_move=_write_tracking_after_move,
+            restore_tracking_after_rollback=_restore_tracking_after_rollback,
+        ),
+        notifications=_organize_apply.OrganizeApplyNotificationDeps(
+            send_organize_notification=_send_organize_notification,
+            log=logger,
+        ),
+        extensions=_organize_apply.OrganizeApplyExtensionDeps(
+            plan_conflict_result=_plan_conflict_result,
+            bookkeep_successful_move=_bookkeep_successful_move,
+            bookkeep_rollback_failure=_bookkeep_rollback_failure,
+            rollback_after_apply_failure=_rollback_after_apply_failure,
+            apply_one_organize_plan=_apply_one_organize_plan,
+        ),
     )
 
 

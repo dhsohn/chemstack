@@ -198,6 +198,24 @@ def test_find_helpers_cover_active_terminal_and_queue_id_lookup() -> None:
     assert queue_entries.find_entry_by_queue_id(entries, "q_missing") is None
 
 
+def test_find_entry_by_target_matches_orca_cancel_aliases(tmp_path: Path) -> None:
+    reaction_dir = tmp_path / "rxn"
+    entry = _entry(
+        "q_running",
+        str(reaction_dir),
+        QueueStatus.RUNNING.value,
+        run_id="run_done",
+    )
+
+    entries = [entry]
+
+    assert queue_adapter.find_entry_by_target(entries, "q_running") == entry
+    assert queue_adapter.find_entry_by_target(entries, "run_done") == entry
+    assert queue_adapter.find_entry_by_target(entries, str(reaction_dir)) == entry
+    assert queue_adapter.find_entry_by_target(entries, str(reaction_dir.resolve())) == entry
+    assert queue_adapter.find_entry_by_target(entries, "missing") is None
+
+
 def test_list_queue_normalizes_common_fields_for_partial_entries(tmp_path: Path) -> None:
     root = tmp_path / "queue_root"
     root.mkdir()

@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
+from dataclasses import dataclass, field, fields
 import logging
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, ClassVar, Dict
 
 from ..config import AppConfig
 from ..result_organizer import OrganizePlan, SkipReason
@@ -31,28 +32,78 @@ class _PlanApplyResult:
 
 
 @dataclass(frozen=True)
-class OrganizeApplyDependencies:
+class OrganizeApplyIndexDeps:
     acquire_index_lock: Any
     append_failed_rollback: Any
     append_record: Any
     build_index_record: Any
     check_conflict: Any
-    cleanup_organized_ref_stub: Any
-    execute_move: Any
     load_index: Any
     now_utc_iso: Any
+
+
+@dataclass(frozen=True)
+class OrganizeApplyMoveDeps:
+    cleanup_organized_ref_stub: Any
+    execute_move: Any
     rollback_move: Any
-    send_organize_notification: Any
+
+
+@dataclass(frozen=True)
+class OrganizeApplyTrackingDeps:
     sync_state_after_move: Any
     sync_state_after_rollback: Any
     write_tracking_after_move: Any
     restore_tracking_after_rollback: Any
+
+
+@dataclass(frozen=True)
+class OrganizeApplyNotificationDeps:
+    send_organize_notification: Any
     log: Any = logger
+
+
+@dataclass(frozen=True)
+class OrganizeApplyExtensionDeps:
     plan_conflict_result: Any = None
     bookkeep_successful_move: Any = None
     bookkeep_rollback_failure: Any = None
     rollback_after_apply_failure: Any = None
     apply_one_organize_plan: Any = None
+
+
+_ORGANIZE_APPLY_DEP_GROUPS: Mapping[str, type[Any]] = {
+    "index": OrganizeApplyIndexDeps,
+    "move": OrganizeApplyMoveDeps,
+    "tracking": OrganizeApplyTrackingDeps,
+    "notifications": OrganizeApplyNotificationDeps,
+    "extensions": OrganizeApplyExtensionDeps,
+}
+
+_ORGANIZE_APPLY_DEP_TARGETS: Mapping[str, str] = {
+    field.name: group_name
+    for group_name, deps_type in _ORGANIZE_APPLY_DEP_GROUPS.items()
+    for field in fields(deps_type)
+}
+
+
+@dataclass(frozen=True)
+class OrganizeApplyDependencies:
+    index: OrganizeApplyIndexDeps
+    move: OrganizeApplyMoveDeps
+    tracking: OrganizeApplyTrackingDeps
+    notifications: OrganizeApplyNotificationDeps
+    extensions: OrganizeApplyExtensionDeps = field(
+        default_factory=OrganizeApplyExtensionDeps
+    )
+
+    _PASSTHROUGH_TARGETS: ClassVar[Mapping[str, str]] = _ORGANIZE_APPLY_DEP_TARGETS
+
+    def __getattr__(self, name: str) -> Any:
+        group_name = self._PASSTHROUGH_TARGETS.get(name)
+        if group_name is None:
+            raise AttributeError(f"{type(self).__name__!s} has no attribute {name!r}")
+        return getattr(getattr(self, group_name), name)
 
 
 def _plan_conflict_result(

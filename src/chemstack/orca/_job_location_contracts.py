@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from collections.abc import Mapping
+from dataclasses import asdict, dataclass, fields
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 from chemstack.core.indexing import JobLocationRecord
 
@@ -45,63 +46,121 @@ from .state import (
 
 
 @dataclass(frozen=True)
-class _JobLocationDeps:
+class _JobLocationRuntimeDeps:
     JobRuntimeContext: Any
-    attempt_count: Any
-    coerce_attempts: Any
-    derive_selected_input_xyz: Any
-    final_result_payload: Any
-    is_subpath: Any
+    _runtime_paths: Any
+
+
+@dataclass(frozen=True)
+class _JobLocationStorageDeps:
     list_job_location_records: Any
     load_organized_ref: Any
     load_report_json: Any
     load_state: Any
+    resolve_record_job_dir: Any
+
+
+@dataclass(frozen=True)
+class _JobLocationArtifactDeps:
+    _first_artifact_context: Any
+    _hydrated_organized_ref: Any
+    _job_artifact_context: Any
+    _record_organized_dir: Any
+
+
+@dataclass(frozen=True)
+class _JobLocationPayloadDeps:
+    final_result_payload: Any
+    queue_entry_metadata_value: Any
+    status_from_payloads: Any
+    _find_queue_entry: Any
+
+
+@dataclass(frozen=True)
+class _JobLocationUtilityDeps:
+    attempt_count: Any
+    coerce_attempts: Any
+    derive_selected_input_xyz: Any
+    is_subpath: Any
     max_retries: Any
     normalize_bool: Any
     normalize_text: Any
     prefer_orca_optimized_xyz: Any
     resolve_artifact_path: Any
     resolve_existing_job_dir: Any
-    resolve_record_job_dir: Any
     resource_dict_from_any: Any
-    queue_entry_metadata_value: Any
-    status_from_payloads: Any
-    _find_queue_entry: Any
-    _first_artifact_context: Any
-    _hydrated_organized_ref: Any
-    _job_artifact_context: Any
-    _record_organized_dir: Any
-    _runtime_paths: Any
+
+
+_JOB_LOCATION_DEP_GROUPS: Mapping[str, type[Any]] = {
+    "runtime": _JobLocationRuntimeDeps,
+    "storage": _JobLocationStorageDeps,
+    "artifacts": _JobLocationArtifactDeps,
+    "payloads": _JobLocationPayloadDeps,
+    "utils": _JobLocationUtilityDeps,
+}
+
+_JOB_LOCATION_DEP_TARGETS: Mapping[str, str] = {
+    field.name: group_name
+    for group_name, deps_type in _JOB_LOCATION_DEP_GROUPS.items()
+    for field in fields(deps_type)
+}
+
+
+@dataclass(frozen=True)
+class _JobLocationDeps:
+    runtime: _JobLocationRuntimeDeps
+    storage: _JobLocationStorageDeps
+    artifacts: _JobLocationArtifactDeps
+    payloads: _JobLocationPayloadDeps
+    utils: _JobLocationUtilityDeps
+
+    _PASSTHROUGH_TARGETS: ClassVar[Mapping[str, str]] = _JOB_LOCATION_DEP_TARGETS
+
+    def __getattr__(self, name: str) -> Any:
+        group_name = self._PASSTHROUGH_TARGETS.get(name)
+        if group_name is None:
+            raise AttributeError(f"{type(self).__name__!s} has no attribute {name!r}")
+        return getattr(getattr(self, group_name), name)
 
 
 def _job_location_deps() -> _JobLocationDeps:
     return _JobLocationDeps(
-        JobRuntimeContext=JobRuntimeContext,
-        attempt_count=attempt_count,
-        coerce_attempts=coerce_attempts,
-        derive_selected_input_xyz=derive_selected_input_xyz,
-        final_result_payload=final_result_payload,
-        is_subpath=is_subpath,
-        list_job_location_records=list_job_location_records,
-        load_organized_ref=load_organized_ref,
-        load_report_json=load_report_json,
-        load_state=load_state,
-        max_retries=max_retries,
-        normalize_bool=normalize_bool,
-        normalize_text=normalize_text,
-        prefer_orca_optimized_xyz=prefer_orca_optimized_xyz,
-        resolve_artifact_path=resolve_artifact_path,
-        resolve_existing_job_dir=resolve_existing_job_dir,
-        resolve_record_job_dir=resolve_record_job_dir,
-        resource_dict_from_any=resource_dict_from_any,
-        queue_entry_metadata_value=queue_entry_metadata_value,
-        status_from_payloads=status_from_payloads,
-        _find_queue_entry=_find_queue_entry,
-        _first_artifact_context=_first_artifact_context,
-        _hydrated_organized_ref=_hydrated_organized_ref,
-        _job_artifact_context=_job_artifact_context,
-        _record_organized_dir=_record_organized_dir,
-        _runtime_paths=_runtime_paths,
+        runtime=_JobLocationRuntimeDeps(
+            JobRuntimeContext=JobRuntimeContext,
+            _runtime_paths=_runtime_paths,
+        ),
+        storage=_JobLocationStorageDeps(
+            list_job_location_records=list_job_location_records,
+            load_organized_ref=load_organized_ref,
+            load_report_json=load_report_json,
+            load_state=load_state,
+            resolve_record_job_dir=resolve_record_job_dir,
+        ),
+        artifacts=_JobLocationArtifactDeps(
+            _first_artifact_context=_first_artifact_context,
+            _hydrated_organized_ref=_hydrated_organized_ref,
+            _job_artifact_context=_job_artifact_context,
+            _record_organized_dir=_record_organized_dir,
+        ),
+        payloads=_JobLocationPayloadDeps(
+            final_result_payload=final_result_payload,
+            queue_entry_metadata_value=queue_entry_metadata_value,
+            status_from_payloads=status_from_payloads,
+            _find_queue_entry=_find_queue_entry,
+        ),
+        utils=_JobLocationUtilityDeps(
+            attempt_count=attempt_count,
+            coerce_attempts=coerce_attempts,
+            derive_selected_input_xyz=derive_selected_input_xyz,
+            is_subpath=is_subpath,
+            max_retries=max_retries,
+            normalize_bool=normalize_bool,
+            normalize_text=normalize_text,
+            prefer_orca_optimized_xyz=prefer_orca_optimized_xyz,
+            resolve_artifact_path=resolve_artifact_path,
+            resolve_existing_job_dir=resolve_existing_job_dir,
+            resource_dict_from_any=resource_dict_from_any,
+        ),
     )
 
 

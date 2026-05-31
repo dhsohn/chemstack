@@ -8,6 +8,10 @@ from typing import Any, Sequence
 from chemstack import activity_rendering as _activity_rendering
 from chemstack import cli_style
 from chemstack.cli_errors import emit_error
+from chemstack.activity_presenter import (
+    QueueListPresentationDeps,
+    queue_list_text_presentation,
+)
 from chemstack.activity_view import (
     activity_counter_config_path,
     activity_with_parent_hint,
@@ -127,6 +131,10 @@ def _queue_list_text_lines(
     rows: Sequence[tuple[int, dict[str, Any]]],
     *,
     active_simulations: int,
+    now: Any | None = None,
+    max_width: int | None = None,
+    include_id: bool = True,
+    empty_message: str = "No matching activities.",
     deps: Any | None = None,
 ) -> list[str]:
     queue_table_now = _dependency(deps, "_queue_table_now", _queue_table_now)
@@ -134,8 +142,10 @@ def _queue_list_text_lines(
     return _activity_rendering.queue_list_text_lines(
         rows,
         active_simulations=active_simulations,
-        now=queue_table_now(),
-        max_width=terminal_width(),
+        now=now or queue_table_now(),
+        max_width=max_width if max_width is not None else terminal_width(),
+        include_id=include_id,
+        empty_message=empty_message,
     )
 
 
@@ -268,15 +278,32 @@ def _print_queue_list_text(
     deps: Any | None = None,
 ) -> int:
     render_lines = _dependency(deps, "_queue_list_text_lines", _queue_list_text_lines)
-    display_rows = _queue_list_display_rows(
-        payload=payload,
-        filtered_activities=filtered_activities,
-        request=request,
-    )
-    lines = render_lines(
-        display_rows,
+    queue_table_now = _dependency(deps, "_queue_table_now", _queue_table_now)
+    terminal_width = _dependency(deps, "_queue_terminal_width", _queue_terminal_width)
+    presentation = queue_list_text_presentation(
+        payload,
+        visible_items=filtered_activities,
+        config_hints=(request.shared_config,),
+        prefer_config_hints=True,
+        default_visible_items=request.default_combined_text_view,
+        limit=request.limit,
+        show_workflow_context=set(request.kind_values) != {"job"},
+        visible_workflow_child_engines=(
+            ("orca",) if request.default_combined_text_view else None
+        ),
         active_simulations=filtered_payload["active_simulations"],
+        now=queue_table_now(),
+        max_width=terminal_width(),
+        deps=QueueListPresentationDeps(
+            activity_counter_config_path=activity_counter_config_path,
+            count_global_active_simulations=count_global_active_simulations,
+            queue_list_default_visible_items=queue_list_default_visible_items,
+            queue_list_display_rows=queue_list_display_rows,
+            queue_list_text_lines=render_lines,
+        ),
     )
+    display_rows = presentation.display_rows
+    lines = presentation.lines
     print(lines[0])
     if not display_rows:
         print(lines[1])

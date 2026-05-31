@@ -4,13 +4,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
-from chemstack.core.utils.coercion import normalize_text as _shared_normalize_text
-
 from .location import JobLocationRecord
-
-
-def normalize_text(value: Any) -> str:
-    return _shared_normalize_text(value, none="None")
+from .text import normalize_index_text as normalize_text
 
 
 def resource_mapping(raw: object, *, fallback: dict[str, int] | None = None) -> dict[str, int]:
