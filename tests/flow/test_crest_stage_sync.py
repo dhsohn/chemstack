@@ -7,12 +7,12 @@ from typing import Any, cast
 
 import pytest
 
-from chemstack.flow._orchestration_deps import orchestration_deps
-from chemstack.flow._orchestration_stage_runtime_crest import (
+from chemstack.flow.orchestration.deps import orchestration_deps
+from chemstack.flow.orchestration.stage_runtime.crest import (
     ensure_crest_job_dir_impl,
     sync_crest_stage_impl,
 )
-from chemstack.flow._orchestration_stage_runtime_xtb_path_jobs import ensure_xtb_job_dir_impl
+from chemstack.flow.orchestration.stage_runtime.xtb_path_jobs import ensure_xtb_job_dir_impl
 
 
 def test_ensure_crest_job_dir_copies_input_and_populates_manifest(tmp_path: Path) -> None:
@@ -259,7 +259,7 @@ def test_sync_crest_stage_returns_cleanly_when_contract_lookup_raises(
             ),
         }
     )
-    caplog.set_level(logging.DEBUG, logger="chemstack.flow._orchestration_stage_runtime_shared")
+    caplog.set_level(logging.DEBUG, logger="chemstack.flow.orchestration.stage_runtime.shared")
 
     sync_crest_stage_impl(
         stage,
@@ -275,7 +275,7 @@ def test_sync_crest_stage_returns_cleanly_when_contract_lookup_raises(
     assert stage["metadata"]["queue_id"] == "q_existing"
     assert "output_artifacts" not in stage
     assert any(
-        record.name == "chemstack.flow._orchestration_stage_runtime_shared"
+        record.name == "chemstack.flow.orchestration.stage_runtime.shared"
         and record.levelno == logging.DEBUG
         and "Failed to load crest artifact contract" in record.getMessage()
         and record.exc_info

@@ -8,7 +8,7 @@ from chemstack.core.utils.coercion import normalize_text
 from . import cli_workflow_output as _workflow_output
 from . import run_dir_manifest as _run_dir_manifest
 from . import run_dir_options as _run_dir_options
-from ._orchestration_requests import (
+from chemstack.flow.orchestration.requests import (
     ConformerScreeningWorkflowRequest,
     ReactionTsSearchWorkflowRequest,
 )

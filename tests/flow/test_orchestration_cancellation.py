@@ -8,7 +8,7 @@ import pytest
 
 
 from chemstack.flow import orchestration
-from chemstack.flow._orchestration_deps import orchestration_deps
+from chemstack.flow.orchestration.deps import orchestration_deps
 
 
 def _write_xyz_ensemble(path: Path, comments: tuple[str, ...]) -> None:

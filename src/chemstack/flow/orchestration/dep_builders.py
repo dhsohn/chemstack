@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from ._orchestration_deps import (
+    from chemstack.flow.orchestration.deps import (
         OrchestrationAdvanceDeps,
         OrchestrationContractDeps,
         OrchestrationDeps,
@@ -28,7 +28,7 @@ class _LazyOrchestrationDeps:
 
     def get(self) -> OrchestrationDeps:
         if self._deps is None:
-            from ._orchestration_deps import orchestration_deps
+            from chemstack.flow.orchestration.deps import orchestration_deps
 
             self._deps = orchestration_deps(overrides=self._overrides)
         return self._deps
@@ -110,7 +110,7 @@ def _normalize_text_override(overrides: Mapping[str, Any] | None = None) -> Any:
 
 
 def _stage_metadata_override(overrides: Mapping[str, Any] | None = None) -> Any:
-    from ._orchestration_support import stage_metadata_impl
+    from chemstack.flow.orchestration.support import stage_metadata_impl
 
     return _override(overrides, "_stage_metadata", stage_metadata_impl)
 
@@ -133,7 +133,7 @@ def _workflow_sync_only_fallback(
     *,
     overrides: Mapping[str, Any] | None = None,
 ) -> bool:
-    from ._orchestration_lifecycle import workflow_sync_only_impl
+    from chemstack.flow.orchestration.lifecycle import workflow_sync_only_impl
 
     return workflow_sync_only_impl(
         payload,
@@ -146,8 +146,8 @@ def _workflow_has_active_children_fallback(
     *,
     overrides: Mapping[str, Any] | None = None,
 ) -> bool:
-    from ._orchestration_lifecycle import workflow_has_active_children_impl
-    from .state import workflow_has_active_downstream
+    from chemstack.flow.orchestration.lifecycle import workflow_has_active_children_impl
+    from chemstack.flow.state import workflow_has_active_downstream
 
     return workflow_has_active_children_impl(
         payload,
@@ -161,7 +161,7 @@ def _stage_failure_is_recoverable_fallback(
     *,
     overrides: Mapping[str, Any] | None = None,
 ) -> bool:
-    from ._orchestration_lifecycle import stage_failure_is_recoverable_impl
+    from chemstack.flow.orchestration.lifecycle import stage_failure_is_recoverable_impl
 
     return stage_failure_is_recoverable_impl(
         stage,
@@ -175,7 +175,7 @@ def _recompute_workflow_status_fallback(
     *,
     overrides: Mapping[str, Any] | None = None,
 ) -> str:
-    from ._orchestration_lifecycle import (
+    from chemstack.flow.orchestration.lifecycle import (
         effective_stage_status_impl,
         recompute_workflow_status_impl,
     )
@@ -202,8 +202,8 @@ def _persist_workflow_progress_fallback(
     sync_only: bool,
     overrides: Mapping[str, Any] | None = None,
 ) -> None:
-    from .registry import sync_workflow_registry
-    from .state import write_workflow_payload
+    from chemstack.flow.registry import sync_workflow_registry
+    from chemstack.flow.state import write_workflow_payload
 
     normalize = _normalize_text_override(overrides)
     if not sync_only:
@@ -232,7 +232,7 @@ def _maybe_notify_workflow_phase_summary_fallback(
     extra_lines: list[str] | None = None,
     overrides: Mapping[str, Any] | None = None,
 ) -> bool:
-    from .workflow_notifications import maybe_notify_workflow_phase_summary
+    from chemstack.flow.workflow_notifications import maybe_notify_workflow_phase_summary
 
     return maybe_notify_workflow_phase_summary(
         payload=payload,
@@ -244,9 +244,9 @@ def _maybe_notify_workflow_phase_summary_fallback(
 
 
 def _build_contract_deps(overrides: Mapping[str, Any] | None) -> OrchestrationContractDeps:
-    from ._orchestration_deps import OrchestrationContractDeps
-    from .contracts import CrestDownstreamPolicy, WorkflowStageInput, XtbDownstreamPolicy
-    from .endpoint_pairing import EndpointPairingPolicy
+    from chemstack.flow.orchestration.deps import OrchestrationContractDeps
+    from chemstack.flow.contracts import CrestDownstreamPolicy, WorkflowStageInput, XtbDownstreamPolicy
+    from chemstack.flow.endpoint_pairing import EndpointPairingPolicy
 
     return _build_dep_dataclass(
         OrchestrationContractDeps,
@@ -265,10 +265,10 @@ def _build_persistence_deps(
 ) -> OrchestrationPersistenceDeps:
     from chemstack.core.utils import now_utc_iso
 
-    from ._orchestration_deps import OrchestrationPersistenceDeps
-    from .registry import sync_workflow_registry
-    from .state import acquire_workflow_lock, load_workflow_payload
-    from .state import resolve_workflow_workspace, write_workflow_payload
+    from chemstack.flow.orchestration.deps import OrchestrationPersistenceDeps
+    from chemstack.flow.registry import sync_workflow_registry
+    from chemstack.flow.state import acquire_workflow_lock, load_workflow_payload
+    from chemstack.flow.state import resolve_workflow_workspace, write_workflow_payload
 
     return _build_dep_dataclass(
         OrchestrationPersistenceDeps,
@@ -285,24 +285,24 @@ def _build_persistence_deps(
 
 
 def _build_engine_deps(overrides: Mapping[str, Any] | None) -> OrchestrationEngineDeps:
-    from ._orca_stage_materialization import build_materialized_orca_stage, safe_name
-    from ._orchestration_deps import OrchestrationEngineDeps
-    from .adapters.crest import load_crest_artifact_contract, select_crest_downstream_inputs
-    from .adapters.orca import load_orca_artifact_contract
-    from .adapters.xtb import load_xtb_artifact_contract, select_xtb_downstream_inputs
-    from .endpoint_pairing import select_endpoint_pairs
-    from .engine_runtime import engine_runtime_paths
-    from .submitters.crest import (
+    from chemstack.flow._orca_stage_materialization import build_materialized_orca_stage, safe_name
+    from chemstack.flow.orchestration.deps import OrchestrationEngineDeps
+    from chemstack.flow.adapters.crest import load_crest_artifact_contract, select_crest_downstream_inputs
+    from chemstack.flow.adapters.orca import load_orca_artifact_contract
+    from chemstack.flow.adapters.xtb import load_xtb_artifact_contract, select_xtb_downstream_inputs
+    from chemstack.flow.endpoint_pairing import select_endpoint_pairs
+    from chemstack.flow.engine_runtime import engine_runtime_paths
+    from chemstack.flow.submitters.crest import (
         cancel_target as crest_cancel_target,
         submit_job_dir as submit_crest_job_dir,
     )
-    from .submitters.orca import cancel_target as orca_cancel_target
-    from .submitters.orca import submit_reaction_dir
-    from .submitters.xtb import (
+    from chemstack.flow.submitters.orca import cancel_target as orca_cancel_target
+    from chemstack.flow.submitters.orca import submit_reaction_dir
+    from chemstack.flow.submitters.xtb import (
         cancel_target as xtb_cancel_target,
         submit_job_dir as submit_xtb_job_dir,
     )
-    from .xyz_utils import choose_orca_geometry_frame
+    from chemstack.flow.xyz_utils import choose_orca_geometry_frame
 
     return _build_dep_dataclass(
         OrchestrationEngineDeps,
@@ -329,7 +329,7 @@ def _build_engine_deps(overrides: Mapping[str, Any] | None) -> OrchestrationEngi
 
 
 def _stage_builder_fallbacks() -> dict[str, Any]:
-    from ._orchestration_stage_builders import new_xtb_stage_impl
+    from chemstack.flow.orchestration.stage_builders import new_xtb_stage_impl
 
     return {
         "_new_xtb_stage": new_xtb_stage_impl,
@@ -339,7 +339,7 @@ def _stage_builder_fallbacks() -> dict[str, Any]:
 def _stage_materialization_fallbacks(
     deps_provider: _LazyOrchestrationDeps,
 ) -> dict[str, Any]:
-    from ._orchestration_stage_materialization import (
+    from chemstack.flow.orchestration.materialization import (
         append_crest_orca_stages_impl,
         append_reaction_orca_stages_impl,
         append_reaction_xtb_stages_impl,
@@ -356,27 +356,27 @@ def _stage_materialization_fallbacks(
 
 
 def _stage_runtime_fallbacks(deps_provider: _LazyOrchestrationDeps) -> dict[str, Any]:
-    from ._orchestration_stage_runtime_crest import (
+    from chemstack.flow.orchestration.stage_runtime.crest import (
         completed_crest_roles_impl,
         completed_crest_stage_impl,
         ensure_crest_job_dir_impl,
         sync_crest_stage_impl,
     )
-    from ._orchestration_stage_runtime_orca import sync_orca_stage_impl
-    from ._orchestration_stage_runtime_shared import append_unique_artifact_impl
-    from ._orchestration_stage_runtime_xtb_handoff import xtb_handoff_status_impl
-    from ._orchestration_stage_runtime_xtb_path_jobs import (
+    from chemstack.flow.orchestration.stage_runtime.orca import sync_orca_stage_impl
+    from chemstack.flow.orchestration.stage_runtime.shared import append_unique_artifact_impl
+    from chemstack.flow.orchestration.stage_runtime.xtb_handoff import xtb_handoff_status_impl
+    from chemstack.flow.orchestration.stage_runtime.xtb_path_jobs import (
         ensure_xtb_job_dir_impl,
         write_xtb_path_job_impl,
     )
-    from ._orchestration_stage_runtime_xtb_retry import (
+    from chemstack.flow.orchestration.stage_runtime.xtb_retry import (
         xtb_attempt_record_impl,
         xtb_attempt_rows_impl,
         xtb_current_attempt_number_impl,
         xtb_path_retry_limit_impl,
         xtb_retry_recipe_impl,
     )
-    from ._orchestration_stage_runtime_xtb_sync import sync_xtb_stage_impl
+    from chemstack.flow.orchestration.stage_runtime.xtb_sync import sync_xtb_stage_impl
 
     return {
         **_bind_many_with_deps(
@@ -403,7 +403,7 @@ def _stage_runtime_fallbacks(deps_provider: _LazyOrchestrationDeps) -> dict[str,
 
 
 def _stage_support_fallbacks(deps_provider: _LazyOrchestrationDeps) -> dict[str, Any]:
-    from ._orchestration_support import (
+    from chemstack.flow.orchestration.support import (
         clear_reaction_xtb_handoff_error_if_recovering_impl,
         load_config_organized_root_impl,
         load_config_root_impl,
@@ -482,7 +482,7 @@ def _build_stage_deps(
     *,
     deps_provider: _LazyOrchestrationDeps | None = None,
 ) -> OrchestrationStageDeps:
-    from ._orchestration_deps import (
+    from chemstack.flow.orchestration.deps import (
         _ORCHESTRATION_STAGE_DEP_REGISTRY,
         OrchestrationStageDeps,
     )
@@ -503,8 +503,8 @@ def _build_advance_deps(
     *,
     deps_provider: _LazyOrchestrationDeps | None = None,
 ) -> OrchestrationAdvanceDeps:
-    from . import _orchestration_advance
-    from ._orchestration_deps import OrchestrationAdvanceDeps
+    from chemstack.flow.orchestration import advance
+    from chemstack.flow.orchestration.deps import OrchestrationAdvanceDeps
 
     provider = _deps_provider(overrides, deps_provider)
     return _build_dep_dataclass(
@@ -513,11 +513,11 @@ def _build_advance_deps(
         {
             "_cancel_active_workflow_stages": _bind_with_deps(
                 provider,
-                _orchestration_advance._cancel_active_workflow_stages,
+                advance._cancel_active_workflow_stages,
             ),
             "_cancel_stage_activity": _bind_with_deps(
                 provider,
-                _orchestration_advance._cancel_stage_activity,
+                advance._cancel_stage_activity,
             ),
         },
     )

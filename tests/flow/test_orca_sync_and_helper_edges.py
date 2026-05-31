@@ -5,9 +5,9 @@ from typing import Any
 
 
 from chemstack.flow.contracts import OrcaArtifactContract
-from chemstack.flow._orchestration_deps import orchestration_deps
-from chemstack.flow._orchestration_stage_runtime_orca import sync_orca_stage_impl
-from chemstack.flow._orchestration_support import (
+from chemstack.flow.orchestration.deps import orchestration_deps
+from chemstack.flow.orchestration.stage_runtime.orca import sync_orca_stage_impl
+from chemstack.flow.orchestration.support import (
     clear_reaction_xtb_handoff_error_if_recovering_impl,
     reaction_orca_source_candidate_path_impl,
 )

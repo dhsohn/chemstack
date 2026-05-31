@@ -4,8 +4,8 @@ from unittest.mock import Mock
 
 
 from chemstack.flow.contracts import OrcaArtifactContract
-from chemstack.flow._orchestration_deps import orchestration_deps
-from chemstack.flow._orchestration_stage_runtime_orca import sync_orca_stage_impl
+from chemstack.flow.orchestration.deps import orchestration_deps
+from chemstack.flow.orchestration.stage_runtime.orca import sync_orca_stage_impl
 
 
 def test_sync_orca_stage_applies_contract_state_metadata_and_artifacts() -> None:

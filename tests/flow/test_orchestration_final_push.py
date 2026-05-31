@@ -12,7 +12,7 @@ import pytest
 
 
 from chemstack.flow import orchestration
-from chemstack.flow.orchestration_steps import (
+from chemstack.flow.orchestration.steps import (
     append_crest_orca_stages_impl as _append_crest_orca_stages,
     append_reaction_orca_stages_impl as _append_reaction_orca_stages,
     append_reaction_xtb_stages_impl as _append_reaction_xtb_stages,
@@ -42,7 +42,7 @@ from chemstack.flow.contracts import WorkflowStageInput
 
 def _has_contract_lookup_log(caplog: pytest.LogCaptureFixture, engine: str) -> bool:
     return any(
-        record.name == "chemstack.flow._orchestration_stage_runtime_shared"
+        record.name == "chemstack.flow.orchestration.stage_runtime.shared"
         and record.levelno == logging.DEBUG
         and f"Failed to load {engine} artifact contract" in record.getMessage()
         and record.exc_info
@@ -277,7 +277,7 @@ def test_sync_xtb_stage_returns_early_without_target_or_on_contract_lookup_error
             )
         }
     )
-    caplog.set_level(logging.DEBUG, logger="chemstack.flow._orchestration_stage_runtime_shared")
+    caplog.set_level(logging.DEBUG, logger="chemstack.flow.orchestration.stage_runtime.shared")
     _sync_xtb_stage(
         failing_stage,
         xtb_config=None,
@@ -293,7 +293,7 @@ def test_sync_xtb_stage_returns_early_without_target_or_on_contract_lookup_error
 def test_completed_contract_helpers_cover_missing_targets_and_exceptions(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    caplog.set_level(logging.DEBUG, logger="chemstack.flow._orchestration_stage_runtime_shared")
+    caplog.set_level(logging.DEBUG, logger="chemstack.flow.orchestration.stage_runtime.shared")
     payload: dict[str, Any] = {
         "stages": [
             "skip",

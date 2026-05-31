@@ -8,8 +8,8 @@ import pytest
 
 
 from chemstack.flow.contracts import WorkflowStageInput
-from chemstack.flow._orchestration_deps import orchestration_deps
-from chemstack.flow._orchestration_lifecycle import (
+from chemstack.flow.orchestration.deps import orchestration_deps
+from chemstack.flow.orchestration.lifecycle import (
     downstream_terminal_result_impl,
     effective_stage_status_impl,
     latest_child_stage_summary_impl,
@@ -18,21 +18,21 @@ from chemstack.flow._orchestration_lifecycle import (
     workflow_has_active_children_impl,
     workflow_sync_only_impl,
 )
-from chemstack.flow._orchestration_stage_runtime_crest import (
+from chemstack.flow.orchestration.stage_runtime.crest import (
     completed_crest_roles_impl as _completed_crest_roles,
     completed_crest_stage_impl as _completed_crest_stage,
 )
-from chemstack.flow._orchestration_stage_runtime_orca import (
+from chemstack.flow.orchestration.stage_runtime.orca import (
     completed_orca_stage_impl as _completed_orca_stage,
 )
-from chemstack.flow._orchestration_stage_runtime_shared import (
+from chemstack.flow.orchestration.stage_runtime.shared import (
     append_unique_artifact_impl as _append_unique_artifact,
 )
-from chemstack.flow._orchestration_stage_runtime_xtb_handoff import (
+from chemstack.flow.orchestration.stage_runtime.xtb_handoff import (
     stage_has_xtb_candidates_impl as _stage_has_xtb_candidates,
     xtb_handoff_status_impl as _xtb_handoff_status,
 )
-from chemstack.flow._orchestration_support import (
+from chemstack.flow.orchestration.support import (
     clear_reaction_xtb_handoff_error_if_recovering_impl as _clear_reaction_xtb_handoff_error_if_recovering,
     load_config_organized_root_impl as _load_config_organized_root,
     load_config_root_impl as _load_config_root,

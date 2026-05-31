@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from ._orchestration_deps import OrchestrationDeps, orchestration_deps
+from chemstack.flow.orchestration.deps import OrchestrationDeps, orchestration_deps
 
 
 def _orchestration_context(deps: OrchestrationDeps | None = None) -> OrchestrationDeps:

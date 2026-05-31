@@ -6,7 +6,7 @@ import pytest
 
 
 from chemstack.flow import orchestration
-from chemstack.flow._orchestration_builders import new_crest_stage_impl
+from chemstack.flow.orchestration.builders import new_crest_stage_impl
 
 
 def _write_xyz(path: Path, atoms: list[tuple[str, float, float, float]]) -> None:

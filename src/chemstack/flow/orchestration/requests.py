@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
-from .contracts.workflow import WorkflowStageWithTaskPayload
+from chemstack.flow.contracts.workflow import WorkflowStageWithTaskPayload
 
 
 @dataclass(frozen=True)

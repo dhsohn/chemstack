@@ -4,7 +4,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, fields
 from typing import Any, ClassVar
 
-from . import _orchestration_dep_builders as _dep_builders
+from chemstack.flow.orchestration import dep_builders as _dep_builders
 
 AnyCallable = Callable[..., Any]
 

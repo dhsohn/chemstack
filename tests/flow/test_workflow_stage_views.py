@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from chemstack.flow._orchestration_stage_views import WorkflowStageView, WorkflowTaskView
+from chemstack.flow.orchestration.stage_views import WorkflowStageView, WorkflowTaskView
 
 
 def test_task_view_mapping_fields_create_mutable_dicts() -> None:

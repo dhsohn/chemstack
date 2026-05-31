@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ._orchestration_stage_views import WorkflowStageView, WorkflowTaskView
+from chemstack.flow.orchestration.stage_views import WorkflowStageView, WorkflowTaskView
 
 
 def stage_needs_restart(stage: dict[str, Any], *, deps: Any) -> bool:

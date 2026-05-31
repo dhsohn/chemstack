@@ -8,18 +8,16 @@ import pytest
 
 
 from chemstack.flow import orchestration, runtime, runtime_advance
-from chemstack.flow import _orchestration_dep_builders as dep_builders
-from chemstack.flow._orchestration_builders import _copy_input_impl
-from chemstack.flow._orchestration_deps import (
+from chemstack.flow.orchestration import dep_builders
+from chemstack.flow.orchestration.builders import _copy_input_impl
+from chemstack.flow.orchestration.deps import (
     _ORCHESTRATION_STAGE_DEP_REGISTRY,
     OrchestrationStageDeps,
     orchestration_deps,
 )
-from chemstack.flow import _orchestration_reaction_materialization as reaction_materialization
-from chemstack.flow import (
-    _orchestration_reaction_orca_materialization as reaction_orca_materialization,
-)
-from chemstack.flow import _orchestration_stage_materialization as stage_materialization
+from chemstack.flow.orchestration import materialization as stage_materialization
+from chemstack.flow.orchestration import reaction_materialization
+from chemstack.flow.orchestration import reaction_orca_materialization
 
 
 def test_copy_input_impl_copies_file_and_raises_for_missing_source(tmp_path: Path) -> None:
@@ -34,6 +32,14 @@ def test_copy_input_impl_copies_file_and_raises_for_missing_source(tmp_path: Pat
 
     with pytest.raises(FileNotFoundError, match="Input XYZ not found"):
         _copy_input_impl(str(tmp_path / "missing.xyz"), tmp_path / "other.xyz")
+
+
+def test_orchestration_modules_live_under_orchestration_package() -> None:
+    flow_root = Path(__file__).resolve().parents[2] / "src" / "chemstack" / "flow"
+
+    assert not list(flow_root.glob("_orchestration*.py"))
+    assert (flow_root / "orchestration" / "__init__.py").is_file()
+    assert (flow_root / "orchestration" / "stage_runtime" / "__init__.py").is_file()
 
 
 def test_orchestration_deps_use_explicit_overrides_not_public_module_fallback(

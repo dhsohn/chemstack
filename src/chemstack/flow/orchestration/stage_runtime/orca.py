@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from ._orchestration_deps import OrchestrationDeps
-from ._orchestration_stage_runtime_shared import (
+from chemstack.flow.orchestration.deps import OrchestrationDeps
+from chemstack.flow.orchestration.stage_runtime.shared import (
     _apply_contract_status,
     _apply_submission_result,
     _coerce_bool,
@@ -12,7 +12,7 @@ from ._orchestration_stage_runtime_shared import (
     _orchestration_context,
     _workflow_internal_organized_root,
 )
-from ._orchestration_stage_views import WorkflowStageView, WorkflowTaskView
+from chemstack.flow.orchestration.stage_views import WorkflowStageView, WorkflowTaskView
 
 
 def _orca_submission_resource_kwargs(o: Any, enqueue_payload: dict[str, Any]) -> dict[str, Any]:

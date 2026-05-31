@@ -5,16 +5,16 @@ from typing import Any
 
 import yaml
 
-from ._orchestration_deps import OrchestrationDeps
-from ._orchestration_stage_runtime_shared import (
+from chemstack.flow.orchestration.deps import OrchestrationDeps
+from chemstack.flow.orchestration.stage_runtime.shared import (
     _manifest_override_mapping,
     _orchestration_context,
 )
-from ._orchestration_stage_runtime_xtb_inputs import (
+from chemstack.flow.orchestration.stage_runtime.xtb_inputs import (
     _materialize_xtb_override_xcontrol,
     _materialize_xtb_path_inputs,
 )
-from ._orchestration_stage_runtime_xtb_retry import _xtb_path_job_dir
+from chemstack.flow.orchestration.stage_runtime.xtb_retry import _xtb_path_job_dir
 
 
 def _write_xtb_recipe_xcontrol(o: Any, job_dir: Path, recipe: dict[str, Any]) -> str:

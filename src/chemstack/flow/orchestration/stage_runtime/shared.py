@@ -8,14 +8,14 @@ from typing import Any
 
 from chemstack.core.utils import normalize_bool as _shared_normalize_bool
 
-from ._orchestration_deps import (
+from chemstack.flow.orchestration.deps import (
     OrchestrationDeps,
     orchestration_deps,
 )
-from ._orchestration_stage_views import WorkflowStageView, WorkflowTaskView
-from .state import workflow_stage_dirnames_for_engine, workflow_workspace_internal_engine_paths
+from chemstack.flow.orchestration.stage_views import WorkflowStageView, WorkflowTaskView
+from chemstack.flow.state import workflow_stage_dirnames_for_engine, workflow_workspace_internal_engine_paths
 
-_LOGGER = logging.getLogger("chemstack.flow._orchestration_stage_runtime_shared")
+_LOGGER = logging.getLogger("chemstack.flow.orchestration.stage_runtime.shared")
 
 
 def _orchestration_context(deps: OrchestrationDeps | None = None) -> OrchestrationDeps:

@@ -3,8 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from ._orchestration_deps import OrchestrationDeps, orchestration_deps
-from .contracts.workflow import workflow_stage_metadata, workflow_task_payload_dict
+from chemstack.flow.orchestration.deps import OrchestrationDeps, orchestration_deps
+from chemstack.flow.contracts.workflow import workflow_stage_metadata, workflow_task_payload_dict
 
 
 def _orchestration_context(deps: OrchestrationDeps | None = None) -> OrchestrationDeps:

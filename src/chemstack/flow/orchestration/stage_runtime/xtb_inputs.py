@@ -6,7 +6,7 @@ from typing import Any
 
 from chemstack.core.utils.coercion import normalize_text, safe_int
 
-from .xyz_utils import load_xyz_frames
+from chemstack.flow.xyz_utils import load_xyz_frames
 
 
 def _materialize_xtb_override_xcontrol(

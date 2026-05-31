@@ -6,8 +6,8 @@ from typing import Any
 
 import yaml
 
-from ._orchestration_deps import OrchestrationDeps
-from ._orchestration_stage_runtime_shared import (
+from chemstack.flow.orchestration.deps import OrchestrationDeps
+from chemstack.flow.orchestration.stage_runtime.shared import (
     _apply_contract_status,
     _apply_submission_result,
     _engine_stage_sync_context,
@@ -17,8 +17,8 @@ from ._orchestration_stage_runtime_shared import (
     _orchestration_context,
     _workflow_internal_runs_root,
 )
-from ._orchestration_stage_views import WorkflowStageView, WorkflowTaskView
-from .state import workflow_workspace_internal_engine_paths
+from chemstack.flow.orchestration.stage_views import WorkflowStageView, WorkflowTaskView
+from chemstack.flow.state import workflow_workspace_internal_engine_paths
 
 
 def ensure_crest_job_dir_impl(

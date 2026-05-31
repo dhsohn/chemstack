@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from ._orchestration_workflow_builders import _copy_input_impl as copy_input_impl
-from ._orchestration_deps import orchestration_deps
-from ._orchestration_lifecycle import (
+from chemstack.flow.orchestration.workflow_builders import _copy_input_impl as copy_input_impl
+from chemstack.flow.orchestration.deps import orchestration_deps
+from chemstack.flow.orchestration.lifecycle import (
     downstream_terminal_result_impl,
     effective_stage_status_impl,
     latest_child_stage_summary_impl,
@@ -10,23 +10,23 @@ from ._orchestration_lifecycle import (
     stage_failure_is_recoverable_impl,
     workflow_has_active_children_impl,
 )
-from ._orchestration_stage_materialization import (
+from chemstack.flow.orchestration.materialization import (
     append_crest_orca_stages_impl,
     append_reaction_orca_stages_impl,
     append_reaction_xtb_stages_impl,
 )
-from ._orchestration_stage_runtime_crest import (
+from chemstack.flow.orchestration.stage_runtime.crest import (
     completed_crest_roles_impl,
     completed_crest_stage_impl,
 )
-from ._orchestration_stage_runtime_orca import completed_orca_stage_impl
-from ._orchestration_stage_runtime_xtb_handoff import stage_has_xtb_candidates_impl
-from ._orchestration_stage_runtime_xtb_retry import (
+from chemstack.flow.orchestration.stage_runtime.orca import completed_orca_stage_impl
+from chemstack.flow.orchestration.stage_runtime.xtb_handoff import stage_has_xtb_candidates_impl
+from chemstack.flow.orchestration.stage_runtime.xtb_retry import (
     xtb_path_retry_limit_impl,
     xtb_retry_recipe_impl,
 )
-from ._orchestration_stage_runtime_xtb_sync import sync_xtb_stage_impl
-from ._orchestration_support import (
+from chemstack.flow.orchestration.stage_runtime.xtb_sync import sync_xtb_stage_impl
+from chemstack.flow.orchestration.support import (
     clear_reaction_xtb_handoff_error_if_recovering_impl,
     reaction_orca_allows_next_candidate_impl,
     reaction_ts_guess_error_impl,
