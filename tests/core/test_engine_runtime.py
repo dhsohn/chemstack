@@ -202,6 +202,122 @@ def test_engine_queue_runtime_starts_child_process_with_optional_admission_root(
     ]
 
 
+def test_engine_queue_runtime_builds_common_child_worker_hooks(tmp_path: Path) -> None:
+    runtime = _runtime(tmp_path)
+    entry = SimpleNamespace(
+        queue_id="queue-1",
+        metadata={"job_dir": str(tmp_path / "job-1")},
+    )
+    events: list[tuple[str, Any]] = []
+
+    class Worker:
+        admission_root = "/tmp/admission"
+
+        def _mark_entry_failed_and_release(
+            self,
+            queue_root: Path,
+            entry_arg: Any,
+            admission_token: str,
+            **kwargs: Any,
+        ) -> None:
+            events.append(
+                (
+                    "failed_release",
+                    {
+                        "queue_root": queue_root,
+                        "queue_id": entry_arg.queue_id,
+                        "admission_token": admission_token,
+                        "kwargs": kwargs,
+                    },
+                )
+            )
+
+    class Process:
+        pid = 2468
+
+        def __init__(self) -> None:
+            self.terminated = False
+
+        def poll(self) -> int | None:
+            return 0 if self.terminated else None
+
+        def terminate(self) -> None:
+            self.terminated = True
+
+    def handle_worker_start_error(
+        worker: Any,
+        queue_root: Path,
+        entry_arg: Any,
+        admission_token: str,
+        exc: OSError,
+    ) -> None:
+        events.append(("start_error", (queue_root, entry_arg.queue_id, admission_token, str(exc))))
+
+    def finalize_completed_job(worker: Any, queue_id: str, job: Any, rc: int) -> None:
+        events.append(("completed", (queue_id, job.entry.queue_id, rc)))
+
+    def finalize_child_exit(worker: Any, job: Any, *, rc: int) -> None:
+        events.append(("child_exit", (job.entry.queue_id, rc)))
+
+    def reconcile_worker_state(worker: Any) -> None:
+        events.append(("reconcile", worker.admission_root))
+
+    def activate_reserved_slot(root: str, token: str, **kwargs: Any) -> object:
+        events.append(("activated", {"root": root, "token": token, "kwargs": kwargs}))
+        return object()
+
+    hooks = runtime.child_worker_hooks(
+        engine="xtb",
+        handle_worker_start_error_fn=handle_worker_start_error,
+        finalize_completed_job_fn=finalize_completed_job,
+        finalize_child_exit_fn=finalize_child_exit,
+        reconcile_worker_state_fn=reconcile_worker_state,
+        activate_reserved_slot_fn=activate_reserved_slot,
+        terminate_process_fn=lambda process: events.append(("terminate", process.pid)),
+        mark_failed_fn=lambda *args, **kwargs: events.append(("mark_failed", (args, kwargs))),
+        shutdown_grace_seconds=0,
+        sleep_fn=lambda seconds: events.append(("sleep", seconds)),
+    )
+
+    worker = Worker()
+    process = Process()
+    assert hooks.on_worker_process_started(
+        worker,
+        tmp_path,
+        entry,
+        process,
+        "slot-1",
+    )
+    hooks.finalize_completed_job(worker, "queue-1", SimpleNamespace(entry=entry), 0)
+    hooks.reconcile_worker_state(worker)
+    hooks.handle_worker_start_error(worker, tmp_path, entry, "slot-2", OSError("boom"))
+    hooks.shutdown_running_job(
+        worker,
+        "queue-1",
+        SimpleNamespace(queue_root=tmp_path, entry=entry, process=Process()),
+    )
+
+    assert events == [
+        (
+            "activated",
+            {
+                "root": "/tmp/admission",
+                "token": "slot-1",
+                "kwargs": {
+                    "owner_pid": 2468,
+                    "source": "chemstack.xtb.queue_worker.child",
+                    "queue_id": "queue-1",
+                    "work_dir": str(tmp_path / "job-1"),
+                },
+            },
+        ),
+        ("completed", ("queue-1", "queue-1", 0)),
+        ("reconcile", "/tmp/admission"),
+        ("start_error", (tmp_path, "queue-1", "slot-2", "boom")),
+        ("child_exit", ("queue-1", 0)),
+    ]
+
+
 def test_engine_queue_runtime_runs_pidfile_worker_command(tmp_path: Path) -> None:
     cfg = SimpleNamespace(
         runtime=SimpleNamespace(

@@ -34,10 +34,8 @@ from chemstack.core.queue import (
 from chemstack.core.queue.worker import (
     BackgroundRunningJob as _RunningJob,
     HookedPidFileChildProcessQueueWorker,
-    PidFileChildProcessQueueWorkerHooks,
     config_path_for_worker,
     reconcile_orphaned_child_queue_entries,
-    shutdown_child_process_with_grace,
     start_background_process,
 )
 from chemstack.core.queue.engine_runtime import EngineQueueRuntime
@@ -203,26 +201,6 @@ def _handle_worker_start_error(
     )
 
 
-def _on_worker_process_started(
-    worker: Any,
-    queue_root: Path,
-    entry: Any,
-    process: subprocess.Popen[str],
-    admission_token: str,
-) -> bool:
-    return _queue_admission.attach_started_process(
-        admission_root=worker.admission_root,
-        queue_root=queue_root,
-        entry=entry,
-        process=process,
-        admission_token=admission_token,
-        activate_reserved_slot_fn=activate_reserved_slot,
-        terminate_process_fn=_terminate_process,
-        mark_entry_failed_and_release_fn=worker._mark_entry_failed_and_release,
-        mark_failed_fn=mark_failed,
-    )
-
-
 def _finalize_completed_job(worker: Any, _queue_id: str, job: Any, rc: int) -> None:
     _finalize_child_exit(worker, job, rc=rc)
 
@@ -242,28 +220,21 @@ def _finalize_child_exit(worker: Any, job: _RunningJob, *, rc: int) -> None:
     )
 
 
-def _shutdown_running_job(worker: Any, _queue_id: str, job: Any) -> None:
-    _queue_lifecycle.shutdown_running_job(
-        job,
-        shutdown_child_process_with_grace_fn=shutdown_child_process_with_grace,
-        terminate_process_fn=_terminate_process,
-        finalize_child_exit_fn=lambda current_job, rc: _finalize_child_exit(
-            worker,
-            current_job,
-            rc=rc,
+def _queue_worker_hooks() -> Any:
+    return _engine_runtime.child_worker_hooks(
+        engine="crest",
+        handle_worker_start_error_fn=_handle_worker_start_error,
+        finalize_completed_job_fn=_finalize_completed_job,
+        finalize_child_exit_fn=_finalize_child_exit,
+        reconcile_worker_state_fn=_reconcile_worker_state,
+        activate_reserved_slot_fn=lambda *args, **kwargs: activate_reserved_slot(
+            *args,
+            **kwargs,
         ),
-        grace_seconds=WORKER_SHUTDOWN_GRACE_SECONDS,
-        sleep_fn=time.sleep,
-    )
-
-
-def _queue_worker_hooks() -> PidFileChildProcessQueueWorkerHooks:
-    return PidFileChildProcessQueueWorkerHooks(
-        handle_worker_start_error=_handle_worker_start_error,
-        on_worker_process_started=_on_worker_process_started,
-        finalize_completed_job=_finalize_completed_job,
-        shutdown_running_job=_shutdown_running_job,
-        reconcile_worker_state=_reconcile_worker_state,
+        terminate_process_fn=lambda process: _terminate_process(process),
+        mark_failed_fn=lambda *args, **kwargs: mark_failed(*args, **kwargs),
+        shutdown_grace_seconds=WORKER_SHUTDOWN_GRACE_SECONDS,
+        sleep_fn=lambda seconds: time.sleep(seconds),
     )
 
 

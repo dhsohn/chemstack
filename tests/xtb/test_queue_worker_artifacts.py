@@ -13,6 +13,7 @@ from chemstack.xtb import queue_runtime as queue_cmd
 from chemstack.xtb import queue_terminal as terminal_mod
 from chemstack.xtb import state as state_mod
 from chemstack.xtb import worker_execution as worker_exec
+from chemstack.xtb import worker_terminal as worker_terminal_mod
 from chemstack.xtb.worker_execution import WorkerExecutionOutcome
 from tests.xtb.factories import (
     fake_reserve_slot as _fake_reserve_slot,
@@ -29,15 +30,17 @@ def test_write_execution_artifacts_skips_without_job_dir(
     result = _make_result(tmp_path / "selected.xyz", status="completed", reason="completed")
 
     monkeypatch.setattr(
-        queue_cmd, "write_state", lambda *args, **kwargs: pytest.fail("write_state should not run")
+        worker_terminal_mod,
+        "write_state",
+        lambda *args, **kwargs: pytest.fail("write_state should not run"),
     )
     monkeypatch.setattr(
-        queue_cmd,
+        worker_terminal_mod,
         "write_report_json",
         lambda *args, **kwargs: pytest.fail("write_report_json should not run"),
     )
     monkeypatch.setattr(
-        queue_cmd,
+        worker_terminal_mod,
         "write_report_md_lines",
         lambda *args, **kwargs: pytest.fail("write_report_md_lines should not run"),
     )
@@ -94,7 +97,9 @@ def test_write_running_state_skips_without_job_dir(
     cfg = _make_cfg(tmp_path)
     entry = SimpleNamespace(task_id="job-1", metadata={})
     monkeypatch.setattr(
-        queue_cmd, "write_state", lambda *args, **kwargs: pytest.fail("write_state should not run")
+        worker_terminal_mod,
+        "write_state",
+        lambda *args, **kwargs: pytest.fail("write_state should not run"),
     )
     queue_cmd._write_running_state(cfg, entry)
 

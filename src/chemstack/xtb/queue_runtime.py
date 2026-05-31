@@ -3,7 +3,6 @@ from __future__ import annotations
 import argparse
 import subprocess
 import time
-from dataclasses import replace
 from pathlib import Path
 from typing import Any, Callable
 
@@ -35,20 +34,18 @@ from chemstack.core.queue.worker import (
     BackgroundRunningJob,
     HookedPidFileChildProcessQueueWorker,
     ManagedProcess as _ManagedProcess,
-    PidFileChildProcessQueueWorkerHooks,
     config_path_for_worker,
     pid_is_alive as worker_pid_is_alive,
     reconcile_orphaned_child_queue_entries,
-    shutdown_child_process_with_grace,
     start_background_process,
     terminate_process_group,
 )
 from chemstack.core.queue.engine_runtime import EngineQueueRuntime
-from chemstack.core.utils import now_utc_iso
 
 from . import queue_admission as _queue_admission
 from . import queue_lifecycle as _queue_lifecycle
 from . import worker_execution as _worker_execution
+from . import worker_terminal as _worker_terminal
 from .job_locations import (
     runtime_roots_for_cfg,
     upsert_job_record,
@@ -58,9 +55,6 @@ from .state import (
     load_organized_ref,
     load_report_json,
     load_state,
-    write_report_json,
-    write_report_md_lines,
-    write_state,
 )
 from . import queue_artifacts as _queue_artifacts
 from . import queue_terminal as _queue_terminal
@@ -83,32 +77,35 @@ def _queue_worker_deps() -> Any:
 
 
 def _worker_execution_dependencies() -> _worker_execution.WorkerExecutionDependencies:
-    deps = _worker_execution.default_worker_execution_dependencies()
-    return replace(
-        deps,
-        config=replace(
-            deps.config,
+    return _worker_execution.build_worker_execution_dependencies(
+        config=_worker_execution.WorkerConfigDependencies(
             load_config=load_config,
             queue_entry_by_id=_queue_entry_by_id,
         ),
-        admission=replace(
-            deps.admission,
+        admission=_worker_execution.WorkerAdmissionDependencies(
             activate_reserved_slot=activate_reserved_slot,
             release_slot=release_slot,
         ),
-        artifacts=replace(
-            deps.artifacts,
+        context=_worker_execution.WorkerContextDependencies(
+            job_dir=_job_dir,
+            selected_xyz=_selected_xyz,
+            job_type=_job_type,
+            reaction_key=_reaction_key,
+            input_summary=_input_summary,
+            entry_resource_request=_queue_artifacts.entry_resource_request,
+            matching_state=_worker_execution_hooks.matching_state,
+            is_recovery_pending=_worker_execution.is_recovery_pending,
+        ),
+        artifacts=_worker_execution.WorkerArtifactDependencies(
             write_running_state=_write_running_state,
             build_terminal_result=_build_terminal_result,
             finalize_execution_result=_finalize_execution_result,
         ),
-        tracking=replace(
-            deps.tracking,
+        tracking=_worker_execution.WorkerTrackingDependencies(
             upsert_job_record=upsert_job_record,
             notify_job_started=notify_job_started,
         ),
-        runner=replace(
-            deps.runner,
+        runner=_worker_execution.WorkerRunnerDependencies(
             run_xtb_ranking_job=run_xtb_ranking_job,
             start_xtb_job=start_xtb_job,
             finalize_xtb_job=finalize_xtb_job,
@@ -117,7 +114,7 @@ def _worker_execution_dependencies() -> _worker_execution.WorkerExecutionDepende
             sleep=time.sleep,
             cancel_check_interval_seconds=CANCEL_CHECK_INTERVAL_SECONDS,
         ),
-        execute_queue_entry=_execute_queue_entry,
+        execute_queue_entry_fn=_execute_queue_entry,
     )
 
 
@@ -157,10 +154,6 @@ def _pid_is_alive(pid: int) -> bool:
     return worker_pid_is_alive(pid)
 
 
-def _coerce_mapping(value: Any) -> dict[str, Any]:
-    return _queue_execution.coerce_mapping(value)
-
-
 _worker_execution_hooks = _worker_execution.default_worker_execution_hooks()
 _job_dir = _worker_execution_hooks.job_dir
 _selected_xyz = _worker_execution_hooks.selected_xyz
@@ -168,48 +161,9 @@ _job_type = _worker_execution_hooks.job_type
 _reaction_key = _worker_execution_hooks.reaction_key
 _input_summary = _worker_execution_hooks.input_summary
 
-
-def _write_execution_artifacts(
-    entry: Any,
-    result: XtbRunResult,
-    *,
-    previous_state: dict[str, Any] | None = None,
-    resumed: bool = False,
-) -> None:
-    _queue_artifacts.write_execution_artifacts(
-        entry,
-        result,
-        previous_state=previous_state,
-        resumed=resumed,
-        coerce_mapping_fn=_coerce_mapping,
-        write_state_fn=write_state,
-        write_report_json_fn=write_report_json,
-        write_report_md_lines_fn=write_report_md_lines,
-    )
-
-
-def _write_running_state(
-    cfg: Any,
-    entry: Any,
-    *,
-    worker_job_pid: int | None = None,
-    previous_state: dict[str, Any] | None = None,
-    resumed: bool = False,
-) -> None:
-    _queue_artifacts.write_running_state(
-        cfg,
-        entry,
-        worker_job_pid=worker_job_pid,
-        previous_state=previous_state,
-        resumed=resumed,
-        input_summary_fn=_input_summary,
-        entry_resource_request_fn=_queue_artifacts.entry_resource_request,
-        coerce_mapping_fn=_coerce_mapping,
-        now_utc_iso_fn=now_utc_iso,
-        job_type_fn=_job_type,
-        reaction_key_fn=_reaction_key,
-        write_state_fn=write_state,
-    )
+_write_execution_artifacts = _worker_terminal.write_execution_artifacts
+_write_running_state = _worker_terminal.write_running_state
+_build_terminal_result = _worker_terminal.build_terminal_result
 
 
 def _mark_recovery_pending_state(cfg: Any, entry: Any, *, reason: str) -> None:
@@ -225,36 +179,6 @@ def _try_reserve_admission_slot(cfg: Any) -> str | None:
         cfg,
         engine="xtb",
         reserve_slot_fn=reserve_slot,
-    )
-
-
-def _build_terminal_result(
-    entry: Any,
-    *,
-    job_dir: Path,
-    selected_xyz: Path,
-    job_type: str,
-    reaction_key: str,
-    input_summary: dict[str, Any],
-    resource_request: dict[str, int],
-    status: str,
-    reason: str,
-    exit_code: int = 1,
-    command: tuple[str, ...] = (),
-) -> XtbRunResult:
-    return _queue_artifacts.build_terminal_result(
-        entry,
-        job_dir=job_dir,
-        selected_xyz=selected_xyz,
-        job_type=job_type,
-        reaction_key=reaction_key,
-        input_summary=input_summary,
-        resource_request=resource_request,
-        status=status,
-        reason=reason,
-        exit_code=exit_code,
-        command=command,
-        now_utc_iso_fn=now_utc_iso,
     )
 
 
@@ -401,26 +325,6 @@ def _handle_worker_start_error(
     )
 
 
-def _on_worker_process_started(
-    worker: Any,
-    queue_root: Path,
-    entry: Any,
-    process: subprocess.Popen[str],
-    admission_token: str,
-) -> bool:
-    return _queue_admission.attach_started_process(
-        admission_root=worker.admission_root,
-        queue_root=queue_root,
-        entry=entry,
-        process=process,
-        admission_token=admission_token,
-        activate_reserved_slot_fn=activate_reserved_slot,
-        terminate_process_fn=_terminate_process,
-        mark_entry_failed_and_release_fn=worker._mark_entry_failed_and_release,
-        mark_failed_fn=mark_failed,
-    )
-
-
 def _finalize_completed_job(worker: Any, _queue_id: str, job: Any, rc: int) -> None:
     summary = _load_terminal_summary(job.queue_root, job.entry, rc=rc)
     _ensure_terminal_queue_status(job.queue_root, job.entry, summary)
@@ -440,21 +344,6 @@ def _finalize_child_exit(worker: Any, job: _RunningJob, *, rc: int) -> None:
         mark_failed_fn=mark_failed,
         mark_recovery_pending_fn=_mark_recovery_pending_state,
         release_admission_slot_fn=worker._release_admission_slot,
-    )
-
-
-def _shutdown_running_job(worker: Any, _queue_id: str, job: Any) -> None:
-    _queue_lifecycle.shutdown_running_job(
-        job,
-        shutdown_child_process_with_grace_fn=shutdown_child_process_with_grace,
-        terminate_process_fn=_terminate_process,
-        finalize_child_exit_fn=lambda current_job, rc: _finalize_child_exit(
-            worker,
-            current_job,
-            rc=rc,
-        ),
-        grace_seconds=WORKER_SHUTDOWN_GRACE_SECONDS,
-        sleep_fn=time.sleep,
     )
 
 
@@ -508,13 +397,21 @@ def _reconcile_worker_state(worker: Any) -> None:
     _reconcile_orphaned_running(worker)
 
 
-def _queue_worker_hooks() -> PidFileChildProcessQueueWorkerHooks:
-    return PidFileChildProcessQueueWorkerHooks(
-        handle_worker_start_error=_handle_worker_start_error,
-        on_worker_process_started=_on_worker_process_started,
-        finalize_completed_job=_finalize_completed_job,
-        shutdown_running_job=_shutdown_running_job,
-        reconcile_worker_state=_reconcile_worker_state,
+def _queue_worker_hooks() -> Any:
+    return _engine_runtime.child_worker_hooks(
+        engine="xtb",
+        handle_worker_start_error_fn=_handle_worker_start_error,
+        finalize_completed_job_fn=_finalize_completed_job,
+        finalize_child_exit_fn=_finalize_child_exit,
+        reconcile_worker_state_fn=_reconcile_worker_state,
+        activate_reserved_slot_fn=lambda *args, **kwargs: activate_reserved_slot(
+            *args,
+            **kwargs,
+        ),
+        terminate_process_fn=lambda process: _terminate_process(process),
+        mark_failed_fn=lambda *args, **kwargs: mark_failed(*args, **kwargs),
+        shutdown_grace_seconds=WORKER_SHUTDOWN_GRACE_SECONDS,
+        sleep_fn=lambda seconds: time.sleep(seconds),
     )
 
 

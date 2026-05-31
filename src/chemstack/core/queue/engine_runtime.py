@@ -8,8 +8,14 @@ from typing import Any
 from chemstack.core.commands.queue import QueueRuntime, run_pidfile_queue_worker_command
 
 from .dependencies import ChildQueueWorkerDeps
-from .engine_admission import reserve_engine_admission_slot, start_engine_child_process
+from .engine_admission import (
+    attach_started_process,
+    reserve_engine_admission_slot,
+    start_engine_child_process,
+)
+from . import lifecycle as _queue_lifecycle
 from .worker import (
+    PidFileChildProcessQueueWorkerHooks,
     dequeue_next_across_roots,
     make_child_queue_worker_deps,
     queue_entry_by_id as _queue_entry_by_id,
@@ -93,6 +99,98 @@ class EngineQueueRuntime:
             cfg,
             engine=engine,
             reserve_slot_fn=reserve_slot_fn,
+        )
+
+    def attach_started_child_process(
+        self,
+        *,
+        engine: str,
+        worker: Any,
+        queue_root: Path,
+        entry: Any,
+        process: Any,
+        admission_token: str,
+        activate_reserved_slot_fn: Callable[..., Any],
+        terminate_process_fn: Callable[[Any], Any],
+        mark_failed_fn: Callable[..., Any],
+    ) -> bool:
+        engine_slug = str(engine).strip().replace("-", "_")
+        return attach_started_process(
+            admission_root=worker.admission_root,
+            queue_root=queue_root,
+            entry=entry,
+            process=process,
+            admission_token=admission_token,
+            activate_reserved_slot_fn=activate_reserved_slot_fn,
+            terminate_process_fn=terminate_process_fn,
+            mark_entry_failed_and_release_fn=worker._mark_entry_failed_and_release,
+            mark_failed_fn=mark_failed_fn,
+            source=f"chemstack.{engine_slug}.queue_worker.child",
+        )
+
+    def shutdown_child_job(
+        self,
+        worker: Any,
+        job: Any,
+        *,
+        terminate_process_fn: Callable[[Any], Any],
+        finalize_child_exit_fn: Callable[..., Any],
+        grace_seconds: float,
+        sleep_fn: Callable[[float], None],
+    ) -> None:
+        _queue_lifecycle.shutdown_running_job(
+            job,
+            terminate_process_fn=terminate_process_fn,
+            finalize_child_exit_fn=lambda current_job, rc: finalize_child_exit_fn(
+                worker,
+                current_job,
+                rc=rc,
+            ),
+            grace_seconds=grace_seconds,
+            sleep_fn=sleep_fn,
+        )
+
+    def child_worker_hooks(
+        self,
+        *,
+        engine: str,
+        handle_worker_start_error_fn: Callable[[Any, Path, Any, str, OSError], None],
+        finalize_completed_job_fn: Callable[[Any, str, Any, int], None],
+        finalize_child_exit_fn: Callable[..., Any],
+        reconcile_worker_state_fn: Callable[[Any], None],
+        activate_reserved_slot_fn: Callable[..., Any],
+        terminate_process_fn: Callable[[Any], Any],
+        mark_failed_fn: Callable[..., Any],
+        shutdown_grace_seconds: float,
+        sleep_fn: Callable[[float], None],
+    ) -> PidFileChildProcessQueueWorkerHooks:
+        return PidFileChildProcessQueueWorkerHooks(
+            handle_worker_start_error=handle_worker_start_error_fn,
+            on_worker_process_started=(
+                lambda worker, queue_root, entry, process, admission_token: (
+                    self.attach_started_child_process(
+                        engine=engine,
+                        worker=worker,
+                        queue_root=queue_root,
+                        entry=entry,
+                        process=process,
+                        admission_token=admission_token,
+                        activate_reserved_slot_fn=activate_reserved_slot_fn,
+                        terminate_process_fn=terminate_process_fn,
+                        mark_failed_fn=mark_failed_fn,
+                    )
+                )
+            ),
+            finalize_completed_job=finalize_completed_job_fn,
+            shutdown_running_job=lambda worker, _queue_id, job: self.shutdown_child_job(
+                worker,
+                job,
+                terminate_process_fn=terminate_process_fn,
+                finalize_child_exit_fn=finalize_child_exit_fn,
+                grace_seconds=shutdown_grace_seconds,
+                sleep_fn=sleep_fn,
+            ),
+            reconcile_worker_state=reconcile_worker_state_fn,
         )
 
     def start_child_process(
