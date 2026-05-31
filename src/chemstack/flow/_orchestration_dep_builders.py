@@ -329,7 +329,7 @@ def _build_engine_deps(overrides: Mapping[str, Any] | None) -> OrchestrationEngi
 
 
 def _stage_builder_fallbacks() -> dict[str, Any]:
-    from ._orchestration_builders import new_xtb_stage_impl
+    from ._orchestration_stage_builders import new_xtb_stage_impl
 
     return {
         "_new_xtb_stage": new_xtb_stage_impl,
@@ -428,6 +428,9 @@ def _stage_support_fallbacks(deps_provider: _LazyOrchestrationDeps) -> dict[str,
                 "_submission_target": submission_target_impl,
             },
         ),
+        "_coerce_mapping": _coerce_mapping_fallback,
+        "_normalize_text": _normalize_text_fallback,
+        "_safe_int": _safe_int_fallback,
         "_stage_metadata": stage_metadata_impl,
         "_task_payload_dict": task_payload_dict_impl,
     }
@@ -437,12 +440,10 @@ def _stage_workflow_fallbacks(
     overrides: Mapping[str, Any] | None,
 ) -> dict[str, Any]:
     return {
-        "_coerce_mapping": _coerce_mapping_fallback,
         "_maybe_notify_workflow_phase_summary": partial(
             _maybe_notify_workflow_phase_summary_fallback,
             overrides=overrides,
         ),
-        "_normalize_text": _normalize_text_fallback,
         "_persist_workflow_progress": partial(
             _persist_workflow_progress_fallback,
             overrides=overrides,
@@ -451,7 +452,7 @@ def _stage_workflow_fallbacks(
             _recompute_workflow_status_fallback,
             overrides=overrides,
         ),
-        "_safe_int": _safe_int_fallback,
+        "_stage_failure_is_recoverable": _stage_failure_is_recoverable_override(overrides),
         "_workflow_has_active_children": partial(
             _workflow_has_active_children_fallback,
             overrides=overrides,
@@ -488,7 +489,6 @@ def _build_stage_deps(
 
     provider = _deps_provider(overrides, deps_provider)
     resolved = _apply_overrides(overrides, _stage_dep_fallbacks(overrides, provider))
-    resolved["_stage_failure_is_recoverable"] = _stage_failure_is_recoverable_override(overrides)
 
     return OrchestrationStageDeps(
         **{

@@ -411,7 +411,7 @@ def advance_workflow(
     workspace_dir = o.persistence.resolve_workflow_workspace(target=target, workflow_root=workflow_root_path)
     with o.persistence.acquire_workflow_lock(workspace_dir):
         payload = o.persistence.load_workflow_payload(workspace_dir)
-        sync_only = o.stages._workflow_sync_only(payload)
+        sync_only = o.stages.workflow._workflow_sync_only(payload)
         config = engine_options or WorkflowEngineOptions.from_values(
             crest_config=crest_config,
             xtb_config=xtb_config,

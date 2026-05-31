@@ -7,7 +7,6 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any, Callable
 
-from chemstack.core.commands import queue as _shared_queue
 from chemstack.core.config.engines import (
     default_shared_config_path as default_config_path,
     load_xtb_config as load_config,
@@ -38,11 +37,9 @@ from chemstack.core.queue.worker import (
     ManagedProcess as _ManagedProcess,
     PidFileChildProcessQueueWorker,
     config_path_for_worker,
-    make_child_queue_worker_deps,
     pid_is_alive as worker_pid_is_alive,
     reconcile_orphaned_child_queue_entries,
     request_job_cancellation,
-    reserve_dequeued_entry,
     shutdown_child_process_with_grace,
     start_background_process,
     terminate_process_group,
@@ -79,13 +76,10 @@ WORKER_JOB_MODULE = _worker_execution.WORKER_JOB_MODULE
 
 
 def _queue_worker_deps() -> Any:
-    return make_child_queue_worker_deps(
+    return _engine_runtime.child_worker_deps(
         poll_interval_seconds=POLL_INTERVAL_SECONDS,
         time_module=time,
         release_slot_fn=release_slot,
-        reserve_dequeued_entry_fn=reserve_dequeued_entry,
-        admission_root_fn=_admission_root,
-        dequeue_next_entry_fn=dequeue_next_entry,
         start_background_job_process_fn=_start_background_job_process,
         try_reserve_admission_slot_fn=_try_reserve_admission_slot,
     )
@@ -230,8 +224,9 @@ def _terminate_process(proc: _ManagedProcess) -> None:
 
 
 def _try_reserve_admission_slot(cfg: Any) -> str | None:
-    return _queue_admission.reserve_admission_slot(
+    return _engine_runtime.reserve_admission_slot(
         cfg,
+        engine="xtb",
         reserve_slot_fn=reserve_slot,
     )
 
@@ -357,7 +352,7 @@ def _start_background_job_process(
     admission_root: str,
     admission_token: str,
 ) -> subprocess.Popen[str]:
-    return _queue_admission.start_background_job_process(
+    return _engine_runtime.start_child_process(
         config_path=config_path,
         queue_root=queue_root,
         entry=entry,
@@ -365,6 +360,7 @@ def _start_background_job_process(
         admission_token=admission_token,
         start_background_process_fn=start_background_process,
         build_worker_child_command_fn=_worker_execution.build_worker_child_command,
+        include_admission_root=True,
     )
 
 
@@ -512,12 +508,11 @@ class QueueWorker(PidFileChildProcessQueueWorker):
 
 
 def cmd_queue_worker(args: Any) -> int:
-    return _shared_queue.run_pidfile_queue_worker_command(
+    return _engine_runtime.run_pidfile_worker_command(
         args,
-        load_config_fn=load_config,
         config_path_fn=_config_path_for_worker,
+        load_config_fn=load_config,
         read_worker_pid_fn=read_worker_pid,
-        max_concurrent_fn=lambda cfg: max(1, int(getattr(cfg.runtime, "max_concurrent", 1))),
         worker_factory=lambda cfg, config_path, **kwargs: QueueWorker(
             cfg,
             config_path=config_path,

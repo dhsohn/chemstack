@@ -104,7 +104,12 @@ class _ContractPayloadDeps:
         return self._deps.normalize_bool_fn(value)
 
     def _runtime_paths(self, current_dir: Path | None) -> dict[str, str]:
-        return _metadata_paths(current_dir)
+        return _canonical_payload.runtime_paths(
+            current_dir,
+            state_file_name="run_state.json",
+            report_json_name="run_report.json",
+            report_md_name="run_report.md",
+        )
 
     def attempt_count(self, state: ContractPayload, report: ContractPayload) -> int:
         return self._deps.attempt_count_fn(state, report)
@@ -389,19 +394,6 @@ def _organized_output_dir(
         or (str(context.organized_dir) if context.organized_dir is not None else "")
         or current_output
     )
-
-
-def _metadata_paths(current_dir: Path | None) -> dict[str, str]:
-    return {
-        "run_state_path": _existing_child_path(current_dir, "run_state.json"),
-        "report_json_path": _existing_child_path(current_dir, "run_report.json"),
-        "report_md_path": _existing_child_path(current_dir, "run_report.md"),
-    }
-
-
-def _existing_child_path(current_dir: Path | None, filename: str) -> str:
-    path = current_dir / filename if current_dir is not None else None
-    return str(path.resolve()) if path is not None and path.exists() else ""
 
 
 __all__ = [

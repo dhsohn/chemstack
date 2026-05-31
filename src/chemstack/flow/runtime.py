@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
 from chemstack.core.admission import active_slot_count
 from chemstack.core.utils import now_utc_iso, timestamped_token
 
-from . import _runtime_common, runtime_admission, runtime_events, runtime_models
+from . import _runtime_common, runtime_admission, runtime_advance, runtime_events, runtime_models
 from ._workflow_phases import phase_transition_event_payloads
 from .engine_options import WorkflowEngineOptions
 from .orchestration import advance_workflow
@@ -16,6 +15,13 @@ from .registry import (
     list_workflow_registry,
     reindex_workflow_registry,
     write_workflow_worker_state,
+)
+from .runtime_cycle import (
+    WorkflowCycleDeps as WorkflowCycleDeps,
+    finish_workflow_cycle,
+    start_workflow_cycle,
+    start_workflow_cycle_with_deps as start_workflow_cycle_with_deps,
+    workflow_lease_expires_at,
 )
 from .state import load_workflow_payload, workflow_has_active_downstream, workflow_summary
 
@@ -31,6 +37,8 @@ WorkflowRegistryAdvanceRequest = runtime_models.WorkflowRegistryAdvanceRequest
 WorkflowRuntimeContext = runtime_models.WorkflowRuntimeContext
 _WorkflowCycle = runtime_models._WorkflowCycle
 _WorkflowCycleProgress = runtime_models._WorkflowCycleProgress
+WorkflowAdvanceDeps = runtime_advance.WorkflowAdvanceDeps
+WorkflowAdvanceOutcome = runtime_advance.WorkflowAdvanceOutcome
 
 submission_admission_limit_from_config = runtime_admission.submission_admission_limit_from_config
 submission_admission_has_capacity = runtime_admission.submission_admission_has_capacity
@@ -53,173 +61,10 @@ append_phase_transition_events = runtime_events.append_phase_transition_events
 append_workflow_advance_failed_event = runtime_events.append_workflow_advance_failed_event
 append_workflow_advanced_events = runtime_events.append_workflow_advanced_events
 
-
-@dataclass(frozen=True)
-class WorkflowCycleDeps:
-    now_utc_iso_fn: Callable[[], str]
-    timestamped_token_fn: Callable[[str], str]
-    workflow_submission_has_capacity_fn: Callable[..., bool]
-    write_workflow_worker_state_fn: Callable[..., Any]
-    append_workflow_journal_event_fn: Callable[..., Any]
-    workflow_lease_expires_at_fn: Callable[[float], str]
-
-
-@dataclass(frozen=True)
-class WorkflowAdvanceDeps:
-    advance_workflow_fn: Callable[..., dict[str, Any]]
-    safe_workflow_summary_fn: Callable[..., dict[str, Any]]
-    workflow_is_terminal_status_fn: Callable[[Any], bool]
-    workflow_needs_terminal_child_sync_fn: Callable[..., bool]
-    append_workflow_advance_failed_event_fn: Callable[..., Any]
-    append_workflow_advanced_events_fn: Callable[..., Any]
-    append_phase_transition_events_fn: Callable[..., Any]
-    append_stage_transition_events_fn: Callable[..., Any]
-    workflow_skipped_terminal_result_fn: Callable[..., WorkflowAdvanceResult]
-    workflow_advance_failed_result_fn: Callable[..., WorkflowAdvanceResult]
-    workflow_advanced_result_fn: Callable[..., WorkflowAdvanceResult]
-    normalize_text_fn: Callable[[Any], str]
-
-
-@dataclass(frozen=True)
-class WorkflowAdvanceOutcome:
-    outcome: str
-    result: WorkflowAdvanceResult
-
-
-def workflow_lease_expires_at(lease_seconds: float) -> str:
-    if lease_seconds <= 0:
-        return ""
-    try:
-        from datetime import datetime, timedelta, timezone
-
-        return (datetime.now(timezone.utc) + timedelta(seconds=float(lease_seconds))).isoformat()
-    except Exception:
-        return ""
-
-
-def start_workflow_cycle_with_deps(
-    *,
-    context: WorkflowRuntimeContext,
-    deps: WorkflowCycleDeps,
-) -> _WorkflowCycle:
-    cycle_started_at = deps.now_utc_iso_fn()
-    session_id = _runtime_common.normalize_text(context.worker_session_id) or deps.timestamped_token_fn(
-        "wf_worker"
-    )
-    requested_submit_ready = bool(context.submit_ready)
-    cycle_submit_ready = requested_submit_ready and deps.workflow_submission_has_capacity_fn(
-        context.options.crest_config,
-        context.options.xtb_config,
-        context.options.orca_config,
-    )
-    admission_blocked = requested_submit_ready and not cycle_submit_ready
-    lease_expires_at = deps.workflow_lease_expires_at_fn(context.lease_seconds)
-
-    deps.write_workflow_worker_state_fn(
-        context.root,
-        worker_session_id=session_id,
-        status="running",
-        workflow_root_path=context.root,
-        last_cycle_started_at=cycle_started_at,
-        last_heartbeat_at=cycle_started_at,
-        lease_expires_at=lease_expires_at,
-        interval_seconds=context.interval_seconds,
-        submit_ready=cycle_submit_ready,
-        metadata={"admission_blocked": True} if admission_blocked else None,
-    )
-    deps.append_workflow_journal_event_fn(
-        context.root,
-        event_type="worker_cycle_started",
-        worker_session_id=session_id,
-        metadata={
-            "cycle_started_at": cycle_started_at,
-            "refresh_registry": bool(context.refresh_registry),
-            "submit_ready": cycle_submit_ready,
-            "requested_submit_ready": requested_submit_ready,
-            "admission_blocked": admission_blocked,
-        },
-    )
-    return _WorkflowCycle(
-        root=context.root,
-        cycle_started_at=cycle_started_at,
-        session_id=session_id,
-        requested_submit_ready=requested_submit_ready,
-        cycle_submit_ready=cycle_submit_ready,
-        admission_blocked=admission_blocked,
-        lease_expires_at=lease_expires_at,
-    )
-
-
-def start_workflow_cycle(
-    *,
-    context: WorkflowRuntimeContext,
-    now_utc_iso_fn: Callable[[], str],
-    timestamped_token_fn: Callable[[str], str],
-    workflow_submission_has_capacity_fn: Callable[..., bool],
-    write_workflow_worker_state_fn: Callable[..., Any],
-    append_workflow_journal_event_fn: Callable[..., Any],
-    workflow_lease_expires_at_fn: Callable[[float], str] = workflow_lease_expires_at,
-) -> _WorkflowCycle:
-    return start_workflow_cycle_with_deps(
-        context=context,
-        deps=WorkflowCycleDeps(
-            now_utc_iso_fn=now_utc_iso_fn,
-            timestamped_token_fn=timestamped_token_fn,
-            workflow_submission_has_capacity_fn=workflow_submission_has_capacity_fn,
-            write_workflow_worker_state_fn=write_workflow_worker_state_fn,
-            append_workflow_journal_event_fn=append_workflow_journal_event_fn,
-            workflow_lease_expires_at_fn=workflow_lease_expires_at_fn,
-        ),
-    )
-
-
-def finish_workflow_cycle(
-    *,
-    cycle: _WorkflowCycle,
-    discovered_count: int,
-    progress: _WorkflowCycleProgress,
-    interval_seconds: float | None,
-    now_utc_iso_fn: Callable[[], str],
-    write_workflow_worker_state_fn: Callable[..., Any],
-    append_workflow_journal_event_fn: Callable[..., Any],
-) -> str:
-    cycle_finished_at = now_utc_iso_fn()
-    finished_metadata = {
-        "discovered_count": discovered_count,
-        "advanced_count": progress.advanced_count,
-        "skipped_count": progress.skipped_count,
-        "failed_count": progress.failed_count,
-    }
-    if cycle.admission_blocked:
-        finished_metadata["admission_blocked"] = True
-    write_workflow_worker_state_fn(
-        cycle.root,
-        worker_session_id=cycle.session_id,
-        status="idle",
-        workflow_root_path=cycle.root,
-        last_cycle_started_at=cycle.cycle_started_at,
-        last_cycle_finished_at=cycle_finished_at,
-        last_heartbeat_at=cycle_finished_at,
-        lease_expires_at=cycle.lease_expires_at,
-        interval_seconds=interval_seconds,
-        submit_ready=cycle.cycle_submit_ready,
-        metadata=finished_metadata,
-    )
-    append_workflow_journal_event_fn(
-        cycle.root,
-        event_type="worker_cycle_finished",
-        worker_session_id=cycle.session_id,
-        metadata={
-            "cycle_started_at": cycle.cycle_started_at,
-            "cycle_finished_at": cycle_finished_at,
-            "discovered_count": discovered_count,
-            "advanced_count": progress.advanced_count,
-            "skipped_count": progress.skipped_count,
-            "failed_count": progress.failed_count,
-            "admission_blocked": cycle.admission_blocked,
-        },
-    )
-    return cycle_finished_at
+_advanced_workflow_outcome = runtime_advance.advanced_workflow_outcome
+_failed_workflow_advance_outcome = runtime_advance.failed_workflow_advance_outcome
+_skipped_terminal_workflow_outcome = runtime_advance.skipped_terminal_workflow_outcome
+_advance_workflow_record_outcome = runtime_advance.advance_workflow_record_outcome
 
 
 def _safe_workflow_summary(
@@ -241,6 +86,7 @@ def _append_stage_transition_events(
     workflow_id: str,
     template_name: str,
     worker_session_id: str,
+    append_workflow_journal_event_fn: Callable[..., Any],
 ) -> None:
     _append_summary_transition_events(
         workflow_root,
@@ -252,6 +98,7 @@ def _append_stage_transition_events(
         append_fn=append_stage_transition_events,
         payloads_kwarg="stage_transition_event_payloads_fn",
         payloads_fn=runtime_events.stage_transition_event_payloads,
+        append_workflow_journal_event_fn=append_workflow_journal_event_fn,
     )
 
 
@@ -266,6 +113,7 @@ def _append_summary_transition_events(
     append_fn: Any,
     payloads_kwarg: str,
     payloads_fn: Any,
+    append_workflow_journal_event_fn: Callable[..., Any],
 ) -> None:
     append_fn(
         workflow_root,
@@ -276,7 +124,7 @@ def _append_summary_transition_events(
         worker_session_id=worker_session_id,
         **{
             payloads_kwarg: payloads_fn,
-            "append_workflow_journal_event_fn": append_workflow_journal_event,
+            "append_workflow_journal_event_fn": append_workflow_journal_event_fn,
         },
     )
 
@@ -289,6 +137,7 @@ def _append_phase_transition_events(
     workflow_id: str,
     template_name: str,
     worker_session_id: str,
+    append_workflow_journal_event_fn: Callable[..., Any],
 ) -> None:
     _append_summary_transition_events(
         workflow_root,
@@ -300,6 +149,7 @@ def _append_phase_transition_events(
         append_fn=append_phase_transition_events,
         payloads_kwarg="phase_transition_event_payloads_fn",
         payloads_fn=phase_transition_event_payloads,
+        append_workflow_journal_event_fn=append_workflow_journal_event_fn,
     )
 
 
@@ -362,6 +212,28 @@ def _start_workflow_cycle(
 
 
 def _workflow_advance_deps() -> WorkflowAdvanceDeps:
+    append_workflow_journal_event_fn = append_workflow_journal_event
+
+    def append_phase_transition_events_fn(
+        workflow_root: str | Path,
+        **kwargs: Any,
+    ) -> None:
+        _append_phase_transition_events(
+            workflow_root,
+            append_workflow_journal_event_fn=append_workflow_journal_event_fn,
+            **kwargs,
+        )
+
+    def append_stage_transition_events_fn(
+        workflow_root: str | Path,
+        **kwargs: Any,
+    ) -> None:
+        _append_stage_transition_events(
+            workflow_root,
+            append_workflow_journal_event_fn=append_workflow_journal_event_fn,
+            **kwargs,
+        )
+
     return WorkflowAdvanceDeps(
         advance_workflow_fn=advance_workflow,
         safe_workflow_summary_fn=_safe_workflow_summary,
@@ -369,141 +241,13 @@ def _workflow_advance_deps() -> WorkflowAdvanceDeps:
         workflow_needs_terminal_child_sync_fn=_workflow_needs_terminal_child_sync,
         append_workflow_advance_failed_event_fn=append_workflow_advance_failed_event,
         append_workflow_advanced_events_fn=append_workflow_advanced_events,
-        append_phase_transition_events_fn=_append_phase_transition_events,
-        append_stage_transition_events_fn=_append_stage_transition_events,
+        append_phase_transition_events_fn=append_phase_transition_events_fn,
+        append_stage_transition_events_fn=append_stage_transition_events_fn,
+        append_workflow_journal_event_fn=append_workflow_journal_event_fn,
         workflow_skipped_terminal_result_fn=workflow_skipped_terminal_result,
         workflow_advance_failed_result_fn=workflow_advance_failed_result,
         workflow_advanced_result_fn=workflow_advanced_result,
         normalize_text_fn=_runtime_common.normalize_text,
-    )
-
-
-def _skipped_terminal_workflow_outcome(
-    record: Any,
-    *,
-    previous_status: str,
-    deps: WorkflowAdvanceDeps,
-) -> WorkflowAdvanceOutcome:
-    return WorkflowAdvanceOutcome(
-        "skipped",
-        deps.workflow_skipped_terminal_result_fn(
-            record,
-            previous_status=previous_status,
-        ),
-    )
-
-
-def _failed_workflow_advance_outcome(
-    *,
-    cycle: _WorkflowCycle,
-    record: Any,
-    previous_status: str,
-    reason: str,
-    deps: WorkflowAdvanceDeps,
-) -> WorkflowAdvanceOutcome:
-    deps.append_workflow_advance_failed_event_fn(
-        cycle.root,
-        previous_status=previous_status,
-        reason=reason,
-        worker_session_id=cycle.session_id,
-        record=record,
-        append_workflow_journal_event_fn=append_workflow_journal_event,
-    )
-    return WorkflowAdvanceOutcome(
-        "failed",
-        deps.workflow_advance_failed_result_fn(
-            record,
-            previous_status=previous_status,
-            reason=reason,
-        ),
-    )
-
-
-def _advanced_workflow_outcome(
-    *,
-    cycle: _WorkflowCycle,
-    record: Any,
-    payload: dict[str, Any],
-    previous_status: str,
-    previous_summary: dict[str, Any],
-    terminal_sync: bool,
-    deps: WorkflowAdvanceDeps,
-) -> WorkflowAdvanceOutcome:
-    status = deps.normalize_text_fn(payload.get("status")).lower()
-    current_summary = deps.safe_workflow_summary_fn(record.workspace_dir, payload=payload)
-    reason = "terminal_child_sync" if terminal_sync else ""
-    deps.append_workflow_advanced_events_fn(
-        cycle.root,
-        record,
-        payload,
-        previous_status=previous_status,
-        previous_summary=previous_summary,
-        current_summary=current_summary,
-        worker_session_id=cycle.session_id,
-        reason=reason,
-        append_workflow_journal_event_fn=append_workflow_journal_event,
-        append_phase_transition_events_fn=deps.append_phase_transition_events_fn,
-        append_stage_transition_events_fn=deps.append_stage_transition_events_fn,
-        normalize_text_fn=deps.normalize_text_fn,
-    )
-    return WorkflowAdvanceOutcome(
-        "advanced",
-        deps.workflow_advanced_result_fn(
-            record,
-            payload,
-            previous_status=previous_status,
-            status=status,
-            reason=reason,
-            normalize_text_fn=deps.normalize_text_fn,
-        ),
-    )
-
-
-def _advance_workflow_record_outcome(
-    *,
-    cycle: _WorkflowCycle,
-    record: Any,
-    options: WorkflowEngineOptions,
-    deps: WorkflowAdvanceDeps,
-) -> WorkflowAdvanceOutcome:
-    previous_status = deps.normalize_text_fn(record.status).lower()
-    terminal_sync = deps.workflow_needs_terminal_child_sync_fn(
-        record,
-        previous_status=previous_status,
-    )
-    if deps.workflow_is_terminal_status_fn(previous_status) and not terminal_sync:
-        return _skipped_terminal_workflow_outcome(
-            record,
-            previous_status=previous_status,
-            deps=deps,
-        )
-
-    previous_summary = deps.safe_workflow_summary_fn(record.workspace_dir)
-    try:
-        payload = deps.advance_workflow_fn(
-            target=record.workflow_id,
-            workflow_root=cycle.root,
-            engine_options=options,
-            submit_ready=False if terminal_sync else cycle.cycle_submit_ready,
-        )
-    except Exception as exc:
-        reason = f"terminal_child_sync_failed: {exc}" if terminal_sync else str(exc)
-        return _failed_workflow_advance_outcome(
-            cycle=cycle,
-            record=record,
-            previous_status=previous_status,
-            reason=reason,
-            deps=deps,
-        )
-
-    return _advanced_workflow_outcome(
-        cycle=cycle,
-        record=record,
-        payload=payload,
-        previous_status=previous_status,
-        previous_summary=previous_summary,
-        terminal_sync=terminal_sync,
-        deps=deps,
     )
 
 
@@ -528,30 +272,11 @@ def _advance_workflow_records(
     records: list[Any],
     options: WorkflowEngineOptions,
 ) -> _WorkflowCycleProgress:
-    workflow_results: list[WorkflowAdvanceResult] = []
-    advanced_count = 0
-    skipped_count = 0
-    failed_count = 0
-    deps = _workflow_advance_deps()
-    for record in records:
-        outcome = _advance_workflow_record_outcome(
-            cycle=cycle,
-            record=record,
-            options=options,
-            deps=deps,
-        )
-        workflow_results.append(outcome.result)
-        if outcome.outcome == "advanced":
-            advanced_count += 1
-        elif outcome.outcome == "skipped":
-            skipped_count += 1
-        elif outcome.outcome == "failed":
-            failed_count += 1
-    return _WorkflowCycleProgress(
-        workflow_results=workflow_results,
-        advanced_count=advanced_count,
-        skipped_count=skipped_count,
-        failed_count=failed_count,
+    return runtime_advance.advance_workflow_records(
+        cycle=cycle,
+        records=records,
+        options=options,
+        deps=_workflow_advance_deps(),
     )
 
 

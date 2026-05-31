@@ -21,7 +21,7 @@ from chemstack.core.queue import (
 )
 from chemstack.core.queue import child_entrypoint as _child_entrypoint
 from chemstack.core.queue import child_execution as _child_execution
-from chemstack.core.queue.dependencies import dependency_group
+from chemstack.core.queue.dependencies import build_dependency_container
 from chemstack.core.queue import engine_execution as _engine_execution
 from chemstack.core.queue.worker import (
     install_shutdown_signal_handlers,
@@ -176,12 +176,22 @@ def build_worker_execution_dependencies(
     artifacts: WorkerArtifactDependencies | None = None,
     tracking: WorkerTrackingDependencies | None = None,
 ) -> WorkerExecutionDependencies:
-    return build_worker_execution_dependencies_from_groups(
-        timing=dependency_group(timing, _default_timing_dependencies),
-        queue=dependency_group(queue, _default_queue_dependencies),
-        runner=dependency_group(runner, _default_runner_dependencies),
-        artifacts=dependency_group(artifacts, _default_artifact_dependencies),
-        tracking=dependency_group(tracking, _default_tracking_dependencies),
+    return build_dependency_container(
+        build_worker_execution_dependencies_from_groups,
+        {
+            "timing": timing,
+            "queue": queue,
+            "runner": runner,
+            "artifacts": artifacts,
+            "tracking": tracking,
+        },
+        {
+            "timing": _default_timing_dependencies,
+            "queue": _default_queue_dependencies,
+            "runner": _default_runner_dependencies,
+            "artifacts": _default_artifact_dependencies,
+            "tracking": _default_tracking_dependencies,
+        },
     )
 
 

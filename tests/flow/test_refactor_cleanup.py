@@ -7,7 +7,7 @@ from typing import Any
 import pytest
 
 
-from chemstack.flow import orchestration
+from chemstack.flow import orchestration, runtime, runtime_advance
 from chemstack.flow import _orchestration_dep_builders as dep_builders
 from chemstack.flow._orchestration_builders import _copy_input_impl
 from chemstack.flow._orchestration_deps import (
@@ -15,6 +15,11 @@ from chemstack.flow._orchestration_deps import (
     OrchestrationStageDeps,
     orchestration_deps,
 )
+from chemstack.flow import _orchestration_reaction_materialization as reaction_materialization
+from chemstack.flow import (
+    _orchestration_reaction_orca_materialization as reaction_orca_materialization,
+)
+from chemstack.flow import _orchestration_stage_materialization as stage_materialization
 
 
 def test_copy_input_impl_copies_file_and_raises_for_missing_source(tmp_path: Path) -> None:
@@ -64,6 +69,39 @@ def test_stage_dep_registry_matches_group_dataclasses() -> None:
     for group in _ORCHESTRATION_STAGE_DEP_REGISTRY:
         assert group.name in stage_group_names
         assert tuple(field.name for field in fields(group.deps_type)) == group.dep_names
+
+
+def test_stage_dep_fallbacks_cover_registry_names() -> None:
+    provider = dep_builders._LazyOrchestrationDeps(None)
+    fallback_names = set(dep_builders._stage_dep_fallbacks(None, provider))
+    registry_names = {
+        dep_name
+        for group in _ORCHESTRATION_STAGE_DEP_REGISTRY
+        for dep_name in group.dep_names
+    }
+
+    assert fallback_names == registry_names
+
+
+def test_runtime_facade_reexports_advance_helpers_from_runtime_advance() -> None:
+    assert runtime.WorkflowAdvanceDeps is runtime_advance.WorkflowAdvanceDeps
+    assert runtime.WorkflowAdvanceOutcome is runtime_advance.WorkflowAdvanceOutcome
+    assert (
+        runtime._advance_workflow_record_outcome
+        is runtime_advance.advance_workflow_record_outcome
+    )
+    assert runtime._advanced_workflow_outcome is runtime_advance.advanced_workflow_outcome
+
+
+def test_reaction_materialization_facades_keep_orca_entrypoint() -> None:
+    assert (
+        reaction_materialization.append_reaction_orca_stages_impl
+        is reaction_orca_materialization.append_reaction_orca_stages_impl
+    )
+    assert (
+        stage_materialization.append_reaction_orca_stages_impl
+        is reaction_orca_materialization.append_reaction_orca_stages_impl
+    )
 
 
 def test_bound_stage_deps_reuse_lazy_orchestration_context(

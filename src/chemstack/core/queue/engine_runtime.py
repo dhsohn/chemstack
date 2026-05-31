@@ -5,10 +5,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from chemstack.core.commands.queue import QueueRuntime
+from chemstack.core.commands.queue import QueueRuntime, run_pidfile_queue_worker_command
 
+from .dependencies import ChildQueueWorkerDeps
+from .engine_admission import reserve_engine_admission_slot, start_engine_child_process
 from .worker import (
     dequeue_next_across_roots,
+    make_child_queue_worker_deps,
     queue_entry_by_id as _queue_entry_by_id,
     read_worker_pid_file,
     resolve_admission_root,
@@ -56,6 +59,83 @@ class EngineQueueRuntime:
 
     def read_worker_pid(self, allowed_root: Path) -> int | None:
         return read_worker_pid_file(allowed_root, self.worker_pid_file_name)
+
+    def child_worker_deps(
+        self,
+        *,
+        poll_interval_seconds: int,
+        time_module: Any,
+        release_slot_fn: Callable[[str | Path, str], object],
+        start_background_job_process_fn: Callable[..., Any],
+        try_reserve_admission_slot_fn: Callable[[Any], str | None],
+    ) -> ChildQueueWorkerDeps:
+        return make_child_queue_worker_deps(
+            poll_interval_seconds=poll_interval_seconds,
+            time_module=time_module,
+            release_slot_fn=release_slot_fn,
+            admission_root_fn=self.admission_root,
+            dequeue_next_entry_fn=self.dequeue_next_entry,
+            start_background_job_process_fn=start_background_job_process_fn,
+            try_reserve_admission_slot_fn=try_reserve_admission_slot_fn,
+        )
+
+    def max_concurrent(self, cfg: Any) -> int:
+        return max(1, int(getattr(cfg.runtime, "max_concurrent", 1)))
+
+    def reserve_admission_slot(
+        self,
+        cfg: Any,
+        *,
+        engine: str,
+        reserve_slot_fn: Callable[..., str | None],
+    ) -> str | None:
+        return reserve_engine_admission_slot(
+            cfg,
+            engine=engine,
+            reserve_slot_fn=reserve_slot_fn,
+        )
+
+    def start_child_process(
+        self,
+        *,
+        config_path: str,
+        queue_root: Path,
+        entry: Any,
+        admission_root: str | Path,
+        admission_token: str,
+        start_background_process_fn: Callable[[list[str]], Any],
+        build_worker_child_command_fn: Callable[..., list[str]],
+        include_admission_root: bool,
+    ) -> Any:
+        return start_engine_child_process(
+            config_path=config_path,
+            queue_root=queue_root,
+            entry=entry,
+            admission_root=admission_root,
+            admission_token=admission_token,
+            start_background_process_fn=start_background_process_fn,
+            build_worker_child_command_fn=build_worker_child_command_fn,
+            include_admission_root=include_admission_root,
+        )
+
+    def run_pidfile_worker_command(
+        self,
+        args: Any,
+        *,
+        config_path_fn: Callable[[Any], str],
+        worker_factory: Callable[..., Any],
+        load_config_fn: Callable[[Any], Any] | None = None,
+        read_worker_pid_fn: Callable[[Path], int | None] | None = None,
+        max_concurrent_fn: Callable[[Any], int] | None = None,
+    ) -> int:
+        return run_pidfile_queue_worker_command(
+            args,
+            load_config_fn=load_config_fn or self.load_config,
+            config_path_fn=config_path_fn,
+            read_worker_pid_fn=read_worker_pid_fn or self.read_worker_pid,
+            max_concurrent_fn=max_concurrent_fn or self.max_concurrent,
+            worker_factory=worker_factory,
+        )
 
 
 __all__ = ["EngineQueueRuntime"]

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 import json
 import subprocess
 from pathlib import Path
@@ -9,7 +10,11 @@ from typing import Any
 import pytest
 
 from chemstack.core.queue import child_process as child_process_helpers
-from chemstack.core.queue.dependencies import dependency_group
+from chemstack.core.queue.dependencies import (
+    build_dependency_container,
+    dependency_group,
+    resolve_dependency_groups,
+)
 from chemstack.core.queue import lifecycle as lifecycle_helpers
 from chemstack.core.queue import processes as process_helpers
 from chemstack.core.queue import worker as worker_common
@@ -56,6 +61,54 @@ def test_dependency_group_prefers_explicit_value_and_lazily_builds_default() -> 
     assert calls == 0
     assert dependency_group(None, default_factory) == "default"
     assert calls == 1
+
+
+def test_resolve_dependency_groups_prefers_overrides_and_lazily_builds_missing() -> None:
+    calls: list[str] = []
+
+    def default_a() -> str:
+        calls.append("a")
+        return "default-a"
+
+    def default_b() -> str:
+        calls.append("b")
+        return "default-b"
+
+    resolved = resolve_dependency_groups(
+        {"a": "override-a", "b": None},
+        {"a": default_a, "b": default_b},
+    )
+
+    assert resolved == {"a": "override-a", "b": "default-b"}
+    assert calls == ["b"]
+
+
+def test_build_dependency_container_resolves_groups_and_extra_fields() -> None:
+    @dataclass(frozen=True)
+    class Container:
+        a: str
+        b: str
+        extra: str
+
+    calls: list[str] = []
+
+    def default_a() -> str:
+        calls.append("a")
+        return "default-a"
+
+    def default_b() -> str:
+        calls.append("b")
+        return "default-b"
+
+    container = build_dependency_container(
+        Container,
+        {"a": "override-a", "b": None},
+        {"a": default_a, "b": default_b},
+        extra_fields={"extra": "value"},
+    )
+
+    assert container == Container(a="override-a", b="default-b", extra="value")
+    assert calls == ["b"]
 
 
 def test_resolve_admission_root_and_limit_prefer_resolved_values() -> None:
