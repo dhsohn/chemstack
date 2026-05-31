@@ -89,6 +89,14 @@ pytest tests/integration -q
 - If a new feature requires code changes in ORCA logic, make them under `src/chemstack/orca`
 - Keep top-level alias packages and alternate runtime readers out of the codebase
 
+## Internal Engine Workers
+
+xTB and CREST are internal workflow engines. Their queue workers should expose a
+small engine adapter through `chemstack.core.queue.engine_execution` rather than
+owning a full worker lifecycle. New internal engines should provide engine-local
+context, process, artifact, tracking, and notification callbacks, then execute
+through `InternalEngineWorkerAdapter` and `run_internal_engine_worker_entry`.
+
 ## Related Docs
 
 - [REFERENCE.md](REFERENCE.md): runtime and behavior reference

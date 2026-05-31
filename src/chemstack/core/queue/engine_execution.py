@@ -28,6 +28,13 @@ from .engine_lifecycle import (
     run_engine_worker_entry,
     run_engine_worker_lifecycle,
 )
+from .internal_worker import (
+    InternalEngineWorkerAdapter,
+    InternalWorkerOptions,
+    raise_if_shutdown_requested,
+    run_internal_cancellable_engine_process,
+    run_internal_engine_worker_entry,
+)
 from .metadata import (
     entry_metadata_dict,
     entry_metadata_resolved_path,
@@ -51,6 +58,8 @@ __all__ = [
     "CancellableProcessExecution",
     "EngineArtifactFields",
     "EngineWorkerLifecycle",
+    "InternalEngineWorkerAdapter",
+    "InternalWorkerOptions",
     "TerminalArtifactPayloads",
     "TerminalArtifactWriters",
     "TerminalSyncActions",
@@ -76,6 +85,9 @@ __all__ = [
     "run_cancellable_engine_process",
     "run_engine_worker_entry",
     "run_engine_worker_lifecycle",
+    "raise_if_shutdown_requested",
+    "run_internal_cancellable_engine_process",
+    "run_internal_engine_worker_entry",
     "sync_terminal_result",
     "terminal_report_lines",
     "write_running_engine_state_artifact",

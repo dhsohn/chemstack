@@ -85,6 +85,89 @@ def test_run_engine_worker_lifecycle_stops_on_shutdown_after_mark_running(
     assert calls == ["build", "check", "mark", "check"]
 
 
+def test_run_internal_engine_worker_entry_passes_worker_options(
+    tmp_path: Path,
+) -> None:
+    cfg = SimpleNamespace(runtime=SimpleNamespace(allowed_root=str(tmp_path / "allowed")))
+    entry = SimpleNamespace(queue_id="q-1")
+    calls: list[tuple[str, Any]] = []
+
+    def run_job(_cfg: Any, _context: Any, queue_root: Path, _options: Any) -> str:
+        calls.append(("run", queue_root))
+        return "result"
+
+    def finalize_entry(
+        _cfg: Any,
+        _context: Any,
+        _result: str,
+        _queue_root: Path,
+        options: Any,
+    ) -> str:
+        calls.append(("finalize", options.emit_output))
+        return "finalized"
+
+    def build_outcome(_context: Any, result: str, finalized: str) -> str:
+        calls.append(("outcome", result))
+        return finalized
+
+    adapter = engine_execution.InternalEngineWorkerAdapter(
+        build_context=lambda cfg_obj, entry_obj: SimpleNamespace(
+            cfg=cfg_obj,
+            entry=entry_obj,
+        ),
+        check_shutdown=lambda context, options: calls.append(
+            ("check", options.worker_job_pid)
+        ),
+        mark_running=lambda cfg_obj, context, options: calls.append(
+            ("mark", options.worker_job_pid)
+        ),
+        run_job=run_job,
+        finalize_entry=finalize_entry,
+        build_outcome=build_outcome,
+    )
+
+    outcome = engine_execution.run_internal_engine_worker_entry(
+        cfg,
+        entry,
+        queue_root=tmp_path / "queue",
+        adapter=adapter,
+        options=engine_execution.InternalWorkerOptions(
+            worker_job_pid=4242,
+            emit_output=True,
+        ),
+    )
+
+    assert outcome == "finalized"
+    assert calls == [
+        ("check", 4242),
+        ("mark", 4242),
+        ("check", 4242),
+        ("run", tmp_path / "queue"),
+        ("finalize", True),
+        ("outcome", "result"),
+    ]
+
+
+def test_raise_if_shutdown_requested_uses_engine_context() -> None:
+    class ShutdownRequested(RuntimeError):
+        def __init__(self, context: Any) -> None:
+            super().__init__("shutdown")
+            self.context = context
+
+    context = SimpleNamespace(job_dir="/tmp/job")
+
+    try:
+        engine_execution.raise_if_shutdown_requested(
+            context,
+            engine_execution.InternalWorkerOptions(shutdown_requested=lambda: True),
+            shutdown_exception_type=ShutdownRequested,
+        )
+    except ShutdownRequested as exc:
+        assert exc.context is context
+    else:
+        raise AssertionError("expected shutdown")
+
+
 def test_sync_terminal_result_runs_common_terminal_sequence() -> None:
     calls: list[str] = []
 

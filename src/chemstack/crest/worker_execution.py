@@ -311,8 +311,11 @@ def _raise_if_shutdown_requested(
     context: ExecutionContext,
     shutdown_requested: Callable[[], bool] | None,
 ) -> None:
-    if shutdown_requested is not None and shutdown_requested():
-        raise WorkerShutdownRequested(context)
+    _engine_execution.raise_if_shutdown_requested(
+        context,
+        _engine_execution.InternalWorkerOptions(shutdown_requested=shutdown_requested),
+        shutdown_exception_type=WorkerShutdownRequested,
+    )
 
 
 def _mark_job_running(
@@ -359,10 +362,16 @@ def _run_crest_job_for_entry(
     queue_deps = dependencies.queue
     runner_deps = dependencies.runner
 
-    def raise_shutdown(_running: Any) -> None:
-        raise WorkerShutdownRequested(context)
-
-    return _engine_execution.run_cancellable_engine_process(
+    return _engine_execution.run_internal_cancellable_engine_process(
+        context,
+        options=_engine_execution.InternalWorkerOptions(
+            should_cancel=lambda: queue_deps.get_cancel_requested(
+                str(queue_root),
+                context.entry.queue_id,
+            ),
+            shutdown_requested=shutdown_requested,
+        ),
+        shutdown_exception_type=WorkerShutdownRequested,
         start_job=lambda: runner_deps.start_crest_job(
             cfg,
             job_dir=context.job_dir,
@@ -376,18 +385,8 @@ def _run_crest_job_for_entry(
             failure_time=dependencies.timing.now_utc_iso(),
         ),
         wait_for_cancellable_process=runner_deps.wait_for_cancellable_process,
-        should_cancel=lambda: queue_deps.get_cancel_requested(
-            str(queue_root),
-            context.entry.queue_id,
-        ),
-        shutdown_requested=shutdown_requested,
-        on_shutdown=raise_shutdown,
         sleep=runner_deps.sleep,
         poll_interval_seconds=runner_deps.cancel_check_interval_seconds,
-        should_reraise_exception=lambda exc: isinstance(
-            exc,
-            WorkerShutdownRequested,
-        ),
     )
 
 
@@ -408,41 +407,35 @@ def _finalize_processed_entry(
     )
 
 
-def process_dequeued_entry(
-    cfg: Any,
-    entry: Any,
+def build_worker_adapter(
     *,
-    queue_root: Path | None = None,
     molecule_key_resolver: Callable[[Any, Path, Path], str],
     dependencies: WorkerExecutionDependencies,
-    shutdown_requested: Callable[[], bool] | None = None,
-) -> WorkerExecutionOutcome:
-    return _engine_execution.run_engine_worker_entry(
-        cfg,
-        entry,
-        queue_root=queue_root,
+) -> _engine_execution.InternalEngineWorkerAdapter:
+    return _engine_execution.InternalEngineWorkerAdapter(
         build_context=lambda cfg_obj, entry_obj: _build_execution_context(
             cfg_obj,
             entry_obj,
             molecule_key_resolver=molecule_key_resolver,
         ),
-        check_shutdown=lambda context: _raise_if_shutdown_requested(
+        check_shutdown=lambda context, options: _engine_execution.raise_if_shutdown_requested(
             context,
-            shutdown_requested,
+            options,
+            shutdown_exception_type=WorkerShutdownRequested,
         ),
-        mark_running=lambda cfg_obj, context: _mark_job_running(
+        mark_running=lambda cfg_obj, context, _options: _mark_job_running(
             cfg_obj,
             context,
             dependencies=dependencies,
         ),
-        run_job=lambda cfg_obj, context, active_queue_root: _run_crest_job_for_entry(
+        run_job=lambda cfg_obj, context, active_queue_root, options: _run_crest_job_for_entry(
             cfg_obj,
             context,
             queue_root=active_queue_root,
             dependencies=dependencies,
-            shutdown_requested=shutdown_requested,
+            shutdown_requested=options.shutdown_requested,
         ),
-        finalize_entry=lambda cfg_obj, context, result, active_queue_root: (
+        finalize_entry=lambda cfg_obj, context, result, active_queue_root, _options: (
             _finalize_processed_entry(
                 cfg_obj,
                 context,
@@ -457,6 +450,29 @@ def process_dequeued_entry(
             selected_xyz=context.selected_xyz,
             molecule_key=context.molecule_key,
             organized_output_dir=organized_output_dir,
+        ),
+    )
+
+
+def process_dequeued_entry(
+    cfg: Any,
+    entry: Any,
+    *,
+    queue_root: Path | None = None,
+    molecule_key_resolver: Callable[[Any, Path, Path], str],
+    dependencies: WorkerExecutionDependencies,
+    shutdown_requested: Callable[[], bool] | None = None,
+) -> WorkerExecutionOutcome:
+    return _engine_execution.run_internal_engine_worker_entry(
+        cfg,
+        entry,
+        queue_root=queue_root,
+        adapter=build_worker_adapter(
+            molecule_key_resolver=molecule_key_resolver,
+            dependencies=dependencies,
+        ),
+        options=_engine_execution.InternalWorkerOptions(
+            shutdown_requested=shutdown_requested,
         ),
     )
 

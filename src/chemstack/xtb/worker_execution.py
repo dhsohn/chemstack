@@ -287,8 +287,11 @@ def _raise_if_shutdown_requested(
     context: _XtbExecutionContext,
     shutdown_requested: Callable[[], bool] | None,
 ) -> None:
-    if shutdown_requested is not None and shutdown_requested():
-        raise WorkerShutdownRequested(context)
+    _engine_execution.raise_if_shutdown_requested(
+        context,
+        _engine_execution.InternalWorkerOptions(shutdown_requested=shutdown_requested),
+        shutdown_exception_type=WorkerShutdownRequested,
+    )
 
 
 def _mark_recovery_pending_context(
@@ -377,14 +380,16 @@ def _run_xtb_job_for_entry(
     register_running_job: Callable[[Any | None], None] | None,
 ) -> Any:
     runner_deps = dependencies.runner
+    options = _engine_execution.InternalWorkerOptions(
+        should_cancel=should_cancel,
+        shutdown_requested=shutdown_requested,
+        register_running_job=register_running_job,
+    )
 
     def should_stop_ranking() -> bool:
         return (should_cancel is not None and should_cancel()) or (
             shutdown_requested is not None and shutdown_requested()
         )
-
-    def raise_shutdown(_running: Any) -> None:
-        raise WorkerShutdownRequested(context)
 
     try:
         if should_cancel is not None and should_cancel():
@@ -401,7 +406,10 @@ def _run_xtb_job_for_entry(
             _raise_if_shutdown_requested(context, shutdown_requested)
             return result
 
-        return _engine_execution.run_cancellable_engine_process(
+        return _engine_execution.run_internal_cancellable_engine_process(
+            context,
+            options=options,
+            shutdown_exception_type=WorkerShutdownRequested,
             start_job=lambda: runner_deps.start_xtb_job(
                 cfg,
                 job_dir=context.job_dir,
@@ -415,17 +423,9 @@ def _run_xtb_job_for_entry(
                 dependencies=dependencies,
             ),
             wait_for_cancellable_process=runner_deps.wait_for_cancellable_process,
-            should_cancel=should_cancel,
-            shutdown_requested=shutdown_requested,
-            on_shutdown=raise_shutdown,
             sleep=runner_deps.sleep,
             poll_interval_seconds=runner_deps.cancel_check_interval_seconds,
             check_cancel_before_poll=True,
-            register_running_job=register_running_job,
-            should_reraise_exception=lambda exc: isinstance(
-                exc,
-                WorkerShutdownRequested,
-            ),
         )
     except Exception as exc:
         if isinstance(exc, WorkerShutdownRequested):
@@ -453,6 +453,53 @@ def _finalize_processed_entry(
     )
 
 
+def build_worker_adapter(
+    *,
+    dependencies: WorkerExecutionDependencies,
+    should_cancel_factory: Callable[
+        [Path, _XtbExecutionContext],
+        Callable[[], bool] | None,
+    ],
+) -> _engine_execution.InternalEngineWorkerAdapter:
+    return _engine_execution.InternalEngineWorkerAdapter(
+        build_context=lambda cfg_obj, entry_obj: _build_execution_context(
+            cfg_obj,
+            entry_obj,
+            dependencies=dependencies,
+        ),
+        mark_running=lambda cfg_obj, context, options: _mark_job_running(
+            cfg_obj,
+            context,
+            worker_job_pid=options.worker_job_pid,
+            dependencies=dependencies,
+        ),
+        check_shutdown=lambda context, options: _engine_execution.raise_if_shutdown_requested(
+            context,
+            options,
+            shutdown_exception_type=WorkerShutdownRequested,
+        ),
+        run_job=lambda cfg_obj, context, active_queue_root, options: _run_xtb_job_for_entry(
+            cfg_obj,
+            context,
+            active_queue_root,
+            dependencies=dependencies,
+            should_cancel=should_cancel_factory(active_queue_root, context),
+            shutdown_requested=options.shutdown_requested,
+            register_running_job=options.register_running_job,
+        ),
+        finalize_entry=lambda cfg_obj, context, result, active_queue_root, options: (
+            _finalize_processed_entry(
+                cfg_obj,
+                context,
+                result,
+                active_queue_root,
+                emit_output=options.emit_output,
+                dependencies=dependencies,
+            )
+        ),
+    )
+
+
 def _run_worker_entry_lifecycle(
     cfg: Any,
     entry: Any,
@@ -468,45 +515,20 @@ def _run_worker_entry_lifecycle(
     worker_job_pid: int | None = None,
     emit_output: bool = False,
 ) -> Any:
-    return _engine_execution.run_engine_worker_entry(
+    return _engine_execution.run_internal_engine_worker_entry(
         cfg,
         entry,
         queue_root=queue_root,
-        build_context=lambda cfg_obj, entry_obj: _build_execution_context(
-            cfg_obj,
-            entry_obj,
+        adapter=build_worker_adapter(
             dependencies=dependencies,
+            should_cancel_factory=should_cancel_factory,
         ),
-        mark_running=lambda cfg_obj, context: _mark_job_running(
-            cfg_obj,
-            context,
-            worker_job_pid=worker_job_pid,
-            dependencies=dependencies,
-        ),
-        check_shutdown=lambda context: _raise_if_shutdown_requested(
-            context,
-            shutdown_requested,
-        ),
-        run_job=lambda cfg_obj, context, active_queue_root: _run_xtb_job_for_entry(
-            cfg_obj,
-            context,
-            active_queue_root,
-            dependencies=dependencies,
-            should_cancel=should_cancel_factory(active_queue_root, context),
+        options=_engine_execution.InternalWorkerOptions(
             shutdown_requested=shutdown_requested,
             register_running_job=register_running_job,
+            worker_job_pid=worker_job_pid,
+            emit_output=emit_output,
         ),
-        finalize_entry=lambda cfg_obj, context, result, active_queue_root: (
-            _finalize_processed_entry(
-                cfg_obj,
-                context,
-                result,
-                active_queue_root,
-                emit_output=emit_output,
-                dependencies=dependencies,
-            )
-        ),
-        build_outcome=lambda _context, _result, outcome: outcome,
     )
 
 
@@ -627,6 +649,7 @@ def main(argv: list[str] | None = None) -> int:
 
 __all__ = [
     "build_worker_child_command",
+    "build_worker_adapter",
     "build_worker_execution_dependencies",
     "build_worker_execution_dependencies_from_groups",
     "build_worker_job_parser",
