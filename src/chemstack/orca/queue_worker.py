@@ -13,21 +13,19 @@ import time
 from pathlib import Path
 from typing import Any
 
+from chemstack.core.indexing.roots import runtime_roots_for_cfg as _runtime_roots_for_cfg
 from chemstack.core.queue.types import QueueEntry
 from chemstack.core.queue.engine_execution import coerce_resource_request
+from chemstack.core.queue.engine_runtime import EngineQueueRuntime
 from chemstack.core.queue.worker import (
     EngineRunningJob as _RunningJob,
+    HookedPidFileChildProcessQueueWorker,
     ManagedProcess as _ManagedProcess,
-    PidFileChildProcessQueueWorker,
-    make_child_queue_worker_deps,
-    read_worker_pid_file,
-    reserve_dequeued_entry,
-    reserve_queue_worker_slot,
-    resolve_admission_root,
     terminate_process_group,
 )
 
 from chemstack.core.admission import (
+    activate_reserved_slot,
     reconcile_stale_slots,
     release_slot,
     reserve_slot,
@@ -38,11 +36,12 @@ from .attempt_reporting import (
     finished_notification_already_sent,
     mark_finished_notification_sent,
 )
-from .config import AppConfig
+from .config import AppConfig, load_config
 from .inp_rewriter import read_resource_request_from_input
 from .queue_adapter import (
     dequeue_next,
     get_cancel_requested,
+    list_queue,
     mark_cancelled,
     mark_completed,
     mark_failed,
@@ -58,7 +57,12 @@ from .queue_adapter import (
 from .runtime.worker_job import BackgroundRunJobProcess, start_background_run_job
 from .state import load_organized_ref, load_report_json, load_state
 from .telegram_notifier import notify_run_finished_event
-from .job_locations import record_from_artifacts, resolve_job_metadata, resource_dict, upsert_job_record
+from .job_locations import (
+    record_from_artifacts,
+    resolve_job_metadata,
+    resource_dict,
+    upsert_job_record,
+)
 from ._queue_worker_lifecycle import (
     OrcaQueueWorkerLifecycleHooks,
     attach_started_orca_process,
@@ -70,52 +74,68 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_MAX_CONCURRENT = 4
 POLL_INTERVAL_SECONDS = 5
+WORKER_SHUTDOWN_GRACE_SECONDS = 10.0
 
 # PID file for the daemon
 WORKER_PID_FILE = "queue_worker.pid"
 
 
+_engine_runtime = EngineQueueRuntime(
+    load_config=load_config,
+    runtime_roots_for_cfg=lambda cfg: _runtime_roots_for_cfg(cfg, engine="orca"),
+    list_queue=lambda root: list_queue(Path(root)),
+    dequeue_next=lambda root: dequeue_next(root),
+    worker_pid_file_name=WORKER_PID_FILE,
+)
+
+
+def queue_roots(cfg: AppConfig) -> tuple[Path, ...]:
+    return _engine_runtime.queue_roots(cfg)
+
+
+def queue_entries_with_roots(cfg: AppConfig) -> list[tuple[Path, Any]]:
+    return _engine_runtime.queue_entries_with_roots(cfg)
+
+
 def _queue_worker_deps() -> Any:
-    return make_child_queue_worker_deps(
+    return _engine_runtime.child_worker_deps(
         poll_interval_seconds=POLL_INTERVAL_SECONDS,
         time_module=time,
         release_slot_fn=release_slot,
-        reserve_dequeued_entry_fn=reserve_dequeued_entry,
-        admission_root_fn=_admission_root_for_cfg,
-        dequeue_next_entry_fn=_dequeue_next_entry,
         start_background_job_process_fn=_start_background_job_process,
         try_reserve_admission_slot_fn=_try_reserve_admission_slot,
     )
 
 
 def _admission_root_for_cfg(cfg: AppConfig) -> str:
-    return resolve_admission_root(cfg)
+    return _engine_runtime.admission_root(cfg)
 
 
 def _dequeue_next_entry(cfg: AppConfig) -> tuple[Path, QueueEntry] | None:
-    queue_root = Path(cfg.runtime.allowed_root).expanduser().resolve()
-    entry = dequeue_next(queue_root)
-    if entry is None:
-        return None
-    return queue_root, entry
+    return _engine_runtime.dequeue_next_entry(cfg)
+
+
+def _reserve_orca_worker_slot(root: str | Path, limit: int, **kwargs: Any) -> str | None:
+    slot_kwargs = dict(kwargs)
+    slot_kwargs["source"] = "queue_worker"
+    slot_kwargs["app_name"] = "chemstack_orca"
+    slot_kwargs["state"] = "reserved"
+    return reserve_slot(
+        Path(root),
+        limit,
+        **slot_kwargs,
+    )
 
 
 def _try_reserve_admission_slot(cfg: AppConfig) -> str | None:
-    admission_token = reserve_queue_worker_slot(
+    admission_token = _engine_runtime.reserve_admission_slot(
         cfg,
-        source="queue_worker",
-        app_name="chemstack_orca",
-        reserve_slot_fn=lambda root, limit, **kwargs: reserve_slot(
-            Path(root),
-            limit,
-            state="reserved",
-            **kwargs,
-        ),
+        engine="orca",
+        reserve_slot_fn=_reserve_orca_worker_slot,
     )
     if admission_token is None:
         logger.debug(
-            "Queue worker admission paused: admission slots are full "
-            "(admission_limit=%d)",
+            "Queue worker admission paused: admission slots are full (admission_limit=%d)",
             int(getattr(cfg.runtime, "resolved_admission_limit", 1)),
         )
     return admission_token
@@ -339,7 +359,106 @@ def _orca_worker_lifecycle_hooks() -> OrcaQueueWorkerLifecycleHooks:
     )
 
 
-class QueueWorker(PidFileChildProcessQueueWorker):
+def _job_queue_root(worker: Any, job: Any) -> Path:
+    return Path(getattr(job, "queue_root", worker.allowed_root)).expanduser().resolve()
+
+
+def _handle_worker_start_error(
+    worker: Any,
+    queue_root: Path,
+    entry: Any,
+    admission_token: str,
+    exc: OSError,
+) -> None:
+    queue_id = queue_entry_id(entry)
+    logger.error("Failed to start job %s: %s", queue_id, exc)
+    worker._mark_entry_failed_and_release(
+        queue_root,
+        entry,
+        admission_token,
+        error=str(exc),
+        mark_failed_fn=mark_failed,
+    )
+
+
+def _on_worker_process_started(
+    worker: Any,
+    queue_root: Path,
+    entry: Any,
+    process: BackgroundRunJobProcess,
+    admission_token: str,
+) -> bool:
+    return attach_started_orca_process(
+        worker,
+        queue_root,
+        entry,
+        process=process,
+        admission_token=admission_token,
+        hooks=_orca_worker_lifecycle_hooks(),
+    )
+
+
+def _finalize_finished_job(worker: Any, queue_id: str, job: _RunningJob, *, rc: int) -> None:
+    finalize_orca_finished_job(
+        worker,
+        queue_id,
+        job,
+        rc=rc,
+        hooks=_orca_worker_lifecycle_hooks(),
+    )
+
+
+def _finalize_completed_job(worker: Any, queue_id: str, job: Any, rc: int) -> None:
+    _finalize_finished_job(worker, queue_id, job, rc=rc)
+
+
+def _finalize_child_exit(worker: Any, job: _RunningJob, *, rc: int) -> None:
+    _finalize_finished_job(worker, job.queue_id, job, rc=rc)
+
+
+def _reconcile_orphaned_running(worker: Any) -> None:
+    """Fix queue entries stuck as running from a previous worker crash."""
+    reconcile_stale_slots(worker.admission_root)
+    for queue_root in queue_roots(worker.cfg):
+        reconcile_orphaned_running_entries(queue_root, ignore_worker_pid=True)
+
+
+def _reconcile_worker_state(worker: Any) -> None:
+    _reconcile_orphaned_running(worker)
+
+
+def _shutdown_running_job(worker: Any, queue_id: str, job: Any) -> None:
+    _terminate_process(job.process)
+    requeue_running_entry(_job_queue_root(worker, job), queue_id)
+    worker._release_admission_slot(job.admission_token)
+
+
+def _before_shutdown_all(_worker: Any, running_count: int) -> None:
+    logger.info("Shutting down %d running job(s)...", running_count)
+
+
+def _queue_worker_hooks() -> Any:
+    return _engine_runtime.child_worker_hooks(
+        engine="orca",
+        handle_worker_start_error_fn=_handle_worker_start_error,
+        finalize_completed_job_fn=_finalize_completed_job,
+        finalize_child_exit_fn=_finalize_child_exit,
+        reconcile_worker_state_fn=_reconcile_worker_state,
+        activate_reserved_slot_fn=lambda *args, **kwargs: activate_reserved_slot(
+            *args,
+            **kwargs,
+        ),
+        terminate_process_fn=lambda process: _terminate_process(process),
+        mark_failed_fn=lambda *args, **kwargs: mark_failed(*args, **kwargs),
+        shutdown_grace_seconds=WORKER_SHUTDOWN_GRACE_SECONDS,
+        sleep_fn=lambda seconds: time.sleep(seconds),
+        on_worker_process_started_fn=_on_worker_process_started,
+        shutdown_running_job_fn=_shutdown_running_job,
+        before_shutdown_all_fn=_before_shutdown_all,
+    )
+
+
+class QueueWorker(HookedPidFileChildProcessQueueWorker):
     """Main worker loop that manages concurrent job execution."""
 
     worker_pid_file_name = WORKER_PID_FILE
@@ -360,7 +479,9 @@ class QueueWorker(PidFileChildProcessQueueWorker):
             config_path=config_path,
             max_concurrent=configured_max,
             deps=_queue_worker_deps(),
-            admission_root=resolve_admission_root(cfg),
+            hooks=_queue_worker_hooks(),
+            worker_pid_file_name=WORKER_PID_FILE,
+            admission_root=_admission_root_for_cfg(cfg),
         )
         self.auto_organize = bool(auto_organize)
         self.admission_limit = _worker_admission_limit(cfg, self.max_concurrent)
@@ -389,52 +510,8 @@ class QueueWorker(PidFileChildProcessQueueWorker):
 
     # -- Orphan reconciliation --------------------------------------------
 
-    def _reconcile_worker_state(self) -> None:
-        self._reconcile_orphaned_running()
-
     def _reconcile_orphaned_running(self) -> None:
-        """Fix queue entries stuck as 'running' from a previous worker crash.
-
-        On startup, any queue entry marked 'running' is orphaned (this worker
-        has no subprocess tracking it).  Resolve each by checking the
-        run_state.json and run.lock of the reaction directory.
-        """
-        reconcile_stale_slots(self.admission_root)
-        reconcile_orphaned_running_entries(self.allowed_root, ignore_worker_pid=True)
-
-    def _on_worker_process_started(
-        self,
-        queue_root: Path,
-        entry: Any,
-        *,
-        process: BackgroundRunJobProcess,
-        admission_token: str,
-    ) -> bool:
-        return attach_started_orca_process(
-            self,
-            queue_root,
-            entry,
-            process=process,
-            admission_token=admission_token,
-            hooks=_orca_worker_lifecycle_hooks(),
-        )
-
-    def _handle_worker_start_error(
-        self,
-        queue_root: Path,
-        entry: Any,
-        admission_token: str,
-        exc: OSError,
-    ) -> None:
-        queue_id = queue_entry_id(entry)
-        logger.error("Failed to start job %s: %s", queue_id, exc)
-        self._mark_entry_failed_and_release(
-            queue_root,
-            entry,
-            admission_token,
-            error=str(exc),
-            mark_failed_fn=mark_failed,
-        )
+        _reconcile_orphaned_running(self)
 
     def _running_queue_id(self, entry: Any) -> str:
         return queue_entry_id(entry)
@@ -447,31 +524,20 @@ class QueueWorker(PidFileChildProcessQueueWorker):
         process: Any,
         admission_token: str,
     ) -> _RunningJob:
-        del queue_root
-        return _RunningJob(
+        running = _RunningJob(
             queue_id=queue_entry_id(entry),
             reaction_dir=queue_entry_reaction_dir(entry),
             task_id=queue_entry_task_id(entry) or None,
             process=process,
             admission_token=admission_token,
         )
+        setattr(running, "queue_root", queue_root)
+        return running
 
     # -- Monitoring -------------------------------------------------------
 
-    def _poll_job(self, job: _RunningJob) -> int | None:
-        return job.process.poll()
-
-    def _finalize_completed_job(self, queue_id: str, job: Any, rc: int) -> None:
-        self._finalize_finished_job(queue_id, job, rc=rc)
-
     def _finalize_finished_job(self, queue_id: str, job: _RunningJob, *, rc: int) -> None:
-        finalize_orca_finished_job(
-            self,
-            queue_id,
-            job,
-            rc=rc,
-            hooks=_orca_worker_lifecycle_hooks(),
-        )
+        _finalize_finished_job(self, queue_id, job, rc=rc)
 
     def _auto_organize_terminal_job(self, job: _RunningJob) -> None:
         if not self.auto_organize:
@@ -494,7 +560,7 @@ class QueueWorker(PidFileChildProcessQueueWorker):
     def _check_cancel_requests(self) -> None:
         """Check if any running jobs have been requested to cancel."""
         for queue_id, job in self._running_jobs():
-            if get_cancel_requested(self.allowed_root, queue_id):
+            if get_cancel_requested(_job_queue_root(self, job), queue_id):
                 self._cancel_running_job(queue_id, job)
                 self._discard_running_job(queue_id)
 
@@ -508,15 +574,7 @@ class QueueWorker(PidFileChildProcessQueueWorker):
 
     # -- Shutdown ---------------------------------------------------------
 
-    def _before_shutdown_all(self, running_count: int) -> None:
-        logger.info("Shutting down %d running job(s)...", running_count)
-
-    def _shutdown_running_job(self, queue_id: str, job: Any) -> None:
-        _terminate_process(job.process)
-        requeue_running_entry(self.allowed_root, queue_id)
-        self._release_admission_slot(job.admission_token)
-
 
 def read_worker_pid(allowed_root: Path) -> int | None:
     """Read the worker PID file. Returns None if not found or stale."""
-    return read_worker_pid_file(allowed_root, WORKER_PID_FILE)
+    return _engine_runtime.read_worker_pid(allowed_root)

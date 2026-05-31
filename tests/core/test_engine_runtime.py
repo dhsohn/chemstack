@@ -318,6 +318,70 @@ def test_engine_queue_runtime_builds_common_child_worker_hooks(tmp_path: Path) -
     ]
 
 
+def test_engine_queue_runtime_child_worker_hooks_accept_engine_overrides(
+    tmp_path: Path,
+) -> None:
+    runtime = _runtime(tmp_path)
+    events: list[tuple[str, Any]] = []
+    worker = SimpleNamespace(name="worker")
+    entry = SimpleNamespace(queue_id="queue-override")
+    process = SimpleNamespace(pid=8642)
+    job = SimpleNamespace(name="job")
+
+    def record_started(
+        worker_arg: Any,
+        queue_root: Path,
+        entry_arg: Any,
+        process_arg: Any,
+        token: str,
+    ) -> bool:
+        events.append(
+            (
+                "started",
+                (worker_arg.name, queue_root, entry_arg.queue_id, process_arg.pid, token),
+            )
+        )
+        return True
+
+    hooks = runtime.child_worker_hooks(
+        engine="orca",
+        handle_worker_start_error_fn=lambda *args: events.append(("start_error", args)),
+        finalize_completed_job_fn=lambda *args: events.append(("completed", args)),
+        finalize_child_exit_fn=lambda *args, **kwargs: events.append(
+            ("child_exit", (args, kwargs))
+        ),
+        reconcile_worker_state_fn=lambda worker_arg: events.append(("reconcile", worker_arg.name)),
+        activate_reserved_slot_fn=lambda *args, **kwargs: events.append(
+            ("activate", (args, kwargs))
+        ),
+        terminate_process_fn=lambda process_arg: events.append(("terminate", process_arg.pid)),
+        mark_failed_fn=lambda *args, **kwargs: events.append(("failed", (args, kwargs))),
+        shutdown_grace_seconds=10,
+        sleep_fn=lambda seconds: events.append(("sleep", seconds)),
+        on_worker_process_started_fn=record_started,
+        shutdown_running_job_fn=lambda worker_arg, queue_id, job_arg: events.append(
+            ("shutdown", (worker_arg.name, queue_id, job_arg.name))
+        ),
+        before_shutdown_all_fn=lambda worker_arg, count: events.append(
+            ("before_shutdown", (worker_arg.name, count))
+        ),
+    )
+
+    assert hooks.on_worker_process_started(worker, tmp_path, entry, process, "slot-1")
+    hooks.shutdown_running_job(worker, "queue-override", job)
+    before_shutdown_all = hooks.before_shutdown_all
+    assert before_shutdown_all is not None
+    before_shutdown_all(worker, 3)
+    hooks.reconcile_worker_state(worker)
+
+    assert events == [
+        ("started", ("worker", tmp_path, "queue-override", 8642, "slot-1")),
+        ("shutdown", ("worker", "queue-override", "job")),
+        ("before_shutdown", ("worker", 3)),
+        ("reconcile", "worker"),
+    ]
+
+
 def test_engine_queue_runtime_runs_pidfile_worker_command(tmp_path: Path) -> None:
     cfg = SimpleNamespace(
         runtime=SimpleNamespace(
@@ -363,3 +427,30 @@ def test_engine_queue_runtime_runs_pidfile_worker_command(tmp_path: Path) -> Non
             "kwargs": {"max_concurrent": 4},
         }
     ]
+
+
+def test_engine_queue_runtime_pidfile_command_reports_existing_worker(
+    tmp_path: Path,
+) -> None:
+    cfg = SimpleNamespace(runtime=SimpleNamespace(allowed_root=str(tmp_path)))
+    runtime = EngineQueueRuntime(
+        load_config=lambda _config: cfg,
+        runtime_roots_for_cfg=lambda _cfg: (),
+        list_queue=lambda _root: [],
+        dequeue_next=lambda _root: None,
+        worker_pid_file_name="engine_worker.pid",
+    )
+    reports: list[int] = []
+
+    result = runtime.run_pidfile_worker_command(
+        SimpleNamespace(config="/tmp/config.yaml"),
+        config_path_fn=lambda args: str(args.config),
+        read_worker_pid_fn=lambda root: 12345 if root == tmp_path else None,
+        existing_pid_report_fn=lambda pid: reports.append(pid),
+        worker_factory=lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("worker should not start")
+        ),
+    )
+
+    assert result == 1
+    assert reports == [12345]

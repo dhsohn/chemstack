@@ -31,9 +31,7 @@ class EngineQueueRuntime:
     list_queue: Callable[[str | Path], list[Any]]
     dequeue_next: Callable[[Path], Any | None]
     worker_pid_file_name: str
-    dequeue_next_across_roots: Callable[..., tuple[Path, Any] | None] = (
-        dequeue_next_across_roots
-    )
+    dequeue_next_across_roots: Callable[..., tuple[Path, Any] | None] = dequeue_next_across_roots
 
     def _queue_runtime(self) -> QueueRuntime:
         return QueueRuntime(
@@ -163,34 +161,42 @@ class EngineQueueRuntime:
         mark_failed_fn: Callable[..., Any],
         shutdown_grace_seconds: float,
         sleep_fn: Callable[[float], None],
+        on_worker_process_started_fn: Callable[[Any, Path, Any, Any, str], bool] | None = None,
+        shutdown_running_job_fn: Callable[[Any, str, Any], Any] | None = None,
+        before_shutdown_all_fn: Callable[[Any, int], Any] | None = None,
     ) -> PidFileChildProcessQueueWorkerHooks:
-        return PidFileChildProcessQueueWorkerHooks(
-            handle_worker_start_error=handle_worker_start_error_fn,
-            on_worker_process_started=(
-                lambda worker, queue_root, entry, process, admission_token: (
-                    self.attach_started_child_process(
-                        engine=engine,
-                        worker=worker,
-                        queue_root=queue_root,
-                        entry=entry,
-                        process=process,
-                        admission_token=admission_token,
-                        activate_reserved_slot_fn=activate_reserved_slot_fn,
-                        terminate_process_fn=terminate_process_fn,
-                        mark_failed_fn=mark_failed_fn,
-                    )
+        on_worker_process_started = on_worker_process_started_fn or (
+            lambda worker, queue_root, entry, process, admission_token: (
+                self.attach_started_child_process(
+                    engine=engine,
+                    worker=worker,
+                    queue_root=queue_root,
+                    entry=entry,
+                    process=process,
+                    admission_token=admission_token,
+                    activate_reserved_slot_fn=activate_reserved_slot_fn,
+                    terminate_process_fn=terminate_process_fn,
+                    mark_failed_fn=mark_failed_fn,
                 )
-            ),
-            finalize_completed_job=finalize_completed_job_fn,
-            shutdown_running_job=lambda worker, _queue_id, job: self.shutdown_child_job(
+            )
+        )
+        shutdown_running_job = shutdown_running_job_fn or (
+            lambda worker, _queue_id, job: self.shutdown_child_job(
                 worker,
                 job,
                 terminate_process_fn=terminate_process_fn,
                 finalize_child_exit_fn=finalize_child_exit_fn,
                 grace_seconds=shutdown_grace_seconds,
                 sleep_fn=sleep_fn,
-            ),
+            )
+        )
+        return PidFileChildProcessQueueWorkerHooks(
+            handle_worker_start_error=handle_worker_start_error_fn,
+            on_worker_process_started=on_worker_process_started,
+            finalize_completed_job=finalize_completed_job_fn,
+            shutdown_running_job=shutdown_running_job,
             reconcile_worker_state=reconcile_worker_state_fn,
+            before_shutdown_all=before_shutdown_all_fn,
         )
 
     def start_child_process(
@@ -224,6 +230,7 @@ class EngineQueueRuntime:
         worker_factory: Callable[..., Any],
         load_config_fn: Callable[[Any], Any] | None = None,
         read_worker_pid_fn: Callable[[Path], int | None] | None = None,
+        existing_pid_report_fn: Callable[[int], Any] | None = None,
         max_concurrent_fn: Callable[[Any], int] | None = None,
     ) -> int:
         return run_pidfile_queue_worker_command(
@@ -231,6 +238,7 @@ class EngineQueueRuntime:
             load_config_fn=load_config_fn or self.load_config,
             config_path_fn=config_path_fn,
             read_worker_pid_fn=read_worker_pid_fn or self.read_worker_pid,
+            existing_pid_report_fn=existing_pid_report_fn,
             max_concurrent_fn=max_concurrent_fn or self.max_concurrent,
             worker_factory=worker_factory,
         )

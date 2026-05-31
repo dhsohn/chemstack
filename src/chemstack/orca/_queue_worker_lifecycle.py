@@ -13,6 +13,10 @@ from .config import AppConfig
 LOGGER = logging.getLogger(__name__)
 
 
+def _job_queue_root(worker: Any, job: Any) -> Path:
+    return Path(getattr(job, "queue_root", worker.allowed_root)).expanduser().resolve()
+
+
 @dataclass(frozen=True)
 class OrcaQueueWorkerLifecycleHooks:
     queue_entry_id_fn: Callable[[Any], str]
@@ -80,18 +84,19 @@ def mark_terminal_queue_entry(
     hooks: OrcaQueueWorkerLifecycleHooks,
     logger: logging.Logger = LOGGER,
 ) -> None:
+    queue_root = _job_queue_root(worker, job)
     run_id = hooks.get_run_id_from_state_fn(job.reaction_dir)
-    if hooks.get_cancel_requested_fn(worker.allowed_root, queue_id):
+    if hooks.get_cancel_requested_fn(queue_root, queue_id):
         logger.info("Job cancelled: %s (rc=%d)", queue_id, rc)
-        hooks.mark_cancelled_fn(worker.allowed_root, queue_id)
+        hooks.mark_cancelled_fn(queue_root, queue_id)
     elif rc == 0:
         logger.info("Job completed: %s (rc=%d)", queue_id, rc)
-        hooks.mark_completed_fn(worker.allowed_root, queue_id, run_id=run_id)
+        hooks.mark_completed_fn(queue_root, queue_id, run_id=run_id)
         worker._auto_organize_terminal_job(job)
     else:
         logger.warning("Job failed: %s (rc=%d)", queue_id, rc)
         hooks.mark_failed_fn(
-            worker.allowed_root,
+            queue_root,
             queue_id,
             error=f"exit_code={rc}",
             run_id=run_id,
@@ -147,5 +152,5 @@ def cancel_orca_running_job(
         job.process.wait(timeout=5)
     except subprocess.TimeoutExpired:
         pass
-    hooks.mark_cancelled_fn(worker.allowed_root, queue_id)
+    hooks.mark_cancelled_fn(_job_queue_root(worker, job), queue_id)
     worker._release_admission_slot(job.admission_token)

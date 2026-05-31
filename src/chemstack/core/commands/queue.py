@@ -137,6 +137,7 @@ def run_pidfile_queue_worker_command(
     config_path_fn: Callable[[Any], str],
     worker_factory: Callable[..., Any],
     read_worker_pid_fn: Callable[[Path], int | None],
+    existing_pid_report_fn: Callable[[int], Any] | None = None,
     max_concurrent_fn: Callable[[Any], int] | None = None,
 ) -> int:
     return run_queue_worker_command(
@@ -147,6 +148,7 @@ def run_pidfile_queue_worker_command(
             cfg,
             read_worker_pid_fn=read_worker_pid_fn,
         ),
+        existing_pid_report_fn=existing_pid_report_fn,
         max_concurrent_fn=max_concurrent_fn,
         worker_factory=worker_factory,
     )
