@@ -3,10 +3,11 @@ from __future__ import annotations
 from typing import Any, Callable
 
 from chemstack.core.queue import lifecycle as _queue_lifecycle
+from chemstack.core.queue.internal_engine import InternalEngineSpec
 
 
 shutdown_running_job = _queue_lifecycle.shutdown_running_job
-_ORPHANED_RUNNING_POLICY = _queue_lifecycle.OrphanedRunningPolicy()
+_ENGINE_LIFECYCLE = InternalEngineSpec(engine="crest").lifecycle()
 
 
 def finalize_child_exit(
@@ -22,15 +23,10 @@ def finalize_child_exit(
     mark_recovery_pending_fn: Callable[..., Any],
     release_admission_slot_fn: Callable[[str], Any],
 ) -> None:
-    _queue_lifecycle.finalize_child_exit_with_policy(
+    _ENGINE_LIFECYCLE.finalize_child_exit(
         cfg,
         job,
-        policy=_queue_lifecycle.ChildExitPolicy(
-            shutdown_requested=shutdown_requested,
-            fail_unexpected_exit=True,
-            use_entry_fallback=False,
-            recovery_entry_fn=lambda _current, current_job: current_job.entry,
-        ),
+        shutdown_requested=shutdown_requested,
         find_queue_entry_fn=find_queue_entry_fn,
         mark_cancelled_fn=mark_cancelled_fn,
         requeue_running_entry_fn=requeue_running_entry_fn,
@@ -54,9 +50,8 @@ def reconcile_orphaned_running(
     requeue_running_entry_fn: Callable[..., Any],
     mark_recovery_pending_fn: Callable[..., Any],
 ) -> None:
-    _queue_lifecycle.reconcile_orphaned_running_with_policy(
+    _ENGINE_LIFECYCLE.reconcile_orphaned_running(
         cfg,
-        policy=_ORPHANED_RUNNING_POLICY,
         admission_root=admission_root,
         queue_roots_fn=queue_roots_fn,
         list_queue_fn=list_queue_fn,

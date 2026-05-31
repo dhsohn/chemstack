@@ -317,6 +317,17 @@ class EngineStateModuleExports:
     write_report_md: Callable[..., Path]
 
 
+@dataclass(frozen=True)
+class EngineStateModuleSpec:
+    state_file_name: str
+    report_json_file_name: str
+    report_md_file_name: str
+    organized_ref_file_name: str
+    manifest_file_name: str
+    report_title: str
+    selected_input_label: str
+
+
 def engine_state_module_exports(bindings: EngineStateBindings) -> EngineStateModuleExports:
     access = bindings.access
     return EngineStateModuleExports(
@@ -330,4 +341,23 @@ def engine_state_module_exports(bindings: EngineStateBindings) -> EngineStateMod
         load_report_json=access.load_report_json,
         load_organized_ref=access.load_organized_ref,
         write_report_md=access.write_report_md,
+    )
+
+
+def create_engine_state_module_exports(
+    spec: EngineStateModuleSpec,
+    *,
+    now_fn: Callable[[], str] = now_utc_iso,
+) -> EngineStateModuleExports:
+    return engine_state_module_exports(
+        create_engine_state_bindings(
+            state_file_name=spec.state_file_name,
+            report_json_file_name=spec.report_json_file_name,
+            report_md_file_name=spec.report_md_file_name,
+            organized_ref_file_name=spec.organized_ref_file_name,
+            manifest_file_name=spec.manifest_file_name,
+            report_title=spec.report_title,
+            selected_input_label=spec.selected_input_label,
+            now_fn=now_fn,
+        )
     )

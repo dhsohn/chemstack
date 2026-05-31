@@ -40,7 +40,7 @@ from chemstack.core.queue.worker import (
     start_background_process,
     terminate_process_group,
 )
-from chemstack.core.queue.engine_runtime import EngineQueueRuntime
+from chemstack.core.queue.internal_engine import InternalEngineQueueRuntime, InternalEngineSpec
 
 from . import queue_admission as _queue_admission
 from . import queue_lifecycle as _queue_lifecycle
@@ -64,6 +64,13 @@ CANCEL_CHECK_INTERVAL_SECONDS = 1
 WORKER_PID_FILE = "xtb_queue_worker.pid"
 WORKER_SHUTDOWN_GRACE_SECONDS = 10.0
 WORKER_JOB_MODULE = _worker_execution.WORKER_JOB_MODULE
+_ENGINE_SPEC = InternalEngineSpec(
+    engine="xtb",
+    worker_job_module=WORKER_JOB_MODULE,
+    worker_pid_file_name=WORKER_PID_FILE,
+    coerce_queue_root_to_str=True,
+    include_legacy_admission_root_arg=True,
+)
 
 
 def _queue_worker_deps() -> Any:
@@ -121,12 +128,12 @@ def _worker_execution_dependencies() -> _worker_execution.WorkerExecutionDepende
 _RunningJob = BackgroundRunningJob
 _TerminalSummary = _queue_terminal.TerminalSummary
 
-_engine_runtime = EngineQueueRuntime(
+_engine_runtime = InternalEngineQueueRuntime.create(
+    spec=_ENGINE_SPEC,
     load_config=load_config,
     runtime_roots_for_cfg=runtime_roots_for_cfg,
     list_queue=lambda root: list_queue(root),
     dequeue_next=lambda root: dequeue_next(root),
-    worker_pid_file_name=WORKER_PID_FILE,
 )
 
 
@@ -177,7 +184,6 @@ def _terminate_process(proc: _ManagedProcess) -> None:
 def _try_reserve_admission_slot(cfg: Any) -> str | None:
     return _engine_runtime.reserve_admission_slot(
         cfg,
-        engine="xtb",
         reserve_slot_fn=reserve_slot,
     )
 
@@ -281,7 +287,6 @@ def _start_background_job_process(
         admission_token=admission_token,
         start_background_process_fn=start_background_process,
         build_worker_child_command_fn=_worker_execution.build_worker_child_command,
-        include_admission_root=False,
     )
 
 
@@ -399,7 +404,6 @@ def _reconcile_worker_state(worker: Any) -> None:
 
 def _queue_worker_hooks() -> Any:
     return _engine_runtime.child_worker_hooks(
-        engine="xtb",
         handle_worker_start_error_fn=_handle_worker_start_error,
         finalize_completed_job_fn=_finalize_completed_job,
         finalize_child_exit_fn=_finalize_child_exit,
