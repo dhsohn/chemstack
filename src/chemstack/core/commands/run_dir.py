@@ -76,6 +76,7 @@ def record_queued_common_from_namespace(
     upsert_job_record_name: str = "upsert_job_record",
     notify_job_queued_name: str = "notify_job_queued",
 ) -> None:
+    """Compatibility adapter; prefer record_queued_common with explicit callables."""
     record_queued_common(
         cfg,
         submission,

@@ -39,3 +39,33 @@ def test_run_queue_worker_command_uses_existing_pid_reporter(
     assert result == 1
     assert reports == [12345]
     assert capsys.readouterr().out == ""
+
+
+def test_run_pidfile_queue_worker_command_reads_pid_from_allowed_root(tmp_path: Any) -> None:
+    allowed_root = tmp_path / "allowed"
+    cfg = SimpleNamespace(runtime=SimpleNamespace(allowed_root=str(allowed_root), max_concurrent=2))
+    seen: list[Any] = []
+
+    class FakeWorker:
+        def __init__(self, cfg_obj: Any, config_path: str, *, max_concurrent: int) -> None:
+            seen.append((cfg_obj, config_path, max_concurrent))
+
+        def run(self) -> int:
+            seen.append("run")
+            return 7
+
+    def read_worker_pid(root: Any) -> None:
+        seen.append(root)
+        return None
+
+    result = queue_cmd.run_pidfile_queue_worker_command(
+        SimpleNamespace(config="config.yaml"),
+        load_config_fn=lambda _config: cfg,
+        config_path_fn=lambda args: args.config,
+        read_worker_pid_fn=read_worker_pid,
+        max_concurrent_fn=lambda cfg_obj: cfg_obj.runtime.max_concurrent,
+        worker_factory=FakeWorker,
+    )
+
+    assert result == 7
+    assert seen == [allowed_root.resolve(), (cfg, "config.yaml", 2), "run"]

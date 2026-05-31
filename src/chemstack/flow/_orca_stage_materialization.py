@@ -176,6 +176,25 @@ class OrcaStageBuildContext:
     def selected_input_label(self) -> str:
         return self.input_label or Path(self.candidate.artifact_path).name
 
+    def materialization_request(
+        self, *, extra_source_payload: dict[str, Any] | None = None
+    ) -> OrcaStageMaterializationRequest:
+        return OrcaStageMaterializationRequest(
+            workspace_dir=self.workspace_dir,
+            stage_root_name=self.stage_root_name,
+            stage_key=self.stage_key,
+            source_artifact_path=self.candidate.artifact_path,
+            candidate_kind=self.candidate.kind,
+            route_line=self.route_line,
+            charge=self.charge,
+            multiplicity=self.multiplicity,
+            max_cores=self.max_cores,
+            max_memory_gb=self.max_memory_gb,
+            xyz_filename=self.xyz_filename,
+            inp_filename=self.inp_filename,
+            extra_source_payload=extra_source_payload,
+        )
+
 
 def materialize_orca_stage(
     *,
@@ -193,7 +212,7 @@ def materialize_orca_stage(
     inp_filename: str = "input.inp",
     extra_source_payload: dict[str, Any] | None = None,
 ) -> OrcaStageMaterialization:
-    return _materialize_orca_stage(
+    return materialize_orca_stage_from_request(
         OrcaStageMaterializationRequest(
             workspace_dir=workspace_dir,
             stage_root_name=stage_root_name,
@@ -212,7 +231,9 @@ def materialize_orca_stage(
     )
 
 
-def _materialize_orca_stage(request: OrcaStageMaterializationRequest) -> OrcaStageMaterialization:
+def materialize_orca_stage_from_request(
+    request: OrcaStageMaterializationRequest,
+) -> OrcaStageMaterialization:
     source_xyz = Path(request.source_artifact_path).expanduser().resolve()
     if not source_xyz.exists():
         raise FileNotFoundError(f"ORCA stage source artifact not found: {source_xyz}")
@@ -279,7 +300,7 @@ def build_materialized_orca_stage(
     inp_filename: str,
     input_label: str | None = None,
 ) -> WorkflowStage:
-    return _build_materialized_orca_stage(
+    return build_materialized_orca_stage_from_context(
         OrcaStageBuildContext(
             workflow_id=workflow_id,
             template_name=template_name,
@@ -303,22 +324,12 @@ def build_materialized_orca_stage(
     )
 
 
-def _build_materialized_orca_stage(ctx: OrcaStageBuildContext) -> WorkflowStage:
+def build_materialized_orca_stage_from_context(ctx: OrcaStageBuildContext) -> WorkflowStage:
     resource_request = ctx.resource_request
-    materialized = materialize_orca_stage(
-        workspace_dir=ctx.workspace_dir,
-        stage_root_name=ctx.stage_root_name,
-        stage_key=ctx.stage_key,
-        source_artifact_path=ctx.candidate.artifact_path,
-        candidate_kind=ctx.candidate.kind,
-        route_line=ctx.route_line,
-        charge=ctx.charge,
-        multiplicity=ctx.multiplicity,
-        max_cores=ctx.max_cores,
-        max_memory_gb=ctx.max_memory_gb,
-        xyz_filename=ctx.xyz_filename,
-        inp_filename=ctx.inp_filename,
-        extra_source_payload=_orca_stage_payloads.candidate_source_payload(ctx.candidate),
+    materialized = materialize_orca_stage_from_request(
+        ctx.materialization_request(
+            extra_source_payload=_orca_stage_payloads.candidate_source_payload(ctx.candidate)
+        )
     )
     enqueue_payload = build_orca_enqueue_payload(
         workflow_id=ctx.workflow_id,
@@ -361,11 +372,14 @@ def _build_materialized_orca_stage(ctx: OrcaStageBuildContext) -> WorkflowStage:
 
 __all__ = [
     "build_materialized_orca_stage",
+    "build_materialized_orca_stage_from_context",
     "build_orca_enqueue_payload",
     "ensure_route_line",
     "materialize_orca_stage",
+    "materialize_orca_stage_from_request",
     "normalize_text",
     "OrcaStageBuildContext",
+    "OrcaStageMaterialization",
     "OrcaStageMaterializationRequest",
     "render_orca_input",
     "safe_name",

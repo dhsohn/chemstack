@@ -57,22 +57,6 @@ def create_conformer_screening_workflow_from_request(
     )
 
 
-def _create_reaction_ts_search_workflow_from_kwargs(
-    request_kwargs: dict[str, Any],
-) -> dict[str, Any]:
-    return create_reaction_ts_search_workflow_from_request(
-        ReactionTsSearchWorkflowRequest(**request_kwargs)
-    )
-
-
-def _create_conformer_screening_workflow_from_kwargs(
-    request_kwargs: dict[str, Any],
-) -> dict[str, Any]:
-    return create_conformer_screening_workflow_from_request(
-        ConformerScreeningWorkflowRequest(**request_kwargs)
-    )
-
-
 def create_reaction_ts_search_workflow(
     *,
     reactant_xyz: str,
@@ -96,8 +80,30 @@ def create_reaction_ts_search_workflow(
     source_job_id: str = "",
     source_job_type: str = "",
 ) -> dict[str, Any]:
-    request_kwargs: dict[str, Any] = locals()
-    return _create_reaction_ts_search_workflow_from_kwargs(request_kwargs)
+    return create_reaction_ts_search_workflow_from_request(
+        ReactionTsSearchWorkflowRequest(
+            reactant_xyz=reactant_xyz,
+            product_xyz=product_xyz,
+            workflow_root=workflow_root,
+            workflow_id=workflow_id,
+            crest_mode=crest_mode,
+            priority=priority,
+            max_cores=max_cores,
+            max_memory_gb=max_memory_gb,
+            max_crest_candidates=max_crest_candidates,
+            max_xtb_stages=max_xtb_stages,
+            max_xtb_handoff_retries=max_xtb_handoff_retries,
+            max_orca_stages=max_orca_stages,
+            orca_route_line=orca_route_line,
+            charge=charge,
+            multiplicity=multiplicity,
+            crest_job_manifest=crest_job_manifest,
+            xtb_job_manifest=xtb_job_manifest,
+            endpoint_pairing=endpoint_pairing,
+            source_job_id=source_job_id,
+            source_job_type=source_job_type,
+        )
+    )
 
 
 def create_conformer_screening_workflow(
@@ -115,8 +121,22 @@ def create_conformer_screening_workflow(
     multiplicity: int = 1,
     crest_job_manifest: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    request_kwargs: dict[str, Any] = locals()
-    return _create_conformer_screening_workflow_from_kwargs(request_kwargs)
+    return create_conformer_screening_workflow_from_request(
+        ConformerScreeningWorkflowRequest(
+            input_xyz=input_xyz,
+            workflow_root=workflow_root,
+            workflow_id=workflow_id,
+            crest_mode=crest_mode,
+            priority=priority,
+            max_cores=max_cores,
+            max_memory_gb=max_memory_gb,
+            max_orca_stages=max_orca_stages,
+            orca_route_line=orca_route_line,
+            charge=charge,
+            multiplicity=multiplicity,
+            crest_job_manifest=crest_job_manifest,
+        )
+    )
 
 
 __all__ = [

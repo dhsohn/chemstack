@@ -98,6 +98,7 @@ class InternalEngineSubmitter:
 
 
 def submitter_deps_from_namespace(namespace: Mapping[str, Any]) -> InternalEngineSubmitterDeps:
+    """Compatibility adapter; prefer constructing InternalEngineSubmitterDeps explicitly."""
     return InternalEngineSubmitterDeps(
         load_config_fn=namespace["load_config"],
         resolve_job_dir_fn=namespace["resolve_job_dir"],

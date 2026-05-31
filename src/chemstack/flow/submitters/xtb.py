@@ -40,7 +40,18 @@ _SUBMITTER_SPEC = _internal_engine.InternalEngineSubmitterSpec(
 
 
 def _submitter_deps() -> _internal_engine.InternalEngineSubmitterDeps:
-    return _internal_engine.submitter_deps_from_namespace(globals())
+    return _internal_engine.InternalEngineSubmitterDeps(
+        load_config_fn=load_config,
+        resolve_job_dir_fn=resolve_job_dir,
+        load_manifest_fn=load_job_manifest,
+        build_submission_fn=build_submission,
+        record_queued_fn=record_queued,
+        enqueue_fn=enqueue,
+        load_queue_config_fn=load_queue_config,
+        queue_entries_with_roots_fn=queue_entries_with_roots,
+        request_cancel_fn=request_cancel,
+        display_status_fn=display_status,
+    )
 
 
 _SUBMITTER = _internal_engine.InternalEngineSubmitter(

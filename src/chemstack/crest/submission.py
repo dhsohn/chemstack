@@ -8,7 +8,7 @@ from chemstack.core.commands.run_dir import (
     build_engine_run_dir_submission,
     engine_resource_fields,
     manifest_present_text,
-    record_queued_common_from_namespace,
+    record_queued_common,
 )
 from chemstack.core.config.engines import (
     load_crest_config as load_config,
@@ -108,4 +108,12 @@ def _queued_record(submission: EngineRunDirSubmission, _entry: Any) -> EngineQue
 
 
 def _record_queued(cfg: Any, submission: EngineRunDirSubmission, entry: Any) -> None:
-    record_queued_common_from_namespace(cfg, submission, entry, namespace=globals())
+    record_queued_common(
+        cfg,
+        submission,
+        entry,
+        build_record_fn=_queued_record,
+        write_state_fn=write_state,
+        upsert_job_record_fn=upsert_job_record,
+        notify_job_queued_fn=notify_job_queued,
+    )

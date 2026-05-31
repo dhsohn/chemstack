@@ -279,16 +279,14 @@ class QueueWorker(PidFileChildProcessQueueWorker):
 
 
 def cmd_queue_worker(args: Any) -> int:
-    return _shared_queue.run_queue_worker_command(
+    return _shared_queue.run_pidfile_queue_worker_command(
         args,
         load_config_fn=load_config,
         config_path_fn=lambda worker_args: config_path_for_worker(
             worker_args,
             default_config_path_fn=default_config_path,
         ),
-        existing_pid_fn=lambda cfg: read_worker_pid(
-            Path(str(cfg.runtime.allowed_root)).expanduser().resolve(),
-        ),
+        read_worker_pid_fn=read_worker_pid,
         max_concurrent_fn=lambda cfg: max(1, int(getattr(cfg.runtime, "max_concurrent", 1))),
         worker_factory=lambda cfg, config_path, **kwargs: QueueWorker(
             cfg,

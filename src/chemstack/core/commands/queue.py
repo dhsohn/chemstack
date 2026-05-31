@@ -116,3 +116,37 @@ def run_queue_worker_command(
         **worker_kwargs,
     )
     return worker.run()
+
+
+def cfg_allowed_root(cfg: Any) -> Path:
+    return Path(str(cfg.runtime.allowed_root)).expanduser().resolve()
+
+
+def existing_worker_pid_from_allowed_root(
+    cfg: Any,
+    *,
+    read_worker_pid_fn: Callable[[Path], int | None],
+) -> int | None:
+    return read_worker_pid_fn(cfg_allowed_root(cfg))
+
+
+def run_pidfile_queue_worker_command(
+    args: Any,
+    *,
+    load_config_fn: Callable[[Any], Any],
+    config_path_fn: Callable[[Any], str],
+    worker_factory: Callable[..., Any],
+    read_worker_pid_fn: Callable[[Path], int | None],
+    max_concurrent_fn: Callable[[Any], int] | None = None,
+) -> int:
+    return run_queue_worker_command(
+        args,
+        load_config_fn=load_config_fn,
+        config_path_fn=config_path_fn,
+        existing_pid_fn=lambda cfg: existing_worker_pid_from_allowed_root(
+            cfg,
+            read_worker_pid_fn=read_worker_pid_fn,
+        ),
+        max_concurrent_fn=max_concurrent_fn,
+        worker_factory=worker_factory,
+    )

@@ -1,62 +1,12 @@
 from __future__ import annotations
 
-from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-
 from chemstack.flow.submitters import orca as orca_submitter
-
-
-def _install_workflow_io(
-    monkeypatch: pytest.MonkeyPatch,
-    *,
-    payload: dict[str, Any],
-    workspace_dir: Path,
-    saved_payloads: list[dict[str, Any]],
-    sync_calls: list[dict[str, Any]],
-) -> None:
-    monkeypatch.setattr(
-        orca_submitter,
-        "resolve_workflow_workspace",
-        lambda target, workflow_root: workspace_dir,
-    )
-    monkeypatch.setattr(
-        orca_submitter,
-        "load_workflow_payload",
-        lambda current_workspace_dir: payload,
-    )
-
-    def fake_write_workflow_payload(current_workspace_dir: Path, current_payload: dict[str, Any]) -> None:
-        saved_payloads.append(
-            {
-                "workspace_dir": current_workspace_dir,
-                "payload": deepcopy(current_payload),
-            }
-        )
-
-    def fake_sync_workflow_registry(
-        workflow_root: Path,
-        current_workspace_dir: Path,
-        current_payload: dict[str, Any],
-    ) -> None:
-        sync_calls.append(
-            {
-                "workflow_root": workflow_root,
-                "workspace_dir": current_workspace_dir,
-                "payload": deepcopy(current_payload),
-            }
-        )
-
-    monkeypatch.setattr(orca_submitter, "write_workflow_payload", fake_write_workflow_payload)
-    monkeypatch.setattr(orca_submitter, "sync_workflow_registry", fake_sync_workflow_registry)
-
-
-def _install_timestamps(monkeypatch: pytest.MonkeyPatch, *timestamps: str) -> None:
-    values = iter(timestamps)
-    monkeypatch.setattr(orca_submitter, "now_utc_iso", lambda: next(values))
+from tests.flow.factories import install_orca_timestamps, install_orca_workflow_io
 
 
 def test_submit_reaction_ts_search_workflow_ignores_invalid_stages_and_sets_submitted_only_summary(
@@ -102,18 +52,14 @@ def test_submit_reaction_ts_search_workflow_ignores_invalid_stages_and_sets_subm
             },
         ],
     }
-    saved_payloads: list[dict[str, Any]] = []
-    sync_calls: list[dict[str, Any]] = []
-    submit_calls: list[dict[str, Any]] = []
-
-    _install_workflow_io(
+    saved_payloads, sync_calls = install_orca_workflow_io(
         monkeypatch,
         payload=payload,
         workspace_dir=workspace_dir,
-        saved_payloads=saved_payloads,
-        sync_calls=sync_calls,
     )
-    _install_timestamps(
+    submit_calls: list[dict[str, Any]] = []
+
+    install_orca_timestamps(
         monkeypatch,
         "2026-04-19T01:00:00+00:00",
         "2026-04-19T01:01:00+00:00",
@@ -231,18 +177,14 @@ def test_submit_reaction_ts_search_workflow_records_skipped_only_summary_without
             }
         ],
     }
-    saved_payloads: list[dict[str, Any]] = []
-    sync_calls: list[dict[str, Any]] = []
-    submit_calls: list[dict[str, Any]] = []
-
-    _install_workflow_io(
+    saved_payloads, sync_calls = install_orca_workflow_io(
         monkeypatch,
         payload=payload,
         workspace_dir=workspace_dir,
-        saved_payloads=saved_payloads,
-        sync_calls=sync_calls,
     )
-    _install_timestamps(monkeypatch, "2026-04-19T01:05:00+00:00")
+    submit_calls: list[dict[str, Any]] = []
+
+    install_orca_timestamps(monkeypatch, "2026-04-19T01:05:00+00:00")
     monkeypatch.setattr(
         orca_submitter,
         "submit_reaction_dir",
@@ -309,18 +251,14 @@ def test_submit_reaction_ts_search_workflow_records_failed_only_summary(
             }
         ],
     }
-    saved_payloads: list[dict[str, Any]] = []
-    sync_calls: list[dict[str, Any]] = []
-    submit_calls: list[dict[str, Any]] = []
-
-    _install_workflow_io(
+    saved_payloads, sync_calls = install_orca_workflow_io(
         monkeypatch,
         payload=payload,
         workspace_dir=workspace_dir,
-        saved_payloads=saved_payloads,
-        sync_calls=sync_calls,
     )
-    _install_timestamps(
+    submit_calls: list[dict[str, Any]] = []
+
+    install_orca_timestamps(
         monkeypatch,
         "2026-04-19T01:10:00+00:00",
         "2026-04-19T01:11:00+00:00",
@@ -464,18 +402,14 @@ def test_cancel_reaction_ts_search_workflow_records_failed_only_summary_for_edge
             },
         ],
     }
-    saved_payloads: list[dict[str, Any]] = []
-    sync_calls: list[dict[str, Any]] = []
-    cancel_calls: list[dict[str, Any]] = []
-
-    _install_workflow_io(
+    saved_payloads, sync_calls = install_orca_workflow_io(
         monkeypatch,
         payload=payload,
         workspace_dir=workspace_dir,
-        saved_payloads=saved_payloads,
-        sync_calls=sync_calls,
     )
-    _install_timestamps(
+    cancel_calls: list[dict[str, Any]] = []
+
+    install_orca_timestamps(
         monkeypatch,
         "2026-04-19T01:20:00+00:00",
         "2026-04-19T01:21:00+00:00",
