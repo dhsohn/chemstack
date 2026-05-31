@@ -550,11 +550,9 @@ def process_dequeued_entry(
         entry,
         queue_root=queue_root,
         dependencies=deps,
-        should_cancel_factory=lambda active_queue_root, context: (
-            lambda: get_cancel_requested(
-                str(active_queue_root),
-                context.entry.queue_id,
-            ),
+        should_cancel_factory=lambda active_queue_root, context: lambda: get_cancel_requested(
+            str(active_queue_root),
+            context.entry.queue_id,
         ),
         shutdown_requested=shutdown_requested,
     )

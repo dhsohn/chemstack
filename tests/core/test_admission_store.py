@@ -140,6 +140,52 @@ def test_slot_owner_alive_handles_dead_pid_and_missing_start_ticks(
     ) is False
 
 
+def test_slot_owner_alive_treats_permission_denied_as_live(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_kill(_pid: int, _sig: int) -> None:
+        raise PermissionError("permission denied")
+
+    monkeypatch.setattr(store.os, "kill", fake_kill)
+    monkeypatch.setattr(store, "_process_start_ticks", lambda _pid: None)
+
+    assert (
+        store._slot_owner_alive(
+            store.AdmissionSlot(
+                token="slot",
+                owner_pid=4242,
+                process_start_ticks=777,
+                source="test",
+                acquired_at="2026-04-19T00:00:00+00:00",
+            )
+        )
+        is True
+    )
+
+
+def test_slot_owner_alive_still_rejects_permission_denied_pid_reuse(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_kill(_pid: int, _sig: int) -> None:
+        raise PermissionError("permission denied")
+
+    monkeypatch.setattr(store.os, "kill", fake_kill)
+    monkeypatch.setattr(store, "_process_start_ticks", lambda _pid: 888)
+
+    assert (
+        store._slot_owner_alive(
+            store.AdmissionSlot(
+                token="slot",
+                owner_pid=4242,
+                process_start_ticks=777,
+                source="test",
+                acquired_at="2026-04-19T00:00:00+00:00",
+            )
+        )
+        is False
+    )
+
+
 @pytest.mark.parametrize(
     "stat_text",
     [

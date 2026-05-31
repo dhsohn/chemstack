@@ -8,6 +8,7 @@ import pytest
 from chemstack.core.commands import queue as shared_queue_cmd
 from chemstack.xtb import queue_runtime as queue_cmd
 from chemstack.xtb import state as state_mod
+from chemstack.xtb import worker_execution as worker_execution_mod
 from tests.xtb.factories import (
     make_cfg as _make_cfg,
     make_entry as _make_entry,
@@ -341,6 +342,64 @@ def test_execute_queue_entry_cancels_before_start_and_updates_terminal_metadata(
     assert state["status"] == "cancelled"
     assert report["reason"] == "cancel_requested"
     assert report["candidate_count"] == 0
+
+
+def test_process_dequeued_entry_uses_queue_cancel_callback(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cfg = _make_cfg(tmp_path)
+    queue_root = Path(cfg.runtime.allowed_root)
+    job_dir = queue_root / "job-1"
+    job_dir.mkdir()
+    selected_xyz = job_dir / "reactant.xyz"
+    selected_xyz.write_text("3\nreactant\nH 0 0 0\n", encoding="utf-8")
+    entry = _make_entry(job_dir, selected_xyz)
+    cancelled_calls: list[tuple[object, object, object, object | None]] = []
+
+    monkeypatch.setattr(worker_execution_mod, "get_cancel_requested", lambda _root, _queue_id: True)
+    monkeypatch.setattr(
+        queue_cmd,
+        "start_xtb_job",
+        lambda *args, **kwargs: pytest.fail("xTB job should not start after cancel request"),
+    )
+    monkeypatch.setattr(
+        queue_cmd,
+        "mark_completed",
+        lambda *args, **kwargs: pytest.fail("unexpected completed mark"),
+    )
+    monkeypatch.setattr(
+        queue_cmd,
+        "mark_failed",
+        lambda *args, **kwargs: pytest.fail("unexpected failed mark"),
+    )
+    monkeypatch.setattr(
+        queue_cmd,
+        "mark_cancelled",
+        lambda root, queue_id, error, metadata_update=None: cancelled_calls.append(
+            (root, queue_id, error, metadata_update)
+        ),
+    )
+    monkeypatch.setattr(queue_cmd, "notify_job_started", lambda *args, **kwargs: True)
+    monkeypatch.setattr(queue_cmd, "notify_job_finished", lambda *args, **kwargs: True)
+
+    outcome = worker_execution_mod.process_dequeued_entry(
+        cfg,
+        entry,
+        queue_root=queue_root,
+        dependencies=queue_cmd._worker_execution_dependencies(),
+    )
+
+    assert outcome.result.status == "cancelled"
+    assert outcome.result.reason == "cancel_requested"
+    assert cancelled_calls == [
+        (
+            cfg.runtime.allowed_root,
+            "queue-1",
+            "cancel_requested",
+            {"candidate_count": 0, "job_type": "path_search"},
+        )
+    ]
 
 
 def test_execute_queue_entry_processes_ranking_job_without_auto_organizing(

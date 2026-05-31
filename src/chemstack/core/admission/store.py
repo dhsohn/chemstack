@@ -139,15 +139,20 @@ def _save_slots(root: Path, slots: list[AdmissionSlot]) -> None:
 def _slot_owner_alive(slot: AdmissionSlot) -> bool:
     if slot.owner_pid <= 0:
         return False
+    permission_denied = False
     try:
         os.kill(slot.owner_pid, 0)
+    except PermissionError:
+        permission_denied = True
     except OSError:
         return False
     expected = slot.process_start_ticks
     if expected is None:
         return True
     observed = _process_start_ticks(slot.owner_pid)
-    return observed is not None and observed == expected
+    if observed is None:
+        return permission_denied
+    return observed == expected
 
 
 def _live_slots(root: Path) -> list[AdmissionSlot]:

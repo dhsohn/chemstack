@@ -328,6 +328,17 @@ def test_start_background_job_process_builds_child_command(
 def test_hooked_pidfile_child_worker_delegates_engine_hooks(tmp_path: Path) -> None:
     calls: list[tuple[str, tuple[object, ...]]] = []
     cfg = _cfg(allowed_root=str(tmp_path), admission_root=str(tmp_path / "admission"))
+
+    def record_started(
+        worker: object,
+        root: object,
+        entry: object,
+        process: object,
+        token: object,
+    ) -> bool:
+        calls.append(("started", (worker, root, entry, process, token)))
+        return True
+
     deps = SimpleNamespace(
         poll_interval_seconds=1,
         time=SimpleNamespace(sleep=lambda _seconds: None),
@@ -343,9 +354,7 @@ def test_hooked_pidfile_child_worker_delegates_engine_hooks(tmp_path: Path) -> N
         handle_worker_start_error=lambda worker, root, entry, token, exc: calls.append(
             ("start_error", (worker, root, entry, token, str(exc)))
         ),
-        on_worker_process_started=lambda worker, root, entry, process, token: (
-            calls.append(("started", (worker, root, entry, process, token))) or True
-        ),
+        on_worker_process_started=record_started,
         finalize_completed_job=lambda worker, queue_id, job, rc: calls.append(
             ("finalize", (worker, queue_id, job, rc))
         ),
