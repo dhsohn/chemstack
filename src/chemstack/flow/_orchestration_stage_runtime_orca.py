@@ -12,6 +12,7 @@ from ._orchestration_stage_runtime_shared import (
     _orchestration_context,
     _workflow_internal_organized_root,
 )
+from ._orchestration_stage_views import WorkflowStageView, WorkflowTaskView
 
 
 def _orca_submission_resource_kwargs(o: Any, enqueue_payload: dict[str, Any]) -> dict[str, Any]:
@@ -45,7 +46,7 @@ def _submit_orca_stage(
         **_orca_submission_resource_kwargs(o, enqueue_payload),
     )
     submission["submitted_at"] = o.persistence.now_utc_iso()
-    task["submission_result"] = submission
+    WorkflowTaskView(task).set_submission_result(submission)
     _apply_submission_result(
         stage=stage,
         task=task,
@@ -258,7 +259,7 @@ def sync_orca_stage_impl(
         context.stage_metadata,
         contract,
     )
-    stage["output_artifacts"] = _orca_output_artifacts(o, contract)
+    WorkflowStageView(stage).set_output_artifacts(_orca_output_artifacts(o, contract))
 
 
 def completed_orca_stage_impl(

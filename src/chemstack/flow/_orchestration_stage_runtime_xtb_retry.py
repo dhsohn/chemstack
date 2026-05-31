@@ -5,20 +5,14 @@ from typing import Any
 
 from ._orchestration_deps import OrchestrationDeps
 from ._orchestration_stage_runtime_shared import _orchestration_context
+from ._orchestration_stage_views import WorkflowStageView
 
 
 def xtb_attempt_rows_impl(
     stage: dict[str, Any], *, deps: OrchestrationDeps | None = None
 ) -> list[dict[str, Any]]:
-    o = _orchestration_context(deps)
-    metadata = o.stages._stage_metadata(stage)
-    attempts = metadata.get("xtb_attempts")
-    if isinstance(attempts, list):
-        filtered = [item for item in attempts if isinstance(item, dict)]
-        metadata["xtb_attempts"] = filtered
-        return filtered
-    metadata["xtb_attempts"] = []
-    return metadata["xtb_attempts"]
+    del deps
+    return WorkflowStageView(stage).xtb_attempt_rows()
 
 
 def xtb_attempt_record_impl(
@@ -27,15 +21,8 @@ def xtb_attempt_record_impl(
     attempt_number: int,
     deps: OrchestrationDeps | None = None,
 ) -> dict[str, Any]:
-    o = _orchestration_context(deps)
-    rows = o.stages._xtb_attempt_rows(stage)
-    for row in rows:
-        if o.stages._safe_int(row.get("attempt_number"), default=-1) == int(attempt_number):
-            return row
-    record = {"attempt_number": int(attempt_number)}
-    rows.append(record)
-    rows.sort(key=lambda item: o.stages._safe_int(item.get("attempt_number"), default=0))
-    return record
+    del deps
+    return WorkflowStageView(stage).xtb_attempt_record(attempt_number)
 
 
 def xtb_retry_recipe_impl(attempt_number: int) -> dict[str, Any]:
@@ -109,15 +96,8 @@ def xtb_path_retry_limit_impl(
 def xtb_current_attempt_number_impl(
     stage: dict[str, Any], *, deps: OrchestrationDeps | None = None
 ) -> int:
-    o = _orchestration_context(deps)
-    metadata = o.stages._stage_metadata(stage)
-    current = o.stages._safe_int(metadata.get("xtb_active_attempt_number"), default=-1)
-    if current >= 0:
-        return current
-    attempts = o.stages._xtb_attempt_rows(stage)
-    if attempts:
-        return max(o.stages._safe_int(item.get("attempt_number"), default=0) for item in attempts)
-    return 0
+    del deps
+    return WorkflowStageView(stage).xtb_current_attempt_number()
 
 
 def _xtb_path_job_dir(xtb_allowed_root: Path, stage_id: str, attempt_number: int) -> Path:

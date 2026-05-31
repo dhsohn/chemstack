@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from ._orchestration_stage_views import WorkflowStageView, WorkflowTaskView
+
 
 def stage_needs_restart(stage: dict[str, Any], *, deps: Any) -> bool:
     task = deps._coerce_mapping(stage.get("task"))
@@ -80,10 +82,11 @@ def reset_stage_for_restart(
     deps: Any,
 ) -> dict[str, str]:
     task = deps._stage_task(stage)
-    metadata = deps._stage_metadata(stage)
     task_payload = deps._task_payload(task)
     enqueue_payload = deps._enqueue_payload(task)
     engine = deps._task_engine(task)
+    stage_view = WorkflowStageView(stage)
+    task_view = WorkflowTaskView(task)
 
     previous = {
         "stage_id": deps._normalize_text(stage.get("stage_id")),
@@ -92,25 +95,21 @@ def reset_stage_for_restart(
         "engine": deps._normalize_text(task.get("engine")),
     }
 
-    stage["status"] = "planned"
-    task["status"] = "planned"
-    stage["output_artifacts"] = []
-    task.pop("submission_result", None)
-    task.pop("cancel_result", None)
+    stage_view.set_status_pair(stage_status="planned", task_status="planned")
+    stage_view.set_output_artifacts([])
+    task_view.clear_keys("submission_result", "cancel_result")
 
-    for key in deps._STALE_STAGE_METADATA_KEYS:
-        metadata.pop(key, None)
-    for key in deps._STALE_TASK_PAYLOAD_KEYS:
-        task_payload.pop(key, None)
+    stage_view.clear_metadata_keys(*deps._STALE_STAGE_METADATA_KEYS)
+    task_view.clear_payload_keys(*deps._STALE_TASK_PAYLOAD_KEYS)
 
     if rematerialize and engine in deps._REMATERIALIZED_ENGINES:
         for key in deps._REMATERIALIZED_TASK_PAYLOAD_KEYS:
             if key in task_payload:
-                task_payload[key] = ""
+                task_view.set_payload_field(key, "")
         if "job_dir" in enqueue_payload:
-            enqueue_payload["job_dir"] = ""
+            task_view.update_enqueue_payload({"job_dir": ""})
 
     if deps._task_is_orca(task):
-        enqueue_payload["force"] = True
+        task_view.update_enqueue_payload({"force": True})
 
     return previous

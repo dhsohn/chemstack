@@ -22,6 +22,7 @@ from ._orchestration_stage_runtime_xtb_submission import (
     _record_xtb_submission_attempt,
     _submit_xtb_stage,
 )
+from ._orchestration_stage_views import WorkflowStageView, WorkflowTaskView
 from .state import workflow_workspace_internal_engine_paths
 
 
@@ -133,7 +134,7 @@ def _maybe_retry_xtb_handoff(
         config_path=str(xtb_config),
     )
     submission["submitted_at"] = o.persistence.now_utc_iso()
-    task["submission_result"] = submission
+    WorkflowTaskView(task).set_submission_result(submission)
     _record_xtb_submission_attempt(
         o,
         stage,
@@ -232,7 +233,7 @@ def sync_xtb_stage_impl(
         context.stage_metadata.get("xtb_handoff_retries_used"), default=0
     )
     context.stage_metadata["xtb_handoff_retry_limit"] = o.stages._xtb_path_retry_limit(stage)
-    stage["output_artifacts"] = _xtb_output_artifacts(contract)
+    WorkflowStageView(stage).set_output_artifacts(_xtb_output_artifacts(contract))
 
 
 __all__ = [

@@ -9,6 +9,7 @@ from chemstack.core.utils import (
     normalize_text as _normalize_text,
 )
 
+from ._orchestration_stage_views import WorkflowStageView, WorkflowTaskView
 from . import restart_stages as _restart_stages
 
 _RESTARTABLE_STAGE_STATUSES = frozenset(
@@ -102,48 +103,23 @@ def _restart_stage_deps() -> _RestartStageDeps:
 
 
 def _stage_task(stage: dict[str, Any]) -> dict[str, Any]:
-    task = stage.get("task")
-    if isinstance(task, dict):
-        return task
-    task = {}
-    stage["task"] = task
-    return task
+    return WorkflowStageView(stage).ensure_task().raw
 
 
 def _stage_metadata(stage: dict[str, Any]) -> dict[str, Any]:
-    metadata = stage.get("metadata")
-    if isinstance(metadata, dict):
-        return metadata
-    metadata = {}
-    stage["metadata"] = metadata
-    return metadata
+    return WorkflowStageView(stage).metadata(None)
 
 
 def _task_metadata(task: dict[str, Any]) -> dict[str, Any]:
-    metadata = task.get("metadata")
-    if isinstance(metadata, dict):
-        return metadata
-    metadata = {}
-    task["metadata"] = metadata
-    return metadata
+    return WorkflowTaskView(task).metadata(None)
 
 
 def _task_payload(task: dict[str, Any]) -> dict[str, Any]:
-    payload = task.get("payload")
-    if isinstance(payload, dict):
-        return payload
-    payload = {}
-    task["payload"] = payload
-    return payload
+    return WorkflowTaskView(task).payload(None)
 
 
 def _enqueue_payload(task: dict[str, Any]) -> dict[str, Any]:
-    payload = task.get("enqueue_payload")
-    if isinstance(payload, dict):
-        return payload
-    payload = {}
-    task["enqueue_payload"] = payload
-    return payload
+    return WorkflowTaskView(task).enqueue_payload()
 
 
 def _task_is_orca(task: dict[str, Any]) -> bool:

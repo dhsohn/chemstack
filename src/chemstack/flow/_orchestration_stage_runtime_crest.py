@@ -17,6 +17,7 @@ from ._orchestration_stage_runtime_shared import (
     _orchestration_context,
     _workflow_internal_runs_root,
 )
+from ._orchestration_stage_views import WorkflowStageView, WorkflowTaskView
 from .state import workflow_workspace_internal_engine_paths
 
 
@@ -84,7 +85,7 @@ def _submit_crest_stage(
         config_path=str(crest_config),
     )
     submission["submitted_at"] = o.persistence.now_utc_iso()
-    task["submission_result"] = submission
+    WorkflowTaskView(task).set_submission_result(submission)
     stage_metadata = stage.setdefault("metadata", {})
     if not isinstance(stage_metadata, dict):
         return
@@ -140,7 +141,7 @@ def _apply_crest_contract(
     task_payload = task.setdefault("payload", {})
     if isinstance(task_payload, dict):
         task_payload["selected_input_xyz"] = contract.selected_input_xyz
-    stage["output_artifacts"] = [
+    WorkflowStageView(stage).set_output_artifacts([
         {
             "kind": "crest_conformer",
             "path": path,
@@ -148,7 +149,7 @@ def _apply_crest_contract(
             "metadata": {"rank": index, "mode": contract.mode},
         }
         for index, path in enumerate(contract.retained_conformer_paths, start=1)
-    ]
+    ])
 
 
 def sync_crest_stage_impl(

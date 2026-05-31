@@ -7,6 +7,7 @@ from ._orchestration_stage_runtime_shared import (
     _apply_submission_result,
     _submission_is_deferred,
 )
+from ._orchestration_stage_views import WorkflowTaskView
 
 
 def _record_xtb_submission_attempt(
@@ -69,7 +70,7 @@ def _submit_xtb_stage(
         config_path=str(xtb_config),
     )
     submission["submitted_at"] = o.persistence.now_utc_iso()
-    task["submission_result"] = submission
+    WorkflowTaskView(task).set_submission_result(submission)
     current_attempt = o.stages._xtb_current_attempt_number(stage)
     _record_xtb_submission_attempt(o, stage, submission, attempt_number=current_attempt)
     _apply_xtb_submission_result(

@@ -312,7 +312,6 @@ def _cancel_stage_activity(
     stage_view = WorkflowStageView.from_raw(stage)
     if stage_view is None or not stage_view.has_task:
         return {"status": "skipped", "reason": "missing_task"}
-    task = stage_view.task.raw
 
     stage_status = stage_view.status(o)
     task_status = stage_view.task_status(o)
@@ -328,8 +327,7 @@ def _cancel_stage_activity(
     engine = stage_view.task_engine(o)
     cancel_target = o.stages._submission_target(stage)
     if not cancel_target:
-        stage_view.task.set_status(STATUS_CANCELLED)
-        stage_view.set_status(STATUS_CANCELLED)
+        stage_view.set_status_pair(stage_status=STATUS_CANCELLED, task_status=STATUS_CANCELLED)
         return {"status": STATUS_CANCELLED, "mode": "local"}
 
     result = _cancel_engine_target(
@@ -339,10 +337,9 @@ def _cancel_stage_activity(
         config=config,
     )
 
-    task["cancel_result"] = result
+    stage_view.task.set_cancel_result(result)
     if is_cancel_ack_status(result.get("status")):
-        task["status"] = result["status"]
-        stage["status"] = result["status"]
+        stage_view.set_status_pair(stage_status=result["status"], task_status=result["status"])
         return {"status": result["status"]}
     return {
         "status": STATUS_FAILED,

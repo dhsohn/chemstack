@@ -12,6 +12,7 @@ from ._orchestration_deps import (
     OrchestrationDeps,
     orchestration_deps,
 )
+from ._orchestration_stage_views import WorkflowStageView, WorkflowTaskView
 from .state import workflow_stage_dirnames_for_engine, workflow_workspace_internal_engine_paths
 
 _LOGGER = logging.getLogger("chemstack.flow._orchestration_stage_runtime_shared")
@@ -36,6 +37,8 @@ class EngineStageSyncContext:
     task_payload: dict[str, Any]
     stage_metadata: dict[str, Any]
     engine: str
+    stage_view: WorkflowStageView
+    task_view: WorkflowTaskView
 
     def should_submit(self, *, submit_ready: bool, config_path: str | None) -> bool:
         return (
@@ -43,6 +46,12 @@ class EngineStageSyncContext:
             and submit_ready
             and bool(self.o.stages._normalize_text(config_path))
         )
+
+    def set_submission_result(self, submission: dict[str, Any]) -> None:
+        self.task_view.set_submission_result(submission)
+
+    def set_output_artifacts(self, artifacts: list[dict[str, Any]]) -> None:
+        self.stage_view.set_output_artifacts(artifacts)
 
 
 def _engine_stage_sync_context(
@@ -55,6 +64,8 @@ def _engine_stage_sync_context(
     task = stage.get("task")
     if not isinstance(task, dict) or o.stages._normalize_text(task.get("engine")) != engine:
         return None
+    stage_view = WorkflowStageView(stage)
+    task_view = stage_view.task
     return EngineStageSyncContext(
         o=o,
         stage=stage,
@@ -62,6 +73,8 @@ def _engine_stage_sync_context(
         task_payload=o.stages._task_payload_dict(task),
         stage_metadata=o.stages._stage_metadata(stage),
         engine=engine,
+        stage_view=stage_view,
+        task_view=task_view,
     )
 
 
@@ -120,8 +133,7 @@ def _mark_submission_deferred(
     stage_metadata: dict[str, Any],
     submission: dict[str, Any],
 ) -> None:
-    task["status"] = "planned"
-    stage["status"] = "planned"
+    WorkflowStageView(stage).set_status_pair(stage_status="planned", task_status="planned")
     stage_metadata["submission_status"] = "waiting_for_slot"
     stage_metadata["submission_deferred_reason"] = _submission_deferred_reason(submission)
     stage_metadata["last_submission_attempt_at"] = str(submission.get("submitted_at", "")).strip()
@@ -156,8 +168,10 @@ def _apply_submission_result(
         return False
 
     submitted = _submission_status(submission) == "submitted"
-    task["status"] = "submitted" if submitted else "submission_failed"
-    stage["status"] = "queued" if submitted else "submission_failed"
+    WorkflowStageView(stage).set_status_pair(
+        stage_status="queued" if submitted else "submission_failed",
+        task_status="submitted" if submitted else "submission_failed",
+    )
     for metadata_key, submission_key in metadata_fields:
         stage_metadata[metadata_key] = submission.get(submission_key, "")
     stage_metadata.update(active_metadata or {})
@@ -166,9 +180,9 @@ def _apply_submission_result(
 
 
 def _apply_contract_status(stage: dict[str, Any], task: dict[str, Any], status: str) -> None:
+    del task
     if status != "unknown":
-        task["status"] = status
-        stage["status"] = status
+        WorkflowStageView(stage).set_status_pair(stage_status=status, task_status=status)
 
 
 def _engine_job_dir_contract_lookup(

@@ -4,6 +4,7 @@ from typing import Any
 
 from ._orchestration_deps import OrchestrationDeps
 from ._orchestration_stage_runtime_shared import _orchestration_context
+from ._orchestration_stage_views import WorkflowStageView
 
 
 def xtb_handoff_status_impl(
@@ -63,19 +64,7 @@ def _empty_xtb_handoff() -> dict[str, str]:
 
 
 def _update_xtb_handoff_metadata(stage_metadata: dict[str, Any], handoff: dict[str, str]) -> None:
-    if not handoff["status"]:
-        return
-    stage_metadata["reaction_handoff_status"] = handoff["status"]
-    for source_key, metadata_key in (
-        ("reason", "reaction_handoff_reason"),
-        ("message", "reaction_handoff_message"),
-        ("artifact_path", "reaction_handoff_artifact_path"),
-    ):
-        value = handoff[source_key]
-        if value:
-            stage_metadata[metadata_key] = value
-        else:
-            stage_metadata.pop(metadata_key, None)
+    WorkflowStageView({"metadata": stage_metadata}).set_reaction_handoff(handoff)
 
 
 __all__ = [

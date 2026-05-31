@@ -12,6 +12,7 @@ from ._orchestration_workflow_builders import (
     _REACTION_TS_SEARCH_CREST_MANIFEST_DEFAULTS,
     _merge_manifest_defaults,
 )
+from ._orchestration_stage_views import WorkflowStageView, WorkflowTaskView
 from .manifest import (
     load_flow_manifest as _load_flow_manifest,
     manifest_mapping as _manifest_mapping,
@@ -20,7 +21,6 @@ from .manifest import (
 )
 from .restart_stage_ops import (
     _REMATERIALIZED_ENGINES,
-    _enqueue_payload,
     _stage_metadata,
     _stage_task,
     _task_engine,
@@ -104,17 +104,15 @@ def _set_stage_manifest_overrides(stage: dict[str, Any], overrides: dict[str, An
 
 
 def _apply_resource_request(task: dict[str, Any], resources: dict[str, int]) -> None:
-    if not resources:
-        return
-    current = _coerce_mapping(task.get("resource_request"))
-    task["resource_request"] = {**current, **resources}
+    WorkflowTaskView(task).update_resource_request(resources)
 
 
 def _apply_priority(task: dict[str, Any], priority: int | None) -> None:
     if priority is None:
         return
-    enqueue_payload = _enqueue_payload(task)
-    enqueue_payload["priority"] = priority
+    task_view = WorkflowTaskView(task)
+    enqueue_payload = task_view.enqueue_payload()
+    task_view.update_enqueue_payload({"priority": priority})
     argv = enqueue_payload.get("command_argv")
     updated_argv = False
     if isinstance(argv, list) and "--priority" in argv:
@@ -295,6 +293,8 @@ def _apply_flow_restart_settings(stage: dict[str, Any], settings: dict[str, Any]
     if not settings.get("applied"):
         return
     task = _stage_task(stage)
+    stage_view = WorkflowStageView(stage)
+    task_view = WorkflowTaskView(task)
     engine = _task_engine(task)
     _apply_resource_request(task, _coerce_mapping(settings.get("resources")))
     _apply_priority(
@@ -305,9 +305,9 @@ def _apply_flow_restart_settings(stage: dict[str, Any], settings: dict[str, Any]
     if engine == "crest":
         crest_mode = _normalize_text(settings.get("crest_mode"))
         if crest_mode:
-            _task_payload(task)["mode"] = crest_mode
-            _task_metadata(task)["mode"] = crest_mode
-            _stage_metadata(stage)["mode"] = crest_mode
+            task_view.set_payload_field("mode", crest_mode)
+            task_view.set_metadata_field("mode", crest_mode)
+            stage_view.set_metadata_field("mode", crest_mode)
         if bool(settings.get("crest_present")):
             _set_stage_manifest_overrides(stage, _coerce_mapping(settings.get("crest_overrides")))
     elif engine == "xtb" and bool(settings.get("xtb_present")):
