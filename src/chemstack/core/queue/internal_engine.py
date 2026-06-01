@@ -44,6 +44,7 @@ class InternalEngineSpec:
         shutdown_exception_type: type[BaseException],
         *,
         entry_ready_fn: Callable[[Any], bool] = entry_status_is_running,
+        process_dequeued_entry_kwargs_fn: Callable[[], Mapping[str, Any]] | None = None,
     ) -> InternalEngineWorkerChild:
         if not self.worker_job_module:
             raise ValueError("worker_job_module is required for worker child support")
@@ -53,6 +54,7 @@ class InternalEngineSpec:
             include_legacy_admission_root_arg=self.include_legacy_admission_root_arg,
             shutdown_exception_type=shutdown_exception_type,
             entry_ready_fn=entry_ready_fn,
+            process_dequeued_entry_kwargs_fn=process_dequeued_entry_kwargs_fn,
         )
 
 
@@ -292,9 +294,22 @@ class InternalEngineQueueWorkerFacade:
     activate_reserved_slot_name: str = "activate_reserved_slot"
     terminate_process_name: str = "_terminate_process"
     mark_failed_name: str = "mark_failed"
+    find_queue_entry_name: str | None = None
+    list_queue_name: str = "list_queue"
+    list_slots_name: str = "list_slots"
+    reconcile_stale_slots_name: str = "reconcile_stale_slots"
+    reconcile_orphaned_child_queue_entries_name: str = "reconcile_orphaned_child_queue_entries"
+    mark_cancelled_name: str = "mark_cancelled"
+    requeue_running_entry_name: str = "requeue_running_entry"
+    mark_recovery_pending_name: str = "_mark_recovery_pending_entry"
 
     def _lookup(self, name: str) -> Any:
         return self.namespace[name]
+
+    def _find_queue_entry(self, queue_root: Any, queue_id: str) -> Any | None:
+        if self.find_queue_entry_name:
+            return self._lookup(self.find_queue_entry_name)(queue_root, queue_id)
+        return self.runtime.queue_entry_by_id(queue_root, queue_id)
 
     def queue_worker_deps(self) -> Any:
         return self.runtime.child_worker_deps_from_namespace(
@@ -371,6 +386,41 @@ class InternalEngineQueueWorkerFacade:
             namespace=self.namespace,
             config_path_fn=config_path_fn,
             config_path_keyword=config_path_keyword,
+        )
+
+    def finalize_child_exit(self, worker: Any, job: Any, *, rc: int) -> None:
+        self.runtime.spec.lifecycle().finalize_child_exit(
+            worker.cfg,
+            job,
+            rc=rc,
+            shutdown_requested=worker._shutdown_requested,
+            find_queue_entry_fn=self._find_queue_entry,
+            mark_cancelled_fn=self._lookup(self.mark_cancelled_name),
+            requeue_running_entry_fn=self._lookup(self.requeue_running_entry_name),
+            mark_failed_fn=self._lookup(self.mark_failed_name),
+            mark_recovery_pending_fn=self._lookup(self.mark_recovery_pending_name),
+            release_admission_slot_fn=worker._release_admission_slot,
+        )
+
+    def reconcile_orphaned_running(
+        self,
+        worker: Any,
+        *,
+        list_slots_fn: Callable[[Any], list[Any]] | None = None,
+    ) -> None:
+        self.runtime.spec.lifecycle().reconcile_orphaned_running(
+            worker.cfg,
+            admission_root=worker.admission_root,
+            queue_roots_fn=self.runtime.queue_roots,
+            list_queue_fn=self._lookup(self.list_queue_name),
+            list_slots_fn=list_slots_fn or self._lookup(self.list_slots_name),
+            reconcile_stale_slots_fn=self._lookup(self.reconcile_stale_slots_name),
+            reconcile_orphaned_child_queue_entries_fn=self._lookup(
+                self.reconcile_orphaned_child_queue_entries_name
+            ),
+            mark_cancelled_fn=self._lookup(self.mark_cancelled_name),
+            requeue_running_entry_fn=self._lookup(self.requeue_running_entry_name),
+            mark_recovery_pending_fn=self._lookup(self.mark_recovery_pending_name),
         )
 
 
@@ -555,6 +605,7 @@ class InternalEngineWorkerChild:
     include_legacy_admission_root_arg: bool
     shutdown_exception_type: type[BaseException]
     entry_ready_fn: Callable[[Any], bool] = entry_status_is_running
+    process_dequeued_entry_kwargs_fn: Callable[[], Mapping[str, Any]] | None = None
 
     @property
     def command_spec(self) -> _engine_child.WorkerChildCommandSpec:
@@ -619,7 +670,12 @@ class InternalEngineWorkerChild:
         requeue_running_entry_fn: Callable[[Path, str], Any],
         mark_recovery_pending_context_fn: Callable[..., Any],
         process_dequeued_entry_kwargs: Mapping[str, Any] | None = None,
+        **extra_process_dequeued_entry_kwargs: Any,
     ) -> int:
+        active_process_kwargs = self.process_dequeued_entry_kwargs(
+            process_dequeued_entry_kwargs,
+            extra_process_dequeued_entry_kwargs,
+        )
         return _engine_child.run_engine_worker_child_job(
             spec=self.run_spec,
             config_path=config_path,
@@ -635,7 +691,7 @@ class InternalEngineWorkerChild:
             dependencies_fn=dependencies_fn,
             requeue_running_entry_fn=requeue_running_entry_fn,
             mark_recovery_pending_context_fn=mark_recovery_pending_context_fn,
-            process_dequeued_entry_kwargs=process_dequeued_entry_kwargs,
+            process_dequeued_entry_kwargs=active_process_kwargs,
         )
 
     def entrypoint(
@@ -678,6 +734,20 @@ class InternalEngineWorkerChild:
             parser.add_argument("--admission-root", default=None)
         parser.add_argument("--admission-token", default=None)
         return parser
+
+    def process_dequeued_entry_kwargs(
+        self,
+        explicit_kwargs: Mapping[str, Any] | None = None,
+        extra_kwargs: Mapping[str, Any] | None = None,
+    ) -> Mapping[str, Any] | None:
+        merged: dict[str, Any] = {}
+        if self.process_dequeued_entry_kwargs_fn is not None:
+            merged.update(self.process_dequeued_entry_kwargs_fn())
+        if explicit_kwargs:
+            merged.update(explicit_kwargs)
+        if extra_kwargs:
+            merged.update(extra_kwargs)
+        return merged or None
 
 
 @dataclass(frozen=True)

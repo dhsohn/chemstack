@@ -140,6 +140,8 @@ _runtime_facade = InternalEngineQueueWorkerFacade(
     namespace=globals(),
     poll_interval_seconds=POLL_INTERVAL_SECONDS,
     shutdown_grace_seconds=WORKER_SHUTDOWN_GRACE_SECONDS,
+    find_queue_entry_name="_queue_entry_by_id",
+    mark_recovery_pending_name="_mark_recovery_pending_state",
 )
 
 queue_roots = _engine_runtime.queue_roots
@@ -172,6 +174,10 @@ _RUNTIME_FACADE_GLOBALS = (
     config_path_for_worker,
     start_background_process,
     build_worker_child_command,
+    reconcile_stale_slots,
+    reconcile_orphaned_child_queue_entries,
+    mark_failed,
+    requeue_running_entry,
 )
 
 
@@ -331,18 +337,7 @@ def _finalize_completed_job(worker: Any, _queue_id: str, job: Any, rc: int) -> N
 
 
 def _finalize_child_exit(worker: Any, job: _RunningJob, *, rc: int) -> None:
-    _queue_lifecycle.finalize_child_exit(
-        worker.cfg,
-        job,
-        rc=rc,
-        shutdown_requested=worker._shutdown_requested,
-        queue_entry_by_id_fn=_queue_entry_by_id,
-        mark_cancelled_fn=mark_cancelled,
-        requeue_running_entry_fn=requeue_running_entry,
-        mark_failed_fn=mark_failed,
-        mark_recovery_pending_fn=_mark_recovery_pending_state,
-        release_admission_slot_fn=worker._release_admission_slot,
-    )
+    _runtime_facade.finalize_child_exit(worker, job, rc=rc)
 
 
 def _sync_terminal_running_entries(worker: Any) -> None:
@@ -373,20 +368,12 @@ def _list_slots_preserving_live_worker_pids(
 
 
 def _reconcile_orphaned_running(worker: Any) -> None:
-    _queue_lifecycle.reconcile_orphaned_running(
-        worker.cfg,
-        admission_root=worker.admission_root,
-        queue_roots_fn=queue_roots,
-        list_queue_fn=list_queue,
+    _runtime_facade.reconcile_orphaned_running(
+        worker,
         list_slots_fn=lambda admission_root: _list_slots_preserving_live_worker_pids(
             worker,
             admission_root,
         ),
-        reconcile_stale_slots_fn=reconcile_stale_slots,
-        reconcile_orphaned_child_queue_entries_fn=reconcile_orphaned_child_queue_entries,
-        mark_cancelled_fn=mark_cancelled,
-        requeue_running_entry_fn=requeue_running_entry,
-        mark_recovery_pending_fn=_mark_recovery_pending_state,
     )
 
 

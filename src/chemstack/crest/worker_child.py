@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-from collections.abc import Callable
-from pathlib import Path
 from typing import Any
 
-from chemstack.core.queue import child_execution as _child_execution
 from chemstack.core.queue.internal_engine import InternalEngineSpec
+
+from .worker_context import molecule_key as _molecule_key
 
 WORKER_JOB_MODULE = "chemstack.crest.worker_execution"
 _ENGINE_SPEC = InternalEngineSpec(
@@ -21,82 +20,16 @@ class WorkerShutdownRequested(RuntimeError):
         self.context = context
 
 
-_WORKER_CHILD = _ENGINE_SPEC.worker_child(WorkerShutdownRequested)
+_WORKER_CHILD = _ENGINE_SPEC.worker_child(
+    WorkerShutdownRequested,
+    process_dequeued_entry_kwargs_fn=lambda: {"molecule_key_resolver": _molecule_key},
+)
 
 build_worker_child_command = _WORKER_CHILD.build_worker_child_command
+build_worker_entrypoint = _WORKER_CHILD.entrypoint
 install_shutdown_signal_handlers = _WORKER_CHILD.install_shutdown_signal_handlers
+run_worker_child_job = _WORKER_CHILD.run_worker_child_job
 build_parser = _WORKER_CHILD.build_parser
-
-
-def build_worker_entrypoint(
-    *,
-    load_config_fn: Callable[[str], Any],
-    find_queue_entry_fn: Callable[[Path, str], Any | None],
-    admission_root_fn: Callable[[Any], str | Path],
-    release_slot_fn: Callable[[str | Path, str], Any],
-    install_signal_handlers_fn: Callable[
-        [_child_execution.ChildWorkerShutdownController],
-        Any,
-    ],
-    process_dequeued_entry_fn: Callable[..., Any],
-    dependencies_fn: Callable[[], Any],
-    molecule_key_resolver: Callable[..., str],
-    requeue_running_entry_fn: Callable[[Path, str], Any],
-    mark_recovery_pending_context_fn: Callable[..., Any],
-) -> Any:
-    return _WORKER_CHILD.entrypoint(
-        load_config_fn=load_config_fn,
-        find_queue_entry_fn=find_queue_entry_fn,
-        admission_root_fn=admission_root_fn,
-        release_slot_fn=release_slot_fn,
-        install_signal_handlers_fn=install_signal_handlers_fn,
-        process_dequeued_entry_fn=process_dequeued_entry_fn,
-        dependencies_fn=dependencies_fn,
-        requeue_running_entry_fn=requeue_running_entry_fn,
-        mark_recovery_pending_context_fn=mark_recovery_pending_context_fn,
-        process_dequeued_entry_kwargs_fn=lambda: {
-            "molecule_key_resolver": molecule_key_resolver,
-        },
-    )
-
-
-def run_worker_child_job(
-    *,
-    config_path: str,
-    queue_root: str | Path,
-    queue_id: str,
-    admission_token: str | None = None,
-    load_config_fn: Callable[[str], Any],
-    find_queue_entry_fn: Callable[[Path, str], Any | None],
-    admission_root_fn: Callable[[Any], str | Path],
-    release_slot_fn: Callable[[str | Path, str], Any],
-    install_signal_handlers_fn: Callable[
-        [_child_execution.ChildWorkerShutdownController],
-        Any,
-    ],
-    process_dequeued_entry_fn: Callable[..., Any],
-    dependencies_fn: Callable[[], Any],
-    molecule_key_resolver: Callable[..., str],
-    requeue_running_entry_fn: Callable[[Path, str], Any],
-    mark_recovery_pending_context_fn: Callable[..., Any],
-) -> int:
-    return build_worker_entrypoint(
-        load_config_fn=load_config_fn,
-        find_queue_entry_fn=find_queue_entry_fn,
-        admission_root_fn=admission_root_fn,
-        release_slot_fn=release_slot_fn,
-        install_signal_handlers_fn=install_signal_handlers_fn,
-        process_dequeued_entry_fn=process_dequeued_entry_fn,
-        dependencies_fn=dependencies_fn,
-        molecule_key_resolver=molecule_key_resolver,
-        requeue_running_entry_fn=requeue_running_entry_fn,
-        mark_recovery_pending_context_fn=mark_recovery_pending_context_fn,
-    ).run_worker_job(
-        config_path=config_path,
-        queue_root=queue_root,
-        queue_id=queue_id,
-        admission_token=admission_token,
-    )
 
 
 __all__ = [

@@ -492,7 +492,11 @@ def run_worker_child_job(
     queue_id: str,
     admission_token: str | None = None,
 ) -> int:
-    return _worker_child.build_worker_entrypoint(
+    return _worker_child.run_worker_child_job(
+        config_path=config_path,
+        queue_root=queue_root,
+        queue_id=queue_id,
+        admission_token=admission_token,
         load_config_fn=load_config,
         find_queue_entry_fn=_find_queue_entry,
         admission_root_fn=_admission_root_for_cfg,
@@ -500,14 +504,8 @@ def run_worker_child_job(
         install_signal_handlers_fn=_install_shutdown_signal_handlers,
         process_dequeued_entry_fn=process_dequeued_entry,
         dependencies_fn=default_worker_execution_dependencies,
-        molecule_key_resolver=_molecule_key,
         requeue_running_entry_fn=requeue_running_entry,
         mark_recovery_pending_context_fn=_mark_recovery_pending_context,
-    ).run_worker_job(
-        config_path=config_path,
-        queue_root=queue_root,
-        queue_id=queue_id,
-        admission_token=admission_token,
     )
 
 

@@ -50,6 +50,35 @@ def test_run_worker_child_job_processes_loaded_entry_and_releases_slot(
     assert processed[0]["kwargs"]["shutdown_requested"]() is False
 
 
+def test_run_worker_child_job_injects_default_molecule_key_resolver(
+    tmp_path: Path,
+) -> None:
+    cfg = SimpleNamespace(name="cfg")
+    entry = SimpleNamespace(queue_id="queue-1", status=QueueStatus.RUNNING)
+    processed: list[dict[str, Any]] = []
+
+    rc = worker_child.run_worker_child_job(
+        config_path="/tmp/chemstack.yaml",
+        queue_root=tmp_path / "queue",
+        queue_id="queue-1",
+        admission_token=None,
+        load_config_fn=lambda _path: cfg,
+        find_queue_entry_fn=lambda _root, _queue_id: entry,
+        admission_root_fn=lambda _cfg: "/tmp/admission",
+        release_slot_fn=lambda *_args: None,
+        install_signal_handlers_fn=lambda _controller: None,
+        process_dequeued_entry_fn=lambda *args, **kwargs: processed.append(
+            {"args": args, "kwargs": kwargs}
+        ),
+        dependencies_fn=lambda: object(),
+        requeue_running_entry_fn=lambda *_args: None,
+        mark_recovery_pending_context_fn=lambda *_args, **_kwargs: None,
+    )
+
+    assert rc == 0
+    assert callable(processed[0]["kwargs"]["molecule_key_resolver"])
+
+
 def test_run_worker_child_job_requeues_and_marks_recovery_on_shutdown(
     tmp_path: Path,
 ) -> None:

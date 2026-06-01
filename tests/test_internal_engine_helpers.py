@@ -9,6 +9,7 @@ from chemstack.core.queue.internal_engine import (
     InternalEngineQueueWorkerFacade,
     InternalEngineSpec,
 )
+from chemstack.core.queue.child_process import reconcile_orphaned_child_queue_entries
 from chemstack.core.queue.types import QueueStatus
 
 
@@ -211,6 +212,108 @@ def test_internal_engine_queue_worker_facade_uses_late_bound_namespace(
     assert started_commands == [["worker", "queue-1"]]
 
 
+def test_internal_engine_queue_worker_facade_finalizes_child_exit(
+    tmp_path: Path,
+) -> None:
+    cfg = SimpleNamespace(runtime=SimpleNamespace(allowed_root=str(tmp_path)))
+    current_entry = SimpleNamespace(queue_id="queue-1", status=QueueStatus.RUNNING)
+    job_entry = SimpleNamespace(queue_id="queue-1", status=QueueStatus.RUNNING)
+    job = SimpleNamespace(
+        queue_root=tmp_path / "queue",
+        entry=job_entry,
+        admission_token="slot-1",
+    )
+    requeued: list[tuple[str, str]] = []
+    recovery: list[tuple[object, object, str]] = []
+    released: list[str] = []
+    runtime = InternalEngineQueueRuntime.create(
+        spec=InternalEngineSpec(
+            engine="demo",
+            worker_pid_file_name="demo_worker.pid",
+            coerce_queue_root_to_str=True,
+        ),
+        load_config=lambda _path: cfg,
+        runtime_roots_for_cfg=lambda _cfg: (tmp_path / "queue",),
+        list_queue=lambda _root: [current_entry],
+        dequeue_next=lambda _root: None,
+    )
+    namespace = {
+        "find_entry": lambda _root, _queue_id: current_entry,
+        "mark_cancelled": lambda *_args, **_kwargs: None,
+        "requeue_running_entry": lambda root, queue_id: requeued.append((root, queue_id)),
+        "mark_failed": lambda *_args, **_kwargs: None,
+        "mark_recovery": lambda cfg_obj, entry_obj, *, reason: recovery.append(
+            (cfg_obj, entry_obj, reason)
+        ),
+    }
+    facade = InternalEngineQueueWorkerFacade(
+        runtime=runtime,
+        namespace=namespace,
+        poll_interval_seconds=5,
+        shutdown_grace_seconds=10,
+        find_queue_entry_name="find_entry",
+        mark_recovery_pending_name="mark_recovery",
+    )
+    worker = SimpleNamespace(
+        cfg=cfg,
+        _shutdown_requested=True,
+        _release_admission_slot=lambda token: released.append(token),
+    )
+
+    facade.finalize_child_exit(worker, job, rc=0)
+
+    assert requeued == [(str(tmp_path / "queue"), "queue-1")]
+    assert recovery == [(cfg, job_entry, "worker_shutdown")]
+    assert released == ["slot-1"]
+
+
+def test_internal_engine_queue_worker_facade_reconciles_orphaned_running(
+    tmp_path: Path,
+) -> None:
+    cfg = SimpleNamespace(runtime=SimpleNamespace(allowed_root=str(tmp_path)))
+    live_entry = SimpleNamespace(queue_id="live", status=QueueStatus.RUNNING)
+    orphan_entry = SimpleNamespace(queue_id="orphan", status=QueueStatus.RUNNING)
+    queue_root = tmp_path / "queue"
+    requeued: list[tuple[str, str]] = []
+    recovery: list[tuple[object, object, str]] = []
+    runtime = InternalEngineQueueRuntime.create(
+        spec=InternalEngineSpec(
+            engine="demo",
+            worker_pid_file_name="demo_worker.pid",
+            coerce_queue_root_to_str=True,
+        ),
+        load_config=lambda _path: cfg,
+        runtime_roots_for_cfg=lambda _cfg: (queue_root,),
+        list_queue=lambda _root: [live_entry, orphan_entry],
+        dequeue_next=lambda _root: None,
+    )
+    namespace = {
+        "list_queue": lambda _root: [live_entry, orphan_entry],
+        "list_slots": lambda _root: [SimpleNamespace(queue_id="live")],
+        "reconcile_stale_slots": lambda _root: None,
+        "reconcile_orphaned_child_queue_entries": reconcile_orphaned_child_queue_entries,
+        "mark_cancelled": lambda *_args, **_kwargs: None,
+        "requeue_running_entry": lambda root, queue_id: requeued.append((root, queue_id)),
+        "mark_failed": lambda *_args, **_kwargs: None,
+        "mark_recovery": lambda cfg_obj, entry_obj, *, reason: recovery.append(
+            (cfg_obj, entry_obj, reason)
+        ),
+    }
+    facade = InternalEngineQueueWorkerFacade(
+        runtime=runtime,
+        namespace=namespace,
+        poll_interval_seconds=5,
+        shutdown_grace_seconds=10,
+        mark_recovery_pending_name="mark_recovery",
+    )
+    worker = SimpleNamespace(cfg=cfg, admission_root=tmp_path / "admission")
+
+    facade.reconcile_orphaned_running(worker)
+
+    assert requeued == [(str(queue_root), "orphan")]
+    assert recovery == [(cfg, orphan_entry, "crashed_recovery")]
+
+
 def test_internal_engine_worker_entrypoint_passes_extra_process_kwargs(
     tmp_path: Path,
 ) -> None:
@@ -253,3 +356,47 @@ def test_internal_engine_worker_entrypoint_passes_extra_process_kwargs(
     assert kwargs["queue_root"] == (tmp_path / "queue").resolve()
     assert kwargs["dependencies"] is dependencies
     assert kwargs["engine_extra"] == "value"
+
+
+def test_internal_engine_worker_child_merges_default_and_explicit_process_kwargs(
+    tmp_path: Path,
+) -> None:
+    cfg = SimpleNamespace(name="cfg")
+    entry = SimpleNamespace(queue_id="queue-1", status=QueueStatus.RUNNING)
+    processed: list[dict[str, Any]] = []
+    child = InternalEngineSpec(
+        engine="demo",
+        worker_job_module="chemstack.demo.worker_execution",
+    ).worker_child(
+        RuntimeError,
+        process_dequeued_entry_kwargs_fn=lambda: {
+            "engine_default": "default",
+            "overridden": "default",
+        },
+    )
+
+    rc = child.run_worker_child_job(
+        config_path="/tmp/demo.yaml",
+        queue_root=tmp_path / "queue",
+        queue_id="queue-1",
+        admission_token=None,
+        load_config_fn=lambda _path: cfg,
+        find_queue_entry_fn=lambda _root, _queue_id: entry,
+        admission_root_fn=lambda _cfg: "/tmp/admission",
+        release_slot_fn=lambda *_args: None,
+        install_signal_handlers_fn=lambda _controller: None,
+        process_dequeued_entry_fn=lambda *args, **kwargs: processed.append(
+            {"args": args, "kwargs": kwargs}
+        ),
+        dependencies_fn=lambda: object(),
+        requeue_running_entry_fn=lambda *_args: None,
+        mark_recovery_pending_context_fn=lambda *_args, **_kwargs: None,
+        overridden="explicit",
+        call_only="extra",
+    )
+
+    assert rc == 0
+    kwargs = processed[0]["kwargs"]
+    assert kwargs["engine_default"] == "default"
+    assert kwargs["overridden"] == "explicit"
+    assert kwargs["call_only"] == "extra"
