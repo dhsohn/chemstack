@@ -40,7 +40,11 @@ from chemstack.core.queue.worker import (
     start_background_process,
     terminate_process_group,
 )
-from chemstack.core.queue.internal_engine import InternalEngineQueueRuntime, InternalEngineSpec
+from chemstack.core.queue.internal_engine import (
+    InternalEngineQueueRuntime,
+    InternalEngineQueueWorkerFacade,
+    InternalEngineSpec,
+)
 
 from . import queue_admission as _queue_admission
 from . import queue_lifecycle as _queue_lifecycle
@@ -76,12 +80,7 @@ _ENGINE_SPEC = InternalEngineSpec(
 
 
 def _queue_worker_deps() -> Any:
-    return _engine_runtime.child_worker_deps_from_namespace(
-        namespace=globals(),
-        poll_interval_seconds=POLL_INTERVAL_SECONDS,
-        time_module=time,
-        release_slot_fn=release_slot,
-    )
+    return _runtime_facade.queue_worker_deps()
 
 
 def _worker_execution_dependencies() -> _worker_execution.WorkerExecutionDependencies:
@@ -136,6 +135,12 @@ _engine_runtime = InternalEngineQueueRuntime.create(
     list_queue=lambda root: list_queue(root),
     dequeue_next=lambda root: dequeue_next(root),
 )
+_runtime_facade = InternalEngineQueueWorkerFacade(
+    runtime=_engine_runtime,
+    namespace=globals(),
+    poll_interval_seconds=POLL_INTERVAL_SECONDS,
+    shutdown_grace_seconds=WORKER_SHUTDOWN_GRACE_SECONDS,
+)
 
 queue_roots = _engine_runtime.queue_roots
 queue_entries_with_roots = _engine_runtime.queue_entries_with_roots
@@ -158,6 +163,16 @@ _input_summary = _worker_execution_hooks.input_summary
 _write_execution_artifacts = _worker_terminal.write_execution_artifacts
 _write_running_state = _worker_terminal.write_running_state
 _build_terminal_result = _worker_terminal.build_terminal_result
+build_worker_child_command = _worker_execution.build_worker_child_command
+# Keep these names explicit: InternalEngineQueueWorkerFacade late-binds module
+# globals so tests and callers can monkeypatch the worker runtime surface.
+_RUNTIME_FACADE_GLOBALS = (
+    default_config_path,
+    reserve_slot,
+    config_path_for_worker,
+    start_background_process,
+    build_worker_child_command,
+)
 
 
 def _mark_recovery_pending_state(cfg: Any, entry: Any, *, reason: str) -> None:
@@ -168,9 +183,8 @@ def _terminate_process(proc: _ManagedProcess) -> None:
     terminate_process_group(proc)
 
 
-_try_reserve_admission_slot = _engine_runtime.reserve_admission_slot_fn(
-    lambda *args, **kwargs: reserve_slot(*args, **kwargs),
-)
+def _try_reserve_admission_slot(cfg: Any) -> str | None:
+    return _runtime_facade.try_reserve_admission_slot(cfg)
 
 
 def _print_terminal_summary(summary: _TerminalSummary) -> None:
@@ -256,14 +270,27 @@ def _execute_queue_entry(
     )
 
 
-_start_background_job_process = _engine_runtime.start_background_job_process_fn(
-    start_background_process_fn=start_background_process,
-    build_worker_child_command_fn=_worker_execution.build_worker_child_command,
-)
-_config_path_for_worker = _engine_runtime.config_path_for_worker_fn(
-    config_path_for_worker_fn=config_path_for_worker,
-    default_config_path_fn=lambda: default_config_path(),
-)
+def _start_background_job_process(
+    *,
+    config_path: str,
+    queue_root: Path,
+    entry: Any,
+    admission_root: str | Path,
+    admission_token: str,
+) -> Any:
+    return _runtime_facade.start_background_job_process(
+        config_path=config_path,
+        queue_root=queue_root,
+        entry=entry,
+        admission_root=admission_root,
+        admission_token=admission_token,
+    )
+
+
+def _config_path_for_worker(args: Any) -> str:
+    return _runtime_facade.config_path_for_worker(args)
+
+
 read_worker_pid = _engine_runtime.read_worker_pid
 
 
@@ -369,17 +396,7 @@ def _reconcile_worker_state(worker: Any) -> None:
 
 
 def _queue_worker_hooks() -> Any:
-    return _engine_runtime.child_worker_hooks_from_namespace(
-        namespace=globals(),
-        activate_reserved_slot_fn=lambda *args, **kwargs: activate_reserved_slot(
-            *args,
-            **kwargs,
-        ),
-        terminate_process_fn=lambda process: _terminate_process(process),
-        mark_failed_fn=lambda *args, **kwargs: mark_failed(*args, **kwargs),
-        shutdown_grace_seconds=WORKER_SHUTDOWN_GRACE_SECONDS,
-        sleep_fn=lambda seconds: time.sleep(seconds),
-    )
+    return _runtime_facade.queue_worker_hooks()
 
 
 class QueueWorker(HookedPidFileChildProcessQueueWorker):
@@ -404,9 +421,8 @@ class QueueWorker(HookedPidFileChildProcessQueueWorker):
 
 
 def cmd_queue_worker(args: Any) -> int:
-    return _engine_runtime.run_pidfile_worker_command_from_namespace(
+    return _runtime_facade.run_pidfile_worker_command(
         args,
-        namespace=globals(),
         config_path_fn=_config_path_for_worker,
     )
 

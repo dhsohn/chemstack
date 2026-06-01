@@ -28,6 +28,38 @@ install_shutdown_signal_handlers = _WORKER_CHILD.install_shutdown_signal_handler
 build_parser = _WORKER_CHILD.build_parser
 
 
+def build_worker_entrypoint(
+    *,
+    load_config_fn: Callable[[str], Any],
+    find_queue_entry_fn: Callable[[Path, str], Any | None],
+    admission_root_fn: Callable[[Any], str | Path],
+    release_slot_fn: Callable[[str | Path, str], Any],
+    install_signal_handlers_fn: Callable[
+        [_child_execution.ChildWorkerShutdownController],
+        Any,
+    ],
+    process_dequeued_entry_fn: Callable[..., Any],
+    dependencies_fn: Callable[[], Any],
+    molecule_key_resolver: Callable[..., str],
+    requeue_running_entry_fn: Callable[[Path, str], Any],
+    mark_recovery_pending_context_fn: Callable[..., Any],
+) -> Any:
+    return _WORKER_CHILD.entrypoint(
+        load_config_fn=load_config_fn,
+        find_queue_entry_fn=find_queue_entry_fn,
+        admission_root_fn=admission_root_fn,
+        release_slot_fn=release_slot_fn,
+        install_signal_handlers_fn=install_signal_handlers_fn,
+        process_dequeued_entry_fn=process_dequeued_entry_fn,
+        dependencies_fn=dependencies_fn,
+        requeue_running_entry_fn=requeue_running_entry_fn,
+        mark_recovery_pending_context_fn=mark_recovery_pending_context_fn,
+        process_dequeued_entry_kwargs_fn=lambda: {
+            "molecule_key_resolver": molecule_key_resolver,
+        },
+    )
+
+
 def run_worker_child_job(
     *,
     config_path: str,
@@ -48,21 +80,22 @@ def run_worker_child_job(
     requeue_running_entry_fn: Callable[[Path, str], Any],
     mark_recovery_pending_context_fn: Callable[..., Any],
 ) -> int:
-    return _WORKER_CHILD.run_worker_child_job(
-        config_path=config_path,
-        queue_root=queue_root,
-        queue_id=queue_id,
+    return build_worker_entrypoint(
         load_config_fn=load_config_fn,
         find_queue_entry_fn=find_queue_entry_fn,
         admission_root_fn=admission_root_fn,
         release_slot_fn=release_slot_fn,
-        admission_token=admission_token,
         install_signal_handlers_fn=install_signal_handlers_fn,
         process_dequeued_entry_fn=process_dequeued_entry_fn,
         dependencies_fn=dependencies_fn,
+        molecule_key_resolver=molecule_key_resolver,
         requeue_running_entry_fn=requeue_running_entry_fn,
         mark_recovery_pending_context_fn=mark_recovery_pending_context_fn,
-        process_dequeued_entry_kwargs={"molecule_key_resolver": molecule_key_resolver},
+    ).run_worker_job(
+        config_path=config_path,
+        queue_root=queue_root,
+        queue_id=queue_id,
+        admission_token=admission_token,
     )
 
 
@@ -71,6 +104,7 @@ __all__ = [
     "WorkerShutdownRequested",
     "build_parser",
     "build_worker_child_command",
+    "build_worker_entrypoint",
     "install_shutdown_signal_handlers",
     "run_worker_child_job",
 ]

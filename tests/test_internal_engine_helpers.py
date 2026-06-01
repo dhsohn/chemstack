@@ -2,8 +2,13 @@ from __future__ import annotations
 
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
-from chemstack.core.queue.internal_engine import InternalEngineQueueRuntime, InternalEngineSpec
+from chemstack.core.queue.internal_engine import (
+    InternalEngineQueueRuntime,
+    InternalEngineQueueWorkerFacade,
+    InternalEngineSpec,
+)
 from chemstack.core.queue.types import QueueStatus
 
 
@@ -138,3 +143,113 @@ def test_internal_engine_queue_runtime_worker_command_uses_late_bound_namespace(
 
     assert result == 19
     assert seen == [(cfg, "/tmp/demo.yaml", 3)]
+
+
+def test_internal_engine_queue_worker_facade_uses_late_bound_namespace(
+    tmp_path: Path,
+) -> None:
+    cfg = SimpleNamespace(
+        runtime=SimpleNamespace(
+            allowed_root=str(tmp_path),
+            admission_root="/tmp/admission",
+            admission_limit=2,
+            max_concurrent=1,
+        )
+    )
+    runtime = InternalEngineQueueRuntime.create(
+        spec=InternalEngineSpec(engine="demo", worker_pid_file_name="demo_worker.pid"),
+        load_config=lambda _path: cfg,
+        runtime_roots_for_cfg=lambda _cfg: (),
+        list_queue=lambda _root: [],
+        dequeue_next=lambda _root: None,
+    )
+    started_commands: list[list[str]] = []
+
+    def start_background_process(command: list[str]) -> str:
+        started_commands.append(command)
+        return "process"
+
+    namespace = {
+        "time": SimpleNamespace(sleep=lambda _seconds: None),
+        "release_slot": lambda *_args: None,
+        "reserve_slot": lambda *_args, **_kwargs: "old-token",
+        "start_background_process": start_background_process,
+        "build_worker_child_command": lambda **kwargs: ["worker", kwargs["queue_id"]],
+        "config_path_for_worker": lambda args, *, default_config_path_fn: (
+            args.config or default_config_path_fn()
+        ),
+        "default_config_path": lambda: "/tmp/default.yaml",
+        "activate_reserved_slot": lambda *_args, **_kwargs: object(),
+        "_terminate_process": lambda _process: None,
+        "mark_failed": lambda *_args, **_kwargs: None,
+        "_handle_worker_start_error": lambda *_args, **_kwargs: None,
+        "_finalize_completed_job": lambda *_args, **_kwargs: None,
+        "_finalize_child_exit": lambda *_args, **_kwargs: None,
+        "_reconcile_worker_state": lambda *_args, **_kwargs: None,
+    }
+    facade = InternalEngineQueueWorkerFacade(
+        runtime=runtime,
+        namespace=namespace,
+        poll_interval_seconds=5,
+        shutdown_grace_seconds=10,
+    )
+
+    namespace["reserve_slot"] = lambda *_args, **_kwargs: "new-token"
+
+    assert facade.try_reserve_admission_slot(cfg) == "new-token"
+    assert facade.config_path_for_worker(SimpleNamespace(config="")) == "/tmp/default.yaml"
+    assert (
+        facade.start_background_job_process(
+            config_path="/tmp/cfg.yaml",
+            queue_root=tmp_path / "queue",
+            entry=SimpleNamespace(queue_id="queue-1"),
+            admission_root="/tmp/admission",
+            admission_token="slot-1",
+        )
+        == "process"
+    )
+    assert started_commands == [["worker", "queue-1"]]
+
+
+def test_internal_engine_worker_entrypoint_passes_extra_process_kwargs(
+    tmp_path: Path,
+) -> None:
+    cfg = SimpleNamespace(name="cfg")
+    entry = SimpleNamespace(queue_id="queue-1", status=QueueStatus.RUNNING)
+    dependencies = object()
+    processed: list[dict[str, Any]] = []
+    released: list[tuple[str, str]] = []
+    child = InternalEngineSpec(
+        engine="demo",
+        worker_job_module="chemstack.demo.worker_execution",
+    ).worker_child(RuntimeError)
+
+    entrypoint = child.entrypoint(
+        load_config_fn=lambda _path: cfg,
+        find_queue_entry_fn=lambda _root, _queue_id: entry,
+        admission_root_fn=lambda _cfg: "/tmp/admission",
+        release_slot_fn=lambda root, token: released.append((str(root), token)),
+        install_signal_handlers_fn=lambda _controller: None,
+        process_dequeued_entry_fn=lambda *args, **kwargs: processed.append(
+            {"args": args, "kwargs": kwargs}
+        ),
+        dependencies_fn=lambda: dependencies,
+        requeue_running_entry_fn=lambda *_args: None,
+        mark_recovery_pending_context_fn=lambda *_args, **_kwargs: None,
+        process_dequeued_entry_kwargs_fn=lambda: {"engine_extra": "value"},
+    )
+
+    rc = entrypoint.run_worker_job(
+        config_path="/tmp/demo.yaml",
+        queue_root=tmp_path / "queue",
+        queue_id="queue-1",
+        admission_token="slot-1",
+    )
+
+    assert rc == 0
+    assert released == [("/tmp/admission", "slot-1")]
+    assert processed[0]["args"] == (cfg, entry)
+    kwargs = processed[0]["kwargs"]
+    assert kwargs["queue_root"] == (tmp_path / "queue").resolve()
+    assert kwargs["dependencies"] is dependencies
+    assert kwargs["engine_extra"] == "value"

@@ -277,6 +277,104 @@ class InternalEngineQueueRuntime:
 
 
 @dataclass(frozen=True)
+class InternalEngineQueueWorkerFacade:
+    runtime: InternalEngineQueueRuntime
+    namespace: Mapping[str, Any]
+    poll_interval_seconds: int
+    shutdown_grace_seconds: float
+    time_module_name: str = "time"
+    release_slot_name: str = "release_slot"
+    reserve_slot_name: str = "reserve_slot"
+    start_background_process_name: str = "start_background_process"
+    build_worker_child_command_name: str = "build_worker_child_command"
+    config_path_for_worker_name: str = "config_path_for_worker"
+    default_config_path_name: str = "default_config_path"
+    activate_reserved_slot_name: str = "activate_reserved_slot"
+    terminate_process_name: str = "_terminate_process"
+    mark_failed_name: str = "mark_failed"
+
+    def _lookup(self, name: str) -> Any:
+        return self.namespace[name]
+
+    def queue_worker_deps(self) -> Any:
+        return self.runtime.child_worker_deps_from_namespace(
+            namespace=self.namespace,
+            poll_interval_seconds=self.poll_interval_seconds,
+            time_module=self._lookup(self.time_module_name),
+            release_slot_fn=self._lookup(self.release_slot_name),
+        )
+
+    def try_reserve_admission_slot(self, cfg: Any) -> str | None:
+        reserve_slot_fn = self._lookup(self.reserve_slot_name)
+        return self.runtime.reserve_admission_slot(cfg, reserve_slot_fn=reserve_slot_fn)
+
+    def start_background_job_process(
+        self,
+        *,
+        config_path: str,
+        queue_root: Path,
+        entry: Any,
+        admission_root: str | Path,
+        admission_token: str,
+    ) -> Any:
+        start_background_process_fn = self._lookup(self.start_background_process_name)
+        build_worker_child_command_fn = self._lookup(self.build_worker_child_command_name)
+        return self.runtime.start_child_process(
+            config_path=config_path,
+            queue_root=queue_root,
+            entry=entry,
+            admission_root=admission_root,
+            admission_token=admission_token,
+            start_background_process_fn=start_background_process_fn,
+            build_worker_child_command_fn=build_worker_child_command_fn,
+        )
+
+    def config_path_for_worker(self, args: Any) -> str:
+        config_path_for_worker_fn = self._lookup(self.config_path_for_worker_name)
+        default_config_path_fn = self._lookup(self.default_config_path_name)
+        return config_path_for_worker_fn(
+            args,
+            default_config_path_fn=default_config_path_fn,
+        )
+
+    def queue_worker_hooks(self) -> Any:
+        def activate_reserved_slot_fn(*args: Any, **kwargs: Any) -> Any:
+            return self._lookup(self.activate_reserved_slot_name)(*args, **kwargs)
+
+        def terminate_process_fn(process: Any) -> Any:
+            return self._lookup(self.terminate_process_name)(process)
+
+        def mark_failed_fn(*args: Any, **kwargs: Any) -> Any:
+            return self._lookup(self.mark_failed_name)(*args, **kwargs)
+
+        def sleep_fn(seconds: float) -> None:
+            self._lookup(self.time_module_name).sleep(seconds)
+
+        return self.runtime.child_worker_hooks_from_namespace(
+            namespace=self.namespace,
+            activate_reserved_slot_fn=activate_reserved_slot_fn,
+            terminate_process_fn=terminate_process_fn,
+            mark_failed_fn=mark_failed_fn,
+            shutdown_grace_seconds=self.shutdown_grace_seconds,
+            sleep_fn=sleep_fn,
+        )
+
+    def run_pidfile_worker_command(
+        self,
+        args: Any,
+        *,
+        config_path_fn: Callable[[Any], str],
+        config_path_keyword: bool = True,
+    ) -> int:
+        return self.runtime.run_pidfile_worker_command_from_namespace(
+            args,
+            namespace=self.namespace,
+            config_path_fn=config_path_fn,
+            config_path_keyword=config_path_keyword,
+        )
+
+
+@dataclass(frozen=True)
 class InternalEngineAdmission:
     engine: str
     include_admission_root: bool = False
@@ -540,6 +638,37 @@ class InternalEngineWorkerChild:
             process_dequeued_entry_kwargs=process_dequeued_entry_kwargs,
         )
 
+    def entrypoint(
+        self,
+        *,
+        load_config_fn: Callable[[str], Any],
+        find_queue_entry_fn: Callable[[Path, str], Any | None],
+        admission_root_fn: Callable[[Any], str | Path],
+        release_slot_fn: Callable[[str | Path, str], Any],
+        install_signal_handlers_fn: Callable[
+            [_child_execution.ChildWorkerShutdownController],
+            Any,
+        ],
+        process_dequeued_entry_fn: Callable[..., Any],
+        dependencies_fn: Callable[[], Any],
+        requeue_running_entry_fn: Callable[[Path, str], Any],
+        mark_recovery_pending_context_fn: Callable[..., Any],
+        process_dequeued_entry_kwargs_fn: Callable[[], Mapping[str, Any]] | None = None,
+    ) -> InternalEngineWorkerEntrypoint:
+        return InternalEngineWorkerEntrypoint(
+            worker_child=self,
+            load_config_fn=load_config_fn,
+            find_queue_entry_fn=find_queue_entry_fn,
+            admission_root_fn=admission_root_fn,
+            release_slot_fn=release_slot_fn,
+            install_signal_handlers_fn=install_signal_handlers_fn,
+            process_dequeued_entry_fn=process_dequeued_entry_fn,
+            dependencies_fn=dependencies_fn,
+            requeue_running_entry_fn=requeue_running_entry_fn,
+            mark_recovery_pending_context_fn=mark_recovery_pending_context_fn,
+            process_dequeued_entry_kwargs_fn=process_dequeued_entry_kwargs_fn,
+        )
+
     def build_parser(self) -> argparse.ArgumentParser:
         parser = argparse.ArgumentParser(prog=f"python -m {self.worker_job_module}")
         parser.add_argument("--config", required=True)
@@ -551,11 +680,61 @@ class InternalEngineWorkerChild:
         return parser
 
 
+@dataclass(frozen=True)
+class InternalEngineWorkerEntrypoint:
+    worker_child: InternalEngineWorkerChild
+    load_config_fn: Callable[[str], Any]
+    find_queue_entry_fn: Callable[[Path, str], Any | None]
+    admission_root_fn: Callable[[Any], str | Path]
+    release_slot_fn: Callable[[str | Path, str], Any]
+    install_signal_handlers_fn: Callable[
+        [_child_execution.ChildWorkerShutdownController],
+        Any,
+    ]
+    process_dequeued_entry_fn: Callable[..., Any]
+    dependencies_fn: Callable[[], Any]
+    requeue_running_entry_fn: Callable[[Path, str], Any]
+    mark_recovery_pending_context_fn: Callable[..., Any]
+    process_dequeued_entry_kwargs_fn: Callable[[], Mapping[str, Any]] | None = None
+
+    def run_worker_job(
+        self,
+        *,
+        config_path: str,
+        queue_root: str | Path,
+        queue_id: str,
+        admission_token: str | None = None,
+    ) -> int:
+        process_dequeued_entry_kwargs = (
+            None
+            if self.process_dequeued_entry_kwargs_fn is None
+            else self.process_dequeued_entry_kwargs_fn()
+        )
+        return self.worker_child.run_worker_child_job(
+            config_path=config_path,
+            queue_root=queue_root,
+            queue_id=queue_id,
+            admission_token=admission_token,
+            load_config_fn=self.load_config_fn,
+            find_queue_entry_fn=self.find_queue_entry_fn,
+            admission_root_fn=self.admission_root_fn,
+            release_slot_fn=self.release_slot_fn,
+            install_signal_handlers_fn=self.install_signal_handlers_fn,
+            process_dequeued_entry_fn=self.process_dequeued_entry_fn,
+            dependencies_fn=self.dependencies_fn,
+            requeue_running_entry_fn=self.requeue_running_entry_fn,
+            mark_recovery_pending_context_fn=self.mark_recovery_pending_context_fn,
+            process_dequeued_entry_kwargs=process_dequeued_entry_kwargs,
+        )
+
+
 __all__ = [
     "InternalEngineAdmission",
     "InternalEngineLifecycle",
     "InternalEngineQueueRuntime",
+    "InternalEngineQueueWorkerFacade",
     "InternalEngineSpec",
     "InternalEngineWorkerChild",
+    "InternalEngineWorkerEntrypoint",
     "entry_status_is_running",
 ]

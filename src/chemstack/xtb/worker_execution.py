@@ -620,11 +620,7 @@ def run_worker_job(
     admission_root: str | Path | None = None,
 ) -> int:
     del admission_root
-    return _worker_child.run_worker_child_job(
-        config_path=config_path,
-        queue_root=queue_root,
-        queue_id=queue_id,
-        admission_token=admission_token,
+    return _worker_child.build_worker_entrypoint(
         load_config_fn=load_config,
         find_queue_entry_fn=_queue_entry_by_id,
         admission_root_fn=resolve_admission_root,
@@ -634,6 +630,11 @@ def run_worker_job(
         dependencies_fn=default_worker_execution_dependencies,
         requeue_running_entry_fn=requeue_running_entry,
         mark_recovery_pending_context_fn=_mark_recovery_pending_context,
+    ).run_worker_job(
+        config_path=config_path,
+        queue_root=queue_root,
+        queue_id=queue_id,
+        admission_token=admission_token,
     )
 
 
