@@ -201,9 +201,7 @@ def load_artifact_files(
     state_filename: str,
     organized_ref_filename: str,
     missing_label: str,
-    select_payload_fn: Callable[
-        [dict[str, Any], dict[str, Any], dict[str, Any]], dict[str, Any]
-    ]
+    select_payload_fn: Callable[[dict[str, Any], dict[str, Any], dict[str, Any]], dict[str, Any]]
     | None = None,
 ) -> LoadedArtifactFiles:
     report = load_json_dict_fn(job_dir / report_filename)
@@ -215,7 +213,9 @@ def load_artifact_files(
         else report or state or organized_ref
     )
     if not payload:
-        raise FileNotFoundError(f"{missing_label} artifact files not found in job directory: {job_dir}")
+        raise FileNotFoundError(
+            f"{missing_label} artifact files not found in job directory: {job_dir}"
+        )
     return LoadedArtifactFiles(
         job_dir=job_dir,
         record=record,
@@ -252,7 +252,9 @@ def validate_record_app(
     label: str,
 ) -> None:
     if record is not None and record.app_name and record.app_name != expected_app_name:
-        raise ValueError(f"Expected {expected_app_name} index record, got: {record.app_name}")
+        raise ValueError(
+            f"Expected {expected_app_name} index record for {label}, got: {record.app_name}"
+        )
 
 
 def latest_known_path(record: JobLocationRecord | None, job_dir: Path) -> str:
@@ -312,9 +314,7 @@ def load_contract_artifact_bundle(
     missing_label: str,
     expected_app_name: str,
     coerce_resource_dict_fn: Callable[[Any], dict[str, int]],
-    select_payload_fn: Callable[
-        [dict[str, Any], dict[str, Any], dict[str, Any]], dict[str, Any]
-    ]
+    select_payload_fn: Callable[[dict[str, Any], dict[str, Any], dict[str, Any]], dict[str, Any]]
     | None = None,
     path_factory: Callable[[str], Any] = Path,
 ) -> ContractArtifactBundle:

@@ -53,6 +53,7 @@ _API_BASE = "https://api.telegram.org/bot{token}"
 _POLL_TIMEOUT_SECONDS = 30
 _MAX_MESSAGE_LENGTH = MAX_TELEGRAM_MESSAGE_LENGTH
 
+
 @dataclass(frozen=True)
 class TelegramBotSettings:
     telegram: TelegramConfig
@@ -254,7 +255,7 @@ def _handle_cancel(settings: TelegramBotSettings, args: str) -> str:
     return f"{_status_icon(status)} <b>{label}</b>\nstatus: <code>{status}</code>"
 
 
-def _handle_help(settings: TelegramBotSettings, args: str) -> str:
+def _handle_help(_settings: TelegramBotSettings, _args: str) -> str:
     return (
         "<b>chemstack_flow bot commands</b>\n\n"
         "/list — Show unified activities\n"

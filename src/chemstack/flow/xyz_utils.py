@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 import re
+from typing import Sequence
 
 
 _ENERGY_PATTERNS = (
@@ -34,6 +35,13 @@ class XYZParseResult:
         return bool(self.frames) and not self.error_reason
 
 
+@dataclass(frozen=True)
+class _XYZFrameParseStep:
+    frame: XYZFrame | None
+    next_cursor: int
+    error_reason: str = ""
+
+
 def _parse_energy(comment: str) -> float | None:
     for pattern in _ENERGY_PATTERNS:
         match = pattern.search(comment)
@@ -63,51 +71,81 @@ def _xyz_parse_error(reason: str) -> XYZParseResult:
     return XYZParseResult(error_reason=reason)
 
 
-def parse_xyz_file(path: str | Path) -> XYZParseResult:
+def _resolve_xyz_path(path: str | Path) -> tuple[Path | None, str]:
     try:
         xyz_path = Path(path).expanduser().resolve()
     except OSError:
-        return _xyz_parse_error("path_error")
+        return None, "path_error"
     if not xyz_path.exists() or not xyz_path.is_file():
-        return _xyz_parse_error("missing_or_not_file")
+        return None, "missing_or_not_file"
+    return xyz_path, ""
+
+
+def _read_xyz_lines(xyz_path: Path) -> tuple[list[str], str]:
     try:
-        raw_lines = xyz_path.read_text(encoding="utf-8", errors="ignore").splitlines()
+        return xyz_path.read_text(encoding="utf-8", errors="ignore").splitlines(), ""
     except OSError:
-        return _xyz_parse_error("read_error")
+        return [], "read_error"
+
+
+def _skip_blank_lines(raw_lines: Sequence[str], cursor: int) -> int:
+    while cursor < len(raw_lines) and not raw_lines[cursor].strip():
+        cursor += 1
+    return cursor
+
+
+def _parse_xyz_frame(raw_lines: Sequence[str], cursor: int, index: int) -> _XYZFrameParseStep:
+    try:
+        natoms = int(raw_lines[cursor].strip())
+    except ValueError:
+        return _XYZFrameParseStep(None, cursor, "invalid_atom_count")
+    if natoms <= 0:
+        return _XYZFrameParseStep(None, cursor, "non_positive_atom_count")
+    if cursor + 2 + natoms > len(raw_lines):
+        return _XYZFrameParseStep(None, cursor, "truncated_frame")
+
+    comment = raw_lines[cursor + 1]
+    atom_lines = tuple(raw_lines[cursor + 2 : cursor + 2 + natoms])
+    if len(atom_lines) != natoms or any(not _line_has_xyz_tokens(line) for line in atom_lines):
+        return _XYZFrameParseStep(None, cursor, "invalid_atom_line")
+
+    frame = XYZFrame(
+        index=index,
+        natoms=natoms,
+        comment=comment,
+        atom_lines=atom_lines,
+        energy=_parse_energy(comment),
+    )
+    return _XYZFrameParseStep(frame, cursor + 2 + natoms)
+
+
+def _parse_xyz_frames(raw_lines: Sequence[str]) -> XYZParseResult:
     frames: list[XYZFrame] = []
-    index = 0
     cursor = 0
     while cursor < len(raw_lines):
-        while cursor < len(raw_lines) and not raw_lines[cursor].strip():
-            cursor += 1
+        cursor = _skip_blank_lines(raw_lines, cursor)
         if cursor >= len(raw_lines):
             break
-        try:
-            natoms = int(raw_lines[cursor].strip())
-        except ValueError:
-            return _xyz_parse_error("invalid_atom_count")
-        if natoms <= 0:
-            return _xyz_parse_error("non_positive_atom_count")
-        if cursor + 2 + natoms > len(raw_lines):
-            return _xyz_parse_error("truncated_frame")
-        comment = raw_lines[cursor + 1]
-        atom_lines = tuple(raw_lines[cursor + 2 : cursor + 2 + natoms])
-        if len(atom_lines) != natoms or any(not _line_has_xyz_tokens(line) for line in atom_lines):
-            return _xyz_parse_error("invalid_atom_line")
-        index += 1
-        frames.append(
-            XYZFrame(
-                index=index,
-                natoms=natoms,
-                comment=comment,
-                atom_lines=atom_lines,
-                energy=_parse_energy(comment),
-            )
-        )
-        cursor += 2 + natoms
+        step = _parse_xyz_frame(raw_lines, cursor, len(frames) + 1)
+        if step.error_reason:
+            return _xyz_parse_error(step.error_reason)
+        if step.frame is not None:
+            frames.append(step.frame)
+        cursor = step.next_cursor
     if not frames:
         return _xyz_parse_error("empty_xyz")
     return XYZParseResult(frames=tuple(frames))
+
+
+def parse_xyz_file(path: str | Path) -> XYZParseResult:
+    xyz_path, error_reason = _resolve_xyz_path(path)
+    if error_reason or xyz_path is None:
+        return _xyz_parse_error(error_reason)
+
+    raw_lines, error_reason = _read_xyz_lines(xyz_path)
+    if error_reason:
+        return _xyz_parse_error(error_reason)
+    return _parse_xyz_frames(raw_lines)
 
 
 def load_xyz_frames(path: str | Path) -> tuple[XYZFrame, ...]:
@@ -128,51 +166,81 @@ def load_xyz_atom_sequence(path: str | Path) -> tuple[str, ...]:
     return tuple(line.split()[0] for line in frames[0].atom_lines)
 
 
-def choose_orca_geometry_frame(path: str | Path, *, candidate_kind: str = "") -> tuple[XYZFrame | None, dict[str, object]]:
-    xyz_path = Path(path).expanduser().resolve()
-    parse_result = parse_xyz_file(xyz_path)
+def _source_size_bytes(xyz_path: Path) -> int:
+    if xyz_path.exists() and xyz_path.is_file():
+        return int(xyz_path.stat().st_size)
+    return 0
+
+
+def _build_orca_geometry_metadata(
+    xyz_path: Path,
+    parse_result: XYZParseResult,
+    candidate_kind: str,
+) -> dict[str, object]:
     frames = parse_result.frames
     metadata: dict[str, object] = {
         "source_artifact_path": str(xyz_path),
         "frame_count": len(frames),
         "candidate_kind": str(candidate_kind).strip(),
-        "source_size_bytes": int(xyz_path.stat().st_size) if xyz_path.exists() and xyz_path.is_file() else 0,
+        "source_size_bytes": _source_size_bytes(xyz_path),
     }
     if parse_result.error_reason:
         metadata["parse_error"] = parse_result.error_reason
-    if not frames:
-        metadata["selection_reason"] = "invalid_or_empty_xyz"
-        return None, metadata
-    normalized_kind = str(candidate_kind).strip().lower()
-    if normalized_kind == "ts_guess" and len(frames) != 1:
-        metadata["selection_reason"] = "ts_guess_requires_single_frame"
-        return None, metadata
-    if len(frames) == 1:
-        frame = frames[0]
-        metadata["selected_frame_index"] = frame.index
-        metadata["selection_reason"] = "single_frame"
-        if frame.energy is not None:
-            metadata["selected_frame_energy"] = frame.energy
-        return frame, metadata
+    return metadata
 
-    if normalized_kind in {"ts_guess", "selected_path"}:
-        energetic = [frame for frame in frames if frame.energy is not None]
-        if energetic:
-            frame = max(energetic, key=lambda item: item.energy if item.energy is not None else float("-inf"))
-            metadata["selected_frame_index"] = frame.index
-            metadata["selection_reason"] = "highest_energy_frame"
-            metadata["selected_frame_energy"] = frame.energy
-            return frame, metadata
-        frame = frames[len(frames) // 2]
-        metadata["selected_frame_index"] = frame.index
-        metadata["selection_reason"] = "middle_frame_fallback"
-        return frame, metadata
 
-    frame = frames[0]
+def _add_selection_metadata(
+    metadata: dict[str, object],
+    frame: XYZFrame | None,
+    selection_reason: str,
+) -> None:
+    if frame is None:
+        metadata["selection_reason"] = selection_reason
+        return
     metadata["selected_frame_index"] = frame.index
-    metadata["selection_reason"] = "first_frame"
+    metadata["selection_reason"] = selection_reason
     if frame.energy is not None:
         metadata["selected_frame_energy"] = frame.energy
+
+
+def _select_energy_ranked_frame(frames: tuple[XYZFrame, ...]) -> tuple[XYZFrame, str]:
+    energetic = [frame for frame in frames if frame.energy is not None]
+    if energetic:
+        return (
+            max(
+                energetic,
+                key=lambda item: item.energy if item.energy is not None else float("-inf"),
+            ),
+            "highest_energy_frame",
+        )
+    return frames[len(frames) // 2], "middle_frame_fallback"
+
+
+def _select_orca_frame(
+    frames: tuple[XYZFrame, ...],
+    candidate_kind: str,
+) -> tuple[XYZFrame | None, str]:
+    if not frames:
+        return None, "invalid_or_empty_xyz"
+    normalized_kind = str(candidate_kind).strip().lower()
+    if normalized_kind == "ts_guess" and len(frames) != 1:
+        return None, "ts_guess_requires_single_frame"
+    if len(frames) == 1:
+        return frames[0], "single_frame"
+
+    if normalized_kind in {"ts_guess", "selected_path"}:
+        return _select_energy_ranked_frame(frames)
+    return frames[0], "first_frame"
+
+
+def choose_orca_geometry_frame(
+    path: str | Path, *, candidate_kind: str = ""
+) -> tuple[XYZFrame | None, dict[str, object]]:
+    xyz_path = Path(path).expanduser().resolve()
+    parse_result = parse_xyz_file(xyz_path)
+    metadata = _build_orca_geometry_metadata(xyz_path, parse_result, candidate_kind)
+    frame, selection_reason = _select_orca_frame(parse_result.frames, candidate_kind)
+    _add_selection_metadata(metadata, frame, selection_reason)
     return frame, metadata
 
 

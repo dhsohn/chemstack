@@ -41,9 +41,8 @@ from chemstack.core.queue.worker import (
     terminate_process_group,
 )
 from chemstack.core.queue.internal_engine import (
+    InternalEngineQueueModule,
     InternalEngineQueueWorkerDeps,
-    InternalEngineQueueRuntime,
-    InternalEngineQueueWorkerFacade,
     InternalEngineSpec,
     internal_engine_queue_worker_deps_from_namespace,
 )
@@ -143,19 +142,33 @@ def _worker_execution_dependencies() -> _worker_execution.WorkerExecutionDepende
 _RunningJob = BackgroundRunningJob
 _TerminalSummary = _queue_terminal.TerminalSummary
 
-_engine_runtime = InternalEngineQueueRuntime.create(
+
+def _runtime_facade_deps() -> InternalEngineQueueWorkerDeps:
+    return internal_engine_queue_worker_deps_from_namespace(
+        globals(),
+        mark_recovery_pending_name="_mark_recovery_pending_state",
+        find_queue_entry_name="_queue_entry_by_id",
+    )
+
+
+_queue_module = InternalEngineQueueModule.create(
     spec=_ENGINE_SPEC,
     load_config=load_config,
     runtime_roots_for_cfg=runtime_roots_for_cfg,
     list_queue=lambda root: list_queue(root),
     dequeue_next=lambda root: dequeue_next(root),
+    poll_interval_seconds=POLL_INTERVAL_SECONDS,
+    shutdown_grace_seconds=WORKER_SHUTDOWN_GRACE_SECONDS,
+    deps=_runtime_facade_deps(),
 )
+_engine_runtime = _queue_module.runtime
+_runtime_facade = _queue_module.facade
 
-queue_roots = _engine_runtime.queue_roots
-queue_entries_with_roots = _engine_runtime.queue_entries_with_roots
-dequeue_next_entry = _engine_runtime.dequeue_next_entry
-_queue_entry_by_id = _engine_runtime.queue_entry_by_id
-_admission_root = _engine_runtime.admission_root
+queue_roots = _queue_module.queue_roots
+queue_entries_with_roots = _queue_module.queue_entries_with_roots
+dequeue_next_entry = _queue_module.dequeue_next_entry
+_queue_entry_by_id = _queue_module.queue_entry_by_id
+_admission_root = _queue_module.admission_root
 
 
 def _pid_is_alive(pid: int) -> bool:
@@ -291,7 +304,7 @@ def _config_path_for_worker(args: Any) -> str:
     return _runtime_facade.config_path_for_worker(args)
 
 
-read_worker_pid = _engine_runtime.read_worker_pid
+read_worker_pid = _queue_module.read_worker_pid
 
 
 def _entry_status_is_running(entry: Any) -> bool:
@@ -399,22 +412,6 @@ class QueueWorker(HookedPidFileChildProcessQueueWorker):
             worker_pid_file_name=WORKER_PID_FILE,
             admission_root=_admission_root(cfg),
         )
-
-
-def _runtime_facade_deps() -> InternalEngineQueueWorkerDeps:
-    return internal_engine_queue_worker_deps_from_namespace(
-        globals(),
-        mark_recovery_pending_name="_mark_recovery_pending_state",
-        find_queue_entry_name="_queue_entry_by_id",
-    )
-
-
-_runtime_facade = InternalEngineQueueWorkerFacade(
-    runtime=_engine_runtime,
-    poll_interval_seconds=POLL_INTERVAL_SECONDS,
-    shutdown_grace_seconds=WORKER_SHUTDOWN_GRACE_SECONDS,
-    deps=_runtime_facade_deps(),
-)
 
 
 def cmd_queue_worker(args: Any) -> int:

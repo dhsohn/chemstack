@@ -11,14 +11,13 @@ from chemstack.cli_errors import emit_error
 from chemstack.activity_presenter import (
     QueueListPresentationDeps,
     QueueListPresentationRequest,
+    queue_list_display_rows_for_request,
     queue_list_text_presentation,
 )
 from chemstack.activity_view import (
     activity_counter_config_path,
     activity_with_parent_hint,
     count_global_active_simulations,
-    queue_list_default_visible_items,
-    queue_list_display_rows,
 )
 from chemstack.cli_common import (
     _dependency,
@@ -154,6 +153,28 @@ def _queue_clear_lines(payload: dict[str, Any]) -> list[str]:
     return _activity_rendering.queue_clear_lines(payload)
 
 
+def _queue_list_presentation_request(
+    request: _QueueListRequest,
+    *,
+    visible_items: Sequence[dict[str, Any]],
+    active_simulations: int | None = None,
+    now: Any | None = None,
+    max_width: int | None = None,
+) -> QueueListPresentationRequest:
+    return QueueListPresentationRequest(
+        visible_items=visible_items,
+        config_hints=(request.shared_config,),
+        prefer_config_hints=True,
+        default_visible_items=request.default_combined_text_view,
+        limit=request.limit,
+        show_workflow_context=set(request.kind_values) != {"job"},
+        visible_workflow_child_engines=("orca",) if request.default_combined_text_view else None,
+        active_simulations=active_simulations,
+        now=now,
+        max_width=max_width,
+    )
+
+
 def _queue_list_request(args: Any, *, deps: Any | None = None) -> _QueueListRequest:
     effective_shared_config_text = _dependency(
         deps, "_effective_shared_config_text", _effective_shared_config_text
@@ -256,17 +277,12 @@ def _queue_list_display_rows(
     filtered_activities: Sequence[dict[str, Any]],
     request: _QueueListRequest,
 ) -> list[tuple[int, dict[str, Any]]]:
-    display_items = list(filtered_activities)
-    if request.default_combined_text_view:
-        display_items = queue_list_default_visible_items(display_items)
-    if request.limit > 0:
-        display_items = display_items[: request.limit]
-    show_workflow_context = set(request.kind_values) != {"job"}
-    return queue_list_display_rows(
-        all_items=payload.get("activities", []),
-        visible_items=display_items,
-        show_workflow_context=show_workflow_context,
-        visible_workflow_child_engines=("orca",) if request.default_combined_text_view else None,
+    return queue_list_display_rows_for_request(
+        payload,
+        request=_queue_list_presentation_request(
+            request,
+            visible_items=filtered_activities,
+        ),
     )
 
 
@@ -283,25 +299,14 @@ def _print_queue_list_text(
     terminal_width = _dependency(deps, "_queue_terminal_width", _queue_terminal_width)
     presentation = queue_list_text_presentation(
         payload,
-        request=QueueListPresentationRequest(
+        request=_queue_list_presentation_request(
+            request,
             visible_items=filtered_activities,
-            config_hints=(request.shared_config,),
-            prefer_config_hints=True,
-            default_visible_items=request.default_combined_text_view,
-            limit=request.limit,
-            show_workflow_context=set(request.kind_values) != {"job"},
-            visible_workflow_child_engines=(
-                ("orca",) if request.default_combined_text_view else None
-            ),
             active_simulations=filtered_payload["active_simulations"],
             now=queue_table_now(),
             max_width=terminal_width(),
         ),
         deps=QueueListPresentationDeps(
-            activity_counter_config_path=activity_counter_config_path,
-            count_global_active_simulations=count_global_active_simulations,
-            queue_list_default_visible_items=queue_list_default_visible_items,
-            queue_list_display_rows=queue_list_display_rows,
             queue_list_text_lines=render_lines,
         ),
     )

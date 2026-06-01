@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from contextlib import contextmanager
 import json
 from pathlib import Path
 from typing import Any
@@ -13,26 +12,15 @@ from chemstack.flow import _registry_notifications as registry_notifications
 from chemstack.flow import registry_store
 from chemstack.flow import worker_state_store
 from chemstack.flow import workflow_journal
+from tests.flow.registry_test_helpers import (
+    patch_file_locks as _patch_file_locks,
+    patch_now_utc_iso as _patch_now_utc_iso,
+)
 
 
-@contextmanager
-def _no_lock(*args: Any, **kwargs: Any):
-    yield
-
-
-def _patch_file_locks(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(registry_store, "file_lock", _no_lock)
-    monkeypatch.setattr(workflow_journal, "file_lock", _no_lock)
-    monkeypatch.setattr(worker_state_store, "file_lock", _no_lock)
-
-
-def _patch_now_utc_iso(monkeypatch: pytest.MonkeyPatch, now_utc_iso) -> None:
-    monkeypatch.setattr(registry_store, "now_utc_iso", now_utc_iso)
-    monkeypatch.setattr(workflow_journal, "now_utc_iso", now_utc_iso)
-    monkeypatch.setattr(worker_state_store, "now_utc_iso", now_utc_iso)
-
-
-def test_record_from_summary_coerces_counts_and_nested_metadata(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_record_from_summary_coerces_counts_and_nested_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     _patch_now_utc_iso(monkeypatch, lambda: "2026-04-19T00:00:00+00:00")
 
     record = registry_store._record_from_summary(
@@ -183,7 +171,11 @@ def test_record_from_summary_coerces_counts_and_nested_metadata(monkeypatch: pyt
                     "stage_count": 2,
                     "stage_status_counts": {"completed": 2},
                     "stage_statuses": [
-                        {"label": "rxn_01", "stage_id": "xtb_path_search_01", "status": "completed"},
+                        {
+                            "label": "rxn_01",
+                            "stage_id": "xtb_path_search_01",
+                            "status": "completed",
+                        },
                         {"label": "rxn_02", "stage_id": "xtb_path_search_02", "status": "failed"},
                     ],
                     "reaction_handoff_status_counts": {"ready": 1, "failed": 1},
@@ -245,7 +237,9 @@ def test_notification_configuration_helpers_cover_default_override_and_transport
     )
     assert registry_notifications.journal_notification_enabled("workflow_status_changed") is True
     assert registry_notifications.journal_notification_enabled("workflow_stage_submitted") is False
-    assert registry_notifications.journal_notification_enabled("workflow_stage_handoff_ready") is False
+    assert (
+        registry_notifications.journal_notification_enabled("workflow_stage_handoff_ready") is False
+    )
     assert registry_notifications.journal_notification_enabled("workflow_phase_finished") is False
     assert registry_notifications.telegram_transport_from_env() is None
 
@@ -272,7 +266,9 @@ def test_notification_configuration_helpers_cover_default_override_and_transport
         captured["chat_id"] = config.chat_id
         return "transport"
 
-    monkeypatch.setattr(registry_notifications, "build_telegram_transport", fake_build_telegram_transport)
+    monkeypatch.setattr(
+        registry_notifications, "build_telegram_transport", fake_build_telegram_transport
+    )
 
     assert registry_notifications.journal_notification_enabled("custom_event") is True
     assert registry_notifications.telegram_transport_from_env() == "transport"
@@ -311,7 +307,9 @@ def test_telegram_transport_from_env_uses_chemstack_config_fallback(
         captured["retry_backoff_seconds"] = config.retry_backoff_seconds
         return "transport"
 
-    monkeypatch.setattr(registry_notifications, "build_telegram_transport", fake_build_telegram_transport)
+    monkeypatch.setattr(
+        registry_notifications, "build_telegram_transport", fake_build_telegram_transport
+    )
 
     assert registry_notifications.telegram_transport_from_env() == "transport"
     assert captured == {
@@ -348,8 +346,12 @@ def test_maybe_notify_journal_event_sends_message_and_swallows_transport_errors(
         "worker_session_id": "session-notify",
     }
 
-    monkeypatch.setattr(registry_notifications, "journal_notification_enabled", lambda event_type: True)
-    monkeypatch.setattr(registry_notifications, "telegram_transport_from_env", lambda: FakeTransport(fail=False))
+    monkeypatch.setattr(
+        registry_notifications, "journal_notification_enabled", lambda event_type: True
+    )
+    monkeypatch.setattr(
+        registry_notifications, "telegram_transport_from_env", lambda: FakeTransport(fail=False)
+    )
     workflow_journal._maybe_notify_journal_event(event, tmp_path)
     workflow_journal._maybe_notify_journal_event(
         {
@@ -396,7 +398,9 @@ def test_maybe_notify_journal_event_sends_message_and_swallows_transport_errors(
     assert "<b>Workflow</b>: <code>wf_notify</code>" in sent_messages[0]
     assert "<b>Phase</b>: <code>xTB</code>" in sent_messages[1]
 
-    monkeypatch.setattr(registry_notifications, "telegram_transport_from_env", lambda: FakeTransport(fail=True))
+    monkeypatch.setattr(
+        registry_notifications, "telegram_transport_from_env", lambda: FakeTransport(fail=True)
+    )
     workflow_journal._maybe_notify_journal_event(event, tmp_path)
     assert len(sent_messages) == 2
 
@@ -472,7 +476,9 @@ def test_clear_terminal_workflow_registry_prevents_reindex_resurrection(
         "stages": [],
         "metadata": {},
     }
-    (completed_workspace / "workflow.json").write_text(json.dumps(completed_payload), encoding="utf-8")
+    (completed_workspace / "workflow.json").write_text(
+        json.dumps(completed_payload), encoding="utf-8"
+    )
     (running_workspace / "workflow.json").write_text(
         json.dumps(
             {
@@ -491,22 +497,27 @@ def test_clear_terminal_workflow_registry_prevents_reindex_resurrection(
     )
 
     assert registry.clear_terminal_workflow_registry(tmp_path) == 1
-    assert [record.workflow_id for record in registry.list_workflow_registry(tmp_path, reindex_if_missing=False)] == [
-        "wf-running"
-    ]
+    assert [
+        record.workflow_id
+        for record in registry.list_workflow_registry(tmp_path, reindex_if_missing=False)
+    ] == ["wf-running"]
 
     reindexed = registry.reindex_workflow_registry(tmp_path)
     assert [record.workflow_id for record in reindexed] == ["wf-running"]
 
     completed_payload["status"] = "running"
-    (completed_workspace / "workflow.json").write_text(json.dumps(completed_payload), encoding="utf-8")
+    (completed_workspace / "workflow.json").write_text(
+        json.dumps(completed_payload), encoding="utf-8"
+    )
     assert {record.workflow_id for record in registry.reindex_workflow_registry(tmp_path)} == {
         "wf-completed",
         "wf-running",
     }
 
     completed_payload["status"] = "completed"
-    (completed_workspace / "workflow.json").write_text(json.dumps(completed_payload), encoding="utf-8")
+    (completed_workspace / "workflow.json").write_text(
+        json.dumps(completed_payload), encoding="utf-8"
+    )
     assert {record.workflow_id for record in registry.reindex_workflow_registry(tmp_path)} == {
         "wf-completed",
         "wf-running",
@@ -543,7 +554,9 @@ def test_sync_skips_cleared_terminal_workflow_until_it_becomes_active(
     active_payload["status"] = "running"
     registry.sync_workflow_registry(tmp_path, workspace, active_payload)
     records = registry.list_workflow_registry(tmp_path, reindex_if_missing=False)
-    assert [(record.workflow_id, record.status) for record in records] == [("wf-completed", "running")]
+    assert [(record.workflow_id, record.status) for record in records] == [
+        ("wf-completed", "running")
+    ]
 
 
 @pytest.mark.parametrize("markers_payload", ["{invalid", json.dumps({"bad": True})])
@@ -790,11 +803,29 @@ def test_list_workflow_journal_sorts_descending_and_applies_limit(
     journal_path.write_text(
         "\n".join(
             [
-                json.dumps({"event_id": "evt_1", "occurred_at": "2026-04-19T00:01:00+00:00", "event_type": "a"}),
+                json.dumps(
+                    {
+                        "event_id": "evt_1",
+                        "occurred_at": "2026-04-19T00:01:00+00:00",
+                        "event_type": "a",
+                    }
+                ),
                 "not-json",
                 "",
-                json.dumps({"event_id": "evt_3", "occurred_at": "2026-04-19T00:03:00+00:00", "event_type": "c"}),
-                json.dumps({"event_id": "evt_2", "occurred_at": "2026-04-19T00:02:00+00:00", "event_type": "b"}),
+                json.dumps(
+                    {
+                        "event_id": "evt_3",
+                        "occurred_at": "2026-04-19T00:03:00+00:00",
+                        "event_type": "c",
+                    }
+                ),
+                json.dumps(
+                    {
+                        "event_id": "evt_2",
+                        "occurred_at": "2026-04-19T00:02:00+00:00",
+                        "event_type": "b",
+                    }
+                ),
             ]
         ),
         encoding="utf-8",
@@ -917,8 +948,15 @@ def test_upsert_list_get_and_resolve_workflow_registry_record(
     ]
     assert registry.get_workflow_registry_record(tmp_path, "wf_b") == record_newer
     assert registry.resolve_workflow_registry_record(tmp_path, "wf_a") == record_updated
-    assert registry.resolve_workflow_registry_record(tmp_path, str(tmp_path / "wf_b")) == record_newer
-    assert registry.resolve_workflow_registry_record(tmp_path, str(tmp_path / "wf_a" / "workflow.json")) == record_updated
+    assert (
+        registry.resolve_workflow_registry_record(tmp_path, str(tmp_path / "wf_b")) == record_newer
+    )
+    assert (
+        registry.resolve_workflow_registry_record(
+            tmp_path, str(tmp_path / "wf_a" / "workflow.json")
+        )
+        == record_updated
+    )
     assert registry.resolve_workflow_registry_record(tmp_path, "") is None
 
 
@@ -929,17 +967,19 @@ def test_list_workflow_registry_reindexes_when_missing_and_reindex_skips_bad_wor
     _patch_file_locks(monkeypatch)
     original_reindex = registry.reindex_workflow_registry
 
-    list_result = [registry.WorkflowRegistryRecord(
-        workflow_id="wf_reindexed",
-        template_name="reaction_ts_search",
-        status="planned",
-        source_job_id="job_reindexed",
-        source_job_type="xtb_path",
-        reaction_key="rxn_reindexed",
-        requested_at="2026-04-19T00:00:00+00:00",
-        workspace_dir=str(tmp_path / "wf_reindexed"),
-        workflow_file=str(tmp_path / "wf_reindexed" / "workflow.json"),
-    )]
+    list_result = [
+        registry.WorkflowRegistryRecord(
+            workflow_id="wf_reindexed",
+            template_name="reaction_ts_search",
+            status="planned",
+            source_job_id="job_reindexed",
+            source_job_type="xtb_path",
+            reaction_key="rxn_reindexed",
+            requested_at="2026-04-19T00:00:00+00:00",
+            workspace_dir=str(tmp_path / "wf_reindexed"),
+            workflow_file=str(tmp_path / "wf_reindexed" / "workflow.json"),
+        )
+    ]
     reindex_calls: list[Path] = []
 
     def fake_reindex_workflow_registry(root: str | Path) -> list[registry.WorkflowRegistryRecord]:
@@ -990,4 +1030,9 @@ def test_list_workflow_registry_reindexes_when_missing_and_reindex_skips_bad_wor
 
     assert len(records) == 1
     assert records[0].workflow_id == "wf_good"
-    assert registry.sync_workflow_registry(tmp_path, good_workspace, {"workflow_id": "wf_good"}).workflow_id == "wf_good"
+    assert (
+        registry.sync_workflow_registry(
+            tmp_path, good_workspace, {"workflow_id": "wf_good"}
+        ).workflow_id
+        == "wf_good"
+    )

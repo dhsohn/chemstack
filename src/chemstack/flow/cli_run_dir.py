@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +23,67 @@ from .restart import restart_failed_workflow
 
 _DEFAULT_CREATE_REACTION_TS_SEARCH_WORKFLOW = create_reaction_ts_search_workflow
 _DEFAULT_CREATE_CONFORMER_SCREENING_WORKFLOW = create_conformer_screening_workflow
+
+
+@dataclass(frozen=True)
+class _RunDirWorkflowCreationSpec:
+    workflow_type: str
+    required_input_kwargs: tuple[tuple[str, str], ...]
+    missing_inputs_error: str
+    request_type: Any
+    request_type_name: str
+    create_workflow_name: str
+    create_workflow_from_request_name: str
+    default_create_workflow: Any
+    default_create_workflow_from_request: Any
+    default_orca_route_line: str
+    default_max_orca_stages: int
+    option_kwargs: tuple[tuple[str, str], ...] = ()
+    manifest_kwargs: tuple[tuple[str, str], ...] = ()
+
+
+_REACTION_RUN_DIR_WORKFLOW_SPEC = _RunDirWorkflowCreationSpec(
+    workflow_type="reaction_ts_search",
+    required_input_kwargs=(
+        ("reactant_xyz", "reactant_xyz"),
+        ("product_xyz", "product_xyz"),
+    ),
+    missing_inputs_error=(
+        "reaction_ts_search requires both reactant.xyz and product.xyz (or manifest/CLI overrides)."
+    ),
+    request_type=ReactionTsSearchWorkflowRequest,
+    request_type_name="ReactionTsSearchWorkflowRequest",
+    create_workflow_name="create_reaction_ts_search_workflow",
+    create_workflow_from_request_name="create_reaction_ts_search_workflow_from_request",
+    default_create_workflow=_DEFAULT_CREATE_REACTION_TS_SEARCH_WORKFLOW,
+    default_create_workflow_from_request=create_reaction_ts_search_workflow_from_request,
+    default_orca_route_line="! r2scan-3c OptTS Freq TightSCF",
+    default_max_orca_stages=3,
+    option_kwargs=(
+        ("max_crest_candidates", "max_crest_candidates"),
+        ("max_xtb_stages", "max_xtb_stages"),
+    ),
+    manifest_kwargs=(
+        ("crest_job_manifest", "crest_manifest"),
+        ("xtb_job_manifest", "xtb_manifest"),
+        ("endpoint_pairing", "endpoint_pairing"),
+    ),
+)
+
+_CONFORMER_RUN_DIR_WORKFLOW_SPEC = _RunDirWorkflowCreationSpec(
+    workflow_type="conformer_screening",
+    required_input_kwargs=(("input_xyz", "input_xyz"),),
+    missing_inputs_error="conformer_screening requires input.xyz (or manifest/CLI override).",
+    request_type=ConformerScreeningWorkflowRequest,
+    request_type_name="ConformerScreeningWorkflowRequest",
+    create_workflow_name="create_conformer_screening_workflow",
+    create_workflow_from_request_name="create_conformer_screening_workflow_from_request",
+    default_create_workflow=_DEFAULT_CREATE_CONFORMER_SCREENING_WORKFLOW,
+    default_create_workflow_from_request=create_conformer_screening_workflow_from_request,
+    default_orca_route_line="! r2scan-3c Opt TightSCF",
+    default_max_orca_stages=20,
+    manifest_kwargs=(("crest_job_manifest", "crest_manifest"),),
+)
 
 
 def _safe_workflow_name(value: Any, *, fallback: str, deps: Any | None = None) -> str:
@@ -89,8 +151,12 @@ def _update_present_kwargs(kwargs: dict[str, Any], values: dict[str, Any]) -> No
             kwargs[key] = value
 
 
-def _create_reaction_run_dir_workflow(
-    args: Any, config: _run_dir_options.RunDirWorkflowConfig, *, deps: Any | None = None
+def _create_run_dir_workflow_from_spec(
+    args: Any,
+    config: _run_dir_options.RunDirWorkflowConfig,
+    spec: _RunDirWorkflowCreationSpec,
+    *,
+    deps: Any | None = None,
 ) -> dict[str, Any]:
     resolve_required_workflow_root = _dependency(
         deps,
@@ -106,110 +172,86 @@ def _create_reaction_run_dir_workflow(
         _run_dir_options._resolve_run_dir_workflow_option_bundle,
     )
     update_present_kwargs = _dependency(deps, "_update_present_kwargs", _update_present_kwargs)
-    create_workflow = _dependency(deps, "create_reaction_ts_search_workflow", None)
-    if (
-        create_workflow is None
-        and create_reaction_ts_search_workflow is not _DEFAULT_CREATE_REACTION_TS_SEARCH_WORKFLOW
-    ):
-        create_workflow = create_reaction_ts_search_workflow
+    create_workflow = _dependency(deps, spec.create_workflow_name, None)
+    current_create_workflow = globals()[spec.create_workflow_name]
+    if create_workflow is None and current_create_workflow is not spec.default_create_workflow:
+        create_workflow = current_create_workflow
+    current_create_workflow_from_request = globals().get(
+        spec.create_workflow_from_request_name,
+        spec.default_create_workflow_from_request,
+    )
     create_workflow_from_request = _dependency(
         deps,
-        "create_reaction_ts_search_workflow_from_request",
-        create_reaction_ts_search_workflow_from_request,
+        spec.create_workflow_from_request_name,
+        current_create_workflow_from_request,
     )
 
-    if not config.reactant_xyz or not config.product_xyz:
-        raise ValueError(
-            "reaction_ts_search requires both reactant.xyz and product.xyz "
-            "(or manifest/CLI overrides)."
-        )
+    workflow_kwargs = {}
+    for kwarg_name, config_attr in spec.required_input_kwargs:
+        value = getattr(config, config_attr)
+        if not value:
+            raise ValueError(spec.missing_inputs_error)
+        workflow_kwargs[kwarg_name] = value
+
     workflow_root = resolve_required_workflow_root(args, config.manifest)
     options, common_kwargs = resolve_run_dir_workflow_option_bundle(
         args,
         config.manifest,
         config.sections,
-        default_orca_route_line="! r2scan-3c OptTS Freq TightSCF",
-        default_max_orca_stages=3,
+        default_orca_route_line=spec.default_orca_route_line,
+        default_max_orca_stages=spec.default_max_orca_stages,
         workflow_root=workflow_root,
     )
-    reaction_kwargs: dict[str, Any] = {
-        "reactant_xyz": config.reactant_xyz,
-        "product_xyz": config.product_xyz,
-        "workflow_id": unique_run_dir_workflow_id(
-            config.workflow_dir,
-            workflow_root=workflow_root,
-            workflow_type=config.workflow_type,
-        ),
-        **common_kwargs,
-        "max_crest_candidates": options.max_crest_candidates,
-        "max_xtb_stages": options.max_xtb_stages,
-    }
-    update_present_kwargs(
-        reaction_kwargs,
+
+    workflow_kwargs.update(
         {
-            "crest_job_manifest": config.crest_manifest,
-            "xtb_job_manifest": config.xtb_manifest,
-            "endpoint_pairing": config.endpoint_pairing,
+            "workflow_id": unique_run_dir_workflow_id(
+                config.workflow_dir,
+                workflow_root=workflow_root,
+                workflow_type=config.workflow_type,
+            ),
+            **common_kwargs,
+        }
+    )
+    workflow_kwargs.update(
+        {
+            kwarg_name: getattr(options, option_attr)
+            for kwarg_name, option_attr in spec.option_kwargs
+        }
+    )
+    update_present_kwargs(
+        workflow_kwargs,
+        {
+            kwarg_name: getattr(config, config_attr)
+            for kwarg_name, config_attr in spec.manifest_kwargs
         },
     )
     if create_workflow is not None:
-        return create_workflow(**reaction_kwargs)
-    return create_workflow_from_request(ReactionTsSearchWorkflowRequest(**reaction_kwargs))
+        return create_workflow(**workflow_kwargs)
+    request_type = globals().get(spec.request_type_name, spec.request_type)
+    return create_workflow_from_request(request_type(**workflow_kwargs))
+
+
+def _create_reaction_run_dir_workflow(
+    args: Any, config: _run_dir_options.RunDirWorkflowConfig, *, deps: Any | None = None
+) -> dict[str, Any]:
+    return _create_run_dir_workflow_from_spec(
+        args,
+        config,
+        _REACTION_RUN_DIR_WORKFLOW_SPEC,
+        deps=deps,
+    )
 
 
 def _create_conformer_run_dir_workflow(
     args: Any, config: _run_dir_options.RunDirWorkflowConfig, *, deps: Any | None = None
 ) -> dict[str, Any]:
-    resolve_required_workflow_root = _dependency(
-        deps,
-        "_resolve_required_workflow_root",
-        _run_dir_options._resolve_required_workflow_root,
-    )
-    unique_run_dir_workflow_id = _dependency(
-        deps, "_unique_run_dir_workflow_id", _unique_run_dir_workflow_id
-    )
-    resolve_run_dir_workflow_option_bundle = _dependency(
-        deps,
-        "_resolve_run_dir_workflow_option_bundle",
-        _run_dir_options._resolve_run_dir_workflow_option_bundle,
-    )
-    update_present_kwargs = _dependency(deps, "_update_present_kwargs", _update_present_kwargs)
-    create_workflow = _dependency(deps, "create_conformer_screening_workflow", None)
-    if (
-        create_workflow is None
-        and create_conformer_screening_workflow is not _DEFAULT_CREATE_CONFORMER_SCREENING_WORKFLOW
-    ):
-        create_workflow = create_conformer_screening_workflow
-    create_workflow_from_request = _dependency(
-        deps,
-        "create_conformer_screening_workflow_from_request",
-        create_conformer_screening_workflow_from_request,
-    )
-
-    if not config.input_xyz:
-        raise ValueError("conformer_screening requires input.xyz (or manifest/CLI override).")
-    workflow_root = resolve_required_workflow_root(args, config.manifest)
-    _, common_kwargs = resolve_run_dir_workflow_option_bundle(
+    return _create_run_dir_workflow_from_spec(
         args,
-        config.manifest,
-        config.sections,
-        default_orca_route_line="! r2scan-3c Opt TightSCF",
-        default_max_orca_stages=20,
-        workflow_root=workflow_root,
+        config,
+        _CONFORMER_RUN_DIR_WORKFLOW_SPEC,
+        deps=deps,
     )
-    conformer_kwargs: dict[str, Any] = {
-        "input_xyz": config.input_xyz,
-        "workflow_id": unique_run_dir_workflow_id(
-            config.workflow_dir,
-            workflow_root=workflow_root,
-            workflow_type=config.workflow_type,
-        ),
-        **common_kwargs,
-    }
-    update_present_kwargs(conformer_kwargs, {"crest_job_manifest": config.crest_manifest})
-    if create_workflow is not None:
-        return create_workflow(**conformer_kwargs)
-    return create_workflow_from_request(ConformerScreeningWorkflowRequest(**conformer_kwargs))
 
 
 def _create_run_dir_workflow(
@@ -226,7 +268,7 @@ def _create_run_dir_workflow(
     )
 
     config = load_run_dir_workflow_config(args, workflow_dir)
-    if config.workflow_type == "reaction_ts_search":
+    if config.workflow_type == _REACTION_RUN_DIR_WORKFLOW_SPEC.workflow_type:
         return create_reaction_run_dir_workflow(args, config)
     return create_conformer_run_dir_workflow(args, config)
 
