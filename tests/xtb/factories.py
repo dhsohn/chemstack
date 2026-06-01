@@ -3,6 +3,12 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
+from chemstack.core.config import CommonResourceConfig, CommonRuntimeConfig, TelegramConfig
+from chemstack.core.config.engines import (
+    WorkflowEngineAppConfig as AppConfig,
+    WorkflowEnginePathsConfig as PathsConfig,
+)
+from chemstack.xtb import runner as runner_mod
 from chemstack.xtb import queue_runtime as queue_cmd
 
 
@@ -24,6 +30,126 @@ def make_cfg(tmp_path: Path) -> SimpleNamespace:
         resources=SimpleNamespace(max_cores_per_task=4, max_memory_gb_per_task=8),
         telegram=SimpleNamespace(bot_token="", chat_id=""),
         paths=SimpleNamespace(xtb_executable=""),
+    )
+
+
+def make_runner_cfg(tmp_path: Path, *, xtb_executable: str = "") -> AppConfig:
+    return AppConfig(
+        runtime=CommonRuntimeConfig(
+            allowed_root=str(tmp_path / "allowed"),
+            organized_root=str(tmp_path / "organized"),
+        ),
+        paths=PathsConfig(xtb_executable=xtb_executable),
+        resources=CommonResourceConfig(max_cores_per_task=4, max_memory_gb_per_task=12),
+        telegram=TelegramConfig(),
+    )
+
+
+def write_xyz(path: Path, *, comment: str = "example") -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "\n".join(
+            [
+                "3",
+                comment,
+                "O 0.000000 0.000000 0.000000",
+                "H 0.000000 0.000000 0.970000",
+                "H 0.000000 0.750000 -0.240000",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    return path
+
+
+def write_multi_xyz(path: Path, comments: list[str]) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lines: list[str] = []
+    for index, comment in enumerate(comments):
+        z_shift = 0.97 + (index * 0.01)
+        y_shift = 0.75 - (index * 0.02)
+        lines.extend(
+            [
+                "3",
+                comment,
+                "O 0.000000 0.000000 0.000000",
+                f"H 0.000000 0.000000 {z_shift:.6f}",
+                f"H 0.000000 {y_shift:.6f} -0.240000",
+            ]
+        )
+    path.write_text("\n".join([*lines, ""]), encoding="utf-8")
+    return path
+
+
+class FakeCandidateProcess:
+    def __init__(
+        self,
+        poll_values: list[int | None],
+        *,
+        terminate_raises: bool = False,
+    ) -> None:
+        self._poll_values = list(poll_values)
+        self._terminal_returncode: int | None = None
+        self.terminate_calls = 0
+        self.terminate_raises = terminate_raises
+
+    def poll(self) -> int | None:
+        if self._terminal_returncode is not None:
+            return self._terminal_returncode
+        if self._poll_values:
+            value = self._poll_values.pop(0)
+            if value is not None:
+                self._terminal_returncode = value
+            return value
+        return None
+
+    def terminate(self) -> None:
+        self.terminate_calls += 1
+        if self.terminate_raises:
+            raise RuntimeError("terminate failed")
+        self._terminal_returncode = -15
+
+
+class CandidateSpDeps:
+    def __init__(self, result: object) -> None:
+        self.result = result
+        self.finalize_calls: list[tuple[object, str | None, str | None]] = []
+
+    def finalize_xtb_job(
+        self,
+        running: object,
+        *,
+        forced_status: str | None = None,
+        forced_reason: str | None = None,
+    ) -> object:
+        self.finalize_calls.append((running, forced_status, forced_reason))
+        return self.result
+
+
+def make_ranking_result(
+    candidate_path: Path, *, status: str = "completed", reason: str = "completed"
+) -> runner_mod.XtbRunResult:
+    return runner_mod.XtbRunResult(
+        status=status,
+        reason=reason,
+        command=("xtb", str(candidate_path)),
+        exit_code=0 if status == "completed" else 1,
+        started_at="2026-04-20T00:00:00Z",
+        finished_at="2026-04-20T00:05:00Z",
+        stdout_log=str((candidate_path.parent / "xtb.stdout.log").resolve()),
+        stderr_log=str((candidate_path.parent / "xtb.stderr.log").resolve()),
+        selected_input_xyz=str(candidate_path.resolve()),
+        job_type="sp",
+        reaction_key="rxn-1",
+        input_summary={"input_xyz": str(candidate_path.resolve())},
+        candidate_count=1,
+        selected_candidate_paths=(str(candidate_path.resolve()),),
+        candidate_details=(),
+        analysis_summary={},
+        manifest_path="",
+        resource_request={"max_cores": 4, "max_memory_gb": 12},
+        resource_actual={"assigned_cores": 4, "memory_limit_gb": 12},
     )
 
 
@@ -104,15 +230,23 @@ def fake_reserve_slot(
     return "slot-1"
 
 
-def record_finished_call(finished_calls: list[dict[str, object]], kwargs: dict[str, object]) -> bool:
+def record_finished_call(
+    finished_calls: list[dict[str, object]], kwargs: dict[str, object]
+) -> bool:
     finished_calls.append(kwargs)
     return True
 
 
 __all__ = [
+    "CandidateSpDeps",
+    "FakeCandidateProcess",
     "fake_reserve_slot",
     "make_cfg",
     "make_entry",
+    "make_ranking_result",
     "make_result",
+    "make_runner_cfg",
     "record_finished_call",
+    "write_multi_xyz",
+    "write_xyz",
 ]

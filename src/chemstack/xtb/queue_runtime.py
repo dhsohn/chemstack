@@ -41,6 +41,7 @@ from chemstack.core.queue.worker import (
     terminate_process_group,
 )
 from chemstack.core.queue.internal_engine import (
+    InternalEngineQueueWorkerDeps,
     InternalEngineQueueRuntime,
     InternalEngineQueueWorkerFacade,
     InternalEngineSpec,
@@ -135,14 +136,6 @@ _engine_runtime = InternalEngineQueueRuntime.create(
     list_queue=lambda root: list_queue(root),
     dequeue_next=lambda root: dequeue_next(root),
 )
-_runtime_facade = InternalEngineQueueWorkerFacade(
-    runtime=_engine_runtime,
-    namespace=globals(),
-    poll_interval_seconds=POLL_INTERVAL_SECONDS,
-    shutdown_grace_seconds=WORKER_SHUTDOWN_GRACE_SECONDS,
-    find_queue_entry_name="_queue_entry_by_id",
-    mark_recovery_pending_name="_mark_recovery_pending_state",
-)
 
 queue_roots = _engine_runtime.queue_roots
 queue_entries_with_roots = _engine_runtime.queue_entries_with_roots
@@ -166,19 +159,6 @@ _write_execution_artifacts = _worker_terminal.write_execution_artifacts
 _write_running_state = _worker_terminal.write_running_state
 _build_terminal_result = _worker_terminal.build_terminal_result
 build_worker_child_command = _worker_execution.build_worker_child_command
-# Keep these names explicit: InternalEngineQueueWorkerFacade late-binds module
-# globals so tests and callers can monkeypatch the worker runtime surface.
-_RUNTIME_FACADE_GLOBALS = (
-    default_config_path,
-    reserve_slot,
-    config_path_for_worker,
-    start_background_process,
-    build_worker_child_command,
-    reconcile_stale_slots,
-    reconcile_orphaned_child_queue_entries,
-    mark_failed,
-    requeue_running_entry,
-)
 
 
 def _mark_recovery_pending_state(cfg: Any, entry: Any, *, reason: str) -> None:
@@ -405,6 +385,57 @@ class QueueWorker(HookedPidFileChildProcessQueueWorker):
             worker_pid_file_name=WORKER_PID_FILE,
             admission_root=_admission_root(cfg),
         )
+
+
+def _runtime_facade_deps() -> InternalEngineQueueWorkerDeps:
+    return InternalEngineQueueWorkerDeps(
+        time_module=time,
+        release_slot=lambda root, token: release_slot(root, token),
+        reserve_slot=lambda *args, **kwargs: reserve_slot(*args, **kwargs),
+        start_background_process=lambda command: start_background_process(command),
+        build_worker_child_command=lambda *args, **kwargs: build_worker_child_command(
+            *args,
+            **kwargs,
+        ),
+        config_path_for_worker=lambda *args, **kwargs: config_path_for_worker(*args, **kwargs),
+        default_config_path=lambda: default_config_path(),
+        activate_reserved_slot=lambda *args, **kwargs: activate_reserved_slot(*args, **kwargs),
+        terminate_process=lambda process: _terminate_process(process),
+        mark_failed=lambda *args, **kwargs: mark_failed(*args, **kwargs),
+        handle_worker_start_error=lambda *args, **kwargs: _handle_worker_start_error(
+            *args,
+            **kwargs,
+        ),
+        finalize_completed_job=lambda *args, **kwargs: _finalize_completed_job(*args, **kwargs),
+        finalize_child_exit=lambda *args, **kwargs: _finalize_child_exit(*args, **kwargs),
+        reconcile_worker_state=lambda worker: _reconcile_worker_state(worker),
+        list_queue=lambda root: list_queue(root),
+        list_slots=lambda root: list_slots(root),
+        reconcile_stale_slots=lambda root: reconcile_stale_slots(root),
+        reconcile_orphaned_child_queue_entries=lambda *args, **kwargs: (
+            reconcile_orphaned_child_queue_entries(*args, **kwargs)
+        ),
+        mark_cancelled=lambda *args, **kwargs: mark_cancelled(*args, **kwargs),
+        requeue_running_entry=lambda *args, **kwargs: requeue_running_entry(*args, **kwargs),
+        mark_recovery_pending=lambda *args, **kwargs: _mark_recovery_pending_state(
+            *args,
+            **kwargs,
+        ),
+        try_reserve_admission_slot=lambda cfg: _try_reserve_admission_slot(cfg),
+        start_background_job_process_fn=lambda **kwargs: _start_background_job_process(**kwargs),
+        find_queue_entry=lambda root, queue_id: _queue_entry_by_id(root, queue_id),
+        load_config=lambda config_path: load_config(config_path),
+        read_worker_pid=lambda allowed_root: read_worker_pid(allowed_root),
+        worker_class=lambda *args, **kwargs: QueueWorker(*args, **kwargs),
+    )
+
+
+_runtime_facade = InternalEngineQueueWorkerFacade(
+    runtime=_engine_runtime,
+    poll_interval_seconds=POLL_INTERVAL_SECONDS,
+    shutdown_grace_seconds=WORKER_SHUTDOWN_GRACE_SECONDS,
+    deps=_runtime_facade_deps(),
+)
 
 
 def cmd_queue_worker(args: Any) -> int:

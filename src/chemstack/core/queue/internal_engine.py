@@ -279,11 +279,43 @@ class InternalEngineQueueRuntime:
 
 
 @dataclass(frozen=True)
+class InternalEngineQueueWorkerDeps:
+    time_module: Any
+    release_slot: Callable[[str | Path, str], object]
+    reserve_slot: Callable[..., str | None]
+    start_background_process: Callable[[list[str]], Any]
+    build_worker_child_command: Callable[..., list[str]]
+    config_path_for_worker: Callable[..., str]
+    default_config_path: Callable[[], str]
+    activate_reserved_slot: Callable[..., Any]
+    terminate_process: Callable[[Any], Any]
+    mark_failed: Callable[..., Any]
+    handle_worker_start_error: Callable[[Any, Path, Any, str, OSError], None]
+    finalize_completed_job: Callable[[Any, str, Any, int], None]
+    finalize_child_exit: Callable[..., Any]
+    reconcile_worker_state: Callable[[Any], None]
+    list_queue: Callable[[Any], list[Any]]
+    list_slots: Callable[[Any], list[Any]]
+    reconcile_stale_slots: Callable[[Any], Any]
+    reconcile_orphaned_child_queue_entries: Callable[..., Any]
+    mark_cancelled: Callable[..., Any]
+    requeue_running_entry: Callable[..., Any]
+    mark_recovery_pending: Callable[..., Any]
+    try_reserve_admission_slot: Callable[[Any], str | None] | None = None
+    start_background_job_process_fn: Callable[..., Any] | None = None
+    find_queue_entry: Callable[[Any, str], Any | None] | None = None
+    load_config: Callable[[Any], Any] | None = None
+    read_worker_pid: Callable[[Path], int | None] | None = None
+    worker_class: Callable[..., Any] | None = None
+
+
+@dataclass(frozen=True)
 class InternalEngineQueueWorkerFacade:
     runtime: InternalEngineQueueRuntime
-    namespace: Mapping[str, Any]
     poll_interval_seconds: int
     shutdown_grace_seconds: float
+    deps: InternalEngineQueueWorkerDeps | None = None
+    namespace: Mapping[str, Any] | None = None
     time_module_name: str = "time"
     release_slot_name: str = "release_slot"
     reserve_slot_name: str = "reserve_slot"
@@ -304,23 +336,44 @@ class InternalEngineQueueWorkerFacade:
     mark_recovery_pending_name: str = "_mark_recovery_pending_entry"
 
     def _lookup(self, name: str) -> Any:
+        if self.namespace is None:
+            raise KeyError(name)
         return self.namespace[name]
 
+    def _dep(self, attr: str, fallback_name: str) -> Any:
+        if self.deps is not None:
+            return getattr(self.deps, attr)
+        return self._lookup(fallback_name)
+
     def _find_queue_entry(self, queue_root: Any, queue_id: str) -> Any | None:
-        if self.find_queue_entry_name:
+        if self.deps is not None and self.deps.find_queue_entry is not None:
+            return self.deps.find_queue_entry(queue_root, queue_id)
+        if self.find_queue_entry_name and self.namespace is not None:
             return self._lookup(self.find_queue_entry_name)(queue_root, queue_id)
         return self.runtime.queue_entry_by_id(queue_root, queue_id)
 
     def queue_worker_deps(self) -> Any:
-        return self.runtime.child_worker_deps_from_namespace(
-            namespace=self.namespace,
+        if self.deps is None:
+            return self.runtime.child_worker_deps_from_namespace(
+                namespace=self.namespace or {},
+                poll_interval_seconds=self.poll_interval_seconds,
+                time_module=self._dep("time_module", self.time_module_name),
+                release_slot_fn=self._dep("release_slot", self.release_slot_name),
+            )
+        return self.runtime.child_worker_deps(
             poll_interval_seconds=self.poll_interval_seconds,
-            time_module=self._lookup(self.time_module_name),
-            release_slot_fn=self._lookup(self.release_slot_name),
+            time_module=self.deps.time_module,
+            release_slot_fn=self.deps.release_slot,
+            start_background_job_process_fn=(
+                self.deps.start_background_job_process_fn or self.start_background_job_process
+            ),
+            try_reserve_admission_slot_fn=(
+                self.deps.try_reserve_admission_slot or self.try_reserve_admission_slot
+            ),
         )
 
     def try_reserve_admission_slot(self, cfg: Any) -> str | None:
-        reserve_slot_fn = self._lookup(self.reserve_slot_name)
+        reserve_slot_fn = self._dep("reserve_slot", self.reserve_slot_name)
         return self.runtime.reserve_admission_slot(cfg, reserve_slot_fn=reserve_slot_fn)
 
     def start_background_job_process(
@@ -332,8 +385,14 @@ class InternalEngineQueueWorkerFacade:
         admission_root: str | Path,
         admission_token: str,
     ) -> Any:
-        start_background_process_fn = self._lookup(self.start_background_process_name)
-        build_worker_child_command_fn = self._lookup(self.build_worker_child_command_name)
+        start_background_process_fn = self._dep(
+            "start_background_process",
+            self.start_background_process_name,
+        )
+        build_worker_child_command_fn = self._dep(
+            "build_worker_child_command",
+            self.build_worker_child_command_name,
+        )
         return self.runtime.start_child_process(
             config_path=config_path,
             queue_root=queue_root,
@@ -345,8 +404,11 @@ class InternalEngineQueueWorkerFacade:
         )
 
     def config_path_for_worker(self, args: Any) -> str:
-        config_path_for_worker_fn = self._lookup(self.config_path_for_worker_name)
-        default_config_path_fn = self._lookup(self.default_config_path_name)
+        config_path_for_worker_fn = self._dep(
+            "config_path_for_worker",
+            self.config_path_for_worker_name,
+        )
+        default_config_path_fn = self._dep("default_config_path", self.default_config_path_name)
         return config_path_for_worker_fn(
             args,
             default_config_path_fn=default_config_path_fn,
@@ -354,19 +416,36 @@ class InternalEngineQueueWorkerFacade:
 
     def queue_worker_hooks(self) -> Any:
         def activate_reserved_slot_fn(*args: Any, **kwargs: Any) -> Any:
-            return self._lookup(self.activate_reserved_slot_name)(*args, **kwargs)
+            return self._dep("activate_reserved_slot", self.activate_reserved_slot_name)(
+                *args,
+                **kwargs,
+            )
 
         def terminate_process_fn(process: Any) -> Any:
-            return self._lookup(self.terminate_process_name)(process)
+            return self._dep("terminate_process", self.terminate_process_name)(process)
 
         def mark_failed_fn(*args: Any, **kwargs: Any) -> Any:
-            return self._lookup(self.mark_failed_name)(*args, **kwargs)
+            return self._dep("mark_failed", self.mark_failed_name)(*args, **kwargs)
 
         def sleep_fn(seconds: float) -> None:
-            self._lookup(self.time_module_name).sleep(seconds)
+            self._dep("time_module", self.time_module_name).sleep(seconds)
+
+        if self.deps is not None:
+            return self.runtime.child_worker_hooks(
+                engine=self.runtime.spec.engine,
+                handle_worker_start_error_fn=self.deps.handle_worker_start_error,
+                finalize_completed_job_fn=self.deps.finalize_completed_job,
+                finalize_child_exit_fn=self.deps.finalize_child_exit,
+                reconcile_worker_state_fn=self.deps.reconcile_worker_state,
+                activate_reserved_slot_fn=activate_reserved_slot_fn,
+                terminate_process_fn=terminate_process_fn,
+                mark_failed_fn=mark_failed_fn,
+                shutdown_grace_seconds=self.shutdown_grace_seconds,
+                sleep_fn=sleep_fn,
+            )
 
         return self.runtime.child_worker_hooks_from_namespace(
-            namespace=self.namespace,
+            namespace=self.namespace or {},
             activate_reserved_slot_fn=activate_reserved_slot_fn,
             terminate_process_fn=terminate_process_fn,
             mark_failed_fn=mark_failed_fn,
@@ -381,9 +460,25 @@ class InternalEngineQueueWorkerFacade:
         config_path_fn: Callable[[Any], str],
         config_path_keyword: bool = True,
     ) -> int:
+        if self.deps is not None:
+            def worker_factory(cfg: Any, config_path: str, **kwargs: Any) -> Any:
+                if self.deps is None or self.deps.worker_class is None:
+                    raise ValueError("worker_class is required for queue worker command support")
+                if config_path_keyword:
+                    return self.deps.worker_class(cfg, config_path=config_path, **kwargs)
+                return self.deps.worker_class(cfg, config_path, **kwargs)
+
+            return self.runtime.run_pidfile_worker_command(
+                args,
+                config_path_fn=config_path_fn,
+                load_config_fn=self.deps.load_config,
+                read_worker_pid_fn=self.deps.read_worker_pid,
+                worker_factory=worker_factory,
+            )
+
         return self.runtime.run_pidfile_worker_command_from_namespace(
             args,
-            namespace=self.namespace,
+            namespace=self.namespace or {},
             config_path_fn=config_path_fn,
             config_path_keyword=config_path_keyword,
         )
@@ -395,10 +490,16 @@ class InternalEngineQueueWorkerFacade:
             rc=rc,
             shutdown_requested=worker._shutdown_requested,
             find_queue_entry_fn=self._find_queue_entry,
-            mark_cancelled_fn=self._lookup(self.mark_cancelled_name),
-            requeue_running_entry_fn=self._lookup(self.requeue_running_entry_name),
-            mark_failed_fn=self._lookup(self.mark_failed_name),
-            mark_recovery_pending_fn=self._lookup(self.mark_recovery_pending_name),
+            mark_cancelled_fn=self._dep("mark_cancelled", self.mark_cancelled_name),
+            requeue_running_entry_fn=self._dep(
+                "requeue_running_entry",
+                self.requeue_running_entry_name,
+            ),
+            mark_failed_fn=self._dep("mark_failed", self.mark_failed_name),
+            mark_recovery_pending_fn=self._dep(
+                "mark_recovery_pending",
+                self.mark_recovery_pending_name,
+            ),
             release_admission_slot_fn=worker._release_admission_slot,
         )
 
@@ -412,15 +513,25 @@ class InternalEngineQueueWorkerFacade:
             worker.cfg,
             admission_root=worker.admission_root,
             queue_roots_fn=self.runtime.queue_roots,
-            list_queue_fn=self._lookup(self.list_queue_name),
-            list_slots_fn=list_slots_fn or self._lookup(self.list_slots_name),
-            reconcile_stale_slots_fn=self._lookup(self.reconcile_stale_slots_name),
-            reconcile_orphaned_child_queue_entries_fn=self._lookup(
-                self.reconcile_orphaned_child_queue_entries_name
+            list_queue_fn=self._dep("list_queue", self.list_queue_name),
+            list_slots_fn=list_slots_fn or self._dep("list_slots", self.list_slots_name),
+            reconcile_stale_slots_fn=self._dep(
+                "reconcile_stale_slots",
+                self.reconcile_stale_slots_name,
             ),
-            mark_cancelled_fn=self._lookup(self.mark_cancelled_name),
-            requeue_running_entry_fn=self._lookup(self.requeue_running_entry_name),
-            mark_recovery_pending_fn=self._lookup(self.mark_recovery_pending_name),
+            reconcile_orphaned_child_queue_entries_fn=self._dep(
+                "reconcile_orphaned_child_queue_entries",
+                self.reconcile_orphaned_child_queue_entries_name,
+            ),
+            mark_cancelled_fn=self._dep("mark_cancelled", self.mark_cancelled_name),
+            requeue_running_entry_fn=self._dep(
+                "requeue_running_entry",
+                self.requeue_running_entry_name,
+            ),
+            mark_recovery_pending_fn=self._dep(
+                "mark_recovery_pending",
+                self.mark_recovery_pending_name,
+            ),
         )
 
 
@@ -801,6 +912,7 @@ class InternalEngineWorkerEntrypoint:
 __all__ = [
     "InternalEngineAdmission",
     "InternalEngineLifecycle",
+    "InternalEngineQueueWorkerDeps",
     "InternalEngineQueueRuntime",
     "InternalEngineQueueWorkerFacade",
     "InternalEngineSpec",

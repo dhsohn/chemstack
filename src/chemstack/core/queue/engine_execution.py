@@ -30,16 +30,19 @@ from .engine_lifecycle import (
 )
 from .internal_worker import (
     InternalEngineWorkerAdapter,
+    InternalEngineWorkerHooks,
     InternalWorkerProcessDependencies,
     InternalWorkerQueueDependencies,
     InternalWorkerTimingDependencies,
     InternalWorkerOptions,
     build_internal_engine_worker_adapter,
+    build_internal_engine_worker_adapter_from_hooks,
     queue_cancel_callback,
     queue_cancel_requested,
     raise_if_shutdown_requested,
     run_internal_cancellable_engine_process,
     run_internal_engine_worker_entry,
+    run_internal_engine_worker_entry_with_hooks,
     run_internal_worker_process_job,
 )
 from .metadata import (
@@ -66,6 +69,7 @@ __all__ = [
     "EngineArtifactFields",
     "EngineWorkerLifecycle",
     "InternalEngineWorkerAdapter",
+    "InternalEngineWorkerHooks",
     "InternalWorkerProcessDependencies",
     "InternalWorkerQueueDependencies",
     "InternalWorkerTimingDependencies",
@@ -92,6 +96,7 @@ __all__ = [
     "mark_recovery_pending_and_record",
     "mark_result_terminal_status",
     "build_internal_engine_worker_adapter",
+    "build_internal_engine_worker_adapter_from_hooks",
     "run_cancellable_process_execution",
     "run_cancellable_engine_process",
     "run_engine_worker_entry",
@@ -101,6 +106,7 @@ __all__ = [
     "raise_if_shutdown_requested",
     "run_internal_cancellable_engine_process",
     "run_internal_engine_worker_entry",
+    "run_internal_engine_worker_entry_with_hooks",
     "run_internal_worker_process_job",
     "sync_terminal_result",
     "terminal_report_lines",

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -19,6 +20,11 @@ def _mapping_field(raw: dict[str, Any], key: str) -> dict[str, Any]:
     return value
 
 
+def _existing_mapping_field(raw: dict[str, Any], key: str) -> dict[str, Any] | None:
+    value = raw.get(key)
+    return value if isinstance(value, dict) else None
+
+
 def _safe_int(value: Any, *, default: int = 0) -> int:
     try:
         return int(value)
@@ -29,6 +35,9 @@ def _safe_int(value: Any, *, default: int = 0) -> int:
 @dataclass(frozen=True)
 class WorkflowTaskView:
     raw: dict[str, Any]
+
+    def existing_mapping(self, key: str) -> dict[str, Any] | None:
+        return _existing_mapping_field(self.raw, key)
 
     def payload(self, o: Any) -> dict[str, Any]:
         if o is not None:
@@ -43,12 +52,21 @@ class WorkflowTaskView:
         del o
         return _mapping_field(self.raw, "enqueue_payload")
 
+    def existing_enqueue_payload(self) -> dict[str, Any] | None:
+        return self.existing_mapping("enqueue_payload")
+
     def submission_result(self, o: Any | None = None) -> dict[str, Any]:
         del o
         return _mapping_field(self.raw, "submission_result")
 
+    def existing_submission_result(self) -> dict[str, Any] | None:
+        return self.existing_mapping("submission_result")
+
     def resource_request(self) -> dict[str, Any]:
         return _mapping_field(self.raw, "resource_request")
+
+    def text_field(self, key: str, normalize_text: Callable[[Any], str]) -> str:
+        return normalize_text(self.raw.get(key))
 
     def engine(self, o: Any) -> str:
         return o.stages._normalize_text(self.raw.get("engine")).lower()
@@ -58,6 +76,13 @@ class WorkflowTaskView:
 
     def status(self, o: Any) -> str:
         return o.stages._normalize_text(self.raw.get("status")).lower()
+
+    def status_with(self, normalize_text: Callable[[Any], str]) -> str:
+        return self.text_field("status", normalize_text).lower()
+
+    def has_submitted_result(self) -> bool:
+        submission = self.existing_submission_result()
+        return submission is not None and submission.get("status") == "submitted"
 
     def set_status(self, status: str) -> None:
         self.raw["status"] = status
@@ -108,6 +133,19 @@ class WorkflowTaskView:
 
 
 @dataclass(frozen=True)
+class WorkflowStageStatus:
+    stage: str
+    task: str
+
+    def any_status(self, *statuses: str) -> bool:
+        targets = set(statuses)
+        return self.stage in targets or self.task in targets
+
+    def any_matches(self, predicate: Callable[[str], bool]) -> bool:
+        return predicate(self.stage) or predicate(self.task)
+
+
+@dataclass(frozen=True)
 class WorkflowStageView:
     raw: dict[str, Any]
 
@@ -119,6 +157,11 @@ class WorkflowStageView:
     def task(self) -> WorkflowTaskView:
         task = self.raw.get("task")
         return WorkflowTaskView(task if isinstance(task, dict) else {})
+
+    @property
+    def existing_task(self) -> WorkflowTaskView | None:
+        task = self.raw.get("task")
+        return WorkflowTaskView(task) if isinstance(task, dict) else None
 
     @property
     def has_task(self) -> bool:
@@ -136,11 +179,33 @@ class WorkflowStageView:
             return o.stages._stage_metadata(self.raw)
         return _mapping_field(self.raw, "metadata")
 
+    def existing_metadata(self) -> dict[str, Any] | None:
+        return _existing_mapping_field(self.raw, "metadata")
+
+    def text_field(self, key: str, normalize_text: Callable[[Any], str]) -> str:
+        return normalize_text(self.raw.get(key))
+
     def stage_id(self, o: Any) -> str:
         return o.stages._normalize_text(self.raw.get("stage_id"))
 
+    def stage_id_with(self, normalize_text: Callable[[Any], str]) -> str:
+        return self.text_field("stage_id", normalize_text)
+
     def status(self, o: Any) -> str:
         return o.stages._normalize_text(self.raw.get("status")).lower()
+
+    def status_with(self, normalize_text: Callable[[Any], str]) -> str:
+        return self.text_field("status", normalize_text).lower()
+
+    def status_pair(self, o: Any) -> WorkflowStageStatus:
+        return WorkflowStageStatus(stage=self.status(o), task=self.task_status(o))
+
+    def status_pair_with(self, normalize_text: Callable[[Any], str]) -> WorkflowStageStatus:
+        task = self.existing_task
+        return WorkflowStageStatus(
+            stage=self.status_with(normalize_text),
+            task=task.status_with(normalize_text) if task is not None else "",
+        )
 
     def set_status(self, status: str) -> None:
         self.raw["status"] = status
@@ -219,6 +284,29 @@ class WorkflowStageView:
 
     def task_status(self, o: Any) -> str:
         return self.task.status(o)
+
+
+@dataclass(frozen=True)
+class WorkflowPayloadView:
+    raw: dict[str, Any]
+
+    @property
+    def stage_views(self) -> list[WorkflowStageView]:
+        return _stage_views(self.raw)
+
+    def metadata(self) -> dict[str, Any] | None:
+        metadata = self.raw.setdefault("metadata", {})
+        return metadata if isinstance(metadata, dict) else None
+
+    def workflow_id(self, normalize_text: Callable[[Any], str] | None = None) -> str:
+        value = self.raw.get("workflow_id", "")
+        return normalize_text(value) if normalize_text is not None else str(value)
+
+    def status(self, normalize_text: Callable[[Any], str]) -> str:
+        return normalize_text(self.raw.get("status")).lower()
+
+    def set_status(self, status: str) -> None:
+        self.raw["status"] = status
 
 
 def _stage_views(payload: dict[str, Any]) -> list[WorkflowStageView]:

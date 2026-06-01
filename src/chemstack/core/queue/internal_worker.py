@@ -49,6 +49,18 @@ class InternalEngineWorkerAdapter:
     check_shutdown: Callable[[Any, InternalWorkerOptions], None] | None = None
 
 
+@dataclass(frozen=True)
+class InternalEngineWorkerHooks:
+    build_context: Callable[[Any, Any], Any]
+    mark_running: Callable[[Any, Any, InternalWorkerOptions], None]
+    run_job: Callable[[Any, Any, Path, InternalWorkerOptions], Any]
+    finalize_entry: Callable[[Any, Any, Any, Path, InternalWorkerOptions], Any]
+    shutdown_exception_type: type[BaseException]
+    build_outcome: Callable[[Any, Any, Any], Any] = (
+        lambda _context, _result, finalized: finalized
+    )
+
+
 def build_internal_engine_worker_adapter(
     *,
     build_context: Callable[[Any, Any], Any],
@@ -71,6 +83,19 @@ def build_internal_engine_worker_adapter(
         run_job=run_job,
         finalize_entry=finalize_entry,
         build_outcome=build_outcome,
+    )
+
+
+def build_internal_engine_worker_adapter_from_hooks(
+    hooks: InternalEngineWorkerHooks,
+) -> InternalEngineWorkerAdapter:
+    return build_internal_engine_worker_adapter(
+        build_context=hooks.build_context,
+        mark_running=hooks.mark_running,
+        run_job=hooks.run_job,
+        finalize_entry=hooks.finalize_entry,
+        shutdown_exception_type=hooks.shutdown_exception_type,
+        build_outcome=hooks.build_outcome,
     )
 
 
@@ -146,6 +171,23 @@ def run_internal_engine_worker_entry(
     )
 
 
+def run_internal_engine_worker_entry_with_hooks(
+    cfg: Any,
+    entry: Any,
+    *,
+    queue_root: Path | None,
+    hooks: InternalEngineWorkerHooks,
+    options: InternalWorkerOptions | None = None,
+) -> Any:
+    return run_internal_engine_worker_entry(
+        cfg,
+        entry,
+        queue_root=queue_root,
+        adapter=build_internal_engine_worker_adapter_from_hooks(hooks),
+        options=options,
+    )
+
+
 def run_internal_cancellable_engine_process(
     context: Any,
     *,
@@ -212,15 +254,18 @@ def run_internal_worker_process_job(
 
 __all__ = [
     "InternalEngineWorkerAdapter",
+    "InternalEngineWorkerHooks",
     "InternalWorkerProcessDependencies",
     "InternalWorkerQueueDependencies",
     "InternalWorkerTimingDependencies",
     "InternalWorkerOptions",
     "build_internal_engine_worker_adapter",
+    "build_internal_engine_worker_adapter_from_hooks",
     "queue_cancel_callback",
     "queue_cancel_requested",
     "raise_if_shutdown_requested",
     "run_internal_cancellable_engine_process",
     "run_internal_engine_worker_entry",
+    "run_internal_engine_worker_entry_with_hooks",
     "run_internal_worker_process_job",
 ]

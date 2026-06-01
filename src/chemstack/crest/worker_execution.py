@@ -398,12 +398,12 @@ def _finalize_processed_entry(
     )
 
 
-def build_worker_adapter(
+def _worker_hooks(
     *,
     molecule_key_resolver: Callable[[Any, Path, Path], str],
     dependencies: WorkerExecutionDependencies,
-) -> _engine_execution.InternalEngineWorkerAdapter:
-    return _engine_execution.build_internal_engine_worker_adapter(
+) -> _engine_execution.InternalEngineWorkerHooks:
+    return _engine_execution.InternalEngineWorkerHooks(
         build_context=lambda cfg_obj, entry_obj: _build_execution_context(
             cfg_obj,
             entry_obj,
@@ -441,6 +441,19 @@ def build_worker_adapter(
     )
 
 
+def build_worker_adapter(
+    *,
+    molecule_key_resolver: Callable[[Any, Path, Path], str],
+    dependencies: WorkerExecutionDependencies,
+) -> _engine_execution.InternalEngineWorkerAdapter:
+    return _engine_execution.build_internal_engine_worker_adapter_from_hooks(
+        _worker_hooks(
+            molecule_key_resolver=molecule_key_resolver,
+            dependencies=dependencies,
+        )
+    )
+
+
 def process_dequeued_entry(
     cfg: Any,
     entry: Any,
@@ -450,11 +463,11 @@ def process_dequeued_entry(
     dependencies: WorkerExecutionDependencies,
     shutdown_requested: Callable[[], bool] | None = None,
 ) -> WorkerExecutionOutcome:
-    return _engine_execution.run_internal_engine_worker_entry(
+    return _engine_execution.run_internal_engine_worker_entry_with_hooks(
         cfg,
         entry,
         queue_root=queue_root,
-        adapter=build_worker_adapter(
+        hooks=_worker_hooks(
             molecule_key_resolver=molecule_key_resolver,
             dependencies=dependencies,
         ),

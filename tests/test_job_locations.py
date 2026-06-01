@@ -3,7 +3,9 @@ from __future__ import annotations
 import json
 import tempfile
 from pathlib import Path
+from unittest.mock import patch
 
+from chemstack.orca import _job_location_contracts
 from chemstack.orca.config import AppConfig, CommonResourceConfig, PathsConfig, RuntimeConfig
 from chemstack.orca.job_locations import (
     collect_reindex_payload,
@@ -538,6 +540,22 @@ def test_load_orca_contract_payload_returns_normalized_runtime_fields() -> None:
         assert payload["attempt_count"] == 1
         assert payload["max_retries"] == 3
         assert payload["resource_request"] == {"max_cores": 8, "max_memory_gb": 16}
+
+
+def test_load_orca_contract_payload_uses_single_dependency_resolver() -> None:
+    original_deps = _job_location_contracts._job_location_deps
+    call_count = 0
+
+    def counting_deps() -> object:
+        nonlocal call_count
+        call_count += 1
+        return original_deps()
+
+    with tempfile.TemporaryDirectory() as td:
+        with patch.object(_job_location_contracts, "_job_location_deps", counting_deps):
+            assert _job_location_contracts.load_orca_contract_payload(Path(td), "missing") == {}
+
+    assert call_count == 1
 
 
 def test_job_locations_uses_core_indexing_backend() -> None:

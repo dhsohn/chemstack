@@ -17,7 +17,6 @@ from chemstack.core.admission import (
     reserve_slot,
 )
 from chemstack.core.queue.types import QueueEntry
-from chemstack.orca.attempt_reporting import build_final_result
 from chemstack.orca.config import AppConfig, RuntimeConfig, TelegramConfig
 from chemstack.orca.queue_adapter import (
     cancel,
@@ -38,45 +37,12 @@ from chemstack.orca.queue_worker import (
     _terminate_process,
     read_worker_pid,
 )
-from chemstack.orca.state import finalize_state, load_state, new_state
-from chemstack.orca.statuses import AnalyzerStatus, RunStatus
+from chemstack.orca.state import finalize_state, load_state
 from tests.process_helpers import patch_missing_process_group, preserved_signal_handlers
-
-def _make_cfg(tmp: str) -> AppConfig:
-    return AppConfig(runtime=RuntimeConfig(allowed_root=tmp))
-
-
-def _write_completed_run_state(reaction_dir: Path) -> None:
-    selected_inp = reaction_dir / "rxn.inp"
-    selected_inp.write_text("! Opt\n", encoding="utf-8")
-    state = new_state(reaction_dir, selected_inp, max_retries=2)
-    state["job_id"] = "task_terminal_123"
-    state["attempts"].append(
-        {
-            "index": 1,
-            "inp_path": str(selected_inp),
-            "out_path": str(reaction_dir / "rxn.out"),
-            "return_code": 0,
-            "analyzer_status": "completed",
-            "analyzer_reason": "normal_termination",
-            "markers": {},
-            "patch_actions": [],
-            "started_at": "2026-05-29T12:00:00+00:00",
-            "ended_at": "2026-05-29T12:01:00+00:00",
-        }
-    )
-    finalize_state(
-        reaction_dir,
-        state,
-        status=RunStatus.COMPLETED.value,
-        final_result=build_final_result(
-            status=RunStatus.COMPLETED,
-            analyzer_status=AnalyzerStatus.COMPLETED,
-            reason="normal_termination",
-            last_out_path=str(reaction_dir / "rxn.out"),
-            resumed=False,
-        ),
-    )
+from tests.queue_worker_helpers import (
+    make_queue_worker_cfg as _make_cfg,
+    write_completed_run_state as _write_completed_run_state,
+)
 
 
 class TestStartJobProcess(unittest.TestCase):

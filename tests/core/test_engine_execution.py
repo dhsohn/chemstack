@@ -181,6 +181,60 @@ def test_build_internal_engine_worker_adapter_installs_shutdown_check(tmp_path: 
         raise AssertionError("expected shutdown")
 
 
+def test_run_internal_engine_worker_entry_with_hooks_builds_adapter(tmp_path: Path) -> None:
+    cfg = SimpleNamespace(runtime=SimpleNamespace(allowed_root=str(tmp_path / "allowed")))
+    entry = SimpleNamespace(queue_id="q-1")
+    calls: list[tuple[str, Any]] = []
+
+    def run_job(_cfg: Any, _context: Any, queue_root: Path, _options: Any) -> str:
+        calls.append(("run", queue_root))
+        return "result"
+
+    def finalize_entry(
+        _cfg: Any,
+        _context: Any,
+        result: str,
+        _queue_root: Path,
+        _options: Any,
+    ) -> str:
+        calls.append(("finalize", result))
+        return "finalized"
+
+    def build_outcome(_context: Any, result: str, finalized: str) -> str:
+        calls.append(("outcome", result))
+        return finalized
+
+    hooks = engine_execution.InternalEngineWorkerHooks(
+        build_context=lambda cfg_obj, entry_obj: SimpleNamespace(
+            cfg=cfg_obj,
+            entry=entry_obj,
+        ),
+        mark_running=lambda _cfg, _context, options: calls.append(
+            ("mark", options.emit_output)
+        ),
+        run_job=run_job,
+        finalize_entry=finalize_entry,
+        build_outcome=build_outcome,
+        shutdown_exception_type=RuntimeError,
+    )
+
+    outcome = engine_execution.run_internal_engine_worker_entry_with_hooks(
+        cfg,
+        entry,
+        queue_root=tmp_path / "queue",
+        hooks=hooks,
+        options=engine_execution.InternalWorkerOptions(emit_output=True),
+    )
+
+    assert outcome == "finalized"
+    assert calls == [
+        ("mark", True),
+        ("run", tmp_path / "queue"),
+        ("finalize", "result"),
+        ("outcome", "result"),
+    ]
+
+
 def test_raise_if_shutdown_requested_uses_engine_context() -> None:
     class ShutdownRequested(RuntimeError):
         def __init__(self, context: Any) -> None:

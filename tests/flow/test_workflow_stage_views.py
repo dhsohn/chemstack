@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from chemstack.flow.orchestration.stage_views import WorkflowStageView, WorkflowTaskView
+from chemstack.flow.orchestration.stage_views import (
+    WorkflowPayloadView,
+    WorkflowStageView,
+    WorkflowTaskView,
+)
 
 
 def test_task_view_mapping_fields_create_mutable_dicts() -> None:
@@ -45,6 +49,18 @@ def test_task_view_field_helpers_update_and_clear_nested_fields() -> None:
     assert task["metadata"] == {"keep": True, "attempt": 2}
 
 
+def test_task_view_existing_mapping_reads_do_not_coerce_bad_payloads() -> None:
+    task: dict[str, Any] = {
+        "enqueue_payload": "bad",
+        "submission_result": {"status": "submitted"},
+    }
+    view = WorkflowTaskView(task)
+
+    assert view.existing_enqueue_payload() is None
+    assert view.has_submitted_result() is True
+    assert task["enqueue_payload"] == "bad"
+
+
 def test_stage_view_status_pair_updates_stage_and_existing_task() -> None:
     stage: dict[str, Any] = {"status": "planned", "task": {"status": "planned"}}
 
@@ -61,6 +77,20 @@ def test_stage_view_status_pair_ignores_missing_task() -> None:
 
     assert stage["status"] == "cancelled"
     assert stage["task"] is None
+
+
+def test_stage_view_status_pair_snapshot_uses_normalizer() -> None:
+    stage: dict[str, Any] = {
+        "status": " Queued ",
+        "task": {"status": " Submitted "},
+    }
+
+    status = WorkflowStageView(stage).status_pair_with(lambda value: str(value).strip())
+
+    assert status.stage == "queued"
+    assert status.task == "submitted"
+    assert status.any_status("submitted") is True
+    assert status.any_matches(lambda value: value.endswith("ed")) is True
 
 
 def test_stage_view_ensure_task_creates_mutable_task_mapping() -> None:
@@ -137,3 +167,21 @@ def test_stage_view_reaction_handoff_sets_and_clears_optional_fields() -> None:
         "reaction_handoff_status": "ready",
         "reaction_handoff_artifact_path": "/tmp/ts_guess.xyz",
     }
+
+
+def test_payload_view_filters_stage_views_and_preserves_bad_metadata() -> None:
+    payload: dict[str, Any] = {
+        "workflow_id": " wf_01 ",
+        "status": " Running ",
+        "metadata": "bad",
+        "stages": ["skip", {"stage_id": "stage_1"}],
+    }
+    view = WorkflowPayloadView(payload)
+
+    view.set_status("queued")
+
+    assert [stage.raw for stage in view.stage_views] == [{"stage_id": "stage_1"}]
+    assert view.workflow_id(lambda value: str(value).strip()) == "wf_01"
+    assert view.status(lambda value: str(value).strip()) == "queued"
+    assert view.metadata() is None
+    assert payload["metadata"] == "bad"

@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
-from dataclasses import asdict, dataclass, fields
+from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import Any
 
 from chemstack.core.indexing import JobLocationRecord
 
@@ -46,38 +45,22 @@ from .state import (
 
 
 @dataclass(frozen=True)
-class _JobLocationRuntimeDeps:
+class _JobLocationDeps:
     JobRuntimeContext: Any
     _runtime_paths: Any
-
-
-@dataclass(frozen=True)
-class _JobLocationStorageDeps:
     list_job_location_records: Any
     load_organized_ref: Any
     load_report_json: Any
     load_state: Any
     resolve_record_job_dir: Any
-
-
-@dataclass(frozen=True)
-class _JobLocationArtifactDeps:
     _first_artifact_context: Any
     _hydrated_organized_ref: Any
     _job_artifact_context: Any
     _record_organized_dir: Any
-
-
-@dataclass(frozen=True)
-class _JobLocationPayloadDeps:
     final_result_payload: Any
     queue_entry_metadata_value: Any
     status_from_payloads: Any
     _find_queue_entry: Any
-
-
-@dataclass(frozen=True)
-class _JobLocationUtilityDeps:
     attempt_count: Any
     coerce_attempts: Any
     derive_selected_input_xyz: Any
@@ -91,76 +74,34 @@ class _JobLocationUtilityDeps:
     resource_dict_from_any: Any
 
 
-_JOB_LOCATION_DEP_GROUPS: Mapping[str, type[Any]] = {
-    "runtime": _JobLocationRuntimeDeps,
-    "storage": _JobLocationStorageDeps,
-    "artifacts": _JobLocationArtifactDeps,
-    "payloads": _JobLocationPayloadDeps,
-    "utils": _JobLocationUtilityDeps,
-}
-
-_JOB_LOCATION_DEP_TARGETS: Mapping[str, str] = {
-    field.name: group_name
-    for group_name, deps_type in _JOB_LOCATION_DEP_GROUPS.items()
-    for field in fields(deps_type)
-}
-
-
-@dataclass(frozen=True)
-class _JobLocationDeps:
-    runtime: _JobLocationRuntimeDeps
-    storage: _JobLocationStorageDeps
-    artifacts: _JobLocationArtifactDeps
-    payloads: _JobLocationPayloadDeps
-    utils: _JobLocationUtilityDeps
-
-    _PASSTHROUGH_TARGETS: ClassVar[Mapping[str, str]] = _JOB_LOCATION_DEP_TARGETS
-
-    def __getattr__(self, name: str) -> Any:
-        group_name = self._PASSTHROUGH_TARGETS.get(name)
-        if group_name is None:
-            raise AttributeError(f"{type(self).__name__!s} has no attribute {name!r}")
-        return getattr(getattr(self, group_name), name)
-
-
 def _job_location_deps() -> _JobLocationDeps:
     return _JobLocationDeps(
-        runtime=_JobLocationRuntimeDeps(
-            JobRuntimeContext=JobRuntimeContext,
-            _runtime_paths=_runtime_paths,
-        ),
-        storage=_JobLocationStorageDeps(
-            list_job_location_records=list_job_location_records,
-            load_organized_ref=load_organized_ref,
-            load_report_json=load_report_json,
-            load_state=load_state,
-            resolve_record_job_dir=resolve_record_job_dir,
-        ),
-        artifacts=_JobLocationArtifactDeps(
-            _first_artifact_context=_first_artifact_context,
-            _hydrated_organized_ref=_hydrated_organized_ref,
-            _job_artifact_context=_job_artifact_context,
-            _record_organized_dir=_record_organized_dir,
-        ),
-        payloads=_JobLocationPayloadDeps(
-            final_result_payload=final_result_payload,
-            queue_entry_metadata_value=queue_entry_metadata_value,
-            status_from_payloads=status_from_payloads,
-            _find_queue_entry=_find_queue_entry,
-        ),
-        utils=_JobLocationUtilityDeps(
-            attempt_count=attempt_count,
-            coerce_attempts=coerce_attempts,
-            derive_selected_input_xyz=derive_selected_input_xyz,
-            is_subpath=is_subpath,
-            max_retries=max_retries,
-            normalize_bool=normalize_bool,
-            normalize_text=normalize_text,
-            prefer_orca_optimized_xyz=prefer_orca_optimized_xyz,
-            resolve_artifact_path=resolve_artifact_path,
-            resolve_existing_job_dir=resolve_existing_job_dir,
-            resource_dict_from_any=resource_dict_from_any,
-        ),
+        JobRuntimeContext=JobRuntimeContext,
+        _runtime_paths=_runtime_paths,
+        list_job_location_records=list_job_location_records,
+        load_organized_ref=load_organized_ref,
+        load_report_json=load_report_json,
+        load_state=load_state,
+        resolve_record_job_dir=resolve_record_job_dir,
+        _first_artifact_context=_first_artifact_context,
+        _hydrated_organized_ref=_hydrated_organized_ref,
+        _job_artifact_context=_job_artifact_context,
+        _record_organized_dir=_record_organized_dir,
+        final_result_payload=final_result_payload,
+        queue_entry_metadata_value=queue_entry_metadata_value,
+        status_from_payloads=status_from_payloads,
+        _find_queue_entry=_find_queue_entry,
+        attempt_count=attempt_count,
+        coerce_attempts=coerce_attempts,
+        derive_selected_input_xyz=derive_selected_input_xyz,
+        is_subpath=is_subpath,
+        max_retries=max_retries,
+        normalize_bool=normalize_bool,
+        normalize_text=normalize_text,
+        prefer_orca_optimized_xyz=prefer_orca_optimized_xyz,
+        resolve_artifact_path=resolve_artifact_path,
+        resolve_existing_job_dir=resolve_existing_job_dir,
+        resource_dict_from_any=resource_dict_from_any,
     )
 
 
@@ -266,7 +207,7 @@ def load_job_runtime_context(
     run_id: str = "",
     reaction_dir: str = "",
 ) -> JobRuntimeContext:
-    return _runtime_context.load_job_runtime_context(
+    return _load_job_runtime_context(
         index_root,
         target,
         organized_root=organized_root,
@@ -274,6 +215,27 @@ def load_job_runtime_context(
         run_id=run_id,
         reaction_dir=reaction_dir,
         deps=_job_location_deps(),
+    )
+
+
+def _load_job_runtime_context(
+    index_root: str | Path,
+    target: str,
+    *,
+    organized_root: str | Path | None = None,
+    queue_id: str = "",
+    run_id: str = "",
+    reaction_dir: str = "",
+    deps: _JobLocationDeps,
+) -> JobRuntimeContext:
+    return _runtime_context.load_job_runtime_context(
+        index_root,
+        target,
+        organized_root=organized_root,
+        queue_id=queue_id,
+        run_id=run_id,
+        reaction_dir=reaction_dir,
+        deps=deps,
     )
 
 
@@ -297,12 +259,13 @@ def _runtime_current_dir(
     *,
     queue_entry: dict[str, Any],
     reaction_dir: str,
+    deps: _JobLocationDeps,
 ) -> Path | None:
     return _contract_payload.runtime_current_dir(
         runtime,
         queue_entry=queue_entry,
         reaction_dir=reaction_dir,
-        deps=_job_location_deps(),
+        deps=deps,
     )
 
 
@@ -313,6 +276,7 @@ def _resolved_run_id(
     report: dict[str, Any],
     organized_ref: dict[str, Any],
     queue_entry: dict[str, Any],
+    deps: _JobLocationDeps,
 ) -> str:
     return _contract_payload.resolved_run_id(
         run_id=run_id,
@@ -320,7 +284,7 @@ def _resolved_run_id(
         report=report,
         organized_ref=organized_ref,
         queue_entry=queue_entry,
-        deps=_job_location_deps(),
+        deps=deps,
     )
 
 
@@ -330,13 +294,14 @@ def _latest_known_path(
     runtime: JobRuntimeContext,
     current_dir: Path | None,
     target: str,
+    deps: _JobLocationDeps,
 ) -> str:
     return _contract_payload.latest_known_path(
         record=record,
         runtime=runtime,
         current_dir=current_dir,
         target=target,
-        deps=_job_location_deps(),
+        deps=deps,
     )
 
 
@@ -349,6 +314,7 @@ def _selected_artifact_paths(
     current_dir: Path | None,
     organized_dir: Path | None,
     latest_known_path: str,
+    deps: _JobLocationDeps,
 ) -> tuple[str, str, str, str]:
     return _contract_payload.selected_artifact_paths(
         record=record,
@@ -358,7 +324,7 @@ def _selected_artifact_paths(
         current_dir=current_dir,
         organized_dir=organized_dir,
         latest_known_path=latest_known_path,
-        deps=_job_location_deps(),
+        deps=deps,
     )
 
 
@@ -366,11 +332,12 @@ def _runtime_resources(
     *,
     record: JobLocationRecord | None,
     queue_entry: dict[str, Any],
+    deps: _JobLocationDeps,
 ) -> tuple[dict[str, int], dict[str, int]]:
     return _contract_payload.runtime_resources(
         record=record,
         queue_entry=queue_entry,
-        deps=_job_location_deps(),
+        deps=deps,
     )
 
 
@@ -381,6 +348,7 @@ def _organized_output_dir(
     organized_dir: Path | None,
     current_dir: Path | None,
     organized_root: str | Path | None,
+    deps: _JobLocationDeps,
 ) -> str:
     return _contract_payload.organized_output_dir(
         record=record,
@@ -388,7 +356,7 @@ def _organized_output_dir(
         organized_dir=organized_dir,
         current_dir=current_dir,
         organized_root=organized_root,
-        deps=_job_location_deps(),
+        deps=deps,
     )
 
 
@@ -398,13 +366,14 @@ def _resolved_status(
     queue_entry: dict[str, Any],
     state: dict[str, Any],
     report: dict[str, Any],
+    deps: _JobLocationDeps,
 ) -> tuple[str, str, str, str]:
     return _contract_payload.resolved_status(
         record=record,
         queue_entry=queue_entry,
         state=state,
         report=report,
-        deps=_job_location_deps(),
+        deps=deps,
     )
 
 
@@ -416,6 +385,7 @@ def _orca_contract_resolved_fields(
     target: str,
     run_id: str,
     organized_root: str | Path | None,
+    deps: _JobLocationDeps,
 ) -> _OrcaContractResolvedFields:
     record = payloads.record
     queue_entry = payloads.queue_entry
@@ -427,6 +397,7 @@ def _orca_contract_resolved_fields(
         runtime=runtime,
         current_dir=current_dir,
         target=target,
+        deps=deps,
     )
     selected_inp, selected_input_xyz, last_out_path, optimized_xyz_path = _selected_artifact_paths(
         record=record,
@@ -436,16 +407,19 @@ def _orca_contract_resolved_fields(
         current_dir=current_dir,
         organized_dir=runtime.organized_dir,
         latest_known_path=latest_known_path,
+        deps=deps,
     )
     status, analyzer_status, reason, completed_at = _resolved_status(
         record=record,
         queue_entry=queue_entry,
         state=state,
         report=report,
+        deps=deps,
     )
     resource_request, resource_actual = _runtime_resources(
         record=record,
         queue_entry=queue_entry,
+        deps=deps,
     )
     return _OrcaContractResolvedFields(
         resolved_run_id=_resolved_run_id(
@@ -454,9 +428,10 @@ def _orca_contract_resolved_fields(
             report=report,
             organized_ref=organized_ref,
             queue_entry=queue_entry,
+            deps=deps,
         ),
         latest_known_path=latest_known_path,
-        state_status=normalize_text(state.get("status")).lower(),
+        state_status=deps.normalize_text(state.get("status")).lower(),
         status=status,
         analyzer_status=analyzer_status,
         reason=reason,
@@ -471,6 +446,7 @@ def _orca_contract_resolved_fields(
             organized_dir=runtime.organized_dir,
             current_dir=current_dir,
             organized_root=organized_root,
+            deps=deps,
         ),
         resource_request=resource_request,
         resource_actual=resource_actual,
@@ -485,14 +461,16 @@ def _orca_contract_payload_context(
     queue_id: str = "",
     run_id: str = "",
     reaction_dir: str = "",
+    deps: _JobLocationDeps,
 ) -> OrcaContractPayloadContext:
-    runtime = load_job_runtime_context(
+    runtime = _load_job_runtime_context(
         index_root,
         target,
         organized_root=organized_root,
         queue_id=queue_id,
         run_id=run_id,
         reaction_dir=reaction_dir,
+        deps=deps,
     )
     payloads = _runtime_payloads(runtime)
     record = payloads.record
@@ -504,6 +482,7 @@ def _orca_contract_payload_context(
         runtime,
         queue_entry=queue_entry,
         reaction_dir=reaction_dir,
+        deps=deps,
     )
     resolved = _orca_contract_resolved_fields(
         runtime=runtime,
@@ -512,6 +491,7 @@ def _orca_contract_payload_context(
         target=target,
         run_id=run_id,
         organized_root=organized_root,
+        deps=deps,
     )
 
     return OrcaContractPayloadContext(
@@ -528,8 +508,12 @@ def _orca_contract_payload_context(
     )
 
 
-def _orca_contract_payload(ctx: OrcaContractPayloadContext) -> dict[str, Any]:
-    return _contract_payload.orca_contract_payload(ctx, deps=_job_location_deps())
+def _orca_contract_payload(
+    ctx: OrcaContractPayloadContext,
+    *,
+    deps: _JobLocationDeps,
+) -> dict[str, Any]:
+    return _contract_payload.orca_contract_payload(ctx, deps=deps)
 
 
 def load_orca_contract_payload(
@@ -541,6 +525,7 @@ def load_orca_contract_payload(
     run_id: str = "",
     reaction_dir: str = "",
 ) -> dict[str, Any]:
+    deps = _job_location_deps()
     ctx = _orca_contract_payload_context(
         index_root,
         target,
@@ -548,12 +533,13 @@ def load_orca_contract_payload(
         queue_id=queue_id,
         run_id=run_id,
         reaction_dir=reaction_dir,
+        deps=deps,
     )
     if ctx.missing:
         return {}
-    payload = _orca_contract_payload(ctx)
+    payload = _orca_contract_payload(ctx, deps=deps)
     if not payload["queue_id"]:
-        payload["queue_id"] = normalize_text(queue_id)
+        payload["queue_id"] = deps.normalize_text(queue_id)
     return payload
 
 

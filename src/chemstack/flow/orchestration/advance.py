@@ -16,7 +16,7 @@ from chemstack.core.statuses import (
 )
 
 from chemstack.flow.orchestration.deps import OrchestrationDeps, orchestration_deps
-from chemstack.flow.orchestration.stage_views import WorkflowStageView
+from chemstack.flow.orchestration.stage_views import WorkflowPayloadView, WorkflowStageView
 from chemstack.flow._workflow_phases import phase_finished
 from chemstack.flow.contracts.workflow import workflow_stage_dicts
 from chemstack.flow.engine_options import WorkflowEngineOptions
@@ -37,6 +37,49 @@ _CancelTargetHandler = Callable[
     [OrchestrationDeps, str, WorkflowEngineOptions],
     dict[str, Any],
 ]
+
+
+@dataclass(frozen=True)
+class _StageCancelOutcome:
+    status: str
+    reason: str = ""
+    mode: str = ""
+
+    @classmethod
+    def skipped(cls, reason: str) -> _StageCancelOutcome:
+        return cls(status="skipped", reason=reason)
+
+    @classmethod
+    def failed(cls, reason: str) -> _StageCancelOutcome:
+        return cls(status=STATUS_FAILED, reason=reason)
+
+    @classmethod
+    def from_payload(cls, payload: dict[str, Any]) -> _StageCancelOutcome:
+        return cls(
+            status=str(payload.get("status", "") or ""),
+            reason=str(payload.get("reason", "") or ""),
+            mode=str(payload.get("mode", "") or ""),
+        )
+
+    @property
+    def acknowledged(self) -> bool:
+        return is_cancel_ack_status(self.status)
+
+    def to_payload(self) -> dict[str, Any]:
+        payload = {"status": self.status}
+        if self.reason:
+            payload["reason"] = self.reason
+        if self.mode:
+            payload["mode"] = self.mode
+        return payload
+
+    def cancelled_record(self, stage_id: str) -> dict[str, Any]:
+        if self.mode:
+            return {"stage_id": stage_id, "mode": self.mode}
+        return {"stage_id": stage_id, "status": self.status}
+
+    def failed_record(self, stage_id: str) -> dict[str, Any]:
+        return {"stage_id": stage_id, "reason": self.reason or STATUS_CANCEL_FAILED}
 
 
 def _missing_engine_config_cancel_result() -> dict[str, Any]:
@@ -212,8 +255,8 @@ def _orca_stage_count(
     o = deps or orchestration_deps()
     return sum(
         1
-        for stage in workflow_stage_dicts(payload)
-        if o.stages._normalize_text((stage.get("task") or {}).get("engine")).lower() == "orca"
+        for stage_view in WorkflowPayloadView(payload).stage_views
+        if stage_view.task_engine(o) == "orca"
     )
 
 
@@ -280,20 +323,21 @@ def _finalize_advanced_workflow(
     payload: dict[str, Any], context: _AdvanceContext, config: WorkflowEngineOptions
 ) -> None:
     o = context.deps
-    payload["status"] = o.stages.workflow._recompute_workflow_status(payload)
-    if o.stages._normalize_text(payload.get("status")).lower() == STATUS_FAILED:
+    payload_view = WorkflowPayloadView(payload)
+    payload_view.set_status(o.stages.workflow._recompute_workflow_status(payload))
+    if payload_view.status(o.stages._normalize_text) == STATUS_FAILED:
         o.advance._cancel_active_workflow_stages(payload, config=config)
-        payload["status"] = o.stages.workflow._recompute_workflow_status(payload)
+        payload_view.set_status(o.stages.workflow._recompute_workflow_status(payload))
 
-    metadata = payload.setdefault("metadata", {})
-    if not isinstance(metadata, dict):
+    metadata = payload_view.metadata()
+    if metadata is None:
         return
     metadata["last_advanced_at"] = o.persistence.now_utc_iso()
     metadata["sync_only"] = bool(context.sync_only)
+    payload_status = payload_view.status(o.stages._normalize_text)
     final_child_sync_pending = (
-        is_stage_terminal_status(payload.get("status"))
-        or o.stages._normalize_text(payload.get("status")).lower()
-        in {STATUS_CANCEL_REQUESTED, STATUS_CANCEL_FAILED}
+        is_stage_terminal_status(payload_status)
+        or payload_status in {STATUS_CANCEL_REQUESTED, STATUS_CANCEL_FAILED}
     ) and o.stages.workflow._workflow_has_active_children(payload)
     metadata["final_child_sync_pending"] = final_child_sync_pending
     if final_child_sync_pending:
@@ -308,27 +352,33 @@ def _cancel_stage_activity(
     config: WorkflowEngineOptions,
     deps: OrchestrationDeps | None = None,
 ) -> dict[str, Any]:
+    return _cancel_stage_activity_outcome(stage, config=config, deps=deps).to_payload()
+
+
+def _cancel_stage_activity_outcome(
+    stage: dict[str, Any],
+    *,
+    config: WorkflowEngineOptions,
+    deps: OrchestrationDeps | None = None,
+) -> _StageCancelOutcome:
     o = deps or orchestration_deps()
     stage_view = WorkflowStageView.from_raw(stage)
     if stage_view is None or not stage_view.has_task:
-        return {"status": "skipped", "reason": "missing_task"}
+        return _StageCancelOutcome.skipped("missing_task")
 
-    stage_status = stage_view.status(o)
-    task_status = stage_view.task_status(o)
-    if stage_status == STATUS_CANCEL_REQUESTED or task_status == STATUS_CANCEL_REQUESTED:
-        return {"status": "skipped", "reason": "cancel_requested"}
-    if is_stage_terminal_status(stage_status) or is_stage_terminal_status(task_status):
-        return {"status": "skipped", "reason": "terminal"}
-    if not (
-        is_stage_cancellable_status(stage_status) or is_stage_cancellable_status(task_status)
-    ):
-        return {"status": "skipped", "reason": "not_cancellable"}
+    status = stage_view.status_pair(o)
+    if status.any_status(STATUS_CANCEL_REQUESTED):
+        return _StageCancelOutcome.skipped("cancel_requested")
+    if status.any_matches(is_stage_terminal_status):
+        return _StageCancelOutcome.skipped("terminal")
+    if not status.any_matches(is_stage_cancellable_status):
+        return _StageCancelOutcome.skipped("not_cancellable")
 
     engine = stage_view.task_engine(o)
     cancel_target = o.stages._submission_target(stage)
     if not cancel_target:
         stage_view.set_status_pair(stage_status=STATUS_CANCELLED, task_status=STATUS_CANCELLED)
-        return {"status": STATUS_CANCELLED, "mode": "local"}
+        return _StageCancelOutcome(status=STATUS_CANCELLED, mode="local")
 
     result = _cancel_engine_target(
         deps=o,
@@ -340,11 +390,10 @@ def _cancel_stage_activity(
     stage_view.task.set_cancel_result(result)
     if is_cancel_ack_status(result.get("status")):
         stage_view.set_status_pair(stage_status=result["status"], task_status=result["status"])
-        return {"status": result["status"]}
-    return {
-        "status": STATUS_FAILED,
-        "reason": o.stages._normalize_text(result.get("reason")) or STATUS_CANCEL_FAILED,
-    }
+        return _StageCancelOutcome(status=result["status"])
+    return _StageCancelOutcome.failed(
+        o.stages._normalize_text(result.get("reason")) or STATUS_CANCEL_FAILED
+    )
 
 
 def _cancel_active_workflow_stages(
@@ -357,33 +406,16 @@ def _cancel_active_workflow_stages(
     cancelled: list[dict[str, Any]] = []
     failed: list[dict[str, Any]] = []
 
-    for stage in payload.get("stages", []):
-        if not isinstance(stage, dict):
+    for stage_view in WorkflowPayloadView(payload).stage_views:
+        outcome = _StageCancelOutcome.from_payload(
+            o.advance._cancel_stage_activity(stage_view.raw, config=config)
+        )
+        stage_id = stage_view.stage_id(o)
+        if outcome.acknowledged:
+            cancelled.append(outcome.cancelled_record(stage_id))
             continue
-        outcome = o.advance._cancel_stage_activity(stage, config=config)
-        if is_cancel_ack_status(outcome.get("status")):
-            if outcome.get("mode"):
-                cancelled.append(
-                    {
-                        "stage_id": stage.get("stage_id", ""),
-                        "mode": outcome["mode"],
-                    }
-                )
-            else:
-                cancelled.append(
-                    {
-                        "stage_id": stage.get("stage_id", ""),
-                        "status": outcome.get("status", ""),
-                    }
-                )
-            continue
-        if outcome.get("status") == STATUS_FAILED:
-            failed.append(
-                {
-                    "stage_id": stage.get("stage_id", ""),
-                    "reason": outcome.get("reason", STATUS_CANCEL_FAILED),
-                }
-            )
+        if outcome.status == STATUS_FAILED:
+            failed.append(outcome.failed_record(stage_id))
 
     return {
         "cancelled": cancelled,
@@ -461,7 +493,8 @@ def cancel_materialized_workflow(
             cancelled = cancellation["cancelled"]
             failed = cancellation["failed"]
 
-            payload["status"] = (
+            payload_view = WorkflowPayloadView(payload)
+            payload_view.set_status(
                 STATUS_CANCEL_REQUESTED
                 if any(item.get("status") == STATUS_CANCEL_REQUESTED for item in cancelled)
                 else STATUS_CANCEL_FAILED
@@ -473,7 +506,7 @@ def cancel_materialized_workflow(
             return {
                 "workflow_id": payload.get("workflow_id", ""),
                 "workspace_dir": str(workspace_dir),
-                "status": payload.get("status", ""),
+                "status": payload_view.raw.get("status", ""),
                 "cancelled": cancelled,
                 "failed": failed,
             }

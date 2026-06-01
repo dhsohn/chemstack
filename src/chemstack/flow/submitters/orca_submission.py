@@ -5,6 +5,11 @@ from pathlib import Path
 from typing import Any, Callable
 
 from chemstack.core.app_ids import ORCA_SUBMITTERS
+from chemstack.flow.orchestration.stage_views import (
+    WorkflowPayloadView,
+    WorkflowStageView,
+    WorkflowTaskView,
+)
 
 from .orca_models import (
     RecordedStageTransition,
@@ -15,7 +20,6 @@ from .orca_models import (
     apply_task_stage_mutation,
     ensure_submission_metadata,
     mapping_payload,
-    workflow_metadata,
 )
 
 
@@ -28,6 +32,45 @@ class SubmissionDeps:
     write_workflow_payload: Callable[[Path, dict[str, Any]], Any]
     sync_workflow_registry: Callable[[str | Path, Path, dict[str, Any]], Any]
     submit_reaction_dir: Callable[..., dict[str, Any]]
+
+
+@dataclass(frozen=True)
+class _SubmissionStageContext:
+    stage: WorkflowStageView
+    task: WorkflowTaskView
+    enqueue_payload: dict[str, Any]
+    stage_metadata: dict[str, Any]
+
+    @classmethod
+    def from_stage(
+        cls,
+        stage: dict[str, Any],
+    ) -> _SubmissionStageContext | None:
+        stage_view = WorkflowStageView.from_raw(stage)
+        if stage_view is None:
+            return None
+        task_view = stage_view.existing_task
+        if task_view is None:
+            return None
+        enqueue_payload = task_view.existing_enqueue_payload()
+        if enqueue_payload is None:
+            return None
+        return cls(
+            stage=stage_view,
+            task=task_view,
+            enqueue_payload=enqueue_payload,
+            stage_metadata=ensure_submission_metadata(stage_view.raw, task_view.raw),
+        )
+
+    @property
+    def stage_id(self) -> Any:
+        return self.stage.raw.get("stage_id", "")
+
+    def reaction_dir(self, normalize_text: Callable[[Any], str]) -> str:
+        return normalize_text(self.enqueue_payload.get("reaction_dir"))
+
+    def should_submit_to_orca(self, normalize_text: Callable[[Any], str]) -> bool:
+        return orca_submitter_matches(self.enqueue_payload, normalize_text=normalize_text)
 
 
 def submission_is_deferred(value: dict[str, Any], *, normalize_text: Callable[[Any], str]) -> bool:
@@ -61,11 +104,12 @@ def skip_submission_reason(
 ) -> str:
     if not skip_submitted:
         return ""
-    existing_submission = task.get("submission_result")
-    task_status = normalize_text(task.get("status")).lower()
-    stage_status = normalize_text(stage.get("status")).lower()
+    stage_view = WorkflowStageView(stage)
+    task_view = WorkflowTaskView(task)
+    stage_status = stage_view.status_with(normalize_text)
+    task_status = task_view.status_with(normalize_text)
     if (
-        (isinstance(existing_submission, dict) and existing_submission.get("status") == "submitted")
+        task_view.has_submitted_result()
         or task_status == "submitted"
         or stage_status in {"submitted", "queued"}
     ):
@@ -368,21 +412,17 @@ def submission_stage_outcome(
     skip_submitted: bool,
     deps: SubmissionDeps,
 ) -> WorkflowStageOutcome | None:
-    task = stage.get("task")
-    if not isinstance(task, dict):
+    context = _SubmissionStageContext.from_stage(stage)
+    if context is None:
         return None
-    enqueue_payload = task.get("enqueue_payload")
-    if not isinstance(enqueue_payload, dict):
-        return None
-    stage_metadata = ensure_submission_metadata(stage, task)
 
     skip_reason = skip_submission_reason(
-        stage=stage,
-        task=task,
+        stage=context.stage.raw,
+        task=context.task.raw,
         skip_submitted=skip_submitted,
         normalize_text=deps.normalize_text,
     )
-    stage_id = stage.get("stage_id", "")
+    stage_id = context.stage_id
     if skip_reason:
         return WorkflowStageOutcome(
             bucket="skipped",
@@ -390,29 +430,29 @@ def submission_stage_outcome(
             stage_result={"stage_id": stage_id, "status": "skipped", "reason": skip_reason},
         )
 
-    reaction_dir = deps.normalize_text(enqueue_payload.get("reaction_dir"))
+    reaction_dir = context.reaction_dir(deps.normalize_text)
     if not reaction_dir:
         fail_record, stage_result = record_missing_reaction_dir(
-            stage=stage,
-            task=task,
-            stage_metadata=stage_metadata,
+            stage=context.stage.raw,
+            task=context.task.raw,
+            stage_metadata=context.stage_metadata,
             now_utc_iso=deps.now_utc_iso,
         )
         return WorkflowStageOutcome(bucket="failed", detail=fail_record, stage_result=stage_result)
-    if not orca_submitter_matches(enqueue_payload, normalize_text=deps.normalize_text):
+    if not context.should_submit_to_orca(deps.normalize_text):
         return None
 
     submission_record = deps.submit_reaction_dir(
         reaction_dir=reaction_dir,
-        priority=int(enqueue_payload.get("priority", 10) or 10),
+        priority=int(context.enqueue_payload.get("priority", 10) or 10),
         config_path=submitter_config.config_path,
         repo_root=submitter_config.repo_root,
-        **submission_kwargs(enqueue_payload),
+        **submission_kwargs(context.enqueue_payload),
     )
     outcome, detail_record, stage_result = record_submission_outcome(
-        stage=stage,
-        task=task,
-        stage_metadata=stage_metadata,
+        stage=context.stage.raw,
+        task=context.task.raw,
+        stage_metadata=context.stage_metadata,
         reaction_dir=reaction_dir,
         submission_record=submission_record,
         now_utc_iso=deps.now_utc_iso,
@@ -422,15 +462,18 @@ def submission_stage_outcome(
     return WorkflowStageOutcome(bucket=bucket, detail=detail_record, stage_result=stage_result)
 
 
-def record_submission_summary(payload: dict[str, Any], buckets: WorkflowBuckets, deps: SubmissionDeps) -> None:
+def record_submission_summary(
+    payload: dict[str, Any], buckets: WorkflowBuckets, deps: SubmissionDeps
+) -> None:
     payload_status, summary_status = submission_summary_state(
         submitted=buckets.submitted,
         skipped=buckets.skipped,
         failed=buckets.failed,
     )
+    payload_view = WorkflowPayloadView(payload)
     if payload_status:
-        payload["status"] = payload_status
-    metadata = workflow_metadata(payload)
+        payload_view.set_status(payload_status)
+    metadata = payload_view.metadata()
     if metadata is not None:
         metadata["submission_summary"] = {
             "status": summary_status,
@@ -463,11 +506,10 @@ def submit_reaction_ts_search_workflow(
         normalize_text=deps.normalize_text,
     )
 
-    for stage in payload.get("stages", []):
-        if not isinstance(stage, dict):
-            continue
+    payload_view = WorkflowPayloadView(payload)
+    for stage_view in payload_view.stage_views:
         outcome = submission_stage_outcome(
-            stage=stage,
+            stage=stage_view.raw,
             submitter_config=submitter_config,
             skip_submitted=skip_submitted,
             deps=deps,
@@ -480,9 +522,9 @@ def submit_reaction_ts_search_workflow(
     if workflow_root is not None:
         deps.sync_workflow_registry(workflow_root, workspace_dir, payload)
     return {
-        "workflow_id": payload.get("workflow_id", ""),
+        "workflow_id": payload_view.raw.get("workflow_id", ""),
         "workspace_dir": str(workspace_dir),
-        "status": payload.get("status", ""),
+        "status": payload_view.raw.get("status", ""),
         "submitted": buckets.submitted,
         "skipped": buckets.skipped,
         "failed": buckets.failed,
