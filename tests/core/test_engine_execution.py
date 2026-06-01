@@ -235,6 +235,68 @@ def test_run_internal_engine_worker_entry_with_hooks_builds_adapter(tmp_path: Pa
     ]
 
 
+def test_run_internal_engine_worker_entry_with_spec_builds_adapter(tmp_path: Path) -> None:
+    cfg = SimpleNamespace(runtime=SimpleNamespace(allowed_root=str(tmp_path / "allowed")))
+    entry = SimpleNamespace(queue_id="q-1")
+    calls: list[tuple[str, Any]] = []
+
+    def run_job(
+        _cfg: Any,
+        _context: Any,
+        queue_root: Path,
+        _options: engine_execution.InternalWorkerOptions,
+    ) -> str:
+        calls.append(("run", queue_root))
+        return "result"
+
+    def finalize_entry(
+        _cfg: Any,
+        _context: Any,
+        result: str,
+        _queue_root: Path,
+        options: engine_execution.InternalWorkerOptions,
+    ) -> str:
+        calls.append(("finalize", options.emit_output))
+        return f"{result}:finalized"
+
+    def build_outcome(_context: Any, result: str, finalized: str) -> str:
+        calls.append(("outcome", result))
+        return finalized
+
+    spec = engine_execution.InternalEngineWorkerExecutionSpec(
+        build_context=lambda cfg_obj, entry_obj: SimpleNamespace(
+            cfg=cfg_obj,
+            entry=entry_obj,
+        ),
+        mark_running=lambda _cfg, _context, options: calls.append(
+            ("mark", options.worker_job_pid)
+        ),
+        run_job=run_job,
+        finalize_entry=finalize_entry,
+        build_outcome=build_outcome,
+        shutdown_exception_type=RuntimeError,
+    )
+
+    outcome = engine_execution.run_internal_engine_worker_entry_with_spec(
+        cfg,
+        entry,
+        queue_root=tmp_path / "queue",
+        spec=spec,
+        options=engine_execution.InternalWorkerOptions(
+            worker_job_pid=101,
+            emit_output=True,
+        ),
+    )
+
+    assert outcome == "result:finalized"
+    assert calls == [
+        ("mark", 101),
+        ("run", tmp_path / "queue"),
+        ("finalize", True),
+        ("outcome", "result"),
+    ]
+
+
 def test_raise_if_shutdown_requested_uses_engine_context() -> None:
     class ShutdownRequested(RuntimeError):
         def __init__(self, context: Any) -> None:

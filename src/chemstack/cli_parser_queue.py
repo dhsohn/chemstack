@@ -4,6 +4,10 @@ import argparse
 
 from chemstack import cli_queue
 from chemstack import cli_workers
+from chemstack.flow.cli_worker_options import (
+    WorkflowWorkerOptionConfig,
+    add_workflow_worker_cli_options,
+)
 
 from .cli_parser_common import add_json_argument
 
@@ -88,12 +92,11 @@ def _add_queue_worker_options(parser: argparse.ArgumentParser) -> None:
         choices=["orca", "workflow"],
         help="Worker app to supervise; may be passed more than once",
     )
-    parser.add_argument("--workflow-root", help="Workflow root for workflow supervision")
-    parser.add_argument(
-        "--chemstack-config",
-        "--config",
-        dest="chemstack_config",
-        help="Path to shared chemstack.yaml",
+    add_workflow_worker_cli_options(
+        parser,
+        config=WorkflowWorkerOptionConfig(
+            json_help="Print worker commands as JSON without starting them"
+        ),
     )
     auto_group = parser.add_mutually_exclusive_group()
     auto_group.add_argument(
@@ -106,35 +109,6 @@ def _add_queue_worker_options(parser: argparse.ArgumentParser) -> None:
         action="store_true",
         help="Disable ORCA auto-organization in the supervised worker",
     )
-    parser.add_argument(
-        "--no-submit",
-        action="store_true",
-        help="Only sync/append workflow stages; do not submit newly actionable stages",
-    )
-    parser.add_argument(
-        "--refresh-registry",
-        action="store_true",
-        help="Reindex the workflow registry before the first worker cycle",
-    )
-    parser.add_argument(
-        "--refresh-each-cycle",
-        action="store_true",
-        help="Reindex the workflow registry before every worker cycle",
-    )
-    parser.add_argument("--max-cycles", type=int, default=0, help="Workflow cycle limit")
-    parser.add_argument(
-        "--interval-seconds",
-        type=float,
-        default=0.0,
-        help="Workflow worker sleep interval",
-    )
-    parser.add_argument(
-        "--lock-timeout-seconds",
-        type=float,
-        default=0.0,
-        help="Workflow worker lock timeout",
-    )
-    add_json_argument(parser, help_text="Print worker commands as JSON without starting them")
 
 
 def _add_queue_worker_parser(

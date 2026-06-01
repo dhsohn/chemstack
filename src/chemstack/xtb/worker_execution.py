@@ -485,15 +485,15 @@ def _finalize_processed_entry(
     )
 
 
-def _worker_hooks(
+def _worker_execution_spec(
     *,
     dependencies: WorkerExecutionDependencies,
     should_cancel_factory: Callable[
         [Path, _XtbExecutionContext],
         Callable[[], bool] | None,
     ],
-) -> _engine_execution.InternalEngineWorkerHooks:
-    return _engine_execution.InternalEngineWorkerHooks(
+) -> _engine_execution.InternalEngineWorkerExecutionSpec:
+    return _engine_execution.InternalEngineWorkerExecutionSpec(
         build_context=lambda cfg_obj, entry_obj: _build_execution_context(
             cfg_obj,
             entry_obj,
@@ -536,8 +536,8 @@ def build_worker_adapter(
         Callable[[], bool] | None,
     ],
 ) -> _engine_execution.InternalEngineWorkerAdapter:
-    return _engine_execution.build_internal_engine_worker_adapter_from_hooks(
-        _worker_hooks(
+    return _engine_execution.build_internal_engine_worker_adapter_from_spec(
+        _worker_execution_spec(
             dependencies=dependencies,
             should_cancel_factory=should_cancel_factory,
         )
@@ -559,11 +559,11 @@ def _run_worker_entry_lifecycle(
     worker_job_pid: int | None = None,
     emit_output: bool = False,
 ) -> Any:
-    return _engine_execution.run_internal_engine_worker_entry_with_hooks(
+    return _engine_execution.run_internal_engine_worker_entry_with_spec(
         cfg,
         entry,
         queue_root=queue_root,
-        hooks=_worker_hooks(
+        spec=_worker_execution_spec(
             dependencies=dependencies,
             should_cancel_factory=should_cancel_factory,
         ),

@@ -16,7 +16,7 @@ from typing import Any
 from chemstack.core.indexing.roots import runtime_roots_for_cfg as _runtime_roots_for_cfg
 from chemstack.core.queue.types import QueueEntry
 from chemstack.core.queue.engine_execution import coerce_resource_request
-from chemstack.core.queue.engine_runtime import EngineQueueRuntime
+from chemstack.core.queue.internal_engine import InternalEngineQueueRuntime, InternalEngineSpec
 from chemstack.core.queue.worker import (
     EngineRunningJob as _RunningJob,
     HookedPidFileChildProcessQueueWorker,
@@ -78,14 +78,15 @@ WORKER_SHUTDOWN_GRACE_SECONDS = 10.0
 
 # PID file for the daemon
 WORKER_PID_FILE = "queue_worker.pid"
+_ENGINE_SPEC = InternalEngineSpec(engine="orca", worker_pid_file_name=WORKER_PID_FILE)
 
 
-_engine_runtime = EngineQueueRuntime(
+_engine_runtime = InternalEngineQueueRuntime.create(
+    spec=_ENGINE_SPEC,
     load_config=load_config,
     runtime_roots_for_cfg=lambda cfg: _runtime_roots_for_cfg(cfg, engine="orca"),
     list_queue=lambda root: list_queue(Path(root)),
     dequeue_next=lambda root: dequeue_next(root),
-    worker_pid_file_name=WORKER_PID_FILE,
 )
 
 
@@ -130,7 +131,6 @@ def _reserve_orca_worker_slot(root: str | Path, limit: int, **kwargs: Any) -> st
 def _try_reserve_admission_slot(cfg: AppConfig) -> str | None:
     admission_token = _engine_runtime.reserve_admission_slot(
         cfg,
-        engine="orca",
         reserve_slot_fn=_reserve_orca_worker_slot,
     )
     if admission_token is None:

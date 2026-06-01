@@ -118,12 +118,33 @@ def _stage_dep_group(name: str, deps_type: type[Any]) -> _OrchestrationStageDepG
     )
 
 
+_ORCHESTRATION_STAGE_BUILDER_GROUP = _stage_dep_group(
+    "builders",
+    OrchestrationStageBuilderDeps,
+)
+_ORCHESTRATION_STAGE_MATERIALIZATION_GROUP = _stage_dep_group(
+    "materialization",
+    OrchestrationStageMaterializationDeps,
+)
+_ORCHESTRATION_STAGE_RUNTIME_GROUP = _stage_dep_group(
+    "runtime",
+    OrchestrationStageRuntimeDeps,
+)
+_ORCHESTRATION_STAGE_SUPPORT_GROUP = _stage_dep_group(
+    "support",
+    OrchestrationStageSupportDeps,
+)
+_ORCHESTRATION_STAGE_WORKFLOW_GROUP = _stage_dep_group(
+    "workflow",
+    OrchestrationStageWorkflowDeps,
+)
+
 _ORCHESTRATION_STAGE_DEP_REGISTRY: tuple[_OrchestrationStageDepGroup, ...] = (
-    _stage_dep_group("builders", OrchestrationStageBuilderDeps),
-    _stage_dep_group("materialization", OrchestrationStageMaterializationDeps),
-    _stage_dep_group("runtime", OrchestrationStageRuntimeDeps),
-    _stage_dep_group("support", OrchestrationStageSupportDeps),
-    _stage_dep_group("workflow", OrchestrationStageWorkflowDeps),
+    _ORCHESTRATION_STAGE_BUILDER_GROUP,
+    _ORCHESTRATION_STAGE_MATERIALIZATION_GROUP,
+    _ORCHESTRATION_STAGE_RUNTIME_GROUP,
+    _ORCHESTRATION_STAGE_SUPPORT_GROUP,
+    _ORCHESTRATION_STAGE_WORKFLOW_GROUP,
 )
 
 _ORCHESTRATION_STAGE_DEP_GROUPS: Mapping[str, tuple[str, ...]] = {

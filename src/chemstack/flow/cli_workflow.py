@@ -15,6 +15,7 @@ from chemstack.cli_common import (
     _workflow_root_for_args,
 )
 from . import cli_workflow_output as _workflow_output
+from .cli_worker_options import WorkflowWorkerOptionConfig, add_workflow_worker_cli_options
 from .engine_options import WorkflowEngineOptions
 from .registry import (
     append_workflow_journal_event,
@@ -363,51 +364,25 @@ def cmd_workflow_worker(args: Any, *, deps: Any | None = None) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="python -m chemstack.flow.cli_workflow")
-    parser.add_argument(
-        "--workflow-root",
-        required=True,
-        help="Root that directly contains workflow workspaces.",
+    add_workflow_worker_cli_options(
+        parser,
+        config=WorkflowWorkerOptionConfig(
+            workflow_root_required=True,
+            workflow_root_help="Root that directly contains workflow workspaces.",
+            chemstack_config_flags=("--chemstack-config",),
+            chemstack_config_default=str(os.getenv(CHEMSTACK_CONFIG_ENV_VAR, "")).strip() or None,
+            no_submit_help="Only sync/append stages; do not submit newly actionable stages.",
+            include_once=True,
+            refresh_registry_help="Reindex the workflow registry before the first cycle.",
+            refresh_each_cycle_help="Reindex the workflow registry before every cycle.",
+            max_cycles_help="Optional cycle limit; 0 means run forever.",
+            interval_seconds_default=30.0,
+            interval_seconds_help="Sleep interval between orchestration cycles.",
+            lock_timeout_seconds_default=5.0,
+            lock_timeout_seconds_help="How long to wait for the worker lock.",
+            json_help="Print JSON output.",
+        ),
     )
-    parser.add_argument(
-        "--chemstack-config",
-        default=str(os.getenv(CHEMSTACK_CONFIG_ENV_VAR, "")).strip() or None,
-        help="Path to shared chemstack.yaml.",
-    )
-    parser.add_argument(
-        "--no-submit",
-        action="store_true",
-        help="Only sync/append stages; do not submit newly actionable stages.",
-    )
-    parser.add_argument("--once", action="store_true", help="Run exactly one orchestration cycle.")
-    parser.add_argument(
-        "--max-cycles",
-        type=int,
-        default=0,
-        help="Optional cycle limit; 0 means run forever.",
-    )
-    parser.add_argument(
-        "--interval-seconds",
-        type=float,
-        default=30.0,
-        help="Sleep interval between orchestration cycles.",
-    )
-    parser.add_argument(
-        "--lock-timeout-seconds",
-        type=float,
-        default=5.0,
-        help="How long to wait for the worker lock.",
-    )
-    parser.add_argument(
-        "--refresh-registry",
-        action="store_true",
-        help="Reindex the workflow registry before the first cycle.",
-    )
-    parser.add_argument(
-        "--refresh-each-cycle",
-        action="store_true",
-        help="Reindex the workflow registry before every cycle.",
-    )
-    parser.add_argument("--json", action="store_true", help="Print JSON output.")
     return parser
 
 
