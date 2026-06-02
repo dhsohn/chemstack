@@ -681,6 +681,61 @@ def test_reconcile_orphaned_running_with_policy_preserves_roots_and_reason(
     assert recovery == [("orphan", "custom_recovery")]
 
 
+def test_reconcile_orphaned_process_entries_passes_policy_kwargs(tmp_path: Path) -> None:
+    queue_root = tmp_path / "queue"
+    calls: list[tuple[str, object]] = []
+    worker = SimpleNamespace(
+        cfg=object(),
+        admission_root="/tmp/admission",
+    )
+
+    lifecycle_helpers.reconcile_orphaned_process_entries(
+        worker,
+        hooks=lifecycle_helpers.EngineQueueProcessReconcileHooks(
+            queue_roots_fn=lambda _cfg: (queue_root,),
+            reconcile_stale_slots_fn=lambda admission_root: calls.append(
+                ("stale", admission_root)
+            ),
+            reconcile_orphaned_running_entries_fn=lambda root, **kwargs: calls.append(
+                ("orphans", (root, kwargs))
+            ),
+            reconcile_orphaned_running_entries_kwargs={"ignore_worker_pid": True},
+        ),
+    )
+
+    assert calls == [
+        ("stale", "/tmp/admission"),
+        ("orphans", (queue_root, {"ignore_worker_pid": True})),
+    ]
+
+
+def test_run_terminal_process_side_effects_uses_standard_hooks() -> None:
+    cfg = object()
+    job = SimpleNamespace(reaction_dir="/tmp/job", task_id="task-1")
+    worker = SimpleNamespace(cfg=cfg)
+    calls: list[tuple[str, object, object]] = []
+
+    lifecycle_helpers.run_terminal_process_side_effects(
+        worker,
+        "queue-1",
+        job,
+        hooks=lifecycle_helpers.EngineQueueTerminalSideEffectHooks(
+            upsert_terminal_job_record_fn=lambda cfg_obj, reaction_dir, **kwargs: calls.append(
+                ("upsert", cfg_obj, (reaction_dir, kwargs))
+            ),
+            notify_terminal_job_from_state_fn=lambda cfg_obj, reaction_dir: calls.append(
+                ("notify", cfg_obj, reaction_dir)
+            )
+            or True,
+        ),
+    )
+
+    assert calls == [
+        ("upsert", cfg, ("/tmp/job", {"fallback_job_id": "task-1"})),
+        ("notify", cfg, "/tmp/job"),
+    ]
+
+
 def test_shutdown_child_process_with_grace_forces_after_deadline(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

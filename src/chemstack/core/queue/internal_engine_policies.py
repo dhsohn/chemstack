@@ -79,6 +79,25 @@ class InternalEngineAdmission:
             source=source or self.child_source,
         )
 
+    def attach_started_process_metadata(
+        self,
+        *,
+        worker: Any,
+        queue_root: Path,
+        entry: Any,
+        process: Any,
+        admission_token: str,
+        hooks: Any,
+    ) -> bool:
+        return _queue_lifecycle.attach_started_process_metadata(
+            worker,
+            queue_root,
+            entry,
+            process=process,
+            admission_token=admission_token,
+            hooks=hooks,
+        )
+
     def mark_worker_start_error(
         self,
         *,

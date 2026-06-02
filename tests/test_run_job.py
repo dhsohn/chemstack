@@ -10,6 +10,7 @@ from unittest.mock import MagicMock, patch
 
 from chemstack.core.queue.types import QueueEntry, QueueStatus
 from chemstack.orca.orca_runner import OrcaRunner
+from chemstack.orca.queue_adapter import dequeue_next, enqueue
 from chemstack.orca.runtime import worker_job
 from chemstack.orca.runtime.worker_job import cmd_run_job, execute_run_job
 
@@ -150,6 +151,7 @@ def test_run_worker_child_job_loads_queue_entry_and_preserves_exit_code(
 
     monkeypatch.setattr(worker_job, "load_config", lambda _path: cfg)
     monkeypatch.setattr(worker_job, "_queue_entry_by_id", lambda _root, _queue_id: entry)
+    monkeypatch.setattr(worker_job, "install_shutdown_signal_handlers", lambda _callback: None)
     monkeypatch.setattr(
         worker_job,
         "release_slot",
@@ -179,6 +181,155 @@ def test_run_worker_child_job_loads_queue_entry_and_preserves_exit_code(
         "admission_task_id": "task-1",
     }
     assert released == [(str(tmp_path / "admission"), "slot-1")]
+
+
+def test_process_dequeued_entry_uses_internal_worker_adapter(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    cfg = SimpleNamespace(runtime=SimpleNamespace(allowed_root=str(tmp_path / "queue")))
+    entry = QueueEntry(
+        queue_id="queue-1",
+        app_name="chemstack_orca",
+        task_id="task-1",
+        task_kind="orca_run_inp",
+        engine="orca",
+        status=QueueStatus.RUNNING,
+        metadata={"reaction_dir": str(tmp_path / "rxn"), "force": True},
+    )
+    calls: dict[str, Any] = {}
+
+    def fake_execute_run_job(*args: Any, **kwargs: Any) -> int:
+        calls["args"] = args
+        calls["kwargs"] = kwargs
+        return 4
+
+    monkeypatch.setattr(worker_job, "execute_run_job", fake_execute_run_job)
+
+    outcome = worker_job.process_dequeued_entry(
+        cfg,
+        entry,
+        queue_root=tmp_path / "queue",
+        worker_config_path="/tmp/config.yaml",
+        admission_token="slot-1",
+        shutdown_requested=lambda: False,
+    )
+
+    assert outcome.exit_code == 4
+    assert outcome.reaction_dir == str(tmp_path / "rxn")
+    assert outcome.entry is entry
+    assert calls["args"] == ("/tmp/config.yaml", str(tmp_path / "rxn"))
+    assert calls["kwargs"] == {
+        "force": True,
+        "reservation_token": "slot-1",
+        "admission_app_name": "chemstack_orca",
+        "admission_task_id": "task-1",
+    }
+
+
+def test_run_worker_child_job_finds_real_queue_entry_and_releases_slot(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    queue_root = tmp_path / "queue"
+    admission_root = tmp_path / "admission"
+    rxn = queue_root / "rxn"
+    rxn.mkdir(parents=True)
+    entry = enqueue(queue_root, str(rxn), force=True, task_id="task-real")
+    running = dequeue_next(queue_root)
+    assert running is not None
+    cfg = SimpleNamespace(
+        runtime=SimpleNamespace(
+            allowed_root=str(queue_root),
+            admission_root=str(admission_root),
+            admission_limit=1,
+            max_concurrent=1,
+        )
+    )
+    calls: dict[str, Any] = {}
+    released: list[tuple[str, str]] = []
+
+    monkeypatch.setattr(worker_job, "load_config", lambda _path: cfg)
+    monkeypatch.setattr(worker_job, "install_shutdown_signal_handlers", lambda _callback: None)
+    monkeypatch.setattr(
+        worker_job,
+        "release_slot",
+        lambda root, token: released.append((str(root), token)),
+    )
+
+    def fake_execute_run_job(*args: Any, **kwargs: Any) -> int:
+        calls["args"] = args
+        calls["kwargs"] = kwargs
+        return 8
+
+    monkeypatch.setattr(worker_job, "execute_run_job", fake_execute_run_job)
+
+    rc = worker_job.run_worker_child_job(
+        config_path="/tmp/config.yaml",
+        queue_root=queue_root,
+        queue_id=entry.queue_id,
+        admission_token="slot-real",
+    )
+
+    assert rc == 8
+    assert calls["args"] == ("/tmp/config.yaml", str(rxn))
+    assert calls["kwargs"]["force"] is True
+    assert calls["kwargs"]["reservation_token"] == "slot-real"
+    assert calls["kwargs"]["admission_app_name"] == "chemstack_orca"
+    assert calls["kwargs"]["admission_task_id"] == "task-real"
+    assert released == [(str(admission_root), "slot-real")]
+
+
+def test_run_worker_child_job_releases_slot_when_entry_not_running(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    queue_root = tmp_path / "queue"
+    admission_root = tmp_path / "admission"
+    cfg = SimpleNamespace(
+        runtime=SimpleNamespace(
+            allowed_root=str(queue_root),
+            admission_root=str(admission_root),
+            admission_limit=1,
+            max_concurrent=1,
+        )
+    )
+    released: list[tuple[str, str]] = []
+
+    monkeypatch.setattr(worker_job, "load_config", lambda _path: cfg)
+    monkeypatch.setattr(
+        worker_job,
+        "_queue_entry_by_id",
+        lambda _root, _queue_id: QueueEntry(
+            queue_id="queue-1",
+            app_name="chemstack_orca",
+            task_id="task-1",
+            task_kind="orca_run_inp",
+            engine="orca",
+            status=QueueStatus.PENDING,
+            metadata={"reaction_dir": str(tmp_path / "rxn")},
+        ),
+    )
+    monkeypatch.setattr(
+        worker_job,
+        "release_slot",
+        lambda root, token: released.append((str(root), token)),
+    )
+    monkeypatch.setattr(
+        worker_job,
+        "execute_run_job",
+        lambda *_args, **_kwargs: pytest.fail("entry should not execute"),
+    )
+
+    rc = worker_job.run_worker_child_job(
+        config_path="/tmp/config.yaml",
+        queue_root=queue_root,
+        queue_id="queue-1",
+        admission_token="slot-1",
+    )
+
+    assert rc == 1
+    assert released == [(str(admission_root), "slot-1")]
 
 
 @patch("chemstack.orca.runtime.worker_job.execute_run_job", return_value=0)

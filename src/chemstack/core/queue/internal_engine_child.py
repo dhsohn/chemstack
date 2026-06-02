@@ -18,6 +18,7 @@ class InternalEngineWorkerChild:
     shutdown_exception_type: type[BaseException]
     entry_ready_fn: Callable[[Any], bool] = entry_status_is_running
     process_dequeued_entry_kwargs_fn: Callable[[], Mapping[str, Any]] | None = None
+    outcome_exit_code_fn: Callable[[Any], int] | None = None
 
     @property
     def command_spec(self) -> _engine_child.WorkerChildCommandSpec:
@@ -31,6 +32,7 @@ class InternalEngineWorkerChild:
         return _engine_child.WorkerChildRunSpec(
             shutdown_exception_type=self.shutdown_exception_type,
             entry_ready_fn=self.entry_ready_fn,
+            outcome_exit_code_fn=self.outcome_exit_code_fn,
         )
 
     def build_worker_child_command(

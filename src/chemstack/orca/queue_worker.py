@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 import os
-import time
+import time  # noqa: F401
 from pathlib import Path
 from typing import Any
 
@@ -26,7 +26,7 @@ from chemstack.core.queue.lifecycle import (
     EngineQueueProcessLifecycleHooks,
     EngineQueueProcessReconcileHooks,
     EngineQueueProcessShutdownHooks,
-    attach_started_process_metadata,
+    EngineQueueTerminalSideEffectHooks,
     cancel_running_process_job,
     finalize_process_finished_job,
     job_queue_root as _lifecycle_job_queue_root,
@@ -42,9 +42,9 @@ from chemstack.core.queue.worker import (
 )
 
 from chemstack.core.admission import (
-    activate_reserved_slot,
+    activate_reserved_slot,  # noqa: F401
     reconcile_stale_slots,
-    release_slot,
+    release_slot,  # noqa: F401
     reserve_slot,
     update_slot_metadata,
 )
@@ -99,6 +99,7 @@ _ENGINE_SPEC = InternalEngineSpec(
     worker_job_module=WORKER_JOB_MODULE,
     worker_pid_file_name=WORKER_PID_FILE,
 )
+_ENGINE_ADMISSION = _ENGINE_SPEC.admission()
 
 
 _engine_runtime = InternalEngineQueueRuntime.create(
@@ -387,6 +388,10 @@ def _orca_worker_lifecycle_hooks() -> EngineQueueProcessLifecycleHooks:
         upsert_terminal_job_record_fn=_upsert_terminal_job_record,
         notify_terminal_job_from_state_fn=_notify_terminal_job_from_state,
         on_completed_fn=lambda worker, job: worker._auto_organize_terminal_job(job),
+        terminal_side_effect_hooks=EngineQueueTerminalSideEffectHooks(
+            upsert_terminal_job_record_fn=_upsert_terminal_job_record,
+            notify_terminal_job_from_state_fn=_notify_terminal_job_from_state,
+        ),
     )
 
 
@@ -419,10 +424,10 @@ def _on_worker_process_started(
     process: BackgroundRunJobProcess,
     admission_token: str,
 ) -> bool:
-    return attach_started_process_metadata(
-        worker,
-        queue_root,
-        entry,
+    return _ENGINE_ADMISSION.attach_started_process_metadata(
+        worker=worker,
+        queue_root=queue_root,
+        entry=entry,
         process=process,
         admission_token=admission_token,
         hooks=_orca_worker_lifecycle_hooks(),
@@ -455,6 +460,7 @@ def _reconcile_orphaned_running(worker: Any) -> None:
             queue_roots_fn=queue_roots,
             reconcile_stale_slots_fn=reconcile_stale_slots,
             reconcile_orphaned_running_entries_fn=reconcile_orphaned_running_entries,
+            reconcile_orphaned_running_entries_kwargs={"ignore_worker_pid": True},
         ),
     )
 

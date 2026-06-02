@@ -26,6 +26,7 @@ class WorkerChildRunSpec:
     shutdown_exception_type: type[BaseException]
     entry_ready_fn: Callable[[Any], bool] | None = None
     shutdown_context_fn: Callable[[BaseException], Any] = _shutdown_exception_context
+    outcome_exit_code_fn: Callable[[Any], int] | None = None
 
 
 def build_engine_worker_child_command(
@@ -176,7 +177,7 @@ def run_engine_worker_child_job(
         queue_root_path = job.queue_root
         entry = job.entry
         try:
-            process_dequeued_entry_fn(
+            outcome = process_dequeued_entry_fn(
                 cfg,
                 entry,
                 queue_root=queue_root_path,
@@ -184,7 +185,9 @@ def run_engine_worker_child_job(
                 dependencies=dependencies_fn(),
                 shutdown_requested=controller.is_requested,
             )
-            return 0
+            if spec.outcome_exit_code_fn is None:
+                return 0
+            return int(spec.outcome_exit_code_fn(outcome))
         except spec.shutdown_exception_type as exc:
             requeue_running_entry_fn(queue_root_path, queue_id)
             mark_recovery_pending_context_fn(

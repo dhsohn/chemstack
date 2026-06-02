@@ -1,6 +1,12 @@
 # ChemStack Detailed Reference
 
-ChemStack is a queue-first executor for ORCA and workflow orchestration. xTB and CREST run as internal workflow-stage engines. This reference standardizes the shared public CLI and keeps the deeper ORCA runtime behavior documented in one place, since ORCA still has the richest retry, reporting, and monitoring surface.
+ChemStack is a queue-first executor for ORCA and workflow orchestration. ORCA
+uses the shared internal-engine queue lifecycle for worker admission, child
+entry execution, terminal side effects, and orphan recovery while preserving
+its public ORCA queue contract. xTB and CREST run as internal workflow-stage
+engines. This reference standardizes the shared public CLI and keeps the deeper
+ORCA runtime behavior documented in one place, since ORCA still has the richest
+retry, reporting, and monitoring surface.
 
 Current developer-facing package rule:
 
@@ -27,6 +33,12 @@ Current intended semantics:
 - Successful queue submission returns `status: queued`
 - Public `run-dir` does not launch ORCA directly for new work
 - Background execution is managed by externally supervised queue workers
+- The ORCA worker starts queue children by queue identity
+  (`--queue-root/--queue-id`), then the child resolves the current queue entry
+  and runs through the shared `InternalEngineWorkerAdapter` lifecycle
+- ORCA state, retry, report, notification, and auto-organize behavior remain
+  ORCA-domain behavior; parent queue finalization still records the terminal
+  queue result after the child exits
 - On WSL, the recommended supervisor is `systemd`
 
 Operational consequences:
@@ -212,6 +224,9 @@ Shared behavior:
 ORCA-specific notes:
 
 - Chooses the latest `*.inp` when execution actually starts
+- Queue workers execute by queue id rather than passing a direct
+  `reaction_dir` command line. The queue entry still stores `reaction_dir`, and
+  downstream ORCA/workflow contracts should keep using that field.
 - `--force` re-runs even if completed output already exists
 - `--max-cores` and `--max-memory-gb` override recorded resource limits for that queued run
 - Retry inputs and resumed worker-shutdown inputs add `MORead` plus `%moinp`
@@ -300,6 +315,9 @@ Behavior:
 
 - `chemstack-queue-worker@.service` supervises ORCA by default
 - If `workflow.root` is set, the same worker service also starts workflow supervision plus the internal CREST and xTB workers
+- ORCA, xTB, and CREST share the same admission cap. ORCA reserves a slot in
+  the parent worker, attaches queue identity metadata after the child starts,
+  and lets the ORCA child activate/release that reservation during execution.
 - `chemstack-bot@.service` starts the unified Telegram bot using `telegram.bot_token` and `telegram.chat_id` from `chemstack.yaml`
 - Workflow Telegram alerts keep per-job ORCA messages, but summarize internal CREST and reaction-path xTB child phases in one message each after those phases finish
 - `chemstack-runtime@.target` starts both services together
@@ -528,6 +546,15 @@ least these fields:
 - `resource_request`
 - `resource_actual`
 
+Compatibility note:
+
+- `reaction_dir` remains the ORCA queue and downstream contract field.
+  Shared core helpers may also understand generic `job_dir` metadata for other
+  engines, but ORCA producers should not replace `reaction_dir` with `job_dir`.
+- The worker-job module still accepts `--reaction-dir` for legacy direct
+  execution helpers. Supervised queue workers should use the queue identity
+  child path instead.
+
 ## 12) Recommended Workflow
 
 1. Ensure the worker service is active under `systemd`
@@ -572,6 +599,8 @@ Focused regression commands used during the monorepo migration:
 ```bash
 pytest tests/flow -q
 pytest tests/integration -q
+pytest tests/test_run_job.py tests/test_queue_worker.py -q
+pytest tests/core/test_engine_child.py tests/core/test_engine_admission.py -q
 ```
 
 For package-layout and import guidance, see [DEVELOPMENT.md](DEVELOPMENT.md).

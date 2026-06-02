@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import logging
 import subprocess
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Callable, Iterable
 
+from . import engine_admission as _engine_admission
 from .child_process import (
     reconcile_orphaned_child_queue_entries,
     shutdown_child_process_with_grace,
@@ -39,6 +41,12 @@ class OrphanedRunningPolicy:
 
 
 @dataclass(frozen=True)
+class EngineQueueTerminalSideEffectHooks:
+    upsert_terminal_job_record_fn: Callable[..., Any]
+    notify_terminal_job_from_state_fn: Callable[[Any, str], bool]
+
+
+@dataclass(frozen=True)
 class EngineQueueProcessLifecycleHooks:
     queue_entry_id_fn: Callable[[Any], str]
     queue_entry_app_name_fn: Callable[[Any], str]
@@ -54,6 +62,7 @@ class EngineQueueProcessLifecycleHooks:
     upsert_terminal_job_record_fn: Callable[..., Any]
     notify_terminal_job_from_state_fn: Callable[[Any, str], bool]
     on_completed_fn: Callable[[Any, Any], Any] | None = None
+    terminal_side_effect_hooks: EngineQueueTerminalSideEffectHooks | None = None
 
 
 @dataclass(frozen=True)
@@ -61,6 +70,7 @@ class EngineQueueProcessReconcileHooks:
     queue_roots_fn: Callable[[Any], tuple[Any, ...]]
     reconcile_stale_slots_fn: Callable[[Any], Any]
     reconcile_orphaned_running_entries_fn: Callable[..., Any]
+    reconcile_orphaned_running_entries_kwargs: Mapping[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -87,35 +97,23 @@ def attach_started_process_metadata(
     hooks: EngineQueueProcessLifecycleHooks,
     logger: logging.Logger = LOGGER,
 ) -> bool:
-    queue_id = hooks.queue_entry_id_fn(entry)
-    attached = hooks.update_slot_metadata_fn(
-        worker.admission_root,
-        admission_token,
-        queue_id=queue_id,
-        app_name=hooks.queue_entry_app_name_fn(entry),
-        task_id=hooks.queue_entry_task_id_fn(entry),
+    return _engine_admission.attach_started_process_metadata(
+        admission_root=worker.admission_root,
+        queue_root=queue_root,
+        entry=entry,
+        process=process,
+        admission_token=admission_token,
+        queue_entry_id_fn=hooks.queue_entry_id_fn,
+        queue_entry_app_name_fn=hooks.queue_entry_app_name_fn,
+        queue_entry_task_id_fn=hooks.queue_entry_task_id_fn,
+        update_slot_metadata_fn=hooks.update_slot_metadata_fn,
+        terminate_process_fn=hooks.terminate_process_fn,
+        mark_entry_failed_and_release_fn=worker._mark_entry_failed_and_release,
+        mark_failed_fn=hooks.mark_failed_fn,
+        cfg=worker.cfg,
+        upsert_running_job_record_fn=hooks.upsert_running_job_record_fn,
+        logger=logger,
     )
-    if not attached:
-        logger.error(
-            "Failed to attach queue identity to admission slot %s for job %s",
-            admission_token,
-            queue_id,
-        )
-        hooks.terminate_process_fn(process)
-        worker._mark_entry_failed_and_release(
-            queue_root,
-            entry,
-            admission_token,
-            error="admission_slot_missing",
-            mark_failed_fn=hooks.mark_failed_fn,
-        )
-        return False
-
-    try:
-        hooks.upsert_running_job_record_fn(worker.cfg, entry)
-    except Exception as exc:
-        logger.warning("Failed to update running job location for %s: %s", queue_id, exc)
-    return True
 
 
 def mark_terminal_process_queue_entry(
@@ -147,12 +145,12 @@ def mark_terminal_process_queue_entry(
         )
 
 
-def record_terminal_process_side_effects(
+def run_terminal_process_side_effects(
     worker: Any,
     queue_id: str,
     job: Any,
     *,
-    hooks: EngineQueueProcessLifecycleHooks,
+    hooks: EngineQueueTerminalSideEffectHooks,
     logger: logging.Logger = LOGGER,
 ) -> None:
     try:
@@ -167,6 +165,27 @@ def record_terminal_process_side_effects(
         hooks.notify_terminal_job_from_state_fn(worker.cfg, job.reaction_dir)
     except Exception as exc:
         logger.warning("Failed to send terminal notification for %s: %s", queue_id, exc)
+
+
+def record_terminal_process_side_effects(
+    worker: Any,
+    queue_id: str,
+    job: Any,
+    *,
+    hooks: EngineQueueProcessLifecycleHooks,
+    logger: logging.Logger = LOGGER,
+) -> None:
+    run_terminal_process_side_effects(
+        worker,
+        queue_id,
+        job,
+        hooks=hooks.terminal_side_effect_hooks
+        or EngineQueueTerminalSideEffectHooks(
+            upsert_terminal_job_record_fn=hooks.upsert_terminal_job_record_fn,
+            notify_terminal_job_from_state_fn=hooks.notify_terminal_job_from_state_fn,
+        ),
+        logger=logger,
+    )
 
 
 def finalize_process_finished_job(
@@ -206,8 +225,9 @@ def reconcile_orphaned_process_entries(
     hooks: EngineQueueProcessReconcileHooks,
 ) -> None:
     hooks.reconcile_stale_slots_fn(worker.admission_root)
+    kwargs = dict(hooks.reconcile_orphaned_running_entries_kwargs or {})
     for queue_root in hooks.queue_roots_fn(worker.cfg):
-        hooks.reconcile_orphaned_running_entries_fn(queue_root, ignore_worker_pid=True)
+        hooks.reconcile_orphaned_running_entries_fn(queue_root, **kwargs)
 
 
 def shutdown_running_process_job(
@@ -436,6 +456,7 @@ __all__ = [
     "EngineQueueProcessLifecycleHooks",
     "EngineQueueProcessReconcileHooks",
     "EngineQueueProcessShutdownHooks",
+    "EngineQueueTerminalSideEffectHooks",
     "OrphanedRunningPolicy",
     "attach_started_process_metadata",
     "cancel_running_process_job",
@@ -453,6 +474,7 @@ __all__ = [
     "record_terminal_process_side_effects",
     "request_pending_cancellations",
     "resolved_job_queue_root",
+    "run_terminal_process_side_effects",
     "shutdown_running_job",
     "shutdown_running_process_job",
     "sync_terminal_running_entries",

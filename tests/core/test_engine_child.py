@@ -114,6 +114,36 @@ def test_run_engine_worker_child_job_processes_entry_with_extra_kwargs(
     assert processed[0]["kwargs"]["shutdown_requested"]() is False
 
 
+def test_run_engine_worker_child_job_can_map_outcome_to_exit_code(tmp_path: Path) -> None:
+    cfg = SimpleNamespace(admission_root=tmp_path / "admission")
+    entry = SimpleNamespace(queue_id="queue-1", status="running")
+    released: list[tuple[Path, str]] = []
+
+    rc = engine_child.run_engine_worker_child_job(
+        spec=engine_child.WorkerChildRunSpec(
+            shutdown_exception_type=_WorkerShutdownRequested,
+            entry_ready_fn=lambda loaded_entry: loaded_entry.status == "running",
+            outcome_exit_code_fn=lambda outcome: outcome.exit_code,
+        ),
+        config_path="/tmp/chemstack.yaml",
+        queue_root=tmp_path / "queue",
+        queue_id="queue-1",
+        admission_token="slot-1",
+        load_config_fn=lambda _path: cfg,
+        find_queue_entry_fn=lambda _root, _queue_id: entry,
+        admission_root_fn=lambda loaded_cfg: loaded_cfg.admission_root,
+        release_slot_fn=lambda root, token: released.append((Path(root), token)),
+        install_signal_handlers_fn=lambda _controller: None,
+        process_dequeued_entry_fn=lambda *_args, **_kwargs: SimpleNamespace(exit_code=7),
+        dependencies_fn=lambda: object(),
+        requeue_running_entry_fn=lambda *_args: None,
+        mark_recovery_pending_context_fn=lambda *_args, **_kwargs: None,
+    )
+
+    assert rc == 7
+    assert released == [(cfg.admission_root, "slot-1")]
+
+
 def test_internal_engine_worker_child_builds_shutdown_signal_installer() -> None:
     child = InternalEngineSpec(
         engine="demo",

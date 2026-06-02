@@ -87,15 +87,28 @@ pytest tests/integration -q
 - `chemstack.orca` is the only implementation source of truth
 - All supported package imports live under `src/chemstack`
 - If a new feature requires code changes in ORCA logic, make them under `src/chemstack/orca`
+- Shared queue admission, child-entrypoint, process lifecycle, terminal
+  side-effect, and orphan-reconciliation helpers live under `chemstack.core.queue`
 - Keep top-level alias packages and alternate runtime readers out of the codebase
 
 ## Internal Engine Workers
 
-xTB and CREST are internal workflow engines. Their queue workers should expose a
-small engine adapter through `chemstack.core.queue.engine_execution` rather than
-owning a full worker lifecycle. New internal engines should provide engine-local
-context, process, artifact, tracking, and notification callbacks, then execute
-through `InternalEngineWorkerAdapter` and `run_internal_engine_worker_entry`.
+xTB and CREST are internal workflow engines. ORCA remains the public queue-first
+engine, but its queue worker now uses the same internal-engine lifecycle helpers
+for queue-child execution, admission metadata, terminal side effects, and
+orphan reconciliation.
+
+New internal engines should expose a small engine adapter through
+`chemstack.core.queue.engine_execution` rather than owning a full worker
+lifecycle. Provide engine-local context, process, artifact, tracking, and
+notification callbacks, then execute through `InternalEngineWorkerAdapter` and
+`run_internal_engine_worker_entry`.
+
+ORCA-specific state, retry, input selection, reports, auto-organize behavior,
+and the downstream `reaction_dir` contract stay in `chemstack.orca`. The
+queue-worker child path should use `--queue-root/--queue-id`; the direct
+`--reaction-dir` worker-job mode is retained only for compatibility and direct
+single-directory execution helpers.
 
 ## Related Docs
 

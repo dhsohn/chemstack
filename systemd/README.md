@@ -66,7 +66,9 @@ Common assumptions:
 - Repository path is `/home/<user>/chemstack`
 - Config path is `/home/<user>/chemstack/config/chemstack.yaml`
 - Python path is `/home/<user>/chemstack/.venv/bin/python`
-- The unified service runs the ORCA worker by default
+- The unified service runs the ORCA worker by default; ORCA uses the same
+  shared admission lifecycle as internal engines, while keeping its ORCA
+  retry/report/auto-organize behavior
 - If `workflow.root` is configured, the same service also starts workflow supervision and the internal CREST/xTB workers
 
 Install the unified engine worker:

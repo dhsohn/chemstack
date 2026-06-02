@@ -4,21 +4,21 @@ import argparse
 import subprocess
 import sys
 from argparse import Namespace
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Type
+from typing import Any, Callable, Type
 
-from chemstack.core.queue.engine_child import (
-    WorkerChildCommandSpec,
-    build_engine_worker_child_command,
-    run_loaded_engine_child_job,
+from chemstack.core.queue import engine_execution as _engine_execution
+from chemstack.core.queue.internal_engine import InternalEngineSpec
+from chemstack.core.queue.worker import (
+    install_shutdown_signal_handlers,
+    resolve_admission_root,
+    start_background_process,
 )
-from chemstack.core.queue.lifecycle import entry_status_is_running
-from chemstack.core.queue.worker import start_background_process
 
 from chemstack.core.app_ids import CHEMSTACK_ORCA_APP_NAME
 from chemstack.core.admission import release_slot
 from chemstack.core.queue.child_execution import find_queue_entry_by_id
-from chemstack.core.queue.worker import resolve_admission_root
 
 from ..orca_runner import OrcaRunner
 from ..commands.run_inp import _cmd_run_inp_execute
@@ -29,13 +29,49 @@ from ..queue_adapter import (
     queue_entry_force,
     queue_entry_reaction_dir,
     queue_entry_task_id,
+    requeue_running_entry,
 )
 
 BackgroundRunJobProcess = subprocess.Popen
 WORKER_JOB_MODULE = "chemstack.orca.runtime.worker_job"
-_WORKER_CHILD_COMMAND_SPEC = WorkerChildCommandSpec(
+_ENGINE_SPEC = InternalEngineSpec(
+    engine="orca",
     worker_job_module=WORKER_JOB_MODULE,
     include_admission_root=False,
+)
+
+
+class WorkerShutdownRequested(RuntimeError):
+    def __init__(self, context: Any):
+        super().__init__("worker_shutdown")
+        self.context = context
+
+
+@dataclass(frozen=True)
+class OrcaWorkerExecutionContext:
+    entry: Any
+    config_path: str
+    reaction_dir: str
+    force: bool
+    admission_token: str | None
+    admission_app_name: str | None
+    admission_task_id: str | None
+
+
+@dataclass(frozen=True)
+class OrcaWorkerExecutionOutcome:
+    exit_code: int
+    reaction_dir: str
+    entry: Any
+
+
+def _orca_worker_outcome_exit_code(outcome: OrcaWorkerExecutionOutcome) -> int:
+    return int(outcome.exit_code)
+
+
+_WORKER_CHILD = _ENGINE_SPEC.worker_child(
+    WorkerShutdownRequested,
+    outcome_exit_code_fn=_orca_worker_outcome_exit_code,
 )
 
 
@@ -111,8 +147,7 @@ def build_worker_child_command(
     admission_root: str | Path | None = None,
 ) -> list[str]:
     del admission_root
-    return build_engine_worker_child_command(
-        spec=_WORKER_CHILD_COMMAND_SPEC,
+    return _WORKER_CHILD.build_worker_child_command(
         config_path=config_path,
         queue_root=queue_root,
         queue_id=queue_id,
@@ -128,6 +163,91 @@ def _queue_entry_by_id(queue_root: Path, queue_id: str) -> Any | None:
     )
 
 
+def _build_execution_context(
+    _cfg: Any,
+    entry: Any,
+    *,
+    worker_config_path: str,
+    admission_token: str | None,
+) -> OrcaWorkerExecutionContext:
+    return OrcaWorkerExecutionContext(
+        entry=entry,
+        config_path=worker_config_path,
+        reaction_dir=queue_entry_reaction_dir(entry),
+        force=queue_entry_force(entry),
+        admission_token=admission_token,
+        admission_app_name=queue_entry_app_name(entry) or None,
+        admission_task_id=queue_entry_task_id(entry) or None,
+    )
+
+
+def _run_orca_job_for_entry(
+    _cfg: Any,
+    context: OrcaWorkerExecutionContext,
+    _queue_root: Path,
+    _options: _engine_execution.InternalWorkerOptions,
+) -> int:
+    return execute_run_job(
+        context.config_path,
+        context.reaction_dir,
+        force=context.force,
+        reservation_token=context.admission_token,
+        admission_app_name=context.admission_app_name,
+        admission_task_id=context.admission_task_id,
+    )
+
+
+def _worker_execution_spec(
+    *,
+    worker_config_path: str,
+    admission_token: str | None,
+) -> _engine_execution.InternalEngineWorkerExecutionSpec:
+    return _engine_execution.build_internal_engine_worker_execution_spec(
+        build_context=lambda cfg_obj, entry_obj: _build_execution_context(
+            cfg_obj,
+            entry_obj,
+            worker_config_path=worker_config_path,
+            admission_token=admission_token,
+        ),
+        shutdown_exception_type=WorkerShutdownRequested,
+        mark_running=lambda _cfg, _context, _options: None,
+        run_job=_run_orca_job_for_entry,
+        finalize_entry=lambda _cfg, _context, result, _queue_root, _options: result,
+        build_outcome=lambda context, result, _finalized: OrcaWorkerExecutionOutcome(
+            exit_code=int(result),
+            reaction_dir=context.reaction_dir,
+            entry=context.entry,
+        ),
+    )
+
+
+def process_dequeued_entry(
+    cfg: Any,
+    entry: Any,
+    *,
+    queue_root: Path | None = None,
+    worker_config_path: str,
+    admission_token: str | None = None,
+    dependencies: Any | None = None,
+    shutdown_requested: Callable[[], bool] | None = None,
+) -> OrcaWorkerExecutionOutcome:
+    del dependencies
+    return _engine_execution.run_internal_engine_worker_entry_with_spec_options(
+        cfg,
+        entry,
+        queue_root=queue_root,
+        spec=_worker_execution_spec(
+            worker_config_path=worker_config_path,
+            admission_token=admission_token,
+        ),
+        shutdown_requested=shutdown_requested,
+    )
+
+
+def _mark_recovery_pending_context(_cfg: Any, _context: Any, *, reason: str) -> None:
+    del reason
+
+
 def run_worker_child_job(
     *,
     config_path: str,
@@ -135,18 +255,7 @@ def run_worker_child_job(
     queue_id: str,
     admission_token: str | None = None,
 ) -> int:
-    def _run_loaded_job(job: Any) -> int:
-        entry = job.entry
-        return execute_run_job(
-            config_path,
-            queue_entry_reaction_dir(entry),
-            force=queue_entry_force(entry),
-            reservation_token=admission_token,
-            admission_app_name=queue_entry_app_name(entry) or None,
-            admission_task_id=queue_entry_task_id(entry) or None,
-        )
-
-    return run_loaded_engine_child_job(
+    return _WORKER_CHILD.run_worker_child_job(
         config_path=config_path,
         queue_root=queue_root,
         queue_id=queue_id,
@@ -155,8 +264,17 @@ def run_worker_child_job(
         find_queue_entry_fn=_queue_entry_by_id,
         admission_root_fn=resolve_admission_root,
         release_slot_fn=release_slot,
-        entry_ready_fn=entry_status_is_running,
-        run_job_fn=_run_loaded_job,
+        install_signal_handlers_fn=_WORKER_CHILD.shutdown_signal_handler_installer(
+            install_shutdown_signal_handlers,
+        ),
+        process_dequeued_entry_fn=process_dequeued_entry,
+        dependencies_fn=lambda: None,
+        requeue_running_entry_fn=requeue_running_entry,
+        mark_recovery_pending_context_fn=_mark_recovery_pending_context,
+        process_dequeued_entry_kwargs={
+            "worker_config_path": config_path,
+            "admission_token": admission_token,
+        },
     )
 
 
@@ -240,12 +358,16 @@ if __name__ == "__main__":
 
 __all__ = [
     "BackgroundRunJobProcess",
+    "OrcaWorkerExecutionContext",
+    "OrcaWorkerExecutionOutcome",
     "WORKER_JOB_MODULE",
+    "WorkerShutdownRequested",
     "build_parser",
     "build_worker_child_command",
     "cmd_run_job",
     "execute_run_job",
     "main",
+    "process_dequeued_entry",
     "run_worker_child_job",
     "start_background_run_job",
 ]

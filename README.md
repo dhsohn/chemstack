@@ -168,6 +168,9 @@ If you want only the worker managed automatically, enable
 ## Runtime Notes
 
 - `run-dir` enqueues work durably; workers perform execution.
+- ORCA workers launch queue children by queue identity, so the durable
+  `queue.json` entry remains the source of truth while the public
+  `reaction_dir` contract is preserved.
 - If no worker is running, queued jobs remain pending until one returns.
 - ORCA selects the most recently modified `.inp` when execution starts.
 - When retrying or resuming an interrupted ORCA run, ChemStack uses a matching

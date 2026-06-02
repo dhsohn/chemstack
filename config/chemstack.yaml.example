@@ -16,12 +16,14 @@ resources:
 
 behavior:
   # ORCA-only: when true, ORCA queue workers auto-organize runs as soon as
-  # they reach a terminal state. Internal xTB/CREST stages do not organize.
+  # they reach a terminal state. This is an ORCA terminal lifecycle hook;
+  # internal xTB/CREST stages do not organize.
   auto_organize_on_terminal: false
 
 scheduler:
   # Shared total active-run cap across ORCA, internal xTB workflow stages, and
-  # internal CREST workflow stages.
+  # internal CREST workflow stages. All engine workers use this shared
+  # admission lifecycle.
   max_active_simulations: 4
   # Shared admission directory for machine-wide slot coordination.
   # If omitted, chemstack defaults to "<directory containing this file>/admission".

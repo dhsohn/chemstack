@@ -107,3 +107,76 @@ def test_attach_started_process_records_owner_and_marks_missing_slot(tmp_path: P
     assert terminated == [process]
     assert failed[0]["args"] == (tmp_path / "queue", entry, "slot-2")
     assert failed[0]["kwargs"]["error"] == "admission_slot_missing"
+
+
+def test_attach_started_process_accepts_reaction_dir_work_dir(tmp_path: Path) -> None:
+    reaction_dir = tmp_path / "orca-rxn"
+    entry = SimpleNamespace(queue_id="queue-1", metadata={"reaction_dir": str(reaction_dir)})
+    process = SimpleNamespace(pid=654)
+    activated: list[dict[str, Any]] = []
+
+    assert engine_admission.queue_entry_work_dir(entry) == str(reaction_dir)
+    assert engine_admission.attach_started_process(
+        admission_root="/tmp/admission",
+        queue_root=tmp_path / "queue",
+        entry=entry,
+        process=process,
+        admission_token="slot-1",
+        activate_reserved_slot_fn=lambda root, token, **kwargs: activated.append(
+            {"root": root, "token": token, **kwargs}
+        )
+        or object(),
+        terminate_process_fn=lambda _process: None,
+        mark_entry_failed_and_release_fn=lambda *args, **kwargs: None,
+        mark_failed_fn=lambda *args, **kwargs: None,
+        source="source",
+    )
+
+    assert activated[0]["work_dir"] == str(reaction_dir)
+
+
+def test_attach_started_process_metadata_updates_identity_and_running_record(
+    tmp_path: Path,
+) -> None:
+    cfg = object()
+    entry = SimpleNamespace(
+        queue_id="queue-1",
+        app_name="chemstack_orca",
+        task_id="task-1",
+    )
+    process = SimpleNamespace(pid=321)
+    updated: list[dict[str, Any]] = []
+    running: list[tuple[object, object]] = []
+
+    assert engine_admission.attach_started_process_metadata(
+        admission_root="/tmp/admission",
+        queue_root=tmp_path / "queue",
+        entry=entry,
+        process=process,
+        admission_token="slot-1",
+        queue_entry_id_fn=lambda current: current.queue_id,
+        queue_entry_app_name_fn=lambda current: current.app_name,
+        queue_entry_task_id_fn=lambda current: current.task_id,
+        update_slot_metadata_fn=lambda root, token, **kwargs: updated.append(
+            {"root": root, "token": token, **kwargs}
+        )
+        or True,
+        terminate_process_fn=lambda _process: None,
+        mark_entry_failed_and_release_fn=lambda *args, **kwargs: None,
+        mark_failed_fn=lambda *args, **kwargs: None,
+        cfg=cfg,
+        upsert_running_job_record_fn=lambda cfg_obj, current: running.append(
+            (cfg_obj, current)
+        ),
+    )
+
+    assert updated == [
+        {
+            "root": "/tmp/admission",
+            "token": "slot-1",
+            "queue_id": "queue-1",
+            "app_name": "chemstack_orca",
+            "task_id": "task-1",
+        }
+    ]
+    assert running == [(cfg, entry)]

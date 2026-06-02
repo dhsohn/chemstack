@@ -31,6 +31,7 @@ class InternalEngineSpec:
         *,
         entry_ready_fn: Callable[[Any], bool] = entry_status_is_running,
         process_dequeued_entry_kwargs_fn: Callable[[], Mapping[str, Any]] | None = None,
+        outcome_exit_code_fn: Callable[[Any], int] | None = None,
     ) -> InternalEngineWorkerChild:
         if not self.worker_job_module:
             raise ValueError("worker_job_module is required for worker child support")
@@ -40,6 +41,7 @@ class InternalEngineSpec:
             shutdown_exception_type=shutdown_exception_type,
             entry_ready_fn=entry_ready_fn,
             process_dequeued_entry_kwargs_fn=process_dequeued_entry_kwargs_fn,
+            outcome_exit_code_fn=outcome_exit_code_fn,
         )
 
 

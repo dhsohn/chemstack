@@ -53,6 +53,9 @@ chemstack run-dir '/home/user/workflow_inputs/reaction_case'
 
 `run-dir` queues work durably. Closing the terminal after a successful queue
 submission is safe because the systemd worker performs the actual execution.
+For ORCA, the worker executes the queued entry by queue id; the job's
+`reaction_dir` remains recorded in the queue and reports, but it is not the
+worker-child command identity.
 
 ## 6) Watch The Queue
 
