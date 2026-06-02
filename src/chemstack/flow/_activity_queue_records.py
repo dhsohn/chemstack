@@ -226,6 +226,7 @@ def collect_orca_activity(
     *,
     deps: ActivityListDeps,
 ) -> list[ActivityRecord]:
+    del request
     if not normalize_text(resolved.orca_config):
         return []
     return deps._orca_records(

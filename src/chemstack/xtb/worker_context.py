@@ -57,7 +57,7 @@ def input_summary(entry: Any) -> dict[str, Any]:
 
 
 def matching_state(
-    entry: Any,
+    _entry: Any,
     *,
     job_dir: Path,
     selected_xyz: Path,

@@ -237,7 +237,6 @@ def execute_locked_run(
         with execution._admission_context(
             admission_root=context.admission_root,
             reaction_dir=context.reaction_dir,
-            admission_limit=context.admission_limit,
             reservation_token=context.reservation_token,
             admission_app_name=context.admission_app_name,
             admission_task_id=context.admission_task_id,

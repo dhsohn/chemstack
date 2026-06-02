@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +15,8 @@ from chemstack.core.utils import (
 
 from . import _registry_notifications as _notifications
 from .registry_store import _registry_lock_path
+
+LOGGER = logging.getLogger(__name__)
 
 WORKFLOW_JOURNAL_FILE_NAME = "workflow_registry.journal.jsonl"
 
@@ -34,7 +37,13 @@ def _maybe_notify_journal_event(event: dict[str, Any], workflow_root: str | Path
         return
     try:
         transport.send_text(_notifications.journal_event_message(event, workflow_root), parse_mode="HTML")
-    except Exception:
+    except Exception as exc:
+        LOGGER.debug(
+            "workflow_journal_notification_failed: workflow_root=%s event_type=%s error=%s",
+            workflow_root,
+            event_type,
+            exc,
+        )
         return
 
 
@@ -94,13 +103,19 @@ def list_workflow_journal(workflow_root: str | Path, *, limit: int = 50) -> list
         return []
     rows: list[dict[str, Any]] = []
     with file_lock(_registry_lock_path(resolved_root)):
-        for line in path.read_text(encoding="utf-8").splitlines():
+        for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
             text = line.strip()
             if not text:
                 continue
             try:
                 raw = json.loads(text)
-            except Exception:
+            except Exception as exc:
+                LOGGER.debug(
+                    "workflow_journal_row_parse_failed: path=%s line=%d error=%s",
+                    path,
+                    line_number,
+                    exc,
+                )
                 continue
             if isinstance(raw, dict):
                 rows.append({str(key): value for key, value in raw.items()})

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -10,6 +11,8 @@ from chemstack.orca.job_locations import (
     load_job_runtime_context,
     load_orca_contract_payload,
 )
+
+LOGGER = logging.getLogger(__name__)
 
 
 def _dict_payload(value: Any) -> dict[str, Any]:
@@ -30,7 +33,13 @@ def tracked_artifact_context_impl(
             continue
         try:
             context = load_job_artifact_context(index_root, target)
-        except Exception:
+        except Exception as exc:
+            LOGGER.debug(
+                "orca_artifact_context_load_failed: index_root=%s target=%s error=%s",
+                index_root,
+                target,
+                exc,
+            )
             continue
         job_dir = getattr(context, "job_dir", None)
         if job_dir is None:

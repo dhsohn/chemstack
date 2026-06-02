@@ -77,9 +77,11 @@ Keep imports under `chemstack.*`; avoid top-level aliases or compatibility shims
 Common commands:
 
 ```bash
+python -m pip install -c constraints-dev.txt -e .[dev]
 pytest tests -q --ignore=tests/core --ignore=tests/xtb --ignore=tests/crest --ignore=tests/flow --ignore=tests/integration
 pytest tests/flow -q
 pytest tests/integration -q
+bash scripts/clean_artifacts.sh
 ```
 
 ## Package Policy

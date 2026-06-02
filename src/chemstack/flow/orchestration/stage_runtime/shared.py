@@ -133,6 +133,7 @@ def _mark_submission_deferred(
     stage_metadata: dict[str, Any],
     submission: dict[str, Any],
 ) -> None:
+    del task
     WorkflowStageView(stage).set_status_pair(stage_status="planned", task_status="planned")
     stage_metadata["submission_status"] = "waiting_for_slot"
     stage_metadata["submission_deferred_reason"] = _submission_deferred_reason(submission)

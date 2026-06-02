@@ -417,7 +417,7 @@ def _failed_result_from_exception(
 def _run_xtb_job_for_entry(
     cfg: Any,
     context: _XtbExecutionContext,
-    queue_root: Path,
+    _queue_root: Path,
     *,
     dependencies: WorkerExecutionDependencies,
     should_cancel: Callable[[], bool] | None,

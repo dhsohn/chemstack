@@ -17,6 +17,7 @@ from .contracts import (
     XtbCandidateArtifact,
     XtbDownstreamPolicy,
 )
+from chemstack import __version__
 
 __all__ = [
     "CrestArtifactContract",
@@ -36,6 +37,5 @@ __all__ = [
     "XtbArtifactContract",
     "XtbCandidateArtifact",
     "XtbDownstreamPolicy",
+    "__version__",
 ]
-
-__version__ = "0.1.0"

@@ -115,7 +115,13 @@ def _scan_cwd_process_counts(allowed_root: Path, proc_root: Path | None = None) 
             continue
         try:
             cwd = Path(os.readlink(entry / "cwd")).resolve()
-        except Exception:
+        except Exception as exc:
+            logger.debug(
+                "proc_cwd_read_failed: proc_entry=%s allowed_root=%s error=%s",
+                entry,
+                allowed_root,
+                exc,
+            )
             continue
         if not is_subpath(cwd, allowed_root):
             continue

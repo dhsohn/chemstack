@@ -192,7 +192,6 @@ def _admission_context(
     *,
     admission_root: Path,
     reaction_dir: Path,
-    admission_limit: int,
     reservation_token: str | None,
     admission_app_name: str | None,
     admission_task_id: str | None,

@@ -44,7 +44,6 @@ def _crest_orca_stage_plan(
     o: Any,
     payload: dict[str, Any],
     *,
-    template_name: str,
     crest_config: str | None,
     orca_config: str | None,
 ) -> _CrestOrcaStagePlan | None:
@@ -100,7 +99,6 @@ def append_crest_orca_stages_impl(
     plan = _crest_orca_stage_plan(
         o,
         payload,
-        template_name=template_name,
         crest_config=crest_config,
         orca_config=orca_config,
     )

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any, Callable
 
@@ -15,6 +16,8 @@ from chemstack.core.config.files import (
 
 from . import _runtime_common
 
+LOGGER = logging.getLogger(__name__)
+
 
 def submission_admission_limit_from_config(
     config_path: str | Path,
@@ -23,7 +26,12 @@ def submission_admission_limit_from_config(
 ) -> int | None:
     try:
         _, raw = load_yaml_mapping(config_path)
-    except Exception:
+    except Exception as exc:
+        LOGGER.debug(
+            "submission_admission_limit_config_load_failed: config_path=%s error=%s",
+            config_path,
+            exc,
+        )
         return None
 
     scheduler = mapping_section(raw, "scheduler")
@@ -79,7 +87,13 @@ def submission_admission_has_capacity(
             else:
                 runtime_paths = engine_runtime_paths_fn(str(config_path), engine=engine)
                 candidate = runtime_paths.get("admission_root")
-        except Exception:
+        except Exception as exc:
+            LOGGER.debug(
+                "submission_admission_root_lookup_failed: config_path=%s engine=%s error=%s",
+                config_path,
+                engine,
+                exc,
+            )
             continue
         if isinstance(candidate, Path):
             admission_root = candidate
@@ -88,7 +102,12 @@ def submission_admission_has_capacity(
         return None
     try:
         return active_slot_count_fn(admission_root) < limit
-    except Exception:
+    except Exception as exc:
+        LOGGER.debug(
+            "submission_admission_slot_count_failed: admission_root=%s error=%s",
+            admission_root,
+            exc,
+        )
         return None
 
 

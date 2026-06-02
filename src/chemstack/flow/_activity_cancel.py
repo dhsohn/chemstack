@@ -78,6 +78,7 @@ def cancel_crest_activity(
     *,
     deps: Any,
 ) -> dict[str, Any]:
+    del request
     config_path = normalize_text(resolved.crest_config)
     if not config_path:
         raise ValueError("crest_config is required to cancel crest activities.")
@@ -94,6 +95,7 @@ def cancel_xtb_activity(
     *,
     deps: Any,
 ) -> dict[str, Any]:
+    del request
     config_path = normalize_text(resolved.xtb_config)
     if not config_path:
         raise ValueError("xtb_config is required to cancel xtb activities.")

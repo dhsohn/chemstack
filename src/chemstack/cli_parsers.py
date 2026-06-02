@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import argparse
-from importlib import metadata
 from typing import cast
 
+from chemstack._version import package_version
 from chemstack.cli_argparse import ChemStackArgumentParser
 from chemstack.cli_parser_commands import (
     add_init_parser,
@@ -17,10 +17,7 @@ from chemstack.cli_parser_systemd import add_service_parser, add_systemd_parser
 
 
 def _chemstack_version() -> str:
-    try:
-        return metadata.version("chemstack")
-    except metadata.PackageNotFoundError:
-        return "0.0.0+unknown"
+    return package_version()
 
 
 _EXAMPLES_EPILOG = """\

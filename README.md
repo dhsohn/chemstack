@@ -181,7 +181,14 @@ If you want only the worker managed automatically, enable
 ## Testing
 
 ```bash
+python -m pip install -c constraints-dev.txt -e .[dev]
 ruff check .
 mypy
 pytest --cov --cov-report=term-missing -q
+```
+
+To clear local Python/test/tool caches after a large refactor:
+
+```bash
+bash scripts/clean_artifacts.sh
 ```

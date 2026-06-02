@@ -167,6 +167,7 @@ def write_xtb_path_job_impl(
     attempt_number: int,
     deps: OrchestrationDeps | None = None,
 ) -> str:
+    del workflow_id
     o = _orchestration_context(deps)
     stage_view = WorkflowStageView(stage)
     task_view = stage_view.task

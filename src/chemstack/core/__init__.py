@@ -12,8 +12,7 @@ from .indexing import (
 )
 from .notifications import TelegramSendResult, TelegramTransport, build_telegram_transport
 from .queue.types import QueueEntry, QueueStatus
-
-__version__ = "0.1.0"
+from chemstack import __version__
 
 __all__ = [
     "__version__",

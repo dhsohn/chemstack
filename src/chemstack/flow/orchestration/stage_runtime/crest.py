@@ -32,6 +32,7 @@ def ensure_crest_job_dir_impl(
     workflow_id: str,
     deps: OrchestrationDeps | None = None,
 ) -> str:
+    del workflow_id
     o = _orchestration_context(deps)
     stage_view = WorkflowStageView(stage)
     task_view = stage_view.task

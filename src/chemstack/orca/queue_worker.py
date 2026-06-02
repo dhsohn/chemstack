@@ -137,13 +137,13 @@ def _runtime_facade_deps() -> InternalEngineQueueWorkerDeps:
         list_queue=lambda root: list_queue(Path(root)),
         list_slots=lambda root: list_slots(root),
         reconcile_stale_slots=lambda root: reconcile_stale_slots(root),
-        reconcile_orphaned_child_queue_entries=lambda *args, **kwargs: None,
+        reconcile_orphaned_child_queue_entries=lambda *_args, **_kwargs: None,
         mark_cancelled=lambda *args, **kwargs: mark_cancelled(*args, **kwargs),
         requeue_running_entry=lambda *args, **kwargs: requeue_running_entry(
             *args,
             **kwargs,
         ),
-        mark_recovery_pending=lambda *args, **kwargs: None,
+        mark_recovery_pending=lambda *_args, **_kwargs: None,
         try_reserve_admission_slot=lambda cfg: _try_reserve_admission_slot(cfg),
         start_background_job_process_fn=lambda **kwargs: _start_background_job_process(
             **kwargs,

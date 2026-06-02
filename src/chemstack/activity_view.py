@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -7,6 +8,8 @@ from chemstack.core.admission import active_slot_count
 from chemstack.core.paths.workflow import WORKFLOW_STAGE_DIRNAMES
 from chemstack.core.utils import normalize_text
 from chemstack.flow.engine_runtime import engine_runtime_paths
+
+LOGGER = logging.getLogger(__name__)
 
 ACTIVE_SIMULATION_STATUSES = frozenset({"running", "retrying", "cancel_requested"})
 DEFAULT_COMBINED_WORKFLOW_CHILD_ENGINES = frozenset({"orca"})
@@ -149,14 +152,23 @@ def count_global_active_simulations(
     if config_text:
         try:
             runtime_paths = engine_runtime_paths(config_text, engine="orca")
-        except Exception:
+        except Exception as exc:
+            LOGGER.debug(
+                "active_simulation_runtime_paths_failed: config_path=%s error=%s",
+                config_text,
+                exc,
+            )
             runtime_paths = {}
         admission_root = runtime_paths.get("admission_root")
         if isinstance(admission_root, Path):
             try:
                 return max(0, int(active_slot_count(admission_root)))
-            except Exception:
-                pass
+            except Exception as exc:
+                LOGGER.debug(
+                    "active_simulation_slot_count_failed: admission_root=%s error=%s",
+                    admission_root,
+                    exc,
+                )
     return count_active_simulations(items)
 
 

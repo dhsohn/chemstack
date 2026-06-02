@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import resource
 import shutil
@@ -32,6 +33,8 @@ from .runner_artifacts import (
     _collect_sp_candidates,
     _extract_sp_energy,
 )
+
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -235,8 +238,8 @@ def _request_candidate_process_stop(
         return
     try:
         process.terminate()
-    except Exception:
-        pass
+    except Exception as exc:
+        LOGGER.debug("xtb_process_terminate_failed: error=%s", exc)
 
 
 def _ranking_deps() -> _runner_ranking.RankingDeps:
