@@ -34,6 +34,23 @@ class OrcaQueueWorkerLifecycleHooks:
     notify_terminal_job_from_state_fn: Callable[[AppConfig, str], bool]
 
 
+@dataclass(frozen=True)
+class OrcaQueueWorkerReconcileHooks:
+    queue_roots_fn: Callable[[Any], tuple[Path, ...]]
+    reconcile_stale_slots_fn: Callable[[Any], Any]
+    reconcile_orphaned_running_entries_fn: Callable[..., Any]
+
+
+@dataclass(frozen=True)
+class OrcaQueueWorkerShutdownHooks:
+    terminate_process_fn: Callable[[Any], Any]
+    requeue_running_entry_fn: Callable[..., Any]
+
+
+def job_queue_root(worker: Any, job: Any) -> Path:
+    return _job_queue_root(worker, job)
+
+
 def attach_started_orca_process(
     worker: Any,
     queue_root: Path,
@@ -153,4 +170,26 @@ def cancel_orca_running_job(
     except subprocess.TimeoutExpired:
         pass
     hooks.mark_cancelled_fn(_job_queue_root(worker, job), queue_id)
+    worker._release_admission_slot(job.admission_token)
+
+
+def reconcile_orca_orphaned_running_entries(
+    worker: Any,
+    *,
+    hooks: OrcaQueueWorkerReconcileHooks,
+) -> None:
+    hooks.reconcile_stale_slots_fn(worker.admission_root)
+    for queue_root in hooks.queue_roots_fn(worker.cfg):
+        hooks.reconcile_orphaned_running_entries_fn(queue_root, ignore_worker_pid=True)
+
+
+def shutdown_orca_running_job(
+    worker: Any,
+    queue_id: str,
+    job: Any,
+    *,
+    hooks: OrcaQueueWorkerShutdownHooks,
+) -> None:
+    hooks.terminate_process_fn(job.process)
+    hooks.requeue_running_entry_fn(_job_queue_root(worker, job), queue_id)
     worker._release_admission_slot(job.admission_token)

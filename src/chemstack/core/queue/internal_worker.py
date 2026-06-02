@@ -83,6 +83,27 @@ class InternalEngineWorkerExecutionSpec:
         )
 
 
+def build_internal_engine_worker_execution_spec(
+    *,
+    build_context: Callable[[Any, Any], Any],
+    mark_running: Callable[[Any, Any, InternalWorkerOptions], None],
+    run_job: Callable[[Any, Any, Path, InternalWorkerOptions], Any],
+    finalize_entry: Callable[[Any, Any, Any, Path, InternalWorkerOptions], Any],
+    shutdown_exception_type: type[BaseException],
+    build_outcome: Callable[[Any, Any, Any], Any] = (
+        lambda _context, _result, finalized: finalized
+    ),
+) -> InternalEngineWorkerExecutionSpec:
+    return InternalEngineWorkerExecutionSpec(
+        build_context=build_context,
+        mark_running=mark_running,
+        run_job=run_job,
+        finalize_entry=finalize_entry,
+        shutdown_exception_type=shutdown_exception_type,
+        build_outcome=build_outcome,
+    )
+
+
 def build_internal_engine_worker_adapter(
     *,
     build_context: Callable[[Any, Any], Any],
@@ -305,6 +326,7 @@ __all__ = [
     "InternalWorkerQueueDependencies",
     "InternalWorkerTimingDependencies",
     "InternalWorkerOptions",
+    "build_internal_engine_worker_execution_spec",
     "build_internal_engine_worker_adapter",
     "build_internal_engine_worker_adapter_from_spec",
     "build_internal_engine_worker_adapter_from_hooks",

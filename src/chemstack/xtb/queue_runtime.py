@@ -14,7 +14,6 @@ from chemstack.core.notifications.engines import (
     notify_xtb_job_finished as notify_job_finished,
     notify_xtb_job_started as notify_job_started,
 )
-from chemstack.core.queue import execution as _queue_execution
 from chemstack.core.admission import (
     activate_reserved_slot,
     list_slots,
@@ -44,11 +43,11 @@ from chemstack.core.queue.internal_engine import (
     InternalEngineQueueModule,
     InternalEngineQueueWorkerDeps,
     InternalEngineSpec,
-    internal_engine_queue_worker_deps_from_namespace,
 )
 
 from . import queue_admission as _queue_admission
 from . import queue_lifecycle as _queue_lifecycle
+from . import queue_worker_dependencies as _queue_worker_dependencies
 from . import worker_execution as _worker_execution
 from . import worker_terminal as _worker_terminal
 from .job_locations import (
@@ -66,19 +65,6 @@ from . import queue_terminal as _queue_terminal
 
 # Keep queue_runtime.subprocess available for tests/callers that patch Popen.
 _SUBPROCESS_MODULE = subprocess
-# Keep these module globals present for the late-bound queue worker deps factory.
-_LATE_BOUND_QUEUE_WORKER_DEPS = (
-    default_config_path,
-    activate_reserved_slot,
-    list_slots,
-    reconcile_stale_slots,
-    release_slot,
-    reserve_slot,
-    requeue_running_entry,
-    config_path_for_worker,
-    reconcile_orphaned_child_queue_entries,
-    start_background_process,
-)
 POLL_INTERVAL_SECONDS = 5
 CANCEL_CHECK_INTERVAL_SECONDS = 1
 WORKER_PID_FILE = "xtb_queue_worker.pid"
@@ -98,44 +84,32 @@ def _queue_worker_deps() -> Any:
 
 
 def _worker_execution_dependencies() -> _worker_execution.WorkerExecutionDependencies:
-    return _worker_execution.build_worker_execution_dependencies(
-        config=_worker_execution.WorkerConfigDependencies(
+    return _queue_worker_dependencies.build_worker_execution_dependencies(
+        _queue_worker_dependencies.XtbQueueWorkerExecutionFns(
             load_config=load_config,
             queue_entry_by_id=_queue_entry_by_id,
-        ),
-        admission=_worker_execution.WorkerAdmissionDependencies(
             activate_reserved_slot=activate_reserved_slot,
             release_slot=release_slot,
-        ),
-        context=_worker_execution.WorkerContextDependencies(
             job_dir=_job_dir,
             selected_xyz=_selected_xyz,
             job_type=_job_type,
             reaction_key=_reaction_key,
             input_summary=_input_summary,
-            entry_resource_request=_queue_artifacts.entry_resource_request,
             matching_state=_worker_execution_hooks.matching_state,
             is_recovery_pending=_worker_execution.is_recovery_pending,
-        ),
-        artifacts=_worker_execution.WorkerArtifactDependencies(
             write_running_state=_write_running_state,
             build_terminal_result=_build_terminal_result,
             finalize_execution_result=_finalize_execution_result,
-        ),
-        tracking=_worker_execution.WorkerTrackingDependencies(
             upsert_job_record=upsert_job_record,
             notify_job_started=notify_job_started,
-        ),
-        runner=_worker_execution.WorkerRunnerDependencies(
             run_xtb_ranking_job=run_xtb_ranking_job,
             start_xtb_job=start_xtb_job,
             finalize_xtb_job=finalize_xtb_job,
             terminate_process=_terminate_process,
-            wait_for_cancellable_process=_queue_execution.wait_for_cancellable_process,
             sleep=time.sleep,
             cancel_check_interval_seconds=CANCEL_CHECK_INTERVAL_SECONDS,
-        ),
-        execute_queue_entry_fn=_execute_queue_entry,
+            execute_queue_entry=_execute_queue_entry,
+        )
     )
 
 
@@ -144,10 +118,48 @@ _TerminalSummary = _queue_terminal.TerminalSummary
 
 
 def _runtime_facade_deps() -> InternalEngineQueueWorkerDeps:
-    return internal_engine_queue_worker_deps_from_namespace(
-        globals(),
-        mark_recovery_pending_name="_mark_recovery_pending_state",
-        find_queue_entry_name="_queue_entry_by_id",
+    return InternalEngineQueueWorkerDeps(
+        time_module=time,
+        release_slot=lambda root, token: release_slot(root, token),
+        reserve_slot=lambda *args, **kwargs: reserve_slot(*args, **kwargs),
+        start_background_process=lambda command: start_background_process(command),
+        build_worker_child_command=lambda *args, **kwargs: build_worker_child_command(
+            *args,
+            **kwargs,
+        ),
+        config_path_for_worker=lambda *args, **kwargs: config_path_for_worker(*args, **kwargs),
+        default_config_path=lambda: default_config_path(),
+        activate_reserved_slot=lambda *args, **kwargs: activate_reserved_slot(*args, **kwargs),
+        terminate_process=lambda process: _terminate_process(process),
+        mark_failed=lambda *args, **kwargs: mark_failed(*args, **kwargs),
+        handle_worker_start_error=lambda *args, **kwargs: _handle_worker_start_error(
+            *args,
+            **kwargs,
+        ),
+        finalize_completed_job=lambda *args, **kwargs: _finalize_completed_job(
+            *args,
+            **kwargs,
+        ),
+        finalize_child_exit=lambda *args, **kwargs: _finalize_child_exit(*args, **kwargs),
+        reconcile_worker_state=lambda worker: _reconcile_worker_state(worker),
+        list_queue=lambda root: list_queue(root),
+        list_slots=lambda root: list_slots(root),
+        reconcile_stale_slots=lambda root: reconcile_stale_slots(root),
+        reconcile_orphaned_child_queue_entries=lambda *args, **kwargs: (
+            reconcile_orphaned_child_queue_entries(*args, **kwargs)
+        ),
+        mark_cancelled=lambda *args, **kwargs: mark_cancelled(*args, **kwargs),
+        requeue_running_entry=lambda *args, **kwargs: requeue_running_entry(*args, **kwargs),
+        mark_recovery_pending=lambda *args, **kwargs: _mark_recovery_pending_state(
+            *args,
+            **kwargs,
+        ),
+        try_reserve_admission_slot=lambda cfg: _try_reserve_admission_slot(cfg),
+        start_background_job_process_fn=lambda **kwargs: _start_background_job_process(**kwargs),
+        find_queue_entry=lambda root, queue_id: _queue_entry_by_id(root, queue_id),
+        load_config=lambda config_path: load_config(config_path),
+        read_worker_pid=lambda allowed_root: read_worker_pid(allowed_root),
+        worker_class=lambda *args, **kwargs: QueueWorker(*args, **kwargs),
     )
 
 

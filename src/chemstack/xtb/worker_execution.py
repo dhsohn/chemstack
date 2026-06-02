@@ -493,7 +493,7 @@ def _worker_execution_spec(
         Callable[[], bool] | None,
     ],
 ) -> _engine_execution.InternalEngineWorkerExecutionSpec:
-    return _engine_execution.InternalEngineWorkerExecutionSpec(
+    return _engine_execution.build_internal_engine_worker_execution_spec(
         build_context=lambda cfg_obj, entry_obj: _build_execution_context(
             cfg_obj,
             entry_obj,

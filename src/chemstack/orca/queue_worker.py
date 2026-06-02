@@ -65,9 +65,14 @@ from .job_locations import (
 )
 from ._queue_worker_lifecycle import (
     OrcaQueueWorkerLifecycleHooks,
+    OrcaQueueWorkerReconcileHooks,
+    OrcaQueueWorkerShutdownHooks,
     attach_started_orca_process,
     cancel_orca_running_job,
     finalize_orca_finished_job,
+    job_queue_root as _lifecycle_job_queue_root,
+    reconcile_orca_orphaned_running_entries,
+    shutdown_orca_running_job,
 )
 
 logger = logging.getLogger(__name__)
@@ -360,7 +365,7 @@ def _orca_worker_lifecycle_hooks() -> OrcaQueueWorkerLifecycleHooks:
 
 
 def _job_queue_root(worker: Any, job: Any) -> Path:
-    return Path(getattr(job, "queue_root", worker.allowed_root)).expanduser().resolve()
+    return _lifecycle_job_queue_root(worker, job)
 
 
 def _handle_worker_start_error(
@@ -418,9 +423,14 @@ def _finalize_child_exit(worker: Any, job: _RunningJob, *, rc: int) -> None:
 
 def _reconcile_orphaned_running(worker: Any) -> None:
     """Fix queue entries stuck as running from a previous worker crash."""
-    reconcile_stale_slots(worker.admission_root)
-    for queue_root in queue_roots(worker.cfg):
-        reconcile_orphaned_running_entries(queue_root, ignore_worker_pid=True)
+    reconcile_orca_orphaned_running_entries(
+        worker,
+        hooks=OrcaQueueWorkerReconcileHooks(
+            queue_roots_fn=queue_roots,
+            reconcile_stale_slots_fn=reconcile_stale_slots,
+            reconcile_orphaned_running_entries_fn=reconcile_orphaned_running_entries,
+        ),
+    )
 
 
 def _reconcile_worker_state(worker: Any) -> None:
@@ -428,9 +438,15 @@ def _reconcile_worker_state(worker: Any) -> None:
 
 
 def _shutdown_running_job(worker: Any, queue_id: str, job: Any) -> None:
-    _terminate_process(job.process)
-    requeue_running_entry(_job_queue_root(worker, job), queue_id)
-    worker._release_admission_slot(job.admission_token)
+    shutdown_orca_running_job(
+        worker,
+        queue_id,
+        job,
+        hooks=OrcaQueueWorkerShutdownHooks(
+            terminate_process_fn=_terminate_process,
+            requeue_running_entry_fn=requeue_running_entry,
+        ),
+    )
 
 
 def _before_shutdown_all(_worker: Any, running_count: int) -> None:
