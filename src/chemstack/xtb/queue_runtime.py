@@ -64,6 +64,17 @@ from .state import (
 from . import queue_artifacts as _queue_artifacts
 from . import queue_terminal as _queue_terminal
 
+# Referenced lazily by internal_engine_queue_worker_deps_from_namespace(globals()).
+_RUNTIME_FACADE_DYNAMIC_IMPORTS = (
+    default_config_path,
+    reconcile_stale_slots,
+    reserve_slot,
+    requeue_running_entry,
+    config_path_for_worker,
+    reconcile_orphaned_child_queue_entries,
+    start_background_process,
+)
+
 # Keep queue_runtime.subprocess available for tests/callers that patch Popen.
 _SUBPROCESS_MODULE = subprocess
 POLL_INTERVAL_SECONDS = 5

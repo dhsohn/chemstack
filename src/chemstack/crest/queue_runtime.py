@@ -65,6 +65,21 @@ from .worker_execution import (
     build_worker_child_command,
 )
 
+# Referenced lazily by internal_engine_queue_worker_deps_from_namespace(globals()).
+_RUNTIME_FACADE_DYNAMIC_IMPORTS = (
+    activate_reserved_slot,
+    list_slots,
+    reconcile_stale_slots,
+    release_slot,
+    reserve_slot,
+    requeue_running_entry,
+    config_path_for_worker,
+    reconcile_orphaned_child_queue_entries,
+    start_background_process,
+    _mark_recovery_pending_entry,
+    build_worker_child_command,
+)
+
 # Keep queue_runtime.subprocess available for tests/callers that patch Popen.
 _SUBPROCESS_MODULE = subprocess
 POLL_INTERVAL_SECONDS = 5
