@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import logging
+import subprocess
 from dataclasses import dataclass
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Callable, Iterable
 
@@ -10,6 +13,8 @@ from .child_process import (
     status_matches,
 )
 from .types import QueueStatus
+
+LOGGER = logging.getLogger(__name__)
 
 
 def entry_status_is(entry: Any, expected: Any) -> bool:
@@ -31,6 +36,190 @@ class ChildExitPolicy:
 @dataclass(frozen=True)
 class OrphanedRunningPolicy:
     recovery_reason: str = "crashed_recovery"
+
+
+@dataclass(frozen=True)
+class EngineQueueProcessLifecycleHooks:
+    queue_entry_id_fn: Callable[[Any], str]
+    queue_entry_app_name_fn: Callable[[Any], str]
+    queue_entry_task_id_fn: Callable[[Any], str | None]
+    update_slot_metadata_fn: Callable[..., Any]
+    terminate_process_fn: Callable[[Any], Any]
+    mark_failed_fn: Callable[..., Any]
+    upsert_running_job_record_fn: Callable[[Any, Any], Any]
+    get_run_id_from_state_fn: Callable[[str], str | None]
+    get_cancel_requested_fn: Callable[..., bool]
+    mark_cancelled_fn: Callable[..., Any]
+    mark_completed_fn: Callable[..., Any]
+    upsert_terminal_job_record_fn: Callable[..., Any]
+    notify_terminal_job_from_state_fn: Callable[[Any, str], bool]
+    on_completed_fn: Callable[[Any, Any], Any] | None = None
+
+
+@dataclass(frozen=True)
+class EngineQueueProcessReconcileHooks:
+    queue_roots_fn: Callable[[Any], tuple[Any, ...]]
+    reconcile_stale_slots_fn: Callable[[Any], Any]
+    reconcile_orphaned_running_entries_fn: Callable[..., Any]
+
+
+@dataclass(frozen=True)
+class EngineQueueProcessShutdownHooks:
+    terminate_process_fn: Callable[[Any], Any]
+    requeue_running_entry_fn: Callable[..., Any]
+
+
+def job_queue_root(worker: Any, job: Any) -> Path:
+    return Path(getattr(job, "queue_root", worker.allowed_root)).expanduser().resolve()
+
+
+def resolved_job_queue_root(worker: Any, job: Any) -> Path:
+    return job_queue_root(worker, job)
+
+
+def attach_started_process_metadata(
+    worker: Any,
+    queue_root: Any,
+    entry: Any,
+    *,
+    process: Any,
+    admission_token: str,
+    hooks: EngineQueueProcessLifecycleHooks,
+    logger: logging.Logger = LOGGER,
+) -> bool:
+    queue_id = hooks.queue_entry_id_fn(entry)
+    attached = hooks.update_slot_metadata_fn(
+        worker.admission_root,
+        admission_token,
+        queue_id=queue_id,
+        app_name=hooks.queue_entry_app_name_fn(entry),
+        task_id=hooks.queue_entry_task_id_fn(entry),
+    )
+    if not attached:
+        logger.error(
+            "Failed to attach queue identity to admission slot %s for job %s",
+            admission_token,
+            queue_id,
+        )
+        hooks.terminate_process_fn(process)
+        worker._mark_entry_failed_and_release(
+            queue_root,
+            entry,
+            admission_token,
+            error="admission_slot_missing",
+            mark_failed_fn=hooks.mark_failed_fn,
+        )
+        return False
+
+    try:
+        hooks.upsert_running_job_record_fn(worker.cfg, entry)
+    except Exception as exc:
+        logger.warning("Failed to update running job location for %s: %s", queue_id, exc)
+    return True
+
+
+def mark_terminal_process_queue_entry(
+    worker: Any,
+    queue_id: str,
+    job: Any,
+    *,
+    rc: int,
+    hooks: EngineQueueProcessLifecycleHooks,
+    logger: logging.Logger = LOGGER,
+) -> None:
+    queue_root = job_queue_root(worker, job)
+    run_id = hooks.get_run_id_from_state_fn(job.reaction_dir)
+    if hooks.get_cancel_requested_fn(queue_root, queue_id):
+        logger.info("Job cancelled: %s (rc=%d)", queue_id, rc)
+        hooks.mark_cancelled_fn(queue_root, queue_id)
+    elif rc == 0:
+        logger.info("Job completed: %s (rc=%d)", queue_id, rc)
+        hooks.mark_completed_fn(queue_root, queue_id, run_id=run_id)
+        if hooks.on_completed_fn is not None:
+            hooks.on_completed_fn(worker, job)
+    else:
+        logger.warning("Job failed: %s (rc=%d)", queue_id, rc)
+        hooks.mark_failed_fn(
+            queue_root,
+            queue_id,
+            error=f"exit_code={rc}",
+            run_id=run_id,
+        )
+
+
+def record_terminal_process_side_effects(
+    worker: Any,
+    queue_id: str,
+    job: Any,
+    *,
+    hooks: EngineQueueProcessLifecycleHooks,
+    logger: logging.Logger = LOGGER,
+) -> None:
+    try:
+        hooks.upsert_terminal_job_record_fn(
+            worker.cfg,
+            job.reaction_dir,
+            fallback_job_id=getattr(job, "task_id", None),
+        )
+    except Exception as exc:
+        logger.warning("Failed to update terminal job location for %s: %s", queue_id, exc)
+    try:
+        hooks.notify_terminal_job_from_state_fn(worker.cfg, job.reaction_dir)
+    except Exception as exc:
+        logger.warning("Failed to send terminal notification for %s: %s", queue_id, exc)
+
+
+def finalize_process_finished_job(
+    worker: Any,
+    queue_id: str,
+    job: Any,
+    *,
+    rc: int,
+    hooks: EngineQueueProcessLifecycleHooks,
+) -> None:
+    mark_terminal_process_queue_entry(worker, queue_id, job, rc=rc, hooks=hooks)
+    record_terminal_process_side_effects(worker, queue_id, job, hooks=hooks)
+    worker._release_admission_slot(job.admission_token)
+
+
+def cancel_running_process_job(
+    worker: Any,
+    queue_id: str,
+    job: Any,
+    *,
+    hooks: EngineQueueProcessLifecycleHooks,
+    logger: logging.Logger = LOGGER,
+) -> None:
+    logger.info("Cancelling running job: %s", queue_id)
+    hooks.terminate_process_fn(job.process)
+    try:
+        job.process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        pass
+    hooks.mark_cancelled_fn(job_queue_root(worker, job), queue_id)
+    worker._release_admission_slot(job.admission_token)
+
+
+def reconcile_orphaned_process_entries(
+    worker: Any,
+    *,
+    hooks: EngineQueueProcessReconcileHooks,
+) -> None:
+    hooks.reconcile_stale_slots_fn(worker.admission_root)
+    for queue_root in hooks.queue_roots_fn(worker.cfg):
+        hooks.reconcile_orphaned_running_entries_fn(queue_root, ignore_worker_pid=True)
+
+
+def shutdown_running_process_job(
+    worker: Any,
+    queue_id: str,
+    job: Any,
+    *,
+    hooks: EngineQueueProcessShutdownHooks,
+) -> None:
+    hooks.terminate_process_fn(job.process)
+    hooks.requeue_running_entry_fn(job_queue_root(worker, job), queue_id)
+    worker._release_admission_slot(job.admission_token)
 
 
 def request_pending_cancellations(
@@ -244,15 +433,27 @@ def reconcile_orphaned_running_with_policy(
 
 __all__ = [
     "ChildExitPolicy",
+    "EngineQueueProcessLifecycleHooks",
+    "EngineQueueProcessReconcileHooks",
+    "EngineQueueProcessShutdownHooks",
     "OrphanedRunningPolicy",
+    "attach_started_process_metadata",
+    "cancel_running_process_job",
     "entry_status_is",
     "entry_status_is_running",
     "finalize_child_exit_with_policy",
     "finalize_child_worker_exit",
+    "finalize_process_finished_job",
+    "job_queue_root",
     "live_worker_pid_slots",
+    "mark_terminal_process_queue_entry",
+    "reconcile_orphaned_process_entries",
     "reconcile_orphaned_running",
     "reconcile_orphaned_running_with_policy",
+    "record_terminal_process_side_effects",
     "request_pending_cancellations",
+    "resolved_job_queue_root",
     "shutdown_running_job",
+    "shutdown_running_process_job",
     "sync_terminal_running_entries",
 ]

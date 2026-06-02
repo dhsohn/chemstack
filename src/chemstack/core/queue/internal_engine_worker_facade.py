@@ -37,6 +37,9 @@ class InternalEngineQueueWorkerDeps:
     load_config: Callable[[Any], Any] | None = None
     read_worker_pid: Callable[[Path], int | None] | None = None
     worker_class: Callable[..., Any] | None = None
+    on_worker_process_started: Callable[[Any, Path, Any, Any, str], bool] | None = None
+    shutdown_running_job: Callable[[Any, str, Any], Any] | None = None
+    before_shutdown_all: Callable[[Any, int], Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -62,6 +65,9 @@ class InternalEngineQueueWorkerDepsResolver:
     mark_cancelled_name: str = "mark_cancelled"
     requeue_running_entry_name: str = "requeue_running_entry"
     mark_recovery_pending_name: str = "_mark_recovery_pending_entry"
+    on_worker_process_started_name: str | None = None
+    shutdown_running_job_name: str | None = None
+    before_shutdown_all_name: str | None = None
 
     def lookup(self, name: str) -> Any:
         if self.namespace is None:
@@ -71,6 +77,13 @@ class InternalEngineQueueWorkerDepsResolver:
     def dep(self, attr: str, fallback_name: str) -> Any:
         if self.deps is not None:
             return getattr(self.deps, attr)
+        return self.lookup(fallback_name)
+
+    def optional_dep(self, attr: str, fallback_name: str | None) -> Any | None:
+        if self.deps is not None:
+            return getattr(self.deps, attr)
+        if fallback_name is None:
+            return None
         return self.lookup(fallback_name)
 
     def find_queue_entry(self, queue_root: Any, queue_id: str) -> Any | None:
@@ -183,6 +196,9 @@ class InternalEngineQueueWorkerLifecycleFacade:
                 mark_failed_fn=mark_failed_fn,
                 shutdown_grace_seconds=self.shutdown_grace_seconds,
                 sleep_fn=sleep_fn,
+                on_worker_process_started_fn=deps.on_worker_process_started,
+                shutdown_running_job_fn=deps.shutdown_running_job,
+                before_shutdown_all_fn=deps.before_shutdown_all,
             )
 
         return self.runtime.child_worker_hooks_from_namespace(
@@ -192,6 +208,18 @@ class InternalEngineQueueWorkerLifecycleFacade:
             mark_failed_fn=mark_failed_fn,
             shutdown_grace_seconds=self.shutdown_grace_seconds,
             sleep_fn=sleep_fn,
+            on_worker_process_started_fn=self.resolver.optional_dep(
+                "on_worker_process_started",
+                self.resolver.on_worker_process_started_name,
+            ),
+            shutdown_running_job_fn=self.resolver.optional_dep(
+                "shutdown_running_job",
+                self.resolver.shutdown_running_job_name,
+            ),
+            before_shutdown_all_fn=self.resolver.optional_dep(
+                "before_shutdown_all",
+                self.resolver.before_shutdown_all_name,
+            ),
         )
 
     def finalize_child_exit(self, worker: Any, job: Any, *, rc: int) -> None:
@@ -322,6 +350,9 @@ def internal_engine_queue_worker_deps_from_namespace(
     load_config_name: str = "load_config",
     read_worker_pid_name: str = "read_worker_pid",
     worker_class_name: str = "QueueWorker",
+    on_worker_process_started_name: str | None = None,
+    shutdown_running_job_name: str | None = None,
+    before_shutdown_all_name: str | None = None,
 ) -> InternalEngineQueueWorkerDeps:
     def call(name: str, *args: Any, **kwargs: Any) -> Any:
         return namespace[name](*args, **kwargs)
@@ -397,6 +428,21 @@ def internal_engine_queue_worker_deps_from_namespace(
         load_config=lambda config_path: call(load_config_name, config_path),
         read_worker_pid=lambda allowed_root: call(read_worker_pid_name, allowed_root),
         worker_class=lambda *args, **kwargs: call(worker_class_name, *args, **kwargs),
+        on_worker_process_started=(
+            None
+            if on_worker_process_started_name is None
+            else lambda *args, **kwargs: call(on_worker_process_started_name, *args, **kwargs)
+        ),
+        shutdown_running_job=(
+            None
+            if shutdown_running_job_name is None
+            else lambda *args, **kwargs: call(shutdown_running_job_name, *args, **kwargs)
+        ),
+        before_shutdown_all=(
+            None
+            if before_shutdown_all_name is None
+            else lambda *args, **kwargs: call(before_shutdown_all_name, *args, **kwargs)
+        ),
     )
 
 
@@ -425,6 +471,9 @@ class InternalEngineQueueWorkerFacade:
     mark_cancelled_name: str = "mark_cancelled"
     requeue_running_entry_name: str = "requeue_running_entry"
     mark_recovery_pending_name: str = "_mark_recovery_pending_entry"
+    on_worker_process_started_name: str | None = None
+    shutdown_running_job_name: str | None = None
+    before_shutdown_all_name: str | None = None
 
     def _resolver(self) -> InternalEngineQueueWorkerDepsResolver:
         return InternalEngineQueueWorkerDepsResolver(
@@ -451,6 +500,9 @@ class InternalEngineQueueWorkerFacade:
             mark_cancelled_name=self.mark_cancelled_name,
             requeue_running_entry_name=self.requeue_running_entry_name,
             mark_recovery_pending_name=self.mark_recovery_pending_name,
+            on_worker_process_started_name=self.on_worker_process_started_name,
+            shutdown_running_job_name=self.shutdown_running_job_name,
+            before_shutdown_all_name=self.before_shutdown_all_name,
         )
 
     def _lifecycle(self) -> InternalEngineQueueWorkerLifecycleFacade:

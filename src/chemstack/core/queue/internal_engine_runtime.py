@@ -211,6 +211,9 @@ class InternalEngineQueueRuntime:
         finalize_completed_job_name: str = "_finalize_completed_job",
         finalize_child_exit_name: str = "_finalize_child_exit",
         reconcile_worker_state_name: str = "_reconcile_worker_state",
+        on_worker_process_started_fn: Callable[[Any, Path, Any, Any, str], bool] | None = None,
+        shutdown_running_job_fn: Callable[[Any, str, Any], Any] | None = None,
+        before_shutdown_all_fn: Callable[[Any, int], Any] | None = None,
     ) -> Any:
         return self.child_worker_hooks(
             handle_worker_start_error_fn=namespace[handle_worker_start_error_name],
@@ -222,6 +225,9 @@ class InternalEngineQueueRuntime:
             mark_failed_fn=mark_failed_fn,
             shutdown_grace_seconds=shutdown_grace_seconds,
             sleep_fn=sleep_fn,
+            on_worker_process_started_fn=on_worker_process_started_fn,
+            shutdown_running_job_fn=shutdown_running_job_fn,
+            before_shutdown_all_fn=before_shutdown_all_fn,
         )
 
     def run_pidfile_worker_command_from_namespace(
