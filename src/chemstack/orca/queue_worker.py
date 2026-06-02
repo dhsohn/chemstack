@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 import os
-import time  # noqa: F401
+import time
 from pathlib import Path
 from typing import Any
 
@@ -18,8 +18,7 @@ from chemstack.core.queue.types import QueueEntry
 from chemstack.core.queue.engine_execution import coerce_resource_request
 from chemstack.core.queue.internal_engine import (
     InternalEngineQueueModule,
-    InternalEngineQueueRuntime,
-    InternalEngineQueueWorkerFacade,
+    InternalEngineQueueWorkerDeps,
     InternalEngineSpec,
 )
 from chemstack.core.queue.lifecycle import (
@@ -42,9 +41,10 @@ from chemstack.core.queue.worker import (
 )
 
 from chemstack.core.admission import (
-    activate_reserved_slot,  # noqa: F401
+    activate_reserved_slot,
+    list_slots,
     reconcile_stale_slots,
-    release_slot,  # noqa: F401
+    release_slot,
     reserve_slot,
     update_slot_metadata,
 )
@@ -101,24 +101,84 @@ _ENGINE_SPEC = InternalEngineSpec(
 _ENGINE_ADMISSION = _ENGINE_SPEC.admission()
 
 
-_engine_runtime = InternalEngineQueueRuntime.create(
+def _runtime_facade_deps() -> InternalEngineQueueWorkerDeps:
+    return InternalEngineQueueWorkerDeps(
+        time_module=time,
+        release_slot=lambda root, token: release_slot(root, token),
+        reserve_slot=lambda *args, **kwargs: _reserve_orca_worker_slot(*args, **kwargs),
+        start_background_process=lambda command: start_background_process(command),
+        build_worker_child_command=lambda *args, **kwargs: build_worker_child_command(
+            *args,
+            **kwargs,
+        ),
+        config_path_for_worker=lambda args, *, default_config_path_fn: str(
+            getattr(args, "config", "") or default_config_path_fn()
+        ),
+        default_config_path=lambda: "",
+        activate_reserved_slot=lambda *args, **kwargs: activate_reserved_slot(
+            *args,
+            **kwargs,
+        ),
+        terminate_process=lambda process: _terminate_process(process),
+        mark_failed=lambda *args, **kwargs: mark_failed(*args, **kwargs),
+        handle_worker_start_error=lambda *args, **kwargs: _handle_worker_start_error(
+            *args,
+            **kwargs,
+        ),
+        finalize_completed_job=lambda *args, **kwargs: _finalize_completed_job(
+            *args,
+            **kwargs,
+        ),
+        finalize_child_exit=lambda *args, **kwargs: _finalize_child_exit(
+            *args,
+            **kwargs,
+        ),
+        reconcile_worker_state=lambda worker: _reconcile_worker_state(worker),
+        list_queue=lambda root: list_queue(Path(root)),
+        list_slots=lambda root: list_slots(root),
+        reconcile_stale_slots=lambda root: reconcile_stale_slots(root),
+        reconcile_orphaned_child_queue_entries=lambda *args, **kwargs: None,
+        mark_cancelled=lambda *args, **kwargs: mark_cancelled(*args, **kwargs),
+        requeue_running_entry=lambda *args, **kwargs: requeue_running_entry(
+            *args,
+            **kwargs,
+        ),
+        mark_recovery_pending=lambda *args, **kwargs: None,
+        try_reserve_admission_slot=lambda cfg: _try_reserve_admission_slot(cfg),
+        start_background_job_process_fn=lambda **kwargs: _start_background_job_process(
+            **kwargs,
+        ),
+        find_queue_entry=lambda root, queue_id: _queue_module.queue_entry_by_id(
+            root,
+            queue_id,
+        ),
+        load_config=lambda config_path: load_config(config_path),
+        read_worker_pid=lambda allowed_root: read_worker_pid(allowed_root),
+        worker_class=lambda *args, **kwargs: QueueWorker(*args, **kwargs),
+        on_worker_process_started=lambda *args, **kwargs: _on_worker_process_started(
+            *args,
+            **kwargs,
+        ),
+        shutdown_running_job=lambda *args, **kwargs: _shutdown_running_job(
+            *args,
+            **kwargs,
+        ),
+        before_shutdown_all=lambda *args, **kwargs: _before_shutdown_all(*args, **kwargs),
+    )
+
+
+_queue_module = InternalEngineQueueModule.create(
     spec=_ENGINE_SPEC,
     load_config=load_config,
     runtime_roots_for_cfg=lambda cfg: _runtime_roots_for_cfg(cfg, engine="orca"),
     list_queue=lambda root: list_queue(Path(root)),
     dequeue_next=lambda root: dequeue_next(root),
-)
-_runtime_facade = InternalEngineQueueWorkerFacade(
-    runtime=_engine_runtime,
     poll_interval_seconds=POLL_INTERVAL_SECONDS,
     shutdown_grace_seconds=WORKER_SHUTDOWN_GRACE_SECONDS,
-    namespace=globals(),
-    reserve_slot_name="_reserve_orca_worker_slot",
-    on_worker_process_started_name="_on_worker_process_started",
-    shutdown_running_job_name="_shutdown_running_job",
-    before_shutdown_all_name="_before_shutdown_all",
+    deps=_runtime_facade_deps(),
 )
-_queue_module = InternalEngineQueueModule(runtime=_engine_runtime, facade=_runtime_facade)
+_engine_runtime = _queue_module.runtime
+_runtime_facade = _queue_module.facade
 
 
 def queue_roots(cfg: AppConfig) -> tuple[Path, ...]:

@@ -30,16 +30,51 @@ class _RunDirWorkflowCreationSpec:
     workflow_type: str
     required_input_kwargs: tuple[tuple[str, str], ...]
     missing_inputs_error: str
-    request_type: Any
     request_type_name: str
     create_workflow_name: str
     create_workflow_from_request_name: str
-    default_create_workflow: Any
-    default_create_workflow_from_request: Any
     default_orca_route_line: str
     default_max_orca_stages: int
     option_kwargs: tuple[tuple[str, str], ...] = ()
     manifest_kwargs: tuple[tuple[str, str], ...] = ()
+
+
+@dataclass(frozen=True)
+class _RunDirWorkflowCreationBinding:
+    request_type: Any
+    create_workflow: Any
+    default_create_workflow: Any
+    create_workflow_from_request: Any
+
+
+@dataclass(frozen=True)
+class _RunDirWorkflowCreationRegistry:
+    bindings: dict[str, _RunDirWorkflowCreationBinding]
+
+    def resolve(self, workflow_type: str) -> _RunDirWorkflowCreationBinding:
+        try:
+            return self.bindings[workflow_type]
+        except KeyError as exc:
+            raise ValueError(f"unsupported workflow_type: {workflow_type}") from exc
+
+
+def _run_dir_workflow_creation_registry() -> _RunDirWorkflowCreationRegistry:
+    return _RunDirWorkflowCreationRegistry(
+        bindings={
+            "reaction_ts_search": _RunDirWorkflowCreationBinding(
+                request_type=ReactionTsSearchWorkflowRequest,
+                create_workflow=create_reaction_ts_search_workflow,
+                default_create_workflow=_DEFAULT_CREATE_REACTION_TS_SEARCH_WORKFLOW,
+                create_workflow_from_request=create_reaction_ts_search_workflow_from_request,
+            ),
+            "conformer_screening": _RunDirWorkflowCreationBinding(
+                request_type=ConformerScreeningWorkflowRequest,
+                create_workflow=create_conformer_screening_workflow,
+                default_create_workflow=_DEFAULT_CREATE_CONFORMER_SCREENING_WORKFLOW,
+                create_workflow_from_request=create_conformer_screening_workflow_from_request,
+            ),
+        }
+    )
 
 
 _REACTION_RUN_DIR_WORKFLOW_SPEC = _RunDirWorkflowCreationSpec(
@@ -51,12 +86,9 @@ _REACTION_RUN_DIR_WORKFLOW_SPEC = _RunDirWorkflowCreationSpec(
     missing_inputs_error=(
         "reaction_ts_search requires both reactant.xyz and product.xyz (or manifest/CLI overrides)."
     ),
-    request_type=ReactionTsSearchWorkflowRequest,
     request_type_name="ReactionTsSearchWorkflowRequest",
     create_workflow_name="create_reaction_ts_search_workflow",
     create_workflow_from_request_name="create_reaction_ts_search_workflow_from_request",
-    default_create_workflow=_DEFAULT_CREATE_REACTION_TS_SEARCH_WORKFLOW,
-    default_create_workflow_from_request=create_reaction_ts_search_workflow_from_request,
     default_orca_route_line="! r2scan-3c OptTS Freq TightSCF",
     default_max_orca_stages=3,
     option_kwargs=(
@@ -74,12 +106,9 @@ _CONFORMER_RUN_DIR_WORKFLOW_SPEC = _RunDirWorkflowCreationSpec(
     workflow_type="conformer_screening",
     required_input_kwargs=(("input_xyz", "input_xyz"),),
     missing_inputs_error="conformer_screening requires input.xyz (or manifest/CLI override).",
-    request_type=ConformerScreeningWorkflowRequest,
     request_type_name="ConformerScreeningWorkflowRequest",
     create_workflow_name="create_conformer_screening_workflow",
     create_workflow_from_request_name="create_conformer_screening_workflow_from_request",
-    default_create_workflow=_DEFAULT_CREATE_CONFORMER_SCREENING_WORKFLOW,
-    default_create_workflow_from_request=create_conformer_screening_workflow_from_request,
     default_orca_route_line="! r2scan-3c Opt TightSCF",
     default_max_orca_stages=20,
     manifest_kwargs=(("crest_job_manifest", "crest_manifest"),),
@@ -172,19 +201,21 @@ def _create_run_dir_workflow_from_spec(
         _run_dir_options._resolve_run_dir_workflow_option_bundle,
     )
     update_present_kwargs = _dependency(deps, "_update_present_kwargs", _update_present_kwargs)
-    create_workflow = _dependency(deps, spec.create_workflow_name, None)
-    current_create_workflow = globals()[spec.create_workflow_name]
-    if create_workflow is None and current_create_workflow is not spec.default_create_workflow:
-        create_workflow = current_create_workflow
-    current_create_workflow_from_request = globals().get(
-        spec.create_workflow_from_request_name,
-        spec.default_create_workflow_from_request,
+    workflow_creation_registry = _dependency(
+        deps,
+        "_run_dir_workflow_creation_registry",
+        _run_dir_workflow_creation_registry,
     )
+    binding = workflow_creation_registry().resolve(spec.workflow_type)
+    create_workflow = _dependency(deps, spec.create_workflow_name, None)
+    if create_workflow is None and binding.create_workflow is not binding.default_create_workflow:
+        create_workflow = binding.create_workflow
     create_workflow_from_request = _dependency(
         deps,
         spec.create_workflow_from_request_name,
-        current_create_workflow_from_request,
+        binding.create_workflow_from_request,
     )
+    request_type = _dependency(deps, spec.request_type_name, binding.request_type)
 
     workflow_kwargs = {}
     for kwarg_name, config_attr in spec.required_input_kwargs:
@@ -228,7 +259,6 @@ def _create_run_dir_workflow_from_spec(
     )
     if create_workflow is not None:
         return create_workflow(**workflow_kwargs)
-    request_type = globals().get(spec.request_type_name, spec.request_type)
     return create_workflow_from_request(request_type(**workflow_kwargs))
 
 
