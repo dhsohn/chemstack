@@ -184,7 +184,7 @@ def test_queue_worker_shutdown_requeues_running_entries(
 
     graceful_terminated: list[int] = []
     hard_terminated: list[int] = []
-    requeued: list[tuple[str, str]] = []
+    requeued: list[tuple[Path, str]] = []
     released: list[tuple[str, str]] = []
 
     class _Process:
@@ -232,7 +232,7 @@ def test_queue_worker_shutdown_requeues_running_entries(
 
     assert graceful_terminated == [9001]
     assert hard_terminated == []
-    assert requeued == [(str(queue_root), "queue-1")]
+    assert requeued == [(queue_root, "queue-1")]
     assert released == [(cfg.runtime.admission_root, "slot-1")]
     assert worker._running == {}
     state = state_mod.load_state(job_dir)
@@ -325,7 +325,7 @@ def test_queue_worker_reconcile_worker_state_requeues_stale_running_entries(
     selected_xyz.write_text("3\ncandidate\nH 0 0 0\n", encoding="utf-8")
     entry = _make_entry(job_dir, selected_xyz, status="running")
     state_mod.write_state(job_dir, {"status": "running", "worker_job_pid": 999_999})
-    requeued: list[tuple[str, str]] = []
+    requeued: list[tuple[Path, str]] = []
 
     monkeypatch.setattr(queue_cmd, "reconcile_stale_slots", lambda _root: 0)
     monkeypatch.setattr(queue_cmd, "list_queue", lambda _root: [entry])
@@ -337,7 +337,7 @@ def test_queue_worker_reconcile_worker_state_requeues_stale_running_entries(
     worker = queue_cmd.QueueWorker(cfg, config_path="/tmp/cfg.yaml")
     worker._reconcile_worker_state()
 
-    assert requeued == [(str(queue_root), "queue-1")]
+    assert requeued == [(queue_root, "queue-1")]
     state = state_mod.load_state(job_dir)
     assert state is not None
     assert state["status"] == "queued"

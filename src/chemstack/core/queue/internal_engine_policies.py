@@ -102,24 +102,18 @@ class InternalEngineAdmission:
         _engine_admission.finalize_start_error_as_terminal_result(cfg, **kwargs)
 
 
-@dataclass(frozen=True)
 class InternalEngineLifecycle:
-    coerce_queue_root_to_str: bool = False
-
     @property
     def child_exit_policy(self) -> _queue_lifecycle.ChildExitPolicy:
         return _queue_lifecycle.ChildExitPolicy(
             fail_unexpected_exit=True,
             use_entry_fallback=False,
-            coerce_root_to_str=self.coerce_queue_root_to_str,
             recovery_entry_fn=lambda _current, current_job: current_job.entry,
         )
 
     @property
     def orphaned_running_policy(self) -> _queue_lifecycle.OrphanedRunningPolicy:
-        return _queue_lifecycle.OrphanedRunningPolicy(
-            coerce_root_to_str=self.coerce_queue_root_to_str,
-        )
+        return _queue_lifecycle.OrphanedRunningPolicy()
 
     def finalize_child_exit(
         self,
@@ -142,7 +136,6 @@ class InternalEngineLifecycle:
                 shutdown_requested=shutdown_requested,
                 fail_unexpected_exit=self.child_exit_policy.fail_unexpected_exit,
                 use_entry_fallback=self.child_exit_policy.use_entry_fallback,
-                coerce_root_to_str=self.child_exit_policy.coerce_root_to_str,
                 recovery_entry_fn=self.child_exit_policy.recovery_entry_fn,
             ),
             find_queue_entry_fn=find_queue_entry_fn,

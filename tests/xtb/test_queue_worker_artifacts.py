@@ -257,7 +257,6 @@ def test_run_worker_job_processes_loaded_entry_and_releases_slot(
         config_path="/tmp/chemstack.yaml",
         queue_root=queue_root,
         queue_id=entry.queue_id,
-        admission_root=cfg.runtime.admission_root,
         admission_token="slot-1",
     )
 

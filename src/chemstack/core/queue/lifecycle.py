@@ -25,13 +25,11 @@ class ChildExitPolicy:
     shutdown_requested: bool = True
     fail_unexpected_exit: bool = False
     use_entry_fallback: bool = True
-    coerce_root_to_str: bool = False
     recovery_entry_fn: Callable[[Any, Any], Any] | None = None
 
 
 @dataclass(frozen=True)
 class OrphanedRunningPolicy:
-    coerce_root_to_str: bool = False
     recovery_reason: str = "crashed_recovery"
 
 
@@ -84,10 +82,9 @@ def finalize_child_worker_exit(
     shutdown_requested: bool = True,
     fail_unexpected_exit: bool = False,
     use_entry_fallback: bool = True,
-    coerce_root_to_str: bool = False,
     recovery_entry_fn: Callable[[Any, Any], Any] | None = None,
 ) -> None:
-    root = str(job.queue_root) if coerce_root_to_str else job.queue_root
+    root = job.queue_root
     current = find_queue_entry_fn(job.queue_root, job.entry.queue_id)
     if current is None and use_entry_fallback:
         current = job.entry
@@ -134,7 +131,6 @@ def finalize_child_exit_with_policy(
         shutdown_requested=policy.shutdown_requested,
         fail_unexpected_exit=policy.fail_unexpected_exit,
         use_entry_fallback=policy.use_entry_fallback,
-        coerce_root_to_str=policy.coerce_root_to_str,
         recovery_entry_fn=policy.recovery_entry_fn,
     )
 
@@ -185,15 +181,11 @@ def reconcile_orphaned_running(
     mark_cancelled_fn: Callable[..., Any],
     requeue_running_entry_fn: Callable[..., Any],
     mark_recovery_pending_fn: Callable[..., Any],
-    coerce_root_to_str: bool = False,
     recovery_reason: str = "crashed_recovery",
     reconcile_orphaned_child_queue_entries_fn: Callable[
         ..., Any
     ] = reconcile_orphaned_child_queue_entries,
 ) -> None:
-    def _root(root: Any) -> Any:
-        return str(root) if coerce_root_to_str else root
-
     reconcile_orphaned_child_queue_entries_fn(
         cfg,
         admission_root=admission_root,
@@ -203,12 +195,12 @@ def reconcile_orphaned_running(
         reconcile_stale_slots_fn=reconcile_stale_slots_fn,
         running_status=QueueStatus.RUNNING,
         mark_cancelled_fn=lambda root, queue_id, **kwargs: mark_cancelled_fn(
-            _root(root),
+            root,
             queue_id,
             **kwargs,
         ),
         requeue_running_entry_fn=lambda root, queue_id: requeue_running_entry_fn(
-            _root(root),
+            root,
             queue_id,
         ),
         mark_recovery_pending_fn=lambda cfg_obj, entry: mark_recovery_pending_fn(
@@ -245,7 +237,6 @@ def reconcile_orphaned_running_with_policy(
         mark_cancelled_fn=mark_cancelled_fn,
         requeue_running_entry_fn=requeue_running_entry_fn,
         mark_recovery_pending_fn=mark_recovery_pending_fn,
-        coerce_root_to_str=policy.coerce_root_to_str,
         recovery_reason=policy.recovery_reason,
         reconcile_orphaned_child_queue_entries_fn=reconcile_orphaned_child_queue_entries_fn,
     )

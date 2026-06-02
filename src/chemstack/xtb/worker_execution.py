@@ -322,10 +322,10 @@ def _raise_if_shutdown_requested(
     context: _XtbExecutionContext,
     shutdown_requested: Callable[[], bool] | None,
 ) -> None:
-    _engine_execution.raise_if_shutdown_requested(
+    _engine_execution.raise_if_shutdown_callback_requested(
         context,
-        _engine_execution.InternalWorkerOptions(shutdown_requested=shutdown_requested),
         shutdown_exception_type=WorkerShutdownRequested,
+        shutdown_requested=shutdown_requested,
     )
 
 
@@ -559,7 +559,7 @@ def _run_worker_entry_lifecycle(
     worker_job_pid: int | None = None,
     emit_output: bool = False,
 ) -> Any:
-    return _engine_execution.run_internal_engine_worker_entry_with_spec(
+    return _engine_execution.run_internal_engine_worker_entry_with_spec_options(
         cfg,
         entry,
         queue_root=queue_root,
@@ -567,12 +567,10 @@ def _run_worker_entry_lifecycle(
             dependencies=dependencies,
             should_cancel_factory=should_cancel_factory,
         ),
-        options=_engine_execution.InternalWorkerOptions(
-            shutdown_requested=shutdown_requested,
-            register_running_job=register_running_job,
-            worker_job_pid=worker_job_pid,
-            emit_output=emit_output,
-        ),
+        shutdown_requested=shutdown_requested,
+        register_running_job=register_running_job,
+        worker_job_pid=worker_job_pid,
+        emit_output=emit_output,
     )
 
 
@@ -633,10 +631,12 @@ def run_worker_job(
     queue_root: str | Path,
     queue_id: str,
     admission_token: str | None = None,
-    admission_root: str | Path | None = None,
 ) -> int:
-    del admission_root
-    return _worker_child.build_worker_entrypoint(
+    return _worker_child.run_worker_child_job(
+        config_path=config_path,
+        queue_root=queue_root,
+        queue_id=queue_id,
+        admission_token=admission_token,
         load_config_fn=load_config,
         find_queue_entry_fn=_queue_entry_by_id,
         admission_root_fn=resolve_admission_root,
@@ -646,29 +646,10 @@ def run_worker_job(
         dependencies_fn=default_worker_execution_dependencies,
         requeue_running_entry_fn=requeue_running_entry,
         mark_recovery_pending_context_fn=_mark_recovery_pending_context,
-    ).run_worker_job(
-        config_path=config_path,
-        queue_root=queue_root,
-        queue_id=queue_id,
-        admission_token=admission_token,
     )
 
 
-def build_worker_child_command(
-    *,
-    config_path: str,
-    queue_root: str | Path,
-    queue_id: str,
-    admission_root: str | Path | None = None,
-    admission_token: str | None = None,
-) -> list[str]:
-    del admission_root
-    return _worker_child.build_worker_child_command(
-        config_path=config_path,
-        queue_root=queue_root,
-        queue_id=queue_id,
-        admission_token=admission_token,
-    )
+build_worker_child_command = _worker_child.build_worker_child_command
 
 
 def build_worker_job_parser() -> argparse.ArgumentParser:
@@ -691,7 +672,6 @@ def main(argv: list[str] | None = None) -> int:
         queue_root=args.queue_root,
         queue_id=args.queue_id,
         admission_token=str(args.admission_token).strip() or None,
-        admission_root=getattr(args, "admission_root", None),
     )
 
 

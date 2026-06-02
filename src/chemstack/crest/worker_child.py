@@ -26,7 +26,6 @@ _WORKER_CHILD = _ENGINE_SPEC.worker_child(
 )
 
 build_worker_child_command = _WORKER_CHILD.build_worker_child_command
-build_worker_entrypoint = _WORKER_CHILD.entrypoint
 install_shutdown_signal_handlers = _WORKER_CHILD.install_shutdown_signal_handlers
 run_worker_child_job = _WORKER_CHILD.run_worker_child_job
 build_parser = _WORKER_CHILD.build_parser
@@ -37,7 +36,6 @@ __all__ = [
     "WorkerShutdownRequested",
     "build_parser",
     "build_worker_child_command",
-    "build_worker_entrypoint",
     "install_shutdown_signal_handlers",
     "run_worker_child_job",
 ]

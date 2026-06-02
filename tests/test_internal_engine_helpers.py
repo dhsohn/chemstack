@@ -4,6 +4,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+import pytest
+
 from chemstack.core.queue.internal_engine import (
     InternalEngineQueueRuntime,
     InternalEngineQueueWorkerFacade,
@@ -13,12 +15,27 @@ from chemstack.core.queue.child_process import reconcile_orphaned_child_queue_en
 from chemstack.core.queue.types import QueueStatus
 
 
-def test_internal_engine_worker_child_preserves_legacy_admission_parser_arg() -> None:
+def test_internal_engine_worker_child_rejects_legacy_admission_parser_arg() -> None:
     child = InternalEngineSpec(
         engine="demo",
         worker_job_module="chemstack.demo.worker_execution",
-        include_legacy_admission_root_arg=True,
     ).worker_child(RuntimeError)
+
+    with pytest.raises(SystemExit):
+        child.build_parser().parse_args(
+            [
+                "--config",
+                "/tmp/chemstack.yaml",
+                "--queue-root",
+                "/tmp/queue",
+                "--queue-id",
+                "queue-1",
+                "--admission-root",
+                "/tmp/admission",
+                "--admission-token",
+                "slot-1",
+            ]
+        )
 
     args = child.build_parser().parse_args(
         [
@@ -28,18 +45,15 @@ def test_internal_engine_worker_child_preserves_legacy_admission_parser_arg() ->
             "/tmp/queue",
             "--queue-id",
             "queue-1",
-            "--admission-root",
-            "/tmp/admission",
             "--admission-token",
             "slot-1",
         ]
     )
-
-    assert args.admission_root == "/tmp/admission"
+    assert not hasattr(args, "admission_root")
     assert args.admission_token == "slot-1"
 
 
-def test_internal_engine_lifecycle_policy_can_coerce_roots_and_recover_job_entry(
+def test_internal_engine_lifecycle_policy_preserves_roots_and_recovers_job_entry(
     tmp_path: Path,
 ) -> None:
     cfg = object()
@@ -50,11 +64,11 @@ def test_internal_engine_lifecycle_policy_can_coerce_roots_and_recover_job_entry
         entry=job_entry,
         admission_token="slot-1",
     )
-    requeued: list[tuple[str, str]] = []
+    requeued: list[tuple[Path, str]] = []
     recovery: list[tuple[object, object, str]] = []
     released: list[str] = []
 
-    InternalEngineSpec(engine="xtb", coerce_queue_root_to_str=True).lifecycle().finalize_child_exit(
+    InternalEngineSpec(engine="xtb").lifecycle().finalize_child_exit(
         cfg,
         job,
         rc=0,
@@ -69,7 +83,7 @@ def test_internal_engine_lifecycle_policy_can_coerce_roots_and_recover_job_entry
         release_admission_slot_fn=lambda token: released.append(token),
     )
 
-    assert requeued == [(str(tmp_path / "queue"), "queue-1")]
+    assert requeued == [(tmp_path / "queue", "queue-1")]
     assert recovery == [(cfg, job_entry, "worker_shutdown")]
     assert released == ["slot-1"]
 
@@ -223,14 +237,13 @@ def test_internal_engine_queue_worker_facade_finalizes_child_exit(
         entry=job_entry,
         admission_token="slot-1",
     )
-    requeued: list[tuple[str, str]] = []
+    requeued: list[tuple[Path, str]] = []
     recovery: list[tuple[object, object, str]] = []
     released: list[str] = []
     runtime = InternalEngineQueueRuntime.create(
         spec=InternalEngineSpec(
             engine="demo",
             worker_pid_file_name="demo_worker.pid",
-            coerce_queue_root_to_str=True,
         ),
         load_config=lambda _path: cfg,
         runtime_roots_for_cfg=lambda _cfg: (tmp_path / "queue",),
@@ -262,7 +275,7 @@ def test_internal_engine_queue_worker_facade_finalizes_child_exit(
 
     facade.finalize_child_exit(worker, job, rc=0)
 
-    assert requeued == [(str(tmp_path / "queue"), "queue-1")]
+    assert requeued == [(tmp_path / "queue", "queue-1")]
     assert recovery == [(cfg, job_entry, "worker_shutdown")]
     assert released == ["slot-1"]
 
@@ -274,13 +287,12 @@ def test_internal_engine_queue_worker_facade_reconciles_orphaned_running(
     live_entry = SimpleNamespace(queue_id="live", status=QueueStatus.RUNNING)
     orphan_entry = SimpleNamespace(queue_id="orphan", status=QueueStatus.RUNNING)
     queue_root = tmp_path / "queue"
-    requeued: list[tuple[str, str]] = []
+    requeued: list[tuple[Path, str]] = []
     recovery: list[tuple[object, object, str]] = []
     runtime = InternalEngineQueueRuntime.create(
         spec=InternalEngineSpec(
             engine="demo",
             worker_pid_file_name="demo_worker.pid",
-            coerce_queue_root_to_str=True,
         ),
         load_config=lambda _path: cfg,
         runtime_roots_for_cfg=lambda _cfg: (queue_root,),
@@ -310,7 +322,7 @@ def test_internal_engine_queue_worker_facade_reconciles_orphaned_running(
 
     facade.reconcile_orphaned_running(worker)
 
-    assert requeued == [(str(queue_root), "orphan")]
+    assert requeued == [(queue_root, "orphan")]
     assert recovery == [(cfg, orphan_entry, "crashed_recovery")]
 
 

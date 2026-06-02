@@ -4,6 +4,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+import pytest
+
 from chemstack.core.queue.types import QueueStatus
 from chemstack.xtb import worker_child
 
@@ -110,7 +112,23 @@ def test_run_worker_child_job_returns_failure_when_entry_is_not_running(
     assert released == [("/tmp/admission", "slot-1")]
 
 
-def test_build_parser_accepts_legacy_admission_root_argument() -> None:
+def test_build_parser_rejects_legacy_admission_root_argument() -> None:
+    with pytest.raises(SystemExit):
+        worker_child.build_parser().parse_args(
+            [
+                "--config",
+                "/tmp/chemstack.yaml",
+                "--queue-root",
+                "/tmp/queue",
+                "--queue-id",
+                "queue-1",
+                "--admission-root",
+                "/tmp/admission",
+                "--admission-token",
+                "slot-1",
+            ]
+        )
+
     args = worker_child.build_parser().parse_args(
         [
             "--config",
@@ -119,12 +137,9 @@ def test_build_parser_accepts_legacy_admission_root_argument() -> None:
             "/tmp/queue",
             "--queue-id",
             "queue-1",
-            "--admission-root",
-            "/tmp/admission",
             "--admission-token",
             "slot-1",
         ]
     )
-
-    assert args.admission_root == "/tmp/admission"
+    assert not hasattr(args, "admission_root")
     assert args.admission_token == "slot-1"

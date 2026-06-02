@@ -158,6 +158,19 @@ def raise_if_shutdown_requested(
         raise shutdown_exception_type(context)
 
 
+def raise_if_shutdown_callback_requested(
+    context: Any,
+    shutdown_requested: Callable[[], bool] | None,
+    *,
+    shutdown_exception_type: type[BaseException],
+) -> None:
+    raise_if_shutdown_requested(
+        context,
+        InternalWorkerOptions(shutdown_requested=shutdown_requested),
+        shutdown_exception_type=shutdown_exception_type,
+    )
+
+
 def queue_cancel_requested(
     queue_deps: InternalWorkerQueueDependencies,
     queue_root: str | Path,
@@ -254,6 +267,33 @@ def run_internal_engine_worker_entry_with_spec(
     )
 
 
+def run_internal_engine_worker_entry_with_spec_options(
+    cfg: Any,
+    entry: Any,
+    *,
+    queue_root: Path | None,
+    spec: InternalEngineWorkerExecutionSpec,
+    should_cancel: Callable[[], bool] | None = None,
+    shutdown_requested: Callable[[], bool] | None = None,
+    register_running_job: Callable[[Any | None], None] | None = None,
+    worker_job_pid: int | None = None,
+    emit_output: bool = False,
+) -> Any:
+    return run_internal_engine_worker_entry_with_spec(
+        cfg,
+        entry,
+        queue_root=queue_root,
+        spec=spec,
+        options=InternalWorkerOptions(
+            should_cancel=should_cancel,
+            shutdown_requested=shutdown_requested,
+            register_running_job=register_running_job,
+            worker_job_pid=worker_job_pid,
+            emit_output=emit_output,
+        ),
+    )
+
+
 def run_internal_cancellable_engine_process(
     context: Any,
     *,
@@ -332,10 +372,12 @@ __all__ = [
     "build_internal_engine_worker_adapter_from_hooks",
     "queue_cancel_callback",
     "queue_cancel_requested",
+    "raise_if_shutdown_callback_requested",
     "raise_if_shutdown_requested",
     "run_internal_cancellable_engine_process",
     "run_internal_engine_worker_entry",
     "run_internal_engine_worker_entry_with_spec",
+    "run_internal_engine_worker_entry_with_spec_options",
     "run_internal_engine_worker_entry_with_hooks",
     "run_internal_worker_process_job",
 ]

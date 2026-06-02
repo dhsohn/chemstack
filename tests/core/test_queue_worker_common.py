@@ -618,7 +618,7 @@ def test_reconcile_orphaned_child_queue_entries_cancels_or_requeues_only_orphans
     assert recovery_pending == ["orphaned"]
 
 
-def test_finalize_child_exit_with_policy_applies_engine_specific_options(
+def test_finalize_child_exit_with_policy_preserves_root_and_uses_recovery_entry(
     tmp_path: Path,
 ) -> None:
     cfg = object()
@@ -628,7 +628,7 @@ def test_finalize_child_exit_with_policy_applies_engine_specific_options(
         entry=_entry("job-entry", status="running"),
         admission_token="slot-1",
     )
-    requeued: list[tuple[str, str]] = []
+    requeued: list[tuple[Path, str]] = []
     recovery: list[tuple[object, str, str]] = []
     released: list[str] = []
 
@@ -636,7 +636,6 @@ def test_finalize_child_exit_with_policy_applies_engine_specific_options(
         cfg,
         job,
         policy=lifecycle_helpers.ChildExitPolicy(
-            coerce_root_to_str=True,
             recovery_entry_fn=lambda _current, current_job: current_job.entry,
         ),
         find_queue_entry_fn=lambda _root, _queue_id: current,
@@ -648,23 +647,22 @@ def test_finalize_child_exit_with_policy_applies_engine_specific_options(
         release_admission_slot_fn=released.append,
     )
 
-    assert requeued == [(str(tmp_path / "queue"), "current")]
+    assert requeued == [(tmp_path / "queue", "current")]
     assert recovery == [(cfg, "job-entry", "worker_shutdown")]
     assert released == ["slot-1"]
 
 
-def test_reconcile_orphaned_running_with_policy_coerces_roots_and_reason(
+def test_reconcile_orphaned_running_with_policy_preserves_roots_and_reason(
     tmp_path: Path,
 ) -> None:
     queue_root = tmp_path / "queue"
     entry = _entry("orphan", status="running")
-    requeued: list[tuple[str, str]] = []
+    requeued: list[tuple[Path, str]] = []
     recovery: list[tuple[str, str]] = []
 
     lifecycle_helpers.reconcile_orphaned_running_with_policy(
         _cfg(),
         policy=lifecycle_helpers.OrphanedRunningPolicy(
-            coerce_root_to_str=True,
             recovery_reason="custom_recovery",
         ),
         admission_root="/tmp/admission",
@@ -679,7 +677,7 @@ def test_reconcile_orphaned_running_with_policy_coerces_roots_and_reason(
         ),
     )
 
-    assert requeued == [(str(queue_root), "orphan")]
+    assert requeued == [(queue_root, "orphan")]
     assert recovery == [("orphan", "custom_recovery")]
 
 

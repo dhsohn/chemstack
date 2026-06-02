@@ -15,7 +15,6 @@ from .internal_engine_status import entry_status_is_running
 class InternalEngineWorkerChild:
     worker_job_module: str
     include_admission_root: bool
-    include_legacy_admission_root_arg: bool
     shutdown_exception_type: type[BaseException]
     entry_ready_fn: Callable[[Any], bool] = entry_status_is_running
     process_dequeued_entry_kwargs_fn: Callable[[], Mapping[str, Any]] | None = None
@@ -143,8 +142,6 @@ class InternalEngineWorkerChild:
         parser.add_argument("--config", required=True)
         parser.add_argument("--queue-root", required=True)
         parser.add_argument("--queue-id", required=True)
-        if self.include_legacy_admission_root_arg:
-            parser.add_argument("--admission-root", default=None)
         parser.add_argument("--admission-token", default=None)
         return parser
 

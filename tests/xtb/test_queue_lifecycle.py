@@ -28,7 +28,7 @@ def test_finalize_child_exit_requeues_running_job_and_marks_recovery(tmp_path: P
         entry=entry,
         admission_token="slot-1",
     )
-    requeued: list[tuple[str, str]] = []
+    requeued: list[tuple[Path, str]] = []
     recovery: list[tuple[object, object, str]] = []
     released: list[str] = []
 
@@ -37,7 +37,7 @@ def test_finalize_child_exit_requeues_running_job_and_marks_recovery(tmp_path: P
         job,
         rc=0,
         shutdown_requested=True,
-        queue_entry_by_id_fn=lambda _root, _queue_id: entry,
+        find_queue_entry_fn=lambda _root, _queue_id: entry,
         mark_cancelled_fn=lambda *args, **kwargs: None,
         requeue_running_entry_fn=lambda root, queue_id: requeued.append((root, queue_id)),
         mark_failed_fn=lambda *args, **kwargs: None,
@@ -47,7 +47,7 @@ def test_finalize_child_exit_requeues_running_job_and_marks_recovery(tmp_path: P
         release_admission_slot_fn=lambda token: released.append(token),
     )
 
-    assert requeued == [(str(tmp_path / "queue"), "queue-1")]
+    assert requeued == [(tmp_path / "queue", "queue-1")]
     assert recovery == [(cfg, entry, "worker_shutdown")]
     assert released == ["slot-1"]
 
@@ -59,9 +59,9 @@ def test_finalize_child_exit_marks_cancelled_when_cancel_requested(tmp_path: Pat
         entry=entry,
         admission_token="slot-1",
     )
-    cancelled: list[tuple[str, str, str]] = []
+    cancelled: list[tuple[Path, str, str]] = []
 
-    def mark_cancelled(root: str, queue_id: str, *, error: str) -> None:
+    def mark_cancelled(root: Path, queue_id: str, *, error: str) -> None:
         cancelled.append((root, queue_id, error))
 
     queue_lifecycle.finalize_child_exit(
@@ -69,7 +69,7 @@ def test_finalize_child_exit_marks_cancelled_when_cancel_requested(tmp_path: Pat
         job,
         rc=0,
         shutdown_requested=False,
-        queue_entry_by_id_fn=lambda _root, _queue_id: entry,
+        find_queue_entry_fn=lambda _root, _queue_id: entry,
         mark_cancelled_fn=mark_cancelled,
         requeue_running_entry_fn=lambda *args, **kwargs: None,
         mark_failed_fn=lambda *args, **kwargs: None,
@@ -77,7 +77,7 @@ def test_finalize_child_exit_marks_cancelled_when_cancel_requested(tmp_path: Pat
         release_admission_slot_fn=lambda _token: None,
     )
 
-    assert cancelled == [(str(tmp_path / "queue"), "queue-1", "cancel_requested")]
+    assert cancelled == [(tmp_path / "queue", "queue-1", "cancel_requested")]
 
 
 def test_finalize_child_exit_marks_failed_on_unexpected_child_exit(tmp_path: Path) -> None:
@@ -87,9 +87,9 @@ def test_finalize_child_exit_marks_failed_on_unexpected_child_exit(tmp_path: Pat
         entry=entry,
         admission_token="slot-1",
     )
-    failed: list[tuple[str, str, str]] = []
+    failed: list[tuple[Path, str, str]] = []
 
-    def mark_failed(root: str, queue_id: str, *, error: str) -> None:
+    def mark_failed(root: Path, queue_id: str, *, error: str) -> None:
         failed.append((root, queue_id, error))
 
     queue_lifecycle.finalize_child_exit(
@@ -97,7 +97,7 @@ def test_finalize_child_exit_marks_failed_on_unexpected_child_exit(tmp_path: Pat
         job,
         rc=9,
         shutdown_requested=False,
-        queue_entry_by_id_fn=lambda _root, _queue_id: entry,
+        find_queue_entry_fn=lambda _root, _queue_id: entry,
         mark_cancelled_fn=lambda *args, **kwargs: None,
         requeue_running_entry_fn=lambda *args, **kwargs: None,
         mark_failed_fn=mark_failed,
@@ -105,7 +105,7 @@ def test_finalize_child_exit_marks_failed_on_unexpected_child_exit(tmp_path: Pat
         release_admission_slot_fn=lambda _token: None,
     )
 
-    assert failed == [(str(tmp_path / "queue"), "queue-1", "worker_child_exit_code=9")]
+    assert failed == [(tmp_path / "queue", "queue-1", "worker_child_exit_code=9")]
 
 
 def test_live_worker_pid_slots_keeps_only_running_live_worker_pids(tmp_path: Path) -> None:

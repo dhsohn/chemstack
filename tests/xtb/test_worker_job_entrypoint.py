@@ -25,8 +25,6 @@ def test_worker_job_main_delegates_to_queue_runner(monkeypatch: pytest.MonkeyPat
             "/tmp/queue",
             "--queue-id",
             "q-1",
-            "--admission-root",
-            "/tmp/admission",
             "--admission-token",
             " slot-1 ",
         ]
@@ -36,7 +34,6 @@ def test_worker_job_main_delegates_to_queue_runner(monkeypatch: pytest.MonkeyPat
     assert captured["config_path"] == "/tmp/chemstack.yaml"
     assert captured["queue_root"] == "/tmp/queue"
     assert captured["queue_id"] == "q-1"
-    assert captured["admission_root"] == "/tmp/admission"
     assert captured["admission_token"] == "slot-1"
 
 

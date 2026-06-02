@@ -17,13 +17,13 @@ class _WorkerShutdownRequested(RuntimeError):
 def test_build_engine_worker_child_command_supports_admission_root_modes(
     tmp_path: Path,
 ) -> None:
-    with_root = engine_child.WorkerChildCommandSpec("chemstack.xtb.worker_execution")
+    with_root = engine_child.WorkerChildCommandSpec("chemstack.demo.worker_execution")
     without_root = engine_child.WorkerChildCommandSpec(
-        "chemstack.crest.worker_execution",
+        "chemstack.demo_no_root.worker_execution",
         include_admission_root=False,
     )
 
-    xtb_command = engine_child.build_engine_worker_child_command(
+    with_root_command = engine_child.build_engine_worker_child_command(
         spec=with_root,
         config_path="/tmp/chemstack.yaml",
         queue_root=tmp_path / "queue",
@@ -31,7 +31,7 @@ def test_build_engine_worker_child_command_supports_admission_root_modes(
         admission_root="/tmp/admission",
         admission_token="slot-1",
     )
-    crest_command = engine_child.build_engine_worker_child_command(
+    without_root_command = engine_child.build_engine_worker_child_command(
         spec=without_root,
         config_path="/tmp/chemstack.yaml",
         queue_root=tmp_path / "queue",
@@ -39,10 +39,10 @@ def test_build_engine_worker_child_command_supports_admission_root_modes(
         admission_token="slot-2",
     )
 
-    assert "--admission-root" in xtb_command
-    assert "/tmp/admission" in xtb_command
-    assert "--admission-root" not in crest_command
-    assert "--admission-token" in crest_command
+    assert "--admission-root" in with_root_command
+    assert "/tmp/admission" in with_root_command
+    assert "--admission-root" not in without_root_command
+    assert "--admission-token" in without_root_command
 
 
 def test_run_child_job_with_admission_scope_releases_and_returns_status(

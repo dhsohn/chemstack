@@ -15,8 +15,6 @@ class InternalEngineSpec:
     worker_job_module: str = ""
     worker_pid_file_name: str = ""
     include_admission_root: bool = False
-    coerce_queue_root_to_str: bool = False
-    include_legacy_admission_root_arg: bool = False
 
     def admission(self) -> InternalEngineAdmission:
         return InternalEngineAdmission(
@@ -25,9 +23,7 @@ class InternalEngineSpec:
         )
 
     def lifecycle(self) -> InternalEngineLifecycle:
-        return InternalEngineLifecycle(
-            coerce_queue_root_to_str=self.coerce_queue_root_to_str,
-        )
+        return InternalEngineLifecycle()
 
     def worker_child(
         self,
@@ -41,7 +37,6 @@ class InternalEngineSpec:
         return InternalEngineWorkerChild(
             worker_job_module=self.worker_job_module,
             include_admission_root=self.include_admission_root,
-            include_legacy_admission_root_arg=self.include_legacy_admission_root_arg,
             shutdown_exception_type=shutdown_exception_type,
             entry_ready_fn=entry_ready_fn,
             process_dequeued_entry_kwargs_fn=process_dequeued_entry_kwargs_fn,

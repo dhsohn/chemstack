@@ -4,6 +4,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+import pytest
+
 from chemstack.core.queue import engine_execution
 
 
@@ -297,6 +299,62 @@ def test_run_internal_engine_worker_entry_with_spec_builds_adapter(tmp_path: Pat
     ]
 
 
+def test_run_internal_engine_worker_entry_with_spec_options_builds_options(
+    tmp_path: Path,
+) -> None:
+    cfg = object()
+    entry = SimpleNamespace(queue_id="q-1")
+    running_process = object()
+    calls: list[tuple[str, Any]] = []
+
+    def register_running_job(process: object | None) -> None:
+        calls.append(("register", process))
+
+    spec = engine_execution.InternalEngineWorkerExecutionSpec(
+        build_context=lambda _cfg, current_entry: SimpleNamespace(entry=current_entry),
+        mark_running=lambda _cfg, _context, options: calls.append(
+            ("mark", options.worker_job_pid)
+        ),
+        run_job=lambda _cfg, _context, _queue_root, options: (
+            options.register_running_job(running_process)
+            if options.register_running_job is not None
+            else None
+        )
+        or {
+            "should_cancel": None
+            if options.should_cancel is None
+            else options.should_cancel(),
+            "shutdown_requested": None
+            if options.shutdown_requested is None
+            else options.shutdown_requested(),
+        },
+        finalize_entry=lambda _cfg, _context, result, _queue_root, options: {
+            **result,
+            "emit_output": options.emit_output,
+        },
+        shutdown_exception_type=RuntimeError,
+    )
+
+    outcome = engine_execution.run_internal_engine_worker_entry_with_spec_options(
+        cfg,
+        entry,
+        queue_root=tmp_path / "queue",
+        spec=spec,
+        should_cancel=lambda: True,
+        shutdown_requested=lambda: False,
+        register_running_job=register_running_job,
+        worker_job_pid=101,
+        emit_output=True,
+    )
+
+    assert outcome == {
+        "should_cancel": True,
+        "shutdown_requested": False,
+        "emit_output": True,
+    }
+    assert calls == [("mark", 101), ("register", running_process)]
+
+
 def test_raise_if_shutdown_requested_uses_engine_context() -> None:
     class ShutdownRequested(RuntimeError):
         def __init__(self, context: Any) -> None:
@@ -315,6 +373,24 @@ def test_raise_if_shutdown_requested_uses_engine_context() -> None:
         assert exc.context is context
     else:
         raise AssertionError("expected shutdown")
+
+
+def test_raise_if_shutdown_callback_requested_uses_engine_context() -> None:
+    class ShutdownRequested(RuntimeError):
+        def __init__(self, context: Any) -> None:
+            super().__init__("shutdown")
+            self.context = context
+
+    context = SimpleNamespace(job_dir="/tmp/job")
+
+    with pytest.raises(ShutdownRequested) as exc_info:
+        engine_execution.raise_if_shutdown_callback_requested(
+            context,
+            lambda: True,
+            shutdown_exception_type=ShutdownRequested,
+        )
+
+    assert exc_info.value.context is context
 
 
 def test_queue_cancel_callback_uses_normalized_queue_root_and_entry_id() -> None:

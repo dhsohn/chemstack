@@ -192,19 +192,7 @@ def default_worker_execution_dependencies() -> WorkerExecutionDependencies:
     return build_worker_execution_dependencies()
 
 
-def build_worker_child_command(
-    *,
-    config_path: str,
-    queue_root: str | Path,
-    queue_id: str,
-    admission_token: str | None = None,
-) -> list[str]:
-    return _worker_child.build_worker_child_command(
-        config_path=config_path,
-        queue_root=queue_root,
-        queue_id=queue_id,
-        admission_token=admission_token,
-    )
+build_worker_child_command = _worker_child.build_worker_child_command
 
 
 def _write_execution_artifacts(entry: Any, result: CrestRunResult) -> None:
@@ -304,10 +292,10 @@ def _raise_if_shutdown_requested(
     context: ExecutionContext,
     shutdown_requested: Callable[[], bool] | None,
 ) -> None:
-    _engine_execution.raise_if_shutdown_requested(
+    _engine_execution.raise_if_shutdown_callback_requested(
         context,
-        _engine_execution.InternalWorkerOptions(shutdown_requested=shutdown_requested),
         shutdown_exception_type=WorkerShutdownRequested,
+        shutdown_requested=shutdown_requested,
     )
 
 
@@ -463,7 +451,7 @@ def process_dequeued_entry(
     dependencies: WorkerExecutionDependencies,
     shutdown_requested: Callable[[], bool] | None = None,
 ) -> WorkerExecutionOutcome:
-    return _engine_execution.run_internal_engine_worker_entry_with_spec(
+    return _engine_execution.run_internal_engine_worker_entry_with_spec_options(
         cfg,
         entry,
         queue_root=queue_root,
@@ -471,9 +459,7 @@ def process_dequeued_entry(
             molecule_key_resolver=molecule_key_resolver,
             dependencies=dependencies,
         ),
-        options=_engine_execution.InternalWorkerOptions(
-            shutdown_requested=shutdown_requested,
-        ),
+        shutdown_requested=shutdown_requested,
     )
 
 
