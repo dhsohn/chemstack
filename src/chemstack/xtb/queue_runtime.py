@@ -23,6 +23,9 @@ from chemstack.core.admission import (
 )
 from chemstack.core.queue import (
     dequeue_next,
+    engine_execution as _engine_execution,
+    execution as _queue_execution,
+    get_cancel_requested,
     list_queue,
     mark_cancelled,
     mark_completed,
@@ -46,9 +49,9 @@ from chemstack.core.queue.internal_engine import (
     InternalEngineSpec,
     internal_engine_queue_worker_deps_from_namespace,
 )
+from chemstack.core.utils import now_utc_iso
 
 from . import queue_admission as _queue_admission
-from . import queue_worker_dependencies as _queue_worker_dependencies
 from . import worker_execution as _worker_execution
 from . import worker_terminal as _worker_terminal
 from .job_locations import (
@@ -94,32 +97,56 @@ def _queue_worker_deps() -> Any:
 
 
 def _worker_execution_dependencies() -> _worker_execution.WorkerExecutionDependencies:
-    return _queue_worker_dependencies.build_worker_execution_dependencies(
-        _queue_worker_dependencies.XtbQueueWorkerExecutionFns(
+    return _worker_execution.build_worker_execution_dependencies(
+        timing=_engine_execution.build_internal_worker_timing_dependencies(
+            _worker_execution.WorkerTimingDependencies,
+            now_utc_iso=now_utc_iso,
+        ),
+        queue=_engine_execution.build_internal_worker_queue_dependencies(
+            _worker_execution.WorkerQueueDependencies,
+            get_cancel_requested=get_cancel_requested,
+            mark_completed=mark_completed,
+            mark_cancelled=mark_cancelled,
+            mark_failed=mark_failed,
+        ),
+        runner=_engine_execution.build_internal_worker_process_dependencies(
+            _worker_execution.WorkerRunnerDependencies,
+            terminate_process=_terminate_process,
+            wait_for_cancellable_process=_queue_execution.wait_for_cancellable_process,
+            sleep=time.sleep,
+            cancel_check_interval_seconds=CANCEL_CHECK_INTERVAL_SECONDS,
+            run_xtb_ranking_job=run_xtb_ranking_job,
+            start_xtb_job=start_xtb_job,
+            finalize_xtb_job=finalize_xtb_job,
+        ),
+        config=_worker_execution.WorkerConfigDependencies(
             load_config=load_config,
             queue_entry_by_id=_queue_entry_by_id,
+        ),
+        admission=_worker_execution.WorkerAdmissionDependencies(
             activate_reserved_slot=activate_reserved_slot,
             release_slot=release_slot,
+        ),
+        context=_worker_execution.WorkerContextDependencies(
             job_dir=_job_dir,
             selected_xyz=_selected_xyz,
             job_type=_job_type,
             reaction_key=_reaction_key,
             input_summary=_input_summary,
+            entry_resource_request=_queue_artifacts.entry_resource_request,
             matching_state=_worker_execution_hooks.matching_state,
             is_recovery_pending=_worker_execution.is_recovery_pending,
+        ),
+        artifacts=_worker_execution.WorkerArtifactDependencies(
             write_running_state=_write_running_state,
             build_terminal_result=_build_terminal_result,
             finalize_execution_result=_finalize_execution_result,
+        ),
+        tracking=_worker_execution.WorkerTrackingDependencies(
             upsert_job_record=upsert_job_record,
             notify_job_started=notify_job_started,
-            run_xtb_ranking_job=run_xtb_ranking_job,
-            start_xtb_job=start_xtb_job,
-            finalize_xtb_job=finalize_xtb_job,
-            terminate_process=_terminate_process,
-            sleep=time.sleep,
-            cancel_check_interval_seconds=CANCEL_CHECK_INTERVAL_SECONDS,
-            execute_queue_entry=_execute_queue_entry,
-        )
+        ),
+        execute_queue_entry_fn=_execute_queue_entry,
     )
 
 
@@ -298,21 +325,13 @@ def _handle_worker_start_error(
     admission_token: str,
     exc: OSError,
 ) -> None:
-    _queue_admission.finalize_worker_start_error(
-        worker.cfg,
+    _queue_admission.mark_worker_start_error(
         queue_root=queue_root,
         entry=entry,
         admission_token=admission_token,
         exc=exc,
-        release_admission_slot_fn=worker._release_admission_slot,
-        build_terminal_result_fn=_build_terminal_result,
-        finalize_execution_result_fn=_finalize_execution_result,
-        job_dir_fn=_job_dir,
-        selected_xyz_fn=_selected_xyz,
-        job_type_fn=_job_type,
-        reaction_key_fn=_reaction_key,
-        input_summary_fn=_input_summary,
-        entry_resource_request_fn=_queue_artifacts.entry_resource_request,
+        mark_entry_failed_and_release_fn=worker._mark_entry_failed_and_release,
+        mark_failed_fn=mark_failed,
     )
 
 

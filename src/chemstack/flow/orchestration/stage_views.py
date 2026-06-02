@@ -131,6 +131,36 @@ class WorkflowTaskView:
         for key in keys:
             metadata.pop(key, None)
 
+    def update_orca_contract_payload(
+        self,
+        contract: Any,
+        normalize_text: Callable[[Any], str],
+    ) -> None:
+        payload = self.payload(None)
+        fields = {
+            "selected_inp": contract.selected_inp or normalize_text(payload.get("selected_inp")),
+        }
+        for key in ("selected_input_xyz", "last_out_path", "optimized_xyz_path"):
+            value = getattr(contract, key)
+            if value:
+                fields[key] = value
+        self.update_payload(fields)
+
+    def set_orca_latest_attempt_paths(
+        self,
+        attempt: dict[str, Any],
+        normalize_text: Callable[[Any], str],
+    ) -> None:
+        self.update_payload(
+            {
+                "orca_latest_attempt_inp": normalize_text(attempt.get("inp_path")),
+                "orca_latest_attempt_out": normalize_text(attempt.get("out_path")),
+            }
+        )
+
+    def set_selected_input_xyz(self, value: Any) -> None:
+        self.set_payload_field("selected_input_xyz", value)
+
 
 @dataclass(frozen=True)
 class WorkflowStageStatus:
@@ -228,6 +258,101 @@ class WorkflowStageView:
         metadata = self.metadata(None)
         for key in keys:
             metadata.pop(key, None)
+
+    def update_orca_contract_metadata(
+        self,
+        contract: Any,
+        normalize_text: Callable[[Any], str],
+    ) -> None:
+        metadata = self.metadata(None)
+        self.update_metadata(
+            {
+                "queue_id": contract.queue_id or normalize_text(metadata.get("queue_id")),
+                "run_id": contract.run_id or normalize_text(metadata.get("run_id")),
+                "queue_status": contract.queue_status,
+                "cancel_requested": bool(contract.cancel_requested),
+                "latest_known_path": contract.latest_known_path,
+                "organized_output_dir": contract.organized_output_dir,
+                "optimized_xyz_path": contract.optimized_xyz_path,
+                "analyzer_status": contract.analyzer_status,
+                "reason": contract.reason,
+                "completed_at": contract.completed_at,
+                "state_status": contract.state_status,
+                "attempt_count": contract.attempt_count,
+                "max_retries": contract.max_retries,
+                "orca_attempts": [dict(item) for item in contract.attempts],
+                "orca_final_result": dict(contract.final_result),
+            }
+        )
+
+    def update_orca_attempt_metadata(
+        self,
+        contract: Any,
+        task_view: WorkflowTaskView,
+        normalize_text: Callable[[Any], str],
+    ) -> None:
+        metadata = self.metadata(None)
+        if contract.state_status in {"running", "retrying"}:
+            metadata["orca_current_attempt_number"] = max(0, contract.attempt_count)
+        elif contract.attempts:
+            metadata["orca_current_attempt_number"] = contract.attempts[-1].get("attempt_number")
+        else:
+            metadata.pop("orca_current_attempt_number", None)
+
+        if contract.attempts:
+            last_attempt = contract.attempts[-1]
+            metadata["orca_latest_attempt_number"] = last_attempt.get("attempt_number")
+            metadata["orca_latest_attempt_status"] = last_attempt.get("analyzer_status")
+            task_view.set_orca_latest_attempt_paths(last_attempt, normalize_text)
+            return
+
+        metadata.pop("orca_latest_attempt_number", None)
+        metadata.pop("orca_latest_attempt_status", None)
+
+    def update_xtb_contract_metadata(self, contract: Any) -> None:
+        self.update_metadata(
+            {
+                "child_job_id": contract.job_id,
+                "latest_known_path": contract.latest_known_path,
+                "organized_output_dir": contract.organized_output_dir,
+            }
+        )
+
+    def update_xtb_attempt_record(
+        self,
+        attempt_number: int,
+        fields: dict[str, Any],
+    ) -> dict[str, Any]:
+        record = self.xtb_attempt_record(attempt_number)
+        record.update(fields)
+        return record
+
+    def set_xtb_handoff_retry_state(
+        self,
+        *,
+        retries_used: int,
+        retry_limit: int,
+    ) -> None:
+        self.update_metadata(
+            {
+                "xtb_handoff_retries_used": retries_used,
+                "xtb_handoff_retry_limit": retry_limit,
+            }
+        )
+
+    def set_xtb_handoff_retrying(
+        self,
+        *,
+        retry_limit: int,
+        retries_used: int | None = None,
+    ) -> None:
+        fields: dict[str, Any] = {
+            "reaction_handoff_status": "retrying",
+            "xtb_handoff_retry_limit": retry_limit,
+        }
+        if retries_used is not None:
+            fields["xtb_handoff_retries_used"] = retries_used
+        self.update_metadata(fields)
 
     def xtb_attempt_rows(self) -> list[dict[str, Any]]:
         metadata = self.metadata(None)

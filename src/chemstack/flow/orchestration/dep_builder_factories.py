@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING, Any
 from .dep_builder_core import (
     _LazyOrchestrationDeps,
     _StageDepFallbackGroup,
+    _StageDepFallbackRegistry,
+    _StageDepFallbackSpec,
     _bind_many_with_deps,
     _bind_with_deps,
     _build_dep_dataclass,
@@ -259,20 +261,47 @@ def _stage_workflow_fallbacks(
     }
 
 
-def _stage_dep_fallbacks(
+def _stage_builder_fallbacks_for_context(
     overrides: Mapping[str, Any] | None,
     deps_provider: _LazyOrchestrationDeps,
 ) -> dict[str, Any]:
-    fallbacks: dict[str, Any] = {}
-    for group in _stage_dep_fallback_groups(overrides, deps_provider):
-        fallbacks.update(group.fallbacks)
-    return fallbacks
+    del overrides, deps_provider
+    return _stage_builder_fallbacks()
 
 
-def _stage_dep_fallback_groups(
+def _stage_materialization_fallbacks_for_context(
     overrides: Mapping[str, Any] | None,
     deps_provider: _LazyOrchestrationDeps,
-) -> tuple[_StageDepFallbackGroup, ...]:
+) -> dict[str, Any]:
+    del overrides
+    return _stage_materialization_fallbacks(deps_provider)
+
+
+def _stage_runtime_fallbacks_for_context(
+    overrides: Mapping[str, Any] | None,
+    deps_provider: _LazyOrchestrationDeps,
+) -> dict[str, Any]:
+    del overrides
+    return _stage_runtime_fallbacks(deps_provider)
+
+
+def _stage_support_fallbacks_for_context(
+    overrides: Mapping[str, Any] | None,
+    deps_provider: _LazyOrchestrationDeps,
+) -> dict[str, Any]:
+    del overrides
+    return _stage_support_fallbacks(deps_provider)
+
+
+def _stage_workflow_fallbacks_for_context(
+    overrides: Mapping[str, Any] | None,
+    deps_provider: _LazyOrchestrationDeps,
+) -> dict[str, Any]:
+    del deps_provider
+    return _stage_workflow_fallbacks(overrides)
+
+
+def _stage_dep_fallback_registry() -> _StageDepFallbackRegistry:
     from chemstack.flow.orchestration.deps import (
         _ORCHESTRATION_STAGE_BUILDER_GROUP,
         _ORCHESTRATION_STAGE_MATERIALIZATION_GROUP,
@@ -281,28 +310,44 @@ def _stage_dep_fallback_groups(
         _ORCHESTRATION_STAGE_WORKFLOW_GROUP,
     )
 
-    return (
-        _StageDepFallbackGroup(
-            _ORCHESTRATION_STAGE_BUILDER_GROUP,
-            _stage_builder_fallbacks(),
-        ),
-        _StageDepFallbackGroup(
-            _ORCHESTRATION_STAGE_MATERIALIZATION_GROUP,
-            _stage_materialization_fallbacks(deps_provider),
-        ),
-        _StageDepFallbackGroup(
-            _ORCHESTRATION_STAGE_RUNTIME_GROUP,
-            _stage_runtime_fallbacks(deps_provider),
-        ),
-        _StageDepFallbackGroup(
-            _ORCHESTRATION_STAGE_SUPPORT_GROUP,
-            _stage_support_fallbacks(deps_provider),
-        ),
-        _StageDepFallbackGroup(
-            _ORCHESTRATION_STAGE_WORKFLOW_GROUP,
-            _stage_workflow_fallbacks(overrides),
-        ),
+    return _StageDepFallbackRegistry(
+        (
+            _StageDepFallbackSpec(
+                _ORCHESTRATION_STAGE_BUILDER_GROUP,
+                _stage_builder_fallbacks_for_context,
+            ),
+            _StageDepFallbackSpec(
+                _ORCHESTRATION_STAGE_MATERIALIZATION_GROUP,
+                _stage_materialization_fallbacks_for_context,
+            ),
+            _StageDepFallbackSpec(
+                _ORCHESTRATION_STAGE_RUNTIME_GROUP,
+                _stage_runtime_fallbacks_for_context,
+            ),
+            _StageDepFallbackSpec(
+                _ORCHESTRATION_STAGE_SUPPORT_GROUP,
+                _stage_support_fallbacks_for_context,
+            ),
+            _StageDepFallbackSpec(
+                _ORCHESTRATION_STAGE_WORKFLOW_GROUP,
+                _stage_workflow_fallbacks_for_context,
+            ),
+        )
     )
+
+
+def _stage_dep_fallbacks(
+    overrides: Mapping[str, Any] | None,
+    deps_provider: _LazyOrchestrationDeps,
+) -> dict[str, Any]:
+    return _stage_dep_fallback_registry().flat_fallbacks(overrides, deps_provider)
+
+
+def _stage_dep_fallback_groups(
+    overrides: Mapping[str, Any] | None,
+    deps_provider: _LazyOrchestrationDeps,
+) -> tuple[_StageDepFallbackGroup, ...]:
+    return _stage_dep_fallback_registry().build_groups(overrides, deps_provider)
 
 
 def _build_stage_deps(
@@ -313,12 +358,10 @@ def _build_stage_deps(
     from chemstack.flow.orchestration.deps import OrchestrationStageDeps
 
     provider = _deps_provider(overrides, deps_provider)
-
-    return OrchestrationStageDeps(
-        **{
-            group.dep_group.name: group.build(overrides)
-            for group in _stage_dep_fallback_groups(overrides, provider)
-        },
+    return _stage_dep_fallback_registry().build_deps(
+        OrchestrationStageDeps,
+        overrides,
+        provider,
     )
 
 
@@ -354,6 +397,7 @@ __all__ = [
     "_build_persistence_deps",
     "_build_stage_deps",
     "_stage_builder_fallbacks",
+    "_stage_dep_fallback_registry",
     "_stage_dep_fallback_groups",
     "_stage_dep_fallbacks",
     "_stage_materialization_fallbacks",

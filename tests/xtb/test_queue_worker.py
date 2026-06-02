@@ -87,7 +87,7 @@ def test_execute_queue_entry_processes_completed_job(
     outcome = queue_cmd._execute_queue_entry(
         cfg,
         queue_root=queue_root,
-        entry=entry
+        entry=entry,
     )
 
     assert outcome.result.status == "completed"
@@ -357,7 +357,7 @@ def test_process_dequeued_entry_uses_queue_cancel_callback(
     entry = _make_entry(job_dir, selected_xyz)
     cancelled_calls: list[tuple[object, object, object, object | None]] = []
 
-    monkeypatch.setattr(worker_execution_mod, "get_cancel_requested", lambda _root, _queue_id: True)
+    monkeypatch.setattr(queue_cmd, "get_cancel_requested", lambda _root, _queue_id: True)
     monkeypatch.setattr(
         queue_cmd,
         "start_xtb_job",

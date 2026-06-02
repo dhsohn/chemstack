@@ -32,6 +32,7 @@ def _submit_orca_stage(
     o: Any,
     stage: dict[str, Any],
     task: dict[str, Any],
+    task_view: WorkflowTaskView,
     enqueue_payload: dict[str, Any],
     stage_metadata: dict[str, Any],
     *,
@@ -46,7 +47,7 @@ def _submit_orca_stage(
         **_orca_submission_resource_kwargs(o, enqueue_payload),
     )
     submission["submitted_at"] = o.persistence.now_utc_iso()
-    WorkflowTaskView(task).set_submission_result(submission)
+    task_view.set_submission_result(submission)
     _apply_submission_result(
         stage=stage,
         task=task,
@@ -88,66 +89,18 @@ def _load_orca_contract(
     )
 
 
-def _apply_orca_attempt_metadata(
-    o: Any, task_payload: dict[str, Any], stage_metadata: dict[str, Any], contract: Any
-) -> None:
-    if contract.state_status in {"running", "retrying"}:
-        stage_metadata["orca_current_attempt_number"] = max(0, contract.attempt_count)
-    elif contract.attempts:
-        stage_metadata["orca_current_attempt_number"] = contract.attempts[-1].get("attempt_number")
-    else:
-        stage_metadata.pop("orca_current_attempt_number", None)
-
-    if contract.attempts:
-        last_attempt = contract.attempts[-1]
-        stage_metadata["orca_latest_attempt_number"] = last_attempt.get("attempt_number")
-        stage_metadata["orca_latest_attempt_status"] = last_attempt.get("analyzer_status")
-        task_payload["orca_latest_attempt_inp"] = o.stages._normalize_text(last_attempt.get("inp_path"))
-        task_payload["orca_latest_attempt_out"] = o.stages._normalize_text(last_attempt.get("out_path"))
-        return
-
-    stage_metadata.pop("orca_latest_attempt_number", None)
-    stage_metadata.pop("orca_latest_attempt_status", None)
-
-
 def _apply_orca_contract(
     o: Any,
     stage: dict[str, Any],
     task: dict[str, Any],
-    task_payload: dict[str, Any],
-    stage_metadata: dict[str, Any],
+    stage_view: WorkflowStageView,
+    task_view: WorkflowTaskView,
     contract: Any,
 ) -> None:
     _apply_contract_status(stage, task, contract.status)
-
-    task_payload["selected_inp"] = contract.selected_inp or o.stages._normalize_text(
-        task_payload.get("selected_inp")
-    )
-    if contract.selected_input_xyz:
-        task_payload["selected_input_xyz"] = contract.selected_input_xyz
-    if contract.last_out_path:
-        task_payload["last_out_path"] = contract.last_out_path
-    if contract.optimized_xyz_path:
-        task_payload["optimized_xyz_path"] = contract.optimized_xyz_path
-
-    stage_metadata["queue_id"] = contract.queue_id or o.stages._normalize_text(
-        stage_metadata.get("queue_id")
-    )
-    stage_metadata["run_id"] = contract.run_id or o.stages._normalize_text(stage_metadata.get("run_id"))
-    stage_metadata["queue_status"] = contract.queue_status
-    stage_metadata["cancel_requested"] = bool(contract.cancel_requested)
-    stage_metadata["latest_known_path"] = contract.latest_known_path
-    stage_metadata["organized_output_dir"] = contract.organized_output_dir
-    stage_metadata["optimized_xyz_path"] = contract.optimized_xyz_path
-    stage_metadata["analyzer_status"] = contract.analyzer_status
-    stage_metadata["reason"] = contract.reason
-    stage_metadata["completed_at"] = contract.completed_at
-    stage_metadata["state_status"] = contract.state_status
-    stage_metadata["attempt_count"] = contract.attempt_count
-    stage_metadata["max_retries"] = contract.max_retries
-    stage_metadata["orca_attempts"] = [dict(item) for item in contract.attempts]
-    stage_metadata["orca_final_result"] = dict(contract.final_result)
-    _apply_orca_attempt_metadata(o, task_payload, stage_metadata, contract)
+    task_view.update_orca_contract_payload(contract, o.stages._normalize_text)
+    stage_view.update_orca_contract_metadata(contract, o.stages._normalize_text)
+    stage_view.update_orca_attempt_metadata(contract, task_view, o.stages._normalize_text)
 
 
 def _orca_output_artifacts(o: Any, contract: Any) -> list[dict[str, Any]]:
@@ -238,6 +191,7 @@ def sync_orca_stage_impl(
             o,
             stage,
             task,
+            context.task_view,
             enqueue_payload,
             context.stage_metadata,
             orca_config=orca_config,
@@ -255,11 +209,11 @@ def sync_orca_stage_impl(
         o,
         stage,
         task,
-        context.task_payload,
-        context.stage_metadata,
+        context.stage_view,
+        context.task_view,
         contract,
     )
-    WorkflowStageView(stage).set_output_artifacts(_orca_output_artifacts(o, contract))
+    context.set_output_artifacts(_orca_output_artifacts(o, contract))
 
 
 def completed_orca_stage_impl(

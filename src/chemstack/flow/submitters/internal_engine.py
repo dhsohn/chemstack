@@ -115,18 +115,31 @@ def submitter_deps_from_namespace(namespace: Mapping[str, Any]) -> InternalEngin
 
 def build_internal_engine_submitter(
     *,
-    namespace: Mapping[str, Any],
     run_dir_api_name: str,
     cancel_api_name: str,
+    deps_factory: Callable[[], InternalEngineSubmitterDeps] | None = None,
+    namespace: Mapping[str, Any] | None = None,
     extra_fields_fn: Callable[[Any | None, Any | None], dict[str, Any]] | None = None,
 ) -> tuple[Callable[..., dict[str, Any]], Callable[..., dict[str, Any]]]:
+    if deps_factory is not None and namespace is not None:
+        raise ValueError("pass either deps_factory or namespace, not both")
+    if deps_factory is None:
+        if namespace is None:
+            raise ValueError("build_internal_engine_submitter requires deps_factory or namespace")
+        namespace_ref = namespace
+
+        def namespace_deps_factory() -> InternalEngineSubmitterDeps:
+            return submitter_deps_from_namespace(namespace_ref)
+
+        deps_factory = namespace_deps_factory
+
     submitter = InternalEngineSubmitter(
         spec=InternalEngineSubmitterSpec(
             run_dir_api_name=run_dir_api_name,
             cancel_api_name=cancel_api_name,
             extra_fields_fn=extra_fields_fn,
         ),
-        deps_factory=lambda: submitter_deps_from_namespace(namespace),
+        deps_factory=deps_factory,
     )
     return submitter.submit_job_dir, submitter.cancel_target
 

@@ -3,9 +3,7 @@ from __future__ import annotations
 import logging
 from contextlib import AbstractContextManager, contextmanager
 from pathlib import Path
-from typing import Any, Callable, Dict, Type
-
-from chemstack.core.queue.types import QueueEntry
+from typing import Any, Callable, Type
 
 from .. import queue_adapter as _queue_adapter
 from chemstack.core.admission import (
@@ -28,7 +26,6 @@ from ..telegram_notifier import (
     notify_run_started_event,
 )
 from ..types import (
-    QueueEnqueuedNotification,
     RetryNotification,
     RunFinishedNotification,
     RunStartedNotification,
@@ -43,7 +40,6 @@ from . import run_inp_submission as _run_inp_submission
 from .run_inp_context import (
     RunExecutionContext,
     RunSubmissionContext,
-    WorkerStatusInfo,
 )
 from .run_inp_deps import (
     RunInpDeps as _RunInpDeps,
@@ -57,6 +53,9 @@ logger = logging.getLogger(__name__)
 
 
 DirectQueueSubmission = _run_inp_submission.DirectQueueSubmission
+_select_latest_inp = _run_inp_execution.select_latest_inp
+_retry_inp_path = _run_inp_execution.retry_inp_path
+_existing_completed_out = _run_inp_execution.existing_completed_out
 
 
 def _run_inp_deps() -> _RunInpDeps:
@@ -105,18 +104,6 @@ def _run_inp_deps() -> _RunInpDeps:
     )
 
 
-def _select_latest_inp(reaction_dir: Path) -> Path:
-    return _run_inp_execution.select_latest_inp(reaction_dir)
-
-
-def _retry_inp_path(selected_inp: Path, retry_number: int) -> Path:
-    return _run_inp_execution.retry_inp_path(selected_inp, retry_number)
-
-
-def _existing_completed_out(selected_inp: Path) -> Dict[str, Any] | None:
-    return _run_inp_execution.existing_completed_out(selected_inp)
-
-
 def _recover_crashed_state(reaction_dir: Path) -> bool:
     return _run_inp_execution.recover_crashed_state(reaction_dir, logger=logger)
 
@@ -125,25 +112,9 @@ def _active_direct_run_error(reaction_dir: Path) -> str | None:
     return _run_inp_execution.active_direct_run_error(reaction_dir, logger=logger)
 
 
-def _active_queue_entry(allowed_root: Path, reaction_dir: Path) -> QueueEntry | None:
-    return _run_inp_submission.active_queue_entry(
-        allowed_root,
-        reaction_dir,
-        deps=_run_inp_deps(),
-    )
-
-
-def _find_submission_conflict(allowed_root: Path, reaction_dir: Path) -> str | None:
-    return _run_inp_submission.find_submission_conflict(
-        allowed_root,
-        reaction_dir,
-        deps=_run_inp_deps(),
-    )
-
-
 def _emit_queued_submission(
     reaction_dir: Path,
-    entry: QueueEntry,
+    entry: Any,
     *,
     worker_status: str | None,
     worker_pid: int | None,
@@ -159,10 +130,6 @@ def _emit_queued_submission(
         worker_detail=worker_detail,
         deps=_run_inp_deps(),
     )
-
-
-def _worker_status_for_submission(allowed_root: Path) -> WorkerStatusInfo:
-    return _run_inp_submission.worker_status_for_submission(allowed_root)
 
 
 def _existing_completed_exit(
@@ -309,60 +276,6 @@ def _run_with_state(
         max_retries=max_retries,
         resumed=resumed,
         state=state,
-        deps=_run_inp_deps(),
-    )
-
-
-def _build_queue_enqueued_notification(entry: QueueEntry) -> QueueEnqueuedNotification:
-    return _run_inp_submission.build_queue_enqueued_notification(
-        entry,
-        deps=_run_inp_deps(),
-    )
-
-
-def _resource_request_from_selected_inp(cfg: Any, selected_inp: Path | None) -> dict[str, int]:
-    return _run_inp_submission.resource_request_from_selected_inp(
-        cfg,
-        selected_inp,
-        deps=_run_inp_deps(),
-        logger=logger,
-    )
-
-
-def _warn_ignored_resource_override_flags(args: Any) -> None:
-    _run_inp_submission.warn_ignored_resource_override_flags(args, logger=logger)
-
-
-def _build_queue_metadata(
-    cfg: Any,
-    *,
-    reaction_dir: Path,
-    selected_inp: Path | None,
-    args: Any | None = None,
-) -> dict[str, Any]:
-    return _run_inp_submission.build_queue_metadata(
-        cfg,
-        reaction_dir=reaction_dir,
-        selected_inp=selected_inp,
-        args=args,
-        deps=_run_inp_deps(),
-    )
-
-
-def _upsert_queued_job_record(
-    cfg: Any,
-    *,
-    reaction_dir: Path,
-    selected_inp: Path | None,
-    job_id: str,
-    queue_metadata: dict[str, Any] | None = None,
-) -> None:
-    _run_inp_submission.upsert_queued_job_record(
-        cfg,
-        reaction_dir=reaction_dir,
-        selected_inp=selected_inp,
-        job_id=job_id,
-        queue_metadata=queue_metadata,
         deps=_run_inp_deps(),
     )
 

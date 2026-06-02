@@ -42,15 +42,6 @@ from .engine_specs import (
     notify_xtb_job_started,
     notify_xtb_job_terminal,
 )
-from .engine_validation import (
-    _optional_int_dict,
-    _optional_lines,
-    _optional_path,
-    _required_int,
-    _required_path,
-    _required_str,
-    _required_value,
-)
 from .telegram import (
     build_telegram_transport,
     split_telegram_message as split_telegram_message,
@@ -67,13 +58,6 @@ __all__ = [
     "_CREST_JOB_NOTIFICATIONS",
     "_ENGINE_LINE_SENDER",
     "_XTB_JOB_NOTIFICATIONS",
-    "_optional_int_dict",
-    "_optional_lines",
-    "_optional_path",
-    "_required_int",
-    "_required_path",
-    "_required_str",
-    "_required_value",
     "build_engine_job_notifications",
     "build_engine_notification_module",
     "build_engine_notifier",

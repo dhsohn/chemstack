@@ -100,46 +100,23 @@ def test_attach_started_process_records_owner_and_marks_missing_slot(tmp_path: P
     assert failed[0]["kwargs"]["error"] == "admission_slot_missing"
 
 
-def test_finalize_worker_start_error_releases_slot_and_writes_failure(
+def test_mark_worker_start_error_marks_failed_and_releases_slot(
     tmp_path: Path,
 ) -> None:
-    cfg = object()
     entry = SimpleNamespace(queue_id="queue-1")
-    job_dir = tmp_path / "job"
-    selected_xyz = job_dir / "input.xyz"
-    released: list[str] = []
-    built: list[dict[str, Any]] = []
-    finalized: list[dict[str, Any]] = []
+    failed: list[dict[str, Any]] = []
 
-    def build_terminal_result(entry_obj: Any, **kwargs: Any) -> SimpleNamespace:
-        built.append({"entry": entry_obj, **kwargs})
-        return SimpleNamespace(status=kwargs["status"], reason=kwargs["reason"])
+    def mark_failed_and_release(*args: Any, **kwargs: Any) -> None:
+        failed.append({"args": args, "kwargs": kwargs})
 
-    def finalize_execution_result(cfg_obj: Any, **kwargs: Any) -> None:
-        finalized.append({"cfg": cfg_obj, **kwargs})
-
-    queue_admission.finalize_worker_start_error(
-        cfg,
+    queue_admission.mark_worker_start_error(
         queue_root=tmp_path / "queue",
         entry=entry,
         admission_token="slot-1",
         exc=OSError("boom"),
-        release_admission_slot_fn=lambda token: released.append(token),
-        build_terminal_result_fn=build_terminal_result,
-        finalize_execution_result_fn=finalize_execution_result,
-        job_dir_fn=lambda _entry: job_dir,
-        selected_xyz_fn=lambda _entry: selected_xyz,
-        job_type_fn=lambda _entry: "path_search",
-        reaction_key_fn=lambda _entry, _job_dir: "rxn-1",
-        input_summary_fn=lambda _entry: {"candidate_count": 1},
-        entry_resource_request_fn=lambda _cfg, _entry: {"max_cores": 4, "max_memory_gb": 8},
+        mark_entry_failed_and_release_fn=mark_failed_and_release,
+        mark_failed_fn=lambda *_args, **_kwargs: None,
     )
 
-    assert released == ["slot-1"]
-    assert built[0]["reason"] == "worker_start_error:boom"
-    assert built[0]["job_dir"] == job_dir
-    assert built[0]["selected_xyz"] == selected_xyz
-    assert finalized[0]["cfg"] is cfg
-    assert finalized[0]["queue_root"] == tmp_path / "queue"
-    assert finalized[0]["result"].status == "failed"
-    assert finalized[0]["emit_output"] is True
+    assert failed[0]["args"] == (tmp_path / "queue", entry, "slot-1")
+    assert failed[0]["kwargs"]["error"] == "boom"

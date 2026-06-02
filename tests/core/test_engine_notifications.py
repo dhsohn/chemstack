@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from chemstack.core.notifications import engines as engine_facade
 from chemstack.core.notifications.engine_module import (
     build_engine_job_notifications,
     build_engine_notification_module,
@@ -36,3 +37,19 @@ def test_engine_job_notifications_reuses_request_factory() -> None:
     )
 
     assert notifications.request_factory is notifications.request_factory
+
+
+def test_engine_facade_does_not_reexport_validation_helpers() -> None:
+    helper_names = {
+        "_optional_int_dict",
+        "_optional_lines",
+        "_optional_path",
+        "_required_int",
+        "_required_path",
+        "_required_str",
+        "_required_value",
+    }
+
+    assert helper_names.isdisjoint(engine_facade.__all__)
+    for helper_name in helper_names:
+        assert not hasattr(engine_facade, helper_name)

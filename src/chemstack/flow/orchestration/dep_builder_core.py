@@ -12,6 +12,9 @@ if TYPE_CHECKING:
     )
 
 AnyCallable = Callable[..., Any]
+StageDepFallbackFactory = Callable[
+    [Mapping[str, Any] | None, "_LazyOrchestrationDeps"], Mapping[str, Any]
+]
 
 
 class _LazyOrchestrationDeps:
@@ -47,6 +50,55 @@ class _StageDepFallbackGroup:
             overrides,
             self.fallbacks,
             label=f"stage dependency group {self.dep_group.name!r}",
+        )
+
+
+@dataclass(frozen=True)
+class _StageDepFallbackSpec:
+    dep_group: _OrchestrationStageDepGroup
+    fallback_factory: StageDepFallbackFactory
+
+    def build(
+        self, overrides: Mapping[str, Any] | None, deps_provider: _LazyOrchestrationDeps
+    ) -> _StageDepFallbackGroup:
+        return _StageDepFallbackGroup(
+            self.dep_group,
+            self.fallback_factory(overrides, deps_provider),
+        )
+
+
+@dataclass(frozen=True)
+class _StageDepFallbackRegistry:
+    specs: tuple[_StageDepFallbackSpec, ...]
+
+    def build_groups(
+        self,
+        overrides: Mapping[str, Any] | None,
+        deps_provider: _LazyOrchestrationDeps,
+    ) -> tuple[_StageDepFallbackGroup, ...]:
+        return tuple(spec.build(overrides, deps_provider) for spec in self.specs)
+
+    def flat_fallbacks(
+        self,
+        overrides: Mapping[str, Any] | None,
+        deps_provider: _LazyOrchestrationDeps,
+    ) -> dict[str, Any]:
+        fallbacks: dict[str, Any] = {}
+        for group in self.build_groups(overrides, deps_provider):
+            fallbacks.update(group.fallbacks)
+        return fallbacks
+
+    def build_deps(
+        self,
+        deps_type: type[Any],
+        overrides: Mapping[str, Any] | None,
+        deps_provider: _LazyOrchestrationDeps,
+    ) -> Any:
+        return deps_type(
+            **{
+                group.dep_group.name: group.build(overrides)
+                for group in self.build_groups(overrides, deps_provider)
+            }
         )
 
 
@@ -115,8 +167,11 @@ def _bind_many_with_deps(
 
 __all__ = [
     "AnyCallable",
+    "StageDepFallbackFactory",
     "_LazyOrchestrationDeps",
     "_StageDepFallbackGroup",
+    "_StageDepFallbackRegistry",
+    "_StageDepFallbackSpec",
     "_apply_overrides",
     "_bind_many_with_deps",
     "_bind_with_deps",

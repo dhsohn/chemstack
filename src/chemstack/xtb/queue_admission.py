@@ -10,6 +10,7 @@ _ADMISSION = InternalEngineSpec(engine="xtb").admission()
 
 reserve_admission_slot = _ADMISSION.reserve_admission_slot
 start_background_job_process = _ADMISSION.start_background_job_process
+mark_worker_start_error = _ADMISSION.mark_worker_start_error
 attach_started_process = _ADMISSION.attach_started_process
 
 
@@ -51,6 +52,7 @@ def finalize_worker_start_error(
 __all__ = [
     "attach_started_process",
     "finalize_worker_start_error",
+    "mark_worker_start_error",
     "reserve_admission_slot",
     "start_background_job_process",
 ]
