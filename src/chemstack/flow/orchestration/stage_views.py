@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from chemstack.flow.orchestration.deps import OrchestrationDeps, orchestration_deps
@@ -54,6 +55,9 @@ class WorkflowTaskView:
 
     def existing_enqueue_payload(self) -> dict[str, Any] | None:
         return self.existing_mapping("enqueue_payload")
+
+    def existing_payload(self) -> dict[str, Any] | None:
+        return self.existing_mapping("payload")
 
     def submission_result(self, o: Any | None = None) -> dict[str, Any]:
         del o
@@ -112,6 +116,12 @@ class WorkflowTaskView:
         for key in keys:
             payload.pop(key, None)
 
+    def set_existing_payload_fields(self, keys: set[str] | frozenset[str], value: Any) -> None:
+        payload = self.payload(None)
+        for key in keys:
+            if key in payload:
+                payload[key] = value
+
     def update_enqueue_payload(self, fields: dict[str, Any]) -> None:
         self.enqueue_payload().update(fields)
 
@@ -119,6 +129,11 @@ class WorkflowTaskView:
         payload = self.enqueue_payload()
         for key in keys:
             payload.pop(key, None)
+
+    def set_existing_enqueue_payload_field(self, key: str, value: Any) -> None:
+        payload = self.enqueue_payload()
+        if key in payload:
+            payload[key] = value
 
     def set_metadata_field(self, key: str, value: Any) -> None:
         self.metadata(None)[key] = value
@@ -160,6 +175,40 @@ class WorkflowTaskView:
 
     def set_selected_input_xyz(self, value: Any) -> None:
         self.set_payload_field("selected_input_xyz", value)
+
+    def record_crest_job_materialization(self, *, job_dir: Path | str, input_target: Path | str) -> None:
+        self.update_payload(
+            {
+                "job_dir": str(job_dir),
+                "selected_input_xyz": str(input_target),
+            }
+        )
+        self.update_enqueue_payload({"job_dir": str(job_dir)})
+
+    def update_crest_contract_payload(self, contract: Any) -> None:
+        self.set_payload_field("selected_input_xyz", contract.selected_input_xyz)
+
+    def record_xtb_path_job_payload(
+        self,
+        *,
+        recipe: dict[str, Any],
+        job_dir: Path | str,
+        reactant_target: Path | str,
+        product_target: Path | str,
+        attempt_number: int,
+        reaction_key: str,
+        normalize_text: Callable[[Any], str],
+    ) -> None:
+        self.update_payload(
+            {
+                "job_dir": str(job_dir),
+                "selected_input_xyz": str(reactant_target),
+                "secondary_input_xyz": str(product_target),
+                "xtb_active_attempt_number": int(attempt_number),
+                "xtb_retry_recipe_id": normalize_text(recipe.get("recipe_id")),
+            }
+        )
+        self.update_enqueue_payload({"job_dir": str(job_dir), "reaction_key": reaction_key})
 
 
 @dataclass(frozen=True)
@@ -375,6 +424,47 @@ class WorkflowStageView:
         rows.sort(key=lambda item: _safe_int(item.get("attempt_number"), default=0))
         return record
 
+    def record_xtb_path_job_metadata(
+        self,
+        *,
+        recipe: dict[str, Any],
+        attempt_number: int,
+        normalize_text: Callable[[Any], str],
+    ) -> None:
+        self.update_metadata(
+            {
+                "xtb_active_attempt_number": int(attempt_number),
+                "xtb_retry_recipe_id": normalize_text(recipe.get("recipe_id")),
+                "xtb_retry_recipe_label": normalize_text(recipe.get("recipe_label")),
+            }
+        )
+
+    def record_xtb_path_attempt(
+        self,
+        *,
+        recipe: dict[str, Any],
+        job_dir: Path | str,
+        manifest_path: Path | str,
+        xcontrol_path: Path | str,
+        namespace: str,
+        reaction_key: str,
+        attempt_number: int,
+        normalize_text: Callable[[Any], str],
+    ) -> None:
+        self.update_xtb_attempt_record(
+            attempt_number,
+            {
+                "attempt_number": int(attempt_number),
+                "recipe_id": normalize_text(recipe.get("recipe_id")),
+                "recipe_label": normalize_text(recipe.get("recipe_label")),
+                "job_dir": str(job_dir),
+                "manifest_path": str(manifest_path),
+                "xcontrol_path": str(xcontrol_path),
+                "namespace": namespace,
+                "reaction_key": reaction_key,
+            },
+        )
+
     def xtb_current_attempt_number(self) -> int:
         metadata = self.metadata(None)
         current = _safe_int(metadata.get("xtb_active_attempt_number"), default=-1)
@@ -400,6 +490,28 @@ class WorkflowStageView:
                 metadata[metadata_key] = value
             else:
                 metadata.pop(metadata_key, None)
+
+    def update_crest_contract_metadata(self, contract: Any) -> None:
+        self.update_metadata(
+            {
+                "child_job_id": contract.job_id,
+                "latest_known_path": contract.latest_known_path,
+                "organized_output_dir": contract.organized_output_dir,
+            }
+        )
+
+    def set_crest_conformer_artifacts(self, contract: Any) -> None:
+        self.set_output_artifacts(
+            [
+                {
+                    "kind": "crest_conformer",
+                    "path": path,
+                    "selected": index == 1,
+                    "metadata": {"rank": index, "mode": contract.mode},
+                }
+                for index, path in enumerate(contract.retained_conformer_paths, start=1)
+            ]
+        )
 
     def task_engine(self, o: Any) -> str:
         return self.task.engine(o)

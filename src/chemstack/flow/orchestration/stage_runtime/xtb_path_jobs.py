@@ -15,6 +15,7 @@ from chemstack.flow.orchestration.stage_runtime.xtb_inputs import (
     _materialize_xtb_path_inputs,
 )
 from chemstack.flow.orchestration.stage_runtime.xtb_retry import _xtb_path_job_dir
+from chemstack.flow.orchestration.stage_views import WorkflowStageView, WorkflowTaskView
 
 
 def _write_xtb_recipe_xcontrol(o: Any, job_dir: Path, recipe: dict[str, Any]) -> str:
@@ -28,9 +29,9 @@ def _write_xtb_recipe_xcontrol(o: Any, job_dir: Path, recipe: dict[str, Any]) ->
 
 
 def _base_xtb_path_manifest(
-    o: Any, task: dict[str, Any], overrides: dict[str, Any]
+    o: Any, task_view: WorkflowTaskView, overrides: dict[str, Any]
 ) -> dict[str, Any]:
-    task_resource_request = o.stages._coerce_mapping(task.get("resource_request"))
+    task_resource_request = task_view.resource_request()
     manifest_payload: dict[str, Any] = {
         "job_type": "path_search",
         "gfn": 2,
@@ -60,7 +61,7 @@ def _base_xtb_path_manifest(
 def _write_xtb_path_manifest(
     o: Any,
     *,
-    task: dict[str, Any],
+    task_view: WorkflowTaskView,
     payload: dict[str, Any],
     recipe: dict[str, Any],
     job_dir: Path,
@@ -69,9 +70,10 @@ def _write_xtb_path_manifest(
     stage_id: str,
 ) -> tuple[str, str]:
     overrides = _manifest_override_mapping(payload.get("job_manifest_overrides"))
-    manifest_payload = _base_xtb_path_manifest(o, task, overrides)
+    manifest_payload = _base_xtb_path_manifest(o, task_view, overrides)
     namespace = (
-        o.stages._normalize_text(recipe.get("namespace")) or str(overrides.get("namespace", "")).strip()
+        o.stages._normalize_text(recipe.get("namespace"))
+        or str(overrides.get("namespace", "")).strip()
     )
     xcontrol_name = _write_xtb_recipe_xcontrol(o, job_dir, recipe)
     xcontrol_override_name = (
@@ -79,7 +81,9 @@ def _write_xtb_path_manifest(
     )
     selected_xcontrol_name = xcontrol_name or xcontrol_override_name
 
-    manifest_payload["reaction_key"] = o.stages._normalize_text(payload.get("reaction_key")) or stage_id
+    manifest_payload["reaction_key"] = (
+        o.stages._normalize_text(payload.get("reaction_key")) or stage_id
+    )
     manifest_payload["reactant_xyz"] = reactant_target.name
     manifest_payload["product_xyz"] = product_target.name
     if namespace:
@@ -97,7 +101,7 @@ def _write_xtb_path_manifest(
 def _record_xtb_path_job_payload(
     o: Any,
     *,
-    task: dict[str, Any],
+    task_view: WorkflowTaskView,
     payload: dict[str, Any],
     recipe: dict[str, Any],
     job_dir: Path,
@@ -105,32 +109,35 @@ def _record_xtb_path_job_payload(
     product_target: Path,
     attempt_number: int,
 ) -> None:
-    payload["job_dir"] = str(job_dir)
-    payload["selected_input_xyz"] = str(reactant_target)
-    payload["secondary_input_xyz"] = str(product_target)
-    payload["xtb_active_attempt_number"] = int(attempt_number)
-    payload["xtb_retry_recipe_id"] = o.stages._normalize_text(recipe.get("recipe_id"))
-    task["enqueue_payload"]["job_dir"] = str(job_dir)
-    task["enqueue_payload"]["reaction_key"] = o.stages._normalize_text(payload.get("reaction_key"))
+    task_view.record_xtb_path_job_payload(
+        recipe=recipe,
+        job_dir=job_dir,
+        reactant_target=reactant_target,
+        product_target=product_target,
+        attempt_number=attempt_number,
+        reaction_key=o.stages._normalize_text(payload.get("reaction_key")),
+        normalize_text=o.stages._normalize_text,
+    )
 
 
 def _record_xtb_path_job_metadata(
     o: Any,
     *,
-    stage: dict[str, Any],
+    stage_view: WorkflowStageView,
     recipe: dict[str, Any],
     attempt_number: int,
 ) -> None:
-    stage_metadata = o.stages._stage_metadata(stage)
-    stage_metadata["xtb_active_attempt_number"] = int(attempt_number)
-    stage_metadata["xtb_retry_recipe_id"] = o.stages._normalize_text(recipe.get("recipe_id"))
-    stage_metadata["xtb_retry_recipe_label"] = o.stages._normalize_text(recipe.get("recipe_label"))
+    stage_view.record_xtb_path_job_metadata(
+        recipe=recipe,
+        attempt_number=attempt_number,
+        normalize_text=o.stages._normalize_text,
+    )
 
 
 def _record_xtb_path_attempt(
     o: Any,
     *,
-    stage: dict[str, Any],
+    stage_view: WorkflowStageView,
     payload: dict[str, Any],
     recipe: dict[str, Any],
     job_dir: Path,
@@ -138,20 +145,17 @@ def _record_xtb_path_attempt(
     namespace: str,
     attempt_number: int,
 ) -> None:
-    attempt_record = o.stages._xtb_attempt_record(stage, attempt_number=attempt_number)
-    attempt_record.update(
-        {
-            "attempt_number": int(attempt_number),
-            "recipe_id": o.stages._normalize_text(recipe.get("recipe_id")),
-            "recipe_label": o.stages._normalize_text(recipe.get("recipe_label")),
-            "job_dir": str(job_dir),
-            "manifest_path": str((job_dir / "xtb_job.yaml").resolve()),
-            "xcontrol_path": str((job_dir / selected_xcontrol_name).resolve())
-            if selected_xcontrol_name
-            else "",
-            "namespace": namespace,
-            "reaction_key": o.stages._normalize_text(payload.get("reaction_key")),
-        }
+    stage_view.record_xtb_path_attempt(
+        recipe=recipe,
+        job_dir=job_dir,
+        manifest_path=(job_dir / "xtb_job.yaml").resolve(),
+        xcontrol_path=(job_dir / selected_xcontrol_name).resolve()
+        if selected_xcontrol_name
+        else "",
+        namespace=namespace,
+        reaction_key=o.stages._normalize_text(payload.get("reaction_key")),
+        attempt_number=attempt_number,
+        normalize_text=o.stages._normalize_text,
     )
 
 
@@ -164,15 +168,16 @@ def write_xtb_path_job_impl(
     deps: OrchestrationDeps | None = None,
 ) -> str:
     o = _orchestration_context(deps)
-    task = stage["task"]
-    payload = o.stages._task_payload_dict(task)
+    stage_view = WorkflowStageView(stage)
+    task_view = stage_view.task
+    payload = task_view.payload(o)
     recipe = o.stages._xtb_retry_recipe(attempt_number)
-    stage_id = o.stages._normalize_text(stage.get("stage_id"))
+    stage_id = stage_view.stage_id(o)
     job_dir = _xtb_path_job_dir(xtb_allowed_root, stage_id, attempt_number)
     reactant_target, product_target = _materialize_xtb_path_inputs(payload, job_dir=job_dir)
     namespace, selected_xcontrol_name = _write_xtb_path_manifest(
         o,
-        task=task,
+        task_view=task_view,
         payload=payload,
         recipe=recipe,
         job_dir=job_dir,
@@ -182,7 +187,7 @@ def write_xtb_path_job_impl(
     )
     _record_xtb_path_job_payload(
         o,
-        task=task,
+        task_view=task_view,
         payload=payload,
         recipe=recipe,
         job_dir=job_dir,
@@ -190,10 +195,15 @@ def write_xtb_path_job_impl(
         product_target=product_target,
         attempt_number=attempt_number,
     )
-    _record_xtb_path_job_metadata(o, stage=stage, recipe=recipe, attempt_number=attempt_number)
+    _record_xtb_path_job_metadata(
+        o,
+        stage_view=stage_view,
+        recipe=recipe,
+        attempt_number=attempt_number,
+    )
     _record_xtb_path_attempt(
         o,
-        stage=stage,
+        stage_view=stage_view,
         payload=payload,
         recipe=recipe,
         job_dir=job_dir,
@@ -212,8 +222,8 @@ def ensure_xtb_job_dir_impl(
     deps: OrchestrationDeps | None = None,
 ) -> str:
     o = _orchestration_context(deps)
-    task = stage["task"]
-    payload = task["payload"]
+    task_view = WorkflowStageView(stage).task
+    payload = task_view.payload(o)
     existing = o.stages._normalize_text(payload.get("job_dir"))
     if existing:
         return existing

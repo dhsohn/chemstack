@@ -1,41 +1,85 @@
 from __future__ import annotations
 
+from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any
 
-from chemstack.flow.orchestration.stage_views import WorkflowStageView, WorkflowTaskView
+from chemstack.core.app_ids import is_orca_submitter
+from chemstack.core.utils import (
+    mapping_or_empty as _coerce_mapping,
+    normalize_text as _normalize_text,
+)
+from chemstack.flow.orchestration.stage_views import (
+    WorkflowPayloadView,
+    WorkflowStageView,
+    WorkflowTaskView,
+)
 
 
-def stage_needs_restart(stage: dict[str, Any], *, deps: Any) -> bool:
-    task = deps._coerce_mapping(stage.get("task"))
-    stage_status = deps._normalize_text(stage.get("status")).lower()
-    task_status = deps._normalize_text(task.get("status")).lower()
+@dataclass(frozen=True)
+class RestartStageContext:
+    active_stage_statuses: frozenset[str]
+    rematerialized_engines: frozenset[str]
+    rematerialized_task_payload_keys: frozenset[str]
+    restartable_stage_statuses: frozenset[str]
+    stale_stage_metadata_keys: frozenset[str]
+    stale_task_payload_keys: frozenset[str]
+    coerce_mapping: Callable[[Any], dict[str, Any]] = _coerce_mapping
+    normalize_text: Callable[[Any], str] = _normalize_text
+
+    def stage_status(self, stage_view: WorkflowStageView) -> str:
+        return stage_view.status_with(self.normalize_text)
+
+    def task_status(self, task_view: WorkflowTaskView | None) -> str:
+        if task_view is None:
+            return ""
+        return task_view.status_with(self.normalize_text)
+
+    def task_engine(self, task_view: WorkflowTaskView | None) -> str:
+        if task_view is None:
+            return ""
+        return task_view.text_field("engine", self.normalize_text).lower()
+
+    def task_is_orca(self, task_view: WorkflowTaskView) -> bool:
+        engine = self.task_engine(task_view)
+        if engine == "orca":
+            return True
+        enqueue_payload = self.coerce_mapping(task_view.raw.get("enqueue_payload"))
+        return is_orca_submitter(enqueue_payload.get("submitter"))
+
+
+def stage_needs_restart(stage: dict[str, Any], *, context: RestartStageContext) -> bool:
+    stage_view = WorkflowStageView(stage)
+    task_view = stage_view.existing_task
+    stage_status = context.stage_status(stage_view)
+    task_status = context.task_status(task_view)
     if stage_status == "completed" and task_status == "completed":
         return False
     return (
-        stage_status in deps._RESTARTABLE_STAGE_STATUSES
-        or task_status in deps._RESTARTABLE_STAGE_STATUSES
+        stage_status in context.restartable_stage_statuses
+        or task_status in context.restartable_stage_statuses
     )
 
 
-def active_stage_rows(payload: dict[str, Any], *, deps: Any) -> list[dict[str, str]]:
+def active_stage_rows(
+    payload: dict[str, Any], *, context: RestartStageContext
+) -> list[dict[str, str]]:
     rows: list[dict[str, str]] = []
-    for raw_stage in payload.get("stages", []):
-        if not isinstance(raw_stage, dict):
-            continue
-        task = deps._coerce_mapping(raw_stage.get("task"))
-        stage_status = deps._normalize_text(raw_stage.get("status")).lower()
-        task_status = deps._normalize_text(task.get("status")).lower()
+    for stage_view in WorkflowPayloadView(payload).stage_views:
+        task_view = stage_view.existing_task
+        stage_status = context.stage_status(stage_view)
+        task_status = context.task_status(task_view)
         if (
-            stage_status not in deps._ACTIVE_STAGE_STATUSES
-            and task_status not in deps._ACTIVE_STAGE_STATUSES
+            stage_status not in context.active_stage_statuses
+            and task_status not in context.active_stage_statuses
         ):
             continue
         rows.append(
             {
-                "stage_id": deps._normalize_text(raw_stage.get("stage_id")),
+                "stage_id": stage_view.stage_id_with(context.normalize_text),
                 "status": stage_status,
                 "task_status": task_status,
-                "engine": deps._normalize_text(task.get("engine")),
+                "engine": context.task_engine(task_view),
             }
         )
     return rows
@@ -58,16 +102,19 @@ def active_restart_error(workflow_id: str, rows: list[dict[str, str]]) -> ValueE
 
 
 def clear_phase_notification_state(
-    metadata: dict[str, Any], restarted_stages: list[dict[str, str]], *, deps: Any
+    metadata: dict[str, Any],
+    restarted_stages: list[dict[str, str]],
+    *,
+    context: RestartStageContext,
 ) -> None:
     phase_notifications = metadata.get("phase_notifications")
     if not isinstance(phase_notifications, dict):
         return
 
     engines = {
-        deps._normalize_text(stage.get("engine")).lower()
+        context.normalize_text(stage.get("engine")).lower()
         for stage in restarted_stages
-        if deps._normalize_text(stage.get("engine"))
+        if context.normalize_text(stage.get("engine"))
     }
     for engine in engines:
         phase_notifications.pop(f"{engine}_summary", None)
@@ -79,37 +126,31 @@ def reset_stage_for_restart(
     stage: dict[str, Any],
     *,
     rematerialize: bool = False,
-    deps: Any,
+    context: RestartStageContext,
 ) -> dict[str, str]:
-    task = deps._stage_task(stage)
-    task_payload = deps._task_payload(task)
-    enqueue_payload = deps._enqueue_payload(task)
-    engine = deps._task_engine(task)
     stage_view = WorkflowStageView(stage)
-    task_view = WorkflowTaskView(task)
+    task_view = stage_view.ensure_task()
+    engine = context.task_engine(task_view)
 
     previous = {
-        "stage_id": deps._normalize_text(stage.get("stage_id")),
-        "previous_status": deps._normalize_text(stage.get("status")),
-        "previous_task_status": deps._normalize_text(task.get("status")),
-        "engine": deps._normalize_text(task.get("engine")),
+        "stage_id": stage_view.stage_id_with(context.normalize_text),
+        "previous_status": stage_view.text_field("status", context.normalize_text),
+        "previous_task_status": task_view.text_field("status", context.normalize_text),
+        "engine": task_view.text_field("engine", context.normalize_text),
     }
 
     stage_view.set_status_pair(stage_status="planned", task_status="planned")
     stage_view.set_output_artifacts([])
     task_view.clear_keys("submission_result", "cancel_result")
 
-    stage_view.clear_metadata_keys(*deps._STALE_STAGE_METADATA_KEYS)
-    task_view.clear_payload_keys(*deps._STALE_TASK_PAYLOAD_KEYS)
+    stage_view.clear_metadata_keys(*context.stale_stage_metadata_keys)
+    task_view.clear_payload_keys(*context.stale_task_payload_keys)
 
-    if rematerialize and engine in deps._REMATERIALIZED_ENGINES:
-        for key in deps._REMATERIALIZED_TASK_PAYLOAD_KEYS:
-            if key in task_payload:
-                task_view.set_payload_field(key, "")
-        if "job_dir" in enqueue_payload:
-            task_view.update_enqueue_payload({"job_dir": ""})
+    if rematerialize and engine in context.rematerialized_engines:
+        task_view.set_existing_payload_fields(context.rematerialized_task_payload_keys, "")
+        task_view.set_existing_enqueue_payload_field("job_dir", "")
 
-    if deps._task_is_orca(task):
+    if context.task_is_orca(task_view):
         task_view.update_enqueue_payload({"force": True})
 
     return previous
