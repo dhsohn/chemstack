@@ -283,9 +283,13 @@ def build_systemd_install_plan(
     return _build_systemd_install_plan(options)
 
 
-def _format_command(command: Sequence[str], *, use_sudo: bool) -> str:
+def _systemd_command_argv(command: Sequence[str], *, use_sudo: bool) -> tuple[str, ...]:
     parts = (("sudo",) if use_sudo else ()) + tuple(command)
-    return " ".join(parts)
+    return parts
+
+
+def _format_command(command: Sequence[str], *, use_sudo: bool) -> str:
+    return " ".join(_systemd_command_argv(command, use_sudo=use_sudo))
 
 
 def _print_plan(plan: SystemdInstallPlan) -> None:

@@ -75,7 +75,6 @@ from .runtime.worker_job import (
     WORKER_JOB_MODULE,
     BackgroundRunJobProcess,
     build_worker_child_command,
-    start_background_run_job,
 )
 from .state import load_organized_ref, load_report_json, load_state
 from .telegram_notifier import notify_run_finished_event
@@ -186,25 +185,6 @@ def _start_background_job_process(
 def _terminate_process(proc: _ManagedProcess) -> None:
     """Terminate the background run process and escalate if it does not stop."""
     terminate_process_group(proc)
-
-
-def _start_job_process(
-    *,
-    reaction_dir: str,
-    config_path: str,
-    force: bool = False,
-    admission_token: str | None = None,
-    admission_app_name: str | None = None,
-    admission_task_id: str | None = None,
-) -> BackgroundRunJobProcess:
-    return start_background_run_job(
-        config_path=config_path,
-        reaction_dir=reaction_dir,
-        force=force,
-        admission_token=admission_token,
-        admission_app_name=admission_app_name,
-        admission_task_id=admission_task_id,
-    )
 
 
 def _get_run_id_from_state(reaction_dir: str) -> str | None:

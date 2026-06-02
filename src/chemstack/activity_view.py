@@ -41,6 +41,46 @@ def activity_with_parent_hint(item: dict[str, Any]) -> dict[str, Any]:
     return enriched
 
 
+def normalize_activity_filter_values(values: Sequence[str] | None) -> tuple[str, ...]:
+    if not values:
+        return ()
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        text = normalize_text(value).lower()
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        normalized.append(text)
+    return tuple(normalized)
+
+
+def filter_activity_items(
+    items: Sequence[dict[str, Any]],
+    *,
+    engines: Sequence[str] | None = None,
+    statuses: Sequence[str] | None = None,
+    kinds: Sequence[str] | None = None,
+) -> list[dict[str, Any]]:
+    engine_filter = set(normalize_activity_filter_values(engines))
+    status_filter = set(normalize_activity_filter_values(statuses))
+    kind_filter = set(normalize_activity_filter_values(kinds))
+
+    filtered: list[dict[str, Any]] = []
+    for item in items:
+        engine = normalize_text(item.get("engine")).lower()
+        status = normalize_text(item.get("status")).lower()
+        kind = normalize_text(item.get("kind")).lower()
+        if engine_filter and engine not in engine_filter:
+            continue
+        if status_filter and status not in status_filter:
+            continue
+        if kind_filter and kind not in kind_filter:
+            continue
+        filtered.append(dict(item))
+    return filtered
+
+
 def queue_list_default_visible_items(items: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
     visible: list[dict[str, Any]] = []
     for raw_item in items:

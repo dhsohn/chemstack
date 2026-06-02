@@ -99,7 +99,7 @@ def _deps_provider(
 def _bind_with_deps(deps_provider: _LazyOrchestrationDeps, func: AnyCallable) -> AnyCallable:
     @wraps(func)
     def call(*args: Any, **kwargs: Any) -> Any:
-        if "deps" not in kwargs:
+        if kwargs.get("deps") is None:
             kwargs["deps"] = deps_provider.get()
         return func(*args, **kwargs)
 

@@ -119,32 +119,39 @@ def build_worker_execution_dependencies_from_groups(
     )
 
 
-def _default_timing_dependencies() -> WorkerTimingDependencies:
-    return _engine_execution.build_internal_worker_timing_dependencies(
-        WorkerTimingDependencies,
-        now_utc_iso=now_utc_iso,
-    )
-
-
-def _default_queue_dependencies() -> WorkerQueueDependencies:
-    return _engine_execution.build_internal_worker_queue_dependencies(
-        WorkerQueueDependencies,
-        get_cancel_requested=get_cancel_requested,
-        mark_completed=mark_completed,
-        mark_cancelled=mark_cancelled,
-        mark_failed=mark_failed,
+def _build_default_runner_dependencies(
+    *,
+    terminate_process: Callable[[Any], Any],
+    **engine_runner_dependencies: Any,
+) -> WorkerRunnerDependencies:
+    return _engine_execution.build_internal_worker_process_dependencies(
+        WorkerRunnerDependencies,
+        terminate_process=terminate_process,
+        wait_for_cancellable_process=_queue_execution.wait_for_cancellable_process,
+        sleep=time.sleep,
+        cancel_check_interval_seconds=CANCEL_CHECK_INTERVAL_SECONDS,
+        **engine_runner_dependencies,
     )
 
 
 def _default_runner_dependencies() -> WorkerRunnerDependencies:
-    return _engine_execution.build_internal_worker_process_dependencies(
-        WorkerRunnerDependencies,
+    return _build_default_runner_dependencies(
         terminate_process=_terminate_process,
-        wait_for_cancellable_process=_queue_execution.wait_for_cancellable_process,
-        sleep=time.sleep,
-        cancel_check_interval_seconds=CANCEL_CHECK_INTERVAL_SECONDS,
         start_crest_job=start_crest_job,
         finalize_crest_job=finalize_crest_job,
+    )
+
+
+def _internal_worker_default_factories() -> dict[str, Callable[[], Any]]:
+    return _engine_execution.build_internal_worker_default_factories(
+        timing_dependencies_type=WorkerTimingDependencies,
+        queue_dependencies_type=WorkerQueueDependencies,
+        runner_factory=_default_runner_dependencies,
+        now_utc_iso=now_utc_iso,
+        get_cancel_requested=get_cancel_requested,
+        mark_completed=mark_completed,
+        mark_cancelled=mark_cancelled,
+        mark_failed=mark_failed,
     )
 
 
@@ -181,9 +188,7 @@ def build_worker_execution_dependencies(
             "tracking": tracking,
         },
         {
-            "timing": _default_timing_dependencies,
-            "queue": _default_queue_dependencies,
-            "runner": _default_runner_dependencies,
+            **_internal_worker_default_factories(),
             "artifacts": _default_artifact_dependencies,
             "tracking": _default_tracking_dependencies,
         },

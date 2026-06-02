@@ -27,6 +27,54 @@ class TaskStageMutation:
 
 
 @dataclass(frozen=True)
+class TaskRecordMutator:
+    task_record_key: str
+
+    def mutation(
+        self,
+        *,
+        task_status: str | None = None,
+        stage_status: str | None = None,
+        metadata_updates: dict[str, Any] | None = None,
+        metadata_removals: tuple[str, ...] = (),
+    ) -> TaskStageMutation:
+        return TaskStageMutation(
+            task_status=task_status,
+            stage_status=stage_status,
+            task_record_key=self.task_record_key,
+            metadata_updates=metadata_updates or {},
+            metadata_removals=metadata_removals,
+        )
+
+    def apply(
+        self,
+        *,
+        stage: dict[str, Any],
+        task: dict[str, Any],
+        stage_metadata: dict[str, Any],
+        task_record: Any,
+        mutation: TaskStageMutation | None = None,
+        task_status: str | None = None,
+        stage_status: str | None = None,
+        metadata_updates: dict[str, Any] | None = None,
+        metadata_removals: tuple[str, ...] = (),
+    ) -> None:
+        apply_task_stage_mutation(
+            stage=stage,
+            task=task,
+            stage_metadata=stage_metadata,
+            mutation=mutation
+            or self.mutation(
+                task_status=task_status,
+                stage_status=stage_status,
+                metadata_updates=metadata_updates,
+                metadata_removals=metadata_removals,
+            ),
+            task_record=task_record,
+        )
+
+
+@dataclass(frozen=True)
 class RecordedStageTransition:
     bucket: str
     detail: dict[str, Any]

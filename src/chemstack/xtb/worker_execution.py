@@ -58,6 +58,7 @@ from .worker_terminal import (
 )
 
 WORKER_JOB_MODULE = _worker_child.WORKER_JOB_MODULE
+CANCEL_CHECK_INTERVAL_SECONDS = 1
 WorkerShutdownRequested = _worker_child.WorkerShutdownRequested
 
 
@@ -175,23 +176,6 @@ def _default_admission_dependencies() -> WorkerAdmissionDependencies:
     )
 
 
-def _default_timing_dependencies() -> WorkerTimingDependencies:
-    return _engine_execution.build_internal_worker_timing_dependencies(
-        WorkerTimingDependencies,
-        now_utc_iso=now_utc_iso,
-    )
-
-
-def _default_queue_dependencies() -> WorkerQueueDependencies:
-    return _engine_execution.build_internal_worker_queue_dependencies(
-        WorkerQueueDependencies,
-        get_cancel_requested=get_cancel_requested,
-        mark_completed=mark_completed,
-        mark_cancelled=mark_cancelled,
-        mark_failed=mark_failed,
-    )
-
-
 def _default_context_dependencies() -> WorkerContextDependencies:
     return WorkerContextDependencies(
         job_dir=_job_dir,
@@ -220,16 +204,40 @@ def _default_tracking_dependencies() -> WorkerTrackingDependencies:
     )
 
 
-def _default_runner_dependencies() -> WorkerRunnerDependencies:
+def _build_default_runner_dependencies(
+    *,
+    terminate_process: Callable[[Any], Any],
+    **engine_runner_dependencies: Any,
+) -> WorkerRunnerDependencies:
     return _engine_execution.build_internal_worker_process_dependencies(
         WorkerRunnerDependencies,
-        terminate_process=terminate_process_group,
+        terminate_process=terminate_process,
         wait_for_cancellable_process=_queue_execution.wait_for_cancellable_process,
         sleep=time.sleep,
-        cancel_check_interval_seconds=1,
+        cancel_check_interval_seconds=CANCEL_CHECK_INTERVAL_SECONDS,
+        **engine_runner_dependencies,
+    )
+
+
+def _default_runner_dependencies() -> WorkerRunnerDependencies:
+    return _build_default_runner_dependencies(
+        terminate_process=terminate_process_group,
         run_xtb_ranking_job=run_xtb_ranking_job,
         start_xtb_job=start_xtb_job,
         finalize_xtb_job=finalize_xtb_job,
+    )
+
+
+def _internal_worker_default_factories() -> dict[str, Callable[[], Any]]:
+    return _engine_execution.build_internal_worker_default_factories(
+        timing_dependencies_type=WorkerTimingDependencies,
+        queue_dependencies_type=WorkerQueueDependencies,
+        runner_factory=_default_runner_dependencies,
+        now_utc_iso=now_utc_iso,
+        get_cancel_requested=get_cancel_requested,
+        mark_completed=mark_completed,
+        mark_cancelled=mark_cancelled,
+        mark_failed=mark_failed,
     )
 
 
@@ -260,12 +268,10 @@ def build_worker_execution_dependencies(
         {
             "config": _default_config_dependencies,
             "admission": _default_admission_dependencies,
-            "timing": _default_timing_dependencies,
-            "queue": _default_queue_dependencies,
+            **_internal_worker_default_factories(),
             "context": _default_context_dependencies,
             "artifacts": _default_artifact_dependencies,
             "tracking": _default_tracking_dependencies,
-            "runner": _default_runner_dependencies,
         },
         extra_fields={"execute_queue_entry_fn": execute_queue_entry_fn},
     )

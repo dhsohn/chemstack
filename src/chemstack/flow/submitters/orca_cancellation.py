@@ -7,10 +7,9 @@ from typing import Any, Callable
 from .orca_models import (
     CancelStageContext,
     SiblingSubmitterConfig,
-    TaskStageMutation,
+    TaskRecordMutator,
     WorkflowBuckets,
     WorkflowStageOutcome,
-    apply_task_stage_mutation,
     workflow_metadata,
 )
 from .orca_submission import orca_submitter_matches
@@ -25,6 +24,9 @@ class CancellationDeps:
     write_workflow_payload: Callable[[Path, dict[str, Any]], Any]
     sync_workflow_registry: Callable[[str | Path, Path, dict[str, Any]], Any]
     cancel_target: Callable[..., dict[str, Any]]
+
+
+CANCEL_RESULT = TaskRecordMutator("cancel_result")
 
 
 def cancel_config(
@@ -101,32 +103,22 @@ def needs_orca_cancel(context: CancelStageContext) -> bool:
     )
 
 
-def cancel_result_mutation(
+def apply_cancel_result(
+    context: CancelStageContext,
     *,
+    cancel_record: dict[str, Any],
     task_status: str | None = None,
     stage_status: str | None = None,
     metadata_updates: dict[str, Any] | None = None,
-) -> TaskStageMutation:
-    return TaskStageMutation(
-        task_status=task_status,
-        stage_status=stage_status,
-        task_record_key="cancel_result",
-        metadata_updates=metadata_updates or {},
-    )
-
-
-def apply_cancel_mutation(
-    context: CancelStageContext,
-    *,
-    mutation: TaskStageMutation,
-    cancel_record: dict[str, Any],
 ) -> None:
-    apply_task_stage_mutation(
+    CANCEL_RESULT.apply(
         stage=context.stage,
         task=context.task,
         stage_metadata=context.stage_metadata,
-        mutation=mutation,
         task_record=cancel_record,
+        task_status=task_status,
+        stage_status=stage_status,
+        metadata_updates=metadata_updates,
     )
 
 
@@ -136,17 +128,15 @@ def record_local_cancel(context: CancelStageContext, deps: CancellationDeps) -> 
         "cancelled_at": deps.now_utc_iso(),
         "mode": "local",
     }
-    apply_cancel_mutation(
+    apply_cancel_result(
         context,
-        mutation=cancel_result_mutation(
-            task_status="cancelled",
-            stage_status="cancelled",
-            metadata_updates={
-                "cancel_status": "cancelled",
-                "cancelled_at": cancel_record["cancelled_at"],
-            },
-        ),
         cancel_record=cancel_record,
+        task_status="cancelled",
+        stage_status="cancelled",
+        metadata_updates={
+            "cancel_status": "cancelled",
+            "cancelled_at": cancel_record["cancelled_at"],
+        },
     )
     return WorkflowStageOutcome(
         bucket="cancelled",
@@ -167,9 +157,8 @@ def record_cancel_failure(
         "reason": reason,
         "cancelled_at": deps.now_utc_iso(),
     }
-    apply_cancel_mutation(
+    apply_cancel_result(
         context,
-        mutation=cancel_result_mutation(),
         cancel_record=cancel_record,
     )
     return WorkflowStageOutcome(
@@ -186,17 +175,15 @@ def record_remote_cancel_success(
     cancel_record: dict[str, Any],
     cancel_status: str,
 ) -> WorkflowStageOutcome:
-    apply_cancel_mutation(
+    apply_cancel_result(
         context,
-        mutation=cancel_result_mutation(
-            task_status=cancel_status,
-            stage_status=cancel_status,
-            metadata_updates={
-                "cancel_status": cancel_status,
-                "cancelled_at": cancel_record["cancelled_at"],
-            },
-        ),
         cancel_record=cancel_record,
+        task_status=cancel_status,
+        stage_status=cancel_status,
+        metadata_updates={
+            "cancel_status": cancel_status,
+            "cancelled_at": cancel_record["cancelled_at"],
+        },
     )
     bucket = {"cancel_requested": "requested"}.get(cancel_status, "cancelled")
     return WorkflowStageOutcome(
@@ -215,9 +202,8 @@ def record_remote_cancel_failed(
     cancel_record: dict[str, Any],
 ) -> WorkflowStageOutcome:
     returncode = int(cancel_record.get("returncode", 1))
-    apply_cancel_mutation(
+    apply_cancel_result(
         context,
-        mutation=cancel_result_mutation(),
         cancel_record=cancel_record,
     )
     return WorkflowStageOutcome(

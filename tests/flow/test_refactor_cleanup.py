@@ -135,7 +135,7 @@ def test_bound_stage_deps_reuse_lazy_orchestration_context(
     deps = orchestration_deps()
     rows: list[dict[str, Any]] = []
     deps.stages._append_unique_artifact(rows, kind="xyz", path="a.xyz")
-    deps.stages._append_unique_artifact(rows, kind="log", path="b.log")
+    deps.stages._append_unique_artifact(rows, kind="log", path="b.log", deps=None)
 
     assert calls == 1
     assert [row["path"] for row in rows] == ["a.xyz", "b.log"]

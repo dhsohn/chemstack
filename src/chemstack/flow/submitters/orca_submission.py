@@ -14,10 +14,9 @@ from chemstack.flow.orchestration.stage_views import (
 from .orca_models import (
     RecordedStageTransition,
     SiblingSubmitterConfig,
-    TaskStageMutation,
+    TaskRecordMutator,
     WorkflowBuckets,
     WorkflowStageOutcome,
-    apply_task_stage_mutation,
     ensure_submission_metadata,
     mapping_payload,
 )
@@ -71,6 +70,9 @@ class _SubmissionStageContext:
 
     def should_submit_to_orca(self, normalize_text: Callable[[Any], str]) -> bool:
         return orca_submitter_matches(self.enqueue_payload, normalize_text=normalize_text)
+
+
+SUBMISSION_RESULT = TaskRecordMutator("submission_result")
 
 
 def submission_is_deferred(value: dict[str, Any], *, normalize_text: Callable[[Any], str]) -> bool:
@@ -137,22 +139,6 @@ def submission_force(enqueue_payload: dict[str, Any]) -> bool:
     return bool(value)
 
 
-def submission_result_mutation(
-    *,
-    task_status: str,
-    stage_status: str,
-    metadata_updates: dict[str, Any],
-    metadata_removals: tuple[str, ...] = (),
-) -> TaskStageMutation:
-    return TaskStageMutation(
-        task_status=task_status,
-        stage_status=stage_status,
-        task_record_key="submission_result",
-        metadata_updates=metadata_updates,
-        metadata_removals=metadata_removals,
-    )
-
-
 def record_missing_reaction_dir(
     *,
     stage: dict[str, Any],
@@ -166,19 +152,17 @@ def record_missing_reaction_dir(
         "submitted_at": now_utc_iso(),
     }
     stage_id = stage.get("stage_id", "")
-    apply_task_stage_mutation(
+    SUBMISSION_RESULT.apply(
         stage=stage,
         task=task,
         stage_metadata=stage_metadata,
-        mutation=submission_result_mutation(
-            task_status="submission_failed",
-            stage_status="submission_failed",
-            metadata_updates={
-                "submission_status": "submission_failed",
-                "submitted_at": submission_record["submitted_at"],
-            },
-        ),
         task_record=submission_record,
+        task_status="submission_failed",
+        stage_status="submission_failed",
+        metadata_updates={
+            "submission_status": "submission_failed",
+            "submitted_at": submission_record["submitted_at"],
+        },
     )
     return (
         {"stage_id": stage_id, "reason": "missing_reaction_dir"},
@@ -209,7 +193,7 @@ def submitted_stage_transition(
             "queue_id": queue_id,
             "returncode": returncode,
         },
-        mutation=submission_result_mutation(
+        mutation=SUBMISSION_RESULT.mutation(
             task_status="submitted",
             stage_status="queued",
             metadata_updates={
@@ -243,7 +227,7 @@ def deferred_submission_transition(
             "reason": reason,
             "returncode": returncode,
         },
-        mutation=submission_result_mutation(
+        mutation=SUBMISSION_RESULT.mutation(
             task_status="planned",
             stage_status="planned",
             metadata_updates={
@@ -278,7 +262,7 @@ def failed_submission_transition(
             "queue_id": stdout_payload.get("queue_id", ""),
             "returncode": returncode,
         },
-        mutation=submission_result_mutation(
+        mutation=SUBMISSION_RESULT.mutation(
             task_status="submission_failed",
             stage_status="submission_failed",
             metadata_updates={
@@ -347,7 +331,7 @@ def record_submission_outcome(
         returncode=returncode,
         normalize_text=normalize_text,
     )
-    apply_task_stage_mutation(
+    SUBMISSION_RESULT.apply(
         stage=stage,
         task=task,
         stage_metadata=stage_metadata,

@@ -6,13 +6,15 @@ from .internal_engine_queue_module import InternalEngineQueueModule
 from .internal_engine_runtime import InternalEngineQueueRuntime
 from .internal_engine_spec import InternalEngineSpec
 from .internal_engine_status import entry_status_is_running
-from .internal_engine_worker_facade import (
-    InternalEngineQueueWorkerCommandRunner,
+from .internal_engine_worker_deps import (
     InternalEngineQueueWorkerDeps,
     InternalEngineQueueWorkerDepsResolver,
+    internal_engine_queue_worker_deps_from_namespace,
+)
+from .internal_engine_worker_facade import (
+    InternalEngineQueueWorkerCommandRunner,
     InternalEngineQueueWorkerFacade,
     InternalEngineQueueWorkerLifecycleFacade,
-    internal_engine_queue_worker_deps_from_namespace,
 )
 
 __all__ = [

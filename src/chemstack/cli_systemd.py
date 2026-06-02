@@ -45,6 +45,7 @@ from chemstack.systemd_plan import (
     _print_warnings as _print_warnings,
     _read_unit_template as _read_unit_template,
     _render_unit_template as _render_unit_template,
+    _systemd_command_argv as _systemd_command_argv,
     _systemctl_enable_command as _systemctl_enable_command,
     _telegram_configured as _telegram_configured,
     _telegram_credentials_configured as _telegram_credentials_configured,

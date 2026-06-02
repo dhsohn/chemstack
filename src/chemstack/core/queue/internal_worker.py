@@ -56,6 +56,33 @@ def build_internal_worker_queue_dependencies(
     )
 
 
+def build_internal_worker_default_factories(
+    *,
+    timing_dependencies_type: Callable[..., Any],
+    queue_dependencies_type: Callable[..., Any],
+    runner_factory: Callable[[], Any],
+    now_utc_iso: Callable[[], str],
+    get_cancel_requested: Callable[[str, str], bool],
+    mark_completed: Callable[..., Any],
+    mark_cancelled: Callable[..., Any],
+    mark_failed: Callable[..., Any],
+) -> dict[str, Callable[[], Any]]:
+    return {
+        "timing": lambda: build_internal_worker_timing_dependencies(
+            timing_dependencies_type,
+            now_utc_iso=now_utc_iso,
+        ),
+        "queue": lambda: build_internal_worker_queue_dependencies(
+            queue_dependencies_type,
+            get_cancel_requested=get_cancel_requested,
+            mark_completed=mark_completed,
+            mark_cancelled=mark_cancelled,
+            mark_failed=mark_failed,
+        ),
+        "runner": runner_factory,
+    }
+
+
 def build_internal_worker_process_dependencies(
     dependencies_type: Callable[..., T],
     *,
@@ -410,6 +437,7 @@ __all__ = [
     "InternalWorkerQueueDependencies",
     "InternalWorkerTimingDependencies",
     "InternalWorkerOptions",
+    "build_internal_worker_default_factories",
     "build_internal_worker_process_dependencies",
     "build_internal_worker_queue_dependencies",
     "build_internal_worker_timing_dependencies",

@@ -461,6 +461,29 @@ def test_apply_systemd_install_plan_stops_when_sudo_write_command_fails(
     assert commands == [("sudo", "mkdir", "-p", str(tmp_path / "units"))]
 
 
+def test_run_command_uses_shared_systemd_argv_and_display(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    commands: list[tuple[str, ...]] = []
+
+    def fake_run(
+        argv: tuple[str, ...],
+        check: bool = False,
+    ) -> subprocess.CompletedProcess[tuple[str, ...]]:
+        del check
+        commands.append(argv)
+        return subprocess.CompletedProcess(argv, 0)
+
+    command = ("systemctl", "daemon-reload")
+
+    assert cli_systemd._run_command(command, use_sudo=True, run=fake_run) == 0
+
+    assert commands == [("sudo", "systemctl", "daemon-reload")]
+    assert capsys.readouterr().out == (
+        f"$ {cli_systemd._format_command(command, use_sudo=True)}\n"
+    )
+
+
 def test_cmd_service_status_returns_failure_when_any_unit_failed(capsys: Any) -> None:
     statuses = (
         cli_systemd.ServiceUnitStatus(

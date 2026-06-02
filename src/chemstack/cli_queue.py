@@ -18,6 +18,8 @@ from chemstack.activity_view import (
     activity_counter_config_path,
     activity_with_parent_hint,
     count_global_active_simulations,
+    filter_activity_items,
+    normalize_activity_filter_values,
 )
 from chemstack.cli_common import (
     _dependency,
@@ -45,46 +47,6 @@ class _QueueListRequest:
             and not self.status_values
             and not self.kind_values
         )
-
-
-def _normalize_filter_values(values: Sequence[str] | None) -> tuple[str, ...]:
-    if not values:
-        return ()
-    normalized: list[str] = []
-    seen: set[str] = set()
-    for value in values:
-        text = normalize_text(value).lower()
-        if not text or text in seen:
-            continue
-        seen.add(text)
-        normalized.append(text)
-    return tuple(normalized)
-
-
-def _filter_activity_items(
-    items: Sequence[dict[str, Any]],
-    *,
-    engines: Sequence[str] | None = None,
-    statuses: Sequence[str] | None = None,
-    kinds: Sequence[str] | None = None,
-) -> list[dict[str, Any]]:
-    engine_filter = set(_normalize_filter_values(engines))
-    status_filter = set(_normalize_filter_values(statuses))
-    kind_filter = set(_normalize_filter_values(kinds))
-
-    filtered: list[dict[str, Any]] = []
-    for item in items:
-        engine = normalize_text(item.get("engine")).lower()
-        status = normalize_text(item.get("status")).lower()
-        kind = normalize_text(item.get("kind")).lower()
-        if engine_filter and engine not in engine_filter:
-            continue
-        if status_filter and status not in status_filter:
-            continue
-        if kind_filter and kind not in kind_filter:
-            continue
-        filtered.append(dict(item))
-    return filtered
 
 
 def _activity_counter_config_path(
@@ -182,9 +144,9 @@ def _queue_list_request(args: Any, *, deps: Any | None = None) -> _QueueListRequ
     return _QueueListRequest(
         shared_config=effective_shared_config_text(args) or None,
         limit=int(getattr(args, "limit", 0) or 0),
-        engine_values=_normalize_filter_values(getattr(args, "engine", None)),
-        status_values=_normalize_filter_values(getattr(args, "status", None)),
-        kind_values=_normalize_filter_values(getattr(args, "kind", None)),
+        engine_values=normalize_activity_filter_values(getattr(args, "engine", None)),
+        status_values=normalize_activity_filter_values(getattr(args, "status", None)),
+        kind_values=normalize_activity_filter_values(getattr(args, "kind", None)),
         json_output=bool(getattr(args, "json", False)),
     )
 
@@ -247,7 +209,7 @@ def _filtered_queue_payload(
     *,
     deps: Any | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    activities = _filter_activity_items(
+    activities = filter_activity_items(
         payload.get("activities", []),
         engines=request.engine_values,
         statuses=request.status_values,

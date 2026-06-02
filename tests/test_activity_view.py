@@ -38,6 +38,31 @@ def test_default_visible_items_hide_internal_workflow_children() -> None:
     assert visible[1]["parent_workflow_id"] == "wf_1"
 
 
+def test_normalize_activity_filter_values_deduplicates_case_insensitively() -> None:
+    assert activity_view.normalize_activity_filter_values([" ORCA ", "", "orca", "XTB"]) == (
+        "orca",
+        "xtb",
+    )
+
+
+def test_filter_activity_items_applies_normalized_engine_status_and_kind_filters() -> None:
+    items: list[dict[str, Any]] = [
+        {"activity_id": "orca_1", "engine": "ORCA", "status": " Running ", "kind": "job"},
+        {"activity_id": "xtb_1", "engine": "xtb", "status": "running", "kind": "job"},
+        {"activity_id": "wf_1", "engine": "workflow", "status": "running", "kind": "workflow"},
+    ]
+
+    filtered = activity_view.filter_activity_items(
+        items,
+        engines=["orca"],
+        statuses=["running"],
+        kinds=["job"],
+    )
+
+    assert [item["activity_id"] for item in filtered] == ["orca_1"]
+    assert filtered[0] is not items[0]
+
+
 def test_queue_list_display_rows_groups_children_under_workflow_once() -> None:
     workflow: dict[str, Any] = {
         "activity_id": "wf_1",

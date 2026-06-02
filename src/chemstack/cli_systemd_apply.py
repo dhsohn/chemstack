@@ -12,9 +12,11 @@ from chemstack.cli_errors import emit_error
 from chemstack.systemd_plan import (
     DEFAULT_SYSTEMD_UNIT_DIR,
     SystemdInstallPlan,
+    _format_command,
     _is_root,
     _print_plan,
     _print_warnings,
+    _systemd_command_argv,
     build_systemd_install_plan,
 )
 
@@ -25,10 +27,8 @@ def _run_command(
     use_sudo: bool,
     run: Callable[..., subprocess.CompletedProcess[Any]] = subprocess.run,
 ) -> int:
-    argv = [*command]
-    if use_sudo:
-        argv.insert(0, "sudo")
-    print(f"$ {' '.join(argv)}")
+    argv = _systemd_command_argv(command, use_sudo=use_sudo)
+    print(f"$ {_format_command(command, use_sudo=use_sudo)}")
     completed = run(argv, check=False)
     return int(completed.returncode)
 

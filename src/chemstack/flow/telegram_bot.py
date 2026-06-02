@@ -19,6 +19,7 @@ from chemstack.core.activity_icons import activity_status_icon
 from chemstack.activity_view import (
     activity_counter_config_path,
     count_global_active_simulations,
+    filter_activity_items,
     queue_list_default_visible_items,
     queue_list_display_rows,
 )
@@ -208,11 +209,11 @@ def _handle_list(settings: TelegramBotSettings, args: str) -> str:
         child_job_engines=() if not filter_status else None,
     )
     all_rows = list(payload.get("activities", []))
-    rows = list(all_rows)
-    if filter_status:
-        rows = [
-            item for item in rows if str(item.get("status", "")).strip().lower() == filter_status
-        ]
+    rows = (
+        filter_activity_items(all_rows, statuses=(filter_status,))
+        if filter_status
+        else list(all_rows)
+    )
     presentation = queue_list_text_presentation(
         payload,
         request=QueueListPresentationRequest(

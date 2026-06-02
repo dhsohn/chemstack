@@ -33,7 +33,6 @@ from chemstack.orca.queue_worker import (
     _RunningJob,
     _get_run_id_from_state,
     _notify_terminal_job_from_state,
-    _start_job_process,
     _terminate_process,
     read_worker_pid,
 )
@@ -47,32 +46,6 @@ from tests.queue_worker_helpers import (
 
 def _command_arg(command: list[str], flag: str) -> str:
     return command[command.index(flag) + 1]
-
-
-class TestStartJobProcess(unittest.TestCase):
-    @patch("chemstack.orca.queue_worker.start_background_run_job")
-    def test_forwards_python_execution_arguments(self, mock_start: MagicMock) -> None:
-        mock_proc = MagicMock()
-        mock_start.return_value = mock_proc
-
-        proc = _start_job_process(
-            reaction_dir="/tmp/rxn",
-            config_path="/tmp/config.yaml",
-            force=True,
-            admission_token="slot_123",
-            admission_app_name="chemstack_orca",
-            admission_task_id="task_123",
-        )
-
-        self.assertIs(proc, mock_proc)
-        mock_start.assert_called_once_with(
-            config_path="/tmp/config.yaml",
-            reaction_dir="/tmp/rxn",
-            force=True,
-            admission_token="slot_123",
-            admission_app_name="chemstack_orca",
-            admission_task_id="task_123",
-        )
 
 
 class TestTerminateProcess(unittest.TestCase):
