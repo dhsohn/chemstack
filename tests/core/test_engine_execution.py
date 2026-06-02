@@ -559,6 +559,33 @@ def test_run_internal_worker_process_job_uses_process_dependency_group() -> None
     assert wait_kwargs[0]["check_cancel_before_poll"] is True
 
 
+def test_build_internal_worker_dependency_groups_preserve_extra_fields() -> None:
+    timing = engine_execution.build_internal_worker_timing_dependencies(
+        SimpleNamespace,
+        now_utc_iso=lambda: "now",
+    )
+    queue = engine_execution.build_internal_worker_queue_dependencies(
+        SimpleNamespace,
+        get_cancel_requested=lambda _root, _queue_id: True,
+        mark_completed=lambda *_args, **_kwargs: None,
+        mark_cancelled=lambda *_args, **_kwargs: None,
+        mark_failed=lambda *_args, **_kwargs: None,
+    )
+    process = engine_execution.build_internal_worker_process_dependencies(
+        SimpleNamespace,
+        terminate_process=lambda _proc: None,
+        wait_for_cancellable_process=lambda *_args, **_kwargs: "done",
+        sleep=lambda _seconds: None,
+        cancel_check_interval_seconds=0.5,
+        engine="xtb",
+    )
+
+    assert timing.now_utc_iso() == "now"
+    assert queue.get_cancel_requested("/tmp/queue", "queue-1") is True
+    assert process.cancel_check_interval_seconds == 0.5
+    assert process.engine == "xtb"
+
+
 def test_run_cancellable_process_execution_can_reraise_policy_exceptions() -> None:
     class ShutdownRequested(RuntimeError):
         pass

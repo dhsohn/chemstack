@@ -16,7 +16,6 @@ from chemstack.core.queue import (
     requeue_running_entry,
 )
 from chemstack.core.queue import child_entrypoint as _child_entrypoint
-from chemstack.core.queue import child_execution as _child_execution
 from chemstack.core.queue.dependencies import build_dependency_container
 from chemstack.core.queue import engine_execution as _engine_execution
 from chemstack.core.queue import execution as _queue_execution
@@ -177,11 +176,15 @@ def _default_admission_dependencies() -> WorkerAdmissionDependencies:
 
 
 def _default_timing_dependencies() -> WorkerTimingDependencies:
-    return WorkerTimingDependencies(now_utc_iso=now_utc_iso)
+    return _engine_execution.build_internal_worker_timing_dependencies(
+        WorkerTimingDependencies,
+        now_utc_iso=now_utc_iso,
+    )
 
 
 def _default_queue_dependencies() -> WorkerQueueDependencies:
-    return WorkerQueueDependencies(
+    return _engine_execution.build_internal_worker_queue_dependencies(
+        WorkerQueueDependencies,
         get_cancel_requested=get_cancel_requested,
         mark_completed=mark_completed,
         mark_cancelled=mark_cancelled,
@@ -218,14 +221,15 @@ def _default_tracking_dependencies() -> WorkerTrackingDependencies:
 
 
 def _default_runner_dependencies() -> WorkerRunnerDependencies:
-    return WorkerRunnerDependencies(
-        run_xtb_ranking_job=run_xtb_ranking_job,
-        start_xtb_job=start_xtb_job,
-        finalize_xtb_job=finalize_xtb_job,
+    return _engine_execution.build_internal_worker_process_dependencies(
+        WorkerRunnerDependencies,
         terminate_process=terminate_process_group,
         wait_for_cancellable_process=_queue_execution.wait_for_cancellable_process,
         sleep=time.sleep,
         cancel_check_interval_seconds=1,
+        run_xtb_ranking_job=run_xtb_ranking_job,
+        start_xtb_job=start_xtb_job,
+        finalize_xtb_job=finalize_xtb_job,
     )
 
 
@@ -641,7 +645,9 @@ def run_worker_job(
         find_queue_entry_fn=_queue_entry_by_id,
         admission_root_fn=resolve_admission_root,
         release_slot_fn=release_slot,
-        install_signal_handlers_fn=_install_shutdown_signal_handlers,
+        install_signal_handlers_fn=_worker_child.shutdown_signal_handler_installer(
+            install_shutdown_signal_handlers,
+        ),
         process_dequeued_entry_fn=process_dequeued_entry,
         dependencies_fn=default_worker_execution_dependencies,
         requeue_running_entry_fn=requeue_running_entry,
@@ -654,15 +660,6 @@ build_worker_child_command = _worker_child.build_worker_child_command
 
 def build_worker_job_parser() -> argparse.ArgumentParser:
     return _worker_child.build_parser()
-
-
-def _install_shutdown_signal_handlers(
-    controller: _child_execution.ChildWorkerShutdownController,
-) -> None:
-    _worker_child.install_shutdown_signal_handlers(
-        controller,
-        install_signal_handlers_fn=install_shutdown_signal_handlers,
-    )
 
 
 def main(argv: list[str] | None = None) -> int:

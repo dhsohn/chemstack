@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from chemstack.core.queue import engine_execution as _engine_execution
 from chemstack.core.queue import execution as _queue_execution
 
 from . import queue_artifacts as _queue_artifacts
@@ -69,14 +70,15 @@ def build_worker_execution_dependencies(
             upsert_job_record=fns.upsert_job_record,
             notify_job_started=fns.notify_job_started,
         ),
-        runner=_worker_execution.WorkerRunnerDependencies(
-            run_xtb_ranking_job=fns.run_xtb_ranking_job,
-            start_xtb_job=fns.start_xtb_job,
-            finalize_xtb_job=fns.finalize_xtb_job,
+        runner=_engine_execution.build_internal_worker_process_dependencies(
+            _worker_execution.WorkerRunnerDependencies,
             terminate_process=fns.terminate_process,
             wait_for_cancellable_process=_queue_execution.wait_for_cancellable_process,
             sleep=fns.sleep,
             cancel_check_interval_seconds=fns.cancel_check_interval_seconds,
+            run_xtb_ranking_job=fns.run_xtb_ranking_job,
+            start_xtb_job=fns.start_xtb_job,
+            finalize_xtb_job=fns.finalize_xtb_job,
         ),
         execute_queue_entry_fn=fns.execute_queue_entry,
     )

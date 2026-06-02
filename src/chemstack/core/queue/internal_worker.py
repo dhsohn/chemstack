@@ -3,10 +3,12 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeVar
 
 from .cancellable import run_cancellable_engine_process
 from .engine_lifecycle import EngineWorkerLifecycle, run_engine_worker_lifecycle
+
+T = TypeVar("T")
 
 
 @dataclass(frozen=True)
@@ -28,6 +30,48 @@ class InternalWorkerProcessDependencies:
     wait_for_cancellable_process: Callable[..., Any]
     sleep: Callable[[float], None]
     cancel_check_interval_seconds: float
+
+
+def build_internal_worker_timing_dependencies(
+    dependencies_type: Callable[..., T],
+    *,
+    now_utc_iso: Callable[[], str],
+) -> T:
+    return dependencies_type(now_utc_iso=now_utc_iso)
+
+
+def build_internal_worker_queue_dependencies(
+    dependencies_type: Callable[..., T],
+    *,
+    get_cancel_requested: Callable[[str, str], bool],
+    mark_completed: Callable[..., Any],
+    mark_cancelled: Callable[..., Any],
+    mark_failed: Callable[..., Any],
+) -> T:
+    return dependencies_type(
+        get_cancel_requested=get_cancel_requested,
+        mark_completed=mark_completed,
+        mark_cancelled=mark_cancelled,
+        mark_failed=mark_failed,
+    )
+
+
+def build_internal_worker_process_dependencies(
+    dependencies_type: Callable[..., T],
+    *,
+    terminate_process: Callable[[Any], Any],
+    wait_for_cancellable_process: Callable[..., Any],
+    sleep: Callable[[float], None],
+    cancel_check_interval_seconds: float,
+    **extra_fields: Any,
+) -> T:
+    return dependencies_type(
+        terminate_process=terminate_process,
+        wait_for_cancellable_process=wait_for_cancellable_process,
+        sleep=sleep,
+        cancel_check_interval_seconds=cancel_check_interval_seconds,
+        **extra_fields,
+    )
 
 
 @dataclass(frozen=True)
@@ -366,6 +410,9 @@ __all__ = [
     "InternalWorkerQueueDependencies",
     "InternalWorkerTimingDependencies",
     "InternalWorkerOptions",
+    "build_internal_worker_process_dependencies",
+    "build_internal_worker_queue_dependencies",
+    "build_internal_worker_timing_dependencies",
     "build_internal_engine_worker_execution_spec",
     "build_internal_engine_worker_adapter",
     "build_internal_engine_worker_adapter_from_spec",

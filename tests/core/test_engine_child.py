@@ -4,8 +4,10 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+from chemstack.core.queue import child_execution
 from chemstack.core.queue import engine_child
 from chemstack.core.queue.child_entrypoint import ChildWorkerEntrypointJob
+from chemstack.core.queue.internal_engine import InternalEngineSpec
 
 
 class _WorkerShutdownRequested(RuntimeError):
@@ -110,6 +112,25 @@ def test_run_engine_worker_child_job_processes_entry_with_extra_kwargs(
     assert processed[0]["kwargs"]["molecule_key_resolver"] is resolver
     assert processed[0]["kwargs"]["dependencies"] is dependencies
     assert processed[0]["kwargs"]["shutdown_requested"]() is False
+
+
+def test_internal_engine_worker_child_builds_shutdown_signal_installer() -> None:
+    child = InternalEngineSpec(
+        engine="demo",
+        worker_job_module="chemstack.demo.worker_execution",
+    ).worker_child(_WorkerShutdownRequested)
+    controller = child_execution.ChildWorkerShutdownController()
+    callbacks: list[Any] = []
+
+    install = child.shutdown_signal_handler_installer(
+        lambda callback: callbacks.append(callback)
+    )
+    install(controller)
+
+    assert controller.is_requested() is False
+    assert len(callbacks) == 1
+    callbacks[0]()
+    assert controller.is_requested() is True
 
 
 def test_run_engine_worker_child_job_requeues_and_marks_recovery_on_shutdown(

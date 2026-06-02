@@ -239,7 +239,7 @@ def test_run_worker_job_processes_loaded_entry_and_releases_slot(
     monkeypatch.setattr(
         worker_exec, "release_slot", lambda root, token: released.append((root, token))
     )
-    monkeypatch.setattr(worker_exec, "_install_shutdown_signal_handlers", lambda _controller: None)
+    monkeypatch.setattr(worker_exec, "install_shutdown_signal_handlers", lambda _callback: None)
 
     def fake_process_dequeued_entry(*args: object, **kwargs: object) -> WorkerExecutionOutcome:
         processed.append({"args": args, "kwargs": kwargs})

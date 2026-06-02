@@ -5,6 +5,7 @@ from typing import Any
 import pytest
 
 from chemstack.core.queue import child_execution
+from chemstack.xtb import worker_child
 from chemstack.xtb import worker_execution as worker_job
 
 
@@ -49,7 +50,10 @@ def test_worker_job_install_shutdown_handlers_wires_controller(
         lambda callback: installed.append(callback),
     )
 
-    worker_job._install_shutdown_signal_handlers(controller)
+    install = worker_child.shutdown_signal_handler_installer(
+        worker_job.install_shutdown_signal_handlers
+    )
+    install(controller)
 
     assert controller.is_requested() is False
     installed[0]()

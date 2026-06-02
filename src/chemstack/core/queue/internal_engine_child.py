@@ -62,6 +62,15 @@ class InternalEngineWorkerChild:
             install_signal_handlers_fn=install_signal_handlers_fn,
         )
 
+    def shutdown_signal_handler_installer(
+        self,
+        install_signal_handlers_fn: Callable[[Callable[[], None]], Any],
+    ) -> Callable[[_child_execution.ChildWorkerShutdownController], None]:
+        return lambda controller: self.install_shutdown_signal_handlers(
+            controller,
+            install_signal_handlers_fn=install_signal_handlers_fn,
+        )
+
     def run_worker_child_job(
         self,
         *,

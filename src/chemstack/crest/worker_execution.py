@@ -20,7 +20,6 @@ from chemstack.core.queue import (
     requeue_running_entry,
 )
 from chemstack.core.queue import child_entrypoint as _child_entrypoint
-from chemstack.core.queue import child_execution as _child_execution
 from chemstack.core.queue.dependencies import build_dependency_container
 from chemstack.core.queue import engine_execution as _engine_execution
 from chemstack.core.queue.worker import (
@@ -121,13 +120,15 @@ def build_worker_execution_dependencies_from_groups(
 
 
 def _default_timing_dependencies() -> WorkerTimingDependencies:
-    return WorkerTimingDependencies(
+    return _engine_execution.build_internal_worker_timing_dependencies(
+        WorkerTimingDependencies,
         now_utc_iso=now_utc_iso,
     )
 
 
 def _default_queue_dependencies() -> WorkerQueueDependencies:
-    return WorkerQueueDependencies(
+    return _engine_execution.build_internal_worker_queue_dependencies(
+        WorkerQueueDependencies,
         get_cancel_requested=get_cancel_requested,
         mark_completed=mark_completed,
         mark_cancelled=mark_cancelled,
@@ -136,13 +137,14 @@ def _default_queue_dependencies() -> WorkerQueueDependencies:
 
 
 def _default_runner_dependencies() -> WorkerRunnerDependencies:
-    return WorkerRunnerDependencies(
-        start_crest_job=start_crest_job,
-        finalize_crest_job=finalize_crest_job,
+    return _engine_execution.build_internal_worker_process_dependencies(
+        WorkerRunnerDependencies,
         terminate_process=_terminate_process,
         wait_for_cancellable_process=_queue_execution.wait_for_cancellable_process,
         sleep=time.sleep,
         cancel_check_interval_seconds=CANCEL_CHECK_INTERVAL_SECONDS,
+        start_crest_job=start_crest_job,
+        finalize_crest_job=finalize_crest_job,
     )
 
 
@@ -475,15 +477,6 @@ def _find_queue_entry(queue_root: Path, queue_id: str) -> Any | None:
     )
 
 
-def _install_shutdown_signal_handlers(
-    controller: _child_execution.ChildWorkerShutdownController,
-) -> None:
-    _worker_child.install_shutdown_signal_handlers(
-        controller,
-        install_signal_handlers_fn=install_shutdown_signal_handlers,
-    )
-
-
 def run_worker_child_job(
     *,
     config_path: str,
@@ -500,7 +493,9 @@ def run_worker_child_job(
         find_queue_entry_fn=_find_queue_entry,
         admission_root_fn=_admission_root_for_cfg,
         release_slot_fn=release_slot,
-        install_signal_handlers_fn=_install_shutdown_signal_handlers,
+        install_signal_handlers_fn=_worker_child.shutdown_signal_handler_installer(
+            install_shutdown_signal_handlers,
+        ),
         process_dequeued_entry_fn=process_dequeued_entry,
         dependencies_fn=default_worker_execution_dependencies,
         requeue_running_entry_fn=requeue_running_entry,
