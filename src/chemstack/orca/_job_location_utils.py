@@ -18,6 +18,8 @@ from chemstack.core.paths import (
 from chemstack.core.utils import normalize_bool, normalize_text, safe_int
 from chemstack.core.statuses import TERMINAL_STATUSES as TERMINAL_STATUSES
 
+from .input_artifacts import derive_selected_input_xyz as _derive_selected_input_xyz
+
 QUEUE_FILE_NAME = "queue.json"
 INDEX_DIR_NAME = "index"
 
@@ -105,23 +107,7 @@ def resolve_existing_job_dir(value: Any) -> Path | None:
 
 
 def derive_selected_input_xyz(selected_inp: str) -> str:
-    inp_path = resolve_existing_path(selected_inp)
-    if inp_path is None or inp_path.is_dir():
-        return ""
-    try:
-        text = inp_path.read_text(encoding="utf-8", errors="ignore")
-    except OSError:
-        return ""
-    for line in text.splitlines():
-        stripped = line.strip()
-        if not stripped or not stripped.startswith("*"):
-            continue
-        if "xyzfile" not in stripped.lower():
-            continue
-        parts = stripped.split()
-        if len(parts) >= 5:
-            return resolve_artifact_path(parts[-1], inp_path.parent)
-    return ""
+    return _derive_selected_input_xyz(selected_inp)
 
 
 def path_or_parent(value: Any) -> Path | None:

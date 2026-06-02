@@ -7,9 +7,13 @@ from typing import TYPE_CHECKING, Any
 
 from chemstack.core.queue.types import QueueEntry, QueueStatus
 
+from ..input_artifacts import selected_input_artifacts
+
 if TYPE_CHECKING:
     from ..types import QueueEnqueuedNotification
     from .run_inp_context import WorkerStatusInfo
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -31,7 +35,7 @@ class DirectQueueSubmission:
 
 
 def active_queue_entry(allowed_root: Path, reaction_dir: Path, *, deps: Any) -> QueueEntry | None:
-    queue_adapter = deps.submission._queue_adapter
+    queue_adapter = deps.submission.queue_adapter
     helper = getattr(queue_adapter, "get_active_entry_for_reaction_dir", None)
     if callable(helper):
         return helper(allowed_root, str(reaction_dir))
@@ -55,14 +59,14 @@ def find_submission_conflict(
     deps: Any,
 ) -> str | None:
     active_entry = active_queue_entry(allowed_root, reaction_dir, deps=deps)
-    queue_adapter = deps.submission._queue_adapter
+    queue_adapter = deps.submission.queue_adapter
     if active_entry is not None:
         return (
             "Job directory already queued: "
             f"{reaction_dir} (queue_id={queue_adapter.queue_entry_id(active_entry)}, "
             f"status={queue_adapter.queue_entry_status(active_entry)})"
         )
-    return deps.submission._active_direct_run_error(reaction_dir)
+    return deps.submission.active_direct_run_error(reaction_dir)
 
 
 def emit_queued_submission(
@@ -75,7 +79,7 @@ def emit_queued_submission(
     worker_detail: str | None = None,
     deps: Any,
 ) -> None:
-    queue_adapter = deps.submission._queue_adapter
+    queue_adapter = deps.submission.queue_adapter
     print("status: queued")
     print(f"job_dir: {reaction_dir}")
     print(f"queue_id: {queue_adapter.queue_entry_id(entry)}")
@@ -108,10 +112,10 @@ def worker_status_for_submission(allowed_root: Path) -> WorkerStatusInfo:
 def build_queue_enqueued_notification(entry: Any, *, deps: Any) -> QueueEnqueuedNotification:
     submission = deps.submission
     return {
-        "queue_id": submission._queue_adapter.queue_entry_id(entry),
-        "reaction_dir": submission._queue_adapter.queue_entry_reaction_dir(entry),
-        "priority": submission._queue_adapter.queue_entry_priority(entry),
-        "force": submission._queue_adapter.queue_entry_force(entry),
+        "queue_id": submission.queue_adapter.queue_entry_id(entry),
+        "reaction_dir": submission.queue_adapter.queue_entry_reaction_dir(entry),
+        "priority": submission.queue_adapter.queue_entry_priority(entry),
+        "force": submission.queue_adapter.queue_entry_force(entry),
         "enqueued_at": getattr(entry, "enqueued_at", ""),
     }
 
@@ -159,9 +163,9 @@ def build_queue_metadata(
     del args
     from ..job_locations import resolve_job_metadata
 
-    selected_input = str(selected_inp) if selected_inp is not None else ""
-    job_type, molecule_key = resolve_job_metadata(selected_input, reaction_dir)
-    requested = deps.submission._resource_request_from_selected_inp(cfg, selected_inp)
+    artifacts = selected_input_artifacts(selected_inp)
+    job_type, molecule_key = resolve_job_metadata(artifacts.selected_inp, reaction_dir)
+    requested = resource_request_from_selected_inp(cfg, selected_inp, deps=deps, logger=logger)
     metadata: dict[str, Any] = {
         "submitted_via": "run_inp",
         "max_retries": max(0, int(cfg.runtime.default_max_retries)),
@@ -170,9 +174,10 @@ def build_queue_metadata(
         "resource_request": requested,
         "resource_actual": dict(requested),
     }
-    if selected_inp is not None:
-        metadata["selected_inp"] = str(selected_inp)
-        metadata["selected_input_xyz"] = str(selected_inp)
+    if artifacts.selected_inp:
+        metadata["selected_inp"] = artifacts.selected_inp
+        metadata["selected_input_path"] = artifacts.selected_input_path
+    metadata["selected_input_xyz"] = artifacts.selected_input_xyz
     return metadata
 
 
@@ -187,12 +192,16 @@ def upsert_queued_job_record(
 ) -> None:
     from ..job_locations import resolve_job_metadata, upsert_job_record
 
-    selected_input = str(selected_inp) if selected_inp is not None else ""
+    artifacts = selected_input_artifacts(selected_inp)
+    selected_input = artifacts.selected_input_path
     metadata = dict(queue_metadata or {})
     job_type = str(metadata.get("job_type") or "").strip()
     molecule_key = str(metadata.get("molecule_key") or "").strip()
     if not job_type or not molecule_key:
-        derived_job_type, derived_molecule_key = resolve_job_metadata(selected_input, reaction_dir)
+        derived_job_type, derived_molecule_key = resolve_job_metadata(
+            artifacts.selected_inp or selected_input,
+            reaction_dir,
+        )
         job_type = job_type or derived_job_type
         molecule_key = molecule_key or derived_molecule_key
     requested = metadata.get("resource_request")
@@ -201,7 +210,7 @@ def upsert_queued_job_record(
     if not requested and selected_inp is not None and selected_inp.exists():
         requested = deps.submission.read_resource_request_from_input(selected_inp)
     if not requested and selected_inp is not None and selected_inp.exists():
-        requested = deps.submission._resource_request_from_selected_inp(cfg, selected_inp)
+        requested = resource_request_from_selected_inp(cfg, selected_inp, deps=deps, logger=logger)
     actual = metadata.get("resource_actual")
     if not isinstance(actual, dict):
         actual = dict(requested)
@@ -232,15 +241,16 @@ def create_queued_submission(
     allowed_root = Path(cfg.runtime.allowed_root).expanduser().resolve()
     if selected_inp is None:
         try:
-            selected_inp = submission._select_latest_inp(reaction_dir)
+            selected_inp = submission.select_latest_inp(reaction_dir)
         except ValueError:
             selected_inp = None
-    submission._warn_ignored_resource_override_flags(args)
-    queue_metadata = submission._build_queue_metadata(
+    warn_ignored_resource_override_flags(args, logger=logger)
+    queue_metadata = build_queue_metadata(
         cfg,
         reaction_dir=reaction_dir,
         selected_inp=selected_inp,
         args=args,
+        deps=deps,
     )
     entry = enqueue(
         allowed_root,
@@ -250,17 +260,18 @@ def create_queued_submission(
         metadata=queue_metadata,
     )
 
-    task_id = submission._queue_adapter.queue_entry_task_id(entry)
+    task_id = submission.queue_adapter.queue_entry_task_id(entry)
     if task_id:
-        submission._upsert_queued_job_record(
+        upsert_queued_job_record(
             cfg,
             reaction_dir=reaction_dir,
             selected_inp=selected_inp,
             job_id=task_id,
             queue_metadata=queue_metadata,
+            deps=deps,
         )
 
-    worker_info = submission._worker_status_for_submission(allowed_root)
+    worker_info = worker_status_for_submission(allowed_root)
     return QueuedSubmissionResult(
         entry=entry,
         reaction_dir=reaction_dir,
@@ -276,7 +287,7 @@ def notify_queued_submission(
     *,
     deps: Any,
 ) -> None:
-    notification = deps.submission._build_queue_enqueued_notification(result.entry)
+    notification = build_queue_enqueued_notification(result.entry, deps=deps)
     deps.notifications.notify_queue_enqueued_event(cfg.telegram, notification)
 
 
@@ -285,7 +296,7 @@ def submit_reaction_dir_to_queue(
     *,
     deps: Any,
 ) -> DirectQueueSubmission:
-    context = deps.submission._resolve_submission_context(args)
+    context = deps.submission.resolve_submission_context(args)
     if context is None:
         return DirectQueueSubmission(
             status="failed",
@@ -293,9 +304,10 @@ def submit_reaction_dir_to_queue(
             stderr="failed to resolve ORCA submission target",
         )
 
-    conflict_error = deps.submission._find_submission_conflict(
+    conflict_error = find_submission_conflict(
         context.allowed_root,
         context.reaction_dir,
+        deps=deps,
     )
     if conflict_error is not None:
         return DirectQueueSubmission(
@@ -334,7 +346,7 @@ def cmd_run_inp_submit(
     logger: logging.Logger,
 ) -> int:
     del runner_cls
-    submission = deps.submission._submit_reaction_dir_to_queue(args)
+    submission = deps.submission.submit_reaction_dir_to_queue(args)
     if submission.status != "submitted":
         if submission.stderr:
             logger.error("%s", submission.stderr.rstrip())
@@ -346,7 +358,7 @@ def cmd_run_inp_submit(
         logger.error("ORCA queue submission did not return a queued result.")
         return 1
     worker_info = result.worker_info
-    deps.submission._emit_queued_submission(
+    deps.submission.emit_queued_submission(
         context.reaction_dir,
         result.entry,
         worker_status=worker_info.status,

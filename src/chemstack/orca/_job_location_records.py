@@ -16,6 +16,7 @@ from chemstack.core.indexing import engines as _engine_locations
 
 from ._job_location_utils import (
     TERMINAL_STATUSES,
+    derive_selected_input_xyz,
     normalize_path_text,
     normalize_text,
     resource_dict_from_any,
@@ -183,17 +184,19 @@ def _artifact_record_identity(
         _engine_artifacts.first_artifact_text(sources, "status")
         or "unknown"
     )
+    selected_inp = normalize_path_text(
+        _engine_artifacts.first_artifact_value((report, state, organized_ref), "selected_inp")
+    )
     selected_input_xyz = normalize_path_text(
         _engine_artifacts.first_artifact_value(
-            (report, state),
-            "selected_inp",
-        )
-        or _engine_artifacts.first_artifact_value(
-            (organized_ref,),
+            (report, state, organized_ref),
             "selected_input_xyz",
-            "selected_inp",
         )
-        or (existing.selected_input_xyz if existing else "")
+    )
+    if not selected_input_xyz.lower().endswith(".xyz"):
+        selected_input_xyz = derive_selected_input_xyz(selected_inp)
+    selected_input_xyz = selected_input_xyz or selected_inp or (
+        existing.selected_input_xyz if existing else ""
     )
     return job_id, status, selected_input_xyz
 

@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Iterable, Literal, TypedDict, cast
 
 from .completion_rules import CompletionMode
+from .output_status import ERROR_TERMINATION_NEEDLES, NORMAL_TERMINATION_NEEDLES
 from .statuses import AnalyzerStatus
 
 logger = logging.getLogger(__name__)
@@ -53,14 +54,14 @@ class OutMarkers(TypedDict):
 
 
 _MARKER_RULES: tuple[tuple[BooleanMarkerName, tuple[str, ...]], ...] = (
-    ("terminated_normally", ("****ORCA TERMINATED NORMALLY****",)),
+    ("terminated_normally", NORMAL_TERMINATION_NEEDLES),
     ("total_run_time_seen", ("TOTAL RUN TIME",)),
     ("irc_marker_found", ("IRC PATH SUMMARY", "IRC-DRV")),
     ("opt_converged", ("THE OPTIMIZATION HAS CONVERGED", "OPTIMIZATION RUN DONE")),
     ("scf_error", ("SCF NOT CONVERGED", "SCF CONVERGENCE FAILED")),
     ("scfgrad_abort", ("ORCA FINISHED BY ERROR TERMINATION IN SCF GRADIENT",)),
     ("disk_io_error", ("COULD NOT WRITE TO DISK", "NO SPACE LEFT ON DEVICE")),
-    ("generic_error_termination", ("ORCA FINISHED BY ERROR TERMINATION",)),
+    ("generic_error_termination", ERROR_TERMINATION_NEEDLES),
     ("ts_failure_marker", ("NO ACCEPTABLE TS", "FAILED TO FIND TS")),
     ("memory_error", ("OUT OF MEMORY", "INSUFFICIENT MEMORY", "CANNOT ALLOCATE MEMORY")),
     (

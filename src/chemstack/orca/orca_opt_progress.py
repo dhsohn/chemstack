@@ -10,11 +10,10 @@ from .orca_parser_io import read_orca_text
 from .orca_parser_patterns import (
     _CONVERGENCE_ITEM_RE,
     _ENERGY_RE,
-    _ERROR_TERMINATION_RE,
-    _NORMAL_TERMINATION_RE,
     _OPT_CONVERGED_RE,
     _OPT_CYCLE_RE,
 )
+from .output_status import has_error_termination, has_normal_termination
 
 
 @dataclass
@@ -93,8 +92,8 @@ def parse_opt_progress(file_path: str) -> OptProgress:
 
     progress.is_converged = bool(_OPT_CONVERGED_RE.search(text))
     progress.is_running = (
-        not _NORMAL_TERMINATION_RE.search(text)
-        and not _ERROR_TERMINATION_RE.search(text)
+        not has_normal_termination(text)
+        and not has_error_termination(text)
         and parse_wall_time(text) is None
     )
 

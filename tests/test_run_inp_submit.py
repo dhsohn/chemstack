@@ -189,7 +189,8 @@ class TestRunInpSubmit(unittest.TestCase):
             self.assertEqual(entry.app_name, "chemstack_orca")
             self.assertTrue(entry.task_id.startswith("orca_"))
             self.assertEqual(metadata["selected_inp"], str(reaction_dir / "rxn.inp"))
-            self.assertEqual(metadata["selected_input_xyz"], str(reaction_dir / "rxn.inp"))
+            self.assertEqual(metadata["selected_input_path"], str(reaction_dir / "rxn.inp"))
+            self.assertEqual(metadata["selected_input_xyz"], "")
             self.assertEqual(metadata["max_retries"], 2)
             self.assertEqual(metadata["submitted_via"], "run_inp")
             self.assertEqual(metadata["job_type"], "opt")
@@ -240,6 +241,43 @@ class TestRunInpSubmit(unittest.TestCase):
             self.assertEqual(result.worker_info.pid, 4321)
             mock_read_worker_pid.assert_called_once()
             mock_notify_queue.assert_called_once()
+
+    @patch("chemstack.orca.commands.run_inp.load_config")
+    @patch("chemstack.orca.commands.run_inp.notify_queue_enqueued_event", return_value=True)
+    @patch("chemstack.orca.queue_worker.read_worker_pid", return_value=None)
+    def test_submit_reaction_dir_to_queue_separates_inp_and_xyzfile_artifacts(
+        self,
+        _mock_read_worker_pid: MagicMock,
+        _mock_notify_queue: MagicMock,
+        mock_load_config: MagicMock,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            cfg = _make_cfg(tmp)
+            mock_load_config.return_value = cfg
+            reaction_dir = root / "rxn"
+            _write_inp(
+                reaction_dir,
+                content="! Opt\n* xyzfile 0 1 geom.xyz\n",
+            )
+            (reaction_dir / "geom.xyz").write_text(
+                "2\ncomment\nH 0 0 0\nH 0 0 0.74\n",
+                encoding="utf-8",
+            )
+
+            submission = submit_reaction_dir_to_queue(_make_args(root, reaction_dir))
+
+            self.assertEqual(submission.status, "submitted")
+            entry = list_queue(root)[0]
+            metadata = queue_entry_metadata(entry)
+            xyz_path = str((reaction_dir / "geom.xyz").resolve())
+            self.assertEqual(metadata["selected_inp"], str(reaction_dir / "rxn.inp"))
+            self.assertEqual(metadata["selected_input_xyz"], xyz_path)
+            self.assertEqual(metadata["selected_input_path"], xyz_path)
+            self.assertEqual(metadata["job_type"], "opt")
+
+            tracking_records = json.loads((root / "job_locations.json").read_text(encoding="utf-8"))
+            self.assertEqual(tracking_records[0]["selected_input_xyz"], xyz_path)
 
     @patch("chemstack.orca.commands.run_inp.load_config")
     @patch("chemstack.orca.commands.run_inp.notify_queue_enqueued_event", return_value=True)

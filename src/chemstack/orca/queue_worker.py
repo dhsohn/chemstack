@@ -37,6 +37,7 @@ from .attempt_reporting import (
     mark_finished_notification_sent,
 )
 from .config import AppConfig, load_config
+from .input_artifacts import selected_input_artifacts
 from .inp_rewriter import read_resource_request_from_input
 from .queue_adapter import (
     dequeue_next,
@@ -227,19 +228,27 @@ def _tracking_metadata_from_queue_entry(
     reaction_dir: Path,
 ) -> tuple[str, str, str, dict[str, int], dict[str, int]]:
     metadata = queue_entry_metadata(entry)
+    selected_inp = str(metadata.get("selected_inp") or "").strip()
+    selected_xyz = str(metadata.get("selected_input_xyz") or "").strip()
     selected_input = str(
-        metadata.get("selected_input_xyz") or metadata.get("selected_inp") or ""
+        selected_xyz
+        or metadata.get("selected_input_path")
+        or selected_input_artifacts(selected_inp).selected_input_path
     ).strip()
     job_type = str(metadata.get("job_type") or "").strip()
     molecule_key = str(metadata.get("molecule_key") or "").strip()
     if not job_type or not molecule_key:
-        derived_job_type, derived_molecule_key = resolve_job_metadata(selected_input, reaction_dir)
+        derived_job_type, derived_molecule_key = resolve_job_metadata(
+            selected_inp or selected_input,
+            reaction_dir,
+        )
         job_type = job_type or derived_job_type
         molecule_key = molecule_key or derived_molecule_key
 
     requested = coerce_resource_request(metadata.get("resource_request"))
-    if not requested and selected_input.lower().endswith(".inp"):
-        selected_inp_path = Path(selected_input).expanduser().resolve()
+    resource_inp = selected_inp or selected_input
+    if not requested and resource_inp.lower().endswith(".inp"):
+        selected_inp_path = Path(resource_inp).expanduser().resolve()
         if selected_inp_path.exists():
             requested = read_resource_request_from_input(selected_inp_path)
     if not requested:

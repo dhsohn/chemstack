@@ -27,12 +27,11 @@ from .orca_parser_patterns import (
     _CHARGE_MULT_RE,
     _ENERGY_RE,
     _ENTHALPY_RE,
-    _ERROR_TERMINATION_RE,
     _GIBBS_RE,
-    _NORMAL_TERMINATION_RE,
     _OPT_CONVERGED_RE,
     _OPT_NOT_CONVERGED_RE,
 )
+from .output_status import coarse_orca_status
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -182,10 +181,8 @@ def _populate_thermodynamics(result: OrcaResult, text: str) -> None:
 
 
 def _parse_status(text: str, result: OrcaResult) -> str:
-    if _NORMAL_TERMINATION_RE.search(text):
-        return "failed" if result.opt_converged is False else "completed"
-    if _ERROR_TERMINATION_RE.search(text):
-        return "failed"
-    if result.wall_time_seconds is not None:
-        return "failed"
-    return "running"
+    return coarse_orca_status(
+        text,
+        opt_converged=result.opt_converged,
+        wall_time_seconds=result.wall_time_seconds,
+    )

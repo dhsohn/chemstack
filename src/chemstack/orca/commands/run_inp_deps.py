@@ -45,20 +45,12 @@ class RunInpNotificationDeps:
 class RunInpSubmissionDeps:
     ensure_submission_resource_request: Any
     read_resource_request_from_input: Any
-    _active_direct_run_error: Any
-    _active_queue_entry: Any
-    _build_queue_enqueued_notification: Any
-    _build_queue_metadata: Any
-    _emit_queued_submission: Any
-    _find_submission_conflict: Any
-    _queue_adapter: Any
-    _resource_request_from_selected_inp: Any
-    _resolve_submission_context: Any
-    _select_latest_inp: Any
-    _submit_reaction_dir_to_queue: Any
-    _upsert_queued_job_record: Any
-    _warn_ignored_resource_override_flags: Any
-    _worker_status_for_submission: Any
+    active_direct_run_error: Any
+    emit_queued_submission: Any
+    queue_adapter: Any
+    resolve_submission_context: Any
+    select_latest_inp: Any
+    submit_reaction_dir_to_queue: Any
 
 
 @dataclass(frozen=True)
