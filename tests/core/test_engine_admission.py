@@ -115,6 +115,10 @@ def test_attach_started_process_accepts_reaction_dir_work_dir(tmp_path: Path) ->
     process = SimpleNamespace(pid=654)
     activated: list[dict[str, Any]] = []
 
+    def activate_reserved_slot(root: str, token: str, **kwargs: Any) -> object:
+        activated.append({"root": root, "token": token, **kwargs})
+        return object()
+
     assert engine_admission.queue_entry_work_dir(entry) == str(reaction_dir)
     assert engine_admission.attach_started_process(
         admission_root="/tmp/admission",
@@ -122,10 +126,7 @@ def test_attach_started_process_accepts_reaction_dir_work_dir(tmp_path: Path) ->
         entry=entry,
         process=process,
         admission_token="slot-1",
-        activate_reserved_slot_fn=lambda root, token, **kwargs: activated.append(
-            {"root": root, "token": token, **kwargs}
-        )
-        or object(),
+        activate_reserved_slot_fn=activate_reserved_slot,
         terminate_process_fn=lambda _process: None,
         mark_entry_failed_and_release_fn=lambda *args, **kwargs: None,
         mark_failed_fn=lambda *args, **kwargs: None,
@@ -148,6 +149,10 @@ def test_attach_started_process_metadata_updates_identity_and_running_record(
     updated: list[dict[str, Any]] = []
     running: list[tuple[object, object]] = []
 
+    def update_slot_metadata(root: str, token: str, **kwargs: Any) -> bool:
+        updated.append({"root": root, "token": token, **kwargs})
+        return True
+
     assert engine_admission.attach_started_process_metadata(
         admission_root="/tmp/admission",
         queue_root=tmp_path / "queue",
@@ -157,10 +162,7 @@ def test_attach_started_process_metadata_updates_identity_and_running_record(
         queue_entry_id_fn=lambda current: current.queue_id,
         queue_entry_app_name_fn=lambda current: current.app_name,
         queue_entry_task_id_fn=lambda current: current.task_id,
-        update_slot_metadata_fn=lambda root, token, **kwargs: updated.append(
-            {"root": root, "token": token, **kwargs}
-        )
-        or True,
+        update_slot_metadata_fn=update_slot_metadata,
         terminate_process_fn=lambda _process: None,
         mark_entry_failed_and_release_fn=lambda *args, **kwargs: None,
         mark_failed_fn=lambda *args, **kwargs: None,

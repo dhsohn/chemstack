@@ -715,6 +715,10 @@ def test_run_terminal_process_side_effects_uses_standard_hooks() -> None:
     worker = SimpleNamespace(cfg=cfg)
     calls: list[tuple[str, object, object]] = []
 
+    def notify_terminal_job_from_state(cfg_obj: object, reaction_dir: str) -> bool:
+        calls.append(("notify", cfg_obj, reaction_dir))
+        return True
+
     lifecycle_helpers.run_terminal_process_side_effects(
         worker,
         "queue-1",
@@ -723,10 +727,7 @@ def test_run_terminal_process_side_effects_uses_standard_hooks() -> None:
             upsert_terminal_job_record_fn=lambda cfg_obj, reaction_dir, **kwargs: calls.append(
                 ("upsert", cfg_obj, (reaction_dir, kwargs))
             ),
-            notify_terminal_job_from_state_fn=lambda cfg_obj, reaction_dir: calls.append(
-                ("notify", cfg_obj, reaction_dir)
-            )
-            or True,
+            notify_terminal_job_from_state_fn=notify_terminal_job_from_state,
         ),
     )
 
