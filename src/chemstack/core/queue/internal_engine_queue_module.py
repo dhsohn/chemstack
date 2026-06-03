@@ -72,5 +72,58 @@ class InternalEngineQueueModule:
     def admission_root(self) -> Callable[[Any], str]:
         return self.runtime.admission_root
 
+    def queue_worker_deps(self) -> Any:
+        return self.facade.queue_worker_deps()
+
+    def queue_worker_hooks(self) -> Any:
+        return self.facade.queue_worker_hooks()
+
+    def try_reserve_admission_slot(self, cfg: Any) -> str | None:
+        return self.facade.try_reserve_admission_slot(cfg)
+
+    def start_background_job_process(
+        self,
+        *,
+        config_path: str,
+        queue_root: Path,
+        entry: Any,
+        admission_root: str | Path,
+        admission_token: str,
+    ) -> Any:
+        return self.facade.start_background_job_process(
+            config_path=config_path,
+            queue_root=queue_root,
+            entry=entry,
+            admission_root=admission_root,
+            admission_token=admission_token,
+        )
+
+    def config_path_for_worker(self, args: Any) -> str:
+        return self.facade.config_path_for_worker(args)
+
+    def finalize_child_exit(self, worker: Any, job: Any, *, rc: int) -> None:
+        self.facade.finalize_child_exit(worker, job, rc=rc)
+
+    def reconcile_orphaned_running(
+        self,
+        worker: Any,
+        *,
+        list_slots_fn: Callable[[Any], list[Any]] | None = None,
+    ) -> None:
+        self.facade.reconcile_orphaned_running(worker, list_slots_fn=list_slots_fn)
+
+    def run_pidfile_worker_command(
+        self,
+        args: Any,
+        *,
+        config_path_fn: Callable[[Any], str],
+        config_path_keyword: bool = True,
+    ) -> int:
+        return self.facade.run_pidfile_worker_command(
+            args,
+            config_path_fn=config_path_fn,
+            config_path_keyword=config_path_keyword,
+        )
+
 
 __all__ = ["InternalEngineQueueModule"]

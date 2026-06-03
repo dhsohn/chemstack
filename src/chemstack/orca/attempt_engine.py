@@ -95,6 +95,19 @@ class ResolvedAttemptInput:
     patch_actions: list[str]
 
 
+@dataclass(frozen=True)
+class AttemptStep:
+    current_inp: Path
+    patch_actions: list[str]
+
+
+@dataclass(frozen=True)
+class RecordedAttemptResult:
+    current_inp: Path
+    out_path: Path
+    analysis: OutAnalysis
+
+
 def _retry_recipe_step(retry_number: int) -> int:
     """Map retry number to available recipe steps.
 
@@ -348,7 +361,7 @@ def _mark_and_notify_attempt_started(
     return started_at
 
 
-def _run_attempt_cycle(ctx: AttemptRunContext, loop: AttemptLoopState) -> int | None:
+def _finish_retry_limit_if_needed(ctx: AttemptRunContext, loop: AttemptLoopState) -> int | None:
     if loop.retries_used > ctx.max_retries:
         return _finish_attempt(
             ctx,
@@ -358,30 +371,58 @@ def _run_attempt_cycle(ctx: AttemptRunContext, loop: AttemptLoopState) -> int | 
             last_out_path=_last_out_path_from_state(ctx.state),
             exit_code=1,
         )
+    return None
 
+
+def _resolve_attempt_step(
+    ctx: AttemptRunContext,
+    loop: AttemptLoopState,
+) -> tuple[AttemptStep | None, int | None]:
     resolved_input = _resolve_current_attempt_input(ctx, loop)
     current_inp = resolved_input.inp_path
     if current_inp is None:
-        return _finish_missing_attempt_input(
+        return None, _finish_missing_attempt_input(
             ctx,
             loop,
             missing_reason=resolved_input.missing_reason,
         )
+    return AttemptStep(current_inp=current_inp, patch_actions=resolved_input.patch_actions), None
 
-    started_at = _mark_and_notify_attempt_started(ctx, loop, current_inp)
+
+def _run_attempt_step(
+    ctx: AttemptRunContext,
+    loop: AttemptLoopState,
+    step: AttemptStep,
+) -> tuple[RecordedAttemptResult | None, int | None]:
+    started_at = _mark_and_notify_attempt_started(ctx, loop, step.current_inp)
     try:
         out_path, analysis = _run_and_record_attempt(
             ctx.reaction_dir,
             ctx.state,
-            current_inp=current_inp,
+            current_inp=step.current_inp,
             execution_index=loop.execution_index,
             started_at=started_at,
             runner=ctx.runner,
-            patch_actions=resolved_input.patch_actions,
+            patch_actions=step.patch_actions,
         )
     except (WorkerShutdownInterrupt, KeyboardInterrupt, Exception) as exc:  # noqa: BLE001
-        return _finish_attempt_exception(ctx, loop, current_inp, exc)
+        return None, _finish_attempt_exception(ctx, loop, step.current_inp, exc)
+    return (
+        RecordedAttemptResult(
+            current_inp=step.current_inp,
+            out_path=out_path,
+            analysis=analysis,
+        ),
+        None,
+    )
 
+
+def _finish_decision_or_prepare_retry(
+    ctx: AttemptRunContext,
+    loop: AttemptLoopState,
+    result: RecordedAttemptResult,
+) -> int | None:
+    analysis = result.analysis
     decision = decide_attempt_outcome(
         analyzer_status=analysis.status,
         analyzer_reason=analysis.reason,
@@ -394,15 +435,15 @@ def _run_attempt_cycle(ctx: AttemptRunContext, loop: AttemptLoopState) -> int | 
             status=decision.run_status,
             analyzer_status=analysis.status,
             reason=decision.reason,
-            last_out_path=str(out_path),
+            last_out_path=str(result.out_path),
             exit_code=decision.exit_code,
         )
 
     retry_exit = _prepare_retry_attempt_from_context(
         RetryPreparationContext(
             run=ctx,
-            current_inp=current_inp,
-            out_path=out_path,
+            current_inp=result.current_inp,
+            out_path=result.out_path,
             execution_index=loop.execution_index,
             retries_used=loop.retries_used,
             analysis=analysis,
@@ -412,6 +453,24 @@ def _run_attempt_cycle(ctx: AttemptRunContext, loop: AttemptLoopState) -> int | 
         return retry_exit
     loop.advance()
     return None
+
+
+def _run_attempt_cycle(ctx: AttemptRunContext, loop: AttemptLoopState) -> int | None:
+    retry_limit_exit = _finish_retry_limit_if_needed(ctx, loop)
+    if retry_limit_exit is not None:
+        return retry_limit_exit
+
+    step, step_exit = _resolve_attempt_step(ctx, loop)
+    if step_exit is not None:
+        return step_exit
+    assert step is not None
+
+    result, run_exit = _run_attempt_step(ctx, loop, step)
+    if run_exit is not None:
+        return run_exit
+    assert result is not None
+
+    return _finish_decision_or_prepare_retry(ctx, loop, result)
 
 
 def _prepare_retry_attempt_from_context(ctx: RetryPreparationContext) -> int | None:

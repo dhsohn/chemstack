@@ -320,14 +320,11 @@ def clear_terminal(
     resolved_root = resolve_root_path(root)
     if not _queue_path(resolved_root).exists():
         return 0
-    loader = load_entries_fn or load_entries
-    saver = save_entries_fn or save_entries
 
-    with queue_lock(resolved_root):
-        entries = loader(resolved_root)
+    def clear(entries: list[QueueEntry]) -> tuple[int, bool]:
         terminal_entries = [entry for entry in entries if entry.status in _TERMINAL_STATUSES]
         if not terminal_entries:
-            return 0
+            return 0, False
 
         kept_terminal_ids: set[str] = set()
         if keep_last > 0:
@@ -344,9 +341,16 @@ def clear_terminal(
             if entry.status not in _TERMINAL_STATUSES or entry.queue_id in kept_terminal_ids
         ]
         removed_count = len(entries) - len(kept_entries)
-        if removed_count > 0:
-            saver(resolved_root, kept_entries)
-        return removed_count
+        if removed_count <= 0:
+            return 0, False
+        entries[:] = kept_entries
+        return removed_count, True
+
+    return QueueStore.for_root(
+        resolved_root,
+        load_entries_fn=load_entries_fn,
+        save_entries_fn=save_entries_fn,
+    ).mutate_entries(clear)
 
 
 def enqueue_entry(
@@ -357,17 +361,18 @@ def enqueue_entry(
     load_entries_fn: Callable[[Path], list[QueueEntry]] | None = None,
     save_entries_fn: Callable[[Path, Sequence[QueueEntry]], Any] | None = None,
 ) -> QueueEntry:
-    resolved_root = resolve_root_path(root)
-    loader = load_entries_fn or load_entries
-    saver = save_entries_fn or save_entries
     reject_duplicate = duplicate_policy or reject_active_task_duplicate
 
-    with queue_lock(resolved_root):
-        entries = loader(resolved_root)
+    def append(entries: list[QueueEntry]) -> tuple[QueueEntry, bool]:
         reject_duplicate(entries, entry)
         entries.append(entry)
-        saver(resolved_root, entries)
-    return entry
+        return entry, True
+
+    return QueueStore.for_root(
+        root,
+        load_entries_fn=load_entries_fn,
+        save_entries_fn=save_entries_fn,
+    ).mutate_entries(append)
 
 
 def enqueue(
@@ -400,23 +405,24 @@ def dequeue_next(
     load_entries_fn: Callable[[Path], list[QueueEntry]] | None = None,
     save_entries_fn: Callable[[Path, Sequence[QueueEntry]], Any] | None = None,
 ) -> QueueEntry | None:
-    resolved_root = resolve_root_path(root)
-    loader = load_entries_fn or load_entries
-    saver = save_entries_fn or save_entries
-    with queue_lock(resolved_root):
-        entries = loader(resolved_root)
+    def dequeue(entries: list[QueueEntry]) -> tuple[QueueEntry | None, bool]:
         pending = [
             (entry.priority, entry.enqueued_at, index, entry)
             for index, entry in enumerate(entries)
             if entry.status == QueueStatus.PENDING and not entry.cancel_requested
         ]
         if not pending:
-            return None
+            return None, False
         _, _, index, current = min(pending, key=lambda item: (item[0], item[1], item[2]))
         updated = replace(current, status=QueueStatus.RUNNING, started_at=now_utc_iso())
         entries[index] = updated
-        saver(resolved_root, entries)
-        return updated
+        return updated, True
+
+    return QueueStore.for_root(
+        root,
+        load_entries_fn=load_entries_fn,
+        save_entries_fn=save_entries_fn,
+    ).mutate_entries(dequeue)
 
 
 def request_cancel(
@@ -426,29 +432,25 @@ def request_cancel(
     load_entries_fn: Callable[[Path], list[QueueEntry]] | None = None,
     save_entries_fn: Callable[[Path, Sequence[QueueEntry]], Any] | None = None,
 ) -> QueueEntry | None:
-    resolved_root = resolve_root_path(root)
-    loader = load_entries_fn or load_entries
-    saver = save_entries_fn or save_entries
-    with queue_lock(resolved_root):
-        entries = loader(resolved_root)
-        for index, entry in enumerate(entries):
-            if entry.queue_id != queue_id:
-                continue
-            if entry.status == QueueStatus.PENDING:
-                updated = replace(
-                    entry,
-                    status=QueueStatus.CANCELLED,
-                    cancel_requested=True,
-                    finished_at=now_utc_iso(),
-                )
-            elif entry.status == QueueStatus.RUNNING:
-                updated = replace(entry, cancel_requested=True)
-            else:
-                return None
-            entries[index] = updated
-            saver(resolved_root, entries)
-            return updated
-    return None
+    def update(entry: QueueEntry) -> tuple[QueueEntry | None, QueueEntry | None]:
+        if entry.status == QueueStatus.PENDING:
+            updated = replace(
+                entry,
+                status=QueueStatus.CANCELLED,
+                cancel_requested=True,
+                finished_at=now_utc_iso(),
+            )
+        elif entry.status == QueueStatus.RUNNING:
+            updated = replace(entry, cancel_requested=True)
+        else:
+            return None, None
+        return updated, updated
+
+    return QueueStore.for_root(
+        root,
+        load_entries_fn=load_entries_fn,
+        save_entries_fn=save_entries_fn,
+    ).mutate_entry_by_id(queue_id, update, missing_result=None)
 
 
 def get_cancel_requested(
@@ -457,13 +459,10 @@ def get_cancel_requested(
     *,
     load_entries_fn: Callable[[Path], list[QueueEntry]] | None = None,
 ) -> bool:
-    resolved_root = resolve_root_path(root)
-    loader = load_entries_fn or load_entries
-    with queue_lock(resolved_root):
-        entries = loader(resolved_root)
-        for entry in entries:
-            if entry.queue_id == queue_id:
-                return bool(entry.cancel_requested)
+    entries = QueueStore.for_root(root, load_entries_fn=load_entries_fn).list_entries()
+    for entry in entries:
+        if entry.queue_id == queue_id:
+            return bool(entry.cancel_requested)
     return False
 
 
@@ -474,11 +473,7 @@ def requeue_running_entry(
     load_entries_fn: Callable[[Path], list[QueueEntry]] | None = None,
     save_entries_fn: Callable[[Path, Sequence[QueueEntry]], Any] | None = None,
 ) -> QueueEntry | None:
-    resolved_root = resolve_root_path(root)
-    loader = load_entries_fn or load_entries
-    saver = save_entries_fn or save_entries
-    with queue_lock(resolved_root):
-        entries = loader(resolved_root)
+    def requeue(entries: list[QueueEntry]) -> tuple[QueueEntry | None, bool]:
         for index, entry in enumerate(entries):
             if entry.queue_id != queue_id or entry.status != QueueStatus.RUNNING:
                 continue
@@ -490,9 +485,14 @@ def requeue_running_entry(
                 error="",
             )
             entries[index] = updated
-            saver(resolved_root, entries)
-            return updated
-    return None
+            return updated, True
+        return None, False
+
+    return QueueStore.for_root(
+        root,
+        load_entries_fn=load_entries_fn,
+        save_entries_fn=save_entries_fn,
+    ).mutate_entries(requeue)
 
 
 def _mark_status(
@@ -505,28 +505,24 @@ def _mark_status(
     load_entries_fn: Callable[[Path], list[QueueEntry]] | None = None,
     save_entries_fn: Callable[[Path, Sequence[QueueEntry]], Any] | None = None,
 ) -> QueueEntry | None:
-    resolved_root = resolve_root_path(root)
-    loader = load_entries_fn or load_entries
-    saver = save_entries_fn or save_entries
-    with queue_lock(resolved_root):
-        entries = loader(resolved_root)
-        for index, entry in enumerate(entries):
-            if entry.queue_id != queue_id:
-                continue
-            merged = dict(entry.metadata)
-            if metadata_update:
-                merged.update(metadata_update)
-            updated = replace(
-                entry,
-                status=status,
-                finished_at=now_utc_iso(),
-                error=error.strip(),
-                metadata=merged,
-            )
-            entries[index] = updated
-            saver(resolved_root, entries)
-            return updated
-    return None
+    def update(entry: QueueEntry) -> tuple[QueueEntry | None, QueueEntry | None]:
+        merged = dict(entry.metadata)
+        if metadata_update:
+            merged.update(metadata_update)
+        updated = replace(
+            entry,
+            status=status,
+            finished_at=now_utc_iso(),
+            error=error.strip(),
+            metadata=merged,
+        )
+        return updated, updated
+
+    return QueueStore.for_root(
+        root,
+        load_entries_fn=load_entries_fn,
+        save_entries_fn=save_entries_fn,
+    ).mutate_entry_by_id(queue_id, update, missing_result=None)
 
 
 def mark_completed(

@@ -92,7 +92,7 @@ _ENGINE_SPEC = InternalEngineSpec(
 
 
 def _queue_worker_deps() -> Any:
-    return _runtime_facade.queue_worker_deps()
+    return _queue_module.queue_worker_deps()
 
 
 def _worker_execution_dependencies() -> _worker_execution.WorkerExecutionDependencies:
@@ -172,7 +172,6 @@ _queue_module = InternalEngineQueueModule.create(
     deps=_runtime_facade_deps(),
 )
 _engine_runtime = _queue_module.runtime
-_runtime_facade = _queue_module.facade
 
 queue_roots = _queue_module.queue_roots
 queue_entries_with_roots = _queue_module.queue_entries_with_roots
@@ -207,7 +206,7 @@ def _terminate_process(proc: _ManagedProcess) -> None:
 
 
 def _try_reserve_admission_slot(cfg: Any) -> str | None:
-    return _runtime_facade.try_reserve_admission_slot(cfg)
+    return _queue_module.try_reserve_admission_slot(cfg)
 
 
 def _print_terminal_summary(summary: _TerminalSummary) -> None:
@@ -301,7 +300,7 @@ def _start_background_job_process(
     admission_root: str | Path,
     admission_token: str,
 ) -> Any:
-    return _runtime_facade.start_background_job_process(
+    return _queue_module.start_background_job_process(
         config_path=config_path,
         queue_root=queue_root,
         entry=entry,
@@ -311,7 +310,7 @@ def _start_background_job_process(
 
 
 def _config_path_for_worker(args: Any) -> str:
-    return _runtime_facade.config_path_for_worker(args)
+    return _queue_module.config_path_for_worker(args)
 
 
 read_worker_pid = _queue_module.read_worker_pid
@@ -342,7 +341,7 @@ def _finalize_completed_job(worker: Any, _queue_id: str, job: Any, rc: int) -> N
 
 
 def _finalize_child_exit(worker: Any, job: _RunningJob, *, rc: int) -> None:
-    _runtime_facade.finalize_child_exit(worker, job, rc=rc)
+    _queue_module.finalize_child_exit(worker, job, rc=rc)
 
 
 def _sync_terminal_running_entries(worker: Any) -> None:
@@ -373,7 +372,7 @@ def _list_slots_preserving_live_worker_pids(
 
 
 def _reconcile_orphaned_running(worker: Any) -> None:
-    _runtime_facade.reconcile_orphaned_running(
+    _queue_module.reconcile_orphaned_running(
         worker,
         list_slots_fn=lambda admission_root: _list_slots_preserving_live_worker_pids(
             worker,
@@ -388,7 +387,7 @@ def _reconcile_worker_state(worker: Any) -> None:
 
 
 def _queue_worker_hooks() -> Any:
-    return _runtime_facade.queue_worker_hooks()
+    return _queue_module.queue_worker_hooks()
 
 
 class QueueWorker(HookedPidFileChildProcessQueueWorker):
@@ -413,7 +412,7 @@ class QueueWorker(HookedPidFileChildProcessQueueWorker):
 
 
 def cmd_queue_worker(args: Any) -> int:
-    return _runtime_facade.run_pidfile_worker_command(
+    return _queue_module.run_pidfile_worker_command(
         args,
         config_path_fn=_config_path_for_worker,
     )

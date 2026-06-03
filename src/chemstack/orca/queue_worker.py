@@ -178,7 +178,6 @@ _queue_module = InternalEngineQueueModule.create(
     deps=_runtime_facade_deps(),
 )
 _engine_runtime = _queue_module.runtime
-_runtime_facade = _queue_module.facade
 
 
 def queue_roots(cfg: AppConfig) -> tuple[Path, ...]:
@@ -190,7 +189,7 @@ def queue_entries_with_roots(cfg: AppConfig) -> list[tuple[Path, Any]]:
 
 
 def _queue_worker_deps() -> Any:
-    return _runtime_facade.queue_worker_deps()
+    return _queue_module.queue_worker_deps()
 
 
 def _admission_root_for_cfg(cfg: AppConfig) -> str:
@@ -214,7 +213,7 @@ def _reserve_orca_worker_slot(root: str | Path, limit: int, **kwargs: Any) -> st
 
 
 def _try_reserve_admission_slot(cfg: AppConfig) -> str | None:
-    admission_token = _runtime_facade.try_reserve_admission_slot(cfg)
+    admission_token = _queue_module.try_reserve_admission_slot(cfg)
     if admission_token is None:
         logger.debug(
             "Queue worker admission paused: admission slots are full (admission_limit=%d)",
@@ -514,7 +513,7 @@ def _before_shutdown_all(_worker: Any, running_count: int) -> None:
 
 
 def _queue_worker_hooks() -> Any:
-    return _runtime_facade.queue_worker_hooks()
+    return _queue_module.queue_worker_hooks()
 
 
 class QueueWorker(HookedPidFileChildProcessQueueWorker):

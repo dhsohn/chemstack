@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from typing import Any
 
 from chemstack.core.queue.engine_runtime import EngineQueueRuntime
+from chemstack.core.queue.internal_engine import InternalEngineQueueModule, InternalEngineSpec
 from chemstack.core.queue.internal_engine_worker_deps import (
     internal_engine_queue_worker_deps_from_namespace,
 )
@@ -544,3 +545,86 @@ def test_engine_queue_runtime_pidfile_command_reports_existing_worker(
 
     assert result == 1
     assert reports == [12345]
+
+
+def test_internal_engine_queue_module_exposes_worker_facade_delegates(
+    tmp_path: Path,
+) -> None:
+    calls: list[tuple[str, Any]] = []
+
+    def record(name: str, result: Any = None) -> Any:
+        def _call(*args: Any, **kwargs: Any) -> Any:
+            calls.append((name, {"args": args, "kwargs": kwargs}))
+            return result
+
+        return _call
+
+    cfg = SimpleNamespace(
+        runtime=SimpleNamespace(
+            allowed_root=str(tmp_path),
+            admission_root=str(tmp_path / "admission"),
+            admission_limit=1,
+            max_concurrent=1,
+        )
+    )
+    entry = SimpleNamespace(queue_id="queue-1", status=SimpleNamespace(value="pending"))
+    namespace = {
+        "time": SimpleNamespace(sleep=lambda _seconds: None),
+        "release_slot": record("release_slot"),
+        "reserve_slot": record("reserve_slot", "slot-1"),
+        "start_background_process": record("start_background_process", "process"),
+        "build_worker_child_command": record("build_worker_child_command", ["worker"]),
+        "config_path_for_worker": record("config_path_for_worker", "/tmp/config.yaml"),
+        "default_config_path": record("default_config_path", "/tmp/default.yaml"),
+        "activate_reserved_slot": record("activate_reserved_slot", object()),
+        "_terminate_process": record("terminate_process"),
+        "mark_failed": record("mark_failed"),
+        "_handle_worker_start_error": record("handle_worker_start_error"),
+        "_finalize_completed_job": record("finalize_completed_job"),
+        "_finalize_child_exit": record("finalize_child_exit"),
+        "_reconcile_worker_state": record("reconcile_worker_state"),
+        "list_queue": record("list_queue", []),
+        "list_slots": record("list_slots", []),
+        "reconcile_stale_slots": record("reconcile_stale_slots"),
+        "reconcile_orphaned_child_queue_entries": record("reconcile_orphaned"),
+        "mark_cancelled": record("mark_cancelled"),
+        "requeue_running_entry": record("requeue_running_entry"),
+        "_mark_recovery_pending_entry": record("mark_recovery_pending"),
+        "_try_reserve_admission_slot": record("try_reserve_admission_slot", "slot-override"),
+        "_start_background_job_process": record("start_background_job_process", "started"),
+        "load_config": record("load_config", cfg),
+        "read_worker_pid": record("read_worker_pid", None),
+        "QueueWorker": record("QueueWorker", SimpleNamespace(run=lambda: 0)),
+    }
+    spec = InternalEngineSpec(
+        engine="xtb",
+        worker_job_module="chemstack.xtb.worker_execution",
+        worker_pid_file_name="engine_worker.pid",
+    )
+    module = InternalEngineQueueModule.create(
+        spec=spec,
+        load_config=lambda _config: cfg,
+        runtime_roots_for_cfg=lambda _cfg: (tmp_path,),
+        list_queue=lambda _root: [entry],
+        dequeue_next=lambda _root: entry,
+        poll_interval_seconds=5,
+        shutdown_grace_seconds=1.0,
+        deps=internal_engine_queue_worker_deps_from_namespace(namespace),
+    )
+
+    assert module.queue_worker_deps().dequeue_next_entry(cfg) == (tmp_path, entry)
+    assert module.queue_worker_hooks() is not None
+    assert module.try_reserve_admission_slot(cfg) == "slot-1"
+    assert module.start_background_job_process(
+        config_path="/tmp/config.yaml",
+        queue_root=tmp_path,
+        entry=entry,
+        admission_root=tmp_path / "admission",
+        admission_token="slot-1",
+    ) == "process"
+    assert module.config_path_for_worker(SimpleNamespace(config="/tmp/config.yaml")) == (
+        "/tmp/config.yaml"
+    )
+
+    assert any(name == "reserve_slot" for name, _payload in calls)
+    assert any(name == "start_background_process" for name, _payload in calls)
