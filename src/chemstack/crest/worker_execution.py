@@ -426,14 +426,16 @@ def build_worker_adapter(
     )
 
 
-def process_dequeued_entry(
+def _run_worker_entry_lifecycle(
     cfg: Any,
     entry: Any,
     *,
-    queue_root: Path | None = None,
+    queue_root: Path | None,
     molecule_key_resolver: Callable[[Any, Path, Path], str],
     dependencies: WorkerExecutionDependencies,
     shutdown_requested: Callable[[], bool] | None = None,
+    worker_job_pid: int | None = None,
+    emit_output: bool = False,
 ) -> WorkerExecutionOutcome:
     return _engine_execution.run_internal_engine_worker_entry_with_spec_options(
         cfg,
@@ -443,6 +445,50 @@ def process_dequeued_entry(
             molecule_key_resolver=molecule_key_resolver,
             dependencies=dependencies,
         ),
+        shutdown_requested=shutdown_requested,
+        worker_job_pid=worker_job_pid,
+        emit_output=emit_output,
+    )
+
+
+def execute_queue_entry(
+    cfg: Any,
+    *,
+    queue_root: Path,
+    entry: Any,
+    molecule_key_resolver: Callable[[Any, Path, Path], str] = _molecule_key,
+    dependencies: WorkerExecutionDependencies | None = None,
+    shutdown_requested: Callable[[], bool] | None = None,
+    worker_job_pid: int | None = None,
+    emit_output: bool = False,
+) -> WorkerExecutionOutcome:
+    return _run_worker_entry_lifecycle(
+        cfg,
+        entry,
+        queue_root=queue_root,
+        molecule_key_resolver=molecule_key_resolver,
+        dependencies=dependencies or default_worker_execution_dependencies(),
+        shutdown_requested=shutdown_requested,
+        worker_job_pid=worker_job_pid,
+        emit_output=emit_output,
+    )
+
+
+def process_dequeued_entry(
+    cfg: Any,
+    entry: Any,
+    *,
+    queue_root: Path | None = None,
+    molecule_key_resolver: Callable[[Any, Path, Path], str],
+    dependencies: WorkerExecutionDependencies,
+    shutdown_requested: Callable[[], bool] | None = None,
+) -> WorkerExecutionOutcome:
+    return _run_worker_entry_lifecycle(
+        cfg,
+        entry,
+        queue_root=queue_root,
+        molecule_key_resolver=molecule_key_resolver,
+        dependencies=dependencies,
         shutdown_requested=shutdown_requested,
     )
 

@@ -3,50 +3,145 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 from .internal_engine_runtime import InternalEngineQueueRuntime
+
+LegacyWorkerNamespace = Mapping[str, Any]
+SlotReleaser = Callable[[str | Path, str], object]
+BackgroundProcessStarter = Callable[[list[str]], Any]
+DefaultConfigPath = Callable[[], str]
+ProcessTerminator = Callable[[Any], object]
+WorkerStartErrorHandler = Callable[[Any, Path, Any, str, OSError], None]
+CompletedJobFinalizer = Callable[[Any, str, Any, int], None]
+WorkerStateReconciler = Callable[[Any], None]
+QueueLister = Callable[[Any], list[Any]]
+SlotLister = Callable[[Any], list[Any]]
+StaleSlotReconciler = Callable[[Any], Any]
+AdmissionSlotReserver = Callable[[Any], str | None]
+QueueEntryFinder = Callable[[Any, str], Any | None]
+ConfigLoader = Callable[[Any], Any]
+WorkerPidReader = Callable[[Path], int | None]
+WorkerProcessStartedHook = Callable[[Any, Path, Any, Any, str], bool]
+ShutdownRunningJob = Callable[[Any, str, Any], Any]
+BeforeShutdownAll = Callable[[Any, int], Any]
+
+
+class SlotReserver(Protocol):
+    def __call__(self, *args: Any, **kwargs: Any) -> str | None: ...
+
+
+class WorkerChildCommandBuilder(Protocol):
+    def __call__(
+        self,
+        *,
+        config_path: str,
+        queue_root: str | Path,
+        queue_id: str,
+        admission_root: str | Path | None = None,
+        admission_token: str | None = None,
+    ) -> list[str]: ...
+
+
+class ConfigPathForWorker(Protocol):
+    def __call__(self, args: Any, *, default_config_path_fn: DefaultConfigPath) -> str: ...
+
+
+class ReservedSlotActivator(Protocol):
+    def __call__(
+        self,
+        admission_root: str | Path,
+        admission_token: str,
+        **metadata: Any,
+    ) -> object | None: ...
+
+
+class QueueStatusMarker(Protocol):
+    def __call__(self, root: str | Path, queue_id: str, **kwargs: Any) -> Any: ...
+
+
+class ChildExitFinalizer(Protocol):
+    def __call__(self, worker: Any, job: Any, *, rc: int) -> Any: ...
+
+
+class BackgroundJobProcessStarter(Protocol):
+    def __call__(
+        self,
+        *,
+        config_path: str,
+        queue_root: Path,
+        entry: Any,
+        admission_root: str | Path,
+        admission_token: str,
+    ) -> Any: ...
+
+
+class OrphanedChildQueueReconciler(Protocol):
+    def __call__(self, *args: Any, **kwargs: Any) -> Any: ...
+
+
+class RunningEntryRequeuer(Protocol):
+    def __call__(self, *args: Any, **kwargs: Any) -> Any: ...
+
+
+class RecoveryPendingMarker(Protocol):
+    def __call__(self, *args: Any, **kwargs: Any) -> Any: ...
+
+
+class WorkerFactory(Protocol):
+    def __call__(self, *args: Any, **kwargs: Any) -> Any: ...
+
+
+@dataclass(frozen=True)
+class _LegacyNamespaceAdapter:
+    namespace: LegacyWorkerNamespace
+
+    def lookup(self, name: str) -> Any:
+        return self.namespace[name]
+
+    def call(self, name: str, *args: Any, **kwargs: Any) -> Any:
+        return self.lookup(name)(*args, **kwargs)
 
 
 @dataclass(frozen=True)
 class InternalEngineQueueWorkerDeps:
     time_module: Any
-    release_slot: Callable[[str | Path, str], object]
-    reserve_slot: Callable[..., str | None]
-    start_background_process: Callable[[list[str]], Any]
-    build_worker_child_command: Callable[..., list[str]]
-    config_path_for_worker: Callable[..., str]
-    default_config_path: Callable[[], str]
-    activate_reserved_slot: Callable[..., Any]
-    terminate_process: Callable[[Any], Any]
-    mark_failed: Callable[..., Any]
-    handle_worker_start_error: Callable[[Any, Path, Any, str, OSError], None]
-    finalize_completed_job: Callable[[Any, str, Any, int], None]
-    finalize_child_exit: Callable[..., Any]
-    reconcile_worker_state: Callable[[Any], None]
-    list_queue: Callable[[Any], list[Any]]
-    list_slots: Callable[[Any], list[Any]]
-    reconcile_stale_slots: Callable[[Any], Any]
-    reconcile_orphaned_child_queue_entries: Callable[..., Any]
-    mark_cancelled: Callable[..., Any]
-    requeue_running_entry: Callable[..., Any]
-    mark_recovery_pending: Callable[..., Any]
-    try_reserve_admission_slot: Callable[[Any], str | None] | None = None
-    start_background_job_process_fn: Callable[..., Any] | None = None
-    find_queue_entry: Callable[[Any, str], Any | None] | None = None
-    load_config: Callable[[Any], Any] | None = None
-    read_worker_pid: Callable[[Path], int | None] | None = None
-    worker_class: Callable[..., Any] | None = None
-    on_worker_process_started: Callable[[Any, Path, Any, Any, str], bool] | None = None
-    shutdown_running_job: Callable[[Any, str, Any], Any] | None = None
-    before_shutdown_all: Callable[[Any, int], Any] | None = None
+    release_slot: SlotReleaser
+    reserve_slot: SlotReserver
+    start_background_process: BackgroundProcessStarter
+    build_worker_child_command: WorkerChildCommandBuilder
+    config_path_for_worker: ConfigPathForWorker
+    default_config_path: DefaultConfigPath
+    activate_reserved_slot: ReservedSlotActivator
+    terminate_process: ProcessTerminator
+    mark_failed: QueueStatusMarker
+    handle_worker_start_error: WorkerStartErrorHandler
+    finalize_completed_job: CompletedJobFinalizer
+    finalize_child_exit: ChildExitFinalizer
+    reconcile_worker_state: WorkerStateReconciler
+    list_queue: QueueLister
+    list_slots: SlotLister
+    reconcile_stale_slots: StaleSlotReconciler
+    reconcile_orphaned_child_queue_entries: OrphanedChildQueueReconciler
+    mark_cancelled: QueueStatusMarker
+    requeue_running_entry: RunningEntryRequeuer
+    mark_recovery_pending: RecoveryPendingMarker
+    try_reserve_admission_slot: AdmissionSlotReserver | None = None
+    start_background_job_process_fn: BackgroundJobProcessStarter | None = None
+    find_queue_entry: QueueEntryFinder | None = None
+    load_config: ConfigLoader | None = None
+    read_worker_pid: WorkerPidReader | None = None
+    worker_class: WorkerFactory | None = None
+    on_worker_process_started: WorkerProcessStartedHook | None = None
+    shutdown_running_job: ShutdownRunningJob | None = None
+    before_shutdown_all: BeforeShutdownAll | None = None
 
 
 @dataclass(frozen=True)
 class InternalEngineQueueWorkerDepsResolver:
     runtime: InternalEngineQueueRuntime
     deps: InternalEngineQueueWorkerDeps | None = None
-    namespace: Mapping[str, Any] | None = None
+    namespace: LegacyWorkerNamespace | None = None
     time_module_name: str = "time"
     release_slot_name: str = "release_slot"
     reserve_slot_name: str = "reserve_slot"
@@ -97,8 +192,8 @@ class InternalEngineQueueWorkerDepsResolver:
         self,
         *,
         poll_interval_seconds: int,
-        start_background_job_process_fn: Callable[..., Any],
-        try_reserve_admission_slot_fn: Callable[[Any], str | None],
+        start_background_job_process_fn: BackgroundJobProcessStarter,
+        try_reserve_admission_slot_fn: AdmissionSlotReserver,
     ) -> Any:
         if self.deps is None:
             return self.runtime.child_worker_deps_from_namespace(
@@ -156,7 +251,7 @@ class InternalEngineQueueWorkerDepsResolver:
 
 
 def internal_engine_queue_worker_deps_from_namespace(
-    namespace: Mapping[str, Any],
+    namespace: LegacyWorkerNamespace,
     *,
     time_module_name: str = "time",
     release_slot_name: str = "release_slot",
@@ -189,94 +284,98 @@ def internal_engine_queue_worker_deps_from_namespace(
     shutdown_running_job_name: str | None = None,
     before_shutdown_all_name: str | None = None,
 ) -> InternalEngineQueueWorkerDeps:
-    def call(name: str, *args: Any, **kwargs: Any) -> Any:
-        return namespace[name](*args, **kwargs)
+    legacy = _LegacyNamespaceAdapter(namespace)
 
     return InternalEngineQueueWorkerDeps(
-        time_module=namespace[time_module_name],
-        release_slot=lambda root, token: call(release_slot_name, root, token),
-        reserve_slot=lambda *args, **kwargs: call(reserve_slot_name, *args, **kwargs),
-        start_background_process=lambda command: call(start_background_process_name, command),
-        build_worker_child_command=lambda *args, **kwargs: call(
+        time_module=legacy.lookup(time_module_name),
+        release_slot=lambda root, token: legacy.call(release_slot_name, root, token),
+        reserve_slot=lambda *args, **kwargs: legacy.call(reserve_slot_name, *args, **kwargs),
+        start_background_process=lambda command: legacy.call(
+            start_background_process_name,
+            command,
+        ),
+        build_worker_child_command=lambda *args, **kwargs: legacy.call(
             build_worker_child_command_name,
             *args,
             **kwargs,
         ),
-        config_path_for_worker=lambda *args, **kwargs: call(
+        config_path_for_worker=lambda *args, **kwargs: legacy.call(
             config_path_for_worker_name,
             *args,
             **kwargs,
         ),
-        default_config_path=lambda: call(default_config_path_name),
-        activate_reserved_slot=lambda *args, **kwargs: call(
+        default_config_path=lambda: legacy.call(default_config_path_name),
+        activate_reserved_slot=lambda *args, **kwargs: legacy.call(
             activate_reserved_slot_name,
             *args,
             **kwargs,
         ),
-        terminate_process=lambda process: call(terminate_process_name, process),
-        mark_failed=lambda *args, **kwargs: call(mark_failed_name, *args, **kwargs),
-        handle_worker_start_error=lambda *args, **kwargs: call(
+        terminate_process=lambda process: legacy.call(terminate_process_name, process),
+        mark_failed=lambda *args, **kwargs: legacy.call(mark_failed_name, *args, **kwargs),
+        handle_worker_start_error=lambda *args, **kwargs: legacy.call(
             handle_worker_start_error_name,
             *args,
             **kwargs,
         ),
-        finalize_completed_job=lambda *args, **kwargs: call(
+        finalize_completed_job=lambda *args, **kwargs: legacy.call(
             finalize_completed_job_name,
             *args,
             **kwargs,
         ),
-        finalize_child_exit=lambda *args, **kwargs: call(
+        finalize_child_exit=lambda *args, **kwargs: legacy.call(
             finalize_child_exit_name,
             *args,
             **kwargs,
         ),
-        reconcile_worker_state=lambda worker: call(reconcile_worker_state_name, worker),
-        list_queue=lambda root: call(list_queue_name, root),
-        list_slots=lambda root: call(list_slots_name, root),
-        reconcile_stale_slots=lambda root: call(reconcile_stale_slots_name, root),
-        reconcile_orphaned_child_queue_entries=lambda *args, **kwargs: call(
+        reconcile_worker_state=lambda worker: legacy.call(reconcile_worker_state_name, worker),
+        list_queue=lambda root: legacy.call(list_queue_name, root),
+        list_slots=lambda root: legacy.call(list_slots_name, root),
+        reconcile_stale_slots=lambda root: legacy.call(reconcile_stale_slots_name, root),
+        reconcile_orphaned_child_queue_entries=lambda *args, **kwargs: legacy.call(
             reconcile_orphaned_child_queue_entries_name,
             *args,
             **kwargs,
         ),
-        mark_cancelled=lambda *args, **kwargs: call(mark_cancelled_name, *args, **kwargs),
-        requeue_running_entry=lambda *args, **kwargs: call(
+        mark_cancelled=lambda *args, **kwargs: legacy.call(mark_cancelled_name, *args, **kwargs),
+        requeue_running_entry=lambda *args, **kwargs: legacy.call(
             requeue_running_entry_name,
             *args,
             **kwargs,
         ),
-        mark_recovery_pending=lambda *args, **kwargs: call(
+        mark_recovery_pending=lambda *args, **kwargs: legacy.call(
             mark_recovery_pending_name,
             *args,
             **kwargs,
         ),
-        try_reserve_admission_slot=lambda cfg: call(try_reserve_admission_slot_name, cfg),
-        start_background_job_process_fn=lambda **kwargs: call(
+        try_reserve_admission_slot=lambda cfg: legacy.call(try_reserve_admission_slot_name, cfg),
+        start_background_job_process_fn=lambda **kwargs: legacy.call(
             start_background_job_process_name,
             **kwargs,
         ),
         find_queue_entry=(
             None
             if find_queue_entry_name is None
-            else lambda root, queue_id: call(find_queue_entry_name, root, queue_id)
+            else lambda root, queue_id: legacy.call(find_queue_entry_name, root, queue_id)
         ),
-        load_config=lambda config_path: call(load_config_name, config_path),
-        read_worker_pid=lambda allowed_root: call(read_worker_pid_name, allowed_root),
-        worker_class=lambda *args, **kwargs: call(worker_class_name, *args, **kwargs),
+        load_config=lambda config_path: legacy.call(load_config_name, config_path),
+        read_worker_pid=lambda allowed_root: legacy.call(read_worker_pid_name, allowed_root),
+        worker_class=lambda *args, **kwargs: legacy.call(worker_class_name, *args, **kwargs),
         on_worker_process_started=(
             None
             if on_worker_process_started_name is None
-            else lambda *args, **kwargs: call(on_worker_process_started_name, *args, **kwargs)
+            else lambda *args, **kwargs: legacy.call(
+                on_worker_process_started_name, *args, **kwargs
+            )
         ),
         shutdown_running_job=(
             None
             if shutdown_running_job_name is None
-            else lambda *args, **kwargs: call(shutdown_running_job_name, *args, **kwargs)
+            else lambda *args, **kwargs: legacy.call(shutdown_running_job_name, *args, **kwargs)
         ),
         before_shutdown_all=(
             None
             if before_shutdown_all_name is None
-            else lambda *args, **kwargs: call(before_shutdown_all_name, *args, **kwargs)
+            else lambda *args, **kwargs: legacy.call(before_shutdown_all_name, *args, **kwargs)
         ),
     )
 

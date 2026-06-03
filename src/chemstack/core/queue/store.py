@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Collection, Sequence
 from contextlib import contextmanager
-from dataclasses import asdict, replace
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Any, Iterator, TypeVar
 
@@ -204,15 +204,76 @@ def save_entries(root: str | Path, entries: Sequence[QueueEntry]) -> None:
     )
 
 
+@dataclass(frozen=True)
+class QueueStore:
+    """Persistence facade for one queue root.
+
+    The module-level functions remain the public compatibility API. Newer code
+    can use this object to keep the queue root plus load/save overrides together
+    instead of repeating the lock/load/mutate/save pattern at every call site.
+    """
+
+    root: Path
+    load_entries_fn: Callable[[Path], list[Any]]
+    save_entries_fn: Callable[[Path, Sequence[Any]], Any]
+
+    @classmethod
+    def for_root(
+        cls,
+        root: str | Path,
+        *,
+        load_entries_fn: Callable[[Path], list[Any]] | None = None,
+        save_entries_fn: Callable[[Path, Sequence[Any]], Any] | None = None,
+    ) -> QueueStore:
+        return cls(
+            root=resolve_root_path(root),
+            load_entries_fn=load_entries_fn or load_entries,
+            save_entries_fn=save_entries_fn or save_entries,
+        )
+
+    @property
+    def path(self) -> Path:
+        return _queue_path(self.root)
+
+    def list_entries(self) -> list[Any]:
+        with queue_lock(self.root):
+            return self.load_entries_fn(self.root)
+
+    def mutate_entries(self, mutator: Callable[[list[Any]], tuple[Any, bool]]) -> Any:
+        with queue_lock(self.root):
+            entries = self.load_entries_fn(self.root)
+            result, changed = mutator(entries)
+            if changed:
+                self.save_entries_fn(self.root, entries)
+            return result
+
+    def mutate_entry_by_id(
+        self,
+        queue_id: str,
+        updater: Callable[[QueueEntry], tuple[_MutationResultT, QueueEntry | None]],
+        *,
+        missing_result: _MutationResultT,
+    ) -> _MutationResultT:
+        def mutate(entries: list[Any]) -> tuple[_MutationResultT, bool]:
+            for index, entry in enumerate(entries):
+                if not isinstance(entry, QueueEntry) or entry.queue_id != queue_id:
+                    continue
+                result, updated_entry = updater(entry)
+                if updated_entry is None:
+                    return result, False
+                entries[index] = updated_entry
+                return result, True
+            return missing_result, False
+
+        return self.mutate_entries(mutate)
+
+
 def list_queue(
     root: str | Path,
     *,
     load_entries_fn: Callable[[Path], list[QueueEntry]] | None = None,
 ) -> list[QueueEntry]:
-    resolved_root = resolve_root_path(root)
-    loader = load_entries_fn or load_entries
-    with queue_lock(resolved_root):
-        return loader(resolved_root)
+    return QueueStore.for_root(root, load_entries_fn=load_entries_fn).list_entries()
 
 
 def mutate_entries(
@@ -222,15 +283,11 @@ def mutate_entries(
     load_entries_fn: Callable[[Path], list[Any]] | None = None,
     save_entries_fn: Callable[[Path, Sequence[Any]], Any] | None = None,
 ) -> Any:
-    resolved_root = resolve_root_path(root)
-    loader = load_entries_fn or load_entries
-    saver = save_entries_fn or save_entries
-    with queue_lock(resolved_root):
-        entries = loader(resolved_root)
-        result, changed = mutator(entries)
-        if changed:
-            saver(resolved_root, entries)
-        return result
+    return QueueStore.for_root(
+        root,
+        load_entries_fn=load_entries_fn,
+        save_entries_fn=save_entries_fn,
+    ).mutate_entries(mutator)
 
 
 def mutate_entry_by_id(
@@ -242,23 +299,11 @@ def mutate_entry_by_id(
     load_entries_fn: Callable[[Path], list[QueueEntry]] | None = None,
     save_entries_fn: Callable[[Path, Sequence[QueueEntry]], Any] | None = None,
 ) -> _MutationResultT:
-    def mutate(entries: list[QueueEntry]) -> tuple[_MutationResultT, bool]:
-        for index, entry in enumerate(entries):
-            if entry.queue_id != queue_id:
-                continue
-            result, updated_entry = updater(entry)
-            if updated_entry is None:
-                return result, False
-            entries[index] = updated_entry
-            return result, True
-        return missing_result, False
-
-    return mutate_entries(
+    return QueueStore.for_root(
         root,
-        mutate,
         load_entries_fn=load_entries_fn,
         save_entries_fn=save_entries_fn,
-    )
+    ).mutate_entry_by_id(queue_id, updater, missing_result=missing_result)
 
 
 def _entry_timestamp(entry: QueueEntry) -> str:

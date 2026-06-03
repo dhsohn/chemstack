@@ -117,6 +117,45 @@ def test_list_queue_handles_missing_and_rejects_corrupt_json(
     assert entries[0].metadata == {}
 
 
+def test_queue_store_facade_groups_root_and_overrides(tmp_path: Path) -> None:
+    entries = [
+        store.QueueEntry(
+            queue_id="q-1",
+            app_name="app",
+            task_id="task",
+            task_kind="kind",
+            engine="engine",
+        )
+    ]
+    saved: list[tuple[Path, Sequence[store.QueueEntry]]] = []
+    queue_store = store.QueueStore.for_root(
+        tmp_path,
+        load_entries_fn=lambda root: entries,
+        save_entries_fn=lambda root, updated: saved.append((root, list(updated))),
+    )
+
+    def mark_running(
+        entry: store.QueueEntry,
+    ) -> tuple[store.QueueEntry, store.QueueEntry]:
+        updated = store.QueueEntry(
+            queue_id=entry.queue_id,
+            app_name=entry.app_name,
+            task_id=entry.task_id,
+            task_kind=entry.task_kind,
+            engine=entry.engine,
+            status=QueueStatus.RUNNING,
+        )
+        return updated, updated
+
+    assert queue_store.list_entries() == entries
+    updated = queue_store.mutate_entry_by_id("q-1", mark_running, missing_result=None)
+
+    assert updated is not None
+    assert updated.status == QueueStatus.RUNNING
+    assert entries[0].status == QueueStatus.RUNNING
+    assert saved == [(tmp_path.resolve(), entries)]
+
+
 def test_enqueue_rejects_corrupt_queue_file_without_overwriting(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

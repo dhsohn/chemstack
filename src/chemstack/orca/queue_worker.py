@@ -18,7 +18,6 @@ from chemstack.core.queue.types import QueueEntry
 from chemstack.core.queue.engine_execution import coerce_resource_request
 from chemstack.core.queue.internal_engine import (
     InternalEngineQueueModule,
-    InternalEngineQueueWorkerDeps,
     InternalEngineSpec,
 )
 from chemstack.core.queue.lifecycle import (
@@ -77,6 +76,10 @@ from .runtime.worker_job import (
     BackgroundRunJobProcess,
     build_worker_child_command,
 )
+from .queue_worker_deps import (
+    OrcaQueueWorkerFacadeCallbacks,
+    build_orca_runtime_facade_deps,
+)
 from .state import load_organized_ref, load_report_json, load_state
 from .telegram_notifier import notify_run_finished_event
 from .job_locations import (
@@ -102,69 +105,65 @@ _ENGINE_SPEC = InternalEngineSpec(
 _ENGINE_ADMISSION = _ENGINE_SPEC.admission()
 
 
-def _runtime_facade_deps() -> InternalEngineQueueWorkerDeps:
-    return InternalEngineQueueWorkerDeps(
+def _runtime_facade_deps() -> Any:
+    return build_orca_runtime_facade_deps(
+        OrcaQueueWorkerFacadeCallbacks(
+            release_slot=lambda root, token: release_slot(root, token),
+            reserve_slot=lambda *args, **kwargs: _reserve_orca_worker_slot(*args, **kwargs),
+            start_background_process=lambda command: start_background_process(command),
+            build_worker_child_command=lambda *args, **kwargs: build_worker_child_command(
+                *args,
+                **kwargs,
+            ),
+            activate_reserved_slot=lambda *args, **kwargs: activate_reserved_slot(
+                *args,
+                **kwargs,
+            ),
+            terminate_process=lambda process: _terminate_process(process),
+            mark_failed=lambda *args, **kwargs: mark_failed(*args, **kwargs),
+            handle_worker_start_error=lambda *args, **kwargs: _handle_worker_start_error(
+                *args,
+                **kwargs,
+            ),
+            finalize_completed_job=lambda *args, **kwargs: _finalize_completed_job(
+                *args,
+                **kwargs,
+            ),
+            finalize_child_exit=lambda *args, **kwargs: _finalize_child_exit(
+                *args,
+                **kwargs,
+            ),
+            reconcile_worker_state=lambda worker: _reconcile_worker_state(worker),
+            list_queue=lambda root: list_queue(Path(root)),
+            list_slots=lambda root: list_slots(root),
+            reconcile_stale_slots=lambda root: reconcile_stale_slots(root),
+            mark_cancelled=lambda *args, **kwargs: mark_cancelled(*args, **kwargs),
+            requeue_running_entry=lambda *args, **kwargs: requeue_running_entry(
+                *args,
+                **kwargs,
+            ),
+            try_reserve_admission_slot=lambda cfg: _try_reserve_admission_slot(cfg),
+            start_background_job_process=lambda **kwargs: _start_background_job_process(
+                **kwargs,
+            ),
+            find_queue_entry=lambda root, queue_id: _queue_module.queue_entry_by_id(
+                root,
+                queue_id,
+            ),
+            load_config=lambda config_path: load_config(config_path),
+            read_worker_pid=lambda allowed_root: read_worker_pid(allowed_root),
+            worker_class=lambda *args, **kwargs: QueueWorker(*args, **kwargs),
+            on_worker_process_started=lambda *args, **kwargs: _on_worker_process_started(
+                *args,
+                **kwargs,
+            ),
+            shutdown_running_job=lambda *args, **kwargs: _shutdown_running_job(
+                *args,
+                **kwargs,
+            ),
+            before_shutdown_all=lambda *args, **kwargs: _before_shutdown_all(*args, **kwargs),
+        ),
         time_module=time,
-        release_slot=lambda root, token: release_slot(root, token),
-        reserve_slot=lambda *args, **kwargs: _reserve_orca_worker_slot(*args, **kwargs),
-        start_background_process=lambda command: start_background_process(command),
-        build_worker_child_command=lambda *args, **kwargs: build_worker_child_command(
-            *args,
-            **kwargs,
-        ),
-        config_path_for_worker=lambda args, *, default_config_path_fn: str(
-            getattr(args, "config", "") or default_config_path_fn()
-        ),
-        default_config_path=lambda: "",
-        activate_reserved_slot=lambda *args, **kwargs: activate_reserved_slot(
-            *args,
-            **kwargs,
-        ),
-        terminate_process=lambda process: _terminate_process(process),
-        mark_failed=lambda *args, **kwargs: mark_failed(*args, **kwargs),
-        handle_worker_start_error=lambda *args, **kwargs: _handle_worker_start_error(
-            *args,
-            **kwargs,
-        ),
-        finalize_completed_job=lambda *args, **kwargs: _finalize_completed_job(
-            *args,
-            **kwargs,
-        ),
-        finalize_child_exit=lambda *args, **kwargs: _finalize_child_exit(
-            *args,
-            **kwargs,
-        ),
-        reconcile_worker_state=lambda worker: _reconcile_worker_state(worker),
-        list_queue=lambda root: list_queue(Path(root)),
-        list_slots=lambda root: list_slots(root),
-        reconcile_stale_slots=lambda root: reconcile_stale_slots(root),
-        reconcile_orphaned_child_queue_entries=lambda *_args, **_kwargs: None,
-        mark_cancelled=lambda *args, **kwargs: mark_cancelled(*args, **kwargs),
-        requeue_running_entry=lambda *args, **kwargs: requeue_running_entry(
-            *args,
-            **kwargs,
-        ),
-        mark_recovery_pending=lambda *_args, **_kwargs: None,
-        try_reserve_admission_slot=lambda cfg: _try_reserve_admission_slot(cfg),
-        start_background_job_process_fn=lambda **kwargs: _start_background_job_process(
-            **kwargs,
-        ),
-        find_queue_entry=lambda root, queue_id: _queue_module.queue_entry_by_id(
-            root,
-            queue_id,
-        ),
-        load_config=lambda config_path: load_config(config_path),
-        read_worker_pid=lambda allowed_root: read_worker_pid(allowed_root),
-        worker_class=lambda *args, **kwargs: QueueWorker(*args, **kwargs),
-        on_worker_process_started=lambda *args, **kwargs: _on_worker_process_started(
-            *args,
-            **kwargs,
-        ),
-        shutdown_running_job=lambda *args, **kwargs: _shutdown_running_job(
-            *args,
-            **kwargs,
-        ),
-        before_shutdown_all=lambda *args, **kwargs: _before_shutdown_all(*args, **kwargs),
     )
 
 

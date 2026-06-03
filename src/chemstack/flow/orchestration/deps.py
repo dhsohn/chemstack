@@ -2,11 +2,25 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, fields
+from pathlib import Path
 from typing import Any, ClassVar
 
 from chemstack.flow.orchestration import dep_builders as _dep_builders
 
 AnyCallable = Callable[..., Any]
+WorkflowPayload = dict[str, Any]
+WorkflowStagePayload = dict[str, Any]
+WorkflowWorkspace = str | Path
+WorkflowPayloadLoader = Callable[[Path], WorkflowPayload]
+WorkflowPayloadWriter = Callable[[Path, WorkflowPayload], Any]
+WorkflowWorkspaceResolver = Callable[..., Path]
+WorkflowRegistrySyncer = Callable[[str | Path, Path, WorkflowPayload], Any]
+WorkflowStatusComputer = Callable[[WorkflowPayload], str]
+WorkflowPredicate = Callable[[WorkflowPayload], bool]
+StagePredicate = Callable[[WorkflowStagePayload], bool]
+MappingCoercer = Callable[[Any], dict[str, Any]]
+TextNormalizer = Callable[[Any], str]
+StageMetadataResolver = Callable[[WorkflowStagePayload], dict[str, Any]]
 
 
 @dataclass(frozen=True)
@@ -20,11 +34,11 @@ class OrchestrationContractDeps:
 @dataclass(frozen=True)
 class OrchestrationPersistenceDeps:
     acquire_workflow_lock: AnyCallable
-    load_workflow_payload: AnyCallable
+    load_workflow_payload: WorkflowPayloadLoader
     now_utc_iso: Callable[[], str]
-    resolve_workflow_workspace: AnyCallable
-    sync_workflow_registry: AnyCallable
-    write_workflow_payload: AnyCallable
+    resolve_workflow_workspace: WorkflowWorkspaceResolver
+    sync_workflow_registry: WorkflowRegistrySyncer
+    write_workflow_payload: WorkflowPayloadWriter
 
 
 @dataclass(frozen=True)
@@ -81,14 +95,14 @@ class OrchestrationStageRuntimeDeps:
 @dataclass(frozen=True)
 class OrchestrationStageSupportDeps:
     _clear_reaction_xtb_handoff_error_if_recovering: AnyCallable
-    _coerce_mapping: Callable[[Any], dict[str, Any]]
+    _coerce_mapping: MappingCoercer
     _load_config_organized_root: AnyCallable
     _load_config_root: AnyCallable
-    _normalize_text: Callable[[Any], str]
+    _normalize_text: TextNormalizer
     _reaction_orca_source_candidate_path: AnyCallable
     _reaction_ts_guess_error: AnyCallable
     _safe_int: AnyCallable
-    _stage_metadata: Callable[[dict[str, Any]], dict[str, Any]]
+    _stage_metadata: StageMetadataResolver
     _submission_target: AnyCallable
     _task_payload_dict: AnyCallable
 
@@ -97,10 +111,10 @@ class OrchestrationStageSupportDeps:
 class OrchestrationStageWorkflowDeps:
     _maybe_notify_workflow_phase_summary: AnyCallable
     _persist_workflow_progress: AnyCallable
-    _recompute_workflow_status: Callable[[dict[str, Any]], str]
-    _stage_failure_is_recoverable: Callable[[dict[str, Any]], bool]
-    _workflow_has_active_children: Callable[[dict[str, Any]], bool]
-    _workflow_sync_only: Callable[[dict[str, Any]], bool]
+    _recompute_workflow_status: WorkflowStatusComputer
+    _stage_failure_is_recoverable: StagePredicate
+    _workflow_has_active_children: WorkflowPredicate
+    _workflow_sync_only: WorkflowPredicate
 
 
 @dataclass(frozen=True)

@@ -3,51 +3,72 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, TypeVar
+from typing import Any, Protocol, TypeVar
 
 from .cancellable import run_cancellable_engine_process
 from .engine_lifecycle import EngineWorkerLifecycle, run_engine_worker_lifecycle
 
-T = TypeVar("T")
+DependencyT = TypeVar("DependencyT", covariant=True)
+
+CancelRequested = Callable[[str, str], bool]
+CancellableProcessWaiter = Callable[..., Any]
+DependencyBuilder = Callable[..., DependencyT]
+DependencyFactory = Callable[[], Any]
+FailureResultBuilder = Callable[[Exception], Any]
+NowUtcIso = Callable[[], str]
+ProcessTerminator = Callable[[Any], object]
+QueueStatusMarker = Callable[..., Any]
+SleepFn = Callable[[float], None]
+StartJob = Callable[[], Any]
+
+
+class CancellableJobFinalizer(Protocol):
+    def __call__(
+        self,
+        running: Any,
+        *,
+        forced_status: str | None = None,
+        forced_reason: str | None = None,
+    ) -> Any: ...
 
 
 @dataclass(frozen=True)
 class InternalWorkerTimingDependencies:
-    now_utc_iso: Callable[[], str]
+    now_utc_iso: NowUtcIso
 
 
 @dataclass(frozen=True)
 class InternalWorkerQueueDependencies:
-    get_cancel_requested: Callable[[str, str], bool]
-    mark_completed: Callable[..., Any]
-    mark_cancelled: Callable[..., Any]
-    mark_failed: Callable[..., Any]
+    get_cancel_requested: CancelRequested
+    mark_completed: QueueStatusMarker
+    mark_cancelled: QueueStatusMarker
+    mark_failed: QueueStatusMarker
 
 
 @dataclass(frozen=True)
 class InternalWorkerProcessDependencies:
-    terminate_process: Callable[[Any], Any]
-    wait_for_cancellable_process: Callable[..., Any]
-    sleep: Callable[[float], None]
+    terminate_process: ProcessTerminator
+    wait_for_cancellable_process: CancellableProcessWaiter
+    sleep: SleepFn
     cancel_check_interval_seconds: float
 
 
 def build_internal_worker_timing_dependencies(
-    dependencies_type: Callable[..., T],
+    dependencies_type: DependencyBuilder[DependencyT],
     *,
-    now_utc_iso: Callable[[], str],
-) -> T:
+    now_utc_iso: NowUtcIso,
+) -> DependencyT:
     return dependencies_type(now_utc_iso=now_utc_iso)
 
 
 def build_internal_worker_queue_dependencies(
-    dependencies_type: Callable[..., T],
+    dependencies_type: DependencyBuilder[DependencyT],
     *,
-    get_cancel_requested: Callable[[str, str], bool],
-    mark_completed: Callable[..., Any],
-    mark_cancelled: Callable[..., Any],
-    mark_failed: Callable[..., Any],
-) -> T:
+    get_cancel_requested: CancelRequested,
+    mark_completed: QueueStatusMarker,
+    mark_cancelled: QueueStatusMarker,
+    mark_failed: QueueStatusMarker,
+) -> DependencyT:
     return dependencies_type(
         get_cancel_requested=get_cancel_requested,
         mark_completed=mark_completed,
@@ -58,15 +79,15 @@ def build_internal_worker_queue_dependencies(
 
 def build_internal_worker_default_factories(
     *,
-    timing_dependencies_type: Callable[..., Any],
-    queue_dependencies_type: Callable[..., Any],
-    runner_factory: Callable[[], Any],
-    now_utc_iso: Callable[[], str],
-    get_cancel_requested: Callable[[str, str], bool],
-    mark_completed: Callable[..., Any],
-    mark_cancelled: Callable[..., Any],
-    mark_failed: Callable[..., Any],
-) -> dict[str, Callable[[], Any]]:
+    timing_dependencies_type: DependencyBuilder[Any],
+    queue_dependencies_type: DependencyBuilder[Any],
+    runner_factory: DependencyFactory,
+    now_utc_iso: NowUtcIso,
+    get_cancel_requested: CancelRequested,
+    mark_completed: QueueStatusMarker,
+    mark_cancelled: QueueStatusMarker,
+    mark_failed: QueueStatusMarker,
+) -> dict[str, DependencyFactory]:
     return {
         "timing": lambda: build_internal_worker_timing_dependencies(
             timing_dependencies_type,
@@ -85,20 +106,20 @@ def build_internal_worker_default_factories(
 
 def build_internal_worker_process_default_factories(
     *,
-    timing_dependencies_type: Callable[..., Any],
-    queue_dependencies_type: Callable[..., Any],
-    runner_dependencies_type: Callable[..., Any],
-    terminate_process: Callable[[Any], Any],
-    wait_for_cancellable_process: Callable[..., Any],
-    sleep: Callable[[float], None],
+    timing_dependencies_type: DependencyBuilder[Any],
+    queue_dependencies_type: DependencyBuilder[Any],
+    runner_dependencies_type: DependencyBuilder[Any],
+    terminate_process: ProcessTerminator,
+    wait_for_cancellable_process: CancellableProcessWaiter,
+    sleep: SleepFn,
     cancel_check_interval_seconds: float,
-    now_utc_iso: Callable[[], str],
-    get_cancel_requested: Callable[[str, str], bool],
-    mark_completed: Callable[..., Any],
-    mark_cancelled: Callable[..., Any],
-    mark_failed: Callable[..., Any],
+    now_utc_iso: NowUtcIso,
+    get_cancel_requested: CancelRequested,
+    mark_completed: QueueStatusMarker,
+    mark_cancelled: QueueStatusMarker,
+    mark_failed: QueueStatusMarker,
     **engine_runner_dependencies: Any,
-) -> dict[str, Callable[[], Any]]:
+) -> dict[str, DependencyFactory]:
     def runner_factory() -> Any:
         return build_internal_worker_process_dependencies(
             runner_dependencies_type,
@@ -122,14 +143,14 @@ def build_internal_worker_process_default_factories(
 
 
 def build_internal_worker_process_dependencies(
-    dependencies_type: Callable[..., T],
+    dependencies_type: DependencyBuilder[DependencyT],
     *,
-    terminate_process: Callable[[Any], Any],
-    wait_for_cancellable_process: Callable[..., Any],
-    sleep: Callable[[float], None],
+    terminate_process: ProcessTerminator,
+    wait_for_cancellable_process: CancellableProcessWaiter,
+    sleep: SleepFn,
     cancel_check_interval_seconds: float,
     **extra_fields: Any,
-) -> T:
+) -> DependencyT:
     return dependencies_type(
         terminate_process=terminate_process,
         wait_for_cancellable_process=wait_for_cancellable_process,
@@ -148,38 +169,42 @@ class InternalWorkerOptions:
     emit_output: bool = False
 
 
+EngineContextBuilder = Callable[[Any, Any], Any]
+EngineMarkRunning = Callable[[Any, Any, InternalWorkerOptions], None]
+EngineJobRunner = Callable[[Any, Any, Path, InternalWorkerOptions], Any]
+EngineEntryFinalizer = Callable[[Any, Any, Any, Path, InternalWorkerOptions], Any]
+EngineOutcomeBuilder = Callable[[Any, Any, Any], Any]
+EngineShutdownChecker = Callable[[Any, InternalWorkerOptions], None]
+
+
 @dataclass(frozen=True)
 class InternalEngineWorkerAdapter:
-    build_context: Callable[[Any, Any], Any]
-    mark_running: Callable[[Any, Any, InternalWorkerOptions], None]
-    run_job: Callable[[Any, Any, Path, InternalWorkerOptions], Any]
-    finalize_entry: Callable[[Any, Any, Any, Path, InternalWorkerOptions], Any]
-    build_outcome: Callable[[Any, Any, Any], Any] = lambda _context, _result, finalized: finalized
-    check_shutdown: Callable[[Any, InternalWorkerOptions], None] | None = None
+    build_context: EngineContextBuilder
+    mark_running: EngineMarkRunning
+    run_job: EngineJobRunner
+    finalize_entry: EngineEntryFinalizer
+    build_outcome: EngineOutcomeBuilder = lambda _context, _result, finalized: finalized
+    check_shutdown: EngineShutdownChecker | None = None
 
 
 @dataclass(frozen=True)
 class InternalEngineWorkerHooks:
-    build_context: Callable[[Any, Any], Any]
-    mark_running: Callable[[Any, Any, InternalWorkerOptions], None]
-    run_job: Callable[[Any, Any, Path, InternalWorkerOptions], Any]
-    finalize_entry: Callable[[Any, Any, Any, Path, InternalWorkerOptions], Any]
+    build_context: EngineContextBuilder
+    mark_running: EngineMarkRunning
+    run_job: EngineJobRunner
+    finalize_entry: EngineEntryFinalizer
     shutdown_exception_type: type[BaseException]
-    build_outcome: Callable[[Any, Any, Any], Any] = (
-        lambda _context, _result, finalized: finalized
-    )
+    build_outcome: EngineOutcomeBuilder = lambda _context, _result, finalized: finalized
 
 
 @dataclass(frozen=True)
 class InternalEngineWorkerExecutionSpec:
-    build_context: Callable[[Any, Any], Any]
-    mark_running: Callable[[Any, Any, InternalWorkerOptions], None]
-    run_job: Callable[[Any, Any, Path, InternalWorkerOptions], Any]
-    finalize_entry: Callable[[Any, Any, Any, Path, InternalWorkerOptions], Any]
+    build_context: EngineContextBuilder
+    mark_running: EngineMarkRunning
+    run_job: EngineJobRunner
+    finalize_entry: EngineEntryFinalizer
     shutdown_exception_type: type[BaseException]
-    build_outcome: Callable[[Any, Any, Any], Any] = (
-        lambda _context, _result, finalized: finalized
-    )
+    build_outcome: EngineOutcomeBuilder = lambda _context, _result, finalized: finalized
 
     def hooks(self) -> InternalEngineWorkerHooks:
         return InternalEngineWorkerHooks(
@@ -194,14 +219,12 @@ class InternalEngineWorkerExecutionSpec:
 
 def build_internal_engine_worker_execution_spec(
     *,
-    build_context: Callable[[Any, Any], Any],
-    mark_running: Callable[[Any, Any, InternalWorkerOptions], None],
-    run_job: Callable[[Any, Any, Path, InternalWorkerOptions], Any],
-    finalize_entry: Callable[[Any, Any, Any, Path, InternalWorkerOptions], Any],
+    build_context: EngineContextBuilder,
+    mark_running: EngineMarkRunning,
+    run_job: EngineJobRunner,
+    finalize_entry: EngineEntryFinalizer,
     shutdown_exception_type: type[BaseException],
-    build_outcome: Callable[[Any, Any, Any], Any] = (
-        lambda _context, _result, finalized: finalized
-    ),
+    build_outcome: EngineOutcomeBuilder = lambda _context, _result, finalized: finalized,
 ) -> InternalEngineWorkerExecutionSpec:
     return InternalEngineWorkerExecutionSpec(
         build_context=build_context,
@@ -215,14 +238,12 @@ def build_internal_engine_worker_execution_spec(
 
 def build_internal_engine_worker_adapter(
     *,
-    build_context: Callable[[Any, Any], Any],
-    mark_running: Callable[[Any, Any, InternalWorkerOptions], None],
-    run_job: Callable[[Any, Any, Path, InternalWorkerOptions], Any],
-    finalize_entry: Callable[[Any, Any, Any, Path, InternalWorkerOptions], Any],
+    build_context: EngineContextBuilder,
+    mark_running: EngineMarkRunning,
+    run_job: EngineJobRunner,
+    finalize_entry: EngineEntryFinalizer,
     shutdown_exception_type: type[BaseException],
-    build_outcome: Callable[[Any, Any, Any], Any] = (
-        lambda _context, _result, finalized: finalized
-    ),
+    build_outcome: EngineOutcomeBuilder = lambda _context, _result, finalized: finalized,
 ) -> InternalEngineWorkerAdapter:
     return InternalEngineWorkerAdapter(
         build_context=build_context,
@@ -408,12 +429,12 @@ def run_internal_cancellable_engine_process(
     *,
     options: InternalWorkerOptions,
     shutdown_exception_type: type[BaseException],
-    start_job: Callable[[], Any],
-    finalize_job: Callable[..., Any],
-    terminate_process: Callable[[Any], Any],
-    build_failure_result: Callable[[Exception], Any],
-    wait_for_cancellable_process: Callable[..., Any] | None = None,
-    sleep: Callable[[float], None] | None = None,
+    start_job: StartJob,
+    finalize_job: CancellableJobFinalizer,
+    terminate_process: ProcessTerminator,
+    build_failure_result: FailureResultBuilder,
+    wait_for_cancellable_process: CancellableProcessWaiter | None = None,
+    sleep: SleepFn | None = None,
     poll_interval_seconds: float = 1.0,
     check_cancel_before_poll: bool = False,
     should_reraise_exception: Callable[[Exception], bool] | None = None,
@@ -445,9 +466,9 @@ def run_internal_worker_process_job(
     options: InternalWorkerOptions,
     process_deps: InternalWorkerProcessDependencies,
     shutdown_exception_type: type[BaseException],
-    start_job: Callable[[], Any],
-    finalize_job: Callable[..., Any],
-    build_failure_result: Callable[[Exception], Any],
+    start_job: StartJob,
+    finalize_job: CancellableJobFinalizer,
+    build_failure_result: FailureResultBuilder,
     check_cancel_before_poll: bool = False,
     should_reraise_exception: Callable[[Exception], bool] | None = None,
 ) -> Any:

@@ -5,6 +5,9 @@ from types import SimpleNamespace
 from typing import Any
 
 from chemstack.core.queue.engine_runtime import EngineQueueRuntime
+from chemstack.core.queue.internal_engine_worker_deps import (
+    internal_engine_queue_worker_deps_from_namespace,
+)
 
 
 def _runtime(
@@ -128,6 +131,93 @@ def test_engine_queue_runtime_builds_child_worker_deps(tmp_path: Path) -> None:
             "admission_token": "slot-1",
         }
     ]
+
+
+def test_internal_engine_queue_worker_deps_from_namespace_delegates_legacy_symbols(
+    tmp_path: Path,
+) -> None:
+    calls: list[tuple[str, tuple[Any, ...], dict[str, Any]]] = []
+
+    def record(name: str, result: Any = None) -> Any:
+        def _call(*args: Any, **kwargs: Any) -> Any:
+            calls.append((name, args, kwargs))
+            return result
+
+        return _call
+
+    namespace = {
+        "time": SimpleNamespace(sleep=lambda _seconds: None),
+        "release_slot": record("release_slot", "released"),
+        "reserve_slot": record("reserve_slot", "reserved"),
+        "start_background_process": record("start_background_process", "process"),
+        "build_worker_child_command": record("build_worker_child_command", ["worker"]),
+        "config_path_for_worker": record("config_path_for_worker", "/tmp/config.yaml"),
+        "default_config_path": record("default_config_path", "/tmp/default.yaml"),
+        "activate_reserved_slot": record("activate_reserved_slot", object()),
+        "_terminate_process": record("terminate_process"),
+        "mark_failed": record("mark_failed", "failed"),
+        "_handle_worker_start_error": record("handle_worker_start_error"),
+        "_finalize_completed_job": record("finalize_completed_job"),
+        "_finalize_child_exit": record("finalize_child_exit", "finalized"),
+        "_reconcile_worker_state": record("reconcile_worker_state"),
+        "list_queue": record("list_queue", []),
+        "list_slots": record("list_slots", []),
+        "reconcile_stale_slots": record("reconcile_stale_slots"),
+        "reconcile_orphaned_child_queue_entries": record("reconcile_orphaned"),
+        "mark_cancelled": record("mark_cancelled"),
+        "requeue_running_entry": record("requeue_running_entry"),
+        "_mark_recovery_pending_entry": record("mark_recovery_pending"),
+        "_try_reserve_admission_slot": record("try_reserve_admission_slot", "slot-1"),
+        "_start_background_job_process": record("start_background_job_process", "started"),
+        "find_queue_entry": record("find_queue_entry", "entry"),
+        "load_config": record("load_config", "cfg"),
+        "read_worker_pid": record("read_worker_pid", 123),
+        "QueueWorker": record("QueueWorker", "worker"),
+        "on_started": record("on_started", True),
+        "shutdown_running": record("shutdown_running"),
+        "before_shutdown": record("before_shutdown"),
+    }
+
+    deps = internal_engine_queue_worker_deps_from_namespace(
+        namespace,
+        find_queue_entry_name="find_queue_entry",
+        on_worker_process_started_name="on_started",
+        shutdown_running_job_name="shutdown_running",
+        before_shutdown_all_name="before_shutdown",
+    )
+
+    assert deps.release_slot(tmp_path, "slot-1") == "released"
+    assert deps.build_worker_child_command(
+        config_path="/tmp/config.yaml",
+        queue_root=tmp_path,
+        queue_id="queue-1",
+    ) == ["worker"]
+    assert deps.config_path_for_worker(
+        SimpleNamespace(),
+        default_config_path_fn=deps.default_config_path,
+    ) == "/tmp/config.yaml"
+    assert deps.mark_failed(tmp_path, "queue-1", error="boom") == "failed"
+    assert deps.finalize_child_exit("worker", "job", rc=2) == "finalized"
+    assert deps.start_background_job_process_fn is not None
+    assert deps.start_background_job_process_fn(
+        config_path="/tmp/config.yaml",
+        queue_root=tmp_path,
+        entry=SimpleNamespace(queue_id="queue-1"),
+        admission_root=tmp_path,
+        admission_token="slot-1",
+    ) == "started"
+    assert deps.find_queue_entry is not None
+    assert deps.find_queue_entry(tmp_path, "queue-1") == "entry"
+    assert deps.on_worker_process_started is not None
+    assert deps.on_worker_process_started("worker", tmp_path, "entry", "process", "slot-1")
+    assert deps.shutdown_running_job is not None
+    deps.shutdown_running_job("worker", "queue-1", "job")
+    assert deps.before_shutdown_all is not None
+    deps.before_shutdown_all("worker", 1)
+
+    assert ("mark_failed", (tmp_path, "queue-1"), {"error": "boom"}) in calls
+    assert ("finalize_child_exit", ("worker", "job"), {"rc": 2}) in calls
+    assert ("on_started", ("worker", tmp_path, "entry", "process", "slot-1"), {}) in calls
 
 
 def test_engine_queue_runtime_reserves_admission_slot(tmp_path: Path) -> None:
