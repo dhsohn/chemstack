@@ -8,6 +8,7 @@ import pytest
 
 
 from chemstack.flow.adapters import _orca_local_lookup, _orca_tracking, orca as orca_adapter
+from tests.engine_artifact_helpers import orca_artifact_payload
 
 
 def _write_json(path: Path, payload: object) -> None:
@@ -45,9 +46,9 @@ def test_load_orca_artifact_contract_short_circuits_on_tracked_payload(
         "analyzer_status": " completed ",
         "completed_at": " 2026-04-19T00:10:00+00:00 ",
         "last_out_path": f" {tmp_path / 'outputs' / 'run_payload_1' / 'rxn.out'} ",
-        "run_state_path": f" {tmp_path / 'outputs' / 'run_payload_1' / 'run_state.json'} ",
-        "report_json_path": f" {tmp_path / 'outputs' / 'run_payload_1' / 'run_report.json'} ",
-        "report_md_path": f" {tmp_path / 'outputs' / 'run_payload_1' / 'run_report.md'} ",
+        "run_state_path": f" {tmp_path / 'outputs' / 'run_payload_1' / 'job_state.json'} ",
+        "report_json_path": f" {tmp_path / 'outputs' / 'run_payload_1' / 'job_report.json'} ",
+        "report_md_path": f" {tmp_path / 'outputs' / 'run_payload_1' / 'job_report.md'} ",
         "attempt_count": "2",
         "max_retries": "3",
         "attempts": [{"attempt_number": 1, "analyzer_status": "completed"}, "skip"],
@@ -136,36 +137,36 @@ def test_load_orca_artifact_contract_uses_tracked_record_organized_output(
     out.write_text("****ORCA TERMINATED NORMALLY****\n", encoding="utf-8")
 
     _write_json(
-        organized_dir / "run_state.json",
-        {
-            "run_id": "run_tracked_output",
-            "reaction_dir": str(organized_dir),
-            "selected_inp": str(inp),
-            "status": "completed",
-            "attempts": [],
-            "final_result": {
+        organized_dir / "job_state.json",
+        orca_artifact_payload(
+            job_id="run_tracked_output",
+            run_id="run_tracked_output",
+            reaction_dir=str(organized_dir),
+            selected_inp=str(inp),
+            final_result={
                 "status": "completed",
                 "analyzer_status": "completed",
                 "reason": "normal_termination",
                 "completed_at": "2026-04-19T00:20:00+00:00",
                 "last_out_path": str(out),
             },
-        },
+        ),
     )
     _write_json(
-        organized_dir / "run_report.json",
-        {
-            "run_id": "run_tracked_output",
-            "status": "completed",
-            "selected_inp": str(inp),
-            "final_result": {
+        organized_dir / "job_report.json",
+        orca_artifact_payload(
+            job_id="run_tracked_output",
+            run_id="run_tracked_output",
+            reaction_dir=str(organized_dir),
+            selected_inp=str(inp),
+            final_result={
                 "status": "completed",
                 "analyzer_status": "completed",
                 "reason": "normal_termination",
                 "completed_at": "2026-04-19T00:20:00+00:00",
                 "last_out_path": str(out),
             },
-        },
+        ),
     )
     tracked_record = SimpleNamespace(
         app_name="chemstack_orca",
@@ -218,8 +219,8 @@ def test_load_orca_artifact_contract_uses_tracked_record_organized_output(
     assert contract.reaction_dir == str(organized_dir.resolve())
     assert contract.latest_known_path == str(organized_dir.resolve())
     assert contract.organized_output_dir == str(organized_dir.resolve())
-    assert contract.run_state_path == str((organized_dir / "run_state.json").resolve())
-    assert contract.report_json_path == str((organized_dir / "run_report.json").resolve())
+    assert contract.run_state_path == str((organized_dir / "job_state.json").resolve())
+    assert contract.report_json_path == str((organized_dir / "job_report.json").resolve())
     assert contract.selected_inp == str(inp.resolve())
     assert contract.selected_input_xyz == str(xyz.resolve())
 
@@ -242,19 +243,19 @@ def test_load_orca_artifact_contract_resolves_selected_input_and_prefers_last_ou
     final_xyz.write_text("2\noptimized\nH 0 0 0\nH 0 0 0.75\n", encoding="utf-8")
 
     _write_json(
-        run_dir / "run_state.json",
-        {
-            "run_id": "run_paths_1",
-            "reaction_dir": str(run_dir),
-            "status": "completed",
-            "selected_inp": "job_step.inp",
-            "final_result": {
+        run_dir / "job_state.json",
+        orca_artifact_payload(
+            job_id="run_paths_1",
+            run_id="run_paths_1",
+            reaction_dir=str(run_dir),
+            selected_inp="job_step.inp",
+            final_result={
                 "status": "completed",
                 "analyzer_status": "completed",
                 "reason": "normal_termination",
                 "last_out_path": "final.out",
             },
-        },
+        ),
     )
 
     _disable_tracking_helpers(monkeypatch)
@@ -320,12 +321,13 @@ def test_load_orca_artifact_contract_propagates_resource_request_and_actual(
     run_dir.mkdir(parents=True)
 
     _write_json(
-        run_dir / "run_state.json",
-        {
-            "run_id": "run_resources_1",
-            "reaction_dir": str(run_dir),
-            "status": "running",
-        },
+        run_dir / "job_state.json",
+        orca_artifact_payload(
+            job_id="run_resources_1",
+            run_id="run_resources_1",
+            reaction_dir=str(run_dir),
+            status="running",
+        ),
     )
     _write_json(
         allowed_root / "queue.json",

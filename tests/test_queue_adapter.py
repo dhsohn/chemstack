@@ -23,6 +23,8 @@ from chemstack.orca.queue_adapter import (
     queue_entry_run_id,
     reconcile_orphaned_running_entries,
 )
+from chemstack.orca.state import report_json_path
+from tests.engine_artifact_helpers import orca_artifact_payload
 
 class TestQueueStore(unittest.TestCase):
     def setUp(self) -> None:
@@ -246,23 +248,24 @@ class TestQueueStore(unittest.TestCase):
         found = get_active_entry_for_reaction_dir(self.root, str(reaction_dir))
         self.assertIsNone(found)
 
-    def test_reconcile_orphaned_running_entry_from_run_report(self) -> None:
+    def test_reconcile_orphaned_running_entry_from_job_report(self) -> None:
         reaction_dir = self.root / "mol_done"
         reaction_dir.mkdir()
         entry = enqueue(self.root, str(reaction_dir))
         dequeue_next(self.root)
 
-        (reaction_dir / "run_report.json").write_text(
+        report_json_path(reaction_dir).write_text(
             json.dumps(
-                {
-                    "run_id": "run_done_1",
-                    "status": "completed",
-                    "updated_at": "2026-03-10T05:00:00+00:00",
-                    "final_result": {
+                orca_artifact_payload(
+                    job_id="run_done_1",
+                    run_id="run_done_1",
+                    reaction_dir=str(reaction_dir),
+                    status="completed",
+                    final_result={
                         "status": "completed",
                         "completed_at": "2026-03-10T04:59:59+00:00",
                     },
-                }
+                )
             ),
             encoding="utf-8",
         )
@@ -283,17 +286,18 @@ class TestQueueStore(unittest.TestCase):
         entry = enqueue(self.root, str(reaction_dir))
         dequeue_next(self.root)
 
-        (reaction_dir / "run_report.json").write_text(
+        report_json_path(reaction_dir).write_text(
             json.dumps(
-                {
-                    "run_id": "run_done_1",
-                    "status": "completed",
-                    "updated_at": "2026-03-10T05:00:00+00:00",
-                    "final_result": {
+                orca_artifact_payload(
+                    job_id="run_done_1",
+                    run_id="run_done_1",
+                    reaction_dir=str(reaction_dir),
+                    status="completed",
+                    final_result={
                         "status": "completed",
                         "completed_at": "2026-03-10T04:59:59+00:00",
                     },
-                }
+                )
             ),
             encoding="utf-8",
         )

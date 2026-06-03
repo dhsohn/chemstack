@@ -7,6 +7,7 @@ import threading
 from pathlib import Path
 
 from chemstack.orca.dft_index import DFTIndex
+from tests.engine_artifact_helpers import orca_artifact_payload
 
 
 _COMPLETED_OUT = "\n".join([
@@ -28,15 +29,27 @@ _COMPLETED_OUT = "\n".join([
 ])
 
 
+def _write_orca_state(job_dir: Path, *, status: str) -> None:
+    (job_dir / "job_state.json").write_text(
+        json.dumps(
+            orca_artifact_payload(
+                job_id=job_dir.name,
+                run_id=job_dir.name,
+                reaction_dir=str(job_dir),
+                status=status,
+                final_result={"status": status},
+            )
+        ),
+        encoding="utf-8",
+    )
+
+
 def _setup_kb(tmp_path: Path) -> Path:
-    """Create ORCA output + run_state.json in a test KB directory."""
+    """Create ORCA output + job_state.json in a test KB directory."""
     kb_dir = tmp_path / "orca_runs" / "job1"
     kb_dir.mkdir(parents=True)
     (kb_dir / "calc.out").write_text(_COMPLETED_OUT, encoding="utf-8")
-    (kb_dir / "run_state.json").write_text(
-        json.dumps({"status": "completed"}),
-        encoding="utf-8",
-    )
+    _write_orca_state(kb_dir, status="completed")
     return tmp_path / "orca_runs"
 
 
@@ -105,7 +118,6 @@ def test_upsert_single_applies_status_override(tmp_path: Path) -> None:
 def test_index_calculations_reindexes_when_run_state_status_changes(tmp_path: Path) -> None:
     kb_dir = _setup_kb(tmp_path)
     db_path = str(tmp_path / "dft.db")
-    state_path = kb_dir / "job1" / "run_state.json"
 
     index = DFTIndex()
     index.initialize(db_path)
@@ -114,7 +126,7 @@ def test_index_calculations_reindexes_when_run_state_status_changes(tmp_path: Pa
     assert first["indexed"] == 1
     assert index.query({})[0]["status"] == "completed"
 
-    state_path.write_text(json.dumps({"status": "failed"}), encoding="utf-8")
+    _write_orca_state(kb_dir / "job1", status="failed")
 
     second = index.index_calculations([str(kb_dir)])
     assert second["indexed"] == 1
@@ -210,7 +222,7 @@ def test_removed_file_is_cleaned_from_index(tmp_path: Path) -> None:
 
     # Re-index after deleting file
     (kb_dir / "job1" / "calc.out").unlink()
-    (kb_dir / "job1" / "run_state.json").unlink()
+    (kb_dir / "job1" / "job_state.json").unlink()
     result = index.index_calculations([str(kb_dir)])
     assert result["removed"] == 1
     assert result["total"] == 0

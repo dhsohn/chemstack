@@ -6,6 +6,14 @@ from typing import Any
 
 from chemstack.core.commands import run_dir as _shared_run_dir
 from chemstack.core.config.engines import WorkflowEngineAppConfig as AppConfig
+from chemstack.core.engines.artifacts import (
+    EngineArtifactInput,
+    EngineArtifactJob,
+    EngineArtifactResources,
+    EngineArtifactStatus,
+    EngineArtifactTimestamps,
+    build_engine_artifact_payload,
+)
 from chemstack.core.paths import validate_job_dir
 from chemstack.core.paths.workflow import workflow_workspace_internal_engine_paths_from_path
 from chemstack.core.utils import now_utc_iso, timestamped_token
@@ -80,15 +88,31 @@ def queued_state_payload(
     resource_request: dict[str, int] | None = None,
 ) -> dict[str, Any]:
     now = now_utc_iso()
-    return {
-        "job_id": job_id,
-        "job_dir": str(job_dir),
-        "selected_input_xyz": str(selected_xyz),
-        "molecule_key": molecule_key,
-        "mode": mode,
-        "status": "queued",
-        "created_at": now,
-        "updated_at": now,
-        "resource_request": dict(resource_request or {}),
-        "resource_actual": dict(resource_request or {}),
-    }
+    resources = dict(resource_request or {})
+    return build_engine_artifact_payload(
+        engine="crest",
+        job=EngineArtifactJob(
+            id=job_id,
+            queue_id="",
+            dir=str(job_dir),
+            app_name="chemstack_crest",
+            task_id=job_id,
+        ),
+        status=EngineArtifactStatus(state="queued"),
+        input=EngineArtifactInput(
+            primary_path=str(selected_xyz),
+            selected_xyz_path=str(selected_xyz),
+        ),
+        resources=EngineArtifactResources(
+            request=resources,
+            actual=dict(resources),
+        ),
+        timestamps=EngineArtifactTimestamps(
+            created_at=now,
+            updated_at=now,
+        ),
+        engine_payload={
+            "molecule_key": molecule_key,
+            "mode": mode,
+        },
+    )

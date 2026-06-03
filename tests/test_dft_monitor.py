@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import os
+import json
 from pathlib import Path
 
 from chemstack.orca.dft_index import DFTIndex
 from chemstack.orca.dft_monitor import DFTMonitor
+from tests.engine_artifact_helpers import orca_artifact_payload
 
 
 _COMPLETED_OUT = "\n".join([
@@ -54,6 +56,21 @@ def _make_index(tmp_path: Path) -> DFTIndex:
     return index
 
 
+def _write_orca_state(job_dir: Path, *, status: str) -> None:
+    (job_dir / "job_state.json").write_text(
+        json.dumps(
+            orca_artifact_payload(
+                job_id=job_dir.name,
+                run_id=job_dir.name,
+                reaction_dir=str(job_dir),
+                status=status,
+                final_result={"status": status},
+            )
+        ),
+        encoding="utf-8",
+    )
+
+
 def _advance_mtime(path: Path, *, delta_seconds: float = 5.0) -> None:
     before = os.path.getmtime(path)
     for _ in range(5):
@@ -72,7 +89,7 @@ def test_baseline_seed_prevents_restart_spam(tmp_path: Path) -> None:
     kb_dir.mkdir(parents=True)
     out_file = kb_dir / "calc.out"
     out_file.write_text(_COMPLETED_OUT, encoding="utf-8")
-    (kb_dir / "run_state.json").write_text('{"status": "completed"}', encoding="utf-8")
+    _write_orca_state(kb_dir, status="completed")
 
     state_file = str(tmp_path / "automation" / "dft_monitor_state.json")
     index = _make_index(tmp_path)
@@ -106,7 +123,7 @@ def test_running_calc_not_indexed(tmp_path: Path) -> None:
     kb_dir.mkdir(parents=True)
     out_file = kb_dir / "running.out"
     out_file.write_text(_RUNNING_OPT_OUT, encoding="utf-8")
-    (kb_dir / "run_state.json").write_text('{"status": "running"}', encoding="utf-8")
+    _write_orca_state(kb_dir, status="running")
 
     state_file = str(tmp_path / "automation" / "state.json")
     index = _make_index(tmp_path)
@@ -131,7 +148,7 @@ def test_running_calc_change_detected_even_if_mtime_moves_backward(tmp_path: Pat
     kb_dir.mkdir(parents=True)
     out_file = kb_dir / "running.out"
     out_file.write_text(_RUNNING_OPT_OUT, encoding="utf-8")
-    (kb_dir / "run_state.json").write_text('{"status": "running"}', encoding="utf-8")
+    _write_orca_state(kb_dir, status="running")
 
     index = _make_index(tmp_path)
     monitor = DFTMonitor(index, [str(kb_dir)], state_file=str(tmp_path / "automation" / "state.json"))
@@ -158,7 +175,7 @@ def test_symlink_dedup(tmp_path: Path) -> None:
 
     out_file = run_dir / "running.out"
     out_file.write_text(_RUNNING_OPT_OUT, encoding="utf-8")
-    (run_dir / "run_state.json").write_text('{"status": "running"}', encoding="utf-8")
+    _write_orca_state(run_dir, status="running")
 
     state_file = str(tmp_path / "automation" / "state.json")
     index = _make_index(tmp_path)

@@ -9,6 +9,21 @@ from pathlib import Path
 from unittest.mock import patch
 
 import chemstack.orca.dft_discovery as discovery
+from tests.engine_artifact_helpers import orca_artifact_payload
+
+
+def _state_payload(
+    *,
+    status: str,
+    final_result: dict[str, object] | None = None,
+) -> dict[str, object]:
+    return orca_artifact_payload(
+        job_id="job",
+        run_id="run",
+        reaction_dir="/tmp/job",
+        status=status,
+        final_result=final_result or {"status": status},
+    )
 
 
 def test_discover_orca_targets_routes_by_path_policy(tmp_path: Path) -> None:
@@ -48,17 +63,12 @@ def test_discover_helpers_cover_non_dict_state_and_missing_outputs(tmp_path: Pat
     outputs_root.mkdir()
     outputs_non_dict = outputs_root / "non_dict"
     outputs_non_dict.mkdir()
-    (outputs_non_dict / "run_state.json").write_text(json.dumps(["bad"]), encoding="utf-8")
+    (outputs_non_dict / "job_state.json").write_text(json.dumps(["bad"]), encoding="utf-8")
 
     outputs_missing = outputs_root / "missing_out"
     outputs_missing.mkdir()
-    (outputs_missing / "run_state.json").write_text(
-        json.dumps(
-            {
-                "status": "completed",
-                "final_result": {"status": "completed"},
-            }
-        ),
+    (outputs_missing / "job_state.json").write_text(
+        json.dumps(_state_payload(status="completed")),
         encoding="utf-8",
     )
 
@@ -72,14 +82,11 @@ def test_discover_helpers_cover_non_dict_state_and_missing_outputs(tmp_path: Pat
     runs_root.mkdir()
     runs_non_dict = runs_root / "non_dict"
     runs_non_dict.mkdir()
-    (runs_non_dict / "run_state.json").write_text(json.dumps(["bad"]), encoding="utf-8")
+    (runs_non_dict / "job_state.json").write_text(json.dumps(["bad"]), encoding="utf-8")
 
     runs_missing = runs_root / "missing_out"
     runs_missing.mkdir()
-    (runs_missing / "run_state.json").write_text(
-        json.dumps({"status": "running", "final_result": {}}),
-        encoding="utf-8",
-    )
+    (runs_missing / "job_state.json").write_text(json.dumps(_state_payload(status="running")), encoding="utf-8")
 
     assert discovery._discover_orca_runs_targets(
         kb_path=runs_root,
@@ -134,13 +141,13 @@ def test_recent_completed_output_accepts_none_or_negative_window(tmp_path: Path)
     now_utc = datetime(2026, 3, 22, 12, 0, tzinfo=timezone.utc)
 
     assert discovery._is_recent_completed_output(
-        data={"status": "running", "final_result": {}},
+        data=_state_payload(status="running"),
         output_path=out_path,
         now_utc=now_utc,
         recent_completed_window_minutes=None,
     )
     assert discovery._is_recent_completed_output(
-        data={"status": "failed", "final_result": {}},
+        data=_state_payload(status="failed"),
         output_path=out_path,
         now_utc=now_utc,
         recent_completed_window_minutes=-1,
@@ -155,33 +162,33 @@ def test_recent_completed_output_respects_status_completed_at_and_future_skew(
     now_utc = datetime(2026, 3, 22, 12, 0, tzinfo=timezone.utc)
 
     assert not discovery._is_recent_completed_output(
-        data={"status": "running", "final_result": {"status": "failed"}},
+        data=_state_payload(status="running", final_result={"status": "failed"}),
         output_path=out_path,
         now_utc=now_utc,
         recent_completed_window_minutes=30,
     )
 
     assert discovery._is_recent_completed_output(
-        data={
-            "status": "completed",
-            "final_result": {
+        data=_state_payload(
+            status="completed",
+            final_result={
                 "status": "completed",
                 "completed_at": (now_utc + timedelta(minutes=5)).isoformat(),
             },
-        },
+        ),
         output_path=out_path,
         now_utc=now_utc,
         recent_completed_window_minutes=30,
     )
 
     assert not discovery._is_recent_completed_output(
-        data={
-            "status": "completed",
-            "final_result": {
+        data=_state_payload(
+            status="completed",
+            final_result={
                 "status": "completed",
                 "completed_at": (now_utc + timedelta(minutes=5, seconds=1)).isoformat(),
             },
-        },
+        ),
         output_path=out_path,
         now_utc=now_utc,
         recent_completed_window_minutes=30,
@@ -197,13 +204,13 @@ def test_recent_completed_output_uses_mtime_fallback_and_handles_stat_error(
     mtime = (now_utc - timedelta(minutes=10)).timestamp()
     os.utime(out_path, (mtime, mtime))
 
-    data = {
-        "status": "completed",
-        "final_result": {
+    data = _state_payload(
+        status="completed",
+        final_result={
             "status": "completed",
             "completed_at": "not-a-date",
         },
-    }
+    )
 
     assert discovery._is_recent_completed_output(
         data=data,
@@ -269,10 +276,10 @@ def test_add_if_valid_target_covers_suffix_size_and_stat_errors(tmp_path: Path) 
 
 
 def test_load_report_json_handles_invalid_json_and_non_dict(tmp_path: Path, caplog) -> None:
-    report_path = tmp_path / "run_report.json"
+    report_path = tmp_path / "job_report.json"
     report_path.write_text(json.dumps(["bad"]), encoding="utf-8")
     assert discovery._load_report_json(report_path) is None
 
     report_path.write_text("{bad json", encoding="utf-8")
     assert discovery._load_report_json(report_path) is None
-    assert "dft_run_report_parse_failed" in caplog.text
+    assert "dft_job_report_parse_failed" in caplog.text

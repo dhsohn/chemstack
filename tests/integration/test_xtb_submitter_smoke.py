@@ -9,6 +9,8 @@ from chemstack.core.queue import list_queue
 from chemstack.xtb import queue_runtime as xtb_queue_cmd
 from chemstack.flow.adapters.xtb import load_xtb_artifact_contract
 from chemstack.flow.submitters import xtb as xtb_submitter
+from tests.engine_artifact_helpers import engine_payload as _engine_payload
+from tests.engine_artifact_helpers import status as _status
 from tests.engine_process_helpers import process_one_xtb_for_test
 
 
@@ -65,10 +67,10 @@ def test_xtb_submitter_roundtrip_smoke(
     assert (artifact_dir / "xtbout.json").exists()
 
     report_payload = json.loads((artifact_dir / "job_report.json").read_text(encoding="utf-8"))
-    assert report_payload["status"] == "completed"
-    assert report_payload["job_type"] == "opt"
-    assert report_payload["candidate_count"] == 1
-    assert report_payload["analysis_summary"]["optimization_ok"] is True
+    assert _status(report_payload)["state"] == "completed"
+    assert _engine_payload(report_payload)["job_type"] == "opt"
+    assert _engine_payload(report_payload)["candidate_count"] == 1
+    assert _engine_payload(report_payload)["analysis_summary"]["optimization_ok"] is True
 
     contract = load_xtb_artifact_contract(
         xtb_index_root=smoke_workspace.xtb_allowed_root,

@@ -36,7 +36,8 @@ from chemstack.orca.queue_worker import (
     _terminate_process,
     read_worker_pid,
 )
-from chemstack.orca.state import finalize_state, load_state
+from chemstack.orca.state import finalize_state, load_state, report_json_path, save_state
+from tests.engine_artifact_helpers import orca_artifact_payload
 from tests.process_helpers import patch_missing_process_group, preserved_signal_handlers
 from tests.queue_worker_helpers import (
     make_queue_worker_cfg as _make_cfg,
@@ -104,10 +105,18 @@ class TestGetRunIdFromState(unittest.TestCase):
 
     def test_with_state(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            import json
-
-            state_file = Path(tmp) / "run_state.json"
-            state_file.write_text(json.dumps({"run_id": "test_run_123"}))
+            save_state(
+                Path(tmp),
+                {
+                    "run_id": "test_run_123",
+                    "reaction_dir": str(tmp),
+                    "selected_inp": "",
+                    "max_retries": 0,
+                    "status": "completed",
+                    "attempts": [],
+                    "final_result": {},
+                },
+            )
             result = _get_run_id_from_state(tmp)
             self.assertEqual(result, "test_run_123")
 
@@ -215,7 +224,8 @@ class TestQueueWorkerMethods(unittest.TestCase):
         self.assertIn("q_test", self.worker._running)
         mock_start_background_process.assert_called_once()
         command = mock_start_background_process.call_args.args[0]
-        self.assertIn("chemstack.orca.runtime.worker_job", command)
+        self.assertIn("chemstack.core.engines.worker_child", command)
+        self.assertEqual(_command_arg(command, "--engine"), "orca")
         self.assertEqual(_command_arg(command, "--queue-root"), str(self.root))
         self.assertEqual(_command_arg(command, "--queue-id"), "q_test")
         self.assertEqual(_command_arg(command, "--admission-token"), token or "")
@@ -655,24 +665,25 @@ class TestQueueWorkerMethods(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertGreaterEqual(mock_signal.call_count, 2)
 
-    def test_reconcile_orphaned_running_uses_run_report_even_with_worker_pid_file(self) -> None:
+    def test_reconcile_orphaned_running_uses_job_report_even_with_worker_pid_file(self) -> None:
         rxn = self.root / "mol_done"
         rxn.mkdir()
         entry = enqueue(self.root, str(rxn))
         dequeue_next(self.root)
         self.worker._write_pid_file()
 
-        (rxn / "run_report.json").write_text(
+        report_json_path(rxn).write_text(
             json.dumps(
-                {
-                    "run_id": "run_done_1",
-                    "status": "completed",
-                    "updated_at": "2026-03-10T05:00:00+00:00",
-                    "final_result": {
+                orca_artifact_payload(
+                    job_id="run_done_1",
+                    run_id="run_done_1",
+                    reaction_dir=str(rxn),
+                    status="completed",
+                    final_result={
                         "status": "completed",
                         "completed_at": "2026-03-10T04:59:59+00:00",
                     },
-                }
+                )
             ),
             encoding="utf-8",
         )

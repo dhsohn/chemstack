@@ -111,7 +111,8 @@ def test_build_worker_specs_defaults_to_engine_workers(monkeypatch: pytest.Monke
     )
 
     assert [spec.app for spec in specs] == ["orca"]
-    assert str(specs[0].argv[2]) == "chemstack.orca.commands.queue"
+    assert str(specs[0].argv[2]) == "chemstack.core.engines.queue_worker"
+    assert specs[0].argv[-2:] == ("--engine", "orca")
     assert specs[0].env is not None
     assert specs[0].env == {}
 
@@ -143,8 +144,10 @@ def test_build_worker_specs_defaults_to_all_workers_when_workflow_root_is_config
     )
 
     assert [spec.app for spec in specs] == ["orca", "crest", "xtb", "workflow"]
-    assert str(specs[1].argv[2]) == "chemstack.crest.queue_runtime"
-    assert str(specs[2].argv[2]) == "chemstack.xtb.queue_runtime"
+    assert str(specs[1].argv[2]) == "chemstack.core.engines.queue_worker"
+    assert str(specs[2].argv[2]) == "chemstack.core.engines.queue_worker"
+    assert specs[1].argv[-2:] == ("--engine", "crest")
+    assert specs[2].argv[-2:] == ("--engine", "xtb")
     assert specs[-1].argv[1:3] == (
         "-m",
         "chemstack.flow.cli_workflow",
@@ -180,8 +183,10 @@ def test_build_worker_specs_explicit_workflow_app_uses_configured_workflow_root(
     )
 
     assert [spec.app for spec in specs] == ["crest", "xtb", "workflow"]
-    assert str(specs[0].argv[2]) == "chemstack.crest.queue_runtime"
-    assert str(specs[1].argv[2]) == "chemstack.xtb.queue_runtime"
+    assert str(specs[0].argv[2]) == "chemstack.core.engines.queue_worker"
+    assert str(specs[1].argv[2]) == "chemstack.core.engines.queue_worker"
+    assert specs[0].argv[-2:] == ("--engine", "crest")
+    assert specs[1].argv[-2:] == ("--engine", "xtb")
     assert "--workflow-root" in specs[2].argv
     assert "/tmp/workflows" in specs[2].argv
 
@@ -564,21 +569,27 @@ def test_worker_command_and_selection_helpers_cover_edges() -> None:
         worker_specs._selected_worker_apps(["bad-app"])
 
 
+@pytest.mark.parametrize("app", ["xtb", "crest"])
+def test_workflow_engine_workers_are_not_direct_app_selections(app: str) -> None:
+    with pytest.raises(ValueError, match=f"Unsupported worker app: {app}"):
+        worker_specs._selected_worker_apps([app])
+
+
 def test_worker_tail_and_workflow_spec_include_optional_flags() -> None:
     assert worker_specs._engine_worker_tail_argv(
         app="orca",
         args=argparse.Namespace(auto_organize=True, no_auto_organize=False),
-    ) == ["--auto-organize"]
+    ) == ["--engine", "orca", "--auto-organize"]
     assert worker_specs._engine_worker_tail_argv(
         app="orca",
         args=argparse.Namespace(auto_organize=False, no_auto_organize=True),
-    ) == ["--no-auto-organize"]
+    ) == ["--engine", "orca", "--no-auto-organize"]
     assert (
         worker_specs._engine_worker_tail_argv(
             app="xtb",
             args=argparse.Namespace(auto_organize=True, no_auto_organize=False),
         )
-        == []
+        == ["--engine", "xtb"]
     )
 
     spec = worker_specs._workflow_worker_spec(

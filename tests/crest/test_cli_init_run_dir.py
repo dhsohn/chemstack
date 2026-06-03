@@ -14,6 +14,13 @@ from chemstack.crest import submission as crest_submission
 from chemstack.crest.runner import CrestRunResult
 from chemstack.crest.state import load_organized_ref, load_report_json, load_state
 from chemstack.flow.submitters import crest as crest_submitter
+from tests.engine_artifact_helpers import (
+    engine_payload as _engine_payload,
+    input_payload as _input_payload,
+    job as _job,
+    resources as _resources,
+    status as _status,
+)
 from tests.engine_process_helpers import process_one_crest_for_test
 
 
@@ -170,14 +177,14 @@ def test_cmd_run_dir_queues_job_updates_state_and_index(
     }
 
     assert state is not None
-    assert state["job_id"] == "crest-fixed-id"
-    assert state["job_dir"] == str(job_dir.resolve())
-    assert state["selected_input_xyz"] == str((job_dir / "preferred.xyz").resolve())
-    assert state["status"] == "queued"
-    assert state["mode"] == "nci"
-    assert state["molecule_key"] == "preferred"
-    assert state["resource_request"] == {"max_cores": 9, "max_memory_gb": 21}
-    assert state["resource_actual"] == {"max_cores": 9, "max_memory_gb": 21}
+    assert _job(state)["id"] == "crest-fixed-id"
+    assert _job(state)["dir"] == str(job_dir.resolve())
+    assert _input_payload(state)["selected_xyz_path"] == str((job_dir / "preferred.xyz").resolve())
+    assert _status(state)["state"] == "queued"
+    assert _engine_payload(state)["mode"] == "nci"
+    assert _engine_payload(state)["molecule_key"] == "preferred"
+    assert _resources(state)["request"] == {"max_cores": 9, "max_memory_gb": 21}
+    assert _resources(state)["actual"] == {"max_cores": 9, "max_memory_gb": 21}
 
     assert record is not None
     assert record.job_id == "crest-fixed-id"
@@ -246,7 +253,7 @@ def test_cmd_run_dir_reports_duplicate_queue_entries(
     assert len(queue_entries) == 1
     assert queue_entries[0].task_id == "crest-duplicate-id"
     assert state is not None
-    assert state["job_id"] == "crest-duplicate-id"
+    assert _job(state)["id"] == "crest-duplicate-id"
     assert len(notifications) == 1
 
 
@@ -295,9 +302,9 @@ def test_cli_end_to_end_smoke_path_submission_worker_and_index(
     report = load_report_json(job_dir)
     assert state is not None
     assert report is not None
-    assert state["status"] == "completed"
-    assert report["status"] == "completed"
-    assert report["retained_conformer_count"] == 1
+    assert _status(state)["state"] == "completed"
+    assert _status(report)["state"] == "completed"
+    assert _engine_payload(report)["retained_conformer_count"] == 1
 
     record = get_job_location(allowed_root, "crest-e2e-001")
     assert record is not None

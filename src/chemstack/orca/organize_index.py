@@ -151,7 +151,7 @@ def rebuild_index(organized_root: Path) -> int:
         atomic_write_text(records_path(organized_root), "")
         return 0
 
-    for state_file in sorted(organized_root.rglob("run_state.json")):
+    for state_file in sorted(organized_root.rglob("job_state.json")):
         if INDEX_DIR_NAME in state_file.parts:
             continue
         reaction_dir = state_file.parent

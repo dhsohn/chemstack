@@ -4,12 +4,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
+from chemstack.core.engines import crest_artifacts as _queue_artifacts
 from chemstack.core.queue import engine_execution as _engine_execution
 from chemstack.core.queue import execution as _queue_execution
-
-from . import queue_artifacts as _queue_artifacts
-from .runner import CrestRunResult
-from .worker_context import ExecutionContext
+from chemstack.crest.runner import CrestRunResult
+from chemstack.crest.worker_context import ExecutionContext
 
 
 @dataclass(frozen=True)

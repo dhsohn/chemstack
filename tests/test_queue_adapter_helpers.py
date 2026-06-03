@@ -10,7 +10,9 @@ import pytest
 from chemstack.core.queue import store as queue_store
 from chemstack.core.queue.types import QueueEntry, QueueStatus
 from chemstack.orca import queue_adapter, queue_entries, queue_orphans
+from chemstack.orca.state import report_json_path
 from chemstack.orca.statuses import RunStatus
+from tests.engine_artifact_helpers import orca_artifact_payload
 
 def _entry(
     queue_id: str,
@@ -87,7 +89,7 @@ def test_report_payload_and_terminal_report_data_cover_missing_invalid_completed
     assert queue_orphans.load_report_payload(reaction_dir) is None
     assert queue_orphans.terminal_report_data(reaction_dir) is None
 
-    report_path = reaction_dir / "run_report.json"
+    report_path = report_json_path(reaction_dir)
     report_path.write_text("{not-json", encoding="utf-8")
     assert queue_orphans.load_report_payload(reaction_dir) is None
 
@@ -96,15 +98,16 @@ def test_report_payload_and_terminal_report_data_cover_missing_invalid_completed
 
     report_path.write_text(
         json.dumps(
-            {
-                "run_id": "run_done",
-                "status": "completed",
-                "updated_at": "2026-03-10T05:00:00+00:00",
-                "final_result": {
+            orca_artifact_payload(
+                job_id="run_done",
+                run_id="run_done",
+                reaction_dir=str(reaction_dir),
+                status="completed",
+                final_result={
                     "status": "completed",
                     "completed_at": "2026-03-10T04:59:59+00:00",
                 },
-            }
+            )
         ),
         encoding="utf-8",
     )
@@ -117,15 +120,17 @@ def test_report_payload_and_terminal_report_data_cover_missing_invalid_completed
 
     report_path.write_text(
         json.dumps(
-            {
-                "run_id": "run_fail",
-                "updated_at": "2026-03-10T05:00:00+00:00",
-                "final_result": {
+            orca_artifact_payload(
+                job_id="run_fail",
+                run_id="run_fail",
+                reaction_dir=str(reaction_dir),
+                status="failed",
+                final_result={
                     "status": "failed",
                     "completed_at": "2026-03-10T04:58:00+00:00",
                     "reason": "orca_crash",
                 },
-            }
+            )
         ),
         encoding="utf-8",
     )
@@ -137,7 +142,14 @@ def test_report_payload_and_terminal_report_data_cover_missing_invalid_completed
     )
 
     report_path.write_text(
-        json.dumps({"run_id": "run_live", "status": "running"}),
+        json.dumps(
+            orca_artifact_payload(
+                job_id="run_live",
+                run_id="run_live",
+                reaction_dir=str(reaction_dir),
+                status="running",
+            )
+        ),
         encoding="utf-8",
     )
     assert queue_orphans.terminal_report_data(reaction_dir) is None

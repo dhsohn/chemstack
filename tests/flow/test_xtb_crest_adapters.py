@@ -10,6 +10,7 @@ from chemstack.flow.adapters.crest import load_crest_artifact_contract, select_c
 from chemstack.flow.adapters.xtb import load_xtb_artifact_contract, select_xtb_downstream_inputs
 from chemstack.flow.contracts.crest import CrestDownstreamPolicy
 from chemstack.flow.contracts.xtb import XtbArtifactContract, XtbDownstreamPolicy
+from tests.engine_artifact_helpers import artifact_payload
 
 
 def _write_json(path: Path, payload: object) -> None:
@@ -48,6 +49,80 @@ def _write_xyz_ensemble(path: Path, comments: tuple[str, ...]) -> None:
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+def _write_xtb_report(
+    job_dir: Path,
+    *,
+    job_id: str,
+    status: str = "completed",
+    reason: str = "",
+    selected_input_xyz: Path | str = "",
+    resource_request: dict[str, object] | None = None,
+    engine_payload: dict[str, object] | None = None,
+) -> None:
+    _write_json(
+        job_dir / "job_report.json",
+        artifact_payload(
+            engine="xtb",
+            job_id=job_id,
+            job_dir=str(job_dir),
+            status=status,
+            reason=reason,
+            primary_path=str(selected_input_xyz),
+            selected_xyz_path=str(selected_input_xyz),
+            resource_request=resource_request,
+            engine_payload=engine_payload,
+        ),
+    )
+
+
+def _write_crest_report(
+    job_dir: Path,
+    *,
+    job_id: str,
+    status: str = "completed",
+    reason: str = "",
+    selected_input_xyz: Path | str = "",
+    resource_request: dict[str, object] | None = None,
+    engine_payload: dict[str, object] | None = None,
+) -> None:
+    _write_json(
+        job_dir / "job_report.json",
+        artifact_payload(
+            engine="crest",
+            job_id=job_id,
+            job_dir=str(job_dir),
+            status=status,
+            reason=reason,
+            primary_path=str(selected_input_xyz),
+            selected_xyz_path=str(selected_input_xyz),
+            resource_request=resource_request,
+            engine_payload=engine_payload,
+        ),
+    )
+
+
+def _write_crest_state(
+    job_dir: Path,
+    *,
+    job_id: str,
+    status: str,
+    selected_input_xyz: Path | str = "",
+    engine_payload: dict[str, object] | None = None,
+) -> None:
+    _write_json(
+        job_dir / "job_state.json",
+        artifact_payload(
+            engine="crest",
+            job_id=job_id,
+            job_dir=str(job_dir),
+            status=status,
+            primary_path=str(selected_input_xyz),
+            selected_xyz_path=str(selected_input_xyz),
+            engine_payload=engine_payload,
+        ),
+    )
+
+
 def test_load_xtb_artifact_contract_parses_candidate_details_from_direct_path_target(tmp_path: Path) -> None:
     job_dir = tmp_path / "xtb_direct"
     selected_input_xyz = job_dir / "input.xyz"
@@ -57,17 +132,16 @@ def test_load_xtb_artifact_contract_parses_candidate_details_from_direct_path_ta
     _write_xyz(selected_input_xyz)
     _write_xyz(ts_guess, comment="energy: -0.5")
     _write_xyz(optimized, comment="energy: -1.2")
-    _write_json(
-        job_dir / "job_report.json",
-        {
-            "job_id": "xtb_direct_1",
+    _write_xtb_report(
+        job_dir,
+        job_id="xtb_direct_1",
+        reason="ok",
+        selected_input_xyz=selected_input_xyz,
+        resource_request={"max_cores": "4"},
+        engine_payload={
             "job_type": "path",
-            "status": "completed",
-            "reason": "ok",
             "reaction_key": "rxn-1",
-            "selected_input_xyz": str(selected_input_xyz),
             "analysis_summary": {"best_score": -0.5},
-            "resource_request": {"max_cores": "4"},
             "candidate_details": [
                 {"rank": 2, "kind": "optimized_geometry", "path": str(optimized), "selected": False, "score": "-1.2"},
                 {
@@ -137,9 +211,10 @@ def test_load_xtb_artifact_contract_preserves_selected_candidate_paths_without_d
             }
         ],
     )
-    _write_json(
-        job_dir / "job_report.json",
-        {
+    _write_xtb_report(
+        job_dir,
+        job_id="xtb_job_fallback",
+        engine_payload={
             "job_type": "",
             "selected_candidate_paths": [" ", str(candidate_one), str(candidate_two)],
         },
@@ -167,11 +242,10 @@ def test_load_xtb_artifact_contract_ignores_malformed_candidate_details(
 
     _write_xyz(candidate_one)
     _write_xyz(candidate_two)
-    _write_json(
-        job_dir / "job_report.json",
-        {
-            "job_id": "xtb_malformed_fallback",
-            "status": "completed",
+    _write_xtb_report(
+        job_dir,
+        job_id="xtb_malformed_fallback",
+        engine_payload={
             "selected_candidate_paths": [
                 {"path": str(candidate_one)},
                 str(candidate_one),
@@ -238,7 +312,10 @@ def test_load_xtb_artifact_contract_rejects_non_xtb_index_records(tmp_path: Path
             }
         ],
     )
-    _write_json(job_dir / "job_state.json", {"job_id": "xtb_bad_app", "status": "completed"})
+    _write_json(
+        job_dir / "job_state.json",
+        artifact_payload(engine="xtb", job_id="xtb_bad_app", job_dir=str(job_dir)),
+    )
 
     with pytest.raises(ValueError, match="Expected chemstack_xtb index record"):
         load_xtb_artifact_contract(xtb_index_root=index_root, target="xtb_bad_app")
@@ -253,17 +330,16 @@ def test_load_crest_artifact_contract_and_select_retained_conformers(tmp_path: P
     _write_xyz(selected_input_xyz)
     _write_xyz(conformer_one, comment="energy: -2.0")
     _write_xyz(conformer_two, comment="energy: -1.5")
-    _write_json(
-        job_dir / "job_report.json",
-        {
-            "job_id": "crest_direct_1",
+    _write_crest_report(
+        job_dir,
+        job_id="crest_direct_1",
+        reason="retained",
+        selected_input_xyz=selected_input_xyz,
+        resource_request={"max_cores": "2"},
+        engine_payload={
             "mode": "nci",
-            "status": "completed",
-            "reason": "retained",
             "molecule_key": "mol-1",
-            "selected_input_xyz": str(selected_input_xyz),
             "retained_conformer_paths": [" ", str(conformer_one), str(conformer_two)],
-            "resource_request": {"max_cores": "2"},
         },
     )
 
@@ -299,24 +375,23 @@ def test_load_crest_artifact_contract_prefers_active_state_over_stale_report(tmp
     _write_xyz(old_conformer)
     _write_xyz(active_input)
     _write_xyz(active_conformer)
-    _write_json(
-        job_dir / "job_report.json",
-        {
-            "job_id": "crest_old",
-            "status": "completed",
+    _write_crest_report(
+        job_dir,
+        job_id="crest_old",
+        engine_payload={
             "mode": "standard",
             "molecule_key": "old-mol",
             "retained_conformer_paths": [str(old_conformer)],
         },
     )
-    _write_json(
-        job_dir / "job_state.json",
-        {
-            "job_id": "crest_new",
-            "status": "running",
+    _write_crest_state(
+        job_dir,
+        job_id="crest_new",
+        status="running",
+        selected_input_xyz=active_input,
+        engine_payload={
             "mode": "nci",
             "molecule_key": "active-mol",
-            "selected_input_xyz": str(active_input),
             "retained_conformer_paths": [str(active_conformer)],
         },
     )
@@ -357,11 +432,10 @@ def test_load_crest_artifact_contract_uses_index_target_without_organized_ref(
             }
         ],
     )
-    _write_json(
-        job_dir / "job_report.json",
-        {
-            "job_id": "crest_index_job",
-            "status": "completed",
+    _write_crest_report(
+        job_dir,
+        job_id="crest_index_job",
+        engine_payload={
             "retained_conformer_paths": [str(conformer)],
         },
     )
@@ -384,12 +458,11 @@ def test_load_crest_artifact_contract_remaps_retained_paths_to_current_artifact_
 
     _write_xyz(selected_input_xyz)
     _write_xyz(conformer)
-    _write_json(
-        job_dir / "job_report.json",
-        {
-            "job_id": "crest_remap",
-            "status": "completed",
-            "selected_input_xyz": str(old_dir / "input.xyz"),
+    _write_crest_report(
+        job_dir,
+        job_id="crest_remap",
+        selected_input_xyz=old_dir / "input.xyz",
+        engine_payload={
             "retained_conformer_paths": [str(old_dir / "crest_best.xyz")],
         },
     )
@@ -414,15 +487,14 @@ def test_select_crest_downstream_inputs_splits_multiframe_retained_ensemble(tmp_
             "energy: -1.4",
         ),
     )
-    _write_json(
-        job_dir / "job_report.json",
-        {
-            "job_id": "crest_multiframe_1",
+    _write_crest_report(
+        job_dir,
+        job_id="crest_multiframe_1",
+        reason="retained",
+        selected_input_xyz=selected_input_xyz,
+        engine_payload={
             "mode": "standard",
-            "status": "completed",
-            "reason": "retained",
             "molecule_key": "mol-frames",
-            "selected_input_xyz": str(selected_input_xyz),
             "retained_conformer_paths": [str(retained_ensemble)],
         },
     )

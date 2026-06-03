@@ -14,6 +14,7 @@ from chemstack.flow.adapters import (
     _orca_tracking,
     orca as orca_adapter,
 )
+from tests.engine_artifact_helpers import orca_artifact_payload
 
 
 def _write_json(path: Path, payload: object) -> None:
@@ -219,9 +220,9 @@ def test_load_orca_artifact_contract_uses_runtime_context_fast_path(
     final_out.write_text("****ORCA TERMINATED NORMALLY****\n", encoding="utf-8")
     final_xyz.write_text("2\noptimized\nH 0 0 0\nH 0 0 0.75\n", encoding="utf-8")
 
-    _write_json(artifact_dir / "run_state.json", {"helper": "runtime"})
-    _write_json(artifact_dir / "run_report.json", {"helper": "runtime"})
-    (artifact_dir / "run_report.md").write_text("# runtime report\n", encoding="utf-8")
+    _write_json(artifact_dir / "job_state.json", {"helper": "runtime"})
+    _write_json(artifact_dir / "job_report.json", {"helper": "runtime"})
+    (artifact_dir / "job_report.md").write_text("# runtime report\n", encoding="utf-8")
 
     tracked_record = SimpleNamespace(
         app_name="chemstack_orca",
@@ -233,24 +234,30 @@ def test_load_orca_artifact_contract_uses_runtime_context_fast_path(
         resource_request={"max_cores": "8", "max_memory_gb": "16"},
         resource_actual={"max_cores": "6", "max_memory_gb": "12"},
     )
-    state = {
-        "run_id": "run_runtime",
-        "status": "running",
-        "selected_inp": str(inp),
-        "attempts": [{"index": 2, "analyzer_status": "completed"}],
-        "max_retries": "4",
-    }
-    report = {
-        "run_id": "run_runtime",
-        "attempt_count": "2",
-        "final_result": {
+    state = orca_artifact_payload(
+        job_id="run_runtime",
+        run_id="run_runtime",
+        reaction_dir=str(artifact_dir),
+        selected_inp=str(inp),
+        status="running",
+        attempts=[{"index": 1}, {"index": 2, "analyzer_status": "completed"}],
+        max_retries=4,
+    )
+    report = orca_artifact_payload(
+        job_id="run_runtime",
+        run_id="run_runtime",
+        reaction_dir=str(artifact_dir),
+        selected_inp=str(inp),
+        attempts=[{"index": 1}, {"index": 2}],
+        max_retries=4,
+        final_result={
             "status": "completed",
             "analyzer_status": "completed",
             "reason": "normal_termination",
             "completed_at": "2026-04-19T00:30:00+00:00",
             "last_out_path": str(final_out),
         },
-    }
+    )
     organized_ref = {
         "run_id": "run_runtime",
         "organized_output_dir": str(organized_dir),
@@ -323,9 +330,9 @@ def test_load_orca_artifact_contract_uses_runtime_context_fast_path(
     assert contract.selected_input_xyz == str(source_xyz.resolve())
     assert contract.last_out_path == str(final_out.resolve())
     assert contract.optimized_xyz_path == str(final_xyz.resolve())
-    assert contract.run_state_path == str((artifact_dir / "run_state.json").resolve())
-    assert contract.report_json_path == str((artifact_dir / "run_report.json").resolve())
-    assert contract.report_md_path == str((artifact_dir / "run_report.md").resolve())
+    assert contract.run_state_path == str((artifact_dir / "job_state.json").resolve())
+    assert contract.report_json_path == str((artifact_dir / "job_report.json").resolve())
+    assert contract.report_md_path == str((artifact_dir / "job_report.md").resolve())
     assert contract.attempt_count == 2
     assert contract.max_retries == 4
     assert contract.resource_request == {"max_cores": 8, "max_memory_gb": 16}
@@ -350,25 +357,28 @@ def test_load_orca_artifact_contract_falls_back_from_invalid_runtime_context_to_
     final_xyz.write_text("2\noptimized\nH 0 0 0\nH 0 0 0.75\n", encoding="utf-8")
 
     _write_json(
-        run_dir / "run_state.json",
-        {
-            "run_id": "run_invalid_runtime",
-            "status": "completed",
-            "selected_inp": "job_step.inp",
-            "final_result": {
+        run_dir / "job_state.json",
+        orca_artifact_payload(
+            job_id="run_invalid_runtime",
+            run_id="run_invalid_runtime",
+            reaction_dir=str(run_dir),
+            selected_inp="job_step.inp",
+            final_result={
                 "status": "completed",
                 "analyzer_status": "completed",
                 "reason": "normal_termination",
                 "last_out_path": "final.out",
             },
-        },
+        ),
     )
     _write_json(
-        run_dir / "run_report.json",
-        {
-            "run_id": "run_invalid_runtime",
-            "status": "completed",
-        },
+        run_dir / "job_report.json",
+        orca_artifact_payload(
+            job_id="run_invalid_runtime",
+            run_id="run_invalid_runtime",
+            reaction_dir=str(run_dir),
+            selected_inp="job_step.inp",
+        ),
     )
 
     monkeypatch.setattr(

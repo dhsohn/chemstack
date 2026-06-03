@@ -9,6 +9,8 @@ from chemstack.core.queue import list_queue
 from chemstack.crest import queue_runtime as crest_queue_cmd
 from chemstack.flow.adapters.crest import load_crest_artifact_contract
 from chemstack.flow.submitters import crest as crest_submitter
+from tests.engine_artifact_helpers import engine_payload as _engine_payload
+from tests.engine_artifact_helpers import status as _status
 from tests.engine_process_helpers import process_one_crest_for_test
 
 
@@ -65,10 +67,10 @@ def test_crest_submitter_roundtrip_smoke(
     assert (artifact_dir / "crest_best.xyz").exists()
 
     report_payload = json.loads((artifact_dir / "job_report.json").read_text(encoding="utf-8"))
-    assert report_payload["status"] == "completed"
-    assert report_payload["mode"] == "standard"
-    assert report_payload["retained_conformer_count"] == 2
-    assert sorted(Path(path).name for path in report_payload["retained_conformer_paths"]) == [
+    assert _status(report_payload)["state"] == "completed"
+    assert _engine_payload(report_payload)["mode"] == "standard"
+    assert _engine_payload(report_payload)["retained_conformer_count"] == 2
+    assert sorted(Path(path).name for path in _engine_payload(report_payload)["retained_conformer_paths"]) == [
         "crest_best.xyz",
         "crest_conformers.xyz",
     ]

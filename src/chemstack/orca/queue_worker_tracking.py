@@ -61,7 +61,7 @@ def get_run_id_from_state(
     *,
     callbacks: OrcaQueueWorkerTrackingCallbacks,
 ) -> str | None:
-    """Try to read run_id from the reaction_dir's run_state.json."""
+    """Try to read run_id from the reaction_dir's job_state.json."""
     state = callbacks.load_state(Path(reaction_dir))
     if state:
         return state.get("run_id")

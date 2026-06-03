@@ -26,6 +26,7 @@ from chemstack.flow.state import (
     workflow_summary,
     write_workflow_payload,
 )
+from tests.engine_artifact_helpers import artifact_payload
 
 
 def _write_json(path: Path, payload: object) -> None:
@@ -394,12 +395,19 @@ def test_load_crest_artifact_contract_uses_state_and_index_fallbacks_for_resourc
     _write_text(job_dir / "job_report.json", "{invalid json")
     _write_json(
         job_dir / "job_state.json",
-        {
-            "reason": "recovered_from_state",
-            "retained_conformer_paths": [" ", str(conformer_two), str(conformer_one)],
-            "retained_conformer_count": 0,
-            "resource_request": {" ": 5},
-        },
+        artifact_payload(
+            engine="crest",
+            job_id="crest_job_01",
+            job_dir=str(job_dir),
+            status="completed",
+            reason="recovered_from_state",
+            resource_request={" ": 5},
+            selected_xyz_path=str(selected_input_xyz),
+            engine_payload={
+                "retained_conformer_paths": [" ", str(conformer_two), str(conformer_one)],
+                "retained_conformer_count": 0,
+            },
+        ),
     )
     _write_json(job_dir / "organized_ref.json", {"organized_output_dir": str(organized_output_dir)})
     _write_json(
@@ -457,26 +465,31 @@ def test_load_crest_artifact_contract_prefers_active_state_over_stale_report(
     _write_xyz(selected_input_xyz)
     _write_json(
         job_dir / "job_report.json",
-        {
-            "job_id": "crest_old",
-            "status": "failed",
-            "reason": "old_failure",
-            "mode": "nci",
-            "selected_input_xyz": str(selected_input_xyz),
-            "retained_conformer_count": 12,
-            "retained_conformer_paths": [str(job_dir / "old_conf.xyz")],
-        },
+        artifact_payload(
+            engine="crest",
+            job_id="crest_old",
+            job_dir=str(job_dir),
+            status="failed",
+            reason="old_failure",
+            selected_xyz_path=str(selected_input_xyz),
+            engine_payload={
+                "mode": "nci",
+                "retained_conformer_count": 12,
+                "retained_conformer_paths": [str(job_dir / "old_conf.xyz")],
+            },
+        ),
     )
     _write_json(
         job_dir / "job_state.json",
-        {
-            "job_id": "crest_new",
-            "status": "running",
-            "reason": "",
-            "mode": "nci",
-            "selected_input_xyz": str(selected_input_xyz),
-            "resource_request": {"max_cores": 4, "max_memory_gb": 16},
-        },
+        artifact_payload(
+            engine="crest",
+            job_id="crest_new",
+            job_dir=str(job_dir),
+            status="running",
+            selected_xyz_path=str(selected_input_xyz),
+            resource_request={"max_cores": 4, "max_memory_gb": 16},
+            engine_payload={"mode": "nci"},
+        ),
     )
 
     contract = load_crest_artifact_contract(crest_index_root=index_root, target=str(job_dir))
@@ -507,7 +520,10 @@ def test_load_crest_artifact_contract_rejects_non_crest_index_records(tmp_path: 
             }
         ],
     )
-    _write_json(job_dir / "job_state.json", {"job_id": "crest_wrong_app", "status": "completed"})
+    _write_json(
+        job_dir / "job_state.json",
+        artifact_payload(engine="crest", job_id="crest_wrong_app", job_dir=str(job_dir)),
+    )
 
     with pytest.raises(ValueError, match="Expected chemstack_crest index record"):
         load_crest_artifact_contract(crest_index_root=index_root, target="crest_wrong_app")
@@ -532,16 +548,20 @@ def test_load_crest_artifact_contract_remaps_stale_paths_to_organized_outputs(tm
     _write_xyz(organized_conformer_two, comment="energy: -1.5")
     _write_json(
         organized_dir / "job_report.json",
-        {
-            "job_id": "crest_job_organized",
-            "mode": "standard",
-            "status": "completed",
-            "reason": "retained",
-            "molecule_key": "mol-organized",
-            "selected_input_xyz": str(stale_selected_input),
-            "organized_output_dir": str(organized_dir),
-            "retained_conformer_paths": [str(stale_conformer_one), str(stale_conformer_two)],
-        },
+        artifact_payload(
+            engine="crest",
+            job_id="crest_job_organized",
+            job_dir=str(organized_dir),
+            status="completed",
+            reason="retained",
+            selected_xyz_path=str(stale_selected_input),
+            artifacts={"organized_dir": str(organized_dir)},
+            engine_payload={
+                "mode": "standard",
+                "molecule_key": "mol-organized",
+                "retained_conformer_paths": [str(stale_conformer_one), str(stale_conformer_two)],
+            },
+        ),
     )
     _write_json(
         index_root / "job_locations.json",

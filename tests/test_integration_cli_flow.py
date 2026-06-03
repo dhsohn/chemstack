@@ -10,6 +10,7 @@ from chemstack.orca.queue_adapter import (
     queue_entry_force,
     queue_entry_reaction_dir,
 )
+from chemstack.orca.state import state_path
 from chemstack.core.queue.types import QueueStatus
 
 
@@ -108,7 +109,7 @@ class TestIntegrationCliFlow(unittest.TestCase):
         self.assertFalse(counter.exists())
         self.assertEqual(len(queue_entries), 1)
         self.assertEqual(queue_entries[0].status, QueueStatus.PENDING)
-        self.assertFalse((reaction / "run_state.json").exists())
+        self.assertFalse(state_path(reaction).exists())
 
     def test_force_submit_preserves_force_flag_in_queue_entry(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -188,4 +189,4 @@ class TestIntegrationCliFlow(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertFalse(counter.exists())
         self.assertEqual(len(queue_entries), 1)
-        self.assertFalse((reaction / "run_state.json").exists())
+        self.assertFalse(state_path(reaction).exists())

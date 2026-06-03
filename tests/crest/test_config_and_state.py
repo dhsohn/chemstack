@@ -10,6 +10,14 @@ import pytest
 from chemstack.core.artifacts import CREST_JOB_MANIFEST_FILE
 from chemstack.core.config import engines as config_mod
 from chemstack.crest import state as state_mod
+from tests.engine_artifact_helpers import (
+    artifact_payload,
+    artifacts as _artifacts,
+    engine_payload as _engine_payload,
+    job as _job,
+    recovery as _recovery,
+    resources as _resources,
+)
 
 JsonWriter = Callable[[Path, dict[str, Any]], Path]
 JsonLoader = Callable[[Path], dict[str, Any] | None]
@@ -340,16 +348,20 @@ def test_mark_recovery_pending_preserves_crest_schema_fields(
 
     state_mod.write_state(
         job_dir,
-        {
-            "job_id": "crest-old",
-            "created_at": "2026-04-19T00:00:00Z",
-            "started_at": "2026-04-19T00:01:00Z",
-            "retained_conformer_count": 2,
-            "retained_conformer_paths": ["/tmp/conf-a.xyz", "/tmp/conf-b.xyz"],
-            "resource_request": {"cores": 16},
-            "resource_actual": {"cores": 8},
-            "recovery_count": 1,
-        },
+        artifact_payload(
+            engine="crest",
+            job_id="crest-old",
+            job_dir=str(job_dir.resolve()),
+            created_at="2026-04-19T00:00:00Z",
+            started_at="2026-04-19T00:01:00Z",
+            resource_request={"cores": 16},
+            resource_actual={"cores": 8},
+            recovery_count=1,
+            engine_payload={
+                "retained_conformer_count": 2,
+                "retained_conformer_paths": ["/tmp/conf-a.xyz", "/tmp/conf-b.xyz"],
+            },
+        ),
     )
 
     payload = state_mod.mark_recovery_pending(
@@ -364,15 +376,15 @@ def test_mark_recovery_pending_preserves_crest_schema_fields(
     )
 
     assert state_mod.load_state(job_dir) == payload
-    assert payload["job_id"] == "crest-old"
-    assert payload["mode"] == "standard"
-    assert payload["molecule_key"] == "mol-1"
-    assert payload["retained_conformer_count"] == 2
-    assert payload["retained_conformer_paths"] == ["/tmp/conf-a.xyz", "/tmp/conf-b.xyz"]
-    assert "candidate_paths" not in payload
-    assert "input_summary" not in payload
-    assert payload["manifest_path"] == str(manifest.resolve())
-    assert payload["resource_request"] == {"cores": 4}
-    assert payload["resource_actual"] == {"cores": 8}
-    assert payload["recovery_count"] == 2
-    assert payload["recovery_pending"] is True
+    assert _job(payload)["id"] == "crest-old"
+    assert _engine_payload(payload)["mode"] == "standard"
+    assert _engine_payload(payload)["molecule_key"] == "mol-1"
+    assert _engine_payload(payload)["retained_conformer_count"] == 2
+    assert _engine_payload(payload)["retained_conformer_paths"] == ["/tmp/conf-a.xyz", "/tmp/conf-b.xyz"]
+    assert "candidate_paths" not in _engine_payload(payload)
+    assert "input_summary" not in _engine_payload(payload)
+    assert _artifacts(payload)["manifest_path"] == str(manifest.resolve())
+    assert _resources(payload)["request"] == {"cores": 4}
+    assert _resources(payload)["actual"] == {"cores": 8}
+    assert _recovery(payload)["count"] == 2
+    assert _recovery(payload)["pending"] is True

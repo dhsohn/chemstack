@@ -34,11 +34,16 @@ from chemstack.core.queue.lifecycle import (
 )
 from chemstack.core.queue.worker import (
     EngineRunningJob as _RunningJob,
-    HookedPidFileChildProcessQueueWorker,
     ManagedProcess as _ManagedProcess,
     resolve_admission_limit as _resolve_worker_admission_limit,
     start_background_process,
     terminate_process_group,
+)
+from chemstack.core.engines.queue_worker import EngineQueueWorker
+from chemstack.core.engines.orca_execution import (
+    WORKER_JOB_MODULE,
+    BackgroundRunJobProcess,
+    build_worker_child_command,
 )
 
 from chemstack.core.admission import (
@@ -71,11 +76,6 @@ from .queue_adapter import (
     queue_entry_task_id,
     requeue_running_entry,
     reconcile_orphaned_running_entries,
-)
-from .runtime.worker_job import (
-    WORKER_JOB_MODULE,
-    BackgroundRunJobProcess,
-    build_worker_child_command,
 )
 from . import queue_worker_lifecycle as _lifecycle_helpers
 from . import queue_worker_tracking as _tracking_helpers
@@ -385,121 +385,116 @@ def _queue_worker_hooks() -> Any:
     return _queue_module.queue_worker_hooks()
 
 
-class QueueWorker(HookedPidFileChildProcessQueueWorker):
-    """Main worker loop that manages concurrent job execution."""
+def _after_orca_worker_init(worker: EngineQueueWorker) -> None:
+    worker.admission_limit = _worker_admission_limit(worker.cfg, worker.max_concurrent)
 
-    worker_pid_file_name = WORKER_PID_FILE
 
-    def __init__(
-        self,
-        cfg: AppConfig,
-        config_path: str,
-        *,
-        max_concurrent: int = DEFAULT_MAX_CONCURRENT,
-        auto_organize: bool = False,
-    ) -> None:
-        configured_max = max(1, int(max_concurrent))
-        if getattr(cfg.runtime, "admission_limit", None) in (None, ""):
-            cfg.runtime.max_concurrent = configured_max
-        super().__init__(
-            cfg,
-            config_path=config_path,
-            max_concurrent=configured_max,
-            deps=_queue_worker_deps(),
-            hooks=_queue_worker_hooks(),
-            worker_pid_file_name=WORKER_PID_FILE,
-            admission_root=_admission_root_for_cfg(cfg),
+def _before_orca_worker_run(worker: EngineQueueWorker) -> None:
+    logger.info(
+        "Queue worker started (pid=%d, max_concurrent=%d, admission_root=%s, admission_limit=%d, auto_organize=%s)",
+        os.getpid(),
+        worker.max_concurrent,
+        worker.admission_root,
+        worker.admission_limit,
+        worker.auto_organize,
+    )
+
+
+def _after_orca_worker_run(_worker: EngineQueueWorker) -> None:
+    logger.info("Queue worker stopped")
+
+
+def _log_orca_worker_interrupt(_worker: EngineQueueWorker) -> None:
+    logger.info("Queue worker interrupted")
+
+
+def _make_orca_running_job(
+    _worker: EngineQueueWorker,
+    *,
+    queue_root: Path,
+    entry: Any,
+    process: Any,
+    admission_token: str,
+) -> _RunningJob:
+    running = _RunningJob(
+        queue_id=queue_entry_id(entry),
+        reaction_dir=queue_entry_reaction_dir(entry),
+        task_id=queue_entry_task_id(entry) or None,
+        process=process,
+        admission_token=admission_token,
+    )
+    setattr(running, "queue_root", queue_root)
+    return running
+
+
+def _auto_organize_terminal_job(worker: EngineQueueWorker, job: _RunningJob) -> None:
+    if not worker.auto_organize:
+        return
+    try:
+        from .commands.organize import organize_reaction_dir
+
+        result = organize_reaction_dir(
+            worker.cfg,
+            Path(job.reaction_dir),
+            notify_summary=False,
         )
-        self.auto_organize = bool(auto_organize)
-        self.admission_limit = _worker_admission_limit(cfg, self.max_concurrent)
+        if result.get("action") == "organized":
+            target_dir = str(result.get("target_dir") or "").strip()
+            if target_dir:
+                logger.info("Auto-organized %s -> %s", job.reaction_dir, target_dir)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Auto-organize failed for %s: %s", job.reaction_dir, exc)
 
-    def _before_run(self) -> None:
-        super()._before_run()
-        logger.info(
-            "Queue worker started (pid=%d, max_concurrent=%d, admission_root=%s, admission_limit=%d, auto_organize=%s)",
-            os.getpid(),
-            self.max_concurrent,
-            self.admission_root,
-            self.admission_limit,
-            self.auto_organize,
-        )
 
-    def _after_run(self) -> None:
-        super()._after_run()
-        logger.info("Queue worker stopped")
+def _check_orca_cancel_requests(worker: EngineQueueWorker) -> None:
+    for queue_id, job in worker._running_jobs():
+        if get_cancel_requested(_job_queue_root(worker, job), queue_id):
+            _cancel_orca_running_job(worker, queue_id, job)
+            worker._discard_running_job(queue_id)
 
-    def _run_iteration(self) -> None:
-        try:
-            super()._run_iteration()
-        except KeyboardInterrupt:
-            logger.info("Queue worker interrupted")
-            raise
 
-    # -- Orphan reconciliation --------------------------------------------
+def _cancel_orca_running_job(worker: EngineQueueWorker, queue_id: str, job: _RunningJob) -> None:
+    cancel_running_process_job(
+        worker,
+        queue_id,
+        job,
+        hooks=_orca_worker_lifecycle_hooks(),
+    )
 
-    def _reconcile_orphaned_running(self) -> None:
-        _reconcile_orphaned_running(self)
 
-    def _running_queue_id(self, entry: Any) -> str:
-        return queue_entry_id(entry)
-
-    def _make_running_job(
-        self,
-        *,
-        queue_root: Path,
-        entry: Any,
-        process: Any,
-        admission_token: str,
-    ) -> _RunningJob:
-        running = _RunningJob(
-            queue_id=queue_entry_id(entry),
-            reaction_dir=queue_entry_reaction_dir(entry),
-            task_id=queue_entry_task_id(entry) or None,
-            process=process,
-            admission_token=admission_token,
-        )
-        setattr(running, "queue_root", queue_root)
-        return running
-
-    # -- Monitoring -------------------------------------------------------
-
-    def _finalize_finished_job(self, queue_id: str, job: _RunningJob, *, rc: int) -> None:
-        _finalize_finished_job(self, queue_id, job, rc=rc)
-
-    def _auto_organize_terminal_job(self, job: _RunningJob) -> None:
-        if not self.auto_organize:
-            return
-        try:
-            from .commands.organize import organize_reaction_dir
-
-            result = organize_reaction_dir(
-                self.cfg,
-                Path(job.reaction_dir),
-                notify_summary=False,
-            )
-            if result.get("action") == "organized":
-                target_dir = str(result.get("target_dir") or "").strip()
-                if target_dir:
-                    logger.info("Auto-organized %s -> %s", job.reaction_dir, target_dir)
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("Auto-organize failed for %s: %s", job.reaction_dir, exc)
-
-    def _check_cancel_requests(self) -> None:
-        """Check if any running jobs have been requested to cancel."""
-        for queue_id, job in self._running_jobs():
-            if get_cancel_requested(_job_queue_root(self, job), queue_id):
-                self._cancel_running_job(queue_id, job)
-                self._discard_running_job(queue_id)
-
-    def _cancel_running_job(self, queue_id: str, job: _RunningJob) -> None:
-        cancel_running_process_job(
-            self,
-            queue_id,
-            job,
-            hooks=_orca_worker_lifecycle_hooks(),
-        )
-
-    # -- Shutdown ---------------------------------------------------------
+def QueueWorker(
+    cfg: AppConfig,
+    config_path: str,
+    *,
+    max_concurrent: int = DEFAULT_MAX_CONCURRENT,
+    auto_organize: bool = False,
+) -> EngineQueueWorker:
+    configured_max = max(1, int(max_concurrent))
+    if getattr(cfg.runtime, "admission_limit", None) in (None, ""):
+        cfg.runtime.max_concurrent = configured_max
+    worker = EngineQueueWorker(
+        cfg,
+        config_path=str(config_path),
+        engine="orca",
+        max_concurrent=configured_max,
+        deps=_queue_worker_deps(),
+        hooks=_queue_worker_hooks(),
+        worker_pid_file_name=WORKER_PID_FILE,
+        admission_root=_admission_root_for_cfg(cfg),
+        auto_organize=auto_organize,
+        after_init=_after_orca_worker_init,
+        before_run=_before_orca_worker_run,
+        after_run=_after_orca_worker_run,
+        keyboard_interrupt=_log_orca_worker_interrupt,
+        running_queue_id=queue_entry_id,
+        running_job_factory=_make_orca_running_job,
+        finalize_finished_job=_finalize_finished_job,
+        reconcile_orphaned_running=_reconcile_orphaned_running,
+        check_cancel_requests=_check_orca_cancel_requests,
+    )
+    setattr(worker, "_auto_organize_terminal_job", lambda job: _auto_organize_terminal_job(worker, job))
+    setattr(worker, "_cancel_running_job", lambda queue_id, job: _cancel_orca_running_job(worker, queue_id, job))
+    return worker
 
 
 def read_worker_pid(allowed_root: Path) -> int | None:

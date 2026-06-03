@@ -95,6 +95,8 @@ class ContractFieldReader:
 
 
 def normalize_text(value: Any) -> str:
+    if value is None:
+        return ""
     return str(value).strip()
 
 
@@ -206,6 +208,7 @@ def load_artifact_files(
         if select_payload_fn is not None
         else report or state or organized_ref
     )
+    payload = flatten_engine_artifact_payload(payload)
     if not payload:
         raise FileNotFoundError(
             f"{missing_label} artifact files not found in job directory: {job_dir}"
@@ -227,16 +230,50 @@ def select_active_artifact_payload(
     *,
     active_statuses: set[str] | frozenset[str],
 ) -> dict[str, Any]:
-    state_status = normalize_text(state.get("status")).lower()
+    state_payload = flatten_engine_artifact_payload(state)
+    report_payload = flatten_engine_artifact_payload(report)
+    state_status = normalize_text(state_payload.get("status")).lower()
     if state and state_status in active_statuses:
         return state
 
-    report_job_id = normalize_text(report.get("job_id"))
-    state_job_id = normalize_text(state.get("job_id"))
+    report_job_id = normalize_text(report_payload.get("job_id"))
+    state_job_id = normalize_text(state_payload.get("job_id"))
     if state and report_job_id and state_job_id and report_job_id != state_job_id:
         return state
 
     return report or state or organized_ref
+
+
+def flatten_engine_artifact_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(payload, dict):
+        return {}
+    if int(payload.get("schema_version", 0) or 0) != 1:
+        return {}
+    job = _mapping(payload.get("job"))
+    status = _mapping(payload.get("status"))
+    input_payload = _mapping(payload.get("input"))
+    resources = _mapping(payload.get("resources"))
+    artifacts = _mapping(payload.get("artifacts"))
+    engine_payload = _mapping(payload.get("engine_payload"))
+    flattened = dict(engine_payload)
+    flattened.setdefault("job_id", normalize_text(job.get("id")))
+    flattened.setdefault("queue_id", normalize_text(job.get("queue_id")))
+    flattened.setdefault("job_dir", normalize_text(job.get("dir")))
+    flattened.setdefault("status", normalize_text(status.get("state")))
+    flattened.setdefault("reason", normalize_text(status.get("reason")))
+    flattened.setdefault("exit_code", status.get("exit_code"))
+    flattened.setdefault("selected_input_xyz", normalize_text(input_payload.get("selected_xyz_path")))
+    flattened.setdefault("manifest_path", normalize_text(artifacts.get("manifest_path")))
+    flattened.setdefault("stdout_log", normalize_text(artifacts.get("stdout_log")))
+    flattened.setdefault("stderr_log", normalize_text(artifacts.get("stderr_log")))
+    flattened.setdefault("organized_output_dir", normalize_text(artifacts.get("organized_dir")))
+    flattened.setdefault("resource_request", resources.get("request") if isinstance(resources, dict) else {})
+    flattened.setdefault("resource_actual", resources.get("actual") if isinstance(resources, dict) else {})
+    return flattened
+
+
+def _mapping(value: Any) -> dict[str, Any]:
+    return dict(value) if isinstance(value, dict) else {}
 
 
 def validate_record_app(

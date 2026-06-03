@@ -23,9 +23,9 @@ from chemstack.core.utils import normalize_text
 _WORKFLOW_ENGINE_APPS = ("crest", "xtb")
 _ENGINE_APPS = ("orca",)
 _ENGINE_WORKER_MODULES = {
-    "orca": "chemstack.orca.commands.queue",
-    "crest": "chemstack.crest.queue_runtime",
-    "xtb": "chemstack.xtb.queue_runtime",
+    "orca": "chemstack.core.engines.queue_worker",
+    "crest": "chemstack.core.engines.queue_worker",
+    "xtb": "chemstack.core.engines.queue_worker",
 }
 _KNOWN_WORKER_APPS = (*_ENGINE_APPS, "workflow")
 _DEFAULT_WORKER_APPS = _ENGINE_APPS
@@ -76,9 +76,9 @@ def _selected_worker_apps(values: Sequence[str] | None) -> list[str]:
 
 
 def _engine_worker_tail_argv(*, app: str, args: argparse.Namespace) -> list[str]:
+    tail_argv: list[str] = ["--engine", app]
     if app != "orca":
-        return []
-    tail_argv: list[str] = []
+        return tail_argv
     if bool(getattr(args, "auto_organize", False)):
         tail_argv.append("--auto-organize")
     elif bool(getattr(args, "no_auto_organize", False)):

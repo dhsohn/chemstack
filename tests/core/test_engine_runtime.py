@@ -598,7 +598,7 @@ def test_internal_engine_queue_module_exposes_worker_facade_delegates(
     }
     spec = InternalEngineSpec(
         engine="xtb",
-        worker_job_module="chemstack.xtb.worker_execution",
+        worker_job_module="chemstack.core.engines.xtb_execution",
         worker_pid_file_name="engine_worker.pid",
     )
     module = InternalEngineQueueModule.create(

@@ -4,7 +4,15 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
-from chemstack.xtb import queue_lifecycle
+from chemstack.core.queue import lifecycle as _queue_lifecycle
+from chemstack.core.queue.internal_engine import InternalEngineSpec
+
+
+_ENGINE_LIFECYCLE_EXPORTS = InternalEngineSpec(engine="xtb").lifecycle_module_exports()
+queue_lifecycle = SimpleNamespace(
+    finalize_child_exit=_ENGINE_LIFECYCLE_EXPORTS.finalize_child_exit,
+    live_worker_pid_slots=_queue_lifecycle.live_worker_pid_slots,
+)
 
 
 def _entry(
@@ -118,9 +126,9 @@ def test_live_worker_pid_slots_keeps_only_running_live_worker_pids(tmp_path: Pat
         "queued": tmp_path / "queued",
     }
     states: dict[str, dict[str, Any]] = {
-        "running": {"worker_job_pid": "123"},
-        "invalid": {"worker_job_pid": "not-a-pid"},
-        "queued": {"worker_job_pid": "456"},
+        "running": {"process": {"worker_pid": "123"}},
+        "invalid": {"process": {"worker_pid": "not-a-pid"}},
+        "queued": {"process": {"worker_pid": "456"}},
     }
 
     slots = queue_lifecycle.live_worker_pid_slots(

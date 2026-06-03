@@ -6,7 +6,7 @@ from typing import Any, Callable
 
 from chemstack.core.queue import engine_execution as _engine_execution
 
-from . import queue_artifacts as _queue_artifacts
+from chemstack.core.engines import crest_artifacts as _queue_artifacts
 from .job_locations import molecule_key_from_selected_xyz
 
 

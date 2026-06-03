@@ -34,15 +34,25 @@ def terminal_report_data(
     report = load_report_payload_fn(reaction_dir)
     if report is None:
         return None
+    if int(report.get("schema_version", 0) or 0) != 1:
+        return None
 
-    final_result = report.get("final_result")
+    status_payload = report.get("status")
+    status_dict = status_payload if isinstance(status_payload, dict) else {}
+    timestamps = report.get("timestamps")
+    timestamps_dict = timestamps if isinstance(timestamps, dict) else {}
+    engine_payload = report.get("engine_payload")
+    engine_dict = engine_payload if isinstance(engine_payload, dict) else {}
+    final_result = engine_dict.get("final_result")
     final_dict = final_result if isinstance(final_result, dict) else {}
-    status = str(final_dict.get("status") or report.get("status") or "").strip().lower()
+    status = str(final_dict.get("status") or status_dict.get("state") or "").strip().lower()
     if status not in {QueueStatus.COMPLETED.value, QueueStatus.FAILED.value}:
         return None
 
-    run_id_text = str(report.get("run_id", "")).strip()
-    finished_at_text = str(final_dict.get("completed_at") or report.get("updated_at") or "").strip()
+    run_id_text = str(engine_dict.get("run_id", "")).strip()
+    finished_at_text = str(
+        final_dict.get("completed_at") or timestamps_dict.get("updated_at") or ""
+    ).strip()
     error_text = None
     if status == QueueStatus.FAILED.value:
         reason = str(final_dict.get("reason", "")).strip()
@@ -162,7 +172,7 @@ def _reconcile_entry(
             finished_at=finished_at,
             error=error,
         )
-        logger.info("Reconciled orphaned entry %s -> %s (from run_report)", queue_id, status)
+        logger.info("Reconciled orphaned entry %s -> %s (from job_report)", queue_id, status)
         return updated
 
     updated = replace(entry, status=QueueStatus.PENDING, started_at="")

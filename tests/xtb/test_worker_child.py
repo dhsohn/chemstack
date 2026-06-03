@@ -7,7 +7,7 @@ from typing import Any
 import pytest
 
 from chemstack.core.queue.types import QueueStatus
-from chemstack.xtb import worker_child
+from chemstack.core.engines import xtb_execution as worker_child
 
 
 def test_run_worker_child_job_processes_loaded_entry_and_releases_slot(
@@ -20,7 +20,7 @@ def test_run_worker_child_job_processes_loaded_entry_and_releases_slot(
     released: list[tuple[str, str]] = []
     processed: list[dict[str, Any]] = []
 
-    rc = worker_child.run_worker_child_job(
+    rc = worker_child._worker_child.run_worker_child_job(
         config_path="/tmp/chemstack.yaml",
         queue_root=tmp_path / "queue",
         queue_id="queue-1",
@@ -61,7 +61,7 @@ def test_run_worker_child_job_requeues_and_marks_recovery_on_shutdown(
     def raise_shutdown(*_args: Any, **_kwargs: Any) -> None:
         raise worker_child.WorkerShutdownRequested(context)
 
-    rc = worker_child.run_worker_child_job(
+    rc = worker_child._worker_child.run_worker_child_job(
         config_path="/tmp/chemstack.yaml",
         queue_root=tmp_path / "queue",
         queue_id="queue-1",
@@ -92,7 +92,7 @@ def test_run_worker_child_job_returns_failure_when_entry_is_not_running(
     entry = SimpleNamespace(queue_id="queue-1", status=QueueStatus.PENDING)
     released: list[tuple[str, str]] = []
 
-    rc = worker_child.run_worker_child_job(
+    rc = worker_child._worker_child.run_worker_child_job(
         config_path="/tmp/chemstack.yaml",
         queue_root=tmp_path / "queue",
         queue_id="queue-1",

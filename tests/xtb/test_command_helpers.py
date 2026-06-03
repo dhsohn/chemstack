@@ -6,6 +6,14 @@ import pytest
 import yaml
 
 from chemstack.xtb import job_inputs as _helpers
+from tests.engine_artifact_helpers import (
+    engine_payload as _engine_payload,
+    input_payload as _input_payload,
+    job as _job,
+    resources as _resources,
+    status as _status,
+    timestamps as _timestamps,
+)
 
 
 def _write_xyz(path: Path, comment: str) -> Path:
@@ -202,17 +210,20 @@ def test_queued_state_payload_copies_candidate_and_resource_metadata(tmp_path: P
     candidate_paths.append("/tmp/c.xyz")
     resource_request["max_cores"] = 99
 
-    assert payload["job_id"] == "xtb_20260420_000001"
-    assert payload["job_dir"] == str(tmp_path.resolve())
-    assert payload["selected_input_xyz"] == str(selected_input)
-    assert payload["job_type"] == "ranking"
-    assert payload["reaction_key"] == "mol_a"
-    assert payload["status"] == "queued"
-    assert payload["created_at"] == payload["updated_at"]
-    assert payload["candidate_count"] == 2
-    assert payload["candidate_paths"] == ["/tmp/a.xyz", "/tmp/b.xyz"]
-    assert payload["selected_candidate_paths"] == []
-    assert payload["input_summary"]["candidate_count"] == "2"
-    assert payload["input_summary"]["top_n"] == 2
-    assert payload["resource_request"] == {"max_cores": 6, "max_memory_gb": 24}
-    assert payload["resource_actual"] == {"max_cores": 6, "max_memory_gb": 24}
+    engine_payload = _engine_payload(payload)
+    assert payload["schema_version"] == 1
+    assert payload["engine"] == "xtb"
+    assert _job(payload)["id"] == "xtb_20260420_000001"
+    assert _job(payload)["dir"] == str(tmp_path.resolve())
+    assert _input_payload(payload)["selected_xyz_path"] == str(selected_input)
+    assert engine_payload["job_type"] == "ranking"
+    assert engine_payload["reaction_key"] == "mol_a"
+    assert _status(payload)["state"] == "queued"
+    assert _timestamps(payload)["created_at"] == _timestamps(payload)["updated_at"]
+    assert engine_payload["candidate_count"] == 2
+    assert engine_payload["candidate_paths"] == ["/tmp/a.xyz", "/tmp/b.xyz"]
+    assert engine_payload["selected_candidate_paths"] == []
+    assert engine_payload["input_summary"]["candidate_count"] == "2"
+    assert engine_payload["input_summary"]["top_n"] == 2
+    assert _resources(payload)["request"] == {"max_cores": 6, "max_memory_gb": 24}
+    assert _resources(payload)["actual"] == {"max_cores": 6, "max_memory_gb": 24}

@@ -40,7 +40,7 @@ def test_start_background_job_process_builds_crest_child_command(tmp_path: Path)
             "queue_id": "queue-1",
             "admission_token": "slot-1",
         }
-        return ["python", "-m", "chemstack.crest.worker_execution"]
+        return ["python", "-m", "chemstack.core.engines.crest_execution"]
 
     def start_process(command: list[str]) -> object:
         commands.append(command)
@@ -58,7 +58,7 @@ def test_start_background_job_process_builds_crest_child_command(tmp_path: Path)
         )
         is process
     )
-    assert commands == [["python", "-m", "chemstack.crest.worker_execution"]]
+    assert commands == [["python", "-m", "chemstack.core.engines.crest_execution"]]
 
 
 def test_attach_started_process_records_child_owner(tmp_path: Path) -> None:

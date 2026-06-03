@@ -15,6 +15,7 @@ import pytest
 from chemstack.orca.dft_index import DFTIndex
 from chemstack.orca.dft_monitor import DFTMonitor
 from chemstack.orca.orca_parser import parse_orca_output
+from tests.engine_artifact_helpers import orca_artifact_payload
 
 # ---------------------------------------------------------------------------
 # Realistic ORCA output fixtures
@@ -444,12 +445,21 @@ class TestParserRealisticOutputs:
 def _write_fixture(
     kb_dir: Path, name: str, content: str, status: str = "completed"
 ) -> Path:
-    """Write an ORCA output and run_state.json into a job directory."""
+    """Write an ORCA output and job_state.json into a job directory."""
     job_dir = kb_dir / name
     job_dir.mkdir(parents=True, exist_ok=True)
     (job_dir / "calc.out").write_text(content, encoding="utf-8")
-    (job_dir / "run_state.json").write_text(
-        json.dumps({"status": status}), encoding="utf-8"
+    (job_dir / "job_state.json").write_text(
+        json.dumps(
+            orca_artifact_payload(
+                job_id=name,
+                run_id=name,
+                reaction_dir=str(job_dir),
+                status=status,
+                final_result={"status": status},
+            )
+        ),
+        encoding="utf-8",
     )
     return job_dir
 

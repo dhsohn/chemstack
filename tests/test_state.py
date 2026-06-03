@@ -119,8 +119,8 @@ class TestState(unittest.TestCase):
             self.assertIsInstance(loaded, dict)
 
             write_report_files(reaction, state)
-            report_json = reaction / "run_report.json"
-            report_md = reaction / "run_report.md"
+            report_json = reaction / "job_report.json"
+            report_md = reaction / "job_report.md"
             self.assertTrue(report_json.exists())
             self.assertTrue(report_md.exists())
 
@@ -170,10 +170,11 @@ class TestState(unittest.TestCase):
                 write_report_md(reaction, markdown),
                 state_module.report_md_path(reaction),
             )
-            self.assertEqual(
-                state_module.report_json_path(reaction).read_text(encoding="utf-8"),
-                json.dumps(report_payload, ensure_ascii=True, indent=2),
-            )
+            written_report = load_report_json(reaction)
+            assert written_report is not None
+            self.assertEqual(written_report["engine"], "orca")
+            self.assertEqual(written_report["engine_payload"]["run_id"], state["run_id"])
+            self.assertEqual(written_report["status"]["state"], "created")
             self.assertEqual(state_module.report_md_path(reaction).read_text(encoding="utf-8"), markdown)
 
     def test_write_report_files_json_fields(self) -> None:
@@ -204,17 +205,17 @@ class TestState(unittest.TestCase):
             report_md_path = Path(result["report_md"])
 
             report = json.loads(report_json_path.read_text(encoding="utf-8"))
-            self.assertEqual(report["status"], "completed")
-            self.assertEqual(report["max_retries"], 3)
-            self.assertEqual(report["attempt_count"], 1)
-            self.assertEqual(report["attempts"], state["attempts"])
-            self.assertIsNotNone(report["final_result"])
+            self.assertEqual(report["status"]["state"], "completed")
+            self.assertEqual(report["engine_payload"]["max_retries"], 3)
+            self.assertEqual(len(report["engine_payload"]["attempts"]), 1)
+            self.assertEqual(report["engine_payload"]["attempts"], state["attempts"])
+            self.assertIsNotNone(report["engine_payload"]["final_result"])
 
             md = report_md_path.read_text(encoding="utf-8")
-            self.assertIn("# ORCA Run Report", md)
-            self.assertIn("## Attempts", md)
-            self.assertIn("## Final Result", md)
-            self.assertIn("| 1 |", md)
+            self.assertIn("# ChemStack ORCA Job Report", md)
+            self.assertIn("## Engine Payload", md)
+            self.assertIn("attempts", md)
+            self.assertIn("final_result", md)
             self.assertIn("normal_termination", md)
 
     def test_load_report_json_returns_none_for_missing_invalid_and_non_dict(self) -> None:
@@ -237,7 +238,7 @@ class TestState(unittest.TestCase):
     def test_load_state_returns_none_for_invalid_json(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             reaction = Path(td)
-            (reaction / "run_state.json").write_text("not valid json!!!", encoding="utf-8")
+            state_module.state_path(reaction).write_text("not valid json!!!", encoding="utf-8")
             self.assertIsNone(load_state(reaction))
 
     def test_lock_released_after_context_exit(self) -> None:

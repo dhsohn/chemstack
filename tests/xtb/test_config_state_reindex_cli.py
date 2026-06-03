@@ -16,6 +16,7 @@ from chemstack.core.config.engines import (
     load_xtb_config as load_config,
 )
 from chemstack.xtb import state as state_mod
+from tests.engine_artifact_helpers import artifact_payload
 
 
 def test_default_config_path_prefers_env(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -229,19 +230,25 @@ def test_mark_recovery_pending_preserves_xtb_schema_fields(
 
     state_mod.write_state(
         job_dir,
-        {
-            "job_id": "old-job",
-            "created_at": "2026-04-19T00:00:00Z",
-            "started_at": "2026-04-19T00:01:00Z",
-            "candidate_count": 2,
-            "candidate_paths": ["/tmp/old-a.xyz"],
-            "selected_candidate_paths": ["/tmp/old-best.xyz"],
-            "candidate_details": [{"path": "/tmp/old-a.xyz"}],
-            "analysis_summary": {"best": "/tmp/old-best.xyz"},
-            "resource_request": {"cores": 8},
-            "resource_actual": {"cores": 4},
-            "recovery_count": 3,
-        },
+        artifact_payload(
+            engine="xtb",
+            job_id="old-job",
+            job_dir=str(job_dir),
+            status="running",
+            resource_request={"cores": 8},
+            resource_actual={"cores": 4},
+            created_at="2026-04-19T00:00:00Z",
+            started_at="2026-04-19T00:01:00Z",
+            recovery_count=3,
+            artifacts={"manifest_path": str(manifest.resolve())},
+            engine_payload={
+                "candidate_count": 2,
+                "candidate_paths": ["/tmp/old-a.xyz"],
+                "selected_candidate_paths": ["/tmp/old-best.xyz"],
+                "candidate_details": [{"path": "/tmp/old-a.xyz"}],
+                "analysis_summary": {"best": "/tmp/old-best.xyz"},
+            },
+        ),
     )
 
     payload = state_mod.mark_recovery_pending(
@@ -257,17 +264,19 @@ def test_mark_recovery_pending_preserves_xtb_schema_fields(
     )
 
     assert state_mod.load_state(job_dir) == payload
-    assert payload["job_id"] == "old-job"
-    assert payload["job_type"] == "path_search"
-    assert payload["reaction_key"] == "rxn-1"
-    assert payload["input_summary"] == {"candidate_paths": ["/tmp/from-summary.xyz"]}
-    assert payload["candidate_count"] == 2
-    assert payload["candidate_paths"] == ["/tmp/old-a.xyz"]
-    assert payload["selected_candidate_paths"] == ["/tmp/old-best.xyz"]
-    assert payload["candidate_details"] == [{"path": "/tmp/old-a.xyz"}]
-    assert payload["analysis_summary"] == {"best": "/tmp/old-best.xyz"}
-    assert payload["manifest_path"] == str(manifest.resolve())
-    assert payload["resource_request"] == {"cores": 8}
-    assert payload["resource_actual"] == {"cores": 1}
-    assert payload["recovery_count"] == 4
-    assert payload["recovery_pending"] is True
+    assert payload["job"]["id"] == "old-job"
+    assert payload["engine_payload"]["job_type"] == "path_search"
+    assert payload["engine_payload"]["reaction_key"] == "rxn-1"
+    assert payload["engine_payload"]["input_summary"] == {
+        "candidate_paths": ["/tmp/from-summary.xyz"]
+    }
+    assert payload["engine_payload"]["candidate_count"] == 2
+    assert payload["engine_payload"]["candidate_paths"] == ["/tmp/old-a.xyz"]
+    assert payload["engine_payload"]["selected_candidate_paths"] == ["/tmp/old-best.xyz"]
+    assert payload["engine_payload"]["candidate_details"] == [{"path": "/tmp/old-a.xyz"}]
+    assert payload["engine_payload"]["analysis_summary"] == {"best": "/tmp/old-best.xyz"}
+    assert payload["artifacts"]["manifest_path"] == str(manifest.resolve())
+    assert payload["resources"]["request"] == {"cores": 8}
+    assert payload["resources"]["actual"] == {"cores": 1}
+    assert payload["recovery"]["count"] == 4
+    assert payload["recovery"]["pending"] is True

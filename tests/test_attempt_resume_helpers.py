@@ -5,7 +5,7 @@ from typing import cast
 from unittest.mock import patch
 
 from chemstack.orca import attempt_resume
-from chemstack.orca.state import new_state
+from chemstack.orca.state import new_state, state_path
 from chemstack.orca.statuses import AnalyzerStatus, RunStatus
 from chemstack.orca.types import AttemptRecord, RunFinishedNotification, RunState
 
@@ -39,7 +39,7 @@ def test_recover_missing_retry_input_covers_missing_attempt_shapes_and_sources(t
         retries_used=1,
         retry_recipe_step=lambda retry_number: retry_number,
         to_resolved_local=lambda raw: Path(raw),
-        save_state=lambda _reaction_dir, _state: reaction_dir / "run_state.json",
+        save_state=lambda _reaction_dir, _state: state_path(reaction_dir),
     ) == (False, "resume_attempts_missing")
     assert attempt_resume.recover_missing_retry_input(
         state=cast(RunState, {"attempts": ["bad"]}),
@@ -49,7 +49,7 @@ def test_recover_missing_retry_input_covers_missing_attempt_shapes_and_sources(t
         retries_used=1,
         retry_recipe_step=lambda retry_number: retry_number,
         to_resolved_local=lambda raw: Path(raw),
-        save_state=lambda _reaction_dir, _state: reaction_dir / "run_state.json",
+        save_state=lambda _reaction_dir, _state: state_path(reaction_dir),
     ) == (False, "resume_last_attempt_invalid")
     assert attempt_resume.recover_missing_retry_input(
         state={"attempts": [{}]},
@@ -59,7 +59,7 @@ def test_recover_missing_retry_input_covers_missing_attempt_shapes_and_sources(t
         retries_used=1,
         retry_recipe_step=lambda retry_number: retry_number,
         to_resolved_local=lambda raw: Path(raw),
-        save_state=lambda _reaction_dir, _state: reaction_dir / "run_state.json",
+        save_state=lambda _reaction_dir, _state: state_path(reaction_dir),
     ) == (False, "resume_source_input_missing")
 
     missing_selected = reaction_dir / "missing_selected.inp"
@@ -71,7 +71,7 @@ def test_recover_missing_retry_input_covers_missing_attempt_shapes_and_sources(t
         retries_used=1,
         retry_recipe_step=lambda retry_number: retry_number,
         to_resolved_local=lambda raw: Path(raw),
-        save_state=lambda _reaction_dir, _state: reaction_dir / "run_state.json",
+        save_state=lambda _reaction_dir, _state: state_path(reaction_dir),
     ) == (False, "resume_fallback_source_missing")
 
     assert attempt_resume.recover_missing_retry_input(
@@ -82,7 +82,7 @@ def test_recover_missing_retry_input_covers_missing_attempt_shapes_and_sources(t
         retries_used=1,
         retry_recipe_step=lambda retry_number: retry_number,
         to_resolved_local=lambda raw: Path(raw),
-        save_state=lambda _reaction_dir, _state: reaction_dir / "run_state.json",
+        save_state=lambda _reaction_dir, _state: state_path(reaction_dir),
     ) == (False, "resume_source_input_not_found")
 
 
@@ -101,7 +101,7 @@ def test_recover_missing_retry_input_success_creates_patch_actions_and_saves_sta
 
         def _save_state(reaction_dir_arg: Path, _state: RunState) -> Path:
             saved_paths.append(reaction_dir_arg)
-            return reaction_dir / "run_state.json"
+            return state_path(reaction_dir)
 
         recovered, reason = attempt_resume.recover_missing_retry_input(
             reaction_dir=reaction_dir,
@@ -147,7 +147,7 @@ def test_resolve_execution_input_covers_existing_retry_recovery_exception_and_su
         retry_inp_path=lambda inp, retry_number: inp.with_name(f"{inp.stem}.retry{retry_number:02d}.inp"),
         retry_recipe_step=lambda retry_number: retry_number,
         to_resolved_local=lambda raw: Path(raw),
-        save_state=lambda _reaction_dir, _state: reaction_dir / "run_state.json",
+        save_state=lambda _reaction_dir, _state: state_path(reaction_dir),
     )
     assert current_inp == retry_path
     assert reason is None
@@ -166,7 +166,7 @@ def test_resolve_execution_input_covers_existing_retry_recovery_exception_and_su
             retry_inp_path=lambda inp, retry_number: inp.with_name(f"{inp.stem}.retry{retry_number:02d}.inp"),
             retry_recipe_step=lambda retry_number: retry_number,
             to_resolved_local=lambda raw: Path(raw),
-            save_state=lambda _reaction_dir, _state: reaction_dir / "run_state.json",
+            save_state=lambda _reaction_dir, _state: state_path(reaction_dir),
         )
     assert current_inp is None
     assert reason == "missing_input_for_attempt_2:resume_recovery_exception"
@@ -185,7 +185,7 @@ def test_resolve_execution_input_covers_existing_retry_recovery_exception_and_su
             retry_inp_path=lambda inp, retry_number: inp.with_name(f"{inp.stem}.retry{retry_number:02d}.inp"),
             retry_recipe_step=lambda retry_number: retry_number,
             to_resolved_local=lambda raw: Path(raw),
-            save_state=lambda _reaction_dir, _state: reaction_dir / "run_state.json",
+            save_state=lambda _reaction_dir, _state: state_path(reaction_dir),
         )
     assert current_inp == retry_path
     assert reason is None

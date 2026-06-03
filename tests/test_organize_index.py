@@ -12,6 +12,7 @@ from chemstack.orca.organize_index import (
     append_record,
     index_dir,
 )
+from chemstack.orca.state import save_state
 
 
 def _write_records(organized_root: Path, records: list) -> None:
@@ -101,9 +102,7 @@ class TestRebuildIndex(unittest.TestCase):
                     "last_out_path": str(d / "rxn.out"),
                 },
             }
-            (d / "run_state.json").write_text(
-                json.dumps(state, ensure_ascii=True, indent=2), encoding="utf-8",
-            )
+            save_state(d, state)
 
             count = rebuild_index(org)
             self.assertEqual(count, 1)
@@ -138,9 +137,7 @@ class TestRebuildIndex(unittest.TestCase):
                     "last_out_path": str(Path(td) / "missing" / "rxn.out"),
                 },
             }
-            (d / "run_state.json").write_text(
-                json.dumps(state, ensure_ascii=True, indent=2), encoding="utf-8",
-            )
+            save_state(d, state)
 
             count = rebuild_index(org)
             self.assertEqual(count, 1)
@@ -198,9 +195,7 @@ class TestRebuildIndex(unittest.TestCase):
                     "last_out_path": str(retry_out),
                 },
             }
-            (d / "run_state.json").write_text(
-                json.dumps(state, ensure_ascii=True, indent=2), encoding="utf-8",
-            )
+            save_state(d, state)
 
             count = rebuild_index(org)
             self.assertEqual(count, 1)

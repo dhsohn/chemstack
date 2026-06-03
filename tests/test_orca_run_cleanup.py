@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 from chemstack.orca import run_cleanup
 from chemstack.orca.run_snapshot import RunSnapshot
+from chemstack.orca.state import save_state, state_path
 
 
 def _snapshot(
@@ -54,7 +55,7 @@ def _write_state(
         "attempts": [{"index": 1}],
         "final_result": {"status": status},
     }
-    (reaction_dir / "run_state.json").write_text(json.dumps(state, ensure_ascii=True, indent=2), encoding="utf-8")
+    save_state(reaction_dir, state)
 
 
 def test_resolved_path_text_handles_blank_and_resolve_failure(tmp_path: Path) -> None:
@@ -101,9 +102,9 @@ def test_clear_terminal_run_states_clears_tracked_and_untracked_terminal_states(
     cleared = run_cleanup.clear_terminal_run_states(allowed_root)
 
     assert cleared == 2
-    assert not (organized_dir / "run_state.json").exists()
-    assert not (untracked_dir / "run_state.json").exists()
-    assert (running_dir / "run_state.json").exists()
+    assert not state_path(organized_dir).exists()
+    assert not state_path(untracked_dir).exists()
+    assert state_path(running_dir).exists()
 
 
 def test_clear_terminal_run_states_skips_missing_files_and_warns_on_unlink_error(tmp_path: Path) -> None:
@@ -113,9 +114,9 @@ def test_clear_terminal_run_states_skips_missing_files_and_warns_on_unlink_error
     success_snapshot = _snapshot(allowed_root / "success", run_id="run_success", name="success", status="completed")
     running_snapshot = _snapshot(allowed_root / "running", run_id="run_running", name="running", status="running")
 
-    failed_state = failed_snapshot.reaction_dir / "run_state.json"
-    success_state = success_snapshot.reaction_dir / "run_state.json"
-    running_state = running_snapshot.reaction_dir / "run_state.json"
+    failed_state = state_path(failed_snapshot.reaction_dir)
+    success_state = state_path(success_snapshot.reaction_dir)
+    running_state = state_path(running_snapshot.reaction_dir)
     failed_state.write_text("{}", encoding="utf-8")
     success_state.write_text("{}", encoding="utf-8")
     running_state.write_text("{}", encoding="utf-8")

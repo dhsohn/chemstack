@@ -20,6 +20,7 @@ from chemstack.orca.state_machine import (
     is_resumable_state,
 )
 from chemstack.orca.statuses import AnalyzerStatus
+from chemstack.orca.state import load_state, save_state
 from chemstack.orca.types import RunState
 
 
@@ -229,7 +230,7 @@ class TestCrashRecovery(unittest.TestCase):
                 ],
                 "final_result": None,
             }
-            (reaction / "run_state.json").write_text(json.dumps(state), encoding="utf-8")
+            save_state(reaction, state)
             # No run.lock file → crashed
 
             def _fake_run(_self, inp_path: Path) -> RunResult:
@@ -257,12 +258,15 @@ class TestCrashRecovery(unittest.TestCase):
                     )(),
                     reservation_token=token,
                 )
-            saved = json.loads((reaction / "run_state.json").read_text(encoding="utf-8"))
+            saved = load_state(reaction)
 
         self.assertEqual(rc, 0)
+        assert saved is not None
         self.assertEqual(saved["run_id"], "run_crashed")  # Preserved run_id
         self.assertEqual(saved["status"], "completed")
-        self.assertTrue(saved["final_result"]["resumed"])
+        final_result = saved["final_result"]
+        assert final_result is not None
+        self.assertTrue(final_result["resumed"])
 
 
 class TestCLILogFileFlag(unittest.TestCase):

@@ -263,7 +263,7 @@ def plan_root_scan(
     skips: list[SkipReason] = []
 
     try:
-        state_files = sorted(root.rglob("run_state.json"))
+        state_files = sorted(root.rglob("job_state.json"))
     except OSError as exc:
         logger.error("Cannot scan root: %s (%s)", root, exc)
         return plans, skips

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -8,7 +7,7 @@ from types import SimpleNamespace
 
 from chemstack.orca.attempt_engine import _retry_recipe_step, run_attempts
 from chemstack.orca.orca_runner import WorkerShutdownInterrupt
-from chemstack.orca.state import new_state, state_path
+from chemstack.orca.state import load_state, new_state
 
 
 class _InterruptRunner:
@@ -87,10 +86,14 @@ class TestAttemptEngine(unittest.TestCase):
                 emit=lambda payload: emitted_payloads.append(payload),
             )
 
-            saved = json.loads(state_path(reaction_dir).read_text(encoding="utf-8"))
+            saved = load_state(reaction_dir)
 
         self.assertEqual(rc, 130)
-        self.assertEqual(saved["final_result"]["reason"], "interrupted_by_user")
+        self.assertIsNotNone(saved)
+        assert saved is not None
+        final_result = saved["final_result"]
+        assert final_result is not None
+        self.assertEqual(final_result["reason"], "interrupted_by_user")
         self.assertEqual(saved["status"], "failed")
         self.assertEqual(len(emitted_payloads), 1)
 
@@ -115,10 +118,14 @@ class TestAttemptEngine(unittest.TestCase):
                 emit=lambda payload: emitted_payloads.append(payload),
             )
 
-            saved = json.loads(state_path(reaction_dir).read_text(encoding="utf-8"))
+            saved = load_state(reaction_dir)
 
         self.assertEqual(rc, 143)
-        self.assertEqual(saved["final_result"]["reason"], "worker_shutdown")
+        self.assertIsNotNone(saved)
+        assert saved is not None
+        final_result = saved["final_result"]
+        assert final_result is not None
+        self.assertEqual(final_result["reason"], "worker_shutdown")
         self.assertEqual(saved["status"], "failed")
         self.assertEqual(len(emitted_payloads), 1)
 
@@ -273,11 +280,13 @@ class TestAttemptEngine(unittest.TestCase):
                 emit=lambda _payload: None,
             )
 
-            saved = json.loads(state_path(reaction_dir).read_text(encoding="utf-8"))
+            saved = load_state(reaction_dir)
             resume_inp = reaction_dir / "rxn.resume.inp"
             resume_text = resume_inp.read_text(encoding="utf-8")
 
         self.assertEqual(rc, 0)
+        self.assertIsNotNone(saved)
+        assert saved is not None
         self.assertEqual(runner.seen, [resume_inp])
         self.assertIn('%moinp "rxn.gbw"', resume_text)
         self.assertIn("MORead", resume_text)

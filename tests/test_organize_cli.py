@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 from chemstack.cli import main
 from chemstack.orca.organize_index import records_path
+from chemstack.orca.state import load_state, save_state, write_report_files
 
 
 def _write_config(root: Path, allowed_root: Path, organized_root: Path) -> Path:
@@ -52,12 +53,8 @@ def _make_completed_reaction(reaction_dir: Path) -> None:
             "last_out_path": str(out),
         },
     }
-    (reaction_dir / "run_state.json").write_text(
-        json.dumps(state, ensure_ascii=True, indent=2),
-        encoding="utf-8",
-    )
-    (reaction_dir / "run_report.json").write_text("{}", encoding="utf-8")
-    (reaction_dir / "run_report.md").write_text("# Report\n", encoding="utf-8")
+    save_state(reaction_dir, state)
+    write_report_files(reaction_dir, state)
 
 
 class TestOrganizeDryRun(unittest.TestCase):
@@ -114,9 +111,17 @@ class TestOrganizeDryRun(unittest.TestCase):
 
             rxn = allowed / "rxn_failed"
             rxn.mkdir()
-            (rxn / "run_state.json").write_text(
-                json.dumps({"run_id": "run_fail", "status": "failed", "final_result": {}}),
-                encoding="utf-8",
+            save_state(
+                rxn,
+                {
+                    "run_id": "run_fail",
+                    "reaction_dir": str(rxn),
+                    "selected_inp": "",
+                    "max_retries": 0,
+                    "status": "failed",
+                    "attempts": [],
+                    "final_result": {},
+                },
             )
 
             config = _write_config(root, allowed, organized)
@@ -182,10 +187,13 @@ class TestOrganizeApply(unittest.TestCase):
             self.assertEqual(rec["selected_inp"], "rxn.inp")
             self.assertEqual(rec["last_out_path"], "rxn.out")
 
-            state = json.loads((target_dir / "run_state.json").read_text(encoding="utf-8"))
+            state = load_state(target_dir)
+            assert state is not None
             self.assertEqual(state["reaction_dir"], str(target_dir))
             self.assertEqual(state["selected_inp"], str(target_dir / "rxn.inp"))
-            self.assertEqual(state["final_result"]["last_out_path"], str(target_dir / "rxn.out"))
+            final_result = state["final_result"]
+            assert final_result is not None
+            self.assertEqual(final_result["last_out_path"], str(target_dir / "rxn.out"))
             organized_ref = json.loads((rxn / "organized_ref.json").read_text(encoding="utf-8"))
             self.assertEqual(organized_ref["run_id"], rec["run_id"])
             self.assertEqual(organized_ref["organized_output_dir"], str(target_dir))
@@ -237,14 +245,17 @@ class TestOrganizeApply(unittest.TestCase):
             )
 
             moved_state_files = [
-                p for p in organized.rglob("run_state.json") if "index" not in p.parts
+                p for p in organized.rglob("job_state.json") if "index" not in p.parts
             ]
             self.assertEqual(moved_state_files, [])
 
-            state = json.loads((rxn / "run_state.json").read_text(encoding="utf-8"))
+            state = load_state(rxn)
+            assert state is not None
             self.assertEqual(state["reaction_dir"], str(rxn))
             self.assertEqual(state["selected_inp"], str(rxn / "rxn.inp"))
-            self.assertEqual(state["final_result"]["last_out_path"], str(rxn / "rxn.out"))
+            final_result = state["final_result"]
+            assert final_result is not None
+            self.assertEqual(final_result["last_out_path"], str(rxn / "rxn.out"))
 
 
 class TestOrganizeRootScan(unittest.TestCase):

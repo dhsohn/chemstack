@@ -5,6 +5,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
+from chemstack.core.engines.artifacts import (
+    EngineArtifactInput,
+    EngineArtifactJob,
+    EngineArtifactRecovery,
+    EngineArtifactResources,
+    EngineArtifactStatus,
+    EngineArtifactTimestamps,
+    build_engine_artifact_payload,
+)
 from chemstack.core.utils import (
     atomic_write_json,
     coerce_list as _shared_coerce_list,
@@ -181,8 +190,14 @@ def create_engine_state_bindings(
 def state_matches_fields(state: dict[str, Any] | None, fields: dict[str, Any]) -> bool:
     if not isinstance(state, dict):
         return False
+    input_payload = coerce_dict(state.get("input"))
+    engine_payload = coerce_dict(state.get("engine_payload"))
     for key, value in fields.items():
-        if normalize_text(state.get(key)) != normalize_text(value):
+        if key == "selected_input_xyz":
+            candidate = input_payload.get("selected_xyz_path") or input_payload.get("primary_path")
+        else:
+            candidate = engine_payload.get(key)
+        if normalize_text(candidate) != normalize_text(value):
             return False
     return True
 
@@ -218,10 +233,12 @@ def state_matches_engine_job(
 def is_recovery_pending_state(state: dict[str, Any] | None) -> bool:
     if not isinstance(state, dict):
         return False
-    if bool(state.get("recovery_pending")):
+    recovery_payload = coerce_dict(state.get("recovery"))
+    if bool(recovery_payload.get("pending")):
         return True
-    status = normalize_text(state.get("status")).lower()
-    reason = normalize_text(state.get("reason"))
+    status_payload = coerce_dict(state.get("status"))
+    status = normalize_text(status_payload.get("state")).lower()
+    reason = normalize_text(status_payload.get("reason"))
     return status == "queued" and reason in RECOVERY_PENDING_REASONS
 
 
@@ -231,7 +248,8 @@ def manifest_path_from_existing(
     *,
     manifest_filename: str,
 ) -> str:
-    manifest_path = normalize_text(existing.get("manifest_path"))
+    artifacts_payload = coerce_dict(existing.get("artifacts"))
+    manifest_path = normalize_text(artifacts_payload.get("manifest_path"))
     if manifest_path:
         return manifest_path
     manifest = (job_dir / manifest_filename).resolve()
@@ -271,15 +289,16 @@ def recovery_retained_fields(
 ) -> dict[str, Any]:
     fallbacks: Mapping[str, Any] = list_fallbacks or {}
     retained: dict[str, Any] = {}
+    engine_payload = coerce_dict(existing.get("engine_payload"))
     for field in spec.int_fields:
-        retained[field] = int(existing.get(field, 0) or 0)
+        retained[field] = int(engine_payload.get(field, 0) or 0)
     for field in spec.list_fields:
-        values = coerce_list(existing.get(field))
+        values = coerce_list(engine_payload.get(field))
         if not values and field in fallbacks:
             values = coerce_list(fallbacks[field])
         retained[field] = values
     for field in spec.dict_fields:
-        retained[field] = coerce_dict(existing.get(field))
+        retained[field] = coerce_dict(engine_payload.get(field))
     return retained
 
 
@@ -307,25 +326,60 @@ def recovery_pending_payload(
     resource_request: dict[str, Any] | None,
     resource_actual: dict[str, Any] | None,
 ) -> dict[str, Any]:
-    payload: dict[str, Any] = {
-        "job_id": normalize_text(existing.get("job_id")) or normalize_text(job_id),
-        "job_dir": str(job_dir.resolve()),
-        "selected_input_xyz": normalize_text(selected_input_xyz),
+    existing_job = coerce_dict(existing.get("job"))
+    existing_timestamps = coerce_dict(existing.get("timestamps"))
+    existing_recovery = coerce_dict(existing.get("recovery"))
+    existing_resources = coerce_dict(existing.get("resources"))
+    engine = normalize_text(existing.get("engine"))
+    if not engine:
+        engine = "xtb" if "job_type" in identity_fields else "crest"
+    engine_payload = {
         **{str(key): value for key, value in identity_fields.items()},
-        "status": "queued",
-        "reason": normalize_text(reason),
-        "created_at": normalize_text(existing.get("created_at")) or now,
-        "started_at": normalize_text(existing.get("started_at")),
-        "updated_at": now,
         **{str(key): value for key, value in retained_fields.items()},
-        "manifest_path": manifest_path_from_existing(job_dir, existing, manifest_filename=manifest_filename),
-        "resource_request": coerce_dict(resource_request) or coerce_dict(existing.get("resource_request")),
-        "resource_actual": coerce_dict(resource_actual) or coerce_dict(existing.get("resource_actual")),
-        "recovery_pending": True,
-        "recovery_reason": normalize_text(reason),
-        "recovery_count": int(existing.get("recovery_count", 0) or 0) + 1,
     }
-    return payload
+    return build_engine_artifact_payload(
+        engine=engine,
+        job=EngineArtifactJob(
+            id=normalize_text(existing_job.get("id")) or normalize_text(job_id),
+            queue_id=normalize_text(existing_job.get("queue_id")),
+            dir=str(job_dir.resolve()),
+            app_name=normalize_text(existing_job.get("app_name")),
+            task_id=normalize_text(existing_job.get("task_id")) or normalize_text(job_id),
+        ),
+        status=EngineArtifactStatus(state="queued", reason=normalize_text(reason)),
+        input=EngineArtifactInput(
+            primary_path=normalize_text(selected_input_xyz),
+            selected_xyz_path=normalize_text(selected_input_xyz),
+        ),
+        resources=EngineArtifactResources(
+            request=coerce_dict(resource_request)
+            or coerce_dict(existing_resources.get("request")),
+            actual=coerce_dict(resource_actual)
+            or coerce_dict(existing_resources.get("actual")),
+        ),
+        timestamps=EngineArtifactTimestamps(
+            created_at=normalize_text(existing_timestamps.get("created_at")) or now,
+            started_at=normalize_text(existing_timestamps.get("started_at")),
+            updated_at=now,
+        ),
+        recovery=EngineArtifactRecovery(
+            pending=True,
+            reason=normalize_text(reason),
+            count=int(existing_recovery.get("count", 0) or 0) + 1,
+            resumed=False,
+        ),
+        artifacts={
+            "manifest_path": manifest_path_from_existing(
+                job_dir,
+                existing,
+                manifest_filename=manifest_filename,
+            ),
+            "stdout_log": "",
+            "stderr_log": "",
+            "organized_dir": "",
+        },
+        engine_payload=engine_payload,
+    )
 
 
 @dataclass(frozen=True)

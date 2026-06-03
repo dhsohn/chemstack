@@ -11,19 +11,17 @@ import pytest
 
 import chemstack.orca.result_organizer as organizer
 from chemstack.orca.result_organizer import OrganizePlan
+from chemstack.orca.state import report_json_path, save_state
 
 
 def _write_state(reaction_dir: Path, state: Mapping[str, object]) -> None:
     reaction_dir.mkdir(parents=True, exist_ok=True)
-    (reaction_dir / "run_state.json").write_text(
-        json.dumps(state, ensure_ascii=True, indent=2),
-        encoding="utf-8",
-    )
+    save_state(reaction_dir, dict(state))
 
 
 def _write_report(reaction_dir: Path, payload: object) -> None:
     reaction_dir.mkdir(parents=True, exist_ok=True)
-    (reaction_dir / "run_report.json").write_text(
+    report_json_path(reaction_dir).write_text(
         json.dumps(payload, ensure_ascii=True, indent=2),
         encoding="utf-8",
     )
@@ -124,10 +122,10 @@ def test_plan_root_scan_handles_scan_errors_and_skips_special_dirs(tmp_path: Pat
     good_dir = root / "good"
     symlink_dir = root / "symlinked"
     organized_dir = organized / "inside"
-    good_state = good_dir / "run_state.json"
-    good_report = good_dir / "run_report.json"
-    symlink_report = symlink_dir / "run_report.json"
-    organized_state = organized_dir / "run_state.json"
+    good_state = good_dir / "job_state.json"
+    good_report = good_dir / "job_report.json"
+    symlink_report = symlink_dir / "job_report.json"
+    organized_state = organized_dir / "job_state.json"
     plan = _plan(good_dir, organized / "opt" / "H2" / "run_test")
 
     with patch(

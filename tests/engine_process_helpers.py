@@ -25,7 +25,7 @@ def process_one_xtb_for_test(queue_cmd: Any, cfg: Any) -> str:
 
 
 def process_one_crest_for_test(queue_cmd: Any, cfg: Any) -> str:
-    from chemstack.crest import worker_execution as crest_worker_execution
+    from chemstack.core.engines import crest_execution as crest_worker_execution
 
     slot_token = queue_cmd._try_reserve_admission_slot(cfg)
     if slot_token is None:

@@ -7,9 +7,29 @@ import subprocess
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Callable
 
 from chemstack.core.admission import activate_reserved_slot, release_slot
+from chemstack.core.config.engines import load_crest_config as load_config
+from chemstack.core.engines import crest_artifacts as _queue_artifacts
+from chemstack.core.engines.crest_terminal import (
+    WorkerExecutionOutcome,
+    finalize_processed_entry as _terminal_finalize_processed_entry,
+    mark_job_running as _terminal_mark_job_running,
+    mark_queue_terminal as _terminal_mark_queue_terminal,
+    sync_job_tracking as _terminal_sync_job_tracking,
+    write_execution_artifacts as _terminal_write_execution_artifacts,
+    write_running_state as _terminal_write_running_state,
+)
+from chemstack.core.engines.worker_child import (
+    WORKER_CHILD_MODULE,
+    build_worker_child_command as _build_unified_worker_child_command,
+)
+from chemstack.core.notifications.engines import (
+    notify_crest_job_finished as notify_job_finished,
+    notify_crest_job_started as notify_job_started,
+)
 from chemstack.core.queue import (
     execution as _queue_execution,
     get_cancel_requested,
@@ -21,47 +41,72 @@ from chemstack.core.queue import (
 )
 from chemstack.core.queue import engine_execution as _engine_execution
 from chemstack.core.queue import worker_execution_dependencies as _worker_dependencies
+from chemstack.core.queue.internal_engine import (
+    InternalEngineSpec,
+    create_worker_shutdown_exception_type,
+)
 from chemstack.core.queue.worker import (
     install_shutdown_signal_handlers,
     resolve_admission_root,
     terminate_process_group,
 )
-from chemstack.core.config.engines import load_crest_config as load_config
-from chemstack.core.notifications.engines import (
-    notify_crest_job_finished as notify_job_finished,
-    notify_crest_job_started as notify_job_started,
-)
 from chemstack.core.utils import now_utc_iso
 
-from . import queue_artifacts as _queue_artifacts
-from . import worker_child as _worker_child
-from .job_locations import upsert_job_record
-from .runner import CrestRunResult, finalize_crest_job, start_crest_job
-from .state import mark_recovery_pending
-from .worker_context import (
+from chemstack.crest.job_locations import upsert_job_record
+from chemstack.crest.runner import CrestRunResult, finalize_crest_job, start_crest_job
+from chemstack.crest.state import mark_recovery_pending
+from chemstack.crest.worker_context import (
     ExecutionContext,
     molecule_key as _molecule_key,
     mode as _mode,
 )
-from .worker_terminal import (
-    WorkerExecutionOutcome,
-    finalize_processed_entry as _terminal_finalize_processed_entry,
-    mark_job_running as _terminal_mark_job_running,
-    mark_queue_terminal as _terminal_mark_queue_terminal,
-    sync_job_tracking as _terminal_sync_job_tracking,
-    write_execution_artifacts as _terminal_write_execution_artifacts,
-    write_running_state as _terminal_write_running_state,
-)
 
 CANCEL_CHECK_INTERVAL_SECONDS = 1
-WORKER_JOB_MODULE = _worker_child.WORKER_JOB_MODULE
+WORKER_JOB_MODULE = WORKER_CHILD_MODULE
 is_recovery_pending = _queue_artifacts.is_recovery_pending
 load_state = _queue_artifacts.load_state
 state_matches_job = _queue_artifacts.state_matches_job
 write_report_json = _queue_artifacts.write_report_json
 write_report_md_lines = _queue_artifacts.write_report_md_lines
 write_state = _queue_artifacts.write_state
-WorkerShutdownRequested = _worker_child.WorkerShutdownRequested
+WorkerShutdownRequested = create_worker_shutdown_exception_type(__name__)
+_ENGINE_SPEC = InternalEngineSpec(
+    engine="crest",
+    worker_job_module="chemstack.core.engines.crest_execution",
+    include_admission_root=False,
+)
+_WORKER_CHILD = _ENGINE_SPEC.worker_child(
+    WorkerShutdownRequested,
+    process_dequeued_entry_kwargs_fn=lambda: {"molecule_key_resolver": _molecule_key},
+)
+
+
+def build_worker_child_command(
+    *,
+    config_path: str,
+    queue_root: str | Path,
+    queue_id: str,
+    admission_root: str | Path | None = None,
+    admission_token: str | None = None,
+) -> list[str]:
+    return _build_unified_worker_child_command(
+        engine="crest",
+        config_path=config_path,
+        queue_root=queue_root,
+        queue_id=queue_id,
+        admission_root=admission_root,
+        admission_token=admission_token,
+    )
+
+
+_worker_child = SimpleNamespace(
+    WORKER_JOB_MODULE=WORKER_JOB_MODULE,
+    WorkerShutdownRequested=WorkerShutdownRequested,
+    build_parser=_WORKER_CHILD.build_parser,
+    build_worker_child_command=build_worker_child_command,
+    run_worker_child_job=_WORKER_CHILD.run_worker_child_job,
+    shutdown_signal_handler_installer=_WORKER_CHILD.shutdown_signal_handler_installer,
+)
 
 
 WorkerConfigDependencies = _worker_dependencies.WorkerConfigDependencies
@@ -257,9 +302,6 @@ def build_worker_execution_dependencies(
 
 def default_worker_execution_dependencies() -> WorkerExecutionDependencies:
     return build_worker_execution_dependencies()
-
-
-build_worker_child_command = _worker_child.build_worker_child_command
 
 
 def _write_execution_artifacts(entry: Any, result: CrestRunResult) -> None:
@@ -637,6 +679,9 @@ def run_worker_child_job(
 
 def build_parser() -> argparse.ArgumentParser:
     return _worker_child.build_parser()
+
+
+shutdown_signal_handler_installer = _WORKER_CHILD.shutdown_signal_handler_installer
 
 
 def main(argv: list[str] | None = None) -> int:

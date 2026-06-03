@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import errno
-import json
 from pathlib import Path
 from unittest.mock import patch
 
@@ -9,6 +8,7 @@ import pytest
 
 from chemstack.orca import result_organizer
 from chemstack.orca.result_organizer import OrganizePlan
+from chemstack.orca.state import save_state
 
 
 def _plan(tmp_path: Path) -> OrganizePlan:
@@ -35,10 +35,7 @@ def _plan(tmp_path: Path) -> OrganizePlan:
 
 def _write_state(dir_path: Path, payload: dict[str, object]) -> None:
     dir_path.mkdir(parents=True, exist_ok=True)
-    (dir_path / "run_state.json").write_text(
-        json.dumps(payload, ensure_ascii=True, indent=2),
-        encoding="utf-8",
-    )
+    save_state(dir_path, payload)
 
 
 def test_attempt_and_metadata_helpers_cover_edge_cases(tmp_path: Path) -> None:

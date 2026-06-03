@@ -14,7 +14,7 @@ from chemstack.core.config.engines import (
     WorkflowEnginePathsConfig as PathsConfig,
 )
 from chemstack.crest.runner import CrestRunResult, _build_command
-from chemstack.crest import worker_execution
+from chemstack.core.engines import crest_execution as worker_execution
 
 
 def _cfg(tmp_path: Path) -> AppConfig:

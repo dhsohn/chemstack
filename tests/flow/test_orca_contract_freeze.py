@@ -14,6 +14,7 @@ from chemstack.flow.state import (
     workflow_artifacts,
     workflow_summary,
 )
+from tests.engine_artifact_helpers import orca_artifact_payload
 
 
 def _write_json(path: Path, payload: object) -> None:
@@ -65,22 +66,21 @@ def _prepare_orca_contract_freeze_fixture(tmp_path: Path) -> OrcaContractFreezeF
     inp = organized_dir / "rxn.inp"
     xyz = organized_dir / "rxn.xyz"
     out = organized_dir / "rxn.out"
-    report_md = organized_dir / "run_report.md"
+    report_md = organized_dir / "job_report.md"
     inp.write_text("! Opt\n* xyzfile 0 1 rxn.xyz\n", encoding="utf-8")
     xyz.write_text("2\ncomment\nH 0 0 0\nH 0 0 0.74\n", encoding="utf-8")
     out.write_text("****ORCA TERMINATED NORMALLY****\n", encoding="utf-8")
     report_md.write_text("# ORCA Run Report\n", encoding="utf-8")
 
     _write_json(
-        organized_dir / "run_state.json",
-        {
-            "job_id": "job_hist_1",
-            "run_id": "run_hist_1",
-            "reaction_dir": str(organized_dir),
-            "selected_inp": str(inp),
-            "max_retries": 3,
-            "status": "completed",
-            "attempts": [
+        organized_dir / "job_state.json",
+        orca_artifact_payload(
+            job_id="job_hist_1",
+            run_id="run_hist_1",
+            reaction_dir=str(organized_dir),
+            selected_inp=str(inp),
+            max_retries=3,
+            attempts=[
                 {
                     "index": 2,
                     "inp_path": str(inp),
@@ -94,26 +94,24 @@ def _prepare_orca_contract_freeze_fixture(tmp_path: Path) -> OrcaContractFreezeF
                     "ended_at": "2026-04-19T00:10:00+00:00",
                 }
             ],
-            "final_result": {
+            final_result={
                 "status": "completed",
                 "analyzer_status": "completed",
                 "reason": "normal_termination",
                 "completed_at": "2026-04-19T00:10:00+00:00",
                 "last_out_path": str(out),
             },
-        },
+        ),
     )
     _write_json(
-        organized_dir / "run_report.json",
-        {
-            "job_id": "job_hist_1",
-            "run_id": "run_hist_1",
-            "reaction_dir": str(organized_dir),
-            "selected_inp": str(inp),
-            "status": "completed",
-            "attempt_count": 1,
-            "max_retries": 3,
-            "attempts": [
+        organized_dir / "job_report.json",
+        orca_artifact_payload(
+            job_id="job_hist_1",
+            run_id="run_hist_1",
+            reaction_dir=str(organized_dir),
+            selected_inp=str(inp),
+            max_retries=3,
+            attempts=[
                 {
                     "index": 2,
                     "inp_path": str(inp),
@@ -127,14 +125,14 @@ def _prepare_orca_contract_freeze_fixture(tmp_path: Path) -> OrcaContractFreezeF
                     "ended_at": "2026-04-19T00:10:00+00:00",
                 }
             ],
-            "final_result": {
+            final_result={
                 "status": "completed",
                 "analyzer_status": "completed",
                 "reason": "normal_termination",
                 "completed_at": "2026-04-19T00:10:00+00:00",
                 "last_out_path": str(out),
             },
-        },
+        ),
     )
     _write_json(
         original_dir / "organized_ref.json",

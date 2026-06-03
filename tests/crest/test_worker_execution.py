@@ -11,7 +11,17 @@ import pytest
 
 from chemstack.crest.runner import CrestRunResult
 from chemstack.crest.state import REPORT_MD_FILE_NAME, load_report_json, load_state
-from chemstack.crest import worker_execution
+from chemstack.core.engines import crest_execution as worker_execution
+from tests.engine_artifact_helpers import (
+    artifact_payload,
+    engine_payload as _engine_payload,
+    input_payload as _input_payload,
+    job as _job,
+    recovery as _recovery,
+    resources as _resources,
+    status as _status,
+    timestamps as _timestamps,
+)
 
 
 def _cfg(tmp_path: Path) -> SimpleNamespace:
@@ -290,18 +300,22 @@ def test_write_execution_artifacts_writes_retained_paths_to_state_and_report(
     report_payload = load_report_json(job_dir)
     assert state_payload is not None
     assert report_payload is not None
-    assert state_payload["status"] == "completed"
-    assert state_payload["retained_conformer_count"] == 2
-    assert state_payload["retained_conformer_paths"] == list(result.retained_conformer_paths)
-    assert report_payload["queue_id"] == entry.queue_id
-    assert report_payload["molecule_key"] == "mol-42"
-    assert report_payload["retained_conformer_paths"] == list(result.retained_conformer_paths)
+    assert _status(state_payload)["state"] == "completed"
+    assert _engine_payload(state_payload)["retained_conformer_count"] == 2
+    assert _engine_payload(state_payload)["retained_conformer_paths"] == list(
+        result.retained_conformer_paths
+    )
+    assert _job(report_payload)["queue_id"] == entry.queue_id
+    assert _engine_payload(report_payload)["molecule_key"] == "mol-42"
+    assert _engine_payload(report_payload)["retained_conformer_paths"] == list(
+        result.retained_conformer_paths
+    )
 
     report_md = (job_dir / REPORT_MD_FILE_NAME).read_text(encoding="utf-8")
-    assert f"- Selected XYZ: `{selected_xyz.name}`" in report_md
-    assert "- Retained Files:" in report_md
+    assert "Selected XYZ" in report_md
+    assert "retained_conformer_paths" in report_md
     for path in result.retained_conformer_paths:
-        assert f"`{path}`" in report_md
+        assert path in report_md
 
 
 def test_write_running_state_returns_early_without_job_dir(
@@ -348,23 +362,24 @@ def test_write_running_state_writes_running_payload_with_fallback_timestamps(
     worker_execution._write_running_state(cfg, entry)
 
     assert captured["job_dir"] == job_dir.resolve()
-    assert captured["payload"] == {
-        "job_id": entry.task_id,
-        "job_dir": str(job_dir.resolve()),
-        "selected_input_xyz": str(selected_xyz),
-        "molecule_key": "mol-42",
-        "mode": "nci",
-        "status": "running",
-        "reason": "",
-        "started_at": "2026-04-19T08:00:00+00:00",
-        "updated_at": "2026-04-19T08:00:01+00:00",
-        "resource_request": {"max_cores": 4, "max_memory_gb": 16},
-        "resource_actual": {"max_cores": 4, "max_memory_gb": 16},
-        "created_at": "2026-04-19T08:00:00+00:00",
-        "recovery_pending": False,
-        "recovery_count": 0,
-        "resumed": False,
-    }
+    payload = captured["payload"]
+    assert payload["schema_version"] == 1
+    assert payload["engine"] == "crest"
+    assert _job(payload)["id"] == entry.task_id
+    assert _job(payload)["dir"] == str(job_dir.resolve())
+    assert _input_payload(payload)["selected_xyz_path"] == str(selected_xyz)
+    assert _engine_payload(payload)["molecule_key"] == "mol-42"
+    assert _engine_payload(payload)["mode"] == "nci"
+    assert _status(payload)["state"] == "running"
+    assert _status(payload)["reason"] == ""
+    assert _timestamps(payload)["started_at"] == "2026-04-19T08:00:00+00:00"
+    assert _timestamps(payload)["updated_at"] == "2026-04-19T08:00:01+00:00"
+    assert _timestamps(payload)["created_at"] == "2026-04-19T08:00:00+00:00"
+    assert _resources(payload)["request"] == {"max_cores": 4, "max_memory_gb": 16}
+    assert _resources(payload)["actual"] == {"max_cores": 4, "max_memory_gb": 16}
+    assert _recovery(payload)["pending"] is False
+    assert _recovery(payload)["count"] == 0
+    assert _recovery(payload)["resumed"] is False
 
 
 def test_write_running_state_marks_resumed_when_recovery_pending_state_exists(
@@ -378,33 +393,37 @@ def test_write_running_state_marks_resumed_when_recovery_pending_state_exists(
     entry = _entry(job_dir, selected_xyz, mode="nci", molecule_key="mol-42")
     worker_execution.write_state(
         job_dir,
-        {
-            "job_id": entry.task_id,
-            "job_dir": str(job_dir.resolve()),
-            "selected_input_xyz": str(selected_xyz.resolve()),
-            "molecule_key": "mol-42",
-            "mode": "nci",
-            "status": "queued",
-            "reason": "worker_shutdown",
-            "created_at": "2026-04-19T07:59:00+00:00",
-            "updated_at": "2026-04-19T07:59:00+00:00",
-            "recovery_pending": True,
-            "recovery_reason": "worker_shutdown",
-            "recovery_count": 2,
-        },
+        artifact_payload(
+            engine="crest",
+            job_id=entry.task_id,
+            job_dir=str(job_dir.resolve()),
+            status="queued",
+            reason="worker_shutdown",
+            primary_path=str(selected_xyz.resolve()),
+            selected_xyz_path=str(selected_xyz.resolve()),
+            created_at="2026-04-19T07:59:00+00:00",
+            updated_at="2026-04-19T07:59:00+00:00",
+            recovery_pending=True,
+            recovery_reason="worker_shutdown",
+            recovery_count=2,
+            engine_payload={
+                "molecule_key": "mol-42",
+                "mode": "nci",
+            },
+        ),
     )
 
     worker_execution._write_running_state(cfg, entry)
 
     payload = load_state(job_dir)
     assert payload is not None
-    assert payload["status"] == "running"
-    assert payload["reason"] == "worker_shutdown"
-    assert payload["created_at"] == "2026-04-19T07:59:00+00:00"
-    assert payload["recovery_pending"] is False
-    assert payload["recovery_reason"] == "worker_shutdown"
-    assert payload["recovery_count"] == 2
-    assert payload["resumed"] is True
+    assert _status(payload)["state"] == "running"
+    assert _status(payload)["reason"] == "worker_shutdown"
+    assert _timestamps(payload)["created_at"] == "2026-04-19T07:59:00+00:00"
+    assert _recovery(payload)["pending"] is False
+    assert _recovery(payload)["reason"] == "worker_shutdown"
+    assert _recovery(payload)["count"] == 2
+    assert _recovery(payload)["resumed"] is True
 
 
 def test_molecule_key_prefers_metadata_and_falls_back_to_selected_xyz(tmp_path: Path) -> None:

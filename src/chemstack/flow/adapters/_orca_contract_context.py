@@ -130,9 +130,11 @@ def set_current_dir(
 
 def load_context_payloads(context: LoaderContext, deps: Any) -> None:
     if not context.state and context.current_dir is not None:
-        context.state = deps.load_json_dict_fn(context.current_dir / "run_state.json")
+        context.state = deps.load_json_dict_fn(context.current_dir / "job_state.json")
     if not context.report and context.current_dir is not None:
-        context.report = deps.load_json_dict_fn(context.current_dir / "run_report.json")
+        context.report = deps.load_json_dict_fn(context.current_dir / "job_report.json")
+    context.state = _flatten_orca_engine_payload(context.state)
+    context.report = _flatten_orca_engine_payload(context.report)
     if not context.organized_ref and context.current_dir is not None:
         context.organized_ref = deps.load_json_dict_fn(context.current_dir / "organized_ref.json")
     if not context.organized_ref:
@@ -199,8 +201,10 @@ def refresh_from_organized_dir(
     if current_dir is None:
         return
     context.current_dir = current_dir
-    context.state = context.state or deps.load_json_dict_fn(current_dir / "run_state.json")
-    context.report = context.report or deps.load_json_dict_fn(current_dir / "run_report.json")
+    context.state = context.state or deps.load_json_dict_fn(current_dir / "job_state.json")
+    context.report = context.report or deps.load_json_dict_fn(current_dir / "job_report.json")
+    context.state = _flatten_orca_engine_payload(context.state)
+    context.report = _flatten_orca_engine_payload(context.report)
     context.organized_ref = context.organized_ref or deps.load_json_dict_fn(
         current_dir / "organized_ref.json"
     )
@@ -209,6 +213,37 @@ def refresh_from_organized_dir(
             context.tracked_record, current_dir
         )
     context.resolved_run_id = context.resolved_run_id or resolve_run_id(request, context, deps)
+
+
+def _flatten_orca_engine_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(payload, dict):
+        return {}
+    if int(payload.get("schema_version", 0) or 0) != 1:
+        return {}
+    if str(payload.get("engine", "")).strip() != "orca":
+        return {}
+    job = _mapping(payload.get("job"))
+    status = _mapping(payload.get("status"))
+    input_payload = _mapping(payload.get("input"))
+    timestamps = _mapping(payload.get("timestamps"))
+    artifacts = _mapping(payload.get("artifacts"))
+    engine_payload = _mapping(payload.get("engine_payload"))
+    flattened = dict(engine_payload)
+    flattened.setdefault("job_id", str(job.get("id", "")).strip())
+    flattened.setdefault("reaction_dir", str(job.get("dir", "")).strip())
+    flattened.setdefault("selected_inp", str(input_payload.get("primary_path", "")).strip())
+    flattened.setdefault("status", str(status.get("state", "")).strip())
+    flattened.setdefault("started_at", str(timestamps.get("started_at", "")).strip())
+    flattened.setdefault("updated_at", str(timestamps.get("updated_at", "")).strip())
+    final_result = flattened.get("final_result")
+    if isinstance(final_result, dict):
+        final_result.setdefault("last_out_path", str(artifacts.get("last_out_path", "")).strip())
+        final_result.setdefault("completed_at", str(timestamps.get("finished_at", "")).strip())
+    return flattened
+
+
+def _mapping(value: Any) -> dict[str, Any]:
+    return dict(value) if isinstance(value, dict) else {}
 
 
 __all__ = [

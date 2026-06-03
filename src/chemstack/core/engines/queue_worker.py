@@ -1,0 +1,168 @@
+from __future__ import annotations
+
+import argparse
+from collections.abc import Callable
+from pathlib import Path
+from typing import Any
+
+from chemstack.core.queue.worker import HookedPidFileChildProcessQueueWorker
+
+QUEUE_WORKER_MODULE = "chemstack.core.engines.queue_worker"
+
+
+WorkerCallback = Callable[..., Any]
+
+
+class EngineQueueWorker(HookedPidFileChildProcessQueueWorker):
+    """Common parent queue worker for ChemStack engine runtimes."""
+
+    def __init__(
+        self,
+        cfg: Any,
+        config_path: str,
+        *,
+        engine: str,
+        deps: Any,
+        hooks: Any,
+        worker_pid_file_name: str,
+        max_concurrent: int | None = None,
+        admission_root: str | Path | None = None,
+        auto_organize: bool = False,
+        after_init: WorkerCallback | None = None,
+        before_run: WorkerCallback | None = None,
+        after_run: WorkerCallback | None = None,
+        keyboard_interrupt: WorkerCallback | None = None,
+        running_queue_id: WorkerCallback | None = None,
+        running_job_factory: WorkerCallback | None = None,
+        finalize_finished_job: WorkerCallback | None = None,
+        finalize_child_exit: WorkerCallback | None = None,
+        reconcile_orphaned_running: WorkerCallback | None = None,
+        check_cancel_requests: WorkerCallback | None = None,
+    ) -> None:
+        self.engine = engine
+        self.auto_organize = bool(auto_organize)
+        self.admission_limit: int | None = None
+        self._after_init_callback = after_init
+        self._before_run_callback = before_run
+        self._after_run_callback = after_run
+        self._keyboard_interrupt_callback = keyboard_interrupt
+        self._running_queue_id_callback = running_queue_id
+        self._running_job_factory_callback = running_job_factory
+        self._finalize_finished_job_callback = finalize_finished_job
+        self._finalize_child_exit_callback = finalize_child_exit
+        self._reconcile_orphaned_running_callback = reconcile_orphaned_running
+        self._check_cancel_requests_callback = check_cancel_requests
+        super().__init__(
+            cfg,
+            config_path=config_path,
+            max_concurrent=max_concurrent,
+            deps=deps,
+            hooks=hooks,
+            worker_pid_file_name=worker_pid_file_name,
+            admission_root=admission_root,
+        )
+        if self._after_init_callback is not None:
+            self._after_init_callback(self)
+
+    def _before_run(self) -> None:
+        super()._before_run()
+        if self._before_run_callback is not None:
+            self._before_run_callback(self)
+
+    def _after_run(self) -> None:
+        super()._after_run()
+        if self._after_run_callback is not None:
+            self._after_run_callback(self)
+
+    def _run_iteration(self) -> None:
+        try:
+            super()._run_iteration()
+        except KeyboardInterrupt:
+            if self._keyboard_interrupt_callback is not None:
+                self._keyboard_interrupt_callback(self)
+            raise
+
+    def _running_queue_id(self, entry: Any) -> str:
+        if self._running_queue_id_callback is not None:
+            return str(self._running_queue_id_callback(entry))
+        return super()._running_queue_id(entry)
+
+    def _make_running_job(
+        self,
+        *,
+        queue_root: Path,
+        entry: Any,
+        process: Any,
+        admission_token: str,
+    ) -> Any:
+        if self._running_job_factory_callback is not None:
+            return self._running_job_factory_callback(
+                self,
+                queue_root=queue_root,
+                entry=entry,
+                process=process,
+                admission_token=admission_token,
+            )
+        return super()._make_running_job(
+            queue_root=queue_root,
+            entry=entry,
+            process=process,
+            admission_token=admission_token,
+        )
+
+    def _finalize_finished_job(self, queue_id: str, job: Any, *, rc: int) -> None:
+        if self._finalize_finished_job_callback is not None:
+            self._finalize_finished_job_callback(self, queue_id, job, rc=rc)
+            return
+        self._finalize_completed_job(queue_id, job, rc)
+
+    def _finalize_child_exit(self, job: Any, *, rc: int) -> None:
+        if self._finalize_child_exit_callback is None:
+            raise AttributeError("finalize_child_exit callback is not configured")
+        self._finalize_child_exit_callback(self, job, rc=rc)
+
+    def _reconcile_orphaned_running(self) -> None:
+        if self._reconcile_orphaned_running_callback is None:
+            self._reconcile_worker_state()
+            return
+        self._reconcile_orphaned_running_callback(self)
+
+    def _check_cancel_requests(self) -> None:
+        if self._check_cancel_requests_callback is None:
+            super()._check_cancel_requests()
+            return
+        self._check_cancel_requests_callback(self)
+
+
+def run_engine_queue_worker(engine: str, argv: list[str]) -> int:
+    from .registry import get_engine_definition
+
+    definition = get_engine_definition(engine)
+    return definition.queue_worker_main(argv)
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog=f"python -m {QUEUE_WORKER_MODULE}")
+    parser.add_argument("--engine", required=True)
+    parser.add_argument("--config", required=True)
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = build_parser()
+    args, remainder = parser.parse_known_args(argv)
+    forwarded = ["--config", args.config, *remainder]
+    return run_engine_queue_worker(str(args.engine).strip().lower(), forwarded)
+
+
+__all__ = [
+    "EngineQueueWorker",
+    "QUEUE_WORKER_MODULE",
+    "build_parser",
+    "main",
+    "run_engine_queue_worker",
+]
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

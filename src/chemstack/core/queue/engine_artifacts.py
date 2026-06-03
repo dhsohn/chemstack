@@ -5,6 +5,17 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from chemstack.core.engines.artifacts import (
+    EngineArtifactInput as NormalizedArtifactInput,
+    EngineArtifactJob,
+    EngineArtifactProcess,
+    EngineArtifactRecovery,
+    EngineArtifactResources,
+    EngineArtifactStatus,
+    EngineArtifactTimestamps,
+    build_engine_artifact_payload,
+    build_engine_report_markdown,
+)
 from chemstack.core.queue import execution as _queue_execution
 
 
@@ -17,6 +28,7 @@ class TerminalArtifactPayloads:
 @dataclass(frozen=True)
 class EngineArtifactFields:
     selected_input_xyz: str
+    engine: str = ""
     engine_fields: Mapping[str, Any] | None = None
     detail_fields: Mapping[str, Any] | None = None
 
@@ -39,9 +51,15 @@ def is_resumed_state(
     *,
     is_recovery_pending_fn: Callable[[dict[str, Any]], bool],
 ) -> bool:
+    status_payload = previous_state.get("status")
+    status_text = (
+        str(status_payload.get("state", "")).strip().lower()
+        if isinstance(status_payload, Mapping)
+        else str(status_payload or "").strip().lower()
+    )
     return (
         is_recovery_pending_fn(previous_state)
-        or str(previous_state.get("status", "")).strip().lower() == "running"
+        or status_text == "running"
     )
 
 
@@ -75,28 +93,50 @@ def build_running_state_payload(
     resource_request: dict[str, int],
     engine_fields: dict[str, Any] | None = None,
     detail_fields: dict[str, Any] | None = None,
+    engine: str = "",
+    worker_job_pid: int | None = None,
 ) -> dict[str, Any]:
     recovery_reason = _queue_execution.recovery_reason(previous_state)
-    payload = {
-        "job_id": entry.task_id,
-        "job_dir": str(job_dir),
-        "selected_input_xyz": selected_input_xyz,
+    engine_payload = {
         **dict(engine_fields or {}),
-        "status": "running",
-        "reason": recovery_reason if resumed else "",
-        "started_at": started_at,
-        "updated_at": updated_at,
         **dict(detail_fields or {}),
-        "resource_request": resource_request,
-        "resource_actual": dict(resource_request),
-        "created_at": _queue_execution.created_at(previous_state) or started_at,
-        "recovery_pending": False,
-        "recovery_count": _queue_execution.recovery_count(previous_state),
-        "resumed": bool(resumed),
     }
-    if recovery_reason:
-        payload["recovery_reason"] = recovery_reason
-    return payload
+    return build_engine_artifact_payload(
+        engine=engine,
+        job=EngineArtifactJob(
+            id=str(getattr(entry, "task_id", "") or ""),
+            queue_id=str(getattr(entry, "queue_id", "") or ""),
+            dir=str(job_dir),
+            app_name=str(getattr(entry, "app_name", "") or ""),
+            task_id=str(getattr(entry, "task_id", "") or ""),
+        ),
+        status=EngineArtifactStatus(
+            state="running",
+            reason=recovery_reason if resumed else "",
+        ),
+        input=NormalizedArtifactInput(
+            primary_path=selected_input_xyz,
+            selected_xyz_path=selected_input_xyz,
+        ),
+        resources=EngineArtifactResources(
+            request=resource_request,
+            actual=dict(resource_request),
+        ),
+        timestamps=EngineArtifactTimestamps(
+            created_at=_queue_execution.created_at(previous_state) or started_at,
+            started_at=started_at,
+            updated_at=updated_at,
+        ),
+        recovery=EngineArtifactRecovery(
+            pending=False,
+            reason=recovery_reason,
+            count=_queue_execution.recovery_count(previous_state),
+            resumed=bool(resumed),
+        ),
+        process=EngineArtifactProcess(worker_pid=worker_job_pid),
+        artifacts={},
+        engine_payload=engine_payload,
+    )
 
 
 def write_running_state_artifact(
@@ -110,6 +150,7 @@ def write_running_state_artifact(
     resumed: bool,
     resource_request: dict[str, int],
     write_state_fn: Callable[..., Any],
+    engine: str = "",
     engine_fields: dict[str, Any] | None = None,
     detail_fields: dict[str, Any] | None = None,
     worker_job_pid: int | None = None,
@@ -128,9 +169,9 @@ def write_running_state_artifact(
         resource_request=resource_request,
         engine_fields=engine_fields,
         detail_fields=detail_fields,
+        engine=engine,
+        worker_job_pid=worker_job_pid,
     )
-    if worker_job_pid is not None and worker_job_pid > 0:
-        payload["worker_job_pid"] = int(worker_job_pid)
     write_state_fn(job_dir, payload)
 
 
@@ -157,6 +198,7 @@ def write_running_engine_state_artifact(
         resumed=resumed,
         resource_request=resource_request,
         write_state_fn=write_state_fn,
+        engine=artifact_fields.engine,
         engine_fields=artifact_fields.engine_payload(),
         detail_fields=artifact_fields.detail_payload(),
         worker_job_pid=worker_job_pid,
@@ -173,29 +215,56 @@ def build_terminal_state_payload(
     resumed: bool,
     engine_fields: dict[str, Any] | None = None,
     detail_fields: dict[str, Any] | None = None,
+    engine: str = "",
 ) -> dict[str, Any]:
     recovery_reason = _queue_execution.recovery_reason(previous_state)
-    payload = {
-        "job_id": entry.task_id,
-        "job_dir": job_dir_text,
-        "selected_input_xyz": selected_input_xyz,
+    engine_payload = {
         **dict(engine_fields or {}),
-        "status": result.status,
-        "reason": result.reason,
-        "started_at": result.started_at,
-        "updated_at": result.finished_at,
         **dict(detail_fields or {}),
-        "manifest_path": result.manifest_path,
-        "resource_request": dict(result.resource_request),
-        "resource_actual": dict(result.resource_actual),
-        "created_at": _queue_execution.created_at(previous_state),
-        "recovery_pending": False,
-        "recovery_count": _queue_execution.recovery_count(previous_state),
-        "resumed": bool(resumed),
     }
-    if recovery_reason:
-        payload["recovery_reason"] = recovery_reason
-    return payload
+    return build_engine_artifact_payload(
+        engine=engine,
+        job=EngineArtifactJob(
+            id=str(getattr(entry, "task_id", "") or ""),
+            queue_id=str(getattr(entry, "queue_id", "") or ""),
+            dir=job_dir_text,
+            app_name=str(getattr(entry, "app_name", "") or ""),
+            task_id=str(getattr(entry, "task_id", "") or ""),
+        ),
+        status=EngineArtifactStatus(
+            state=result.status,
+            reason=result.reason,
+            exit_code=result.exit_code,
+        ),
+        input=NormalizedArtifactInput(
+            primary_path=selected_input_xyz,
+            selected_xyz_path=selected_input_xyz,
+        ),
+        resources=EngineArtifactResources(
+            request=dict(result.resource_request),
+            actual=dict(result.resource_actual),
+        ),
+        timestamps=EngineArtifactTimestamps(
+            created_at=_queue_execution.created_at(previous_state),
+            started_at=result.started_at,
+            updated_at=result.finished_at,
+            finished_at=result.finished_at,
+        ),
+        recovery=EngineArtifactRecovery(
+            pending=False,
+            reason=recovery_reason,
+            count=_queue_execution.recovery_count(previous_state),
+            resumed=bool(resumed),
+        ),
+        process=EngineArtifactProcess(),
+        artifacts={
+            "manifest_path": result.manifest_path,
+            "stdout_log": result.stdout_log,
+            "stderr_log": result.stderr_log,
+            "organized_dir": "",
+        },
+        engine_payload=engine_payload,
+    )
 
 
 def build_terminal_report_payload(
@@ -207,31 +276,23 @@ def build_terminal_report_payload(
     resumed: bool,
     engine_fields: dict[str, Any] | None = None,
     detail_fields: dict[str, Any] | None = None,
+    engine: str = "",
 ) -> dict[str, Any]:
-    recovery_reason = _queue_execution.recovery_reason(previous_state)
-    payload = {
-        "job_id": entry.task_id,
-        "queue_id": entry.queue_id,
-        "status": result.status,
-        "reason": result.reason,
-        **dict(engine_fields or {}),
-        "selected_input_xyz": selected_input_xyz,
-        "command": list(result.command),
-        "exit_code": result.exit_code,
-        "started_at": result.started_at,
-        "finished_at": result.finished_at,
-        "stdout_log": result.stdout_log,
-        "stderr_log": result.stderr_log,
-        **dict(detail_fields or {}),
-        "manifest_path": result.manifest_path,
-        "resource_request": dict(result.resource_request),
-        "resource_actual": dict(result.resource_actual),
-        "created_at": _queue_execution.created_at(previous_state),
-        "recovery_count": _queue_execution.recovery_count(previous_state),
-        "resumed": bool(resumed),
-    }
-    if recovery_reason:
-        payload["recovery_reason"] = recovery_reason
+    payload = build_terminal_state_payload(
+        entry,
+        result,
+        job_dir_text="",
+        selected_input_xyz=selected_input_xyz,
+        previous_state=previous_state,
+        resumed=resumed,
+        engine_fields=engine_fields,
+        detail_fields={
+            **dict(detail_fields or {}),
+            "command": list(result.command),
+        },
+        engine=engine,
+    )
+    payload["job"]["dir"] = ""
     return payload
 
 
@@ -245,6 +306,7 @@ def build_terminal_artifact_payloads(
     resumed: bool,
     engine_fields: dict[str, Any] | None = None,
     detail_fields: dict[str, Any] | None = None,
+    engine: str = "",
 ) -> TerminalArtifactPayloads:
     return TerminalArtifactPayloads(
         state=build_terminal_state_payload(
@@ -256,6 +318,7 @@ def build_terminal_artifact_payloads(
             resumed=resumed,
             engine_fields=engine_fields,
             detail_fields=detail_fields,
+            engine=engine,
         ),
         report=build_terminal_report_payload(
             entry,
@@ -265,6 +328,7 @@ def build_terminal_artifact_payloads(
             resumed=resumed,
             engine_fields=engine_fields,
             detail_fields=detail_fields,
+            engine=engine,
         ),
     )
 
@@ -292,6 +356,7 @@ def write_terminal_execution_artifacts(
         resumed=resumed,
         artifact_fields=EngineArtifactFields(
             selected_input_xyz=selected_input_xyz,
+            engine=str((engine_fields or {}).get("_engine", "")),
             engine_fields=engine_fields,
             detail_fields=detail_fields,
         ),
@@ -324,9 +389,11 @@ def write_terminal_engine_artifacts(
         selected_input_xyz=artifact_fields.selected_input_xyz,
         previous_state=previous_state,
         resumed=resumed,
+        engine=artifact_fields.engine,
         engine_fields=artifact_fields.engine_payload(),
         detail_fields=artifact_fields.detail_payload(),
     )
+    report_lines = build_engine_report_markdown(payloads.report)
     _queue_execution.write_result_artifacts(
         job_dir_text,
         state_payload=payloads.state,

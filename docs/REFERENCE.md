@@ -431,12 +431,12 @@ Principles:
 Generated in the job directory:
 
 - `<stem>.out`, `<stem>.retryNN.out`
-- `run_state.json`
-- `run_report.json`
-- `run_report.md`
+- `job_state.json`
+- `job_report.json`
+- `job_report.md`
 - `organized_ref.json` after organize leaves a stub in the original run directory
 
-Important `run_state.json` fields:
+Important `job_state.json` fields:
 
 - `job_id`
 - `run_id`
@@ -460,7 +460,7 @@ Important `attempts[]` fields:
 - `started_at`
 - `ended_at`
 
-Important `run_report.json` fields:
+Important `job_report.json` fields:
 
 - `job_id`
 - `run_id`
@@ -551,9 +551,9 @@ Compatibility note:
 - `reaction_dir` remains the ORCA queue and downstream contract field.
   Shared core helpers may also understand generic `job_dir` metadata for other
   engines, but ORCA producers should not replace `reaction_dir` with `job_dir`.
-- The worker-job module still accepts `--reaction-dir` for legacy direct
-  execution helpers. Supervised queue workers should use the queue identity
-  child path instead.
+- Engine workers run only from queue identity. The unified child entrypoint is
+  `python -m chemstack.core.engines.worker_child --engine <orca|xtb|crest> --config <path> --queue-root <path> --queue-id <id> --admission-token <token>`.
+  Legacy ORCA worker-job direct execution by reaction directory is not supported.
 
 ## 12) Recommended Workflow
 
@@ -562,7 +562,7 @@ Compatibility note:
 3. Confirm `status: queued`
 4. Close the submission terminal if desired
 5. Monitor with `list` or `journalctl`
-6. Review `run_report.md` after completion
+6. Review `job_report.md` after completion
 7. Use `--force` only when a deliberate rerun is needed
 
 ## 13) Frequently Encountered Issues

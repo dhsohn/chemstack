@@ -58,7 +58,7 @@ Use these patterns in new code:
 ```python
 from chemstack.cli import main
 from chemstack.orca.commands.run_inp import cmd_run_inp
-from chemstack.orca.runtime.worker_job import start_background_run_job
+from chemstack.core.engines import EngineDefinition, EngineQueueWorker
 
 from chemstack.core.queue import enqueue
 from chemstack.core.admission import reserve_slot
@@ -89,28 +89,20 @@ bash scripts/clean_artifacts.sh
 - `chemstack.orca` is the only implementation source of truth
 - All supported package imports live under `src/chemstack`
 - If a new feature requires code changes in ORCA logic, make them under `src/chemstack/orca`
-- Shared queue admission, child-entrypoint, process lifecycle, terminal
-  side-effect, and orphan-reconciliation helpers live under `chemstack.core.queue`
+- Shared engine definitions, queue workers, child entrypoints, artifacts, and
+  registry helpers live under `chemstack.core.engines`
 - Keep top-level alias packages and alternate runtime readers out of the codebase
 
 ## Internal Engine Workers
 
-xTB and CREST are internal workflow engines. ORCA remains the public queue-first
-engine, but its queue worker now uses the same internal-engine lifecycle helpers
-for queue-child execution, admission metadata, terminal side effects, and
-orphan reconciliation.
-
-New internal engines should expose a small engine adapter through
-`chemstack.core.queue.engine_execution` rather than owning a full worker
-lifecycle. Provide engine-local context, process, artifact, tracking, and
-notification callbacks, then execute through `InternalEngineWorkerAdapter` and
-`run_internal_engine_worker_entry`.
+xTB, CREST, and ORCA all execute through the common engine runtime. Engine-local
+packages should expose an `EngineDefinition`; parent workers use
+`EngineQueueWorker`, and children use
+`python -m chemstack.core.engines.worker_child --engine <orca|xtb|crest> --config <path> --queue-root <path> --queue-id <id> --admission-token <token>`.
 
 ORCA-specific state, retry, input selection, reports, auto-organize behavior,
 and the downstream `reaction_dir` contract stay in `chemstack.orca`. The
-queue-worker child path should use `--queue-root/--queue-id`; the direct
-`--reaction-dir` worker-job mode is retained only for compatibility and direct
-single-directory execution helpers.
+direct ORCA worker-job `--reaction-dir` mode is not supported.
 
 ## Related Docs
 

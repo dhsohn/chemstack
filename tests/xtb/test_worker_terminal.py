@@ -7,7 +7,7 @@ from typing import Any
 import pytest
 
 from chemstack.xtb import state as state_mod
-from chemstack.xtb import worker_terminal
+from chemstack.core.engines import xtb_worker_terminal as worker_terminal
 from chemstack.xtb.runner import XtbRunResult
 
 
@@ -68,9 +68,9 @@ def test_write_running_state_records_worker_job_pid(tmp_path: Path) -> None:
 
     payload = state_mod.load_state(job_dir)
     assert payload is not None
-    assert payload["status"] == "running"
-    assert payload["worker_job_pid"] == 4242
-    assert payload["job_type"] == "path_search"
+    assert payload["status"]["state"] == "running"
+    assert payload["process"]["worker_pid"] == 4242
+    assert payload["engine_payload"]["job_type"] == "path_search"
 
 
 def test_write_execution_artifacts_writes_terminal_state_and_report(tmp_path: Path) -> None:
@@ -87,9 +87,9 @@ def test_write_execution_artifacts_writes_terminal_state_and_report(tmp_path: Pa
     report = state_mod.load_report_json(job_dir)
     assert state is not None
     assert report is not None
-    assert state["status"] == "completed"
-    assert report["reason"] == "xtb_ok"
-    assert report["selected_candidate_paths"] == [str(selected_xyz)]
+    assert state["status"]["state"] == "completed"
+    assert report["status"]["reason"] == "xtb_ok"
+    assert report["engine_payload"]["selected_candidate_paths"] == [str(selected_xyz)]
 
 
 def test_finalize_execution_result_syncs_terminal_side_effects(

@@ -13,17 +13,27 @@ def coerce_mapping(value: Any) -> dict[str, Any]:
 
 def recovery_reason(state: dict[str, Any] | None) -> str:
     base_state = coerce_mapping(state)
-    return str(base_state.get("recovery_reason") or base_state.get("reason") or "").strip()
+    recovery = coerce_mapping(base_state.get("recovery"))
+    status = coerce_mapping(base_state.get("status"))
+    return str(
+        recovery.get("reason")
+        or status.get("reason")
+        or base_state.get("recovery_reason")
+        or base_state.get("reason")
+        or ""
+    ).strip()
 
 
 def recovery_count(state: dict[str, Any] | None) -> int:
     base_state = coerce_mapping(state)
-    return int(base_state.get("recovery_count", 0) or 0)
+    recovery = coerce_mapping(base_state.get("recovery"))
+    return int(recovery.get("count", base_state.get("recovery_count", 0)) or 0)
 
 
 def created_at(state: dict[str, Any] | None) -> str:
     base_state = coerce_mapping(state)
-    return str(base_state.get("created_at", "")).strip()
+    timestamps = coerce_mapping(base_state.get("timestamps"))
+    return str(timestamps.get("created_at") or base_state.get("created_at", "")).strip()
 
 
 def load_matching_state(

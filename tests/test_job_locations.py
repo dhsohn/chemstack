@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import tempfile
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 from chemstack.orca import _job_location_contracts
@@ -19,6 +20,9 @@ from chemstack.orca.job_locations import (
     resolve_latest_job_dir,
     upsert_job_record,
 )
+from chemstack.orca.state import report_json_path, state_path
+
+from tests.engine_artifact_helpers import orca_artifact_payload
 
 
 def _load_job_locations(root: Path) -> list[dict[str, object]]:
@@ -32,6 +36,47 @@ def _load_job_locations(root: Path) -> list[dict[str, object]]:
 def _write_json(path: Path, payload: object) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=True, indent=2), encoding="utf-8")
+
+
+def _orca_payload(
+    *,
+    job_id: str,
+    run_id: str = "",
+    reaction_dir: Path,
+    selected_inp: Path | str = "",
+    selected_xyz_path: Path | str = "",
+    status: str = "completed",
+    attempts: list[dict[str, object]] | None = None,
+    final_result: dict[str, object] | None = None,
+    max_retries: int = 0,
+    resource_request: dict[str, object] | None = None,
+    resource_actual: dict[str, object] | None = None,
+    engine_payload_extra: dict[str, object] | None = None,
+    artifacts_extra: dict[str, object] | None = None,
+) -> dict[str, object]:
+    return orca_artifact_payload(
+        job_id=job_id,
+        run_id=run_id or job_id,
+        reaction_dir=str(reaction_dir),
+        selected_inp=str(selected_inp) if selected_inp else "",
+        selected_xyz_path=str(selected_xyz_path) if selected_xyz_path else "",
+        status=status,
+        attempts=attempts,
+        final_result=final_result,
+        max_retries=max_retries,
+        resource_request=resource_request,
+        resource_actual=resource_actual,
+        engine_payload_extra=engine_payload_extra,
+        artifacts_extra=artifacts_extra,
+    )
+
+
+def _write_orca_state(reaction_dir: Path, **kwargs: Any) -> None:
+    _write_json(state_path(reaction_dir), _orca_payload(reaction_dir=reaction_dir, **kwargs))
+
+
+def _write_orca_report(reaction_dir: Path, **kwargs: Any) -> None:
+    _write_json(report_json_path(reaction_dir), _orca_payload(reaction_dir=reaction_dir, **kwargs))
 
 
 def _make_cfg(root: Path) -> AppConfig:
@@ -58,17 +103,20 @@ def test_upsert_job_record_writes_allowed_root_index_and_resolves_latest_dir() -
         job_dir.mkdir()
         inp = job_dir / "rxn.inp"
         inp.write_text("! Opt\n* xyz 0 1\nH 0 0 0\nH 0 0 0.74\n*\n", encoding="utf-8")
-        state: dict[str, object] = {
-            "job_id": "job_live_1",
-            "run_id": "run_live_1",
-            "reaction_dir": str(job_dir),
-            "selected_inp": str(inp),
-            "status": "queued",
-            "attempts": [],
-            "final_result": None,
-        }
-        (job_dir / "run_state.json").write_text(json.dumps(state, ensure_ascii=True, indent=2), encoding="utf-8")
-        (job_dir / "run_report.json").write_text(json.dumps({"job_id": "job_live_1", "status": "queued"}), encoding="utf-8")
+        _write_orca_state(
+            job_dir,
+            job_id="job_live_1",
+            run_id="run_live_1",
+            selected_inp=inp,
+            status="queued",
+        )
+        _write_orca_report(
+            job_dir,
+            job_id="job_live_1",
+            run_id="run_live_1",
+            selected_inp=inp,
+            status="queued",
+        )
 
         record = upsert_job_record(
             cfg,
@@ -92,7 +140,7 @@ def test_upsert_job_record_writes_allowed_root_index_and_resolves_latest_dir() -
         job_path, loaded_state, loaded_report = load_job_artifacts(index_root_for_cfg(cfg), "job_live_1")
         assert job_path == job_dir.resolve()
         assert loaded_state is not None and loaded_state["job_id"] == "job_live_1"
-        assert loaded_report is not None and loaded_report["job_id"] == "job_live_1"
+        assert loaded_report is not None and loaded_report["job"]["id"] == "job_live_1"
 
 
 def test_record_from_artifacts_uses_run_id_fallback_and_organized_ref() -> None:
@@ -152,16 +200,6 @@ def test_resolve_latest_job_dir_and_load_job_artifacts_cover_job_and_path_target
 
         inp = organized_dir / "rxn.inp"
         inp.write_text("! Opt\n* xyz 0 1\nH 0 0 0\nH 0 0 0.74\n*\n", encoding="utf-8")
-        report = {"job_id": "job_hist_1", "run_id": "run_hist_1", "status": "completed"}
-        state: dict[str, object] = {
-            "job_id": "job_hist_1",
-            "run_id": "run_hist_1",
-            "reaction_dir": str(organized_dir),
-            "selected_inp": str(inp),
-            "status": "completed",
-            "attempts": [],
-            "final_result": None,
-        }
         organized_ref = {
             "job_id": "job_hist_1",
             "run_id": "run_hist_1",
@@ -171,8 +209,18 @@ def test_resolve_latest_job_dir_and_load_job_artifacts_cover_job_and_path_target
             "selected_input_xyz": str(inp),
         }
 
-        _write_json(organized_dir / "run_state.json", state)
-        _write_json(organized_dir / "run_report.json", report)
+        _write_orca_state(
+            organized_dir,
+            job_id="job_hist_1",
+            run_id="run_hist_1",
+            selected_inp=inp,
+        )
+        _write_orca_report(
+            organized_dir,
+            job_id="job_hist_1",
+            run_id="run_hist_1",
+            selected_inp=inp,
+        )
         _write_json(original_dir / "organized_ref.json", organized_ref)
         _write_json(
             allowed_root / "job_locations.json",
@@ -198,7 +246,7 @@ def test_resolve_latest_job_dir_and_load_job_artifacts_cover_job_and_path_target
             job_path, loaded_state, loaded_report = load_job_artifacts(allowed_root, target)
             assert job_path == organized_dir.resolve()
             assert loaded_state is not None and loaded_state["run_id"] == "run_hist_1"
-            assert loaded_report is not None and loaded_report["job_id"] == "job_hist_1"
+            assert loaded_report is not None and loaded_report["job"]["id"] == "job_hist_1"
 
 
 def test_load_job_artifacts_follows_organized_ref_when_index_lookup_is_missing() -> None:
@@ -211,16 +259,6 @@ def test_load_job_artifacts_follows_organized_ref_when_index_lookup_is_missing()
         original_dir.mkdir()
         organized_dir.mkdir(parents=True)
 
-        state: dict[str, object] = {
-            "job_id": "job_hist_2",
-            "run_id": "run_hist_2",
-            "reaction_dir": str(organized_dir),
-            "selected_inp": str(organized_dir / "rxn.inp"),
-            "status": "completed",
-            "attempts": [],
-            "final_result": None,
-        }
-        report = {"job_id": "job_hist_2", "run_id": "run_hist_2", "status": "completed"}
         organized_ref = {
             "job_id": "job_hist_2",
             "run_id": "run_hist_2",
@@ -228,15 +266,25 @@ def test_load_job_artifacts_follows_organized_ref_when_index_lookup_is_missing()
             "organized_output_dir": str(organized_dir),
         }
 
-        _write_json(organized_dir / "run_state.json", state)
-        _write_json(organized_dir / "run_report.json", report)
+        _write_orca_state(
+            organized_dir,
+            job_id="job_hist_2",
+            run_id="run_hist_2",
+            selected_inp=organized_dir / "rxn.inp",
+        )
+        _write_orca_report(
+            organized_dir,
+            job_id="job_hist_2",
+            run_id="run_hist_2",
+            selected_inp=organized_dir / "rxn.inp",
+        )
         _write_json(original_dir / "organized_ref.json", organized_ref)
 
         assert resolve_latest_job_dir(allowed_root, str(original_dir)) == organized_dir.resolve()
         job_path, loaded_state, loaded_report = load_job_artifacts(allowed_root, str(original_dir))
         assert job_path == organized_dir.resolve()
         assert loaded_state is not None and loaded_state["job_id"] == "job_hist_2"
-        assert loaded_report is not None and loaded_report["run_id"] == "run_hist_2"
+        assert loaded_report is not None and loaded_report["engine_payload"]["run_id"] == "run_hist_2"
 
 
 def test_load_job_artifact_context_includes_record_and_original_stub_for_run_id_target() -> None:
@@ -251,16 +299,6 @@ def test_load_job_artifact_context_includes_record_and_original_stub_for_run_id_
 
         inp = organized_dir / "rxn.inp"
         inp.write_text("! Opt\n* xyz 0 1\nH 0 0 0\nH 0 0 0.74\n*\n", encoding="utf-8")
-        state: dict[str, object] = {
-            "job_id": "job_hist_3",
-            "run_id": "run_hist_3",
-            "reaction_dir": str(organized_dir),
-            "selected_inp": str(inp),
-            "status": "completed",
-            "attempts": [],
-            "final_result": None,
-        }
-        report = {"job_id": "job_hist_3", "run_id": "run_hist_3", "status": "completed"}
         organized_ref = {
             "job_id": "job_hist_3",
             "run_id": "run_hist_3",
@@ -269,8 +307,18 @@ def test_load_job_artifact_context_includes_record_and_original_stub_for_run_id_
             "selected_inp": str(inp),
         }
 
-        _write_json(organized_dir / "run_state.json", state)
-        _write_json(organized_dir / "run_report.json", report)
+        _write_orca_state(
+            organized_dir,
+            job_id="job_hist_3",
+            run_id="run_hist_3",
+            selected_inp=inp,
+        )
+        _write_orca_report(
+            organized_dir,
+            job_id="job_hist_3",
+            run_id="run_hist_3",
+            selected_inp=inp,
+        )
         _write_json(original_dir / "organized_ref.json", organized_ref)
         _write_json(
             allowed_root / "job_locations.json",
@@ -297,7 +345,7 @@ def test_load_job_artifact_context_includes_record_and_original_stub_for_run_id_
         assert context.record.job_id == "job_hist_3"
         assert context.job_dir == organized_dir.resolve()
         assert context.state is not None and context.state["run_id"] == "run_hist_3"
-        assert context.report is not None and context.report["job_id"] == "job_hist_3"
+        assert context.report is not None and context.report["job"]["id"] == "job_hist_3"
         assert context.organized_ref is not None
         assert context.organized_ref["original_run_dir"] == str(original_dir)
 
@@ -315,25 +363,17 @@ def test_load_job_runtime_context_exposes_queue_entry_and_organized_refresh() ->
 
         inp = organized_dir / "rxn.inp"
         inp.write_text("! Opt\n* xyzfile 0 1 rxn.xyz\n", encoding="utf-8")
-        _write_json(
-            organized_dir / "run_state.json",
-            {
-                "job_id": "job_hist_4",
-                "run_id": "run_hist_4",
-                "reaction_dir": str(organized_dir),
-                "selected_inp": str(inp),
-                "status": "completed",
-                "attempts": [],
-                "final_result": None,
-            },
+        _write_orca_state(
+            organized_dir,
+            job_id="job_hist_4",
+            run_id="run_hist_4",
+            selected_inp=inp,
         )
-        _write_json(
-            organized_dir / "run_report.json",
-            {
-                "job_id": "job_hist_4",
-                "run_id": "run_hist_4",
-                "status": "completed",
-            },
+        _write_orca_report(
+            organized_dir,
+            job_id="job_hist_4",
+            run_id="run_hist_4",
+            selected_inp=inp,
         )
         _write_json(
             original_dir / "organized_ref.json",
@@ -390,7 +430,7 @@ def test_load_job_runtime_context_exposes_queue_entry_and_organized_refresh() ->
         assert context.organized_dir == organized_dir.resolve()
         assert context.artifact.job_dir == organized_dir.resolve()
         assert context.artifact.state is not None and context.artifact.state["run_id"] == "run_hist_4"
-        assert context.artifact.report is not None and context.artifact.report["job_id"] == "job_hist_4"
+        assert context.artifact.report is not None and context.artifact.report["job"]["id"] == "job_hist_4"
         assert context.artifact.organized_ref is not None
         assert context.artifact.organized_ref["organized_output_dir"] == str(organized_dir)
 
@@ -412,65 +452,44 @@ def test_load_orca_contract_payload_returns_normalized_runtime_fields() -> None:
         xyz.write_text("2\ncomment\nH 0 0 0\nH 0 0 0.74\n", encoding="utf-8")
         out = organized_dir / "rxn.out"
         out.write_text("****ORCA TERMINATED NORMALLY****\n", encoding="utf-8")
-        _write_json(
-            organized_dir / "run_state.json",
+        attempts = [
             {
-                "job_id": "job_hist_5",
-                "run_id": "run_hist_5",
-                "reaction_dir": str(organized_dir),
-                "selected_inp": str(inp),
-                "max_retries": 3,
-                "status": "completed",
-                "attempts": [
-                    {
-                        "index": 2,
-                        "inp_path": str(inp),
-                        "out_path": str(out),
-                        "return_code": 0,
-                        "analyzer_status": "completed",
-                        "analyzer_reason": "normal_termination",
-                        "markers": [],
-                        "patch_actions": [],
-                    }
-                ],
-                "final_result": {
-                    "status": "completed",
-                    "analyzer_status": "completed",
-                    "reason": "normal_termination",
-                    "completed_at": "2026-04-19T00:10:00+00:00",
-                    "last_out_path": str(out),
-                },
-            },
+                "index": 2,
+                "inp_path": str(inp),
+                "out_path": str(out),
+                "return_code": 0,
+                "analyzer_status": "completed",
+                "analyzer_reason": "normal_termination",
+                "markers": [],
+                "patch_actions": [],
+            }
+        ]
+        final_result = {
+            "status": "completed",
+            "analyzer_status": "completed",
+            "reason": "normal_termination",
+            "completed_at": "2026-04-19T00:10:00+00:00",
+            "last_out_path": str(out),
+        }
+        _write_orca_state(
+            organized_dir,
+            job_id="job_hist_5",
+            run_id="run_hist_5",
+            selected_inp=inp,
+            selected_xyz_path=xyz,
+            attempts=attempts,
+            final_result=final_result,
+            max_retries=3,
         )
-        _write_json(
-            organized_dir / "run_report.json",
-            {
-                "job_id": "job_hist_5",
-                "run_id": "run_hist_5",
-                "status": "completed",
-                "selected_inp": str(inp),
-                "attempt_count": 1,
-                "max_retries": 3,
-                "attempts": [
-                    {
-                        "index": 2,
-                        "inp_path": str(inp),
-                        "out_path": str(out),
-                        "return_code": 0,
-                        "analyzer_status": "completed",
-                        "analyzer_reason": "normal_termination",
-                        "markers": [],
-                        "patch_actions": [],
-                    }
-                ],
-                "final_result": {
-                    "status": "completed",
-                    "analyzer_status": "completed",
-                    "reason": "normal_termination",
-                    "completed_at": "2026-04-19T00:10:00+00:00",
-                    "last_out_path": str(out),
-                },
-            },
+        _write_orca_report(
+            organized_dir,
+            job_id="job_hist_5",
+            run_id="run_hist_5",
+            selected_inp=inp,
+            selected_xyz_path=xyz,
+            attempts=attempts,
+            final_result=final_result,
+            max_retries=3,
         )
         _write_json(
             original_dir / "organized_ref.json",
@@ -599,21 +618,20 @@ def test_collect_reindex_payload_reads_artifact_identity_and_paths() -> None:
         inp = original_dir / "rxn.inp"
         inp.write_text("! SP\n* xyz 0 1\nH 0 0 0\nH 0 0 0.74\n*\n", encoding="utf-8")
 
-        _write_json(
-            original_dir / "run_state.json",
-            {
-                "job_id": "job_reindex_1",
-                "status": "completed",
-                "selected_inp": str(inp),
-                "resource_request": {"max_cores": 4, "max_memory_gb": 8},
-            },
+        _write_orca_state(
+            original_dir,
+            job_id="job_reindex_1",
+            selected_inp=inp,
+            resource_request={"max_cores": 4, "max_memory_gb": 8},
         )
-        _write_json(
-            original_dir / "run_report.json",
-            {
+        _write_orca_report(
+            original_dir,
+            job_id="job_reindex_1",
+            selected_inp=inp,
+            resource_actual={"max_cores": 4, "max_memory_gb": 8},
+            engine_payload_extra={
                 "job_type": "single_point",
                 "molecule_key": "H2",
-                "resource_actual": {"max_cores": 4, "max_memory_gb": 8},
             },
         )
         _write_json(
@@ -654,16 +672,16 @@ def test_reindex_job_locations_handles_missing_root_and_skips_unidentifiable_art
         selected_inp = good_dir / "good.inp"
         selected_inp.write_text("! Opt\n* xyz 0 1\nH 0 0 0\nH 0 0 0.74\n*\n", encoding="utf-8")
 
-        _write_json(bad_dir / "run_state.json", {"status": "completed"})
-        _write_json(
-            good_dir / "run_state.json",
-            {
-                "job_id": "job_reindex_good",
-                "status": "running",
-                "selected_inp": str(selected_inp),
+        _write_json(state_path(bad_dir), {"schema_version": 1, "engine": "orca"})
+        _write_orca_state(
+            good_dir,
+            job_id="job_reindex_good",
+            status="running",
+            selected_inp=selected_inp,
+            resource_request={"max_cores": 2, "max_memory_gb": 4},
+            engine_payload_extra={
                 "job_type": "opt",
                 "molecule_key": "H2",
-                "resource_request": {"max_cores": 2, "max_memory_gb": 4},
             },
         )
 

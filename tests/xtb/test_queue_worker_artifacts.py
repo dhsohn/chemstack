@@ -8,13 +8,13 @@ from typing import Any, cast
 import pytest
 
 from chemstack.core.queue import processes as queue_processes_mod
-from chemstack.xtb import queue_artifacts as artifacts_mod
+from chemstack.core.engines import xtb_artifacts as artifacts_mod
+from chemstack.core.engines import xtb_terminal as terminal_mod
 from chemstack.xtb import queue_runtime as queue_cmd
-from chemstack.xtb import queue_terminal as terminal_mod
 from chemstack.xtb import state as state_mod
-from chemstack.xtb import worker_execution as worker_exec
-from chemstack.xtb import worker_terminal as worker_terminal_mod
-from chemstack.xtb.worker_execution import WorkerExecutionOutcome
+from chemstack.core.engines import xtb_worker_terminal as worker_terminal_mod
+from chemstack.core.engines import xtb_execution as worker_exec
+from chemstack.core.engines.xtb_execution import WorkerExecutionOutcome
 from tests.xtb.factories import (
     fake_reserve_slot as _fake_reserve_slot,
     make_cfg as _make_cfg,
@@ -86,9 +86,13 @@ def test_write_execution_artifacts_includes_ranking_summary_lines(tmp_path: Path
 
     queue_cmd._write_execution_artifacts(entry, result)
 
-    report_md = (job_dir / state_mod.REPORT_MD_FILE_NAME).read_text(encoding="utf-8")
-    assert "Best Candidate Path" in report_md
-    assert "Best Total Energy" in report_md
+    report = state_mod.load_report_json(job_dir)
+    assert report is not None
+    assert report["engine_payload"]["analysis_summary"] == {
+        "candidate_paths": [str(selected_xyz.resolve())],
+        "best_candidate_path": str(selected_xyz.resolve()),
+        "best_total_energy": -12.34,
+    }
 
 
 def test_write_running_state_skips_without_job_dir(
@@ -116,7 +120,7 @@ def test_write_running_state_records_worker_job_pid(tmp_path: Path) -> None:
 
     state = state_mod.load_state(job_dir)
     assert state is not None
-    assert state["worker_job_pid"] == 4242
+    assert state["process"]["worker_pid"] == 4242
 
 
 def test_terminate_process_returns_immediately_for_finished_process() -> None:
@@ -277,8 +281,18 @@ def test_terminal_summary_helpers_cover_status_reason_and_metadata(
     entry = _make_entry(job_dir, selected_xyz, job_type="path_search")
     deps = SimpleNamespace(
         _job_dir=lambda _entry: job_dir,
-        load_state=lambda _job_dir: {"candidate_count": "bad"},
-        load_report_json=lambda _job_dir: {"job_type": "ranking"},
+        load_state=lambda _job_dir: {
+            "schema_version": 1,
+            "engine": "xtb",
+            "status": {},
+            "engine_payload": {"candidate_count": "bad"},
+        },
+        load_report_json=lambda _job_dir: {
+            "schema_version": 1,
+            "engine": "xtb",
+            "status": {},
+            "engine_payload": {"job_type": "ranking"},
+        },
         load_organized_ref=lambda _job_dir: {"organized_output_dir": str(tmp_path / "organized")},
         _queue_entry_by_id=lambda _root, _queue_id: SimpleNamespace(
             status=SimpleNamespace(value="cancelled"),

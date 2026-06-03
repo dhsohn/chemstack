@@ -5,8 +5,7 @@ from typing import Any, Callable
 
 from chemstack.core.queue import engine_execution as _engine_execution
 from chemstack.core.queue import execution as _queue_execution
-
-from .runner import XtbRunResult
+from chemstack.xtb.runner import XtbRunResult
 
 
 def _required_dependency(explicit: Any, name: str) -> Any:
@@ -43,6 +42,7 @@ def _detail_fields(result: XtbRunResult) -> dict[str, Any]:
 def _result_artifact_fields(result: XtbRunResult) -> _engine_execution.EngineArtifactFields:
     return _engine_execution.EngineArtifactFields(
         selected_input_xyz=result.selected_input_xyz,
+        engine="xtb",
         engine_fields=_engine_fields(result),
         detail_fields=_detail_fields(result),
     )
@@ -60,6 +60,7 @@ def _running_artifact_fields(
             entry,
             "selected_input_xyz",
         ),
+        engine="xtb",
         engine_fields={
             "job_type": job_type,
             "reaction_key": reaction_key,

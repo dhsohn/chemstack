@@ -3,8 +3,14 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
+from chemstack.core.queue.internal_engine import InternalEngineSpec
 from chemstack.core.queue.types import QueueStatus
-from chemstack.crest import queue_lifecycle
+
+
+_ENGINE_LIFECYCLE_EXPORTS = InternalEngineSpec(engine="crest").lifecycle_module_exports()
+queue_lifecycle = SimpleNamespace(
+    finalize_child_exit=_ENGINE_LIFECYCLE_EXPORTS.finalize_child_exit,
+)
 
 
 def _entry(

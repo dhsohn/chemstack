@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import errno
-import json
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -10,14 +9,12 @@ import pytest
 
 import chemstack.orca.result_organizer as organizer
 from chemstack.orca.result_organizer import OrganizePlan
+from chemstack.orca.state import save_state
 
 
 def _write_state(reaction_dir: Path, payload: dict[str, object]) -> None:
     reaction_dir.mkdir(parents=True, exist_ok=True)
-    (reaction_dir / "run_state.json").write_text(
-        json.dumps(payload, ensure_ascii=True, indent=2),
-        encoding="utf-8",
-    )
+    save_state(reaction_dir, payload)
 
 
 def _plan(tmp_path: Path) -> OrganizePlan:
@@ -41,10 +38,11 @@ def _plan(tmp_path: Path) -> OrganizePlan:
     )
 
 
-@pytest.mark.parametrize("status", ["", 123])
+@pytest.mark.parametrize(("status", "expected_reason"), [("", "state_schema_invalid"), (123, "not_completed")])
 def test_check_eligibility_rejects_blank_or_invalid_status_as_schema_invalid(
     tmp_path: Path,
     status: object,
+    expected_reason: str,
 ) -> None:
     reaction_dir = tmp_path / "rxn"
     _write_state(
@@ -60,7 +58,7 @@ def test_check_eligibility_rejects_blank_or_invalid_status_as_schema_invalid(
 
     assert state is None
     assert skip is not None
-    assert skip.reason == "state_schema_invalid"
+    assert skip.reason == expected_reason
 
 
 def test_last_successful_attempt_inp_path_returns_none_when_no_attempt_is_usable(tmp_path: Path) -> None:

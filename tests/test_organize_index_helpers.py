@@ -7,12 +7,15 @@ from typing import Any, cast
 from unittest.mock import patch
 
 from chemstack.orca import organize_index
+from chemstack.orca.state import save_state, state_path
 
 
 def _write_state(reaction_dir: Path, state: dict[str, object] | str) -> None:
     reaction_dir.mkdir(parents=True, exist_ok=True)
-    payload = state if isinstance(state, str) else json.dumps(state, ensure_ascii=True, indent=2)
-    (reaction_dir / "run_state.json").write_text(payload, encoding="utf-8")
+    if isinstance(state, str):
+        state_path(reaction_dir).write_text(state, encoding="utf-8")
+        return
+    save_state(reaction_dir, state)
 
 
 def test_load_index_returns_empty_on_read_error(tmp_path: Path) -> None:

@@ -16,6 +16,13 @@ from chemstack.crest import queue_runtime as queue_cmd
 from chemstack.core.config.engines import WorkflowEngineAppConfig as AppConfig
 from chemstack.crest.runner import CrestRunResult
 from chemstack.crest.state import REPORT_JSON_FILE_NAME, REPORT_MD_FILE_NAME, STATE_FILE_NAME, load_state
+from tests.engine_artifact_helpers import (
+    artifacts as _artifacts,
+    engine_payload as _engine_payload,
+    recovery as _recovery,
+    resources as _resources,
+    status as _status,
+)
 from tests.engine_process_helpers import process_one_crest_for_test
 
 
@@ -211,17 +218,19 @@ def test_process_one_completed_updates_queue_artifacts_index_without_organizing(
     assert entry.metadata["mode"] == "nci"
 
     state_payload = _read_json(job.job_dir / STATE_FILE_NAME)
-    assert state_payload["status"] == "completed"
-    assert state_payload["reason"] == "ok"
-    assert state_payload["molecule_key"] == ""
-    assert state_payload["retained_conformer_count"] == 2
+    assert _status(state_payload)["state"] == "completed"
+    assert _status(state_payload)["reason"] == "ok"
+    assert _engine_payload(state_payload)["molecule_key"] == ""
+    assert _engine_payload(state_payload)["retained_conformer_count"] == 2
 
     report_payload = _read_json(job.job_dir / REPORT_JSON_FILE_NAME)
-    assert report_payload["status"] == "completed"
-    assert report_payload["reason"] == "ok"
-    assert report_payload["mode"] == "nci"
-    assert report_payload["manifest_path"] == str(manifest_path.resolve())
-    assert report_payload["retained_conformer_paths"] == list(completed_result.retained_conformer_paths)
+    assert _status(report_payload)["state"] == "completed"
+    assert _status(report_payload)["reason"] == "ok"
+    assert _engine_payload(report_payload)["mode"] == "nci"
+    assert _artifacts(report_payload)["manifest_path"] == str(manifest_path.resolve())
+    assert _engine_payload(report_payload)["retained_conformer_paths"] == list(
+        completed_result.retained_conformer_paths
+    )
 
     report_md = (job.job_dir / REPORT_MD_FILE_NAME).read_text(encoding="utf-8")
     assert "Queue ID" in report_md
@@ -277,18 +286,18 @@ def test_process_one_runner_failure_marks_failed_and_writes_failure_artifacts(
     assert entry.metadata["mode"] == "standard"
 
     state_payload = _read_json(job.job_dir / STATE_FILE_NAME)
-    assert state_payload["status"] == "failed"
-    assert state_payload["reason"] == "runner_error:boom"
-    assert state_payload["molecule_key"] == "fixed-key"
-    assert state_payload["resource_request"] == {"max_cores": 4, "max_memory_gb": 16}
+    assert _status(state_payload)["state"] == "failed"
+    assert _status(state_payload)["reason"] == "runner_error:boom"
+    assert _engine_payload(state_payload)["molecule_key"] == "fixed-key"
+    assert _resources(state_payload)["request"] == {"max_cores": 4, "max_memory_gb": 16}
 
     report_payload = _read_json(job.job_dir / REPORT_JSON_FILE_NAME)
-    assert report_payload["status"] == "failed"
-    assert report_payload["reason"] == "runner_error:boom"
-    assert report_payload["command"] == []
-    assert report_payload["manifest_path"] == str(manifest_path.resolve())
-    assert report_payload["stdout_log"] == str((job.job_dir / "crest.stdout.log").resolve())
-    assert report_payload["stderr_log"] == str((job.job_dir / "crest.stderr.log").resolve())
+    assert _status(report_payload)["state"] == "failed"
+    assert _status(report_payload)["reason"] == "runner_error:boom"
+    assert _engine_payload(report_payload)["command"] == []
+    assert _artifacts(report_payload)["manifest_path"] == str(manifest_path.resolve())
+    assert _artifacts(report_payload)["stdout_log"] == str((job.job_dir / "crest.stdout.log").resolve())
+    assert _artifacts(report_payload)["stderr_log"] == str((job.job_dir / "crest.stderr.log").resolve())
 
     record = get_job_location(queue_env.allowed_root, "job-failed")
     assert record is not None
@@ -360,13 +369,13 @@ def test_process_one_cancel_requested_terminates_and_marks_cancelled(
     assert entry.metadata["mode"] == "standard"
 
     state_payload = _read_json(job.job_dir / STATE_FILE_NAME)
-    assert state_payload["status"] == "cancelled"
-    assert state_payload["reason"] == "cancel_requested"
+    assert _status(state_payload)["state"] == "cancelled"
+    assert _status(state_payload)["reason"] == "cancel_requested"
 
     report_payload = _read_json(job.job_dir / REPORT_JSON_FILE_NAME)
-    assert report_payload["status"] == "cancelled"
-    assert report_payload["reason"] == "cancel_requested"
-    assert report_payload["exit_code"] == 143
+    assert _status(report_payload)["state"] == "cancelled"
+    assert _status(report_payload)["reason"] == "cancel_requested"
+    assert _status(report_payload)["exit_code"] == 143
 
     record = get_job_location(queue_env.allowed_root, "job-cancelled")
     assert record is not None
@@ -431,7 +440,8 @@ def test_queue_worker_fill_slots_starts_multiple_child_processes(
 
     assert sorted(worker._running) == sorted([job_one.entry.queue_id, job_two.entry.queue_id])
     assert len(started_commands) == 2
-    assert all("chemstack.crest.worker_execution" in command for command in started_commands)
+    assert all("chemstack.core.engines.worker_child" in command for command in started_commands)
+    assert all(command[command.index("--engine") + 1] == "crest" for command in started_commands)
     assert all("--auto-organize" not in command for command in started_commands)
     assert {command[command.index("--queue-id") + 1] for command in started_commands} == {
         job_one.entry.queue_id,
@@ -474,9 +484,9 @@ def test_queue_worker_shutdown_requeues_running_children(
     assert released == [(worker.admission_root, "slot-1")]
     state = load_state(job.job_dir)
     assert state is not None
-    assert state["status"] == "queued"
-    assert state["reason"] == "worker_shutdown"
-    assert state["recovery_pending"] is True
+    assert _status(state)["state"] == "queued"
+    assert _status(state)["reason"] == "worker_shutdown"
+    assert _recovery(state)["pending"] is True
 
 
 def test_queue_worker_reconcile_orphaned_running_requeues_entry_without_live_slot(
@@ -503,9 +513,9 @@ def test_queue_worker_reconcile_orphaned_running_requeues_entry_without_live_slo
     assert live_updated.status == QueueStatus.RUNNING
     state = load_state(orphan_job.job_dir)
     assert state is not None
-    assert state["status"] == "queued"
-    assert state["reason"] == "crashed_recovery"
-    assert state["recovery_pending"] is True
+    assert _status(state)["state"] == "queued"
+    assert _status(state)["reason"] == "crashed_recovery"
+    assert _recovery(state)["pending"] is True
 
 
 def test_queue_worker_reconcile_orphaned_cancel_requested_marks_cancelled(

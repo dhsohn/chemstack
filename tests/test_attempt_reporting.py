@@ -9,6 +9,7 @@ from chemstack.orca.attempt_reporting import build_final_result, exit_with_resul
 from chemstack.orca.state import load_state, new_state
 from chemstack.orca.statuses import AnalyzerStatus, RunStatus
 from chemstack.orca.types import RunFinishedNotification
+from tests.engine_artifact_helpers import engine_payload as _engine_payload
 
 
 class TestAttemptReporting(unittest.TestCase):
@@ -70,7 +71,7 @@ class TestAttemptReporting(unittest.TestCase):
             )
 
             saved = load_state(reaction_dir)
-            report_json = json.loads((reaction_dir / "run_report.json").read_text(encoding="utf-8"))
+            report_json = json.loads((reaction_dir / "job_report.json").read_text(encoding="utf-8"))
 
         self.assertEqual(rc, 0)
         assert saved is not None
@@ -80,14 +81,14 @@ class TestAttemptReporting(unittest.TestCase):
         self.assertEqual(saved["final_result"]["last_out_path"], str(reaction_dir / "rxn.out"))
         self.assertEqual(len(emitted_payloads), 1)
         self.assertEqual(emitted_payloads[0]["status"], "completed")
-        self.assertEqual(emitted_payloads[0]["run_state"], str(reaction_dir / "run_state.json"))
-        self.assertEqual(emitted_payloads[0]["report_json"], str(reaction_dir / "run_report.json"))
-        self.assertEqual(emitted_payloads[0]["report_md"], str(reaction_dir / "run_report.md"))
-        self.assertEqual(report_json["final_result"]["status"], "completed")
+        self.assertEqual(emitted_payloads[0]["run_state"], str(reaction_dir / "job_state.json"))
+        self.assertEqual(emitted_payloads[0]["report_json"], str(reaction_dir / "job_report.json"))
+        self.assertEqual(emitted_payloads[0]["report_md"], str(reaction_dir / "job_report.md"))
+        self.assertEqual(_engine_payload(report_json)["final_result"]["status"], "completed")
         self.assertIn("telegram_finished_notification_sent_at", saved["final_result"])
         self.assertIn(
             "telegram_finished_notification_sent_at",
-            report_json["final_result"],
+            _engine_payload(report_json)["final_result"],
         )
         self.assertEqual(len(finished_notifications), 1)
         self.assertTrue(finished_notifications[0]["resumed"])

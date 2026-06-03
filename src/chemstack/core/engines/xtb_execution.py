@@ -4,9 +4,14 @@ import argparse
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Callable
 
 from chemstack.core.admission import activate_reserved_slot, release_slot
+from chemstack.core.engines.worker_child import (
+    WORKER_CHILD_MODULE,
+    build_worker_child_command as _build_unified_worker_child_command,
+)
 from chemstack.core.queue import (
     get_cancel_requested,
     list_queue,
@@ -18,7 +23,18 @@ from chemstack.core.queue import (
 from chemstack.core.queue import engine_execution as _engine_execution
 from chemstack.core.queue import execution as _queue_execution
 from chemstack.core.queue import worker_execution_dependencies as _worker_dependencies
+from chemstack.core.queue.internal_engine import (
+    InternalEngineSpec,
+    create_worker_shutdown_exception_type,
+)
 from chemstack.core.config.engines import load_xtb_config as load_config
+from chemstack.core.engines import xtb_artifacts as _queue_artifacts
+from chemstack.core.engines.xtb_worker_terminal import (
+    WorkerExecutionOutcome,
+    build_terminal_result as _build_terminal_result,
+    finalize_execution_result as _finalize_execution_result,
+    write_running_state as _write_running_state,
+)
 from chemstack.core.notifications.engines import (
     notify_xtb_job_started as notify_job_started,
 )
@@ -29,15 +45,13 @@ from chemstack.core.queue.worker import (
     terminate_process_group,
 )
 
-from . import queue_artifacts as _queue_artifacts
-from . import worker_child as _worker_child
-from .job_locations import upsert_job_record
-from .runner import finalize_xtb_job, run_xtb_ranking_job, start_xtb_job
-from .state import (
+from chemstack.xtb.job_locations import upsert_job_record
+from chemstack.xtb.runner import finalize_xtb_job, run_xtb_ranking_job, start_xtb_job
+from chemstack.xtb.state import (
     is_recovery_pending,
     mark_recovery_pending,
 )
-from .worker_context import (
+from chemstack.xtb.worker_context import (
     WorkerExecutionHooks,
     XtbExecutionContext as _XtbExecutionContext,
     build_execution_context as _build_worker_execution_context,
@@ -49,16 +63,44 @@ from .worker_context import (
     reaction_key as _reaction_key,
     selected_xyz as _selected_xyz,
 )
-from .worker_terminal import (
-    WorkerExecutionOutcome,
-    build_terminal_result as _build_terminal_result,
-    finalize_execution_result as _finalize_execution_result,
-    write_running_state as _write_running_state,
-)
 
-WORKER_JOB_MODULE = _worker_child.WORKER_JOB_MODULE
+WORKER_JOB_MODULE = WORKER_CHILD_MODULE
 CANCEL_CHECK_INTERVAL_SECONDS = 1
-WorkerShutdownRequested = _worker_child.WorkerShutdownRequested
+WorkerShutdownRequested = create_worker_shutdown_exception_type(__name__)
+_ENGINE_SPEC = InternalEngineSpec(
+    engine="xtb",
+    worker_job_module="chemstack.core.engines.xtb_execution",
+    include_admission_root=False,
+)
+_WORKER_CHILD = _ENGINE_SPEC.worker_child(WorkerShutdownRequested)
+
+
+def build_worker_child_command(
+    *,
+    config_path: str,
+    queue_root: str | Path,
+    queue_id: str,
+    admission_root: str | Path | None = None,
+    admission_token: str | None = None,
+) -> list[str]:
+    return _build_unified_worker_child_command(
+        engine="xtb",
+        config_path=config_path,
+        queue_root=queue_root,
+        queue_id=queue_id,
+        admission_root=admission_root,
+        admission_token=admission_token,
+    )
+
+
+_worker_child = SimpleNamespace(
+    WORKER_JOB_MODULE=WORKER_JOB_MODULE,
+    WorkerShutdownRequested=WorkerShutdownRequested,
+    build_parser=_WORKER_CHILD.build_parser,
+    build_worker_child_command=build_worker_child_command,
+    run_worker_child_job=_WORKER_CHILD.run_worker_child_job,
+    shutdown_signal_handler_installer=_WORKER_CHILD.shutdown_signal_handler_installer,
+)
 
 
 WorkerConfigDependencies = _worker_dependencies.WorkerConfigDependencies
@@ -632,11 +674,13 @@ def run_worker_job(
     )
 
 
-build_worker_child_command = _worker_child.build_worker_child_command
-
-
 def build_worker_job_parser() -> argparse.ArgumentParser:
     return _worker_child.build_parser()
+
+
+run_worker_child_job = run_worker_job
+build_parser = build_worker_job_parser
+shutdown_signal_handler_installer = _WORKER_CHILD.shutdown_signal_handler_installer
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -654,6 +698,7 @@ __all__ = [
     "build_worker_adapter",
     "build_worker_execution_dependencies",
     "build_worker_execution_dependencies_from_groups",
+    "build_parser",
     "build_worker_job_parser",
     "WorkerAdmissionDependencies",
     "WorkerArtifactDependencies",
@@ -671,7 +716,10 @@ __all__ = [
     "execute_queue_entry",
     "main",
     "process_dequeued_entry",
+    "run_worker_child_job",
     "run_worker_job",
+    "shutdown_signal_handler_installer",
+    "WorkerShutdownRequested",
     "WORKER_JOB_MODULE",
 ]
 

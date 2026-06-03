@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-RUN_STATE_FILE = "run_state.json"
-RUN_REPORT_JSON_FILE = "run_report.json"
-RUN_REPORT_MD_FILE = "run_report.md"
+RUN_STATE_FILE = "job_state.json"
+RUN_REPORT_JSON_FILE = "job_report.json"
+RUN_REPORT_MD_FILE = "job_report.md"
 JOB_STATE_FILE = "job_state.json"
 JOB_REPORT_JSON_FILE = "job_report.json"
 JOB_REPORT_MD_FILE = "job_report.md"

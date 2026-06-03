@@ -5,8 +5,7 @@ from typing import Any
 import pytest
 
 from chemstack.core.queue import child_execution
-from chemstack.xtb import worker_child
-from chemstack.xtb import worker_execution as worker_job
+from chemstack.core.engines import xtb_execution as worker_job
 
 
 def test_worker_job_main_delegates_to_queue_runner(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -50,7 +49,7 @@ def test_worker_job_install_shutdown_handlers_wires_controller(
         lambda callback: installed.append(callback),
     )
 
-    install = worker_child.shutdown_signal_handler_installer(
+    install = worker_job.shutdown_signal_handler_installer(
         worker_job.install_shutdown_signal_handlers
     )
     install(controller)

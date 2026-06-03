@@ -8,7 +8,7 @@ import pytest
 from chemstack.core.commands import queue as shared_queue_cmd
 from chemstack.xtb import queue_runtime as queue_cmd
 from chemstack.xtb import state as state_mod
-from chemstack.xtb import worker_execution as worker_execution_mod
+from chemstack.core.engines import xtb_execution as worker_execution_mod
 from tests.xtb.factories import (
     make_cfg as _make_cfg,
     make_entry as _make_entry,
@@ -103,9 +103,9 @@ def test_execute_queue_entry_processes_completed_job(
     report = state_mod.load_report_json(job_dir)
     assert state is not None
     assert report is not None
-    assert state["status"] == "completed"
-    assert report["reason"] == "xtb_ok"
-    assert report["selected_candidate_paths"] == [str(selected_xyz)]
+    assert state["status"]["state"] == "completed"
+    assert report["status"]["reason"] == "xtb_ok"
+    assert report["engine_payload"]["selected_candidate_paths"] == [str(selected_xyz)]
 
 
 def test_execute_queue_entry_marks_runner_errors_failed(
@@ -166,8 +166,8 @@ def test_execute_queue_entry_marks_runner_errors_failed(
     report = state_mod.load_report_json(job_dir)
     assert state is not None
     assert report is not None
-    assert state["status"] == "failed"
-    assert report["reason"] == "runner_error:boom"
+    assert state["status"]["state"] == "failed"
+    assert report["status"]["reason"] == "runner_error:boom"
 
 
 def test_execute_queue_entry_cancels_running_job(
@@ -251,8 +251,8 @@ def test_execute_queue_entry_cancels_running_job(
     report = state_mod.load_report_json(job_dir)
     assert state is not None
     assert report is not None
-    assert state["status"] == "cancelled"
-    assert report["reason"] == "cancel_requested"
+    assert state["status"]["state"] == "cancelled"
+    assert report["status"]["reason"] == "cancel_requested"
 
 
 def test_execute_queue_entry_cancels_before_start_and_updates_terminal_metadata(
@@ -339,9 +339,9 @@ def test_execute_queue_entry_cancels_before_start_and_updates_terminal_metadata(
     report = state_mod.load_report_json(job_dir)
     assert state is not None
     assert report is not None
-    assert state["status"] == "cancelled"
-    assert report["reason"] == "cancel_requested"
-    assert report["candidate_count"] == 0
+    assert state["status"]["state"] == "cancelled"
+    assert report["status"]["reason"] == "cancel_requested"
+    assert report["engine_payload"]["candidate_count"] == 0
 
 
 def test_process_dequeued_entry_uses_queue_cancel_callback(

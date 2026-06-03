@@ -39,9 +39,9 @@ def test_sync_orca_stage_applies_contract_state_metadata_and_artifacts() -> None
         analyzer_status="completed",
         completed_at="2026-04-19T00:00:00+00:00",
         last_out_path="/tmp/rxn_done/rxn.out",
-        run_state_path="/tmp/rxn_done/run_state.json",
-        report_json_path="/tmp/rxn_done/run_report.json",
-        report_md_path="/tmp/rxn_done/run_report.md",
+        run_state_path="/tmp/rxn_done/job_state.json",
+        report_json_path="/tmp/rxn_done/job_report.json",
+        report_md_path="/tmp/rxn_done/job_report.md",
         attempt_count=2,
         max_retries=3,
         attempts=(

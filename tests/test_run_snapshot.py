@@ -16,6 +16,7 @@ from chemstack.orca.run_snapshot import (
     sort_snapshots_by_completed,
     sort_snapshots_by_started,
 )
+from chemstack.orca.state import save_state, state_path
 
 
 class _FrozenDateTime(datetime):
@@ -174,7 +175,7 @@ def test_collect_run_snapshots_skips_state_files_that_fail_to_load(
     allowed_root = tmp_path / "orca_runs"
     reaction_dir = allowed_root / "rxn"
     reaction_dir.mkdir(parents=True)
-    (reaction_dir / "run_state.json").write_text("{}", encoding="utf-8")
+    state_path(reaction_dir).write_text("{}", encoding="utf-8")
 
     monkeypatch.setattr(run_snapshot, "load_state", lambda _reaction_dir: None)
 
@@ -188,7 +189,7 @@ def test_collect_run_snapshots_builds_basic_snapshot_fields(
     allowed_root = tmp_path / "orca_runs"
     reaction_dir = allowed_root / "group" / "rxn"
     reaction_dir.mkdir(parents=True)
-    (reaction_dir / "run_state.json").write_text("{}", encoding="utf-8")
+    state_path(reaction_dir).write_text("{}", encoding="utf-8")
     out_path = reaction_dir / "calc.out"
     out_path.write_text("done", encoding="utf-8")
 
@@ -250,10 +251,7 @@ def test_collect_run_snapshots_uses_tracking_record_for_tracked_run(tmp_path: Pa
             "last_out_path": str(out_path),
         },
     }
-    (tracked_run / "run_state.json").write_text(
-        json.dumps(state, ensure_ascii=True, indent=2),
-        encoding="utf-8",
-    )
+    save_state(tracked_run, state)
 
     original_run = allowed_root / "project" / "rxn_tracked"
     job_locations = [
@@ -309,10 +307,7 @@ def test_collect_run_snapshots_includes_untracked_state_when_index_is_incomplete
             "reason": "tracked_completion",
         },
     }
-    (tracked_run / "run_state.json").write_text(
-        json.dumps(tracked_state, ensure_ascii=True, indent=2),
-        encoding="utf-8",
-    )
+    save_state(tracked_run, tracked_state)
 
     untracked_run = allowed_root / "untracked" / "rxn_untracked"
     untracked_run.mkdir(parents=True)
@@ -325,10 +320,7 @@ def test_collect_run_snapshots_includes_untracked_state_when_index_is_incomplete
         "attempts": [],
         "final_result": None,
     }
-    (untracked_run / "run_state.json").write_text(
-        json.dumps(untracked_state, ensure_ascii=True, indent=2),
-        encoding="utf-8",
-    )
+    save_state(untracked_run, untracked_state)
 
     job_locations = [
         {

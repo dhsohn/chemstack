@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 
 from chemstack.flow.adapters.orca import load_orca_artifact_contract
+from tests.engine_artifact_helpers import orca_artifact_payload
 
 
 def _write_json(path: Path, payload: object) -> None:
@@ -29,38 +30,36 @@ def test_load_orca_artifact_contract_prefers_tracking_record_by_job_id(tmp_path:
     out.write_text("****ORCA TERMINATED NORMALLY****\n", encoding="utf-8")
 
     _write_json(
-        organized_dir / "run_state.json",
-        {
-            "job_id": "job_hist_1",
-            "run_id": "run_hist_1",
-            "reaction_dir": str(organized_dir),
-            "selected_inp": str(inp),
-            "status": "completed",
-            "attempts": [],
-            "final_result": {
+        organized_dir / "job_state.json",
+        orca_artifact_payload(
+            job_id="job_hist_1",
+            run_id="run_hist_1",
+            reaction_dir=str(organized_dir),
+            selected_inp=str(inp),
+            final_result={
                 "status": "completed",
                 "analyzer_status": "completed",
                 "reason": "normal_termination",
                 "completed_at": "2026-04-19T00:00:00+00:00",
                 "last_out_path": str(out),
             },
-        },
+        ),
     )
     _write_json(
-        organized_dir / "run_report.json",
-        {
-            "job_id": "job_hist_1",
-            "run_id": "run_hist_1",
-            "status": "completed",
-            "selected_inp": str(inp),
-            "final_result": {
+        organized_dir / "job_report.json",
+        orca_artifact_payload(
+            job_id="job_hist_1",
+            run_id="run_hist_1",
+            reaction_dir=str(organized_dir),
+            selected_inp=str(inp),
+            final_result={
                 "status": "completed",
                 "analyzer_status": "completed",
                 "reason": "normal_termination",
                 "completed_at": "2026-04-19T00:00:00+00:00",
                 "last_out_path": str(out),
             },
-        },
+        ),
     )
     _write_json(
         original_dir / "organized_ref.json",
@@ -179,38 +178,36 @@ def test_load_orca_artifact_contract_resolves_run_id_via_orca_tracking_without_r
     out.write_text("****ORCA TERMINATED NORMALLY****\n", encoding="utf-8")
 
     _write_json(
-        organized_dir / "run_state.json",
-        {
-            "job_id": "job_hist_2",
-            "run_id": "run_hist_2",
-            "reaction_dir": str(organized_dir),
-            "selected_inp": str(inp),
-            "status": "completed",
-            "attempts": [],
-            "final_result": {
+        organized_dir / "job_state.json",
+        orca_artifact_payload(
+            job_id="job_hist_2",
+            run_id="run_hist_2",
+            reaction_dir=str(organized_dir),
+            selected_inp=str(inp),
+            final_result={
                 "status": "completed",
                 "analyzer_status": "completed",
                 "reason": "normal_termination",
                 "completed_at": "2026-04-19T00:00:00+00:00",
                 "last_out_path": str(out),
             },
-        },
+        ),
     )
     _write_json(
-        organized_dir / "run_report.json",
-        {
-            "job_id": "job_hist_2",
-            "run_id": "run_hist_2",
-            "status": "completed",
-            "selected_inp": str(inp),
-            "final_result": {
+        organized_dir / "job_report.json",
+        orca_artifact_payload(
+            job_id="job_hist_2",
+            run_id="run_hist_2",
+            reaction_dir=str(organized_dir),
+            selected_inp=str(inp),
+            final_result={
                 "status": "completed",
                 "analyzer_status": "completed",
                 "reason": "normal_termination",
                 "completed_at": "2026-04-19T00:00:00+00:00",
                 "last_out_path": str(out),
             },
-        },
+        ),
     )
     _write_json(
         original_dir / "organized_ref.json",
@@ -283,13 +280,13 @@ def test_load_orca_artifact_contract_prefers_orca_contract_payload_helper(tmp_pa
             "completed_at": "2026-04-19T00:10:00+00:00",
             "last_out_path": str((tmp_path / "outputs" / "run_helper_1" / "rxn.out").resolve()),
             "run_state_path": str(
-                (tmp_path / "outputs" / "run_helper_1" / "run_state.json").resolve()
+                (tmp_path / "outputs" / "run_helper_1" / "job_state.json").resolve()
             ),
             "report_json_path": str(
-                (tmp_path / "outputs" / "run_helper_1" / "run_report.json").resolve()
+                (tmp_path / "outputs" / "run_helper_1" / "job_report.json").resolve()
             ),
             "report_md_path": str(
-                (tmp_path / "outputs" / "run_helper_1" / "run_report.md").resolve()
+                (tmp_path / "outputs" / "run_helper_1" / "job_report.md").resolve()
             ),
             "attempt_count": 2,
             "max_retries": 3,

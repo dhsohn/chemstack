@@ -175,7 +175,7 @@ If you want only the worker managed automatically, enable
 - ORCA selects the most recently modified `.inp` when execution starts.
 - When retrying or resuming an interrupted ORCA run, ChemStack uses a matching
   non-empty `.gbw` file by generating a restart input with `MORead` and `%moinp`.
-- Completed ORCA runs write state and report files such as `run_state.json`, `run_report.json`, and `run_report.md`.
+- Completed ORCA runs write state and report files such as `job_state.json`, `job_report.json`, and `job_report.md`.
 - Use the `systemd` assets in [systemd/README.md](systemd/README.md) for unattended WSL or Linux execution.
 
 ## Testing

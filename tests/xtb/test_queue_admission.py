@@ -40,7 +40,7 @@ def test_start_background_job_process_builds_xtb_child_command(tmp_path: Path) -
             "queue_id": "queue-1",
             "admission_token": "slot-1",
         }
-        return ["python", "-m", "chemstack.xtb.worker_execution"]
+        return ["python", "-m", "chemstack.core.engines.xtb_execution"]
 
     def start_process(command: list[str]) -> object:
         commands.append(command)
@@ -58,7 +58,7 @@ def test_start_background_job_process_builds_xtb_child_command(tmp_path: Path) -
         )
         is process
     )
-    assert commands == [["python", "-m", "chemstack.xtb.worker_execution"]]
+    assert commands == [["python", "-m", "chemstack.core.engines.xtb_execution"]]
 
 
 def test_attach_started_process_records_owner_and_marks_missing_slot(tmp_path: Path) -> None:

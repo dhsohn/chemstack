@@ -9,6 +9,8 @@ from unittest.mock import patch
 
 from chemstack.cli import main
 from chemstack.orca.queue_adapter import dequeue_next, enqueue, mark_completed
+from chemstack.orca.state import report_json_path, save_state, state_path
+from tests.engine_artifact_helpers import orca_artifact_payload
 
 
 class _ListTestBase(unittest.TestCase):
@@ -57,7 +59,7 @@ class _ListTestBase(unittest.TestCase):
             "attempts": [{"index": 1}],
             "final_result": {"status": status},
         }
-        (reaction_dir / "run_state.json").write_text(json.dumps(state), encoding="utf-8")
+        save_state(reaction_dir, state)
 
 
 class TestListEmpty(_ListTestBase):
@@ -180,10 +182,7 @@ class TestListStandaloneRuns(_ListTestBase):
                 "attempts": [{"index": 1}],
                 "final_result": {"status": "completed"},
             }
-            (organized / "run_state.json").write_text(
-                json.dumps(state, ensure_ascii=True, indent=2),
-                encoding="utf-8",
-            )
+            save_state(organized, state)
             (allowed / "job_locations.json").write_text(
                 json.dumps(
                     [
@@ -315,7 +314,7 @@ class TestListQueueEntries(_ListTestBase):
         self.assertIn("ORCA", output)
         self.assertIn("⏳", output)
 
-    def test_list_reconciles_orphaned_running_queue_entry_from_run_report(self) -> None:
+    def test_list_reconciles_orphaned_running_queue_entry_from_job_report(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             allowed = root / "orca_runs"
@@ -326,17 +325,18 @@ class TestListQueueEntries(_ListTestBase):
             rxn_dir.mkdir()
             entry = enqueue(allowed, str(rxn_dir))
             dequeue_next(allowed)
-            (rxn_dir / "run_report.json").write_text(
+            report_json_path(rxn_dir).write_text(
                 json.dumps(
-                    {
-                        "run_id": "run_done_1",
-                        "status": "completed",
-                        "updated_at": "2026-03-10T05:00:00+00:00",
-                        "final_result": {
+                    orca_artifact_payload(
+                        job_id="run_done_1",
+                        run_id="run_done_1",
+                        reaction_dir=str(rxn_dir),
+                        status="completed",
+                        final_result={
                             "status": "completed",
                             "completed_at": "2026-03-10T04:59:59+00:00",
                         },
-                    }
+                    )
                 ),
                 encoding="utf-8",
             )
@@ -392,9 +392,9 @@ class TestListClear(_ListTestBase):
 
             self.assertEqual(rc, 0)
             # rxn1 (completed) should be cleared
-            self.assertFalse((allowed / "rxn1" / "run_state.json").exists())
+            self.assertFalse(state_path(allowed / "rxn1").exists())
             # rxn2 (running) should remain
-            self.assertTrue((allowed / "rxn2" / "run_state.json").exists())
+            self.assertTrue(state_path(allowed / "rxn2").exists())
 
     def test_clear_empty(self) -> None:
         with tempfile.TemporaryDirectory() as td:

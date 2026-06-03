@@ -13,18 +13,16 @@ from chemstack.orca.result_organizer import (
     detect_job_type,
     plan_root_scan,
 )
+from chemstack.orca.state import load_state, save_state, state_path, write_report_files
 from chemstack.orca.types import RunState
 
 
 def _write_state(reaction_dir: Path, state: Mapping[str, object]) -> None:
-    (reaction_dir / "run_state.json").write_text(
-        json.dumps(state, ensure_ascii=True, indent=2), encoding="utf-8",
-    )
+    save_state(reaction_dir, dict(state))
 
 
-def _write_report_files(reaction_dir: Path) -> None:
-    (reaction_dir / "run_report.json").write_text("{}", encoding="utf-8")
-    (reaction_dir / "run_report.md").write_text("# Report\n", encoding="utf-8")
+def _write_invalid_state(reaction_dir: Path, text: str) -> None:
+    state_path(reaction_dir).write_text(text, encoding="utf-8")
 
 
 def _make_completed_dir(root: Path, name: str, route: str = "! Opt") -> Path:
@@ -52,7 +50,7 @@ def _make_completed_dir(root: Path, name: str, route: str = "! Opt") -> Path:
         },
     }
     _write_state(d, state)
-    _write_report_files(d)
+    write_report_files(d, state)
     return d
 
 
@@ -109,7 +107,7 @@ class TestCheckEligibility(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             d = Path(td) / "rxn1"
             d.mkdir()
-            (d / "run_state.json").write_text("not json", encoding="utf-8")
+            _write_invalid_state(d, "not json")
             state, skip = check_eligibility(d)
             self.assertIsNone(state)
             assert skip is not None
@@ -159,7 +157,7 @@ class TestCheckEligibility(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             d = Path(td) / "rxn1"
             d.mkdir()
-            (d / "run_report.json").write_text(
+            (d / "job_report.json").write_text(
                 json.dumps({"run_id": "run_test", "status": "completed"}),
                 encoding="utf-8",
             )
@@ -222,7 +220,8 @@ class TestComputeOrganizePlan(unittest.TestCase):
     def test_correct_target_path(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             d = _make_completed_dir(Path(td), "rxn1", route="! OptTS Freq")
-            state = json.loads((d / "run_state.json").read_text())
+            state = load_state(d)
+            assert state is not None
             organized = Path(td) / "outputs"
             plan = compute_organize_plan(d, state, organized)
             self.assertEqual(plan.job_type, "ts")
@@ -232,7 +231,8 @@ class TestComputeOrganizePlan(unittest.TestCase):
     def test_extracts_metadata(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             d = _make_completed_dir(Path(td), "rxn1")
-            state = json.loads((d / "run_state.json").read_text())
+            state = load_state(d)
+            assert state is not None
             organized = Path(td) / "outputs"
             plan = compute_organize_plan(d, state, organized)
             self.assertEqual(plan.analyzer_status, "completed")
@@ -366,10 +366,10 @@ class TestPlanRootScan(unittest.TestCase):
                     "last_out_path": str(out),
                 },
             }
-            (d2 / "run_report.json").write_text(
+            (d2 / "job_report.json").write_text(
                 json.dumps(report, ensure_ascii=True, indent=2), encoding="utf-8",
             )
-            (d2 / "run_report.md").write_text("# Report\n", encoding="utf-8")
+            (d2 / "job_report.md").write_text("# Report\n", encoding="utf-8")
 
             plans, skips = plan_root_scan(root, organized)
             self.assertEqual(len(plans), 1)
@@ -383,7 +383,8 @@ class TestCheckConflict(unittest.TestCase):
     def test_no_conflict(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             d = _make_completed_dir(Path(td), "rxn1")
-            state = json.loads((d / "run_state.json").read_text())
+            state = load_state(d)
+            assert state is not None
             organized = Path(td) / "outputs"
             plan = compute_organize_plan(d, state, organized)
             result = check_conflict(plan, {})
@@ -392,7 +393,8 @@ class TestCheckConflict(unittest.TestCase):
     def test_already_organized(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             d = _make_completed_dir(Path(td), "rxn1")
-            state = json.loads((d / "run_state.json").read_text())
+            state = load_state(d)
+            assert state is not None
             organized = Path(td) / "outputs"
             plan = compute_organize_plan(d, state, organized)
             index = {plan.run_id: {"organized_path": plan.target_rel_path}}
@@ -402,7 +404,8 @@ class TestCheckConflict(unittest.TestCase):
     def test_index_conflict(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             d = _make_completed_dir(Path(td), "rxn1")
-            state = json.loads((d / "run_state.json").read_text())
+            state = load_state(d)
+            assert state is not None
             organized = Path(td) / "outputs"
             plan = compute_organize_plan(d, state, organized)
             index = {plan.run_id: {"organized_path": "different/path"}}
@@ -412,7 +415,8 @@ class TestCheckConflict(unittest.TestCase):
     def test_path_occupied(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             d = _make_completed_dir(Path(td), "rxn1")
-            state = json.loads((d / "run_state.json").read_text())
+            state = load_state(d)
+            assert state is not None
             organized = Path(td) / "outputs"
             plan = compute_organize_plan(d, state, organized)
             plan.target_abs_path.mkdir(parents=True, exist_ok=True)

@@ -7,8 +7,7 @@ from typing import Any, Callable
 
 from chemstack.core.queue import engine_execution as _engine_execution
 from chemstack.core.queue import execution as _queue_execution
-
-from .runner import XtbRunResult
+from chemstack.xtb.runner import XtbRunResult
 
 
 def _dependency(deps: Any | None, explicit: Any, name: str) -> Any:
@@ -71,6 +70,8 @@ def print_terminal_summary(summary: TerminalSummary) -> None:
 def terminal_status(
     state: dict[str, Any], report: dict[str, Any], refreshed: Any, rc: int | None
 ) -> str:
+    state = _flatten_engine_payload(state)
+    report = _flatten_engine_payload(report)
     queue_status_value = (
         getattr(getattr(refreshed, "status", None), "value", None)
         if refreshed is not None
@@ -93,6 +94,8 @@ def terminal_reason(
     status: str,
     rc: int | None,
 ) -> str:
+    state = _flatten_engine_payload(state)
+    report = _flatten_engine_payload(report)
     reason = str(
         report.get("reason") or state.get("reason") or getattr(refreshed, "error", "")
     ).strip()
@@ -110,6 +113,8 @@ def terminal_reason(
 def terminal_metadata_update(
     state: dict[str, Any], report: dict[str, Any], entry: Any
 ) -> dict[str, Any]:
+    state = _flatten_engine_payload(state)
+    report = _flatten_engine_payload(report)
     metadata_update: dict[str, Any] = {}
     job_type = str(
         report.get("job_type") or state.get("job_type") or entry.metadata.get("job_type", "")
@@ -123,6 +128,25 @@ def terminal_metadata_update(
         with suppress(TypeError, ValueError):
             metadata_update["candidate_count"] = int(candidate_count_raw)
     return metadata_update
+
+
+def _flatten_engine_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(payload, dict):
+        return {}
+    if int(payload.get("schema_version", 0) or 0) != 1:
+        return {}
+    status = _mapping(payload.get("status"))
+    artifacts = _mapping(payload.get("artifacts"))
+    engine_payload = _mapping(payload.get("engine_payload"))
+    flattened = dict(engine_payload)
+    flattened.setdefault("status", str(status.get("state", "")).strip())
+    flattened.setdefault("reason", str(status.get("reason", "")).strip())
+    flattened.setdefault("organized_output_dir", str(artifacts.get("organized_dir", "")).strip())
+    return flattened
+
+
+def _mapping(value: Any) -> dict[str, Any]:
+    return dict(value) if isinstance(value, dict) else {}
 
 
 def load_terminal_summary(
@@ -152,8 +176,8 @@ def load_terminal_summary(
     reason = terminal_reason(state, report, refreshed, status=status, rc=rc)
     organized_output_dir = str(
         organized_ref.get("organized_output_dir")
-        or report.get("organized_output_dir")
-        or state.get("organized_output_dir")
+        or _flatten_engine_payload(report).get("organized_output_dir")
+        or _flatten_engine_payload(state).get("organized_output_dir")
         or ""
     ).strip()
 

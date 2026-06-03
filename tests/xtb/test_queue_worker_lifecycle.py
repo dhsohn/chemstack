@@ -8,6 +8,7 @@ import pytest
 from chemstack.xtb import queue_runtime as queue_cmd
 from chemstack.xtb import state as state_mod
 from tests.engine_process_helpers import process_one_xtb_for_test
+from tests.engine_artifact_helpers import artifact_payload
 from tests.xtb.factories import (
     make_cfg as _make_cfg,
     make_entry as _make_entry,
@@ -237,9 +238,9 @@ def test_queue_worker_shutdown_requeues_running_entries(
     assert worker._running == {}
     state = state_mod.load_state(job_dir)
     assert state is not None
-    assert state["status"] == "queued"
-    assert state["reason"] == "worker_shutdown"
-    assert state["recovery_pending"] is True
+    assert state["status"]["state"] == "queued"
+    assert state["status"]["reason"] == "worker_shutdown"
+    assert state["recovery"]["pending"] is True
 
 
 def test_queue_worker_run_once_waits_for_child_completion_and_prints_summary(
@@ -324,7 +325,22 @@ def test_queue_worker_reconcile_worker_state_requeues_stale_running_entries(
     selected_xyz = job_dir / "input.xyz"
     selected_xyz.write_text("3\ncandidate\nH 0 0 0\n", encoding="utf-8")
     entry = _make_entry(job_dir, selected_xyz, status="running")
-    state_mod.write_state(job_dir, {"status": "running", "worker_job_pid": 999_999})
+    state_mod.write_state(
+        job_dir,
+        artifact_payload(
+            engine="xtb",
+            job_id="job-1",
+            job_dir=str(job_dir),
+            status="running",
+            primary_path=str(selected_xyz),
+            selected_xyz_path=str(selected_xyz),
+            engine_payload={
+                "job_type": "path_search",
+                "reaction_key": "rxn-1",
+            },
+        )
+        | {"process": {"worker_pid": 999_999}},
+    )
     requeued: list[tuple[Path, str]] = []
 
     monkeypatch.setattr(queue_cmd, "reconcile_stale_slots", lambda _root: 0)
@@ -340,9 +356,9 @@ def test_queue_worker_reconcile_worker_state_requeues_stale_running_entries(
     assert requeued == [(queue_root, "queue-1")]
     state = state_mod.load_state(job_dir)
     assert state is not None
-    assert state["status"] == "queued"
-    assert state["reason"] == "crashed_recovery"
-    assert state["recovery_pending"] is True
+    assert state["status"]["state"] == "queued"
+    assert state["status"]["reason"] == "crashed_recovery"
+    assert state["recovery"]["pending"] is True
 
 
 def test_cmd_queue_worker_constructs_xtb_worker_without_organize_flags(

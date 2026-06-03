@@ -36,7 +36,11 @@ def live_worker_pid_slots(
             continue
         state = load_state_fn(job_dir_fn(entry)) or {}
         try:
-            worker_job_pid = int(state.get("worker_job_pid", 0) or 0)
+            process_payload = state.get("process")
+            worker_job_pid = int(
+                (process_payload.get("worker_pid", 0) if isinstance(process_payload, dict) else 0)
+                or 0
+            )
         except (TypeError, ValueError):
             continue
         if worker_job_pid and pid_is_alive_fn(worker_job_pid):

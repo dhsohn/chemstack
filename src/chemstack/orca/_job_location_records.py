@@ -14,6 +14,7 @@ from chemstack.core.indexing import (
 )
 from chemstack.core.indexing import engine_artifacts as _engine_artifacts
 from chemstack.core.indexing import engines as _engine_locations
+from chemstack.core.utils.persistence import load_json_mapping_file
 
 from ._job_location_utils import (
     TERMINAL_STATUSES,
@@ -25,7 +26,7 @@ from ._job_location_utils import (
 from .config import AppConfig
 from .molecule_key import resolve_molecule_key
 from .result_organizer import detect_job_type
-from .state import load_organized_ref, load_report_json, load_state
+from .state import load_organized_ref, load_report_json, state_path
 
 _MOLECULE_KEY_RE = re.compile(r"[^A-Za-z0-9._-]+")
 
@@ -199,7 +200,7 @@ def _artifact_payloads(
 
 
 def _load_artifact_record_payloads(job_dir: Path) -> _ArtifactRecordPayloads:
-    state_data = load_state(job_dir)
+    state_data = load_json_mapping_file(state_path(job_dir))
     return _artifact_payloads(
         dict(state_data) if state_data is not None else {},
         load_report_json(job_dir),
@@ -254,20 +255,17 @@ def _artifact_job_metadata(
     default_job_type: str,
 ) -> tuple[str, str]:
     derived_job_type, derived_molecule_key = resolve_job_metadata(selected_input_xyz, job_dir)
+    sources = (report, state, organized_ref)
     job_type = (
         normalize_text(
-            report.get("job_type")
-            or state.get("job_type")
-            or organized_ref.get("job_type")
+            _engine_artifacts.first_artifact_value(sources, "job_type")
             or derived_job_type
             or default_job_type
         )
         or default_job_type
     )
     molecule_key = normalize_text(
-        report.get("molecule_key")
-        or state.get("molecule_key")
-        or organized_ref.get("molecule_key")
+        _engine_artifacts.first_artifact_value(sources, "molecule_key")
         or (existing.molecule_key if existing else "")
         or derived_molecule_key
     )
@@ -446,7 +444,7 @@ def collect_reindex_payload(job_dir: Path) -> dict[str, Any] | None:
 
 def _candidate_reindex_dirs(root: Path) -> set[Path]:
     candidate_dirs: set[Path] = set()
-    for pattern in ("run_state.json", "run_report.json", "organized_ref.json"):
+    for pattern in ("job_state.json", "job_report.json", "organized_ref.json"):
         for artifact in root.rglob(pattern):
             candidate_dirs.add(artifact.parent)
     return candidate_dirs

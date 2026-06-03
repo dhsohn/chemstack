@@ -24,9 +24,23 @@ from chemstack.orca.cli_logging import (
     remove_managed_handlers as _remove_managed_handlers,
 )
 from chemstack.orca.orca_runner import RunResult, WorkerShutdownInterrupt
+from chemstack.orca.state import load_state, save_state, state_path
+from chemstack.orca.types import RunFinalResult, RunState
 
 build_parser = unified_cli.build_parser
 main = unified_cli.main
+
+
+def _loaded_state(reaction_dir: Path) -> RunState:
+    state = load_state(reaction_dir)
+    assert state is not None
+    return state
+
+
+def _final_result(state: RunState) -> RunFinalResult:
+    final_result = state["final_result"]
+    assert final_result is not None
+    return final_result
 
 
 class TestCli(unittest.TestCase):
@@ -318,7 +332,7 @@ class TestCli(unittest.TestCase):
             rc = main(["run-dir", "--config", str(config), str(reaction)])
 
         self.assertEqual(rc, 0)
-        self.assertFalse((reaction / "run_state.json").exists())
+        self.assertFalse(state_path(reaction).exists())
 
     def test_run_dir_queues_existing_completed_retry_out_for_worker_reconciliation(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -339,7 +353,7 @@ class TestCli(unittest.TestCase):
                 rc = main(["run-dir", "--config", str(config), str(reaction)])
             self.assertFalse(run_mock.called)
         self.assertEqual(rc, 0)
-        self.assertFalse((reaction / "run_state.json").exists())
+        self.assertFalse(state_path(reaction).exists())
 
     def test_skip_existing_completed_out_still_respects_run_lock(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -360,7 +374,7 @@ class TestCli(unittest.TestCase):
             rc = main(["run-dir", "--config", str(config), str(reaction)])
 
         self.assertEqual(rc, 1)
-        self.assertFalse((reaction / "run_state.json").exists())
+        self.assertFalse(state_path(reaction).exists())
 
     def test_run_dir_preserves_existing_state_until_worker_reconciles_completed_output(
         self,
@@ -404,17 +418,17 @@ class TestCli(unittest.TestCase):
                     "last_out_path": str(out),
                 },
             }
-            (reaction / "run_state.json").write_text(json.dumps(state), encoding="utf-8")
+            save_state(reaction, state)
 
             with patch("chemstack.orca.commands.run_inp.OrcaRunner.run") as run_mock:
                 rc = main(["run-dir", "--config", str(config), str(reaction)])
             self.assertFalse(run_mock.called)
-            saved = json.loads((reaction / "run_state.json").read_text(encoding="utf-8"))
+            saved = _loaded_state(reaction)
 
         self.assertEqual(rc, 0)
         self.assertEqual(saved["run_id"], "run_resume_skip_existing_out")
         self.assertEqual(saved["status"], "failed")
-        self.assertEqual(saved["final_result"]["reason"], "worker_shutdown")
+        self.assertEqual(_final_result(saved)["reason"], "worker_shutdown")
 
     def test_worker_shutdown_stops_run_and_finalizes_state(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -430,12 +444,13 @@ class TestCli(unittest.TestCase):
 
             with patch("chemstack.orca.commands.run_inp.OrcaRunner.run", new=_fake_run):
                 rc = self._run_internal_execute(config, reaction)
-            saved = json.loads((reaction / "run_state.json").read_text(encoding="utf-8"))
+            saved = _loaded_state(reaction)
 
         self.assertEqual(rc, 143)
         self.assertEqual(saved["status"], "failed")
-        self.assertEqual(saved["final_result"]["reason"], "worker_shutdown")
-        self.assertEqual(saved["final_result"]["analyzer_status"], "incomplete")
+        final_result = _final_result(saved)
+        self.assertEqual(final_result["reason"], "worker_shutdown")
+        self.assertEqual(final_result["analyzer_status"], "incomplete")
         self.assertEqual(len(saved["attempts"]), 0)
 
     def test_retries_and_completes(self) -> None:
@@ -474,7 +489,7 @@ class TestCli(unittest.TestCase):
             with patch("chemstack.orca.commands.run_inp.OrcaRunner.run", new=_fake_run):
                 rc = self._run_internal_execute(config, reaction)
 
-            state = json.loads((reaction / "run_state.json").read_text(encoding="utf-8"))
+            state = _loaded_state(reaction)
             retry_exists = (reaction / "rxn.retry01.inp").exists()
         self.assertEqual(rc, 0)
         self.assertEqual(calls["n"], 2)
@@ -544,7 +559,7 @@ class TestCli(unittest.TestCase):
 
             with patch("chemstack.orca.commands.run_inp.OrcaRunner.run", new=_fake_run):
                 rc = self._run_internal_execute(config, reaction)
-            state = json.loads((reaction / "run_state.json").read_text(encoding="utf-8"))
+            state = _loaded_state(reaction)
             retry01_exists = (reaction / "rxn.retry01.inp").exists()
             retry02_exists = (reaction / "rxn.retry02.inp").exists()
 
@@ -554,8 +569,9 @@ class TestCli(unittest.TestCase):
         self.assertTrue(retry02_exists)
         self.assertEqual(state["status"], "failed")
         self.assertEqual(len(state["attempts"]), 3)
-        self.assertEqual(state["final_result"]["reason"], "retry_limit_reached")
-        self.assertEqual(state["final_result"]["analyzer_status"], "error_disk_io")
+        final_result = _final_result(state)
+        self.assertEqual(final_result["reason"], "retry_limit_reached")
+        self.assertEqual(final_result["analyzer_status"], "error_disk_io")
 
     def test_config_default_max_retries_can_exceed_five(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -592,13 +608,14 @@ class TestCli(unittest.TestCase):
 
             with patch("chemstack.orca.commands.run_inp.OrcaRunner.run", new=_fake_run):
                 rc = self._run_internal_execute(config, reaction)
-            state = json.loads((reaction / "run_state.json").read_text(encoding="utf-8"))
+            state = _loaded_state(reaction)
 
         self.assertEqual(rc, 1)
         self.assertEqual(calls["n"], 7)
         self.assertEqual(len(state["attempts"]), 7)
-        self.assertEqual(state["final_result"]["reason"], "retry_limit_reached")
-        self.assertEqual(state["final_result"]["analyzer_status"], "error_disk_io")
+        final_result = _final_result(state)
+        self.assertEqual(final_result["reason"], "retry_limit_reached")
+        self.assertEqual(final_result["analyzer_status"], "error_disk_io")
 
     def test_retry_limit_already_reached_finalizes_cleanly(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -659,17 +676,18 @@ class TestCli(unittest.TestCase):
                 ],
                 "final_result": None,
             }
-            (reaction / "run_state.json").write_text(json.dumps(state), encoding="utf-8")
+            save_state(reaction, state)
 
             with patch("chemstack.orca.commands.run_inp.OrcaRunner.run") as run_mock:
                 rc = self._run_internal_execute(config, reaction)
             self.assertFalse(run_mock.called)
-            saved = json.loads((reaction / "run_state.json").read_text(encoding="utf-8"))
+            saved = _loaded_state(reaction)
 
         self.assertEqual(rc, 1)
         self.assertEqual(saved["status"], "failed")
-        self.assertEqual(saved["final_result"]["reason"], "retry_limit_reached")
-        self.assertEqual(saved["final_result"]["last_out_path"], str(reaction / "rxn.retry01.out"))
+        final_result = _final_result(saved)
+        self.assertEqual(final_result["reason"], "retry_limit_reached")
+        self.assertEqual(final_result["last_out_path"], str(reaction / "rxn.retry01.out"))
 
     def test_resume_recreates_missing_retry_input_and_continues(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -703,7 +721,7 @@ class TestCli(unittest.TestCase):
                 ],
                 "final_result": None,
             }
-            (reaction / "run_state.json").write_text(json.dumps(state), encoding="utf-8")
+            save_state(reaction, state)
             seen = {"inp_name": ""}
 
             def _fake_run(_self, inp_path: Path) -> RunResult:
@@ -714,7 +732,7 @@ class TestCli(unittest.TestCase):
 
             with patch("chemstack.orca.commands.run_inp.OrcaRunner.run", new=_fake_run):
                 rc = self._run_internal_execute(config, reaction)
-            saved = json.loads((reaction / "run_state.json").read_text(encoding="utf-8"))
+            saved = _loaded_state(reaction)
             retry_exists = (reaction / "rxn.retry01.inp").exists()
 
         self.assertEqual(rc, 0)
@@ -765,7 +783,7 @@ class TestCli(unittest.TestCase):
                     "last_out_path": str(reaction / "rxn.out"),
                 },
             }
-            (reaction / "run_state.json").write_text(json.dumps(state), encoding="utf-8")
+            save_state(reaction, state)
             seen = {"inp_name": ""}
 
             def _fake_run(_self, inp_path: Path) -> RunResult:
@@ -776,7 +794,7 @@ class TestCli(unittest.TestCase):
 
             with patch("chemstack.orca.commands.run_inp.OrcaRunner.run", new=_fake_run):
                 rc = self._run_internal_execute(config, reaction)
-            saved = json.loads((reaction / "run_state.json").read_text(encoding="utf-8"))
+            saved = _loaded_state(reaction)
             retry_exists = (reaction / "rxn.retry01.inp").exists()
 
         self.assertEqual(rc, 0)
@@ -785,7 +803,7 @@ class TestCli(unittest.TestCase):
         self.assertTrue(retry_exists)
         self.assertEqual(saved["status"], "completed")
         self.assertEqual(len(saved["attempts"]), 2)
-        self.assertTrue(saved["final_result"]["resumed"])
+        self.assertTrue(_final_result(saved)["resumed"])
 
     def test_resume_completed_attempt_finalizes_without_extra_run(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -821,18 +839,19 @@ class TestCli(unittest.TestCase):
                 ],
                 "final_result": None,
             }
-            (reaction / "run_state.json").write_text(json.dumps(state), encoding="utf-8")
+            save_state(reaction, state)
 
             with patch("chemstack.orca.commands.run_inp.OrcaRunner.run") as run_mock:
                 rc = self._run_internal_execute(config, reaction)
             self.assertFalse(run_mock.called)
-            saved = json.loads((reaction / "run_state.json").read_text(encoding="utf-8"))
+            saved = _loaded_state(reaction)
 
         self.assertEqual(rc, 0)
         self.assertEqual(saved["status"], "completed")
         self.assertEqual(len(saved["attempts"]), 1)
-        self.assertEqual(saved["final_result"]["reason"], "normal_termination")
-        self.assertTrue(saved["final_result"]["resumed"])
+        final_result = _final_result(saved)
+        self.assertEqual(final_result["reason"], "normal_termination")
+        self.assertTrue(final_result["resumed"])
 
     def test_keyboard_interrupt_stops_run_and_finalizes_state(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -848,12 +867,13 @@ class TestCli(unittest.TestCase):
 
             with patch("chemstack.orca.commands.run_inp.OrcaRunner.run", new=_fake_run):
                 rc = self._run_internal_execute(config, reaction)
-            saved = json.loads((reaction / "run_state.json").read_text(encoding="utf-8"))
+            saved = _loaded_state(reaction)
 
         self.assertEqual(rc, 130)
         self.assertEqual(saved["status"], "failed")
-        self.assertEqual(saved["final_result"]["reason"], "interrupted_by_user")
-        self.assertEqual(saved["final_result"]["analyzer_status"], "incomplete")
+        final_result = _final_result(saved)
+        self.assertEqual(final_result["reason"], "interrupted_by_user")
+        self.assertEqual(final_result["analyzer_status"], "incomplete")
         self.assertEqual(len(saved["attempts"]), 0)
 
     def test_runner_exception_finalizes_state_with_failure(self) -> None:
@@ -870,13 +890,14 @@ class TestCli(unittest.TestCase):
 
             with patch("chemstack.orca.commands.run_inp.OrcaRunner.run", new=_fake_run):
                 rc = self._run_internal_execute(config, reaction)
-            saved = json.loads((reaction / "run_state.json").read_text(encoding="utf-8"))
+            saved = _loaded_state(reaction)
 
         self.assertEqual(rc, 1)
         self.assertEqual(saved["status"], "failed")
-        self.assertEqual(saved["final_result"]["reason"], "runner_exception")
-        self.assertEqual(saved["final_result"]["analyzer_status"], "incomplete")
-        self.assertEqual(saved["final_result"]["runner_error"], "runner exploded")
+        final_result = _final_result(saved)
+        self.assertEqual(final_result["reason"], "runner_exception")
+        self.assertEqual(final_result["analyzer_status"], "incomplete")
+        self.assertEqual(final_result["runner_error"], "runner exploded")
         self.assertEqual(len(saved["attempts"]), 0)
 
     def test_emit_plain_text_filters_known_keys(self) -> None:
@@ -886,7 +907,7 @@ class TestCli(unittest.TestCase):
             "selected_inp": "/tmp/rxn/rxn.inp",
             "attempt_count": 1,
             "reason": "normal_termination",
-            "run_state": "/tmp/rxn/run_state.json",
+            "run_state": "/tmp/rxn/job_state.json",
             "extra_unknown_key": "ignored",
         }
         captured = io.StringIO()

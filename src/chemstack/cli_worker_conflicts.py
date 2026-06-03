@@ -64,6 +64,7 @@ def _classify_existing_orca_worker(command_argv: Sequence[str]) -> str:
     if (
         program_name == "chemstack"
         or _command_invokes_module(command_argv, "chemstack.cli")
+        or _command_invokes_module(command_argv, "chemstack.orca.commands.queue")
         or _command_invokes_module(command_argv, _ENGINE_WORKER_MODULES["orca"])
     ):
         return "chemstack"

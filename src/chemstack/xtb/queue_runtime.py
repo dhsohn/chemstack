@@ -10,6 +10,10 @@ from chemstack.core.config.engines import (
     default_shared_config_path as default_config_path,
     load_xtb_config as load_config,
 )
+from chemstack.core.engines import xtb_artifacts as _queue_artifacts
+from chemstack.core.engines import xtb_execution as _worker_execution
+from chemstack.core.engines import xtb_terminal as _queue_terminal
+from chemstack.core.engines import xtb_worker_terminal as _worker_terminal
 from chemstack.core.notifications.engines import (
     notify_xtb_job_finished as notify_job_finished,
     notify_xtb_job_started as notify_job_started,
@@ -34,7 +38,6 @@ from chemstack.core.queue import (
 )
 from chemstack.core.queue.worker import (
     BackgroundRunningJob,
-    HookedPidFileChildProcessQueueWorker,
     ManagedProcess as _ManagedProcess,
     config_path_for_worker,
     pid_is_alive as worker_pid_is_alive,
@@ -42,6 +45,7 @@ from chemstack.core.queue.worker import (
     start_background_process,
     terminate_process_group,
 )
+from chemstack.core.engines.queue_worker import EngineQueueWorker
 from chemstack.core.queue import lifecycle as _queue_lifecycle
 from chemstack.core.queue.internal_engine import (
     InternalEngineQueueModule,
@@ -52,8 +56,6 @@ from chemstack.core.queue.internal_engine import (
 from chemstack.core.utils import now_utc_iso
 
 from . import queue_admission as _queue_admission
-from . import worker_execution as _worker_execution
-from . import worker_terminal as _worker_terminal
 from .job_locations import (
     runtime_roots_for_cfg,
     upsert_job_record,
@@ -64,8 +66,6 @@ from .state import (
     load_report_json,
     load_state,
 )
-from . import queue_artifacts as _queue_artifacts
-from . import queue_terminal as _queue_terminal
 
 # Keep queue_runtime.subprocess available for tests/callers that patch Popen.
 _SUBPROCESS_MODULE = subprocess
@@ -390,25 +390,25 @@ def _queue_worker_hooks() -> Any:
     return _queue_module.queue_worker_hooks()
 
 
-class QueueWorker(HookedPidFileChildProcessQueueWorker):
-    worker_pid_file_name = WORKER_PID_FILE
-
-    def __init__(
-        self,
-        cfg: Any,
-        *,
-        config_path: str,
-        max_concurrent: int | None = None,
-    ) -> None:
-        super().__init__(
-            cfg,
-            config_path=config_path,
-            max_concurrent=max_concurrent,
-            deps=_queue_worker_deps(),
-            hooks=_queue_worker_hooks(),
-            worker_pid_file_name=WORKER_PID_FILE,
-            admission_root=_admission_root(cfg),
-        )
+def QueueWorker(
+    cfg: Any,
+    config_path: str | None = None,
+    *,
+    max_concurrent: int | None = None,
+) -> EngineQueueWorker:
+    resolved_config_path = str(config_path).strip() if config_path else default_config_path()
+    return EngineQueueWorker(
+        cfg,
+        config_path=resolved_config_path,
+        engine="xtb",
+        max_concurrent=max_concurrent,
+        deps=_queue_worker_deps(),
+        hooks=_queue_worker_hooks(),
+        worker_pid_file_name=WORKER_PID_FILE,
+        admission_root=_admission_root(cfg),
+        finalize_child_exit=_finalize_child_exit,
+        reconcile_orphaned_running=_reconcile_orphaned_running,
+    )
 
 
 def cmd_queue_worker(args: Any) -> int:

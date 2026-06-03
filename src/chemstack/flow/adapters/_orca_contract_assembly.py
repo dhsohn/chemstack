@@ -106,9 +106,9 @@ class _ContractPayloadDeps:
     def _runtime_paths(self, current_dir: Path | None) -> dict[str, str]:
         return _canonical_payload.runtime_paths(
             current_dir,
-            state_file_name="run_state.json",
-            report_json_name="run_report.json",
-            report_md_name="run_report.md",
+            state_file_name="job_state.json",
+            report_json_name="job_report.json",
+            report_md_name="job_report.md",
         )
 
     def attempt_count(self, state: ContractPayload, report: ContractPayload) -> int:

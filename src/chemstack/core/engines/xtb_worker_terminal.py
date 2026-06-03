@@ -4,17 +4,16 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from chemstack.core.engines import xtb_artifacts as _queue_artifacts
+from chemstack.core.engines import xtb_terminal as _queue_terminal
 from chemstack.core.notifications.engines import notify_xtb_job_finished as notify_job_finished
 from chemstack.core.queue import execution as _queue_execution
 from chemstack.core.queue import mark_cancelled, mark_completed, mark_failed
 from chemstack.core.utils import now_utc_iso
-
-from . import queue_artifacts as _queue_artifacts
-from . import queue_terminal as _queue_terminal
-from .job_locations import upsert_job_record
-from .runner import XtbRunResult
-from .state import write_report_json, write_report_md_lines, write_state
-from .worker_context import (
+from chemstack.xtb.job_locations import upsert_job_record
+from chemstack.xtb.runner import XtbRunResult
+from chemstack.xtb.state import write_report_json, write_report_md_lines, write_state
+from chemstack.xtb.worker_context import (
     input_summary as _input_summary,
     job_dir as _job_dir,
     job_type as _job_type,

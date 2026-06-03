@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from chemstack.crest import worker_terminal
+from chemstack.core.engines import crest_terminal as worker_terminal
 from chemstack.crest.runner import CrestRunResult
 from chemstack.crest.worker_context import ExecutionContext
 

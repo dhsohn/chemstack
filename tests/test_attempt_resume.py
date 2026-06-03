@@ -6,7 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from chemstack.orca.attempt_resume import recover_missing_retry_input, resolve_execution_input, resume_terminal_decision
-from chemstack.orca.state import new_state
+from chemstack.orca.state import new_state, state_path
 from chemstack.orca.types import RunState
 
 
@@ -35,7 +35,7 @@ class TestAttemptResume(unittest.TestCase):
                     retries_used=1,
                     retry_recipe_step=lambda retry_number: retry_number,
                     to_resolved_local=lambda raw: Path(raw),
-                    save_state=lambda _reaction_dir, _state: reaction_dir / "run_state.json",
+                    save_state=lambda _reaction_dir, _state: state_path(reaction_dir),
                 )
 
         self.assertTrue(recovered)
@@ -58,7 +58,7 @@ class TestAttemptResume(unittest.TestCase):
                 retry_inp_path=lambda inp, retry_number: inp.with_name(f"{inp.stem}.retry{retry_number:02d}.inp"),
                 retry_recipe_step=lambda retry_number: retry_number,
                 to_resolved_local=lambda raw: Path(raw),
-                save_state=lambda _reaction_dir, _state: reaction_dir / "run_state.json",
+                save_state=lambda _reaction_dir, _state: state_path(reaction_dir),
             )
 
         self.assertIsNone(current_inp)
@@ -82,7 +82,7 @@ class TestAttemptResume(unittest.TestCase):
                     retry_inp_path=lambda inp, retry_number: inp.with_name(f"{inp.stem}.retry{retry_number:02d}.inp"),
                     retry_recipe_step=lambda retry_number: retry_number,
                     to_resolved_local=lambda raw: Path(raw),
-                    save_state=lambda _reaction_dir, _state: reaction_dir / "run_state.json",
+                    save_state=lambda _reaction_dir, _state: state_path(reaction_dir),
                 )
 
         self.assertIsNone(current_inp)

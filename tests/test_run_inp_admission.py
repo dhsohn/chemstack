@@ -1,4 +1,3 @@
-import json
 import os
 import tempfile
 import unittest
@@ -19,6 +18,7 @@ from chemstack.orca.admission_env import (
 )
 from chemstack.orca.commands.run_inp import _cmd_run_inp_execute
 from chemstack.orca.config import AppConfig, PathsConfig, RuntimeConfig
+from chemstack.orca.state import load_state, state_path
 
 
 def _make_cfg(tmp: str) -> AppConfig:
@@ -72,7 +72,7 @@ class TestRunInpAdmission(unittest.TestCase):
             self.assertEqual(rc, 1)
             self.assertFalse(mock_run_attempts.called)
             self.assertEqual(active_slot_count(root), 0)
-            self.assertFalse((reaction_dir / "run_state.json").exists())
+            self.assertFalse(state_path(reaction_dir).exists())
             self.assertFalse((reaction_dir / "run.lock").exists())
 
     @patch("chemstack.orca.commands.run_inp.load_config")
@@ -173,7 +173,8 @@ class TestRunInpAdmission(unittest.TestCase):
             self.assertEqual(observed_slots[0].task_id, "task_meta_456")
             self.assertEqual(observed_slots[0].work_dir, str(reaction_dir))
             self.assertEqual(active_slot_count(root), 0)
-            state = json.loads((reaction_dir / "run_state.json").read_text(encoding="utf-8"))
+            state = load_state(reaction_dir)
+            assert state is not None
             self.assertEqual(state["job_id"], "task_meta_456")
 
     @patch("chemstack.orca.commands.run_inp.load_config")
@@ -199,8 +200,11 @@ class TestRunInpAdmission(unittest.TestCase):
 
             self.assertEqual(rc, 0)
             self.assertEqual(active_slot_count(root), 0)
-            state = json.loads((reaction_dir / "run_state.json").read_text(encoding="utf-8"))
-            self.assertEqual(state["final_result"]["reason"], "existing_out_completed")
+            state = load_state(reaction_dir)
+            assert state is not None
+            final_result = state["final_result"]
+            assert final_result is not None
+            self.assertEqual(final_result["reason"], "existing_out_completed")
 
     @patch("chemstack.orca.commands.run_inp.load_config")
     @patch("chemstack.orca.commands.run_inp.run_attempts", side_effect=RuntimeError("boom"))

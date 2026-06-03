@@ -5,9 +5,8 @@ from typing import Any
 
 from chemstack.core.queue import engine_execution as _engine_execution
 from chemstack.core.queue import execution as _queue_execution
-
-from .runner import CrestRunResult
-from .state import (
+from chemstack.crest.runner import CrestRunResult
+from chemstack.crest.state import (
     is_recovery_pending,
     load_state,
     state_matches_job,
@@ -37,6 +36,7 @@ def _result_artifact_fields(
 ) -> _engine_execution.EngineArtifactFields:
     return _engine_execution.EngineArtifactFields(
         selected_input_xyz=result.selected_input_xyz,
+        engine="crest",
         engine_fields=_engine_fields(entry, result),
         detail_fields=_detail_fields(result),
     )
@@ -48,6 +48,7 @@ def _running_artifact_fields(entry: Any) -> _engine_execution.EngineArtifactFiel
             entry,
             "selected_input_xyz",
         ),
+        engine="crest",
         engine_fields={
             "molecule_key": _engine_execution.entry_metadata_text(entry, "molecule_key"),
             "mode": _engine_execution.entry_metadata_text(entry, "mode", "standard"),

@@ -6,6 +6,14 @@ from typing import Any
 
 from chemstack.core.commands import run_dir as _shared_run_dir
 from chemstack.core.config.engines import WorkflowEngineAppConfig as AppConfig
+from chemstack.core.engines.artifacts import (
+    EngineArtifactInput,
+    EngineArtifactJob,
+    EngineArtifactResources,
+    EngineArtifactStatus,
+    EngineArtifactTimestamps,
+    build_engine_artifact_payload,
+)
 from chemstack.core.paths import validate_job_dir
 from chemstack.core.paths.workflow import workflow_workspace_internal_engine_paths_from_path
 from chemstack.core.utils import normalize_text as _normalize_text
@@ -208,19 +216,35 @@ def queued_state_payload(
 ) -> dict[str, Any]:
     now = now_utc_iso()
     candidate_count = int(input_summary.get("candidate_count", 0) or 0)
-    return {
-        "job_id": job_id,
-        "job_dir": str(job_dir),
-        "selected_input_xyz": str(selected_input_xyz),
-        "job_type": job_type,
-        "reaction_key": reaction_key,
-        "input_summary": dict(input_summary),
-        "status": "queued",
-        "created_at": now,
-        "updated_at": now,
-        "candidate_count": candidate_count,
-        "candidate_paths": list(input_summary.get("candidate_paths", [])),
-        "selected_candidate_paths": [],
-        "resource_request": dict(resource_request or {}),
-        "resource_actual": dict(resource_request or {}),
-    }
+    resources = dict(resource_request or {})
+    return build_engine_artifact_payload(
+        engine="xtb",
+        job=EngineArtifactJob(
+            id=job_id,
+            queue_id="",
+            dir=str(job_dir),
+            app_name="chemstack_xtb",
+            task_id=job_id,
+        ),
+        status=EngineArtifactStatus(state="queued"),
+        input=EngineArtifactInput(
+            primary_path=str(selected_input_xyz),
+            selected_xyz_path=str(selected_input_xyz),
+        ),
+        resources=EngineArtifactResources(
+            request=resources,
+            actual=dict(resources),
+        ),
+        timestamps=EngineArtifactTimestamps(
+            created_at=now,
+            updated_at=now,
+        ),
+        engine_payload={
+            "job_type": job_type,
+            "reaction_key": reaction_key,
+            "input_summary": dict(input_summary),
+            "candidate_count": candidate_count,
+            "candidate_paths": list(input_summary.get("candidate_paths", [])),
+            "selected_candidate_paths": [],
+        },
+    )

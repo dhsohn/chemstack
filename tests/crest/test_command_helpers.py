@@ -9,6 +9,14 @@ from chemstack.core.config.schema import CommonRuntimeConfig
 
 from chemstack.crest import job_inputs as _helpers
 from chemstack.core.config.engines import WorkflowEngineAppConfig as AppConfig
+from tests.engine_artifact_helpers import (
+    engine_payload as _engine_payload,
+    input_payload as _input_payload,
+    job as _job,
+    resources as _resources,
+    status as _status,
+    timestamps as _timestamps,
+)
 
 
 def _cfg(tmp_path: Path) -> AppConfig:
@@ -158,20 +166,20 @@ def test_queued_state_payload_copies_resource_request_and_sets_timestamps(
         resource_request=resource_request,
     )
 
-    assert payload == {
-        "job_id": "crest-123",
-        "job_dir": str(job_dir),
-        "selected_input_xyz": str(selected_xyz),
-        "molecule_key": "mol-1",
-        "mode": "nci",
-        "status": "queued",
-        "created_at": "2026-04-19T00:00:00+00:00",
-        "updated_at": "2026-04-19T00:00:00+00:00",
-        "resource_request": {"max_cores": 8, "max_memory_gb": 32},
-        "resource_actual": {"max_cores": 8, "max_memory_gb": 32},
-    }
-    assert payload["resource_request"] is not resource_request
-    assert payload["resource_actual"] is not resource_request
+    assert payload["schema_version"] == 1
+    assert payload["engine"] == "crest"
+    assert _job(payload)["id"] == "crest-123"
+    assert _job(payload)["dir"] == str(job_dir)
+    assert _input_payload(payload)["selected_xyz_path"] == str(selected_xyz)
+    assert _engine_payload(payload)["molecule_key"] == "mol-1"
+    assert _engine_payload(payload)["mode"] == "nci"
+    assert _status(payload)["state"] == "queued"
+    assert _timestamps(payload)["created_at"] == "2026-04-19T00:00:00+00:00"
+    assert _timestamps(payload)["updated_at"] == "2026-04-19T00:00:00+00:00"
+    assert _resources(payload)["request"] == {"max_cores": 8, "max_memory_gb": 32}
+    assert _resources(payload)["actual"] == {"max_cores": 8, "max_memory_gb": 32}
+    assert _resources(payload)["request"] is not resource_request
+    assert _resources(payload)["actual"] is not resource_request
 
 
 def test_resolve_job_dir_delegates_to_validate_job_dir(

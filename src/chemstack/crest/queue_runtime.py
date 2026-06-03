@@ -34,11 +34,11 @@ from chemstack.core.queue import (
 )
 from chemstack.core.queue.worker import (
     BackgroundRunningJob as _RunningJob,
-    HookedPidFileChildProcessQueueWorker,
     config_path_for_worker,
     reconcile_orphaned_child_queue_entries,
     start_background_process,
 )
+from chemstack.core.engines.queue_worker import EngineQueueWorker
 from chemstack.core.queue.internal_engine import (
     InternalEngineQueueModule,
     InternalEngineQueueWorkerDeps,
@@ -46,11 +46,7 @@ from chemstack.core.queue.internal_engine import (
     internal_engine_queue_worker_deps_from_namespace,
 )
 from chemstack.core.utils import now_utc_iso
-
-from . import queue_admission as _queue_admission
-from .job_locations import runtime_roots_for_cfg, upsert_job_record
-from .runner import finalize_crest_job, start_crest_job
-from .worker_execution import (
+from chemstack.core.engines.crest_execution import (
     WorkerArtifactDependencies,
     WorkerExecutionDependencies,
     WorkerQueueDependencies,
@@ -64,6 +60,10 @@ from .worker_execution import (
     build_worker_execution_dependencies,
     build_worker_child_command,
 )
+
+from . import queue_admission as _queue_admission
+from .job_locations import runtime_roots_for_cfg, upsert_job_record
+from .runner import finalize_crest_job, start_crest_job
 
 # Keep queue_runtime.subprocess available for tests/callers that patch Popen.
 _SUBPROCESS_MODULE = subprocess
@@ -86,7 +86,7 @@ _RUNTIME_FACADE_DEPENDENCY_SYMBOLS: tuple[Any, ...] = (
 )
 _ENGINE_SPEC = InternalEngineSpec(
     engine="crest",
-    worker_job_module="chemstack.crest.worker_execution",
+    worker_job_module="chemstack.core.engines.crest_execution",
     worker_pid_file_name=WORKER_PID_FILE,
 )
 
@@ -220,31 +220,28 @@ def _queue_worker_hooks() -> Any:
     return _queue_module.queue_worker_hooks()
 
 
-class QueueWorker(HookedPidFileChildProcessQueueWorker):
-    worker_pid_file_name = WORKER_PID_FILE
-
-    def __init__(
-        self,
-        cfg: Any,
-        config_path: str,
-        *,
-        max_concurrent: int,
-    ) -> None:
-        super().__init__(
-            cfg,
-            config_path=str(config_path).strip() or default_config_path(),
-            max_concurrent=max(1, int(max_concurrent)),
-            deps=_queue_worker_deps(),
-            hooks=_queue_worker_hooks(),
-            worker_pid_file_name=WORKER_PID_FILE,
-            admission_root=_admission_root_for_cfg(cfg),
-        )
-
-    def _reconcile_orphaned_running(self) -> None:
-        _reconcile_orphaned_running(self)
-
-    def _finalize_child_exit(self, job: _RunningJob, *, rc: int) -> None:
-        _finalize_child_exit(self, job, rc=rc)
+def QueueWorker(
+    cfg: Any,
+    config_path: str | None = None,
+    *,
+    max_concurrent: int | None = None,
+) -> EngineQueueWorker:
+    raw_max_concurrent: Any = (
+        max_concurrent if max_concurrent is not None else getattr(cfg.runtime, "max_concurrent", 1)
+    )
+    configured_max = max(1, int(raw_max_concurrent))
+    return EngineQueueWorker(
+        cfg,
+        config_path=str(config_path or "").strip() or default_config_path(),
+        engine="crest",
+        max_concurrent=configured_max,
+        deps=_queue_worker_deps(),
+        hooks=_queue_worker_hooks(),
+        worker_pid_file_name=WORKER_PID_FILE,
+        admission_root=_admission_root_for_cfg(cfg),
+        finalize_child_exit=_finalize_child_exit,
+        reconcile_orphaned_running=_reconcile_orphaned_running,
+    )
 
 
 def cmd_queue_worker(args: Any) -> int:
