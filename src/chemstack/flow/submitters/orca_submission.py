@@ -23,6 +23,45 @@ from .orca_models import (
 
 
 @dataclass(frozen=True)
+class _SubmissionStatusNames:
+    admission_blocked: str = "admission_blocked"
+    admission_limit_reached: str = "admission_limit_reached"
+    blocked: str = "blocked"
+    deferred: str = "deferred"
+    failed: str = "failed"
+    partially_submitted: str = "partially_submitted"
+    planned: str = "planned"
+    queued: str = "queued"
+    skipped: str = "skipped"
+    submitted: str = "submitted"
+    submission_failed: str = "submission_failed"
+    waiting_for_slot: str = "waiting_for_slot"
+
+
+@dataclass(frozen=True)
+class _SubmissionBucketNames:
+    deferred: str = "deferred"
+    failed: str = "failed"
+    skipped: str = "skipped"
+    submitted: str = "submitted"
+
+
+_STATUS = _SubmissionStatusNames()
+_BUCKET = _SubmissionBucketNames()
+_DEFERRED_SUBMISSION_STATUSES = frozenset(
+    (
+        _STATUS.blocked,
+        _STATUS.waiting_for_slot,
+        _STATUS.admission_blocked,
+        _STATUS.admission_limit_reached,
+        _STATUS.deferred,
+    )
+)
+_SUBMITTED_TASK_STATUSES = frozenset((_STATUS.submitted,))
+_SUBMITTED_STAGE_STATUSES = frozenset((_STATUS.submitted, _STATUS.queued))
+
+
+@dataclass(frozen=True)
 class SubmissionDeps:
     normalize_text: Callable[[Any], str]
     now_utc_iso: Callable[[], str]
@@ -76,13 +115,7 @@ SUBMISSION_RESULT = TaskRecordMutator("submission_result")
 
 
 def submission_is_deferred(value: dict[str, Any], *, normalize_text: Callable[[Any], str]) -> bool:
-    return normalize_text(value.get("status")).lower() in {
-        "blocked",
-        "waiting_for_slot",
-        "admission_blocked",
-        "admission_limit_reached",
-        "deferred",
-    }
+    return normalize_text(value.get("status")).lower() in _DEFERRED_SUBMISSION_STATUSES
 
 
 def submission_deferred_reason(
@@ -93,7 +126,7 @@ def submission_deferred_reason(
     return (
         normalize_text(value.get("reason"))
         or normalize_text(value.get("status"))
-        or "waiting_for_slot"
+        or _STATUS.waiting_for_slot
     )
 
 
@@ -112,8 +145,8 @@ def skip_submission_reason(
     task_status = task_view.status_with(normalize_text)
     if (
         task_view.has_submitted_result()
-        or task_status == "submitted"
-        or stage_status in {"submitted", "queued"}
+        or task_status in _SUBMITTED_TASK_STATUSES
+        or stage_status in _SUBMITTED_STAGE_STATUSES
     ):
         return "already_submitted"
     return ""
@@ -147,7 +180,7 @@ def record_missing_reaction_dir(
     now_utc_iso: Callable[[], str],
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     submission_record = {
-        "status": "failed",
+        "status": _STATUS.failed,
         "reason": "missing_reaction_dir",
         "submitted_at": now_utc_iso(),
     }
@@ -157,16 +190,20 @@ def record_missing_reaction_dir(
         task=task,
         stage_metadata=stage_metadata,
         task_record=submission_record,
-        task_status="submission_failed",
-        stage_status="submission_failed",
+        task_status=_STATUS.submission_failed,
+        stage_status=_STATUS.submission_failed,
         metadata_updates={
-            "submission_status": "submission_failed",
+            "submission_status": _STATUS.submission_failed,
             "submitted_at": submission_record["submitted_at"],
         },
     )
     return (
         {"stage_id": stage_id, "reason": "missing_reaction_dir"},
-        {"stage_id": stage_id, "status": "submission_failed", "reason": "missing_reaction_dir"},
+        {
+            "stage_id": stage_id,
+            "status": _STATUS.submission_failed,
+            "reason": "missing_reaction_dir",
+        },
     )
 
 
@@ -180,7 +217,7 @@ def submitted_stage_transition(
 ) -> RecordedStageTransition:
     queue_id = stdout_payload.get("queue_id", "")
     return RecordedStageTransition(
-        bucket="submitted",
+        bucket=_BUCKET.submitted,
         detail={
             "stage_id": stage_id,
             "queue_id": queue_id,
@@ -189,16 +226,16 @@ def submitted_stage_transition(
         },
         stage_result={
             "stage_id": stage_id,
-            "status": "submitted",
+            "status": _STATUS.submitted,
             "queue_id": queue_id,
             "returncode": returncode,
         },
         mutation=SUBMISSION_RESULT.mutation(
-            task_status="submitted",
-            stage_status="queued",
+            task_status=_STATUS.submitted,
+            stage_status=_STATUS.queued,
             metadata_updates={
                 "queue_id": queue_id,
-                "submission_status": "submitted",
+                "submission_status": _STATUS.submitted,
                 "submitted_at": submitted_at,
             },
             metadata_removals=("submission_deferred_reason", "last_submission_attempt_at"),
@@ -216,22 +253,22 @@ def deferred_submission_transition(
 ) -> RecordedStageTransition:
     reason = submission_deferred_reason(submission_record, normalize_text=normalize_text)
     return RecordedStageTransition(
-        bucket="deferred",
+        bucket=_BUCKET.deferred,
         detail={
             "stage_id": stage_id,
             "reason": reason,
         },
         stage_result={
             "stage_id": stage_id,
-            "status": "waiting_for_slot",
+            "status": _STATUS.waiting_for_slot,
             "reason": reason,
             "returncode": returncode,
         },
         mutation=SUBMISSION_RESULT.mutation(
-            task_status="planned",
-            stage_status="planned",
+            task_status=_STATUS.planned,
+            stage_status=_STATUS.planned,
             metadata_updates={
-                "submission_status": "waiting_for_slot",
+                "submission_status": _STATUS.waiting_for_slot,
                 "submission_deferred_reason": reason,
                 "last_submission_attempt_at": submitted_at,
             },
@@ -249,7 +286,7 @@ def failed_submission_transition(
     returncode: int,
 ) -> RecordedStageTransition:
     return RecordedStageTransition(
-        bucket="failed",
+        bucket=_BUCKET.failed,
         detail={
             "stage_id": stage_id,
             "returncode": returncode,
@@ -258,15 +295,15 @@ def failed_submission_transition(
         },
         stage_result={
             "stage_id": stage_id,
-            "status": "submission_failed",
+            "status": _STATUS.submission_failed,
             "queue_id": stdout_payload.get("queue_id", ""),
             "returncode": returncode,
         },
         mutation=SUBMISSION_RESULT.mutation(
-            task_status="submission_failed",
-            stage_status="submission_failed",
+            task_status=_STATUS.submission_failed,
+            stage_status=_STATUS.submission_failed,
             metadata_updates={
-                "submission_status": "submission_failed",
+                "submission_status": _STATUS.submission_failed,
                 "submitted_at": submitted_at,
             },
             metadata_removals=("submission_deferred_reason", "last_submission_attempt_at"),
@@ -284,7 +321,7 @@ def submission_transition(
     normalize_text: Callable[[Any], str],
 ) -> RecordedStageTransition:
     submitted_at = submission_record["submitted_at"]
-    if submission_record["status"] == "submitted":
+    if submission_record["status"] == _STATUS.submitted:
         return submitted_stage_transition(
             stage_id=stage_id,
             stdout_payload=stdout_payload,
@@ -352,13 +389,13 @@ def submission_summary_state(
     failed: list[dict[str, Any]],
 ) -> tuple[str | None, str]:
     if failed and submitted:
-        return "queued", "partially_submitted"
+        return _STATUS.queued, _STATUS.partially_submitted
     if failed:
-        return "submission_failed", "submission_failed"
+        return _STATUS.submission_failed, _STATUS.submission_failed
     if submitted:
-        return "queued", "submitted"
+        return _STATUS.queued, _STATUS.submitted
     if skipped:
-        return None, "skipped"
+        return None, _STATUS.skipped
     return None, ""
 
 
@@ -409,9 +446,9 @@ def submission_stage_outcome(
     stage_id = context.stage_id
     if skip_reason:
         return WorkflowStageOutcome(
-            bucket="skipped",
+            bucket=_BUCKET.skipped,
             detail={"stage_id": stage_id, "reason": skip_reason},
-            stage_result={"stage_id": stage_id, "status": "skipped", "reason": skip_reason},
+            stage_result={"stage_id": stage_id, "status": _STATUS.skipped, "reason": skip_reason},
         )
 
     reaction_dir = context.reaction_dir(deps.normalize_text)
@@ -422,7 +459,11 @@ def submission_stage_outcome(
             stage_metadata=context.stage_metadata,
             now_utc_iso=deps.now_utc_iso,
         )
-        return WorkflowStageOutcome(bucket="failed", detail=fail_record, stage_result=stage_result)
+        return WorkflowStageOutcome(
+            bucket=_BUCKET.failed,
+            detail=fail_record,
+            stage_result=stage_result,
+        )
     if not context.should_submit_to_orca(deps.normalize_text):
         return None
 
@@ -442,7 +483,7 @@ def submission_stage_outcome(
         now_utc_iso=deps.now_utc_iso,
         normalize_text=deps.normalize_text,
     )
-    bucket = "skipped" if outcome == "deferred" else outcome
+    bucket = _BUCKET.skipped if outcome == _BUCKET.deferred else outcome
     return WorkflowStageOutcome(bucket=bucket, detail=detail_record, stage_result=stage_result)
 
 
