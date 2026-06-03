@@ -83,6 +83,44 @@ def build_internal_worker_default_factories(
     }
 
 
+def build_internal_worker_process_default_factories(
+    *,
+    timing_dependencies_type: Callable[..., Any],
+    queue_dependencies_type: Callable[..., Any],
+    runner_dependencies_type: Callable[..., Any],
+    terminate_process: Callable[[Any], Any],
+    wait_for_cancellable_process: Callable[..., Any],
+    sleep: Callable[[float], None],
+    cancel_check_interval_seconds: float,
+    now_utc_iso: Callable[[], str],
+    get_cancel_requested: Callable[[str, str], bool],
+    mark_completed: Callable[..., Any],
+    mark_cancelled: Callable[..., Any],
+    mark_failed: Callable[..., Any],
+    **engine_runner_dependencies: Any,
+) -> dict[str, Callable[[], Any]]:
+    def runner_factory() -> Any:
+        return build_internal_worker_process_dependencies(
+            runner_dependencies_type,
+            terminate_process=terminate_process,
+            wait_for_cancellable_process=wait_for_cancellable_process,
+            sleep=sleep,
+            cancel_check_interval_seconds=cancel_check_interval_seconds,
+            **engine_runner_dependencies,
+        )
+
+    return build_internal_worker_default_factories(
+        timing_dependencies_type=timing_dependencies_type,
+        queue_dependencies_type=queue_dependencies_type,
+        runner_factory=runner_factory,
+        now_utc_iso=now_utc_iso,
+        get_cancel_requested=get_cancel_requested,
+        mark_completed=mark_completed,
+        mark_cancelled=mark_cancelled,
+        mark_failed=mark_failed,
+    )
+
+
 def build_internal_worker_process_dependencies(
     dependencies_type: Callable[..., T],
     *,
@@ -438,6 +476,7 @@ __all__ = [
     "InternalWorkerTimingDependencies",
     "InternalWorkerOptions",
     "build_internal_worker_default_factories",
+    "build_internal_worker_process_default_factories",
     "build_internal_worker_process_dependencies",
     "build_internal_worker_queue_dependencies",
     "build_internal_worker_timing_dependencies",

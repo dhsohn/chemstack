@@ -31,6 +31,10 @@ _STATE_EXPORTS = _engine_state.create_engine_state_module_exports(
     now_fn=lambda: now_utc_iso(),
 )
 _RECOVERY_PENDING = _STATE_EXPORTS.recovery_pending
+_RECOVERY_RETAINED_FIELDS = _engine_state.RecoveryRetainedFieldsSpec(
+    int_fields=("retained_conformer_count",),
+    list_fields=("retained_conformer_paths",),
+)
 write_state = _STATE_EXPORTS.write_state
 write_report_json = _STATE_EXPORTS.write_report_json
 write_report_md_lines = _STATE_EXPORTS.write_report_md_lines
@@ -59,10 +63,10 @@ def state_matches_job(
     mode: str,
     molecule_key: str,
 ) -> bool:
-    return _engine_state.state_matches_fields(
+    return _engine_state.state_matches_job_identity(
         state,
-        {
-            "selected_input_xyz": selected_input_xyz,
+        selected_input_xyz=selected_input_xyz,
+        identity_fields={
             "mode": mode,
             "molecule_key": molecule_key,
         },
@@ -73,12 +77,7 @@ is_recovery_pending = _engine_state.is_recovery_pending_state
 
 
 def _recovery_retained_fields(existing: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "retained_conformer_count": int(existing.get("retained_conformer_count", 0) or 0),
-        "retained_conformer_paths": _engine_state.coerce_list(
-            existing.get("retained_conformer_paths")
-        ),
-    }
+    return _engine_state.recovery_retained_fields(existing, _RECOVERY_RETAINED_FIELDS)
 
 
 def mark_recovery_pending(
@@ -97,10 +96,12 @@ def mark_recovery_pending(
         job_id=job_id,
         selected_input_xyz=selected_input_xyz,
         reason=reason,
-        identity_fields={
-            "molecule_key": _engine_state.normalize_text(molecule_key),
-            "mode": _engine_state.normalize_text(mode),
-        },
+        identity_fields=_engine_state.recovery_identity_fields(
+            {
+                "molecule_key": molecule_key,
+                "mode": mode,
+            }
+        ),
         retained_fields=_recovery_retained_fields,
         resource_request=resource_request,
         resource_actual=resource_actual,

@@ -77,6 +77,88 @@ def test_resolve_engine_job_dir_rejects_path_outside_workflow_root(tmp_path: Pat
         )
 
 
+def test_build_engine_run_dir_submission_from_spec_adds_common_payloads(
+    tmp_path: Path,
+) -> None:
+    job_dir = tmp_path / "job-1"
+    metadata = {"job_dir": str(job_dir), "mode": "nci"}
+    context = {"job_dir": job_dir, "mode": "nci"}
+
+    submission = run_dir.build_engine_run_dir_submission_from_spec(
+        spec=run_dir.EngineSubmissionSpec(
+            queue_root=tmp_path / "queue",
+            app_name="chemstack_crest",
+            task_id="job-1",
+            task_kind="crest_conformer_search",
+            engine="crest",
+            metadata=metadata,
+            context=context,
+        ),
+        args=SimpleNamespace(priority="6"),
+        manifest={"mode": "nci"},
+        resource_request={"max_cores": 4, "max_memory_gb": 16},
+    )
+
+    assert submission.queue_root == tmp_path / "queue"
+    assert submission.app_name == "chemstack_crest"
+    assert submission.task_id == "job-1"
+    assert submission.task_kind == "crest_conformer_search"
+    assert submission.engine == "crest"
+    assert submission.priority == 6
+    assert submission.metadata == {
+        "job_dir": str(job_dir),
+        "mode": "nci",
+        "manifest_present": "true",
+        "resource_request": {"max_cores": 4, "max_memory_gb": 16},
+        "resource_actual": {"max_cores": 4, "max_memory_gb": 16},
+    }
+    assert submission.context == {
+        "job_dir": job_dir,
+        "mode": "nci",
+        "resource_request": {"max_cores": 4, "max_memory_gb": 16},
+    }
+    assert metadata == {"job_dir": str(job_dir), "mode": "nci"}
+    assert context == {"job_dir": job_dir, "mode": "nci"}
+
+
+def test_build_engine_queued_record_applies_shared_resource_fields(
+    tmp_path: Path,
+) -> None:
+    resource_request = {"max_cores": 4, "max_memory_gb": 16}
+    submission = run_dir.EngineRunDirSubmission(
+        queue_root=tmp_path,
+        app_name="app",
+        task_id="job-1",
+        task_kind="run_dir",
+        engine="crest",
+        priority=5,
+        metadata={},
+        context={"job_dir": tmp_path / "job-1", "resource_request": resource_request},
+    )
+    state_payload = {"status": "queued", "resource_request": resource_request}
+    index_fields = {"mode": "nci", "selected_input_xyz": "input.xyz"}
+    notification_fields = {"mode": "nci", "selected_xyz": "input.xyz"}
+
+    record = run_dir.build_engine_queued_record(
+        submission=submission,
+        state_payload=state_payload,
+        index_fields=index_fields,
+        notification_fields=notification_fields,
+    )
+
+    assert record.state_payload == state_payload
+    assert record.state_payload is not state_payload
+    assert record.index_fields == {
+        "mode": "nci",
+        "selected_input_xyz": "input.xyz",
+        "resource_request": resource_request,
+        "resource_actual": resource_request,
+    }
+    assert record.notification_fields == notification_fields
+    assert index_fields == {"mode": "nci", "selected_input_xyz": "input.xyz"}
+    assert notification_fields == {"mode": "nci", "selected_xyz": "input.xyz"}
+
+
 def test_record_queued_common_applies_shared_fields(tmp_path: Path) -> None:
     cfg = SimpleNamespace(name="config")
     job_dir = tmp_path / "job-1"

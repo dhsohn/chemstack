@@ -187,6 +187,21 @@ def state_matches_fields(state: dict[str, Any] | None, fields: dict[str, Any]) -
     return True
 
 
+def state_matches_job_identity(
+    state: dict[str, Any] | None,
+    *,
+    selected_input_xyz: str | Path,
+    identity_fields: Mapping[str, Any],
+) -> bool:
+    return state_matches_fields(
+        state,
+        {
+            "selected_input_xyz": selected_input_xyz,
+            **{str(key): value for key, value in identity_fields.items()},
+        },
+    )
+
+
 def is_recovery_pending_state(state: dict[str, Any] | None) -> bool:
     if not isinstance(state, dict):
         return False
@@ -211,6 +226,37 @@ def manifest_path_from_existing(
 
 
 RecoveryFieldMap = Mapping[str, Any] | Callable[[dict[str, Any]], Mapping[str, Any]]
+
+
+@dataclass(frozen=True)
+class RecoveryRetainedFieldsSpec:
+    int_fields: tuple[str, ...] = ()
+    list_fields: tuple[str, ...] = ()
+    dict_fields: tuple[str, ...] = ()
+
+
+def recovery_identity_fields(fields: Mapping[str, Any]) -> dict[str, Any]:
+    return {str(key): normalize_text(value) for key, value in fields.items()}
+
+
+def recovery_retained_fields(
+    existing: dict[str, Any],
+    spec: RecoveryRetainedFieldsSpec,
+    *,
+    list_fallbacks: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    fallbacks: Mapping[str, Any] = list_fallbacks or {}
+    retained: dict[str, Any] = {}
+    for field in spec.int_fields:
+        retained[field] = int(existing.get(field, 0) or 0)
+    for field in spec.list_fields:
+        values = coerce_list(existing.get(field))
+        if not values and field in fallbacks:
+            values = coerce_list(fallbacks[field])
+        retained[field] = values
+    for field in spec.dict_fields:
+        retained[field] = coerce_dict(existing.get(field))
+    return retained
 
 
 def _resolve_recovery_fields(

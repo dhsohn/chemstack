@@ -144,6 +144,23 @@ def build_internal_engine_submitter(
     return submitter.submit_job_dir, submitter.cancel_target
 
 
+def build_internal_engine_module_submitter(
+    *,
+    engine: str,
+    namespace: Mapping[str, Any],
+    extra_fields_fn: Callable[[Any | None, Any | None], dict[str, Any]] | None = None,
+) -> tuple[Callable[..., dict[str, Any]], Callable[..., dict[str, Any]]]:
+    engine_name = normalize_text(engine)
+    if not engine_name:
+        raise ValueError("build_internal_engine_module_submitter requires engine")
+    return build_internal_engine_submitter(
+        run_dir_api_name=f"chemstack.{engine_name}.submission.direct_enqueue",
+        cancel_api_name=f"chemstack.{engine_name}.queue_runtime.direct_cancel",
+        namespace=namespace,
+        extra_fields_fn=extra_fields_fn,
+    )
+
+
 def internal_call_argv(
     *,
     api_name: str,

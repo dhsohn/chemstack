@@ -5,10 +5,10 @@ from typing import Any
 from chemstack.core.commands.run_dir import (
     EngineQueuedRecord,
     EngineRunDirSubmission,
-    build_engine_run_dir_submission,
-    engine_resource_fields,
-    manifest_present_text,
-    record_queued_common,
+    EngineSubmissionSpec,
+    build_engine_queued_record,
+    build_engine_run_dir_submission_from_spec,
+    record_engine_run_dir_queued,
 )
 from chemstack.core.config.engines import (
     load_xtb_config as load_config,
@@ -48,33 +48,32 @@ def _build_submission(
 ) -> EngineRunDirSubmission:
     job = resolve_job_inputs(job_dir, manifest)
     job_id = new_job_id()
-    resource_request = resource_request_from_manifest(cfg, manifest)
-    resource_fields = engine_resource_fields(resource_request)
     input_summary = dict(job["input_summary"])
-    return build_engine_run_dir_submission(
-        queue_root=index_root_for_path(cfg, job_dir),
-        app_name="chemstack_xtb",
-        task_id=job_id,
-        task_kind=f"xtb_{job['job_type']}",
-        engine="xtb",
+    return build_engine_run_dir_submission_from_spec(
+        spec=EngineSubmissionSpec(
+            queue_root=index_root_for_path(cfg, job_dir),
+            app_name="chemstack_xtb",
+            task_id=job_id,
+            task_kind=f"xtb_{job['job_type']}",
+            engine="xtb",
+            metadata={
+                "job_dir": str(job_dir),
+                "selected_input_xyz": str(job["selected_input_xyz"]),
+                "secondary_input_xyz": str(job["secondary_input_xyz"] or ""),
+                "job_type": str(job["job_type"]),
+                "reaction_key": str(job["reaction_key"]),
+                "input_summary": input_summary,
+                "candidate_paths": list(input_summary.get("candidate_paths", [])),
+            },
+            context={
+                "job": job,
+                "job_dir": job_dir,
+                "input_summary": input_summary,
+            },
+        ),
         args=args,
-        metadata={
-            "job_dir": str(job_dir),
-            "selected_input_xyz": str(job["selected_input_xyz"]),
-            "secondary_input_xyz": str(job["secondary_input_xyz"] or ""),
-            "job_type": str(job["job_type"]),
-            "reaction_key": str(job["reaction_key"]),
-            "input_summary": input_summary,
-            "manifest_present": manifest_present_text(manifest),
-            "candidate_paths": list(input_summary.get("candidate_paths", [])),
-            **resource_fields,
-        },
-        context={
-            "job": job,
-            "job_dir": job_dir,
-            "input_summary": input_summary,
-            "resource_request": resource_fields["resource_request"],
-        },
+        manifest=manifest,
+        resource_request=resource_request_from_manifest(cfg, manifest),
     )
 
 
@@ -83,7 +82,8 @@ def _queued_record(submission: EngineRunDirSubmission, _entry: Any) -> EngineQue
     job_dir = submission.context["job_dir"]
     input_summary = submission.context["input_summary"]
     resource_request = submission.context["resource_request"]
-    return EngineQueuedRecord(
+    return build_engine_queued_record(
+        submission=submission,
         state_payload=queued_state_payload(
             job_id=submission.task_id,
             job_dir=job_dir,
@@ -97,8 +97,6 @@ def _queued_record(submission: EngineRunDirSubmission, _entry: Any) -> EngineQue
             "job_type": str(job["job_type"]),
             "selected_input_xyz": str(job["selected_input_xyz"]),
             "reaction_key": str(job["reaction_key"]),
-            "resource_request": resource_request,
-            "resource_actual": resource_request,
         },
         notification_fields={
             "job_type": str(job["job_type"]),
@@ -109,12 +107,9 @@ def _queued_record(submission: EngineRunDirSubmission, _entry: Any) -> EngineQue
 
 
 def _record_queued(cfg: Any, submission: EngineRunDirSubmission, entry: Any) -> None:
-    record_queued_common(
+    record_engine_run_dir_queued(
         cfg,
         submission,
         entry,
-        build_record_fn=_queued_record,
-        write_state_fn=write_state,
-        upsert_job_record_fn=upsert_job_record,
-        notify_job_queued_fn=notify_job_queued,
+        namespace=globals(),
     )

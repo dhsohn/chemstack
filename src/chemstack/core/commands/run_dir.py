@@ -24,6 +24,17 @@ class EngineRunDirSubmission:
 
 
 @dataclass(frozen=True)
+class EngineSubmissionSpec:
+    queue_root: Path
+    app_name: str
+    task_id: str
+    task_kind: str
+    engine: str
+    metadata: Mapping[str, Any]
+    context: Mapping[str, Any]
+
+
+@dataclass(frozen=True)
 class EngineQueuedRecord:
     state_payload: dict[str, Any]
     index_fields: dict[str, Any]
@@ -65,6 +76,71 @@ def build_engine_run_dir_submission(
     )
 
 
+def build_engine_run_dir_submission_from_spec(
+    *,
+    spec: EngineSubmissionSpec,
+    args: Any,
+    manifest: dict[str, Any],
+    resource_request: dict[str, Any] | None,
+) -> EngineRunDirSubmission:
+    resource_fields = engine_resource_fields(resource_request)
+    metadata = dict(spec.metadata)
+    metadata["manifest_present"] = manifest_present_text(manifest)
+    metadata.update(resource_fields)
+    context = dict(spec.context)
+    context["resource_request"] = resource_fields["resource_request"]
+    return build_engine_run_dir_submission(
+        queue_root=spec.queue_root,
+        app_name=spec.app_name,
+        task_id=spec.task_id,
+        task_kind=spec.task_kind,
+        engine=spec.engine,
+        args=args,
+        metadata=metadata,
+        context=context,
+    )
+
+
+def build_engine_queued_record(
+    *,
+    submission: EngineRunDirSubmission,
+    state_payload: dict[str, Any],
+    index_fields: dict[str, Any],
+    notification_fields: dict[str, Any],
+) -> EngineQueuedRecord:
+    resource_request = submission.context["resource_request"]
+    index_payload = dict(index_fields)
+    index_payload["resource_request"] = resource_request
+    index_payload["resource_actual"] = resource_request
+    return EngineQueuedRecord(
+        state_payload=dict(state_payload),
+        index_fields=index_payload,
+        notification_fields=dict(notification_fields),
+    )
+
+
+def record_engine_run_dir_queued(
+    cfg: Any,
+    submission: EngineRunDirSubmission,
+    entry: Any,
+    *,
+    namespace: Mapping[str, Any],
+    build_record_name: str = "_queued_record",
+    write_state_name: str = "write_state",
+    upsert_job_record_name: str = "upsert_job_record",
+    notify_job_queued_name: str = "notify_job_queued",
+) -> None:
+    record_queued_common(
+        cfg,
+        submission,
+        entry,
+        build_record_fn=namespace[build_record_name],
+        write_state_fn=namespace[write_state_name],
+        upsert_job_record_fn=namespace[upsert_job_record_name],
+        notify_job_queued_fn=namespace[notify_job_queued_name],
+    )
+
+
 def record_queued_common_from_namespace(
     cfg: Any,
     submission: EngineRunDirSubmission,
@@ -76,15 +152,16 @@ def record_queued_common_from_namespace(
     upsert_job_record_name: str = "upsert_job_record",
     notify_job_queued_name: str = "notify_job_queued",
 ) -> None:
-    """Compatibility adapter; prefer record_queued_common with explicit callables."""
-    record_queued_common(
+    """Compatibility adapter for older callers."""
+    record_engine_run_dir_queued(
         cfg,
         submission,
         entry,
-        build_record_fn=namespace[build_record_name],
-        write_state_fn=namespace[write_state_name],
-        upsert_job_record_fn=namespace[upsert_job_record_name],
-        notify_job_queued_fn=namespace[notify_job_queued_name],
+        namespace=namespace,
+        build_record_name=build_record_name,
+        write_state_name=write_state_name,
+        upsert_job_record_name=upsert_job_record_name,
+        notify_job_queued_name=notify_job_queued_name,
     )
 
 

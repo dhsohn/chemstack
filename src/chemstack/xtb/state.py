@@ -31,6 +31,11 @@ _STATE_EXPORTS = _engine_state.create_engine_state_module_exports(
     now_fn=lambda: now_utc_iso(),
 )
 _RECOVERY_PENDING = _STATE_EXPORTS.recovery_pending
+_RECOVERY_RETAINED_FIELDS = _engine_state.RecoveryRetainedFieldsSpec(
+    int_fields=("candidate_count",),
+    list_fields=("candidate_paths", "selected_candidate_paths", "candidate_details"),
+    dict_fields=("analysis_summary",),
+)
 write_state = _STATE_EXPORTS.write_state
 write_report_json = _STATE_EXPORTS.write_report_json
 write_report_md_lines = _STATE_EXPORTS.write_report_md_lines
@@ -48,10 +53,10 @@ def state_matches_job(
     job_type: str,
     reaction_key: str,
 ) -> bool:
-    return _engine_state.state_matches_fields(
+    return _engine_state.state_matches_job_identity(
         state,
-        {
-            "selected_input_xyz": selected_input_xyz,
+        selected_input_xyz=selected_input_xyz,
+        identity_fields={
             "job_type": job_type,
             "reaction_key": reaction_key,
         },
@@ -65,18 +70,11 @@ def _recovery_retained_fields(
     existing: dict[str, Any],
     input_summary_payload: dict[str, Any],
 ) -> dict[str, Any]:
-    candidate_paths = _engine_state.coerce_list(existing.get("candidate_paths"))
-    if not candidate_paths:
-        candidate_paths = _engine_state.coerce_list(input_summary_payload.get("candidate_paths"))
-    return {
-        "candidate_count": int(existing.get("candidate_count", 0) or 0),
-        "candidate_paths": candidate_paths,
-        "selected_candidate_paths": _engine_state.coerce_list(
-            existing.get("selected_candidate_paths")
-        ),
-        "candidate_details": _engine_state.coerce_list(existing.get("candidate_details")),
-        "analysis_summary": _engine_state.coerce_dict(existing.get("analysis_summary")),
-    }
+    return _engine_state.recovery_retained_fields(
+        existing,
+        _RECOVERY_RETAINED_FIELDS,
+        list_fallbacks={"candidate_paths": input_summary_payload.get("candidate_paths")},
+    )
 
 
 def mark_recovery_pending(
@@ -98,8 +96,12 @@ def mark_recovery_pending(
         selected_input_xyz=selected_input_xyz,
         reason=reason,
         identity_fields={
-            "job_type": _engine_state.normalize_text(job_type),
-            "reaction_key": _engine_state.normalize_text(reaction_key),
+            **_engine_state.recovery_identity_fields(
+                {
+                    "job_type": job_type,
+                    "reaction_key": reaction_key,
+                }
+            ),
             "input_summary": input_summary_payload,
         },
         retained_fields=lambda existing: _recovery_retained_fields(existing, input_summary_payload),
