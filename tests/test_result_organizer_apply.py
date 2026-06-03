@@ -64,7 +64,7 @@ def test_attempt_and_metadata_helpers_cover_edge_cases(tmp_path: Path) -> None:
         "final_result": {"last_out_path": str(retry_out)},
     }
 
-    with patch("chemstack.orca.result_organizer.resolve_molecule_key") as resolve_key:
+    with patch("chemstack.orca.result_organizer_planning.resolve_molecule_key") as resolve_key:
         resolve_key.side_effect = [
             type("Resolution", (), {"source": "directory_fallback", "key": "unknown"})(),
             type("Resolution", (), {"source": "input_file", "key": "H2"})(),
@@ -115,8 +115,11 @@ def test_verify_copytree_raises_for_missing_and_size_mismatch(tmp_path: Path) ->
 def test_execute_move_and_rollback_cover_cross_device_and_existing_source(tmp_path: Path) -> None:
     plan = _plan(tmp_path)
 
-    with patch("chemstack.orca.result_organizer.os.rename", side_effect=OSError(errno.EXDEV, "cross-device")), patch(
-        "chemstack.orca.result_organizer._cross_device_move"
+    with patch(
+        "chemstack.orca.result_organizer_filesystem.os.rename",
+        side_effect=OSError(errno.EXDEV, "cross-device"),
+    ), patch(
+        "chemstack.orca.result_organizer_filesystem._cross_device_move"
     ) as cross_device_move:
         result_organizer.execute_move(plan)
 
@@ -126,8 +129,11 @@ def test_execute_move_and_rollback_cover_cross_device_and_existing_source(tmp_pa
     if source_dir.exists():
         source_dir.rmdir()
     plan.target_abs_path.mkdir(parents=True, exist_ok=True)
-    with patch("chemstack.orca.result_organizer.os.rename", side_effect=OSError(errno.EXDEV, "cross-device")), patch(
-        "chemstack.orca.result_organizer._cross_device_move"
+    with patch(
+        "chemstack.orca.result_organizer_filesystem.os.rename",
+        side_effect=OSError(errno.EXDEV, "cross-device"),
+    ), patch(
+        "chemstack.orca.result_organizer_filesystem._cross_device_move"
     ) as cross_device_move:
         result_organizer.rollback_move(plan)
 
@@ -226,9 +232,9 @@ def test_moved_path_helpers_and_fsync_directory_cover_noop_and_success(tmp_path:
         target_dir,
     ) == str(target_dir / "missing.inp")
 
-    with patch("chemstack.orca.result_organizer.os.open", return_value=11) as os_open, patch(
-        "chemstack.orca.result_organizer.os.fsync"
-    ) as fsync, patch("chemstack.orca.result_organizer.os.close") as close:
+    with patch("chemstack.orca.result_organizer_filesystem.os.open", return_value=11) as os_open, patch(
+        "chemstack.orca.result_organizer_filesystem.os.fsync"
+    ) as fsync, patch("chemstack.orca.result_organizer_filesystem.os.close") as close:
         result_organizer._fsync_directory(target_dir)
 
     os_open.assert_called_once()

@@ -105,7 +105,7 @@ def test_select_organize_metadata_uses_successful_retry_when_selected_input_is_m
     }
 
     with patch(
-        "chemstack.orca.result_organizer.resolve_molecule_key",
+        "chemstack.orca.result_organizer_planning.resolve_molecule_key",
         return_value=SimpleNamespace(source="input_file", key="H2"),
     ):
         assert organizer.select_organize_metadata_inp_path(state, reaction_dir) == retry_inp.resolve()
@@ -147,7 +147,10 @@ def test_rollback_move_reraises_non_exdev_oserror(tmp_path: Path) -> None:
     plan = _plan(tmp_path)
     plan.target_abs_path.mkdir(parents=True, exist_ok=True)
 
-    with patch("chemstack.orca.result_organizer.os.rename", side_effect=OSError(errno.EPERM, "permission denied")):
+    with patch(
+        "chemstack.orca.result_organizer_filesystem.os.rename",
+        side_effect=OSError(errno.EPERM, "permission denied"),
+    ):
         with pytest.raises(OSError) as exc_info:
             organizer.rollback_move(plan)
 
@@ -160,7 +163,7 @@ def test_sync_state_after_move_and_rollback_delegate_to_relocation_helper(tmp_pa
     rolled_back_state = {"reaction_dir": str(plan.source_dir)}
 
     with patch(
-        "chemstack.orca.result_organizer._sync_state_after_relocation",
+        "chemstack.orca.result_organizer_state._sync_state_after_relocation",
         return_value=moved_state,
     ) as sync_state:
         assert organizer.sync_state_after_move(plan) == moved_state
@@ -171,7 +174,7 @@ def test_sync_state_after_move_and_rollback_delegate_to_relocation_helper(tmp_pa
         )
 
     with patch(
-        "chemstack.orca.result_organizer._sync_state_after_relocation",
+        "chemstack.orca.result_organizer_state._sync_state_after_relocation",
         return_value=rolled_back_state,
     ) as sync_state:
         assert organizer.sync_state_after_rollback(plan) == rolled_back_state
