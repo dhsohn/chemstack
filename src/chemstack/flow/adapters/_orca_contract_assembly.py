@@ -142,11 +142,7 @@ def load_orca_artifact_contract_impl(
         target=target, queue_id=queue_id, run_id=run_id, reaction_dir=reaction_dir
     )
     roots = _contract_context.resolve_roots(orca_allowed_root, orca_organized_root, deps)
-    context = _contract_context.load_context(request, roots, deps)
-    _contract_context.set_current_dir(request, context, deps)
-    _contract_context.load_context_payloads(context, deps)
-    context.resolved_run_id = _contract_context.resolve_run_id(request, context, deps)
-    _contract_context.resolve_organized_context(request, context, deps)
+    context = _load_contract_context(request, roots, deps)
     return _contract_from_context(request, roots, context, deps)
 
 
@@ -200,6 +196,19 @@ def _contract_from_payload(
         resource_request=deps.coerce_resource_dict_fn(payload.get("resource_request")),
         resource_actual=deps.coerce_resource_dict_fn(payload.get("resource_actual")),
     )
+
+
+def _load_contract_context(
+    request: _contract_context.LoadRequest,
+    roots: _contract_context.LoadRoots,
+    deps: OrcaContractLoaderDeps,
+) -> _contract_context.LoaderContext:
+    context = _contract_context.load_context(request, roots, deps)
+    _contract_context.set_current_dir(request, context, deps)
+    _contract_context.load_context_payloads(context, deps)
+    context.resolved_run_id = _contract_context.resolve_run_id(request, context, deps)
+    _contract_context.resolve_organized_context(request, context, deps)
+    return context
 
 
 def _payload_attempts(payload: ContractPayload) -> tuple[ContractPayload, ...]:

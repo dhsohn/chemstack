@@ -261,6 +261,23 @@ def record_remote_cancel(
     return record_remote_cancel_failed(context, cancel_record)
 
 
+def remote_cancel_identifier(context: CancelStageContext) -> str:
+    return context.queue_id or context.reaction_dir
+
+
+def remote_cancel_preflight_failure(
+    context: CancelStageContext,
+    *,
+    submitter_config: SiblingSubmitterConfig,
+    deps: CancellationDeps,
+) -> WorkflowStageOutcome | None:
+    if not remote_cancel_identifier(context):
+        return record_cancel_failure(context, reason="missing_cancel_target", deps=deps)
+    if not submitter_config.config_path:
+        return record_cancel_failure(context, reason="orca_config_required", deps=deps)
+    return None
+
+
 def cancel_stage_outcome(
     *,
     stage: dict[str, Any],
@@ -276,16 +293,18 @@ def cancel_stage_outcome(
     if not needs_orca_cancel(context):
         return record_local_cancel(context, deps)
 
-    cancel_identifier = context.queue_id or context.reaction_dir
-    if not cancel_identifier:
-        return record_cancel_failure(context, reason="missing_cancel_target", deps=deps)
-    if not submitter_config.config_path:
-        return record_cancel_failure(context, reason="orca_config_required", deps=deps)
+    preflight_failure = remote_cancel_preflight_failure(
+        context,
+        submitter_config=submitter_config,
+        deps=deps,
+    )
+    if preflight_failure is not None:
+        return preflight_failure
     if not orca_submitter_matches(context.enqueue_payload, normalize_text=deps.normalize_text):
         return None
     return record_remote_cancel(
         context,
-        cancel_identifier=cancel_identifier,
+        cancel_identifier=remote_cancel_identifier(context),
         submitter_config=submitter_config,
         deps=deps,
     )

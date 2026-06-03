@@ -71,34 +71,19 @@ def build_orca_enqueue_payload(
     reaction_key: str,
 ) -> dict[str, Any]:
     config_placeholder = "<chemstack_config>"
-    max_cores = int(resource_request.get("max_cores", 0) or 0)
-    max_memory_gb = int(resource_request.get("max_memory_gb", 0) or 0)
-    command_argv = [
-        "python",
-        "-m",
-        CHEMSTACK_CLI_MODULE,
-        "--config",
-        config_placeholder,
-        "run-dir",
-        reaction_dir,
-        "--priority",
-        str(int(priority)),
-    ]
-    if max_cores > 0:
-        command_argv.extend(["--max-cores", str(max_cores)])
-    if max_memory_gb > 0:
-        command_argv.extend(["--max-memory-gb", str(max_memory_gb)])
-    command_parts = [
-        f"{CHEMSTACK_CLI_COMMAND} --config {config_placeholder}",
-        "run-dir",
-        f"'{reaction_dir}'",
-        f"--priority {int(priority)}",
-    ]
-    if max_cores > 0:
-        command_parts.append(f"--max-cores {max_cores}")
-    if max_memory_gb > 0:
-        command_parts.append(f"--max-memory-gb {max_memory_gb}")
-    command = " ".join(command_parts)
+    resources = _enqueue_resource_values(resource_request)
+    command_argv = _orca_enqueue_command_argv(
+        config_placeholder=config_placeholder,
+        reaction_dir=reaction_dir,
+        priority=priority,
+        resources=resources,
+    )
+    command = _orca_enqueue_command(
+        config_placeholder=config_placeholder,
+        reaction_dir=reaction_dir,
+        priority=priority,
+        resources=resources,
+    )
     return {
         "submitter": CHEMSTACK_ORCA_SUBMITTER,
         "command": command,
@@ -109,14 +94,77 @@ def build_orca_enqueue_payload(
         "selected_inp": selected_inp,
         "priority": int(priority),
         "force": False,
-        "max_cores": max_cores,
-        "max_memory_gb": max_memory_gb,
+        "max_cores": resources["max_cores"],
+        "max_memory_gb": resources["max_memory_gb"],
         "workflow_id": workflow_id,
         "workflow_stage_id": stage_id,
         "source_job_id": source_job_id,
         "reaction_key": reaction_key,
         "resource_request": dict(resource_request),
     }
+
+
+def _enqueue_resource_values(resource_request: dict[str, int]) -> dict[str, int]:
+    return {
+        "max_cores": int(resource_request.get("max_cores", 0) or 0),
+        "max_memory_gb": int(resource_request.get("max_memory_gb", 0) or 0),
+    }
+
+
+def _resource_override_argv(resources: dict[str, int]) -> list[str]:
+    argv: list[str] = []
+    if resources["max_cores"] > 0:
+        argv.extend(["--max-cores", str(resources["max_cores"])])
+    if resources["max_memory_gb"] > 0:
+        argv.extend(["--max-memory-gb", str(resources["max_memory_gb"])])
+    return argv
+
+
+def _resource_override_command_parts(resources: dict[str, int]) -> list[str]:
+    parts: list[str] = []
+    if resources["max_cores"] > 0:
+        parts.append(f"--max-cores {resources['max_cores']}")
+    if resources["max_memory_gb"] > 0:
+        parts.append(f"--max-memory-gb {resources['max_memory_gb']}")
+    return parts
+
+
+def _orca_enqueue_command_argv(
+    *,
+    config_placeholder: str,
+    reaction_dir: str,
+    priority: int,
+    resources: dict[str, int],
+) -> list[str]:
+    return [
+        "python",
+        "-m",
+        CHEMSTACK_CLI_MODULE,
+        "--config",
+        config_placeholder,
+        "run-dir",
+        reaction_dir,
+        "--priority",
+        str(int(priority)),
+        *_resource_override_argv(resources),
+    ]
+
+
+def _orca_enqueue_command(
+    *,
+    config_placeholder: str,
+    reaction_dir: str,
+    priority: int,
+    resources: dict[str, int],
+) -> str:
+    command_parts = [
+        f"{CHEMSTACK_CLI_COMMAND} --config {config_placeholder}",
+        "run-dir",
+        f"'{reaction_dir}'",
+        f"--priority {int(priority)}",
+        *_resource_override_command_parts(resources),
+    ]
+    return " ".join(command_parts)
 
 
 @dataclass(frozen=True)
@@ -238,18 +286,61 @@ def materialize_orca_stage_from_request(
     if not source_xyz.exists():
         raise FileNotFoundError(f"ORCA stage source artifact not found: {source_xyz}")
 
-    root_name = normalize_text(request.stage_root_name)
-    stage_root = request.workspace_dir / root_name if root_name else request.workspace_dir
-    stage_dir = stage_root / request.stage_key
+    stage_dir = _orca_stage_dir(request)
     reaction_dir = stage_dir
     reaction_dir.mkdir(parents=True, exist_ok=True)
 
+    target_xyz, geometry_metadata = _materialize_orca_geometry(
+        request=request,
+        source_xyz=source_xyz,
+        reaction_dir=reaction_dir,
+    )
+    target_inp = _write_orca_input_file(
+        request=request,
+        reaction_dir=reaction_dir,
+        xyz_filename=target_xyz.name,
+    )
+    _write_source_candidate_payload(
+        stage_dir=stage_dir,
+        source_xyz=source_xyz,
+        geometry_metadata=geometry_metadata,
+        extra_source_payload=request.extra_source_payload,
+    )
+    return OrcaStageMaterialization(
+        reaction_dir=str(reaction_dir),
+        selected_inp=str(target_inp),
+        selected_xyz=str(target_xyz),
+        stage_workspace_dir=str(stage_dir),
+    )
+
+
+def _orca_stage_dir(request: OrcaStageMaterializationRequest) -> Path:
+    root_name = normalize_text(request.stage_root_name)
+    stage_root = request.workspace_dir / root_name if root_name else request.workspace_dir
+    return stage_root / request.stage_key
+
+
+def _materialize_orca_geometry(
+    *,
+    request: OrcaStageMaterializationRequest,
+    source_xyz: Path,
+    reaction_dir: Path,
+) -> tuple[Path, dict[str, Any]]:
     target_xyz = reaction_dir / request.xyz_filename
     geometry_metadata = write_orca_ready_xyz(
         source_path=source_xyz,
         target_path=target_xyz,
         candidate_kind=request.candidate_kind,
     )
+    return target_xyz, dict(geometry_metadata)
+
+
+def _write_orca_input_file(
+    *,
+    request: OrcaStageMaterializationRequest,
+    reaction_dir: Path,
+    xyz_filename: str,
+) -> Path:
     target_inp = reaction_dir / request.inp_filename
     target_inp.write_text(
         render_orca_input(
@@ -258,24 +349,27 @@ def materialize_orca_stage_from_request(
             multiplicity=request.multiplicity,
             max_cores=request.max_cores,
             max_memory_gb=request.max_memory_gb,
-            xyz_filename=target_xyz.name,
+            xyz_filename=xyz_filename,
         ),
         encoding="utf-8",
     )
+    return target_inp
 
+
+def _write_source_candidate_payload(
+    *,
+    stage_dir: Path,
+    source_xyz: Path,
+    geometry_metadata: dict[str, Any],
+    extra_source_payload: dict[str, Any] | None,
+) -> None:
     source_payload = {
         "source_artifact_path": str(source_xyz),
         "geometry_materialization": dict(geometry_metadata),
-        **dict(request.extra_source_payload or {}),
+        **dict(extra_source_payload or {}),
     }
     atomic_write_json(
         stage_dir / "source_candidate.json", source_payload, ensure_ascii=True, indent=2
-    )
-    return OrcaStageMaterialization(
-        reaction_dir=str(reaction_dir),
-        selected_inp=str(target_inp),
-        selected_xyz=str(target_xyz),
-        stage_workspace_dir=str(stage_dir),
     )
 
 

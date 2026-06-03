@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any
 
 from chemstack.core.statuses import (
@@ -20,6 +21,18 @@ from .internal_engine_models import (
     _text_fields,
     internal_call_argv,
 )
+
+
+@dataclass(frozen=True)
+class _InternalEngineCancelRequest:
+    command_trace: list[str]
+    target: str
+
+
+@dataclass(frozen=True)
+class _InternalEngineCancelMatch:
+    queue_root: Any
+    entry: Any
 
 
 def _queue_entry_status_text(entry: Any) -> str:
@@ -71,6 +84,52 @@ def _cancel_success_payload(
     ).to_payload()
 
 
+def _cancel_request(
+    *,
+    api_name: str,
+    config_path: str,
+    target: str,
+) -> _InternalEngineCancelRequest:
+    return _InternalEngineCancelRequest(
+        command_trace=internal_call_argv(
+            api_name=api_name,
+            config_path=config_path,
+            kwargs={"target": target},
+        ),
+        target=normalize_text(target),
+    )
+
+
+def _find_cancel_match(
+    cfg: Any,
+    *,
+    target: str,
+    queue_entries_with_roots_fn: Callable[[Any], list[tuple[Any, Any]]],
+) -> _InternalEngineCancelMatch | None:
+    for queue_root, entry in queue_entries_with_roots_fn(cfg):
+        if entry.queue_id == target or entry.task_id == target:
+            return _InternalEngineCancelMatch(queue_root=queue_root, entry=entry)
+    return None
+
+
+def _cancel_updated_entry(
+    match: _InternalEngineCancelMatch,
+    *,
+    request_cancel_fn: Callable[[Any, str], Any | None],
+) -> Any | None:
+    return request_cancel_fn(match.queue_root, match.entry.queue_id)
+
+
+def _cancel_success_fields(updated: Any, status: str) -> dict[str, str]:
+    return _text_fields(
+        {
+            "status": status,
+            "queue_id": getattr(updated, "queue_id", ""),
+            "job_id": getattr(updated, "task_id", ""),
+        }
+    )
+
+
 def cancel_internal_engine_target(
     *,
     load_config_fn: Callable[[Any], Any],
@@ -81,54 +140,46 @@ def cancel_internal_engine_target(
     target: str,
     config_path: str,
 ) -> dict[str, Any]:
-    command_trace = internal_call_argv(
+    request = _cancel_request(
         api_name=api_name,
         config_path=config_path,
-        kwargs={"target": target},
+        target=target,
     )
-    normalized_target = normalize_text(target)
-    if not normalized_target:
+    if not request.target:
         return _cancel_failure_payload(
-            command_trace=command_trace,
+            command_trace=request.command_trace,
             stderr="queue cancel requires a queue_id or job_id\n",
         )
 
     try:
         cfg = load_config_fn(config_path)
-        entry_with_root = None
-        for queue_root, entry in queue_entries_with_roots_fn(cfg):
-            if entry.queue_id == normalized_target or entry.task_id == normalized_target:
-                entry_with_root = (queue_root, entry)
-                break
-        if entry_with_root is None:
+        match = _find_cancel_match(
+            cfg,
+            target=request.target,
+            queue_entries_with_roots_fn=queue_entries_with_roots_fn,
+        )
+        if match is None:
             return _cancel_failure_payload(
-                command_trace=command_trace,
-                stderr=f"queue target not found: {normalized_target}\n",
+                command_trace=request.command_trace,
+                stderr=f"queue target not found: {request.target}\n",
             )
 
-        queue_root, entry = entry_with_root
-        updated = request_cancel_fn(queue_root, entry.queue_id)
+        updated = _cancel_updated_entry(match, request_cancel_fn=request_cancel_fn)
         if updated is None:
             return _cancel_failure_payload(
-                command_trace=command_trace,
-                stderr=f"queue target already terminal: {normalized_target}\n",
+                command_trace=request.command_trace,
+                stderr=f"queue target already terminal: {request.target}\n",
             )
         status = _direct_cancel_status(updated, display_status_fn(updated))
     except Exception as exc:  # noqa: BLE001
         return _cancel_failure_payload(
-            command_trace=command_trace,
+            command_trace=request.command_trace,
             stderr=_stderr_with_exception("", exc),
         )
 
-    parsed = _text_fields(
-        {
-            "status": status,
-            "queue_id": getattr(updated, "queue_id", ""),
-            "job_id": getattr(updated, "task_id", ""),
-        }
-    )
+    parsed = _cancel_success_fields(updated, status)
     return _cancel_success_payload(
-        command_trace=command_trace,
+        command_trace=request.command_trace,
         status=status,
         parsed=parsed,
     )

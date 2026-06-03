@@ -105,66 +105,76 @@ def _apply_orca_contract(
 
 def _orca_output_artifacts(o: Any, contract: Any) -> list[dict[str, Any]]:
     artifacts: list[dict[str, Any]] = []
-    o.stages._append_unique_artifact(
-        artifacts,
-        kind="orca_selected_inp",
-        path=contract.selected_inp,
-        selected=True,
-        metadata={"run_id": contract.run_id},
-    )
-    o.stages._append_unique_artifact(
-        artifacts,
-        kind="orca_selected_input_xyz",
-        path=contract.selected_input_xyz,
-        metadata={"run_id": contract.run_id},
-    )
-    o.stages._append_unique_artifact(
-        artifacts,
-        kind="orca_optimized_xyz",
-        path=contract.optimized_xyz_path,
-        selected=contract.status == "completed",
-        metadata={"run_id": contract.run_id},
-    )
-    o.stages._append_unique_artifact(
-        artifacts,
-        kind="orca_last_out",
-        path=contract.last_out_path,
-        selected=contract.status == "completed",
-        metadata={"analyzer_status": contract.analyzer_status},
-    )
-    o.stages._append_unique_artifact(
-        artifacts,
-        kind="orca_run_state",
-        path=contract.run_state_path,
-        metadata={"status": contract.status},
-    )
-    o.stages._append_unique_artifact(
-        artifacts,
-        kind="orca_report_json",
-        path=contract.report_json_path,
-        metadata={"status": contract.status},
-    )
-    o.stages._append_unique_artifact(
-        artifacts,
-        kind="orca_report_md",
-        path=contract.report_md_path,
-        metadata={"status": contract.status},
-    )
-    o.stages._append_unique_artifact(
-        artifacts,
-        kind="orca_output_dir",
-        path=contract.latest_known_path,
-        selected=contract.status in {"completed", "failed", "cancelled"},
-        metadata={"organized": bool(contract.organized_output_dir)},
-    )
-    o.stages._append_unique_artifact(
-        artifacts,
-        kind="orca_organized_output_dir",
-        path=contract.organized_output_dir,
-        selected=bool(contract.organized_output_dir),
-        metadata={"run_id": contract.run_id},
-    )
+    for spec in _orca_output_artifact_specs(contract):
+        _append_orca_output_artifact(o, artifacts, spec)
     return artifacts
+
+
+def _orca_output_artifact_specs(contract: Any) -> tuple[dict[str, Any], ...]:
+    return (
+        {
+            "kind": "orca_selected_inp",
+            "path": contract.selected_inp,
+            "selected": True,
+            "metadata": {"run_id": contract.run_id},
+        },
+        {
+            "kind": "orca_selected_input_xyz",
+            "path": contract.selected_input_xyz,
+            "metadata": {"run_id": contract.run_id},
+        },
+        {
+            "kind": "orca_optimized_xyz",
+            "path": contract.optimized_xyz_path,
+            "selected": contract.status == "completed",
+            "metadata": {"run_id": contract.run_id},
+        },
+        {
+            "kind": "orca_last_out",
+            "path": contract.last_out_path,
+            "selected": contract.status == "completed",
+            "metadata": {"analyzer_status": contract.analyzer_status},
+        },
+        {
+            "kind": "orca_run_state",
+            "path": contract.run_state_path,
+            "metadata": {"status": contract.status},
+        },
+        {
+            "kind": "orca_report_json",
+            "path": contract.report_json_path,
+            "metadata": {"status": contract.status},
+        },
+        {
+            "kind": "orca_report_md",
+            "path": contract.report_md_path,
+            "metadata": {"status": contract.status},
+        },
+        {
+            "kind": "orca_output_dir",
+            "path": contract.latest_known_path,
+            "selected": contract.status in {"completed", "failed", "cancelled"},
+            "metadata": {"organized": bool(contract.organized_output_dir)},
+        },
+        {
+            "kind": "orca_organized_output_dir",
+            "path": contract.organized_output_dir,
+            "selected": bool(contract.organized_output_dir),
+            "metadata": {"run_id": contract.run_id},
+        },
+    )
+
+
+def _append_orca_output_artifact(
+    o: Any, artifacts: list[dict[str, Any]], spec: dict[str, Any]
+) -> None:
+    o.stages._append_unique_artifact(
+        artifacts,
+        kind=spec["kind"],
+        path=spec["path"],
+        selected=bool(spec.get("selected", False)),
+        metadata=spec.get("metadata"),
+    )
 
 
 def sync_orca_stage_impl(
