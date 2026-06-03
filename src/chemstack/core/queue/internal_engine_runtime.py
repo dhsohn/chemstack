@@ -7,6 +7,7 @@ from typing import Any
 
 from . import engine_admission as _engine_admission
 from .engine_runtime import EngineQueueRuntime
+from . import internal_engine_runtime_adapters as _runtime_adapters
 from .internal_engine_spec import InternalEngineSpec
 
 
@@ -135,10 +136,7 @@ class InternalEngineQueueRuntime:
         self,
         reserve_slot_fn: Callable[..., str | None],
     ) -> Callable[[Any], str | None]:
-        def _reserve_admission_slot(cfg: Any) -> str | None:
-            return self.reserve_admission_slot(cfg, reserve_slot_fn=reserve_slot_fn)
-
-        return _reserve_admission_slot
+        return _runtime_adapters.reserve_admission_slot_fn(self, reserve_slot_fn)
 
     def child_worker_deps_from_namespace(
         self,
@@ -150,12 +148,14 @@ class InternalEngineQueueRuntime:
         start_background_job_process_name: str = "_start_background_job_process",
         try_reserve_admission_slot_name: str = "_try_reserve_admission_slot",
     ) -> Any:
-        return self.child_worker_deps(
+        return _runtime_adapters.child_worker_deps_from_namespace(
+            self,
+            namespace=namespace,
             poll_interval_seconds=poll_interval_seconds,
             time_module=time_module,
             release_slot_fn=release_slot_fn,
-            start_background_job_process_fn=namespace[start_background_job_process_name],
-            try_reserve_admission_slot_fn=namespace[try_reserve_admission_slot_name],
+            start_background_job_process_name=start_background_job_process_name,
+            try_reserve_admission_slot_name=try_reserve_admission_slot_name,
         )
 
     def start_background_job_process_fn(
@@ -164,25 +164,11 @@ class InternalEngineQueueRuntime:
         start_background_process_fn: Callable[[list[str]], Any],
         build_worker_child_command_fn: Callable[..., list[str]],
     ) -> Callable[..., Any]:
-        def _start_background_job_process(
-            *,
-            config_path: str,
-            queue_root: Path,
-            entry: Any,
-            admission_root: str | Path,
-            admission_token: str,
-        ) -> Any:
-            return self.start_child_process(
-                config_path=config_path,
-                queue_root=queue_root,
-                entry=entry,
-                admission_root=admission_root,
-                admission_token=admission_token,
-                start_background_process_fn=start_background_process_fn,
-                build_worker_child_command_fn=build_worker_child_command_fn,
-            )
-
-        return _start_background_job_process
+        return _runtime_adapters.start_background_job_process_fn(
+            self,
+            start_background_process_fn=start_background_process_fn,
+            build_worker_child_command_fn=build_worker_child_command_fn,
+        )
 
     def config_path_for_worker_fn(
         self,
@@ -190,13 +176,10 @@ class InternalEngineQueueRuntime:
         config_path_for_worker_fn: Callable[..., str],
         default_config_path_fn: Callable[[], str],
     ) -> Callable[[Any], str]:
-        def _config_path_for_worker(args: Any) -> str:
-            return config_path_for_worker_fn(
-                args,
-                default_config_path_fn=default_config_path_fn,
-            )
-
-        return _config_path_for_worker
+        return _runtime_adapters.config_path_for_worker_fn(
+            config_path_for_worker_fn=config_path_for_worker_fn,
+            default_config_path_fn=default_config_path_fn,
+        )
 
     def child_worker_hooks_from_namespace(
         self,
@@ -215,16 +198,18 @@ class InternalEngineQueueRuntime:
         shutdown_running_job_fn: Callable[[Any, str, Any], Any] | None = None,
         before_shutdown_all_fn: Callable[[Any, int], Any] | None = None,
     ) -> Any:
-        return self.child_worker_hooks(
-            handle_worker_start_error_fn=namespace[handle_worker_start_error_name],
-            finalize_completed_job_fn=namespace[finalize_completed_job_name],
-            finalize_child_exit_fn=namespace[finalize_child_exit_name],
-            reconcile_worker_state_fn=namespace[reconcile_worker_state_name],
+        return _runtime_adapters.child_worker_hooks_from_namespace(
+            self,
+            namespace=namespace,
             activate_reserved_slot_fn=activate_reserved_slot_fn,
             terminate_process_fn=terminate_process_fn,
             mark_failed_fn=mark_failed_fn,
             shutdown_grace_seconds=shutdown_grace_seconds,
             sleep_fn=sleep_fn,
+            handle_worker_start_error_name=handle_worker_start_error_name,
+            finalize_completed_job_name=finalize_completed_job_name,
+            finalize_child_exit_name=finalize_child_exit_name,
+            reconcile_worker_state_name=reconcile_worker_state_name,
             on_worker_process_started_fn=on_worker_process_started_fn,
             shutdown_running_job_fn=shutdown_running_job_fn,
             before_shutdown_all_fn=before_shutdown_all_fn,
@@ -241,18 +226,15 @@ class InternalEngineQueueRuntime:
         worker_class_name: str = "QueueWorker",
         config_path_keyword: bool = True,
     ) -> int:
-        def worker_factory(cfg: Any, config_path: str, **kwargs: Any) -> Any:
-            worker_cls = namespace[worker_class_name]
-            if config_path_keyword:
-                return worker_cls(cfg, config_path=config_path, **kwargs)
-            return worker_cls(cfg, config_path, **kwargs)
-
-        return self.run_pidfile_worker_command(
+        return _runtime_adapters.run_pidfile_worker_command_from_namespace(
+            self,
             args,
+            namespace=namespace,
             config_path_fn=config_path_fn,
-            load_config_fn=namespace[load_config_name],
-            read_worker_pid_fn=namespace[read_worker_pid_name],
-            worker_factory=worker_factory,
+            load_config_name=load_config_name,
+            read_worker_pid_name=read_worker_pid_name,
+            worker_class_name=worker_class_name,
+            config_path_keyword=config_path_keyword,
         )
 
 

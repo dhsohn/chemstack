@@ -63,13 +63,11 @@ def state_matches_job(
     mode: str,
     molecule_key: str,
 ) -> bool:
-    return _engine_state.state_matches_job_identity(
+    return _engine_state.state_matches_engine_job(
         state,
         selected_input_xyz=selected_input_xyz,
-        identity_fields={
-            "mode": mode,
-            "molecule_key": molecule_key,
-        },
+        mode=mode,
+        molecule_key=molecule_key,
     )
 
 
@@ -91,12 +89,13 @@ def mark_recovery_pending(
     resource_actual: dict[str, Any] | None,
     reason: str,
 ) -> dict[str, Any]:
-    return _RECOVERY_PENDING.write(
+    return _engine_state.write_recovery_pending_state(
+        _RECOVERY_PENDING,
         job_dir,
         job_id=job_id,
         selected_input_xyz=selected_input_xyz,
         reason=reason,
-        identity_fields=_engine_state.recovery_identity_fields(
+        identity_fields=_engine_state.recovery_identity_payload(
             {
                 "molecule_key": molecule_key,
                 "mode": mode,

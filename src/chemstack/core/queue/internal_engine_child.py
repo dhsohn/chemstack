@@ -11,6 +11,23 @@ from . import engine_child as _engine_child
 from .internal_engine_status import entry_status_is_running
 
 
+class _WorkerShutdownRequestedBase(RuntimeError):
+    def __init__(self, context: Any):
+        super().__init__("worker_shutdown")
+        self.context = context
+
+
+def create_worker_shutdown_exception_type(
+    module_name: str,
+    class_name: str = "WorkerShutdownRequested",
+) -> type[RuntimeError]:
+    return type(
+        class_name,
+        (_WorkerShutdownRequestedBase,),
+        {"__module__": module_name, "__qualname__": class_name},
+    )
+
+
 @dataclass(frozen=True)
 class InternalEngineWorkerChild:
     worker_job_module: str
@@ -219,4 +236,8 @@ class InternalEngineWorkerEntrypoint:
         )
 
 
-__all__ = ["InternalEngineWorkerChild", "InternalEngineWorkerEntrypoint"]
+__all__ = [
+    "InternalEngineWorkerChild",
+    "InternalEngineWorkerEntrypoint",
+    "create_worker_shutdown_exception_type",
+]

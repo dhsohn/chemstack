@@ -207,6 +207,12 @@ class _TelegramChunkSendRequest:
     fallback_text: str
 
 
+@dataclass(frozen=True)
+class _TelegramChunkSendOutcome:
+    ok: bool
+    result: Any
+
+
 def _telegram_transport_or_none(
     config: TelegramConfigLike,
     *,
@@ -220,6 +226,28 @@ def _telegram_transport_or_none(
     return None
 
 
+def _send_telegram_chunk_with_fallback(
+    chunk: _TelegramChunkSendRequest,
+    *,
+    transport: Any,
+    skipped_ok: bool,
+) -> _TelegramChunkSendOutcome:
+    result = transport.send_text(
+        chunk.primary_text,
+        parse_mode=chunk.primary_parse_mode,
+    )
+    if telegram_send_result_ok(result, skipped_ok=skipped_ok):
+        return _TelegramChunkSendOutcome(ok=True, result=result)
+
+    if not chunk.primary_parse_mode:
+        return _TelegramChunkSendOutcome(ok=False, result=result)
+
+    fallback_result = transport.send_text(chunk.fallback_text, parse_mode=None)
+    if telegram_send_result_ok(fallback_result, skipped_ok=skipped_ok):
+        return _TelegramChunkSendOutcome(ok=True, result=fallback_result)
+    return _TelegramChunkSendOutcome(ok=False, result=fallback_result)
+
+
 def _send_telegram_chunks(
     chunks: Iterable[_TelegramChunkSendRequest],
     *,
@@ -229,21 +257,16 @@ def _send_telegram_chunks(
 ) -> bool:
     sent_any = False
     for chunk in chunks:
-        result = transport.send_text(
-            chunk.primary_text,
-            parse_mode=chunk.primary_parse_mode,
+        outcome = _send_telegram_chunk_with_fallback(
+            chunk,
+            transport=transport,
+            skipped_ok=skipped_ok,
         )
-        if telegram_send_result_ok(result, skipped_ok=skipped_ok):
+        if outcome.ok:
             sent_any = True
             continue
-        if chunk.primary_parse_mode:
-            fallback_result = transport.send_text(chunk.fallback_text, parse_mode=None)
-            if telegram_send_result_ok(fallback_result, skipped_ok=skipped_ok):
-                sent_any = True
-                continue
-            result = fallback_result
         if logger is not None:
-            log_telegram_send_failure(logger, result)
+            log_telegram_send_failure(logger, outcome.result)
         return False
     return sent_any
 

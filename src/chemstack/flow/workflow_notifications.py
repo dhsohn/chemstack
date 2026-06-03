@@ -34,6 +34,13 @@ class _PhaseSummary:
     stage_buckets: dict[int, str]
 
 
+@dataclass(frozen=True)
+class _PhaseStageRow:
+    stage_label: str
+    result: str
+    metrics: tuple[tuple[str, Any], ...]
+
+
 def _load_telegram_config(config_path: str | None) -> TelegramConfig:
     return load_telegram_config_from_file(config_path)
 
@@ -158,46 +165,54 @@ def _phase_outcome(counts: dict[str, int]) -> str:
     return "unknown"
 
 
-def _phase_stage_block(
+def _phase_stage_row(
     stage: dict[str, Any],
     *,
     phase_engine: str,
     bucket: str,
-) -> str:
+) -> _PhaseStageRow:
     stage_id = _normalize_text(stage.get("stage_id")) or "stage"
     status = _normalize_text(stage.get("status")).lower() or "unknown"
     task_payload = _stage_task_payload(stage)
     metadata = _stage_metadata(stage)
     if phase_engine == "crest":
         role = _normalize_text(task_payload.get("input_role")) or stage_id
-        return "\n".join(
-            [
-                f"<b>Stage</b>: {_escape_html(role)}  <b>Result</b>: {_metric_code(bucket)}",
-                (
-                    f"<b>Status</b>: {_metric_code(status)}  "
-                    f"<b>Retained conformers</b>: {_metric_code(_count_output_artifacts(stage))}"
-                ),
-            ]
+        return _PhaseStageRow(
+            stage_label=role,
+            result=bucket,
+            metrics=(
+                ("Status", status),
+                ("Retained conformers", _count_output_artifacts(stage)),
+            ),
         )
     if phase_engine == "xtb":
         reaction_key = _normalize_text(task_payload.get("reaction_key")) or stage_id
         handoff_status = _normalize_text(metadata.get("reaction_handoff_status")).lower() or "none"
-        return "\n".join(
-            [
-                f"<b>Stage</b>: {_escape_html(reaction_key)}  <b>Result</b>: {_metric_code(bucket)}",
-                (
-                    f"<b>Status</b>: {_metric_code(status)}  "
-                    f"<b>Handoff</b>: {_metric_code(handoff_status)}  "
-                    f"<b>Candidates</b>: {_metric_code(_xtb_candidate_count(stage))}"
-                ),
-            ]
+        return _PhaseStageRow(
+            stage_label=reaction_key,
+            result=bucket,
+            metrics=(
+                ("Status", status),
+                ("Handoff", handoff_status),
+                ("Candidates", _xtb_candidate_count(stage)),
+            ),
         )
-    return "\n".join(
-        [
-            f"<b>Stage</b>: {_escape_html(stage_id)}  <b>Result</b>: {_metric_code(bucket)}",
-            f"<b>Status</b>: {_metric_code(status)}",
-        ]
+    return _PhaseStageRow(
+        stage_label=stage_id,
+        result=bucket,
+        metrics=(("Status", status),),
     )
+
+
+def _format_phase_stage_row(row: _PhaseStageRow) -> str:
+    lines = [
+        f"<b>Stage</b>: {_escape_html(row.stage_label)}  <b>Result</b>: {_metric_code(row.result)}"
+    ]
+    if row.metrics:
+        lines.append(
+            "  ".join(f"<b>{label}</b>: {_metric_code(value)}" for label, value in row.metrics)
+        )
+    return "\n".join(lines)
 
 
 def _extra_lines_section(extra_lines: list[str] | None) -> str | None:
@@ -256,8 +271,8 @@ def _format_phase_summary_message(
         )
         overview.append(f"<b>Ready for ORCA</b>: {_metric_code(ready_count)}")
 
-    stage_blocks = [
-        _phase_stage_block(
+    stage_rows = [
+        _phase_stage_row(
             stage,
             phase_engine=phase_engine,
             bucket=stage_buckets.get(id(stage), "failed"),
@@ -269,8 +284,11 @@ def _format_phase_summary_message(
     notes = _extra_lines_section(extra_lines)
     if notes is not None:
         sections.append(notes)
-    if stage_blocks:
-        sections.append("<b>Stage details</b>\n" + "\n\n".join(stage_blocks))
+    if stage_rows:
+        sections.append(
+            "<b>Stage details</b>\n"
+            + "\n\n".join(_format_phase_stage_row(row) for row in stage_rows)
+        )
     return "\n\n".join(sections)
 
 

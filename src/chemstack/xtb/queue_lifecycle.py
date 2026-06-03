@@ -6,12 +6,12 @@ from chemstack.core.queue.internal_engine import InternalEngineSpec
 
 entry_status_is_running = _queue_lifecycle.entry_status_is_running
 live_worker_pid_slots = _queue_lifecycle.live_worker_pid_slots
-shutdown_running_job = _queue_lifecycle.shutdown_running_job
 sync_terminal_running_entries = _queue_lifecycle.sync_terminal_running_entries
 
-_ENGINE_LIFECYCLE = InternalEngineSpec(engine="xtb").lifecycle()
-finalize_child_exit = _ENGINE_LIFECYCLE.finalize_child_exit
-reconcile_orphaned_running = _ENGINE_LIFECYCLE.reconcile_orphaned_running
+_ENGINE_LIFECYCLE_EXPORTS = InternalEngineSpec(engine="xtb").lifecycle_module_exports()
+shutdown_running_job = _ENGINE_LIFECYCLE_EXPORTS.shutdown_running_job
+finalize_child_exit = _ENGINE_LIFECYCLE_EXPORTS.finalize_child_exit
+reconcile_orphaned_running = _ENGINE_LIFECYCLE_EXPORTS.reconcile_orphaned_running
 
 
 __all__ = [

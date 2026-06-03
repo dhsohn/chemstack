@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from argparse import Namespace
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any
 
 from chemstack.core.queue import DuplicateQueueEntryError
@@ -25,6 +26,21 @@ from .internal_engine_models import (
     _text_fields,
     internal_call_argv,
 )
+
+
+@dataclass(frozen=True)
+class _InternalEngineSubmissionRequest:
+    command_trace: list[str]
+    args: Namespace
+    job_dir: str
+    priority: int
+
+
+@dataclass
+class _InternalEngineSubmissionState:
+    resolved_job_dir: Any
+    submission: Any | None = None
+    entry: Any | None = None
 
 
 def transient_submission_block_reason(
@@ -123,6 +139,103 @@ def _submission_success_payload(
     ).to_payload()
 
 
+def _internal_engine_submission_request(
+    *,
+    api_name: str,
+    job_dir: str,
+    priority: int,
+    config_path: str,
+) -> _InternalEngineSubmissionRequest:
+    priority_value = int(priority)
+    return _InternalEngineSubmissionRequest(
+        command_trace=internal_call_argv(
+            api_name=api_name,
+            config_path=config_path,
+            kwargs={"job_dir": job_dir, "priority": priority_value},
+        ),
+        args=Namespace(config=config_path, path=job_dir, priority=priority_value),
+        job_dir=job_dir,
+        priority=priority_value,
+    )
+
+
+def _submission_extras(
+    state: _InternalEngineSubmissionState,
+    extra_fields_fn: Callable[[Any | None, Any | None], dict[str, Any]] | None,
+) -> dict[str, Any]:
+    return extra_fields_fn(state.submission, state.entry) if extra_fields_fn is not None else {}
+
+
+def _resolved_job_dir_text(
+    state: _InternalEngineSubmissionState,
+    fallback_job_dir: str,
+) -> str:
+    return normalize_text(state.resolved_job_dir) or fallback_job_dir
+
+
+def _submission_failure_for_state(
+    *,
+    request: _InternalEngineSubmissionRequest,
+    state: _InternalEngineSubmissionState,
+    stderr: str,
+    extra_fields_fn: Callable[[Any | None, Any | None], dict[str, Any]] | None,
+) -> dict[str, Any]:
+    return _submission_failure_payload(
+        command_trace=request.command_trace,
+        job_dir=_resolved_job_dir_text(state, request.job_dir),
+        stderr=stderr,
+        extra_fields=_submission_extras(state, extra_fields_fn),
+    )
+
+
+def _enqueue_internal_engine_submission(
+    *,
+    request: _InternalEngineSubmissionRequest,
+    state: _InternalEngineSubmissionState,
+    load_config_fn: Callable[[Any], Any],
+    resolve_job_dir_fn: Callable[[Any, str], Any],
+    load_manifest_fn: Callable[[Any], dict[str, Any]],
+    build_submission_fn: Callable[[Any, Any, dict[str, Any], Any], Any],
+    record_queued_fn: Callable[[Any, Any, Any], Any],
+    enqueue_fn: Callable[..., Any],
+) -> None:
+    cfg = load_config_fn(request.args.config)
+    state.resolved_job_dir = resolve_job_dir_fn(cfg, request.job_dir)
+    manifest = load_manifest_fn(state.resolved_job_dir)
+    state.submission = build_submission_fn(cfg, state.resolved_job_dir, manifest, request.args)
+    state.entry = enqueue_fn(
+        state.submission.queue_root,
+        app_name=state.submission.app_name,
+        task_id=state.submission.task_id,
+        task_kind=state.submission.task_kind,
+        engine=state.submission.engine,
+        priority=state.submission.priority,
+        metadata=dict(state.submission.metadata),
+    )
+    record_queued_fn(cfg, state.submission, state.entry)
+
+
+def _queued_submission_fields(
+    *,
+    state: _InternalEngineSubmissionState,
+    extra_fields: dict[str, Any],
+) -> dict[str, str]:
+    submission = state.submission
+    entry = state.entry
+    if submission is None or entry is None:
+        raise RuntimeError("internal engine submission did not produce a queue entry")
+    return _text_fields(
+        {
+            "status": STATUS_QUEUED,
+            "job_dir": state.resolved_job_dir,
+            "job_id": getattr(entry, "task_id", "") or submission.task_id,
+            "queue_id": getattr(entry, "queue_id", ""),
+            "priority": getattr(entry, "priority", submission.priority),
+            **extra_fields,
+        }
+    )
+
+
 def submit_internal_engine_job_dir(
     *,
     load_config_fn: Callable[[Any], Any],
@@ -137,62 +250,45 @@ def submit_internal_engine_job_dir(
     config_path: str,
     extra_fields_fn: Callable[[Any | None, Any | None], dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    command_trace = internal_call_argv(
+    request = _internal_engine_submission_request(
         api_name=api_name,
+        job_dir=job_dir,
+        priority=priority,
         config_path=config_path,
-        kwargs={"job_dir": job_dir, "priority": int(priority)},
     )
-    args = Namespace(config=config_path, path=job_dir, priority=int(priority))
-    submission = None
-    entry = None
-    resolved_job_dir = job_dir
+    state = _InternalEngineSubmissionState(resolved_job_dir=job_dir)
     try:
-        cfg = load_config_fn(config_path)
-        resolved_job_dir = resolve_job_dir_fn(cfg, job_dir)
-        manifest = load_manifest_fn(resolved_job_dir)
-        submission = build_submission_fn(cfg, resolved_job_dir, manifest, args)
-        entry = enqueue_fn(
-            submission.queue_root,
-            app_name=submission.app_name,
-            task_id=submission.task_id,
-            task_kind=submission.task_kind,
-            engine=submission.engine,
-            priority=submission.priority,
-            metadata=dict(submission.metadata),
+        _enqueue_internal_engine_submission(
+            request=request,
+            state=state,
+            load_config_fn=load_config_fn,
+            resolve_job_dir_fn=resolve_job_dir_fn,
+            load_manifest_fn=load_manifest_fn,
+            build_submission_fn=build_submission_fn,
+            record_queued_fn=record_queued_fn,
+            enqueue_fn=enqueue_fn,
         )
-        record_queued_fn(cfg, submission, entry)
     except DuplicateQueueEntryError as exc:
-        extras = extra_fields_fn(submission, entry) if extra_fields_fn is not None else {}
-        return _submission_failure_payload(
-            command_trace=command_trace,
-            job_dir=normalize_text(resolved_job_dir) or job_dir,
+        return _submission_failure_for_state(
+            request=request,
+            state=state,
             stderr=_stderr_with_exception("", exc),
-            extra_fields=extras,
+            extra_fields_fn=extra_fields_fn,
         )
     except Exception as exc:  # noqa: BLE001
-        extras = extra_fields_fn(submission, entry) if extra_fields_fn is not None else {}
-        return _submission_failure_payload(
-            command_trace=command_trace,
-            job_dir=normalize_text(resolved_job_dir) or job_dir,
+        return _submission_failure_for_state(
+            request=request,
+            state=state,
             stderr=_stderr_with_exception("", exc),
-            extra_fields=extras,
+            extra_fields_fn=extra_fields_fn,
         )
 
-    extras = extra_fields_fn(submission, entry) if extra_fields_fn is not None else {}
-    parsed = _text_fields(
-        {
-            "status": STATUS_QUEUED,
-            "job_dir": resolved_job_dir,
-            "job_id": getattr(entry, "task_id", "") or submission.task_id,
-            "queue_id": getattr(entry, "queue_id", ""),
-            "priority": getattr(entry, "priority", submission.priority),
-            **extras,
-        }
-    )
+    extras = _submission_extras(state, extra_fields_fn)
+    parsed = _queued_submission_fields(state=state, extra_fields=extras)
     return _submission_success_payload(
-        command_trace=command_trace,
+        command_trace=request.command_trace,
         parsed=parsed,
-        job_dir=normalize_text(resolved_job_dir) or job_dir,
+        job_dir=_resolved_job_dir_text(state, request.job_dir),
         extra_fields=extras,
     )
 

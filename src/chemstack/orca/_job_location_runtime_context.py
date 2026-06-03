@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +22,26 @@ def matching_tracked_job_dirs(index_root: str | Path, target: str, *, deps: Any)
             resolve_existing_job_dir=deps.resolve_existing_job_dir,
         ),
     )
+
+
+@dataclass(frozen=True)
+class _RuntimeInputs:
+    index_root: Path
+    target: str
+    queue_id: str
+    run_id: str
+    reaction_dir: str
+    queue_entry: dict[str, Any] | None
+
+
+@dataclass(frozen=True)
+class _RuntimeArtifactSnapshot:
+    artifact: Any
+    state: dict[str, Any]
+    report: dict[str, Any]
+    current_dir: Path | None
+    resolved_run_id: str
+    organized_dir: Path | None
 
 
 def _dict_payload(value: Any) -> dict[str, Any]:
@@ -61,9 +82,7 @@ def _initial_artifact_context(
     deps: Any,
 ) -> Any:
     artifact = deps._first_artifact_context(index_root, (target, run_id, reaction_dir))
-    queue_reaction_dir = deps.resolve_existing_job_dir(
-        deps.queue_entry_metadata_value(queue_entry, "reaction_dir")
-    )
+    queue_reaction_dir = _queue_reaction_dir(queue_entry, deps=deps)
     if artifact.job_dir is not None or queue_reaction_dir is None:
         return artifact
     return deps._first_artifact_context(
@@ -172,6 +191,97 @@ def _refresh_artifact_if_needed(
     )
 
 
+def _runtime_inputs(
+    index_root: str | Path,
+    target: str,
+    *,
+    queue_id: str,
+    run_id: str,
+    reaction_dir: str,
+    deps: Any,
+) -> _RuntimeInputs:
+    resolved_index_root = Path(index_root).expanduser().resolve()
+    queue_entry = deps._find_queue_entry(
+        index_root=resolved_index_root,
+        target=target,
+        queue_id=queue_id,
+        run_id=run_id,
+        reaction_dir=reaction_dir,
+    )
+    return _RuntimeInputs(
+        index_root=resolved_index_root,
+        target=target,
+        queue_id=queue_id,
+        run_id=run_id,
+        reaction_dir=reaction_dir,
+        queue_entry=queue_entry,
+    )
+
+
+def _load_initial_runtime_artifact(inputs: _RuntimeInputs, *, deps: Any) -> Any:
+    artifact = _initial_artifact_context(
+        index_root=inputs.index_root,
+        target=inputs.target,
+        run_id=inputs.run_id,
+        reaction_dir=inputs.reaction_dir,
+        queue_entry=inputs.queue_entry,
+        deps=deps,
+    )
+    return _hydrate_artifact_context(artifact, deps=deps)
+
+
+def _runtime_artifact_snapshot(
+    *,
+    inputs: _RuntimeInputs,
+    artifact: Any,
+    deps: Any,
+) -> _RuntimeArtifactSnapshot:
+    state_payload, report_payload, organized_ref_payload = _artifact_payloads(artifact)
+    queue_reaction_dir = _queue_reaction_dir(inputs.queue_entry, deps=deps)
+    current_dir = _current_runtime_dir(
+        artifact=artifact,
+        reaction_dir=inputs.reaction_dir,
+        queue_reaction_dir=queue_reaction_dir,
+        deps=deps,
+    )
+    resolved_run_id = _resolved_run_id(
+        run_id=inputs.run_id,
+        state=state_payload,
+        report=report_payload,
+        organized_ref=organized_ref_payload,
+        queue_entry=inputs.queue_entry,
+        deps=deps,
+    )
+    return _RuntimeArtifactSnapshot(
+        artifact=artifact,
+        state=state_payload,
+        report=report_payload,
+        current_dir=current_dir,
+        resolved_run_id=resolved_run_id,
+        organized_dir=deps._record_organized_dir(artifact.record),
+    )
+
+
+def _refresh_runtime_artifact_if_needed(
+    *,
+    inputs: _RuntimeInputs,
+    snapshot: _RuntimeArtifactSnapshot,
+    deps: Any,
+) -> Any:
+    return _refresh_artifact_if_needed(
+        index_root=inputs.index_root,
+        artifact=snapshot.artifact,
+        organized_dir=snapshot.organized_dir,
+        current_dir=snapshot.current_dir,
+        state=snapshot.state,
+        report=snapshot.report,
+        target=inputs.target,
+        resolved_run_id=snapshot.resolved_run_id,
+        reaction_dir=inputs.reaction_dir,
+        deps=deps,
+    )
+
+
 def load_job_runtime_context(
     index_root: str | Path,
     target: str,
@@ -183,59 +293,28 @@ def load_job_runtime_context(
     deps: Any,
 ) -> Any:
     del organized_root
-    resolved_index_root = Path(index_root).expanduser().resolve()
-    queue_entry = deps._find_queue_entry(
-        index_root=resolved_index_root,
+    inputs = _runtime_inputs(
+        index_root,
         target=target,
         queue_id=queue_id,
         run_id=run_id,
         reaction_dir=reaction_dir,
-    )
-
-    artifact = _initial_artifact_context(
-        index_root=resolved_index_root,
-        target=target,
-        run_id=run_id,
-        reaction_dir=reaction_dir,
-        queue_entry=queue_entry,
         deps=deps,
     )
-    artifact = _hydrate_artifact_context(artifact, deps=deps)
-
-    state_payload, report_payload, organized_ref_payload = _artifact_payloads(artifact)
-    queue_reaction_dir = _queue_reaction_dir(queue_entry, deps=deps)
-    current_dir = _current_runtime_dir(
+    artifact = _load_initial_runtime_artifact(inputs, deps=deps)
+    snapshot = _runtime_artifact_snapshot(
+        inputs=inputs,
         artifact=artifact,
-        reaction_dir=reaction_dir,
-        queue_reaction_dir=queue_reaction_dir,
         deps=deps,
     )
-
-    resolved_run_id = _resolved_run_id(
-        run_id=run_id,
-        state=state_payload,
-        report=report_payload,
-        organized_ref=organized_ref_payload,
-        queue_entry=queue_entry,
-        deps=deps,
-    )
-    organized_dir = deps._record_organized_dir(artifact.record)
-
-    artifact = _refresh_artifact_if_needed(
-        index_root=resolved_index_root,
-        artifact=artifact,
-        organized_dir=organized_dir,
-        current_dir=current_dir,
-        state=state_payload,
-        report=report_payload,
-        target=target,
-        resolved_run_id=resolved_run_id,
-        reaction_dir=reaction_dir,
+    artifact = _refresh_runtime_artifact_if_needed(
+        inputs=inputs,
+        snapshot=snapshot,
         deps=deps,
     )
 
     return deps.JobRuntimeContext(
         artifact=artifact,
-        queue_entry=queue_entry,
-        organized_dir=organized_dir,
+        queue_entry=inputs.queue_entry,
+        organized_dir=snapshot.organized_dir,
     )

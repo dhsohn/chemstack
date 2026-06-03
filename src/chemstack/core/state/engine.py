@@ -202,6 +202,19 @@ def state_matches_job_identity(
     )
 
 
+def state_matches_engine_job(
+    state: dict[str, Any] | None,
+    *,
+    selected_input_xyz: str | Path,
+    **identity_fields: Any,
+) -> bool:
+    return state_matches_job_identity(
+        state,
+        selected_input_xyz=selected_input_xyz,
+        identity_fields=identity_fields,
+    )
+
+
 def is_recovery_pending_state(state: dict[str, Any] | None) -> bool:
     if not isinstance(state, dict):
         return False
@@ -237,6 +250,17 @@ class RecoveryRetainedFieldsSpec:
 
 def recovery_identity_fields(fields: Mapping[str, Any]) -> dict[str, Any]:
     return {str(key): normalize_text(value) for key, value in fields.items()}
+
+
+def recovery_identity_payload(
+    fields: Mapping[str, Any],
+    *,
+    extra_fields: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    payload = recovery_identity_fields(fields)
+    if extra_fields:
+        payload.update({str(key): value for key, value in extra_fields.items()})
+    return payload
 
 
 def recovery_retained_fields(
@@ -338,6 +362,30 @@ class EngineRecoveryPendingWriter:
         )
         self.access.write_state(job_dir, payload)
         return payload
+
+
+def write_recovery_pending_state(
+    recovery_pending: EngineRecoveryPendingWriter,
+    job_dir: Path,
+    *,
+    job_id: str,
+    selected_input_xyz: str | Path,
+    reason: str,
+    identity_fields: RecoveryFieldMap,
+    resource_request: dict[str, Any] | None,
+    resource_actual: dict[str, Any] | None,
+    retained_fields: RecoveryFieldMap | None = None,
+) -> dict[str, Any]:
+    return recovery_pending.write(
+        job_dir,
+        job_id=job_id,
+        selected_input_xyz=selected_input_xyz,
+        reason=reason,
+        identity_fields=identity_fields,
+        retained_fields=retained_fields,
+        resource_request=resource_request,
+        resource_actual=resource_actual,
+    )
 
 
 @dataclass(frozen=True)

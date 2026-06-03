@@ -291,6 +291,22 @@ def cancel_stage_outcome(
     )
 
 
+def record_workflow_cancellation_outcomes(
+    *,
+    payload: dict[str, Any],
+    submitter_config: SiblingSubmitterConfig,
+    deps: CancellationDeps,
+) -> WorkflowBuckets:
+    buckets = WorkflowBuckets()
+    for stage in payload.get("stages", []):
+        if not isinstance(stage, dict):
+            continue
+        outcome = cancel_stage_outcome(stage=stage, submitter_config=submitter_config, deps=deps)
+        if outcome is not None:
+            buckets.record(outcome)
+    return buckets
+
+
 def write_cancellation_summary(
     payload: dict[str, Any], buckets: WorkflowBuckets, deps: CancellationDeps
 ) -> None:
@@ -312,6 +328,35 @@ def write_cancellation_summary(
         }
 
 
+def persist_cancellation_workflow(
+    *,
+    workflow_root: str | Path | None,
+    workspace_dir: Path,
+    payload: dict[str, Any],
+    deps: CancellationDeps,
+) -> None:
+    deps.write_workflow_payload(workspace_dir, payload)
+    if workflow_root is not None:
+        deps.sync_workflow_registry(workflow_root, workspace_dir, payload)
+
+
+def cancellation_workflow_result(
+    *,
+    payload: dict[str, Any],
+    workspace_dir: Path,
+    buckets: WorkflowBuckets,
+) -> dict[str, Any]:
+    return {
+        "workflow_id": payload.get("workflow_id", ""),
+        "workspace_dir": str(workspace_dir),
+        "status": payload.get("status", ""),
+        "cancelled": buckets.cancelled,
+        "requested": buckets.requested,
+        "skipped": buckets.skipped,
+        "failed": buckets.failed,
+    }
+
+
 def cancel_reaction_ts_search_workflow(
     *,
     workflow_target: str,
@@ -325,30 +370,22 @@ def cancel_reaction_ts_search_workflow(
         workflow_root=workflow_root,
     )
     payload = deps.load_workflow_payload(workspace_dir)
-    buckets = WorkflowBuckets()
     submitter_config = cancel_config(
         orca_config=orca_config,
         orca_repo_root=orca_repo_root,
         normalize_text=deps.normalize_text,
     )
-
-    for stage in payload.get("stages", []):
-        if not isinstance(stage, dict):
-            continue
-        outcome = cancel_stage_outcome(stage=stage, submitter_config=submitter_config, deps=deps)
-        if outcome is not None:
-            buckets.record(outcome)
+    buckets = record_workflow_cancellation_outcomes(
+        payload=payload,
+        submitter_config=submitter_config,
+        deps=deps,
+    )
 
     write_cancellation_summary(payload, buckets, deps)
-    deps.write_workflow_payload(workspace_dir, payload)
-    if workflow_root is not None:
-        deps.sync_workflow_registry(workflow_root, workspace_dir, payload)
-    return {
-        "workflow_id": payload.get("workflow_id", ""),
-        "workspace_dir": str(workspace_dir),
-        "status": payload.get("status", ""),
-        "cancelled": buckets.cancelled,
-        "requested": buckets.requested,
-        "skipped": buckets.skipped,
-        "failed": buckets.failed,
-    }
+    persist_cancellation_workflow(
+        workflow_root=workflow_root,
+        workspace_dir=workspace_dir,
+        payload=payload,
+        deps=deps,
+    )
+    return cancellation_workflow_result(payload=payload, workspace_dir=workspace_dir, buckets=buckets)

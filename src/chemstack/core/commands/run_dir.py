@@ -141,6 +141,33 @@ def record_engine_run_dir_queued(
     )
 
 
+def engine_run_dir_queued_recorder(
+    namespace: Mapping[str, Any],
+    *,
+    build_record_name: str = "_queued_record",
+    write_state_name: str = "write_state",
+    upsert_job_record_name: str = "upsert_job_record",
+    notify_job_queued_name: str = "notify_job_queued",
+    recorder_name: str = "_record_queued",
+) -> Callable[[Any, EngineRunDirSubmission, Any], None]:
+    def record_queued(cfg: Any, submission: EngineRunDirSubmission, entry: Any) -> None:
+        record_engine_run_dir_queued(
+            cfg,
+            submission,
+            entry,
+            namespace=namespace,
+            build_record_name=build_record_name,
+            write_state_name=write_state_name,
+            upsert_job_record_name=upsert_job_record_name,
+            notify_job_queued_name=notify_job_queued_name,
+        )
+
+    record_queued.__name__ = recorder_name
+    record_queued.__qualname__ = recorder_name
+    record_queued.__module__ = str(namespace.get("__name__", __name__))
+    return record_queued
+
+
 def record_queued_common_from_namespace(
     cfg: Any,
     submission: EngineRunDirSubmission,

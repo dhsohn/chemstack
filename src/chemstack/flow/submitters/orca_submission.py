@@ -120,6 +120,24 @@ class _SubmissionStageContext:
         return orca_submitter_matches(self.enqueue_payload, normalize_text=normalize_text)
 
 
+@dataclass(frozen=True)
+class _SubmissionStageRequest:
+    reaction_dir: str
+    priority: int
+    config_path: str
+    repo_root: str | None
+    submitter_kwargs: dict[str, Any]
+
+    def call_kwargs(self) -> dict[str, Any]:
+        return {
+            "reaction_dir": self.reaction_dir,
+            "priority": self.priority,
+            "config_path": self.config_path,
+            "repo_root": self.repo_root,
+            **self.submitter_kwargs,
+        }
+
+
 SUBMISSION_RESULT = TaskRecordMutator("submission_result")
 
 
@@ -435,6 +453,73 @@ def submission_kwargs(enqueue_payload: dict[str, Any]) -> dict[str, Any]:
     return kwargs
 
 
+def submission_stage_request(
+    *,
+    context: _SubmissionStageContext,
+    submitter_config: SiblingSubmitterConfig,
+    reaction_dir: str,
+) -> _SubmissionStageRequest:
+    return _SubmissionStageRequest(
+        reaction_dir=reaction_dir,
+        priority=int(context.enqueue_payload.get("priority", 10) or 10),
+        config_path=submitter_config.config_path,
+        repo_root=submitter_config.repo_root,
+        submitter_kwargs=submission_kwargs(context.enqueue_payload),
+    )
+
+
+def submit_stage_request(
+    request: _SubmissionStageRequest,
+    deps: SubmissionDeps,
+) -> dict[str, Any]:
+    return deps.submit_reaction_dir(**request.call_kwargs())
+
+
+def skipped_submission_outcome(stage_id: Any, reason: str) -> WorkflowStageOutcome:
+    return WorkflowStageOutcome(
+        bucket=_BUCKET.skipped,
+        detail={"stage_id": stage_id, "reason": reason},
+        stage_result={"stage_id": stage_id, "status": _STATUS.skipped, "reason": reason},
+    )
+
+
+def missing_reaction_dir_outcome(
+    context: _SubmissionStageContext,
+    deps: SubmissionDeps,
+) -> WorkflowStageOutcome:
+    fail_record, stage_result = record_missing_reaction_dir(
+        stage=context.stage.raw,
+        task=context.task.raw,
+        stage_metadata=context.stage_metadata,
+        now_utc_iso=deps.now_utc_iso,
+    )
+    return WorkflowStageOutcome(
+        bucket=_BUCKET.failed,
+        detail=fail_record,
+        stage_result=stage_result,
+    )
+
+
+def workflow_submission_outcome(
+    *,
+    context: _SubmissionStageContext,
+    reaction_dir: str,
+    submission_record: dict[str, Any],
+    deps: SubmissionDeps,
+) -> WorkflowStageOutcome:
+    outcome, detail_record, stage_result = record_submission_outcome(
+        stage=context.stage.raw,
+        task=context.task.raw,
+        stage_metadata=context.stage_metadata,
+        reaction_dir=reaction_dir,
+        submission_record=submission_record,
+        now_utc_iso=deps.now_utc_iso,
+        normalize_text=deps.normalize_text,
+    )
+    bucket = _BUCKET.skipped if outcome == _BUCKET.deferred else outcome
+    return WorkflowStageOutcome(bucket=bucket, detail=detail_record, stage_result=stage_result)
+
+
 def submission_stage_outcome(
     *,
     stage: dict[str, Any],
@@ -454,46 +539,47 @@ def submission_stage_outcome(
     )
     stage_id = context.stage_id
     if skip_reason:
-        return WorkflowStageOutcome(
-            bucket=_BUCKET.skipped,
-            detail={"stage_id": stage_id, "reason": skip_reason},
-            stage_result={"stage_id": stage_id, "status": _STATUS.skipped, "reason": skip_reason},
-        )
+        return skipped_submission_outcome(stage_id, skip_reason)
 
     reaction_dir = context.reaction_dir(deps.normalize_text)
     if not reaction_dir:
-        fail_record, stage_result = record_missing_reaction_dir(
-            stage=context.stage.raw,
-            task=context.task.raw,
-            stage_metadata=context.stage_metadata,
-            now_utc_iso=deps.now_utc_iso,
-        )
-        return WorkflowStageOutcome(
-            bucket=_BUCKET.failed,
-            detail=fail_record,
-            stage_result=stage_result,
-        )
+        return missing_reaction_dir_outcome(context, deps)
     if not context.should_submit_to_orca(deps.normalize_text):
         return None
 
-    submission_record = deps.submit_reaction_dir(
+    request = submission_stage_request(
+        context=context,
+        submitter_config=submitter_config,
         reaction_dir=reaction_dir,
-        priority=int(context.enqueue_payload.get("priority", 10) or 10),
-        config_path=submitter_config.config_path,
-        repo_root=submitter_config.repo_root,
-        **submission_kwargs(context.enqueue_payload),
     )
-    outcome, detail_record, stage_result = record_submission_outcome(
-        stage=context.stage.raw,
-        task=context.task.raw,
-        stage_metadata=context.stage_metadata,
+    submission_record = submit_stage_request(request, deps)
+    return workflow_submission_outcome(
+        context=context,
         reaction_dir=reaction_dir,
         submission_record=submission_record,
-        now_utc_iso=deps.now_utc_iso,
-        normalize_text=deps.normalize_text,
+        deps=deps,
     )
-    bucket = _BUCKET.skipped if outcome == _BUCKET.deferred else outcome
-    return WorkflowStageOutcome(bucket=bucket, detail=detail_record, stage_result=stage_result)
+
+
+def record_workflow_submission_outcomes(
+    *,
+    payload: dict[str, Any],
+    submitter_config: SiblingSubmitterConfig,
+    skip_submitted: bool,
+    deps: SubmissionDeps,
+) -> WorkflowBuckets:
+    buckets = WorkflowBuckets()
+    payload_view = WorkflowPayloadView(payload)
+    for stage_view in payload_view.stage_views:
+        outcome = submission_stage_outcome(
+            stage=stage_view.raw,
+            submitter_config=submitter_config,
+            skip_submitted=skip_submitted,
+            deps=deps,
+        )
+        if outcome is not None:
+            buckets.record(outcome)
+    return buckets
 
 
 def record_submission_summary(
@@ -519,6 +605,35 @@ def record_submission_summary(
         }
 
 
+def persist_submission_workflow(
+    *,
+    workflow_root: str | Path | None,
+    workspace_dir: Path,
+    payload: dict[str, Any],
+    deps: SubmissionDeps,
+) -> None:
+    deps.write_workflow_payload(workspace_dir, payload)
+    if workflow_root is not None:
+        deps.sync_workflow_registry(workflow_root, workspace_dir, payload)
+
+
+def submission_workflow_result(
+    *,
+    payload: dict[str, Any],
+    workspace_dir: Path,
+    buckets: WorkflowBuckets,
+) -> dict[str, Any]:
+    payload_view = WorkflowPayloadView(payload)
+    return {
+        "workflow_id": payload_view.raw.get("workflow_id", ""),
+        "workspace_dir": str(workspace_dir),
+        "status": payload_view.raw.get("status", ""),
+        "submitted": buckets.submitted,
+        "skipped": buckets.skipped,
+        "failed": buckets.failed,
+    }
+
+
 def submit_reaction_ts_search_workflow(
     *,
     workflow_target: str,
@@ -533,33 +648,23 @@ def submit_reaction_ts_search_workflow(
         workflow_root=workflow_root,
     )
     payload = deps.load_workflow_payload(workspace_dir)
-    buckets = WorkflowBuckets()
     submitter_config = submission_config(
         orca_config=orca_config,
         orca_repo_root=orca_repo_root,
         normalize_text=deps.normalize_text,
     )
-
-    payload_view = WorkflowPayloadView(payload)
-    for stage_view in payload_view.stage_views:
-        outcome = submission_stage_outcome(
-            stage=stage_view.raw,
-            submitter_config=submitter_config,
-            skip_submitted=skip_submitted,
-            deps=deps,
-        )
-        if outcome is not None:
-            buckets.record(outcome)
+    buckets = record_workflow_submission_outcomes(
+        payload=payload,
+        submitter_config=submitter_config,
+        skip_submitted=skip_submitted,
+        deps=deps,
+    )
 
     record_submission_summary(payload, buckets, deps)
-    deps.write_workflow_payload(workspace_dir, payload)
-    if workflow_root is not None:
-        deps.sync_workflow_registry(workflow_root, workspace_dir, payload)
-    return {
-        "workflow_id": payload_view.raw.get("workflow_id", ""),
-        "workspace_dir": str(workspace_dir),
-        "status": payload_view.raw.get("status", ""),
-        "submitted": buckets.submitted,
-        "skipped": buckets.skipped,
-        "failed": buckets.failed,
-    }
+    persist_submission_workflow(
+        workflow_root=workflow_root,
+        workspace_dir=workspace_dir,
+        payload=payload,
+        deps=deps,
+    )
+    return submission_workflow_result(payload=payload, workspace_dir=workspace_dir, buckets=buckets)

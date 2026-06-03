@@ -198,6 +198,15 @@ def _artifact_payloads(
     )
 
 
+def _load_artifact_record_payloads(job_dir: Path) -> _ArtifactRecordPayloads:
+    state_data = load_state(job_dir)
+    return _artifact_payloads(
+        dict(state_data) if state_data is not None else {},
+        load_report_json(job_dir),
+        load_organized_ref(job_dir),
+    )
+
+
 def _artifact_record_identity(
     *,
     state: dict[str, Any],
@@ -402,22 +411,18 @@ def record_from_artifacts(
     )
 
 
-def collect_reindex_payload(job_dir: Path) -> dict[str, Any] | None:
-    resolved_job_dir = job_dir.expanduser().resolve()
-    state_data = load_state(resolved_job_dir)
-    state = dict(state_data) if state_data is not None else {}
-    report = load_report_json(resolved_job_dir) or {}
-    organized_ref = load_organized_ref(resolved_job_dir) or {}
-
+def _record_from_job_dir_artifacts(job_dir: Path) -> JobLocationRecord | None:
+    payloads = _load_artifact_record_payloads(job_dir)
     record = record_from_artifacts(
-        job_dir=resolved_job_dir,
-        state=state,
-        report=report,
-        organized_ref=organized_ref,
+        job_dir=job_dir,
+        state=payloads.state,
+        report=payloads.report,
+        organized_ref=payloads.organized_ref,
     )
-    if record is None:
-        return None
+    return record
 
+
+def _reindex_payload_from_record(record: JobLocationRecord) -> dict[str, Any]:
     return {
         "job_id": record.job_id,
         "status": record.status,
@@ -431,28 +436,30 @@ def collect_reindex_payload(job_dir: Path) -> dict[str, Any] | None:
     }
 
 
+def collect_reindex_payload(job_dir: Path) -> dict[str, Any] | None:
+    resolved_job_dir = job_dir.expanduser().resolve()
+    record = _record_from_job_dir_artifacts(resolved_job_dir)
+    if record is None:
+        return None
+    return _reindex_payload_from_record(record)
+
+
+def _candidate_reindex_dirs(root: Path) -> set[Path]:
+    candidate_dirs: set[Path] = set()
+    for pattern in ("run_state.json", "run_report.json", "organized_ref.json"):
+        for artifact in root.rglob(pattern):
+            candidate_dirs.add(artifact.parent)
+    return candidate_dirs
+
+
 def reindex_job_locations(cfg: AppConfig) -> int:
     root = index_root_for_cfg(cfg)
     if not root.exists():
         return 0
 
-    candidate_dirs: set[Path] = set()
-    for pattern in ("run_state.json", "run_report.json", "organized_ref.json"):
-        for artifact in root.rglob(pattern):
-            candidate_dirs.add(artifact.parent)
-
     updated = 0
-    for job_dir in sorted(candidate_dirs):
-        state_data = load_state(job_dir)
-        state = dict(state_data) if state_data is not None else None
-        report = load_report_json(job_dir)
-        organized_ref = load_organized_ref(job_dir)
-        record = record_from_artifacts(
-            job_dir=job_dir,
-            state=state,
-            report=report,
-            organized_ref=organized_ref,
-        )
+    for job_dir in sorted(_candidate_reindex_dirs(root)):
+        record = _record_from_job_dir_artifacts(job_dir)
         if record is None:
             continue
         upsert_job_location(root, record)

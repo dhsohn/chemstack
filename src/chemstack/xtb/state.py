@@ -53,13 +53,11 @@ def state_matches_job(
     job_type: str,
     reaction_key: str,
 ) -> bool:
-    return _engine_state.state_matches_job_identity(
+    return _engine_state.state_matches_engine_job(
         state,
         selected_input_xyz=selected_input_xyz,
-        identity_fields={
-            "job_type": job_type,
-            "reaction_key": reaction_key,
-        },
+        job_type=job_type,
+        reaction_key=reaction_key,
     )
 
 
@@ -90,20 +88,19 @@ def mark_recovery_pending(
     reason: str,
 ) -> dict[str, Any]:
     input_summary_payload = _engine_state.coerce_dict(input_summary)
-    return _RECOVERY_PENDING.write(
+    return _engine_state.write_recovery_pending_state(
+        _RECOVERY_PENDING,
         job_dir,
         job_id=job_id,
         selected_input_xyz=selected_input_xyz,
         reason=reason,
-        identity_fields={
-            **_engine_state.recovery_identity_fields(
-                {
-                    "job_type": job_type,
-                    "reaction_key": reaction_key,
-                }
-            ),
-            "input_summary": input_summary_payload,
-        },
+        identity_fields=_engine_state.recovery_identity_payload(
+            {
+                "job_type": job_type,
+                "reaction_key": reaction_key,
+            },
+            extra_fields={"input_summary": input_summary_payload},
+        ),
         retained_fields=lambda existing: _recovery_retained_fields(existing, input_summary_payload),
         resource_request=resource_request,
         resource_actual=resource_actual,
