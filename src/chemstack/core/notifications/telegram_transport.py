@@ -143,7 +143,7 @@ class TelegramTransport:
                 error=f"telegram_url_error:{exc}",
                 payload=payload,
             ), _should_retry_url_error(exc)
-        except Exception as exc:
+        except OSError as exc:
             return TelegramSendResult(
                 sent=False,
                 skipped=False,

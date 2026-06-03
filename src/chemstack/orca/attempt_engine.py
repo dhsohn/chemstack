@@ -379,7 +379,7 @@ def _run_attempt_cycle(ctx: AttemptRunContext, loop: AttemptLoopState) -> int | 
             runner=ctx.runner,
             patch_actions=resolved_input.patch_actions,
         )
-    except (WorkerShutdownInterrupt, KeyboardInterrupt, Exception) as exc:
+    except (WorkerShutdownInterrupt, KeyboardInterrupt, Exception) as exc:  # noqa: BLE001
         return _finish_attempt_exception(ctx, loop, current_inp, exc)
 
     decision = decide_attempt_outcome(
@@ -425,7 +425,7 @@ def _prepare_retry_attempt_from_context(ctx: RetryPreparationContext) -> int | N
             reaction_dir=ctx.run.reaction_dir,
             step=patch_step,
         )
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         ctx.run.state["attempts"][-1]["patch_actions"] = [f"rewrite_failed:{exc}"]
         return _exit_with_result(
             ctx.run.reaction_dir,

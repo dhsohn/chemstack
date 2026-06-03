@@ -4,8 +4,9 @@ import logging
 from pathlib import Path
 from typing import Any, Callable
 
-from chemstack.core.admission import active_slot_count
+from chemstack.core.admission import AdmissionStoreCorruptError, active_slot_count
 from chemstack.core.config.files import (
+    YAML_CONFIG_LOAD_EXCEPTIONS,
     engine_config_mapping,
     load_yaml_mapping,
     mapping_section,
@@ -26,7 +27,7 @@ def submission_admission_limit_from_config(
 ) -> int | None:
     try:
         _, raw = load_yaml_mapping(config_path)
-    except Exception as exc:
+    except YAML_CONFIG_LOAD_EXCEPTIONS as exc:
         LOGGER.debug(
             "submission_admission_limit_config_load_failed: config_path=%s error=%s",
             config_path,
@@ -45,7 +46,7 @@ def _submission_admission_root_from_config(
 ) -> Path | None:
     try:
         path, raw = load_yaml_mapping(config_path)
-    except ValueError:
+    except YAML_CONFIG_LOAD_EXCEPTIONS:
         return None
 
     if engine in {"xtb", "crest"}:
@@ -87,7 +88,7 @@ def submission_admission_has_capacity(
             else:
                 runtime_paths = engine_runtime_paths_fn(str(config_path), engine=engine)
                 candidate = runtime_paths.get("admission_root")
-        except Exception as exc:
+        except (OSError, ValueError) as exc:
             LOGGER.debug(
                 "submission_admission_root_lookup_failed: config_path=%s engine=%s error=%s",
                 config_path,
@@ -102,7 +103,7 @@ def submission_admission_has_capacity(
         return None
     try:
         return active_slot_count_fn(admission_root) < limit
-    except Exception as exc:
+    except (AdmissionStoreCorruptError, OSError) as exc:
         LOGGER.debug(
             "submission_admission_slot_count_failed: admission_root=%s error=%s",
             admission_root,

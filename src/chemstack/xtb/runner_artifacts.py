@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-import json
 import re
 from pathlib import Path
 from typing import Any
+
+from chemstack.core.utils.persistence import load_json_mapping_file
 
 _TRIAL_RE = re.compile(
     r"run\s+(\d+)\s+barrier:\s*([-+]?\d+(?:\.\d+)?)\s+dE:\s*([-+]?\d+(?:\.\d+)?)\s+product-end path RMSD:\s*([-+]?\d+(?:\.\d+)?)"
@@ -43,14 +44,7 @@ def _safe_float(value: str) -> float | None:
 
 
 def _load_xtbout_json(job_dir: Path) -> dict[str, Any]:
-    path = job_dir / "xtbout.json"
-    if not path.exists():
-        return {}
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
-    return payload if isinstance(payload, dict) else {}
+    return load_json_mapping_file(job_dir / "xtbout.json") or {}
 
 
 def _parse_candidate_comment_energy(candidate_xyz: Path) -> float | None:

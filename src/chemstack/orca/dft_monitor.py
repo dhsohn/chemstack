@@ -149,7 +149,7 @@ class DFTMonitor:
                 result.method,
                 effective_status,
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             scan_state.failures.append(_parse_failure(canonical, exc))
             logger.warning("dft_monitor_parse_error: path=%s error=%s", spath, exc)
 
@@ -354,7 +354,7 @@ def _load_state(state_file: str | None) -> dict[str, FileSignature]:
         return state
     except FileNotFoundError:
         return {}
-    except Exception as exc:
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         logger.warning("dft_monitor_state_load_failed: path=%s error=%s", state_file, exc)
         return {}
 
@@ -374,5 +374,5 @@ def _save_state(state_file: str | None, signatures: dict[str, FileSignature]) ->
         with open(tmp_path, "w", encoding="utf-8") as f:
             json.dump(payload, f, ensure_ascii=False)
         tmp_path.replace(path)
-    except Exception as exc:
+    except OSError as exc:
         logger.warning("dft_monitor_state_save_failed: path=%s error=%s", state_file, exc)

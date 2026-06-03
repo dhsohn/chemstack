@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from chemstack.core.config.files import YAML_CONFIG_LOAD_EXCEPTIONS
 from chemstack.flow.orchestration.deps import OrchestrationDeps, orchestration_deps
 from chemstack.flow.contracts.workflow import workflow_stage_metadata, workflow_task_payload_dict
 
@@ -55,7 +56,7 @@ def load_config_root_impl(
         return None
     try:
         return _runtime_paths_for_engine(text, engine=engine, deps=o)["allowed_root"]
-    except Exception:
+    except YAML_CONFIG_LOAD_EXCEPTIONS:
         return None
 
 
@@ -71,7 +72,7 @@ def load_config_organized_root_impl(
         return None
     try:
         runtime_paths = _runtime_paths_for_engine(text, engine=engine, deps=o)
-    except Exception:
+    except YAML_CONFIG_LOAD_EXCEPTIONS:
         return None
     organized_root = runtime_paths.get("organized_root")
     if organized_root is not None:

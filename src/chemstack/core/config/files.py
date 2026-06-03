@@ -12,6 +12,7 @@ CHEMSTACK_CONFIG_ENV_VAR = "CHEMSTACK_CONFIG"
 DEFAULT_CONFIG_FILENAME = "chemstack.yaml"
 DEFAULT_SHARED_ADMISSION_DIRNAME = "admission"
 SECURE_CONFIG_FILE_MODE = 0o600
+YAML_CONFIG_LOAD_EXCEPTIONS = (OSError, ValueError, yaml.YAMLError)
 
 
 def secure_config_file_permissions(
@@ -173,7 +174,7 @@ def shared_workflow_root_from_config(config_path: str | Path | None) -> str | No
 
     try:
         _, parsed = load_yaml_mapping(path)
-    except Exception:
+    except YAML_CONFIG_LOAD_EXCEPTIONS:
         return None
 
     root_text = workflow_root_from_mapping(parsed)

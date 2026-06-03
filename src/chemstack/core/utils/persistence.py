@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import suppress
 import errno
 import json
 import os
@@ -11,6 +12,7 @@ from typing import Any
 
 from .coercion import safe_int as _safe_int
 
+JSON_LOAD_EXCEPTIONS = (OSError, UnicodeDecodeError, json.JSONDecodeError)
 
 _DIR_FSYNC_UNSUPPORTED_ERRNOS = {
     code
@@ -102,6 +104,27 @@ def load_json_list_file(
     return raw
 
 
+def load_json_file(path: Path) -> Any | None:
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except JSON_LOAD_EXCEPTIONS:
+        return None
+
+
+def load_json_mapping_file(path: Path) -> dict[str, Any] | None:
+    raw = load_json_file(path)
+    return raw if isinstance(raw, dict) else None
+
+
+def load_json_mapping_list_file(path: Path) -> list[dict[str, Any]]:
+    raw = load_json_file(path)
+    if not isinstance(raw, list):
+        return []
+    return [item for item in raw if isinstance(item, dict)]
+
+
 def _is_unsupported_dir_fsync_error(exc: OSError) -> bool:
     return exc.errno in _DIR_FSYNC_UNSUPPORTED_ERRNOS
 
@@ -141,10 +164,8 @@ def atomic_write_text(path: Path, payload: str) -> None:
         _fsync_parent_dir(path)
     finally:
         if tmp_path.exists():
-            try:
+            with suppress(OSError):
                 tmp_path.unlink()
-            except OSError:
-                pass
 
 
 def atomic_write_json(

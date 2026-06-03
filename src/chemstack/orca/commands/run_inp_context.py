@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
+from chemstack.core.config.schema import resolved_admission_limit
 from chemstack.orca.admission_env import (
     ADMISSION_APP_NAME_ENV_VAR,
     ADMISSION_TASK_ID_ENV_VAR,
@@ -69,19 +70,10 @@ def configured_admission_root(cfg: Any) -> Path:
 
 
 def configured_admission_limit(cfg: Any) -> int:
-    raw: object | None = getattr(cfg.runtime, "admission_limit", None)
-    if raw in {None, ""}:
-        return configured_max_concurrent(cfg)
-    try:
-        if isinstance(raw, bool):
-            value = int(raw)
-        elif isinstance(raw, (int, float, str)):
-            value = int(raw)
-        else:
-            raise TypeError("Unsupported admission_limit type")
-    except (TypeError, ValueError):
-        value = configured_max_concurrent(cfg)
-    return max(1, value)
+    return resolved_admission_limit(
+        getattr(cfg.runtime, "admission_limit", None),
+        configured_max_concurrent(cfg),
+    )
 
 
 def reaction_dir_arg(args: Any) -> str | None:

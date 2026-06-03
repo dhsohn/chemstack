@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import subprocess
 from collections.abc import Mapping
+from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
@@ -159,11 +160,11 @@ def run_terminal_process_side_effects(
             job.reaction_dir,
             fallback_job_id=getattr(job, "task_id", None),
         )
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         logger.warning("Failed to update terminal job location for %s: %s", queue_id, exc)
     try:
         hooks.notify_terminal_job_from_state_fn(worker.cfg, job.reaction_dir)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         logger.warning("Failed to send terminal notification for %s: %s", queue_id, exc)
 
 
@@ -211,10 +212,8 @@ def cancel_running_process_job(
 ) -> None:
     logger.info("Cancelling running job: %s", queue_id)
     hooks.terminate_process_fn(job.process)
-    try:
+    with suppress(subprocess.TimeoutExpired):
         job.process.wait(timeout=5)
-    except subprocess.TimeoutExpired:
-        pass
     hooks.mark_cancelled_fn(job_queue_root(worker, job), queue_id)
     worker._release_admission_slot(job.admission_token)
 

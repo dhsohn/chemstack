@@ -142,7 +142,7 @@ def advance_workflow_record_outcome(
             engine_options=options,
             submit_ready=False if terminal_sync else cycle.cycle_submit_ready,
         )
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         reason = f"terminal_child_sync_failed: {exc}" if terminal_sync else str(exc)
         return failed_workflow_advance_outcome(
             cycle=cycle,

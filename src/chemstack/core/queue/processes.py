@@ -67,7 +67,7 @@ def terminate_process_group(
     except (ProcessLookupError, PermissionError):
         try:
             proc.terminate()
-        except Exception:
+        except Exception:  # noqa: BLE001
             logger.debug("failed to terminate process after group signal failed", exc_info=True)
 
     try:
@@ -78,7 +78,7 @@ def terminate_process_group(
         except (ProcessLookupError, PermissionError):
             try:
                 proc.kill()
-            except Exception:
+            except Exception:  # noqa: BLE001
                 logger.debug("failed to kill process after group kill failed", exc_info=True)
         try:
             proc.wait(timeout=kill_timeout)

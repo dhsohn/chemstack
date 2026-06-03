@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-import json
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from chemstack.core.indexing import JobLocationRecord
+from chemstack.core.utils.persistence import load_json_mapping_file
 
 
 @dataclass(frozen=True)
@@ -119,13 +119,7 @@ def first_normalized_text(*values: Any, default: str = "") -> str:
 
 
 def load_json_dict(path: Path) -> dict[str, Any]:
-    if not path.exists():
-        return {}
-    try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
-    return raw if isinstance(raw, dict) else {}
+    return load_json_mapping_file(path) or {}
 
 
 def direct_dir_target(

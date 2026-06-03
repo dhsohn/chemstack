@@ -4,12 +4,13 @@ import json
 from pathlib import Path
 from typing import Any
 
-from chemstack.core.indexing import JobLocationRecord, resolve_job_location
+from chemstack.core.indexing import JobLocationIndexError, JobLocationRecord, resolve_job_location
 from chemstack.core.queue.metadata import (
     mapping_metadata as queue_entry_metadata_impl,
     mapping_metadata_value as queue_entry_metadata_value_impl,
 )
 from chemstack.core.utils.coercion import normalize_text
+from chemstack.core.utils.persistence import load_json_mapping_file, load_json_mapping_list_file
 
 from ._orca_path_helpers import direct_dir_target_impl, resolve_candidate_path_impl
 
@@ -23,25 +24,11 @@ JsonPayloadList = list[JsonPayload]
 
 
 def load_json_dict_impl(path: Path) -> JsonPayload:
-    if not path.exists():
-        return {}
-    try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
-    return raw if isinstance(raw, dict) else {}
+    return load_json_mapping_file(path) or {}
 
 
 def load_json_list_impl(path: Path) -> JsonPayloadList:
-    if not path.exists():
-        return []
-    try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return []
-    if not isinstance(raw, list):
-        return []
-    return [item for item in raw if isinstance(item, dict)]
+    return load_json_mapping_list_file(path)
 
 
 def load_jsonl_records_impl(path: Path) -> JsonPayloadList:
@@ -83,7 +70,7 @@ def _resolve_record_for_target(index_root: Path | None, target: str) -> JobLocat
         return None
     try:
         return resolve_job_location(index_root, target)
-    except Exception:
+    except (JobLocationIndexError, OSError, ValueError):
         return None
 
 

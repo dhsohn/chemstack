@@ -16,7 +16,6 @@ jobs:
       matrix:
         python-version: ["3.11", "3.12", "3.13"]
     env:
-      PYTHONPATH: .
       PYTHONDONTWRITEBYTECODE: "1"
     steps:
       - name: Checkout
@@ -41,3 +40,18 @@ jobs:
 
       - name: Run tests with coverage gate
         run: pytest --cov --cov-report=term-missing -q
+
+      - name: Package smoke
+        run: |
+          python -m pip wheel . --no-deps -w /tmp/chemstack-wheel-smoke
+          python - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile
+
+          wheels = sorted(Path("/tmp/chemstack-wheel-smoke").glob("chemstack-*.whl"))
+          assert len(wheels) == 1, wheels
+          with ZipFile(wheels[0]) as wheel:
+              names = set(wheel.namelist())
+          assert "chemstack/py.typed" in names
+          assert "chemstack/core/py.typed" not in names
+          PY

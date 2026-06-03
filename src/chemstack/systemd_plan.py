@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, Callable, Sequence
 
 from chemstack.cli_common import _repo_root
-from chemstack.core.config.files import load_yaml_mapping
+from chemstack.core.config.files import YAML_CONFIG_LOAD_EXCEPTIONS, load_yaml_mapping
 from chemstack.core.utils.coercion import normalize_text
 
 
@@ -145,7 +145,7 @@ def _telegram_runtime_warning(config: Path, *, worker_only: bool) -> str | None:
         telegram = _telegram_mapping(config)
     except ValueError as exc:
         return str(exc)
-    except Exception as exc:
+    except YAML_CONFIG_LOAD_EXCEPTIONS as exc:
         return f"could not read Telegram settings from {config}: {exc}"
     if not _telegram_credentials_configured(telegram):
         return (
@@ -160,7 +160,7 @@ def _telegram_configured(config: Path) -> bool:
         return False
     try:
         telegram = _telegram_mapping(config)
-    except Exception:
+    except YAML_CONFIG_LOAD_EXCEPTIONS:
         return False
     return _telegram_credentials_configured(telegram)
 

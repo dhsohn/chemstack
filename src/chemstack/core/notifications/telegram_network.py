@@ -111,7 +111,7 @@ def urlopen_with_ipv4_fallback(
 ):
     try:
         return urlopen_fn(request, timeout=timeout)
-    except BaseException as exc:
+    except OSError as exc:
         if not _is_network_unreachable_error(exc):
             raise
         hostname = urlsplit(getattr(request, "full_url", "")).hostname or ""
@@ -124,7 +124,7 @@ def urlopen_with_ipv4_fallback(
 def _read_http_error_body(exc: HTTPError) -> str:
     try:
         return exc.read().decode("utf-8", errors="replace")
-    except Exception:
+    except OSError:
         LOGGER.debug("failed to read Telegram HTTP error body", exc_info=True)
         return ""
 

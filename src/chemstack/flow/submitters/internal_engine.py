@@ -312,7 +312,7 @@ def submit_internal_engine_job_dir(
             stderr=_stderr_with_exception("", exc),
             extra_fields=extras,
         )
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         extras = extra_fields_fn(submission, entry) if extra_fields_fn is not None else {}
         return _submission_failure_payload(
             command_trace=command_trace,
@@ -455,7 +455,7 @@ def cancel_internal_engine_target(
                 stderr=f"queue target already terminal: {normalized_target}\n",
             )
         status = _direct_cancel_status(updated, display_status_fn(updated))
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         return _cancel_failure_payload(
             command_trace=command_trace,
             stderr=_stderr_with_exception("", exc),

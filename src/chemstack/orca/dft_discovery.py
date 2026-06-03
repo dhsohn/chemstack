@@ -197,7 +197,7 @@ def _load_report_json(report_path: Path) -> dict[str, Any] | None:
         with open(report_path, encoding="utf-8") as f:
             loaded = json.load(f)
         return loaded if isinstance(loaded, dict) else None
-    except Exception as exc:
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         logger.warning(
             "dft_run_report_parse_failed: path=%s error=%s",
             report_path, exc,

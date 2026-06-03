@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -9,6 +8,7 @@ from typing import Any, Callable
 from chemstack.core.utils import (
     atomic_write_json,
     coerce_list as _shared_coerce_list,
+    load_json_mapping_file,
     mapping_or_empty,
     now_utc_iso,
     normalize_text,
@@ -38,16 +38,7 @@ def write_text_artifact(job_dir: Path, filename: str, lines: list[str]) -> Path:
 
 
 def load_json_mapping_artifact(job_dir: Path, filename: str) -> dict[str, Any] | None:
-    path = job_dir / filename
-    if not path.exists():
-        return None
-    try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return None
-    if not isinstance(raw, dict):
-        return None
-    return raw
+    return load_json_mapping_file(job_dir / filename)
 
 
 @dataclass(frozen=True)

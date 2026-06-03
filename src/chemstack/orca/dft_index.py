@@ -95,7 +95,7 @@ class DFTIndex:
                     result.status = status_override
                 results.append(result)
                 indexed += 1
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001
                 logger.warning("dft_parse_failed: path=%s error=%s", source_path, exc)
                 failed += 1
 
@@ -122,7 +122,7 @@ class DFTIndex:
                 result.status = normalized_override
             self._store.upsert_result(result)
             return True
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             logger.warning("dft_upsert_failed: path=%s error=%s", file_path, exc)
             return False
 

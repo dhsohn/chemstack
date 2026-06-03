@@ -154,7 +154,7 @@ def submit_reaction_dir(
                 reason=submission.reason or "submission_failed",
             )
         queued = submission.queued_result
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         return _failure_payload(
             command_argv=command_argv,
             reaction_dir=reaction_dir,
@@ -215,7 +215,7 @@ def cancel_target(
             "queue_id": queue_adapter.queue_entry_id(updated),
             "job_id": queue_adapter.queue_entry_task_id(updated),
         })
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         return _failure_payload(
             command_argv=command_argv,
             stderr=f"{exc.__class__.__name__}: {exc}",

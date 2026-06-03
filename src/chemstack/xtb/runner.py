@@ -238,7 +238,7 @@ def _request_candidate_process_stop(
         return
     try:
         process.terminate()
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         LOGGER.debug("xtb_process_terminate_failed: error=%s", exc)
 
 

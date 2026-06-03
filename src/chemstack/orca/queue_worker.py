@@ -36,6 +36,7 @@ from chemstack.core.queue.worker import (
     EngineRunningJob as _RunningJob,
     HookedPidFileChildProcessQueueWorker,
     ManagedProcess as _ManagedProcess,
+    resolve_admission_limit as _resolve_worker_admission_limit,
     start_background_process,
     terminate_process_group,
 )
@@ -395,21 +396,9 @@ def _notify_terminal_job_from_state(cfg: AppConfig, reaction_dir: str) -> bool:
 
 
 def _worker_admission_limit(cfg: AppConfig, fallback_max_concurrent: int) -> int:
-    raw_admission_limit: object | None = getattr(cfg.runtime, "admission_limit", None)
-    if raw_admission_limit is None or raw_admission_limit == "":
-        return max(1, int(fallback_max_concurrent))
-    try:
-        if isinstance(raw_admission_limit, bool):
-            normalized_limit = int(raw_admission_limit)
-        elif isinstance(raw_admission_limit, (int, float, str)):
-            normalized_limit = int(raw_admission_limit)
-        else:
-            raise TypeError("Unsupported admission_limit type")
-    except (TypeError, ValueError):
-        return max(1, int(fallback_max_concurrent))
-    if normalized_limit < 1:
-        return 1
-    return normalized_limit
+    if getattr(cfg.runtime, "max_concurrent", None) in (None, "", 0):
+        cfg.runtime.max_concurrent = fallback_max_concurrent
+    return _resolve_worker_admission_limit(cfg)
 
 
 def _orca_worker_lifecycle_hooks() -> EngineQueueProcessLifecycleHooks:
@@ -625,7 +614,7 @@ class QueueWorker(HookedPidFileChildProcessQueueWorker):
                 target_dir = str(result.get("target_dir") or "").strip()
                 if target_dir:
                     logger.info("Auto-organized %s -> %s", job.reaction_dir, target_dir)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             logger.warning("Auto-organize failed for %s: %s", job.reaction_dir, exc)
 
     def _check_cancel_requests(self) -> None:

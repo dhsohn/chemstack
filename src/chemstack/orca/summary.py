@@ -115,7 +115,7 @@ def _scan_cwd_process_counts(allowed_root: Path, proc_root: Path | None = None) 
             continue
         try:
             cwd = Path(os.readlink(entry / "cwd")).resolve()
-        except Exception as exc:
+        except OSError as exc:
             logger.debug(
                 "proc_cwd_read_failed: proc_entry=%s allowed_root=%s error=%s",
                 entry,
@@ -241,7 +241,7 @@ def _build_progress_snapshot(
     if size_bytes <= _MAX_PROGRESS_FILE_BYTES:
         try:
             progress = parse_opt_progress(str(out_path))
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             logger.debug("summary_progress_parse_failed: path=%s error=%s", out_path, exc)
         else:
             if progress.steps:

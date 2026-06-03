@@ -135,7 +135,7 @@ def shutdown_child_process_with_grace(
     if job.process.poll() is None:
         try:
             job.process.terminate()
-        except Exception:
+        except Exception:  # noqa: BLE001
             LOGGER.debug("failed to terminate child worker process", exc_info=True)
 
     deadline = time.monotonic() + grace_seconds

@@ -168,7 +168,7 @@ def _rollback_after_apply_failure(
             cfg, plan=plan, state_after_rollback=state_after_rollback
         )
         return f"{failure_reason}; rolled_back=true"
-    except Exception as rollback_exc:
+    except Exception as rollback_exc:  # noqa: BLE001
         bookkeep_failure = deps.bookkeep_rollback_failure or (
             lambda root, *, plan, rollback_exc: _bookkeep_rollback_failure(
                 root, plan=plan, rollback_exc=rollback_exc, deps=deps
@@ -205,7 +205,7 @@ def _apply_one_organize_plan(
                 plan=plan,
                 deps=deps,
             )
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         deps.log.error("Organize apply failed for %s: %s", plan.run_id, exc)
         failure_reason = f"apply_failed: {exc}"
         if moved:

@@ -40,5 +40,5 @@ def remove_managed_handlers(root_logger: logging.Logger) -> None:
         root_logger.removeHandler(handler)
         try:
             handler.close()
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             logging.getLogger(__name__).debug("log_handler_close_failed: error=%s", exc)

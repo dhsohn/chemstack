@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import logging
 from collections.abc import Callable
 from dataclasses import replace
@@ -8,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from chemstack.core.queue.types import QueueEntry, QueueStatus
+from chemstack.core.utils.persistence import load_json_mapping_file
 
 from .statuses import RunStatus
 
@@ -19,14 +19,9 @@ def load_report_payload(
     logger: logging.Logger,
 ) -> dict | None:
     path = report_json_path_fn(reaction_dir)
-    if not path.exists():
-        return None
-    try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
+    raw = load_json_mapping_file(path)
+    if raw is None and path.exists():
         logger.warning("Failed to parse run report: %s", path)
-        return None
-    if not isinstance(raw, dict):
         return None
     return raw
 

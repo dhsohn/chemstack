@@ -3,7 +3,7 @@ from __future__ import annotations
 import fcntl
 import os
 import time
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from pathlib import Path
 from typing import Iterator
 
@@ -32,7 +32,5 @@ def file_lock(lock_path: Path, *, timeout_seconds: float = 10.0) -> Iterator[Non
         try:
             yield
         finally:
-            try:
+            with suppress(OSError):
                 fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
-            except OSError:
-                pass

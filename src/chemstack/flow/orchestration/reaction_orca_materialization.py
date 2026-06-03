@@ -55,7 +55,7 @@ def _load_xtb_contract_for_stage(
         return None
     try:
         return o.engines.load_xtb_artifact_contract(xtb_index_root=xtb_allowed_root, target=target)
-    except Exception:
+    except Exception:  # noqa: BLE001
         return None
 
 

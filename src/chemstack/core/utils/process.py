@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 from collections.abc import Callable
+from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
@@ -78,10 +79,8 @@ def read_pid_payload(pid_path: Path) -> tuple[int | None, int | None]:
 
 
 def remove_file_silent(path: Path) -> None:
-    try:
+    with suppress(OSError):
         path.unlink()
-    except OSError:
-        pass
 
 
 def read_live_pid_file(

@@ -74,14 +74,8 @@ class WorkerAdmissionDependencies:
     release_slot: Callable[..., Any]
 
 
-@dataclass(frozen=True)
-class WorkerTimingDependencies(_engine_execution.InternalWorkerTimingDependencies):
-    pass
-
-
-@dataclass(frozen=True)
-class WorkerQueueDependencies(_engine_execution.InternalWorkerQueueDependencies):
-    pass
+WorkerTimingDependencies = _engine_execution.InternalWorkerTimingDependencies
+WorkerQueueDependencies = _engine_execution.InternalWorkerQueueDependencies
 
 
 @dataclass(frozen=True)
@@ -469,7 +463,7 @@ def _run_xtb_job_for_entry(
             ),
             check_cancel_before_poll=True,
         )
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         if isinstance(exc, WorkerShutdownRequested):
             raise
         return _failed_result_from_exception(context, exc, dependencies=dependencies)

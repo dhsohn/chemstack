@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import suppress
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
@@ -119,10 +120,8 @@ def terminal_metadata_update(
     if candidate_count_raw is None:
         candidate_count_raw = state.get("candidate_count")
     if candidate_count_raw is not None:
-        try:
+        with suppress(TypeError, ValueError):
             metadata_update["candidate_count"] = int(candidate_count_raw)
-        except (TypeError, ValueError):
-            pass
     return metadata_update
 
 

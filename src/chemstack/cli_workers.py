@@ -45,7 +45,7 @@ def _terminate_process(proc: subprocess.Popen[Any], *, deps: Any | None = None) 
         return
     try:
         proc.terminate()
-    except Exception:
+    except OSError:
         LOGGER.debug("failed to terminate supervised worker process", exc_info=True)
         return
 
@@ -57,7 +57,7 @@ def _terminate_process(proc: subprocess.Popen[Any], *, deps: Any | None = None) 
 
     try:
         proc.kill()
-    except Exception:
+    except OSError:
         LOGGER.debug("failed to kill supervised worker process", exc_info=True)
         return
 

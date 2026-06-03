@@ -4,7 +4,8 @@ import logging
 from pathlib import Path
 from typing import Any, Sequence
 
-from chemstack.core.admission import active_slot_count
+from chemstack.core.admission import AdmissionStoreCorruptError, active_slot_count
+from chemstack.core.config.files import YAML_CONFIG_LOAD_EXCEPTIONS
 from chemstack.core.paths.workflow import WORKFLOW_STAGE_DIRNAMES
 from chemstack.core.utils import normalize_text
 from chemstack.flow.engine_runtime import engine_runtime_paths
@@ -152,7 +153,7 @@ def count_global_active_simulations(
     if config_text:
         try:
             runtime_paths = engine_runtime_paths(config_text, engine="orca")
-        except Exception as exc:
+        except YAML_CONFIG_LOAD_EXCEPTIONS as exc:
             LOGGER.debug(
                 "active_simulation_runtime_paths_failed: config_path=%s error=%s",
                 config_text,
@@ -163,7 +164,7 @@ def count_global_active_simulations(
         if isinstance(admission_root, Path):
             try:
                 return max(0, int(active_slot_count(admission_root)))
-            except Exception as exc:
+            except (AdmissionStoreCorruptError, OSError) as exc:
                 LOGGER.debug(
                     "active_simulation_slot_count_failed: admission_root=%s error=%s",
                     admission_root,

@@ -58,24 +58,27 @@ def normalize_max_concurrent(value: Any, default: int = 4) -> int:
 def normalize_admission_limit(value: Any, max_concurrent: int) -> int | None:
     if value is None:
         return None
+    fallback = normalize_max_concurrent(max_concurrent, 1)
     try:
-        if isinstance(value, bool):
-            normalized_limit = int(value)
-        elif isinstance(value, (int, str)):
+        if isinstance(value, (bool, int, float, str)):
             normalized_limit = int(value)
         else:
-            raise TypeError("Unsupported admission_limit type")
+            normalized_limit = fallback
     except (TypeError, ValueError):
-        normalized_limit = max_concurrent
+        normalized_limit = fallback
     if normalized_limit < 1:
-        return max(1, max_concurrent)
+        return fallback
     return normalized_limit
 
 
 def resolved_admission_limit(admission_limit: Any, max_concurrent: Any) -> int:
-    if admission_limit is not None:
+    fallback = normalize_max_concurrent(max_concurrent, 1)
+    if admission_limit in (None, ""):
+        return fallback
+    try:
         return max(1, int(admission_limit))
-    return max(1, int(max_concurrent))
+    except (TypeError, ValueError):
+        return fallback
 
 
 class RuntimeAdmissionMixin:

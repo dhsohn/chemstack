@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import logging
 from pathlib import Path
 from typing import Any, Dict, Optional, cast
@@ -14,6 +13,7 @@ from chemstack.core.artifacts import (
 from chemstack.core.utils.persistence import (
     atomic_write_json,
     atomic_write_text as _atomic_write_text,
+    load_json_mapping_file,
     now_utc_iso as _now_utc_iso,
     timestamped_token,
 )
@@ -49,13 +49,7 @@ def organized_ref_path(reaction_dir: Path) -> Path:
 
 
 def _load_json_dict(path: Path) -> Dict[str, Any] | None:
-    if not path.exists():
-        return None
-    try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return None
-    return raw if isinstance(raw, dict) else None
+    return load_json_mapping_file(path)
 
 
 def load_state(reaction_dir: Path) -> Optional[RunState]:

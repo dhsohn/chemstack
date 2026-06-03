@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +15,7 @@ from chemstack.core.paths import (
     safe_is_subpath,
 )
 from chemstack.core.utils import normalize_bool, normalize_text, safe_int
+from chemstack.core.utils.persistence import load_json_mapping_list_file
 from chemstack.core.statuses import TERMINAL_STATUSES as TERMINAL_STATUSES
 
 from .input_artifacts import derive_selected_input_xyz as _derive_selected_input_xyz
@@ -265,12 +265,4 @@ def status_from_payloads(
 
 
 def load_json_list(path: Path) -> list[dict[str, Any]]:
-    if not path.exists():
-        return []
-    try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return []
-    if not isinstance(raw, list):
-        return []
-    return [item for item in raw if isinstance(item, dict)]
+    return load_json_mapping_list_file(path)

@@ -161,7 +161,7 @@ def attach_started_process_metadata(
     if cfg is not None and upsert_running_job_record_fn is not None:
         try:
             upsert_running_job_record_fn(cfg, entry)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             logger.warning("Failed to update running job location for %s: %s", queue_id, exc)
     return True
 

@@ -37,7 +37,7 @@ def _maybe_notify_journal_event(event: dict[str, Any], workflow_root: str | Path
         return
     try:
         transport.send_text(_notifications.journal_event_message(event, workflow_root), parse_mode="HTML")
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         LOGGER.debug(
             "workflow_journal_notification_failed: workflow_root=%s event_type=%s error=%s",
             workflow_root,
@@ -109,7 +109,7 @@ def list_workflow_journal(workflow_root: str | Path, *, limit: int = 50) -> list
                 continue
             try:
                 raw = json.loads(text)
-            except Exception as exc:
+            except json.JSONDecodeError as exc:
                 LOGGER.debug(
                     "workflow_journal_row_parse_failed: path=%s line=%d error=%s",
                     path,

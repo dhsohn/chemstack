@@ -6,7 +6,7 @@ import logging
 import json
 import os
 import time
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterator, NoReturn, Optional
@@ -24,7 +24,7 @@ def parse_lock_info(lock_path: Path) -> Dict[str, Any]:
 
     try:
         parsed = json.loads(raw)
-    except Exception:
+    except json.JSONDecodeError:
         return _empty_lock_info()
 
     if isinstance(parsed, dict):
@@ -293,11 +293,9 @@ def acquire_file_lock_from_options(
     try:
         yield
     finally:
-        try:
+        with suppress(OSError):
             lock_path.unlink()
             deps.logger.debug(messages.released_log_template, lock_path)
-        except OSError:
-            pass
 
 
 @contextmanager

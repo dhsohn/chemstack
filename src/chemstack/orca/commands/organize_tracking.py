@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import suppress
 from pathlib import Path
 from typing import Any, Dict, Mapping
 
@@ -97,10 +98,8 @@ def cleanup_organized_ref_stub(plan: OrganizePlan) -> None:
     organized_ref_path = plan.source_dir / ORGANIZED_REF_NAME
     if organized_ref_path.exists():
         organized_ref_path.unlink()
-    try:
+    with suppress(OSError):
         plan.source_dir.rmdir()
-    except OSError:
-        pass
 
 
 def restore_tracking_after_rollback(

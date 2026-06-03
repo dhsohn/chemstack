@@ -16,7 +16,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _pythonpath() -> str:
-    roots = [str(REPO_ROOT / "src"), str(REPO_ROOT)]
+    roots = [str(REPO_ROOT)]
     existing = os.environ.get("PYTHONPATH", "").strip()
     if existing:
         roots.append(existing)

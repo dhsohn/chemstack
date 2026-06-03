@@ -58,7 +58,7 @@ def state_matches_selected(
         return False
     try:
         return to_resolved_local(selected) == selected_inp.resolve()
-    except Exception:
+    except Exception:  # noqa: BLE001
         return False
 
 

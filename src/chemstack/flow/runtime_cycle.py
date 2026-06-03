@@ -24,7 +24,7 @@ def workflow_lease_expires_at(lease_seconds: float) -> str:
         from datetime import datetime, timedelta, timezone
 
         return (datetime.now(timezone.utc) + timedelta(seconds=float(lease_seconds))).isoformat()
-    except Exception:
+    except Exception:  # noqa: BLE001
         return ""
 
 

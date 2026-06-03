@@ -64,14 +64,8 @@ write_state = _queue_artifacts.write_state
 WorkerShutdownRequested = _worker_child.WorkerShutdownRequested
 
 
-@dataclass(frozen=True)
-class WorkerTimingDependencies(_engine_execution.InternalWorkerTimingDependencies):
-    pass
-
-
-@dataclass(frozen=True)
-class WorkerQueueDependencies(_engine_execution.InternalWorkerQueueDependencies):
-    pass
+WorkerTimingDependencies = _engine_execution.InternalWorkerTimingDependencies
+WorkerQueueDependencies = _engine_execution.InternalWorkerQueueDependencies
 
 
 @dataclass(frozen=True)

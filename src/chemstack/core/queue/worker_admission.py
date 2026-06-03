@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any, Callable, TypeVar
 
 from chemstack.core.admission import reserve_slot
+from chemstack.core.config.schema import resolved_admission_limit
 
 from .child_execution import find_queue_entry_by_id
 from .dependencies import ChildQueueWorkerDeps
@@ -22,14 +23,14 @@ def resolve_admission_root(cfg: Any) -> str:
 
 def resolve_admission_limit(cfg: Any) -> int:
     raw = getattr(cfg.runtime, "resolved_admission_limit", None)
+    if raw not in (None, "", 0):
+        return resolved_admission_limit(raw, 1)
     if raw in (None, "", 0):
         raw = getattr(cfg.runtime, "admission_limit", None)
+    fallback = getattr(cfg.runtime, "max_concurrent", 1)
     if raw in (None, "", 0):
-        raw = getattr(cfg.runtime, "max_concurrent", 1)
-    try:
-        return max(1, int(raw if raw is not None else 1))
-    except (TypeError, ValueError):
-        return 1
+        raw = fallback
+    return resolved_admission_limit(raw, fallback)
 
 
 def reserve_queue_worker_slot(

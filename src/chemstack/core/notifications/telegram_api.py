@@ -73,7 +73,7 @@ class TelegramApiClient:
                 body,
             )
             return None
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             self.logger.warning("telegram_api_failed: method=%s error=%s", method, exc)
             return None
 
