@@ -18,8 +18,8 @@ from .attempt_retry import (
 from .completion_rules import detect_completion_mode
 from .orca_runner import WorkerShutdownInterrupt
 from .out_analyzer import OutAnalysis, analyze_output
-from .state_machine import decide_attempt_outcome
 from .state import now_utc_iso, save_state
+from .state_machine import decide_attempt_outcome
 from .statuses import AnalyzerStatus, RunStatus
 from .types import (
     AttemptRecord,

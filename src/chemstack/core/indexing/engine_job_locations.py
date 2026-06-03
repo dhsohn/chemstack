@@ -5,9 +5,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from . import engines as _engine_locations
 from .location import JobLocationRecord
 from .store import get_job_location, list_job_locations, resolve_job_location, upsert_job_location
-from . import engines as _engine_locations
 
 
 @dataclass(frozen=True)

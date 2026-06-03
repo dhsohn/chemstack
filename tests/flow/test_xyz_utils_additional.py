@@ -4,7 +4,6 @@ from pathlib import Path
 
 import pytest
 
-
 from chemstack.flow import xyz_utils
 
 

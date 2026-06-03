@@ -26,7 +26,7 @@ def _runtime(
     )
 
 
-def test_engine_queue_runtime_delegates_queue_roots_entries_and_dequeue(
+def test_engine_queue_runtime_combines_roots_entries_and_next_entry(
     tmp_path: Path,
 ) -> None:
     root_a = tmp_path / "a"
@@ -134,7 +134,7 @@ def test_engine_queue_runtime_builds_child_worker_deps(tmp_path: Path) -> None:
     ]
 
 
-def test_internal_engine_queue_worker_deps_from_namespace_delegates_legacy_symbols(
+def test_internal_engine_queue_worker_deps_from_namespace_preserves_legacy_symbols(
     tmp_path: Path,
 ) -> None:
     calls: list[tuple[str, tuple[Any, ...], dict[str, Any]]] = []
@@ -547,7 +547,7 @@ def test_engine_queue_runtime_pidfile_command_reports_existing_worker(
     assert reports == [12345]
 
 
-def test_internal_engine_queue_module_exposes_worker_facade_delegates(
+def test_internal_engine_queue_module_preserves_worker_facade_contract(
     tmp_path: Path,
 ) -> None:
     calls: list[tuple[str, Any]] = []

@@ -5,19 +5,19 @@ from argparse import Namespace
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
-
-import pytest
 from unittest.mock import MagicMock, patch
 
-from chemstack.core.queue.types import QueueEntry, QueueStatus
+import pytest
+
 from chemstack.core.engines import orca_execution as worker_job
 from chemstack.core.engines.orca_execution import cmd_run_job, execute_run_job
+from chemstack.core.queue.types import QueueEntry, QueueStatus
 from chemstack.orca.orca_runner import OrcaRunner
 from chemstack.orca.queue_adapter import dequeue_next, enqueue
 
 
 @patch("chemstack.core.engines.orca_execution._cmd_run_inp_execute", return_value=7)
-def test_execute_run_job_forwards_explicit_execution_identity(mock_execute: MagicMock) -> None:
+def test_execute_run_job_builds_run_inp_execution_request(mock_execute: MagicMock) -> None:
     rc = execute_run_job(
         "/tmp/config.yaml",
         "/tmp/rxn",
@@ -143,7 +143,7 @@ def test_run_worker_child_job_loads_queue_entry_and_preserves_exit_code(
     assert released == [(str(tmp_path / "admission"), "slot-1")]
 
 
-def test_process_dequeued_entry_uses_internal_worker_adapter(
+def test_process_dequeued_entry_returns_orca_worker_outcome(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -312,7 +312,7 @@ def test_worker_job_main_rejects_legacy_reaction_dir_args() -> None:
 
 
 @patch("chemstack.core.engines.orca_execution.run_worker_child_job", return_value=6)
-def test_worker_job_main_delegates_queue_mode_to_worker_child(mock_run_child: MagicMock) -> None:
+def test_worker_job_main_returns_queue_child_status(mock_run_child: MagicMock) -> None:
     rc = worker_job.main(
         [
             "--config",

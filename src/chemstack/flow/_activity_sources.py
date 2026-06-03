@@ -8,10 +8,9 @@ from chemstack.core.config.files import (
     discover_shared_config_path,
     shared_workflow_root_from_config,
 )
-from chemstack.core.utils import mapping_or_empty
+from chemstack.core.utils import mapping_or_empty, normalize_text
 
 from ._activity_model import ActivitySourceRequest, ResolvedActivitySources
-from chemstack.core.utils import normalize_text
 
 coerce_mapping = mapping_or_empty
 

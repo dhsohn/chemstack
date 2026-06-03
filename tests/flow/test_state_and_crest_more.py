@@ -6,9 +6,11 @@ from typing import Any
 
 import pytest
 
-
 from chemstack.flow.adapters import _engine_adapter_helpers as adapter_helpers
-from chemstack.flow.adapters.crest import load_crest_artifact_contract, select_crest_downstream_inputs
+from chemstack.flow.adapters.crest import (
+    load_crest_artifact_contract,
+    select_crest_downstream_inputs,
+)
 from chemstack.flow.contracts.crest import CrestDownstreamPolicy
 from chemstack.flow.state import (
     WORKFLOW_FILE_NAME,

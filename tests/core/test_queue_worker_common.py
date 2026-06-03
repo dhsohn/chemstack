@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import json
 import subprocess
+from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -10,14 +10,14 @@ from typing import Any
 import pytest
 
 from chemstack.core.queue import child_process as child_process_helpers
+from chemstack.core.queue import lifecycle as lifecycle_helpers
+from chemstack.core.queue import processes as process_helpers
+from chemstack.core.queue import worker as worker_common
 from chemstack.core.queue.dependencies import (
     build_dependency_container,
     dependency_group,
     resolve_dependency_groups,
 )
-from chemstack.core.queue import lifecycle as lifecycle_helpers
-from chemstack.core.queue import processes as process_helpers
-from chemstack.core.queue import worker as worker_common
 from tests.process_helpers import FakeManagedProcess, recording_killpg
 
 
@@ -325,7 +325,7 @@ def test_start_background_job_process_builds_child_command(
     ]
 
 
-def test_hooked_pidfile_child_worker_delegates_engine_hooks(tmp_path: Path) -> None:
+def test_hooked_pidfile_child_worker_runs_engine_hooks(tmp_path: Path) -> None:
     calls: list[tuple[str, tuple[object, ...]]] = []
     cfg = _cfg(allowed_root=str(tmp_path), admission_root=str(tmp_path / "admission"))
 

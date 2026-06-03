@@ -6,11 +6,11 @@ import unittest
 from pathlib import Path
 
 from chemstack.orca.organize_index import (
+    append_record,
+    index_dir,
     load_index,
     rebuild_index,
     records_path,
-    append_record,
-    index_dir,
 )
 from chemstack.orca.state import save_state
 

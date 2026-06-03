@@ -5,17 +5,16 @@ from pathlib import Path
 
 import pytest
 
-
-from chemstack.core.indexing.location import JobLocationRecord
 from chemstack.core.indexing import store as indexing_store
+from chemstack.core.indexing.location import JobLocationRecord
 from chemstack.core.indexing.store import (
     JOB_LOCATION_INDEX_FILE_NAME,
     JobLocationIndexCorruptError,
+    _normalize_resource_payload,
+    _resolve_candidate_path,
     get_job_location,
     list_job_locations,
     resolve_job_location,
-    _normalize_resource_payload,
-    _resolve_candidate_path,
     upsert_job_location,
 )
 

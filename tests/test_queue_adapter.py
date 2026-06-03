@@ -26,6 +26,7 @@ from chemstack.orca.queue_adapter import (
 from chemstack.orca.state import report_json_path
 from tests.engine_artifact_helpers import orca_artifact_payload
 
+
 class TestQueueStore(unittest.TestCase):
     def setUp(self) -> None:
         self._tmpdir = tempfile.TemporaryDirectory()

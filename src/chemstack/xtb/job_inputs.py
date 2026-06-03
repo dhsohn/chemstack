@@ -17,7 +17,8 @@ from chemstack.core.engines.artifacts import (
 from chemstack.core.paths import validate_job_dir
 from chemstack.core.paths.workflow import workflow_workspace_internal_engine_paths_from_path
 from chemstack.core.utils import normalize_text as _normalize_text
-from chemstack.core.utils import now_utc_iso, safe_int as _safe_int, timestamped_token
+from chemstack.core.utils import now_utc_iso, timestamped_token
+from chemstack.core.utils import safe_int as _safe_int
 
 MANIFEST_FILE_NAME = "xtb_job.yaml"
 SUPPORTED_JOB_TYPES = {"path_search", "opt", "sp", "ranking"}

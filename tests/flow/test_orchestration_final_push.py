@@ -10,34 +10,65 @@ from typing import Any, cast
 
 import pytest
 
-
 from chemstack.flow import orchestration
+from chemstack.flow.contracts import WorkflowStageInput
 from chemstack.flow.orchestration.steps import (
     append_crest_orca_stages_impl as _append_crest_orca_stages,
+)
+from chemstack.flow.orchestration.steps import (
     append_reaction_orca_stages_impl as _append_reaction_orca_stages,
+)
+from chemstack.flow.orchestration.steps import (
     append_reaction_xtb_stages_impl as _append_reaction_xtb_stages,
+)
+from chemstack.flow.orchestration.steps import (
     clear_reaction_xtb_handoff_error_if_recovering_impl as _clear_reaction_xtb_handoff_error_if_recovering,
+)
+from chemstack.flow.orchestration.steps import (
     completed_crest_roles_impl as _completed_crest_roles,
+)
+from chemstack.flow.orchestration.steps import (
     completed_crest_stage_impl as _completed_crest_stage,
+)
+from chemstack.flow.orchestration.steps import (
     completed_orca_stage_impl as _completed_orca_stage,
+)
+from chemstack.flow.orchestration.steps import (
     copy_input_impl as _copy_input_impl,
+)
+from chemstack.flow.orchestration.steps import (
     downstream_terminal_result_impl,
     effective_stage_status_impl,
     latest_child_stage_summary_impl,
     orchestration_deps,
-    reaction_orca_allows_next_candidate_impl as _reaction_orca_allows_next_candidate,
-    reaction_ts_guess_error_impl as _reaction_ts_guess_error,
     recompute_workflow_status_impl,
     stage_failure_is_recoverable_impl,
-    stage_has_xtb_candidates_impl as _stage_has_xtb_candidates,
-    stage_metadata_impl as _stage_metadata,
-    sync_xtb_stage_impl as _sync_xtb_stage,
-    task_payload_dict_impl as _task_payload_dict,
     workflow_has_active_children_impl,
+)
+from chemstack.flow.orchestration.steps import (
+    reaction_orca_allows_next_candidate_impl as _reaction_orca_allows_next_candidate,
+)
+from chemstack.flow.orchestration.steps import (
+    reaction_ts_guess_error_impl as _reaction_ts_guess_error,
+)
+from chemstack.flow.orchestration.steps import (
+    stage_has_xtb_candidates_impl as _stage_has_xtb_candidates,
+)
+from chemstack.flow.orchestration.steps import (
+    stage_metadata_impl as _stage_metadata,
+)
+from chemstack.flow.orchestration.steps import (
+    sync_xtb_stage_impl as _sync_xtb_stage,
+)
+from chemstack.flow.orchestration.steps import (
+    task_payload_dict_impl as _task_payload_dict,
+)
+from chemstack.flow.orchestration.steps import (
     xtb_path_retry_limit_impl as _xtb_path_retry_limit,
+)
+from chemstack.flow.orchestration.steps import (
     xtb_retry_recipe_impl as _xtb_retry_recipe,
 )
-from chemstack.flow.contracts import WorkflowStageInput
 
 
 def _has_contract_lookup_log(caplog: pytest.LogCaptureFixture, engine: str) -> bool:

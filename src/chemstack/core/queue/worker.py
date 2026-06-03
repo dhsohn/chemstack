@@ -8,8 +8,8 @@ from .child_process import (
     reconcile_orphaned_child_queue_entries,
     request_job_cancellation,
     shutdown_child_process_with_grace,
-    start_background_process,
     start_background_job_process,
+    start_background_process,
     status_matches,
 )
 from .processes import (

@@ -7,7 +7,6 @@ from typing import Any, Sequence
 
 from chemstack import activity_rendering as _activity_rendering
 from chemstack import cli_style
-from chemstack.cli_errors import emit_error
 from chemstack.activity_presenter import (
     QueueListPresentationDeps,
     QueueListPresentationRequest,
@@ -26,8 +25,9 @@ from chemstack.cli_common import (
     _effective_shared_config_text,
     _workflow_root_for_args,
 )
-from chemstack.flow.activity import cancel_activity, clear_activities, list_activities
+from chemstack.cli_errors import emit_error
 from chemstack.core.utils import normalize_text
+from chemstack.flow.activity import cancel_activity, clear_activities, list_activities
 
 
 @dataclass(frozen=True)
@@ -283,7 +283,7 @@ def _print_queue_list_text(
     # a no-op when stdout is not a TTY, so piped/`--json` output is unaffected.
     print(cli_style.paint(lines[1], cli_style.BOLD))
     print(lines[2])
-    for (_indent, item), line in zip(display_rows, lines[3:]):
+    for (_indent, item), line in zip(display_rows, lines[3:], strict=True):
         color = cli_style.status_color(item.get("status"))
         print(cli_style.paint(line, color) if color else line)
     return 0
@@ -345,7 +345,7 @@ def cmd_queue_cancel(args: Any, *, deps: Any | None = None) -> int:
     shared_config = effective_shared_config_text(args) or None
     try:
         payload = cancel(
-            target=getattr(args, "target"),
+            target=args.target,
             workflow_root=workflow_root_for_args(args),
             crest_config=shared_config,
             xtb_config=shared_config,

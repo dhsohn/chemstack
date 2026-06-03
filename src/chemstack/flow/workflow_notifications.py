@@ -6,16 +6,28 @@ from typing import Any, Callable
 from chemstack.core.config import TelegramConfig
 from chemstack.core.notifications import (
     build_telegram_transport,
-    escape_html as _escape_html,
-    html_code as _metric_code,
     load_telegram_config_from_file,
     split_telegram_message,
 )
+from chemstack.core.notifications import (
+    escape_html as _escape_html,
+)
+from chemstack.core.notifications import (
+    html_code as _metric_code,
+)
 from chemstack.core.utils import (
     coerce_list as _coerce_sequence,
+)
+from chemstack.core.utils import (
     mapping_or_empty as _coerce_mapping,
+)
+from chemstack.core.utils import (
     normalize_text as _normalize_text,
+)
+from chemstack.core.utils import (
     now_utc_iso,
+)
+from chemstack.core.utils import (
     safe_int as _safe_int,
 )
 from chemstack.flow.workflow_status import workflow_status_is_terminal

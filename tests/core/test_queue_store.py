@@ -8,7 +8,6 @@ from pathlib import Path
 
 import pytest
 
-
 from chemstack.core.queue import store
 from chemstack.core.queue.types import QueueStatus
 

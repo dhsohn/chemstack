@@ -6,8 +6,8 @@ from typing import Any
 
 import pytest
 
-from chemstack.xtb import state as state_mod
 from chemstack.core.engines import xtb_worker_terminal as worker_terminal
+from chemstack.xtb import state as state_mod
 from chemstack.xtb.runner import XtbRunResult
 
 

@@ -23,7 +23,7 @@ def get_engine_definition(engine: str) -> EngineDefinition:
         supported = ", ".join(known_engine_ids())
         raise ValueError(f"unsupported engine: {engine_id or '<blank>'} (supported: {supported})")
     module = import_module(module_name)
-    definition = getattr(module, "ENGINE_DEFINITION")
+    definition = module.ENGINE_DEFINITION
     if not isinstance(definition, EngineDefinition):
         raise TypeError(f"{module_name}.ENGINE_DEFINITION is not an EngineDefinition")
     return definition

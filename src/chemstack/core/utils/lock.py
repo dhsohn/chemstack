@@ -21,7 +21,7 @@ def file_lock(lock_path: Path, *, timeout_seconds: float = 10.0) -> Iterator[Non
                 break
             except BlockingIOError:
                 if time.monotonic() >= deadline:
-                    raise TimeoutError(f"Timed out acquiring lock: {lock_path}")
+                    raise TimeoutError(f"Timed out acquiring lock: {lock_path}") from None
                 time.sleep(0.1)
 
         handle.seek(0)

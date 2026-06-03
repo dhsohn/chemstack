@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from contextlib import contextmanager
 import json
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +17,8 @@ from chemstack.core.paths.workflow import (
 from chemstack.core.utils import (
     atomic_write_json,
     file_lock,
+)
+from chemstack.core.utils import (
     normalize_text as _normalize_text,
 )
 from chemstack.flow.contracts.workflow import coerce_workflow_plan_payload

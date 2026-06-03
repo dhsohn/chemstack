@@ -9,8 +9,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
-from chemstack.core.admission import AdmissionSlot, list_slots
 
+from chemstack.core.admission import AdmissionSlot, list_slots
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 

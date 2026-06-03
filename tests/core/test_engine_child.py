@@ -4,8 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
-from chemstack.core.queue import child_execution
-from chemstack.core.queue import engine_child
+from chemstack.core.queue import child_execution, engine_child
 from chemstack.core.queue.child_entrypoint import ChildWorkerEntrypointJob
 from chemstack.core.queue.internal_engine import InternalEngineSpec
 

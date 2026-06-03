@@ -6,7 +6,6 @@ from types import SimpleNamespace
 from chemstack.core.queue.internal_engine import InternalEngineSpec
 from chemstack.core.queue.types import QueueStatus
 
-
 _ENGINE_LIFECYCLE_EXPORTS = InternalEngineSpec(engine="crest").lifecycle_module_exports()
 queue_lifecycle = SimpleNamespace(
     finalize_child_exit=_ENGINE_LIFECYCLE_EXPORTS.finalize_child_exit,

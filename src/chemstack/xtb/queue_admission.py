@@ -5,7 +5,6 @@ from typing import Any, Callable
 
 from chemstack.core.queue.internal_engine import InternalEngineSpec
 
-
 _ADMISSION = InternalEngineSpec(engine="xtb").admission()
 
 reserve_admission_slot = _ADMISSION.reserve_admission_slot

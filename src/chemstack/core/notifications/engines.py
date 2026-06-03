@@ -2,18 +2,25 @@ from __future__ import annotations
 
 from ._engine_delivery import (
     is_workflow_child as is_workflow_child,
+)
+from ._engine_delivery import (
     send_job_event,
     send_organize_summary,
 )
 from ._engine_rendering import (
     EngineEventField,
-    event_lines as event_lines,
     job_event_fields,
     optional_terminal_lines,
-    organize_summary_lines as organize_summary_lines,
     terminal_headline,
 )
-from ._engine_transport import send_lines as send_lines, telegram_line_sender
+from ._engine_rendering import (
+    event_lines as event_lines,
+)
+from ._engine_rendering import (
+    organize_summary_lines as organize_summary_lines,
+)
+from ._engine_transport import send_lines as send_lines
+from ._engine_transport import telegram_line_sender
 from .engine_module import (
     EngineJobNotifications,
     EngineNotificationModule,
@@ -44,6 +51,8 @@ from .engine_specs import (
 )
 from .telegram import (
     build_telegram_transport,
+)
+from .telegram import (
     split_telegram_message as split_telegram_message,
 )
 

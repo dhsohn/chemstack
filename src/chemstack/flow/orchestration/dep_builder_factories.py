@@ -4,13 +4,13 @@ from collections.abc import Mapping
 from typing import Any
 
 from .dep_builder_core import (
+    _bind_with_deps,
+    _build_dep_dataclass,
+    _deps_provider,
     _LazyOrchestrationDeps,
     _StageDepFallbackGroup,
     _StageDepFallbackRegistry,
     _StageDepFallbackSpec,
-    _bind_with_deps,
-    _build_dep_dataclass,
-    _deps_provider,
 )
 from .dep_builder_stage_fallbacks import (
     _stage_builder_fallbacks,
@@ -62,10 +62,13 @@ def _build_persistence_deps(
     overrides: Mapping[str, Any] | None,
 ) -> OrchestrationPersistenceDeps:
     from chemstack.core.utils import now_utc_iso
-
     from chemstack.flow.registry import sync_workflow_registry
-    from chemstack.flow.state import acquire_workflow_lock, load_workflow_payload
-    from chemstack.flow.state import resolve_workflow_workspace, write_workflow_payload
+    from chemstack.flow.state import (
+        acquire_workflow_lock,
+        load_workflow_payload,
+        resolve_workflow_workspace,
+        write_workflow_payload,
+    )
 
     return _build_dep_dataclass(
         OrchestrationPersistenceDeps,
@@ -93,12 +96,16 @@ def _build_engine_deps(overrides: Mapping[str, Any] | None) -> OrchestrationEngi
     from chemstack.flow.engine_runtime import engine_runtime_paths
     from chemstack.flow.submitters.crest import (
         cancel_target as crest_cancel_target,
+    )
+    from chemstack.flow.submitters.crest import (
         submit_job_dir as submit_crest_job_dir,
     )
     from chemstack.flow.submitters.orca import cancel_target as orca_cancel_target
     from chemstack.flow.submitters.orca import submit_reaction_dir
     from chemstack.flow.submitters.xtb import (
         cancel_target as xtb_cancel_target,
+    )
+    from chemstack.flow.submitters.xtb import (
         submit_job_dir as submit_xtb_job_dir,
     )
     from chemstack.flow.xyz_utils import choose_orca_geometry_frame

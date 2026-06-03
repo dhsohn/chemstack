@@ -6,7 +6,6 @@ from typing import Any
 from chemstack.core.indexing import JobLocationRecord, resolve_job_location
 from chemstack.core.utils.coercion import coerce_int_mapping
 
-from . import _engine_adapter_helpers as _adapter_helpers
 from ..contracts.xtb import (
     WorkflowStageInput,
     XtbArtifactContract,
@@ -14,6 +13,7 @@ from ..contracts.xtb import (
     XtbDownstreamPolicy,
 )
 from ..xyz_utils import has_xyz_geometry
+from . import _engine_adapter_helpers as _adapter_helpers
 
 
 def _job_type_from_record(record: JobLocationRecord | None, fallback: str) -> str:

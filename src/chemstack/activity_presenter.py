@@ -178,7 +178,7 @@ def queue_list_display_rows_for_request(
     max_width: int | None = None,
     include_id: bool = True,
     empty_message: str = "No matching activities.",
-    deps: QueueListPresentationDeps = QueueListPresentationDeps(),
+    deps: QueueListPresentationDeps | None = None,
 ) -> list[tuple[int, dict[str, Any]]]:
     options = _queue_list_presentation_options(
         request=request,
@@ -196,6 +196,7 @@ def queue_list_display_rows_for_request(
         empty_message=empty_message,
     )
     all_items = _queue_list_all_items(payload)
+    deps = deps or QueueListPresentationDeps()
     return _queue_list_display_rows(all_items, options=options, deps=deps)
 
 
@@ -215,7 +216,7 @@ def queue_list_text_presentation(
     max_width: int | None = None,
     include_id: bool = True,
     empty_message: str = "No matching activities.",
-    deps: QueueListPresentationDeps = QueueListPresentationDeps(),
+    deps: QueueListPresentationDeps | None = None,
 ) -> QueueListPresentation:
     options = _queue_list_presentation_options(
         request=request,
@@ -233,6 +234,7 @@ def queue_list_text_presentation(
         empty_message=empty_message,
     )
     all_items = _queue_list_all_items(payload)
+    deps = deps or QueueListPresentationDeps()
     display_rows = _queue_list_display_rows(all_items, options=options, deps=deps)
     counter_config_path = _queue_list_counter_config_path(payload, options=options, deps=deps)
     resolved_active_simulations = _queue_list_active_simulations(

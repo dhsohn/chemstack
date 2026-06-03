@@ -30,6 +30,8 @@ from .telegram_network import (
     _iter_exception_chain,
     _read_http_error_body,
     _should_retry_url_error,
+)
+from .telegram_network import (
     urlopen_with_ipv4_fallback as _network_urlopen_with_ipv4_fallback,
 )
 from .telegram_transport import (
@@ -38,8 +40,8 @@ from .telegram_transport import (
     TelegramTransportFactory,
     _send_telegram_chunks,
     _sleep_before_retry,
-    _TelegramChunkSendRequest,
     _telegram_transport_or_none,
+    _TelegramChunkSendRequest,
     build_telegram_transport,
     log_telegram_send_failure,
     send_preformatted_telegram_message,

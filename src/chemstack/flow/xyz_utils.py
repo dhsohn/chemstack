@@ -1,10 +1,9 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
-import re
 from typing import Sequence
-
 
 _ENERGY_PATTERNS = (
     re.compile(r"energy:\s*([-+]?\d+(?:\.\d+)?)", re.IGNORECASE),

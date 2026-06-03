@@ -6,10 +6,12 @@ from types import SimpleNamespace
 from chemstack.core.config import CommonResourceConfig, CommonRuntimeConfig, TelegramConfig
 from chemstack.core.config.engines import (
     WorkflowEngineAppConfig as AppConfig,
+)
+from chemstack.core.config.engines import (
     WorkflowEnginePathsConfig as PathsConfig,
 )
-from chemstack.xtb import runner as runner_mod
 from chemstack.xtb import queue_runtime as queue_cmd
+from chemstack.xtb import runner as runner_mod
 
 
 def make_cfg(tmp_path: Path) -> SimpleNamespace:

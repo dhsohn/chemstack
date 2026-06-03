@@ -6,7 +6,6 @@ from types import SimpleNamespace
 import pytest
 
 from chemstack.core.commands import queue as shared_queue_cmd
-
 from chemstack.crest import queue_runtime as queue_cmd
 from tests.engine_process_helpers import process_one_crest_for_test
 

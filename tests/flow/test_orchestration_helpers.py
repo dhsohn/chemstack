@@ -6,7 +6,6 @@ from typing import Any
 
 import pytest
 
-
 from chemstack.flow.contracts import WorkflowStageInput
 from chemstack.flow.orchestration.deps import orchestration_deps
 from chemstack.flow.orchestration.lifecycle import (
@@ -20,6 +19,8 @@ from chemstack.flow.orchestration.lifecycle import (
 )
 from chemstack.flow.orchestration.stage_runtime.crest import (
     completed_crest_roles_impl as _completed_crest_roles,
+)
+from chemstack.flow.orchestration.stage_runtime.crest import (
     completed_crest_stage_impl as _completed_crest_stage,
 )
 from chemstack.flow.orchestration.stage_runtime.orca import (
@@ -30,15 +31,29 @@ from chemstack.flow.orchestration.stage_runtime.shared import (
 )
 from chemstack.flow.orchestration.stage_runtime.xtb_handoff import (
     stage_has_xtb_candidates_impl as _stage_has_xtb_candidates,
+)
+from chemstack.flow.orchestration.stage_runtime.xtb_handoff import (
     xtb_handoff_status_impl as _xtb_handoff_status,
 )
 from chemstack.flow.orchestration.support import (
     clear_reaction_xtb_handoff_error_if_recovering_impl as _clear_reaction_xtb_handoff_error_if_recovering,
+)
+from chemstack.flow.orchestration.support import (
     load_config_organized_root_impl as _load_config_organized_root,
+)
+from chemstack.flow.orchestration.support import (
     load_config_root_impl as _load_config_root,
+)
+from chemstack.flow.orchestration.support import (
     reaction_orca_allows_next_candidate_impl as _reaction_orca_allows_next_candidate,
+)
+from chemstack.flow.orchestration.support import (
     reaction_ts_guess_error_impl as _reaction_ts_guess_error,
+)
+from chemstack.flow.orchestration.support import (
     stage_metadata_impl as _stage_metadata,
+)
+from chemstack.flow.orchestration.support import (
     submission_target_impl as _submission_target,
 )
 

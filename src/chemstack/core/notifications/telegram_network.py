@@ -96,11 +96,11 @@ def _force_ipv4_resolution(hostname: str):
         filtered = [item for item in results if item[0] == socket.AF_INET]
         return filtered or results
 
-    setattr(socket, "getaddrinfo", _ipv4_only_getaddrinfo)
+    socket.getaddrinfo = _ipv4_only_getaddrinfo
     try:
         yield
     finally:
-        setattr(socket, "getaddrinfo", original_getaddrinfo)
+        socket.getaddrinfo = original_getaddrinfo
 
 
 def urlopen_with_ipv4_fallback(

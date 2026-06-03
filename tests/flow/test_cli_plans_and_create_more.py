@@ -8,8 +8,7 @@ from typing import Any
 import pytest
 
 from chemstack import cli_common
-from chemstack.flow import cli_run_dir
-from chemstack.flow import run_dir_options
+from chemstack.flow import cli_run_dir, run_dir_options
 
 
 def _create_payload(template_name: str) -> dict[str, Any]:

@@ -3,23 +3,23 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, cast
 
+from chemstack.flow.contracts import (
+    WorkflowArtifactRef,
+    WorkflowStagePayload,
+    WorkflowTemplateRequest,
+)
 from chemstack.flow.orchestration.requests import (
     ReactionTsSearchWorkflowRequest,
     WorkflowCreationContext,
     WorkflowPersistenceContext,
 )
 from chemstack.flow.orchestration.workflow_builders import (
-    _ReactionWorkflowInputs,
-    _WorkflowWorkspace,
     _copy_reaction_inputs,
     _merge_manifest_defaults,
     _persist_workflow,
+    _ReactionWorkflowInputs,
     _workflow_workspace,
-)
-from chemstack.flow.contracts import (
-    WorkflowArtifactRef,
-    WorkflowStagePayload,
-    WorkflowTemplateRequest,
+    _WorkflowWorkspace,
 )
 
 

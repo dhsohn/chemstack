@@ -4,8 +4,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from chemstack.orca.commands import monitor
 from chemstack.orca.commands import _helpers as command_helpers
+from chemstack.orca.commands import monitor
 from chemstack.orca.config import AppConfig, PathsConfig, RuntimeConfig, TelegramConfig
 from chemstack.orca.dft_monitor import MonitorResult, ScanReport
 
@@ -105,7 +105,7 @@ def test_run_monitor_returns_one_when_notification_fails(tmp_path: Path) -> None
     index_cls.return_value.initialize.assert_called_once_with(str(allowed_root / "dft.db"))
 
 
-def test_cmd_monitor_loads_config_and_delegates(tmp_path: Path) -> None:
+def test_cmd_monitor_returns_status_for_loaded_config(tmp_path: Path) -> None:
     cfg = _cfg(tmp_path / "orca_runs", telegram_enabled=True)
     args = SimpleNamespace(config="config.yml")
 

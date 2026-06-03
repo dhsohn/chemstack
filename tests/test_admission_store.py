@@ -13,6 +13,8 @@ from chemstack.core.admission import (
     reconcile_stale_slots,
     release_slot,
     reserve_slot,
+)
+from chemstack.core.admission import (
     update_slot_metadata as admission_update_slot_metadata,
 )
 from chemstack.core.admission.store import ADMISSION_FILE_NAME

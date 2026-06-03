@@ -16,11 +16,13 @@ from chemstack.core.engines.artifacts import (
 )
 from chemstack.core.utils import (
     atomic_write_json,
-    coerce_list as _shared_coerce_list,
     load_json_mapping_file,
     mapping_or_empty,
-    now_utc_iso,
     normalize_text,
+    now_utc_iso,
+)
+from chemstack.core.utils import (
+    coerce_list as _shared_coerce_list,
 )
 
 RECOVERY_PENDING_REASONS = frozenset({"worker_shutdown", "crashed_recovery"})

@@ -5,8 +5,7 @@ from argparse import Namespace
 from chemstack import cli as chemstack_cli
 from chemstack import cli_workers
 from chemstack.core.app_ids import CHEMSTACK_CONFIG_ENV_VAR
-from chemstack.flow import cli_workflow
-from chemstack.flow import telegram_bot
+from chemstack.flow import cli_workflow, telegram_bot
 
 
 def test_bot_module_main_uses_shared_config(monkeypatch) -> None:

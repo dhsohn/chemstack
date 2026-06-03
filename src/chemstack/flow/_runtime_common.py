@@ -4,6 +4,8 @@ from typing import Any
 
 from chemstack.core.utils.coercion import (
     normalize_text as normalize_text,
+)
+from chemstack.core.utils.coercion import (
     safe_int as _shared_safe_int,
 )
 

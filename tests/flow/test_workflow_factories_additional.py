@@ -4,7 +4,6 @@ from pathlib import Path
 
 import pytest
 
-
 from chemstack.flow import orchestration
 from chemstack.flow.orchestration.builders import new_crest_stage_impl
 

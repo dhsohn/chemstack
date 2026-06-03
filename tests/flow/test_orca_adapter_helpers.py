@@ -6,7 +6,6 @@ from pathlib import Path
 
 import pytest
 
-
 from chemstack.core.utils.coercion import normalize_bool, normalize_text, safe_int
 from chemstack.flow.adapters import _orca_contract_status, _orca_local_lookup, _orca_path_helpers
 

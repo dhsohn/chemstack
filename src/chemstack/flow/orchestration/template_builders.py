@@ -3,6 +3,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, cast
 
+from chemstack.flow.contracts import (
+    WorkflowArtifactRef,
+    WorkflowStagePayload,
+    WorkflowTemplateRequest,
+)
 from chemstack.flow.orchestration.requests import (
     ConformerScreeningWorkflowRequest,
     ReactionTsSearchWorkflowRequest,
@@ -10,14 +15,9 @@ from chemstack.flow.orchestration.requests import (
 )
 from chemstack.flow.orchestration.workflow_builders import (
     _ConformerWorkflowInput,
+    _optional_mapping_parameter,
     _ReactionWorkflowInputs,
     _WorkflowWorkspace,
-    _optional_mapping_parameter,
-)
-from chemstack.flow.contracts import (
-    WorkflowArtifactRef,
-    WorkflowStagePayload,
-    WorkflowTemplateRequest,
 )
 
 

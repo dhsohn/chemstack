@@ -7,10 +7,14 @@ from typing import Any
 
 from chemstack.core.utils import (
     atomic_write_json,
-    coerce_mapping as _coerce_mapping,
     file_lock,
-    normalize_text as _normalize_text,
     now_utc_iso,
+)
+from chemstack.core.utils import (
+    coerce_mapping as _coerce_mapping,
+)
+from chemstack.core.utils import (
+    normalize_text as _normalize_text,
 )
 
 from .registry_store import (

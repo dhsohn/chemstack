@@ -2,9 +2,7 @@ from __future__ import annotations
 
 from typing import Any, ClassVar, cast
 
-
 import pytest
-
 
 from chemstack.core.config.schema import (
     CommonRuntimeConfig,

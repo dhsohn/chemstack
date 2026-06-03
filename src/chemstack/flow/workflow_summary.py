@@ -6,7 +6,11 @@ from typing import Any
 
 from chemstack.core.utils import (
     coerce_list as _coerce_sequence,
+)
+from chemstack.core.utils import (
     coerce_mapping as _coerce_mapping,
+)
+from chemstack.core.utils import (
     normalize_text as _normalize_text,
 )
 from chemstack.core.utils.coercion import normalize_bool as _shared_normalize_bool

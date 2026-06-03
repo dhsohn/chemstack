@@ -9,16 +9,15 @@ from unittest.mock import patch
 from chemstack.orca import state as state_module
 from chemstack.orca.runtime import run_lock
 from chemstack.orca.runtime.run_lock import acquire_run_lock
-
 from chemstack.orca.state import (
     atomic_write_text,
     load_report_json,
     load_state,
     new_state,
     save_state,
+    write_report_files,
     write_report_json,
     write_report_md,
-    write_report_files,
     write_state,
 )
 
@@ -137,7 +136,7 @@ class TestState(unittest.TestCase):
             self.assertEqual(target.read_text(encoding="utf-8"), "hello")
             self.assertEqual(list(root.glob("*.tmp.*")), [])
 
-    def test_state_module_exposes_write_helpers(self) -> None:
+    def test_state_module_keeps_write_helpers_available(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             reaction = Path(td)
             inp = reaction / "rxn.inp"

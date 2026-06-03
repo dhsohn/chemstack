@@ -21,7 +21,6 @@ from chemstack.flow.orchestration.dep_context import (
 from chemstack.flow.orchestration.dep_types import OrchestrationDeps
 from chemstack.flow.orchestration.stage_views import WorkflowPayloadView, WorkflowStageView
 
-
 _CancelTargetHandler = Callable[
     [OrchestrationDeps, str, WorkflowEngineOptions],
     dict[str, Any],

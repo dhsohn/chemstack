@@ -10,14 +10,23 @@ import pytest
 from chemstack.core.indexing import JobLocationRecord
 from chemstack.core.utils.coercion import normalize_text
 from chemstack.flow import _registry_notifications as registry_notifications
-from chemstack.flow import cli_workflow, registry, xyz_utils
-from chemstack.flow import registry_store, workflow_journal
+from chemstack.flow import (
+    cli_workflow,
+    engine_runtime,
+    registry,
+    registry_store,
+    workflow_journal,
+    xyz_utils,
+)
 from chemstack.flow.adapters import _engine_adapter_helpers as adapter_helpers
 from chemstack.flow.adapters import _orca_local_lookup, _orca_path_helpers, _orca_tracking
 from chemstack.flow.adapters import orca as orca_adapter
 from chemstack.flow.adapters import xtb as xtb_adapter
-from chemstack.flow.contracts.xtb import XtbArtifactContract, XtbCandidateArtifact, XtbDownstreamPolicy
-from chemstack.flow import engine_runtime
+from chemstack.flow.contracts.xtb import (
+    XtbArtifactContract,
+    XtbCandidateArtifact,
+    XtbDownstreamPolicy,
+)
 
 
 def _write_json(path: Path, payload: object) -> None:

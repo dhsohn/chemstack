@@ -6,14 +6,17 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from chemstack.core.config.schema import CommonResourceConfig, CommonRuntimeConfig, TelegramConfig
-
-from chemstack.crest.job_inputs import MANIFEST_FILE_NAME
 from chemstack.core.config.engines import (
     WorkflowEngineAppConfig as AppConfig,
+)
+from chemstack.core.config.engines import (
     WorkflowEngineBehaviorConfig as BehaviorConfig,
+)
+from chemstack.core.config.engines import (
     WorkflowEnginePathsConfig as PathsConfig,
 )
+from chemstack.core.config.schema import CommonResourceConfig, CommonRuntimeConfig, TelegramConfig
+from chemstack.crest.job_inputs import MANIFEST_FILE_NAME
 from chemstack.crest.runner import (
     CrestRunningJob,
     _build_command,

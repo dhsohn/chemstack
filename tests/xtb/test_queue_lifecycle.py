@@ -7,7 +7,6 @@ from typing import Any
 from chemstack.core.queue import lifecycle as _queue_lifecycle
 from chemstack.core.queue.internal_engine import InternalEngineSpec
 
-
 _ENGINE_LIFECYCLE_EXPORTS = InternalEngineSpec(engine="xtb").lifecycle_module_exports()
 queue_lifecycle = SimpleNamespace(
     finalize_child_exit=_ENGINE_LIFECYCLE_EXPORTS.finalize_child_exit,

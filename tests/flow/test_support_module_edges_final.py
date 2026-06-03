@@ -9,14 +9,25 @@ from typing import Any
 import pytest
 
 from chemstack.core.utils.coercion import coerce_int_mapping, normalize_text
-from chemstack.flow import _registry_notifications as registry_notifications
-from chemstack.flow import registry, runtime, state, xyz_utils
-from chemstack.flow import registry_store, workflow_journal
 from chemstack.flow import _orca_stage_materialization as orca_stage_utils
+from chemstack.flow import _registry_notifications as registry_notifications
+from chemstack.flow import (
+    engine_runtime,
+    registry,
+    registry_store,
+    runtime,
+    state,
+    workflow_journal,
+    xyz_utils,
+)
 from chemstack.flow.adapters import _engine_adapter_helpers as adapter_helpers
 from chemstack.flow.adapters import crest as crest_adapter
 from chemstack.flow.adapters import xtb as xtb_adapter
-from chemstack.flow.contracts.crest import CrestArtifactContract, CrestDownstreamPolicy, to_workflow_stage_inputs
+from chemstack.flow.contracts.crest import (
+    CrestArtifactContract,
+    CrestDownstreamPolicy,
+    to_workflow_stage_inputs,
+)
 from chemstack.flow.contracts.orca import OrcaArtifactContract
 from chemstack.flow.contracts.workflow import WorkflowArtifactRef, WorkflowTask
 from chemstack.flow.contracts.xtb import (
@@ -25,7 +36,6 @@ from chemstack.flow.contracts.xtb import (
     XtbCandidateArtifact,
     XtbDownstreamPolicy,
 )
-from chemstack.flow import engine_runtime
 
 
 def _write_json(path: Path, payload: object) -> None:

@@ -30,7 +30,7 @@ def _make_cfg(tmp: str) -> AppConfig:
         runtime=RuntimeConfig(allowed_root=tmp),
         paths=PathsConfig(orca_executable=str(fake_orca)),
     )
-    setattr(cfg.runtime, "max_concurrent", 1)
+    cfg.runtime.max_concurrent = 1
     return cfg
 
 

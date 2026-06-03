@@ -5,8 +5,8 @@ from typing import Any
 
 from chemstack.core.utils.coercion import normalize_text
 
-from .xtb import WorkflowStageInput
 from ..xyz_utils import load_xyz_frames
+from .xtb import WorkflowStageInput
 
 
 @dataclass(frozen=True)

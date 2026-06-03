@@ -70,17 +70,14 @@ def test_to_reaction_relative_path_handles_absolute_paths(tmp_path: Path) -> Non
     assert organize_index.to_reaction_relative_path(str(outside), reaction_dir) == ""
 
 
-def test_resolve_state_path_handles_blank_and_delegates(tmp_path: Path) -> None:
+def test_resolve_state_path_handles_blank_and_relative_artifacts(tmp_path: Path) -> None:
     reaction_dir = tmp_path / "rxn"
     reaction_dir.mkdir()
     resolved = reaction_dir / "calc.out"
+    resolved.write_text("done", encoding="utf-8")
 
     assert organize_index.resolve_state_path("", reaction_dir) is None
-
-    with patch("chemstack.orca.organize_index.resolve_artifact_path", return_value=resolved) as mocked:
-        assert organize_index.resolve_state_path("calc.out", reaction_dir) == resolved
-
-    mocked.assert_called_once_with("calc.out", reaction_dir)
+    assert organize_index.resolve_state_path("calc.out", reaction_dir) == resolved.resolve()
 
 
 def test_rebuild_index_creates_empty_records_for_missing_root(tmp_path: Path) -> None:

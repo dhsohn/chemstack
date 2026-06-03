@@ -6,13 +6,13 @@ from types import SimpleNamespace
 
 import pytest
 
-
 from chemstack.core.indexing import JobLocationRecord
-
 from chemstack.flow.adapters import (
     _orca_local_lookup,
     _orca_path_helpers,
     _orca_tracking,
+)
+from chemstack.flow.adapters import (
     orca as orca_adapter,
 )
 

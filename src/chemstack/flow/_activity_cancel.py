@@ -3,10 +3,10 @@ from __future__ import annotations
 from typing import Any
 
 from chemstack.core.app_ids import CHEMSTACK_ORCA_SOURCE
+from chemstack.core.utils import normalize_text
 
 from ._activity_model import ActivityCancelRequest, ActivityRecord, ResolvedActivitySources
 from .orchestration import cancel_materialized_workflow
-from chemstack.core.utils import normalize_text
 
 
 def match_activity_record(records: list[ActivityRecord], target: str) -> ActivityRecord:

@@ -7,6 +7,8 @@ from typing import Any
 from chemstack.core.indexing import JobLocationIndexError, JobLocationRecord, resolve_job_location
 from chemstack.core.queue.metadata import (
     mapping_metadata as queue_entry_metadata_impl,
+)
+from chemstack.core.queue.metadata import (
     mapping_metadata_value as queue_entry_metadata_value_impl,
 )
 from chemstack.core.utils.coercion import normalize_text

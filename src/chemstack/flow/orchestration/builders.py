@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from chemstack.flow.contracts import WorkflowPlanPayload
 from chemstack.flow.orchestration.requests import (
     ConformerScreeningWorkflowRequest,
     ReactionTsSearchWorkflowCreationContext,
@@ -14,7 +15,6 @@ from chemstack.flow.orchestration.template_builders import (
 from chemstack.flow.orchestration.workflow_builders import (
     _REACTION_TS_SEARCH_CREST_MANIFEST_DEFAULTS,
     _copy_conformer_input,
-    _copy_input_impl as _copy_input_impl,
     _copy_reaction_inputs,
     _merge_manifest_defaults,
     _persist_workflow,
@@ -22,7 +22,9 @@ from chemstack.flow.orchestration.workflow_builders import (
     _validate_reaction_atom_sequence,
     _workflow_workspace,
 )
-from chemstack.flow.contracts import WorkflowPlanPayload
+from chemstack.flow.orchestration.workflow_builders import (
+    _copy_input_impl as _copy_input_impl,
+)
 
 
 def create_reaction_ts_search_workflow_impl(

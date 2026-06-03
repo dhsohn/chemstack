@@ -11,10 +11,9 @@ from typing import Any, Callable, Sequence
 from chemstack import cli_style
 from chemstack.cli_common import _dependency
 from chemstack.cli_errors import emit_error
+from chemstack.cli_systemd_apply import _run_command
 from chemstack.core.utils.coercion import normalize_text
 from chemstack.systemd_plan import _is_root
-from chemstack.cli_systemd_apply import _run_command
-
 
 SERVICE_UNIT_ORDER = (
     ("runtime", "chemstack-runtime@{user}.target"),

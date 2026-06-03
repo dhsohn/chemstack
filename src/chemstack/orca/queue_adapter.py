@@ -25,8 +25,8 @@ from .queue_entries import (
     normalize_text,
     queue_entry_app_name,
     queue_entry_force,
-    queue_entry_matches_target,
     queue_entry_id,
+    queue_entry_matches_target,
     queue_entry_metadata,
     queue_entry_priority,
     queue_entry_reaction_dir,
@@ -35,6 +35,7 @@ from .queue_entries import (
     queue_entry_task_id,
 )
 from .queue_orphans import reconcile_orphaned_running_entries
+
 logger = logging.getLogger(__name__)
 
 _UNSET = object()

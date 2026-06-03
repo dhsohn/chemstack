@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import logging
 import json
+import logging
 import os
 import time
 from contextlib import contextmanager, suppress
@@ -155,7 +155,7 @@ def _handle_existing_lock(
             _unlink_lock(lock_path)
         except OSError as exc:
             if stale_remove_error_builder is not None:
-                raise stale_remove_error_builder(lock_pid, lock_path, exc)
+                raise stale_remove_error_builder(lock_pid, lock_path, exc) from exc
             raise
         return True
 

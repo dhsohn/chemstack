@@ -6,13 +6,10 @@ from typing import Any
 
 import pytest
 
-from chemstack import cli_common
-from chemstack import cli_handlers as cli_monitor
-from chemstack import cli_queue
-from chemstack import cli_handlers as cli_run_dir
-from chemstack import cli_systemd
-from chemstack import cli_worker_conflicts
 from chemstack import cli as unified_cli
+from chemstack import cli_common, cli_queue, cli_systemd, cli_worker_conflicts
+from chemstack import cli_handlers as cli_monitor
+from chemstack import cli_handlers as cli_run_dir
 
 
 @pytest.fixture(autouse=True)

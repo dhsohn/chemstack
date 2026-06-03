@@ -58,7 +58,7 @@ def test_ensure_crest_job_dir_copies_input_and_populates_manifest(tmp_path: Path
     ) == str(job_path)
 
 
-def test_ensure_xtb_job_dir_returns_existing_or_delegates_to_writer(
+def test_ensure_xtb_job_dir_returns_existing_or_generated_job_dir(
     tmp_path: Path,
 ) -> None:
     existing_stage = {

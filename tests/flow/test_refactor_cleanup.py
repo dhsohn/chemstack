@@ -6,18 +6,19 @@ from typing import Any
 
 import pytest
 
-
 from chemstack.flow import orchestration, runtime, runtime_advance
-from chemstack.flow.orchestration import dep_builders
+from chemstack.flow.orchestration import (
+    dep_builders,
+    reaction_materialization,
+    reaction_orca_materialization,
+)
+from chemstack.flow.orchestration import materialization as stage_materialization
 from chemstack.flow.orchestration.builders import _copy_input_impl
 from chemstack.flow.orchestration.deps import (
     _ORCHESTRATION_STAGE_DEP_REGISTRY,
     OrchestrationStageDeps,
     orchestration_deps,
 )
-from chemstack.flow.orchestration import materialization as stage_materialization
-from chemstack.flow.orchestration import reaction_materialization
-from chemstack.flow.orchestration import reaction_orca_materialization
 
 
 def test_copy_input_impl_copies_file_and_raises_for_missing_source(tmp_path: Path) -> None:
@@ -56,7 +57,7 @@ def test_orchestration_deps_use_explicit_overrides_not_public_module_fallback(
     )
 
 
-def test_orchestration_stage_deps_passthroughs_delegate_to_grouped_deps() -> None:
+def test_orchestration_stage_deps_keep_grouped_dependency_contract() -> None:
     def fake_normalize(value: object) -> str:
         return f"normalized:{value}"
 
@@ -65,8 +66,9 @@ def test_orchestration_stage_deps_passthroughs_delegate_to_grouped_deps() -> Non
     assert deps.stages._normalize_text is deps.stages.support._normalize_text
     assert deps.stages._normalize_text("x") == "normalized:x"
     assert deps.stages._append_unique_artifact is deps.stages.runtime._append_unique_artifact
+    missing_dep = "_not_a_stage_dep"
     with pytest.raises(AttributeError, match="OrchestrationStageDeps"):
-        getattr(deps.stages, "_not_a_stage_dep")
+        getattr(deps.stages, missing_dep)
 
 
 def test_stage_dep_registry_matches_group_dataclasses() -> None:
@@ -98,7 +100,7 @@ def test_stage_dep_fallback_groups_follow_stage_registry() -> None:
         assert set(group.fallbacks) == set(group.dep_group.dep_names)
 
 
-def test_runtime_facade_reexports_advance_helpers_from_runtime_advance() -> None:
+def test_runtime_facade_keeps_advance_helpers_available() -> None:
     assert runtime.WorkflowAdvanceDeps is runtime_advance.WorkflowAdvanceDeps
     assert runtime.WorkflowAdvanceOutcome is runtime_advance.WorkflowAdvanceOutcome
     assert (

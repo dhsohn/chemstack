@@ -1,3 +1,5 @@
+from chemstack import __version__
+
 from .admission.store import AdmissionSlot, activate_reserved_slot
 from .config.schema import CommonResourceConfig, CommonRuntimeConfig, TelegramConfig
 from .indexing import (
@@ -12,7 +14,6 @@ from .indexing import (
 )
 from .notifications import TelegramSendResult, TelegramTransport, build_telegram_transport
 from .queue.types import QueueEntry, QueueStatus
-from chemstack import __version__
 
 __all__ = [
     "__version__",

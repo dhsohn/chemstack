@@ -5,13 +5,13 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from chemstack.core.queue.types import QueueStatus
 from chemstack.orca.queue_adapter import (
     list_queue,
     queue_entry_force,
     queue_entry_reaction_dir,
 )
 from chemstack.orca.state import state_path
-from chemstack.core.queue.types import QueueStatus
 
 
 def _run_main(argv: list[str]) -> int:

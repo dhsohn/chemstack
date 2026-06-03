@@ -5,18 +5,26 @@ from typing import Any
 
 from chemstack.core.utils import (
     mapping_or_empty as _coerce_mapping,
+)
+from chemstack.core.utils import (
     normalize_text as _normalize_text,
 )
-
+from chemstack.flow.orchestration.stage_views import WorkflowStageView, WorkflowTaskView
 from chemstack.flow.orchestration.workflow_builders import (
     _REACTION_TS_SEARCH_CREST_MANIFEST_DEFAULTS,
     _merge_manifest_defaults,
 )
-from chemstack.flow.orchestration.stage_views import WorkflowStageView, WorkflowTaskView
+
 from .manifest import (
     load_flow_manifest as _load_flow_manifest,
+)
+from .manifest import (
     manifest_mapping as _manifest_mapping,
+)
+from .manifest import (
     resolve_endpoint_pairing_manifest as _resolve_endpoint_pairing_manifest,
+)
+from .manifest import (
     resolve_engine_manifest_with_presence as _resolve_engine_manifest,
 )
 from .restart_stage_ops import (

@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from chemstack.flow.orchestration.stage_views import WorkflowStageView, WorkflowTaskView
+
 from . import restart_stages as _restart_stages
 
 _RESTARTABLE_STAGE_STATUSES = frozenset(

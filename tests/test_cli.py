@@ -13,15 +13,17 @@ from unittest.mock import MagicMock, patch
 from chemstack import cli as unified_cli
 from chemstack import cli_handlers as cli_run_dir
 from chemstack.core.admission import reserve_slot
+from chemstack.orca.cli_logging import (
+    configure_logging as _configure_logging,
+)
+from chemstack.orca.cli_logging import (
+    remove_managed_handlers as _remove_managed_handlers,
+)
 from chemstack.orca.commands._helpers import CONFIG_ENV_VAR, _emit, default_config_path
 from chemstack.orca.commands.run_inp import (
     _cmd_run_inp_execute,
     _retry_inp_path,
     _select_latest_inp,
-)
-from chemstack.orca.cli_logging import (
-    configure_logging as _configure_logging,
-    remove_managed_handlers as _remove_managed_handlers,
 )
 from chemstack.orca.orca_runner import RunResult, WorkerShutdownInterrupt
 from chemstack.orca.state import load_state, save_state, state_path
@@ -306,7 +308,7 @@ class TestCli(unittest.TestCase):
 
         unmanaged = logging.StreamHandler()
         managed = MagicMock(spec=logging.Handler)
-        setattr(managed, "_chemstack_managed_handler", True)
+        managed._chemstack_managed_handler = True
         managed.close.side_effect = RuntimeError("boom")
 
         root_logger.addHandler(unmanaged)

@@ -8,7 +8,11 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from chemstack.core.utils.process_tracking import active_run_lock_pid, current_process_lock_payload, read_pid_file
+from chemstack.core.utils.process_tracking import (
+    active_run_lock_pid,
+    current_process_lock_payload,
+    read_pid_file,
+)
 
 
 class TestProcessTracking(unittest.TestCase):

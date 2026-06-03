@@ -7,15 +7,15 @@ from typing import cast
 
 import pytest
 
-
 from chemstack.core.indexing import JobLocationRecord
 from chemstack.core.utils.coercion import normalize_bool, normalize_text, safe_int
-
 from chemstack.flow.adapters import (
     _orca_contract_status,
     _orca_local_lookup,
     _orca_path_helpers,
     _orca_tracking,
+)
+from chemstack.flow.adapters import (
     orca as orca_adapter,
 )
 

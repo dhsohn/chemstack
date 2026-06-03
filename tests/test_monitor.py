@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import tempfile
-from argparse import Namespace
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -260,22 +259,3 @@ class TestRunMonitor:
 
         assert result == 0
         mock_notify.assert_not_called()
-
-    def test_cmd_monitor_loads_config_and_delegates(self) -> None:
-        from chemstack.orca.commands.monitor import cmd_monitor
-
-        cfg = AppConfig(
-            runtime=RuntimeConfig(allowed_root="/tmp/runs"),
-            paths=PathsConfig(orca_executable="/usr/bin/orca"),
-            telegram=TelegramConfig(bot_token="fake", chat_id="123"),
-        )
-        args = Namespace(config="config.yml")
-
-        with patch("chemstack.orca.commands.monitor.load_config", return_value=cfg) as load_cfg, patch(
-            "chemstack.orca.commands.monitor._run_monitor",
-            return_value=7,
-        ) as run_monitor:
-            assert cmd_monitor(args) == 7
-
-        load_cfg.assert_called_once_with("config.yml")
-        run_monitor.assert_called_once_with(cfg)

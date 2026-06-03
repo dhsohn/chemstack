@@ -10,7 +10,6 @@ from chemstack.orca.inp_rewriter import (
     rewrite_for_retry,
 )
 
-
 BASE_INP = """! OptTS Freq IRC
 
 %pal

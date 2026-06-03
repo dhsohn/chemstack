@@ -7,8 +7,9 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Mapping, Optional
 
-from chemstack.core.utils import process_lock
 from chemstack.core.paths import resolve_artifact_path
+from chemstack.core.utils import process_lock
+
 from .state import atomic_write_text, load_state, now_utc_iso
 
 logger = logging.getLogger(__name__)

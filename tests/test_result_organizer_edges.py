@@ -155,7 +155,7 @@ def test_rollback_move_reraises_non_exdev_oserror(tmp_path: Path) -> None:
     assert exc_info.value.errno == errno.EPERM
 
 
-def test_sync_state_after_move_and_rollback_delegate_to_relocation_helper(tmp_path: Path) -> None:
+def test_sync_state_after_move_and_rollback_use_expected_relocation_paths(tmp_path: Path) -> None:
     plan = _plan(tmp_path)
     moved_state = {"reaction_dir": str(plan.target_abs_path)}
     rolled_back_state = {"reaction_dir": str(plan.source_dir)}

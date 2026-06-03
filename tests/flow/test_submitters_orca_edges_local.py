@@ -6,7 +6,6 @@ from typing import Any
 
 import pytest
 
-
 from chemstack.flow.submitters import orca as orca_submitter
 from chemstack.flow.submitters.orca_models import ensure_submission_metadata
 from chemstack.flow.submitters.orca_submission import submission_summary_state

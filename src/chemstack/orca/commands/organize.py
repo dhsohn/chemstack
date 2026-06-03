@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any, Dict, Mapping
 
 from ..config import AppConfig, load_config
+from ..job_locations import reindex_job_locations
 from ..organize_index import (
     acquire_index_lock,
     append_failed_rollback,
@@ -24,19 +25,18 @@ from ..result_organizer import (
     sync_state_after_rollback,
 )
 from ..state import now_utc_iso
-from ..job_locations import reindex_job_locations
 from ..telegram_notifier import escape_html, send_message
 from ..types import RunState
-from ._helpers import (
-    _validate_reaction_dir,
-    _validate_root_scan_dir,
-    finalize_batch_apply,
-)
 from . import organize_apply as _organize_apply
 from . import organize_notifications as _organize_notifications
 from . import organize_output as _organize_output
 from . import organize_service as _organize_service
 from . import organize_tracking as _organize_tracking
+from ._helpers import (
+    _validate_reaction_dir,
+    _validate_root_scan_dir,
+    finalize_batch_apply,
+)
 
 logger = logging.getLogger(__name__)
 

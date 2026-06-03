@@ -32,7 +32,11 @@ from . import telegram_settings as _settings
 from .activity import cancel_activity, clear_activities, list_activities
 from .telegram_keyboards import (
     _MAX_LIST_CANCEL_BUTTONS as _MAX_LIST_CANCEL_BUTTONS,
+)
+from .telegram_keyboards import (
     _cancel_confirm_keyboard as _cancel_confirm_keyboard,
+)
+from .telegram_keyboards import (
     _list_action_keyboard as _list_action_keyboard,
 )
 

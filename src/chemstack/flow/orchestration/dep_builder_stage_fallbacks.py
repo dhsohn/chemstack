@@ -4,7 +4,7 @@ from collections.abc import Mapping
 from functools import partial
 from typing import Any
 
-from .dep_builder_core import _LazyOrchestrationDeps, _bind_many_with_deps
+from .dep_builder_core import _bind_many_with_deps, _LazyOrchestrationDeps
 from .dep_builder_fallbacks import (
     _coerce_mapping_fallback,
     _maybe_notify_workflow_phase_summary_fallback,

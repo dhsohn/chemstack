@@ -4,7 +4,11 @@ import logging
 
 from .child_process import (
     reconcile_orphaned_child_queue_entries as reconcile_orphaned_child_queue_entries,
+)
+from .child_process import (
     shutdown_child_process_with_grace as shutdown_child_process_with_grace,
+)
+from .child_process import (
     status_matches as status_matches,
 )
 from .lifecycle_hooks import (

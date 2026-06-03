@@ -6,7 +6,6 @@ from typing import Any
 
 import pytest
 
-
 from chemstack.core.admission import release_slot, reserve_slot
 from chemstack.flow import runtime, runtime_events
 

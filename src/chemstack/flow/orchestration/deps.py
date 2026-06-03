@@ -13,7 +13,6 @@ from chemstack.flow.orchestration.dep_types import (
     _ORCHESTRATION_STAGE_RUNTIME_GROUP,
     _ORCHESTRATION_STAGE_SUPPORT_GROUP,
     _ORCHESTRATION_STAGE_WORKFLOW_GROUP,
-    _OrchestrationStageDepGroup,
     AnyCallable,
     MappingCoercer,
     OrchestrationAdvanceDeps,
@@ -39,6 +38,7 @@ from chemstack.flow.orchestration.dep_types import (
     WorkflowStatusComputer,
     WorkflowWorkspace,
     WorkflowWorkspaceResolver,
+    _OrchestrationStageDepGroup,
     _stage_dep_group,
 )
 

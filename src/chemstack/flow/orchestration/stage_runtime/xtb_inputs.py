@@ -5,7 +5,6 @@ from pathlib import Path
 from typing import Any
 
 from chemstack.core.utils.coercion import normalize_text, safe_int
-
 from chemstack.flow.xyz_utils import load_xyz_frames
 
 

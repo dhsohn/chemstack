@@ -10,18 +10,23 @@ import pytest
 import yaml
 
 from chemstack.core import engine_runner
-from chemstack.xtb import runner as runner_mod
-from chemstack.xtb import runner_artifacts
-from chemstack.xtb import runner_ranking
 from chemstack.core.config.engines import (
     WorkflowEngineAppConfig as AppConfig,
 )
+from chemstack.xtb import runner as runner_mod
+from chemstack.xtb import runner_artifacts, runner_ranking
 from tests.xtb.factories import (
     CandidateSpDeps,
     FakeCandidateProcess,
     make_ranking_result,
+)
+from tests.xtb.factories import (
     make_runner_cfg as _cfg,
+)
+from tests.xtb.factories import (
     write_multi_xyz as _write_multi_xyz,
+)
+from tests.xtb.factories import (
     write_xyz as _write_xyz,
 )
 

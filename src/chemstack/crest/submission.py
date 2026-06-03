@@ -12,6 +12,8 @@ from chemstack.core.commands.run_dir import (
 )
 from chemstack.core.config.engines import (
     load_crest_config as load_config,
+)
+from chemstack.core.config.engines import (
     resource_request_from_manifest,
 )
 from chemstack.core.notifications import engines as _notification_engines
@@ -19,7 +21,6 @@ from chemstack.core.queue import enqueue
 
 from . import job_locations as _job_locations
 from . import state as _state
-from .job_locations import index_root_for_path, molecule_key_from_selected_xyz
 from .job_inputs import (
     job_mode,
     load_job_manifest,
@@ -28,6 +29,7 @@ from .job_inputs import (
     resolve_job_dir,
     select_input_xyz,
 )
+from .job_locations import index_root_for_path, molecule_key_from_selected_xyz
 
 notify_job_queued = _notification_engines.notify_crest_job_queued
 upsert_job_record = _job_locations.upsert_job_record

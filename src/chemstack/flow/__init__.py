@@ -1,3 +1,5 @@
+from chemstack import __version__
+
 from .contracts import (
     CrestArtifactContract,
     CrestDownstreamPolicy,
@@ -6,8 +8,8 @@ from .contracts import (
     WorkflowPlan,
     WorkflowPlanPayload,
     WorkflowStage,
-    WorkflowStagePayload,
     WorkflowStageInput,
+    WorkflowStagePayload,
     WorkflowStageWithTaskPayload,
     WorkflowTask,
     WorkflowTaskPayload,
@@ -17,7 +19,6 @@ from .contracts import (
     XtbCandidateArtifact,
     XtbDownstreamPolicy,
 )
-from chemstack import __version__
 
 __all__ = [
     "CrestArtifactContract",

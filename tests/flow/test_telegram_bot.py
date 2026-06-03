@@ -13,7 +13,6 @@ import pytest
 from chemstack.core.config import TelegramConfig
 from chemstack.core.notifications import telegram as telegram_mod
 from chemstack.core.notifications import telegram_api as telegram_api_mod
-
 from chemstack.flow import telegram_bot as bot
 from tests.flow_factories import telegram_bot_settings
 
@@ -792,7 +791,7 @@ def test_api_call_handles_success_api_error_http_error_and_generic_error(monkeyp
     assert bot._api_call("token", "method") is None
 
 
-def test_set_bot_commands_delegates_to_api_call(monkeypatch) -> None:
+def test_set_bot_commands_sends_expected_command_payload(monkeypatch) -> None:
     captured: dict[str, Any] = {}
 
     def fake_api_call(token: str, method: str, payload: dict[str, Any]) -> None:

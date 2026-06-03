@@ -5,7 +5,7 @@ from typing import Any
 from chemstack.orca.commands import queue as queue_worker_entrypoint
 
 
-def test_orca_queue_worker_entrypoint_dispatches_worker(monkeypatch) -> None:
+def test_orca_queue_worker_entrypoint_parses_worker_args(monkeypatch) -> None:
     worker_calls: list[Any] = []
 
     def _worker(args: Any) -> int:

@@ -2,29 +2,15 @@ from __future__ import annotations
 
 from .dep_builder_core import (
     AnyCallable,
-    _LazyOrchestrationDeps,
-    _StageDepFallbackGroup,
     _apply_overrides,
     _bind_many_with_deps,
     _bind_with_deps,
     _build_dep_dataclass,
     _deps_provider,
+    _LazyOrchestrationDeps,
     _override,
+    _StageDepFallbackGroup,
     _validate_dep_fallbacks,
-)
-from .dep_builder_fallbacks import (
-    _coerce_mapping_fallback,
-    _maybe_notify_workflow_phase_summary_fallback,
-    _normalize_text_fallback,
-    _normalize_text_override,
-    _persist_workflow_progress_fallback,
-    _recompute_workflow_status_fallback,
-    _safe_int_fallback,
-    _stage_failure_is_recoverable_fallback,
-    _stage_failure_is_recoverable_override,
-    _stage_metadata_override,
-    _workflow_has_active_children_fallback,
-    _workflow_sync_only_fallback,
 )
 from .dep_builder_factories import (
     _build_advance_deps,
@@ -39,6 +25,20 @@ from .dep_builder_factories import (
     _stage_runtime_fallbacks,
     _stage_support_fallbacks,
     _stage_workflow_fallbacks,
+)
+from .dep_builder_fallbacks import (
+    _coerce_mapping_fallback,
+    _maybe_notify_workflow_phase_summary_fallback,
+    _normalize_text_fallback,
+    _normalize_text_override,
+    _persist_workflow_progress_fallback,
+    _recompute_workflow_status_fallback,
+    _safe_int_fallback,
+    _stage_failure_is_recoverable_fallback,
+    _stage_failure_is_recoverable_override,
+    _stage_metadata_override,
+    _workflow_has_active_children_fallback,
+    _workflow_sync_only_fallback,
 )
 
 __all__ = [

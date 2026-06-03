@@ -6,9 +6,9 @@ from pathlib import Path
 from chemstack.core.indexing import resolve_job_location
 from chemstack.core.utils.coercion import coerce_int_mapping
 
-from . import _engine_adapter_helpers as _adapter_helpers
 from ..contracts.crest import CrestArtifactContract, CrestDownstreamPolicy, to_workflow_stage_inputs
 from ..contracts.xtb import WorkflowStageInput
+from . import _engine_adapter_helpers as _adapter_helpers
 
 _ACTIVE_PAYLOAD_STATUSES = frozenset({"queued", "running", "submitted", "cancel_requested", "retrying"})
 

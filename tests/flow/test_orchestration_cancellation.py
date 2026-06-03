@@ -6,7 +6,6 @@ from typing import Any
 
 import pytest
 
-
 from chemstack.flow import orchestration
 from chemstack.flow.orchestration.deps import orchestration_deps
 

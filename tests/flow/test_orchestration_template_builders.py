@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, cast
 
+from chemstack.flow.contracts import WorkflowStageWithTaskPayload
 from chemstack.flow.orchestration.requests import (
     ConformerScreeningWorkflowRequest,
     ReactionTsSearchWorkflowRequest,
@@ -17,7 +18,6 @@ from chemstack.flow.orchestration.workflow_builders import (
     _ReactionWorkflowInputs,
     _WorkflowWorkspace,
 )
-from chemstack.flow.contracts import WorkflowStageWithTaskPayload
 
 
 def _context(stage_calls: list[dict[str, Any]]) -> WorkflowCreationContext:

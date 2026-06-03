@@ -6,8 +6,8 @@ from typing import Any
 
 import pytest
 
-from chemstack.core.queue.types import QueueStatus
 from chemstack.core.engines import xtb_execution as worker_child
+from chemstack.core.queue.types import QueueStatus
 
 
 def test_run_worker_child_job_processes_loaded_entry_and_releases_slot(

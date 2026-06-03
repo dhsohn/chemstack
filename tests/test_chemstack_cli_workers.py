@@ -10,9 +10,9 @@ from typing import Any, cast
 import pytest
 
 from chemstack import cli_common
+from chemstack import cli_handlers as cli_run_dir
 from chemstack import cli_worker_conflicts as worker_conflicts
 from chemstack import cli_worker_specs as worker_specs
-from chemstack import cli_handlers as cli_run_dir
 from chemstack import cli_workers as unified_cli
 
 
@@ -277,7 +277,7 @@ def test_cmd_orca_run_dir_uses_discovered_shared_config(
     assert captured == [(str(Path("/tmp/chemstack.yaml").resolve()), str(target))]
 
 
-def test_cmd_queue_worker_delegates_to_supervisor(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_cmd_queue_worker_returns_supervisor_status(monkeypatch: pytest.MonkeyPatch) -> None:
     specs = [
         unified_cli.WorkerSpec(
             app="orca",

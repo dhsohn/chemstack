@@ -5,12 +5,12 @@ from typing import Any
 
 from .artifacts import (
     ENGINE_ARTIFACT_SCHEMA_VERSION,
-    EngineArtifactSchema,
     EngineArtifactInput,
     EngineArtifactJob,
     EngineArtifactProcess,
     EngineArtifactRecovery,
     EngineArtifactResources,
+    EngineArtifactSchema,
     EngineArtifactStatus,
     EngineArtifactTimestamps,
     build_engine_artifact_payload,

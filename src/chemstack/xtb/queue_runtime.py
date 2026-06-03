@@ -6,18 +6,6 @@ import time
 from pathlib import Path
 from typing import Any, Callable
 
-from chemstack.core.config.engines import (
-    default_shared_config_path as default_config_path,
-    load_xtb_config as load_config,
-)
-from chemstack.core.engines import xtb_artifacts as _queue_artifacts
-from chemstack.core.engines import xtb_execution as _worker_execution
-from chemstack.core.engines import xtb_terminal as _queue_terminal
-from chemstack.core.engines import xtb_worker_terminal as _worker_terminal
-from chemstack.core.notifications.engines import (
-    notify_xtb_job_finished as notify_job_finished,
-    notify_xtb_job_started as notify_job_started,
-)
 from chemstack.core.admission import (
     activate_reserved_slot,
     list_slots,
@@ -25,10 +13,25 @@ from chemstack.core.admission import (
     release_slot,
     reserve_slot,
 )
+from chemstack.core.config.engines import (
+    default_shared_config_path as default_config_path,
+)
+from chemstack.core.config.engines import (
+    load_xtb_config as load_config,
+)
+from chemstack.core.engines import xtb_artifacts as _queue_artifacts
+from chemstack.core.engines import xtb_execution as _worker_execution
+from chemstack.core.engines import xtb_terminal as _queue_terminal
+from chemstack.core.engines import xtb_worker_terminal as _worker_terminal
+from chemstack.core.engines.queue_worker import EngineQueueWorker
+from chemstack.core.notifications.engines import (
+    notify_xtb_job_finished as notify_job_finished,
+)
+from chemstack.core.notifications.engines import (
+    notify_xtb_job_started as notify_job_started,
+)
 from chemstack.core.queue import (
     dequeue_next,
-    engine_execution as _engine_execution,
-    execution as _queue_execution,
     get_cancel_requested,
     list_queue,
     mark_cancelled,
@@ -36,22 +39,31 @@ from chemstack.core.queue import (
     mark_failed,
     requeue_running_entry,
 )
-from chemstack.core.queue.worker import (
-    BackgroundRunningJob,
-    ManagedProcess as _ManagedProcess,
-    config_path_for_worker,
-    pid_is_alive as worker_pid_is_alive,
-    reconcile_orphaned_child_queue_entries,
-    start_background_process,
-    terminate_process_group,
+from chemstack.core.queue import (
+    engine_execution as _engine_execution,
 )
-from chemstack.core.engines.queue_worker import EngineQueueWorker
+from chemstack.core.queue import (
+    execution as _queue_execution,
+)
 from chemstack.core.queue import lifecycle as _queue_lifecycle
 from chemstack.core.queue.internal_engine import (
     InternalEngineQueueModule,
     InternalEngineQueueWorkerDeps,
     InternalEngineSpec,
     internal_engine_queue_worker_deps_from_namespace,
+)
+from chemstack.core.queue.worker import (
+    BackgroundRunningJob,
+    config_path_for_worker,
+    reconcile_orphaned_child_queue_entries,
+    start_background_process,
+    terminate_process_group,
+)
+from chemstack.core.queue.worker import (
+    ManagedProcess as _ManagedProcess,
+)
+from chemstack.core.queue.worker import (
+    pid_is_alive as worker_pid_is_alive,
 )
 from chemstack.core.utils import now_utc_iso
 

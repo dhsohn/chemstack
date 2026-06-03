@@ -6,15 +6,18 @@ from typing import Any, Callable
 
 import pytest
 
-from chemstack.core.config.schema import CommonResourceConfig, CommonRuntimeConfig, TelegramConfig
-
 from chemstack.core.config.engines import (
     WorkflowEngineAppConfig as AppConfig,
+)
+from chemstack.core.config.engines import (
     WorkflowEngineBehaviorConfig as BehaviorConfig,
+)
+from chemstack.core.config.engines import (
     WorkflowEnginePathsConfig as PathsConfig,
 )
-from chemstack.crest.runner import CrestRunResult, _build_command
+from chemstack.core.config.schema import CommonResourceConfig, CommonRuntimeConfig, TelegramConfig
 from chemstack.core.engines import crest_execution as worker_execution
+from chemstack.crest.runner import CrestRunResult, _build_command
 
 
 def _cfg(tmp_path: Path) -> AppConfig:

@@ -6,12 +6,11 @@ import pytest
 
 import chemstack.xtb.job_locations as job_locations_module
 from chemstack.core.config import CommonRuntimeConfig
+from chemstack.core.config.engines import WorkflowEngineAppConfig as AppConfig
 from chemstack.core.indexing import JobLocationRecord, get_job_location, upsert_job_location
 from chemstack.core.indexing import engine_job_locations as shared_job_locations
 from chemstack.core.indexing.engines import resource_dict
 from chemstack.flow.state import write_workflow_payload
-
-from chemstack.core.config.engines import WorkflowEngineAppConfig as AppConfig
 from chemstack.xtb.job_locations import (
     build_job_location_record,
     normalize_key,

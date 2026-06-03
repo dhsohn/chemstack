@@ -13,10 +13,14 @@ from chemstack.core.app_ids import (
     CHEMSTACK_REPO_ROOT_ENV_VAR,
 )
 from chemstack.core.queue.types import QueueEntry, QueueStatus
-
-from chemstack.flow import activity
-from chemstack.flow import _activity_cancel, _activity_list, _activity_orca, _activity_sources
-from chemstack.flow import _activity_model
+from chemstack.flow import (
+    _activity_cancel,
+    _activity_list,
+    _activity_model,
+    _activity_orca,
+    _activity_sources,
+    activity,
+)
 
 
 def test_list_activities_merges_workflows_and_standalone_sources(monkeypatch) -> None:

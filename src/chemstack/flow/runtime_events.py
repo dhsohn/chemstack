@@ -17,9 +17,9 @@ from .stage_event_metadata import (
     stage_transition_metadata,
 )
 from .stage_transition_events import (
+    _stage_transition_event_request,
     _StageTransitionEventRequest,
     _WorkflowEventContext,
-    _stage_transition_event_request,
     append_phase_transition_events,
     append_stage_transition_events,
     append_workflow_advance_failed_event,

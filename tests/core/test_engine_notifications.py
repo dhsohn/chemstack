@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from chemstack.core.notifications import engines as engine_facade
@@ -13,7 +14,7 @@ def _send_ok(_cfg: Any, _lines: list[str]) -> bool:
     return True
 
 
-def test_engine_notification_module_reuses_delivery_helper() -> None:
+def test_engine_notification_module_builds_delivery_contract() -> None:
     notifications = build_engine_notification_module(
         label="xTB",
         engine="xtb",
@@ -23,10 +24,11 @@ def test_engine_notification_module_reuses_delivery_helper() -> None:
         send_fn=_send_ok,
     )
 
-    assert notifications.delivery is notifications.delivery
+    assert notifications.delivery.notifier is notifications.notifier
+    assert notifications.detail_fields({"mode": "nci", "ignored": "x"}) == [("mode", "nci")]
 
 
-def test_engine_job_notifications_reuses_request_factory() -> None:
+def test_engine_job_notifications_builds_request_contract() -> None:
     notifications = build_engine_job_notifications(
         label="CREST",
         engine="crest",
@@ -36,10 +38,24 @@ def test_engine_job_notifications_reuses_request_factory() -> None:
         send_fn=_send_ok,
     )
 
-    assert notifications.request_factory is notifications.request_factory
+    request = notifications.request_factory.lifecycle_request(
+        {
+            "job_id": "crest-1",
+            "queue_id": "queue-1",
+            "job_dir": Path("/tmp/job"),
+            "selected_xyz": Path("/tmp/job/input.xyz"),
+            "mode": "standard",
+        },
+        "Job started",
+    )
+
+    assert request.headline == "Job started"
+    assert request.job_id == "crest-1"
+    assert request.selected_xyz.name == "input.xyz"
+    assert request.detail_values == {"mode": "standard"}
 
 
-def test_engine_facade_does_not_reexport_validation_helpers() -> None:
+def test_engine_facade_keeps_validation_helpers_private() -> None:
     helper_names = {
         "_optional_int_dict",
         "_optional_lines",

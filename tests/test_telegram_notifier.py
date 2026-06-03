@@ -8,22 +8,27 @@ from unittest.mock import MagicMock, patch
 from chemstack.core.notifications import MAX_TELEGRAM_MESSAGE_LENGTH
 from chemstack.orca.config import TelegramConfig
 from chemstack.orca.dft_monitor import MonitorResult, ScanReport
-from chemstack.orca.types import QueueEnqueuedNotification, RetryNotification, RunFinishedNotification, RunStartedNotification
 from chemstack.orca.telegram_notifier import (
-    escape_html,
     _status_icon,
+    escape_html,
     format_monitor_message,
+    format_queue_enqueued_event,
+    format_retry_event,
     format_run_finished_event,
     format_run_started_event,
-    format_retry_event,
-    format_queue_enqueued_event,
     has_monitor_updates,
     notify_monitor_report,
+    notify_queue_enqueued_event,
     notify_retry_event,
     notify_run_finished_event,
     notify_run_started_event,
-    notify_queue_enqueued_event,
     send_message,
+)
+from chemstack.orca.types import (
+    QueueEnqueuedNotification,
+    RetryNotification,
+    RunFinishedNotification,
+    RunStartedNotification,
 )
 
 

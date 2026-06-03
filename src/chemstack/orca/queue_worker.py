@@ -14,8 +14,21 @@ import time
 from pathlib import Path
 from typing import Any
 
+from chemstack.core.admission import (
+    activate_reserved_slot,
+    list_slots,
+    reconcile_stale_slots,
+    release_slot,
+    reserve_slot,
+    update_slot_metadata,
+)
+from chemstack.core.engines.orca_execution import (
+    WORKER_JOB_MODULE,
+    BackgroundRunJobProcess,
+    build_worker_child_command,
+)
+from chemstack.core.engines.queue_worker import EngineQueueWorker
 from chemstack.core.indexing.roots import runtime_roots_for_cfg as _runtime_roots_for_cfg
-from chemstack.core.queue.types import QueueEntry
 from chemstack.core.queue.engine_execution import coerce_resource_request
 from chemstack.core.queue.internal_engine import (
     InternalEngineQueueModule,
@@ -28,40 +41,43 @@ from chemstack.core.queue.lifecycle import (
     EngineQueueTerminalSideEffectHooks,
     cancel_running_process_job,
     finalize_process_finished_job,
-    job_queue_root as _lifecycle_job_queue_root,
     reconcile_orphaned_process_entries,
     shutdown_running_process_job,
 )
+from chemstack.core.queue.lifecycle import (
+    job_queue_root as _lifecycle_job_queue_root,
+)
+from chemstack.core.queue.types import QueueEntry
 from chemstack.core.queue.worker import (
     EngineRunningJob as _RunningJob,
+)
+from chemstack.core.queue.worker import (
     ManagedProcess as _ManagedProcess,
+)
+from chemstack.core.queue.worker import (
     resolve_admission_limit as _resolve_worker_admission_limit,
+)
+from chemstack.core.queue.worker import (
     start_background_process,
     terminate_process_group,
 )
-from chemstack.core.engines.queue_worker import EngineQueueWorker
-from chemstack.core.engines.orca_execution import (
-    WORKER_JOB_MODULE,
-    BackgroundRunJobProcess,
-    build_worker_child_command,
-)
 
-from chemstack.core.admission import (
-    activate_reserved_slot,
-    list_slots,
-    reconcile_stale_slots,
-    release_slot,
-    reserve_slot,
-    update_slot_metadata,
-)
+from . import queue_worker_lifecycle as _lifecycle_helpers
+from . import queue_worker_tracking as _tracking_helpers
 from .attempt_reporting import (
     build_run_finished_notification,
     finished_notification_already_sent,
     mark_finished_notification_sent,
 )
 from .config import AppConfig, load_config
-from .input_artifacts import selected_input_artifacts
 from .inp_rewriter import read_resource_request_from_input
+from .input_artifacts import selected_input_artifacts
+from .job_locations import (
+    record_from_artifacts,
+    resolve_job_metadata,
+    resource_dict,
+    upsert_job_record,
+)
 from .queue_adapter import (
     dequeue_next,
     get_cancel_requested,
@@ -74,11 +90,9 @@ from .queue_adapter import (
     queue_entry_metadata,
     queue_entry_reaction_dir,
     queue_entry_task_id,
-    requeue_running_entry,
     reconcile_orphaned_running_entries,
+    requeue_running_entry,
 )
-from . import queue_worker_lifecycle as _lifecycle_helpers
-from . import queue_worker_tracking as _tracking_helpers
 from .queue_worker_deps import (
     OrcaQueueWorkerFacadeCallbacks,
     build_orca_runtime_facade_deps,
@@ -86,12 +100,6 @@ from .queue_worker_deps import (
 from .queue_worker_runtime_facade import build_orca_queue_worker_runtime_facade_deps
 from .state import load_organized_ref, load_report_json, load_state
 from .telegram_notifier import notify_run_finished_event
-from .job_locations import (
-    record_from_artifacts,
-    resolve_job_metadata,
-    resource_dict,
-    upsert_job_record,
-)
 
 # Preserve historical facade attributes for external imports and monkeypatching.
 _LEGACY_COMPAT_EXPORTS = (
@@ -423,7 +431,8 @@ def _make_orca_running_job(
         process=process,
         admission_token=admission_token,
     )
-    setattr(running, "queue_root", queue_root)
+    queue_root_attr = "queue_root"
+    setattr(running, queue_root_attr, queue_root)
     return running
 
 
@@ -492,8 +501,14 @@ def QueueWorker(
         reconcile_orphaned_running=_reconcile_orphaned_running,
         check_cancel_requests=_check_orca_cancel_requests,
     )
-    setattr(worker, "_auto_organize_terminal_job", lambda job: _auto_organize_terminal_job(worker, job))
-    setattr(worker, "_cancel_running_job", lambda queue_id, job: _cancel_orca_running_job(worker, queue_id, job))
+    auto_organize_attr = "_auto_organize_terminal_job"
+    cancel_running_attr = "_cancel_running_job"
+    setattr(worker, auto_organize_attr, lambda job: _auto_organize_terminal_job(worker, job))
+    setattr(
+        worker,
+        cancel_running_attr,
+        lambda queue_id, job: _cancel_orca_running_job(worker, queue_id, job),
+    )
     return worker
 
 

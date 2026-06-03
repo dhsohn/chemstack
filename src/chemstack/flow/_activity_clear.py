@@ -5,8 +5,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from ._activity_model import ActivitySourceRequest, ResolvedActivitySources
 from chemstack.core.utils import normalize_text
+
+from ._activity_model import ActivitySourceRequest, ResolvedActivitySources
 
 
 @dataclass(frozen=True)

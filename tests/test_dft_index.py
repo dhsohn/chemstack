@@ -9,7 +9,6 @@ from pathlib import Path
 from chemstack.orca.dft_index import DFTIndex
 from tests.engine_artifact_helpers import orca_artifact_payload
 
-
 _COMPLETED_OUT = "\n".join([
     "! B3LYP def2-SVP Opt",
     "* xyz 0 1",

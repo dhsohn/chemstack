@@ -18,7 +18,8 @@ class WorkerChildCommandSpec:
 
 
 def _shutdown_exception_context(exc: BaseException) -> Any:
-    return getattr(exc, "context")
+    context_attr = "context"
+    return getattr(exc, context_attr)
 
 
 @dataclass(frozen=True)

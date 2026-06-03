@@ -4,9 +4,9 @@ from pathlib import Path
 from typing import Any
 
 from chemstack.core.app_ids import CHEMSTACK_ORCA_SOURCE
+from chemstack.core.utils import normalize_text
 
 from ._activity_model import ActivityRecord
-from chemstack.core.utils import normalize_text
 
 _ORCA_ACTIVE_QUEUE_STATUSES = frozenset({"pending", "running"})
 
@@ -63,7 +63,7 @@ def snapshot_indexes(snapshots: list[Any]) -> tuple[dict[str, Any], dict[str, An
     snapshot_by_dir: dict[str, Any] = {}
     for snapshot in snapshots:
         try:
-            snapshot_by_dir[str(Path(getattr(snapshot, "reaction_dir")).expanduser().resolve())] = (
+            snapshot_by_dir[str(Path(snapshot.reaction_dir).expanduser().resolve())] = (
                 snapshot
             )
         except OSError:
@@ -134,7 +134,7 @@ def queue_record(
             "workflow_id": normalize_text(entry_metadata.get("workflow_id")),
             "reaction_dir": reaction_dir,
             "allowed_root": str(allowed_root),
-            "priority": getattr(queue_adapter, "queue_entry_priority")(entry),
+            "priority": queue_adapter.queue_entry_priority(entry),
             **deps._timestamp_metadata(
                 enqueued_at=submitted_at, started_at=started_at, finished_at=finished_at
             ),
@@ -206,8 +206,8 @@ def orca_records(
     if callable(reconcile):
         reconcile(allowed_root)
 
-    queue_entries = list(getattr(queue_adapter, "list_queue")(allowed_root))
-    snapshots = list(getattr(run_snapshot, "collect_run_snapshots")(allowed_root))
+    queue_entries = list(queue_adapter.list_queue(allowed_root))
+    snapshots = list(run_snapshot.collect_run_snapshots(allowed_root))
     snapshot_by_run_id, snapshot_by_dir = snapshot_indexes(snapshots)
     represented_snapshot_keys: set[str] = set()
     rows: list[ActivityRecord] = []

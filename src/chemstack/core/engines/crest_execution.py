@@ -15,23 +15,42 @@ from chemstack.core.config.engines import load_crest_config as load_config
 from chemstack.core.engines import crest_artifacts as _queue_artifacts
 from chemstack.core.engines.crest_terminal import (
     WorkerExecutionOutcome,
+)
+from chemstack.core.engines.crest_terminal import (
     finalize_processed_entry as _terminal_finalize_processed_entry,
+)
+from chemstack.core.engines.crest_terminal import (
     mark_job_running as _terminal_mark_job_running,
+)
+from chemstack.core.engines.crest_terminal import (
     mark_queue_terminal as _terminal_mark_queue_terminal,
+)
+from chemstack.core.engines.crest_terminal import (
     sync_job_tracking as _terminal_sync_job_tracking,
+)
+from chemstack.core.engines.crest_terminal import (
     write_execution_artifacts as _terminal_write_execution_artifacts,
+)
+from chemstack.core.engines.crest_terminal import (
     write_running_state as _terminal_write_running_state,
 )
 from chemstack.core.engines.worker_child import (
     WORKER_CHILD_MODULE,
+)
+from chemstack.core.engines.worker_child import (
     build_worker_child_command as _build_unified_worker_child_command,
 )
 from chemstack.core.notifications.engines import (
     notify_crest_job_finished as notify_job_finished,
+)
+from chemstack.core.notifications.engines import (
     notify_crest_job_started as notify_job_started,
 )
+from chemstack.core.queue import engine_execution as _engine_execution
 from chemstack.core.queue import (
     execution as _queue_execution,
+)
+from chemstack.core.queue import (
     get_cancel_requested,
     list_queue,
     mark_cancelled,
@@ -39,7 +58,6 @@ from chemstack.core.queue import (
     mark_failed,
     requeue_running_entry,
 )
-from chemstack.core.queue import engine_execution as _engine_execution
 from chemstack.core.queue import worker_execution_dependencies as _worker_dependencies
 from chemstack.core.queue.internal_engine import (
     InternalEngineSpec,
@@ -51,14 +69,17 @@ from chemstack.core.queue.worker import (
     terminate_process_group,
 )
 from chemstack.core.utils import now_utc_iso
-
 from chemstack.crest.job_locations import upsert_job_record
 from chemstack.crest.runner import CrestRunResult, finalize_crest_job, start_crest_job
 from chemstack.crest.state import mark_recovery_pending
 from chemstack.crest.worker_context import (
     ExecutionContext,
-    molecule_key as _molecule_key,
+)
+from chemstack.crest.worker_context import (
     mode as _mode,
+)
+from chemstack.crest.worker_context import (
+    molecule_key as _molecule_key,
 )
 
 CANCEL_CHECK_INTERVAL_SECONDS = 1

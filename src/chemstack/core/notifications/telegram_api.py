@@ -10,6 +10,8 @@ from urllib.request import Request, urlopen
 from .telegram_config import DEFAULT_TELEGRAM_BASE_URL, DEFAULT_TIMEOUT_SECONDS
 from .telegram_network import (
     _read_http_error_body,
+)
+from .telegram_network import (
     urlopen_with_ipv4_fallback as _network_urlopen_with_ipv4_fallback,
 )
 

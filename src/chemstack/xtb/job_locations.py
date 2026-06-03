@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from chemstack.core.indexing import engines as _engine_locations
 from chemstack.core.indexing.engine_job_locations import (
     build_store_backed_engine_job_location_exports,
 )
-from chemstack.core.indexing import engines as _engine_locations
 
 from .state import load_organized_ref, load_report_json, load_state
 

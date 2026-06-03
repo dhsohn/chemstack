@@ -32,10 +32,10 @@ from .internal_worker import (
     InternalEngineWorkerAdapter,
     InternalEngineWorkerExecutionSpec,
     InternalEngineWorkerHooks,
+    InternalWorkerOptions,
     InternalWorkerProcessDependencies,
     InternalWorkerQueueDependencies,
     InternalWorkerTimingDependencies,
-    InternalWorkerOptions,
     build_internal_engine_worker_adapter,
     build_internal_engine_worker_adapter_from_hooks,
     build_internal_engine_worker_adapter_from_spec,
@@ -51,9 +51,9 @@ from .internal_worker import (
     raise_if_shutdown_requested,
     run_internal_cancellable_engine_process,
     run_internal_engine_worker_entry,
+    run_internal_engine_worker_entry_with_hooks,
     run_internal_engine_worker_entry_with_spec,
     run_internal_engine_worker_entry_with_spec_options,
-    run_internal_engine_worker_entry_with_hooks,
     run_internal_worker_process_job,
 )
 from .metadata import (

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from unittest.mock import Mock
 
-
 from chemstack.flow.contracts import OrcaArtifactContract
 from chemstack.flow.orchestration.deps import orchestration_deps
 from chemstack.flow.orchestration.stage_runtime.orca import sync_orca_stage_impl

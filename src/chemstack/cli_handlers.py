@@ -9,8 +9,8 @@ from chemstack.cli_common import (
     _engine_config_for_command,
 )
 from chemstack.cli_errors import emit_error
-from chemstack.flow.run_dir_layout import inspect_workflow_run_dir
 from chemstack.core.utils import normalize_text
+from chemstack.flow.run_dir_layout import inspect_workflow_run_dir
 
 
 def cmd_init(args: argparse.Namespace) -> int:
@@ -80,7 +80,7 @@ def cmd_run_dir(args: Any) -> int:
 
     args.run_dir_app = run_dir_app
     if run_dir_app == "workflow":
-        args.workflow_dir = getattr(args, "path")
+        args.workflow_dir = args.path
         return int(cmd_workflow_run_dir(args))
     if getattr(args, "priority", None) is None:
         args.priority = 10

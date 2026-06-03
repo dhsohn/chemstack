@@ -8,13 +8,15 @@ from . import _job_location_artifacts as _artifacts
 from . import _job_location_contract_context as _contract_context
 from . import _job_location_contract_payload as _contract_payload
 from . import _job_location_runtime_context as _runtime_context
-from ._job_location_records import list_job_location_records, resolve_record_job_dir
 from ._job_location_models import (
     JobArtifactContext,
     JobRuntimeContext,
     OrcaContractPayloadContext,
+)
+from ._job_location_models import (
     OrcaContractResolvedFields as _OrcaContractResolvedFields,
 )
+from ._job_location_records import list_job_location_records, resolve_record_job_dir
 from ._job_location_utils import (
     QUEUE_FILE_NAME,
     attempt_count,

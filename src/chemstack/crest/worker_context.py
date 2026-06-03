@@ -4,9 +4,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
+from chemstack.core.engines import crest_artifacts as _queue_artifacts
 from chemstack.core.queue import engine_execution as _engine_execution
 
-from chemstack.core.engines import crest_artifacts as _queue_artifacts
 from .job_locations import molecule_key_from_selected_xyz
 
 

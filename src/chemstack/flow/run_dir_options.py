@@ -6,6 +6,8 @@ from typing import Any
 
 from chemstack.cli_common import (
     _dependency,
+)
+from chemstack.cli_common import (
     _workflow_root_for_args as _cli_workflow_root_for_args,
 )
 from chemstack.core.utils.coercion import normalize_text

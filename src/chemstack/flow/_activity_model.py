@@ -5,8 +5,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .engine_options import WorkflowEngineOptions
 from chemstack.core.utils import normalize_text
+
+from .engine_options import WorkflowEngineOptions
 
 
 @dataclass(frozen=True)

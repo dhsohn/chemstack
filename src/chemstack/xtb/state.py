@@ -4,11 +4,11 @@ from pathlib import Path
 from typing import Any
 
 from chemstack.core.artifacts import (
-    XTB_JOB_MANIFEST_FILE,
     JOB_REPORT_JSON_FILE,
     JOB_REPORT_MD_FILE,
     JOB_STATE_FILE,
     ORGANIZED_REF_FILE,
+    XTB_JOB_MANIFEST_FILE,
 )
 from chemstack.core.state import engine as _engine_state
 from chemstack.core.utils import now_utc_iso

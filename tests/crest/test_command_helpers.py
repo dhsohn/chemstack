@@ -1,20 +1,30 @@
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 
 import pytest
 
-from chemstack.core.config.schema import CommonRuntimeConfig
-
-from chemstack.crest import job_inputs as _helpers
 from chemstack.core.config.engines import WorkflowEngineAppConfig as AppConfig
+from chemstack.core.config.schema import CommonRuntimeConfig
+from chemstack.crest import job_inputs as _helpers
 from tests.engine_artifact_helpers import (
     engine_payload as _engine_payload,
+)
+from tests.engine_artifact_helpers import (
     input_payload as _input_payload,
+)
+from tests.engine_artifact_helpers import (
     job as _job,
+)
+from tests.engine_artifact_helpers import (
     resources as _resources,
+)
+from tests.engine_artifact_helpers import (
     status as _status,
+)
+from tests.engine_artifact_helpers import (
     timestamps as _timestamps,
 )
 
@@ -182,36 +192,17 @@ def test_queued_state_payload_copies_resource_request_and_sets_timestamps(
     assert _resources(payload)["actual"] is not resource_request
 
 
-def test_resolve_job_dir_delegates_to_validate_job_dir(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_resolve_job_dir_accepts_job_under_allowed_root(tmp_path: Path) -> None:
     cfg = _cfg(tmp_path)
-    calls: list[tuple[str, str, str]] = []
-    resolved = tmp_path / "resolved-job"
+    job_dir = Path(cfg.runtime.allowed_root) / "job-42"
+    job_dir.mkdir()
 
-    def fake_validate_job_dir(raw_job_dir: str, allowed_root: str, *, label: str) -> Path:
-        calls.append((raw_job_dir, allowed_root, label))
-        return resolved
+    resolved = _helpers.resolve_job_dir(cfg, str(job_dir))
 
-    monkeypatch.setattr(_helpers, "validate_job_dir", fake_validate_job_dir)
-
-    job_dir = _helpers.resolve_job_dir(cfg, "~/job-42")
-
-    assert job_dir == resolved
-    assert calls == [("~/job-42", cfg.runtime.allowed_root, "Job directory")]
+    assert resolved == job_dir.resolve()
 
 
-def test_new_job_id_delegates_to_timestamped_token(monkeypatch: pytest.MonkeyPatch) -> None:
-    tokens: list[str] = []
-
-    def fake_timestamped_token(prefix: str) -> str:
-        tokens.append(prefix)
-        return "crest-20260419-000000"
-
-    monkeypatch.setattr(_helpers, "timestamped_token", fake_timestamped_token)
-
+def test_new_job_id_uses_crest_prefix_and_timestamp_shape() -> None:
     job_id = _helpers.new_job_id()
 
-    assert job_id == "crest-20260419-000000"
-    assert tokens == ["crest"]
+    assert re.fullmatch(r"crest_\d{8}_\d{6}_[0-9a-f]{6}", job_id)

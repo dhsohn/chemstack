@@ -6,8 +6,8 @@ from types import SimpleNamespace
 
 import pytest
 
-
-from chemstack.flow.adapters import _orca_local_lookup, _orca_tracking, orca as orca_adapter
+from chemstack.flow.adapters import _orca_local_lookup, _orca_tracking
+from chemstack.flow.adapters import orca as orca_adapter
 from tests.engine_artifact_helpers import orca_artifact_payload
 
 
@@ -90,7 +90,7 @@ def test_load_orca_artifact_contract_short_circuits_on_tracked_payload(
     assert contract.resource_actual == {"max_cores": 6, "max_memory_gb": 12}
 
 
-def test_tracked_contract_payload_uses_job_location_payload_helper(
+def test_tracked_contract_payload_returns_indexed_job_location_payload(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

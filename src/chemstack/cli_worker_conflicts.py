@@ -12,7 +12,7 @@ from chemstack.cli_common import (
     _discover_shared_config_path,
     _effective_shared_config_text,
 )
-from chemstack.cli_worker_specs import WorkerSpec, _ENGINE_WORKER_MODULES
+from chemstack.cli_worker_specs import _ENGINE_WORKER_MODULES, WorkerSpec
 from chemstack.core.utils import normalize_text
 
 LOGGER = logging.getLogger(__name__)

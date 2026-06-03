@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from chemstack.flow.orchestration.workflow_builders import _copy_input_impl as copy_input_impl
 from chemstack.flow.orchestration.deps import orchestration_deps
 from chemstack.flow.orchestration.lifecycle import (
     downstream_terminal_result_impl,
@@ -33,6 +32,7 @@ from chemstack.flow.orchestration.support import (
     stage_metadata_impl,
     task_payload_dict_impl,
 )
+from chemstack.flow.orchestration.workflow_builders import _copy_input_impl as copy_input_impl
 
 __all__ = [
     "append_crest_orca_stages_impl",

@@ -7,6 +7,8 @@ from typing import Any
 
 from chemstack.core.engines.artifacts import (
     EngineArtifactInput as NormalizedArtifactInput,
+)
+from chemstack.core.engines.artifacts import (
     EngineArtifactJob,
     EngineArtifactProcess,
     EngineArtifactRecovery,

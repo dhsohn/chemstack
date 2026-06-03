@@ -130,8 +130,8 @@ def _cancel_request(*, target: str, config_path: str) -> _OrcaDirectCancelReques
 
 
 def _find_orca_cancel_entry(request: _OrcaDirectCancelRequest) -> tuple[Path, Any] | None:
-    from chemstack.orca.config import load_config
     from chemstack.orca import queue_adapter
+    from chemstack.orca.config import load_config
 
     cfg = load_config(request.config_path)
     allowed_root = Path(cfg.runtime.allowed_root).expanduser().resolve()

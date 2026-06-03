@@ -4,13 +4,13 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+from chemstack.flow.contracts import WorkflowStageInput
 from chemstack.flow.orchestration.deps import orchestration_deps
 from chemstack.flow.orchestration.materialization import (
     append_crest_orca_stages_impl,
     append_reaction_orca_stages_impl,
     append_reaction_xtb_stages_impl,
 )
-from chemstack.flow.contracts import WorkflowStageInput
 
 
 def _candidate(

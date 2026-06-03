@@ -440,7 +440,7 @@ def test_sync_terminal_result_runs_common_terminal_sequence() -> None:
     assert outcome == ("outcome", "organized")
 
 
-def test_mark_result_terminal_status_delegates_result_fields() -> None:
+def test_mark_result_terminal_status_passes_result_fields() -> None:
     calls: list[dict[str, Any]] = []
 
     engine_execution.mark_result_terminal_status(

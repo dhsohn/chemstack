@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from chemstack.core.paths import is_subpath
+
 from .orca_parser import parse_opt_progress
 from .run_snapshot import (
     RunSnapshot,

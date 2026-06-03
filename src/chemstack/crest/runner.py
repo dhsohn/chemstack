@@ -10,6 +10,8 @@ from typing import Any, TextIO
 from chemstack.core import engine_runner as _engine_runner
 from chemstack.core.config.engines import (
     WorkflowEngineAppConfig as AppConfig,
+)
+from chemstack.core.config.engines import (
     resource_request_from_manifest,
 )
 from chemstack.core.engine_process import start_logged_process

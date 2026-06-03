@@ -18,10 +18,14 @@ from .registry import (
 )
 from .runtime_cycle import (
     WorkflowCycleDeps as WorkflowCycleDeps,
+)
+from .runtime_cycle import (
     finish_workflow_cycle,
     start_workflow_cycle,
-    start_workflow_cycle_with_deps as start_workflow_cycle_with_deps,
     workflow_lease_expires_at,
+)
+from .runtime_cycle import (
+    start_workflow_cycle_with_deps as start_workflow_cycle_with_deps,
 )
 from .state import load_workflow_payload, workflow_has_active_downstream, workflow_summary
 

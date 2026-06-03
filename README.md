@@ -181,11 +181,13 @@ If you want only the worker managed automatically, enable
 ## Testing
 
 ```bash
-python -m pip install -c constraints-dev.txt -e .[dev]
-ruff check .
-mypy
-pytest --cov --cov-report=term-missing -q
+make test
 ```
+
+`make test` runs `scripts/check.sh`, which creates or repairs `.venv`,
+installs `.[dev]`, then runs `ruff`, `mypy`, and the coverage-gated pytest
+suite. Pass pytest selectors directly to the script when you want a narrower
+loop, for example `bash scripts/check.sh tests/flow -q`.
 
 To clear local Python/test/tool caches after a large refactor:
 

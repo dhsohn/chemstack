@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import Mapping
 from dataclasses import dataclass, field, fields
-import logging
 from pathlib import Path
 from typing import Any, ClassVar, Dict
 

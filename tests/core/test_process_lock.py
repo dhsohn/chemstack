@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -150,12 +151,12 @@ class TestProcessStartTicks(unittest.TestCase):
 
         self.assertIsNone(ticks)
 
-    def test_current_process_start_ticks_delegates_to_process_start_ticks(self) -> None:
+    def test_current_process_start_ticks_reads_current_pid(self) -> None:
         with patch("chemstack.core.utils.process_lock.process_start_ticks", return_value=555) as mock_ticks:
             ticks = current_process_start_ticks()
 
         self.assertEqual(ticks, 555)
-        mock_ticks.assert_called_once()
+        mock_ticks.assert_called_once_with(os.getpid())
 
 
 class TestAcquireFileLock(unittest.TestCase):

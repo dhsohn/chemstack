@@ -7,6 +7,8 @@ from typing import Any
 from chemstack.core.app_ids import is_orca_submitter
 from chemstack.core.utils import (
     mapping_or_empty as _coerce_mapping,
+)
+from chemstack.core.utils import (
     normalize_text as _normalize_text,
 )
 from chemstack.flow.orchestration.stage_views import (

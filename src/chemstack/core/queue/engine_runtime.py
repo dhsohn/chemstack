@@ -21,9 +21,11 @@ from .worker import (
     PidFileChildProcessQueueWorkerHooks,
     dequeue_next_across_roots,
     make_child_queue_worker_deps,
-    queue_entry_by_id as _queue_entry_by_id,
     read_worker_pid_file,
     resolve_admission_root,
+)
+from .worker import (
+    queue_entry_by_id as _queue_entry_by_id,
 )
 
 

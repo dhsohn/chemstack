@@ -4,11 +4,11 @@ from typing import Any
 
 import pytest
 
-from chemstack.core.queue import child_execution
 from chemstack.core.engines import xtb_execution as worker_job
+from chemstack.core.queue import child_execution
 
 
-def test_worker_job_main_delegates_to_queue_runner(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_worker_job_main_parses_queue_identity_args(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, Any] = {}
 
     def fake_run_worker_job(**kwargs: Any) -> int:

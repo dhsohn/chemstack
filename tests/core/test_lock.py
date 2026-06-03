@@ -6,7 +6,6 @@ from pathlib import Path
 
 import pytest
 
-
 from chemstack.core.utils.lock import file_lock
 
 

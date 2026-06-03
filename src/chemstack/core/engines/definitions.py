@@ -63,7 +63,7 @@ class EngineDefinition:
         if self.queue_worker_runner is not None:
             return int(self.queue_worker_runner(argv))
         module = import_module(self.queue_worker_module)
-        main = getattr(module, "main")
+        main = module.main
         return int(main(argv))
 
     def worker_child_main(

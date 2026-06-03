@@ -10,6 +10,7 @@ from chemstack.core.utils.coercion import (
     safe_int,
 )
 
+from ..contracts.orca import OrcaArtifactContract
 from . import _orca_contract_status as _contract_status
 from . import _orca_local_lookup as _local_lookup
 from . import _orca_path_helpers as _path_helpers
@@ -19,7 +20,6 @@ from ._orca_contract_assembly import (
     contract_from_orca_payload_impl,
     load_orca_artifact_contract_impl,
 )
-from ..contracts.orca import OrcaArtifactContract
 
 
 def _contract_loader_deps() -> OrcaContractLoaderDeps:

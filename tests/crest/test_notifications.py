@@ -6,7 +6,6 @@ from types import SimpleNamespace
 import pytest
 
 from chemstack.core.config import CommonRuntimeConfig, TelegramConfig
-
 from chemstack.core.config.engines import WorkflowEngineAppConfig as AppConfig
 from chemstack.core.notifications import engines as notifications
 

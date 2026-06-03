@@ -6,6 +6,8 @@ from typing import Callable
 
 from .processes import (
     ShutdownSignalDeps,
+)
+from .processes import (
     install_shutdown_signal_handlers as _install_shutdown_signal_handlers,
 )
 

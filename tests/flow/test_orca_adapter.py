@@ -4,7 +4,6 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
-
 from chemstack.flow.adapters.orca import load_orca_artifact_contract
 from tests.engine_artifact_helpers import orca_artifact_payload
 

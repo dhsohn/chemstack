@@ -7,14 +7,22 @@ from typing import Any
 
 from chemstack.core.utils.coercion import (
     coerce_mapping as _coerce_mapping,
+)
+from chemstack.core.utils.coercion import (
     normalize_bool as _shared_normalize_bool,
+)
+from chemstack.core.utils.coercion import (
     normalize_text as _normalize_text,
+)
+from chemstack.core.utils.coercion import (
     safe_float as _shared_safe_float,
+)
+from chemstack.core.utils.coercion import (
     safe_int as _safe_int,
 )
 
-from .contracts import WorkflowStageInput
 from . import endpoint_pairing_selection as _selection
+from .contracts import WorkflowStageInput
 from .xyz_utils import XYZFrame, load_xyz_frames
 
 
@@ -253,7 +261,7 @@ def _distance_rmsd(
     product_fp = _distance_fingerprint(_frame_coordinates(product_frame), indices)
     if not reactant_fp or len(reactant_fp) != len(product_fp):
         return None, "empty_distance_fingerprint", indices
-    squared = [(left - right) ** 2 for left, right in zip(reactant_fp, product_fp)]
+    squared = [(left - right) ** 2 for left, right in zip(reactant_fp, product_fp, strict=True)]
     return sqrt(sum(squared) / len(squared)), "distance_fingerprint", indices
 
 

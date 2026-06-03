@@ -30,9 +30,9 @@ from chemstack.orca.queue_adapter import (
 from chemstack.orca.queue_worker import (
     DEFAULT_MAX_CONCURRENT,
     QueueWorker,
-    _RunningJob,
     _get_run_id_from_state,
     _notify_terminal_job_from_state,
+    _RunningJob,
     _terminate_process,
     read_worker_pid,
 )
@@ -41,6 +41,8 @@ from tests.engine_artifact_helpers import orca_artifact_payload
 from tests.process_helpers import patch_missing_process_group, preserved_signal_handlers
 from tests.queue_worker_helpers import (
     make_queue_worker_cfg as _make_cfg,
+)
+from tests.queue_worker_helpers import (
     write_completed_run_state as _write_completed_run_state,
 )
 

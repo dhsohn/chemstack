@@ -77,12 +77,34 @@ Keep imports under `chemstack.*`; avoid top-level aliases or compatibility shims
 Common commands:
 
 ```bash
-python -m pip install -c constraints-dev.txt -e .[dev]
-pytest tests -q --ignore=tests/core --ignore=tests/xtb --ignore=tests/crest --ignore=tests/flow --ignore=tests/integration
-pytest tests/flow -q
-pytest tests/integration -q
+make test
+bash scripts/check.sh tests/flow -q
+bash scripts/check.sh tests/integration -q
+make structural-tests
 bash scripts/clean_artifacts.sh
 ```
+
+## Quality Gates
+
+- `scripts/check.sh` is the shared local and CI entrypoint. It creates or
+  repairs `.venv`, installs `.[dev]`, then runs `ruff`, `mypy`, and pytest with
+  the coverage gate.
+- Ruff explicitly enables import sorting (`I`) and Bugbear (`B`) alongside the
+  default Pyflakes/pycodestyle safety rules.
+- Mypy remains broadly non-strict, but strict-style options are enabled first
+  for small stable core modules. Expand that override list only when the full
+  check still passes.
+
+## Test Coupling Policy
+
+Prefer tests that assert observable behavior: returned payloads, persisted
+files, CLI output, state transitions, process commands, and public facade
+contracts. Internal delegation tests such as `delegates_to`, `uses_*_helper`,
+`forwards_*`, and `reexports_*` should be kept only when they protect an
+intentional compatibility facade or plugin boundary.
+
+Use `make structural-tests` before large refactors to list likely
+implementation-coupled tests. Treat it as an audit report, not a failure gate.
 
 ## Package Policy
 

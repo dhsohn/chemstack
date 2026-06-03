@@ -6,9 +6,10 @@ from .store import (
     AdmissionSlotMetadataUpdate,
     AdmissionStore,
     AdmissionStoreCorruptError,
-    admission_lock,
     activate_reserved_slot,
+    activate_reserved_slot_with_update,
     active_slot_count,
+    admission_lock,
     list_slots,
     reconcile_stale_slots,
     release_slot,
@@ -17,7 +18,6 @@ from .store import (
     reserve_slot_or_raise,
     update_slot_metadata,
     update_slot_metadata_with_update,
-    activate_reserved_slot_with_update,
 )
 
 __all__ = [

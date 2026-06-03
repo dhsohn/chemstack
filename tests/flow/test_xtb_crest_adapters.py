@@ -5,8 +5,10 @@ from pathlib import Path
 
 import pytest
 
-
-from chemstack.flow.adapters.crest import load_crest_artifact_contract, select_crest_downstream_inputs
+from chemstack.flow.adapters.crest import (
+    load_crest_artifact_contract,
+    select_crest_downstream_inputs,
+)
 from chemstack.flow.adapters.xtb import load_xtb_artifact_contract, select_xtb_downstream_inputs
 from chemstack.flow.contracts.crest import CrestDownstreamPolicy
 from chemstack.flow.contracts.xtb import XtbArtifactContract, XtbDownstreamPolicy

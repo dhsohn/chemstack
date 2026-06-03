@@ -14,6 +14,7 @@ from chemstack.orca.state import report_json_path
 from chemstack.orca.statuses import RunStatus
 from tests.engine_artifact_helpers import orca_artifact_payload
 
+
 def _entry(
     queue_id: str,
     reaction_dir: str,

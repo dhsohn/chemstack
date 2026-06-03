@@ -24,7 +24,7 @@ def _make_cfg(tmp: str, *, max_cores: int = 8, max_memory_gb: int = 32) -> AppCo
             max_memory_gb_per_task=max_memory_gb,
         ),
     )
-    setattr(cfg.runtime, "max_concurrent", 1)
+    cfg.runtime.max_concurrent = 1
     return cfg
 
 

@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from chemstack.core.statuses import is_queue_active_status
-
+from chemstack.flow._workflow_phases import phase_finished
 from chemstack.flow.orchestration.dep_context import (
     orchestration_context as _orchestration_context,
 )
@@ -18,7 +18,6 @@ from chemstack.flow.orchestration.stage_views import (
     _request_params,
     _stage_views,
 )
-from chemstack.flow._workflow_phases import phase_finished
 from chemstack.flow.state import workflow_workspace_internal_engine_paths
 
 

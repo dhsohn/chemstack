@@ -6,9 +6,7 @@ from typing import Any
 
 import pytest
 
-from chemstack.flow import registry_store
-from chemstack.flow import worker_state_store
-from chemstack.flow import workflow_journal
+from chemstack.flow import registry_store, worker_state_store, workflow_journal
 
 
 @contextmanager

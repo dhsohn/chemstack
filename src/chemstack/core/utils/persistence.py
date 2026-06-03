@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from contextlib import suppress
 import errno
 import json
 import os
 import tempfile
+from contextlib import suppress
 from datetime import datetime, timezone
 from pathlib import Path
 from secrets import token_hex

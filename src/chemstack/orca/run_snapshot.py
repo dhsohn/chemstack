@@ -6,12 +6,11 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping
 
 from chemstack.core.activity_icons import activity_status_icon
+from chemstack.core.paths import resolve_artifact_path
 from chemstack.core.utils import parse_iso_utc as _parse_iso_utc
 
-from .job_locations import list_job_location_records, resolve_record_job_dir
-
 from .dft_discovery import _find_latest_out_in_dir
-from chemstack.core.paths import resolve_artifact_path
+from .job_locations import list_job_location_records, resolve_record_job_dir
 from .state import STATE_FILE_NAME, load_state
 
 

@@ -11,8 +11,8 @@ from .store import (
     mark_cancelled,
     mark_completed,
     mark_failed,
-    requeue_running_entry,
     request_cancel,
+    requeue_running_entry,
 )
 from .types import QueueEntry, QueueStatus
 

@@ -22,6 +22,8 @@ from .telegram_network import (
     _is_timeout_error,
     _read_http_error_body,
     _should_retry_url_error,
+)
+from .telegram_network import (
     urlopen_with_ipv4_fallback as _network_urlopen_with_ipv4_fallback,
 )
 

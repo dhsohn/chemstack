@@ -13,15 +13,14 @@ from chemstack.orca.job_locations import (
     index_root_for_cfg,
     load_job_artifact_context,
     load_job_artifacts,
-    load_orca_contract_payload,
     load_job_runtime_context,
+    load_orca_contract_payload,
     record_from_artifacts,
     reindex_job_locations,
     resolve_latest_job_dir,
     upsert_job_record,
 )
 from chemstack.orca.state import report_json_path, state_path
-
 from tests.engine_artifact_helpers import orca_artifact_payload
 
 

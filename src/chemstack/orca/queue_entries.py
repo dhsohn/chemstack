@@ -12,6 +12,7 @@ from chemstack.core.utils import normalize_bool as _shared_normalize_bool
 from chemstack.core.utils import normalize_text as _shared_normalize_text
 
 from ..core.app_ids import CHEMSTACK_ORCA_APP_NAME
+
 QUEUE_FILE_NAME = "queue.json"
 WORKER_PID_FILE_NAME = "queue_worker.pid"
 QUEUE_APP_NAME = CHEMSTACK_ORCA_APP_NAME

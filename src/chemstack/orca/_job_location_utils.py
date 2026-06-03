@@ -3,10 +3,6 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from chemstack.core.queue.metadata import (
-    mapping_metadata,
-    mapping_metadata_value,
-)
 from chemstack.core.paths import (
     first_existing_named_file,
     iter_existing_dirs,
@@ -14,9 +10,13 @@ from chemstack.core.paths import (
     resolved_path_text,
     safe_is_subpath,
 )
+from chemstack.core.queue.metadata import (
+    mapping_metadata,
+    mapping_metadata_value,
+)
+from chemstack.core.statuses import TERMINAL_STATUSES as TERMINAL_STATUSES
 from chemstack.core.utils import normalize_bool, normalize_text, safe_int
 from chemstack.core.utils.persistence import load_json_mapping_list_file
-from chemstack.core.statuses import TERMINAL_STATUSES as TERMINAL_STATUSES
 
 from .input_artifacts import derive_selected_input_xyz as _derive_selected_input_xyz
 

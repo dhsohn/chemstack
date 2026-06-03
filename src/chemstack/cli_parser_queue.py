@@ -2,8 +2,7 @@ from __future__ import annotations
 
 import argparse
 
-from chemstack import cli_queue
-from chemstack import cli_workers
+from chemstack import cli_queue, cli_workers
 from chemstack.flow.cli_worker_options import (
     WorkflowWorkerOptionConfig,
     add_workflow_worker_cli_options,

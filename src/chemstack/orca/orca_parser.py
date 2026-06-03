@@ -18,8 +18,14 @@ from .orca_chemistry import build_formula as _build_formula
 from .orca_opt_progress import OptProgress, OptStep, parse_opt_progress
 from .orca_parser_extractors import (
     parse_coordinates as _parse_coordinates,
+)
+from .orca_parser_extractors import (
     parse_frequencies as _parse_frequencies,
+)
+from .orca_parser_extractors import (
     parse_input_line as _parse_input_line,
+)
+from .orca_parser_extractors import (
     parse_wall_time as _parse_wall_time,
 )
 from .orca_parser_io import read_orca_text as _read_orca_text

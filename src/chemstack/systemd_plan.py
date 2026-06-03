@@ -9,7 +9,6 @@ from chemstack.cli_common import _repo_root
 from chemstack.core.config.files import YAML_CONFIG_LOAD_EXCEPTIONS, load_yaml_mapping
 from chemstack.core.utils.coercion import normalize_text
 
-
 SYSTEMD_UNIT_NAMES = (
     "chemstack-queue-worker@.service",
     "chemstack-bot@.service",

@@ -12,6 +12,8 @@ from chemstack.core.statuses import (
 )
 from chemstack.core.utils.coercion import (
     coerce_mapping as _coerce_mapping,
+)
+from chemstack.core.utils.coercion import (
     normalize_text as _normalize_text,
 )
 

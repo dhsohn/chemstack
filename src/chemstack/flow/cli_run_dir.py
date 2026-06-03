@@ -6,13 +6,14 @@ from typing import Any
 
 from chemstack.cli_common import _dependency
 from chemstack.core.utils.coercion import normalize_text
-from . import cli_workflow_output as _workflow_output
-from . import run_dir_manifest as _run_dir_manifest
-from . import run_dir_options as _run_dir_options
 from chemstack.flow.orchestration.requests import (
     ConformerScreeningWorkflowRequest,
     ReactionTsSearchWorkflowRequest,
 )
+
+from . import cli_workflow_output as _workflow_output
+from . import run_dir_manifest as _run_dir_manifest
+from . import run_dir_options as _run_dir_options
 from .orchestration import (
     create_conformer_screening_workflow,
     create_conformer_screening_workflow_from_request,
@@ -414,7 +415,7 @@ def cmd_run_dir(args: Any, *, deps: Any | None = None) -> int:
     )
 
     try:
-        workflow_dir = path_cls(getattr(args, "workflow_dir")).expanduser().resolve()
+        workflow_dir = path_cls(args.workflow_dir).expanduser().resolve()
         if not workflow_dir.is_dir():
             raise ValueError(f"workflow_dir does not exist or is not a directory: {workflow_dir}")
 
