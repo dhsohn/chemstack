@@ -19,9 +19,8 @@ from chemstack.core.queue import (
     mark_failed,
     requeue_running_entry,
 )
-from chemstack.core.queue import child_entrypoint as _child_entrypoint
-from chemstack.core.queue.dependencies import build_dependency_container
 from chemstack.core.queue import engine_execution as _engine_execution
+from chemstack.core.queue import worker_execution_dependencies as _worker_dependencies
 from chemstack.core.queue.worker import (
     install_shutdown_signal_handlers,
     resolve_admission_root,
@@ -65,20 +64,10 @@ write_state = _queue_artifacts.write_state
 WorkerShutdownRequested = _worker_child.WorkerShutdownRequested
 
 
+WorkerConfigDependencies = _worker_dependencies.WorkerConfigDependencies
+WorkerAdmissionDependencies = _worker_dependencies.WorkerAdmissionDependencies
 WorkerTimingDependencies = _engine_execution.InternalWorkerTimingDependencies
 WorkerQueueDependencies = _engine_execution.InternalWorkerQueueDependencies
-
-
-@dataclass(frozen=True)
-class WorkerConfigDependencies:
-    load_config: Callable[..., Any]
-    queue_entry_by_id: Callable[[Path | str, str], Any | None]
-
-
-@dataclass(frozen=True)
-class WorkerAdmissionDependencies:
-    activate_reserved_slot: Callable[..., Any]
-    release_slot: Callable[..., Any]
 
 
 @dataclass(frozen=True)
@@ -138,40 +127,52 @@ def build_worker_execution_dependencies_from_groups(
     context: WorkerContextDependencies | None = None,
     execute_queue_entry_fn: Callable[..., Any] | None = None,
 ) -> WorkerExecutionDependencies:
-    return WorkerExecutionDependencies(
-        timing=timing,
-        queue=queue,
-        runner=runner,
-        artifacts=artifacts,
-        tracking=tracking,
-        config=config or _default_config_dependencies(),
-        admission=admission or _default_admission_dependencies(),
-        context=context or _default_context_dependencies(),
-        execute_queue_entry=execute_queue_entry_fn,
+    return _worker_dependencies.build_worker_execution_dependencies_from_groups(
+        WorkerExecutionDependencies,
+        {
+            "timing": timing,
+            "queue": queue,
+            "runner": runner,
+            "artifacts": artifacts,
+            "tracking": tracking,
+            "config": config,
+            "admission": admission,
+            "context": context,
+        },
+        execute_queue_entry_fn=execute_queue_entry_fn,
     )
 
 
-def _internal_worker_default_factories() -> dict[str, Callable[[], Any]]:
-    return _engine_execution.build_internal_worker_process_default_factories(
-        timing_dependencies_type=WorkerTimingDependencies,
-        queue_dependencies_type=WorkerQueueDependencies,
-        runner_dependencies_type=WorkerRunnerDependencies,
-        terminate_process=_terminate_process,
-        wait_for_cancellable_process=_queue_execution.wait_for_cancellable_process,
-        sleep=time.sleep,
-        cancel_check_interval_seconds=CANCEL_CHECK_INTERVAL_SECONDS,
-        now_utc_iso=now_utc_iso,
-        get_cancel_requested=get_cancel_requested,
-        mark_completed=mark_completed,
-        mark_cancelled=mark_cancelled,
-        mark_failed=mark_failed,
-        start_crest_job=start_crest_job,
-        finalize_crest_job=finalize_crest_job,
-    )
+def _worker_execution_default_factories() -> dict[str, Callable[[], Any]]:
+    return {
+        **_worker_dependencies.build_worker_process_default_factories(
+            config_factory=_default_config_dependencies,
+            admission_factory=_default_admission_dependencies,
+            timing_dependencies_type=WorkerTimingDependencies,
+            queue_dependencies_type=WorkerQueueDependencies,
+            runner_dependencies_type=WorkerRunnerDependencies,
+            terminate_process=_terminate_process,
+            wait_for_cancellable_process=_queue_execution.wait_for_cancellable_process,
+            sleep=time.sleep,
+            cancel_check_interval_seconds=CANCEL_CHECK_INTERVAL_SECONDS,
+            now_utc_iso=now_utc_iso,
+            get_cancel_requested=get_cancel_requested,
+            mark_completed=mark_completed,
+            mark_cancelled=mark_cancelled,
+            mark_failed=mark_failed,
+            engine_runner_dependencies={
+                "start_crest_job": start_crest_job,
+                "finalize_crest_job": finalize_crest_job,
+            },
+        ),
+        "context": _default_context_dependencies,
+        "artifacts": _default_artifact_dependencies,
+        "tracking": _default_tracking_dependencies,
+    }
 
 
 def _queue_entry_by_id(queue_root: Path | str, queue_id: str) -> Any | None:
-    return _child_entrypoint.queue_entry_by_id(
+    return _worker_dependencies.queue_entry_by_id(
         queue_root,
         queue_id,
         list_queue_fn=list_queue,
@@ -179,14 +180,14 @@ def _queue_entry_by_id(queue_root: Path | str, queue_id: str) -> Any | None:
 
 
 def _default_config_dependencies() -> WorkerConfigDependencies:
-    return WorkerConfigDependencies(
+    return _worker_dependencies.build_worker_config_dependencies(
         load_config=load_config,
-        queue_entry_by_id=_queue_entry_by_id,
+        queue_entry_by_id_fn=_queue_entry_by_id,
     )
 
 
 def _default_admission_dependencies() -> WorkerAdmissionDependencies:
-    return WorkerAdmissionDependencies(
+    return _worker_dependencies.build_worker_admission_dependencies(
         activate_reserved_slot=activate_reserved_slot,
         release_slot=release_slot,
     )
@@ -237,7 +238,7 @@ def build_worker_execution_dependencies(
     tracking: WorkerTrackingDependencies | None = None,
     execute_queue_entry_fn: Callable[..., Any] | None = None,
 ) -> WorkerExecutionDependencies:
-    return build_dependency_container(
+    return _worker_dependencies.build_worker_execution_dependency_container(
         build_worker_execution_dependencies_from_groups,
         {
             "config": config,
@@ -249,15 +250,8 @@ def build_worker_execution_dependencies(
             "artifacts": artifacts,
             "tracking": tracking,
         },
-        {
-            "config": _default_config_dependencies,
-            "admission": _default_admission_dependencies,
-            **_internal_worker_default_factories(),
-            "context": _default_context_dependencies,
-            "artifacts": _default_artifact_dependencies,
-            "tracking": _default_tracking_dependencies,
-        },
-        extra_fields={"execute_queue_entry_fn": execute_queue_entry_fn},
+        _worker_execution_default_factories(),
+        execute_queue_entry_fn=execute_queue_entry_fn,
     )
 
 

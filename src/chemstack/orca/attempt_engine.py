@@ -5,18 +5,20 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, Protocol
 
-from .attempt_reporting import (
-    build_retry_notification,
-    build_run_started_notification,
-    exit_with_result as _exit_with_result,
-    last_out_path_from_state as _last_out_path_from_state,
-)
+from .attempt_notifications import AttemptStartedNotification, notify_attempt_started
+from .attempt_reporting import exit_with_result as _exit_with_result
+from .attempt_reporting import last_out_path_from_state as _last_out_path_from_state
 from .attempt_resume import resolve_execution_input, resume_terminal_decision
+from .attempt_retry import (
+    RetryAttemptRequest,
+    prepare_resumed_checkpoint_input,
+    prepare_retry_attempt,
+    retry_recipe_step,
+)
 from .completion_rules import detect_completion_mode
-from .inp_rewriter import prepare_checkpoint_restart_input, rewrite_for_retry
 from .orca_runner import WorkerShutdownInterrupt
 from .out_analyzer import OutAnalysis, analyze_output
-from .state_machine import MAX_RETRY_RECIPES, decide_attempt_outcome
+from .state_machine import decide_attempt_outcome
 from .state import now_utc_iso, save_state
 from .statuses import AnalyzerStatus, RunStatus
 from .types import (
@@ -55,26 +57,6 @@ class AttemptRunContext:
     notify_retry: Callable[[RetryNotification], Any] | None
 
 
-@dataclass(frozen=True)
-class AttemptStartNotificationContext:
-    run: AttemptRunContext
-    current_inp: Path
-    execution_index: int
-    first_execution_index: int
-    current_status: RunStatus
-    started_at: str
-
-
-@dataclass(frozen=True)
-class RetryPreparationContext:
-    run: AttemptRunContext
-    current_inp: Path
-    out_path: Path
-    execution_index: int
-    retries_used: int
-    analysis: OutAnalysis
-
-
 @dataclass
 class AttemptLoopState:
     execution_index: int
@@ -109,12 +91,7 @@ class RecordedAttemptResult:
 
 
 def _retry_recipe_step(retry_number: int) -> int:
-    """Map retry number to available recipe steps.
-
-    With two recipes, retries beyond step 2 re-use step 2.
-    """
-    retry_number = max(1, int(retry_number))
-    return min(retry_number, MAX_RETRY_RECIPES)
+    return retry_recipe_step(retry_number)
 
 
 def _mark_attempt_started(
@@ -128,34 +105,6 @@ def _mark_attempt_started(
     state["status"] = current_status.value
     save_state(reaction_dir, state)
     return started_at, current_status
-
-
-def _notify_attempt_started_from_context(ctx: AttemptStartNotificationContext) -> None:
-    should_notify_started = ctx.execution_index == ctx.first_execution_index and (
-        ctx.execution_index == 1 or ctx.run.resumed
-    )
-    if not should_notify_started or ctx.run.notify_started is None:
-        return
-
-    started_notification = build_run_started_notification(
-        reaction_dir=ctx.run.reaction_dir,
-        selected_inp=ctx.run.selected_inp,
-        current_inp=ctx.current_inp,
-        state=ctx.run.state,
-        execution_index=ctx.execution_index,
-        max_retries=ctx.run.max_retries,
-        status=ctx.current_status,
-        attempt_started_at=ctx.started_at,
-        resumed=ctx.run.resumed,
-    )
-    try:
-        ctx.run.notify_started(started_notification)
-    except Exception:
-        logger.warning(
-            "Started notification callback failed for attempt %d",
-            ctx.execution_index,
-            exc_info=True,
-        )
 
 
 def _run_and_record_attempt(
@@ -256,31 +205,14 @@ def _resolve_current_attempt_input(
     if current_inp is None:
         return ResolvedAttemptInput(None, missing_reason, [])
 
-    resume_inp, patch_actions = _prepare_resumed_checkpoint_input(ctx, current_inp)
+    resume_inp, patch_actions = prepare_resumed_checkpoint_input(
+        resumed=ctx.resumed,
+        current_inp=current_inp,
+        reaction_dir=ctx.reaction_dir,
+    )
     if resume_inp is not None:
         return ResolvedAttemptInput(resume_inp, None, patch_actions)
     return ResolvedAttemptInput(current_inp, None, [])
-
-
-def _resume_checkpoint_inp_path(current_inp: Path) -> Path:
-    return current_inp.with_name(f"{current_inp.stem}.resume.inp")
-
-
-def _prepare_resumed_checkpoint_input(
-    ctx: AttemptRunContext,
-    current_inp: Path,
-) -> tuple[Path | None, list[str]]:
-    if not ctx.resumed:
-        return None, []
-    target_inp = _resume_checkpoint_inp_path(current_inp)
-    prepared, actions = prepare_checkpoint_restart_input(
-        current_inp,
-        target_inp,
-        ctx.reaction_dir,
-    )
-    if prepared is None:
-        return None, []
-    return prepared, [f"resume_{action}" for action in actions]
 
 
 def _finish_missing_attempt_input(
@@ -348,14 +280,19 @@ def _mark_and_notify_attempt_started(
         ctx.state,
         retries_used=loop.retries_used,
     )
-    _notify_attempt_started_from_context(
-        AttemptStartNotificationContext(
-            run=ctx,
+    notify_attempt_started(
+        AttemptStartedNotification(
+            reaction_dir=ctx.reaction_dir,
+            selected_inp=ctx.selected_inp,
             current_inp=current_inp,
+            state=ctx.state,
             execution_index=loop.execution_index,
             first_execution_index=loop.first_execution_index,
-            current_status=current_status,
-            started_at=started_at,
+            max_retries=ctx.max_retries,
+            status=current_status,
+            attempt_started_at=started_at,
+            resumed=ctx.resumed,
+            notify_started=ctx.notify_started,
         )
     )
     return started_at
@@ -439,14 +376,22 @@ def _finish_decision_or_prepare_retry(
             exit_code=decision.exit_code,
         )
 
-    retry_exit = _prepare_retry_attempt_from_context(
-        RetryPreparationContext(
-            run=ctx,
+    retry_exit = prepare_retry_attempt(
+        RetryAttemptRequest(
+            reaction_dir=ctx.reaction_dir,
+            selected_inp=ctx.selected_inp,
+            state=ctx.state,
+            resumed=ctx.resumed,
             current_inp=result.current_inp,
             out_path=result.out_path,
             execution_index=loop.execution_index,
             retries_used=loop.retries_used,
+            max_retries=ctx.max_retries,
             analysis=analysis,
+            retry_inp_path=ctx.retry_inp_path,
+            emit=ctx.emit,
+            notify_finished=ctx.notify_finished,
+            notify_retry=ctx.notify_retry,
         )
     )
     if retry_exit is not None:
@@ -471,63 +416,6 @@ def _run_attempt_cycle(ctx: AttemptRunContext, loop: AttemptLoopState) -> int | 
     assert result is not None
 
     return _finish_decision_or_prepare_retry(ctx, loop, result)
-
-
-def _prepare_retry_attempt_from_context(ctx: RetryPreparationContext) -> int | None:
-    next_retry_number = ctx.retries_used + 1
-    next_inp = ctx.run.retry_inp_path(ctx.run.selected_inp, next_retry_number)
-    patch_step = _retry_recipe_step(next_retry_number)
-    try:
-        patch_actions = rewrite_for_retry(
-            source_inp=ctx.current_inp,
-            target_inp=next_inp,
-            reaction_dir=ctx.run.reaction_dir,
-            step=patch_step,
-        )
-    except Exception as exc:  # noqa: BLE001
-        ctx.run.state["attempts"][-1]["patch_actions"] = [f"rewrite_failed:{exc}"]
-        return _exit_with_result(
-            ctx.run.reaction_dir,
-            ctx.run.state,
-            ctx.run.selected_inp,
-            status=RunStatus.FAILED,
-            analyzer_status=ctx.analysis.status,
-            reason="rewrite_failed",
-            last_out_path=str(ctx.out_path),
-            resumed=ctx.run.resumed,
-            exit_code=1,
-            emit=ctx.run.emit,
-            notify_finished=ctx.run.notify_finished,
-        )
-
-    ctx.run.state["attempts"][-1]["patch_actions"] = patch_actions
-    save_state(ctx.run.reaction_dir, ctx.run.state)
-    if ctx.run.notify_retry is None:
-        return None
-
-    retry_notification = build_retry_notification(
-        reaction_dir=ctx.run.reaction_dir,
-        selected_inp=ctx.run.selected_inp,
-        current_inp=ctx.current_inp,
-        out_path=ctx.out_path,
-        next_inp=next_inp,
-        execution_index=ctx.execution_index,
-        next_retry_number=next_retry_number,
-        max_retries=ctx.run.max_retries,
-        analysis_status=ctx.analysis.status,
-        analysis_reason=ctx.analysis.reason,
-        patch_actions=patch_actions,
-        resumed=ctx.run.resumed,
-    )
-    try:
-        ctx.run.notify_retry(retry_notification)
-    except Exception:
-        logger.warning(
-            "Retry notification callback failed for attempt %d",
-            ctx.execution_index,
-            exc_info=True,
-        )
-    return None
 
 
 def run_attempts(

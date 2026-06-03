@@ -5,7 +5,7 @@ from dataclasses import dataclass, fields
 from pathlib import Path
 from typing import Any, ClassVar
 
-from chemstack.flow.orchestration import dep_builders as _dep_builders
+import chemstack.flow.orchestration.dep_builders as _dep_builders
 
 AnyCallable = Callable[..., Any]
 WorkflowPayload = dict[str, Any]
