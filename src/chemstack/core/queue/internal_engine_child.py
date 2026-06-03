@@ -20,7 +20,7 @@ class _WorkerShutdownRequestedBase(RuntimeError):
 def create_worker_shutdown_exception_type(
     module_name: str,
     class_name: str = "WorkerShutdownRequested",
-) -> type[RuntimeError]:
+) -> type[_WorkerShutdownRequestedBase]:
     return type(
         class_name,
         (_WorkerShutdownRequestedBase,),
