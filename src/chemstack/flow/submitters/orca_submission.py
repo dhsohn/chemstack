@@ -5,6 +5,23 @@ from pathlib import Path
 from typing import Any, Callable
 
 from chemstack.core.app_ids import ORCA_SUBMITTERS
+from chemstack.core.statuses import (
+    STATUS_ADMISSION_BLOCKED,
+    STATUS_ADMISSION_LIMIT_REACHED,
+    STATUS_BLOCKED,
+    STATUS_DEFERRED,
+    STATUS_FAILED,
+    STATUS_PARTIALLY_SUBMITTED,
+    STATUS_PLANNED,
+    STATUS_QUEUED,
+    STATUS_SKIPPED,
+    STATUS_SUBMISSION_FAILED,
+    STATUS_SUBMITTED,
+    STATUS_WAITING_FOR_SLOT,
+    SUBMISSION_DEFERRED_STATUSES,
+    SUBMISSION_SUBMITTED_STAGE_STATUSES,
+    SUBMISSION_SUBMITTED_TASK_STATUSES,
+)
 from chemstack.flow.orchestration.stage_views import (
     WorkflowPayloadView,
     WorkflowStageView,
@@ -24,41 +41,33 @@ from .orca_models import (
 
 @dataclass(frozen=True)
 class _SubmissionStatusNames:
-    admission_blocked: str = "admission_blocked"
-    admission_limit_reached: str = "admission_limit_reached"
-    blocked: str = "blocked"
-    deferred: str = "deferred"
-    failed: str = "failed"
-    partially_submitted: str = "partially_submitted"
-    planned: str = "planned"
-    queued: str = "queued"
-    skipped: str = "skipped"
-    submitted: str = "submitted"
-    submission_failed: str = "submission_failed"
-    waiting_for_slot: str = "waiting_for_slot"
+    admission_blocked: str = STATUS_ADMISSION_BLOCKED
+    admission_limit_reached: str = STATUS_ADMISSION_LIMIT_REACHED
+    blocked: str = STATUS_BLOCKED
+    deferred: str = STATUS_DEFERRED
+    failed: str = STATUS_FAILED
+    partially_submitted: str = STATUS_PARTIALLY_SUBMITTED
+    planned: str = STATUS_PLANNED
+    queued: str = STATUS_QUEUED
+    skipped: str = STATUS_SKIPPED
+    submitted: str = STATUS_SUBMITTED
+    submission_failed: str = STATUS_SUBMISSION_FAILED
+    waiting_for_slot: str = STATUS_WAITING_FOR_SLOT
 
 
 @dataclass(frozen=True)
 class _SubmissionBucketNames:
-    deferred: str = "deferred"
-    failed: str = "failed"
-    skipped: str = "skipped"
-    submitted: str = "submitted"
+    deferred: str = STATUS_DEFERRED
+    failed: str = STATUS_FAILED
+    skipped: str = STATUS_SKIPPED
+    submitted: str = STATUS_SUBMITTED
 
 
 _STATUS = _SubmissionStatusNames()
 _BUCKET = _SubmissionBucketNames()
-_DEFERRED_SUBMISSION_STATUSES = frozenset(
-    (
-        _STATUS.blocked,
-        _STATUS.waiting_for_slot,
-        _STATUS.admission_blocked,
-        _STATUS.admission_limit_reached,
-        _STATUS.deferred,
-    )
-)
-_SUBMITTED_TASK_STATUSES = frozenset((_STATUS.submitted,))
-_SUBMITTED_STAGE_STATUSES = frozenset((_STATUS.submitted, _STATUS.queued))
+_DEFERRED_SUBMISSION_STATUSES = SUBMISSION_DEFERRED_STATUSES
+_SUBMITTED_TASK_STATUSES = SUBMISSION_SUBMITTED_TASK_STATUSES
+_SUBMITTED_STAGE_STATUSES = SUBMISSION_SUBMITTED_STAGE_STATUSES
 
 
 @dataclass(frozen=True)

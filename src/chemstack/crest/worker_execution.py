@@ -5,11 +5,11 @@ import os
 import signal
 import subprocess
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
-from chemstack.core.admission import release_slot
+from chemstack.core.admission import activate_reserved_slot, release_slot
 from chemstack.core.queue import (
     execution as _queue_execution,
     get_cancel_requested,
@@ -41,8 +41,8 @@ from .runner import CrestRunResult, finalize_crest_job, start_crest_job
 from .state import mark_recovery_pending
 from .worker_context import (
     ExecutionContext,
-    build_execution_context as _build_execution_context,
     molecule_key as _molecule_key,
+    mode as _mode,
 )
 from .worker_terminal import (
     WorkerExecutionOutcome,
@@ -55,6 +55,7 @@ from .worker_terminal import (
 )
 
 CANCEL_CHECK_INTERVAL_SECONDS = 1
+WORKER_JOB_MODULE = _worker_child.WORKER_JOB_MODULE
 is_recovery_pending = _queue_artifacts.is_recovery_pending
 load_state = _queue_artifacts.load_state
 state_matches_job = _queue_artifacts.state_matches_job
@@ -69,9 +70,30 @@ WorkerQueueDependencies = _engine_execution.InternalWorkerQueueDependencies
 
 
 @dataclass(frozen=True)
+class WorkerConfigDependencies:
+    load_config: Callable[..., Any]
+    queue_entry_by_id: Callable[[Path | str, str], Any | None]
+
+
+@dataclass(frozen=True)
+class WorkerAdmissionDependencies:
+    activate_reserved_slot: Callable[..., Any]
+    release_slot: Callable[..., Any]
+
+
+@dataclass(frozen=True)
 class WorkerRunnerDependencies(_engine_execution.InternalWorkerProcessDependencies):
     start_crest_job: Callable[..., Any]
     finalize_crest_job: Callable[..., CrestRunResult]
+
+
+@dataclass(frozen=True)
+class WorkerContextDependencies:
+    job_dir: Callable[[Any], Path]
+    selected_xyz: Callable[[Any], Path]
+    molecule_key: Callable[[Any, Path, Path], str]
+    mode: Callable[[Any], str]
+    entry_resource_request: Callable[[Any, Any], dict[str, int]]
 
 
 @dataclass(frozen=True)
@@ -94,6 +116,14 @@ class WorkerExecutionDependencies:
     runner: WorkerRunnerDependencies
     artifacts: WorkerArtifactDependencies
     tracking: WorkerTrackingDependencies
+    config: WorkerConfigDependencies = field(default_factory=lambda: _default_config_dependencies())
+    admission: WorkerAdmissionDependencies = field(
+        default_factory=lambda: _default_admission_dependencies()
+    )
+    context: WorkerContextDependencies = field(
+        default_factory=lambda: _default_context_dependencies()
+    )
+    execute_queue_entry: Callable[..., Any] | None = None
 
 
 def build_worker_execution_dependencies_from_groups(
@@ -103,6 +133,10 @@ def build_worker_execution_dependencies_from_groups(
     runner: WorkerRunnerDependencies,
     artifacts: WorkerArtifactDependencies,
     tracking: WorkerTrackingDependencies,
+    config: WorkerConfigDependencies | None = None,
+    admission: WorkerAdmissionDependencies | None = None,
+    context: WorkerContextDependencies | None = None,
+    execute_queue_entry_fn: Callable[..., Any] | None = None,
 ) -> WorkerExecutionDependencies:
     return WorkerExecutionDependencies(
         timing=timing,
@@ -110,6 +144,10 @@ def build_worker_execution_dependencies_from_groups(
         runner=runner,
         artifacts=artifacts,
         tracking=tracking,
+        config=config or _default_config_dependencies(),
+        admission=admission or _default_admission_dependencies(),
+        context=context or _default_context_dependencies(),
+        execute_queue_entry=execute_queue_entry_fn,
     )
 
 
@@ -132,6 +170,46 @@ def _internal_worker_default_factories() -> dict[str, Callable[[], Any]]:
     )
 
 
+def _queue_entry_by_id(queue_root: Path | str, queue_id: str) -> Any | None:
+    return _child_entrypoint.queue_entry_by_id(
+        queue_root,
+        queue_id,
+        list_queue_fn=list_queue,
+    )
+
+
+def _default_config_dependencies() -> WorkerConfigDependencies:
+    return WorkerConfigDependencies(
+        load_config=load_config,
+        queue_entry_by_id=_queue_entry_by_id,
+    )
+
+
+def _default_admission_dependencies() -> WorkerAdmissionDependencies:
+    return WorkerAdmissionDependencies(
+        activate_reserved_slot=activate_reserved_slot,
+        release_slot=release_slot,
+    )
+
+
+def _job_dir(entry: Any) -> Path:
+    return _engine_execution.entry_metadata_resolved_path(entry, "job_dir")
+
+
+def _selected_xyz(entry: Any) -> Path:
+    return _engine_execution.entry_metadata_resolved_path(entry, "selected_input_xyz")
+
+
+def _default_context_dependencies() -> WorkerContextDependencies:
+    return WorkerContextDependencies(
+        job_dir=_job_dir,
+        selected_xyz=_selected_xyz,
+        molecule_key=_molecule_key,
+        mode=_mode,
+        entry_resource_request=_queue_artifacts.entry_resource_request,
+    )
+
+
 def _default_artifact_dependencies() -> WorkerArtifactDependencies:
     return WorkerArtifactDependencies(
         write_running_state=_write_running_state,
@@ -149,26 +227,37 @@ def _default_tracking_dependencies() -> WorkerTrackingDependencies:
 
 def build_worker_execution_dependencies(
     *,
+    config: WorkerConfigDependencies | None = None,
+    admission: WorkerAdmissionDependencies | None = None,
     timing: WorkerTimingDependencies | None = None,
     queue: WorkerQueueDependencies | None = None,
+    context: WorkerContextDependencies | None = None,
     runner: WorkerRunnerDependencies | None = None,
     artifacts: WorkerArtifactDependencies | None = None,
     tracking: WorkerTrackingDependencies | None = None,
+    execute_queue_entry_fn: Callable[..., Any] | None = None,
 ) -> WorkerExecutionDependencies:
     return build_dependency_container(
         build_worker_execution_dependencies_from_groups,
         {
+            "config": config,
+            "admission": admission,
             "timing": timing,
             "queue": queue,
+            "context": context,
             "runner": runner,
             "artifacts": artifacts,
             "tracking": tracking,
         },
         {
+            "config": _default_config_dependencies,
+            "admission": _default_admission_dependencies,
             **_internal_worker_default_factories(),
+            "context": _default_context_dependencies,
             "artifacts": _default_artifact_dependencies,
             "tracking": _default_tracking_dependencies,
         },
+        extra_fields={"execute_queue_entry_fn": execute_queue_entry_fn},
     )
 
 
@@ -212,6 +301,27 @@ def _terminate_process(proc: subprocess.Popen[str]) -> None:
     )
 
 
+def _build_execution_context(
+    cfg: Any,
+    entry: Any,
+    *,
+    dependencies: WorkerExecutionDependencies,
+    molecule_key_resolver: Callable[[Any, Path, Path], str] | None = None,
+) -> ExecutionContext:
+    context_deps = dependencies.context
+    job_dir = context_deps.job_dir(entry)
+    selected_xyz = context_deps.selected_xyz(entry)
+    resolve_molecule_key = molecule_key_resolver or context_deps.molecule_key
+    return ExecutionContext(
+        entry=entry,
+        job_dir=job_dir,
+        selected_xyz=selected_xyz,
+        molecule_key=resolve_molecule_key(entry, selected_xyz, job_dir),
+        mode=context_deps.mode(entry),
+        resource_request=context_deps.entry_resource_request(cfg, entry),
+    )
+
+
 def _mark_recovery_pending_context(cfg: Any, context: ExecutionContext, *, reason: str) -> None:
     _engine_execution.mark_recovery_pending_and_record(
         cfg,
@@ -237,7 +347,7 @@ def _mark_recovery_pending_entry(cfg: Any, entry: Any, *, reason: str) -> None:
     context = _build_execution_context(
         cfg,
         entry,
-        molecule_key_resolver=_molecule_key,
+        dependencies=default_worker_execution_dependencies(),
     )
     _mark_recovery_pending_context(cfg, context, reason=reason)
 
@@ -379,6 +489,7 @@ def _worker_execution_spec(
         build_context=lambda cfg_obj, entry_obj: _build_execution_context(
             cfg_obj,
             entry_obj,
+            dependencies=dependencies,
             molecule_key_resolver=molecule_key_resolver,
         ),
         shutdown_exception_type=WorkerShutdownRequested,
@@ -479,16 +590,17 @@ def process_dequeued_entry(
     entry: Any,
     *,
     queue_root: Path | None = None,
-    molecule_key_resolver: Callable[[Any, Path, Path], str],
-    dependencies: WorkerExecutionDependencies,
+    molecule_key_resolver: Callable[[Any, Path, Path], str] | None = None,
+    dependencies: WorkerExecutionDependencies | None = None,
     shutdown_requested: Callable[[], bool] | None = None,
 ) -> WorkerExecutionOutcome:
+    deps = dependencies or default_worker_execution_dependencies()
     return _run_worker_entry_lifecycle(
         cfg,
         entry,
         queue_root=queue_root,
-        molecule_key_resolver=molecule_key_resolver,
-        dependencies=dependencies,
+        molecule_key_resolver=molecule_key_resolver or deps.context.molecule_key,
+        dependencies=deps,
         shutdown_requested=shutdown_requested,
     )
 
@@ -498,11 +610,7 @@ def _admission_root_for_cfg(cfg: Any) -> str:
 
 
 def _find_queue_entry(queue_root: Path, queue_id: str) -> Any | None:
-    return _child_entrypoint.queue_entry_by_id(
-        queue_root,
-        queue_id,
-        list_queue_fn=list_queue,
-    )
+    return _queue_entry_by_id(queue_root, queue_id)
 
 
 def run_worker_child_job(
@@ -511,21 +619,23 @@ def run_worker_child_job(
     queue_root: str | Path,
     queue_id: str,
     admission_token: str | None = None,
+    dependencies: WorkerExecutionDependencies | None = None,
 ) -> int:
+    deps = dependencies or default_worker_execution_dependencies()
     return _worker_child.run_worker_child_job(
         config_path=config_path,
         queue_root=queue_root,
         queue_id=queue_id,
         admission_token=admission_token,
-        load_config_fn=load_config,
-        find_queue_entry_fn=_find_queue_entry,
+        load_config_fn=deps.config.load_config,
+        find_queue_entry_fn=deps.config.queue_entry_by_id,
         admission_root_fn=_admission_root_for_cfg,
-        release_slot_fn=release_slot,
+        release_slot_fn=deps.admission.release_slot,
         install_signal_handlers_fn=_worker_child.shutdown_signal_handler_installer(
             install_shutdown_signal_handlers,
         ),
         process_dequeued_entry_fn=process_dequeued_entry,
-        dependencies_fn=default_worker_execution_dependencies,
+        dependencies_fn=lambda: deps,
         requeue_running_entry_fn=requeue_running_entry,
         mark_recovery_pending_context_fn=_mark_recovery_pending_context,
     )

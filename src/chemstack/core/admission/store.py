@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import os
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable, Iterator, TypeVar
 
 from ..utils import process as process_utils
 from ..utils.lock import file_lock
@@ -19,6 +20,7 @@ from ..utils.persistence import (
 
 ADMISSION_FILE_NAME = "admission_slots.json"
 ADMISSION_LOCK_NAME = "admission.lock"
+_MutationResultT = TypeVar("_MutationResultT")
 
 
 class AdmissionLimitReachedError(RuntimeError):
@@ -133,7 +135,12 @@ def _load_slots(root: Path) -> list[AdmissionSlot]:
 
 
 def _save_slots(root: Path, slots: list[AdmissionSlot]) -> None:
-    atomic_write_json(root / ADMISSION_FILE_NAME, [_slot_to_dict(slot) for slot in slots], ensure_ascii=True, indent=2)
+    atomic_write_json(
+        root / ADMISSION_FILE_NAME,
+        [_slot_to_dict(slot) for slot in slots],
+        ensure_ascii=True,
+        indent=2,
+    )
 
 
 def _slot_owner_alive(slot: AdmissionSlot) -> bool:
@@ -245,25 +252,102 @@ def _metadata_updated_slot(
     )
 
 
-def reconcile_stale_slots(root: str | Path) -> int:
+@contextmanager
+def admission_lock(root: str | Path) -> Iterator[None]:
     resolved_root = resolve_root_path(root)
     with file_lock(_lock_path(resolved_root)):
-        slots = _load_slots(resolved_root)
-        kept = [slot for slot in slots if _slot_owner_alive(slot)]
-        removed = len(slots) - len(kept)
-        if removed:
-            _save_slots(resolved_root, kept)
-        return removed
+        yield
+
+
+@dataclass(frozen=True)
+class AdmissionStore:
+    """Persistence facade for one admission root.
+
+    Module-level functions remain the compatibility API. New code can use this
+    object to keep root resolution and lock/load/save mutation semantics in one
+    place instead of repeating that pattern at each call site.
+    """
+
+    root: Path
+    load_slots_fn: Callable[[Path], list[AdmissionSlot]]
+    save_slots_fn: Callable[[Path, list[AdmissionSlot]], Any]
+
+    @classmethod
+    def for_root(
+        cls,
+        root: str | Path,
+        *,
+        load_slots_fn: Callable[[Path], list[AdmissionSlot]] | None = None,
+        save_slots_fn: Callable[[Path, list[AdmissionSlot]], Any] | None = None,
+    ) -> AdmissionStore:
+        return cls(
+            root=resolve_root_path(root),
+            load_slots_fn=load_slots_fn or _load_slots,
+            save_slots_fn=save_slots_fn or _save_slots,
+        )
+
+    @property
+    def path(self) -> Path:
+        return _admission_path(self.root)
+
+    def _load_live_slots(self) -> list[AdmissionSlot]:
+        return [slot for slot in self.load_slots_fn(self.root) if _slot_owner_alive(slot)]
+
+    def reconcile_stale_slots(self) -> int:
+        with admission_lock(self.root):
+            slots = self.load_slots_fn(self.root)
+            kept = [slot for slot in slots if _slot_owner_alive(slot)]
+            removed = len(slots) - len(kept)
+            if removed:
+                self.save_slots_fn(self.root, kept)
+            return removed
+
+    def list_slots(self, *, normalize_file: bool = False) -> list[AdmissionSlot]:
+        with admission_lock(self.root):
+            slots = self._load_live_slots()
+            if normalize_file and self.path.exists():
+                self.save_slots_fn(self.root, slots)
+            return slots
+
+    def mutate_live_slots(
+        self,
+        mutator: Callable[[list[AdmissionSlot]], tuple[_MutationResultT, bool]],
+    ) -> _MutationResultT:
+        with admission_lock(self.root):
+            slots = self._load_live_slots()
+            result, changed = mutator(slots)
+            if changed:
+                self.save_slots_fn(self.root, slots)
+            return result
+
+    def mutate_slot_by_token(
+        self,
+        token: str,
+        updater: Callable[[AdmissionSlot], tuple[_MutationResultT, AdmissionSlot | None]],
+        *,
+        missing_result: _MutationResultT,
+        save_on_missing: bool = False,
+    ) -> _MutationResultT:
+        def mutate(slots: list[AdmissionSlot]) -> tuple[_MutationResultT, bool]:
+            for index, slot in enumerate(slots):
+                if slot.token != token:
+                    continue
+                result, updated_slot = updater(slot)
+                if updated_slot is None:
+                    return result, False
+                slots[index] = updated_slot
+                return result, True
+            return missing_result, save_on_missing
+
+        return self.mutate_live_slots(mutate)
+
+
+def reconcile_stale_slots(root: str | Path) -> int:
+    return AdmissionStore.for_root(root).reconcile_stale_slots()
 
 
 def list_slots(root: str | Path) -> list[AdmissionSlot]:
-    resolved_root = resolve_root_path(root)
-    reconcile_stale_slots(resolved_root)
-    with file_lock(_lock_path(resolved_root)):
-        slots = _load_slots(resolved_root)
-        if _admission_path(resolved_root).exists():
-            _save_slots(resolved_root, slots)
-        return slots
+    return AdmissionStore.for_root(root).list_slots(normalize_file=True)
 
 
 def active_slot_count(root: str | Path) -> int:
@@ -307,17 +391,16 @@ def reserve_slot_from_request(
     root: str | Path,
     request: AdmissionReservationRequest,
 ) -> str | None:
-    resolved_root = resolve_root_path(root)
-    with file_lock(_lock_path(resolved_root)):
-        slots = _live_slots(resolved_root)
-        if _reservation_limit_reached(resolved_root, slots, request):
-            _save_slots(resolved_root, slots)
-            return None
+    store = AdmissionStore.for_root(root)
 
+    def reserve(slots: list[AdmissionSlot]) -> tuple[str | None, bool]:
+        if _reservation_limit_reached(store.root, slots, request):
+            return None, True
         slot = _slot_from_reservation_request(request)
         slots.append(slot)
-        _save_slots(resolved_root, slots)
-        return slot.token
+        return slot.token, True
+
+    return store.mutate_live_slots(reserve)
 
 
 def reserve_slot_or_raise(
@@ -388,28 +471,26 @@ def activate_reserved_slot_with_update(
     token: str,
     update: AdmissionSlotActivation,
 ) -> AdmissionSlot | None:
-    resolved_root = resolve_root_path(root)
-    with file_lock(_lock_path(resolved_root)):
-        slots = _live_slots(resolved_root)
-        for index, slot in enumerate(slots):
-            if slot.token != token:
-                continue
-            updated = _activated_slot(slot, update)
-            slots[index] = updated
-            _save_slots(resolved_root, slots)
-            return updated
-    return None
+    def activate(slot: AdmissionSlot) -> tuple[AdmissionSlot, AdmissionSlot]:
+        updated = _activated_slot(slot, update)
+        return updated, updated
+
+    return AdmissionStore.for_root(root).mutate_slot_by_token(
+        token,
+        activate,
+        missing_result=None,
+    )
 
 
 def release_slot(root: str | Path, token: str) -> bool:
-    resolved_root = resolve_root_path(root)
-    with file_lock(_lock_path(resolved_root)):
-        slots = _live_slots(resolved_root)
+    def release(slots: list[AdmissionSlot]) -> tuple[bool, bool]:
         kept = [slot for slot in slots if slot.token != token]
         removed = len(kept) != len(slots)
         if removed:
-            _save_slots(resolved_root, kept)
-        return removed
+            slots[:] = kept
+        return removed, removed
+
+    return AdmissionStore.for_root(root).mutate_live_slots(release)
 
 
 def update_slot_metadata(
@@ -438,15 +519,13 @@ def update_slot_metadata_with_update(
     token: str,
     update: AdmissionSlotMetadataUpdate,
 ) -> AdmissionSlot | None:
-    resolved_root = resolve_root_path(root)
-    with file_lock(_lock_path(resolved_root)):
-        slots = _live_slots(resolved_root)
-        for index, slot in enumerate(slots):
-            if slot.token != token:
-                continue
-            updated = _metadata_updated_slot(slot, update)
-            slots[index] = updated
-            _save_slots(resolved_root, slots)
-            return updated
-        _save_slots(resolved_root, slots)
-    return None
+    def update_metadata(slot: AdmissionSlot) -> tuple[AdmissionSlot, AdmissionSlot]:
+        updated = _metadata_updated_slot(slot, update)
+        return updated, updated
+
+    return AdmissionStore.for_root(root).mutate_slot_by_token(
+        token,
+        update_metadata,
+        missing_result=None,
+        save_on_missing=True,
+    )

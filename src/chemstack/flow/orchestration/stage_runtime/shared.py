@@ -6,6 +6,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from chemstack.core.statuses import (
+    STATUS_PLANNED,
+    STATUS_QUEUED,
+    STATUS_SUBMISSION_FAILED,
+    STATUS_SUBMITTED,
+    STATUS_UNKNOWN,
+    STATUS_WAITING_FOR_SLOT,
+    SUBMISSION_DEFERRED_STATUSES,
+)
 from chemstack.core.utils import normalize_bool as _shared_normalize_bool
 
 from chemstack.flow.orchestration.deps import (
@@ -13,7 +22,10 @@ from chemstack.flow.orchestration.deps import (
     orchestration_deps,
 )
 from chemstack.flow.orchestration.stage_views import WorkflowStageView, WorkflowTaskView
-from chemstack.flow.state import workflow_stage_dirnames_for_engine, workflow_workspace_internal_engine_paths
+from chemstack.flow.state import (
+    workflow_stage_dirnames_for_engine,
+    workflow_workspace_internal_engine_paths,
+)
 
 _LOGGER = logging.getLogger("chemstack.flow.orchestration.stage_runtime.shared")
 
@@ -42,7 +54,7 @@ class EngineStageSyncContext:
 
     def should_submit(self, *, submit_ready: bool, config_path: str | None) -> bool:
         return (
-            self.o.stages._normalize_text(self.task.get("status")) == "planned"
+            self.o.stages._normalize_text(self.task.get("status")) == STATUS_PLANNED
             and submit_ready
             and bool(self.o.stages._normalize_text(config_path))
         )
@@ -110,20 +122,14 @@ def _submission_status(submission: dict[str, Any]) -> str:
 
 
 def _submission_is_deferred(submission: dict[str, Any]) -> bool:
-    return _submission_status(submission) in {
-        "blocked",
-        "waiting_for_slot",
-        "admission_blocked",
-        "admission_limit_reached",
-        "deferred",
-    }
+    return _submission_status(submission) in SUBMISSION_DEFERRED_STATUSES
 
 
 def _submission_deferred_reason(submission: dict[str, Any]) -> str:
     reason = str(submission.get("reason", "")).strip()
     if reason:
         return reason
-    return _submission_status(submission) or "waiting_for_slot"
+    return _submission_status(submission) or STATUS_WAITING_FOR_SLOT
 
 
 def _mark_submission_deferred(
@@ -134,8 +140,11 @@ def _mark_submission_deferred(
     submission: dict[str, Any],
 ) -> None:
     del task
-    WorkflowStageView(stage).set_status_pair(stage_status="planned", task_status="planned")
-    stage_metadata["submission_status"] = "waiting_for_slot"
+    WorkflowStageView(stage).set_status_pair(
+        stage_status=STATUS_PLANNED,
+        task_status=STATUS_PLANNED,
+    )
+    stage_metadata["submission_status"] = STATUS_WAITING_FOR_SLOT
     stage_metadata["submission_deferred_reason"] = _submission_deferred_reason(submission)
     stage_metadata["last_submission_attempt_at"] = str(submission.get("submitted_at", "")).strip()
     stage_metadata.pop("submitted_at", None)
@@ -168,10 +177,10 @@ def _apply_submission_result(
         stage_metadata.update(deferred_metadata or {})
         return False
 
-    submitted = _submission_status(submission) == "submitted"
+    submitted = _submission_status(submission) == STATUS_SUBMITTED
     WorkflowStageView(stage).set_status_pair(
-        stage_status="queued" if submitted else "submission_failed",
-        task_status="submitted" if submitted else "submission_failed",
+        stage_status=STATUS_QUEUED if submitted else STATUS_SUBMISSION_FAILED,
+        task_status=STATUS_SUBMITTED if submitted else STATUS_SUBMISSION_FAILED,
     )
     for metadata_key, submission_key in metadata_fields:
         stage_metadata[metadata_key] = submission.get(submission_key, "")
@@ -182,7 +191,7 @@ def _apply_submission_result(
 
 def _apply_contract_status(stage: dict[str, Any], task: dict[str, Any], status: str) -> None:
     del task
-    if status != "unknown":
+    if status != STATUS_UNKNOWN:
         WorkflowStageView(stage).set_status_pair(stage_status=status, task_status=status)
 
 

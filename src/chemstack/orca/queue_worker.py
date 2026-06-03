@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import os
+import sys
 import time
 from pathlib import Path
 from typing import Any
@@ -76,10 +77,13 @@ from .runtime.worker_job import (
     BackgroundRunJobProcess,
     build_worker_child_command,
 )
+from . import queue_worker_lifecycle as _lifecycle_helpers
+from . import queue_worker_tracking as _tracking_helpers
 from .queue_worker_deps import (
     OrcaQueueWorkerFacadeCallbacks,
     build_orca_runtime_facade_deps,
 )
+from .queue_worker_runtime_facade import build_orca_queue_worker_runtime_facade_deps
 from .state import load_organized_ref, load_report_json, load_state
 from .telegram_notifier import notify_run_finished_event
 from .job_locations import (
@@ -87,6 +91,42 @@ from .job_locations import (
     resolve_job_metadata,
     resource_dict,
     upsert_job_record,
+)
+
+# Preserve historical facade attributes for external imports and monkeypatching.
+_LEGACY_COMPAT_EXPORTS = (
+    EngineQueueProcessReconcileHooks,
+    EngineQueueProcessShutdownHooks,
+    EngineQueueTerminalSideEffectHooks,
+    OrcaQueueWorkerFacadeCallbacks,
+    activate_reserved_slot,
+    build_orca_runtime_facade_deps,
+    build_run_finished_notification,
+    coerce_resource_request,
+    finished_notification_already_sent,
+    list_slots,
+    load_organized_ref,
+    load_report_json,
+    load_state,
+    mark_cancelled,
+    mark_completed,
+    mark_finished_notification_sent,
+    notify_run_finished_event,
+    queue_entry_app_name,
+    queue_entry_metadata,
+    reconcile_orphaned_process_entries,
+    reconcile_orphaned_running_entries,
+    reconcile_stale_slots,
+    record_from_artifacts,
+    release_slot,
+    requeue_running_entry,
+    resolve_job_metadata,
+    resource_dict,
+    selected_input_artifacts,
+    shutdown_running_process_job,
+    upsert_job_record,
+    update_slot_metadata,
+    read_resource_request_from_input,
 )
 
 logger = logging.getLogger(__name__)
@@ -106,63 +146,8 @@ _ENGINE_ADMISSION = _ENGINE_SPEC.admission()
 
 
 def _runtime_facade_deps() -> Any:
-    return build_orca_runtime_facade_deps(
-        OrcaQueueWorkerFacadeCallbacks(
-            release_slot=lambda root, token: release_slot(root, token),
-            reserve_slot=lambda *args, **kwargs: _reserve_orca_worker_slot(*args, **kwargs),
-            start_background_process=lambda command: start_background_process(command),
-            build_worker_child_command=lambda *args, **kwargs: build_worker_child_command(
-                *args,
-                **kwargs,
-            ),
-            activate_reserved_slot=lambda *args, **kwargs: activate_reserved_slot(
-                *args,
-                **kwargs,
-            ),
-            terminate_process=lambda process: _terminate_process(process),
-            mark_failed=lambda *args, **kwargs: mark_failed(*args, **kwargs),
-            handle_worker_start_error=lambda *args, **kwargs: _handle_worker_start_error(
-                *args,
-                **kwargs,
-            ),
-            finalize_completed_job=lambda *args, **kwargs: _finalize_completed_job(
-                *args,
-                **kwargs,
-            ),
-            finalize_child_exit=lambda *args, **kwargs: _finalize_child_exit(
-                *args,
-                **kwargs,
-            ),
-            reconcile_worker_state=lambda worker: _reconcile_worker_state(worker),
-            list_queue=lambda root: list_queue(Path(root)),
-            list_slots=lambda root: list_slots(root),
-            reconcile_stale_slots=lambda root: reconcile_stale_slots(root),
-            mark_cancelled=lambda *args, **kwargs: mark_cancelled(*args, **kwargs),
-            requeue_running_entry=lambda *args, **kwargs: requeue_running_entry(
-                *args,
-                **kwargs,
-            ),
-            try_reserve_admission_slot=lambda cfg: _try_reserve_admission_slot(cfg),
-            start_background_job_process=lambda **kwargs: _start_background_job_process(
-                **kwargs,
-            ),
-            find_queue_entry=lambda root, queue_id: _queue_module.queue_entry_by_id(
-                root,
-                queue_id,
-            ),
-            load_config=lambda config_path: load_config(config_path),
-            read_worker_pid=lambda allowed_root: read_worker_pid(allowed_root),
-            worker_class=lambda *args, **kwargs: QueueWorker(*args, **kwargs),
-            on_worker_process_started=lambda *args, **kwargs: _on_worker_process_started(
-                *args,
-                **kwargs,
-            ),
-            shutdown_running_job=lambda *args, **kwargs: _shutdown_running_job(
-                *args,
-                **kwargs,
-            ),
-            before_shutdown_all=lambda *args, **kwargs: _before_shutdown_all(*args, **kwargs),
-        ),
+    return build_orca_queue_worker_runtime_facade_deps(
+        sys.modules[__name__],
         time_module=time,
     )
 
@@ -246,34 +231,22 @@ def _terminate_process(proc: _ManagedProcess) -> None:
     terminate_process_group(proc)
 
 
+def _tracking_callbacks() -> _tracking_helpers.OrcaQueueWorkerTrackingCallbacks:
+    return _tracking_helpers.tracking_callbacks_from_namespace(sys.modules[__name__])
+
+
 def _get_run_id_from_state(reaction_dir: str) -> str | None:
-    """Try to read run_id from the reaction_dir's run_state.json."""
-    state = load_state(Path(reaction_dir))
-    if state:
-        return state.get("run_id")
-    return None
+    return _tracking_helpers.get_run_id_from_state(
+        reaction_dir,
+        callbacks=_tracking_callbacks(),
+    )
 
 
 def _upsert_running_job_record(cfg: AppConfig, entry: QueueEntry) -> None:
-    task_id = queue_entry_task_id(entry)
-    if not task_id:
-        return
-    reaction_dir = Path(queue_entry_reaction_dir(entry)).expanduser().resolve()
-    selected_input, job_type, molecule_key, requested, actual = _tracking_metadata_from_queue_entry(
+    _tracking_helpers.upsert_running_job_record(
         cfg,
         entry,
-        reaction_dir=reaction_dir,
-    )
-    upsert_job_record(
-        cfg,
-        job_id=task_id,
-        status="running",
-        job_dir=reaction_dir,
-        job_type=job_type,
-        selected_input_xyz=selected_input,
-        molecule_key=molecule_key,
-        resource_request=requested,
-        resource_actual=actual,
+        callbacks=_tracking_callbacks(),
     )
 
 
@@ -283,38 +256,12 @@ def _tracking_metadata_from_queue_entry(
     *,
     reaction_dir: Path,
 ) -> tuple[str, str, str, dict[str, int], dict[str, int]]:
-    metadata = queue_entry_metadata(entry)
-    selected_inp = str(metadata.get("selected_inp") or "").strip()
-    selected_xyz = str(metadata.get("selected_input_xyz") or "").strip()
-    selected_input = str(
-        selected_xyz
-        or metadata.get("selected_input_path")
-        or selected_input_artifacts(selected_inp).selected_input_path
-    ).strip()
-    job_type = str(metadata.get("job_type") or "").strip()
-    molecule_key = str(metadata.get("molecule_key") or "").strip()
-    if not job_type or not molecule_key:
-        derived_job_type, derived_molecule_key = resolve_job_metadata(
-            selected_inp or selected_input,
-            reaction_dir,
-        )
-        job_type = job_type or derived_job_type
-        molecule_key = molecule_key or derived_molecule_key
-
-    requested = coerce_resource_request(metadata.get("resource_request"))
-    resource_inp = selected_inp or selected_input
-    if not requested and resource_inp.lower().endswith(".inp"):
-        selected_inp_path = Path(resource_inp).expanduser().resolve()
-        if selected_inp_path.exists():
-            requested = read_resource_request_from_input(selected_inp_path)
-    if not requested:
-        requested = resource_dict(
-            cfg.resources.max_cores_per_task,
-            cfg.resources.max_memory_gb_per_task,
-        )
-
-    actual = coerce_resource_request(metadata.get("resource_actual")) or dict(requested)
-    return selected_input, job_type, molecule_key, requested, actual
+    return _tracking_helpers.tracking_metadata_from_queue_entry(
+        cfg,
+        entry,
+        reaction_dir=reaction_dir,
+        callbacks=_tracking_callbacks(),
+    )
 
 
 def _upsert_terminal_job_record(
@@ -323,74 +270,20 @@ def _upsert_terminal_job_record(
     *,
     fallback_job_id: str | None = None,
 ) -> None:
-    job_dir = Path(reaction_dir).expanduser().resolve()
-    state = load_state(job_dir)
-    record = record_from_artifacts(
-        job_dir=job_dir,
-        state=dict(state) if state is not None else None,
-        report=load_report_json(job_dir),
-        organized_ref=load_organized_ref(job_dir),
-        fallback_job_id=fallback_job_id or "",
-    )
-    if record is None:
-        return
-    organized_output_dir = (
-        Path(record.organized_output_dir).expanduser().resolve()
-        if record.organized_output_dir
-        else None
-    )
-    upsert_job_record(
+    _tracking_helpers.upsert_terminal_job_record(
         cfg,
-        job_id=record.job_id,
-        status=record.status,
-        job_dir=Path(record.original_run_dir).expanduser().resolve(),
-        job_type=record.job_type,
-        selected_input_xyz=record.selected_input_xyz,
-        organized_output_dir=organized_output_dir,
-        molecule_key=record.molecule_key,
-        resource_request=dict(record.resource_request),
-        resource_actual=dict(record.resource_actual),
+        reaction_dir,
+        fallback_job_id=fallback_job_id or "",
+        callbacks=_tracking_callbacks(),
     )
 
 
 def _notify_terminal_job_from_state(cfg: AppConfig, reaction_dir: str) -> bool:
-    if not cfg.telegram.enabled:
-        return False
-
-    job_dir = Path(reaction_dir).expanduser().resolve()
-    state = load_state(job_dir)
-    if not state:
-        logger.warning("Skipping terminal Telegram notification; state missing for %s", job_dir)
-        return False
-    if finished_notification_already_sent(state):
-        return False
-
-    final_result = state.get("final_result")
-    if not isinstance(final_result, dict):
-        logger.warning(
-            "Skipping terminal Telegram notification; final_result missing for %s",
-            job_dir,
-        )
-        return False
-
-    selected_inp_text = str(state.get("selected_inp") or "").strip()
-    selected_inp = Path(selected_inp_text) if selected_inp_text else job_dir / "-"
-    status = str(final_result.get("status") or state.get("status") or "").strip()
-    notification = build_run_finished_notification(
-        reaction_dir=job_dir,
-        selected_inp=selected_inp,
-        state=state,
-        status=status,
-        final_result=final_result,
+    return _tracking_helpers.notify_terminal_job_from_state(
+        cfg,
+        reaction_dir,
+        callbacks=_tracking_callbacks(),
     )
-    sent = notify_run_finished_event(cfg.telegram, notification)
-    if sent:
-        mark_finished_notification_sent(job_dir, state)
-        logger.info("Terminal Telegram notification sent by queue worker: %s", job_dir)
-        return True
-
-    logger.warning("Terminal Telegram notification failed in queue worker: %s", job_dir)
-    return False
 
 
 def _worker_admission_limit(cfg: AppConfig, fallback_max_concurrent: int) -> int:
@@ -399,27 +292,12 @@ def _worker_admission_limit(cfg: AppConfig, fallback_max_concurrent: int) -> int
     return _resolve_worker_admission_limit(cfg)
 
 
+def _lifecycle_callbacks() -> _lifecycle_helpers.OrcaQueueWorkerLifecycleCallbacks:
+    return _lifecycle_helpers.lifecycle_callbacks_from_namespace(sys.modules[__name__])
+
+
 def _orca_worker_lifecycle_hooks() -> EngineQueueProcessLifecycleHooks:
-    return EngineQueueProcessLifecycleHooks(
-        queue_entry_id_fn=queue_entry_id,
-        queue_entry_app_name_fn=queue_entry_app_name,
-        queue_entry_task_id_fn=queue_entry_task_id,
-        update_slot_metadata_fn=update_slot_metadata,
-        terminate_process_fn=_terminate_process,
-        mark_failed_fn=mark_failed,
-        upsert_running_job_record_fn=_upsert_running_job_record,
-        get_run_id_from_state_fn=_get_run_id_from_state,
-        get_cancel_requested_fn=get_cancel_requested,
-        mark_cancelled_fn=mark_cancelled,
-        mark_completed_fn=mark_completed,
-        upsert_terminal_job_record_fn=_upsert_terminal_job_record,
-        notify_terminal_job_from_state_fn=_notify_terminal_job_from_state,
-        on_completed_fn=lambda worker, job: worker._auto_organize_terminal_job(job),
-        terminal_side_effect_hooks=EngineQueueTerminalSideEffectHooks(
-            upsert_terminal_job_record_fn=_upsert_terminal_job_record,
-            notify_terminal_job_from_state_fn=_notify_terminal_job_from_state,
-        ),
-    )
+    return _lifecycle_helpers.build_orca_worker_lifecycle_hooks(_lifecycle_callbacks())
 
 
 def _job_queue_root(worker: Any, job: Any) -> Path:
@@ -480,15 +358,9 @@ def _finalize_child_exit(worker: Any, job: _RunningJob, *, rc: int) -> None:
 
 
 def _reconcile_orphaned_running(worker: Any) -> None:
-    """Fix queue entries stuck as running from a previous worker crash."""
-    reconcile_orphaned_process_entries(
+    _lifecycle_helpers.reconcile_orphaned_running(
         worker,
-        hooks=EngineQueueProcessReconcileHooks(
-            queue_roots_fn=queue_roots,
-            reconcile_stale_slots_fn=reconcile_stale_slots,
-            reconcile_orphaned_running_entries_fn=reconcile_orphaned_running_entries,
-            reconcile_orphaned_running_entries_kwargs={"ignore_worker_pid": True},
-        ),
+        callbacks=_lifecycle_callbacks(),
     )
 
 
@@ -497,14 +369,11 @@ def _reconcile_worker_state(worker: Any) -> None:
 
 
 def _shutdown_running_job(worker: Any, queue_id: str, job: Any) -> None:
-    shutdown_running_process_job(
+    _lifecycle_helpers.shutdown_running_job(
         worker,
         queue_id,
         job,
-        hooks=EngineQueueProcessShutdownHooks(
-            terminate_process_fn=_terminate_process,
-            requeue_running_entry_fn=requeue_running_entry,
-        ),
+        callbacks=_lifecycle_callbacks(),
     )
 
 

@@ -184,15 +184,9 @@ class ProcessDequeuedEntrySpy:
     terminate_calls: list[Any] = field(default_factory=list)
     running_state_calls: list[str] = field(default_factory=list)
     artifact_results: list[CrestRunResult] = field(default_factory=list)
-    mark_completed_calls: list[tuple[tuple[Any, ...], dict[str, Any]]] = field(
-        default_factory=list
-    )
-    mark_cancelled_calls: list[tuple[tuple[Any, ...], dict[str, Any]]] = field(
-        default_factory=list
-    )
-    mark_failed_calls: list[tuple[tuple[Any, ...], dict[str, Any]]] = field(
-        default_factory=list
-    )
+    mark_completed_calls: list[tuple[tuple[Any, ...], dict[str, Any]]] = field(default_factory=list)
+    mark_cancelled_calls: list[tuple[tuple[Any, ...], dict[str, Any]]] = field(default_factory=list)
+    mark_failed_calls: list[tuple[tuple[Any, ...], dict[str, Any]]] = field(default_factory=list)
     upsert_calls: list[dict[str, Any]] = field(default_factory=list)
     started_notifications: list[dict[str, Any]] = field(default_factory=list)
     finished_notifications: list[dict[str, Any]] = field(default_factory=list)
@@ -238,12 +232,8 @@ class ProcessDequeuedEntrySpy:
             write_execution_artifacts=lambda actual_entry, actual_result: (
                 self.artifact_results.append(actual_result)
             ),
-            mark_completed=lambda *args, **kwargs: self.mark_completed_calls.append(
-                (args, kwargs)
-            ),
-            mark_cancelled=lambda *args, **kwargs: self.mark_cancelled_calls.append(
-                (args, kwargs)
-            ),
+            mark_completed=lambda *args, **kwargs: self.mark_completed_calls.append((args, kwargs)),
+            mark_cancelled=lambda *args, **kwargs: self.mark_cancelled_calls.append((args, kwargs)),
             mark_failed=lambda *args, **kwargs: self.mark_failed_calls.append((args, kwargs)),
             upsert_job_record=lambda cfg, **kwargs: self.upsert_calls.append(kwargs),
             notify_job_started=self.notify_started,
@@ -260,7 +250,11 @@ def test_write_execution_artifacts_returns_early_without_job_dir(
     entry = _entry("   ", selected_xyz)
     result = _result(tmp_path, selected_xyz)
 
-    monkeypatch.setattr(worker_execution, "write_state", lambda *args, **kwargs: pytest.fail("unexpected state write"))
+    monkeypatch.setattr(
+        worker_execution,
+        "write_state",
+        lambda *args, **kwargs: pytest.fail("unexpected state write"),
+    )
     monkeypatch.setattr(
         worker_execution,
         "write_report_json",
@@ -275,7 +269,9 @@ def test_write_execution_artifacts_returns_early_without_job_dir(
     worker_execution._write_execution_artifacts(entry, result)
 
 
-def test_write_execution_artifacts_writes_retained_paths_to_state_and_report(tmp_path: Path) -> None:
+def test_write_execution_artifacts_writes_retained_paths_to_state_and_report(
+    tmp_path: Path,
+) -> None:
     job_dir = tmp_path / "job"
     job_dir.mkdir()
     selected_xyz = job_dir / "selected_input.xyz"
@@ -315,7 +311,11 @@ def test_write_running_state_returns_early_without_job_dir(
     cfg = _cfg(tmp_path)
     entry = _entry("   ", "")
 
-    monkeypatch.setattr(worker_execution, "write_state", lambda *args, **kwargs: pytest.fail("unexpected state write"))
+    monkeypatch.setattr(
+        worker_execution,
+        "write_state",
+        lambda *args, **kwargs: pytest.fail("unexpected state write"),
+    )
 
     worker_execution._write_running_state(cfg, entry)
 
@@ -367,7 +367,9 @@ def test_write_running_state_writes_running_payload_with_fallback_timestamps(
     }
 
 
-def test_write_running_state_marks_resumed_when_recovery_pending_state_exists(tmp_path: Path) -> None:
+def test_write_running_state_marks_resumed_when_recovery_pending_state_exists(
+    tmp_path: Path,
+) -> None:
     cfg = _cfg(tmp_path)
     job_dir = tmp_path / "job"
     job_dir.mkdir()
@@ -538,7 +540,11 @@ def test_terminate_process_swallows_proc_method_errors_after_killpg_fallback(
                 raise subprocess.TimeoutExpired(cmd="crest", timeout=timeout)
 
     proc = FlakyProcess()
-    monkeypatch.setattr(worker_execution.os, "killpg", lambda *args, **kwargs: (_ for _ in ()).throw(ProcessLookupError()))
+    monkeypatch.setattr(
+        worker_execution.os,
+        "killpg",
+        lambda *args, **kwargs: (_ for _ in ()).throw(ProcessLookupError()),
+    )
 
     worker_execution._terminate_process(cast(Any, proc))
 
@@ -574,6 +580,123 @@ def test_sync_job_tracking_never_organizes_for_crest(tmp_path: Path) -> None:
     assert upsert_calls[0]["job_id"] == entry.task_id
     assert upsert_calls[0]["job_dir"] == job_dir.resolve()
     assert upsert_calls[0]["molecule_key"] == "fixed-key"
+
+
+def test_process_dequeued_entry_uses_context_dependency_group(tmp_path: Path) -> None:
+    cfg = _cfg(tmp_path)
+    job_dir = tmp_path / "job"
+    job_dir.mkdir()
+    selected_xyz = job_dir / "selected_input.xyz"
+    selected_xyz.write_text("1\nselected\nH 0.0 0.0 0.0\n", encoding="utf-8")
+    entry = _entry("ignored-job-dir", "ignored-selected-xyz", mode="ignored")
+    running = SimpleNamespace(process=FakeProcess(None, 0))
+    result = _result(job_dir, selected_xyz, reason="ok", mode="nci")
+    sleeps: list[float] = []
+    upsert_calls: list[dict[str, Any]] = []
+    started_notifications: list[dict[str, Any]] = []
+
+    def notify_started(cfg: Any, **kwargs: Any) -> bool:
+        del cfg
+        started_notifications.append(kwargs)
+        return True
+
+    deps = worker_execution.build_worker_execution_dependencies(
+        timing=worker_execution.WorkerTimingDependencies(
+            now_utc_iso=lambda: "2026-04-19T09:15:00+00:00",
+        ),
+        queue=worker_execution.WorkerQueueDependencies(
+            get_cancel_requested=lambda *args, **kwargs: False,
+            mark_completed=_noop,
+            mark_cancelled=_noop,
+            mark_failed=_noop,
+        ),
+        context=worker_execution.WorkerContextDependencies(
+            job_dir=lambda _entry: job_dir.resolve(),
+            selected_xyz=lambda _entry: selected_xyz.resolve(),
+            molecule_key=lambda _entry, _selected_xyz, _job_dir: "ctx-key",
+            mode=lambda _entry: "nci",
+            entry_resource_request=lambda _cfg, _entry: {
+                "max_cores": 2,
+                "max_memory_gb": 6,
+            },
+        ),
+        runner=worker_execution.WorkerRunnerDependencies(
+            start_crest_job=lambda _cfg, *, job_dir, selected_xyz: running,
+            finalize_crest_job=lambda actual_running, **kwargs: result,
+            terminate_process=_noop,
+            wait_for_cancellable_process=(
+                worker_execution._queue_execution.wait_for_cancellable_process
+            ),
+            sleep=lambda seconds: sleeps.append(seconds),
+            cancel_check_interval_seconds=worker_execution.CANCEL_CHECK_INTERVAL_SECONDS,
+        ),
+        artifacts=worker_execution.WorkerArtifactDependencies(
+            write_running_state=_noop,
+            write_execution_artifacts=_noop,
+        ),
+        tracking=worker_execution.WorkerTrackingDependencies(
+            upsert_job_record=lambda cfg, **kwargs: upsert_calls.append(kwargs),
+            notify_job_started=notify_started,
+            notify_job_finished=_notify_ok,
+        ),
+    )
+
+    outcome = worker_execution.process_dequeued_entry(cfg, entry, dependencies=deps)
+
+    assert outcome.job_dir == job_dir.resolve()
+    assert outcome.selected_xyz == selected_xyz.resolve()
+    assert outcome.molecule_key == "ctx-key"
+    assert sleeps == [worker_execution.CANCEL_CHECK_INTERVAL_SECONDS]
+    assert upsert_calls[0]["mode"] == "nci"
+    assert upsert_calls[0]["resource_request"] == {"max_cores": 2, "max_memory_gb": 6}
+    assert started_notifications[0]["mode"] == "nci"
+
+
+def test_run_worker_child_job_uses_dependency_config_and_admission_groups(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    cfg = SimpleNamespace(name="cfg")
+    entry = SimpleNamespace(queue_id="queue-1")
+    released: list[tuple[str, str]] = []
+    deps = worker_execution.build_worker_execution_dependencies(
+        config=worker_execution.WorkerConfigDependencies(
+            load_config=lambda path: cfg,
+            queue_entry_by_id=lambda root, queue_id: entry,
+        ),
+        admission=worker_execution.WorkerAdmissionDependencies(
+            activate_reserved_slot=lambda *args, **kwargs: object(),
+            release_slot=lambda root, token: released.append((str(root), token)),
+        ),
+    )
+    captured: dict[str, Any] = {}
+
+    def fake_run_worker_child_job(**kwargs: Any) -> int:
+        captured.update(kwargs)
+        assert kwargs["load_config_fn"]("/tmp/chemstack.yaml") is cfg
+        assert kwargs["find_queue_entry_fn"](tmp_path / "queue", "queue-1") is entry
+        kwargs["release_slot_fn"]("/tmp/admission", "slot-1")
+        assert kwargs["dependencies_fn"]() is deps
+        return 0
+
+    monkeypatch.setattr(
+        worker_execution._worker_child,
+        "run_worker_child_job",
+        fake_run_worker_child_job,
+    )
+
+    rc = worker_execution.run_worker_child_job(
+        config_path="/tmp/chemstack.yaml",
+        queue_root=tmp_path / "queue",
+        queue_id="queue-1",
+        admission_token="slot-1",
+        dependencies=deps,
+    )
+
+    assert rc == 0
+    assert captured["queue_id"] == "queue-1"
+    assert released == [("/tmp/admission", "slot-1")]
+
 
 def test_process_dequeued_entry_polls_sleeps_and_completes(
     monkeypatch: pytest.MonkeyPatch,
@@ -640,7 +763,9 @@ def test_process_dequeued_entry_terminates_and_forces_cancelled_result(
     entry = _entry(job_dir, selected_xyz)
     proc = FakeProcess(None)
     running = SimpleNamespace(process=proc)
-    result = _result(job_dir, selected_xyz, status="cancelled", reason="cancel_requested", exit_code=-15)
+    result = _result(
+        job_dir, selected_xyz, status="cancelled", reason="cancel_requested", exit_code=-15
+    )
 
     sleeps: list[int] = []
     finalize_kwargs: list[dict[str, Any]] = []
@@ -719,11 +844,15 @@ def test_process_dequeued_entry_builds_failed_result_when_runner_raises(
 
     deps = _dependencies(
         now_utc_iso=lambda: failure_time,
-        start_crest_job=lambda cfg, *, job_dir, selected_xyz: (_ for _ in ()).throw(RuntimeError("boom")),
+        start_crest_job=lambda cfg, *, job_dir, selected_xyz: (_ for _ in ()).throw(
+            RuntimeError("boom")
+        ),
         finalize_crest_job=lambda *args, **kwargs: pytest.fail("finalize should not run"),
         get_cancel_requested=lambda *args, **kwargs: pytest.fail("cancel should not be checked"),
         terminate_process=lambda *args, **kwargs: pytest.fail("terminate should not run"),
-        write_execution_artifacts=lambda actual_entry, actual_result: artifact_results.append(actual_result),
+        write_execution_artifacts=lambda actual_entry, actual_result: artifact_results.append(
+            actual_result
+        ),
         mark_failed=lambda *args, **kwargs: mark_failed_calls.append((args, kwargs)),
         upsert_job_record=lambda cfg, **kwargs: upsert_calls.append(kwargs),
         notify_job_finished=fake_notify_finished,
@@ -769,7 +898,9 @@ def test_process_dequeued_entry_raises_worker_shutdown_requested_before_start(
     entry = _entry(job_dir, selected_xyz)
 
     deps = _dependencies(
-        write_running_state=lambda *args, **kwargs: pytest.fail("running state should not be written"),
+        write_running_state=lambda *args, **kwargs: pytest.fail(
+            "running state should not be written"
+        ),
         upsert_job_record=lambda *args, **kwargs: pytest.fail("job record should not be updated"),
         notify_job_started=lambda *args, **kwargs: pytest.fail("start notification should not run"),
         start_crest_job=lambda *args, **kwargs: pytest.fail("job should not start"),
@@ -811,11 +942,15 @@ def test_process_dequeued_entry_raises_worker_shutdown_requested_after_start(
         start_crest_job=lambda cfg, *, job_dir, selected_xyz: running,
         terminate_process=lambda actual_proc: terminate_calls.append(actual_proc),
         finalize_crest_job=lambda *args, **kwargs: pytest.fail("finalize should not run"),
-        write_execution_artifacts=lambda *args, **kwargs: pytest.fail("artifacts should not be written"),
+        write_execution_artifacts=lambda *args, **kwargs: pytest.fail(
+            "artifacts should not be written"
+        ),
         mark_completed=lambda *args, **kwargs: pytest.fail("queue should not be marked completed"),
         mark_cancelled=lambda *args, **kwargs: pytest.fail("queue should not be marked cancelled"),
         mark_failed=lambda *args, **kwargs: pytest.fail("queue should not be marked failed"),
-        notify_job_finished=lambda *args, **kwargs: pytest.fail("finish notification should not run"),
+        notify_job_finished=lambda *args, **kwargs: pytest.fail(
+            "finish notification should not run"
+        ),
     )
 
     shutdown_checks = iter([False, False, True])

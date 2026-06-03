@@ -4,6 +4,19 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
+from chemstack.core.statuses import (
+    CANCEL_ACK_STATUSES,
+    STATUS_CANCEL_FAILED,
+    STATUS_CANCEL_REQUESTED,
+    STATUS_CANCELLED,
+    STATUS_COMPLETED,
+    STATUS_FAILED,
+    STATUS_QUEUED,
+    STATUS_RUNNING,
+    STATUS_SKIPPED,
+    STATUS_SUBMITTED,
+)
+
 from .orca_models import (
     CancelStageContext,
     SiblingSubmitterConfig,
@@ -27,6 +40,7 @@ class CancellationDeps:
 
 
 CANCEL_RESULT = TaskRecordMutator("cancel_result")
+_CANCEL_SKIP_TERMINAL_STATUSES = frozenset({STATUS_COMPLETED, STATUS_FAILED})
 
 
 def cancel_config(
@@ -41,7 +55,9 @@ def cancel_config(
     )
 
 
-def cancel_stage_context(stage: dict[str, Any], deps: CancellationDeps) -> CancelStageContext | None:
+def cancel_stage_context(
+    stage: dict[str, Any], deps: CancellationDeps
+) -> CancelStageContext | None:
     task = stage.get("task")
     if not isinstance(task, dict):
         return None
@@ -74,15 +90,12 @@ def cancel_stage_context(stage: dict[str, Any], deps: CancellationDeps) -> Cance
 
 
 def cancel_skip_reason(context: CancelStageContext) -> str:
-    if context.task_status in {"cancelled", "cancel_requested"} or context.stage_status in {
-        "cancelled",
-        "cancel_requested",
-    }:
+    if context.task_status in CANCEL_ACK_STATUSES or context.stage_status in CANCEL_ACK_STATUSES:
         return "already_cancelled"
-    if context.task_status in {"completed", "failed"} or context.stage_status in {
-        "completed",
-        "failed",
-    }:
+    if (
+        context.task_status in _CANCEL_SKIP_TERMINAL_STATUSES
+        or context.stage_status in _CANCEL_SKIP_TERMINAL_STATUSES
+    ):
         return "already_terminal"
     return ""
 
@@ -91,15 +104,15 @@ def record_cancel_skip(context: CancelStageContext, reason: str) -> WorkflowStag
     return WorkflowStageOutcome(
         bucket="skipped",
         detail={"stage_id": context.stage_id, "reason": reason},
-        stage_result={"stage_id": context.stage_id, "status": "skipped", "reason": reason},
+        stage_result={"stage_id": context.stage_id, "status": STATUS_SKIPPED, "reason": reason},
     )
 
 
 def needs_orca_cancel(context: CancelStageContext) -> bool:
     return bool(
         context.queue_id
-        or context.task_status in {"submitted"}
-        or context.stage_status in {"queued", "running"}
+        or context.task_status in {STATUS_SUBMITTED}
+        or context.stage_status in {STATUS_QUEUED, STATUS_RUNNING}
     )
 
 
@@ -122,26 +135,28 @@ def apply_cancel_result(
     )
 
 
-def record_local_cancel(context: CancelStageContext, deps: CancellationDeps) -> WorkflowStageOutcome:
+def record_local_cancel(
+    context: CancelStageContext, deps: CancellationDeps
+) -> WorkflowStageOutcome:
     cancel_record = {
-        "status": "cancelled",
+        "status": STATUS_CANCELLED,
         "cancelled_at": deps.now_utc_iso(),
         "mode": "local",
     }
     apply_cancel_result(
         context,
         cancel_record=cancel_record,
-        task_status="cancelled",
-        stage_status="cancelled",
+        task_status=STATUS_CANCELLED,
+        stage_status=STATUS_CANCELLED,
         metadata_updates={
-            "cancel_status": "cancelled",
+            "cancel_status": STATUS_CANCELLED,
             "cancelled_at": cancel_record["cancelled_at"],
         },
     )
     return WorkflowStageOutcome(
         bucket="cancelled",
         detail={"stage_id": context.stage_id, "mode": "local"},
-        stage_result={"stage_id": context.stage_id, "status": "cancelled", "mode": "local"},
+        stage_result={"stage_id": context.stage_id, "status": STATUS_CANCELLED, "mode": "local"},
     )
 
 
@@ -153,7 +168,7 @@ def record_cancel_failure(
     stage_result: dict[str, Any] | None = None,
 ) -> WorkflowStageOutcome:
     cancel_record = {
-        "status": "failed",
+        "status": STATUS_FAILED,
         "reason": reason,
         "cancelled_at": deps.now_utc_iso(),
     }
@@ -165,7 +180,7 @@ def record_cancel_failure(
         bucket="failed",
         detail={"stage_id": context.stage_id, "reason": reason},
         stage_result=stage_result
-        or {"stage_id": context.stage_id, "status": "cancel_failed", "reason": reason},
+        or {"stage_id": context.stage_id, "status": STATUS_CANCEL_FAILED, "reason": reason},
     )
 
 
@@ -185,7 +200,7 @@ def record_remote_cancel_success(
             "cancelled_at": cancel_record["cancelled_at"],
         },
     )
-    bucket = {"cancel_requested": "requested"}.get(cancel_status, "cancelled")
+    bucket = {STATUS_CANCEL_REQUESTED: "requested"}.get(cancel_status, "cancelled")
     return WorkflowStageOutcome(
         bucket=bucket,
         detail={
@@ -216,7 +231,7 @@ def record_remote_cancel_failed(
         },
         stage_result={
             "stage_id": context.stage_id,
-            "status": "cancel_failed",
+            "status": STATUS_CANCEL_FAILED,
             "returncode": returncode,
         },
     )
@@ -234,10 +249,10 @@ def record_remote_cancel(
         config_path=submitter_config.config_path,
         repo_root=submitter_config.repo_root,
     )
-    cancel_status = str(cancel_record.get("status", "failed"))
+    cancel_status = str(cancel_record.get("status", STATUS_FAILED))
     cancel_record["cancelled_at"] = deps.now_utc_iso()
     cancel_record["target"] = cancel_identifier
-    if cancel_status in {"cancel_requested", "cancelled"}:
+    if cancel_status in {STATUS_CANCEL_REQUESTED, STATUS_CANCELLED}:
         return record_remote_cancel_success(
             context,
             cancel_record=cancel_record,
@@ -276,13 +291,15 @@ def cancel_stage_outcome(
     )
 
 
-def write_cancellation_summary(payload: dict[str, Any], buckets: WorkflowBuckets, deps: CancellationDeps) -> None:
+def write_cancellation_summary(
+    payload: dict[str, Any], buckets: WorkflowBuckets, deps: CancellationDeps
+) -> None:
     if buckets.requested:
-        payload["status"] = "cancel_requested"
+        payload["status"] = STATUS_CANCEL_REQUESTED
     elif buckets.cancelled:
-        payload["status"] = "cancelled"
+        payload["status"] = STATUS_CANCELLED
     elif buckets.failed:
-        payload["status"] = "cancel_failed"
+        payload["status"] = STATUS_CANCEL_FAILED
     metadata = workflow_metadata(payload)
     if metadata is not None:
         metadata["cancellation_summary"] = {
