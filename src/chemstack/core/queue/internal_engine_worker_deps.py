@@ -125,6 +125,9 @@ def _legacy_queue_entry_finder(
     return lambda root, queue_id: legacy.call(name, root, queue_id)
 
 
+_DepsKwargs = dict[str, Any]
+
+
 @dataclass(frozen=True)
 class InternalEngineQueueWorkerDeps:
     time_module: Any
@@ -272,6 +275,134 @@ class InternalEngineQueueWorkerDepsResolver:
         )
 
 
+def _required_deps_from_namespace(
+    legacy: _LegacyNamespaceAdapter,
+    *,
+    time_module_name: str,
+    release_slot_name: str,
+    reserve_slot_name: str,
+    start_background_process_name: str,
+    build_worker_child_command_name: str,
+    config_path_for_worker_name: str,
+    default_config_path_name: str,
+    activate_reserved_slot_name: str,
+    terminate_process_name: str,
+    mark_failed_name: str,
+) -> _DepsKwargs:
+    return {
+        "time_module": legacy.lookup(time_module_name),
+        "release_slot": lambda root, token: legacy.call(release_slot_name, root, token),
+        "reserve_slot": _legacy_call_fn(legacy, reserve_slot_name),
+        "start_background_process": lambda command: legacy.call(
+            start_background_process_name,
+            command,
+        ),
+        "build_worker_child_command": _legacy_call_fn(
+            legacy,
+            build_worker_child_command_name,
+        ),
+        "config_path_for_worker": _legacy_call_fn(legacy, config_path_for_worker_name),
+        "default_config_path": lambda: legacy.call(default_config_path_name),
+        "activate_reserved_slot": _legacy_call_fn(legacy, activate_reserved_slot_name),
+        "terminate_process": lambda process: legacy.call(terminate_process_name, process),
+        "mark_failed": _legacy_call_fn(legacy, mark_failed_name),
+    }
+
+
+def _lifecycle_deps_from_namespace(
+    legacy: _LegacyNamespaceAdapter,
+    *,
+    handle_worker_start_error_name: str,
+    finalize_completed_job_name: str,
+    finalize_child_exit_name: str,
+    reconcile_worker_state_name: str,
+) -> _DepsKwargs:
+    return {
+        "handle_worker_start_error": _legacy_call_fn(
+            legacy,
+            handle_worker_start_error_name,
+        ),
+        "finalize_completed_job": _legacy_call_fn(legacy, finalize_completed_job_name),
+        "finalize_child_exit": _legacy_call_fn(legacy, finalize_child_exit_name),
+        "reconcile_worker_state": lambda worker: legacy.call(
+            reconcile_worker_state_name,
+            worker,
+        ),
+    }
+
+
+def _reconciliation_deps_from_namespace(
+    legacy: _LegacyNamespaceAdapter,
+    *,
+    list_queue_name: str,
+    list_slots_name: str,
+    reconcile_stale_slots_name: str,
+    reconcile_orphaned_child_queue_entries_name: str,
+    mark_cancelled_name: str,
+    requeue_running_entry_name: str,
+    mark_recovery_pending_name: str,
+) -> _DepsKwargs:
+    return {
+        "list_queue": lambda root: legacy.call(list_queue_name, root),
+        "list_slots": lambda root: legacy.call(list_slots_name, root),
+        "reconcile_stale_slots": lambda root: legacy.call(
+            reconcile_stale_slots_name,
+            root,
+        ),
+        "reconcile_orphaned_child_queue_entries": _legacy_call_fn(
+            legacy,
+            reconcile_orphaned_child_queue_entries_name,
+        ),
+        "mark_cancelled": _legacy_call_fn(legacy, mark_cancelled_name),
+        "requeue_running_entry": _legacy_call_fn(legacy, requeue_running_entry_name),
+        "mark_recovery_pending": _legacy_call_fn(legacy, mark_recovery_pending_name),
+    }
+
+
+def _optional_deps_from_namespace(
+    legacy: _LegacyNamespaceAdapter,
+    *,
+    try_reserve_admission_slot_name: str,
+    start_background_job_process_name: str,
+    find_queue_entry_name: str | None,
+    load_config_name: str,
+    read_worker_pid_name: str,
+    worker_class_name: str,
+    on_worker_process_started_name: str | None,
+    shutdown_running_job_name: str | None,
+    before_shutdown_all_name: str | None,
+) -> _DepsKwargs:
+    return {
+        "try_reserve_admission_slot": lambda cfg: legacy.call(
+            try_reserve_admission_slot_name,
+            cfg,
+        ),
+        "start_background_job_process_fn": lambda **kwargs: legacy.call(
+            start_background_job_process_name,
+            **kwargs,
+        ),
+        "find_queue_entry": _legacy_queue_entry_finder(legacy, find_queue_entry_name),
+        "load_config": lambda config_path: legacy.call(load_config_name, config_path),
+        "read_worker_pid": lambda allowed_root: legacy.call(
+            read_worker_pid_name,
+            allowed_root,
+        ),
+        "worker_class": _legacy_call_fn(legacy, worker_class_name),
+        "on_worker_process_started": _legacy_optional_call_fn(
+            legacy,
+            on_worker_process_started_name,
+        ),
+        "shutdown_running_job": _legacy_optional_call_fn(
+            legacy,
+            shutdown_running_job_name,
+        ),
+        "before_shutdown_all": _legacy_optional_call_fn(
+            legacy,
+            before_shutdown_all_name,
+        ),
+    }
+
+
 def internal_engine_queue_worker_deps_from_namespace(
     namespace: LegacyWorkerNamespace,
     *,
@@ -307,47 +438,52 @@ def internal_engine_queue_worker_deps_from_namespace(
     before_shutdown_all_name: str | None = None,
 ) -> InternalEngineQueueWorkerDeps:
     legacy = _LegacyNamespaceAdapter(namespace)
-    optional_started_hook = _legacy_optional_call_fn(legacy, on_worker_process_started_name)
-    optional_shutdown_job = _legacy_optional_call_fn(legacy, shutdown_running_job_name)
-    optional_before_shutdown = _legacy_optional_call_fn(legacy, before_shutdown_all_name)
 
     return InternalEngineQueueWorkerDeps(
-        time_module=legacy.lookup(time_module_name),
-        release_slot=lambda root, token: legacy.call(release_slot_name, root, token),
-        reserve_slot=_legacy_call_fn(legacy, reserve_slot_name),
-        start_background_process=lambda command: legacy.call(start_background_process_name, command),
-        build_worker_child_command=_legacy_call_fn(legacy, build_worker_child_command_name),
-        config_path_for_worker=_legacy_call_fn(legacy, config_path_for_worker_name),
-        default_config_path=lambda: legacy.call(default_config_path_name),
-        activate_reserved_slot=_legacy_call_fn(legacy, activate_reserved_slot_name),
-        terminate_process=lambda process: legacy.call(terminate_process_name, process),
-        mark_failed=_legacy_call_fn(legacy, mark_failed_name),
-        handle_worker_start_error=_legacy_call_fn(legacy, handle_worker_start_error_name),
-        finalize_completed_job=_legacy_call_fn(legacy, finalize_completed_job_name),
-        finalize_child_exit=_legacy_call_fn(legacy, finalize_child_exit_name),
-        reconcile_worker_state=lambda worker: legacy.call(reconcile_worker_state_name, worker),
-        list_queue=lambda root: legacy.call(list_queue_name, root),
-        list_slots=lambda root: legacy.call(list_slots_name, root),
-        reconcile_stale_slots=lambda root: legacy.call(reconcile_stale_slots_name, root),
-        reconcile_orphaned_child_queue_entries=_legacy_call_fn(
+        **_required_deps_from_namespace(
             legacy,
-            reconcile_orphaned_child_queue_entries_name,
+            time_module_name=time_module_name,
+            release_slot_name=release_slot_name,
+            reserve_slot_name=reserve_slot_name,
+            start_background_process_name=start_background_process_name,
+            build_worker_child_command_name=build_worker_child_command_name,
+            config_path_for_worker_name=config_path_for_worker_name,
+            default_config_path_name=default_config_path_name,
+            activate_reserved_slot_name=activate_reserved_slot_name,
+            terminate_process_name=terminate_process_name,
+            mark_failed_name=mark_failed_name,
         ),
-        mark_cancelled=_legacy_call_fn(legacy, mark_cancelled_name),
-        requeue_running_entry=_legacy_call_fn(legacy, requeue_running_entry_name),
-        mark_recovery_pending=_legacy_call_fn(legacy, mark_recovery_pending_name),
-        try_reserve_admission_slot=lambda cfg: legacy.call(try_reserve_admission_slot_name, cfg),
-        start_background_job_process_fn=lambda **kwargs: legacy.call(
-            start_background_job_process_name,
-            **kwargs,
+        **_lifecycle_deps_from_namespace(
+            legacy,
+            handle_worker_start_error_name=handle_worker_start_error_name,
+            finalize_completed_job_name=finalize_completed_job_name,
+            finalize_child_exit_name=finalize_child_exit_name,
+            reconcile_worker_state_name=reconcile_worker_state_name,
         ),
-        find_queue_entry=_legacy_queue_entry_finder(legacy, find_queue_entry_name),
-        load_config=lambda config_path: legacy.call(load_config_name, config_path),
-        read_worker_pid=lambda allowed_root: legacy.call(read_worker_pid_name, allowed_root),
-        worker_class=_legacy_call_fn(legacy, worker_class_name),
-        on_worker_process_started=optional_started_hook,
-        shutdown_running_job=optional_shutdown_job,
-        before_shutdown_all=optional_before_shutdown,
+        **_reconciliation_deps_from_namespace(
+            legacy,
+            list_queue_name=list_queue_name,
+            list_slots_name=list_slots_name,
+            reconcile_stale_slots_name=reconcile_stale_slots_name,
+            reconcile_orphaned_child_queue_entries_name=(
+                reconcile_orphaned_child_queue_entries_name
+            ),
+            mark_cancelled_name=mark_cancelled_name,
+            requeue_running_entry_name=requeue_running_entry_name,
+            mark_recovery_pending_name=mark_recovery_pending_name,
+        ),
+        **_optional_deps_from_namespace(
+            legacy,
+            try_reserve_admission_slot_name=try_reserve_admission_slot_name,
+            start_background_job_process_name=start_background_job_process_name,
+            find_queue_entry_name=find_queue_entry_name,
+            load_config_name=load_config_name,
+            read_worker_pid_name=read_worker_pid_name,
+            worker_class_name=worker_class_name,
+            on_worker_process_started_name=on_worker_process_started_name,
+            shutdown_running_job_name=shutdown_running_job_name,
+            before_shutdown_all_name=before_shutdown_all_name,
+        ),
     )
 
 

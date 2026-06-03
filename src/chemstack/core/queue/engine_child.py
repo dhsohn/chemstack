@@ -29,6 +29,49 @@ class WorkerChildRunSpec:
     outcome_exit_code_fn: Callable[[Any], int] | None = None
 
 
+@dataclass(frozen=True)
+class _EngineChildJobRunner:
+    spec: WorkerChildRunSpec
+    queue_id: str
+    controller: ChildWorkerShutdownController
+    process_dequeued_entry_fn: Callable[..., Any]
+    dependencies_fn: Callable[[], Any]
+    requeue_running_entry_fn: Callable[[Path, str], Any]
+    mark_recovery_pending_context_fn: Callable[..., Any]
+    process_kwargs: Mapping[str, Any]
+
+    def run(self, job: ChildWorkerEntrypointJob) -> int:
+        try:
+            outcome = self._process(job)
+        except self.spec.shutdown_exception_type as exc:
+            return self._handle_shutdown(job, exc)
+        return self._exit_code(outcome)
+
+    def _process(self, job: ChildWorkerEntrypointJob) -> Any:
+        return self.process_dequeued_entry_fn(
+            job.cfg,
+            job.entry,
+            queue_root=job.queue_root,
+            **self.process_kwargs,
+            dependencies=self.dependencies_fn(),
+            shutdown_requested=self.controller.is_requested,
+        )
+
+    def _exit_code(self, outcome: Any) -> int:
+        if self.spec.outcome_exit_code_fn is None:
+            return 0
+        return int(self.spec.outcome_exit_code_fn(outcome))
+
+    def _handle_shutdown(self, job: ChildWorkerEntrypointJob, exc: BaseException) -> int:
+        self.requeue_running_entry_fn(job.queue_root, self.queue_id)
+        self.mark_recovery_pending_context_fn(
+            job.cfg,
+            self.spec.shutdown_context_fn(exc),
+            reason="worker_shutdown",
+        )
+        return 0
+
+
 def build_engine_worker_child_command(
     *,
     spec: WorkerChildCommandSpec,
@@ -166,36 +209,20 @@ def run_engine_worker_child_job(
     process_dequeued_entry_kwargs: Mapping[str, Any] | None = None,
 ) -> int:
     controller = ChildWorkerShutdownController()
-    extra_process_kwargs = dict(process_dequeued_entry_kwargs or {})
+    runner = _EngineChildJobRunner(
+        spec=spec,
+        queue_id=queue_id,
+        controller=controller,
+        process_dequeued_entry_fn=process_dequeued_entry_fn,
+        dependencies_fn=dependencies_fn,
+        requeue_running_entry_fn=requeue_running_entry_fn,
+        mark_recovery_pending_context_fn=mark_recovery_pending_context_fn,
+        process_kwargs=dict(process_dequeued_entry_kwargs or {}),
+    )
 
     def prepare_loaded_job(_job: ChildWorkerEntrypointJob) -> bool:
         install_signal_handlers_fn(controller)
         return True
-
-    def run_loaded_job(job: ChildWorkerEntrypointJob) -> int:
-        cfg = job.cfg
-        queue_root_path = job.queue_root
-        entry = job.entry
-        try:
-            outcome = process_dequeued_entry_fn(
-                cfg,
-                entry,
-                queue_root=queue_root_path,
-                **extra_process_kwargs,
-                dependencies=dependencies_fn(),
-                shutdown_requested=controller.is_requested,
-            )
-            if spec.outcome_exit_code_fn is None:
-                return 0
-            return int(spec.outcome_exit_code_fn(outcome))
-        except spec.shutdown_exception_type as exc:
-            requeue_running_entry_fn(queue_root_path, queue_id)
-            mark_recovery_pending_context_fn(
-                cfg,
-                spec.shutdown_context_fn(exc),
-                reason="worker_shutdown",
-            )
-            return 0
 
     return run_loaded_engine_child_job(
         config_path=config_path,
@@ -208,7 +235,7 @@ def run_engine_worker_child_job(
         release_slot_fn=release_slot_fn,
         admission_token=admission_token,
         prepare_job_fn=prepare_loaded_job,
-        run_job_fn=run_loaded_job,
+        run_job_fn=runner.run,
     )
 
 

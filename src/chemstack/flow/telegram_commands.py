@@ -59,6 +59,119 @@ def activity_counter_config_path_for_payload(
     )
 
 
+def _handle_list_clear(
+    settings: TelegramBotSettings,
+    *,
+    clear_activities_fn: Callable[..., dict[str, Any]],
+    queue_clear_lines_fn: Callable[[dict[str, Any]], list[str]],
+) -> str:
+    payload = clear_activities_fn(
+        workflow_root=settings.workflow_root,
+        crest_config=settings.crest_config,
+        xtb_config=settings.xtb_config,
+        orca_config=settings.orca_config,
+    )
+    return "\n".join(queue_clear_lines_fn(payload))
+
+
+def _list_payload_for_filter(
+    settings: TelegramBotSettings,
+    *,
+    filter_status: str,
+    activity_payload_fn: Callable[..., dict[str, Any]],
+) -> dict[str, Any]:
+    return activity_payload_fn(
+        settings,
+        child_job_engines=() if not filter_status else None,
+    )
+
+
+def _list_visible_rows(
+    payload: dict[str, Any],
+    *,
+    filter_status: str,
+    filter_activity_items_fn: Callable[..., list[dict[str, Any]]],
+) -> list[dict[str, Any]]:
+    all_rows = list(payload.get("activities", []))
+    if not filter_status:
+        return list(all_rows)
+    return filter_activity_items_fn(all_rows, statuses=(filter_status,))
+
+
+def _list_presentation_request(
+    settings: TelegramBotSettings,
+    *,
+    rows: list[dict[str, Any]],
+    filter_status: str,
+) -> QueueListPresentationRequest:
+    return QueueListPresentationRequest(
+        visible_items=rows,
+        config_hints=(settings.orca_config, settings.crest_config, settings.xtb_config),
+        default_visible_items=not filter_status,
+        show_workflow_context=True,
+        visible_workflow_child_engines=("orca",) if not filter_status else None,
+        include_id=False,
+    )
+
+
+def _list_presentation_deps(
+    *,
+    activity_counter_config_path_fn: Callable[..., str | None],
+    count_global_active_simulations_fn: Callable[..., int],
+    queue_list_default_visible_items_fn: Callable[..., list[dict[str, Any]]],
+    queue_list_display_rows_fn: Callable[..., list[tuple[int, dict[str, Any]]]],
+    queue_list_text_lines_fn: Callable[..., list[str]],
+) -> QueueListPresentationDeps:
+    return QueueListPresentationDeps(
+        activity_counter_config_path=activity_counter_config_path_fn,
+        count_global_active_simulations=count_global_active_simulations_fn,
+        queue_list_default_visible_items=queue_list_default_visible_items_fn,
+        queue_list_display_rows=queue_list_display_rows_fn,
+        queue_list_text_lines=queue_list_text_lines_fn,
+    )
+
+
+def _handle_list_display(
+    settings: TelegramBotSettings,
+    *,
+    filter_status: str,
+    activity_payload_fn: Callable[..., dict[str, Any]],
+    filter_activity_items_fn: Callable[..., list[dict[str, Any]]],
+    queue_list_text_presentation_fn: Callable[..., Any],
+    activity_counter_config_path_fn: Callable[..., str | None],
+    count_global_active_simulations_fn: Callable[..., int],
+    queue_list_default_visible_items_fn: Callable[..., list[dict[str, Any]]],
+    queue_list_display_rows_fn: Callable[..., list[tuple[int, dict[str, Any]]]],
+    queue_list_text_lines_fn: Callable[..., list[str]],
+) -> str:
+    payload = _list_payload_for_filter(
+        settings,
+        filter_status=filter_status,
+        activity_payload_fn=activity_payload_fn,
+    )
+    rows = _list_visible_rows(
+        payload,
+        filter_status=filter_status,
+        filter_activity_items_fn=filter_activity_items_fn,
+    )
+    presentation = queue_list_text_presentation_fn(
+        payload,
+        request=_list_presentation_request(
+            settings,
+            rows=rows,
+            filter_status=filter_status,
+        ),
+        deps=_list_presentation_deps(
+            activity_counter_config_path_fn=activity_counter_config_path_fn,
+            count_global_active_simulations_fn=count_global_active_simulations_fn,
+            queue_list_default_visible_items_fn=queue_list_default_visible_items_fn,
+            queue_list_display_rows_fn=queue_list_display_rows_fn,
+            queue_list_text_lines_fn=queue_list_text_lines_fn,
+        ),
+    )
+    return "\n".join(presentation.lines)
+
+
 def handle_list(
     settings: TelegramBotSettings,
     args: str,
@@ -80,44 +193,24 @@ def handle_list(
 ) -> str:
     action = args.strip().lower()
     if action == "clear":
-        payload = clear_activities_fn(
-            workflow_root=settings.workflow_root,
-            crest_config=settings.crest_config,
-            xtb_config=settings.xtb_config,
-            orca_config=settings.orca_config,
+        return _handle_list_clear(
+            settings,
+            clear_activities_fn=clear_activities_fn,
+            queue_clear_lines_fn=queue_clear_lines_fn,
         )
-        return "\n".join(queue_clear_lines_fn(payload))
 
-    filter_status = action
-    payload = activity_payload_fn(
+    return _handle_list_display(
         settings,
-        child_job_engines=() if not filter_status else None,
+        filter_status=action,
+        activity_payload_fn=activity_payload_fn,
+        filter_activity_items_fn=filter_activity_items_fn,
+        queue_list_text_presentation_fn=queue_list_text_presentation_fn,
+        activity_counter_config_path_fn=activity_counter_config_path_fn,
+        count_global_active_simulations_fn=count_global_active_simulations_fn,
+        queue_list_default_visible_items_fn=queue_list_default_visible_items_fn,
+        queue_list_display_rows_fn=queue_list_display_rows_fn,
+        queue_list_text_lines_fn=queue_list_text_lines_fn,
     )
-    all_rows = list(payload.get("activities", []))
-    rows = (
-        filter_activity_items_fn(all_rows, statuses=(filter_status,))
-        if filter_status
-        else list(all_rows)
-    )
-    presentation = queue_list_text_presentation_fn(
-        payload,
-        request=QueueListPresentationRequest(
-            visible_items=rows,
-            config_hints=(settings.orca_config, settings.crest_config, settings.xtb_config),
-            default_visible_items=not filter_status,
-            show_workflow_context=True,
-            visible_workflow_child_engines=("orca",) if not filter_status else None,
-            include_id=False,
-        ),
-        deps=QueueListPresentationDeps(
-            activity_counter_config_path=activity_counter_config_path_fn,
-            count_global_active_simulations=count_global_active_simulations_fn,
-            queue_list_default_visible_items=queue_list_default_visible_items_fn,
-            queue_list_display_rows=queue_list_display_rows_fn,
-            queue_list_text_lines=queue_list_text_lines_fn,
-        ),
-    )
-    return "\n".join(presentation.lines)
 
 
 def handle_cancel(

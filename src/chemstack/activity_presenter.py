@@ -98,6 +98,70 @@ def _queue_list_display_items(
     return display_items
 
 
+def _queue_list_all_items(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    return list(payload.get("activities", []))
+
+
+def _queue_list_counter_config_path(
+    payload: dict[str, Any],
+    *,
+    options: QueueListPresentationRequest,
+    deps: QueueListPresentationDeps,
+) -> str | None:
+    return deps.activity_counter_config_path(
+        payload,
+        config_hints=options.config_hints,
+        prefer_hints=options.prefer_config_hints,
+    )
+
+
+def _queue_list_display_rows(
+    all_items: Sequence[dict[str, Any]],
+    *,
+    options: QueueListPresentationRequest,
+    deps: QueueListPresentationDeps,
+) -> list[tuple[int, dict[str, Any]]]:
+    display_items = _queue_list_display_items(all_items, options=options, deps=deps)
+    return deps.queue_list_display_rows(
+        all_items=all_items,
+        visible_items=display_items,
+        show_workflow_context=options.show_workflow_context,
+        visible_workflow_child_engines=options.visible_workflow_child_engines,
+    )
+
+
+def _queue_list_active_simulations(
+    all_items: Sequence[dict[str, Any]],
+    *,
+    options: QueueListPresentationRequest,
+    counter_config_path: str | None,
+    deps: QueueListPresentationDeps,
+) -> int:
+    if options.active_simulations is not None:
+        return options.active_simulations
+    return deps.count_global_active_simulations(
+        all_items,
+        config_path=counter_config_path,
+    )
+
+
+def _queue_list_text_lines_for_request(
+    display_rows: Sequence[tuple[int, dict[str, Any]]],
+    *,
+    options: QueueListPresentationRequest,
+    active_simulations: int,
+    deps: QueueListPresentationDeps,
+) -> list[str]:
+    return deps.queue_list_text_lines(
+        display_rows,
+        active_simulations=active_simulations,
+        now=options.now,
+        max_width=options.max_width,
+        include_id=options.include_id,
+        empty_message=options.empty_message,
+    )
+
+
 def queue_list_display_rows_for_request(
     payload: dict[str, Any],
     *,
@@ -131,14 +195,8 @@ def queue_list_display_rows_for_request(
         include_id=include_id,
         empty_message=empty_message,
     )
-    all_items = list(payload.get("activities", []))
-    display_items = _queue_list_display_items(all_items, options=options, deps=deps)
-    return deps.queue_list_display_rows(
-        all_items=all_items,
-        visible_items=display_items,
-        show_workflow_context=options.show_workflow_context,
-        visible_workflow_child_engines=options.visible_workflow_child_engines,
-    )
+    all_items = _queue_list_all_items(payload)
+    return _queue_list_display_rows(all_items, options=options, deps=deps)
 
 
 def queue_list_text_presentation(
@@ -174,32 +232,20 @@ def queue_list_text_presentation(
         include_id=include_id,
         empty_message=empty_message,
     )
-    all_items = list(payload.get("activities", []))
-    display_rows = queue_list_display_rows_for_request(
-        payload,
-        request=options,
+    all_items = _queue_list_all_items(payload)
+    display_rows = _queue_list_display_rows(all_items, options=options, deps=deps)
+    counter_config_path = _queue_list_counter_config_path(payload, options=options, deps=deps)
+    resolved_active_simulations = _queue_list_active_simulations(
+        all_items,
+        options=options,
+        counter_config_path=counter_config_path,
         deps=deps,
     )
-    counter_config_path = deps.activity_counter_config_path(
-        payload,
-        config_hints=options.config_hints,
-        prefer_hints=options.prefer_config_hints,
-    )
-    resolved_active_simulations = (
-        options.active_simulations
-        if options.active_simulations is not None
-        else deps.count_global_active_simulations(
-            all_items,
-            config_path=counter_config_path,
-        )
-    )
-    lines = deps.queue_list_text_lines(
+    lines = _queue_list_text_lines_for_request(
         display_rows,
+        options=options,
         active_simulations=resolved_active_simulations,
-        now=options.now,
-        max_width=options.max_width,
-        include_id=options.include_id,
-        empty_message=options.empty_message,
+        deps=deps,
     )
     return QueueListPresentation(
         lines=lines,
