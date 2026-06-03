@@ -6,7 +6,7 @@ from typing import Any
 
 import yaml
 
-from chemstack.flow.orchestration.deps import OrchestrationDeps
+from chemstack.flow.orchestration.dep_types import OrchestrationDeps
 from chemstack.flow.orchestration.stage_runtime.shared import (
     _apply_contract_status,
     _apply_submission_result,

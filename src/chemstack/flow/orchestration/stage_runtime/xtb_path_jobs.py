@@ -5,7 +5,7 @@ from typing import Any
 
 import yaml
 
-from chemstack.flow.orchestration.deps import OrchestrationDeps
+from chemstack.flow.orchestration.dep_types import OrchestrationDeps
 from chemstack.flow.orchestration.stage_runtime.shared import (
     _manifest_override_mapping,
     _orchestration_context,

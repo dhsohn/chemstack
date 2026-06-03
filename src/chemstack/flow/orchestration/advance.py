@@ -4,6 +4,10 @@ from pathlib import Path
 from typing import Any
 
 from chemstack.flow.engine_options import WorkflowEngineOptions
+from chemstack.flow.orchestration.dep_context import (
+    orchestration_context as _orchestration_context,
+)
+from chemstack.flow.orchestration.dep_types import OrchestrationDeps
 from chemstack.flow.orchestration.advance_phases import (
     AdvanceContext as _AdvanceContext,
     _advance_phases,
@@ -22,7 +26,6 @@ from chemstack.flow.orchestration.advance_phases import (
     _sync_orca_phase,
     _sync_xtb_phase,
 )
-from chemstack.flow.orchestration.deps import OrchestrationDeps, orchestration_deps
 from chemstack.flow.orchestration.workflow_cancellation import (
     _StageCancelOutcome,
     _cancel_active_workflow_stages,
@@ -45,7 +48,7 @@ def advance_workflow(
     submit_ready: bool = True,
     deps: OrchestrationDeps | None = None,
 ) -> dict[str, Any]:
-    o = deps or orchestration_deps()
+    o = _orchestration_context(deps)
     workflow_root_path = Path(workflow_root).expanduser().resolve()
     workspace_dir = o.persistence.resolve_workflow_workspace(
         target=target,

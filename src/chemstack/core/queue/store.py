@@ -2,26 +2,21 @@ from __future__ import annotations
 
 from collections.abc import Callable, Collection, Sequence
 from contextlib import contextmanager
-from dataclasses import asdict, dataclass, replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Iterator, TypeVar
 
-from chemstack.core.artifacts import QUEUE_FILE
-
 from ..utils.lock import file_lock
 from ..utils.persistence import (
-    atomic_write_json,
-    coerce_bool,
-    coerce_int,
-    load_json_list_file,
     now_utc_iso,
     resolve_root_path,
     timestamped_token,
 )
+from . import persistence as _queue_persistence
 from .types import QueueEntry, QueueStatus
 
-QUEUE_FILE_NAME = QUEUE_FILE
-QUEUE_LOCK_NAME = "queue.lock"
+QUEUE_FILE_NAME = _queue_persistence.QUEUE_FILE_NAME
+QUEUE_LOCK_NAME = _queue_persistence.QUEUE_LOCK_NAME
 _ACTIVE_STATUSES = frozenset({QueueStatus.PENDING, QueueStatus.RUNNING})
 _TERMINAL_STATUSES = frozenset({QueueStatus.COMPLETED, QueueStatus.FAILED, QueueStatus.CANCELLED})
 _QueueEntryT = TypeVar("_QueueEntryT", bound=QueueEntry)
@@ -35,50 +30,24 @@ class DuplicateQueueEntryError(RuntimeError):
     """Raised when an equivalent active task is already queued or running."""
 
 
-class QueueStoreCorruptError(RuntimeError):
+class QueueStoreCorruptError(_queue_persistence.QueueStoreCorruptError):
     """Raised when the queue file exists but cannot be safely loaded."""
 
 
 def _queue_path(root: Path) -> Path:
-    return root / QUEUE_FILE_NAME
+    return _queue_persistence.queue_path(root)
 
 
 def _lock_path(root: Path) -> Path:
-    return root / QUEUE_LOCK_NAME
+    return _queue_persistence.queue_lock_path(root)
 
 
 def entry_to_dict(entry: QueueEntry) -> dict[str, Any]:
-    data = asdict(entry)
-    data["status"] = entry.status.value
-    return data
+    return _queue_persistence.entry_to_dict(entry)
 
 
 def _entry_from_dict(raw: dict[str, Any]) -> QueueEntry:
-    status_raw = str(raw.get("status", QueueStatus.PENDING.value)).strip().lower()
-    try:
-        status = QueueStatus(status_raw)
-    except ValueError:
-        status = QueueStatus.PENDING
-
-    metadata = raw.get("metadata")
-    if not isinstance(metadata, dict):
-        metadata = {}
-
-    return QueueEntry(
-        queue_id=str(raw.get("queue_id", "")).strip(),
-        app_name=str(raw.get("app_name", "")).strip(),
-        task_id=str(raw.get("task_id", "")).strip(),
-        task_kind=str(raw.get("task_kind", "")).strip(),
-        engine=str(raw.get("engine", "")).strip(),
-        status=status,
-        priority=coerce_int(raw.get("priority", 10), default=10),
-        enqueued_at=str(raw.get("enqueued_at", "")).strip(),
-        started_at=str(raw.get("started_at", "")).strip(),
-        finished_at=str(raw.get("finished_at", "")).strip(),
-        cancel_requested=coerce_bool(raw.get("cancel_requested", False)),
-        error=str(raw.get("error", "")).strip(),
-        metadata=metadata,
-    )
+    return _queue_persistence.entry_from_dict(raw)
 
 
 def entry_from_dict(raw: dict[str, Any]) -> QueueEntry:
@@ -185,23 +154,15 @@ def load_entries(
     entry_from_dict_fn: Callable[[dict[str, Any]], QueueEntry] = entry_from_dict,
     corrupt_error: type[Exception] = QueueStoreCorruptError,
 ) -> list[QueueEntry]:
-    resolved_root = resolve_root_path(root)
-    raw = load_json_list_file(
-        _queue_path(resolved_root),
+    return _queue_persistence.load_entries(
+        root,
+        entry_from_dict_fn=entry_from_dict_fn,
         corrupt_error=corrupt_error,
-        description="Queue file",
     )
-    return [entry_from_dict_fn(item) for item in raw if isinstance(item, dict)]
 
 
 def save_entries(root: str | Path, entries: Sequence[QueueEntry]) -> None:
-    resolved_root = resolve_root_path(root)
-    atomic_write_json(
-        resolved_root / QUEUE_FILE_NAME,
-        [entry_to_dict(item) for item in entries],
-        ensure_ascii=True,
-        indent=2,
-    )
+    _queue_persistence.save_entries(root, entries, entry_to_dict_fn=entry_to_dict)
 
 
 @dataclass(frozen=True)

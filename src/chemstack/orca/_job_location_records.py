@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 import re
 from pathlib import Path
 from typing import Any
@@ -165,6 +166,38 @@ def is_terminal_status(status: str) -> bool:
     return normalize_text(status).lower() in TERMINAL_STATUSES
 
 
+@dataclass(frozen=True)
+class _ArtifactRecordPayloads:
+    state: dict[str, Any]
+    report: dict[str, Any]
+    organized_ref: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class _ArtifactRecordParts:
+    job_id: str
+    status: str
+    selected_input_xyz: str
+    job_type: str
+    molecule_key: str
+    resource_request: dict[str, int]
+    resource_actual: dict[str, int]
+    original_run_dir: str
+    organized_output_dir: str
+
+
+def _artifact_payloads(
+    state: dict[str, Any] | None,
+    report: dict[str, Any] | None,
+    organized_ref: dict[str, Any] | None,
+) -> _ArtifactRecordPayloads:
+    return _ArtifactRecordPayloads(
+        state=state or {},
+        report=report or {},
+        organized_ref=organized_ref or {},
+    )
+
+
 def _artifact_record_identity(
     *,
     state: dict[str, Any],
@@ -269,6 +302,80 @@ def _artifact_dirs(
     return original_run_dir, organized_output_dir
 
 
+def _artifact_record_parts(
+    *,
+    job_dir: Path,
+    payloads: _ArtifactRecordPayloads,
+    existing: JobLocationRecord | None,
+    fallback_job_id: str,
+    default_job_type: str,
+) -> _ArtifactRecordParts | None:
+    job_id, status, selected_input_xyz = _artifact_record_identity(
+        state=payloads.state,
+        report=payloads.report,
+        organized_ref=payloads.organized_ref,
+        existing=existing,
+        fallback_job_id=fallback_job_id,
+    )
+    if not job_id:
+        return None
+
+    job_type, molecule_key = _artifact_job_metadata(
+        job_dir=job_dir,
+        selected_input_xyz=selected_input_xyz,
+        state=payloads.state,
+        report=payloads.report,
+        organized_ref=payloads.organized_ref,
+        existing=existing,
+        default_job_type=default_job_type,
+    )
+    resource_request, resource_actual = _artifact_resources(
+        state=payloads.state,
+        report=payloads.report,
+        organized_ref=payloads.organized_ref,
+        existing=existing,
+    )
+    original_run_dir, organized_output_dir = _artifact_dirs(
+        job_dir=job_dir,
+        state=payloads.state,
+        report=payloads.report,
+        organized_ref=payloads.organized_ref,
+        existing=existing,
+    )
+    return _ArtifactRecordParts(
+        job_id=job_id,
+        status=status,
+        selected_input_xyz=selected_input_xyz,
+        job_type=job_type,
+        molecule_key=molecule_key,
+        resource_request=resource_request,
+        resource_actual=resource_actual,
+        original_run_dir=original_run_dir,
+        organized_output_dir=organized_output_dir,
+    )
+
+
+def _record_from_artifact_parts(
+    *,
+    existing: JobLocationRecord | None,
+    parts: _ArtifactRecordParts,
+) -> JobLocationRecord:
+    return build_job_location_record(
+        existing=existing,
+        job_id=parts.job_id,
+        status=parts.status,
+        job_dir=Path(parts.original_run_dir),
+        job_type=parts.job_type,
+        selected_input_xyz=parts.selected_input_xyz,
+        organized_output_dir=Path(parts.organized_output_dir).expanduser().resolve()
+        if parts.organized_output_dir
+        else None,
+        molecule_key=parts.molecule_key,
+        resource_request=parts.resource_request,
+        resource_actual=parts.resource_actual,
+    )
+
+
 def record_from_artifacts(
     *,
     job_dir: Path,
@@ -279,56 +386,19 @@ def record_from_artifacts(
     fallback_job_id: str = "",
     default_job_type: str = "other",
 ) -> JobLocationRecord | None:
-    state = state or {}
-    report = report or {}
-    organized_ref = organized_ref or {}
-
-    job_id, status, selected_input_xyz = _artifact_record_identity(
-        state=state,
-        report=report,
-        organized_ref=organized_ref,
+    payloads = _artifact_payloads(state, report, organized_ref)
+    parts = _artifact_record_parts(
+        job_dir=job_dir,
+        payloads=payloads,
         existing=existing,
         fallback_job_id=fallback_job_id,
-    )
-    if not job_id:
-        return None
-
-    job_type, molecule_key = _artifact_job_metadata(
-        job_dir=job_dir,
-        selected_input_xyz=selected_input_xyz,
-        state=state,
-        report=report,
-        organized_ref=organized_ref,
-        existing=existing,
         default_job_type=default_job_type,
     )
-    resource_request, resource_actual = _artifact_resources(
-        state=state,
-        report=report,
-        organized_ref=organized_ref,
+    if parts is None:
+        return None
+    return _record_from_artifact_parts(
         existing=existing,
-    )
-    original_run_dir, organized_output_dir = _artifact_dirs(
-        job_dir=job_dir,
-        state=state,
-        report=report,
-        organized_ref=organized_ref,
-        existing=existing,
-    )
-
-    return build_job_location_record(
-        existing=existing,
-        job_id=job_id,
-        status=status,
-        job_dir=Path(original_run_dir),
-        job_type=job_type,
-        selected_input_xyz=selected_input_xyz,
-        organized_output_dir=Path(organized_output_dir).expanduser().resolve()
-        if organized_output_dir
-        else None,
-        molecule_key=molecule_key,
-        resource_request=resource_request,
-        resource_actual=resource_actual,
+        parts=parts,
     )
 
 

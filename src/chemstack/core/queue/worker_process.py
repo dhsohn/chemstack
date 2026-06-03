@@ -1,22 +1,17 @@
 from __future__ import annotations
 
-import logging
-import signal
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
 from .processes import (
-    ShutdownSignalDeps,
-    install_shutdown_signal_handlers as _install_shutdown_signal_handlers,
     remove_worker_pid_file,
     worker_pid_file_path,
     write_worker_pid_file,
 )
 from .worker_loop import QueueWorkerLoop
 from .worker_models import BackgroundRunningJob
-
-LOGGER = logging.getLogger(__name__)
+from .worker_signals import install_shutdown_signal_handlers as _install_shutdown_signal_handlers
 
 
 @dataclass(frozen=True)
@@ -305,15 +300,7 @@ class HookedPidFileChildProcessQueueWorker(PidFileChildProcessQueueWorker):
 
 
 def install_shutdown_signal_handlers(request_shutdown: Callable[[], None]) -> None:
-    _install_shutdown_signal_handlers(
-        request_shutdown,
-        deps=ShutdownSignalDeps(
-            signal_fn=signal.signal,
-            sigterm=signal.SIGTERM,
-            sigint=signal.SIGINT,
-            logger=LOGGER,
-        ),
-    )
+    _install_shutdown_signal_handlers(request_shutdown)
 
 
 __all__ = [

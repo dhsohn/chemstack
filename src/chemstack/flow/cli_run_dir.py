@@ -48,6 +48,20 @@ class _RunDirWorkflowCreationBinding:
 
 
 @dataclass(frozen=True)
+class _NormalizedRunDirWorkflowCreationSpec:
+    spec: _RunDirWorkflowCreationSpec
+    create_workflow: Any | None
+    create_workflow_from_request: Any
+    request_type: Any
+
+
+@dataclass(frozen=True)
+class _RunDirWorkflowCreationPlan:
+    normalized_spec: _NormalizedRunDirWorkflowCreationSpec
+    workflow_kwargs: dict[str, Any]
+
+
+@dataclass(frozen=True)
 class _RunDirWorkflowCreationRegistry:
     bindings: dict[str, _RunDirWorkflowCreationBinding]
 
@@ -180,13 +194,80 @@ def _update_present_kwargs(kwargs: dict[str, Any], values: dict[str, Any]) -> No
             kwargs[key] = value
 
 
-def _create_run_dir_workflow_from_spec(
-    args: Any,
+def _classify_run_dir_workflow_spec(
+    config: _run_dir_options.RunDirWorkflowConfig,
+) -> _RunDirWorkflowCreationSpec:
+    if config.workflow_type == _REACTION_RUN_DIR_WORKFLOW_SPEC.workflow_type:
+        return _REACTION_RUN_DIR_WORKFLOW_SPEC
+    return _CONFORMER_RUN_DIR_WORKFLOW_SPEC
+
+
+def _normalize_run_dir_workflow_creation_spec(
+    spec: _RunDirWorkflowCreationSpec, *, deps: Any | None = None
+) -> _NormalizedRunDirWorkflowCreationSpec:
+    workflow_creation_registry = _dependency(
+        deps,
+        "_run_dir_workflow_creation_registry",
+        _run_dir_workflow_creation_registry,
+    )
+
+    binding = workflow_creation_registry().resolve(spec.workflow_type)
+    create_workflow = _dependency(deps, spec.create_workflow_name, None)
+    if create_workflow is None and binding.create_workflow is not binding.default_create_workflow:
+        create_workflow = binding.create_workflow
+
+    return _NormalizedRunDirWorkflowCreationSpec(
+        spec=spec,
+        create_workflow=create_workflow,
+        create_workflow_from_request=_dependency(
+            deps,
+            spec.create_workflow_from_request_name,
+            binding.create_workflow_from_request,
+        ),
+        request_type=_dependency(deps, spec.request_type_name, binding.request_type),
+    )
+
+
+def _run_dir_required_input_kwargs(
     config: _run_dir_options.RunDirWorkflowConfig,
     spec: _RunDirWorkflowCreationSpec,
+) -> dict[str, Any]:
+    workflow_kwargs: dict[str, Any] = {}
+    for kwarg_name, config_attr in spec.required_input_kwargs:
+        value = getattr(config, config_attr)
+        if not value:
+            raise ValueError(spec.missing_inputs_error)
+        workflow_kwargs[kwarg_name] = value
+    return workflow_kwargs
+
+
+def _run_dir_option_kwargs(
+    options: _run_dir_options.RunDirWorkflowOptions,
+    spec: _RunDirWorkflowCreationSpec,
+) -> dict[str, Any]:
+    return {
+        kwarg_name: getattr(options, option_attr)
+        for kwarg_name, option_attr in spec.option_kwargs
+    }
+
+
+def _run_dir_manifest_kwargs(
+    config: _run_dir_options.RunDirWorkflowConfig,
+    spec: _RunDirWorkflowCreationSpec,
+) -> dict[str, Any]:
+    return {
+        kwarg_name: getattr(config, config_attr)
+        for kwarg_name, config_attr in spec.manifest_kwargs
+    }
+
+
+def _build_run_dir_workflow_creation_plan(
+    args: Any,
+    config: _run_dir_options.RunDirWorkflowConfig,
+    normalized_spec: _NormalizedRunDirWorkflowCreationSpec,
     *,
     deps: Any | None = None,
-) -> dict[str, Any]:
+) -> _RunDirWorkflowCreationPlan:
     resolve_required_workflow_root = _dependency(
         deps,
         "_resolve_required_workflow_root",
@@ -201,29 +282,9 @@ def _create_run_dir_workflow_from_spec(
         _run_dir_options._resolve_run_dir_workflow_option_bundle,
     )
     update_present_kwargs = _dependency(deps, "_update_present_kwargs", _update_present_kwargs)
-    workflow_creation_registry = _dependency(
-        deps,
-        "_run_dir_workflow_creation_registry",
-        _run_dir_workflow_creation_registry,
-    )
-    binding = workflow_creation_registry().resolve(spec.workflow_type)
-    create_workflow = _dependency(deps, spec.create_workflow_name, None)
-    if create_workflow is None and binding.create_workflow is not binding.default_create_workflow:
-        create_workflow = binding.create_workflow
-    create_workflow_from_request = _dependency(
-        deps,
-        spec.create_workflow_from_request_name,
-        binding.create_workflow_from_request,
-    )
-    request_type = _dependency(deps, spec.request_type_name, binding.request_type)
 
-    workflow_kwargs = {}
-    for kwarg_name, config_attr in spec.required_input_kwargs:
-        value = getattr(config, config_attr)
-        if not value:
-            raise ValueError(spec.missing_inputs_error)
-        workflow_kwargs[kwarg_name] = value
-
+    spec = normalized_spec.spec
+    workflow_kwargs = _run_dir_required_input_kwargs(config, spec)
     workflow_root = resolve_required_workflow_root(args, config.manifest)
     options, common_kwargs = resolve_run_dir_workflow_option_bundle(
         args,
@@ -244,22 +305,38 @@ def _create_run_dir_workflow_from_spec(
             **common_kwargs,
         }
     )
-    workflow_kwargs.update(
-        {
-            kwarg_name: getattr(options, option_attr)
-            for kwarg_name, option_attr in spec.option_kwargs
-        }
+    workflow_kwargs.update(_run_dir_option_kwargs(options, spec))
+    update_present_kwargs(workflow_kwargs, _run_dir_manifest_kwargs(config, spec))
+    return _RunDirWorkflowCreationPlan(
+        normalized_spec=normalized_spec,
+        workflow_kwargs=workflow_kwargs,
     )
-    update_present_kwargs(
-        workflow_kwargs,
-        {
-            kwarg_name: getattr(config, config_attr)
-            for kwarg_name, config_attr in spec.manifest_kwargs
-        },
+
+
+def _invoke_run_dir_workflow_creation(plan: _RunDirWorkflowCreationPlan) -> dict[str, Any]:
+    normalized_spec = plan.normalized_spec
+    if normalized_spec.create_workflow is not None:
+        return normalized_spec.create_workflow(**plan.workflow_kwargs)
+    return normalized_spec.create_workflow_from_request(
+        normalized_spec.request_type(**plan.workflow_kwargs)
     )
-    if create_workflow is not None:
-        return create_workflow(**workflow_kwargs)
-    return create_workflow_from_request(request_type(**workflow_kwargs))
+
+
+def _create_run_dir_workflow_from_spec(
+    args: Any,
+    config: _run_dir_options.RunDirWorkflowConfig,
+    spec: _RunDirWorkflowCreationSpec,
+    *,
+    deps: Any | None = None,
+) -> dict[str, Any]:
+    normalized_spec = _normalize_run_dir_workflow_creation_spec(spec, deps=deps)
+    creation_plan = _build_run_dir_workflow_creation_plan(
+        args,
+        config,
+        normalized_spec,
+        deps=deps,
+    )
+    return _invoke_run_dir_workflow_creation(creation_plan)
 
 
 def _create_reaction_run_dir_workflow(
@@ -290,6 +367,9 @@ def _create_run_dir_workflow(
     load_run_dir_workflow_config = _dependency(
         deps, "_load_run_dir_workflow_config", _run_dir_manifest._load_run_dir_workflow_config
     )
+    classify_run_dir_workflow_spec = _dependency(
+        deps, "_classify_run_dir_workflow_spec", _classify_run_dir_workflow_spec
+    )
     create_reaction_run_dir_workflow = _dependency(
         deps, "_create_reaction_run_dir_workflow", _create_reaction_run_dir_workflow
     )
@@ -298,7 +378,8 @@ def _create_run_dir_workflow(
     )
 
     config = load_run_dir_workflow_config(args, workflow_dir)
-    if config.workflow_type == _REACTION_RUN_DIR_WORKFLOW_SPEC.workflow_type:
+    spec = classify_run_dir_workflow_spec(config)
+    if spec.workflow_type == _REACTION_RUN_DIR_WORKFLOW_SPEC.workflow_type:
         return create_reaction_run_dir_workflow(args, config)
     return create_conformer_run_dir_workflow(args, config)
 

@@ -15,7 +15,10 @@ from chemstack.core.statuses import (
     is_stage_terminal_status,
 )
 from chemstack.flow.engine_options import WorkflowEngineOptions
-from chemstack.flow.orchestration.deps import OrchestrationDeps, orchestration_deps
+from chemstack.flow.orchestration.dep_context import (
+    orchestration_context as _orchestration_context,
+)
+from chemstack.flow.orchestration.dep_types import OrchestrationDeps
 from chemstack.flow.orchestration.stage_views import WorkflowPayloadView, WorkflowStageView
 
 
@@ -144,7 +147,7 @@ def _cancel_stage_activity_outcome(
     config: WorkflowEngineOptions,
     deps: OrchestrationDeps | None = None,
 ) -> _StageCancelOutcome:
-    o = deps or orchestration_deps()
+    o = _orchestration_context(deps)
     stage_view = WorkflowStageView.from_raw(stage)
     if stage_view is None or not stage_view.has_task:
         return _StageCancelOutcome.skipped("missing_task")
@@ -185,7 +188,7 @@ def _cancel_active_workflow_stages(
     config: WorkflowEngineOptions,
     deps: OrchestrationDeps | None = None,
 ) -> dict[str, list[dict[str, Any]]]:
-    o = deps or orchestration_deps()
+    o = _orchestration_context(deps)
     cancelled: list[dict[str, Any]] = []
     failed: list[dict[str, Any]] = []
 
@@ -217,7 +220,7 @@ def cancel_materialized_workflow(
     engine_options: WorkflowEngineOptions | None = None,
     deps: OrchestrationDeps | None = None,
 ) -> dict[str, Any]:
-    o = deps or orchestration_deps()
+    o = _orchestration_context(deps)
     workflow_root_path = Path(workflow_root).expanduser().resolve()
     workspace_dir = o.persistence.resolve_workflow_workspace(
         target=target,

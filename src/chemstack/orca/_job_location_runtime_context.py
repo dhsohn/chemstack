@@ -27,6 +27,30 @@ def _dict_payload(value: Any) -> dict[str, Any]:
     return dict(value) if isinstance(value, dict) else {}
 
 
+def _artifact_payloads(artifact: Any) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+    return (
+        _dict_payload(artifact.state),
+        _dict_payload(artifact.report),
+        _dict_payload(artifact.organized_ref),
+    )
+
+
+def _queue_reaction_dir(queue_entry: dict[str, Any] | None, *, deps: Any) -> Path | None:
+    return deps.resolve_existing_job_dir(
+        deps.queue_entry_metadata_value(queue_entry, "reaction_dir")
+    )
+
+
+def _current_runtime_dir(
+    *,
+    artifact: Any,
+    reaction_dir: str,
+    queue_reaction_dir: Path | None,
+    deps: Any,
+) -> Path | None:
+    return artifact.job_dir or deps.resolve_existing_job_dir(reaction_dir) or queue_reaction_dir
+
+
 def _initial_artifact_context(
     *,
     index_root: Path,
@@ -115,6 +139,39 @@ def _needs_organized_refresh(
     )
 
 
+def _refresh_artifact_if_needed(
+    *,
+    index_root: Path,
+    artifact: Any,
+    organized_dir: Path | None,
+    current_dir: Path | None,
+    state: dict[str, Any],
+    report: dict[str, Any],
+    target: str,
+    resolved_run_id: str,
+    reaction_dir: str,
+    deps: Any,
+) -> Any:
+    if organized_dir is None:
+        return artifact
+    if not _needs_organized_refresh(
+        organized_dir=organized_dir,
+        current_dir=current_dir,
+        state=state,
+        report=report,
+    ):
+        return artifact
+    return _refresh_from_organized_dir(
+        index_root=index_root,
+        artifact=artifact,
+        organized_dir=organized_dir,
+        target=target,
+        resolved_run_id=resolved_run_id,
+        reaction_dir=reaction_dir,
+        deps=deps,
+    )
+
+
 def load_job_runtime_context(
     index_root: str | Path,
     target: str,
@@ -145,13 +202,14 @@ def load_job_runtime_context(
     )
     artifact = _hydrate_artifact_context(artifact, deps=deps)
 
-    state_payload = _dict_payload(artifact.state)
-    report_payload = _dict_payload(artifact.report)
-    organized_ref_payload = _dict_payload(artifact.organized_ref)
-    queue_reaction_dir = deps.resolve_existing_job_dir(
-        deps.queue_entry_metadata_value(queue_entry, "reaction_dir")
+    state_payload, report_payload, organized_ref_payload = _artifact_payloads(artifact)
+    queue_reaction_dir = _queue_reaction_dir(queue_entry, deps=deps)
+    current_dir = _current_runtime_dir(
+        artifact=artifact,
+        reaction_dir=reaction_dir,
+        queue_reaction_dir=queue_reaction_dir,
+        deps=deps,
     )
-    current_dir = artifact.job_dir or deps.resolve_existing_job_dir(reaction_dir) or queue_reaction_dir
 
     resolved_run_id = _resolved_run_id(
         run_id=run_id,
@@ -163,21 +221,18 @@ def load_job_runtime_context(
     )
     organized_dir = deps._record_organized_dir(artifact.record)
 
-    if _needs_organized_refresh(
+    artifact = _refresh_artifact_if_needed(
+        index_root=resolved_index_root,
+        artifact=artifact,
         organized_dir=organized_dir,
         current_dir=current_dir,
         state=state_payload,
         report=report_payload,
-    ):
-        artifact = _refresh_from_organized_dir(
-            index_root=resolved_index_root,
-            artifact=artifact,
-            organized_dir=organized_dir,
-            target=target,
-            resolved_run_id=resolved_run_id,
-            reaction_dir=reaction_dir,
-            deps=deps,
-        )
+        target=target,
+        resolved_run_id=resolved_run_id,
+        reaction_dir=reaction_dir,
+        deps=deps,
+    )
 
     return deps.JobRuntimeContext(
         artifact=artifact,

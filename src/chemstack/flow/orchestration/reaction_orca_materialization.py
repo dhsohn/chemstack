@@ -6,13 +6,15 @@ from typing import Any
 
 from chemstack.core.statuses import is_queue_active_status
 
-from chemstack.flow.orchestration.deps import OrchestrationDeps
+from chemstack.flow.orchestration.dep_context import (
+    orchestration_context as _orchestration_context,
+)
+from chemstack.flow.orchestration.dep_types import OrchestrationDeps
 from chemstack.flow.orchestration.stage_views import (
     WorkflowStageView,
     _clear_workflow_error_scope,
     _engine_stage_views,
     _engine_stages,
-    _orchestration_context,
     _request_params,
     _stage_views,
 )

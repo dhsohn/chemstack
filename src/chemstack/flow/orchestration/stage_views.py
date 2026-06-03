@@ -4,7 +4,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-from chemstack.flow.orchestration.deps import OrchestrationDeps, orchestration_deps
+from chemstack.flow.orchestration.dep_context import orchestration_context
+from chemstack.flow.orchestration.dep_types import OrchestrationDeps
 from chemstack.flow.orchestration.stage_view_mutators import (
     WorkflowStageCrestMutationMixin,
     WorkflowStageOrcaMutationMixin,
@@ -16,7 +17,7 @@ from chemstack.flow.orchestration.stage_view_mutators import (
 
 
 def _orchestration_context(deps: OrchestrationDeps | None = None) -> OrchestrationDeps:
-    return deps or orchestration_deps()
+    return orchestration_context(deps)
 
 
 def _mapping_field(raw: dict[str, Any], key: str) -> dict[str, Any]:

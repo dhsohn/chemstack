@@ -4,11 +4,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from chemstack.flow.orchestration.deps import OrchestrationDeps
+from chemstack.flow.orchestration.dep_context import (
+    orchestration_context as _orchestration_context,
+)
+from chemstack.flow.orchestration.dep_types import OrchestrationDeps
 from chemstack.flow.orchestration.stage_views import (
     _engine_stage_views,
     _engine_stages,
-    _orchestration_context,
     _request_params,
 )
 from chemstack.flow.state import workflow_workspace_internal_engine_paths

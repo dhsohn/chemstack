@@ -5,7 +5,7 @@ from typing import Any
 
 from chemstack.core.statuses import STATUS_COMPLETED, STATUS_FAILED, status_in
 
-from chemstack.flow.orchestration.deps import OrchestrationDeps
+from chemstack.flow.orchestration.dep_types import OrchestrationDeps
 from chemstack.flow.orchestration.stage_runtime.shared import (
     _apply_contract_status,
     _engine_stage_sync_context,

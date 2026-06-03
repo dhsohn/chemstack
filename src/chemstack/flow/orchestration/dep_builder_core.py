@@ -6,7 +6,7 @@ from functools import wraps
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from chemstack.flow.orchestration.deps import (
+    from chemstack.flow.orchestration.dep_types import (
         OrchestrationDeps,
         _OrchestrationStageDepGroup,
     )
@@ -18,8 +18,14 @@ StageDepFallbackFactory = Callable[
 
 
 class _LazyOrchestrationDeps:
-    def __init__(self, overrides: Mapping[str, Any] | None) -> None:
+    def __init__(
+        self,
+        overrides: Mapping[str, Any] | None,
+        *,
+        factory: Callable[[Mapping[str, Any] | None], OrchestrationDeps] | None = None,
+    ) -> None:
         self._overrides = overrides
+        self._factory = factory
         self._deps: OrchestrationDeps | None = None
 
     def resolve_to(self, deps: OrchestrationDeps) -> None:
@@ -27,9 +33,13 @@ class _LazyOrchestrationDeps:
 
     def get(self) -> OrchestrationDeps:
         if self._deps is None:
-            from chemstack.flow.orchestration.deps import orchestration_deps
+            if self._factory is None:
+                from importlib import import_module
 
-            self._deps = orchestration_deps(overrides=self._overrides)
+                self._factory = import_module(
+                    "chemstack.flow.orchestration.deps"
+                ).orchestration_deps
+            self._deps = self._factory(self._overrides)
         return self._deps
 
 

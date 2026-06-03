@@ -4,7 +4,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from chemstack.flow.orchestration.deps import OrchestrationDeps
+from chemstack.flow.orchestration.dep_context import (
+    orchestration_context as _orchestration_context,
+)
+from chemstack.flow.orchestration.dep_types import OrchestrationDeps
 from chemstack.flow.orchestration.reaction_orca_materialization import (
     append_reaction_orca_stages_impl as append_reaction_orca_stages_impl,
 )
@@ -12,7 +15,6 @@ from chemstack.flow.orchestration.stage_views import (
     WorkflowStageView,
     _clear_workflow_error_scope,
     _engine_stages,
-    _orchestration_context,
     _request_params,
 )
 

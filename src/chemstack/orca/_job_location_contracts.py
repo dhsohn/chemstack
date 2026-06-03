@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from . import _job_location_artifacts as _artifacts
+from . import _job_location_contract_context as _contract_context
 from . import _job_location_contract_payload as _contract_payload
 from . import _job_location_runtime_context as _runtime_context
 from ._job_location_records import list_job_location_records, resolve_record_job_dir
@@ -227,71 +228,14 @@ def _orca_contract_resolved_fields(
     organized_root: str | Path | None,
     deps: _JobLocationDeps,
 ) -> _OrcaContractResolvedFields:
-    record = payloads.record
-    queue_entry = payloads.queue_entry
-    state = payloads.state
-    report = payloads.report
-    organized_ref = payloads.organized_ref
-    latest_known_path = _contract_payload.latest_known_path(
-        record=record,
+    return _contract_context.resolved_contract_fields(
         runtime=runtime,
+        payloads=payloads,
         current_dir=current_dir,
         target=target,
+        run_id=run_id,
+        organized_root=organized_root,
         deps=deps,
-    )
-    selected_inp, selected_input_xyz, last_out_path, optimized_xyz_path = (
-        _contract_payload.selected_artifact_paths(
-        record=record,
-        state=state,
-        report=report,
-        organized_ref=organized_ref,
-        current_dir=current_dir,
-        organized_dir=runtime.organized_dir,
-        latest_known_path=latest_known_path,
-        deps=deps,
-    )
-    )
-    status, analyzer_status, reason, completed_at = _contract_payload.resolved_status(
-        record=record,
-        queue_entry=queue_entry,
-        state=state,
-        report=report,
-        deps=deps,
-    )
-    resource_request, resource_actual = _contract_payload.runtime_resources(
-        record=record,
-        queue_entry=queue_entry,
-        deps=deps,
-    )
-    return _OrcaContractResolvedFields(
-        resolved_run_id=_contract_payload.resolved_run_id(
-            run_id=run_id,
-            state=state,
-            report=report,
-            organized_ref=organized_ref,
-            queue_entry=queue_entry,
-            deps=deps,
-        ),
-        latest_known_path=latest_known_path,
-        state_status=deps.normalize_text(state.get("status")).lower(),
-        status=status,
-        analyzer_status=analyzer_status,
-        reason=reason,
-        completed_at=completed_at,
-        selected_inp=selected_inp,
-        selected_input_xyz=selected_input_xyz,
-        last_out_path=last_out_path,
-        optimized_xyz_path=optimized_xyz_path,
-        organized_output_dir=_contract_payload.organized_output_dir(
-            record=record,
-            organized_ref=organized_ref,
-            organized_dir=runtime.organized_dir,
-            current_dir=current_dir,
-            organized_root=organized_root,
-            deps=deps,
-        ),
-        resource_request=resource_request,
-        resource_actual=resource_actual,
     )
 
 
@@ -314,39 +258,14 @@ def _orca_contract_payload_context(
         reaction_dir=reaction_dir,
         deps=deps,
     )
-    payloads = _contract_payload.runtime_payloads(runtime)
-    record = payloads.record
-    queue_entry = payloads.queue_entry
-    state = payloads.state
-    report = payloads.report
-    organized_ref = payloads.organized_ref
-    current_dir = _contract_payload.runtime_current_dir(
-        runtime,
-        queue_entry=queue_entry,
-        reaction_dir=reaction_dir,
-        deps=deps,
-    )
-    resolved = _orca_contract_resolved_fields(
+    return _contract_context.payload_context_from_runtime(
         runtime=runtime,
-        payloads=payloads,
-        current_dir=current_dir,
         target=target,
         run_id=run_id,
+        reaction_dir=reaction_dir,
         organized_root=organized_root,
         deps=deps,
-    )
-
-    return OrcaContractPayloadContext(
-        runtime=runtime,
-        target=target,
-        reaction_dir=reaction_dir,
-        record=record,
-        queue_entry=queue_entry,
-        state=state,
-        report=report,
-        organized_ref=organized_ref,
-        current_dir=current_dir,
-        **asdict(resolved),
+        resolved_fields_fn=_orca_contract_resolved_fields,
     )
 
 
@@ -369,12 +288,7 @@ def load_orca_contract_payload(
         reaction_dir=reaction_dir,
         deps=deps,
     )
-    if ctx.missing:
-        return {}
-    payload = _contract_payload.orca_contract_payload(ctx, deps=deps)
-    if not payload["queue_id"]:
-        payload["queue_id"] = deps.normalize_text(queue_id)
-    return payload
+    return _contract_context.payload_from_context(ctx, queue_id=queue_id, deps=deps)
 
 
 def load_job_artifacts(

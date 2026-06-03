@@ -17,10 +17,10 @@ from chemstack.core.statuses import (
 )
 from chemstack.core.utils import normalize_bool as _shared_normalize_bool
 
-from chemstack.flow.orchestration.deps import (
-    OrchestrationDeps,
-    orchestration_deps,
+from chemstack.flow.orchestration.dep_context import (
+    orchestration_context as _orchestration_context,
 )
+from chemstack.flow.orchestration.dep_types import OrchestrationDeps
 from chemstack.flow.orchestration.stage_views import WorkflowStageView, WorkflowTaskView
 from chemstack.flow.state import (
     workflow_stage_dirnames_for_engine,
@@ -28,10 +28,6 @@ from chemstack.flow.state import (
 )
 
 _LOGGER = logging.getLogger("chemstack.flow.orchestration.stage_runtime.shared")
-
-
-def _orchestration_context(deps: OrchestrationDeps | None = None) -> OrchestrationDeps:
-    return deps or orchestration_deps()
 
 
 def _stage_id_for_log(stage: dict[str, Any] | None) -> str:

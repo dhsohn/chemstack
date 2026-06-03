@@ -5,6 +5,7 @@ from collections.abc import MutableMapping
 from typing import Any, Callable, TypeVar
 
 from .worker_models import SlotFillResult
+from .worker_signals import install_shutdown_signal_handlers
 
 T = TypeVar("T")
 
@@ -154,8 +155,6 @@ class QueueWorkerLoop:
         return None
 
     def _install_signal_handlers(self) -> None:
-        from .worker_process import install_shutdown_signal_handlers
-
         def request_shutdown() -> None:
             self._shutdown_requested = True
 

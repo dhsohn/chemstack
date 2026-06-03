@@ -4,12 +4,11 @@ from pathlib import Path
 from typing import Any
 
 from chemstack.core.config.files import YAML_CONFIG_LOAD_EXCEPTIONS
-from chemstack.flow.orchestration.deps import OrchestrationDeps, orchestration_deps
+from chemstack.flow.orchestration.dep_context import (
+    orchestration_context as _orchestration_context,
+)
+from chemstack.flow.orchestration.dep_types import OrchestrationDeps
 from chemstack.flow.contracts.workflow import workflow_stage_metadata, workflow_task_payload_dict
-
-
-def _orchestration_context(deps: OrchestrationDeps | None = None) -> OrchestrationDeps:
-    return deps or orchestration_deps()
 
 
 def _runtime_paths_for_engine(

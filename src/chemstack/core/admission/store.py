@@ -2,24 +2,28 @@ from __future__ import annotations
 
 import os
 from contextlib import contextmanager
-from dataclasses import asdict, dataclass, replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Callable, Iterator, TypeVar
 
 from ..utils import process as process_utils
 from ..utils.lock import file_lock
 from ..utils.persistence import (
-    atomic_write_json,
-    coerce_int,
-    coerce_optional_int,
-    load_json_list_file,
     now_utc_iso,
     resolve_root_path,
     timestamped_token,
 )
+from . import persistence as _admission_persistence
+from . import records as _admission_records
+from .records import (
+    AdmissionReservationRequest,
+    AdmissionSlot,
+    AdmissionSlotActivation,
+    AdmissionSlotMetadataUpdate,
+)
 
-ADMISSION_FILE_NAME = "admission_slots.json"
-ADMISSION_LOCK_NAME = "admission.lock"
+ADMISSION_FILE_NAME = _admission_persistence.ADMISSION_FILE_NAME
+ADMISSION_LOCK_NAME = _admission_persistence.ADMISSION_LOCK_NAME
 _MutationResultT = TypeVar("_MutationResultT")
 
 
@@ -27,66 +31,16 @@ class AdmissionLimitReachedError(RuntimeError):
     """Raised when no additional admission slots are available."""
 
 
-class AdmissionStoreCorruptError(RuntimeError):
+class AdmissionStoreCorruptError(_admission_persistence.AdmissionStoreCorruptError):
     """Raised when the admission slot file cannot be safely loaded."""
 
 
-@dataclass(frozen=True)
-class AdmissionSlot:
-    token: str
-    owner_pid: int
-    process_start_ticks: int | None
-    source: str
-    acquired_at: str
-    app_name: str = ""
-    task_id: str = ""
-    workflow_id: str = ""
-    state: str = "active"
-    work_dir: str = ""
-    queue_id: str = ""
-
-
-@dataclass(frozen=True)
-class AdmissionReservationRequest:
-    limit: int
-    source: str
-    app_name: str = ""
-    task_id: str = ""
-    workflow_id: str = ""
-    state: str = "active"
-    work_dir: str | Path = ""
-    queue_id: str = ""
-    owner_pid: int | None = None
-    exclude_work_dirs: set[str] | None = None
-    extra_active_count_fn: Callable[[Path, set[str], set[str]], int] | None = None
-
-
-@dataclass(frozen=True)
-class AdmissionSlotActivation:
-    state: str = "active"
-    work_dir: str | Path | None = None
-    queue_id: str | None = None
-    owner_pid: int | None = None
-    source: str | None = None
-    app_name: str | None = None
-    task_id: str | None = None
-    workflow_id: str | None = None
-
-
-@dataclass(frozen=True)
-class AdmissionSlotMetadataUpdate:
-    queue_id: str | None = None
-    app_name: str | None = None
-    task_id: str | None = None
-    workflow_id: str | None = None
-
-
 def _admission_path(root: Path) -> Path:
-    return root / ADMISSION_FILE_NAME
+    return _admission_persistence.admission_path(root)
 
 
 def _lock_path(root: Path) -> Path:
-    return root / ADMISSION_LOCK_NAME
+    return _admission_persistence.admission_lock_path(root)
 
 
 def _process_start_ticks(pid: int) -> int | None:
@@ -106,41 +60,23 @@ def _normalize_work_dir(value: str | Path | None) -> str:
 
 
 def _slot_to_dict(slot: AdmissionSlot) -> dict[str, object]:
-    return asdict(slot)
+    return _admission_records.slot_to_dict(slot)
 
 
 def _slot_from_dict(raw: dict[str, object]) -> AdmissionSlot:
-    return AdmissionSlot(
-        token=str(raw.get("token", "")).strip(),
-        owner_pid=coerce_int(raw.get("owner_pid", 0), default=0),
-        process_start_ticks=coerce_optional_int(raw.get("process_start_ticks")),
-        source=str(raw.get("source", "")).strip(),
-        acquired_at=str(raw.get("acquired_at", "")).strip(),
-        app_name=str(raw.get("app_name", "")).strip(),
-        task_id=str(raw.get("task_id", "")).strip(),
-        workflow_id=str(raw.get("workflow_id", "")).strip(),
-        state=str(raw.get("state", "active")).strip() or "active",
-        work_dir=str(raw.get("work_dir", "")).strip(),
-        queue_id=str(raw.get("queue_id", "")).strip(),
-    )
+    return _admission_records.slot_from_dict(raw)
 
 
 def _load_slots(root: Path) -> list[AdmissionSlot]:
-    raw = load_json_list_file(
-        _admission_path(root),
+    return _admission_persistence.load_slots(
+        root,
+        slot_from_dict_fn=_slot_from_dict,
         corrupt_error=AdmissionStoreCorruptError,
-        description="Admission slot file",
     )
-    return [_slot_from_dict(item) for item in raw if isinstance(item, dict)]
 
 
 def _save_slots(root: Path, slots: list[AdmissionSlot]) -> None:
-    atomic_write_json(
-        root / ADMISSION_FILE_NAME,
-        [_slot_to_dict(slot) for slot in slots],
-        ensure_ascii=True,
-        indent=2,
-    )
+    _admission_persistence.save_slots(root, slots, slot_to_dict_fn=_slot_to_dict)
 
 
 def _slot_owner_alive(slot: AdmissionSlot) -> bool:

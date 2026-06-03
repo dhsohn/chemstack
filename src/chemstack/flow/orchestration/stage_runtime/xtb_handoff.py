@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from chemstack.flow.orchestration.deps import OrchestrationDeps
+from chemstack.flow.orchestration.dep_types import OrchestrationDeps
 from chemstack.flow.orchestration.stage_runtime.shared import _orchestration_context
 from chemstack.flow.orchestration.stage_views import WorkflowStageView
 

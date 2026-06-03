@@ -15,7 +15,10 @@ from chemstack.core.statuses import (
 from chemstack.flow._workflow_phases import phase_finished
 from chemstack.flow.contracts.workflow import workflow_stage_dicts
 from chemstack.flow.engine_options import WorkflowEngineOptions
-from chemstack.flow.orchestration.deps import OrchestrationDeps, orchestration_deps
+from chemstack.flow.orchestration.dep_context import (
+    orchestration_context as _orchestration_context,
+)
+from chemstack.flow.orchestration.dep_types import OrchestrationDeps
 from chemstack.flow.orchestration.stage_views import WorkflowPayloadView
 
 
@@ -144,7 +147,7 @@ def _append_reaction_orca_phase(
 def _orca_stage_count(
     payload: dict[str, Any], *, deps: OrchestrationDeps | None = None
 ) -> int:
-    o = deps or orchestration_deps()
+    o = _orchestration_context(deps)
     return sum(
         1
         for stage_view in WorkflowPayloadView(payload).stage_views
