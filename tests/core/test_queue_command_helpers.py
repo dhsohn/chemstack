@@ -26,10 +26,14 @@ def test_queue_entry_listing_skips_missing_roots_without_calling_list_queue(tmp_
     entry = SimpleNamespace(queue_id="queue-1")
     seen_roots: list[Any] = []
 
+    def list_queue(root: Any) -> list[Any]:
+        seen_roots.append(root)
+        return [entry]
+
     rows = queue_cmd.queue_entries_with_roots(
         SimpleNamespace(),
         queue_roots_fn=lambda _cfg: (missing_root, existing_root),
-        list_queue_fn=lambda root: seen_roots.append(root) or [entry],
+        list_queue_fn=list_queue,
     )
 
     assert rows == [(existing_root, entry)]

@@ -28,7 +28,6 @@ from chemstack.core.engines.orca_execution import (
     build_worker_child_command,
 )
 from chemstack.core.engines.queue_worker import EngineQueueWorker
-from chemstack.core.indexing.roots import runtime_roots_for_cfg as _runtime_roots_for_cfg
 from chemstack.core.queue.engine_execution import coerce_resource_request
 from chemstack.core.queue.internal_engine import (
     InternalEngineQueueModule,
@@ -70,6 +69,7 @@ from .attempt_reporting import (
     mark_finished_notification_sent,
 )
 from .config import AppConfig, load_config
+from .engine import ENGINE_DEFINITION
 from .inp_rewriter import read_resource_request_from_input
 from .input_artifacts import selected_input_artifacts
 from .job_locations import (
@@ -79,7 +79,6 @@ from .job_locations import (
     upsert_job_record,
 )
 from .queue_adapter import (
-    dequeue_next,
     get_cancel_requested,
     list_queue,
     mark_cancelled,
@@ -97,7 +96,6 @@ from .queue_worker_deps import (
     OrcaQueueWorkerFacadeCallbacks,
     build_orca_runtime_facade_deps,
 )
-from .queue_worker_runtime_facade import build_orca_queue_worker_runtime_facade_deps
 from .state import load_organized_ref, load_report_json, load_state
 from .telegram_notifier import notify_run_finished_event
 
@@ -154,18 +152,62 @@ _ENGINE_ADMISSION = _ENGINE_SPEC.admission()
 
 
 def _runtime_facade_deps() -> Any:
-    return build_orca_queue_worker_runtime_facade_deps(
-        sys.modules[__name__],
+    return build_orca_runtime_facade_deps(
+        OrcaQueueWorkerFacadeCallbacks(
+            release_slot=lambda root, token: release_slot(root, token),
+            reserve_slot=lambda *args, **kwargs: _reserve_orca_worker_slot(*args, **kwargs),
+            start_background_process=lambda command: start_background_process(command),
+            build_worker_child_command=lambda *args, **kwargs: build_worker_child_command(
+                *args,
+                **kwargs,
+            ),
+            activate_reserved_slot=lambda *args, **kwargs: activate_reserved_slot(
+                *args,
+                **kwargs,
+            ),
+            terminate_process=lambda process: _terminate_process(process),
+            mark_failed=lambda *args, **kwargs: mark_failed(*args, **kwargs),
+            handle_worker_start_error=lambda *args, **kwargs: _handle_worker_start_error(
+                *args,
+                **kwargs,
+            ),
+            finalize_completed_job=lambda *args, **kwargs: _finalize_completed_job(
+                *args,
+                **kwargs,
+            ),
+            finalize_child_exit=lambda *args, **kwargs: _finalize_child_exit(*args, **kwargs),
+            reconcile_worker_state=lambda worker: _reconcile_worker_state(worker),
+            list_queue=lambda root: list_queue(Path(root)),
+            list_slots=lambda root: list_slots(root),
+            reconcile_stale_slots=lambda root: reconcile_stale_slots(root),
+            mark_cancelled=lambda *args, **kwargs: mark_cancelled(*args, **kwargs),
+            requeue_running_entry=lambda *args, **kwargs: requeue_running_entry(
+                *args,
+                **kwargs,
+            ),
+            try_reserve_admission_slot=lambda cfg: _try_reserve_admission_slot(cfg),
+            start_background_job_process=lambda **kwargs: _start_background_job_process(**kwargs),
+            find_queue_entry=lambda root, queue_id: _queue_module.queue_entry_by_id(
+                root,
+                queue_id,
+            ),
+            load_config=lambda config_path: load_config(config_path),
+            read_worker_pid=lambda allowed_root: _queue_module.read_worker_pid(allowed_root),
+            worker_class=lambda *args, **kwargs: QueueWorker(*args, **kwargs),
+            on_worker_process_started=lambda *args, **kwargs: _on_worker_process_started(
+                *args,
+                **kwargs,
+            ),
+            shutdown_running_job=lambda *args, **kwargs: _shutdown_running_job(*args, **kwargs),
+            before_shutdown_all=lambda *args, **kwargs: _before_shutdown_all(*args, **kwargs),
+        ),
         time_module=time,
     )
 
 
-_queue_module = InternalEngineQueueModule.create(
+_queue_module = InternalEngineQueueModule.create_from_definition(
+    definition=ENGINE_DEFINITION,
     spec=_ENGINE_SPEC,
-    load_config=load_config,
-    runtime_roots_for_cfg=lambda cfg: _runtime_roots_for_cfg(cfg, engine="orca"),
-    list_queue=lambda root: list_queue(Path(root)),
-    dequeue_next=lambda root: dequeue_next(root),
     poll_interval_seconds=POLL_INTERVAL_SECONDS,
     shutdown_grace_seconds=WORKER_SHUTDOWN_GRACE_SECONDS,
     deps=_runtime_facade_deps(),

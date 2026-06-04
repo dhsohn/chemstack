@@ -6,6 +6,11 @@ from chemstack.core.indexing import engines as _engine_locations
 from chemstack.core.indexing.engine_job_locations import (
     build_store_backed_engine_job_location_exports,
 )
+from chemstack.core.paths.workflow import (
+    iter_workflow_runtime_workspaces,
+    workflow_stage_dirnames_for_engine,
+    workflow_workspace_internal_engine_paths,
+)
 
 from .state import load_organized_ref, load_report_json, load_state
 
@@ -53,7 +58,6 @@ _LOCATION_EXPORTS = build_store_backed_engine_job_location_exports(
 )
 
 index_root_for_cfg = _LOCATION_EXPORTS.index_root_for_cfg
-runtime_roots_for_cfg = _LOCATION_EXPORTS.runtime_roots_for_cfg
 index_root_for_path = _LOCATION_EXPORTS.index_root_for_path
 list_job_records_for_cfg = _LOCATION_EXPORTS.list_job_records_for_cfg
 resolve_job_location_for_cfg = _LOCATION_EXPORTS.resolve_job_location_for_cfg
@@ -63,3 +67,25 @@ resolve_latest_job_dir = _LOCATION_EXPORTS.resolve_latest_job_dir
 load_job_artifacts = _LOCATION_EXPORTS.load_job_artifacts
 load_job_artifacts_for_cfg = _LOCATION_EXPORTS.load_job_artifacts_for_cfg
 record_from_artifacts = _LOCATION_EXPORTS.record_from_artifacts
+
+
+def runtime_roots_for_cfg(cfg: object) -> tuple[Path, ...]:
+    workflow_root = _engine_locations.normalize_text(getattr(cfg, "workflow_root", ""))
+    if not workflow_root:
+        return _LOCATION_EXPORTS.runtime_roots_for_cfg(cfg)
+
+    roots: list[Path] = []
+    for workspace_dir in iter_workflow_runtime_workspaces(workflow_root, engine="xtb"):
+        for stage_dirname in workflow_stage_dirnames_for_engine("xtb"):
+            runtime_paths = workflow_workspace_internal_engine_paths(
+                workspace_dir,
+                engine="xtb",
+                stage_dirname=stage_dirname,
+            )
+            root = runtime_paths["allowed_root"].expanduser().resolve()
+            if root not in roots:
+                roots.append(root)
+
+    if roots:
+        return tuple(roots)
+    return _LOCATION_EXPORTS.runtime_roots_for_cfg(cfg)

@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from chemstack.core.engines.definitions import EngineDefinition
+
 from .internal_engine_runtime import InternalEngineQueueRuntime
 from .internal_engine_spec import InternalEngineSpec
 from .internal_engine_worker_facade import (
@@ -37,6 +39,40 @@ class InternalEngineQueueModule:
             runtime_roots_for_cfg=runtime_roots_for_cfg,
             list_queue=list_queue,
             dequeue_next=dequeue_next,
+        )
+        return cls(
+            runtime=runtime,
+            facade=InternalEngineQueueWorkerFacade(
+                runtime=runtime,
+                poll_interval_seconds=poll_interval_seconds,
+                shutdown_grace_seconds=shutdown_grace_seconds,
+                deps=deps,
+            ),
+        )
+
+    @classmethod
+    def create_from_definition(
+        cls,
+        *,
+        definition: EngineDefinition,
+        spec: InternalEngineSpec,
+        poll_interval_seconds: int,
+        shutdown_grace_seconds: float,
+        deps: InternalEngineQueueWorkerDeps,
+    ) -> InternalEngineQueueModule:
+        queue_functions = definition.queue_functions
+        if queue_functions is None:
+            raise ValueError("EngineDefinition.queue_functions is required for queue module support")
+        worker_pid_file_name = (
+            queue_functions.worker_pid_file_name or definition.worker_pid_file_name
+        )
+        runtime = InternalEngineQueueRuntime.create(
+            spec=spec,
+            load_config=definition.load_config,
+            runtime_roots_for_cfg=queue_functions.runtime_roots_for_cfg,
+            list_queue=queue_functions.list_queue,
+            dequeue_next=queue_functions.dequeue_next,
+            worker_pid_file_name=worker_pid_file_name,
         )
         return cls(
             runtime=runtime,

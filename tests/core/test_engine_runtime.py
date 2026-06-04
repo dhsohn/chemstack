@@ -4,9 +4,11 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+from chemstack.core.engines.definitions import EngineDefinition, EngineQueueFunctions
 from chemstack.core.queue.engine_runtime import EngineQueueRuntime
 from chemstack.core.queue.internal_engine import InternalEngineQueueModule, InternalEngineSpec
 from chemstack.core.queue.internal_engine_worker_deps import (
+    InternalEngineQueueWorkerDeps,
     internal_engine_queue_worker_deps_from_namespace,
 )
 
@@ -631,3 +633,90 @@ def test_internal_engine_queue_module_preserves_worker_facade_contract(
 
     assert any(name == "reserve_slot" for name, _payload in calls)
     assert any(name == "start_background_process" for name, _payload in calls)
+
+
+def test_internal_engine_queue_module_create_from_definition_uses_queue_contract(
+    tmp_path: Path,
+) -> None:
+    queue_root = tmp_path / "queue-root"
+    queue_root.mkdir()
+    entry = SimpleNamespace(queue_id="queue-1", status=SimpleNamespace(value="pending"))
+    cfg = SimpleNamespace(
+        runtime=SimpleNamespace(
+            allowed_root=str(tmp_path),
+            admission_root=str(tmp_path / "admission"),
+            admission_limit=1,
+            max_concurrent=1,
+        )
+    )
+    started_commands: list[list[str]] = []
+
+    def start_background_process(command: list[str]) -> str:
+        started_commands.append(command)
+        return "process"
+
+    definition = EngineDefinition(
+        engine="demo",
+        load_config=lambda config_path: cfg if config_path == "/tmp/config.yaml" else None,
+        run_worker_child_job=lambda **_kwargs: 0,
+        queue_worker_module="chemstack.core.engines.queue_worker",
+        worker_pid_file_name="definition_worker.pid",
+        build_worker_child_command=lambda **_kwargs: ["unused"],
+        queue_functions=EngineQueueFunctions(
+            runtime_roots_for_cfg=lambda _cfg: (queue_root,),
+            list_queue=lambda root: [entry] if Path(root) == queue_root else [],
+            dequeue_next=lambda root: entry if Path(root) == queue_root else None,
+            worker_pid_file_name="queue_functions_worker.pid",
+        ),
+    )
+    deps = InternalEngineQueueWorkerDeps(
+        time_module=SimpleNamespace(sleep=lambda _seconds: None),
+        release_slot=lambda _root, _token: None,
+        reserve_slot=lambda *_args, **_kwargs: "slot-1",
+        start_background_process=start_background_process,
+        build_worker_child_command=lambda **kwargs: ["worker", kwargs["queue_id"]],
+        config_path_for_worker=lambda args, *, default_config_path_fn: (
+            args.config or default_config_path_fn()
+        ),
+        default_config_path=lambda: "/tmp/default.yaml",
+        activate_reserved_slot=lambda *_args, **_kwargs: object(),
+        terminate_process=lambda _process: None,
+        mark_failed=lambda *_args, **_kwargs: None,
+        handle_worker_start_error=lambda *_args, **_kwargs: None,
+        finalize_completed_job=lambda *_args, **_kwargs: None,
+        finalize_child_exit=lambda *_args, **_kwargs: None,
+        reconcile_worker_state=lambda _worker: None,
+        list_queue=lambda _root: [entry],
+        list_slots=lambda _root: [],
+        reconcile_stale_slots=lambda _root: None,
+        reconcile_orphaned_child_queue_entries=lambda *_args, **_kwargs: None,
+        mark_cancelled=lambda *_args, **_kwargs: None,
+        requeue_running_entry=lambda *_args, **_kwargs: None,
+        mark_recovery_pending=lambda *_args, **_kwargs: None,
+    )
+
+    module = InternalEngineQueueModule.create_from_definition(
+        definition=definition,
+        spec=InternalEngineSpec(
+            engine="demo",
+            worker_job_module="chemstack.demo.worker_execution",
+            worker_pid_file_name="legacy_worker.pid",
+        ),
+        poll_interval_seconds=5,
+        shutdown_grace_seconds=1.0,
+        deps=deps,
+    )
+
+    assert module.runtime.runtime.worker_pid_file_name == "queue_functions_worker.pid"
+    assert module.queue_roots(cfg) == (queue_root,)
+    assert module.dequeue_next_entry(cfg) == (queue_root, entry)
+    assert module.try_reserve_admission_slot(cfg) == "slot-1"
+    assert module.start_background_job_process(
+        config_path="/tmp/config.yaml",
+        queue_root=queue_root,
+        entry=entry,
+        admission_root=tmp_path / "admission",
+        admission_token="slot-1",
+    ) == "process"
+    assert started_commands == [["worker", "queue-1"]]
+    assert module.config_path_for_worker(SimpleNamespace(config="")) == "/tmp/default.yaml"

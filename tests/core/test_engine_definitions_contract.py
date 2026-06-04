@@ -10,6 +10,7 @@ from chemstack.core.engines.definitions import (
 )
 from chemstack.core.engines.queue_worker import run_engine_queue_worker
 from chemstack.core.engines.worker_child import run_engine_worker_child_job
+from chemstack.core.queue.internal_engine_worker_deps import InternalEngineQueueWorkerDeps
 
 
 def _definition(**overrides: Any) -> EngineDefinition:
@@ -100,3 +101,27 @@ def test_engine_specific_modules_export_common_queue_worker_factories() -> None:
     for module in (orca_queue_worker, xtb_queue_runtime, crest_queue_runtime):
         assert callable(module.QueueWorker)
         assert not inspect.isclass(module.QueueWorker)
+
+
+def test_engine_queue_runtime_modules_use_definition_pid_contracts() -> None:
+    from chemstack.core.engines import get_engine_definition
+    from chemstack.crest import queue_runtime as crest_queue_runtime
+    from chemstack.orca import queue_worker as orca_queue_worker
+    from chemstack.xtb import queue_runtime as xtb_queue_runtime
+
+    modules = {
+        "orca": orca_queue_worker,
+        "xtb": xtb_queue_runtime,
+        "crest": crest_queue_runtime,
+    }
+
+    for engine, module in modules.items():
+        definition = get_engine_definition(engine)
+        assert definition.queue_functions is not None
+        assert module._queue_module.runtime.runtime.worker_pid_file_name == (
+            definition.queue_functions.worker_pid_file_name
+        )
+        assert module._queue_module.runtime.runtime.worker_pid_file_name == (
+            definition.worker_pid_file_name
+        )
+        assert isinstance(module._runtime_facade_deps(), InternalEngineQueueWorkerDeps)
