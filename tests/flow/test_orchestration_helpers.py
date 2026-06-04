@@ -101,6 +101,21 @@ def _recompute_workflow_status(payload: dict[str, Any]) -> str:
 def test_workflow_sync_only_and_active_children_cover_stage_task_and_downstream() -> None:
     assert _workflow_sync_only({"status": "completed"}) is True
     assert _workflow_sync_only({"status": "planned"}) is False
+    assert (
+        _workflow_sync_only(
+            {
+                "template_name": "conformer_screening",
+                "status": "completed",
+                "stages": [
+                    {
+                        "status": "completed",
+                        "task": {"engine": "crest", "status": "completed"},
+                    }
+                ],
+            }
+        )
+        is False
+    )
 
     assert (
         _workflow_has_active_children(

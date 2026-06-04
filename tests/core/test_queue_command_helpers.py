@@ -19,6 +19,24 @@ def test_queue_roots_propagates_runtime_root_errors() -> None:
         )
 
 
+def test_queue_entry_listing_skips_missing_roots_without_calling_list_queue(tmp_path: Any) -> None:
+    existing_root = tmp_path / "existing"
+    missing_root = tmp_path / "missing"
+    existing_root.mkdir()
+    entry = SimpleNamespace(queue_id="queue-1")
+    seen_roots: list[Any] = []
+
+    rows = queue_cmd.queue_entries_with_roots(
+        SimpleNamespace(),
+        queue_roots_fn=lambda _cfg: (missing_root, existing_root),
+        list_queue_fn=lambda root: seen_roots.append(root) or [entry],
+    )
+
+    assert rows == [(existing_root, entry)]
+    assert seen_roots == [existing_root]
+    assert not missing_root.exists()
+
+
 def test_run_queue_worker_command_uses_existing_pid_reporter(
     capsys: pytest.CaptureFixture[str],
 ) -> None:

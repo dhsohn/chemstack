@@ -101,11 +101,14 @@ def test_queue_list_display_rows_groups_children_under_workflow_once() -> None:
     ]
 
 
-def test_activity_with_parent_hint_extracts_workflow_id_from_runtime_path() -> None:
+@pytest.mark.parametrize("stage_dirname", ["02_xtb", "02_orca", "03_orca"])
+def test_activity_with_parent_hint_extracts_workflow_id_from_runtime_path(
+    stage_dirname: str,
+) -> None:
     item = {
         "activity_id": "xtb_child",
         "kind": "job",
-        "metadata": {"job_dir": "/tmp/root/wf_path/02_xtb/job_1"},
+        "metadata": {"job_dir": f"/tmp/root/wf_path/{stage_dirname}/job_1"},
     }
 
     assert activity_view.activity_with_parent_hint(item)["parent_workflow_id"] == "wf_path"

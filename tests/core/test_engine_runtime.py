@@ -31,6 +31,8 @@ def test_engine_queue_runtime_combines_roots_entries_and_next_entry(
 ) -> None:
     root_a = tmp_path / "a"
     root_b = tmp_path / "b"
+    root_a.mkdir()
+    root_b.mkdir()
     entry_a = SimpleNamespace(queue_id="a", status=SimpleNamespace(value="pending"))
     entry_b = SimpleNamespace(
         queue_id="b",
@@ -73,6 +75,7 @@ def test_engine_queue_runtime_common_accessors(tmp_path: Path) -> None:
 
 
 def test_engine_queue_runtime_builds_child_worker_deps(tmp_path: Path) -> None:
+    (tmp_path / "a").mkdir()
     entry = SimpleNamespace(queue_id="queue-1", status=SimpleNamespace(value="pending"))
     runtime = _runtime(
         tmp_path,

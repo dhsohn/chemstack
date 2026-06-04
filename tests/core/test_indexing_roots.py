@@ -33,6 +33,8 @@ def test_runtime_roots_for_cfg_deduplicates_workflow_engine_roots(
     second_workspace = workflow_root / "wf-2"
     first_engine_root = tmp_path / "wf-1" / "02_xtb"
     second_engine_root = tmp_path / "wf-2" / "02_xtb"
+    first_engine_root.mkdir(parents=True)
+    second_engine_root.mkdir(parents=True)
 
     monkeypatch.setattr(
         roots,
@@ -42,17 +44,51 @@ def test_runtime_roots_for_cfg_deduplicates_workflow_engine_roots(
     monkeypatch.setattr(
         roots,
         "workflow_workspace_internal_engine_paths",
-        lambda workspace, engine: {
+        lambda workspace, engine, **kwargs: {
             "allowed_root": first_engine_root
             if workspace == first_workspace
-            else second_engine_root
+            else second_engine_root,
+            "organized_root": first_engine_root
+            if workspace == first_workspace
+            else second_engine_root,
         },
     )
 
     assert roots.runtime_roots_for_cfg(
         _cfg(tmp_path / "fallback", workflow_root=workflow_root),
         engine="xtb",
-    ) == (first_engine_root.resolve(), second_engine_root.resolve())
+    ) == (
+        (tmp_path / "fallback").resolve(),
+        first_engine_root.resolve(),
+        second_engine_root.resolve(),
+    )
+
+
+def test_runtime_roots_for_cfg_includes_conformer_and_reaction_orca_roots(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    workflow_root = tmp_path / "workflows"
+    workspace = workflow_root / "wf-orca"
+    conformer_orca_root = workspace / "02_orca"
+    reaction_orca_root = workspace / "03_orca"
+    conformer_orca_root.mkdir(parents=True)
+    reaction_orca_root.mkdir(parents=True)
+
+    monkeypatch.setattr(
+        roots,
+        "iter_workflow_runtime_workspaces",
+        lambda _root, engine: (workspace,),
+    )
+
+    assert roots.runtime_roots_for_cfg(
+        _cfg(tmp_path / "fallback", workflow_root=workflow_root),
+        engine="orca",
+    ) == (
+        (tmp_path / "fallback").resolve(),
+        reaction_orca_root.resolve(),
+        conformer_orca_root.resolve(),
+    )
 
 
 def test_index_root_for_path_prefers_matching_workflow_runtime_root(

@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from chemstack.core.paths.workflow import workflow_stage_dirnames_for_engine
 from chemstack.core.queue.types import QueueEntry
 from chemstack.core.utils import normalize_text
 
@@ -47,11 +48,17 @@ def engine_queue_roots(
     roots: list[Path] = []
 
     for workspace_dir in deps.iter_workflow_runtime_workspaces(workflow_root, engine=engine):
-        runtime_root = deps.workflow_workspace_internal_engine_paths(workspace_dir, engine=engine)[
-            "allowed_root"
-        ]
-        if runtime_root not in roots:
-            roots.append(runtime_root)
+        for stage_dirname in workflow_stage_dirnames_for_engine(engine):
+            runtime_paths = deps.workflow_workspace_internal_engine_paths(
+                workspace_dir,
+                engine=engine,
+                stage_dirname=stage_dirname,
+            )
+            runtime_root = runtime_paths["allowed_root"]
+            if not runtime_root.exists() and not runtime_paths["organized_root"].exists():
+                continue
+            if runtime_root not in roots:
+                roots.append(runtime_root)
     return tuple(roots)
 
 

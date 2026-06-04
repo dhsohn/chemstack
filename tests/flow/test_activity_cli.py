@@ -343,6 +343,8 @@ def test_runtime_path_and_engine_root_edges(
     workspace_b = tmp_path / "wf" / "b"
     runtime_a = tmp_path / "runtime-a"
     runtime_b = tmp_path / "runtime-b"
+    runtime_a.mkdir()
+    runtime_b.mkdir()
     monkeypatch.setattr(
         activity, "shared_workflow_root_from_config", lambda config_path: str(tmp_path / "wf")
     )
@@ -354,8 +356,9 @@ def test_runtime_path_and_engine_root_edges(
     monkeypatch.setattr(
         activity,
         "workflow_workspace_internal_engine_paths",
-        lambda workspace_dir, *, engine: {
-            "allowed_root": runtime_a if workspace_dir == workspace_a else runtime_b
+        lambda workspace_dir, *, engine, stage_dirname=None: {
+            "allowed_root": runtime_a if workspace_dir == workspace_a else runtime_b,
+            "organized_root": runtime_a if workspace_dir == workspace_a else runtime_b,
         },
     )
     assert _activity_list.engine_queue_roots(

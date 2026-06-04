@@ -730,7 +730,10 @@ def test_append_crest_orca_stages_materializes_orca_stages_from_completed_crest(
     )
     payload: dict[str, Any] = {
         "workflow_id": "wf_conf_01",
-        "metadata": {"request": {"parameters": {"max_orca_stages": 1}}},
+        "metadata": {
+            "request": {"parameters": {"max_orca_stages": 1}},
+            "workspace_dir": str((tmp_path / "wf_conf_01").resolve()),
+        },
         "stages": [
             {
                 "stage_id": "crest_stage_01",
@@ -739,13 +742,18 @@ def test_append_crest_orca_stages_materializes_orca_stages_from_completed_crest(
             }
         ],
     }
+    build_calls: list[dict[str, Any]] = []
+
+    def fake_build_materialized_orca_stage(**kwargs: Any) -> Any:
+        build_calls.append(kwargs)
+        return _orca_stage_result(**kwargs)
 
     deps = orchestration_deps(
         overrides={
             "_completed_crest_stage": lambda stage, **kwargs: "crest_contract",
             "_load_config_root": lambda path, **kwargs: tmp_path / "orca_allowed",
             "select_crest_downstream_inputs": lambda contract, policy: (crest_candidate,),
-            "build_materialized_orca_stage": _orca_stage_result,
+            "build_materialized_orca_stage": fake_build_materialized_orca_stage,
         }
     )
 
@@ -761,6 +769,8 @@ def test_append_crest_orca_stages_materializes_orca_stages_from_completed_crest(
     )
 
     assert created is True
+    assert build_calls[0]["workspace_dir"] == (tmp_path / "wf_conf_01" / "02_orca").resolve()
+    assert build_calls[0]["stage_root_name"] == ""
     assert payload["stages"][-1]["stage_id"] == "orca_conformer_01"
     assert payload["stages"][-1]["task"]["engine"] == "orca"
 

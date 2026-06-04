@@ -15,6 +15,8 @@ from chemstack.flow.orchestration.stage_views import (
 )
 from chemstack.flow.state import workflow_workspace_internal_engine_paths
 
+_CONFORMER_ORCA_STAGE_DIRNAME = "02_orca"
+
 
 @dataclass(frozen=True)
 class _CrestOrcaStagePlan:
@@ -71,6 +73,7 @@ def _crest_orca_stage_plan(
     orca_runtime_paths = workflow_workspace_internal_engine_paths(
         workspace_dir,
         engine="orca",
+        stage_dirname=_CONFORMER_ORCA_STAGE_DIRNAME,
     )
     params = _request_params(o, payload)
     candidates = o.engines.select_crest_downstream_inputs(

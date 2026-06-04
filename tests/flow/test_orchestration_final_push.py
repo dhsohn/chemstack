@@ -830,6 +830,21 @@ def test_recompute_workflow_status_covers_cancelled_and_cancel_requested_edges()
     assert (
         _recompute_workflow_status(
             {
+                "template_name": "conformer_screening",
+                "status": "running",
+                "stages": [
+                    {
+                        "status": "completed",
+                        "task": {"engine": "crest", "status": "completed"},
+                    }
+                ],
+            }
+        )
+        == "running"
+    )
+    assert (
+        _recompute_workflow_status(
+            {
                 "status": "planned",
                 "stages": [{"status": "cancel_requested", "task": {"engine": "crest"}}],
             }

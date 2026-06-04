@@ -6,7 +6,10 @@ from typing import Any, Sequence
 
 from chemstack.core.admission import AdmissionStoreCorruptError, active_slot_count
 from chemstack.core.config.files import YAML_CONFIG_LOAD_EXCEPTIONS
-from chemstack.core.paths.workflow import WORKFLOW_STAGE_DIRNAMES
+from chemstack.core.paths.workflow import (
+    WORKFLOW_STAGE_DIRNAMES,
+    workflow_stage_dirnames_for_engine,
+)
 from chemstack.core.utils import normalize_text
 from chemstack.flow.engine_runtime import engine_runtime_paths
 
@@ -16,7 +19,11 @@ ACTIVE_SIMULATION_STATUSES = frozenset({"running", "retrying", "cancel_requested
 DEFAULT_COMBINED_WORKFLOW_CHILD_ENGINES = frozenset({"orca"})
 ActivityItem = dict[str, Any]
 TopLevelToken = tuple[str, str | int]
-WORKFLOW_STAGE_DIRNAME_SET = frozenset(WORKFLOW_STAGE_DIRNAMES.values())
+WORKFLOW_STAGE_DIRNAME_SET = frozenset(
+    dirname
+    for engine in WORKFLOW_STAGE_DIRNAMES
+    for dirname in workflow_stage_dirnames_for_engine(engine)
+)
 
 
 def workflow_parent_id_from_activity(item: dict[str, Any]) -> str:

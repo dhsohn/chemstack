@@ -7,6 +7,7 @@ from typing import Any
 
 from chemstack.core.paths.workflow import (
     WORKFLOW_FILE_NAME,
+    WORKFLOW_STAGE_DIRNAME_ALIASES,
     WORKFLOW_STAGE_DIRNAMES,
     iter_workflow_runtime_workspaces,
     workflow_root_dir,
@@ -100,6 +101,7 @@ def iter_workflow_workspaces(workflow_root: str | Path) -> list[Path]:
 
 __all__ = [
     "WORKFLOW_FILE_NAME",
+    "WORKFLOW_STAGE_DIRNAME_ALIASES",
     "WORKFLOW_STAGE_DIRNAMES",
     "WORKFLOW_LOCK_NAME",
     "acquire_workflow_lock",

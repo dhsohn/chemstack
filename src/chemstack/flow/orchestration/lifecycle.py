@@ -18,7 +18,13 @@ from chemstack.core.statuses import (
 def workflow_sync_only_impl(
     payload: dict[str, Any], *, normalize_text_fn: Callable[[Any], str]
 ) -> bool:
-    return is_sync_only_workflow_status(normalize_text_fn(payload.get("status")))
+    status = normalize_text_fn(payload.get("status")).lower()
+    if status == STATUS_COMPLETED and _conformer_orca_handoff_pending_raw(
+        payload,
+        normalize_text_fn=normalize_text_fn,
+    ):
+        return False
+    return is_sync_only_workflow_status(status)
 
 
 def workflow_has_active_children_impl(
@@ -164,6 +170,59 @@ def _stage_engine(stage: dict[str, Any], *, normalize_text_fn: Callable[[Any], s
     return normalize_text_fn(task.get("engine")).lower()
 
 
+def _template_name(payload: dict[str, Any], *, normalize_text_fn: Callable[[Any], str]) -> str:
+    return normalize_text_fn(payload.get("template_name")).lower()
+
+
+def _stage_task_status(
+    stage: dict[str, Any], *, normalize_text_fn: Callable[[Any], str]
+) -> str:
+    task = stage.get("task")
+    if not isinstance(task, dict):
+        return ""
+    return normalize_text_fn(task.get("status")).lower()
+
+
+def _conformer_orca_handoff_pending_raw(
+    payload: dict[str, Any],
+    *,
+    normalize_text_fn: Callable[[Any], str],
+) -> bool:
+    if _template_name(payload, normalize_text_fn=normalize_text_fn) != "conformer_screening":
+        return False
+    has_orca_stage = False
+    has_completed_crest_stage = False
+    for raw_stage in payload.get("stages", []):
+        if not isinstance(raw_stage, dict):
+            continue
+        engine = _stage_engine(raw_stage, normalize_text_fn=normalize_text_fn)
+        if engine == "orca":
+            has_orca_stage = True
+            break
+        if engine != "crest":
+            continue
+        stage_status = normalize_text_fn(raw_stage.get("status")).lower()
+        task_status = _stage_task_status(raw_stage, normalize_text_fn=normalize_text_fn)
+        if stage_status == STATUS_COMPLETED and task_status in {"", STATUS_COMPLETED}:
+            has_completed_crest_stage = True
+    return has_completed_crest_stage and not has_orca_stage
+
+
+def _conformer_orca_handoff_pending(
+    payload: dict[str, Any],
+    stage_rows: list[tuple[dict[str, Any], str, str]],
+    *,
+    normalize_text_fn: Callable[[Any], str],
+) -> bool:
+    if _template_name(payload, normalize_text_fn=normalize_text_fn) != "conformer_screening":
+        return False
+    has_orca_stage = any(engine == "orca" for _, _, engine in stage_rows)
+    has_completed_crest_stage = any(
+        engine == "crest" and status == STATUS_COMPLETED for _, status, engine in stage_rows
+    )
+    return has_completed_crest_stage and not has_orca_stage
+
+
 def _workflow_status_from_stage_statuses(
     *,
     stages: list[dict[str, Any]],
@@ -213,6 +272,15 @@ def recompute_workflow_status_impl(
         for _, status, engine in stage_rows
     ):
         return "failed"
+    if (
+        current_status not in {STATUS_CANCELLED, STATUS_CANCEL_REQUESTED}
+        and _conformer_orca_handoff_pending(
+            payload,
+            stage_rows,
+            normalize_text_fn=normalize_text_fn,
+        )
+    ):
+        return STATUS_RUNNING
     return _workflow_status_from_stage_statuses(
         stages=stages,
         statuses=statuses,

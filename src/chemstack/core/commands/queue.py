@@ -54,6 +54,10 @@ def queue_roots(
     return tuple(runtime_roots_for_cfg_fn(cfg))
 
 
+def existing_queue_roots(roots: tuple[Path, ...]) -> tuple[Path, ...]:
+    return tuple(root for root in roots if Path(root).expanduser().exists())
+
+
 def queue_entries_with_roots(
     cfg: Any,
     *,
@@ -61,7 +65,7 @@ def queue_entries_with_roots(
     list_queue_fn: Callable[[Path], list[Any]],
 ) -> list[tuple[Path, Any]]:
     rows: list[tuple[Path, Any]] = []
-    for root in queue_roots_fn(cfg):
+    for root in existing_queue_roots(queue_roots_fn(cfg)):
         for entry in list_queue_fn(root):
             rows.append((root, entry))
     return rows
@@ -76,7 +80,7 @@ def dequeue_next_entry(
     dequeue_next_across_roots_fn: Callable[..., tuple[Path, Any] | None],
 ) -> tuple[Path, Any] | None:
     return dequeue_next_across_roots_fn(
-        queue_roots_fn(cfg),
+        existing_queue_roots(queue_roots_fn(cfg)),
         list_queue_fn=list_queue_fn,
         dequeue_next_fn=dequeue_next_fn,
     )
