@@ -11,28 +11,20 @@ from orca_auto.core.queue.internal_engine_worker_deps import (
     InternalEngineQueueWorkerDeps,
     InternalEngineQueueWorkerFacadeBindings,
     InternalEngineQueueWorkerFacadeCallbacks,
-    InternalEngineQueueWorkerNamespaceNames,
     build_internal_engine_queue_worker_deps,
     build_late_bound_internal_engine_queue_worker_deps,
-    internal_engine_queue_worker_callbacks_from_namespace,
-    internal_engine_queue_worker_callbacks_from_namespace_names,
-    internal_engine_queue_worker_deps_from_namespace,
-    internal_engine_queue_worker_deps_from_namespace_names,
 )
 from orca_auto.core.queue.worker_execution_dependencies import (
     WorkerAdmissionDependencies,
     WorkerConfigDependencies,
     WorkerProcessDependencyCallbacks,
     build_worker_process_default_factories_from_callbacks,
-    build_worker_process_default_factories_from_namespace,
     build_worker_process_dependency_callbacks,
     build_worker_process_dependency_groups,
-    build_worker_process_dependency_groups_from_namespace,
     run_worker_child_entrypoint,
     run_worker_child_entrypoint_with_dependencies,
     worker_process_dependency_callback_kwargs,
     worker_process_dependency_callbacks_from_attrs,
-    worker_process_dependency_callbacks_from_namespace,
 )
 
 
@@ -162,227 +154,6 @@ def test_engine_queue_runtime_builds_child_worker_deps(tmp_path: Path) -> None:
     ]
 
 
-def test_internal_engine_queue_worker_deps_from_namespace_preserves_legacy_symbols(
-    tmp_path: Path,
-) -> None:
-    calls: list[tuple[str, tuple[Any, ...], dict[str, Any]]] = []
-
-    def record(name: str, result: Any = None) -> Any:
-        def _call(*args: Any, **kwargs: Any) -> Any:
-            calls.append((name, args, kwargs))
-            return result
-
-        return _call
-
-    namespace = {
-        "time": SimpleNamespace(sleep=lambda _seconds: None),
-        "release_slot": record("release_slot", "released"),
-        "reserve_slot": record("reserve_slot", "reserved"),
-        "start_background_process": record("start_background_process", "process"),
-        "build_worker_child_command": record("build_worker_child_command", ["worker"]),
-        "config_path_for_worker": record("config_path_for_worker", "/tmp/config.yaml"),
-        "default_config_path": record("default_config_path", "/tmp/default.yaml"),
-        "activate_reserved_slot": record("activate_reserved_slot", object()),
-        "_terminate_process": record("terminate_process"),
-        "mark_failed": record("mark_failed", "failed"),
-        "_handle_worker_start_error": record("handle_worker_start_error"),
-        "_finalize_completed_job": record("finalize_completed_job"),
-        "_finalize_child_exit": record("finalize_child_exit", "finalized"),
-        "_reconcile_worker_state": record("reconcile_worker_state"),
-        "list_queue": record("list_queue", []),
-        "list_slots": record("list_slots", []),
-        "reconcile_stale_slots": record("reconcile_stale_slots"),
-        "reconcile_orphaned_child_queue_entries": record("reconcile_orphaned"),
-        "mark_cancelled": record("mark_cancelled"),
-        "requeue_running_entry": record("requeue_running_entry"),
-        "_mark_recovery_pending_entry": record("mark_recovery_pending"),
-        "_try_reserve_admission_slot": record("try_reserve_admission_slot", "slot-1"),
-        "_start_background_job_process": record("start_background_job_process", "started"),
-        "find_queue_entry": record("find_queue_entry", "entry"),
-        "load_config": record("load_config", "cfg"),
-        "read_worker_pid": record("read_worker_pid", 123),
-        "QueueWorker": record("QueueWorker", "worker"),
-        "on_started": record("on_started", True),
-        "shutdown_running": record("shutdown_running"),
-        "before_shutdown": record("before_shutdown"),
-    }
-
-    deps = internal_engine_queue_worker_deps_from_namespace(
-        namespace,
-        find_queue_entry_name="find_queue_entry",
-        on_worker_process_started_name="on_started",
-        shutdown_running_job_name="shutdown_running",
-        before_shutdown_all_name="before_shutdown",
-    )
-
-    assert deps.release_slot(tmp_path, "slot-1") == "released"
-    assert deps.build_worker_child_command(
-        config_path="/tmp/config.yaml",
-        queue_root=tmp_path,
-        queue_id="queue-1",
-    ) == ["worker"]
-    assert deps.config_path_for_worker(
-        SimpleNamespace(),
-        default_config_path_fn=deps.default_config_path,
-    ) == "/tmp/config.yaml"
-    assert deps.mark_failed(tmp_path, "queue-1", error="boom") == "failed"
-    assert deps.finalize_child_exit("worker", "job", rc=2) == "finalized"
-    assert deps.start_background_job_process_fn is not None
-    assert deps.start_background_job_process_fn(
-        config_path="/tmp/config.yaml",
-        queue_root=tmp_path,
-        entry=SimpleNamespace(queue_id="queue-1"),
-        admission_root=tmp_path,
-        admission_token="slot-1",
-    ) == "started"
-    assert deps.find_queue_entry is not None
-    assert deps.find_queue_entry(tmp_path, "queue-1") == "entry"
-    assert deps.on_worker_process_started is not None
-    assert deps.on_worker_process_started("worker", tmp_path, "entry", "process", "slot-1")
-    assert deps.shutdown_running_job is not None
-    deps.shutdown_running_job("worker", "queue-1", "job")
-    assert deps.before_shutdown_all is not None
-    deps.before_shutdown_all("worker", 1)
-
-    assert ("mark_failed", (tmp_path, "queue-1"), {"error": "boom"}) in calls
-    assert ("finalize_child_exit", ("worker", "job"), {"rc": 2}) in calls
-    assert ("on_started", ("worker", tmp_path, "entry", "process", "slot-1"), {}) in calls
-
-
-def test_internal_engine_queue_worker_callbacks_from_namespace_use_late_lookup(
-    tmp_path: Path,
-) -> None:
-    namespace: dict[str, Any] = {}
-    callbacks = internal_engine_queue_worker_callbacks_from_namespace(
-        namespace,
-        find_queue_entry_name="find_queue_entry",
-        on_worker_process_started_name="on_started",
-    )
-
-    namespace.update(
-        {
-            "release_slot": lambda root, token: ("released", root, token),
-            "default_config_path": lambda: "/tmp/default.yaml",
-            "config_path_for_worker": lambda args, *, default_config_path_fn: (
-                getattr(args, "config", "") or default_config_path_fn()
-            ),
-            "find_queue_entry": lambda root, queue_id: ("entry", root, queue_id),
-            "on_started": lambda worker, root, entry, process, token: (
-                worker,
-                root,
-                entry,
-                process,
-                token,
-            ),
-        }
-    )
-
-    assert callbacks.release_slot(tmp_path, "slot-1") == (
-        "released",
-        tmp_path,
-        "slot-1",
-    )
-    assert callbacks.config_path_for_worker(
-        SimpleNamespace(),
-        default_config_path_fn=callbacks.default_config_path,
-    ) == "/tmp/default.yaml"
-    assert callbacks.find_queue_entry is not None
-    assert callbacks.find_queue_entry(tmp_path, "queue-1") == (
-        "entry",
-        tmp_path,
-        "queue-1",
-    )
-    assert callbacks.on_worker_process_started is not None
-    assert callbacks.on_worker_process_started(
-        "worker",
-        tmp_path,
-        "entry",
-        "process",
-        "slot-1",
-    ) == ("worker", tmp_path, "entry", "process", "slot-1")
-
-
-def test_internal_engine_queue_worker_namespace_names_from_legacy_names() -> None:
-    names = InternalEngineQueueWorkerNamespaceNames.from_legacy_names(
-        time_module_name="clock",
-        release_slot_name="release",
-        finalize_completed_job_name="finish",
-        find_queue_entry_name="find_entry",
-        shutdown_running_job_name="shutdown_job",
-    )
-
-    assert names.time_module == "clock"
-    assert names.release_slot == "release"
-    assert names.finalize_completed_job == "finish"
-    assert names.find_queue_entry == "find_entry"
-    assert names.shutdown_running_job == "shutdown_job"
-    assert names.reserve_slot == "reserve_slot"
-
-
-def test_internal_engine_queue_worker_namespace_names_drive_legacy_lookup(
-    tmp_path: Path,
-) -> None:
-    namespace: dict[str, Any] = {
-        "clock": SimpleNamespace(sleep=lambda _seconds: None),
-    }
-    names = InternalEngineQueueWorkerNamespaceNames(
-        time_module="clock",
-        release_slot="release",
-        config_path_for_worker="config_path",
-        default_config_path="default_config",
-        find_queue_entry="find_entry",
-        on_worker_process_started="started",
-    )
-
-    callbacks = internal_engine_queue_worker_callbacks_from_namespace_names(
-        namespace,
-        names=names,
-    )
-    deps = internal_engine_queue_worker_deps_from_namespace_names(
-        namespace,
-        names=names,
-    )
-
-    namespace.update(
-        {
-            "release": lambda root, token: ("released", root, token),
-            "default_config": lambda: "/tmp/default.yaml",
-            "config_path": lambda args, *, default_config_path_fn: (
-                getattr(args, "config", "") or default_config_path_fn()
-            ),
-            "find_entry": lambda root, queue_id: ("entry", root, queue_id),
-            "started": lambda worker, root, entry, process, token: (
-                worker,
-                root,
-                entry,
-                process,
-                token,
-            ),
-        }
-    )
-
-    assert callbacks.release_slot(tmp_path, "slot-1") == (
-        "released",
-        tmp_path,
-        "slot-1",
-    )
-    assert deps.release_slot(tmp_path, "slot-2") == ("released", tmp_path, "slot-2")
-    assert deps.config_path_for_worker(
-        SimpleNamespace(),
-        default_config_path_fn=deps.default_config_path,
-    ) == "/tmp/default.yaml"
-    assert deps.find_queue_entry is not None
-    assert deps.find_queue_entry(tmp_path, "queue-1") == ("entry", tmp_path, "queue-1")
-    assert deps.on_worker_process_started is not None
-    assert deps.on_worker_process_started(
-        "worker",
-        tmp_path,
-        "entry",
-        "process",
-        "slot-1",
-    ) == ("worker", tmp_path, "entry", "process", "slot-1")
-
-
 def test_late_bound_internal_engine_queue_worker_deps_use_current_callbacks(
     tmp_path: Path,
 ) -> None:
@@ -490,77 +261,6 @@ def test_internal_engine_queue_worker_deps_builder_maps_callbacks(tmp_path: Path
     assert calls == ["release", "start_job", "find_entry"]
 
 
-def test_worker_process_dependency_groups_from_namespace_maps_common_groups() -> None:
-    calls: list[str] = []
-
-    def record(name: str) -> Any:
-        def _call(*_args: Any, **_kwargs: Any) -> None:
-            calls.append(name)
-
-        return _call
-
-    namespace = {
-        "now_utc_iso": lambda: "2026-01-01T00:00:00+00:00",
-        "get_cancel_requested": record("cancel"),
-        "mark_completed": record("completed"),
-        "mark_cancelled": record("cancelled"),
-        "mark_failed": record("failed"),
-        "_terminate_process": record("terminate"),
-        "_queue_execution": SimpleNamespace(wait_for_cancellable_process=record("wait")),
-        "time": SimpleNamespace(sleep=record("sleep")),
-        "start_demo_job": record("start"),
-        "finalize_demo_job": record("finalize"),
-    }
-
-    groups = build_worker_process_dependency_groups_from_namespace(
-        namespace,
-        timing_dependencies_type=SimpleNamespace,
-        queue_dependencies_type=SimpleNamespace,
-        runner_dependencies_type=SimpleNamespace,
-        cancel_check_interval_seconds=3,
-        engine_runner_dependency_names=("start_demo_job", "finalize_demo_job"),
-    )
-
-    assert groups["timing"].now_utc_iso() == "2026-01-01T00:00:00+00:00"
-    groups["queue"].mark_failed("root", "queue-1")
-    assert groups["runner"].cancel_check_interval_seconds == 3
-    assert groups["runner"].start_demo_job is namespace["start_demo_job"]
-    assert groups["runner"].finalize_demo_job is namespace["finalize_demo_job"]
-    assert calls == ["failed"]
-
-
-def test_worker_process_dependency_callbacks_from_namespace_maps_common_callbacks() -> None:
-    def record(name: str) -> Any:
-        def _call(*_args: Any, **_kwargs: Any) -> str:
-            return name
-
-        return _call
-
-    namespace = {
-        "now_utc_iso": lambda: "2026-01-01T00:00:00+00:00",
-        "get_cancel_requested": record("cancel"),
-        "mark_completed": record("completed"),
-        "mark_cancelled": record("cancelled"),
-        "mark_failed": record("failed"),
-        "_terminate_process": record("terminate"),
-        "_queue_execution": SimpleNamespace(wait_for_cancellable_process=record("wait")),
-        "time": SimpleNamespace(sleep=record("sleep")),
-        "run_demo_job": record("run"),
-    }
-
-    callbacks = worker_process_dependency_callbacks_from_namespace(
-        namespace,
-        engine_runner_dependency_names=("run_demo_job",),
-    )
-
-    assert callbacks.terminate_process() == "terminate"
-    assert callbacks.wait_for_cancellable_process() == "wait"
-    assert callbacks.sleep() == "sleep"
-    assert callbacks.now_utc_iso() == "2026-01-01T00:00:00+00:00"
-    assert callbacks.mark_completed() == "completed"
-    assert callbacks.engine_runner_dependencies["run_demo_job"]() == "run"
-
-
 def test_worker_process_dependency_callbacks_from_attrs_maps_common_callbacks() -> None:
     def record(name: str) -> Any:
         def _call(*_args: Any, **_kwargs: Any) -> str:
@@ -636,48 +336,6 @@ def test_worker_process_dependency_groups_maps_callback_groups() -> None:
     assert groups["runner"].cancel_check_interval_seconds == 6
     groups["runner"].run_demo_job()
     assert calls == ["completed", "run"]
-
-
-def test_worker_process_default_factories_from_namespace_maps_common_groups() -> None:
-    calls: list[str] = []
-
-    def record(name: str) -> Any:
-        def _call(*_args: Any, **_kwargs: Any) -> None:
-            calls.append(name)
-
-        return _call
-
-    namespace = {
-        "now_utc_iso": lambda: "2026-01-01T00:00:00+00:00",
-        "get_cancel_requested": record("cancel"),
-        "mark_completed": record("completed"),
-        "mark_cancelled": record("cancelled"),
-        "mark_failed": record("failed"),
-        "_terminate_process": record("terminate"),
-        "_queue_execution": SimpleNamespace(wait_for_cancellable_process=record("wait")),
-        "time": SimpleNamespace(sleep=record("sleep")),
-        "run_demo_job": record("run"),
-    }
-
-    factories = build_worker_process_default_factories_from_namespace(
-        namespace,
-        config_factory=lambda: "config",
-        admission_factory=lambda: "admission",
-        timing_dependencies_type=SimpleNamespace,
-        queue_dependencies_type=SimpleNamespace,
-        runner_dependencies_type=SimpleNamespace,
-        cancel_check_interval_seconds=4,
-        engine_runner_dependency_names=("run_demo_job",),
-    )
-
-    assert factories["config"]() == "config"
-    assert factories["admission"]() == "admission"
-    assert factories["timing"]().now_utc_iso() == "2026-01-01T00:00:00+00:00"
-    factories["queue"]().mark_cancelled("root", "queue-1")
-    runner = factories["runner"]()
-    assert runner.cancel_check_interval_seconds == 4
-    assert runner.run_demo_job is namespace["run_demo_job"]
-    assert calls == ["cancelled"]
 
 
 def test_worker_process_default_factories_from_callbacks_maps_common_groups() -> None:
@@ -1162,34 +820,36 @@ def test_internal_engine_queue_module_preserves_worker_facade_contract(
         )
     )
     entry = SimpleNamespace(queue_id="queue-1", status=SimpleNamespace(value="pending"))
-    namespace = {
-        "time": SimpleNamespace(sleep=lambda _seconds: None),
-        "release_slot": record("release_slot"),
-        "reserve_slot": record("reserve_slot", "slot-1"),
-        "start_background_process": record("start_background_process", "process"),
-        "build_worker_child_command": record("build_worker_child_command", ["worker"]),
-        "config_path_for_worker": record("config_path_for_worker", "/tmp/config.yaml"),
-        "default_config_path": record("default_config_path", "/tmp/default.yaml"),
-        "activate_reserved_slot": record("activate_reserved_slot", object()),
-        "_terminate_process": record("terminate_process"),
-        "mark_failed": record("mark_failed"),
-        "_handle_worker_start_error": record("handle_worker_start_error"),
-        "_finalize_completed_job": record("finalize_completed_job"),
-        "_finalize_child_exit": record("finalize_child_exit"),
-        "_reconcile_worker_state": record("reconcile_worker_state"),
-        "list_queue": record("list_queue", []),
-        "list_slots": record("list_slots", []),
-        "reconcile_stale_slots": record("reconcile_stale_slots"),
-        "reconcile_orphaned_child_queue_entries": record("reconcile_orphaned"),
-        "mark_cancelled": record("mark_cancelled"),
-        "requeue_running_entry": record("requeue_running_entry"),
-        "_mark_recovery_pending_entry": record("mark_recovery_pending"),
-        "_try_reserve_admission_slot": record("try_reserve_admission_slot", "slot-override"),
-        "_start_background_job_process": record("start_background_job_process", "started"),
-        "load_config": record("load_config", cfg),
-        "read_worker_pid": record("read_worker_pid", None),
-        "QueueWorker": record("QueueWorker", SimpleNamespace(run=lambda: 0)),
-    }
+    deps = build_internal_engine_queue_worker_deps(
+        InternalEngineQueueWorkerFacadeCallbacks(
+            release_slot=record("release_slot"),
+            reserve_slot=record("reserve_slot", "slot-1"),
+            start_background_process=record("start_background_process", "process"),
+            build_worker_child_command=record("build_worker_child_command", ["worker"]),
+            config_path_for_worker=record("config_path_for_worker", "/tmp/config.yaml"),
+            default_config_path=record("default_config_path", "/tmp/default.yaml"),
+            activate_reserved_slot=record("activate_reserved_slot", object()),
+            terminate_process=record("terminate_process"),
+            mark_failed=record("mark_failed"),
+            handle_worker_start_error=record("handle_worker_start_error"),
+            finalize_completed_job=record("finalize_completed_job"),
+            finalize_child_exit=record("finalize_child_exit"),
+            reconcile_worker_state=record("reconcile_worker_state"),
+            list_queue=record("list_queue", []),
+            list_slots=record("list_slots", []),
+            reconcile_stale_slots=record("reconcile_stale_slots"),
+            reconcile_orphaned_child_queue_entries=record("reconcile_orphaned"),
+            mark_cancelled=record("mark_cancelled"),
+            requeue_running_entry=record("requeue_running_entry"),
+            mark_recovery_pending=record("mark_recovery_pending"),
+            try_reserve_admission_slot=record("try_reserve_admission_slot", "slot-override"),
+            start_background_job_process=record("start_background_job_process", "started"),
+            load_config=record("load_config", cfg),
+            read_worker_pid=record("read_worker_pid", None),
+            worker_class=record("QueueWorker", SimpleNamespace(run=lambda: 0)),
+        ),
+        time_module=SimpleNamespace(sleep=lambda _seconds: None),
+    )
     spec = InternalEngineSpec(
         engine="xtb",
         worker_job_module="orca_auto.flow.engines.xtb.execution",
@@ -1203,7 +863,7 @@ def test_internal_engine_queue_module_preserves_worker_facade_contract(
         dequeue_next=lambda _root: entry,
         poll_interval_seconds=5,
         shutdown_grace_seconds=1.0,
-        deps=internal_engine_queue_worker_deps_from_namespace(namespace),
+        deps=deps,
     )
 
     assert module.queue_worker_deps().dequeue_next_entry(cfg) == (tmp_path, entry)

@@ -10,10 +10,43 @@ from orca_auto.core.queue.child_process import reconcile_orphaned_child_queue_en
 from orca_auto.core.queue.internal_engine import (
     InternalEngineQueueRuntime,
     InternalEngineQueueWorkerFacade,
-    InternalEngineQueueWorkerNamespaceNames,
+    InternalEngineQueueWorkerFacadeBindings,
+    InternalEngineQueueWorkerFacadeCallbacks,
     InternalEngineSpec,
+    build_internal_engine_queue_worker_deps,
+    build_late_bound_internal_engine_queue_worker_deps,
 )
 from orca_auto.core.queue.types import QueueStatus
+
+
+def _facade_deps(*, time_module: Any | None = None, **overrides: Any) -> Any:
+    callback_values: dict[str, Any] = {
+        "release_slot": lambda *_args, **_kwargs: None,
+        "reserve_slot": lambda *_args, **_kwargs: "slot-1",
+        "start_background_process": lambda _command: "process",
+        "build_worker_child_command": lambda **kwargs: ["worker", kwargs["queue_id"]],
+        "config_path_for_worker": lambda args, *, default_config_path_fn: (
+            getattr(args, "config", "") or default_config_path_fn()
+        ),
+        "default_config_path": lambda: "/tmp/default.yaml",
+        "activate_reserved_slot": lambda *_args, **_kwargs: object(),
+        "terminate_process": lambda _process: None,
+        "mark_failed": lambda *_args, **_kwargs: None,
+        "handle_worker_start_error": lambda *_args, **_kwargs: None,
+        "finalize_completed_job": lambda *_args, **_kwargs: None,
+        "finalize_child_exit": lambda *_args, **_kwargs: None,
+        "reconcile_worker_state": lambda *_args, **_kwargs: None,
+        "list_queue": lambda _root: [],
+        "list_slots": lambda _root: [],
+        "reconcile_stale_slots": lambda _root: None,
+        "mark_cancelled": lambda *_args, **_kwargs: None,
+        "requeue_running_entry": lambda *_args, **_kwargs: None,
+    }
+    callback_values.update(overrides)
+    return build_internal_engine_queue_worker_deps(
+        InternalEngineQueueWorkerFacadeCallbacks(**callback_values),
+        time_module=time_module or SimpleNamespace(sleep=lambda _seconds: None),
+    )
 
 
 def test_internal_engine_worker_child_rejects_legacy_admission_parser_arg() -> None:
@@ -113,7 +146,7 @@ def test_internal_engine_admission_uses_engine_identity() -> None:
     ]
 
 
-def test_internal_engine_queue_runtime_worker_command_uses_late_bound_namespace(
+def test_internal_engine_queue_worker_facade_runs_worker_command_with_deps(
     tmp_path: Path,
 ) -> None:
     cfg = SimpleNamespace(
@@ -144,16 +177,19 @@ def test_internal_engine_queue_runtime_worker_command_uses_late_bound_namespace(
         def run(self) -> int:
             return 19
 
-    namespace = {
-        "load_config": lambda _path: cfg,
-        "read_worker_pid": lambda _root: None,
-        "QueueWorker": object,
-    }
-    namespace["QueueWorker"] = Worker
+    facade = InternalEngineQueueWorkerFacade(
+        runtime=runtime,
+        deps=_facade_deps(
+            load_config=lambda _path: cfg,
+            read_worker_pid=lambda _root: None,
+            worker_class=Worker,
+        ),
+        poll_interval_seconds=5,
+        shutdown_grace_seconds=10,
+    )
 
-    result = runtime.run_pidfile_worker_command_from_namespace(
+    result = facade.run_pidfile_worker_command(
         SimpleNamespace(config="/tmp/demo.yaml"),
-        namespace=namespace,
         config_path_fn=lambda args: args.config,
     )
 
@@ -161,7 +197,7 @@ def test_internal_engine_queue_runtime_worker_command_uses_late_bound_namespace(
     assert seen == [(cfg, "/tmp/demo.yaml", 3)]
 
 
-def test_internal_engine_queue_worker_facade_uses_late_bound_namespace(
+def test_internal_engine_queue_worker_facade_uses_late_bound_bindings(
     tmp_path: Path,
 ) -> None:
     cfg = SimpleNamespace(
@@ -185,32 +221,48 @@ def test_internal_engine_queue_worker_facade_uses_late_bound_namespace(
         started_commands.append(command)
         return "process"
 
-    namespace = {
-        "time": SimpleNamespace(sleep=lambda _seconds: None),
-        "release_slot": lambda *_args: None,
-        "reserve_slot": lambda *_args, **_kwargs: "old-token",
-        "start_background_process": start_background_process,
-        "build_worker_child_command": lambda **kwargs: ["worker", kwargs["queue_id"]],
-        "config_path_for_worker": lambda args, *, default_config_path_fn: (
-            args.config or default_config_path_fn()
+    reserve_slot_token = {"value": "old-token"}
+
+    def reserve_slot_fn(*_args: Any, **_kwargs: Any) -> str:
+        return reserve_slot_token["value"]
+
+    deps = build_late_bound_internal_engine_queue_worker_deps(
+        InternalEngineQueueWorkerFacadeBindings(
+            release_slot=lambda: (lambda *_args: None),
+            reserve_slot=lambda: reserve_slot_fn,
+            start_background_process=lambda: start_background_process,
+            build_worker_child_command=lambda: (
+                lambda **kwargs: ["worker", kwargs["queue_id"]]
+            ),
+            config_path_for_worker=lambda: (
+                lambda args, *, default_config_path_fn: (
+                    args.config or default_config_path_fn()
+                )
+            ),
+            default_config_path=lambda: (lambda: "/tmp/default.yaml"),
+            activate_reserved_slot=lambda: (lambda *_args, **_kwargs: object()),
+            terminate_process=lambda: (lambda _process: None),
+            mark_failed=lambda: (lambda *_args, **_kwargs: None),
+            handle_worker_start_error=lambda: (lambda *_args, **_kwargs: None),
+            finalize_completed_job=lambda: (lambda *_args, **_kwargs: None),
+            finalize_child_exit=lambda: (lambda *_args, **_kwargs: None),
+            reconcile_worker_state=lambda: (lambda *_args, **_kwargs: None),
+            list_queue=lambda: (lambda _root: []),
+            list_slots=lambda: (lambda _root: []),
+            reconcile_stale_slots=lambda: (lambda _root: None),
+            mark_cancelled=lambda: (lambda *_args, **_kwargs: None),
+            requeue_running_entry=lambda: (lambda *_args, **_kwargs: None),
         ),
-        "default_config_path": lambda: "/tmp/default.yaml",
-        "activate_reserved_slot": lambda *_args, **_kwargs: object(),
-        "_terminate_process": lambda _process: None,
-        "mark_failed": lambda *_args, **_kwargs: None,
-        "_handle_worker_start_error": lambda *_args, **_kwargs: None,
-        "_finalize_completed_job": lambda *_args, **_kwargs: None,
-        "_finalize_child_exit": lambda *_args, **_kwargs: None,
-        "_reconcile_worker_state": lambda *_args, **_kwargs: None,
-    }
+        time_module=SimpleNamespace(sleep=lambda _seconds: None),
+    )
     facade = InternalEngineQueueWorkerFacade(
         runtime=runtime,
-        namespace=namespace,
+        deps=deps,
         poll_interval_seconds=5,
         shutdown_grace_seconds=10,
     )
 
-    namespace["reserve_slot"] = lambda *_args, **_kwargs: "new-token"
+    reserve_slot_token["value"] = "new-token"
 
     assert facade.try_reserve_admission_slot(cfg) == "new-token"
     assert facade.config_path_for_worker(SimpleNamespace(config="")) == "/tmp/default.yaml"
@@ -251,75 +303,18 @@ def test_internal_engine_queue_worker_facade_finalizes_child_exit(
         list_queue=lambda _root: [current_entry],
         dequeue_next=lambda _root: None,
     )
-    namespace = {
-        "find_entry": lambda _root, _queue_id: current_entry,
-        "mark_cancelled": lambda *_args, **_kwargs: None,
-        "requeue_running_entry": lambda root, queue_id: requeued.append((root, queue_id)),
-        "mark_failed": lambda *_args, **_kwargs: None,
-        "mark_recovery": lambda cfg_obj, entry_obj, *, reason: recovery.append(
-            (cfg_obj, entry_obj, reason)
-        ),
-    }
     facade = InternalEngineQueueWorkerFacade(
         runtime=runtime,
-        namespace=namespace,
-        poll_interval_seconds=5,
-        shutdown_grace_seconds=10,
-        find_queue_entry_name="find_entry",
-        mark_recovery_pending_name="mark_recovery",
-    )
-    worker = SimpleNamespace(
-        cfg=cfg,
-        _shutdown_requested=True,
-        _release_admission_slot=lambda token: released.append(token),
-    )
-
-    facade.finalize_child_exit(worker, job, rc=0)
-
-    assert requeued == [(tmp_path / "queue", "queue-1")]
-    assert recovery == [(cfg, job_entry, "worker_shutdown")]
-    assert released == ["slot-1"]
-
-
-def test_internal_engine_queue_worker_facade_accepts_namespace_names(
-    tmp_path: Path,
-) -> None:
-    cfg = SimpleNamespace(runtime=SimpleNamespace(allowed_root=str(tmp_path)))
-    current_entry = SimpleNamespace(queue_id="queue-1", status=QueueStatus.RUNNING)
-    job_entry = SimpleNamespace(queue_id="queue-1", status=QueueStatus.RUNNING)
-    job = SimpleNamespace(
-        queue_root=tmp_path / "queue",
-        entry=job_entry,
-        admission_token="slot-1",
-    )
-    requeued: list[tuple[Path, str]] = []
-    recovery: list[tuple[object, object, str]] = []
-    released: list[str] = []
-    runtime = InternalEngineQueueRuntime.create(
-        spec=InternalEngineSpec(
-            engine="demo",
-            worker_pid_file_name="demo_worker.pid",
-        ),
-        load_config=lambda _path: cfg,
-        runtime_roots_for_cfg=lambda _cfg: (tmp_path / "queue",),
-        list_queue=lambda _root: [current_entry],
-        dequeue_next=lambda _root: None,
-    )
-    namespace = {
-        "find_entry": lambda _root, _queue_id: current_entry,
-        "mark_cancelled": lambda *_args, **_kwargs: None,
-        "requeue_running_entry": lambda root, queue_id: requeued.append((root, queue_id)),
-        "mark_failed": lambda *_args, **_kwargs: None,
-        "mark_recovery": lambda cfg_obj, entry_obj, *, reason: recovery.append(
-            (cfg_obj, entry_obj, reason)
-        ),
-    }
-    facade = InternalEngineQueueWorkerFacade(
-        runtime=runtime,
-        namespace=namespace,
-        namespace_names=InternalEngineQueueWorkerNamespaceNames(
-            find_queue_entry="find_entry",
-            mark_recovery_pending="mark_recovery",
+        deps=_facade_deps(
+            find_queue_entry=lambda _root, _queue_id: current_entry,
+            mark_cancelled=lambda *_args, **_kwargs: None,
+            requeue_running_entry=lambda root, queue_id: requeued.append(
+                (root, queue_id)
+            ),
+            mark_failed=lambda *_args, **_kwargs: None,
+            mark_recovery_pending=lambda cfg_obj, entry_obj, *, reason: recovery.append(
+                (cfg_obj, entry_obj, reason)
+            ),
         ),
         poll_interval_seconds=5,
         shutdown_grace_seconds=10,
@@ -335,47 +330,6 @@ def test_internal_engine_queue_worker_facade_accepts_namespace_names(
     assert requeued == [(tmp_path / "queue", "queue-1")]
     assert recovery == [(cfg, job_entry, "worker_shutdown")]
     assert released == ["slot-1"]
-
-
-def test_internal_engine_queue_worker_facade_resolves_legacy_namespace_names(
-    tmp_path: Path,
-) -> None:
-    runtime = InternalEngineQueueRuntime.create(
-        spec=InternalEngineSpec(engine="demo", worker_pid_file_name="demo_worker.pid"),
-        load_config=lambda _path: object(),
-        runtime_roots_for_cfg=lambda _cfg: (),
-        list_queue=lambda _root: [],
-        dequeue_next=lambda _root: None,
-    )
-
-    legacy_facade = InternalEngineQueueWorkerFacade(
-        runtime=runtime,
-        namespace={},
-        poll_interval_seconds=5,
-        shutdown_grace_seconds=10,
-        find_queue_entry_name="find_entry",
-        mark_recovery_pending_name="mark_recovery",
-    )
-    explicit_facade = InternalEngineQueueWorkerFacade(
-        runtime=runtime,
-        namespace={},
-        namespace_names=InternalEngineQueueWorkerNamespaceNames(
-            find_queue_entry="explicit_find",
-            mark_recovery_pending="explicit_recovery",
-        ),
-        poll_interval_seconds=5,
-        shutdown_grace_seconds=10,
-        find_queue_entry_name="legacy_find",
-        mark_recovery_pending_name="legacy_recovery",
-    )
-
-    legacy_names = legacy_facade.resolved_namespace_names()
-    explicit_names = explicit_facade.resolved_namespace_names()
-
-    assert legacy_names.find_queue_entry == "find_entry"
-    assert legacy_names.mark_recovery_pending == "mark_recovery"
-    assert explicit_names.find_queue_entry == "explicit_find"
-    assert explicit_names.mark_recovery_pending == "explicit_recovery"
 
 
 def test_internal_engine_queue_worker_facade_reconciles_orphaned_running(
@@ -397,24 +351,24 @@ def test_internal_engine_queue_worker_facade_reconciles_orphaned_running(
         list_queue=lambda _root: [live_entry, orphan_entry],
         dequeue_next=lambda _root: None,
     )
-    namespace = {
-        "list_queue": lambda _root: [live_entry, orphan_entry],
-        "list_slots": lambda _root: [SimpleNamespace(queue_id="live")],
-        "reconcile_stale_slots": lambda _root: None,
-        "reconcile_orphaned_child_queue_entries": reconcile_orphaned_child_queue_entries,
-        "mark_cancelled": lambda *_args, **_kwargs: None,
-        "requeue_running_entry": lambda root, queue_id: requeued.append((root, queue_id)),
-        "mark_failed": lambda *_args, **_kwargs: None,
-        "mark_recovery": lambda cfg_obj, entry_obj, *, reason: recovery.append(
-            (cfg_obj, entry_obj, reason)
-        ),
-    }
     facade = InternalEngineQueueWorkerFacade(
         runtime=runtime,
-        namespace=namespace,
+        deps=_facade_deps(
+            list_queue=lambda _root: [live_entry, orphan_entry],
+            list_slots=lambda _root: [SimpleNamespace(queue_id="live")],
+            reconcile_stale_slots=lambda _root: None,
+            reconcile_orphaned_child_queue_entries=reconcile_orphaned_child_queue_entries,
+            mark_cancelled=lambda *_args, **_kwargs: None,
+            requeue_running_entry=lambda root, queue_id: requeued.append(
+                (root, queue_id)
+            ),
+            mark_failed=lambda *_args, **_kwargs: None,
+            mark_recovery_pending=lambda cfg_obj, entry_obj, *, reason: recovery.append(
+                (cfg_obj, entry_obj, reason)
+            ),
+        ),
         poll_interval_seconds=5,
         shutdown_grace_seconds=10,
-        mark_recovery_pending_name="mark_recovery",
     )
     worker = SimpleNamespace(cfg=cfg, admission_root=tmp_path / "admission")
 

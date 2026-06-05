@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -159,38 +159,6 @@ class InternalEngineQueueRuntime:
         return _runtime_adapters.config_path_for_worker_fn(
             config_path_for_worker_fn=config_path_for_worker_fn,
             default_config_path_fn=default_config_path_fn,
-        )
-
-    def run_pidfile_worker_command_from_namespace(
-        self,
-        args: Any,
-        *,
-        namespace: Mapping[str, Any],
-        config_path_fn: Callable[[Any], str],
-        load_config_name: str = "load_config",
-        read_worker_pid_name: str = "read_worker_pid",
-        worker_class_name: str = "QueueWorker",
-        config_path_keyword: bool = True,
-        load_config_fn: Callable[[Any], Any] | None = None,
-        read_worker_pid_fn: Callable[[Path], int | None] | None = None,
-        existing_pid_report_fn: Callable[[int], Any] | None = None,
-        max_concurrent_fn: Callable[[Any], int] | None = None,
-        worker_factory: Callable[..., Any] | None = None,
-    ) -> int:
-        return _runtime_adapters.run_pidfile_worker_command_from_namespace(
-            self,
-            args,
-            namespace=namespace,
-            config_path_fn=config_path_fn,
-            load_config_name=load_config_name,
-            read_worker_pid_name=read_worker_pid_name,
-            worker_class_name=worker_class_name,
-            config_path_keyword=config_path_keyword,
-            load_config_fn=load_config_fn,
-            read_worker_pid_fn=read_worker_pid_fn,
-            existing_pid_report_fn=existing_pid_report_fn,
-            max_concurrent_fn=max_concurrent_fn,
-            worker_factory=worker_factory,
         )
 
 

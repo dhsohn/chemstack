@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-from types import SimpleNamespace
 from typing import Any
 
 from orca_auto.flow.engines.crest.queue_runtime_execution import (
     CrestQueueRuntimeWorkerExecutionCallbacks,
     build_queue_runtime_worker_execution_dependencies,
-    callbacks_from_namespace,
 )
 
 
@@ -61,40 +59,3 @@ def test_build_worker_execution_dependencies_maps_callback_groups() -> None:
     deps.runner.start_crest_job("cfg", job_dir="job", selected_xyz="input.xyz")
 
     assert calls == ["mark_failed", "start_crest_job"]
-
-
-def test_namespace_input_remains_supported_for_legacy_callers() -> None:
-    calls: list[str] = []
-    callbacks = _callbacks(calls)
-    namespace = {
-        "_terminate_process": callbacks.terminate_process,
-        "_queue_execution": SimpleNamespace(
-            wait_for_cancellable_process=callbacks.wait_for_cancellable_process,
-        ),
-        "time": SimpleNamespace(sleep=callbacks.sleep),
-        "now_utc_iso": callbacks.now_utc_iso,
-        "get_cancel_requested": callbacks.get_cancel_requested,
-        "mark_completed": callbacks.mark_completed,
-        "mark_cancelled": callbacks.mark_cancelled,
-        "mark_failed": callbacks.mark_failed,
-        "start_crest_job": callbacks.start_crest_job,
-        "finalize_crest_job": callbacks.finalize_crest_job,
-        "_write_running_state": callbacks.write_running_state,
-        "_write_execution_artifacts": callbacks.write_execution_artifacts,
-        "upsert_job_record": callbacks.upsert_job_record,
-        "notify_job_started": callbacks.notify_job_started,
-        "notify_job_finished": callbacks.notify_job_finished,
-    }
-
-    resolved = callbacks_from_namespace(namespace)
-    deps = build_queue_runtime_worker_execution_dependencies(
-        namespace,
-        cancel_check_interval_seconds=3,
-    )
-
-    assert resolved.terminate_process is callbacks.terminate_process
-    assert resolved.wait_for_cancellable_process is callbacks.wait_for_cancellable_process
-    assert resolved.sleep is callbacks.sleep
-    assert deps.runner.cancel_check_interval_seconds == 3
-    assert deps.runner.start_crest_job is callbacks.start_crest_job
-    assert deps.tracking.notify_job_finished is callbacks.notify_job_finished

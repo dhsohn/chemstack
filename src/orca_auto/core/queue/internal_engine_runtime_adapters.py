@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -56,42 +56,8 @@ def config_path_for_worker_fn(
     return _config_path_for_worker
 
 
-def run_pidfile_worker_command_from_namespace(
-    runtime: Any,
-    args: Any,
-    *,
-    namespace: Mapping[str, Any],
-    config_path_fn: Callable[[Any], str],
-    load_config_name: str = "load_config",
-    read_worker_pid_name: str = "read_worker_pid",
-    worker_class_name: str = "QueueWorker",
-    config_path_keyword: bool = True,
-    load_config_fn: Callable[[Any], Any] | None = None,
-    read_worker_pid_fn: Callable[[Path], int | None] | None = None,
-    existing_pid_report_fn: Callable[[int], Any] | None = None,
-    max_concurrent_fn: Callable[[Any], int] | None = None,
-    worker_factory: Callable[..., Any] | None = None,
-) -> int:
-    def default_worker_factory(cfg: Any, config_path: str, **kwargs: Any) -> Any:
-        worker_cls = namespace[worker_class_name]
-        if config_path_keyword:
-            return worker_cls(cfg, config_path=config_path, **kwargs)
-        return worker_cls(cfg, config_path, **kwargs)
-
-    return runtime.run_pidfile_worker_command(
-        args,
-        config_path_fn=config_path_fn,
-        load_config_fn=load_config_fn or namespace[load_config_name],
-        read_worker_pid_fn=read_worker_pid_fn or namespace[read_worker_pid_name],
-        existing_pid_report_fn=existing_pid_report_fn,
-        max_concurrent_fn=max_concurrent_fn,
-        worker_factory=worker_factory or default_worker_factory,
-    )
-
-
 __all__ = [
     "config_path_for_worker_fn",
     "reserve_admission_slot_fn",
-    "run_pidfile_worker_command_from_namespace",
     "start_background_job_process_fn",
 ]

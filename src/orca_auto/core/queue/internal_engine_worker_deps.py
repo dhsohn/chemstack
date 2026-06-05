@@ -1,14 +1,13 @@
 from __future__ import annotations
 
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
 
 from .internal_engine_runtime import InternalEngineQueueRuntime
 
-LegacyWorkerNamespace = Mapping[str, Any]
 SlotReleaser = Callable[[str | Path, str], object]
 BackgroundProcessStarter = Callable[[list[str]], Any]
 DefaultConfigPath = Callable[[], str]
@@ -93,145 +92,6 @@ class WorkerFactory(Protocol):
     def __call__(self, *args: Any, **kwargs: Any) -> Any: ...
 
 
-@dataclass(frozen=True)
-class InternalEngineQueueWorkerNamespaceNames:
-    time_module: str = "time"
-    release_slot: str = "release_slot"
-    reserve_slot: str = "reserve_slot"
-    start_background_process: str = "start_background_process"
-    build_worker_child_command: str = "build_worker_child_command"
-    config_path_for_worker: str = "config_path_for_worker"
-    default_config_path: str = "default_config_path"
-    activate_reserved_slot: str = "activate_reserved_slot"
-    terminate_process: str = "_terminate_process"
-    mark_failed: str = "mark_failed"
-    handle_worker_start_error: str = "_handle_worker_start_error"
-    finalize_completed_job: str = "_finalize_completed_job"
-    finalize_child_exit: str = "_finalize_child_exit"
-    reconcile_worker_state: str = "_reconcile_worker_state"
-    list_queue: str = "list_queue"
-    list_slots: str = "list_slots"
-    reconcile_stale_slots: str = "reconcile_stale_slots"
-    reconcile_orphaned_child_queue_entries: str = "reconcile_orphaned_child_queue_entries"
-    mark_cancelled: str = "mark_cancelled"
-    requeue_running_entry: str = "requeue_running_entry"
-    mark_recovery_pending: str = "_mark_recovery_pending_entry"
-    try_reserve_admission_slot: str = "_try_reserve_admission_slot"
-    start_background_job_process: str = "_start_background_job_process"
-    find_queue_entry: str | None = None
-    load_config: str = "load_config"
-    read_worker_pid: str = "read_worker_pid"
-    worker_class: str = "QueueWorker"
-    on_worker_process_started: str | None = None
-    shutdown_running_job: str | None = None
-    before_shutdown_all: str | None = None
-
-    @classmethod
-    def from_legacy_names(
-        cls,
-        *,
-        time_module_name: str = "time",
-        release_slot_name: str = "release_slot",
-        reserve_slot_name: str = "reserve_slot",
-        start_background_process_name: str = "start_background_process",
-        build_worker_child_command_name: str = "build_worker_child_command",
-        config_path_for_worker_name: str = "config_path_for_worker",
-        default_config_path_name: str = "default_config_path",
-        activate_reserved_slot_name: str = "activate_reserved_slot",
-        terminate_process_name: str = "_terminate_process",
-        mark_failed_name: str = "mark_failed",
-        handle_worker_start_error_name: str = "_handle_worker_start_error",
-        finalize_completed_job_name: str = "_finalize_completed_job",
-        finalize_child_exit_name: str = "_finalize_child_exit",
-        reconcile_worker_state_name: str = "_reconcile_worker_state",
-        list_queue_name: str = "list_queue",
-        list_slots_name: str = "list_slots",
-        reconcile_stale_slots_name: str = "reconcile_stale_slots",
-        reconcile_orphaned_child_queue_entries_name: str = (
-            "reconcile_orphaned_child_queue_entries"
-        ),
-        mark_cancelled_name: str = "mark_cancelled",
-        requeue_running_entry_name: str = "requeue_running_entry",
-        mark_recovery_pending_name: str = "_mark_recovery_pending_entry",
-        try_reserve_admission_slot_name: str = "_try_reserve_admission_slot",
-        start_background_job_process_name: str = "_start_background_job_process",
-        find_queue_entry_name: str | None = None,
-        load_config_name: str = "load_config",
-        read_worker_pid_name: str = "read_worker_pid",
-        worker_class_name: str = "QueueWorker",
-        on_worker_process_started_name: str | None = None,
-        shutdown_running_job_name: str | None = None,
-        before_shutdown_all_name: str | None = None,
-    ) -> InternalEngineQueueWorkerNamespaceNames:
-        return cls(
-            time_module=time_module_name,
-            release_slot=release_slot_name,
-            reserve_slot=reserve_slot_name,
-            start_background_process=start_background_process_name,
-            build_worker_child_command=build_worker_child_command_name,
-            config_path_for_worker=config_path_for_worker_name,
-            default_config_path=default_config_path_name,
-            activate_reserved_slot=activate_reserved_slot_name,
-            terminate_process=terminate_process_name,
-            mark_failed=mark_failed_name,
-            handle_worker_start_error=handle_worker_start_error_name,
-            finalize_completed_job=finalize_completed_job_name,
-            finalize_child_exit=finalize_child_exit_name,
-            reconcile_worker_state=reconcile_worker_state_name,
-            list_queue=list_queue_name,
-            list_slots=list_slots_name,
-            reconcile_stale_slots=reconcile_stale_slots_name,
-            reconcile_orphaned_child_queue_entries=(
-                reconcile_orphaned_child_queue_entries_name
-            ),
-            mark_cancelled=mark_cancelled_name,
-            requeue_running_entry=requeue_running_entry_name,
-            mark_recovery_pending=mark_recovery_pending_name,
-            try_reserve_admission_slot=try_reserve_admission_slot_name,
-            start_background_job_process=start_background_job_process_name,
-            find_queue_entry=find_queue_entry_name,
-            load_config=load_config_name,
-            read_worker_pid=read_worker_pid_name,
-            worker_class=worker_class_name,
-            on_worker_process_started=on_worker_process_started_name,
-            shutdown_running_job=shutdown_running_job_name,
-            before_shutdown_all=before_shutdown_all_name,
-        )
-
-
-@dataclass(frozen=True)
-class _LegacyNamespaceAdapter:
-    namespace: LegacyWorkerNamespace
-
-    def lookup(self, name: str) -> Any:
-        return self.namespace[name]
-
-    def call(self, name: str, *args: Any, **kwargs: Any) -> Any:
-        return self.lookup(name)(*args, **kwargs)
-
-
-def _legacy_call_fn(legacy: _LegacyNamespaceAdapter, name: str) -> Callable[..., Any]:
-    return lambda *args, **kwargs: legacy.call(name, *args, **kwargs)
-
-
-def _legacy_optional_call_fn(
-    legacy: _LegacyNamespaceAdapter,
-    name: str | None,
-) -> Callable[..., Any] | None:
-    if name is None:
-        return None
-    return _legacy_call_fn(legacy, name)
-
-
-def _legacy_queue_entry_finder(
-    legacy: _LegacyNamespaceAdapter,
-    name: str | None,
-) -> QueueEntryFinder | None:
-    if name is None:
-        return None
-    return lambda root, queue_id: legacy.call(name, root, queue_id)
-
-
 def _noop_callback(*_args: Any, **_kwargs: Any) -> None:
     return None
 
@@ -244,7 +104,6 @@ def _config_path_from_args(args: Any, *, default_config_path_fn: DefaultConfigPa
     return str(getattr(args, "config", "") or default_config_path_fn())
 
 
-_DepsKwargs = dict[str, Any]
 _CallbackSupplier = Callable[[], Callable[..., Any]]
 
 
@@ -283,12 +142,7 @@ class InternalEngineQueueWorkerFacadeCallbacks:
 
 @dataclass(frozen=True)
 class InternalEngineQueueWorkerFacadeBindings:
-    """Late-bound callback suppliers for import-time runtime facades.
-
-    Engine modules keep concrete functions with narrower signatures; the
-    wrappers built from these suppliers expose the shared worker callback
-    contract while still honoring monkeypatches made after deps construction.
-    """
+    """Late-bound callback suppliers for import-time runtime facades."""
 
     release_slot: _CallbackSupplier
     reserve_slot: _CallbackSupplier
@@ -505,83 +359,11 @@ def build_late_bound_internal_engine_queue_worker_deps(
 @dataclass(frozen=True)
 class InternalEngineQueueWorkerDepsResolver:
     runtime: InternalEngineQueueRuntime
-    deps: InternalEngineQueueWorkerDeps | None = None
-    namespace: LegacyWorkerNamespace | None = None
-    names: InternalEngineQueueWorkerNamespaceNames | None = None
-    time_module_name: str = "time"
-    release_slot_name: str = "release_slot"
-    reserve_slot_name: str = "reserve_slot"
-    start_background_process_name: str = "start_background_process"
-    build_worker_child_command_name: str = "build_worker_child_command"
-    config_path_for_worker_name: str = "config_path_for_worker"
-    default_config_path_name: str = "default_config_path"
-    activate_reserved_slot_name: str = "activate_reserved_slot"
-    terminate_process_name: str = "_terminate_process"
-    mark_failed_name: str = "mark_failed"
-    find_queue_entry_name: str | None = None
-    list_queue_name: str = "list_queue"
-    list_slots_name: str = "list_slots"
-    reconcile_stale_slots_name: str = "reconcile_stale_slots"
-    reconcile_orphaned_child_queue_entries_name: str = "reconcile_orphaned_child_queue_entries"
-    mark_cancelled_name: str = "mark_cancelled"
-    requeue_running_entry_name: str = "requeue_running_entry"
-    mark_recovery_pending_name: str = "_mark_recovery_pending_entry"
-    on_worker_process_started_name: str | None = None
-    shutdown_running_job_name: str | None = None
-    before_shutdown_all_name: str | None = None
-
-    def namespace_names(self) -> InternalEngineQueueWorkerNamespaceNames:
-        if self.names is not None:
-            return self.names
-        return InternalEngineQueueWorkerNamespaceNames.from_legacy_names(
-            time_module_name=self.time_module_name,
-            release_slot_name=self.release_slot_name,
-            reserve_slot_name=self.reserve_slot_name,
-            start_background_process_name=self.start_background_process_name,
-            build_worker_child_command_name=self.build_worker_child_command_name,
-            config_path_for_worker_name=self.config_path_for_worker_name,
-            default_config_path_name=self.default_config_path_name,
-            activate_reserved_slot_name=self.activate_reserved_slot_name,
-            terminate_process_name=self.terminate_process_name,
-            mark_failed_name=self.mark_failed_name,
-            find_queue_entry_name=self.find_queue_entry_name,
-            list_queue_name=self.list_queue_name,
-            list_slots_name=self.list_slots_name,
-            reconcile_stale_slots_name=self.reconcile_stale_slots_name,
-            reconcile_orphaned_child_queue_entries_name=(
-                self.reconcile_orphaned_child_queue_entries_name
-            ),
-            mark_cancelled_name=self.mark_cancelled_name,
-            requeue_running_entry_name=self.requeue_running_entry_name,
-            mark_recovery_pending_name=self.mark_recovery_pending_name,
-            on_worker_process_started_name=self.on_worker_process_started_name,
-            shutdown_running_job_name=self.shutdown_running_job_name,
-            before_shutdown_all_name=self.before_shutdown_all_name,
-        )
-
-    def lookup(self, name: str) -> Any:
-        if self.namespace is None:
-            raise KeyError(name)
-        return self.namespace[name]
-
-    def dep(self, attr: str, fallback_name: str) -> Any:
-        if self.deps is not None:
-            return getattr(self.deps, attr)
-        return self.lookup(fallback_name)
-
-    def optional_dep(self, attr: str, fallback_name: str | None) -> Any | None:
-        if self.deps is not None:
-            return getattr(self.deps, attr)
-        if fallback_name is None:
-            return None
-        return self.lookup(fallback_name)
+    deps: InternalEngineQueueWorkerDeps
 
     def find_queue_entry(self, queue_root: Any, queue_id: str) -> Any | None:
-        if self.deps is not None and self.deps.find_queue_entry is not None:
+        if self.deps.find_queue_entry is not None:
             return self.deps.find_queue_entry(queue_root, queue_id)
-        names = self.namespace_names()
-        if names.find_queue_entry and self.namespace is not None:
-            return self.lookup(names.find_queue_entry)(queue_root, queue_id)
         return self.runtime.queue_entry_by_id(queue_root, queue_id)
 
     def queue_worker_deps(
@@ -591,24 +373,25 @@ class InternalEngineQueueWorkerDepsResolver:
         start_background_job_process_fn: BackgroundJobProcessStarter,
         try_reserve_admission_slot_fn: AdmissionSlotReserver,
     ) -> Any:
-        names = self.namespace_names()
         return self.runtime.child_worker_deps(
             poll_interval_seconds=poll_interval_seconds,
-            time_module=self.dep("time_module", names.time_module),
-            release_slot_fn=self.dep("release_slot", names.release_slot),
+            time_module=self.deps.time_module,
+            release_slot_fn=self.deps.release_slot,
             start_background_job_process_fn=(
-                self.optional_dep("start_background_job_process_fn", None)
+                self.deps.start_background_job_process_fn
                 or start_background_job_process_fn
             ),
             try_reserve_admission_slot_fn=(
-                self.optional_dep("try_reserve_admission_slot", None)
+                self.deps.try_reserve_admission_slot
                 or try_reserve_admission_slot_fn
             ),
         )
 
     def try_reserve_admission_slot(self, cfg: Any) -> str | None:
-        reserve_slot_fn = self.dep("reserve_slot", self.namespace_names().reserve_slot)
-        return self.runtime.reserve_admission_slot(cfg, reserve_slot_fn=reserve_slot_fn)
+        return self.runtime.reserve_admission_slot(
+            cfg,
+            reserve_slot_fn=self.deps.reserve_slot,
+        )
 
     def start_background_job_process(
         self,
@@ -619,313 +402,21 @@ class InternalEngineQueueWorkerDepsResolver:
         admission_root: str | Path,
         admission_token: str,
     ) -> Any:
-        names = self.namespace_names()
         return self.runtime.start_child_process(
             config_path=config_path,
             queue_root=queue_root,
             entry=entry,
             admission_root=admission_root,
             admission_token=admission_token,
-            start_background_process_fn=self.dep(
-                "start_background_process",
-                names.start_background_process,
-            ),
-            build_worker_child_command_fn=self.dep(
-                "build_worker_child_command",
-                names.build_worker_child_command,
-            ),
+            start_background_process_fn=self.deps.start_background_process,
+            build_worker_child_command_fn=self.deps.build_worker_child_command,
         )
 
     def config_path_for_worker(self, args: Any) -> str:
-        names = self.namespace_names()
-        return self.dep("config_path_for_worker", names.config_path_for_worker)(
+        return self.deps.config_path_for_worker(
             args,
-            default_config_path_fn=self.dep("default_config_path", names.default_config_path),
+            default_config_path_fn=self.deps.default_config_path,
         )
-
-
-def _required_callbacks_from_namespace(
-    legacy: _LegacyNamespaceAdapter,
-    names: InternalEngineQueueWorkerNamespaceNames,
-) -> _DepsKwargs:
-    return {
-        "release_slot": lambda root, token: legacy.call(names.release_slot, root, token),
-        "reserve_slot": _legacy_call_fn(legacy, names.reserve_slot),
-        "start_background_process": lambda command: legacy.call(
-            names.start_background_process,
-            command,
-        ),
-        "build_worker_child_command": _legacy_call_fn(
-            legacy,
-            names.build_worker_child_command,
-        ),
-        "config_path_for_worker": _legacy_call_fn(legacy, names.config_path_for_worker),
-        "default_config_path": lambda: legacy.call(names.default_config_path),
-        "activate_reserved_slot": _legacy_call_fn(legacy, names.activate_reserved_slot),
-        "terminate_process": lambda process: legacy.call(names.terminate_process, process),
-        "mark_failed": _legacy_call_fn(legacy, names.mark_failed),
-    }
-
-
-def _lifecycle_callbacks_from_namespace(
-    legacy: _LegacyNamespaceAdapter,
-    names: InternalEngineQueueWorkerNamespaceNames,
-) -> _DepsKwargs:
-    return {
-        "handle_worker_start_error": _legacy_call_fn(
-            legacy,
-            names.handle_worker_start_error,
-        ),
-        "finalize_completed_job": _legacy_call_fn(legacy, names.finalize_completed_job),
-        "finalize_child_exit": _legacy_call_fn(legacy, names.finalize_child_exit),
-        "reconcile_worker_state": lambda worker: legacy.call(
-            names.reconcile_worker_state,
-            worker,
-        ),
-    }
-
-
-def _reconciliation_callbacks_from_namespace(
-    legacy: _LegacyNamespaceAdapter,
-    names: InternalEngineQueueWorkerNamespaceNames,
-) -> _DepsKwargs:
-    return {
-        "list_queue": lambda root: legacy.call(names.list_queue, root),
-        "list_slots": lambda root: legacy.call(names.list_slots, root),
-        "reconcile_stale_slots": lambda root: legacy.call(
-            names.reconcile_stale_slots,
-            root,
-        ),
-        "reconcile_orphaned_child_queue_entries": _legacy_call_fn(
-            legacy,
-            names.reconcile_orphaned_child_queue_entries,
-        ),
-        "mark_cancelled": _legacy_call_fn(legacy, names.mark_cancelled),
-        "requeue_running_entry": _legacy_call_fn(legacy, names.requeue_running_entry),
-        "mark_recovery_pending": _legacy_call_fn(legacy, names.mark_recovery_pending),
-    }
-
-
-def _optional_callbacks_from_namespace(
-    legacy: _LegacyNamespaceAdapter,
-    names: InternalEngineQueueWorkerNamespaceNames,
-) -> _DepsKwargs:
-    return {
-        "try_reserve_admission_slot": lambda cfg: legacy.call(
-            names.try_reserve_admission_slot,
-            cfg,
-        ),
-        "start_background_job_process": lambda **kwargs: legacy.call(
-            names.start_background_job_process,
-            **kwargs,
-        ),
-        "find_queue_entry": _legacy_queue_entry_finder(legacy, names.find_queue_entry),
-        "load_config": lambda config_path: legacy.call(names.load_config, config_path),
-        "read_worker_pid": lambda allowed_root: legacy.call(
-            names.read_worker_pid,
-            allowed_root,
-        ),
-        "worker_class": _legacy_call_fn(legacy, names.worker_class),
-        "on_worker_process_started": _legacy_optional_call_fn(
-            legacy,
-            names.on_worker_process_started,
-        ),
-        "shutdown_running_job": _legacy_optional_call_fn(
-            legacy,
-            names.shutdown_running_job,
-        ),
-        "before_shutdown_all": _legacy_optional_call_fn(
-            legacy,
-            names.before_shutdown_all,
-        ),
-    }
-
-
-def internal_engine_queue_worker_callbacks_from_namespace_names(
-    namespace: LegacyWorkerNamespace,
-    *,
-    names: InternalEngineQueueWorkerNamespaceNames,
-) -> InternalEngineQueueWorkerFacadeCallbacks:
-    legacy = _LegacyNamespaceAdapter(namespace)
-
-    return InternalEngineQueueWorkerFacadeCallbacks(
-        **_required_callbacks_from_namespace(
-            legacy,
-            names,
-        ),
-        **_lifecycle_callbacks_from_namespace(
-            legacy,
-            names,
-        ),
-        **_reconciliation_callbacks_from_namespace(
-            legacy,
-            names,
-        ),
-        **_optional_callbacks_from_namespace(
-            legacy,
-            names,
-        ),
-    )
-
-
-def internal_engine_queue_worker_callbacks_from_namespace(
-    namespace: LegacyWorkerNamespace,
-    *,
-    release_slot_name: str = "release_slot",
-    reserve_slot_name: str = "reserve_slot",
-    start_background_process_name: str = "start_background_process",
-    build_worker_child_command_name: str = "build_worker_child_command",
-    config_path_for_worker_name: str = "config_path_for_worker",
-    default_config_path_name: str = "default_config_path",
-    activate_reserved_slot_name: str = "activate_reserved_slot",
-    terminate_process_name: str = "_terminate_process",
-    mark_failed_name: str = "mark_failed",
-    handle_worker_start_error_name: str = "_handle_worker_start_error",
-    finalize_completed_job_name: str = "_finalize_completed_job",
-    finalize_child_exit_name: str = "_finalize_child_exit",
-    reconcile_worker_state_name: str = "_reconcile_worker_state",
-    list_queue_name: str = "list_queue",
-    list_slots_name: str = "list_slots",
-    reconcile_stale_slots_name: str = "reconcile_stale_slots",
-    reconcile_orphaned_child_queue_entries_name: str = "reconcile_orphaned_child_queue_entries",
-    mark_cancelled_name: str = "mark_cancelled",
-    requeue_running_entry_name: str = "requeue_running_entry",
-    mark_recovery_pending_name: str = "_mark_recovery_pending_entry",
-    try_reserve_admission_slot_name: str = "_try_reserve_admission_slot",
-    start_background_job_process_name: str = "_start_background_job_process",
-    find_queue_entry_name: str | None = None,
-    load_config_name: str = "load_config",
-    read_worker_pid_name: str = "read_worker_pid",
-    worker_class_name: str = "QueueWorker",
-    on_worker_process_started_name: str | None = None,
-    shutdown_running_job_name: str | None = None,
-    before_shutdown_all_name: str | None = None,
-) -> InternalEngineQueueWorkerFacadeCallbacks:
-    return internal_engine_queue_worker_callbacks_from_namespace_names(
-        namespace,
-        names=InternalEngineQueueWorkerNamespaceNames.from_legacy_names(
-            release_slot_name=release_slot_name,
-            reserve_slot_name=reserve_slot_name,
-            start_background_process_name=start_background_process_name,
-            build_worker_child_command_name=build_worker_child_command_name,
-            config_path_for_worker_name=config_path_for_worker_name,
-            default_config_path_name=default_config_path_name,
-            activate_reserved_slot_name=activate_reserved_slot_name,
-            terminate_process_name=terminate_process_name,
-            mark_failed_name=mark_failed_name,
-            handle_worker_start_error_name=handle_worker_start_error_name,
-            finalize_completed_job_name=finalize_completed_job_name,
-            finalize_child_exit_name=finalize_child_exit_name,
-            reconcile_worker_state_name=reconcile_worker_state_name,
-            list_queue_name=list_queue_name,
-            list_slots_name=list_slots_name,
-            reconcile_stale_slots_name=reconcile_stale_slots_name,
-            reconcile_orphaned_child_queue_entries_name=(
-                reconcile_orphaned_child_queue_entries_name
-            ),
-            mark_cancelled_name=mark_cancelled_name,
-            requeue_running_entry_name=requeue_running_entry_name,
-            mark_recovery_pending_name=mark_recovery_pending_name,
-            try_reserve_admission_slot_name=try_reserve_admission_slot_name,
-            start_background_job_process_name=start_background_job_process_name,
-            find_queue_entry_name=find_queue_entry_name,
-            load_config_name=load_config_name,
-            read_worker_pid_name=read_worker_pid_name,
-            worker_class_name=worker_class_name,
-            on_worker_process_started_name=on_worker_process_started_name,
-            shutdown_running_job_name=shutdown_running_job_name,
-            before_shutdown_all_name=before_shutdown_all_name,
-        ),
-    )
-
-
-def internal_engine_queue_worker_deps_from_namespace_names(
-    namespace: LegacyWorkerNamespace,
-    *,
-    names: InternalEngineQueueWorkerNamespaceNames,
-) -> InternalEngineQueueWorkerDeps:
-    legacy = _LegacyNamespaceAdapter(namespace)
-    callbacks = internal_engine_queue_worker_callbacks_from_namespace_names(
-        namespace,
-        names=names,
-    )
-    return build_internal_engine_queue_worker_deps(
-        callbacks,
-        time_module=legacy.lookup(names.time_module),
-    )
-
-
-def internal_engine_queue_worker_deps_from_namespace(
-    namespace: LegacyWorkerNamespace,
-    *,
-    time_module_name: str = "time",
-    release_slot_name: str = "release_slot",
-    reserve_slot_name: str = "reserve_slot",
-    start_background_process_name: str = "start_background_process",
-    build_worker_child_command_name: str = "build_worker_child_command",
-    config_path_for_worker_name: str = "config_path_for_worker",
-    default_config_path_name: str = "default_config_path",
-    activate_reserved_slot_name: str = "activate_reserved_slot",
-    terminate_process_name: str = "_terminate_process",
-    mark_failed_name: str = "mark_failed",
-    handle_worker_start_error_name: str = "_handle_worker_start_error",
-    finalize_completed_job_name: str = "_finalize_completed_job",
-    finalize_child_exit_name: str = "_finalize_child_exit",
-    reconcile_worker_state_name: str = "_reconcile_worker_state",
-    list_queue_name: str = "list_queue",
-    list_slots_name: str = "list_slots",
-    reconcile_stale_slots_name: str = "reconcile_stale_slots",
-    reconcile_orphaned_child_queue_entries_name: str = "reconcile_orphaned_child_queue_entries",
-    mark_cancelled_name: str = "mark_cancelled",
-    requeue_running_entry_name: str = "requeue_running_entry",
-    mark_recovery_pending_name: str = "_mark_recovery_pending_entry",
-    try_reserve_admission_slot_name: str = "_try_reserve_admission_slot",
-    start_background_job_process_name: str = "_start_background_job_process",
-    find_queue_entry_name: str | None = None,
-    load_config_name: str = "load_config",
-    read_worker_pid_name: str = "read_worker_pid",
-    worker_class_name: str = "QueueWorker",
-    on_worker_process_started_name: str | None = None,
-    shutdown_running_job_name: str | None = None,
-    before_shutdown_all_name: str | None = None,
-) -> InternalEngineQueueWorkerDeps:
-    return internal_engine_queue_worker_deps_from_namespace_names(
-        namespace,
-        names=InternalEngineQueueWorkerNamespaceNames.from_legacy_names(
-            time_module_name=time_module_name,
-            release_slot_name=release_slot_name,
-            reserve_slot_name=reserve_slot_name,
-            start_background_process_name=start_background_process_name,
-            build_worker_child_command_name=build_worker_child_command_name,
-            config_path_for_worker_name=config_path_for_worker_name,
-            default_config_path_name=default_config_path_name,
-            activate_reserved_slot_name=activate_reserved_slot_name,
-            terminate_process_name=terminate_process_name,
-            mark_failed_name=mark_failed_name,
-            handle_worker_start_error_name=handle_worker_start_error_name,
-            finalize_completed_job_name=finalize_completed_job_name,
-            finalize_child_exit_name=finalize_child_exit_name,
-            reconcile_worker_state_name=reconcile_worker_state_name,
-            list_queue_name=list_queue_name,
-            list_slots_name=list_slots_name,
-            reconcile_stale_slots_name=reconcile_stale_slots_name,
-            reconcile_orphaned_child_queue_entries_name=(
-                reconcile_orphaned_child_queue_entries_name
-            ),
-            mark_cancelled_name=mark_cancelled_name,
-            requeue_running_entry_name=requeue_running_entry_name,
-            mark_recovery_pending_name=mark_recovery_pending_name,
-            try_reserve_admission_slot_name=try_reserve_admission_slot_name,
-            start_background_job_process_name=start_background_job_process_name,
-            find_queue_entry_name=find_queue_entry_name,
-            load_config_name=load_config_name,
-            read_worker_pid_name=read_worker_pid_name,
-            worker_class_name=worker_class_name,
-            on_worker_process_started_name=on_worker_process_started_name,
-            shutdown_running_job_name=shutdown_running_job_name,
-            before_shutdown_all_name=before_shutdown_all_name,
-        ),
-    )
 
 
 __all__ = [
@@ -933,12 +424,7 @@ __all__ = [
     "InternalEngineQueueWorkerFacadeCallbacks",
     "InternalEngineQueueWorkerDeps",
     "InternalEngineQueueWorkerDepsResolver",
-    "InternalEngineQueueWorkerNamespaceNames",
     "build_internal_engine_queue_worker_deps",
     "build_late_bound_internal_engine_queue_worker_deps",
     "build_late_bound_internal_engine_queue_worker_facade_callbacks",
-    "internal_engine_queue_worker_callbacks_from_namespace",
-    "internal_engine_queue_worker_callbacks_from_namespace_names",
-    "internal_engine_queue_worker_deps_from_namespace",
-    "internal_engine_queue_worker_deps_from_namespace_names",
 ]

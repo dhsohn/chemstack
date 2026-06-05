@@ -242,74 +242,6 @@ def build_worker_process_default_factories_from_callbacks(
     )
 
 
-def worker_process_dependency_callbacks_from_namespace(
-    namespace: Mapping[str, Any],
-    *,
-    engine_runner_dependency_names: tuple[str, ...],
-    terminate_process_name: str = "_terminate_process",
-    wait_for_cancellable_process_module_name: str = "_queue_execution",
-    sleep_module_name: str = "time",
-    now_utc_iso_name: str = "now_utc_iso",
-    get_cancel_requested_name: str = "get_cancel_requested",
-    mark_completed_name: str = "mark_completed",
-    mark_cancelled_name: str = "mark_cancelled",
-    mark_failed_name: str = "mark_failed",
-) -> WorkerProcessDependencyCallbacks:
-    return build_worker_process_dependency_callbacks(
-        terminate_process=namespace[terminate_process_name],
-        wait_for_cancellable_process=namespace[
-            wait_for_cancellable_process_module_name
-        ].wait_for_cancellable_process,
-        sleep=namespace[sleep_module_name].sleep,
-        now_utc_iso=namespace[now_utc_iso_name],
-        get_cancel_requested=namespace[get_cancel_requested_name],
-        mark_completed=namespace[mark_completed_name],
-        mark_cancelled=namespace[mark_cancelled_name],
-        mark_failed=namespace[mark_failed_name],
-        engine_runner_dependencies={
-            name: namespace[name] for name in engine_runner_dependency_names
-        },
-    )
-
-
-def build_worker_process_dependency_groups_from_namespace(
-    namespace: Mapping[str, Any],
-    *,
-    timing_dependencies_type: Callable[..., Any],
-    queue_dependencies_type: Callable[..., Any],
-    runner_dependencies_type: Callable[..., Any],
-    cancel_check_interval_seconds: float,
-    engine_runner_dependency_names: tuple[str, ...],
-    terminate_process_name: str = "_terminate_process",
-    wait_for_cancellable_process_module_name: str = "_queue_execution",
-    sleep_module_name: str = "time",
-    now_utc_iso_name: str = "now_utc_iso",
-    get_cancel_requested_name: str = "get_cancel_requested",
-    mark_completed_name: str = "mark_completed",
-    mark_cancelled_name: str = "mark_cancelled",
-    mark_failed_name: str = "mark_failed",
-) -> dict[str, Any]:
-    callbacks = worker_process_dependency_callbacks_from_namespace(
-        namespace,
-        engine_runner_dependency_names=engine_runner_dependency_names,
-        terminate_process_name=terminate_process_name,
-        wait_for_cancellable_process_module_name=wait_for_cancellable_process_module_name,
-        sleep_module_name=sleep_module_name,
-        now_utc_iso_name=now_utc_iso_name,
-        get_cancel_requested_name=get_cancel_requested_name,
-        mark_completed_name=mark_completed_name,
-        mark_cancelled_name=mark_cancelled_name,
-        mark_failed_name=mark_failed_name,
-    )
-    return build_worker_process_dependency_groups(
-        callbacks,
-        timing_dependencies_type=timing_dependencies_type,
-        queue_dependencies_type=queue_dependencies_type,
-        runner_dependencies_type=runner_dependencies_type,
-        cancel_check_interval_seconds=cancel_check_interval_seconds,
-    )
-
-
 def build_worker_process_dependency_groups(
     callbacks: WorkerProcessDependencyCallbacks,
     *,
@@ -339,48 +271,6 @@ def build_worker_process_dependency_groups(
             **dict(callbacks.engine_runner_dependencies),
         ),
     }
-
-
-def build_worker_process_default_factories_from_namespace(
-    namespace: Mapping[str, Any],
-    *,
-    config_factory: DependencyFactory,
-    admission_factory: DependencyFactory,
-    timing_dependencies_type: Callable[..., Any],
-    queue_dependencies_type: Callable[..., Any],
-    runner_dependencies_type: Callable[..., Any],
-    cancel_check_interval_seconds: float,
-    engine_runner_dependency_names: tuple[str, ...],
-    terminate_process_name: str = "_terminate_process",
-    wait_for_cancellable_process_module_name: str = "_queue_execution",
-    sleep_module_name: str = "time",
-    now_utc_iso_name: str = "now_utc_iso",
-    get_cancel_requested_name: str = "get_cancel_requested",
-    mark_completed_name: str = "mark_completed",
-    mark_cancelled_name: str = "mark_cancelled",
-    mark_failed_name: str = "mark_failed",
-) -> dict[str, DependencyFactory]:
-    callbacks = worker_process_dependency_callbacks_from_namespace(
-        namespace,
-        engine_runner_dependency_names=engine_runner_dependency_names,
-        terminate_process_name=terminate_process_name,
-        wait_for_cancellable_process_module_name=wait_for_cancellable_process_module_name,
-        sleep_module_name=sleep_module_name,
-        now_utc_iso_name=now_utc_iso_name,
-        get_cancel_requested_name=get_cancel_requested_name,
-        mark_completed_name=mark_completed_name,
-        mark_cancelled_name=mark_cancelled_name,
-        mark_failed_name=mark_failed_name,
-    )
-    return build_worker_process_default_factories_from_callbacks(
-        callbacks,
-        config_factory=config_factory,
-        admission_factory=admission_factory,
-        timing_dependencies_type=timing_dependencies_type,
-        queue_dependencies_type=queue_dependencies_type,
-        runner_dependencies_type=runner_dependencies_type,
-        cancel_check_interval_seconds=cancel_check_interval_seconds,
-    )
 
 
 def build_worker_execution_dependency_container(
@@ -485,12 +375,9 @@ __all__ = [
     "build_worker_process_dependency_groups",
     "build_worker_process_default_factories",
     "build_worker_process_default_factories_from_callbacks",
-    "build_worker_process_default_factories_from_namespace",
-    "build_worker_process_dependency_groups_from_namespace",
     "queue_entry_by_id",
     "run_worker_child_entrypoint",
     "run_worker_child_entrypoint_with_dependencies",
     "worker_process_dependency_callback_kwargs",
     "worker_process_dependency_callbacks_from_attrs",
-    "worker_process_dependency_callbacks_from_namespace",
 ]

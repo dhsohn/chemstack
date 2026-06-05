@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-from types import SimpleNamespace
 from typing import Any
 
 from orca_auto.flow.engines.xtb.queue_runtime_execution import (
     XtbQueueRuntimeWorkerExecutionCallbacks,
     build_queue_runtime_worker_execution_dependencies,
-    callbacks_from_namespace,
 )
 
 
@@ -89,53 +87,3 @@ def test_build_worker_execution_dependencies_maps_callback_groups() -> None:
     deps.runner.start_xtb_job("cfg", job_dir="job", selected_input_xyz="input.xyz")
 
     assert calls == ["mark_cancelled", "start_xtb_job"]
-
-
-def test_namespace_input_remains_supported_for_legacy_callers() -> None:
-    calls: list[str] = []
-    callbacks = _callbacks(calls)
-    namespace = {
-        "activate_reserved_slot": callbacks.activate_reserved_slot,
-        "release_slot": callbacks.release_slot,
-        "load_config": callbacks.load_config,
-        "_queue_entry_by_id": callbacks.queue_entry_by_id,
-        "_job_dir": callbacks.job_dir,
-        "_selected_xyz": callbacks.selected_xyz,
-        "_job_type": callbacks.job_type,
-        "_reaction_key": callbacks.reaction_key,
-        "_input_summary": callbacks.input_summary,
-        "_worker_execution_hooks": SimpleNamespace(matching_state=callbacks.matching_state),
-        "_write_running_state": callbacks.write_running_state,
-        "_build_terminal_result": callbacks.build_terminal_result,
-        "_finalize_execution_result": callbacks.finalize_execution_result,
-        "upsert_job_record": callbacks.upsert_job_record,
-        "notify_job_started": callbacks.notify_job_started,
-        "_execute_queue_entry": callbacks.execute_queue_entry,
-        "run_xtb_ranking_job": callbacks.run_xtb_ranking_job,
-        "start_xtb_job": callbacks.start_xtb_job,
-        "finalize_xtb_job": callbacks.finalize_xtb_job,
-        "_terminate_process": callbacks.terminate_process,
-        "_queue_execution": SimpleNamespace(
-            wait_for_cancellable_process=callbacks.wait_for_cancellable_process,
-        ),
-        "time": SimpleNamespace(sleep=callbacks.sleep),
-        "now_utc_iso": callbacks.now_utc_iso,
-        "get_cancel_requested": callbacks.get_cancel_requested,
-        "mark_completed": callbacks.mark_completed,
-        "mark_cancelled": callbacks.mark_cancelled,
-        "mark_failed": callbacks.mark_failed,
-    }
-
-    resolved = callbacks_from_namespace(namespace)
-    deps = build_queue_runtime_worker_execution_dependencies(
-        namespace,
-        cancel_check_interval_seconds=4,
-    )
-
-    assert resolved.activate_reserved_slot is callbacks.activate_reserved_slot
-    assert resolved.matching_state is callbacks.matching_state
-    assert resolved.wait_for_cancellable_process is callbacks.wait_for_cancellable_process
-    assert deps.runner.cancel_check_interval_seconds == 4
-    assert deps.runner.finalize_xtb_job is callbacks.finalize_xtb_job
-    assert deps.artifacts.build_terminal_result is callbacks.build_terminal_result
-    assert deps.tracking.notify_job_started is callbacks.notify_job_started
