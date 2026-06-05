@@ -1,8 +1,8 @@
-# Orca Auto
+# orca_auto
 
 [![CI](https://github.com/dhsohn/orca_auto/actions/workflows/ci.yml/badge.svg)](https://github.com/dhsohn/orca_auto/actions/workflows/ci.yml)
 
-Orca Auto is a queue-first interface for ORCA and workflow orchestration on Linux and WSL. xTB and CREST remain part of the runtime, but they are now used internally for workflow stages rather than as standalone public surfaces. It submits work durably, runs it under supervised workers, records per-job state and reports, and organizes completed outputs.
+orca_auto is a queue-first interface for ORCA and workflow orchestration on Linux and WSL. xTB and CREST remain part of the runtime, but they are now used internally for workflow stages rather than as standalone public surfaces. It submits work durably, runs it under supervised workers, records per-job state and reports, and organizes completed outputs.
 
 ## Docs
 
@@ -173,7 +173,7 @@ If you want only the worker managed automatically, enable
   `reaction_dir` contract is preserved.
 - If no worker is running, queued jobs remain pending until one returns.
 - ORCA selects the most recently modified `.inp` when execution starts.
-- When retrying or resuming an interrupted ORCA run, Orca Auto uses a matching
+- When retrying or resuming an interrupted ORCA run, orca_auto uses a matching
   non-empty `.gbw` file by generating a restart input with `MORead` and `%moinp`.
 - Completed ORCA runs write state and report files such as `job_state.json`, `job_report.json`, and `job_report.md`.
 - Use the `systemd` assets in [systemd/README.md](systemd/README.md) for unattended WSL or Linux execution.
